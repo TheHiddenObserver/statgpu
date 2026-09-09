@@ -115,7 +115,7 @@ print("R²:", round(model.score(X, y), 3))
 
 ## 如何理解结果？
 
-- `coef_[j] == 0` 表示在当前 `alpha` 下，该特征没有进入拟合的线性预测器。
+- `coef_[j] == 0` 表示在当前 `alpha` 下，该特征没有进入拟合的线性预测子。
 - 非零系数仍然经过收缩，不能当作未惩罚 OLS 系数。
 - `intercept_` 不受 L1 惩罚。
 - `predict(X_new)` 返回连续预测。
@@ -126,20 +126,20 @@ print("R²:", round(model.score(X, y), 3))
 
 ## 关键参数应该怎么选？
 
-这里是正常工作流的**精选参数表**。完整构造函数参数见[完整 API 参考](#完整-api-参考)。
+这里是正常工作流程的**精选参数表**。完整构造函数参数见[完整 API 参考](#完整-api-参考)。
 
 | 参数 | 默认值 | 应该怎么理解 |
 |---|---:|---|
 | `alpha` | `1.0` | 最重要的统计选择；越大通常收缩越强、0 越多。预测/选择任务优先用 `LassoCV`。 |
 | `fit_intercept` | `True` | 一般保持开启，除非理论上固定截距或设计矩阵已有截距。 |
-| `device` | `"auto"` | 小问题优先 CPU；工作负载足够大时再考虑 GPU。 |
-| `solver` | `"fista"` | 所有后端上直接拟合的权威算法选择参数。CPU 坐标下降使用 `coordinate_descent`；其他场景按支持矩阵选择 FISTA 等近端求解器。 |
+| `device` | `"auto"` | 小问题优先 CPU；计算规模足够大时再考虑 GPU。 |
+| `solver` | `"fista"` | 直接拟合算法的正式选择参数。CPU 坐标下降使用 `coordinate_descent`；其他场景按支持矩阵选择 FISTA 等近端求解器。 |
 | `stopping` | `"coef_delta"` | 需要按最优性条件而不是系数变化判断收敛时可用 `"kkt"`。 |
 | `compute_inference` | `True` | 只做预测/选择时可关闭；需要推断时应明确理解 `inference_method`，并阅读独立推断参考页。 |
 
 ### 正则化之前先标准化
 
-L1 惩罚直接作用于系数大小。特征量纲不同会导致有效惩罚程度不同，因此多数 Lasso 工作流应先标准化连续变量。
+L1 惩罚直接作用于系数大小。特征量纲不同会导致有效惩罚程度不同，因此多数 Lasso 分析流程应先标准化连续变量。
 
 ## 与相近方法比较
 
@@ -151,7 +151,7 @@ L1 惩罚直接作用于系数大小。特征量纲不同会导致有效惩罚�
 | [Elastic Net](elastic-net.md) | 比 Lasso 更照顾组内变量 | 是 | 稀疏模型 + 相关变量稳定性 |
 | Adaptive Lasso | 数据依赖的 L1 权重 | 是 | 在更强稀疏假设下减轻统一惩罚偏差 |
 
-## CPU、GPU、Formula 与加权拟合
+## CPU、GPU、公式接口与加权拟合
 
 ```python
 from statgpu.linear_model import Lasso
@@ -167,14 +167,14 @@ model = Lasso(
 
 显式 `device="cuda"` / `"torch"` 使用相应 GPU 后端；不可用时会明确失败，而不是静默切换执行路径。
 
-`fit()` 同时支持 `sample_weight=`，以及共享的 `formula=` / `data=` 接口。Formula 元数据会保留下来，用于后续 DataFrame 预测时重建一致的设计矩阵。
+`fit()` 同时支持 `sample_weight=`，以及共享的 `formula=` / `data=` 公式接口。公式接口元数据会保留下来，用于后续 DataFrame 预测时重建一致的设计矩阵。
 
 ## 进阶：求解器支持
 
 | `solver` 值 | CPU | CuPy / Torch | 含义 |
 |---|:---:|:---:|---|
 | `fista`（默认） | 支持 | 支持 | L1 目标的稳定近端梯度路径 |
-| `auto` | FISTA | FISTA | 当前平方误差 + L1 的自动分发 |
+| `auto` | FISTA | FISTA | 当前平方误差 + L1 的自动分派 |
 | `fista_bb` | 支持 | 支持 | 使用 Barzilai-Borwein 步长的 FISTA |
 | `admm` | 支持 | 支持 | 替代拆分路径；仅支持均匀样本权重 |
 | `coordinate_descent` | 支持 | 不支持 | 仅 CPU 的直接拟合坐标下降路径 |
@@ -187,17 +187,17 @@ model = Lasso(
 
 ## 进阶：Lasso 之后的推断
 
-选择后推断比预先指定的 OLS 模型推断困难得多。statgpu 提供去偏推断、OLS 风格的选择后诊断、残差自助法，以及可选的 max-|Z| 同时推断；它们的统计主张并不相同。
+选择后推断比预先指定的 OLS 模型推断困难得多。statgpu 提供纠偏推断、OLS 风格的选择后诊断、残差自助法，以及可选的 max-|Z| 同时推断；它们的统计主张并不相同。
 
 | `inference_method` | 用途 | 重要限制 |
 |---|---|---|
-| `debiased`（构造函数默认值） | 去偏/去稀疏化逐系数推断 | 边际区间依赖高维去偏假设；联合覆盖需要单独的同时推断程序 |
+| `debiased`（构造函数默认值） | 纠偏 Lasso 的逐系数推断 | 边际置信区间依赖高维纠偏假设；同时覆盖需要单独的同时推断程序 |
 | `post_selection_ols` | 在拟合阶段确定的 NumPy/CuPy/Torch 后端上执行活跃集 OLS/WLS 诊断 | 选择后启发式区间，不是一般的选择性推断 |
 | `bootstrap` | 残差自助法替代路径 | 计算更昂贵，也不是对选择不确定性的普适修正 |
 
 `post_selection_ols` 是与硬件无关的规范名称。旧 `cpu_ols` / `gpu_ols` 是处于弃用期的兼容别名，会发出 `FutureWarning` 并映射到同一方法；执行设备仍由独立的 `device` 与后端路由决定。
 
-逐节点 Lasso 构造、一致的去偏截距、边际 z 推断、真正包含截距的 max-|Z| 乘子自助法、数值后端与结果报告边界、多重检验区别和输出字段，都集中在 **[Lasso 推断](lasso-inference.md)**。
+逐节点 Lasso 构造、与纠偏斜率一致的截距参数化、边际 z 推断、真正包含截距的 max-|Z| 乘子自助法、数值后端与结果报告边界、多重检验区别和输出字段，都集中在 **[Lasso 推断](lasso-inference.md)**。
 
 ## 常见误区
 
@@ -210,7 +210,7 @@ model = Lasso(
 
 ## 完整 API 参考
 
-前面的参数表是教学用的选择指南；这里列出当前 `Lasso` 包装器的完整构造函数和模型方法/属性清单。
+前面的参数表是教学用的选择指南；这里列出当前 `Lasso` 封装类的完整构造函数和模型方法/属性清单。
 
 ### Constructor
 
@@ -249,19 +249,19 @@ Lasso(
 | `max_iter` | `1000` | 最大求解迭代数。 |
 | `tol` | `1e-4` | 数值收敛容差。 |
 | `stopping` | `"coef_delta"` | 兼容路径使用 `coef_delta` 或 `kkt`。 |
-| `inference_method` | `"debiased"` | 拟合后推断路径：`debiased`、规范的 `post_selection_ols` 或 `bootstrap`。旧 `cpu_ols` / `gpu_ols` 会以 `FutureWarning` 提示并映射到 `post_selection_ols`。 |
+| `inference_method` | `"debiased"` | 拟合后推断路径：`debiased`（纠偏）、规范的 `post_selection_ols` 或 `bootstrap`。旧 `cpu_ols` / `gpu_ols` 会以 `FutureWarning` 提示并映射到 `post_selection_ols`。 |
 | `n_bootstrap` | `200` | `inference_method="bootstrap"` 时残差自助法的抽样次数。 |
 | `bootstrap_random_state` | `None` | 残差自助法随机种子。 |
-| `enable_simultaneous_inference` | `False` | 在去偏推断后启用 max-|Z| 同时置信区间。 |
+| `enable_simultaneous_inference` | `False` | 在纠偏推断后启用 max-|Z| 同时置信区间。 |
 | `simultaneous_method` | `"maxz_bootstrap"` | 同时推断校准方法；当前为 `maxz_bootstrap`。 |
 | `simultaneous_alpha` | `0.05` | 同时置信区间的族错误率水平。 |
 | `simultaneous_n_bootstrap` | `1000` | max-|Z| 乘子自助法抽样次数。 |
 | `simultaneous_random_state` | `None` | 同时推断自助法随机种子。 |
-| `simultaneous_include_intercept` | `False` | 将中心化去偏截距纳入 max-|Z| 目标参数族和最终联合区间。 |
+| `simultaneous_include_intercept` | `False` | 将中心化纠偏截距纳入 max-|Z| 目标参数集合和最终同时置信区间。 |
 | `device` | `"auto"` | `auto`、`cpu`、`cuda`（CuPy）或 `torch`（Torch CUDA）。 |
 | `n_jobs` | `None` | 所选路径使用并行时的并行度提示。 |
 | `compute_inference` | `True` | 执行所选拟合后推断。 |
-| `solver` | `"fista"` | 与后端无关的直接拟合求解器；在 CPU/GPU 上都是权威算法选择参数。 |
+| `solver` | `"fista"` | 与后端无关的直接拟合求解器；在 CPU/GPU 上由它选择直接拟合算法。 |
 | `cpu_solver` | `"coordinate_descent"` | 旧版/CV 行为的兼容控制；不会替代一次直接 `Lasso.fit` 中的 `solver`。 |
 | `lipschitz_L` | `None` | 兼容近端路径的预计算 Lipschitz 常数。 |
 | `admm_rho` | `1.0` | ADMM 增广拉格朗日惩罚参数。 |
@@ -287,8 +287,8 @@ model.fit(
 | `X` | 二维特征矩阵。 |
 | `y` | 一维连续因变量。 |
 | `sample_weight` | 可选的非负分析权重；部分求解器还有额外限制。 |
-| `formula` | 可选 Patsy 风格 Formula。 |
-| `data` | Formula 接口使用的 DataFrame。 |
+| `formula` | 可选的 Patsy 风格公式。 |
+| `data` | 公式接口使用的 DataFrame。 |
 
 `fit()` 返回 `self`。
 
@@ -299,7 +299,7 @@ model.fit(
 | `predict` | `predict(X, return_cpu=True)` | 连续预测；`return_cpu=False` 可让 GPU 预测结果保留在实际后端。 |
 | `score` | `score(X, y, sample_weight=None)` | 返回 $R^2$，支持加权。 |
 | `summary` | `summary()` | 打印系数/推断摘要；要求模型已拟合且推断结果可用。 |
-| `get_params` / `set_params` | sklearn 风格工具 | 查看或替换构造参数状态。 |
+| `get_params` / `set_params` | scikit-learn 风格工具 | 查看或替换构造参数状态。 |
 
 继承的模型上下文工具 `adjust_pvalues`、`combine_pvalues`、`bootstrap_statistic` 和 `permutation_test` 的完整签名、后端解析和拟合状态复用语义见[推断 API](../guides/inference-api.md)。Lasso 专属的系数推断见 [Lasso 推断](lasso-inference.md)。
 
@@ -315,7 +315,7 @@ model.fit(
 | `fvalue`, `f_pvalue` | 在定义时可用的联合拟合统计量与 p 值。 |
 | `llf`, `aic`, `bic` | 所需结果状态可用时的高斯拟合诊断量。 |
 | `_bse` | 所选推断方法产生的标准误。 |
-| `_tvalues` | 某些兼容路径沿用的历史统计量字段；去偏推断时具有 z 统计量语义。 |
+| `_tvalues` | 某些兼容路径沿用的历史统计量字段；纠偏推断时具有 z 统计量语义。 |
 | `_zvalues` | 结构化推断结果填充时的 z 统计量。 |
 | `_pvalues` | 推断成功时的系数 p 值。 |
 | `_conf_int` | 推断成功时的边际系数置信区间。 |
@@ -326,7 +326,7 @@ model.fit(
 
 ## 验证
 
-当前维护的验证覆盖求解器收敛、CPU/GPU 一致性、KKT 停止准则、去偏推断、残差自助法、后端原生的 `post_selection_ols`、同时推断以及需要时的物理 GPU 行为。相关入口包括 `dev/benchmarks/validate_post_selection_ols_gpu.py` 与 `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`。
+当前维护的验证覆盖求解器收敛、CPU/GPU 一致性、KKT 停止准则、纠偏推断、残差自助法、在拟合确定的后端上执行的 `post_selection_ols`、同时推断以及需要时的实体 GPU 验证。相关入口包括 `dev/benchmarks/validate_post_selection_ols_gpu.py` 与 `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`。
 
 ## 参考文献
 
