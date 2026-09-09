@@ -91,6 +91,16 @@ class _DeviceManager:
 _device_manager = _DeviceManager()
 
 
+def _get_configured_device() -> Device:
+    """Return the unresolved global device setting for internal dispatch.
+
+    Unlike :func:`get_device`, this preserves ``Device.AUTO`` so estimator
+    routing can distinguish automatic policy from a caller-owned global
+    ``cpu``/``cuda``/``torch`` override.
+    """
+    return _device_manager._current_device
+
+
 def get_device() -> Device:
     """
     Get the current computation device.

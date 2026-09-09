@@ -1,7 +1,7 @@
 # Elastic Net
 
 > Language: English  
-> Last updated: 2026-09-06<br>
+> Last updated: 2026-09-08<br>
 > This page: Model documentation  
 > Language switch: [Chinese](../../cn/models/elastic-net.md)
 
@@ -84,7 +84,7 @@ Numerical convergence only establishes that the declared optimization problem ha
 | `lipschitz_L` | `None` | Optional user-supplied Lipschitz constant |
 | `gpu_memory_cleanup` | `False` | Release backend memory pools after fit where supported |
 | `compute_inference` | `False` | Compute post-fit coefficient inference |
-| `inference_method` | `"debiased"` | `"debiased"`, `"cpu_ols"`, or `"bootstrap"` |
+| `inference_method` | `"debiased"` | `"debiased"`, `"post_selection_ols"`, or `"bootstrap"`; deprecated `cpu_ols`/`gpu_ols` aliases remain temporarily accepted |
 | `cov_type` | `"nonrobust"` | Covariance convention where applicable |
 | `hac_maxlags` | `None` | HAC lag count where supported |
 
@@ -133,17 +133,27 @@ Backend performance depends on sample size, feature dimension, dtype, hardware, 
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
 | `compute_inference` | `False` | Enable post-fit coefficient inference |
-| `inference_method` | `"debiased"` | `"debiased"`, `"cpu_ols"`, or `"bootstrap"` |
+| `inference_method` | `"debiased"` | `"debiased"`, `"post_selection_ols"`, or `"bootstrap"` |
 | `cov_type` | `"nonrobust"` | Covariance convention where applicable |
 | `hac_maxlags` | `None` | HAC lag count where the selected inference method supports HAC |
 
-Post-selection OLS is heuristic and does not provide general selective-inference coverage. Inference is conditional on selected regularization parameters and does not alter the fitted penalized coefficients.
+`post_selection_ols` is the canonical hardware-neutral active-set diagnostic. The historical unified spellings `cpu_ols` and `gpu_ols` are deprecated together and normalize to `post_selection_ols` with `FutureWarning` during the compatibility window. They do not select a device.
 
-For `ElasticNetCV`, `compute_inference=True` applies inference only to the final full-data refit after alpha and `l1_ratio` have been selected. Fold models remain estimation-only.
+For `post_selection_ols`, the penalized model first determines the active set. statgpu then refits an unpenalized OLS model, or WLS when `sample_weight` is supplied, on exactly that active set using the backend recorded by the successful fit. The original penalized `coef_` remains the prediction coefficient vector; the active-set refit is exposed through `_params` / `_inference_result` and related reporting fields.
+
+Post-selection OLS remains heuristic and does not provide general selective-inference coverage. Inference is conditional on selected regularization parameters and does not alter the fitted penalized coefficients.
+
+Device selection is orthogonal to the statistical method: explicit `cpu`/`cuda`/`torch` is authoritative, while only genuine `device="auto"` may preserve backend-native CuPy or Torch-CUDA input during automatic routing. `post_selection_ols` reuses the fit-resolved backend, and maintained CuPy/Torch `debiased` routes keep numerical inference on the executed GPU backend, including scalar normal-reference critical values. Residual `bootstrap` remains a CPU-native residual-refit path; an explicit GPU `device` controls the penalized fit but does not make bootstrap GPU-native.
+
+For `debiased` inference with an intercept, public `coef_`/`intercept_` remain the **penalized prediction fit**. Inference reporting uses debiased slopes `_params[1:]` and their matching original-coordinate intercept `_params[0] = ybar_w - xbar_w @ _params[1:]`; the first SE/z/p-value/CI row therefore belongs to this debiased reporting intercept rather than prediction `intercept_`. The result metadata records `intercept_estimator="centered_debiased"` and `intercept_influence="centered_nodewise"`. Analytic weights use the same weighted-centered average-loss problem across NumPy/CuPy/Torch, so global positive weight rescaling leaves this inference unchanged.
+
+For `ElasticNetCV`, `compute_inference=True` applies inference only to the final full-data refit after alpha and `l1_ratio` have been selected. Fold models remain estimation-only; inspect the final `estimator_` for its structured inference result.
 
 ## Solver and Inference Semantics
 
 For a direct `ElasticNet.fit`, **use `solver` on both CPU and GPU**. `device` chooses the execution backend; `solver` chooses the optimization algorithm. `cpu_solver` is a deprecated compatibility argument from the earlier hardware-split API and should not be used for new code.
+
+Likewise, use `inference_method="post_selection_ols"` when the active-set OLS/WLS diagnostic is wanted. Do not choose `cpu_ols` or `gpu_ols` based on hardware; both are deprecated aliases for the same statistical method.
 
 `compute_inference=False` returns the penalized estimate only. With `compute_inference=True`, the same fitted coefficients are retained and the selected post-fit inference method runs afterward.
 
@@ -153,9 +163,11 @@ After fitting, the following attributes are available:
 
 | Attribute | Description |
 |-----------|-------------|
-| `coef_` | Estimated coefficients |
-| `intercept_` | Fitted intercept |
+| `coef_` | Estimated penalized coefficients used for prediction |
+| `intercept_` | Penalized fitted intercept used for prediction |
 | `n_iter_` | Number of iterations until convergence |
+| `_params` | Inference/reporting parameter vector when inference succeeds; for `debiased`, contains the coherent debiased intercept plus debiased slopes; for `post_selection_ols`, contains the active-set OLS/WLS refit embedded in the full parameter layout |
+| `_inference_result` | Structured inference result and numerical-backend metadata |
 | `aic` | Akaike Information Criterion when available |
 | `bic` | Bayesian Information Criterion when available |
 
@@ -163,9 +175,9 @@ Methods: `fit(X, y)`, `predict(X)`, `score(X, y)`, `summary()`
 
 ## Numerical Validation
 
-The maintained regression suite checks agreement across supported backends and reference implementations at tolerances appropriate to each dtype and solver path. Solver API migration behavior is covered by `dev/tests/test_penalized_solver_api_cleanup.py`.
+The maintained regression suite checks agreement across supported backends and reference implementations at tolerances appropriate to each dtype and solver path. Solver API migration behavior is covered by `dev/tests/test_penalized_solver_api_cleanup.py`; the post-selection OLS migration and active-set OLS/WLS behavior are covered by `dev/tests/test_post_selection_ols_inference_api.py`.
 
 ## References
 
-- Zou, H., & Hastie, T. (2005). Regularization and variable selection via the Elastic Net. *Journal of the Royal Statistical Society: Series B*, 67(2), 301-320.
+- Zou, H., & Hastie, T. (2005). Regularization and variable selection via the elastic net. *Journal of the Royal Statistical Society: Series B*, 67(2), 301-320.
 - Beck, A., & Teboulle, M. (2009). A fast iterative shrinkage-thresholding algorithm for linear inverse problems. *SIAM Journal on Imaging Sciences*, 2(1), 183-202.

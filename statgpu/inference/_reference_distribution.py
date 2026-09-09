@@ -9,10 +9,113 @@ one place so model implementations do not grow backend-specific workarounds.
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
 from statgpu.backends import xp_asarray, xp_maximum
 from statgpu.inference._distributions_backend import get_distribution
+
+
+def _torch_student_t_two_sided_pvalue(statistic_abs, df: float):
+    """Evaluate a Torch Student-t tail accurately on maintained Torch 2.0.
+
+    Torch 2.0 has no native ``betainc``.  The maintained Torch distribution
+    backend therefore stores the regularized-beta reference on a 40k-point
+    device-resident LUT.  Linear interpolation of that LUT is accurate enough
+    for many distribution calls, but can lose a few parts in 1e-6 for the
+    ``I_z(df / 2, 1 / 2)`` tail used by Student-t inference at moderate/high df.
+
+    Use the same cached LUT and exact regularized-beta endpoint derivatives in a
+    cubic Hermite interpolant.  Evaluation remains on the concrete Torch device;
+    clipping the cubic to its monotone LUT bracket prevents interpolation
+    overshoot near the singular ``b=1/2`` endpoint.  Very small statistics use
+    the fifth-order integral expansion of the Student-t density around zero;
+    this avoids rounding ``df / (df + t**2)`` to exactly one at high df.
+    """
+    import torch
+
+    from statgpu.inference._distributions_backend import _get_torch_betainc_lut
+
+    df_f = float(df)
+    statistic_abs = torch.abs(statistic_abs)
+    a = df_f / 2.0
+    b = 0.5
+    z = df_f / (df_f + statistic_abs * statistic_abs)
+    z = torch.clamp(z, 0.0, 1.0)
+
+    # Normalize the cache key to the same concrete-device spelling used by the
+    # registered Torch distribution backend.  ``torch.device("cuda:0")`` and
+    # ``"cuda:0"`` compare unequal as dict keys and otherwise duplicate the
+    # 40k-point LUT for the same (a, b, device) tuple.
+    device_label = str(statistic_abs.device)
+    x_grid, y_grid = _get_torch_betainc_lut(a, b, device_label)
+    idx = torch.searchsorted(x_grid, z).clamp(1, len(x_grid) - 1)
+    x0 = x_grid[idx - 1]
+    x1 = x_grid[idx]
+    y0 = y_grid[idx - 1]
+    y1 = y_grid[idx]
+    h = x1 - x0
+    u = torch.clamp((z - x0) / (h + 1e-300), 0.0, 1.0)
+
+    log_beta = math.lgamma(a) + math.lgamma(b) - math.lgamma(a + b)
+    tiny = np.finfo(np.float64).tiny
+    log_tiny = math.log(tiny)
+    log_max = math.log(np.finfo(np.float64).max)
+
+    def beta_derivative(x):
+        log_derivative = (
+            (a - 1.0) * torch.log(torch.clamp(x, min=tiny))
+            + (b - 1.0) * torch.log(torch.clamp(1.0 - x, min=tiny))
+            - log_beta
+        )
+        return torch.exp(torch.clamp(log_derivative, min=log_tiny, max=log_max))
+
+    d0 = beta_derivative(x0)
+    d1 = beta_derivative(x1)
+    u2 = u * u
+    u3 = u2 * u
+    interpolated = (
+        (2.0 * u3 - 3.0 * u2 + 1.0) * y0
+        + (u3 - 2.0 * u2 + u) * h * d0
+        + (-2.0 * u3 + 3.0 * u2) * y1
+        + (u3 - u2) * h * d1
+    )
+    interpolated = torch.maximum(y0, torch.minimum(y1, interpolated))
+    interpolated = torch.where(z <= 0.0, torch.zeros_like(interpolated), interpolated)
+    interpolated = torch.where(z >= 1.0, torch.ones_like(interpolated), interpolated)
+
+    # Near zero, the beta argument can round to exactly one before the true
+    # two-sided tail rounds to one.  Integrating the Student-t density expansion
+    #
+    #   f(t) = f(0) [1 - (nu+1)t^2/(2nu)
+    #                    + (nu+1)(nu+3)t^4/(8nu^2) + O(t^6)]
+    #
+    # gives a stable fifth-order expression for P(|T| >= |t|).  The 1e-2
+    # boundary keeps the omitted seventh-order term far below the maintained
+    # inference tolerances while avoiding any host/SciPy numerical fallback.
+    df_dev = torch.as_tensor(
+        df_f,
+        dtype=statistic_abs.dtype,
+        device=statistic_abs.device,
+    )
+    log_density_zero = (
+        torch.lgamma((df_dev + 1.0) / 2.0)
+        - torch.lgamma(df_dev / 2.0)
+        - 0.5 * (torch.log(df_dev) + math.log(math.pi))
+    )
+    density_zero = torch.exp(log_density_zero)
+    t2 = statistic_abs * statistic_abs
+    integrated_density = density_zero * statistic_abs * (
+        1.0
+        - ((df_dev + 1.0) / (6.0 * df_dev)) * t2
+        + (((df_dev + 1.0) * (df_dev + 3.0)) / (40.0 * df_dev * df_dev))
+        * t2
+        * t2
+    )
+    near_zero_pvalue = torch.clamp(1.0 - 2.0 * integrated_density, 0.0, 1.0)
+    result = torch.where(statistic_abs <= 1e-2, near_zero_pvalue, interpolated)
+    return result.view_as(statistic_abs)
 
 
 def two_sided_reference_inference(
@@ -48,8 +151,9 @@ def two_sided_reference_inference(
     -----
     General normal and Student-t calculations delegate to
     :func:`get_distribution`. Student-t df=1 and df=2 use exact identities.
-    The df=2 identity is important for maintained Torch versions without native
-    ``betainc``: it preserves high precision without falling back to CPU/SciPy.
+    Maintained Torch versions without native ``betainc`` use a higher-order
+    interpolation of the established device-resident beta LUT for general-df
+    two-sided p-values so inference does not lose precision or fall back to CPU.
     """
     name = str(distribution).lower()
     alpha_f = float(alpha)
@@ -127,6 +231,14 @@ def two_sided_reference_inference(
         return pvalues, critical
 
     dist = get_distribution("t", backend=backend, device=device)
+    if backend == "torch":
+        import torch
+
+        if not hasattr(torch.special, "betainc"):
+            return (
+                _torch_student_t_two_sided_pvalue(statistic_abs, df_f),
+                dist.two_sided_critical_value(alpha_f, df_f),
+            )
     return (
         dist.two_sided_pvalue(statistic_abs, df_f),
         dist.two_sided_critical_value(alpha_f, df_f),

@@ -2,6 +2,18 @@
 
 All notable changes to statgpu are documented here, organized by release and date.
 
+## Unreleased — 2026-09-08
+
+### PR #138 / Issue #137 — Post-selection OLS inference API cleanup
+- Added canonical hardware-neutral `inference_method="post_selection_ols"` for sparse Gaussian `Lasso`, `ElasticNet`, and the public generic `PenalizedGeneralizedLinearModel(loss="squared_error", penalty="l1" | "elasticnet")` surface. Legacy `cpu_ols` / `gpu_ols` are one-cycle `FutureWarning` aliases; `LassoCV` keeps `cpu_ols_inference` / `gpu_ols_inference` at its CV compatibility boundary.
+- Kept statistical method identity orthogonal to execution hardware: explicit `device="cpu"`, `"cuda"`, and `"torch"` remain authoritative for heterogeneous inputs; genuine AUTO may preserve native CuPy/Torch-CUDA input. LassoCV now uses one resolved backend for CV and selected-alpha final refit and preserves concrete CuPy device affinity.
+- `post_selection_ols` refits unpenalized OLS/WLS on the selected active design using the fit-recorded NumPy/CuPy/Torch backend while leaving penalized `coef_` unchanged for prediction. Rank-deficient active designs use effective rank for residual df and a design-level Moore-Penrose/SVD refit and bread; robust/HAC and empty-active no-intercept results preserve the requested covariance/reference family.
+- Separated post-selection refit diagnostics from penalized-fit R-squared/F/log-likelihood/AIC/BIC ownership, made summary DoF provenance explicit, preserved formula categorical/missing-row/weight alignment, and made rejected or post-fit-inference-failed refits fail closed instead of retaining stale result-bearing state.
+- Unified sparse-Gaussian analytic weights across direct NumPy/CuPy/Torch fits and weighted LassoCV: weighted centering occurs on original observations before the equivalent `sqrt(w * n / sum(w))` transform; default CV alpha grids, fold objectives, validation MSE, and final refits share the same convention. Positive constant weights are the exact unweighted CV problem, while weighted non-Gaussian sparse GLMs retain their loss-specific objectives.
+- Unified debiased inference around the same centered average-loss working problem across NumPy/CuPy/Torch, including all-one/global-weight-scale invariance. Intercept-inclusive simultaneous max-|Z| inference now includes the original-coordinate intercept influence in the bootstrap maximum, and successful refits clear stale simultaneous/precision state before publishing new inference.
+- String and public `Penalty`-object forms share the same migration/AUTO-routing contract; clone/get-params/set-params, caller-facing warning locations, formula routing, backend/device provenance, LassoCV final-refit ownership, and failure transactions are covered by maintained regressions.
+- Hosted validation covers Python 3.9/3.12, Torch 2.0 CPU, the full CPU suite, scikit-learn 1.2.2/1.3.2/current maintenance compatibility, static/ruff, documentation, release packaging, and benchmark-frontend contracts. `dev/benchmarks/validate_post_selection_ols_gpu.py` is now the final **schema-v7 22-case** physical CuPy/Torch CUDA gate. Earlier Tesla P100 artifacts remain historical evidence only for their exact validated SHAs; current-source physical acceptance remains pending an exact clean-head 22/22 rerun. Hosted checks do not substitute for it, and no GPU performance claim is made.
+
 ## Unreleased — 2026-09-06
 
 ### PR #135 — Penalized solver API cleanup

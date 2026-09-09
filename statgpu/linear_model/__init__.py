@@ -58,6 +58,99 @@ from . import _penalized_solver_api_contract as _penalized_solver_api_contract
 
 _penalized_solver_api_contract.install_penalized_solver_api_contract()
 
+# Keep statistical method identity separate from execution hardware. The
+# historical cpu_ols/gpu_ols values remain one-cycle compatibility aliases for
+# the canonical post_selection_ols inference method. This same constructor layer
+# validates Lasso simultaneous alpha/bootstrap controls before backend dispatch.
+from . import _penalized_inference_api_contract as _penalized_inference_api_contract
+
+_penalized_inference_api_contract.install_penalized_inference_api_contract()
+
+# A fresh full-diff review after physical acceptance found two cross-path gaps:
+# generic squared-error sparse estimators were not receiving the same migration
+# contract, and the first weighted GPU objective fix disabled backend-native
+# debiased inference. Install the focused closure after the main API migration.
+from . import (
+    _post_selection_ols_review_fix_contract as _post_selection_ols_review_fix_contract,
+)
+
+_post_selection_ols_review_fix_contract.install_post_selection_ols_review_fix_contract()
+
+# Later independent review passes close pre-fit state, weighted/debiased, robust
+# empty-active, and fail-closed sparse-inference transaction boundaries.
+from . import (
+    _post_selection_ols_fifth_review_contract as _post_selection_ols_fifth_review_contract,
+)
+
+_post_selection_ols_fifth_review_contract.install_post_selection_ols_fifth_review_contract()
+
+# Intercept-inclusive debiased simultaneous inference must include the
+# original-coordinate intercept influence in the max-|Z| bootstrap statistic,
+# not merely in the reported interval rows.
+from . import (
+    _debiased_simultaneous_intercept_contract as _debiased_simultaneous_intercept_contract,
+)
+
+_debiased_simultaneous_intercept_contract.install_debiased_simultaneous_intercept_contract()
+
+# Centered debiased slopes and the reported intercept must belong to the same
+# original-coordinate parameterization. Keep prediction intercept_/coef_
+# penalized while inference reports ybar_w - xbar_w @ theta_db and uses the same
+# nodewise precision for its marginal/joint influence.
+from . import (
+    _debiased_intercept_parameterization_contract as _debiased_intercept_parameterization_contract,
+)
+
+_debiased_intercept_parameterization_contract.install_debiased_intercept_parameterization_contract()
+
+# The centered debiased reporting surface must fail closed if feature or
+# intercept parameter/SE/p-value/CI arrays are non-representable. Keep signed
+# infinite statistics available for the maintained zero-variance semantics.
+from . import (
+    _debiased_marginal_finite_contract as _debiased_marginal_finite_contract,
+)
+
+_debiased_marginal_finite_contract.install_debiased_marginal_finite_contract()
+
+# For centered fit-intercept CuPy/Torch debiased inference, the simultaneous
+# multiplier bootstrap must stay on the concrete execution device rather than
+# re-entering the historical NumPy reporting helper.
+from . import (
+    _debiased_simultaneous_backend_contract as _debiased_simultaneous_backend_contract,
+)
+
+_debiased_simultaneous_backend_contract.install_debiased_simultaneous_backend_contract()
+
+# The historical CPU feature-only max-|Z| helper predates the newer fail-closed
+# simultaneous paths. Reject non-representable joint publications uniformly at
+# the final method boundary without changing the established calibration path.
+from . import (
+    _debiased_simultaneous_reporting_finite_contract as _debiased_simultaneous_reporting_finite_contract,
+)
+
+_debiased_simultaneous_reporting_finite_contract.install_debiased_simultaneous_reporting_finite_contract()
+
+# Weighted LassoCV historically centered sqrt-weighted rows and truncated
+# sum(weights) to an integer path normalizer. Map weighted folds to an exactly
+# equivalent row-count problem while leaving the unweighted fast path untouched.
+from . import _weighted_lassocv_review_contract as _weighted_lassocv_review_contract
+
+_weighted_lassocv_review_contract.install_weighted_lassocv_review_contract()
+
+# Positive constant analytic weights are exactly the unweighted statistical
+# problem. Preserve that identity by delegating them to the maintained fast path.
+from . import (
+    _lassocv_uniform_weight_identity_contract as _lassocv_uniform_weight_identity_contract,
+)
+
+_lassocv_uniform_weight_identity_contract.install_lassocv_uniform_weight_identity_contract()
+
+# LassoCV input preparation must keep response/weights on the concrete CuPy or
+# Torch CUDA device that owns a native design matrix, matching direct fit affinity.
+from . import _lassocv_device_affinity_contract as _lassocv_device_affinity_contract
+
+_lassocv_device_affinity_contract.install_lassocv_device_affinity_contract()
+
 __all__ = [
     'LinearRegression',
     'LogisticRegression',

@@ -25,6 +25,68 @@ from statgpu.linear_model.wrappers._lasso import (
 from statgpu.cross_validation._base import hash_cv_data as _hash_data
 
 
+def _validate_lassocv_selection_details(details):
+    """Require complete finite fold evidence for genuine multi-alpha selection.
+
+    The shared private selector has other internal consumers, so the stricter
+    selection policy belongs at the public ``LassoCV`` boundary. Candidates with
+    a non-finite validation MSE on any executed fold are ineligible. Degenerate
+    paths that do not perform genuine multi-alpha CV keep their historical
+    single-refit semantics. The selector already represents those degenerate
+    cases with fewer than two evaluated MSE columns, so this guard does not need
+    to inspect the caller's input container or sample count.
+    """
+    if not isinstance(details, dict):
+        raise RuntimeError("LassoCV selector must return structured details")
+
+    alphas = np.asarray(details.get("alphas", ()), dtype=np.float64).reshape(-1)
+    mse_path = np.asarray(details.get("mse_path", ()), dtype=np.float64)
+    if mse_path.ndim != 2 or mse_path.shape[0] != alphas.size:
+        raise RuntimeError("LassoCV returned an inconsistent validation-MSE layout")
+
+    n_folds_evaluated = int(mse_path.shape[1])
+    if alphas.size <= 1 or n_folds_evaluated < 2:
+        return details
+
+    complete = np.all(np.isfinite(mse_path), axis=1)
+    if not np.any(complete):
+        raise FloatingPointError(
+            "LassoCV produced no candidate with finite validation MSE on every "
+            "fold; refusing to select alpha"
+        )
+
+    complete_rows = mse_path[complete]
+    if np.any(complete_rows < 0.0):
+        raise FloatingPointError(
+            "LassoCV produced a negative validation MSE; refusing to select alpha"
+        )
+
+    # MSE is non-negative, so divide before summing to avoid an intermediate
+    # float64 overflow when every fold score is finite but close to DBL_MAX.
+    candidate_means = np.sum(
+        complete_rows / float(n_folds_evaluated),
+        axis=1,
+    )
+    finite_mean = np.isfinite(candidate_means)
+    if not np.any(finite_mean):
+        raise FloatingPointError(
+            "LassoCV produced no candidate with a finite aggregate validation MSE"
+        )
+
+    complete_indices = np.flatnonzero(complete)
+    eligible_indices = complete_indices[finite_mean]
+    eligible_means = candidate_means[finite_mean]
+    mean_mse = np.full(alphas.size, np.nan, dtype=np.float64)
+    mean_mse[eligible_indices] = eligible_means
+    best_local = int(np.argmin(eligible_means))
+    best_index = int(eligible_indices[best_local])
+
+    checked = dict(details)
+    checked["alpha"] = float(alphas[best_index])
+    checked["mean_mse"] = mean_mse
+    return checked
+
+
 # =============================================================================
 # LassoCV Class
 # =============================================================================
@@ -71,6 +133,11 @@ class LassoCV(CVEstimatorBase):
         behavior where this CPU-only control did not change the GPU CV solver.
     compute_inference : bool
         Whether to compute inference on the final refit.
+    inference_method : str, default='post_selection_ols'
+        Final-refit inference method. ``post_selection_ols`` is the canonical
+        hardware-neutral active-set OLS/WLS diagnostic. Older
+        ``cpu_ols_inference``/``gpu_ols_inference`` spellings remain accepted at
+        this CV compatibility boundary and normalize to the same method.
     random_state : int or None
         Random seed for CV splits.
     gpu_cv_mixed_precision : bool
@@ -125,7 +192,7 @@ class LassoCV(CVEstimatorBase):
         cpu_solver: Optional[str] = None,
         method: str = "standard",
         cd_kkt_check_every: Optional[int] = None,
-        inference_method: str = "cpu_ols_inference",
+        inference_method: str = "post_selection_ols",
         lipschitz_L: Optional[float] = None,
         admm_rho: float = 1.0,
         gpu_memory_cleanup: bool = False,
@@ -154,6 +221,8 @@ class LassoCV(CVEstimatorBase):
         self.cv_solver = str(cv_solver)
         self.method = _normalize_lassocv_method(method)
         self.cd_kkt_check_every = _normalize_cd_kkt_check_every(cd_kkt_check_every)
+        # Preserve the public spelling for get_params()/clone. The installed
+        # compatibility layer owns the private runtime normalization.
         self.inference_method = str(inference_method)
         self.lipschitz_L = lipschitz_L
         self.admm_rho = float(admm_rho)
@@ -186,7 +255,22 @@ class LassoCV(CVEstimatorBase):
         self.n_iter_ = None
         self.estimator_ = None
         self.cv_solver_ = None
-        for attr in ("_bse", "_pvalues", "_tvalues", "_conf_int"):
+        for attr in (
+            "_params",
+            "_bse",
+            "_pvalues",
+            "_tvalues",
+            "_zvalues",
+            "_conf_int",
+            "_inference_result",
+            "_conf_int_simultaneous",
+            "_simultaneous_enabled",
+            "_simultaneous_method",
+            "_simultaneous_alpha",
+            "_simultaneous_n_bootstrap",
+            "_simultaneous_critical_value",
+            "_simultaneous_target_mask",
+        ):
             self.__dict__.pop(attr, None)
 
     def _prepare_cv_inputs_for_resolved_device(
@@ -243,6 +327,11 @@ class LassoCV(CVEstimatorBase):
                 raise ValueError(
                     "deprecated cpu_solver must be 'coordinate_descent' or 'fista'"
                 )
+            # #138 adds one transparent fit wrapper around this call. Keep the
+            # #135 caller-facing warning location in both direct and fit routes.
+            fit_wrapper_active = int(
+                getattr(self, "_statgpu_post_selection_fit_device_depth", 0)
+            ) > 0
             warnings.warn(
                 "LassoCV(cpu_solver=...) is deprecated; use cv_solver=... for "
                 "the cross-validation path. solver=... controls only the final "
@@ -250,7 +339,7 @@ class LassoCV(CVEstimatorBase):
                 "remain non-authoritative and do not replace GPU FISTA. "
                 "cpu_solver will be removed in a future breaking release.",
                 FutureWarning,
-                stacklevel=4,
+                stacklevel=5 if fit_wrapper_active else 2,
             )
             if (
                 device_name == "cpu"
@@ -328,6 +417,7 @@ class LassoCV(CVEstimatorBase):
             gpu_cv_mixed_precision=self._gpu_cv_mixed_precision,
             return_details=True,
         )
+        details = _validate_lassocv_selection_details(details)
 
         # Keep candidate CV results local until the final full-data refit
         # succeeds, matching the failure-safe contract of the other CV classes.
@@ -370,10 +460,9 @@ class LassoCV(CVEstimatorBase):
         self.n_iter_ = getattr(estimator, 'n_iter_', None)
         self.cv_solver_ = effective_cv_solver
 
-        for attr in ('_bse', '_pvalues', '_tvalues', '_conf_int'):
-            val = getattr(estimator, attr, None)
-            if val is not None:
-                setattr(self, attr, np.asarray(val))
+        inference_result = getattr(estimator, "_inference_result", None)
+        if inference_result is not None:
+            inference_result.apply_to(self)
 
         self._fitted = True
         return self

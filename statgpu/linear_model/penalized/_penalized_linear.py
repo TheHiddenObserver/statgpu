@@ -73,6 +73,46 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
             inference_method=inference_method,
         )
 
+    @staticmethod
+    def _weighted_sparse_gpu_working_data(
+        X,
+        y,
+        sample_weight,
+        *,
+        fit_intercept,
+        xp,
+        n_eff,
+    ):
+        """Map analytic-weight Gaussian data to an equivalent unweighted problem.
+
+        The CPU sparse Gaussian path minimizes the weighted squared loss divided
+        by ``sum(sample_weight)`` after weighted centering.  The shared GPU FISTA
+        kernel is unweighted and divides by ``n_samples``.  Scaling the
+        weighted-centered rows by ``sqrt(n_samples / sum(weight))`` makes those
+        two objectives identical while preserving the existing fused GPU solver.
+        """
+        n_samples = int(X.shape[0])
+        if fit_intercept:
+            X_mean = xp.sum(X * sample_weight[:, None], axis=0) / n_eff
+            y_mean = xp.sum(y * sample_weight) / n_eff
+            X_centered = X - X_mean
+            y_centered = y - y_mean
+        else:
+            X_mean = None
+            y_mean = None
+            X_centered = X
+            y_centered = y
+
+        row_scale = xp.sqrt(
+            sample_weight * (float(n_samples) / float(n_eff))
+        )
+        return (
+            X_centered * row_scale[:, None],
+            y_centered * row_scale,
+            X_mean,
+            y_mean,
+        )
+
     def _fit_diagnostic_state(self):
         """Return response/residual state and optional L2 analytic weights."""
         if self._y is None or self._resid is None:
@@ -226,13 +266,25 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
             feature_names = [f"x{i+1}" for i in range(len(self.coef_))]
 
         penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
-        inference_method = str(getattr(self, "inference_method", "debiased")).lower()
+        inference_method = str(
+            getattr(self, "_inference_method", getattr(self, "inference_method", "debiased"))
+        ).lower()
         is_debiased = penalty_name in ("l1", "elasticnet", "en") and "debiased" in inference_method
+        is_post_selection_ols = (
+            penalty_name in ("l1", "elasticnet", "en")
+            and inference_method == "post_selection_ols"
+        )
 
         if is_debiased:
             title = "Debiased Lasso Results"
             stat_label = "z"
             pval_label = "P>|z|"
+        elif is_post_selection_ols:
+            title = "Post-selection OLS Diagnostic"
+            stat_label = str(
+                getattr(getattr(self, "_inference_result", None), "statistic_name", "t")
+            )
+            pval_label = f"P>|{stat_label}|"
         elif penalty_name == "l2":
             title = "Ridge Regression Results"
             stat_label = "t"
@@ -254,7 +306,25 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
         if not is_debiased:
             print(f"Covariance Type:            {self._cov_type:>15}")
         print(f"No. Observations:           {self._nobs:>15}")
-        print(f"Degrees of Freedom:         {self._df_resid:>15}")
+        if is_post_selection_ols:
+            refit_df = getattr(self, "_post_selection_df_resid", None)
+            if refit_df is None:
+                result_metadata = dict(
+                    getattr(getattr(self, "_inference_result", None), "metadata", {})
+                    or {}
+                )
+                refit_df = result_metadata.get("refit_df_resid")
+            if refit_df is not None:
+                refit_df = int(refit_df)
+            print(
+                f"Penalized-fit Residual DoF:  {_fmt(self._df_resid, '>15')}"
+            )
+            print(
+                f"Post-selection Refit DoF:    {_fmt(refit_df, '>15')}"
+            )
+            print("Penalized-fit diagnostics:")
+        else:
+            print(f"Degrees of Freedom:         {self._df_resid:>15}")
         print(f"R-squared:                  {_fmt(self.rsquared, '>15.4f')}")
         print(f"Adj. R-squared:             {_fmt(self.rsquared_adj, '>15.4f')}")
         print(f"F-statistic:                {_fmt(self.fvalue, '>15.4f')}")
@@ -291,4 +361,3 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
                 print(f"{name:<15} {'':>12} {'':>12} {'':>10} {'':>10} {lo:>12.4f} {hi:>12.4f}")
 
         print("=" * 80)
-
