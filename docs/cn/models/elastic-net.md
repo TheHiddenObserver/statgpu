@@ -1,7 +1,7 @@
 # 弹性网络（Elastic Net）
 
 > 语言：中文
-> 最后更新：2026-09-06
+> 最后更新：2026-09-09
 > 切换：[English](../../en/models/elastic-net.md)
 
 ## 它解决什么问题？
@@ -201,9 +201,10 @@ $$
 | `inference_method` | 用途 | 重要限制 |
 |---|---|---|
 | `debiased`（默认 inference method） | bias-corrected coefficient inference | 依赖去偏假设；推断条件于选定正则化参数 |
-| `cpu_ols` | 轻量 post-selection OLS-style 路径 | 启发式，不是一般 selective-inference 保证 |
-| `gpu_ols` | 当前复用 CPU-oriented post-selection OLS helper 的兼容 selector | 不是 backend-native GPU inference；同样存在 selection validity 限制 |
+| `post_selection_ols` | 在 fit-resolved NumPy/CuPy/Torch backend 上做未惩罚 active-set OLS/WLS refit | 启发式，不是一般 selective-inference 保证 |
 | `bootstrap` | 重采样替代路径 | 计算更贵，并依赖相应 bootstrap 假设 |
+
+`post_selection_ols` 是与硬件无关的 canonical 拼法。旧 `cpu_ols` / `gpu_ols` 是 deprecated compatibility alias，会发出 `FutureWarning` 并 normalize 到 `post_selection_ols`；执行 backend 仍由独立的 `device` 控制。post-selection refit 会复用成功惩罚拟合记录的 backend/device，而不是重新从 raw input 检测。
 
 `cov_type` 与 `hac_maxlags` 也是 public constructor controls，在所选 inference path 支持相应 covariance 时使用。
 
@@ -261,7 +262,7 @@ ElasticNet(
 | `lipschitz_L` | `None` | 兼容近端路径的预计算 Lipschitz 常数。 |
 | `gpu_memory_cleanup` | `False` | 拟合后尽力释放缓存 GPU 内存。 |
 | `compute_inference` | `False` | 执行所选拟合后推断。 |
-| `inference_method` | `"debiased"` | 拟合后路径：`debiased`、`cpu_ols`、`gpu_ols` 或 `bootstrap`；`gpu_ols` 当前是兼容 selector，而不是 backend-native OLS inference。 |
+| `inference_method` | `"debiased"` | 拟合后路径：`debiased`、canonical `post_selection_ols` 或 `bootstrap`。旧 `cpu_ols` / `gpu_ols` 会以 `FutureWarning` alias normalize 到 `post_selection_ols`。 |
 | `cov_type` | `"nonrobust"` | 所选推断路径使用 covariance 时的约定。 |
 | `hac_maxlags` | `None` | 所选推断方法支持 HAC 时的滞后阶数。 |
 <!-- API-CONSTRUCTOR-END:ElasticNet -->
@@ -324,7 +325,7 @@ model.fit(
 
 ## 验证
 
-维护中的验证覆盖 Elastic Net 目标函数、solver/KKT 行为、CPU/GPU 路径、post-fit inference、warm start 和 `ElasticNetCV` final-refit inference contract。
+维护中的验证覆盖 Elastic Net 目标函数、solver/KKT 行为、CPU/GPU 路径、backend-native `post_selection_ols`、post-fit inference、warm start 和 `ElasticNetCV` final-refit inference contract。
 
 ## 参考文献
 
