@@ -127,7 +127,7 @@ print("Ridge R²:", round(ridge.score(X, y), 3))
 - `score(X, y)` 返回 $R^2$，并支持 `sample_weight=`。
 - 系数变小不等于科学意义一定变弱，其中可能只是正则化带来的收缩。
 
-若需要系数不确定性，可设置 `compute_inference=True`。此时的推断应理解为条件于当前选定的 `alpha`。
+若需要系数不确定性，可以设置 `compute_inference=True`。这里得到的是**固定 `alpha` 条件下、针对惩罚 Ridge 估计量的 Wald 式报告**，而不是把 Ridge 系数“还原”为未惩罚 OLS 系数。Ridge 用于稳定估计的收缩偏差仍然存在，因此这些 p 值和置信区间不应解释成对未惩罚总体回归系数的经典有限样本 OLS 推断。若 `alpha` 由 `RidgeCV` 或其他调参程序选出，最终重拟合的推断还条件于这个已经选定的 `alpha`，当前实现不会额外校正调参不确定性。
 
 ## 关键参数应该怎么选？
 
@@ -138,8 +138,8 @@ print("Ridge R²:", round(ridge.score(X, y), 3))
 | `alpha` | `1.0` | 最重要的建模参数；越大收缩越强。预测任务优先用 `RidgeCV` 或验证程序选择。 |
 | `fit_intercept` | `True` | 一般保持开启，除非理论上固定截距为 0 或设计矩阵已有截距。 |
 | `device` | `"auto"` | 小中型问题优先 CPU；规模足够大时再考虑 CUDA/Torch。 |
-| `compute_inference` | `True` | 只需要预测/系数时可关闭，避免推断开销。 |
-| `cov_type` | `"nonrobust"` | 需要考虑异方差时使用 HC；存在真实顺序和序列相关时考虑 HAC。 |
+| `compute_inference` | `True` | 只需要预测/系数时可关闭；启用时报告的是条件于当前 Ridge 拟合与调参配置的不确定性。 |
+| `cov_type` | `"nonrobust"` | 需要考虑异方差时使用 HC；存在真实顺序和序列相关时考虑 HAC。这些选择改变协方差估计，并不会消除 Ridge 的收缩偏差。 |
 | `solver` | `"exact"` | 普通 Ridge 默认使用直接求解路径，通常不需要修改。 |
 
 ### 先考虑特征尺度
@@ -153,7 +153,7 @@ print("Ridge R²:", round(ridge.score(X, y), 3))
 | OLS / `LinearRegression` | 不收缩 | 否 | 设计稳定，希望使用未惩罚估计量 |
 | **Ridge** | L2 收缩 | 通常否 | 特征相关，希望稳定预测并保留所有变量 |
 | [Lasso](lasso.md) | L1 收缩 | 是 | 稀疏模型 / 自动特征选择 |
-| [Elastic Net](elastic-net.md) | L1 + L2 | 是 | 稀疏性 + 相关变量稳定性 |
+| [Elastic Net](elastic-net.md) | L1 + L2 | L1 部分为正时可以 | 希望稀疏，同时提高相关变量下的稳定性 |
 
 ## CPU、GPU、公式接口与加权拟合
 
@@ -192,6 +192,21 @@ weighted = Ridge(alpha=0.2).fit(X, y, sample_weight=w)
 
 支持 `nonrobust`、`hc0`、`hc1`、`hc2`、`hc3` 和 `hac`。启用推断后，可得到 `_bse`、`_tvalues`、`_pvalues`、`_conf_int`，以及在相应状态下的 `rsquared`、`rsquared_adj`、`fvalue`、`f_pvalue`、`llf`、`aic`、`bic`。
 
+对于非稳健路径，statgpu 在上面的中心化无权重记号下使用惩罚线性估计量的协方差
+
+$$
+\widehat{\operatorname{Var}}(\hat\beta_\alpha)
+=\hat\sigma^2 B_\alpha X^\top X B_\alpha,
+\qquad
+B_\alpha=(X^\top X+n\alpha I)^{-1},
+$$
+
+分析权重情形则使用与拟合一致的加权归一化。当前结果报告随后采用 Student-t 参考分布；稳健/HAC 路径使用三明治协方差和正态参考分布。这些都是**固定惩罚拟合上的 Wald 式报告约定**，并不意味着 Ridge 收缩偏差已经被消除，也不意味着恢复了 OLS 的精确有限样本 t 理论。
+
+`RidgeCV(compute_inference=True)` 会先选择 `alpha`，随后只在最终全数据重拟合上运行推断。所报告的不确定性条件于已经选出的 `alpha`；当前实现不会再对交叉验证调参过程增加一层不确定性修正。
+
+**拟合诊断量是兼容性诊断，不是惩罚感知的模型选择准则。** `rsquared_adj`、`fvalue`、`f_pvalue`、`aic` 和 `bic` 使用惩罚拟合保存的残差状态，以及普通参数个数/残差自由度约定；它们没有把参数个数替换成 Ridge 的有效自由度（例如平滑矩阵迹），也没有计入 `alpha` 调参过程。应把它们当作描述性/兼容性报告量，而不是用来替代验证或交叉验证的 penalty-aware 准则。
+
 与 scikit-learn 比较 `alpha` 时要注意目标函数尺度：
 
 - 无权重：`sklearn_alpha = n_samples * statgpu_alpha`；
@@ -204,7 +219,9 @@ weighted = Ridge(alpha=0.2).fit(X, y, sample_weight=w)
 - 比较系数大小前先检查特征尺度。
 - 不要直接复制其他库的 `alpha` 数值而忽略目标函数缩放。
 - 正则化不能自动修复非线性、依赖结构或混杂。
+- 不要把 Ridge 的 p 值当作对未惩罚系数的普通 OLS p 值；当前报告不会消除收缩偏差。
 - 调参之后的小 p 值不等于完成了考虑模型选择过程的推断。
+- 不要把当前 AIC/BIC/F 输出理解为已经使用 Ridge 有效自由度的惩罚感知准则。
 
 ## 完整 API 参考
 
@@ -238,7 +255,7 @@ Ridge(
 | `device` | `"auto"` | `auto`、`cpu`、`cuda`（CuPy）或 `torch`（Torch CUDA）。 |
 | `n_jobs` | `None` | 所选路径使用并行时的并行度提示。 |
 | `gpu_memory_cleanup` | `False` | 拟合后尽力释放缓存的 GPU 内存。 |
-| `compute_inference` | `True` | 计算标准误、检验、区间与 `summary()` 所需状态。 |
+| `compute_inference` | `True` | 计算固定 Ridge 拟合上的标准误、检验、区间与 `summary()` 所需状态。 |
 | `cov_type` | `"nonrobust"` | `nonrobust`、`hc0`、`hc1`、`hc2`、`hc3` 或 `hac`。 |
 | `hac_maxlags` | `None` | HAC 最大滞后阶。 |
 | `max_iter` | `1000` | 迭代路径的最大迭代次数。 |
@@ -289,13 +306,13 @@ model.fit(
 | `intercept_` | 不受惩罚的截距。 |
 | `n_iter_` | 迭代次数；直接 `exact` 路径为一次求解。 |
 | `n_features_in_` | 相应拟合路径发布时的特征数。 |
-| `rsquared`, `rsquared_adj` | $R^2$ 与调整 $R^2$。 |
-| `fvalue`, `f_pvalue` | 在定义时可用的联合拟合统计量与 p 值。 |
-| `llf`, `aic`, `bic` | 所需状态可用时的高斯对数似然与信息准则。 |
-| `_bse` | 系数标准误。 |
-| `_tvalues` | Ridge 的 t 型统计量。 |
-| `_pvalues` | 系数 p 值。 |
-| `_conf_int` | 系数置信区间。 |
+| `rsquared`, `rsquared_adj` | $R^2$ 与按普通参数个数计算的调整 $R^2$；不是 Ridge 有效自由度修正。 |
+| `fvalue`, `f_pvalue` | 使用普通参数个数/残差自由度的兼容性联合拟合诊断；不是惩罚感知的经典 F 检验。 |
+| `llf`, `aic`, `bic` | 使用当前拟合和普通参数个数构造的高斯 plug-in 诊断；不是 Ridge 有效自由度或调参感知的准则。 |
+| `_bse` | `compute_inference=True` 时固定拟合的系数标准误；不会消除收缩偏差。 |
+| `_tvalues` | Ridge 当前结果报告中的 t 型统计量。 |
+| `_pvalues` | 当前参考分布约定下的双侧固定拟合 p 值。 |
+| `_conf_int` | 当前参考分布约定下的固定拟合 Wald 式置信区间。 |
 | `_inference_result` | 结构化推断结果与元数据。 |
 
 下划线开头的推断数组属于当前版本既有的结果属性；需要长期保持接口结构稳定的代码应优先使用更高层的报告接口。
