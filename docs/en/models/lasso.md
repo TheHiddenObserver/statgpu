@@ -164,7 +164,7 @@ For most Lasso workflows, standardize continuous predictors before fitting. The 
 | OLS / `LinearRegression` | no regularization | no | unpenalized estimation when the design is stable |
 | [Ridge](ridge.md) | tends to share signal | no | stabilize correlated predictors without feature deletion |
 | **Lasso** | may select one member | yes | sparse prediction / automatic feature selection |
-| [Elastic Net](elastic-net.md) | more group-friendly than Lasso | yes | sparse model with correlated predictors |
+| [Elastic Net](elastic-net.md) | more group-friendly than Lasso | yes when its L1 component is positive | sparse model with correlated predictors |
 | Adaptive Lasso | data-dependent L1 weights | yes | reduce uniform-penalty bias under a stronger sparse-model assumption |
 
 If your main uncertainty is “Ridge or Lasso?”, ask whether exact feature removal is actually valuable. If not, Ridge is often the safer low-variance choice.
@@ -209,13 +209,17 @@ Inference after data-driven selection is substantially harder than inference aft
 
 | `inference_method` | Intended use | Important limitation |
 |---|---|---|
-| `debiased` (constructor default) | de-biased/de-sparsified coefficient inference | marginal intervals require high-dimensional de-biasing assumptions; joint coverage needs the separate simultaneous procedure |
+| `debiased` (constructor default) | de-biased/de-sparsified coefficient inference | marginal intervals require high-dimensional de-biasing assumptions; simultaneous coverage needs the separate simultaneous procedure |
 | `post_selection_ols` | active-set OLS/WLS diagnostic on the fit-resolved NumPy/CuPy/Torch backend | heuristic after selection; not a general selective-inference interval |
 | `bootstrap` | residual-bootstrap alternative | materially more expensive and not a universal correction for selection uncertainty |
 
 `post_selection_ols` is the canonical hardware-neutral spelling. Legacy `cpu_ols` / `gpu_ols` values are deprecated compatibility aliases that emit `FutureWarning` and normalize to the same method; device selection remains a separate concern.
 
-For the actual node-wise-Lasso construction, coherent debiased intercept, marginal z inference, intercept-inclusive max-|Z| multiplier bootstrap, backend/reporting boundaries, multiple-testing distinction, and output fields, see **[Lasso inference](lasso-inference.md)**.
+For `LassoCV(compute_inference=True)`, cross-validation selects `alpha` first and inference is computed only on the final full-data refit. Those inference outputs are conditional on the selected `alpha`; the current implementation does not add a separate correction for cross-validation tuning uncertainty.
+
+For the actual node-wise-Lasso construction, coherent debiased intercept, marginal z inference, intercept-inclusive max-|Z| multiplier bootstrap, backend/reporting boundaries, multiple-testing distinction, tuning-rule scope, and output fields, see **[Lasso inference](lasso-inference.md)**.
+
+The penalized-fit diagnostics `rsquared_adj`, `fvalue`, `f_pvalue`, `aic`, and `bic`, when available, use ordinary parameter-count/residual-DoF conventions. They are compatibility/reporting diagnostics: they do not account for active-set selection, effective degrees of freedom, or tuning `alpha`, and should not be used as a penalty-aware replacement for validation or cross-validation.
 
 ## Common pitfalls
 
@@ -223,7 +227,9 @@ For the actual node-wise-Lasso construction, coherent debiased intercept, margin
 - **Do not ignore feature scaling.** An L1 penalty is not scale invariant.
 - **Do not expect stable choices among nearly duplicate predictors.** Pure Lasso can arbitrarily prefer one correlated feature; Elastic Net is often more appropriate.
 - **Do not choose `alpha` by maximizing training $R^2$.** Use held-out validation or cross-validation.
+- **Do not assume `LassoCV` makes downstream inference tuning-aware.** Current final-refit inference is conditional on the selected `alpha`.
 - **Do not attach ordinary OLS p-values after selection and treat them as if the model had been prespecified.** Use an inference method whose assumptions match your question; see [Lasso inference](lasso-inference.md).
+- **Do not use the compatibility AIC/BIC/F outputs as selection-aware or effective-DoF model-selection criteria.**
 - **Do not confuse numerical convergence with statistical correctness.** A tiny KKT residual only says the declared optimization problem was solved accurately.
 
 ## Complete API reference
@@ -275,7 +281,7 @@ Lasso(
 | `simultaneous_alpha` | `0.05` | Family-wise error level used for simultaneous intervals. |
 | `simultaneous_n_bootstrap` | `1000` | Number of multiplier-bootstrap draws for max-|Z| calibration. |
 | `simultaneous_random_state` | `None` | RNG seed for simultaneous bootstrap calibration. |
-| `simultaneous_include_intercept` | `False` | Include the centered debiased intercept in the bootstrap max-|Z| target and reported joint interval family. |
+| `simultaneous_include_intercept` | `False` | Include the centered debiased intercept in the bootstrap max-|Z| target and reported simultaneous interval set. |
 | `device` | `"auto"` | `auto`, `cpu`, `cuda` (CuPy), or `torch` (Torch CUDA). |
 | `n_jobs` | `None` | Parallelism hint where a selected path uses it. |
 | `compute_inference` | `True` | Compute the selected post-fit inference path. |
@@ -329,9 +335,9 @@ The inherited estimator-context utilities `adjust_pvalues`, `combine_pvalues`, `
 | `intercept_` | Fitted unpenalized intercept. |
 | `n_iter_` | Iteration count for the selected numerical path. |
 | `n_features_in_` | Number of fitted input features when published by the fit path. |
-| `rsquared`, `rsquared_adj` | $R^2$ and adjusted $R^2$ when the required fitted state is available. |
-| `fvalue`, `f_pvalue` | Classical joint fit statistic and p-value when defined. |
-| `llf`, `aic`, `bic` | Gaussian fit diagnostics when the required reporting state is available. |
+| `rsquared`, `rsquared_adj` | $R^2$ and ordinary-count adjusted $R^2$ when available; not an active-set/effective-DoF correction. |
+| `fvalue`, `f_pvalue` | Compatibility joint-fit diagnostics using ordinary parameter-count/residual-DoF conventions; not selection-aware classical F inference. |
+| `llf`, `aic`, `bic` | Plug-in Gaussian fit diagnostics from the stored penalized fit using ordinary parameter counts; not selection-, tuning-, or effective-DoF-aware criteria. |
 | `_bse` | Standard errors produced by the selected inference method. |
 | `_tvalues` | Historical/statistic field used by compatible inference paths; de-biased inference has z semantics. |
 | `_zvalues` | z-style statistics when populated through the structured inference result. |
