@@ -42,6 +42,41 @@ def test_torch_general_df_student_t_pvalue_matches_scipy_reference():
     )
 
 
+def test_torch_high_df_near_zero_student_t_pvalue_matches_scipy_reference():
+    torch = pytest.importorskip("torch")
+    scipy_stats = pytest.importorskip("scipy.stats")
+
+    # At high df, df / (df + t**2) rounds to exactly one for sufficiently
+    # small nonzero t even though the two-sided Student-t p-value is still
+    # distinguishable from one.  The near-zero density integral must preserve
+    # that tail instead of publishing an exact p-value of 1.0.
+    statistic = torch.tensor(
+        [0.0, 1e-8, 2.8e-6, 1e-4, 1e-3, 1e-2],
+        dtype=torch.float64,
+    )
+    pvalues, _critical = two_sided_reference_inference(
+        statistic,
+        distribution="t",
+        alpha=0.05,
+        backend="torch",
+        xp=torch,
+        df=100_000,
+        device="cpu",
+    )
+    expected = 2.0 * scipy_stats.t.sf(
+        statistic.detach().cpu().numpy(),
+        df=100_000,
+    )
+
+    np.testing.assert_allclose(
+        pvalues.detach().cpu().numpy(),
+        expected,
+        rtol=0.0,
+        atol=2e-8,
+    )
+    assert float(pvalues[2]) < 1.0
+
+
 def test_rank_deficient_post_selection_torch_pvalues_match_numpy_contract():
     torch = pytest.importorskip("torch")
 
