@@ -144,6 +144,56 @@ def _assert_limits(label: str, errors: dict[str, float], limits: dict[str, float
             )
 
 
+def _emit_payload(payload: dict, output: Path | None) -> None:
+    """Print one structured validator payload and optionally persist it."""
+    text = json.dumps(payload, indent=2, sort_keys=True)
+    print(text)
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(text + "\n", encoding="utf-8")
+
+
+def _record_case(
+    payload: dict,
+    bucket: str,
+    *,
+    backend: str,
+    model: str,
+    case: str,
+    output: Path | None,
+    factory,
+):
+    """Append a case result while retaining exact-head evidence on failure."""
+    try:
+        result = factory()
+    except Exception as exc:
+        payload["status"] = "failure"
+        payload["failure"] = {
+            "section": bucket,
+            "backend": backend,
+            "model": model,
+            "case": case,
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+            "completed_cases": len(payload.get("cases", [])),
+            "completed_closure_cases": len(payload.get("closure_cases", [])),
+        }
+        try:
+            _emit_payload(payload, output)
+        except Exception as artifact_exc:
+            # Never replace the actual numerical/backend failure with a
+            # secondary artifact-write problem. The original exception remains
+            # the validator's nonzero exit cause.
+            print(
+                "warning: failed to persist physical validation failure payload: "
+                f"{type(artifact_exc).__name__}: {artifact_exc}",
+                file=sys.stderr,
+            )
+        raise
+    payload[bucket].append(result)
+    return result
+
+
 def _distribution_backend_name(distribution) -> str:
     sf_name = type(getattr(distribution, "_sf", None)).__name__
     return {
@@ -782,36 +832,113 @@ def main() -> int:
     # historical evidence remains directly comparable.
     for backend in backends:
         for weighted in (False, True):
-            payload["cases"].append(
-                _post_selection_case(backend, weighted=weighted, kind="lasso")
+            case = "weighted" if weighted else "unweighted"
+            _record_case(
+                payload,
+                "cases",
+                backend=backend,
+                model="lasso",
+                case=case,
+                output=args.output,
+                factory=lambda backend=backend, weighted=weighted: _post_selection_case(
+                    backend, weighted=weighted, kind="lasso"
+                ),
             )
 
     # Nine closure cases per physical backend. Together with the original four
     # this is the canonical schema-v7 22-case matrix.
     for backend in backends:
-        payload["closure_cases"].append(
-            _post_selection_case(backend, weighted=True, kind="elasticnet")
+        _record_case(
+            payload,
+            "closure_cases",
+            backend=backend,
+            model="elasticnet",
+            case="weighted",
+            output=args.output,
+            factory=lambda backend=backend: _post_selection_case(
+                backend, weighted=True, kind="elasticnet"
+            ),
         )
-        payload["closure_cases"].append(
-            _post_selection_case(backend, weighted=True, kind="generic_l1")
+        _record_case(
+            payload,
+            "closure_cases",
+            backend=backend,
+            model="generic_l1",
+            case="weighted",
+            output=args.output,
+            factory=lambda backend=backend: _post_selection_case(
+                backend, weighted=True, kind="generic_l1"
+            ),
         )
-        payload["closure_cases"].append(_debiased_case(backend, weighted=False))
-        payload["closure_cases"].append(_debiased_case(backend, weighted=True))
-        payload["closure_cases"].append(_lassocv_weighted_selection_case(backend))
-        payload["closure_cases"].append(_rank_deficient_post_selection_case(backend))
-        payload["closure_cases"].append(_penalty_object_auto_native_case(backend))
-        payload["closure_cases"].append(_empty_active_robust_case(backend))
-        payload["closure_cases"].append(_simultaneous_intercept_case(backend))
+        _record_case(
+            payload,
+            "closure_cases",
+            backend=backend,
+            model="lasso",
+            case="unweighted_debiased",
+            output=args.output,
+            factory=lambda backend=backend: _debiased_case(backend, weighted=False),
+        )
+        _record_case(
+            payload,
+            "closure_cases",
+            backend=backend,
+            model="lasso",
+            case="weighted_debiased",
+            output=args.output,
+            factory=lambda backend=backend: _debiased_case(backend, weighted=True),
+        )
+        _record_case(
+            payload,
+            "closure_cases",
+            backend=backend,
+            model="lassocv",
+            case="weighted_multi_alpha_selection_final_refit",
+            output=args.output,
+            factory=lambda backend=backend: _lassocv_weighted_selection_case(backend),
+        )
+        _record_case(
+            payload,
+            "closure_cases",
+            backend=backend,
+            model="elasticnet",
+            case="weighted_rank_deficient_active_refit",
+            output=args.output,
+            factory=lambda backend=backend: _rank_deficient_post_selection_case(backend),
+        )
+        _record_case(
+            payload,
+            "closure_cases",
+            backend=backend,
+            model="generic_l1_penalty_object",
+            case="weighted_auto_native_penalty_object",
+            output=args.output,
+            factory=lambda backend=backend: _penalty_object_auto_native_case(backend),
+        )
+        _record_case(
+            payload,
+            "closure_cases",
+            backend=backend,
+            model="generic_l1",
+            case="empty_active_hc3_no_intercept",
+            output=args.output,
+            factory=lambda backend=backend: _empty_active_robust_case(backend),
+        )
+        _record_case(
+            payload,
+            "closure_cases",
+            backend=backend,
+            model="lasso",
+            case="weighted_debiased_simultaneous_intercept",
+            output=args.output,
+            factory=lambda backend=backend: _simultaneous_intercept_case(backend),
+        )
 
     if len(payload["cases"]) != 4 or len(payload["closure_cases"]) != 18:
         raise AssertionError("schema-v7 acceptance matrix must contain exactly 22 cases")
 
     payload["status"] = "success"
-    text = json.dumps(payload, indent=2, sort_keys=True)
-    if args.output is not None:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(text + "\n", encoding="utf-8")
-    print(text)
+    _emit_payload(payload, args.output)
     return 0
 
 
