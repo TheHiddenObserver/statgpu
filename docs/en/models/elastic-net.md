@@ -1,7 +1,7 @@
 # Elastic Net
 
 > Language: English
-> Last updated: 2026-09-06
+> Last updated: 2026-09-09
 > Switch: [简体中文](../../cn/models/elastic-net.md)
 
 ## What problem does it solve?
@@ -238,9 +238,10 @@ $$
 | `inference_method` | Intended role | Important limitation |
 |---|---|---|
 | `debiased` (default inference method) | bias-corrected coefficient inference using the shared penalized-linear engine | assumptions for de-biasing matter; inference is conditional on selected regularization parameters |
-| `cpu_ols` | lightweight post-selection OLS-style path | heuristic after selection; not a general selective-inference guarantee |
-| `gpu_ols` | compatibility selector that currently reuses the CPU-oriented post-selection OLS helper | not backend-native GPU inference; same post-selection validity limitation |
+| `post_selection_ols` | unpenalized active-set OLS/WLS refit using the fit-resolved NumPy/CuPy/Torch backend | heuristic after selection; not a general selective-inference guarantee |
 | `bootstrap` | resampling-based alternative | higher computational cost and conditional on the implemented bootstrap assumptions |
+
+`post_selection_ols` is the canonical hardware-neutral spelling. Legacy `cpu_ols` / `gpu_ols` values are deprecated compatibility aliases that emit `FutureWarning` and normalize to `post_selection_ols`; `device` remains the separate execution-backend control. The successful penalized fit's recorded backend/device is reused by the post-selection refit rather than being re-detected from raw input.
 
 `cov_type` and `hac_maxlags` are public constructor controls used where the selected inference path supports the corresponding covariance convention. When inference succeeds, `summary()` and reporting fields such as standard errors, test statistics, p-values, and confidence intervals become available according to the selected method.
 
@@ -298,7 +299,7 @@ ElasticNet(
 | `lipschitz_L` | `None` | Optional precomputed Lipschitz constant for compatible proximal paths. |
 | `gpu_memory_cleanup` | `False` | Best-effort release of cached GPU memory after fit. |
 | `compute_inference` | `False` | Run the selected post-fit inference path. |
-| `inference_method` | `"debiased"` | Post-fit path: `debiased`, `cpu_ols`, `gpu_ols`, or `bootstrap`; `gpu_ols` is currently a compatibility selector rather than a backend-native OLS inference path. |
+| `inference_method` | `"debiased"` | Post-fit path: `debiased`, canonical `post_selection_ols`, or `bootstrap`. Legacy `cpu_ols` / `gpu_ols` aliases normalize to `post_selection_ols` with `FutureWarning`. |
 | `cov_type` | `"nonrobust"` | Covariance convention where the selected inference method uses one. |
 | `hac_maxlags` | `None` | HAC lag count where the selected inference method supports HAC. |
 <!-- API-CONSTRUCTOR-END:ElasticNet -->
@@ -363,7 +364,7 @@ Underscore-prefixed inference arrays are established reporting attributes in the
 
 ## Validation
 
-Maintained validation checks the declared Elastic Net objective, solver/KKT behavior, CPU and supported GPU paths, post-fit inference, warm-start behavior, and the final-refit inference contract for `ElasticNetCV`. Physical CUDA validation remains part of exact release acceptance where applicable.
+Maintained validation checks the declared Elastic Net objective, solver/KKT behavior, CPU and supported GPU paths, backend-native `post_selection_ols`, post-fit inference, warm-start behavior, and the final-refit inference contract for `ElasticNetCV`. Physical CUDA validation remains part of exact release acceptance where applicable.
 
 ## References
 
