@@ -6,9 +6,9 @@
 
 ## 它解决什么问题？
 
-`Lasso` 是加入 L1 惩罚的线性回归。它最有辨识度的特点是：正则化可以把一部分系数**精确压成 0**，因此模型会同时完成预测和特征选择。
+`Lasso` 是加入 L1 惩罚的线性回归。它最有辨识度的特点是：正则化可以把一部分系数**精确压成 0**，因此模型可以同时完成预测和特征选择。
 
-假设你有 100 个候选特征，但相信真正有用的只有少数几个。OLS 会给每个特征一个系数；Ridge 会把所有系数缩小，但通常不会让它们变成 0；Lasso 则可以直接返回一个很小的 active set。
+假设你有 100 个候选特征，但相信真正有用的只有少数几个。OLS 会给每个特征一个系数；Ridge 会把所有系数缩小，但通常不会让它们变成 0；Lasso 则可以直接返回一个很小的**活跃集（active set）**。
 
 典型问题包括：
 
@@ -26,7 +26,7 @@ true coef     0   2.0   0    0    0  -1.5   0    0    0   0.8   0    0
 Lasso coef    0  ~2.0   0    0    0  ~-1.4  0    0    0  ~0.7   0    0
 ```
 
-Lasso 的核心吸引力，就是不需要额外的硬特征选择步骤，也能得到稀疏线性表示。
+Lasso 的核心吸引力，就是不需要额外设置硬阈值做特征选择，也能得到稀疏线性表示。
 
 ## 直觉
 
@@ -52,16 +52,16 @@ Lasso 特别适合：
 
 - 你相信真实信号是稀疏的；
 - 候选特征相对样本量很多；
-- 希望得到较小的 active set；
+- 希望得到较小的活跃集；
 - 存储、部署或下游建模能从删除特征中获益；
 - 愿意通过验证来选择正则化强度。
 
-优先考虑其他方法，当：
+以下情况可优先考虑其他方法：
 
 - 大多数特征都可能有小但真实的作用——考虑 [Ridge](ridge.md)；
-- 特征形成高度相关的组，希望组内变量一起保留/收缩——考虑 [Elastic Net](elastic-net.md)；
-- 响应不适合 Gaussian 线性回归——使用相应 penalized GLM、生存模型等；
-- 首要目标是严格 post-selection inference——需要更谨慎的选择后推断设计。
+- 特征形成高度相关的组，希望组内变量一起保留或收缩——考虑 [Elastic Net](elastic-net.md)；
+- 响应不适合高斯线性回归——使用相应的惩罚 GLM、生存模型等；
+- 首要目标是严格的选择后推断——需要更谨慎的选择性推断设计。
 
 ## 模型与目标函数
 
@@ -73,11 +73,11 @@ $$
 +\alpha\lVert\beta\rVert_1.
 $$
 
-`alpha` 越大，收缩和精确 0 通常越多；截距不受惩罚。
+`alpha` 越大，收缩越强，出现精确 0 的系数通常也越多；截距不受惩罚。
 
 ### 为什么 L1 会产生精确 0？
 
-绝对值惩罚在 0 处有尖角。优化中的 soft-thresholding 为
+绝对值惩罚在 0 处有尖角。优化中的软阈值算子为
 
 $$
 \mathcal S_\lambda(z)
@@ -85,7 +85,7 @@ $$
 \operatorname{sign}(z)\max(|z|-\lambda,0).
 $$
 
-当 $|z|\le\lambda$ 时，结果就是精确的 0。这是 Lasso 稀疏性的直接计算机制。
+当 $|z|\le\lambda$ 时，结果就是精确的 0。这是 Lasso 产生稀疏解的直接计算机制。
 
 ## 最小可运行示例
 
@@ -111,35 +111,35 @@ print("selected features:", np.flatnonzero(np.abs(model.coef_) > 1e-8))
 print("R²:", round(model.score(X, y), 3))
 ```
 
-固定随机种子和这个 `alpha` 后，明显非零的系数应在索引 `1`、`5`、`9`，大约为 `1.97`、`-1.41`、`0.73`。它们比生成系数更小，是因为收缩本来就是估计量的一部分。
+固定随机种子和这个 `alpha` 后，明显非零的系数应在索引 `1`、`5`、`9`，大约为 `1.97`、`-1.41`、`0.73`。它们比生成系数更小，是因为收缩本来就是 Lasso 估计量的一部分。
 
 ## 如何理解结果？
 
-- `coef_[j] == 0` 表示在当前 `alpha` 下，该特征没有进入拟合线性 predictor。
+- `coef_[j] == 0` 表示在当前 `alpha` 下，该特征没有进入拟合的线性预测器。
 - 非零系数仍然经过收缩，不能当作未惩罚 OLS 系数。
 - `intercept_` 不受 L1 惩罚。
 - `predict(X_new)` 返回连续预测。
 - `score(X, y)` 返回 $R^2$，并支持 `sample_weight=`。
-- `n_iter_` 是所选数值路径的迭代次数。
+- `n_iter_` 是所选数值求解路径的迭代次数。
 
 一个特征在某个样本中被压成 0，并不证明总体中的真实作用必然为 0。
 
 ## 关键参数应该怎么选？
 
-这里是正常工作流的**精选参数表**。完整 constructor 见[完整 API 参考](#完整-api-参考)。
+这里是正常工作流的**精选参数表**。完整构造函数参数见[完整 API 参考](#完整-api-参考)。
 
 | 参数 | 默认值 | 应该怎么理解 |
 |---|---:|---|
 | `alpha` | `1.0` | 最重要的统计选择；越大通常收缩越强、0 越多。预测/选择任务优先用 `LassoCV`。 |
-| `fit_intercept` | `True` | 一般保持开启，除非理论固定截距或设计矩阵已有截距。 |
+| `fit_intercept` | `True` | 一般保持开启，除非理论上固定截距或设计矩阵已有截距。 |
 | `device` | `"auto"` | 小问题优先 CPU；工作负载足够大时再考虑 GPU。 |
-| `solver` | `"fista"` | 所有 backend 上权威的 direct-fit 算法选择器。CPU coordinate descent 用 `coordinate_descent`；其他场景按支持矩阵选择 FISTA 等 proximal solver。 |
-| `stopping` | `"coef_delta"` | 需要按最优性而不是系数变化判断收敛时可用 `"kkt"`。 |
-| `compute_inference` | `True` | 只做预测/选择时可关闭；需要推断时应显式理解 `inference_method`，并阅读独立推断参考页。 |
+| `solver` | `"fista"` | 所有后端上直接拟合的权威算法选择参数。CPU 坐标下降使用 `coordinate_descent`；其他场景按支持矩阵选择 FISTA 等近端求解器。 |
+| `stopping` | `"coef_delta"` | 需要按最优性条件而不是系数变化判断收敛时可用 `"kkt"`。 |
+| `compute_inference` | `True` | 只做预测/选择时可关闭；需要推断时应明确理解 `inference_method`，并阅读独立推断参考页。 |
 
 ### 正则化之前先标准化
 
-L1 直接惩罚系数大小。特征量纲差异会导致有效惩罚不同，因此多数 Lasso workflow 应先标准化连续变量。
+L1 惩罚直接作用于系数大小。特征量纲不同会导致有效惩罚程度不同，因此多数 Lasso 工作流应先标准化连续变量。
 
 ## 与相近方法比较
 
@@ -148,8 +148,8 @@ L1 直接惩罚系数大小。特征量纲差异会导致有效惩罚不同，�
 | OLS / `LinearRegression` | 无正则化 | 否 | 未惩罚估计 |
 | [Ridge](ridge.md) | 倾向共享信号 | 否 | 稳定相关变量，不删除特征 |
 | **Lasso** | 可能只选组内一个 | 是 | 稀疏预测 / 自动特征选择 |
-| [Elastic Net](elastic-net.md) | 比 Lasso 更照顾组 | 是 | 稀疏模型 + 相关变量 |
-| Adaptive Lasso | 数据依赖 L1 权重 | 是 | 在更强稀疏假设下减轻统一惩罚偏差 |
+| [Elastic Net](elastic-net.md) | 比 Lasso 更照顾组内变量 | 是 | 稀疏模型 + 相关变量稳定性 |
+| Adaptive Lasso | 数据依赖的 L1 权重 | 是 | 在更强稀疏假设下减轻统一惩罚偏差 |
 
 ## CPU、GPU、Formula 与加权拟合
 
@@ -165,39 +165,39 @@ model = Lasso(
 ).fit(X, y)
 ```
 
-显式 `device="cuda"` / `"torch"` 使用相应 GPU backend；不可用时应失败，而不是静默换执行路径。
+显式 `device="cuda"` / `"torch"` 使用相应 GPU 后端；不可用时会明确失败，而不是静默切换执行路径。
 
-`fit()` 同时支持 `sample_weight=`，以及共享的 `formula=` / `data=` 接口。Formula 元数据会用于后续 DataFrame prediction。
+`fit()` 同时支持 `sample_weight=`，以及共享的 `formula=` / `data=` 接口。Formula 元数据会保留下来，用于后续 DataFrame 预测时重建一致的设计矩阵。
 
 ## 进阶：求解器支持
 
 | `solver` 值 | CPU | CuPy / Torch | 含义 |
 |---|:---:|:---:|---|
 | `fista`（默认） | 支持 | 支持 | L1 目标的稳定近端梯度路径 |
-| `auto` | FISTA | FISTA | 当前 squared-error + L1 自动分发 |
-| `fista_bb` | 支持 | 支持 | Barzilai-Borwein 步长 FISTA |
-| `admm` | 支持 | 支持 | 替代拆分路径；仅均匀样本权重 |
-| `coordinate_descent` | 支持 | 不支持 | CPU-only direct-fit coordinate-descent 路径 |
+| `auto` | FISTA | FISTA | 当前平方误差 + L1 的自动分发 |
+| `fista_bb` | 支持 | 支持 | 使用 Barzilai-Borwein 步长的 FISTA |
+| `admm` | 支持 | 支持 | 替代拆分路径；仅支持均匀样本权重 |
+| `coordinate_descent` | 支持 | 不支持 | 仅 CPU 的直接拟合坐标下降路径 |
 
-`solver` 是统一的 backend-neutral direct-fit selector。L1 目标拒绝 `newton`、`lbfgs`、`irls`、`exact`。
+`solver` 是统一的、与后端无关的直接拟合算法选择参数。L1 目标拒绝 `newton`、`lbfgs`、`irls`、`exact`。
 
-`cpu_solver` 作为 legacy/CV 行为的兼容控制仍被保留，但它不选择一次直接 `Lasso.fit` 的算法；direct-fit 算法应使用 `solver`。CV 估计器具有独立的 selection 与最终 refit 阶段，详见[交叉验证指南](../guides/cross-validation.md)。
+`cpu_solver` 仍作为旧版/CV 行为的兼容控制保留，但它不选择一次直接 `Lasso.fit` 的算法；直接拟合算法应使用 `solver`。CV 估计器具有独立的选择阶段与最终重拟合阶段，详见[交叉验证指南](../guides/cross-validation.md)。
 
-`admm_rho` 控制 ADMM penalty parameter；`lipschitz_L` 可为兼容近端路径提供预计算 Lipschitz 常数。
+`admm_rho` 控制 ADMM 惩罚参数；`lipschitz_L` 可为兼容的近端路径提供预计算 Lipschitz 常数。
 
 ## 进阶：Lasso 之后的推断
 
-选择后推断比预先指定的 OLS 模型推断困难得多。statgpu 提供 debiased、OLS-style diagnostic、residual bootstrap，以及可选的 simultaneous max-|Z| 路径；它们的统计主张并不相同。
+选择后推断比预先指定的 OLS 模型推断困难得多。statgpu 提供去偏推断、OLS 风格的选择后诊断、残差自助法，以及可选的 max-|Z| 同时推断；它们的统计主张并不相同。
 
 | `inference_method` | 用途 | 重要限制 |
 |---|---|---|
-| `debiased`（constructor 默认） | de-biased / de-sparsified 逐系数推断 | 边际区间依赖高维去偏假设；联合覆盖需要单独的 simultaneous procedure |
-| `post_selection_ols` | 在 fit-resolved NumPy/CuPy/Torch backend 上执行 active-set OLS/WLS diagnostic | 选择后启发式区间，不是一般 selective inference |
-| `bootstrap` | residual-bootstrap 替代路径 | 计算更贵，也不是选择不确定性的普适修正 |
+| `debiased`（构造函数默认值） | 去偏/去稀疏化逐系数推断 | 边际区间依赖高维去偏假设；联合覆盖需要单独的同时推断程序 |
+| `post_selection_ols` | 在拟合阶段确定的 NumPy/CuPy/Torch 后端上执行活跃集 OLS/WLS 诊断 | 选择后启发式区间，不是一般的选择性推断 |
+| `bootstrap` | 残差自助法替代路径 | 计算更昂贵，也不是对选择不确定性的普适修正 |
 
-`post_selection_ols` 是与硬件无关的 canonical 拼法。旧 `cpu_ols` / `gpu_ols` 是 deprecated compatibility alias，会发出 `FutureWarning` 并 normalize 到同一方法；执行设备仍由独立的 `device`/backend routing 决定。
+`post_selection_ols` 是与硬件无关的规范名称。旧 `cpu_ols` / `gpu_ols` 是处于弃用期的兼容别名，会发出 `FutureWarning` 并映射到同一方法；执行设备仍由独立的 `device` 与后端路由决定。
 
-node-wise Lasso 构造、coherent debiased intercept、边际 z 推断、真正包含截距的 max-|Z| multiplier bootstrap、backend/reporting boundary、多重检验区别与输出字段都集中在 **[Lasso 推断](lasso-inference.md)**。
+逐节点 Lasso 构造、一致的去偏截距、边际 z 推断、真正包含截距的 max-|Z| 乘子自助法、数值后端与结果报告边界、多重检验区别和输出字段，都集中在 **[Lasso 推断](lasso-inference.md)**。
 
 ## 常见误区
 
@@ -205,12 +205,12 @@ node-wise Lasso 构造、coherent debiased intercept、边际 z 推断、真正�
 - L1 不具备尺度不变性，不能忽略标准化。
 - 高度相关变量之间的纯 Lasso 选择可能很不稳定。
 - 不要根据训练 $R^2$ 选择 `alpha`。
-- 不要在数据驱动选择后直接附上普通 OLS p 值并当作预先指定模型推断；见 [Lasso 推断](lasso-inference.md)。
-- 数值收敛（例如 KKT 很小）不等于统计模型正确。
+- 不要在数据驱动选择后直接附上普通 OLS p 值，并把它当作预先指定模型的推断；见 [Lasso 推断](lasso-inference.md)。
+- 数值收敛（例如 KKT 残差很小）不等于统计模型正确。
 
 ## 完整 API 参考
 
-前面的参数表是教学用的选择指南；这里是当前 `Lasso` wrapper 的完整 constructor 和 model-method inventory。
+前面的参数表是教学用的选择指南；这里列出当前 `Lasso` 包装器的完整构造函数和模型方法/属性清单。
 
 ### Constructor
 
@@ -249,28 +249,28 @@ Lasso(
 | `max_iter` | `1000` | 最大求解迭代数。 |
 | `tol` | `1e-4` | 数值收敛容差。 |
 | `stopping` | `"coef_delta"` | 兼容路径使用 `coef_delta` 或 `kkt`。 |
-| `inference_method` | `"debiased"` | 拟合后路径：`debiased`、canonical `post_selection_ols` 或 `bootstrap`。旧 `cpu_ols` / `gpu_ols` 会以 `FutureWarning` alias normalize 到 `post_selection_ols`。 |
-| `n_bootstrap` | `200` | `inference_method="bootstrap"` 时 residual-bootstrap 抽样次数。 |
-| `bootstrap_random_state` | `None` | residual bootstrap 随机种子。 |
-| `enable_simultaneous_inference` | `False` | 在 debiased inference 后启用 simultaneous max-|Z| 区间。 |
-| `simultaneous_method` | `"maxz_bootstrap"` | simultaneous calibration 方法；当前为 `maxz_bootstrap`。 |
-| `simultaneous_alpha` | `0.05` | simultaneous interval 的 family-wise error level。 |
-| `simultaneous_n_bootstrap` | `1000` | max-|Z| multiplier-bootstrap 次数。 |
-| `simultaneous_random_state` | `None` | simultaneous bootstrap 随机种子。 |
-| `simultaneous_include_intercept` | `False` | 将 centered debiased intercept 纳入 bootstrap max-|Z| target 与最终 joint interval family。 |
+| `inference_method` | `"debiased"` | 拟合后推断路径：`debiased`、规范的 `post_selection_ols` 或 `bootstrap`。旧 `cpu_ols` / `gpu_ols` 会以 `FutureWarning` 提示并映射到 `post_selection_ols`。 |
+| `n_bootstrap` | `200` | `inference_method="bootstrap"` 时残差自助法的抽样次数。 |
+| `bootstrap_random_state` | `None` | 残差自助法随机种子。 |
+| `enable_simultaneous_inference` | `False` | 在去偏推断后启用 max-|Z| 同时置信区间。 |
+| `simultaneous_method` | `"maxz_bootstrap"` | 同时推断校准方法；当前为 `maxz_bootstrap`。 |
+| `simultaneous_alpha` | `0.05` | 同时置信区间的族错误率水平。 |
+| `simultaneous_n_bootstrap` | `1000` | max-|Z| 乘子自助法抽样次数。 |
+| `simultaneous_random_state` | `None` | 同时推断自助法随机种子。 |
+| `simultaneous_include_intercept` | `False` | 将中心化去偏截距纳入 max-|Z| 目标参数族和最终联合区间。 |
 | `device` | `"auto"` | `auto`、`cpu`、`cuda`（CuPy）或 `torch`（Torch CUDA）。 |
 | `n_jobs` | `None` | 所选路径使用并行时的并行度提示。 |
 | `compute_inference` | `True` | 执行所选拟合后推断。 |
-| `solver` | `"fista"` | backend-neutral direct-fit solver；在 CPU/GPU 上都是权威 selector。 |
-| `cpu_solver` | `"coordinate_descent"` | legacy/CV 行为的兼容控制；不会替代一次直接 `Lasso.fit` 中的 `solver`。 |
+| `solver` | `"fista"` | 与后端无关的直接拟合求解器；在 CPU/GPU 上都是权威算法选择参数。 |
+| `cpu_solver` | `"coordinate_descent"` | 旧版/CV 行为的兼容控制；不会替代一次直接 `Lasso.fit` 中的 `solver`。 |
 | `lipschitz_L` | `None` | 兼容近端路径的预计算 Lipschitz 常数。 |
-| `admm_rho` | `1.0` | ADMM augmented-Lagrangian penalty parameter。 |
-| `gpu_memory_cleanup` | `False` | 拟合后尽力释放缓存 GPU 内存。 |
+| `admm_rho` | `1.0` | ADMM 增广拉格朗日惩罚参数。 |
+| `gpu_memory_cleanup` | `False` | 拟合后尽力释放缓存的 GPU 内存。 |
 <!-- API-CONSTRUCTOR-END:Lasso -->
 
 ### `fit`
 
-共享 penalized-linear fit 签名为：
+共享的惩罚线性模型拟合签名为：
 
 ```python
 model.fit(
@@ -286,7 +286,7 @@ model.fit(
 |---|---|
 | `X` | 二维特征矩阵。 |
 | `y` | 一维连续因变量。 |
-| `sample_weight` | 可选非负分析权重；部分 solver 还有额外限制。 |
+| `sample_weight` | 可选的非负分析权重；部分求解器还有额外限制。 |
 | `formula` | 可选 Patsy 风格 Formula。 |
 | `data` | Formula 接口使用的 DataFrame。 |
 
@@ -296,37 +296,37 @@ model.fit(
 
 | 方法 | 签名 | 行为 |
 |---|---|---|
-| `predict` | `predict(X, return_cpu=True)` | 连续预测；`return_cpu=False` 可让 GPU 预测留在实际 backend。 |
+| `predict` | `predict(X, return_cpu=True)` | 连续预测；`return_cpu=False` 可让 GPU 预测结果保留在实际后端。 |
 | `score` | `score(X, y, sample_weight=None)` | 返回 $R^2$，支持加权。 |
-| `summary` | `summary()` | 打印系数/推断摘要；要求已拟合且推断可用。 |
-| `get_params` / `set_params` | sklearn 风格工具 | 查看或替换 constructor 状态。 |
+| `summary` | `summary()` | 打印系数/推断摘要；要求模型已拟合且推断结果可用。 |
+| `get_params` / `set_params` | sklearn 风格工具 | 查看或替换构造参数状态。 |
 
-继承的模型上下文工具 `adjust_pvalues`、`combine_pvalues`、`bootstrap_statistic` 和 `permutation_test` 的完整签名、backend 解析和拟合状态复用语义见[推断 API](../guides/inference-api.md)。Lasso-specific coefficient inference 见 [Lasso 推断](lasso-inference.md)。
+继承的模型上下文工具 `adjust_pvalues`、`combine_pvalues`、`bootstrap_statistic` 和 `permutation_test` 的完整签名、后端解析和拟合状态复用语义见[推断 API](../guides/inference-api.md)。Lasso 专属的系数推断见 [Lasso 推断](lasso-inference.md)。
 
 ### 拟合后属性与诊断量
 
 | 属性 | 含义 / 可用条件 |
 |---|---|
-| `coef_` | 惩罚系数；精确 0 定义当前 fitted active set。 |
+| `coef_` | 惩罚系数；精确 0 定义当前拟合得到的活跃集。 |
 | `intercept_` | 不受惩罚的截距。 |
-| `n_iter_` | 所选数值路径迭代次数。 |
+| `n_iter_` | 所选数值路径的迭代次数。 |
 | `n_features_in_` | 相应拟合路径发布时的特征数。 |
 | `rsquared`, `rsquared_adj` | 所需状态可用时的 $R^2$ 与调整 $R^2$。 |
 | `fvalue`, `f_pvalue` | 在定义时可用的联合拟合统计量与 p 值。 |
-| `llf`, `aic`, `bic` | 所需 reporting state 可用时的 Gaussian fit diagnostics。 |
-| `_bse` | 所选 inference method 产生的标准误。 |
-| `_tvalues` | 兼容路径沿用的 historical/statistic field；debiased inference 是 z 语义。 |
-| `_zvalues` | structured inference result 填充时的 z-style statistic。 |
+| `llf`, `aic`, `bic` | 所需结果状态可用时的高斯拟合诊断量。 |
+| `_bse` | 所选推断方法产生的标准误。 |
+| `_tvalues` | 某些兼容路径沿用的历史统计量字段；去偏推断时具有 z 统计量语义。 |
+| `_zvalues` | 结构化推断结果填充时的 z 统计量。 |
 | `_pvalues` | 推断成功时的系数 p 值。 |
-| `_conf_int` | 推断成功时的 marginal coefficient interval。 |
-| `_conf_int_simultaneous` | 显式启用并成功校准时的 simultaneous interval。 |
-| `_inference_result` | 结构化推断结果与 metadata。 |
+| `_conf_int` | 推断成功时的边际系数置信区间。 |
+| `_conf_int_simultaneous` | 显式启用并成功校准时的同时置信区间。 |
+| `_inference_result` | 结构化推断结果与元数据。 |
 
-下划线推断属性在当前版本中是既有 reporting surface；其统计含义取决于 `inference_method`。
+下划线开头的推断属性是当前版本既有的结果接口；其统计含义取决于 `inference_method`。
 
 ## 验证
 
-维护中的验证覆盖 solver 收敛、CPU/GPU 一致性、KKT stopping、debiased inference、residual bootstrap、backend-native `post_selection_ols`、simultaneous inference 和需要时的 physical-GPU 行为。相关入口包括 `dev/benchmarks/validate_post_selection_ols_gpu.py` 与 `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`。
+当前维护的验证覆盖求解器收敛、CPU/GPU 一致性、KKT 停止准则、去偏推断、残差自助法、后端原生的 `post_selection_ols`、同时推断以及需要时的物理 GPU 行为。相关入口包括 `dev/benchmarks/validate_post_selection_ols_gpu.py` 与 `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`。
 
 ## 参考文献
 
