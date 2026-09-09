@@ -1,7 +1,7 @@
 # Lasso 回归
 
 > 语言：中文  
-> 最后更新：2026-09-06  
+> 最后更新：2026-09-09  
 > 切换：[English](../../en/models/lasso.md)
 
 ## 它解决什么问题？
@@ -192,11 +192,12 @@ model = Lasso(
 | `inference_method` | 用途 | 重要限制 |
 |---|---|---|
 | `debiased`（constructor 默认） | de-biased / de-sparsified 逐系数推断 | 边际区间依赖高维去偏假设；联合覆盖需要单独的 simultaneous procedure |
-| `cpu_ols` | CPU-oriented post-selection diagnostic | 选择后启发式区间，不是一般 selective inference |
-| `gpu_ols` | 当前复用 CPU-oriented OLS helper 的兼容 selector | 不是 backend-native GPU inference；同样存在 selection validity 限制 |
+| `post_selection_ols` | 在 fit-resolved NumPy/CuPy/Torch backend 上执行 active-set OLS/WLS diagnostic | 选择后启发式区间，不是一般 selective inference |
 | `bootstrap` | residual-bootstrap 替代路径 | 计算更贵，也不是选择不确定性的普适修正 |
 
-node-wise Lasso 构造、边际 z 推断、max-|Z| multiplier bootstrap、backend/reporting boundary、多重检验区别、输出字段，以及当前截距/权重边界都集中在 **[Lasso 推断](lasso-inference.md)**。
+`post_selection_ols` 是与硬件无关的 canonical 拼法。旧 `cpu_ols` / `gpu_ols` 是 deprecated compatibility alias，会发出 `FutureWarning` 并 normalize 到同一方法；执行设备仍由独立的 `device`/backend routing 决定。
+
+node-wise Lasso 构造、coherent debiased intercept、边际 z 推断、真正包含截距的 max-|Z| multiplier bootstrap、backend/reporting boundary、多重检验区别与输出字段都集中在 **[Lasso 推断](lasso-inference.md)**。
 
 ## 常见误区
 
@@ -248,7 +249,7 @@ Lasso(
 | `max_iter` | `1000` | 最大求解迭代数。 |
 | `tol` | `1e-4` | 数值收敛容差。 |
 | `stopping` | `"coef_delta"` | 兼容路径使用 `coef_delta` 或 `kkt`。 |
-| `inference_method` | `"debiased"` | 拟合后推断路径：`debiased`、`cpu_ols`、`gpu_ols` 或 `bootstrap`；执行边界见 [Lasso 推断](lasso-inference.md)。 |
+| `inference_method` | `"debiased"` | 拟合后路径：`debiased`、canonical `post_selection_ols` 或 `bootstrap`。旧 `cpu_ols` / `gpu_ols` 会以 `FutureWarning` alias normalize 到 `post_selection_ols`。 |
 | `n_bootstrap` | `200` | `inference_method="bootstrap"` 时 residual-bootstrap 抽样次数。 |
 | `bootstrap_random_state` | `None` | residual bootstrap 随机种子。 |
 | `enable_simultaneous_inference` | `False` | 在 debiased inference 后启用 simultaneous max-|Z| 区间。 |
@@ -256,7 +257,7 @@ Lasso(
 | `simultaneous_alpha` | `0.05` | simultaneous interval 的 family-wise error level。 |
 | `simultaneous_n_bootstrap` | `1000` | max-|Z| multiplier-bootstrap 次数。 |
 | `simultaneous_random_state` | `None` | simultaneous bootstrap 随机种子。 |
-| `simultaneous_include_intercept` | `False` | 请求把截距加入 simultaneous reporting；当前实现边界见 [Lasso 推断](lasso-inference.md)。 |
+| `simultaneous_include_intercept` | `False` | 将 centered debiased intercept 纳入 bootstrap max-|Z| target 与最终 joint interval family。 |
 | `device` | `"auto"` | `auto`、`cpu`、`cuda`（CuPy）或 `torch`（Torch CUDA）。 |
 | `n_jobs` | `None` | 所选路径使用并行时的并行度提示。 |
 | `compute_inference` | `True` | 执行所选拟合后推断。 |
@@ -325,7 +326,7 @@ model.fit(
 
 ## 验证
 
-维护中的验证覆盖 solver 收敛、CPU/GPU 一致性、KKT stopping、debiased inference、bootstrap、simultaneous inference 和 physical-GPU 行为。
+维护中的验证覆盖 solver 收敛、CPU/GPU 一致性、KKT stopping、debiased inference、residual bootstrap、backend-native `post_selection_ols`、simultaneous inference 和需要时的 physical-GPU 行为。相关入口包括 `dev/benchmarks/validate_post_selection_ols_gpu.py` 与 `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`。
 
 ## 参考文献
 
