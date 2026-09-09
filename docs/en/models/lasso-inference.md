@@ -1,7 +1,7 @@
 # Lasso inference
 
 > Language: English  
-> Last updated: 2026-09-06  
+> Last updated: 2026-09-09  
 > Model guide: [Lasso](lasso.md)  
 > Switch: [简体中文](../../cn/models/lasso-inference.md)
 
@@ -18,11 +18,12 @@ statgpu therefore exposes several inference modes with different purposes. They 
 | `inference_method` | What statgpu computes | Appropriate interpretation | Main limitation |
 |---|---|---|---|
 | `debiased` | De-biased/de-sparsified coefficient estimator, standard errors, z statistics, p-values, and marginal confidence intervals | Coefficient-wise high-dimensional inference under de-biasing assumptions | Validity depends on sparsity/design/noise conditions and on the regularization/inference construction |
-| `cpu_ols` | OLS-style refit on the selected active set through the current CPU-oriented helper | Engineering/post-selection diagnostic | Not a general selective-inference confidence procedure |
-| `gpu_ols` | Compatibility spelling accepted by the unified wrapper; it currently reaches the same CPU-oriented post-selection OLS helper | Same diagnostic role as `cpu_ols` | Not a backend-native GPU OLS-inference path; GPU-resident inputs can be unsupported |
+| `post_selection_ols` | Unpenalized OLS/WLS refit on the active set selected by the penalized fit, using the fit-resolved backend | Engineering/post-selection diagnostic | Not a general selective-inference confidence procedure |
 | `bootstrap` | Residual-bootstrap refits of the penalized model | Resampling-based uncertainty diagnostic | Expensive and not, by itself, a general correction for data-driven model selection |
 
-`cpu_ols` and `gpu_ols` are **not two different statistical procedures** in the current unified implementation: both dispatch to the same CPU-oriented post-selection OLS helper. Their hardware-bearing names are compatibility surface, not a reason to choose a statistical method by device. The older `cpu_ols_inference` / `gpu_ols_inference` names belong to the legacy Lasso surface and historical documentation; they are not active `inference_method` values of the current unified `Lasso` wrapper.
+`post_selection_ols` is the canonical hardware-neutral spelling. The legacy unified aliases `cpu_ols` and `gpu_ols` are deprecated together and remain accepted for one compatibility cycle with `FutureWarning`; both normalize to `post_selection_ols`. `LassoCV` additionally recognizes the older `cpu_ols_inference` / `gpu_ols_inference` spellings at its compatibility boundary and normalizes them to the same statistical method.
+
+The method name does **not** choose the execution device. `device="cpu"`, `device="cuda"`, and `device="torch"` are authoritative; only genuine `device="auto"` may preserve a backend-native CuPy or Torch-CUDA input as part of automatic routing.
 
 For formal coefficient inference after Lasso, `debiased` is the main statgpu path. For prediction or feature selection only, set `compute_inference=False` and avoid paying for an inference procedure you do not need.
 
@@ -120,7 +121,14 @@ Important distinctions:
 - A collection of 95% marginal intervals does not automatically have 95% simultaneous coverage over the whole coefficient vector.
 - `simultaneous_alpha` does not change these marginal intervals; it controls the separate simultaneous procedure described below.
 
-When an intercept is fitted, statgpu reports intercept uncertainty as well, but the feature de-biasing construction and the intercept calculation are not the same algebraic operation. Do not interpret the intercept row as another node-wise-Lasso coordinate.
+When an intercept is fitted, prediction and inference deliberately have separate parameter ownership. Public `coef_` and `intercept_` remain the penalized prediction fit. The inference slopes are de-biased, and the reported original-coordinate intercept is the coherent centered value
+
+$$
+\hat\theta^{\mathrm{db}}_0
+= \bar y_w - \bar x_w^\top\hat\theta^{\mathrm{db}}.
+$$
+
+Its standard error and influence representation are therefore tied to the same centered de-biased parameterization rather than treating the intercept as another node-wise-Lasso feature coordinate.
 
 ## Simultaneous max-|Z| inference
 
@@ -143,7 +151,7 @@ simultaneous = model._conf_int_simultaneous
 critical = model._simultaneous_critical_value
 ```
 
-The current method draws independent standard-normal multipliers $\xi_i$, forms bootstrap score perturbations from the fitted residuals, and records the maximum absolute standardized perturbation over the target feature set. Schematically,
+The method draws independent standard-normal multipliers $\xi_i$, forms bootstrap score perturbations from the fitted residuals, and records the maximum absolute standardized perturbation over the requested target family. Schematically,
 
 $$
 T^*
@@ -172,13 +180,15 @@ Because the same critical value protects the target family, simultaneous interva
 | `simultaneous_alpha` | `0.05` | Family-wise error level used to select the common critical value. |
 | `simultaneous_n_bootstrap` | `1000` | Number of multiplier-bootstrap draws. |
 | `simultaneous_random_state` | `None` | Seed for reproducible multiplier draws. |
-| `simultaneous_include_intercept` | `False` | Request that the reported simultaneous target include the intercept; see the implementation boundary below. |
+| `simultaneous_include_intercept` | `False` | Include the centered de-biased intercept in both the bootstrap max-|Z| target and the reported joint interval family. |
 
-`enable_simultaneous_inference=True` requires `compute_inference=True`, `inference_method="debiased"`, and `simultaneous_method="maxz_bootstrap"`. Unsupported combinations fail instead of silently returning ordinary marginal intervals.
+`enable_simultaneous_inference=True` requires `compute_inference=True`, `inference_method="debiased"`, and `simultaneous_method="maxz_bootstrap"`. `simultaneous_alpha` must lie strictly in `(0, 1)` and `simultaneous_n_bootstrap` must be positive; unsupported combinations fail instead of silently returning ordinary marginal intervals.
 
-### Current intercept boundary
+### Intercept-inclusive simultaneous family
 
-The recommended/default simultaneous family is the feature vector (`simultaneous_include_intercept=False`). In the current implementation, setting `simultaneous_include_intercept=True` applies the feature-calibrated max-|Z| critical value to the intercept row, but the bootstrap maximum itself is still constructed from feature-score coordinates. Therefore, do **not** interpret that option as a separately bootstrapped intercept-inclusive max-|Z| family. If a scientifically essential family must include the intercept, treat that case as requiring additional validation rather than relying on the default feature-family guarantee.
+When `simultaneous_include_intercept=True`, the same centered-nodewise original-coordinate intercept influence used by the marginal standard error participates in the bootstrap maximum itself. The intercept is therefore not merely an extra row receiving a feature-only critical value: it is part of the calibrated joint target family.
+
+The default remains `False`, so callers who only need simultaneous coverage over the feature vector do not pay for an enlarged target family.
 
 ## Simultaneous intervals are not p-value adjustment
 
@@ -193,17 +203,21 @@ The generic estimator-bound and module-level multiple-testing APIs are documente
 
 ## Backend behavior and reporting boundary
 
-De-biased coefficient inference has dedicated numerical paths for NumPy CPU, CuPy CUDA, and Torch CUDA. The expensive node-wise/decorrelation work is performed on the selected numerical backend where the corresponding path is implemented.
+Post-fit method identity and backend identity are separate.
 
-The reporting layer is NumPy-oriented: final inferential arrays such as `_bse`, `_pvalues`, `_conf_int`, and structured result metadata are exposed as host-side reporting objects.
+For `post_selection_ols`, inference always reuses the successful penalized fit's recorded backend and concrete device. The active-set OLS/WLS refit, covariance calculation, reference-distribution inference, and confidence-interval numerics run on NumPy, CuPy, or Torch according to that fit-resolved backend. Explicit GPU requests fail closed when the requested backend is unavailable; they do not silently become CPU OLS inference.
 
-Simultaneous calibration has an additional boundary: after backend-native de-biased inference, the state required by the max-|Z| multiplier bootstrap is represented on the CPU/NumPy side and the bootstrap calibration runs there. Thus `device="cuda"` or `device="torch"` does **not** mean that every simultaneous-bootstrap draw stays on the GPU.
+For `debiased`, the maintained marginal CuPy/Torch paths likewise keep their numerical coefficient inference on the executed GPU backend. The established reporting layer remains NumPy-oriented: final arrays such as `_bse`, `_pvalues`, `_conf_int`, and structured result metadata are snapshotted to host-side reporting objects only after numerical inference is complete.
 
-Explicit unavailable GPU devices should fail rather than silently becoming CPU estimation paths. The CPU reporting/calibration boundary described above is an explicit inference/reporting boundary, not a hidden estimator fallback.
+For centered `fit_intercept=True` simultaneous inference on CuPy/Torch, the expensive B×n multiplier draws, feature/intercept scores, max-|Z| reduction, quantile calibration, and joint confidence-interval numerics remain on the same concrete GPU device before the final reporting snapshot. The historical `fit_intercept=False` simultaneous path still uses the pre-existing generic reporting-stage helper and is not claimed as GPU-native by the PR #138 contract.
+
+Residual `bootstrap` is different: its current residual-refit implementation is CPU-native. A GPU `device` on the estimator therefore does not imply that residual-bootstrap resampling/refits are GPU-native.
 
 ## Sample weights and inferential scope
 
-`Lasso.fit(..., sample_weight=...)` is a supported fitting surface. Weighted high-dimensional inference has stronger modeling and normalization questions than the unweighted formulas above. The equations on this page describe the core de-biased construction and should not be read as an automatic theorem for arbitrary analytic-weight designs. If weighted coefficient inference is scientifically central, validate the exact weighting convention and target estimand for that application rather than assuming that unweighted asymptotics transfer unchanged.
+`Lasso.fit(..., sample_weight=...)` is a supported fitting surface. The maintained NumPy/CuPy/Torch `debiased` paths use the same weighted-centered average-loss working problem, so multiplying all analytic weights by the same positive constant leaves the penalized fit and maintained de-biased inference unchanged.
+
+That implementation contract is not, by itself, a theorem for every scientific interpretation of analytic weights. If weighted coefficient inference is central to the application, validate the weighting convention and target estimand against the assumptions of the intended inferential analysis.
 
 ## Residual bootstrap path
 
@@ -213,9 +227,13 @@ The current implementation derives standard errors from bootstrap variability, s
 
 ## OLS-style post-selection path
 
-The current `cpu_ols` and `gpu_ols` spellings both reach the same post-selection OLS diagnostic. It refits the selected active set with ordinary linear-model machinery. This can be useful for engineering comparison, but its intervals must not be described as valid selective-inference intervals merely because the selected model is sparse.
+`inference_method="post_selection_ols"` refits an **unpenalized OLS or WLS model on exactly the active set** chosen by the penalized fit. `coef_` and `intercept_` remain the penalized prediction fit; `_params` and `_inference_result` own the active-set refit used for inferential reporting.
 
-In particular, the method name and the execution backend should be treated as separate concepts: a statistical method should describe **what is computed**, while `device`/backend routing describes **where it is computed**. The current hardware-bearing aliases do not yet provide that clean separation.
+The refit uses the fit-resolved NumPy/CuPy/Torch backend. Rank-deficient active designs use an effective-rank Moore-Penrose/SVD calculation instead of ordinary normal equations. Classical `cov_type="nonrobust"` reporting uses the maintained Student-t convention; robust/HAC covariance choices use the shared Gaussian robust-covariance layer and its normal-reference convention where exposed by the estimator.
+
+Inactive full-space coordinates retain compatibility placeholders (`SE=0`, statistic `0`, `p=1`, and `[0, 0]` intervals). These are not claims that an omitted coefficient is known exactly; use the selected-feature metadata to identify coordinates that received the active-set refit.
+
+Most importantly, ordinary OLS/WLS intervals formed after choosing variables from the same data remain a **post-selection diagnostic**, not a general selective-inference confidence procedure.
 
 ## Fitted inference outputs
 
@@ -223,7 +241,7 @@ When the selected inference path succeeds, the reporting surface can include:
 
 | Attribute | Meaning |
 |---|---|
-| `_params` | Parameter vector used by inference reporting; for `debiased`, feature entries are de-biased estimates |
+| `_params` | Parameter vector used by inference reporting; for `debiased`, feature entries are de-biased estimates; for `post_selection_ols`, active entries belong to the unpenalized refit |
 | `_bse` | Standard errors |
 | `_tvalues` | Historical/statistic storage used by some paths; de-biased reporting has z semantics |
 | `_zvalues` | z-style statistic field when populated through the structured result layer |
@@ -237,18 +255,18 @@ When the selected inference path succeeds, the reporting surface can include:
 
 ## Reproducibility and cost
 
-For reproducible resampling, set `bootstrap_random_state` or `simultaneous_random_state` as appropriate. Increasing `simultaneous_n_bootstrap` reduces Monte Carlo noise in the critical-value estimate at the cost of more CPU work and memory traffic.
+For reproducible resampling, set `bootstrap_random_state` or `simultaneous_random_state` as appropriate. Increasing `simultaneous_n_bootstrap` reduces Monte Carlo noise in the critical-value estimate at the cost of more work and memory traffic on the path's actual numerical backend.
 
 De-biased inference can be substantially more expensive than fitting the original Lasso because it solves many node-wise sparse regressions. Backend acceleration changes the numerical cost profile but not the statistical assumptions.
 
 ## What the current implementation does not claim
 
-- Ordinary post-selection OLS intervals are not general selective-inference intervals.
+- Ordinary post-selection OLS/WLS intervals are not general selective-inference intervals.
 - Residual bootstrap is not a universal correction for model-selection uncertainty.
 - Marginal de-biased intervals do not provide joint coverage without simultaneous calibration.
 - Simultaneous max-|Z| intervals do not replace FDR procedures such as Benjamini-Hochberg when FDR is the scientific target.
 - Numerical convergence, GPU execution, and a small KKT residual do not prove that the high-dimensional assumptions required for de-biased inference hold for a dataset.
-- The default simultaneous target is the feature family; see the intercept boundary above before requesting intercept inclusion.
+- The historical `fit_intercept=False` simultaneous path is not claimed as GPU-native merely because a GPU was used for the penalized/de-biased fit.
 
 ## References
 
