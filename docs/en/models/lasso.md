@@ -1,7 +1,7 @@
 # Lasso
 
 > Language: English  
-> Last updated: 2026-09-06  
+> Last updated: 2026-09-09  
 > Switch: [简体中文](../../cn/models/lasso.md)
 
 ## What problem does it solve?
@@ -160,7 +160,7 @@ For most Lasso workflows, standardize continuous predictors before fitting. The 
 ## Compare with nearby methods
 
 | Method | Keeps correlated groups? | Exact zeros? | Typical reason to choose it |
-|---|---|:---:|---|
+|---|:---:|:---:|---|
 | OLS / `LinearRegression` | no regularization | no | unpenalized estimation when the design is stable |
 | [Ridge](ridge.md) | tends to share signal | no | stabilize correlated predictors without feature deletion |
 | **Lasso** | may select one member | yes | sparse prediction / automatic feature selection |
@@ -210,11 +210,12 @@ Inference after data-driven selection is substantially harder than inference aft
 | `inference_method` | Intended use | Important limitation |
 |---|---|---|
 | `debiased` (constructor default) | de-biased/de-sparsified coefficient inference | marginal intervals require high-dimensional de-biasing assumptions; joint coverage needs the separate simultaneous procedure |
-| `cpu_ols` | CPU-oriented post-selection diagnostic | heuristic after selection; not a general selective-inference interval |
-| `gpu_ols` | compatibility selector that currently reuses the CPU-oriented OLS helper | not backend-native GPU inference; same post-selection validity limitation |
+| `post_selection_ols` | active-set OLS/WLS diagnostic on the fit-resolved NumPy/CuPy/Torch backend | heuristic after selection; not a general selective-inference interval |
 | `bootstrap` | residual-bootstrap alternative | materially more expensive and not a universal correction for selection uncertainty |
 
-For the actual node-wise-Lasso construction, marginal z inference, max-|Z| multiplier bootstrap, backend/reporting boundaries, multiple-testing distinction, output fields, and current intercept/weight limitations, see **[Lasso inference](lasso-inference.md)**.
+`post_selection_ols` is the canonical hardware-neutral spelling. Legacy `cpu_ols` / `gpu_ols` values are deprecated compatibility aliases that emit `FutureWarning` and normalize to the same method; device selection remains a separate concern.
+
+For the actual node-wise-Lasso construction, coherent debiased intercept, marginal z inference, intercept-inclusive max-|Z| multiplier bootstrap, backend/reporting boundaries, multiple-testing distinction, and output fields, see **[Lasso inference](lasso-inference.md)**.
 
 ## Common pitfalls
 
@@ -266,7 +267,7 @@ Lasso(
 | `max_iter` | `1000` | Maximum solver iterations. |
 | `tol` | `1e-4` | Numerical convergence tolerance. |
 | `stopping` | `"coef_delta"` | `coef_delta` or `kkt` convergence criterion where supported. |
-| `inference_method` | `"debiased"` | Post-fit inference path: `debiased`, `cpu_ols`, `gpu_ols`, or `bootstrap`; see [Lasso inference](lasso-inference.md) for execution boundaries. |
+| `inference_method` | `"debiased"` | Post-fit inference path: `debiased`, canonical `post_selection_ols`, or `bootstrap`. Legacy `cpu_ols` / `gpu_ols` aliases normalize to `post_selection_ols` with `FutureWarning`. |
 | `n_bootstrap` | `200` | Number of residual-bootstrap draws for `inference_method="bootstrap"`. |
 | `bootstrap_random_state` | `None` | RNG seed for the residual-bootstrap inference path. |
 | `enable_simultaneous_inference` | `False` | Enable simultaneous max-|Z| intervals after de-biased inference. |
@@ -274,7 +275,7 @@ Lasso(
 | `simultaneous_alpha` | `0.05` | Family-wise error level used for simultaneous intervals. |
 | `simultaneous_n_bootstrap` | `1000` | Number of multiplier-bootstrap draws for max-|Z| calibration. |
 | `simultaneous_random_state` | `None` | RNG seed for simultaneous bootstrap calibration. |
-| `simultaneous_include_intercept` | `False` | Request intercept inclusion in simultaneous reporting; see the current implementation boundary in [Lasso inference](lasso-inference.md). |
+| `simultaneous_include_intercept` | `False` | Include the centered debiased intercept in the bootstrap max-|Z| target and reported joint interval family. |
 | `device` | `"auto"` | `auto`, `cpu`, `cuda` (CuPy), or `torch` (Torch CUDA). |
 | `n_jobs` | `None` | Parallelism hint where a selected path uses it. |
 | `compute_inference` | `True` | Compute the selected post-fit inference path. |
@@ -343,7 +344,7 @@ Underscore-prefixed inference arrays are established reporting attributes in the
 
 ## Validation
 
-Maintained validation covers solver convergence, CPU/GPU consistency, KKT stopping, de-biased inference, bootstrap/inference paths, simultaneous inference, and physical-GPU behavior where required. Relevant entry points include `dev/tests/test_lasso_debiased_inference.py`, `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`, and `dev/comparisons/compare_lasso_kkt_stopping.py`.
+Maintained validation covers solver convergence, CPU/GPU consistency, KKT stopping, de-biased inference, residual bootstrap, backend-native `post_selection_ols`, simultaneous inference, and physical-GPU behavior where required. Relevant entry points include `dev/tests/test_lasso_debiased_inference.py`, `dev/benchmarks/validate_post_selection_ols_gpu.py`, `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`, and `dev/comparisons/compare_lasso_kkt_stopping.py`.
 
 ## References
 
