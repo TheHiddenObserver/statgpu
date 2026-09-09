@@ -8,7 +8,7 @@
 
 `Ridge` 是加入 L2 惩罚的线性回归。它适合普通最小二乘（OLS）能够拟合数据、但单个系数因为特征高度相关而非常不稳定的情况。
 
-一个常见症状是**多重共线性**：两个特征携带几乎相同的信息时，OLS 的预测可能变化不大，但系数会在两者之间剧烈摇摆。Ridge 接受一定的**正则化偏差**，换取更小、更稳定的系数方差。
+一个常见症状是**多重共线性**：两个特征携带几乎相同的信息时，OLS 的预测可能变化不大，但系数会在两者之间剧烈摇摆。Ridge 的基本思想是接受一定的估计偏差，以换取更低的系数方差和更稳定的预测，这正是经典的偏差—方差权衡。
 
 典型问题包括：
 
@@ -125,7 +125,7 @@ print("Ridge R²:", round(ridge.score(X, y), 3))
 - `intercept_` 是不受惩罚的截距。
 - `predict(X_new)` 返回连续预测。
 - `score(X, y)` 返回 $R^2$，并支持 `sample_weight=`。
-- 系数变小不等于科学意义一定变弱，其中可能只是正则化偏差。
+- 系数变小不等于科学意义一定变弱，其中可能只是正则化带来的收缩。
 
 若需要系数不确定性，可设置 `compute_inference=True`。此时的推断应理解为条件于当前选定的 `alpha`。
 
@@ -144,7 +144,7 @@ print("Ridge R²:", round(ridge.score(X, y), 3))
 
 ### 先考虑特征尺度
 
-正则化直接作用于系数大小。多数正则化工作流应先标准化连续特征，除非你有意让原始单位参与惩罚项的含义。
+正则化直接作用于系数大小。多数正则化分析流程应先标准化连续特征，除非你有意让原始单位参与惩罚项的含义。
 
 ## 与相近方法比较
 
@@ -155,7 +155,7 @@ print("Ridge R²:", round(ridge.score(X, y), 3))
 | [Lasso](lasso.md) | L1 收缩 | 是 | 稀疏模型 / 自动特征选择 |
 | [Elastic Net](elastic-net.md) | L1 + L2 | 是 | 稀疏性 + 相关变量稳定性 |
 
-## CPU、GPU、Formula 与加权拟合
+## CPU、GPU、公式接口与加权拟合
 
 ```python
 from statgpu.linear_model import Ridge
@@ -173,20 +173,20 @@ model = Ridge(
 weighted = Ridge(alpha=0.2).fit(X, y, sample_weight=w)
 ```
 
-`fit()` 也支持 `formula=` 与 `data=`；Formula 元数据会保留下来，以便 DataFrame 预测时重建一致的设计矩阵。
+`fit()` 也支持 `formula=` 与 `data=` 公式接口；公式接口元数据会保留下来，以便 DataFrame 预测时重建一致的设计矩阵。
 
 ## 进阶：求解器支持
 
 | `solver` 值 | CPU | CuPy / Torch | 用途 |
 |---|:---:|:---:|---|
 | `exact`（默认） | 支持 | 支持 | 稠密 L2 直接求解 |
-| `auto` | exact | Newton | 感知后端的自动分发 |
-| `fista` / `fista_bb` | 支持 | 支持 | 迭代对照 / 特殊工作负载 |
+| `auto` | exact | Newton | 根据后端自动分派 |
+| `fista` / `fista_bb` | 支持 | 支持 | 迭代对照 / 特殊计算场景 |
 | `newton` / `lbfgs` | 支持 | 支持 | 光滑目标的替代路径 |
 | `admm` | 支持 | 支持 | 实验性拆分路径，仅支持均匀样本权重 |
 | `irls` | 不支持 | 不支持 | 平方误差目标没有 IRLS 约定 |
 
-一次直接 `Ridge.fit` 中，`solver` 是权威的算法选择参数。`cpu_solver` 仅作为旧版/共享路径的兼容控制保留，不会选择直接拟合算法；新代码应使用 `solver`。通用迭代机制见[求解器算法指南](../guides/solver-algorithms.md)。
+一次直接 `Ridge.fit` 中，`solver` 是直接拟合算法的正式选择参数。`cpu_solver` 仅作为旧版/共享路径的兼容控制保留，不会选择直接拟合算法；新代码应使用 `solver`。通用迭代机制见[求解器算法指南](../guides/solver-algorithms.md)。
 
 ## 进阶：推断与目标函数尺度
 
@@ -208,9 +208,9 @@ weighted = Ridge(alpha=0.2).fit(X, y, sample_weight=w)
 
 ## 完整 API 参考
 
-这里列出当前 `Ridge` 包装器的完整公开 API。
+这里列出当前 `Ridge` 封装类的完整公开 API。
 
-### Constructor
+### 构造函数
 
 ```python
 Ridge(
@@ -265,8 +265,8 @@ model.fit(
 | `X` | 数组接口中的二维特征矩阵。 |
 | `y` | 一维连续因变量。 |
 | `sample_weight` | 可选的非负分析权重，总和必须有限且为正。 |
-| `formula` | 可选 Patsy 风格 Formula，与 `data` 一起使用。 |
-| `data` | Formula 接口使用的 DataFrame。 |
+| `formula` | 可选的 Patsy 风格公式，与 `data` 一起使用。 |
+| `data` | 公式接口使用的 DataFrame。 |
 
 `fit()` 返回 `self`。
 
@@ -277,7 +277,7 @@ model.fit(
 | `predict` | `predict(X, return_cpu=True)` | 连续预测；GPU 拟合后 `return_cpu=False` 可让结果保留在 CuPy/Torch 后端。 |
 | `score` | `score(X, y, sample_weight=None)` | 返回 $R^2$，支持加权。 |
 | `summary` | `summary()` | 打印 Ridge 推断摘要；要求模型已拟合且推断结果可用。 |
-| `get_params` / `set_params` | sklearn 风格工具 | 查看或替换构造参数状态。 |
+| `get_params` / `set_params` | scikit-learn 风格工具 | 查看或替换构造参数状态。 |
 
 继承的模型上下文工具 `adjust_pvalues`、`combine_pvalues`、`bootstrap_statistic` 和 `permutation_test` 的完整签名、后端解析和拟合状态复用语义见[推断 API](../guides/inference-api.md)。
 
@@ -298,11 +298,11 @@ model.fit(
 | `_conf_int` | 系数置信区间。 |
 | `_inference_result` | 结构化推断结果与元数据。 |
 
-下划线开头的推断数组属于当前版本既有的结果属性；需要长期模式稳定性的代码应优先使用更高层的报告接口。
+下划线开头的推断数组属于当前版本既有的结果属性；需要长期保持接口结构稳定的代码应优先使用更高层的报告接口。
 
 ## 验证
 
-当前维护的测试覆盖平均损失闭式解、加权拟合、exact/FISTA、Formula 行对齐、推断、RidgeCV 最终重拟合，以及保持在实际后端上的推断实现约定。
+当前维护的测试覆盖平均损失闭式解、加权拟合、exact/FISTA、公式接口行对齐、推断、RidgeCV 最终重拟合，以及数值推断保持在实际后端上的实现约定。
 
 ## 参考文献
 
