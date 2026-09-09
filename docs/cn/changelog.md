@@ -1,9 +1,46 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-08-30<br>
+> 最后更新：2026-09-08<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
+
+## 未发布 — Post-selection OLS 推断 API 清理（PR #138 / Issue #137）
+
+### 变更
+
+- 为稀疏 Gaussian `Lasso`、`ElasticNet` 以及公开 generic `PenalizedGeneralizedLinearModel(loss="squared_error", penalty="l1" | "elasticnet")` surface 增加与硬件无关的 canonical `inference_method="post_selection_ols"`。旧 `cpu_ols` / `gpu_ols` 作为一个兼容周期的 `FutureWarning` alias 保留；`LassoCV` 在 CV compatibility boundary 继续接受更早的 `cpu_ols_inference` / `gpu_ols_inference` 拼法。
+- “统计方法是什么”与“在哪个硬件执行”严格正交。显式 `device="cpu"`、`"cuda"` 或 `"torch"` 即使面对异构 input container 仍具有权威性；只有真正的 AUTO policy 才允许保留 native CuPy/Torch-CUDA 输入。LassoCV 现在让 CV 与 selected-alpha final refit 固定在同一 resolved backend，并把 CuPy response/weight 对齐到 design 的具体 CUDA ordinal。
+- `post_selection_ols` 在 fit-recorded NumPy/CuPy/Torch backend 上执行无惩罚 active-set OLS/WLS refit，同时保留 penalized `coef_` 用于预测。nonrobust 继续使用 Student-t 与历史 inactive-coordinate placeholder。rank-deficient active design 使用 effective rank 计算 residual df，并通过 design-level Moore-Penrose/SVD 完成系数 refit 与 covariance bread；robust/HAC 以及 empty-active no-intercept case 保留调用者请求的 covariance/reference family。
+- active-refit diagnostic state 与 penalized-fit 的 R-squared/F/log-likelihood/AIC/BIC ownership 分离。`summary()` 分开报告 penalized-fit 与 post-selection residual DoF；formula 路径保持 categorical/missing-row/sample-weight 对齐；失败 refit fail closed，不保留上一轮成功 fit 或当前半成品 inference state。
+- 统一 sparse-Gaussian analytic-weight 语义：NumPy/CuPy/Torch direct fit 与 weighted LassoCV 都先在原始 observation 上 weighted-center，再使用等价的 `sqrt(w * n / sum(w))` row transform。默认 CV alpha grid、fold objective、weighted validation MSE 与 final refit 使用同一约定；所有权重为同一正常数时精确等价于 unweighted CV。weighted 非 Gaussian sparse GLM 继续保留各自 loss-specific、sample-weight-aware objective。
+- NumPy/CuPy/Torch `debiased` 统一到同一个 centered average-loss working problem，使 omitted weights、all-one weights 与全局等比例缩放 analytic weights 的结果一致。intercept-inclusive simultaneous max-|Z| inference 现在让原始坐标系 intercept influence 真正进入 bootstrap maximum；成功 refit 会先清除 stale simultaneous/precision state 再发布新结果。
+- 字符串与公开 `Penalty` 对象形式共享同一个 sparse-Gaussian migration 与 AUTO-routing contract。clone/get-params/set-params、warning call site、LassoCV final-refit ownership、backend/device provenance、formula routing 与 failure transaction 都有 maintained regression 覆盖。
+
+### 验证
+
+- hosted validation 覆盖 Python 3.9/3.12、Torch 2.0 CPU、完整 CPU suite、scikit-learn 1.2.2/1.3.2/current maintenance compatibility、static/ruff、documentation、release package 与 benchmark-frontend contract。
+- `dev/benchmarks/validate_post_selection_ols_gpu.py` 是最终 physical-CUDA gate，目前为 **schema v7 / 22 cases**：保留原始 4 个 direct-Lasso case，并增加 18 个 CuPy/Torch closure case，覆盖 ElasticNet/generic sparse Gaussian、weighted/unweighted debiased、真实 weighted multi-alpha LassoCV selection+final refit、rank-deficient SVD refit、Penalty-object AUTO routing、empty-active HC3 与 intercept-inclusive simultaneous max-|Z|。既有 post-selection 数值 tolerance 没有放宽。
+- 之前 Tesla P100 artifact 只继续作为各自历史 exact SHA 的不可变证据。后续 review/fix loop 已修改有效 production numerical path，因此当前 source 的 physical acceptance 仍然 **等待 final exact clean-head schema-v7 22/22 CuPy/Torch CUDA rerun**。hosted checks 不替代该 gate，本变更也不做 GPU 性能声明。
+
+## 未发布 — Penalized solver API 清理（PR #135）
+
+### 变更
+
+- 公开 direct penalized estimator 统一以与后端无关的 `solver` 作为 direct-fit 的权威算法选择器。旧 `cpu_solver` 暂时保留一个兼容周期，调用者显式使用时产生 `FutureWarning`，但不会被静默映射成 `solver`，从而保持当前 unified-engine 的实际数值行为。
+- `LassoCV` 将 `solver`（最终全数据 refit）与 `cv_solver`（CV folds/path）分开；`cv_solver="auto"` 在 CPU 上解析为 coordinate descent，在 CUDA/Torch 上解析为 FISTA，拟合后的 `cv_solver_` 记录实际执行算法。
+- 已弃用的 `LassoCV(cpu_solver=...)` 保留历史阶段语义：CPU 上继续作为旧 CV-solver alias；CUDA/Torch 上会 warning，但保持非权威，因此不会替换维护中的 GPU FISTA 路径。
+
+### 兼容性
+
+- 省略 direct `cpu_solver` 与框架内部 reconstruction 不会产生弃用噪声，包括 scikit-learn 1.2 的 `get_params() -> constructor` clone 路径和较新版本的 `__sklearn_clone__` 路径。
+- 显式 `set_params(cpu_solver=...)` 以及 legacy `LassoCV(..., cpu_solver=...).fit(...)` 的 warning 会指向调用者，而不是 statgpu 内部 reconstruction/validation frame。
+- 迁移指南明确区分“删除已经非权威的 direct `cpu_solver` 以保持当前实际行为”和“把旧算法意图显式搬到 `solver`、主动改变实际 solver”两种操作。
+
+### 验证
+
+- 增加 focused solver/deprecation regression coverage，覆盖 direct solver authority、参数省略与显式旧值、sklearn clone/reconstruction、内部 helper warning suppression、`set_params`、LassoCV CPU/GPU alias、`cv_solver_` 与 warning call site。
+- Maintenance compatibility workflow 会在 scikit-learn 1.2.2、1.3.2 与 current 上运行该 focused suite；最终 exact-head hosted 结果在 PR #135 的最终 source head 完成 CI 后记录。
 
 ## 未发布 — Gaussian 后端原生推断（PR #129 / Issue #127）
 
@@ -205,4 +242,4 @@ Stage B diagnostics 与 Stage C covariance 扩展继续由 Issue #93 跟踪；St
 ## 更早的历史记录
 
 截至 2026-08-03 的详细条目保留在
-[归档 changelog](https://github.com/TheHiddenObserver/statgpu/blob/master/docs/cn/changelog-history-through-2026-08-03.markdown)。
+[归档 changelog](changelog-history-through-2026-08-03.markdown)。

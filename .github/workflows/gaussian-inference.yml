@@ -9,6 +9,18 @@ on:
       - 'statgpu/linear_model/__init__.py'
       - 'statgpu/linear_model/_gaussian_inference.py'
       - 'statgpu/linear_model/_gaussian_inference_device_contract.py'
+      - 'statgpu/linear_model/_penalized_inference_api.py'
+      - 'statgpu/linear_model/_penalized_inference_api_contract.py'
+      - 'statgpu/linear_model/_post_selection_ols_review_fix_contract.py'
+      - 'statgpu/linear_model/_post_selection_ols_fifth_review_contract.py'
+      - 'statgpu/linear_model/_debiased_simultaneous_intercept_contract.py'
+      - 'statgpu/linear_model/_debiased_intercept_parameterization_contract.py'
+      - 'statgpu/linear_model/_debiased_marginal_finite_contract.py'
+      - 'statgpu/linear_model/_debiased_simultaneous_backend_contract.py'
+      - 'statgpu/linear_model/_weighted_lassocv_review_contract.py'
+      - 'statgpu/linear_model/_lassocv_uniform_weight_identity_contract.py'
+      - 'statgpu/linear_model/_lassocv_device_affinity_contract.py'
+      - 'statgpu/linear_model/cv/_lasso_cv.py'
       - 'statgpu/backends/_gpu_inference_cupy.py'
       - 'statgpu/backends/_utils.py'
       - 'statgpu/backends/_validation.py'
@@ -22,13 +34,17 @@ on:
       - 'statgpu/linear_model/penalized/_latest_review_fix_contract.py'
       - 'statgpu/linear_model/penalized/_final_finite_validation_cleanup_contract.py'
       - 'statgpu/linear_model/penalized/_penalized_linear.py'
+      - 'statgpu/linear_model/penalized/_post_selection_ols.py'
       - 'statgpu/linear_model/wrappers/__init__.py'
       - 'statgpu/linear_model/wrappers/_linear.py'
       - 'statgpu/linear_model/wrappers/_linear_fit_transaction_contract.py'
       - 'statgpu/linear_model/wrappers/_ridge.py'
       - 'dev/tests/test_gaussian_inference_*.py'
+      - 'dev/tests/test_post_selection_ols_*.py'
+      - 'dev/tests/test_weighted_sparse_gpu_objective_contract.py'
       - 'dev/benchmarks/validate_gaussian_inference_backend_native_gpu.py'
       - 'dev/benchmarks/validate_gaussian_inference_cupy_rank_recovery_gpu.py'
+      - 'dev/benchmarks/validate_post_selection_ols_gpu.py'
       - '.github/workflows/gaussian-inference.yml'
   workflow_dispatch:
 
@@ -69,6 +85,8 @@ jobs:
             dev/tests/test_gaussian_inference_gpu_runner_contract.py \
             dev/tests/test_gaussian_inference_cupy_rank_recovery_contract.py \
             dev/tests/test_gaussian_inference_no_host_transfer.py \
+            dev/tests/test_post_selection_ols_*.py \
+            dev/tests/test_weighted_sparse_gpu_objective_contract.py \
             dev/tests/test_ridge_inference.py \
             dev/tests/test_ridge_weighted_consistency.py \
             dev/tests/test_ridge_cv.py \
@@ -112,6 +130,8 @@ jobs:
             dev/tests/test_gaussian_inference_no_cleanup_refit.py \
             dev/tests/test_gaussian_inference_formula_cleanup_contract.py \
             dev/tests/test_gaussian_inference_no_host_transfer.py \
+            dev/tests/test_post_selection_ols_*.py \
+            dev/tests/test_weighted_sparse_gpu_objective_contract.py \
             -q --tb=short
 
   static-contracts:
@@ -133,6 +153,18 @@ jobs:
             statgpu/linear_model/__init__.py \
             statgpu/linear_model/_gaussian_inference.py \
             statgpu/linear_model/_gaussian_inference_device_contract.py \
+            statgpu/linear_model/_penalized_inference_api.py \
+            statgpu/linear_model/_penalized_inference_api_contract.py \
+            statgpu/linear_model/_post_selection_ols_review_fix_contract.py \
+            statgpu/linear_model/_post_selection_ols_fifth_review_contract.py \
+            statgpu/linear_model/_debiased_simultaneous_intercept_contract.py \
+            statgpu/linear_model/_debiased_intercept_parameterization_contract.py \
+            statgpu/linear_model/_debiased_marginal_finite_contract.py \
+            statgpu/linear_model/_debiased_simultaneous_backend_contract.py \
+            statgpu/linear_model/_weighted_lassocv_review_contract.py \
+            statgpu/linear_model/_lassocv_uniform_weight_identity_contract.py \
+            statgpu/linear_model/_lassocv_device_affinity_contract.py \
+            statgpu/linear_model/cv/_lasso_cv.py \
             statgpu/backends/_gpu_inference_cupy.py \
             statgpu/backends/_utils.py \
             statgpu/backends/_validation.py \
@@ -146,6 +178,7 @@ jobs:
             statgpu/linear_model/penalized/_latest_review_fix_contract.py \
             statgpu/linear_model/penalized/_final_finite_validation_cleanup_contract.py \
             statgpu/linear_model/penalized/_penalized_linear.py \
+            statgpu/linear_model/penalized/_post_selection_ols.py \
             statgpu/linear_model/wrappers/__init__.py \
             statgpu/linear_model/wrappers/_linear.py \
             statgpu/linear_model/wrappers/_linear_fit_transaction_contract.py \
@@ -165,8 +198,11 @@ jobs:
             dev/tests/test_gaussian_inference_gpu_runner_contract.py \
             dev/tests/test_gaussian_inference_cupy_rank_recovery_contract.py \
             dev/tests/test_gaussian_inference_no_host_transfer.py \
+            dev/tests/test_post_selection_ols_*.py \
+            dev/tests/test_weighted_sparse_gpu_objective_contract.py \
             dev/benchmarks/validate_gaussian_inference_backend_native_gpu.py \
-            dev/benchmarks/validate_gaussian_inference_cupy_rank_recovery_gpu.py
+            dev/benchmarks/validate_gaussian_inference_cupy_rank_recovery_gpu.py \
+            dev/benchmarks/validate_post_selection_ols_gpu.py
       - name: High-signal static checks
         run: |
           ruff check \
@@ -175,6 +211,18 @@ jobs:
             statgpu/linear_model/__init__.py \
             statgpu/linear_model/_gaussian_inference.py \
             statgpu/linear_model/_gaussian_inference_device_contract.py \
+            statgpu/linear_model/_penalized_inference_api.py \
+            statgpu/linear_model/_penalized_inference_api_contract.py \
+            statgpu/linear_model/_post_selection_ols_review_fix_contract.py \
+            statgpu/linear_model/_post_selection_ols_fifth_review_contract.py \
+            statgpu/linear_model/_debiased_simultaneous_intercept_contract.py \
+            statgpu/linear_model/_debiased_intercept_parameterization_contract.py \
+            statgpu/linear_model/_debiased_marginal_finite_contract.py \
+            statgpu/linear_model/_debiased_simultaneous_backend_contract.py \
+            statgpu/linear_model/_weighted_lassocv_review_contract.py \
+            statgpu/linear_model/_lassocv_uniform_weight_identity_contract.py \
+            statgpu/linear_model/_lassocv_device_affinity_contract.py \
+            statgpu/linear_model/cv/_lasso_cv.py \
             statgpu/backends/_gpu_inference_cupy.py \
             statgpu/backends/_utils.py \
             statgpu/backends/_validation.py \
@@ -188,6 +236,7 @@ jobs:
             statgpu/linear_model/penalized/_latest_review_fix_contract.py \
             statgpu/linear_model/penalized/_final_finite_validation_cleanup_contract.py \
             statgpu/linear_model/penalized/_penalized_linear.py \
+            statgpu/linear_model/penalized/_post_selection_ols.py \
             statgpu/linear_model/wrappers/__init__.py \
             statgpu/linear_model/wrappers/_linear.py \
             statgpu/linear_model/wrappers/_linear_fit_transaction_contract.py \
@@ -207,6 +256,9 @@ jobs:
             dev/tests/test_gaussian_inference_gpu_runner_contract.py \
             dev/tests/test_gaussian_inference_cupy_rank_recovery_contract.py \
             dev/tests/test_gaussian_inference_no_host_transfer.py \
+            dev/tests/test_post_selection_ols_*.py \
+            dev/tests/test_weighted_sparse_gpu_objective_contract.py \
             dev/benchmarks/validate_gaussian_inference_backend_native_gpu.py \
             dev/benchmarks/validate_gaussian_inference_cupy_rank_recovery_gpu.py \
+            dev/benchmarks/validate_post_selection_ols_gpu.py \
             --select F821,E9,F63,F7,F82

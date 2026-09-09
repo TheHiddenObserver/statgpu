@@ -1,7 +1,7 @@
 # Inference Modes
 
 > Language: English  
-> Last updated: 2026-08-28  
+> Last updated: 2026-09-08  
 > This page: Guide  
 > Switch: [Chinese](../../cn/guides/inference-modes.md)
 
@@ -23,14 +23,12 @@ NumPy snapshot. This is a reporting boundary, not a CPU inference fallback.
 `reporting_backend="numpy"`, and
 `reporting_boundary="post_numerical_inference"` for this shared path.
 
-Explicit `device="cuda"` and `device="torch"` requests do not silently downgrade
-Gaussian L2 inference to NumPy. Missing or invalid executed-backend provenance
-fails closed. `device="auto"` retains the estimator's existing backend-selection
-policy.
-
-This statement is deliberately scoped to the migrated shared Gaussian inference
-path. It does **not** imply that every inference implementation in statgpu has
-been migrated to the same lifecycle.
+For the shared squared-error L2/Ridge path above, explicit `device="cuda"` and
+`device="torch"` requests do not silently downgrade that inference to NumPy.
+Missing or invalid executed-backend provenance fails closed. `device="auto"` is
+the only mode that may select among available backends automatically. This
+guarantee is scoped to the backend-native paths described here and below;
+method-specific exceptions such as residual bootstrap are called out explicitly.
 
 Supported covariance choices on the Gaussian path are:
 
@@ -44,20 +42,140 @@ Student-t identities at one and two residual degrees of freedom, avoiding
 subtractive cancellation or an avoidable `t**2` overflow in representable
 extreme tails.
 
-## Lasso inference methods
+## Sparse penalized-linear inference
 
-`Lasso.inference_method` options:
+For `Lasso`, `ElasticNet`, and the public generic
+`PenalizedGeneralizedLinearModel(loss="squared_error", penalty="l1" | "elasticnet")`
+entry point, statistical method identity and execution hardware are separate
+controls. The maintained inference methods are:
 
-- `cpu_ols_inference` (default)
-- `gpu_ols_inference`
-- `bootstrap`
+- `debiased` — de-biased/de-sparsified coefficient inference.
+- `post_selection_ols` — heuristic OLS/WLS refit on the active set selected by
+  the penalized fit.
+- `bootstrap` — residual-bootstrap inference where supported.
 
-Backward-compatible aliases:
+`post_selection_ols` is the canonical hardware-neutral spelling. The unified
+aliases `cpu_ols` and `gpu_ols` are deprecated together and are accepted for one
+compatibility cycle with `FutureWarning`; both normalize to
+`post_selection_ols`. `LassoCV` also accepts the older
+`cpu_ols_inference` / `gpu_ols_inference` spellings at its compatibility boundary
+and normalizes them to the same method.
 
-- `naive_ols` -> `cpu_ols_inference`
-- `gpu_naive_ols` -> `gpu_ols_inference`
+The method name does **not** choose a device. Device/backend routing follows the
+estimator contract:
 
-Recommended usage:
+- explicit `device="cpu"` runs the NumPy CPU route;
+- explicit `device="cuda"` requires CuPy CUDA and fails closed when unavailable;
+- explicit `device="torch"` requires Torch CUDA and fails closed when unavailable;
+- only genuine estimator/global `device="auto"` may preserve an already
+  backend-native CuPy or Torch-CUDA input as part of automatic routing.
+
+String and `Penalty`-object forms of the sparse Gaussian penalty participate in
+the same migration and AUTO-routing contract.
+
+Backend reuse is method-specific. `post_selection_ols` always reuses the
+successful fit's recorded `_selected_backend_name` / `_selected_backend_device`.
+The maintained CuPy/Torch **marginal** `debiased` routes keep their numerical
+coefficient inference on the executed GPU backend. This includes scalar
+normal-reference critical values: inside debiased GPU inference, scalar
+distribution calls are pinned to the executed CuPy/Torch backend (and Torch
+concrete device) instead of re-resolving a Python scalar to NumPy.
+
+For centered `fit_intercept=True` debiased inference, PR #138 also keeps the
+expensive simultaneous multiplier-bootstrap stage on that same concrete
+CuPy/Torch device. The coherent marginal result has already taken its established
+O(p) NumPy reporting snapshot; only those small marginal parameter/SE arrays are
+mapped back to the execution device. The B×n multiplier draws, feature/intercept
+scores, max-|Z| reduction, quantile calibration, and joint confidence-interval
+numerics then remain backend-native before the joint result is snapshotted for
+reporting. The structured result records `simultaneous_numerical_backend`,
+`simultaneous_numerical_device`, `simultaneous_reporting_backend="numpy"`, and
+`simultaneous_reporting_boundary="post_numerical_inference"`. The historical
+`fit_intercept=False` simultaneous path still uses the pre-existing generic
+reporting-stage helper and is **not** claimed as GPU-native by this PR.
+
+Residual `bootstrap`, likewise, currently uses a CPU-native residual-refit
+implementation. An explicit GPU `device` therefore controls the penalized fit
+but must not be interpreted as making residual bootstrap GPU-native.
+
+With analytic `sample_weight`, the maintained NumPy/CuPy/Torch `debiased` paths
+use the same weighted-centered average-loss working problem. Multiplying every
+weight by the same positive constant therefore leaves both the penalized fit and
+the debiased inference unchanged.
+
+Debiased inference also has explicit parameter ownership when an intercept is
+fitted. Public `coef_` and `intercept_` remain the **penalized prediction fit**.
+Inference reporting uses the debiased slope vector `theta_db = _params[1:]` and
+the matching original-coordinate intercept
+`_params[0] = ybar_w - xbar_w @ theta_db`. Therefore `_bse[0]`, the first
+z-statistic/p-value, and `_conf_int[0]` refer to that debiased reporting
+intercept, not to prediction `intercept_`. This preserves the ordinary feature-
+translation identity: shifting the design by a constant vector `c` shifts the
+reported debiased intercept by `-c @ theta_db` while leaving the debiased slopes
+unchanged. Metadata records `intercept_estimator="centered_debiased"` and
+`intercept_influence="centered_nodewise"`.
+
+Weighted `LassoCV` uses that same analytic-weight convention for its default
+alpha grid, every training-fold objective, weighted validation MSE, and the final
+selected-alpha refit. Positive constant weights are treated as the exact
+unweighted statistical problem, avoiding artificial floating-point differences.
+Once AUTO routing resolves a concrete CPU/CuPy/Torch backend for CV, the final
+`Lasso` refit stays on that same backend; explicit CPU also converts heterogeneous
+GPU-resident inputs to NumPy before entering the dedicated CV selector. If the
+final refit produces inference, the outer `LassoCV` exposes the same structured
+`_inference_result` and matching `_params`/SE/statistic/p-value/CI reporting
+surface. Its public `coef_`/`intercept_` still belong to the penalized prediction
+refit, so the same ownership distinction applies there too.
+
+For debiased simultaneous inference, ordinary `_conf_int` remains marginal.
+`enable_simultaneous_inference=True` uses multiplier-bootstrap max-|Z|
+calibration. `simultaneous_alpha` must lie strictly in `(0, 1)` and
+`simultaneous_n_bootstrap` must be positive; these controls are validated before
+NumPy/CuPy/Torch backend dispatch. When `simultaneous_include_intercept=True`,
+the same centered-nodewise original-coordinate intercept influence used by the
+marginal SE is part of the bootstrap maximum itself, not merely an extra reported
+interval row. On CuPy/Torch with `fit_intercept=True`, that centered simultaneous
+calculation is backend-native as described above. A successful refit clears the
+previous fit's simultaneous critical value, target mask, joint intervals, and
+precision/influence state before computing the new result.
+
+### What `post_selection_ols` computes
+
+The penalized model first selects an active set. statgpu then refits an
+**unpenalized OLS or WLS model on exactly that active set** on the fit-resolved
+backend and computes covariance/reference-distribution inference there. The
+original penalized `coef_` remains the coefficient vector used for prediction;
+the active-set refit is an inferential/reporting object in `_params` /
+`_inference_result`.
+
+The two fits have separate diagnostic ownership. In `summary()`, the coefficient
+table and `Post-selection Refit DoF` belong to the active-set refit, while
+R-squared, adjusted R-squared, F statistic, log-likelihood, AIC, BIC, and
+`Penalized-fit Residual DoF` continue to describe the penalized prediction fit.
+When the active design is rank deficient, the refit residual degrees of freedom
+are `n - effective_rank`, not `n - active_column_count`; the coefficient refit
+and covariance bread use a design-level Moore-Penrose/SVD calculation rather
+than squaring the condition number through normal equations. Metadata records
+`refit_rank`, `refit_parameter_count`, and `refit_rank_deficient`.
+
+For `cov_type="nonrobust"`, this path preserves the established classical
+**Student-t** reporting convention. Robust covariance choices exposed by the
+estimator use the shared Gaussian robust-covariance layer and its normal-reference
+reporting convention. If a no-intercept fit selects no features, all coefficient
+entries are inactive compatibility placeholders; the result still preserves the
+requested covariance/reference family (`nonrobust` -> Student-t, robust/HAC ->
+normal) rather than silently rewriting the request.
+
+The full reporting arrays preserve one compatibility detail from the old
+`cpu_ols` surface: coordinates that were not selected are represented with
+`SE=0`, statistic `0`, `p=1`, and `[0, 0]` confidence-interval placeholders.
+Those values are **not inferential claims that the coefficient is known exactly**.
+Use `_inference_result.metadata["selected_feature_indices"]` to identify the
+coordinates that actually received the active-set OLS/WLS calculation.
+
+This remains a post-selection diagnostic. Ordinary OLS/WLS intervals formed
+after choosing variables from the same data are not general selective-inference
+confidence intervals.
 
 ```python
 from statgpu.linear_model import Lasso
@@ -66,15 +184,27 @@ model = Lasso(
     alpha=0.1,
     device="cuda",
     solver="fista",
-    stopping="kkt",
     compute_inference=True,
-    inference_method="gpu_ols_inference",
+    inference_method="post_selection_ols",
 )
 model.fit(X, y)
+
+# Prediction still uses the penalized fit.
+penalized_coef = model.coef_
+
+# Reporting/inference uses the active-set OLS/WLS refit.
+post_selection_params = model._params
 ```
 
-Related robust covariance support:
+For high-dimensional coefficient inference rather than an engineering
+post-selection diagnostic, prefer `inference_method="debiased"` and check its
+statistical assumptions. Lasso's simultaneous max-|Z| path is a separate
+procedure from ordinary marginal intervals and from p-value adjustment.
+
+## Related robust covariance support
 
 - `LinearRegression(cov_type="nonrobust" | "hc0" | "hc1" | "hc2" | "hc3" | "hac")`
 - `Ridge(cov_type="nonrobust" | "hc0" | "hc1" | "hc2" | "hc3" | "hac")`
+- sparse Gaussian `post_selection_ols` uses the same Gaussian covariance layer
+  for covariance choices exposed by the estimator.
 - `LogisticRegression(cov_type="nonrobust" | "hc0" | "hc1" | "hc2" | "hc3" | "hac")`
