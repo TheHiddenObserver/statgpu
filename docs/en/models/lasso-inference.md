@@ -7,9 +7,33 @@
 
 This page is the statistical-inference companion to the learner-first [Lasso guide](lasso.md). It explains what statgpu's post-fit inference modes compute, how to interpret the reported intervals, and where the current implementation deliberately stops making a stronger claim.
 
-## Why Lasso inference needs its own page
+## Why ordinary Lasso coefficients need a different inferential construction
 
-The fitted Lasso coefficient vector solves a penalized prediction/selection problem. That is not the same object as an ordinary least-squares estimator from a model fixed before looking at the data. Once the same data are used to choose a sparse active set and estimate its coefficients, attaching ordinary OLS standard errors to the selected model generally ignores selection uncertainty.
+Lasso is designed first as a **regularized estimator**. For the centered Gaussian linear model, it solves an objective of the form
+
+$$
+\hat\beta
+= \arg\min_\beta
+\left\{
+\frac{1}{2n}\lVert y-X\beta\rVert_2^2
++ \alpha\lVert\beta\rVert_1
+\right\}.
+$$
+
+The L1 penalty is exactly what creates sparsity, but it also shrinks fitted coefficients toward zero. At a solution, the KKT relation is schematically
+
+$$
+\frac{X^\top(y-X\hat\beta)}{n}
+= \alpha\hat\kappa,
+\qquad
+\hat\kappa_j\in\partial|\hat\beta_j|,
+$$
+
+so the score is intentionally not zero as it would be for unpenalized OLS. The resulting shrinkage bias is the central reason why one cannot simply take the raw Lasso coefficient, attach an ordinary OLS-style standard error, and expect a centered Gaussian statistic. In high-dimensional regimes, the regularization scale is typically large enough that this bias is not automatically negligible on the $n^{-1/2}$ inferential scale. Sparse estimators such as Lasso also have non-smooth, parameter-dependent limiting behavior rather than the simple fixed-model OLS distribution used by classical Wald inference (van de Geer et al., 2014; Javanmard & Montanari, 2014).
+
+**Selection uncertainty is a second, distinct issue.** It becomes especially important if one takes the active set chosen by Lasso and then refits OLS on that same data. Ordinary OLS intervals after data-driven variable selection generally do not account for the selection step. That is why statgpu labels `post_selection_ols` as a diagnostic rather than a general selective-inference procedure.
+
+So the main motivation for the `debiased` path is to remove the leading regularization bias and recover an approximately Gaussian coefficient-level inferential object. The warning about selection uncertainty explains why the separate active-set OLS path makes a weaker claim. These are related high-dimensional inference problems, but they are not the same problem.
 
 statgpu therefore exposes several inference modes with different purposes. They should not be treated as interchangeable ways to print the same p-values.
 
@@ -40,7 +64,7 @@ beta[[1, 4, 8]] = [1.5, -1.1, 0.7]
 y = 0.4 + X @ beta + rng.normal(scale=1.0, size=X.shape[0])
 
 model = Lasso(
-    alpha=0.08,
+    alpha=0.05,
     inference_method="debiased",
     compute_inference=True,
     device="cpu",
@@ -69,30 +93,100 @@ $$
 = \hat\beta + \frac{1}{n} M X^\top r,
 $$
 
-where $M$ is a data-dependent decorrelation matrix intended to approximate an inverse of the feature Gram/covariance matrix.
+where $M$ is a data-dependent decorrelation matrix intended to approximate an inverse of the feature Gram/covariance matrix. This is the de-biased/de-sparsified Lasso construction developed in closely related forms by Zhang & Zhang (2014), van de Geer et al. (2014), and Javanmard & Montanari (2014).
+
+The reason the correction helps becomes clearer by writing the linear model as $y=X\beta^0+\varepsilon$ and defining $\widehat\Sigma=X^\top X/n$. Ignoring the intercept notation for the moment,
+
+$$
+\hat\theta^{\mathrm{db}}-\beta^0
+=
+\frac{1}{n}MX^\top\varepsilon
++
+\left(I-M\widehat\Sigma\right)
+\left(\hat\beta-\beta^0\right).
+$$
+
+The first term is a noise-driven approximately Gaussian term. The second is the remaining regularization/nuisance-estimation error. If $M\widehat\Sigma$ is sufficiently close to the identity and the required sparsity/design conditions make the remainder small, the leading shrinkage bias is removed on the inferential scale. This decomposition is the core reason the de-biased estimator can support asymptotically normal coefficient-wise inference even though the original Lasso estimator generally cannot.
 
 The correction does **not** mean that the original sparse Lasso estimate has become unpenalized. `coef_` is still the fitted penalized model used for prediction. The de-biased vector is an inference object used for coefficient-wise uncertainty reporting.
 
 ## How statgpu constructs the decorrelation matrix
 
-For each feature $j$, statgpu performs a node-wise Lasso regression of $x_j$ on the remaining columns $X_{-j}$. In the CPU implementation, the node-wise penalty scale is
+The node-wise construction follows the approximate precision-matrix idea used by de-sparsified Lasso methods; see van de Geer et al. (2014) and the related low-dimensional projection construction of Zhang & Zhang (2014).
+
+For each feature $j$, statgpu regresses $x_j$ on the remaining columns $X_{-j}$ with a node-wise Lasso:
+
+$$
+\hat\gamma_j
+=
+\arg\min_{\gamma\in\mathbb R^{p-1}}
+\left\{
+\frac{1}{2n}
+\left\lVert x_j-X_{-j}\gamma\right\rVert_2^2
++
+\lambda_{\mathrm{nw}}\lVert\gamma\rVert_1
+\right\},
+$$
+
+using
 
 $$
 \lambda_{\mathrm{nw}}
 = \hat\sigma\sqrt{\frac{2\log(\max(p,2))}{n}}.
 $$
 
-Writing the node-wise coefficient vector as $\hat\gamma_j$, define
+Embed $\hat\gamma_j$ back into $p$ coordinates by defining $\tilde\gamma_j\in\mathbb R^p$ with $(\tilde\gamma_j)_j=0$ and the fitted node-wise coefficients in the remaining positions. Then let
 
 $$
-z_j = x_j - X_{-j}\hat\gamma_j,
+\hat a_j=e_j-\tilde\gamma_j,
 \qquad
-C_j = \frac{z_j^\top x_j}{n}.
+z_j=X\hat a_j=x_j-X_{-j}\hat\gamma_j,
 $$
 
-The corresponding row of $M$ is assembled from $1/C_j$ on the diagonal and $-\hat\gamma_j/C_j$ on the other coordinates. This is the implementation bridge between the sparse precision-matrix idea in de-sparsified Lasso theory and the actual statgpu computation.
+and use the row-specific normalization
 
-Numerical convergence of the node-wise optimization is necessary, but it does not replace the statistical assumptions behind de-biasing.
+$$
+C_j
+=\frac{x_j^\top z_j}{n}.
+$$
+
+The $j$th decorrelation row is therefore written compactly as
+
+$$
+\boxed{
+\hat m_j^\top
+=
+\frac{\hat a_j^\top}{C_j}
+=
+\frac{(e_j-\tilde\gamma_j)^\top}{x_j^\top z_j/n}
+}
+$$
+
+and
+
+$$
+M
+=
+\begin{bmatrix}
+\hat m_1^\top\\
+\vdots\\
+\hat m_p^\top
+\end{bmatrix}.
+$$
+
+This matrix expression is exactly the same implementation rule as placing $1/C_j$ in position $j$ and $-\hat\gamma_{j,k}/C_j$ in the off-diagonal positions, but it makes the statistical object clearer: each row is a normalized residualization direction intended to make $M\widehat\Sigma$ close to the identity. In the common node-wise-Lasso notation of van de Geer et al. (2014), the same construction is written as a row-normalized approximate inverse/precision matrix; the precise symbol used for the normalizer depends on the objective-scaling convention.
+
+### CPU and GPU implementations solve the same statistical problem
+
+The formula above is **not CPU-specific**. The maintained NumPy, CuPy, and Torch debiased paths use the same node-wise penalty scale, the same $\hat\gamma_j$, $C_j$, and $M$ definitions, and the same downstream de-biasing/variance formulas.
+
+The difference is computational:
+
+- the CPU path solves the node-wise Lasso problems one feature at a time;
+- the CuPy and Torch paths form the corresponding Gram subproblems in batches and run batched FISTA-style node-wise solves on the concrete GPU device;
+- batching changes execution and memory traffic, not the statistical definition of the decorrelation matrix.
+
+Numerical convergence of the node-wise optimization is necessary, but it does not replace the sparsity, design, and noise assumptions behind de-biased inference.
 
 ## Standard errors, z statistics, and marginal intervals
 
@@ -130,13 +224,19 @@ $$
 
 Its standard error and influence representation are therefore tied to the same centered de-biased parameterization rather than treating the intercept as another node-wise-Lasso feature coordinate.
 
-## Simultaneous max-|Z| inference
+## From marginal intervals to simultaneous coverage
 
-Lasso can optionally calibrate a common critical value with a multiplier bootstrap:
+A 95% marginal interval controls the error probability for **one coefficient at a time**. If many coordinates are reported together, the probability that at least one interval misses its target can be much larger than 5%. Under independence, for example, $m$ separate 95% intervals would have joint coverage $(0.95)^m$, not 0.95. A Bonferroni correction is a simple way to recover family-wise protection, but it can be conservative because it does not exploit the dependence structure among the de-biased coefficient statistics.
+
+High-dimensional simultaneous-inference methods instead calibrate the distribution of the **maximum** standardized error over the requested target set. Bootstrap-assisted simultaneous inference for de-sparsified Lasso estimators is developed, for example, by Zhang & Cheng (2017) and Dezeure, Bühlmann & Zhang (2017). The max statistic automatically reflects dependence among coordinates rather than treating every coefficient as an isolated test.
+
+### max-|Z| multiplier-bootstrap calibration
+
+statgpu can optionally calibrate a common critical value with a Gaussian multiplier bootstrap:
 
 ```python
 model = Lasso(
-    alpha=0.08,
+    alpha=0.05,
     inference_method="debiased",
     compute_inference=True,
     enable_simultaneous_inference=True,
@@ -169,7 +269,7 @@ $$
 \pm c_{1-\alpha}\widehat{\mathrm{se}}_j.
 $$
 
-Because the same critical value protects the target family, simultaneous intervals are normally wider than the corresponding marginal intervals.
+Because the critical value is calibrated for the maximum over the whole target family, these intervals are designed for simultaneous/family-wise coverage and are normally wider than the corresponding marginal intervals. As with the marginal de-biased procedure, the theoretical guarantee still depends on the relevant high-dimensional assumptions; the bootstrap does not make those assumptions disappear.
 
 ### Simultaneous-inference controls
 
@@ -270,7 +370,9 @@ De-biased inference can be substantially more expensive than fitting the origina
 
 ## References
 
-- Zhang, C.-H., & Zhang, S. S. (2014). Confidence intervals for low-dimensional parameters in high-dimensional linear models. *Journal of the Royal Statistical Society: Series B*, 76(1), 217–242.
-- van de Geer, S., Bühlmann, P., Ritov, Y., & Dezeure, R. (2014). On asymptotically optimal confidence regions and tests for high-dimensional models. *The Annals of Statistics*, 42(3), 1166–1202.
-- Javanmard, A., & Montanari, A. (2014). Confidence intervals and hypothesis testing for high-dimensional regression. *Journal of Machine Learning Research*, 15, 2869–2909.
+- Zhang, C.-H., & Zhang, S. S. (2014). Confidence intervals for low-dimensional parameters in high-dimensional linear models. *Journal of the Royal Statistical Society: Series B*, 76(1), 217–242. [doi:10.1111/rssb.12026](https://doi.org/10.1111/rssb.12026)
+- van de Geer, S., Bühlmann, P., Ritov, Y., & Dezeure, R. (2014). On asymptotically optimal confidence regions and tests for high-dimensional models. *The Annals of Statistics*, 42(3), 1166–1202. [doi:10.1214/14-AOS1221](https://doi.org/10.1214/14-AOS1221)
+- Javanmard, A., & Montanari, A. (2014). Confidence intervals and hypothesis testing for high-dimensional regression. *Journal of Machine Learning Research*, 15, 2869–2909. [JMLR](https://jmlr.org/papers/v15/javanmard14a.html)
+- Zhang, X., & Cheng, G. (2017). Simultaneous inference for high-dimensional linear models. *Journal of the American Statistical Association*, 112(518), 757–768. [doi:10.1080/01621459.2016.1166114](https://doi.org/10.1080/01621459.2016.1166114)
+- Dezeure, R., Bühlmann, P., & Zhang, C.-H. (2017). High-dimensional simultaneous inference with the bootstrap. *TEST*, 26(4), 685–719. [doi:10.1007/s11749-017-0554-2](https://doi.org/10.1007/s11749-017-0554-2)
 - Bühlmann, P., & van de Geer, S. (2011). *Statistics for High-Dimensional Data*. Springer.
