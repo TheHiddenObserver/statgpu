@@ -1,0 +1,105 @@
+name: Node-wise alpha inference
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - 'statgpu/linear_model/__init__.py'
+      - 'statgpu/linear_model/_nodewise_alpha_inference_contract.py'
+      - 'statgpu/linear_model/_nodewise_alpha_gpu_scope_contract.py'
+      - 'statgpu/linear_model/_nodewise_precision_cache_contract.py'
+      - 'statgpu/linear_model/penalized/_nodewise_precision.py'
+      - 'dev/tests/test_nodewise_alpha_*.py'
+      - 'dev/tests/test_nodewise_precision_cache_contract.py'
+      - 'dev/benchmarks/validate_nodewise_alpha_*.py'
+      - '.github/workflows/nodewise-alpha-inference.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cpu-contract:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.9', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install validation dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[validation,formula]"
+      - name: Run node-wise API/statistical contracts
+        run: |
+          python -m pytest \
+            dev/tests/test_nodewise_alpha_inference_contract.py \
+            dev/tests/test_nodewise_alpha_formula_contract.py \
+            dev/tests/test_nodewise_precision_cache_contract.py \
+            dev/tests/test_lasso_debiased_inference.py \
+            dev/tests/test_weighted_sparse_gpu_objective_contract.py \
+            -q --tb=short
+
+  simulation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install validation dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[validation,formula]"
+      - name: Run deterministic old-vs-new migration diagnostic
+        run: |
+          python dev/benchmarks/validate_nodewise_alpha_simulation.py \
+            --reps 12 \
+            --output results/nodewise_alpha_simulation_schema_v1.json
+      - name: Upload simulation evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: nodewise-alpha-simulation-${{ github.sha }}
+          path: results/nodewise_alpha_simulation_schema_v1.json
+          if-no-files-found: error
+
+  static-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install package and ruff
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[validation,formula]" ruff
+      - name: Compile node-wise implementation and evidence runners
+        run: |
+          python -m compileall -q \
+            statgpu/linear_model/_nodewise_alpha_inference_contract.py \
+            statgpu/linear_model/_nodewise_alpha_gpu_scope_contract.py \
+            statgpu/linear_model/_nodewise_precision_cache_contract.py \
+            statgpu/linear_model/penalized/_nodewise_precision.py \
+            dev/tests/test_nodewise_alpha_inference_contract.py \
+            dev/tests/test_nodewise_alpha_formula_contract.py \
+            dev/tests/test_nodewise_precision_cache_contract.py \
+            dev/benchmarks/validate_nodewise_alpha_gpu.py \
+            dev/benchmarks/validate_nodewise_alpha_simulation.py
+      - name: High-signal static checks
+        run: |
+          ruff check \
+            statgpu/linear_model/_nodewise_alpha_inference_contract.py \
+            statgpu/linear_model/_nodewise_alpha_gpu_scope_contract.py \
+            statgpu/linear_model/_nodewise_precision_cache_contract.py \
+            statgpu/linear_model/penalized/_nodewise_precision.py \
+            dev/tests/test_nodewise_alpha_inference_contract.py \
+            dev/tests/test_nodewise_alpha_formula_contract.py \
+            dev/tests/test_nodewise_precision_cache_contract.py \
+            dev/benchmarks/validate_nodewise_alpha_gpu.py \
+            dev/benchmarks/validate_nodewise_alpha_simulation.py \
+            --select F821,E9,F63,F7,F82
