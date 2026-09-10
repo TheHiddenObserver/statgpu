@@ -156,36 +156,78 @@ def _run_backend(name):
     }
 
     explicit = _fit(name, X, y, nodewise_alpha=gpu.nodewise_alpha_)
-    _assert_close("auto_explicit_M", gpu._debiased_M_cpu, explicit._debiased_M_cpu, 1e-10, 1e-11)
-    _assert_close("auto_explicit_params", gpu._params, explicit._params, 1e-10, 1e-11)
+    errors["auto_explicit_M"] = _assert_close(
+        "auto_explicit_M", gpu._debiased_M_cpu, explicit._debiased_M_cpu, 1e-10, 1e-11
+    )
+    errors["auto_explicit_params"] = _assert_close(
+        "auto_explicit_params", gpu._params, explicit._params, 1e-10, 1e-11
+    )
     if explicit._inference_result.metadata.get("nodewise_alpha_source") != "user":
         raise AssertionError("explicit nodewise alpha provenance is missing")
 
     y_scaled = _fit(name, X, 17.0 * y)
-    _assert_close("response_scale_M", gpu._debiased_M_cpu, y_scaled._debiased_M_cpu, 1e-10, 1e-11)
+    errors["response_scale_M"] = _assert_close(
+        "response_scale_M", gpu._debiased_M_cpu, y_scaled._debiased_M_cpu, 1e-10, 1e-11
+    )
     if not np.isclose(gpu.nodewise_alpha_, y_scaled.nodewise_alpha_, rtol=0, atol=1e-14):
         raise AssertionError("response scaling changed automatic nodewise alpha")
 
     rng = np.random.default_rng(99)
     w = rng.uniform(0.2, 2.0, size=X.shape[0])
+    cpu_weighted = _cpu_reference(X, y, weight=w)
     weighted = _fit(name, X, y, weight=w)
     weighted_scaled = _fit(name, X, y, weight=13.0 * w)
-    _assert_close("weight_scale_M", weighted._debiased_M_cpu, weighted_scaled._debiased_M_cpu, 3e-7, 3e-9)
+    errors["weighted_cpu_gpu_M"] = _assert_close(
+        "weighted_cpu_gpu_M", cpu_weighted._debiased_M_cpu, weighted._debiased_M_cpu, RTOL_M, ATOL_M
+    )
+    errors["weighted_cpu_gpu_params"] = _assert_close(
+        "weighted_cpu_gpu_params", cpu_weighted._params, weighted._params, RTOL_REPORT, ATOL_REPORT
+    )
+    errors["weighted_cpu_gpu_bse"] = _assert_close(
+        "weighted_cpu_gpu_bse", cpu_weighted._bse, weighted._bse, RTOL_REPORT, ATOL_REPORT
+    )
+    errors["weighted_cpu_gpu_p"] = _assert_close(
+        "weighted_cpu_gpu_p", cpu_weighted._pvalues, weighted._pvalues, 2e-4, 2e-7
+    )
+    errors["weight_scale_M"] = _assert_close(
+        "weight_scale_M", weighted._debiased_M_cpu, weighted_scaled._debiased_M_cpu, 3e-7, 3e-9
+    )
     if not np.isclose(weighted.nodewise_alpha_, weighted_scaled.nodewise_alpha_, rtol=0, atol=1e-13):
         raise AssertionError("global weight scaling changed automatic nodewise alpha")
 
     X1, y1 = _dataset(seed=19, n=80, p=1)
+    cpu_p1 = _cpu_reference(X1, y1, nodewise_alpha=0.123)
     p1 = _fit(name, X1, y1, nodewise_alpha=0.123)
     if p1.nodewise_alpha_ is not None:
         raise AssertionError("p=1 must not consume nodewise alpha")
     if p1._inference_result.metadata.get("precision_method") != "analytic_univariate":
         raise AssertionError("p=1 did not use analytic precision")
+    errors["p1_cpu_gpu_M"] = _assert_close(
+        "p1_cpu_gpu_M", cpu_p1._debiased_M_cpu, p1._debiased_M_cpu, RTOL_M, ATOL_M
+    )
+    errors["p1_cpu_gpu_params"] = _assert_close(
+        "p1_cpu_gpu_params", cpu_p1._params, p1._params, RTOL_REPORT, ATOL_REPORT
+    )
+    errors["p1_cpu_gpu_bse"] = _assert_close(
+        "p1_cpu_gpu_bse", cpu_p1._bse, p1._bse, RTOL_REPORT, ATOL_REPORT
+    )
+    errors["p1_cpu_gpu_p"] = _assert_close(
+        "p1_cpu_gpu_p", cpu_p1._pvalues, p1._pvalues, 2e-4, 2e-7
+    )
 
     simultaneous = _fit(name, X, y, simultaneous=True)
     if simultaneous._conf_int_simultaneous is None:
         raise AssertionError("simultaneous inference was not published")
     if not np.all(np.isfinite(np.asarray(simultaneous._conf_int_simultaneous, dtype=float))):
         raise AssertionError("simultaneous intervals are non-finite")
+    if not np.isclose(simultaneous.nodewise_alpha_, gpu.nodewise_alpha_, rtol=0, atol=1e-14):
+        raise AssertionError("simultaneous inference did not reuse the marginal nodewise alpha")
+    errors["simultaneous_reuse_M"] = _assert_close(
+        "simultaneous_reuse_M", gpu._debiased_M_cpu, simultaneous._debiased_M_cpu, 1e-10, 1e-11
+    )
+    errors["simultaneous_reuse_params"] = _assert_close(
+        "simultaneous_reuse_params", gpu._params, simultaneous._params, 1e-10, 1e-11
+    )
     sim_meta = dict(simultaneous._inference_result.metadata)
     if sim_meta.get("nodewise_alpha") != simultaneous.nodewise_alpha_:
         raise AssertionError("simultaneous result lost nodewise alpha provenance")
@@ -235,7 +277,10 @@ def main():
             raise RuntimeError("CuPy CUDA device is required")
         if not torch.cuda.is_available():
             raise RuntimeError("Torch CUDA device is required")
-        out["gpu_name_cupy"] = cp.cuda.runtime.getDeviceProperties(0)["name"].decode()
+        cupy_device_id = int(cp.cuda.runtime.getDevice())
+        out["cupy_device"] = f"cuda:{cupy_device_id}"
+        out["torch_device"] = "cuda:0"
+        out["gpu_name_cupy"] = cp.cuda.runtime.getDeviceProperties(cupy_device_id)["name"].decode()
         out["gpu_name_torch"] = torch.cuda.get_device_name(0)
 
         for backend in ("cupy", "torch"):
