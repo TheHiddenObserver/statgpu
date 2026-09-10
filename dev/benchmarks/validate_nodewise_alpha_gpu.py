@@ -50,7 +50,10 @@ def _runtime_device(name):
 
         if not torch.cuda.is_available():
             raise RuntimeError("Torch CUDA is required")
-        return f"cuda:{int(torch.cuda.current_device())}"
+        # _backend_arrays deliberately pins Torch acceptance inputs to cuda:0;
+        # verify provenance against that actual execution target rather than the
+        # process-wide current-device setting, which may differ on multi-GPU hosts.
+        return "cuda:0"
     raise ValueError(name)
 
 
