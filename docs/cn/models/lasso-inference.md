@@ -5,11 +5,13 @@
 > 模型指南：[Lasso](lasso.md)  
 > 切换：[English](../../en/models/lasso-inference.md)
 
-本页是 learner-first [Lasso 指南](lasso.md) 的统计推断配套页。主模型页回答“什么时候使用 Lasso”，这里说明 statgpu 的拟合后推断对象到底是什么、逐节点近似精度矩阵如何构造，以及软件**没有**承诺什么。
+> **版本提示：** 当前正式发布版为 **0.2.5**。本页所述公开参数 `nodewise_alpha` 及新的自动逐节点调参规则已经进入当前 `master`，计划随 **0.2.6** 发布；0.2.5 尚不包含这一公开接口和新默认规则。
+
+本页是 [Lasso 指南](lasso.md) 的统计推断配套页。主模型页侧重“什么时候用 Lasso、如何拟合”，这里进一步说明：为什么原始 Lasso 系数不能直接套普通 OLS 推断，纠偏推断如何构造近似精度矩阵，以及这些结果在什么条件下才可以解释。
 
 ## 为什么原始 Lasso 系数不能直接套普通 Wald 推断？
 
-在中心化 Gaussian 线性模型中，Lasso 求解
+在中心化的高斯线性模型中，Lasso 求解
 
 $$
 \hat\beta
@@ -20,28 +22,28 @@ $$
 \right\}.
 $$
 
-L1 惩罚通过收缩制造稀疏性，其 KKT 关系可概括为
+L1 惩罚通过收缩产生稀疏性，其 KKT 条件可以写成
 
 $$
 \frac{X^\top(y-X\hat\beta)}{n}=\alpha\hat\kappa,
 \qquad \hat\kappa_j\in\partial|\hat\beta_j|.
 $$
 
-因此未惩罚 loss 的 score 并不会像 OLS 那样等于 0。正则化偏差是不能直接给 raw Lasso coefficient 套 fixed-model Wald 标准误的首要原因。
+因此，无惩罚损失的得分并不会像 OLS 那样等于 0。**正则化偏差**是不能直接给原始 Lasso 系数套用“模型预先给定”时 Wald 标准误的首要原因。
 
-**选择不确定性**是第二个、不同的问题。如果用同一份数据先由 Lasso 选择活跃集，再在该活跃集上 OLS 重拟合，普通 OLS 区间通常没有处理前面的选择步骤。因此 statgpu 把 `post_selection_ols` 定位为选择后诊断，而不是一般意义上的选择性推断（selective inference）程序。
+**选择不确定性**是另一个不同的问题。如果用同一份数据先由 Lasso 选择活跃集，再在这个活跃集上做 OLS 重拟合，普通 OLS 区间通常没有计入前面的变量选择步骤。因此 statgpu 把 `post_selection_ols` 定位为选择后诊断，而不是一般意义上的选择性推断（selective inference）程序。
 
-## 根据统计主张选择推断路径
+## 根据统计目标选择推断方法
 
 | `inference_method` | statgpu 计算什么 | 如何解释 | 主要限制 |
 |---|---|---|---|
-| `debiased` | 纠偏 / de-sparsified 系数、SE、z、p 值与边际置信区间 | 满足纠偏假设时的系数级高维推断 | 依赖稀疏性、设计、噪声和调参条件 |
-| `post_selection_ols` | 在 fit-resolved backend 上对 Lasso 活跃集做 OLS/WLS | 工程/统计选择后诊断 | 不是一般选择性推断置信程序 |
-| `bootstrap` | penalized model 的残差自助法重拟合 | 重采样不确定性诊断 | 计算重，也不是普适的模型选择修正 |
+| `debiased` | 纠偏（debiased / de-sparsified）系数、标准误、z 统计量、p 值和边际置信区间 | 满足相应高维条件时的系数级推断 | 依赖稀疏性、设计、噪声和调参条件 |
+| `post_selection_ols` | 在本次拟合实际采用的后端上，对 Lasso 选出的活跃集做 OLS/WLS 重拟合 | 选择后的工程/统计诊断 | 不是一般的选择性推断置信程序 |
+| `bootstrap` | 对惩罚模型进行残差自助法重拟合 | 重采样不确定性诊断 | 计算开销较大，也不是对模型选择不确定性的普适修正 |
 
-`post_selection_ols` 与硬件无关。deprecated `cpu_ols` 与 `gpu_ols` 都映射到它；它们不选择 CPU/GPU。真正的执行位置由 `device="cpu"`、`device="cuda"`、`device="torch"` 控制，只有 genuine `device="auto"` 才允许自动选择可用后端。
+`post_selection_ols` 的统计含义与硬件无关。历史别名 `cpu_ols` 和 `gpu_ols` 都会映射到同一个方法，它们并不决定计算设备。真正的执行位置由 `device="cpu"`、`device="cuda"`、`device="torch"` 控制；只有 `device="auto"` 时才允许自动路由到可用后端。
 
-只做预测或变量选择时，设置 `compute_inference=False`。
+如果只关心预测或变量选择，可以设置 `compute_inference=False`，避免额外的推断计算。
 
 ## 最小纠偏推断示例
 
@@ -70,9 +72,9 @@ print(model._pvalues)
 print(model._conf_int)
 ```
 
-`coef_` 保持为 penalized prediction coefficient vector；`_params` 是纠偏后的推断/reporting 参数，因此两者不要求数值相同。
+`coef_` 仍然是用于预测的惩罚估计系数；`_params` 是纠偏后的推断参数，因此两者本来就不要求数值相同。
 
-## 纠偏一步更新做了什么？
+## 一步纠偏做了什么？
 
 令拟合残差为 $r=y-b-X\hat\beta$。statgpu 构造
 
@@ -81,7 +83,7 @@ $$
 =\hat\beta+\frac{1}{n}MX^\top r,
 $$
 
-其中 $M$ 是设计 Gram matrix 的数据依赖近似逆/近似精度矩阵。若 $\widehat\Sigma=X^\top X/n$，则
+其中 $M$ 是设计 Gram 矩阵的近似逆，也可理解为近似精度矩阵。若记 $\widehat\Sigma=X^\top X/n$，则
 
 $$
 \hat\theta^{\mathrm{db}}-\beta^0
@@ -91,13 +93,15 @@ $$
 (I-M\widehat\Sigma)(\hat\beta-\beta^0).
 $$
 
-第一项是主要噪声项，第二项是 remainder。只有当 $M\widehat\Sigma$ 足够接近单位矩阵、并且相应高维假设使 remainder 在推断尺度上足够小时，纠偏后的近似 Gaussian 推断才有相应理论依据。
+第一项是主要的随机噪声项，第二项是余项。只有当 $M\widehat\Sigma$ 足够接近单位矩阵，并且稀疏性、设计和噪声条件使这个余项在推断尺度上足够小时，纠偏后的近似正态推断才有理论依据。
 
-## 规范的中心化/加权工作设计
+## 中心化和加权后的工作设计
 
-维护中的 sparse-Gaussian 路径首先生成同一个规范中心化/加权 average-loss 工作设计 $X_w$。使用分析权重 `sample_weight` 时，NumPy、CuPy 与 Torch 采用相同的加权中心化和 row-rescaling 约定。所有权重同时乘以同一个正数不会改变预期统计问题，全 1 权重与 unweighted 定义一致。
+维护中的稀疏高斯线性模型推断路径首先构造统一的工作设计 $X_w$。如果给出分析权重 `sample_weight`，NumPy、CuPy 和 Torch 使用相同的加权中心化与按行缩放规则，并保持平均损失的尺度约定。
 
-逐节点调参只依赖这个设计侧问题，不使用响应残差尺度。
+把所有权重同时乘以同一个正数，不会改变预期的统计问题；全 1 权重与不加权情形一致。
+
+逐节点调参只由这个**设计矩阵侧的问题**决定，不再使用响应变量残差的尺度。
 
 ## 标准化与逐节点 Lasso（node-wise Lasso）
 
@@ -109,7 +113,7 @@ d_j^2=\frac{1}{n}\sum_i X_{w,ij}^2,
 \qquad Z=X_wD^{-1}.
 $$
 
-对每个特征 $j$，statgpu 在标准化设计上求解
+对每个特征 $j$，statgpu 在标准化设计 `Z` 上求解逐节点 Lasso：
 
 $$
 \hat\gamma_j
@@ -120,26 +124,26 @@ $$
 \right\}.
 $$
 
-理论上逐节点惩罚常见的量级为
+理论上，逐节点惩罚常见的量级是
 
 $$
 \lambda_j\asymp\sqrt{\frac{\log p}{n}},
 $$
 
-具体常数取决于理论和尺度约定。statgpu 的自动规则是库层面的具体默认值，而不是声称某个定理唯一规定了这个常数。
+但具体常数取决于理论条件和尺度约定。statgpu 的自动公式是一个明确的库默认值，不应理解为某篇论文中的定理唯一指定了这个常数。
 
-## 公开 `nodewise_alpha` 契约
+## `nodewise_alpha` 的公开参数约定
 
-主 Lasso `alpha` 与 inference-only `nodewise_alpha` 是两个不同控制量：
+主模型的 `alpha` 与 `nodewise_alpha` 是两个不同参数：
 
-- `alpha` 控制 penalized prediction/selection fit；
-- `nodewise_alpha` 只控制 `debiased` inference 使用的逐节点精度矩阵回归；
-- 显式有限正实数具有最高优先级；
-- `None` 使用库默认值；
-- bool、复数/非标量、NaN/inf、0 和负数都会被拒绝；
-- `get_params`、`set_params` 与 sklearn clone 保留用户请求的 constructor value；改变它会清除陈旧 inference state。
+- `alpha` 控制用于预测和变量选择的惩罚拟合；
+- `nodewise_alpha` 只控制 `debiased` 纠偏推断中估计近似精度矩阵的逐节点 Lasso；
+- 显式给出的有限正实数直接生效；
+- `None` 使用 statgpu 的自动规则；
+- `bool`、复数、非标量、NaN、无穷值、0 和负数都会被拒绝；
+- `get_params`、`set_params` 和 sklearn clone 会保留用户指定的构造参数值；修改 `nodewise_alpha` 会使旧的推断结果失效。
 
-$p\ge2$ 时自动值为
+当 $p\ge2$ 时，自动值为
 
 $$
 \boxed{
@@ -148,26 +152,26 @@ $$
 }
 $$
 
-无分析权重时 $n_{\mathrm{nw}}=n$；非均匀分析权重时使用 Kish 型有效样本量
+无分析权重时 $n_{\mathrm{nw}}=n$；存在非均匀分析权重时，使用 Kish 型有效样本量
 
 $$
 n_{\mathrm{nw}}
 =\frac{(\sum_i w_i)^2}{\sum_i w_i^2}.
 $$
 
-该规则有意做到**与响应变量尺度无关**。被取代的历史内部实现曾使用类似 $\hat\sigma_y\sqrt{2\log(p)/n}$ 的 response-residual-scaled 形式；它已经不是当前契约，也没有作为 legacy public mode 保留。参见 [逐节点调参迁移说明](../guides/nodewise-alpha-migration.md)。
+**版本变化：** 这套与响应变量尺度无关的自动规则计划自 **0.2.6** 起成为公开行为。0.2.5 及更早的内部实现曾使用类似 $\hat\sigma_y\sqrt{2\log(p)/n}$ 的响应残差尺度修正；旧规则不会作为公开兼容模式继续保留。详见 [逐节点调参迁移说明](../guides/nodewise-alpha-migration.md)。
 
-`p=1` 时没有 nuisance node-wise regression。statgpu 直接使用解析一维精度矩阵，不消费用户请求的 `nodewise_alpha`，因此 `nodewise_alpha_` 保持为 `None`。
+当 `p=1` 时没有需要拟合的辅助逐节点回归，statgpu 直接使用一维解析精度矩阵，因此 `nodewise_alpha_` 保持为 `None`。
 
-## paper-style normalizer 与精度矩阵回变换
+## 归一化与精度矩阵的尺度变换
 
-逐节点标准化残差为
+令第 $j$ 个标准化逐节点残差为
 
 $$
 r_j=Z_j-Z_{-j}\hat\gamma_j.
 $$
 
-statgpu 使用
+statgpu 使用与经典逐节点 Lasso 文献记号一致的归一化量
 
 $$
 \hat\tau_j^2
@@ -175,31 +179,35 @@ $$
 +\lambda_{\mathrm{nw}}\lVert\hat\gamma_j\rVert_1.
 $$
 
-标准化精度矩阵第 $j$ 行的对角元素为 $1/\hat\tau_j^2$，非对角部分为 $-\hat\gamma_j/\hat\tau_j^2$。所有行完成后，通过
+标准化尺度上的近似精度矩阵第 $j$ 行，对角元素为 $1/\hat\tau_j^2$，其余元素由 $-\hat\gamma_j/\hat\tau_j^2$ 给出。所有行构造完成后，再通过
 
 $$
 M=D^{-1}\Theta_ZD^{-1}
 $$
 
-变换回工作特征尺度，再进入纠偏和方差计算。
+变换回原工作特征尺度，并进入后续纠偏与方差计算。
 
-## 数值 publication gate
+## 结果采用前的 KKT 数值检查
 
-内部 solver 的 stopping condition 不足以直接发布推断。维护中的契约使用 node-wise FISTA、`coef_delta` stopping、`1e-8` 内部容差和最多 3000 次迭代，随后**独立重新计算完整 KKT residual**。只有 residual 不超过 `1e-5`，且尺度、normalizer、precision state 和 reporting arrays 都有限且非退化时，结果才可发布。
+逐节点求解器自己的停止条件并不足以决定推断结果是否可以采用。当前实现使用 FISTA，按 `coef_delta` 停止，内部容差为 `1e-8`、最多迭代 3000 次；求解结束后还会**独立重新计算一次完整的 KKT 残差**。
 
-这些是内部数值设置，不是新的公共调参。通过 KKT 只说明数值解符合声明的逐节点优化问题，不代表高维统计假设自动成立。
+只有最大 KKT 残差不超过 `1e-5`，并且特征尺度、归一化量、精度矩阵和最终推断数组都为有限且非退化值时，statgpu 才继续写入推断结果。若检查失败，会直接中止推断并报错，而不是返回可能误导的占位结果。
 
-## 后端契约
+这些都是内部数值设置，不是新增的公开调参参数。通过 KKT 检查只说明逐节点优化问题在数值上求解充分，并不意味着高维推断所需的统计假设自动成立。
 
-NumPy、CuPy 与 Torch 求解同一个标准化统计问题。CuPy/Torch 路径会批量构造 Gram subproblem 来提高执行效率，但不会改变 $\lambda_{\mathrm{nw}}$、$\hat\gamma_j$、$\hat\tau_j^2$ 或 $M$ 的统计定义。
+## 后端计算约定
 
-显式 CUDA/Torch inference 下，逐节点求解、KKT 检查、back-transform 与维护中的 simultaneous inference 保持在实际选中的 GPU backend/device 上。precision cache 为了**缓存身份哈希**可以把后端驻留设计的分块内容传到 host，但这不是 CPU numerical fallback。只有数值推断完成后，小型 reporting arrays 才转成 NumPy。`_inference_result.metadata` 会记录 `numerical_backend`、`numerical_device`、逐节点调参来源、KKT 与 cache provenance。
+NumPy、CuPy 与 Torch 求解的是同一个标准化统计问题。CuPy/Torch 可以批量构造 Gram 子问题来减少开销，但不会改变 $\lambda_{\mathrm{nw}}$、$\hat\gamma_j$、$\hat\tau_j^2$ 或 $M$ 的统计定义。
 
-## `LassoCV`：只作用于最终重拟合推断
+显式选择 CUDA 或 Torch 后端时，逐节点求解、KKT 检查、精度矩阵尺度变换以及维护中的同时推断都在实际选中的 GPU 后端和设备上完成，不会把这些数值计算静默转到 CPU。
 
-`LassoCV(nodewise_alpha=...)` 把该参数当成最终全数据重拟合的 inference config。改变 `nodewise_alpha` 不应改变主 alpha grid、fold MSE、最终 `alpha_` 或 penalized final-refit coefficient。成功的多特征 debiased inference 后，外层 `nodewise_alpha_` 与 final estimator 对齐。
+精度矩阵缓存为了判断“当前设计是否与已缓存问题相同”，可以把后端上的工作设计分块传到主机内存计算哈希；这只是缓存身份识别，不是 CPU 数值求解。数值推断完成后，少量用于展示和汇总的结果数组才转换为 NumPy。`_inference_result.metadata` 会记录 `numerical_backend`、`numerical_device`、逐节点调参来源、KKT 检查和缓存溯源信息。
 
-CV 后推断仍条件于已选择的主调参值；当前实现不会额外修正 CV tuning uncertainty。
+## `LassoCV`：只影响最终重拟合后的推断
+
+`LassoCV(nodewise_alpha=...)` 把该参数作为最终全数据重拟合后的推断配置。改变 `nodewise_alpha` 不应改变主模型候选 `alpha` 网格、各折均方误差、最终 `alpha_`，也不应改变用于预测的最终惩罚系数。多特征纠偏推断成功后，外层的 `nodewise_alpha_` 与最终重拟合模型保持一致。
+
+交叉验证之后的推断仍然是在“主调参值已经选定”的条件下进行；当前实现不会额外修正交叉验证调参带来的不确定性。
 
 ## 标准误、z 统计量与边际置信区间
 
@@ -209,11 +217,11 @@ $$
 V=M\widehat\Sigma M^\top.
 $$
 
-statgpu 根据拟合残差尺度与 $V_{jj}/n$ 构造 standard error，并使用标准正态参考分布得到维护中的 debiased marginal z、p-value 与置信区间。
+statgpu 根据拟合残差尺度和 $V_{jj}/n$ 构造标准误，并使用标准正态参考分布得到纠偏后的 z 统计量、p 值和边际置信区间。
 
-`_conf_int` 是**边际置信区间**。同时报告许多 95% marginal intervals，不等于整个目标参数集合具有 95% 同时覆盖。
+`_conf_int` 保存的是**边际置信区间**。对很多参数分别报告 95% 边际区间，并不意味着整个参数集合同时具有 95% 的覆盖概率。
 
-有截距时，prediction 与 inference 有不同 ownership。公开 `coef_` / `intercept_` 仍属于 penalized prediction fit；纠偏 reporting 使用 corrected slopes 及 coherent original-coordinate intercept
+如果模型包含截距，用于预测的参数与用于纠偏推断的参数有不同归属。公开的 `coef_` / `intercept_` 仍是惩罚拟合结果；纠偏推断使用纠偏后的斜率，以及与中心化参数化一致的原坐标截距
 
 $$
 \hat\theta_0^{\mathrm{db}}
@@ -222,7 +230,7 @@ $$
 
 ## 同时推断
 
-设置 `enable_simultaneous_inference=True` 可以请求 max-|Z| Gaussian multiplier bootstrap calibration。程序生成乘子、计算目标集合上的标准化 score perturbation、取最大绝对值，并用经验分位数作为共同 critical value。
+设置 `enable_simultaneous_inference=True` 可以启用 **max-|Z| 高斯乘子自助法**校准。程序生成高斯乘子，计算目标参数集合上的标准化得分扰动，取其中最大绝对值，再用经验分位数作为共同临界值。
 
 ```python
 model = Lasso(
@@ -243,31 +251,33 @@ print(model._conf_int_simultaneous)
 print(model._simultaneous_critical_value)
 ```
 
-`simultaneous_include_intercept=True` 会让 coherent debiased intercept 真正进入 max-|Z| calibration family，而不只是额外添加一行输出。维护中的 centered CuPy/Torch simultaneous inference 会记录实际 numerical backend/device provenance。
+当 `simultaneous_include_intercept=True` 时，纠偏后的截距会真正进入 max-|Z| 的校准目标集合，而不只是额外显示一行结果。CuPy/Torch 上的同时推断也会记录实际执行数值计算的后端和设备。
 
 ## 多重检验是另一层问题
 
-同时置信区间和 multiple-testing adjustment 相关但不相同。如果已经有有效的 marginal p-values，并希望控制 FDR/FWER，可以使用 estimator-context `adjust_pvalues` 或 [推断 API](../guides/inference-api.md) 中的函数。多重检验校正无法修复本身无效的 p-value，也不会消除 debiased inference 的统计假设。
+同时置信区间与多重检验校正相关，但并不是同一件事。如果已经得到有效的边际 p 值，并希望控制 FDR 或 FWER，可以使用估计器上的 `adjust_pvalues`，或 [推断 API](../guides/inference-api.md) 中的相应函数。
+
+多重检验校正无法把本身无效的 p 值“修复”为有效 p 值，也不能替代纠偏推断本身所需的稀疏性、设计和噪声条件。
 
 ## 主要输出字段
 
-- `coef_`, `intercept_`：penalized prediction fit；
-- `nodewise_alpha_`：成功多特征 debiased inference 后的逐节点调参解析值；
-- `_params`：纠偏 reporting 参数；
-- `_bse`, `_zvalues`, `_pvalues`, `_conf_int`：边际推断数组；
-- `_conf_int_simultaneous`：请求 simultaneous inference 后的同时置信区间；
-- `_simultaneous_critical_value`：共同 max-|Z| critical value；
-- `_inference_result`：包含 method、precision、backend/device、node-wise、KKT 和 cache provenance 的结构化结果。
+- `coef_`, `intercept_`：用于预测的惩罚拟合结果；
+- `nodewise_alpha_`：多特征纠偏推断成功后实际采用的逐节点调参值；
+- `_params`：纠偏后的推断参数；
+- `_bse`, `_zvalues`, `_pvalues`, `_conf_int`：标准误、z 统计量、p 值和边际置信区间；
+- `_conf_int_simultaneous`：启用同时推断后得到的同时置信区间；
+- `_simultaneous_critical_value`：max-|Z| 校准得到的共同临界值；
+- `_inference_result`：包含推断方法、近似精度矩阵、后端/设备、逐节点调参、KKT 检查和缓存溯源信息的结构化结果。
 
-## 解释检查表
+## 解读要点
 
-- 先区分目标是预测/选择、系数级纠偏推断还是选择后诊断。
-- 不要混淆主 `alpha` 与 `nodewise_alpha`。
-- 自动逐节点规则是设计侧的，并且 response-scale independent。
-- `post_selection_ols` 应解释为选择后诊断。
-- CV final-refit inference 条件于已选调参值。
-- 同时推断或 multiple-testing correction 都不能替代底层 inferential validity。
-- backend 加速不会改变统计假设。
+- 先区分你的目标是预测/变量选择、系数级纠偏推断，还是选择后诊断。
+- 不要混淆主模型 `alpha` 与 `nodewise_alpha`。
+- 计划自 0.2.6 起使用的自动逐节点规则只由设计侧问题决定，与响应变量的计量尺度无关。
+- `post_selection_ols` 应解释为选择后诊断，而不是一般选择性推断。
+- `LassoCV` 最终重拟合后的推断条件于已经选定的主调参值。
+- 同时推断和多重检验校正都不能替代底层统计假设。
+- NumPy、CuPy、Torch 改变计算位置和性能，不改变统计有效性所需的条件。
 
 ## 参考文献
 
