@@ -43,18 +43,26 @@ validator to exit 0.
 For **both CuPy and Torch** the schema-v1 artifact must prove:
 
 1. automatic unweighted node-wise alpha follows the declared design-side rule;
-2. CPU/GPU precision matrix and marginal reports agree within validator limits;
+2. unweighted CPU/GPU precision matrix and marginal params/BSE/p-values agree
+   within validator limits;
 3. explicit `nodewise_alpha=<auto resolved value>` reproduces the same numerical
    precision/inference while metadata reports `source="user"`;
 4. rescaling only `y` does not change `nodewise_alpha_` or the precision matrix;
-5. globally rescaling analytic weights does not change the automatic precision
+5. non-uniform analytic weights preserve CPU/GPU precision and marginal-report
+   parity within validator limits;
+6. globally rescaling analytic weights does not change the automatic precision
    problem;
-6. `p=1` uses `precision_method="analytic_univariate"` and does not consume the
-   requested node-wise penalty;
-7. intercept-inclusive simultaneous inference publishes finite intervals and
-   records the same node-wise tuning provenance;
-8. simultaneous numerical backend/device provenance is the requested concrete
-   GPU backend, not a silent CPU fallback.
+7. `p=1` uses `precision_method="analytic_univariate"`, does not consume the
+   requested node-wise penalty, and matches the CPU analytic precision/marginal
+   report within validator limits;
+8. intercept-inclusive simultaneous inference publishes finite intervals and
+   reuses the same resolved node-wise alpha, validated precision matrix, and
+   marginal parameter vector as the corresponding marginal fit;
+9. marginal and simultaneous numerical backend/device provenance is the
+   requested concrete GPU backend/device, not a silent CPU fallback;
+10. the validator itself refuses to report success from a dirty worktree, so the
+    artifact is evidence for the exact checked-out source rather than a modified
+    local tree.
 
 ## Evidence to retain
 
@@ -70,8 +78,11 @@ GPU name
 CuPy case status
 Torch case status
 max KKT residuals
-CPU/GPU max errors
-simultaneous numerical device provenance
+unweighted CPU/GPU max errors
+weighted CPU/GPU max errors
+p=1 CPU/GPU max errors
+simultaneous precision/parameter reuse errors
+marginal and simultaneous numerical device provenance
 exit code
 ```
 
