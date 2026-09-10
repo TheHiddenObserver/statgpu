@@ -3,8 +3,8 @@
 The initial node-wise API integration wrapped ``_fit_gpu_backend`` at both the
 base and typed-linear levels. This installer collapses those wrappers to one
 scope-aware layer and delegates unrelated GPU/fake-backend paths directly to the
-pre-nodewise implementation. It also installs the reviewed precision cache at
-the internal builder boundary, so caching does not add another estimator wrapper.
+pre-nodewise implementation. Precision caching itself is a normal helper, not a
+second installer.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import functools
 
 from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
 from statgpu.linear_model.penalized._penalized_linear import PenalizedLinearRegression
+from statgpu.linear_model.penalized import _nodewise_precision_cache as _cache
 from statgpu.linear_model import _nodewise_alpha_inference_contract as _nodewise
 from statgpu.linear_model import _post_selection_ols_fifth_review_contract as _fifth
 
@@ -35,7 +36,6 @@ def _applies(model) -> bool:
 
 
 def _unwrap_nodewise_fit(current):
-    """Remove only wrappers installed by the first node-wise integration layer."""
     base = current
     while getattr(base, _NODEWISE_MARKER, False) and hasattr(base, "__wrapped__"):
         base = base.__wrapped__
@@ -86,11 +86,12 @@ def install_nodewise_alpha_gpu_scope_contract() -> None:
     _install_for(PenalizedGeneralizedLinearModel)
     _install_for(PenalizedLinearRegression)
 
-    # Cache only the internal precision builders; public request provenance is
-    # reconstructed on every call and estimator call stacks stay unchanged.
-    from statgpu.linear_model import _nodewise_precision_cache_contract as _cache
-
-    _cache.install_nodewise_precision_cache_contract()
+    # Replace only the local builder references captured by the main node-wise
+    # integration module. Cache hits/misses therefore do not alter estimator
+    # signatures, warning stacks, or unrelated inference routing.
+    _nodewise.build_nodewise_precision_numpy = _cache.build_nodewise_precision_numpy
+    _nodewise.build_nodewise_precision_cupy = _cache.build_nodewise_precision_cupy
+    _nodewise.build_nodewise_precision_torch = _cache.build_nodewise_precision_torch
 
 
 __all__ = ["install_nodewise_alpha_gpu_scope_contract"]
