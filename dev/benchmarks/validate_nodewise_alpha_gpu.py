@@ -39,6 +39,21 @@ def _provenance():
     }
 
 
+def _runtime_device(name):
+    """Return the concrete CUDA device that owns this backend's numerics."""
+    if name == "cupy":
+        import cupy as cp
+
+        return f"cuda:{int(cp.cuda.runtime.getDevice())}"
+    if name == "torch":
+        import torch
+
+        if not torch.cuda.is_available():
+            raise RuntimeError("Torch CUDA is required")
+        return f"cuda:{int(torch.cuda.current_device())}"
+    raise ValueError(name)
+
+
 def _dataset(seed=2718, n=120, p=6):
     rng = np.random.default_rng(seed)
     latent = rng.normal(size=(n, 1))
@@ -115,6 +130,7 @@ def _run_backend(name):
     X, y = _dataset()
     cpu = _cpu_reference(X, y)
     gpu = _fit(name, X, y)
+    expected_device = _runtime_device(name)
     expected_alpha = float(np.sqrt(2.0 * np.log(X.shape[1]) / X.shape[0]))
     if not np.isclose(gpu.nodewise_alpha_, expected_alpha, rtol=0, atol=1e-14):
         raise AssertionError("automatic nodewise_alpha does not match the declared unweighted rule")
@@ -123,6 +139,11 @@ def _run_backend(name):
         raise AssertionError("automatic nodewise alpha provenance is missing")
     if meta.get("numerical_backend") != name:
         raise AssertionError(f"wrong numerical backend provenance: {meta.get('numerical_backend')!r}")
+    if str(meta.get("numerical_device")) != expected_device:
+        raise AssertionError(
+            f"wrong numerical device provenance: {meta.get('numerical_device')!r}; "
+            f"expected {expected_device!r}"
+        )
 
     errors = {
         "cpu_gpu_M": _assert_close("cpu_gpu_M", cpu._debiased_M_cpu, gpu._debiased_M_cpu, RTOL_M, ATOL_M),
@@ -167,6 +188,12 @@ def _run_backend(name):
         raise AssertionError("simultaneous result lost nodewise alpha provenance")
     if sim_meta.get("simultaneous_numerical_backend") != name:
         raise AssertionError("simultaneous inference did not remain backend-native")
+    if str(sim_meta.get("simultaneous_numerical_device")) != expected_device:
+        raise AssertionError(
+            "simultaneous inference numerical device provenance mismatch: "
+            f"{sim_meta.get('simultaneous_numerical_device')!r}; "
+            f"expected {expected_device!r}"
+        )
 
     return {
         "backend": name,
@@ -175,6 +202,7 @@ def _run_backend(name):
         "weighted_nodewise_alpha": float(weighted.nodewise_alpha_),
         "max_kkt_residual": float(meta["nodewise_max_kkt_residual"]),
         "errors": errors,
+        "expected_device": expected_device,
         "numerical_device": meta.get("numerical_device"),
         "simultaneous_device": sim_meta.get("simultaneous_numerical_device"),
     }
@@ -192,6 +220,9 @@ def main():
     path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
+        if not out["worktree_clean"]:
+            raise RuntimeError("physical CUDA acceptance requires a clean worktree")
+
         import cupy as cp
         import torch
 
