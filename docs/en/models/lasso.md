@@ -1,7 +1,7 @@
 # Lasso
 
 > Language: English  
-> Last updated: 2026-09-08  
+> Last updated: 2026-09-10  
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/lasso.md)
 
@@ -95,6 +95,23 @@ training fold, validation MSE, and final refit. Constant positive weights take t
 exact unweighted CV path. Once AUTO resolves a concrete backend for CV, the final
 selected-alpha `Lasso` refit remains on that backend.
 
+### Node-wise tuning for debiased inference
+
+`alpha` controls the main penalized Lasso fit. `nodewise_alpha` is a **different** tuning parameter used only by `inference_method="debiased"` to construct the node-wise Lasso approximation to the design precision matrix.
+
+If `nodewise_alpha` is supplied, that positive scalar is used exactly on the standardized node-wise design. If it is omitted (`None`), statgpu standardizes the centered/weighted working design and uses the response-independent default
+
+$$
+\lambda_{\mathrm{nw}}
+=\sqrt{\frac{2\log(\max(p,2))}{n_{\mathrm{nw}}}},
+$$
+
+where `n_nw=n` without analytic weights and a Kish-style effective sample size is used with non-uniform analytic weights. The `sqrt(log p / n)` order is theory-motivated; the exact constant and weighted effective-sample-size convention are statgpu defaults, not a unique theorem-mandated choice. In particular, changing only the units of `y` no longer changes the design-side precision construction.
+
+The node-wise problems are solved on a standardized design and the resulting precision estimate is transformed back to the original working-feature scale. An independent KKT check is required before inference is published. `nodewise_alpha_` records the resolved value after successful multi-feature debiased inference, and `_inference_result.metadata` records the requested/resolved value, source, effective sample size, solver settings, and maximum KKT residual. For a one-feature problem there is no nuisance node-wise regression: statgpu uses the analytic univariate precision and leaves `nodewise_alpha_` as `None`.
+
+For `LassoCV`, `nodewise_alpha` is final-refit inference configuration only. It does not participate in the main `alpha` grid, fold scoring, or alpha selection.
+
 ### Debiased intercept ownership
 
 With `inference_method="debiased"`, prediction and inference intentionally expose
@@ -148,6 +165,7 @@ This table is the complete public constructor inventory for `statgpu.linear_mode
 | `tol` | `1e-4` | Convergence tolerance. |
 | `stopping` | `"coef_delta"` | Stopping rule: `coef_delta` / `kkt`. |
 | `inference_method` | `"debiased"` | `post_selection_ols` / `debiased` / `bootstrap`; deprecated `cpu_ols` and `gpu_ols` aliases remain temporarily accepted. |
+| `nodewise_alpha` | `None` | Node-wise Lasso penalty for `debiased` inference. Explicit positive values override the standardized design-side automatic rule. |
 | `n_bootstrap` | `200` | Bootstrap draws for the residual-bootstrap inference path. |
 | `bootstrap_random_state` | `None` | RNG seed for residual-bootstrap inference. |
 | `enable_simultaneous_inference` | `False` | Enable simultaneous inference (debiased only). |
@@ -178,6 +196,16 @@ m_cpu = Lasso(
     stopping="kkt",
 )
 m_cpu.fit(X, y)
+
+# Explicit node-wise tuning affects debiased inference only.
+m_db = Lasso(
+    alpha=0.1,
+    nodewise_alpha=0.08,
+    device="cpu",
+    inference_method="debiased",
+)
+m_db.fit(X, y)
+print(m_db.nodewise_alpha_)
 
 # GPU FISTA + the same hardware-neutral post-selection inference method.
 m_gpu = Lasso(
@@ -222,6 +250,7 @@ ci_simul = m_sim._conf_int_simultaneous
 
 - Penalized prediction fit: `intercept_`, `coef_`, `n_iter_`
 - Inference (if enabled): `_params`, `_bse`, `_tvalues` / `_zvalues`, `_pvalues`, `_conf_int`, `_inference_result`
+- Successful multi-feature `debiased` inference: `nodewise_alpha_` records the resolved node-wise tuning value; p=1 and non-node-wise inference leave it `None`.
 - Under `inference_method="post_selection_ols"`, `coef_` remains penalized while `_params` contains the active-set OLS/WLS refit embedded in the full parameter layout.
 - Under `inference_method="debiased"`, `_params[1:]` contains debiased slopes and `_params[0]` contains their matching original-coordinate debiased intercept; `_conf_int` is marginal per reported parameter.
 - With simultaneous inference enabled, `_conf_int_simultaneous` stores joint intervals over the configured target family (`maxz_bootstrap`); when the debiased intercept is included it also participates in the max-|Z| calibration.
@@ -232,6 +261,7 @@ ci_simul = m_sim._conf_int_simultaneous
 
 - Why can CPU and GPU iteration counts differ under the same `tol`? Different numerical backends and solver implementations can converge differently; compare under fixed `solver` and `stopping`.
 - Should CPU users set `cpu_solver`? No. Use `solver`; `cpu_solver` is a deprecated compatibility argument from the previous CPU/GPU-split API.
+- What is the difference between `alpha` and `nodewise_alpha`? `alpha` defines the penalized prediction fit. `nodewise_alpha` is used only to estimate the approximate precision matrix for debiased inference.
 - Should I choose `cpu_ols` or `gpu_ols` based on hardware? No. Both are deprecated aliases for `post_selection_ols`. Choose the statistical method with `inference_method` and the execution location with `device`.
 - Does `post_selection_ols` change `coef_`? No. Prediction keeps the penalized coefficients; the active-set refit lives in inference/reporting fields such as `_params` and `_inference_result`.
 - Why can `intercept_` differ from `_params[0]` under `debiased`? `intercept_` belongs to the penalized prediction fit, while `_params[0]` is the intercept paired with the debiased slope vector used by statistical reporting.
@@ -247,6 +277,7 @@ ci_simul = m_sim._conf_int_simultaneous
 - `dev/benchmarks/benchmark_lasso_cpu_gpu_tol.py`
 - `dev/comparisons/compare_lasso_kkt_stopping.py`
 - `dev/tests/test_lasso_debiased_inference.py`
+- `dev/tests/test_nodewise_alpha_inference_contract.py`
 - `dev/tests/test_post_selection_ols_inference_api.py`
 - `dev/tests/test_penalized_solver_api_cleanup.py`
 
@@ -256,5 +287,6 @@ The physical post-selection OLS validator requires both CuPy CUDA and Torch CUDA
 
 - Tibshirani, R. (1996). Regression shrinkage and selection via the lasso. *Journal of the Royal Statistical Society: Series B*, 58(1), 267-288. [https://doi.org/10.1111/j.2517-6161.1996.tb02080.x](https://doi.org/10.1111/j.2517-6161.1996.tb02080.x)
 - Buhlmann, P., & van de Geer, S. (2011). *Statistics for High-Dimensional Data*. Springer.
+- van de Geer, S., Buhlmann, P., Ritov, Y., & Dezeure, R. (2014). On asymptotically optimal confidence regions and tests for high-dimensional models. *Annals of Statistics*, 42(3), 1166-1202.
 - Zhang, C.-H., & Zhang, S. S. (2014). Confidence intervals for low-dimensional parameters in high-dimensional linear models. *Journal of the Royal Statistical Society: Series B*, 76(1), 217-242. [https://doi.org/10.1111/rssb.12026](https://doi.org/10.1111/rssb.12026)
 - Javanmard, A., & Montanari, A. (2014). Confidence intervals and hypothesis testing for high-dimensional regression. *Journal of Machine Learning Research*, 15, 2869-2909. [https://jmlr.org/papers/v15/javanmard14a.html](https://jmlr.org/papers/v15/javanmard14a.html)
