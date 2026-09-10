@@ -158,6 +158,13 @@ from . import _nodewise_alpha_inference_contract as _nodewise_alpha_inference_co
 
 _nodewise_alpha_inference_contract.install_nodewise_alpha_inference_contract()
 
+# The node-wise context belongs only to sparse Gaussian debiased inference.
+# Collapse the initial inherited GPU wrappers to one scope-aware layer so
+# unrelated weighted GLMs and fake-backend contract tests remain untouched.
+from . import _nodewise_alpha_gpu_scope_contract as _nodewise_alpha_gpu_scope_contract
+
+_nodewise_alpha_gpu_scope_contract.install_nodewise_alpha_gpu_scope_contract()
+
 __all__ = [
     'LinearRegression',
     'LogisticRegression',
