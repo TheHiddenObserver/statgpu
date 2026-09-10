@@ -46,6 +46,8 @@ jobs:
 
   simulation:
     runs-on: ubuntu-latest
+    env:
+      STATGPU_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -63,7 +65,7 @@ jobs:
       - name: Upload simulation evidence
         uses: actions/upload-artifact@v4
         with:
-          name: nodewise-alpha-simulation-${{ github.sha }}
+          name: nodewise-alpha-simulation-${{ github.event.pull_request.head.sha || github.sha }}
           path: results/nodewise_alpha_simulation_schema_v1.json
           if-no-files-found: error
 
