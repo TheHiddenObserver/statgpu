@@ -5,8 +5,7 @@ on:
     branches: [master]
     paths:
       - 'statgpu/linear_model/__init__.py'
-      - 'statgpu/linear_model/_nodewise_alpha_inference_contract.py'
-      - 'statgpu/linear_model/_nodewise_alpha_gpu_scope_contract.py'
+      - 'statgpu/linear_model/_nodewise_alpha_contract.py'
       - 'statgpu/linear_model/penalized/_nodewise_precision.py'
       - 'statgpu/linear_model/penalized/_nodewise_precision_cache.py'
       - 'dev/tests/test_nodewise_alpha_*.py'
@@ -83,8 +82,7 @@ jobs:
       - name: Compile node-wise implementation and evidence runners
         run: |
           python -m compileall -q \
-            statgpu/linear_model/_nodewise_alpha_inference_contract.py \
-            statgpu/linear_model/_nodewise_alpha_gpu_scope_contract.py \
+            statgpu/linear_model/_nodewise_alpha_contract.py \
             statgpu/linear_model/penalized/_nodewise_precision.py \
             statgpu/linear_model/penalized/_nodewise_precision_cache.py \
             dev/tests/test_nodewise_alpha_inference_contract.py \
@@ -95,8 +93,7 @@ jobs:
       - name: High-signal static checks
         run: |
           ruff check \
-            statgpu/linear_model/_nodewise_alpha_inference_contract.py \
-            statgpu/linear_model/_nodewise_alpha_gpu_scope_contract.py \
+            statgpu/linear_model/_nodewise_alpha_contract.py \
             statgpu/linear_model/penalized/_nodewise_precision.py \
             statgpu/linear_model/penalized/_nodewise_precision_cache.py \
             dev/tests/test_nodewise_alpha_inference_contract.py \
