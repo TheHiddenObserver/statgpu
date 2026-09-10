@@ -28,6 +28,7 @@ def _data(seed=123, n=96, p=5):
 
 
 def _fit_lasso(X, y, **kwargs):
+    sample_weight = kwargs.pop("sample_weight", None)
     params = dict(
         alpha=0.05,
         device="cpu",
@@ -38,7 +39,7 @@ def _fit_lasso(X, y, **kwargs):
         inference_method="debiased",
     )
     params.update(kwargs)
-    return Lasso(**params).fit(X, y)
+    return Lasso(**params).fit(X, y, sample_weight=sample_weight)
 
 
 @pytest.mark.parametrize(
