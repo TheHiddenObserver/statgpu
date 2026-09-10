@@ -2,7 +2,7 @@
 
 This runner compares the historical response-scaled/unstandardized node-wise
 precision rule with the new standardized design-side default while holding the
-main penalized fit fixed.  Coverage summaries are diagnostics, not finite-sample
+main penalized fit fixed. Coverage summaries are diagnostics, not finite-sample
 theorem claims and are deliberately not encoded as brittle nominal-coverage CI
 assertions.
 """
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
+import os
 from pathlib import Path
 import subprocess
 
@@ -19,9 +19,7 @@ import numpy as np
 from scipy.stats import norm
 
 from statgpu.linear_model import PenalizedLinearRegression
-from statgpu.linear_model.penalized._nodewise_precision import (
-    build_nodewise_precision_numpy,
-)
+from statgpu.linear_model.penalized._nodewise_precision import build_nodewise_precision_numpy
 
 
 def _git(*args):
@@ -56,7 +54,7 @@ def _old_precision(Xc, sigma_y):
 
 
 def _report_from_M(Xc, yc, beta_hat, M, beta_true):
-    n, p = Xc.shape
+    n, _ = Xc.shape
     resid = yc - Xc @ beta_hat
     s = int(np.sum(np.abs(beta_hat) > 0.0))
     sigma2 = float(resid @ resid / max(n - s, 1))
@@ -150,13 +148,13 @@ def main():
     if args.reps <= 0 or args.n <= 0 or args.p <= 1:
         raise ValueError("reps/n must be positive and p must exceed one")
 
-    rows = [
-        _one(args.seed + i, args.n, args.p, args.rho, args.main_alpha)
-        for i in range(args.reps)
-    ]
+    rows = [_one(args.seed + i, args.n, args.p, args.rho, args.main_alpha) for i in range(args.reps)]
+    checkout_sha = _git("rev-parse", "HEAD")
+    source_sha = os.getenv("STATGPU_SOURCE_SHA", checkout_sha).strip() or checkout_sha
     result = {
         "schema_version": 1,
-        "head_sha": _git("rev-parse", "HEAD"),
+        "source_sha": source_sha,
+        "checkout_sha": checkout_sha,
         "worktree_clean": _git("status", "--porcelain") == "",
         "status": "success",
         "purpose": "diagnostic old-vs-new migration evidence; not a finite-sample coverage guarantee",
