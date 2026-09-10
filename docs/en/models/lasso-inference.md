@@ -5,6 +5,8 @@
 > Model guide: [Lasso](lasso.md)  
 > Switch: [简体中文](../../cn/models/lasso-inference.md)
 
+> **Version note:** the current published release is **0.2.5**. The public `nodewise_alpha` control and the new automatic node-wise rule described here are already implemented on current `master` and are targeted for **0.2.6**; published 0.2.5 does not yet expose this public interface or new default rule.
+
 This page is the statistical-inference companion to the learner-first [Lasso guide](lasso.md). The main model page answers “when should I use Lasso?”; this page explains what the post-fit inference objects mean, how statgpu constructs the node-wise approximation, and what the software does **not** claim.
 
 ## Why raw Lasso coefficients need a different inferential construction
@@ -230,7 +232,167 @@ $$
 
 ## Simultaneous inference
 
-Set `enable_simultaneous_inference=True` to request max-|Z| Gaussian multiplier-bootstrap calibration. The implementation draws multipliers, computes standardized score perturbations over the requested target set, takes their maximum absolute value, and uses its empirical quantile as a common critical value.
+Marginal inference treats one parameter at a time. Simultaneous inference instead asks whether the intervals for an entire target family can cover their true values **at the same time**. Let $\mathcal J$ denote the coordinates to be covered jointly, with de-biased estimates $\hat\theta_j^{\mathrm{db}}$ and estimated standard errors $\widehat{\mathrm{se}}_j$. The ideal max statistic is
+
+$$
+\boxed{
+T
+=
+\max_{j\in\mathcal J}
+\left|
+\frac{\hat\theta_j^{\mathrm{db}}-\theta_j^0}
+{\widehat{\mathrm{se}}_j}
+\right|
+}.
+$$
+
+If the $1-\alpha_{\mathrm{sim}}$ quantile $c_{1-\alpha_{\mathrm{sim}}}$ of $T$ were known, one common critical value would give
+
+$$
+CI_j^{\mathrm{sim}}
+=
+\left[
+\hat\theta_j^{\mathrm{db}}-c_{1-\alpha_{\mathrm{sim}}}\widehat{\mathrm{se}}_j,
+\;
+\hat\theta_j^{\mathrm{db}}+c_{1-\alpha_{\mathrm{sim}}}\widehat{\mathrm{se}}_j
+\right],
+\qquad j\in\mathcal J,
+$$
+
+with the target approximation
+
+$$
+\Pr\!\left(
+\theta_j^0\in CI_j^{\mathrm{sim}}
+\;\text{for all }j\in\mathcal J
+\right)
+\approx 1-\alpha_{\mathrm{sim}}.
+$$
+
+This is the key distinction from reporting many 95% marginal intervals: the simultaneous procedure needs the distribution of the **largest standardized error over the whole target family**, not the quantile of one standard-normal coordinate.
+
+### How the Gaussian multiplier bootstrap approximates the max distribution
+
+The de-biasing expansion above gives the leading stochastic term
+
+$$
+\hat\theta^{\mathrm{db}}-\theta^0
+\approx
+\frac{1}{n}MX^\top\varepsilon.
+$$
+
+statgpu replaces the unknown errors by fitted residuals $\hat r_i$ and, for bootstrap draw $b$, samples independent Gaussian multipliers
+
+$$
+\xi_i^{(b)}\overset{\mathrm{iid}}{\sim}N(0,1),
+\qquad i=1,\ldots,n.
+$$
+
+For the slope coordinates, the maintained implementation corresponds to the multiplier perturbation
+
+$$
+\boxed{
+S^{*(b)}
+=
+\frac{1}{n}
+MX^\top
+\bigl(\xi^{(b)}\odot\hat r\bigr)
+},
+$$
+
+or coordinate-wise,
+
+$$
+S_j^{*(b)}
+=
+\frac{1}{n}
+\sum_{i=1}^{n}
+\xi_i^{(b)}\hat r_i(Mx_i)_j.
+$$
+
+It then standardizes by the already computed marginal standard errors,
+
+$$
+Z_j^{*(b)}
+=
+\frac{S_j^{*(b)}}{\widehat{\mathrm{se}}_j}.
+$$
+
+Within a given bootstrap draw, **every coordinate uses the same multiplier vector** $\xi^{(b)}$. That shared perturbation preserves the joint dependence induced by the observations, the design, and the common approximate precision matrix $M$ rather than treating the coordinates as independent bootstrap problems.
+
+The bootstrap max statistic is then
+
+$$
+\boxed{
+T^{*(b)}
+=
+\max_{j\in\mathcal J}|Z_j^{*(b)}|
+}.
+$$
+
+After $B=$ `simultaneous_n_bootstrap` draws, statgpu obtains
+
+$$
+T^{*(1)},\ldots,T^{*(B)}
+$$
+
+and uses their empirical $1-\alpha_{\mathrm{sim}}$ quantile
+
+$$
+\boxed{
+\hat c_{1-\alpha_{\mathrm{sim}}}
+=
+\widehat Q_{1-\alpha_{\mathrm{sim}}}
+\left(T^{*(1)},\ldots,T^{*(B)}\right)
+}.
+$$
+
+The reported simultaneous intervals are therefore
+
+$$
+\boxed{
+CI_j^{\mathrm{sim}}
+=
+\hat\theta_j^{\mathrm{db}}
+\pm
+\hat c_{1-\alpha_{\mathrm{sim}}}\widehat{\mathrm{se}}_j,
+\qquad j\in\mathcal J.
+}
+$$
+
+Thus max-|Z| calibration is not merely a mechanical widening of marginal intervals, nor does it bootstrap each coordinate independently. It directly approximates the distribution of the largest standardized fluctuation over the target family while retaining cross-coordinate dependence through the shared multipliers. The resulting common critical value is typically more conservative than a single-coordinate marginal critical value because it targets joint coverage.
+
+### Including the intercept in the same calibration problem
+
+By default, the target family contains slope coordinates. With `simultaneous_include_intercept=True`, statgpu constructs original-coordinate intercept influence weights $\hat h_i$ from the same centered/weighted fitted problem. For bootstrap draw $b$, the intercept perturbation is
+
+$$
+S_0^{*(b)}
+=
+\sum_{i=1}^{n}
+\xi_i^{(b)}\hat r_i\hat h_i,
+\qquad
+Z_0^{*(b)}
+=
+\frac{S_0^{*(b)}}{\widehat{\mathrm{se}}_0}.
+$$
+
+The max statistic then genuinely becomes
+
+$$
+\boxed{
+T^{*(b)}
+=
+\max\left\{
+|Z_0^{*(b)}|,
+\max_{j=1,\ldots,p}|Z_j^{*(b)}|
+\right\}.
+}
+$$
+
+The intercept therefore participates in the **same max-|Z| calibration**; it is not appended afterward using a feature-only critical value.
+
+Set the corresponding controls as follows:
 
 ```python
 model = Lasso(
@@ -251,7 +413,9 @@ print(model._conf_int_simultaneous)
 print(model._simultaneous_critical_value)
 ```
 
-`simultaneous_include_intercept=True` includes the coherent de-biased intercept in the actual max-|Z| calibration family rather than merely appending a reporting row. Maintained centered CuPy/Torch simultaneous inference records its numerical backend/device provenance.
+`_conf_int` remains the marginal interval array; `_conf_int_simultaneous` stores intervals formed with the common max-|Z| critical value; and `_simultaneous_critical_value` is the estimated $\hat c_{1-\alpha_{\mathrm{sim}}}$ above. Maintained centered CuPy/Torch simultaneous inference also records its numerical backend/device provenance.
+
+The joint-coverage statement still relies on the high-dimensional approximation underlying de-biased Lasso and on the multiplier bootstrap adequately approximating the max-statistic distribution. It should not be read as an exact finite-sample $1-\alpha_{\mathrm{sim}}$ guarantee for arbitrary data-generating processes.
 
 ## Multiple testing is a separate layer
 
@@ -276,6 +440,7 @@ Important fields include:
 - Remember that the automatic node-wise rule is design-side and response-scale independent.
 - Treat `post_selection_ols` as a diagnostic after selection.
 - Treat CV-final-refit inference as conditional on selected tuning parameters.
+- Simultaneous calibration targets the maximum standardized error over the requested family; all coordinates share each multiplier draw so their joint dependence is retained.
 - Use simultaneous calibration or multiple-testing correction only when the underlying inferential object is appropriate for the question.
 - Numerical backend parity does not weaken or strengthen the statistical assumptions.
 
