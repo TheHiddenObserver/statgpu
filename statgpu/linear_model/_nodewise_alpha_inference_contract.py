@@ -1,10 +1,9 @@
 """Public node-wise-alpha contract for sparse Gaussian debiased inference.
 
-Installed after the existing #138 sparse-inference contracts.  Those wrappers
+Installed after the existing #138 sparse-inference contracts. Those wrappers
 continue to own centering, analytic-weight transformation, intercept recovery,
-and backend-native simultaneous inference; this module replaces only the
-node-wise precision/tuning contract they call internally and exposes its public
-configuration.
+and backend-native simultaneous inference; this module replaces the node-wise
+precision/tuning contract they call internally and exposes its public control.
 """
 
 from __future__ import annotations
@@ -33,10 +32,12 @@ from statgpu.linear_model.wrappers._elasticnet import ElasticNet
 from statgpu.linear_model.cv._lasso_cv import LassoCV
 from statgpu.linear_model.cv._elasticnet_cv import ElasticNetCV
 from statgpu.linear_model import _post_selection_ols_fifth_review_contract as _fifth
+from statgpu.linear_model import _penalized_solver_api_contract as _solver_api
+from statgpu.linear_model import _penalized_inference_api_contract as _inference_api
 
 _INSTALL_MARKER = "__statgpu_nodewise_alpha_contract__"
 _NODEWISE_CONTEXT = ContextVar("statgpu_nodewise_precision_context", default=None)
-_CV_CONTEXT = ContextVar("statgpu_nodewise_cv_final_refit_context", default=None)
+_NO_INHERITED_VALUE = object()
 
 
 def _context_for(model, n_rows: int):
@@ -55,8 +56,7 @@ def _gpu_effective_n(n_rows: int, sample_weight, backend_name: str, ref_arr) -> 
     if name == "cupy":
         import cupy as cp
 
-        device_id = int(ref_arr.device.id)
-        with cp.cuda.Device(device_id):
+        with cp.cuda.Device(int(ref_arr.device.id)):
             w = cp.asarray(sample_weight, dtype=cp.float64).reshape(-1)
             if int(w.shape[0]) != n:
                 raise ValueError("sample_weight must match n_samples")
@@ -130,10 +130,14 @@ def _validate_feature_report(params, bse, pvalues, conf_int):
 
 
 def _base_result(model, *, params, bse, statistic, pvalues, conf_int, precision_meta, backend_path):
+    numerical_backend = "numpy" if backend_path.startswith("cpu") else backend_path.split("_", 1)[0]
+    numerical_device = getattr(model, "_selected_backend_device", None)
+    if numerical_backend == "numpy" and not numerical_device:
+        numerical_device = "cpu"
     metadata = {
         "backend_path": backend_path,
-        "numerical_backend": "numpy" if backend_path.startswith("cpu") else backend_path.split("_", 1)[0],
-        "numerical_device": getattr(model, "_selected_backend_device", "cpu"),
+        "numerical_backend": numerical_backend,
+        "numerical_device": numerical_device,
         "reporting_backend": "numpy",
         "reporting_boundary": "post_numerical_inference",
         "precision_cache_hit": False,
@@ -349,6 +353,37 @@ def _nodewise_torch_debiased(self, X_torch, y_torch, coef_torch):
     return None
 
 
+def _inherit_nodewise_from_cv_stack(target_name: str):
+    """Read final-refit inference configuration without wrapping CV.fit."""
+    frame = inspect.currentframe()
+    try:
+        for _ in range(20):
+            if frame is None:
+                break
+            frame = frame.f_back
+            if frame is None:
+                break
+            module_name = str(frame.f_globals.get("__name__", ""))
+            function_name = frame.f_code.co_name
+            match = (
+                target_name == "Lasso"
+                and module_name == "statgpu.linear_model.cv._lasso_cv"
+                and function_name == "fit"
+            ) or (
+                target_name == "ElasticNet"
+                and module_name == "statgpu.linear_model.cv._elasticnet_cv"
+                and function_name == "_fit_cv"
+            )
+            if not match:
+                continue
+            owner = frame.f_locals.get("self")
+            if owner is not None and hasattr(owner, "nodewise_alpha"):
+                return owner.nodewise_alpha
+        return _NO_INHERITED_VALUE
+    finally:
+        del frame
+
+
 def _add_nodewise_parameter(cls):
     current = cls.__init__
     if getattr(current, _INSTALL_MARKER, False):
@@ -357,33 +392,29 @@ def _add_nodewise_parameter(cls):
     if "nodewise_alpha" in signature.parameters:
         return
     params = list(signature.parameters.values())
-    new_param = inspect.Parameter(
-        "nodewise_alpha",
-        kind=inspect.Parameter.KEYWORD_ONLY,
-        default=None,
-        annotation=Optional[float],
+    params.append(
+        inspect.Parameter(
+            "nodewise_alpha",
+            kind=inspect.Parameter.KEYWORD_ONLY,
+            default=None,
+            annotation=Optional[float],
+        )
     )
-    insert_at = next(
-        (i for i, parameter in enumerate(params) if parameter.kind is inspect.Parameter.VAR_KEYWORD),
-        len(params),
-    )
-    params.insert(insert_at, new_param)
     new_signature = signature.replace(parameters=params)
 
     @functools.wraps(current)
     def wrapped(self, *args, **kwargs):
         explicit = "nodewise_alpha" in kwargs
         requested = kwargs.pop("nodewise_alpha", None)
-        if not explicit:
-            cv_ctx = _CV_CONTEXT.get()
-            if isinstance(cv_ctx, tuple) and len(cv_ctx) == 2:
-                target_name, inherited_value = cv_ctx
-                if type(self).__name__ == target_name:
-                    requested = inherited_value
+        if not explicit and type(self).__name__ in {"Lasso", "ElasticNet"}:
+            inherited = _inherit_nodewise_from_cv_stack(type(self).__name__)
+            if inherited is not _NO_INHERITED_VALUE:
+                requested = inherited
         validate_nodewise_alpha(requested)
         result = current(self, *args, **kwargs)
         self.nodewise_alpha = requested
-        self.nodewise_alpha_ = None
+        if type(self).__name__ not in {"LassoCV", "ElasticNetCV"}:
+            self.nodewise_alpha_ = None
         raw = getattr(self, "_constructor_params_raw", None)
         if raw is None:
             raw = {}
@@ -394,6 +425,16 @@ def _add_nodewise_parameter(cls):
     wrapped.__signature__ = new_signature
     setattr(wrapped, _INSTALL_MARKER, True)
     cls.__init__ = wrapped
+
+
+def _install_cv_resolved_property(cls):
+    def get_resolved(self):
+        estimator = self.__dict__.get("estimator_", None)
+        if estimator is not None:
+            return getattr(estimator, "nodewise_alpha_", None)
+        return None
+
+    cls.nodewise_alpha_ = property(get_resolved)
 
 
 def _install_clear_state():
@@ -421,9 +462,7 @@ def _install_cpu_context():
     @functools.wraps(current)
     def wrapped(self, X, y, sample_weight=None):
         n = int(X.shape[0])
-        effective_n = resolve_effective_n(
-            n, None if sample_weight is None else _to_numpy(sample_weight)
-        )
+        effective_n = resolve_effective_n(n, None if sample_weight is None else _to_numpy(sample_weight))
         token = _NODEWISE_CONTEXT.set((id(self), effective_n, sample_weight is not None))
         try:
             result = current(self, X, y, sample_weight=sample_weight)
@@ -468,43 +507,79 @@ def _wrap_gpu_fit_for_context(cls):
     cls._fit_gpu_backend = wrapped
 
 
-def _wrap_cv_reset(cls):
-    current = getattr(cls, "_reset_cv_fit_state", None)
-    if current is None or getattr(current, _INSTALL_MARKER, False):
-        return
+def _nodewise_inference_warning_policy():
+    """Make this additive constructor layer transparent to #138 warnings."""
+    frame = inspect.currentframe()
+    transparent_frames = 0
+    try:
+        for _ in range(28):
+            if frame is None:
+                return False, 2 + transparent_frames
+            frame = frame.f_back
+            if frame is None:
+                return False, 2 + transparent_frames
+            module_name = str(frame.f_globals.get("__name__", ""))
+            function_name = frame.f_code.co_name
+            if module_name == _inference_api.__name__:
+                continue
+            if module_name == __name__:
+                transparent_frames += 1
+                continue
+            if module_name == "statgpu._base" and function_name == "__sklearn_clone__":
+                return True, 2
+            if module_name == "statgpu._base" and function_name == "set_params":
+                updates = frame.f_locals.get("direct_updates", {})
+                if isinstance(updates, dict) and "inference_method" in updates:
+                    return False, 3 + transparent_frames
+                return True, 2
+            if module_name == "sklearn.base" and function_name in {"clone", "_clone_parametrized"}:
+                return True, 2
+            if module_name.startswith("statgpu."):
+                return True, 2
+            return False, 2 + transparent_frames
+        return False, 2 + transparent_frames
+    finally:
+        del frame
 
-    @functools.wraps(current)
-    def wrapped(self, *args, **kwargs):
-        result = current(self, *args, **kwargs)
-        self.nodewise_alpha_ = None
-        return result
 
-    setattr(wrapped, _INSTALL_MARKER, True)
-    cls._reset_cv_fit_state = wrapped
+def _nodewise_solver_warning_policy():
+    """Make #138 inference plus this constructor layer transparent to #135."""
+    frame = inspect.currentframe()
+    transparent_frames = 0
+    try:
+        for _ in range(32):
+            if frame is None:
+                return False, 2 + transparent_frames
+            frame = frame.f_back
+            if frame is None:
+                return False, 2 + transparent_frames
+            module_name = str(frame.f_globals.get("__name__", ""))
+            function_name = frame.f_code.co_name
+            if module_name == _solver_api.__name__:
+                continue
+            if module_name in {_inference_api.__name__, __name__}:
+                transparent_frames += 1
+                continue
+            if module_name == "statgpu._base" and function_name == "__sklearn_clone__":
+                return True, 2
+            if module_name == "statgpu._base" and function_name == "set_params":
+                updates = frame.f_locals.get("direct_updates", {})
+                if isinstance(updates, dict) and "cpu_solver" in updates:
+                    return False, 3 + transparent_frames
+                return True, 2
+            if module_name == "sklearn.base" and function_name in {"clone", "_clone_parametrized"}:
+                return True, 2
+            if module_name.startswith("statgpu."):
+                return True, 2
+            return False, 2 + transparent_frames
+        return False, 2 + transparent_frames
+    finally:
+        del frame
 
 
-def _wrap_cv_fit(cls, target_name: str):
-    current = cls.fit
-    if getattr(current, _INSTALL_MARKER, False):
-        return
-
-    @functools.wraps(current)
-    def wrapped(self, *args, **kwargs):
-        self.nodewise_alpha_ = None
-        token = _CV_CONTEXT.set((target_name, getattr(self, "nodewise_alpha", None)))
-        try:
-            result = current(self, *args, **kwargs)
-        except Exception:
-            self.nodewise_alpha_ = None
-            raise
-        finally:
-            _CV_CONTEXT.reset(token)
-        estimator = getattr(self, "estimator_", None)
-        self.nodewise_alpha_ = None if estimator is None else getattr(estimator, "nodewise_alpha_", None)
-        return result
-
-    setattr(wrapped, _INSTALL_MARKER, True)
-    cls.fit = wrapped
+def _install_warning_transparency():
+    _inference_api._constructor_warning_policy = _nodewise_inference_warning_policy
+    _solver_api._constructor_warning_policy = _nodewise_solver_warning_policy
 
 
 def install_nodewise_alpha_inference_contract() -> None:
@@ -518,6 +593,9 @@ def install_nodewise_alpha_inference_contract() -> None:
     ):
         _add_nodewise_parameter(cls)
 
+    _install_cv_resolved_property(LassoCV)
+    _install_cv_resolved_property(ElasticNetCV)
+    _install_warning_transparency()
     _install_clear_state()
 
     # Existing #138 centered/weighted wrappers invoke these captured originals.
@@ -528,10 +606,6 @@ def install_nodewise_alpha_inference_contract() -> None:
     _install_cpu_context()
     _wrap_gpu_fit_for_context(PenalizedGeneralizedLinearModel)
     _wrap_gpu_fit_for_context(PenalizedLinearRegression)
-    _wrap_cv_reset(LassoCV)
-    _wrap_cv_reset(ElasticNetCV)
-    _wrap_cv_fit(LassoCV, "Lasso")
-    _wrap_cv_fit(ElasticNetCV, "ElasticNet")
 
 
 __all__ = ["install_nodewise_alpha_inference_contract"]
