@@ -11,6 +11,8 @@ on:
       - 'scripts/**'
       - 'docs/**'
       - 'frontend/**'
+      - 'dev/documentation/**'
+      - 'dev/validation/check_docs_contracts.py'
       - 'dev/benchmarks/**'
       - 'dev/tests/test_benchmark_frontend_data.py'
       - 'dev/tests/test_benchmark_catalog.py'
@@ -35,6 +37,8 @@ on:
       - 'scripts/**'
       - 'docs/**'
       - 'frontend/**'
+      - 'dev/documentation/**'
+      - 'dev/validation/check_docs_contracts.py'
       - 'dev/benchmarks/**'
       - 'dev/tests/test_*frontend*.py'
       - 'dev/tests/test_benchmark_*.py'
@@ -60,6 +64,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Validate documentation contracts
+        run: python dev/validation/check_docs_contracts.py
       - name: Install validation dependencies
         run: python -m pip install -U pip pytest 'jsonschema[format]'
       - name: Run generator and parser tests

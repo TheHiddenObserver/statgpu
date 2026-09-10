@@ -1,152 +1,327 @@
 # 岭回归（Ridge）
 
-> 语言: 中文  
-> 最后更新: 2026-09-04
-> 页面定位: 模型文档  
-> 切换: [English](../../en/models/ridge.md)
+> 语言：中文
+> 最后更新：2026-09-09
+> 切换：[English](../../en/models/ridge.md)
 
-语言切换: [English](../../en/models/ridge.md)
+## 它解决什么问题？
 
-## 概述
+`Ridge` 是加入 L2 惩罚的线性回归。它适合普通最小二乘（OLS）能够拟合数据、但单个系数因为特征高度相关而非常不稳定的情况。
 
-`Ridge` 在普通最小二乘基础上加入 L2 正则化，用于缓解多重共线性、稳定系数估计，并保留与 `LinearRegression` 对齐的推断接口，包括 `nonrobust`、`hc0`、`hc1`、`hc2`、`hc3` 和 `hac` 协方差选项。
+一个常见症状是**多重共线性**：两个特征携带几乎相同的信息时，OLS 的预测可能变化不大，但系数会在两者之间剧烈摇摆。Ridge 的基本思想是接受一定的估计偏差，以换取更低的系数方差和更稳定的预测，这正是经典的偏差—方差权衡。
 
-## 导入路径
+典型问题包括：
 
-`statgpu.linear_model.Ridge`
+- 能否让线性模型面对高度相关特征时更稳定？
+- 能否在不直接删除变量的前提下降低系数方差？
+- 当 OLS 在噪声方向上过拟合时，能否改善预测？
 
-## 目标函数
+## 一个直观例子
 
-对于无权重样本，statgpu 使用平均损失目标：
+假设两个传感器测量几乎相同的物理量。两列 `X` 几乎重复，OLS 有很多近乎等价的方式把信号分配给它们：
+
+```text
+                 传感器 1   传感器 2
+OLS 系数              0.32        2.08
+Ridge 系数            1.09        1.09
+```
+
+两种模型的预测都可能不错，但 Ridge 的系数分配通常更稳定。
+
+## 直觉
+
+OLS 只问：
+
+> 哪组系数能让训练数据上的预测误差最小？
+
+Ridge 额外加了一个偏好：
+
+> 如果两组模型拟合得差不多，优先选择系数更小的那一组。
+
+L2 惩罚会连续地**收缩**系数，但通常不会把系数精确压成 0。因此：
+
+- Ridge 主要用于**稳定化与收缩**；
+- [Lasso](lasso.md) 可以产生精确 0，适合稀疏选择；
+- [Elastic Net](elastic-net.md) 同时结合两者。
+
+## 什么时候使用？
+
+Ridge 很适合：
+
+- 因变量连续，线性条件均值是合理近似；
+- 多个特征高度相关；
+- 特征很多，希望降低估计方差；
+- 相比保留经典未惩罚 OLS 估计量，更关心稳定预测；
+- 希望保留所有变量，而不是硬删除。
+
+以下情况可优先考虑其他方法：
+
+- 明确需要稀疏模型——考虑 Lasso 或 Elastic Net；
+- 因变量是二分类、计数或生存时间——使用相应 GLM / 生存模型；
+- 主要关系是非线性的，但还没有通过合适特征表达；
+- 目标是因果解释，但研究设计本身不能支持因果结论。
+
+## 模型与目标函数
+
+带截距的线性模型为
 
 $$
-\min_{b,\beta}
-\frac{1}{2n}\sum_{i=1}^n
+y_i=b+x_i^\top\beta+\varepsilon_i.
+$$
+
+Ridge 最小化
+
+$$
+\frac{1}{2n}\sum_{i=1}^{n}
 \left(y_i-b-x_i^\top\beta\right)^2
-+\frac{\alpha}{2}\|\beta\|_2^2.
++\frac{\alpha}{2}\lVert\beta\rVert_2^2.
 $$
 
-当传入 `sample_weight=w` 时，数据拟合项按照总权重归一化：
+其中 $\alpha\ge0$ 控制收缩强度，截距不受惩罚。`alpha=0` 时退化为 OLS。
+
+中心化后的正规方程（normal equation）为
 
 $$
-\min_{b,\beta}
-\frac{1}{2\sum_i w_i}\sum_{i=1}^n
-w_i\left(y_i-b-x_i^\top\beta\right)^2
-+\frac{\alpha}{2}\|\beta\|_2^2.
+\left(X_c^\top X_c+n\alpha I\right)\hat\beta=X_c^\top y_c.
 $$
 
-截距项不受 L2 惩罚。因而将所有样本权重同时乘以任意正数，不会改变拟合结果。
+新增的 $n\alpha I$ 会抑制弱方向和近共线方向，因此可以改善数值与统计稳定性。
 
-## 估计方程
+## 最小可运行示例
 
-使用普通均值或加权均值对数据中心化后，一阶条件为：
+```python
+import numpy as np
+from statgpu.linear_model import LinearRegression, Ridge
 
-$$
-\left(X_c^\top W X_c + \alpha\,s_w I\right)\hat\beta
-= X_c^\top W y_c,
-$$
+rng = np.random.default_rng(0)
+n = 400
+shared = rng.normal(size=n)
+X = np.column_stack([
+    shared + 0.03 * rng.normal(size=n),
+    shared + 0.03 * rng.normal(size=n),
+    rng.normal(size=n),
+])
+y = (
+    1.0
+    + 1.2 * X[:, 0]
+    + 1.2 * X[:, 1]
+    + 0.5 * X[:, 2]
+    + rng.normal(scale=0.8, size=n)
+)
 
-其中，无权重时 $W=I$、$s_w=n$；加权时 $W=\operatorname{diag}(w)$、$s_w=\sum_iw_i$。
+ols = LinearRegression(device="cpu", compute_inference=False).fit(X, y)
+ridge = Ridge(alpha=0.2, device="cpu", compute_inference=False).fit(X, y)
 
-`Ridge` 默认使用 `solver="exact"`。exact 与 FISTA 路径、`PenalizedLinearRegression(loss="squared_error", penalty="l2")` 以及 `RidgeCV` 均使用同一个平均损失尺度。
+print("OLS coefficients:  ", np.round(ols.coef_, 3))
+print("Ridge coefficients:", np.round(ridge.coef_, 3))
+print("Ridge R²:", round(ridge.score(X, y), 3))
+```
 
-scikit-learn 使用未归一化的残差平方和。比较系数时应使用：
+固定随机种子后，前两个 OLS 系数大约是 `0.32` 和 `2.08`，Ridge 则接近 `1.09` 和 `1.09`。重点不是 Ridge 找到了唯一“真实”的分配，而是系数对几乎重复的列不再那么敏感。
 
-- 无权重：`sklearn_alpha = n_samples * statgpu_alpha`；
-- 加权：`sklearn_alpha = sample_weight.sum() * statgpu_alpha`。
+## 如何理解结果？
 
-直接使用相同数值的 `alpha`，实际比较的是两个不同目标函数。
+- `coef_[j]` 是经过收缩后的系数；惩罚项改变了估计量本身。
+- `intercept_` 是不受惩罚的截距。
+- `predict(X_new)` 返回连续预测。
+- `score(X, y)` 返回 $R^2$，并支持 `sample_weight=`。
+- 系数变小不等于科学意义一定变弱，其中可能只是正则化带来的收缩。
 
-## 求解器支持
+若需要系数不确定性，可以设置 `compute_inference=True`。这里得到的是**固定 `alpha` 条件下、针对惩罚 Ridge 估计量的 Wald 式报告**，而不是把 Ridge 系数“还原”为未惩罚 OLS 系数。Ridge 用于稳定估计的收缩偏差仍然存在，因此这些 p 值和置信区间不应解释成对未惩罚总体回归系数的经典有限样本 OLS 推断。若 `alpha` 由 `RidgeCV` 或其他调参程序选出，最终重拟合的推断还条件于这个已经选定的 `alpha`，当前实现不会额外校正调参不确定性。
 
-`Ridge` 是唯一默认采用模型专属 `solver="exact"` 路径的线性模型 wrapper。若需要可复现的数值路径，应显式指定求解器；`solver="auto"` 会在后端选择完成后分发到不同路径。
+## 关键参数应该怎么选？
 
-| `solver` 值 | CPU | CuPy / Torch | 适用场景 |
-|---|:---:|:---:|---|
-| `exact`（默认） | 支持 | 支持 | 稠密 L2 normal-equation 求解；普通 Ridge 的首选 |
-| `auto` | exact | Newton | 交给后端感知的自动分发 |
-| `fista` / `fista_bb` | 支持 | 支持 | 迭代路径对照或受控优化实验 |
-| `newton` / `lbfgs` | 支持 | 支持 | 光滑目标的替代路径 |
-| `admm` | 支持 | 支持 | 实验性拆分路径；只支持均匀样本权重 |
-| `irls` | 不支持 | 不支持 | squared-error loss 未声明 IRLS contract，因此会被拒绝 |
+这里是**教学用的精选参数表**，并不是完整 API。完整构造函数、方法和拟合后属性见[完整 API 参考](#完整-api-参考)。
 
-`coordinate_descent`、`quantile_cd_solver` 与 `lbfgs_b_solver` 都不是 Ridge 估计器选项。exact 路径的推导就是上方估计方程；通用算法原理见[求解器指南](../guides/solver-algorithms.md)。
-
-## 协方差与推断
-
-- `cov_type="nonrobust"`：经典 ridge 协方差。
-- `cov_type="hc0"|"hc1"|"hc2"|"hc3"`：sandwich 风格稳健协方差。
-- `cov_type="hac"`：Newey-West Bartlett kernel 协方差，`hac_maxlags` 控制最大滞后阶。
-- `compute_inference=True` 时返回 `_bse`、`_tvalues`、`_pvalues`、`_conf_int`。
-- 加权推断使用加权设计矩阵 `[sqrt(w), sqrt(w) * X]`，因此截距列、残差、bread 和 meat 与估计阶段采用相同权重约定。
-
-推断中的 ridge normal equations 与拟合阶段使用同一个平均损失 penalty mapping：无权重时数值 ridge 项为 `n * alpha`，加权时为 `sample_weight.sum() * alpha`；截距始终不惩罚。
-
-对于已经迁移的共享 Gaussian 路径，协方差、标准误、检验统计量、参考分布 p 值以及置信区间临界值都在实际执行拟合的 NumPy/CuPy/Torch backend 上完成。全部数值工作结束以后，既有 reporting 数组才 snapshot 到 NumPy。`_inference_result.metadata` 会记录 numerical backend/device 以及 `post_numerical_inference` reporting boundary。显式 CUDA/Torch 拟合若缺失执行 backend provenance，会 fail closed，而不会静默切换到 NumPy inference。
-
-低自由度 Student-t 路径复用维护中的 df=1 与 df=2 稳定恒等式，因此极端但仍可表示的尾概率不会因为 `1-CDF` 消去或 `t**2` 中间量 overflow 被错误压成 0。
-
-## 参数
-
-| Parameter | Default | Description |
+| 参数 | 默认值 | 应该怎么理解 |
 |---|---:|---|
-| `alpha` | `1.0` | 平均损失尺度下的 L2 正则化强度 |
-| `fit_intercept` | `True` | 是否拟合截距 |
-| `device` | `"auto"` | `cpu` / `cuda` / `torch` / `auto` |
-| `n_jobs` | `None` | 并行任务数 |
-| `compute_inference` | `True` | 是否计算标准误、t 值、p 值和置信区间 |
-| `cov_type` | `"nonrobust"` | `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac` |
-| `hac_maxlags` | `None` | `cov_type="hac"` 时的最大滞后阶 |
-| `gpu_memory_cleanup` | `False` | `fit` 后尽可能释放 GPU 内存 |
-| `solver` | `"exact"` | 默认使用 L2 闭式解；`fista` 使用相同目标函数 |
+| `alpha` | `1.0` | 最重要的建模参数；越大收缩越强。预测任务优先用 `RidgeCV` 或验证程序选择。 |
+| `fit_intercept` | `True` | 一般保持开启，除非理论上固定截距为 0 或设计矩阵已有截距。 |
+| `device` | `"auto"` | 小中型问题优先 CPU；规模足够大时再考虑 CUDA/Torch。 |
+| `compute_inference` | `True` | 只需要预测/系数时可关闭；启用时报告的是条件于当前 Ridge 拟合与调参配置的不确定性。 |
+| `cov_type` | `"nonrobust"` | 需要考虑异方差时使用 HC；存在真实顺序和序列相关时考虑 HAC。这些选择改变协方差估计，并不会消除 Ridge 的收缩偏差。 |
+| `solver` | `"exact"` | 普通 Ridge 默认使用直接求解路径，通常不需要修改。 |
 
-## CPU 与 GPU 示例
+### 先考虑特征尺度
+
+正则化直接作用于系数大小。多数正则化分析流程应先标准化连续特征，除非你有意让原始单位参与惩罚项的含义。
+
+## 与相近方法比较
+
+| 方法 | 惩罚作用 | 精确 0？ | 更适合的场景 |
+|---|---|:---:|---|
+| OLS / `LinearRegression` | 不收缩 | 否 | 设计稳定，希望使用未惩罚估计量 |
+| **Ridge** | L2 收缩 | 通常否 | 特征相关，希望稳定预测并保留所有变量 |
+| [Lasso](lasso.md) | L1 收缩 | 是 | 稀疏模型 / 自动特征选择 |
+| [Elastic Net](elastic-net.md) | L1 + L2 | L1 部分为正时可以 | 希望稀疏，同时提高相关变量下的稳定性 |
+
+## CPU、GPU、公式接口与加权拟合
 
 ```python
 from statgpu.linear_model import Ridge
 
-# CPU
-m_cpu = Ridge(alpha=1.0, device="cpu", cov_type="hc3", compute_inference=True)
-m_cpu.fit(X, y, sample_weight=w)
-
-# CuPy CUDA
-m_gpu = Ridge(
-    alpha=1.0,
+model = Ridge(
+    alpha=0.2,
     device="cuda",
-    cov_type="hc3",
-    compute_inference=True,
-    gpu_memory_cleanup=True,
-)
-m_gpu.fit(X, y, sample_weight=w)
+    compute_inference=False,
+).fit(X, y)
 ```
 
-## strict 与 approx 的差异
+分析权重示例：
 
-当前没有单独公开的 approximate 模式。hosted tests 覆盖 exact/FISTA、加权/无权重、formula、协方差/推断、RidgeCV final-refit inference、backend provenance 和 numerical/reporting transfer boundary。真实 CuPy/Torch CUDA acceptance 仍是独立的 exact-source remote gate；只要维护的 validator contract 后续发生变化，就必须重新执行 physical validation。
+```python
+weighted = Ridge(alpha=0.2).fit(X, y, sample_weight=w)
+```
 
-## 输出
+`fit()` 也支持 `formula=` 与 `data=` 公式接口；公式接口元数据会保留下来，以便 DataFrame 预测时重建一致的设计矩阵。
 
-- 系数：`intercept_`、`coef_`
-- 推断：`_bse`、`_tvalues`、`_pvalues`、`_conf_int`
-- 诊断：`rsquared`、`rsquared_adj`、`fvalue`、`aic`、`bic`
-- 方法：`fit`、`predict`、`score`、`summary`
+## 进阶：求解器支持
 
-## 常见问题
+| `solver` 值 | CPU | CuPy / Torch | 用途 |
+|---|:---:|:---:|---|
+| `exact`（默认） | 支持 | 支持 | 稠密 L2 直接求解 |
+| `auto` | exact | Newton | 根据后端自动分派 |
+| `fista` / `fista_bb` | 支持 | 支持 | 迭代对照 / 特殊计算场景 |
+| `newton` / `lbfgs` | 支持 | 支持 | 光滑目标的替代路径 |
+| `admm` | 支持 | 支持 | 实验性拆分路径，仅支持均匀样本权重 |
+| `irls` | 不支持 | 不支持 | 平方误差目标没有 IRLS 约定 |
 
-- `alpha` 如何选择？建议使用 `RidgeCV`，或在 statgpu 的平均损失尺度下使用任务相关的对数网格。
-- 为什么相同 `alpha` 与 sklearn 不一致？两者残差项的归一化方式不同，应使用上面的显式映射。
-- 将所有样本权重同时缩放会改变模型吗？不会，因为加权损失除以 `sum(sample_weight)`。
-- 什么时候设置 `hac_maxlags`？当 `cov_type="hac"` 且存在时间相关时建议显式设置，否则使用默认规则。
-- GPU inference 会把公开数组保留为 CuPy/Torch 吗？不会。数值推断保持 backend-native，但既有公开 reporting 属性在数值推断完成后仍然是 NumPy snapshot。
+一次直接 `Ridge.fit` 中，`solver` 是直接拟合算法的正式选择参数。`cpu_solver` 仅作为旧版/共享路径的兼容控制保留，不会选择直接拟合算法；新代码应使用 `solver`。通用迭代机制见[求解器算法指南](../guides/solver-algorithms.md)。
 
-## 外部验证
+## 进阶：推断与目标函数尺度
 
-- 内部一致性通过平均损失闭式解以及通用 penalized-linear estimator 进行验证。
-- 与 sklearn 比较时使用无权重或加权情况下的显式 alpha 映射。
-- 加权 exact/FISTA、formula 缺失行权重对齐、推断和 RidgeCV 权重整体缩放不变性由 `dev/tests/test_ridge_weighted_consistency.py` 覆盖。
-- Issue #127 的 backend-native inference regressions 与 physical CUDA acceptance contract 位于 `dev/tests/test_gaussian_inference_*.py` 和 `dev/benchmarks/validate_gaussian_inference_backend_native_gpu.py`。
+支持 `nonrobust`、`hc0`、`hc1`、`hc2`、`hc3` 和 `hac`。启用推断后，可得到 `_bse`、`_tvalues`、`_pvalues`、`_conf_int`，以及在相应状态下的 `rsquared`、`rsquared_adj`、`fvalue`、`f_pvalue`、`llf`、`aic`、`bic`。
+
+对于非稳健路径，statgpu 在上面的中心化无权重记号下使用惩罚线性估计量的协方差
+
+$$
+\widehat{\operatorname{Var}}(\hat\beta_\alpha)
+=\hat\sigma^2 B_\alpha X^\top X B_\alpha,
+\qquad
+B_\alpha=(X^\top X+n\alpha I)^{-1},
+$$
+
+分析权重情形则使用与拟合一致的加权归一化。当前结果报告随后采用 Student-t 参考分布；稳健/HAC 路径使用三明治协方差和正态参考分布。这些都是**固定惩罚拟合上的 Wald 式报告约定**，并不意味着 Ridge 收缩偏差已经被消除，也不意味着恢复了 OLS 的精确有限样本 t 理论。
+
+`RidgeCV(compute_inference=True)` 会先选择 `alpha`，随后只在最终全数据重拟合上运行推断。所报告的不确定性条件于已经选出的 `alpha`；当前实现不会再对交叉验证调参过程增加一层不确定性修正。
+
+**拟合诊断量是兼容性诊断，不是惩罚感知的模型选择准则。** `rsquared_adj`、`fvalue`、`f_pvalue`、`aic` 和 `bic` 使用惩罚拟合保存的残差状态，以及普通参数个数/残差自由度约定；它们没有把参数个数替换成 Ridge 的有效自由度（例如平滑矩阵迹），也没有计入 `alpha` 调参过程。应把它们当作描述性/兼容性报告量，而不是用来替代验证或交叉验证的 penalty-aware 准则。
+
+与 scikit-learn 比较 `alpha` 时要注意目标函数尺度：
+
+- 无权重：`sklearn_alpha = n_samples * statgpu_alpha`；
+- 加权：`sklearn_alpha = sample_weight.sum() * statgpu_alpha`。
+
+## 常见误区
+
+- 不要只用训练 $R^2$ 选择 `alpha`。
+- 不要把 Ridge 收缩误解为变量删除。
+- 比较系数大小前先检查特征尺度。
+- 不要直接复制其他库的 `alpha` 数值而忽略目标函数缩放。
+- 正则化不能自动修复非线性、依赖结构或混杂。
+- 不要把 Ridge 的 p 值当作对未惩罚系数的普通 OLS p 值；当前报告不会消除收缩偏差。
+- 调参之后的小 p 值不等于完成了考虑模型选择过程的推断。
+- 不要把当前 AIC/BIC/F 输出理解为已经使用 Ridge 有效自由度的惩罚感知准则。
+
+## 完整 API 参考
+
+这里列出当前 `Ridge` 封装类的完整公开 API。
+
+### 构造函数
+
+```python
+Ridge(
+    alpha=1.0,
+    fit_intercept=True,
+    device="auto",
+    n_jobs=None,
+    gpu_memory_cleanup=False,
+    compute_inference=True,
+    cov_type="nonrobust",
+    hac_maxlags=None,
+    max_iter=1000,
+    tol=1e-4,
+    solver="exact",
+    cpu_solver="fista",
+    lipschitz_L=None,
+)
+```
+
+<!-- API-CONSTRUCTOR-START:Ridge -->
+| 参数 | 默认值 | API 含义 |
+|---|---:|---|
+| `alpha` | `1.0` | 平均损失尺度下的 L2 惩罚强度。 |
+| `fit_intercept` | `True` | 拟合不受惩罚的截距。 |
+| `device` | `"auto"` | `auto`、`cpu`、`cuda`（CuPy）或 `torch`（Torch CUDA）。 |
+| `n_jobs` | `None` | 所选路径使用并行时的并行度提示。 |
+| `gpu_memory_cleanup` | `False` | 拟合后尽力释放缓存的 GPU 内存。 |
+| `compute_inference` | `True` | 计算固定 Ridge 拟合上的标准误、检验、区间与 `summary()` 所需状态。 |
+| `cov_type` | `"nonrobust"` | `nonrobust`、`hc0`、`hc1`、`hc2`、`hc3` 或 `hac`。 |
+| `hac_maxlags` | `None` | HAC 最大滞后阶。 |
+| `max_iter` | `1000` | 迭代路径的最大迭代次数。 |
+| `tol` | `1e-4` | 数值收敛容差。 |
+| `solver` | `"exact"` | 与后端无关的直接拟合求解器；一次 `Ridge.fit` 中由它决定算法。 |
+| `cpu_solver` | `"fista"` | 旧版/共享行为的兼容控制；不会替代直接拟合的 `solver`。 |
+| `lipschitz_L` | `None` | 兼容迭代路径可使用的预计算 Lipschitz 常数。 |
+<!-- API-CONSTRUCTOR-END:Ridge -->
+
+### `fit`
+
+```python
+model.fit(
+    X=None,
+    y=None,
+    sample_weight=None,
+    formula=None,
+    data=None,
+)
+```
+
+| 参数 | 含义 |
+|---|---|
+| `X` | 数组接口中的二维特征矩阵。 |
+| `y` | 一维连续因变量。 |
+| `sample_weight` | 可选的非负分析权重，总和必须有限且为正。 |
+| `formula` | 可选的 Patsy 风格公式，与 `data` 一起使用。 |
+| `data` | 公式接口使用的 DataFrame。 |
+
+`fit()` 返回 `self`。
+
+### 预测、评分与报告方法
+
+| 方法 | 签名 | 行为 |
+|---|---|---|
+| `predict` | `predict(X, return_cpu=True)` | 连续预测；GPU 拟合后 `return_cpu=False` 可让结果保留在 CuPy/Torch 后端。 |
+| `score` | `score(X, y, sample_weight=None)` | 返回 $R^2$，支持加权。 |
+| `summary` | `summary()` | 打印 Ridge 推断摘要；要求模型已拟合且推断结果可用。 |
+| `get_params` / `set_params` | scikit-learn 风格工具 | 查看或替换构造参数状态。 |
+
+继承的模型上下文工具 `adjust_pvalues`、`combine_pvalues`、`bootstrap_statistic` 和 `permutation_test` 的完整签名、后端解析和拟合状态复用语义见[推断 API](../guides/inference-api.md)。
+
+### 拟合后属性与诊断量
+
+| 属性 | 含义 / 可用条件 |
+|---|---|
+| `coef_` | 惩罚系数。 |
+| `intercept_` | 不受惩罚的截距。 |
+| `n_iter_` | 迭代次数；直接 `exact` 路径为一次求解。 |
+| `n_features_in_` | 相应拟合路径发布时的特征数。 |
+| `rsquared`, `rsquared_adj` | $R^2$ 与按普通参数个数计算的调整 $R^2$；不是 Ridge 有效自由度修正。 |
+| `fvalue`, `f_pvalue` | 使用普通参数个数/残差自由度的兼容性联合拟合诊断；不是惩罚感知的经典 F 检验。 |
+| `llf`, `aic`, `bic` | 使用当前拟合和普通参数个数构造的高斯 plug-in 诊断；不是 Ridge 有效自由度或调参感知的准则。 |
+| `_bse` | `compute_inference=True` 时固定拟合的系数标准误；不会消除收缩偏差。 |
+| `_tvalues` | Ridge 当前结果报告中的 t 型统计量。 |
+| `_pvalues` | 当前参考分布约定下的双侧固定拟合 p 值。 |
+| `_conf_int` | 当前参考分布约定下的固定拟合 Wald 式置信区间。 |
+| `_inference_result` | 结构化推断结果与元数据。 |
+
+下划线开头的推断数组属于当前版本既有的结果属性；需要长期保持接口结构稳定的代码应优先使用更高层的报告接口。
+
+## 验证
+
+当前维护的测试覆盖平均损失闭式解、加权拟合、exact/FISTA、公式接口行对齐、推断、RidgeCV 最终重拟合，以及数值推断保持在实际后端上的实现约定。
 
 ## 参考文献
 
-- Hoerl, A. E., & Kennard, R. W. (1970). Ridge regression: Biased estimation for nonorthogonal problems. *Technometrics*, 12(1), 55-67. [https://doi.org/10.1080/00401706.1970.10488634](https://doi.org/10.1080/00401706.1970.10488634)
+- Hoerl, A. E., & Kennard, R. W. (1970). Ridge regression: Biased estimation for nonorthogonal problems. *Technometrics*, 12(1), 55–67.
 - Hastie, T., Tibshirani, R., & Friedman, J. (2009). *The Elements of Statistical Learning* (2nd ed.). Springer.

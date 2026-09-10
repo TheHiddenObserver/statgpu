@@ -1,208 +1,223 @@
 # Elastic Net 弹性网络
 
-> Language: Chinese (中文)  
-> Last updated: 2026-09-10<br>
-> This page: 模型文档  
-> Language switch: [English](../../en/models/elastic-net.md)
+> 语言：中文  
+> 最后更新：2026-09-10  
+> 切换：[English](../../en/models/elastic-net.md)
 
-## 概述
+> **版本提示：** 当前正式发布版为 **0.2.5**。本页涉及的公开参数 `nodewise_alpha` 以及新的自动逐节点调参规则已经进入当前 `master`，计划随 **0.2.6** 发布；正式版 0.2.5 尚不包含这一公开接口和新默认规则。
 
-`ElasticNet` 结合 L1 与 L2 正则化，在稀疏特征选择（Lasso）和系数收缩（Ridge）之间取得平衡。支持 CPU、CuPy GPU 与 PyTorch GPU。直接拟合统一使用**与后端无关的 `solver` 接口**；`device` 只负责决定在哪里执行。
+## 它解决什么问题？
 
-## 路径
+`ElasticNet` 把 L1 惩罚带来的稀疏性与 L2 惩罚带来的稳定性结合起来。当你希望一部分系数可以精确变成 0，同时重要预测变量又高度相关、使纯 Lasso 的变量选择不够稳定时，Elastic Net 尤其有用。
 
-`statgpu.linear_model.ElasticNet`
+可以把 `l1_ratio` 理解为一个目标函数层面的连续谱：
 
-## 目标函数
-
-Elastic Net 优化问题为：
-
-$$
-\min_{\beta} \frac{1}{2n}\|y - X\beta\|_2^2 + \alpha \lambda \|\beta\|_1 + \frac{\alpha}{2}(1 - \lambda)\|\beta\|_2^2.
-$$
-
-其中：
-- `alpha` (α) 控制整体正则化强度；
-- `l1_ratio` (λ) 混合 L1 与 L2：λ=1 对应 Lasso 目标，λ=0 对应纯 L2 目标；
-- `1/(2n)` 表示公开 `alpha` 使用平均损失尺度。
-
-**正则化缩放说明**：`ElasticNet` 与 `Ridge` 使用同一平均损失约定，因此 `l1_ratio=0` 时，相同公开 `alpha` 下目标函数退化为对应的 L2 目标。不过 `ElasticNet` wrapper 仍保留自己的求解器和推断默认设置；若明确需要 Ridge 的估计器契约，应直接使用 `Ridge`。
-
-## 估计方程
-
-消去未惩罚截距（等价地，在中心化数据上）后，系数满足 KKT 条件：
-
-$$
-\frac{1}{n} X^\top (X\hat{\beta} - y) + \alpha(1-\lambda)\hat{\beta} + \alpha\lambda \cdot \partial\|\hat{\beta}\|_1 = 0.
-$$
-
-对**直接单次拟合**，`solver` 是所有后端上的权威算法选择器。`device` 单独控制 CPU/CuPy/Torch 执行位置。历史 `cpu_solver` 参数已进入弃用流程，在统一引擎中不再代表第二套 CPU direct-fit solver。参见 [penalized solver API 迁移指南](../guides/penalized-solver-api-migration.md)。
-
-## 估计算法
-
-默认路径使用 **FISTA**（快速迭代收缩阈值算法），即带 Nesterov 加速的近端梯度法。其他求解器是否可用取决于公开 solver compatibility contract。
-
-### 关键优化洞察
-
-Elastic Net 的 L1/L2 部分由近端算子共同处理：
-
-```python
-# 平均平方误差项的梯度
-grad = (X.T @ X @ w - X.T @ y) / n
-
-# Elastic Net 近端更新
-w = soft_threshold(w_tilde, alpha * l1_ratio * step) / (
-    1 + alpha * (1 - l1_ratio) * step
-)
+```text
+l1_ratio = 0.0        0.5             1.0
+              Ridge ←──── Elastic Net ────→ Lasso
 ```
 
-### 收敛判据
+这里说的是**目标函数**。当 `l1_ratio=0` 时，L1 项消失，惩罚形式退化为纯 L2；但 `ElasticNet` 仍然保留自己的求解器默认值、参数检查和推断接口。如果需要完整的 Ridge 接口和行为，应直接使用 `Ridge`，而不是把 `ElasticNet(l1_ratio=0)` 当作 Ridge 的完全替代。
 
-`stopping` 提供两种停止模式：
+## 模型与目标函数
 
-| 模式 | 说明 |
-|------|------|
-| `coef_delta` | 系数变化低于 `tol` 时停止 |
-| `kkt` | KKT 次梯度违反低于配置阈值时停止 |
+带不受惩罚的截距 $b$，并令 $\lambda=$ `l1_ratio`，statgpu 最小化
 
-数值收敛只表示声明的优化问题被求解到相应精度，并不构成另一种统计近似模型。
+$$
+\frac{1}{2n}\sum_{i=1}^{n}(y_i-b-x_i^\top\beta)^2
++\alpha\lambda\lVert\beta\rVert_1
++\frac{\alpha}{2}(1-\lambda)\lVert\beta\rVert_2^2.
+$$
 
-## 参数
+`alpha` 控制总正则化强度，`l1_ratio` 控制其中 L1 惩罚所占比例。除非原始变量尺度本身就是建模约定的一部分，连续预测变量通常应在正则化前标准化。
 
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `alpha` | `1.0` | 总体正则化强度 |
-| `l1_ratio` | `0.5` | L1 惩罚占比：0=纯 L2 目标，1=Lasso 目标 |
-| `fit_intercept` | `True` | 拟合不受惩罚的截距 |
-| `max_iter` | `1000` | 最大求解迭代次数 |
-| `tol` | `1e-4` | 收敛容差 |
-| `stopping` | `"coef_delta"` | `"coef_delta"` 或 `"kkt"` 停止准则 |
-| `device` | `"auto"` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"` |
-| `n_jobs` | `None` | 适用 CPU 路径的并行度 |
-| `solver` | `"fista"` | 与后端无关的 direct-fit 优化方法 |
-| `cpu_solver` | `"fista"` | **弃用兼容参数**；新代码请使用 `solver` |
-| `lipschitz_L` | `None` | 可选的用户指定 Lipschitz 常数 |
-| `gpu_memory_cleanup` | `False` | 在支持的后端上于拟合后释放内存池 |
-| `compute_inference` | `False` | 计算拟合后系数推断 |
-| `inference_method` | `"debiased"` | `"debiased"`、`"post_selection_ols"` 或 `"bootstrap"`；`cpu_ols` / `gpu_ols` 暂时作为弃用别名接受 |
-| `nodewise_alpha` | `None` | 纠偏推断中逐节点 Lasso 的惩罚强度；显式正标量优先于标准化设计侧自动规则 |
-| `cov_type` | `"nonrobust"` | 适用方法中的协方差约定 |
-| `hac_maxlags` | `None` | 支持 HAC 时使用的滞后阶数 |
-
-公开 wrapper 不接受单独的 `backend`、`warm_start` 或 `random_state` 构造参数。后端由 `device` 控制；单次热启动可通过 `fit(initial_coef=...)` 提供。
-
-## CPU/GPU 示例
+## 最小示例
 
 ```python
+import numpy as np
 from statgpu.linear_model import ElasticNet
 
-# CPU：solver 选择算法，device 选择执行后端。
-model_cpu = ElasticNet(
-    alpha=0.1,
+rng = np.random.default_rng(2)
+X = rng.normal(size=(500, 12))
+beta = np.zeros(12)
+beta[[1, 2, 7, 8]] = [1.2, 1.0, -0.9, -0.8]
+y = 0.5 + X @ beta + rng.normal(scale=0.8, size=500)
+
+model = ElasticNet(
+    alpha=0.08,
     l1_ratio=0.5,
     device="cpu",
-    solver="fista",
-)
-model_cpu.fit(X, y)
-print(f"R²: {model_cpu.score(X, y):.4f}")
+    compute_inference=False,
+).fit(X, y)
 
-# 显式逐节点调参只改变纠偏推断，不改变主 Elastic Net 拟合。
-model_db = ElasticNet(
-    alpha=0.1,
-    l1_ratio=0.7,
-    nodewise_alpha=0.08,
-    device="cpu",
-    compute_inference=True,
-    inference_method="debiased",
-)
-model_db.fit(X, y)
-print(model_db.nodewise_alpha_)
+print(model.coef_)
+print(model.score(X, y))
+```
 
-# GPU 仍使用同一个 solver 接口
-model_gpu_cupy = ElasticNet(
-    alpha=0.1,
+当 `l1_ratio>0` 时，部分系数可以精确变成 0。非零系数仍是经过惩罚收缩的估计值，不能直接解释为普通 OLS 的无偏效应估计。
+
+## 关键参数
+
+| 参数 | 默认值 | 如何理解 |
+|---|---:|---|
+| `alpha` | `1.0` | 总正则化强度。值越大，整体收缩通常越强。 |
+| `l1_ratio` | `0.5` | L1 惩罚所占比例；接近 1 更像 Lasso，接近 0 更像 Ridge。 |
+| `device` | `"auto"` | 选择 CPU、CuPy CUDA、Torch CUDA 或自动路由；显式指定 GPU 而设备不可用时会直接报错。 |
+| `solver` | `"fista"` | 直接拟合时实际选择数值算法的参数，对各后端采用统一含义。 |
+| `compute_inference` | `False` | 只做预测或变量选择时保持关闭；需要受支持的拟合后推断时再开启。 |
+| `nodewise_alpha` | `None` | 仅用于 `debiased` 纠偏推断中估计近似精度矩阵的逐节点 Lasso 调参。计划自 0.2.6 起公开。 |
+
+用于预测时，通常应使用 `ElasticNetCV` 联合选择 `alpha` 和 `l1_ratio`，而不是根据训练集拟合指标手工调参。
+
+## 与 Ridge 和 Lasso 比较
+
+| 性质 | Ridge | Lasso | **Elastic Net** |
+|---|:---:|:---:|:---:|
+| 平滑收缩 | 是 | 是 | 是 |
+| 能产生精确的 0 | 通常否 | 是 | `l1_ratio>0` 时可以 |
+| 面对高度相关的预测变量 | 通常较稳定 | 可能任意保留其中一个 | 更倾向于保留成组相关变量 |
+| 主要调参 | `alpha` | `alpha` | `alpha` + `l1_ratio` |
+
+## CPU、GPU、公式接口、权重与热启动
+
+```python
+model = ElasticNet(
+    alpha=0.08,
     l1_ratio=0.5,
     device="cuda",
     solver="fista",
-    gpu_memory_cleanup=True,
-)
-model_gpu_cupy.fit(X, y)
-
-model_gpu_torch = ElasticNet(
-    alpha=0.1,
-    l1_ratio=0.5,
-    device="torch",
-    solver="fista",
-)
-model_gpu_torch.fit(X, y)
+    compute_inference=False,
+).fit(X, y)
 ```
 
-后端性能取决于样本量、特征维数、dtype、硬件、数据驻留位置与传输成本。应针对实际工作负载进行基准测试。
+在相应环境中，公开接口支持 NumPy CPU、CuPy CUDA 和 Torch CUDA。`fit()` 支持 `sample_weight=`，并转发共享的 `formula=` / `data=` 公式接口。单次拟合还可以通过 `initial_coef=` 提供初始系数，用于热启动。
 
-## 协方差/推断
+## 进阶：优化与 KKT 条件
 
-`ElasticNet` 默认仅进行估计。设置 `compute_inference=True` 后，通过共享 penalized-linear inference engine 执行拟合后推断。默认 `inference_method="debiased"` 与稀疏 Gaussian Lasso 路径复用同一套标准化逐节点 Lasso 一步纠偏构造，用于建立近似精度矩阵、纠偏系数、标准误、z 统计量、p 值与置信区间。其统计有效性仍依赖设计、稀疏性、正则化尺度和模型假设；纠偏 Lasso 文献提供主要理论背景，但不等于对任意 `l1_ratio` 都自动给出无条件保证。推断成功后可调用 `summary()`。
+在消去不受惩罚的截距后，也就是对中心化后的系数问题，KKT 条件为
 
-| 参数 | 默认值 | 含义 |
-|------|--------|------|
-| `compute_inference` | `False` | 启用拟合后系数推断 |
-| `inference_method` | `"debiased"` | `"debiased"`、`"post_selection_ols"` 或 `"bootstrap"` |
-| `nodewise_alpha` | `None` | `debiased` 的逐节点精度矩阵调参；可显式给正标量，或使用标准化设计侧自动规则 |
-| `cov_type` | `"nonrobust"` | 在相应推断方法中使用的协方差约定 |
-| `hac_maxlags` | `None` | 所选方法支持 HAC 时使用的滞后阶数 |
+$$
+\frac{1}{n}X_c^\top(X_c\hat\beta-y_c)
++\alpha(1-\lambda)\hat\beta
++\alpha\lambda\,\partial\lVert\hat\beta\rVert_1=0.
+$$
 
-`nodewise_alpha` 与主模型 `alpha` 完全不同：它只影响纠偏推断中的近似精度矩阵，不改变惩罚预测拟合。省略时，statgpu 对已经完成中心化/加权处理的工作设计进行标准化，并采用
+对一次直接的 `ElasticNet.fit`，`solver` 决定实际数值算法，并在各后端上具有统一含义。历史参数 `cpu_solver` 仅用于兼容旧接口，不再是另一个直接拟合求解器选择项。
+
+## 进阶：拟合后的统计推断
+
+`ElasticNet` 默认只做估计。设置 `compute_inference=True` 后，拟合后推断不会改变用于预测的惩罚系数 `coef_` 和截距 `intercept_`。
+
+| `inference_method` | 用途 | 主要限制 |
+|---|---|---|
+| `debiased` | 使用共享的逐节点近似精度矩阵做一步纠偏系数推断 | 软件实现复用并不意味着任意 `l1_ratio` 都自动继承所有 Lasso 理论；统计有效性仍取决于初始估计量和相应假设 |
+| `post_selection_ols` | 在本次拟合实际采用的 NumPy/CuPy/Torch 后端上，对活跃集做 OLS/WLS 重拟合 | 属于选择后诊断，不是一般的选择性推断保证 |
+| `bootstrap` | 使用残差重采样进行替代性不确定性评估 | 计算开销较大，并依赖相应重采样假设 |
+
+历史别名 `cpu_ols` 和 `gpu_ols` 都会映射到与硬件无关的 `post_selection_ols`；真正的设备仍由 `device` 单独选择。
+
+### `debiased` 推断中的逐节点调参
+
+`nodewise_alpha` 与主 Elastic Net 的 `alpha` 相互独立。它只改变纠偏推断中用于估计设计矩阵近似精度矩阵的逐节点 Lasso，不会改变用于预测和变量选择的惩罚拟合结果。
+
+显式给出的有限正实数直接生效。若 `nodewise_alpha=None` 且 $p\ge2$，statgpu 会先标准化已经完成中心化和加权处理的工作设计，然后取
 
 $$
 \lambda_{\mathrm{nw}}
 =\sqrt{\frac{2\log(\max(p,2))}{n_{\mathrm{nw}}}}.
 $$
 
-无分析权重时 $n_{\mathrm{nw}}=n$；非均匀分析权重下使用 Kish 型有效样本量。该规则不依赖响应变量尺度，因此只改变 `y` 的计量单位不会改变设计侧精度矩阵问题。成功的多特征纠偏推断通过 `nodewise_alpha_` 暴露解析出的实际值，并在 `_inference_result.metadata` 中记录调参来源、有效样本量和 KKT 证据。单特征问题使用解析精度矩阵，不消费逐节点惩罚。
+无分析权重时 $n_{\mathrm{nw}}=n$；存在非均匀分析权重时使用 Kish 型有效样本量。$\sqrt{\log(p)/n}$ 的量级有高维理论背景，但公式中的具体常数和有效样本量定义属于 statgpu 的默认选择，并非某个定理唯一规定的形式。
 
-`post_selection_ols` 是与硬件无关的规范活跃集诊断。统一 wrapper 中历史 `cpu_ols` 与 `gpu_ols` 同时进入弃用期，一个兼容周期内仍接受并发出 `FutureWarning`，随后映射到 `post_selection_ols`；它们不负责选择设备。
+**版本变化：** 这套与响应变量尺度无关的自动规则计划自 **0.2.6** 起成为公开行为。0.2.5 及更早的内部实现曾把响应残差尺度带入逐节点惩罚；旧规则不会作为公开兼容模式继续保留。
 
-`post_selection_ols` 会先使用 penalized model 的 fitted coefficients 确定活跃集，再在成功拟合所记录的后端上，只对该活跃集做无惩罚 OLS；传入 `sample_weight` 时做 WLS。原始 penalized `coef_` 保持不变并继续用于预测，活跃集重拟合通过 `_params` / `_inference_result` 等字段参与推断与报告。
+逐节点问题求解结束后，statgpu 会**独立重新计算一次完整的 KKT 残差**。只有这项数值检查通过，才采用得到的近似精度矩阵继续生成推断结果；之后再把精度矩阵从标准化尺度变换回原工作特征尺度。`p=1` 时没有辅助逐节点回归，直接使用一维解析精度矩阵，也不会实际使用 `nodewise_alpha`。
 
-选择后 OLS 仍是启发式诊断，不提供一般选择性推断覆盖保证。推断条件于已选择的正则化参数，并不会改变 penalized coefficients。
+NumPy、CuPy 和 Torch 采用同一套统计定义。显式选择 CUDA 或 Torch 时，纠偏推断的数值计算不会静默改用 CPU。多特征纠偏推断成功后，实际采用的逐节点惩罚值记录在 `nodewise_alpha_` 中，`_inference_result.metadata` 则保存 KKT 检查、缓存和实际计算后端/设备等溯源信息。
 
-设备选择与统计方法正交：显式 `cpu` / `cuda` / `torch` 始终具有权威性；只有真正的 `device="auto"` 才允许 backend-native CuPy 或 Torch-CUDA 输入参与自动路由。`post_selection_ols` 复用 fit-resolved backend；维护中的 CuPy/Torch `debiased` 路径也会把数值推断留在实际执行的 GPU backend，包括 normal-reference 的 scalar critical value。残差 `bootstrap` 当前仍是 CPU-native residual-refit 路径；显式 GPU `device` 会控制 penalized fit，但不会让 bootstrap 变成 GPU-native。
+对于 `ElasticNetCV`，`nodewise_alpha` 只用于最终全数据重拟合后的纠偏推断，不进入 `alpha` / `l1_ratio` 候选网格，也不影响各折评分和最终调参选择。当前交叉验证后的推断仍是在已选调参值条件下进行。详见 [逐节点调参迁移说明](../guides/nodewise-alpha-migration.md)。
 
-对于带截距的 `debiased` inference，公开 `coef_`/`intercept_` 继续属于 **penalized prediction fit**。推断/reporting 使用 debiased slopes `_params[1:]`，以及与它们配套的原始坐标系截距 `_params[0] = ybar_w - xbar_w @ _params[1:]`；因此第一行 SE/z/p-value/CI 描述的是该 debiased reporting intercept，而不是 prediction `intercept_`。result metadata 会记录 `intercept_estimator="centered_debiased"` 与 `intercept_influence="centered_nodewise"`。分析权重在 NumPy/CuPy/Torch 上使用同一个加权中心化平均损失问题，因此整体乘以正常数不会改变这套推断。
+## 常见误区
 
-对于 `ElasticNetCV`，`compute_inference=True` 仅作用于 alpha 与 `l1_ratio` 选定后的最终全数据重拟合；各折模型仍仅用于估计和评分。`nodewise_alpha` 也只属于最终重拟合的推断配置，不进入候选网格或折内评分；推断成功时，外层 `nodewise_alpha_` 与最终 `estimator_` 一致。当前 `ElasticNetCV` 仍固定最终推断方法为 `debiased`，这是既有的 inference-selector 限制，与本次逐节点调参修复分开处理。
+- 用于预测时应同时考虑 `alpha` 与 `l1_ratio`，不要只调其中一个。
+- 不要认为 `l1_ratio=0` 会让整个 `ElasticNet` 接口和行为完全等同于 `Ridge`。
+- 更稳定的活跃集不等价于因果识别。
+- 不要忽略正则化前的特征尺度。
+- 不要用训练集 $R^2$，或兼容性的 AIC/BIC/F 字段，代替针对惩罚模型的验证或交叉验证。
+- 不要混淆主模型 `alpha` 与 `nodewise_alpha`：后者只影响纠偏推断中的近似精度矩阵估计。
+- `post_selection_ols` 是选择后诊断，不是自动获得有效选择性推断的捷径。
 
-## 求解器与推断语义
+## 完整 API 参考
 
-对于直接 `ElasticNet.fit`，**CPU 与 GPU 都使用 `solver`**。`device` 决定执行后端，`solver` 决定优化算法。`cpu_solver` 是早期 hardware-split API 的弃用兼容参数，新代码不应继续使用。
+当前 `master` 上的公开构造函数在原有 Elastic Net 参数之外，还包含计划随 0.2.6 发布的 `nodewise_alpha=None`：
 
-同样，需要活跃集 OLS/WLS 诊断时应使用 `inference_method="post_selection_ols"`，而不是根据硬件去选 `cpu_ols` 或 `gpu_ols`；后两者只是同一个统计方法的弃用别名。
+```python
+ElasticNet(
+    alpha=1.0,
+    l1_ratio=0.5,
+    fit_intercept=True,
+    max_iter=1000,
+    tol=1e-4,
+    stopping="coef_delta",
+    device="auto",
+    n_jobs=None,
+    solver="fista",
+    cpu_solver="fista",
+    lipschitz_L=None,
+    gpu_memory_cleanup=False,
+    compute_inference=False,
+    inference_method="debiased",
+    cov_type="nonrobust",
+    hac_maxlags=None,
+    nodewise_alpha=None,
+)
+```
 
-`compute_inference=False` 只返回 penalized estimate；开启推断后保留同一拟合系数，再运行所选 post-fit inference method。
+下面的参数表对应 Elastic Net 源码中静态定义的构造参数；运行时新增的 `nodewise_alpha` 紧随表后单独说明。
 
-## 输出属性
+<!-- API-CONSTRUCTOR-START:ElasticNet -->
+| 参数 | 默认值 | 含义 |
+|---|---:|---|
+| `alpha` | `1.0` | 总正则化强度。 |
+| `l1_ratio` | `0.5` | L1 惩罚所占比例。 |
+| `fit_intercept` | `True` | 是否拟合不受惩罚的截距。 |
+| `max_iter` | `1000` | 最大求解迭代次数。 |
+| `tol` | `1e-4` | 数值收敛容差。 |
+| `stopping` | `"coef_delta"` | 使用 `coef_delta` 或 `kkt` 判断停止。 |
+| `device` | `"auto"` | `auto`、`cpu`、`cuda` 或 `torch`。 |
+| `n_jobs` | `None` | 适用路径中的并行计算提示。 |
+| `solver` | `"fista"` | 直接拟合时使用的后端无关求解器选择。 |
+| `cpu_solver` | `"fista"` | 为旧接口保留的兼容参数；不再决定直接拟合算法。 |
+| `lipschitz_L` | `None` | 可选的预计算 Lipschitz 常数。 |
+| `gpu_memory_cleanup` | `False` | 拟合结束后尽力释放缓存的 GPU 内存。 |
+| `compute_inference` | `False` | 是否执行所选的拟合后推断。 |
+| `inference_method` | `"debiased"` | `debiased`、规范名称 `post_selection_ols` 或 `bootstrap`；`cpu_ols` / `gpu_ols` 为弃用别名。 |
+| `cov_type` | `"nonrobust"` | 适用推断方法使用的协方差约定。 |
+| `hac_maxlags` | `None` | 支持 HAC 时使用的最大滞后阶数。 |
+<!-- API-CONSTRUCTOR-END:ElasticNet -->
 
-拟合后可用以下属性：
+**运行时新增的公开参数：** `nodewise_alpha=None`。`None` 使用标准化设计上的自动规则；显式有限正实数用于指定逐节点惩罚。多特征纠偏推断成功后，实际采用的值会记录在 `nodewise_alpha_` 中。
 
-| 属性 | 说明 |
-|------|------|
-| `coef_` | 用于预测的 penalized coefficients |
-| `intercept_` | 用于预测的 penalized fitted intercept |
-| `n_iter_` | 收敛所需迭代次数 |
-| `nodewise_alpha_` | 多特征 `debiased` 推断成功后解析出的逐节点调参值；其他情况为 `None` |
-| `_params` | 推断成功时的 reporting 参数向量；`debiased` 下包含 coherent debiased intercept 与 debiased slopes；`post_selection_ols` 下是嵌入完整参数布局的 active-set OLS/WLS 重拟合 |
-| `_inference_result` | structured inference result，以及数值后端与逐节点调参 metadata |
-| `aic` | 可用时的兼容性 plug-in 拟合诊断；不是 penalty-aware 有效自由度准则 |
-| `bic` | 可用时的兼容性 plug-in 拟合诊断；不是 penalty-aware 有效自由度准则 |
+### `fit` 与重要输出
 
-方法：`fit(X, y)`, `predict(X)`, `score(X, y)`, `summary()`
+`fit(X=None, y=None, sample_weight=None, initial_coef=None, **kwargs)` 返回 `self`；共享转发关键字包括 `formula` 与 `data`。
 
-## 数值验证
+| 属性 | 含义 |
+|---|---|
+| `coef_`, `intercept_` | 用于预测的惩罚拟合结果 |
+| `n_iter_` | 数值求解迭代次数 |
+| `nodewise_alpha_` | 多特征纠偏推断成功后实际采用的逐节点调参值；其他情况为 `None` |
+| `_params`, `_bse`, `_zvalues`, `_pvalues`, `_conf_int` | 推断成功后的参数、标准误、统计量、p 值和置信区间 |
+| `_inference_result` | 包含逐节点调参、KKT 检查以及计算后端/设备溯源信息的结构化结果 |
 
-维护中的回归测试会按 dtype 与 solver path 检查支持后端之间及与参考实现的数值一致性。solver API 迁移行为由 `dev/tests/test_penalized_solver_api_cleanup.py` 覆盖；逐节点调参契约由 `dev/tests/test_nodewise_alpha_inference_contract.py` 覆盖；post-selection OLS API 迁移与 active-set OLS/WLS 行为由 `dev/tests/test_post_selection_ols_inference_api.py` 覆盖。
+`predict`、`score`、`summary`、`get_params` 和 `set_params` 遵循共享的估计器接口约定。通过 `set_params` 修改 `nodewise_alpha` 会使旧的推断状态失效；clone 和参数查询则保留用户指定的值。
+
+## 验证
+
+维护中的测试覆盖 Elastic Net 目标函数、求解器与 KKT 条件、直接拟合对 `nodewise_alpha` 的不变性、`ElasticNetCV` 最终重拟合隔离、加权推断、公式接口与公开 API、NumPy/CuPy/Torch 近似精度矩阵一致性，以及共享逐节点实现的物理 CUDA 验证。
 
 ## 参考文献
 
-- Zou, H., & Hastie, T. (2005). Regularization and variable selection via the Elastic Net. *Journal of the Royal Statistical Society: Series B*, 67(2), 301-320.
-- Beck, A., & Teboulle, M. (2009). A fast iterative shrinkage-thresholding algorithm for linear inverse problems. *SIAM Journal on Imaging Sciences*, 2(1), 183-202.
-- van de Geer, S., Buhlmann, P., Ritov, Y., & Dezeure, R. (2014). On asymptotically optimal confidence regions and tests for high-dimensional models. *Annals of Statistics*, 42(3), 1166-1202.
+- Zou, H., & Hastie, T. (2005). Regularization and variable selection via the Elastic Net. *JRSS B*, 67(2), 301–320.
+- Beck, A., & Teboulle, M. (2009). A fast iterative shrinkage-thresholding algorithm for linear inverse problems. *SIAM Journal on Imaging Sciences*, 2(1), 183–202.
+- van de Geer, S., Bühlmann, P., Ritov, Y., & Dezeure, R. (2014). On asymptotically optimal confidence regions and tests for high-dimensional models. *Annals of Statistics*, 42(3), 1166–1202.
