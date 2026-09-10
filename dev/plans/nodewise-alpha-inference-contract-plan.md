@@ -1,38 +1,32 @@
 # Node-wise Lasso tuning contract — implementation plan
 
-Status: **REVISED AFTER PLAN REVIEW ROUND 2**
+Status: **REVISED AFTER PLAN REVIEW ROUND 3**
 
 Target baseline:
 
 - repository: `TheHiddenObserver/statgpu`
 - implementation branch: `fix/nodewise-alpha-inference-contract`
 - base `master`: `8741857ff81c6fc5c90fbf32cd8aa72d63530881`
-- affected capability: squared-error L1 / Elastic Net debiased inference and the node-wise Lasso approximate-precision construction used by marginal and simultaneous inference
+- affected capability: squared-error L1 / Elastic Net debiased inference and the approximate-precision construction used by marginal and simultaneous inference
 
 This work is independent of documentation PR #134. Runtime/API behavior is fixed and reviewed here first; the still-Draft #132/#134 documentation stack is synchronized only after the runtime contract is stable.
 
 ## 1. Defects being fixed
 
-1. The node-wise Lasso penalty is an inference-critical tuning parameter but is currently internal-only.
-2. The automatic rule currently uses the main response residual scale,
-
-   $$
-   \lambda_{\mathrm{nw}}
-   =\hat\sigma_y\sqrt{\frac{2\log(\max(p,2))}{n}},
-   $$
-
-   even though node-wise regressions estimate a design-side precision object. Rescaling only `y` can therefore change `M` while `X` is unchanged.
-3. Source wording incorrectly suggests that multiplying by the main-response `sigma_hat` is the van de Geer et al. (2014) construction.
-4. The internal node-wise numerical contract is underspecified: hidden solver settings are not reported, cache keys currently use the parent estimator tolerance rather than the actual node-wise tolerance, and an unconverged solve can still produce plausible finite output.
+1. The node-wise Lasso penalty is inference-critical but is internal-only.
+2. The current automatic penalty multiplies by the main response residual scale, so changing only the units of `y` can change the design-side precision matrix `M`.
+3. Source wording incorrectly presents that response-scale multiplier as the van de Geer et al. (2014) construction.
+4. The internal node-wise numerical contract is underspecified: hidden convergence settings are not reported, cache identity uses the parent-model tolerance rather than the actual node-wise tolerance, and finite output can be published without an independent node-wise KKT gate.
+5. Current single-feature (`p=1`) debiased behavior is not one clean cross-backend contract even though no nuisance node-wise regression is needed mathematically.
 
 ## 2. Impact classification
 
-Active axes:
+Active:
 
 - public API / sklearn compatibility;
-- inference / result provenance / failure safety;
-- NumPy, CuPy, Torch backend closure;
-- intercept and analytic-weight identities;
+- inference, result provenance, failure safety;
+- NumPy / CuPy / Torch closure;
+- intercept and analytic-weight semantics;
 - LassoCV / ElasticNetCV final-refit propagation;
 - formula/model-matrix parity;
 - node-wise convergence/KKT correctness;
@@ -40,23 +34,23 @@ Active axes:
 
 Not changed:
 
-- main Lasso/ElasticNet objectives;
-- main-model `alpha`/`l1_ratio` CV selection;
+- main Lasso/ElasticNet objective;
+- main-model `alpha` / `l1_ratio` selection;
 - unrelated model families;
-- public solver support;
+- public solver inventory;
 - performance claims.
 
 ## 3. Public API
 
-### 3.1 New parameter
+### 3.1 Parameter
 
-Add to maintained surfaces that can consume squared-error node-wise debiased inference:
+Add
 
 ```python
 nodewise_alpha: Optional[float] = None
 ```
 
-Surfaces:
+to:
 
 - `PenalizedGeneralizedLinearModel`;
 - `PenalizedLinearRegression`;
@@ -65,141 +59,203 @@ Surfaces:
 - `LassoCV`;
 - `ElasticNetCV`.
 
-On the generic GLM surface it is consumed only by squared-error + L1/ElasticNet + `debiased` inference.
+The generic GLM surface consumes it only for squared-error + L1/ElasticNet + `debiased` inference.
 
-### 3.2 Validation / clone contract
+### 3.2 Validation / clone semantics
 
-Store the requested constructor object unchanged; validate without lossy constructor coercion.
+Store the requested constructor object unchanged. Validate the raw value without replacing it by a coerced float.
 
 Accepted:
 
 - `None`;
-- finite real scalar `> 0`.
+- finite real scalar `> 0` (including compatible NumPy real scalars).
 
 Rejected with `ValueError`:
 
 - bool;
+- complex scalar;
 - non-scalar/array;
 - NaN/inf;
 - zero/negative.
 
-The same contract must survive `get_params`, transactional `set_params`, sklearn clone, and internal reconstruction without warning noise.
+The same contract must hold through signature introspection, `get_params`, transactional `set_params`, sklearn clone, and internal reconstruction without warning noise.
 
 ### 3.3 Meaning
 
-- `alpha`: main penalized estimator.
-- `nodewise_alpha`: only the node-wise Lasso precision construction used by `debiased` inference.
+- `alpha`: main penalized prediction/selection estimator.
+- `nodewise_alpha`: only the standardized node-wise regressions used to construct the approximate precision matrix for `debiased` inference when `p>=2`.
 
-Changing only `nodewise_alpha` must not change direct-fit or CV penalized prediction coefficients, main CV candidate scores, selected `alpha_`, or selected `l1_ratio_`.
+Changing only `nodewise_alpha` must not change direct or CV penalized prediction coefficients, fold scores, selected `alpha_`, or selected `l1_ratio_`.
 
-Version 1 is scalar-only. Per-coordinate node-wise penalties remain future scope.
+Version 1 is scalar-only. Per-coordinate node-wise penalties are deferred.
 
-### 3.4 Fitted state / metadata
+### 3.4 Fitted state / provenance
 
-After successful node-wise debiased inference publish:
+For `p>=2`, after successful node-wise debiased inference publish:
 
 ```python
 nodewise_alpha_
 ```
 
-and include in `_inference_result.metadata`:
+and metadata:
 
 ```text
+precision_method = "nodewise_lasso"
 nodewise_alpha
 nodewise_alpha_source = "user" | "auto"
 nodewise_alpha_rule = "explicit" | "standardized_universal_v1"
 nodewise_design_standardized = true
-nodewise_n_samples
+nodewise_effective_n
+nodewise_weighted
 nodewise_solver = "fista"
 nodewise_tol
 nodewise_max_iter
 nodewise_max_kkt_residual
 ```
 
-LassoCV/ElasticNetCV also copy the final estimator's resolved `nodewise_alpha_` to the outer fitted estimator.
+For the analytic `p=1` path:
 
-No node-wise inference -> `nodewise_alpha_ is None`.
+```text
+precision_method = "analytic_univariate"
+nodewise_alpha = null
+nodewise_alpha_source = "not_applicable"
+nodewise_alpha_rule = "not_applicable"
+```
+
+and `nodewise_alpha_ is None` because no node-wise Lasso solve occurs. A requested constructor `nodewise_alpha` remains visible in `get_params()` but is numerically unused for `p=1`; docs must say so.
+
+When the executed inference path does not use node-wise precision, `nodewise_alpha_` remains `None`.
 
 ## 4. Canonical working-data ownership
 
-PR #138's installed sparse-Gaussian wrappers remain authoritative for centering and analytic-weight normalization. They already produce the centered average-loss working problem, including row scaling
+PR #138's installed sparse-Gaussian contracts remain authoritative for centering and analytic-weight normalization. They already create the centered average-loss working design, including row scaling
 
 $$
 \sqrt{w_i n / \sum_k w_k}.
 $$
 
-The new node-wise helper **must not accept raw `y` to select alpha and must not reconstruct centering/weights**. It receives only the already-canonical working design currently used by the debiased routine.
+The new precision helper must **not** reconstruct centering or weighted rows and must never use `y` to choose node-wise alpha. It receives the already-canonical working design currently used by the debiased routine.
 
-Therefore existing identities remain part of the contract:
+The existing wrapper that owns analytic weights additionally supplies a response-independent node-wise effective sample-size context (Section 5) to the precision resolver. This context is transient execution state, not a second weighting transform, and must be installed/restored transactionally so it cannot leak between fits.
+
+Existing identities remain blocking:
 
 - omitted weights = all-one weights;
-- `w` = `c w` globally;
-- intercept fits use the centered working design;
+- global weight scaling `w -> c w` changes neither the canonical design nor node-wise auto tuning;
+- adding/removing zero-weight rows changes neither the weighted precision problem nor node-wise auto tuning;
 - explicit CuPy/Torch inference stays on the selected concrete device.
 
-## 5. Statistical node-wise contract
+## 5. Weight-aware node-wise effective sample size
 
-### 5.1 Standardization
+The default alpha is a statistical tuning heuristic, not merely an objective-normalization constant. For unweighted data use
+
+$$
+n_{\mathrm{nw}}=n.
+$$
+
+For analytic weights `w_i >= 0` with positive finite total `W`, use the Kish-style response-independent effective sample size
+
+$$
+\boxed{
+n_{\mathrm{nw}}
+=\frac{(\sum_i w_i)^2}{\sum_i w_i^2}.
+}
+$$
+
+Validate it as finite and in `(0,n]` up to floating-point tolerance; clamp only tiny roundoff above `n`, not materially invalid values.
+
+This convention is a statgpu v1 default heuristic. It is chosen because it:
+
+- is independent of `y`;
+- is invariant to global multiplication of all weights;
+- equals `n` for equal positive weights;
+- equals the number of equally weighted nonzero observations when arbitrary zero-weight rows are present;
+- becomes smaller when a few observations dominate the analytic weights.
+
+It is not documented as a uniquely theorem-mandated effective sample size. Users who want a different tuning choice can supply `nodewise_alpha` explicitly.
+
+Metadata records the resolved `nodewise_effective_n`.
+
+## 6. Statistical precision contract
+
+### 6.1 Standardized working design
 
 For canonical working design `X_w`, define
 
 $$
-d_j=\sqrt{n^{-1}\sum_iX_{w,ij}^2},\qquad
+d_j=\sqrt{\frac1n\sum_iX_{w,ij}^2},\qquad
 D=\operatorname{diag}(d_j),\qquad
 Z=X_wD^{-1}.
 $$
 
-The public `nodewise_alpha` is always interpreted on `Z`, making its scale independent of feature units.
+The objective still uses the canonical average-loss row normalization `1/n`; `n_nw` from Section 5 only selects the automatic penalty magnitude.
 
-### 5.2 Design-scale validity
+### 6.2 Design-scale validity
 
-All maintained debiased inference is float64 at this boundary. Shared NumPy/CuPy/Torch rule:
+All maintained debiased inference is float64 at this boundary. Shared rule:
 
-1. every `d_j` and `d_max=max_j d_j` finite;
-2. `d_max > 0`;
+1. all `d_j` and `d_max=max_j d_j` finite;
+2. `d_max>0`;
 3. `d_tol = 64 * eps64 * d_max`;
-4. every `d_j > d_tol`.
+4. all `d_j > d_tol`.
 
-Failure aborts inference without publishing partial/stale state. No backend-specific scale magic.
+Failure aborts inference with no partial publication.
 
-### 5.3 Automatic alpha
+### 6.3 Automatic alpha
 
-For `nodewise_alpha=None`:
+For `p>=2` and `nodewise_alpha=None`:
 
 $$
-\boxed{\lambda_{\mathrm{nw}}^{\mathrm{auto}}
-=\sqrt{\frac{2\log(\max(p,2))}{n}}}
+\boxed{
+\lambda_{\mathrm{nw}}^{\mathrm{auto}}
+=
+\sqrt{\frac{2\log(\max(p,2))}{n_{\mathrm{nw}}}}
+}
 $$
 
 on standardized `Z`.
 
-`n` is the row count of the canonical average-loss problem. The existing analytic-weight transform has already normalized the weighted objective; this repair does not introduce a second effective-sample-size convention.
-
-The order `sqrt(log p/n)` is literature-motivated; the exact `sqrt(2)` constant is documented as statgpu's default, not a uniquely theorem-mandated value.
+The `sqrt(log p / n)` order is literature-motivated; the exact `sqrt(2)` and weighted `n_nw` convention are documented as statgpu defaults, not unique theorem prescriptions.
 
 Explicit `nodewise_alpha=x` passes numerical `x` unchanged to every node-wise solve on the same standardized scale.
 
-### 5.4 Objective / precision transform
+### 6.4 Node-wise objective (`p>=2`)
 
 For coordinate `j`:
 
 $$
 \hat\gamma_j
 =\arg\min_\gamma
-\left\{\frac{1}{2n}\|Z_j-Z_{-j}\gamma\|_2^2
-+\lambda_{\mathrm{nw}}\|\gamma\|_1\right\}.
+\left\{
+\frac{1}{2n}\|Z_j-Z_{-j}\gamma\|_2^2
++\lambda_{\mathrm{nw}}\|\gamma\|_1
+\right\}.
 $$
 
-Define
+Let
 
 $$
-r_j=Z_j-Z_{-j}\hat\gamma_j,\qquad
-C_j^{(Z)}=n^{-1}Z_j^\top r_j,
+r_j=Z_j-Z_{-j}\hat\gamma_j.
 $$
+
+Use the paper-style node-wise normalizer
+
+$$
+\boxed{
+\hat\tau_j^2
+=
+\frac{\|r_j\|_2^2}{n}
++
+\lambda_{\mathrm{nw}}\|\hat\gamma_j\|_1.
+}
+$$
+
+Construct
 
 $$
 \hat\Theta_{Z,j}^\top
-=\frac{(e_j-\tilde\gamma_j)^\top}{C_j^{(Z)}}.
+=
+\frac{(e_j-\tilde\gamma_j)^\top}{\hat\tau_j^2}.
 $$
 
 Back-transform:
@@ -208,27 +264,59 @@ $$
 \boxed{M_X=D^{-1}\hat\Theta_ZD^{-1}.}
 $$
 
-Existing debiasing/variance formulas continue with canonical `X_w`, `Sigma_{X_w}`, and `M_X`.
+Existing debiasing and variance formulas continue with canonical `X_w`, `Sigma_{X_w}`, and `M_X`.
 
-### 5.5 Positive normalizer gate
+### 6.5 Normalizer and KKT consistency
 
-On standardized data require for every node-wise row
+Require every `tau_j^2` finite and
 
 $$
-C_j^{(Z)} > C_{\min},\qquad C_{\min}=64\epsilon_{64},
+\hat\tau_j^2 > 64\epsilon_{64}.
 $$
 
-and finite.
+Also compute
 
-Negative/zero/non-finite/tiny values fail closed. Remove the current `abs(C_j)<1e-30 -> identity row` publication behavior.
+$$
+C_j^{\mathrm{cross}}=\frac1n Z_j^\top r_j.
+$$
 
-## 6. Node-wise numerical solver contract
+Under exact KKT, `C_j_cross = tau_j^2`. After the independent KKT check in Section 7, require their discrepancy to obey
 
-The new public alpha must not expose an otherwise unchecked internal solve.
+$$
+|C_j^{\mathrm{cross}}-\hat\tau_j^2|
+\le
+\|\hat\gamma_j\|_1\,R_j^{\mathrm{KKT}}
++64\epsilon_{64}\max(1,\hat\tau_j^2),
+$$
 
-### 6.1 Internal v1 settings
+up to a small centralized implementation rounding factor if backend validation demonstrates it is necessary. Any such factor must be shared across backends and recorded in the helper constant/tests.
 
-Keep solver controls internal in this repair, but centralize them as named constants used by all backends and cache/provenance:
+The old `abs(C_j)<1e-30 -> identity row` behavior is removed.
+
+### 6.6 Analytic univariate path (`p=1`)
+
+For one valid standardized feature, no nuisance regression exists. Since
+
+$$
+\Sigma_Z=[1],
+$$
+
+set
+
+$$
+\Theta_Z=[1],\qquad
+M_X=[1/d_1^2].
+$$
+
+Use this analytic precision on NumPy, CuPy, and Torch. No FISTA call, node-wise alpha resolution, KKT solve, or node-wise cache entry is needed.
+
+This intentionally closes the previous backend inconsistency rather than preserving it.
+
+## 7. Node-wise numerical solver contract (`p>=2`)
+
+### 7.1 Internal v1 settings
+
+Centralize:
 
 ```text
 NODEWISE_SOLVER = "fista"
@@ -237,316 +325,320 @@ NODEWISE_MAX_ITER = 500
 NODEWISE_KKT_TOL = 1e-5
 ```
 
-If validation shows the existing iteration cap cannot satisfy the declared KKT gate on representative supported designs, increase iteration work or improve the internal solve; do not silently loosen the acceptance gate without recorded evidence.
+The CPU internal solve must pass `solver="fista"` explicitly; deprecated/shared `cpu_solver` must not be relied on to select the algorithm.
 
-No public `nodewise_tol`/`nodewise_max_iter` is added in v1.
+If representative supported designs cannot meet the KKT gate with the current iteration cap, improve/increase the internal solve rather than silently weakening correctness.
 
-### 6.2 Independent full KKT check
+No public `nodewise_tol`/`nodewise_max_iter` in v1.
 
-Do not trust a solver's convergence flag or coefficient-delta stopping alone. After every node-wise solve, recompute the exact standardized Lasso KKT residual.
+### 7.2 Independent full KKT gate
 
-For
-
-$$
-g=\Sigma_{-j,-j}^{(Z)}\hat\gamma_j-\Sigma_{-j,j}^{(Z)},
-$$
-
-define coordinate residual
+With standardized Gram blocks,
 
 $$
-r_k^{\mathrm{KKT}}=
+g_j=\Sigma_{-j,-j}^{(Z)}\hat\gamma_j-\Sigma_{-j,j}^{(Z)}.
+$$
+
+For each coordinate `k`, define
+
+$$
+r_{jk}^{\mathrm{KKT}}=
 \begin{cases}
-|g_k+\lambda_{\mathrm{nw}}\operatorname{sign}(\hat\gamma_{jk})|,
-&\hat\gamma_{jk}\ne0,\\
-\max(|g_k|-\lambda_{\mathrm{nw}},0),
-&\hat\gamma_{jk}=0.
+|g_{jk}+\lambda_{\mathrm{nw}}\operatorname{sign}(\hat\gamma_{jk})|,&\hat\gamma_{jk}\ne0,\\
+\max(|g_{jk}|-\lambda_{\mathrm{nw}},0),&\hat\gamma_{jk}=0.
 \end{cases}
 $$
 
-and require
+and
 
 $$
-\max_k r_k^{\mathrm{KKT}}\le\texttt{NODEWISE_KKT_TOL}.
+R_j^{\mathrm{KKT}}=\max_k r_{jk}^{\mathrm{KKT}}.
 $$
 
-This production check is authoritative even if the underlying FISTA helper reports convergence. The proximal solver naturally produces exact zeros, so no separate arbitrary active-set threshold is needed for this KKT calculation.
-
-A row failing KKT does not publish `M` or inference results.
-
-### 6.3 p=1
-
-Do not redesign historical single-feature support in this task. Preserve the current maintained behavior on each backend with regression tests; p=1 unification is separate scope.
-
-## 7. Implementation architecture
-
-### 7.1 Shared helper
-
-Add a focused maintained module under `statgpu/linear_model/penalized/` for:
-
-- raw `nodewise_alpha` validation;
-- design scaling/validation;
-- auto/explicit resolution;
-- `C_j` validation;
-- full KKT residual computation;
-- back-transform/provenance helpers.
-
-It consumes canonical design state only and never `y` for alpha resolution.
-
-Do not add another install-time monkeypatch layer solely for this feature.
-
-### 7.2 NumPy
-
-Inside the maintained original debiased function invoked by #138 wrappers:
-
-1. receive canonical `X_w`;
-2. standardize to `Z`;
-3. resolve alpha;
-4. solve each node-wise problem with the centralized internal settings;
-5. recompute and validate full KKT;
-6. validate positive `C_j`;
-7. construct `Theta_Z`, then `M_X`;
-8. continue existing marginal inference.
-
-### 7.3 CuPy / Torch
-
-Stay on concrete selected GPU device.
-
-Use standardized Gram algebra rather than an unnecessary second full matrix when practical:
+Require
 
 $$
-\Sigma_Z=D^{-1}\Sigma_{X_w}D^{-1}.
+R_j^{\mathrm{KKT}}\le\texttt{NODEWISE_KKT_TOL}.
 $$
 
-All batched Gram/cross-product inputs come from `Sigma_Z`.
+This independent gate is authoritative even if the underlying solver reports convergence.
 
-**Recompute the FISTA Lipschitz bound from `Sigma_Z`, not the old unstandardized `Sigma_hat`.** The step size must correspond to the objective actually being solved.
+## 8. Implementation architecture
 
-Run full KKT and `C_j` checks on device; back-transform `M_X` on device. No CPU numerical fallback.
+### 8.1 Shared helper module
 
-### 7.4 Existing #138 wrappers/finalizers
+Add one maintained helper under `statgpu/linear_model/penalized/` for:
 
-Preserve current installed contracts:
+- raw public-parameter validation;
+- design scales/validation;
+- weighted effective-n validation/resolution;
+- auto/explicit alpha resolution;
+- KKT residual;
+- `tau_j^2` / cross-product consistency validation;
+- back-transform;
+- provenance metadata.
 
-- `_post_selection_ols_fifth_review_contract` owns centered/weighted working-data formation;
-- `_post_selection_ols_review_fix_contract._finalize_weighted_debiased_result` reconstructs weighted/centered `DebiasedInferenceResult` and must preserve node-wise metadata from the base result;
-- simultaneous inference reuses the same validated `M_X` and resolved alpha.
+It never uses `y` to resolve precision tuning.
 
-No second hidden resolver may run during simultaneous calibration.
+Do not create another install-time monkeypatch solely for this feature.
 
-## 8. Atomic publication / reset safety
+### 8.2 NumPy
 
-Build candidate alpha, scales, `Theta_Z`, `M_X`, KKT metrics, and reporting arrays in local/native candidate state first.
+Inside the maintained original debiased routine invoked by #138 wrappers:
 
-Publish `nodewise_alpha_`, `_debiased_M_cpu`/native capture, and result metadata only after the node-wise matrix has passed scale/KKT/normalizer gates and the relevant marginal/finalizer transaction is ready to commit. Existing cleanup is a safety net, not the primary way partial state is hidden.
+1. receive canonical `X_w` plus transient node-wise effective-n context;
+2. validate/standardize to `Z`;
+3. branch analytically for `p=1`;
+4. otherwise resolve alpha;
+5. solve every node-wise problem with explicit FISTA/internal settings;
+6. recompute full KKT;
+7. compute/validate `tau_j^2` and cross-product consistency;
+8. build `Theta_Z` and back-transform `M_X`;
+9. continue existing marginal inference.
 
-Clear `nodewise_alpha_` through all relevant reset paths:
+### 8.3 CuPy/Torch
 
-- canonical `_clear_inference_state` chain;
-- `_post_selection_ols_fifth_review_contract` failed sparse-inference invalidation;
-- no-inference/failed-fit cleanup delegating to inference clear;
-- `LassoCV._reset_cv_fit_state`;
-- `ElasticNetCV._reset_cv_fit_state` once outer fitted state is added.
+Remain on selected concrete GPU device.
+
+Use
+
+$$
+\Sigma_Z=D^{-1}\Sigma_{X_w}D^{-1}
+$$
+
+to form batched Gram/cross-product inputs. Recompute the FISTA Lipschitz bound from `Sigma_Z`, solve with the single resolved alpha, run KKT/tau consistency checks on device, and back-transform `M_X` on device.
+
+The `p=1` analytic path also remains device-native until the normal reporting boundary.
+
+No CPU numerical fallback.
+
+### 8.4 Existing #138 wrappers/finalizers
+
+Preserve:
+
+- `_post_selection_ols_fifth_review_contract` as owner of centered/weighted working-data formation;
+- transactional installation/restoration of the additional node-wise effective-n context around calls into the original debiased routine;
+- `_post_selection_ols_review_fix_contract._finalize_weighted_debiased_result` preserving node-wise metadata from the base result;
+- simultaneous inference reusing the same validated `M_X` / alpha (or analytic univariate precision).
+
+No second hidden resolver is allowed.
+
+## 9. Atomic publication / state reset
+
+Keep resolved alpha, effective-n, scales, precision matrix, KKT metrics, and reports in candidate/native local state until the inference transaction can commit.
+
+Publish `nodewise_alpha_`, `_debiased_M_cpu`/native capture, and metadata only after precision validation and the required marginal/finalizer transaction succeeds.
+
+Clear all node-wise fitted/transient state through:
+
+- canonical `_clear_inference_state`;
+- sparse-inference failed-refit invalidation;
+- generic no-inference/failed-fit cleanup;
+- LassoCV reset;
+- ElasticNetCV reset;
+- `finally` restoration of transient weighted effective-n context.
 
 Test success→failure→inspection and success→`set_params`→refit.
 
-## 9. Cache contract
+## 10. Cache contract
 
-Cache identity must use the **actual node-wise numerical contract**, not parent-model `tol`:
+For `p>=2`, key the actual node-wise problem:
 
 - canonical design identity;
-- resolved numerical `nodewise_alpha`;
+- resolved `nodewise_alpha`;
 - `NODEWISE_SOLVER`;
 - `NODEWISE_TOL`;
 - `NODEWISE_MAX_ITER`;
-- standardization/precision-contract version token.
+- precision/standardization contract version.
 
-Changing only main-model `tol` must not invalidate a node-wise cache entry unless it actually changes node-wise numerical settings. Changing node-wise alpha must invalidate it.
+Do not key parent-model `tol` unless it becomes part of the node-wise numerical contract.
 
-Auto and explicit requests with equal resolved alpha may share the numerical cache; metadata source remains request-specific.
+Auto and explicit requests resolving to the same numeric alpha may share the precision cache; request provenance remains current-call metadata.
 
-Existing hash/collision policy is otherwise unchanged.
+`p=1` analytic precision is not stored in the node-wise Lasso cache.
 
-## 10. CV propagation
+## 11. CV propagation
 
 ### LassoCV
 
 Add `nodewise_alpha=None` as final-refit inference configuration only.
 
-- not part of CV alpha grid/selection cache;
-- propagate unchanged to final `Lasso`;
-- changing it cannot change selected `alpha_`, `mse_path_`, penalized `coef_`/`intercept_`;
-- outer resolved `nodewise_alpha_` equals final estimator's value after successful debiased inference;
-- reset before every CV fit.
+- not part of main-alpha selection/cache;
+- pass unchanged to final `Lasso`;
+- changing it cannot alter selected `alpha_`, `mse_path_`, penalized `coef_`/`intercept_`;
+- outer resolved `nodewise_alpha_` mirrors final estimator after successful `p>=2` debiased inference, otherwise `None`;
+- reset before every fit.
 
 ### ElasticNetCV
 
 Propagate analogously.
 
-The existing hard-coded final `inference_method="debiased"` is an adjacent API inconsistency but not required to implement node-wise alpha control. Do not broaden this repair into a full ElasticNetCV inference-selector redesign unless later implementation review proves it is necessary.
+The existing hard-coded final `inference_method="debiased"` is an adjacent API inconsistency but not required for this tuning contract. Do not broaden into a full inference-selector redesign unless implementation review proves it is necessary.
 
 ### PenalizedGLM_CV
 
-Current public generic CV does not expose the affected final-refit inference toggle, so no propagation is planned unless implementation inspection disproves that baseline assumption.
+At this baseline the generic CV surface does not expose the affected final-refit inference toggle; no change unless implementation inspection disproves that assumption.
 
-## 11. Tests and evidence
+## 12. Tests / evidence
 
-### 11.1 API / state
+### 12.1 Public API and state
 
-For every public surface gaining the parameter:
-
-- omission / explicit positive Python and NumPy scalars;
-- invalid bool/non-scalar/NaN/inf/zero/negative;
-- inspect signature;
-- get_params/set_params/clone;
-- fitted-state invalidation;
-- no internal reconstruction warning noise;
+- omission / explicit valid Python and NumPy real scalar;
+- invalid bool/complex/non-scalar/NaN/inf/zero/negative;
+- signature, get_params, set_params, clone;
+- fitted-state invalidation and no warning noise;
 - non-debiased path leaves `nodewise_alpha_ is None`;
-- direct `Lasso`/`ElasticNet` penalized `coef_` and `intercept_` are unchanged when only nodewise alpha changes.
+- direct Lasso/ElasticNet `coef_`/`intercept_` invariant to node-wise alpha.
 
-### 11.2 Statistical invariants
+### 12.2 Statistical invariants
 
-1. fixed canonical design: auto alpha and `M_X` independent of `y` scale;
+1. **response independence**: fixed `X`/weights/intercept gives identical auto precision for two arbitrary finite `y` vectors, not merely rescaled `y`;
 2. positive diagonal feature scaling `A`: `M_{XA} ≈ A^{-1}M_XA^{-1}`;
-3. auto run then explicit same alpha: identical precision/debiased reports within tolerance;
-4. `w` vs `c w` identity;
-5. all-one weight identity;
-6. degenerate `d_j` fail closed;
-7. non-positive/non-finite `C_j` fail closed;
-8. forced unconverged/bad node-wise coefficient fails full KKT gate;
-9. simultaneous inference reuses same alpha/M;
-10. p=1 current behavior preserved.
+3. auto→explicit same alpha equivalence for `p>=2`;
+4. all-one weight identity;
+5. global weight-scale identity;
+6. adding/removing zero-weight rows leaves weighted auto alpha and precision unchanged;
+7. representative highly unequal weights produce finite `n_nw`, finite alpha, and valid precision/KKT;
+8. invalid design scales fail closed;
+9. bad/unconverged node-wise solution fails KKT;
+10. tau/cross-product inconsistency beyond KKT-derived bound fails closed;
+11. simultaneous inference reuses same precision contract;
+12. p=1 analytic precision matches `1/(X_w'X_w/n)` and behaves consistently on all backends.
 
-### 11.3 Backend parity
+### 12.3 Backend parity
 
 NumPy/CuPy/Torch:
 
-- same auto alpha;
+- same auto alpha/effective-n for `p>=2`;
 - explicit alpha reaches actual solver;
 - same standardized statistical contract;
-- KKT residuals pass declared gate;
-- `M`, debiased params, SE/z/p/marginal CI and simultaneous CI agree within maintained tolerances;
-- concrete device provenance correct;
+- KKT/tau gates pass;
+- `M`, params, SE/z/p/marginal and simultaneous CI parity within maintained tolerances;
+- correct concrete-device provenance;
 - no explicit-device fallback;
-- GPU Lipschitz derives from `Sigma_Z`.
+- GPU Lipschitz uses standardized Gram;
+- p=1 analytic path parity.
 
-### 11.4 CV / formula
+### 12.4 CV / formula
 
-- nodewise alpha affects final inference only;
-- LassoCV/ElasticNetCV selection outputs invariant to nodewise alpha;
-- outer/inner resolved alpha agrees;
-- array/formula inference agrees after design construction, including intercept and feature ordering.
+- node-wise alpha affects only final inference;
+- LassoCV/ElasticNetCV selection outputs invariant to it;
+- outer/inner fitted nodewise provenance agrees;
+- array/formula inference agrees after design construction, including intercept, categorical ordering, and weights where supported.
 
-### 11.5 Independent reference
+### 12.5 Independent numeric reference
 
-Implement a small independent NumPy reference at fixed explicit alpha:
+Build a small independent NumPy reference with explicit alpha:
 
-- canonical working design from existing helpers;
-- standardized `Z`;
-- independently solved node-wise problems at aligned objective scale;
-- `Theta_Z`/back-transform;
-- compare `M_X` and full KKT residuals;
-- verify `M_X Sigma_X` approximation.
+- obtain canonical working design via existing trusted test helper;
+- standardize;
+- solve node-wise Lasso at aligned objective scale;
+- compute KKT, `tau_j^2`, `Theta_Z`, back-transform;
+- compare `M_X` and `M_X Sigma_X` approximation.
 
-Optional R `hdi` comparison may align a manually chosen lambda; its own CV tuning is not expected to match the fixed statgpu auto default.
+Optional aligned-lambda R `hdi` comparison is supplementary; its own CV tuning need not equal statgpu auto tuning.
 
-### 11.6 Simulation validator
+### 12.6 Simulation evidence
 
-Because default behavior changes, create deterministic-seed evidence comparing old/new defaults on representative sparse Gaussian designs. Record:
+Deterministic validator compares old/new default on representative sparse Gaussian designs and records:
 
 - marginal coverage;
 - interval length;
 - finite/failure counts;
-- precision residual such as `||M Sigma-I||_max`;
-- resolved alpha/source/rule;
+- precision residual;
+- resolved alpha/effective-n/source/rule;
 - KKT residual distribution.
 
-Simulation is evidence, not a brittle unit-test assertion of exact nominal coverage.
+For weighted cases include equal, zero-containing, and unequal weights. Simulation is evidence, not a unit-test assertion of exact 95% coverage.
 
-### 11.7 Physical GPU acceptance
+### 12.7 Physical CUDA
 
-Dedicated/focused validator for CuPy + Torch physical CUDA:
+Focused physical validator for CuPy + Torch:
 
-- auto and explicit alpha;
-- auto/explicit equivalence;
-- response-scale independence;
+- auto/explicit alpha;
+- auto-explicit equivalence;
+- response independence;
 - feature-scale equivariance;
-- weight identities;
-- KKT/normalizer gates;
+- weight identities and zero-weight-row invariance;
+- KKT/tau gates;
+- p=1 analytic path;
 - simultaneous reuse;
 - metadata/backend/device provenance;
 - exact SHA/environment and partial failure artifact.
 
-If this is the only unavailable evidence, report `PARTIAL_REMOTE_PENDING` rather than shrinking the capability.
+If physical evidence is the only unavailable gate, report `PARTIAL_REMOTE_PENDING`.
 
-## 12. Documentation / integration with #134
+## 13. Documentation / #134 integration
 
-Runtime source/docs/changelog must state:
+Runtime docs/changelog must state:
 
 - `nodewise_alpha` is separate from main `alpha`;
 - `None` = standardized design-side auto rule;
+- weighted auto tuning uses the documented effective-n heuristic;
 - explicit value is on standardized node-wise scale;
-- auto rule is motivated by `sqrt(log p/n)` order, not uniquely mandated;
-- auto precision construction is independent of `y` units;
+- auto default is literature-motivated, not uniquely theorem-mandated;
+- precision tuning is independent of `y`;
 - scalar-only v1;
-- internal node-wise solver settings are recorded in inference metadata;
+- `p=1` uses analytic precision and does not consume node-wise alpha;
+- internal numerical settings are provenance-recorded;
 - CV parameter affects final-refit inference only.
 
 Remove the old source attribution tying main-response `sigma_hat` scaling to van de Geer et al. (2014).
 
-Do not make #134 depend on an unmerged runtime branch. After runtime behavior is stable and eventually merged, sync master into #132/#134 and update learner-first pages against the shipped contract.
+Do not make #134 depend on this unmerged runtime branch. After runtime behavior is stable and eventually merged, sync master into #132/#134 and reconcile learner-first docs against the shipped API.
 
-## 13. Implementation order
+## 14. Implementation order
 
-1. Add failing tests for missing override, response-scale dependence, stale state, and unchecked node-wise KKT.
-2. Add shared validation/standardization/alpha/KKT/normalizer helpers and internal node-wise constants.
+1. Add failing tests for missing override, response dependence, zero-weight-row sensitivity, p=1 backend inconsistency, stale state, and unchecked KKT.
+2. Add shared validation/standardization/effective-n/alpha/KKT/tau helpers and internal constants.
 3. Plumb public constructor state through generic penalized linear, Lasso, ElasticNet.
-4. Add result state to canonical cleanup/failure transactions.
-5. Implement NumPy standardized node-wise solve, full KKT gate, positive normalizer, back-transform.
-6. Implement CuPy/Torch `Sigma_Z` Gram-space version and recomputed Lipschitz bound.
-7. Make publication atomic and preserve metadata through weighted/centered finalizers and simultaneous inference.
-8. Propagate through LassoCV/ElasticNetCV and outer fitted state.
-9. Close cache/formula/weight/p=1/direct-fit invariance tests.
-10. Add independent reference + simulation validator.
+4. Add node-wise result/transient state to reset/failure transactions.
+5. Implement NumPy p=1 analytic and p>=2 standardized node-wise paths.
+6. Implement CuPy/Torch standardized Gram path, recomputed Lipschitz, and analytic p=1.
+7. Make publication atomic and preserve metadata through #138 finalizers/simultaneous inference.
+8. Propagate through LassoCV/ElasticNetCV.
+9. Close cache/formula/weight/direct-fit/CV invariance tests.
+10. Add independent reference and simulation validator.
 11. Update runtime docs/changelog.
 12. Run local-minimal then local-full relevant suites.
 13. Run physical GPU acceptance when available.
-14. Fresh independent implementation review; fix CRITICAL/HIGH and relevant MEDIUM; rerun affected gates; repeat until clean or a user decision is required.
+14. Fresh independent implementation review; fix CRITICAL/HIGH and relevant MEDIUM; rerun affected gates; repeat until clean or user decision required.
 
-## 14. Acceptance criteria
+## 15. Acceptance criteria
 
-- [ ] public `nodewise_alpha=None|positive scalar` on all in-scope maintained surfaces;
-- [ ] explicit value reaches every actual node-wise solve;
-- [ ] auto rule independent of `y` scale;
-- [ ] standardized design + correct `D^{-1}Theta_ZD^{-1}` back-transform;
-- [ ] feature-scale equivariance;
-- [ ] full node-wise KKT gate passes before publication;
-- [ ] positive finite `C_j` gate; no identity-row fallback;
-- [ ] cache keys actual node-wise settings, not parent-model tol;
-- [ ] GPU Lipschitz bound uses standardized Gram;
+- [ ] public `nodewise_alpha=None|positive real scalar` on all in-scope maintained surfaces;
+- [ ] explicit value reaches every actual p>=2 node-wise solve;
+- [ ] auto precision tuning never depends on `y`;
+- [ ] weighted auto effective-n is scale-invariant and zero-weight-row invariant;
+- [ ] standardized design + correct `D^{-1}Theta_ZD^{-1}` transform;
+- [ ] paper-style `tau_j^2` normalizer with KKT-consistency check;
+- [ ] full KKT gate before publication;
+- [ ] p=1 one-backend-contract analytic precision;
+- [ ] cache keys actual node-wise numerical contract;
+- [ ] GPU Lipschitz uses standardized Gram;
 - [ ] direct penalized coefficients and CV selection unaffected by nodewise alpha;
-- [ ] weight identities preserved;
+- [ ] all-one/global-weight-scale identities preserved;
 - [ ] NumPy/CuPy/Torch parity with no explicit-device fallback;
-- [ ] marginal/simultaneous inference share one alpha/M;
-- [ ] nodewise provenance survives finalizers and is atomically/reset safely published;
-- [ ] get_params/set_params/clone/formula/CV/p=1 regressions pass;
-- [ ] source/docs no longer misattribute old response-scale rule;
-- [ ] exact-head local blocking tests pass;
-- [ ] physical GPU evidence recorded or status explicitly `PARTIAL_REMOTE_PENDING`;
+- [ ] marginal/simultaneous inference share one precision contract;
+- [ ] node-wise provenance survives finalizers and all state is atomically/reset safely handled;
+- [ ] get_params/set_params/clone/formula/CV regressions pass;
+- [ ] source/docs no longer misattribute response-scale tuning;
+- [ ] exact-head local blocking suites pass;
+- [ ] physical GPU evidence recorded or explicit `PARTIAL_REMOTE_PENDING`;
 - [ ] fresh independent implementation review has no unresolved CRITICAL/HIGH.
 
-## 15. Non-goals
+## 16. Non-goals
 
-- vector per-coordinate node-wise alpha in v1;
+- per-coordinate vector node-wise alpha in v1;
 - node-wise CV / square-root Lasso as auto selector;
-- public nodewise tolerance/max-iter controls in this repair;
+- public nodewise tolerance/max-iter controls;
 - main-model CV redesign;
 - full ElasticNetCV inference-selector redesign;
-- p=1 behavior redesign;
-- unrelated cache hash-policy redesign;
+- unrelated cache-policy redesign;
 - private legacy cosmetic parity;
 - performance claims.
 
-## 16. Plan review log
+## 17. Plan review log
 
 ### Round 1
 
@@ -554,7 +646,7 @@ Plan commit: `3b83e3a1a84d18769ba0267ba74fd4aa281a08ec`
 Artifact: `dev/reviews/nodewise-alpha-plan-review-round-1.md`  
 Verdict: **PLAN CHANGES REQUIRED**
 
-Closed: #138 working-data ownership, fitted-state cleanup, positive `C_j`, raw validation, finalizer metadata, p=1 scope, centralized degeneracy tolerance.
+Closed: #138 working-data ownership; fitted-state cleanup; positive normalizer; raw validation; finalizer metadata; degeneracy tolerance.
 
 ### Round 2
 
@@ -562,13 +654,18 @@ Plan commit: `cf71a6915b307763391663be5e0de255c9f8a474`
 Artifact: `dev/reviews/nodewise-alpha-plan-review-round-2.md`  
 Verdict: **PLAN CHANGES REQUIRED**
 
+Closed: independent KKT gate; actual node-wise cache settings; standardized-Gram GPU Lipschitz; atomic publication; direct-fit coefficient invariance; numerical provenance.
+
+### Round 3
+
+Plan commit: `ca84b50b550af1b13bb8f8ab04761095167f0286`  
+Artifact: `dev/reviews/nodewise-alpha-plan-review-round-3.md`  
+Verdict: **PLAN CHANGES REQUIRED**
+
 Closed in this revision:
 
-- HIGH: production full-KKT acceptance gate added;
-- HIGH: cache now keys actual node-wise numerical settings rather than parent estimator tol;
-- MEDIUM: GPU Lipschitz recomputed from standardized Gram;
-- MEDIUM: atomic publication specified;
-- MEDIUM: direct-fit coefficient invariance explicitly tested;
-- MEDIUM: node-wise solver/tol/max-iter/KKT residual added to provenance.
+- HIGH: weighted auto tuning now uses documented response-independent effective sample size and explicitly protects zero-weight-row invariance;
+- HIGH: p=1 is now one analytic NumPy/CuPy/Torch precision contract rather than an inherited backend split;
+- MEDIUM: production normalizer is paper-style `tau_j^2`; `Z_j'r_j/n` is retained as a KKT-derived numerical consistency check.
 
-Next step: fresh round-3 plan review on this exact revision. Implementation must not start before a clean plan verdict.
+Next step: fresh round-4 plan review on this exact revision. Implementation must not start before a clean plan verdict.
