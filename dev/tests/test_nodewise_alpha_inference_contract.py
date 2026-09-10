@@ -98,6 +98,7 @@ def test_auto_and_explicit_resolved_alpha_are_equivalent():
     X, y = _data(n=84, p=5)
     auto = _fit_lasso(X, y)
     explicit = _fit_lasso(X, y, nodewise_alpha=auto.nodewise_alpha_)
+    np.testing.assert_allclose(auto.coef_, explicit.coef_, rtol=0.0, atol=0.0)
     np.testing.assert_allclose(auto._debiased_M_cpu, explicit._debiased_M_cpu, rtol=2e-8, atol=2e-10)
     np.testing.assert_allclose(auto._params, explicit._params, rtol=2e-8, atol=2e-10)
     np.testing.assert_allclose(auto._bse, explicit._bse, rtol=2e-8, atol=2e-10)
@@ -228,6 +229,22 @@ def test_degenerate_design_fails_closed_without_stale_nodewise_state():
     assert getattr(model, "_inference_result", None) is None
 
 
+def test_success_set_params_refit_clears_and_republishes_nodewise_state():
+    X, y = _data(seed=71, n=82, p=4)
+    model = _fit_lasso(X, y, nodewise_alpha=0.07)
+    assert model.nodewise_alpha_ == pytest.approx(0.07)
+    assert getattr(model, "_inference_result", None) is not None
+
+    model.set_params(nodewise_alpha=0.11)
+    assert model.nodewise_alpha == pytest.approx(0.11)
+    assert model.nodewise_alpha_ is None
+    assert getattr(model, "_inference_result", None) is None
+
+    model.fit(X, y)
+    assert model.nodewise_alpha_ == pytest.approx(0.11)
+    assert model._inference_result.metadata["nodewise_alpha_source"] == "user"
+
+
 def test_lassocv_nodewise_alpha_is_final_refit_only():
     X, y = _data(n=90, p=4)
     common = dict(
@@ -253,33 +270,45 @@ def test_lassocv_nodewise_alpha_is_final_refit_only():
     assert second.nodewise_alpha_ == pytest.approx(0.11)
 
 
-def test_elasticnet_direct_and_cv_propagate_nodewise_alpha():
+def test_elasticnet_direct_and_cv_nodewise_alpha_is_inference_only():
     X, y = _data(n=88, p=4)
-    direct = ElasticNet(
+    direct_common = dict(
         alpha=0.05,
         l1_ratio=0.7,
-        nodewise_alpha=0.09,
         device="cpu",
         compute_inference=True,
         inference_method="debiased",
         max_iter=1600,
         tol=1e-6,
-    ).fit(X, y)
-    assert direct.nodewise_alpha_ == pytest.approx(0.09)
+    )
+    direct_first = ElasticNet(nodewise_alpha=0.07, **direct_common).fit(X, y)
+    direct_second = ElasticNet(nodewise_alpha=0.11, **direct_common).fit(X, y)
+    np.testing.assert_allclose(direct_first.coef_, direct_second.coef_, rtol=0.0, atol=0.0)
+    assert direct_first.nodewise_alpha_ == pytest.approx(0.07)
+    assert direct_second.nodewise_alpha_ == pytest.approx(0.11)
 
-    cv = ElasticNetCV(
+    cv_common = dict(
         l1_ratio=[0.5, 0.8],
         alphas=[0.03, 0.06],
         cv=3,
-        nodewise_alpha=0.09,
         device="cpu",
         compute_inference=True,
         max_iter=1200,
         tol=1e-6,
         random_state=9,
-    ).fit(X, y)
-    assert cv.estimator_.nodewise_alpha_ == pytest.approx(0.09)
-    assert cv.nodewise_alpha_ == pytest.approx(0.09)
+    )
+    first = ElasticNetCV(nodewise_alpha=0.07, **cv_common).fit(X, y)
+    second = ElasticNetCV(nodewise_alpha=0.11, **cv_common).fit(X, y)
+    assert first.alpha_ == pytest.approx(second.alpha_)
+    assert first.l1_ratio_ == pytest.approx(second.l1_ratio_)
+    np.testing.assert_allclose(
+        first.cv_results_["mse_path"], second.cv_results_["mse_path"], rtol=0.0, atol=0.0
+    )
+    np.testing.assert_allclose(first.coef_, second.coef_, rtol=0.0, atol=0.0)
+    assert first.estimator_.nodewise_alpha_ == pytest.approx(0.07)
+    assert second.estimator_.nodewise_alpha_ == pytest.approx(0.11)
+    assert first.nodewise_alpha_ == pytest.approx(0.07)
+    assert second.nodewise_alpha_ == pytest.approx(0.11)
 
 
 def test_generic_penalized_l1_exposes_same_nodewise_contract():
