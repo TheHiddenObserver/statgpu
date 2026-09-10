@@ -294,7 +294,8 @@ class _PenalizedInferenceMixin:
             _debiased_m_key_from_numpy_design,
         )
 
-        # Scale node-wise lambda by sigma_hat (van de Geer et al. 2014)
+        # Historical response-scaled rule retained only in this superseded method;
+        # the installed nodewise-alpha contract replaces it for maintained sparse-Gaussian inference.
         sigma_hat = np.sqrt(sigma2)
         lam_nw = np.sqrt(2.0 * np.log(max(p, 2)) / n) * sigma_hat
         m_cache_key = _debiased_m_key_from_numpy_design(
@@ -633,7 +634,8 @@ class _PenalizedInferenceMixin:
             _solve_lasso_path_gpu_fista_multi_fold_from_gram,
         )
 
-        # Scale node-wise lambda by sigma_hat (van de Geer et al. 2014)
+        # Historical response-scaled rule retained only in this superseded method;
+        # the installed nodewise-alpha contract replaces it for maintained sparse-Gaussian inference.
         sigma_hat = np.sqrt(sigma2)
         lam_nw = float(np.sqrt(2.0 * np.log(max(p, 2)) / n) * sigma_hat)
         alpha_nw = np.asarray([lam_nw], dtype=np.float64)
@@ -818,7 +820,8 @@ class _PenalizedInferenceMixin:
             _solve_lasso_path_gpu_fista_multi_fold_from_gram_torch,
         )
 
-        # Scale node-wise lambda by sigma_hat (van de Geer et al. 2014)
+        # Historical response-scaled rule retained only in this superseded method;
+        # the installed nodewise-alpha contract replaces it for maintained sparse-Gaussian inference.
         sigma_hat = np.sqrt(sigma2)
         lam_nw = float(np.sqrt(2.0 * np.log(max(p, 2)) / n) * sigma_hat)
         alpha_nw = np.asarray([lam_nw], dtype=np.float64)
@@ -1530,4 +1533,3 @@ class _PenalizedInferenceMixin:
             "scale": float(scale.detach().cpu().numpy()),
             "nobs": int(n_samples), "df_resid": int(df_resid),
         }
-
