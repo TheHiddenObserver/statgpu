@@ -202,6 +202,7 @@ def test_p1_uses_analytic_precision_without_consuming_requested_alpha():
     assert meta["precision_method"] == "analytic_univariate"
     assert meta["nodewise_alpha_source"] == "not_applicable"
     assert meta["nodewise_alpha_requested"] == pytest.approx(0.123)
+    assert meta["precision_cache_hit"] is False
     assert np.asarray(model._debiased_M_cpu).shape == (1, 1)
 
 
@@ -326,3 +327,22 @@ def test_generic_penalized_l1_exposes_same_nodewise_contract():
     ).fit(X, y)
     assert model.nodewise_alpha_ == pytest.approx(0.085)
     assert model._inference_result.metadata["nodewise_alpha"] == pytest.approx(0.085)
+
+
+def test_generic_penalized_glm_elasticnet_exposes_same_nodewise_contract():
+    X, y = _data(seed=79, n=78, p=4)
+    model = PenalizedGeneralizedLinearModel(
+        loss="squared_error",
+        penalty="elasticnet",
+        alpha=0.05,
+        l1_ratio=0.7,
+        nodewise_alpha=0.095,
+        device="cpu",
+        solver="fista",
+        compute_inference=True,
+        inference_method="debiased",
+        max_iter=1600,
+        tol=1e-6,
+    ).fit(X, y)
+    assert model.nodewise_alpha_ == pytest.approx(0.095)
+    assert model._inference_result.metadata["nodewise_alpha"] == pytest.approx(0.095)
