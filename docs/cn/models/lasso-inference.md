@@ -230,7 +230,167 @@ $$
 
 ## 同时推断
 
-设置 `enable_simultaneous_inference=True` 可以启用 **max-|Z| 高斯乘子自助法**校准。程序生成高斯乘子，计算目标参数集合上的标准化得分扰动，取其中最大绝对值，再用经验分位数作为共同临界值。
+边际推断逐个考察每个参数，而同时推断关心的是：**目标参数集合中的所有区间能否一起覆盖真值**。设希望同时推断的坐标集合为 $\mathcal J$，纠偏估计量及其标准误分别为 $\hat\theta_j^{\mathrm{db}}$ 和 $\widehat{\mathrm{se}}_j$。对应的理想最大统计量是
+
+$$
+\boxed{
+T
+=
+\max_{j\in\mathcal J}
+\left|
+\frac{\hat\theta_j^{\mathrm{db}}-\theta_j^0}
+{\widehat{\mathrm{se}}_j}
+\right|
+}.
+$$
+
+如果能知道 $T$ 的 $1-\alpha_{\mathrm{sim}}$ 分位数 $c_{1-\alpha_{\mathrm{sim}}}$，那么共同使用这个临界值构造
+
+$$
+CI_j^{\mathrm{sim}}
+=
+\left[
+\hat\theta_j^{\mathrm{db}}-c_{1-\alpha_{\mathrm{sim}}}\widehat{\mathrm{se}}_j,
+\;
+\hat\theta_j^{\mathrm{db}}+c_{1-\alpha_{\mathrm{sim}}}\widehat{\mathrm{se}}_j
+\right],
+\qquad j\in\mathcal J,
+$$
+
+目标就是在相应高维近似与 bootstrap 条件下得到
+
+$$
+\Pr\!\left(
+\theta_j^0\in CI_j^{\mathrm{sim}}
+\;\text{for all }j\in\mathcal J
+\right)
+\approx 1-\alpha_{\mathrm{sim}}.
+$$
+
+这与分别构造很多个 95% 边际区间不同：边际区间使用单个标准正态变量的临界值，而这里需要近似**整组标准化误差最大值**的分布。
+
+### 乘子自助法如何近似这个最大值分布？
+
+前面的纠偏展开给出主要随机项
+
+$$
+\hat\theta^{\mathrm{db}}-\theta^0
+\approx
+\frac{1}{n}MX^\top\varepsilon.
+$$
+
+statgpu 用拟合残差 $\hat r_i$ 代替未知误差，并在第 $b$ 次重复中生成独立高斯乘子
+
+$$
+\xi_i^{(b)}\overset{\mathrm{iid}}{\sim}N(0,1),
+\qquad i=1,\ldots,n.
+$$
+
+对斜率坐标，实际实现对应的乘子扰动可以写成向量形式
+
+$$
+\boxed{
+S^{*(b)}
+=
+\frac{1}{n}
+MX^\top
+\bigl(\xi^{(b)}\odot\hat r\bigr)
+},
+$$
+
+也就是对每个坐标 $j$，
+
+$$
+S_j^{*(b)}
+=
+\frac{1}{n}
+\sum_{i=1}^{n}
+\xi_i^{(b)}\hat r_i(Mx_i)_j.
+$$
+
+再用已经得到的边际标准误进行标准化：
+
+$$
+Z_j^{*(b)}
+=
+\frac{S_j^{*(b)}}{\widehat{\mathrm{se}}_j}.
+$$
+
+同一次 bootstrap 重复中，**所有参数坐标共享同一组乘子** $\xi_1^{(b)},\ldots,\xi_n^{(b)}$。因此不同坐标之间由同一批观测、设计矩阵和近似精度矩阵 $M$ 产生的相关结构会进入联合扰动，而不是把每个参数当成彼此独立的问题来处理。
+
+随后取目标集合上的最大绝对值
+
+$$
+\boxed{
+T^{*(b)}
+=
+\max_{j\in\mathcal J}|Z_j^{*(b)}|
+}.
+$$
+
+重复 $B=$ `simultaneous_n_bootstrap` 次后，得到
+
+$$
+T^{*(1)},\ldots,T^{*(B)},
+$$
+
+并取它们的经验 $1-\alpha_{\mathrm{sim}}$ 分位数
+
+$$
+\boxed{
+\hat c_{1-\alpha_{\mathrm{sim}}}
+=
+\widehat Q_{1-\alpha_{\mathrm{sim}}}
+\left(T^{*(1)},\ldots,T^{*(B)}\right)
+}.
+$$
+
+statgpu 最终使用这个共同临界值形成
+
+$$
+\boxed{
+CI_j^{\mathrm{sim}}
+=
+\hat\theta_j^{\mathrm{db}}
+\pm
+\hat c_{1-\alpha_{\mathrm{sim}}}\widehat{\mathrm{se}}_j,
+\qquad j\in\mathcal J.
+}
+$$
+
+因此，max-|Z| 方法不是简单地把每个边际区间机械放宽，也不是逐个参数独立做 bootstrap；它直接校准目标参数集合中**最大标准化波动**的分布，并利用乘子构造保留坐标之间的相关性。共同临界值通常会比单个参数的边际临界值更保守，但它对应的是整组参数的同时覆盖目标。
+
+### 截距如何进入同一个同时推断问题？
+
+默认目标集合只包含斜率坐标。若设置 `simultaneous_include_intercept=True`，statgpu 会从中心化/加权拟合对应的原坐标参数化中构造截距影响权重 $\hat h_i$。在第 $b$ 次乘子重复中，截距扰动写成
+
+$$
+S_0^{*(b)}
+=
+\sum_{i=1}^{n}
+\xi_i^{(b)}\hat r_i\hat h_i,
+\qquad
+Z_0^{*(b)}
+=
+\frac{S_0^{*(b)}}{\widehat{\mathrm{se}}_0}.
+$$
+
+此时使用的最大统计量真正变成
+
+$$
+\boxed{
+T^{*(b)}
+=
+\max\left\{
+|Z_0^{*(b)}|,
+\max_{j=1,\ldots,p}|Z_j^{*(b)}|
+\right\}.
+}
+$$
+
+也就是说，截距会进入**同一次 max-|Z| 校准**，而不是先用只针对斜率得到的临界值、最后再额外附上一行截距区间。
+
+设置示例：
 
 ```python
 model = Lasso(
@@ -251,7 +411,9 @@ print(model._conf_int_simultaneous)
 print(model._simultaneous_critical_value)
 ```
 
-当 `simultaneous_include_intercept=True` 时，纠偏后的截距会真正进入 max-|Z| 的校准目标集合，而不只是额外显示一行结果。CuPy/Torch 上的同时推断也会记录实际执行数值计算的后端和设备。
+`_conf_int` 仍保存边际区间；`_conf_int_simultaneous` 保存使用共同 max-|Z| 临界值形成的同时区间；`_simultaneous_critical_value` 则是上面的 $\hat c_{1-\alpha_{\mathrm{sim}}}$。CuPy/Torch 上的同时推断也会记录实际执行数值计算的后端和设备。
+
+这里的“同时覆盖”仍然依赖纠偏 Lasso 的高维近似以及乘子自助法近似最大统计量分布所需的条件，不能理解为任意有限样本下都严格等于 $1-\alpha_{\mathrm{sim}}$。
 
 ## 多重检验是另一层问题
 
@@ -276,6 +438,7 @@ print(model._simultaneous_critical_value)
 - 计划自 0.2.6 起使用的自动逐节点规则只由设计侧问题决定，与响应变量的计量尺度无关。
 - `post_selection_ols` 应解释为选择后诊断，而不是一般选择性推断。
 - `LassoCV` 最终重拟合后的推断条件于已经选定的主调参值。
+- 同时推断校准的是目标集合上的最大标准化误差；同一组乘子用于所有坐标，以保留联合相关结构。
 - 同时推断和多重检验校正都不能替代底层统计假设。
 - NumPy、CuPy、Torch 改变计算位置和性能，不改变统计有效性所需的条件。
 
