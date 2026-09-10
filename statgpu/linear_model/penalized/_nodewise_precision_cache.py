@@ -117,14 +117,24 @@ def _metadata(requested, resolved, source, rule, effective_n, weighted, max_kkt,
     return meta
 
 
+def _mark_uncached(result):
+    """Keep cache provenance present even when a branch cannot use the cache."""
+    M, resolved, meta = result
+    meta = dict(meta)
+    meta["precision_cache_hit"] = False
+    return M, resolved, meta
+
+
 def build_nodewise_precision_numpy(X_work, *, requested_alpha, effective_n, weighted):
     X = np.asarray(X_work, dtype=np.float64)
     if X.ndim != 2 or int(X.shape[1]) <= 1 or _CACHE_MAXSIZE <= 0:
-        return _precision.build_nodewise_precision_numpy(
-            X_work,
-            requested_alpha=requested_alpha,
-            effective_n=effective_n,
-            weighted=weighted,
+        return _mark_uncached(
+            _precision.build_nodewise_precision_numpy(
+                X_work,
+                requested_alpha=requested_alpha,
+                effective_n=effective_n,
+                weighted=weighted,
+            )
         )
     alpha, source, rule = _precision.resolve_nodewise_alpha(
         requested_alpha, p=X.shape[1], effective_n=effective_n
@@ -153,11 +163,13 @@ def build_nodewise_precision_cupy(X_work, *, requested_alpha, effective_n, weigh
 
     X = cp.asarray(X_work, dtype=cp.float64)
     if X.ndim != 2 or int(X.shape[1]) <= 1 or _CACHE_MAXSIZE <= 0:
-        return _precision.build_nodewise_precision_cupy(
-            X_work,
-            requested_alpha=requested_alpha,
-            effective_n=effective_n,
-            weighted=weighted,
+        return _mark_uncached(
+            _precision.build_nodewise_precision_cupy(
+                X_work,
+                requested_alpha=requested_alpha,
+                effective_n=effective_n,
+                weighted=weighted,
+            )
         )
     alpha, source, rule = _precision.resolve_nodewise_alpha(
         requested_alpha, p=X.shape[1], effective_n=effective_n
@@ -189,19 +201,23 @@ def build_nodewise_precision_torch(X_work, *, requested_alpha, effective_n, weig
     import torch
 
     if not isinstance(X_work, torch.Tensor):
-        return _precision.build_nodewise_precision_torch(
-            X_work,
-            requested_alpha=requested_alpha,
-            effective_n=effective_n,
-            weighted=weighted,
+        return _mark_uncached(
+            _precision.build_nodewise_precision_torch(
+                X_work,
+                requested_alpha=requested_alpha,
+                effective_n=effective_n,
+                weighted=weighted,
+            )
         )
     X = X_work.to(dtype=torch.float64)
     if X.ndim != 2 or int(X.shape[1]) <= 1 or _CACHE_MAXSIZE <= 0:
-        return _precision.build_nodewise_precision_torch(
-            X_work,
-            requested_alpha=requested_alpha,
-            effective_n=effective_n,
-            weighted=weighted,
+        return _mark_uncached(
+            _precision.build_nodewise_precision_torch(
+                X_work,
+                requested_alpha=requested_alpha,
+                effective_n=effective_n,
+                weighted=weighted,
+            )
         )
     alpha, source, rule = _precision.resolve_nodewise_alpha(
         requested_alpha, p=X.shape[1], effective_n=effective_n
