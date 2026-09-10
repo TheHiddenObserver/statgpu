@@ -39,6 +39,7 @@ jobs:
             dev/tests/test_nodewise_alpha_inference_contract.py \
             dev/tests/test_nodewise_alpha_formula_contract.py \
             dev/tests/test_nodewise_alpha_public_api_matrix.py \
+            dev/tests/test_nodewise_alpha_reference_contract.py \
             dev/tests/test_nodewise_precision_cache_contract.py \
             dev/tests/test_lasso_debiased_inference.py \
             dev/tests/test_weighted_sparse_gpu_objective_contract.py \
@@ -89,6 +90,7 @@ jobs:
             dev/tests/test_nodewise_alpha_inference_contract.py \
             dev/tests/test_nodewise_alpha_formula_contract.py \
             dev/tests/test_nodewise_alpha_public_api_matrix.py \
+            dev/tests/test_nodewise_alpha_reference_contract.py \
             dev/tests/test_nodewise_precision_cache_contract.py \
             dev/benchmarks/validate_nodewise_alpha_gpu.py \
             dev/benchmarks/validate_nodewise_alpha_simulation.py
@@ -101,6 +103,7 @@ jobs:
             dev/tests/test_nodewise_alpha_inference_contract.py \
             dev/tests/test_nodewise_alpha_formula_contract.py \
             dev/tests/test_nodewise_alpha_public_api_matrix.py \
+            dev/tests/test_nodewise_alpha_reference_contract.py \
             dev/tests/test_nodewise_precision_cache_contract.py \
             dev/benchmarks/validate_nodewise_alpha_gpu.py \
             dev/benchmarks/validate_nodewise_alpha_simulation.py \
