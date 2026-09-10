@@ -1,11 +1,10 @@
 """Scope the node-wise GPU context strictly to sparse Gaussian debiased inference.
 
 The initial node-wise API integration wrapped ``_fit_gpu_backend`` at both the
-base and typed-linear levels.  This installer collapses those wrappers to one
+base and typed-linear levels. This installer collapses those wrappers to one
 scope-aware layer and delegates unrelated GPU/fake-backend paths directly to the
-pre-nodewise implementation.  It therefore preserves #138's non-Gaussian
-isolation and avoids importing CuPy/Torch merely because a caller names a
-backend in a test double.
+pre-nodewise implementation. It also installs the reviewed precision cache at
+the internal builder boundary, so caching does not add another estimator wrapper.
 """
 
 from __future__ import annotations
@@ -84,11 +83,14 @@ def _install_for(cls) -> None:
 
 
 def install_nodewise_alpha_gpu_scope_contract() -> None:
-    # Install one independently scoped wrapper for both public owners.  The
-    # unwrapping step prevents PenalizedLinearRegression from inheriting and
-    # re-wrapping the base node-wise layer.
     _install_for(PenalizedGeneralizedLinearModel)
     _install_for(PenalizedLinearRegression)
+
+    # Cache only the internal precision builders; public request provenance is
+    # reconstructed on every call and estimator call stacks stay unchanged.
+    from statgpu.linear_model import _nodewise_precision_cache_contract as _cache
+
+    _cache.install_nodewise_precision_cache_contract()
 
 
 __all__ = ["install_nodewise_alpha_gpu_scope_contract"]
