@@ -121,6 +121,38 @@ def test_precision_helper_has_feature_scale_equivariance():
     np.testing.assert_allclose(M_scaled, expected, rtol=5e-7, atol=5e-9)
 
 
+def test_forced_bad_nodewise_solution_fails_independent_kkt_gate(monkeypatch):
+    from statgpu.linear_model.wrappers import _lasso as lasso_module
+
+    rng = np.random.default_rng(2026)
+    x0 = rng.normal(size=96)
+    X = np.column_stack(
+        [
+            x0,
+            0.85 * x0 + 0.15 * rng.normal(size=x0.size),
+            rng.normal(size=x0.size),
+        ]
+    )
+    X -= X.mean(axis=0)
+
+    def bad_solver(gram, cross, *args, **kwargs):
+        p = int(np.asarray(gram).shape[-1])
+        return np.zeros((1, p), dtype=np.float64), None
+
+    monkeypatch.setattr(
+        lasso_module,
+        "_solve_lasso_path_cpu_from_gram",
+        bad_solver,
+    )
+    with pytest.raises(FloatingPointError, match="KKT publication gate"):
+        build_nodewise_precision_numpy(
+            X,
+            requested_alpha=1e-8,
+            effective_n=float(X.shape[0]),
+            weighted=False,
+        )
+
+
 def test_weight_effective_n_is_scale_and_zero_row_invariant():
     w = np.asarray([1.0, 2.0, 0.5, 0.0, 3.0])
     n_eff = resolve_effective_n(w.size, w)
