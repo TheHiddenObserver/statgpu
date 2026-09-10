@@ -50,3 +50,33 @@ def test_changing_nodewise_alpha_forces_cache_miss():
     )
     assert first["precision_cache_hit"] is False
     assert second["precision_cache_hit"] is False
+
+
+def test_p1_bypass_records_explicit_cache_miss_without_entry():
+    X = _design(seed=53, p=1)
+    cache._CACHE.clear()
+    _, resolved, meta = cache.build_nodewise_precision_numpy(
+        X,
+        requested_alpha=0.08,
+        effective_n=float(X.shape[0]),
+        weighted=False,
+    )
+    assert resolved is None
+    assert meta["precision_method"] == "analytic_univariate"
+    assert meta["precision_cache_hit"] is False
+    assert len(cache._CACHE) == 0
+
+
+def test_disabled_cache_keeps_cache_provenance_explicit(monkeypatch):
+    X = _design(seed=54)
+    cache._CACHE.clear()
+    monkeypatch.setattr(cache, "_CACHE_MAXSIZE", 0)
+    _, resolved, meta = cache.build_nodewise_precision_numpy(
+        X,
+        requested_alpha=0.08,
+        effective_n=float(X.shape[0]),
+        weighted=False,
+    )
+    assert resolved == 0.08
+    assert meta["precision_cache_hit"] is False
+    assert len(cache._CACHE) == 0
