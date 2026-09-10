@@ -1,6 +1,6 @@
 # Node-wise Lasso tuning contract — implementation plan
 
-Status: **REVISED AFTER PLAN REVIEW ROUND 4**
+Status: **PLAN REVIEW CLEAN — READY FOR IMPLEMENTATION**
 
 Target baseline:
 
@@ -372,7 +372,8 @@ Inside the maintained original debiased routine invoked by #138 wrappers:
 5. recompute full KKT;
 6. compute/validate `tau_j^2` and cross-product consistency;
 7. build `Theta_Z`, back-transform `M_X`;
-8. continue existing marginal inference.
+8. reject non-finite standardized Gram/precision state before debiasing;
+9. continue existing marginal inference.
 
 ### 9.3 CuPy/Torch
 
@@ -382,7 +383,7 @@ $$
 \Sigma_Z=D^{-1}\Sigma_{X_w}D^{-1}.
 $$
 
-Build batched Gram/cross-product inputs from `Sigma_Z`; recompute the FISTA Lipschitz bound from `Sigma_Z`; run KKT/tau checks on device; back-transform on device. The p=1 analytic path also stays native until the normal reporting boundary.
+Build batched Gram/cross-product inputs from `Sigma_Z`; recompute the FISTA Lipschitz bound from `Sigma_Z`; run finite-state, KKT, and tau checks on device; back-transform and validate finite `M_X` on device. The p=1 analytic path also stays native until the normal reporting boundary.
 
 No CPU numerical fallback.
 
@@ -480,8 +481,9 @@ At the reviewed baseline generic CV does not expose the affected final-refit inf
 8. invalid design scales fail closed;
 9. bad/unconverged solve fails KKT;
 10. tau/cross-product inconsistency beyond derived bound fails closed;
-11. simultaneous path uses the same precision contract and leaves no state if calibration fails;
-12. p=1 analytic precision equals `1/(X_w'X_w/n)` on all backends.
+11. standardized Gram or back-transformed precision non-finiteness fails before reporting;
+12. simultaneous path uses the same precision contract and leaves no state if calibration fails;
+13. p=1 analytic precision equals `1/(X_w'X_w/n)` on all backends.
 
 ### 13.3 Backend parity
 
@@ -490,7 +492,7 @@ NumPy/CuPy/Torch:
 - same p>=2 auto alpha/effective-n;
 - explicit alpha reaches actual solver;
 - same standardized contract;
-- KKT/tau gates;
+- finite-state/KKT/tau gates;
 - `M`, params, SE/z/p/marginal CI/simultaneous CI parity within maintained tolerances;
 - concrete-device provenance / no explicit-device fallback;
 - GPU Lipschitz from standardized Gram;
@@ -537,7 +539,7 @@ Focused validator for CuPy + Torch:
 - response independence;
 - feature-scale equivariance;
 - weight identities / zero-weight invariance;
-- KKT/tau gates;
+- finite-state/KKT/tau gates;
 - p=1 analytic path;
 - simultaneous reuse and failure cleanup;
 - metadata/backend/device provenance;
@@ -568,7 +570,7 @@ Do not make #134 depend on this unmerged runtime branch. After runtime behavior 
 
 ## 15. Implementation order
 
-1. Add failing tests for missing override, response dependence, zero-weight sensitivity, p=1 inconsistency, stale state, unchecked KKT, and simultaneous failure leakage.
+1. Add failing tests for missing override, response dependence, zero-weight sensitivity, p=1 inconsistency, stale state, unchecked KKT, simultaneous failure leakage, and non-finite precision publication.
 2. Add shared validation/standardization/effective-n/alpha/KKT/tau helpers and internal constants.
 3. Plumb public constructor state through generic penalized linear, Lasso, ElasticNet.
 4. Add node-wise result/transient state to reset/failure transactions.
@@ -594,6 +596,7 @@ Do not make #134 depend on this unmerged runtime branch. After runtime behavior 
 - [ ] paper-style tau normalizer and KKT-derived consistency check;
 - [ ] full independent KKT gate before publication;
 - [ ] p=1 shared analytic precision contract;
+- [ ] standardized Gram and back-transformed precision must be finite before debiasing/reporting;
 - [ ] cache keys actual node-wise numerical settings including stopping policy;
 - [ ] GPU Lipschitz uses standardized Gram;
 - [ ] direct penalized coefficients and CV selection unaffected by nodewise alpha;
@@ -650,11 +653,12 @@ Plan commit: `236fcb7fbc4e5a51f3e829068c22ae80268ccd14`
 Artifact: `dev/reviews/nodewise-alpha-plan-review-round-4.md`  
 Verdict: **PLAN CHANGES REQUIRED (no new HIGH findings)**
 
-Closed in this revision:
+Closed: intentional statistical-default migration/no-legacy decision; explicit underlying stopping policy; atomic publication through requested simultaneous calibration; requested-value metadata.
 
-- intentional statistical-default migration and no-legacy-mode decision;
-- underlying `NODEWISE_STOPPING="coef_delta"` plus independent KKT publication gate;
-- atomic publication extended through requested simultaneous calibration;
-- `nodewise_alpha_requested` metadata chosen explicitly for p>=2 and p=1 provenance.
+### Round 5
 
-Next step: fresh round-5 review on this exact revision. Implementation must not start before a clean plan verdict.
+Plan commit: `b09408f0b44e9013d7fb035942bd6148cac9ee3c`  
+Artifact: `dev/reviews/nodewise-alpha-plan-review-round-5.md`  
+Verdict: **PLAN REVIEW CLEAN**
+
+No CRITICAL/HIGH/actionable MEDIUM plan finding remained. The final status/log edit added the implementation-ready marker and made the non-finite precision gate explicit; a final freshness review is required on this exact plan revision before implementation starts.
