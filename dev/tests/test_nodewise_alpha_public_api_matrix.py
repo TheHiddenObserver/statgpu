@@ -47,8 +47,10 @@ def test_all_public_surfaces_preserve_requested_nodewise_alpha_in_get_params_and
         assert "nodewise_alpha" in params
         assert params["nodewise_alpha"] is requested
         cloned = clone(model)
-        assert float(cloned.nodewise_alpha) == pytest.approx(float(requested))
-        assert cloned.get_params(deep=False)["nodewise_alpha"] is requested
+        cloned_param = cloned.get_params(deep=False)["nodewise_alpha"]
+        assert isinstance(cloned_param, np.float64)
+        assert float(cloned_param) == pytest.approx(float(requested))
+        assert cloned.nodewise_alpha is cloned_param
         assert cloned.nodewise_alpha_ is None
 
 
