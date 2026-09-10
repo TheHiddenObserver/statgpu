@@ -7,8 +7,8 @@ on:
       - 'statgpu/linear_model/__init__.py'
       - 'statgpu/linear_model/_nodewise_alpha_inference_contract.py'
       - 'statgpu/linear_model/_nodewise_alpha_gpu_scope_contract.py'
-      - 'statgpu/linear_model/_nodewise_precision_cache_contract.py'
       - 'statgpu/linear_model/penalized/_nodewise_precision.py'
+      - 'statgpu/linear_model/penalized/_nodewise_precision_cache.py'
       - 'dev/tests/test_nodewise_alpha_*.py'
       - 'dev/tests/test_nodewise_precision_cache_contract.py'
       - 'dev/benchmarks/validate_nodewise_alpha_*.py'
@@ -85,8 +85,8 @@ jobs:
           python -m compileall -q \
             statgpu/linear_model/_nodewise_alpha_inference_contract.py \
             statgpu/linear_model/_nodewise_alpha_gpu_scope_contract.py \
-            statgpu/linear_model/_nodewise_precision_cache_contract.py \
             statgpu/linear_model/penalized/_nodewise_precision.py \
+            statgpu/linear_model/penalized/_nodewise_precision_cache.py \
             dev/tests/test_nodewise_alpha_inference_contract.py \
             dev/tests/test_nodewise_alpha_formula_contract.py \
             dev/tests/test_nodewise_precision_cache_contract.py \
@@ -97,8 +97,8 @@ jobs:
           ruff check \
             statgpu/linear_model/_nodewise_alpha_inference_contract.py \
             statgpu/linear_model/_nodewise_alpha_gpu_scope_contract.py \
-            statgpu/linear_model/_nodewise_precision_cache_contract.py \
             statgpu/linear_model/penalized/_nodewise_precision.py \
+            statgpu/linear_model/penalized/_nodewise_precision_cache.py \
             dev/tests/test_nodewise_alpha_inference_contract.py \
             dev/tests/test_nodewise_alpha_formula_contract.py \
             dev/tests/test_nodewise_precision_cache_contract.py \
