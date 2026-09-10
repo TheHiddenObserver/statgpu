@@ -422,7 +422,7 @@ def _add_nodewise_parameter(cls):
         validate_nodewise_alpha(requested)
         result = current(self, *args, **kwargs)
         self.nodewise_alpha = requested
-        if type(self).__name__ not in {"LassoCV", "ElasticNetCV"}:
+        if not isinstance(self, (LassoCV, ElasticNetCV)):
             self.nodewise_alpha_ = None
         raw = getattr(self, "_constructor_params_raw", None)
         if raw is None:
