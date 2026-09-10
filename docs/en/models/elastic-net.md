@@ -1,190 +1,84 @@
 # Elastic Net
 
-> Language: English
-> Last updated: 2026-09-09
+> Language: English  
+> Last updated: 2026-09-10  
 > Switch: [简体中文](../../cn/models/elastic-net.md)
 
 ## What problem does it solve?
 
-`ElasticNet` combines the L1 penalty of [Lasso](lasso.md) with the L2 penalty of [Ridge](ridge.md). When its L1 component is positive, it is designed for situations where you want a sparse model **and** your predictors are correlated enough that pure Lasso selection is unstable.
+`ElasticNet` combines L1 sparsity with L2 stabilization. It is useful when you want some coefficients to become exactly zero but important predictors are correlated enough that pure Lasso can be unstable.
 
-The motivation is a practical tension:
-
-- Ridge handles correlated predictors well, but normally keeps every coefficient nonzero.
-- Lasso can remove features, but among nearly interchangeable predictors it may keep one and discard another arbitrarily.
-- Elastic Net adds both penalties so it can create zeros while still encouraging correlated predictors to share signal more smoothly.
-
-## A motivating example
-
-Suppose four useful predictors come in two highly correlated pairs. Within each pair, both variables really carry signal.
-
-Pure Lasso may split each pair unevenly:
-
-```text
-              x1     x2     x3     x4
-Lasso        1.62   0.71  -0.68  -1.24
-Elastic Net  1.19   1.14  -0.95  -0.98
-```
-
-Both fits can predict well, but Elastic Net better reflects the idea that the paired predictors are nearly interchangeable measurements of shared latent signals.
-
-## Intuition
-
-Elastic Net asks the model to satisfy two regularization preferences at once:
-
-1. **L1 part:** weak coefficients may be pushed all the way to zero;
-2. **L2 part:** large or unstable coefficients are smoothly shrunk, which helps correlated predictors behave more like a group.
-
-Two parameters control the trade-off:
-
-- `alpha` controls **how much total regularization** is applied;
-- `l1_ratio` controls the **L1 share of the penalty**.
-
-A useful objective-level continuum is:
+A practical continuum is:
 
 ```text
 l1_ratio = 0.0        0.5             1.0
               Ridge ←──── Elastic Net ────→ Lasso
 ```
 
-In statgpu's objective scaling, `l1_ratio=0` removes the L1 term and leaves the same L2 penalty form used by Ridge, while `l1_ratio=1` removes the L2 term and leaves the Lasso penalty. This statement is about the **objective**. The public `ElasticNet` wrapper still keeps its own solver defaults, validation rules, and inference dispatch. If you specifically want pure Ridge API/solver/inference semantics, use `Ridge` rather than relying on `ElasticNet(l1_ratio=0)`.
-
-## When to use it
-
-Elastic Net is a strong choice when:
-
-- you want feature selection but many predictors are correlated;
-- predictors naturally come in groups that may carry similar information;
-- pure Lasso changes its selected feature among nearly duplicate variables;
-- you have many candidate predictors and want a sparse but more stable model;
-- you are willing to tune both regularization strength and mixture using validation.
-
-Prefer another method when:
-
-- you do **not** need exact zeros and mainly want stable prediction — Ridge is simpler;
-- you strongly expect one sparse representative from each feature group and want the most aggressive sparsity — Lasso may be enough;
-- the response is not appropriate for Gaussian linear regression — use the corresponding penalized GLM or other model family;
-- feature selection is not scientifically meaningful because predictors are arbitrary encodings or strongly confounded.
+This is an objective-level statement. `ElasticNet(l1_ratio=0)` has a pure-L2 objective, but the `ElasticNet` wrapper keeps its own solver/default/inference contract; use `Ridge` when you want the dedicated Ridge estimator surface.
 
 ## Model and objective
 
-With intercept $b$, Elastic Net minimizes
+With unpenalized intercept $b$ and $\lambda=$ `l1_ratio`, statgpu minimizes
 
 $$
-\frac{1}{2n}\sum_{i=1}^{n}
-\left(y_i-b-x_i^\top\beta\right)^2
+\frac{1}{2n}\sum_{i=1}^{n}(y_i-b-x_i^\top\beta)^2
 +\alpha\lambda\lVert\beta\rVert_1
-+\frac{\alpha}{2}(1-\lambda)\lVert\beta\rVert_2^2,
++\frac{\alpha}{2}(1-\lambda)\lVert\beta\rVert_2^2.
 $$
 
-where $\lambda$ is `l1_ratio`.
+`alpha` controls total regularization and `l1_ratio` controls how much of it is L1. Standardize continuous predictors before regularization unless raw scale is intentionally part of the model.
 
-Here:
-
-- $\alpha\ge 0$ sets the overall penalty strength;
-- $0\le\lambda\le 1$ mixes L1 and L2;
-- the intercept is not penalized.
-
-Increasing `alpha` shrinks the model more strongly. Increasing `l1_ratio` makes exact zeros more likely; at `l1_ratio=0` there is no L1 thresholding term, so the objective itself no longer promotes exact sparsity.
-
-## Minimal runnable example
-
-This example creates two pairs of almost-duplicate useful predictors and compares pure Lasso with Elastic Net.
+## Minimal example
 
 ```python
 import numpy as np
-from statgpu.linear_model import ElasticNet, Lasso
+from statgpu.linear_model import ElasticNet
 
 rng = np.random.default_rng(2)
-n = 500
+X = rng.normal(size=(500, 12))
+beta = np.zeros(12)
+beta[[1, 2, 7, 8]] = [1.2, 1.0, -0.9, -0.8]
+y = 0.5 + X @ beta + rng.normal(scale=0.8, size=500)
 
-z1 = rng.normal(size=n)
-z2 = rng.normal(size=n)
-X = np.column_stack([
-    z1 + 0.05 * rng.normal(size=n),
-    z1 + 0.05 * rng.normal(size=n),
-    z2 + 0.05 * rng.normal(size=n),
-    z2 + 0.05 * rng.normal(size=n),
-    rng.normal(size=n),
-    rng.normal(size=n),
-])
-
-true_coef = np.array([1.2, 1.2, -1.0, -1.0, 0.0, 0.0])
-y = 0.5 + X @ true_coef + rng.normal(scale=0.8, size=n)
-
-lasso = Lasso(
-    alpha=0.08,
-    device="cpu",
-    compute_inference=False,
-).fit(X, y)
-
-elastic = ElasticNet(
+model = ElasticNet(
     alpha=0.08,
     l1_ratio=0.5,
     device="cpu",
     compute_inference=False,
 ).fit(X, y)
 
-print("Lasso:      ", np.round(lasso.coef_, 2))
-print("Elastic Net:", np.round(elastic.coef_, 2))
+print(model.coef_)
+print(model.score(X, y))
 ```
 
-With the fixed seed, Lasso should split the first correlated pair quite unevenly (roughly `1.62` and `0.71`) and the second around `-0.68` and `-1.24`. Elastic Net should distribute the signal more evenly, around `1.19`, `1.14`, `-0.95`, and `-0.98`, while leaving the two noise features at or near zero.
+When `l1_ratio>0`, exact zeros are possible. Nonzero coefficients are still penalized estimates, not ordinary OLS effects.
 
-The point is not that equal coefficients are always correct. It is that the L2 component reduces the arbitrary winner-takes-most behavior pure Lasso can show among highly correlated predictors.
-
-## How to read the result
-
-- With `l1_ratio>0`, `coef_[j] == 0` means the combined penalty removed feature `j` at the selected hyperparameters. At `l1_ratio=0`, the objective is purely L2 and exact sparsity is not the intended behavior.
-- Nonzero coefficients are still shrunk; they are not unpenalized OLS estimates.
-- `intercept_` is fitted separately and is not penalized.
-- `predict(X_new)` returns continuous predictions.
-- `score(X, y)` returns $R^2$ and accepts `sample_weight=`.
-- The active set, when an L1 component is present, depends on **both** `alpha` and `l1_ratio`; changing either can change which variables survive.
-
-If two correlated variables stay nonzero together, that is a common Elastic Net behavior, not evidence that both are independently causal.
-
-## Key parameters and how to choose them
-
-This table is intentionally **curated** for the normal workflow. The exhaustive constructor inventory is in [Complete API reference](#complete-api-reference).
+## Key parameters
 
 | Parameter | Default | How to think about it |
 |---|---:|---|
-| `alpha` | `1.0` | Overall regularization strength. Larger values shrink more strongly and, when the L1 component is positive, can remove more features. Tune with validation. |
-| `l1_ratio` | `0.5` | L1 penalty share. Values near 1 behave more like Lasso; values near 0 behave more like Ridge. Tune jointly with `alpha` when possible. `0` removes the sparsity-inducing L1 term. |
-| `fit_intercept` | `True` | Usually keep it unless theory fixes the intercept or the design already contains one. |
-| `device` | `"auto"` | CPU is simplest for small problems; GPU becomes useful when the optimization workload is large enough. |
-| `solver` | `"fista"` | Stable default for the public Elastic Net surface. Change primarily for numerical/performance reasons. |
-| `stopping` | `"coef_delta"` | Use `"kkt"` when optimality-based convergence diagnostics are more important than coefficient movement. |
-| `compute_inference` | `False` | Keep off for ordinary prediction/selection. Enable only when you need a supported post-fit inference procedure and understand its assumptions. |
+| `alpha` | `1.0` | Overall regularization strength. |
+| `l1_ratio` | `0.5` | L1 share: values near 1 are more Lasso-like; values near 0 more Ridge-like. |
+| `device` | `"auto"` | CPU/CuPy/Torch execution choice. Explicit unavailable GPU devices fail visibly. |
+| `solver` | `"fista"` | Authoritative direct-fit numerical solver. |
+| `compute_inference` | `False` | Enable only when a supported post-fit inference procedure is needed. |
+| `nodewise_alpha` | `None` | Separate tuning for the node-wise precision construction used by `debiased` inference only. |
 
-For predictive modeling, `ElasticNetCV` is usually preferable to choosing `alpha` and `l1_ratio` by hand.
-
-**Standardize your features.** Both L1 and L2 penalties act on coefficient magnitude. Different feature units therefore change the effective penalty.
-
-Standardize continuous predictors before fitting unless raw feature scale is deliberately part of the modeling convention.
+For predictive tuning of both `alpha` and `l1_ratio`, prefer `ElasticNetCV` to training-fit criteria.
 
 ## Compare with Ridge and Lasso
 
 | Property | Ridge | Lasso | **Elastic Net** |
 |---|:---:|:---:|:---:|
-| Smooth coefficient shrinkage | yes | yes | yes |
-| Exact zero coefficients | usually no | yes | yes when `l1_ratio>0` |
-| Stable with correlated predictors | strong | can be unstable | stronger than pure Lasso |
-| Main tuning choices | `alpha` | `alpha` | `alpha` + `l1_ratio` |
-| Best mental model | stabilize | select | select + stabilize when L1 is present |
+| Smooth shrinkage | yes | yes | yes |
+| Exact zeros | usually no | yes | yes when `l1_ratio>0` |
+| Correlated predictors | stable | can select one arbitrarily | more group-friendly |
+| Main tuning | `alpha` | `alpha` | `alpha` + `l1_ratio` |
 
-A practical rule of thumb:
-
-- start with **Ridge** when you care about prediction and correlated predictors but not deletion;
-- start with **Lasso** when sparsity is the main goal and correlations are modest;
-- start with **Elastic Net** when you want sparsity and know correlated feature groups are important.
-
-## CPU, GPU, Formula, weighted fitting, and warm starts
+## CPU, GPU, Formula, weights, warm starts
 
 ```python
-from statgpu.linear_model import ElasticNet
-
 model = ElasticNet(
     alpha=0.08,
     l1_ratio=0.5,
@@ -194,80 +88,64 @@ model = ElasticNet(
 ).fit(X, y)
 ```
 
-The public wrapper supports NumPy CPU, CuPy CUDA, and Torch CUDA paths where available. Backend speed depends on sample size, feature dimension, dtype, data residency, and transfer cost.
+The public estimator supports NumPy CPU, CuPy CUDA, and Torch CUDA where available. `fit()` accepts `sample_weight=` and forwards the shared `formula=` / `data=` interface. A one-fit warm start can be supplied with `initial_coef=`.
 
-`fit()` accepts `sample_weight=` and forwards the shared `formula=` / `data=` interface. A one-fit warm start can be supplied with `initial_coef=`:
+## Advanced: optimization
 
-```python
-warm = ElasticNet(alpha=0.08, l1_ratio=0.5).fit(
-    X,
-    y,
-    initial_coef=previous_coef,
-)
-```
-
-## Advanced: solver and optimization details
-
-Elastic Net is non-smooth whenever `l1_ratio > 0`, so proximal methods are the normal numerical path. At `l1_ratio=0` the mathematical objective becomes smooth L2, but the public `ElasticNet` wrapper still retains its Elastic-Net solver contract; use `Ridge` when you want the dedicated Ridge solver surface.
-
-| `solver` value | CPU | CuPy / Torch | Notes |
-|---|:---:|:---:|---|
-| `fista` (default) | yes | yes | Recommended proximal path |
-| `auto` | FISTA | FISTA | Current squared-error + Elastic Net dispatch |
-| `fista_bb` | yes | yes | Adaptive spectral steps |
-| `admm` | yes | yes | Alternative split solver; uniform sample weights only |
-| `coordinate_descent` | yes | no | CPU-only compatibility path |
-
-`newton`, `lbfgs`, `irls`, and `exact` are rejected by the current public Elastic Net estimator surface. For a direct `ElasticNet.fit`, `solver` is authoritative; `cpu_solver` is retained only as a compatibility control for legacy/shared paths and does not select the direct-fit algorithm. New code should use `solver`. Full numerical mechanics are documented in the [solver guide](../guides/solver-algorithms.md).
-
-After eliminating the unpenalized intercept — equivalently, for the centered coefficient problem — the first-order KKT condition is
+For the centered coefficient problem, the KKT relation is
 
 $$
 \frac{1}{n}X_c^\top(X_c\hat\beta-y_c)
 +\alpha(1-\lambda)\hat\beta
-+\alpha\lambda\,\partial\lVert\hat\beta\rVert_1
-=0.
++\alpha\lambda\,\partial\lVert\hat\beta\rVert_1=0.
 $$
 
-Without centering notation, the data-fit term would contain the fitted intercept $\hat b\mathbf 1$. `stopping="kkt"` checks this kind of optimality condition; it does not define a different statistical approximation.
+For direct `ElasticNet.fit`, `solver` is authoritative on every backend. The historical `cpu_solver` is compatibility state, not a second direct-fit selector.
 
 ## Advanced: inference
 
-`ElasticNet` is estimation-only by default. With `compute_inference=True`, statgpu runs a post-fit inference method without changing the penalized coefficients.
+`ElasticNet` is estimation-only by default. With `compute_inference=True`, post-fit inference does not change the penalized `coef_` / `intercept_` prediction fit.
 
-| `inference_method` | Intended role | Important limitation |
+| `inference_method` | Intended role | Main limitation |
 |---|---|---|
-| `debiased` (default inference method) | one-step bias-corrected coefficient inference using the shared node-wise penalized-linear engine | uses the same computational correction family as Lasso, but validity still depends on the initial Elastic Net estimator, sparsity/design/noise conditions, and regularization/tuning choices; Lasso theory is background, not a blanket guarantee for every `l1_ratio` |
-| `post_selection_ols` | unpenalized active-set OLS/WLS refit using the fit-resolved NumPy/CuPy/Torch backend | heuristic after selection; not a general selective-inference guarantee |
-| `bootstrap` | resampling-based alternative | higher computational cost and conditional on the implemented bootstrap assumptions |
+| `debiased` | one-step bias-corrected coefficient inference using the shared node-wise precision engine | software reuse does not imply every Lasso theorem automatically applies to every `l1_ratio`; validity depends on the actual initial estimator and assumptions |
+| `post_selection_ols` | OLS/WLS active-set diagnostic on the fit-resolved NumPy/CuPy/Torch backend | not a general selective-inference guarantee |
+| `bootstrap` | residual-resampling alternative | more expensive and assumption-dependent |
 
-The `debiased` implementation reuses the shared node-wise one-step correction machinery for L1 and Elastic Net penalties. That software reuse should not be read as a claim that every Elastic Net configuration inherits every theorem proved for a particular de-sparsified-Lasso estimator without checking assumptions and tuning conventions.
+Legacy `cpu_ols` / `gpu_ols` are deprecated aliases for the hardware-neutral `post_selection_ols`; device selection remains separate.
 
-`post_selection_ols` is the canonical hardware-neutral spelling. Legacy `cpu_ols` / `gpu_ols` values are deprecated compatibility aliases that emit `FutureWarning` and normalize to `post_selection_ols`; `device` remains the separate execution-backend control. The successful penalized fit's recorded backend/device is reused by the post-selection refit rather than being re-detected from raw input.
+### Node-wise tuning in `debiased` inference
 
-`cov_type` and `hac_maxlags` are public constructor controls used where the selected inference path supports the corresponding covariance convention. When inference succeeds, `summary()` and reporting fields such as standard errors, test statistics, p-values, and confidence intervals become available according to the selected method.
+`nodewise_alpha` is separate from the main Elastic Net `alpha`. It changes only the node-wise Lasso regressions used to approximate the design precision matrix; it must not change the penalized prediction fit.
 
-For `ElasticNetCV`, `compute_inference=True` applies only to the final full-data refit after `alpha` and `l1_ratio` have been selected. Fold models remain estimation-only. The reported inference is conditional on those selected tuning values; the current implementation does not add a separate correction for cross-validation tuning uncertainty.
+An explicit finite positive value is authoritative. With `nodewise_alpha=None` and $p\ge2$, statgpu standardizes the canonical centered/weighted working design and resolves
 
-**Fit diagnostics are compatibility diagnostics.** When available, `rsquared_adj`, `fvalue`, `f_pvalue`, `aic`, and `bic` are computed from the stored penalized-fit state using ordinary parameter-count/residual-DoF conventions. They do not account for data-driven active-set selection, effective degrees of freedom, or hyperparameter tuning, so they should not replace validation/CV as penalty-aware model-selection criteria.
+$$
+\lambda_{\mathrm{nw}}
+=\sqrt{\frac{2\log(\max(p,2))}{n_{\mathrm{nw}}}},
+$$
+
+where $n_{\mathrm{nw}}=n$ without analytic weights and a Kish-style effective sample size is used for non-uniform analytic weights. The exact constant and effective-n convention are statgpu defaults rather than a unique theorem requirement.
+
+The rule is response-scale independent. It intentionally replaces the historical internal response-residual-scaled rule. The standardized node-wise solution must pass an independent KKT publication gate before the precision estimate is transformed back to the working-feature scale. For `p=1`, statgpu uses analytic univariate precision and does not consume `nodewise_alpha`.
+
+NumPy, CuPy, and Torch implement the same maintained statistical definition; explicit CUDA/Torch numerical inference does not silently fall back to CPU. Successful multi-feature debiased inference publishes `nodewise_alpha_` and detailed provenance in `_inference_result.metadata`.
+
+For `ElasticNetCV`, `nodewise_alpha` is final-full-data-refit inference configuration only. It does not enter the `alpha`/`l1_ratio` grid, fold scoring, or tuning selection. Current CV inference remains conditional on selected tuning values. See [the node-wise tuning migration guide](../guides/nodewise-alpha-migration.md).
 
 ## Common pitfalls
 
-- **Do not tune only `alpha` while treating `l1_ratio` as irrelevant.** The mixture parameter changes the kind of model you are fitting.
-- **Do not assume `l1_ratio=0` makes the `ElasticNet` wrapper identical to `Ridge`.** The objective becomes L2, but the public solver/default/inference surface remains Elastic Net-specific.
-- **Do not assume correlated nonzero features have separate causal effects.** Elastic Net stabilizes prediction/selection; it does not identify causal structure.
-- **Do not forget standardization.** Both parts of the penalty depend on coefficient scale.
-- **Do not choose hyperparameters from training $R^2$.** Use held-out or cross-validation performance.
-- **Do not expect the same active set under tiny data perturbations when signals are weak.** Elastic Net improves correlated-feature stability but does not eliminate sampling uncertainty.
-- **Do not attach ordinary unpenalized inference to a data-selected active set without acknowledging selection.** Use the supported post-fit methods and their stated assumptions.
-- **Do not treat Lasso de-biasing references as an automatic theorem for every Elastic Net tuning configuration.** Check the actual estimator and assumptions.
-- **Do not use the compatibility AIC/BIC/F outputs as if they were selection-aware or effective-DoF-adjusted criteria.**
+- Tune `alpha` and `l1_ratio` jointly when predictive performance matters.
+- Do not assume `l1_ratio=0` makes the wrapper identical to `Ridge`.
+- Do not infer causality from a stable active set.
+- Do not ignore feature scaling.
+- Do not use training $R^2$ or compatibility AIC/BIC/F fields as penalty-aware tuning criteria.
+- Do not confuse main `alpha` with inference-only `nodewise_alpha`.
+- Treat post-selection OLS as a diagnostic, not automatic selective inference.
 
 ## Complete API reference
 
-The earlier parameter table is a decision guide. This section is the exhaustive constructor and model-method inventory for the current `ElasticNet` wrapper.
-
-### Constructor
+The runtime public constructor is the static wrapper constructor plus the `nodewise_alpha=None` extension installed by the maintained node-wise inference contract:
 
 ```python
 ElasticNet(
@@ -287,93 +165,55 @@ ElasticNet(
     inference_method="debiased",
     cov_type="nonrobust",
     hac_maxlags=None,
+    nodewise_alpha=None,
 )
 ```
+
+The marked table remains the static-wrapper AST inventory used by this Draft's source-only docs checker. The runtime-installed public extension is listed immediately after it.
 
 <!-- API-CONSTRUCTOR-START:ElasticNet -->
 | Parameter | Default | Reference meaning |
 |---|---:|---|
 | `alpha` | `1.0` | Overall regularization strength. |
-| `l1_ratio` | `0.5` | L1 penalty share; `0` removes the L1 term and `1` removes the L2 term. |
+| `l1_ratio` | `0.5` | L1 penalty share. |
 | `fit_intercept` | `True` | Fit an unpenalized intercept. |
 | `max_iter` | `1000` | Maximum solver iterations. |
 | `tol` | `1e-4` | Numerical convergence tolerance. |
-| `stopping` | `"coef_delta"` | `coef_delta` or `kkt` convergence criterion where supported. |
-| `device` | `"auto"` | `auto`, `cpu`, `cuda` (CuPy), or `torch` (Torch CUDA). |
-| `n_jobs` | `None` | Parallelism hint where the selected path uses it. |
-| `solver` | `"fista"` | Backend-neutral direct-fit solver; authoritative for one `ElasticNet.fit`. |
-| `cpu_solver` | `"fista"` | Compatibility control retained for legacy/shared behavior; it does not replace `solver` for a direct fit. |
-| `lipschitz_L` | `None` | Optional precomputed Lipschitz constant for compatible proximal paths. |
-| `gpu_memory_cleanup` | `False` | Best-effort release of cached GPU memory after fit. |
+| `stopping` | `"coef_delta"` | `coef_delta` or `kkt`. |
+| `device` | `"auto"` | `auto`, `cpu`, `cuda`, or `torch`. |
+| `n_jobs` | `None` | Parallelism hint where supported. |
+| `solver` | `"fista"` | Backend-neutral direct-fit solver. |
+| `cpu_solver` | `"fista"` | Legacy/shared compatibility control; not authoritative for direct fit. |
+| `lipschitz_L` | `None` | Optional precomputed Lipschitz constant. |
+| `gpu_memory_cleanup` | `False` | Best-effort GPU cache cleanup after fit. |
 | `compute_inference` | `False` | Run the selected post-fit inference path. |
-| `inference_method` | `"debiased"` | Post-fit path: `debiased`, canonical `post_selection_ols`, or `bootstrap`. Legacy `cpu_ols` / `gpu_ols` aliases normalize to `post_selection_ols` with `FutureWarning`. |
-| `cov_type` | `"nonrobust"` | Covariance convention where the selected inference method uses one. |
-| `hac_maxlags` | `None` | HAC lag count where the selected inference method supports HAC. |
+| `inference_method` | `"debiased"` | `debiased`, canonical `post_selection_ols`, or `bootstrap`; legacy `cpu_ols` / `gpu_ols` aliases are deprecated. |
+| `cov_type` | `"nonrobust"` | Covariance convention where applicable. |
+| `hac_maxlags` | `None` | HAC lag count where supported. |
 <!-- API-CONSTRUCTOR-END:ElasticNet -->
 
-### `fit`
+**Runtime-installed public extension:** `nodewise_alpha=None` — `None` uses the standardized design-side automatic rule; a finite positive real scalar explicitly sets the node-wise penalty. Successful multi-feature debiased inference publishes its resolved value in `nodewise_alpha_`.
 
-The wrapper's direct signature is:
+### `fit` and important outputs
 
-```python
-model.fit(
-    X=None,
-    y=None,
-    sample_weight=None,
-    initial_coef=None,
-    **kwargs,
-)
-```
+`fit(X=None, y=None, sample_weight=None, initial_coef=None, **kwargs)` returns `self`; shared forwarded keywords include `formula` and `data`.
 
-The forwarded shared fit keyword arguments currently include `formula` and `data`.
-
-| Argument | Meaning |
+| Attribute | Meaning |
 |---|---|
-| `X` | Two-dimensional feature matrix for array-style fitting. |
-| `y` | One-dimensional continuous response. |
-| `sample_weight` | Optional non-negative analytic weights with positive finite total; some solver paths have additional weight restrictions. |
-| `initial_coef` | Optional warm-start coefficient vector with one value per feature. |
-| `formula` | Optional Patsy-style formula forwarded through `**kwargs`; use with `data`. |
-| `data` | DataFrame used by the Formula interface, forwarded through `**kwargs`. |
+| `coef_`, `intercept_` | penalized prediction fit |
+| `n_iter_` | numerical iteration count |
+| `nodewise_alpha_` | resolved node-wise tuning after successful multi-feature debiased inference; otherwise `None` |
+| `_params`, `_bse`, `_zvalues`, `_pvalues`, `_conf_int` | inference/reporting arrays when inference succeeds |
+| `_inference_result` | structured result with node-wise and backend provenance |
 
-`fit()` returns `self`.
-
-### Prediction, scoring, and reporting methods
-
-| Method | Signature | Behavior |
-|---|---|---|
-| `predict` | `predict(X, return_cpu=True)` | Continuous predictions. `return_cpu=False` can keep GPU predictions on the executed backend. |
-| `score` | `score(X, y, sample_weight=None)` | $R^2$, optionally weighted. |
-| `summary` | `summary()` | Prints the coefficient/inference summary; requires a fitted model with inference enabled and available. |
-| `get_params` / `set_params` | sklearn-style estimator utilities | Inspect or replace constructor state using the shared `BaseEstimator` contract. |
-
-The inherited estimator-context utilities `adjust_pvalues`, `combine_pvalues`, `bootstrap_statistic`, and `permutation_test` are documented with their complete signatures and backend/fitted-state semantics in the [Inference API](../guides/inference-api.md).
-
-### Fitted attributes and diagnostics
-
-| Attribute | Availability / meaning |
-|---|---|
-| `coef_` | Penalized coefficients; exact zeros define the fitted active set when an L1 component is present. |
-| `intercept_` | Fitted unpenalized intercept. |
-| `n_iter_` | Iteration count for the selected numerical path. |
-| `n_features_in_` | Number of fitted input features when published by the fit path. |
-| `rsquared`, `rsquared_adj` | $R^2$ and ordinary-count adjusted $R^2$ when available; not a selection/effective-DoF correction. |
-| `fvalue`, `f_pvalue` | Compatibility joint-fit diagnostics using ordinary parameter-count/residual-DoF conventions; not selection-aware classical F inference. |
-| `llf`, `aic`, `bic` | Plug-in Gaussian fit diagnostics from the stored penalized fit using ordinary parameter counts; not selection-, tuning-, or effective-DoF-aware criteria. |
-| `_bse` | Standard errors produced by the selected inference method. |
-| `_tvalues` | t-style statistics for inference paths that use them. |
-| `_zvalues` | z-style statistics for de-biased inference. |
-| `_pvalues` | Coefficient p-values when inference succeeds. |
-| `_conf_int` | Coefficient confidence intervals when inference succeeds. |
-| `_inference_result` | Structured inference result/metadata used by the reporting layer. |
-
-Underscore-prefixed inference arrays are established reporting attributes in the current release. Their statistical interpretation depends on `inference_method`.
+`predict`, `score`, `summary`, `get_params`, and `set_params` follow the shared estimator contract. Changing `nodewise_alpha` through `set_params` invalidates stale inference state while preserving the requested constructor value for clone/introspection.
 
 ## Validation
 
-Maintained validation checks the declared Elastic Net objective, solver/KKT behavior, CPU and supported GPU paths, backend-native `post_selection_ols`, post-fit inference, warm-start behavior, and the final-refit inference contract for `ElasticNetCV`. Physical CUDA validation remains part of exact release acceptance where applicable.
+Maintained coverage checks the Elastic Net objective, solver/KKT behavior, direct-fit invariance to node-wise tuning, `ElasticNetCV` final-refit isolation, weighted inference, formula/public API behavior, NumPy/CuPy/Torch precision parity, and physical CUDA acceptance of the shared node-wise implementation.
 
 ## References
 
-- Zou, H., & Hastie, T. (2005). Regularization and variable selection via the Elastic Net. *Journal of the Royal Statistical Society: Series B*, 67(2), 301–320.
+- Zou, H., & Hastie, T. (2005). Regularization and variable selection via the Elastic Net. *JRSS B*, 67(2), 301–320.
 - Beck, A., & Teboulle, M. (2009). A fast iterative shrinkage-thresholding algorithm for linear inverse problems. *SIAM Journal on Imaging Sciences*, 2(1), 183–202.
+- van de Geer, S., Bühlmann, P., Ritov, Y., & Dezeure, R. (2014). On asymptotically optimal confidence regions and tests for high-dimensional models. *Annals of Statistics*, 42(3), 1166–1202.

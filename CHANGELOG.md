@@ -2,6 +2,14 @@
 
 All notable changes to statgpu are documented here, organized by release and date.
 
+## Unreleased — 2026-09-10
+
+### PR #139 — Node-wise Lasso inference tuning contract
+- Added public `nodewise_alpha=None` control for sparse-Gaussian debiased inference across `PenalizedGeneralizedLinearModel`, `PenalizedLinearRegression`, `Lasso`, `ElasticNet`, `LassoCV`, and `ElasticNetCV`; explicit finite positive real values are authoritative and CV uses the control only for final-refit inference.
+- Intentionally replaced the historical response-scale-dependent internal node-wise penalty. Omitted `nodewise_alpha` now uses a response-independent rule on the standardized centered/weighted working design, `sqrt(2 * log(max(p, 2)) / n_nodewise)`, with a Kish-style effective sample size for non-uniform analytic weights. No legacy public mode is added for the old response-dependent behavior.
+- Standardized node-wise precision construction across NumPy, CuPy, and Torch, including `D^{-1} Theta_Z D^{-1}` back-transformation, the paper-style node-wise normalizer, an independent full KKT publication gate, fail-closed finite/degenerate checks, and analytic `p=1` precision that does not consume a nuisance node-wise penalty.
+- Added fitted/provenance reporting for resolved node-wise tuning, request-specific cache provenance with numerical cache identity separated from the main-model tolerance, formula/CV/API regressions, deterministic migration simulation evidence, and an exact-source physical CUDA validator that requires both CuPy and Torch on the concrete CUDA device before final acceptance.
+
 ## Unreleased — 2026-09-08
 
 ### PR #138 / Issue #137 — Post-selection OLS inference API cleanup
