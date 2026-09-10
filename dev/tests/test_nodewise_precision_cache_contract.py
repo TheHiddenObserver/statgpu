@@ -1,7 +1,7 @@
 import numpy as np
 
 from statgpu.linear_model import _nodewise_alpha_inference_contract as runtime
-from statgpu.linear_model import _nodewise_precision_cache_contract as cache
+from statgpu.linear_model.penalized import _nodewise_precision_cache as cache
 
 
 def _design(seed=51, n=80, p=5):
