@@ -1,95 +1,88 @@
 # Models Overview
 
-> Language: English  
-> Last updated: 2026-07-30  
+> Language: English
+> Last updated: 2026-09-03
+> Current package release: **0.2.5**
 > Switch: [Chinese](../../cn/models/README.md)
 
-This page is a navigation overview. Current solver, penalty, backend, and inference
-coverage is maintained in [Implemented Methods](../guides/implemented-methods.md) and
-the linked model pages.
+This catalog reflects the current public model families. Use the model directory in
+the left sidebar for direct access, and consult
+[Implemented Methods](../guides/implemented-methods.md) for backend and solver
+coverage.
 
-## Core Framework
+## Regression and generalized linear models
 
-| Page | Content |
+| Family | Public API | Documentation |
+|---|---|---|
+| Ordinary least squares | `LinearRegression` | [Linear regression](linear-regression.md) |
+| Gaussian regularization | `Ridge`, `Lasso`, `ElasticNet` and CV variants | [Ridge](ridge.md), [Lasso](lasso.md), [Elastic Net](elastic-net.md) |
+| Structured/non-convex regularization | `AdaptiveLasso`, `SCADRegression`, `MCPRegression` | [Adaptive Lasso](adaptive-lasso.md), [SCAD](scad.md), [MCP](mcp.md) |
+| Generalized linear models | `GeneralizedLinearModel`, `GammaRegression`, `InverseGaussianRegression`, `NegativeBinomialRegression`, `TweedieRegression` | [GLM](generalized-linear-model.md) |
+| Classification and counts | `LogisticRegression`, `LogisticRegressionCV`, `PoissonRegression` | [Logistic](logistic-regression.md), [Poisson](poisson-regression.md) |
+| Ordered outcomes | `OrderedLogitRegression`, `OrderedProbitRegression` | [Ordered models](ordered.md) |
+| Quantile and robust fitting | `QuantileRegression`, `PenalizedQuantileRegression`, `PenalizedRobustRegression` | [Quantile](quantile.md), [Robust](robust.md) |
+
+The unified penalized API also exposes Gaussian, logistic, Poisson, Gamma,
+Inverse-Gaussian, Negative-Binomial, Tweedie, robust, quantile, and Cox families
+through `statgpu.linear_model`.
+
+## Survival analysis
+
+| Need | Estimator | Contract |
+|---|---|---|
+| Full Cox fitting, prediction, formula input, and inference | `CoxPH` | Breslow/Efron/Exact ties, delayed entry, stratification, robust/cluster covariance |
+| L2 selection by held-out partial likelihood | `CoxPHCV` | Subject-preserving CV and final `CoxPH` refit |
+| Broad convex/non-convex penalties | `PenalizedCoxPHModel` | Estimation-oriented generic penalty path |
+
+See [Cox proportional hazards](coxph.md) for the precise feature and backend
+matrix.
+
+## Specialized statistical modules
+
+| Area | Documentation |
 |---|---|
-| [Loss Functions](losses.md) | Loss definitions and per-sample formulas |
-| [Solver Algorithms](../guides/solver-algorithms.md) | Public and internal solver implementations |
-| [Loss × Penalty × Solver Framework](../guides/loss-penalty-solver-framework.md) | Dispatch logic and compatibility |
-| [Solver × Penalty Matrix](../guides/solver-penalty-matrix.md) | Explicit solver routing and restrictions |
-| [Inference API](../guides/inference-api.md) | Covariance, resampling, and inference interfaces |
+| ANOVA and post-hoc tests | [ANOVA](anova.md) |
+| Covariance estimators | [Covariance](covariance.md) |
+| Panel and longitudinal models | [Panel data](panel.md) |
+| Nonparametric estimation | [Nonparametric methods](nonparametric.md) |
+| Kernel models | [Kernel methods](kernel-methods.md) |
+| Spline bases | [Splines](splines.md) |
+| GAM and semiparametric models | [Semiparametric models](semiparametric.md) |
+| Feature selection and diagnostics | [Feature selection](feature-selection.md) |
+| Knockoff filters | [Knockoffs](knockoff.md) |
+| Multiple testing | [Multiple testing](multiple-testing.md) |
+| Loss definitions | [Loss functions](losses.md) |
 
-## Regression and GLM
+## Unsupervised learning
 
-- [Linear Regression](linear-regression.md)
-- [Ridge](ridge.md)
-- [Lasso](lasso.md)
-- [Elastic Net](elastic-net.md)
-- [Adaptive Lasso](adaptive-lasso.md)
-- [SCAD](scad.md)
-- [MCP](mcp.md)
-- [Logistic Regression](logistic-regression.md)
-- [Poisson Regression](poisson-regression.md)
-- [Generalized Linear Models](generalized-linear-model.md)
-- [Ordered Logit/Probit](ordered.md)
-- [Quantile Regression](quantile.md)
-- [Robust Regression](robust.md)
+| Family | Models |
+|---|---|
+| Matrix decomposition | [PCA](../unsupervised/pca.md), [Incremental PCA](../unsupervised/incremental-pca.md), [Truncated SVD](../unsupervised/truncated-svd.md), [NMF](../unsupervised/nmf.md), [MiniBatch NMF](../unsupervised/minibatch-nmf.md) |
+| Clustering | [K-Means](../unsupervised/kmeans.md), [MiniBatch K-Means](../unsupervised/minibatch-kmeans.md), [Agglomerative clustering](../unsupervised/agglomerative-clustering.md), [DBSCAN](../unsupervised/dbscan.md), [Gaussian mixture](../unsupervised/gaussian-mixture.md) |
+| Manifold learning | [t-SNE](../unsupervised/tsne.md), [UMAP](../unsupervised/umap.md) |
 
-## Survival Analysis
+Open the [unsupervised overview](../unsupervised/) for shared API conventions.
 
-- [Cox Proportional Hazards](coxph.md)
+## Panel data
 
-### Choosing a Cox estimator
+The panel API now includes the complete estimator, covariance, fit-statistics, and
+diagnostics documentation:
 
-| Need | Estimator | Import | Contract |
-|---|---|---|---|
-| Full Cox fitting, baseline hazards, survival prediction, formula input, and inference | `CoxPH` | `from statgpu.survival import CoxPH` | Breslow/Efron/Exact ties, delayed entry, `(start, stop]`, strata, robust/cluster covariance, NumPy/CuPy/Torch |
-| Select a non-negative L2 penalty by held-out partial likelihood | `CoxPHCV` | `from statgpu.survival import CoxPHCV` | Uses the canonical Cox semantics during CV and performs a final `CoxPH` refit |
-| Estimate with L1, L2, ElasticNet, SCAD, or MCP | `PenalizedCoxPHModel` | `from statgpu.linear_model import PenalizedCoxPHModel` | Broad penalty and generic solver path; currently estimation-only and rejects `compute_inference=True` |
+- [Pooled OLS](../panel/pooled-ols.md), [fixed-effects Panel OLS](../panel/panel-ols.md),
+  [Between OLS](../panel/between-ols.md), [Random Effects](../panel/random-effects.md),
+  [First-Difference OLS](../panel/first-difference-ols.md), and
+  [Fama-MacBeth](../panel/fama-macbeth.md)
+- [Covariance estimators](../panel/covariance.md),
+  [fit statistics](../panel/fit-statistics.md), and
+  [diagnostics](../panel/diagnostics.md)
 
-`CoxPH(penalty=...)` and `PenalizedCoxPHModel` are not interchangeable aliases.
-Use the canonical `CoxPH`/`CoxPHCV` path when counting-process features,
-stratification, baseline prediction, or statistical inference are required. Use
-`PenalizedCoxPHModel` when the broader penalty family is the primary requirement
-and estimation-only output is sufficient.
+## Core framework
 
-The [Cox model page](coxph.md) is the authoritative user-facing source for
-Breslow/Efron/Exact ties, delayed-entry and `(start, stop]` data, strata,
-robust/cluster inference, subject-grouped CV, prediction boundaries, and the
-NumPy/CuPy/Torch support matrix. Internal module ownership and extension rules
-are documented in [`dev/design/ARCHITECTURE.md`](../../../dev/design/ARCHITECTURE.md#5-survival--cox-architecture).
+- [Solver algorithms](../guides/solver-algorithms.md)
+- [Loss × penalty × solver framework](../guides/loss-penalty-solver-framework.md)
+- [Solver × penalty matrix](../guides/solver-penalty-matrix.md)
+- [Inference API](../guides/inference-api.md)
 
-## Specialized Statistical Modules
-
-- [ANOVA](anova.md)
-- [Covariance Estimation](covariance.md)
-- [Panel Data](panel.md)
-- [Nonparametric Methods](nonparametric.md)
-- [Kernel Methods](kernel-methods.md)
-- [Spline Basis Functions](splines.md)
-- [GAM / Semiparametric Models](semiparametric.md)
-- [Feature Selection](feature-selection.md)
-- [Knockoffs](knockoff.md)
-- [Multiple Testing](multiple-testing.md)
-
-## Unsupervised Learning
-
-- [Unsupervised Overview](unsupervised.md)
-- [PCA](../unsupervised/pca.md)
-- [Truncated SVD](../unsupervised/truncated-svd.md)
-- [Incremental PCA](../unsupervised/incremental-pca.md)
-- [NMF](../unsupervised/nmf.md)
-- [MiniBatch NMF](../unsupervised/minibatch-nmf.md)
-- [DBSCAN](../unsupervised/dbscan.md)
-- [UMAP](../unsupervised/umap.md)
-- [t-SNE](../unsupervised/tsne.md)
-
-## Current Coverage Principles
-
-- NumPy, CuPy, and Torch are distinct execution backends; explicit device requests do
-  not silently select another backend.
-- Backend support may differ by solver, penalty, inference method, and optional
-  dependency. Consult the detailed compatibility matrix instead of relying on a single
-  global count.
-- Validation claims are scoped to the exact model, backend, hardware, and commit tested.
-- Historical release and benchmark records are evidence snapshots, not current support
-  matrices.
+Backend support may differ by model, solver, penalty, inference method, and optional
+dependency. Benchmark and validation claims remain scoped to the exact commit,
+hardware, backend, and dataset recorded by the corresponding evidence.

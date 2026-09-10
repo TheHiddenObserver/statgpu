@@ -1,50 +1,50 @@
 # Solver × Penalty 兼容性矩阵
 
 > 语言：中文  
-> 最后更新：2026-08-03  
+> 最后更新：2026-09-04
 > 页面定位：参考指南  
 > 切换：[English](../../en/guides/solver-penalty-matrix.md)
 
 ## 概述
 
-`PenalizedGeneralizedLinearModel` 支持 **7 个损失族 × 9 个注册惩罚名称 × 9 个求解器**。此外，公开的 `AdaptiveGroupLassoPenalty` 可作为 penalty object 使用；由于调用方必须显式提供 group weights，它有意不提供字符串 registry alias。
+共享惩罚引擎支持多种 loss、penalty 与求解路径，但不存在适用于所有估计器的通用取值列表。Wrapper 默认值与模型专属路由可能进一步收窄共享引擎。
 
-支持的 loss × penalty 组合在 `solver='auto'` 下自动分发；显式求解器请求会在数值计算前验证。
+::: warning 以模型页为准
+应在对应模型页选择 `solver=`。本页解释共享兼容性，不会把低层函数变成估计器 keyword。请从[模型求解器速查](../models/#求解器速查)开始。
+:::
 
-## 1. 自动分发表
+## 1. 自动分发规则
 
-| Loss | l2 / none | l1 | elasticnet | scad | mcp | adaptive_l1 | group_lasso | group_scad | group_mcp |
-|------|:---------:|:--:|:----------:|:----:|:---:|:-----------:|:-----------:|:----------:|:---------:|
-| **squared_error** | exact | fista | fista | irls_cd → fista_lla | irls_cd → fista_lla | fista | fista | group fista_lla | group fista_lla |
-| **logistic** | irls | fista | fista | fista_lla | fista_lla | fista | fista | group fista_lla | group fista_lla |
-| **poisson** | irls | fista | fista | fista_lla | fista_lla | fista | fista | group fista_lla | group fista_lla |
-| **gamma** | newton | fista | fista | fista_lla | fista_lla | fista | fista | group fista_lla | group fista_lla |
-| **inverse_gaussian** | newton | fista | fista | fista_lla | fista_lla | fista | fista | group fista_lla | group fista_lla |
-| **negative_binomial** | irls | fista | fista | fista_lla | fista_lla | fista | fista | group fista_lla | group fista_lla |
-| **tweedie** | irls | fista | fista | fista_lla | fista_lla | fista | fista | group fista_lla | group fista_lla |
+`auto` 会同时考虑 loss、penalty、解析后的后端、CV 模式，有时还考虑问题规模。当前主要规则为：
 
-**分发说明**：
-- `AdaptiveGroupLassoPenalty` 沿 `group_lasso` 列分发，但使用调用方给定的 per-group weights。
-- `fista_lla` 是内部 continuation 路径；直接调用公开 `fista_lla_path()` 时也执行相同 surrogate contract。
-- 标量 squared-error SCAD/MCP 可使用坐标下降 continuation；Group SCAD/MCP 始终使用 weighted Group Lasso surrogate 与 group-aware FISTA 内层。
-- Group Lasso 与 Adaptive Group Lasso 都使用实际 loss gradient 和精确欧氏 group proximal，包括 robust/GLM loss、`sample_weight`、CV fold 与最终 selected-alpha refit。
-- 旧 Gaussian block 更新不再进入公开路由；其 inverse-Gram 后欧氏阈值只对正交归一 group block 精确。
+| 模型目标 | 自动分发或细化路径 |
+|---|---|
+| squared error + L2 | CPU 用 exact；CuPy/Torch 用 Newton |
+| squared error + L1 / Elastic Net | FISTA |
+| 普通 `GeneralizedLinearModel` | IRLS |
+| 光滑惩罚 GLM / robust / Cox | Newton；部分 CV 情况使用 L-BFGS |
+| 稀疏 GLM | 根据 family、后端、CV 模式与规模选择 FISTA 或 FISTA-BB |
+| Adaptive Lasso | 加权 L1 FISTA |
+| 标量 SCAD / MCP | FISTA 分发再细化为模型专属 FISTA-LLA；quantile 使用 proximal IRLS + LLA |
+| group penalties | 模型专属 group proximal/LLA 路径 |
+| quantile + L2/none | FISTA 分发后在内部细化为 quantile IRLS |
+
+Wrapper 默认值可能比共享 `auto` 更具体：`Ridge` 默认 `exact`，Lasso 与 Elastic Net 默认 `fista`，`LogisticRegression` 没有选择器并固定使用 IRLS，有序模型则固定使用 trust-region Newton。不要从本表反推 keyword，应沿模型目录链接进入具体页面。
 
 ## 2. 显式求解器约束
 
 | 求解器 | 接受 | 拒绝 | 说明 |
 |--------|------|------|------|
 | `exact` | 仅 l2 + squared_error | 其他所有 | 特征分解闭式解 |
-| `irls` | 光滑 l2 路径 | 非光滑惩罚 | IRLS |
-| `newton` | l2 / none | l1、elasticnet、非凸及全部 group penalty | Newton + 线搜索 |
-| `lbfgs` | l2 / none | l1、elasticnet、非凸及全部 group penalty | L-BFGS |
+| `irls` | l2/none 且 loss 声明 IRLS contract | 非光滑惩罚；共享惩罚接口中的 squared error 与 Huber | 模型专属 IRLS |
+| `newton` | l2 / none 且 loss 提供 Hessian | 非光滑惩罚与 quantile loss | Newton + 线搜索 |
+| `lbfgs` | l2 / none 且 loss 光滑 | 非光滑惩罚与 quantile loss | L-BFGS |
 | `fista` | 支持 proximal 的惩罚 | — | Nesterov FISTA |
 | `fista_bb` | 支持的稀疏组合 | 不支持的组合明确失败 | BB 自适应步长 |
-| `admm` | 支持的 proximal 组合 | 不支持的组合明确失败 | ADMM |
-| `irls_cd` | 标量 scad/mcp/adaptive_l1 | 全部 group penalty | IRLS + 坐标下降 |
-| `proximal_newton` | l2 / none 使用 Newton；非光滑 direct 调用显式转到 FISTA | 全部 group penalty 与不支持组合 | 不再静默使用 Euclidean-prox 近似 |
+| `admm` | 受支持的 loss/penalty 组合 | 非均匀样本权重 | ADMM |
+| `coordinate_descent` | CPU squared-error L1/Elastic Net 兼容路径 | GPU 与非 squared loss | 估计器兼容路径，不是 quantile CD |
 
-不支持的组合在数值拟合前抛出 `ValueError`。
+`irls_cd`、`proximal_irls_quantile_solver`、`fista_lla_path`、`proximal_newton_solver` 与 `lbfgs_b_solver` 属于内部或低层直接 API，不是通用估计器 `solver=` 值。部分模型专属 penalty 会把通用分发标签继续细化为固定内部路径；具体边界以模型页为准。
 
 ## 3. CV 支持
 

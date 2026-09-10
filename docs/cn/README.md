@@ -23,7 +23,7 @@
 - [推断模式](guides/inference-modes.md) — Lasso 推断（debiased、bootstrap）
 - [多重检验](guides/multiple-testing-combine-pvalues.md) — p 值校正与合并
 - [基准测试](guides/benchmarks.md) — 基准脚本、产物与对比说明
-- [交互式基准面板](../assets/benchmarks/index.html) — 筛选、图表、指标、数据来源与复现
+- [交互式基准面板](/dashboard/) — 筛选、图表、指标、数据来源与复现
 
 ## 模型
 

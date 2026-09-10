@@ -1,4 +1,6 @@
-# MiniBatchKMeans
+# 小批量 K 均值聚类（MiniBatchKMeans）
+
+> 切换：[English](../../en/unsupervised/minibatch-kmeans.md)
 
 > 语言：中文
 > 最后更新：2026-05-09
@@ -49,7 +51,7 @@ labels = MiniBatchKMeans(n_clusters=20, batch_size=4096, device="cpu").fit_predi
 labels_gpu = MiniBatchKMeans(n_clusters=20, batch_size=4096, device="torch").fit_predict(X_torch)
 ```
 
-## Strict/Approx Difference
+## strict/approx 差异
 
 该方法是随机近似优化。公平比较时应固定相同初始中心、batch 顺序、收敛阈值和迭代预算。
 
@@ -57,7 +59,7 @@ labels_gpu = MiniBatchKMeans(n_clusters=20, batch_size=4096, device="torch").fit
 
 `cluster_centers_`、`labels_`、`inertia_`、`n_iter_`、`n_steps_`、`counts_`、`n_features_in_`。
 
-## FAQ
+## 常见问题
 
 Phase 3A 仅支持 dense Euclidean 输入；不支持 sparse、sample_weight 和 callable init。
 
@@ -67,6 +69,6 @@ Phase 3A 仅支持 dense Euclidean 输入；不支持 sparse、sample_weight 和
 Benchmark：`dev/benchmarks/benchmark_unsupervised_phase3.py`。
 Baseline：sklearn `MiniBatchKMeans`。
 
-## References
+## 参考文献
 
 - Sculley, D. (2010). Web-scale k-means clustering. *Proceedings of the 19th International Conference on World Wide Web*, 1177-1178.

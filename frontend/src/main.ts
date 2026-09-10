@@ -1,22 +1,21 @@
 import './style.css';
 import './metric-scope.css';
 
-import { echarts, type ECharts } from './echarts';
+import type { ECharts } from './echarts';
 import type { BenchmarkData, ParseReport, Run, SourceInventory } from './schema';
-import { fetchBenchmarkData, fetchParseReport, fetchSourceInventory, filterRuns } from './data';
+import { filterRuns, loadBenchmarkBundle } from './data';
 import { createDefaultState } from './state';
 import type { AppState } from './state';
 import { h, clear } from './utils/dom';
 import { enhanceDashboardAccessibility } from './accessibility';
-import { renderHeader } from './components/Header';
+import { renderHeader, renderLoadingHeader } from './components/Header';
 import { renderSidebar } from './components/Sidebar';
 import { renderFilterBar } from './components/FilterBar';
 import { renderOverviewTable } from './components/OverviewTable';
 import { renderSummaryCards } from './components/SummaryCards';
-import { renderChartDataFallback } from './components/ChartDataFallback';
-import { renderTimingChart } from './charts/TimingChart';
-import { renderSpeedupChart } from './charts/SpeedupChart';
 import { emptyStateMessage } from './components/EmptyState';
+
+type ChartRuntime = typeof import('./charts/runtime');
 
 // ---------------------------------------------------------------------------
 // Global state
@@ -26,6 +25,7 @@ let data: BenchmarkData | null = null;
 let parseReport: ParseReport | null = null;
 let sourceInventory: SourceInventory | null = null;
 let state: AppState | null = null;
+let chartRuntime: ChartRuntime | null = null;
 
 /** Track ECharts instances for cleanup before re-render */
 const chartInstances: ECharts[] = [];
@@ -61,7 +61,13 @@ function renderMain(): HTMLElement {
   const filtered = getFilteredRuns();
   main.appendChild(renderFilterBar(data!.runs, data!, state!, update));
   main.appendChild(renderChartArea(filtered));
-  main.appendChild(renderChartDataFallback(filtered, focusedSpeedupRuns(filtered), state!));
+  main.appendChild(
+    chartRuntime!.renderChartDataFallback(
+      filtered,
+      focusedSpeedupRuns(filtered),
+      state!,
+    ),
+  );
   main.appendChild(renderOverviewTable(filtered, state!, update));
   enhanceDashboardAccessibility(main);
   return main;
@@ -115,8 +121,8 @@ function renderChartArea(filtered: Run[]): HTMLElement {
   const epoch = ++renderEpoch;
   requestAnimationFrame(() => {
     if (epoch !== renderEpoch || !timingDiv.isConnected || !speedupDiv.isConnected) return;
-    renderTimingChart(timingDiv, filtered, state!, chartInstances);
-    renderSpeedupChart(speedupDiv, speedupRuns, state!, chartInstances);
+    chartRuntime!.renderTimingChart(timingDiv, filtered, state!, chartInstances);
+    chartRuntime!.renderSpeedupChart(speedupDiv, speedupRuns, state!, chartInstances);
     if (defaultSurvivalOnly) {
       const aria = speedupDiv.getAttribute('aria-label') ?? 'Speedup vs Reference chart';
       speedupDiv.setAttribute('aria-label', `${aria}; default NumPy implementation only`);
@@ -127,9 +133,10 @@ function renderChartArea(filtered: Run[]): HTMLElement {
 
 function renderFooter(): HTMLElement {
   const footer = h('div', { class: 'dashboard-footer' });
+  const guideUrl = new URL('../en/guides/benchmarks', window.location.href).toString();
 
   const links: [string, string][] = [
-    ['Benchmark guide', '../../en/guides/benchmarks.html'],
+    ['Benchmark guide', guideUrl],
     ['Raw data (JSON)', 'data/benchmark_data.json'],
     ['Parse report (JSON)', 'data/parse_report.json'],
     ['Source inventory (JSON)', 'data/source_inventory.json'],
@@ -174,10 +181,11 @@ function getFilteredRuns(): Run[] {
 }
 
 function disposeCharts(): void {
+  if (!chartRuntime) return;
   for (const id of ['timing-chart', 'speedup-chart']) {
     const el = document.getElementById(id);
     if (!el) continue;
-    const chart = echarts.getInstanceByDom(el);
+    const chart = chartRuntime.echarts.getInstanceByDom(el);
     if (chart && !chart.isDisposed()) chart.dispose();
   }
   chartInstances.length = 0;
@@ -202,7 +210,13 @@ function update(): void {
   clear(main);
   main.appendChild(renderFilterBar(allRuns, data!, state!, update));
   main.appendChild(renderChartArea(filtered));
-  main.appendChild(renderChartDataFallback(filtered, focusedSpeedupRuns(filtered), state!));
+  main.appendChild(
+    chartRuntime!.renderChartDataFallback(
+      filtered,
+      focusedSpeedupRuns(filtered),
+      state!,
+    ),
+  );
   main.appendChild(renderOverviewTable(filtered, state!, update));
   enhanceDashboardAccessibility(main);
 }
@@ -211,33 +225,55 @@ function update(): void {
 // Init
 // ---------------------------------------------------------------------------
 
+function renderLoadingBody(): HTMLElement {
+  const shell = h('div', { class: 'dashboard-loading-shell' });
+  const sidebar = h('div', {
+    class: 'loading-placeholder loading-sidebar',
+    'aria-hidden': 'true',
+  });
+  const content = h('div', { class: 'loading-content' });
+  content.appendChild(
+    h(
+      'div',
+      { class: 'loading-copy', role: 'status' },
+      'Loading benchmark evidence… / 正在加载基准数据…',
+    ),
+  );
+  content.appendChild(
+    h('div', {
+      class: 'loading-placeholder loading-summary',
+      'aria-hidden': 'true',
+    }),
+  );
+  content.appendChild(
+    h('div', {
+      class: 'loading-placeholder loading-chart',
+      'aria-hidden': 'true',
+    }),
+  );
+  shell.appendChild(sidebar);
+  shell.appendChild(content);
+  return shell;
+}
+
 async function init(): Promise<void> {
   const root = document.getElementById('app');
   if (!root) return;
 
   clear(root);
-  root.appendChild(emptyStateMessage('Loading benchmark data...'));
+  root.appendChild(renderLoadingHeader());
+  root.appendChild(renderLoadingBody());
 
   try {
-    // Start all production assets together. Data is required; metadata remains
-    // non-critical, but it should not add a serial network round trip.
-    const [loadedData, loadedReport, loadedInventory] = await Promise.all([
-      fetchBenchmarkData(),
-      fetchParseReport().catch(() => null),
-      fetchSourceInventory().catch(() => null),
+    const [bundle, runtime] = await Promise.all([
+      loadBenchmarkBundle(),
+      import('./charts/runtime'),
     ]);
-    data = loadedData;
-    parseReport = loadedReport;
-    sourceInventory = loadedInventory;
+    chartRuntime = runtime;
+    data = bundle.data;
+    parseReport = bundle.parseReport;
+    sourceInventory = bundle.sourceInventory;
     state = createDefaultState(data.environments, data.runs);
-
-    // Cross-validate generation_id: discard metadata that doesn't match data
-    if (parseReport && parseReport.generation_id !== data.meta.generation_id) {
-      parseReport = null;
-    }
-    if (sourceInventory && sourceInventory.generation_id !== data.meta.generation_id) {
-      sourceInventory = null;
-    }
     const appEl = renderApp();
     clear(root);
     (root as HTMLElement).appendChild(appEl);

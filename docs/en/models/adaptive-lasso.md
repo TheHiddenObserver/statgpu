@@ -1,7 +1,7 @@
 # Adaptive Lasso
 
 > Language: English  
-> Last updated: 2026-06-14  
+> Last updated: 2026-09-04
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/adaptive-lasso.md)
 
@@ -54,6 +54,19 @@ where $S_0$ is the true support set and $\Sigma_0$ is the oracle information mat
 | `device` | `"auto"` | `cpu` / `cuda` / `torch` |
 | `solver` | `"auto"` | Solver selection |
 | `gpu_memory_cleanup` | `False` | CuPy pool cleanup after fit |
+
+## Solver support
+
+Adaptive Lasso first builds data-dependent penalty weights, then uses a weighted-L1 FISTA solve. That model-specific routing takes precedence over generic smooth solvers.
+
+| Choice | Support | Actual computation |
+|---|:---:|---|
+| `auto` (default) | yes | weighted-L1 FISTA |
+| `fista` | yes | weighted-L1 FISTA |
+| `newton`, `lbfgs`, `irls`, `exact` | no | Rejected for the non-smooth adaptive-L1 penalty |
+| `fista_bb`, `admm`, `coordinate_descent` | no distinct Adaptive-Lasso path | Current wrapper still uses weighted-L1 FISTA |
+
+The initial ridge estimate used to construct the weights is an internal initialization step, not a second public solver choice. See [solver algorithms](../guides/solver-algorithms.md#1-fista) for FISTA itself.
 
 ## CPU+GPU Examples
 

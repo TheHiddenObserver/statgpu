@@ -7,7 +7,7 @@
 
 ## Overview
 
-Robust regression via M-estimation with automatic scale estimation. `PenalizedRobustRegression` wraps Huber, Bisquare, and Fair losses with up to 10 penalty types and 8 solvers, including the specialized Proximal Newton solver for SCAD/MCP.
+Robust regression via M-estimation with automatic scale estimation. `PenalizedRobustRegression` combines Huber, Bisquare, and Fair losses with penalty-aware solver routing. SCAD/MCP use the model's FISTA-LLA continuation path.
 
 | Component | Path |
 |-----------|------|
@@ -84,27 +84,28 @@ Then δ = ε · σ̂ (Huber) or c = ε · σ̂ (Bisquare).
 
 Use `delta` for a fixed threshold (bypasses estimation).
 
-## Solver Compatibility
+## Solver support
 
-| Solver | Huber | Bisquare | Fair | Notes |
-|--------|:---:|:---:|:---:|-------|
-| Proximal Newton | ✅ | ✅ | ✅ | Fastest for SCAD/MCP: 5-10 iterations |
-| FISTA | ✅ | ✅ | ✅ | Any penalty |
-| FISTA-BB | ✅ | ✅ | ✅ | Adaptive step size |
-| FISTA-LLA | ✅ | ✅ | ✅ | LLA outer loop |
-| IRLS | ✅ (L2) | ✅ (L2) | ✅ (L2) | Smooth penalties only |
-| Newton | ✅ | ✅ | ✅ | L2 penalty |
-| L-BFGS | ✅ | ✅ | ✅ | Moderate dimensions |
-| ADMM | ✅ | ✅ | ✅ | Augmented Lagrangian |
+| `solver` value | Huber | Bisquare | Fair | Constraint |
+|---|:---:|:---:|:---:|---|
+| `auto` | yes | yes | yes | Newton for L2/none; FISTA for sparse penalties |
+| `fista` / `fista_bb` | yes | yes | yes | General proximal paths |
+| `newton` / `lbfgs` | L2/none | L2/none | L2/none | Smooth penalties only |
+| `admm` | compatible penalties | compatible penalties | compatible penalties | Only uniform sample weights |
+| `irls` | no | not a documented estimator path | not a documented estimator path | Huber rejects the IRLS contract; Bisquare/Fair are not exposed here until their estimator-call signature is aligned |
+| `exact` | no | no | no | Ridge-only |
+
+Proximal Newton is not a `PenalizedRobustRegression(solver=...)` value. It is a low-level facade in the solver library; the current robust SCAD/MCP estimator route is FISTA-LLA.
 
 ## Penalty Compatibility
 
 | Penalty | Solver (auto) | Notes |
 |---------|---------------|-------|
-| l2 / none | IRLS or Newton | Fast convergence. |
-| SCAD / MCP | Proximal Newton | 5-10 iterations. Warm-start at target α. |
-| adaptive_l1 | FISTA-LLA | Weighted L1 proximal. |
-| group_* | FISTA-LLA | Group proximal operators. |
+| l2 / none | Newton | Current automatic smooth path. |
+| l1 / elasticnet | FISTA | Proximal sparse path. |
+| SCAD / MCP | FISTA-LLA | Continuation plus local linear approximation. |
+| adaptive_l1 | Weighted-L1 FISTA | Data-dependent proximal weights. |
+| group penalties | Group proximal path | Exact route depends on the penalty. |
 
 ## Examples
 
@@ -150,20 +151,14 @@ coef, n_iter = fista_solver(loss, SCADPenalty(alpha=0.1), X, y)
 
 ## Algorithm Details
 
-### Proximal Newton (SCAD/MCP)
+### FISTA-LLA (SCAD/MCP)
 
-1. Compute Hessian H = X'WX (W = diagonal Hessian weights) and gradient g
-2. Newton direction: d = -H⁻¹·g
-3. Armijo line search (max 25 retries) with proximal step
-4. Update: β_new = proximal(β − step·d, step)
-5. Typically 5-10 iterations per LLA step
+1. Build a decreasing continuation path from a data-dependent starting penalty to the requested `alpha`.
+2. Linearize the non-convex penalty at the current coefficient vector.
+3. Solve the resulting weighted-L1 subproblem with FISTA.
+4. Warm-start the next LLA/continuation step and stop from coefficient/LLA tolerances.
 
-### IRLS (L2/none)
-
-Huber/Bisquare/Fair all have `irls()` methods:
-1. IRLS weights from ψ'(r_i) / r_i
-2. Solve weighted least squares with L2 penalty
-3. Repeat until convergence
+For L2/none, `auto` uses Newton with the robust loss gradient and Hessian. The standalone low-level loss classes may contain additional experimental methods; they are not automatically estimator-level `solver=` values.
 
 ## Outputs
 
@@ -185,7 +180,7 @@ Huber/Bisquare/Fair all have `irls()` methods:
 - `BisquareLoss` + SCAD/MCP: warm-start at LAST continuation step (target α). Starting from λ_max shrunk everything to zero in earlier versions (fixed in v0.2.1).
 - Scale estimation uses CPU numpy (MAD / Proposal 2); GPU data is auto-converted.
 - All losses accept `sample_weight`.
-- `has_hessian=True` for all three losses enables proximal Newton for SCAD/MCP.
+- `has_hessian=True` enables Newton/L-BFGS on smooth L2/no-penalty objectives; SCAD/MCP still route through FISTA-LLA.
 
 ## References
 

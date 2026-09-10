@@ -1,7 +1,7 @@
-# Adaptive Lasso
+# 自适应 Lasso（Adaptive Lasso）
 
 > 语言：中文  
-> 最后更新：2026-06-14  
+> 最后更新：2026-09-04
 > 页面定位：模型文档  
 > 切换：[English](../../en/models/adaptive-lasso.md)
 
@@ -29,7 +29,7 @@ $$
 2. **权重计算**：$w_j = 1/(|\hat{\beta}_j^{init}| + \varepsilon)^\nu$，默认 $\nu = 1$
 3. **加权 L1 求解**：使用 FISTA 求解加权 Lasso 问题
 
-## Oracle Property
+## 预言性质（Oracle property）
 
 在正则条件下（Zou 2006, Theorem 1）：
 - **选择一致性**：$\Pr(\hat{S} = S_0) \to 1$
@@ -53,7 +53,20 @@ $$
 | `solver` | `"auto"` | 求解器选择 |
 | `gpu_memory_cleanup` | `False` | CuPy 内存池清理 |
 
-## 示例
+## 求解器支持
+
+Adaptive Lasso 先构造数据驱动的惩罚权重，再用加权 L1 FISTA 求解；这条模型专属分发优先于通用光滑求解器。
+
+| 选择 | 支持情况 | 实际计算 |
+|---|:---:|---|
+| `auto`（默认） | 支持 | 加权 L1 FISTA |
+| `fista` | 支持 | 加权 L1 FISTA |
+| `newton`、`lbfgs`、`irls`、`exact` | 不支持 | adaptive-L1 是非光滑惩罚，因此会被拒绝 |
+| `fista_bb`、`admm`、`coordinate_descent` | 没有独立 Adaptive-Lasso 路径 | 当前 wrapper 仍使用加权 L1 FISTA |
+
+用于构造权重的初始 Ridge 估计属于内部初始化步骤，不是第二个公开求解器选择。FISTA 本身见[求解器算法](../guides/solver-algorithms.md#1-fista)。
+
+## CPU 与 GPU 示例
 
 ```python
 from statgpu.linear_model import AdaptiveLasso
@@ -62,9 +75,23 @@ model = AdaptiveLasso(alpha=0.1, nu=1.0)
 model.fit(X, y)
 print(model.coef_)        # 稀疏系数
 print(model.score(X, y))  # R-squared
+
+# GPU 加速
+model_gpu = AdaptiveLasso(alpha=0.1, device="cuda")
+model_gpu.fit(X, y)
 ```
+
+## 输出
+
+- 系数：`intercept_`、`coef_`
+- 方法：`fit`、`predict`、`score`
+- 限制：adaptive L1 当前不支持 `compute_inference=True`
+
+## 外部验证
+
+- `dev/tests/test_refactor_safety_net.py` 覆盖求解器收敛回归测试。
 
 ## 参考文献
 
-- Zou, H. (2006). The adaptive lasso and its oracle properties. *Journal of the American Statistical Association*, 101(476), 1418-1429.
+- Zou, H. (2006). [The adaptive lasso and its oracle properties](https://doi.org/10.1198/016214506000000735). *Journal of the American Statistical Association*, 101(476), 1418-1429.
 - Wang, H., Li, B., & Leng, C. (2009). Shrinkage tuning parameter selection with a diverging number of parameters. *Journal of the Royal Statistical Society: Series B*, 71(3), 671-683.

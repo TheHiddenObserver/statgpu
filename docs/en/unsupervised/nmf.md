@@ -41,6 +41,16 @@ $$
 
 Factors are initialized from positive random values scaled by the mean of `X`. Reconstruction error is checked every 10 iterations and at the final iteration. `transform(X)` keeps fitted `H` fixed and updates a new `W` for the new data.
 
+## Solver support
+
+| Control | Supported value | Backends | Meaning |
+|---|---|---|---|
+| `solver` | `"mu"` only | NumPy, CuPy, Torch | Multiplicative updates shown above |
+| `init` | `"random"` only | all | Positive random initialization |
+| `beta_loss` | `"frobenius"` only | all | Squared Frobenius reconstruction objective |
+
+Any other `solver` raises `NotImplementedError`; coordinate descent and alternate beta losses are not silently substituted.
+
 ## Parameters
 
 - `n_components`: latent dimension; `None` uses `min(n_samples, n_features)`.

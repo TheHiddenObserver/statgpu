@@ -1,4 +1,4 @@
-# LogisticRegression
+# 逻辑回归（LogisticRegression）
 
 > 语言: 中文  
 > 最后更新: 2026-08-06
@@ -21,7 +21,13 @@
 
 ## 估计方程（Estimating Equation）
 
-采用 IRLS/Newton/L-BFGS 求解，受 `max_iter` 与 `tol` 控制；`fit_intercept=True` 时联合估计截距。v23c (2026-05) 起，`solver="lbfgs"` 在各后端上正确支持 L2 惩罚。
+该模型固定使用 IRLS 求解，受 `max_iter` 与 `tol` 控制；`fit_intercept=True` 时联合估计截距。
+
+## 求解器支持
+
+`LogisticRegression` **不暴露**公开 `solver` 参数。它在 CPU、CuPy 或 Torch 上始终使用专属 IRLS 实现，`C` 控制可选 L2 项；因此向该类传入 `solver="newton"` 或 `solver="lbfgs"` 会直接报错。
+
+需要显式比较普通 GLM 求解器时，应使用 `GeneralizedLinearModel(family="binomial", solver=...)`；需要 penalty-aware 分发时使用 `PenalizedLogisticRegression`。两者接受的值见[GLM 模型页](generalized-linear-model.md#求解器支持)。
 
 ## 协方差与推断（Covariance/Inference）
 

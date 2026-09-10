@@ -87,6 +87,16 @@ $$
 $$ \ell(\eta, y) = \rho_c(y - \eta) $$，其中
 $$ \rho_c(u) = \begin{cases} \frac{c^2}{6}\left[1 - \left(1 - (\frac{u}{c})^2\right)^3\right] & |u| \le c \\ \frac{c^2}{6} & |u| > c \end{cases} $$
 
+### Fair 损失
+
+令调节常数 $c>0$、残差 $u=y-\eta$，则
+
+$$
+\rho_c(u)=c^2\left(\frac{|u|}{c}-\log\left(1+\frac{|u|}{c}\right)\right).
+$$
+
+Fair 损失保持光滑，大残差时趋近线性增长，但不像 Bisquare 那样设置硬性的重降截断。
+
 ### Cox 部分似然（负对数）
 
 $$ \ell(\beta) = -\frac{1}{n} \log L(\beta) $$
@@ -199,6 +209,42 @@ model = PenalizedQuantileRegression(quantile=0.5, penalty='scad', alpha=0.1)
 model.fit(X_t, y_t)
 ```
 
+### Cox 部分似然
+
+```python
+import numpy as np
+from statgpu.losses import CoxPartialLikelihoodLoss
+
+y_surv = np.column_stack([time, event])
+loss = CoxPartialLikelihoodLoss(ties="efron")
+coef = np.zeros(X.shape[1])
+value = loss.value(X, y_surv, coef)
+gradient = loss.gradient(X, y_surv, coef)
+hessian = loss.hessian(X, y_surv, coef)
+```
+
+这些迭代数值数组会保留在所选 NumPy、CuPy 或 Torch 后端。Cox loss 的预处理只会把排序后的 `time` 与 `event` 一次性复制到主机以构造确定性的失败组元数据；所得索引会缓存到所选设备，迭代中的设计矩阵、线性预测量、目标、梯度与 Hessian 不会转到 CPU。
+
+SCAD/MCP 的 trusted-gradient 路径会跳过重复的有限状态检查，但每次求值仍保留自适应 predictor-range 分段，因此求解器快速路径不会关闭稳定的风险集缩放。
+
+### 正则化生存模型
+
+```python
+from statgpu.linear_model import PenalizedCoxPHModel
+
+model = PenalizedCoxPHModel(
+    penalty="scad",
+    alpha=0.1,
+    ties="efron",
+    device="cuda",
+    fit_intercept=False,
+    compute_inference=False,
+)
+model.fit(X, y_surv)
+```
+
+支持的惩罚为 `l1`、`l2`、`elasticnet`、`scad` 和 `mcp`。SCAD/MCP 使用 FISTA-LLA continuation。`compute_inference=True` 会抛出 `NotImplementedError`；无惩罚推断请使用 `statgpu.survival.CoxPH`。
+
 ## 外部验证
 
 - **QuantileLoss**: 与 R `quantreg::rq()`（Frisch-Newton IRLS）和 sklearn `QuantileRegressor`（HiGHS LP 求解器）对齐。系数精度 1e-6。
@@ -206,8 +252,8 @@ model.fit(X_t, y_t)
 - **BisquareLoss**: 与 R `MASS::rlm(psi="bisquare")` 对齐。支持 SCAD/MCP 通过 proximal Newton（5-10 次迭代收敛）。
 - **CoxPartialLikelihoodLoss / CoxPH**：Breslow/Efron 与 statsmodels PHReg 对齐；Exact
   由小规模暴力枚举验证。2026-07-12 的
-  [`quick`](../../../results/survival_completion_2026-07-12.json) 与
-  [`full`](../../../results/survival_completion_full_2026-07-12.json) 产物覆盖 NumPy、CuPy、
+  [`quick`](https://github.com/TheHiddenObserver/statgpu/blob/master/results/survival_completion_2026-07-12.json) 与
+  [`full`](https://github.com/TheHiddenObserver/statgpu/blob/master/results/survival_completion_full_2026-07-12.json) 产物覆盖 NumPy、CuPy、
   Torch 的 delayed-entry、Exact、重 ties、stratified start-stop 兼容性与精度矩阵。
 
 ## 注意事项

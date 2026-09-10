@@ -1,4 +1,4 @@
-# GaussianMixture
+# 高斯混合模型（GaussianMixture）
 
 > 语言：中文
 > 最后更新：2026-05-07
@@ -163,7 +163,7 @@ GMM 提供 likelihood 分数，但没有 strict inference covariance 或 p-value
 - `lower_bound_`
 - `n_features_in_`
 
-## FAQ
+## 常见问题
 
 **应该选择哪种 covariance type？**
 `"diag"` 和 `"spherical"` 计算更便宜，适合成分内特征相关性较弱的场景；`"tied"` 在所有成分之间共享一个完整协方差；`"full"` 最灵活，但参数最多，也需要更多样本支撑。
@@ -179,7 +179,7 @@ GMM 提供 likelihood 分数，但没有 strict inference covariance 或 p-value
 - Baseline：sklearn `GaussianMixture`，对齐 `covariance_type`、初始化和收敛参数。
 - Phase 3B 验证目标：`"diag"`、`"spherical"`、`"tied"`、`"full"` 在 CPU/CuPy/Torch 三端的 score 一致性，以及与 sklearn 的 log likelihood、AIC/BIC、responsibility 对齐。
 
-## References
+## 参考文献
 
 - Dempster, A. P., Laird, N. M., & Rubin, D. B. (1977). Maximum likelihood from incomplete data via the EM algorithm. *Journal of the Royal Statistical Society: Series B (Methodological)*, 39(1), 1-22. https://doi.org/10.1111/j.2517-6161.1977.tb01600.x
 - McLachlan, G. J., & Peel, D. (2000). *Finite Mixture Models*. Wiley Series in Probability and Statistics. Wiley.

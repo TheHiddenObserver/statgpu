@@ -1,0 +1,58 @@
+.VPHero .tagline {
+  max-width: 720px;
+  line-height: 1.65;
+}
+
+.VPHero .image-container {
+  transform: translateY(4px);
+}
+
+.VPHero .image-bg {
+  width: 340px;
+  height: 340px;
+  background: linear-gradient(135deg, rgba(54, 139, 255, 0.26), rgba(137, 84, 255, 0.2));
+  filter: blur(52px);
+}
+
+.VPHero .image-src {
+  width: min(360px, 82vw);
+  max-width: 360px;
+  border: 1px solid rgba(105, 132, 210, 0.3);
+  border-radius: 28px;
+  box-shadow: 0 24px 70px rgba(21, 39, 83, 0.28);
+}
+
+.VPFeature {
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.VPFeature:hover {
+  transform: translateY(-2px);
+  border-color: rgba(74, 110, 203, 0.42);
+  box-shadow: 0 12px 30px rgba(31, 51, 97, 0.08);
+}
+
+.VPHome .vp-doc {
+  padding-top: 24px;
+}
+
+.VPHome .vp-doc table {
+  display: table;
+  width: 100%;
+}
+
+@media (max-width: 959px) {
+  .VPHero .image-container {
+    margin-top: 24px;
+  }
+
+  .VPHero .image-src {
+    max-width: 290px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .VPFeature {
+    transition: none;
+  }
+}

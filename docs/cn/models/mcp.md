@@ -1,7 +1,7 @@
-# MCP
+# MCP 回归
 
 > 语言：中文  
-> 最后更新：2026-06-14  
+> 最后更新：2026-09-04
 > 页面定位：模型文档  
 > 切换：[English](../../en/models/mcp.md)
 
@@ -42,7 +42,7 @@ MCP 使用与 SCAD 相同的 **LLA + FISTA** 算法：
    - 通过 FISTA 求解加权 L1 问题
 3. **热启动**：前一个 $\lambda$ 的解作为初始点
 
-## Oracle Property
+## 预言性质（Oracle property）
 
 在正则条件下（Zhang 2010, Theorem 1）：
 - **选择一致性**：$\Pr(\hat{S} = S_0) \to 1$
@@ -69,7 +69,20 @@ MCP 产生**几乎无偏**的估计，偏差随 $\gamma$ 增大而减小。
 | `solver` | `"auto"` | 求解器选择 |
 | `gpu_memory_cleanup` | `False` | CuPy 内存池清理 |
 
-## MCP vs SCAD vs Lasso
+## 求解器支持
+
+MCP 与 SCAD 使用相同的模型专属 continuation contract。
+
+| 选择 | 支持情况 | 实际计算 |
+|---|:---:|---|
+| `auto`（默认） | 支持 | FISTA-LLA continuation |
+| `fista` | 支持 | FISTA-LLA continuation |
+| `newton`、`lbfgs`、`irls`、`exact` | 不支持 | 非凸、非光滑惩罚会拒绝这些路径 |
+| `fista_bb`、`admm`、`coordinate_descent` | 没有独立 MCP 路径 | 当前 wrapper 仍会路由到 FISTA-LLA，不应据此做求解器对比 |
+
+`fista_lla_path` 是内部实现名称，不能作为 MCP 的 `solver=` 取值。内层 FISTA 步骤见[求解器算法](../guides/solver-algorithms.md#1-fista)。
+
+## MCP、SCAD 与 Lasso 对比
 
 | 性质 | Lasso | SCAD | MCP |
 |---|---|---|---|
@@ -90,11 +103,21 @@ model.fit(X, y)
 print(model.coef_)        # 稀疏系数
 print(model.score(X, y))  # R-squared
 
+# GPU 加速
+model_gpu = MCPRegression(alpha=0.1, device="cuda")
+model_gpu.fit(X, y)
+
 # 调整 gamma（凹度）
 model_aggressive = MCPRegression(alpha=0.1, gamma=1.5)  # 更激进的阈值
 ```
 
+## 输出
+
+- 系数：`intercept_`、`coef_`
+- 方法：`fit`、`predict`、`score`
+- 限制：MCP 当前不支持 `compute_inference=True`
+
 ## 参考文献
 
-- Zhang, C.-H. (2010). Nearly unbiased variable selection under minimax concave penalty. *Annals of Statistics*, 38(2), 894-942.
+- Zhang, C.-H. (2010). [Nearly unbiased variable selection under minimax concave penalty](https://doi.org/10.1214/09-AOS729). *Annals of Statistics*, 38(2), 894-942.
 - Fan, J., & Li, R. (2001). Variable selection via nonconcave penalized likelihood and its oracle properties. *Journal of the American Statistical Association*, 96(456), 1348-1360.

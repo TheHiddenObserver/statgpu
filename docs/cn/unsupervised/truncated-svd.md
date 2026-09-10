@@ -1,4 +1,6 @@
-# TruncatedSVD
+# 截断奇异值分解（TruncatedSVD）
+
+> 切换：[English](../../en/unsupervised/truncated-svd.md)
 
 > 语言：中文
 > 最后更新：2026-05-09
@@ -47,7 +49,7 @@ Z = TruncatedSVD(n_components=10, device="cpu").fit_transform(X)
 Z_gpu = TruncatedSVD(n_components=10, device="cuda").fit_transform(X_gpu)
 ```
 
-## Strict/Approx Difference
+## strict/approx 差异
 
 `algorithm="full"` 是 dense exact SVD；`algorithm="randomized"` 是近似算法，比较时应使用 sign/subspace invariant 指标。
 
@@ -55,7 +57,7 @@ Z_gpu = TruncatedSVD(n_components=10, device="cuda").fit_transform(X_gpu)
 
 `components_`、`explained_variance_`、`explained_variance_ratio_`、`singular_values_`、`n_components_`、`n_features_in_`。
 
-## FAQ
+## 常见问题
 
 Phase 3A 不支持 sparse input 和 ARPACK。
 
@@ -65,6 +67,6 @@ Phase 3A 不支持 sparse input 和 ARPACK。
 Benchmark：`dev/benchmarks/benchmark_unsupervised_phase3.py`。
 Baseline：sklearn `TruncatedSVD`、statsmodels PCA-style SVD、可用时 R `svd`。
 
-## References
+## 参考文献
 
 - Halko, N., Martinsson, P. G., & Tropp, J. A. (2011). Finding structure with randomness: Probabilistic algorithms for constructing approximate matrix decompositions. *SIAM Review*, 53(2), 217-288.

@@ -68,28 +68,75 @@ test.describe('Canonical cross-validation evidence', () => {
     expect(repairedTorch[0].metrics.cross_validation.selected_parameters).toEqual({ C: 0.1 });
     expect(repairedTorch[0].metrics.timing.fit_time_ms).toBeGreaterThan(0);
 
-    await page.locator('#env-select').selectOption('remote-p100-cv-20260807');
+    // Session-level environments are intentionally grouped into one hardware
+    // selector. The CV panel must therefore retain session/source identity so
+    // historical and repaired evidence remain distinguishable.
+    await expect(page.locator('#env-select')).toHaveValue('remote-p100');
+    await expect(page.locator('#env-select option')).toHaveCount(1);
+    await expect(page.locator('#env-select option')).toContainText(
+      '8 benchmark sessions',
+    );
+
+    await page.getByRole('button', { name: 'None' }).click();
+    await page.locator('#cat-linear_models').check();
     const cvScope = page.locator('[data-metric-scope="cross_validation"]');
     await expect(cvScope).toBeEnabled();
     await expect(cvScope).toContainText(/CV \([1-9]\d*\)/);
     await cvScope.click();
+    await page.getByLabel('Model', { exact: true }).selectOption('LogisticRegressionCV');
 
-    const toggle = page.getByText(/Cross-validation Metrics \(\d+\)/);
+    const toggle = page.getByRole('button', { name: /Cross-validation Metrics/ });
     await expect(toggle).toBeVisible();
     await toggle.click();
-    const panel = toggle.locator('..');
-    const failedRow = panel.locator('tr').filter({ hasText: 'LogisticRegressionCV' }).filter({ hasText: 'torch' });
-    await expect(failedRow).toHaveCount(1);
-    await expect(failedRow).toContainText('failed');
-    await expect(failedRow).toContainText('CPU fallback is disabled');
+    const panelBodyId = await toggle.getAttribute('aria-controls');
+    expect(panelBodyId).toBeTruthy();
+    const panel = page.locator(`#${panelBodyId}`);
 
-    await page.locator('#env-select').selectOption('remote-p100-pr116-20260807');
-    const repairedToggle = page.getByText(/Cross-validation Metrics \(\d+\)/);
-    await expect(repairedToggle).toBeVisible();
-    const repairedPanel = repairedToggle.locator('..');
-    const repairedRow = repairedPanel.locator('tr').filter({ hasText: 'LogisticRegressionCV' }).filter({ hasText: 'torch' });
+    const torchRows = panel
+      .locator('tr')
+      .filter({ hasText: 'LogisticRegressionCV' })
+      .filter({ hasText: 'torch' });
+    await expect(torchRows).toHaveCount(2);
+
+    const failedRow = torchRows.filter({ hasText: 'failed' });
+    await expect(failedRow).toHaveCount(1);
+    await expect(failedRow).toContainText('CPU fallback is disabled');
+    await expect(failedRow).toContainText('remote-p100-cv-20260807');
+    await expect(failedRow).toContainText('cv_benchmark_20260807.json');
+
+    const repairedRow = torchRows.filter({ hasText: 'success' });
     await expect(repairedRow).toHaveCount(1);
-    await expect(repairedRow).toContainText('success');
     await expect(repairedRow).not.toContainText('CPU fallback is disabled');
+    await expect(repairedRow).toContainText('remote-p100-pr116-20260807');
+    await expect(repairedRow).toContainText('cv_benchmark_pr116_p100.json');
+  });
+});
+
+
+test.describe('Grouped physical validation evidence', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('.header')).toBeVisible({ timeout: 15000 });
+  });
+
+  test('keeps session and source provenance in the Validation panel', async ({ page }) => {
+    await expect(page.locator('#env-select')).toHaveValue('remote-p100');
+    await page.getByRole('button', { name: 'None' }).click();
+    await page.locator('#cat-panel').check();
+
+    const toggle = page.getByRole('button', { name: /Validation Checks/ });
+    await expect(toggle).toBeVisible();
+    await toggle.click();
+    const panelBodyId = await toggle.getAttribute('aria-controls');
+    expect(panelBodyId).toBeTruthy();
+    const panel = page.locator(`#${panelBodyId}`);
+
+    await expect(panel.getByRole('columnheader', { name: 'Benchmark session' })).toBeVisible();
+    await expect(panel.getByRole('columnheader', { name: 'Source' })).toBeVisible();
+    // The panel shows the first 30 rows by default. Assert provenance on the
+    // canonical PR122 evidence that is intentionally visible without changing
+    // pagination state; later PR126 rows are available through "Show all".
+    await expect(panel).toContainText('panel_stage_b_pr122_p100_20260809_2701aa9f.json');
+    await expect(panel).toContainText('remote-p100-pr122-20260809-panel-stage-b-pr122');
   });
 });

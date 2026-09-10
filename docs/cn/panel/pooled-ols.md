@@ -1,20 +1,20 @@
-# PooledOLS
+# 合并 OLS（PooledOLS）
 
 > 语言：中文  
 > 最后更新：2026-08-19  
 > 切换：[English](../../en/panel/pooled-ols.md)
 
-## Overview
+## 概述
 
 `PooledOLS` 把所有 panel observation 直接堆叠起来，拟合一个具有公共截距和公共斜率的普通线性回归。它**不会**去除 entity effect 或 time effect，因此适用于本来就希望所有观测共享同一个 pooled conditional-mean relationship 的场景。
 
 `entity_ids` 是可选的：提供它不会改变 coefficient estimate，但可以额外计算 panel-specific fit statistics，并启用 Breusch-Pagan LM diagnostic。
 
-## Path
+## 路径
 
 实现：`statgpu/panel/_pooled.py`。
 
-## Statistical Model and Identification
+## 统计模型与识别
 
 Pooled linear model 可以写成
 
@@ -40,7 +40,7 @@ $$
 
 HC、clustered、HAC 或 Driscoll-Kraay 等 covariance choice 只改变 uncertainty 的计算方式，不能修复 mean model 中外生性条件失效造成的识别问题。
 
-## Estimator
+## 估计量
 
 令 $Z=[\mathbf 1,X]$，则
 
@@ -52,7 +52,7 @@ $$
 
 因此，coefficient estimate 就是把所有 panel rows 当作一个普通回归样本后得到的 OLS 结果。
 
-## Covariance and Inference
+## 协方差与推断
 
 `cov_type` 只改变 standard error 的计算方式，不改变 OLS coefficient estimate。除了 nonrobust 和 HC covariance 外，`PooledOLS` 还支持 clustered covariance，以及两种考虑时间相关性的方式：
 
@@ -61,7 +61,7 @@ $$
 
 因此这两种 covariance 不能互换理解。完整公式见 [面板 covariance](covariance.md)。
 
-## Parameters
+## 参数
 
 | 参数 | 默认值 | 可选值 / 约束 | 含义 |
 |---|---:|---|---|
@@ -79,7 +79,7 @@ model.fit(X, y, cluster=None, time_index=None, entity_ids=None)
 
 使用 clustered covariance 时传入 `cluster`；使用 Driscoll-Kraay 时必须传入 `time_index`。对 legacy HAC，`time_index` 是可选的；提供后，它决定 HAC 使用的 observation ordering。若还希望得到 standardized within/between $R^2$ 或 Breusch-Pagan LM test，则提供 `entity_ids`。
 
-## CPU and GPU Example
+## CPU 与 GPU 示例
 
 ```python
 from statgpu.panel import PooledOLS
@@ -91,7 +91,7 @@ torch = PooledOLS(device="torch").fit(X, y)
 
 若显式指定的 GPU backend 不可用，`.fit()` 会直接报错，而不是切换到 CPU。
 
-## Formula Example
+## Formula 接口示例
 
 假设 `df` 包含 `y`、`x1` 与 `x2` 列。
 
@@ -106,11 +106,11 @@ model = PooledOLS().fit(
 
 `PooledOLS` 始终包含截距，因此显式 no-intercept formula 会被拒绝。
 
-## Outputs
+## 输出
 
 常用结果包括 `coef_`、`bse_`、`tvalues_`、`pvalues_`、`conf_int_`、`rsquared`、`fit_statistics_`、`nobs` 与 `df_resid`。提供 `entity_ids` 后还可调用 `breusch_pagan_lm_test()`；见 [面板 diagnostics](diagnostics.md)。
 
-## Numerical and Strict Behavior
+## 数值行为与 strict 模式
 
 自动添加的 constant/intercept 会防止 response cancellation 把可表示的低阶截距项静默抹掉。普通 response 完全保留历史 SVD/BLAS solve；只有当 response 被现有 classifier 判为 magnitude/cancellation-sensitive 时，才在保持同一个 SVD、numerical-rank cutoff、design scaling 与 minimum-norm parameterization 的前提下，用共享 magnitude-tiered reduction 计算 SVD response projection。例如 `[2**55, 1, -2**55]` 中可表示的 intercept tail 不会被错误降为 0。legacy pooled $R^2$ 在物理 `y-mean(y)` 可能溢出时也复用 range-safe working-scale centering。
 
@@ -122,13 +122,13 @@ covariance 所需的附加信息会在计算前检查。例如，clustered covar
 
 显式指定 `device="cuda"` 或 `device="torch"` 时也要求对应 backend 可用，否则直接报错而不是切换到 CPU。
 
-## FAQ
+## 常见问题
 
 **提供 `entity_ids` 会改变 coefficient 吗？**  不会；它只额外启用 panel-aware fit statistics 与 diagnostics。
 
 **`hac` 与 Driscoll-Kraay 相同吗？**  不同。HAC 把 observations 当作一条有顺序的序列；Driscoll-Kraay 则先在用户提供的各 time period 内聚合 observation contribution。
 
-## External Validation
+## 外部验证
 
 我们将 `PooledOLS` 与 `linearmodels==7.0` 比较，覆盖 Driscoll-Kraay coefficient、covariance、BSE，以及 group-debiased clustered covariance。coefficient 使用 `rtol=2e-10, atol=2e-11`；covariance/BSE 使用 `rtol=5e-9, atol=5e-11`。HC、cluster、Driscoll-Kraay、default bandwidth 与 R `sandwich` 的定义级检查见 [validation matrix](covariance.md#validation-matrix)。
 

@@ -1,6 +1,6 @@
 # 已实现方法
 
-> 最后更新：2026-07-24  
+> 最后更新：2026-09-03
 > 切换：[English](../../en/guides/implemented-methods.md)
 
 本页是 statgpu 当前公开模型、函数与主要求解器族的维护中清单。详细数学定义、
@@ -14,6 +14,9 @@
 | `Ridge` | L2 惩罚线性回归 | NumPy, CuPy, Torch |
 | `Lasso` | L1 回归，含 debiased/bootstrap 推断路径 | NumPy, CuPy, Torch |
 | `ElasticNet` | L1+L2 惩罚回归 | NumPy, CuPy, Torch |
+| `AdaptiveLasso` | 数据自适应加权 L1 回归 | NumPy, CuPy, Torch |
+| `SCADRegression` | 非凸 SCAD 惩罚回归 | NumPy, CuPy, Torch |
+| `MCPRegression` | 非凸 MCP 惩罚回归 | NumPy, CuPy, Torch |
 | `LogisticRegression` | 二元 logistic/probit 回归 | NumPy, CuPy, Torch |
 | `PoissonRegression` | Poisson GLM | NumPy, CuPy, Torch |
 | `GammaRegression` | Gamma GLM | NumPy, CuPy, Torch |
@@ -36,6 +39,10 @@ group Lasso、adaptive group Lasso、group MCP 与 group SCAD。部分 penalty
 | `PenalizedLinearRegression` | 惩罚 Gaussian 回归 | NumPy, CuPy, Torch |
 | `PenalizedLogisticRegression` | 惩罚二元回归 | NumPy, CuPy, Torch |
 | `PenalizedPoissonRegression` | 惩罚 Poisson 回归 | NumPy, CuPy, Torch |
+| `PenalizedGammaRegression` | 惩罚 Gamma 回归 | NumPy, CuPy, Torch |
+| `PenalizedInverseGaussianRegression` | 惩罚 Inverse-Gaussian 回归 | NumPy, CuPy, Torch |
+| `PenalizedNegativeBinomialRegression` | 惩罚负二项回归 | NumPy, CuPy, Torch |
+| `PenalizedTweedieRegression` | 惩罚 Tweedie 回归 | NumPy, CuPy, Torch |
 | `PenalizedQuantileRegression` | Quantile loss 与 proximal/FISTA 路径 | NumPy, CuPy, Torch |
 | `PenalizedRobustRegression` | 支持范围内的 Huber、bisquare 与 fair loss | NumPy, CuPy, Torch |
 | `PenalizedCoxPHModel` | 惩罚 Cox partial likelihood | NumPy, CuPy, Torch |

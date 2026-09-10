@@ -48,7 +48,7 @@ Coverage gaps and source-quality findings are recorded in:
 
 April 2026 ElasticNet, LassoCV, comprehensive-validation, Cox package-comparison, and knockoff sources are not registered. The feature-selection category remains part of Schema v1.1 but is intentionally empty until a June 2026-or-later structured benchmark is available.
 
-The source registry is `dev/benchmarks/frontend_sources.json`. It sets `minimum_source_date` to `2026-06-01`, and every registered source must provide an explicit `source_date` on or after that date. Generated files are committed in `frontend/public/data/` and `docs/assets/benchmarks/data/`.
+The source registry is `dev/benchmarks/frontend_sources.json`. It sets `minimum_source_date` to `2026-06-01`, and every registered source must provide an explicit `source_date` on or after that date. CI generates the three-file bundle in `frontend/public/data/` and assembles it under `.site-dist/dashboard/data/`; neither deployment location is committed.
 
 ## Filters
 
@@ -103,7 +103,7 @@ The global summary card shows only the fastest runner-reported GPU speedup. Comp
 
 The page uses a low-saturation blue-gray application background, white cards, soft borders and shallow shadows. Backend and framework colors are deliberately muted so that long benchmark sessions remain comfortable to scan. Selected categories use a light primary tint rather than a high-contrast block, and chart grid lines are lighter than the 1× parity marker.
 
-The responsive layout keeps paired charts on large screens and stacks them below 1080 px. Summary cards collapse from six to three columns below 1450 px. Charts also expose filter-synchronized exact-value tables with full labels, while primary filters, scale chips, sorting, and metric-panel disclosure support keyboard navigation with visible focus. The production QA suite serves the committed `docs/assets/benchmarks/` path and exercises Chromium, Firefox, and WebKit.
+The responsive layout keeps paired charts on large screens and stacks them below 1080 px. Summary cards collapse from six to three columns below 1450 px. Charts also expose filter-synchronized exact-value tables with full labels, while primary filters, scale chips, sorting, and metric-panel disclosure support keyboard navigation with visible focus. The production QA suite serves the assembled `.site-dist/dashboard/` artifact under the GitHub Pages project base and exercises Chromium, Firefox, and WebKit.
 
 ## Overview and metric panels
 
@@ -180,6 +180,8 @@ npm run test:e2e:production
 Technical references:
 
 - `docs/benchmark-dashboard/schema-v1.1.md`
+- `docs/benchmark-dashboard/provider-contract.md`
+- `docs/website-deployment.md`
 - `docs/benchmark-dashboard/parser-contracts.md`
 - `docs/benchmark-dashboard/aggregation-contract.md`
 - `docs/benchmark-dashboard/domain-coverage-audit-plan.md`

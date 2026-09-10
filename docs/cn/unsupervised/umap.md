@@ -1,4 +1,6 @@
-# UMAP
+# UMAP 降维
+
+> 切换：[English](../../en/unsupervised/umap.md)
 
 > 语言：中文
 > 最后更新：2026-07-23
@@ -46,7 +48,7 @@ embedding = UMAP(n_neighbors=15, device="cpu").fit_transform(X)
 embedding_gpu = UMAP(n_neighbors=15, device="cuda").fit_transform(X_gpu)
 ```
 
-## Strict/Approx Difference
+## strict/approx 差异
 
 `nn_method='exact'` 对 dense Euclidean neighbor search 是 exact。`nn_method='nndescent'` 是 approximate 且 backend-aware。两种模式均使用上述 SciPy host-side fuzzy-union boundary；完整 device-native sparse graph pipeline 尚未实现。
 
@@ -54,7 +56,7 @@ embedding_gpu = UMAP(n_neighbors=15, device="cuda").fit_transform(X_gpu)
 
 `embedding_`、`graph_`、`n_epochs_`、`n_features_in_`。
 
-## FAQ
+## 常见问题
 
 不支持 sparse、非 Euclidean metric 和新样本 `transform`。通过 `nn_method='nndescent'` 支持 approximate neighbor；graph assembly 仍需要 SciPy 与 host memory。
 
@@ -64,6 +66,6 @@ embedding_gpu = UMAP(n_neighbors=15, device="cuda").fit_transform(X_gpu)
 Benchmark：`dev/benchmarks/benchmark_unsupervised_phase3.py`。
 Baseline：`umap-learn`，以及远程可用时的 cuML UMAP。
 
-## References
+## 参考文献
 
 - McInnes, L., Healy, J., & Melville, J. (2018). UMAP: Uniform Manifold Approximation and Projection for Dimension Reduction. *arXiv:1802.03426*.

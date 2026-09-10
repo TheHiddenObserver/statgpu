@@ -102,6 +102,14 @@ def iter_link_targets(text: str) -> list[str]:
 
 
 def validate_links(path: Path, text: str) -> list[str]:
+    """Validate source-relative links without reimplementing site routing.
+
+    Root-absolute targets such as ``/en/...``, ``/cn/...`` and ``/dashboard/``
+    are deployment routes, not repository paths. They are validated against the
+    assembled VitePress/dashboard artifact by ``scripts/verify-site.mjs``. This
+    source-level contract checker deliberately owns only links whose targets can
+    be resolved unambiguously in the repository tree.
+    """
     errors: list[str] = []
     for raw_target in iter_link_targets(text):
         target = normalize_link_target(raw_target)
@@ -109,9 +117,11 @@ def validate_links(path: Path, text: str) -> list[str]:
             continue
 
         if target.startswith("/"):
-            resolved = (ROOT / target.lstrip("/")).resolve()
-        else:
-            resolved = (path.parent / target).resolve()
+            # Site-root routes are validated after VitePress clean-URL routing,
+            # base-path rewriting, and dashboard assembly have been applied.
+            continue
+
+        resolved = (path.parent / target).resolve()
 
         try:
             resolved.relative_to(ROOT)

@@ -1,20 +1,20 @@
-# PanelOLS
+# 面板 OLS（PanelOLS）
 
 > 语言：中文  
 > 最后更新：2026-08-15  
 > 切换：[English](../../en/panel/panel-ols.md)
 
-## Overview
+## 概述
 
 `PanelOLS` 可以拟合无 fixed effects、单向 fixed effects 或双向 fixed effects 的线性面板回归。加入 fixed effects 后，coefficient 由去除所选 entity 和/或 time effects 后仍然存在的 variation 来识别。
 
 实现时 statgpu 直接对数据做相应变换，而不是显式生成大量 dummy columns。这只改变数值实现方式，不改变 fixed-effects model 的统计含义。
 
-## Path
+## 路径
 
 实现：`statgpu/panel/_fixed_effects.py`。
 
-## Statistical Model and Identification
+## 统计模型与识别
 
 对于 entity 与 time fixed effects，经典 fixed-parameter model 写为
 
@@ -34,7 +34,7 @@ $$
 
 $\beta$ 只能由去除 fixed effects 后仍然存在的 regressor variation 识别。例如，在 entity fixed effects 下，完全不随时间变化的 regressor 会被 entity effect 吸收，因此无法单独识别其 slope。当 `entity_effects=False` 且 `time_effects=False` 时，模型退化为普通 level regression，此时上面的 fixed-effects interpretation 不再适用。
 
-## Estimator
+## 估计量
 
 令 $F$ 为包含的 fixed-effect design，$M_F=I-F(F^\top F)^+F^\top$。则
 
@@ -46,7 +46,7 @@ $$
 
 只有 entity fixed effects 时，这就是通常的 within-entity demeaning。双向 fixed effects 时，statgpu 会反复去除 entity mean 与 time mean，直到满足 `demean_tol`。如果在 `demean_max_iter` 次迭代内仍未收敛，`.fit()` 会直接报错，而不是返回尚未充分去均值的近似结果。
 
-## Covariance and Inference
+## 协方差与推断
 
 standard error 使用与 coefficient estimation 完全相同的 transformed regressors 和 residuals。记变换后的 design 为 $Z=M_FX$，residual 为 $e=M_F(y-X\widehat\beta_{\mathrm{FE}})$，则 nonrobust、HC、clustered 与 Driscoll-Kraay 的统一公式见 [面板 covariance](covariance.md)。
 
@@ -66,7 +66,7 @@ $$
 
 这一统一定义同时决定公开的 `df_resid`、nonrobust residual-variance scale、HC1 (`robust`) finite-sample correction，以及 nonrobust Student-$t$ inference。因此它与对应的显式 fixed-effect dummy regression 的 residual df 完全一致，而不是在 within transformation 后再使用 `N-1`/`T-1` 的简化计数。
 
-## Parameters
+## 参数
 
 | 参数 | 默认值 | 可选值 / 约束 | 含义 |
 |---|---:|---|---|
@@ -88,7 +88,7 @@ model.fit(X, y, entity_ids=None, time_ids=None, cluster=None)
 
 通过 constructor 打开某个 fixed effect 时，需要提供对应的 `entity_ids` 和/或 `time_ids`。clustered covariance 还需要 `cluster`；Driscoll-Kraay 需要 `time_ids`。
 
-## CPU and GPU Example
+## CPU 与 GPU 示例
 
 ```python
 from statgpu.panel import PanelOLS
@@ -100,7 +100,7 @@ torch = PanelOLS(entity_effects=True, device="torch").fit(X, y, entity_ids=entit
 
 `device="cuda"` 需要 CuPy/CUDA，`device="torch"` 需要 Torch CUDA。如果显式要求的 backend 不可用，`.fit()` 会报错，而不是自动切换到 CPU。
 
-## Formula Example
+## Formula 接口示例
 
 假设 `df` 包含 `y`、`x1`、`x2`、`entity` 与 `time` 列。
 
@@ -128,11 +128,11 @@ level_no_intercept = PanelOLS().fit(
 
 fixed effects 可以使用 pipe syntax，也可以使用 effect token，但同一个 formula 中不能混用。pipe syntax 最多接受两个 fixed-effect variables。pipe 中明确命名的 entity/time 列是权威来源：如果同时显式传入 `entity_ids` 或 `time_ids`，它们必须与 formula 过滤后保留的对应列完全一致；冲突的重复来源会直接报错。
 
-## Outputs
+## 输出
 
 常用结果包括 `coef_`、`bse_`、`tvalues_`、`pvalues_`、`conf_int_`、`rsquared_within`、`fit_statistics_`、`nobs` 与 `df_resid`。`summary()` 返回 panel summary。Pooling F 与 Hausman test 见 [面板 diagnostics](diagnostics.md)。
 
-## Numerical and Strict Behavior
+## 数值行为与 strict 模式
 
 双向去均值必须真正收敛。如果在 `demean_max_iter` 内没有达到 `demean_tol`，statgpu 会报错，而不会把最后一次迭代当作近似结果返回。
 
@@ -142,13 +142,13 @@ fixed effects 可以使用 pipe syntax，也可以使用 effect token，但同�
 
 Formula 也会对不支持的写法明确报错，例如混用 pipe 与 effect-token syntax、通过 pipe 指定超过两个 fixed effects，或 fixed-effect formula 中没有任何 non-intercept regressor。
 
-## FAQ
+## 常见问题
 
 **为什么双向 demeaning 不直接返回最后一个 iterate？**  因为没有收敛的去均值会改变实际拟合的回归。只有达到用户要求的 tolerance 后结果才会返回。
 
 **robust covariance 会把 `fit_statistics_.f_statistic` 改成 robust Wald test 吗？**  不会。该字段仍表示 classical joint test of slopes；见 [fit statistics](fit-statistics.md)。
 
-## External Validation
+## 外部验证
 
 我们将单向和双向 fixed-effect Driscoll-Kraay 结果与 `linearmodels==7.0` 比较：coefficient 使用 `rtol=2e-10, atol=2e-11`，covariance/BSE 使用 `rtol=5e-9, atol=5e-11`。无 fixed effects 的 level OLS 路径与 `statsmodels==0.14.6` 比较；单向 fixed-effect coefficient 还与 R `plm==2.6-7` 比较。共享 covariance 与 R tolerance 见 [validation matrix](covariance.md#validation-matrix)。
 

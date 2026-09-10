@@ -1,4 +1,6 @@
-# TSNE
+# t-SNE 降维（TSNE）
+
+> 切换：[English](../../en/unsupervised/tsne.md)
 
 > 语言：中文
 > 最后更新：2026-05-09
@@ -50,7 +52,7 @@ embedding = TSNE(perplexity=30, device="cpu").fit_transform(X)
 embedding_gpu = TSNE(perplexity=30, device="torch").fit_transform(X_torch)
 ```
 
-## Strict/Approx Difference
+## strict/approx 差异
 
 这里实现的是 exact dense t-SNE。Barnes-Hut、FFT/FIt-SNE 和 openTSNE 加速路径只作为外部 baseline。
 
@@ -58,7 +60,7 @@ embedding_gpu = TSNE(perplexity=30, device="torch").fit_transform(X_torch)
 
 `embedding_`、`kl_divergence_`、`n_iter_`、`n_features_in_`。
 
-## FAQ
+## 常见问题
 
 Phase 3A 不支持 sparse、非 Euclidean metric、Barnes-Hut、FFT/FIt-SNE 和新样本 `transform`。
 
@@ -68,7 +70,7 @@ Phase 3A 不支持 sparse、非 Euclidean metric、Barnes-Hut、FFT/FIt-SNE 和�
 Benchmark：`dev/benchmarks/benchmark_unsupervised_phase3.py`。
 Baseline：sklearn exact `TSNE`、`openTSNE`，以及远程可用时的 cuML TSNE。
 
-## References
+## 参考文献
 
 - van der Maaten, L., & Hinton, G. (2008). Visualizing data using t-SNE. *Journal of Machine Learning Research*, 9, 2579-2605.
 - Linderman, G. C., Rachh, M., Hoskins, J. G., Steinerberger, S., & Kluger, Y. (2019). Fast interpolation-based t-SNE for improved visualization of single-cell RNA-seq data. *Nature Methods*, 16, 243-245.

@@ -44,6 +44,10 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+#app {
+  min-height: 100vh;
+}
+
 #app-root {
   display: flex;
   flex-direction: column;
@@ -71,7 +75,29 @@ body {
 }
 
 .header-brand {
+  gap: 12px;
+}
+
+.header-title {
+  display: flex;
+  align-items: baseline;
   gap: 7px;
+}
+
+.header-home-link {
+  color: #d9e4ff;
+  border-right: 1px solid var(--color-header-border);
+  padding-right: 12px;
+  font-size: 12px;
+  font-weight: 650;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.header-home-link:hover,
+.header-home-link:focus-visible {
+  color: #ffffff;
+  text-decoration: underline;
 }
 
 .header-logo {
@@ -100,10 +126,75 @@ body {
 }
 
 .header select {
-  min-width: 190px;
+  min-width: 285px;
   background: #fff;
   color: #2f3545;
   border-color: #c8cfdd;
+}
+
+.header-loading-status {
+  color: var(--color-header-muted);
+  font-size: 12px;
+}
+
+.dashboard-loading-shell {
+  display: flex;
+  min-height: calc(100vh - 53px);
+  background: var(--color-bg);
+}
+
+.loading-content {
+  flex: 1;
+  padding: 22px;
+}
+
+.loading-copy {
+  margin-bottom: 16px;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.loading-placeholder {
+  border: 1px solid var(--color-card-border);
+  border-radius: var(--radius);
+  background:
+    linear-gradient(
+      100deg,
+      rgba(255, 255, 255, 0) 30%,
+      rgba(255, 255, 255, 0.8) 50%,
+      rgba(255, 255, 255, 0) 70%
+    ),
+    #e9edf5;
+  background-size: 220% 100%;
+  animation: loading-sheen 1.4s ease-in-out infinite;
+}
+
+.loading-sidebar {
+  width: 244px;
+  min-width: 244px;
+  border-radius: 0;
+  border-top: 0;
+  border-bottom: 0;
+}
+
+.loading-summary {
+  height: 92px;
+  margin-bottom: 18px;
+}
+
+.loading-chart {
+  height: 440px;
+}
+
+@keyframes loading-sheen {
+  from { background-position: 140% 0; }
+  to { background-position: -80% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-placeholder {
+    animation: none;
+  }
 }
 
 .body {
@@ -494,6 +585,31 @@ input[type='radio'] {
   }
 
   .header-meta {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .header-controls {
+    width: 100%;
+  }
+
+  .header select {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .header-loading-status {
+    display: none;
+  }
+
+  .loading-sidebar {
     display: none;
   }
 }

@@ -2,7 +2,7 @@
 
 > Language: English
 >
-> Last updated: 2026-07-12
+> Last updated: 2026-09-04
 
 ## Overview
 
@@ -17,11 +17,12 @@ fit(X, y, sample_weight)
   ├── _select_solver()   → solver name (auto or explicit)
   ├── _pre_fit()         → backend conversion, intercept augmentation
   └── _fit_loss_backend() → route to specific solver path
-       ├── fista / fista_bb / fista_lla → FISTA family
-       ├── newton / irls                  → smooth paths
-       ├── proximal_irls_cd              → quantile + SCAD/MCP
-       ├── proximal_newton               → Huber/Bisquare + SCAD/MCP
-       └── lbfgs / admm                 → quasi-Newton / augmented Lagrangian
+       ├── fista / fista_bb              → generic proximal paths
+       ├── newton / irls / lbfgs        → smooth paths
+       ├── quantile refinement          → quantile IRLS or proximal IRLS + LLA
+       ├── robust refinement            → Newton, FISTA, or FISTA-LLA
+       ├── Cox refinement               → Cox-specific Newton/FISTA/FISTA-LLA
+       └── admm                         → supported split paths
 ```
 
 ## 1. Loss Functions
@@ -34,9 +35,9 @@ Abstract base class at `statgpu/losses/_base.py`. Subclasses implement `per_samp
 class LossBase:
     name: str               # "quantile", "huber", etc.
     y_type: str             # "continuous" or "survival"
-    smooth_gradient: bool   # True ≈ Newton-friendly
-    has_hessian: bool       # True ≈ can use proximal Newton
-    _supports_irls: bool    # True ≈ has irls() method
+    smooth_gradient: bool   # smoothness capability
+    has_hessian: bool       # Hessian contract, not a public solver guarantee
+    _supports_irls: bool    # low-level IRLS contract
 ```
 
 ### All Implemented Losses
@@ -51,10 +52,15 @@ class LossBase:
 | Negative Binomial | `GLMLoss` (negative_binomial) | ✅ | ✅ | ✅ | `glm.nb()` |
 | Tweedie | `GLMLoss` (tweedie) | ✅ | ✅ | ✅ | `glm(…, tweedie)` |
 | Quantile | `QuantileLoss` | ❌ | ❌ | ✅ | `quantreg::rq()` |
-| Huber | `HuberLoss` | ✅ | ✅ | ✅ | `MASS::rlm()` |
+| Huber | `HuberLoss` | ✅ | ✅ | ❌ | `MASS::rlm()` |
 | Bisquare | `BisquareLoss` | ✅ | ✅ | ✅ | `MASS::rlm(psi="bisquare")` |
 | Fair | `FairLoss` | ✅ | ✅ | ✅ | `MASS::rlm(psi="fair")` |
 | Cox PH | `CoxPartialLikelihoodLoss` | ✅ | ✅ | ❌ | `survival::coxph()` |
+
+These capability flags describe loss objects. They do not by themselves make a
+name valid for an estimator's `solver=` argument. In particular, Bisquare and
+Fair expose an IRLS contract at the loss layer but are not documented as
+high-level IRLS estimator paths. Use the corresponding model page below.
 
 ### Per-Sample Formulas
 
@@ -102,91 +108,76 @@ Non-convex penalties (SCAD, MCP) are solved via LLA:
 
 ## 3. Solvers
 
-### Solver Dispatch Table
+::: warning Estimator boundary
+The solver library contains more callable functions than the public estimator
+API contains `solver=` values. Choose a solver on the model page first; use
+this framework page to understand the internal route.
+:::
 
-The `solver="auto"` dispatch follows priority:
+### Public controls and internal paths
 
-| Priority | Solver | Condition |
-|----------|--------|-----------|
-| 1 | `exact` | squared_error + l2 + numpy |
-| 2 | `newton` | squared_error + l2 + GPU |
-| 3 | `fista_lla` | nonconvex SCAD/MCP paths, including penalized Cox |
-| 4 | `fista` | quantile (has no Hessian) |
-| 5 | `fista` / `fista_bb` | squared_error/GLM + sparse penalties |
-| 6 | `lbfgs` / `newton` | CV + L2 + loss-specific |
-| 7 | `newton` / `irls` | smooth penalties + smooth losses |
+| Layer | Names | Meaning |
+|---|---|---|
+| Shared penalized selector | `auto`, `fista`, `fista_bb`, `irls`, `newton`, `lbfgs`, `admm`, `exact` | Candidate values; each estimator accepts only a subset |
+| CPU squared-error compatibility path | `coordinate_descent` | L1/Elastic Net only; not the quantile CD routine |
+| Internal/direct low-level functions | `fista_lla_path`, `proximal_irls_quantile_solver`, `quantile_cd_solver`, `proximal_newton_solver`, `lbfgs_b_solver` | Implementation APIs, not universal estimator keywords |
+| Fixed estimators | no selector | Logistic regression, ordinary quantile regression, ordinary Cox PH, and ordered models choose their own algorithms |
 
-The `exact` solver in this table is the closed-form squared-error/L2 solver; it
-is unrelated to `CoxPH(ties="exact")`.
+Model-specific routing runs before some generic solver branches. For SCAD, MCP,
+and Adaptive Lasso, an explicit generic label that passes common validation
+does not necessarily select a distinct algorithm. Do not use those labels to
+benchmark algorithms unless the model page says that they are distinct.
 
-### All Solvers
+### Current automatic routes
 
-| Solver | Loss Constraints | Penalty Constraints | sample_weight | warm_start |
-|--------|:-----------------|:---------------------|:------------:|:----------:|
-| `exact` | squared_error only | l2 only | ✅ | ❌ |
-| `irls` | any with IRLS | l2 / none | ✅ | ❌ |
-| `newton` | any with Hessian | l2 / none | ❌ | ❌ |
-| `lbfgs` | any | l2 / none | ❌ | ❌ |
-| `lbfgs_b` | any (box-constrained) | l2 / none | ❌ | ❌ |
-| `fista` | any | all | ✅ | ✅ |
-| `fista_bb` | any | all (except nonconvex groups) | ✅ | ✅ |
-| `fista_lla` | any (SCAD/MCP path) | SCAD/MCP/adaptive | ✅ | ✅ |
-| `proximal_irls_cd` | quantile only | SCAD/MCP | ✅ | ✅ |
-| `proximal_newton` | selected Hessian losses | SCAD/MCP/adaptive (via LLA) | ✅ | ✅ |
-| `admm` | any | all | ❌ | ✅ |
+| Model or objective | Automatic/fixed route |
+|---|---|
+| ordinary GLM | IRLS |
+| Ridge | exact by wrapper default; shared `auto` uses exact on NumPy and Newton on CuPy/Torch |
+| Lasso / Elastic Net | FISTA |
+| Adaptive Lasso | initial estimate followed by weighted-L1 FISTA |
+| SCAD / MCP | model-specific FISTA-LLA continuation |
+| penalized quantile, L2/none | quantile IRLS refinement |
+| penalized quantile, SCAD/MCP | proximal IRLS + LLA |
+| penalized robust, L2/none | Newton |
+| penalized robust, sparse penalties | FISTA; SCAD/MCP use FISTA-LLA |
+| ordinary Cox PH / ordered models | fixed Newton variants with no public selector |
 
-### Specialized Solvers
+The `exact` squared-error/L2 solver is unrelated to
+`CoxPH(ties="exact")`. Exact accepted and rejected combinations are listed in
+the [solver × penalty matrix](solver-penalty-matrix.md).
 
-**Proximal IRLS-CD** (quantile + SCAD/MCP):
-1. Compute IRLS weights: `w_i = τ_i / max(|r_i|, ε)`
-2. Quadratic majorization: `Q(β) = ½ Σ w_i(y_i - X_iβ)²`
-3. Parallel diagonal majorization step + LLA threshold
-4. GPU: convergence check stays on device, only syncs bool
+### Specialized internal paths
 
-**Proximal Newton** (Huber/Bisquare + SCAD/MCP):
-1. Compute Hessian `H = ∇²ℓ(β)` and gradient `g = ∇ℓ(β)`
-2. Newton direction: `d = -H⁻¹·g`
-3. Armijo line search with proximal step
-4. Typically converges in 5-10 iterations
+- Quantile SCAD/MCP uses a quadratic IRLS majorization with an LLA thresholding
+  step. The estimator exposes the high-level penalty-aware route, not the
+  low-level function name.
+- SCAD/MCP FISTA-LLA follows a continuation path, updates local-linear weights,
+  and solves weighted-L1 inner problems.
+- Proximal Newton remains a low-level solver-library facade. The current robust
+  SCAD/MCP estimator route is FISTA-LLA, not Proximal Newton.
 
-**FISTA-LLA** (generic nonconvex path):
-1. Continuation path: λ_max → target α (3-5 steps)
-2. LLA outer loop (2-5 iterations per step)
-3. Weighted-L1 FISTA inner solve
+## 4. Backend scope
 
-`PenalizedCoxPHModel` uses this FISTA-LLA continuation for SCAD and MCP. Its
-convex L1/L2/ElasticNet paths use the corresponding FISTA/Newton routing.
+The shared FISTA, FISTA-BB, weighted-L1/FISTA-LLA, quantile IRLS, smooth
+Newton/L-BFGS, and Cox-specific paths have NumPy, CuPy, and Torch
+implementations where the corresponding estimator exposes them. Backend
+coverage does not widen the model's public selector. For example,
+`LogisticRegression` remains fixed to IRLS on every backend.
 
-## 4. Backend Coverage
+## 5. Model-specific references
 
-| Solver / Path | NumPy | CuPy | Torch |
-|:---------------|:---:|:---:|:---:|
-| Proximal IRLS-CD | ✅ | ✅ | ✅ |
-| Proximal Newton | ✅ | ✅ | ✅ |
-| FISTA (weighted) | ✅ | ✅ | ✅ |
-| FISTA-BB (weighted) | ✅ | ✅ | ✅ |
-| FISTA-LLA (weighted) | ✅ | ✅ | ✅ |
-| Quantile IRLS (smooth) | ✅ | ✅ | ✅ |
-| Cox partial likelihood (Breslow/Efron) | ✅ native | ✅ native | ✅ native |
-| CoxPH counting process / strata / Exact | ✅ native | ✅ native | ✅ native |
-| DBSCAN | ✅ | GPU dist + host-sync CC | ✅ on-device |
-| UMAP | yes | supported with explicit SciPy host graph boundary | supported with explicit SciPy host graph boundary |
-
-## 5. Penalized Model Classes
-
-| Class | Loss | Penalties | Solvers |
-|-------|------|-----------|---------|
-| `PenalizedGeneralizedLinearModel` | any | all 10 | all 10 |
-| `PenalizedLinearRegression` | squared_error | l1/l2/elasticnet/scad/mcp/adaptive_l1 | exact/fista |
-| `PenalizedLogisticRegression` | logistic | l1/l2/elasticnet/scad/mcp/adaptive_l1 | irls/fista |
-| `PenalizedPoissonRegression` | poisson | l1/l2/elasticnet/scad/mcp/adaptive_l1 | irls/fista |
-| `PenalizedQuantileRegression` | quantile | scad/mcp/l2 | proximal_irls_cd/fista/irls |
-| `PenalizedRobustRegression` | huber/bisquare | scad/mcp/l2 | proximal_newton/irls |
-| `PenalizedCoxPHModel` | cox_ph | l1/l2/elasticnet/scad/mcp | fista/newton; fista_lla for SCAD/MCP |
+| Model family | Authoritative solver section |
+|---|---|
+| GLM wrappers | [Generalized linear model](../models/generalized-linear-model.md#solver-support), [Logistic](../models/logistic-regression.md#solver-support), [Poisson](../models/poisson-regression.md#solver-support) |
+| Convex regularization | [Ridge](../models/ridge.md#solver-support), [Lasso](../models/lasso.md#solver-support), [Elastic Net](../models/elastic-net.md#solver-support) |
+| Weighted/non-convex regularization | [Adaptive Lasso](../models/adaptive-lasso.md#solver-support), [SCAD](../models/scad.md#solver-support), [MCP](../models/mcp.md#solver-support) |
+| Specialized regression | [Quantile](../models/quantile.md#solver-support), [Robust](../models/robust.md#solver-support), [Cox PH](../models/coxph.md#solver-support) |
+| Other model-specific algorithms | [Ordered models](../models/ordered.md#solver-support), [Kernel methods](../models/kernel-methods.md#solver-support), [PCA](../unsupervised/pca.md#solver-support), [NMF](../unsupervised/nmf.md#solver-support) |
 
 The penalized Cox wrapper never fits an intercept and is estimation-only.
-Passing `compute_inference=True` raises `NotImplementedError` rather than
-falling through to generic GLM inference.
+Passing `compute_inference=True` raises `NotImplementedError`; use ordinary
+`CoxPH` when inference, baseline hazard, or survival curves are required.
 
 ## 6. Quick Reference
 

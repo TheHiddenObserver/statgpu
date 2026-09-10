@@ -69,6 +69,12 @@ P(y=k | X) = F(θ_k - Xβ) - F(θ_{k-1} - Xβ)
 
 with boundary conventions `θ_{-1} = -∞`, `θ_{K-1} = ∞`.
 
+## Solver support
+
+`OrderedLogitRegression` and `OrderedProbitRegression` do not expose a public `solver` parameter. Both always use their model-specific Newton-Raphson implementation with trust-region ridge regularization on NumPy, CuPy, or Torch. The internal `solver="auto"` passed by the typed wrappers is not a user-selectable dispatch surface.
+
+This optimizer jointly updates coefficients and ordered thresholds, so it is not interchangeable with the generic GLM Newton function. Its equations and convergence behavior belong on this model page.
+
 ## Optimization
 
 Newton-Raphson with trust-region regularization (all 3 backends):

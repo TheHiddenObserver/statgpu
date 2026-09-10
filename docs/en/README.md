@@ -23,7 +23,7 @@
 - [Inference Modes](guides/inference-modes.md) — Lasso inference (debiased, bootstrap)
 - [Multiple Testing](guides/multiple-testing-combine-pvalues.md) — p-value adjustment and combination
 - [Benchmarks](guides/benchmarks.md) — benchmark scripts, artifacts, and comparison notes
-- [Interactive Benchmark Dashboard](guides/statgpu_benchmark_dashboard.md) — filters, charts, metric panels, data provenance, and reproduction
+- [Interactive Benchmark Dashboard](/dashboard/) — filters, charts, metric panels, data provenance, and reproduction
 
 ## Models
 

@@ -1,4 +1,4 @@
-# IncrementalPCA
+# 增量主成分分析（IncrementalPCA）
 
 > 语言：中文
 > 最后更新：2026-05-07
@@ -62,7 +62,7 @@ IncrementalPCA 是 batch/streaming 近似估计器，结果会受 batch order �
 - `n_features_in_`
 - `n_samples_seen_`
 
-## FAQ
+## 常见问题
 
 **v1 支持 sparse input 吗？**
 不支持。Phase 3C 仅支持 dense 2D float arrays。
@@ -74,7 +74,7 @@ IncrementalPCA 是 batch/streaming 近似估计器，结果会受 batch order �
 - 最新远程 artifact：`results/unsupervised_phase3c_opt7_20260507_185500.json`。
 - Baseline：sklearn `IncrementalPCA`，对齐 `n_components` 和 `batch_size`。
 
-## References
+## 参考文献
 
 - Ross, D. A., Lim, J., Lin, R.-S., & Yang, M.-H. (2008). Incremental learning for robust visual tracking. *International Journal of Computer Vision*, 77, 125-141. https://doi.org/10.1007/s11263-007-0075-7
 - scikit-learn Developers. `sklearn.decomposition.IncrementalPCA`. scikit-learn documentation. https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.IncrementalPCA.html

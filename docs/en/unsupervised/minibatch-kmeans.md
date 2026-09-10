@@ -1,5 +1,7 @@
 # MiniBatchKMeans
 
+> Switch: [简体中文](../../cn/unsupervised/minibatch-kmeans.md)
+
 > Language: English
 > Last updated: 2026-05-09
 > Path: `statgpu.unsupervised.MiniBatchKMeans`

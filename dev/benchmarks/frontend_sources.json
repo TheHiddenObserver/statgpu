@@ -6,44 +6,52 @@
       "label": "Tesla P100 + Xeon 8163",
       "gpu": "NVIDIA Tesla P100-SXM2-16GB",
       "cpu": "Intel Xeon Platinum 8163",
-      "host": "hz-4.matpool.com"
+      "host": "hz-4.matpool.com",
+      "physical_env_id": "remote-p100"
     },
     "remote-p100-cv-20260807": {
       "label": "Tesla P100 CV rerun \u2014 2026-08-07",
       "gpu": "Tesla P100-SXM2-16GB",
       "cpu": "x86_64",
-      "host": "wE6lDe"
+      "host": "wE6lDe",
+      "physical_env_id": "remote-p100"
     },
     "remote-p100-pr116-20260807": {
       "label": "Tesla P100 PR #116 CV validation \u2014 2026-08-07",
       "gpu": "Tesla P100-SXM2-16GB",
       "cpu": "x86_64",
-      "host": "wE6lDe"
+      "host": "wE6lDe",
+      "physical_env_id": "remote-p100"
     },
     "remote-p100-pr122-20260809": {
       "label": "Tesla P100 PR #122 Panel Stage B validation \u2014 2026-08-09",
       "gpu": "Tesla P100-SXM2-16GB",
-      "cpu": "x86_64"
+      "cpu": "x86_64",
+      "physical_env_id": "remote-p100"
     },
     "remote-p100-pr126-20260811": {
       "label": "Tesla P100 PR #126 Panel Stage C \u2014 2026-08-11",
       "gpu": "Tesla P100-SXM2-16GB",
-      "cpu": "x86_64"
+      "cpu": "x86_64",
+      "physical_env_id": "remote-p100"
     },
     "remote-p100-pr126-20260812": {
       "label": "Tesla P100 PR #126 Panel Stage C rank-df \u2014 2026-08-12",
       "gpu": "Tesla P100-SXM2-16GB",
-      "cpu": "x86_64"
+      "cpu": "x86_64",
+      "physical_env_id": "remote-p100"
     },
     "remote-p100-pr126-identifiability-20260812": {
       "label": "Tesla P100 PR #126 Panel Stage C identifiability \u2014 2026-08-12",
       "gpu": "Tesla P100-SXM2-16GB",
-      "cpu": "x86_64"
+      "cpu": "x86_64",
+      "physical_env_id": "remote-p100"
     },
     "remote-p100-pr126-final-20260813": {
       "label": "Tesla P100 PR #126 final fresh acceptance \u2014 2026-08-13",
       "gpu": "Tesla P100-SXM2-16GB",
-      "cpu": "x86_64"
+      "cpu": "x86_64",
+      "physical_env_id": "remote-p100"
     }
   },
   "frameworks": {

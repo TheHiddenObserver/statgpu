@@ -32,8 +32,12 @@ X_selected = selector.transform(X)
 - `n_jobs` 使用线程，避免把 device array 序列化到进程；
 - 后端与推断能力跟随 `model_class` 及其参数。
 
-## 输出与边界
+## 输出
 
 拟合后提供 `selected_features_`、`best_model_`、`aic_history_`、`bic_history_`、
-`selection_history_`、`predict`、`transform` 与 `fit_transform`。信息准则搜索具有
-组合复杂度，适合中等特征数；高维 FDR 控制优先使用 knockoff。
+`selection_history_`、`predict`、`transform` 与 `fit_transform`。
+
+## 验证与限制
+
+对确定性 wrapper，选择结果同样是确定性的。信息准则搜索具有组合复杂度，适合中等
+特征数；主要目标是高维筛选或控制 FDR 时，应优先使用 knockoff。

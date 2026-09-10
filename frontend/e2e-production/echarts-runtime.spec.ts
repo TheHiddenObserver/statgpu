@@ -17,7 +17,7 @@ test.describe('Deployed benchmark chart runtime', () => {
     page.on('pageerror', error => pageErrors.push(error.message));
 
     await page.goto('./');
-    await expect(page.locator('.header')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.header')).toBeVisible({ timeout: 60_000 });
 
     // Chart rendering is intentionally deferred with requestAnimationFrame in
     // main.ts. Wait for both renderers to enter the real setOption path and
@@ -61,7 +61,7 @@ test.describe('Deployed benchmark chart runtime', () => {
 
   test('materializes exactly the announced chart rows and resets them on rerender', async ({ page }) => {
     await page.goto('./');
-    await expect(page.locator('.header')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.header')).toBeVisible({ timeout: 60_000 });
 
     const timing = page.locator('#timing-chart-data');
     const speedup = page.locator('#speedup-chart-data');

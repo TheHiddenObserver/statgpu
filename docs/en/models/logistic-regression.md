@@ -25,11 +25,17 @@ where \(p_i = \sigma(x_i^\top\beta)\) and larger `C` means weaker regularization
 
 ## Estimating Equation
 
-The model is solved by IRLS/Newton/L-BFGS-style updates to satisfy score equations:
+The model's fixed IRLS updates solve the score equations:
 $$
 \sum_i x_i(y_i - p_i)=0
 $$
-under convergence controls `max_iter` and `tol`. As of v23c (2026-05), `solver="lbfgs"` correctly handles L2 penalties across all backends.
+under convergence controls `max_iter` and `tol`.
+
+## Solver support
+
+`LogisticRegression` does **not** expose a public `solver` parameter. It always uses its dedicated IRLS implementation on CPU, CuPy, or Torch; `C` controls the optional L2 term. Passing `solver="newton"` or `solver="lbfgs"` to this class is therefore invalid.
+
+Use `GeneralizedLinearModel(family="binomial", solver=...)` when an explicit ordinary-GLM solver comparison is required, or `PenalizedLogisticRegression` for penalty-aware solver dispatch. Their accepted values are documented on the [GLM model page](generalized-linear-model.md#solver-support).
 
 ## Covariance/Inference
 

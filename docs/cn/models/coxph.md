@@ -1,4 +1,4 @@
-# CoxPH
+# Cox 比例风险模型（CoxPH）
 
 > 语言：中文<br>
 > 最后更新：2026-08-04<br>
@@ -194,6 +194,17 @@ CoxPH().fit(
 Formula 删除缺失行时，会同步对齐 `entry`/`start`、`cluster`、`strata` 与
 `subject_id`。三列 `Surv(start, stop, event)` 已定义起始时间，不能再同时传入
 `entry=` 或 `start=`。
+
+## 求解器支持
+
+| 估计器 | 公开控制项 | 支持路径 |
+|---|---|---|
+| `CoxPH` / `CoxPHCV` | 无 `solver` 参数 | 带线搜索与最终 KKT 校验的 Newton-Raphson |
+| `PenalizedCoxPHModel`，L2/none | `auto`（默认）或 `newton` | `auto` 分发到 Newton |
+| `PenalizedCoxPHModel`，L1/Elastic Net | `auto`、`fista` 或 `fista_bb` | 近端稀疏路径 |
+| `PenalizedCoxPHModel`，SCAD/MCP | `auto` 或 `fista` | Cox 专属 FISTA-LLA continuation |
+
+`exact`、IRLS、quantile coordinate descent 与 ordered-model trust-region Newton 都不是 Cox 估计器选项。`fista_lla_path` 是内部子路径，不能作为 `solver=` 的值。普通模型的固定 Newton 实现在下文说明；通用更新公式见[求解器指南](../guides/solver-algorithms.md)。
 
 ## 优化与收敛
 

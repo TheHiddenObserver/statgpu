@@ -13,7 +13,7 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: 'html',
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: 'http://127.0.0.1:5173',
     trace: 'on-first-retry',
   },
   projects: [
@@ -23,9 +23,11 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npx vite --port 5173',
-    url: 'http://localhost:5173',
+    command:
+      'node node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port 5173',
+    url: 'http://127.0.0.1:5173',
     reuseExistingServer: !process.env.CI,
     cwd: __dirname,
+    timeout: 180_000,
   },
 });

@@ -1,20 +1,20 @@
-# BetweenOLS
+# 组间回归（BetweenOLS）
 
 > 语言：中文  
 > 最后更新：2026-08-19  
 > 切换：[English](../../en/panel/between-ols.md)
 
-## Overview
+## 概述
 
 `BetweenOLS` 先在每个 entity 内对各变量取时间均值，把面板数据压缩成“每个 entity 一行”，再对这些 entity 均值做带截距的 OLS 回归。它适合研究主要来自 **entity 之间长期平均差异** 的关系，而不是同一 entity 随时间的变化。
 
 因此，最终回归的有效样本量是保留下来的 entity 数量，而不是原始 panel 的总行数。
 
-## Path
+## 路径
 
 实现：`statgpu/panel/_between.py`。
 
-## Statistical Model and Identification
+## 统计模型与识别
 
 Between transformation 的代数关系可以从 one-way entity-effect equation 出发：
 
@@ -40,7 +40,7 @@ $$
 
 如果 persistent entity heterogeneity 与该 entity 的 average regressors 相关，`BetweenOLS` 在数值上仍然是在估计 $\bar y_i$ 对 $\bar x_i$ 的横截面 linear projection，但这个 projection 一般不会等于 fixed-effects 或 first-difference slope。
 
-## Estimator
+## 估计量
 
 对 entity $i$，
 
@@ -60,13 +60,13 @@ $$
 
 也就是说，原始 panel 最终被转换成一个以 entity 均值为观测的普通横截面 OLS。
 
-## Covariance and Inference
+## 协方差与推断
 
 标准误直接基于这个 entity-mean 回归计算。`cov_type="nonrobust"` 使用通常的同方差 OLS covariance；`robust`/`hc1` 以及 HC0/HC2/HC3 提供异方差稳健版本。统一公式见 [面板 covariance](covariance.md)。
 
 这些 covariance choice 只改变 between regression 的 inference，并不能替代将其 slope 解释为基础 panel model structural $\beta$ 时所需的正交条件。
 
-## Parameters
+## 参数
 
 | 参数 | 默认值 | 可选值 / 约束 | 含义 |
 |---|---:|---|---|
@@ -81,7 +81,7 @@ model.fit(X, y, entity_ids=entity_ids)
 
 `entity_ids` 必需，因为模型需要先在每个 entity 内计算均值。
 
-## CPU and GPU Example
+## CPU 与 GPU 示例
 
 ```python
 from statgpu.panel import BetweenOLS
@@ -93,7 +93,7 @@ torch = BetweenOLS(device="torch").fit(X, y, entity_ids=entity_ids)
 
 若显式指定 `device="cuda"` 或 `device="torch"`，但对应 GPU backend 不可用，`.fit()` 会直接报错，而不是自动切换到 CPU。
 
-## Formula Example
+## Formula 接口示例
 
 假设 `df` 包含 `y`、`x1`、`x2` 与 `entity` 列。
 
@@ -109,11 +109,11 @@ model = BetweenOLS().fit(
 
 `BetweenOLS` 始终包含截距，因此显式 no-intercept formula 会被拒绝。
 
-## Outputs
+## 输出
 
 常用结果包括 `coef_`、`bse_`、`tvalues_`、`pvalues_`、`conf_int_`、`rsquared`、`fit_statistics_`、`nobs` 与 `df_resid`。其中 `nobs` 表示最终进入回归的 entity 均值个数。
 
-## Numerical and Strict Behavior
+## 数值行为与 strict 模式
 
 自动添加的 intercept 使用与 `PooledOLS` 相同的 cancellation-sensitive SVD response-projection guard。普通 entity-mean response 保持历史 SVD/BLAS solve；magnitude/cancellation-sensitive response 在保持 SVD、rank cutoff、design scaling 和 minimum-norm solution 不变的同时，仅将 response projection reduction 替换为共享 magnitude-tiered reducer。legacy between $R^2$ 在物理 `y-mean(y)` 可能溢出时也改用 range-safe working-scale centering。
 
@@ -121,13 +121,13 @@ model = BetweenOLS().fit(
 
 不支持的 `cov_type` 会报错。类似地，若用户显式要求某个 GPU backend，该 backend 必须实际可用；statgpu 不会悄悄改用 CPU。
 
-## FAQ
+## 常见问题
 
 **为什么 `nobs` 小于原始数据行数？**  因为 `nobs` 是 between regression 使用的 entity 均值观测数，而不是原始 panel 行数。
 
 **时间观测更多的 entity 会自动获得更高权重吗？**  不会。每个保留的 entity 在最终 OLS 中只贡献一个均值观测。
 
-## External Validation
+## 外部验证
 
 我们先在 statgpu 与 `statsmodels==0.14.6` 中构造完全相同的 entity-mean 回归，再比较 coefficient 以及 HC0/HC2/HC3 covariance 和 standard error。coefficient 使用 `rtol=5e-10, atol=5e-12`；covariance/BSE 使用 `rtol=5e-9, atol=5e-11`。共享 covariance 检查见 [validation matrix](covariance.md#validation-matrix)。
 

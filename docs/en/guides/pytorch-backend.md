@@ -199,7 +199,7 @@ Maintained evidence should record:
 - passed, failed, and skipped tests.
 
 Current and historical benchmark artifacts live under `results/` and `dev/benchmarks/`.
-The retained [Torch backend report](../../../dev/docs/torch_backend_final_report.md) is a
+The retained [Torch backend report](https://github.com/TheHiddenObserver/statgpu/blob/master/dev/docs/torch_backend_final_report.md) is a
 dated evidence snapshot, not a current support matrix.
 
 ## Troubleshooting
@@ -253,4 +253,4 @@ loss while StatGPU optimizes a mean loss.
 ## References
 
 - [PyTorch documentation](https://pytorch.org/docs/)
-- [StatGPU Torch backend evidence snapshot](../../../dev/docs/torch_backend_final_report.md)
+- [StatGPU Torch backend evidence snapshot](https://github.com/TheHiddenObserver/statgpu/blob/master/dev/docs/torch_backend_final_report.md)
