@@ -151,6 +151,13 @@ from . import _lassocv_device_affinity_contract as _lassocv_device_affinity_cont
 
 _lassocv_device_affinity_contract.install_lassocv_device_affinity_contract()
 
+# Node-wise debiased precision is a design-side statistical object. Expose its
+# tuning parameter, standardize the working design, remove response-scale tuning,
+# and keep the existing #138 centered/weighted/backend-native contracts intact.
+from . import _nodewise_alpha_inference_contract as _nodewise_alpha_inference_contract
+
+_nodewise_alpha_inference_contract.install_nodewise_alpha_inference_contract()
+
 __all__ = [
     'LinearRegression',
     'LogisticRegression',
