@@ -15,7 +15,7 @@
 
 | Loss | l2 / none | l1 | elasticnet | scad | mcp | adaptive_l1 | group_lasso | group_scad | group_mcp |
 |------|:---------:|:--:|:----------:|:----:|:---:|:-----------:|:-----------:|:----------:|:---------:|
-| **squared_error** | exact on CPU; Newton on GPU | fista | fista | irls_cd → fista_lla | irls_cd → fista_lla | fista | fista | group fista_lla | group fista_lla |
+| **squared_error** | l2: exact on CPU / Newton on GPU; none: fista | fista | fista | irls_cd → fista_lla | irls_cd → fista_lla | fista | fista | group fista_lla | group fista_lla |
 | **logistic** | newton | fista | fista | fista_lla | fista_lla | fista | fista | group fista_lla | group fista_lla |
 | **poisson** | newton | fista | fista | fista_lla | fista_lla | fista | fista | group fista_lla | group fista_lla |
 | **gamma** | newton | fista | fista | fista_lla | fista_lla | fista | fista | group fista_lla | group fista_lla |
@@ -30,6 +30,7 @@
 - Every Group Lasso or Adaptive Group Lasso estimator uses the advertised loss gradient and the exact Euclidean group proximal operator. This includes squared error, robust/GLM losses, `sample_weight`, CV folds, and the selected-alpha final refit.
 - The former Gaussian block update is not public-routed. Solving a group Gram system and then applying Euclidean block thresholding is exact only for orthonormal group blocks, which the public design matrix does not require.
 - Analytic `sample_weight` does not silently rewrite an explicit solver request. Supported weighted Newton/L-BFGS rows use the same normalized weighted objective as their unweighted counterpart; unsupported loss/solver weight combinations fail explicitly.
+- For ordinary `GammaRegression(link="inverse_power")`, the newly supported genuine non-uniform weighted explicit Newton/L-BFGS path requires `fit_intercept=True` so a maintained strictly positive family-valid starting predictor can be constructed. The weighted no-intercept row fails closed; historical unweighted behavior is unchanged.
 
 ## 2. Explicit Solver Constraints
 
@@ -118,7 +119,9 @@ Group inputs are strict: alpha and other hyperparameters must be finite numeric 
 ```
                     ┌─ squared_error + l2? ─── Yes ──→ exact on CPU / Newton on GPU
                     │
-                    ├─ smooth GLM + l2/none? ─ Yes ──→ Newton (direct auto)
+                    ├─ squared_error + none? ─ Yes ──→ FISTA
+                    │
+                    ├─ smooth non-Gaussian GLM + l2/none? ─ Yes ──→ Newton (direct auto)
                     │
 solver='auto' ──────├─ scalar nonconvex? ───── Yes ──→ scalar LLA path
                     │
