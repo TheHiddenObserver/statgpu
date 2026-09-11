@@ -1,7 +1,7 @@
 # Lasso
 
 > 语言: 中文  
-> 最后更新: 2026-09-10  
+> 最后更新: 2026-09-11  
 > 页面定位: 模型文档  
 > 切换: [English](../../en/models/lasso.md)
 
@@ -43,7 +43,7 @@ Lasso 通过迭代优化求解，而不是闭式 normal equation。停止条件�
 
 - `post_selection_ols`：与硬件无关的活跃集 OLS/WLS 重拟合诊断；
 - `debiased`：纠偏 Lasso 推断（de-biased / de-sparsified），使用 z 统计量语义；
-- `bootstrap`：残差自助法，计算通常更昂贵，也不是对模型选择不确定性的普适修正。
+- `bootstrap`：无权重 Gaussian residual bootstrap，计算通常更昂贵，也不是对模型选择不确定性的普适修正。
 
 统一 wrapper 中的 `cpu_ols` 与 `gpu_ols` **同时进入弃用期**。一个兼容周期内仍可传入，但会发出 `FutureWarning` 并统一映射为 `post_selection_ols`；它们不是“CPU 版”和“GPU 版”两个不同的统计方法。`LassoCV` 还会在其兼容边界接受更早的 `cpu_ols_inference` / `gpu_ols_inference` 拼法，并映射到同一个规范方法。
 
@@ -72,7 +72,7 @@ Lasso 通过迭代优化求解，而不是闭式 normal equation。停止条件�
 
 对于 `fit_intercept=True` 的中心化纠偏推断，计算量最大的同时乘子自助法阶段也会留在同一个具体 CuPy/Torch 设备上。coherent marginal result 此时已经按既有 reporting contract 形成 O(p) 的 NumPy `params`/SE snapshot；只有这些很小的边际数组会重新映射回执行设备。随后 B×n 乘子抽样、feature/intercept score、max-|Z| reduction、quantile calibration 和 joint CI 数值计算都保持后端原生，最后再对联合结果做 NumPy reporting snapshot。result 会记录 `simultaneous_numerical_backend`、`simultaneous_numerical_device`、`simultaneous_reporting_backend="numpy"` 和 `simultaneous_reporting_boundary="post_numerical_inference"`。历史 `fit_intercept=False` simultaneous 路径仍使用既有 generic reporting-stage helper，本 PR **不把该旧路径宣称为 GPU-native**。
 
-残差 `bootstrap` 当前仍使用 CPU-native residual refit，因此显式 GPU `device` 会控制 penalized fit，但不会让 bootstrap 变成 GPU-native。
+残差 `bootstrap` 保持窄的 **unweighted Gaussian residual-refit** 统计 contract，但在 PR #147 / 0.2.6 目标版本中，child refit 会在成功拟合记录的 NumPy/CuPy/Torch backend 与具体 device 上执行。CuPy bootstrap child 保持在同一 `cuda:k`，Torch bootstrap child 也保持在同一 `cuda:k`。固定 `bootstrap_random_state` 会生成一套 backend-neutral 整数 residual-index schedule，结果 metadata 会记录稳定 schedule SHA-256 与 numerical/reporting provenance。只有小型 index schedule 和最终 NumPy reporting snapshot 会跨越 host/device boundary。weighted、robust/HAC、non-Gaussian 与 Cox bootstrap 语义仍不支持并 fail closed。
 
 对于分析权重，direct Lasso 与纠偏推断在 NumPy/CuPy/Torch 上都使用同一个加权中心化平均损失约定，因此把所有权重乘以同一个正常数不会改变统计问题。`LassoCV` 的默认 alpha grid、每个 weighted training fold、validation MSE 与 final refit 也遵循同一约定；常数正权重直接走与 unweighted 完全相同的 CV 路径。AUTO 一旦为 CV 解析出具体后端，最终 selected-alpha `Lasso` refit 也保持在该后端。
 
@@ -239,6 +239,7 @@ ci_simul = m_sim._conf_int_simultaneous
 ## 外部验证（External Validation）
 
 - `dev/benchmarks/validate_post_selection_ols_gpu.py`
+- `dev/benchmarks/validate_gaussian_residual_bootstrap_gpu.py`：PR #147 的 exact-source NumPy/CuPy/Torch residual-bootstrap parity 与 concrete-device gate；脚本本身不是 physical GPU evidence，必须在 CUDA 硬件上真正执行。
 - `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`：canonical `post_selection_ols` CPU/CuPy end-to-end parity 与完整 fit+inference timing benchmark。
 - `dev/benchmarks/benchmark_lasso_cpu_gpu_tol.py`
 - `dev/comparisons/compare_lasso_kkt_stopping.py`
@@ -247,7 +248,7 @@ ci_simul = m_sim._conf_int_simultaneous
 - `dev/tests/test_post_selection_ols_inference_api.py`
 - `dev/tests/test_penalized_solver_api_cleanup.py`
 
-physical post-selection OLS validator 要求同时存在 CuPy CUDA 与 Torch CUDA。脚本存在本身不等于 physical GPU evidence；只有在物理 CUDA 环境对 exact head 真正执行并记录结果后，才能作为 GPU acceptance 证据。
+physical validator 的存在本身不等于 physical GPU evidence；只有在物理 CUDA 环境对 exact head 真正执行并记录结果后，才能作为 GPU acceptance 证据。
 
 ## 参考（References）
 
