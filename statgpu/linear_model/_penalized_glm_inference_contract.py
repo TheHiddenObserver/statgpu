@@ -1,13 +1,12 @@
 """Public contract repair for penalized GLM coefficient inference.
 
-This module deliberately reuses the maintained numerical implementations.  It
+This module deliberately reuses the maintained numerical implementations. It
 repairs the public method resolver, resampling scope, backend provenance, and
 PenalizedGLM_CV final-refit boundary after the earlier sparse-Gaussian contract
 installers have run.
 
-The installer is intentionally last in ``statgpu.linear_model`` so it can
-compose with the existing post-selection/nodewise compatibility stack without
-reimplementing those statistical methods.
+Existing specialized contracts (post-selection aliases, group penalties, Cox,
+node-wise sparse Gaussian inference) remain authoritative for their own rows.
 """
 
 from __future__ import annotations
@@ -53,6 +52,7 @@ _AUTO_DEFAULT_CLASSES = (
     PenalizedNegativeBinomialRegression,
     PenalizedTweedieRegression,
 )
+_POST_SELECTION_REQUESTS = frozenset({"cpu_ols", "gpu_ols", POST_SELECTION_OLS})
 _ORACLE_LOSSES = frozenset(
     {
         "squared_error",
@@ -85,13 +85,18 @@ def _loss_name(estimator) -> str:
     return str(getattr(estimator, "loss", "")).strip().lower()
 
 
+def _raw_public_request(estimator) -> str:
+    return str(
+        getattr(
+            estimator,
+            "inference_method",
+            getattr(estimator, "_inference_method", "auto"),
+        )
+    ).strip().lower()
+
+
 def _normalized_request(estimator) -> str:
-    value = getattr(
-        estimator,
-        "_inference_method",
-        getattr(estimator, "inference_method", "auto"),
-    )
-    return normalize_penalized_inference_method(value)
+    return normalize_penalized_inference_method(_raw_public_request(estimator))
 
 
 def _positive_penalty(estimator) -> bool:
@@ -140,7 +145,7 @@ def _resolve_contract(estimator):
         raise _unsupported(
             estimator,
             request,
-            reason="group-preserving covariance/bootstrap inference is not implemented.",
+            reason="this group-penalty row is estimation-only under its existing contract.",
         )
     if loss == "cox_ph":
         raise _unsupported(
@@ -149,8 +154,6 @@ def _resolve_contract(estimator):
             reason="the penalized Cox estimator is currently estimation-only.",
         )
 
-    # Historical generic/typed L2 surfaces exposed a misleading debiased
-    # default even though the executed method was Gaussian or M-estimation.
     if request == "debiased" and penalty == "l2":
         warnings.warn(
             "inference_method='debiased' for L2/no-penalty models is a "
@@ -294,30 +297,62 @@ def _resolve_contract(estimator):
     }
 
 
-def _install_auto_constructor_default(cls):
-    current = cls.__init__
-    if getattr(current, _INSTALL_MARKER, False):
-        return
-    signature = inspect.signature(current)
-    parameter = signature.parameters.get("inference_method")
+def _replace_source_default(callable_obj, name: str, value):
+    """Change one real constructor default without adding a runtime frame."""
+    source = inspect.unwrap(callable_obj)
+    signature = inspect.signature(source, follow_wrapped=False)
+    parameter = signature.parameters.get(name)
     if parameter is None:
         return
-    new_parameters = [
-        p.replace(default="auto") if p.name == "inference_method" else p
-        for p in signature.parameters.values()
-    ]
-    public_signature = signature.replace(parameters=new_parameters)
 
-    @functools.wraps(current)
-    def wrapped(self, *args, **kwargs):
-        bound = signature.bind_partial(self, *args, **kwargs)
-        if "inference_method" not in bound.arguments:
-            kwargs["inference_method"] = "auto"
-        return current(self, *args, **kwargs)
+    if parameter.kind in (
+        inspect.Parameter.POSITIONAL_ONLY,
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+    ):
+        positional = [
+            p
+            for p in signature.parameters.values()
+            if p.kind
+            in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        ]
+        defaults = list(source.__defaults__ or ())
+        first_default = len(positional) - len(defaults)
+        index = positional.index(parameter) - first_default
+        if index < 0:
+            raise RuntimeError(
+                f"Cannot replace non-default positional parameter {name!r} on {source!r}."
+            )
+        defaults[index] = value
+        source.__defaults__ = tuple(defaults)
+    elif parameter.kind is inspect.Parameter.KEYWORD_ONLY:
+        kwdefaults = dict(source.__kwdefaults__ or {})
+        kwdefaults[name] = value
+        source.__kwdefaults__ = kwdefaults
+    else:
+        raise RuntimeError(f"Unsupported constructor parameter kind for {name!r}.")
 
-    wrapped.__signature__ = public_signature
-    setattr(wrapped, _INSTALL_MARKER, True)
-    cls.__init__ = wrapped
+    cursor = callable_obj
+    seen = set()
+    while cursor is not None and id(cursor) not in seen:
+        seen.add(id(cursor))
+        explicit = getattr(cursor, "__signature__", None)
+        if explicit is not None and name in explicit.parameters:
+            cursor.__signature__ = explicit.replace(
+                parameters=[
+                    p.replace(default=value) if p.name == name else p
+                    for p in explicit.parameters.values()
+                ]
+            )
+        cursor = getattr(cursor, "__wrapped__", None)
+
+
+def _install_auto_constructor_default(cls):
+    # Do not wrap __init__: existing solver/post-selection deprecation policies
+    # inspect the call stack to distinguish user calls from statgpu-internal
+    # reconstruction. An extra contract-module frame would incorrectly suppress
+    # those established warnings. Mutating the true source default preserves the
+    # existing wrapper stack and its caller-intent semantics.
+    _replace_source_default(cls.__init__, "inference_method", "auto")
 
 
 def _install_state_cleanup():
@@ -345,12 +380,24 @@ def _install_validator():
     def wrapped(self):
         if not self._compute_inference_enabled:
             self._statgpu_pending_inference_contract = None
-            return None
+            return current(self)
+
+        raw_request = _raw_public_request(self)
+        penalty = _penalty_name(self)
+        loss = _loss_name(self)
+
+        # Preserve the already-reviewed contracts for historical
+        # post-selection aliases, group penalties, and penalized Cox. They own
+        # exact warning/error wording and result provenance for those consumers.
+        if (
+            raw_request in _POST_SELECTION_REQUESTS
+            or penalty in _GROUP_PENALTY_NAMES
+            or loss == "cox_ph"
+        ):
+            self._statgpu_pending_inference_contract = None
+            return current(self)
+
         contract = _resolve_contract(self)
-        # Keep the earlier post-selection validator in the chain for its own
-        # migration-specific guard. Other rows are owned by this contract.
-        if contract["resolved"] == POST_SELECTION_OLS:
-            current(self)
         self._statgpu_pending_inference_contract = contract
         return None
 
@@ -387,9 +434,7 @@ def _run_sandwich_on_fit_backend(current, self, X, y, sample_weight=None):
         X_native = self._to_array(X, backend="numpy")
         y_native = self._to_array(y, backend="numpy")
         sw_native = (
-            None
-            if sample_weight is None
-            else self._to_array(sample_weight, backend="numpy")
+            None if sample_weight is None else self._to_array(sample_weight, backend="numpy")
         )
         result = current(self, X_native, y_native, sample_weight=sw_native)
     elif backend == "cupy":
@@ -615,7 +660,24 @@ def _install_post_fit_contract():
     def wrapped(self, X, y, sample_weight=None):
         if not self._compute_inference_enabled:
             return current(self, X, y, sample_weight=sample_weight)
+
+        raw_request = _raw_public_request(self)
+        penalty = _penalty_name(self)
+        loss = _loss_name(self)
         contract = getattr(self, "_statgpu_pending_inference_contract", None)
+
+        # Direct internal-helper compatibility and specialized contracts stay
+        # with the already-reviewed previous method. A real fit owned by this
+        # contract always records both a pending contract and fit backend.
+        if contract is None and (
+            raw_request in _POST_SELECTION_REQUESTS
+            or penalty in _GROUP_PENALTY_NAMES
+            or loss == "cox_ph"
+            or str(getattr(self, "_selected_backend_name", "") or "").lower()
+            not in ("numpy", "cupy", "torch")
+        ):
+            return current(self, X, y, sample_weight=sample_weight)
+
         if contract is None:
             contract = _resolve_contract(self)
             self._statgpu_pending_inference_contract = contract
@@ -666,26 +728,10 @@ def _install_cv_constructor():
         return
     signature = inspect.signature(current)
     additions = (
-        inspect.Parameter(
-            "compute_inference",
-            inspect.Parameter.KEYWORD_ONLY,
-            default=False,
-        ),
-        inspect.Parameter(
-            "inference_method",
-            inspect.Parameter.KEYWORD_ONLY,
-            default="auto",
-        ),
-        inspect.Parameter(
-            "cov_type",
-            inspect.Parameter.KEYWORD_ONLY,
-            default="nonrobust",
-        ),
-        inspect.Parameter(
-            "hac_maxlags",
-            inspect.Parameter.KEYWORD_ONLY,
-            default=None,
-        ),
+        inspect.Parameter("compute_inference", inspect.Parameter.KEYWORD_ONLY, default=False),
+        inspect.Parameter("inference_method", inspect.Parameter.KEYWORD_ONLY, default="auto"),
+        inspect.Parameter("cov_type", inspect.Parameter.KEYWORD_ONLY, default="nonrobust"),
+        inspect.Parameter("hac_maxlags", inspect.Parameter.KEYWORD_ONLY, default=None),
     )
     public_signature = signature.replace(
         parameters=[*signature.parameters.values(), *additions]
@@ -756,7 +802,9 @@ def _install_cv_refit():
             alpha=float(best_alpha),
             l1_ratio=float(self.l1_ratio),
             penalty_kwargs=copy.deepcopy(getattr(self, "_penalty_kwargs", None) or {}),
+            fit_intercept=bool(getattr(self, "_fit_intercept", True)),
             device=refit_device,
+            n_jobs=getattr(self, "_n_jobs", None),
             compute_inference=True,
             inference_method=getattr(self, "inference_method", "auto"),
             cov_type=getattr(self, "cov_type", "nonrobust"),
@@ -764,6 +812,11 @@ def _install_cv_refit():
             max_iter=int(self._max_iter),
             tol=float(self._tol),
             solver=refit_solver,
+            gpu_memory_cleanup=bool(getattr(self, "_gpu_memory_cleanup", False)),
+            stopping=getattr(self, "_stopping", "coef_delta"),
+            lla=bool(getattr(self, "_lla", True)),
+            max_lla_iters=int(getattr(self, "_max_lla_iters", 50)),
+            lla_tol=float(getattr(self, "_lla_tol", 1e-6)),
             loss_kwargs=copy.deepcopy(getattr(self, "_loss_kwargs", None) or {}),
         )
         model.fit(X, y, sample_weight=sample_weight)
