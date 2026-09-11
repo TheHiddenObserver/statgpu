@@ -12,13 +12,13 @@
 - generic 与 typed penalized-GLM estimator 统一以 `inference_method="auto"` 作为 public reconciliation boundary；specialized sparse-Gaussian wrapper 保留既有显式默认。成功拟合会区分 requested/resolved/reported method，并记录 inferential target 与 tuning/selection conditioning。
 - 受支持的 smooth non-Gaussian L2 / no-penalty 推断解析为 fixed-penalty `m_estimation`，当前支持 nonrobust/HC0/HC1 covariance；non-Gaussian L1/ElasticNet coefficient inference 改为 fail closed，不再发布历史上只含 L2 curvature 的 full-vector partial sandwich。
 - residual `bootstrap` 明确限定为 `cov_type="nonrobust"` 的 unweighted CPU Gaussian residual bootstrap；refit 保留真实 penalty/tuning/intercept contract，至少需要 2 次 resample，且 CuPy/Torch 已执行拟合不会静默切到 CPU 做 resampling。
-- non-Gaussian M-estimation 以 fit-recorded NumPy/CuPy/Torch backend 与 concrete device 为准，并覆盖 Torch↔CuPy 异构 input container 对齐。带权、inference-enabled 的 non-Gaussian L2/no-penalty `solver="auto"` 在 direct fit 与 PenalizedGLM_CV selection/final refit 中统一使用已有 weight-capable FISTA，同时 public request 仍保持 `auto`。
+- non-Gaussian M-estimation 以 fit-recorded NumPy/CuPy/Torch backend 与 concrete device 为准，并覆盖 Torch↔CuPy 异构 input container 对齐。维护中的 Newton solver 现在支持真正的 non-uniform analytic weights，并让 objective value、gradient、Hessian 与 Armijo trial 使用同一个归一化 weighted objective，因此 weighted smooth L2/no-penalty 的 public `solver="auto"` 不再需要 PR #142 临时的 FISTA override。direct fit 与 `PenalizedGLM_CV` selection/final refit 重新服从 canonical dispatch；适用的 logistic/Poisson L2 行执行 backend-native Newton，同时 public request 仍保持 `auto`，并保留历史 floating uniform-weight `allclose` 语义。
 - `PenalizedGLM_CV` 新增 inference controls，并且 coefficient inference 只在 selected full-data final refit 上执行一次；结果条件于 CV-selected penalty，并明确报告 `penalty_selection_adjusted_=False`。
 
 ### 验证
 
-- 增加 targeted contract、formula、clone/compatibility、failure transaction、no-penalty、weighted-CV、installer idempotence 与 cross-backend alignment 回归，并同步中英文 model/CV/inference 文档。
-- `dev/benchmarks/validate_penalized_glm_inference_gpu.py` schema v2 是 maintained exact-source physical CUDA gate，覆盖 CuPy/Torch、weighted `solver="auto"` 以及 Torch→CuPy / CuPy→Torch container crossing。hosted checks 不替代 physical gate；在 exact-head runner 真正执行之前，不宣称已有 physical GPU pass。
+- 增加 targeted contract、formula、clone/compatibility、failure transaction、no-penalty、weighted-CV、installer idempotence、weighted-Newton objective/compatibility 与 cross-backend alignment 回归，并同步中英文 model/CV/inference 文档。
+- `dev/benchmarks/validate_penalized_glm_inference_gpu.py` schema v3 是 maintained exact-source physical CUDA gate，覆盖 CuPy/Torch。weighted case 要求适用行的 public `solver="auto"` 解析到 Newton；unweighted explicit-FISTA case 继续独立覆盖 FISTA fit/inference，并覆盖 Torch→CuPy / CuPy→Torch container crossing。hosted checks 不替代 physical gate；在 exact-head runner 真正执行之前，不宣称已有 physical GPU pass。
 
 ## 未发布 — Post-selection OLS 推断 API 清理（PR #138 / Issue #137）
 
