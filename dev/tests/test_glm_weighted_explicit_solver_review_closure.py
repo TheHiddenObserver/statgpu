@@ -27,6 +27,15 @@ def _logistic_data(seed=15401, n=100, p=3):
     return X, y
 
 
+def _poisson_data(seed=15404, n=120, p=3):
+    rng = np.random.default_rng(seed)
+    X = rng.normal(scale=0.35, size=(n, p)).astype(np.float64)
+    beta = np.array([0.22, -0.14, 0.09])[:p]
+    eta = 0.12 + X @ beta
+    y = rng.poisson(np.exp(eta)).astype(np.float64)
+    return X, y
+
+
 def test_weighted_explicit_solvers_support_no_intercept_representative_row():
     X, y = _logistic_data()
     weights = np.linspace(0.5, 1.6, X.shape[0], dtype=np.float64)
@@ -43,6 +52,34 @@ def test_weighted_explicit_solvers_support_no_intercept_representative_row():
         assert model._selected_solver == solver
         assert model.intercept_ == 0.0
         assert np.all(np.isfinite(model.coef_))
+
+
+@pytest.mark.parametrize("family,data_factory", [("binomial", _logistic_data), ("poisson", _poisson_data)])
+@pytest.mark.parametrize("solver", ["newton", "lbfgs"])
+def test_weighted_explicit_solvers_match_statsmodels_glm(family, data_factory, solver):
+    sm = pytest.importorskip("statsmodels.api")
+    X, y = data_factory()
+    weights = np.linspace(0.45, 1.75, X.shape[0], dtype=np.float64)
+
+    model = GeneralizedLinearModel(
+        family=family,
+        solver=solver,
+        device="cpu",
+        max_iter=800,
+        tol=1e-9,
+    ).fit(X, y, sample_weight=weights)
+
+    design = sm.add_constant(X, prepend=True)
+    sm_family = sm.families.Binomial() if family == "binomial" else sm.families.Poisson()
+    reference = sm.GLM(
+        y,
+        design,
+        family=sm_family,
+        freq_weights=weights,
+    ).fit(maxiter=500, tol=1e-12)
+
+    actual = np.r_[model.intercept_, np.asarray(model.coef_)]
+    np.testing.assert_allclose(actual, np.asarray(reference.params), rtol=2e-6, atol=2e-7)
 
 
 def test_inverse_link_gamma_weighted_smooth_solvers_use_stable_family_start():
