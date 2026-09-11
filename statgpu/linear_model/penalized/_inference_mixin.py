@@ -984,7 +984,9 @@ class _PenalizedInferenceMixin:
         """
         import numpy as np
         from statgpu.backends import _to_numpy, _resolve_backend
-        from statgpu.backends._utils import _get_xp, xp_ones, xp_asarray
+        from statgpu.backends._utils import (
+            _get_xp, xp_ones, xp_zeros, xp_full, xp_asarray
+        )
         from statgpu.inference._sandwich import m_estimation_inference, _infer_covariance_convention
         from statgpu.inference._results import ParameterInferenceResult
 
@@ -993,11 +995,20 @@ class _PenalizedInferenceMixin:
         xp = _get_xp(backend)
         is_torch = (backend == "torch")
 
-        X_arr = xp_asarray(X, dtype=xp.float64, xp=xp)
-        y_arr = xp_asarray(y, dtype=xp.float64, xp=xp).ravel()
+        # Every numerical sandwich operand is materialized relative to the
+        # fit-aligned design.  In particular, public coef_/intercept_ are
+        # NumPy reporting snapshots even after a Torch/CuPy fit, so a bare
+        # xp.asarray() would recreate them on Torch CPU / the current CuPy
+        # device and mix devices inside loss.hessian().
+        X_arr = xp_asarray(X, dtype=xp.float64, xp=xp, ref_arr=X)
+        y_arr = xp_asarray(
+            y, dtype=xp.float64, xp=xp, ref_arr=X_arr
+        ).ravel()
         sw_arr = None
         if sample_weight is not None:
-            sw_arr = xp_asarray(sample_weight, dtype=xp.float64, xp=xp).ravel()
+            sw_arr = xp_asarray(
+                sample_weight, dtype=xp.float64, xp=xp, ref_arr=X_arr
+            ).ravel()
 
         # Build aligned design: [1, X] with intercept first
         n, p_feat = X_arr.shape
@@ -1007,28 +1018,47 @@ class _PenalizedInferenceMixin:
                 X_design = xp.cat([ones.reshape(-1, 1), X_arr], dim=1)
             else:
                 X_design = xp.column_stack([ones, X_arr])
-            params = xp.concatenate([xp.asarray([self.intercept_], dtype=xp.float64),
-                                      xp_asarray(self.coef_, dtype=xp.float64, xp=xp)])
+            intercept_native = xp_asarray(
+                [self.intercept_], dtype=xp.float64, xp=xp, ref_arr=X_design
+            )
+            coef_native = xp_asarray(
+                self.coef_, dtype=xp.float64, xp=xp, ref_arr=X_design
+            )
+            params = xp.concatenate([intercept_native, coef_native])
             intercept_idx = 0
         else:
             X_design = X_arr
-            params = xp_asarray(self.coef_, dtype=xp.float64, xp=xp)
+            params = xp_asarray(
+                self.coef_, dtype=xp.float64, xp=xp, ref_arr=X_design
+            )
             intercept_idx = None
 
-        # Penalty curvature: features only, intercept gets 0
-        curv = xp.zeros(len(params), dtype=xp.float64)
+        # Penalty curvature: features only, intercept gets 0.  Allocate and
+        # convert relative to X_design so Torch/CuPy cannot drift to another
+        # device after the fit context has returned.
+        curv = xp_zeros(
+            len(params), xp.float64, xp, ref_arr=X_design
+        )
         if self._penalty is not None:
             pen_name = str(getattr(self._penalty, "name", "")).lower()
             if pen_name in ("l2",):
                 curv_feat = xp_asarray(
-                    self._penalty.curvature_diag(self.coef_), dtype=xp.float64, xp=xp)
+                    self._penalty.curvature_diag(self.coef_),
+                    dtype=xp.float64,
+                    xp=xp,
+                    ref_arr=X_design,
+                )
             elif pen_name in ("elasticnet", "en"):
                 l1r = float(getattr(self._penalty, "l1_ratio", 0.5))
                 alpha = float(getattr(self._penalty, "alpha", self.alpha))
                 lam2 = alpha * (1.0 - l1r)
-                curv_feat = xp.full(p_feat, lam2, dtype=xp.float64)
+                curv_feat = xp_full(
+                    p_feat, lam2, xp.float64, xp, ref_arr=X_design
+                )
             else:
-                curv_feat = xp.zeros(p_feat, dtype=xp.float64)
+                curv_feat = xp_zeros(
+                    p_feat, xp.float64, xp, ref_arr=X_design
+                )
 
             if intercept_idx is not None:
                 curv[1:] = curv_feat

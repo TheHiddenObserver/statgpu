@@ -115,6 +115,30 @@ def test_sandwich_alignment_reuses_cross_backend_and_concrete_device_helpers():
     assert "dtype=torch.float64" in source
 
 
+
+
+def test_penalized_sandwich_device_sensitive_arrays_are_reference_bound():
+    source = inspect.getsource(
+        _PenalizedInferenceMixin._compute_penalized_sandwich_inference
+    )
+
+    # Physical CUDA exposed that public NumPy coef_ was recreated on Torch CPU.
+    # Lock all parameter/curvature materialization to the aligned design device.
+    assert "ref_arr=X_design" in source
+    assert "xp_zeros(" in source
+    assert "xp_full(" in source
+    assert "curvature_diag(self.coef_)" in source
+    assert "params = xp.concatenate([intercept_native, coef_native])" in source
+
+
+def test_sandwich_reference_distributions_follow_parameter_device():
+    from statgpu.inference import _sandwich as sandwich
+
+    critical_source = inspect.getsource(sandwich._normal_critical_value)
+    chi2_source = inspect.getsource(sandwich._chi2_sf)
+    assert "getattr(ref_arr, \"device\", None)" in critical_source
+    assert "device=device_label" in chi2_source
+
 def test_final_execution_boundary_installer_is_idempotent():
     sandwich_before = _PenalizedInferenceMixin._compute_penalized_sandwich_inference
     bootstrap_before = _PenalizedInferenceMixin._compute_post_fit_bootstrap_inference
