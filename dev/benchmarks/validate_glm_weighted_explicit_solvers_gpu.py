@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
-"""Exact-source physical CUDA gate for issue #150 weighted smooth GLM solvers.
+"""Physical CUDA acceptance for issue #150 weighted smooth GLM solvers.
 
-This validator freezes the ordinary-GLM weighted Newton/L-BFGS acceptance
-matrix before its first physical run.  It requires a clean worktree plus CuPy
-and Torch CUDA in one process.  Do not loosen thresholds after a failed run
-merely to obtain green status; a justified tolerance change requires review,
-a schema bump, and a fresh physical artifact.
+Schema v2 freezes the final pre-P100 contract.  A successful artifact proves:
+
+- clean exact source;
+- every claimed ordinary GLM family/link for explicit Newton and L-BFGS;
+- NumPy/CuPy/Torch numerical parity and concrete-device provenance;
+- positive global analytic-weight rescaling invariance;
+- no convergence or L-BFGS line-search warning on accepted rows;
+- representative heterogeneous-container routing; and
+- weighted penalized/CV L-BFGS consumer parity, including selected alpha.
+
+The numerical tolerances below were fixed before the first physical v2 run.
+A failed run must not be made green by loosening them without a reviewed schema
+change and a fresh artifact.
 """
 
 from __future__ import annotations
@@ -15,6 +23,8 @@ import json
 import platform
 import subprocess
 import sys
+import warnings
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -28,16 +38,17 @@ from statgpu.linear_model import (
     PenalizedGeneralizedLinearModel,
     TweedieRegression,
 )
+from statgpu.solvers._convergence import ConvergenceWarning
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 DATA_SEED = 150001
 N_SAMPLES = 128
 N_FEATURES = 3
+SOLVER_TOL = 1.0e-8
 ATOL_COEF = 2.0e-5
 ATOL_INTERCEPT = 2.0e-5
 ATOL_WEIGHT_RESCALE = 2.0e-6
-
 
 _CASES = (
     "gaussian",
@@ -60,9 +71,7 @@ def _require_clean_source() -> str:
     sha = _git("rev-parse", "HEAD")
     status = _git("status", "--porcelain")
     if status:
-        raise RuntimeError(
-            "physical weighted-GLM validation requires a clean worktree"
-        )
+        raise RuntimeError("physical validation requires a clean worktree")
     return sha
 
 
@@ -75,7 +84,6 @@ def _require_gpu_backends():
         import torch
     except Exception as exc:  # pragma: no cover - physical runner
         raise RuntimeError("Torch is required for physical validation") from exc
-
     if cp.cuda.runtime.getDeviceCount() < 1:
         raise RuntimeError("CuPy reports no CUDA device")
     if not torch.cuda.is_available():
@@ -83,10 +91,21 @@ def _require_gpu_backends():
     return cp, torch, 0, torch.device("cuda:0")
 
 
+@contextmanager
+def _solver_warning_gate():
+    """Turn accepted-path solver failure/stagnation warnings into hard failure."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        warnings.filterwarnings(
+            "error",
+            message="lbfgs_solver: line search failed.*",
+            category=RuntimeWarning,
+        )
+        yield
+
+
 def _device_name(value) -> str:
-    if isinstance(value, bytes):
-        return value.decode(errors="replace")
-    return str(value)
+    return value.decode(errors="replace") if isinstance(value, bytes) else str(value)
 
 
 def _to_numpy(value):
@@ -99,18 +118,11 @@ def _to_numpy(value):
 
 def _backend_of(value) -> str:
     module = type(value).__module__.split(".", 1)[0]
-    if module == "cupy":
-        return "cupy"
-    if module == "torch":
-        return "torch"
-    if module == "numpy":
-        return "numpy"
-    return module
+    return module if module in ("numpy", "cupy", "torch") else module
 
 
 def _case_data(case: str):
-    seed = DATA_SEED + _CASES.index(case)
-    rng = np.random.default_rng(seed)
+    rng = np.random.default_rng(DATA_SEED + _CASES.index(case))
     X = rng.normal(scale=0.25, size=(N_SAMPLES, N_FEATURES)).astype(np.float64)
     beta = np.array([0.18, -0.12, 0.08], dtype=np.float64)
     eta = 0.20 + X @ beta
@@ -118,27 +130,25 @@ def _case_data(case: str):
     if case == "gaussian":
         y = eta + rng.normal(scale=0.08, size=N_SAMPLES)
     elif case == "binomial":
-        prob = 1.0 / (1.0 + np.exp(-eta))
-        y = rng.binomial(1, prob).astype(np.float64)
+        p = 1.0 / (1.0 + np.exp(-eta))
+        y = rng.binomial(1, p).astype(np.float64)
         y[0], y[1] = 0.0, 1.0
     elif case == "poisson":
         y = rng.poisson(np.exp(eta)).astype(np.float64)
     elif case == "gamma_log":
-        mu = np.exp(eta)
-        y = mu * rng.lognormal(0.0, 0.08, size=N_SAMPLES)
+        y = np.exp(eta) * rng.lognormal(0.0, 0.08, size=N_SAMPLES)
     elif case == "gamma_inverse":
-        eta_inv = np.clip(1.0 + X @ np.array([0.08, -0.05, 0.04]), 0.6, 1.4)
-        mu = 1.0 / eta_inv
-        y = mu * rng.lognormal(0.0, 0.04, size=N_SAMPLES)
+        eta_i = np.clip(
+            1.0 + X @ np.array([0.08, -0.05, 0.04]), 0.6, 1.4
+        )
+        y = (1.0 / eta_i) * rng.lognormal(0.0, 0.04, size=N_SAMPLES)
     elif case == "inverse_gaussian":
-        mu = np.exp(eta)
-        y = mu * rng.lognormal(0.0, 0.06, size=N_SAMPLES)
+        y = np.exp(eta) * rng.lognormal(0.0, 0.06, size=N_SAMPLES)
     elif case == "negative_binomial":
         y = rng.poisson(np.exp(eta)).astype(np.float64)
     elif case == "tweedie":
-        mu = np.exp(eta)
-        y = mu * rng.lognormal(0.0, 0.08, size=N_SAMPLES)
-    else:  # pragma: no cover - validator table bug
+        y = np.exp(eta) * rng.lognormal(0.0, 0.08, size=N_SAMPLES)
+    else:  # pragma: no cover
         raise AssertionError(case)
 
     weights = np.linspace(0.55, 1.65, N_SAMPLES, dtype=np.float64)
@@ -151,7 +161,7 @@ def _make_model(case: str, solver: str, device: str):
         solver=solver,
         device=device,
         max_iter=1000,
-        tol=1e-9,
+        tol=SOLVER_TOL,
         compute_inference=False,
     )
     if case == "gamma_log":
@@ -169,7 +179,8 @@ def _make_model(case: str, solver: str, device: str):
 
 def _fit_ordinary(case, solver, X, y, weights, *, device):
     model = _make_model(case, solver, device)
-    model.fit(X, y, sample_weight=weights)
+    with _solver_warning_gate():
+        model.fit(X, y, sample_weight=weights)
     return {
         "coef": np.asarray(_to_numpy(model.coef_), dtype=np.float64),
         "intercept": float(model.intercept_),
@@ -178,11 +189,7 @@ def _fit_ordinary(case, solver, X, y, weights, *, device):
         "backend": str(getattr(model, "_selected_backend_name", "")),
         "device": str(getattr(model, "_selected_backend_device", "")),
         "design_backend": _backend_of(model._X_design),
-        "weight_backend": (
-            None
-            if model._sample_weight_inf is None
-            else _backend_of(model._sample_weight_inf)
-        ),
+        "weight_backend": _backend_of(model._sample_weight_inf),
     }
 
 
@@ -203,9 +210,7 @@ def _assert_provenance(name, snap, *, solver, backend, device):
 
 def _errors(reference, candidate):
     return {
-        "coef": float(
-            np.max(np.abs(reference["coef"] - candidate["coef"]))
-        ),
+        "coef": float(np.max(np.abs(reference["coef"] - candidate["coef"]))),
         "intercept": float(abs(reference["intercept"] - candidate["intercept"])),
     }
 
@@ -228,7 +233,7 @@ def _assert_rescaling(name, base, scaled):
     errors = _errors(base, scaled)
     if max(errors.values()) > ATOL_WEIGHT_RESCALE:
         raise AssertionError(
-            f"{name}: global-weight-rescaling drift {errors} exceeds "
+            f"{name}: weight-rescaling drift {errors} exceeds "
             f"{ATOL_WEIGHT_RESCALE:.3e}"
         )
     return errors
@@ -242,8 +247,6 @@ def _json_snap(snap):
 
 
 def _container_arrays(route, X_np, y_np, w_np, cp, torch, torch_device):
-    if route == "numpy":
-        return X_np, y_np, w_np
     if route == "cupy":
         return cp.asarray(X_np), cp.asarray(y_np), cp.asarray(w_np)
     if route == "torch":
@@ -252,20 +255,21 @@ def _container_arrays(route, X_np, y_np, w_np, cp, torch, torch_device):
             torch.as_tensor(y_np, dtype=torch.float64, device=torch_device),
             torch.as_tensor(w_np, dtype=torch.float64, device=torch_device),
         )
-    raise AssertionError(route)
+    return X_np, y_np, w_np
 
 
 def _fit_penalized_nb(X, y, weights, *, device):
-    model = PenalizedGeneralizedLinearModel(
-        loss="negative_binomial",
-        loss_kwargs={"alpha": 0.7},
-        penalty="l2",
-        alpha=0.03,
-        solver="lbfgs",
-        device=device,
-        max_iter=800,
-        tol=1e-9,
-    ).fit(X, y, sample_weight=weights)
+    with _solver_warning_gate():
+        model = PenalizedGeneralizedLinearModel(
+            loss="negative_binomial",
+            loss_kwargs={"alpha": 0.7},
+            penalty="l2",
+            alpha=0.03,
+            solver="lbfgs",
+            device=device,
+            max_iter=800,
+            tol=SOLVER_TOL,
+        ).fit(X, y, sample_weight=weights)
     return {
         "coef": np.asarray(model.coef_, dtype=np.float64),
         "intercept": float(model.intercept_),
@@ -276,18 +280,19 @@ def _fit_penalized_nb(X, y, weights, *, device):
 
 
 def _fit_cv_nb(X, y, weights, *, device):
-    cv = PenalizedGLM_CV(
-        loss="negative_binomial",
-        loss_kwargs={"alpha": 0.7},
-        penalty="l2",
-        alpha_grid=np.array([0.08, 0.03]),
-        cv=2,
-        random_state=150,
-        solver="auto",
-        device=device,
-        max_iter=300,
-        tol=1e-8,
-    ).fit(X, y, sample_weight=weights)
+    with _solver_warning_gate():
+        cv = PenalizedGLM_CV(
+            loss="negative_binomial",
+            loss_kwargs={"alpha": 0.7},
+            penalty="l2",
+            alpha_grid=np.array([0.08, 0.03]),
+            cv=2,
+            random_state=150,
+            solver="auto",
+            device=device,
+            max_iter=300,
+            tol=SOLVER_TOL,
+        ).fit(X, y, sample_weight=weights)
     return {
         "coef": np.asarray(cv.estimator_.coef_, dtype=np.float64),
         "intercept": float(cv.estimator_.intercept_),
@@ -296,6 +301,17 @@ def _fit_cv_nb(X, y, weights, *, device):
         "backend": str(cv.estimator_._selected_backend_name),
         "device": str(cv.estimator_._selected_backend_device),
     }
+
+
+def _assert_consumer_provenance(name, snap, backend, device_id):
+    if snap["selected_solver"] != "lbfgs":
+        raise AssertionError(f"{name}: expected L-BFGS, got {snap['selected_solver']}")
+    if snap["backend"] != backend:
+        raise AssertionError(f"{name}: backend={snap['backend']}, expected {backend}")
+    if snap["device"] != f"cuda:{device_id}":
+        raise AssertionError(
+            f"{name}: device={snap['device']}, expected cuda:{device_id}"
+        )
 
 
 def run(output: Path):
@@ -329,9 +345,7 @@ def run(output: Path):
                 device="cpu",
             )
             key = f"{case}/{solver}"
-            ordinary[key] = {
-                "numpy": {"snapshot": _json_snap(reference), "errors": None}
-            }
+            ordinary[key] = {"numpy": {"snapshot": _json_snap(reference)}}
 
             for backend, route, device in (
                 ("cupy", "cupy", "cuda"),
@@ -340,22 +354,16 @@ def run(output: Path):
                 Xb, yb, wb = _container_arrays(
                     route, X_np, y_np, w_np, cp, torch, torch_device
                 )
-                if backend == "cupy":
-                    with cp.cuda.Device(device_id):
-                        snap = _fit_ordinary(
-                            case, solver, Xb, yb, wb, device=device
-                        )
-                        scaled = _fit_ordinary(
-                            case, solver, Xb, yb, 7.0 * wb, device=device
-                        )
-                else:
-                    with torch.cuda.device(torch_device):
-                        snap = _fit_ordinary(
-                            case, solver, Xb, yb, wb, device=device
-                        )
-                        scaled = _fit_ordinary(
-                            case, solver, Xb, yb, 7.0 * wb, device=device
-                        )
+                context = (
+                    cp.cuda.Device(device_id)
+                    if backend == "cupy"
+                    else torch.cuda.device(torch_device)
+                )
+                with context:
+                    snap = _fit_ordinary(case, solver, Xb, yb, wb, device=device)
+                    scaled = _fit_ordinary(
+                        case, solver, Xb, yb, 7.0 * wb, device=device
+                    )
                 _assert_provenance(
                     f"{case}/{solver}/{backend}",
                     snap,
@@ -373,8 +381,6 @@ def run(output: Path):
                     ),
                 }
 
-    # Representative heterogeneous-container routes: execution provenance must
-    # follow the explicit requested backend rather than the input container.
     crossings = {}
     X_np, y_np, w_np = _case_data("binomial")
     X_cp, y_cp, w_cp = _container_arrays(
@@ -383,19 +389,16 @@ def run(output: Path):
     X_t, y_t, w_t = _container_arrays(
         "torch", X_np, y_np, w_np, cp, torch, torch_device
     )
-    reference_by_solver = {
-        solver: _fit_ordinary(
+    for solver in _SOLVERS:
+        reference = _fit_ordinary(
             "binomial", solver, X_np, y_np, w_np, device="cpu"
         )
-        for solver in _SOLVERS
-    }
-    for solver in _SOLVERS:
         with cp.cuda.Device(device_id):
             t_to_c = _fit_ordinary(
                 "binomial", solver, X_t, y_t, w_t, device="cuda"
             )
         _assert_provenance(
-            f"binomial/{solver}/torch_to_cupy",
+            f"{solver}/torch_to_cupy",
             t_to_c,
             solver=solver,
             backend="cupy",
@@ -406,7 +409,7 @@ def run(output: Path):
                 "binomial", solver, X_cp, y_cp, w_cp, device="torch"
             )
         _assert_provenance(
-            f"binomial/{solver}/cupy_to_torch",
+            f"{solver}/cupy_to_torch",
             c_to_t,
             solver=solver,
             backend="torch",
@@ -415,22 +418,25 @@ def run(output: Path):
         crossings[f"{solver}/torch_to_cupy"] = {
             "snapshot": _json_snap(t_to_c),
             "errors_vs_numpy": _assert_parity(
-                f"{solver}/torch_to_cupy", reference_by_solver[solver], t_to_c
+                f"{solver}/torch_to_cupy", reference, t_to_c
             ),
         }
         crossings[f"{solver}/cupy_to_torch"] = {
             "snapshot": _json_snap(c_to_t),
             "errors_vs_numpy": _assert_parity(
-                f"{solver}/cupy_to_torch", reference_by_solver[solver], c_to_t
+                f"{solver}/cupy_to_torch", reference, c_to_t
             ),
         }
 
-    # Shared penalized and CV consumers whose existing dispatch already selects
-    # L-BFGS must also remain backend-native after the shared solver change.
     X_np, y_np, w_np = _case_data("negative_binomial")
-    consumers = {}
     ref_pen = _fit_penalized_nb(X_np, y_np, w_np, device="cpu")
     ref_cv = _fit_cv_nb(X_np, y_np, w_np, device="cpu")
+    consumers = {
+        "numpy": {
+            "penalized": {**_json_snap(ref_pen)},
+            "cv": {**_json_snap(ref_cv)},
+        }
+    }
     for backend, route, device in (
         ("cupy", "cupy", "cuda"),
         ("torch", "torch", "torch"),
@@ -438,38 +444,34 @@ def run(output: Path):
         Xb, yb, wb = _container_arrays(
             route, X_np, y_np, w_np, cp, torch, torch_device
         )
-        if backend == "cupy":
-            with cp.cuda.Device(device_id):
-                pen = _fit_penalized_nb(Xb, yb, wb, device=device)
-                cv = _fit_cv_nb(Xb, yb, wb, device=device)
-        else:
-            with torch.cuda.device(torch_device):
-                pen = _fit_penalized_nb(Xb, yb, wb, device=device)
-                cv = _fit_cv_nb(Xb, yb, wb, device=device)
-        if pen["selected_solver"] != "lbfgs" or cv["selected_solver"] != "lbfgs":
+        context = (
+            cp.cuda.Device(device_id)
+            if backend == "cupy"
+            else torch.cuda.device(torch_device)
+        )
+        with context:
+            pen = _fit_penalized_nb(Xb, yb, wb, device=device)
+            cv = _fit_cv_nb(Xb, yb, wb, device=device)
+        _assert_consumer_provenance(f"penalized/{backend}", pen, backend, device_id)
+        _assert_consumer_provenance(f"cv/{backend}", cv, backend, device_id)
+        if cv["selected_alpha"] != ref_cv["selected_alpha"]:
             raise AssertionError(
-                f"{backend}: shared consumer did not execute L-BFGS: pen={pen}, cv={cv}"
-            )
-        if pen["backend"] != backend or cv["backend"] != backend:
-            raise AssertionError(
-                f"{backend}: shared consumer backend provenance drifted"
-            )
-        expected_device = f"cuda:{device_id}"
-        if pen["device"] != expected_device or cv["device"] != expected_device:
-            raise AssertionError(
-                f"{backend}: shared consumer device provenance drifted"
+                f"cv/{backend}: selected_alpha={cv['selected_alpha']}, "
+                f"numpy={ref_cv['selected_alpha']}"
             )
         consumers[backend] = {
             "penalized": {
-                **{k: v for k, v in pen.items() if k != "coef"},
-                "coef": pen["coef"].tolist(),
+                **_json_snap(pen),
                 "errors_vs_numpy": _assert_parity(
                     f"penalized_nb/{backend}", ref_pen, pen
                 ),
             },
             "cv": {
-                **{k: v for k, v in cv.items() if k != "coef"},
-                "coef": cv["coef"].tolist(),
+                **_json_snap(cv),
+                "errors_vs_numpy": _assert_parity(
+                    f"cv_nb/{backend}", ref_cv, cv
+                ),
+                "selected_alpha_matches_numpy": True,
             },
         }
 
@@ -483,6 +485,7 @@ def run(output: Path):
             "seed": DATA_SEED,
             "n_samples": N_SAMPLES,
             "n_features": N_FEATURES,
+            "solver_tol": SOLVER_TOL,
             "weight_pattern": "linspace(0.55,1.65), every 17th row zero",
         },
         "tolerances": {
@@ -490,20 +493,30 @@ def run(output: Path):
             "intercept_abs": ATOL_INTERCEPT,
             "weight_rescale_max_abs": ATOL_WEIGHT_RESCALE,
         },
+        "warning_gate": {
+            "convergence_warning": "error",
+            "lbfgs_line_search_failure": "error",
+        },
         "ordinary_cases": ordinary,
         "cross_container_cases": crossings,
         "shared_consumers": consumers,
     }
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-    print(json.dumps({
-        "status": "success",
-        "source_sha": source_sha,
-        "ordinary_case_count": len(_CASES) * len(_SOLVERS) * 3,
-        "cross_container_case_count": len(crossings),
-        "consumer_backends": sorted(consumers),
-        "output": str(output),
-    }, indent=2))
+    print(
+        json.dumps(
+            {
+                "status": "success",
+                "schema_version": SCHEMA_VERSION,
+                "source_sha": source_sha,
+                "ordinary_route_count": len(_CASES) * len(_SOLVERS) * 3,
+                "cross_container_case_count": len(crossings),
+                "consumer_backends": sorted(consumers),
+                "output": str(output),
+            },
+            indent=2,
+        )
+    )
 
 
 def main():
