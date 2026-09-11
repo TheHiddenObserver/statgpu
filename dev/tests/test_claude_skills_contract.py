@@ -197,11 +197,21 @@ def test_code_review_covers_inference_identity_resampling_and_consumer_graph():
         "Contract reconciliation",
         "requested/resolved/reported method",
         "Resampling checks",
-        "generic bootstrap/permutation path reconstructs an incompatible model/family",
+        "generic bootstrap/permutation path that reconstructs an incompatible model/family",
         "Documentation and release-boundary checks",
         "Evidence freshness checks",
     ):
         assert phrase in matrix
+
+
+def test_skill_eval_definitions_do_not_masquerade_as_runtime_evidence():
+    review = _read(SKILLS / "code-review" / "SKILL.md")
+    matrix = _read(SKILLS / "code-review" / "review-matrix.md")
+
+    assert "not** evidence that Claude Code actually triggers the skill" in review
+    assert "actual skill-runtime/grading run" in review
+    assert "not actual Claude Code trigger/output behavior" in matrix
+    assert "behavioral-runtime claims" in matrix
 
 
 def test_skill_evals_cover_reconciliation_resampling_and_release_boundary():
@@ -237,6 +247,41 @@ def test_skill_evals_cover_reconciliation_resampling_and_release_boundary():
         "green ci",
     ):
         assert phrase in review_text
+
+
+def test_penalized_glm_review_eval_is_blind_discovery_fixture():
+    data = json.loads(_read(SKILLS / "code-review" / "evals" / "evals.json"))
+    snapshot_sha = "e364717bd62ff84d260eab4e0b7020e26a98caf0"
+    matches = [item for item in data["evals"] if item["id"] == 7]
+    assert len(matches) == 1
+
+    golden = matches[0]
+    prompt_lower = golden["prompt"].lower()
+    assert snapshot_sha in golden["prompt"]
+    for leaked_answer in (
+        "inference_method='debiased'",
+        "m_estimation",
+        "gaussian penalized-linear",
+        "penalty='l1'",
+        "sandwich results",
+    ):
+        assert leaked_answer not in prompt_lower, (
+            "penalized-GLM discovery prompt must not leak expected findings: "
+            f"{leaked_answer!r}"
+        )
+
+    combined = "\n".join(
+        [golden["expected_output"], *golden["assertions"]]
+    ).lower()
+    for phrase in (
+        "debiased",
+        "m_estimation",
+        "gaussian",
+        "l1",
+        "blocking",
+        "consumer",
+    ):
+        assert phrase in combined
 
 
 def test_legacy_paths_do_not_occupy_dynamic_workflow_namespace():
