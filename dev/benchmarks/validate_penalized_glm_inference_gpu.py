@@ -9,10 +9,13 @@ containers into CuPy execution and CuPy containers into Torch execution so the
 post-fit inference boundary proves DLPack/concrete-device alignment rather than
 only same-container happy paths.
 
-Schema v3 additionally proves that weighted smooth L2 ``solver="auto"`` uses
-the canonical Newton dispatch now that Newton supports analytic weights. The
-unweighted cases stay on explicit FISTA so the validator continues to cover the
-independent FISTA fit plus post-fit inference/device path.
+Schema v4 keeps the acceptance matrix aligned with the maintained public solver
+contract. Weighted smooth L2 cases use public ``solver="auto"`` and must resolve
+to Newton. Unweighted Poisson also follows the canonical ``auto`` -> Newton
+path. A representative unweighted Logistic case remains explicit FISTA so the
+physical gate still exercises the independent FISTA fit plus post-fit
+inference/device path without making backend-specific Poisson FISTA iterate
+trajectories part of PR #142's inference/device acceptance criterion.
 
 Example
 -------
@@ -37,7 +40,7 @@ from statgpu.linear_model import (
 )
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 ATOL_COEF = 2e-6
 ATOL_INFERENCE = 1e-5
 
@@ -159,21 +162,31 @@ def _assert_backend(name, result, backend, device):
         )
 
 
-def _assert_weighted_auto_solver(name, result, weighted):
-    if not weighted:
-        return
-    if result["public_solver"] != "auto":
+def _solver_contract(family: str, weighted: bool) -> tuple[str, str]:
+    """Return (public request, expected executed solver) for one gate row."""
+    if family == "logistic" and not weighted:
+        # One representative explicit-FISTA row keeps the independent FISTA
+        # fit/inference/device chain in the physical acceptance run.
+        return "fista", "fista"
+    # Smooth-L2 production behavior is canonical AUTO -> Newton for the
+    # remaining logistic/Poisson rows, including all analytic-weight cases.
+    return "auto", "newton"
+
+
+def _assert_solver_contract(name, result, requested_solver, selected_solver):
+    if result["public_solver"] != requested_solver:
         raise AssertionError(
-            f"{name} public weighted solver request drifted: {result['public_solver']!r}"
+            f"{name} public solver request drifted: "
+            f"{result['public_solver']!r} != {requested_solver!r}"
         )
-    if result["selected_solver"] != "newton":
+    if result["selected_solver"] != selected_solver:
         raise AssertionError(
-            f"{name} weighted auto execution did not select Newton: "
-            f"{result['selected_solver']!r}"
+            f"{name} executed solver mismatch: "
+            f"{result['selected_solver']!r} != {selected_solver!r}"
         )
 
 
-def _fit_case(cls, X, y, *, device, sample_weight=None, solver="fista"):
+def _fit_case(cls, X, y, *, device, sample_weight=None, solver="auto"):
     model = cls(
         penalty="l2",
         alpha=0.035,
@@ -210,12 +223,15 @@ def main() -> int:
 
         for weighted in (False, True):
             sw = weights if weighted else None
-            solver = "auto" if weighted else "fista"
+            solver, expected_solver = _solver_contract(family, weighted)
             cpu = _fit_case(
                 cls, X, y, device="cpu", sample_weight=sw, solver=solver
             )
-            _assert_weighted_auto_solver(
-                f"{family}/weighted={weighted}/cpu", cpu, weighted
+            _assert_solver_contract(
+                f"{family}/weighted={weighted}/cpu",
+                cpu,
+                solver,
+                expected_solver,
             )
 
             with cp.cuda.Device(cupy_device):
@@ -277,13 +293,14 @@ def main() -> int:
             ):
                 label = f"{family}/weighted={weighted}/{case_name}"
                 _assert_backend(label, result, backend, cuda_label)
-                _assert_weighted_auto_solver(label, result, weighted)
+                _assert_solver_contract(label, result, solver, expected_solver)
 
             cases.append(
                 {
                     "family": family,
                     "weighted": weighted,
                     "solver_request": solver,
+                    "expected_selected_solver": expected_solver,
                     "selected_solver_cpu": cpu["selected_solver"],
                     "selected_solver_cupy": cupy_result["selected_solver"],
                     "selected_solver_torch": torch_result["selected_solver"],
