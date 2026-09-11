@@ -229,7 +229,7 @@ print(f"Weighted R²: {model.score(X_test, y_test, sample_weight=w_test):.4f}")
 
 **Boundaries** (see [Known Limitations](#known-limitations) below):
 - Scalar-response sample-weight support is loss/penalty/solver-path specific; unsupported explicit solver combinations fail visibly rather than changing the requested objective.
-- For PR #142's inference-enabled smooth non-Gaussian L2/no-penalty contract, non-uniform analytic weights are supported. With public `solver="auto"`, candidate selection and the selected final refit use the maintained weight-capable FISTA path because Newton currently rejects non-uniform weights; the public solver request remains `auto`.
+- For PR #142's inference-enabled smooth non-Gaussian L2/no-penalty contract, non-uniform analytic weights are supported. With public `solver="auto"`, candidate selection and the selected final refit follow the canonical solver dispatch; applicable smooth-L2 logistic/Poisson rows execute backend-native Newton, while the public solver request remains `auto`.
 - `loss="cox_ph"` rejects `sample_weight`; weighted penalized Cox CV is not implemented.
 
 ### Alpha Grid
@@ -709,7 +709,7 @@ Internal consistency is verified to machine precision (diff ~1e-16).
 
 Sample-weight support is path-specific rather than a blanket property of a penalty name. This guide therefore does not infer unsupported rows from one historical solver implementation. Explicit unsupported solver requests fail visibly.
 
-For the PR #142 coefficient-inference contract, smooth non-Gaussian L2/no-penalty fits with analytic weights are supported. When inference is enabled and the public request is `solver="auto"`, both `PenalizedGLM_CV` candidate selection and the selected final refit use the existing weight-capable FISTA path, while the public request remains `auto`. The penalized Cox CV branch still rejects `sample_weight`.
+For the PR #142 coefficient-inference contract, smooth non-Gaussian L2/no-penalty fits with analytic weights are supported. When inference is enabled and the public request is `solver="auto"`, both `PenalizedGLM_CV` candidate selection and the selected final refit follow the canonical solver dispatch; applicable smooth-L2 logistic/Poisson rows execute backend-native Newton while the public request remains `auto`. The penalized Cox CV branch still rejects `sample_weight`.
 
 #### Other Limitations
 
