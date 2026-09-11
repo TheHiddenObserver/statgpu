@@ -31,7 +31,7 @@ backend-native reference helper 同时保留残差自由度为 1 和 2 时的稳
 
 M-estimation 数值计算跟随真正执行拟合的 backend 与 concrete device，而不是根据原始输入 container 猜测。若主拟合实际运行在 CuPy 或 Torch，post-fit inference 会先通过仓库维护的 cross-backend conversion helper 把 `X/y/sample_weight` 对齐到记录下来的 backend/device，再进行 bread/meat/reference-distribution 计算。显式 CUDA/Torch 不允许静默换成 CPU sandwich。
 
-该 L2/no-penalty contract 支持 analytic weights。对于 inference-enabled、带权、non-Gaussian 且公开 `solver="auto"` 的拟合，statgpu 会在该次拟合中使用已有 weight-capable FISTA，因为 Newton 当前拒绝 non-uniform weights；public solver request 仍保持 `"auto"`。`PenalizedGLM_CV` 在 candidate selection 与 selected full-data refit 两个阶段使用相同选择，而 coefficient inference 仍只在 tuning 完成后对 selected final refit 执行一次。CV inference 明确发布 `penalty_conditioning_="cv_selected_penalty"` 与 `penalty_selection_adjusted_=False`。
+该 L2/no-penalty contract 支持 analytic weights。维护中的 Newton solver 现在会把真正的 non-uniform weights 一致地贯穿同一个归一化 average-loss objective：objective value、gradient、Hessian（或 fused curvature）以及每一次 Armijo trial 都使用同一权重约定。对于浮点权重，满足历史 uniform-weight `allclose` 规则的向量继续走既有 unweighted-equivalent 路径。public `solver="auto"` 时，direct penalized fit 与 `PenalizedGLM_CV` 的 candidate/final refit 都服从 canonical solver dispatch；适用的 smooth-L2 logistic/Poisson 行因此执行 backend-native Newton，同时 public request 仍保持 `"auto"`。coefficient inference 仍只在 tuning 完成后对 selected final refit 执行一次。CV inference 明确发布 `penalty_conditioning_="cv_selected_penalty"` 与 `penalty_selection_adjusted_=False`。
 
 non-Gaussian L1/ElasticNet coefficient inference 不属于本 contract 的有效能力：它会 fail closed，而不是继续发布历史上只含 L2 curvature 的 partial sandwich。Penalized Cox 与维护中的 group-penalty 行仍为 estimation-only。完整 support matrix 与统计解释见 [Penalized GLM inference](penalized-glm-inference.md)。
 
