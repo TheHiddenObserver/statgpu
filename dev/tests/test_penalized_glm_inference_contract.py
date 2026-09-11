@@ -170,7 +170,7 @@ def test_failed_refit_clears_prior_successful_inference_state():
     ).fit(X, y)
     assert model._fitted and model._inference_result is not None
 
-    model.set_params(penalty="l1", inference_method="auto")
+    model.set_params(penalty="l1", inference_method="auto", solver="fista")
     with pytest.raises(NotImplementedError):
         model.fit(X, y)
 
@@ -220,7 +220,7 @@ def test_weighted_poisson_l2_m_estimation_is_supported():
         penalty="l2",
         alpha=0.03,
         device="cpu",
-        solver="newton",
+        solver="auto",
         compute_inference=True,
         inference_method="auto",
         cov_type="hc0",
