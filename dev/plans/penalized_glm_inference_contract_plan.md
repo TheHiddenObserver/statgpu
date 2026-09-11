@@ -1,6 +1,6 @@
 # Penalized GLM inference contract repair plan
 
-Status: DESIGN AUDIT
+Status: DESIGN AUDIT — PASS 2
 Target release: 0.2.6 (current published release: 0.2.5)
 
 ## 1. Topology and purpose
@@ -40,7 +40,8 @@ Inactive by default:
 
 - new loss/penalty/solver algorithms;
 - performance benchmark claims;
-- new non-Gaussian debiasing theory.
+- new non-Gaussian debiasing theory;
+- family-aware/parametric GLM bootstrap.
 
 ## 3. Phase-0 consumer graph
 
@@ -107,6 +108,7 @@ Maintained documentation consumers:
 Additional current defects:
 
 - the base validator advertises `Any loss + bootstrap: universal fallback` although the helper is explicitly a Gaussian Lasso residual bootstrap;
+- that bootstrap helper ignores analytic weights and `cov_type`, so neither weighted residual bootstrap nor robust-bootstrap inference has a defined current contract;
 - non-Gaussian sandwich backend is inferred from the array passed to post-fit inference, while the main fit currently passes original `X/y`; an explicit GPU fit started from NumPy input can therefore perform inference on the wrong backend or encounter heterogeneous arrays;
 - public fitted provenance does not consistently expose requested/resolved/reported inference method, inferential target, or tuning/selection conditioning.
 
@@ -119,9 +121,9 @@ Add/standardize these public request values:
 - `auto` — recommended generic default and the only request that may resolve to another named statistical procedure without being an alias;
 - `debiased` — sparse Gaussian L1/ElasticNet only;
 - `post_selection_ols` — existing sparse-Gaussian active-set diagnostic/refit contract only;
-- `m_estimation` — fixed-penalty sandwich inference for supported non-Gaussian smooth L2/no-penalty models;
+- `m_estimation` — fixed-penalty inference for supported non-Gaussian smooth L2/no-penalty models;
 - `oracle` — SCAD/MCP active-set refit inference when explicitly requested and supported;
-- `bootstrap` — Gaussian residual-bootstrap request only; the reported method remains `residual_bootstrap`.
+- `bootstrap` — unweighted Gaussian residual-bootstrap request only; the reported method remains `residual_bootstrap`.
 
 Historical `cpu_ols` / `gpu_ols` aliases keep their existing one-cycle sparse-Gaussian migration contract.
 
@@ -141,13 +143,24 @@ Do not alias `debiased` to a nonsmooth non-Gaussian ElasticNet path; that row be
 
 - squared_error + L2/no penalty:
   - `classical` when `cov_type="nonrobust"`;
-  - `sandwich` for robust supported Gaussian covariance;
+  - `sandwich` for supported robust Gaussian covariance;
 - squared_error + L1/ElasticNet: `debiased`;
 - non-squared Hessian-equipped scalar loss + L2/no penalty: `m_estimation`;
 - SCAD/MCP: do **not** silently choose the assumption-heavy oracle procedure; require explicit `oracle` (or a supported Gaussian `bootstrap` request);
 - unsupported/nonsmooth rows fail before numerical inference begins.
 
 The resolved method must be public after fit.
+
+### 5.4 Covariance support
+
+For the non-Gaussian `m_estimation` path in this repair:
+
+- `cov_type="nonrobust"` is the model-based penalized-information covariance;
+- `cov_type="hc0"` and `"hc1"` are supported sandwich covariance choices;
+- HC2/HC3/HAC remain unsupported for this path and fail visibly, matching the actual shared sandwich engine;
+- `hac_maxlags` does not imply HAC support for penalized GLMs.
+
+Do not document HC2/HC3/HAC as available merely because those names exist elsewhere in statgpu.
 
 ## 6. Inferential targets and fitted provenance
 
@@ -177,8 +190,8 @@ Direct-fit inference uses `penalty_conditioning_="fixed_penalty"`. `penalty_sele
 
 - Gaussian L2/no penalty: existing Gaussian inference, NumPy/CuPy/Torch preserved.
 - Gaussian L1/ElasticNet: existing debiased and post-selection paths preserved.
-- Gaussian residual bootstrap: L1/ElasticNet/SCAD/MCP may be supported only after the helper preserves the estimator's actual Gaussian penalty, l1_ratio, penalty kwargs, intercept, and fixed alpha during every refit.
-- Non-Gaussian Hessian scalar loss + L2/no penalty: `m_estimation`, with penalty curvature in the bread, native fit backend/device, and public fixed-penalty target/conditioning metadata.
+- Gaussian residual bootstrap: L1/ElasticNet/SCAD/MCP may be supported only after the helper preserves the estimator's actual Gaussian penalty, l1_ratio, penalty kwargs, intercept, and fixed alpha during every refit; this repair supports only unweighted CPU-executed residual bootstrap with `cov_type="nonrobust"`.
+- Non-Gaussian Hessian scalar loss + L2/no penalty: `m_estimation`, with penalty curvature in the bread, native fit backend/device, and public fixed-penalty target/conditioning metadata; supported covariance types are nonrobust/HC0/HC1.
 - SCAD/MCP: explicit `oracle` only. If the maintained implementation cannot preserve an explicit GPU backend without silently moving to CPU, GPU oracle requests fail visibly until a backend-native oracle refit exists.
 
 ### 7.2 Explicitly unsupported/fail-closed
@@ -186,6 +199,9 @@ Direct-fit inference uses `penalty_conditioning_="fixed_penalty"`. `penalty_sele
 - non-Gaussian L1 inference;
 - non-Gaussian ElasticNet full-vector sandwich/debiased inference;
 - non-Gaussian bootstrap through the Gaussian residual-bootstrap helper;
+- weighted Gaussian residual bootstrap in this repair;
+- Gaussian residual bootstrap with robust/HAC `cov_type` in this repair;
+- non-Gaussian M-estimation with HC2/HC3/HAC;
 - group-penalty inference;
 - penalized-Cox inference in `PenalizedCoxPHModel`;
 - any method/loss/penalty combination not in the support matrix.
@@ -194,9 +210,11 @@ Error messages must list the actually supported alternatives for the current row
 
 ## 8. Resampling contract
 
-The maintained `bootstrap` request in this repair is **Gaussian residual bootstrap only**:
+The maintained `bootstrap` request in this repair is **unweighted Gaussian residual bootstrap only**:
 
 - fixed design;
+- no `sample_weight`;
+- `cov_type="nonrobust"`; robust/HAC covariance requests are rejected rather than silently ignored;
 - residual resampling from the fitted Gaussian model;
 - same fixed alpha;
 - same penalty family and ElasticNet l1_ratio / penalty kwargs;
@@ -205,9 +223,9 @@ The maintained `bootstrap` request in this repair is **Gaussian residual bootstr
 - tuning/CV is not rerun inside bootstrap;
 - output is heuristic penalized-estimator bootstrap inference, not selective-inference coverage.
 
-It is not a generic GLM bootstrap. Non-Gaussian calls fail before resampling.
+It is not a generic GLM bootstrap. Non-Gaussian calls fail before resampling. Weighted residual bootstrap is also not inferred from analytic weights: a future implementation must choose and document a statistically valid weighted resampling scheme explicitly.
 
-This repair does not add a parametric/family-aware GLM bootstrap.
+This repair does not add a parametric/family-aware GLM bootstrap, wild bootstrap, or weighted bootstrap.
 
 ## 9. Backend/device contract
 
@@ -219,9 +237,9 @@ For supported non-Gaussian L2/no-penalty `m_estimation`:
 - reporting may snapshot final small arrays to NumPy only after numerical covariance/statistic/p-value/CI work;
 - result metadata records `numerical_backend`, `numerical_device`, `reporting_backend="numpy"`, and reporting boundary.
 
-For Gaussian residual bootstrap, if the maintained implementation is CPU-only, explicit GPU bootstrap requests must fail visibly rather than silently refit on CPU. `device="auto"` may use CPU only if the fit itself selected CPU; no post-fit backend substitution is permitted.
+For Gaussian residual bootstrap, the maintained implementation is CPU-executed in this repair. It is supported only when the fit's selected backend is NumPy. Explicit GPU/Torch bootstrap requests fail visibly; `device="auto"` is accepted only when the fit itself selected NumPy.
 
-For oracle inference, the existing CPU refit must not masquerade as backend-native. Until rewritten, explicit GPU oracle requests fail with a clear unsupported-backend error.
+For oracle inference, the existing CPU refit must not masquerade as backend-native. Until rewritten, explicit GPU/Torch oracle requests fail with a clear unsupported-backend error; an `auto` request may use oracle only when the fit actually selected NumPy, and `auto` does not select oracle by default anyway.
 
 ## 10. CV final-refit contract
 
@@ -241,7 +259,8 @@ Rules:
 - successful CV inference delegates `_inference_result` and public inference fields from `estimator_`;
 - CV fit publishes `penalty_conditioning_="cv_selected_penalty"` and `penalty_selection_adjusted_=False`;
 - docs explicitly state that reported standard errors/p-values/CIs condition on the selected alpha and do not adjust for CV tuning uncertainty;
-- unsupported direct-fit inference rows remain unsupported after CV selection.
+- unsupported direct-fit inference rows remain unsupported after CV selection;
+- `loss="cox_ph"` continues to inherit the estimation-only `PenalizedCoxPHModel` inference boundary.
 
 This is final-refit closure, not inference inside the CV selection loop.
 
@@ -272,10 +291,12 @@ At minimum cover logistic and Poisson L2, plus one additional positive-response 
 - `auto` -> `m_estimation` -> reported `m_estimation`;
 - explicit `m_estimation` equivalence to auto;
 - explicit incompatible `debiased`/bootstrap fail or migrate exactly as specified;
-- `cov_type` metadata and target/conditioning fields;
-- sample weights;
+- `cov_type` nonrobust/HC0/HC1 metadata and target/conditioning fields;
+- HC2/HC3/HAC fail visibly for non-Gaussian M-estimation;
+- sample weights for supported M-estimation;
 - unsupported non-Gaussian L1/ElasticNet fail closed before helper execution;
-- Gaussian L1/ElasticNet/bootstrap preservation and penalty-preserving refits;
+- Gaussian L1/ElasticNet bootstrap preservation with penalty-preserving refits on unweighted NumPy fits;
+- weighted/robust Gaussian bootstrap fails before resampling;
 - SCAD/MCP oracle CPU behavior and explicit GPU fail-closed boundary.
 
 ### Backend
@@ -292,7 +313,8 @@ At minimum cover logistic and Poisson L2, plus one additional positive-response 
 - selected alpha reused;
 - delegated result/provenance;
 - `cv_selected_penalty` + selection-adjustment false;
-- unsupported rows fail on final refit without returning stale CV inference state.
+- unsupported rows fail on final refit without returning stale CV inference state;
+- Cox branch remains estimation-only.
 
 ### Formula
 
@@ -300,7 +322,7 @@ At minimum cover logistic and Poisson L2, plus one additional positive-response 
 
 ### External/statistical baseline
 
-For supported non-Gaussian L2/no-penalty M-estimation, compare a CPU case to an independent NumPy/statsmodels-style Hessian/score sandwich calculation after aligning statgpu's average-loss penalty scaling. The invariant is the stated penalized estimating-equation covariance, not agreement with an unpenalized package fit at a mismatched target.
+For supported non-Gaussian L2/no-penalty M-estimation, compare a CPU case to an independent NumPy/statsmodels-style Hessian/score calculation after aligning statgpu's average-loss penalty scaling. The invariant is the stated penalized estimating-equation covariance, not agreement with an unpenalized package fit at a mismatched target.
 
 ## 13. Documentation
 
@@ -309,10 +331,12 @@ EN first, CN follow. Update only affected surfaces.
 Required learner-facing content:
 
 - what parameter the penalized GLM inference targets;
-- why L2 can use fixed-penalty M-estimation sandwich;
+- why smooth L2 allows fixed-penalty M-estimation inference;
 - the bread/meat formula and penalty-curvature role;
+- model-based (`nonrobust`) versus HC0/HC1 covariance;
 - `auto` method resolution table;
-- unsupported L1/ElasticNet non-Gaussian inference and why it is not silently approximated;
+- unsupported non-Gaussian L1/ElasticNet inference and why it is not silently approximated;
+- Gaussian residual-bootstrap limits (unweighted, NumPy-selected fit, nonrobust only);
 - CV final-refit conditioning and unadjusted tuning uncertainty;
 - backend behavior and reporting boundary;
 - explicit support matrix;
@@ -326,6 +350,7 @@ Before production edits, a fresh design audit must confirm:
 
 - the support matrix does not bless nonsmooth ElasticNet full-vector sandwich inference;
 - the invalid generic bootstrap is removed/narrowed rather than merely renamed;
+- weighted and robust-bootstrap semantics are not guessed from the current helper;
 - explicit GPU inference has no silent CPU fallback;
 - CV inference is final-refit-only and its tuning uncertainty limitation is public;
 - sparse-Gaussian and Ridge specialized wrappers retain their established contracts;
@@ -334,15 +359,16 @@ Before production edits, a fresh design audit must confirm:
 
 Any blocking design finding updates this plan and triggers a fresh audit before production implementation.
 
-## 15. Skill-validation observations from Phase 0
+## 15. Skill-validation observations from Phase 0 / design audit
 
 The strengthened workflow has already changed the shape of this task in useful ways:
 
 1. requested/resolved/reported identity exposed the misleading `debiased` defaults immediately;
 2. resampling reconnaissance found the nominally generic bootstrap actually rebuilds Gaussian L1;
-3. the consumer graph found that `PenalizedGLM_CV` has no public inference controls and disables inference on non-Gaussian final refits;
-4. backend provenance review found that non-Gaussian sandwich inference currently resolves from the post-fit input container rather than the executed fit backend;
-5. consumer enumeration prevented accidental changes to robust/quantile/Cox/group and sparse-Gaussian compatibility contracts;
-6. the release-boundary gate verified v0.2.5 is current and 0.2.6 is only a target.
+3. the resampling contract then exposed a second-order design gap: the helper ignores analytic weights and `cov_type`, so the repair must not silently claim weighted or robust bootstrap;
+4. the consumer graph found that `PenalizedGLM_CV` has no public inference controls and disables inference on non-Gaussian final refits;
+5. backend provenance review found that non-Gaussian sandwich inference currently resolves from the post-fit input container rather than the executed fit backend;
+6. consumer enumeration prevented accidental changes to robust/quantile/Cox/group and sparse-Gaussian compatibility contracts;
+7. the release-boundary gate verified v0.2.5 is current and 0.2.6 is only a target.
 
-No workflow over-gating has been identified yet: backend, CV, resampling, formula, and docs are all activated by real consumers or current public claims in this task.
+No workflow over-gating has been identified: backend, CV, resampling, formula, and docs are all activated by real consumers or current public claims in this task.
