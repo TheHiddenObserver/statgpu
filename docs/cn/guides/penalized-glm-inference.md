@@ -75,9 +75,11 @@ HC2、HC3 与 HAC 尚未为 penalized non-Gaussian M-estimation 实现，会明�
 
 non-Gaussian L2 M-estimation covariance 支持 analytic weights，并且 numerical inference 跟随实际执行拟合的 backend/device。
 
-这里存在一个需要公开说明的 solver 边界：通用 `solver="auto"` benchmark dispatch 对 smooth GLM 可能选择 Newton，而 Newton 当前不接受非均匀 analytic weights。因此，对于 **开启 inference 的 weighted non-Gaussian L2/无惩罚拟合**，本 contract 仅在该次 fit 内选择已有的 backend-native FISTA 路径。公开请求仍保持 `solver="auto"`；这不会改变 estimation-only 的全局 benchmark policy。
+维护中的 Newton solver 现在会把非均匀 analytic weights 贯穿 **同一个归一化 average-loss objective 的全部 Newton 阶段**：objective value、gradient、Hessian（或 fused gradient/Hessian）以及 Armijo trial evaluation 都使用 `sum_i w_i contribution_i / sum_i w_i`。因此把全部权重乘以任意正的常数不会改变 penalized optimum。对于浮点权重，满足历史 uniform-weight `allclose` 规则的向量继续走既有的 unweighted-equivalent 路径。
 
-显式指定 solver 时仍以用户请求为准，不会被静默替换。
+因此，开启 inference 的 weighted smooth non-Gaussian L2/无惩罚拟合不再需要 PR #142 临时的 fit-local FISTA override。公开 `solver="auto"` 时，direct fit 与 `PenalizedGLM_CV` 的 candidate/final refit 都重新服从 canonical solver-dispatch table；适用的 smooth-L2 logistic/Poisson 行会解析到 backend-native Newton，而公开的 solver 请求仍保持 `auto`。
+
+显式指定 solver 时仍以用户请求为准，不会被静默替换。对于统计 contract 本身不定义 sample weighting 的 loss（例如 Cox），真正的非均匀权重仍会明确报错，而不是被静默丢弃。
 
 ## Backend / device provenance
 
