@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Physical CUDA acceptance for the penalized-GLM inference contract.
 
-This validator is intentionally not a hosted-GPU substitute.  It requires a
+This validator is intentionally not a hosted-GPU substitute. It requires a
 clean git worktree plus operational CuPy CUDA and Torch CUDA in the same run,
 records the exact source SHA, and checks representative non-Gaussian L2
-M-estimation inference against the CPU implementation.
+M-estimation inference against the CPU implementation. It also feeds Torch CUDA
+containers into CuPy execution and CuPy containers into Torch execution so the
+post-fit inference boundary proves DLPack/concrete-device alignment rather than
+only same-container happy paths.
 
 Example
 -------
@@ -29,7 +32,7 @@ from statgpu.linear_model import (
 )
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 ATOL_COEF = 2e-6
 ATOL_INFERENCE = 1e-5
 
@@ -63,7 +66,9 @@ def _require_gpu_backends():
     if not torch.cuda.is_available():
         raise RuntimeError("Torch CUDA is not available")
 
-    cupy_device = int(cp.cuda.Device().id)
+    # Use one concrete ordinal in both libraries so container-crossing tests
+    # exercise conversion semantics rather than comparing different hardware.
+    cupy_device = 0
     torch_device = torch.device("cuda:0")
     return cp, torch, cupy_device, torch_device
 
@@ -102,6 +107,8 @@ def _snapshot(model):
         "resolved": model.inference_resolved_method_,
         "reported": model.inference_method_,
         "target": model.inference_target_,
+        "public_solver": str(model.solver),
+        "selected_solver": str(getattr(model, "_selected_solver", "")),
         "metadata": dict(result.metadata),
     }
 
@@ -133,6 +140,32 @@ def _assert_close_case(name, cpu, gpu):
     if gpu["target"] != "penalized_estimating_equation":
         raise AssertionError(f"{name} target mismatch: {gpu['target']!r}")
     return errors
+
+
+def _assert_backend(name, result, backend, device):
+    metadata = result["metadata"]
+    if metadata.get("numerical_backend") != backend:
+        raise AssertionError(
+            f"{name} numerical backend mismatch: {metadata.get('numerical_backend')!r}"
+        )
+    if metadata.get("numerical_device") != device:
+        raise AssertionError(
+            f"{name} concrete device mismatch: {metadata.get('numerical_device')!r}"
+        )
+
+
+def _assert_weighted_auto_solver(name, result, weighted):
+    if not weighted:
+        return
+    if result["public_solver"] != "auto":
+        raise AssertionError(
+            f"{name} public weighted solver request drifted: {result['public_solver']!r}"
+        )
+    if result["selected_solver"] != "fista":
+        raise AssertionError(
+            f"{name} weighted auto execution did not select FISTA: "
+            f"{result['selected_solver']!r}"
+        )
 
 
 def _fit_case(cls, X, y, *, device, sample_weight=None, solver="fista"):
@@ -172,19 +205,15 @@ def main() -> int:
 
         for weighted in (False, True):
             sw = weights if weighted else None
-            cpu = _fit_case(cls, X, y, device="cpu", sample_weight=sw)
+            solver = "auto" if weighted else "fista"
+            cpu = _fit_case(
+                cls, X, y, device="cpu", sample_weight=sw, solver=solver
+            )
 
             with cp.cuda.Device(cupy_device):
                 X_cp = cp.asarray(X)
                 y_cp = cp.asarray(y)
                 sw_cp = None if sw is None else cp.asarray(sw)
-                cupy_result = _fit_case(
-                    cls,
-                    X_cp,
-                    y_cp,
-                    device="cuda",
-                    sample_weight=sw_cp,
-                )
 
             X_t = torch.as_tensor(X, dtype=torch.float64, device=torch_device)
             y_t = torch.as_tensor(y, dtype=torch.float64, device=torch_device)
@@ -193,43 +222,80 @@ def main() -> int:
                 if sw is None
                 else torch.as_tensor(sw, dtype=torch.float64, device=torch_device)
             )
+
+            with cp.cuda.Device(cupy_device):
+                cupy_result = _fit_case(
+                    cls,
+                    X_cp,
+                    y_cp,
+                    device="cuda",
+                    sample_weight=sw_cp,
+                    solver=solver,
+                )
+                # Cross-container: Torch CUDA input, CuPy execution/inference.
+                cupy_from_torch = _fit_case(
+                    cls,
+                    X_t,
+                    y_t,
+                    device="cuda",
+                    sample_weight=sw_t,
+                    solver=solver,
+                )
+
             torch_result = _fit_case(
                 cls,
                 X_t,
                 y_t,
                 device="torch",
                 sample_weight=sw_t,
+                solver=solver,
+            )
+            # Cross-container: CuPy input, Torch execution/inference.
+            torch_from_cupy = _fit_case(
+                cls,
+                X_cp,
+                y_cp,
+                device="torch",
+                sample_weight=sw_cp,
+                solver=solver,
             )
 
-            cupy_meta = cupy_result["metadata"]
-            torch_meta = torch_result["metadata"]
-            if cupy_meta.get("numerical_backend") != "cupy":
-                raise AssertionError(f"{family} CuPy numerical backend not recorded")
-            if cupy_meta.get("numerical_device") != f"cuda:{cupy_device}":
-                raise AssertionError(
-                    f"{family} CuPy concrete device mismatch: "
-                    f"{cupy_meta.get('numerical_device')!r}"
-                )
-            if torch_meta.get("numerical_backend") != "torch":
-                raise AssertionError(f"{family} Torch numerical backend not recorded")
-            if not str(torch_meta.get("numerical_device", "")).startswith("cuda:"):
-                raise AssertionError(
-                    f"{family} Torch concrete device mismatch: "
-                    f"{torch_meta.get('numerical_device')!r}"
-                )
+            cuda_label = f"cuda:{cupy_device}"
+            for case_name, result, backend in (
+                ("cupy", cupy_result, "cupy"),
+                ("cupy_from_torch", cupy_from_torch, "cupy"),
+                ("torch", torch_result, "torch"),
+                ("torch_from_cupy", torch_from_cupy, "torch"),
+            ):
+                label = f"{family}/weighted={weighted}/{case_name}"
+                _assert_backend(label, result, backend, cuda_label)
+                _assert_weighted_auto_solver(label, result, weighted)
 
             cases.append(
                 {
                     "family": family,
                     "weighted": weighted,
+                    "solver_request": solver,
                     "cupy_errors": _assert_close_case(
                         f"{family}/weighted={weighted}/cupy", cpu, cupy_result
+                    ),
+                    "cupy_from_torch_errors": _assert_close_case(
+                        f"{family}/weighted={weighted}/cupy_from_torch",
+                        cpu,
+                        cupy_from_torch,
                     ),
                     "torch_errors": _assert_close_case(
                         f"{family}/weighted={weighted}/torch", cpu, torch_result
                     ),
-                    "cupy_metadata": cupy_meta,
-                    "torch_metadata": torch_meta,
+                    "torch_from_cupy_errors": _assert_close_case(
+                        f"{family}/weighted={weighted}/torch_from_cupy",
+                        cpu,
+                        torch_from_cupy,
+                    ),
+                    "cupy_metadata": cupy_result["metadata"],
+                    "cupy_from_torch_metadata": cupy_from_torch["metadata"],
+                    "torch_metadata": torch_result["metadata"],
+                    "torch_from_cupy_metadata": torch_from_cupy["metadata"],
                 }
             )
 
