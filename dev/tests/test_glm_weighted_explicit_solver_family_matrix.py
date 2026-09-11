@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -12,6 +14,7 @@ from statgpu.linear_model import (
     NegativeBinomialRegression,
     TweedieRegression,
 )
+from statgpu.solvers._convergence import ConvergenceWarning
 
 
 def _design(seed=15301, n=96, p=3):
@@ -36,7 +39,7 @@ _CASE_SEEDS = {
 
 def _case(case, solver):
     rng, X, eta = _design(seed=_CASE_SEEDS[case])
-    common = dict(solver=solver, device="cpu", max_iter=800, tol=1e-9)
+    common = dict(solver=solver, device="cpu", max_iter=800, tol=1e-8)
 
     if case == "gaussian":
         y = eta + rng.normal(scale=0.08, size=X.shape[0])
@@ -81,13 +84,24 @@ def _case(case, solver):
 _CASES = tuple(_CASE_SEEDS)
 
 
+def _fit_without_solver_warning(model, X, y, weights):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        warnings.filterwarnings(
+            "error",
+            message="lbfgs_solver: line search failed.*",
+            category=RuntimeWarning,
+        )
+        return model.fit(X, y, sample_weight=weights)
+
+
 @pytest.mark.parametrize("solver", ["newton", "lbfgs"])
 @pytest.mark.parametrize("case", _CASES)
 def test_weighted_explicit_ordinary_glm_family_matrix(case, solver):
     model, X, y = _case(case, solver)
     weights = np.linspace(0.55, 1.65, X.shape[0], dtype=np.float64)
 
-    model.fit(X, y, sample_weight=weights)
+    _fit_without_solver_warning(model, X, y, weights)
 
     assert model._selected_solver == solver
     assert model._selected_backend_name == "numpy"
@@ -104,8 +118,8 @@ def test_weighted_explicit_family_matrix_global_weight_rescaling(case, solver):
     model_b, _, _ = _case(case, solver)
     weights = np.linspace(0.6, 1.7, X.shape[0], dtype=np.float64)
 
-    model_a.fit(X, y, sample_weight=weights)
-    model_b.fit(X, y, sample_weight=9.0 * weights)
+    _fit_without_solver_warning(model_a, X, y, weights)
+    _fit_without_solver_warning(model_b, X, y, 9.0 * weights)
 
     np.testing.assert_allclose(model_a.coef_, model_b.coef_, rtol=5e-6, atol=5e-7)
     np.testing.assert_allclose(
