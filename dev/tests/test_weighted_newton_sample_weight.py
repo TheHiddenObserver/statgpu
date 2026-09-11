@@ -57,15 +57,41 @@ def test_weighted_newton_is_invariant_to_global_weight_rescaling():
     np.testing.assert_allclose(base, scaled, rtol=2e-10, atol=2e-11)
 
 
-def test_exactly_uniform_weights_preserve_unweighted_newton_result():
+def test_uniform_weights_preserve_historical_unweighted_newton_result():
     X, y = _logistic_data(seed=14273)
 
     unweighted = np.asarray(_solve_logistic(X, y))
     uniform = np.asarray(
         _solve_logistic(X, y, weights=np.full(X.shape[0], 3.5, dtype=np.float64))
     )
+    almost_uniform_weights = np.full(X.shape[0], 3.5, dtype=np.float64)
+    almost_uniform_weights[-1] += 1e-8
+    almost_uniform = np.asarray(
+        _solve_logistic(X, y, weights=almost_uniform_weights)
+    )
 
     np.testing.assert_allclose(unweighted, uniform, rtol=0.0, atol=1e-13)
+    # The historical Newton gate used allclose() for floating-point uniformity.
+    np.testing.assert_allclose(unweighted, almost_uniform, rtol=0.0, atol=1e-13)
+
+
+def test_weighted_newton_torch_cpu_matches_numpy_when_available():
+    torch = pytest.importorskip("torch")
+    X, y = _logistic_data(seed=14278)
+    weights = np.linspace(0.4, 1.9, X.shape[0], dtype=np.float64)
+
+    expected = np.asarray(_solve_logistic(X, y, weights=weights))
+    X_t = torch.as_tensor(X, dtype=torch.float64)
+    y_t = torch.as_tensor(y, dtype=torch.float64)
+    w_t = torch.as_tensor(weights, dtype=torch.float64)
+    actual = _solve_logistic(X_t, y_t, weights=w_t)
+
+    np.testing.assert_allclose(
+        expected,
+        actual.detach().cpu().numpy(),
+        rtol=2e-9,
+        atol=2e-10,
+    )
 
 
 @pytest.mark.parametrize(
@@ -102,6 +128,26 @@ def test_nonuniform_cox_weights_remain_explicitly_unsupported():
             tol=1e-8,
             sample_weight=weights,
         )
+
+
+def test_weighted_logistic_explicit_newton_works_without_inference():
+    X, y = _logistic_data(seed=14279, n=120)
+    weights = np.linspace(0.45, 1.75, X.shape[0], dtype=np.float64)
+
+    model = PenalizedLogisticRegression(
+        penalty="l2",
+        alpha=0.035,
+        solver="newton",
+        device="cpu",
+        compute_inference=False,
+        max_iter=400,
+        tol=1e-9,
+    ).fit(X, y, sample_weight=weights)
+
+    assert model.solver == "newton"
+    assert model._selected_solver == "newton"
+    assert np.all(np.isfinite(np.asarray(model.coef_)))
+    assert np.isfinite(float(model.intercept_))
 
 
 def test_weighted_logistic_auto_uses_newton_and_keeps_public_request():
