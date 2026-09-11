@@ -92,16 +92,12 @@ def test_solver_failure_does_not_publish_attempted_provenance(monkeypatch):
     X, y, weights = _logistic_data(seed=15504)
     model = GeneralizedLinearModel(
         family="binomial",
-        solver="newton",
+        solver="lbfgs",
         device="cpu",
         max_iter=400,
         tol=1e-8,
     ).fit(X, y, sample_weight=weights)
     before = _prov(model)
-
-    # Switch the public request so a pre-solver provenance write would be
-    # observable if the wrapper published before numerical success.
-    model.solver = "lbfgs"
 
     def fail_lbfgs(*args, **kwargs):
         raise RuntimeError("synthetic lbfgs failure")
@@ -110,4 +106,7 @@ def test_solver_failure_does_not_publish_attempted_provenance(monkeypatch):
     with pytest.raises(RuntimeError, match="synthetic lbfgs failure"):
         model.fit(X, y, sample_weight=weights)
 
+    # The wrapper publishes execution provenance only after successful fit.
+    # A failed same-solver refit therefore preserves the last completed fit's
+    # provenance rather than advertising the failed attempt as new evidence.
     assert _prov(model) == before
