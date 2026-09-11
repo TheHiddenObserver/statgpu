@@ -146,6 +146,99 @@ def test_api_only_scope_remains_narrow():
     assert "does not require a new backend implementation" in review
 
 
+def test_new_module_dev_requires_contract_reconnaissance_for_reconciliation():
+    skill = _read(SKILLS / "new-module-dev" / "SKILL.md")
+    workflow = _read(SKILLS / "new-module-dev" / "workflow.md")
+
+    for phrase in (
+        "Contract reconnaissance before implementation",
+        "existing capability reconciliation / public contract repair",
+        "consumer graph",
+        "requested method -> resolved method -> reported result method",
+        "resampling unit and data-generating mechanism",
+        "current published version",
+        "Exact-head evidence closure",
+    ):
+        assert phrase in skill
+
+    for phrase in (
+        "Phase 0 — target and contract reconnaissance",
+        "Existing capability reconciliation / contract repair",
+        "Resampling contract",
+        "Phase 4 — documentation and release boundary",
+        "Phase 5 — independent review/fix",
+        "Phase 6 — exact-head evidence closure",
+    ):
+        assert phrase in workflow
+
+    assert workflow.index("Phase 4 — documentation and release boundary") < workflow.index(
+        "Phase 5 — independent review/fix"
+    )
+    assert workflow.index("Phase 5 — independent review/fix") < workflow.index(
+        "Phase 6 — exact-head evidence closure"
+    )
+
+
+def test_code_review_covers_inference_identity_resampling_and_consumer_graph():
+    review = _read(SKILLS / "code-review" / "SKILL.md")
+    matrix = _read(SKILLS / "code-review" / "review-matrix.md")
+
+    for phrase in (
+        "existing capability reconciliation / public contract repair",
+        "consumer inventory",
+        "public requested method -> resolved numerical method",
+        "Resampling is blocking",
+        "current published version",
+        "exact-head",
+    ):
+        assert phrase in review
+
+    for phrase in (
+        "Contract reconciliation",
+        "requested/resolved/reported method",
+        "Resampling checks",
+        "generic bootstrap/permutation path reconstructs an incompatible model/family",
+        "Documentation and release-boundary checks",
+        "Evidence freshness checks",
+    ):
+        assert phrase in matrix
+
+
+def test_skill_evals_cover_reconciliation_resampling_and_release_boundary():
+    new_module = json.loads(
+        _read(SKILLS / "new-module-dev" / "evals" / "evals.json")
+    )["evals"]
+    review = json.loads(_read(SKILLS / "code-review" / "evals" / "evals.json"))[
+        "evals"
+    ]
+
+    assert len(new_module) >= 6
+    assert len(review) >= 7
+
+    new_text = "\n".join(
+        item["prompt"] + "\n" + item["expected_output"] for item in new_module
+    ).lower()
+    review_text = "\n".join(
+        item["prompt"] + "\n" + item["expected_output"] for item in review
+    ).lower()
+
+    for phrase in (
+        "capability reconciliation",
+        "generic glm bootstrap",
+        "0.2.6",
+        "exact-head evidence",
+    ):
+        assert phrase in new_text
+
+    for phrase in (
+        "requested/resolved/reported",
+        "resampling",
+        "consumer",
+        "green ci",
+    ):
+        assert phrase in review_text
+
+
 def test_legacy_paths_do_not_occupy_dynamic_workflow_namespace():
     for name in ("benchmark", "code-review", "new-module-dev"):
         legacy = SKILLS / f"{name}.md"
