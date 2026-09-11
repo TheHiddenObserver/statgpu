@@ -14,10 +14,11 @@ boundary after the existing installer stack has been assembled:
 - PenalizedGLM_CV must store newly added constructor parameters by identity so
   sklearn<=1.2 clone reconstruction remains valid.
 
-The tiny constructor boundary functions execute with a non-``statgpu.*``
-global module name on purpose. Existing deprecation policies use the call stack
-to distinguish user calls from statgpu-internal helper construction; adding a
-normal statgpu wrapper frame would incorrectly suppress caller-owned warnings.
+The tiny constructor boundary functions deliberately identify themselves as the
+existing penalized-inference API contract. That contract is already treated as
+transparent by the staged deprecation-warning policies, so caller identity is
+still discovered correctly: explicit user legacy arguments warn, while sklearn
+clone/set_params framework replay stays silent.
 
 A failed refit must also stop advertising any prior successful fit. This matters
 because inference compatibility is validated before the core fit clears fitted
@@ -46,6 +47,7 @@ from statgpu.linear_model.penalized._penalized_cv import PenalizedGLM_CV
 
 
 _MARKER = "_statgpu_penalized_glm_inference_fit_transaction"
+_TRANSPARENT_MODULE = "statgpu.linear_model._penalized_inference_api_contract"
 _PUBLIC_DEFAULT_CLASSES = (
     PenalizedGeneralizedLinearModel,
     PenalizedLinearRegression,
@@ -60,7 +62,7 @@ _PUBLIC_DEFAULT_CLASSES = (
 
 def _make_public_auto_boundary(current, public_signature):
     namespace = {
-        "__name__": "_statgpu_public_api_boundary",
+        "__name__": _TRANSPARENT_MODULE,
         "_current": current,
         "_signature": public_signature,
     }
@@ -107,7 +109,7 @@ def _install_clone_safe_cv_constructor():
     underlying = getattr(current, "__wrapped__", current)
     public_signature = inspect.signature(current)
     namespace = {
-        "__name__": "_statgpu_public_api_boundary",
+        "__name__": _TRANSPARENT_MODULE,
         "_underlying": underlying,
     }
     exec(
