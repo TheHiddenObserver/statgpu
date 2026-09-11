@@ -84,7 +84,7 @@ For supported smooth non-Gaussian L2/no-penalty models, `auto` resolves to fixed
 
 Analytic weights are supported, and numerical inference follows the backend/concrete device that actually executed the fit. Non-Gaussian L1/ElasticNet coefficient inference is not productized and fails closed. SCAD/MCP oracle inference is explicit rather than selected silently by `auto`; group penalties and penalized Cox remain estimation-only.
 
-`inference_method="bootstrap"` in this contract is an unweighted CPU Gaussian residual bootstrap with `cov_type="nonrobust"`. It preserves the fitted penalty family/tuning, requires at least two resamples, and does not silently refit on CPU after a CuPy/Torch fit.
+`inference_method="bootstrap"` is an unweighted Gaussian residual bootstrap with `cov_type="nonrobust"`. For the PR #147 / 0.2.6 target, each bootstrap response and penalized child refit executes on the successful fit's recorded NumPy/CuPy/Torch backend and concrete device. One backend-neutral residual-index schedule is shared across backends for a fixed seed, while only the small integer schedule and final NumPy reporting snapshot cross the host/device boundary. Weighted, robust/HAC, non-Gaussian, and Cox bootstrap semantics remain unsupported and fail closed.
 
 See [Penalized GLM inference](../guides/penalized-glm-inference.md) and [Inference Modes](../guides/inference-modes.md) for the complete support matrix, resampling boundaries, and statistical interpretation.
 
@@ -266,7 +266,7 @@ Validation coverage includes:
 - Poisson L1/ElasticNet comparison against statsmodels `fit_regularized`.
 - Runtime benchmarks with warm-up and GPU synchronization.
 
-The historical v23c matrix is estimation evidence; it does not by itself certify the newer coefficient-inference contract. PR #142 adds targeted hosted inference tests plus an exact-source physical CuPy/Torch CUDA validator; no physical GPU pass is claimed until that validator is actually run.
+The historical v23c matrix is estimation evidence; it does not by itself certify the newer coefficient-inference contract. PR #142 added the penalized-GLM inference physical gate; PR #147 adds `dev/benchmarks/validate_gaussian_residual_bootstrap_gpu.py` for exact-source NumPy/CuPy/Torch residual-bootstrap parity and concrete-device provenance. The validator's presence is not a physical GPU pass; acceptance requires running it on the exact clean PR source.
 
 Remote credentials must be supplied through environment variables and must not be committed.
 
