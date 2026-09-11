@@ -20,12 +20,12 @@ transparent by the staged deprecation-warning policies, so caller identity is
 still discovered correctly: explicit user legacy arguments warn, while sklearn
 clone/set_params framework replay stays silent.
 
-Execution-boundary fixes also live here: weighted inference-enabled non-Gaussian
-L2 ``solver='auto'`` requests use the maintained weight-capable FISTA path for
-both CV selection and the selected final refit, post-fit sandwich inputs are
-aligned to the fit-recorded backend/concrete device through the repository's
-existing cross-backend conversion helpers, and residual bootstrap validates
-that at least two resamples exist before publishing dispersion-like summaries.
+Execution-boundary fixes also live here: post-fit sandwich inputs are aligned to
+the fit-recorded backend/concrete device through the repository's existing
+cross-backend conversion helpers, and residual bootstrap validates that at
+least two resamples exist before publishing dispersion-like summaries. Weighted
+smooth-GLM solver selection is intentionally left to the canonical solver
+dispatch now that the maintained Newton solver supports analytic weights.
 
 A failed refit must also stop advertising any prior successful fit. This matters
 because inference compatibility is validated before the core fit clears fitted
@@ -70,16 +70,6 @@ _PUBLIC_DEFAULT_CLASSES = (
     PenalizedInverseGaussianRegression,
     PenalizedNegativeBinomialRegression,
     PenalizedTweedieRegression,
-)
-_WEIGHTED_M_ESTIMATION_LOSSES = frozenset(
-    {
-        "logistic",
-        "poisson",
-        "gamma",
-        "inverse_gaussian",
-        "negative_binomial",
-        "tweedie",
-    }
 )
 
 
@@ -201,22 +191,6 @@ def _invalidate_failed_refit(self):
             except Exception:
                 pass
         self._fitted = False
-
-
-def _penalty_name(self):
-    value = getattr(self, "penalty", "")
-    return str(getattr(value, "name", value)).strip().lower()
-
-
-def _use_weight_capable_auto_solver(self, sample_weight) -> bool:
-    """Keep weighted inference on an existing backend-native solver path."""
-    if sample_weight is None or not bool(getattr(self, "compute_inference", False)):
-        return False
-    if str(getattr(self, "_solver", getattr(self, "solver", "auto"))).lower() != "auto":
-        return False
-    if str(getattr(self, "loss", "")).lower() not in _WEIGHTED_M_ESTIMATION_LOSSES:
-        return False
-    return _penalty_name(self) in ("l2", "none", "null", "")
 
 
 def _fit_backend_name(self) -> str:
@@ -352,16 +326,6 @@ def _install_fit_restore():
     def wrapped(self, *args, **kwargs):
         public_request = getattr(self, "inference_method", None)
         internal_request = getattr(self, "_inference_method", None)
-        internal_solver = getattr(self, "_solver", None)
-        sample_weight = kwargs.get("sample_weight")
-        if sample_weight is None and len(args) >= 3:
-            sample_weight = args[2]
-        if _use_weight_capable_auto_solver(self, sample_weight):
-            # Newton currently rejects non-uniform analytic weights, while the
-            # maintained FISTA path honors the same average-loss weighted
-            # objective on NumPy/CuPy/Torch. This is a fit-local execution
-            # choice only: the public request remains solver='auto'.
-            self._solver = "fista"
         try:
             return current(self, *args, **kwargs)
         except Exception:
@@ -375,12 +339,9 @@ def _install_fit_restore():
                 self._inference_method = internal_request
             else:
                 self.__dict__.pop("_inference_method", None)
-            if internal_solver is not None:
-                self._solver = internal_solver
 
     setattr(wrapped, _MARKER, True)
     PenalizedGeneralizedLinearModel.fit = wrapped
-
 
 
 _SPECIALIZED_FAILURE_MARKER = "_statgpu_penalized_glm_specialized_failure_guard"
@@ -421,33 +382,6 @@ def _install_specialized_failure_guard(cls):
     cls.fit = wrapped
 
 
-def _install_cv_weighted_fit_restore():
-    current = PenalizedGLM_CV.fit
-    if getattr(current, _MARKER, False):
-        return
-
-    @functools.wraps(current)
-    def wrapped(self, *args, **kwargs):
-        internal_solver = getattr(self, "_solver", None)
-        sample_weight = kwargs.get("sample_weight")
-        if sample_weight is None and len(args) >= 3:
-            sample_weight = args[2]
-        if _use_weight_capable_auto_solver(self, sample_weight):
-            # The same statistical objective must be used during candidate
-            # scoring and the selected full-data refit. Temporarily resolving
-            # the CV owner's private solver avoids Newton's weight limitation
-            # without changing the public solver='auto' request.
-            self._solver = "fista"
-        try:
-            return current(self, *args, **kwargs)
-        finally:
-            if internal_solver is not None:
-                self._solver = internal_solver
-
-    setattr(wrapped, _MARKER, True)
-    PenalizedGLM_CV.fit = wrapped
-
-
 def install_penalized_glm_inference_fit_transaction():
     for cls in _PUBLIC_DEFAULT_CLASSES:
         _install_public_auto_boundary(cls)
@@ -458,7 +392,6 @@ def install_penalized_glm_inference_fit_transaction():
     _install_fit_restore()
     for cls in _iter_penalized_linear_subclasses():
         _install_specialized_failure_guard(cls)
-    _install_cv_weighted_fit_restore()
 
 
 __all__ = ["install_penalized_glm_inference_fit_transaction"]
