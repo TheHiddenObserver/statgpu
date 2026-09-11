@@ -1,6 +1,6 @@
 # Backend-native Gaussian residual bootstrap plan
 
-Status: PLAN REVIEW CLEAN / IMPLEMENTATION OPEN
+Status: PLAN REVIEW CLEAN / IMPLEMENTATION REVIEW-FIX
 Issue: #145
 PR: #147
 Current base at plan review: `master` at PR #142 merge commit `bc61b18123503fd5132d62ac797a710df0b53e89`
@@ -171,12 +171,13 @@ Then verify each child recorded backend/device equals the parent. Any mismatch i
 
 Heterogeneous public input containers follow **executed fit provenance**, not original container type. Include at least one supported Torch->CuPy and CuPy->Torch crossing in physical validation.
 
-Only two host-transfer classes are allowed:
+Allowed host/device boundary crossings are deliberately small and explicit:
 
-1. the small integer resampling schedule as control-plane H2D data;
-2. each fully completed child fit's established NumPy parameter/reporting snapshot, plus the final diagnostic/reporting boundary.
+1. the integer resampling schedule as control-plane H2D data;
+2. the already-established O(p) parent parameter/reporting snapshot may be mapped back to the fit-recorded device to reconstruct `y_hat` when the shared sparse fit path no longer retains a native coefficient buffer after fitting;
+3. each fully completed child fit's established NumPy parameter/reporting snapshot, plus the final diagnostic/reporting boundary.
 
-Do not copy `X`, `y`, residuals, or `y_star` to NumPy to reuse a CPU optimizer.
+The full `X`, `y`, residual, `y_hat`, and `y_star` vectors/matrices remain on the fit-recorded numerical backend/device. Do not copy those arrays to NumPy to reuse a CPU optimizer. The small O(p) parameter remap is a reporting/control boundary, not CPU numerical fitting.
 
 ## 6. Failure transaction and fitted diagnostic-state preservation
 
