@@ -221,7 +221,7 @@ print(f"加权 R²: {model.score(X_test, y_test, sample_weight=w_test):.4f}")
 
 **边界**（见 [已知限制](#已知限制)）：
 - 标量响应 sample-weight 能力取决于具体 loss/penalty/solver path；不受支持的显式 solver 组合会直接报错，而不会改变用户请求的 objective。
-- 对 PR #142 的 inference-enabled smooth non-Gaussian L2/no-penalty contract，non-uniform analytic weights 受支持。public `solver="auto"` 时，candidate selection 与 selected final refit 使用已有 weight-capable FISTA，因为 Newton 当前拒绝 non-uniform weights；public solver request 仍保持 `auto`。
+- 对 PR #142 的 inference-enabled smooth non-Gaussian L2/no-penalty contract，non-uniform analytic weights 受支持。public `solver="auto"` 时，candidate selection 与 selected final refit 重新服从 canonical solver dispatch；适用的 smooth-L2 logistic/Poisson 行执行 backend-native Newton，同时 public solver request 保持 `auto`。
 - `loss="cox_ph"` 会拒绝 `sample_weight`；加权惩罚 Cox CV 尚未实现。
 
 ## Alpha 网格
@@ -679,7 +679,7 @@ for alpha in alphas_descending:
 
 sample-weight 能力是 path-specific 的，不能从某个历史 solver 的限制外推出所有 penalty。显式请求不受支持的 solver 会直接报错。
 
-对 PR #142 的 coefficient-inference contract，smooth non-Gaussian L2/no-penalty + analytic weights 受支持。启用 inference 且 public request 为 `solver="auto"` 时，`PenalizedGLM_CV` candidate selection 与 selected final refit 都使用已有 weight-capable FISTA，同时 public request 保持 `auto`。penalized Cox CV branch 仍拒绝 `sample_weight`。
+对 PR #142 的 coefficient-inference contract，smooth non-Gaussian L2/no-penalty + analytic weights 受支持。启用 inference 且 public request 为 `solver="auto"` 时，`PenalizedGLM_CV` candidate selection 与 selected final refit 重新服从 canonical solver dispatch；适用的 smooth-L2 logistic/Poisson 行执行 backend-native Newton，同时 public request 保持 `auto`。penalized Cox CV branch 仍拒绝 `sample_weight`。
 
 ## 性能特征
 
