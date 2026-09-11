@@ -1,6 +1,6 @@
 # Weighted explicit Newton/L-BFGS GLM repair plan
 
-Status: DRAFT / PLAN REVIEW OPEN
+Status: PLAN REVIEW CLEAN / IMPLEMENTATION OPEN
 Tracked issue: #150
 Base: `master` after PR #147 merge (`658a23add3ea54dce95c51eb4bba80b91cb0f1b3`)
 Working branch: `fix/glm-weighted-explicit-solver-guard`
@@ -284,7 +284,7 @@ Add weighted L-BFGS regressions analogous to weighted Newton:
 - NumPy vs Torch-CPU parity;
 - instrumentation proving every GLM fused value/gradient call receives active weights, including line-search candidates;
 - a conforming custom `GLMLoss` inherits the weighted-L-BFGS capability contract;
-- non-GLM direct L-BFGS (including a representative Huber/Quantile case) with genuine non-uniform weights remains rejected;
+- non-GLM direct L-BFGS (including representative Huber/Quantile and Cox survival cases) with genuine non-uniform weights remains rejected;
 - line-search failure remains fail-visible and never accepts an unverified trial.
 
 Newton tests prove the shared helper extraction preserves all existing weighted/unweighted behavior.
@@ -438,15 +438,19 @@ A docs-only tail after accepted physical validation may reuse evidence only unde
 - MEDIUM: explicit smooth-solver `C` semantics and refit-state behavior now have pre-change characterization gates rather than implicit assumptions.
 - MEDIUM: physical acceptance now covers every final claimed ordinary family/link × solver × GPU backend row instead of only a representative pair.
 
-### Round 2 findings fixed in this revision
+### Round 2 findings fixed in revision `0f55fa5...`
 
 - MEDIUM: direct solver/loss documentation was missing from the docs closure; `models/losses.md`, solver algorithms, and `lbfgs_solver` API docs are now explicit consumers.
 - MEDIUM: the GLM-only capability gate now has a layer-safe marker contract (`LossBase=False`, `GLMLoss=True`) and explicit custom-GLMLoss inheritance semantics.
 - MEDIUM: ordinary provenance publication is staged until the existing fit transaction's success point, with characterization before any broader refit-state change.
 - MEDIUM: zero-weight-row equivalence is now a required objective invariant and regression case.
 
+### Round 3 fresh review
+
+Fresh audit of the complete revised plan found no new CRITICAL/HIGH/actionable MEDIUM plan finding. The generic non-GLM default-fail capability boundary protects Huber/Quantile/Cox from accidental non-uniform weighted L-BFGS expansion; the hosted plan now names representative Huber/Quantile and Cox preservation regressions explicitly.
+
 ## 16. Plan-review gate
 
-No production implementation starts until a fresh independent review/fix loop under `.claude/skills/code-review` reaches:
+Plan review is complete. Production implementation may begin from this exact reviewed plan state:
 
 `PLAN REVIEW CLEAN / IMPLEMENTATION OPEN`
