@@ -69,6 +69,12 @@ def _require_gpu_backends():
     return cp, torch, device_id, torch_device
 
 
+def _device_name(value) -> str:
+    if isinstance(value, bytes):
+        return value.decode(errors="replace")
+    return str(value)
+
+
 def _data(seed=147, n=192, p=4):
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, p))
@@ -162,6 +168,11 @@ def _assert_contract(name, snap, *, backend, device):
     schedule_hash = str(metadata.get("resampling_schedule_sha256", ""))
     if len(schedule_hash) != 64:
         raise AssertionError(f"{name}: missing stable resampling schedule hash")
+    child_solvers = metadata.get("child_selected_solvers")
+    if child_solvers != ["fista"]:
+        raise AssertionError(
+            f"{name}: child solver provenance drifted: {child_solvers!r}"
+        )
 
 
 def _compare(name, reference, candidate):
@@ -172,9 +183,13 @@ def _compare(name, reference, candidate):
         "conf_int": _max_abs(reference["conf_int"], candidate["conf_int"]),
     }
     if errors["params"] > ATOL_PARAMS:
-        raise AssertionError(f"{name}: params error {errors['params']:.3e} exceeds {ATOL_PARAMS:.3e}")
+        raise AssertionError(
+            f"{name}: params error {errors['params']:.3e} exceeds {ATOL_PARAMS:.3e}"
+        )
     if errors["bse"] > ATOL_BSE:
-        raise AssertionError(f"{name}: bse error {errors['bse']:.3e} exceeds {ATOL_BSE:.3e}")
+        raise AssertionError(
+            f"{name}: bse error {errors['bse']:.3e} exceeds {ATOL_BSE:.3e}"
+        )
     if errors["pvalues"] > ATOL_PVALUES:
         raise AssertionError(
             f"{name}: pvalue error {errors['pvalues']:.3e} exceeds {ATOL_PVALUES:.3e}"
@@ -215,6 +230,7 @@ def run(output: Path):
     cp, torch, device_id, torch_device = _require_gpu_backends()
     X_np, y_np = _data()
 
+    cupy_properties = cp.cuda.runtime.getDeviceProperties(device_id)
     environment = {
         "python": sys.version.split()[0],
         "platform": platform.platform(),
@@ -222,9 +238,7 @@ def run(output: Path):
         "cupy": cp.__version__,
         "torch": torch.__version__,
         "cuda_device_ordinal": device_id,
-        "cupy_device_name": cp.cuda.runtime.getDeviceProperties(device_id)["name"].decode(
-            errors="replace"
-        ),
+        "cupy_device_name": _device_name(cupy_properties["name"]),
         "torch_device_name": torch.cuda.get_device_name(torch_device),
     }
 
@@ -352,7 +366,10 @@ def run(output: Path):
             "conf_int_abs": ATOL_CONF_INT,
         },
         "environment": environment,
-        "child_provenance_gate": "every GPU child must record the parent backend/concrete device or the run raises",
+        "child_provenance_gate": (
+            "every GPU child must record the parent backend/concrete device "
+            "and selected fista solver or the run raises"
+        ),
         "cases": cases,
     }
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -372,7 +389,12 @@ def main():
     )
     args = parser.parse_args()
     payload = run(args.output)
-    print(json.dumps({"status": payload["status"], "source_sha": payload["source_sha"]}, indent=2))
+    print(
+        json.dumps(
+            {"status": payload["status"], "source_sha": payload["source_sha"]},
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":
