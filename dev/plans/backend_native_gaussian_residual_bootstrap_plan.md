@@ -1,139 +1,342 @@
 # Backend-native Gaussian residual bootstrap plan
 
-Status: IMPLEMENTATION / REVIEW-FIX
+Status: PLAN REVIEW-FIX PASS 1 APPLIED / IMPLEMENTATION OPEN
 Issue: #145
-Parent implementation contract: PR #142 at `6d3c51c54cb2571b547b730d3c98cdc66071a545`
+PR: #147
+Current base: `master` at PR #142 merge commit `bc61b18123503fd5132d62ac797a710df0b53e89`
+Parent statistical contract: merged PR #142 head `6d3c51c54cb2571b547b730d3c98cdc66071a545`
 
-## 1. Scope
+## 0. Change classification and non-goals
 
-Extend the already-defined PR #142 **unweighted Gaussian residual-bootstrap** inference method from NumPy-only execution to the maintained NumPy/CuPy/Torch backends without changing its statistical estimand or DGP.
+This work is a **shared backend-execution capability closure** for an already-defined statistical inference procedure. It materially changes the execution capability of residual bootstrap, so NumPy + CuPy + Torch closure is a blocking repository-default gate, but it must not broaden the PR #142 statistical DGP.
 
-This work is an execution-capability closure, not a bootstrap-method expansion.
+Active axes:
 
-In scope:
+- backend / concrete-device ownership / host-transfer boundary;
+- solver and child-refit ownership;
+- CV selected-final-refit behavior;
+- inference / resampling;
+- formula and public-wrapper consumers of the shared penalized Gaussian path;
+- docs / release-boundary / exact-source evidence.
 
-- squared-error penalized models whose PR #142 resolver already accepts `inference_method="bootstrap"`;
-- unweighted data only;
-- `cov_type="nonrobust"` only;
-- identical deterministic residual-index schedules across backends;
-- backend/device-native bootstrap response construction and child refits;
-- existing NumPy reporting boundary;
-- `PenalizedGLM_CV` selected-final-refit-only inference;
-- exact-source physical CuPy/Torch CUDA evidence.
-
-Explicitly out of scope:
+Not active as new statistical-method scope:
 
 - weighted bootstrap semantics;
-- wild/HC bootstrap;
+- HC/wild bootstrap;
 - HAC/block/time-series bootstrap;
 - non-Gaussian parametric bootstrap;
 - Cox bootstrap;
-- batched/multi-bootstrap performance optimization.
+- batched or multi-bootstrap performance optimization.
 
-## 2. Statistical contract
+A correct serial backend-native implementation is sufficient. Do not add a statistical approximation or silently fallback to CPU merely to satisfy backend coverage.
 
-For a successful penalized Gaussian fit with fitted values `y_hat` and residuals `r = y - y_hat`, draw one deterministic backend-neutral residual-index schedule from `bootstrap_random_state`.
+## 1. Phase-0 current capability matrix and consumer graph
 
-For draw `b`:
+### Capability matrix
 
-`y_star[b] = y_hat + r[index[b]]`.
+| Row | PR #142 state | PR #147 target |
+| --- | --- | --- |
+| Gaussian L1 residual bootstrap, NumPy/CPU | supported | preserve numerically/statistically |
+| Gaussian ElasticNet residual bootstrap, NumPy/CPU | supported | preserve numerically/statistically |
+| Gaussian SCAD residual bootstrap, NumPy/CPU | supported when explicitly requested | preserve and close backend execution |
+| Gaussian MCP residual bootstrap, NumPy/CPU | supported when explicitly requested | preserve and close backend execution |
+| Same rows after CuPy fit on `cuda:k` | fail-closed CPU-only guard | CuPy child refits on the same `cuda:k` |
+| Same rows after Torch fit on `cuda:k` | fail-closed CPU-only guard | Torch child refits on the same `cuda:k` |
+| Weighted Gaussian residual bootstrap | fail closed | unchanged fail-closed |
+| robust/HC or HAC residual bootstrap semantics | fail closed | unchanged fail-closed |
+| non-Gaussian bootstrap | fail closed | unchanged fail-closed |
+| Cox bootstrap | fail closed | unchanged fail-closed |
+| `PenalizedGLM_CV` bootstrap | selected-final-refit inference only | preserve exactly; candidates/folds stay estimation-only |
 
-Refit the same penalized Gaussian estimator on `(X, y_star[b])` with the same fixed penalty/tuning contract. The bootstrap target remains the penalized coefficient distribution.
+### Maintained consumers to close
 
-Published summaries remain:
+The shared post-fit inference hook can be reached by more than one public surface. Review/test the relevant maintained consumers rather than proving only one representative class:
 
-- sample standard deviation of bootstrap parameter vectors;
+- `PenalizedGeneralizedLinearModel(loss="squared_error", ...)`;
+- `PenalizedLinearRegression`;
+- specialized sparse-Gaussian wrappers that permit an explicit bootstrap request, including Lasso/ElasticNet surfaces where applicable;
+- SCAD/MCP Gaussian fits through the maintained generic/typed penalized surface;
+- `PenalizedGLM_CV` selected final refit;
+- formula/data entry points that end in the same penalized Gaussian fit path;
+- runtime inference/fit-transaction installers and their import/idempotence behavior;
+- EN/CN support docs and changelogs that currently describe bootstrap as CPU-only.
+
+Ridge/L2 bootstrap is not added by this PR because the merged PR #142 resolver does not expose residual bootstrap for that row.
+
+## 2. Statistical and public inference contract
+
+For a successful unweighted penalized Gaussian fit with fixed design `X`:
+
+`y_hat = fitted value`
+
+`resid = y - y_hat`
+
+For draw `b`, consume one row from a deterministic residual-index schedule and construct
+
+`y_star[b] = y_hat + resid[index[b]]`.
+
+Each child refits the **same penalized Gaussian estimator contract** on `(X, y_star[b])`. The bootstrap target remains the penalized coefficient distribution.
+
+Public/requested/result identity stays explicit:
+
+- public request: `bootstrap`;
+- resolved method: `residual_bootstrap`;
+- reported `_inference_result.method`: `residual_bootstrap`;
+- `inference_target_`: `penalized_coefficient_distribution`;
+- fixed-direct-fit conditioning: fixed penalty/tuning;
+- CV conditioning: selected penalty, with `penalty_selection_adjusted_=False` exactly as in PR #142.
+
+Published summaries remain the established PR #142 outputs:
+
+- sample standard deviation (`ddof=1`) of bootstrap parameter vectors;
 - sign-based two-sided p-values;
 - percentile confidence intervals;
-- approximate statistic `params / bse` retained for the established result schema.
+- approximate `params / bse` statistic retained for result-schema compatibility.
 
-## 3. Backend/device contract
+This PR does not claim selective-inference or tuning-selection coverage guarantees.
 
-The parent fit's recorded `_selected_backend_name` / `_selected_backend_device` are authoritative.
+### Bootstrap controls
 
-- NumPy/CPU parent → NumPy/CPU bootstrap refits.
-- CuPy `cuda:k` parent → CuPy `cuda:k` bootstrap refits.
-- Torch `cuda:k` parent → Torch `cuda:k` bootstrap refits.
+Do not invent a new public constructor API solely for this backend closure. Preserve the PR #142/bootstrap-owner behavior for `n_bootstrap` and `bootstrap_random_state`. Characterize `PenalizedGLM_CV` separately: its acceptance requirement is that inference executes exactly once on the selected full-data refit and retains selected-penalty conditioning; do not silently rerun bootstrap inside folds/candidates.
 
-The residual-index matrix may be generated on the host as deterministic control-plane integer data so all backends consume exactly the same draws. The bootstrap response and each child optimization remain on the executed backend/device.
+If implementation needs to propagate an already-existing bootstrap control across the CV final-refit boundary, preserve that existing control by identity/semantics rather than adding an unrelated new public parameter in this PR.
 
-Each child refit is inference-disabled and its existing post-fit NumPy parameter snapshot may be collected for final bootstrap reporting. Any child backend/device drift is a hard failure rather than silent fallback.
+## 3. Deterministic resampling contract
 
-## 4. Refit ownership
+For a fixed `(n, n_bootstrap, bootstrap_random_state)`, generate one backend-neutral `int64` index matrix with NumPy `Generator` as **control-plane data only**.
 
-Preserve where applicable:
+Requirements:
 
-- penalty object/family;
-- alpha;
-- l1_ratio;
-- penalty kwargs;
-- intercept behavior;
-- canonical solver request;
-- stopping rule;
-- LLA controls;
-- backend/device;
-- no recursive inference.
+- NumPy, CuPy, and Torch consume identical integer draws;
+- the schedule may cross host->device because it is small control-plane state;
+- raw `X`, `y`, residuals, `y_hat`, `y_star`, and every child optimization stay on the fit-recorded numerical backend/device;
+- no backend may substitute a backend-specific random bootstrap DGP;
+- the physical validator records enough schedule identity (seed/draw configuration and preferably a stable schedule hash) to prove parity cases consumed the same draws.
 
-For GPU refits the deprecated `cpu_solver` alias is intentionally not made authoritative; canonical `solver` owns execution.
+## 4. Child-refit ownership and solver semantics
 
-## 5. Implementation shape
+Preserve all applicable estimator/solver controls that can alter the child numerical solution:
 
-Install a focused contract after the PR #142 inference and fit-transaction installers.
+- deep-copied resolved penalty object/family;
+- `alpha`;
+- `l1_ratio`;
+- `penalty_kwargs`;
+- `fit_intercept` / effective intercept semantics;
+- `max_iter` and `tol`;
+- `n_jobs` where applicable;
+- canonical public `solver` request;
+- `lipschitz_L` when supplied;
+- `stopping`;
+- `lla`, `max_lla_iters`, and `lla_tol` for SCAD/MCP;
+- `loss_kwargs` where accepted by the maintained Gaussian wrapper;
+- `gpu_memory_cleanup` behavior without changing fitted-state lifetime;
+- concrete backend/device;
+- `compute_inference=False` on every child.
 
-The focused layer:
+`cpu_solver` is a legacy CPU-stage control: preserve it on NumPy/CPU child refits where it can own execution, but do not make it an authoritative GPU control.
 
-1. intercepts only the `resolved == "residual_bootstrap"` post-fit row;
-2. keeps all non-bootstrap inference routes delegated unchanged to PR #142;
-3. bypasses only PR #142's deliberate CPU-only safety guard;
-4. converts X/y/coef to the fit-recorded backend/device through maintained Gaussian backend helpers;
-5. constructs one shared residual-index schedule;
-6. performs serial backend-native child refits;
-7. verifies child execution provenance;
-8. publishes the existing residual-bootstrap result/provenance.
+For an explicit parent solver request, the child must execute the corresponding supported solver. For `solver="auto"`, the child must follow the same canonical dispatch table for the same loss/penalty/backend; record/compare selected solver identity in targeted tests where it is observable.
 
-## 6. Hosted validation
+No child may recursively invoke bootstrap or any other inference.
 
-Required deterministic coverage:
+## 5. Concrete backend/device ownership
+
+The parent fit's recorded `_selected_backend_name` and `_selected_backend_device` are authoritative.
+
+- NumPy/CPU parent -> NumPy/CPU response construction and child refits.
+- CuPy parent on `cuda:k` -> CuPy response construction and child refits on **that same `cuda:k`**.
+- Torch parent on `cuda:k` -> Torch response construction and child refits on **that same `cuda:k`**.
+
+A post-hoc provenance check is necessary but not sufficient. The child fit itself must be entered under the parent concrete device context:
+
+- CuPy: parse `cuda:k` and execute conversion/index creation/refit under `cp.cuda.Device(k)` (or an equivalent maintained exact-device mechanism);
+- Torch: bind the refit to `cuda:k` using an exact Torch device/current-device context plus device-resident inputs so construction/solver allocations cannot drift to another ordinal.
+
+Then verify each child recorded backend/device equals the parent. Any mismatch is a hard failure.
+
+Heterogeneous public input containers follow **executed fit provenance**, not original container type. Include at least one supported Torch->CuPy and CuPy->Torch crossing in physical validation.
+
+Only two host-transfer classes are allowed:
+
+1. the small integer resampling schedule as control-plane H2D data;
+2. each fully completed child fit's established NumPy parameter/reporting snapshot, plus the final diagnostic/reporting boundary.
+
+Do not copy `X`, `y`, residuals, or `y_star` to NumPy to reuse a CPU optimizer.
+
+## 6. Failure transaction and fitted diagnostic-state preservation
+
+The outer estimator must remain fail-closed if bootstrap cannot complete. Cover failures that occur:
+
+- before draws (`n_bootstrap < 2`, malformed controls, unsupported covariance/weights/family);
+- while constructing backend data/index state;
+- during a child refit;
+- during child provenance or parameter-shape validation.
+
+A failed inference-enabled refit must not leave a prior successful inference result, coefficient snapshot, or `_fitted=True` state advertised as current. Reuse the merged PR #142 fit-transaction invalidation contract rather than inventing a second transaction system.
+
+For successful fits, preserve the CPU PR #142 diagnostic/reporting behavior needed by maintained Gaussian consumers. Regression-test that moving bootstrap execution to another backend does not newly erase or corrupt the established response/residual/design/nobs state or public diagnostics such as `rsquared`/related summary fields where they were available before this extension.
+
+## 7. CV and formula consumer contract
+
+### `PenalizedGLM_CV`
+
+Bootstrap remains **selected-final-refit-only**:
+
+- folds, alpha candidates, path/grid scoring, and selection run with inference disabled;
+- after selecting `alpha`, bootstrap executes exactly once on the full-data selected estimator;
+- `selected_alpha` / `alpha_` agree;
+- `penalty_conditioning_="cv_selected_penalty"`;
+- `penalty_selection_adjusted_=False`;
+- final inference backend/device follows the selected final-refit backend, not the input container type;
+- no bootstrap work occurs during candidate evaluation.
+
+Do not broaden this PR into a new CV API. If a pre-existing bootstrap owner control must cross the final-refit reconstruction boundary, characterize and preserve it explicitly.
+
+### Formula/data route
+
+Because the shared estimator is formula-facing, add a regression proving that formula and array routes produce the same residual-bootstrap contract after design-matrix construction for at least one representative supported Gaussian penalty. Formula handling itself is not redesigned here; row/intercept/feature-name semantics must remain unchanged.
+
+## 8. Hosted deterministic acceptance matrix
+
+Before physical CUDA acceptance, add deterministic tests for all of the following.
+
+### Resampling and NumPy preservation
 
 - backend-neutral schedule reproducibility;
-- NumPy bootstrap reproducibility;
-- penalty preservation (L1, ElasticNet, representative SCAD/MCP where stable);
-- weighted bootstrap remains fail closed;
-- `n_bootstrap < 2` remains transactional/fail closed;
-- Torch backend consumes native bootstrap responses in host-only contract tests;
-- child backend/device drift fails closed;
-- `PenalizedGLM_CV` inference remains selected-final-refit-only;
-- import/installer idempotence and sklearn reconstruction remain unaffected.
+- identical schedule identity for the same seed and different identity for a different seed;
+- NumPy residual-bootstrap output reproduces the merged PR #142 CPU behavior for fixed draws within a frozen tolerance (exact where the path is deterministic enough);
+- `n_bootstrap < 2` remains transactional/fail-closed.
 
-Run the full hosted matrix after the final source head is fixed.
+### Penalty/refit ownership
 
-## 7. Physical CUDA gate
+- L1 end-to-end bootstrap;
+- ElasticNet end-to-end bootstrap, including `l1_ratio`;
+- SCAD hosted coverage;
+- MCP hosted coverage;
+- deep-copied penalty/`penalty_kwargs` preservation;
+- explicit `lipschitz_L` preservation where the selected solver consumes it;
+- LLA controls preserved for SCAD/MCP;
+- child `compute_inference=False` / no recursive inference.
 
-Add an exact-source Tesla P100 validator with fixed residual-index schedules and a NumPy reference. Cover at least:
+SCAD and MCP are both claimed rows. Do not make hosted coverage optional merely because nonconvex CUDA acceptance may be less stable; only the **physical GPU** nonconvex row may remain optional if documented with reason.
 
-- L1 direct fit;
-- ElasticNet direct fit;
-- CuPy CUDA;
-- Torch CUDA;
-- Torch→CuPy and CuPy→Torch heterogeneous input crossings where the public fit boundary supports them;
-- coefficient/bootstrap-summary parity;
-- recorded backend/device provenance;
+### Unsupported/fail-closed rows
+
+- weighted Gaussian residual bootstrap remains rejected;
+- robust/HC bootstrap semantics remain rejected;
+- HAC/block semantics remain rejected;
+- non-Gaussian bootstrap remains rejected;
+- Cox bootstrap remains rejected through its existing estimation-only contract;
+- explicit unavailable CuPy/Torch requests do not silently fallback to CPU.
+
+### Backend/device behavior
+
+- Torch host-contract test proves bootstrap responses supplied to child fits remain Torch-native;
+- equivalent CuPy behavior is covered when CuPy is available, with deterministic skip only when CUDA is unavailable;
+- child backend/device provenance mismatch fails closed;
+- exact-device context is exercised/locked by a targeted regression (not only post-fit metadata comparison);
+- heterogeneous-container conversion follows fit-recorded backend where host-only mocking can prove routing without pretending to be physical GPU evidence.
+
+### Transaction/consumer closure
+
+- a child fit exception invalidates outer fit/inference state;
+- a prior successful fit followed by a failed bootstrap refit does not leak stale inference fields;
+- `PenalizedGLM_CV` performs inference exactly once on the selected final refit and preserves selected-penalty metadata;
+- formula vs array route parity for one representative supported penalty;
+- generic `PenalizedGeneralizedLinearModel` and typed `PenalizedLinearRegression` surfaces remain consistent;
+- specialized Lasso/ElasticNet explicit-bootstrap surfaces remain usable where already supported;
+- installer is idempotent and import order does not stack duplicate wrappers;
+- sklearn reconstruction/clone surfaces that existed before PR #147 are not broken.
+
+## 9. User-facing docs and release boundary
+
+This PR changes a public backend support claim, so documentation is a blocking pre-final-review task.
+
+At minimum reconcile all maintained pages that currently call Gaussian residual bootstrap CPU-only, including as applicable:
+
+- `docs/en/guides/penalized-glm-inference.md`;
+- `docs/cn/guides/penalized-glm-inference.md`;
+- inference-mode/support-matrix pages if they repeat the CPU-only boundary;
+- root `CHANGELOG.md`;
+- `docs/en/changelog.md`;
+- `docs/cn/changelog.md`.
+
+Update only surfaces actually affected by this capability. Keep EN/CN claims conceptually aligned.
+
+Wording must distinguish:
+
+- published release status;
+- behavior merged on `master` / implemented by PR #147;
+- target release if known.
+
+Do not claim weighted, robust/HAC, non-Gaussian, Cox, or batched bootstrap support.
+
+## 10. Exact-source physical CUDA validator contract
+
+Add a maintained validator such as
+
+`dev/benchmarks/validate_gaussian_residual_bootstrap_gpu.py`
+
+with an artifact destination such as
+
+`results/pr147_gaussian_residual_bootstrap_gpu/pr147_gaussian_residual_bootstrap_gpu.json`.
+
+The validator must require/record:
+
+- clean git worktree;
+- exact source SHA;
+- validator schema version;
+- Python/statgpu/NumPy/CuPy/Torch versions;
+- CUDA/runtime/device provenance, including the concrete ordinal actually executed;
+- fixed data seeds, bootstrap seed, `n_bootstrap`, and schedule identity/hash;
+- named coefficient/parameter and bootstrap-summary tolerances;
+- public requested solver and selected solver where relevant;
+- numerical backend/device and reporting-boundary metadata;
+- explicit evidence that no child refit executed on CPU for GPU rows.
+
+Freeze named tolerance constants **before the first physical acceptance run**. Do not loosen them after a failed P100 run merely to obtain green status. Any later justified tolerance change requires a code-reviewed rationale, schema/version change, and a new physical run.
+
+Physical matrix must include at least:
+
+- NumPy reference under the same fixed draws;
+- CuPy CUDA L1 direct fit;
+- Torch CUDA L1 direct fit;
+- CuPy CUDA ElasticNet direct fit;
+- Torch CUDA ElasticNet direct fit;
+- same-schedule parameter/bootstrap-summary parity;
+- concrete backend/device provenance;
+- Torch->CuPy and CuPy->Torch heterogeneous-input crossings where the public fit boundary supports them;
 - no CPU numerical fallback.
 
-Nonconvex SCAD/MCP may be added to the physical gate only if the maintained LLA path is stable enough for a deterministic acceptance threshold; hosted contract coverage is still required.
+A representative SCAD/MCP physical row is desirable but not a completion requirement if the maintained nonconvex GPU solver is not stable enough for a deterministic threshold. SCAD and MCP still require hosted contract coverage.
 
-## 8. Review closure
+## 11. Validation, review, and evidence-DAG order
 
-Fresh review must inspect:
+Use this order so the final artifact does not repeat PR #142's evidence-freshness ambiguity:
 
-- statistical scope did not broaden beyond PR #142;
-- identical resampling schedule semantics;
-- child estimator/penalty/solver ownership;
-- no backend fallback;
-- concrete device affinity;
-- final-refit-only CV semantics;
-- result provenance/reporting boundary;
-- docs/support matrix;
-- exact-source hosted and physical evidence.
+1. finish production implementation and targeted hosted tests;
+2. finish user-facing EN/CN docs/changelog updates;
+3. add/freeze the physical validator contract and tolerance constants;
+4. run targeted + full hosted CI on the resulting source head;
+5. run a fresh independent code-review/fix pass over code/tests/docs/validator;
+6. if review fixes numerical/backend/validator behavior, rerun invalidated hosted checks and repeat review;
+7. once the numerical/validator source is stable, run the physical CUDA validator on that exact clean source;
+8. retain the artifact with exact source/schema/environment/provenance;
+9. perform a final fresh exact-head/evidence review; any later source change makes earlier review/CI/physical evidence historical unless its validator contract explicitly fingerprints and permits reuse of the unchanged relevant source.
 
-Do not claim COMPLETE until the exact numerical source has a clean CuPy/Torch physical artifact.
+Prefer running the physical gate on the actual final PR head. Avoid a docs-after-physical sequence when possible. If any later docs-only commit is unavoidable, do not silently reuse the artifact: the validator/evidence contract must explicitly support the claimed reuse or rerun the physical gate.
+
+## 12. Plan-review closure criteria
+
+A plan-level `REVIEW CLEAN` may be recorded only when a fresh pass finds:
+
+- the statistical DGP/estimand remains exactly PR #142's unweighted Gaussian residual bootstrap;
+- all claimed L1/ElasticNet/SCAD/MCP consumers are accounted for;
+- NumPy/CuPy/Torch and concrete-device ownership are explicit;
+- refit solver/tuning ownership includes all materially relevant controls;
+- CV selected-final-refit and formula consumers are explicit;
+- fail-closed unsupported rows and failure transaction are explicit;
+- docs/release-boundary work precedes final review;
+- physical validator/evidence freshness is explicit and exact-source based.
+
+Plan review cleanliness does **not** imply implementation readiness. PR #147 remains Draft until implementation, hosted validation, exact-source physical CUDA evidence, and final fresh review all close.
