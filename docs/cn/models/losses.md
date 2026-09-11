@@ -2,7 +2,7 @@
 
 > 语言：中文
 >
-> 最后更新：2026-07-27
+> 最后更新：2026-09-12
 >
 > 页面定位：模型文档
 >
@@ -19,7 +19,7 @@
 > - [稳健回归](robust.md) — Huber、Bisquare、Fair 损失、PenalizedRobustRegression
 > - [CoxPH](coxph.md) — Breslow/Efron/Exact、start-stop、分层、推断与 CV
 
-五种新损失类型扩展了 `LossBase`（在已有 7 种 GLM 家族之外）：
+五类 non-GLM loss 扩展了 `LossBase`：
 
 | 损失 | 类 | R 等价 | 用途 |
 |------|------|--------|------|
@@ -29,10 +29,9 @@
 | Fair | `FairLoss` | `MASS::rlm(psi="fair")` | Fair M-估计器 |
 | Cox PH | `CoxPartialLikelihoodLoss` | `survival::coxph()` | 生存分析 |
 
-`LossBase` 提供统一接口，但可用组合仍由各损失和公开 estimator 的能力约束，不应理解为
-每个损失都自动支持全部惩罚和求解器。惩罚封装器包括
-`PenalizedQuantileRegression`、`PenalizedRobustRegression` 和
-`PenalizedCoxPHModel`；其中 Cox 封装器当前验证 L1、L2、Elastic Net、SCAD、MCP 五类惩罚。
+`LossBase` 提供统一接口，但可用组合仍由具体 loss 和 public estimator 的 contract 决定。某个 solver 可以调用某个 loss，并不意味着这个 loss 对该 solver 的所有可选控制——特别是 `sample_weight`——都具有相同统计含义。
+
+惩罚封装器包括 `PenalizedQuantileRegression`、`PenalizedRobustRegression` 和 `PenalizedCoxPHModel`；其中 Cox 封装器当前验证 L1、L2、Elastic Net、SCAD、MCP 五类惩罚。
 
 ## 路径
 
@@ -60,10 +59,19 @@ LossBase (statgpu/losses/_base.py)
 
 ## 目标函数
 
-所有损失最小化：
+无权重 loss 最小化平均损失与声明 penalty：
+
 $$
-\min_{\beta} \frac{1}{n} \sum_{i=1}^n \ell(X_i \beta, y_i) + \text{penalty}(\beta)
+\min_{\beta} \frac{1}{n} \sum_{i=1}^n \ell(X_i \beta, y_i) + \text{penalty}(\beta).
 $$
+
+对于**明确支持 analytic objective weights** 的 loss/solver 组合，维护中的 convention 是
+
+$$
+\frac{\sum_i w_i\ell_i}{\sum_i w_i}.
+$$
+
+但 weight support 属于具体的 **loss × solver × estimator contract**；不能因为 `LossBase` 某个方法带有 `sample_weight` 参数，就推断所有 solver 都支持任意 non-uniform weights。
 
 ### Quantile 损失 (Pinball)
 
@@ -91,10 +99,7 @@ $$ \rho_c(u) = \begin{cases} \frac{c^2}{6}\left[1 - \left(1 - (\frac{u}{c})^2\ri
 
 $$ \ell(\beta) = -\frac{1}{n} \log L(\beta) $$
 
-`CoxPartialLikelihoodLoss` 接收 `[time, event]` 二列响应，$L(\beta)$ 为 Breslow 或
-Efron 部分似然。它是 `PenalizedCoxPHModel` 的标准右删失损失。需要 Exact ties、
-$(\text{start},\text{stop}]$、`strata` 或 `subject_id` 时，应使用
-[`CoxPH`/`CoxPHCV`](coxph.md) 的计数过程实现。
+`CoxPartialLikelihoodLoss` 接收 `[time, event]` 二列响应，$L(\beta)$ 为 Breslow 或 Efron 部分似然。需要 Exact ties、$(\text{start},\text{stop}]$、`strata` 或 `subject_id` 时，应使用 [`CoxPH`/`CoxPHCV`](coxph.md) 的计数过程实现。
 
 ## 求解器兼容性
 
@@ -104,11 +109,21 @@ $(\text{start},\text{stop}]$、`strata` 或 `subject_id` 时，应使用
 | FISTA-BB | ✅ | ✅ | ✅ | ✅ | ✅ |
 | FISTA-LLA | ✅ (SCAD/MCP) | ✅ | ✅ | ✅ | ✅ (SCAD/MCP) |
 | Proximal IRLS-CD | ✅ (SCAD/MCP) | ❌ | ❌ | ❌ | ❌ |
-| Proximal Newton | ❌ (无 Hessian) | ✅ (5-10 iter) | ✅ (5-10 iter) | ✅ | ❌（Cox 当前走 FISTA-LLA） |
+| Proximal Newton | ❌ (无 Hessian) | ✅ (5-10 iter) | ✅ (5-10 iter) | ✅ | ❌ |
 | Newton | ❌ (无 Hessian) | ✅ | ✅ | ✅ | ✅ |
 | L-BFGS | ✅ | ✅ | ✅ | ✅ | ✅ |
 | ADMM | ✅ | ✅ | ✅ | ✅ | ✅ |
 | IRLS | ✅ (仅 L2) | ❌ | ❌ | ❌ | ❌ |
+
+上表描述的是普通**无权重** solver compatibility，并不表示所有这些 loss 都能通过每个列出的 solver 接受 genuine non-uniform weights。
+
+### Non-uniform weights 与 direct L-BFGS
+
+`lbfgs_solver` 对 genuine non-uniform weighted execution 采用 loss-level opt-in。维护中的 `GLMLoss` 子类会 opt-in，因为它们的 fused value/gradient contract 明确定义了归一化 analytic-weight objective。
+
+本页的 generic non-GLM losses——Quantile、Huber/Bisquare/Fair、Cox——当前对 direct L-BFGS 的 genuine non-uniform `sample_weight` 保持 fail closed，除非之后为该 loss 单独定义并验证相应统计 contract。uniform weights 仍保持历史 unweighted L-BFGS 路径。
+
+这个边界很重要：共享 solver 为 GLM 增加 weighted capability，不应静默改变 robust、quantile 或 survival objective 的统计含义。
 
 ## 参数
 
@@ -145,8 +160,7 @@ $(\text{start},\text{stop}]$、`strata` 或 `subject_id` 时，应使用
 |---|---:|---|
 | `ties` | `"breslow"` | ties 处理方法：`"breslow"` 或 `"efron"` |
 
-此处的 loss 对象不接受 `ties="exact"`。Exact 是 `statgpu.survival.CoxPH` 和
-`CoxPHCV` 的 estimator 级能力。
+此处的 loss 对象不接受 `ties="exact"`。Exact 是 `statgpu.survival.CoxPH` 和 `CoxPHCV` 的 estimator 级能力。
 
 ## 示例
 
@@ -161,14 +175,15 @@ n, p = 200, 10
 X = np.random.randn(n, p)
 y = X @ np.array([1.0, 0, -0.5, 0, 0.3, 0, 0, 0, 0, 0]) + np.random.randn(n) * 0.5
 
-# Quantile 回归（中位数）
+# 以下是无权重 direct-solver 示例。
 loss = QuantileLoss(quantile=0.5)
 coef, n_iter = lbfgs_solver(loss, None, X, y)
 
-# 稳健回归
 loss = HuberLoss(epsilon=1.345)
 coef, n_iter = lbfgs_solver(loss, None, X, y)
 ```
+
+不要从这些 unweighted 示例推断 Quantile/Huber 已支持 genuine non-uniform weighted L-BFGS。加权 robust/quantile procedure 应以对应 model 文档声明为准。
 
 ### GPU (torch-CUDA)
 
@@ -190,41 +205,22 @@ coef, n_iter = fista_solver(loss, SCADPenalty(alpha=0.1), X_t, y_t)
 ```python
 from statgpu.linear_model.penalized import PenalizedQuantileRegression
 
-# CPU
 model = PenalizedQuantileRegression(quantile=0.5, penalty='scad', alpha=0.1)
 model.fit(X, y)
 
-# GPU
-model = PenalizedQuantileRegression(quantile=0.5, penalty='scad', alpha=0.1)
-model.fit(X_t, y_t)
+model_gpu = PenalizedQuantileRegression(quantile=0.5, penalty='scad', alpha=0.1)
+model_gpu.fit(X_t, y_t)
 ```
 
 ## 外部验证
 
-- **QuantileLoss**: 与 R `quantreg::rq()`（Frisch-Newton IRLS）和 sklearn `QuantileRegressor`（HiGHS LP 求解器）对齐。系数精度 1e-6。
-- **HuberLoss**: 与 R `MASS::rlm()` Huber psi 函数对齐。
-- **BisquareLoss**: 与 R `MASS::rlm(psi="bisquare")` 对齐。支持 SCAD/MCP 通过 proximal Newton（5-10 次迭代收敛）。
-- **CoxPartialLikelihoodLoss / CoxPH**：Breslow/Efron 与 statsmodels PHReg 对齐；Exact
-  由小规模暴力枚举验证。2026-07-12 的
-  [`quick`](../../../results/survival_completion_2026-07-12.json) 与
-  [`full`](../../../results/survival_completion_full_2026-07-12.json) 产物覆盖 NumPy、CuPy、
-  Torch 的 delayed-entry、Exact、重 ties、stratified start-stop 兼容性与精度矩阵。
+loss-specific numerical validation 使用对应维护中的 model/solver contract。跨 NumPy/CuPy/Torch 的数值一致性与“某种 weighting interpretation 在统计上是否有效”是两个不同问题；一个尚未声明 weighted contract 的 loss，不能只靠三后端数值一致就被视为支持该 weighting method。
 
 ## 注意事项
 
-- `CoxPartialLikelihoodLoss` 的 Breslow/Efron 路径在 NumPy、CuPy CUDA 和 Torch CUDA
-  后端执行；Torch 不依赖 CuPy 桥接。预处理阶段会把排序后的 `time` 与 `event`
-  一次性复制到主机以构造确定性的失败组元数据，再把索引缓存到所选设备；设计矩阵、
-  predictor、目标函数、梯度和 Hessian 在迭代中不会转到 CPU。显式 GPU 输入在对应
-  路径失败时 `raise RuntimeError`，不会回退 NumPy。
-- SCAD/MCP 的 trusted-gradient 路径会跳过重复的 finite-state 检查，但每次计算仍保留
-  自适应 predictor-range 分段；求解器快速路径不会关闭稳定的风险集缩放。
-- `PenalizedCoxPHModel` 无可识别截距，且当前仅提供估计：`fit_intercept=True` 会报错，
-  `compute_inference=True` 会抛出 `NotImplementedError`。SCAD/MCP 使用 FISTA-LLA；
-  需要标准误和基线风险时使用 `CoxPH`。
+- `CoxPartialLikelihoodLoss` 的 Breslow/Efron 路径在 NumPy、CuPy CUDA 和 Torch CUDA 后端执行；其 weight support 仍由 Cox-specific contract 单独定义。
 - `QuantileLoss` 的 `smooth_gradient=False` 且 `has_hessian=False`；对 SCAD/MCP 使用 FISTA 或 proximal IRLS-CD。
-- `HuberLoss` 和 `BisquareLoss` 的 `has_hessian=True`；proximal Newton 对 SCAD/MCP 5-10 次迭代收敛。
-- 所有损失接受 `sample_weight`（`CoxPartialLikelihoodLoss` 除外，会 `raise NotImplementedError`）。
+- robust losses 有各自 estimator-level weight semantics；这并不自动扩展成 direct non-uniform weighted L-BFGS。
 - 详见 [Loss × Penalty × Solver 框架](../guides/loss-penalty-solver-framework.md)。
 
 ## 参考文献
