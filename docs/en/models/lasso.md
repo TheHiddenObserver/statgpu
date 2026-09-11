@@ -90,8 +90,13 @@ the successful fit's recorded NumPy/CuPy/Torch backend and concrete device.
 CuPy bootstrap children remain on the same `cuda:k`; Torch bootstrap children
 remain on the same `cuda:k`. A fixed `bootstrap_random_state` generates one
 backend-neutral integer residual-index schedule, and result metadata records a
-stable schedule SHA-256 together with numerical/reporting provenance. Only the
-small index schedule and the final NumPy reporting snapshot cross the host/device
+stable schedule SHA-256 together with numerical/reporting provenance. The index
+schedule is small control-plane H2D state; when the shared sparse fit no longer
+retains a native coefficient buffer, the established O(p) parent
+parameter/reporting snapshot may also be mapped back to the fit device to
+reconstruct `y_hat`. The full `X`, `y`, residual, `y_hat`, and `y_star` arrays and
+every child optimization remain on the fit-recorded numerical backend/device;
+completed child/final results cross to NumPy only at the established reporting
 boundary. Weighted, robust/HAC, non-Gaussian, and Cox bootstrap semantics remain
 unsupported and fail closed.
 

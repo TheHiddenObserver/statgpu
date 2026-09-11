@@ -143,12 +143,17 @@ CPU-only in the PR #147 / 0.2.6 target. It uses one backend-neutral residual-ind
 schedule for a fixed `bootstrap_random_state`, then constructs every bootstrap
 response and runs every child penalized refit on the backend/concrete device
 recorded by the successful fit. CuPy children remain on the same `cuda:k`; Torch
-children remain on the same `cuda:k`; only the small index schedule and the final
-NumPy reporting snapshot cross the host/device boundary. Metadata records a
-stable schedule SHA-256 plus numerical and reporting provenance. Weighted
-residual bootstrap, robust/HAC bootstrap, non-Gaussian bootstrap, and Cox
-bootstrap remain unsupported and fail closed. `n_bootstrap` must be at least 2
-so a published bootstrap standard error is defined.
+children remain on the same `cuda:k`. The integer index schedule is small
+control-plane H2D state; when the shared sparse fit no longer retains a native
+coefficient buffer, the already-established O(p) parent parameter/reporting
+snapshot may also be mapped back to the fit device to reconstruct `y_hat`.
+The full `X`, `y`, residual, `y_hat`, and `y_star` arrays and every child
+optimization remain on the fit-recorded numerical backend/device, and completed
+child/final results cross to NumPy only at the established reporting boundary.
+Metadata records a stable schedule SHA-256 plus numerical and reporting
+provenance. Weighted residual bootstrap, robust/HAC bootstrap, non-Gaussian
+bootstrap, and Cox bootstrap remain unsupported and fail closed. `n_bootstrap`
+must be at least 2 so a published bootstrap standard error is defined.
 
 With analytic `sample_weight`, the maintained NumPy/CuPy/Torch `debiased` paths
 use the same weighted-centered average-loss working problem. Multiplying every

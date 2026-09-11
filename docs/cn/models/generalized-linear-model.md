@@ -84,7 +84,7 @@ generic 与 typed penalized GLM estimator 推荐使用 `inference_method="auto"`
 
 analytic weights 受支持，数值 inference 跟随真正执行 fit 的 backend/concrete device。non-Gaussian L1/ElasticNet coefficient inference 当前不 productize，会 fail closed。SCAD/MCP oracle 必须显式请求；group penalty 与 penalized Cox 仍为 estimation-only。
 
-本 contract 的 `inference_method="bootstrap"` 表示 `cov_type="nonrobust"` 的 unweighted Gaussian residual bootstrap。PR #147 / 0.2.6 目标版本中，每个 bootstrap response 和 penalized child refit 都在成功拟合记录的 NumPy/CuPy/Torch backend 与具体 device 上执行。固定 seed 下三后端共享同一套 backend-neutral residual-index schedule；只有小型整数 schedule 和最终 NumPy reporting snapshot 允许跨 host/device boundary。weighted、robust/HAC、non-Gaussian 与 Cox bootstrap 仍不支持并 fail closed。
+本 contract 的 `inference_method="bootstrap"` 表示 `cov_type="nonrobust"` 的 unweighted Gaussian residual bootstrap。PR #147 / 0.2.6 目标版本中，每个 bootstrap response 和 penalized child refit 都在成功拟合记录的 NumPy/CuPy/Torch backend 与具体 device 上执行。固定 seed 下三后端共享同一套 backend-neutral residual-index schedule。小型整数 schedule 属于 control-plane H2D state；如果 shared sparse fit 在拟合后已不再保留 native coefficient buffer，则既有 O(p) parent parameter/reporting snapshot 也可重新映射到 fit device 以重建 `y_hat`。完整的 `X`、`y`、residual、`y_hat`、`y_star` 以及所有 child optimization 都保持在 fit-recorded numerical backend/device；完成的 child/final result 只在既有 reporting boundary 转为 NumPy。weighted、robust/HAC、non-Gaussian 与 Cox bootstrap 仍不支持并 fail closed。
 
 完整 support matrix、resampling 边界与统计解释见 [Penalized GLM inference](../guides/penalized-glm-inference.md) 与 [Inference Modes](../guides/inference-modes.md)。
 
