@@ -7,7 +7,8 @@ Resolve the review target before reading findings. The goal is to make a clean/b
 Every review records:
 
 - `target_kind`: `pr`, `branch`, `commit`, `range`, `path`, or `working-tree`;
-- `base_sha`: immutable comparison base when applicable; use `null`/not-applicable for a snapshot `commit` audit that intentionally reviews repository state rather than a diff;
+- `commit_mode`: `snapshot` or `patch` when `target_kind=commit`; otherwise not applicable;
+- `base_sha`: immutable comparison base when applicable; use `null`/not-applicable for `commit_mode=snapshot`;
 - `head_sha`: immutable reviewed commit head;
 - `default_branch`: the resolved repository default branch when used;
 - `path_filter`: explicit path restriction, if any;
@@ -51,18 +52,34 @@ If exact PR metadata cannot be resolved, do not issue a clean/blocking verdict. 
 5. For `auto-fix` of this **committed branch target**, require a clean writable checkout at `head_sha` before editing; otherwise the target would silently expand to include unrelated working-tree changes.
 6. Before the verdict, re-resolve the branch head **and the comparison/default-branch head** and recompute the merge-base. If the effective `base_sha` or `head_sha` changed, the old verdict is stale.
 
-### Explicit immutable commit snapshot
+### Explicit commit
 
-Use `target_kind=commit` when the caller asks to audit the **repository state at one immutable commit**, not merely the patch introduced by that commit.
+A single commit can mean either **the patch introduced by that commit** or **the repository state at that commit**. Record `commit_mode` so those scopes cannot be silently exchanged.
+
+#### `commit_mode=patch`
+
+Use patch mode when the caller asks to review a commit/change/patch, or supplies a bare commit without explicitly asking for repository-state/snapshot semantics.
+
+1. Resolve the supplied commit to one immutable `head_sha`.
+2. For a normal single-parent commit, resolve its unique parent as `base_sha` and review the direct patch `base_sha..head_sha` (equivalently the commit's first-parent patch).
+3. If the commit is a root commit, use the empty tree as the comparison base and record that explicitly.
+4. If the commit has multiple parents (merge commit), do not guess which parent defines “the commit's changes.” Require an explicit parent/base or a caller instruction such as first-parent review; otherwise fail closed as target ambiguity.
+5. Read changed files from `head_sha` as needed to understand the patch; do not broaden patch mode into an audit of unrelated pre-existing repository defects.
+6. Later branch movement does not stale immutable patch identity, but the final verdict must still correspond to the same resolved `base_sha`/`head_sha` and evidence.
+7. For `auto-fix`, an immutable commit patch is read-only unless the caller separately identifies a writable branch/worktree at `head_sha`.
+
+#### `commit_mode=snapshot`
+
+Use snapshot mode only when the caller asks to audit the **repository state/contract at one immutable commit**, rather than merely the patch introduced by that commit.
 
 1. Resolve the commit to one immutable SHA and record it as `head_sha`.
-2. Record `base_sha` as not applicable/null unless the caller separately requested a comparison base.
+2. Record `base_sha` as not applicable/null unless the caller separately requested a comparison base for supporting context.
 3. Read the relevant source, tests, docs, and runtime/public-contract surfaces from that commit. Do **not** silently replace the snapshot audit with `parent..commit` or another inferred diff; pre-existing defects at the snapshot are in scope when the requested audit asks about that contract/state.
 4. Apply any explicit path/domain filter to the snapshot state rather than treating the filter as a comparison base.
 5. A snapshot commit audit is immutable with respect to later branch movement. Freshness still requires confirming that the resolved commit SHA and any separately scoped evidence/artifacts are the same ones used for the verdict.
 6. For `auto-fix`, a snapshot commit is read-only unless the caller separately identifies a writable branch/worktree at that commit. Never guess which branch should receive fixes.
 
-This target is appropriate for blind golden review fixtures that need a reproducible historical repository state and must test defect discovery rather than diff-only reasoning.
+Snapshot mode is appropriate for blind golden review fixtures that need a reproducible historical repository state and must test defect discovery rather than diff-only reasoning.
 
 ### Explicit range
 
@@ -99,7 +116,7 @@ If the current branch is the default branch and has no divergent commits, the sc
 - `reviewed_before`: the target/state that produced the findings, including its fingerprint when dirty;
 - `reviewed_after`: the post-fix state that receives the final re-review, with a new fingerprint when dirty.
 
-For an **explicit writable committed target** (PR or branch), start from a clean worktree at the resolved head. For a **no-scope working-tree target**, preserve the captured dirty state as the legitimate pre-fix target and distinguish it from review-created edits. An immutable snapshot `commit` or explicit range remains read-only unless a writable branch/worktree is separately identified. If edits remain uncommitted, report the final `HEAD` plus dirty working-tree paths/fingerprint. If commits are separately authorized and created, report the resulting exact head SHA. Never cite CI or review evidence from an earlier head/fingerprint as proof of a later state.
+For an **explicit writable committed target** (PR or branch), start from a clean worktree at the resolved head. For a **no-scope working-tree target**, preserve the captured dirty state as the legitimate pre-fix target and distinguish it from review-created edits. An immutable `commit` (patch or snapshot) or explicit range remains read-only unless a writable branch/worktree is separately identified. If edits remain uncommitted, report the final `HEAD` plus dirty working-tree paths/fingerprint. If commits are separately authorized and created, report the resulting exact head SHA. Never cite CI or review evidence from an earlier head/fingerprint as proof of a later state.
 
 ## PR comment freshness
 
@@ -113,7 +130,8 @@ Do not return `REVIEW CLEAN`, approval, or another blocking-completion verdict w
 
 - PR/branch/commit/range resolution is ambiguous;
 - a requested PR cannot be resolved to exact SHAs;
-- a requested snapshot commit cannot be resolved to one immutable SHA;
+- a requested commit cannot be resolved to one immutable SHA;
+- a merge-commit patch review lacks an explicit parent/base/first-parent instruction;
 - the effective comparison base or head moved during audit and was not re-reviewed;
 - a working-tree fingerprint changed unexpectedly during audit and the new content was not re-reviewed;
 - `auto-fix` of an explicit writable committed target would write to a checkout that is not the resolved target or is not clean before the fix;
