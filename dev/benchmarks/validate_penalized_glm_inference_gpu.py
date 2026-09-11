@@ -214,6 +214,9 @@ def main() -> int:
             cpu = _fit_case(
                 cls, X, y, device="cpu", sample_weight=sw, solver=solver
             )
+            _assert_weighted_auto_solver(
+                f"{family}/weighted={weighted}/cpu", cpu, weighted
+            )
 
             with cp.cuda.Device(cupy_device):
                 X_cp = cp.asarray(X)
