@@ -1,7 +1,7 @@
 # GeneralizedLinearModel and Penalized GLM
 
 > Language: English  
-> Last updated: 2026-09-11
+> Last updated: 2026-09-12
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/generalized-linear-model.md)
 
@@ -45,16 +45,27 @@ For penalized coefficient inference, see [Penalized GLM inference](../guides/pen
 Ordinary GLM fits minimize the average negative log-likelihood for the selected family:
 
 $$
-\min_\beta \frac{1}{n}\sum_{i=1}^n \ell(y_i, x_i^\top\beta)
+\min_\beta \frac{1}{n}\sum_{i=1}^n \ell(y_i, x_i^\top\beta).
 $$
+
+With analytic `sample_weight`, supported weighted GLM paths instead minimize the normalized weighted average
+
+$$
+\min_\beta
+\frac{\sum_i w_i\,\ell(y_i, x_i^\top\beta)}{\sum_i w_i}.
+$$
+
+Therefore multiplying every weight by the same positive constant does not change the fitted optimum. A row with weight zero contributes nothing to the objective. Weights must be finite and non-negative, and their total must be positive.
 
 Penalized GLM adds a penalty term:
 
 $$
-\min_\beta \frac{1}{n}\sum_{i=1}^n \ell(y_i, x_i^\top\beta) + \alpha P(\beta)
+\min_\beta \frac{1}{n}\sum_{i=1}^n \ell(y_i, x_i^\top\beta) + \alpha P(\beta),
 $$
 
-The intercept is not penalized. `statgpu.glm_core` is intentionally GLM-specific; Cox partial likelihood, panel objectives, time-series likelihoods, and zero-inflated composite likelihoods should use future objective layers rather than being forced into `glm_core`.
+or the same normalized weighted loss plus `alpha * P(beta)` when analytic weights are active.
+
+The intercept is not penalized. `statgpu.glm_core` is intentionally GLM-specific; Cox partial likelihood, panel objectives, time-series likelihoods, and zero-inflated composite likelihoods should use their own maintained objective layers rather than being forced into `glm_core`.
 
 ## Estimating Equation
 
@@ -72,9 +83,15 @@ Current direct-fit `solver="auto"` behavior includes:
 
 Important device rule: explicit `device="cuda"` stays on CuPy, explicit `device="torch"` stays on Torch CUDA, and unsupported explicit solver/backend combinations fail visibly rather than silently falling back to CPU. Formula parsing may run on CPU, but fit/predict numerical work follows the selected backend.
 
-Weighted penalized smooth GLMs use the same canonical dispatch. The maintained Newton solver supports genuine non-uniform analytic weights using one normalized average-loss objective for value, gradient, Hessian, and Armijo trials. Public `solver="auto"` remains unchanged, and applicable logistic/Poisson L2 rows resolve to backend-native Newton.
+### Explicit Newton and L-BFGS with analytic weights
 
-The ordinary `GeneralizedLinearModel` has a separate weighting boundary: non-uniform sample weights with explicit `solver="newton"` or `solver="lbfgs"` are rejected before solver entry. The weighted Newton support described above belongs to the penalized GLM / `PenalizedGLM_CV` path and should not be read as expanding that ordinary-GLM API.
+For ordinary GLMs, explicit `solver="newton"` and `solver="lbfgs"` accept genuine non-uniform analytic weights on supported GLM families. Both solvers use the same normalized weighted objective shown above; the weight vector is part of every objective/gradient evaluation, and Newton also uses it in the Hessian. L-BFGS line-search trial points are evaluated under the same weights as the search direction.
+
+An explicit solver request remains authoritative. Supplying `sample_weight` does not silently replace Newton or L-BFGS with IRLS/FISTA, and explicit CUDA/Torch requests do not fall back to CPU. Uniform weights preserve the ordinary unweighted numerical path.
+
+This weighted L-BFGS statement is a **GLM loss contract**, not a blanket rule for every low-level `LossBase` consumer. Direct non-GLM losses such as robust, quantile, and Cox objectives keep their own solver/weight support boundaries. Ordered GLMs also retain their separate weight support policy.
+
+Weighted penalized smooth GLMs use the same analytic-weight convention. Their existing solver-dispatch table remains authoritative; applicable L2 rows may use Newton or L-BFGS according to the maintained direct/CV policy rather than because weights are present.
 
 ## Covariance/Inference
 
@@ -82,7 +99,7 @@ Generic and typed penalized GLM estimators use `inference_method="auto"` as the 
 
 For supported smooth non-Gaussian L2/no-penalty models, `auto` resolves to fixed-penalty `m_estimation`. Positive L2 fits target the penalized estimating equation; no-penalty aliases are canonicalized to zero-strength L2 and target the unpenalized population parameter. Current covariance support is `nonrobust`, `hc0`, and `hc1`; HC2/HC3/HAC fail closed on this penalized non-Gaussian path.
 
-Analytic weights are supported, and numerical inference follows the backend/concrete device that actually executed the fit. Non-Gaussian L1/ElasticNet coefficient inference is not productized and fails closed. SCAD/MCP oracle inference is explicit rather than selected silently by `auto`; group penalties and penalized Cox remain estimation-only.
+Analytic weights are supported, and numerical inference follows the backend/concrete device that actually executed the fit. Ordinary GLM inference uses the same fitted analytic-weight convention as estimation. Non-Gaussian L1/ElasticNet coefficient inference is not productized and fails closed. SCAD/MCP oracle inference is explicit rather than selected silently by `auto`; group penalties and penalized Cox remain estimation-only.
 
 For supported Gaussian sparse penalties, `inference_method="bootstrap"` selects an unweighted residual bootstrap with `cov_type="nonrobust"`. The design matrix and fitted tuning configuration remain fixed: each draw resamples residuals, constructs a new Gaussian response around the fitted values, and refits the same penalized model. `n_bootstrap` controls the number of refits and `bootstrap_random_state` controls reproducibility.
 
@@ -122,27 +139,31 @@ Alpha scaling is explicit. Do not compare same-named parameters across framework
 ```python
 from statgpu.linear_model import GeneralizedLinearModel, PenalizedLogisticRegression
 
-# Ordinary Poisson GLM on GPU when the selected path supports it.
-glm = GeneralizedLinearModel(family="poisson", device="cuda")
-glm.fit(X, y_count)
+# Ordinary weighted Poisson GLM with an explicit smooth solver.
+weighted_pois = GeneralizedLinearModel(
+    family="poisson",
+    solver="lbfgs",       # or "newton"
+    device="cuda",        # CuPy CUDA; use "torch" for Torch CUDA
+)
+weighted_pois.fit(X, y_count, sample_weight=weights)
 
-# CPU L2 logistic path: auto selects Newton.
+# CPU L2 logistic path: auto selects the maintained smooth solver.
 logit_cpu = PenalizedLogisticRegression(
     penalty="l2",
     alpha=0.01,
     solver="auto",
     device="cpu",
 )
-logit_cpu.fit(X, y_binary)
+logit_cpu.fit(X, y_binary, sample_weight=weights)
 
-# GPU L2 logistic path: auto selects backend-native Newton.
+# GPU L2 logistic path follows the same weighted objective.
 logit_gpu = PenalizedLogisticRegression(
     penalty="l2",
     alpha=0.01,
     solver="auto",
     device="cuda",
 )
-logit_gpu.fit(X, y_binary)
+logit_gpu.fit(X, y_binary, sample_weight=weights)
 ```
 
 Formula support is optional:
@@ -162,13 +183,13 @@ pois = PenalizedPoissonRegression(penalty="l2", alpha=0.01)
 pois.fit(formula="count ~ exposure + x1", data=df)
 ```
 
-Formula parsing runs on CPU and is intended as a convenience layer. For very large data, pass explicit `X, y` arrays.
+Formula parsing runs on CPU and is intended as a convenience layer. When `sample_weight` is supplied with a formula, weights are aligned to the rows retained by formula/missing-data processing before numerical fitting. For very large data, pass explicit `X, y` arrays.
 
 ## strict/approx difference
 
 Penalized GLM inference is fail-closed: supported non-Gaussian L2/no-penalty rows expose fixed-penalty M-estimation with nonrobust/HC0/HC1 covariance, while unsupported loss × penalty × method rows raise instead of substituting another inferential procedure. Residual bootstrap and SCAD/MCP oracle remain deliberately narrow explicit paths.
 
-`solver="auto"` follows the maintained direct-fit dispatch (including Newton for smooth non-Gaussian L2). Weighted inference-enabled smooth L2/no-penalty fits use the same canonical dispatch now that Newton supports analytic weights; applicable rows therefore execute backend-native Newton without changing the public `auto` request.
+`solver="auto"` follows the maintained direct-fit dispatch. Analytic weights do not rewrite the public solver request: explicit smooth solvers remain explicit, while `auto` continues to use the same dispatch table as the corresponding unweighted model.
 
 `PenalizedGLM_CV` defaults to `cv_strategy="strict"`. In strict mode every fold/alpha is evaluated with the requested `max_iter` and `tol`, and GPU optimizations are limited to caching, fused kernels, and batched validation-score transfers. The optional `cv_strategy="two_stage"` mode first screens the alpha grid with relaxed CV solves, then strictly refines the candidate alphas and performs a strict final refit. Because the screening step can change alpha ranking on close CV curves, two-stage mode emits `ApproximateCVWarning` unless `acknowledge_approx=True` is passed.
 
@@ -249,28 +270,26 @@ Future unified result objects are reserved for later work and are not part of th
 
 - Why is `statgpu.losses` not kept as a compatibility namespace? The uncommitted `losses` layer was GLM-specific, so it was renamed to `glm_core` to avoid implying a project-wide objective system.
 - Does `device="cuda"` force GPU for every GLM solver? Yes for supported GLM solver paths: CuPy is used for the core computation, or a clear error is raised. There is no silent CPU fallback for explicit CUDA/Torch requests.
+- What do `sample_weight` values mean here? On supported ordinary and penalized GLM paths they are analytic objective weights: the loss is normalized by `sum(weights)`. They are not survey-bootstrap weights or a request for weighted residual bootstrap.
 - Should I use formula on large GPU workloads? Usually no. Formula parsing is CPU-side convenience; use explicit arrays for large-scale GPU jobs.
 - Are `Ridge`, `Lasso`, and `ElasticNet` aliases? No. They are thin wrappers so sklearn-style constructor behavior can remain clear.
 
 ## External Validation
 
-Local checks cover imports and smoke tests only. Accuracy, runtime, GPU behavior, and external-framework comparisons run on the remote `myconda` environment.
-
-**v23c full matrix benchmark (2026-05-20):** 1043/1043 ALL PASS across 7 families x 10 penalties x 3 scales x 3 backends, validated against sklearn and statsmodels. See `dev/tests/_bench_v23c_report.md` and `dev/tests/_bench_full_matrix.py`.
+Local and hosted checks cover imports, solver/objective invariants, CPU references, and regression matrices. GPU numerical parity and concrete-device behavior are validated separately with maintained physical-CUDA validators before release claims are promoted.
 
 Validation coverage includes:
 
 - CPU/CuPy/Torch coefficient and intercept differences.
+- Analytic-weight rescaling, uniform-weight, and zero-weight-row identities.
 - Objective gap and KKT residual checks for penalized paths.
 - Gaussian penalized comparison against sklearn Ridge/Lasso/ElasticNet.
-- Logistic comparison against sklearn.
+- Logistic comparison against sklearn/statsmodels where objectives align.
 - Poisson L2 comparison against sklearn.
 - Poisson L1/ElasticNet comparison against statsmodels `fit_regularized`.
-- Runtime benchmarks with warm-up and GPU synchronization.
+- Runtime benchmarks with warm-up and GPU synchronization when performance is measured.
 
-Dedicated maintained validators cover backend-native penalized-GLM inference and Gaussian residual-bootstrap parity on physical CUDA hardware. These developer validation assets check numerical parity and concrete-device provenance; they are separate from the user-facing inference API described above.
-
-Remote credentials must be supplied through environment variables and must not be committed.
+Developer validation assets are separate from the user-facing inference API described above. Remote credentials must be supplied through environment variables and must not be committed.
 
 ## References
 
