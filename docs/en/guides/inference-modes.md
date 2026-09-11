@@ -65,14 +65,17 @@ that recorded backend/device through the maintained cross-backend conversion
 helpers before bread/meat/reference-distribution work begins. Explicit CUDA or
 Torch execution never silently substitutes a CPU sandwich calculation.
 
-Analytic weights are supported for this L2/no-penalty contract. For an
-inference-enabled weighted non-Gaussian fit with public `solver="auto"`, statgpu
-uses its maintained weight-capable FISTA path for that fit because Newton
-currently rejects non-uniform weights; the public solver request remains
-`"auto"`. `PenalizedGLM_CV` applies the same choice during candidate selection
-and the selected full-data refit, while coefficient inference itself still runs
-exactly once after tuning on the selected final refit. CV inference explicitly
-reports `penalty_conditioning_="cv_selected_penalty"` and
+Analytic weights are supported for this L2/no-penalty contract. The maintained
+Newton solver now applies genuine non-uniform weights consistently to the same
+normalized average-loss objective in the value, gradient, Hessian (or fused
+curvature), and every Armijo trial. Floating-point weight vectors that satisfy
+the historical uniform-weight `allclose` rule retain the established
+unweighted-equivalent path. With public `solver="auto"`, direct penalized fits
+and `PenalizedGLM_CV` candidate/final-refit execution follow the canonical
+solver dispatch; applicable smooth-L2 logistic/Poisson rows therefore execute
+backend-native Newton while the public request remains `"auto"`. Coefficient
+inference still runs exactly once after tuning on the selected final refit. CV
+inference explicitly reports `penalty_conditioning_="cv_selected_penalty"` and
 `penalty_selection_adjusted_=False`.
 
 Non-Gaussian L1/ElasticNet coefficient inference is not productized by this
