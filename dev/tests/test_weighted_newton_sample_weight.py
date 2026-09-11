@@ -6,8 +6,9 @@ import numpy as np
 import pytest
 
 from statgpu.glm_core._logistic import LogisticLoss
+from statgpu.glm_core._squared import SquaredErrorLoss
 from statgpu.linear_model import PenalizedGLM_CV, PenalizedLogisticRegression
-from statgpu.losses import CoxPartialLikelihoodLoss
+from statgpu.losses import CoxPartialLikelihoodLoss, HuberLoss
 from statgpu.penalties import L2Penalty
 from statgpu.solvers import newton_solver
 
@@ -21,6 +22,14 @@ def _logistic_data(seed=14271, n=96, p=4):
     y = rng.binomial(1, prob).astype(np.float64)
     y[0], y[1] = 0.0, 1.0
     return X.astype(np.float64), y
+
+
+def _continuous_data(seed=14280, n=48, p=3):
+    rng = np.random.default_rng(seed)
+    X = rng.normal(scale=0.7, size=(n, p)).astype(np.float64)
+    beta = np.array([0.65, -0.35, 0.2])[:p]
+    y = (X @ beta + rng.normal(scale=0.15, size=n)).astype(np.float64)
+    return X, y
 
 
 def _solve_logistic(X, y, *, weights=None, alpha=0.04):
@@ -44,6 +53,91 @@ def test_weighted_newton_integer_weights_equal_literal_row_replication():
     y_rep = np.repeat(y, weights, axis=0)
     replicated = np.asarray(_solve_logistic(X_rep, y_rep))
 
+    np.testing.assert_allclose(weighted, replicated, rtol=2e-9, atol=2e-10)
+
+
+def test_weighted_newton_constant_hessian_path_matches_row_replication():
+    class ConstantSquaredErrorLoss(SquaredErrorLoss):
+        _has_constant_hessian = True
+
+        def __init__(self):
+            self.hessian_calls = 0
+
+        def hessian(self, X, y, coef, sample_weight=None):
+            self.hessian_calls += 1
+            return super().hessian(X, y, coef, sample_weight=sample_weight)
+
+    X, y = _continuous_data()
+    weights = np.tile(np.array([1, 3, 2, 1], dtype=np.int64), 12)
+    weighted_loss = ConstantSquaredErrorLoss()
+    replicated_loss = ConstantSquaredErrorLoss()
+
+    weighted = newton_solver(
+        weighted_loss,
+        L2Penalty(0.06),
+        X,
+        y,
+        max_iter=30,
+        tol=1e-12,
+        sample_weight=weights,
+    )[0]
+    X_rep = np.repeat(X, weights, axis=0)
+    y_rep = np.repeat(y, weights, axis=0)
+    replicated = newton_solver(
+        replicated_loss,
+        L2Penalty(0.06),
+        X_rep,
+        y_rep,
+        max_iter=30,
+        tol=1e-12,
+    )[0]
+
+    assert weighted_loss.hessian_calls == 1
+    assert replicated_loss.hessian_calls == 1
+    np.testing.assert_allclose(weighted, replicated, rtol=2e-10, atol=2e-11)
+
+
+def test_weighted_newton_fused_gradient_hessian_path_matches_row_replication():
+    class CountingHuberLoss(HuberLoss):
+        def __init__(self):
+            # A fixed generous threshold keeps this deterministic while still
+            # exercising Huber's real fused gradient+Hessian implementation.
+            super().__init__(delta=10.0)
+            self.fused_grad_hess_calls = 0
+
+        def fused_gradient_and_hessian(self, X, y, coef, sample_weight=None):
+            self.fused_grad_hess_calls += 1
+            return super().fused_gradient_and_hessian(
+                X, y, coef, sample_weight=sample_weight
+            )
+
+    X, y = _continuous_data(seed=14281)
+    weights = np.tile(np.array([2, 1, 3, 1], dtype=np.int64), 12)
+    weighted_loss = CountingHuberLoss()
+    replicated_loss = CountingHuberLoss()
+
+    weighted = newton_solver(
+        weighted_loss,
+        L2Penalty(0.03),
+        X,
+        y,
+        max_iter=40,
+        tol=1e-11,
+        sample_weight=weights,
+    )[0]
+    X_rep = np.repeat(X, weights, axis=0)
+    y_rep = np.repeat(y, weights, axis=0)
+    replicated = newton_solver(
+        replicated_loss,
+        L2Penalty(0.03),
+        X_rep,
+        y_rep,
+        max_iter=40,
+        tol=1e-11,
+    )[0]
+
+    assert weighted_loss.fused_grad_hess_calls > 0
+    assert replicated_loss.fused_grad_hess_calls > 0
     np.testing.assert_allclose(weighted, replicated, rtol=2e-9, atol=2e-10)
 
 
