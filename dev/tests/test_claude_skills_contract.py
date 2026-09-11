@@ -81,6 +81,7 @@ def test_code_review_remains_a_blocking_forked_independent_pass():
     metadata = _frontmatter(text)
     assert metadata["context"] == "fork"
     assert metadata["background"] is False
+    assert "commit" in metadata["argument-hint"]
     compatibility = metadata["compatibility"]
     assert "2.1.218" in compatibility
     assert "earlier versions block forked skills by default" in compatibility
@@ -99,6 +100,12 @@ def test_code_review_target_resolution_is_fail_closed_and_stale_aware():
         "worktree_fingerprint",
         "Working-tree fingerprint",
         "Explicit PR",
+        "Explicit commit",
+        "commit_mode",
+        "`commit_mode=patch`",
+        "`commit_mode=snapshot`",
+        "target_kind=commit",
+        "merge-commit patch review lacks an explicit parent/base/first-parent instruction",
         "No explicit scope / working-tree review",
         "gh pr view",
         "merge-base",
@@ -144,6 +151,156 @@ def test_api_only_scope_remains_narrow():
     assert "no new numerical backend matrix unless dispatch changes" in new_module
     assert "API-only/refactor-only work" in review
     assert "does not require a new backend implementation" in review
+
+
+def test_new_module_dev_requires_contract_reconnaissance_for_reconciliation():
+    skill = _read(SKILLS / "new-module-dev" / "SKILL.md")
+    workflow = _read(SKILLS / "new-module-dev" / "workflow.md")
+
+    for phrase in (
+        "Contract reconnaissance before implementation",
+        "existing capability reconciliation / public contract repair",
+        "consumer graph",
+        "requested method -> resolved method -> reported result method",
+        "resampling unit and data-generating mechanism",
+        "current published version",
+        "Exact-head evidence closure",
+    ):
+        assert phrase in skill
+
+    for phrase in (
+        "Phase 0 — target and contract reconnaissance",
+        "Existing capability reconciliation / contract repair",
+        "Resampling contract",
+        "Phase 4 — documentation and release boundary",
+        "Phase 5 — independent review/fix",
+        "Phase 6 — exact-head evidence closure",
+    ):
+        assert phrase in workflow
+
+    assert workflow.index("Phase 4 — documentation and release boundary") < workflow.index(
+        "Phase 5 — independent review/fix"
+    )
+    assert workflow.index("Phase 5 — independent review/fix") < workflow.index(
+        "Phase 6 — exact-head evidence closure"
+    )
+
+
+def test_code_review_covers_inference_identity_resampling_and_consumer_graph():
+    review = _read(SKILLS / "code-review" / "SKILL.md")
+    matrix = _read(SKILLS / "code-review" / "review-matrix.md")
+
+    for phrase in (
+        "existing capability reconciliation / public contract repair",
+        "consumer inventory",
+        "public requested method -> resolved numerical method",
+        "Resampling is blocking",
+        "release-boundary",
+        "exact-head",
+    ):
+        assert phrase in review
+
+    for phrase in (
+        "Contract reconciliation",
+        "requested/resolved/reported method",
+        "Resampling checks",
+        "generic bootstrap/permutation path that reconstructs an incompatible model/family",
+        "Documentation and release-boundary checks",
+        "Evidence freshness checks",
+    ):
+        assert phrase in matrix
+
+
+def test_skill_eval_definitions_do_not_masquerade_as_runtime_evidence():
+    review = _read(SKILLS / "code-review" / "SKILL.md")
+    matrix = _read(SKILLS / "code-review" / "review-matrix.md")
+    new_module = _read(SKILLS / "new-module-dev" / "SKILL.md")
+    workflow = _read(SKILLS / "new-module-dev" / "workflow.md")
+
+    assert "Eval definitions are not runtime execution evidence." in review
+    assert "actual skill-runtime/grading run" in review
+    assert "not actual Claude Code trigger/output behavior" in matrix
+    assert "behavioral-runtime claims" in matrix
+    assert "committed eval definitions and static contract tests prove only policy/schema presence" in new_module
+    assert "skill-runtime behavioral evidence remains" in new_module
+    assert "Project-skill behavioral runtime" in workflow
+    assert "static contract tests do not execute the skill" in workflow
+
+
+def test_skill_evals_cover_reconciliation_resampling_and_release_boundary():
+    new_module = json.loads(
+        _read(SKILLS / "new-module-dev" / "evals" / "evals.json")
+    )["evals"]
+    review = json.loads(_read(SKILLS / "code-review" / "evals" / "evals.json"))[
+        "evals"
+    ]
+
+    assert len(new_module) >= 6
+    assert len(review) >= 7
+
+    new_text = "\n".join(
+        item["prompt"] + "\n" + item["expected_output"] for item in new_module
+    ).lower()
+    review_text = "\n".join(
+        item["prompt"] + "\n" + item["expected_output"] for item in review
+    ).lower()
+
+    for phrase in (
+        "capability reconciliation",
+        "generic glm bootstrap",
+        "0.2.6",
+        "exact-head evidence",
+    ):
+        assert phrase in new_text
+
+    for phrase in (
+        "requested/resolved/reported",
+        "resampling",
+        "consumer",
+        "green ci",
+    ):
+        assert phrase in review_text
+
+
+def test_penalized_glm_review_eval_is_blind_discovery_fixture():
+    data = json.loads(_read(SKILLS / "code-review" / "evals" / "evals.json"))
+    snapshot_sha = "e364717bd62ff84d260eab4e0b7020e26a98caf0"
+    matches = [item for item in data["evals"] if item["id"] == 7]
+    assert len(matches) == 1
+
+    golden = matches[0]
+    prompt_lower = golden["prompt"].lower()
+    assert snapshot_sha in golden["prompt"]
+    for leaked_answer in (
+        "inference_method='debiased'",
+        "m_estimation",
+        "gaussian penalized-linear",
+        "penalty='l1'",
+        "sandwich results",
+    ):
+        assert leaked_answer not in prompt_lower, (
+            "penalized-GLM discovery prompt must not leak expected findings: "
+            f"{leaked_answer!r}"
+        )
+
+    combined = "\n".join(
+        [golden["expected_output"], *golden["assertions"]]
+    ).lower()
+    for phrase in (
+        "target_kind=commit",
+        "commit_mode=snapshot",
+        snapshot_sha,
+        "debiased",
+        "m_estimation",
+        "high",
+        "gaussian",
+        "l1",
+        "parameterinferenceresult",
+        "critical",
+        "blocking",
+        "consumer",
+    ):
+        assert phrase in combined
 
 
 def test_legacy_paths_do_not_occupy_dynamic_workflow_namespace():
