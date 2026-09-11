@@ -1,9 +1,9 @@
 # Backend-native Gaussian residual bootstrap plan
 
-Status: PLAN REVIEW-FIX PASS 1 APPLIED / IMPLEMENTATION OPEN
+Status: PLAN REVIEW-FIX PASS 2 APPLIED / IMPLEMENTATION OPEN
 Issue: #145
 PR: #147
-Current base: `master` at PR #142 merge commit `bc61b18123503fd5132d62ac797a710df0b53e89`
+Current base at plan review: `master` at PR #142 merge commit `bc61b18123503fd5132d62ac797a710df0b53e89`
 Parent statistical contract: merged PR #142 head `6d3c51c54cb2571b547b730d3c98cdc66071a545`
 
 ## 0. Change classification and non-goals
@@ -63,7 +63,7 @@ The shared post-fit inference hook can be reached by more than one public surfac
 
 Ridge/L2 bootstrap is not added by this PR because the merged PR #142 resolver does not expose residual bootstrap for that row.
 
-## 2. Statistical and public inference contract
+## 2. Statistical, inference-identity, and result contract
 
 For a successful unweighted penalized Gaussian fit with fixed design `X`:
 
@@ -83,8 +83,10 @@ Public/requested/result identity stays explicit:
 - resolved method: `residual_bootstrap`;
 - reported `_inference_result.method`: `residual_bootstrap`;
 - `inference_target_`: `penalized_coefficient_distribution`;
-- fixed-direct-fit conditioning: fixed penalty/tuning;
-- CV conditioning: selected penalty, with `penalty_selection_adjusted_=False` exactly as in PR #142.
+- direct-fit `penalty_conditioning_="fixed_penalty"`;
+- direct-fit `penalty_selection_adjusted_ is None`;
+- CV `penalty_conditioning_="cv_selected_penalty"`;
+- CV `penalty_selection_adjusted_=False` exactly as in PR #142.
 
 Published summaries remain the established PR #142 outputs:
 
@@ -92,6 +94,19 @@ Published summaries remain the established PR #142 outputs:
 - sign-based two-sided p-values;
 - percentile confidence intervals;
 - approximate `params / bse` statistic retained for result-schema compatibility.
+
+Required successful-result metadata includes at least:
+
+- `resampling_scope="unweighted_gaussian_residual"`;
+- deterministic schedule identity/contract (including a stable schedule hash in physical evidence);
+- `n_bootstrap`;
+- `random_state`;
+- `refit_penalty`;
+- `numerical_backend`;
+- `numerical_device`;
+- `reporting_backend="numpy"`;
+- `reporting_boundary="post_numerical_inference"`;
+- requested/resolved method and inference-target/conditioning fields installed by the merged PR #142 publisher.
 
 This PR does not claim selective-inference or tuning-selection coverage guarantees.
 
@@ -111,7 +126,7 @@ Requirements:
 - the schedule may cross host->device because it is small control-plane state;
 - raw `X`, `y`, residuals, `y_hat`, `y_star`, and every child optimization stay on the fit-recorded numerical backend/device;
 - no backend may substitute a backend-specific random bootstrap DGP;
-- the physical validator records enough schedule identity (seed/draw configuration and preferably a stable schedule hash) to prove parity cases consumed the same draws.
+- the validator records the fixed seed/draw configuration and a **stable schedule hash** so parity rows prove they consumed identical draws.
 
 ## 4. Child-refit ownership and solver semantics
 
@@ -185,8 +200,9 @@ Bootstrap remains **selected-final-refit-only**:
 - folds, alpha candidates, path/grid scoring, and selection run with inference disabled;
 - after selecting `alpha`, bootstrap executes exactly once on the full-data selected estimator;
 - `selected_alpha` / `alpha_` agree;
-- `penalty_conditioning_="cv_selected_penalty"`;
-- `penalty_selection_adjusted_=False`;
+- outer CV and `estimator_` both report requested `bootstrap`, resolved/reported `residual_bootstrap`, and `inference_target_="penalized_coefficient_distribution"` where those public fitted fields are defined by PR #142;
+- outer CV and `estimator_` both preserve `penalty_conditioning_="cv_selected_penalty"` and `penalty_selection_adjusted_=False`;
+- `_inference_result.metadata["selected_alpha"]` agrees with `alpha_`;
 - final inference backend/device follows the selected final-refit backend, not the input container type;
 - no bootstrap work occurs during candidate evaluation.
 
@@ -205,6 +221,7 @@ Before physical CUDA acceptance, add deterministic tests for all of the followin
 - backend-neutral schedule reproducibility;
 - identical schedule identity for the same seed and different identity for a different seed;
 - NumPy residual-bootstrap output reproduces the merged PR #142 CPU behavior for fixed draws within a frozen tolerance (exact where the path is deterministic enough);
+- required result/provenance metadata is complete and internally consistent;
 - `n_bootstrap < 2` remains transactional/fail-closed.
 
 ### Penalty/refit ownership
@@ -241,7 +258,7 @@ SCAD and MCP are both claimed rows. Do not make hosted coverage optional merely 
 
 - a child fit exception invalidates outer fit/inference state;
 - a prior successful fit followed by a failed bootstrap refit does not leak stale inference fields;
-- `PenalizedGLM_CV` performs inference exactly once on the selected final refit and preserves selected-penalty metadata;
+- `PenalizedGLM_CV` performs inference exactly once on the selected final refit and preserves requested/resolved/reported method identity, selected-alpha metadata, and selected-penalty conditioning on both outer/inner fitted objects;
 - formula vs array route parity for one representative supported penalty;
 - generic `PenalizedGeneralizedLinearModel` and typed `PenalizedLinearRegression` surfaces remain consistent;
 - specialized Lasso/ElasticNet explicit-bootstrap surfaces remain usable where already supported;
@@ -251,6 +268,8 @@ SCAD and MCP are both claimed rows. Do not make hosted coverage optional merely 
 ## 9. User-facing docs and release boundary
 
 This PR changes a public backend support claim, so documentation is a blocking pre-final-review task.
+
+At plan-review time the published package remains **0.2.5** and this follow-up is intended for **0.2.6** unless the release plan changes. Docs must describe 0.2.6 as targeted/planned until it is actually released.
 
 At minimum reconcile all maintained pages that currently call Gaussian residual bootstrap CPU-only, including as applicable:
 
@@ -262,12 +281,6 @@ At minimum reconcile all maintained pages that currently call Gaussian residual 
 - `docs/cn/changelog.md`.
 
 Update only surfaces actually affected by this capability. Keep EN/CN claims conceptually aligned.
-
-Wording must distinguish:
-
-- published release status;
-- behavior merged on `master` / implemented by PR #147;
-- target release if known.
 
 Do not claim weighted, robust/HAC, non-Gaussian, Cox, or batched bootstrap support.
 
@@ -288,10 +301,10 @@ The validator must require/record:
 - validator schema version;
 - Python/statgpu/NumPy/CuPy/Torch versions;
 - CUDA/runtime/device provenance, including the concrete ordinal actually executed;
-- fixed data seeds, bootstrap seed, `n_bootstrap`, and schedule identity/hash;
+- fixed data seeds, bootstrap seed, `n_bootstrap`, and the stable schedule hash;
 - named coefficient/parameter and bootstrap-summary tolerances;
 - public requested solver and selected solver where relevant;
-- numerical backend/device and reporting-boundary metadata;
+- `resampling_scope`, `refit_penalty`, `n_bootstrap`, `random_state`, numerical backend/device, and reporting-boundary metadata;
 - explicit evidence that no child refit executed on CPU for GPU rows.
 
 Freeze named tolerance constants **before the first physical acceptance run**. Do not loosen them after a failed P100 run merely to obtain green status. Any later justified tolerance change requires a code-reviewed rationale, schema/version change, and a new physical run.
@@ -331,6 +344,7 @@ Prefer running the physical gate on the actual final PR head. Avoid a docs-after
 A plan-level `REVIEW CLEAN` may be recorded only when a fresh pass finds:
 
 - the statistical DGP/estimand remains exactly PR #142's unweighted Gaussian residual bootstrap;
+- public requested/resolved/reported method identity and required result metadata are explicit;
 - all claimed L1/ElasticNet/SCAD/MCP consumers are accounted for;
 - NumPy/CuPy/Torch and concrete-device ownership are explicit;
 - refit solver/tuning ownership includes all materially relevant controls;
