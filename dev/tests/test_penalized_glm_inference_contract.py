@@ -30,7 +30,6 @@ def _logistic_data(seed=137, n=96, p=3):
     eta = -0.15 + X @ beta
     prob = 1.0 / (1.0 + np.exp(-eta))
     y = rng.binomial(1, prob).astype(float)
-    # Ensure both classes even for a future RNG implementation change.
     y[0] = 0.0
     y[1] = 1.0
     return X, y
@@ -59,7 +58,6 @@ def test_public_defaults_are_auto_without_changing_sparse_wrapper_defaults():
     for cls in auto_classes:
         assert inspect.signature(cls).parameters["inference_method"].default == "auto"
 
-    # Specialized sparse-Gaussian wrappers retain their established contract.
     assert inspect.signature(Lasso).parameters["inference_method"].default == "debiased"
     assert inspect.signature(ElasticNet).parameters["inference_method"].default == "debiased"
 
@@ -135,8 +133,6 @@ def test_historical_debiased_l2_spelling_warns_and_resolves_truthfully():
     with pytest.warns(FutureWarning, match="L2 inference was not debiased-Lasso"):
         model.fit(X, y)
 
-    # Constructor parameter identity is preserved for sklearn-style introspection,
-    # while the fitted result exposes the actual resolved method.
     assert model.inference_method == "debiased"
     assert model.inference_requested_method_ == "debiased"
     assert model.inference_resolved_method_ == "m_estimation"
@@ -160,6 +156,30 @@ def test_non_gaussian_sparse_inference_fails_closed(penalty):
         model.fit(X, y)
     assert not getattr(model, "_fitted", False)
     assert model._inference_result is None
+
+
+def test_failed_refit_clears_prior_successful_inference_state():
+    X, y = _logistic_data(seed=167)
+    model = PenalizedLogisticRegression(
+        penalty="l2",
+        alpha=0.05,
+        device="cpu",
+        solver="irls",
+        compute_inference=True,
+        inference_method="auto",
+    ).fit(X, y)
+    assert model._fitted and model._inference_result is not None
+
+    model.set_params(penalty="l1", inference_method="auto")
+    with pytest.raises(NotImplementedError):
+        model.fit(X, y)
+
+    assert not model._fitted
+    assert model.coef_ is None
+    assert model.intercept_ is None
+    assert model._inference_result is None
+    assert model.inference_method_ is None
+    assert model.inference_resolved_method_ is None
 
 
 def test_non_gaussian_bootstrap_is_rejected_before_resampling():
@@ -289,6 +309,8 @@ def test_weighted_gaussian_bootstrap_fails_closed_and_invalidates_fit():
     with pytest.raises(NotImplementedError, match="Weighted Gaussian residual-bootstrap"):
         model.fit(X, y, sample_weight=weights)
     assert not getattr(model, "_fitted", False)
+    assert model.coef_ is None
+    assert model._inference_result is None
 
 
 def test_penalized_glm_cv_runs_inference_only_on_selected_final_refit(monkeypatch):
@@ -329,8 +351,9 @@ def test_penalized_glm_cv_runs_inference_only_on_selected_final_refit(monkeypatc
 
 
 def test_cv_clone_surface_includes_new_inference_controls():
-    sklearn = pytest.importorskip("sklearn")
-    clone = sklearn.base.clone
+    pytest.importorskip("sklearn")
+    from sklearn.base import clone
+
     model = PenalizedGLM_CV(
         loss="poisson",
         penalty="l2",
@@ -346,6 +369,40 @@ def test_cv_clone_surface_includes_new_inference_controls():
     assert params["cov_type"] == "hc1"
 
 
+def test_formula_and_array_routes_match_for_logistic_l2_inference():
+    pd = pytest.importorskip("pandas")
+    X, y = _logistic_data(seed=239, n=90)
+    frame = pd.DataFrame(X, columns=["x1", "x2", "x3"])
+    frame["y"] = y
+
+    array_model = PenalizedGeneralizedLinearModel(
+        loss="logistic",
+        penalty="l2",
+        alpha=0.06,
+        device="cpu",
+        solver="irls",
+        compute_inference=True,
+        inference_method="auto",
+        cov_type="hc0",
+    ).fit(X, y)
+    formula_model = PenalizedGeneralizedLinearModel(
+        loss="logistic",
+        penalty="l2",
+        alpha=0.06,
+        device="cpu",
+        solver="irls",
+        compute_inference=True,
+        inference_method="auto",
+        cov_type="hc0",
+    ).fit(formula="y ~ x1 + x2 + x3", data=frame)
+
+    np.testing.assert_allclose(array_model._params, formula_model._params, rtol=1e-9, atol=1e-10)
+    np.testing.assert_allclose(array_model._bse, formula_model._bse, rtol=1e-8, atol=1e-10)
+    np.testing.assert_allclose(array_model._pvalues, formula_model._pvalues, rtol=1e-8, atol=1e-10)
+    assert formula_model.inference_requested_method_ == "auto"
+    assert formula_model.inference_resolved_method_ == "m_estimation"
+
+
 def test_ridge_lasso_elasticnet_specialized_surfaces_remain_usable():
     rng = np.random.default_rng(241)
     X = rng.normal(size=(80, 3))
@@ -354,9 +411,6 @@ def test_ridge_lasso_elasticnet_specialized_surfaces_remain_usable():
     ridge = Ridge(alpha=0.1, device="cpu", compute_inference=True).fit(X, y)
     assert ridge._inference_result is not None
 
-    # Keep these small: the contract is that wrapper-specific defaults still
-    # reach the maintained sparse-Gaussian method rather than the generic auto
-    # migration changing their public request.
     lasso = Lasso(alpha=0.05, device="cpu", compute_inference=True, max_iter=500).fit(X, y)
     elastic = ElasticNet(
         alpha=0.05,
