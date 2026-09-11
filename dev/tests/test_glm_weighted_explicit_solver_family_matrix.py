@@ -22,8 +22,20 @@ def _design(seed=15301, n=96, p=3):
     return rng, X, eta
 
 
+_CASE_SEEDS = {
+    "gaussian": 15301,
+    "binomial": 15302,
+    "poisson": 15303,
+    "gamma_log": 15304,
+    "gamma_inverse": 15305,
+    "inverse_gaussian": 15306,
+    "negative_binomial": 15307,
+    "tweedie": 15308,
+}
+
+
 def _case(case, solver):
-    rng, X, eta = _design(seed=15301 + hash(case) % 100)
+    rng, X, eta = _design(seed=_CASE_SEEDS[case])
     common = dict(solver=solver, device="cpu", max_iter=800, tol=1e-9)
 
     if case == "gaussian":
@@ -66,16 +78,7 @@ def _case(case, solver):
     return model, X, np.asarray(y, dtype=np.float64)
 
 
-_CASES = (
-    "gaussian",
-    "binomial",
-    "poisson",
-    "gamma_log",
-    "gamma_inverse",
-    "inverse_gaussian",
-    "negative_binomial",
-    "tweedie",
-)
+_CASES = tuple(_CASE_SEEDS)
 
 
 @pytest.mark.parametrize("solver", ["newton", "lbfgs"])
