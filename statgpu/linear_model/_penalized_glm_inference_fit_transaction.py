@@ -22,9 +22,10 @@ clone/set_params framework replay stays silent.
 
 Execution-boundary fixes also live here: weighted inference-enabled non-Gaussian
 L2 ``solver='auto'`` requests use the maintained weight-capable FISTA path for
-both CV selection and the selected final refit, and post-fit sandwich inputs are
+both CV selection and the selected final refit, post-fit sandwich inputs are
 aligned to the fit-recorded backend/concrete device through the repository's
-existing cross-backend conversion helpers before numerical inference begins.
+existing cross-backend conversion helpers, and residual bootstrap validates
+that at least two resamples exist before publishing dispersion-like summaries.
 
 A failed refit must also stop advertising any prior successful fit. This matters
 because inference compatibility is validated before the core fit clears fitted
@@ -318,6 +319,25 @@ def _install_sandwich_input_alignment():
     _PenalizedInferenceMixin._compute_penalized_sandwich_inference = wrapped
 
 
+def _install_bootstrap_draw_validation():
+    current = _PenalizedInferenceMixin._compute_post_fit_bootstrap_inference
+    if getattr(current, _MARKER, False):
+        return
+
+    @functools.wraps(current)
+    def wrapped(self, X, y):
+        try:
+            n_bootstrap = int(getattr(self, "n_bootstrap", 200))
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("n_bootstrap must be an integer >= 2.") from exc
+        if n_bootstrap < 2:
+            raise ValueError("n_bootstrap must be an integer >= 2.")
+        return current(self, X, y)
+
+    setattr(wrapped, _MARKER, True)
+    _PenalizedInferenceMixin._compute_post_fit_bootstrap_inference = wrapped
+
+
 def _install_fit_restore():
     current = PenalizedGeneralizedLinearModel.fit
     if getattr(current, _MARKER, False):
@@ -390,6 +410,7 @@ def install_penalized_glm_inference_fit_transaction():
     _install_clone_safe_cv_constructor()
     _install_validator_binding()
     _install_sandwich_input_alignment()
+    _install_bootstrap_draw_validation()
     _install_fit_restore()
     _install_cv_weighted_fit_restore()
 
