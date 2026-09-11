@@ -6,8 +6,8 @@ This is the detailed gate matrix for `new-module-dev/SKILL.md`. The skill entryp
 
 A development run ends with exactly one status:
 
-- `COMPLETE`: every **active** local blocking gate passes, repository-default capability closure is satisfied or explicitly approved as an exception, final public docs/claims are included in the independent review, exact-head evidence is fresh, and no unresolved CRITICAL/HIGH review finding remains.
-- `PARTIAL_REMOTE_PENDING`: local work is complete; only identified remote GPU, R/external package, or large-scale evidence remains.
+- `COMPLETE`: every **active** local blocking gate passes, repository-default capability closure is satisfied or explicitly approved as an exception, final public docs/claims are included in the independent review, exact-head evidence is fresh, no unresolved CRITICAL/HIGH review finding remains, and any claimed project-skill trigger/output behavior has actual runtime/grading evidence.
+- `PARTIAL_REMOTE_PENDING`: local/static work is complete; only identified remote GPU, R/external package, large-scale, or project-skill runtime behavioral evidence remains.
 - `BLOCKED_NEEDS_USER_APPROVAL`: continuing requires a user decision such as a breaking API choice, backend/CV deferral, accepted performance caveat, merge/release/publication, or credentials.
 - `FAILED`: an active local correctness, compatibility, backend, CV, convergence, fallback, formula, inference/resampling, review, or evidence-freshness gate remains unresolved.
 
@@ -187,6 +187,7 @@ Documentation should say “implemented on master; targeted for X.Y.Z” until t
 | Docs/artifacts | Yes for changed public behavior/claims | updated relevant surfaces and auditable evidence references, including release-boundary wording |
 | Review | Yes | fresh `code-review` pass over final code/tests/docs without unresolved CRITICAL/HIGH |
 | Exact-head evidence freshness | Yes at completion | re-resolved base/head and evidence identity for final state |
+| Project-skill behavioral runtime | Yes only when trigger/output behavior is claimed empirically closed | executed skill-runtime/grading artifact; eval definitions/static contract tests are definition evidence only |
 | Remote GPU/R/large benchmark | No for local completion | `PARTIAL_REMOTE_PENDING` with exact missing evidence |
 
 ## Phase 2 — implementation
@@ -266,7 +267,9 @@ Use these as evidence labels, not as excuses to activate unrelated gates:
 - `local-full`: all locally available evidence required by the active/default capability contract, including affected backends and compatibility/inference/formula/matrix checks.
 - `remote-full`: local-full plus required physical GPU/R/external/large-scale evidence.
 
-`COMPLETE` requires the local evidence needed by active and repository-default gates. If the only missing proof genuinely requires remote hardware/software, use `PARTIAL_REMOTE_PENDING` rather than shrinking the capability claim.
+For project-skill/eval changes, skill-runtime/grading evidence is a separate behavioral tier: committed eval definitions and static contract tests do not execute the skill. `COMPLETE` requires that tier only when the task claims actual trigger/output quality is empirically closed; otherwise record it as explicitly pending.
+
+`COMPLETE` requires the local evidence needed by active and repository-default gates. If the only missing proof genuinely requires remote hardware/software or an unavailable skill runtime, use `PARTIAL_REMOTE_PENDING` rather than shrinking the capability/evidence claim.
 
 ## Performance workflow
 
@@ -314,9 +317,10 @@ Before final status:
 2. Verify each hosted CI result belongs to the final head.
 3. Verify review verdict identity matches the final reviewed state.
 4. Verify physical GPU/R/external/benchmark artifacts record the source identity/fingerprint and validator contract they actually tested.
-5. After any later source/docs/review-fix commit, mark earlier evidence historical unless an artifact separately fingerprints the unchanged relevant source and explicitly permits reuse.
-6. Re-run only evidence invalidated by the final changes; do not assume reuse silently.
-7. Perform one final freshness check after all task commits.
+5. For project-skill/eval changes, distinguish committed eval definitions/static contract tests from an actually executed skill-runtime/grading run; never present the former as behavioral execution evidence.
+6. After any later source/docs/review-fix commit, mark earlier evidence historical unless an artifact separately fingerprints the unchanged relevant source and explicitly permits reuse.
+7. Re-run only evidence invalidated by the final changes; do not assume reuse silently.
+8. Perform one final freshness check after all task commits.
 
 This is an evidence-DAG rule, not a demand to rerun every numerical benchmark after wording-only changes. Reuse is valid only when the evidence contract proves the relevant source/input stayed unchanged.
 
@@ -343,4 +347,4 @@ Report:
 - tests/benchmarks and validation tier;
 - independent review result;
 - exact final base/head and evidence freshness;
-- remote/unrun evidence and exact follow-up commands when needed.
+- remote/runtime/unrun evidence and exact follow-up commands when needed.
