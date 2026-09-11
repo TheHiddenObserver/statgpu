@@ -1,11 +1,11 @@
 # 求解器算法
 
 > 语言：中文  
-> 最后更新：2026-07-01
+> 最后更新：2026-09-12
 
 ## 概述
 
-statgpu 提供 11 种求解器用于惩罚损失最小化。本文档记录每种求解器的算法、收敛条件、后端支持和超参数。
+statgpu 提供 11 种求解器用于惩罚损失最小化。本文档记录每种求解器的算法、收敛条件、后端支持和重要 capability 边界。
 
 ## 求解器总览
 
@@ -22,6 +22,8 @@ statgpu 提供 11 种求解器用于惩罚损失最小化。本文档记录每�
 | L-BFGS-B | box-constrained 问题 | numpy, cupy, torch |
 | ADMM | 可分惩罚 | numpy, cupy, torch |
 | exact | squared_error + L2（闭式解） | numpy, cupy, torch |
+
+后端支持并不表示每一种 loss / penalty / weight 组合都合法；estimator 与 loss contract 可以进一步收窄 generic solver surface。
 
 ---
 
@@ -59,10 +61,7 @@ statgpu 提供 11 种求解器用于惩罚损失最小化。本文档记录每�
 
 **用途**: 对光滑损失与 L2/无惩罚目标执行 Newton 更新。
 
-一般非光滑 proximal-Newton 需要求解 Hessian metric 下的 proximal 子问题；
-旧的 Euclidean-prox 快捷路径会优化错误目标。现在 direct 非光滑调用会明确告警并
-使用 FISTA；FISTA-LLA 也保持 backend-native FISTA，直到实现并显式声明正确的
-metric proximal 能力。
+一般非光滑 proximal-Newton 需要求解 Hessian metric 下的 proximal 子问题；旧的 Euclidean-prox 快捷路径会优化错误目标。现在 direct 非光滑调用会明确告警并使用 FISTA；FISTA-LLA 也保持 backend-native FISTA，直到实现并显式声明正确的 metric proximal 能力。
 
 ### 算法
 
@@ -160,9 +159,9 @@ SCAD/MCP/group MCP/group SCAD 禁用 BB 步长。LLA 重加权引起的 subgradi
 1. 初始化 β₀ = OLS 估计
 2. 每次迭代：
    a. 计算残差 r = y − Xβ
-   b. IRLS 权重 w_i = (τ + (1−2τ)·1_{r_i<0}) / max(|r_i|, ε)
-   c. 求解加权 LS: (X'WX + n·α·I)β = X'Wy
-   d. ||β_new − β|| < tol → 停止
+   b. 计算对应 IRLS weights
+   c. 求解 weighted least-squares surrogate
+   d. 满足维护中的收敛规则后停止
 
 ---
 
@@ -170,14 +169,65 @@ SCAD/MCP/group MCP/group SCAD 禁用 BB 步长。LLA 重加权引起的 subgradi
 
 **文件**: `statgpu/solvers/_newton.py`
 
-**用途**: 光滑损失 + L2 惩罚。Hessian 正定时收敛快。
+**用途**: 光滑损失 + L2/无惩罚。Hessian 条件良好时收敛快。
 
 ### 算法
 
 1. 计算梯度 g = ∇ℓ(β) + λ·β 和 Hessian H = ∇²ℓ(β) + λ·I
-2. Newton 方向 d = -H⁻¹·g
-3. Armijo 线搜索与回退（最多 25 次）
-4. Ridge 正则化 1e-10·I 确保稳定性
+2. 求解 Newton system
+3. Armijo 线搜索与回退
+4. 使用 1e-10 小 ridge 做数值稳定化
+
+### Analytic sample weights
+
+对于明确提供 weighted curvature 的 loss，Newton 支持真正的 non-uniform analytic weights。objective value、gradient、Hessian 与每个 Armijo trial 使用同一个归一化 weighted objective：
+
+$$
+L(\beta)=\frac{\sum_i w_i\ell_i(\beta)}{\sum_i w_i}+P(\beta).
+$$
+
+uniform weights 保持历史 unweighted 数值路径；将所有 active weights 同时乘以一个正数不会改变 optimum。
+
+---
+
+## 8. L-BFGS / L-BFGS-B
+
+**文件**: `statgpu/solvers/_lbfgs.py`、`statgpu/solvers/_lbfgs_b.py`
+
+**用途**: 光滑损失 + 光滑/无惩罚，中低维度，以及适合 quasi-Newton 更新的 GLM 行。
+
+### 算法
+
+标准 L-BFGS two-loop recursion + Armijo line search，history size 默认 `m=10`。当前点、每个 line-search candidate 与 accepted-point gradient 都必须使用同一个声明目标。
+
+### Analytic sample weights
+
+`lbfgs_solver` 对所有既有 consumer 保留 uniform-weight compatibility；真正的 **non-uniform** weighted L-BFGS 由 loss contract 显式 opt-in：
+
+- 维护中的 `GLMLoss` 会 opt-in，并使用与 Newton 相同的归一化 analytic-weight objective；
+- active weight vector 进入 initial gradient、当前 line-search objective、每个 candidate objective 和 accepted-point gradient；
+- NumPy/CuPy/Torch 数值迭代停留在输入执行后端；
+- generic non-GLM `LossBase` consumer 继续对 genuine non-uniform weighted L-BFGS fail closed，除非该 loss 之后独立声明相同 capability。
+
+因此，direct solver 用户应区分“Huber/Quantile/Cox 可以无权重调用 L-BFGS”和“这些 loss 支持 non-uniform `sample_weight`”这两个不同命题；后者当前不能由前者推出。
+
+`L-BFGS-B` 是独立的 box-constrained 实现，不应默认继承 `lbfgs_solver` 的全部 weight capability。
+
+---
+
+## 9. ADMM（Alternating Direction Method of Multipliers）
+
+**文件**: `statgpu/solvers/_admm.py`
+
+**用途**: 可分 objective 的 alternative formulation。
+
+---
+
+## 10. exact（闭式路径）
+
+**实现位置**: `_fit_mixin._solve_exact_*`
+
+**用途**: maintained dispatch 选择 squared_error + L2 闭式路径时使用。
 
 ---
 
@@ -188,17 +238,15 @@ fit() with solver="auto"
 ├── squared_error + L2 + numpy → exact
 ├── squared_error + L2 + GPU  → newton
 ├── SCAD/MCP/adaptive → fista (LLA 封装)
-│   ├── squared_error → fista_lla（融合）
-│   ├── quantile      → proximal_irls_cd
-│   ├── has_hessian   → fista_lla → proximal_newton
-│   └── no_hessian    → fista_lla → fista
-├── quantile（任意惩罚） → fista
+├── quantile → fista / quantile-specific path
 ├── squared_error + sparse → fista
-├── GLM + GPU + sparse → fista_bb
+├── GLM + GPU + sparse → 按维护表选择 fista_bb / fista
 ├── CV + L2 → lbfgs / newton
 ├── 光滑惩罚 + 光滑损失 → newton / irls
 └── 默认 sparse → fista_bb
 ```
+
+`sample_weight` 不会静默重写显式 solver request；estimator-level `solver="auto"` 继续使用对应 weighted/unweighted fit 的维护 dispatch table。
 
 ## 参考文献
 
