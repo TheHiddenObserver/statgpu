@@ -6,8 +6,8 @@ Resolve the review target before reading findings. The goal is to make a clean/b
 
 Every review records:
 
-- `target_kind`: `pr`, `branch`, `range`, `path`, or `working-tree`;
-- `base_sha`: immutable comparison base when applicable;
+- `target_kind`: `pr`, `branch`, `commit`, `range`, `path`, or `working-tree`;
+- `base_sha`: immutable comparison base when applicable; use `null`/not-applicable for a snapshot `commit` audit that intentionally reviews repository state rather than a diff;
 - `head_sha`: immutable reviewed commit head;
 - `default_branch`: the resolved repository default branch when used;
 - `path_filter`: explicit path restriction, if any;
@@ -51,15 +51,28 @@ If exact PR metadata cannot be resolved, do not issue a clean/blocking verdict. 
 5. For `auto-fix` of this **committed branch target**, require a clean writable checkout at `head_sha` before editing; otherwise the target would silently expand to include unrelated working-tree changes.
 6. Before the verdict, re-resolve the branch head **and the comparison/default-branch head** and recompute the merge-base. If the effective `base_sha` or `head_sha` changed, the old verdict is stale.
 
-### Explicit commit/range
+### Explicit immutable commit snapshot
+
+Use `target_kind=commit` when the caller asks to audit the **repository state at one immutable commit**, not merely the patch introduced by that commit.
+
+1. Resolve the commit to one immutable SHA and record it as `head_sha`.
+2. Record `base_sha` as not applicable/null unless the caller separately requested a comparison base.
+3. Read the relevant source, tests, docs, and runtime/public-contract surfaces from that commit. Do **not** silently replace the snapshot audit with `parent..commit` or another inferred diff; pre-existing defects at the snapshot are in scope when the requested audit asks about that contract/state.
+4. Apply any explicit path/domain filter to the snapshot state rather than treating the filter as a comparison base.
+5. A snapshot commit audit is immutable with respect to later branch movement. Freshness still requires confirming that the resolved commit SHA and any separately scoped evidence/artifacts are the same ones used for the verdict.
+6. For `auto-fix`, a snapshot commit is read-only unless the caller separately identifies a writable branch/worktree at that commit. Never guess which branch should receive fixes.
+
+This target is appropriate for blind golden review fixtures that need a reproducible historical repository state and must test defect discovery rather than diff-only reasoning.
+
+### Explicit range
 
 Resolve every symbolic ref to immutable SHAs and record the exact range semantics (`A..B` versus `A...B`). Do not silently change range semantics. If the caller supplied only immutable commit SHAs, later branch movement does not alter that range.
 
-For `auto-fix`, an explicit commit/range is a read-only identity unless the caller also identifies a writable branch/worktree at the range head. Never guess which branch should receive fixes.
+For `auto-fix`, an explicit range is a read-only identity unless the caller also identifies a writable branch/worktree at the range head. Never guess which branch should receive fixes.
 
 ### Explicit path
 
-A path is a filter, not a base/head definition. Apply it to an explicit PR/branch/range when one is supplied; otherwise apply it to the no-scope working-tree rule below. In `auto-fix`, do not modify outside the explicit path filter unless a newly discovered cross-file dependency is reported and the caller's requested scope clearly authorizes it.
+A path is a filter, not a base/head definition. Apply it to an explicit PR/branch/commit/range when one is supplied; otherwise apply it to the no-scope working-tree rule below. In `auto-fix`, do not modify outside the explicit path filter unless a newly discovered cross-file dependency is reported and the caller's requested scope clearly authorizes it.
 
 ### No explicit scope / working-tree review
 
@@ -86,7 +99,7 @@ If the current branch is the default branch and has no divergent commits, the sc
 - `reviewed_before`: the target/state that produced the findings, including its fingerprint when dirty;
 - `reviewed_after`: the post-fix state that receives the final re-review, with a new fingerprint when dirty.
 
-For an **explicit committed target** (PR or branch), start from a clean worktree at the resolved head. For a **no-scope working-tree target**, preserve the captured dirty state as the legitimate pre-fix target and distinguish it from review-created edits. If edits remain uncommitted, report the final `HEAD` plus dirty working-tree paths/fingerprint. If commits are separately authorized and created, report the resulting exact head SHA. Never cite CI or review evidence from an earlier head/fingerprint as proof of a later state.
+For an **explicit writable committed target** (PR or branch), start from a clean worktree at the resolved head. For a **no-scope working-tree target**, preserve the captured dirty state as the legitimate pre-fix target and distinguish it from review-created edits. An immutable snapshot `commit` or explicit range remains read-only unless a writable branch/worktree is separately identified. If edits remain uncommitted, report the final `HEAD` plus dirty working-tree paths/fingerprint. If commits are separately authorized and created, report the resulting exact head SHA. Never cite CI or review evidence from an earlier head/fingerprint as proof of a later state.
 
 ## PR comment freshness
 
@@ -98,10 +111,11 @@ If `auto-fix` produced only local uncommitted or unpushed changes, a PR comment 
 
 Do not return `REVIEW CLEAN`, approval, or another blocking-completion verdict when:
 
-- PR/branch/range resolution is ambiguous;
+- PR/branch/commit/range resolution is ambiguous;
 - a requested PR cannot be resolved to exact SHAs;
+- a requested snapshot commit cannot be resolved to one immutable SHA;
 - the effective comparison base or head moved during audit and was not re-reviewed;
 - a working-tree fingerprint changed unexpectedly during audit and the new content was not re-reviewed;
-- `auto-fix` of an explicit committed target would write to a checkout that is not the resolved target or is not clean before the fix;
+- `auto-fix` of an explicit writable committed target would write to a checkout that is not the resolved target or is not clean before the fix;
 - relevant untracked/dirty changes in a working-tree review are known to exist but were excluded without an explicit path filter/exclusion rationale;
 - a PR comment would describe an unpushed local fix state as though it were the current remote PR head.
