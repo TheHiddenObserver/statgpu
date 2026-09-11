@@ -21,7 +21,7 @@ def _poisson_data(seed=14251, n=84, p=3):
     return X, y
 
 
-def test_weighted_penalized_glm_cv_auto_uses_weight_capable_selection_and_refit():
+def test_weighted_penalized_glm_cv_auto_uses_newton_selection_and_refit():
     X, y = _poisson_data()
     weights = np.linspace(0.45, 1.75, X.shape[0])
 
@@ -42,7 +42,7 @@ def test_weighted_penalized_glm_cv_auto_uses_weight_capable_selection_and_refit(
 
     assert cv.get_params(deep=False)["solver"] == "auto"
     assert getattr(cv, "_solver", None) == "auto"
-    assert cv.estimator_._selected_solver == "fista"
+    assert cv.estimator_._selected_solver == "newton"
     assert cv.inference_method_ == "m_estimation"
     assert cv.penalty_conditioning_ == "cv_selected_penalty"
     assert cv.penalty_selection_adjusted_ is False
@@ -115,8 +115,6 @@ def test_sandwich_alignment_reuses_cross_backend_and_concrete_device_helpers():
     assert "dtype=torch.float64" in source
 
 
-
-
 def test_penalized_sandwich_device_sensitive_arrays_are_reference_bound():
     source = inspect.getsource(
         _PenalizedInferenceMixin._compute_penalized_sandwich_inference
@@ -138,6 +136,7 @@ def test_sandwich_reference_distributions_follow_parameter_device():
     chi2_source = inspect.getsource(sandwich._chi2_sf)
     assert "getattr(ref_arr, \"device\", None)" in critical_source
     assert "device=device_label" in chi2_source
+
 
 def test_final_execution_boundary_installer_is_idempotent():
     sandwich_before = _PenalizedInferenceMixin._compute_penalized_sandwich_inference
