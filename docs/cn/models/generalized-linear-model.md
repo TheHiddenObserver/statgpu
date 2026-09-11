@@ -1,7 +1,7 @@
 # GeneralizedLinearModel 与 Penalized GLM
 
 > 语言: 中文  
-> 最后更新: 2026-09-11
+> 最后更新: 2026-09-12
 > 页面定位: 模型文档  
 > 切换: [English](../../en/models/generalized-linear-model.md)
 
@@ -45,16 +45,27 @@ penalized coefficient inference 的完整统计口径见 [Penalized GLM inferenc
 普通 GLM 最小化对应 family 的平均负对数似然：
 
 $$
-\min_\beta \frac{1}{n}\sum_{i=1}^n \ell(y_i, x_i^\top\beta)
+\min_\beta \frac{1}{n}\sum_{i=1}^n \ell(y_i, x_i^\top\beta).
 $$
+
+当使用 analytic `sample_weight` 时，受支持的 weighted GLM 路径最小化归一化加权平均：
+
+$$
+\min_\beta
+\frac{\sum_i w_i\,\ell(y_i, x_i^\top\beta)}{\sum_i w_i}.
+$$
+
+因此，把所有权重同时乘以同一个正数不会改变拟合 optimum；权重为 0 的观测不会对目标函数产生贡献。权重必须有限、非负，并且总和为正。
 
 Penalized GLM 在此基础上加入惩罚项：
 
 $$
-\min_\beta \frac{1}{n}\sum_{i=1}^n \ell(y_i, x_i^\top\beta) + \alpha P(\beta)
+\min_\beta \frac{1}{n}\sum_{i=1}^n \ell(y_i, x_i^\top\beta) + \alpha P(\beta),
 $$
 
-截距项不惩罚。`statgpu.glm_core` 只表示 GLM 专用核心层；Cox partial likelihood、panel objective、time-series likelihood、zero-inflated composite likelihood 不应强行塞入 `glm_core`，后续应通过更通用的 objective 层共享底层能力。
+有 analytic weights 时则使用上面的归一化 weighted loss 加 `alpha * P(beta)`。
+
+截距项不惩罚。`statgpu.glm_core` 只表示 GLM 专用核心层；Cox partial likelihood、panel objective、time-series likelihood、zero-inflated composite likelihood 应保持各自维护的 objective layer，而不是强行塞入 `glm_core`。
 
 ## Estimating Equation
 
@@ -72,9 +83,15 @@ smooth GLM 在可用时使用维护中的二阶/一阶优化路径；非平滑 p
 
 显式 `device="cuda"` 保持 CuPy，显式 `device="torch"` 保持 Torch CUDA；不受支持的显式 solver/backend 组合会直接报错，不静默回 CPU。Formula parsing 可以在 CPU 上进行，但 fit/predict 数值计算跟随 selected backend。
 
-weighted penalized smooth GLM 与 unweighted 情况使用同一个 canonical dispatch。维护中的 Newton solver 支持真正的 non-uniform analytic weights，并在 objective value、gradient、Hessian 与 Armijo trial 中使用同一个归一化 average-loss objective。public `solver="auto"` 保持不变，适用的 logistic/Poisson L2 行会解析到 backend-native Newton。
+### 显式 Newton / L-BFGS 与 analytic weights
 
-普通 `GeneralizedLinearModel` 有独立的 weighting 边界：非均匀 sample weights 与显式 `solver="newton"` 或 `solver="lbfgs"` 的组合会在进入 solver 前被拒绝。上面描述的 weighted Newton 支持属于 penalized GLM / `PenalizedGLM_CV` 路径，不应理解为扩大了 ordinary-GLM public API。
+对于普通 GLM，受支持 family 的显式 `solver="newton"` 与 `solver="lbfgs"` 都可以接受真正的 non-uniform analytic weights。两个 solver 都使用上面同一个归一化 weighted objective；weight vector 会进入每次 objective/gradient 计算，Newton 还会在 Hessian 中使用同一组权重。L-BFGS 的 line-search trial 也必须和生成搜索方向时使用完全相同的权重。
+
+显式 solver request 具有权威性：加入 `sample_weight` 不会把 Newton/L-BFGS 静默改成 IRLS/FISTA；显式 CUDA/Torch 也不会退回 CPU。uniform weights 保持历史 unweighted 数值路径。
+
+这里的 weighted L-BFGS 是 **GLM loss contract**，并不是对所有底层 `LossBase` 的统一承诺。robust、quantile、Cox 等 non-GLM objective 继续遵循各自的 solver/weight 支持边界；Ordered GLM 也保持独立的 weighting policy。
+
+weighted penalized smooth GLM 使用同一套 analytic-weight convention。其既有 solver dispatch table 仍然是唯一权威来源；适用 L2 rows 根据当前 direct/CV policy 选择 Newton 或 L-BFGS，而不是因为有 weights 才改变 solver。
 
 ## Covariance/Inference
 
@@ -82,7 +99,7 @@ generic 与 typed penalized GLM estimator 推荐使用 `inference_method="auto"`
 
 对受支持的 smooth non-Gaussian L2/no-penalty 模型，`auto` 解析为 fixed-penalty `m_estimation`。正 L2 penalty 的 target 是 penalized estimating equation；no-penalty alias 会 canonicalize 成零强度 L2，对应 unpenalized population parameter。当前 covariance 支持 `nonrobust`、`hc0`、`hc1`；HC2/HC3/HAC 在该 penalized non-Gaussian path 上 fail closed。
 
-analytic weights 受支持，数值 inference 跟随真正执行 fit 的 backend/concrete device。non-Gaussian L1/ElasticNet coefficient inference 当前不 productize，会 fail closed。SCAD/MCP oracle 必须显式请求；group penalty 与 penalized Cox 仍为 estimation-only。
+analytic weights 受支持，数值 inference 跟随真正执行 fit 的 backend/concrete device。ordinary GLM inference 与 fitting 使用同一个 analytic-weight convention。non-Gaussian L1/ElasticNet coefficient inference 当前不 productize，会 fail closed。SCAD/MCP oracle 必须显式请求；group penalty 与 penalized Cox 仍为 estimation-only。
 
 对于受支持的 Gaussian sparse penalty，`inference_method="bootstrap"` 表示 `cov_type="nonrobust"` 的无权重 residual bootstrap。设计矩阵与已拟合的 tuning 配置保持固定：每个 draw 对 residual 做有放回抽样，在 `y_hat` 周围构造新的 Gaussian response，并用同一个 penalized model 重拟合。`n_bootstrap` 控制重拟合次数，`bootstrap_random_state` 控制可复现性。
 
@@ -122,27 +139,31 @@ alpha scaling 必须显式对齐，不能直接比较不同框架中的同名参
 ```python
 from statgpu.linear_model import GeneralizedLinearModel, PenalizedLogisticRegression
 
-# 普通 Poisson GLM；所选路径支持 GPU 时可在 GPU 上运行。
-glm = GeneralizedLinearModel(family="poisson", device="cuda")
-glm.fit(X, y_count)
+# ordinary weighted Poisson GLM，显式选择 smooth solver。
+weighted_pois = GeneralizedLinearModel(
+    family="poisson",
+    solver="lbfgs",       # 也可显式使用 "newton"
+    device="cuda",        # CuPy CUDA；"torch" 表示 Torch CUDA
+)
+weighted_pois.fit(X, y_count, sample_weight=weights)
 
-# CPU L2 logistic 路径：auto 选择 Newton。
+# CPU L2 logistic 路径：auto 使用维护中的 smooth solver policy。
 logit_cpu = PenalizedLogisticRegression(
     penalty="l2",
     alpha=0.01,
     solver="auto",
     device="cpu",
 )
-logit_cpu.fit(X, y_binary)
+logit_cpu.fit(X, y_binary, sample_weight=weights)
 
-# GPU L2 logistic 路径：auto 选择 backend-native Newton。
+# GPU L2 logistic 使用相同 weighted objective。
 logit_gpu = PenalizedLogisticRegression(
     penalty="l2",
     alpha=0.01,
     solver="auto",
     device="cuda",
 )
-logit_gpu.fit(X, y_binary)
+logit_gpu.fit(X, y_binary, sample_weight=weights)
 ```
 
 Formula 是可选依赖：
@@ -162,13 +183,13 @@ pois = PenalizedPoissonRegression(penalty="l2", alpha=0.01)
 pois.fit(formula="count ~ exposure + x1", data=df)
 ```
 
-Formula 解析在 CPU 上完成，适合作为便利建模层。大规模 GPU 任务建议直接传入显式 `X, y` 数组。
+Formula 解析在 CPU 上完成，适合作为便利建模层。formula 与 `sample_weight` 同时使用时，weights 会先对齐到 formula/missing-data 处理后真正保留下来的行，再进入 numerical fit。大规模 GPU 任务建议直接传入显式 `X, y` 数组。
 
 ## strict/approx difference
 
 Penalized GLM inference 采用 fail-closed contract：受支持的 non-Gaussian L2/no-penalty 行公开 fixed-penalty M-estimation（nonrobust/HC0/HC1）；不受支持的 loss × penalty × method 组合直接报错，不替换成另一个统计 procedure。residual bootstrap 与 SCAD/MCP oracle 都保持窄而显式的边界。
 
-`solver="auto"` 遵循维护中的 direct-fit dispatch（smooth non-Gaussian L2 包括 Newton）。weighted inference-enabled smooth L2/no-penalty fit 在 Newton 支持 analytic weights 后也使用同一个 canonical dispatch；适用行会执行 backend-native Newton，同时 public `auto` request 不变。
+`solver="auto"` 遵循维护中的 direct-fit dispatch。analytic weights 不会重写 public solver request：显式 smooth solver 仍保持显式，`auto` 也仍然使用与相应 unweighted model 相同的 dispatch table。
 
 `PenalizedGLM_CV` 默认使用 `cv_strategy="strict"`。strict 模式下，每个 fold/alpha 都使用用户传入的 `max_iter` 与 `tol`；GPU 优化只做缓存、fused kernel 和 validation score 批量传输，不做 alpha 粗筛。可选的 `cv_strategy="two_stage"` 会先用放松的 CV 求解筛选 alpha grid，再对候选 alpha 做 strict 复核，并且最终 refit 仍然是 strict/full-iteration。由于粗筛阶段在 CV 曲线很接近时可能改变 alpha 排名，two-stage 模式默认发出 `ApproximateCVWarning`；如果用户已确认接受该近似，可传入 `acknowledge_approx=True` 静默该 warning。
 
@@ -247,23 +268,26 @@ event 数、失败原因、ties 方法和最终重拟合模型类型。
 
 - 为什么不保留 `statgpu.losses` 作为兼容入口？因为未提交的 `losses` 层实际只服务 GLM，改名为 `glm_core` 可以避免误导为全项目通用 objective 系统。
 - `device="cuda"` 是否强制所有 GLM solver 使用 GPU？对已支持的 GLM solver 路径，是的：核心计算使用 CuPy；如果依赖或设备不可用，会清晰报错，不会静默回落到 CPU。
+- 这里的 `sample_weight` 表示什么？在受支持的 ordinary / penalized GLM 路径上，它表示 analytic objective weights，loss 用 `sum(weights)` 归一化；它不是 survey-bootstrap weight，也不会自动请求 weighted residual bootstrap。
 - 大规模 GPU 数据是否建议使用 formula？通常不建议。formula 是 CPU 侧便利层，大规模任务应使用显式数组。
 - `Ridge`、`Lasso`、`ElasticNet` 是 alias 吗？不是。它们是薄包装类，用于保留清晰的 sklearn 风格构造器语义。
 
 ## External Validation
 
-本地只做 import 和 smoke 检查。accuracy、runtime、GPU 行为和外部框架对比统一放在远程 `myconda` 环境。
+本地和 hosted checks 覆盖 import、solver/objective invariants、CPU reference 与 regression matrix。GPU 数值一致性与 concrete-device 行为在发布能力声明前由维护中的 physical-CUDA validator 单独验证。
 
-**v23c 全矩阵基准测试 (2026-05-20):** 1043/1043 ALL PASS，覆盖 7 families x 10 penalties x 3 规模 x 3 backends，vs sklearn 和 vs statsmodels 全部通过。详见 `dev/tests/_bench_v23c_report.md` 和 `dev/tests/_bench_full_matrix.py`。
-- Gaussian penalized 与 sklearn Ridge/Lasso/ElasticNet 对比。
-- Logistic 与 sklearn 对比。
-- Poisson L2 与 sklearn 对比。
-- Poisson L1/ElasticNet 与 statsmodels `fit_regularized` 对比。
-- 含 warm-up 与 GPU synchronization 的 runtime benchmark。
+Validation coverage 包括：
 
-维护中的专用 validator 会在物理 CUDA 环境验证 backend-native penalized-GLM inference 与 Gaussian residual bootstrap 的数值一致性和 concrete-device provenance。这些属于开发验证资产，与上文用户实际调用的 inference API 分开理解。
+- CPU/CuPy/Torch coefficient 与 intercept 差异；
+- analytic-weight global rescaling、uniform-weight 与 zero-weight-row identities；
+- penalized path 的 objective gap 与 KKT residual；
+- Gaussian penalized 与 sklearn Ridge/Lasso/ElasticNet 对比；
+- objective 对齐后的 Logistic 与 sklearn/statsmodels 对比；
+- Poisson L2 与 sklearn 对比；
+- Poisson L1/ElasticNet 与 statsmodels `fit_regularized` 对比；
+- 需要性能测量时使用 warm-up 与 GPU synchronization。
 
-远程凭据必须从环境变量读取，不得写入代码或文档。
+这些 developer validation assets 与上文用户实际调用的 inference API 分开理解。远程凭据必须从环境变量读取，不得写入代码或文档。
 
 ## References
 
