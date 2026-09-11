@@ -1,7 +1,7 @@
 # Cross-Validation
 
 > Language: English  
-> Last updated: 2026-09-06
+> Last updated: 2026-09-11
 > This page: Unified CV guide — API reference, architecture, GPU acceleration, and caching  
 > Switch: [Chinese](../../cn/guides/cross-validation.md)
 
@@ -178,6 +178,10 @@ Fold fits remain estimation-only; inference is computed only after the selected
 | `n_alphas` | int | `100` | Number of alphas. |
 | `cv_splits` | list | `None` | Custom fold splits `[(train_idx, val_idx), ...]`. |
 | `loss_kwargs` | dict | `{}` | Loss options; Cox accepts `ties="breslow"` or `ties="efron"`. |
+| `compute_inference` | bool | `False` | Run coefficient inference only on the selected full-data final refit. Fold/path/grid fits remain estimation-only. |
+| `inference_method` | str | `"auto"` | Final-refit inference request; supported non-Gaussian L2/no-penalty rows resolve to fixed-penalty M-estimation. |
+| `cov_type` | str | `"nonrobust"` | Final-refit covariance; non-Gaussian penalized M-estimation currently supports nonrobust/HC0/HC1. |
+| `hac_maxlags` | int/None | `None` | Retained lower-level control; it does not imply non-Gaussian penalized HAC support. |
 
 ### Custom CV Splits
 
@@ -223,9 +227,9 @@ model.fit(X, y, sample_weight=w)
 print(f"Weighted R²: {model.score(X_test, y_test, sample_weight=w_test):.4f}")
 ```
 
-**Limitations** (see [Known Limitations](#known-limitations) below):
-- Non-uniform weights with l1/elasticnet/SCAD/MCP raise `ValueError` at the solver level.
-- Uniform weights (all equal) work for supported scalar-response penalties.
+**Boundaries** (see [Known Limitations](#known-limitations) below):
+- Scalar-response sample-weight support is loss/penalty/solver-path specific; unsupported explicit solver combinations fail visibly rather than changing the requested objective.
+- For PR #142's inference-enabled smooth non-Gaussian L2/no-penalty contract, non-uniform analytic weights are supported. With public `solver="auto"`, candidate selection and the selected final refit follow the canonical solver dispatch; applicable smooth-L2 logistic/Poisson rows execute backend-native Newton, while the public solver request remains `auto`.
 - `loss="cox_ph"` rejects `sample_weight`; weighted penalized Cox CV is not implemented.
 
 ### Alpha Grid
@@ -338,16 +342,17 @@ For `RidgeCV` with `compute_inference=True`:
 ```python
 model = RidgeCV(compute_inference=True, cov_type="hc1")
 model.fit(X, y)
-
-# Standard errors, t-stats, p-values, confidence intervals
 print(model.summary())
 ```
 
-For `PenalizedGLM_CV` with `penalty="l1"` and `compute_inference=True`:
-- Debiased Lasso inference is computed via nodewise regression
-- Provides SE, z-stat, p-value, and CI for each coefficient
+`PenalizedGLM_CV` keeps selection and coefficient inference separate:
 
-**Status**: l2 inference is fully available. l1 debiased inference is available. ElasticNet/SCAD/MCP inference is not yet implemented.
+1. fold/path/grid candidate fits run with inference disabled;
+2. alpha is selected from held-out evidence;
+3. with `compute_inference=True`, inference runs exactly once on the selected full-data final refit;
+4. the CV estimator delegates the final estimator's inference result and records `penalty_conditioning_="cv_selected_penalty"` and `penalty_selection_adjusted_=False`.
+
+Supported final-refit rows include maintained Gaussian inference contracts and smooth non-Gaussian L2/no-penalty `m_estimation` with nonrobust/HC0/HC1 covariance. Non-Gaussian L1/ElasticNet coefficient inference is not implemented, and the penalized Cox branch remains estimation-only. See [Penalized GLM inference](penalized-glm-inference.md) for the complete method/target matrix.
 
 ### Performance Tips
 
@@ -700,23 +705,11 @@ Internal consistency is verified to machine precision (diff ~1e-16).
 
 ### Known Limitations
 
-#### Non-uniform sample_weight with non-L2 penalties
+#### Sample-weight solver boundaries
 
-Non-uniform `sample_weight` is **not supported** for penalties other than L2:
+Sample-weight support is path-specific rather than a blanket property of a penalty name. This guide therefore does not infer unsupported rows from one historical solver implementation. Explicit unsupported solver requests fail visibly.
 
-| Penalty | Solver | Non-uniform weights |
-|---------|--------|-------------------|
-| L2 | IRLS | Supported |
-| L1, ElasticNet | FISTA | Raises ValueError |
-| SCAD, MCP | FISTA | Raises ValueError |
-| Adaptive L1 | FISTA | Raises ValueError |
-| Group Lasso/MCP/SCAD | FISTA | Raises ValueError |
-
-The underlying solvers (`fista`, `fista_bb`) reject non-uniform `sample_weight`. This is a solver-level limitation, not a CV limitation. Passing non-uniform weights with these penalties raises a clear `ValueError`.
-
-**Workaround**: Use `penalty='l2'` with `solver='irls'` for weighted GLM fits.
-
-**Future work**: Implement weighted FISTA gradient computation (`X' diag(w) residual / sum(w)`) in `fista_solver` and `fista_bb_solver` to support non-uniform weights with all penalties.
+For the PR #142 coefficient-inference contract, smooth non-Gaussian L2/no-penalty fits with analytic weights are supported. When inference is enabled and the public request is `solver="auto"`, both `PenalizedGLM_CV` candidate selection and the selected final refit follow the canonical solver dispatch; applicable smooth-L2 logistic/Poisson rows execute backend-native Newton while the public request remains `auto`. The penalized Cox CV branch still rejects `sample_weight`.
 
 #### Other Limitations
 

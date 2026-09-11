@@ -376,7 +376,7 @@ def m_estimation_inference(
     pvalues = _two_sided_pvalue(xp, z_values)
 
     # ---- confidence intervals (95%) ----
-    z_crit = _normal_critical_value(xp, 0.05)
+    z_crit = _normal_critical_value(xp, 0.05, ref_arr=coef)
     conf_int = xp.stack([
         coef - z_crit * bse,
         coef + z_crit * bse,
@@ -394,7 +394,11 @@ def m_estimation_inference(
             raise
         wald_stat = float("nan")
     from math import isnan as _math_isnan
-    wald_pval = _chi2_sf(xp, wald_stat, k) if not _math_isnan(wald_stat) else float("nan")
+    wald_pval = (
+        _chi2_sf(xp, wald_stat, k, ref_arr=coef)
+        if not _math_isnan(wald_stat)
+        else float("nan")
+    )
 
     # ---- distribution label ----
     distribution = "normal"
@@ -484,16 +488,23 @@ def _two_sided_pvalue(xp, z_values):
         return 2.0 * _norm.sf(np.abs(np.asarray(z_values)))
 
 
-def _normal_critical_value(xp, alpha):
-    """Two-sided critical value for (1-alpha) CI."""
+def _normal_critical_value(xp, alpha, ref_arr=None):
+    """Two-sided critical value on the concrete numerical device."""
     if xp.__name__ == "torch":
         from statgpu.inference._distributions_backend import get_distribution
-        import torch
-        _norm = get_distribution("norm", backend="torch")
+        device = getattr(ref_arr, "device", None)
+        _norm = get_distribution(
+            "norm", backend="torch",
+            device=None if device is None else str(device),
+        )
         return _norm.ppf(1.0 - alpha / 2.0)
     elif xp.__name__ == "cupy":
         from statgpu.inference._distributions_backend import get_distribution
         _norm = get_distribution("norm", backend="cupy")
+        device = getattr(ref_arr, "device", None)
+        if device is not None:
+            with device:
+                return xp.asarray(_norm.ppf(1.0 - alpha / 2.0))
         return xp.asarray(_norm.ppf(1.0 - alpha / 2.0))
     else:
         from statgpu.inference._distributions_backend import get_distribution
@@ -501,17 +512,27 @@ def _normal_critical_value(xp, alpha):
         return _norm.ppf(1.0 - alpha / 2.0)
 
 
-def _chi2_sf(xp, x, df):
-    """Survival function of chi2(df) at x."""
+def _chi2_sf(xp, x, df, ref_arr=None):
+    """Survival function of chi2(df) on the numerical device."""
     if xp.__name__ == "torch":
         from statgpu.inference._distributions_backend import get_distribution
-        _chi2 = get_distribution("chi2", backend="torch")
         import torch
-        x_t = torch.as_tensor(float(x), dtype=torch.float64)
+        device = getattr(ref_arr, "device", None)
+        device_label = None if device is None else str(device)
+        _chi2 = get_distribution(
+            "chi2", backend="torch", device=device_label
+        )
+        x_t = torch.as_tensor(
+            float(x), dtype=torch.float64, device=device
+        )
         return float(_chi2.sf(x_t, df=df))
     elif xp.__name__ == "cupy":
         from statgpu.inference._distributions_backend import get_distribution
         _chi2 = get_distribution("chi2", backend="cupy")
+        device = getattr(ref_arr, "device", None)
+        if device is not None:
+            with device:
+                return float(_chi2.sf(float(x), df=df))
         return float(_chi2.sf(float(x), df=df))
     else:
         from statgpu.inference._distributions_backend import get_distribution

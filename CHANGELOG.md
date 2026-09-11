@@ -2,6 +2,16 @@
 
 All notable changes to statgpu are documented here, organized by release and date.
 
+## Unreleased — 2026-09-11
+
+### PR #142 — Penalized GLM inference contract repair (targeted for 0.2.6)
+- Reconciled generic and typed penalized-GLM inference around public `inference_method="auto"` while preserving specialized sparse-Gaussian wrapper defaults; successful fits now expose requested/resolved/reported method identity, inferential target, and fixed/CV-selected penalty conditioning.
+- Productized fixed-penalty M-estimation for supported smooth non-Gaussian L2/no-penalty models with nonrobust/HC0/HC1 covariance, and made non-Gaussian L1/ElasticNet coefficient inference fail closed instead of publishing the historical partial sandwich approximation.
+- Narrowed `bootstrap` to unweighted CPU Gaussian residual bootstrap with `cov_type="nonrobust"`, preserved the actual penalty family and tuning parameters during refits, required at least two resamples, and prohibited silent GPU/Torch-to-CPU resampling fallback.
+- Made fit-recorded NumPy/CuPy/Torch backend and concrete device authoritative for non-Gaussian M-estimation, including cross-container Torch↔CuPy input alignment through maintained device-aware conversion helpers. Repaired `newton_solver` analytic-weight support so genuine non-uniform weights use the same normalized weighted objective for value, gradient, Hessian, and Armijo trials; PR #142 no longer needs its temporary weighted FISTA override, and public `solver="auto"` again follows the canonical direct/CV/final-refit dispatch (including backend-native Newton for applicable smooth-L2 logistic/Poisson rows) while preserving the public `auto` request and historical floating uniform-weight `allclose` semantics.
+- Added `PenalizedGLM_CV` inference controls with final-refit-only inference; fold/path/grid candidate fits remain estimation-only, and successful CV inference reports `penalty_conditioning_="cv_selected_penalty"` with `penalty_selection_adjusted_=False`.
+- Added bilingual method/support documentation, formula/API/clone/failure regressions, fresh-review closure tests, and `dev/benchmarks/validate_penalized_glm_inference_gpu.py` schema v4. Exact clean numerical source `db448d718f523eacf97bcb3c419e376c9812362d` passed the Tesla P100 physical gate with CuPy 13.6.0, Torch 2.0.0+cu117, and NumPy 1.24.2: Logistic unweighted retained explicit FISTA coverage, Logistic weighted and Poisson weighted/unweighted used canonical `solver="auto"` → Newton, and all CuPy/Torch/Torch→CuPy/CuPy→Torch routes passed the unchanged coefficient/intercept (`2e-6`) and inference (`1e-5`) thresholds with concrete `cuda:0` provenance. The retained artifact is `results/pr142_penalized_glm_inference_gpu/pr142_penalized_glm_inference_gpu.json`. Subsequent changelog/evidence-only commits reuse this immutable numerical-source artifact by explicit approval; any numerical, validator, solver, backend, inference, or tolerance change reopens physical validation.
+
 ## Unreleased — 2026-09-10
 
 ### PR #139 — Node-wise Lasso inference tuning contract
@@ -97,7 +107,6 @@ All notable changes to statgpu are documented here, organized by release and dat
 - Fixed the mixed-precision Torch strict-CUDA `LogisticRegressionCV` failure by allocating batched IRLS parameters and ridge diagonals in the active CV working dtype and keeping candidate path outputs backend-native through validation scoring.
 - Added regression coverage for float32/float64 CV, weighted and unweighted fitting, intercept/no-intercept paths, and the full CV selector, plus a Python 3.9 + Torch 2.0 CPU CI gate so optional-Torch coverage cannot silently skip.
 - Validated the unchanged numerical implementation head `e6e4846b06604ed53e65fc9afd9054bd5777098f` on Tesla P100 with PyTorch 2.0.0+cu117/CUDA 11.7 and CuPy 13.6.0: all 18 statgpu canonical CV backend runs succeeded without CPU fallback, including `LogisticRegressionCV` on NumPy, CuPy, and Torch.
-- Retained the historical pre-fix P100 failure source unchanged and registered the exact-head post-fix source under `results/pr116_p100/`; focused physical validation evidence is retained separately from dashboard timing data.
 
 ## 0.2.4 — 2026-08-06
 

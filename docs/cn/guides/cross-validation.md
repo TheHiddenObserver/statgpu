@@ -1,7 +1,7 @@
 # 交叉验证
 
 > 语言：中文  
-> 最后更新：2026-09-06
+> 最后更新：2026-09-11
 > 页面定位：CV 用户指南 + 架构实现 + 缓存机制（统一页面）  
 > 切换：[English](../../en/guides/cross-validation.md)
 
@@ -172,6 +172,10 @@ print(f"准确率: {model.score(X_test, y_test):.4f}")
 | `n_alphas` | int | `100` | Alpha 数量。 |
 | `cv_splits` | list | `None` | 自定义折分割 `[(train_idx, val_idx), ...]`。 |
 | `loss_kwargs` | dict | `{}` | loss 选项；Cox 接受 `ties="breslow"` 或 `ties="efron"`。 |
+| `compute_inference` | bool | `False` | 只在 selected full-data final refit 上运行 coefficient inference；fold/path/grid 拟合保持 estimation-only。 |
+| `inference_method` | str | `"auto"` | final-refit inference request；受支持的 non-Gaussian L2/no-penalty 行解析为 fixed-penalty M-estimation。 |
+| `cov_type` | str | `"nonrobust"` | final-refit covariance；non-Gaussian penalized M-estimation 当前支持 nonrobust/HC0/HC1。 |
+| `hac_maxlags` | int/None | `None` | 保留底层控制；不表示 non-Gaussian penalized HAC 已受支持。 |
 
 ## 自定义 CV 分割
 
@@ -215,9 +219,9 @@ model.fit(X, y, sample_weight=w)
 print(f"加权 R²: {model.score(X_test, y_test, sample_weight=w_test):.4f}")
 ```
 
-**限制**（见 [已知限制](#已知限制)）：
-- 非均匀权重 + l1/elasticnet/SCAD/MCP 在求解器层面抛出 `ValueError`。
-- 均匀权重（所有值相等）适用于受支持的标量响应 penalty。
+**边界**（见 [已知限制](#已知限制)）：
+- 标量响应 sample-weight 能力取决于具体 loss/penalty/solver path；不受支持的显式 solver 组合会直接报错，而不会改变用户请求的 objective。
+- 对 PR #142 的 inference-enabled smooth non-Gaussian L2/no-penalty contract，non-uniform analytic weights 受支持。public `solver="auto"` 时，candidate selection 与 selected final refit 重新服从 canonical solver dispatch；适用的 smooth-L2 logistic/Poisson 行执行 backend-native Newton，同时 public solver request 保持 `auto`。
 - `loss="cox_ph"` 会拒绝 `sample_weight`；加权惩罚 Cox CV 尚未实现。
 
 ## Alpha 网格
@@ -322,16 +326,17 @@ continuation factor。标量响应 CV 使用规范化后的 generated/custom fol
 ```python
 model = RidgeCV(compute_inference=True, cov_type="hc1")
 model.fit(X, y)
-
-# 标准误、t 统计量、p 值、置信区间
 print(model.summary())
 ```
 
-`PenalizedGLM_CV` 设置 `penalty="l1"` 和 `compute_inference=True` 时：
-- 通过 nodewise 回归计算 Debiased Lasso 推断
-- 提供每个系数的 SE、z 统计量、p 值和 CI
+`PenalizedGLM_CV` 明确把 selection 与 coefficient inference 分开：
 
-**状态**：l2 推断完全可用。l1 debiased 推断可用。ElasticNet/SCAD/MCP 推断待实现。
+1. fold/path/grid candidate 拟合全部关闭 inference；
+2. 先根据 held-out evidence 选择 alpha；
+3. `compute_inference=True` 时，只在 selected full-data final refit 上运行一次 inference；
+4. CV estimator 委托 final estimator 的 inference result，并记录 `penalty_conditioning_="cv_selected_penalty"` 与 `penalty_selection_adjusted_=False`。
+
+支持的 final-refit 行包括既有 Gaussian inference contract，以及 smooth non-Gaussian L2/no-penalty 的 `m_estimation`（nonrobust/HC0/HC1）。non-Gaussian L1/ElasticNet coefficient inference 尚未实现，penalized Cox branch 仍为 estimation-only。完整 method/target matrix 见 [Penalized GLM inference](penalized-glm-inference.md)。
 
 ## 性能建议
 
@@ -670,23 +675,11 @@ for alpha in alphas_descending:
 
 ## 已知限制
 
-### 非均匀 sample_weight + 非 L2 惩罚
+### sample-weight solver 边界
 
-非均匀 `sample_weight` 对 L2 以外的惩罚**不支持**：
+sample-weight 能力是 path-specific 的，不能从某个历史 solver 的限制外推出所有 penalty。显式请求不受支持的 solver 会直接报错。
 
-| 惩罚 | 求解器 | 非均匀权重 |
-|------|--------|-----------|
-| L2 | IRLS | ✅ 支持 |
-| L1, ElasticNet | FISTA | ❌ 抛出 ValueError |
-| SCAD, MCP | FISTA | ❌ 抛出 ValueError |
-| Adaptive L1 | FISTA | ❌ 抛出 ValueError |
-| Group Lasso/MCP/SCAD | FISTA | ❌ 抛出 ValueError |
-
-底层求解器（`fista`, `fista_bb`）拒绝非均匀 `sample_weight`。这是求解器层面的限制，不是 CV 限制。
-
-**临时方案**：对加权 GLM 使用 `penalty='l2'` 配合 `solver='irls'`。
-
-**后续工作**：在 `fista_solver` 和 `fista_bb_solver` 中实现加权梯度计算（`X' diag(w) residual / sum(w)`），以支持所有惩罚的非均匀权重。
+对 PR #142 的 coefficient-inference contract，smooth non-Gaussian L2/no-penalty + analytic weights 受支持。启用 inference 且 public request 为 `solver="auto"` 时，`PenalizedGLM_CV` candidate selection 与 selected final refit 重新服从 canonical solver dispatch；适用的 smooth-L2 logistic/Poisson 行执行 backend-native Newton，同时 public request 保持 `auto`。penalized Cox CV branch 仍拒绝 `sample_weight`。
 
 ## 性能特征
 

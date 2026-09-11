@@ -1,7 +1,7 @@
 # GeneralizedLinearModel and Penalized GLM
 
 > Language: English  
-> Last updated: 2026-08-02
+> Last updated: 2026-09-11
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/generalized-linear-model.md)
 
@@ -24,6 +24,8 @@ from statgpu.linear_model import (
 ```
 
 `Ridge`, `Lasso`, and `ElasticNet` are sklearn-style thin wrappers over penalized Gaussian regression.
+
+For penalized coefficient inference, see [Penalized GLM inference](../guides/penalized-glm-inference.md).
 
 ## Path
 
@@ -56,35 +58,35 @@ The intercept is not penalized. `statgpu.glm_core` is intentionally GLM-specific
 
 ## Estimating Equation
 
-Smooth GLMs solve score equations through IRLS/Newton/L-BFGS-style updates when available. Non-smooth penalized objectives use proximal/KKT-style optimization through FISTA.
+Smooth GLMs solve score equations through maintained second-order/first-order paths when available. Non-smooth penalized objectives use proximal/KKT-style optimization through FISTA/FISTA-BB.
 
-Current solver behavior:
+Current direct-fit `solver="auto"` behavior includes:
 
 | Setting | `solver="auto"` behavior |
 |---|---|
-| `PenalizedLinearRegression(penalty="l2")` | `solver="exact"` closed-form L2 path |
-| `PenalizedLinearRegression(penalty="l1"|"elasticnet")` | FISTA |
-| `PenalizedLogisticRegression(penalty="l2")` on NumPy/CPU | IRLS |
-| `PenalizedPoissonRegression(penalty="l2")` on NumPy/CPU | IRLS |
-| `PenalizedLogisticRegression(penalty="l2")` on CuPy/Torch GPU | FISTA |
-| `PenalizedPoissonRegression(penalty="l2")` on CuPy/Torch GPU | FISTA |
-| explicit `solver="irls"` | backend-native IRLS on NumPy/CuPy/Torch |
-| explicit `solver="newton"` | backend-native Newton on smooth objectives |
-| explicit `solver="lbfgs"` | backend-native L-BFGS on smooth objectives (all GLM families + L2/ElasticNet) |
-| non-smooth penalty with `solver="newton"` or `solver="lbfgs"` | raises `ValueError` |
+| `PenalizedLinearRegression(penalty="l2")` on NumPy/CPU | exact closed-form L2 path |
+| squared error + L1/ElasticNet | FISTA/FISTA-BB sparse path |
+| logistic/Poisson/Gamma/Inverse-Gaussian/Tweedie/Negative-Binomial + L2 | Newton under the maintained direct-fit dispatch |
+| non-convex SCAD/MCP | FISTA + LLA continuation |
+| quantile | FISTA / quantile-specific path |
 
-Important device rule: explicit `device="cuda"` stays on CuPy, explicit `device="torch"` stays on Torch CUDA, and explicit solver choices do not silently fall back to CPU. Formula parsing may run on CPU, but the core fit/predict path is converted to the selected backend.
+Important device rule: explicit `device="cuda"` stays on CuPy, explicit `device="torch"` stays on Torch CUDA, and unsupported explicit solver/backend combinations fail visibly rather than silently falling back to CPU. Formula parsing may run on CPU, but fit/predict numerical work follows the selected backend.
+
+Weighted penalized smooth GLMs use the same canonical dispatch. The maintained Newton solver now supports genuine non-uniform analytic weights using one normalized average-loss objective for value, gradient, Hessian, and Armijo trials, so inference-enabled weighted L2/no-penalty fits no longer require a fit-local FISTA override. Public `solver="auto"` remains unchanged and applicable logistic/Poisson L2 rows resolve to backend-native Newton.
+
+The separate ordinary `GeneralizedLinearModel(..., solver="newton")` sample-weight guard is not changed by this PR; that public wrapper continues to reject weighted explicit Newton/L-BFGS before solver entry. The weighted-Newton repair here closes the shared solver capability required by penalized GLM and `PenalizedGLM_CV` without silently expanding that distinct ordinary-GLM API boundary.
 
 ## Covariance/Inference
 
-This page covers estimation-first GLM and penalized GLM APIs. Full strict inference parity is not yet exposed for the new penalized GLM layer. Existing inference-rich estimators remain documented separately:
+Generic and typed penalized GLM estimators use `inference_method="auto"` as the recommended public request. Successful inference-enabled fits expose requested/resolved/reported method provenance, the inferential target, and tuning/selection conditioning.
 
-- `LinearRegression`: classical, HC0-HC3, HAC.
-- `Ridge`: classical, HC0-HC3, HAC.
-- `LogisticRegression`: classical, HC0-HC3, HAC.
-- `Lasso`: OLS-style and bootstrap inference paths.
+For supported smooth non-Gaussian L2/no-penalty models, `auto` resolves to fixed-penalty `m_estimation`. Positive L2 fits target the penalized estimating equation; no-penalty aliases are canonicalized to zero-strength L2 and target the unpenalized population parameter. Current covariance support is `nonrobust`, `hc0`, and `hc1`; HC2/HC3/HAC fail closed on this penalized non-Gaussian path.
 
-Future GLM inference work should align with the project-wide strict inference gate before release.
+Analytic weights are supported, and numerical inference follows the backend/concrete device that actually executed the fit. Non-Gaussian L1/ElasticNet coefficient inference is not productized and fails closed. SCAD/MCP oracle inference is explicit rather than selected silently by `auto`; group penalties and penalized Cox remain estimation-only.
+
+`inference_method="bootstrap"` in this contract is an unweighted CPU Gaussian residual bootstrap with `cov_type="nonrobust"`. It preserves the fitted penalty family/tuning, requires at least two resamples, and does not silently refit on CPU after a CuPy/Torch fit.
+
+See [Penalized GLM inference](../guides/penalized-glm-inference.md) and [Inference Modes](../guides/inference-modes.md) for the complete support matrix, resampling boundaries, and statistical interpretation.
 
 ## Parameters
 
@@ -99,6 +101,10 @@ Future GLM inference work should align with the project-wide strict inference ga
 | `device` | `"auto"` | `cpu`, `cuda`, `torch`, or `auto` depending on estimator support |
 | `max_iter` | model-specific | Maximum optimizer iterations |
 | `tol` | model-specific | Convergence tolerance |
+| `compute_inference` | `False` on generic/typed penalized GLM | Whether to compute coefficient inference |
+| `inference_method` | `"auto"` on generic/typed penalized GLM | Public inference request; specialized sparse-Gaussian wrappers retain their established defaults |
+| `cov_type` | `"nonrobust"` | Covariance convention; non-Gaussian penalized M-estimation currently supports nonrobust/HC0/HC1 |
+| `hac_maxlags` | `None` | Retained control; does not imply HAC support for non-Gaussian penalized M-estimation |
 | `formula` | `None` | Optional patsy-style formula used with `data` |
 | `data` | `None` | DataFrame used with `formula` |
 
@@ -118,7 +124,7 @@ from statgpu.linear_model import GeneralizedLinearModel, PenalizedLogisticRegres
 glm = GeneralizedLinearModel(family="poisson", device="cuda")
 glm.fit(X, y_count)
 
-# CPU L2 logistic path: auto selects IRLS.
+# CPU L2 logistic path: auto selects Newton.
 logit_cpu = PenalizedLogisticRegression(
     penalty="l2",
     alpha=0.01,
@@ -127,7 +133,7 @@ logit_cpu = PenalizedLogisticRegression(
 )
 logit_cpu.fit(X, y_binary)
 
-# GPU L2 logistic path: auto selects GPU-capable FISTA.
+# GPU L2 logistic path: auto selects backend-native Newton.
 logit_gpu = PenalizedLogisticRegression(
     penalty="l2",
     alpha=0.01,
@@ -158,9 +164,9 @@ Formula parsing runs on CPU and is intended as a convenience layer. For very lar
 
 ## strict/approx difference
 
-For the current GLM refactor, strict numerical validation is performed through remote CPU/GPU accuracy and external-framework comparison scripts. The new penalized GLM layer does not yet expose strict inference outputs such as robust standard errors and confidence intervals.
+Penalized GLM inference is fail-closed: supported non-Gaussian L2/no-penalty rows expose fixed-penalty M-estimation with nonrobust/HC0/HC1 covariance, while unsupported loss × penalty × method rows raise instead of substituting another inferential procedure. Residual bootstrap and SCAD/MCP oracle remain deliberately narrow explicit paths.
 
-`solver="auto"` is device-aware for penalized GLMs. It picks exact Ridge for Gaussian L2, IRLS for smooth CPU logistic/poisson L2, and FISTA for CuPy/Torch GPU logistic/poisson L2. Explicit `irls`, `newton`, and `lbfgs` run on the selected backend when mathematically valid.
+`solver="auto"` follows the maintained direct-fit dispatch (including Newton for smooth non-Gaussian L2). Weighted inference-enabled smooth L2/no-penalty fits use the same canonical dispatch now that Newton supports analytic weights; applicable rows therefore execute backend-native Newton without changing the public `auto` request.
 
 `PenalizedGLM_CV` defaults to `cv_strategy="strict"`. In strict mode every fold/alpha is evaluated with the requested `max_iter` and `tol`, and GPU optimizations are limited to caching, fused kernels, and batched validation-score transfers. The optional `cv_strategy="two_stage"` mode first screens the alpha grid with relaxed CV solves, then strictly refines the candidate alphas and performs a strict final refit. Because the screening step can change alpha ranking on close CV curves, two-stage mode emits `ApproximateCVWarning` unless `acknowledge_approx=True` is passed.
 
@@ -259,6 +265,8 @@ Validation coverage includes:
 - Poisson L2 comparison against sklearn.
 - Poisson L1/ElasticNet comparison against statsmodels `fit_regularized`.
 - Runtime benchmarks with warm-up and GPU synchronization.
+
+The historical v23c matrix is estimation evidence; it does not by itself certify the newer coefficient-inference contract. PR #142 adds targeted hosted inference tests plus an exact-source physical CuPy/Torch CUDA validator; no physical GPU pass is claimed until that validator is actually run.
 
 Remote credentials must be supplied through environment variables and must not be committed.
 

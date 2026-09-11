@@ -1,7 +1,7 @@
 # GeneralizedLinearModel 与 Penalized GLM
 
 > 语言: 中文  
-> 最后更新: 2026-08-02
+> 最后更新: 2026-09-11
 > 页面定位: 模型文档  
 > 切换: [English](../../en/models/generalized-linear-model.md)
 
@@ -24,6 +24,8 @@ from statgpu.linear_model import (
 ```
 
 `Ridge`、`Lasso`、`ElasticNet` 是 sklearn 风格的薄包装，内部走 penalized Gaussian regression。
+
+penalized coefficient inference 的完整统计口径见 [Penalized GLM inference](../guides/penalized-glm-inference.md)。
 
 ## Path
 
@@ -56,35 +58,35 @@ $$
 
 ## Estimating Equation
 
-光滑 GLM 在可用时通过 IRLS/Newton 风格更新求解 score equation。带非光滑惩罚项的目标函数通过 FISTA 等 proximal/KKT 风格优化路径求解。
+smooth GLM 在可用时使用维护中的二阶/一阶优化路径；非平滑 penalized objective 使用 FISTA/FISTA-BB 等 proximal/KKT 路径。
 
-当前 `solver="auto"` 的行为如下：
+当前 direct-fit `solver="auto"` 的主要行为：
 
 | 设置 | `solver="auto"` 行为 |
 |---|---|
-| `PenalizedLinearRegression(penalty="l2")` | `solver="exact"` 闭式 L2 路径 |
-| `PenalizedLinearRegression(penalty="l1"|"elasticnet")` | FISTA |
-| `PenalizedLogisticRegression(penalty="l2")` on NumPy/CPU | IRLS |
-| `PenalizedPoissonRegression(penalty="l2")` on NumPy/CPU | IRLS |
-| `PenalizedLogisticRegression(penalty="l2")` on CuPy/Torch GPU | FISTA |
-| `PenalizedPoissonRegression(penalty="l2")` on CuPy/Torch GPU | FISTA |
-| 显式 `solver="irls"` | NumPy/CuPy/Torch 对应后端原生 IRLS |
-| 显式 `solver="newton"` | smooth objective 上使用对应后端 Newton |
-| 显式 `solver="lbfgs"` | smooth objective 上使用对应后端 L-BFGS（所有 GLM family + L2/ElasticNet） |
-| 非光滑 penalty 搭配 `solver="newton"` 或 `solver="lbfgs"` | 直接抛出 `ValueError` |
+| `PenalizedLinearRegression(penalty="l2")` on NumPy/CPU | exact 闭式 L2 路径 |
+| squared error + L1/ElasticNet | FISTA/FISTA-BB sparse path |
+| logistic/Poisson/Gamma/Inverse-Gaussian/Tweedie/Negative-Binomial + L2 | 维护中的 direct-fit dispatch 选择 Newton |
+| non-convex SCAD/MCP | FISTA + LLA continuation |
+| quantile | FISTA / quantile-specific path |
 
-重要设备规则：显式 `device="cuda"` 会保持 CuPy 核心计算，显式 `device="torch"` 会保持 Torch CUDA 核心计算；显式 solver 不允许静默回落到 CPU。Formula/DataFrame 解析可以作为 CPU 预处理，但 fit/predict 核心计算必须转换到所选后端。
+显式 `device="cuda"` 保持 CuPy，显式 `device="torch"` 保持 Torch CUDA；不受支持的显式 solver/backend 组合会直接报错，不静默回 CPU。Formula parsing 可以在 CPU 上进行，但 fit/predict 数值计算跟随 selected backend。
+
+weighted penalized smooth GLM 现在与非 weighted 情况使用同一个 canonical dispatch。维护中的 Newton solver 已支持真正的 non-uniform analytic weights，并在 objective value、gradient、Hessian 与 Armijo trial 中使用同一个归一化 average-loss objective，因此 inference-enabled weighted L2/no-penalty 不再需要 fit-local FISTA override。public `solver="auto"` 保持不变，适用的 logistic/Poisson L2 行会解析到 backend-native Newton。
+
+本 PR 不改变单独的普通 `GeneralizedLinearModel(..., solver="newton")` sample-weight guard；该 public wrapper 仍会在进入 solver 前拒绝 weighted explicit Newton/L-BFGS。本次 weighted-Newton 修复只关闭 PR #142 的 penalized GLM / `PenalizedGLM_CV` 所依赖的 shared solver capability，不顺手扩大另一个 ordinary-GLM public API 边界。
 
 ## Covariance/Inference
 
-本页覆盖的是估计主线的 GLM 与 penalized GLM API。新的 penalized GLM 层尚未暴露完整 strict inference 输出。当前 inference 较完整的模型仍分别见独立页面：
+generic 与 typed penalized GLM estimator 推荐使用 `inference_method="auto"` 作为 public request。成功的 inference-enabled fit 会公开 requested/resolved/reported method、inferential target 以及 tuning/selection conditioning provenance。
 
-- `LinearRegression`：classical、HC0-HC3、HAC。
-- `Ridge`：classical、HC0-HC3、HAC。
-- `LogisticRegression`：classical、HC0-HC3、HAC。
-- `Lasso`：OLS-style 与 bootstrap inference 路径。
+对受支持的 smooth non-Gaussian L2/no-penalty 模型，`auto` 解析为 fixed-penalty `m_estimation`。正 L2 penalty 的 target 是 penalized estimating equation；no-penalty alias 会 canonicalize 成零强度 L2，对应 unpenalized population parameter。当前 covariance 支持 `nonrobust`、`hc0`、`hc1`；HC2/HC3/HAC 在该 penalized non-Gaussian path 上 fail closed。
 
-后续 GLM inference 扩展需要先满足项目统一的 strict inference gate，再进入稳定文档。
+analytic weights 受支持，数值 inference 跟随真正执行 fit 的 backend/concrete device。non-Gaussian L1/ElasticNet coefficient inference 当前不 productize，会 fail closed。SCAD/MCP oracle 必须显式请求；group penalty 与 penalized Cox 仍为 estimation-only。
+
+本 contract 的 `inference_method="bootstrap"` 只表示 `cov_type="nonrobust"` 的 unweighted CPU Gaussian residual bootstrap：保留真实 penalty/tuning，至少需要 2 次 resample，且 CuPy/Torch 已执行拟合不会静默切到 CPU 重拟合。
+
+完整 support matrix、resampling 边界与统计解释见 [Penalized GLM inference](../guides/penalized-glm-inference.md) 与 [Inference Modes](../guides/inference-modes.md)。
 
 ## Parameters
 
@@ -99,6 +101,10 @@ $$
 | `device` | `"auto"` | 按 estimator 支持情况使用 `cpu`、`cuda`、`torch` 或 `auto` |
 | `max_iter` | model-specific | 最大迭代次数 |
 | `tol` | model-specific | 收敛阈值 |
+| `compute_inference` | generic/typed penalized GLM 默认为 `False` | 是否计算 coefficient inference |
+| `inference_method` | generic/typed penalized GLM 默认为 `"auto"` | public inference request；specialized sparse-Gaussian wrapper 保留既有默认 |
+| `cov_type` | `"nonrobust"` | covariance convention；non-Gaussian penalized M-estimation 当前支持 nonrobust/HC0/HC1 |
+| `hac_maxlags` | `None` | 保留控制；不代表 non-Gaussian penalized M-estimation 已支持 HAC |
 | `formula` | `None` | 可选 patsy 风格公式，需要与 `data` 一起使用 |
 | `data` | `None` | formula 模式下的数据表 |
 
@@ -118,7 +124,7 @@ from statgpu.linear_model import GeneralizedLinearModel, PenalizedLogisticRegres
 glm = GeneralizedLinearModel(family="poisson", device="cuda")
 glm.fit(X, y_count)
 
-# CPU L2 logistic 路径：auto 选择 IRLS。
+# CPU L2 logistic 路径：auto 选择 Newton。
 logit_cpu = PenalizedLogisticRegression(
     penalty="l2",
     alpha=0.01,
@@ -127,7 +133,7 @@ logit_cpu = PenalizedLogisticRegression(
 )
 logit_cpu.fit(X, y_binary)
 
-# GPU L2 logistic 路径：auto 选择 GPU-capable FISTA。
+# GPU L2 logistic 路径：auto 选择 backend-native Newton。
 logit_gpu = PenalizedLogisticRegression(
     penalty="l2",
     alpha=0.01,
@@ -158,9 +164,9 @@ Formula 解析在 CPU 上完成，适合作为便利建模层。大规模 GPU �
 
 ## strict/approx difference
 
-当前 GLM 重构的 strict 数值验证通过远程 CPU/GPU accuracy 和外部框架对比脚本完成。新的 penalized GLM 层还没有公开 robust standard error、confidence interval 等 strict inference 输出。
+Penalized GLM inference 采用 fail-closed contract：受支持的 non-Gaussian L2/no-penalty 行公开 fixed-penalty M-estimation（nonrobust/HC0/HC1）；不受支持的 loss × penalty × method 组合直接报错，不替换成另一个统计 procedure。residual bootstrap 与 SCAD/MCP oracle 都保持窄而显式的边界。
 
-`solver="auto"` 对 penalized GLM 是 device-aware 的。Gaussian L2 使用 exact Ridge；CPU logistic/poisson L2 使用 IRLS；CuPy/Torch GPU logistic/poisson L2 使用 FISTA。显式 `irls`、`newton`、`lbfgs` 在数学上适用时会运行在用户选择的后端。
+`solver="auto"` 遵循维护中的 direct-fit dispatch（smooth non-Gaussian L2 包括 Newton）。weighted inference-enabled smooth L2/no-penalty fit 在 Newton 支持 analytic weights 后也使用同一个 canonical dispatch；适用行会执行 backend-native Newton，同时 public `auto` request 不变。
 
 `PenalizedGLM_CV` 默认使用 `cv_strategy="strict"`。strict 模式下，每个 fold/alpha 都使用用户传入的 `max_iter` 与 `tol`；GPU 优化只做缓存、fused kernel 和 validation score 批量传输，不做 alpha 粗筛。可选的 `cv_strategy="two_stage"` 会先用放松的 CV 求解筛选 alpha grid，再对候选 alpha 做 strict 复核，并且最终 refit 仍然是 strict/full-iteration。由于粗筛阶段在 CV 曲线很接近时可能改变 alpha 排名，two-stage 模式默认发出 `ApproximateCVWarning`；如果用户已确认接受该近似，可传入 `acknowledge_approx=True` 静默该 warning。
 
@@ -252,6 +258,8 @@ event 数、失败原因、ties 方法和最终重拟合模型类型。
 - Poisson L2 与 sklearn 对比。
 - Poisson L1/ElasticNet 与 statsmodels `fit_regularized` 对比。
 - 含 warm-up 与 GPU synchronization 的 runtime benchmark。
+
+历史 v23c matrix 属于 estimation evidence，并不能单独证明新的 coefficient-inference contract。PR #142 另有 targeted hosted inference tests 与 exact-source physical CuPy/Torch CUDA validator；在该 validator 真正执行前，不宣称已有 physical GPU pass。
 
 远程凭据必须从环境变量读取，不得写入代码或文档。
 
