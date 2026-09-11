@@ -179,6 +179,17 @@ from . import (
 
 _penalized_glm_inference_fit_transaction.install_penalized_glm_inference_fit_transaction()
 
+# PR #145 keeps the PR #142 statistical bootstrap contract unchanged while
+# extending its execution from NumPy-only to the fit-recorded NumPy/CuPy/Torch
+# backend and concrete device. Install this last so only the residual-bootstrap
+# row bypasses the earlier CPU-only safety guard; all other inference rows retain
+# their reviewed PR #142 routing.
+from . import (
+    _gaussian_residual_bootstrap_backend_contract as _gaussian_residual_bootstrap_backend_contract,
+)
+
+_gaussian_residual_bootstrap_backend_contract.install_backend_native_gaussian_residual_bootstrap()
+
 __all__ = [
     'LinearRegression',
     'LogisticRegression',
