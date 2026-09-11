@@ -154,6 +154,8 @@ For performance claims, require synchronized GPU timing, explicit timing scope, 
 
 Historical benchmark or GPU evidence proves only the source, validator contract, hardware, and environment it actually records.
 
+For project-skill/eval changes, committed `evals.json` files and static contract tests prove only that policy/eval definitions exist and are structurally consistent. They are **not** evidence that Claude Code actually triggers the skill or produces the expected output. Any claim that trigger/output behavior is empirically closed requires an actual skill-runtime/grading run; otherwise report that behavioral evidence as pending.
+
 ## 9. Auto-fix loop
 
 In `auto-fix` mode:
@@ -172,8 +174,8 @@ Do not broaden an API cleanup into unrelated numerical refactoring. Do not commi
 
 ## 10. Severity and report
 
-- `CRITICAL`: wrong results/objective/inference, statistically invalid generic resampling accepted as valid, silent backend substitution, credential leak, or materially incorrect public results without detection.
-- `HIGH`: wrong/stale review target; broken public compatibility; missing repository-default backend/CV closure without approved deferral; convergence failure; requested/resolved/reported inference-method mismatch; wrong/undocumented estimand; invalid family/model resampling; missing affected consumer closure for shared dispatch; missing active CV/inference/formula contract; or missing regression protection for changed public behavior.
+- `CRITICAL`: wrong results/objective/inference accepted as valid, including invalid resampling that actually produces or accepts materially wrong user-facing inferential results; silent backend substitution; credential leak; or materially incorrect public results without detection.
+- `HIGH`: wrong/stale review target; broken public compatibility; missing repository-default backend/CV closure without approved deferral; convergence failure; requested/resolved/reported inference-method mismatch; wrong/undocumented estimand; invalid family/model resampling or an incompatible generic resampling refit **before/without an accepted materially wrong user-facing inference result**; missing affected consumer closure for shared dispatch; missing active CV/inference/formula contract; or missing regression protection for changed public behavior.
 - `MEDIUM`: important maintainability, docs/release-boundary, evidence, coverage, warning quality, or bounded performance issue that does not invalidate core behavior.
 - `LOW`: small cleanup, wording, style, or optional coverage improvement.
 
