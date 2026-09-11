@@ -1,7 +1,7 @@
 # 推断配置
 
 > 语言: 中文  
-> 最后更新: 2026-09-08  
+> 最后更新: 2026-09-11  
 > 页面定位: 指南文档  
 > 切换: [English](../../en/guides/inference-modes.md)
 
@@ -23,6 +23,18 @@ Gaussian 路径支持：
 
 backend-native reference helper 同时保留残差自由度为 1 和 2 时的稳定 Student-t 恒等式，避免极端但仍可表示的尾概率因减法消去或不必要的 `t**2` overflow 被错误压成 0。
 
+## Penalized GLM 固定惩罚推断
+
+通用 `PenalizedGeneralizedLinearModel`、`PenalizedLinearRegression` 与 typed non-Gaussian penalized wrapper 使用 `inference_method="auto"` 作为 generic public request。request 与最终报告的统计方法是不同 provenance：成功拟合会公开 `inference_requested_method_`、`inference_resolved_method_`、`inference_method_`、`inference_target_`，以及 tuning/selection conditioning。
+
+对受支持的 smooth non-Gaussian L2 / no-penalty 模型，`auto` 解析为 `m_estimation`。当前 fixed-penalty covariance 只支持 `nonrobust`、`hc0`、`hc1`；HC2/HC3/HAC 在该 penalized-GLM 路径上明确不支持并 fail closed。正 L2 penalty 的 target 是 penalized estimating equation；`none/null/""` 会先 canonicalize 成强度为 0 的 L2，因此 target 是普通 unpenalized parameter。
+
+M-estimation 数值计算跟随真正执行拟合的 backend 与 concrete device，而不是根据原始输入 container 猜测。若主拟合实际运行在 CuPy 或 Torch，post-fit inference 会先通过仓库维护的 cross-backend conversion helper 把 `X/y/sample_weight` 对齐到记录下来的 backend/device，再进行 bread/meat/reference-distribution 计算。显式 CUDA/Torch 不允许静默换成 CPU sandwich。
+
+该 L2/no-penalty contract 支持 analytic weights。对于 inference-enabled、带权、non-Gaussian 且公开 `solver="auto"` 的拟合，statgpu 会在该次拟合中使用已有 weight-capable FISTA，因为 Newton 当前拒绝 non-uniform weights；public solver request 仍保持 `"auto"`。`PenalizedGLM_CV` 在 candidate selection 与 selected full-data refit 两个阶段使用相同选择，而 coefficient inference 仍只在 tuning 完成后对 selected final refit 执行一次。CV inference 明确发布 `penalty_conditioning_="cv_selected_penalty"` 与 `penalty_selection_adjusted_=False`。
+
+non-Gaussian L1/ElasticNet coefficient inference 不属于本 contract 的有效能力：它会 fail closed，而不是继续发布历史上只含 L2 curvature 的 partial sandwich。Penalized Cox 与维护中的 group-penalty 行仍为 estimation-only。完整 support matrix 与统计解释见 [Penalized GLM inference](penalized-glm-inference.md)。
+
 ## 稀疏 penalized-linear 推断
 
 对于 `Lasso`、`ElasticNet`，以及公开 generic
@@ -31,7 +43,7 @@ backend-native reference helper 同时保留残差自由度为 1 和 2 时的稳
 
 - `debiased`：去偏 / de-sparsified 系数推断；
 - `post_selection_ols`：在 penalized fit 选出的 active set 上做启发式 OLS/WLS 重拟合；
-- `bootstrap`：在支持路径上进行 residual bootstrap 推断。
+- `bootstrap`：**仅 CPU 上的 unweighted Gaussian residual bootstrap**；保留实际 penalty family，并要求至少 2 次 resample。
 
 `post_selection_ols` 是新的、与硬件无关的 canonical 拼法。统一 wrapper 中的 `cpu_ols` 与 `gpu_ols` **同时进入弃用期**：一个兼容周期内仍接受，但会发出 `FutureWarning`，并统一归一化为 `post_selection_ols`。`LassoCV` 还会在其兼容边界接受更早的 `cpu_ols_inference` / `gpu_ols_inference` 拼法，并同样归一化到该方法。
 
@@ -48,7 +60,7 @@ backend 复用保证是**按推断方法区分**的：`post_selection_ols` 始�
 
 对于 `fit_intercept=True` 的 centered debiased inference，PR #138 会把计算量最大的 simultaneous multiplier-bootstrap 阶段留在同一个 concrete CuPy/Torch device 上。coherent marginal result 此时已经按既有 reporting contract 形成 O(p) 的 NumPy `params`/SE snapshot；只有这些很小的 marginal 数组会重新映射回执行 device。随后 B×n multiplier draws、feature/intercept score、max-|Z| reduction、quantile calibration 以及 joint CI 数值计算都保持 backend-native，最后再对 joint result 做 NumPy reporting snapshot。structured result 会记录 `simultaneous_numerical_backend`、`simultaneous_numerical_device`、`simultaneous_reporting_backend="numpy"` 与 `simultaneous_reporting_boundary="post_numerical_inference"`。历史 `fit_intercept=False` simultaneous 路径仍使用既有 generic reporting-stage helper，PR #138 **不把该旧路径宣称为 GPU-native**。
 
-相比之下，residual `bootstrap` 当前仍使用 CPU-native residual refit。因此显式 GPU `device` 会控制 penalized fit 的执行位置，但不应被理解成 bootstrap 也变成 GPU-native。
+residual `bootstrap` 的 contract 更窄：它是 unweighted Gaussian residual-refit procedure，目前只在 CPU 上执行。若成功的 penalized fit 实际运行于 CuPy 或 Torch，请求 `bootstrap` 会直接报错，而不是把 resampling/refit 静默移到 CPU。weighted residual bootstrap，以及从 `cov_type` 推断 robust/HAC bootstrap 的语义都没有实现，对应请求 fail closed。`n_bootstrap` 至少为 2，避免发布未定义的 bootstrap standard error。
 
 对于 analytic `sample_weight`，维护中的 NumPy/CuPy/Torch `debiased` 路径使用同一个 weighted-centered average-loss 工作问题。因此把所有权重同时乘以任意正的常数，不会改变 penalized fit 或 debiased inference。
 
