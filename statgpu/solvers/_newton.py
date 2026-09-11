@@ -23,7 +23,7 @@ from statgpu.backends._utils import _to_float_scalar
 
 from ._convergence import ConvergenceWarning
 from ._utils import (
-    _validate_uniform_sample_weight,
+    _validate_sample_weight,
     _smooth_penalty_gradient,
     _smooth_penalty_hessian,
     _smooth_penalty_value_dev,
@@ -32,6 +32,35 @@ from ._utils import (
     _validate_smooth_penalty,
     _trial_error_is_numerical,
 )
+
+
+def _prepare_newton_sample_weight(sample_weight, n_samples, backend, ref_arr):
+    """Validate and align analytic weights to the Newton execution backend.
+
+    Exactly uniform weights are normalized away because the weighted average
+    objective is then identical to the unweighted objective.  This also
+    preserves the historical behavior of losses that explicitly reject
+    weighting (for example Cox) when callers pass an exactly uniform vector.
+    Any genuinely non-uniform vector remains explicit throughout value,
+    gradient, Hessian, and line-search evaluation.
+    """
+    if sample_weight is None:
+        return None
+
+    _validate_sample_weight(sample_weight, n_samples)
+    values = _as_backend_vector(sample_weight, backend, ref_arr).reshape(-1)
+    uniform_dev = (values == values[0]).all()
+    uniform = bool(
+        uniform_dev.item() if hasattr(uniform_dev, "item") else uniform_dev
+    )
+    return None if uniform else values
+
+
+def _call_loss_with_weight(fn, *args, sample_weight=None):
+    """Call one loss primitive with analytic weights when they are active."""
+    if sample_weight is None:
+        return fn(*args)
+    return fn(*args, sample_weight=sample_weight)
 
 
 def newton_solver(
@@ -48,6 +77,12 @@ def newton_solver(
 
     Supports numpy / cupy / torch backends via auto-detection of X.
 
+    Non-uniform ``sample_weight`` is treated as analytic/frequency-style
+    objective weighting using the same normalized average-loss convention as
+    ``LossBase``: weighted loss, gradient, Hessian, and every Armijo trial use
+    ``sum_i w_i * contribution_i / sum_i w_i``.  Losses that do not implement
+    weighted curvature remain free to reject the request explicitly.
+
     For losses with constant Hessian, the Hessian is computed once and
     reused across iterations; Armijo backtracking still verifies each step.
 
@@ -56,7 +91,9 @@ def newton_solver(
     _validate_smooth_penalty(penalty, "newton_solver")
     backend = _resolve_backend("auto", X)
     X_proc, y_proc = loss.preprocess(X, y)
-    _validate_uniform_sample_weight(sample_weight, X_proc.shape[0], "newton_solver")
+    sample_weight = _prepare_newton_sample_weight(
+        sample_weight, X_proc.shape[0], backend, X_proc
+    )
     n_features = X_proc.shape[1]
 
     if init_coef is not None:
@@ -69,9 +106,13 @@ def newton_solver(
 
     _fixed_hess = None
     if _const_hessian:
-        _fixed_hess = loss.hessian(X_proc, y_proc, params) + _smooth_penalty_hessian(
-            penalty, params
-        )
+        _fixed_hess = _call_loss_with_weight(
+            loss.hessian,
+            X_proc,
+            y_proc,
+            params,
+            sample_weight=sample_weight,
+        ) + _smooth_penalty_hessian(penalty, params)
 
     iteration = -1
     line_search_failed = False
@@ -98,17 +139,33 @@ def newton_solver(
 
         if _has_fused and _fixed_hess is None:
             # Fused: compute gradient and hessian in one pass
-            loss_grad, loss_hess = loss.fused_gradient_and_hessian(
-                X_proc, y_proc, params
+            loss_grad, loss_hess = _call_loss_with_weight(
+                loss.fused_gradient_and_hessian,
+                X_proc,
+                y_proc,
+                params,
+                sample_weight=sample_weight,
             )
             grad = loss_grad + _smooth_penalty_gradient(penalty, params)
             hess = loss_hess + _smooth_penalty_hessian(penalty, params)
         else:
-            grad = loss.gradient(X_proc, y_proc, params) + _smooth_penalty_gradient(
-                penalty, params
+            loss_grad = _call_loss_with_weight(
+                loss.gradient,
+                X_proc,
+                y_proc,
+                params,
+                sample_weight=sample_weight,
             )
+            grad = loss_grad + _smooth_penalty_gradient(penalty, params)
             hess = _fixed_hess if _fixed_hess is not None else (
-                loss.hessian(X_proc, y_proc, params) + _smooth_penalty_hessian(penalty, params)
+                _call_loss_with_weight(
+                    loss.hessian,
+                    X_proc,
+                    y_proc,
+                    params,
+                    sample_weight=sample_weight,
+                )
+                + _smooth_penalty_hessian(penalty, params)
             )
 
         grad_norm_dev = _norm2_dev(grad)
@@ -162,8 +219,15 @@ def newton_solver(
             else:
                 direction = np.linalg.lstsq(hess_reg, grad, rcond=None)[0]
 
-        # Armijo backtracking line search
-        obj_old_dev, _ = loss.fused_value_and_gradient(X_proc, y_proc, params_old)
+        # Armijo backtracking line search. The acceptance objective must use
+        # the same analytic weights as the Newton system itself.
+        obj_old_dev, _ = _call_loss_with_weight(
+            loss.fused_value_and_gradient,
+            X_proc,
+            y_proc,
+            params_old,
+            sample_weight=sample_weight,
+        )
         obj_old_dev = obj_old_dev + _smooth_penalty_value_dev(penalty, params_old)
         gdd_dev = _dot_dev(grad, direction)
         gdd = _to_float_scalar(gdd_dev)
@@ -178,7 +242,13 @@ def newton_solver(
         for _bt in range(20):
             params_try = params_old - step * direction
             try:
-                obj_try_dev, _ = loss.fused_value_and_gradient(X_proc, y_proc, params_try)
+                obj_try_dev, _ = _call_loss_with_weight(
+                    loss.fused_value_and_gradient,
+                    X_proc,
+                    y_proc,
+                    params_try,
+                    sample_weight=sample_weight,
+                )
                 obj_try_dev = obj_try_dev + _smooth_penalty_value_dev(
                     penalty, params_try
                 )
