@@ -84,7 +84,7 @@ generic 与 typed penalized GLM estimator 推荐使用 `inference_method="auto"`
 
 analytic weights 受支持，数值 inference 跟随真正执行 fit 的 backend/concrete device。non-Gaussian L1/ElasticNet coefficient inference 当前不 productize，会 fail closed。SCAD/MCP oracle 必须显式请求；group penalty 与 penalized Cox 仍为 estimation-only。
 
-本 contract 的 `inference_method="bootstrap"` 只表示 `cov_type="nonrobust"` 的 unweighted CPU Gaussian residual bootstrap：保留真实 penalty/tuning，至少需要 2 次 resample，且 CuPy/Torch 已执行拟合不会静默切到 CPU 重拟合。
+本 contract 的 `inference_method="bootstrap"` 表示 `cov_type="nonrobust"` 的 unweighted Gaussian residual bootstrap。PR #147 / 0.2.6 目标版本中，每个 bootstrap response 和 penalized child refit 都在成功拟合记录的 NumPy/CuPy/Torch backend 与具体 device 上执行。固定 seed 下三后端共享同一套 backend-neutral residual-index schedule；只有小型整数 schedule 和最终 NumPy reporting snapshot 允许跨 host/device boundary。weighted、robust/HAC、non-Gaussian 与 Cox bootstrap 仍不支持并 fail closed。
 
 完整 support matrix、resampling 边界与统计解释见 [Penalized GLM inference](../guides/penalized-glm-inference.md) 与 [Inference Modes](../guides/inference-modes.md)。
 
@@ -259,7 +259,7 @@ event 数、失败原因、ties 方法和最终重拟合模型类型。
 - Poisson L1/ElasticNet 与 statsmodels `fit_regularized` 对比。
 - 含 warm-up 与 GPU synchronization 的 runtime benchmark。
 
-历史 v23c matrix 属于 estimation evidence，并不能单独证明新的 coefficient-inference contract。PR #142 另有 targeted hosted inference tests 与 exact-source physical CuPy/Torch CUDA validator；在该 validator 真正执行前，不宣称已有 physical GPU pass。
+历史 v23c matrix 属于 estimation evidence，并不能单独证明新的 coefficient-inference contract。PR #142 增加了 penalized-GLM inference physical gate；PR #147 增加 `dev/benchmarks/validate_gaussian_residual_bootstrap_gpu.py`，用于 exact-source NumPy/CuPy/Torch residual-bootstrap parity 与 concrete-device provenance。validator 文件存在本身不等于 physical GPU pass；必须在 exact clean PR source 上真实执行才构成 acceptance evidence。
 
 远程凭据必须从环境变量读取，不得写入代码或文档。
 
