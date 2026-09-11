@@ -1,7 +1,7 @@
 # Lasso
 
 > Language: English  
-> Last updated: 2026-09-10  
+> Last updated: 2026-09-11  
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/lasso.md)
 
@@ -41,7 +41,7 @@ The historical `cpu_solver` constructor argument is deprecated. It remains accep
 
 - `post_selection_ols`: hardware-neutral active-set OLS/WLS refit diagnostic.
 - `debiased`: de-biased (de-sparsified) Lasso inference with z-statistic semantics.
-- `bootstrap`: residual bootstrap; typically slower and still not a universal selection-aware correction.
+- `bootstrap`: unweighted Gaussian residual bootstrap; typically slower and still not a universal selection-aware correction.
 
 The unified spellings `cpu_ols` and `gpu_ols` are deprecated together. During the compatibility window they emit `FutureWarning` and normalize to `post_selection_ols`; they are **not** separate CPU and GPU statistical procedures. `LassoCV` additionally accepts the older `cpu_ols_inference` / `gpu_ols_inference` spellings at its compatibility boundary and normalizes them to the same method.
 
@@ -84,8 +84,16 @@ result records `simultaneous_numerical_backend`,
 `fit_intercept=False` simultaneous path still uses its pre-existing generic
 reporting-stage helper and is not claimed as GPU-native by this PR.
 
-Residual `bootstrap` currently uses CPU-native residual refits, so an explicit
-GPU `device` controls the penalized fit but does not make bootstrap GPU-native.
+Residual `bootstrap` keeps its narrow **unweighted Gaussian residual-refit**
+statistical contract but, for the PR #147 / 0.2.6 target, executes child refits on
+the successful fit's recorded NumPy/CuPy/Torch backend and concrete device.
+CuPy bootstrap children remain on the same `cuda:k`; Torch bootstrap children
+remain on the same `cuda:k`. A fixed `bootstrap_random_state` generates one
+backend-neutral integer residual-index schedule, and result metadata records a
+stable schedule SHA-256 together with numerical/reporting provenance. Only the
+small index schedule and the final NumPy reporting snapshot cross the host/device
+boundary. Weighted, robust/HAC, non-Gaussian, and Cox bootstrap semantics remain
+unsupported and fail closed.
 
 With analytic weights, direct Lasso and debiased inference use the same
 weighted-centered average-loss convention on NumPy/CuPy/Torch, so multiplying all
@@ -217,7 +225,6 @@ m_gpu = Lasso(
     gpu_memory_cleanup=True,
 )
 m_gpu.fit(X, y)
-
 # Prediction uses the penalized model; inference reports the active-set refit.
 penalized_coef = m_gpu.coef_
 post_selection_params = m_gpu._params
@@ -273,6 +280,7 @@ ci_simul = m_sim._conf_int_simultaneous
 ## External Validation
 
 - `dev/benchmarks/validate_post_selection_ols_gpu.py`
+- `dev/benchmarks/validate_gaussian_residual_bootstrap_gpu.py` — exact-source NumPy/CuPy/Torch residual-bootstrap parity and concrete-device gate for PR #147; the script itself is not physical-GPU evidence until executed on CUDA hardware.
 - `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py` — canonical `post_selection_ols` CPU/CuPy end-to-end parity and complete fit+inference timing benchmark.
 - `dev/benchmarks/benchmark_lasso_cpu_gpu_tol.py`
 - `dev/comparisons/compare_lasso_kkt_stopping.py`
@@ -281,7 +289,7 @@ ci_simul = m_sim._conf_int_simultaneous
 - `dev/tests/test_post_selection_ols_inference_api.py`
 - `dev/tests/test_penalized_solver_api_cleanup.py`
 
-The physical post-selection OLS validator requires both CuPy CUDA and Torch CUDA. Its presence is not itself physical-GPU evidence; exact-head GPU acceptance must be recorded separately when executed on physical CUDA hardware.
+The physical validators require their declared CUDA backends/hardware. Their presence is not itself physical-GPU evidence; exact-head GPU acceptance must be recorded separately when executed on physical CUDA hardware.
 
 ## References
 
