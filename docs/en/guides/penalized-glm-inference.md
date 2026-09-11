@@ -32,7 +32,7 @@ The same provenance is recorded in `_inference_result.metadata` together with th
 | squared error + L2/no penalty | existing Gaussian classical/robust covariance | `classical` for `cov_type="nonrobust"`, otherwise the maintained Gaussian sandwich path |
 | squared error + L1/ElasticNet | debiased inference; existing `post_selection_ols` contract | `debiased` |
 | smooth non-Gaussian GLM + L2/no penalty | fixed-penalty M-estimation | `m_estimation` |
-| Gaussian L1/ElasticNet/SCAD/MCP | unweighted CPU residual bootstrap when explicitly requested | not selected automatically |
+| Gaussian L1/ElasticNet/SCAD/MCP | unweighted backend-native residual bootstrap on NumPy/CuPy/Torch when explicitly requested | not selected automatically |
 | SCAD/MCP scalar GLM families | active-set oracle refit when explicitly requested | not selected automatically |
 | non-Gaussian L1/ElasticNet | not implemented | fails closed |
 | group penalties | estimation-only | fails closed |
@@ -93,17 +93,19 @@ An explicit `device="cuda"` or `device="torch"` request never silently substitut
 
 ## Residual bootstrap scope
 
-`inference_method="bootstrap"` in this repair is deliberately **not** a universal GLM bootstrap. It is an unweighted Gaussian residual bootstrap with:
+`inference_method="bootstrap"` is deliberately **not** a universal GLM bootstrap. It is an unweighted Gaussian residual bootstrap with:
 
 - fixed design;
 - the same fixed `alpha`;
 - the same penalty family;
 - the same ElasticNet `l1_ratio` / penalty kwargs where applicable;
-- the same intercept semantics;
+- the same intercept, solver, stopping, Lipschitz-hint, and LLA semantics;
 - penalized refitting inside each bootstrap sample;
 - no CV/tuning rerun inside bootstrap.
 
-The maintained implementation is CPU-executed in this repair and requires `cov_type="nonrobust"`. Weighted residual bootstrap, robust/HAC bootstrap semantics, and family-aware non-Gaussian bootstrap require separate statistical designs and are rejected rather than guessed.
+For PR #147 / the 0.2.6 target, those numerical refits execute on the backend and concrete device recorded by the successful fit: NumPy/CPU, CuPy `cuda:k`, or Torch `cuda:k`. A fixed `bootstrap_random_state` generates one backend-neutral integer residual-index schedule so all three backends consume identical draws. The small index schedule is control-plane data; `X`, `y`, residuals, bootstrap responses, and each child optimization remain on the fit-recorded numerical backend/device. Result metadata records the schedule SHA-256 together with `numerical_backend`, `numerical_device`, `reporting_backend="numpy"`, and `reporting_boundary="post_numerical_inference"`.
+
+The method still requires `cov_type="nonrobust"`. Weighted residual bootstrap, robust/HAC bootstrap semantics, family-aware non-Gaussian bootstrap, Cox bootstrap, and batched bootstrap optimization remain outside this contract and fail closed rather than being guessed.
 
 The resulting intervals are heuristic penalized-estimator bootstrap intervals, not selective-inference coverage guarantees.
 
@@ -132,7 +134,7 @@ penalty_conditioning_ = "cv_selected_penalty"
 penalty_selection_adjusted_ = False
 ```
 
-Therefore the reported standard errors, p-values, and confidence intervals are **conditional on the CV-selected penalty**. They do not adjust for tuning-selection uncertainty.
+Therefore the reported standard errors, p-values, and confidence intervals are **conditional on the CV-selected penalty**. They do not adjust for tuning-selection uncertainty. For residual bootstrap, the bootstrap runs only on that selected full-data refit; it is not repeated inside folds or candidate evaluation.
 
 The Cox branch remains estimation-only.
 
