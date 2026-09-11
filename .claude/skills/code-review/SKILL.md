@@ -2,7 +2,7 @@
 name: code-review
 description: Review statgpu changes for correctness, public API compatibility, statistical and numerical behavior, backend dispatch, CV/inference/resampling/formula contracts, tests, docs, evidence freshness, and performance. Use when the user asks for a review or audit, or when a development workflow explicitly requests a fresh independent review pass.
 when_to_use: Trigger for PR review, audit, fresh review, an explicit review/fix pass, or a pre-implementation audit of a cross-cutting public statistical contract. Do not trigger merely because code is being edited.
-argument-hint: "[audit|auto-fix|--fix] [PR|branch|range|path] [--comment]"
+argument-hint: "[audit|auto-fix|--fix] [PR|branch|commit|range|path] [--comment]"
 compatibility: "Claude Code >= 2.1.218 supports background: false explicitly; earlier versions block forked skills by default."
 context: fork
 background: false
@@ -33,7 +33,7 @@ A review that cannot identify its target precisely must not return a clean/block
 
 ## 1. Target freshness is a hard gate
 
-The review report must identify the target using the fields defined in `target-resolution.md`, including `target_kind`, `base_sha`, `head_sha`, and `worktree_fingerprint` when dirty working-tree content is part of scope.
+The review report must identify the target using the fields defined in `target-resolution.md`, including `target_kind`, `base_sha`, `head_sha`, and `worktree_fingerprint` when dirty working-tree content is part of scope. For an immutable snapshot `commit` audit, `base_sha` may be not applicable as defined by the target-resolution contract.
 
 Before the final verdict, re-resolve the effective comparison **base and head** plus the audited working-tree content fingerprint where relevant. If either side of the diff or the audited content changed unexpectedly, discard the stale verdict and review the new state or report that the target moved.
 
