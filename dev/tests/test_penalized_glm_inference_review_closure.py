@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -136,6 +137,21 @@ def test_sandwich_reference_distributions_follow_parameter_device():
     chi2_source = inspect.getsource(sandwich._chi2_sf)
     assert "getattr(ref_arr, \"device\", None)" in critical_source
     assert "device=device_label" in chi2_source
+
+
+def test_physical_validator_uses_canonical_poisson_auto_and_logistic_fista_smoke():
+    validator = (
+        Path(__file__).resolve().parents[1]
+        / "benchmarks"
+        / "validate_penalized_glm_inference_gpu.py"
+    ).read_text(encoding="utf-8")
+
+    assert "SCHEMA_VERSION = 4" in validator
+    assert 'if family == "logistic" and not weighted:' in validator
+    assert 'return "fista", "fista"' in validator
+    assert 'return "auto", "newton"' in validator
+    assert "ATOL_COEF = 2e-6" in validator
+    assert "ATOL_INFERENCE = 1e-5" in validator
 
 
 def test_final_execution_boundary_installer_is_idempotent():
