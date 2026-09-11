@@ -65,6 +65,19 @@
         "The review finds at least one of the two MEDIUM-quality defects: internal debiased node-wise Lasso warning leakage or stale public runtime help/docstring cpu_solver semantics.",
         "The final verdict is blocking rather than REVIEW CLEAN."
       ]
+    },
+    {
+      "id": 7,
+      "prompt": "Audit a penalized-GLM inference cleanup. The generic constructor exposes inference_method='debiased', some non-Gaussian L2/ElasticNet fits actually return m_estimation sandwich results, and a helper advertised as generic bootstrap reconstructs a Gaussian penalized-linear L1 model. CI is green.",
+      "expected_output": "The review classifies the work as capability reconciliation plus API/inference/resampling, inventories affected typed/shared consumers, treats requested/resolved/reported method mismatch and invalid generic resampling as blocking even with green CI, requires an explicit estimand/conditioning/support matrix, and verifies final docs/evidence against the exact reviewed head.",
+      "assertions": [
+        "The response identifies capability reconciliation rather than treating this only as a wording cleanup.",
+        "Requested, resolved, and reported inference method identity is reviewed explicitly.",
+        "The bootstrap refit family/penalty mismatch is treated as a blocking inference/resampling defect.",
+        "Shared-base consumers are inventoried.",
+        "Green CI is not sufficient for a clean verdict.",
+        "Final docs and exact-head evidence freshness are part of the verdict."
+      ]
     }
   ]
 }
