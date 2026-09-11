@@ -38,18 +38,20 @@ Intentionally unchanged:
 - penalty formulas/scaling;
 - non-Gaussian sparse-inference support matrix;
 - Gaussian bootstrap and SCAD/MCP oracle boundaries;
-- Cox weighting policy.
+- Cox weighting policy;
+- the separate ordinary `GeneralizedLinearModel._fit_smooth_solver` public guard, which currently rejects weighted explicit Newton/L-BFGS before solver entry. Opening that distinct public API boundary is not required by PR #142 and is not silently changed here.
 
 ## 3. Current capability matrix
 
 | Consumer | Current baseline behavior | Desired behavior |
 |---|---|---|
 | direct `newton_solver`, unweighted | supported | preserve |
-| direct `newton_solver`, exactly uniform weights | accepted and numerically unweighted | preserve equivalent result |
-| direct `newton_solver`, non-uniform weights | rejected before optimization | support when the loss exposes weighted value/gradient/Hessian |
-| penalized smooth non-Gaussian L2, explicit `solver="newton"` | rejects non-uniform weights | backend-native weighted Newton |
+| direct `newton_solver`, floating-point weights considered uniform by the historical `allclose` rule | accepted and numerically unweighted | preserve equivalent result |
+| direct `newton_solver`, genuinely non-uniform weights | rejected before optimization | support when the loss exposes weighted value/gradient/Hessian |
+| penalized smooth non-Gaussian L2, explicit `solver="newton"` | rejects non-uniform weights in the shared solver | backend-native weighted Newton |
 | PR #142 weighted inference + `solver="auto"` | runtime wrapper forces FISTA | canonical solver dispatch; smooth L2 resolves to Newton where the existing dispatch table says Newton |
 | `PenalizedGLM_CV` weighted inference + `solver="auto"` | wrapper forces FISTA for selection and final refit | canonical CV/direct dispatch with the same weighted objective; selected final estimator reports Newton where applicable |
+| ordinary `GeneralizedLinearModel(..., solver="newton")` + weights | public wrapper rejects before solver entry | preserve this separate fail-closed public boundary in this PR |
 | Cox + non-uniform weights | unsupported | remain fail-closed |
 | FISTA and FISTA-BB consumers | weight-capable paths unchanged | preserve; no stopping/convergence edits |
 
@@ -63,9 +65,12 @@ Direct maintained consumers:
 
 - penalized GLM `_fit_loss_backend` on NumPy/CuPy/Torch;
 - smooth L2/no-penalty typed penalized GLMs;
-- ordinary GLM/newton call sites for existing unweighted behavior;
-- robust losses that already expose weighted curvature;
-- direct solver users/tests/benchmarks.
+- direct solver users/tests/benchmarks;
+- robust losses that already expose weighted curvature.
+
+Reviewed but intentionally unchanged consumer boundary:
+
+- ordinary `GeneralizedLinearModel._fit_smooth_solver` keeps its existing public `sample_weight` rejection for explicit Newton/L-BFGS. The guard is visible and occurs before solver entry, so this is not a silent objective change. Enabling that separate surface should be reviewed as its own API expansion rather than smuggled into PR #142.
 
 Meta-estimator consumers:
 
@@ -89,7 +94,7 @@ Documentation/evidence consumers:
 
 ## 5. Desired numerical contract
 
-For non-uniform analytic weights `w_i >= 0`, `sum(w_i) > 0`, Newton must solve the same normalized average-loss objective used by `LossBase`:
+For genuinely non-uniform analytic weights `w_i >= 0`, `sum(w_i) > 0`, Newton must solve the same normalized average-loss objective used by `LossBase`:
 
 `L(beta) = sum_i w_i l_i(beta) / sum_i w_i + P(beta)`.
 
@@ -102,19 +107,19 @@ The exact same weight vector must be used by:
 
 Penalty scaling remains unchanged because global rescaling of all analytic weights must leave the normalized loss and therefore the fitted penalized optimum unchanged.
 
-Exactly uniform valid weights may be normalized to the unweighted path because they define the identical objective. This preserves historical compatibility, including consumers that reject genuine weighting.
+Floating-point weight vectors satisfying the historical Newton uniformity rule (`allclose(values, values[0])`) remain on the established unweighted numerical path. Exact integer uniformity retains its exact-equality behavior. This avoids changing prior compatibility semantics for consumers that treat uniform weighting as the unweighted problem.
 
 Weights are converted once to the execution backend/device relative to the processed design matrix. Explicit CUDA/Torch execution must not transfer numerical work to CPU.
 
 ## 6. Implementation plan
 
-1. Replace Newton's `_validate_uniform_sample_weight` gate with general weight validation and backend/device alignment.
-2. Keep exactly uniform weights on the historical unweighted numerical path.
-3. Thread active non-uniform weights through constant-Hessian construction, fused/non-fused gradient/Hessian calls, and both sides of Armijo line search.
+1. Replace Newton's `_validate_uniform_sample_weight` rejection gate with general weight validation and backend/device alignment.
+2. Preserve the historical floating-point `allclose` uniform-weight classification and normalize those vectors to the existing unweighted path.
+3. Thread active genuinely non-uniform weights through constant-Hessian construction, fused/non-fused gradient/Hessian calls, and both sides of Armijo line search.
 4. Remove PR #142's fit/CV wrapper that changed public `solver="auto"` execution to FISTA solely because Newton lacked weights.
 5. Leave the canonical `_preferred_penalized_glm_solver` table unchanged; it again owns smooth-L2 solver resolution.
 6. Update physical validation so weighted `auto` proves Newton selection while unweighted explicit-FISTA cases continue exercising the FISTA inference/device path.
-7. Update public docs/changelogs so no surface claims that weighted inference requires the temporary FISTA workaround.
+7. Update public docs/changelogs so no PR #142 surface claims that weighted penalized-GLM inference requires the temporary FISTA workaround.
 
 ## 7. Deterministic validation
 
@@ -122,13 +127,15 @@ Solver-level:
 
 - weighted logistic Newton equals literal row replication for integer weights after matching average-loss normalization;
 - multiplying every weight by a positive constant leaves coefficients unchanged;
-- exactly uniform weights equal the unweighted path;
+- historical uniform / almost-uniform floating-point weights equal the unweighted path;
 - invalid shape, negative/non-finite, and zero-total weights fail before numerical work;
 - Cox non-uniform weights remain visibly unsupported;
-- smooth-penalty validation remains unchanged.
+- smooth-penalty validation remains unchanged;
+- Torch CPU weighted Newton matches NumPy; physical CuPy/Torch CUDA parity remains a remote gate.
 
 Estimator/CV:
 
+- explicit weighted penalized logistic L2 Newton works independently of inference;
 - weighted logistic/Poisson L2 with public `solver="auto"` selects Newton and publishes finite M-estimation inference;
 - public `solver` remains `auto`;
 - weighted `PenalizedGLM_CV` selection and selected final refit use the canonical dispatch and final estimator reports Newton for applicable rows;
