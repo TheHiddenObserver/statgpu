@@ -42,6 +42,9 @@ from statgpu._config import Device
 from statgpu.backends._utils import _cupy_asarray_on_device
 from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
 from statgpu.linear_model.penalized._inference_mixin import _PenalizedInferenceMixin
+from statgpu.linear_model.penalized._no_inference_cleanup_contract import (
+    _invalidate_failed_no_inference_fit,
+)
 from statgpu.linear_model.penalized._penalized_linear import PenalizedLinearRegression
 from statgpu.linear_model.penalized._penalized_logistic import PenalizedLogisticRegression
 from statgpu.linear_model.penalized._penalized_poisson import PenalizedPoissonRegression
@@ -172,30 +175,32 @@ def _install_validator_binding():
 
 
 def _invalidate_failed_refit(self):
-    """Clear result-bearing state after any failed inference-enabled refit."""
+    """Clear all fitted/result state after a failed inference-enabled refit."""
     try:
-        self._clear_inference_state()
+        # Reuse the repository's established full fit invalidator: besides
+        # coefficients it clears params/formula/design/backend ownership and
+        # delegates to the complete stacked inference-state cleanup chain.
+        _invalidate_failed_no_inference_fit(self)
     except Exception:
-        # Failure invalidation is best effort but must never replace the
-        # original statistical/validation exception.
-        pass
-    for name, value in (
-        ("coef_", None),
-        ("intercept_", None),
-        ("n_iter_", 0),
-        ("_selected_solver", None),
-        ("_selected_backend_name", None),
-        ("_selected_backend_device", None),
-        ("_native_fit_coef", None),
-        ("_native_fit_intercept", None),
-        ("_inference_precomputed", False),
-        ("_precomputed_gaussian_state", None),
-    ):
-        try:
-            setattr(self, name, value)
-        except Exception:
-            pass
-    self._fitted = False
+        # Failure invalidation must never mask the original statistical or
+        # validation exception. Preserve a minimal fail-closed fallback.
+        for name, value in (
+            ("coef_", None),
+            ("intercept_", None),
+            ("_params", None),
+            ("n_iter_", 0),
+            ("_selected_solver", None),
+            ("_selected_backend_name", None),
+            ("_selected_backend_device", None),
+            ("_native_fit_coef", None),
+            ("_native_fit_intercept", None),
+            ("_inference_result", None),
+        ):
+            try:
+  setattr(self, name, value)
+            except Exception:
+  pass
+        self._fitted = False
 
 
 def _penalty_name(self):
@@ -377,6 +382,45 @@ def _install_fit_restore():
     PenalizedGeneralizedLinearModel.fit = wrapped
 
 
+
+_SPECIALIZED_FAILURE_MARKER = "_statgpu_penalized_glm_specialized_failure_guard"
+
+
+def _iter_penalized_linear_subclasses():
+    """Yield already-imported public PLR descendants exactly once."""
+    seen = set()
+    pending = list(PenalizedLinearRegression.__subclasses__())
+    while pending:
+        cls = pending.pop(0)
+        if cls in seen:
+  continue
+        seen.add(cls)
+        pending.extend(cls.__subclasses__())
+        if cls.__module__.startswith("statgpu.linear_model.legacy"):
+  continue
+        if cls.__module__.startswith("statgpu.linear_model"):
+  yield cls
+
+
+def _install_specialized_failure_guard(cls):
+    """Close subclasses whose earlier runtime wrapper captured an old fit."""
+    current = cls.__dict__.get("fit")
+    if current is None or getattr(current, _SPECIALIZED_FAILURE_MARKER, False):
+        return
+
+    @functools.wraps(current)
+    def wrapped(self, *args, **kwargs):
+        try:
+  return current(self, *args, **kwargs)
+        except Exception:
+  if bool(getattr(self, "compute_inference", False)):
+      _invalidate_failed_refit(self)
+  raise
+
+    setattr(wrapped, _SPECIALIZED_FAILURE_MARKER, True)
+    cls.fit = wrapped
+
+
 def _install_cv_weighted_fit_restore():
     current = PenalizedGLM_CV.fit
     if getattr(current, _MARKER, False):
@@ -412,6 +456,8 @@ def install_penalized_glm_inference_fit_transaction():
     _install_sandwich_input_alignment()
     _install_bootstrap_draw_validation()
     _install_fit_restore()
+    for cls in _iter_penalized_linear_subclasses():
+        _install_specialized_failure_guard(cls)
     _install_cv_weighted_fit_restore()
 
 
