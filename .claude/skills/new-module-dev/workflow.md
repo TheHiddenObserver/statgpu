@@ -53,6 +53,10 @@ Classify the work as one or more of:
 
 `existing capability reconciliation` applies when implementation already exists in some form but public wrappers, requested/resolved method identity, inheritance consumers, CV/formula behavior, tests, or docs disagree. It is not treated as a brand-new numerical algorithm merely because the public contract needs repair.
 
+### Existing capability reconciliation / contract repair
+
+Use this path when a statistical/numerical implementation already exists but the public contract is inconsistent across shared bases, typed wrappers, runtime method resolution, fitted/reporting metadata, CV/formula consumers, tests, or documentation. Start from the Phase 0 capability matrix and consumer graph, preserve already-correct numerical paths, repair the canonical public/statistical contract, and make unsupported rows explicit. Do not reopen unrelated numerical capability merely because the shared class exposes it.
+
 ### Impact axes
 
 | Axis | Activate when |
