@@ -207,11 +207,17 @@ def test_code_review_covers_inference_identity_resampling_and_consumer_graph():
 def test_skill_eval_definitions_do_not_masquerade_as_runtime_evidence():
     review = _read(SKILLS / "code-review" / "SKILL.md")
     matrix = _read(SKILLS / "code-review" / "review-matrix.md")
+    new_module = _read(SKILLS / "new-module-dev" / "SKILL.md")
+    workflow = _read(SKILLS / "new-module-dev" / "workflow.md")
 
     assert "not** evidence that Claude Code actually triggers the skill" in review
     assert "actual skill-runtime/grading run" in review
     assert "not actual Claude Code trigger/output behavior" in matrix
     assert "behavioral-runtime claims" in matrix
+    assert "committed eval definitions and static contract tests prove only policy/schema presence" in new_module
+    assert "skill-runtime behavioral evidence remains" in new_module
+    assert "Project-skill behavioral runtime" in workflow
+    assert "static contract tests do not execute the skill" in workflow
 
 
 def test_skill_evals_cover_reconciliation_resampling_and_release_boundary():
