@@ -72,7 +72,9 @@ Current direct-fit `solver="auto"` behavior includes:
 
 Important device rule: explicit `device="cuda"` stays on CuPy, explicit `device="torch"` stays on Torch CUDA, and unsupported explicit solver/backend combinations fail visibly rather than silently falling back to CPU. Formula parsing may run on CPU, but fit/predict numerical work follows the selected backend.
 
-One inference-specific execution choice is explicit: an inference-enabled weighted non-Gaussian L2/no-penalty fit with public `solver="auto"` uses the maintained weight-capable FISTA path because Newton currently rejects non-uniform analytic weights. The public request remains `auto`; estimation-only benchmark dispatch is unchanged.
+Weighted penalized smooth GLMs use the same canonical dispatch. The maintained Newton solver now supports genuine non-uniform analytic weights using one normalized average-loss objective for value, gradient, Hessian, and Armijo trials, so inference-enabled weighted L2/no-penalty fits no longer require a fit-local FISTA override. Public `solver="auto"` remains unchanged and applicable logistic/Poisson L2 rows resolve to backend-native Newton.
+
+The separate ordinary `GeneralizedLinearModel(..., solver="newton")` sample-weight guard is not changed by this PR; that public wrapper continues to reject weighted explicit Newton/L-BFGS before solver entry. The weighted-Newton repair here closes the shared solver capability required by penalized GLM and `PenalizedGLM_CV` without silently expanding that distinct ordinary-GLM API boundary.
 
 ## Covariance/Inference
 
@@ -164,7 +166,7 @@ Formula parsing runs on CPU and is intended as a convenience layer. For very lar
 
 Penalized GLM inference is fail-closed: supported non-Gaussian L2/no-penalty rows expose fixed-penalty M-estimation with nonrobust/HC0/HC1 covariance, while unsupported loss × penalty × method rows raise instead of substituting another inferential procedure. Residual bootstrap and SCAD/MCP oracle remain deliberately narrow explicit paths.
 
-`solver="auto"` follows the maintained direct-fit dispatch (including Newton for smooth non-Gaussian L2). For inference-enabled weighted non-Gaussian L2/no-penalty fits, the fit-local weight-capable FISTA execution choice described above applies without changing the public `auto` request.
+`solver="auto"` follows the maintained direct-fit dispatch (including Newton for smooth non-Gaussian L2). Weighted inference-enabled smooth L2/no-penalty fits use the same canonical dispatch now that Newton supports analytic weights; applicable rows therefore execute backend-native Newton without changing the public `auto` request.
 
 `PenalizedGLM_CV` defaults to `cv_strategy="strict"`. In strict mode every fold/alpha is evaluated with the requested `max_iter` and `tol`, and GPU optimizations are limited to caching, fused kernels, and batched validation-score transfers. The optional `cv_strategy="two_stage"` mode first screens the alpha grid with relaxed CV solves, then strictly refines the candidate alphas and performs a strict final refit. Because the screening step can change alpha ranking on close CV curves, two-stage mode emits `ApproximateCVWarning` unless `acknowledge_approx=True` is passed.
 
