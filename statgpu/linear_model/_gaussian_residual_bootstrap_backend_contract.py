@@ -110,9 +110,6 @@ def _make_child_refit(owner, *, backend: str) -> PenalizedLinearRegression:
         compute_inference=False,
         inference_method="auto",
     )
-    # cpu_solver is a legacy CPU-stage control. Preserve it only where it can
-    # actually own execution; passing it explicitly on GPU would create a
-    # misleading deprecated request without affecting the canonical solver.
     if backend == "numpy":
         kwargs["cpu_solver"] = getattr(owner, "cpu_solver", "fista")
     return PenalizedLinearRegression(**kwargs)
@@ -161,8 +158,6 @@ def _child_device_context(backend: str, device: str):
         return
 
     if backend == "torch":
-        # ``cpu`` is accepted only for host-side contract doubles. A real
-        # maintained Torch fit records a concrete CUDA device.
         if device == "cpu":
             yield
             return
@@ -283,7 +278,6 @@ def _backend_native_gaussian_residual_bootstrap(self, X, y):
     params = np.asarray(self._params, dtype=np.float64)
     statistic = params / (bse + 1e-30)
 
-    # Host transfer happens only after all numerical child refits complete.
     _record_successful_diagnostics(self, X_native, y_native, y_pred, n)
 
     self._bse = bse
@@ -307,6 +301,7 @@ def _backend_native_gaussian_residual_bootstrap(self, X, y):
 
     self._inference_result = ParameterInferenceResult(
         method="residual_bootstrap",
+        feature_names=self._inference_feature_names(),
         params=params.copy(),
         bse=bse.copy(),
         statistic=statistic.copy(),
