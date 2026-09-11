@@ -35,7 +35,7 @@ A review that cannot identify its target precisely must not return a clean/block
 
 The review report must identify the target using the fields defined in `target-resolution.md`, including `target_kind`, `base_sha`, `head_sha`, and `worktree_fingerprint` when dirty working-tree content is part of scope. For an immutable snapshot `commit` audit, `base_sha` may be not applicable as defined by the target-resolution contract.
 
-Before the final verdict, re-resolve the effective comparison **base and head** plus the audited working-tree content fingerprint where relevant. If either side of the diff or the audited content changed unexpectedly, discard the stale verdict and review the new state or report that the target moved.
+Before the final verdict, re-resolve the effective comparison **base when applicable and head/snapshot identity** plus the audited working-tree content fingerprint where relevant. If the effective target identity or audited content changed unexpectedly, discard the stale verdict and review the new state or report that the target moved.
 
 In `auto-fix`, report the **post-fix** state separately from the original reviewed state. Do not claim that pre-fix CI or an earlier review proves a later head/fingerprint.
 
@@ -154,7 +154,7 @@ For performance claims, require synchronized GPU timing, explicit timing scope, 
 
 Historical benchmark or GPU evidence proves only the source, validator contract, hardware, and environment it actually records.
 
-For project-skill/eval changes, committed `evals.json` files and static contract tests prove only that policy/eval definitions exist and are structurally consistent. They are **not** evidence that Claude Code actually triggers the skill or produces the expected output. Any claim that trigger/output behavior is empirically closed requires an actual skill-runtime/grading run; otherwise report that behavioral evidence as pending.
+**Eval definitions are not runtime execution evidence.** For project-skill/eval changes, committed `evals.json` files and static contract tests prove only that policy/eval definitions exist and are structurally consistent. They do not prove that Claude Code actually triggers the skill or produces the expected output. Any claim that trigger/output behavior is empirically closed requires an actual skill-runtime/grading run; otherwise report that behavioral evidence as pending.
 
 ## 9. Auto-fix loop
 
