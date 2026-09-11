@@ -32,7 +32,7 @@ inference_method="auto"
 | squared error + L2/无惩罚 | 既有 Gaussian classical/robust covariance | `cov_type="nonrobust"` 时为 `classical`，否则走既有 Gaussian sandwich 路径 |
 | squared error + L1/ElasticNet | debiased inference；既有 `post_selection_ols` contract | `debiased` |
 | smooth non-Gaussian GLM + L2/无惩罚 | 固定惩罚 M-estimation | `m_estimation` |
-| Gaussian L1/ElasticNet/SCAD/MCP | 显式请求时可用无权重 CPU residual bootstrap | 不自动选择 |
+| Gaussian L1/ElasticNet/SCAD/MCP | 显式请求时可用 NumPy/CuPy/Torch 三后端的无权重 residual bootstrap | 不自动选择 |
 | SCAD/MCP scalar GLM family | 显式请求的 active-set oracle refit | 不自动选择 |
 | non-Gaussian L1/ElasticNet | 未实现 | fail closed |
 | group penalties | 仅估计 | fail closed |
@@ -93,17 +93,19 @@ non-Gaussian L2 M-estimation covariance 支持 analytic weights，并且 numeric
 
 ## Residual bootstrap 的范围
 
-本次修复中的 `inference_method="bootstrap"` **不是通用 GLM bootstrap**，而是无权重 Gaussian residual bootstrap：
+`inference_method="bootstrap"` **不是通用 GLM bootstrap**，而是无权重 Gaussian residual bootstrap：
 
 - fixed design；
 - 固定相同 `alpha`；
 - 保持相同 penalty family；
 - 对 ElasticNet 保持相同 `l1_ratio` / penalty kwargs；
-- 保持相同 intercept 语义；
+- 保持相同 intercept、solver、stopping、Lipschitz hint 与 LLA 语义；
 - 每个 bootstrap sample 内重新拟合 penalized estimator；
 - bootstrap 内不重新进行 CV/tuning。
 
-本次维护实现仅支持 CPU execution，并要求 `cov_type="nonrobust"`。weighted residual bootstrap、robust/HAC bootstrap 与 family-aware non-Gaussian bootstrap 都需要单独的统计设计，因此当前会 fail closed，而不是猜测语义。
+PR #147 / 0.2.6 目标版本把这些数值 refit 扩展到成功拟合实际记录的 backend 与具体 device：NumPy/CPU、CuPy `cuda:k` 或 Torch `cuda:k`。固定的 `bootstrap_random_state` 会生成一套 backend-neutral 的整数 residual-index schedule，三后端使用完全相同的抽样索引。这个小型索引表属于 control-plane 数据；`X`、`y`、residual、bootstrap response 以及每个 child optimization 都保持在 fit-recorded backend/device 上。结果 metadata 会记录 schedule SHA-256、`numerical_backend`、`numerical_device`、`reporting_backend="numpy"` 与 `reporting_boundary="post_numerical_inference"`。
+
+该方法仍要求 `cov_type="nonrobust"`。weighted residual bootstrap、robust/HAC bootstrap、family-aware non-Gaussian bootstrap、Cox bootstrap 以及 batched bootstrap 优化仍不属于本 contract，并会 fail closed，而不是猜测语义。
 
 这些区间是 heuristic penalized-estimator bootstrap interval，不应解释成 selective-inference coverage guarantee。
 
@@ -132,7 +134,7 @@ penalty_conditioning_ = "cv_selected_penalty"
 penalty_selection_adjusted_ = False
 ```
 
-因此标准误、p-value 与 confidence interval **条件于 CV 选出的 penalty**，并没有校正 tuning-selection uncertainty。
+因此标准误、p-value 与 confidence interval **条件于 CV 选出的 penalty**，并没有校正 tuning-selection uncertainty。对于 residual bootstrap，bootstrap 只运行在这个 selected full-data refit 上，不会在 folds 或候选参数评估中重复运行。
 
 Cox 分支仍保持 estimation-only。
 
