@@ -75,9 +75,9 @@ HC2、HC3 与 HAC 尚未为 penalized non-Gaussian M-estimation 实现，会明�
 
 non-Gaussian L2 M-estimation covariance 支持 analytic weights，并且 numerical inference 跟随实际执行拟合的 backend/device。
 
-维护中的 Newton solver 现在会把非均匀 analytic weights 贯穿 **同一个归一化 average-loss objective 的全部 Newton 阶段**：objective value、gradient、Hessian（或 fused gradient/Hessian）以及 Armijo trial evaluation 都使用 `sum_i w_i contribution_i / sum_i w_i`。因此把全部权重乘以任意正的常数不会改变 penalized optimum。对于浮点权重，满足历史 uniform-weight `allclose` 规则的向量继续走既有的 unweighted-equivalent 路径。
+维护中的 Newton solver 会把非均匀 analytic weights 贯穿 **同一个归一化 average-loss objective 的全部 Newton 阶段**：objective value、gradient、Hessian（或 fused gradient/Hessian）以及 Armijo trial evaluation 都使用 `sum_i w_i contribution_i / sum_i w_i`。因此把全部权重乘以任意正的常数不会改变 penalized optimum。对于浮点权重，满足历史 uniform-weight `allclose` 规则的向量继续走既有的 unweighted-equivalent 路径。
 
-因此，开启 inference 的 weighted smooth non-Gaussian L2/无惩罚拟合不再需要 PR #142 临时的 fit-local FISTA override。公开 `solver="auto"` 时，direct fit 与 `PenalizedGLM_CV` 的 candidate/final refit 都重新服从 canonical solver-dispatch table；适用的 smooth-L2 logistic/Poisson 行会解析到 backend-native Newton，而公开的 solver 请求仍保持 `auto`。
+公开 `solver="auto"` 时，weighted smooth non-Gaussian L2/无惩罚拟合与对应的 unweighted 拟合使用同一套 canonical solver dispatch。适用的 logistic/Poisson 行会解析到 backend-native Newton，而公开的 solver 请求仍保持 `auto`。
 
 显式指定 solver 时仍以用户请求为准，不会被静默替换。对于统计 contract 本身不定义 sample weighting 的 loss（例如 Cox），真正的非均匀权重仍会明确报错，而不是被静默丢弃。
 
@@ -93,21 +93,23 @@ non-Gaussian L2 M-estimation covariance 支持 analytic weights，并且 numeric
 
 ## Residual bootstrap 的范围
 
-`inference_method="bootstrap"` **不是通用 GLM bootstrap**，而是无权重 Gaussian residual bootstrap：
+`inference_method="bootstrap"` **不是通用 GLM bootstrap**。它只用于受支持的 Gaussian penalized model，并保持拟合设计矩阵与 tuning 配置固定。
 
-- fixed design；
-- 固定相同 `alpha`；
-- 保持相同 penalty family；
-- 对 ElasticNet 保持相同 `l1_ratio` / penalty kwargs；
-- 保持相同 intercept、solver、stopping、Lipschitz hint 与 LLA 语义；
-- 每个 bootstrap sample 内重新拟合 penalized estimator；
-- bootstrap 内不重新进行 CV/tuning。
+每一次 bootstrap draw 中，statgpu 会：
 
-PR #147 / 0.2.6 目标版本把这些数值 refit 扩展到成功拟合实际记录的 backend 与具体 device：NumPy/CPU、CuPy `cuda:k` 或 Torch `cuda:k`。固定的 `bootstrap_random_state` 会生成一套 backend-neutral 的整数 residual-index schedule，三后端使用完全相同的抽样索引。这个小型索引表属于 control-plane 数据；`X`、`y`、residual、bootstrap response 以及每个 child optimization 都保持在 fit-recorded backend/device 上。结果 metadata 会记录 schedule SHA-256、`numerical_backend`、`numerical_device`、`reporting_backend="numpy"` 与 `reporting_boundary="post_numerical_inference"`。
+1. 根据已拟合的 Gaussian 模型计算 `y_hat` 与 residual；
+2. 对 residual 做有放回抽样；
+3. 构造 `y_star = y_hat + residual_star`；
+4. 使用同一个 `alpha`、penalty family、ElasticNet mixing / penalty options、intercept 约定、solver/stopping controls 与 SCAD/MCP LLA controls 重新拟合；
+5. 用 bootstrap 系数分布计算标准误、基于符号的双侧 p-value 与 percentile confidence interval。
 
-该方法仍要求 `cov_type="nonrobust"`。weighted residual bootstrap、robust/HAC bootstrap、family-aware non-Gaussian bootstrap、Cox bootstrap 以及 batched bootstrap 优化仍不属于本 contract，并会 fail closed，而不是猜测语义。
+需要可复现的抽样时请设置 `bootstrap_random_state`；`n_bootstrap` 控制重拟合次数，并且至少为 2。
 
-这些区间是 heuristic penalized-estimator bootstrap interval，不应解释成 selective-inference coverage guarantee。
+bootstrap refit 会跟随父模型成功拟合时实际使用的 backend 与 concrete device：CPU 拟合继续使用 NumPy；CuPy 或 Torch CUDA 拟合会把 bootstrap response 与数值 refit 留在同一 GPU device 上。GPU 只改变**在哪里计算**，不会改变统计 procedure。最终 reporting arrays 仍遵循统一的 NumPy reporting boundary。
+
+该方法要求 `sample_weight=None` 且 `cov_type="nonrobust"`。weighted residual bootstrap、robust/HC 或 HAC/block bootstrap、non-Gaussian bootstrap 与 Cox bootstrap 都没有由这个接口定义；对应请求会明确失败，而不是自动猜测 resampling scheme。
+
+这些区间反映的是 fixed-design、fixed-tuning residual-bootstrap 下 penalized estimator 的抽样波动，不应解释成一般的 selective-inference confidence interval，也不会自动校正变量选择不确定性。
 
 ## SCAD/MCP oracle 边界
 
@@ -134,7 +136,7 @@ penalty_conditioning_ = "cv_selected_penalty"
 penalty_selection_adjusted_ = False
 ```
 
-因此标准误、p-value 与 confidence interval **条件于 CV 选出的 penalty**，并没有校正 tuning-selection uncertainty。对于 residual bootstrap，bootstrap 只运行在这个 selected full-data refit 上，不会在 folds 或候选参数评估中重复运行。
+因此标准误、p-value 与 confidence interval **条件于 CV 选出的 penalty**，并没有校正 tuning-selection uncertainty。对于 residual bootstrap，只有在 CV 选定 `alpha` 之后才开始 resampling；fold 与 candidate fit 本身不会做 bootstrap。
 
 Cox 分支仍保持 estimation-only。
 
@@ -161,7 +163,7 @@ print(model._bse)
 print(model._pvalues)
 ```
 
-对于 sparse non-Gaussian L1/ElasticNet，请使用 `compute_inference=False`；本次修复不会为了补齐表格而虚构新的 debiasing 方法。
+对于 sparse non-Gaussian L1/ElasticNet，目前没有提供系数推断方法；应使用 `compute_inference=False`，而不是期待 Gaussian 的 debiasing 或 bootstrap 规则自动套用到其他 family。
 
 ## 参考文献
 

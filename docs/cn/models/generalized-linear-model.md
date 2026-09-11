@@ -72,9 +72,9 @@ smooth GLM 在可用时使用维护中的二阶/一阶优化路径；非平滑 p
 
 显式 `device="cuda"` 保持 CuPy，显式 `device="torch"` 保持 Torch CUDA；不受支持的显式 solver/backend 组合会直接报错，不静默回 CPU。Formula parsing 可以在 CPU 上进行，但 fit/predict 数值计算跟随 selected backend。
 
-weighted penalized smooth GLM 现在与非 weighted 情况使用同一个 canonical dispatch。维护中的 Newton solver 已支持真正的 non-uniform analytic weights，并在 objective value、gradient、Hessian 与 Armijo trial 中使用同一个归一化 average-loss objective，因此 inference-enabled weighted L2/no-penalty 不再需要 fit-local FISTA override。public `solver="auto"` 保持不变，适用的 logistic/Poisson L2 行会解析到 backend-native Newton。
+weighted penalized smooth GLM 与 unweighted 情况使用同一个 canonical dispatch。维护中的 Newton solver 支持真正的 non-uniform analytic weights，并在 objective value、gradient、Hessian 与 Armijo trial 中使用同一个归一化 average-loss objective。public `solver="auto"` 保持不变，适用的 logistic/Poisson L2 行会解析到 backend-native Newton。
 
-本 PR 不改变单独的普通 `GeneralizedLinearModel(..., solver="newton")` sample-weight guard；该 public wrapper 仍会在进入 solver 前拒绝 weighted explicit Newton/L-BFGS。本次 weighted-Newton 修复只关闭 PR #142 的 penalized GLM / `PenalizedGLM_CV` 所依赖的 shared solver capability，不顺手扩大另一个 ordinary-GLM public API 边界。
+普通 `GeneralizedLinearModel` 有独立的 weighting 边界：非均匀 sample weights 与显式 `solver="newton"` 或 `solver="lbfgs"` 的组合会在进入 solver 前被拒绝。上面描述的 weighted Newton 支持属于 penalized GLM / `PenalizedGLM_CV` 路径，不应理解为扩大了 ordinary-GLM public API。
 
 ## Covariance/Inference
 
@@ -84,7 +84,9 @@ generic 与 typed penalized GLM estimator 推荐使用 `inference_method="auto"`
 
 analytic weights 受支持，数值 inference 跟随真正执行 fit 的 backend/concrete device。non-Gaussian L1/ElasticNet coefficient inference 当前不 productize，会 fail closed。SCAD/MCP oracle 必须显式请求；group penalty 与 penalized Cox 仍为 estimation-only。
 
-本 contract 的 `inference_method="bootstrap"` 表示 `cov_type="nonrobust"` 的 unweighted Gaussian residual bootstrap。PR #147 / 0.2.6 目标版本中，每个 bootstrap response 和 penalized child refit 都在成功拟合记录的 NumPy/CuPy/Torch backend 与具体 device 上执行。固定 seed 下三后端共享同一套 backend-neutral residual-index schedule。小型整数 schedule 属于 control-plane H2D state；如果 shared sparse fit 在拟合后已不再保留 native coefficient buffer，则既有 O(p) parent parameter/reporting snapshot 也可重新映射到 fit device 以重建 `y_hat`。完整的 `X`、`y`、residual、`y_hat`、`y_star` 以及所有 child optimization 都保持在 fit-recorded numerical backend/device；完成的 child/final result 只在既有 reporting boundary 转为 NumPy。weighted、robust/HAC、non-Gaussian 与 Cox bootstrap 仍不支持并 fail closed。
+对于受支持的 Gaussian sparse penalty，`inference_method="bootstrap"` 表示 `cov_type="nonrobust"` 的无权重 residual bootstrap。设计矩阵与已拟合的 tuning 配置保持固定：每个 draw 对 residual 做有放回抽样，在 `y_hat` 周围构造新的 Gaussian response，并用同一个 penalized model 重拟合。`n_bootstrap` 控制重拟合次数，`bootstrap_random_state` 控制可复现性。
+
+bootstrap 的执行位置跟随成功拟合使用的 backend 与 concrete device。CPU fit 使用 NumPy；CuPy/Torch CUDA fit 则把 bootstrap refit 留在同一个 GPU device 上。最终 inference arrays 使用统一的 NumPy reporting boundary。weighted residual bootstrap、robust/HC 或 HAC/block bootstrap、non-Gaussian bootstrap 与 Cox bootstrap 都不支持并 fail closed。
 
 完整 support matrix、resampling 边界与统计解释见 [Penalized GLM inference](../guides/penalized-glm-inference.md) 与 [Inference Modes](../guides/inference-modes.md)。
 
@@ -259,7 +261,7 @@ event 数、失败原因、ties 方法和最终重拟合模型类型。
 - Poisson L1/ElasticNet 与 statsmodels `fit_regularized` 对比。
 - 含 warm-up 与 GPU synchronization 的 runtime benchmark。
 
-历史 v23c matrix 属于 estimation evidence，并不能单独证明新的 coefficient-inference contract。PR #142 增加了 penalized-GLM inference physical gate；PR #147 增加 `dev/benchmarks/validate_gaussian_residual_bootstrap_gpu.py`，用于 exact-source NumPy/CuPy/Torch residual-bootstrap parity 与 concrete-device provenance。validator 文件存在本身不等于 physical GPU pass；必须在 exact clean PR source 上真实执行才构成 acceptance evidence。
+维护中的专用 validator 会在物理 CUDA 环境验证 backend-native penalized-GLM inference 与 Gaussian residual bootstrap 的数值一致性和 concrete-device provenance。这些属于开发验证资产，与上文用户实际调用的 inference API 分开理解。
 
 远程凭据必须从环境变量读取，不得写入代码或文档。
 

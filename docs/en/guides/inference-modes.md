@@ -66,7 +66,7 @@ helpers before bread/meat/reference-distribution work begins. Explicit CUDA or
 Torch execution never silently substitutes a CPU sandwich calculation.
 
 Analytic weights are supported for this L2/no-penalty contract. The maintained
-Newton solver now applies genuine non-uniform weights consistently to the same
+Newton solver applies genuine non-uniform weights consistently to the same
 normalized average-loss objective in the value, gradient, Hessian (or fused
 curvature), and every Armijo trial. Floating-point weight vectors that satisfy
 the historical uniform-weight `allclose` rule retain the established
@@ -94,9 +94,9 @@ controls. The maintained inference methods are:
 - `debiased` — de-biased/de-sparsified coefficient inference.
 - `post_selection_ols` — heuristic OLS/WLS refit on the active set selected by
   the penalized fit.
-- `bootstrap` — **unweighted Gaussian residual bootstrap on the fit-recorded
-  NumPy/CuPy/Torch backend and concrete device**. It preserves the fitted
-  penalty/refit controls and requires at least two resamples.
+- `bootstrap` — unweighted Gaussian residual bootstrap for the penalized
+  coefficient distribution. It keeps the fitted tuning/refit configuration
+  fixed and requires at least two resamples.
 
 `post_selection_ols` is the canonical hardware-neutral spelling. The unified
 aliases `cpu_ols` and `gpu_ols` are deprecated together and are accepted for one
@@ -114,8 +114,8 @@ estimator contract:
 - only genuine estimator/global `device="auto"` may preserve an already
   backend-native CuPy or Torch-CUDA input as part of automatic routing.
 
-String and `Penalty`-object forms of the sparse Gaussian penalty participate in
-the same migration and AUTO-routing contract.
+String and `Penalty`-object forms of the sparse Gaussian penalty follow the same
+inference and backend-routing rules.
 
 Backend reuse is method-specific. `post_selection_ols` always reuses the
 successful fit's recorded `_selected_backend_name` / `_selected_backend_device`.
@@ -125,35 +125,35 @@ normal-reference critical values: inside debiased GPU inference, scalar
 distribution calls are pinned to the executed CuPy/Torch backend (and Torch
 concrete device) instead of re-resolving a Python scalar to NumPy.
 
-For centered `fit_intercept=True` debiased inference, PR #138 also keeps the
-expensive simultaneous multiplier-bootstrap stage on that same concrete
-CuPy/Torch device. The coherent marginal result has already taken its established
-O(p) NumPy reporting snapshot; only those small marginal parameter/SE arrays are
-mapped back to the execution device. The B×n multiplier draws, feature/intercept
-scores, max-|Z| reduction, quantile calibration, and joint confidence-interval
-numerics then remain backend-native before the joint result is snapshotted for
-reporting. The structured result records `simultaneous_numerical_backend`,
+For centered `fit_intercept=True` debiased inference, the simultaneous
+multiplier-bootstrap stage also remains on that same concrete CuPy/Torch device.
+The marginal result has already taken its established O(p) NumPy reporting
+snapshot; only those small marginal parameter/SE arrays are mapped back to the
+execution device. The B×n multiplier draws, feature/intercept scores, max-|Z|
+reduction, quantile calibration, and joint confidence-interval numerics then
+remain backend-native before the joint result is snapshotted for reporting. The
+structured result records `simultaneous_numerical_backend`,
 `simultaneous_numerical_device`, `simultaneous_reporting_backend="numpy"`, and
-`simultaneous_reporting_boundary="post_numerical_inference"`. The historical
-`fit_intercept=False` simultaneous path still uses the pre-existing generic
-reporting-stage helper and is **not** claimed as GPU-native by this PR.
+`simultaneous_reporting_boundary="post_numerical_inference"`. The
+`fit_intercept=False` simultaneous path uses the generic reporting-stage helper
+and is not a GPU-native simultaneous path.
 
-Residual `bootstrap` is deliberately narrower statistically, but no longer
-CPU-only in the PR #147 / 0.2.6 target. It uses one backend-neutral residual-index
-schedule for a fixed `bootstrap_random_state`, then constructs every bootstrap
-response and runs every child penalized refit on the backend/concrete device
-recorded by the successful fit. CuPy children remain on the same `cuda:k`; Torch
-children remain on the same `cuda:k`. The integer index schedule is small
-control-plane H2D state; when the shared sparse fit no longer retains a native
-coefficient buffer, the already-established O(p) parent parameter/reporting
-snapshot may also be mapped back to the fit device to reconstruct `y_hat`.
-The full `X`, `y`, residual, `y_hat`, and `y_star` arrays and every child
-optimization remain on the fit-recorded numerical backend/device, and completed
-child/final results cross to NumPy only at the established reporting boundary.
-Metadata records a stable schedule SHA-256 plus numerical and reporting
-provenance. Weighted residual bootstrap, robust/HAC bootstrap, non-Gaussian
-bootstrap, and Cox bootstrap remain unsupported and fail closed. `n_bootstrap`
-must be at least 2 so a published bootstrap standard error is defined.
+Residual `bootstrap` uses a fixed-design residual-refit procedure. For each draw,
+it resamples residuals with replacement, forms a new Gaussian response around
+the fitted values, and refits the same penalized model. `bootstrap_random_state`
+controls reproducibility and `n_bootstrap` controls the number of refits.
+
+The refits follow the backend and concrete device of the successful fit: NumPy
+for CPU fits, or the same CuPy/Torch CUDA device for GPU fits. This is an
+execution choice only; the statistical bootstrap is the same on every backend.
+Final inference arrays use the standard NumPy reporting boundary.
+
+Residual bootstrap is intentionally narrow: it requires `sample_weight=None`
+and `cov_type="nonrobust"`. Weighted residual bootstrap, robust/HC or HAC/block
+bootstrap, non-Gaussian bootstrap, and Cox bootstrap are unsupported and fail
+closed. It also does not correct for variable-selection uncertainty. See
+[Penalized GLM inference](penalized-glm-inference.md#residual-bootstrap-scope)
+for the step-by-step procedure and interpretation.
 
 With analytic `sample_weight`, the maintained NumPy/CuPy/Torch `debiased` paths
 use the same weighted-centered average-loss working problem. Multiplying every

@@ -41,7 +41,7 @@ The historical `cpu_solver` constructor argument is deprecated. It remains accep
 
 - `post_selection_ols`: hardware-neutral active-set OLS/WLS refit diagnostic.
 - `debiased`: de-biased (de-sparsified) Lasso inference with z-statistic semantics.
-- `bootstrap`: unweighted Gaussian residual bootstrap; typically slower and still not a universal selection-aware correction.
+- `bootstrap`: unweighted Gaussian residual bootstrap for the penalized coefficient distribution; typically slower and not a universal correction for model-selection uncertainty.
 
 The unified spellings `cpu_ols` and `gpu_ols` are deprecated together. During the compatibility window they emit `FutureWarning` and normalize to `post_selection_ols`; they are **not** separate CPU and GPU statistical procedures. `LassoCV` additionally accepts the older `cpu_ols_inference` / `gpu_ols_inference` spellings at its compatibility boundary and normalizes them to the same method.
 
@@ -71,34 +71,35 @@ Backend reuse is method-specific. `post_selection_ols` reuses the successful fit
 **marginal** `debiased` inference stays on the executed GPU backend, including
 scalar normal-reference critical values.
 
-For centered `fit_intercept=True` debiased inference, the expensive simultaneous
+For centered `fit_intercept=True` debiased inference, the simultaneous
 multiplier-bootstrap stage also stays on the same concrete CuPy/Torch device. The
-coherent marginal result has already taken its established O(p) NumPy reporting
-snapshot; only those small marginal parameter/SE arrays are mapped back to the
-execution device. The B×n multiplier draws, feature/intercept scores, max-|Z|
-reduction, quantile calibration, and joint confidence-interval numerics then
-remain backend-native before the joint result is snapshotted for reporting. The
-result records `simultaneous_numerical_backend`,
-`simultaneous_numerical_device`, `simultaneous_reporting_backend="numpy"`, and
-`simultaneous_reporting_boundary="post_numerical_inference"`. The historical
-`fit_intercept=False` simultaneous path still uses its pre-existing generic
-reporting-stage helper and is not claimed as GPU-native by this PR.
+marginal result has already taken its established O(p) NumPy reporting snapshot;
+only those small marginal parameter/SE arrays are mapped back to the execution
+device. The B×n multiplier draws, feature/intercept scores, max-|Z| reduction,
+quantile calibration, and joint confidence-interval numerics then remain
+backend-native before the joint result is snapshotted for reporting. The result
+records `simultaneous_numerical_backend`, `simultaneous_numerical_device`,
+`simultaneous_reporting_backend="numpy"`, and
+`simultaneous_reporting_boundary="post_numerical_inference"`. The
+`fit_intercept=False` simultaneous path uses the generic reporting-stage helper
+and is not a GPU-native simultaneous path.
 
-Residual `bootstrap` keeps its narrow **unweighted Gaussian residual-refit**
-statistical contract but, for the PR #147 / 0.2.6 target, executes child refits on
-the successful fit's recorded NumPy/CuPy/Torch backend and concrete device.
-CuPy bootstrap children remain on the same `cuda:k`; Torch bootstrap children
-remain on the same `cuda:k`. A fixed `bootstrap_random_state` generates one
-backend-neutral integer residual-index schedule, and result metadata records a
-stable schedule SHA-256 together with numerical/reporting provenance. The index
-schedule is small control-plane H2D state; when the shared sparse fit no longer
-retains a native coefficient buffer, the established O(p) parent
-parameter/reporting snapshot may also be mapped back to the fit device to
-reconstruct `y_hat`. The full `X`, `y`, residual, `y_hat`, and `y_star` arrays and
-every child optimization remain on the fit-recorded numerical backend/device;
-completed child/final results cross to NumPy only at the established reporting
-boundary. Weighted, robust/HAC, non-Gaussian, and Cox bootstrap semantics remain
-unsupported and fail closed.
+Residual `bootstrap` uses a fixed-design residual-refit procedure. For each draw,
+statgpu resamples the fitted residuals with replacement, forms a bootstrap
+response around the fitted values, and refits the same Lasso configuration.
+`n_bootstrap` controls the number of refits and `bootstrap_random_state` controls
+reproducibility.
+
+Bootstrap refits follow the backend and concrete device of the successful fit:
+CPU fits use NumPy, while CuPy or Torch CUDA fits keep the refits on the same GPU
+device. This changes **where** the bootstrap runs, not its statistical definition.
+Final inference arrays use the standard NumPy reporting boundary.
+
+Residual bootstrap requires `sample_weight=None` and `cov_type="nonrobust"`.
+Weighted residual bootstrap, robust/HC or HAC/block bootstrap, non-Gaussian
+bootstrap, and Cox bootstrap are unsupported and fail closed. The resulting
+intervals describe this fixed-design, fixed-tuning penalized-estimator bootstrap;
+they do not automatically account for variable-selection uncertainty.
 
 With analytic weights, direct Lasso and debiased inference use the same
 weighted-centered average-loss convention on NumPy/CuPy/Torch, so multiplying all
@@ -285,7 +286,7 @@ ci_simul = m_sim._conf_int_simultaneous
 ## External Validation
 
 - `dev/benchmarks/validate_post_selection_ols_gpu.py`
-- `dev/benchmarks/validate_gaussian_residual_bootstrap_gpu.py` — exact-source NumPy/CuPy/Torch residual-bootstrap parity and concrete-device gate for PR #147; the script itself is not physical-GPU evidence until executed on CUDA hardware.
+- `dev/benchmarks/validate_gaussian_residual_bootstrap_gpu.py` — maintained CUDA parity/device validation for Gaussian residual-bootstrap inference.
 - `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py` — canonical `post_selection_ols` CPU/CuPy end-to-end parity and complete fit+inference timing benchmark.
 - `dev/benchmarks/benchmark_lasso_cpu_gpu_tol.py`
 - `dev/comparisons/compare_lasso_kkt_stopping.py`
@@ -294,7 +295,7 @@ ci_simul = m_sim._conf_int_simultaneous
 - `dev/tests/test_post_selection_ols_inference_api.py`
 - `dev/tests/test_penalized_solver_api_cleanup.py`
 
-The physical validators require their declared CUDA backends/hardware. Their presence is not itself physical-GPU evidence; exact-head GPU acceptance must be recorded separately when executed on physical CUDA hardware.
+These are developer validation assets rather than part of the public inference API. Physical CUDA validators provide hardware evidence only when they are actually executed on the matching source and environment.
 
 ## References
 

@@ -31,7 +31,7 @@ backend-native reference helper 同时保留残差自由度为 1 和 2 时的稳
 
 M-estimation 数值计算跟随真正执行拟合的 backend 与 concrete device，而不是根据原始输入 container 猜测。若主拟合实际运行在 CuPy 或 Torch，post-fit inference 会先通过仓库维护的 cross-backend conversion helper 把 `X/y/sample_weight` 对齐到记录下来的 backend/device，再进行 bread/meat/reference-distribution 计算。显式 CUDA/Torch 不允许静默换成 CPU sandwich。
 
-该 L2/no-penalty contract 支持 analytic weights。维护中的 Newton solver 现在会把真正的 non-uniform weights 一致地贯穿同一个归一化 average-loss objective：objective value、gradient、Hessian（或 fused curvature）以及每一次 Armijo trial 都使用同一权重约定。对于浮点权重，满足历史 uniform-weight `allclose` 规则的向量继续走既有 unweighted-equivalent 路径。public `solver="auto"` 时，direct penalized fit 与 `PenalizedGLM_CV` 的 candidate/final refit 都服从 canonical solver dispatch；适用的 smooth-L2 logistic/Poisson 行因此执行 backend-native Newton，同时 public request 仍保持 `"auto"`。coefficient inference 仍只在 tuning 完成后对 selected final refit 执行一次。CV inference 明确发布 `penalty_conditioning_="cv_selected_penalty"` 与 `penalty_selection_adjusted_=False`。
+该 L2/no-penalty contract 支持 analytic weights。维护中的 Newton solver 会把真正的 non-uniform weights 一致地贯穿同一个归一化 average-loss objective：objective value、gradient、Hessian（或 fused curvature）以及每一次 Armijo trial 都使用同一权重约定。对于浮点权重，满足历史 uniform-weight `allclose` 规则的向量继续走既有 unweighted-equivalent 路径。public `solver="auto"` 时，direct penalized fit 与 `PenalizedGLM_CV` 的 candidate/final refit 都服从 canonical solver dispatch；适用的 smooth-L2 logistic/Poisson 行因此执行 backend-native Newton，同时 public request 仍保持 `"auto"`。coefficient inference 仍只在 tuning 完成后对 selected final refit 执行一次。CV inference 明确发布 `penalty_conditioning_="cv_selected_penalty"` 与 `penalty_selection_adjusted_=False`。
 
 non-Gaussian L1/ElasticNet coefficient inference 不属于本 contract 的有效能力：它会 fail closed，而不是继续发布历史上只含 L2 curvature 的 partial sandwich。Penalized Cox 与维护中的 group-penalty 行仍为 estimation-only。完整 support matrix 与统计解释见 [Penalized GLM inference](penalized-glm-inference.md)。
 
@@ -43,7 +43,7 @@ non-Gaussian L1/ElasticNet coefficient inference 不属于本 contract 的有效
 
 - `debiased`：去偏 / de-sparsified 系数推断；
 - `post_selection_ols`：在 penalized fit 选出的 active set 上做启发式 OLS/WLS 重拟合；
-- `bootstrap`：**在 fit-recorded NumPy/CuPy/Torch backend 与 concrete device 上执行的 unweighted Gaussian residual bootstrap**；保留实际 penalty/refit controls，并要求至少 2 次 resample。
+- `bootstrap`：针对 penalized coefficient distribution 的无权重 Gaussian residual bootstrap；保持拟合时的 tuning/refit 配置，并要求至少 2 次 resample。
 
 `post_selection_ols` 是新的、与硬件无关的 canonical 拼法。统一 wrapper 中的 `cpu_ols` 与 `gpu_ols` **同时进入弃用期**：一个兼容周期内仍接受，但会发出 `FutureWarning`，并统一归一化为 `post_selection_ols`。`LassoCV` 还会在其兼容边界接受更早的 `cpu_ols_inference` / `gpu_ols_inference` 拼法，并同样归一化到该方法。
 
@@ -54,13 +54,17 @@ non-Gaussian L1/ElasticNet coefficient inference 不属于本 contract 的有效
 - 显式 `device="torch"`：只允许 Torch CUDA，不可用时 fail closed；
 - 只有 estimator 与全局配置都处于真正的 `device="auto"` 时，已经是 CuPy 或 Torch-CUDA 的输入才可以作为自动路由的一部分保留 native backend。
 
-稀疏 Gaussian penalty 使用字符串还是公开 `Penalty` 对象，不会改变上述 migration 与 AUTO routing 契约。
+稀疏 Gaussian penalty 无论使用字符串还是公开 `Penalty` 对象，都遵循同一套 inference 与 backend-routing 规则。
 
 backend 复用保证是**按推断方法区分**的：`post_selection_ols` 始终复用成功拟合记录的 `_selected_backend_name` / `_selected_backend_device`。维护中的 CuPy/Torch **marginal `debiased`** 路径会把系数推断留在实际执行的 GPU backend；这里也包括 normal-reference 的标量临界值，因为 debiased GPU inference 内部的 scalar distribution call 会固定到实际执行的 CuPy/Torch backend（Torch 同时固定 concrete device），不会因为输入只是 Python scalar 而重新 AUTO 解析到 NumPy。
 
-对于 `fit_intercept=True` 的 centered debiased inference，PR #138 会把计算量最大的 simultaneous multiplier-bootstrap 阶段留在同一个 concrete CuPy/Torch device 上。coherent marginal result 此时已经按既有 reporting contract 形成 O(p) 的 NumPy `params`/SE snapshot；只有这些很小的 marginal 数组会重新映射回执行 device。随后 B×n multiplier draws、feature/intercept score、max-|Z| reduction、quantile calibration 以及 joint CI 数值计算都保持 backend-native，最后再对 joint result 做 NumPy reporting snapshot。structured result 会记录 `simultaneous_numerical_backend`、`simultaneous_numerical_device`、`simultaneous_reporting_backend="numpy"` 与 `simultaneous_reporting_boundary="post_numerical_inference"`。历史 `fit_intercept=False` simultaneous 路径仍使用既有 generic reporting-stage helper，PR #138 **不把该旧路径宣称为 GPU-native**。
+对于 `fit_intercept=True` 的 centered debiased inference，simultaneous multiplier-bootstrap 阶段也会留在同一个 concrete CuPy/Torch device 上。marginal result 此时已经按既有 reporting contract 形成 O(p) 的 NumPy `params`/SE snapshot；只有这些很小的 marginal 数组会重新映射回执行 device。随后 B×n multiplier draws、feature/intercept score、max-|Z| reduction、quantile calibration 以及 joint CI 数值计算都保持 backend-native，最后再对 joint result 做 NumPy reporting snapshot。structured result 会记录 `simultaneous_numerical_backend`、`simultaneous_numerical_device`、`simultaneous_reporting_backend="numpy"` 与 `simultaneous_reporting_boundary="post_numerical_inference"`。`fit_intercept=False` 的 simultaneous 路径使用 generic reporting-stage helper，不属于 GPU-native simultaneous 路径。
 
-residual `bootstrap` 的统计 contract 仍然很窄：它只定义 unweighted Gaussian residual-refit procedure，但 PR #147 / 0.2.6 目标版本已经把 refit execution 扩展到 NumPy、CuPy 与 Torch。固定 `bootstrap_random_state` 会生成同一套 backend-neutral residual-index schedule；CuPy child 始终留在父拟合记录的同一 `cuda:k`，Torch child 也留在同一 `cuda:k`。小型整数 index schedule 属于 control-plane H2D state；如果 shared sparse fit 在拟合后已不再保留 native coefficient buffer，则既有 O(p) parent parameter/reporting snapshot 也可重新映射到 fit device 以重建 `y_hat`。完整的 `X`、`y`、residual、`y_hat`、`y_star` 以及所有 child optimization 都保持在 fit-recorded numerical backend/device；完成的 child/final result 只在既有 reporting boundary 转为 NumPy。metadata 会记录稳定的 schedule SHA-256 以及 numerical/reporting provenance。weighted residual bootstrap、robust/HAC bootstrap、non-Gaussian bootstrap 与 Cox bootstrap 仍未实现并 fail closed。`n_bootstrap` 至少为 2，避免发布未定义的 bootstrap standard error。
+residual `bootstrap` 使用 fixed-design residual-refit procedure。每次 draw 都会对 residual 做有放回抽样，在 `y_hat` 周围构造新的 Gaussian response，然后用相同的 penalized model 重新拟合。`bootstrap_random_state` 控制可复现性，`n_bootstrap` 控制重拟合次数。
+
+这些 refit 会跟随成功父拟合使用的 backend 与 concrete device：CPU fit 使用 NumPy；GPU fit 则继续使用同一个 CuPy/Torch CUDA device。这只是**执行位置**的区别，不会改变 bootstrap 的统计定义。最终 inference arrays 仍遵循统一的 NumPy reporting boundary。
+
+Residual bootstrap 的范围有意保持很窄：要求 `sample_weight=None` 且 `cov_type="nonrobust"`。weighted residual bootstrap、robust/HC 或 HAC/block bootstrap、non-Gaussian bootstrap 与 Cox bootstrap 都不支持并 fail closed；它也不会自动校正变量选择不确定性。更完整的步骤与解释见 [Penalized GLM inference](penalized-glm-inference.md#residual-bootstrap-的范围)。
 
 对于 analytic `sample_weight`，维护中的 NumPy/CuPy/Torch `debiased` 路径使用同一个 weighted-centered average-loss 工作问题。因此把所有权重同时乘以任意正的常数，不会改变 penalized fit 或 debiased inference。
 

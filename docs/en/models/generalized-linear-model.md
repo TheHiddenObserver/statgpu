@@ -72,9 +72,9 @@ Current direct-fit `solver="auto"` behavior includes:
 
 Important device rule: explicit `device="cuda"` stays on CuPy, explicit `device="torch"` stays on Torch CUDA, and unsupported explicit solver/backend combinations fail visibly rather than silently falling back to CPU. Formula parsing may run on CPU, but fit/predict numerical work follows the selected backend.
 
-Weighted penalized smooth GLMs use the same canonical dispatch. The maintained Newton solver now supports genuine non-uniform analytic weights using one normalized average-loss objective for value, gradient, Hessian, and Armijo trials, so inference-enabled weighted L2/no-penalty fits no longer require a fit-local FISTA override. Public `solver="auto"` remains unchanged and applicable logistic/Poisson L2 rows resolve to backend-native Newton.
+Weighted penalized smooth GLMs use the same canonical dispatch. The maintained Newton solver supports genuine non-uniform analytic weights using one normalized average-loss objective for value, gradient, Hessian, and Armijo trials. Public `solver="auto"` remains unchanged, and applicable logistic/Poisson L2 rows resolve to backend-native Newton.
 
-The separate ordinary `GeneralizedLinearModel(..., solver="newton")` sample-weight guard is not changed by this PR; that public wrapper continues to reject weighted explicit Newton/L-BFGS before solver entry. The weighted-Newton repair here closes the shared solver capability required by penalized GLM and `PenalizedGLM_CV` without silently expanding that distinct ordinary-GLM API boundary.
+The ordinary `GeneralizedLinearModel` has a separate weighting boundary: non-uniform sample weights with explicit `solver="newton"` or `solver="lbfgs"` are rejected before solver entry. The weighted Newton support described above belongs to the penalized GLM / `PenalizedGLM_CV` path and should not be read as expanding that ordinary-GLM API.
 
 ## Covariance/Inference
 
@@ -84,7 +84,9 @@ For supported smooth non-Gaussian L2/no-penalty models, `auto` resolves to fixed
 
 Analytic weights are supported, and numerical inference follows the backend/concrete device that actually executed the fit. Non-Gaussian L1/ElasticNet coefficient inference is not productized and fails closed. SCAD/MCP oracle inference is explicit rather than selected silently by `auto`; group penalties and penalized Cox remain estimation-only.
 
-`inference_method="bootstrap"` is an unweighted Gaussian residual bootstrap with `cov_type="nonrobust"`. For the PR #147 / 0.2.6 target, each bootstrap response and penalized child refit executes on the successful fit's recorded NumPy/CuPy/Torch backend and concrete device. One backend-neutral residual-index schedule is shared across backends for a fixed seed. The integer index schedule is small control-plane H2D state; when the shared sparse fit no longer retains a native coefficient buffer, the already-established O(p) parent parameter/reporting snapshot may also be mapped back to the fit device to reconstruct `y_hat`. The full `X`, `y`, residual, `y_hat`, and `y_star` arrays and every child optimization remain on the fit-recorded numerical backend/device, and completed child/final results cross to NumPy only at the established reporting boundary. Weighted, robust/HAC, non-Gaussian, and Cox bootstrap semantics remain unsupported and fail closed.
+For supported Gaussian sparse penalties, `inference_method="bootstrap"` selects an unweighted residual bootstrap with `cov_type="nonrobust"`. The design matrix and fitted tuning configuration remain fixed: each draw resamples residuals, constructs a new Gaussian response around the fitted values, and refits the same penalized model. `n_bootstrap` controls the number of refits and `bootstrap_random_state` controls reproducibility.
+
+Bootstrap execution follows the successful fit's backend and concrete device. CPU fits use NumPy; CuPy and Torch CUDA fits keep the bootstrap refits on the same GPU device. Final inference arrays use the standard NumPy reporting boundary. Weighted residual bootstrap, robust/HC or HAC/block bootstrap, non-Gaussian bootstrap, and Cox bootstrap are not supported and fail closed.
 
 See [Penalized GLM inference](../guides/penalized-glm-inference.md) and [Inference Modes](../guides/inference-modes.md) for the complete support matrix, resampling boundaries, and statistical interpretation.
 
@@ -266,7 +268,7 @@ Validation coverage includes:
 - Poisson L1/ElasticNet comparison against statsmodels `fit_regularized`.
 - Runtime benchmarks with warm-up and GPU synchronization.
 
-The historical v23c matrix is estimation evidence; it does not by itself certify the newer coefficient-inference contract. PR #142 added the penalized-GLM inference physical gate; PR #147 adds `dev/benchmarks/validate_gaussian_residual_bootstrap_gpu.py` for exact-source NumPy/CuPy/Torch residual-bootstrap parity and concrete-device provenance. The validator's presence is not a physical GPU pass; acceptance requires running it on the exact clean PR source.
+Dedicated maintained validators cover backend-native penalized-GLM inference and Gaussian residual-bootstrap parity on physical CUDA hardware. These developer validation assets check numerical parity and concrete-device provenance; they are separate from the user-facing inference API described above.
 
 Remote credentials must be supplied through environment variables and must not be committed.
 
