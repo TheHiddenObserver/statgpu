@@ -1,6 +1,6 @@
 # Backend-native Gaussian residual bootstrap plan
 
-Status: PLAN REVIEW-FIX PASS 2 APPLIED / IMPLEMENTATION OPEN
+Status: PLAN REVIEW CLEAN / IMPLEMENTATION OPEN
 Issue: #145
 PR: #147
 Current base at plan review: `master` at PR #142 merge commit `bc61b18123503fd5132d62ac797a710df0b53e89`
