@@ -28,7 +28,7 @@ For the shared squared-error L2/Ridge path above, explicit `device="cuda"` and
 Missing or invalid executed-backend provenance fails closed. `device="auto"` is
 the only mode that may select among available backends automatically. This
 guarantee is scoped to the backend-native paths described here and below;
-method-specific exceptions such as residual bootstrap are called out explicitly.
+method-specific exceptions are called out explicitly.
 
 Supported covariance choices on the Gaussian path are:
 
@@ -94,8 +94,9 @@ controls. The maintained inference methods are:
 - `debiased` — de-biased/de-sparsified coefficient inference.
 - `post_selection_ols` — heuristic OLS/WLS refit on the active set selected by
   the penalized fit.
-- `bootstrap` — **unweighted Gaussian residual bootstrap on CPU only**. It
-  preserves the fitted penalty family and requires at least two resamples.
+- `bootstrap` — **unweighted Gaussian residual bootstrap on the fit-recorded
+  NumPy/CuPy/Torch backend and concrete device**. It preserves the fitted
+  penalty/refit controls and requires at least two resamples.
 
 `post_selection_ols` is the canonical hardware-neutral spelling. The unified
 aliases `cpu_ols` and `gpu_ols` are deprecated together and are accepted for one
@@ -137,13 +138,17 @@ reporting. The structured result records `simultaneous_numerical_backend`,
 `fit_intercept=False` simultaneous path still uses the pre-existing generic
 reporting-stage helper and is **not** claimed as GPU-native by this PR.
 
-Residual `bootstrap` is deliberately narrower. It is an unweighted Gaussian
-residual-refit procedure and currently executes on CPU only. If the successful
-penalized fit executed on CuPy or Torch, requesting `bootstrap` raises instead of
-silently moving the resampling/refits to CPU. Weighted residual bootstrap and
-robust/HAC bootstrap semantics are not inferred from `sample_weight` or
-`cov_type`; those requests fail closed. `n_bootstrap` must be at least 2 so a
-published bootstrap standard error is defined.
+Residual `bootstrap` is deliberately narrower statistically, but no longer
+CPU-only in the PR #147 / 0.2.6 target. It uses one backend-neutral residual-index
+schedule for a fixed `bootstrap_random_state`, then constructs every bootstrap
+response and runs every child penalized refit on the backend/concrete device
+recorded by the successful fit. CuPy children remain on the same `cuda:k`; Torch
+children remain on the same `cuda:k`; only the small index schedule and the final
+NumPy reporting snapshot cross the host/device boundary. Metadata records a
+stable schedule SHA-256 plus numerical and reporting provenance. Weighted
+residual bootstrap, robust/HAC bootstrap, non-Gaussian bootstrap, and Cox
+bootstrap remain unsupported and fail closed. `n_bootstrap` must be at least 2
+so a published bootstrap standard error is defined.
 
 With analytic `sample_weight`, the maintained NumPy/CuPy/Torch `debiased` paths
 use the same weighted-centered average-loss working problem. Multiplying every
