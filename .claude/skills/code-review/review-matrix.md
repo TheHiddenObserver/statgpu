@@ -201,7 +201,8 @@ Before a final verdict or completion claim:
 - prior review verdicts are historical after the reviewed target changes;
 - physical GPU/R/benchmark artifacts prove only their recorded source identity/fingerprint and validator contract;
 - a later docs/source commit invalidates commit-anchored evidence unless the artifact separately fingerprints the unchanged relevant source and explicitly supports reuse;
-- evidence reuse is explicit and scoped rather than assumed.
+- evidence reuse is explicit and scoped rather than assumed;
+- committed skill eval definitions and static policy/contract tests prove only definition/schema presence, not actual Claude Code trigger/output behavior; behavioral-runtime claims require an executed skill-runtime/grading artifact or must remain explicitly pending.
 
 ## Performance checks
 
@@ -222,8 +223,7 @@ Do not accept a GPU speedup timing whose synchronization targeted a different/de
 
 ### CRITICAL
 
-- wrong coefficient/objective/inference result accepted as valid;
-- statistically invalid family/model resampling presented as valid inference;
+- wrong coefficient/objective/inference result accepted as valid, including invalid resampling that actually produces or accepts materially wrong user-facing inferential results;
 - explicit GPU request silently executes on CPU;
 - candidate/error fallback hides OOM/device/programming failure;
 - secrets or credentials enter tracked artifacts.
@@ -238,7 +238,7 @@ Do not accept a GPU speedup timing whose synchronization targeted a different/de
 - CV selects/refits the wrong hyperparameter/solver;
 - requested/resolved/reported inference method identity is materially inconsistent;
 - the documented estimand differs from the implemented statistical target;
-- a generic bootstrap/permutation path reconstructs an incompatible model/family;
+- invalid family/model resampling or a generic bootstrap/permutation path that reconstructs an incompatible model/family **before/without an accepted materially wrong user-facing inference result**;
 - inference fields are stale, mis-indexed, or unavailable despite the public contract;
 - public behavior changes without regression tests.
 
