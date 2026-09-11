@@ -197,9 +197,9 @@ def _invalidate_failed_refit(self):
             ("_inference_result", None),
         ):
             try:
-  setattr(self, name, value)
+                setattr(self, name, value)
             except Exception:
-  pass
+                pass
         self._fitted = False
 
 
@@ -393,13 +393,13 @@ def _iter_penalized_linear_subclasses():
     while pending:
         cls = pending.pop(0)
         if cls in seen:
-  continue
+            continue
         seen.add(cls)
         pending.extend(cls.__subclasses__())
         if cls.__module__.startswith("statgpu.linear_model.legacy"):
-  continue
+            continue
         if cls.__module__.startswith("statgpu.linear_model"):
-  yield cls
+            yield cls
 
 
 def _install_specialized_failure_guard(cls):
@@ -411,11 +411,11 @@ def _install_specialized_failure_guard(cls):
     @functools.wraps(current)
     def wrapped(self, *args, **kwargs):
         try:
-  return current(self, *args, **kwargs)
+            return current(self, *args, **kwargs)
         except Exception:
-  if bool(getattr(self, "compute_inference", False)):
-      _invalidate_failed_refit(self)
-  raise
+            if bool(getattr(self, "compute_inference", False)):
+                _invalidate_failed_refit(self)
+            raise
 
     setattr(wrapped, _SPECIALIZED_FAILURE_MARKER, True)
     cls.fit = wrapped
