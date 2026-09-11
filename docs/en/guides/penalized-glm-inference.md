@@ -75,9 +75,11 @@ HC2, HC3, and HAC are not implemented for penalized non-Gaussian M-estimation an
 
 Analytic weights are supported by the non-Gaussian L2 M-estimation covariance path. The numerical inference follows the backend/device that actually executed the fit.
 
-One solver-policy boundary is important. The current general `solver="auto"` benchmark table can choose Newton for smooth GLMs, while Newton does not accept non-uniform analytic weights. For **inference-enabled, weighted, non-Gaussian L2/no-penalty fits only**, the inference contract therefore makes a fit-local execution choice to the existing backend-native FISTA path. The public request remains `solver="auto"`; this avoids changing the estimation-only benchmark policy in this targeted repair.
+The maintained Newton solver now applies non-uniform analytic weights to the **same normalized average-loss objective at every Newton stage**: objective value, gradient, Hessian (or fused gradient/Hessian), and Armijo trial evaluation all use `sum_i w_i contribution_i / sum_i w_i`. Multiplying every weight by a positive constant therefore leaves the fitted penalized optimum unchanged. Floating-point vectors that satisfy the historical uniform-weight `allclose` rule retain the established unweighted-equivalent path.
 
-Explicit solver requests remain authoritative and are never silently replaced.
+Accordingly, inference-enabled weighted smooth non-Gaussian L2/no-penalty fits no longer need PR #142's temporary fit-local FISTA override. With public `solver="auto"`, direct fits and `PenalizedGLM_CV` candidate/final-refit execution follow the canonical solver-dispatch table; applicable smooth-L2 logistic/Poisson rows resolve to backend-native Newton while the public solver request remains `auto`.
+
+Explicit solver requests remain authoritative and are never silently replaced. Losses whose statistical contract does not define weighting (for example Cox) continue to reject genuine non-uniform weights rather than silently dropping them.
 
 ## Backend and device provenance
 
