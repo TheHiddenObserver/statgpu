@@ -159,7 +159,7 @@ For learner-facing model pages, prefer a learner-first explanation while preserv
 
 Reference/implementation pages may remain reference-first. Document objective/penalty mapping when external comparisons depend on it. Performance/evidence claims must identify auditable source artifacts.
 
-For unreleased public behavior, state the current published version separately from the target release (for example “implemented on master; targeted for 0.2.6”). Release-time wording/version metadata should be updated by the release task, not preemptively by an unrelated feature task.
+For unreleased public behavior, state the current published version separately from the target release (for example “implemented on master; targeted for X.Y.Z”). Release-time wording/version metadata should be updated by the release task, not preemptively by an unrelated feature task.
 
 ## 9. Independent review and fix loop
 
