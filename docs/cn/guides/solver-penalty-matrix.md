@@ -15,7 +15,7 @@
 
 | Loss | l2 / none | l1 | elasticnet | scad | mcp | adaptive_l1 | group_lasso | group_scad | group_mcp |
 |------|:---------:|:--:|:----------:|:----:|:---:|:-----------:|:-----------:|:----------:|:---------:|
-| **squared_error** | CPU exact；GPU Newton | fista | fista | irls_cd → fista_lla | irls_cd → fista_lla | fista | fista | group fista_lla | group fista_lla |
+| **squared_error** | l2：CPU exact / GPU Newton；none：fista | fista | fista | irls_cd → fista_lla | irls_cd → fista_lla | fista | fista | group fista_lla | group fista_lla |
 | **logistic** | newton | fista | fista | fista_lla | fista_lla | fista | fista | group fista_lla | group fista_lla |
 | **poisson** | newton | fista | fista | fista_lla | fista_lla | fista | fista | group fista_lla | group fista_lla |
 | **gamma** | newton | fista | fista | fista_lla | fista_lla | fista | fista | group fista_lla | group fista_lla |
@@ -30,6 +30,7 @@
 - Group Lasso 与 Adaptive Group Lasso 都使用实际 loss gradient 和精确欧氏 group proximal，包括 robust/GLM loss、`sample_weight`、CV fold 与最终 selected-alpha refit。
 - 旧 Gaussian block 更新不再进入公开路由；其 inverse-Gram 后欧氏阈值只对正交归一 group block 精确。
 - analytic `sample_weight` 不会静默重写显式 solver request。受支持的 weighted Newton/L-BFGS 使用和对应 unweighted row 相同的归一化 weighted objective；不支持的 loss/solver weight 组合明确失败。
+- 对普通 `GammaRegression(link="inverse_power")`，新开放的 genuine non-uniform weighted explicit Newton/L-BFGS 路径要求 `fit_intercept=True`，这样才能构造维护中的严格正、family-valid 初始 predictor。weighted no-intercept row 明确 fail closed；历史 unweighted 行为不变。
 
 ## 2. 显式求解器约束
 
@@ -112,7 +113,9 @@ Group 输入采用严格契约：alpha 与其他超参数必须是有限 numeric
 ```
                     ┌─ squared_error + l2? ─── 是 ──→ CPU exact / GPU Newton
                     │
-                    ├─ smooth GLM + l2/none? ─ 是 ──→ Newton（direct auto）
+                    ├─ squared_error + none? ─ 是 ──→ FISTA
+                    │
+                    ├─ smooth non-Gaussian GLM + l2/none? ─ 是 ──→ Newton（direct auto）
                     │
 solver='auto' ──────├─ 标量非凸? ───────────── 是 ──→ scalar LLA
                     │
