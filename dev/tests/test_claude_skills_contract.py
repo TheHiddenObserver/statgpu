@@ -214,7 +214,7 @@ def test_skill_eval_definitions_do_not_masquerade_as_runtime_evidence():
     new_module = _read(SKILLS / "new-module-dev" / "SKILL.md")
     workflow = _read(SKILLS / "new-module-dev" / "workflow.md")
 
-    assert "not** evidence that Claude Code actually triggers the skill" in review
+    assert "Eval definitions are not runtime execution evidence." in review
     assert "actual skill-runtime/grading run" in review
     assert "not actual Claude Code trigger/output behavior" in matrix
     assert "behavioral-runtime claims" in matrix
