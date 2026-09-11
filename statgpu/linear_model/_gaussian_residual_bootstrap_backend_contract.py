@@ -1,4 +1,4 @@
-"""Backend-native execution for the PR #142 Gaussian residual bootstrap contract.
+"""Backend-native execution for the Gaussian residual-bootstrap contract.
 
 This follow-up keeps the statistical scope intentionally unchanged:
 
@@ -9,7 +9,7 @@ This follow-up keeps the statistical scope intentionally unchanged:
 * the same penalty/tuning/solver semantics for every child refit.
 
 The expensive numerical refits remain on the fit-recorded NumPy/CuPy/Torch
-backend and concrete device.  A deterministic NumPy-generated integer index
+backend and concrete device. A deterministic NumPy-generated integer index
 schedule is control-plane state only; each backend consumes the same draws.
 Child estimators retain their established NumPy reporting snapshot after each
 backend-native fit, and the final bootstrap summary is published through the
@@ -20,9 +20,12 @@ from __future__ import annotations
 
 import copy
 import functools
+import hashlib
+from contextlib import contextmanager
 
 import numpy as np
 
+from statgpu.backends import _to_numpy
 from statgpu.inference._results import ParameterInferenceResult
 from statgpu.linear_model._gaussian_inference import _as_backend_array
 from statgpu.linear_model._penalized_glm_inference_contract import (
@@ -48,6 +51,16 @@ def _draw_resample_indices(n: int, B: int, random_state) -> np.ndarray:
         raise ValueError("Residual bootstrap requires at least one observation.")
     rng = np.random.default_rng(random_state)
     return rng.integers(0, n, size=(B, n), dtype=np.int64)
+
+
+def _schedule_sha256(schedule: np.ndarray) -> str:
+    """Return a stable hash for the exact backend-neutral index schedule."""
+    normalized = np.ascontiguousarray(schedule, dtype="<i8")
+    digest = hashlib.sha256()
+    digest.update(str(tuple(normalized.shape)).encode("ascii"))
+    digest.update(b"\0")
+    digest.update(normalized.tobytes(order="C"))
+    return digest.hexdigest()
 
 
 def _backend_device_request(backend: str) -> str:
@@ -79,6 +92,9 @@ def _make_child_refit(owner, *, backend: str) -> PenalizedLinearRegression:
         device=_backend_device_request(backend),
         n_jobs=getattr(owner, "n_jobs", getattr(owner, "_n_jobs", None)),
         solver=_bootstrap_owner_value(owner, "solver", "_solver", "auto"),
+        lipschitz_L=_bootstrap_owner_value(
+            owner, "lipschitz_L", "_lipschitz_L", None
+        ),
         gpu_memory_cleanup=bool(
             getattr(owner, "gpu_memory_cleanup", getattr(owner, "_gpu_memory_cleanup", False))
         ),
@@ -88,6 +104,9 @@ def _make_child_refit(owner, *, backend: str) -> PenalizedLinearRegression:
             _bootstrap_owner_value(owner, "max_lla_iters", "_max_lla_iters", 50)
         ),
         lla_tol=float(_bootstrap_owner_value(owner, "lla_tol", "_lla_tol", 1e-6)),
+        loss_kwargs=copy.deepcopy(
+            _bootstrap_owner_value(owner, "loss_kwargs", "_loss_kwargs", None)
+        ),
         compute_inference=False,
         inference_method="auto",
     )
@@ -118,6 +137,49 @@ def _take_residuals(resid, index, backend: str):
     return resid[index]
 
 
+@contextmanager
+def _child_device_context(backend: str, device: str):
+    """Enter the exact parent device before constructing/running a child fit."""
+    if backend == "numpy":
+        if device != "cpu":
+            raise RuntimeError(
+                f"Invalid NumPy residual-bootstrap device provenance: {device!r}."
+            )
+        yield
+        return
+
+    if backend == "cupy":
+        import cupy as cp
+
+        if not str(device).startswith("cuda:"):
+            raise RuntimeError(
+                f"Invalid CuPy residual-bootstrap device provenance: {device!r}."
+            )
+        device_id = int(str(device).split(":", 1)[1])
+        with cp.cuda.Device(device_id):
+            yield
+        return
+
+    if backend == "torch":
+        # ``cpu`` is accepted only for host-side contract doubles. A real
+        # maintained Torch fit records a concrete CUDA device.
+        if device == "cpu":
+            yield
+            return
+        if not str(device).startswith("cuda:"):
+            raise RuntimeError(
+                f"Invalid Torch residual-bootstrap device provenance: {device!r}."
+            )
+        import torch
+
+        target = torch.device(device)
+        with torch.cuda.device(target):
+            yield
+        return
+
+    raise RuntimeError(f"Unsupported bootstrap backend {backend!r}.")
+
+
 def _assert_child_provenance(child, *, backend: str, device: str) -> None:
     actual_backend = str(getattr(child, "_selected_backend_name", "") or "").lower()
     actual_device = str(getattr(child, "_selected_backend_device", "") or "")
@@ -128,6 +190,21 @@ def _assert_child_provenance(child, *, backend: str, device: str) -> None:
             f"expected {backend}/{expected_device}, got "
             f"{actual_backend or '<missing>'}/{actual_device or '<missing>'}."
         )
+
+
+def _record_successful_diagnostics(self, X_native, y_native, y_pred, n: int) -> None:
+    """Preserve the established Gaussian diagnostic/reporting snapshot."""
+    X_np = np.asarray(_to_numpy(X_native), dtype=np.float64)
+    y_np = np.asarray(_to_numpy(y_native), dtype=np.float64).reshape(-1)
+    y_pred_np = np.asarray(_to_numpy(y_pred), dtype=np.float64).reshape(-1)
+    self._X_design = (
+        np.column_stack([np.ones(n), X_np])
+        if bool(getattr(self, "_effective_intercept", True))
+        else X_np.copy()
+    )
+    self._y = y_np
+    self._resid = y_np - y_pred_np
+    self._nobs = n
 
 
 def _backend_native_gaussian_residual_bootstrap(self, X, y):
@@ -160,25 +237,30 @@ def _backend_native_gaussian_residual_bootstrap(self, X, y):
         y_pred = y_pred + float(self.intercept_)
     resid = y_native - y_pred
 
-    schedule = _draw_resample_indices(
-        n, B, getattr(self, "bootstrap_random_state", None)
-    )
+    random_state = getattr(self, "bootstrap_random_state", None)
+    schedule = _draw_resample_indices(n, B, random_state)
+    schedule_hash = _schedule_sha256(schedule)
     params_dim = int(len(self._params))
     boot_params = np.empty((B, params_dim), dtype=np.float64)
+    selected_solvers = []
 
     for b in range(B):
-        index = _backend_index(schedule[b], backend, resid)
-        y_star = y_pred + _take_residuals(resid, index, backend)
-        child = _make_child_refit(self, backend=backend)
-        child.fit(X_native, y_star)
+        with _child_device_context(backend, device):
+            index = _backend_index(schedule[b], backend, resid)
+            y_star = y_pred + _take_residuals(resid, index, backend)
+            child = _make_child_refit(self, backend=backend)
+            child.fit(X_native, y_star)
         _assert_child_provenance(child, backend=backend, device=device)
-        child_params = np.asarray(child._params, dtype=np.float64).reshape(-1)
+        child_params = np.asarray(_to_numpy(child._params), dtype=np.float64).reshape(-1)
         if child_params.shape != (params_dim,):
             raise RuntimeError(
                 "Residual-bootstrap child parameter shape changed across refits: "
                 f"expected {(params_dim,)}, got {child_params.shape}."
             )
         boot_params[b] = child_params
+        selected_solver = str(getattr(child, "_selected_solver", "") or "")
+        if selected_solver:
+            selected_solvers.append(selected_solver)
 
     bse = np.std(boot_params, axis=0, ddof=1)
     pvalues = np.empty(params_dim, dtype=np.float64)
@@ -201,22 +283,28 @@ def _backend_native_gaussian_residual_bootstrap(self, X, y):
     params = np.asarray(self._params, dtype=np.float64)
     statistic = params / (bse + 1e-30)
 
-    # Keep the historical diagnostic snapshots for public Gaussian consumers.
-    self._X_design = None
-    self._y = np.asarray(y_native.detach().cpu().numpy() if backend == "torch" else (
-        __import__("cupy").asnumpy(y_native) if backend == "cupy" else y_native
-    ), dtype=np.float64)
-    self._resid = self._y - np.asarray(
-        y_pred.detach().cpu().numpy() if backend == "torch" else (
-            __import__("cupy").asnumpy(y_pred) if backend == "cupy" else y_pred
-        ), dtype=np.float64
-    )
-    self._nobs = n
+    # Host transfer happens only after all numerical child refits complete.
+    _record_successful_diagnostics(self, X_native, y_native, y_pred, n)
 
     self._bse = bse
     self._pvalues = pvalues
     self._conf_int = conf_int
     self._tvalues = statistic
+    metadata = {
+        "n_bootstrap": B,
+        "random_state": random_state,
+        "resampling_scope": "unweighted_gaussian_residual",
+        "resampling_schedule": "numpy_generator_control_plane",
+        "resampling_schedule_sha256": schedule_hash,
+        "refit_penalty": _penalty_name(self),
+        "numerical_backend": backend,
+        "numerical_device": device,
+        "reporting_backend": "numpy",
+        "reporting_boundary": "post_numerical_inference",
+    }
+    if selected_solvers:
+        metadata["child_selected_solvers"] = sorted(set(selected_solvers))
+
     self._inference_result = ParameterInferenceResult(
         method="residual_bootstrap",
         params=params.copy(),
@@ -226,17 +314,7 @@ def _backend_native_gaussian_residual_bootstrap(self, X, y):
         pvalues=pvalues.copy(),
         conf_int=conf_int.copy(),
         distribution="bootstrap_percentile",
-        metadata={
-            "n_bootstrap": B,
-            "random_state": getattr(self, "bootstrap_random_state", None),
-            "resampling_scope": "unweighted_gaussian_residual",
-            "resampling_schedule": "numpy_generator_control_plane",
-            "refit_penalty": _penalty_name(self),
-            "numerical_backend": backend,
-            "numerical_device": device,
-            "reporting_backend": "numpy",
-            "reporting_boundary": "post_numerical_inference",
-        },
+        metadata=metadata,
     )
     self._inference_result.apply_to(self)
 
