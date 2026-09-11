@@ -159,6 +159,17 @@ from . import _nodewise_alpha_contract as _nodewise_alpha_contract
 
 _nodewise_alpha_contract.install_nodewise_alpha_contract()
 
+# Reconcile the broader penalized-GLM inference surface only after the
+# sparse-Gaussian compatibility chain above is installed. This final contract
+# provides an explicit auto resolver, fixed-penalty M-estimation provenance,
+# fail-closed resampling/device boundaries, and final-refit-only PenalizedGLM_CV
+# inference without reimplementing the maintained numerical kernels.
+from . import (
+    _penalized_glm_inference_contract as _penalized_glm_inference_contract,
+)
+
+_penalized_glm_inference_contract.install_penalized_glm_inference_contract()
+
 __all__ = [
     'LinearRegression',
     'LogisticRegression',
