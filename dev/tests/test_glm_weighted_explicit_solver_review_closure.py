@@ -146,8 +146,8 @@ payload = {
     "smooth_wrapped": hasattr(Installed._fit_smooth_solver, "__wrapped__"),
     "fit_signature": str(inspect.signature(Installed.fit)),
     "smooth_signature": str(inspect.signature(Installed._fit_smooth_solver)),
-    "raw_fit_changed": Installed.fit is not raw_fit,
-    "raw_smooth_changed": Installed._fit_smooth_solver is not raw_smooth,
+    "fit_identity_stable": Installed.fit is raw_fit,
+    "smooth_identity_stable": Installed._fit_smooth_solver is raw_smooth,
 }
 print(json.dumps(payload, sort_keys=True))
 '''
@@ -161,7 +161,10 @@ print(json.dumps(payload, sort_keys=True))
     assert payload["same_class"] is True
     assert payload["fit_wrapped"] is True
     assert payload["smooth_wrapped"] is True
-    assert payload["raw_fit_changed"] is True
-    assert payload["raw_smooth_changed"] is True
+    # Importing a submodule first still executes the parent package __init__, so
+    # the contract is already installed when RawGLM is obtained. Re-importing
+    # the package must therefore be a no-op on method identity.
+    assert payload["fit_identity_stable"] is True
+    assert payload["smooth_identity_stable"] is True
     assert "sample_weight=None" in payload["fit_signature"]
     assert "solver_name" in payload["smooth_signature"]
