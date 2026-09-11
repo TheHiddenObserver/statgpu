@@ -5,8 +5,9 @@ from __future__ import annotations
 import inspect
 
 import numpy as np
+import pytest
 
-from statgpu.linear_model import PenalizedGLM_CV
+from statgpu.linear_model import Lasso, PenalizedGLM_CV, PenalizedPoissonRegression
 from statgpu.linear_model import _penalized_glm_inference_fit_transaction as _tx
 from statgpu.linear_model.penalized._inference_mixin import _PenalizedInferenceMixin
 
@@ -49,6 +50,47 @@ def test_weighted_penalized_glm_cv_auto_uses_weight_capable_selection_and_refit(
     assert np.all(np.isfinite(np.asarray(cv._pvalues)))
 
 
+def test_no_penalty_alias_canonicalizes_to_zero_l2_before_inference_resolution():
+    X, y = _poisson_data(seed=14252)
+    model = PenalizedPoissonRegression(
+        penalty="none",
+        alpha=3.0,
+        solver="fista",
+        device="cpu",
+        compute_inference=True,
+        inference_method="auto",
+        cov_type="hc0",
+        max_iter=1200,
+        tol=1e-7,
+    ).fit(X, y)
+
+    assert getattr(model._penalty, "name", None) == "l2"
+    assert float(getattr(model._penalty, "alpha", np.nan)) == 0.0
+    assert model.inference_method_ == "m_estimation"
+    assert model.inference_target_ == "unpenalized_population_coefficient"
+
+
+def test_residual_bootstrap_rejects_too_few_draws_and_invalidates_fit():
+    rng = np.random.default_rng(14253)
+    X = rng.normal(size=(48, 3))
+    y = 0.3 + X @ np.array([0.7, -0.35, 0.2]) + rng.normal(scale=0.3, size=48)
+    model = Lasso(
+        alpha=0.04,
+        device="cpu",
+        inference_method="bootstrap",
+        n_bootstrap=1,
+        compute_inference=True,
+        max_iter=600,
+    )
+
+    with pytest.raises(ValueError, match="n_bootstrap must be an integer >= 2"):
+        model.fit(X, y)
+
+    assert not getattr(model, "_fitted", False)
+    assert model.coef_ is None
+    assert model._inference_result is None
+
+
 def test_sandwich_alignment_reuses_cross_backend_and_concrete_device_helpers():
     source = inspect.getsource(_tx._align_sandwich_inputs_to_fit_backend)
 
@@ -67,7 +109,8 @@ def test_sandwich_alignment_reuses_cross_backend_and_concrete_device_helpers():
 
 
 def test_final_execution_boundary_installer_is_idempotent():
-    before = _PenalizedInferenceMixin._compute_penalized_sandwich_inference
+    sandwich_before = _PenalizedInferenceMixin._compute_penalized_sandwich_inference
+    bootstrap_before = _PenalizedInferenceMixin._compute_post_fit_bootstrap_inference
     _tx.install_penalized_glm_inference_fit_transaction()
-    after = _PenalizedInferenceMixin._compute_penalized_sandwich_inference
-    assert after is before
+    assert _PenalizedInferenceMixin._compute_penalized_sandwich_inference is sandwich_before
+    assert _PenalizedInferenceMixin._compute_post_fit_bootstrap_inference is bootstrap_before
