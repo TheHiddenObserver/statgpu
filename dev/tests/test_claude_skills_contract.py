@@ -287,10 +287,16 @@ def test_penalized_glm_review_eval_is_blind_discovery_fixture():
         [golden["expected_output"], *golden["assertions"]]
     ).lower()
     for phrase in (
+        "target_kind=commit",
+        "commit_mode=snapshot",
+        snapshot_sha,
         "debiased",
         "m_estimation",
+        "high",
         "gaussian",
         "l1",
+        "parameterinferenceresult",
+        "critical",
         "blocking",
         "consumer",
     ):
