@@ -14,7 +14,7 @@ For this implementation, the ordinary-GLM public-boundary repair is therefore ex
 
 `statgpu/linear_model/_glm_weighted_explicit_solver_contract.py`
 
-This is an implementation-mechanism amendment. The statistical target, analytic-weight normalization, public solver authority, backend/device closure, consumer graph, and evidence requirements in the parent plan remain unchanged.
+This is an implementation-mechanism amendment. The statistical target, analytic-weight normalization, public solver authority, backend/device closure, consumer graph, and evidence requirements in the parent plan remain unchanged except for the explicit inverse-power-Gamma no-intercept support narrowing documented below.
 
 ## Installer scope
 
@@ -56,7 +56,7 @@ If final review finds semantic drift between Newton and L-BFGS preparation rathe
 
 Hosted family-matrix characterization exposed a pre-existing numerical weakness in the ordinary explicit smooth-solver path for `GammaRegression(link="inverse_power")`: an all-zero parameter start gives `eta = 0` for every row, immediately placing the inverse-link objective on its clipping boundary. Newton can then fail its first Armijo search before evaluating a meaningful interior step. This occurs at the initialization/domain boundary rather than in the new weighted objective algebra.
 
-To keep the reviewed Gamma inverse-link support row numerically well-defined, the installer may provide a narrow family-aware initial point when an intercept is fitted:
+To keep the reviewed Gamma inverse-link support row numerically well-defined when an intercept is fitted, the installer provides a narrow family-aware initial point:
 
 - slopes start at zero;
 - intercept starts at `1 / mean(y)` for unweighted fits;
@@ -68,10 +68,22 @@ This changes only the optimization starting point. It does not change the Gamma 
 
 Blocking characterization for this amendment:
 
-- deterministic weighted inverse-link Gamma Newton and L-BFGS must run without `ConvergenceWarning` / L-BFGS line-search-failure warning on the maintained acceptance dataset;
+- deterministic weighted inverse-link Gamma Newton and L-BFGS with an intercept must run without `ConvergenceWarning` / L-BFGS line-search-failure warning on the maintained acceptance dataset;
 - global positive weight-rescaling invariance must still hold;
 - CPU/GPU parity remains subject to the frozen physical validator thresholds;
 - other families keep their historical solver initialization unless separately reviewed.
+
+### Reviewed support-matrix narrowing: no-intercept inverse-power Gamma
+
+The parent plan initially asked to prove both `fit_intercept=True` and `False` across the ordinary family/link matrix. Characterization shows that this cannot be claimed generically for weighted inverse-power Gamma: without an intercept there is no maintained public initialization control and no generic guarantee that an arbitrary design admits a coefficient vector with strictly positive `X @ beta` for every row. A heuristic start could therefore turn an explicit capability claim into data-dependent solver luck.
+
+Under the parent plan's rule allowing genuine family/solver limitations to be removed by reviewed amendment, #150 narrows only this new weighted row:
+
+- `GammaRegression(link="inverse_power", fit_intercept=True)` + genuine non-uniform weights + explicit Newton/L-BFGS: target supported on NumPy/CuPy/Torch;
+- the same weighted explicit smooth-solver request with `fit_intercept=False`: fail closed before numerical work with a precise `fit_intercept=True` capability error;
+- historical **unweighted** no-intercept behavior is unchanged by #150 and is not redefined as part of this repair.
+
+All other final ordinary family/link rows retain the parent plan's `fit_intercept=True/False` review requirement where the model itself is well-defined. Hosted tests freeze the precise weighted inverse-Gamma no-intercept rejection, and the physical matrix validates the supported inverse-Gamma row with its normal intercept-bearing public construction.
 
 ## Physical-validator v2 amendment
 
@@ -97,14 +109,14 @@ Because runtime installation changes the public method objects after import, fin
 5. **Ordered isolation** — the ordered-model override continues to reject `sample_weight` and does not execute the ordinary smooth-solver installer path.
 6. **No stale provenance** — provenance is published only after the wrapped fit succeeds; input-validation, weight-validation, and synthetic solver failures must not advertise attempted solver/backend work as completed execution.
 7. **Installer ownership** — the module is installed once from `statgpu/linear_model/__init__.py` at a documented point after existing penalized/inference installers, and does not depend on their private state.
-8. **Initialization isolation** — the inverse-Gamma warm start is activated only for the reviewed inverse-power Gamma row with an intercept; it must not alter other families or no-intercept solver behavior.
+8. **Initialization isolation** — the inverse-Gamma warm start is activated only for the reviewed inverse-power Gamma row with an intercept; weighted no-intercept requests fail precisely and unweighted historical behavior is not silently changed.
 9. **Preservation routes** — ordinary `solver="auto"`, explicit IRLS, and explicit FISTA keep their prior numerical dispatch; the new provenance fields must describe those successful routes truthfully rather than changing them.
 
 If fresh code review finds that this installer materially obscures ownership, breaks import/introspection semantics, conflicts with another runtime installer, or broadens the initialization change beyond the reviewed row, this amendment is rejected and the implementation must return to a canonical-source `_glm_base.py` patch before completion.
 
 ## Evidence impact
 
-This amendment does not narrow the parent plan's completion gates. Final closure still requires:
+This amendment does not narrow any other parent-plan completion gate. Final closure still requires:
 
 - hosted family/solver/backend-preservation tests;
 - warning-free characterization of the final claimed family/solver matrix on the maintained CPU acceptance datasets;
