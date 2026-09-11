@@ -1,11 +1,11 @@
 # Solver Algorithms
 
 > Language: English  
-> Last updated: 2026-07-01
+> Last updated: 2026-09-12
 
 ## Overview
 
-statgpu provides 11 solvers for penalized loss minimization. This page documents the algorithm, convergence criteria, backend support, and hyperparameters for each solver.
+statgpu provides 11 solvers for penalized loss minimization. This page documents the algorithm, convergence criteria, backend support, and important capability boundaries for each solver.
 
 ## Solver Summary
 
@@ -22,6 +22,8 @@ statgpu provides 11 solvers for penalized loss minimization. This page documents
 | L-BFGS-B | box-constrained problems | numpy, cupy, torch |
 | ADMM | sum of separable penalties | numpy, cupy, torch |
 | exact | squared_error + L2 (closed-form) | numpy, cupy, torch |
+
+Backend support does not imply that every loss/penalty/weight combination is valid. Estimator and loss contracts can narrow the generic solver surface.
 
 ---
 
@@ -203,13 +205,13 @@ BB steps are disabled for SCAD/MCP/group MCP/group SCAD. The abrupt subgradient 
 1. Initialize β₀ = OLS estimate
 2. For each iteration:
    a. Compute residuals: r = y − Xβ
-   b. IRLS weights: w_i = (τ + (1−2τ)·1_{r_i<0}) / max(|r_i|, ε)
-   c. Solve weighted LS: (X'WX + n·α·I)β = X'Wy
-   d. ||β_new − β|| < tol → stop
+   b. Compute IRLS weights
+   c. Solve the weighted least-squares surrogate
+   d. Stop when the maintained convergence rule is met
 
 ### Algorithm (GLM IRLS)
 
-Same pattern but weights from GLM working response: (y−μ)/Var(μ)·g'(μ)²
+Same pattern but working weights/responses come from the GLM family/link.
 
 ---
 
@@ -217,14 +219,24 @@ Same pattern but weights from GLM working response: (y−μ)/Var(μ)·g'(μ)²
 
 **File**: `statgpu/solvers/_newton.py`
 
-**Use case**: Smooth losses + L2 penalty. Fast convergence when Hessian is positive-definite.
+**Use case**: Smooth losses + L2/no penalty. Fast convergence when the Hessian is well conditioned.
 
 ### Algorithm
 
 1. Compute gradient g = ∇ℓ(β) + λ·β and Hessian H = ∇²ℓ(β) + λ·I
-2. Newton direction: d = -H⁻¹·g
-3. Armijo line search with backtracking (max 25)
-4. Ridge regularization: 1e-10·I for stability
+2. Solve the Newton system
+3. Run Armijo line search with backtracking
+4. Add a small 1e-10 ridge for numerical stability
+
+### Analytic sample weights
+
+For losses that expose weighted curvature, genuine non-uniform analytic weights are supported. Newton uses one normalized weighted objective throughout value, gradient, Hessian, and every Armijo trial:
+
+$$
+L(\beta)=\frac{\sum_i w_i\ell_i(\beta)}{\sum_i w_i}+P(\beta).
+$$
+
+Uniform weights retain the historical unweighted numerical path. Multiplying all active weights by one positive constant therefore leaves the optimum unchanged.
 
 ---
 
@@ -232,11 +244,24 @@ Same pattern but weights from GLM working response: (y−μ)/Var(μ)·g'(μ)²
 
 **Files**: `statgpu/solvers/_lbfgs.py`, `statgpu/solvers/_lbfgs_b.py`
 
-**Use case**: Smooth losses + L2, moderate dimensions, non-canonical GLM links.
+**Use case**: Smooth losses + smooth/no penalty, moderate dimensions, and GLM rows where quasi-Newton updates are preferred.
 
 ### Algorithm
 
-Standard L-BFGS with Armijo line search. History size m=10. Fused GLM gradient + penalty gradient in one call.
+Standard L-BFGS two-loop recursion with Armijo line search and history size `m=10`. The current point, every line-search candidate, and the accepted-point gradient are evaluated under the same declared objective.
+
+### Analytic sample weights
+
+`lbfgs_solver` preserves uniform-weight compatibility for all existing consumers. Genuine **non-uniform** weighted L-BFGS is opt-in at the loss-contract layer:
+
+- maintained `GLMLoss` implementations opt in and use the same normalized analytic-weight objective as Newton;
+- the weight vector is used in the initial gradient, line-search objective, every candidate objective, and accepted-point gradient;
+- NumPy, CuPy, and Torch execution stays on the input numerical backend;
+- generic non-GLM `LossBase` consumers remain fail-closed for genuine non-uniform L-BFGS weights unless that loss independently declares the capability.
+
+This distinction matters for direct solver users: support for unweighted Huber/Quantile/Cox L-BFGS does not by itself imply support for non-uniform `sample_weight` on those losses.
+
+`L-BFGS-B` has a separate box-constrained implementation and should not be assumed to inherit every `lbfgs_solver` weighting capability.
 
 ---
 
@@ -259,7 +284,7 @@ Standard L-BFGS with Armijo line search. History size m=10. Fused GLM gradient +
 
 **Implemented in**: `_fit_mixin._solve_exact_*`
 
-**Use case**: squared_error + L2 penalty on numpy. Eigendecomposition of X'X/n + αI.
+**Use case**: squared_error + L2 penalty where the maintained dispatch selects the closed-form path.
 
 ---
 
@@ -267,20 +292,18 @@ Standard L-BFGS with Armijo line search. History size m=10. Fused GLM gradient +
 
 ```
 fit() with solver="auto"
-├── squared_error + L2 + numpy → exact (eigendecomposition)
+├── squared_error + L2 + numpy → exact
 ├── squared_error + L2 + GPU  → newton
 ├── SCAD/MCP/adaptive → fista (LLA wrapper)
-│   ├── squared_error → fista_lla (fused)
-│   ├── quantile      → proximal_irls_cd
-│   ├── has_hessian   → fista_lla → proximal_newton
-│   └── no_hessian    → fista_lla → fista
-├── quantile (any penalty) → fista
+├── quantile → fista / quantile-specific path
 ├── squared_error + sparse → fista
-├── GLM + GPU + sparse → fista_bb (if size < 2M elements)
+├── GLM + GPU + sparse → fista_bb / fista according to maintained table
 ├── CV + L2 (loss-specific) → lbfgs / newton
 ├── smooth penalties + smooth losses → newton / irls
 └── default sparse → fista_bb
 ```
+
+`sample_weight` does not silently rewrite an explicit solver request. Estimator-level `solver="auto"` continues to use the maintained dispatch table for the corresponding weighted or unweighted fit.
 
 ## References
 
