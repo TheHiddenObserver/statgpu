@@ -37,10 +37,10 @@ from ._utils import (
 def _prepare_newton_sample_weight(sample_weight, n_samples, backend, ref_arr):
     """Validate and align analytic weights to the Newton execution backend.
 
-    Exactly uniform weights are normalized away because the weighted average
-    objective is then identical to the unweighted objective.  This also
-    preserves the historical behavior of losses that explicitly reject
-    weighting (for example Cox) when callers pass an exactly uniform vector.
+    Uniform weights are normalized away using the historical solver tolerance
+    (``allclose`` for floating-point arrays), because that contract already
+    treated them as the unweighted objective. This also preserves compatibility
+    for losses that explicitly reject genuine weighting (for example Cox).
     Any genuinely non-uniform vector remains explicit throughout value,
     gradient, Hessian, and line-search evaluation.
     """
@@ -49,7 +49,23 @@ def _prepare_newton_sample_weight(sample_weight, n_samples, backend, ref_arr):
 
     _validate_sample_weight(sample_weight, n_samples)
     values = _as_backend_vector(sample_weight, backend, ref_arr).reshape(-1)
-    uniform_dev = (values == values[0]).all()
+    if backend == "torch":
+        import torch
+
+        uniform_dev = (
+            torch.allclose(values, values[0])
+            if torch.is_floating_point(values)
+            else torch.all(values == values[0])
+        )
+    else:
+        from statgpu.backends._utils import _get_xp
+
+        xp = _get_xp(backend)
+        uniform_dev = (
+            xp.allclose(values, values[0])
+            if getattr(values.dtype, "kind", "") == "f"
+            else xp.all(values == values[0])
+        )
     uniform = bool(
         uniform_dev.item() if hasattr(uniform_dev, "item") else uniform_dev
     )
@@ -80,7 +96,7 @@ def newton_solver(
     Non-uniform ``sample_weight`` is treated as analytic/frequency-style
     objective weighting using the same normalized average-loss convention as
     ``LossBase``: weighted loss, gradient, Hessian, and every Armijo trial use
-    ``sum_i w_i * contribution_i / sum_i w_i``.  Losses that do not implement
+    ``sum_i w_i * contribution_i / sum_i w_i``. Losses that do not implement
     weighted curvature remain free to reject the request explicitly.
 
     For losses with constant Hessian, the Hessian is computed once and
@@ -263,7 +279,7 @@ def newton_solver(
                     raise
             step *= 0.5
         if not accepted:
-            # Never accept an unverified trial step.  A tiny rejected step
+            # Never accept an unverified trial step. A tiny rejected step
             # would also make a parameter-difference test report false
             # convergence.
             params = params_old
