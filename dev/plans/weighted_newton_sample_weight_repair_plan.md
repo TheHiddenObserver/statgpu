@@ -15,6 +15,8 @@ Physical Tesla P100 validation of PR #142 reached the full fit/inference path bu
 
 The unweighted logistic routes passed, including CuPy, Torch, Torch→CuPy, and CuPy→Torch. The remaining problem is therefore not the repaired device-binding path. PR #142 had temporarily forced inference-enabled weighted smooth non-Gaussian `solver="auto"` fits to FISTA because `newton_solver` rejected non-uniform `sample_weight`. The physical failure exposed the numerical cost of that workaround.
 
+A later exact-head P100 run at `1eedc29f6ea48774449ccc9b8fb2934a45a66757` confirmed that the weighted-Newton repair closed the original logistic failure. That run instead stopped at the extra `poisson/weighted=False/cupy` explicit-FISTA parity row: coefficient error `7.168500309906456e-06` and p-value error `4.290581307964114e-05`, while intercept, BSE, and CI remained within the existing limits. This is a point-estimation trajectory difference in a non-canonical explicit-FISTA row, not a renewed sandwich/device failure. Schema v4 therefore restores unweighted Poisson to its maintained public `solver="auto"` → Newton path while retaining one representative unweighted Logistic explicit-FISTA row for independent FISTA plus cross-container inference/device coverage. No acceptance tolerance is relaxed.
+
 ## 2. Change classification and active axes
 
 Change type:
@@ -118,7 +120,7 @@ Weights are converted once to the execution backend/device relative to the proce
 3. Thread active genuinely non-uniform weights through constant-Hessian construction, fused/non-fused gradient/Hessian calls, and both sides of Armijo line search.
 4. Remove PR #142's fit/CV wrapper that changed public `solver="auto"` execution to FISTA solely because Newton lacked weights.
 5. Leave the canonical `_preferred_penalized_glm_solver` table unchanged; it again owns smooth-L2 solver resolution.
-6. Update physical validation so weighted `auto` proves Newton selection while unweighted explicit-FISTA cases continue exercising the FISTA inference/device path.
+6. Update physical validation so weighted `auto` proves Newton selection. Schema v4 also runs unweighted Poisson through canonical `auto` → Newton and retains one unweighted Logistic explicit-FISTA row for FISTA/inference/device coverage without turning Poisson FISTA terminal-iterate parity into a PR #142 acceptance gate.
 7. Update public docs/changelogs so no PR #142 surface claims that weighted penalized-GLM inference requires the temporary FISTA workaround.
 
 ## 7. Deterministic validation
@@ -144,7 +146,7 @@ Estimator/CV:
 Backend/evidence:
 
 - hosted NumPy/static regression suite must pass on the exact final head;
-- physical P100 validator must cover CuPy, Torch, Torch→CuPy, and CuPy→Torch for weighted logistic and Poisson with `auto`→Newton, retaining coefficient/inference parity thresholds;
+- physical P100 schema-v4 validator must cover canonical Newton parity for Poisson weighted/unweighted and Logistic weighted, plus a representative Logistic unweighted explicit-FISTA row across CuPy, Torch, Torch→CuPy, and CuPy→Torch, retaining the existing coefficient/inference thresholds;
 - physical evidence is valid only for the exact clean source SHA recorded by the artifact.
 
 ## 8. Review-fix loop
