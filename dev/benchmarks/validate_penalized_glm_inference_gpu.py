@@ -9,6 +9,11 @@ containers into CuPy execution and CuPy containers into Torch execution so the
 post-fit inference boundary proves DLPack/concrete-device alignment rather than
 only same-container happy paths.
 
+Schema v3 additionally proves that weighted smooth L2 ``solver="auto"`` uses
+the canonical Newton dispatch now that Newton supports analytic weights. The
+unweighted cases stay on explicit FISTA so the validator continues to cover the
+independent FISTA fit plus post-fit inference/device path.
+
 Example
 -------
 python dev/benchmarks/validate_penalized_glm_inference_gpu.py \
@@ -32,7 +37,7 @@ from statgpu.linear_model import (
 )
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 ATOL_COEF = 2e-6
 ATOL_INFERENCE = 1e-5
 
@@ -161,9 +166,9 @@ def _assert_weighted_auto_solver(name, result, weighted):
         raise AssertionError(
             f"{name} public weighted solver request drifted: {result['public_solver']!r}"
         )
-    if result["selected_solver"] != "fista":
+    if result["selected_solver"] != "newton":
         raise AssertionError(
-            f"{name} weighted auto execution did not select FISTA: "
+            f"{name} weighted auto execution did not select Newton: "
             f"{result['selected_solver']!r}"
         )
 
@@ -276,6 +281,9 @@ def main() -> int:
                     "family": family,
                     "weighted": weighted,
                     "solver_request": solver,
+                    "selected_solver_cpu": cpu["selected_solver"],
+                    "selected_solver_cupy": cupy_result["selected_solver"],
+                    "selected_solver_torch": torch_result["selected_solver"],
                     "cupy_errors": _assert_close_case(
                         f"{family}/weighted={weighted}/cupy", cpu, cupy_result
                     ),
