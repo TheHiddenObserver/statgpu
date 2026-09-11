@@ -66,6 +66,7 @@ CV folds/path/grid fits remain estimation-only. If inference is requested, statg
 | `cv_solver` | `"auto"` | Fold/path solver |
 | `cpu_solver` | `None` | Deprecated historical CPU-CV control |
 | `method` | `"standard"` | CV-path profile |
+| `gpu_cv_mixed_precision` | `True` | Mixed precision for the GPU CV path where supported |
 | `compute_inference` | estimator default | Inference only on selected final refit |
 
 After fitting, `cv_solver_` records the algorithm actually used by the CV stage.
@@ -254,7 +255,11 @@ When no optimized path applies, CV fits maintained estimators per fold/candidate
 
 ## Caching
 
-`LassoCV` uses a selection-only cache: it caches alpha-selection evidence, not the final estimator. The key includes data/weight identity, evaluated alpha grid, full fold indices, CV solver/method controls, tolerances, and execution-mode fields that can change selection. A final-refit solver change is intentionally excluded when it cannot change CV scoring.
+`LassoCV` uses a selection-only LRU cache: it caches alpha-selection evidence, not the final estimator. Data identity is represented by `_array_identity_token(...)` for `X`, `y`, and `sample_weight`; the token includes backend, shape, dtype, and a content digest, with only sampled rows transferred to host for CuPy/Torch hashing when the array is large.
+
+The current selection key is built by `_make_lasso_cv_auto_cache_key(...)`. It includes the data/weight identity tokens, the complete evaluated alpha-grid digest, the complete train/validation index arrays for every fold, intercept/GPU mode, iteration/tolerance controls, resolved CV solver/method controls, `cd_kkt_check_every`, and `gpu_cv_mixed_precision`. The final-refit `solver` is intentionally excluded because it cannot change alpha scoring.
+
+The LRU capacity defaults to **64** and can be configured at import time with `STATGPU_LASSO_CV_CACHE_SIZE`. Cache hits return copies of NumPy payload arrays so callers cannot mutate cached selection evidence in place.
 
 ## Alpha conventions
 
