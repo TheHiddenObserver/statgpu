@@ -20,6 +20,12 @@ transparent by the staged deprecation-warning policies, so caller identity is
 still discovered correctly: explicit user legacy arguments warn, while sklearn
 clone/set_params framework replay stays silent.
 
+Execution-boundary fixes also live here: weighted inference-enabled non-Gaussian
+L2 ``solver='auto'`` requests use the maintained weight-capable FISTA path for
+both CV selection and the selected final refit, and post-fit sandwich inputs are
+aligned to the fit-recorded backend/concrete device through the repository's
+existing cross-backend conversion helpers before numerical inference begins.
+
 A failed refit must also stop advertising any prior successful fit. This matters
 because inference compatibility is validated before the core fit clears fitted
 state; a newly unsupported method/loss/penalty row can therefore fail before the
@@ -31,7 +37,10 @@ from __future__ import annotations
 import functools
 import inspect
 
+from statgpu._config import Device
+from statgpu.backends._utils import _cupy_asarray_on_device
 from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
+from statgpu.linear_model.penalized._inference_mixin import _PenalizedInferenceMixin
 from statgpu.linear_model.penalized._penalized_linear import PenalizedLinearRegression
 from statgpu.linear_model.penalized._penalized_logistic import PenalizedLogisticRegression
 from statgpu.linear_model.penalized._penalized_poisson import PenalizedPoissonRegression
@@ -204,6 +213,111 @@ def _use_weight_capable_auto_solver(self, sample_weight) -> bool:
     return _penalty_name(self) in ("l2", "none", "null", "")
 
 
+def _fit_backend_name(self) -> str:
+    backend = str(getattr(self, "_selected_backend_name", "") or "").lower()
+    if backend not in ("numpy", "cupy", "torch"):
+        raise RuntimeError(
+            "Inference requires fit-recorded backend provenance; "
+            f"got _selected_backend_name={backend!r}."
+        )
+    return backend
+
+
+def _fit_device_label(self, backend: str) -> str:
+    device = str(getattr(self, "_selected_backend_device", "") or "")
+    if backend == "numpy":
+        return "cpu"
+    if not device:
+        raise RuntimeError(
+            f"Inference is missing concrete device provenance for backend={backend!r}."
+        )
+    return device
+
+
+def _align_sandwich_inputs_to_fit_backend(self, X, y, sample_weight=None):
+    """Align post-fit inference inputs without routing through host memory."""
+    backend = _fit_backend_name(self)
+    device = _fit_device_label(self, backend)
+
+    if backend == "numpy":
+        X_native = self._to_array(X, Device.CPU, backend="numpy")
+        y_native = self._to_array(y, Device.CPU, backend="numpy")
+        sw_native = (
+            None
+            if sample_weight is None
+            else self._to_array(sample_weight, Device.CPU, backend="numpy")
+        )
+        return X_native, y_native, sw_native
+
+    if backend == "cupy":
+        import cupy as cp
+
+        if not device.startswith("cuda:"):
+            raise RuntimeError(f"Invalid CuPy fit device provenance: {device!r}")
+        device_id = int(device.split(":", 1)[1])
+        # BaseEstimator._to_array/_to_cupy reuses DLPack for Torch CUDA input;
+        # the explicit helper then guarantees the concrete fit device ordinal.
+        X_converted = self._to_array(X, Device.CUDA, backend="cupy")
+        y_converted = self._to_array(y, Device.CUDA, backend="cupy")
+        sw_converted = (
+            None
+            if sample_weight is None
+            else self._to_array(sample_weight, Device.CUDA, backend="cupy")
+        )
+        with cp.cuda.Device(device_id):
+            X_native = _cupy_asarray_on_device(
+                X_converted, device_id, dtype=cp.float64
+            )
+            y_native = _cupy_asarray_on_device(
+                y_converted, device_id, dtype=cp.float64
+            )
+            sw_native = (
+                None
+                if sw_converted is None
+                else _cupy_asarray_on_device(
+                    sw_converted, device_id, dtype=cp.float64
+                )
+            )
+        return X_native, y_native, sw_native
+
+    import torch
+
+    if not device.startswith("cuda:"):
+        raise RuntimeError(f"Invalid Torch fit device provenance: {device!r}")
+    # BaseEstimator._to_torch reuses DLPack for CuPy input and accepts an exact
+    # CUDA ordinal. The final .to() is device-native and only normalizes dtype.
+    X_native = self._to_torch(X, device=device).to(
+        device=device, dtype=torch.float64
+    )
+    y_native = self._to_torch(y, device=device).to(
+        device=device, dtype=torch.float64
+    )
+    sw_native = (
+        None
+        if sample_weight is None
+        else self._to_torch(sample_weight, device=device).to(
+            device=device, dtype=torch.float64
+        )
+    )
+    return X_native, y_native, sw_native
+
+
+def _install_sandwich_input_alignment():
+    current = _PenalizedInferenceMixin._compute_penalized_sandwich_inference
+    if getattr(current, _MARKER, False):
+        return
+
+    @functools.wraps(current)
+    def wrapped(self, X, y, sample_weight=None):
+        X_native, y_native, sw_native = _align_sandwich_inputs_to_fit_backend(
+            self, X, y, sample_weight=sample_weight
+        )
+        return current(self, X_native, y_native, sample_weight=sw_native)
+
+    setattr(wrapped, _MARKER, True)
+    _PenalizedInferenceMixin._compute_penalized_sandwich_inference = wrapped
+
+
 def _install_fit_restore():
     current = PenalizedGeneralizedLinearModel.fit
     if getattr(current, _MARKER, False):
@@ -243,12 +357,41 @@ def _install_fit_restore():
     PenalizedGeneralizedLinearModel.fit = wrapped
 
 
+def _install_cv_weighted_fit_restore():
+    current = PenalizedGLM_CV.fit
+    if getattr(current, _MARKER, False):
+        return
+
+    @functools.wraps(current)
+    def wrapped(self, *args, **kwargs):
+        internal_solver = getattr(self, "_solver", None)
+        sample_weight = kwargs.get("sample_weight")
+        if sample_weight is None and len(args) >= 3:
+            sample_weight = args[2]
+        if _use_weight_capable_auto_solver(self, sample_weight):
+            # The same statistical objective must be used during candidate
+            # scoring and the selected full-data refit. Temporarily resolving
+            # the CV owner's private solver avoids Newton's weight limitation
+            # without changing the public solver='auto' request.
+            self._solver = "fista"
+        try:
+            return current(self, *args, **kwargs)
+        finally:
+            if internal_solver is not None:
+                self._solver = internal_solver
+
+    setattr(wrapped, _MARKER, True)
+    PenalizedGLM_CV.fit = wrapped
+
+
 def install_penalized_glm_inference_fit_transaction():
     for cls in _PUBLIC_DEFAULT_CLASSES:
         _install_public_auto_boundary(cls)
     _install_clone_safe_cv_constructor()
     _install_validator_binding()
+    _install_sandwich_input_alignment()
     _install_fit_restore()
+    _install_cv_weighted_fit_restore()
 
 
 __all__ = ["install_penalized_glm_inference_fit_transaction"]
