@@ -2,6 +2,16 @@
 
 All notable changes to statgpu are documented here, organized by release and date.
 
+## Unreleased — 2026-09-11
+
+### PR #142 — Penalized GLM inference contract repair (targeted for 0.2.6)
+- Reconciled generic and typed penalized-GLM inference around public `inference_method="auto"` while preserving specialized sparse-Gaussian wrapper defaults; successful fits now expose requested/resolved/reported method identity, inferential target, and fixed/CV-selected penalty conditioning.
+- Productized fixed-penalty M-estimation for supported smooth non-Gaussian L2/no-penalty models with nonrobust/HC0/HC1 covariance, and made non-Gaussian L1/ElasticNet coefficient inference fail closed instead of publishing the historical partial sandwich approximation.
+- Narrowed `bootstrap` to unweighted CPU Gaussian residual bootstrap with `cov_type="nonrobust"`, preserved the actual penalty family and tuning parameters during refits, required at least two resamples, and prohibited silent GPU/Torch-to-CPU resampling fallback.
+- Made fit-recorded NumPy/CuPy/Torch backend and concrete device authoritative for non-Gaussian M-estimation, including cross-container Torch↔CuPy input alignment through maintained device-aware conversion helpers. Inference-enabled weighted non-Gaussian L2/no-penalty `solver="auto"` uses the existing weight-capable FISTA execution path for both direct fit and PenalizedGLM_CV selection/final refit while preserving the public `auto` request.
+- Added `PenalizedGLM_CV` inference controls with final-refit-only inference; fold/path/grid candidate fits remain estimation-only, and successful CV inference reports `penalty_conditioning_="cv_selected_penalty"` with `penalty_selection_adjusted_=False`.
+- Added bilingual method/support documentation, formula/API/clone/failure regressions, fresh-review closure tests, and `dev/benchmarks/validate_penalized_glm_inference_gpu.py` schema v2 for exact-source physical CuPy/Torch CUDA parity including weighted and cross-container cases. Hosted CI is required on the final exact head; physical CUDA acceptance remains a separate pending evidence gate until that runner is actually executed.
+
 ## Unreleased — 2026-09-10
 
 ### PR #139 — Node-wise Lasso inference tuning contract

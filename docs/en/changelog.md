@@ -1,9 +1,24 @@
 # Changelog
 
 > Language: English<br>
-> Last updated: 2026-09-08<br>
+> Last updated: 2026-09-11<br>
 > This page: Changelog<br>
 > Switch: [Chinese](../cn/changelog.md)
+
+## Unreleased — Penalized GLM inference contract repair (PR #142, targeted for 0.2.6)
+
+### Changed
+
+- Generic and typed penalized-GLM estimators now use `inference_method="auto"` as the public reconciliation boundary while specialized sparse-Gaussian wrappers keep their established explicit defaults. Fitted provenance distinguishes requested, resolved, and reported methods plus the inferential target and tuning/selection conditioning.
+- Supported smooth non-Gaussian L2/no-penalty inference resolves to fixed-penalty `m_estimation` with nonrobust/HC0/HC1 covariance. Non-Gaussian L1/ElasticNet coefficient inference now fails closed rather than exposing the historical L2-curvature-only full-vector sandwich.
+- Residual `bootstrap` is explicitly an unweighted CPU Gaussian residual bootstrap with `cov_type="nonrobust"`; refits preserve the actual penalty/tuning/intercept contract, at least two resamples are required, and an executed CuPy/Torch fit is never silently resampled on CPU.
+- Non-Gaussian M-estimation follows the fit-recorded NumPy/CuPy/Torch backend and concrete device, including heterogeneous Torch↔CuPy input alignment. Weighted inference-enabled non-Gaussian L2/no-penalty `solver="auto"` uses the maintained weight-capable FISTA path for both direct fits and PenalizedGLM_CV selection/final refit while the public request remains `auto`.
+- `PenalizedGLM_CV` now exposes inference controls and runs coefficient inference exactly once on the selected full-data final refit. Results condition on the CV-selected penalty and explicitly report `penalty_selection_adjusted_=False`.
+
+### Validation
+
+- Added targeted contract, formula, clone/compatibility, failure-transaction, no-penalty, weighted-CV, installer-idempotence, and cross-backend alignment regressions plus bilingual model/CV/inference documentation.
+- `dev/benchmarks/validate_penalized_glm_inference_gpu.py` schema v2 is the maintained exact-source physical CUDA gate for CuPy and Torch, including weighted `solver="auto"` and Torch→CuPy / CuPy→Torch container crossings. Hosted checks do not substitute for this physical gate, and no physical GPU pass is claimed until the exact-head runner is executed.
 
 ## Unreleased — Post-selection OLS inference API cleanup (PR #138 / Issue #137)
 
