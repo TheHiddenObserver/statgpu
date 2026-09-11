@@ -154,6 +154,25 @@ def _install_smooth_solver_contract() -> None:
         if not getattr(loss, "has_hessian", False):
             raise ValueError(f"solver='{solver_name}' requires a Hessian.")
 
+        # Inverse-link Gamma needs a strictly positive linear predictor.  With
+        # an intercept we have a backend-native family-valid start below.  In
+        # a no-intercept model there is no generic way to guarantee that the
+        # design admits X @ beta > 0 for every row, nor a maintained public
+        # init_coef control to express such a feasible point.  Keep only the
+        # new weighted row fail-closed rather than publishing an unstable
+        # capability; the historical unweighted path is left untouched.
+        if (
+            sample_weight is not None
+            and getattr(loss, "name", "") == "gamma"
+            and getattr(loss, "link", None) == "inverse_power"
+            and not self._effective_intercept
+        ):
+            raise ValueError(
+                "weighted explicit Newton/L-BFGS for Gamma inverse_power "
+                "requires fit_intercept=True; no maintained family-valid "
+                "no-intercept initialization is available."
+            )
+
         init_coef = None
         if self._effective_intercept:
             from statgpu.backends._utils import _get_xp
