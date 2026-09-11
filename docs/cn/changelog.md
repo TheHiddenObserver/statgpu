@@ -5,6 +5,19 @@
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
+## 未发布 — 后端原生 Gaussian residual bootstrap（PR #147 / Issue #145，目标 0.2.6）
+
+### 变更
+
+- 将既有 unweighted Gaussian `residual_bootstrap` 从仅 NumPy 执行扩展到 fit-recorded NumPy/CuPy/Torch backend 与具体 device；三个 backend 共享同一个确定性的 backend-neutral residual-index schedule，backend/device provenance 一旦漂移即 fail closed，不回退 CPU。
+- child refit 保留已拟合 penalty family、tuning、intercept、solver/stopping、Lipschitz 与 SCAD/MCP LLA controls，并保持 child inference 关闭。`PenalizedGLM_CV` 仍只在 selected full-data final refit 上执行一次 bootstrap，并明确报告对 CV-selected penalty 条件化、未校正 selection uncertainty。
+- weighted、robust/HC、HAC/block、non-Gaussian 与 Cox bootstrap 语义仍不支持并 fail closed。大规模 design/response/residual/bootstrap-response 数组与 child optimization 保持在记录的 numerical backend/device 上；最终 reporting 仍采用 NumPy boundary，仅允许小型 control/parameter snapshot 跨越该边界。
+
+### 验证
+
+- 增加确定性 hosted coverage，覆盖 NumPy preservation、L1/ElasticNet/SCAD/MCP、formula 与 public-wrapper consumer、exact-device child context、failure transaction、installer idempotence、CV final-refit-only 语义和 unsupported rows。
+- `dev/benchmarks/validate_gaussian_residual_bootstrap_gpu.py` schema v1 是冻结的 exact-source CuPy/Torch CUDA acceptance gate。PR #147 转 Ready 或合并前仍必须完成 physical CUDA acceptance；hosted CI 不能替代该 gate。
+
 ## 未发布 — Penalized GLM 推断 contract 修复（PR #142，目标 0.2.6）
 
 ### 变更

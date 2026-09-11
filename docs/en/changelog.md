@@ -5,6 +5,19 @@
 > This page: Changelog<br>
 > Switch: [Chinese](../cn/changelog.md)
 
+## Unreleased — Backend-native Gaussian residual bootstrap (PR #147 / Issue #145, targeted for 0.2.6)
+
+### Changed
+
+- Extended the existing unweighted Gaussian `residual_bootstrap` row from NumPy-only execution to the fit-recorded NumPy/CuPy/Torch backend and concrete device. One deterministic backend-neutral residual-index schedule is shared across backends, and backend/device drift fails closed rather than falling back to CPU.
+- Child refits preserve the fitted penalty family, tuning, intercept, solver/stopping, Lipschitz, and SCAD/MCP LLA controls while keeping child inference disabled. `PenalizedGLM_CV` still runs bootstrap only once on the selected full-data final refit and reports conditioning on the CV-selected penalty without selection adjustment.
+- Weighted, robust/HC, HAC/block, non-Gaussian, and Cox bootstrap semantics remain unsupported and fail closed. Large design/response/residual/bootstrap-response arrays and child optimization stay on the recorded numerical backend/device; reporting remains a final NumPy boundary, with only small control/parameter snapshots crossing that boundary.
+
+### Validation
+
+- Added deterministic hosted coverage for NumPy preservation, L1/ElasticNet/SCAD/MCP, formula and public-wrapper consumers, exact-device child contexts, failure transactions, installer idempotence, CV final-refit-only semantics, and unsupported rows.
+- `dev/benchmarks/validate_gaussian_residual_bootstrap_gpu.py` schema v1 is the frozen exact-source CuPy/Torch CUDA acceptance gate. Physical CUDA acceptance remains required before PR #147 can be marked Ready or merged; hosted CI does not substitute for this gate.
+
 ## Unreleased — Penalized GLM inference contract repair (PR #142, targeted for 0.2.6)
 
 ### Changed

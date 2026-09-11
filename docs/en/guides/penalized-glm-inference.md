@@ -32,7 +32,7 @@ The same provenance is recorded in `_inference_result.metadata` together with th
 | squared error + L2/no penalty | existing Gaussian classical/robust covariance | `classical` for `cov_type="nonrobust"`, otherwise the maintained Gaussian sandwich path |
 | squared error + L1/ElasticNet | debiased inference; existing `post_selection_ols` contract | `debiased` |
 | smooth non-Gaussian GLM + L2/no penalty | fixed-penalty M-estimation | `m_estimation` |
-| Gaussian L1/ElasticNet/SCAD/MCP | unweighted CPU residual bootstrap when explicitly requested | not selected automatically |
+| Gaussian L1/ElasticNet/SCAD/MCP | unweighted residual bootstrap on NumPy/CuPy/Torch when explicitly requested | not selected automatically |
 | SCAD/MCP scalar GLM families | active-set oracle refit when explicitly requested | not selected automatically |
 | non-Gaussian L1/ElasticNet | not implemented | fails closed |
 | group penalties | estimation-only | fails closed |
@@ -75,9 +75,9 @@ HC2, HC3, and HAC are not implemented for penalized non-Gaussian M-estimation an
 
 Analytic weights are supported by the non-Gaussian L2 M-estimation covariance path. The numerical inference follows the backend/device that actually executed the fit.
 
-The maintained Newton solver now applies non-uniform analytic weights to the **same normalized average-loss objective at every Newton stage**: objective value, gradient, Hessian (or fused gradient/Hessian), and Armijo trial evaluation all use `sum_i w_i contribution_i / sum_i w_i`. Multiplying every weight by a positive constant therefore leaves the fitted penalized optimum unchanged. Floating-point vectors that satisfy the historical uniform-weight `allclose` rule retain the established unweighted-equivalent path.
+The maintained Newton solver applies non-uniform analytic weights to the **same normalized average-loss objective at every Newton stage**: objective value, gradient, Hessian (or fused gradient/Hessian), and Armijo trial evaluation all use `sum_i w_i contribution_i / sum_i w_i`. Multiplying every weight by a positive constant therefore leaves the fitted penalized optimum unchanged. Floating-point vectors that satisfy the historical uniform-weight `allclose` rule retain the established unweighted-equivalent path.
 
-Accordingly, inference-enabled weighted smooth non-Gaussian L2/no-penalty fits no longer need PR #142's temporary fit-local FISTA override. With public `solver="auto"`, direct fits and `PenalizedGLM_CV` candidate/final-refit execution follow the canonical solver-dispatch table; applicable smooth-L2 logistic/Poisson rows resolve to backend-native Newton while the public solver request remains `auto`.
+With public `solver="auto"`, weighted smooth non-Gaussian L2/no-penalty fits use the same canonical solver-dispatch table as their unweighted counterparts. Applicable logistic/Poisson rows resolve to backend-native Newton while the public solver request remains `auto`.
 
 Explicit solver requests remain authoritative and are never silently replaced. Losses whose statistical contract does not define weighting (for example Cox) continue to reject genuine non-uniform weights rather than silently dropping them.
 
@@ -93,19 +93,23 @@ An explicit `device="cuda"` or `device="torch"` request never silently substitut
 
 ## Residual bootstrap scope
 
-`inference_method="bootstrap"` in this repair is deliberately **not** a universal GLM bootstrap. It is an unweighted Gaussian residual bootstrap with:
+`inference_method="bootstrap"` is deliberately **not** a universal GLM bootstrap. It is available for supported Gaussian penalized models and keeps the fitted design and tuning configuration fixed.
 
-- fixed design;
-- the same fixed `alpha`;
-- the same penalty family;
-- the same ElasticNet `l1_ratio` / penalty kwargs where applicable;
-- the same intercept semantics;
-- penalized refitting inside each bootstrap sample;
-- no CV/tuning rerun inside bootstrap.
+For each bootstrap draw, statgpu:
 
-The maintained implementation is CPU-executed in this repair and requires `cov_type="nonrobust"`. Weighted residual bootstrap, robust/HAC bootstrap semantics, and family-aware non-Gaussian bootstrap require separate statistical designs and are rejected rather than guessed.
+1. computes fitted values and residuals from the fitted Gaussian model;
+2. resamples the residuals with replacement;
+3. forms a bootstrap response `y_star = y_hat + residual_star`;
+4. refits the same penalized model with the same `alpha`, penalty family, ElasticNet mixing/penalty options, intercept convention, solver/stopping controls, and SCAD/MCP LLA controls; and
+5. summarizes the resulting coefficient distribution with bootstrap standard errors, sign-based two-sided p-values, and percentile confidence intervals.
 
-The resulting intervals are heuristic penalized-estimator bootstrap intervals, not selective-inference coverage guarantees.
+Set `bootstrap_random_state` when you need reproducible resamples. `n_bootstrap` controls the number of refits and must be at least 2.
+
+The bootstrap refits follow the backend and concrete device of the successful parent fit. A CPU fit refits on NumPy; a CuPy or Torch CUDA fit keeps the bootstrap responses and numerical refits on the same GPU device. GPU execution changes **where** the refits run, not the statistical procedure. Final reporting arrays use the standard NumPy result boundary.
+
+This method requires `sample_weight=None` and `cov_type="nonrobust"`. Weighted residual bootstrap, robust/HC or HAC/block bootstrap, non-Gaussian bootstrap, and Cox bootstrap are not defined by this interface and fail closed instead of guessing a resampling scheme.
+
+The resulting intervals describe the sampling variation of the penalized estimator under this fixed-design, fixed-tuning residual-bootstrap procedure. They are not general selective-inference confidence intervals and do not correct for variable-selection uncertainty.
 
 ## SCAD/MCP oracle boundary
 
@@ -132,7 +136,7 @@ penalty_conditioning_ = "cv_selected_penalty"
 penalty_selection_adjusted_ = False
 ```
 
-Therefore the reported standard errors, p-values, and confidence intervals are **conditional on the CV-selected penalty**. They do not adjust for tuning-selection uncertainty.
+Therefore the reported standard errors, p-values, and confidence intervals are **conditional on the CV-selected penalty**. They do not adjust for tuning-selection uncertainty. For residual bootstrap, resampling begins only after CV has selected `alpha`; folds and candidate fits are not bootstrapped.
 
 The Cox branch remains estimation-only.
 
@@ -159,7 +163,7 @@ print(model._bse)
 print(model._pvalues)
 ```
 
-For sparse non-Gaussian L1/ElasticNet fits, set `compute_inference=False`; this repair intentionally does not invent a debiasing method for those rows.
+For sparse non-Gaussian L1/ElasticNet fits, coefficient inference is not currently provided; use `compute_inference=False` rather than expecting a Gaussian debiasing or bootstrap rule to be applied to a different family.
 
 ## References
 
