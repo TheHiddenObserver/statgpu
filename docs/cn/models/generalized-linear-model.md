@@ -72,7 +72,9 @@ smooth GLM 在可用时使用维护中的二阶/一阶优化路径；非平滑 p
 
 显式 `device="cuda"` 保持 CuPy，显式 `device="torch"` 保持 Torch CUDA；不受支持的显式 solver/backend 组合会直接报错，不静默回 CPU。Formula parsing 可以在 CPU 上进行，但 fit/predict 数值计算跟随 selected backend。
 
-一个 inference-specific execution choice 会明确暴露：inference-enabled、weighted、non-Gaussian L2/no-penalty 且 public `solver="auto"` 时，使用已有 weight-capable FISTA，因为 Newton 当前拒绝 non-uniform analytic weights。public request 仍保持 `auto`，estimation-only benchmark dispatch 不变。
+weighted penalized smooth GLM 现在与非 weighted 情况使用同一个 canonical dispatch。维护中的 Newton solver 已支持真正的 non-uniform analytic weights，并在 objective value、gradient、Hessian 与 Armijo trial 中使用同一个归一化 average-loss objective，因此 inference-enabled weighted L2/no-penalty 不再需要 fit-local FISTA override。public `solver="auto"` 保持不变，适用的 logistic/Poisson L2 行会解析到 backend-native Newton。
+
+本 PR 不改变单独的普通 `GeneralizedLinearModel(..., solver="newton")` sample-weight guard；该 public wrapper 仍会在进入 solver 前拒绝 weighted explicit Newton/L-BFGS。本次 weighted-Newton 修复只关闭 PR #142 的 penalized GLM / `PenalizedGLM_CV` 所依赖的 shared solver capability，不顺手扩大另一个 ordinary-GLM public API 边界。
 
 ## Covariance/Inference
 
@@ -164,7 +166,7 @@ Formula 解析在 CPU 上完成，适合作为便利建模层。大规模 GPU �
 
 Penalized GLM inference 采用 fail-closed contract：受支持的 non-Gaussian L2/no-penalty 行公开 fixed-penalty M-estimation（nonrobust/HC0/HC1）；不受支持的 loss × penalty × method 组合直接报错，不替换成另一个统计 procedure。residual bootstrap 与 SCAD/MCP oracle 都保持窄而显式的边界。
 
-`solver="auto"` 遵循维护中的 direct-fit dispatch（smooth non-Gaussian L2 包括 Newton）。inference-enabled weighted non-Gaussian L2/no-penalty fit 则使用上文说明的 fit-local weight-capable FISTA，同时 public `auto` request 不变。
+`solver="auto"` 遵循维护中的 direct-fit dispatch（smooth non-Gaussian L2 包括 Newton）。weighted inference-enabled smooth L2/no-penalty fit 在 Newton 支持 analytic weights 后也使用同一个 canonical dispatch；适用行会执行 backend-native Newton，同时 public `auto` request 不变。
 
 `PenalizedGLM_CV` 默认使用 `cv_strategy="strict"`。strict 模式下，每个 fold/alpha 都使用用户传入的 `max_iter` 与 `tol`；GPU 优化只做缓存、fused kernel 和 validation score 批量传输，不做 alpha 粗筛。可选的 `cv_strategy="two_stage"` 会先用放松的 CV 求解筛选 alpha grid，再对候选 alpha 做 strict 复核，并且最终 refit 仍然是 strict/full-iteration。由于粗筛阶段在 CV 曲线很接近时可能改变 alpha 排名，two-stage 模式默认发出 `ApproximateCVWarning`；如果用户已确认接受该近似，可传入 `acknowledge_approx=True` 静默该 warning。
 
