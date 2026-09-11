@@ -88,7 +88,14 @@ def test_residual_bootstrap_rejects_too_few_draws_and_invalidates_fit():
 
     assert not getattr(model, "_fitted", False)
     assert model.coef_ is None
+    assert model.intercept_ is None
+    assert model._params is None
     assert model._inference_result is None
+    assert model._selected_solver is None
+    assert model._selected_backend_name is None
+    assert model._selected_backend_device is None
+    assert model._feature_names is None
+    assert model._design_info is None
 
 
 def test_sandwich_alignment_reuses_cross_backend_and_concrete_device_helpers():
@@ -111,6 +118,8 @@ def test_sandwich_alignment_reuses_cross_backend_and_concrete_device_helpers():
 def test_final_execution_boundary_installer_is_idempotent():
     sandwich_before = _PenalizedInferenceMixin._compute_penalized_sandwich_inference
     bootstrap_before = _PenalizedInferenceMixin._compute_post_fit_bootstrap_inference
+    lasso_fit_before = Lasso.fit
     _tx.install_penalized_glm_inference_fit_transaction()
     assert _PenalizedInferenceMixin._compute_penalized_sandwich_inference is sandwich_before
     assert _PenalizedInferenceMixin._compute_post_fit_bootstrap_inference is bootstrap_before
+    assert Lasso.fit is lasso_fit_before
