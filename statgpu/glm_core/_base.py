@@ -53,6 +53,10 @@ class GLMLoss(LossBase):
     _tweedie: bool = False               # True for Tweedie (special BB handling)
     _poisson_like: bool = False          # True for Poisson (conservative momentum burn-in)
     _gamma_like: bool = False            # True for Gamma (adjusted BB/momentum params)
+    # GLM losses share one analytic-weight contract: weighted value and gradient
+    # both use sum(w_i * contribution_i) / sum(w_i).  L-BFGS can therefore
+    # safely opt into genuine non-uniform weights at this abstraction layer.
+    _supports_nonuniform_lbfgs_weights: bool = True
 
     def _mu_from_eta(self, eta):
         """Link inverse: μ = g⁻¹(η). Override for clipping."""
