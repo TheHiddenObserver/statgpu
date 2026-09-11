@@ -10,19 +10,19 @@ Target release: 0.2.6 (unreleased)
 
 Repair the ordinary `GeneralizedLinearModel` public fit contract so a genuine non-uniform analytic `sample_weight` is not rejected merely because the caller explicitly requested `solver="newton"` or `solver="lbfgs"`.
 
-The two solver rows have different starting points and must not be treated as one generic guard deletion:
+The two solver rows have different starting points and are reviewed separately:
 
-- **Newton** already has a maintained backend-native non-uniform weighted numerical implementation. The ordinary GLM wrapper currently blocks that capability before solver entry. This part is an existing-capability/public-contract reconciliation.
-- **L-BFGS** still rejects genuine non-uniform weights in the shared solver and then evaluates value/gradient/line-search trials without weights. Supporting the ordinary GLM row therefore requires a real shared weighted-L-BFGS numerical capability, with corresponding consumer and backend closure.
+- **Newton** already has a maintained backend-native non-uniform weighted numerical implementation. The ordinary GLM wrapper blocks that capability before solver entry. This is existing-capability/public-contract reconciliation.
+- **L-BFGS** still rejects genuine non-uniform weights in the shared solver and evaluates value/gradient/line-search trials without weights. This requires a real shared weighted-L-BFGS numerical capability plus consumer/backend closure.
 
-The repair must preserve explicit solver authority: weights must never cause an explicit Newton/L-BFGS request to be silently rewritten to IRLS, FISTA, another backend, or CPU.
+Explicit solver authority is invariant: weights must never cause an explicit Newton/L-BFGS request to be silently rewritten to IRLS, FISTA, another backend, or CPU.
 
 ## 2. Change classification and active axes
 
 Change types:
 
 1. existing capability reconciliation / public contract repair for weighted explicit Newton;
-2. new/materially changed shared numerical capability for non-uniform weighted L-BFGS;
+2. materially changed shared numerical capability for non-uniform weighted L-BFGS on the maintained GLM loss interface;
 3. shared solver consumer reconciliation because penalized GLM already calls the same `lbfgs_solver(..., sample_weight=...)` entry point.
 
 Active axes:
@@ -32,20 +32,22 @@ Active axes:
 - solver/convergence/line-search behavior;
 - NumPy/CuPy/Torch backend and concrete-device ownership;
 - ordinary GLM wrappers and formula/data path;
-- shared penalized-GLM consumers of `lbfgs_solver`;
-- inference integration for already-supported ordinary-GLM inference rows;
+- shared penalized-GLM / `PenalizedGLM_CV` consumers of `lbfgs_solver`;
+- inference/diagnostic integration for already-supported ordinary-GLM rows;
+- fit provenance and refit-state semantics;
 - docs/changelog and exact-source evidence.
 
 Intentionally unchanged:
 
-- `solver="auto"` dispatch for ordinary `GeneralizedLinearModel`;
-- penalty definitions/scaling and ordinary explicit smooth-solver `C` semantics;
+- ordinary `solver="auto"` dispatch;
 - IRLS and FISTA numerical algorithms;
-- specialized standalone `LogisticRegression` public API (it is a separate `BaseEstimator`, not a `GeneralizedLinearModel` subclass);
+- the pre-existing meaning of `C` on each ordinary explicit smooth-solver path;
+- specialized standalone `LogisticRegression` public API (separate `BaseEstimator`, not a `GeneralizedLinearModel` subclass);
 - `OrderedGeneralizedLinearModel`, which continues to reject `sample_weight` explicitly;
-- CV APIs that do not reconstruct ordinary `GeneralizedLinearModel` with these explicit solver rows;
-- covariance estimators or inferential targets;
+- covariance estimators/inferential targets;
 - weighted bootstrap semantics (#148) and non-Gaussian parametric bootstrap (#149).
+
+If reconnaissance exposes an unrelated inconsistency in explicit smooth-solver `C` handling, record it separately rather than silently changing it in #150.
 
 ## 3. Baseline reconnaissance
 
@@ -54,54 +56,68 @@ Intentionally unchanged:
 `GeneralizedLinearModel.fit()` already:
 
 - validates `sample_weight`;
-- aligns formula-side weights after missing-row filtering;
-- converts the weights once to the selected execution backend;
-- resolves the explicit solver and routes `newton`/`lbfgs` to `_fit_smooth_solver()`;
+- aligns formula-side weights after retained-row/missing-row filtering;
+- converts weights once to the selected execution backend;
+- resolves explicit solver and routes `newton`/`lbfgs` to `_fit_smooth_solver()`;
 - retains fit weights for loglikelihood/AIC/BIC and supported inference.
 
-The blocking behavior is inside `_fit_smooth_solver()`:
+The stale blocking behavior is inside `_fit_smooth_solver()`:
 
 ```python
 if sample_weight is not None:
     raise ValueError(...)
 ```
 
-and the downstream calls currently omit `sample_weight` for both `newton_solver` and `lbfgs_solver`.
+and downstream calls currently omit `sample_weight` for both smooth solvers.
 
 ### 3.2 Newton numerical capability
 
 `newton_solver` already supports non-uniform analytic weights on NumPy/CuPy/Torch. Its maintained contract:
 
-- validates/alines weights to the execution backend;
+- validates/alines weights to execution backend/device;
 - preserves the historical floating-point `allclose` uniform-weight rule by treating such vectors as the unweighted path;
-- uses the same active non-uniform vector in value, gradient, Hessian/fused gradient+Hessian, the Armijo old objective, and every Armijo trial objective;
+- uses the same active non-uniform vector in value, gradient, Hessian/fused gradient+Hessian, Armijo current objective, and every Armijo trial objective;
 - uses normalized average-loss scaling.
 
-Existing solver tests already cover row-replication equivalence, global weight-rescaling invariance, uniform-weight compatibility, invalid weights, and NumPy/Torch-CPU parity.
+Existing tests already cover row-replication equivalence, global weight-rescaling invariance, uniform-weight compatibility, invalid weights, and NumPy/Torch-CPU parity.
 
 ### 3.3 L-BFGS numerical gap
 
 `lbfgs_solver` currently:
 
-- accepts a `sample_weight` argument but calls `_validate_uniform_sample_weight`;
+- accepts `sample_weight` but calls `_validate_uniform_sample_weight`;
 - documents only uniform weights as valid;
-- computes initial gradient, old line-search objective, candidate objective, and updated gradient without passing the weight vector.
+- computes initial gradient, current line-search objective, candidate objective, and updated gradient without passing the weight vector.
 
-Thus removing the ordinary wrapper guard without changing L-BFGS would only move the failure one layer down and would not satisfy #150.
+Deleting the ordinary wrapper guard alone would therefore only move non-uniform L-BFGS failure down one layer.
 
-### 3.4 Shared GLM loss support
+### 3.4 GLM weighted primitives
 
-The maintained GLM loss stack already provides the primitives needed by both smooth solvers:
+The maintained GLM loss stack provides the primitives needed by smooth solvers:
 
 - `LossBase.value/gradient/fused_value_and_gradient(..., sample_weight=...)` use `sum_i w_i contribution_i / sum_i w_i`;
 - `GLMLoss.fused_value_and_gradient` dispatches weighted calls through `_weighted_loss_and_grad`;
-- maintained Gaussian, Logistic/Binomial, Poisson, Gamma, Inverse Gaussian, Negative Binomial, and Tweedie losses expose weighted Hessian support for Newton.
+- maintained squared-error, Logistic/Binomial, Poisson, Gamma, Inverse Gaussian, Negative Binomial, and Tweedie losses expose weighted Hessian support for Newton.
 
-This is implementation substrate, not acceptance evidence. Every public family row still requires characterization/tests before being claimed supported.
+This substrate is not itself an acceptance claim. Every public family × solver × backend row is validated before being documented as supported.
 
-## 4. Consumer graph
+### 3.5 Explicit smooth-solver `C` characterization
 
-### Direct target consumers
+Current ordinary `_fit_smooth_solver()` calls the smooth solver with `penalty=None`; this issue does **not** reinterpret `C` or introduce a new penalty into explicit Newton/L-BFGS.
+
+Before numerical comparison tests are written:
+
+- characterize the existing unweighted explicit Newton/L-BFGS behavior under multiple `C` values;
+- freeze that existing behavior with regression tests;
+- use a reference setup aligned to the current explicit smooth-solver objective (unpenalized where that is the present behavior).
+
+Any desire to make explicit smooth solvers consume `C` consistently with another solver is a separate public-contract issue.
+
+## 4. Consumer graph and frozen scope
+
+### 4.1 Direct ordinary-GLM target consumers
+
+In scope:
 
 - `GeneralizedLinearModel(family=...)`;
 - `PoissonRegression`;
@@ -109,251 +125,307 @@ This is implementation substrate, not acceptance evidence. Every public family r
 - `InverseGaussianRegression`;
 - `NegativeBinomialRegression`;
 - `TweedieRegression`;
-- any other maintained thin wrapper that directly inherits `GeneralizedLinearModel` without replacing `fit()`.
+- any maintained thin wrapper that directly inherits `GeneralizedLinearModel` without replacing this fit path.
 
-Generic `GeneralizedLinearModel(family="binomial")` is in scope. The separate specialized `LogisticRegression(BaseEstimator)` is not a public-API target for this issue.
+Generic `GeneralizedLinearModel(family="binomial")` is in scope. The specialized standalone `LogisticRegression(BaseEstimator)` is out of scope and receives preservation tests only if shared changes can reach it indirectly.
 
-### Explicitly preserved/unsupported consumers
+### 4.2 Explicitly preserved/unsupported consumers
 
-- `OrderedGeneralizedLinearModel` and ordered-logit/probit wrappers keep their explicit no-weight contract;
-- IRLS/FISTA ordinary GLM paths remain unchanged;
-- `solver="auto"` remains unchanged.
+- `OrderedGeneralizedLinearModel` and ordered-logit/probit remain weighted-unsupported;
+- ordinary IRLS/FISTA behavior is unchanged;
+- ordinary `solver="auto"` behavior is unchanged.
 
-### Shared L-BFGS consumers
+### 4.3 GLM-only non-uniform L-BFGS capability boundary
 
-Because `_lbfgs.py` is shared, weighted-L-BFGS work must also reconcile:
+`lbfgs_solver` is a generic shared function and also appears in generic-loss documentation/tests (for example Huber/Quantile). #150 must not accidentally make every `LossBase` a new weighted-L-BFGS public surface.
 
-- `PenalizedGeneralizedLinearModel` explicit `solver="lbfgs"` with smooth penalties;
-- typed penalized smooth-GLM wrappers that route through `_fit_loss_backend`;
-- `PenalizedGLM_CV` rows whose existing solver table may select L-BFGS (notably CV L2 Negative Binomial and Gamma/Inverse-Gaussian rows), including weighted candidate/final-refit behavior if those rows are publicly weight-capable;
-- direct `lbfgs_solver` users/tests.
+Freeze this issue's non-uniform L-BFGS capability to the **maintained GLM loss contract**. Implementation must provide a private capability boundary that lets maintained `GLMLoss` instances enter the new non-uniform path while non-GLM losses keep the existing uniform-only behavior unless separately reviewed.
 
-No new penalty or CV row is invented. If an existing consumer has an independent documented weight restriction, it remains fail-closed and is tested as such.
+Preferred shape:
+
+- a private loss capability marker or equivalent generic capability predicate, defaulting fail-closed;
+- enabled for maintained `GLMLoss`;
+- no hard-coded family-name list inside the L-BFGS iteration loop;
+- non-GLM direct L-BFGS with non-uniform weights retains a precise rejection test.
+
+This avoids coupling the generic solver to estimator class names while preventing accidental Huber/Quantile/Cox API expansion.
+
+### 4.4 Shared penalized GLM consumers — intentionally included
+
+Existing penalized GLM code already passes `sample_weight` to both `newton_solver` and `lbfgs_solver`. Therefore the new GLM-weighted L-BFGS capability intentionally closes existing smooth-GLM rows that currently fail only because the shared L-BFGS uniform-weight gate fires.
+
+The following are part of #150 closure, not deferred implementation choices:
+
+- explicit `PenalizedGeneralizedLinearModel(..., solver="lbfgs")` for smooth GLM + smooth penalty rows that are otherwise already weight-capable;
+- typed penalized smooth-GLM wrappers using the same path;
+- existing weighted `PenalizedGLM_CV` smooth-L2 rows whose maintained CV solver table already resolves to L-BFGS, notably Negative Binomial and Gamma/Inverse-Gaussian candidate/final-refit paths where their existing public weight contract permits weights.
+
+No new penalty/loss/CV dispatch row is introduced. Unsupported independent weight contracts remain fail-closed at their consumer boundary.
 
 ## 5. Desired objective and compatibility contract
 
-For supported analytic-weight rows, both Newton and L-BFGS optimize exactly
+For supported analytic-weight rows, Newton and L-BFGS optimize exactly
 
 ```text
 L(beta) = sum_i w_i * ell_i(beta) / sum_i w_i + P(beta)
 ```
 
-where `P=0` for ordinary `GeneralizedLinearModel` smooth-solver fits and is the already-existing smooth penalty for shared penalized consumers.
+where `P=0` for ordinary explicit smooth-solver fits under the current contract and is the already-existing smooth penalty for shared penalized consumers.
 
 Required identities:
 
-1. multiplying every non-uniform weight by a positive scalar does not change the optimum beyond maintained numerical tolerance;
+1. multiplying all active non-uniform weights by a positive scalar does not change the optimum beyond maintained tolerance;
 2. positive uniform weights reproduce the historical unweighted route;
-3. integer frequency-style weights agree with literal row replication for reference rows when the penalty/objective normalization is aligned;
+3. integer weights agree with literal row replication for aligned reference rows;
 4. every value/gradient/Hessian/quasi-Newton/line-search evaluation represents the same weighted objective;
-5. explicit solver identity remains the requested solver.
+5. explicit solver identity remains exactly the user request.
 
-The historical Newton floating-point uniformity rule (`allclose(values, values[0])`) remains unchanged. Weighted L-BFGS must use the same validation/alignment/uniform-compatibility convention unless characterization proves an existing public L-BFGS rule that must be retained separately.
+The historical Newton/L-BFGS floating-point uniformity rule (`allclose(values, values[0])`) remains unchanged.
 
-## 6. Planned implementation
+## 6. Fit provenance and refit-state contract
 
-### 6.1 Shared analytic-weight preparation
+Ordinary GLM currently does not expose the same stable fit-recorded provenance surface used by penalized GLM. #150 needs machine-auditable proof that explicit weighted solver requests stayed on the requested solver/backend/device.
 
-Avoid two diverging implementations of backend alignment and the historical uniform-weight rule.
+Add/standardize these private fitted provenance fields on successful ordinary GLM fit:
+
+- `_selected_solver` — actual explicit/auto-resolved solver used;
+- `_selected_backend_name` — `numpy`, `cupy`, or `torch`;
+- `_selected_backend_device` — `cpu` or concrete `cuda:k` / Torch device string.
+
+Requirements:
+
+- provenance reflects executed fit, not original input container;
+- explicit CuPy/Torch keeps concrete device affinity;
+- inference metadata, when present, agrees with fit provenance;
+- refit entry clears or stages new provenance so a failed changed-path fit cannot advertise a solver/device from work that did not complete.
+
+Before changing broader failed-refit behavior, characterize current ordinary-GLM semantics on a previously fitted estimator for: input validation failure, invalid weight failure, and solver failure. Preserve established semantics unless repository transaction policy already requires invalidation. #150 must not silently redefine unrelated sklearn-style refit behavior; it must only ensure newly added provenance cannot become stale or contradictory.
+
+## 7. Planned implementation
+
+### 7.1 Shared analytic-weight preparation
+
+Avoid diverging Newton/L-BFGS backend alignment and uniformity logic.
 
 Preferred implementation:
 
-- extract/generalize Newton's current weight preparation into one private solver utility (for example `_prepare_analytic_sample_weight(sample_weight, n_samples, backend, ref_arr)`);
-- have Newton call that shared utility without changing its observable behavior;
-- have L-BFGS use the same utility;
-- preserve a thin compatibility alias only if existing internal/static tests import the Newton-private name.
+- extract/generalize Newton's current preparation into one private solver utility such as `_prepare_analytic_sample_weight(sample_weight, n_samples, backend, ref_arr)`;
+- Newton calls it with no observable behavior change;
+- GLM-capable L-BFGS calls the same utility;
+- preserve a thin internal alias if existing static tests/imports require the Newton-private name.
 
-Before/after characterization must prove the Newton path is behavior-preserving.
+Before/after characterization must prove Newton behavior preservation.
 
-### 6.2 Weighted L-BFGS
+### 7.2 Weighted GLM L-BFGS
 
-Thread the prepared active weight vector through every loss evaluation:
+For GLM losses admitted by the capability boundary, thread the prepared active weight vector through every loss evaluation:
 
 - initial fused value/gradient;
-- current/old objective for line search;
+- current objective for line search;
 - every candidate objective in backtracking;
 - updated gradient after the accepted candidate.
 
-Penalty value/gradient handling remains unchanged.
+Penalty value/gradient handling, two-loop recursion, curvature-history update, convergence rules, and line-search constants remain unchanged.
 
-The two-loop recursion, curvature-history update, convergence tests, and line-search constants remain algorithmically unchanged; only the objective/gradient inputs become weight-coherent.
+For non-GLM losses, non-uniform weights retain the current fail-closed behavior.
 
-No host conversion of the full weight vector is allowed for explicit CuPy/Torch execution. Scalar reductions needed by convergence/line-search synchronization may retain the established backend helper behavior.
+No full weight/data host conversion is allowed on explicit CuPy/Torch. Established scalar synchronization for convergence/line-search booleans is allowed.
 
-### 6.3 Ordinary `GeneralizedLinearModel`
+### 7.3 Ordinary `GeneralizedLinearModel`
 
 Replace the blanket `_fit_smooth_solver()` rejection with capability-aware dispatch:
 
-- pass the already validated/backend-aligned `sample_weight` to `newton_solver` or `lbfgs_solver`;
+- pass already validated/backend-aligned weights to the requested smooth solver;
+- set fit-recorded solver/backend/device provenance from actual execution;
 - do not change `solver="auto"`;
-- do not silently substitute a different solver if a loss/backend row rejects weights;
-- preserve existing intercept layout and result/reporting layout;
-- keep unsupported family/solver combinations failing with a precise solver/loss capability error before publishing fitted state.
+- do not silently substitute a different solver;
+- preserve intercept/result layout and current explicit-solver `C` behavior;
+- let precise lower-level loss/solver capability errors propagate before publishing a successful fit.
 
-### 6.4 Shared penalized consumer closure
+### 7.4 Shared penalized/CV closure
 
-Once `lbfgs_solver` genuinely supports non-uniform weights, characterize existing penalized L-BFGS callers rather than leaving an accidental capability expansion untested.
+Once GLM L-BFGS supports non-uniform weights, explicitly validate the included penalized rows from §4.4. Do not add an artificial consumer guard merely to preserve the previous shared-solver limitation.
 
-For every penalized row already allowed to call L-BFGS with `sample_weight`:
+If a listed row fails because of a genuine independent family/penalty weight limitation, retain that exact consumer-level fail-closed contract and document the reason; do not restore a generic L-BFGS non-uniform rejection.
 
-- either prove the row is now supported with the same weighted objective and backend contract;
-- or add/narrow a capability guard at the correct consumer boundary with an explicit message.
+## 8. Final support matrix to prove
 
-Do not reintroduce a generic blanket rejection in the shared solver merely to preserve an unreviewed consumer limitation.
-
-## 7. Intended support matrix to prove
-
-The plan starts with the following candidate matrix. A row becomes a public support claim only after the corresponding deterministic characterization succeeds.
+For ordinary `GeneralizedLinearModel`, the implementation targets the following rows on NumPy/CuPy/Torch. A row is removed only by a reviewed plan amendment if characterization proves a genuine family/solver numerical limitation.
 
 | Family/loss | Newton + non-uniform weights | L-BFGS + non-uniform weights | Notes |
 |---|---|---|---|
-| Gaussian / squared error | candidate supported | candidate supported | weighted Hessian and weighted fused value/grad exist |
-| Binomial / logistic through generic GLM | candidate supported | candidate supported | generic GLM only; standalone `LogisticRegression` API unchanged |
-| Poisson | candidate supported | candidate supported | weighted Hessian/fused path exists |
-| Gamma (maintained links) | candidate supported | candidate supported | test log and any public inverse-power link separately |
-| Inverse Gaussian | candidate supported | candidate supported | family-specific convergence needs characterization |
-| Negative Binomial | candidate supported | candidate supported | important shared CV L-BFGS consumer |
-| Tweedie | candidate supported | candidate supported | power-specific stability needs characterization |
-| Ordered models | unsupported | unsupported | existing explicit no-weight contract preserved |
+| Gaussian / squared error | target supported | target supported | current explicit smooth-solver objective preserved |
+| Binomial / logistic via generic GLM | target supported | target supported | specialized standalone LogisticRegression unchanged |
+| Poisson | target supported | target supported | canonical log-link path |
+| Gamma, log link | target supported | target supported | validate separately |
+| Gamma, inverse-power link if publicly constructible through this surface | target supported | target supported | separate domain/stability row |
+| Inverse Gaussian | target supported | target supported | validate noncanonical stability |
+| Negative Binomial | target supported | target supported | key shared CV L-BFGS consumer |
+| Tweedie | target supported | target supported | power parameter fixed per model |
+| Ordered models | unsupported | unsupported | existing contract preserved |
 
-If a family fails numerical correctness/convergence under the requested solver after the weighting implementation is correct, keep that exact family × solver row fail-closed and document it. Do not fall back to another solver.
+For non-GLM direct `lbfgs_solver` calls, genuinely non-uniform weights remain unsupported in #150.
 
-## 8. Hosted validation plan
+## 9. Hosted validation plan
 
-### 8.1 Shared solver-level tests
+### 9.1 Shared solver-level tests
 
-Add focused L-BFGS tests analogous to the maintained weighted-Newton regressions:
+Add weighted L-BFGS regressions analogous to weighted Newton:
 
-- integer-weight row replication on at least squared error and logistic/Poisson;
+- integer-weight row replication on squared error plus at least Logistic and Poisson;
 - global positive weight-rescaling invariance;
-- uniform and historical almost-uniform floating weights reproduce the unweighted path;
+- uniform and historical almost-uniform floating weights reproduce unweighted path;
 - invalid shape/negative/non-finite/zero-total weights fail before iteration;
 - NumPy vs Torch-CPU parity;
-- direct solver instrumentation proving every fused value/gradient call receives the active non-uniform weights, including line-search candidate calls;
-- line-search failure behavior remains fail-visible and does not accept an unverified weighted trial.
+- instrumentation proving every GLM fused value/gradient call receives active weights, including line-search candidates;
+- non-GLM direct L-BFGS with non-uniform weights remains rejected;
+- line-search failure remains fail-visible and never accepts an unverified trial.
 
-Newton characterization tests must show extracting the shared weight helper does not change existing weighted/unweighted results.
+Newton tests prove the shared helper extraction preserves all existing weighted/unweighted behavior.
 
-### 8.2 Ordinary public GLM tests
+### 9.2 Ordinary public GLM matrix
 
 For explicit `newton` and `lbfgs` separately:
 
-- non-uniform weighted fit reaches the requested solver rather than the historical wrapper error;
-- `model.solver` remains the explicit request;
-- coefficients/intercept are finite and agree with an analytic/external/reference construction where available;
-- positive constant rescaling of weights leaves fitted coefficients/intercept invariant;
-- uniform weights match unweighted fit;
+- non-uniform weighted fit reaches the requested solver rather than the old wrapper error;
+- `_selected_solver/_selected_backend_name/_selected_backend_device` match execution;
+- coefficients/intercept are finite and agree with aligned reference construction;
+- positive global weight rescaling invariance;
+- uniform-weight equivalence;
 - `fit_intercept=True` and `False`;
-- generic `GeneralizedLinearModel` plus maintained typed wrappers;
-- formula/data route with dropped/missing rows aligns `sample_weight` correctly;
-- failed refits do not leave a stale successful fitted/inference state.
+- generic GLM plus every maintained typed wrapper in §4.1;
+- all family/link rows in §8;
+- formula/data path aligns side-array weights after dropped rows;
+- explicit unsupported rows fail precisely with no solver substitution.
 
-Run a family matrix for Gaussian, Binomial, Poisson, Gamma, Inverse Gaussian, Negative Binomial, and Tweedie. Record rows that are deliberately unsupported instead of silently skipping them.
+### 9.3 `C` and refit-state characterization
 
-### 8.3 Inference/diagnostic preservation
+Before accepting #150:
 
-For ordinary GLM rows where `compute_inference=True` is already supported:
+- freeze current unweighted explicit Newton/L-BFGS behavior under at least two `C` values to prove the weight change did not alter `C` semantics;
+- characterize failed refit behavior on a previously fitted ordinary GLM;
+- prove new provenance fields are either cleared/staged consistently with that established behavior and never contradict actual completed work.
 
-- fitted numerical objective and inference use the same weights;
-- `solver_used` / fit metadata reports the explicit solver;
-- `_sample_weight_inf`, loglikelihood, AIC/BIC, bse/statistic/p-value/CI remain coherent with the weighted fit;
-- nonrobust/robust covariance support is not expanded beyond the pre-existing contract.
+### 9.4 Inference/diagnostic preservation
 
-Use at least one Newton and one L-BFGS supported family with inference enabled. Include an external or independently computed weighted baseline where feasible.
+For ordinary rows where `compute_inference=True` is already supported:
 
-### 8.4 Shared penalized/CV regressions
+- fit and inference use the same active weights;
+- inference `solver_used` agrees with `_selected_solver`;
+- numerical backend/device metadata agrees with fit provenance where present;
+- `_sample_weight_inf`, loglikelihood, AIC/BIC, bse/statistic/p-value/CI are coherent with the weighted fit;
+- covariance support matrix is unchanged.
 
-Because weighted L-BFGS changes a shared solver:
+Cover at least one Newton and one L-BFGS family with inference enabled and an independent aligned reference where feasible.
 
-- explicit weighted penalized L-BFGS on a smooth supported row;
-- weighted `PenalizedGLM_CV` rows that currently select L-BFGS, including candidate fitting and selected final refit;
-- solver identity/provenance remains L-BFGS;
+### 9.5 Shared penalized/CV regressions
+
+Mandatory because the shared L-BFGS capability changes:
+
+- explicit weighted penalized GLM L-BFGS on supported smooth rows;
+- weighted `PenalizedGLM_CV` existing L-BFGS rows: Negative Binomial L2 and Gamma/Inverse-Gaussian L2 where public weight support already applies;
+- candidate and selected-final-refit solver identity remains L-BFGS;
+- penalty scaling/weight-rescaling invariance remains coherent;
 - existing Newton/FISTA/IRLS dispatch is unchanged;
-- unsupported penalty/loss combinations continue to fail before misleading numerical work.
+- non-GLM/unsupported penalty rows remain fail-closed.
 
-## 9. Backend/device closure
+## 10. Backend/device and physical CUDA closure
 
-Weighted L-BFGS is a materially changed shared numerical capability, so completion requires NumPy + CuPy + Torch for every claimed supported public row unless a narrower row is explicitly justified.
+This is a shared numerical capability change. Final support claims require NumPy/CuPy/Torch closure.
 
-Hosted tests should prove what can be proved without physical CUDA, including Torch CPU helper/parity and static routing contracts. Final physical CUDA evidence must cover at least:
+Hosted/static tests prove routing, Torch-CPU parity, formula alignment, public matrix, and no accidental consumer expansion where physical CUDA is unavailable.
 
-- ordinary GLM weighted explicit Newton on CuPy and Torch;
-- ordinary GLM weighted explicit L-BFGS on CuPy and Torch;
-- at least two representative families, one of which is non-Gaussian;
-- a maintained penalized/shared L-BFGS consumer if that capability is claimed;
-- concrete device provenance and no CPU numerical fallback;
-- heterogeneous input containers if the public fit boundary permits them;
-- coefficient/intercept parity against the frozen NumPy reference under fixed data/weights;
-- weight-rescaling invariance or an equivalent objective invariant on GPU.
+Freeze one exact-source physical validator before first acceptance run. The physical matrix must include **every ordinary family/link row finally claimed supported in §8 for both explicit Newton and explicit L-BFGS on both CuPy and Torch CUDA**. Small deterministic datasets are acceptable; the goal is capability/provenance/parity, not performance.
 
-Freeze validator schema, datasets, tolerances, and route matrix before the first acceptance run. A failed physical run must not be made green by silently loosening tolerances.
+Additionally include:
 
-## 10. External/reference validation
+- at least one Torch-input→CuPy and one CuPy-input→Torch crossing for each solver if public explicit-device routing permits it;
+- Negative Binomial and Gamma/Inverse-Gaussian weighted penalized/CV L-BFGS representative rows if those shared consumers are claimed supported;
+- concrete `cuda:k` provenance and selected solver provenance;
+- no CPU numerical fallback;
+- coefficient/intercept parity against frozen NumPy references;
+- at least one positive weight-rescaling invariant on each GPU backend for L-BFGS.
 
-Use the strongest aligned reference available per family:
+Validator schema, data seeds, family kwargs, tolerances, route matrix, and source fingerprint are frozen before the first acceptance run. Do not loosen tolerances after a failed run solely to get green status.
 
-- Gaussian: analytic weighted least-squares / row-replication identity when unpenalized explicit smooth solver semantics are being tested;
-- Binomial/Poisson: statsmodels GLM with aligned analytic/frequency weighting only after confirming equivalent weight semantics and objective scale;
-- other families: statsmodels or an internal trusted IRLS/FISTA reference only when family/link/objective parameterizations match exactly.
+## 11. External/reference validation
 
-Do not declare a solver bug from an external coefficient difference until intercept, link, dispersion/power, regularization/C semantics, weight interpretation, objective normalization, and tolerance are aligned.
+Use aligned references only:
 
-## 11. Documentation plan
+- Gaussian: analytic weighted least squares / literal row replication under the current unpenalized explicit-smooth-solver objective;
+- Binomial/Poisson: statsmodels GLM only after aligning intercept, family/link, weight interpretation, and normalization;
+- Gamma/IG/NB/Tweedie: statsmodels or a trusted maintained internal reference only when link/dispersion/power and objective semantics match exactly.
 
-Update only affected user-facing surfaces, keeping learner-facing prose evergreen:
+Do not infer a solver defect from coefficient differences until intercept, link, family nuisance parameters, current `C` behavior, weight meaning, normalization, and convergence tolerances are aligned.
 
-- EN/CN `models/generalized-linear-model.md` — remove the categorical explicit-Newton/L-BFGS weighted rejection and explain capability-aware explicit solver behavior;
-- EN/CN solver guide/matrix where the current support table or weighting note is affected;
-- typed GLM pages only if they currently make a contradictory weight/solver claim;
-- root + EN/CN changelog entries describing the public capability repair.
+## 12. Documentation plan
 
-User docs should explain:
+Update learner-facing documentation, not PR-style narratives:
 
-- `sample_weight` is analytic objective weighting for these supported rows;
+- EN/CN `models/generalized-linear-model.md` — replace categorical weighted explicit Newton/L-BFGS rejection with final capability-aware behavior;
+- EN/CN solver guide/matrix where weighting support is described;
+- typed GLM pages only if they contain a conflicting solver/weight statement;
+- root + EN/CN changelogs for release history.
+
+Explain:
+
+- supported `sample_weight` is normalized analytic objective weighting;
 - explicit solver requests are authoritative;
-- `solver="auto"` remains unchanged;
-- GPU changes execution location, not the weighted statistical objective;
-- exact unsupported family × solver rows, if any.
+- `solver="auto"` is unchanged;
+- GPU changes execution location, not weighted objective semantics;
+- exact unsupported rows, including ordered models and non-GLM weighted L-BFGS in this issue.
 
-Do not turn model pages into PR/evidence logs; physical validator details belong in developer/evidence surfaces and changelog only when useful for release auditing.
+Physical validator/evidence narration stays in developer/evidence surfaces or changelog, not the main user-learning path.
 
-## 12. Execution and evidence order
+## 13. Execution and evidence order
 
 1. freeze this plan through plan review/fix;
-2. add/adjust characterization tests that capture current Newton behavior and the historical ordinary/L-BFGS rejection;
-3. implement shared weight preparation + weighted L-BFGS;
-4. reopen ordinary explicit smooth-solver weighting by passing weights to the requested solver;
-5. close shared penalized/CV L-BFGS consumers;
-6. run targeted hosted tests, then full relevant matrix;
-7. update EN/CN user docs and changelogs;
-8. freeze physical CUDA validator schema/tolerances;
-9. run exact-head hosted CI;
-10. perform fresh independent code review/fix loop;
-11. run physical CUDA gate on the exact final numerical source;
-12. perform final exact-head/evidence-freshness review.
+2. add characterization tests for current Newton, L-BFGS rejection, explicit smooth-solver `C`, provenance, and refit-state behavior;
+3. implement shared analytic-weight preparation while proving Newton preservation;
+4. implement GLM-only non-uniform weighted L-BFGS;
+5. reopen ordinary explicit smooth-solver weighting and record fit provenance;
+6. close included penalized/CV L-BFGS consumers;
+7. run targeted then full hosted tests;
+8. update EN/CN docs and changelogs;
+9. freeze physical validator schema/tolerances;
+10. run exact-head hosted CI;
+11. perform fresh independent code review/fix loop;
+12. run physical CUDA gate on exact final numerical source;
+13. perform final exact-head/evidence-freshness review.
 
-If docs-only changes occur after an accepted physical run, evidence reuse is allowed only under an explicit, scoped evidence exception or a validator contract that fingerprints the unchanged numerical source; otherwise the physical artifact remains historical.
+A docs-only tail after accepted physical validation may reuse evidence only under an explicit scoped exception or validator-native numerical fingerprint contract; any numerical/solver/backend/inference/validator/tolerance change reopens physical validation.
 
-## 13. Acceptance criteria
+## 14. Acceptance criteria
 
-- [ ] Ordinary weighted explicit Newton no longer fails at the stale wrapper guard and reaches `newton_solver` with the validated backend-native weight vector.
-- [ ] Newton's existing weighted numerical behavior and historical uniform-weight compatibility remain unchanged.
-- [ ] `lbfgs_solver` supports genuine non-uniform analytic weights using one coherent normalized weighted objective in every value/gradient/line-search evaluation.
-- [ ] Explicit weighted L-BFGS reaches L-BFGS for every claimed supported ordinary GLM row; unsupported rows have precise capability errors and no fallback.
-- [ ] No explicit Newton/L-BFGS request is silently changed because weights are present.
-- [ ] `solver="auto"` behavior is unchanged.
-- [ ] NumPy/CuPy/Torch closure exists for every newly claimed weighted L-BFGS row.
-- [ ] Shared penalized/CV L-BFGS consumers are inventoried and either covered or explicitly fail-closed at their own capability boundary.
-- [ ] Positive constant weight-rescaling invariance and uniform-weight equivalence hold for supported analytic-weight rows.
-- [ ] Existing ordinary GLM inference/diagnostics use the same fitted weight convention and retain their previous covariance support matrix.
+- [ ] Ordinary weighted explicit Newton reaches `newton_solver` with validated backend-native weights and no stale wrapper rejection.
+- [ ] Newton existing weighted behavior/uniform compatibility is unchanged.
+- [ ] GLM-capable `lbfgs_solver` supports genuine non-uniform analytic weights with one coherent weighted objective in all value/gradient/line-search evaluations.
+- [ ] Non-GLM direct L-BFGS genuinely non-uniform weights remain fail-closed in #150.
+- [ ] Explicit weighted L-BFGS reaches L-BFGS for every final supported ordinary GLM row with no fallback.
+- [ ] Existing weighted penalized/CV smooth-GLM L-BFGS rows in §4.4 are intentionally closed and tested.
+- [ ] `solver="auto"`, IRLS, FISTA, Ordered GLM, specialized LogisticRegression, and existing `C` semantics are unchanged.
+- [ ] `_selected_solver/_selected_backend_name/_selected_backend_device` accurately describe successful ordinary GLM execution and do not become stale/contradictory on failed changed-path refits.
+- [ ] Weight-rescaling invariance and uniform-weight equivalence hold for supported analytic-weight rows.
+- [ ] Existing inference/diagnostics use the same weights and retain previous covariance/estimand support.
 - [ ] Formula-side weight alignment is covered.
-- [ ] Ordered GLM and unrelated specialized APIs remain unchanged.
-- [ ] EN/CN docs and changelogs describe the final support matrix without update-log-style user prose.
-- [ ] Exact final numerical source passes hosted CI and required physical CuPy/Torch CUDA validation.
+- [ ] NumPy/CuPy/Torch closure exists for every final claimed ordinary weighted Newton/L-BFGS row.
+- [ ] Physical CUDA matrix covers every final ordinary family/link × solver × CuPy/Torch claim plus representative shared penalized/CV L-BFGS consumers.
+- [ ] EN/CN docs/changelogs match final matrix and remain learner-oriented.
+- [ ] Exact final numerical source passes hosted CI and physical CUDA validation.
 - [ ] Final fresh code review has no unresolved CRITICAL/HIGH/actionable MEDIUM finding.
 
-## 14. Plan-review gate
+## 15. Plan review history
 
-No production implementation starts until this plan has undergone a fresh independent review/fix loop under `.claude/skills/code-review` and reaches:
+### Round 1 findings fixed in this revision
+
+- HIGH: generic `lbfgs_solver` consumer graph was under-scoped; non-GLM non-uniform weight expansion is now explicitly blocked in #150.
+- HIGH: ordinary fit provenance needed an explicit machine-auditable solver/backend/device contract.
+- HIGH: existing weighted penalized/CV L-BFGS rows were left as an implementation-time choice; they are now intentionally included when their independent public weight contract already permits weights.
+- MEDIUM: explicit smooth-solver `C` semantics and refit-state behavior now have pre-change characterization gates rather than implicit assumptions.
+- MEDIUM: physical acceptance now covers every final claimed ordinary family/link × solver × GPU backend row instead of only a representative pair.
+
+## 16. Plan-review gate
+
+No production implementation starts until a fresh independent review/fix loop under `.claude/skills/code-review` reaches:
 
 `PLAN REVIEW CLEAN / IMPLEMENTATION OPEN`
