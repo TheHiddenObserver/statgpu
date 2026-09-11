@@ -58,6 +58,16 @@ _PUBLIC_DEFAULT_CLASSES = (
     PenalizedNegativeBinomialRegression,
     PenalizedTweedieRegression,
 )
+_WEIGHTED_M_ESTIMATION_LOSSES = frozenset(
+    {
+        "logistic",
+        "poisson",
+        "gamma",
+        "inverse_gaussian",
+        "negative_binomial",
+        "tweedie",
+    }
+)
 
 
 def _make_public_auto_boundary(current, public_signature):
@@ -178,6 +188,22 @@ def _invalidate_failed_refit(self):
     self._fitted = False
 
 
+def _penalty_name(self):
+    value = getattr(self, "penalty", "")
+    return str(getattr(value, "name", value)).strip().lower()
+
+
+def _use_weight_capable_auto_solver(self, sample_weight) -> bool:
+    """Keep weighted inference on an existing backend-native solver path."""
+    if sample_weight is None or not bool(getattr(self, "compute_inference", False)):
+        return False
+    if str(getattr(self, "_solver", getattr(self, "solver", "auto"))).lower() != "auto":
+        return False
+    if str(getattr(self, "loss", "")).lower() not in _WEIGHTED_M_ESTIMATION_LOSSES:
+        return False
+    return _penalty_name(self) in ("l2", "none", "null", "")
+
+
 def _install_fit_restore():
     current = PenalizedGeneralizedLinearModel.fit
     if getattr(current, _MARKER, False):
@@ -187,6 +213,16 @@ def _install_fit_restore():
     def wrapped(self, *args, **kwargs):
         public_request = getattr(self, "inference_method", None)
         internal_request = getattr(self, "_inference_method", None)
+        internal_solver = getattr(self, "_solver", None)
+        sample_weight = kwargs.get("sample_weight")
+        if sample_weight is None and len(args) >= 3:
+            sample_weight = args[2]
+        if _use_weight_capable_auto_solver(self, sample_weight):
+            # Newton currently rejects non-uniform analytic weights, while the
+            # maintained FISTA path honors the same average-loss weighted
+            # objective on NumPy/CuPy/Torch. This is a fit-local execution
+            # choice only: the public request remains solver='auto'.
+            self._solver = "fista"
         try:
             return current(self, *args, **kwargs)
         except Exception:
@@ -200,6 +236,8 @@ def _install_fit_restore():
                 self._inference_method = internal_request
             else:
                 self.__dict__.pop("_inference_method", None)
+            if internal_solver is not None:
+                self._solver = internal_solver
 
     setattr(wrapped, _MARKER, True)
     PenalizedGeneralizedLinearModel.fit = wrapped
