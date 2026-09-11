@@ -177,6 +177,7 @@ Before completion, re-resolve the effective base/head and close the evidence gra
 - After HEAD moves, earlier evidence is historical unless the artifact separately records an unchanged relevant `source_sha`/content fingerprint and its validator contract explicitly allows that reuse.
 - Do not use a green workflow from an earlier head to certify a later head.
 - Re-run only the evidence invalidated by the final changes; docs-only changes need not force unrelated numerical reruns when the evidence contract separately fingerprints the unchanged numerical source, but that reuse must be explicit rather than assumed.
+- For project-skill/eval changes, committed eval definitions and static contract tests prove only policy/schema presence. If the task claims actual skill triggering or output quality, require an executed skill-runtime/grading run; if that runtime evidence is unavailable, report it as pending rather than calling behavioral quality empirically closed.
 - Final completion requires a freshness recheck after all source/docs/review-fix commits that belong to the task.
 
 ## 11. Repository actions
@@ -191,8 +192,8 @@ Never read or write credentials from tracked Markdown or `.claude/settings.json`
 
 End implementation workflows with one of:
 
-- `COMPLETE`: all active local blocking gates pass; a new shared statistical/numerical capability has closed its default backend contract, and a new tunable loss x penalty capability has closed its default CV contract unless an approved exception applies; final docs/claims are reviewed; exact-head evidence is fresh; no unresolved CRITICAL/HIGH review finding remains.
-- `PARTIAL_REMOTE_PENDING`: local work is complete and only explicitly identified remote GPU/R/external/large-scale evidence remains.
+- `COMPLETE`: all active local blocking gates pass; a new shared statistical/numerical capability has closed its default backend contract, and a new tunable loss x penalty capability has closed its default CV contract unless an approved exception applies; final docs/claims are reviewed; exact-head evidence is fresh; no unresolved CRITICAL/HIGH review finding remains; and any claimed skill trigger/output behavior has actual runtime/grading evidence.
+- `PARTIAL_REMOTE_PENDING`: local/static work is complete and only explicitly identified remote GPU/R/external/large-scale or skill-runtime behavioral evidence remains.
 - `BLOCKED_NEEDS_USER_APPROVAL`: progress requires a user decision such as a backend/CV deferral, breaking API choice, merge/release/publication, credentials, or an accepted performance caveat.
 - `FAILED`: an active local correctness/compatibility/backend/CV/convergence/fallback/inference/resampling/review/evidence-freshness gate remains unresolved.
 
