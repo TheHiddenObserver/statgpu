@@ -1,7 +1,7 @@
 # Inference Modes
 
 > Language: English  
-> Last updated: 2026-09-08  
+> Last updated: 2026-09-11  
 > This page: Guide  
 > Switch: [Chinese](../../cn/guides/inference-modes.md)
 
@@ -42,6 +42,45 @@ Student-t identities at one and two residual degrees of freedom, avoiding
 subtractive cancellation or an avoidable `t**2` overflow in representable
 extreme tails.
 
+## Penalized GLM fixed-penalty inference
+
+The generic `PenalizedGeneralizedLinearModel`, `PenalizedLinearRegression`, and
+typed non-Gaussian penalized wrappers use `inference_method="auto"` as the
+public generic request. The request and the reported statistical method are
+separate pieces of provenance: successful fits expose
+`inference_requested_method_`, `inference_resolved_method_`,
+`inference_method_`, `inference_target_`, and tuning/selection conditioning.
+
+For supported smooth non-Gaussian L2/no-penalty models, `auto` resolves to
+`m_estimation`. The current fixed-penalty covariance scope is `nonrobust`, `hc0`,
+and `hc1`; HC2/HC3/HAC are intentionally unsupported on this penalized-GLM path
+and fail closed. Positive L2 fits target the penalized estimating equation;
+no-penalty aliases are canonicalized internally to zero-strength L2 and target
+the ordinary unpenalized parameter.
+
+Numerical M-estimation follows the backend and concrete device that actually
+executed the fit. Original input containers are not used as backend provenance.
+If the fit executed on CuPy or Torch, post-fit inference inputs are aligned to
+that recorded backend/device through the maintained cross-backend conversion
+helpers before bread/meat/reference-distribution work begins. Explicit CUDA or
+Torch execution never silently substitutes a CPU sandwich calculation.
+
+Analytic weights are supported for this L2/no-penalty contract. For an
+inference-enabled weighted non-Gaussian fit with public `solver="auto"`, statgpu
+uses its maintained weight-capable FISTA path for that fit because Newton
+currently rejects non-uniform weights; the public solver request remains
+`"auto"`. `PenalizedGLM_CV` applies the same choice during candidate selection
+and the selected full-data refit, while coefficient inference itself still runs
+exactly once after tuning on the selected final refit. CV inference explicitly
+reports `penalty_conditioning_="cv_selected_penalty"` and
+`penalty_selection_adjusted_=False`.
+
+Non-Gaussian L1/ElasticNet coefficient inference is not productized by this
+contract: it fails closed instead of returning the historical partial sandwich
+approximation. Penalized Cox and the maintained group-penalty rows remain
+estimation-only. See [Penalized GLM inference](penalized-glm-inference.md) for
+the complete support matrix and statistical interpretation.
+
 ## Sparse penalized-linear inference
 
 For `Lasso`, `ElasticNet`, and the public generic
@@ -52,7 +91,8 @@ controls. The maintained inference methods are:
 - `debiased` — de-biased/de-sparsified coefficient inference.
 - `post_selection_ols` — heuristic OLS/WLS refit on the active set selected by
   the penalized fit.
-- `bootstrap` — residual-bootstrap inference where supported.
+- `bootstrap` — **unweighted Gaussian residual bootstrap on CPU only**. It
+  preserves the fitted penalty family and requires at least two resamples.
 
 `post_selection_ols` is the canonical hardware-neutral spelling. The unified
 aliases `cpu_ols` and `gpu_ols` are deprecated together and are accepted for one
@@ -94,9 +134,13 @@ reporting. The structured result records `simultaneous_numerical_backend`,
 `fit_intercept=False` simultaneous path still uses the pre-existing generic
 reporting-stage helper and is **not** claimed as GPU-native by this PR.
 
-Residual `bootstrap`, likewise, currently uses a CPU-native residual-refit
-implementation. An explicit GPU `device` therefore controls the penalized fit
-but must not be interpreted as making residual bootstrap GPU-native.
+Residual `bootstrap` is deliberately narrower. It is an unweighted Gaussian
+residual-refit procedure and currently executes on CPU only. If the successful
+penalized fit executed on CuPy or Torch, requesting `bootstrap` raises instead of
+silently moving the resampling/refits to CPU. Weighted residual bootstrap and
+robust/HAC bootstrap semantics are not inferred from `sample_weight` or
+`cov_type`; those requests fail closed. `n_bootstrap` must be at least 2 so a
+published bootstrap standard error is defined.
 
 With analytic `sample_weight`, the maintained NumPy/CuPy/Torch `debiased` paths
 use the same weighted-centered average-loss working problem. Multiplying every
