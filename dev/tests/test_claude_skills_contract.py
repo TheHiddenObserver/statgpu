@@ -81,6 +81,7 @@ def test_code_review_remains_a_blocking_forked_independent_pass():
     metadata = _frontmatter(text)
     assert metadata["context"] == "fork"
     assert metadata["background"] is False
+    assert "commit" in metadata["argument-hint"]
     compatibility = metadata["compatibility"]
     assert "2.1.218" in compatibility
     assert "earlier versions block forked skills by default" in compatibility
