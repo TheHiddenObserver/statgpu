@@ -188,7 +188,7 @@ def test_code_review_covers_inference_identity_resampling_and_consumer_graph():
         "consumer inventory",
         "public requested method -> resolved numerical method",
         "Resampling is blocking",
-        "current published version",
+        "release-boundary",
         "exact-head",
     ):
         assert phrase in review
