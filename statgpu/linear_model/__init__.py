@@ -170,6 +170,15 @@ from . import (
 
 _penalized_glm_inference_contract.install_penalized_glm_inference_contract()
 
+# Generic `auto` can resolve to debiased inference, whose CuPy/Torch work starts
+# inside the fit backend before post-fit routing. Bind the resolved dispatch
+# method across the full fit transaction, then restore the user's public request.
+from . import (
+    _penalized_glm_inference_fit_transaction as _penalized_glm_inference_fit_transaction,
+)
+
+_penalized_glm_inference_fit_transaction.install_penalized_glm_inference_fit_transaction()
+
 __all__ = [
     'LinearRegression',
     'LogisticRegression',
