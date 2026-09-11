@@ -68,15 +68,15 @@
     },
     {
       "id": 7,
-      "prompt": "Audit a penalized-GLM inference cleanup. The generic constructor exposes inference_method='debiased', some non-Gaussian L2/ElasticNet fits actually return m_estimation sandwich results, and a helper advertised as generic bootstrap reconstructs a Gaussian penalized-linear L1 model. CI is green.",
-      "expected_output": "The review classifies the work as capability reconciliation plus API/inference/resampling, inventories affected typed/shared consumers, treats requested/resolved/reported method mismatch and invalid generic resampling as blocking even with green CI, requires an explicit estimand/conditioning/support matrix, and verifies final docs/evidence against the exact reviewed head.",
+      "prompt": "Fresh-audit the penalized-GLM inference public contract at immutable statgpu commit e364717bd62ff84d260eab4e0b7020e26a98caf0. Hosted CI for that snapshot was green; treat CI as evidence, not as proof that the review is clean. Inspect the generic and typed penalized-GLM public API, actual inference dispatch and result metadata, resampling/refit behavior, CV/meta-estimator consumers, and maintained docs. Do not edit anything, and trace runtime behavior rather than trusting names or prose.",
+      "expected_output": "The review treats this as existing-capability reconciliation plus API/inference/resampling, inventories affected typed/shared consumers, and independently discovers the materially inconsistent inference contract: public penalized-GLM surfaces can request/name debiased inference while non-Gaussian L2/ElasticNet execution reports m_estimation sandwich results; the nominally generic bootstrap path reconstructs a Gaussian PenalizedLinearRegression with L1 residual-bootstrap semantics rather than preserving the claimed GLM family. These are blocking findings despite green CI. The review also requires an explicit estimand/conditioning/support matrix and distinguishes exact-source static evidence from any missing runtime behavioral-eval evidence.",
       "assertions": [
         "The response identifies capability reconciliation rather than treating this only as a wording cleanup.",
-        "Requested, resolved, and reported inference method identity is reviewed explicitly.",
-        "The bootstrap refit family/penalty mismatch is treated as a blocking inference/resampling defect.",
-        "Shared-base consumers are inventoried.",
+        "The response independently finds the requested/resolved/reported inference-method mismatch, including debiased versus m_estimation behavior.",
+        "The response independently finds that the nominally generic resampling refit changes to an incompatible Gaussian penalized-linear L1 model/family.",
+        "Shared-base typed wrappers and CV/meta-estimator consumers are inventoried.",
         "Green CI is not sufficient for a clean verdict.",
-        "Final docs and exact-head evidence freshness are part of the verdict."
+        "The final verdict is blocking and evidence freshness is scoped to the immutable snapshot."
       ]
     }
   ]
