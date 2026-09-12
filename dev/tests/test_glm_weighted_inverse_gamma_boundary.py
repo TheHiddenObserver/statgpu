@@ -69,10 +69,48 @@ def test_inverse_gamma_no_intercept_uniform_weights_keep_unweighted_path(
     assert base.intercept_ == weighted.intercept_ == 0.0
 
 
+@pytest.mark.parametrize("solver", ["newton", "lbfgs"])
+@pytest.mark.parametrize("almost_uniform", [False, True])
+def test_inverse_gamma_intercept_uniform_weights_reuse_unweighted_warm_start(
+    solver, almost_uniform, monkeypatch
+):
+    import statgpu.solvers as solvers
+
+    X, y, _ = _data(seed=15603)
+    weights = np.full(X.shape[0], 2.75, dtype=np.float64)
+    if almost_uniform:
+        weights[-1] += 1e-8
+
+    captured = []
+
+    def capture_solver(*args, **kwargs):
+        init = np.asarray(kwargs["init_coef"], dtype=np.float64).copy()
+        captured.append(init)
+        # Returning the supplied start isolates the public-boundary contract:
+        # this test verifies the exact init_coef handed to the requested solver,
+        # independent of later iterative convergence details.
+        return kwargs["init_coef"], 0
+
+    monkeypatch.setattr(solvers, f"{solver}_solver", capture_solver)
+    kwargs = dict(
+        link="inverse_power",
+        fit_intercept=True,
+        solver=solver,
+        device="cpu",
+        max_iter=5,
+        tol=1e-8,
+    )
+    GammaRegression(**kwargs).fit(X, y)
+    GammaRegression(**kwargs).fit(X, y, sample_weight=weights)
+
+    assert len(captured) == 2
+    np.testing.assert_allclose(captured[0], captured[1], rtol=0.0, atol=0.0)
+
+
 def test_unweighted_inverse_gamma_no_intercept_keeps_historical_boundary():
     # Issue #150 narrows only the newly opened genuinely weighted row.  It does
     # not turn the historical unweighted no-intercept path into an API migration.
-    X, y, _ = _data(seed=15603)
+    X, y, _ = _data(seed=15604)
     model = GammaRegression(
         link="inverse_power",
         fit_intercept=False,
