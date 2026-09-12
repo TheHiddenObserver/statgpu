@@ -159,19 +159,33 @@ def _install_smooth_solver_contract() -> None:
         # a no-intercept model there is no generic way to guarantee that the
         # design admits X @ beta > 0 for every row, nor a maintained public
         # init_coef control to express such a feasible point.  Keep only the
-        # new weighted row fail-closed rather than publishing an unstable
-        # capability; the historical unweighted path is left untouched.
+        # genuinely non-uniform weighted row fail-closed.  Uniform/almost-
+        # uniform weights retain the historical unweighted solver path.
         if (
             sample_weight is not None
             and getattr(loss, "name", "") == "gamma"
             and getattr(loss, "link", None) == "inverse_power"
             and not self._effective_intercept
         ):
-            raise ValueError(
-                "weighted explicit Newton/L-BFGS for Gamma inverse_power "
-                "requires fit_intercept=True; no maintained family-valid "
-                "no-intercept initialization is available."
+            # Reuse Newton's already-reviewed historical uniformity rule so
+            # this public-boundary guard cannot drift from solver semantics.
+            # The returned vector stays on the execution backend/device; only
+            # the scalar uniformity decision synchronizes.
+            from statgpu.solvers._newton import _prepare_newton_sample_weight
+
+            active_weight = _prepare_newton_sample_weight(
+                sample_weight,
+                X.shape[0],
+                backend_name,
+                X,
             )
+            if active_weight is not None:
+                raise ValueError(
+                    "weighted explicit Newton/L-BFGS for Gamma inverse_power "
+                    "requires fit_intercept=True for genuine non-uniform "
+                    "sample_weight; no maintained family-valid no-intercept "
+                    "initialization is available."
+                )
 
         init_coef = None
         if self._effective_intercept:
