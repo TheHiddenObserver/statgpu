@@ -1,9 +1,9 @@
 # 分位数回归
 
 > 语言：中文  
-> 最后更新：2026-09-12  
+> 最后更新：2026-09-13  
 > 页面定位：模型文档  
-> 切换：[English](../../en/models/quantile.md)
+> 切换：[英文版](../../en/models/quantile.md)
 
 ## 概述
 
@@ -11,11 +11,11 @@
 
 | 组件 | 路径 |
 |------|------|
-| 损失 | `statgpu.losses.QuantileLoss` |
+| 损失函数 | `statgpu.losses.QuantileLoss` |
 | 独立模型 | `statgpu.linear_model.QuantileRegression` |
-| 惩罚模型 | `statgpu.linear_model.penalized.PenalizedQuantileRegression` |
+| 带惩罚模型 | `statgpu.linear_model.penalized.PenalizedQuantileRegression` |
 | 专用求解器 | `statgpu.solvers._proximal_irls_quantile.proximal_irls_quantile_solver` |
-| R 对应方法 | `quantreg::rq()` |
+| R 中的对应方法 | `quantreg::rq()` |
 
 ## 目标函数
 
@@ -64,28 +64,28 @@ $$
 
 ## 求解器兼容性
 
-下面的“支持”先描述无权重算法能力。带 `sample_weight` 时还必须满足对应求解器的权重 contract；不能从无权重支持直接推出任意非均匀权重也受支持。
+下面的“支持”首先描述无权重时的算法能力。传入 `sample_weight` 后，还必须满足对应损失函数与求解器的带权能力契约；不能从无权重支持直接推出任意非均匀权重也受支持。
 
 | 求解器 | 支持 | 说明 |
 |--------|:---:|------|
-| Proximal IRLS-CD | ✅ | 专用 IRLS 上界 + LLA，主要用于 SCAD/MCP；维护中的路径支持相应解析权重 |
-| FISTA | ✅ | 非光滑/近端路径；权重以当前维护的 FISTA 路径为准 |
-| FISTA-BB | ✅ | 支持的稀疏路径可用；权重能力由当前 loss/solver 路径共同决定 |
-| IRLS | ✅ | L2/none；`QuantileLoss.irls()` 有显式 `sample_weight` 路径 |
-| L-BFGS | ✅（无权重/均匀权重） | 直接非均匀 weighted L-BFGS 当前对 generic `LossBase` fail-closed，见 Issue #153 |
-| ADMM | ✅（无权重/均匀权重） | 共享 `admm_solver` 当前拒绝真正非均匀 `sample_weight` |
-| Newton | ❌ | Quantile 没有 Hessian |
-| Proximal Newton | ❌ | Quantile 没有 Hessian |
+| Proximal IRLS-CD | ✅ | 专用 IRLS 上界 + LLA，主要用于 SCAD/MCP；当前维护路径支持相应解析权重 |
+| FISTA | ✅ | 非光滑/近端路径；权重支持以当前维护的 FISTA 路径为准 |
+| FISTA-BB | ✅ | 支持的稀疏路径可用；带权能力由当前损失函数和求解器路径共同决定 |
+| IRLS | ✅ | L2/无惩罚；`QuantileLoss.irls()` 有显式 `sample_weight` 路径 |
+| L-BFGS | ✅（无权重/均匀权重） | 直接使用真正非均匀权重时，当前通用 `LossBase` 路径会明确拒绝；见 Issue #153 |
+| ADMM | ✅（无权重/均匀权重） | 共享 `admm_solver` 当前拒绝真正非均匀的 `sample_weight` |
+| Newton | ❌ | 分位数损失没有 Hessian |
+| Proximal Newton | ❌ | 分位数损失没有 Hessian |
 
 ## 惩罚兼容性
 
 | 惩罚 | `solver="auto"` 的主要路径 | 说明 |
 |---------|---------------|-------|
-| l2 / none | IRLS | 分位数专用 IRLS |
-| l1 / elasticnet | FISTA | 近端/次梯度路径 |
+| L2 / 无惩罚 | IRLS | 分位数专用 IRLS |
+| L1 / ElasticNet | FISTA | 近端/次梯度路径 |
 | SCAD / MCP | Proximal IRLS-CD | IRLS 上界 + LLA |
-| adaptive_l1 | FISTA-LLA | 加权 L1 近端 |
-| group_* | FISTA-LLA / 分组路径 | 使用对应分组近端算子 |
+| 自适应 L1 | FISTA-LLA | 加权 L1 近端 |
+| 分组惩罚 | FISTA-LLA / 分组路径 | 使用对应分组近端算子 |
 
 ## `sample_weight` 语义
 
@@ -96,14 +96,14 @@ L_w(\beta)
 =\frac{\sum_i w_i\rho_\tau(y_i-x_i^\top\beta)}{\sum_i w_i}.
 $$
 
-但 `sample_weight` **不是所有求解器的统一能力**。当前尤其需要区分：
+但 `sample_weight` **不是所有求解器自动具备的统一能力**。当前尤其需要区分：
 
 - Quantile IRLS / Proximal IRLS-CD 等维护中的带权路径具有显式带权实现；
-- generic `LossBase` 的共享函数值和梯度已经可以计算归一化带权目标；
-- 直接 `lbfgs_solver` 对真正非均匀的 Quantile 权重仍 fail-closed；
-- 共享 `admm_solver` 目前只接受未传或均匀权重。
+- 通用 `LossBase` 的共享函数值和梯度已经可以计算归一化带权目标；
+- 直接调用 `lbfgs_solver` 时，真正非均匀的分位数权重仍会被明确拒绝；
+- 共享 `admm_solver` 目前只接受未传权重或均匀权重。
 
-`LossBase` 的统一 weighted capability contract 由 GitHub Issue #153 跟踪。
+`LossBase` 的统一带权能力契约由 GitHub Issue #153 跟踪。
 
 ## 示例
 
@@ -155,7 +155,7 @@ model = PenalizedQuantileRegression(
 model.fit(X_t, y_t)
 ```
 
-### 加权 Quantile
+### 加权分位数回归
 
 ```python
 sample_weight = np.ones(n)
@@ -177,7 +177,7 @@ model.fit(X, y, sample_weight=sample_weight)
 
 详细更新公式见 [求解器算法](../guides/solver-algorithms.md#1-proximal-irls-cd)。其核心是把 check loss 的 IRLS 二次上界与 SCAD/MCP 的局部线性近似结合起来。
 
-### IRLS（L2/none）
+### IRLS（L2/无惩罚）
 
 令
 
@@ -212,7 +212,7 @@ $$
 =X^\top W y.
 $$
 
-L2 路径在左侧加入相应 ridge 对角项；截距坐标不参与惩罚。完整实现细节见 [IRLS 算法参考](../guides/solver-algorithms.md#6-irls迭代重加权最小二乘)。
+L2 路径在左侧加入相应 Ridge 对角项；截距坐标不参与惩罚。完整实现细节见 [IRLS 算法参考](../guides/solver-algorithms.md#6-irls迭代重加权最小二乘)。
 
 ## 输出
 
@@ -226,9 +226,9 @@ L2 路径在左侧加入相应 ridge 对角项；截距坐标不参与惩罚。�
 ## 注意事项
 
 - `score()` 使用 check/pinball 损失，并按照 sklearn “越大越好”的约定返回其负值。
-- `sample_weight` 支持是 **loss × solver × estimator** 路径级能力，不是“所有求解器自动支持”。
-- 显式请求不受支持的 weighted solver 组合时，应在数值迭代前报错，而不是更换求解器。
-- GPU 设备（`cuda`/`torch`）在维护中的支持路径上不应静默回退 CPU。
+- `sample_weight` 支持是**损失函数 × 求解器 × 估计器**路径级能力，不是“所有求解器自动支持”。
+- 显式请求不受支持的带权求解器组合时，应在数值迭代前报错，而不是更换求解器。
+- GPU 设备（`cuda`/`torch`）在维护中的支持路径上不应自动回退到 CPU。
 
 ## 参考文献
 
