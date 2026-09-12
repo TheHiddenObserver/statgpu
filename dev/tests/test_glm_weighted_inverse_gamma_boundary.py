@@ -107,6 +107,33 @@ def test_inverse_gamma_intercept_uniform_weights_reuse_unweighted_warm_start(
     np.testing.assert_allclose(captured[0], captured[1], rtol=0.0, atol=0.0)
 
 
+@pytest.mark.parametrize("solver", ["newton", "lbfgs"])
+def test_inverse_gamma_no_intercept_uses_torch_promoted_working_dtype_for_boundary(
+    solver,
+):
+    torch = pytest.importorskip("torch")
+
+    # In float16 these weights collapse to one value; in the solver's promoted
+    # float64 working dtype they are genuinely non-uniform.  The capability
+    # boundary must therefore use X_work, not the pre-promotion input X.
+    X = torch.ones((4, 2), dtype=torch.float16)
+    y = torch.tensor([0.9, 1.0, 1.1, 1.2], dtype=torch.float64)
+    weights = torch.tensor([1.0, 1.0004, 1.0, 1.0], dtype=torch.float64)
+    assert bool(torch.all(X.new_tensor(weights, dtype=torch.float16) == 1.0))
+    assert not bool(torch.allclose(weights, weights[0]))
+
+    model = GammaRegression(
+        link="inverse_power",
+        fit_intercept=False,
+        solver=solver,
+        device="cpu",
+        max_iter=5,
+        tol=1e-8,
+    )
+    with pytest.raises(ValueError, match="requires fit_intercept=True"):
+        model._fit_smooth_solver(X, y, weights, solver, "torch")
+
+
 def test_unweighted_inverse_gamma_no_intercept_keeps_historical_boundary():
     # Issue #150 narrows only the newly opened genuinely weighted row.  It does
     # not turn the historical unweighted no-intercept path into an API migration.
