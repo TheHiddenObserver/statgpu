@@ -87,7 +87,9 @@ smooth GLM 在可用时使用维护中的二阶/一阶优化路径；非平滑 p
 
 对于普通 GLM，受支持 family 的显式 `solver="newton"` 与 `solver="lbfgs"` 都可以接受真正的 non-uniform analytic weights。两个 solver 都使用上面同一个归一化 weighted objective；weight vector 会进入每次 objective/gradient 计算，Newton 还会在 Hessian 中使用同一组权重。L-BFGS 的 line-search trial 也必须和生成搜索方向时使用完全相同的权重。
 
-显式 solver request 具有权威性：加入 `sample_weight` 不会把 Newton/L-BFGS 静默改成 IRLS/FISTA；显式 CUDA/Torch 也不会退回 CPU。uniform weights 保持历史 unweighted 数值路径。
+显式 solver request 具有权威性：加入 `sample_weight` 不会把 Newton/L-BFGS 静默改成 IRLS/FISTA；显式 CUDA/Torch 也不会退回 CPU。uniform 与历史 effectively-uniform weights 保持 historical unweighted 数值路径。
+
+一个有意保留的 family 边界是 inverse-power Gamma：genuine non-uniform weighted explicit Newton/L-BFGS 要求 `fit_intercept=True`，这样 statgpu 才能构造维护中的严格正 family-valid start。genuine non-uniform weighted no-intercept row 会 fail closed；省略 weights、uniform 或 effectively-uniform 的 no-intercept call 继续保持历史 unweighted 行为。
 
 这里的 weighted L-BFGS 是 **GLM loss contract**，并不是对所有底层 `LossBase` 的统一承诺。robust、quantile、Cox 等 non-GLM objective 继续遵循各自的 solver/weight 支持边界；Ordered GLM 也保持独立的 weighting policy。
 
