@@ -42,6 +42,8 @@ For ordinary `GammaRegression(link="inverse_power")`, genuinely non-uniform weig
 
 Only that **non-uniform weighted + no-intercept + explicit Newton/L-BFGS** combination is rejected. Omitted, uniform, or effectively-uniform weights retain the historical no-intercept behavior.
 
+This is a current feasible-initialization limitation rather than a theoretical restriction of the model; follow-up support is tracked in GitHub issue #152.
+
 ## 2. Explicit solver constraints
 
 | Solver | Accepts | Rejects / limits | Notes |
@@ -55,7 +57,7 @@ Only that **non-uniform weighted + no-intercept + explicit Newton/L-BFGS** combi
 | `admm` | supported proximal formulations | unsupported combinations | variable splitting + proximal update |
 | `irls_cd` | scalar SCAD/MCP/adaptive-L1 routes | L1/ElasticNet and group penalties | IRLS outer + coordinate descent inner |
 | `proximal_irls_cd` | quantile + scalar SCAD/MCP | non-quantile losses and group penalties | quantile majorization + LLA |
-| `proximal_newton` | L2 / none uses Newton; non-smooth direct calls visibly use FISTA | unsupported penalty structures | no silent Euclidean-prox approximation |
+| `proximal_newton` | L2 / none uses Newton; non-smooth direct calls visibly use FISTA | unsupported penalty structures | no Euclidean-prox approximation |
 
 Unsupported explicit combinations fail before numerical fitting.
 
@@ -69,14 +71,14 @@ Unsupported explicit combinations fail before numerical fitting.
 | `lbfgs` | maintained GLMs support analytic weights; other losses are route-specific | ❌ | estimator dependent | smooth objectives without forming a full Hessian |
 | `fista` | ✅ on maintained weighted routes | ✅ | estimator dependent | convex sparse/group objectives and LLA inner solves |
 | `fista_bb` | ✅ on maintained weighted routes | ✅ | estimator dependent | supported sparse objectives with adaptive steps |
-| `admm` | combination dependent | ✅ | estimator dependent | supported proximal formulations |
+| `admm` | shared `admm_solver`: omitted/uniform weights only | ✅ | estimator dependent | supported proximal formulations |
 | `irls_cd` | ✅ on maintained routes | ✅ | estimator dependent | scalar non-convex continuation routes |
 
 For Newton and L-BFGS, `sample_weight` support is a **loss/estimator contract**, not a property that can be inferred from the solver signature alone. Maintained GLM losses use
 
 `sum(w_i * loss_i) / sum(w_i)`
 
-for the data-fit term. Generic robust, quantile, and Cox direct L-BFGS consumers retain their own weight boundaries.
+for the data-fit term. Generic robust, quantile, and Cox direct L-BFGS consumers retain their own weight boundaries. The shared `admm_solver` requires `sample_weight` to be omitted or uniform; genuinely non-uniform analytic weights fail before numerical iteration.
 
 Group warm starts carry coefficient and intercept state together for one fit call and are cleared after success or failure.
 
@@ -94,7 +96,7 @@ Group warm starts carry coefficient and intercept state together for one fit cal
 | **negative_binomial** | L-BFGS | sparse/FISTA path | LLA + FISTA | general fit | Group FISTA | Group FISTA-LLA |
 | **tweedie** | Newton | sparse/FISTA path | LLA + FISTA | general fit | Group FISTA | Group FISTA-LLA |
 
-Weights do not silently substitute another solver. For the three L-BFGS smooth-L2 families above, weighted candidate/final-refit support follows the maintained GLM weighted-objective contract.
+Weights do not substitute another solver. For the three L-BFGS smooth-L2 families above, weighted candidate/final-refit support follows the maintained GLM weighted-objective contract.
 
 Group validation happens before alpha-grid generation, fold construction, or candidate fitting. Groups are interpreted against the final design width, including formula-expanded columns. Missing unweighted features are completed as singleton groups once; out-of-range indices and incomplete adaptive weighted groups fail before candidate fitting.
 
@@ -115,7 +117,7 @@ CV uses fit-local penalty state and does not mutate a caller's penalty object or
 | `group_scad` | Σ_g SCAD(‖β_g‖₂; α√p_g, a) | group LLA surrogate | `alpha`, `groups`, `a` |
 | `group_mcp` | Σ_g MCP(‖β_g‖₂; α√p_g, γ) | group LLA surrogate | `alpha`, `groups`, `gamma` |
 
-For Group SCAD/MCP, let `D_g` denote the derivative with respect to `‖β_g‖₂`. The exact convex surrogate is `Σ_g D_g‖β_g‖₂`, represented internally by `AdaptiveGroupLassoPenalty(alpha=1, weights_g=D_g/√p_g)`. Target alpha and group size are not multiplied twice. Group LLA uses FISTA rather than the generic proximal-Newton branch.
+For Group SCAD/MCP, let `D_g` denote the derivative with respect to `‖β_g‖₂`. The exact convex surrogate is `Σ_g D_g‖β_g‖₂`, represented internally by `AdaptiveGroupLassoPenalty(alpha=1, weights_g=D_g/√p_g)`. Target alpha and group size are not multiplied twice. Group LLA uses FISTA rather than the generic Proximal Newton branch.
 
 Group inputs use a strict contract: hyperparameters must be finite numeric scalars; group indices/IDs must be non-negative integer-valued numerics representable as signed `int64`; explicit groups must be non-empty and duplicate-free; flat IDs must be contiguous from zero; and public numerical penalty methods require exactly the grouped feature dimension.
 
@@ -134,7 +136,7 @@ Group inputs use a strict contract: hyperparameters must be finite numeric scala
 
 For most users, start with `solver="auto"` and override it only when you have a reason to require a particular algorithm.
 
-```
+```text
 direct solver="auto"
 ├── squared_error + L2?                 → CPU exact / GPU Newton
 ├── squared_error + none?               → FISTA
