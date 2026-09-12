@@ -28,9 +28,9 @@
 
 **统一接口不等于统一能力。** 某个底层函数带有 `sample_weight` 参数，并不意味着该损失函数在所有求解器、所有统计模型下都支持任意非均匀权重。
 
-本页只列出损失函数层的接口。`QuantileRegression`、`PenalizedQuantileRegression`、`PenalizedRobustRegression`、`CoxPH`、`PenalizedCoxPHModel` 等都是估计器，应在各自的模型文档中说明，而不是作为 `statgpu.losses` 的公开入口列在这里。
+本页只列出损失函数层的接口。`QuantileRegression`、`PenalizedQuantileRegression`、`PenalizedRobustRegression`、`CoxPH`、`PenalizedCoxPHModel` 等都是模型类，应在各自的模型文档中说明，而不是作为 `statgpu.losses` 的公开入口列在这里。
 
-面板模型也不属于 `LossBase` 架构。当前面板估计器继承独立的 `BasePanelModel`，共享的是面板数据准备、变换后的 OLS、协方差/推断和拟合生命周期逻辑，因此不应加入本页的损失函数层次结构。其当前实现架构见 [面板模型架构](../panel/architecture.md)。
+面板模型也不属于 `LossBase` 架构。当前面板模型采用独立的 `BasePanelModel` 基类，共享的是面板数据准备、变换后的 OLS、协方差/推断和拟合生命周期逻辑，因此不应加入本页的损失函数层次结构。其当前实现架构见 [面板模型架构](../panel/architecture.md)。
 
 ## 公开入口
 
@@ -75,7 +75,7 @@ $$
 因此应区分两件事：
 
 1. `LossBase` 已经提供部分共享的带权数值原语；
-2. 某个**损失函数 × 求解器 × 估计器**路径是否支持非均匀权重，仍必须单独确认。
+2. 某个**损失函数 × 求解器 × 模型路径**是否支持非均匀权重，仍必须单独确认。
 
 ### 分位数损失（check / pinball loss）
 
@@ -263,7 +263,7 @@ hessian = loss.hessian(X, y_surv, coef)
 
 迭代中的数值数组会保留在选定的 NumPy、CuPy 或 Torch 后端。Cox 预处理会把排序后的 `time` 与 `event` 一次性复制到主机，用于构造确定性的失效组元数据；随后索引缓存到选定设备，而设计矩阵、线性预测子、目标函数、梯度和 Hessian 在迭代中不会被搬回 CPU。
 
-具体 Cox 估计器（包括无惩罚 `CoxPH`、`CoxPHCV` 和 `PenalizedCoxPHModel`）的 API、数据范围与推断能力见 [CoxPH 模型文档](coxph.md)。
+具体 Cox 模型类（包括无惩罚 `CoxPH`、`CoxPHCV` 和 `PenalizedCoxPHModel`）的 API、数据范围与推断能力见 [CoxPH 模型文档](coxph.md)。
 
 ## 验证与注意事项
 
@@ -272,7 +272,7 @@ hessian = loss.hessian(X, y_surv, coef)
 - `QuantileLoss` 非光滑且没有 Hessian；模型层的 SCAD/MCP 路径使用 FISTA 或 Proximal IRLS-CD。
 - 稳健损失有各自的模型层权重语义；这不会自动扩展成直接调用 L-BFGS 时的非均匀权重支持。
 - `CoxPartialLikelihoodLoss` 当前明确拒绝 `sample_weight`；如果以后定义 Cox 的病例权重、频数权重或抽样权重，需要单独固定统计语义并完成验证。
-- 面板估计器使用独立的 `BasePanelModel` 架构，不是 `LossBase` 子类，也不应从本页推断其目标函数或权重语义。
+- 面板模型使用独立的 `BasePanelModel` 架构，不是 `LossBase` 子类，也不应从本页推断其目标函数或权重语义。
 - 更完整的兼容性见 [损失函数 × 惩罚项 × 求解器框架](../guides/loss-penalty-solver-framework.md)。
 
 ## 参考文献
