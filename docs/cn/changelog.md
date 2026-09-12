@@ -1,9 +1,22 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-09-11<br>
+> 最后更新：2026-09-12<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
+
+## 未发布 — GLM 显式 Newton/L-BFGS 的解析权重支持（PR #151 / Issue #150，目标 0.2.6）
+
+### 变更
+
+- ordinary `GeneralizedLinearModel` 的显式 `solver="newton"` 与 `solver="lbfgs"` 现在在受支持 GLM family/link 上接受真正的 non-uniform `sample_weight`，并使用 `sum_i w_i loss_i / sum_i w_i` 的归一化 analytic-weight objective。全局正比例缩放 weights 不改变同一统计问题；显式 solver 请求仍具权威性，uniform / historical almost-uniform weights 继续按既有 unweighted 路径处理。
+- shared L-BFGS 的 non-uniform weight 能力由 loss capability gate 控制：维护中的 GLM loss opt in；generic Huber、Quantile 与 Cox direct L-BFGS 在本次变更中仍 fail closed。成功 ordinary GLM fit 记录实际执行的 solver/backend/concrete device provenance；penalized smooth-GLM 与 `PenalizedGLM_CV` 的既有 L-BFGS consumer 也使用同一 weighted objective。
+- `GammaRegression(link="inverse_power")` 的 genuine non-uniform weighted explicit Newton/L-BFGS 在 `fit_intercept=True` 时使用 family-valid backend-native intercept start；genuine non-uniform weighted `fit_intercept=False` 在本次变更中明确 fail closed，因为任意无截距 design 不保证存在通用可构造的 `Xβ > 0` interior start。uniform/effectively-uniform weights 继续保持 historical unweighted compatibility。
+
+### 验证
+
+- hosted coverage 包含 row replication、global weight scaling、zero-weight rows、uniform/almost-uniform compatibility、invalid weights、NumPy/Torch-CPU parity、statsmodels Logistic/Poisson reference、完整 ordinary family/link matrix（含除 reviewed inverse-Gamma 例外外的 no-intercept rows）、formula/inference、provenance/failure transaction、installer idempotence/import-order，以及 weighted Negative-Binomial/Gamma/Inverse-Gaussian penalized/CV L-BFGS consumer。
+- `dev/benchmarks/validate_glm_weighted_explicit_solvers_gpu.py` schema v3 已冻结 physical CUDA acceptance contract：CuPy/Torch 上覆盖最终 ordinary family/link × Newton/L-BFGS matrix、cross-container route 与 Negative-Binomial/Gamma/Inverse-Gaussian penalized/CV L-BFGS rows，并把 solver convergence/line-search warning 视为失败。PR #151 要闭合仍需 final exact-source physical CUDA artifact；hosted CI 不替代该 gate。
 
 ## 未发布 — 后端原生 Gaussian residual bootstrap（PR #147 / Issue #145，目标 0.2.6）
 
