@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -34,10 +36,43 @@ def test_weighted_inverse_gamma_no_intercept_fails_closed_precisely(solver):
         model.fit(X, y, sample_weight=weights)
 
 
-def test_unweighted_inverse_gamma_no_intercept_keeps_historical_boundary():
-    # Issue #150 narrows only the newly opened weighted row.  It does not turn
-    # the historical unweighted no-intercept path into a new API migration.
+@pytest.mark.parametrize("solver", ["newton", "lbfgs"])
+@pytest.mark.parametrize("almost_uniform", [False, True])
+def test_inverse_gamma_no_intercept_uniform_weights_keep_unweighted_path(
+    solver, almost_uniform
+):
     X, y, _ = _data(seed=15602)
+    weights = np.full(X.shape[0], 3.5, dtype=np.float64)
+    if almost_uniform:
+        # Preserve the established floating allclose compatibility rule used by
+        # both smooth solvers rather than treating this as genuine weighting.
+        weights[-1] += 1e-8
+
+    kwargs = dict(
+        link="inverse_power",
+        fit_intercept=False,
+        solver=solver,
+        device="cpu",
+        max_iter=5,
+        tol=1e-8,
+    )
+    # This historical no-intercept path may emit its existing convergence or
+    # line-search warning.  The regression target is that uniform/effectively
+    # uniform weights execute the identical unweighted numerical path and are
+    # not captured by the new genuine-nonuniform fail-closed boundary.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        base = GammaRegression(**kwargs).fit(X, y)
+        weighted = GammaRegression(**kwargs).fit(X, y, sample_weight=weights)
+
+    np.testing.assert_allclose(base.coef_, weighted.coef_, rtol=0.0, atol=0.0)
+    assert base.intercept_ == weighted.intercept_ == 0.0
+
+
+def test_unweighted_inverse_gamma_no_intercept_keeps_historical_boundary():
+    # Issue #150 narrows only the newly opened genuinely weighted row.  It does
+    # not turn the historical unweighted no-intercept path into an API migration.
+    X, y, _ = _data(seed=15603)
     model = GammaRegression(
         link="inverse_power",
         fit_intercept=False,
