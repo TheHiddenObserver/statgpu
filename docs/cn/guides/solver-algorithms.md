@@ -7,13 +7,13 @@
 
 ## 概览
 
-statgpu 提供一组一阶、二阶、proximal 和闭式 solver。对大多数模型用户来说，优先使用 `solver="auto"` 即可；本页主要用于解释各 solver 的算法思想，以及为什么某些 loss / penalty / weight 组合会被支持或拒绝。
+statgpu 提供一阶、二阶、近端和闭式求解器。对大多数模型用户，建议从 `solver="auto"` 开始；本页主要用于解释各求解器的算法思想与适用范围。
 
-阅读下面的表格时，建议先记住三条规则：
+阅读本页时，先记住三条规则：
 
-1. **支持某个 backend，不等于支持所有模型组合。** solver 可以在 NumPy/CuPy/Torch 上实现，但某个具体的 loss × penalty × weight 路径仍可能不支持。
-2. **显式 solver request 不会被静默改写。** 加入 `sample_weight` 不会悄悄把 Newton/L-BFGS 换成其他 solver。
-3. **weight support 取决于完整路径。** 尤其是 direct L-BFGS 的非均匀权重，只对明确声明该能力的 loss（目前包括维护中的 GLM loss）开放。
+1. **支持某个计算后端，不等于支持所有模型组合。** 求解器可以在 NumPy、CuPy、Torch 上实现，但具体的损失函数、惩罚项和权重组合仍可能不受支持。
+2. **`sample_weight` 不会改变显式指定的 `solver`。** 如果所请求的组合不受支持，则直接报错。
+3. **权重支持由完整模型路径决定。** 例如，直接调用 L-BFGS 时的非均匀权重目前由 GLM loss 明确支持，而不是所有 `LossBase` 都自动支持。
 
 模型层面的完整分发表见 [Solver × Penalty 兼容性矩阵](solver-penalty-matrix.md)。
 
@@ -21,19 +21,19 @@ statgpu 提供一组一阶、二阶、proximal 和闭式 solver。对大多数�
 
 | 求解器 | 最适合 | 后端支持 |
 |--------|--------|:---:|
-| Proximal IRLS-CD | quantile + SCAD/MCP | numpy, cupy, torch |
-| Proximal Newton | smooth loss + L2/无惩罚；非光滑请求使用 FISTA | numpy, cupy, torch |
-| FISTA | 一般非光滑 penalty | numpy, cupy, torch |
-| FISTA-BB | GLM + sparse penalty | numpy, cupy, torch |
-| FISTA-LLA | 非凸 penalty 的 continuation/LLA | numpy, cupy, torch |
-| IRLS | 具有维护中 IRLS 表示的 loss | numpy, cupy, torch |
-| Newton | 有 Hessian 的 smooth loss | numpy, cupy, torch |
-| L-BFGS | smooth loss、中等参数维度 | numpy, cupy, torch |
-| L-BFGS-B | box-constrained smooth problem | numpy, cupy, torch |
-| ADMM | 可分/proximal formulation | numpy, cupy, torch |
-| exact | squared error + L2 闭式路径 | numpy, cupy, torch |
+| Proximal IRLS-CD | 分位数回归 + SCAD/MCP | NumPy、CuPy、Torch |
+| Proximal Newton | 光滑损失 + L2/无惩罚 | NumPy、CuPy、Torch |
+| FISTA | 一般非光滑惩罚 | NumPy、CuPy、Torch |
+| FISTA-BB | GLM + 稀疏惩罚 | NumPy、CuPy、Torch |
+| FISTA-LLA | 非凸惩罚的延续/LLA 路径 | NumPy、CuPy、Torch |
+| IRLS | 明确定义 IRLS 表示的损失函数 | NumPy、CuPy、Torch |
+| Newton | 有 Hessian 的光滑损失 | NumPy、CuPy、Torch |
+| L-BFGS | 光滑损失、中等参数维度 | NumPy、CuPy、Torch |
+| L-BFGS-B | 带盒约束的光滑问题 | NumPy、CuPy、Torch |
+| ADMM | 可分或可近端化的问题 | NumPy、CuPy、Torch |
+| `exact` | squared error + L2 闭式路径 | NumPy、CuPy、Torch |
 
-后端列只描述数值实现能力；estimator 与 loss contract 可以进一步缩小实际可用范围。
+后端列只描述数值实现能力；具体模型仍可能进一步限制可用组合。
 
 ---
 
@@ -41,32 +41,20 @@ statgpu 提供一组一阶、二阶、proximal 和闭式 solver。对大多数�
 
 **文件**：`statgpu/solvers/_proximal_irls_quantile.py`
 
-**用途**：Quantile regression + SCAD/MCP。它把 pinball loss 的 IRLS 二次 majorization 与非凸 penalty 的 local linear approximation（LLA）结合起来。
+**用途**：分位数回归 + SCAD/MCP。它把 pinball loss 的 IRLS 二次上界与非凸惩罚的局部线性近似（LLA）结合起来。
 
 ### 算法
 
-1. **Continuation path**：从 $\lambda_{\max}$ 沿短的等比路径走到目标 $\alpha$。
-2. **LLA 外循环**：
-   - 根据当前 coefficient 计算 SCAD/MCP 的局部权重；
-   - 用 IRLS + coordinate descent 解对应的 weighted L1-like surrogate；
-   - coefficient 稳定后结束当前 LLA step。
-3. **IRLS-CD 内循环**：
-   - 为 pinball loss 构造 quadratic majorizer；
-   - 计算 weighted gradient 与对角 curvature；
-   - 做逐坐标 soft-thresholding；
-   - coefficient change 小于 tolerance 后停止。
+1. 从 $\lambda_{\max}$ 沿短的等比延续路径走到目标 $\alpha$。
+2. 每个 LLA 外循环根据当前系数计算 SCAD/MCP 的局部权重。
+3. 用 IRLS + coordinate descent 解对应的加权 L1 型近似问题。
+4. 系数稳定后结束当前 LLA 步骤。
 
 ### 收敛
 
-- IRLS 内层：最大 coefficient change < `tol`；
-- LLA 外层：最大 coefficient change < `lla_tol`；
-- GPU 上的收敛比较尽量留在 device，仅同步最终 boolean。
-
-### 后端
-
-- NumPy：NumPy linear algebra / array ops；
-- CuPy：CuPy matrix ops 与可用的 GPU kernel；
-- Torch：device-native tensor ops。
+- IRLS 内层：最大系数变化小于 `tol`；
+- LLA 外层：最大系数变化小于 `lla_tol`；
+- GPU 上的收敛判断尽量留在设备端，只同步最终布尔结果。
 
 ---
 
@@ -74,18 +62,18 @@ statgpu 提供一组一阶、二阶、proximal 和闭式 solver。对大多数�
 
 **文件**：`statgpu/solvers/_proximal_newton.py`
 
-**用途**：smooth loss + L2/无惩罚，并且普通 Newton system 有明确数学定义的场景。
+**用途**：光滑损失 + L2/无惩罚，并且普通 Newton 系统有明确数学定义的场景。
 
-一般的非光滑 proximal-Newton 需要在 Hessian metric 下求解 proximal 子问题。直接套 Euclidean prox 会优化另一个 composite objective，因此 statgpu 不再静默使用这种近似：direct 非光滑请求会明确告警并改走 FISTA；FISTA-LLA 也保持 backend-native FISTA inner solve，直到实现并显式声明正确的 Hessian-metric proximal capability。
+一般的非光滑 Proximal Newton 需要在 Hessian 度量下求解近端子问题。直接套用 Euclidean prox 会优化另一个复合目标，因此当前实现不采用这种近似：非光滑请求会给出提示并改用 FISTA；FISTA-LLA 也继续使用原生后端的 FISTA 内层，直到实现数学上正确的 Hessian 度量近端算法。
 
 ### 算法
 
-1. 计算声明 objective 的 gradient 与 Hessian。
-2. 求解 Newton system；只有真正的 rank failure 才使用 least-squares fallback。
-3. 对完整 objective 做 Armijo backtracking。
-4. 如果 Newton direction 不是 descent direction，则改用 steepest descent。
+1. 计算目标函数的梯度与 Hessian。
+2. 求解 Newton 系统；只有真正的秩失败才使用最小二乘降级。
+3. 对完整目标函数做 Armijo 回溯线搜索。
+4. 如果 Newton 方向不是下降方向，则改用最速下降方向。
 
-line-search failure 会被暴露出来，而不会被当作成功迭代。
+线搜索失败会作为失败状态暴露出来，不会被当作成功迭代。
 
 ---
 
@@ -93,30 +81,30 @@ line-search failure 会被暴露出来，而不会被当作成功迭代。
 
 **文件**：`statgpu/solvers/_fista.py`
 
-**用途**：smooth data-fit term + 有 proximal operator 的 penalty。
+**用途**：光滑数据拟合项 + 具有近端算子的惩罚项。
 
 ### 算法
 
-1. 初始化 coefficient、momentum point 与 Nesterov scalar。
+1. 初始化系数、动量点和 Nesterov 标量。
 2. 每次迭代：
-   - 在 momentum point 计算 smooth gradient；
-   - 做 proximal-gradient step；
-   - 更新 Nesterov momentum；
-   - 检查维护中的 convergence rule。
+   - 在动量点计算光滑部分的梯度；
+   - 做近端梯度更新；
+   - 更新 Nesterov 动量；
+   - 检查收敛条件。
 
 ### GPU 路径
 
-受支持的 GPU route 会尽量把 gradient、proximal update、momentum update，以及大部分 convergence/divergence check 留在 device，并批量减少 device-to-host synchronization。
+受支持的 GPU 路径会尽量把梯度、近端更新、动量更新以及大部分收敛/发散判断保留在设备端，并减少设备到主机的同步次数。
 
 ### 加权路径
 
-在维护中的 weighted route 上：
+在受支持的加权路径中：
 
-- `sample_weight` 在 solver 入口转换到选定 backend；
-- data-fit gradient 使用归一化 weighted convention；
-- weighted objective tracking 使用相同 normalization。
+- `sample_weight` 在求解器入口转换为所选后端的数组；
+- 数据拟合梯度使用归一化加权定义；
+- 目标函数跟踪使用相同的归一化方式。
 
-但 weight 的统计语义仍由 estimator/loss route 定义；“FISTA 有 weighted implementation”不代表所有模型组合都自动获得 weighted support。
+但权重的统计含义仍由具体模型和损失函数定义；底层 FISTA 具备加权实现，并不表示所有模型组合都自动支持权重。
 
 ---
 
@@ -124,15 +112,13 @@ line-search failure 会被暴露出来，而不会被当作成功迭代。
 
 **文件**：`statgpu/solvers/_fista_bb.py`
 
-**用途**：带自适应 Barzilai-Borwein step size 的 FISTA，适合维护中的 GLM sparse-penalty route。
+**用途**：带自适应 Barzilai-Borwein 步长的 FISTA，适合受支持的 GLM 稀疏惩罚路径。
 
-### 算法
+FISTA-BB 保留 FISTA 的 Nesterov/近端结构，但利用相邻两次系数和梯度的割线信息构造 BB1/BB2 步长；当动量方向与下降方向冲突时，会进行自适应重启。
 
-FISTA-BB 保留 FISTA 的 Nesterov/proximal 结构，但用连续两次 coefficient 与 gradient 的 secant information 构造 BB1/BB2 step size，并在 momentum 与 descent 冲突时做 adaptive restart。
+### 非凸惩罚
 
-### 非凸 penalty
-
-SCAD/MCP 及其 group 版本禁用 BB update。LLA reweighting 会突然改变有效 subgradient，使基于 secant 的 BB step 在这些 continuation path 上不稳定。
+SCAD/MCP 及其 group 版本禁用 BB 更新。LLA 重加权会突然改变有效次梯度，使基于割线信息的 BB 步长在这些延续路径上不稳定。
 
 ---
 
@@ -140,32 +126,32 @@ SCAD/MCP 及其 group 版本禁用 BB update。LLA reweighting 会突然改变�
 
 **文件**：`statgpu/solvers/_fista_lla.py`
 
-**用途**：SCAD、MCP、adaptive L1 等非凸或迭代重加权 penalty。
+**用途**：SCAD、MCP、adaptive L1 等非凸或迭代重加权惩罚。
 
 ### 算法
 
-1. 从较大的 regularization value 构造到目标 `alpha` 的短 continuation path。
-2. 每个 continuation step 运行 LLA outer loop。
-3. 每次 LLA 把当前 non-convex penalty 替换成对应 convex surrogate，并用 backend-native FISTA 解这个 surrogate。
-4. coefficient 稳定后结束当前 LLA step。
+1. 从较大的正则化参数构造到目标 `alpha` 的短延续路径。
+2. 每个延续点运行 LLA 外循环。
+3. 每次 LLA 用当前的凸近似替代非凸惩罚，并使用所选后端上的 FISTA 求解。
+4. 系数稳定后结束当前 LLA 步骤。
 
-未来如果要加入 proximal-Newton inner path，必须先有显式且数学上正确的 Hessian-metric proximal implementation；当前不会用近似路径冒充这一能力。
+未来若加入 Proximal Newton 内层，必须先实现明确且数学上正确的 Hessian 度量近端问题；当前实现不会使用近似路径代替这一能力。
 
 ---
 
 ## 6. IRLS（迭代重加权最小二乘）
 
-**实现方式**：由具体 loss/family 提供 IRLS 方法。
+**实现方式**：由具体损失函数或分布族提供 IRLS 方法。
 
-**用途**：适用于 statgpu 明确维护 IRLS 表示的 loss，通常配合 L2/无惩罚。
+**用途**：适用于 statgpu 明确维护 IRLS 表示的损失函数，通常配合 L2 或无惩罚。
 
 ### 通用结构
 
-1. 根据当前 coefficient 构造 working response 与 working weights。
-2. 解对应的 weighted least-squares surrogate。
-3. 更新 coefficient，直到满足维护中的 convergence rule。
+1. 根据当前系数构造工作响应与工作权重。
+2. 求解对应的加权最小二乘近似问题。
+3. 更新系数，直到满足收敛条件。
 
-GLM 的 working response/weights 由 family/link 决定。Quantile-specific IRLS 是另一种 majorization，不要把它与 GLM 的 analytic `sample_weight` 混为一谈。
+GLM 的工作响应与工作权重由分布族和链接函数决定。分位数回归中的 IRLS 是另一种上界近似，不应与 GLM 的解析 `sample_weight` 混为一谈。
 
 ---
 
@@ -173,26 +159,26 @@ GLM 的 working response/weights 由 family/link 决定。Quantile-specific IRLS
 
 **文件**：`statgpu/solvers/_newton.py`
 
-**用途**：smooth loss + L2/无惩罚，并且提供 Hessian。second-order curvature 稳定、参数维度适中时通常很有效。
+**用途**：光滑损失 + L2/无惩罚，并且提供 Hessian。在二阶曲率稳定、参数维度适中时通常很有效。
 
 ### 算法
 
-1. 计算声明 objective 的 gradient 与 Hessian。
-2. 求解 Newton system。
-3. 用 Armijo backtracking 选择可接受 step。
-4. 在需要时加入维护中的小 ridge stabilization 改善数值条件。
+1. 计算目标函数的梯度与 Hessian。
+2. 求解 Newton 系统。
+3. 用 Armijo 回溯线搜索选择可接受步长。
+4. 必要时加入小的 ridge 稳定项改善数值条件。
 
-### Analytic `sample_weight`
+### 解析 `sample_weight`
 
-对明确提供 weighted curvature 的 loss/estimator route，Newton 使用同一个归一化 weighted objective：
+对明确定义加权曲率的损失函数和模型路径，Newton 使用同一个归一化加权目标：
 
 $$
 L(\beta)=\frac{\sum_i w_i\ell_i(\beta)}{\sum_i w_i}+P(\beta).
 $$
 
-objective、gradient、Hessian 与每个 Armijo trial 都使用同一组权重。因此，把所有 active weights 同时乘以一个正数不会改变最优解。
+目标函数、梯度、Hessian 和每个 Armijo 线搜索候选点都使用同一组权重。因此，把所有有效权重同时乘以同一个正数不会改变最优解。
 
-在定义了兼容 route 的情况下，uniform/等效 uniform 权重继续保持历史 unweighted 数值路径。
+均匀权重或与均匀权重等效的情况，在对应兼容路径中继续使用历史无权重数值路径。
 
 ---
 
@@ -200,26 +186,26 @@ objective、gradient、Hessian 与每个 Armijo trial 都使用同一组权重�
 
 **文件**：`statgpu/solvers/_lbfgs.py`、`statgpu/solvers/_lbfgs_b.py`
 
-**用途**：smooth loss + smooth/无惩罚，并且希望避免显式形成完整 Hessian 的场景。
+**用途**：光滑损失 + 光滑/无惩罚，并希望避免显式形成完整 Hessian 的场景。
 
 ### L-BFGS 算法
 
-L-BFGS 使用标准 limited-memory two-loop recursion 与 Armijo line search。当前 objective、每一个 line-search candidate，以及接受新点后的 gradient，都必须基于同一个声明 objective。
+L-BFGS 使用标准的 limited-memory two-loop recursion 与 Armijo 线搜索。当前目标函数、每个线搜索候选点以及接受新点后的梯度，都必须基于同一个目标函数。
 
-### Analytic `sample_weight`
+### 解析 `sample_weight`
 
-非均匀 weighted direct L-BFGS 在 loss contract 层采用显式 opt-in：
+直接调用 L-BFGS 时，非均匀权重需要由具体损失函数明确支持：
 
-| direct L-BFGS route | 非均匀 `sample_weight` |
+| 直接 L-BFGS 路径 | 非均匀 `sample_weight` |
 |---|---|
-| 维护中的 `GLMLoss` | ✅ 支持 |
-| generic robust / quantile / Cox `LossBase` | ❌ 不能由无权重支持自动推出 |
+| 当前维护的 `GLMLoss` | ✅ 支持 |
+| 通用稳健 / 分位数 / Cox `LossBase` | ❌ 不能由无权重支持自动推出 |
 
-对维护中的 GLM，initial gradient、当前 objective、每个 line-search candidate 和 accepted-point gradient 都使用同一组归一化权重；NumPy/CuPy/Torch 数值计算也保持在选定 backend。
+对受支持的 GLM，初始梯度、当前目标函数、每个线搜索候选点以及接受新点后的梯度都使用同一组归一化权重；NumPy/CuPy/Torch 数值计算也保持在选定计算后端。
 
-uniform weights 继续兼容历史 unweighted L-BFGS route。一个 loss 支持“无权重 L-BFGS”，**不代表**它自动支持真正非均匀的 `sample_weight`。
+均匀权重继续兼容历史无权重 L-BFGS 路径。一个损失函数支持无权重 L-BFGS，并不代表它自动支持真正非均匀的 `sample_weight`。
 
-`L-BFGS-B` 是独立的 box-constrained implementation，不应默认继承 `lbfgs_solver` 的全部 weighting capability。
+`L-BFGS-B` 是独立的盒约束实现，不应默认继承 `lbfgs_solver` 的全部权重能力。
 
 ---
 
@@ -227,14 +213,14 @@ uniform weights 继续兼容历史 unweighted L-BFGS route。一个 loss 支持�
 
 **文件**：`statgpu/solvers/_admm.py`
 
-**用途**：适合 variable splitting 的受支持 separable/proximal formulation。
+**用途**：适合变量分裂的受支持可分/近端形式。
 
 ### 通用结构
 
-1. 在 smooth objective + augmented quadratic term 下更新主 coefficient variable。
-2. 通过声明的 proximal operator 更新 split variable。
-3. 更新 scaled dual variable。
-4. 根据维护中的 residual rule 调整 penalty parameter。
+1. 在光滑目标 + 增广二次项下更新主系数变量。
+2. 通过声明的近端算子更新分裂变量。
+3. 更新缩放后的对偶变量。
+4. 根据残差规则调整 penalty parameter。
 
 ---
 
@@ -242,15 +228,15 @@ uniform weights 继续兼容历史 unweighted L-BFGS route。一个 loss 支持�
 
 **实现位置**：`_fit_mixin._solve_exact_*`
 
-**用途**：squared-error + L2 且维护中的 dispatch 选择 closed-form/eigendecomposition path 的场景。
+**用途**：squared error + L2 且自动分发选择闭式/特征分解路径的场景。
 
 ---
 
-## 求解器调度
+## 求解器分发
 
-对普通 direct fit，`solver="auto"` 遵循模型层面的维护表。可以粗略理解为：
+对普通直接拟合，`solver="auto"` 遵循模型层面的分发表。可以粗略理解为：
 
-```
+```text
 direct fit with solver="auto"
 ├── squared_error + L2 + NumPy/CPU → exact
 ├── squared_error + L2 + GPU       → Newton
@@ -261,9 +247,9 @@ direct fit with solver="auto"
 └── group penalty                   → group-aware FISTA / FISTA-LLA
 ```
 
-`PenalizedGLM_CV` 有一套相关但有意独立的 smooth-L2 policy。尤其是 Gamma、Inverse-Gaussian、Negative-Binomial 的 L2 CV/final-refit route 使用 L-BFGS，而 logistic、Poisson、Tweedie 的 L2 row 使用 Newton。不要从 direct-fit tree 推断 CV 行为，请以 compatibility matrix 为准。
+`PenalizedGLM_CV` 有一套相关但有意独立的光滑 L2 分发规则。尤其是 Gamma、Inverse-Gaussian、Negative-Binomial 的 L2 交叉验证与最终重拟合使用 L-BFGS，而 logistic、Poisson、Tweedie 使用 Newton。不要从直接拟合的树状图推断 CV 行为，请以兼容性矩阵为准。
 
-`sample_weight` 不会静默重写显式 solver request。如果 requested weighted route 不受支持，statgpu 会直接报错，而不是替换另一个 solver。
+`sample_weight` 不会改变显式指定的 `solver`。如果请求的加权组合不受支持，则直接报错。
 
 ## 参考文献
 
@@ -273,4 +259,3 @@ direct fit with solver="auto"
 - Lee, J. D., Sun, Y. & Saunders, M. A. (2014). Proximal Newton-Type Methods for Minimizing Composite Functions. *SIAM J. Optimization*, 24(3), 1420-1443.
 - Boyd, S. et al. (2011). Distributed Optimization and Statistical Learning via ADMM. *Foundations and Trends in ML*, 3(1), 1-122.
 - Fan, J. & Li, R. (2001). Variable Selection via Nonconcave Penalized Likelihood. *JASA*, 96, 1348-1360.
-- Zou, H. & Li, R. (2008). One-step Sparse Estimates in Nonconcave Penalized Likelihood Models. *Annals of Statistics*, 36(4), 1509-1533.
