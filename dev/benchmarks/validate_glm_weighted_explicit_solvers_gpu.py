@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Physical CUDA acceptance for issue #150 weighted smooth GLM solvers.
 
-Schema v2 freezes the final pre-P100 contract.  A successful artifact proves:
+Schema v3 freezes the final pre-P100 contract. A successful artifact proves:
 
 - clean exact source;
 - every claimed ordinary GLM family/link for explicit Newton and L-BFGS;
@@ -9,11 +9,12 @@ Schema v2 freezes the final pre-P100 contract.  A successful artifact proves:
 - positive global analytic-weight rescaling invariance;
 - no convergence or L-BFGS line-search warning on accepted rows;
 - representative heterogeneous-container routing; and
-- weighted penalized/CV L-BFGS consumer parity, including selected alpha.
+- weighted Negative-Binomial/Gamma/Inverse-Gaussian penalized and CV L-BFGS
+  consumer parity, including selected-alpha identity.
 
-The numerical tolerances below were fixed before the first physical v2 run.
-A failed run must not be made green by loosening them without a reviewed schema
-change and a fresh artifact.
+The numerical tolerances below were fixed before the first physical run. A
+failed run must not be made green by loosening them without a reviewed schema
+change and a fresh physical artifact.
 """
 
 from __future__ import annotations
@@ -41,7 +42,7 @@ from statgpu.linear_model import (
 from statgpu.solvers._convergence import ConvergenceWarning
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 DATA_SEED = 150001
 N_SAMPLES = 128
 N_FEATURES = 3
@@ -61,6 +62,7 @@ _CASES = (
     "tweedie",
 )
 _SOLVERS = ("newton", "lbfgs")
+_CONSUMER_CASES = ("negative_binomial", "gamma", "inverse_gaussian")
 
 
 def _git(*args: str) -> str:
@@ -117,8 +119,7 @@ def _to_numpy(value):
 
 
 def _backend_of(value) -> str:
-    module = type(value).__module__.split(".", 1)[0]
-    return module if module in ("numpy", "cupy", "torch") else module
+    return type(value).__module__.split(".", 1)[0]
 
 
 def _case_data(case: str):
@@ -148,7 +149,7 @@ def _case_data(case: str):
         y = rng.poisson(np.exp(eta)).astype(np.float64)
     elif case == "tweedie":
         y = np.exp(eta) * rng.lognormal(0.0, 0.08, size=N_SAMPLES)
-    else:  # pragma: no cover
+    else:  # pragma: no cover - validator table bug
         raise AssertionError(case)
 
     weights = np.linspace(0.55, 1.65, N_SAMPLES, dtype=np.float64)
@@ -258,11 +259,27 @@ def _container_arrays(route, X_np, y_np, w_np, cp, torch, torch_device):
     return X_np, y_np, w_np
 
 
-def _fit_penalized_nb(X, y, weights, *, device):
+def _consumer_source_case(case: str) -> str:
+    return {
+        "negative_binomial": "negative_binomial",
+        "gamma": "gamma_log",
+        "inverse_gaussian": "inverse_gaussian",
+    }[case]
+
+
+def _consumer_loss_kwargs(case: str):
+    if case == "negative_binomial":
+        return {"alpha": 0.7}
+    if case == "gamma":
+        return {"link": "log"}
+    return None
+
+
+def _fit_penalized_consumer(case, X, y, weights, *, device):
     with _solver_warning_gate():
         model = PenalizedGeneralizedLinearModel(
-            loss="negative_binomial",
-            loss_kwargs={"alpha": 0.7},
+            loss=case,
+            loss_kwargs=_consumer_loss_kwargs(case),
             penalty="l2",
             alpha=0.03,
             solver="lbfgs",
@@ -271,7 +288,7 @@ def _fit_penalized_nb(X, y, weights, *, device):
             tol=SOLVER_TOL,
         ).fit(X, y, sample_weight=weights)
     return {
-        "coef": np.asarray(model.coef_, dtype=np.float64),
+        "coef": np.asarray(_to_numpy(model.coef_), dtype=np.float64),
         "intercept": float(model.intercept_),
         "selected_solver": str(model._selected_solver),
         "backend": str(model._selected_backend_name),
@@ -279,22 +296,22 @@ def _fit_penalized_nb(X, y, weights, *, device):
     }
 
 
-def _fit_cv_nb(X, y, weights, *, device):
+def _fit_cv_consumer(case, X, y, weights, *, device):
     with _solver_warning_gate():
         cv = PenalizedGLM_CV(
-            loss="negative_binomial",
-            loss_kwargs={"alpha": 0.7},
+            loss=case,
+            loss_kwargs=_consumer_loss_kwargs(case),
             penalty="l2",
             alpha_grid=np.array([0.08, 0.03]),
             cv=2,
             random_state=150,
             solver="auto",
             device=device,
-            max_iter=300,
+            max_iter=400,
             tol=SOLVER_TOL,
         ).fit(X, y, sample_weight=weights)
     return {
-        "coef": np.asarray(cv.estimator_.coef_, dtype=np.float64),
+        "coef": np.asarray(_to_numpy(cv.estimator_.coef_), dtype=np.float64),
         "intercept": float(cv.estimator_.intercept_),
         "selected_alpha": float(cv.alpha_),
         "selected_solver": str(cv.estimator_._selected_solver),
@@ -303,15 +320,17 @@ def _fit_cv_nb(X, y, weights, *, device):
     }
 
 
-def _assert_consumer_provenance(name, snap, backend, device_id):
-    if snap["selected_solver"] != "lbfgs":
-        raise AssertionError(f"{name}: expected L-BFGS, got {snap['selected_solver']}")
-    if snap["backend"] != backend:
-        raise AssertionError(f"{name}: backend={snap['backend']}, expected {backend}")
-    if snap["device"] != f"cuda:{device_id}":
-        raise AssertionError(
-            f"{name}: device={snap['device']}, expected cuda:{device_id}"
-        )
+def _assert_consumer_provenance(name, snap, *, backend, device):
+    expected = {
+        "selected_solver": "lbfgs",
+        "backend": backend,
+        "device": device,
+    }
+    for key, value in expected.items():
+        if snap.get(key) != value:
+            raise AssertionError(
+                f"{name}: {key}={snap.get(key)!r}, expected {value!r}"
+            )
 
 
 def run(output: Path):
@@ -428,52 +447,78 @@ def run(output: Path):
             ),
         }
 
-    X_np, y_np, w_np = _case_data("negative_binomial")
-    ref_pen = _fit_penalized_nb(X_np, y_np, w_np, device="cpu")
-    ref_cv = _fit_cv_nb(X_np, y_np, w_np, device="cpu")
-    consumers = {
-        "numpy": {
-            "penalized": {**_json_snap(ref_pen)},
-            "cv": {**_json_snap(ref_cv)},
+    consumers = {}
+    for case in _CONSUMER_CASES:
+        X_np, y_np, w_np = _case_data(_consumer_source_case(case))
+        ref_pen = _fit_penalized_consumer(case, X_np, y_np, w_np, device="cpu")
+        ref_cv = _fit_cv_consumer(case, X_np, y_np, w_np, device="cpu")
+        _assert_consumer_provenance(
+            f"{case}/penalized/numpy",
+            ref_pen,
+            backend="numpy",
+            device="cpu",
+        )
+        _assert_consumer_provenance(
+            f"{case}/cv/numpy",
+            ref_cv,
+            backend="numpy",
+            device="cpu",
+        )
+        consumers[case] = {
+            "numpy": {
+                "penalized": _json_snap(ref_pen),
+                "cv": _json_snap(ref_cv),
+            }
         }
-    }
-    for backend, route, device in (
-        ("cupy", "cupy", "cuda"),
-        ("torch", "torch", "torch"),
-    ):
-        Xb, yb, wb = _container_arrays(
-            route, X_np, y_np, w_np, cp, torch, torch_device
-        )
-        context = (
-            cp.cuda.Device(device_id)
-            if backend == "cupy"
-            else torch.cuda.device(torch_device)
-        )
-        with context:
-            pen = _fit_penalized_nb(Xb, yb, wb, device=device)
-            cv = _fit_cv_nb(Xb, yb, wb, device=device)
-        _assert_consumer_provenance(f"penalized/{backend}", pen, backend, device_id)
-        _assert_consumer_provenance(f"cv/{backend}", cv, backend, device_id)
-        if cv["selected_alpha"] != ref_cv["selected_alpha"]:
-            raise AssertionError(
-                f"cv/{backend}: selected_alpha={cv['selected_alpha']}, "
-                f"numpy={ref_cv['selected_alpha']}"
+
+        for backend, route, device in (
+            ("cupy", "cupy", "cuda"),
+            ("torch", "torch", "torch"),
+        ):
+            Xb, yb, wb = _container_arrays(
+                route, X_np, y_np, w_np, cp, torch, torch_device
             )
-        consumers[backend] = {
-            "penalized": {
-                **_json_snap(pen),
-                "errors_vs_numpy": _assert_parity(
-                    f"penalized_nb/{backend}", ref_pen, pen
-                ),
-            },
-            "cv": {
-                **_json_snap(cv),
-                "errors_vs_numpy": _assert_parity(
-                    f"cv_nb/{backend}", ref_cv, cv
-                ),
-                "selected_alpha_matches_numpy": True,
-            },
-        }
+            context = (
+                cp.cuda.Device(device_id)
+                if backend == "cupy"
+                else torch.cuda.device(torch_device)
+            )
+            with context:
+                pen = _fit_penalized_consumer(case, Xb, yb, wb, device=device)
+                cv = _fit_cv_consumer(case, Xb, yb, wb, device=device)
+            expected_device = f"cuda:{device_id}"
+            _assert_consumer_provenance(
+                f"{case}/penalized/{backend}",
+                pen,
+                backend=backend,
+                device=expected_device,
+            )
+            _assert_consumer_provenance(
+                f"{case}/cv/{backend}",
+                cv,
+                backend=backend,
+                device=expected_device,
+            )
+            if cv["selected_alpha"] != ref_cv["selected_alpha"]:
+                raise AssertionError(
+                    f"{case}/cv/{backend}: selected_alpha={cv['selected_alpha']}, "
+                    f"numpy={ref_cv['selected_alpha']}"
+                )
+            consumers[case][backend] = {
+                "penalized": {
+                    **_json_snap(pen),
+                    "errors_vs_numpy": _assert_parity(
+                        f"{case}/penalized/{backend}", ref_pen, pen
+                    ),
+                },
+                "cv": {
+                    **_json_snap(cv),
+                    "errors_vs_numpy": _assert_parity(
+                        f"{case}/cv/{backend}", ref_cv, cv
+                    ),
+                    "selected_alpha_matches_numpy": True,
+                },
+            }
 
     payload = {
         "schema_version": SCHEMA_VERSION,
@@ -511,7 +556,8 @@ def run(output: Path):
                 "source_sha": source_sha,
                 "ordinary_route_count": len(_CASES) * len(_SOLVERS) * 3,
                 "cross_container_case_count": len(crossings),
-                "consumer_backends": sorted(consumers),
+                "consumer_case_count": len(_CONSUMER_CASES),
+                "consumer_backend_route_count": len(_CONSUMER_CASES) * 3,
                 "output": str(output),
             },
             indent=2,
