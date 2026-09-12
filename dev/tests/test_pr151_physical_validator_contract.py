@@ -19,7 +19,7 @@ def _load_validator():
 
 def test_pr151_validator_schema_matrix_and_tolerances_are_frozen():
     module = _load_validator()
-    assert module.SCHEMA_VERSION == 2
+    assert module.SCHEMA_VERSION == 3
     assert module.SOLVER_TOL == 1.0e-8
     assert module.ATOL_COEF == 2.0e-5
     assert module.ATOL_INTERCEPT == 2.0e-5
@@ -35,6 +35,11 @@ def test_pr151_validator_schema_matrix_and_tolerances_are_frozen():
         "negative_binomial",
         "tweedie",
     )
+    assert module._CONSUMER_CASES == (
+        "negative_binomial",
+        "gamma",
+        "inverse_gaussian",
+    )
 
 
 def test_pr151_validator_promotes_solver_warnings_to_failures():
@@ -45,8 +50,10 @@ def test_pr151_validator_promotes_solver_warnings_to_failures():
     assert '"lbfgs_line_search_failure": "error"' in source
 
 
-def test_pr151_validator_requires_shared_cv_parity_and_selected_alpha_identity():
+def test_pr151_validator_requires_all_shared_cv_parity_and_selected_alpha_identity():
     source = VALIDATOR.read_text(encoding="utf-8")
+    assert "for case in _CONSUMER_CASES:" in source
     assert '"errors_vs_numpy": _assert_parity(' in source
     assert 'cv["selected_alpha"] != ref_cv["selected_alpha"]' in source
     assert '"selected_alpha_matches_numpy": True' in source
+    assert '"consumer_case_count": len(_CONSUMER_CASES)' in source
