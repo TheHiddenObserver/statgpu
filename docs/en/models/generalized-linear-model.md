@@ -87,7 +87,9 @@ Important device rule: explicit `device="cuda"` stays on CuPy, explicit `device=
 
 For ordinary GLMs, explicit `solver="newton"` and `solver="lbfgs"` accept genuine non-uniform analytic weights on supported GLM families. Both solvers use the same normalized weighted objective shown above; the weight vector is part of every objective/gradient evaluation, and Newton also uses it in the Hessian. L-BFGS line-search trial points are evaluated under the same weights as the search direction.
 
-An explicit solver request remains authoritative. Supplying `sample_weight` does not silently replace Newton or L-BFGS with IRLS/FISTA, and explicit CUDA/Torch requests do not fall back to CPU. Uniform weights preserve the ordinary unweighted numerical path.
+An explicit solver request remains authoritative. Supplying `sample_weight` does not silently replace Newton or L-BFGS with IRLS/FISTA, and explicit CUDA/Torch requests do not fall back to CPU. Uniform and historically effectively-uniform weights preserve the ordinary unweighted numerical path.
+
+One deliberate family boundary is inverse-power Gamma: genuine non-uniform weighted explicit Newton/L-BFGS requires `fit_intercept=True` so statgpu can construct a maintained strictly positive family-valid start. The genuine non-uniform weighted no-intercept row fails closed; omitted, uniform, and effectively-uniform no-intercept calls keep their historical unweighted behavior.
 
 This weighted L-BFGS statement is a **GLM loss contract**, not a blanket rule for every low-level `LossBase` consumer. Direct non-GLM losses such as robust, quantile, and Cox objectives keep their own solver/weight support boundaries. Ordered GLMs also retain their separate weight support policy.
 
