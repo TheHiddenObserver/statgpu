@@ -2,36 +2,158 @@
 
 > 语言：中文
 >
-> 最后更新：2026-07-12
+> 最后更新：2026-09-12
 >
 > 切换：[English](../../en/guides/loss-penalty-solver-framework.md)
 
 ## 概述
 
-statgpu 支持 **损失函数 × 惩罚类型 × 求解器 × 后端** 的组合空间。本文档记录完整框架架构、调度逻辑和覆盖矩阵。
+statgpu 的公共接口与数值计算接口是分层的：**Estimator 面向用户并负责编排；Loss + Penalty 定义优化问题；Solver 消费该问题并执行数值求解；Backend 是贯穿这些步骤的执行维度。**
+
+因此，“损失函数 × 惩罚类型 × 求解器 × 后端”描述的是 estimator 内部可组合的计算空间，而不是一条类继承链。本文档记录这条真实运行调用链、调度逻辑和覆盖矩阵。
 
 ## 架构
 
+### 面向用户的真实运行调用链
+
+```text
+User
+  │
+  │  model = Estimator(...)
+  │  model.fit(X, y, sample_weight=...)
+  ▼
+Estimator / public API
+  │
+  ├── formula / X,y 解析与验证
+  ├── backend / device 选择
+  ├── _resolve_loss()      → LossBase 子类实例
+  ├── _resolve_penalty()   → Penalty 子类实例
+  ├── _select_solver()     → solver 名称（auto 或显式）
+  ├── sample_weight / intercept / initialization 处理
+  │
+  ▼
+Optimization problem
+  │
+  │      F(β) = L(β) + P(β)
+  │       ▲           ▲
+  │       │           │
+  │      Loss      Penalty
+  │
+  ▼
+Solver
+  │
+  ├── exact / IRLS / Newton / L-BFGS
+  ├── FISTA / FISTA-BB / FISTA-LLA
+  ├── proximal IRLS / proximal Newton
+  └── ADMM / specialized paths
+  │
+  │  返回 coef / intercept / n_iter / convergence state
+  ▼
+Estimator post-fit
+  │
+  ├── coef_ / intercept_
+  ├── inference / fitted-state metadata
+  ├── backend / solver provenance
+  └── predict() / summary()
 ```
-fit(X, y, sample_weight)
-  ├── _resolve_loss()   → LossBase 子类
-  ├── _resolve_penalty() → Penalty 子类
-  ├── _select_solver()   → solver 名称（auto 或显式）
-  ├── _pre_fit()         → 后端转换、截距增强
-  └── _fit_loss_backend() → 路由到具体 solver 路径
-       ├── fista / fista_bb / fista_lla → FISTA 家族
-       ├── newton / irls                  → 光滑路径
-       ├── proximal_irls_cd              → quantile + SCAD/MCP
-       ├── proximal_newton               → Huber/Bisquare + SCAD/MCP
-       ├── Cox + SCAD/MCP                → Cox 专用 FISTA-LLA
-       └── lbfgs / admm                 → 拟牛顿 / 增广拉格朗日
+
+在当前 penalized estimator 主路径中，`_PenalizedFitMixin.fit()` 实际负责上述 orchestration：先构造 `self._loss` 与 `self._penalty`，选择 backend 和 solver，再进入 `_fit_loss_backend()`、`_dispatch_irls()` 或 SCAD/MCP 等专用路径。`LossBase` 不是 estimator 的父类或“下一层 estimator”；它是 estimator 在计算阶段构造并交给 solver 的 objective 对象。
+
+### 各层职责
+
+| 组件 | 主要职责 | 是否直接面向普通用户 |
+|---|---|:---:|
+| Estimator | 公共 API、formula/数据验证、backend/solver 选择、状态管理、推断、预测 | ✅ |
+| Loss | 定义数据拟合项 `L(β)` 及 value/gradient/Hessian 等 primitive | 通常否 |
+| Penalty | 定义 `P(β)`、gradient/proximal/LLA 等正则化 primitive | 通常否 |
+| Solver | 读取 Loss + Penalty 的能力并执行具体数值算法 | 否 |
+| Backend | NumPy/CuPy/Torch 数组、device 与数值 primitive；横切前述各层 | 通过 estimator 选择 |
+
+Loss 与 Penalty 是**并列**地定义目标函数，而不是先后继承关系：
+
+$$
+F(\beta)=L(\beta)+P(\beta).
+$$
+
+Solver 随后调用诸如
+
+$$
+L(\beta),\quad \nabla L(\beta),\quad \nabla^2L(\beta),\quad
+P(\beta),\quad \nabla P(\beta),\quad
+\operatorname{prox}_{\gamma P}(v)
+$$
+
+这些 primitive 来实现 Newton、L-BFGS、FISTA、ADMM 等算法。
+
+### Backend 是横切执行维度
+
+NumPy、CuPy、Torch 不应理解成“位于 solver 下面的一层”。Estimator 先决定实际 backend/device，随后 `X`、`y`、`sample_weight`、Loss 的导数、Penalty 的 proximal 运算以及 Solver 的迭代都应尽可能保持在同一执行后端；只有契约明确允许的 metadata 或最终小型结果可以跨到 host。
+
+```text
+                  NumPy / CuPy / Torch
+                ┌───────────────────────┐
+Estimator  ──────┤ backend/device choice │
+Loss       ──────┤ value/grad/Hessian    │
+Penalty    ──────┤ value/grad/prox       │
+Solver     ──────┤ numerical iterations  │
+                └───────────────────────┘
 ```
+
+### Panel 为什么不属于 `LossBase` hierarchy
+
+当前 Panel estimator 走的是另一条 estimator-level pipeline：其主要特殊性是 panel 结构、变换、效应恢复与 panel-specific inference，而不是定义一个新的逐样本 loss。
+
+```text
+User
+  │
+  ▼
+Panel estimator / BasePanelModel
+  │
+  ├── formula + entity/time metadata
+  ├── within / between / difference / quasi-demeaning 等变换
+  ▼
+transformed (X*, y*) 或 estimator-specific intermediate state
+  │
+  ├── 当前：OLS / GLS / repeated cross-sectional solve / specialized path
+  ▼
+β-hat
+  │
+  ├── fixed/random effects recovery
+  ├── covariance / diagnostics
+  └── prediction / summary
+```
+
+例如 `PanelOLS` 的核心是先构造 within-transformed `(X*, y*)`，`RandomEffects` 还需要先估计 variance components 再 quasi-demean，而 `FamaMacBeth` 是逐期截面回归后聚合 `β_t`。这些都不适合通过“让 Panel estimator 继承 `LossBase`”来表达。
+
+如果未来加入 penalized panel，更合理的复用方式是 **composition**：
+
+```text
+Panel transformation
+      │
+      ▼
+   (X*, y*)
+      │
+      ├── LossBase object
+      ├── Penalty object
+      ▼
+     Solver
+      │
+      ▼
+    β-hat
+      │
+      ▼
+Panel inference / effects / diagnostics
+```
+
+即 Panel estimator 仍负责 panel 语义，只在统计上适用的 transformed optimization stage 复用 `LossBase + Penalty + Solver`。
 
 ## 1. 损失函数
 
 ### LossBase
 
 抽象基类位于 `statgpu/losses/_base.py`。子类实现 `per_sample_value()` 和 `per_sample_gradient()`。基类自动派生 `value()`、`gradient()`、`fused_value_and_gradient()`。
+
+`LossBase` 是**优化问题定义接口**，不是公共 estimator 基类。Estimator 通常通过 `_resolve_loss()`/factory 构造一个 Loss 对象，再把它与 Penalty 一起交给 solver。
 
 ```python
 class LossBase:
@@ -61,7 +183,7 @@ class LossBase:
 
 ### 逐样本公式
 
-**Quantile (Pinball)**:
+**Quantile（check，又称 pinball）**：
 $$\ell(u) = u \cdot (\tau - \mathbf{1}_{u<0}), \quad u = y - \eta$$
 
 **Huber** (delta-k = 1.345):
@@ -127,18 +249,21 @@ $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\be
 
 ### 全部求解器
 
-| 求解器 | 损失约束 | 惩罚约束 | sample_weight | warm_start |
-|--------|:-----------------|:---------------------|:------------:|:----------:|
+`sample_weight` 不是单纯的 solver 属性：它同时依赖 loss 的统计语义及 value/gradient/curvature 等 capability。下表只给出当前主要路径；完整 capability contract 由 #153 跟踪。
+
+| 求解器 | 损失约束 | 惩罚约束 | `sample_weight` | warm_start |
+|--------|:-----------------|:---------------------|:------------|:----------:|
 | `exact` | 仅 squared_error | 仅 l2 | ✅ | ❌ |
-| `irls` | 任意支持 IRLS 的损失 | l2 / none | ✅ | ❌ |
-| `newton` | 任意有 Hessian 的损失 | l2 / none | ❌ | ❌ |
-| `lbfgs` | 任意 | l2 / none | ❌ | ❌ |
-| `fista` | 任意 | 全部 | ✅ | ✅ |
-| `fista_bb` | 任意 | 全部（非凸 group 除外） | ✅ | ✅ |
-| `fista_lla` | 任意 | SCAD/MCP/adaptive | ✅ | ✅ |
+| `irls` | 任意支持 IRLS 的损失 | l2 / none | 支持的 IRLS loss 可用 | ❌ |
+| `newton` | 有 Hessian 的损失 | l2 / none | 按 loss capability；普通 GLM ✅ | ❌ |
+| `lbfgs` | 光滑 loss | l2 / none | capability-gated；普通 GLM ✅ | ❌ |
+| `lbfgs_b` | 盒约束光滑问题 | l2 / none | 未声明通用非均匀权重 contract | ❌ |
+| `fista` | 支持 gradient/proximal 的 loss | 全部 | 按 loss capability | ✅ |
+| `fista_bb` | 支持 gradient/proximal 的 loss | 全部（非凸 group 除外） | 按 loss capability | ✅ |
+| `fista_lla` | 支持相应 LLA 路径的 loss | SCAD/MCP/adaptive | 按 loss capability | ✅ |
 | `proximal_irls_cd` | 仅 quantile | SCAD/MCP | ✅ | ✅ |
-| `proximal_newton` | 有 Hessian 的损失 | SCAD/MCP/adaptive (LLA) | ✅ | ✅ |
-| `admm` | 任意 | 全部 | ❌ | ✅ |
+| `proximal_newton` | 选定的 Hessian loss | SCAD/MCP/adaptive (LLA) | 按 loss capability | ✅ |
+| `admm` | 维护的 ADMM loss | 全部 | 仅未传/均匀；真正非均匀权重 fail-closed | ✅ |
 
 ### 专用求解器
 
@@ -175,7 +300,9 @@ $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\be
 | DBSCAN | ✅ | GPU 距离 + host-sync 连通分量 | ✅ on-device |
 | UMAP | ✅ | backend-aware + host transfer | backend-aware + host transfer |
 
-## 5. 惩罚模型类
+## 5. 面向用户的惩罚 Estimator
+
+这些类是用户通常直接构造和调用 `.fit()` 的公共层；它们内部再解析 Loss、Penalty、Solver 与 Backend。
 
 | 类 | 损失 | 惩罚 | 求解器 |
 |-------|------|-----------|---------|
