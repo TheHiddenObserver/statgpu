@@ -11,14 +11,14 @@
 
 相关模型文档：
 
-- [分位数回归](quantile.md) — pinball 损失与 `PenalizedQuantileRegression`
+- [分位数回归](quantile.md) — 检查损失（pinball loss）与 `PenalizedQuantileRegression`
 - [稳健回归](robust.md) — Huber、Bisquare、Fair 损失与 `PenalizedRobustRegression`
-- [CoxPH](coxph.md) — Cox partial likelihood、ties、计数过程数据与推断
+- [CoxPH](coxph.md) — Cox 部分似然、并列事件处理、计数过程数据与推断
 - [GeneralizedLinearModel](generalized-linear-model.md) — GLM 目标函数与解析权重语义
 
 五类非 GLM 损失使用这套共享接口：
 
-| 损失 | 类 | R 等价 | 常见用途 |
+| 损失 | 类 | R 中的对应方法 | 常见用途 |
 |------|------|--------|----------|
 | 分位数 | `QuantileLoss` | `quantreg::rq()` | 条件分位数、中位数回归 |
 | Huber | `HuberLoss` | `MASS::rlm()` | 稳健 M-估计 |
@@ -28,7 +28,7 @@
 
 **统一接口不等于统一能力。** 某个求解器能够调用某个损失函数，并不意味着这个损失函数对所有惩罚项、所有求解器控制项，尤其是 `sample_weight`，都具有相同的统计含义。
 
-惩罚封装器包括 `PenalizedQuantileRegression`、`PenalizedRobustRegression` 和 `PenalizedCoxPHModel`。Cox 封装器当前支持 L1、L2、ElasticNet、SCAD、MCP；它只提供估计，且不拟合截距。
+带惩罚模型封装包括 `PenalizedQuantileRegression`、`PenalizedRobustRegression` 和 `PenalizedCoxPHModel`。Cox 封装当前支持 L1、L2、ElasticNet、SCAD、MCP；它只提供估计，且不拟合截距。
 
 ## 公开入口
 
@@ -46,9 +46,9 @@ statgpu.linear_model.PenalizedCoxPHModel
 
 ```text
 LossBase (statgpu/losses/_base.py)
-├── GLMLoss (statgpu/glm_core/_base.py) — GLM 专用 value/gradient/Hessian 接口
+├── GLMLoss (statgpu/glm_core/_base.py) — GLM 专用函数值/梯度/Hessian 接口
 │   ├── SquaredErrorLoss、LogisticLoss、PoissonLoss 等
-├── QuantileLoss — pinball 损失，非光滑
+├── QuantileLoss — 检查损失，非光滑
 ├── HuberLoss — 稳健、光滑
 ├── BisquareLoss — 重降型稳健损失
 ├── FairLoss — Fair 稳健损失
@@ -63,7 +63,7 @@ $$
 \min_{\beta}\frac{1}{n}\sum_{i=1}^n\ell_i(\beta)+P(\beta).
 $$
 
-如果某个具体的损失函数 × 求解器 × estimator 路径明确支持解析权重，则数据拟合项使用归一化加权平均
+如果某个具体的损失函数 × 求解器 × 模型路径明确支持解析权重，则数据拟合项使用归一化加权平均
 
 $$
 \frac{\sum_i w_i\ell_i(\beta)}{\sum_i w_i}.
@@ -71,7 +71,7 @@ $$
 
 关键点是：权重支持属于完整路径。某个底层方法带有 `sample_weight` 参数，并不能推出该损失函数在所有求解器下都支持任意非均匀权重。
 
-### Quantile 损失（pinball）
+### Quantile 损失（检查损失）
 
 $$
 \ell(\eta,y)=\rho_\tau(y-\eta),
@@ -109,17 +109,17 @@ $$
 \end{cases}
 $$
 
-### Cox partial likelihood（负对数尺度）
+### Cox 部分似然（负对数尺度）
 
 $$
 \ell(\beta)=-\frac1n\log L(\beta).
 $$
 
-`CoxPartialLikelihoodLoss` 接受 `[time, event]` 两列响应，并使用 Breslow 或 Efron partial likelihood。高层 `statgpu.survival.CoxPH` 另外支持 Exact ties、delayed-entry/start-stop 数据和 `strata`。
+`CoxPartialLikelihoodLoss` 接受 `[time, event]` 两列响应，并使用 Breslow 或 Efron 部分似然。高层 `statgpu.survival.CoxPH` 另外支持 Exact 并列事件处理、延迟进入/start-stop 数据和 `strata`。
 
 ## 求解器兼容性
 
-下表描述的是维护中的**无权重**底层求解器兼容性，不能直接当成带权支持矩阵。
+下表描述的是当前维护的**无权重**底层求解器兼容性，不能直接当成带权支持矩阵。
 
 | 求解器 | Quantile | Huber | Bisquare | Fair | Cox PH |
 |--------|----------|-------|----------|------|--------|
@@ -133,17 +133,17 @@ $$
 | ADMM | ✅ | ✅ | ✅ | ✅ | ✅ |
 | IRLS | ✅（仅 L2） | ❌ | ❌ | ❌ | ❌ |
 
-### 非均匀权重与直接 L-BFGS
+### 非均匀权重与直接调用 L-BFGS
 
 直接调用 `lbfgs_solver` 时，非均匀 `sample_weight` 需要由对应损失函数明确支持：
 
 | 路径 | 非均匀 `sample_weight` |
 |---|---|
-| 维护中的 `GLMLoss` | ✅ 支持 |
+| 当前维护的 `GLMLoss` | ✅ 支持 |
 | Quantile / Huber / Bisquare / Fair | ❌ 不能由“无权重 L-BFGS 可用”推出 |
-| Cox partial likelihood | ❌ 遵循独立的 Cox 权重边界 |
+| Cox 部分似然 | ❌ 遵循独立的 Cox 权重边界 |
 
-`GLMLoss` 能够支持这一能力，是因为其 fused value/gradient 明确定义了归一化解析权重目标。通用非 GLM 损失继续拒绝真正非均匀的直接 L-BFGS 权重，除非该损失以后单独定义并验证相应统计语义。
+`GLMLoss` 能够支持这一能力，是因为其融合的函数值/梯度接口明确定义了归一化解析权重目标。通用非 GLM 损失继续拒绝真正非均匀的直接 L-BFGS 权重，除非该损失以后单独定义并验证相应统计语义。
 
 均匀权重继续保持历史无权重 L-BFGS 行为。
 
@@ -160,15 +160,15 @@ $$
 | 参数 | 默认值 | 说明 |
 |---|---:|---|
 | `delta` | `None` | 可选固定阈值；一旦提供，会忽略 `epsilon` 与 `method` |
-| `epsilon` | `1.35` | 与估计 scale 配合使用的稳健性调节常数 |
-| `method` | `"MAD"` | scale 处理方式：`"MAD"`、`"huber_prop2"` 或 `"joint"` |
+| `epsilon` | `1.35` | 与估计尺度配合使用的稳健性调节常数 |
+| `method` | `"MAD"` | 尺度处理方式：`"MAD"`、`"huber_prop2"` 或 `"joint"` |
 
 ### `BisquareLoss`
 
 | 参数 | 默认值 | 说明 |
 |---|---:|---|
-| `epsilon` | `4.685` | 稳健性调节常数（常用 95% Gaussian efficiency 取值） |
-| `method` | `"MAD"` | scale 估计方法 |
+| `epsilon` | `4.685` | 稳健性调节常数（常用于获得高斯分布下约 95% 的效率） |
+| `method` | `"MAD"` | 尺度估计方法 |
 
 ### `FairLoss`
 
@@ -180,7 +180,7 @@ $$
 
 | 参数 | 默认值 | 说明 |
 |---|---:|---|
-| `ties` | `"breslow"` | `"breslow"` 或 `"efron"`；Exact ties 请使用 `CoxPH` |
+| `ties` | `"breslow"` | `"breslow"` 或 `"efron"`；Exact 并列事件处理请使用 `CoxPH` |
 
 ## 示例
 
@@ -198,7 +198,7 @@ huber_loss = HuberLoss(epsilon=1.345)
 coef_h, n_iter_h = lbfgs_solver(huber_loss, None, X, y)
 ```
 
-这些例子只说明无权重 direct L-BFGS 可以工作，不能据此推断 Quantile/Huber 已支持非均匀 weighted L-BFGS。需要加权 robust/quantile 方法时，请以对应模型文档为准。
+这些例子只说明无权重 L-BFGS 可以直接调用，不能据此推断 Quantile/Huber 已支持非均匀带权 L-BFGS。需要加权稳健回归或分位数回归时，请以对应模型文档为准。
 
 ### GPU（Torch CUDA）
 
@@ -208,47 +208,47 @@ from statgpu.losses import HuberLoss
 from statgpu.penalties import SCADPenalty
 from statgpu.solvers import fista_solver
 
-X_t=torch.tensor(X,dtype=torch.float64).cuda()
-y_t=torch.tensor(y,dtype=torch.float64).cuda()
+X_t = torch.tensor(X, dtype=torch.float64).cuda()
+y_t = torch.tensor(y, dtype=torch.float64).cuda()
 
-loss=HuberLoss(epsilon=1.345)
-coef,n_iter=fista_solver(loss,SCADPenalty(alpha=0.1),X_t,y_t)
+loss = HuberLoss(epsilon=1.345)
+coef, n_iter = fista_solver(loss, SCADPenalty(alpha=0.1), X_t, y_t)
 ```
 
-### Penalized Quantile + SCAD（CPU/GPU）
+### 带惩罚分位数回归 + SCAD（CPU/GPU）
 
 ```python
 from statgpu.linear_model.penalized import PenalizedQuantileRegression
 
-model=PenalizedQuantileRegression(quantile=0.5,penalty="scad",alpha=0.1)
-model.fit(X,y)
+model = PenalizedQuantileRegression(quantile=0.5, penalty="scad", alpha=0.1)
+model.fit(X, y)
 
-model_gpu=PenalizedQuantileRegression(quantile=0.5,penalty="scad",alpha=0.1)
-model_gpu.fit(X_t,y_t)
+model_gpu = PenalizedQuantileRegression(quantile=0.5, penalty="scad", alpha=0.1)
+model_gpu.fit(X_t, y_t)
 ```
 
-### Cox partial likelihood
+### Cox 部分似然
 
 ```python
 import numpy as np
 from statgpu.losses import CoxPartialLikelihoodLoss
 
-y_surv=np.column_stack([time,event])
-loss=CoxPartialLikelihoodLoss(ties="efron")
-coef=np.zeros(X.shape[1])
-value=loss.value(X,y_surv,coef)
-gradient=loss.gradient(X,y_surv,coef)
-hessian=loss.hessian(X,y_surv,coef)
+y_surv = np.column_stack([time, event])
+loss = CoxPartialLikelihoodLoss(ties="efron")
+coef = np.zeros(X.shape[1])
+value = loss.value(X, y_surv, coef)
+gradient = loss.gradient(X, y_surv, coef)
+hessian = loss.hessian(X, y_surv, coef)
 ```
 
-迭代中的数值数组会保留在选定的 NumPy、CuPy 或 Torch 后端。Cox 预处理会把排序后的 `time` 与 `event` 一次性复制到主机，用于构造确定性的 failure-group metadata；随后索引缓存到选定设备，而设计矩阵、线性预测子、目标函数、梯度和 Hessian 在迭代中不会被搬回 CPU。
+迭代中的数值数组会保留在选定的 NumPy、CuPy 或 Torch 后端。Cox 预处理会把排序后的 `time` 与 `event` 一次性复制到主机，用于构造确定性的失效组元数据；随后索引缓存到选定设备，而设计矩阵、线性预测子、目标函数、梯度和 Hessian 在迭代中不会被搬回 CPU。
 
 ### 正则化生存模型
 
 ```python
 from statgpu.linear_model import PenalizedCoxPHModel
 
-model=PenalizedCoxPHModel(
+model = PenalizedCoxPHModel(
     penalty="scad",
     alpha=0.1,
     ties="efron",
@@ -256,18 +256,18 @@ model=PenalizedCoxPHModel(
     fit_intercept=False,
     compute_inference=False,
 )
-model.fit(X,y_surv)
+model.fit(X, y_surv)
 ```
 
-支持的惩罚为 `l1`、`l2`、`elasticnet`、`scad`、`mcp`。SCAD/MCP 使用 FISTA-LLA continuation。`compute_inference=True` 会抛出 `NotImplementedError`；需要无惩罚推断时使用 `statgpu.survival.CoxPH`。
+支持的惩罚为 `l1`、`l2`、`elasticnet`、`scad`、`mcp`。SCAD/MCP 使用 FISTA-LLA 延续路径。`compute_inference=True` 会抛出 `NotImplementedError`；需要无惩罚推断时使用 `statgpu.survival.CoxPH`。
 
 ## 验证与注意事项
 
 跨 NumPy/CuPy/Torch 的数值一致性和“某种权重解释是否已经声明为受支持”是两个不同问题。三后端一致本身不能证明一个尚未声明带权统计语义的损失函数支持该加权方式。
 
-- `QuantileLoss` 非光滑且没有 Hessian；model-level SCAD/MCP 路径使用 FISTA 或 Proximal IRLS-CD。
-- robust 损失有各自的 estimator-level 权重语义；这不会自动扩展成直接非均匀 weighted L-BFGS。
-- `CoxPartialLikelihoodLoss` 保留 Cox-specific `sample_weight` 限制；数据结构与推断支持以 Cox 模型文档为准。
+- `QuantileLoss` 非光滑且没有 Hessian；模型层的 SCAD/MCP 路径使用 FISTA 或 Proximal IRLS-CD。
+- 稳健损失有各自的模型层权重语义；这不会自动扩展成直接调用 L-BFGS 时的非均匀权重支持。
+- `CoxPartialLikelihoodLoss` 保留 Cox 专用的 `sample_weight` 限制；数据结构与推断支持以 Cox 模型文档为准。
 - 更完整的兼容性见 [Loss × Penalty × Solver 框架](../guides/loss-penalty-solver-framework.md)。
 
 ## 参考文献
