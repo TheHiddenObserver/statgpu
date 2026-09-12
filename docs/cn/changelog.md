@@ -9,14 +9,14 @@
 
 ### 变更
 
-- ordinary `GeneralizedLinearModel` 的显式 `solver="newton"` 与 `solver="lbfgs"` 现在在受支持 GLM family/link 上接受真正的 non-uniform `sample_weight`，并使用 `sum_i w_i loss_i / sum_i w_i` 的归一化 analytic-weight objective。全局正比例缩放 weights 不改变同一统计问题；显式 solver 请求仍具权威性，uniform / historical almost-uniform weights 继续按既有 unweighted 路径处理。
-- shared L-BFGS 的 non-uniform weight 能力由 loss capability gate 控制：维护中的 GLM loss opt in；generic Huber、Quantile 与 Cox direct L-BFGS 在本次变更中仍 fail closed。成功 ordinary GLM fit 记录实际执行的 solver/backend/concrete device provenance；penalized smooth-GLM 与 `PenalizedGLM_CV` 的既有 L-BFGS consumer 也使用同一 weighted objective。
-- `GammaRegression(link="inverse_power")` 的 genuine non-uniform weighted explicit Newton/L-BFGS 在 `fit_intercept=True` 时使用 family-valid backend-native intercept start；genuine non-uniform weighted `fit_intercept=False` 在本次变更中明确 fail closed，因为任意无截距 design 不保证存在通用可构造的 `Xβ > 0` interior start。uniform/effectively-uniform weights 继续保持 historical unweighted compatibility。
+- 普通 `GeneralizedLinearModel` 在受支持的 GLM 分布族和链接函数上，显式 `solver="newton"` 与 `solver="lbfgs"` 现在可以接受非均匀 `sample_weight`。带权数据拟合项按 `sum_i w_i loss_i / sum_i w_i` 归一化，因此把全部权重同时乘以同一个正数不会改变最优解；`sample_weight` 也不会改变显式指定的求解器。均匀权重以及数值上等效于均匀权重的情况继续使用既有无权重数值路径。
+- 直接调用 L-BFGS 时，非均匀权重目前只对明确支持这一语义的 GLM 损失函数开放。Huber、Quantile 与 Cox 等非 GLM 损失函数仍遵循各自的权重限制。成功的普通 GLM 拟合会记录实际执行的求解器、数值后端和具体设备；带惩罚的光滑 GLM 以及 `PenalizedGLM_CV` 中已有的 L-BFGS 路径也使用同一套归一化带权目标函数。
+- `GammaRegression(link="inverse_power")` 在 `fit_intercept=True` 时使用满足分布族定义域的正初始线性预测子。对于“非均匀权重 + 显式 Newton/L-BFGS + `fit_intercept=False`”，当前实现会在拟合前报错，因为尚未提供通用的无截距可行初值构造。这是当前实现限制，而不是 Gamma inverse-power 模型的理论限制；后续支持由 Issue #152 跟踪。未传权重、均匀权重或等效均匀权重继续保持历史行为。
 
 ### 验证
 
-- hosted coverage 包含 row replication、global weight scaling、zero-weight rows、uniform/almost-uniform compatibility、invalid weights、NumPy/Torch-CPU parity、statsmodels Logistic/Poisson reference、完整 ordinary family/link matrix（含除 reviewed inverse-Gamma 例外外的 no-intercept rows）、formula/inference、provenance/failure transaction、installer idempotence/import-order，以及 weighted Negative-Binomial/Gamma/Inverse-Gaussian penalized/CV L-BFGS consumer。
-- `dev/benchmarks/validate_glm_weighted_explicit_solvers_gpu.py` schema v3 已冻结 physical CUDA acceptance contract：CuPy/Torch 上覆盖最终 ordinary family/link × Newton/L-BFGS matrix、cross-container route 与 Negative-Binomial/Gamma/Inverse-Gaussian penalized/CV L-BFGS rows，并把 solver convergence/line-search warning 视为失败。PR #151 要闭合仍需 final exact-source physical CUDA artifact；hosted CI 不替代该 gate。
+- 托管测试覆盖整数权重的行复制等价性、权重整体缩放、零权重观测、均匀/近似均匀权重兼容性、非法权重、NumPy/Torch CPU 一致性、statsmodels Logistic/Poisson 参考结果、普通 GLM 的完整分布族/链接函数矩阵、公式接口、推断、执行信息记录，以及 Negative Binomial、Gamma、Inverse Gaussian 在带惩罚拟合和交叉验证中的 L-BFGS 路径。
+- 物理 CUDA 验证已经在精确实现版本 `c6781cb6a2e1fe500f325e832d23cdc80a99b564` 上完成：Tesla P100-SXM2-16GB、CuPy 13.6.0、Torch 2.0.0+cu117、NumPy 1.24.2，验证程序 schema v3。覆盖 48 条普通 GLM 路径、4 条 CuPy/Torch 交叉容器路径和 9 条共享带惩罚/交叉验证路径；普通 GPU 路径相对 NumPy 的最大绝对误差为 `4.44e-16`。验证结果保存在 `results/pr151_glm_weighted_explicit_solvers_gpu/pr151_glm_weighted_explicit_solvers_gpu.json`。此后的 PR151 提交仅修改文档，没有改变数值实现、测试或物理验证程序。
 
 ## 未发布 — 后端原生 Gaussian residual bootstrap（PR #147 / Issue #145，目标 0.2.6）
 
