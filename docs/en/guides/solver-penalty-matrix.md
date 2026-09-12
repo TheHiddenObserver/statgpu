@@ -30,7 +30,7 @@
 - Every Group Lasso or Adaptive Group Lasso estimator uses the advertised loss gradient and the exact Euclidean group proximal operator. This includes squared error, robust/GLM losses, `sample_weight`, CV folds, and the selected-alpha final refit.
 - The former Gaussian block update is not public-routed. Solving a group Gram system and then applying Euclidean block thresholding is exact only for orthonormal group blocks, which the public design matrix does not require.
 - Analytic `sample_weight` does not silently rewrite an explicit solver request. Supported weighted Newton/L-BFGS rows use the same normalized weighted objective as their unweighted counterpart; unsupported loss/solver weight combinations fail explicitly.
-- For ordinary `GammaRegression(link="inverse_power")`, the newly supported genuine non-uniform weighted explicit Newton/L-BFGS path requires `fit_intercept=True` so a maintained strictly positive family-valid starting predictor can be constructed. The weighted no-intercept row fails closed; historical unweighted behavior is unchanged.
+- For ordinary `GammaRegression(link="inverse_power")`, the newly supported genuine non-uniform weighted explicit Newton/L-BFGS path requires `fit_intercept=True` so a maintained strictly positive family-valid starting predictor can be constructed. Only the **genuine non-uniform weighted** no-intercept row fails closed; uniform/effectively-uniform weights retain the historical unweighted no-intercept path.
 
 ## 2. Explicit Solver Constraints
 
