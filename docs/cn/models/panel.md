@@ -17,11 +17,11 @@
 | [PooledOLS](../panel/pooled-ols.md) | 所有 stacked observations 共享一个公共 conditional-mean relationship。 | 使用全部 stacked variation；combined regression error 必须对 regressors 外生。 |
 | [FamaMacBeth](../panel/fama-macbeth.md) | 每个 time period 有自己的 cross-sectional regression。 | 目标是保留时期的 period-specific slope 平均值，并根据这些 slope 的 time-series variation 做 inference。 |
 
-## Panel estimator 的运行架构与 `LossBase` 边界
+## 当前 Panel 架构
 
-Panel 的公共接口仍然是 estimator：用户构造 `PanelOLS`、`RandomEffects`、`PooledOLS`、`BetweenOLS`、`FirstDifferenceOLS` 或 `FamaMacBeth`，然后调用 `.fit()`。当前实现**没有 `PanelLoss` 这一层**；Panel 的核心抽象也不是“定义一个新的逐样本 loss”，而是 panel 结构、数据变换、效应恢复和 panel-specific inference。
+Panel 的公共入口是 estimator，而不是 loss。用户构造 `PanelOLS`、`RandomEffects`、`PooledOLS`、`BetweenOLS`、`FirstDifferenceOLS` 或 `FamaMacBeth`，然后调用 `.fit()`。六个 estimator 都以 `BasePanelModel(BaseEstimator)` 为共享基础，但 **`BasePanelModel` 只负责统计上中性的共享基础设施，并不决定某个 panel estimator 应采用哪一种经济计量变换。**
 
-当前运行路径可以概括为：
+当前实现可以按下面的运行链理解：
 
 ```text
 User
@@ -29,49 +29,84 @@ User
   │  model = PanelEstimator(...)
   │  model.fit(...)
   ▼
-Panel estimator / BasePanelModel
+Concrete Panel estimator
   │
-  ├── formula + entity/time metadata
-  ├── backend / device preparation
-  ├── panel structure validation
-  │
-  ▼
-Panel-specific transformation / intermediate state
-  │
-  ├── within / two-way demeaning          (PanelOLS)
-  ├── entity means                        (BetweenOLS)
-  ├── first differences                   (FirstDifferenceOLS)
-  ├── variance components + quasi-demean (RandomEffects)
-  ├── stacked design                      (PooledOLS)
-  └── period-specific regressions         (FamaMacBeth)
+  ├── BasePanelModel shared infrastructure
+  │     ├── transactional fit / fitted-state lifecycle
+  │     ├── formula parsing and side-array alignment
+  │     ├── backend / device numeric preparation
+  │     ├── PanelIndexInfo: entity/time/balance/order metadata
+  │     ├── shared linear prediction helpers
+  │     └── shared summary / residual-OLS inference finalization
   │
   ▼
-OLS / GLS / repeated cross-sectional solve / specialized path
+Estimator-specific fit-space construction
+  │
+  ├── PooledOLS          → stacked level design
+  ├── PanelOLS           → within / two-way demeaning
+  ├── BetweenOLS         → entity means
+  ├── FirstDifferenceOLS → within-entity first differences
+  ├── RandomEffects      → auxiliary fits + variance components + quasi-demeaning
+  └── FamaMacBeth        → period-specific cross-sectional designs
   │
   ▼
-coefficient estimates
+Numerical estimation
   │
-  ├── fixed/random-effect recovery
-  ├── covariance / inference
-  ├── diagnostics / fit statistics
-  └── prediction / summary
+  ├── shared panel linear-algebra policy (`_linalg.py`)
+  │     └── rank-aware / numerically guarded least-squares solves
+  │
+  └── FamaMacBeth period/batch solves use the same panel numerical policy,
+      but retain their own period aggregation logic
+  │
+  ▼
+Post-fit statistical layer
+  │
+  ├── residual-OLS covariance dispatch (`_covariance.py`)
+  ├── coefficient inference finalization (`BasePanelModel`)
+  ├── fit statistics / specification diagnostics
+  │     (`_diagnostic_context.py`, `_diagnostics.py`)
+  ├── estimator-specific state/effect recovery
+  └── predict() / summary()
 ```
 
-这与通用 [Loss × Penalty × Solver 框架](../guides/loss-penalty-solver-framework.md) 是两个不同层次的问题。通用优化框架中，Loss 与 Penalty 并列定义
+这张图中的关键边界是：**共享层复用“怎么准备数据、怎么稳定求解、怎么组织推断结果”，具体 estimator 决定“要在哪个统计 fit space 中估计什么”。**
 
-$$
-F(\beta)=L(\beta)+P(\beta),
-$$
+### 共享组件的职责
 
-再由 Solver 消费 `value`、`gradient`、`Hessian`、`proximal` 等 primitive。Panel 当前最特殊的步骤则发生在进入数值求解之前或之外：先根据 panel 结构构造 transformed design/response，或者像 `FamaMacBeth` 那样形成一组 period-specific coefficient estimates。因此，把 `BasePanelModel` 继承到 `LossBase`，或者为了统一类树而引入一个泛化的 `PanelLoss`，都不能准确表达当前统计计算。
+| 组件 | 当前职责 |
+|---|---|
+| `BasePanelModel` | 事务式拟合生命周期、formula/side-array 对齐、backend 数值准备、panel metadata、共享预测、residual-OLS inference finalization、summary 构造。 |
+| `_formula.py` | 标准 R formula、fixest pipe syntax 与 `EntityEffects`/`TimeEffects` token 的解析和 prediction design 重建。 |
+| `_results.py` | `PanelIndexInfo`、`PanelFitStatistics`、`PanelTestResult` 等结构化 metadata/result 容器。 |
+| `_linalg.py` | Panel fit-space 的统一数值线性代数策略，包括 SVD/rank policy、least-squares 与 batched period solves。 |
+| `_covariance.py` | nonrobust、HC、cluster、HAC、Driscoll-Kraay 等 covariance 的共享实现与 dispatch。 |
+| `_diagnostic_context.py` / `_diagnostics.py` | fit statistics、自由度定义、Hausman / pooling F / Breusch-Pagan LM 等 panel diagnostics。 |
+| concrete estimator modules | 定义各 estimator 的统计变换、辅助估计、模型特有状态以及哪些共享 inference/covariance contract 适用。 |
 
-例如 fixed-effects 模型
+`BasePanelModel` 因此不是一个“万能 Panel 算法”。例如它不会自动执行 within transformation，也不会估计 RandomEffects 的 variance components。它提供共享 primitive；`PanelOLS.fit()`、`RandomEffects.fit()` 等具体实现决定这些 primitive 在什么统计结构下被调用。
+
+### 六类 estimator 的当前计算路径
+
+| Estimator | fit-space / 核心变换 | 数值估计 | 推断路径 |
+|---|---|---|---|
+| `PooledOLS` | 原始 stacked level design，并自动加入 intercept | pooled OLS | residual-OLS covariance + shared inference；可计算 pooled fit statistics 与 BP-LM diagnostic |
+| `PanelOLS` | 无 effects 时为 level regression；有 effects 时做 entity/time/two-way demeaning | transformed OLS | transformed-fit-space covariance + shared inference；之后恢复 fixed effects，并计算 panel fit statistics / pooling-F context |
+| `BetweenOLS` | 对每个 entity 取 $X$、$y$ 均值 | entity-mean OLS | entity-mean fit-space covariance + shared inference |
+| `FirstDifferenceOLS` | entity 内按 time 排序后取一阶差分 | differenced OLS | differenced fit-space covariance + shared inference |
+| `RandomEffects` | between/within auxiliary regressions → Swamy–Arora variance components → quasi-demeaning | feasible GLS，可实现为 quasi-demeaned transformed OLS | 在 quasi-demeaned fit space 上使用 shared residual-OLS covariance/inference，同时保留 `theta_` 与 variance components |
+| `FamaMacBeth` | 每个 time period 单独构造 cross-sectional regression | period-specific OLS / batched OLS，再聚合 $\hat\beta_t$ | **不走 residual-OLS covariance registry**；covariance 基于 period coefficient series $\{\hat\beta_t\}$，保持 estimator-specific |
+
+这个表也解释了为什么不能把六个 estimator 简化成“一次通用 OLS 调用”。它们共享大量数值和推断基础设施，但 **fit-space 的定义本身就是 estimator 的统计含义的一部分。**
+
+### Fixed Effects 示例：统计变换发生在求解之前
+
+例如 entity fixed-effects 模型
 
 $$
 y_{it}=x_{it}^\top\beta+\alpha_i+\varepsilon_{it}
 $$
 
-在 within estimator 中先变换为
+先通过 within transformation 构造
 
 $$
 \widetilde y_{it}=y_{it}-\bar y_i,
@@ -79,41 +114,21 @@ $$
 \widetilde x_{it}=x_{it}-\bar x_i,
 $$
 
-随后才求解 transformed least-squares 问题
+然后当前 `PanelOLS` 在 transformed fit space 上求解
 
 $$
-\min_\beta\sum_{i,t}
+\hat\beta
+=
+\arg\min_\beta
+\sum_{i,t}
 \left(\widetilde y_{it}-\widetilde x_{it}^\top\beta\right)^2.
 $$
 
-这里真正可复用的 loss 仍然是 squared error；Panel 特有的是 transformation 以及拟合后的 effect/inference 语义，而不是另一个 `PanelLoss`。
+求得 slope 后，Panel 逻辑还没有结束：实现仍需要恢复 entity/time effects、确定 effect rank 和 residual degrees of freedom，再在 transformed design 上计算所选 covariance、coefficient inference 和 panel-specific fit statistics。因此 Panel 的完整 estimator pipeline 同时包含 **pre-fit transformation、numerical solve 与 post-fit panel inference**。
 
-### 未来 penalized Panel 应如何复用通用优化层
+### 与 `LossBase` 的当前边界
 
-如果以后加入 penalized fixed effects、panel Lasso/ElasticNet 等模型，更自然的架构是 **composition**，而不是让 Panel estimator 继承 `LossBase`：
-
-```text
-Panel estimator
-      │
-      ▼
-Panel transformation
-      │
-      ▼
-   (X*, y*)
-      │
-      ├── LossBase object
-      ├── Penalty object
-      ▼
-     Solver
-      │
-      ▼
-    beta-hat
-      │
-      ▼
-Panel inference / effects / diagnostics / prediction
-```
-
-也就是说，Panel estimator 继续拥有 panel 数据结构与统计语义；只有在某个 transformed optimization stage 确实满足通用 objective contract 时，才复用 `LossBase + Penalty + Solver`。`RandomEffects` 的 variance-component estimation、`FamaMacBeth` 的逐期回归与 coefficient-time-series covariance 等部分仍可以保持 estimator-specific，而不应为了接口统一被强行塞入通用 loss。
+当前 Panel 实现**没有 `PanelLoss` 层，也不通过通用 `LossBase + Penalty + Solver` pipeline 组织拟合**。这里的核心抽象是 estimator-specific fit-space construction 加上共享 panel numerical/inference infrastructure。通用优化框架的当前接口和职责见 [Loss × Penalty × Solver 框架](../guides/loss-penalty-solver-framework.md)。
 
 每个 estimator 页面现在都会把 **statistical model 与 identification assumptions** 和 **numerical estimator** 分开说明。前者回答“什么条件下 coefficient 具有通常的 panel-econometric interpretation”；软件本身仍然可以机械地计算 estimator，因此这些统计假设需要由用户结合实际问题判断，而不是由 `.fit()` 自动验证。
 
