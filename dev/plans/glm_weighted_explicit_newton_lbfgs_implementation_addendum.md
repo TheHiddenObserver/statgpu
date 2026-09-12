@@ -37,20 +37,25 @@ The shared weighted-L-BFGS numerical change itself remains ordinary source code 
 
 ## Weighted-L-BFGS sample-weight preparation amendment
 
-The parent plan preferred extracting Newton's reviewed analytic-weight preparation into a single shared solver utility. The implementation instead keeps a dedicated `_prepare_lbfgs_sample_weight` in `_lbfgs.py` while reusing the canonical `_validated_sample_weight` primitive from `statgpu.solvers._utils`.
+The parent plan preferred extracting Newton's reviewed analytic-weight preparation into a single shared solver utility. The implementation instead keeps a dedicated `_prepare_lbfgs_sample_weight` in `_lbfgs.py` while reusing the canonical `_validate_sample_weight` / `_as_backend_vector` primitives from `statgpu.solvers._utils`.
 
 This narrower implementation is intentional: PR #142 already physically validated Newton's exact uniform/non-uniform routing, backend alignment, and line-search behavior. Refactoring Newton solely for code deduplication would move an already accepted numerical path and reopen a larger regression/evidence surface that #150 does not need.
 
-The separate L-BFGS helper is acceptable only if its externally relevant contract remains locked to Newton's established analytic-weight semantics:
+The separate L-BFGS helper is acceptable only if its externally relevant contract remains locked to Newton's established analytic-weight semantics. Fresh implementation review found that the first draft checked uniformity on the weight input's native backend/dtype before alignment, while Newton checks after alignment to the actual executed design. That ordering difference has now been removed. Both paths perform:
 
-- identical shape/finite/non-negative/positive-total validation via `_validated_sample_weight`;
-- the same historical floating-point `allclose` rule for treating effectively uniform weights as the unweighted path;
-- exact equality for integer uniformity through the backend primitive;
-- genuine non-uniform weights remain backend-native after alignment to the processed design;
+1. shape/finite/non-negative/positive-total validation;
+2. alignment to the executed design backend/device/dtype;
+3. the same historical floating-point `allclose` uniformity rule on that aligned vector;
+4. normalization of uniform/effectively-uniform weights to the historical unweighted path;
+5. backend-native retention of genuine non-uniform weights.
+
+The remaining shared contract is:
+
 - normalized objective semantics are `sum(w_i * contribution_i) / sum(w_i)`;
-- positive global rescaling, uniform-weight identity, zero-weight-row equivalence, integer row replication, invalid-weight rejection, and backend parity are all regression-tested.
+- positive global rescaling, uniform-weight identity, zero-weight-row equivalence, integer row replication, invalid-weight rejection, backend parity, and Newton/L-BFGS classification parity are regression-tested;
+- no generic private Newton helper is refactored solely for code deduplication.
 
-If final review finds semantic drift between Newton and L-BFGS preparation rather than mere implementation duplication, the helper split is not acceptable; extract a shared primitive before completion. No generic private helper is added solely to satisfy stylistic deduplication when behavior is already locked by tests.
+A dedicated dtype-alignment regression freezes the classification order: a weight vector that is non-uniform in its source dtype but becomes effectively uniform in the executed design dtype must be classified identically by Newton and L-BFGS.
 
 ## Inverse-link Gamma initialization amendment
 
@@ -60,7 +65,7 @@ To keep the reviewed Gamma inverse-link support row numerically well-defined whe
 
 - slopes start at zero;
 - intercept starts at `1 / mean(y)` for unweighted fits;
-- with analytic weights, intercept starts at `1 / weighted_mean(y)` using the same normalized active weights as the fitted objective;
+- with genuine analytic weights, intercept starts at `1 / weighted_mean(y)` using the same normalized active weights as the fitted objective;
 - the initial vector is created on the selected NumPy/CuPy/Torch backend and concrete device;
 - both Newton and L-BFGS receive the same family-valid start.
 
@@ -68,22 +73,25 @@ This changes only the optimization starting point. It does not change the Gamma 
 
 Blocking characterization for this amendment:
 
-- deterministic weighted inverse-link Gamma Newton and L-BFGS with an intercept must run without `ConvergenceWarning` / L-BFGS line-search-failure warning on the maintained acceptance dataset;
+- deterministic genuine-nonuniform weighted inverse-link Gamma Newton and L-BFGS with an intercept must run without `ConvergenceWarning` / L-BFGS line-search-failure warning on the maintained acceptance dataset;
 - global positive weight-rescaling invariance must still hold;
 - CPU/GPU parity remains subject to the frozen physical validator thresholds;
 - other families keep their historical solver initialization unless separately reviewed.
 
 ### Reviewed support-matrix narrowing: no-intercept inverse-power Gamma
 
-The parent plan initially asked to prove both `fit_intercept=True` and `False` across the ordinary family/link matrix. Characterization shows that this cannot be claimed generically for weighted inverse-power Gamma: without an intercept there is no maintained public initialization control and no generic guarantee that an arbitrary design admits a coefficient vector with strictly positive `X @ beta` for every row. A heuristic start could therefore turn an explicit capability claim into data-dependent solver luck.
+The parent plan initially asked to prove both `fit_intercept=True` and `False` across the ordinary family/link matrix. Characterization shows that this cannot be claimed generically for **genuine non-uniform weighted** inverse-power Gamma: without an intercept there is no maintained public initialization control and no generic guarantee that an arbitrary design admits a coefficient vector with strictly positive `X @ beta` for every row. A heuristic start could therefore turn an explicit capability claim into data-dependent solver luck.
 
-Under the parent plan's rule allowing genuine family/solver limitations to be removed by reviewed amendment, #150 narrows only this new weighted row:
+Under the parent plan's rule allowing genuine family/solver limitations to be removed by reviewed amendment, #150 narrows only this newly opened genuine-nonuniform row:
 
 - `GammaRegression(link="inverse_power", fit_intercept=True)` + genuine non-uniform weights + explicit Newton/L-BFGS: target supported on NumPy/CuPy/Torch;
-- the same weighted explicit smooth-solver request with `fit_intercept=False`: fail closed before numerical work with a precise `fit_intercept=True` capability error;
-- historical **unweighted** no-intercept behavior is unchanged by #150 and is not redefined as part of this repair.
+- the same **genuine non-uniform** weighted explicit smooth-solver request with `fit_intercept=False`: fail closed before numerical work with a precise `fit_intercept=True` capability error;
+- uniform and historically almost-uniform weight vectors retain the established solver rule and execute the historical unweighted no-intercept path;
+- historical omitted-weight no-intercept behavior is unchanged by #150 and is not redefined as part of this repair.
 
-All other final ordinary family/link rows retain the parent plan's `fit_intercept=True/False` review requirement where the model itself is well-defined. Hosted tests freeze the precise weighted inverse-Gamma no-intercept rejection, and the physical matrix validates the supported inverse-Gamma row with its normal intercept-bearing public construction.
+Fresh implementation review caught and fixed an initial guard that rejected every non-`None` weight vector, including all-one/uniform weights. Newton/L-BFGS regressions now prove exact equality with the unweighted historical path for uniform and effectively-uniform no-intercept inverse-Gamma inputs.
+
+All other final ordinary family/link rows retain the parent plan's `fit_intercept=True/False` review requirement where the model itself is well-defined. Hosted tests freeze the precise genuine-nonuniform weighted inverse-Gamma no-intercept rejection, and the physical matrix validates the supported inverse-Gamma row with its normal intercept-bearing public construction.
 
 ## Physical-validator v2 amendment
 
@@ -109,7 +117,7 @@ Because runtime installation changes the public method objects after import, fin
 5. **Ordered isolation** — the ordered-model override continues to reject `sample_weight` and does not execute the ordinary smooth-solver installer path.
 6. **No stale provenance** — provenance is published only after the wrapped fit succeeds; input-validation, weight-validation, and synthetic solver failures must not advertise attempted solver/backend work as completed execution.
 7. **Installer ownership** — the module is installed once from `statgpu/linear_model/__init__.py` at a documented point after existing penalized/inference installers, and does not depend on their private state.
-8. **Initialization isolation** — the inverse-Gamma warm start is activated only for the reviewed inverse-power Gamma row with an intercept; weighted no-intercept requests fail precisely and unweighted historical behavior is not silently changed.
+8. **Initialization isolation** — the inverse-Gamma warm start is activated only for the reviewed inverse-power Gamma row with an intercept; only genuine non-uniform weighted no-intercept requests fail precisely, while uniform/effectively-uniform and omitted-weight historical behavior remains unchanged.
 9. **Preservation routes** — ordinary `solver="auto"`, explicit IRLS, and explicit FISTA keep their prior numerical dispatch; the new provenance fields must describe those successful routes truthfully rather than changing them.
 
 If fresh code review finds that this installer materially obscures ownership, breaks import/introspection semantics, conflicts with another runtime installer, or broadens the initialization change beyond the reviewed row, this amendment is rejected and the implementation must return to a canonical-source `_glm_base.py` patch before completion.
