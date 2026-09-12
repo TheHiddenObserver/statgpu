@@ -150,16 +150,138 @@ statgpu 提供一阶、二阶、近端和闭式等多类求解器。对大多数
 
 **用途**：光滑损失 + L2/无惩罚，并且普通 Newton 系统具有明确数学定义的场景。
 
-一般的非光滑 Proximal Newton 方法需要在 Hessian 度量下求解近端子问题。直接使用欧氏近端算子会对应另一个复合目标，因此直接的非光滑请求会明确告警并使用 FISTA；FISTA-LLA 也继续使用对应后端上的 FISTA 内层，直到实现正确的 Hessian 度量近端方法。
+对于一般的非光滑复合目标
+
+$$
+F(\beta)=\ell(\beta)+P(\beta),
+$$
+
+真正的 Proximal Newton 步应在 Hessian 度量下求解近端子问题，例如
+
+$$
+\Delta_k
+=\arg\min_{\Delta}
+\left\{
+\nabla\ell(\beta_k)^\top\Delta
++\frac12\Delta^\top H_k\Delta
++P(\beta_k+\Delta)
+\right\}.
+$$
+
+直接把普通欧氏近端算子套在 Newton 步上会对应另一个复合目标。因此当前实现只在 L2/无惩罚的光滑路径上执行 Newton；非光滑请求会明确告警并交给 FISTA，直到实现正确的 Hessian 度量近端子问题。
 
 ### 算法
 
-1. 计算完整目标函数的梯度与 Hessian。
-2. 求解 Newton 系统；只有真正的秩失败才使用最小二乘回退。
-3. 对完整目标函数执行 Armijo 回溯线搜索。
-4. 如果 Newton 方向不是下降方向，则使用最速下降方向。
+对当前迭代点 $\beta_k$，记完整光滑目标为
 
-线搜索失败会被明确报告，而不会被当作一次成功迭代。
+$$
+F(\beta)=\ell(\beta)+P(\beta),
+$$
+
+其中这里的 $P$ 仅为 L2 或 0。首先计算
+
+$$
+g_k
+=\nabla\ell(\beta_k)+\nabla P(\beta_k),
+$$
+
+以及
+
+$$
+H_k
+=\nabla^2\ell(\beta_k)+\nabla^2P(\beta_k).
+$$
+
+实现先将 Hessian 对称化，并加入一个很小的 ridge 稳定项：
+
+$$
+\widetilde H_k
+=\frac12\left(H_k+H_k^\top\right)+10^{-10}I.
+$$
+
+若
+
+$$
+\|g_k\|_2\le \texttt{tol},
+$$
+
+则认为已经收敛。
+
+随后求解 Newton 线性系统
+
+$$
+\widetilde H_k d_k=g_k.
+$$
+
+代码采用“减去方向”的记号，因此试探点写成
+
+$$
+\beta_k(t)=\beta_k-t d_k.
+$$
+
+这与通常写成 $p_k=-\widetilde H_k^{-1}g_k$、再令 $\beta_k+t p_k$ 完全等价。若线性方程求解被识别为奇异或病态，当前实现**不会调用最小二乘求解器**，而是直接退回
+
+$$
+d_k=g_k,
+$$
+
+也就是在上述“减去方向”的记号下采用最速下降。
+
+在进入线搜索前还会检查下降性。由于更新为 $\beta_k-t d_k$，下降方向应满足
+
+$$
+g_k^\top d_k>0.
+$$
+
+如果 $g_k^\top d_k$ 非有限或不大于 0，同样改用
+
+$$
+d_k=g_k,
+\qquad
+ g_k^\top d_k=\|g_k\|_2^2.
+$$
+
+### Armijo 回溯线搜索
+
+从
+
+$$
+t_0=1
+$$
+
+开始，寻找第一个满足
+
+$$
+F(\beta_k-t d_k)
+\le
+F(\beta_k)-c\,t\,g_k^\top d_k,
+$$
+
+的步长，其中当前实现使用
+
+$$
+c=10^{-4}.
+$$
+
+若条件不满足，则按
+
+$$
+t\leftarrow \frac{t}{2}
+$$
+
+继续回溯，最多尝试 25 次。第一个满足 Armijo 条件的候选点被接受：
+
+$$
+\beta_{k+1}=\beta_k-t d_k.
+$$
+
+如果 25 次试探都失败，则恢复
+
+$$
+\beta_{k+1}=\beta_k,
+$$
+
+发出线搜索失败警告并结束当前求解过程。
 
 ### 默认值与计算后端
 
