@@ -11,6 +11,8 @@ from statgpu.glm_core._poisson import PoissonLoss
 from statgpu.glm_core._squared import SquaredErrorLoss
 from statgpu.losses import HuberLoss, QuantileLoss
 from statgpu.solvers import lbfgs_solver
+from statgpu.solvers._lbfgs import _prepare_lbfgs_sample_weight
+from statgpu.solvers._newton import _prepare_newton_sample_weight
 
 
 def _continuous_data(seed=15001, n=72, p=3):
@@ -130,6 +132,25 @@ def test_uniform_and_historically_almost_uniform_weights_use_unweighted_path():
         rtol=0.0,
         atol=0.0,
     )
+
+
+def test_lbfgs_weight_preparation_matches_newton_after_execution_dtype_alignment():
+    # The public contract classifies uniformity on the numerical design's
+    # backend/dtype.  This fixture is deliberately non-uniform in float64 but
+    # rounds to one value in float16; the old L-BFGS ordering classified before
+    # alignment and therefore diverged from Newton on the same executed design.
+    X = np.ones((4, 2), dtype=np.float16)
+    weights = np.array([1.0, 1.0004, 1.0, 1.0], dtype=np.float64)
+    assert not np.allclose(weights, weights[0])
+    assert np.all(np.asarray(weights, dtype=np.float16) == np.float16(1.0))
+
+    newton_weight = _prepare_newton_sample_weight(weights, 4, "numpy", X)
+    lbfgs_weight = _prepare_lbfgs_sample_weight(
+        weights, 4, "numpy", X, LogisticLoss()
+    )
+
+    assert newton_weight is None
+    assert lbfgs_weight is None
 
 
 @pytest.mark.parametrize(
