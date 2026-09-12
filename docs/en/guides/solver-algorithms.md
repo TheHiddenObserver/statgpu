@@ -1,29 +1,39 @@
 # Solver Algorithms
 
 > Language: English  
-> Last updated: 2026-09-12
+> Last updated: 2026-09-12  
+> This page: Algorithm reference  
+> Switch: [Chinese](../../cn/guides/solver-algorithms.md)
 
 ## Overview
 
-statgpu provides 11 solvers for penalized loss minimization. This page documents the algorithm, convergence criteria, backend support, and important capability boundaries for each solver.
+statgpu provides a collection of first-order, second-order, proximal, and closed-form solvers. Most model users should start with `solver="auto"`; this page is an algorithm-level reference for understanding what the solvers do and where their capability boundaries come from.
 
-## Solver Summary
+Three rules are worth keeping in mind while reading the tables below:
 
-| Solver | Best For | Backend Support |
+1. **Backend support is not the same as model support.** A solver may run on NumPy, CuPy, and Torch while a particular loss/penalty/weight combination is still unsupported.
+2. **Explicit solver requests stay explicit.** Adding `sample_weight` does not silently replace Newton/L-BFGS with another solver.
+3. **Weight support is route-specific.** In particular, non-uniform direct L-BFGS weights are supported by maintained GLM losses, not automatically by every `LossBase` implementation.
+
+For model-level dispatch, see [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md).
+
+## Solver summary
+
+| Solver | Best for | Backend support |
 |--------|----------|:---:|
 | Proximal IRLS-CD | quantile + SCAD/MCP | numpy, cupy, torch |
-| Proximal Newton | smooth loss + smooth penalty; non-smooth explicitly uses FISTA | numpy, cupy, torch |
+| Proximal Newton | smooth loss + L2/no penalty; non-smooth requests use FISTA | numpy, cupy, torch |
 | FISTA | general non-smooth penalties | numpy, cupy, torch |
 | FISTA-BB | GLM + sparse penalties | numpy, cupy, torch |
-| FISTA-LLA | nonconvex penalties (continuation path) | numpy, cupy, torch |
-| IRLS | smooth losses + L2 | numpy, cupy, torch |
-| Newton | smooth losses + L2 | numpy, cupy, torch |
-| L-BFGS | smooth losses, moderate dims | numpy, cupy, torch |
-| L-BFGS-B | box-constrained problems | numpy, cupy, torch |
-| ADMM | sum of separable penalties | numpy, cupy, torch |
-| exact | squared_error + L2 (closed-form) | numpy, cupy, torch |
+| FISTA-LLA | non-convex penalties via continuation/LLA | numpy, cupy, torch |
+| IRLS | losses with a maintained IRLS representation | numpy, cupy, torch |
+| Newton | smooth losses with Hessian support | numpy, cupy, torch |
+| L-BFGS | smooth losses, moderate dimensions | numpy, cupy, torch |
+| L-BFGS-B | box-constrained smooth problems | numpy, cupy, torch |
+| ADMM | separable/proximal formulations | numpy, cupy, torch |
+| exact | squared error + L2 closed-form path | numpy, cupy, torch |
 
-Backend support does not imply that every loss/penalty/weight combination is valid. Estimator and loss contracts can narrow the generic solver surface.
+The backend column describes numerical implementation capability only. Estimator and loss contracts can further narrow the valid combinations.
 
 ---
 
@@ -31,42 +41,41 @@ Backend support does not imply that every loss/penalty/weight combination is val
 
 **File**: `statgpu/solvers/_proximal_irls_quantile.py`
 
-**Use case**: Quantile regression + SCAD/MCP penalties. Combines IRLS majorization of the non-smooth pinball loss with LLA for non-convex penalties.
+**Use case**: Quantile regression with SCAD/MCP penalties. It combines an IRLS majorization of the pinball loss with local linear approximation (LLA) for the non-convex penalty.
 
 ### Algorithm
 
-1. **Continuation path**: λ_max → target α (geometric sequence, 3 steps)
-2. **LLA outer loop** (2-5 iterations per step):
-   a. Compute LLA weights: w_j = P'(|β_j|) from SCAD/MCP
-   b. **IRLS-CD inner loop**:
-      - Compute IRLS weights: w_i = τ_i / max(|r_i|, ε)
-      - Quadratic majorization: Q(β) = ½ Σ w_i(y_i − X_iβ)²
-      - Parallel diagonal majorization (Jacobi step):
-        g = X' @ W @ (y − Xβ)
-        h = diag(X' @ W @ X)
-        β = S(g + h·β, n·α·w) / h
-      - Check convergence: max(|β_new − β_old|) < tol
+1. **Continuation path**: move from $\lambda_{\max}$ to the target $\alpha$ on a short geometric path.
+2. **LLA outer loop**:
+   - compute the local SCAD/MCP weights from the current coefficients;
+   - solve the resulting weighted L1-like surrogate with an IRLS-coordinate-descent inner loop;
+   - stop when the LLA coefficients stabilize.
+3. **IRLS-CD inner loop**:
+   - construct the quadratic majorizer for the pinball loss;
+   - compute the weighted gradient/diagonal curvature;
+   - apply coordinate-wise soft-thresholding;
+   - stop when the coefficient change is below tolerance.
 
 ### Convergence
 
-- IRLS inner: max coefficient change < tol (typically 1e-6)
-- LLA outer: max coefficient change < lla_tol
-- GPU: convergence check stays on device, only syncs bool
+- IRLS inner loop: maximum coefficient change below `tol`;
+- LLA outer loop: maximum coefficient change below `lla_tol`;
+- GPU convergence checks remain on device except for the final boolean synchronization.
 
 ### Backend
 
-- numpy: all matrix ops via numpy
-- cupy: ElementwiseKernel for LLA weights, cupy for matrix ops
-- torch: device-native ops, `.to(device)` for sample_weight
+- NumPy: NumPy linear algebra and array operations;
+- CuPy: CuPy matrix operations and GPU kernels where available;
+- Torch: device-native tensor operations.
 
 ### Hyperparameters
 
 | Parameter | Default | Description |
 |---|---:|---|
-| max_lla_per_step | 2 | Max LLA iterations per continuation step |
-| lla_tol | 1e-6 | LLA convergence tolerance |
-| max_iter | 200 | Max IRLS iterations per LLA step |
-| tol | 1e-6 | IRLS convergence tolerance |
+| `max_lla_per_step` | `2` | Maximum LLA iterations per continuation step |
+| `lla_tol` | `1e-6` | LLA convergence tolerance |
+| `max_iter` | `200` | Maximum IRLS iterations per LLA step |
+| `tol` | `1e-6` | IRLS convergence tolerance |
 
 ---
 
@@ -74,37 +83,24 @@ Backend support does not imply that every loss/penalty/weight combination is val
 
 **File**: `statgpu/solvers/_proximal_newton.py`
 
-**Use case**: Smooth losses with a smooth L2/no penalty Newton system.
+**Use case**: Smooth losses with L2/no penalty, where an ordinary Newton system is well defined.
 
-A general non-smooth proximal-Newton update requires a Hessian-metric proximal
-subproblem. The previous Euclidean-prox shortcut optimized the wrong composite
-objective. Direct non-smooth requests now emit a warning and use FISTA; the
-FISTA-LLA path likewise stays on its backend-native FISTA implementation until
-a metric proximal subproblem is implemented and explicitly advertised.
+A general non-smooth proximal-Newton method requires a proximal subproblem in the Hessian metric. A Euclidean-prox shortcut would optimize a different composite objective, so direct non-smooth requests do not silently use that approximation. They warn and use FISTA instead; FISTA-LLA likewise keeps its backend-native FISTA inner solve until a correct Hessian-metric proximal capability is explicitly implemented.
 
 ### Algorithm
 
-1. Compute the loss and smooth-penalty gradient/Hessian exactly once.
-2. Solve the Newton system, using least squares only for a genuine rank failure.
-3. Run Armijo backtracking on the declared full objective.
-4. If the Newton direction is not a descent direction, use steepest descent.
+1. Compute the declared objective gradient and Hessian.
+2. Solve the Newton system; use least squares only for a genuine rank failure.
+3. Run Armijo backtracking on the full declared objective.
+4. If the Newton direction is not a descent direction, fall back to steepest descent.
 
 ### Convergence
 
-- Gradient norm: ||∇f + prox(∇g)|| < tol (typically 1e-6)
-- Line search failure after 25 retries → warning
+The maintained implementation uses its gradient/step convergence checks together with the Armijo acceptance rule. A line-search failure is surfaced rather than treated as a successful step.
 
 ### Backend
 
-- Backend-detect via `_resolve_backend("auto", X)`
-- numpy/cupy/torch for linalg.solve and matrix ops
-
-### Hyperparameters
-
-| Parameter | Default | Description |
-|---|---:|---|
-| max_iter | 50 | Max Newton iterations |
-| tol | 1e-6 | Convergence tolerance |
+The numerical backend is resolved from the model/device request and input arrays; supported NumPy/CuPy/Torch paths use the corresponding native linear algebra.
 
 ---
 
@@ -112,37 +108,37 @@ a metric proximal subproblem is implemented and explicitly advertised.
 
 **File**: `statgpu/solvers/_fista.py`
 
-**Use case**: General solver for any loss + any penalty with proximal operator.
+**Use case**: General proximal solver for a smooth data-fit term plus a penalty with a proximal operator.
 
 ### Algorithm
 
-1. Initialize β₀, y₀ = β₀, t₀ = 1
-2. For k = 1, 2, ...:
-   a. Compute gradient: g_k = ∇ℓ(y_k)
-   b. Proximal step: β_{k+1} = prox(β_k − (1/L)·g_k, α/L)
-   c. Nesterov momentum: t_{k+1} = (1 + √(1+4t_k²))/2
-      y_{k+1} = β_{k+1} + ((t_k−1)/t_{k+1})(β_{k+1} − β_k)
-   d. Check convergence: ||β_{k+1} − β_k||₁ < tol
+1. Initialize $\beta_0$, the momentum point, and the Nesterov scalar.
+2. At each iteration:
+   - evaluate the smooth gradient at the momentum point;
+   - take a proximal-gradient step;
+   - update Nesterov momentum;
+   - test the maintained convergence rule.
 
-### GPU Async Path
+### GPU asynchronous path
 
-When conditions met (GPU backend + non-smooth penalty + CV/quadratic):
-- Gradient computation on device
-- Fused proximal + momentum kernel
-- Batch convergence/divergence/Lipschitz checks
+On supported GPU routes, gradient evaluation, proximal updates, momentum updates, and most convergence/divergence checks remain device-native. Synchronization is batched where possible.
 
-### Weighted Path
+### Weighted path
 
-- Convert sample_weight to backend-native array at entry
-- Weighted gradient: g = X' @ (sw * ψ) / Σsw
-- Weighted objective tracking in GPU path
+On maintained weighted routes:
+
+- `sample_weight` is converted to the selected backend once at solver entry;
+- the data-fit gradient uses the normalized weighted convention;
+- weighted objective tracking uses the same normalization.
+
+Weight semantics still come from the estimator/loss route; the generic existence of a weighted FISTA implementation does not automatically validate every model combination.
 
 ### Hyperparameters
 
 | Parameter | Default | Description |
 |---|---:|---|
-| max_iter | 500 | Max FISTA iterations |
-| tol | 1e-6 | Convergence tolerance |
+| `max_iter` | `500` | Maximum FISTA iterations |
+| `tol` | `1e-6` | Convergence tolerance |
 
 ---
 
@@ -150,22 +146,15 @@ When conditions met (GPU backend + non-smooth penalty + CV/quadratic):
 
 **File**: `statgpu/solvers/_fista_bb.py`
 
-**Use case**: FISTA with adaptive BB step sizes. Good for GLM + sparse penalties on GPU.
+**Use case**: FISTA with adaptive Barzilai-Borwein step sizes, especially useful for supported GLM sparse-penalty routes.
 
 ### Algorithm
 
-1. FISTA body with Nesterov momentum
-2. Instead of fixed L⁻¹ step, use BB1 or BB2:
-   - BB1 (long): α_k = ⟨s_{k-1}, s_{k-1}⟩ / ⟨s_{k-1}, y_{k-1}⟩
-   - BB2 (short): α_k = ⟨s_{k-1}, y_{k-1}⟩ / ⟨y_{k-1}, y_{k-1}⟩
-   where s = β_k − β_{k-1}, y = ∇ℓ(β_k) − ∇ℓ(β_{k-1})
-3. Alternate BB1/BB2 every 2 iterations
-4. Adaptive restart (O'Donoghue & Candes 2015): reset momentum when it opposes descent direction
-5. Step bounds: [L/step_max_factor, L·step_max_factor]
+FISTA-BB keeps the Nesterov/proximal structure of FISTA but adapts the step size using BB1/BB2 secant information from successive coefficient and gradient differences. The implementation also uses adaptive restart when momentum conflicts with descent.
 
-### Disabled for Non-convex Penalties
+### Non-convex penalties
 
-BB steps are disabled for SCAD/MCP/group MCP/group SCAD. The abrupt subgradient changes from LLA reweighting amplify noise through the BB step, causing divergence.
+BB updates are disabled for SCAD/MCP and their group variants. LLA reweighting can change the effective subgradient abruptly, which makes secant-based BB steps unreliable on those continuation paths.
 
 ---
 
@@ -173,45 +162,36 @@ BB steps are disabled for SCAD/MCP/group MCP/group SCAD. The abrupt subgradient 
 
 **File**: `statgpu/solvers/_fista_lla.py`
 
-**Use case**: Non-convex penalties (SCAD/MCP/adaptive L1) via LLA. Runs the continuation path + LLA + FISTA/proximal Newton in one fused function.
+**Use case**: SCAD, MCP, adaptive-L1, and related non-convex/iteratively reweighted penalties.
 
 ### Algorithm
 
-1. **Continuation path**: λ_max → target α (5 steps, 3 for non-smooth)
-2. **LLA outer** (2-5 iterations per step):
-   a. Compute LLA weights from SCAD/MCP at current β
-   b. **Inner solver**:
-      - backend-native FISTA for composite LLA subproblems
-      - a future proximal-Newton path is gated on an explicit, correct
-        Hessian-metric proximal capability
-   c. LLA convergence: ||β − β_before_lla||₁ < lla_tol
+1. Build a short continuation path from a large regularization value to the requested `alpha`.
+2. At each continuation step, run an LLA outer loop.
+3. Each LLA iteration replaces the non-convex penalty by its current convex surrogate and solves that surrogate with backend-native FISTA.
+4. Stop when the LLA coefficients stabilize.
 
-### Fused Kernels (GPU)
+A future proximal-Newton inner path is gated on an explicit and mathematically correct Hessian-metric proximal implementation; it is not silently approximated today.
 
-- Squared error + GPU: fused proximal + momentum kernel (X'X precomputed)
-- Generic path: fused gradient clipping + proximal + momentum
-- Batch GPU syncs: convergence + divergence + Lipschitz in one D2H transfer
+### GPU path
+
+Supported GPU routes use fused proximal/momentum kernels and batch scalar checks to reduce device-to-host synchronization.
 
 ---
 
 ## 6. IRLS (Iteratively Reweighted Least Squares)
 
-**Implementation**: Each loss class has its own `irls()` method.
+**Implementation**: Loss/family-specific IRLS methods.
 
-**Use case**: Smooth penalties (L2, none) with GLM or quantile losses.
+**Use case**: Losses for which statgpu exposes a maintained IRLS representation, typically with L2/no penalty.
 
-### Algorithm (Quantile IRLS)
+### Generic pattern
 
-1. Initialize β₀ = OLS estimate
-2. For each iteration:
-   a. Compute residuals: r = y − Xβ
-   b. Compute IRLS weights
-   c. Solve the weighted least-squares surrogate
-   d. Stop when the maintained convergence rule is met
+1. Build the current working response and working weights.
+2. Solve the corresponding weighted least-squares surrogate.
+3. Update coefficients and repeat until the maintained convergence rule is met.
 
-### Algorithm (GLM IRLS)
-
-Same pattern but working weights/responses come from the GLM family/link.
+For GLMs, the working response/weights are determined by the family and link. Quantile-specific IRLS uses a different majorization and should not be confused with GLM analytic `sample_weight`.
 
 ---
 
@@ -219,24 +199,26 @@ Same pattern but working weights/responses come from the GLM family/link.
 
 **File**: `statgpu/solvers/_newton.py`
 
-**Use case**: Smooth losses + L2/no penalty. Fast convergence when the Hessian is well conditioned.
+**Use case**: Smooth losses with L2/no penalty and Hessian support. It is attractive when second-order curvature is stable and the parameter dimension is moderate.
 
 ### Algorithm
 
-1. Compute gradient g = ∇ℓ(β) + λ·β and Hessian H = ∇²ℓ(β) + λ·I
-2. Solve the Newton system
-3. Run Armijo line search with backtracking
-4. Add a small 1e-10 ridge for numerical stability
+1. Evaluate the gradient and Hessian of the declared objective.
+2. Solve the Newton system.
+3. Use Armijo backtracking to select an acceptable step.
+4. Apply the maintained small ridge stabilization where required for numerical conditioning.
 
-### Analytic sample weights
+### Analytic `sample_weight`
 
-For losses that expose weighted curvature, genuine non-uniform analytic weights are supported. Newton uses one normalized weighted objective throughout value, gradient, Hessian, and every Armijo trial:
+For loss/estimator routes that expose weighted curvature, Newton supports non-uniform analytic weights through one normalized objective:
 
 $$
 L(\beta)=\frac{\sum_i w_i\ell_i(\beta)}{\sum_i w_i}+P(\beta).
 $$
 
-Uniform weights retain the historical unweighted numerical path. Multiplying all active weights by one positive constant therefore leaves the optimum unchanged.
+The same weights are used in objective values, gradients, Hessians, and every Armijo trial. Therefore multiplying all active weights by one positive constant leaves the optimum unchanged.
+
+Uniform/effectively-uniform weights retain the historical unweighted numerical path where that compatibility route is defined.
 
 ---
 
@@ -244,24 +226,26 @@ Uniform weights retain the historical unweighted numerical path. Multiplying all
 
 **Files**: `statgpu/solvers/_lbfgs.py`, `statgpu/solvers/_lbfgs_b.py`
 
-**Use case**: Smooth losses + smooth/no penalty, moderate dimensions, and GLM rows where quasi-Newton updates are preferred.
+**Use case**: Smooth losses with smooth/no penalty when a limited-memory quasi-Newton method is preferable to forming a full Hessian.
 
-### Algorithm
+### L-BFGS algorithm
 
-Standard L-BFGS two-loop recursion with Armijo line search and history size `m=10`. The current point, every line-search candidate, and the accepted-point gradient are evaluated under the same declared objective.
+L-BFGS uses the standard limited-memory two-loop recursion and Armijo line search. The current objective, every line-search candidate, and the accepted-point gradient are all evaluated under the same declared objective.
 
-### Analytic sample weights
+### Analytic `sample_weight`
 
-`lbfgs_solver` preserves uniform-weight compatibility for all existing consumers. Genuine **non-uniform** weighted L-BFGS is opt-in at the loss-contract layer:
+Non-uniform weighted direct L-BFGS is intentionally opt-in at the loss-contract level:
 
-- maintained `GLMLoss` implementations opt in and use the same normalized analytic-weight objective as Newton;
-- the weight vector is used in the initial gradient, line-search objective, every candidate objective, and accepted-point gradient;
-- NumPy, CuPy, and Torch execution stays on the input numerical backend;
-- generic non-GLM `LossBase` consumers remain fail-closed for genuine non-uniform L-BFGS weights unless that loss independently declares the capability.
+| Direct L-BFGS route | Non-uniform `sample_weight` |
+|---|---|
+| Maintained `GLMLoss` | ✅ Supported |
+| Generic robust / quantile / Cox `LossBase` consumers | ❌ Not implied by unweighted support |
 
-This distinction matters for direct solver users: support for unweighted Huber/Quantile/Cox L-BFGS does not by itself imply support for non-uniform `sample_weight` on those losses.
+For maintained GLMs, the same normalized weight vector is used in the initial gradient, current objective, every line-search candidate, and accepted-point gradient. NumPy, CuPy, and Torch execution stays on the selected numerical backend.
 
-`L-BFGS-B` has a separate box-constrained implementation and should not be assumed to inherit every `lbfgs_solver` weighting capability.
+Uniform weights remain compatible with the historical unweighted L-BFGS route. A loss that supports unweighted L-BFGS does **not** automatically support genuine non-uniform `sample_weight`.
+
+`L-BFGS-B` is a separate box-constrained implementation and should not be assumed to inherit every `lbfgs_solver` weighting capability.
 
 ---
 
@@ -269,41 +253,43 @@ This distinction matters for direct solver users: support for unweighted Huber/Q
 
 **File**: `statgpu/solvers/_admm.py`
 
-**Use case**: Any loss + any penalty (alternative formulation).
+**Use case**: Supported separable/proximal formulations where variable splitting is useful.
 
-### Algorithm
+### Generic pattern
 
-1. β-update: argmin L(β) + (ρ/2)||β − z + u||² (via sub-solver)
-2. z-update: proximal operator on z
-3. u-update: u = u + β − z
-4. Adaptive ρ: increase by 10% every 10 iterations if primal residual > 10·dual
+1. Update the primary coefficient variable under the smooth objective plus the augmented quadratic term.
+2. Update the split variable through the declared proximal operator.
+3. Update the scaled dual variable.
+4. Adapt the penalty parameter according to the maintained residual rule.
 
 ---
 
-## 10. exact (Closed-form)
+## 10. `exact` (closed-form path)
 
 **Implemented in**: `_fit_mixin._solve_exact_*`
 
-**Use case**: squared_error + L2 penalty where the maintained dispatch selects the closed-form path.
+**Use case**: Squared-error + L2 rows where the maintained dispatch selects the closed-form/eigendecomposition path.
 
 ---
 
-## Solver Dispatch Logic
+## Solver dispatch
+
+For direct model fitting, `solver="auto"` follows the maintained model-level table. A simplified view is:
 
 ```
-fit() with solver="auto"
-├── squared_error + L2 + numpy → exact
-├── squared_error + L2 + GPU  → newton
-├── SCAD/MCP/adaptive → fista (LLA wrapper)
-├── quantile → fista / quantile-specific path
-├── squared_error + sparse → fista
-├── GLM + GPU + sparse → fista_bb / fista according to maintained table
-├── CV + L2 (loss-specific) → lbfgs / newton
-├── smooth penalties + smooth losses → newton / irls
-└── default sparse → fista_bb
+direct fit with solver="auto"
+├── squared_error + L2 + NumPy/CPU → exact
+├── squared_error + L2 + GPU       → Newton
+├── squared_error + sparse penalty → FISTA/FISTA-BB
+├── smooth non-Gaussian GLM + L2   → Newton
+├── SCAD/MCP/adaptive paths         → LLA + FISTA-family inner solve
+├── quantile                        → quantile-specific FISTA/IRLS path
+└── group penalties                 → group-aware FISTA / FISTA-LLA
 ```
 
-`sample_weight` does not silently rewrite an explicit solver request. Estimator-level `solver="auto"` continues to use the maintained dispatch table for the corresponding weighted or unweighted fit.
+`PenalizedGLM_CV` has a related but intentionally separate smooth-L2 policy. In particular, Gamma, Inverse-Gaussian, and Negative-Binomial L2 CV/final-refit routes use L-BFGS, while logistic, Poisson, and Tweedie L2 rows use Newton. Consult the compatibility matrix rather than inferring CV behavior from the direct-fit tree.
+
+`sample_weight` never silently rewrites an explicit solver request. If a requested weighted route is unsupported, statgpu raises instead of substituting another solver.
 
 ## References
 
