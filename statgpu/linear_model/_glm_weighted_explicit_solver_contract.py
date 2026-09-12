@@ -71,9 +71,10 @@ def _inverse_gamma_intercept_start(
     clipping boundary and can make the first Newton line search fail before a
     meaningful weighted step is evaluated.  Match the existing GLM/FISTA
     family-aware initialization: zero slopes and intercept ``1 / mean(y)``.
-    With analytic weights, use the same normalized weighted mean as the fitted
-    objective.  Other families return ``None`` and keep their historical zero
-    initialization.
+    With genuine analytic weights, use the same normalized weighted mean as the
+    fitted objective.  Uniform/effectively-uniform weights are normalized away
+    before this helper is called so the historical unweighted initialization is
+    preserved exactly.  Other families return ``None`` and keep their zero start.
     """
     if getattr(loss, "name", "") != "gamma" or getattr(loss, "link", None) != "inverse_power":
         return None
@@ -154,32 +155,31 @@ def _install_smooth_solver_contract() -> None:
         if not getattr(loss, "has_hessian", False):
             raise ValueError(f"solver='{solver_name}' requires a Hessian.")
 
-        # Inverse-link Gamma needs a strictly positive linear predictor.  With
-        # an intercept we have a backend-native family-valid start below.  In
-        # a no-intercept model there is no generic way to guarantee that the
-        # design admits X @ beta > 0 for every row, nor a maintained public
-        # init_coef control to express such a feasible point.  Keep only the
-        # genuinely non-uniform weighted row fail-closed.  Uniform/almost-
-        # uniform weights retain the historical unweighted solver path.
-        if (
-            sample_weight is not None
-            and getattr(loss, "name", "") == "gamma"
+        # Inverse-link Gamma has an extra domain contract.  Prepare its weight
+        # identity once with the same reviewed rule used by Newton/L-BFGS:
+        # validation -> execution-backend/dtype alignment -> uniformity check.
+        # The prepared vector is then authoritative both for the no-intercept
+        # capability boundary and for the family-valid intercept warm start.
+        gamma_start_weight = sample_weight
+        is_inverse_gamma = (
+            getattr(loss, "name", "") == "gamma"
             and getattr(loss, "link", None) == "inverse_power"
-            and not self._effective_intercept
-        ):
-            # Reuse Newton's already-reviewed historical uniformity rule so
-            # this public-boundary guard cannot drift from solver semantics.
-            # The returned vector stays on the execution backend/device; only
-            # the scalar uniformity decision synchronizes.
+        )
+        if is_inverse_gamma and sample_weight is not None:
             from statgpu.solvers._newton import _prepare_newton_sample_weight
 
-            active_weight = _prepare_newton_sample_weight(
+            gamma_start_weight = _prepare_newton_sample_weight(
                 sample_weight,
                 X.shape[0],
                 backend_name,
                 X,
             )
-            if active_weight is not None:
+            # Without an intercept there is no generic way to guarantee that
+            # an arbitrary design admits X @ beta > 0 for every row and no
+            # maintained public init_coef exists to provide such a feasible
+            # point.  Keep only the genuine-nonuniform newly opened row closed;
+            # uniform/effectively-uniform weights retain the historical path.
+            if not self._effective_intercept and gamma_start_weight is not None:
                 raise ValueError(
                     "weighted explicit Newton/L-BFGS for Gamma inverse_power "
                     "requires fit_intercept=True for genuine non-uniform "
@@ -224,7 +224,7 @@ def _install_smooth_solver_contract() -> None:
             init_coef = _inverse_gamma_intercept_start(
                 loss,
                 y,
-                sample_weight,
+                gamma_start_weight,
                 backend_name=backend_name,
                 p=p,
                 dtype=x_dtype,
