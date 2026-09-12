@@ -97,7 +97,7 @@ Solver     ──────┤ numerical iterations  │
                 └───────────────────────┘
 ```
 
-This page is limited to estimator paths that construct `Loss + Penalty` and hand that objective to the generic Solver layer. Panel estimators are organized around panel structure, transformations, and panel-specific inference, so their runtime architecture and future composition with the generic optimization layer are documented separately in [Panel Models](../models/panel.md).
+This page is limited to estimator paths that construct `Loss + Penalty` and hand that objective to the generic Solver layer. Panel estimators are organized around panel structure, transformations, and panel-specific inference, so their current runtime architecture is documented separately in [Panel Models](../models/panel.md).
 
 ## 1. Loss Functions
 
