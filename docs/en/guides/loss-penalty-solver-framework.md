@@ -2,33 +2,156 @@
 
 > Language: English
 >
-> Last updated: 2026-07-12
+> Last updated: 2026-09-12
 
 ## Overview
 
-statgpu supports a combinatorial space of **loss functions × penalty types × solvers × backends**. This page documents the complete framework architecture, dispatch logic, and coverage matrix.
+statgpu separates its public API from its numerical-computation interfaces: **Estimators face users and orchestrate a fit; Loss + Penalty define the optimization problem; Solvers consume that problem and perform the numerical optimization; Backend is a cross-cutting execution dimension across those steps.**
+
+Accordingly, “loss functions × penalty types × solvers × backends” describes the composable computation space inside an estimator, not one inheritance tree. This page documents the actual runtime call graph, dispatch logic, and coverage matrix.
 
 ## Architecture
 
+### User-facing runtime call graph
+
+```text
+User
+  │
+  │  model = Estimator(...)
+  │  model.fit(X, y, sample_weight=...)
+  ▼
+Estimator / public API
+  │
+  ├── formula / X,y parsing and validation
+  ├── backend / device selection
+  ├── _resolve_loss()      → LossBase subclass instance
+  ├── _resolve_penalty()   → Penalty subclass instance
+  ├── _select_solver()     → solver name (auto or explicit)
+  ├── sample_weight / intercept / initialization handling
+  │
+  ▼
+Optimization problem
+  │
+  │      F(β) = L(β) + P(β)
+  │       ▲           ▲
+  │       │           │
+  │      Loss      Penalty
+  │
+  ▼
+Solver
+  │
+  ├── exact / IRLS / Newton / L-BFGS
+  ├── FISTA / FISTA-BB / FISTA-LLA
+  ├── proximal IRLS / proximal Newton
+  └── ADMM / specialized paths
+  │
+  │  returns coef / intercept / n_iter / convergence state
+  ▼
+Estimator post-fit
+  │
+  ├── coef_ / intercept_
+  ├── inference / fitted-state metadata
+  ├── backend / solver provenance
+  └── predict() / summary()
 ```
-fit(X, y, sample_weight)
-  ├── _resolve_loss()   → LossBase subclass
-  ├── _resolve_penalty() → Penalty subclass
-  ├── _select_solver()   → solver name (auto or explicit)
-  ├── _pre_fit()         → backend conversion, intercept augmentation
-  └── _fit_loss_backend() → route to specific solver path
-       ├── fista / fista_bb / fista_lla → FISTA family
-       ├── newton / irls                  → smooth paths
-       ├── proximal_irls_cd              → quantile + SCAD/MCP
-       ├── proximal_newton               → Huber/Bisquare + SCAD/MCP
-       └── lbfgs / admm                 → quasi-Newton / augmented Lagrangian
+
+On the current penalized-estimator path, `_PenalizedFitMixin.fit()` performs this orchestration: it constructs `self._loss` and `self._penalty`, chooses the backend and solver, then enters `_fit_loss_backend()`, `_dispatch_irls()`, or a specialized SCAD/MCP path. `LossBase` is not a parent class of the estimator and is not a “lower estimator layer”; it is an objective object constructed by the estimator and consumed during numerical fitting.
+
+### Responsibilities
+
+| Component | Primary responsibility | Normally user-facing? |
+|---|---|:---:|
+| Estimator | Public API, formula/data validation, backend/solver selection, state management, inference, prediction | ✅ |
+| Loss | Defines data-fit term `L(β)` and value/gradient/Hessian-style primitives | Usually no |
+| Penalty | Defines `P(β)` and regularization primitives such as gradient/proximal/LLA | Usually no |
+| Solver | Reads Loss + Penalty capabilities and runs the numerical algorithm | No |
+| Backend | NumPy/CuPy/Torch arrays, device, and numerical primitives; cuts across all layers above | Selected through estimator |
+
+Loss and Penalty define the objective **in parallel** rather than by inheritance:
+
+$$
+F(\beta)=L(\beta)+P(\beta).
+$$
+
+A solver then consumes primitives such as
+
+$$
+L(\beta),\quad \nabla L(\beta),\quad \nabla^2L(\beta),\quad
+P(\beta),\quad \nabla P(\beta),\quad
+\operatorname{prox}_{\gamma P}(v)
+$$
+
+to implement Newton, L-BFGS, FISTA, ADMM, and related algorithms.
+
+### Backend is a cross-cutting execution dimension
+
+NumPy, CuPy, and Torch should not be read as a layer “below the solver.” The estimator first resolves the actual backend/device; `X`, `y`, `sample_weight`, Loss derivatives, Penalty proximal operations, and Solver iterations should then remain on that execution backend whenever the contract permits. Only explicitly allowed metadata or final small results should cross to host.
+
+```text
+                  NumPy / CuPy / Torch
+                ┌───────────────────────┐
+Estimator  ──────┤ backend/device choice │
+Loss       ──────┤ value/grad/Hessian    │
+Penalty    ──────┤ value/grad/prox       │
+Solver     ──────┤ numerical iterations  │
+                └───────────────────────┘
 ```
+
+### Why Panel is not part of the `LossBase` hierarchy
+
+Current Panel estimators follow a separate estimator-level pipeline because their defining structure is panel metadata, transformations, effect recovery, and panel-specific inference rather than a new per-sample loss.
+
+```text
+User
+  │
+  ▼
+Panel estimator / BasePanelModel
+  │
+  ├── formula + entity/time metadata
+  ├── within / between / difference / quasi-demeaning transforms
+  ▼
+transformed (X*, y*) or estimator-specific intermediate state
+  │
+  ├── current: OLS / GLS / repeated cross-sectional solve / specialized path
+  ▼
+beta-hat
+  │
+  ├── fixed/random-effect recovery
+  ├── covariance / diagnostics
+  └── prediction / summary
+```
+
+For example, `PanelOLS` first constructs a within-transformed `(X*, y*)`; `RandomEffects` must estimate variance components before quasi-demeaning; and `FamaMacBeth` performs period-by-period cross-sectional regressions and aggregates the resulting `beta_t`. Those semantics are not represented correctly by making a Panel estimator inherit `LossBase`.
+
+If penalized panel estimators are added later, the natural reuse mechanism is **composition**:
+
+```text
+Panel transformation
+      │
+      ▼
+   (X*, y*)
+      │
+      ├── LossBase object
+      ├── Penalty object
+      ▼
+     Solver
+      │
+      ▼
+  beta-hat
+      │
+      ▼
+Panel inference / effects / diagnostics
+```
+
+The Panel estimator would therefore continue to own panel semantics while reusing `LossBase + Penalty + Solver` only for transformed optimization stages where that statistical abstraction is valid.
 
 ## 1. Loss Functions
 
 ### LossBase
 
 Abstract base class at `statgpu/losses/_base.py`. Subclasses implement `per_sample_value()` and `per_sample_gradient()`. The base class derives `value()`, `gradient()`, `fused_value_and_gradient()` automatically.
+
+`LossBase` is an **optimization-problem definition interface**, not the public estimator base class. Estimators normally construct a Loss object through `_resolve_loss()` or a registry/factory and pass it to a solver together with a Penalty object.
 
 ```python
 class LossBase:
@@ -58,7 +181,7 @@ class LossBase:
 
 ### Per-Sample Formulas
 
-**Quantile (Pinball)**:
+**Quantile (check, also called pinball)**:
 $$\ell(u) = u \cdot (\tau - \mathbf{1}_{u<0}), \quad u = y - \eta$$
 
 **Huber** (delta-k = 1.345):
@@ -121,19 +244,21 @@ is unrelated to `CoxPH(ties="exact")`.
 
 ### All Solvers
 
-| Solver | Loss Constraints | Penalty Constraints | sample_weight | warm_start |
-|--------|:-----------------|:---------------------|:------------:|:----------:|
+`sample_weight` is not a solver-only property: support also depends on the statistical semantics and value/gradient/curvature capabilities of the selected loss. The table below summarizes the maintained main paths; #153 tracks the explicit complete capability contract.
+
+| Solver | Loss Constraints | Penalty Constraints | `sample_weight` | warm_start |
+|--------|:-----------------|:---------------------|:------------|:----------:|
 | `exact` | squared_error only | l2 only | ✅ | ❌ |
-| `irls` | any with IRLS | l2 / none | ✅ | ❌ |
-| `newton` | any with Hessian | l2 / none | ❌ | ❌ |
-| `lbfgs` | any | l2 / none | ❌ | ❌ |
-| `lbfgs_b` | any (box-constrained) | l2 / none | ❌ | ❌ |
-| `fista` | any | all | ✅ | ✅ |
-| `fista_bb` | any | all (except nonconvex groups) | ✅ | ✅ |
-| `fista_lla` | any (SCAD/MCP path) | SCAD/MCP/adaptive | ✅ | ✅ |
+| `irls` | losses with IRLS support | l2 / none | available where the IRLS loss supports it | ❌ |
+| `newton` | losses with Hessian support | l2 / none | loss-dependent; ordinary GLM ✅ | ❌ |
+| `lbfgs` | smooth losses | l2 / none | capability-gated; ordinary GLM ✅ | ❌ |
+| `lbfgs_b` | smooth box-constrained problems | l2 / none | no generic non-uniform-weight contract declared | ❌ |
+| `fista` | losses supporting gradient/proximal path | all | loss-dependent | ✅ |
+| `fista_bb` | losses supporting gradient/proximal path | all (except nonconvex groups) | loss-dependent | ✅ |
+| `fista_lla` | losses supporting the maintained LLA path | SCAD/MCP/adaptive | loss-dependent | ✅ |
 | `proximal_irls_cd` | quantile only | SCAD/MCP | ✅ | ✅ |
-| `proximal_newton` | selected Hessian losses | SCAD/MCP/adaptive (via LLA) | ✅ | ✅ |
-| `admm` | any | all | ❌ | ✅ |
+| `proximal_newton` | selected Hessian losses | SCAD/MCP/adaptive (via LLA) | loss-dependent | ✅ |
+| `admm` | maintained ADMM losses | all | omitted/uniform only; genuine non-uniform weights fail closed | ✅ |
 
 ### Specialized Solvers
 
@@ -172,7 +297,9 @@ convex L1/L2/ElasticNet paths use the corresponding FISTA/Newton routing.
 | DBSCAN | ✅ | GPU dist + host-sync CC | ✅ on-device |
 | UMAP | yes | supported with explicit SciPy host graph boundary | supported with explicit SciPy host graph boundary |
 
-## 5. Penalized Model Classes
+## 5. User-Facing Penalized Estimators
+
+These are the public classes users normally construct and call with `.fit()`; internally they resolve Loss, Penalty, Solver, and Backend objects/policies.
 
 | Class | Loss | Penalties | Solvers |
 |-------|------|-----------|---------|
