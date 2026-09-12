@@ -31,7 +31,7 @@ from ._convergence import ConvergenceWarning
 from ._utils import (
     _smooth_penalty_gradient,
     _smooth_penalty_value_dev,
-    _validated_sample_weight,
+    _validate_sample_weight,
     _as_backend_vector,
     _validate_smooth_penalty,
 )
@@ -43,12 +43,19 @@ def _prepare_lbfgs_sample_weight(sample_weight, n_samples, backend, ref_arr, los
     Uniform weights retain the historical L-BFGS behavior and are normalized
     away before optimization.  Genuine non-uniform weights are accepted only
     for losses that explicitly opt into the shared weighted-L-BFGS contract.
+
+    Match Newton's established ordering exactly: validate first, align to the
+    executed design backend/dtype, then apply the historical uniformity rule.
+    This prevents the two explicit smooth solvers from classifying the same
+    public weight vector differently merely because its input container/dtype
+    differs from the numerical design.
     """
     if sample_weight is None:
         return None
 
-    sw_backend, xp, values = _validated_sample_weight(sample_weight, n_samples)
-    if sw_backend == "torch":
+    _validate_sample_weight(sample_weight, n_samples)
+    values = _as_backend_vector(sample_weight, backend, ref_arr).reshape(-1)
+    if backend == "torch":
         import torch
 
         uniform_dev = (
@@ -57,6 +64,9 @@ def _prepare_lbfgs_sample_weight(sample_weight, n_samples, backend, ref_arr, los
             else torch.all(values == values[0])
         )
     else:
+        from statgpu.backends._utils import _get_xp
+
+        xp = _get_xp(backend)
         uniform_dev = (
             xp.allclose(values, values[0])
             if getattr(values.dtype, "kind", "") == "f"
@@ -74,7 +84,7 @@ def _prepare_lbfgs_sample_weight(sample_weight, n_samples, backend, ref_arr, los
             f"loss='{getattr(loss, 'name', '?')}'."
         )
 
-    return _as_backend_vector(values, backend, ref_arr).reshape(-1)
+    return values
 
 
 def _call_loss_with_weight(fn, *args, sample_weight=None):
