@@ -30,7 +30,7 @@
 - Group Lasso 与 Adaptive Group Lasso 都使用实际 loss gradient 和精确欧氏 group proximal，包括 robust/GLM loss、`sample_weight`、CV fold 与最终 selected-alpha refit。
 - 旧 Gaussian block 更新不再进入公开路由；其 inverse-Gram 后欧氏阈值只对正交归一 group block 精确。
 - analytic `sample_weight` 不会静默重写显式 solver request。受支持的 weighted Newton/L-BFGS 使用和对应 unweighted row 相同的归一化 weighted objective；不支持的 loss/solver weight 组合明确失败。
-- 对普通 `GammaRegression(link="inverse_power")`，新开放的 genuine non-uniform weighted explicit Newton/L-BFGS 路径要求 `fit_intercept=True`，这样才能构造维护中的严格正、family-valid 初始 predictor。weighted no-intercept row 明确 fail closed；历史 unweighted 行为不变。
+- 对普通 `GammaRegression(link="inverse_power")`，新开放的 genuine non-uniform weighted explicit Newton/L-BFGS 路径要求 `fit_intercept=True`，这样才能构造维护中的严格正、family-valid 初始 predictor。只有 **genuine non-uniform weighted** 的 no-intercept row 会 fail closed；uniform / effectively-uniform weights 继续走历史 unweighted no-intercept 路径。
 
 ## 2. 显式求解器约束
 
