@@ -99,53 +99,7 @@ Solver     ──────┤ numerical iterations  │
                 └───────────────────────┘
 ```
 
-### Panel 为什么不属于 `LossBase` hierarchy
-
-当前 Panel estimator 走的是另一条 estimator-level pipeline：其主要特殊性是 panel 结构、变换、效应恢复与 panel-specific inference，而不是定义一个新的逐样本 loss。
-
-```text
-User
-  │
-  ▼
-Panel estimator / BasePanelModel
-  │
-  ├── formula + entity/time metadata
-  ├── within / between / difference / quasi-demeaning 等变换
-  ▼
-transformed (X*, y*) 或 estimator-specific intermediate state
-  │
-  ├── 当前：OLS / GLS / repeated cross-sectional solve / specialized path
-  ▼
-β-hat
-  │
-  ├── fixed/random effects recovery
-  ├── covariance / diagnostics
-  └── prediction / summary
-```
-
-例如 `PanelOLS` 的核心是先构造 within-transformed `(X*, y*)`，`RandomEffects` 还需要先估计 variance components 再 quasi-demean，而 `FamaMacBeth` 是逐期截面回归后聚合 `β_t`。这些都不适合通过“让 Panel estimator 继承 `LossBase`”来表达。
-
-如果未来加入 penalized panel，更合理的复用方式是 **composition**：
-
-```text
-Panel transformation
-      │
-      ▼
-   (X*, y*)
-      │
-      ├── LossBase object
-      ├── Penalty object
-      ▼
-     Solver
-      │
-      ▼
-    β-hat
-      │
-      ▼
-Panel inference / effects / diagnostics
-```
-
-即 Panel estimator 仍负责 panel 语义，只在统计上适用的 transformed optimization stage 复用 `LossBase + Penalty + Solver`。
+本页只讨论会构造 `Loss + Penalty` 并将其交给通用 Solver 的 estimator 路径。Panel estimator 的核心是 panel structure、数据变换与 panel-specific inference，不在本页展开；其运行架构与未来如何通过 composition 复用通用优化层，见 [面板模型](../models/panel.md)。
 
 ## 1. 损失函数
 
