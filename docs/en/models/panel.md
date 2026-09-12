@@ -17,11 +17,11 @@ A useful way to distinguish them is:
 | [PooledOLS](../panel/pooled-ols.md) | One common conditional-mean relationship is fitted to all stacked observations. | Uses all stacked variation; the combined regression error must be exogenous with respect to the regressors. |
 | [FamaMacBeth](../panel/fama-macbeth.md) | Each time period has its own cross-sectional regression. | Targets the average of the retained period-specific slopes and bases uncertainty on their time-series variation. |
 
-## Panel estimator runtime architecture and the `LossBase` boundary
+## Current Panel Architecture
 
-The user-facing interface for Panel is still the estimator: users construct `PanelOLS`, `RandomEffects`, `PooledOLS`, `BetweenOLS`, `FirstDifferenceOLS`, or `FamaMacBeth` and call `.fit()`. The current implementation has **no `PanelLoss` layer**. The central Panel abstraction is panel structure, data transformation, effect recovery, and panel-specific inference rather than a new per-observation loss.
+The public Panel interface is estimator-centric, not loss-centric. Users construct `PanelOLS`, `RandomEffects`, `PooledOLS`, `BetweenOLS`, `FirstDifferenceOLS`, or `FamaMacBeth` and call `.fit()`. All six estimators share `BasePanelModel(BaseEstimator)`, but **`BasePanelModel` contains statistically neutral shared infrastructure; it does not choose which econometric transformation defines a particular estimator.**
 
-The maintained runtime pipeline is:
+The current implementation can be read as the following runtime chain:
 
 ```text
 User
@@ -29,49 +29,84 @@ User
   │  model = PanelEstimator(...)
   │  model.fit(...)
   ▼
-Panel estimator / BasePanelModel
+Concrete Panel estimator
   │
-  ├── formula + entity/time metadata
-  ├── backend / device preparation
-  ├── panel-structure validation
-  │
-  ▼
-Panel-specific transformation / intermediate state
-  │
-  ├── within / two-way demeaning          (PanelOLS)
-  ├── entity means                        (BetweenOLS)
-  ├── first differences                   (FirstDifferenceOLS)
-  ├── variance components + quasi-demean (RandomEffects)
-  ├── stacked design                      (PooledOLS)
-  └── period-specific regressions         (FamaMacBeth)
+  ├── BasePanelModel shared infrastructure
+  │     ├── transactional fit / fitted-state lifecycle
+  │     ├── formula parsing and side-array alignment
+  │     ├── backend / device numeric preparation
+  │     ├── PanelIndexInfo: entity/time/balance/order metadata
+  │     ├── shared linear prediction helpers
+  │     └── shared summary / residual-OLS inference finalization
   │
   ▼
-OLS / GLS / repeated cross-sectional solve / specialized path
+Estimator-specific fit-space construction
+  │
+  ├── PooledOLS          → stacked level design
+  ├── PanelOLS           → within / two-way demeaning
+  ├── BetweenOLS         → entity means
+  ├── FirstDifferenceOLS → within-entity first differences
+  ├── RandomEffects      → auxiliary fits + variance components + quasi-demeaning
+  └── FamaMacBeth        → period-specific cross-sectional designs
   │
   ▼
-coefficient estimates
+Numerical estimation
   │
-  ├── fixed/random-effect recovery
-  ├── covariance / inference
-  ├── diagnostics / fit statistics
-  └── prediction / summary
+  ├── shared panel linear-algebra policy (`_linalg.py`)
+  │     └── rank-aware / numerically guarded least-squares solves
+  │
+  └── FamaMacBeth period/batch solves use the same panel numerical policy,
+      but retain estimator-specific period aggregation
+  │
+  ▼
+Post-fit statistical layer
+  │
+  ├── residual-OLS covariance dispatch (`_covariance.py`)
+  ├── coefficient inference finalization (`BasePanelModel`)
+  ├── fit statistics / specification diagnostics
+  │     (`_diagnostic_context.py`, `_diagnostics.py`)
+  ├── estimator-specific state/effect recovery
+  └── predict() / summary()
 ```
 
-This is a different architectural concern from the generic [Loss × Penalty × Solver framework](../guides/loss-penalty-solver-framework.md). In that optimization framework, Loss and Penalty jointly define
+The important boundary is that **the shared layer reuses how data are prepared, how least-squares problems are solved stably, and how inference results are organized; the concrete estimator decides which statistical fit space is being estimated.**
+
+### Responsibilities of the Shared Components
+
+| Component | Current responsibility |
+|---|---|
+| `BasePanelModel` | Transactional fit lifecycle, formula/side-array alignment, backend numeric preparation, panel metadata, shared prediction, residual-OLS inference finalization, and summary construction. |
+| `_formula.py` | Standard R formulas, fixest pipe syntax, `EntityEffects`/`TimeEffects` tokens, side-array alignment, and prediction-design reconstruction. |
+| `_results.py` | Structured metadata/result containers such as `PanelIndexInfo`, `PanelFitStatistics`, and `PanelTestResult`. |
+| `_linalg.py` | Shared numerical linear-algebra policy for Panel fit spaces, including SVD/rank policy, least-squares solves, and batched period solves. |
+| `_covariance.py` | Shared covariance implementations and dispatch for nonrobust, HC, cluster, HAC, and Driscoll-Kraay paths. |
+| `_diagnostic_context.py` / `_diagnostics.py` | Fit statistics, degrees-of-freedom definitions, and Panel diagnostics such as Hausman, pooling F, and Breusch-Pagan LM. |
+| concrete estimator modules | Define each estimator's statistical transformation, auxiliary estimation, model-specific state, and which shared inference/covariance contracts apply. |
+
+`BasePanelModel` is therefore not a universal Panel algorithm. It does not automatically perform within transformation and it does not estimate RandomEffects variance components. It provides shared primitives; concrete implementations such as `PanelOLS.fit()` and `RandomEffects.fit()` decide the statistical structure in which those primitives are used.
+
+### Current Computation Path by Estimator
+
+| Estimator | Fit space / core transformation | Numerical estimation | Inference path |
+|---|---|---|---|
+| `PooledOLS` | Original stacked level design with an automatically added intercept | pooled OLS | residual-OLS covariance + shared inference; pooled fit statistics and BP-LM diagnostic when applicable |
+| `PanelOLS` | Level regression without effects; entity/time/two-way demeaning when effects are requested | transformed OLS | transformed-fit-space covariance + shared inference; then fixed-effect recovery and Panel fit-statistic / pooling-F context |
+| `BetweenOLS` | Entity means of $X$ and $y$ | entity-mean OLS | entity-mean fit-space covariance + shared inference |
+| `FirstDifferenceOLS` | Within-entity first differences after time ordering when available | differenced OLS | differenced fit-space covariance + shared inference |
+| `RandomEffects` | Between/within auxiliary regressions → Swamy-Arora variance components → quasi-demeaning | feasible GLS represented as quasi-demeaned transformed OLS | shared residual-OLS covariance/inference on the quasi-demeaned fit space, while retaining `theta_` and variance components |
+| `FamaMacBeth` | Separate cross-sectional regression design for each time period | period-specific OLS / batched OLS followed by aggregation of $\hat\beta_t$ | **does not use the residual-OLS covariance registry**; covariance is based on the period coefficient series $\{\hat\beta_t\}$ and remains estimator-specific |
+
+This table also explains why the six estimators cannot be reduced to “one generic OLS call.” They share substantial numerical and inference infrastructure, but **the definition of the fit space is itself part of the statistical meaning of the estimator.**
+
+### Fixed Effects Example: the Statistical Transformation Precedes the Solve
+
+For the entity fixed-effects model
 
 $$
-F(\beta)=L(\beta)+P(\beta),
+y_{it}=x_{it}^\top\beta+\alpha_i+\varepsilon_{it},
 $$
 
-and a Solver consumes primitives such as value, gradient, Hessian, and proximal operators. Panel's defining work occurs before or outside that stage: the estimator first constructs a transformed design/response from the panel structure, or—in the case of `FamaMacBeth`—constructs a sequence of period-specific coefficient estimates. Making `BasePanelModel` inherit `LossBase`, or introducing a generic `PanelLoss` only to force a single class hierarchy, would therefore misrepresent the maintained computation.
-
-For example, the fixed-effects model
-
-$$
-y_{it}=x_{it}^\top\beta+\alpha_i+\varepsilon_{it}
-$$
-
-is transformed by the within estimator to
+the within estimator first constructs
 
 $$
 \widetilde y_{it}=y_{it}-\bar y_i,
@@ -79,41 +114,21 @@ $$
 \widetilde x_{it}=x_{it}-\bar x_i,
 $$
 
-and only then solves the transformed least-squares problem
+and current `PanelOLS` then solves the transformed least-squares problem
 
 $$
-\min_\beta\sum_{i,t}
+\hat\beta
+=
+\arg\min_\beta
+\sum_{i,t}
 \left(\widetilde y_{it}-\widetilde x_{it}^\top\beta\right)^2.
 $$
 
-The reusable loss here is still squared error. What is specific to Panel is the transformation and the post-fit effect/inference semantics, not a separate `PanelLoss`.
+The Panel estimator is not finished once the slope is solved: the implementation still recovers entity/time effects, determines effect rank and residual degrees of freedom, and computes the selected covariance, coefficient inference, and Panel-specific fit statistics on the transformed design. The maintained estimator pipeline therefore contains **pre-fit transformation, numerical solve, and post-fit Panel inference**.
 
-### How future penalized Panel estimators should reuse the generic optimization layer
+### Current Boundary with `LossBase`
 
-If penalized fixed effects, panel Lasso/ElasticNet, or related estimators are added later, the natural design is **composition**, not inheritance from `LossBase`:
-
-```text
-Panel estimator
-      │
-      ▼
-Panel transformation
-      │
-      ▼
-   (X*, y*)
-      │
-      ├── LossBase object
-      ├── Penalty object
-      ▼
-     Solver
-      │
-      ▼
-   beta-hat
-      │
-      ▼
-Panel inference / effects / diagnostics / prediction
-```
-
-The Panel estimator therefore continues to own panel structure and statistical semantics, while reusing `LossBase + Penalty + Solver` only for a transformed optimization stage that genuinely satisfies that generic objective contract. Estimator-specific stages such as RandomEffects variance-component estimation and Fama-MacBeth period regressions / coefficient-time-series covariance can remain specialized instead of being forced into the generic loss abstraction.
+The current Panel implementation has **no `PanelLoss` layer and does not organize fitting through the generic `LossBase + Penalty + Solver` pipeline**. Its current abstraction is estimator-specific fit-space construction plus shared Panel numerical/inference infrastructure. The current generic optimization interface is documented separately in [Loss × Penalty × Solver Framework](../guides/loss-penalty-solver-framework.md).
 
 Each estimator page separates the **statistical model and identification assumptions** from the **numerical estimator**. The assumptions describe when the reported coefficient has the usual panel-econometric interpretation; the software can evaluate an estimator mechanically even when those substantive assumptions are not credible in a particular application.
 
