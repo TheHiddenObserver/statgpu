@@ -97,53 +97,7 @@ Solver     ──────┤ numerical iterations  │
                 └───────────────────────┘
 ```
 
-### Why Panel is not part of the `LossBase` hierarchy
-
-Current Panel estimators follow a separate estimator-level pipeline because their defining structure is panel metadata, transformations, effect recovery, and panel-specific inference rather than a new per-sample loss.
-
-```text
-User
-  │
-  ▼
-Panel estimator / BasePanelModel
-  │
-  ├── formula + entity/time metadata
-  ├── within / between / difference / quasi-demeaning transforms
-  ▼
-transformed (X*, y*) or estimator-specific intermediate state
-  │
-  ├── current: OLS / GLS / repeated cross-sectional solve / specialized path
-  ▼
-beta-hat
-  │
-  ├── fixed/random-effect recovery
-  ├── covariance / diagnostics
-  └── prediction / summary
-```
-
-For example, `PanelOLS` first constructs a within-transformed `(X*, y*)`; `RandomEffects` must estimate variance components before quasi-demeaning; and `FamaMacBeth` performs period-by-period cross-sectional regressions and aggregates the resulting `beta_t`. Those semantics are not represented correctly by making a Panel estimator inherit `LossBase`.
-
-If penalized panel estimators are added later, the natural reuse mechanism is **composition**:
-
-```text
-Panel transformation
-      │
-      ▼
-   (X*, y*)
-      │
-      ├── LossBase object
-      ├── Penalty object
-      ▼
-     Solver
-      │
-      ▼
-  beta-hat
-      │
-      ▼
-Panel inference / effects / diagnostics
-```
-
-The Panel estimator would therefore continue to own panel semantics while reusing `LossBase + Penalty + Solver` only for transformed optimization stages where that statistical abstraction is valid.
+This page is limited to estimator paths that construct `Loss + Penalty` and hand that objective to the generic Solver layer. Panel estimators are organized around panel structure, transformations, and panel-specific inference, so their runtime architecture and future composition with the generic optimization layer are documented separately in [Panel Models](../models/panel.md).
 
 ## 1. Loss Functions
 
