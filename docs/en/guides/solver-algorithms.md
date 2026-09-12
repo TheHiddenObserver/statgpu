@@ -146,16 +146,138 @@ For each continuation value of `alpha`:
 
 **Use case**: Smooth losses with L2/no penalty, where an ordinary Newton system is well defined.
 
-A general non-smooth proximal-Newton method requires a proximal subproblem in the Hessian metric. A Euclidean-prox shortcut would optimize a different composite objective, so direct non-smooth requests warn and use FISTA instead. FISTA-LLA likewise keeps its backend-native FISTA inner solve until a correct Hessian-metric proximal implementation exists.
+For a general non-smooth composite objective
+
+$$
+F(\beta)=\ell(\beta)+P(\beta),
+$$
+
+a true proximal-Newton step would solve a Hessian-metric proximal subproblem such as
+
+$$
+\Delta_k
+=\arg\min_{\Delta}
+\left\{
+\nabla\ell(\beta_k)^\top\Delta
++\frac12\Delta^\top H_k\Delta
++P(\beta_k+\Delta)
+\right\}.
+$$
+
+Applying an ordinary Euclidean proximal operator to a Newton step would optimize a different composite objective. The maintained implementation therefore uses Newton only on the smooth L2/no-penalty path; non-smooth requests warn and delegate to FISTA until a correct Hessian-metric proximal subproblem is implemented.
 
 ### Algorithm
 
-1. Compute the declared objective gradient and Hessian.
-2. Solve the Newton system; use least squares only for a genuine rank failure.
-3. Run Armijo backtracking on the full declared objective.
-4. If the Newton direction is not a descent direction, use steepest descent.
+At iterate $\beta_k$, write the smooth objective as
 
-The maintained implementation exposes a line-search failure instead of treating it as a successful step.
+$$
+F(\beta)=\ell(\beta)+P(\beta),
+$$
+
+where $P$ is L2 or zero on this path. Compute
+
+$$
+g_k
+=\nabla\ell(\beta_k)+\nabla P(\beta_k),
+$$
+
+and
+
+$$
+H_k
+=\nabla^2\ell(\beta_k)+\nabla^2P(\beta_k).
+$$
+
+The implementation symmetrizes the Hessian and adds a small ridge stabilization,
+
+$$
+\widetilde H_k
+=\frac12\left(H_k+H_k^\top\right)+10^{-10}I.
+$$
+
+If
+
+$$
+\|g_k\|_2\le \texttt{tol},
+$$
+
+optimization stops.
+
+The Newton system is then solved as
+
+$$
+\widetilde H_k d_k=g_k.
+$$
+
+The code uses a subtractive direction convention, so trial points are
+
+$$
+\beta_k(t)=\beta_k-t d_k.
+$$
+
+This is equivalent to the more common notation $p_k=-\widetilde H_k^{-1}g_k$ followed by $\beta_k+t p_k$. If the linear solve is classified as singular or ill-conditioned, the current implementation **does not call a least-squares solver**; it instead falls back to
+
+$$
+d_k=g_k,
+$$
+
+which is steepest descent under the subtractive convention above.
+
+Before line search, descent is checked explicitly. Because the update is $\beta_k-t d_k$, a valid descent direction requires
+
+$$
+g_k^\top d_k>0.
+$$
+
+If $g_k^\top d_k$ is non-finite or non-positive, the implementation again sets
+
+$$
+d_k=g_k,
+\qquad
+ g_k^\top d_k=\|g_k\|_2^2.
+$$
+
+### Armijo backtracking
+
+Starting from
+
+$$
+t_0=1,
+$$
+
+the solver accepts the first step satisfying
+
+$$
+F(\beta_k-t d_k)
+\le
+F(\beta_k)-c\,t\,g_k^\top d_k,
+$$
+
+with
+
+$$
+c=10^{-4}.
+$$
+
+If the condition fails, the step is halved,
+
+$$
+t\leftarrow \frac{t}{2},
+$$
+
+for at most 25 trials. The first accepted point becomes
+
+$$
+\beta_{k+1}=\beta_k-t d_k.
+$$
+
+If all 25 trials fail, the solver restores
+
+$$
+\beta_{k+1}=\beta_k,
+$$
+
+emits a line-search warning, and stops the current solve.
 
 ### Defaults and backend
 
