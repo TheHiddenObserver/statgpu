@@ -99,7 +99,7 @@ Solver     ──────┤ numerical iterations  │
                 └───────────────────────┘
 ```
 
-本页只讨论会构造 `Loss + Penalty` 并将其交给通用 Solver 的 estimator 路径。Panel estimator 的核心是 panel structure、数据变换与 panel-specific inference，不在本页展开；其运行架构与未来如何通过 composition 复用通用优化层，见 [面板模型](../models/panel.md)。
+本页只讨论会构造 `Loss + Penalty` 并将其交给通用 Solver 的 estimator 路径。Panel estimator 的核心是 panel structure、数据变换与 panel-specific inference，不在本页展开；其当前运行架构见 [面板模型](../models/panel.md)。
 
 ## 1. 损失函数
 
