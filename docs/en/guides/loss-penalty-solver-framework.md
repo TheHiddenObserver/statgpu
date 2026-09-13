@@ -160,9 +160,9 @@ The high-level `CoxPH` estimator additionally provides Exact ties, delayed-entry
 | Penalty | `is_convex` | `is_smooth` | Proximal Operator | LLA Support | P(β) |
 |---------|:---:|:---:|:---:|:---:|------|
 | None / Null | ✅ | ✅ | identity | ❌ | 0 |
-| L2 (Ridge) | ✅ | ✅ | — | ❌ | α·‖β‖²₂ |
+| L2 (Ridge) | ✅ | ✅ | — | ❌ | $\frac{\alpha}{2}\|\beta\|_2^2$ |
 | L1 (Lasso) | ✅ | ❌ | soft-threshold | ❌ | α·‖β‖₁ |
-| ElasticNet | ✅ | ❌ | soft-threshold | ❌ | α(r‖β‖₁+(1-r)‖β‖²₂) |
+| ElasticNet | ✅ | ❌ | soft-threshold | ❌ | $\alpha\left(r\|\beta\|_1+\frac{1-r}{2}\|\beta\|_2^2\right)$ |
 | SCAD | ❌ | ❌ | 3-region | ✅ | piecewise |
 | MCP | ❌ | ❌ | 3-region | ✅ | piecewise |
 | Adaptive L1 | ✅ | ❌ | weighted soft-threshold | ✅ | α/|β̂|^ν · |β| |
@@ -223,11 +223,140 @@ The `exact` solver in this table is the closed-form squared-error/L2 solver; it 
 3. Parallel diagonal-majorization step + LLA threshold
 4. GPU convergence checks remain on device except for the final boolean synchronization
 
-**Proximal Newton** (maintained smooth route):
-1. Construct the full smooth objective gradient and Hessian
-2. Solve the stabilized Newton linear system
-3. Use Armijo backtracking to accept `β - t d`
-4. A non-smooth penalty request delegates explicitly to FISTA instead of using an incorrect Euclidean-prox Newton approximation
+**Proximal Newton** (maintained smooth route) uses the full objective
+
+$$
+F(\beta)=L(\beta)+P(\beta).
+$$
+
+For a per-observation loss route with analytic weights,
+
+$$
+L(\beta)=\frac{1}{s}\sum_{i=1}^n w_i\,\ell_i(x_i^\top\beta),
+\qquad
+s=\sum_i w_i,
+$$
+
+with $w_i=1$ and $s=n$ in the unweighted case. Writing
+
+$$
+\psi_i=\frac{\partial\ell_i}{\partial\eta_i},
+\qquad
+h_i=\frac{\partial^2\ell_i}{\partial\eta_i^2},
+\qquad
+\eta_i=x_i^\top\beta,
+$$
+
+gives, on routes whose loss contract provides these per-observation curvatures,
+
+$$
+\nabla L(\beta)
+=\frac{X^\top(w\odot\psi)}{s},
+\qquad
+\nabla^2L(\beta)
+=\frac{X^\top\operatorname{diag}(w\odot h)X}{s}.
+$$
+
+Structured losses use their own Hessian implementation directly. For the maintained L2 penalty,
+
+$$
+P(\beta)=\frac{\alpha}{2}\|\beta\|_2^2,
+\qquad
+\nabla P(\beta)=\alpha\beta,
+\qquad
+\nabla^2P(\beta)=\alpha I.
+$$
+
+Thus iteration $k$ forms the full-objective gradient and Hessian
+
+$$
+g_k=\nabla L(\beta_k)+\alpha\beta_k,
+\qquad
+H_k=\nabla^2L(\beta_k)+\alpha I,
+$$
+
+with $\alpha=0$ for no penalty. The implementation symmetrizes the Hessian and adds a fixed numerical ridge:
+
+$$
+\bar H_k=\frac12(H_k+H_k^\top),
+\qquad
+\widetilde H_k=\bar H_k+10^{-10}I.
+$$
+
+If
+
+$$
+\|g_k\|_2\le\texttt{tol},
+$$
+
+optimization stops. Otherwise the solver computes $d_k$ from
+
+$$
+\widetilde H_k d_k=g_k.
+$$
+
+The code uses a subtract-direction convention, so trial points are
+
+$$
+\beta_k(t)=\beta_k-t d_k.
+$$
+
+If the linear system is recognized as singular or ill-conditioned, the maintained implementation does not use a least-squares fallback; it instead sets
+
+$$
+d_k=g_k.
+$$
+
+The descent quantity must satisfy
+
+$$
+q_k=g_k^\top d_k>0.
+$$
+
+If $q_k$ is non-finite or non-positive, the solver again uses steepest descent,
+
+$$
+d_k=g_k,
+\qquad
+q_k=\|g_k\|_2^2.
+$$
+
+Armijo backtracking starts from $t_0=1$ and tries
+
+$$
+t_m=2^{-m},
+\qquad m=0,1,\ldots,24,
+$$
+
+accepting the first candidate satisfying
+
+$$
+F(\beta_k-t_m d_k)
+\le
+F(\beta_k)-10^{-4}t_m q_k.
+$$
+
+The accepted update is
+
+$$
+\beta_{k+1}=\beta_k-t_m d_k.
+$$
+
+If none of the 25 candidate step sizes passes Armijo, the solver restores $\beta_{k+1}=\beta_k$, emits a line-search warning, and stops. Defaults are `max_iter=50` and `tol=1e-6`; when `init_coef` is omitted, $\beta_0=0$.
+
+For a genuinely non-smooth composite objective, a Proximal Newton method should instead solve the Hessian-metric proximal subproblem
+
+$$
+\Delta_k
+=\arg\min_{\Delta}
+\left\{
+\nabla L(\beta_k)^\top\Delta
++\frac12\Delta^\top\nabla^2L(\beta_k)\Delta
++P(\beta_k+\Delta)
+\right\}.
+$$
+
+That Hessian-metric proximal subproblem is not implemented in the current solver. Non-smooth penalty requests therefore delegate to FISTA before Newton iterations begin. Consequently, the maintained L2/no-penalty `proximal_newton` route is numerically a stabilized damped-Newton method with Armijo line search; it does not apply an additional Euclidean proximal operator and therefore does not double-count L2 curvature.
 
 **FISTA-LLA** (generic non-convex path):
 1. Continuation path: λ_max → target α (3-5 steps)
@@ -280,7 +409,7 @@ model.fit(X, y)
 
 # Cox PH with SCAD penalty
 import numpy as np
-from statgpu.linear_model.penalized import PenalizedCoxPHModel
+from statgpu.linear_model import PenalizedCoxPHModel
 
 y_surv = np.column_stack([time, event])
 model = PenalizedCoxPHModel(
