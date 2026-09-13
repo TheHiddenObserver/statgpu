@@ -104,17 +104,13 @@ $$
 
 `sample_weight` 不会更换显式指定的 Newton 或 L-BFGS。若所请求的加权组合不受支持，则直接报错。均匀权重，以及历史上与均匀权重等效的情况，继续使用既有的无权重数值路径。
 
-#### `inverse_power` Gamma 的当前限制
+#### `inverse_power` Gamma 的训练域
 
-`GammaRegression(link="inverse_power")` 目前有一个较窄的初始化限制。对真正的非均匀权重，显式 Newton/L-BFGS 要求 `fit_intercept=True`，因为当前初始化需要构造一个严格为正、满足该分布族和链接函数定义域的初始线性预测子。
+`GammaRegression(link="inverse_power")` 的显式 Newton/L-BFGS 路径使用由 Gamma 损失函数负责的可行初值与步长约束。无论是否拟合截距，只要**实际参与目标函数的设计矩阵**存在可以数值认证的方向，使所有正权重观测的线性预测子严格为正，statgpu 就会构造位于维护数值区间内部的初值，并把每一步限制在同一训练域中。
 
-因此：
+权重为 0 的观测不约束这一可行性条件。若正权重观测的设计矩阵不存在可数值认证的严格正分离方向，拟合会在第一次目标函数评估之前明确失败，而不是依靠 `clip` 穿过逆链接的边界。
 
-- 非均匀权重 + 显式 Newton/L-BFGS + `fit_intercept=True`：支持；
-- 非均匀权重 + 显式 Newton/L-BFGS + `fit_intercept=False`：当前会在拟合前报错；
-- 未传权重、均匀权重或等效均匀权重 + `fit_intercept=False`：保持历史无权重行为。
-
-这属于**当前实现的可行初值限制**，不是 Gamma 逆幂链接模型本身的理论限制。后续支持由 [GitHub Issue #152](https://github.com/TheHiddenObserver/statgpu/issues/152) 跟踪。
+因此，这里没有“无截距一律不支持”的规则；真正的边界由设计矩阵几何结构决定。带惩罚 L2 的 Newton/L-BFGS 以及 `PenalizedGLM_CV` 的 inverse-Gamma 光滑 L2 路径使用同一训练域约定，交叉验证评分与最终重拟合也保留声明的 `inverse_power` 链接。
 
 #### 带权 L-BFGS 的适用范围
 
