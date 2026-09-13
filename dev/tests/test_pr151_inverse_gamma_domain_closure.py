@@ -5,11 +5,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from statgpu.glm_core import get_glm_loss
+from statgpu.glm_core import GammaLoss, get_glm_loss
 from statgpu.linear_model import GammaRegression, PenalizedGLM_CV
 from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
 from statgpu.linear_model.penalized._penalized_gamma import PenalizedGammaRegression
 from statgpu.solvers import lbfgs_solver, newton_solver
+from statgpu.solvers._smooth_domain import _LossDomainError
 
 
 def _data(seed=15157, n=96, p=3):
@@ -80,8 +81,6 @@ def test_penalized_inverse_gamma_no_intercept_uses_shared_domain_start(solver):
 @pytest.mark.parametrize("solver", ["newton", "lbfgs"])
 def test_penalized_inverse_gamma_intercept_does_not_use_log_mean_start(solver):
     X, y, weights = _data(seed=15158)
-    # Force mean(y) below one so the historical log-link warm start is negative
-    # and therefore outside the inverse-link Gamma training domain.
     y = 0.55 * y / np.mean(y)
     assert np.log(np.mean(y)) < 0.0
 
@@ -152,9 +151,7 @@ def test_inverse_gamma_cv_validation_uses_declared_link_not_log_link():
         coef_ = np.array([0.82, 0.03])
         intercept_ = 0.08
 
-    observed = cv._evaluate_single(
-        Model(), X, y, sample_weight=weights
-    )
+    observed = cv._evaluate_single(Model(), X, y, sample_weight=weights)
     loss = get_glm_loss("gamma", link="inverse_power")
     design = np.column_stack([X, np.ones(X.shape[0])])
     params = np.concatenate([Model.coef_, [Model.intercept_]])
@@ -198,7 +195,7 @@ def test_inverse_gamma_log_link_preservation():
 
 
 def test_typed_penalized_gamma_clone_preserves_public_and_internal_link_contract():
-    sklearn = pytest.importorskip("sklearn")
+    pytest.importorskip("sklearn")
     from sklearn.base import clone
 
     model = PenalizedGammaRegression(
@@ -223,6 +220,101 @@ def test_typed_penalized_gamma_clone_preserves_public_and_internal_link_contract
     assert cloned._resolve_loss().link == "inverse_power"
 
 
+def test_typed_penalized_gamma_preserves_legacy_loss_kwargs_link_precedence():
+    pytest.importorskip("sklearn")
+    from sklearn.base import clone
+
+    supplied = {"link": "inverse_power"}
+    model = PenalizedGammaRegression(loss_kwargs=supplied)
+    assert model.link == "log"
+    assert model.loss_kwargs is supplied
+    assert model._resolve_loss().link == "inverse_power"
+    cloned = clone(model)
+    assert cloned.link == "log"
+    assert cloned.loss_kwargs == supplied
+    assert cloned._resolve_loss().link == "inverse_power"
+
+    explicit_kwargs_win = PenalizedGammaRegression(
+        link="inverse_power", loss_kwargs={"link": "log"}
+    )
+    assert explicit_kwargs_win._resolve_loss().link == "log"
+
+
+def test_penalized_inverse_gamma_weighted_m_estimation_inference():
+    X, y, weights = _data(seed=15164, n=80, p=2)
+    model = PenalizedGammaRegression(
+        link="inverse_power",
+        penalty="l2",
+        alpha=0.025,
+        fit_intercept=True,
+        solver="newton",
+        device="cpu",
+        max_iter=600,
+        tol=1e-9,
+        compute_inference=True,
+        inference_method="auto",
+        cov_type="hc0",
+    ).fit(X, y, sample_weight=weights)
+
+    assert model.inference_resolved_method_ == "m_estimation"
+    assert model._inference_result.method == "m_estimation"
+    assert getattr(model._loss, "link", None) == "inverse_power"
+    assert np.all(np.isfinite(np.asarray(model._bse)))
+    assert np.all(np.isfinite(np.asarray(model._pvalues)))
+
+
+def test_inverse_gamma_cv_inference_runs_on_selected_final_refit_only(monkeypatch):
+    X, y, weights = _data(seed=15165, n=72, p=2)
+    calls = []
+    original_fit = PenalizedGeneralizedLinearModel.fit
+
+    def recording_fit(self, *args, **kwargs):
+        if bool(getattr(self, "compute_inference", False)):
+            calls.append((float(self.alpha), getattr(self, "loss_kwargs", None)))
+        return original_fit(self, *args, **kwargs)
+
+    monkeypatch.setattr(PenalizedGeneralizedLinearModel, "fit", recording_fit)
+    cv = PenalizedGLM_CV(
+        loss="gamma",
+        loss_kwargs={"link": "inverse_power"},
+        penalty="l2",
+        alpha_grid=np.array([0.08, 0.03]),
+        cv=2,
+        random_state=151,
+        device="cpu",
+        max_iter=500,
+        tol=1e-8,
+        compute_inference=True,
+        inference_method="auto",
+        cov_type="hc0",
+    ).fit(X, y, sample_weight=weights)
+
+    assert len(calls) == 1
+    assert calls[0][0] == pytest.approx(cv.alpha_)
+    assert calls[0][1]["link"] == "inverse_power"
+    assert cv._inference_result is cv.estimator_._inference_result
+    assert cv.inference_method_ == "m_estimation"
+    assert cv._inference_result.metadata["selected_alpha"] == pytest.approx(cv.alpha_)
+
+
+def test_ordinary_inverse_gamma_no_intercept_formula_matches_array_route():
+    pd = pytest.importorskip("pandas")
+    X, y, weights = _data(seed=15166, n=64, p=2)
+    direct = GammaRegression(
+        link="inverse_power", fit_intercept=False, solver="lbfgs",
+        device="cpu", max_iter=500, tol=1e-9,
+    ).fit(X, y, sample_weight=weights)
+
+    data = pd.DataFrame({"y": y, "x0": X[:, 0], "x1": X[:, 1]})
+    formula = GammaRegression(
+        link="inverse_power", fit_intercept=True, solver="lbfgs",
+        device="cpu", max_iter=500, tol=1e-9,
+    ).fit(formula="y ~ 0 + x0 + x1", data=data, sample_weight=weights)
+
+    assert formula.intercept_ == 0.0
+    np.testing.assert_allclose(formula.coef_, direct.coef_, rtol=2e-8, atol=2e-10)
+
+
 def test_ordinary_failed_domain_refit_does_not_publish_attempted_provenance():
     X, y, weights = _data(seed=15163, n=40, p=1)
     model = GammaRegression(
@@ -241,3 +333,51 @@ def test_ordinary_failed_domain_refit_does_not_publish_attempted_provenance():
     assert model._selected_solver == prior_solver
     assert model._selected_backend_name == prior_backend
     assert model._selected_backend_device == prior_device
+
+
+def test_penalized_domain_failure_invalidates_prior_fit_and_inference():
+    X, y, weights = _data(seed=15167, n=60, p=1)
+    model = PenalizedGammaRegression(
+        link="inverse_power", penalty="l2", alpha=0.02,
+        fit_intercept=False, solver="newton", device="cpu",
+        max_iter=500, tol=1e-9, compute_inference=True,
+        inference_method="auto", cov_type="hc0",
+    ).fit(X, y, sample_weight=weights)
+    assert model._fitted and model._inference_result is not None
+
+    X_bad = np.array([[1.0], [-1.0]], dtype=np.float64)
+    y_bad = np.ones(2, dtype=np.float64)
+    with pytest.raises(RuntimeError, match="numerically certified smooth-domain start"):
+        model.fit(X_bad, y_bad)
+
+    assert not model._fitted
+    assert model.coef_ is None
+    assert model.intercept_ is None
+    assert model._inference_result is None
+    assert model._selected_solver is None
+    assert model._selected_backend_name is None
+
+
+def test_inverse_gamma_cv_domain_failure_resets_selection_state(monkeypatch):
+    X, y, weights = _data(seed=15168, n=60, p=2)
+    cv = PenalizedGLM_CV(
+        loss="gamma", loss_kwargs={"link": "inverse_power"}, penalty="l2",
+        alpha_grid=np.array([0.08, 0.03]), cv=2, random_state=4,
+        device="cpu", max_iter=400, tol=1e-8,
+    ).fit(X, y, sample_weight=weights)
+    assert cv._fitted and cv.alpha_ is not None and cv.estimator_ is not None
+
+    def fail_domain(self, X_arg, y_arg, sample_weight=None):
+        raise _LossDomainError("no numerically certified smooth-domain start")
+
+    monkeypatch.setattr(GammaLoss, "_loss_domain_initial_point", fail_domain)
+    with pytest.raises(RuntimeError, match="numerically certified smooth-domain start"):
+        cv.fit(X, y, sample_weight=weights)
+
+    assert not cv._fitted
+    assert cv.alpha_ is None
+    assert cv.best_score_ is None
+    assert cv.cv_results_ is None
+    assert cv.estimator_ is None
+    assert cv.coef_ is None
+    assert cv.intercept_ is None
