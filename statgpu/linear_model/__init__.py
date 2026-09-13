@@ -190,6 +190,17 @@ from . import (
 
 _gaussian_residual_bootstrap_backend_contract.install_backend_native_gaussian_residual_bootstrap()
 
+# Issue #150 reconciles the ordinary GeneralizedLinearModel public boundary
+# with the already-weighted Newton solver and the new GLM-only weighted L-BFGS
+# capability. Keep this installer after the penalized inference chain: it patches
+# only the ordinary GLM base class and leaves Ordered GLM and specialized
+# standalone LogisticRegression dispatch untouched.
+from . import (
+    _glm_weighted_explicit_solver_contract as _glm_weighted_explicit_solver_contract,
+)
+
+_glm_weighted_explicit_solver_contract.install_glm_weighted_explicit_solver_contract()
+
 __all__ = [
     'LinearRegression',
     'LogisticRegression',

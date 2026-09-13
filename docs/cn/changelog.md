@@ -1,9 +1,23 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-09-11<br>
+> 最后更新：2026-09-13<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
+
+## 未发布 — GLM 显式 Newton/L-BFGS 的解析权重支持（PR #151 / Issue #150，目标 0.2.6）
+
+### 变更
+
+- 普通 `GeneralizedLinearModel` 在受支持的 GLM 分布族和链接函数上，显式 `solver="newton"` 与 `solver="lbfgs"` 现在可以接受非均匀 `sample_weight`。带权数据拟合项按 `sum_i w_i loss_i / sum_i w_i` 归一化，因此把全部权重同时乘以同一个正数不会改变最优解；`sample_weight` 也不会改变显式指定的求解器。均匀权重以及数值上等效于均匀权重的情况继续使用既有无权重数值路径。
+- 直接调用 L-BFGS 时，非均匀权重目前只对明确支持这一语义的 GLM 损失函数开放。Huber、Quantile 与 Cox 等非 GLM 损失函数仍遵循各自的权重限制。成功的普通 GLM 拟合会记录实际执行的求解器、数值后端和具体设备；带惩罚的光滑 GLM 以及 `PenalizedGLM_CV` 中已有的 L-BFGS 路径也使用同一套归一化带权目标函数。
+- `GammaRegression(link="inverse_power")` 在 `fit_intercept=True` 时使用满足分布族定义域的正初始线性预测子。对于“非均匀权重 + 显式 Newton/L-BFGS + `fit_intercept=False`”，当前实现会在拟合前报错，因为尚未提供通用的无截距可行初值构造。这是当前实现限制，而不是 Gamma inverse-power 模型的理论限制；后续支持由 Issue #152 跟踪。未传权重、均匀权重或等效均匀权重继续保持历史行为。
+
+### 验证
+
+- 托管测试覆盖整数权重的行复制等价性、权重整体缩放、零权重观测、均匀/近似均匀权重兼容性、非法权重、NumPy/Torch CPU 一致性、statsmodels Logistic/Poisson 参考结果、普通 GLM 的完整分布族/链接函数矩阵、公式接口、推断、执行信息记录，以及 Negative Binomial、Gamma、Inverse Gaussian 在带惩罚拟合和交叉验证中的 L-BFGS 路径。
+- 物理 CUDA 验证已经在精确实现/validator 版本 `c6781cb6a2e1fe500f325e832d23cdc80a99b564` 上完成：Tesla P100-SXM2-16GB、CuPy 13.6.0、Torch 2.0.0+cu117、NumPy 1.24.2，验证程序 schema v3。覆盖 48 条普通 GLM 路径、4 条 CuPy/Torch 交叉容器路径和 9 条共享带惩罚/交叉验证路径；普通 GPU 路径相对 NumPy 的最大绝对误差为 `4.44e-16`。
+- 原始 validator JSON 已原样保存在本仓库 `results/pr151_glm_weighted_explicit_solvers_gpu/pr151_glm_weighted_explicit_solvers_gpu.json`，由证据提交 `0b2a1478c9ad5d4c82d510f15143ba3078015618` 加入；文件中的 `source_sha` 仍为 `c6781cb6a2e1fe500f325e832d23cdc80a99b564`。该 artifact 提交没有修改数值实现、测试或 validator，因此这次 P100 运行继续作为 `c6781cb6` 的实现级物理证据，而不是一次新的 exact-current-head 物理运行。
 
 ## 未发布 — 后端原生 Gaussian residual bootstrap（PR #147 / Issue #145，目标 0.2.6）
 

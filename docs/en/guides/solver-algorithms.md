@@ -1,27 +1,39 @@
 # Solver Algorithms
 
 > Language: English  
-> Last updated: 2026-07-01
+> Last updated: 2026-09-13  
+> This page: Algorithm reference  
+> Switch: [Chinese](../../cn/guides/solver-algorithms.md)
 
 ## Overview
 
-statgpu provides 11 solvers for penalized loss minimization. This page documents the algorithm, convergence criteria, backend support, and hyperparameters for each solver.
+statgpu provides first-order, second-order, proximal, and closed-form solvers. Most model users should start with `solver="auto"`; this page is the algorithm-level reference and therefore keeps the mathematical update rules, convergence criteria, backend behavior, and important capability boundaries explicit.
 
-## Solver Summary
+Three rules are useful when reading this page:
 
-| Solver | Best For | Backend Support |
+1. Backend support does not imply that every loss/penalty/weight combination is supported.
+2. `sample_weight` does not change an explicitly requested solver. If the requested weighted combination is unsupported, fitting raises an error.
+3. Weight support is route-specific. In particular, non-uniform direct L-BFGS weights are supported by maintained GLM losses, not automatically by every `LossBase` implementation.
+
+For model-level dispatch, see [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md).
+
+## Solver summary
+
+| Solver | Best for | Backend support |
 |--------|----------|:---:|
-| Proximal IRLS-CD | quantile + SCAD/MCP | numpy, cupy, torch |
-| Proximal Newton | smooth loss + smooth penalty; non-smooth explicitly uses FISTA | numpy, cupy, torch |
-| FISTA | general non-smooth penalties | numpy, cupy, torch |
-| FISTA-BB | GLM + sparse penalties | numpy, cupy, torch |
-| FISTA-LLA | nonconvex penalties (continuation path) | numpy, cupy, torch |
-| IRLS | smooth losses + L2 | numpy, cupy, torch |
-| Newton | smooth losses + L2 | numpy, cupy, torch |
-| L-BFGS | smooth losses, moderate dims | numpy, cupy, torch |
-| L-BFGS-B | box-constrained problems | numpy, cupy, torch |
-| ADMM | sum of separable penalties | numpy, cupy, torch |
-| exact | squared_error + L2 (closed-form) | numpy, cupy, torch |
+| Proximal IRLS-CD | quantile + SCAD/MCP | NumPy, CuPy, Torch |
+| Proximal Newton | smooth loss + L2/no penalty; non-smooth requests use FISTA | NumPy, CuPy, Torch |
+| FISTA | general non-smooth penalties | NumPy, CuPy, Torch |
+| FISTA-BB | GLM + sparse penalties | NumPy, CuPy, Torch |
+| FISTA-LLA | non-convex penalties via continuation/LLA | NumPy, CuPy, Torch |
+| IRLS | losses with a maintained IRLS representation | NumPy, CuPy, Torch |
+| Newton | smooth losses with Hessian support | NumPy, CuPy, Torch |
+| L-BFGS | smooth losses, moderate dimensions | NumPy, CuPy, Torch |
+| L-BFGS-B | box-constrained smooth problems | NumPy, CuPy, Torch |
+| ADMM | separable/proximal formulations | NumPy, CuPy, Torch |
+| `exact` | squared error + L2 closed-form path | NumPy, CuPy, Torch |
+
+The backend column describes numerical implementation capability only. Estimator and loss contracts can further narrow the valid combinations.
 
 ---
 
@@ -29,42 +41,100 @@ statgpu provides 11 solvers for penalized loss minimization. This page documents
 
 **File**: `statgpu/solvers/_proximal_irls_quantile.py`
 
-**Use case**: Quantile regression + SCAD/MCP penalties. Combines IRLS majorization of the non-smooth pinball loss with LLA for non-convex penalties.
+**Use case**: Quantile regression with SCAD/MCP penalties. It combines an IRLS quadratic majorization of the pinball loss with local linear approximation (LLA) for the non-convex penalty.
 
 ### Algorithm
 
-1. **Continuation path**: λ_max → target α (geometric sequence, 3 steps)
-2. **LLA outer loop** (2-5 iterations per step):
-   a. Compute LLA weights: w_j = P'(|β_j|) from SCAD/MCP
-   b. **IRLS-CD inner loop**:
-      - Compute IRLS weights: w_i = τ_i / max(|r_i|, ε)
-      - Quadratic majorization: Q(β) = ½ Σ w_i(y_i − X_iβ)²
-      - Parallel diagonal majorization (Jacobi step):
-        g = X' @ W @ (y − Xβ)
-        h = diag(X' @ W @ X)
-        β = S(g + h·β, n·α·w) / h
-      - Check convergence: max(|β_new − β_old|) < tol
+For each continuation value of `alpha`:
 
-### Convergence
+1. **LLA outer loop.** Compute the local penalty derivative
 
-- IRLS inner: max coefficient change < tol (typically 1e-6)
-- LLA outer: max coefficient change < lla_tol
-- GPU: convergence check stays on device, only syncs bool
+   $$
+   d_j=P'(|\beta_j|),
+   $$
 
-### Backend
+   with threshold
 
-- numpy: all matrix ops via numpy
-- cupy: ElementwiseKernel for LLA weights, cupy for matrix ops
-- torch: device-native ops, `.to(device)` for sample_weight
+   $$
+   t_j=n\,d_j.
+   $$
 
-### Hyperparameters
+2. **IRLS-CD inner loop.** With residuals
 
-| Parameter | Default | Description |
-|---|---:|---|
-| max_lla_per_step | 2 | Max LLA iterations per continuation step |
-| lla_tol | 1e-6 | LLA convergence tolerance |
-| max_iter | 200 | Max IRLS iterations per LLA step |
-| tol | 1e-6 | IRLS convergence tolerance |
+   $$
+   r_i=y_i-x_i^\top\beta,
+   $$
+
+   define
+
+   $$
+   q_i=\begin{cases}
+   \tau, & r_i\ge 0,\\
+   1-\tau, & r_i<0,
+   \end{cases}
+   \qquad
+   w_i^{\mathrm{IRLS}}=\frac{q_i}{\max(|r_i|,\varepsilon)}.
+   $$
+
+   If analytic `sample_weight=s` is supplied, statgpu first normalizes it to
+
+   $$
+   \tilde s_i=\frac{n s_i}{\sum_j s_j},
+   $$
+
+   then uses
+
+   $$
+   w_i=\tilde s_i\,w_i^{\mathrm{IRLS}}.
+   $$
+
+3. **Parallel diagonal majorization.** Let $W=\operatorname{diag}(w)$. The implementation computes
+
+   $$
+   g=X^\top W(y-X\beta),
+   \qquad
+   h=\operatorname{diag}(X^\top W X),
+   $$
+
+   then
+
+   $$
+   u=g+h\odot\beta,
+   $$
+
+   and updates all coordinates in parallel:
+
+   $$
+   \beta_j^{\mathrm{new}}=\frac{S(u_j,t_j)}{h_j},
+   $$
+
+   where
+
+   $$
+   S(u,t)=\operatorname{sign}(u)\max(|u|-t,0).
+   $$
+
+   This is a Jacobi-style parallel diagonal-majorization update rather than a cyclic coordinate-descent sweep.
+
+4. **Convergence.** The IRLS inner loop checks
+
+   $$
+   \|\beta^{\mathrm{new}}-\beta\|_\infty<\texttt{tol},
+   $$
+
+   and the LLA outer loop checks
+
+   $$
+   \|\beta-\beta_{\mathrm{before\,LLA}}\|_\infty<\texttt{lla\_tol}.
+   $$
+
+### Continuation and defaults
+
+- continuation path: `lambda_max` to target `alpha`;
+- `max_lla_per_step=2`;
+- `lla_tol=1e-6`;
+- `tol=1e-6`;
+- GPU convergence checks remain on device except for the final boolean synchronization.
 
 ---
 
@@ -72,37 +142,211 @@ statgpu provides 11 solvers for penalized loss minimization. This page documents
 
 **File**: `statgpu/solvers/_proximal_newton.py`
 
-**Use case**: Smooth losses with a smooth L2/no penalty Newton system.
+**Use case**: Smooth losses with L2/no penalty, where an ordinary Newton system is well defined.
 
-A general non-smooth proximal-Newton update requires a Hessian-metric proximal
-subproblem. The previous Euclidean-prox shortcut optimized the wrong composite
-objective. Direct non-smooth requests now emit a warning and use FISTA; the
-FISTA-LLA path likewise stays on its backend-native FISTA implementation until
-a metric proximal subproblem is implemented and explicitly advertised.
+For a genuinely non-smooth composite objective
 
-### Algorithm
+$$
+F(\beta)=\ell(\beta)+P(\beta),
+$$
 
-1. Compute the loss and smooth-penalty gradient/Hessian exactly once.
-2. Solve the Newton system, using least squares only for a genuine rank failure.
-3. Run Armijo backtracking on the declared full objective.
-4. If the Newton direction is not a descent direction, use steepest descent.
+a true Proximal Newton step should solve a Hessian-metric proximal subproblem such as
 
-### Convergence
+$$
+\Delta_k
+=\arg\min_{\Delta}
+\left\{
+\nabla\ell(\beta_k)^\top\Delta
++\frac12\Delta^\top H_k\Delta
++P(\beta_k+\Delta)
+\right\}.
+$$
 
-- Gradient norm: ||∇f + prox(∇g)|| < tol (typically 1e-6)
-- Line search failure after 25 retries → warning
+Applying an ordinary Euclidean prox to a Newton step would optimize a different composite objective. The maintained implementation therefore executes Newton only on L2/no-penalty smooth routes; non-smooth requests warn and delegate to FISTA until a correct Hessian-metric proximal subproblem is implemented.
 
-### Backend
+### Full smooth objective
 
-- Backend-detect via `_resolve_backend("auto", X)`
-- numpy/cupy/torch for linalg.solve and matrix ops
+The maintained route uses
 
-### Hyperparameters
+$$
+F(\beta)=L(\beta)+P(\beta).
+$$
 
-| Parameter | Default | Description |
-|---|---:|---|
-| max_iter | 50 | Max Newton iterations |
-| tol | 1e-6 | Convergence tolerance |
+When the loss supports analytic `sample_weight=w`, the data-fit term uses the same normalized weighted objective throughout:
+
+$$
+L(\beta)
+=\frac{1}{s}\sum_{i=1}^n w_i\,\ell_i(\eta_i),
+\qquad
+\eta_i=x_i^\top\beta,
+\qquad
+s=\sum_{i=1}^n w_i.
+$$
+
+The unweighted case is $w_i=1$ and $s=n$. For losses admitting per-observation score and curvature terms,
+
+$$
+\psi_i(\beta)
+=\frac{\partial\ell_i}{\partial\eta_i},
+\qquad
+h_i(\beta)
+=\frac{\partial^2\ell_i}{\partial\eta_i^2},
+$$
+
+so
+
+$$
+\nabla L(\beta)
+=\frac{X^\top\!\left(w\odot\psi(\beta)\right)}{s},
+$$
+
+$$
+\nabla^2L(\beta)
+=\frac{X^\top\operatorname{diag}\!\left(w\odot h(\beta)\right)X}{s}.
+$$
+
+For structured losses that are not naturally written with that per-observation curvature decomposition, the solver uses the loss object's `hessian()` or `fused_gradient_and_hessian()` implementation directly.
+
+The current Newton route accepts only L2 or no penalty. The maintained L2 convention is
+
+$$
+P(\beta)=\frac{\alpha}{2}\|\beta\|_2^2,
+\qquad
+\nabla P(\beta)=\alpha\beta,
+\qquad
+\nabla^2P(\beta)=\alpha I.
+$$
+
+Therefore the L2 route forms
+
+$$
+g_k
+=\nabla F(\beta_k)
+=\nabla L(\beta_k)+\alpha\beta_k,
+$$
+
+$$
+H_k
+=\nabla^2F(\beta_k)
+=\nabla^2L(\beta_k)+\alpha I.
+$$
+
+Set $\alpha=0$ for the no-penalty route.
+
+### Stabilized Newton system
+
+The implementation first symmetrizes the Hessian,
+
+$$
+\bar H_k
+=\frac12\left(H_k+H_k^\top\right),
+$$
+
+then adds the fixed numerical ridge
+
+$$
+\widetilde H_k
+=\bar H_k+10^{-10}I.
+$$
+
+If
+
+$$
+\|g_k\|_2\le\texttt{tol},
+$$
+
+optimization stops. Otherwise the solver computes $d_k$ from
+
+$$
+\widetilde H_k d_k=g_k.
+$$
+
+The implementation uses a subtract-direction convention, so trial points are
+
+$$
+\beta_k(t)=\beta_k-t d_k.
+$$
+
+If the linear system is recognized as genuinely singular or ill-conditioned, Proximal Newton does **not** call least squares; it falls back to steepest descent,
+
+$$
+d_k=g_k.
+$$
+
+Define the descent quantity
+
+$$
+q_k=g_k^\top d_k.
+$$
+
+Because the candidate is $\beta_k-t d_k$, a valid descent direction requires
+
+$$
+q_k>0.
+$$
+
+If $q_k$ is non-finite or non-positive, the solver again uses
+
+$$
+d_k=g_k,
+\qquad
+q_k=\|g_k\|_2^2.
+$$
+
+### Armijo backtracking
+
+The line search starts from
+
+$$
+t_0=1
+$$
+
+and halves after each failure, so the $m$-th trial step is
+
+$$
+t_m=2^{-m},
+\qquad m=0,1,\ldots,24.
+$$
+
+The first candidate satisfying the full-composite-objective Armijo condition is accepted:
+
+$$
+F(\beta_k-t_m d_k)
+\le
+F(\beta_k)-10^{-4}t_m q_k.
+$$
+
+The accepted update is
+
+$$
+\beta_{k+1}=\beta_k-t_m d_k.
+$$
+
+Here $F=L+P$ includes the L2 penalty value both at the current point and at every trial point. Because the L2 gradient and curvature are already included in $g_k$ and $H_k$, the trial point does **not** apply an additional Euclidean proximal operator; doing so would count the same L2 penalty twice.
+
+If all 25 candidate step sizes fail, the solver restores
+
+$$
+\beta_{k+1}=\beta_k,
+$$
+
+emits a line-search warning, and stops. Recognized numerical-domain failures at a trial point reject that candidate and continue backtracking; device, input-contract, and other non-numerical trial errors remain visible to the caller.
+
+### Initialization, defaults, and backend
+
+If `init_coef` is omitted,
+
+$$
+\beta_0=0.
+$$
+
+Defaults are:
+
+- `max_iter=50`;
+- `tol=1e-6`;
+- supported NumPy/CuPy/Torch routes use the corresponding native linear algebra.
+
+Thus the maintained L2/no-penalty path named `proximal_newton_solver` is numerically a **damped Newton method with Hessian stabilization and Armijo backtracking**. The genuinely non-smooth Hessian-metric Proximal-Newton subproblem is not implemented; non-smooth penalties delegate to FISTA before these Newton iterations begin.
 
 ---
 
@@ -110,37 +354,112 @@ a metric proximal subproblem is implemented and explicitly advertised.
 
 **File**: `statgpu/solvers/_fista.py`
 
-**Use case**: General solver for any loss + any penalty with proximal operator.
+**Use case**: Composite objectives
 
-### Algorithm
+$$
+F(\beta)=f(\beta)+P(\beta),
+$$
 
-1. Initialize β₀, y₀ = β₀, t₀ = 1
-2. For k = 1, 2, ...:
-   a. Compute gradient: g_k = ∇ℓ(y_k)
-   b. Proximal step: β_{k+1} = prox(β_k − (1/L)·g_k, α/L)
-   c. Nesterov momentum: t_{k+1} = (1 + √(1+4t_k²))/2
-      y_{k+1} = β_{k+1} + ((t_k−1)/t_{k+1})(β_{k+1} − β_k)
-   d. Check convergence: ||β_{k+1} − β_k||₁ < tol
+with smooth $f$ and a penalty $P$ that has a proximal operator.
 
-### GPU Async Path
+### Proximal-gradient update
 
-When conditions met (GPU backend + non-smooth penalty + CV/quadratic):
-- Gradient computation on device
-- Fused proximal + momentum kernel
-- Batch convergence/divergence/Lipschitz checks
+Initialize
 
-### Weighted Path
+$$
+\beta_0=y_0,\qquad t_0=1.
+$$
 
-- Convert sample_weight to backend-native array at entry
-- Weighted gradient: g = X' @ (sw * ψ) / Σsw
-- Weighted objective tracking in GPU path
+At momentum point $y_k$, compute
 
-### Hyperparameters
+$$
+g_k=\nabla f(y_k).
+$$
 
-| Parameter | Default | Description |
-|---|---:|---|
-| max_iter | 500 | Max FISTA iterations |
-| tol | 1e-6 | Convergence tolerance |
+For current Lipschitz constant $L_k$, use
+
+$$
+\gamma_k=\frac1{L_k},
+$$
+
+and take the proximal step
+
+$$
+\beta_{k+1}
+=\operatorname{prox}_{\gamma_kP}
+\left(y_k-\gamma_k g_k\right),
+$$
+
+where
+
+$$
+\operatorname{prox}_{\gamma P}(v)
+=\arg\min_x\left\{\gamma P(x)+\frac12\|x-v\|_2^2\right\}.
+$$
+
+### Quadratic-majorization backtracking
+
+On routes that backtrack, let
+
+$$
+\Delta_k=\beta_{k+1}-y_k.
+$$
+
+A trial step must satisfy the smooth-part quadratic upper bound
+
+$$
+f(\beta_{k+1})
+\le
+f(y_k)+g_k^\top\Delta_k
++\frac{L_k}{2}\|\Delta_k\|_2^2+\varepsilon_{\rm slack}.
+$$
+
+If not,
+
+$$
+L_k\leftarrow1.5L_k,
+\qquad
+\gamma_k\leftarrow\frac1{L_k},
+$$
+
+and the proximal step is recomputed, for at most 20 backtracking attempts. Supported asynchronous GPU non-smooth routes use a conservative fixed $L_k$ instead of synchronizing for every backtracking trial; the proximal update itself is unchanged.
+
+### Nesterov momentum
+
+After accepting $\beta_{k+1}$,
+
+$$
+t_{k+1}=\frac{1+\sqrt{1+4t_k^2}}2,
+$$
+
+$$
+y_{k+1}=\beta_{k+1}
++\frac{t_k-1}{t_{k+1}}(\beta_{k+1}-\beta_k).
+$$
+
+A typical coefficient-change criterion is
+
+$$
+\|\beta_{k+1}-\beta_k\|_1<\texttt{tol}.
+$$
+
+Some adaptive-penalty routes also use objective stability so that small coefficient oscillations at essentially unchanged objective value are not misclassified.
+
+### Weighted path
+
+On maintained weighted routes, if the per-observation score is $\psi_i$,
+
+$$
+g(\beta)
+=\frac{X^\top(s\odot\psi)}{\sum_i s_i}.
+$$
+
+Weighted objective tracking and the weighted Lipschitz estimate use the same analytic-weight convention. A weighted FISTA implementation does not by itself imply that every model/loss combination supports weights.
+
+### Defaults
+
+- default `max_iter=500`;
+- default `tol=1e-6`.
 
 ---
 
@@ -148,22 +467,133 @@ When conditions met (GPU backend + non-smooth penalty + CV/quadratic):
 
 **File**: `statgpu/solvers/_fista_bb.py`
 
-**Use case**: FISTA with adaptive BB step sizes. Good for GLM + sparse penalties on GPU.
+**Use case**: FISTA with local Barzilai-Borwein curvature estimates for step-size selection on supported sparse-penalty GLM routes.
 
-### Algorithm
+### Lipschitz burn-in and BB curvature
 
-1. FISTA body with Nesterov momentum
-2. Instead of fixed L⁻¹ step, use BB1 or BB2:
-   - BB1 (long): α_k = ⟨s_{k-1}, s_{k-1}⟩ / ⟨s_{k-1}, y_{k-1}⟩
-   - BB2 (short): α_k = ⟨s_{k-1}, y_{k-1}⟩ / ⟨y_{k-1}, y_{k-1}⟩
-   where s = β_k − β_{k-1}, y = ∇ℓ(β_k) − ∇ℓ(β_{k-1})
-3. Alternate BB1/BB2 every 2 iterations
-4. Adaptive restart (O'Donoghue & Candes 2015): reset momentum when it opposes descent direction
-5. Step bounds: [L/step_max_factor, L·step_max_factor]
+Define the baseline step
 
-### Disabled for Non-convex Penalties
+$$
+\gamma_L=\frac1L.
+$$
 
-BB steps are disabled for SCAD/MCP/group MCP/group SCAD. The abrupt subgradient changes from LLA reweighting amplify noise through the BB step, causing divergence.
+During burn-in,
+
+$$
+\gamma_k=\gamma_L.
+$$
+
+After burn-in, define
+
+$$
+s_{k-1}=\beta_k-\beta_{k-1},
+$$
+
+$$
+q_{k-1}=\nabla f(\beta_k)-\nabla f(\beta_{k-1}).
+$$
+
+When
+
+$$
+s_{k-1}^\top q_{k-1}>0
+$$
+
+and the curvature information is numerically valid, the implementation alternates
+
+$$
+\gamma_k^{\mathrm{BB1}}
+=\frac{s_{k-1}^\top s_{k-1}}
+{s_{k-1}^\top q_{k-1}},
+$$
+
+and
+
+$$
+\gamma_k^{\mathrm{BB2}}
+=\frac{s_{k-1}^\top q_{k-1}}
+{q_{k-1}^\top q_{k-1}}.
+$$
+
+The default bounds are
+
+$$
+\gamma_{\min}=10^{-3}\gamma_L,
+\qquad
+\gamma_{\max}=10^3\gamma_L,
+$$
+
+so the selected BB step is clipped as
+
+$$
+\gamma_k
+\leftarrow
+\min\{\gamma_{\max},\max(\gamma_k,\gamma_{\min})\}.
+$$
+
+If the curvature pair is invalid, the solver keeps an already-safe step instead of forcing a BB ratio.
+
+### Proximal update and safeguard
+
+At momentum point $y_k$,
+
+$$
+g_k=\nabla f(y_k),
+$$
+
+then
+
+$$
+v_k=y_k-\gamma_k g_k,
+$$
+
+$$
+\beta_{k+1}=\operatorname{prox}_{\gamma_kP}(v_k).
+$$
+
+For non-quadratic GLMs the maintained implementation periodically checks objective and coefficient-norm safeguards. If the trial is considered too aggressive, it applies
+
+$$
+\gamma_k\leftarrow\frac{\gamma_k}{2}
+$$
+
+and recomputes the same proximal step, up to 15 safeguard retries.
+
+### Nesterov momentum and adaptive restart
+
+The standard momentum update is
+
+$$
+t_{k+1}=\frac{1+\sqrt{1+4t_k^2}}2,
+$$
+
+$$
+y_{k+1}=\beta_{k+1}
++\frac{t_k-1}{t_{k+1}}(\beta_{k+1}-\beta_k).
+$$
+
+The restart condition is
+
+$$
+\left(y_{k+1}-\beta_{k+1}\right)^\top
+\left(\beta_{k+1}-\beta_k\right)>0.
+$$
+
+When it holds, momentum is reset:
+
+$$
+t_{k+1}=1,
+\qquad
+y_{k+1}=\beta_{k+1}.
+$$
+
+Convergence uses
+
+$$
+\|\beta_{k+1}-\beta_k\|_1<\texttt{tol}.
+$$
+
+Quadratic losses do not gain useful adaptation from the BB curvature estimate and therefore retain fixed-Lipschitz FISTA behavior. BB updates are also disabled for SCAD, MCP, and their group variants because non-convex reweighting can change secant curvature abruptly.
 
 ---
 
@@ -171,45 +601,312 @@ BB steps are disabled for SCAD/MCP/group MCP/group SCAD. The abrupt subgradient 
 
 **File**: `statgpu/solvers/_fista_lla.py`
 
-**Use case**: Non-convex penalties (SCAD/MCP/adaptive L1) via LLA. Runs the continuation path + LLA + FISTA/proximal Newton in one fused function.
+**Use case**: SCAD, MCP, and other routes that can be represented by a locally weighted convex penalty.
 
-### Algorithm
+### Continuation path
 
-1. **Continuation path**: λ_max → target α (5 steps, 3 for non-smooth)
-2. **LLA outer** (2-5 iterations per step):
-   a. Compute LLA weights from SCAD/MCP at current β
-   b. **Inner solver**:
-      - backend-native FISTA for composite LLA subproblems
-      - a future proximal-Newton path is gated on an explicit, correct
-        Hessian-metric proximal capability
-   c. LLA convergence: ||β − β_before_lla||₁ < lla_tol
+Let
 
-### Fused Kernels (GPU)
+$$
+\alpha^{(0)}>\alpha^{(1)}>\cdots>\alpha^{(M)}=\alpha_{\rm target}.
+$$
 
-- Squared error + GPU: fused proximal + momentum kernel (X'X precomputed)
-- Generic path: fused gradient clipping + proximal + momentum
-- Batch GPU syncs: convergence + divergence + Lipschitz in one D2H transfer
+At each $\alpha^{(m)}$, run an LLA outer loop. Let $\beta^{(r)}$ be the current LLA iterate.
+
+### LLA weights
+
+For scalar non-convex penalties,
+
+$$
+d_j^{(r)}
+=P_{\alpha^{(m)}}'\!\left(|\beta_j^{(r)}|\right).
+$$
+
+For SCAD,
+
+$$
+d_j^{(r)}=
+\begin{cases}
+\alpha, & |\beta_j^{(r)}|\le\alpha,\\[3pt]
+\dfrac{a\alpha-|\beta_j^{(r)}|}{a-1},
+& \alpha<|\beta_j^{(r)}|\le a\alpha,\\[8pt]
+0, & |\beta_j^{(r)}|>a\alpha,
+\end{cases}
+$$
+
+while MCP uses
+
+$$
+d_j^{(r)}=
+\begin{cases}
+\alpha-\dfrac{|\beta_j^{(r)}|}{\gamma},
+& |\beta_j^{(r)}|\le\gamma\alpha,\\[8pt]
+0, & |\beta_j^{(r)}|>\gamma\alpha.
+\end{cases}
+$$
+
+When an intercept is represented by an augmented GLM column, its LLA weight is fixed at zero, so it is not penalized.
+
+### Convex surrogate
+
+Dropping constants independent of $\beta$, the $r$-th LLA subproblem is
+
+$$
+Q_r(\beta)
+=f(\beta)+\sum_j d_j^{(r)}|\beta_j|.
+$$
+
+Thus the default inner problem is weighted L1. With a group-LLA factory, the corresponding surrogate is
+
+$$
+Q_r(\beta)
+=f(\beta)+\sum_g D_g^{(r)}\|\beta_g\|_2,
+$$
+
+and the inner solve uses the matching weighted Group Lasso proximal operator.
+
+### FISTA inner solve
+
+For fixed LLA weights $d^{(r)}$, let
+
+$$
+\gamma_k=\frac1{L_k},
+\qquad
+g_k=\nabla f(y_k).
+$$
+
+Compute
+
+$$
+v_k=y_k-\gamma_k g_k.
+$$
+
+For the default weighted-L1 surrogate,
+
+$$
+\beta_{k+1,j}
+=S\!\left(v_{k,j},\gamma_k d_j^{(r)}\right),
+$$
+
+where
+
+$$
+S(v,t)=\operatorname{sign}(v)\max(|v|-t,0).
+$$
+
+Then update Nesterov momentum:
+
+$$
+t_{k+1}=\frac{1+\sqrt{1+4t_k^2}}2,
+$$
+
+$$
+y_{k+1}
+=\beta_{k+1}
++\frac{t_k-1}{t_{k+1}}(\beta_{k+1}-\beta_k).
+$$
+
+The typical inner stopping rule is
+
+$$
+\|\beta_{k+1}-\beta_k\|_1<\texttt{tol}.
+$$
+
+For non-quadratic losses the implementation periodically recomputes the Lipschitz estimate. If the new estimate differs from the current one by roughly more than a factor of 1.5, it updates
+
+$$
+\gamma_k=\frac1{L_k}
+$$
+
+before continuing. The unweighted squared-error GPU fast path uses
+
+$$
+g_k=\frac{X^\top Xy_k-X^\top y}{n}
+$$
+
+to avoid redundant matrix products.
+
+### LLA outer-loop convergence
+
+After the inner solve produces $\beta^{(r+1)}$, stop the current LLA problem when
+
+$$
+\|\beta^{(r+1)}-\beta^{(r)}\|_1
+<\texttt{lla\_tol}.
+$$
+
+Otherwise recompute $d^{(r+1)}$ and solve the next weighted convex surrogate. The solution at the current continuation value seeds the next $\alpha$ value.
+
+The generic composite route uses FISTA by default. A Proximal Newton inner solve is used only if the loss explicitly advertises a correct Hessian-metric proximal subproblem. Cox currently remains on FISTA-LLA.
 
 ---
 
 ## 6. IRLS (Iteratively Reweighted Least Squares)
 
-**Implementation**: Each loss class has its own `irls()` method.
+**Implementation**: `statgpu/glm_core/_irls.py`, plus loss-specific `irls()` methods for selected non-GLM losses.
 
-**Use case**: Smooth penalties (L2, none) with GLM or quantile losses.
+### Quantile IRLS
 
-### Algorithm (Quantile IRLS)
+The current `QuantileLoss.irls()` implementation uses iteratively reweighted least squares (IRLS). Starting from an initial coefficient vector (OLS when no explicit initialization is supplied), each iteration computes
 
-1. Initialize β₀ = OLS estimate
-2. For each iteration:
-   a. Compute residuals: r = y − Xβ
-   b. IRLS weights: w_i = (τ + (1−2τ)·1_{r_i<0}) / max(|r_i|, ε)
-   c. Solve weighted LS: (X'WX + n·α·I)β = X'Wy
-   d. ||β_new − β|| < tol → stop
+$$
+r_i=y_i-x_i^\top\beta
+$$
 
-### Algorithm (GLM IRLS)
+and
 
-Same pattern but weights from GLM working response: (y−μ)/Var(μ)·g'(μ)²
+$$
+w_i^{\mathrm{IRLS}}
+=\frac{\tau+(1-2\tau)\mathbf 1\{r_i<0\}}
+{\max(|r_i|,\varepsilon)}.
+$$
+
+If analytic `sample_weight=s` is supplied, it is normalized to sum to $n$,
+
+$$
+\tilde s_i=\frac{n s_i}{\sum_j s_j},
+$$
+
+and the effective weight is
+
+$$
+w_i=\tilde s_i w_i^{\mathrm{IRLS}}.
+$$
+
+With $W=\operatorname{diag}(w)$, the unpenalized update solves
+
+$$
+(X^\top W X+\varepsilon I)\beta_{\mathrm{new}}=X^\top W y.
+$$
+
+For an L2 penalty, the maintained path adds the corresponding diagonal ridge term. When `fit_intercept=True`, the intercept coordinate is excluded from the penalty. Convergence is checked with
+
+$$
+\|\beta_{\mathrm{new}}-\beta\|_2<\texttt{tol}.
+$$
+
+### GLM IRLS
+
+Let the link satisfy
+
+$$
+\eta=g(\mu),
+\qquad
+\mu=g^{-1}(\eta),
+$$
+
+with variance function $V(\mu)$. At iteration $k$,
+
+$$
+\eta_i^{(k)}=x_i^\top\beta_k,
+\qquad
+\mu_i^{(k)}=g^{-1}(\eta_i^{(k)}).
+$$
+
+The Fisher working weight is
+
+$$
+w_i^{\rm work}
+=\frac1{V(\mu_i^{(k)})[g'(\mu_i^{(k)})]^2},
+$$
+
+and the working response is
+
+$$
+z_i^{(k)}
+=\eta_i^{(k)}+
+\left(y_i-\mu_i^{(k)}\right)g'(\mu_i^{(k)}).
+$$
+
+If analytic weights $s_i$ are supplied, the WLS weight becomes
+
+$$
+w_i^{(k)}=s_i\,w_i^{\rm work}.
+$$
+
+Thus analytic `sample_weight` and IRLS working weights are distinct objects: the former comes from the statistical objective, while the latter comes from the local GLM quadratic approximation.
+
+Let
+
+$$
+W_k=\operatorname{diag}(w_1^{(k)},\ldots,w_n^{(k)}).
+$$
+
+With diagonal L2 penalty matrix $R$ and optional quadratic penalty matrix $\Omega$, the WLS candidate solves
+
+$$
+\left(X^\top W_kX+R+\Omega\right)\widetilde\beta_{k+1}
+=X^\top W_k z^{(k)}.
+$$
+
+The linear solve falls back to least squares only for a genuine rank failure.
+
+### IRLS objective backtracking
+
+Define
+
+$$
+\Delta_k=\widetilde\beta_{k+1}-\beta_k.
+$$
+
+Starting from $t=1$, try
+
+$$
+\beta_k(t)=\beta_k+t\Delta_k.
+$$
+
+The maintained implementation requires the registered GLM objective not to increase beyond a numerical tolerance:
+
+$$
+F(\beta_k(t))
+\le
+F(\beta_k)+\varepsilon_F,
+$$
+
+with
+
+$$
+\varepsilon_F
+=\max\left(10^{-10}|F(\beta_k)|,10^{-6}\right).
+$$
+
+If the condition fails,
+
+$$
+t\leftarrow\frac t2,
+$$
+
+for at most 30 backtracking trials. If no candidate is accepted, the old coefficients are retained and line-search failure is reported.
+
+### GLM IRLS convergence
+
+Define the per-observation score in the linear-predictor coordinate as
+
+$$
+u_i
+=\frac{\mu_i-y_i}
+{V(\mu_i)g'(\mu_i)}.
+$$
+
+With analytic weights use $s_i u_i$ and
+
+$$
+n_{\rm eff}=\sum_i s_i;
+$$
+
+without weights, $n_{\rm eff}=n$. The normalized data-fit score is
+
+$$
+g_f=\frac{X^\top u}{n_{\rm eff}},
+$$
+
+plus the corresponding L2/quadratic-penalty gradient. The maintained convergence criterion is
+
+$$
+\|g_f\|_2<\texttt{tol},
+$$
+
+rather than relying only on a potentially tiny parameter change caused by a truncated line search.
 
 ---
 
@@ -217,14 +914,99 @@ Same pattern but weights from GLM working response: (y−μ)/Var(μ)·g'(μ)²
 
 **File**: `statgpu/solvers/_newton.py`
 
-**Use case**: Smooth losses + L2 penalty. Fast convergence when Hessian is positive-definite.
+**Use case**: Smooth losses with L2/no penalty and Hessian support.
 
-### Algorithm
+### Newton system
 
-1. Compute gradient g = ∇ℓ(β) + λ·β and Hessian H = ∇²ℓ(β) + λ·I
-2. Newton direction: d = -H⁻¹·g
-3. Armijo line search with backtracking (max 25)
-4. Ridge regularization: 1e-10·I for stability
+Let
+
+$$
+F(\beta)=\ell(\beta)+P(\beta).
+$$
+
+At iteration $k$ compute
+
+$$
+g_k=\nabla F(\beta_k),
+\qquad
+H_k=\nabla^2F(\beta_k).
+$$
+
+The implementation stabilizes the system with
+
+$$
+\widetilde H_k
+=\frac12(H_k+H_k^\top)+10^{-10}I
+$$
+
+and solves
+
+$$
+\widetilde H_k d_k=g_k.
+$$
+
+Trial points use
+
+$$
+\beta_k(t)=\beta_k-t d_k.
+$$
+
+Unlike the Proximal Newton implementation, an ordinary Newton linear solve that encounters a genuine rank failure falls back to the least-squares solution
+
+$$
+d_k=\widetilde H_k^{+}g_k,
+$$
+
+where $\widetilde H_k^{+}$ denotes the generalized-inverse solution produced by `lstsq`.
+
+If
+
+$$
+g_k^\top d_k\le0
+$$
+
+or the inner product is non-finite, the direction is replaced by steepest descent,
+
+$$
+d_k=g_k.
+$$
+
+The gradient stopping rule is
+
+$$
+\|g_k\|_2\le\texttt{tol}.
+$$
+
+For losses declaring a constant Hessian, that Hessian is computed once and reused.
+
+### Armijo backtracking
+
+Starting at $t=1$, accept the first candidate satisfying
+
+$$
+F(\beta_k-t d_k)
+\le
+F(\beta_k)-10^{-4}t\,g_k^\top d_k.
+$$
+
+If it fails,
+
+$$
+t\leftarrow\frac t2,
+$$
+
+for at most 20 trials. If no candidate satisfies Armijo, the solver accepts no unverified tiny step; it retains $\beta_k$ and reports line-search failure.
+
+### Analytic `sample_weight`
+
+For routes exposing weighted curvature, Newton uses the same normalized weighted objective for value, gradient, Hessian, and every Armijo trial:
+
+$$
+F(\beta)
+=\frac{\sum_i w_i\ell_i(\beta)}{\sum_i w_i}+P(\beta).
+$$
+
+Multiplying all active weights by one positive constant therefore leaves the optimum unchanged. Uniform/effectively-uniform weights retain the historical unweighted numerical path where that compatibility route is defined.
 
 ---
 
@@ -232,11 +1014,189 @@ Same pattern but weights from GLM working response: (y−μ)/Var(μ)·g'(μ)²
 
 **Files**: `statgpu/solvers/_lbfgs.py`, `statgpu/solvers/_lbfgs_b.py`
 
-**Use case**: Smooth losses + L2, moderate dimensions, non-canonical GLM links.
+**Use case**: Limited-memory quasi-Newton optimization for smooth objectives, plus a projected box-constrained variant.
 
-### Algorithm
+### L-BFGS curvature history
 
-Standard L-BFGS with Armijo line search. History size m=10. Fused GLM gradient + penalty gradient in one call.
+Let
+
+$$
+g_k=\nabla F(\beta_k).
+$$
+
+After accepting the next iterate define
+
+$$
+s_k=\beta_{k+1}-\beta_k,
+\qquad
+y_k=g_{k+1}-g_k.
+$$
+
+A curvature pair is stored only when
+
+$$
+y_k^\top s_k>10^{-12},
+$$
+
+with
+
+$$
+\rho_k=\frac1{y_k^\top s_k}.
+$$
+
+The default history size is
+
+$$
+m=10.
+$$
+
+Older pairs are discarded once the history exceeds $m$.
+
+### Two-loop recursion
+
+Start from
+
+$$
+q=g_k.
+$$
+
+Traverse history from newest to oldest:
+
+$$
+\alpha_i=\rho_i s_i^\top q,
+\qquad
+q\leftarrow q-\alpha_i y_i.
+$$
+
+If history is non-empty, scale the initial inverse-Hessian approximation by
+
+$$
+\gamma_k
+=\frac{s_{k-1}^\top y_{k-1}}
+{y_{k-1}^\top y_{k-1}},
+$$
+
+otherwise take $\gamma_k=1$. Set
+
+$$
+r=\gamma_k q.
+$$
+
+Traverse history from oldest to newest:
+
+$$
+\beta_i^{\rm loop}=\rho_i y_i^\top r,
+$$
+
+$$
+r\leftarrow r+s_i
+\left(\alpha_i-\beta_i^{\rm loop}\right).
+$$
+
+The search direction is
+
+$$
+p_k=-r.
+$$
+
+If
+
+$$
+g_k^\top p_k\ge0,
+$$
+
+fall back to
+
+$$
+p_k=-g_k.
+$$
+
+### L-BFGS Armijo line search
+
+Starting with $t=1$, accept the first trial satisfying
+
+$$
+F(\beta_k+t p_k)
+\le
+F(\beta_k)+10^{-4}t\,g_k^\top p_k.
+$$
+
+If it fails,
+
+$$
+t\leftarrow\frac t2,
+$$
+
+for at most 25 backtracking trials.
+
+After acceptance, recompute $g_{k+1}$ and update the curvature history. The solver stops when either
+
+$$
+\|g_k\|_2<\texttt{tol}
+$$
+
+or
+
+$$
+\|s_k\|_2<\texttt{tol}.
+$$
+
+### L-BFGS-B: projected box-constrained variant
+
+The current `lbfgs_b_solver` is a projected-gradient L-BFGS-B route, not the full generalized-Cauchy-point/subspace-minimization algorithm. For box constraints
+
+$$
+\ell_j\le\beta_j\le u_j,
+$$
+
+define
+
+$$
+\Pi_{[\ell,u]}(v)_j
+=\min\{u_j,\max(\ell_j,v_j)\}.
+$$
+
+At an active bound, the projected gradient is zeroed when the gradient points outside the box:
+
+$$
+\bar g_j=
+\begin{cases}
+0,& \beta_j\le\ell_j\ \text{and}\ g_j>0,\\
+0,& \beta_j\ge u_j\ \text{and}\ g_j<0,\\
+g_j,& \text{otherwise}.
+\end{cases}
+$$
+
+The two-loop direction likewise has components removed when they would immediately leave the feasible box. Line-search candidates are
+
+$$
+\beta_k(t)
+=\Pi_{[\ell,u]}\left(\beta_k+t p_k\right),
+$$
+
+with the same Armijo condition. Convergence uses
+
+$$
+\|\bar g_k\|_2<\texttt{tol}.
+$$
+
+`lbfgs_b_solver` currently accepts only omitted or uniform `sample_weight`; the non-uniform GLM weighting capability of ordinary `lbfgs_solver` should not be inferred for L-BFGS-B.
+
+### Analytic `sample_weight` for L-BFGS
+
+Non-uniform direct L-BFGS weights are loss-level opt-in:
+
+| Direct L-BFGS route | Non-uniform `sample_weight` |
+|---|---|
+| Maintained `GLMLoss` | ✅ Supported |
+| Generic robust / quantile / Cox `LossBase` consumers | ❌ Not implied by unweighted support |
+
+For maintained GLMs, the initial gradient, current objective, every line-search candidate, and accepted-point gradient use the same normalized objective
+
+$$
+F(\beta)
+=\frac{\sum_i w_i\ell_i(\beta)}{\sum_i w_i}+P(\beta).
+$$
 
 ---
 
@@ -244,43 +1204,176 @@ Standard L-BFGS with Armijo line search. History size m=10. Fused GLM gradient +
 
 **File**: `statgpu/solvers/_admm.py`
 
-**Use case**: Any loss + any penalty (alternative formulation).
+Rewrite
 
-### Algorithm
+$$
+\min_w f(w)+P(w)
+$$
 
-1. β-update: argmin L(β) + (ρ/2)||β − z + u||² (via sub-solver)
-2. z-update: proximal operator on z
-3. u-update: u = u + β − z
-4. Adaptive ρ: increase by 10% every 10 iterations if primal residual > 10·dual
+as the consensus problem
+
+$$
+\min_{w,z} f(w)+P(z)
+\quad\text{s.t.}\quad w=z.
+$$
+
+With scaled dual variable $u$, the augmented Lagrangian can be written
+
+$$
+\mathcal L_\rho(w,z,u)
+=f(w)+P(z)
++\frac\rho2\|w-z+u\|_2^2
+-\frac\rho2\|u\|_2^2.
+$$
+
+### Outer updates
+
+At outer iteration $k$,
+
+$$
+w^{k+1}
+=\arg\min_w
+\left\{
+f(w)+\frac\rho2\|w-z^k+u^k\|_2^2
+\right\},
+$$
+
+$$
+z^{k+1}
+=\operatorname{prox}_{P/\rho}(w^{k+1}+u^k),
+$$
+
+$$
+u^{k+1}=u^k+w^{k+1}-z^{k+1}.
+$$
+
+### $w$-subproblem: squared-error Cholesky path
+
+When the loss has a constant Hessian and the feature dimension is within the maintained Cholesky threshold, pre-factor
+
+$$
+A=\frac{X^\top X}{n}+\rho I,
+$$
+
+then solve at each outer iteration
+
+$$
+Aw^{k+1}
+=\frac{X^\top y}{n}+\rho(z^k-u^k).
+$$
+
+This path pins $\rho$, because changing it would invalidate the precomputed Cholesky factor.
+
+### $w$-subproblem: Nesterov accelerated-gradient path
+
+General GLMs use an inner accelerated-gradient solve. At inner momentum point $v_j$,
+
+$$
+g_j
+=\nabla f(v_j)+\rho(v_j-z^k+u^k).
+$$
+
+The step size is
+
+$$
+\gamma=\frac1{L_f+\rho+10^{-8}},
+$$
+
+and
+
+$$
+w_{j+1}=v_j-\gamma g_j.
+$$
+
+Then
+
+$$
+t_{j+1}=\frac{1+\sqrt{1+4t_j^2}}2,
+$$
+
+$$
+v_{j+1}
+=w_{j+1}
++\frac{t_j-1}{t_{j+1}}(w_{j+1}-w_j).
+$$
+
+The inner loop may stop early when
+
+$$
+\|w_{j+1}-w_j\|_1
+<\texttt{cg\_tol}\times p.
+$$
+
+Although the public/internal arguments are still named `cg_max_iter` and `cg_tol`, the current non-Cholesky fallback is Nesterov accelerated gradient, not conjugate gradient.
+
+### Primal/dual residuals and adaptive $\rho$
+
+Define
+
+$$
+r_{\rm p}^{k+1}=\|w^{k+1}-z^{k+1}\|_2,
+$$
+
+$$
+r_{\rm d}^{k+1}=\rho\|z^{k+1}-z^k\|_2.
+$$
+
+With `adaptive_rho=True`,
+
+$$
+\rho\leftarrow
+\begin{cases}
+\min(2\rho,10^4),& r_{\rm p}>10r_{\rm d},\\
+\max(\rho/2,10^{-4}),& r_{\rm d}>10r_{\rm p},\\
+\rho,& \text{otherwise}.
+\end{cases}
+$$
+
+After changing $\rho$, the inner step is recomputed as $\gamma=1/(L_f+\rho+10^{-8})$. Outer convergence requires
+
+$$
+r_{\rm p}<\texttt{tol}
+\qquad\text{and}\qquad
+r_{\rm d}<\texttt{tol}.
+$$
+
+The solver returns $z$, since $z$ is always the variable after applying the penalty proximal operator. The shared `admm_solver` currently accepts only omitted or uniform `sample_weight`; genuine non-uniform analytic weights are not part of this entry point's current capability.
 
 ---
 
-## 10. exact (Closed-form)
+## 10. `exact` (closed-form path)
 
 **Implemented in**: `_fit_mixin._solve_exact_*`
 
-**Use case**: squared_error + L2 penalty on numpy. Eigendecomposition of X'X/n + αI.
+**Use case**: Squared-error + L2 rows where the maintained dispatch selects the closed-form/eigendecomposition path, based on systems of the form
+
+$$
+\left(\frac{X^\top X}{n}+\alpha I\right)\beta
+=\frac{X^\top y}{n},
+$$
+
+with estimator-specific intercept treatment applied separately.
 
 ---
 
-## Solver Dispatch Logic
+## Solver dispatch
 
+For direct model fitting, `solver="auto"` follows the maintained model-level table. A simplified view is:
+
+```text
+direct fit with solver="auto"
+├── squared_error + L2 + NumPy/CPU → exact
+├── squared_error + L2 + GPU       → Newton
+├── squared_error + sparse penalty → FISTA/FISTA-BB
+├── smooth non-Gaussian GLM + L2   → Newton
+├── SCAD/MCP/adaptive path          → LLA + FISTA-family inner solve
+├── quantile                        → quantile-specific FISTA/IRLS path
+└── group penalty                   → group-aware FISTA / FISTA-LLA
 ```
-fit() with solver="auto"
-├── squared_error + L2 + numpy → exact (eigendecomposition)
-├── squared_error + L2 + GPU  → newton
-├── SCAD/MCP/adaptive → fista (LLA wrapper)
-│   ├── squared_error → fista_lla (fused)
-│   ├── quantile      → proximal_irls_cd
-│   ├── has_hessian   → fista_lla → proximal_newton
-│   └── no_hessian    → fista_lla → fista
-├── quantile (any penalty) → fista
-├── squared_error + sparse → fista
-├── GLM + GPU + sparse → fista_bb (if size < 2M elements)
-├── CV + L2 (loss-specific) → lbfgs / newton
-├── smooth penalties + smooth losses → newton / irls
-└── default sparse → fista_bb
-```
+
+`PenalizedGLM_CV` has a related but intentionally separate smooth-L2 policy. In particular, Gamma, Inverse-Gaussian, and Negative-Binomial L2 CV/final-refit routes use L-BFGS, while logistic, Poisson, and Tweedie L2 rows use Newton. Consult the compatibility matrix rather than inferring CV behavior from the direct-fit tree.
+
+`sample_weight` does not change an explicitly requested solver. Unsupported weighted combinations raise instead of selecting a different solver.
 
 ## References
 
@@ -288,6 +1381,8 @@ fit() with solver="auto"
 - Barzilai, J. & Borwein, J. M. (1988). Two-Point Step Size Gradient Methods. *IMA J. Numer. Anal.*, 8(1), 141-148.
 - O'Donoghue, B. & Candes, E. (2015). Adaptive Restart for Accelerated Gradient Schemes. *Foundations of Computational Mathematics*, 15(3), 715-732.
 - Lee, J. D., Sun, Y. & Saunders, M. A. (2014). Proximal Newton-Type Methods for Minimizing Composite Functions. *SIAM J. Optimization*, 24(3), 1420-1443.
-- Boyd, S. et al. (2011). Distributed Optimization and Statistical Learning via ADMM. *Foundations and Trends in ML*, 3(1), 1-122.
+- Liu, D. C. & Nocedal, J. (1989). On the Limited Memory BFGS Method for Large Scale Optimization. *Mathematical Programming*, 45, 503-528.
+- Byrd, R. H., Lu, P., Nocedal, J. & Zhu, C. (1995). A Limited Memory Algorithm for Bound Constrained Optimization. *SIAM J. Scientific Computing*, 16(5), 1190-1208.
+- Boyd, S. et al. (2011). Distributed Optimization and Statistical Learning via ADMM. *Foundations and Trends in Machine Learning*, 3(1), 1-122.
 - Fan, J. & Li, R. (2001). Variable Selection via Nonconcave Penalized Likelihood. *JASA*, 96, 1348-1360.
 - Zou, H. & Li, R. (2008). One-step Sparse Estimates in Nonconcave Penalized Likelihood Models. *Annals of Statistics*, 36(4), 1509-1533.

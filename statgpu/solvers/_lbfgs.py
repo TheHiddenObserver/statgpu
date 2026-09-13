@@ -31,10 +31,67 @@ from ._convergence import ConvergenceWarning
 from ._utils import (
     _smooth_penalty_gradient,
     _smooth_penalty_value_dev,
-    _validate_uniform_sample_weight,
+    _validate_sample_weight,
     _as_backend_vector,
     _validate_smooth_penalty,
 )
+
+
+def _prepare_lbfgs_sample_weight(sample_weight, n_samples, backend, ref_arr, loss):
+    """Validate analytic weights and align active weights to the fit backend.
+
+    Uniform weights retain the historical L-BFGS behavior and are normalized
+    away before optimization.  Genuine non-uniform weights are accepted only
+    for losses that explicitly opt into the shared weighted-L-BFGS contract.
+
+    Match Newton's established ordering exactly: validate first, align to the
+    executed design backend/dtype, then apply the historical uniformity rule.
+    This prevents the two explicit smooth solvers from classifying the same
+    public weight vector differently merely because its input container/dtype
+    differs from the numerical design.
+    """
+    if sample_weight is None:
+        return None
+
+    _validate_sample_weight(sample_weight, n_samples)
+    values = _as_backend_vector(sample_weight, backend, ref_arr).reshape(-1)
+    if backend == "torch":
+        import torch
+
+        uniform_dev = (
+            torch.allclose(values, values[0])
+            if torch.is_floating_point(values)
+            else torch.all(values == values[0])
+        )
+    else:
+        from statgpu.backends._utils import _get_xp
+
+        xp = _get_xp(backend)
+        uniform_dev = (
+            xp.allclose(values, values[0])
+            if getattr(values.dtype, "kind", "") == "f"
+            else xp.all(values == values[0])
+        )
+    uniform = bool(
+        uniform_dev.item() if hasattr(uniform_dev, "item") else uniform_dev
+    )
+    if uniform:
+        return None
+
+    if not bool(getattr(loss, "_supports_nonuniform_lbfgs_weights", False)):
+        raise ValueError(
+            "lbfgs_solver does not support non-uniform sample_weight for "
+            f"loss='{getattr(loss, 'name', '?')}'."
+        )
+
+    return values
+
+
+def _call_loss_with_weight(fn, *args, sample_weight=None):
+    """Call one loss primitive with analytic weights when they are active."""
+    if sample_weight is None:
+        return fn(*args)
+    return fn(*args, sample_weight=sample_weight)
 
 
 def lbfgs_solver(
@@ -54,6 +111,16 @@ def lbfgs_solver(
     returning ``(value, gradient)``.  Supports numpy / cupy / torch backends
     via auto-detection of *X*.
 
+    Genuine non-uniform ``sample_weight`` is supported only when the loss
+    explicitly opts into the shared weighted-L-BFGS contract.  Maintained GLM
+    losses do so and evaluate value, gradient, line-search candidates, and the
+    accepted iterate under one normalized objective
+    ``sum_i w_i * contribution_i / sum_i w_i``.  Generic non-GLM losses remain
+    fail-closed unless they independently declare the same capability.
+
+    Uniform weights are normalized away using the historical uniformity rule,
+    preserving the established unweighted numerical path.
+
     Parameters
     ----------
     loss : object
@@ -72,7 +139,8 @@ def lbfgs_solver(
     history_size : int
         Number of past (s, y) pairs to store.
     sample_weight : array-like or None
-        Sample weights.  Must be uniform (all equal) for this solver.
+        Analytic sample weights. Uniform weights are equivalent to unweighted
+        fitting; genuine non-uniform weights require a capable loss contract.
 
     Returns
     -------
@@ -85,7 +153,9 @@ def lbfgs_solver(
     backend = _resolve_backend("auto", X)
     X_proc, y_proc = loss.preprocess(X, y)
     n_features = X_proc.shape[1]
-    _validate_uniform_sample_weight(sample_weight, X_proc.shape[0], "lbfgs_solver")
+    sample_weight = _prepare_lbfgs_sample_weight(
+        sample_weight, X_proc.shape[0], backend, X_proc, loss
+    )
 
     if init_coef is not None:
         params = _as_backend_vector(init_coef, backend, X_proc)
@@ -97,14 +167,15 @@ def lbfgs_solver(
     rho_hist = []
 
     # Initial gradient (fused to avoid redundant X@coef)
-    _init_val_dev, grad = loss.fused_value_and_gradient(X_proc, y_proc, params)
+    _init_val_dev, grad = _call_loss_with_weight(
+        loss.fused_value_and_gradient,
+        X_proc,
+        y_proc,
+        params,
+        sample_weight=sample_weight,
+    )
     grad = grad + _smooth_penalty_gradient(penalty, params)
 
-    if backend == "torch":
-        import torch
-        tol_dev = torch.tensor(tol, dtype=torch.float64, device=params.device)
-    else:
-        tol_dev = tol
     iteration = -1  # default if max_iter=0
 
     for iteration in range(max_iter):
@@ -143,8 +214,15 @@ def lbfgs_solver(
             direction = -grad
             gdd = -gn * gn  # grad'(-grad) = -||grad||^2
 
-        # Line search -- stays on device
-        old_val_dev, _ = loss.fused_value_and_gradient(X_proc, y_proc, params)
+        # Line search -- stays on device and uses the same analytic weights as
+        # the gradient that generated the search direction.
+        old_val_dev, _ = _call_loss_with_weight(
+            loss.fused_value_and_gradient,
+            X_proc,
+            y_proc,
+            params,
+            sample_weight=sample_weight,
+        )
         old_val_dev = old_val_dev + _smooth_penalty_value_dev(penalty, params)
 
         step = 1.0
@@ -152,7 +230,13 @@ def lbfgs_solver(
         _ls_accepted = False
         for _ in range(25):
             candidate = params + step * direction
-            cand_val_dev, _ = loss.fused_value_and_gradient(X_proc, y_proc, candidate)
+            cand_val_dev, _ = _call_loss_with_weight(
+                loss.fused_value_and_gradient,
+                X_proc,
+                y_proc,
+                candidate,
+                sample_weight=sample_weight,
+            )
             cand_val_dev = cand_val_dev + _smooth_penalty_value_dev(penalty, candidate)
             # Device-side comparison -- single sync for the bool
             if _device_leq(cand_val_dev, old_val_dev + 1e-4 * step * gdd):
@@ -169,8 +253,14 @@ def lbfgs_solver(
                 stacklevel=2,
             )
 
-        # Update gradient (fused)
-        _, grad_new = loss.fused_value_and_gradient(X_proc, y_proc, params_new)
+        # Update gradient (fused) using the same weighted objective.
+        _, grad_new = _call_loss_with_weight(
+            loss.fused_value_and_gradient,
+            X_proc,
+            y_proc,
+            params_new,
+            sample_weight=sample_weight,
+        )
         grad_new = grad_new + _smooth_penalty_gradient(penalty, params_new)
 
         s_vec = params_new - params
