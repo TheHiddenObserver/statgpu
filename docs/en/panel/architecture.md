@@ -1,7 +1,7 @@
 # Panel Architecture
 
 > Language: English  
-> Last updated: 2026-09-12  
+> Last updated: 2026-09-13  
 > Switch: [Chinese](../../cn/panel/architecture.md)
 
 This page documents **only the Panel architecture that is implemented in statgpu today**. For model choice, identification assumptions, and user-facing entry points, see [Panel Models](../models/panel.md). For the statistical definition and API of an individual estimator, see its dedicated model page.
@@ -10,13 +10,13 @@ This page documents **only the Panel architecture that is implemented in statgpu
 
 Panel is estimator-centric, not loss-centric. Users construct `PanelOLS`, `RandomEffects`, `PooledOLS`, `BetweenOLS`, `FirstDifferenceOLS`, or `FamaMacBeth` and call `.fit()`.
 
-All six estimators share `BasePanelModel(BaseEstimator)`, but **`BasePanelModel` supplies statistically neutral infrastructure; it does not choose the econometric transformation or fit space that defines a concrete estimator.**
+All six estimators share `BasePanelModel(BaseEstimator)`, but **`BasePanelModel` supplies statistically neutral infrastructure; it does not choose the econometric transformation or the transformed regression problem that defines a concrete estimator.**
 
 The current implementation also has **no `PanelLoss` layer and does not organize Panel fitting through the generic `LossBase + Penalty + Solver` pipeline**. The maintained abstraction is instead:
 
 1. shared input, metadata, backend, numerical-stability, and lifecycle infrastructure;
-2. estimator-specific construction of the statistical fit space;
-3. shared or estimator-specific numerical estimation in that fit space;
+2. estimator-specific construction of the data transformation and regression problem;
+3. shared or estimator-specific numerical estimation on the resulting design matrix and response;
 4. covariance, inference, diagnostics, and estimator-specific post-fit logic where applicable.
 
 ## 2. Current Runtime Responsibility Map
@@ -27,7 +27,7 @@ User
   │  model = PanelEstimator(...)
   │  model.fit(...)
   ▼
-Concrete Panel estimator
+Concrete Panel model class
   │
   ├── reusable BasePanelModel infrastructure
   │     ├── transactional fit / fitted-state lifecycle
@@ -38,7 +38,7 @@ Concrete Panel estimator
   │     └── shared summary / residual-OLS inference finalization
   │
   ▼
-Estimator-specific fit-space construction
+Estimator-specific data transformation and regression construction
   │
   ├── PooledOLS          → stacked level design
   ├── PanelOLS           → within / two-way demeaning
@@ -55,7 +55,7 @@ Numerical estimation
   │     ├── `_intercept.py`: guarded constant/response-level solves
   │     └── `_reductions.py`: stable grouped reductions
   │
-  └── estimator-specific orchestration around those primitives
+  └── model-specific orchestration around those primitives
   │
   ▼
 Post-fit statistical layer
@@ -64,11 +64,11 @@ Post-fit statistical layer
   ├── coefficient inference finalization (`BasePanelModel`), where applicable
   ├── fit statistics / specification diagnostics
   │     (`_diagnostic_context.py`, `_diagnostics.py`)
-  ├── estimator-specific state/effect recovery
+  ├── model-specific state/effect recovery
   └── predict() / summary()
 ```
 
-This is a **responsibility map**, not a claim that every estimator calls every helper in exactly this order. Concrete estimators selectively reuse shared primitives.
+This is a **responsibility map**, not a claim that every model calls every helper in exactly this order. Concrete models selectively reuse shared primitives.
 
 In particular:
 
@@ -76,7 +76,7 @@ In particular:
 - `PanelOLS` performs fixed/time-effect recovery inside its own fit path;
 - `RandomEffects` owns its between/within auxiliary regressions, Swamy-Arora variance-component construction, and quasi-demeaning.
 
-The important boundary is that **the shared layer reuses how inputs and metadata are handled, how panel least-squares problems are solved stably, and how common inference results are organized; the concrete estimator decides which statistical fit space is being estimated.**
+The important boundary is that **the shared layer reuses how inputs and metadata are handled, how panel least-squares problems are solved stably, and how common inference results are organized; the concrete model decides how the data are transformed and which design matrix and response enter estimation.**
 
 ## 3. Responsibilities of Shared Components
 
@@ -88,22 +88,22 @@ The important boundary is that **the shared layer reuses how inputs and metadata
 | `_linalg.py` / `_intercept.py` / `_reductions.py` | Rank-aware least-squares, guarded constant/response-level handling, batched period solves, and stable grouped reductions. |
 | `_covariance.py` | Shared implementations and dispatch for nonrobust, HC, cluster, HAC, and Driscoll-Kraay covariance paths. |
 | `_diagnostic_context.py` / `_diagnostics.py` | Fit statistics, degrees-of-freedom definitions, and Panel diagnostics such as Hausman, pooling F, and Breusch-Pagan LM. |
-| concrete estimator modules | Define each estimator's statistical transformation, auxiliary estimation, model-specific state, and which shared inference/covariance contracts apply. |
+| concrete model modules | Define the data transformation, auxiliary estimation, model-specific state, and which shared inference/covariance contracts apply to each estimator. |
 
 `BasePanelModel` is therefore not a universal Panel algorithm. It does not automatically perform within transformation, and it does not estimate RandomEffects variance components. It exposes reusable primitives; concrete implementations such as `PanelOLS.fit()` and `RandomEffects.fit()` decide the statistical structure in which those primitives are used.
 
 ## 4. Current Computation Path by Estimator
 
-| Estimator | Fit space / core transformation | Numerical estimation | Inference path |
+| Estimator | Data used for estimation / core transformation | Numerical estimation | Inference path |
 |---|---|---|---|
 | `PooledOLS` | Original stacked level design with an automatically added intercept | pooled OLS | residual-OLS covariance + shared inference; pooled fit statistics and BP-LM diagnostic when applicable |
-| `PanelOLS` | Level regression without effects; entity/time/two-way demeaning when effects are requested | transformed OLS | transformed-fit-space covariance + shared inference; effect recovery and Panel fit-statistic / pooling-F context remain estimator-specific |
-| `BetweenOLS` | Entity means of $X$ and $y$ | entity-mean OLS | entity-mean fit-space covariance + shared inference |
-| `FirstDifferenceOLS` | Within-entity first differences after time ordering when available | differenced OLS | differenced fit-space covariance + shared inference |
-| `RandomEffects` | Between/within auxiliary regressions → Swamy-Arora variance components → quasi-demeaning | feasible GLS represented as quasi-demeaned transformed OLS | shared residual-OLS covariance/inference on the quasi-demeaned fit space, while retaining `theta_` and variance components |
+| `PanelOLS` | Original level data without effects; entity/time/two-way demeaning when effects are requested | transformed OLS | covariance and shared inference from the transformed design and residuals; effect recovery and Panel fit-statistic / pooling-F context remain model-specific |
+| `BetweenOLS` | Entity means of $X$ and $y$ | entity-mean OLS | covariance and shared inference from the entity-mean regression design and residuals |
+| `FirstDifferenceOLS` | Within-entity first differences after time ordering when available | differenced OLS | covariance and shared inference from the differenced design and residuals |
+| `RandomEffects` | Between/within auxiliary regressions → Swamy-Arora variance components → quasi-demeaning | feasible GLS represented as quasi-demeaned transformed OLS | shared covariance/inference from the quasi-demeaned design and residuals, while retaining `theta_` and variance components |
 | `FamaMacBeth` | Separate cross-sectional regression design for each time period | period-specific OLS / batched OLS followed by aggregation of $\hat\beta_t$ | **does not use the residual-OLS covariance registry**; covariance is based on the period coefficient series $\{\hat\beta_t\}$ and remains estimator-specific |
 
-This is why the six estimators cannot be reduced to “one generic OLS call.” They share substantial numerical and inference infrastructure, but **the definition of the fit space is itself part of the statistical meaning of the estimator.**
+This is why the six estimators cannot be reduced to “one generic OLS call.” They share substantial numerical and inference infrastructure, but **the data transformation performed before estimation is itself part of the statistical definition of the estimator.**
 
 ## 5. Fixed Effects Example: the Statistical Transformation Precedes the Solve
 
@@ -121,7 +121,7 @@ $$
 \widetilde x_{it}=x_{it}-\bar x_i,
 $$
 
-and current `PanelOLS` then solves the transformed least-squares problem
+and current `PanelOLS` then solves the least-squares problem based on the transformed design and response:
 
 $$
 \hat\beta
@@ -131,9 +131,9 @@ $$
 \left(\widetilde y_{it}-\widetilde x_{it}^\top\beta\right)^2.
 $$
 
-The estimator is not finished once the slope has been solved. The implementation still recovers entity/time effects, determines effect rank and residual degrees of freedom, and computes the selected covariance, coefficient inference, and Panel-specific fit statistics on the transformed design.
+The estimator is not finished once the slope has been solved. The implementation still recovers entity/time effects, determines effect rank and residual degrees of freedom, and computes the selected covariance, coefficient inference, and Panel-specific fit statistics from the transformed design and residuals.
 
-The maintained estimator pipeline therefore contains **fit-space construction, numerical solve, and post-fit Panel inference**.
+The maintained estimator pipeline therefore contains **data transformation, numerical solve, and post-fit Panel inference**.
 
 ## 6. Backend and Numerical Policy
 
@@ -147,7 +147,7 @@ Shared helpers are reusable primitives rather than a mandatory call chain. `Fama
 
 ## 7. Covariance, Diagnostics, and Result Publication
 
-For applicable transformed residual-OLS fit spaces, `BasePanelModel._panel_store_ols_inference()` uses the registry/dispatcher in `_covariance.py` and publishes coefficient-level standard errors, statistics, p-values, and confidence intervals through the shared inference result path.
+For applicable regressions obtained after transformation, `BasePanelModel._panel_store_ols_inference()` uses the registry/dispatcher in `_covariance.py` and publishes coefficient-level standard errors, statistics, p-values, and confidence intervals through the shared inference result path.
 
 Panel-specific fit statistics and specification diagnostics are implemented in `_diagnostic_context.py` and `_diagnostics.py`. `FamaMacBeth` is the important exception: its covariance is based on the period coefficient series rather than a residual-OLS sandwich, so that logic remains estimator-specific.
 
