@@ -1,7 +1,7 @@
 # Solver × Penalty Compatibility Matrix
 
 > Language: English  
-> Last updated: 2026-09-12  
+> Last updated: 2026-09-13  
 > This page: Reference guide  
 > Switch: [Chinese](../../cn/guides/solver-penalty-matrix.md)
 
@@ -36,13 +36,21 @@ The most important distinction is between **direct fitting** and **cross-validat
 - Group Lasso and Adaptive Group Lasso use the advertised loss gradient and the Euclidean group proximal operator, including maintained `sample_weight` and CV routes.
 - `sample_weight` does not rewrite an explicit solver request. Supported weighted Newton/L-BFGS routes use the same normalized weighted objective throughout optimization; unsupported loss/solver/weight combinations raise.
 
-### Inverse-power Gamma boundary
+### Inverse-power Gamma smooth-domain contract
 
-For ordinary `GammaRegression(link="inverse_power")`, genuinely non-uniform weighted explicit Newton/L-BFGS requires `fit_intercept=True` so statgpu can construct a strictly positive family-valid starting predictor.
+For inverse-power Gamma,
 
-Only that **non-uniform weighted + no-intercept + explicit Newton/L-BFGS** combination is rejected. Omitted, uniform, or effectively-uniform weights retain the historical no-intercept behavior.
+\[
+\eta_i=x_i^\top\beta>0,
+\qquad
+\ell_i(\eta_i)=y_i\eta_i-\log\eta_i.
+\]
 
-This is a current feasible-initialization limitation rather than a theoretical restriction of the model; follow-up support is tracked in GitHub issue #152.
+The maintained explicit `newton` and `lbfgs` paths construct a backend-native interior start and keep every **active training** predictor inside the unclipped numerical interval where the implemented value, gradient, and Hessian describe one smooth objective. The Armijo step cap is computed only after the solver has finalized its actual post-fallback search direction.
+
+`fit_intercept=False` is therefore not categorically rejected. It is supported when statgpu can certify an interior start for the executed design and the optimizer converges without being pinned to the numerical-domain boundary. Omitted, uniform, effectively-uniform, and genuinely non-uniform analytic weights use the same domain policy; with genuine weighting, rows whose analytic weight is exactly zero do not constrain the training domain.
+
+If a finite design cannot be numerically certified, or optimization reaches the domain boundary before convergence, the explicit smooth path fails visibly instead of publishing a clipped surrogate fit. Public prediction and held-out validation retain their existing clipping semantics, so this training-domain guarantee is not a claim that every unseen design row must remain in the training interval.
 
 ## 2. Explicit solver constraints
 
@@ -96,7 +104,7 @@ Group warm starts carry coefficient and intercept state together for one fit cal
 | **negative_binomial** | L-BFGS | sparse/FISTA path | LLA + FISTA | general fit | Group FISTA | Group FISTA-LLA |
 | **tweedie** | Newton | sparse/FISTA path | LLA + FISTA | general fit | Group FISTA | Group FISTA-LLA |
 
-Weights do not substitute another solver. For the three L-BFGS smooth-L2 families above, weighted candidate/final-refit support follows the maintained GLM weighted-objective contract.
+Weights do not substitute another solver. For the three L-BFGS smooth-L2 families above, weighted candidate/final-refit support follows the maintained GLM weighted-objective contract. For `loss="gamma"` with `loss_kwargs={"link": "inverse_power"}`, smooth-L2 CV preserves that actual loss object through candidate fitting, validation scoring, alpha selection, and final refit rather than using the log-link-only Gamma validation shortcut.
 
 Group validation happens before alpha-grid generation, fold construction, or candidate fitting. Groups are interpreted against the final design width, including formula-expanded columns. Missing unweighted features are completed as singleton groups once; out-of-range indices and incomplete adaptive weighted groups fail before candidate fitting.
 
