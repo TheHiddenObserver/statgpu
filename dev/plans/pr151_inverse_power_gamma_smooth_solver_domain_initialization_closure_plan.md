@@ -9,7 +9,7 @@ Original plan baseline: `b5228fdc4ed78af6fcaa760ecee1475ae4ebe1a7`
 
 ## 1. Goal
 
-Close the remaining inverse-power Gamma explicit smooth-solver gap inside PR #151 rather than retaining `fit_intercept=True` as an artificial capability condition.
+Close the remaining inverse-power Gamma **explicit Newton/L-BFGS** domain/initialization gap inside PR #151 rather than retaining `fit_intercept=True` as an artificial capability condition.
 
 The final contract is domain based, not weight-shape based:
 
@@ -53,7 +53,7 @@ Active axes:
 - NumPy/CuPy/Torch backend, device and working dtype;
 - ordinary GLM, direct solver, penalized Gamma and smooth-L2 `PenalizedGLM_CV` consumers;
 - formula no-intercept behavior;
-- inference preservation for successfully fitted public rows;
+- inference and failed-refit state preservation for public rows;
 - tests/docs/changelog/evidence freshness;
 - exact-source physical CUDA revalidation.
 
@@ -68,6 +68,7 @@ Not intended to change:
 - current prediction and held-out validation clipping semantics except that inverse-power Gamma CV uses the correct inverse-power loss rather than a log-link formula;
 - numerical values of `GammaLoss._ETA_LO/_ETA_HI` unless separate pre-implementation review proves those constants themselves incorrect;
 - optimized sparse Gamma CV kernels beyond preventing wrong-link execution;
+- `proximal_newton_solver` domain integration: the current L2/none damped-Newton implementation is outside #150 and is tracked with the broader Proximal-Newton work in #157; it may later consume the same private loss-domain interface;
 - ordered models or standalone logistic APIs.
 
 ## 3. Current inconsistencies to close
@@ -76,7 +77,7 @@ Not intended to change:
 
 The reviewed parent plan targeted weighted explicit Newton/L-BFGS support for all maintained ordinary GLM family/link rows and required both `fit_intercept=True` and `False`, including inverse-power Gamma.
 
-The current runtime installer instead supplies a family-aware start only with an intercept, rejects the newly opened genuine-nonuniform no-intercept row, and leaves omitted/uniform/effectively-uniform no-intercept calls on the historical zero-start path. That narrowing is an implementation limitation, not a statistical prohibition.
+The current runtime installer supplies a family-aware start only with an intercept, rejects the newly opened genuine-nonuniform no-intercept row, and leaves omitted/uniform/effectively-uniform no-intercept calls on the historical zero-start path. That narrowing is an implementation limitation, not a statistical prohibition.
 
 ### 3.2 Historical zero start is outside the mathematical domain
 
@@ -177,7 +178,7 @@ On active executed design `X_A`, seek `d` with
 x_i^\top d>0\qquad\forall i\in A.
 \]
 
-Normalize each finite nonzero row by a **scale-safe backend-native row norm** (avoid overflow/underflow from naive squaring at extreme magnitude):
+Normalize each finite nonzero active row by a **scale-safe backend-native row norm** to avoid overflow/underflow from naive squaring:
 
 \[
 u_i=x_i/\|x_i\|_2.
@@ -187,9 +188,9 @@ Positive row scaling preserves sign feasibility. An active all-zero or non-finit
 
 #### Candidate fast path
 
-If one executed design column has one certified strict sign on every active row, its signed basis vector is a cheap separator candidate. The augmented intercept ones column therefore yields the usual pure-intercept candidate immediately.
+If one executed design column has one certified strict sign on every active row, its signed basis vector is a cheap separator candidate. The augmented intercept ones column therefore yields the pure-intercept candidate immediately.
 
-**The fast path is accepted only if §6.2 can also scale this candidate into `(L,U)`.** If the basis direction is positive but too poorly conditioned to fit the smooth band, do not fail yet; continue to the geometric fallback.
+The fast path is accepted only if §6.2 can also scale it into `(L,U)`. Otherwise continue to the geometric fallback.
 
 #### Gilbert / Frank-Wolfe fallback
 
@@ -224,20 +225,15 @@ m_k=\min_i u_i^\top c_k,
 c_{k+1}=(1-\gamma_k)c_k+\gamma_k s_k.
 \]
 
-A positive `m_k` above the frozen dtype-aware margin certifies **sign separation**, but does not by itself terminate the search. Each certified separator is passed to §6.2:
+A positive `m_k` above the frozen dtype-aware margin certifies sign separation but does not alone terminate the search. Each certified separator is passed to §6.2. If it is positive but too poorly conditioned for `(L,U)`, continue Frank-Wolfe. Track the best band-conditioning certificate encountered for deterministic diagnostics.
 
-- if it admits a stable `(L,U)` scale, initialization succeeds;
-- if it is positive but its predictor spread is too large for the maintained smooth band, continue Frank-Wolfe and look for a better-conditioned separator rather than incorrectly declaring the design unsupported at the first positive iterate.
-
-Track the best band-conditioning certificate encountered (e.g. predictor ratio / admissible scale interval width) for deterministic diagnostics. Stop only on a band-certifiable separator or on a reviewed numerical stopping condition/iteration limit.
-
-Tiny segment denominator before band certification, convergence near the origin, or exhaustion reports **numerically unresolved / no certified smooth-domain start**, not exact mathematical infeasibility. Exact all-zero rows and other independently certified contradictions may use stronger messages.
+Stop only on a band-certifiable separator or a reviewed numerical stopping condition/iteration limit. Tiny segment denominator before band certification, convergence near the origin, or exhaustion reports **numerically unresolved / no certified smooth-domain start**, not exact mathematical infeasibility. Exact zero rows and independently certified contradictions may use stronger messages.
 
 No SciPy/CPU LP/QP fallback is added. CuPy/Torch geometry stays on device; only scalar certificate/control synchronization is allowed.
 
 ### 6.2 Scale a separator into the unclipped smooth band
 
-For candidate direction `d`, define on the original active design
+For candidate `d`, define on original active design
 
 \[
 a_i=x_i^\top d>0,
@@ -245,7 +241,7 @@ a_i=x_i^\top d>0,
 \qquad a_{\max}=\max a_i.
 \]
 
-A positive scalar `c` fits the ray into `(L,U)` iff
+A scalar `c>0` fits the ray into `(L,U)` iff
 
 \[
 \frac{L}{a_{\min}}<c<\frac{U}{a_{\max}}.
@@ -259,11 +255,11 @@ c_{\rm ray}=\frac{s}{\sum_{i\in A}w_i y_i a_i}
 
 or `n/sum(y_i a_i)` under the unweighted objective.
 
-Project `c_ray` into a strict interior of the admissible scale interval using a frozen safety margin, then verify on the original unnormalized active design that all predictors are finite and in `(L,U)`.
+Project `c_ray` into a strict interior of the admissible interval with a frozen safety margin, then verify on original unnormalized active design that every predictor is finite and in `(L,U)`.
 
-For the pure intercept candidate this reproduces `1/mean(y)` or `1/weighted_mean(y)` whenever already interior. If not, it is safely adjusted rather than clipped implicitly by the loss.
+For the pure intercept candidate this reproduces `1/mean(y)` / `1/weighted_mean(y)` whenever already interior. If not, adjust safely rather than rely on implicit loss clipping.
 
-Failure of every searched separator to yield a band-certifiable scale is conservative `no numerically certified smooth-domain start`; it is not proof that a general two-sided LP has no solution.
+Failure of every searched separator to yield a band-certifiable scale is conservative `no numerically certified smooth-domain start`, not proof that a general two-sided LP is infeasible.
 
 Geometry tolerance, band margin, conditioning diagnostic and iteration cap are frozen before physical validation.
 
@@ -276,7 +272,7 @@ For feasible current `beta` and additive direction `Delta`, define
 \qquad r=X_A\Delta.
 \]
 
-The lower/upper crossing times are
+Crossing times are
 
 \[
 t_{i,\rm lo}=(\eta_i-L)/(-r_i)\quad(r_i<0),
@@ -286,15 +282,9 @@ t_{i,\rm lo}=(\eta_i-L)/(-r_i)\quad(r_i<0),
 t_{i,\rm hi}=(U-\eta_i)/r_i\quad(r_i>0).
 \]
 
-Take the minimum positive crossing time and apply a frozen interior safety factor. Newton passes `Delta=-d`; L-BFGS passes its additive search direction. Armijo begins at
+Take the minimum positive crossing time and apply a frozen interior safety factor. Newton passes `Delta=-d`; L-BFGS passes its additive search direction. Armijo begins at `min(1,t_domain)` and retains existing halving/sufficient decrease. Feasibility is checked before every trial objective evaluation.
 
-\[
-t_0=\min(1,t_{\rm domain})
-\]
-
-and then uses existing halving/sufficient decrease. A feasibility hook runs before every trial objective evaluation.
-
-If the gradient is not converged but the domain cap has collapsed below the reviewed meaningful-step floor because the iterate is pinned to `(L,U)`, surface a specific domain-boundary failure. Do not publish a successful fit merely because parameter change became tiny. Ordinary Armijo failure for a positive interior step keeps existing warning semantics; warning-as-error PR151 acceptance prevents it from being accepted as closure.
+If gradient convergence has not occurred but the domain cap collapses below the reviewed meaningful-step floor because the iterate is pinned to `(L,U)`, surface a specific domain-boundary failure. Never publish success from a tiny coefficient change caused only by the bound. Ordinary Armijo failure for a positive interior step keeps existing warning semantics; warning-as-error acceptance prevents it from closing PR151.
 
 ## 8. Newton/L-BFGS integration and warm-start ownership
 
@@ -310,10 +300,10 @@ For both solvers:
 
 Warm-start ownership:
 
-- direct exported solver `init_coef` is caller-authoritative; invalid -> precise domain error;
-- ordinary GLM has no public init control -> loss initializer;
-- penalized/CV starts are framework-owned -> validate at owner boundary, discard if invalid for current design, then pass `None` for fresh family initialization;
-- no generic flag guesses ownership.
+- direct solver `init_coef` is caller-authoritative; invalid -> precise domain error;
+- ordinary GLM has no public init -> loss initializer;
+- penalized/CV starts are framework-owned -> validate at owner boundary, discard if invalid, then reseed through `None`;
+- no generic solver flag guesses ownership.
 
 ## 9. Estimator and CV integration
 
@@ -321,40 +311,51 @@ Warm-start ownership:
 
 Simplify `statgpu/linear_model/_glm_weighted_explicit_solver_contract.py`:
 
-- remove genuine-nonuniform no-intercept categorical guard;
-- remove duplicate inverse-Gamma initializer after shared initializer proves equivalent supported behavior;
+- remove genuine-nonuniform no-intercept guard;
+- remove duplicate inverse-Gamma start after shared initializer proves equivalent supported behavior;
 - retain finalized `X_work`, working dtype, explicit solver identity/provenance and runtime-installer contracts.
+
+The canonical `_glm_base.py` historical weighted rejection remains masked by the installed runtime contract under the already-reviewed PR151 installer architecture; this closure does not require an unrelated rewrite of that installer mechanism.
 
 ### 9.2 Penalized smooth Gamma
 
 In `_PenalizedFitMixin._fit_loss_backend()`:
 
 - preserve log-link Gamma `log(mean(y))` initialization;
-- for resolved inverse-power Gamma, do not create that log-link init;
-- absent valid framework warm start, pass `None` so the shared loss initializer sees finalized `X_work`, prepared weights and backend/dtype;
-- validate/reseed framework-owned starts;
-- retain selective penalty/intercept non-penalization.
-
-`PenalizedGammaRegression(link="inverse_power")` and generic equivalent are blocking smooth L2/no-penalty consumers.
+- inverse-power Gamma does not create that log-link init;
+- absent valid framework warm start, pass `None` so shared loss initialization sees finalized `X_work`, prepared weights and backend/dtype;
+- validate/reseed framework starts;
+- preserve selective penalty/intercept non-penalization.
 
 ### 9.3 PenalizedGLM_CV smooth-L2 inverse-power Gamma
 
-For public `PenalizedGLM_CV(loss="gamma", loss_kwargs={"link":"inverse_power"}, penalty="l2", ...)`:
+For `PenalizedGLM_CV(loss="gamma", loss_kwargs={"link":"inverse_power"}, penalty="l2", ...)`:
 
-- candidate construction preserves `loss_kwargs`;
-- candidate/fold internal warm starts use framework-owned validation/reseed;
-- validation scoring bypasses log-link-only `_val_gamma` and calls the actual resolved inverse-power Gamma loss;
-- every loss-resolution branch on this L2 route preserves `loss_kwargs`;
-- alpha selection and selected full-data refit use the same link/objective family;
-- domain/contract failures are not converted to MSE/log-link fallback.
+- preserve `loss_kwargs` in candidate construction and every L2 loss-resolution branch;
+- validate/reseed internal fold/path starts;
+- bypass log-link-only `_val_gamma` and score with the actual resolved inverse-power Gamma loss;
+- use the same link/objective family for alpha selection and selected refit;
+- do not convert domain/contract failures to MSE/log-link fallback.
 
-Strict `(L,U)` applies to Newton/L-BFGS **training evaluations**. Held-out validation scoring and public prediction retain current clipping semantics; the CV correction here is use of the correct inverse-power link. Do not claim training-domain guarantees for unseen covariates.
+Strict `(L,U)` applies to Newton/L-BFGS **training evaluations**. Held-out validation and public prediction keep existing clipping semantics; this PR fixes their link identity, not unseen-covariate domain guarantees.
 
-No new optimized inverse-power sparse/fold-batched Gamma kernel is built. Any log-link-only optimized branch must be bypassed or explicitly unsupported for inverse-power rather than silently used.
+No new optimized inverse-power sparse/fold-batched Gamma kernel is introduced. Wrong-link optimized branches must be bypassed or explicitly unsupported for inverse-power.
 
 ### 9.4 Formula and inference
 
-Formula fits use finalized Patsy-retained numerical design and aligned weights, including no-intercept formulas. Already-supported inference receives a successfully fitted parameter vector inside the training smooth domain; covariance/estimand/reference-distribution semantics remain unchanged.
+Formula fits use finalized Patsy-retained design and aligned weights, including no-intercept formulas. Existing inference consumes only successfully fitted parameters and preserves covariance/estimand/reference-distribution semantics.
+
+### 9.5 Failure transactions and stale state
+
+New initialization/domain failures are part of the fit transaction. For ordinary, penalized and CV consumers:
+
+- characterize the current failed-refit contract before implementation (preserve prior successful state versus invalidate it, according to each estimator's maintained behavior);
+- a pre-fit domain-certification failure, invalid framework warm start that cannot be reseeded, or solver domain-boundary failure must follow that same transaction policy;
+- never publish attempted solver/backend/domain provenance as successful execution;
+- never leave new inference/CV-selected-alpha state partially updated after failure;
+- add previously-fitted -> failing-refit regressions for ordinary and penalized Gamma and a CV failure-transaction regression proportional to current CV state ownership.
+
+Do not silently redefine the repository's existing transaction policy merely because this closure adds a new failure class.
 
 ## 10. Blocking consumer graph
 
@@ -364,24 +365,23 @@ Formula fits use finalized Patsy-retained numerical design and aligned weights, 
 4. generic penalized inverse-power Gamma smooth L2/no-penalty;
 5. inverse-power Gamma smooth-L2 `PenalizedGLM_CV` scoring/selection/final refit;
 6. ordinary formula routes;
-7. already-supported inference reached by these fits.
+7. already-supported inference reached by these fits;
+8. failed-refit/provenance state for affected estimators.
 
 Before coding, inventory every affected `init_coef` call site and classify caller/framework ownership.
 
-Preservation: Gamma log link, all non-Gamma Newton/L-BFGS consumers, IRLS/FISTA/etc., non-GLM weighted-L-BFGS boundaries, ordered models, standalone logistic.
+Preservation: Gamma log link, all non-Gamma Newton/L-BFGS consumers, IRLS/FISTA/etc., non-GLM weighted-L-BFGS boundaries, ordered models, standalone logistic. `proximal_newton_solver` is explicitly not a PR151 consumer.
 
 ## 11. Hosted validation plan
 
 ### 11.1 Objective/derivative consistency
 
-Inside `(L,U)` verify analytic and finite-difference agreement for
+Inside `(L,U)` verify analytic/finite-difference agreement for
 
 \[
 \ell=y\eta-\log\eta,
-\quad
-\ell'=y-1/\eta,
-\quad
-\ell''=1/\eta^2,
+\quad \ell'=y-1/\eta,
+\quad \ell''=1/\eta^2,
 \]
 
 plus weighted normalization. Instrument explicit smooth solvers so no active training value/gradient/Hessian evaluation occurs outside `(L,U)`.
@@ -392,24 +392,24 @@ plus weighted normalization. Instrument explicit smooth solvers so no active tra
    \[
    \beta^*=\left(\frac{\sum_iw_i y_i x_i}{\sum_iw_i}\right)^{-1};
    \]
-2. multi-feature half-space requiring column combination / geometric fallback;
+2. multi-feature half-space requiring column combination;
 3. active `x,-x` contradiction;
 4. active zero row;
-5. zero-weight contradictory row matching row deletion;
+5. zero-weight contradiction matching row deletion;
 6. near-boundary/unresolved geometry;
-7. basis separator that cannot fit `(L,U)` but a later Frank-Wolfe separator can — proves fast-path fallthrough;
-8. early positive Frank-Wolfe separator with poor predictor ratio followed by a later band-certifiable separator — proves search does not stop at first positive margin;
-9. no searched ray band-certifiable — conservative unresolved result.
+7. basis separator unable to fit `(L,U)` but later geometric separator succeeds;
+8. early positive FW separator with bad ratio followed by later band-certifiable separator;
+9. no searched ray band-certifiable -> unresolved.
 
-Successful cases assert coefficient error, gradient/KKT residual, predictor bounds and global weight-rescaling invariance.
+Successful cases assert coefficient error, gradient/KKT residual, predictor bounds and weight-rescaling invariance.
 
 ### 11.3 Independent external baseline
 
-For a well-conditioned CPU fixture with optimum comfortably inside the band, align statgpu with statsmodels Gamma inverse-power (or maintained equivalent) for no-intercept unweighted and, when exact weight semantics can be matched, genuine weighted fitting. Document objective/weight mapping. If no exact weighted mapping exists, the analytic oracle remains blocking and external weighted comparison is advisory only.
+For a well-conditioned CPU fixture with optimum comfortably inside the band, align statgpu with statsmodels Gamma inverse-power (or maintained equivalent) for no-intercept unweighted and, where exact semantics can be matched, genuine weighted fitting. Record objective/weight mapping. If no exact weighted mapping exists, 1D analytic results remain blocking and external weighted comparison is advisory only.
 
 ### 11.4 Initialization regression
 
-- intercept start equals `1/mean(y)` / `1/weighted_mean(y)` when already interior;
+- intercept start equals `1/mean(y)` / `1/weighted_mean(y)` when interior;
 - omitted/uniform/effectively-uniform share classification;
 - no-intercept ordinary never starts at zero;
 - penalized inverse-power Gamma does not use `log(mean(y))`;
@@ -419,31 +419,33 @@ For a well-conditioned CPU fixture with optimum comfortably inside the band, ali
 
 ### 11.5 Domain-aware line search/failure
 
-- lower crossing caps `t_0`;
-- upper crossing caps `t_0`;
+- lower and upper crossing caps;
 - feasible objective-increasing trial still fails Armijo;
 - no infeasible trial reaches evaluator;
-- artificial boundary stagnation cannot publish successful convergence;
-- existing 20/25 trial budgets and other warning semantics unchanged.
+- boundary stagnation cannot publish successful convergence;
+- existing 20/25 budgets and other warning semantics unchanged.
 
 ### 11.6 Backend/dtype/weights
 
 - NumPy/Torch-CPU deterministic parity;
 - mixed Torch input uses finalized promoted dtype;
-- shared weight prep preserves existing uniformity classification;
+- shared weight prep preserves uniformity classification;
 - scale-safe row normalization and geometry/domain operations stay backend-native;
 - no full X/weight host copy;
+- heterogeneous-container tests prove explicit `device` remains authoritative for inverse-Gamma initialization/domain work;
 - CuPy/Torch CUDA parity is a physical gate.
 
-### 11.7 Public/CV/formula/inference closure
+### 11.7 Public/CV/formula/inference/failure closure
 
-- ordinary Gamma intercept/no-intercept and generic equivalent;
-- formula intercept/no-intercept + missing-row weight alignment;
+- ordinary intercept/no-intercept and generic equivalent;
+- formula intercept/no-intercept + missing-row weights;
 - penalized inverse-power Gamma smooth L2/no-penalty;
-- smooth-L2 inverse-power CV correct-link candidate scoring, alpha selection and final refit;
-- CV fixture where inverse/log link alpha ranking differs;
-- CV domain errors not converted to MSE/log-link fallback;
+- smooth-L2 inverse-power CV correct-link scoring, alpha selection and final refit;
+- CV fixture where inverse/log-link alpha ranking differs;
+- CV domain errors not converted to unrelated fallback;
+- selected-alpha identity across maintained backends;
 - supported inference smoke/parity;
+- failed-refit state/provenance/inference/CV-selection regression;
 - clone/get_params/introspection unchanged.
 
 ### 11.8 Preservation
@@ -452,19 +454,19 @@ Gamma log-link Newton/L-BFGS/CV; non-Gamma weighted Newton/L-BFGS; IRLS/FISTA/au
 
 ## 12. Documentation and issue handling
 
-After implementation proof, update affected EN/CN Gamma/GLM pages, solver/support matrix, algorithm/domain note, smooth-L2 CV text, root/EN/CN changelog and PR151 body.
+After implementation proof, update affected EN/CN Gamma/GLM pages, solver/support matrix, explicit Newton/L-BFGS algorithm/domain note, smooth-L2 CV text, root/EN/CN changelog and PR151 body.
 
 Public wording:
 
 > inverse-power Gamma mathematically requires a positive linear predictor. Explicit Newton/L-BFGS keep training evaluations inside statgpu's maintained smooth numerical interior so value, gradient and Hessian correspond to one coherent objective. An intercept gives an immediate feasible direction; no-intercept designs are supported when statgpu can certify an interior start and the optimizer converges without hitting the maintained numerical-domain boundary.
 
-Do not imply the training interior is guaranteed on unseen prediction rows; prediction retains current clipping semantics.
+Do not imply the training interior for unseen prediction rows. Do not generalize this PR151 claim to `proximal_newton_solver`; #157 owns the broader Proximal-Newton route.
 
 Issue #152 remains open until implementation, current-head hosted review and schema-v4 physical acceptance complete; then close it as completed by PR151.
 
 ## 13. Physical CUDA evidence: schema v4
 
-Any numerical change after `c6781cb6` makes schema-v3 P100 evidence historical for the final implementation. Keep the retained v3 JSON immutable.
+Any numerical change after `c6781cb6` makes schema-v3 P100 evidence historical for the final implementation. Keep retained v3 JSON immutable.
 
 Before the new run, freeze schema **v4** with:
 
@@ -476,23 +478,25 @@ Before the new run, freeze schema **v4** with:
 - min/max active training predictor inside frozen `(L,U)`;
 - domain-step-cap characterization;
 - truthful solver/backend/device provenance;
-- penalized inverse-power Gamma L2 direct fit and smooth-L2 CV selected refit on NumPy/CuPy/Torch;
+- at least one heterogeneous-container inverse-Gamma route for each explicit solver or an equivalent cross-container matrix proving the domain initializer follows executed backend/device;
+- penalized inverse-power Gamma L2 direct fit on NumPy/CuPy/Torch;
+- smooth-L2 inverse-power Gamma CV with coefficient/intercept parity **and exact selected-alpha identity** versus NumPy on CuPy/Torch;
 - existing v3 ordinary/cross-container/shared-consumer coverage unless schema-v4 review explicitly justifies replacement.
 
-Raw v4 evidence records exact source SHA, clean source, environment and status and is retained outside benchmark-source scan roots. No post-failure threshold/domain-margin loosening without new reviewed schema.
+Raw v4 evidence records exact source SHA, clean source, environment and status and is retained outside benchmark-source scan roots. No post-failure threshold/domain-margin loosening without a new reviewed schema.
 
 ## 14. Implementation order
 
 1. Finish independent plan review/fix loop.
-2. Inventory all affected init owners and inverse-power L2 CV scoring branches.
+2. Inventory affected init owners, failed-refit state ownership and inverse-power L2 CV scoring branches.
 3. Extract shared analytic-weight preparation + preservation tests.
 4. Add private domain hooks and inverse-power Gamma `(L,U)` contract.
 5. Add backend-native separator/initializer + analytic/geometric tests.
 6. Integrate Newton.
 7. Integrate L-BFGS.
 8. Remove ordinary wrapper guard/duplicate init.
-9. Repair penalized inverse-Gamma internal init/warm-start handling.
-10. Repair smooth-L2 inverse-Gamma CV link resolution/scoring/refit.
+9. Repair penalized inverse-Gamma init/warm-start/failure transaction.
+10. Repair smooth-L2 inverse-Gamma CV link resolution/scoring/refit/failure transaction.
 11. Close ordinary/formula/inference/external-reference/preservation tests.
 12. Update EN/CN docs/changelogs/support matrices.
 13. Freeze schema-v4 validator + static contract tests.
@@ -508,7 +512,7 @@ Raw v4 evidence records exact source SHA, clean source, environment and status a
 - no Gamma log-link change;
 - no global clipping rewrite for FISTA/IRLS/other solvers;
 - no broad sparse inverse-power Gamma CV optimization project beyond preventing wrong-link execution;
-- no metric-Proximal-Newton implementation (#157);
+- no `proximal_newton_solver` domain integration in PR151; #157 may reuse the domain hooks when that solver is redesigned;
 - no Huber IRLS implementation (#156);
 - no unrelated loss-capability redesign beyond private no-op/optional domain hooks used by Newton/L-BFGS;
 - no performance claim.
@@ -537,8 +541,14 @@ Raw v4 evidence records exact source SHA, clean source, environment and status a
 
 ### Round 4 — fixed
 
-- **MEDIUM / NUMERICAL:** first positive/basis separator could have predictor spread too large for `(L,U)` although another direction is usable -> fast path now falls through when not band-scalable, Frank-Wolfe continues after positive margin until a band-certifiable separator or reviewed stopping condition, and tests cover both cases.
-- **MEDIUM / NUMERICAL:** row normalization could overflow/underflow if implemented as naive `sqrt(sum(x^2))` -> require scale-safe backend-native row norms.
+- **MEDIUM / NUMERICAL:** first positive/basis separator could have predictor spread too large for `(L,U)` although another direction is usable -> fast path falls through when not band-scalable, FW continues until band-certified/stopped, and tests cover it.
+- **MEDIUM / NUMERICAL:** naive row norms could overflow/underflow -> scale-safe backend-native row norm required.
+
+### Round 5 — fixed
+
+- **MEDIUM / API:** new domain failures lacked an explicit failed-refit transaction contract -> ordinary/penalized/CV state, inference, selection and provenance preservation/invalidation are now blocking characterization/regression targets.
+- **MEDIUM / BACKEND/ARTIFACT:** schema-v4 coverage did not explicitly require inverse-Gamma selected-alpha identity or cross-container domain routing -> both are now physical gates.
+- **MEDIUM / SCOPE/DOC:** “smooth-solver closure” could be read as including `proximal_newton_solver` -> plan/title body now explicitly scopes PR151 to Newton/L-BFGS and assigns Proximal-Newton domain reuse to #157.
 
 ## 17. Plan review/fix closure criteria
 
@@ -552,12 +562,12 @@ Each new pass restarts from the then-current exact plan and checks:
 6. separator search plus band-scalability rather than sign-only feasibility;
 7. lower/upper step caps, Armijo and boundary-stagnation failure;
 8. NumPy/CuPy/Torch dtype/device ownership and no hidden host fallback;
-9. ordinary/direct/penalized/smooth-L2-CV/formula/inference closure;
+9. ordinary/direct/penalized/smooth-L2-CV/formula/inference/failure-state closure;
 10. generic-solver blast radius and Gamma-log/non-Gamma preservation;
 11. analytic/geometric/external/instrumented negative tests;
 12. training versus held-out/prediction claims;
-13. docs/support/release wording;
-14. schema-v4 evidence freshness and immutable v3 evidence;
+13. docs/support/release wording and Proximal-Newton scope separation;
+14. schema-v4 exact-source evidence freshness, selected-alpha/backend identity and immutable v3 evidence;
 15. bounded #150 scope versus accidental constrained-optimization/CV rewrite.
 
 Implementation begins only after a fresh independent pass finds no new CRITICAL/HIGH or in-scope MEDIUM plan issue.
