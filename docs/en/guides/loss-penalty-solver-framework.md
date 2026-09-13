@@ -409,7 +409,7 @@ model.fit(X, y)
 
 # Cox PH with SCAD penalty
 import numpy as np
-from statgpu.linear_model import PenalizedCoxPHModel
+from statgpu.linear_model.penalized import PenalizedCoxPHModel
 
 y_surv = np.column_stack([time, event])
 model = PenalizedCoxPHModel(
