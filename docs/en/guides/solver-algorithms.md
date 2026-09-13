@@ -164,31 +164,89 @@ $$
 
 Applying an ordinary Euclidean prox to a Newton step would optimize a different composite objective. The maintained implementation therefore executes Newton only on L2/no-penalty smooth routes; non-smooth requests warn and delegate to FISTA until a correct Hessian-metric proximal subproblem is implemented.
 
-### Algorithm
+### Full smooth objective
 
-At the current iterate $\beta_k$, let
-
-$$
-F(\beta)=\ell(\beta)+P(\beta),
-$$
-
-where $P$ here is only L2 or zero. Compute
+The maintained route uses
 
 $$
-g_k=\nabla\ell(\beta_k)+\nabla P(\beta_k),
+F(\beta)=L(\beta)+P(\beta).
 $$
 
-and
+When the loss supports analytic `sample_weight=w`, the data-fit term uses the same normalized weighted objective throughout:
 
 $$
-H_k=\nabla^2\ell(\beta_k)+\nabla^2P(\beta_k).
+L(\beta)
+=\frac{1}{s}\sum_{i=1}^n w_i\,\ell_i(\eta_i),
+\qquad
+\eta_i=x_i^\top\beta,
+\qquad
+s=\sum_{i=1}^n w_i.
 $$
 
-The implementation symmetrizes the Hessian and adds a small ridge stabilization:
+The unweighted case is $w_i=1$ and $s=n$. For losses admitting per-observation score and curvature terms,
+
+$$
+\psi_i(\beta)
+=\frac{\partial\ell_i}{\partial\eta_i},
+\qquad
+h_i(\beta)
+=\frac{\partial^2\ell_i}{\partial\eta_i^2},
+$$
+
+so
+
+$$
+\nabla L(\beta)
+=\frac{X^\top\!\left(w\odot\psi(\beta)\right)}{s},
+$$
+
+$$
+\nabla^2L(\beta)
+=\frac{X^\top\operatorname{diag}\!\left(w\odot h(\beta)\right)X}{s}.
+$$
+
+For structured losses that are not naturally written with that per-observation curvature decomposition, the solver uses the loss object's `hessian()` or `fused_gradient_and_hessian()` implementation directly.
+
+The current Newton route accepts only L2 or no penalty. The maintained L2 convention is
+
+$$
+P(\beta)=\frac{\alpha}{2}\|\beta\|_2^2,
+\qquad
+\nabla P(\beta)=\alpha\beta,
+\qquad
+\nabla^2P(\beta)=\alpha I.
+$$
+
+Therefore the L2 route forms
+
+$$
+g_k
+=\nabla F(\beta_k)
+=\nabla L(\beta_k)+\alpha\beta_k,
+$$
+
+$$
+H_k
+=\nabla^2F(\beta_k)
+=\nabla^2L(\beta_k)+\alpha I.
+$$
+
+Set $\alpha=0$ for the no-penalty route.
+
+### Stabilized Newton system
+
+The implementation first symmetrizes the Hessian,
+
+$$
+\bar H_k
+=\frac12\left(H_k+H_k^\top\right),
+$$
+
+then adds the fixed numerical ridge
 
 $$
 \widetilde H_k
-=\frac12(H_k+H_k^\top)+10^{-10}I.
+=\bar H_k+10^{-10}I.
 $$
 
 If
@@ -197,69 +255,98 @@ $$
 \|g_k\|_2\le\texttt{tol},
 $$
 
-optimization stops. Otherwise solve
+optimization stops. Otherwise the solver computes $d_k$ from
 
 $$
-\widetilde H_k d_k=g_k,
+\widetilde H_k d_k=g_k.
 $$
 
-and form trial points with the code's subtract-direction convention,
+The implementation uses a subtract-direction convention, so trial points are
 
 $$
 \beta_k(t)=\beta_k-t d_k.
 $$
 
-If the linear solve is recognized as singular/ill-conditioned, this solver does **not** call least squares. It falls back directly to
+If the linear system is recognized as genuinely singular or ill-conditioned, Proximal Newton does **not** call least squares; it falls back to steepest descent,
 
 $$
-d_k=g_k,
+d_k=g_k.
 $$
 
-which is steepest descent under the subtract-direction convention.
-
-A valid descent direction must satisfy
+Define the descent quantity
 
 $$
-g_k^\top d_k>0.
+q_k=g_k^\top d_k.
 $$
 
-If that inner product is non-finite or non-positive, the solver again uses
+Because the candidate is $\beta_k-t d_k$, a valid descent direction requires
+
+$$
+q_k>0.
+$$
+
+If $q_k$ is non-finite or non-positive, the solver again uses
 
 $$
 d_k=g_k,
 \qquad
-g_k^\top d_k=\|g_k\|_2^2.
+q_k=\|g_k\|_2^2.
 $$
 
 ### Armijo backtracking
 
-Starting from $t=1$, accept the first step satisfying
+The line search starts from
 
 $$
-F(\beta_k-t d_k)
+t_0=1
+$$
+
+and halves after each failure, so the $m$-th trial step is
+
+$$
+t_m=2^{-m},
+\qquad m=0,1,\ldots,24.
+$$
+
+The first candidate satisfying the full-composite-objective Armijo condition is accepted:
+
+$$
+F(\beta_k-t_m d_k)
 \le
-F(\beta_k)-10^{-4}t\,g_k^\top d_k.
+F(\beta_k)-10^{-4}t_m q_k.
 $$
 
-If the condition fails,
+The accepted update is
 
 $$
-t\leftarrow\frac t2.
+\beta_{k+1}=\beta_k-t_m d_k.
 $$
 
-The implementation tries at most 25 backtracking steps. A successful trial gives
+Here $F=L+P$ includes the L2 penalty value both at the current point and at every trial point. Because the L2 gradient and curvature are already included in $g_k$ and $H_k$, the trial point does **not** apply an additional Euclidean proximal operator; doing so would count the same L2 penalty twice.
+
+If all 25 candidate step sizes fail, the solver restores
 
 $$
-\beta_{k+1}=\beta_k-t d_k.
+\beta_{k+1}=\beta_k,
 $$
 
-If all 25 trials fail, the solver keeps $\beta_{k+1}=\beta_k$, emits a line-search warning, and stops.
+emits a line-search warning, and stops. Recognized numerical-domain failures at a trial point reject that candidate and continue backtracking; device, input-contract, and other non-numerical trial errors remain visible to the caller.
 
-### Defaults and backend
+### Initialization, defaults, and backend
 
-- default `max_iter=50`;
-- default `tol=1e-6`;
+If `init_coef` is omitted,
+
+$$
+\beta_0=0.
+$$
+
+Defaults are:
+
+- `max_iter=50`;
+- `tol=1e-6`;
 - supported NumPy/CuPy/Torch routes use the corresponding native linear algebra.
+
+Thus the maintained L2/no-penalty path named `proximal_newton_solver` is numerically a **damped Newton method with Hessian stabilization and Armijo backtracking**. The genuinely non-smooth Hessian-metric Proximal-Newton subproblem is not implemented; non-smooth penalties delegate to FISTA before these Newton iterations begin.
 
 ---
 
@@ -1294,7 +1381,7 @@ direct fit with solver="auto"
 - Barzilai, J. & Borwein, J. M. (1988). Two-Point Step Size Gradient Methods. *IMA J. Numer. Anal.*, 8(1), 141-148.
 - O'Donoghue, B. & Candes, E. (2015). Adaptive Restart for Accelerated Gradient Schemes. *Foundations of Computational Mathematics*, 15(3), 715-732.
 - Lee, J. D., Sun, Y. & Saunders, M. A. (2014). Proximal Newton-Type Methods for Minimizing Composite Functions. *SIAM J. Optimization*, 24(3), 1420-1443.
-- Liu, D. C. & Nocedal, J. (1989). On the Limited Memory BFGS Method for Large Scale Optimization. *Mathematical Programming*, 45, 503-528.
+- Liu, D. C. & Nocedal, J. M. (1989). On the Limited Memory BFGS Method for Large Scale Optimization. *Mathematical Programming*, 45, 503-528.
 - Byrd, R. H., Lu, P., Nocedal, J. & Zhu, C. (1995). A Limited Memory Algorithm for Bound Constrained Optimization. *SIAM J. Scientific Computing*, 16(5), 1190-1208.
 - Boyd, S. et al. (2011). Distributed Optimization and Statistical Learning via ADMM. *Foundations and Trends in Machine Learning*, 3(1), 1-122.
 - Fan, J. & Li, R. (2001). Variable Selection via Nonconcave Penalized Likelihood. *JASA*, 96, 1348-1360.
