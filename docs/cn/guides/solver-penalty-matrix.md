@@ -36,13 +36,21 @@
 - 分组 Lasso 与自适应分组 Lasso 使用相应损失函数的梯度和欧氏分组近端算子，包括受支持的 `sample_weight` 与交叉验证路径。
 - `sample_weight` 不会改变显式指定的 `solver`。受支持的加权 Newton/L-BFGS 在整个优化中使用同一个归一化加权目标；不支持的损失函数、求解器和权重组合会直接报错。
 
-### `inverse_power` Gamma 的当前限制
+### `inverse_power` Gamma 的光滑定义域约定
 
-对普通 `GammaRegression(link="inverse_power")`，真正的非均匀权重配合显式 Newton/L-BFGS 时目前要求 `fit_intercept=True`，这样才能构造严格为正、满足该分布族和链接函数定义域的初始线性预测子。
+对 inverse-power Gamma，
 
-只有**非均匀权重 + 无截距 + 显式 Newton/L-BFGS**这一组合当前会被拒绝。未传权重、均匀权重或等效均匀权重继续保持历史无截距行为。
+\[
+\eta_i=x_i^\top\beta>0,
+\qquad
+\ell_i(\eta_i)=y_i\eta_i-\log\eta_i.
+\]
 
-这是当前实现缺少可行无截距初值构造所导致的限制，而不是模型本身的理论限制；后续支持由 [GitHub Issue #152](https://github.com/TheHiddenObserver/statgpu/issues/152) 跟踪。
+当前维护的显式 `newton` / `lbfgs` 路径会在实际执行后端上构造位于内部的初值，并保证每次**训练目标函数**的有效观测线性预测子都处在未触发 clipping 的数值区间内，使 value、gradient 与 Hessian 对应同一个光滑目标。Armijo 的定义域步长上限只在 Newton/L-BFGS 已经完成奇异/非下降回退、确定最终实际搜索方向之后计算。
+
+因此 `fit_intercept=False` 不再被类别式拒绝：只要 statgpu 能够为实际设计矩阵认证一个内部初值，并且优化过程没有在数值定义域边界处停滞，就可以使用显式 Newton/L-BFGS。未传权重、均匀权重、等效均匀权重和真正非均匀解析权重使用相同的定义域/初始化原则；在真正加权目标中，解析权重严格为 0 的行不约束训练定义域。
+
+若有限设计矩阵无法通过维护的数值过程认证内部初值，或优化在梯度尚未收敛时被定义域边界卡住，该路径会显式失败，而不是发布依赖 clipping 的近似拟合。公开预测与留出验证仍保留原有 clipping 语义，因此这里的训练定义域保证不应理解为对所有未来新样本的线性预测子作额外限制。
 
 ## 2. 显式求解器约束
 
@@ -96,7 +104,7 @@
 | **negative_binomial** | L-BFGS | 稀疏/FISTA | LLA + FISTA | 通用拟合 | 分组 FISTA | 分组 FISTA-LLA |
 | **tweedie** | Newton | 稀疏/FISTA | LLA + FISTA | 通用拟合 | 分组 FISTA | 分组 FISTA-LLA |
 
-权重不会改变上表选择的求解器。Gamma、逆高斯、负二项这三个使用 L-BFGS 的光滑 L2 分布族，其加权候选拟合和最终重拟合都使用 GLM 的统一加权目标函数。
+权重不会改变上表选择的求解器。Gamma、逆高斯、负二项这三个使用 L-BFGS 的光滑 L2 分布族，其加权候选拟合和最终重拟合都使用 GLM 的统一加权目标函数。对 `loss="gamma"` 且 `loss_kwargs={"link": "inverse_power"}` 的光滑 L2 CV，候选拟合、验证损失、`alpha` 选择和最终重拟合会一直使用实际的 inverse-power Gamma 损失，而不会进入只适用于 log-link Gamma 的快速验证公式。
 
 分组验证会在 `alpha` 网格、交叉验证折构造和候选拟合前完成。分组按照最终设计矩阵宽度解释，包括 `formula` 展开的列。没有显式自适应权重时，遗漏特征会补成单独一组；越界索引和不完整的自适应加权分组会在候选拟合前报错。
 
