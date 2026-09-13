@@ -28,10 +28,10 @@ class PenalizedGammaRegression(PenalizedGeneralizedLinearModel):
     link : str, default='log'
         Link function: 'log' or 'inverse_power'.
     loss_kwargs : dict, optional
-        Additional keyword arguments for the loss constructor. ``link`` remains
-        the authoritative typed-wrapper parameter unless ``loss_kwargs``
-        explicitly provides a different value, in which case construction
-        rejects the conflict.
+        Additional keyword arguments for the loss constructor.  For backward
+        compatibility, an explicit ``loss_kwargs['link']`` takes precedence
+        over the typed ``link`` argument; otherwise ``link`` supplies the
+        Gamma link.
     """
 
     def __init__(
@@ -61,10 +61,6 @@ class PenalizedGammaRegression(PenalizedGeneralizedLinearModel):
         loss_kwargs: Optional[dict] = None,
     ):
         _loss_kwargs = dict(loss_kwargs) if loss_kwargs else {}
-        if "link" in _loss_kwargs and _loss_kwargs["link"] != link:
-            raise ValueError(
-                "link and loss_kwargs['link'] must specify the same Gamma link"
-            )
         _loss_kwargs.setdefault("link", link)
         super().__init__(
             loss="gamma",
@@ -99,16 +95,12 @@ class PenalizedGammaRegression(PenalizedGeneralizedLinearModel):
         supplied to the most-derived public constructor.  Consequently
         ``self.loss_kwargs`` legitimately remains ``None`` when omitted even
         though this typed wrapper also owns a separate ``link`` parameter.
-        Numerical resolution must recombine those two public controls rather
-        than depending on a derived public dictionary surviving construction.
+        Numerical resolution recombines those two public controls while
+        preserving the wrapper's historical precedence: an explicit link in
+        ``loss_kwargs`` wins, otherwise the typed ``link`` value is used.
         """
         kwargs = dict(self.loss_kwargs) if self.loss_kwargs else {}
-        link = getattr(self, "link", "log")
-        if "link" in kwargs and kwargs["link"] != link:
-            raise ValueError(
-                "link and loss_kwargs['link'] must specify the same Gamma link"
-            )
-        kwargs.setdefault("link", link)
+        kwargs.setdefault("link", getattr(self, "link", "log"))
         return kwargs
 
     def _resolve_loss(self):
@@ -116,8 +108,8 @@ class PenalizedGammaRegression(PenalizedGeneralizedLinearModel):
 
         kwargs = self._resolved_gamma_loss_kwargs()
         # ``_pre_fit`` initially mirrors the clone-safe public ``loss_kwargs``
-        # into ``_loss_kwargs``.  Restore the typed wrapper's resolved internal
-        # kwargs here so downstream fit helpers that consume ``_loss_kwargs``
-        # see the same link as the loss object without mutating public state.
+        # into ``_loss_kwargs``. Restore the resolved internal kwargs here so
+        # downstream fit helpers see the same link as the loss object without
+        # mutating public constructor state.
         self._loss_kwargs = dict(kwargs)
         return get_glm_loss("gamma", **kwargs)
