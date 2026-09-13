@@ -1,7 +1,7 @@
 # 求解器算法
 
 > 语言：中文  
-> 最后更新：2026-09-12  
+> 最后更新：2026-09-13  
 > 页面定位：算法参考  
 > 切换：[English](../../en/guides/solver-algorithms.md)
 
@@ -41,7 +41,7 @@ statgpu 提供一阶、二阶、近端和闭式等多类求解器。对大多数
 
 **文件**：`statgpu/solvers/_proximal_irls_quantile.py`
 
-**用途**：分位数回归 + SCAD/MCP。它把检查损失（pinball loss）的 IRLS 二次上界与非凸惩罚的局部线性近似（LLA）结合起来。
+**用途**：分位数回归 + SCAD/MCP。它把 check（又称 pinball）损失的 IRLS 二次上界与非凸惩罚的局部线性近似（LLA）结合起来。
 
 ### 算法
 
@@ -667,7 +667,7 @@ $$
 
 ### 分位数 IRLS
 
-当前 `QuantileLoss.irls()` 使用代码中实际实现的 Frisch-Newton 风格重加权。若没有显式提供初始值，则从 OLS 初值开始。每次迭代先计算
+当前 `QuantileLoss.irls()` 使用迭代重加权最小二乘（IRLS）。若没有显式提供初始值，则从 OLS 初值开始。每次迭代先计算
 
 $$
 r_i=y_i-x_i^\top\beta,
