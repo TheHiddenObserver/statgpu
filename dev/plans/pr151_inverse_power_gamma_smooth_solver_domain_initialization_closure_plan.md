@@ -349,13 +349,13 @@ Formula fits use finalized Patsy-retained design and aligned weights, including 
 
 New initialization/domain failures are part of the fit transaction. For ordinary, penalized and CV consumers:
 
-- characterize the current failed-refit contract before implementation (preserve prior successful state versus invalidate it, according to each estimator's maintained behavior);
-- a pre-fit domain-certification failure, invalid framework warm start that cannot be reseeded, or solver domain-boundary failure must follow that same transaction policy;
+- characterize current failed-refit semantics before implementation;
+- pre-fit domain-certification failure, unrecoverable internal warm-start/domain failure, or solver domain-boundary failure follows the same maintained transaction policy;
 - never publish attempted solver/backend/domain provenance as successful execution;
-- never leave new inference/CV-selected-alpha state partially updated after failure;
-- add previously-fitted -> failing-refit regressions for ordinary and penalized Gamma and a CV failure-transaction regression proportional to current CV state ownership.
+- never leave new inference/CV-selected-alpha state partially updated;
+- add previously-fitted -> failing-refit regressions for ordinary and penalized Gamma and a proportional CV failure-transaction regression.
 
-Do not silently redefine the repository's existing transaction policy merely because this closure adds a new failure class.
+Do not silently redefine existing transaction policy merely because this closure adds a new failure class.
 
 ## 10. Blocking consumer graph
 
@@ -479,9 +479,12 @@ Before the new run, freeze schema **v4** with:
 - domain-step-cap characterization;
 - truthful solver/backend/device provenance;
 - at least one heterogeneous-container inverse-Gamma route for each explicit solver or an equivalent cross-container matrix proving the domain initializer follows executed backend/device;
+- **GPU negative-domain pair on CuPy and Torch:** with an active contradictory row the no-intercept fit must fail closed; with the same contradictory row assigned genuine zero analytic weight the fit must succeed and match the result obtained after dropping that row;
 - penalized inverse-power Gamma L2 direct fit on NumPy/CuPy/Torch;
 - smooth-L2 inverse-power Gamma CV with coefficient/intercept parity **and exact selected-alpha identity** versus NumPy on CuPy/Torch;
 - existing v3 ordinary/cross-container/shared-consumer coverage unless schema-v4 review explicitly justifies replacement.
+
+The GPU negative pair must verify error classification/provenance without permitting CPU fallback, and the zero-weight rescue must verify that domain masking uses the prepared backend-native weight vector.
 
 Raw v4 evidence records exact source SHA, clean source, environment and status and is retained outside benchmark-source scan roots. No post-failure threshold/domain-margin loosening without a new reviewed schema.
 
@@ -546,9 +549,13 @@ Raw v4 evidence records exact source SHA, clean source, environment and status a
 
 ### Round 5 — fixed
 
-- **MEDIUM / API:** new domain failures lacked an explicit failed-refit transaction contract -> ordinary/penalized/CV state, inference, selection and provenance preservation/invalidation are now blocking characterization/regression targets.
-- **MEDIUM / BACKEND/ARTIFACT:** schema-v4 coverage did not explicitly require inverse-Gamma selected-alpha identity or cross-container domain routing -> both are now physical gates.
-- **MEDIUM / SCOPE/DOC:** “smooth-solver closure” could be read as including `proximal_newton_solver` -> plan/title body now explicitly scopes PR151 to Newton/L-BFGS and assigns Proximal-Newton domain reuse to #157.
+- **MEDIUM / API:** new domain failures lacked an explicit failed-refit transaction contract -> ordinary/penalized/CV state, inference, selection and provenance preservation/invalidation are blocking characterization/regression targets.
+- **MEDIUM / BACKEND/ARTIFACT:** schema-v4 coverage did not explicitly require inverse-Gamma selected-alpha identity or cross-container domain routing -> both are physical gates.
+- **MEDIUM / SCOPE/DOC:** “smooth-solver closure” could be read as including `proximal_newton_solver` -> explicit Newton/L-BFGS scope and #157 ownership recorded.
+
+### Round 6 — fixed
+
+- **MEDIUM / BACKEND/ARTIFACT:** feasible GPU routes alone did not prove backend-native negative-domain/active-mask semantics -> schema v4 now includes CuPy/Torch contradictory-design failure plus zero-weight rescue matching row deletion.
 
 ## 17. Plan review/fix closure criteria
 
@@ -561,13 +568,13 @@ Each new pass restarts from the then-current exact plan and checks:
 5. intercept/no-intercept and caller/framework warm starts;
 6. separator search plus band-scalability rather than sign-only feasibility;
 7. lower/upper step caps, Armijo and boundary-stagnation failure;
-8. NumPy/CuPy/Torch dtype/device ownership and no hidden host fallback;
+8. NumPy/CuPy/Torch dtype/device ownership, active-mask semantics and no hidden host fallback;
 9. ordinary/direct/penalized/smooth-L2-CV/formula/inference/failure-state closure;
 10. generic-solver blast radius and Gamma-log/non-Gamma preservation;
 11. analytic/geometric/external/instrumented negative tests;
 12. training versus held-out/prediction claims;
 13. docs/support/release wording and Proximal-Newton scope separation;
-14. schema-v4 exact-source evidence freshness, selected-alpha/backend identity and immutable v3 evidence;
+14. schema-v4 exact-source evidence freshness, selected-alpha/backend identity, GPU negative semantics and immutable v3 evidence;
 15. bounded #150 scope versus accidental constrained-optimization/CV rewrite.
 
 Implementation begins only after a fresh independent pass finds no new CRITICAL/HIGH or in-scope MEDIUM plan issue.
