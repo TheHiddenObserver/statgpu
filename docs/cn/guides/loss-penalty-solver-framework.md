@@ -113,10 +113,12 @@ NumPy、CuPy、Torch 贯穿模型准备、目标函数计算、惩罚项运算�
 class LossBase:
     name: str               # "quantile", "huber" 等
     y_type: str             # "continuous" / "survival"
-    smooth_gradient: bool   # True → Newton 可用
-    has_hessian: bool       # True → Proximal Newton 可用
-    _supports_irls: bool    # True → 提供 irls() 方法
+    smooth_gradient: bool   # 逐样本梯度是否为光滑梯度
+    has_hessian: bool       # 是否提供 Hessian 数值原语
+    _supports_irls: bool    # 是否声明可进入维护中的 IRLS 调度路径
 ```
+
+这些字段描述的是损失函数提供的**数值原语或调度能力**，并不单独决定完整的 solver × penalty 支持关系。
 
 ### 全部损失函数
 
@@ -130,18 +132,20 @@ class LossBase:
 | 负二项 | `GLMLoss` (`negative_binomial`) | ✅ | ✅ | ✅ | `glm.nb()` |
 | Tweedie | `GLMLoss` (`tweedie`) | ✅ | ✅ | ✅ | `glm(…, tweedie)` |
 | 分位数 | `QuantileLoss` | ❌ | ❌ | ✅ | `quantreg::rq()` |
-| Huber | `HuberLoss` | ✅ | ✅ | ✅ | `MASS::rlm()` |
+| Huber | `HuberLoss` | ✅ | ✅ | ❌ | `MASS::rlm()` |
 | Bisquare | `BisquareLoss` | ✅ | ✅ | ✅ | `MASS::rlm(psi="bisquare")` |
 | Fair | `FairLoss` | ✅ | ✅ | ✅ | `MASS::rlm(psi="fair")` |
 | Cox PH | `CoxPartialLikelihoodLoss` | ✅ | ✅ | ❌ | `survival::coxph()` |
+
+Huber 当前的 `_supports_irls=False` 表示公共调度不会进入 Huber IRLS；恢复并验证该路径由 Issue #156 跟踪。
 
 ### 逐样本公式
 
 **分位数损失（check，又称 pinball）**：
 $$\ell(u) = u \cdot (\tau - \mathbf{1}_{u<0}), \quad u = y - \eta$$
 
-**Huber**（$k=1.345$）：
-$$\ell(u) = \begin{cases} \frac{1}{2}u^2 & |u| \leq k \\ k|u| - \frac{1}{2}k^2 & |u| > k \end{cases}$$
+**Huber**（有效阈值为 $\delta$）：
+$$\ell(u) = \begin{cases} \frac{1}{2}u^2 & |u| \leq \delta \\ \delta|u| - \frac{1}{2}\delta^2 & |u| > \delta \end{cases}$$
 
 **Bisquare（Tukey biweight，$c=4.685$）**：
 $$\ell(u) = \begin{cases} \frac{c^2}{6}[1 - (1-(u/c)^2)^3] & |u| \leq c \\ c^2/6 & |u| > c \end{cases}$$
@@ -188,17 +192,17 @@ $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\be
 
 ### 自动调度表
 
-`solver="auto"` 按以下优先级调度：
+`solver="auto"` 的主要分发可概括为：
 
 | 优先级 | 求解器 | 条件 |
 |----------|--------|------|
 | 1 | `exact` | `squared_error` + L2 + NumPy |
 | 2 | `newton` | `squared_error` + L2 + GPU |
-| 3 | `fista`（LLA） | 所有非凸惩罚（SCAD/MCP/自适应） |
-| 4 | `fista` | 分位数损失（无 Hessian） |
-| 5 | `fista` / `fista_bb` | 平方误差/GLM + 稀疏惩罚 |
+| 3 | `fista` + LLA | 非凸惩罚（SCAD/MCP/自适应等） |
+| 4 | 分位数专用 FISTA/IRLS 路径 | 分位数损失 |
+| 5 | `fista` / `fista_bb` | 平方误差/GLM/稳健损失 + 稀疏惩罚 |
 | 6 | `lbfgs` / `newton` | 交叉验证 + L2 + 特定损失函数 |
-| 7 | `newton` / `irls` | 光滑惩罚 + 光滑损失 |
+| 7 | `newton` | GLM/稳健/Cox 等具有维护中 Hessian 的光滑 L2/无惩罚路径 |
 
 ### 全部求解器
 
@@ -207,16 +211,16 @@ $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\be
 | 求解器 | 损失约束 | 惩罚约束 | `sample_weight` | `warm_start` |
 |--------|:-----------------|:---------------------|:------------|:----------:|
 | `exact` | 仅平方误差 | 仅 L2 | ✅ | ❌ |
-| `irls` | 支持 IRLS 的损失 | L2 / 无惩罚 | 对应损失的 IRLS 路径支持时可用 | ❌ |
+| `irls` | 声明 IRLS 调度能力的损失 | L2 / 无惩罚 | 对应损失的 IRLS 路径支持时可用 | ❌ |
 | `newton` | 有 Hessian 的损失 | L2 / 无惩罚 | 由损失函数能力决定；普通 GLM ✅ | ❌ |
 | `lbfgs` | 光滑损失 | L2 / 无惩罚 | 受能力声明约束；普通 GLM ✅ | ❌ |
-| `lbfgs_b` | 光滑盒约束问题 | L2 / 无惩罚 | 尚未声明通用的非均匀权重契约 | ❌ |
-| `fista` | 支持梯度/近端路径的损失 | 全部 | 由具体损失路径决定 | ✅ |
-| `fista_bb` | 支持梯度/近端路径的损失 | 全部（非凸分组惩罚除外） | 由具体损失路径决定 | ✅ |
+| `lbfgs_b` | 光滑盒约束问题 | L2 / 无惩罚 | 尚未声明通用的非均匀权重约定 | ❌ |
+| `fista` | 支持梯度/近端路径的损失 | 全部受支持的近端惩罚 | 由具体损失路径决定 | ✅ |
+| `fista_bb` | 支持梯度/近端路径的损失 | 受支持的稀疏惩罚 | 由具体损失路径决定 | ✅ |
 | `fista_lla` | 支持当前 LLA 路径的损失 | SCAD/MCP/自适应 | 由具体损失路径决定 | ✅ |
 | `proximal_irls_cd` | 仅分位数损失 | SCAD/MCP | ✅ | ✅ |
-| `proximal_newton` | 指定的 Hessian 损失 | SCAD/MCP/自适应（经 LLA） | 由具体损失路径决定 | ✅ |
-| `admm` | 当前维护的 ADMM 损失 | 全部 | 仅未传权重或均匀权重；真正非均匀权重会明确报错 | ✅ |
+| `proximal_newton` | 有 Hessian 的光滑损失 | L2 / 无惩罚 | 由具体损失路径决定 | ✅ |
+| `admm` | 当前维护的 ADMM 损失 | 受支持的近端形式 | 仅未传权重或均匀权重；真正非均匀权重会明确报错 | ✅ |
 
 ### 专用求解器
 
@@ -226,23 +230,23 @@ $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\be
 3. 执行并行对角上界更新并结合 LLA 阈值；
 4. GPU 上的收敛比较留在设备端，只同步最终布尔结果。
 
-**Proximal Newton**（Huber/Bisquare + SCAD/MCP）：
-1. 计算 Hessian `H = ∇²ℓ(β)` 和梯度 `g = ∇ℓ(β)`；
-2. 计算 Newton 方向：`d = -H⁻¹·g`；
-3. 执行 Armijo 线搜索和近端更新；
-4. 通常 5–10 次迭代收敛。
+**Proximal Newton**（当前维护的光滑路径）：
+1. 构造完整光滑目标的梯度与 Hessian；
+2. 解稳定化 Newton 线性系统；
+3. 使用 Armijo 回溯接受 `β - t d`；
+4. 若请求非光滑惩罚，当前实现会显式转到 FISTA，而不是使用错误的欧氏近端 Newton 近似。
 
 **FISTA-LLA**（通用非凸路径；也是 Cox + SCAD/MCP 的当前路径）：
 1. 延续路径：从 `λ_max` 逐步到目标 `α`（3–5 步）；
 2. LLA 外层循环（每步 2–5 次迭代）；
-3. 根据损失函数选择 FISTA 或 Proximal Newton 内层；Cox 明确使用后端原生 FISTA，因为当前通用复合近端 Newton 的线搜索尚不适用于风险集目标。
+3. 当前通用复合路径使用 FISTA 内层求解加权凸近似问题；只有未来某个损失函数明确提供正确的 Hessian 度量近端子问题时，才应启用 Proximal Newton 内层。Cox 当前保持 FISTA-LLA。
 
 ## 4. 后端覆盖
 
 | 求解器 / 路径 | NumPy | CuPy | Torch |
 |:---------------|:---:|:---:|:---:|
 | Proximal IRLS-CD | ✅ | ✅ | ✅ |
-| Proximal Newton | ✅ | ✅ | ✅ |
+| Proximal Newton（光滑路径） | ✅ | ✅ | ✅ |
 | FISTA（加权） | ✅ | ✅ | ✅ |
 | FISTA-BB（加权） | ✅ | ✅ | ✅ |
 | FISTA-LLA（加权） | ✅ | ✅ | ✅ |
@@ -256,14 +260,14 @@ $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\be
 
 这些类是用户通常直接构造并调用 `.fit()` 的公共模型层；它们内部解析损失函数、惩罚项、求解器与计算后端。
 
-| 类 | 损失 | 惩罚 | 求解器 |
+| 类 | 损失 | 惩罚 | 主要求解路径 |
 |-------|------|-----------|---------|
-| `PenalizedGeneralizedLinearModel` | 任意 | 全部 10 种 | 全部 10 种 |
-| `PenalizedLinearRegression` | `squared_error` | l1/l2/elasticnet/scad/mcp/adaptive_l1 | exact/fista |
-| `PenalizedLogisticRegression` | `logistic` | l1/l2/elasticnet/scad/mcp/adaptive_l1 | irls/fista |
-| `PenalizedPoissonRegression` | `poisson` | l1/l2/elasticnet/scad/mcp/adaptive_l1 | irls/fista |
-| `PenalizedQuantileRegression` | `quantile` | scad/mcp/l2 | proximal_irls_cd/fista/irls |
-| `PenalizedRobustRegression` | huber/bisquare | scad/mcp/l2 | proximal_newton/irls |
+| `PenalizedGeneralizedLinearModel` | 任意已注册损失 | 已注册惩罚 | 根据完整 loss × penalty × backend 组合自动分发，也可显式指定 |
+| `PenalizedLinearRegression` | `squared_error` | l1/l2/elasticnet/scad/mcp/adaptive_l1 | exact / Newton / FISTA / LLA |
+| `PenalizedLogisticRegression` | `logistic` | l1/l2/elasticnet/scad/mcp/adaptive_l1 | Newton / FISTA / LLA |
+| `PenalizedPoissonRegression` | `poisson` | l1/l2/elasticnet/scad/mcp/adaptive_l1 | Newton / FISTA / LLA |
+| `PenalizedQuantileRegression` | `quantile` | scad/mcp/l2 等 | 分位数 IRLS / Proximal IRLS-CD / FISTA |
+| `PenalizedRobustRegression` | huber/bisquare/fair | l1/l2/elasticnet/scad/mcp 等 | Newton / FISTA / FISTA-LLA；Bisquare/Fair 另有维护中的 IRLS |
 | `PenalizedCoxPHModel` | `cox_ph` | l1/l2/elasticnet/scad/mcp | FISTA；SCAD/MCP 使用 FISTA-LLA |
 
 `PenalizedCoxPHModel` 提供带惩罚 Cox 系数估计；需要协方差、显著性检验、基线风险或生存曲线时，使用 `statgpu.survival.CoxPH`。
