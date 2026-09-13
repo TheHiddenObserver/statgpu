@@ -1,7 +1,7 @@
 # GeneralizedLinearModel and Penalized GLM
 
 > Language: English  
-> Last updated: 2026-09-12  
+> Last updated: 2026-09-13  
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/generalized-linear-model.md)
 
@@ -105,19 +105,25 @@ Both solvers optimize the normalized weighted objective shown above. The same we
 
 This consistency is important: a weighted search direction is never paired with an unweighted line-search objective.
 
-Adding `sample_weight` does **not** replace an explicit Newton/L-BFGS request with IRLS or FISTA. Likewise, an explicit CUDA/Torch request does not fall back to CPU. Uniform and historically effectively-uniform weights retain the historical unweighted numerical path.
+Adding `sample_weight` does **not** replace an explicit Newton/L-BFGS request with IRLS or FISTA. Likewise, an explicit CUDA/Torch request does not fall back to CPU. Uniform and historically effectively-uniform weights retain the historical unweighted objective.
 
-#### Inverse-power Gamma exception
+#### Inverse-power Gamma smooth-domain contract
 
-`GammaRegression(link="inverse_power")` has one intentional boundary. A genuinely non-uniform weighted explicit Newton/L-BFGS fit requires `fit_intercept=True`, because the maintained initialization needs a strictly positive family-valid starting predictor.
+For `GammaRegression(link="inverse_power")`,
 
-Therefore:
+$$
+\eta_i=x_i^\top\beta>0,
+\qquad
+\ell_i(\eta_i)=y_i\eta_i-\log\eta_i.
+$$
 
-- non-uniform weights + explicit Newton/L-BFGS + `fit_intercept=True`: supported;
-- non-uniform weights + explicit Newton/L-BFGS + `fit_intercept=False`: rejected before fitting;
-- omitted, uniform, or effectively-uniform weights with `fit_intercept=False`: keep the historical unweighted behavior.
+The maintained explicit Newton/L-BFGS paths construct a family-valid interior start on the executed backend and keep every active **training** predictor inside the unclipped numerical interval where the implemented value, gradient, and Hessian form one smooth objective. The line-search domain cap is computed from the final search direction after any singular/non-descent fallback, then the ordinary Armijo sufficient-decrease test is applied inside that cap.
 
-This is a narrow initialization boundary, not a general restriction on Gamma regression.
+This means `fit_intercept=False` is no longer a categorical limitation. No-intercept fits are supported when statgpu can numerically certify an interior start for the executed design and the optimizer converges without being pinned to the numerical-domain boundary. Omitted, uniform, effectively-uniform, and genuinely non-uniform analytic weights use the same domain/initialization policy. For a genuinely weighted objective, rows with exactly zero analytic weight do not constrain the training domain.
+
+If an interior start cannot be numerically certified, or optimization reaches the maintained numerical boundary before convergence, the explicit smooth path fails visibly instead of publishing a fit that depends on predictor clipping. Public prediction and held-out validation keep their existing clipping semantics; the strict interior requirement is a training-optimization contract, not a guarantee on every unseen design row.
+
+The same loss-owned domain contract is used by maintained smooth L2 penalized inverse-Gamma direct fits. In `PenalizedGLM_CV(loss="gamma", loss_kwargs={"link": "inverse_power"}, penalty="l2")`, fold fitting, validation scoring, alpha selection, and the selected final refit preserve the inverse-power loss rather than using the log-link-only Gamma validation shortcut.
 
 #### Scope of weighted L-BFGS support
 
