@@ -201,6 +201,16 @@ from . import (
 
 _glm_weighted_explicit_solver_contract.install_glm_weighted_explicit_solver_contract()
 
+# Complete the remaining inverse-power Gamma explicit smooth-solver domain
+# contract after the existing #150 installer has opened the weighted boundary.
+# Shared domain mechanics live in GammaLoss/Newton/L-BFGS; this final installer
+# only reconciles ordinary, penalized, and smooth-L2 CV consumer behavior.
+from . import (
+    _inverse_gamma_smooth_domain_contract as _inverse_gamma_smooth_domain_contract,
+)
+
+_inverse_gamma_smooth_domain_contract.install_inverse_gamma_smooth_domain_contract()
+
 __all__ = [
     'LinearRegression',
     'LogisticRegression',
