@@ -9,15 +9,17 @@
 
 ### 变更
 
-- 普通 `GeneralizedLinearModel` 在受支持的 GLM 分布族和链接函数上，显式 `solver="newton"` 与 `solver="lbfgs"` 现在可以接受非均匀 `sample_weight`。带权数据拟合项按 `sum_i w_i loss_i / sum_i w_i` 归一化，因此把全部权重同时乘以同一个正数不会改变最优解；`sample_weight` 也不会改变显式指定的求解器。均匀权重以及数值上等效于均匀权重的情况继续使用既有无权重数值路径。
-- 直接调用 L-BFGS 时，非均匀权重目前只对明确支持这一语义的 GLM 损失函数开放。Huber、Quantile 与 Cox 等非 GLM 损失函数仍遵循各自的权重限制。成功的普通 GLM 拟合会记录实际执行的求解器、数值后端和具体设备；带惩罚的光滑 GLM 以及 `PenalizedGLM_CV` 中已有的 L-BFGS 路径也使用同一套归一化带权目标函数。
-- `GammaRegression(link="inverse_power")` 在 `fit_intercept=True` 时使用满足分布族定义域的正初始线性预测子。对于“非均匀权重 + 显式 Newton/L-BFGS + `fit_intercept=False`”，当前实现会在拟合前报错，因为尚未提供通用的无截距可行初值构造。这是当前实现限制，而不是 Gamma inverse-power 模型的理论限制；后续支持由 Issue #152 跟踪。未传权重、均匀权重或等效均匀权重继续保持历史行为。
+- 普通 `GeneralizedLinearModel` 在受支持的 GLM 分布族和链接函数上，显式 `solver="newton"` 与 `solver="lbfgs"` 现在可以接受真正的非均匀解析 `sample_weight`，不会因为权重存在而静默替换成 IRLS/FISTA，也不会改变显式的 NumPy/CuPy/Torch 执行请求。
+- GLM L-BFGS 在初始梯度、当前目标函数、线搜索候选点和接受新点后的梯度中统一使用 `sum(w_i * loss_i) / sum(w_i)`。权重整体正比例缩放、均匀权重恒等性、零权重观测和整数权重行复制等价性均有回归覆盖；Huber、Quantile、Cox 等非 GLM 损失仍遵循各自的 L-BFGS 权重边界。
+- `GammaRegression(link="inverse_power")` 的显式 Newton/L-BFGS 现在使用由 Gamma 损失函数拥有的光滑训练域契约，而不再对无截距情况作一刀切拒绝。statgpu 只在正权重观测上寻找可数值认证、使线性预测子严格为正的方向，将其缩放到维护中的 inverse-link 数值区间内部，并把后续步长限制在同一训练域中。因此，可行的无截距设计可以正常拟合；零权重观测不约束域可行性；真正不可行或数值上无法认证的 active design 会在第一次目标函数评估前明确失败，而不是依靠 `clip` 穿过 inverse-link 边界。
+- 同一 inverse-Gamma 域契约已经闭合到带惩罚 L2 Newton/L-BFGS 和 `PenalizedGLM_CV`：框架 warm start 只有在域内时才复用；CV 评分使用声明的 `inverse_power` 目标，不再错误使用 log-link evaluator；最终全数据重拟合保留链接。`PenalizedGammaRegression` 同时保持历史 `loss_kwargs["link"]` 优先级，并通过 sklearn clone/get_params 契约。
+- 既有 `solver="auto"`、IRLS/FISTA、显式 smooth-solver `C`、Ordered GLM、standalone LogisticRegression、非 inverse Gamma 链接，以及成功拟合后的 solver/backend/device provenance 语义保持不变。
 
 ### 验证
 
-- 托管测试覆盖整数权重的行复制等价性、权重整体缩放、零权重观测、均匀/近似均匀权重兼容性、非法权重、NumPy/Torch CPU 一致性、statsmodels Logistic/Poisson 参考结果、普通 GLM 的完整分布族/链接函数矩阵、公式接口、推断、执行信息记录，以及 Negative Binomial、Gamma、Inverse Gaussian 在带惩罚拟合和交叉验证中的 L-BFGS 路径。
-- 物理 CUDA 验证已经在精确实现/validator 版本 `c6781cb6a2e1fe500f325e832d23cdc80a99b564` 上完成：Tesla P100-SXM2-16GB、CuPy 13.6.0、Torch 2.0.0+cu117、NumPy 1.24.2，验证程序 schema v3。覆盖 48 条普通 GLM 路径、4 条 CuPy/Torch 交叉容器路径和 9 条共享带惩罚/交叉验证路径；普通 GPU 路径相对 NumPy 的最大绝对误差为 `4.44e-16`。
-- 原始 validator JSON 已原样保存在本仓库 `results/pr151_glm_weighted_explicit_solvers_gpu/pr151_glm_weighted_explicit_solvers_gpu.json`，由证据提交 `0b2a1478c9ad5d4c82d510f15143ba3078015618` 加入；文件中的 `source_sha` 仍为 `c6781cb6a2e1fe500f325e832d23cdc80a99b564`。该 artifact 提交没有修改数值实现、测试或 validator，因此这次 P100 运行继续作为 `c6781cb6` 的实现级物理证据，而不是一次新的 exact-current-head 物理运行。
+- 精确当前 head `403a4f86090aad42a0fe39763e3c1a1b52031c70` 的 7 个 hosted workflow 全部通过；完整 CPU suite 为 **3370 passed / 826 skipped / 0 failed**。同时通过 Python 3.9/3.10/3.11/3.12 regression matrix、static/documentation contracts、Torch 2.0 CPU、maintenance compatibility、release-note/package、Gaussian inference、node-wise inference 与 Benchmark Frontend gate。回归范围包含可行/不可行无截距 inverse-Gamma、负方向 separator、零权重 inactive rows、带权 Newton/L-BFGS、formula 等价性、typed-wrapper clone compatibility、fixed-penalty M-estimation、CV selected-final-refit inference、failure transaction、目标函数有限差分以及 statsmodels 对齐。
+- 早期精确源码 `c6781cb6a2e1fe500f325e832d23cdc80a99b564` 的 Tesla P100 schema-v3 物理运行继续作为**该旧实现**的历史证据保留：覆盖 48 条 ordinary NumPy/CuPy/Torch Newton/L-BFGS 路径、4 条 Torch↔CuPy cross-container 路径和 9 条 penalized/CV L-BFGS consumer 路径，ordinary GPU 相对 NumPy 的最大绝对误差为 `4.44e-16`。原始 JSON 原样保存在 `dev/reviews/pr151_glm_weighted_explicit_solvers_gpu.json`。
+- 当前 inverse-Gamma 域/无截距能力是在 schema-v3 物理运行之后实现的。`dev/benchmarks/validate_pr151_inverse_gamma_domain_gpu_v4.py` 是当前能力冻结的 schema-v4 exact-source physical CUDA gate。因此，在宣称当前 head 的 GPU acceptance 或 merge-ready 之前，仍必须执行一次干净源码上的 CuPy/Torch 物理运行；hosted CI 与历史 v3 artifact 都不能替代这一 gate。
 
 ## 未发布 — 后端原生 Gaussian residual bootstrap（PR #147 / Issue #145，目标 0.2.6）
 
