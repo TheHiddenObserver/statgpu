@@ -13,7 +13,12 @@ def _feasible_data(seed=15601, n=80, p=3):
     rng = np.random.default_rng(seed)
     X = rng.normal(scale=0.08, size=(n, p)).astype(np.float64)
     X[:, 0] = rng.uniform(0.8, 1.2, size=n)
-    beta = np.array([0.9, 0.05, -0.04], dtype=np.float64)
+    beta = np.zeros(p, dtype=np.float64)
+    beta[0] = 0.9
+    if p > 1:
+        beta[1] = 0.05
+    if p > 2:
+        beta[2] = -0.04
     eta = X @ beta
     assert np.all(eta > 0)
     mu = 1.0 / eta
@@ -90,7 +95,10 @@ def test_inverse_gamma_no_intercept_uniform_weights_equal_unweighted_objective(
 
 @pytest.mark.parametrize("solver", ["newton", "lbfgs"])
 def test_inverse_gamma_intercept_initializer_reduces_to_inverse_mean(solver):
-    X, y, weights = _feasible_data(seed=15603)
+    rng = np.random.default_rng(15603)
+    X = rng.normal(scale=0.08, size=(80, 3)).astype(np.float64)
+    y = rng.lognormal(0.0, 0.04, size=80).astype(np.float64)
+    weights = np.linspace(0.55, 1.65, 80, dtype=np.float64)
     design = np.column_stack([X, np.ones(X.shape[0])])
     loss = get_glm_loss("gamma", link="inverse_power")
 
