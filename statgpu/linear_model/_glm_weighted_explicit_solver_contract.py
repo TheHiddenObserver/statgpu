@@ -3,8 +3,13 @@
 The ordinary ``GeneralizedLinearModel`` source predates the shared weighted
 Newton repair and still rejects every weighted explicit smooth-solver request
 before solver entry.  Keep this installer narrow: it opens only that public
-boundary, preserves the existing solver algorithms, and publishes fit-recorded
+boundary, preserves the requested solver, and publishes fit-recorded
 solver/backend/device provenance after a successful fit.
+
+Family-specific numerical domains belong to the loss/solver layer.  In
+particular, inverse-power Gamma now obtains and preserves its smooth-domain
+interior through ``GammaLoss`` plus the shared Newton/L-BFGS domain hooks rather
+than through an estimator-specific ``fit_intercept`` guard or duplicate start.
 """
 
 from __future__ import annotations
@@ -55,67 +60,6 @@ def _fit_device_label(X_design, backend: str) -> str:
     return str(backend)
 
 
-def _inverse_gamma_intercept_start(
-    loss,
-    y,
-    sample_weight,
-    *,
-    backend_name: str,
-    p: int,
-    dtype,
-):
-    """Return a stable inverse-link Gamma start when an intercept is present.
-
-    The inverse link requires strictly positive linear predictors.  Starting
-    the augmented smooth problem at all zeros places every observation on the
-    clipping boundary and can make the first Newton line search fail before a
-    meaningful weighted step is evaluated.  Match the existing GLM/FISTA
-    family-aware initialization: zero slopes and intercept ``1 / mean(y)``.
-    With genuine analytic weights, use the same normalized weighted mean as the
-    fitted objective.  Uniform/effectively-uniform weights are normalized away
-    before this helper is called so the historical unweighted initialization is
-    preserved exactly.  Other families return ``None`` and keep their zero start.
-    """
-    if getattr(loss, "name", "") != "gamma" or getattr(loss, "link", None) != "inverse_power":
-        return None
-
-    if backend_name == "torch":
-        import torch
-
-        y_work = y.to(dtype=dtype)
-        if sample_weight is None:
-            y_mean = torch.mean(y_work)
-        else:
-            weights = sample_weight.to(y_work.device).to(dtype)
-            y_mean = torch.sum(weights * y_work) / torch.sum(weights)
-        init = torch.zeros(p + 1, dtype=dtype, device=y_work.device)
-        init[-1] = 1.0 / torch.clamp(y_mean, min=1e-12)
-        return init
-
-    if backend_name == "cupy":
-        import cupy as cp
-
-        y_work = cp.asarray(y, dtype=dtype)
-        if sample_weight is None:
-            y_mean = cp.mean(y_work)
-        else:
-            weights = cp.asarray(sample_weight, dtype=dtype)
-            y_mean = cp.sum(weights * y_work) / cp.sum(weights)
-        init = cp.zeros(p + 1, dtype=dtype)
-        init[-1] = 1.0 / cp.maximum(y_mean, cp.asarray(1e-12, dtype=dtype))
-        return init
-
-    y_work = np.asarray(y, dtype=dtype)
-    if sample_weight is None:
-        y_mean = float(np.mean(y_work))
-    else:
-        weights = np.asarray(sample_weight, dtype=dtype)
-        y_mean = float(np.sum(weights * y_work) / np.sum(weights))
-    init = np.zeros(p + 1, dtype=dtype)
-    init[-1] = 1.0 / max(y_mean, 1e-12)
-    return init
-
-
 def _install_init_contract() -> None:
     current = GeneralizedLinearModel.__init__
     if getattr(current, _INIT_MARKER, False):
@@ -155,7 +99,6 @@ def _install_smooth_solver_contract() -> None:
         if not getattr(loss, "has_hessian", False):
             raise ValueError(f"solver='{solver_name}' requires a Hessian.")
 
-        init_coef = None
         if self._effective_intercept:
             from statgpu.backends._utils import _get_xp
 
@@ -198,69 +141,22 @@ def _install_smooth_solver_contract() -> None:
                 X_work = X
             p = X.shape[1]
 
-        # Inverse-link Gamma has an extra domain contract.  Classify its
-        # analytic weights only after ``X_work`` is finalized so the boundary,
-        # warm start, and requested solver all see the identical executed
-        # backend/device/dtype (including Torch mixed-dtype promotion).
-        gamma_start_weight = sample_weight
-        is_inverse_gamma = (
-            getattr(loss, "name", "") == "gamma"
-            and getattr(loss, "link", None) == "inverse_power"
+        # ``init_coef=None`` is intentional.  Ordinary GLMs expose no public
+        # smooth-solver warm start, and losses with a maintained numerical
+        # domain (currently inverse-power Gamma) now construct their own
+        # backend-native interior start inside Newton/L-BFGS.  Other losses keep
+        # the historical zero/default solver start.
+        solver = newton_solver if solver_name == "newton" else lbfgs_solver
+        params, n_iter = solver(
+            loss,
+            None,
+            X_work,
+            y,
+            max_iter=self._max_iter,
+            tol=self._tol,
+            init_coef=None,
+            sample_weight=sample_weight,
         )
-        if is_inverse_gamma and sample_weight is not None:
-            from statgpu.solvers._newton import _prepare_newton_sample_weight
-
-            gamma_start_weight = _prepare_newton_sample_weight(
-                sample_weight,
-                X_work.shape[0],
-                backend_name,
-                X_work,
-            )
-            # Without an intercept there is no generic way to guarantee that
-            # an arbitrary design admits X @ beta > 0 for every row and no
-            # maintained public init_coef exists to provide such a feasible
-            # point.  Keep only the genuine-nonuniform newly opened row closed;
-            # uniform/effectively-uniform weights retain the historical path.
-            if not self._effective_intercept and gamma_start_weight is not None:
-                raise ValueError(
-                    "weighted explicit Newton/L-BFGS for Gamma inverse_power "
-                    "requires fit_intercept=True for genuine non-uniform "
-                    "sample_weight; no maintained family-valid no-intercept "
-                    "initialization is available."
-                )
-
-        if self._effective_intercept:
-            init_coef = _inverse_gamma_intercept_start(
-                loss,
-                y,
-                gamma_start_weight,
-                backend_name=backend_name,
-                p=p,
-                dtype=x_dtype,
-            )
-
-        if solver_name == "newton":
-            params, n_iter = newton_solver(
-                loss,
-                None,
-                X_work,
-                y,
-                max_iter=self._max_iter,
-                tol=self._tol,
-                init_coef=init_coef,
-                sample_weight=sample_weight,
-            )
-        else:
-            params, n_iter = lbfgs_solver(
-                loss,
-                None,
-                X_work,
-                y,
-                max_iter=self._max_iter,
-                tol=self._tol,
-                init_coef=init_coef,
-                sample_weight=sample_weight,
-            )
 
         params_np = _to_numpy(params)
         self.n_iter_ = n_iter
