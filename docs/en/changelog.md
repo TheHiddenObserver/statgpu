@@ -1,7 +1,7 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-09-12  
+> Last updated: 2026-09-13  
 > This page: Release history  
 > Switch: [Chinese](../cn/changelog.md)
 
@@ -14,7 +14,12 @@ This page records user-visible changes for current and recent statgpu releases.
 - Ordinary `GeneralizedLinearModel` explicit `solver="newton"` and `solver="lbfgs"` now accept genuine non-uniform analytic `sample_weight` on supported GLM rows without silently substituting IRLS/FISTA or changing an explicit NumPy/CuPy/Torch execution request.
 - Maintained GLM L-BFGS uses one normalized analytic-weight objective, `sum(w_i * loss_i) / sum(w_i)`, for the initial gradient, line-search objective/candidates, and accepted-point gradient. Global positive weight rescaling, uniform-weight identity, zero-weight-row equivalence, integer row replication, and representative statsmodels alignment are covered by regression tests. Generic Huber/Quantile/Cox direct non-uniform weighted L-BFGS remains fail-closed.
 - Existing `solver="auto"`, IRLS/FISTA, explicit smooth-solver `C`, Ordered GLM, and standalone LogisticRegression behavior is preserved. Ordinary GLM fits now record the solver/backend/device that actually completed successfully. Genuine non-uniform weighted inverse-power Gamma explicit Newton/L-BFGS requires `fit_intercept=True`; the corresponding genuine non-uniform weighted no-intercept row fails closed precisely, while uniform/effectively-uniform weights retain the historical unweighted path.
-- Existing weighted smooth-GLM L-BFGS consumers in penalized fitting and `PenalizedGLM_CV` are covered, including the family-specific CV L2 rows that already dispatch Gamma, Inverse Gaussian, and Negative Binomial through L-BFGS. Hosted coverage includes the final ordinary family/link matrix and no-intercept rows except the reviewed inverse-Gamma limitation. The final promotion gate remains exact-source physical CuPy/Torch CUDA validation with the frozen schema-v3 validator; schema v3 preserves the frozen numerical thresholds while adding NumPy/CuPy/Torch parity, L-BFGS/backend/device provenance, and CV selected-alpha identity for the Negative-Binomial/Gamma/Inverse-Gaussian penalized/CV consumers. Hosted CI alone does not substitute for that evidence.
+- Existing weighted smooth-GLM L-BFGS consumers in penalized fitting and `PenalizedGLM_CV` are covered, including the family-specific CV L2 rows that dispatch Gamma, Inverse Gaussian, and Negative Binomial through L-BFGS. Hosted coverage includes the final ordinary family/link matrix and no-intercept rows except the reviewed inverse-Gamma limitation.
+
+### Validation
+
+- Exact-source physical CUDA validation **passed** at implementation/validator head `c6781cb6a2e1fe500f325e832d23cdc80a99b564` on Tesla P100-SXM2-16GB with CuPy 13.6.0, Torch 2.0.0+cu117, and NumPy 1.24.2. Schema v3 covered 48 ordinary NumPy/CuPy/Torch Newton/L-BFGS routes, 4 Torch↔CuPy cross-container routes, and 9 penalized/CV L-BFGS consumer routes; the maximum ordinary GPU-vs-NumPy absolute error was `4.44e-16`.
+- The raw validator JSON was generated on the validation host at `results/pr151_glm_weighted_explicit_solvers_gpu/pr151_glm_weighted_explicit_solvers_gpu.json`. It is not currently committed to this repository and is not a GitHub Actions artifact. Subsequent PR #151 commits are documentation-only, so the P100 run remains implementation evidence for `c6781cb6`, not exact-current-head physical evidence.
 
 ## Unreleased — Backend-native Gaussian residual bootstrap (PR #147 / Issue #145, targeted for 0.2.6)
 
