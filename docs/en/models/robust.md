@@ -1,13 +1,13 @@
 # Robust Regression
 
 > Language: English  
-> Last updated: 2026-07-01  
+> Last updated: 2026-09-13  
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/robust.md)
 
 ## Overview
 
-Robust regression via M-estimation with automatic scale estimation. `PenalizedRobustRegression` wraps Huber, Bisquare, and Fair losses with up to 10 penalty types and 8 solvers, including the specialized Proximal Newton solver for SCAD/MCP.
+statgpu provides robust regression through M-estimation with robust scale handling. `PenalizedRobustRegression` combines Huber, Bisquare, and Fair losses with multiple penalty families; smooth objectives use Newton by default, while sparse and non-convex penalties use FISTA / LLA routes.
 
 | Component | Path |
 |-----------|------|
@@ -29,8 +29,8 @@ $$
 $$
 
 - `smooth_gradient=True`, `has_hessian=True`
-- Reduces to OLS when δ → ∞; to LAD when δ → 0
-- Default ε=1.345 gives 95% efficiency at Gaussian
+- approaches OLS as $\delta\to\infty$; smaller thresholds increasingly limit the influence of large residuals
+- default `epsilon=1.35`; in automatic-scale mode the effective threshold is `epsilon × scale`
 
 ### Bisquare (Tukey biweight) Loss
 
@@ -43,68 +43,79 @@ c^2/6 & |u| > c
 $$
 
 - `smooth_gradient=True`, `has_hessian=True`
-- Completely ignores residuals beyond threshold (gradient=0 for |u|>c)
-- Higher breakdown point than Huber
-- Default ε=4.685 gives 95% efficiency at Gaussian
+- the loss is constant and the gradient is zero for $|u|>c$
+- default `epsilon=4.685`, commonly used for about 95% Gaussian efficiency
 
 ### Fair Loss
 
 $$
-\ell(\eta, y) = c^2\left[\frac{|y-\eta|}{c} - \log(1 + \frac{|y-\eta|}{c})\right]
+\ell(\eta, y) = c^2\left[\frac{|y-\eta|}{c} - \log\left(1 + \frac{|y-\eta|}{c}\right)\right]
 $$
 
 - `smooth_gradient=True`, `has_hessian=True`
-- Gentler than Huber, closer to OLS for small residuals
+- downweights residuals more gradually than hard-redescending losses
 
 ## Parameters
 
-### HuberLoss
+### `HuberLoss`
 
 | Parameter | Default | Description |
 |---|---:|---|
-| `delta` | `1.0` | Threshold (fixed mode) |
-| `epsilon` | `1.345` | Robustness tuning (auto-scale mode) |
-| `method` | `"MAD"` | Scale estimation: `"MAD"` or `"huber_prop2"` |
+| `delta` | `None` | Optional fixed threshold; when supplied, fixed-threshold mode is used |
+| `epsilon` | `1.35` | Multiplied by the estimated scale to obtain the effective Huber threshold |
+| `method` | `"MAD"` | `"MAD"`, `"huber_prop2"`, or `"joint"` |
 
-### BisquareLoss
+`method="joint"` jointly optimizes coefficients and `log_sigma`; this is a different problem from fixed-scale coefficient optimization.
+
+### `BisquareLoss`
 
 | Parameter | Default | Description |
 |---|---:|---|
-| `epsilon` | `4.685` | Robustness tuning |
-| `method` | `"MAD"` | Scale estimation method |
+| `delta` | `None` | Optional fixed threshold |
+| `epsilon` | `4.685` | Multiplied by the estimated scale to obtain the effective threshold |
+| `method` | `"MAD"` | `"MAD"` or `"huber_prop2"` |
+
+### `FairLoss`
+
+| Parameter | Default | Description |
+|---|---:|---|
+| `c` | `1.4` | Fair-loss tuning constant |
 
 ## Scale Estimation
 
-When `epsilon` is provided (auto-scale mode), scale σ is estimated before fitting:
+`RobustLossBase` provides MAD and Huber Proposal-2 scale estimation. The current `PenalizedRobustRegression` fit path calls `precompute_scale(...)` before entering the numerical solver, so ordinary `MAD` / `huber_prop2` coefficient optimization uses an already determined effective threshold during solver iterations.
 
-- **MAD**: σ̂ = median(|r_i|) / 0.6745
-- **Huber Proposal 2**: iteratively re-estimated
+- **MAD**: $\hat\sigma=\operatorname{median}(|r_i|)/0.6745$
+- **Huber Proposal 2**: scale is estimated by a fixed-point iteration
+- Huber uses $\delta=\epsilon\hat\sigma$
+- Bisquare uses $c=\epsilon\hat\sigma$
 
-Then δ = ε · σ̂ (Huber) or c = ε · σ̂ (Bisquare).
-
-Use `delta` for a fixed threshold (bypasses estimation).
+Supplying `delta` selects fixed-threshold mode directly. `method="joint"` instead defines a separate joint coefficient-scale optimization problem.
 
 ## Solver Compatibility
 
+The table below describes the current public model / low-level solver routes. `sample_weight` support still depends on the complete loss × solver × model path.
+
 | Solver | Huber | Bisquare | Fair | Notes |
 |--------|:---:|:---:|:---:|-------|
-| Proximal Newton | ✅ | ✅ | ✅ | Fastest for SCAD/MCP: 5-10 iterations |
-| FISTA | ✅ | ✅ | ✅ | Any penalty |
-| FISTA-BB | ✅ | ✅ | ✅ | Adaptive step size |
-| FISTA-LLA | ✅ | ✅ | ✅ | LLA outer loop |
-| IRLS | ✅ (L2) | ✅ (L2) | ✅ (L2) | Smooth penalties only |
-| Newton | ✅ | ✅ | ✅ | L2 penalty |
-| L-BFGS | ✅ | ✅ | ✅ | Moderate dimensions |
-| ADMM | ✅ | ✅ | ✅ | Augmented Lagrangian |
+| Proximal Newton | ✅ (smooth objectives) | ✅ (smooth objectives) | ✅ (smooth objectives) | Current generic implementation executes Newton for L2/no penalty; non-smooth requests delegate to FISTA |
+| FISTA | ✅ | ✅ | ✅ | Sparse / proximal routes |
+| FISTA-BB | ✅ (supported combinations) | ✅ (supported combinations) | ✅ (supported combinations) | Adaptive step size |
+| FISTA-LLA | ✅ | ✅ | ✅ | LLA route for SCAD/MCP and related non-convex penalties |
+| IRLS | ❌ (currently unavailable) | ✅ (L2/no penalty) | ✅ (L2/no penalty) | Restoring and validating Huber IRLS is tracked in Issue #156 |
+| Newton | ✅ | ✅ | ✅ | Main `solver="auto"` route for smooth L2/no-penalty objectives |
+| L-BFGS | ✅ (smooth, unweighted/uniform weights) | ✅ (smooth, unweighted/uniform weights) | ✅ (smooth, unweighted/uniform weights) | Generic non-GLM `LossBase` does not currently declare direct non-uniform weighted L-BFGS |
+| ADMM | ✅ (supported forms) | ✅ (supported forms) | ✅ (supported forms) | Shared entry currently accepts omitted or uniform `sample_weight` only |
 
-## Penalty Compatibility
+### Main `solver="auto"` dispatch
 
-| Penalty | Solver (auto) | Notes |
-|---------|---------------|-------|
-| l2 / none | IRLS or Newton | Fast convergence. |
-| SCAD / MCP | Proximal Newton | 5-10 iterations. Warm-start at target α. |
-| adaptive_l1 | FISTA-LLA | Weighted L1 proximal. |
-| group_* | FISTA-LLA | Group proximal operators. |
+| Penalty | Main route | Notes |
+|---------|------------|-------|
+| L2 / none | Newton | Robust losses provide gradient and Hessian primitives |
+| L1 / ElasticNet | FISTA | Proximal sparse route |
+| SCAD / MCP | FISTA + LLA | Local linear approximation forms a weighted convex surrogate |
+| Adaptive L1 | FISTA / LLA route | Adaptive weighted proximal form |
+| Group penalties | Group FISTA / Group FISTA-LLA | Corresponding group proximal operators |
 
 ## Examples
 
@@ -113,79 +124,84 @@ Use `delta` for a fixed threshold (bypasses estimation).
 ```python
 from statgpu.linear_model.penalized import PenalizedRobustRegression
 
-# Huber with SCAD
-model = PenalizedRobustRegression(loss='huber', penalty='scad', alpha=0.1)
+# Huber + SCAD
+model = PenalizedRobustRegression(loss="huber", penalty="scad", alpha=0.1)
 model.fit(X, y)
 
-# Bisquare with MCP
-model = PenalizedRobustRegression(loss='bisquare', penalty='mcp', alpha=0.1)
+# Bisquare + MCP
+model = PenalizedRobustRegression(loss="bisquare", penalty="mcp", alpha=0.1)
 model.fit(X, y)
 
-# Fair with L2
-model = PenalizedRobustRegression(loss='fair', penalty='l2', alpha=0.01)
+# Fair + L2: solver="auto" uses the smooth Newton route
+model = PenalizedRobustRegression(loss="fair", penalty="l2", alpha=0.01)
 model.fit(X, y)
 ```
 
-### GPU (torch-CUDA)
+### GPU (Torch CUDA)
 
 ```python
 import torch
+
 X_t = torch.tensor(X, dtype=torch.float64).cuda()
 y_t = torch.tensor(y, dtype=torch.float64).cuda()
 
-model = PenalizedRobustRegression(loss='huber', penalty='scad', alpha=0.1)
+model = PenalizedRobustRegression(loss="huber", penalty="scad", alpha=0.1)
 model.fit(X_t, y_t)
 ```
 
 ### Direct Solver API
 
 ```python
-from statgpu.losses import HuberLoss, BisquareLoss
+from statgpu.losses import HuberLoss
 from statgpu.penalties import SCADPenalty
 from statgpu.solvers import fista_solver
 
-loss = HuberLoss(epsilon=1.345)
+loss = HuberLoss(epsilon=1.35)
 coef, n_iter = fista_solver(loss, SCADPenalty(alpha=0.1), X, y)
 ```
 
-## Algorithm Details
+## Algorithm Notes
 
-### Proximal Newton (SCAD/MCP)
+### Smooth Huber / Bisquare / Fair
 
-1. Compute Hessian H = X'WX (W = diagonal Hessian weights) and gradient g
-2. Newton direction: d = -H⁻¹·g
-3. Armijo line search (max 25 retries) with proximal step
-4. Update: β_new = proximal(β − step·d, step)
-5. Typically 5-10 iterations per LLA step
+For L2/no-penalty objectives, the current automatic dispatch uses Newton. The loss supplies the actual gradient and Hessian and the solver combines a linear-system step with Armijo backtracking.
 
-### IRLS (L2/none)
+### SCAD / MCP
 
-Huber/Bisquare/Fair all have `irls()` methods:
-1. IRLS weights from ψ'(r_i) / r_i
-2. Solve weighted least squares with L2 penalty
-3. Repeat until convergence
+Non-convex penalties are handled through LLA, producing a locally weighted convex problem solved by FISTA-family inner iterations. The current generic Proximal Newton implementation does not treat an ordinary Euclidean prox as a Hessian-metric proximal subproblem, so non-smooth requests do not silently take the historical Proximal-Newton shortcut.
+
+### Current Huber IRLS status
+
+`HuberLoss.irls()` is currently an explicit rejection stub and `_supports_irls=False`, so `PenalizedRobustRegression(..., solver="irls")` does not enter a Huber IRLS path. For fixed-threshold Huber, the standard IRLS weight
+
+$$
+w_i=\frac{\psi_\delta(r_i)}{r_i}
+=\min\left(1,\frac{\delta}{|r_i|}\right)
+$$
+
+is directly related to the Huber first-order condition. Restoring this as a maintained public solver route is being re-evaluated and validated in Issue #156. PR #151 documents the current implementation state only and does not change numerical source.
 
 ## Outputs
 
 | Attribute | Type | Description |
 |-----------|------|-------------|
-| `coef_` | (p,) float | Estimated coefficients |
+| `coef_` | `(p,)` float | Estimated coefficients |
 | `intercept_` | float | Estimated intercept |
 | `n_iter_` | int | Number of iterations |
-| `loss` | str | Loss name ("huber", "bisquare", "fair") |
+| `loss` | str | Loss name (`"huber"`, `"bisquare"`, `"fair"`) |
 
 ## External Validation
 
-- **Huber**: Validated against R `MASS::rlm(psi=psi.huber)` with coefficient parity.
-- **Bisquare**: Validated against R `MASS::rlm(psi=psi.bisquare)`; SCAD/MCP active set matches FISTA-LLA.
-- **Fair**: Validated against R `MASS::rlm(psi=psi.fair)`.
+- **Huber**: historical validation aligned coefficients with R `MASS::rlm(psi=psi.huber)`; a restored explicit IRLS route should be revalidated under the same scale convention.
+- **Bisquare**: aligned with R `MASS::rlm(psi=psi.bisquare)`; current non-convex penalty routes use LLA/FISTA.
+- **Fair**: aligned with R `MASS::rlm(psi=psi.fair)`.
 
 ## Notes
 
-- `BisquareLoss` + SCAD/MCP: warm-start at LAST continuation step (target α). Starting from λ_max shrunk everything to zero in earlier versions (fixed in v0.2.1).
-- Scale estimation uses CPU numpy (MAD / Proposal 2); GPU data is auto-converted.
-- All losses accept `sample_weight`.
-- `has_hessian=True` for all three losses enables proximal Newton for SCAD/MCP.
+- Scale computation currently uses NumPy host arrays; after scale precomputation, maintained numerical optimization continues on the selected NumPy/CuPy/Torch backend.
+- `sample_weight` support depends on the loss, solver, and model route rather than being an automatic property of every robust solver.
+- All three losses provide Hessian primitives. That supports smooth Newton routes, but does not imply that arbitrary non-smooth penalties support Proximal Newton.
+- Huber IRLS is currently not exposed as a supported public solver route; Issue #156 tracks its mathematical and implementation validation.
 
 ## References
 
