@@ -2,13 +2,13 @@
 
 > Language: English
 >
-> Last updated: 2026-09-12
+> Last updated: 2026-09-13
 
 ## Overview
 
-statgpu separates its public API from its numerical-computation interfaces: **Estimators face users and orchestrate a fit; Loss + Penalty define the optimization problem; Solvers consume that problem and perform the numerical optimization; Backend is a cross-cutting execution dimension across those steps.**
+statgpu separates its public API from its numerical-computation interfaces: **model classes face users and orchestrate a fit; Loss + Penalty define the optimization problem; Solvers consume that problem and perform the numerical optimization; Backend is a cross-cutting execution dimension across those steps.**
 
-Accordingly, “loss functions × penalty types × solvers × backends” describes the composable computation space inside an estimator, not one inheritance tree. This page documents the actual runtime call graph, dispatch logic, and coverage matrix.
+“Loss functions × penalty types × solvers × backends” form the composable computation structure used inside model fitting, independently of the model-class inheritance hierarchy. This page documents the current runtime call graph, dispatch logic, and coverage matrix.
 
 ## Architecture
 
@@ -20,7 +20,7 @@ User
   │  model = Estimator(...)
   │  model.fit(X, y, sample_weight=...)
   ▼
-Estimator / public API
+Model class / public API
   │
   ├── formula / X,y parsing and validation
   ├── backend / device selection
@@ -47,7 +47,7 @@ Solver
   │
   │  returns coef / intercept / n_iter / convergence state
   ▼
-Estimator post-fit
+Fitted-model state
   │
   ├── coef_ / intercept_
   ├── inference / fitted-state metadata
@@ -55,19 +55,19 @@ Estimator post-fit
   └── predict() / summary()
 ```
 
-On the current penalized-estimator path, `_PenalizedFitMixin.fit()` performs this orchestration: it constructs `self._loss` and `self._penalty`, chooses the backend and solver, then enters `_fit_loss_backend()`, `_dispatch_irls()`, or a specialized SCAD/MCP path. `LossBase` is not a parent class of the estimator and is not a “lower estimator layer”; it is an objective object constructed by the estimator and consumed during numerical fitting.
+On the current penalized-model path, `_PenalizedFitMixin.fit()` performs this orchestration: it constructs `self._loss` and `self._penalty`, chooses the backend and solver, then enters `_fit_loss_backend()`, `_dispatch_irls()`, or a specialized SCAD/MCP path. `LossBase` describes the optimization objective at this layer and is constructed by the model before being consumed by the solver.
 
 ### Responsibilities
 
 | Component | Primary responsibility | Normally user-facing? |
 |---|---|:---:|
-| Estimator | Public API, formula/data validation, backend/solver selection, state management, inference, prediction | ✅ |
+| Model class | Public API, formula/data validation, backend/solver selection, state management, inference, prediction | ✅ |
 | Loss | Defines data-fit term `L(β)` and value/gradient/Hessian-style primitives | Usually no |
 | Penalty | Defines `P(β)` and regularization primitives such as gradient/proximal/LLA | Usually no |
 | Solver | Reads Loss + Penalty capabilities and runs the numerical algorithm | No |
-| Backend | NumPy/CuPy/Torch arrays, device, and numerical primitives; cuts across all layers above | Selected through estimator |
+| Backend | NumPy/CuPy/Torch arrays, device, and numerical primitives; cuts across all layers above | Selected through the model class |
 
-Loss and Penalty define the objective **in parallel** rather than by inheritance:
+Loss and Penalty compose the objective in parallel:
 
 $$
 F(\beta)=L(\beta)+P(\beta).
@@ -85,19 +85,19 @@ to implement Newton, L-BFGS, FISTA, ADMM, and related algorithms.
 
 ### Backend is a cross-cutting execution dimension
 
-NumPy, CuPy, and Torch should not be read as a layer “below the solver.” The estimator first resolves the actual backend/device; `X`, `y`, `sample_weight`, Loss derivatives, Penalty proximal operations, and Solver iterations should then remain on that execution backend whenever the contract permits. Only explicitly allowed metadata or final small results should cross to host.
+NumPy, CuPy, and Torch span model preparation, objective evaluation, penalty operations, and solver iterations. The model first resolves the actual backend/device; `X`, `y`, `sample_weight`, Loss derivatives, Penalty proximal operations, and Solver iterations then remain on that execution backend whenever the interface contract permits. Only explicitly allowed metadata or final small results cross to host.
 
 ```text
                   NumPy / CuPy / Torch
                 ┌───────────────────────┐
-Estimator  ──────┤ backend/device choice │
+Model      ──────┤ backend/device choice │
 Loss       ──────┤ value/grad/Hessian    │
 Penalty    ──────┤ value/grad/prox       │
 Solver     ──────┤ numerical iterations  │
                 └───────────────────────┘
 ```
 
-This page is limited to estimator paths that construct `Loss + Penalty` and hand that objective to the generic Solver layer. Panel estimators are organized around panel structure, transformations, and panel-specific inference, so their current runtime architecture is documented separately in [Panel Models](../models/panel.md).
+This page focuses on model paths that construct `Loss + Penalty` and pass that objective to the generic Solver layer. Panel models organize computation around panel-data transformations, OLS/GLS/period-wise regressions, and Panel-specific inference; see [Panel Architecture](../panel/architecture.md).
 
 ## 1. Loss Functions
 
@@ -105,7 +105,7 @@ This page is limited to estimator paths that construct `Loss + Penalty` and hand
 
 Abstract base class at `statgpu/losses/_base.py`. Subclasses implement `per_sample_value()` and `per_sample_gradient()`. The base class derives `value()`, `gradient()`, `fused_value_and_gradient()` automatically.
 
-`LossBase` is an **optimization-problem definition interface**, not the public estimator base class. Estimators normally construct a Loss object through `_resolve_loss()` or a registry/factory and pass it to a solver together with a Penalty object.
+`LossBase` is an **optimization-problem definition interface**. Models normally construct a Loss object through `_resolve_loss()` or a registry/factory and pass it to a solver together with a Penalty object.
 
 ```python
 class LossBase:
@@ -147,9 +147,7 @@ $$\ell(u) = \begin{cases} \frac{c^2}{6}[1 - (1-(u/c)^2)^3] & |u| \leq c \\ c^2/6
 **Cox Partial Likelihood** (Breslow / Efron ties in `CoxPartialLikelihoodLoss`):
 $$L(\beta) = \prod_{i:\delta_i=1} \frac{\exp(X_i\beta)}{\sum_{j:T_j \geq T_i} \exp(X_j\beta)}$$
 
-The high-level `CoxPH` estimator additionally implements Exact ties,
-delayed-entry/counting-process risk sets, and strata. Its Exact path is not a
-generic `LossBase` solver combination.
+The high-level `CoxPH` estimator additionally provides Exact ties, delayed-entry/counting-process risk sets, strata, and the corresponding survival-model data structures.
 
 ## 2. Penalty Functions
 
@@ -193,12 +191,11 @@ The `solver="auto"` dispatch follows priority:
 | 6 | `lbfgs` / `newton` | CV + L2 + loss-specific |
 | 7 | `newton` / `irls` | smooth penalties + smooth losses |
 
-The `exact` solver in this table is the closed-form squared-error/L2 solver; it
-is unrelated to `CoxPH(ties="exact")`.
+The `exact` solver in this table is the closed-form squared-error/L2 solver; it is unrelated to `CoxPH(ties="exact")`.
 
 ### All Solvers
 
-`sample_weight` is not a solver-only property: support also depends on the statistical semantics and value/gradient/curvature capabilities of the selected loss. The table below summarizes the maintained main paths; #153 tracks the explicit complete capability contract.
+`sample_weight` support depends on the solver, the statistical semantics of the selected loss, and its value/gradient/curvature capabilities. The table below summarizes the maintained main paths; #153 tracks the complete support contract.
 
 | Solver | Loss Constraints | Penalty Constraints | `sample_weight` | warm_start |
 |--------|:-----------------|:---------------------|:------------|:----------:|
@@ -210,7 +207,7 @@ is unrelated to `CoxPH(ties="exact")`.
 | `fista` | losses supporting gradient/proximal path | all | loss-dependent | ✅ |
 | `fista_bb` | losses supporting gradient/proximal path | all (except nonconvex groups) | loss-dependent | ✅ |
 | `fista_lla` | losses supporting the maintained LLA path | SCAD/MCP/adaptive | loss-dependent | ✅ |
-| `proximal_irls_cd` | quantile only | SCAD/MCP | ✅ | ✅ |
+| `proximal_irls_cd` | quantile only | SCAD/MCP | ✅ |
 | `proximal_newton` | selected Hessian losses | SCAD/MCP/adaptive (via LLA) | loss-dependent | ✅ |
 | `admm` | maintained ADMM losses | all | omitted/uniform only; genuine non-uniform weights fail closed | ✅ |
 
@@ -233,8 +230,7 @@ is unrelated to `CoxPH(ties="exact")`.
 2. LLA outer loop (2-5 iterations per step)
 3. Weighted-L1 FISTA inner solve
 
-`PenalizedCoxPHModel` uses this FISTA-LLA continuation for SCAD and MCP. Its
-convex L1/L2/ElasticNet paths use the corresponding FISTA/Newton routing.
+`PenalizedCoxPHModel` uses this FISTA-LLA continuation for SCAD and MCP. Its convex L1/L2/ElasticNet paths use the corresponding FISTA/Newton routing.
 
 ## 4. Backend Coverage
 
@@ -251,9 +247,9 @@ convex L1/L2/ElasticNet paths use the corresponding FISTA/Newton routing.
 | DBSCAN | ✅ | GPU dist + host-sync CC | ✅ on-device |
 | UMAP | yes | supported with explicit SciPy host graph boundary | supported with explicit SciPy host graph boundary |
 
-## 5. User-Facing Penalized Estimators
+## 5. User-Facing Penalized Models
 
-These are the public classes users normally construct and call with `.fit()`; internally they resolve Loss, Penalty, Solver, and Backend objects/policies.
+These are the public model classes users normally construct and call with `.fit()`; internally they resolve Loss, Penalty, Solver, and Backend objects/policies.
 
 | Class | Loss | Penalties | Solvers |
 |-------|------|-----------|---------|
@@ -265,9 +261,7 @@ These are the public classes users normally construct and call with `.fit()`; in
 | `PenalizedRobustRegression` | huber/bisquare | scad/mcp/l2 | proximal_newton/irls |
 | `PenalizedCoxPHModel` | cox_ph | l1/l2/elasticnet/scad/mcp | fista/newton; fista_lla for SCAD/MCP |
 
-The penalized Cox wrapper never fits an intercept and is estimation-only.
-Passing `compute_inference=True` raises `NotImplementedError` rather than
-falling through to generic GLM inference.
+`PenalizedCoxPHModel` provides penalized Cox coefficient estimation; use `statgpu.survival.CoxPH` when covariance, significance tests, baseline hazard, or survival curves are required.
 
 ## 6. Quick Reference
 
