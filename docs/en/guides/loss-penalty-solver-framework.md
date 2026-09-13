@@ -207,7 +207,7 @@ The `exact` solver in this table is the closed-form squared-error/L2 solver; it 
 | `fista` | losses supporting gradient/proximal path | all | loss-dependent | ✅ |
 | `fista_bb` | losses supporting gradient/proximal path | all (except nonconvex groups) | loss-dependent | ✅ |
 | `fista_lla` | losses supporting the maintained LLA path | SCAD/MCP/adaptive | loss-dependent | ✅ |
-| `proximal_irls_cd` | quantile only | SCAD/MCP | ✅ |
+| `proximal_irls_cd` | quantile only | SCAD/MCP | ✅ | ✅ |
 | `proximal_newton` | selected Hessian losses | SCAD/MCP/adaptive (via LLA) | loss-dependent | ✅ |
 | `admm` | maintained ADMM losses | all | omitted/uniform only; genuine non-uniform weights fail closed | ✅ |
 
