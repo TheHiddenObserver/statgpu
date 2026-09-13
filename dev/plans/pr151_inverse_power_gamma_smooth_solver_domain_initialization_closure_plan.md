@@ -3,7 +3,7 @@
 Status: PLAN DRAFT / REVIEW-FIX IN PROGRESS  
 Parent PR: #151  
 Parent issue: #150  
-Follow-up being reconsidered for reintegration: #152  
+Follow-up to be folded back after implementation: #152  
 Branch: `fix/glm-weighted-explicit-solver-guard`  
 Plan baseline head: `b5228fdc4ed78af6fcaa760ecee1475ae4ebe1a7`
 
@@ -32,9 +32,9 @@ with
 ```text
 inverse-power Gamma + explicit Newton/L-BFGS
     -> construct/validate an interior start for the executed objective
-    -> preserve the positive-predictor domain during line search
-    -> fit when feasible
-    -> fail with a design/domain error when infeasible or numerically unresolved
+    -> cap/backtrack every trial step to remain in the positive predictor domain
+    -> fit when a numerically certified interior exists
+    -> fail with a design/domain error when no interior can be certified
 ```
 
 ## 2. Change classification and active review axes
@@ -43,18 +43,18 @@ Classification:
 
 1. existing-capability reconciliation / completion of the original #150 support matrix;
 2. numerical correctness repair for inverse-power Gamma initialization and globalization;
-3. shared Newton/L-BFGS solver contract change through a loss-owned optimization-domain hook;
+3. shared Newton/L-BFGS solver contract change through loss-owned optimization-domain hooks;
 4. evidence-invalidating numerical change after the previously accepted `c6781cb6` physical run.
 
 Active axes:
 
 - loss/objective/domain;
-- solver initialization, line search, convergence and failure semantics;
+- solver initialization, step capping, line search, convergence and failure semantics;
 - analytic `sample_weight` and zero-weight-row semantics;
 - intercept/no-intercept behavior;
 - NumPy/CuPy/Torch backend, device and working dtype;
-- ordinary GLM, penalized Gamma, CV/shared-solver consumers;
-- formula no-intercept behavior where the ordinary model exposes it;
+- ordinary GLM, direct solver, penalized Gamma and `PenalizedGLM_CV` consumers;
+- formula no-intercept behavior;
 - inference preservation for successfully fitted public rows;
 - tests/docs/changelog/evidence freshness;
 - exact-source physical CUDA revalidation.
@@ -95,7 +95,7 @@ For inverse-power Gamma,
 \qquad \eta_i>0.
 \]
 
-The current historical no-intercept zero start gives `eta=0` and relies on `GammaLoss` clipping to `_ETA_LO` before the first gradient/Hessian/line-search evaluation. Since this PR will reopen numerical source and require fresh physical validation anyway, preserving that boundary-dependent trajectory is not a useful compatibility goal.
+The historical no-intercept zero start gives `eta=0` and relies on `GammaLoss` clipping to `_ETA_LO` before the first gradient/Hessian/line-search evaluation. Once PR #151 reopens numerical source and requires fresh physical evidence anyway, preserving that boundary-dependent trajectory is not a useful compatibility goal.
 
 Uniform and unweighted inputs represent the same normalized statistical objective, so initialization/domain behavior must not change discontinuously when a weight vector crosses the solver's `allclose` uniformity threshold.
 
@@ -122,6 +122,8 @@ The domain is defined on the rows actually present in the executed objective:
 
 This is important for zero-weight equivalence: a conflicting row with genuine weight zero must not make an otherwise feasible weighted design fail.
 
+An effectively-uniform vector that is normalized away by the historical `allclose` rule intentionally inherits the unweighted objective and therefore the all-row domain. Domain membership follows the **prepared solver objective**, not raw weight syntax.
+
 ### 4.2 Intercept and no-intercept are one domain problem
 
 Once the estimator has constructed its actual numerical design `X_work`, including an augmented intercept column when applicable, the smooth solver only needs to solve
@@ -132,7 +134,7 @@ X_A\beta>0.
 
 An intercept-bearing design has an immediate separator through its constant positive column. A no-intercept design may or may not admit one.
 
-The initialization routine should therefore operate on the actual executed `X_work`; it should not branch on the public `fit_intercept` flag except indirectly through the design it receives.
+The initialization routine therefore operates on the actual executed `X_work`; it does not branch on the public `fit_intercept` flag except indirectly through the design it receives.
 
 ### 4.3 Geometric feasibility characterization
 
@@ -184,27 +186,35 @@ with the current established semantics:
 4. return `None` for omitted/uniform/effectively-uniform inputs;
 5. return the aligned vector for genuine non-uniform weights.
 
-Newton and L-BFGS must both use this helper. L-BFGS keeps its separate loss-capability gate after preparation. Preserve a thin alias for `_prepare_newton_sample_weight` only if current internal tests/imports require it; do not preserve duplicate classification logic.
+Newton and L-BFGS both use this helper. L-BFGS keeps its separate loss-capability gate after preparation. Preserve a thin alias for `_prepare_newton_sample_weight` only if current internal tests/imports require it; do not preserve duplicate classification logic.
 
-The domain initializer and domain check must consume the prepared identity, not the raw public weight vector.
+The domain initializer, feasibility check and domain step cap consume the prepared identity, not the raw public weight vector.
 
-### B. Add a private loss-owned optimization-domain interface
+### B. Add private loss-owned optimization-domain hooks
 
-Add default no-op hooks on `LossBase`, with private names so this is not a new public user API. The exact naming can be chosen during implementation, but the semantics should be equivalent to:
+Add default no-op hooks on `LossBase`, with private names so this is not a new public user API. The exact names can be selected during implementation, but semantics should be equivalent to:
 
 ```python
 _loss_domain_initial_point(X, y, sample_weight=None) -> array | None
 _loss_domain_is_feasible(X, coef, sample_weight=None) -> bool
+_loss_domain_max_step(X, coef, delta, sample_weight=None) -> float | None
 ```
+
+Here `delta` is the **additive update direction**, so a trial point is
+
+\[
+\beta(t)=\beta+t\Delta.
+\]
 
 Default `LossBase` behavior:
 
 - initial point: `None` (solver retains its normal zero/default start);
-- feasibility: `True`.
+- feasibility: `True`;
+- max step: `None` / no domain cap.
 
-`GammaLoss(link="inverse_power")` overrides both. `GammaLoss(link="log")` keeps the defaults.
+`GammaLoss(link="inverse_power")` overrides all three. `GammaLoss(link="log")` keeps the defaults.
 
-Ownership rule: Gamma defines its own predictor domain; generic solvers consume the hook without importing `glm_core` or hard-coding the Gamma loss name.
+Ownership rule: Gamma defines its own predictor domain; generic solvers consume the hooks without importing `glm_core` or hard-coding the Gamma loss name.
 
 ### C. Construct a backend-native inverse-power Gamma interior start
 
@@ -212,41 +222,61 @@ For active design `X_A` on the actual execution backend/dtype:
 
 1. Reject an active row whose numerical norm is zero/non-finite.
 2. Normalize nonzero active rows by positive row norms to improve conditioning; this does not change the sign-feasibility problem.
-3. Fast path: if a single feature column has one strict sign on every active row, use that signed basis vector as a separating direction. This recovers the current augmented-intercept start because the appended ones column is immediately detected.
+3. Fast path: if a single feature column has one certified strict sign on every active row, use that signed basis vector as the separating direction. This recovers the current augmented-intercept start because the appended ones column is immediately detected.
 4. Otherwise solve the minimum-norm convex-hull problem
 
    \[
    \min_{c\in\operatorname{conv}(u_i)} \frac12\|c\|_2^2
    \]
 
-   using a backend-native Gilbert / Frank-Wolfe iteration. At iterate `c_k`, choose
+   using a deterministic backend-native Gilbert / Frank-Wolfe iteration.
 
-   \[
-   s_k=u_{j_k},\qquad
-   j_k=\arg\min_i u_i^\top c_k,
-   \]
+Deterministic initialization:
 
-   and use the exact segment step
+\[
+c_0=\frac1{|A|}\sum_{i\in A}u_i,
+\]
 
-   \[
-   \gamma_k=
-   \operatorname{clip}\left(
-   \frac{\|c_k\|_2^2-c_k^\top s_k}
-        {\|c_k-s_k\|_2^2},0,1\right),
-   \]
+which is already a convex combination. At iterate `c_k`, choose
 
-   \[
-   c_{k+1}=(1-\gamma_k)c_k+\gamma_k s_k.
-   \]
+\[
+s_k=u_{j_k},\qquad
+j_k=\operatorname*{argmin}_i u_i^\top c_k,
+\]
 
-5. A positive computed minimum margin
+using the backend's deterministic first-index tie behavior, and define
 
-   \[
-   m_k=\min_i u_i^\top c_k
-   \]
+\[
+m_k=\min_i u_i^\top c_k,
+\qquad
+G_k=\|c_k\|_2^2-m_k.
+\]
 
-   above a dtype-scaled certification tolerance is a direct feasible-separator certificate.
-6. If the convex-hull residual converges numerically to zero, or the iteration reaches its reviewed limit without a positive certified margin, fail closed with a domain-feasibility error that distinguishes `numerically unresolved / no certified strict interior` from an ordinary optimizer convergence warning. Do not claim exact mathematical infeasibility from an approximate floating-point certificate.
+A positive `m_k` above the reviewed dtype-scaled certification tolerance is a direct feasible-separator certificate.
+
+Otherwise use the exact segment step
+
+\[
+\gamma_k=
+\operatorname{clip}\left(
+\frac{\|c_k\|_2^2-c_k^\top s_k}
+     {\|c_k-s_k\|_2^2},0,1\right),
+\]
+
+\[
+c_{k+1}=(1-\gamma_k)c_k+\gamma_k s_k.
+\]
+
+If the step denominator is below the reviewed numerical floor before a positive separator is certified, classify the geometry as `numerically unresolved` rather than dividing by a tiny value.
+
+Tolerance policy:
+
+- tolerances are derived from the executed floating dtype after row normalization;
+- the exact constants and maximum iteration count are frozen by hosted analytic/geometric characterization **before** schema-v4 physical validation;
+- they are not loosened after observing a physical failure;
+- successful certification always performs a final check on the original, unnormalized active design and rejects non-finite/non-positive predictors.
+
+The negative certificate is intentionally conservative: convergence near the origin or exhaustion without a positive certified margin reports `no numerically certified strict interior` / `numerically unresolved`. Do not claim exact mathematical infeasibility from an approximate floating-point convex-hull residual.
 
 No SciPy/CPU LP or QP fallback is introduced. CuPy/Torch inputs stay on their selected device; only scalar stopping/certificate values may synchronize.
 
@@ -275,35 +305,76 @@ c_{\mathrm{ray}}
 
 (or `n / sum(y_i a_i)` on the unweighted route).
 
-Use this only as an initialization scale, not as a new statistical restriction. After scaling, explicitly verify on the backend that the resulting coefficient vector is finite and every active predictor is finite and strictly positive. If the ray scale is non-finite or cannot produce a numerically certified interior point, fail closed with the domain-initialization error.
+Use this only as an initialization scale, not as a new statistical restriction. After scaling, explicitly verify on the backend that the coefficient vector is finite and every active predictor is finite and strictly positive. If the ray scale is non-finite or cannot produce a numerically certified interior point, fail closed with the domain-initialization error.
 
 For an intercept-only separator this reduces exactly to the current start `intercept = 1 / mean(y)` or `1 / weighted_mean(y)`.
 
 The initializer need not minimize a smooth penalty; the penalty does not change feasibility. Penalized Newton/L-BFGS may start from the same feasible data-driven point and then optimize the complete penalized objective.
 
-### E. Make Newton and L-BFGS domain preserving
+### E. Compute a domain-aware maximum trial step
+
+Blind halving alone is not sufficient for a claimed domain closure because Newton and L-BFGS have fixed 20/25-trial limits. For an additive trial direction `Delta`, let
+
+\[
+\eta=X_A\beta,
+\qquad
+r=X_A\Delta.
+\]
+
+Feasibility requires
+
+\[
+\eta_i+t r_i>0.
+\]
+
+Only rows with `r_i < 0` constrain the step. The mathematical boundary is
+
+\[
+t_{\max}
+=\min_{i:r_i<0}\frac{\eta_i}{-r_i}.
+\]
+
+The Gamma domain hook returns an interior cap slightly below that boundary using a fixed reviewed safety factor derived before physical validation. If no row decreases toward the boundary, no cap is needed.
+
+Newton converts its subtract-direction notation to the additive direction `Delta=-d`; L-BFGS passes its ordinary additive search direction directly. Each solver starts Armijo from
+
+\[
+t_0=\min(1,t_{\mathrm{domain}})
+\]
+
+when a cap is present, and still performs its existing objective-based Armijo backtracking afterward.
+
+Every trial is also checked by `_loss_domain_is_feasible` before objective evaluation as a defensive certificate; an infeasible trial is never passed into `GammaLoss`.
+
+### F. Make Newton and L-BFGS domain preserving
 
 For `newton_solver` and `lbfgs_solver` only:
 
 1. preprocess X/y and prepare analytic weights on the executed backend/dtype;
-2. if `init_coef` is omitted and the loss supplies a domain initializer, use it before any value/gradient/Hessian evaluation;
-3. if the caller supplies `init_coef`, treat it as authoritative but validate it against the loss domain before the first objective evaluation; do not silently replace an explicit invalid warm start;
-4. validate the solver-generated initial point before the first value/gradient/Hessian evaluation;
-5. during Armijo backtracking, check loss-domain feasibility for each trial point before evaluating the objective;
-6. an infeasible trial is a rejected line-search candidate and causes step reduction; it is not passed into `GammaLoss` and is not converted into a generic solver exception;
+2. if no initial coefficient is supplied and the loss supplies a domain initializer, use it before any value/gradient/Hessian evaluation;
+3. validate the initial point before the first value/gradient/Hessian evaluation;
+4. compute a loss-domain step cap from the additive search direction before Armijo;
+5. check every trial point's feasibility before objective evaluation;
+6. retain existing Armijo sufficient-decrease conditions after domain feasibility is satisfied;
 7. accepted/current iterates are therefore always in the loss domain.
+
+Explicit versus framework-owned warm starts require distinct handling:
+
+- a direct exported solver call that supplies `init_coef` is authoritative; an invalid explicit warm start raises a precise domain error and is not silently replaced;
+- internal estimator/CV warm starts are framework-owned. Affected Gamma consumers must validate such warm starts at their boundary and, when one is invalid for the current fold/design, discard it and pass `init_coef=None` so the loss can construct a fresh family-valid start;
+- do not add a generic solver flag that silently guesses whether an `init_coef` came from a user or an internal cache.
 
 The existing Armijo constants, convergence tolerances, Newton linear-solve behavior, L-BFGS history update, and warning policy remain unchanged.
 
 This closure deliberately does **not** remove or reinterpret `GammaLoss._ETA_LO/_ETA_HI`; it prevents explicit Newton/L-BFGS from evaluating or accepting non-positive active predictors. Other Gamma solver families retain their current clipping/numerical behavior in this PR.
 
-### F. Remove the ordinary-GLM categorical no-intercept guard
+### G. Remove the ordinary-GLM categorical no-intercept guard
 
 After the loss/solver domain contract exists, simplify `statgpu/linear_model/_glm_weighted_explicit_solver_contract.py`:
 
 - remove the genuine-nonuniform `fit_intercept=False` categorical rejection;
-- remove the installer-owned inverse-Gamma start if the shared loss/solver initializer now reproduces its behavior;
-- continue to construct the actual `X_work` on the selected backend/dtype and pass the user's explicit solver and `sample_weight` unchanged;
+- remove the installer-owned inverse-Gamma start once the shared loss/solver initializer reproduces its intercept behavior;
+- continue to construct actual `X_work` on the selected backend/dtype and pass the user's explicit solver and `sample_weight` unchanged;
 - keep provenance publication, runtime-installer idempotence/introspection, ordered-model isolation, and explicit solver authority unchanged.
 
 No family-specific feasibility rule should remain in the ordinary wrapper once the shared domain contract owns it.
@@ -316,10 +387,20 @@ Because initialization/domain handling moves into `GammaLoss` + shared Newton/L-
 
 1. Ordinary `GammaRegression(link="inverse_power")` and generic ordinary GLM surface that resolves to the same loss.
 2. Direct exported `newton_solver` and `lbfgs_solver` when called with `GammaLoss(link="inverse_power")`.
-3. `PenalizedGammaRegression(link="inverse_power")` and `PenalizedGeneralizedLinearModel(loss="gamma", loss_kwargs={"link": "inverse_power"})` on maintained smooth L2/no-penalty Newton/L-BFGS routes.
-4. `PenalizedGLM_CV` inverse-power Gamma L2 routes if current public construction can reach them; fold/candidate/final-refit feasibility failures must remain visible rather than being silently converted into unrelated scores.
+3. Public `PenalizedGammaRegression(link="inverse_power")` and `PenalizedGeneralizedLinearModel(loss="gamma", loss_kwargs={"link": "inverse_power"})` on maintained smooth L2/no-penalty Newton/L-BFGS routes.
+4. Public `PenalizedGLM_CV(loss="gamma", loss_kwargs={"link": "inverse_power"}, penalty="l2", ...)`, including candidate folds and selected full-data refit. The current class exposes scalar-response Gamma plus `loss_kwargs`; this is therefore an affected public consumer, not an optional discovery item.
 5. Formula-driven ordinary Gamma paths, including an explicit no-intercept formula.
-6. Existing `compute_inference=True` ordinary/penalized inverse-power Gamma rows where inference is already publicly supported; final fitted parameters handed to inference must remain domain-feasible.
+6. Existing `compute_inference=True` ordinary/penalized inverse-power Gamma rows where inference is already publicly supported; final fitted parameters handed to inference remain domain-feasible.
+
+### Internal warm-start ownership to trace
+
+Before coding, enumerate every affected call site that passes `init_coef` into Newton/L-BFGS, especially:
+
+- penalized direct-fit `_init_coef` / warm-start controls;
+- CV alpha-path/fold warm starts;
+- final-refit reconstruction.
+
+Mark each as public/user-owned or internal/framework-owned and apply §5F accordingly. A representative fit is insufficient for this shared change.
 
 ### Preservation consumers
 
@@ -328,8 +409,6 @@ Because initialization/domain handling moves into `GammaLoss` + shared Newton/L-
 - explicit IRLS/FISTA/etc.;
 - current L-BFGS non-GLM weight capability boundaries;
 - ordered models and standalone logistic paths.
-
-If reconnaissance shows a listed penalized/CV inverse-power row is already explicitly unsupported by an independent public contract, preserve that boundary and document/test the precise reason rather than silently adding a new capability.
 
 ## 7. Hosted test plan
 
@@ -352,8 +431,9 @@ Add deterministic no-intercept inverse-Gamma fixtures covering:
 
 For every successful case assert:
 
-- all objective/gradient/Hessian evaluations and accepted final predictors on active rows are strictly positive;
-- coefficient/gradient/KKT residuals are within maintained tolerance;
+- initial and final active predictors are strictly positive;
+- no instrumented value/gradient/Hessian evaluation receives a non-positive active predictor;
+- coefficient error and gradient/KKT residuals meet maintained tolerance;
 - positive global weight rescaling leaves the optimum unchanged;
 - omitted/uniform/effectively-uniform routes agree according to the historical unweighted objective contract.
 
@@ -362,9 +442,11 @@ For every successful case assert:
 For both Newton and L-BFGS:
 
 - initial domain validation happens before the first loss evaluation;
-- explicit invalid `init_coef` fails precisely and is not silently repaired;
-- line search rejects an intentionally constructed domain-crossing full step and accepts a smaller feasible step when one exists;
+- direct explicit invalid `init_coef` fails precisely and is not silently repaired;
+- framework-owned invalid warm starts are discarded/reseeded by the owning consumer rather than by solver guesswork;
+- an intentionally constructed domain-crossing full step receives `t_0 < 1` from the domain cap when appropriate;
 - no infeasible trial reaches `GammaLoss.fused_value_and_gradient` / `hessian` instrumentation;
+- Armijo still rejects objective-increasing feasible candidates;
 - current Newton rank fallback / L-BFGS curvature-history behavior remains unchanged;
 - convergence and line-search warnings remain hard failures in PR151 acceptance tests.
 
@@ -374,17 +456,19 @@ For both Newton and L-BFGS:
 - CuPy/Torch-CUDA exact-device behavior covered by physical validation;
 - mixed Torch input dtype classification uses the final promoted `X_work` dtype;
 - the shared analytic-weight helper preserves current Newton/L-BFGS uniformity classification exactly;
+- domain initialization and step capping use the same prepared weight identity as objective evaluation;
 - no full active design/weight vector is transferred to host merely for feasibility initialization.
 
-### 7.4 Public consumer and formula closure
+### 7.4 Public consumer, CV, formula and inference closure
 
-Cover, proportional to reachability:
+Cover:
 
 - ordinary `GammaRegression` intercept/no-intercept;
 - generic ordinary GLM equivalent surface;
 - formula with and without intercept plus missing-row/sample-weight alignment;
-- penalized inverse-power Gamma smooth L2/no-penalty direct fits;
-- inverse-power Gamma L2 CV candidate/fold/final refit where public support exists;
+- public penalized inverse-power Gamma smooth L2/no-penalty direct fits;
+- `PenalizedGLM_CV` inverse-power Gamma L2 candidate/fold/final-refit behavior, including an internal warm-start that becomes invalid under a different fold geometry;
+- candidate/domain failure classification: design-domain errors must not be silently converted into an unrelated validation score or MSE fallback;
 - inference smoke/parity on successful maintained rows;
 - clone/get-params/introspection unchanged because no constructor control is added.
 
@@ -419,31 +503,33 @@ Before the new physical run, version the validator to schema **v4** and freeze t
 Add physical routes for at least:
 
 - feasible no-intercept inverse-power Gamma × Newton/L-BFGS × NumPy/CuPy/Torch;
+- omitted/uniform/genuine non-uniform initialization identity on a maintained inverse-Gamma fixture where appropriate;
 - positive global weight-rescaling invariance;
 - final active-predictor minimum `> 0` and truthful solver/backend/device provenance;
-- one domain-backtracking characterization that proves the accepted path stays feasible;
-- affected penalized/CV inverse-power Gamma smooth consumer routes if §6 confirms they are maintained public consumers.
+- one domain-step-cap characterization showing a full step would cross the boundary while the accepted step remains feasible;
+- public penalized inverse-power Gamma L2 direct fit and CV final refit on NumPy/CuPy/Torch if the hosted closure confirms those maintained paths.
 
-Retain the existing 48 ordinary routes, cross-container routes, and shared penalized/CV L-BFGS consumers unless implementation review proves a route is genuinely unaffected and the validator contract explicitly records the scoped change.
+Retain the existing ordinary family/link routes, cross-container routes, and shared penalized/CV L-BFGS consumers unless schema-v4 review explicitly documents a narrower unaffected subset. No previously accepted threshold may be loosened post-run without a new reviewed schema.
 
-Final physical acceptance requires a clean exact implementation/validator head, CuPy + Torch CUDA on the same source, warning-as-error gates, unchanged frozen coefficient/rescaling tolerances unless pre-run schema review says otherwise, and a newly retained raw artifact with its exact `source_sha`.
+Final physical acceptance requires a clean exact implementation/validator head, CuPy + Torch CUDA on the same source, warning-as-error gates, frozen coefficient/rescaling/domain thresholds, and a newly retained raw artifact with its exact `source_sha` outside benchmark-source scan roots.
 
 ## 10. Implementation order
 
 1. Freeze this plan through repeated independent plan review/fix passes.
-2. Add shared analytic-weight preparation and parity tests without changing behavior.
-3. Add `LossBase` private domain hooks and inverse-power `GammaLoss` implementation + unit tests.
-4. Add backend-native feasible-start algorithm and analytic/geometric tests.
-5. Integrate domain initialization/validation into Newton; run Newton-focused regression suite.
-6. Integrate the same hooks into L-BFGS; run L-BFGS/weighted capability regressions.
-7. Remove ordinary wrapper's no-intercept guard/family-specific initializer and close ordinary public/formula/inference tests.
-8. Close penalized/CV consumers identified in §6.
-9. Update EN/CN docs/changelogs/support matrices.
-10. Version/freeze physical validator schema v4 and its static contract tests.
-11. Run targeted tests, full hosted suite and current-head workflows.
-12. Run `.claude/skills/code-review` in independent auto-fix mode; repeat until no CRITICAL/HIGH or in-scope MEDIUM finding remains.
-13. Run exact-source physical P100/CUDA acceptance for schema v4 and retain the raw artifact outside benchmark-source scan roots.
-14. Re-run a fresh exact-head review after physical evidence and only then mark PR151 implementation closure complete. Do not merge without explicit approval.
+2. Inventory affected direct/penalized/CV warm-start call sites and classify ownership.
+3. Add shared analytic-weight preparation and parity tests without changing behavior.
+4. Add `LossBase` private domain hooks and inverse-power `GammaLoss` feasibility/step-cap implementation + unit tests.
+5. Add backend-native feasible-start algorithm and analytic/geometric tests.
+6. Integrate domain initialization/validation/step cap into Newton; run Newton-focused regression suite.
+7. Integrate the same hooks into L-BFGS; run L-BFGS/weighted capability regressions.
+8. Remove ordinary wrapper's no-intercept guard/family-specific initializer and close ordinary public/formula/inference tests.
+9. Close penalized/CV consumers, including framework-owned invalid warm-start reseeding.
+10. Update EN/CN docs/changelogs/support matrices.
+11. Version/freeze physical validator schema v4 and its static contract tests.
+12. Run targeted tests, full hosted suite and current-head workflows.
+13. Run `.claude/skills/code-review` in independent auto-fix mode; repeat until no CRITICAL/HIGH or in-scope MEDIUM finding remains.
+14. Run exact-source physical P100/CUDA acceptance for schema v4 and retain the raw artifact outside benchmark-source scan roots.
+15. Re-run a fresh exact-head review after physical evidence and only then mark PR151 implementation closure complete. Do not merge without explicit approval.
 
 ## 11. Non-goals
 
@@ -453,18 +539,27 @@ Final physical acceptance requires a clean exact implementation/validator head, 
 - no removal of inverse-Gamma clipping from FISTA/IRLS/other solver families;
 - no Proximal-Newton metric-prox implementation (#157);
 - no Huber IRLS implementation (#156);
-- no unrelated loss capability redesign beyond the private no-op domain hook needed by shared Newton/L-BFGS;
+- no unrelated loss capability redesign beyond private no-op domain hooks needed by shared Newton/L-BFGS;
 - no new performance/speedup claim.
 
-## 12. Plan review/fix closure criteria
+## 12. Plan review/fix history
 
-Each plan review pass must restart from the then-current exact plan file and check at least:
+### Round 1 — findings fixed
+
+- **HIGH / SOLVER — fixed:** the first draft relied on reject-and-half domain backtracking only. Fixed by adding a loss-owned analytic domain step cap, with ordinary Armijo still applied after the cap.
+- **HIGH / CV — fixed:** the first draft treated every supplied `init_coef` as user-authoritative. Fixed by separating direct/user-owned warm starts from framework-owned penalized/CV warm starts; invalid internal starts are discarded at their owning consumer and rebuilt through the loss initializer.
+- **MEDIUM / NUMERICAL — fixed:** the first draft under-specified convex-hull iteration initialization, denominator failure and certification semantics. Added deterministic `c_0`, explicit gap/margin quantities, tiny-denominator handling, dtype-derived tolerances, final original-design certification, and conservative `numerically unresolved` failure language.
+- **MEDIUM / CONSUMER — fixed:** the first draft made inverse-power Gamma penalized/CV closure conditional on later discovery. `PenalizedGammaRegression` publicly supports `link="inverse_power"` and `PenalizedGLM_CV` publicly exposes Gamma plus `loss_kwargs`; both are now explicit affected consumers.
+
+## 13. Plan review/fix closure criteria
+
+Each new plan review pass restarts from the then-current exact plan file and checks at least:
 
 1. mathematical equivalence/limitations of the feasibility characterization;
 2. whether floating-point feasibility can be overclaimed as exact infeasibility;
 3. objective/weight/domain alignment, especially zero-weight and effectively-uniform rows;
-4. initialization behavior under intercept, no intercept, explicit warm starts and penalties;
-5. line-search domain preservation before any loss evaluation;
+4. initialization behavior under intercept, no intercept, user-owned/internal warm starts and penalties;
+5. analytic domain step capping plus Armijo sufficient decrease;
 6. NumPy/CuPy/Torch and mixed-dtype/device ownership;
 7. ordinary/penalized/CV/formula/inference consumer closure;
 8. generic-solver blast radius and preservation of non-Gamma losses;
