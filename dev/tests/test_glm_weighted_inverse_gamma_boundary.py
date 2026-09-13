@@ -1,19 +1,21 @@
-"""Boundary tests for weighted inverse-link Gamma smooth solvers."""
+"""Boundary tests for inverse-power Gamma explicit smooth solvers."""
 
 from __future__ import annotations
-
-import warnings
 
 import numpy as np
 import pytest
 
+from statgpu.glm_core import get_glm_loss
 from statgpu.linear_model import GammaRegression
 
 
-def _data(seed=15601, n=80, p=3):
+def _feasible_data(seed=15601, n=80, p=3):
     rng = np.random.default_rng(seed)
-    X = rng.normal(scale=0.2, size=(n, p)).astype(np.float64)
-    eta = np.clip(1.0 + X @ np.array([0.08, -0.05, 0.04]), 0.7, 1.3)
+    X = rng.normal(scale=0.08, size=(n, p)).astype(np.float64)
+    X[:, 0] = rng.uniform(0.8, 1.2, size=n)
+    beta = np.array([0.9, 0.05, -0.04], dtype=np.float64)
+    eta = X @ beta
+    assert np.all(eta > 0)
     mu = 1.0 / eta
     y = (mu * rng.lognormal(0.0, 0.035, size=n)).astype(np.float64)
     weights = np.linspace(0.55, 1.65, n, dtype=np.float64)
@@ -21,31 +23,54 @@ def _data(seed=15601, n=80, p=3):
 
 
 @pytest.mark.parametrize("solver", ["newton", "lbfgs"])
-def test_weighted_inverse_gamma_no_intercept_fails_closed_precisely(solver):
-    X, y, weights = _data()
+def test_weighted_inverse_gamma_no_intercept_is_supported_when_domain_feasible(solver):
+    X, y, weights = _feasible_data()
     model = GammaRegression(
         link="inverse_power",
         fit_intercept=False,
         solver=solver,
         device="cpu",
-        max_iter=300,
-        tol=1e-8,
-    )
+        max_iter=500,
+        tol=1e-9,
+    ).fit(X, y, sample_weight=weights)
 
-    with pytest.raises(ValueError, match="requires fit_intercept=True"):
-        model.fit(X, y, sample_weight=weights)
+    eta = X @ model.coef_
+    loss = get_glm_loss("gamma", link="inverse_power")
+    lo, hi = loss._loss_domain_bounds(X)
+    assert np.all(np.isfinite(model.coef_))
+    assert np.all(eta > lo)
+    assert np.all(eta < hi)
+    assert model.intercept_ == 0.0
+
+
+@pytest.mark.parametrize("solver", ["newton", "lbfgs"])
+def test_inverse_gamma_one_dimensional_weighted_solution_matches_closed_form(solver):
+    x = np.array([0.7, 0.9, 1.1, 1.3, 1.6], dtype=np.float64)
+    X = x[:, None]
+    y = np.array([1.4, 1.1, 0.95, 0.8, 0.65], dtype=np.float64)
+    weights = np.array([0.5, 1.0, 1.7, 0.8, 2.0], dtype=np.float64)
+    expected = weights.sum() / np.sum(weights * y * x)
+
+    model = GammaRegression(
+        link="inverse_power",
+        fit_intercept=False,
+        solver=solver,
+        device="cpu",
+        max_iter=500,
+        tol=1e-11,
+    ).fit(X, y, sample_weight=weights)
+
+    np.testing.assert_allclose(model.coef_, [expected], rtol=2e-7, atol=2e-9)
 
 
 @pytest.mark.parametrize("solver", ["newton", "lbfgs"])
 @pytest.mark.parametrize("almost_uniform", [False, True])
-def test_inverse_gamma_no_intercept_uniform_weights_keep_unweighted_path(
+def test_inverse_gamma_no_intercept_uniform_weights_equal_unweighted_objective(
     solver, almost_uniform
 ):
-    X, y, _ = _data(seed=15602)
+    X, y, _ = _feasible_data(seed=15602)
     weights = np.full(X.shape[0], 3.5, dtype=np.float64)
     if almost_uniform:
-        # Preserve the established floating allclose compatibility rule used by
-        # both smooth solvers rather than treating this as genuine weighting.
         weights[-1] += 1e-8
 
     kwargs = dict(
@@ -53,70 +78,77 @@ def test_inverse_gamma_no_intercept_uniform_weights_keep_unweighted_path(
         fit_intercept=False,
         solver=solver,
         device="cpu",
-        max_iter=5,
-        tol=1e-8,
+        max_iter=500,
+        tol=1e-9,
     )
-    # This historical no-intercept path may emit its existing convergence or
-    # line-search warning.  The regression target is that uniform/effectively
-    # uniform weights execute the identical unweighted numerical path and are
-    # not captured by the new genuine-nonuniform fail-closed boundary.
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        base = GammaRegression(**kwargs).fit(X, y)
-        weighted = GammaRegression(**kwargs).fit(X, y, sample_weight=weights)
+    base = GammaRegression(**kwargs).fit(X, y)
+    weighted = GammaRegression(**kwargs).fit(X, y, sample_weight=weights)
 
     np.testing.assert_allclose(base.coef_, weighted.coef_, rtol=0.0, atol=0.0)
     assert base.intercept_ == weighted.intercept_ == 0.0
 
 
 @pytest.mark.parametrize("solver", ["newton", "lbfgs"])
-@pytest.mark.parametrize("almost_uniform", [False, True])
-def test_inverse_gamma_intercept_uniform_weights_reuse_unweighted_warm_start(
-    solver, almost_uniform, monkeypatch
-):
-    import statgpu.solvers as solvers
+def test_inverse_gamma_intercept_initializer_reduces_to_inverse_mean(solver):
+    X, y, weights = _feasible_data(seed=15603)
+    design = np.column_stack([X, np.ones(X.shape[0])])
+    loss = get_glm_loss("gamma", link="inverse_power")
 
-    X, y, _ = _data(seed=15603)
-    weights = np.full(X.shape[0], 2.75, dtype=np.float64)
-    if almost_uniform:
-        weights[-1] += 1e-8
+    init = loss._loss_domain_initial_point(design, y, sample_weight=weights)
+    expected = 1.0 / np.average(y, weights=weights)
+    np.testing.assert_allclose(init[:-1], 0.0, atol=0.0, rtol=0.0)
+    np.testing.assert_allclose(init[-1], expected, rtol=1e-12, atol=1e-12)
 
-    captured = []
-
-    def capture_solver(*args, **kwargs):
-        init = np.asarray(kwargs["init_coef"], dtype=np.float64).copy()
-        captured.append(init)
-        # Returning the supplied start isolates the public-boundary contract:
-        # this test verifies the exact init_coef handed to the requested solver,
-        # independent of later iterative convergence details.
-        return kwargs["init_coef"], 0
-
-    monkeypatch.setattr(solvers, f"{solver}_solver", capture_solver)
-    kwargs = dict(
+    model = GammaRegression(
         link="inverse_power",
         fit_intercept=True,
         solver=solver,
         device="cpu",
-        max_iter=5,
-        tol=1e-8,
-    )
-    GammaRegression(**kwargs).fit(X, y)
-    GammaRegression(**kwargs).fit(X, y, sample_weight=weights)
-
-    assert len(captured) == 2
-    np.testing.assert_allclose(captured[0], captured[1], rtol=0.0, atol=0.0)
+        max_iter=500,
+        tol=1e-9,
+    ).fit(X, y, sample_weight=weights)
+    assert np.isfinite(model.intercept_)
 
 
 @pytest.mark.parametrize("solver", ["newton", "lbfgs"])
-def test_inverse_gamma_no_intercept_uses_torch_promoted_working_dtype_for_boundary(
-    solver,
-):
+def test_inverse_gamma_zero_weight_conflict_is_equivalent_to_row_deletion(solver):
+    X = np.array([[1.0], [1.4], [-1.0]], dtype=np.float64)
+    y = np.array([1.0, 0.8, 1.2], dtype=np.float64)
+    weights = np.array([1.0, 2.0, 0.0], dtype=np.float64)
+
+    weighted = GammaRegression(
+        link="inverse_power", fit_intercept=False, solver=solver,
+        device="cpu", max_iter=500, tol=1e-10,
+    ).fit(X, y, sample_weight=weights)
+    deleted = GammaRegression(
+        link="inverse_power", fit_intercept=False, solver=solver,
+        device="cpu", max_iter=500, tol=1e-10,
+    ).fit(X[:2], y[:2], sample_weight=weights[:2])
+
+    np.testing.assert_allclose(weighted.coef_, deleted.coef_, rtol=2e-8, atol=2e-10)
+
+
+@pytest.mark.parametrize("solver", ["newton", "lbfgs"])
+def test_inverse_gamma_active_contradiction_fails_without_false_infeasibility_claim(solver):
+    X = np.array([[1.0], [-1.0]], dtype=np.float64)
+    y = np.array([1.0, 1.0], dtype=np.float64)
+
+    model = GammaRegression(
+        link="inverse_power", fit_intercept=False, solver=solver,
+        device="cpu", max_iter=100, tol=1e-8,
+    )
+    with pytest.raises(RuntimeError, match="numerically certified smooth-domain start"):
+        model.fit(X, y)
+
+
+@pytest.mark.parametrize("solver", ["newton", "lbfgs"])
+def test_inverse_gamma_no_intercept_uses_torch_promoted_working_dtype(solver):
     torch = pytest.importorskip("torch")
 
-    # In float16 these weights collapse to one value; in the solver's promoted
-    # float64 working dtype they are genuinely non-uniform.  The capability
-    # boundary must therefore use X_work, not the pre-promotion input X.
-    X = torch.ones((4, 2), dtype=torch.float16)
+    X = torch.tensor(
+        [[1.0, 0.05], [1.1, -0.02], [0.9, 0.03], [1.2, 0.01]],
+        dtype=torch.float16,
+    )
     y = torch.tensor([0.9, 1.0, 1.1, 1.2], dtype=torch.float64)
     weights = torch.tensor([1.0, 1.0004, 1.0, 1.0], dtype=torch.float64)
     assert bool(torch.all(X.new_tensor(weights, dtype=torch.float16) == 1.0))
@@ -127,28 +159,8 @@ def test_inverse_gamma_no_intercept_uses_torch_promoted_working_dtype_for_bounda
         fit_intercept=False,
         solver=solver,
         device="cpu",
-        max_iter=5,
+        max_iter=200,
         tol=1e-8,
     )
-    with pytest.raises(ValueError, match="requires fit_intercept=True"):
-        model._fit_smooth_solver(X, y, weights, solver, "torch")
-
-
-def test_unweighted_inverse_gamma_no_intercept_keeps_historical_boundary():
-    # Issue #150 narrows only the newly opened genuinely weighted row.  It does
-    # not turn the historical unweighted no-intercept path into an API migration.
-    X, y, _ = _data(seed=15604)
-    model = GammaRegression(
-        link="inverse_power",
-        fit_intercept=False,
-        solver="lbfgs",
-        device="cpu",
-        max_iter=5,
-        tol=1e-8,
-    )
-    # The historical path may converge or emit its existing numerical warning,
-    # but it must not be rejected by the new weighted-only capability guard.
-    try:
-        model.fit(X, y)
-    except ValueError as exc:
-        assert "requires fit_intercept=True" not in str(exc)
+    model._fit_smooth_solver(X, y, weights, solver, "torch")
+    assert np.all(np.isfinite(model.coef_))
