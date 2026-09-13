@@ -309,17 +309,28 @@ class GammaLoss(GLMLoss):
                 "smooth training domain."
             )
 
+        # Divide only on rows that actually move toward a boundary.  ``where``
+        # would eagerly evaluate division on move==0 rows for NumPy/CuPy,
+        # producing spurious divide-by-zero warnings even though those rows do
+        # not constrain the admissible step.
         if xp.__name__ == "torch":
             import torch
-            inf = torch.as_tensor(float("inf"), dtype=eta.dtype, device=eta.device)
-            lower = torch.where(move < 0, (eta - lo) / (-move), inf)
-            upper = torch.where(move > 0, (hi - eta) / move, inf)
+
+            lower = torch.full_like(eta, float("inf"))
+            upper = torch.full_like(eta, float("inf"))
+            lower_mask = move < 0
+            upper_mask = move > 0
+            lower[lower_mask] = (eta[lower_mask] - lo) / (-move[lower_mask])
+            upper[upper_mask] = (hi - eta[upper_mask]) / move[upper_mask]
             boundary = torch.minimum(torch.min(lower), torch.min(upper))
             boundary_value = self._scalar(boundary)
         else:
-            inf = xp.asarray(float("inf"), dtype=eta.dtype)
-            lower = xp.where(move < 0, (eta - lo) / (-move), inf)
-            upper = xp.where(move > 0, (hi - eta) / move, inf)
+            lower = xp.full_like(eta, float("inf"))
+            upper = xp.full_like(eta, float("inf"))
+            lower_mask = move < 0
+            upper_mask = move > 0
+            lower[lower_mask] = (eta[lower_mask] - lo) / (-move[lower_mask])
+            upper[upper_mask] = (hi - eta[upper_mask]) / move[upper_mask]
             boundary_value = self._scalar(xp.minimum(xp.min(lower), xp.min(upper)))
 
         if not np.isfinite(boundary_value):
