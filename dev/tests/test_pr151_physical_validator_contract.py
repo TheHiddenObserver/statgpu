@@ -1,4 +1,4 @@
-"""Static contract for the issue #150 physical CUDA validator."""
+"""Static contract for the issue #150 physical CUDA validators."""
 
 from __future__ import annotations
 
@@ -7,10 +7,11 @@ from pathlib import Path
 
 
 VALIDATOR = Path("dev/benchmarks/validate_glm_weighted_explicit_solvers_gpu.py")
+VALIDATOR_V4 = Path("dev/benchmarks/validate_pr151_inverse_gamma_domain_gpu_v4.py")
 
 
-def _load_validator():
-    spec = importlib.util.spec_from_file_location("pr151_validator", VALIDATOR)
+def _load_validator(path=VALIDATOR, name="pr151_validator"):
+    spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
@@ -57,3 +58,36 @@ def test_pr151_validator_requires_all_shared_cv_parity_and_selected_alpha_identi
     assert 'cv["selected_alpha"] != ref_cv["selected_alpha"]' in source
     assert '"selected_alpha_matches_numpy": True' in source
     assert '"consumer_case_count": len(_CONSUMER_CASES)' in source
+
+
+def test_pr151_schema_v4_extends_v3_without_rewriting_historical_contract():
+    module = _load_validator(VALIDATOR_V4, "pr151_validator_v4")
+    assert module.SCHEMA_VERSION == 4
+    assert module.SOLVER_TOL == 1.0e-8
+    assert module.ATOL_COEF == 2.0e-5
+    assert module.ATOL_INTERCEPT == 2.0e-5
+    assert module.ATOL_WEIGHT_RESCALE == 2.0e-6
+    assert module._SOLVERS == ("newton", "lbfgs")
+
+    source = VALIDATOR_V4.read_text(encoding="utf-8")
+    assert "v3.run(v3_path)" in source
+    assert '"legacy_schema_v3": legacy' in source
+    assert '"source_sha": source_sha' in source
+    assert '"source_clean": True' in source
+    assert 'default=Path("dev/reviews/pr151_inverse_gamma_domain_gpu_v4.json")' in source
+
+
+def test_pr151_schema_v4_covers_inverse_gamma_domain_and_consumers():
+    source = VALIDATOR_V4.read_text(encoding="utf-8")
+    assert 'fit_intercept=False' in source
+    assert 'loss_kwargs={"link": "inverse_power"}' in source
+    assert '"ordinary_no_intercept": ordinary' in source
+    assert '"cross_container": crossings' in source
+    assert '"penalized_l2_no_intercept": penalized' in source
+    assert '"smooth_l2_cv_intercept": cv_routes' in source
+    assert '"gpu_negative_domain"' in source
+    assert '"selected_alpha_matches_numpy": True' in source
+    assert 'active contradictory design unexpectedly fitted' in source
+    assert '"errors_vs_row_deletion": errors' in source
+    assert '"eta_min_active"' in source
+    assert '"eta_max_active"' in source
