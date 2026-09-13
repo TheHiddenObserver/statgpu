@@ -55,15 +55,9 @@ def test_direct_invalid_explicit_init_fails_before_objective(monkeypatch, solver
 def test_penalized_inverse_gamma_no_intercept_uses_shared_domain_start(solver):
     X, y, weights = _data()
     model = PenalizedGammaRegression(
-        link="inverse_power",
-        penalty="l2",
-        alpha=0.02,
-        fit_intercept=False,
-        solver=solver,
-        device="cpu",
-        max_iter=600,
-        tol=1e-9,
-        compute_inference=False,
+        link="inverse_power", penalty="l2", alpha=0.02,
+        fit_intercept=False, solver=solver, device="cpu",
+        max_iter=600, tol=1e-9, compute_inference=False,
     ).fit(X, y, sample_weight=weights)
 
     assert model.link == "inverse_power"
@@ -85,15 +79,9 @@ def test_penalized_inverse_gamma_intercept_does_not_use_log_mean_start(solver):
     assert np.log(np.mean(y)) < 0.0
 
     model = PenalizedGammaRegression(
-        link="inverse_power",
-        penalty="l2",
-        alpha=0.01,
-        fit_intercept=True,
-        solver=solver,
-        device="cpu",
-        max_iter=600,
-        tol=1e-9,
-        compute_inference=False,
+        link="inverse_power", penalty="l2", alpha=0.01,
+        fit_intercept=True, solver=solver, device="cpu",
+        max_iter=600, tol=1e-9, compute_inference=False,
     ).fit(X, y, sample_weight=weights)
 
     assert model.link == "inverse_power"
@@ -116,15 +104,9 @@ def test_penalized_inverse_gamma_intercept_does_not_use_log_mean_start(solver):
 def test_invalid_framework_warm_start_is_discarded_and_reseeded(solver):
     X, y, weights = _data(seed=15159)
     model = PenalizedGeneralizedLinearModel(
-        loss="gamma",
-        loss_kwargs={"link": "inverse_power"},
-        penalty="l2",
-        alpha=0.02,
-        fit_intercept=False,
-        solver=solver,
-        device="cpu",
-        max_iter=600,
-        tol=1e-9,
+        loss="gamma", loss_kwargs={"link": "inverse_power"},
+        penalty="l2", alpha=0.02, fit_intercept=False,
+        solver=solver, device="cpu", max_iter=600, tol=1e-9,
         compute_inference=False,
     )
     model._init_coef = -np.ones(X.shape[1])
@@ -134,31 +116,23 @@ def test_invalid_framework_warm_start_is_discarded_and_reseeded(solver):
 
 
 def test_inverse_gamma_cv_validation_uses_declared_link_not_log_link():
+    from statgpu.linear_model.penalized import _penalized_cv as cv_mod
+
     X, y, weights = _data(seed=15160, n=20, p=2)
-    cv = PenalizedGLM_CV(
-        loss="gamma",
-        loss_kwargs={"link": "inverse_power"},
-        penalty="l2",
-        alpha_grid=[0.1],
-        cv=2,
-        device="cpu",
-        max_iter=100,
-        tol=1e-8,
-    )
-
-    class Model:
-        fit_intercept = True
-        coef_ = np.array([0.82, 0.03])
-        intercept_ = 0.08
-
-    observed = cv._evaluate_single(Model(), X, y, sample_weight=weights)
     loss = get_glm_loss("gamma", link="inverse_power")
+    coef = np.array([0.82, 0.03])
+    intercept = 0.08
+
+    observed = cv_mod._evaluate_loss_numpy(
+        "gamma", loss, X, y, coef, intercept, True,
+        sample_weight=weights,
+    )
     design = np.column_stack([X, np.ones(X.shape[0])])
-    params = np.concatenate([Model.coef_, [Model.intercept_]])
+    params = np.concatenate([coef, [intercept]])
     expected = loss.value(design, y, params, sample_weight=weights)
     np.testing.assert_allclose(observed, expected, rtol=0.0, atol=1e-14)
 
-    eta = X @ Model.coef_ + Model.intercept_
+    eta = X @ coef + intercept
     log_link_value = np.average(eta + y * np.exp(-eta), weights=weights)
     assert abs(observed - log_link_value) > 1e-4
 
@@ -166,15 +140,9 @@ def test_inverse_gamma_cv_validation_uses_declared_link_not_log_link():
 def test_inverse_gamma_smooth_l2_cv_preserves_link_through_selected_refit():
     X, y, weights = _data(seed=15161, n=60, p=2)
     cv = PenalizedGLM_CV(
-        loss="gamma",
-        loss_kwargs={"link": "inverse_power"},
-        penalty="l2",
-        alpha_grid=np.array([0.08, 0.02], dtype=np.float64),
-        cv=3,
-        random_state=151,
-        device="cpu",
-        max_iter=500,
-        tol=1e-8,
+        loss="gamma", loss_kwargs={"link": "inverse_power"},
+        penalty="l2", alpha_grid=np.array([0.08, 0.02], dtype=np.float64),
+        cv=3, random_state=151, device="cpu", max_iter=500, tol=1e-8,
     ).fit(X, y, sample_weight=weights)
 
     assert cv.alpha_ in {0.08, 0.02}
@@ -199,13 +167,8 @@ def test_typed_penalized_gamma_clone_preserves_public_and_internal_link_contract
     from sklearn.base import clone
 
     model = PenalizedGammaRegression(
-        link="inverse_power",
-        loss_kwargs=None,
-        penalty="l2",
-        alpha=0.02,
-        fit_intercept=False,
-        solver="lbfgs",
-        device="cpu",
+        link="inverse_power", loss_kwargs=None, penalty="l2", alpha=0.02,
+        fit_intercept=False, solver="lbfgs", device="cpu",
         compute_inference=False,
     )
     params = model.get_params(deep=False)
@@ -243,17 +206,10 @@ def test_typed_penalized_gamma_preserves_legacy_loss_kwargs_link_precedence():
 def test_penalized_inverse_gamma_weighted_m_estimation_inference():
     X, y, weights = _data(seed=15164, n=80, p=2)
     model = PenalizedGammaRegression(
-        link="inverse_power",
-        penalty="l2",
-        alpha=0.025,
-        fit_intercept=True,
-        solver="newton",
-        device="cpu",
-        max_iter=600,
-        tol=1e-9,
-        compute_inference=True,
-        inference_method="auto",
-        cov_type="hc0",
+        link="inverse_power", penalty="l2", alpha=0.025,
+        fit_intercept=True, solver="newton", device="cpu",
+        max_iter=600, tol=1e-9, compute_inference=True,
+        inference_method="auto", cov_type="hc0",
     ).fit(X, y, sample_weight=weights)
 
     assert model.inference_resolved_method_ == "m_estimation"
@@ -275,18 +231,10 @@ def test_inverse_gamma_cv_inference_runs_on_selected_final_refit_only(monkeypatc
 
     monkeypatch.setattr(PenalizedGeneralizedLinearModel, "fit", recording_fit)
     cv = PenalizedGLM_CV(
-        loss="gamma",
-        loss_kwargs={"link": "inverse_power"},
-        penalty="l2",
-        alpha_grid=np.array([0.08, 0.03]),
-        cv=2,
-        random_state=151,
-        device="cpu",
-        max_iter=500,
-        tol=1e-8,
-        compute_inference=True,
-        inference_method="auto",
-        cov_type="hc0",
+        loss="gamma", loss_kwargs={"link": "inverse_power"},
+        penalty="l2", alpha_grid=np.array([0.08, 0.03]),
+        cv=2, random_state=151, device="cpu", max_iter=500, tol=1e-8,
+        compute_inference=True, inference_method="auto", cov_type="hc0",
     ).fit(X, y, sample_weight=weights)
 
     assert len(calls) == 1
