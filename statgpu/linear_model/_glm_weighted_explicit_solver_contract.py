@@ -141,10 +141,10 @@ def _install_smooth_solver_contract() -> None:
                 X_work = X
             p = X.shape[1]
 
-        # ``init_coef=None`` is intentional.  Ordinary GLMs expose no public
+        # ``init_coef=None`` is intentional. Ordinary GLMs expose no public
         # smooth-solver warm start, and losses with a maintained numerical
-        # domain (currently inverse-power Gamma) now construct their own
-        # backend-native interior start inside Newton/L-BFGS.  Other losses keep
+        # domain (currently inverse-power Gamma) construct their own
+        # backend-native interior start inside Newton/L-BFGS. Other losses keep
         # the historical zero/default solver start.
         solver = newton_solver if solver_name == "newton" else lbfgs_solver
         params, n_iter = solver(
@@ -176,6 +176,12 @@ def _install_smooth_solver_contract() -> None:
         )
 
     setattr(_fit_smooth_solver_with_weights, _SMOOTH_MARKER, True)
+    # The later inverse-Gamma consumer installer must not add a second ordinary
+    # wrapper.  This ordinary owner already delegates family-domain work to the
+    # shared loss/solver hooks; marking that contract lets the later installer
+    # no-op its historical compatibility wrapper while still patching penalized
+    # and CV consumers.
+    setattr(_fit_smooth_solver_with_weights, "_statgpu_inverse_gamma_domain_ordinary", True)
     _fit_smooth_solver_with_weights._statgpu_original = current
     GeneralizedLinearModel._fit_smooth_solver = _fit_smooth_solver_with_weights
 
