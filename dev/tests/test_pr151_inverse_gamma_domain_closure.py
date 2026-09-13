@@ -65,6 +65,8 @@ def test_penalized_inverse_gamma_no_intercept_uses_shared_domain_start(solver):
         compute_inference=False,
     ).fit(X, y, sample_weight=weights)
 
+    assert model.link == "inverse_power"
+    assert model.loss_kwargs is None
     assert getattr(model._loss, "link", None) == "inverse_power"
     assert model._selected_solver == solver
     loss = get_glm_loss("gamma", link="inverse_power")
@@ -95,7 +97,8 @@ def test_penalized_inverse_gamma_intercept_does_not_use_log_mean_start(solver):
         compute_inference=False,
     ).fit(X, y, sample_weight=weights)
 
-    assert model.loss_kwargs.get("link") == "inverse_power"
+    assert model.link == "inverse_power"
+    assert model.loss_kwargs is None
     assert getattr(model._loss, "link", None) == "inverse_power"
     assert model._selected_solver == solver
     assert getattr(model._fit_loss_backend, "_statgpu_inverse_gamma_domain_penalized", False)
