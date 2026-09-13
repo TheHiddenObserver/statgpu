@@ -1,9 +1,9 @@
-"""Inverse-power Gamma explicit Newton/L-BFGS domain closure.
+"""Inverse-power Gamma explicit Newton/L-BFGS consumer closure.
 
-This installer is deliberately narrow.  Shared domain mechanics live in
-``GammaLoss`` and the Newton/L-BFGS solvers; this module reconciles the public
-ordinary, penalized, and smooth-L2 CV consumers that otherwise inject an old
-family-specific start or evaluate Gamma under the wrong validation link.
+Shared domain mechanics live in ``GammaLoss`` and the Newton/L-BFGS solvers.
+The ordinary GLM boundary is owned by ``_glm_weighted_explicit_solver_contract``;
+this installer reconciles only penalized fitting and smooth-L2 CV behavior that
+would otherwise inject a log-link start or score Gamma under the wrong link.
 """
 
 from __future__ import annotations
@@ -13,10 +13,6 @@ from functools import wraps
 import numpy as np
 
 from statgpu.backends import _to_numpy
-from statgpu.linear_model._glm_base import (
-    GeneralizedLinearModel,
-    _torch_promoted_float_dtype,
-)
 from statgpu.linear_model.penalized._fit_mixin import (
     _PenalizedFitMixin,
     _resolve_loss_name,
@@ -24,7 +20,6 @@ from statgpu.linear_model.penalized._fit_mixin import (
 from statgpu.linear_model.penalized._penalized_cv import PenalizedGLM_CV
 
 
-_ORDINARY_MARKER = "_statgpu_inverse_gamma_domain_ordinary"
 _PENALIZED_MARKER = "_statgpu_inverse_gamma_domain_penalized"
 _CV_MARKER = "_statgpu_inverse_gamma_domain_cv"
 _EVAL_MARKER = "_statgpu_inverse_gamma_domain_eval"
@@ -35,92 +30,6 @@ def _is_inverse_gamma(loss) -> bool:
         getattr(loss, "name", "") == "gamma"
         and getattr(loss, "link", None) == "inverse_power"
     )
-
-
-def _install_ordinary_contract() -> None:
-    current = GeneralizedLinearModel._fit_smooth_solver
-    if getattr(current, _ORDINARY_MARKER, False):
-        return
-
-    @wraps(current)
-    def wrapped(self, X, y, sample_weight, solver_name, backend_name):
-        loss_kwargs = self._get_loss_kwargs()
-        if self.family_to_loss() != "gamma" or loss_kwargs.get("link") != "inverse_power":
-            return current(self, X, y, sample_weight, solver_name, backend_name)
-
-        from statgpu.glm_core import get_glm_loss
-        from statgpu.solvers import lbfgs_solver, newton_solver
-        from statgpu.backends._utils import _get_xp
-
-        loss = get_glm_loss("gamma", **loss_kwargs)
-        if self._effective_intercept:
-            xp = _get_xp(backend_name)
-            if backend_name == "cupy":
-                x_dtype = X.dtype if getattr(X.dtype, "kind", "") == "f" else xp.float64
-                X_float = X.astype(x_dtype, copy=False)
-                X_work = xp.column_stack(
-                    [X_float, xp.ones(X.shape[0], dtype=x_dtype)]
-                )
-            elif backend_name == "torch":
-                import torch
-
-                x_dtype = _torch_promoted_float_dtype(X, y)
-                X_float = X.to(dtype=x_dtype)
-                y = y.to(X.device).to(x_dtype)
-                X_work = torch.column_stack(
-                    [
-                        X_float,
-                        torch.ones(X.shape[0], dtype=x_dtype, device=X.device),
-                    ]
-                )
-            else:
-                x_dtype = X.dtype if np.issubdtype(X.dtype, np.floating) else np.float64
-                X_float = X.astype(x_dtype, copy=False)
-                X_work = np.column_stack(
-                    [X_float, np.ones(X.shape[0], dtype=x_dtype)]
-                )
-            p = X.shape[1]
-        else:
-            if backend_name == "torch":
-                x_dtype = _torch_promoted_float_dtype(X, y)
-                X_work = X.to(dtype=x_dtype)
-                y = y.to(X.device).to(x_dtype)
-            else:
-                X_work = X
-            p = X.shape[1]
-
-        solver = newton_solver if solver_name == "newton" else lbfgs_solver
-        params, n_iter = solver(
-            loss,
-            None,
-            X_work,
-            y,
-            max_iter=self._max_iter,
-            tol=self._tol,
-            init_coef=None,
-            sample_weight=sample_weight,
-        )
-
-        params_np = _to_numpy(params)
-        self.n_iter_ = n_iter
-        if self._effective_intercept:
-            self.coef_ = params_np[:p]
-            self.intercept_ = float(params_np[p])
-        else:
-            self.coef_ = params_np.copy()
-            self.intercept_ = 0.0
-        self._params = (
-            np.concatenate([[self.intercept_], self.coef_])
-            if self._effective_intercept
-            else self.coef_.copy()
-        )
-        self._df_resid = self._nobs - (
-            X.shape[1] + (1 if self._effective_intercept else 0)
-        )
-
-    setattr(wrapped, _ORDINARY_MARKER, True)
-    wrapped._statgpu_original = current
-    GeneralizedLinearModel._fit_smooth_solver = wrapped
 
 
 def _install_penalized_contract() -> None:
@@ -155,16 +64,16 @@ def _install_penalized_contract() -> None:
             X_work = X_arr
             pen = self._penalty
 
-        # Penalized/CV warm starts are framework-owned.  Reuse a valid one;
+        # Penalized/CV warm starts are framework-owned. Reuse a valid one;
         # discard an invalid one so the loss can construct a fresh interior
-        # point.  Crucially, no inverse-Gamma default goes through the historical
+        # point. Crucially, no inverse-Gamma default goes through the historical
         # log-link ``log(mean(y))`` branch.
         init = None
         init_features = getattr(self, "_init_coef", None)
         if init_features is not None:
             init_np = np.asarray(_to_numpy(init_features), dtype=np.float64).ravel()
             if self._effective_intercept:
-                init_intercept = float(getattr(self, "_init_intercept", 0.0) or 0.0)
+                init_intercept = float(getattr(self, '_init_intercept', 0.0) or 0.0)
                 init_np = np.concatenate([init_np, [init_intercept]])
             init_candidate = _xp_asarray(init_np, X_arr.dtype, X_arr)
             prepared_weight = _prepare_analytic_sample_weight(
@@ -216,6 +125,12 @@ def _install_penalized_contract() -> None:
 
 
 def _install_cv_loss_evaluator() -> None:
+    """Teach the shared NumPy validator to score actual inverse-Gamma loss.
+
+    Do not wrap ``PenalizedGLM_CV._evaluate_single``: doing so inserts a frame
+    into every loss's warning path.  The inverse-Gamma L2 CV route below passes
+    the correctly resolved loss object directly to this evaluator.
+    """
     from statgpu.linear_model.penalized import _penalized_cv as cv_mod
 
     current = cv_mod._evaluate_loss_numpy
@@ -272,41 +187,6 @@ def _install_cv_loss_evaluator() -> None:
     setattr(wrapped, _EVAL_MARKER, True)
     wrapped._statgpu_original = current
     cv_mod._evaluate_loss_numpy = wrapped
-
-    current_single = PenalizedGLM_CV._evaluate_single
-
-    @wraps(current_single)
-    def evaluate_single(
-        self,
-        model,
-        X_val,
-        y_val,
-        loss_fn=None,
-        X_val_np=None,
-        y_val_np=None,
-        sample_weight=None,
-    ):
-        if (
-            str(self.loss).lower() == "gamma"
-            and str(getattr(self, "_loss_kwargs", {}).get("link", "log")) == "inverse_power"
-        ):
-            loss_fn = _resolve_loss_name(
-                "gamma", loss_kwargs=getattr(self, "_loss_kwargs", None)
-            )
-        return current_single(
-            self,
-            model,
-            X_val,
-            y_val,
-            loss_fn=loss_fn,
-            X_val_np=X_val_np,
-            y_val_np=y_val_np,
-            sample_weight=sample_weight,
-        )
-
-    setattr(evaluate_single, _EVAL_MARKER, True)
-    evaluate_single._statgpu_original = current_single
-    PenalizedGLM_CV._evaluate_single = evaluate_single
 
 
 def _inverse_gamma_l2_cv_scores(
@@ -473,7 +353,6 @@ def _install_cv_contract() -> None:
 
 
 def install_inverse_gamma_smooth_domain_contract() -> None:
-    _install_ordinary_contract()
     _install_penalized_contract()
     _install_cv_loss_evaluator()
     _install_cv_contract()
