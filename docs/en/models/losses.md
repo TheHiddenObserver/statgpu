@@ -1,7 +1,7 @@
 # Loss Functions (LossBase)
 
 > Language: English  
-> Last updated: 2026-09-12  
+> Last updated: 2026-09-13  
 > This page: Low-level loss reference  
 > Switch: [Chinese](../../cn/models/losses.md)
 
@@ -157,11 +157,13 @@ The table below describes the maintained **unweighted** low-level compatibility.
 | FISTA-BB | ✅ | ✅ | ✅ | ✅ | ✅ |
 | FISTA-LLA | ✅ (SCAD/MCP) | ✅ | ✅ | ✅ | ✅ (SCAD/MCP) |
 | Proximal IRLS-CD | ✅ (SCAD/MCP) | ❌ | ❌ | ❌ | ❌ |
-| Proximal Newton | ❌ (no Hessian) | ✅ | ✅ | ✅ | ❌ |
+| Proximal Newton | ❌ (no Hessian) | ✅ (L2/no penalty) | ✅ (L2/no penalty) | ✅ (L2/no penalty) | ❌ |
 | Newton | ❌ (no Hessian) | ✅ | ✅ | ✅ | ✅ |
 | L-BFGS | ✅ | ✅ | ✅ | ✅ | ✅ |
 | ADMM | ✅ | ✅ | ✅ | ✅ | ✅ |
-| IRLS | ✅ (L2 only) | ❌ | ❌ | ❌ | ❌ |
+| IRLS | ✅ (L2/no penalty) | ❌ (currently unavailable) | ✅ (L2/no penalty) | ✅ (L2/no penalty) | ❌ |
+
+Huber IRLS is not currently exposed as a maintained public solver route; restoring and validating it is tracked by Issue #156.
 
 ### Non-uniform weights and direct L-BFGS
 
