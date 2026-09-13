@@ -1,6 +1,6 @@
 # PR #151 inverse-power Gamma domain/initialization plan — review closure addendum
 
-Status: REVIEW-FIX IN PROGRESS  
+Status: PLAN REVIEW CLEAN / IMPLEMENTATION OPEN  
 Normative base plan: `dev/plans/pr151_inverse_power_gamma_smooth_solver_domain_initialization_closure_plan.md` at `3ea92a406ab093eb32e8fce7a98659fb2fb687e2`  
 Parent PR: #151  
 Parent issue: #150  
@@ -57,6 +57,21 @@ Therefore **remove the Round-8 no-intercept CV requirement**. The blocking CV cl
 
 This correction does not weaken no-intercept closure where the public API already exposes it: ordinary `GammaRegression` and direct penalized Gamma remain required in both intercept/no-intercept forms.
 
+## Round 10 — fresh review clean
+
+A fresh independent pass re-reviewed the composite plan against the current solver/loss/ordinary-GLM/penalized/CV/inference implementation and the project code-review matrix rather than inheriting an earlier verdict.
+
+Resolved target for the substantive plan review:
+
+- target kind: PR #151 plan scope;
+- PR base: `658a23add3ea54dce95c51eb4bba80b91cb0f1b3`;
+- substantive base-plan snapshot: `3ea92a406ab093eb32e8fce7a98659fb2fb687e2`;
+- Round-8/9 normative addendum state reviewed immediately before this clean marker: `d8f2c65c970f295fc2f7bfdc6a46fc61d74d82b3`.
+
+No new CRITICAL, HIGH, or in-scope MEDIUM plan issue was found after the Round-9 scope correction.
+
+Implementation-time characterization remains intentionally open for the exact dtype-derived smooth-band margin, Frank-Wolfe/Gilbert stopping constants, meaningful-step floor and schema-v4 measured CUDA results. Those are not plan defects: the composite plan requires them to be fixed by hosted characterization **before** physical acceptance and forbids post-failure loosening without a new reviewed schema.
+
 ## Composite-plan closure rule
 
-The implementation plan is the base plan at `3ea92a406ab093eb32e8fce7a98659fb2fb687e2` plus this addendum. A fresh independent review must re-check that composite target from scratch. The plan is `REVIEW CLEAN` only if that pass finds no new CRITICAL/HIGH or in-scope MEDIUM issue.
+The implementation plan is the base plan at `3ea92a406ab093eb32e8fce7a98659fb2fb687e2` plus this addendum. This composite plan is now **PLAN REVIEW CLEAN / IMPLEMENTATION OPEN**. Any later substantive plan change invalidates this clean verdict and requires another fresh review pass.
