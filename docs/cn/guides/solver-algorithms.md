@@ -170,31 +170,89 @@ $$
 
 直接把普通欧氏近端算子套在 Newton 步上会对应另一个复合目标。因此当前实现只在 L2/无惩罚的光滑路径上执行 Newton；非光滑请求会明确告警并交给 FISTA，直到实现正确的 Hessian 度量近端子问题。
 
-### 算法
+### 完整光滑目标
 
-对当前迭代点 $\beta_k$，记完整光滑目标为
-
-$$
-F(\beta)=\ell(\beta)+P(\beta),
-$$
-
-其中这里的 $P$ 仅为 L2 或 0。首先计算
+当前维护路径的目标写成
 
 $$
-g_k=\nabla\ell(\beta_k)+\nabla P(\beta_k),
+F(\beta)=L(\beta)+P(\beta).
 $$
 
-以及
+若损失函数支持解析权重 `sample_weight=w`，数据拟合项采用同一个归一化带权目标
 
 $$
-H_k=\nabla^2\ell(\beta_k)+\nabla^2P(\beta_k).
+L(\beta)
+=\frac{1}{s}\sum_{i=1}^n w_i\,\ell_i(\eta_i),
+\qquad
+\eta_i=x_i^\top\beta,
+\qquad
+s=\sum_{i=1}^n w_i.
 $$
 
-实现先将 Hessian 对称化，并加入一个很小的 ridge 稳定项：
+无权重时等价于 $w_i=1$、$s=n$。若相应损失可以逐样本写出
+
+$$
+\psi_i(\beta)
+=\frac{\partial\ell_i}{\partial\eta_i},
+\qquad
+h_i(\beta)
+=\frac{\partial^2\ell_i}{\partial\eta_i^2},
+$$
+
+则其梯度与 Hessian 为
+
+$$
+\nabla L(\beta)
+=\frac{X^\top\!\left(w\odot\psi(\beta)\right)}{s},
+$$
+
+$$
+\nabla^2L(\beta)
+=\frac{X^\top\operatorname{diag}\!\left(w\odot h(\beta)\right)X}{s}.
+$$
+
+对于不能或不需要写成上述逐样本曲率形式的结构化损失，求解器直接使用该损失对象实现的 `hessian()` 或 `fused_gradient_and_hessian()`。
+
+当前 Newton 路径只接受 L2 或无惩罚。L2 的实现约定为
+
+$$
+P(\beta)=\frac{\alpha}{2}\|\beta\|_2^2,
+\qquad
+\nabla P(\beta)=\alpha\beta,
+\qquad
+\nabla^2P(\beta)=\alpha I.
+$$
+
+因此在 L2 路径上，第 $k$ 次迭代使用
+
+$$
+g_k
+=\nabla F(\beta_k)
+=\nabla L(\beta_k)+\alpha\beta_k,
+$$
+
+$$
+H_k
+=\nabla^2F(\beta_k)
+=\nabla^2L(\beta_k)+\alpha I.
+$$
+
+无惩罚时只需令 $\alpha=0$。
+
+### 稳定化 Newton 系统
+
+实现先把 Hessian 对称化：
+
+$$
+\bar H_k
+=\frac12\left(H_k+H_k^\top\right),
+$$
+
+然后加入固定的数值稳定项
 
 $$
 \widetilde H_k
-=\frac12\left(H_k+H_k^\top\right)+10^{-10}I.
+=\bar H_k+10^{-10}I.
 $$
 
 若
@@ -203,69 +261,98 @@ $$
 \|g_k\|_2\le \texttt{tol},
 $$
 
-则认为已经收敛。随后求解
+则认为已经收敛。否则求解
 
 $$
-\widetilde H_k d_k=g_k,
+\widetilde H_k d_k=g_k.
 $$
 
-并以
+代码采用“减去方向”的记号，因此候选更新为
 
 $$
-\beta_k(t)=\beta_k-t d_k
+\beta_k(t)=\beta_k-t d_k.
 $$
 
-作为试探点。若线性方程求解被识别为奇异或病态，当前实现不会调用最小二乘求解器，而是直接退回
+若线性方程求解被识别为真正的奇异或病态 Hessian，当前实现**不**调用最小二乘回退，而是直接使用最速下降方向
 
 $$
-d_k=g_k,
+d_k=g_k.
 $$
 
-即最速下降。
-
-由于更新采用“减去方向”的记号，下降方向应满足
+下降量定义为
 
 $$
-g_k^\top d_k>0.
+q_k=g_k^\top d_k.
 $$
 
-如果该内积非有限或不大于 0，同样改用
+因为候选点写作 $\beta_k-t d_k$，有效下降方向需要
+
+$$
+q_k>0.
+$$
+
+若 $q_k$ 非有限或不大于 0，则同样回退到
 
 $$
 d_k=g_k,
 \qquad
-g_k^\top d_k=\|g_k\|_2^2.
+q_k=\|g_k\|_2^2.
 $$
 
 ### Armijo 回溯线搜索
 
-从 $t_0=1$ 开始，寻找第一个满足
+线搜索从
 
 $$
-F(\beta_k-t d_k)
+t_0=1
+$$
+
+开始，每次失败后减半，因此第 $m$ 个候选步长为
+
+$$
+t_m=2^{-m},
+\qquad m=0,1,\ldots,24.
+$$
+
+接受第一个满足完整复合目标 Armijo 条件的候选点：
+
+$$
+F(\beta_k-t_m d_k)
 \le
-F(\beta_k)-10^{-4}t\,g_k^\top d_k
+F(\beta_k)-10^{-4}t_m q_k.
 $$
 
-的步长。若条件不满足，则
+接受后更新
 
 $$
-t\leftarrow \frac{t}{2}.
+\beta_{k+1}=\beta_k-t_m d_k.
 $$
 
-最多尝试 25 次。第一个满足条件的候选点被接受：
+这里的 $F=L+P$ 在当前点和所有试探点都包含 L2 惩罚值。L2 的梯度与曲率已经进入 $g_k$ 和 $H_k$，因此试探点**不会**再额外应用一次欧氏近端算子；否则会重复计入同一个 L2 惩罚。
+
+若 25 个候选步长全部失败，则恢复
 
 $$
-\beta_{k+1}=\beta_k-t d_k.
+\beta_{k+1}=\beta_k,
 $$
 
-如果 25 次试探都失败，则保持 $\beta_{k+1}=\beta_k$，发出线搜索失败警告并结束求解。
+发出线搜索失败警告并结束求解。试探点出现可识别的数值定义域失败时，该候选点被拒绝并继续缩短步长；设备、输入契约等非数值试探错误不会被静默吞掉。
 
-### 默认值与计算后端
+### 初值、默认值与计算后端
 
-- 默认 `max_iter=50`；
-- 默认 `tol=1e-6`；
+若未提供 `init_coef`，则
+
+$$
+\beta_0=0.
+$$
+
+默认控制参数为：
+
+- `max_iter=50`；
+- `tol=1e-6`；
 - 受支持的 NumPy/CuPy/Torch 路径使用对应的原生线性代数实现。
+
+因此，当前名为 `proximal_newton_solver` 的维护路径，在 L2/无惩罚情况下数值上就是**带稳定化 Hessian 与 Armijo 回溯的 damped Newton**；真正的非光滑 Hessian-metric proximal Newton 子问题尚未实现，非光滑惩罚会在进入上述迭代前转交 FISTA。
 
 ---
 
