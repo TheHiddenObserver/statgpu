@@ -28,7 +28,9 @@ Final training flow:
 inverse-power Gamma + explicit Newton/L-BFGS
     -> finalize backend/device/dtype and prepared analytic-weight identity
     -> certify a smooth-domain interior start on the executed training design
-    -> compute an analytic domain step cap for each search direction
+    -> form candidate search direction
+    -> apply singular/non-descent fallback and freeze the final additive direction
+    -> compute the domain step cap for that final direction
     -> Armijo backtracking inside that cap
     -> publish only after ordinary convergence succeeds in the maintained smooth domain
     -> otherwise fail/warn according to the explicit domain/convergence contract
@@ -47,7 +49,7 @@ Classification:
 Active axes:
 
 - loss/objective/domain;
-- solver initialization, step capping, line search, convergence and failure semantics;
+- solver initialization, search-direction fallback, step capping, line search, convergence and failure semantics;
 - analytic `sample_weight` and zero-weight-row semantics;
 - intercept/no-intercept behavior;
 - NumPy/CuPy/Torch backend, device and working dtype;
@@ -263,9 +265,22 @@ Failure of every searched separator to yield a band-certifiable scale is conserv
 
 Geometry tolerance, band margin, conditioning diagnostic and iteration cap are frozen before physical validation.
 
-## 7. Domain-aware maximum step
+## 7. Search direction, domain-aware step cap, and Armijo order
 
-For feasible current `beta` and additive direction `Delta`, define
+Domain capping is computed from the **final direction that will actually enter line search**.
+
+Required solver order:
+
+1. build the Newton or L-BFGS candidate direction;
+2. apply existing singular/ill-conditioned fallback where relevant;
+3. compute the descent product and apply the existing non-descent/non-finite fallback to steepest descent;
+4. freeze the resulting additive direction `Delta`;
+5. compute the loss-domain maximum step for that `Delta`;
+6. start Armijo inside that cap.
+
+A cap computed for a direction that is subsequently replaced is invalid and is not allowed.
+
+For feasible current `beta` and final additive `Delta`, define
 
 \[
 \eta=X_A\beta,
@@ -282,7 +297,9 @@ t_{i,\rm lo}=(\eta_i-L)/(-r_i)\quad(r_i<0),
 t_{i,\rm hi}=(U-\eta_i)/r_i\quad(r_i>0).
 \]
 
-Take the minimum positive crossing time and apply a frozen interior safety factor. Newton passes `Delta=-d`; L-BFGS passes its additive search direction. Armijo begins at `min(1,t_domain)` and retains existing halving/sufficient decrease. Feasibility is checked before every trial objective evaluation.
+Take the minimum positive crossing time and apply a frozen interior safety factor. Newton's final additive direction is `Delta=-d`; L-BFGS's final additive direction is its accepted search direction after any `p=-g` fallback.
+
+Armijo begins at `min(1,t_domain)` and retains existing halving/sufficient decrease. Feasibility is checked before every trial objective evaluation.
 
 If gradient convergence has not occurred but the domain cap collapses below the reviewed meaningful-step floor because the iterate is pinned to `(L,U)`, surface a specific domain-boundary failure. Never publish success from a tiny coefficient change caused only by the bound. Ordinary Armijo failure for a positive interior step keeps existing warning semantics; warning-as-error acceptance prevents it from closing PR151.
 
@@ -293,10 +310,11 @@ For both solvers:
 1. preprocess X/y;
 2. prepare analytic weights on final backend/dtype;
 3. obtain or validate initial coefficients before any value/gradient/Hessian evaluation;
-4. compute domain step cap before Armijo;
-5. validate every trial before objective evaluation;
-6. preserve Armijo constants, convergence tolerances, Newton rank fallback, L-BFGS history and ordinary warning behavior;
-7. never report domain-boundary stagnation as successful convergence.
+4. produce the final search direction after all existing fallback logic;
+5. compute the domain cap for that final direction;
+6. validate every trial before objective evaluation;
+7. preserve Armijo constants, convergence tolerances, Newton rank fallback, L-BFGS history and ordinary warning behavior;
+8. never report domain-boundary stagnation as successful convergence.
 
 Warm-start ownership:
 
@@ -417,9 +435,12 @@ For a well-conditioned CPU fixture with optimum comfortably inside the band, ali
 - direct invalid explicit init fails before loss evaluation;
 - invalid framework start reseeds.
 
-### 11.5 Domain-aware line search/failure
+### 11.5 Domain-aware direction/line-search/failure
 
-- lower and upper crossing caps;
+- singular/ill-conditioned Newton fallback computes cap from fallback direction;
+- Newton non-descent fallback computes cap from `Delta=-grad`, not the rejected Newton direction;
+- L-BFGS non-descent fallback computes cap from `p=-grad`, not the rejected quasi-Newton direction;
+- lower and upper crossings cap `t_0`;
 - feasible objective-increasing trial still fails Armijo;
 - no infeasible trial reaches evaluator;
 - boundary stagnation cannot publish successful convergence;
@@ -476,15 +497,15 @@ Before the new run, freeze schema **v4** with:
 - omitted/uniform/genuine non-uniform behavior;
 - weight-rescaling invariance;
 - min/max active training predictor inside frozen `(L,U)`;
-- domain-step-cap characterization;
+- domain-step-cap characterization using the final post-fallback search direction;
 - truthful solver/backend/device provenance;
-- at least one heterogeneous-container inverse-Gamma route for each explicit solver or an equivalent cross-container matrix proving the domain initializer follows executed backend/device;
-- **GPU negative-domain pair on CuPy and Torch:** with an active contradictory row the no-intercept fit must fail closed; with the same contradictory row assigned genuine zero analytic weight the fit must succeed and match the result obtained after dropping that row;
+- at least one heterogeneous-container inverse-Gamma route for each explicit solver or equivalent cross-container matrix proving the domain initializer follows executed backend/device;
+- **GPU negative-domain pair on CuPy and Torch:** active contradictory row -> no-intercept fit fails closed; same row with genuine zero analytic weight -> fit succeeds and matches dropping that row;
 - penalized inverse-power Gamma L2 direct fit on NumPy/CuPy/Torch;
 - smooth-L2 inverse-power Gamma CV with coefficient/intercept parity **and exact selected-alpha identity** versus NumPy on CuPy/Torch;
 - existing v3 ordinary/cross-container/shared-consumer coverage unless schema-v4 review explicitly justifies replacement.
 
-The GPU negative pair must verify error classification/provenance without permitting CPU fallback, and the zero-weight rescue must verify that domain masking uses the prepared backend-native weight vector.
+The GPU negative pair verifies error classification/provenance without CPU fallback; the zero-weight rescue proves masking uses the prepared backend-native weights.
 
 Raw v4 evidence records exact source SHA, clean source, environment and status and is retained outside benchmark-source scan roots. No post-failure threshold/domain-margin loosening without a new reviewed schema.
 
@@ -495,8 +516,8 @@ Raw v4 evidence records exact source SHA, clean source, environment and status a
 3. Extract shared analytic-weight preparation + preservation tests.
 4. Add private domain hooks and inverse-power Gamma `(L,U)` contract.
 5. Add backend-native separator/initializer + analytic/geometric tests.
-6. Integrate Newton.
-7. Integrate L-BFGS.
+6. Integrate Newton, including post-fallback direction capping.
+7. Integrate L-BFGS, including post-fallback direction capping.
 8. Remove ordinary wrapper guard/duplicate init.
 9. Repair penalized inverse-Gamma init/warm-start/failure transaction.
 10. Repair smooth-L2 inverse-Gamma CV link resolution/scoring/refit/failure transaction.
@@ -555,7 +576,11 @@ Raw v4 evidence records exact source SHA, clean source, environment and status a
 
 ### Round 6 — fixed
 
-- **MEDIUM / BACKEND/ARTIFACT:** feasible GPU routes alone did not prove backend-native negative-domain/active-mask semantics -> schema v4 now includes CuPy/Torch contradictory-design failure plus zero-weight rescue matching row deletion.
+- **MEDIUM / BACKEND/ARTIFACT:** feasible GPU routes alone did not prove backend-native negative-domain/active-mask semantics -> schema v4 includes CuPy/Torch contradictory-design failure plus zero-weight rescue matching row deletion.
+
+### Round 7 — fixed
+
+- **MEDIUM / SOLVER:** domain cap could be computed before Newton/L-BFGS replaced a singular/non-descent candidate direction -> required ordering now freezes the final post-fallback additive direction first and tests cap correctness after each fallback type.
 
 ## 17. Plan review/fix closure criteria
 
@@ -567,7 +592,7 @@ Each new pass restarts from the then-current exact plan and checks:
 4. objective/weight/domain alignment, including zero/effectively-uniform weights;
 5. intercept/no-intercept and caller/framework warm starts;
 6. separator search plus band-scalability rather than sign-only feasibility;
-7. lower/upper step caps, Armijo and boundary-stagnation failure;
+7. final-direction ordering, lower/upper step caps, Armijo and boundary-stagnation failure;
 8. NumPy/CuPy/Torch dtype/device ownership, active-mask semantics and no hidden host fallback;
 9. ordinary/direct/penalized/smooth-L2-CV/formula/inference/failure-state closure;
 10. generic-solver blast radius and Gamma-log/non-Gamma preservation;
