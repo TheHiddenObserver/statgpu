@@ -114,4 +114,10 @@ class PenalizedGammaRegression(PenalizedGeneralizedLinearModel):
     def _resolve_loss(self):
         from statgpu.glm_core import get_glm_loss
 
-        return get_glm_loss("gamma", **self._resolved_gamma_loss_kwargs())
+        kwargs = self._resolved_gamma_loss_kwargs()
+        # ``_pre_fit`` initially mirrors the clone-safe public ``loss_kwargs``
+        # into ``_loss_kwargs``.  Restore the typed wrapper's resolved internal
+        # kwargs here so downstream fit helpers that consume ``_loss_kwargs``
+        # see the same link as the loss object without mutating public state.
+        self._loss_kwargs = dict(kwargs)
+        return get_glm_loss("gamma", **kwargs)
