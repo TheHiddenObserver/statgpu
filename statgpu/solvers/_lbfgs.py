@@ -24,66 +24,35 @@ from statgpu.backends._array_ops import (
     _dot_dev,
     _norm2_dev,
     _sync_scalars,
-    _zeros,
 )
 
 from ._convergence import ConvergenceWarning
+from ._smooth_domain import (
+    _LossDomainError,
+    _domain_feasible,
+    _domain_max_step,
+    _initial_smooth_params,
+    _prepare_analytic_sample_weight,
+)
 from ._utils import (
     _smooth_penalty_gradient,
     _smooth_penalty_value_dev,
-    _validate_sample_weight,
-    _as_backend_vector,
     _validate_smooth_penalty,
 )
 
 
 def _prepare_lbfgs_sample_weight(sample_weight, n_samples, backend, ref_arr, loss):
-    """Validate analytic weights and align active weights to the fit backend.
-
-    Uniform weights retain the historical L-BFGS behavior and are normalized
-    away before optimization.  Genuine non-uniform weights are accepted only
-    for losses that explicitly opt into the shared weighted-L-BFGS contract.
-
-    Match Newton's established ordering exactly: validate first, align to the
-    executed design backend/dtype, then apply the historical uniformity rule.
-    This prevents the two explicit smooth solvers from classifying the same
-    public weight vector differently merely because its input container/dtype
-    differs from the numerical design.
-    """
-    if sample_weight is None:
-        return None
-
-    _validate_sample_weight(sample_weight, n_samples)
-    values = _as_backend_vector(sample_weight, backend, ref_arr).reshape(-1)
-    if backend == "torch":
-        import torch
-
-        uniform_dev = (
-            torch.allclose(values, values[0])
-            if torch.is_floating_point(values)
-            else torch.all(values == values[0])
-        )
-    else:
-        from statgpu.backends._utils import _get_xp
-
-        xp = _get_xp(backend)
-        uniform_dev = (
-            xp.allclose(values, values[0])
-            if getattr(values.dtype, "kind", "") == "f"
-            else xp.all(values == values[0])
-        )
-    uniform = bool(
-        uniform_dev.item() if hasattr(uniform_dev, "item") else uniform_dev
+    """Prepare analytic weights and enforce the L-BFGS capability gate."""
+    values = _prepare_analytic_sample_weight(
+        sample_weight, n_samples, backend, ref_arr
     )
-    if uniform:
+    if values is None:
         return None
-
     if not bool(getattr(loss, "_supports_nonuniform_lbfgs_weights", False)):
         raise ValueError(
             "lbfgs_solver does not support non-uniform sample_weight for "
             f"loss='{getattr(loss, 'name', '?')}'."
         )
-
     return values
 
 
@@ -119,35 +88,10 @@ def lbfgs_solver(
     fail-closed unless they independently declare the same capability.
 
     Uniform weights are normalized away using the historical uniformity rule,
-    preserving the established unweighted numerical path.
-
-    Parameters
-    ----------
-    loss : object
-        Loss with ``fused_value_and_gradient(X, y, coef)`` and
-        ``preprocess(X, y)`` methods.
-    penalty : object or None
-        Smooth penalty (l2 or none).
-    X, y : array-like
-        Design matrix and response vector.
-    max_iter : int
-        Maximum number of L-BFGS iterations.
-    tol : float
-        Convergence tolerance on gradient norm and step norm.
-    init_coef : array-like or None
-        Initial coefficient vector.  Zeros if *None*.
-    history_size : int
-        Number of past (s, y) pairs to store.
-    sample_weight : array-like or None
-        Analytic sample weights. Uniform weights are equivalent to unweighted
-        fitting; genuine non-uniform weights require a capable loss contract.
-
-    Returns
-    -------
-    params : array
-        Optimised coefficient vector.
-    n_iter : int
-        Number of iterations performed.
+    preserving the established unweighted objective. Losses may additionally
+    expose private ``_loss_domain_*`` hooks; L-BFGS then validates/generates an
+    interior start and caps Armijo using the final post-fallback search
+    direction without evaluating infeasible candidates.
     """
     _validate_smooth_penalty(penalty, "lbfgs_solver")
     backend = _resolve_backend("auto", X)
@@ -157,10 +101,15 @@ def lbfgs_solver(
         sample_weight, X_proc.shape[0], backend, X_proc, loss
     )
 
-    if init_coef is not None:
-        params = _as_backend_vector(init_coef, backend, X_proc)
-    else:
-        params = _zeros(n_features, backend, ref_tensor=X_proc)
+    params = _initial_smooth_params(
+        loss,
+        X_proc,
+        y_proc,
+        backend=backend,
+        n_features=n_features,
+        init_coef=init_coef,
+        sample_weight=sample_weight,
+    )
 
     s_hist = []
     y_hist = []
@@ -210,9 +159,20 @@ def lbfgs_solver(
         gn, gdd = _sync_scalars(grad_norm_dev, gdd_dev, backend=backend)
         if gn < tol:
             break
-        if gdd >= 0:
+        if gdd >= 0 or not np.isfinite(gdd):
             direction = -grad
             gdd = -gn * gn  # grad'(-grad) = -||grad||^2
+
+        # Freeze the final post-fallback additive direction before obtaining a
+        # loss-domain cap.  A cap for a discarded quasi-Newton direction is not
+        # a valid feasibility certificate for the actual line search.
+        domain_cap = _domain_max_step(
+            loss,
+            X_proc,
+            params,
+            direction,
+            sample_weight=sample_weight,
+        )
 
         # Line search -- stays on device and uses the same analytic weights as
         # the gradient that generated the search direction.
@@ -225,11 +185,20 @@ def lbfgs_solver(
         )
         old_val_dev = old_val_dev + _smooth_penalty_value_dev(penalty, params)
 
-        step = 1.0
+        step = min(1.0, domain_cap) if domain_cap is not None else 1.0
         params_new = params
         _ls_accepted = False
+        evaluated_domain_trial = False
+        rejected_by_domain = False
         for _ in range(25):
             candidate = params + step * direction
+            if not _domain_feasible(
+                loss, X_proc, candidate, sample_weight=sample_weight
+            ):
+                rejected_by_domain = True
+                step *= 0.5
+                continue
+            evaluated_domain_trial = True
             cand_val_dev, _ = _call_loss_with_weight(
                 loss.fused_value_and_gradient,
                 X_proc,
@@ -245,6 +214,11 @@ def lbfgs_solver(
                 break
             step *= 0.5
         if not _ls_accepted:
+            if rejected_by_domain and not evaluated_domain_trial:
+                raise _LossDomainError(
+                    "lbfgs_solver could not evaluate a numerically interior "
+                    "trial step for the maintained loss domain."
+                )
             warnings.warn(
                 "lbfgs_solver: line search failed to find a descent step "
                 f"after 25 backtracking steps (iteration {iteration}). "
