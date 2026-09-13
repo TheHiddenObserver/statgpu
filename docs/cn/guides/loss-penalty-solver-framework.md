@@ -10,7 +10,7 @@
 
 statgpu 将公共接口与数值计算接口分层组织：**模型类面向用户并负责组织拟合；损失函数与惩罚项共同定义优化问题；求解器读取该问题并执行数值优化；计算后端则贯穿这些步骤。**
 
-因此，“损失函数 × 惩罚类型 × 求解器 × 计算后端”描述的是模型拟合内部可组合的计算结构，而不是一条类继承链。本文档记录当前真实的运行调用关系、调度逻辑和覆盖矩阵。
+“损失函数 × 惩罚类型 × 求解器 × 计算后端”构成模型拟合内部可组合的计算结构，并与模型类的继承层次彼此独立。本文档记录当前运行调用关系、调度逻辑和覆盖矩阵。
 
 ## 架构
 
@@ -57,7 +57,7 @@ statgpu 将公共接口与数值计算接口分层组织：**模型类面向用�
   └── predict() / summary()
 ```
 
-在当前带惩罚模型的主拟合路径中，`_PenalizedFitMixin.fit()` 实际承担上述组织工作：先构造 `self._loss` 与 `self._penalty`，选择计算后端和求解器，再进入 `_fit_loss_backend()`、`_dispatch_irls()` 或 SCAD/MCP 等专用路径。`LossBase` 不是公共模型类的父类，也不是所谓“下一层模型”；它是在计算阶段由模型对象构造、随后交给求解器使用的目标函数对象。
+在当前带惩罚模型的主拟合路径中，`_PenalizedFitMixin.fit()` 承担上述组织工作：先构造 `self._loss` 与 `self._penalty`，选择计算后端和求解器，再进入 `_fit_loss_backend()`、`_dispatch_irls()` 或 SCAD/MCP 等专用路径。`LossBase` 在这一层负责描述优化目标，并由模型对象构造后交给求解器使用。
 
 ### 各层职责
 
@@ -69,7 +69,7 @@ statgpu 将公共接口与数值计算接口分层组织：**模型类面向用�
 | 求解器 | 根据损失函数和惩罚项声明的能力执行具体数值算法 | 否 |
 | 计算后端 | NumPy/CuPy/Torch 数组、设备与数值操作；贯穿上述各层 | 通过模型类选择 |
 
-损失函数与惩罚项是**并列**定义目标函数的两个部分，并不存在先后继承关系：
+损失函数与惩罚项**并列**组成目标函数：
 
 $$
 F(\beta)=L(\beta)+P(\beta).
@@ -87,7 +87,7 @@ $$
 
 ### 计算后端是横切执行维度
 
-NumPy、CuPy、Torch 不应理解成“位于求解器下面的一层”。模型对象先确定实际使用的计算后端和设备；随后 `X`、`y`、`sample_weight`、损失函数导数、惩罚项的近端运算以及求解器迭代，都应在接口约定允许的范围内尽量保留在同一计算后端。只有明确允许的元数据或最终小型结果可以回到主机端。
+NumPy、CuPy、Torch 贯穿模型准备、目标函数计算、惩罚项运算和求解器迭代。模型对象先确定实际使用的计算后端和设备；随后 `X`、`y`、`sample_weight`、损失函数导数、惩罚项的近端运算以及求解器迭代，都在接口约定允许的范围内尽量保留在同一计算后端。只有明确允许的元数据或最终小型结果会回到主机端。
 
 ```text
                   NumPy / CuPy / Torch
@@ -99,7 +99,7 @@ NumPy、CuPy、Torch 不应理解成“位于求解器下面的一层”。模�
                 └────────────────────────┘
 ```
 
-本页只讨论会构造损失函数与惩罚项，并将它们交给通用求解器层的模型拟合路径。面板模型的核心在于面板结构、数据变换和面板专用推断，因此不在本页展开；其当前运行架构见 [面板模型架构](../panel/architecture.md)。
+本页聚焦于“模型构造损失函数与惩罚项，再交给通用求解器”的拟合路径。面板模型采用面板数据变换、OLS/GLS/分期回归和面板专用推断组织计算，其实现架构见 [面板模型架构](../panel/architecture.md)。
 
 ## 1. 损失函数
 
@@ -107,7 +107,7 @@ NumPy、CuPy、Torch 不应理解成“位于求解器下面的一层”。模�
 
 抽象基类位于 `statgpu/losses/_base.py`。子类实现 `per_sample_value()` 和 `per_sample_gradient()`，基类自动派生 `value()`、`gradient()` 与 `fused_value_and_gradient()`。
 
-`LossBase` 是**优化问题的定义接口**，不是公共模型类的基类。模型通常通过 `_resolve_loss()` 或相应工厂构造损失对象，再把它与惩罚对象一起交给求解器。
+`LossBase` 是**优化问题的定义接口**。模型通常通过 `_resolve_loss()` 或相应工厂构造损失对象，再把它与惩罚对象一起交给求解器。
 
 ```python
 class LossBase:
@@ -156,7 +156,7 @@ R_s(t)=\{j:\operatorname{strata}_j=s,\;\operatorname{start}_j<t\leq
 \operatorname{stop}_j\},
 $$
 
-以及 `subject_id` 语义；这些都不是当前通用损失对象的输入维度。
+以及 `subject_id` 语义；这些是高层 Cox 模型接口提供的附加数据结构。
 
 ## 2. 惩罚函数
 
@@ -202,7 +202,7 @@ $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\be
 
 ### 全部求解器
 
-`sample_weight` 不是单纯的求解器属性：是否支持非均匀权重，还取决于损失函数的统计语义，以及函数值、梯度、曲率等能力。下表只列出当前主要路径；完整的支持约定由 #153 跟踪。
+`sample_weight` 的支持取决于求解器、损失函数统计语义以及函数值、梯度、曲率等数值能力。下表列出当前主要路径；完整的支持约定由 #153 跟踪。
 
 | 求解器 | 损失约束 | 惩罚约束 | `sample_weight` | `warm_start` |
 |--------|:-----------------|:---------------------|:------------|:----------:|
@@ -210,7 +210,7 @@ $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\be
 | `irls` | 支持 IRLS 的损失 | L2 / 无惩罚 | 对应损失的 IRLS 路径支持时可用 | ❌ |
 | `newton` | 有 Hessian 的损失 | L2 / 无惩罚 | 由损失函数能力决定；普通 GLM ✅ | ❌ |
 | `lbfgs` | 光滑损失 | L2 / 无惩罚 | 受能力声明约束；普通 GLM ✅ | ❌ |
-| `lbfgs_b` | 光滑盒约束问题 | L2 / 无惩罚 | 尚未声明通用的非均匀权重支持约定 | ❌ |
+| `lbfgs_b` | 光滑盒约束问题 | L2 / 无惩罚 | 尚未声明通用的非均匀权重契约 | ❌ |
 | `fista` | 支持梯度/近端路径的损失 | 全部 | 由具体损失路径决定 | ✅ |
 | `fista_bb` | 支持梯度/近端路径的损失 | 全部（非凸分组惩罚除外） | 由具体损失路径决定 | ✅ |
 | `fista_lla` | 支持当前 LLA 路径的损失 | SCAD/MCP/自适应 | 由具体损失路径决定 | ✅ |
@@ -254,7 +254,7 @@ $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\be
 
 ## 5. 面向用户的带惩罚模型
 
-这些类是用户通常直接构造并调用 `.fit()` 的公共模型类；它们内部再解析损失函数、惩罚项、求解器与计算后端。
+这些类是用户通常直接构造并调用 `.fit()` 的公共模型层；它们内部解析损失函数、惩罚项、求解器与计算后端。
 
 | 类 | 损失 | 惩罚 | 求解器 |
 |-------|------|-----------|---------|
@@ -266,7 +266,7 @@ $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\be
 | `PenalizedRobustRegression` | huber/bisquare | scad/mcp/l2 | proximal_newton/irls |
 | `PenalizedCoxPHModel` | `cox_ph` | l1/l2/elasticnet/scad/mcp | FISTA；SCAD/MCP 使用 FISTA-LLA |
 
-`PenalizedCoxPHModel` 只提供带惩罚估计，不拟合截距，也不提供协方差、显著性检验、基线风险或生存曲线。`fit_intercept=True` 会报错；`compute_inference=True` 会抛出 `NotImplementedError`。需要这些结果时，应使用 `statgpu.survival.CoxPH`。
+`PenalizedCoxPHModel` 提供带惩罚 Cox 系数估计；需要协方差、显著性检验、基线风险或生存曲线时，使用 `statgpu.survival.CoxPH`。
 
 ## 6. 快速参考
 
@@ -305,4 +305,4 @@ model.fit(X, y)
 - Wu & Liu (2009): Variable selection in quantile regression
 - Hunter & Li (2005): MM algorithms for nonconvex penalized estimation
 - Barzilai & Borwein (1988): Two-point step size gradient methods (BB)
-- O'Donoghue & Candes (2015): Adaptive restart for accelerated gradient schemes
+- O'Donoghue & Candes (2015): Adaptive restart for accelerated gradient schemes (BB)
