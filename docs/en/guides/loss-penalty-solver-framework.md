@@ -155,7 +155,7 @@ The high-level `CoxPH` estimator additionally provides Exact ties, delayed-entry
 
 | Penalty | `is_convex` | `is_smooth` | Proximal Operator | LLA Support | P(β) |
 |---------|:---:|:---:|:---:|:---:|------|
-| None / Null | ✅ | ✅ | — | ❌ | 0 |
+| None / Null | ✅ | ✅ | identity | ❌ | 0 |
 | L2 (Ridge) | ✅ | ✅ | — | ❌ | α·‖β‖²₂ |
 | L1 (Lasso) | ✅ | ❌ | soft-threshold | ❌ | α·‖β‖₁ |
 | ElasticNet | ✅ | ❌ | soft-threshold | ❌ | α(r‖β‖₁+(1-r)‖β‖²₂) |
