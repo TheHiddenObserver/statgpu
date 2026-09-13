@@ -43,7 +43,7 @@ All notable changes to statgpu are documented here, organized by release and dat
 - Unified sparse-Gaussian analytic weights across direct NumPy/CuPy/Torch fits and weighted LassoCV: weighted centering occurs on original observations before the equivalent `sqrt(w * n / sum(w))` transform; default CV alpha grids, fold objectives, validation MSE, and final refits share the same convention. Positive constant weights are the exact unweighted CV problem, while weighted non-Gaussian sparse GLMs retain their loss-specific objectives.
 - Unified debiased inference around the same centered average-loss working problem across NumPy/CuPy/Torch, including all-one/global-weight-scale invariance. Intercept-inclusive simultaneous max-|Z| inference now includes the original-coordinate intercept influence in the bootstrap maximum, and successful refits clear stale simultaneous/precision state before publishing new inference.
 - String and public `Penalty`-object forms share the same migration/AUTO-routing contract; clone/get-params/set-params, caller-facing warning locations, formula routing, backend/device provenance, LassoCV final-refit ownership, and failure transactions are covered by maintained regressions.
-- Hosted validation covers Python 3.9/3.12, Torch 2.0 CPU, the full CPU suite, scikit-learn 1.2.2/1.3.2/current maintenance compatibility, static/ruff, documentation, release packaging, and benchmark-frontend contracts. `dev/benchmarks/validate_post_selection_ols_gpu.py` is now the final **schema-v7 22-case** physical CuPy/Torch CUDA gate. Earlier Tesla P100 artifacts remain historical evidence only for their exact validated SHAs; current-source physical acceptance remains pending an exact clean-head 22/22 rerun. Hosted checks do not substitute for it, and no GPU performance claim is made.
+- Hosted validation covers Python 3.9/3.12, Torch 2.0 CPU, the full CPU suite, scikit-learn 1.2.2/1.3.2/current maintenance compatibility, static/ruff, documentation, release packaging, and benchmark-frontend contracts. `dev/benchmarks/validate_post_selection_ols_gpu.py` is now the final **schema-v7 22-case** physical CuPy/Torch CUDA gate. Earlier Tesla P100 artifacts remain historical evidence only for their exact validated SHAs; current-source physical acceptance remains pending an exact clean-head 22/22 rerun. Hosted checks do not substitute for it, and no GPU speedup claim is made.
 
 ## Unreleased — 2026-09-06
 
@@ -187,7 +187,7 @@ All notable changes to statgpu are documented here, organized by release and dat
 - Added release-package validation that checks version consistency, builds the pure-Python wheel and sdist, runs `twine check`, validates artifact contents, clean-installs the sdist on Ubuntu, and clean-installs the same wheel on Ubuntu, Windows, and macOS.
 
 ### Packaging and release publication
-- Bumped package metadata to `0.2.3` in `pyproject.toml` and `statgpu/__init__.py`.
+- Bumped the package version to `0.2.3` in `pyproject.toml` and `statgpu/__init__.py`.
 - The official wheel remains a universal `py3-none-any` artifact built with `STATGPU_NO_EXT=1`; optional Cython sources remain available in the sdist.
 - Added the authoritative GitHub Release document at `.github/releases/v0.2.3.md`, a release-note completeness gate, and tag automation that publishes that file as the GitHub Release body after the PyPI job succeeds.
 
