@@ -169,7 +169,7 @@ $$
 | 惩罚 | `is_convex` | `is_smooth` | 近端算子 | LLA 支持 | $P(\beta)$ |
 |---------|:---:|:---:|:---:|:---:|------|
 | None / Null | ✅ | ✅ | 恒等映射 | ❌ | 0 |
-| L2（Ridge） | ✅ | ✅ | — | ❌ | α·‖β‖²₂ |
+| L2（Ridge） | ✅ | ✅ | — | ❌ | $\frac{\alpha}{2}\|\beta\|_2^2$ |
 | L1（Lasso） | ✅ | ❌ | 软阈值 | ❌ | α·‖β‖₁ |
 | ElasticNet | ✅ | ❌ | 软阈值 | ❌ | α(r‖β‖₁+(1-r)‖β‖²₂) |
 | SCAD | ❌ | ❌ | 三段式 | ✅ | 分段函数 |
@@ -230,11 +230,140 @@ $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\be
 3. 执行并行对角上界更新并结合 LLA 阈值；
 4. GPU 上的收敛比较留在设备端，只同步最终布尔结果。
 
-**Proximal Newton**（当前维护的光滑路径）：
-1. 构造完整光滑目标的梯度与 Hessian；
-2. 解稳定化 Newton 线性系统；
-3. 使用 Armijo 回溯接受 `β - t d`；
-4. 若请求非光滑惩罚，当前实现会显式转到 FISTA，而不是使用错误的欧氏近端 Newton 近似。
+**Proximal Newton**（当前维护的光滑路径）使用完整目标
+
+$$
+F(\beta)=L(\beta)+P(\beta).
+$$
+
+对支持解析权重的逐样本损失，可写成
+
+$$
+L(\beta)=\frac{1}{s}\sum_{i=1}^n w_i\,\ell_i(x_i^\top\beta),
+\qquad
+s=\sum_i w_i,
+$$
+
+无权重时取 $w_i=1$、$s=n$。若记
+
+$$
+\psi_i=\frac{\partial\ell_i}{\partial\eta_i},
+\qquad
+h_i=\frac{\partial^2\ell_i}{\partial\eta_i^2},
+\qquad
+\eta_i=x_i^\top\beta,
+$$
+
+则在相应损失路径定义这些逐样本曲率时，
+
+$$
+\nabla L(\beta)
+=\frac{X^\top(w\odot\psi)}{s},
+\qquad
+\nabla^2L(\beta)
+=\frac{X^\top\operatorname{diag}(w\odot h)X}{s}.
+$$
+
+结构化损失直接使用自身实现的 Hessian 接口。对于当前维护的 L2 惩罚，
+
+$$
+P(\beta)=\frac{\alpha}{2}\|\beta\|_2^2,
+\qquad
+\nabla P(\beta)=\alpha\beta,
+\qquad
+\nabla^2P(\beta)=\alpha I.
+$$
+
+因此第 $k$ 次迭代构造完整目标的梯度与 Hessian
+
+$$
+g_k=\nabla L(\beta_k)+\alpha\beta_k,
+\qquad
+H_k=\nabla^2L(\beta_k)+\alpha I,
+$$
+
+无惩罚时令 $\alpha=0$。实现先对 Hessian 对称化，再加入固定稳定项：
+
+$$
+\bar H_k=\frac12(H_k+H_k^\top),
+\qquad
+\widetilde H_k=\bar H_k+10^{-10}I.
+$$
+
+若
+
+$$
+\|g_k\|_2\le\texttt{tol},
+$$
+
+则停止；否则解
+
+$$
+\widetilde H_k d_k=g_k.
+$$
+
+代码采用“减去方向”的记号，因此候选点为
+
+$$
+\beta_k(t)=\beta_k-t d_k.
+$$
+
+若线性系统被识别为奇异或病态，当前实现不调用最小二乘回退，而直接令
+
+$$
+d_k=g_k.
+$$
+
+同时要求下降量
+
+$$
+q_k=g_k^\top d_k>0.
+$$
+
+若 $q_k$ 非有限或不大于 0，则同样改用最速下降方向
+
+$$
+d_k=g_k,
+\qquad
+q_k=\|g_k\|_2^2.
+$$
+
+Armijo 回溯从 $t_0=1$ 开始，依次尝试
+
+$$
+t_m=2^{-m},
+\qquad m=0,1,\ldots,24,
+$$
+
+并接受第一个满足
+
+$$
+F(\beta_k-t_m d_k)
+\le
+F(\beta_k)-10^{-4}t_m q_k
+$$
+
+的候选点，然后设置
+
+$$
+\beta_{k+1}=\beta_k-t_m d_k.
+$$
+
+若 25 个候选步长都不满足条件，则恢复 $\beta_{k+1}=\beta_k$，发出线搜索失败警告并结束。默认 `max_iter=50`、`tol=1e-6`；若没有传入 `init_coef`，初值为 $\beta_0=0$。
+
+对于真正的非光滑复合目标，Proximal Newton 应解 Hessian 度量下的近端子问题
+
+$$
+\Delta_k
+=\arg\min_{\Delta}
+\left\{
+\nabla L(\beta_k)^\top\Delta
++\frac12\Delta^\top\nabla^2L(\beta_k)\Delta
++P(\beta_k+\Delta)
+\right\}.
+$$
+
+当前实现尚未提供这个 Hessian-metric 近端子问题求解器；非光滑惩罚请求会在进入 Newton 迭代前显式转到 FISTA。因而当前 L2/无惩罚的 `proximal_newton` 路径数值上就是带 Armijo 线搜索的稳定化 Newton，不会再额外应用一个欧氏近端算子，从而避免重复计入 L2 曲率。
 
 **FISTA-LLA**（通用非凸路径；也是 Cox + SCAD/MCP 的当前路径）：
 1. 延续路径：从 `λ_max` 逐步到目标 `α`（3–5 步）；
@@ -254,7 +383,7 @@ $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\be
 | CoxPH Breslow/Efron 损失 | ✅ | ✅（后端原生） | ✅（后端原生） |
 | CoxPH Exact / `start-stop` / `strata` / `subject` | ✅ | ✅（共享计数过程实现） | ✅（共享计数过程实现） |
 | DBSCAN | ✅ | GPU 距离计算 + 主机同步的连通分量 | ✅（设备端） |
-| UMAP | ✅ | 识别后端 + 必要的主机传输 | 识别后端 + 必要的主机传输 |
+| UMAP | ✅ | 识别后端 + 必要的主机传输 | ✅（设备端） |
 
 ## 5. 面向用户的带惩罚模型
 
