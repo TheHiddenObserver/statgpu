@@ -28,7 +28,10 @@ class PenalizedGammaRegression(PenalizedGeneralizedLinearModel):
     link : str, default='log'
         Link function: 'log' or 'inverse_power'.
     loss_kwargs : dict, optional
-        Additional keyword arguments for the loss constructor.
+        Additional keyword arguments for the loss constructor. ``link`` remains
+        the authoritative typed-wrapper parameter unless ``loss_kwargs``
+        explicitly provides a different value, in which case construction
+        rejects the conflict.
     """
 
     def __init__(
@@ -58,6 +61,10 @@ class PenalizedGammaRegression(PenalizedGeneralizedLinearModel):
         loss_kwargs: Optional[dict] = None,
     ):
         _loss_kwargs = dict(loss_kwargs) if loss_kwargs else {}
+        if "link" in _loss_kwargs and _loss_kwargs["link"] != link:
+            raise ValueError(
+                "link and loss_kwargs['link'] must specify the same Gamma link"
+            )
         _loss_kwargs.setdefault("link", link)
         super().__init__(
             loss="gamma",
@@ -84,3 +91,27 @@ class PenalizedGammaRegression(PenalizedGeneralizedLinearModel):
             lla_tol=lla_tol,
             loss_kwargs=_loss_kwargs,
         )
+
+    def _resolved_gamma_loss_kwargs(self) -> dict:
+        """Build internal Gamma kwargs without mutating clone-safe public state.
+
+        ``BaseEstimator`` restores constructor attributes to the exact objects
+        supplied to the most-derived public constructor.  Consequently
+        ``self.loss_kwargs`` legitimately remains ``None`` when omitted even
+        though this typed wrapper also owns a separate ``link`` parameter.
+        Numerical resolution must recombine those two public controls rather
+        than depending on a derived public dictionary surviving construction.
+        """
+        kwargs = dict(self.loss_kwargs) if self.loss_kwargs else {}
+        link = getattr(self, "link", "log")
+        if "link" in kwargs and kwargs["link"] != link:
+            raise ValueError(
+                "link and loss_kwargs['link'] must specify the same Gamma link"
+            )
+        kwargs.setdefault("link", link)
+        return kwargs
+
+    def _resolve_loss(self):
+        from statgpu.glm_core import get_glm_loss
+
+        return get_glm_loss("gamma", **self._resolved_gamma_loss_kwargs())
