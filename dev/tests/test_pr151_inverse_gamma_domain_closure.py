@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -49,6 +51,37 @@ def test_direct_invalid_explicit_init_fails_before_objective(monkeypatch, solver
             sample_weight=weights,
             max_iter=10,
         )
+
+
+def test_inverse_gamma_domain_max_step_zero_move_is_warning_free():
+    loss = get_glm_loss("gamma", link="inverse_power")
+    X = np.array(
+        [
+            [1.0, 0.0],
+            [1.0, 1.0],
+            [1.0, -1.0],
+        ],
+        dtype=np.float64,
+    )
+    coef = np.array([1.0, 0.0], dtype=np.float64)
+    delta = np.array([0.0, 1.0], dtype=np.float64)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        max_step = loss._loss_domain_max_step(X, coef, delta)
+
+    assert max_step is not None
+    assert np.isfinite(max_step)
+    assert max_step > 0.0
+    assert loss._loss_domain_is_feasible(X, coef + max_step * delta)
+
+
+def test_inverse_gamma_cv_installer_does_not_wrap_global_evaluate_single():
+    assert not getattr(
+        PenalizedGLM_CV._evaluate_single,
+        "_statgpu_inverse_gamma_domain_eval",
+        False,
+    )
 
 
 @pytest.mark.parametrize("solver", ["newton", "lbfgs"])
