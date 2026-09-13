@@ -197,6 +197,32 @@ def test_inverse_gamma_log_link_preservation():
     assert np.isfinite(model.intercept_)
 
 
+def test_typed_penalized_gamma_clone_preserves_public_and_internal_link_contract():
+    sklearn = pytest.importorskip("sklearn")
+    from sklearn.base import clone
+
+    model = PenalizedGammaRegression(
+        link="inverse_power",
+        loss_kwargs=None,
+        penalty="l2",
+        alpha=0.02,
+        fit_intercept=False,
+        solver="lbfgs",
+        device="cpu",
+        compute_inference=False,
+    )
+    params = model.get_params(deep=False)
+    assert params["link"] == "inverse_power"
+    assert params["loss_kwargs"] is None
+    assert model._resolve_loss().link == "inverse_power"
+
+    cloned = clone(model)
+    cloned_params = cloned.get_params(deep=False)
+    assert cloned_params["link"] == "inverse_power"
+    assert cloned_params["loss_kwargs"] is None
+    assert cloned._resolve_loss().link == "inverse_power"
+
+
 def test_ordinary_failed_domain_refit_does_not_publish_attempted_provenance():
     X, y, weights = _data(seed=15163, n=40, p=1)
     model = GammaRegression(
