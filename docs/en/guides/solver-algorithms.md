@@ -1,7 +1,7 @@
 # Solver Algorithms
 
 > Language: English  
-> Last updated: 2026-09-12  
+> Last updated: 2026-09-13  
 > This page: Algorithm reference  
 > Switch: [Chinese](../../cn/guides/solver-algorithms.md)
 
@@ -660,7 +660,7 @@ The generic composite route uses FISTA by default. A Proximal Newton inner solve
 
 ### Quantile IRLS
 
-The current `QuantileLoss.irls()` implementation uses the Frisch-Newton-style reweighting implemented in the code. Starting from an initial coefficient vector (OLS when no explicit initialization is supplied), each iteration computes
+The current `QuantileLoss.irls()` implementation uses iteratively reweighted least squares (IRLS). Starting from an initial coefficient vector (OLS when no explicit initialization is supplied), each iteration computes
 
 $$
 r_i=y_i-x_i^\top\beta
