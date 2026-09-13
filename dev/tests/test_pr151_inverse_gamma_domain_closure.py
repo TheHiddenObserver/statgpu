@@ -16,7 +16,12 @@ def _data(seed=15157, n=96, p=3):
     rng = np.random.default_rng(seed)
     X = rng.normal(scale=0.06, size=(n, p))
     X[:, 0] = rng.uniform(0.85, 1.15, size=n)
-    beta = np.array([0.92, 0.04, -0.03])
+    beta = np.zeros(p, dtype=np.float64)
+    beta[0] = 0.92
+    if p > 1:
+        beta[1] = 0.04
+    if p > 2:
+        beta[2] = -0.03
     eta = X @ beta
     y = (1.0 / eta) * rng.lognormal(0.0, 0.025, size=n)
     weights = np.linspace(0.6, 1.8, n)
@@ -60,6 +65,8 @@ def test_penalized_inverse_gamma_no_intercept_uses_shared_domain_start(solver):
         compute_inference=False,
     ).fit(X, y, sample_weight=weights)
 
+    assert getattr(model._loss, "link", None) == "inverse_power"
+    assert model._selected_solver == solver
     loss = get_glm_loss("gamma", link="inverse_power")
     lo, hi = loss._loss_domain_bounds(X)
     eta = X @ model.coef_
@@ -88,11 +95,18 @@ def test_penalized_inverse_gamma_intercept_does_not_use_log_mean_start(solver):
         compute_inference=False,
     ).fit(X, y, sample_weight=weights)
 
+    assert model.loss_kwargs.get("link") == "inverse_power"
+    assert getattr(model._loss, "link", None) == "inverse_power"
+    assert model._selected_solver == solver
+    assert getattr(model._fit_loss_backend, "_statgpu_inverse_gamma_domain_penalized", False)
+
     eta = X @ model.coef_ + model.intercept_
     loss = get_glm_loss("gamma", link="inverse_power")
     lo, hi = loss._loss_domain_bounds(np.column_stack([X, np.ones(X.shape[0])]))
     active = weights > 0
-    assert np.all(eta[active] > lo)
+    assert np.all(eta[active] > lo), (
+        model.coef_, model.intercept_, model._params, eta[active].min()
+    )
     assert np.all(eta[active] < hi)
 
 
