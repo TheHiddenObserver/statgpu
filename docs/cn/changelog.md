@@ -1,7 +1,7 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-09-12<br>
+> 最后更新：2026-09-13<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
@@ -16,7 +16,8 @@
 ### 验证
 
 - 托管测试覆盖整数权重的行复制等价性、权重整体缩放、零权重观测、均匀/近似均匀权重兼容性、非法权重、NumPy/Torch CPU 一致性、statsmodels Logistic/Poisson 参考结果、普通 GLM 的完整分布族/链接函数矩阵、公式接口、推断、执行信息记录，以及 Negative Binomial、Gamma、Inverse Gaussian 在带惩罚拟合和交叉验证中的 L-BFGS 路径。
-- 物理 CUDA 验证已经在精确实现版本 `c6781cb6a2e1fe500f325e832d23cdc80a99b564` 上完成：Tesla P100-SXM2-16GB、CuPy 13.6.0、Torch 2.0.0+cu117、NumPy 1.24.2，验证程序 schema v3。覆盖 48 条普通 GLM 路径、4 条 CuPy/Torch 交叉容器路径和 9 条共享带惩罚/交叉验证路径；普通 GPU 路径相对 NumPy 的最大绝对误差为 `4.44e-16`。验证结果保存在 `results/pr151_glm_weighted_explicit_solvers_gpu/pr151_glm_weighted_explicit_solvers_gpu.json`。此后的 PR151 提交仅修改文档，没有改变数值实现、测试或物理验证程序。
+- 物理 CUDA 验证已经在精确实现/validator 版本 `c6781cb6a2e1fe500f325e832d23cdc80a99b564` 上完成：Tesla P100-SXM2-16GB、CuPy 13.6.0、Torch 2.0.0+cu117、NumPy 1.24.2，验证程序 schema v3。覆盖 48 条普通 GLM 路径、4 条 CuPy/Torch 交叉容器路径和 9 条共享带惩罚/交叉验证路径；普通 GPU 路径相对 NumPy 的最大绝对误差为 `4.44e-16`。
+- 原始 validator JSON 在验证主机上生成于 `results/pr151_glm_weighted_explicit_solvers_gpu/pr151_glm_weighted_explicit_solvers_gpu.json`。该文件目前**没有提交到本仓库，也不是 GitHub Actions artifact**。此后的 PR #151 提交仅修改文档，因此这次 P100 运行继续作为 `c6781cb6` 的实现级物理证据，而不是后续 docs-only HEAD 的 exact-current-head 物理证据。
 
 ## 未发布 — 后端原生 Gaussian residual bootstrap（PR #147 / Issue #145，目标 0.2.6）
 
