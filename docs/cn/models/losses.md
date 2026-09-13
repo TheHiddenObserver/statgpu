@@ -159,11 +159,13 @@ $$
 | FISTA-BB | ✅ | ✅ | ✅ | ✅ | ✅ |
 | FISTA-LLA | ✅（SCAD/MCP） | ✅ | ✅ | ✅ | ✅（SCAD/MCP） |
 | Proximal IRLS-CD | ✅（SCAD/MCP） | ❌ | ❌ | ❌ | ❌ |
-| Proximal Newton | ❌（无 Hessian） | ✅ | ✅ | ✅ | ❌ |
+| Proximal Newton | ❌（无 Hessian） | ✅（L2/无惩罚） | ✅（L2/无惩罚） | ✅（L2/无惩罚） | ❌ |
 | Newton | ❌（无 Hessian） | ✅ | ✅ | ✅ | ✅ |
 | L-BFGS | ✅ | ✅ | ✅ | ✅ | ✅ |
 | ADMM | ✅ | ✅ | ✅ | ✅ | ✅ |
-| IRLS | ✅（仅 L2） | ❌ | ❌ | ❌ | ❌ |
+| IRLS | ✅（L2/无惩罚） | ❌（当前未开放） | ✅（L2/无惩罚） | ✅（L2/无惩罚） | ❌ |
+
+Huber IRLS 当前未作为维护中的公开求解路径开放；其恢复与验证由 Issue #156 跟踪。
 
 ### 非均匀权重与直接调用 L-BFGS
 
