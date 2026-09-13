@@ -305,4 +305,4 @@ model.fit(X, y)
 - Wu & Liu (2009): Variable selection in quantile regression
 - Hunter & Li (2005): MM algorithms for nonconvex penalized estimation
 - Barzilai & Borwein (1988): Two-point step size gradient methods (BB)
-- O'Donoghue & Candes (2015): Adaptive restart for accelerated gradient schemes (BB)
+- O'Donoghue & Candes (2015): Adaptive restart for accelerated gradient schemes
