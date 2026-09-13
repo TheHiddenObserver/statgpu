@@ -1,7 +1,7 @@
 # Panel Models
 
 > Language: English  
-> Last updated: 2026-09-12  
+> Last updated: 2026-09-13  
 > Switch: [Chinese](../../cn/models/panel.md)
 
 `statgpu.panel` provides six panel-data estimators. These estimators should not be read as six unrelated data-generating processes. Several of them can be applied to the same underlying panel model but use different assumptions or different sources of variation to identify the coefficient of interest.
@@ -19,13 +19,13 @@ A useful way to distinguish them is:
 
 ## Documentation map
 
-- [Panel Architecture](../panel/architecture.md) — current `BasePanelModel`, estimator-specific fit spaces, shared numerical linear algebra, covariance/inference, diagnostics, and fit-lifecycle boundaries.
+- [Panel Architecture](../panel/architecture.md) — current `BasePanelModel`, estimator-specific data transformations and regression problems, shared numerical linear algebra, covariance/inference, diagnostics, and fit-lifecycle boundaries.
 - [Covariance](../panel/covariance.md) — nonrobust, HC, cluster, HAC, and Driscoll-Kraay covariance definitions.
 - [Fit statistics](../panel/fit-statistics.md) — within/between/overall $R^2$, adjusted $R^2$, model F, and related statistics.
 - [Diagnostics](../panel/diagnostics.md) — Hausman, pooling F, Breusch-Pagan LM, and related model diagnostics.
 
-Each estimator page separates the **statistical model and identification assumptions** from the **numerical estimator**. The assumptions describe when the reported coefficient has the usual panel-econometric interpretation; the software can evaluate an estimator mechanically even when those substantive assumptions are not credible in a particular application.
+Each estimator page separates the **statistical model and identification assumptions** from the **numerical estimation method**. The assumptions describe when the reported coefficient has the usual panel-econometric interpretation; the software can compute an estimator mechanically even when those substantive assumptions are not credible in a particular application.
 
-All six estimators support NumPy CPU, CuPy CUDA, and Torch CUDA through the `device` parameter. Each estimator page includes CPU/GPU and formula examples. If `device="cuda"` or `device="torch"` is requested explicitly but that backend is unavailable, statgpu raises an error instead of silently switching to CPU.
+All six model classes support NumPy CPU, CuPy CUDA, and Torch CUDA through the `device` parameter. Each model page includes CPU/GPU and formula examples. If `device="cuda"` or `device="torch"` is requested explicitly but that backend is unavailable, statgpu raises an error instead of silently switching to CPU.
 
-For the implementation-level responsibility map—what is shared across Panel estimators, what must remain estimator-specific, and why current Panel fitting is outside the generic `LossBase + Penalty + Solver` path—see [Panel Architecture](../panel/architecture.md).
+For the implementation-level responsibility map—what is shared across Panel models, which statistical steps remain model-specific, and why current Panel fitting is outside the generic `LossBase + Penalty + Solver` path—see [Panel Architecture](../panel/architecture.md).
