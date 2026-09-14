@@ -8,6 +8,7 @@ from pathlib import Path
 
 VALIDATOR = Path("dev/benchmarks/validate_glm_weighted_explicit_solvers_gpu.py")
 VALIDATOR_V4 = Path("dev/benchmarks/validate_pr151_inverse_gamma_domain_gpu_v4.py")
+VALIDATOR_V5 = Path("dev/benchmarks/validate_pr151_final_gpu_v5.py")
 
 
 def _load_validator(path=VALIDATOR, name="pr151_validator"):
@@ -91,3 +92,35 @@ def test_pr151_schema_v4_covers_inverse_gamma_domain_and_consumers():
     assert '"errors_vs_row_deletion": errors' in source
     assert '"eta_min_active"' in source
     assert '"eta_max_active"' in source
+
+
+def test_pr151_schema_v5_extends_v4_for_final_review_closure():
+    module = _load_validator(VALIDATOR_V5, "pr151_validator_v5")
+    assert module.SCHEMA_VERSION == 5
+    assert module.SOLVER_TOL == 1.0e-8
+    assert module.ATOL_COEF == 2.0e-5
+    assert module.ATOL_INTERCEPT == 2.0e-5
+    assert module.ATOL_WEIGHT_RESCALE == 2.0e-6
+    assert module._SOLVERS == ("newton", "lbfgs")
+    assert module._EXTREME_WEIGHT_SCALES == (1.0e-200, 1.0e200)
+
+    source = VALIDATOR_V5.read_text(encoding="utf-8")
+    assert "v4.run(v4_path)" in source
+    assert '"legacy_schema_v4": legacy' in source
+    assert '"source_sha": source_sha' in source
+    assert '"source_clean": True' in source
+    assert 'default=Path("dev/reviews/pr151_final_gpu_v5.json")' in source
+
+
+def test_pr151_schema_v5_covers_review_found_numerical_edges():
+    source = VALIDATOR_V5.read_text(encoding="utf-8")
+    assert '"extreme_global_weight_rescaling"' in source
+    assert '"integer_design_fractional_weights"' in source
+    assert '"gpu_domain_pinned_fail_closed"' in source
+    assert "1.0e-200" in source
+    assert "1.0e200" in source
+    assert "rng.integers" in source
+    assert 'dtype=torch.int64' in source
+    assert 'boundary surrogate' in source
+    assert '"pinned to the maintained smooth-domain boundary"' in source
+    assert '"no positive interior line-search step"' in source
