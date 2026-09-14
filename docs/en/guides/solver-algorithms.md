@@ -1127,7 +1127,33 @@ $$
 t\leftarrow\frac t2,
 $$
 
-for at most 25 backtracking trials. If no trial is accepted, the unconstrained route retains the historical warning/stagnation behavior rather than silently accepting the last trial point.
+for at most 25 backtracking trials.
+
+When the exact Armijo decrease is below the floating-point resolution of the complete objective, the maintained implementation has one bounded roundoff rule. Let
+
+$$
+\varepsilon_F
+=64\,\varepsilon_{\mathrm{dtype}(F)}
+\max\{1,|F(\beta_k)|\},
+$$
+
+where $\varepsilon_{\mathrm{dtype}(F)}$ is machine epsilon for the scalar dtype in which the complete objective $F=L+P$ was evaluated. A candidate that failed the exact Armijo test can still be accepted only if all three conditions hold:
+
+$$
+-10^{-4}t\,g_k^\top p_k\le\varepsilon_F,
+$$
+
+$$
+t\,\|p_k\|_2\le\texttt{tol},
+$$
+
+and
+
+$$
+F(\beta_k+t p_k)\le F(\beta_k)+\varepsilon_F.
+$$
+
+Thus this rule is not a general Armijo relaxation: both the requested objective decrease and the actual parameter displacement must already be below their maintained numerical resolutions, and the trial may not increase the complete objective beyond the same roundoff scale. If neither exact Armijo nor this bounded roundoff rule accepts any of the 25 trials, the unconstrained route retains the historical line-search warning/stagnation behavior rather than silently accepting the last trial point.
 
 A loss may additionally expose a maintained smooth-domain cap for the finalized additive direction. Let
 
@@ -1277,7 +1303,7 @@ z^{k+1}
 $$
 
 $$
-u^{k+1}=u^k+w^{k+1}-z^{k+1}.
+u^{k+1}=u^k+w^{k+1}-z^k.
 $$
 
 ### $w$-subproblem: squared-error Cholesky path
@@ -1414,7 +1440,7 @@ direct fit with solver="auto"
 - Barzilai, J. & Borwein, J. M. (1988). Two-Point Step Size Gradient Methods. *IMA J. Numer. Anal.*, 8(1), 141-148.
 - O'Donoghue, B. & Candes, E. (2015). Adaptive Restart for Accelerated Gradient Schemes. *Foundations of Computational Mathematics*, 15(3), 715-732.
 - Lee, J. D., Sun, Y. & Saunders, M. A. (2014). Proximal Newton-Type Methods for Minimizing Composite Functions. *SIAM J. Optimization*, 24(3), 1420-1443.
-- Liu, D. C. & Nocedal, J. (1989). On the Limited Memory BFGS Method for Large Scale Optimization. *Mathematical Programming*, 45, 503-528.
+- Liu, D. C. & Nocedal, J. M. (1989). On the Limited Memory BFGS Method for Large Scale Optimization. *Mathematical Programming*, 45, 503-528.
 - Byrd, R. H., Lu, P., Nocedal, J. & Zhu, C. (1995). A Limited Memory Algorithm for Bound Constrained Optimization. *SIAM J. Scientific Computing*, 16(5), 1190-1208.
 - Boyd, S. et al. (2011). Distributed Optimization and Statistical Learning via ADMM. *Foundations and Trends in Machine Learning*, 3(1), 1-122.
 - Fan, J. & Li, R. (2001). Variable Selection via Nonconcave Penalized Likelihood. *JASA*, 96, 1348-1360.
