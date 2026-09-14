@@ -227,7 +227,8 @@ $$
 
 $$
 H_k
-=\nabla^2F(\beta_k)+\alpha I.
+=\nabla^2F(\beta_k)
+=\nabla^2L(\beta_k)+\alpha I.
 $$
 
 Set $\alpha=0$ for the no-penalty route.
