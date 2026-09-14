@@ -184,6 +184,22 @@ def test_effectively_uniform_classification_is_scale_invariant():
         ) is None
 
 
+def test_effectively_uniform_classification_is_permutation_invariant_at_tolerance_edge():
+    X = np.ones((4, 2), dtype=np.float64)
+    # The spread is slightly above rtol*min but below rtol*max.  Using one row
+    # as the allclose reference therefore used to make the decision depend on
+    # which observation happened to appear first.
+    delta = 1.000005e-5
+    low_first = np.array([1.0, 1.0 + delta, 1.0, 1.0], dtype=np.float64)
+    high_first = low_first[[1, 0, 2, 3]]
+
+    for weights in (low_first, high_first):
+        assert _prepare_newton_sample_weight(weights, 4, "numpy", X) is None
+        assert _prepare_lbfgs_sample_weight(
+            weights, 4, "numpy", X, LogisticLoss()
+        ) is None
+
+
 def test_lbfgs_weight_preparation_matches_newton_after_execution_dtype_alignment():
     # The public contract classifies uniformity on the numerical design's
     # backend/dtype.  This fixture is deliberately non-uniform in float64 but

@@ -17,8 +17,8 @@ from ._utils import _as_backend_vector, _validate_sample_weight
 
 
 # Preserve the historical relative tolerance for "effectively uniform" weights
-# while removing the absolute tolerance that made classification depend on the
-# arbitrary global scale of the analytic weights.
+# while making the classification invariant to both positive global rescaling
+# and observation ordering.
 _EFFECTIVELY_UNIFORM_WEIGHT_RTOL = 1e-5
 
 
@@ -28,6 +28,36 @@ class _LossDomainError(RuntimeError):
 
 def _scalar_bool(value) -> bool:
     return bool(value.item() if hasattr(value, "item") else value)
+
+
+def _effectively_uniform_weights(values, backend) -> bool:
+    """Return whether aligned non-negative weights are relatively uniform.
+
+    The criterion uses the full weight range rather than one observation as an
+    ``allclose`` reference.  This makes the classification symmetric under row
+    permutations and homogeneous under positive global rescaling:
+
+        max(w) - min(w) <= rtol * max(w).
+
+    Exact integer-valued aligned arrays retain exact equality semantics.
+    """
+    if backend == "torch":
+        import torch
+
+        if not torch.is_floating_point(values):
+            return _scalar_bool(torch.all(values == values[0]))
+        w_min = torch.min(values)
+        w_max = torch.max(values)
+    else:
+        xp = _get_xp(backend)
+        if getattr(values.dtype, "kind", "") != "f":
+            return _scalar_bool(xp.all(values == values[0]))
+        w_min = xp.min(values)
+        w_max = xp.max(values)
+
+    return _scalar_bool(
+        (w_max - w_min) <= _EFFECTIVELY_UNIFORM_WEIGHT_RTOL * w_max
+    )
 
 
 def _prepare_analytic_sample_weight(
@@ -43,42 +73,18 @@ def _prepare_analytic_sample_weight(
     Classification happens only after alignment to the executed design dtype
     and device so Newton, L-BFGS, initialization, and domain masking agree.
 
-    The effectively-uniform comparison is deliberately relative-only
-    (``atol=0``). Analytic weights are defined only up to a positive global
-    multiplier, so ``w`` and ``c * w`` must never switch between the weighted
-    and unweighted paths merely because ``c`` crosses an absolute tolerance.
+    The effectively-uniform comparison is deliberately relative-only and
+    symmetric across observations. Analytic weights are defined only up to a
+    positive global multiplier, and reordering observations cannot change the
+    statistical objective, so neither operation may switch between weighted
+    and unweighted paths.
     """
     if sample_weight is None:
         return None
 
     _validate_sample_weight(sample_weight, n_samples)
     values = _as_backend_vector(sample_weight, backend, ref_arr).reshape(-1)
-    if backend == "torch":
-        import torch
-
-        uniform_dev = (
-            torch.allclose(
-                values,
-                values[0],
-                rtol=_EFFECTIVELY_UNIFORM_WEIGHT_RTOL,
-                atol=0.0,
-            )
-            if torch.is_floating_point(values)
-            else torch.all(values == values[0])
-        )
-    else:
-        xp = _get_xp(backend)
-        uniform_dev = (
-            xp.allclose(
-                values,
-                values[0],
-                rtol=_EFFECTIVELY_UNIFORM_WEIGHT_RTOL,
-                atol=0.0,
-            )
-            if getattr(values.dtype, "kind", "") == "f"
-            else xp.all(values == values[0])
-        )
-    return None if _scalar_bool(uniform_dev) else values
+    return None if _effectively_uniform_weights(values, backend) else values
 
 
 def _domain_feasible(loss, X, coef, sample_weight=None) -> bool:
