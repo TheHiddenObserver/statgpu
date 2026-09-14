@@ -198,6 +198,8 @@ def test_pr151_schema_v6_extends_v5_for_analytic_weight_inference_closure():
     assert "_float32_raw_sum_overflow_inference_gate" in source
     assert 'cov_type="nonrobust"' in source
     assert 'inference_method="auto"' in source
+    assert '"cov_type": str(model._inference_result.cov_type)' in source
+    assert '"cov_type": "nonrobust"' in source
     assert '("ordinary", _fit_ordinary)' in source
     assert '("penalized", _fit_penalized)' in source
     assert '("cupy", "cuda")' in source
