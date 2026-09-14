@@ -87,6 +87,8 @@ A docs-only change becomes behavioral review scope if it changes a support, API,
 
 Read [review-matrix.md](review-matrix.md) when the change spans multiple axes, changes public statistical behavior, reconciles an existing cross-cutting capability, or needs a blocking verdict.
 
+**Documentation placement is part of correctness.** Learner-facing model pages and user-facing reference/guides should state the current user contract: concepts and formulas, supported and unsupported behavior, failure semantics, usage, and links to canonical compatibility/algorithm references. Do not use those pages as project-management logs. PR/Issue tracking status, follow-up ownership, exact-head CI or validator provenance, remote credentials, developer invocation quirks, and prose such as “this PR only documents...” belong in changelogs, `dev/` plans/reviews, issues/PR descriptions, or evidence artifacts unless that information is itself required for a user action. A statement can be technically true and still be a `DOC` finding because it is placed in the wrong documentation layer.
+
 ## 4. Correctness
 
 Check formulas, objective normalization, penalty scaling, gradients/Hessians/prox/KKT, prediction semantics, convergence status, sample weights, intercept handling, inference fields/targets, resampling semantics, and relevant edge cases.
