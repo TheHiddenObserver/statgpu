@@ -36,6 +36,27 @@ _CV_CASES = (
 )
 
 
+def _fit_direct(loss, loss_kwargs, X, y, weights, *, alpha=0.03):
+    model = PenalizedGeneralizedLinearModel(
+        loss=loss,
+        loss_kwargs=loss_kwargs,
+        penalty="l2",
+        alpha=alpha,
+        solver="lbfgs",
+        device="cpu",
+        max_iter=600,
+        tol=1e-9,
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        warnings.filterwarnings(
+            "error",
+            message="lbfgs_solver: line search failed.*",
+            category=RuntimeWarning,
+        )
+        return model.fit(X, y, sample_weight=weights)
+
+
 def _fit_cv(loss, loss_kwargs, X, y, weights, *, compute_inference=False):
     kwargs = {}
     if compute_inference:
@@ -74,16 +95,7 @@ def test_weighted_penalized_explicit_lbfgs_supported_smooth_glm_consumers(
     X, y = data_factory()
     weights = np.linspace(0.45, 1.75, X.shape[0], dtype=np.float64)
 
-    model = PenalizedGeneralizedLinearModel(
-        loss=loss,
-        loss_kwargs=loss_kwargs,
-        penalty="l2",
-        alpha=0.03,
-        solver="lbfgs",
-        device="cpu",
-        max_iter=600,
-        tol=1e-9,
-    ).fit(X, y, sample_weight=weights)
+    model = _fit_direct(loss, loss_kwargs, X, y, weights)
 
     assert model._selected_solver == "lbfgs"
     assert model._selected_backend_name == "numpy"
@@ -98,20 +110,8 @@ def test_weighted_penalized_lbfgs_global_weight_rescaling_invariance(loss):
     weights = np.linspace(0.5, 1.6, X.shape[0], dtype=np.float64)
     loss_kwargs = {"link": "log"} if loss == "gamma" else None
 
-    def fit(w):
-        return PenalizedGeneralizedLinearModel(
-            loss=loss,
-            loss_kwargs=loss_kwargs,
-            penalty="l2",
-            alpha=0.025,
-            solver="lbfgs",
-            device="cpu",
-            max_iter=600,
-            tol=1e-9,
-        ).fit(X, y, sample_weight=w)
-
-    a = fit(weights)
-    b = fit(6.0 * weights)
+    a = _fit_direct(loss, loss_kwargs, X, y, weights, alpha=0.025)
+    b = _fit_direct(loss, loss_kwargs, X, y, 6.0 * weights, alpha=0.025)
     np.testing.assert_allclose(a.coef_, b.coef_, rtol=3e-7, atol=3e-8)
     np.testing.assert_allclose(a.intercept_, b.intercept_, rtol=3e-7, atol=3e-8)
 

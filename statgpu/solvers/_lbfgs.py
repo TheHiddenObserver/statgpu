@@ -77,14 +77,14 @@ def lbfgs_solver(
     """Limited-memory BFGS for smooth objectives.
 
     Works with any loss that implements ``fused_value_and_gradient(X, y, coef)``
-    returning ``(value, gradient)``.  Supports numpy / cupy / torch backends
+    returning ``(value, gradient)``. Supports numpy / cupy / torch backends
     via auto-detection of *X*.
 
     Genuine non-uniform ``sample_weight`` is supported only when the loss
-    explicitly opts into the shared weighted-L-BFGS contract.  Maintained GLM
+    explicitly opts into the shared weighted-L-BFGS contract. Maintained GLM
     losses do so and evaluate value, gradient, line-search candidates, and the
     accepted iterate under one normalized objective
-    ``sum_i w_i * contribution_i / sum_i w_i``.  Generic non-GLM losses remain
+    ``sum_i w_i * contribution_i / sum_i w_i``. Generic non-GLM losses remain
     fail-closed unless they independently declare the same capability.
 
     Uniform weights are normalized away using the historical uniformity rule,
@@ -164,7 +164,7 @@ def lbfgs_solver(
             gdd = -gn * gn  # grad'(-grad) = -||grad||^2
 
         # Freeze the final post-fallback additive direction before obtaining a
-        # loss-domain cap.  A cap for a discarded quasi-Newton direction is not
+        # loss-domain cap. A cap for a discarded quasi-Newton direction is not
         # a valid feasibility certificate for the actual line search.
         domain_cap = _domain_max_step(
             loss,
@@ -219,13 +219,32 @@ def lbfgs_solver(
                     "lbfgs_solver could not evaluate a numerically interior "
                     "trial step for the maintained loss domain."
                 )
-            warnings.warn(
-                "lbfgs_solver: line search failed to find a descent step "
-                f"after 25 backtracking steps (iteration {iteration}). "
-                "Solver may stagnate.",
-                RuntimeWarning,
-                stacklevel=2,
+
+            # The normal convergence rule below accepts an *accepted* step with
+            # ||s_k|| < tol. At floating-point resolution Armijo may instead
+            # reject that same tiny displacement because the requested decrease
+            # is no longer representable in the objective. Keep those two cases
+            # consistent: if the smallest step that was actually tried is
+            # already below the configured parameter-step tolerance, terminate
+            # through the existing small-step criterion rather than reporting a
+            # line-search failure. Genuine exhaustion at a material step still
+            # emits the warning.
+            direction_norm_dev = _norm2_dev(direction)
+            (direction_norm,) = _sync_scalars(
+                direction_norm_dev, backend=backend
             )
+            smallest_tried_step = 2.0 * step
+            numerically_small_trial = (
+                smallest_tried_step * direction_norm < tol
+            )
+            if not numerically_small_trial:
+                warnings.warn(
+                    "lbfgs_solver: line search failed to find a descent step "
+                    f"after 25 backtracking steps (iteration {iteration}). "
+                    "Solver may stagnate.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
 
         # Update gradient (fused) using the same weighted objective.
         _, grad_new = _call_loss_with_weight(
