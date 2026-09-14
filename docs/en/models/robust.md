@@ -1,7 +1,7 @@
 # Robust Regression
 
 > Language: English  
-> Last updated: 2026-09-13  
+> Last updated: 2026-09-14  
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/robust.md)
 
@@ -102,7 +102,7 @@ The table below describes the current public model / low-level solver routes. `s
 | FISTA | ✅ | ✅ | ✅ | Sparse / proximal routes |
 | FISTA-BB | ✅ (supported combinations) | ✅ (supported combinations) | ✅ (supported combinations) | Adaptive step size |
 | FISTA-LLA | ✅ | ✅ | ✅ | LLA route for SCAD/MCP and related non-convex penalties |
-| IRLS | ❌ (currently unavailable) | ✅ (L2/no penalty) | ✅ (L2/no penalty) | Restoring and validating Huber IRLS is tracked in Issue #156 |
+| IRLS | ❌ (currently unavailable) | ✅ (L2/no penalty) | ✅ (L2/no penalty) | Public dispatch does not currently select IRLS for Huber |
 | Newton | ✅ | ✅ | ✅ | Main `solver="auto"` route for smooth L2/no-penalty objectives |
 | L-BFGS | ✅ (smooth, unweighted/uniform weights) | ✅ (smooth, unweighted/uniform weights) | ✅ (smooth, unweighted/uniform weights) | Generic non-GLM `LossBase` does not currently declare direct non-uniform weighted L-BFGS |
 | ADMM | ✅ (supported forms) | ✅ (supported forms) | ✅ (supported forms) | Shared entry currently accepts omitted or uniform `sample_weight` only |
@@ -179,7 +179,7 @@ w_i=\frac{\psi_\delta(r_i)}{r_i}
 =\min\left(1,\frac{\delta}{|r_i|}\right)
 $$
 
-is directly related to the Huber first-order condition. Restoring this as a maintained public solver route is being re-evaluated and validated in Issue #156. PR #151 documents the current implementation state only and does not change numerical source.
+is directly related to the Huber first-order condition. This shows that Huber admits a natural IRLS construction, but the public API does not currently declare that route as supported; an explicit request for that combination should fail rather than silently switch algorithms.
 
 ## Outputs
 
@@ -192,7 +192,7 @@ is directly related to the Huber first-order condition. Restoring this as a main
 
 ## External Validation
 
-- **Huber**: historical validation aligned coefficients with R `MASS::rlm(psi=psi.huber)`; a restored explicit IRLS route should be revalidated under the same scale convention.
+- **Huber**: maintained public routes use the same Huber M-estimation objective as R `MASS::rlm(psi=psi.huber)`; Huber IRLS is not currently part of the public support matrix.
 - **Bisquare**: aligned with R `MASS::rlm(psi=psi.bisquare)`; current non-convex penalty routes use LLA/FISTA.
 - **Fair**: aligned with R `MASS::rlm(psi=psi.fair)`.
 
@@ -201,7 +201,7 @@ is directly related to the Huber first-order condition. Restoring this as a main
 - Scale computation currently uses NumPy host arrays; after scale precomputation, maintained numerical optimization continues on the selected NumPy/CuPy/Torch backend.
 - `sample_weight` support depends on the loss, solver, and model route rather than being an automatic property of every robust solver.
 - All three losses provide Hessian primitives. That supports smooth Newton routes, but does not imply that arbitrary non-smooth penalties support Proximal Newton.
-- Huber IRLS is currently not exposed as a supported public solver route; Issue #156 tracks its mathematical and implementation validation.
+- Huber IRLS is currently not exposed as a supported public solver route; explicitly selecting that combination follows the current fail-closed compatibility contract.
 
 ## References
 
