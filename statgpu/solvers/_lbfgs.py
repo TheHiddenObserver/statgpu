@@ -63,6 +63,67 @@ def _call_loss_with_weight(fn, *args, sample_weight=None):
     return fn(*args, sample_weight=sample_weight)
 
 
+def _domain_step_or_raise(loss, X, params, direction, tol, sample_weight, backend):
+    """Return the loss-owned cap and fail when no material domain step remains."""
+    domain_cap = _domain_max_step(
+        loss,
+        X,
+        params,
+        direction,
+        sample_weight=sample_weight,
+    )
+    if domain_cap is None:
+        return None
+    direction_norm_dev = _norm2_dev(direction)
+    (direction_norm,) = _sync_scalars(direction_norm_dev, backend=backend)
+    if domain_cap * direction_norm <= tol:
+        raise _LossDomainError(
+            f"loss='{getattr(loss, 'name', '?')}' is pinned to the "
+            "maintained smooth-domain boundary before gradient convergence."
+        )
+    return domain_cap
+
+
+def _armijo_domain_search(
+    loss,
+    penalty,
+    X,
+    y,
+    params,
+    direction,
+    old_val_dev,
+    gdd,
+    domain_cap,
+    *,
+    sample_weight,
+):
+    """Run one domain-aware Armijo search for an additive descent direction."""
+    step = min(1.0, domain_cap) if domain_cap is not None else 1.0
+    evaluated_domain_trial = False
+    rejected_by_domain = False
+    for _ in range(25):
+        candidate = params + step * direction
+        if not _domain_feasible(
+            loss, X, candidate, sample_weight=sample_weight
+        ):
+            rejected_by_domain = True
+            step *= 0.5
+            continue
+        evaluated_domain_trial = True
+        cand_val_dev, _ = _call_loss_with_weight(
+            loss.fused_value_and_gradient,
+            X,
+            y,
+            candidate,
+            sample_weight=sample_weight,
+        )
+        cand_val_dev = cand_val_dev + _smooth_penalty_value_dev(penalty, candidate)
+        if _device_leq(cand_val_dev, old_val_dev + 1e-4 * step * gdd):
+            return candidate, True, step, evaluated_domain_trial, rejected_by_domain
+        step *= 0.5
+    return params, False, step, evaluated_domain_trial, rejected_by_domain
+
+
 def lbfgs_solver(
     loss,
     penalty,
@@ -91,7 +152,10 @@ def lbfgs_solver(
     preserving the established unweighted objective. Losses may additionally
     expose private ``_loss_domain_*`` hooks; L-BFGS then validates/generates an
     interior start and caps Armijo using the final post-fallback search
-    direction without evaluating infeasible candidates.
+    direction without evaluating infeasible candidates. If a quasi-Newton
+    direction exhausts Armijo inside a maintained domain, the solver retries
+    once with steepest descent and a freshly computed domain cap; failure of
+    that recovery path is a hard domain error rather than a publishable fit.
     """
     _validate_smooth_penalty(penalty, "lbfgs_solver")
     backend = _resolve_backend("auto", X)
@@ -115,7 +179,6 @@ def lbfgs_solver(
     y_hist = []
     rho_hist = []
 
-    # Initial gradient (fused to avoid redundant X@coef)
     _init_val_dev, grad = _call_loss_with_weight(
         loss.fused_value_and_gradient,
         X_proc,
@@ -125,12 +188,11 @@ def lbfgs_solver(
     )
     grad = grad + _smooth_penalty_gradient(penalty, params)
 
-    iteration = -1  # default if max_iter=0
+    iteration = -1
 
     for iteration in range(max_iter):
         grad_norm_dev = _norm2_dev(grad)
 
-        # Two-loop recursion -- all dot products stay on device
         q = _copy_arr(grad)
         alphas = []
         for s_vec, y_vec, rho in reversed(list(zip(s_hist, y_hist, rho_hist))):
@@ -155,44 +217,23 @@ def lbfgs_solver(
         direction = -r
         gdd_dev = _dot_dev(grad, direction)
 
-        # Batch sync: grad_norm + grad_dot_dir
         gn, gdd = _sync_scalars(grad_norm_dev, gdd_dev, backend=backend)
         if gn < tol:
             break
         if gdd >= 0 or not np.isfinite(gdd):
             direction = -grad
-            gdd = -gn * gn  # grad'(-grad) = -||grad||^2
+            gdd = -gn * gn
 
-        # Freeze the final post-fallback additive direction before obtaining a
-        # loss-domain cap. A cap for a discarded quasi-Newton direction is not
-        # a valid feasibility certificate for the actual line search.
-        domain_cap = _domain_max_step(
+        domain_cap = _domain_step_or_raise(
             loss,
             X_proc,
             params,
             direction,
-            sample_weight=sample_weight,
+            tol,
+            sample_weight,
+            backend,
         )
-        if domain_cap is not None:
-            # A domain cap limits the scalar line-search step, while the solver's
-            # stopping rule is expressed in parameter-space displacement. If the
-            # largest admissible displacement is already below ``tol`` while the
-            # gradient is still above ``tol``, the loss domain—not optimization
-            # convergence—is preventing further material progress. Fail closed
-            # instead of iterating to ``max_iter`` and publishing a boundary
-            # surrogate as though it were an ordinary non-converged fit.
-            direction_norm_dev = _norm2_dev(direction)
-            (direction_norm,) = _sync_scalars(
-                direction_norm_dev, backend=backend
-            )
-            if domain_cap * direction_norm <= tol:
-                raise _LossDomainError(
-                    f"loss='{getattr(loss, 'name', '?')}' is pinned to the "
-                    "maintained smooth-domain boundary before gradient convergence."
-                )
 
-        # Line search -- stays on device and uses the same analytic weights as
-        # the gradient that generated the search direction.
         old_val_dev, _ = _call_loss_with_weight(
             loss.fused_value_and_gradient,
             X_proc,
@@ -202,34 +243,73 @@ def lbfgs_solver(
         )
         old_val_dev = old_val_dev + _smooth_penalty_value_dev(penalty, params)
 
-        step = min(1.0, domain_cap) if domain_cap is not None else 1.0
-        params_new = params
-        _ls_accepted = False
-        evaluated_domain_trial = False
-        rejected_by_domain = False
-        for _ in range(25):
-            candidate = params + step * direction
-            if not _domain_feasible(
-                loss, X_proc, candidate, sample_weight=sample_weight
-            ):
-                rejected_by_domain = True
-                step *= 0.5
-                continue
-            evaluated_domain_trial = True
-            cand_val_dev, _ = _call_loss_with_weight(
-                loss.fused_value_and_gradient,
+        (
+            params_new,
+            _ls_accepted,
+            step,
+            evaluated_domain_trial,
+            rejected_by_domain,
+        ) = _armijo_domain_search(
+            loss,
+            penalty,
+            X_proc,
+            y_proc,
+            params,
+            direction,
+            old_val_dev,
+            gdd,
+            domain_cap,
+            sample_weight=sample_weight,
+        )
+
+        if not _ls_accepted and domain_cap is not None:
+            # A maintained loss domain is a fail-closed path. Before declaring
+            # non-convergence, discard quasi-Newton history for this step and
+            # retry the mathematically valid steepest-descent direction with a
+            # newly computed cap. This salvages recoverable curvature-history
+            # failures without publishing an unverified boundary iterate.
+            direction = -grad
+            gdd = -gn * gn
+            domain_cap = _domain_step_or_raise(
+                loss,
+                X_proc,
+                params,
+                direction,
+                tol,
+                sample_weight,
+                backend,
+            )
+            (
+                params_new,
+                _ls_accepted,
+                step,
+                fallback_evaluated,
+                fallback_rejected,
+            ) = _armijo_domain_search(
+                loss,
+                penalty,
                 X_proc,
                 y_proc,
-                candidate,
+                params,
+                direction,
+                old_val_dev,
+                gdd,
+                domain_cap,
                 sample_weight=sample_weight,
             )
-            cand_val_dev = cand_val_dev + _smooth_penalty_value_dev(penalty, candidate)
-            # Device-side comparison -- single sync for the bool
-            if _device_leq(cand_val_dev, old_val_dev + 1e-4 * step * gdd):
-                params_new = candidate
-                _ls_accepted = True
-                break
-            step *= 0.5
+            evaluated_domain_trial = evaluated_domain_trial or fallback_evaluated
+            rejected_by_domain = rejected_by_domain or fallback_rejected
+            if not _ls_accepted:
+                if rejected_by_domain and not evaluated_domain_trial:
+                    raise _LossDomainError(
+                        "lbfgs_solver could not evaluate a numerically interior "
+                        "trial step for the maintained loss domain."
+                    )
+                raise _LossDomainError(
+                    "lbfgs_solver Armijo line search failed inside the maintained "
+                    "loss domain before gradient convergence."
+                )
+
         if not _ls_accepted:
             if rejected_by_domain and not evaluated_domain_trial:
                 raise _LossDomainError(
@@ -237,13 +317,6 @@ def lbfgs_solver(
                     "trial step for the maintained loss domain."
                 )
 
-            # For unconstrained smooth losses, the ordinary step-size stopping
-            # rule and Armijo exhaustion must agree at floating-point resolution:
-            # a smallest tried displacement below tol is not a material line-
-            # search failure. A loss-owned domain cap is different: a tiny
-            # admissible displacement may mean the iterate is pinned to a
-            # maintained boundary while its gradient is still large, so domain-
-            # constrained routes must not use this shortcut.
             direction_norm_dev = _norm2_dev(direction)
             (direction_norm,) = _sync_scalars(
                 direction_norm_dev, backend=backend
@@ -263,7 +336,6 @@ def lbfgs_solver(
                 )
                 break
 
-        # Update gradient (fused) using the same weighted objective.
         _, grad_new = _call_loss_with_weight(
             loss.fused_value_and_gradient,
             X_proc,
@@ -278,7 +350,6 @@ def lbfgs_solver(
         ys_dev = _dot_dev(y_vec, s_vec)
         s_norm_dev = _norm2_dev(s_vec)
 
-        # Batch sync: ys + s_norm
         ys, s_norm = _sync_scalars(ys_dev, s_norm_dev, backend=backend)
         if ys > 1e-12:
             s_hist.append(s_vec)
@@ -294,10 +365,6 @@ def lbfgs_solver(
         if s_norm < tol:
             if domain_cap is None:
                 break
-            # A domain-capped tiny step is not convergence by itself. Only the
-            # same gradient criterion used at iteration entry may close the
-            # constrained route; otherwise continue until the loss declares the
-            # domain numerically pinned or a later step makes real progress.
             grad_new_norm_dev = _norm2_dev(grad_new)
             (grad_new_norm,) = _sync_scalars(
                 grad_new_norm_dev, backend=backend
