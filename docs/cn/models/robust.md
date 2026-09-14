@@ -15,7 +15,7 @@ statgpu 通过 M-估计提供稳健回归，并支持稳健尺度估计。`Penal
 | Bisquare 损失 | `statgpu.losses.BisquareLoss` |
 | Fair 损失 | `statgpu.losses.FairLoss` |
 | 带惩罚模型 | `statgpu.linear_model.penalized.PenalizedRobustRegression` |
-| R 中的对应方法 | `MASS::rlm()` |
+| 相关 R 方法 | `MASS::rlm()` |
 
 ## 损失函数
 
@@ -79,7 +79,9 @@ $$
 
 | 参数 | 默认值 | 说明 |
 |---|---:|---|
-| `c` | `1.4` | Fair 损失的调节常数 |
+| `delta` | `None` | 可选固定阈值；一旦给定，会使用固定阈值模式 |
+| `epsilon` | `1.35` | 与估计尺度相乘得到 Fair 损失的有效阈值 |
+| `method` | `"MAD"` | `"MAD"` 或 `"huber_prop2"` |
 
 ## 尺度估计
 
@@ -88,9 +90,9 @@ $$
 - **MAD**：$\hat\sigma=\operatorname{median}(|r_i|)/0.6745$
 - **Huber Proposal 2**：通过固定点迭代估计尺度
 - Huber 使用 $\delta=\epsilon\hat\sigma$
-- Bisquare 使用 $c=\epsilon\hat\sigma$
+- Bisquare 与 Fair 都通过内部有效 `delta` 使用 $c=\epsilon\hat\sigma$
 
-显式给定 `delta` 时直接使用固定阈值。`method="joint"` 则是单独的系数—尺度联合优化问题。
+显式给定 `delta` 时直接使用固定阈值。`method="joint"` 仅属于 Huber，并定义单独的系数—尺度联合优化问题。
 
 ## 求解器兼容性
 
@@ -154,7 +156,7 @@ from statgpu.losses import HuberLoss
 from statgpu.penalties import SCADPenalty
 from statgpu.solvers import fista_solver
 
-loss = HuberLoss(epsilon=1.35)
+loss = HuberLoss()
 coef, n_iter = fista_solver(loss, SCADPenalty(alpha=0.1), X, y)
 ```
 
@@ -190,9 +192,9 @@ $$
 
 ## 外部验证
 
-- **Huber**：已维护的公开路径与 R `MASS::rlm(psi=psi.huber)` 使用相同的 Huber M-估计目标；当前 Huber IRLS 不在公开支持矩阵中。
-- **Bisquare**：与 R `MASS::rlm(psi=psi.bisquare)` 对齐；非凸惩罚路径使用当前 LLA/FISTA 实现。
-- **Fair**：与 R `MASS::rlm(psi=psi.fair)` 对齐。
+- **Huber**：使用经典 Huber 损失形式；与 `MASS::rlm(psi=psi.huber)` 做数值比较时需要对齐调节常数和尺度估计约定。当前 Huber IRLS 不在公开支持矩阵中。
+- **Bisquare**：使用 Tukey biweight 损失形式；外部比较需要对齐调节常数和尺度约定，当前非凸惩罚路径使用 LLA/FISTA。
+- **Fair**：使用 Fair 损失形式；外部比较需要对齐调节常数和尺度约定。
 
 ## 注意事项
 

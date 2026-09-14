@@ -18,8 +18,8 @@ Related model documentation:
 
 Five non-GLM loss types extend the shared loss interface:
 
-| Loss | Class | R equivalent | Typical use |
-|------|-------|--------------|-------------|
+| Loss | Class | Related R function | Typical use |
+|------|-------|--------------------|-------------|
 | Quantile | `QuantileLoss` | `quantreg::rq()` | Conditional quantiles, median regression |
 | Huber | `HuberLoss` | `MASS::rlm()` | Robust M-estimation |
 | Bisquare | `BisquareLoss` | `MASS::rlm(psi="bisquare")` | Redescending M-estimation |
@@ -201,7 +201,9 @@ Uniform weights retain historical unweighted L-BFGS behavior.
 
 | Parameter | Default | Description |
 |---|---:|---|
-| `c` | `1.4` | Fair-loss tuning constant |
+| `delta` | `None` | Optional fixed threshold; when supplied, `epsilon` and `method` are ignored |
+| `epsilon` | `1.35` | Robustness tuning constant used with an estimated scale |
+| `method` | `"MAD"` | Scale handling: `"MAD"` or `"huber_prop2"` |
 
 ### `CoxPartialLikelihoodLoss`
 
@@ -221,7 +223,7 @@ from statgpu.solvers import lbfgs_solver
 quantile_loss = QuantileLoss(quantile=0.5)
 coef_q, n_iter_q = lbfgs_solver(quantile_loss, None, X, y)
 
-huber_loss = HuberLoss(epsilon=1.345)
+huber_loss = HuberLoss()
 coef_h, n_iter_h = lbfgs_solver(huber_loss, None, X, y)
 ```
 
@@ -238,7 +240,7 @@ from statgpu.solvers import fista_solver
 X_t = torch.tensor(X, dtype=torch.float64).cuda()
 y_t = torch.tensor(y, dtype=torch.float64).cuda()
 
-loss = HuberLoss(epsilon=1.345)
+loss = HuberLoss()
 coef, n_iter = fista_solver(loss, SCADPenalty(alpha=0.1), X_t, y_t)
 ```
 

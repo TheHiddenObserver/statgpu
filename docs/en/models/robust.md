@@ -15,7 +15,7 @@ statgpu provides robust regression through M-estimation with robust scale handli
 | Bisquare Loss | `statgpu.losses.BisquareLoss` |
 | Fair Loss | `statgpu.losses.FairLoss` |
 | Penalized Model | `statgpu.linear_model.penalized.PenalizedRobustRegression` |
-| R Equivalent | `MASS::rlm()` |
+| Related R method | `MASS::rlm()` |
 
 ## Loss Functions
 
@@ -79,7 +79,9 @@ $$
 
 | Parameter | Default | Description |
 |---|---:|---|
-| `c` | `1.4` | Fair-loss tuning constant |
+| `delta` | `None` | Optional fixed threshold; when supplied, fixed-threshold mode is used |
+| `epsilon` | `1.35` | Multiplied by the estimated scale to obtain the effective Fair threshold |
+| `method` | `"MAD"` | `"MAD"` or `"huber_prop2"` |
 
 ## Scale Estimation
 
@@ -88,9 +90,9 @@ $$
 - **MAD**: $\hat\sigma=\operatorname{median}(|r_i|)/0.6745$
 - **Huber Proposal 2**: scale is estimated by a fixed-point iteration
 - Huber uses $\delta=\epsilon\hat\sigma$
-- Bisquare uses $c=\epsilon\hat\sigma$
+- Bisquare and Fair use $c=\epsilon\hat\sigma$ internally through their effective `delta`
 
-Supplying `delta` selects fixed-threshold mode directly. `method="joint"` instead defines a separate joint coefficient-scale optimization problem.
+Supplying `delta` selects fixed-threshold mode directly. `method="joint"` is Huber-only and defines a separate joint coefficient-scale optimization problem.
 
 ## Solver Compatibility
 
@@ -156,7 +158,7 @@ from statgpu.losses import HuberLoss
 from statgpu.penalties import SCADPenalty
 from statgpu.solvers import fista_solver
 
-loss = HuberLoss(epsilon=1.35)
+loss = HuberLoss()
 coef, n_iter = fista_solver(loss, SCADPenalty(alpha=0.1), X, y)
 ```
 
@@ -192,9 +194,9 @@ is directly related to the Huber first-order condition. This shows that Huber ad
 
 ## External Validation
 
-- **Huber**: maintained public routes use the same Huber M-estimation objective as R `MASS::rlm(psi=psi.huber)`; Huber IRLS is not currently part of the public support matrix.
-- **Bisquare**: aligned with R `MASS::rlm(psi=psi.bisquare)`; current non-convex penalty routes use LLA/FISTA.
-- **Fair**: aligned with R `MASS::rlm(psi=psi.fair)`.
+- **Huber**: uses the classical Huber loss form. Numerical comparison with `MASS::rlm(psi=psi.huber)` requires the same tuning constant and scale-estimation convention; Huber IRLS is not currently part of the public support matrix.
+- **Bisquare**: uses the Tukey biweight loss form. External comparison requires aligned tuning and scale conventions; current non-convex penalty routes use LLA/FISTA.
+- **Fair**: uses the Fair loss form. External comparison requires aligned tuning and scale conventions.
 
 ## Notes
 

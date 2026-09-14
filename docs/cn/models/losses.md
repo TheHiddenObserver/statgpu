@@ -18,8 +18,8 @@
 
 五类非 GLM 损失使用这套共享接口：
 
-| 损失 | 类 | R 中的对应方法 | 常见用途 |
-|------|------|--------|----------|
+| 损失 | 类 | 相关 R 函数 | 常见用途 |
+|------|------|-------------|----------|
 | 分位数 | `QuantileLoss` | `quantreg::rq()` | 条件分位数、中位数回归 |
 | Huber | `HuberLoss` | `MASS::rlm()` | 稳健 M-估计 |
 | Bisquare | `BisquareLoss` | `MASS::rlm(psi="bisquare")` | 重降型 M-估计 |
@@ -203,7 +203,9 @@ Huber IRLS 当前未作为维护中的公开求解路径开放；因此表中的
 
 | 参数 | 默认值 | 说明 |
 |---|---:|---|
-| `c` | `1.4` | Fair 损失的调节常数 |
+| `delta` | `None` | 可选固定阈值；一旦提供，会忽略 `epsilon` 与 `method` |
+| `epsilon` | `1.35` | 与估计尺度配合使用的稳健性调节常数 |
+| `method` | `"MAD"` | 尺度处理方式：`"MAD"` 或 `"huber_prop2"` |
 
 ### `CoxPartialLikelihoodLoss`
 
@@ -223,7 +225,7 @@ from statgpu.solvers import lbfgs_solver
 quantile_loss = QuantileLoss(quantile=0.5)
 coef_q, n_iter_q = lbfgs_solver(quantile_loss, None, X, y)
 
-huber_loss = HuberLoss(epsilon=1.345)
+huber_loss = HuberLoss()
 coef_h, n_iter_h = lbfgs_solver(huber_loss, None, X, y)
 ```
 
@@ -240,7 +242,7 @@ from statgpu.solvers import fista_solver
 X_t = torch.tensor(X, dtype=torch.float64).cuda()
 y_t = torch.tensor(y, dtype=torch.float64).cuda()
 
-loss = HuberLoss(epsilon=1.345)
+loss = HuberLoss()
 coef, n_iter = fista_solver(loss, SCADPenalty(alpha=0.1), X_t, y_t)
 ```
 
