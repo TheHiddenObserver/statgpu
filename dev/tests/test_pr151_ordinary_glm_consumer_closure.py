@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from statgpu.linear_model import GeneralizedLinearModel
+from statgpu.solvers._smooth_domain import _prepare_analytic_sample_weight
 
 
 def _logistic_data(seed=151911, n=160, p=3):
@@ -41,9 +42,7 @@ def test_effectively_uniform_smooth_fit_uses_same_unweighted_inference_state(sol
         X, y, sample_weight=weights
     )
 
-    # The smooth solver's historical effective-uniform rule canonicalizes this
-    # request to the unweighted numerical objective. Post-fit diagnostics and
-    # M-estimation must consume that same canonical objective.
+    assert almost_uniform._statgpu_smooth_effective_unweighted is True
     assert almost_uniform._sample_weight_inf is None
     np.testing.assert_allclose(
         almost_uniform.coef_, base.coef_, rtol=0.0, atol=0.0
@@ -63,6 +62,39 @@ def test_effectively_uniform_smooth_fit_uses_same_unweighted_inference_state(sol
     assert almost_uniform.loglikelihood == base.loglikelihood
     assert almost_uniform.aic == base.aic
     assert almost_uniform.bic == base.bic
+
+
+@pytest.mark.parametrize("solver", ["newton", "lbfgs"])
+def test_float32_fit_retains_solver_side_weight_classification(solver):
+    X64, y = _logistic_data(seed=151912, n=120)
+    X = X64.astype(np.float32)
+    weights = np.full(X.shape[0], 1.0, dtype=np.float64)
+    weights[-1] = 1.0 + 9.95e-6
+
+    # Reconstruct the ordinary solver's actual float32 intercept-augmented
+    # execution design and freeze its classification before the reporting layer
+    # promotes NumPy inference state to float64.
+    X_work = np.column_stack(
+        [X, np.ones(X.shape[0], dtype=np.float32)]
+    ).astype(np.float32, copy=False)
+    expected_unweighted = (
+        _prepare_analytic_sample_weight(
+            weights, X.shape[0], "numpy", X_work
+        )
+        is None
+    )
+
+    model = GeneralizedLinearModel(
+        family="binomial",
+        solver=solver,
+        device="cpu",
+        compute_inference=False,
+        max_iter=600,
+        tol=1.0e-8,
+    ).fit(X, y, sample_weight=weights)
+
+    assert model._statgpu_smooth_effective_unweighted is expected_unweighted
+    assert (model._sample_weight_inf is None) is expected_unweighted
 
 
 def test_weight_contract_installer_is_idempotent_for_inference_wrapper():
