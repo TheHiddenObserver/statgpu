@@ -11,6 +11,7 @@ from __future__ import annotations
 import numpy as np
 
 from statgpu.backends import _resolve_backend
+from statgpu.backends._array_ops import _xp_asarray
 from statgpu.backends._utils import _get_xp
 
 from ._utils import _as_backend_vector, _validate_sample_weight
@@ -28,6 +29,18 @@ class _LossDomainError(RuntimeError):
 
 def _scalar_bool(value) -> bool:
     return bool(value.item() if hasattr(value, "item") else value)
+
+
+def _aligned_weight_dtype(ref_arr, backend):
+    """Choose a floating execution dtype for analytic weights when needed."""
+    if backend == "torch":
+        import torch
+
+        return ref_arr.dtype if torch.is_floating_point(ref_arr) else torch.float64
+    dtype = getattr(ref_arr, "dtype", np.dtype(np.float64))
+    if getattr(dtype, "kind", "") == "f":
+        return dtype
+    return _get_xp(backend).float64
 
 
 def _effectively_uniform_weights(values, backend) -> bool:
@@ -70,8 +83,9 @@ def _prepare_analytic_sample_weight(
 
     Omitted, uniform, and historically effectively-uniform weights execute the
     unweighted objective. Genuine non-uniform weights remain backend-native.
-    Classification happens only after alignment to the executed design dtype
-    and device so Newton, L-BFGS, initialization, and domain masking agree.
+    Classification happens only after alignment to the executed design device
+    and a floating dtype compatible with that design. Integral design matrices
+    therefore cannot truncate fractional analytic weights during alignment.
 
     The effectively-uniform comparison is deliberately relative-only and
     symmetric across observations. Analytic weights are defined only up to a
@@ -83,7 +97,11 @@ def _prepare_analytic_sample_weight(
         return None
 
     _validate_sample_weight(sample_weight, n_samples)
-    values = _as_backend_vector(sample_weight, backend, ref_arr).reshape(-1)
+    values = _xp_asarray(
+        sample_weight,
+        _aligned_weight_dtype(ref_arr, backend),
+        ref_arr,
+    ).reshape(-1)
     return None if _effectively_uniform_weights(values, backend) else values
 
 

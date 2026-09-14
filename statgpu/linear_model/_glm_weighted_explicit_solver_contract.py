@@ -99,10 +99,10 @@ def _install_smooth_solver_contract() -> None:
         if not getattr(loss, "has_hessian", False):
             raise ValueError(f"solver='{solver_name}' requires a Hessian.")
 
-        if self._effective_intercept:
-            from statgpu.backends._utils import _get_xp
+        from statgpu.backends._utils import _get_xp
 
-            xp = _get_xp(backend_name)
+        xp = _get_xp(backend_name)
+        if self._effective_intercept:
             if backend_name == "cupy":
                 x_dtype = X.dtype if getattr(X.dtype, "kind", "") == "f" else xp.float64
                 X_float = X.astype(x_dtype, copy=False)
@@ -133,12 +133,22 @@ def _install_smooth_solver_contract() -> None:
                 )
             p = X.shape[1]
         else:
-            if backend_name == "torch":
+            # Smooth solvers require floating arithmetic even when the public
+            # design container is integral.  Promote before solver entry so
+            # fractional analytic weights cannot be truncated while aligning
+            # to the executed design dtype.
+            if backend_name == "cupy":
+                x_dtype = X.dtype if getattr(X.dtype, "kind", "") == "f" else xp.float64
+                X_work = X.astype(x_dtype, copy=False)
+            elif backend_name == "torch":
                 x_dtype = _torch_promoted_float_dtype(X, y)
                 X_work = X.to(dtype=x_dtype)
                 y = y.to(X.device).to(x_dtype)
             else:
-                X_work = X
+                x_dtype = (
+                    X.dtype if np.issubdtype(X.dtype, np.floating) else np.float64
+                )
+                X_work = X.astype(x_dtype, copy=False)
             p = X.shape[1]
 
         # ``init_coef=None`` is intentional. Ordinary GLMs expose no public
