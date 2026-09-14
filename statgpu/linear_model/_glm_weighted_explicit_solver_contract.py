@@ -29,6 +29,7 @@ _INIT_MARKER = "_statgpu_weighted_explicit_solver_init_contract"
 _FIT_MARKER = "_statgpu_weighted_explicit_solver_fit_contract"
 _SMOOTH_MARKER = "_statgpu_weighted_explicit_solver_smooth_contract"
 _ALIGNMENT_MARKER = "_statgpu_weighted_explicit_solver_inference_alignment_contract"
+_INFERENCE_MARKER = "_statgpu_weighted_explicit_solver_inference_weight_contract"
 
 
 def _resolved_ordinary_solver(self) -> str:
@@ -59,6 +60,31 @@ def _fit_device_label(X_design, backend: str) -> str:
     if backend == "cupy":
         return f"cuda:{int(X_design.device.id)}"
     return str(backend)
+
+
+def _canonicalize_smooth_inference_weight_state(self, solver_name) -> None:
+    """Mirror smooth-solver effective-uniform classification in fitted state."""
+    if solver_name not in ("newton", "lbfgs"):
+        return
+    sample_weight = getattr(self, "_sample_weight_inf", None)
+    X_design = getattr(self, "_X_design", None)
+    if sample_weight is None or X_design is None:
+        return
+
+    from statgpu.solvers._smooth_domain import _prepare_analytic_sample_weight
+
+    backend = _resolve_backend("auto", X_design)
+    prepared = _prepare_analytic_sample_weight(
+        sample_weight,
+        X_design.shape[0],
+        backend,
+        X_design,
+    )
+    if prepared is None:
+        # The explicit smooth solver optimized the historical unweighted path;
+        # diagnostics and M-estimation must consume that same fitted objective
+        # rather than reintroducing a tiny near-uniform weight perturbation.
+        self._sample_weight_inf = None
 
 
 def _install_init_contract() -> None:
@@ -108,7 +134,7 @@ def _install_inference_alignment_contract() -> None:
             from statgpu.backends._utils import _get_xp
 
             xp = _get_xp("cupy")
-            coef_dtype = xp.asarray(self.coef_).dtype
+            coef_dtype = np.asarray(self.coef_).dtype
             dtype = xp.result_type(X_orig.dtype, coef_dtype)
             if getattr(dtype, "kind", "") != "f":
                 dtype = xp.float64
@@ -243,6 +269,22 @@ def _install_smooth_solver_contract() -> None:
     GeneralizedLinearModel._fit_smooth_solver = _fit_smooth_solver_with_weights
 
 
+def _install_inference_weight_contract() -> None:
+    current = GeneralizedLinearModel._compute_inference
+    if getattr(current, _INFERENCE_MARKER, False):
+        return
+
+    @wraps(current)
+    def _compute_inference_with_fit_weight_contract(self, *args, **kwargs):
+        solver_name = getattr(self, "_fit_metadata", {}).get("solver_used")
+        _canonicalize_smooth_inference_weight_state(self, solver_name)
+        return current(self, *args, **kwargs)
+
+    setattr(_compute_inference_with_fit_weight_contract, _INFERENCE_MARKER, True)
+    _compute_inference_with_fit_weight_contract._statgpu_original = current
+    GeneralizedLinearModel._compute_inference = _compute_inference_with_fit_weight_contract
+
+
 def _install_fit_provenance_contract() -> None:
     current = GeneralizedLinearModel.fit
     if getattr(current, _FIT_MARKER, False):
@@ -256,6 +298,7 @@ def _install_fit_provenance_contract() -> None:
         # state behavior rather than inventing a new invalidation contract.
         result = current(self, *args, **kwargs)
         solver_name = _resolved_ordinary_solver(self)
+        _canonicalize_smooth_inference_weight_state(self, solver_name)
         X_design = getattr(self, "_X_design", None)
         if X_design is None:
             raise RuntimeError(
@@ -278,4 +321,5 @@ def install_glm_weighted_explicit_solver_contract() -> None:
     _install_init_contract()
     _install_inference_alignment_contract()
     _install_smooth_solver_contract()
+    _install_inference_weight_contract()
     _install_fit_provenance_contract()
