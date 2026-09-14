@@ -2,20 +2,20 @@
 """PR151 physical CUDA schema v7: corrected analytic-weight inference gate.
 
 Schema v7 preserves the accepted schema-v5 chain unchanged and reuses the
-schema-v6 analytic-weight inference checks that passed physically.  It replaces
-only the failed schema-v6 raw-sum-overflow fixture, whose implementation had
-accidentally changed both the weight dtype *and* the design/response dtype.
+schema-v6 analytic-weight inference definition unchanged. It replaces only the
+failed schema-v6 raw-sum-overflow fixture, whose implementation had accidentally
+changed both the weight dtype *and* the design/response dtype.
 
 The intended contract is narrower and was already stated by schema v6: finite
 float32 analytic weights whose raw float32 sum overflows must still define the
-same normalized objective and inference problem.  That contract does not add a
+same normalized objective and inference problem. That contract does not add a
 new requirement that float32-design CuPy L-BFGS must match NumPy within the
-float64-oriented coefficient parity threshold.  Therefore the corrected gate
+float64-oriented coefficient parity threshold. Therefore the corrected gate
 keeps X/y at the maintained float64 reference dtype and varies only the weights
 between ordinary-scale float32 and globally scaled float32 overflow values.
 
 The failed schema-v6 run remains historical diagnostic evidence and is not
-rewritten.  Schema v7 must be run on the exact clean current source before
+rewritten. Schema v7 must be run on the exact clean current source before
 PR151 can be promoted to merge-ready.
 """
 
@@ -67,6 +67,27 @@ def _float32_weight_raw_sum_overflow_inference_gate(
     if np.isfinite(raw_sum):
         raise AssertionError("float32 overflow-inference fixture raw sum did not overflow")
 
+    expected_cuda = f"cuda:{device_id}"
+    with cp.cuda.Device(device_id):
+        cupy_overflow = cp.asarray(overflow_weights, dtype=cp.float32)
+        cupy_raw_sum_overflow = bool(cp.isinf(cp.sum(cupy_overflow)).item())
+    with torch.cuda.device(torch_device):
+        torch_overflow = torch.as_tensor(
+            overflow_weights,
+            dtype=torch.float32,
+            device=torch_device,
+        )
+        torch_raw_sum_overflow = bool(torch.isinf(torch.sum(torch_overflow)).item())
+
+    if not cupy_raw_sum_overflow:
+        raise AssertionError(
+            "schema-v7 CuPy float32 overflow fixture raw sum did not overflow"
+        )
+    if not torch_raw_sum_overflow:
+        raise AssertionError(
+            "schema-v7 Torch float32 overflow fixture raw sum did not overflow"
+        )
+
     results = v6._consumer_matrix(
         X_np=X_np,
         y_np=y_np,
@@ -83,6 +104,11 @@ def _float32_weight_raw_sum_overflow_inference_gate(
         "response_dtype": str(y_np.dtype),
         "weight_dtype": str(overflow_weights.dtype),
         "raw_float32_sum_overflow": True,
+        "backend_raw_float32_sum_overflow": {
+            "cupy": cupy_raw_sum_overflow,
+            "torch": torch_raw_sum_overflow,
+        },
+        "expected_cuda_device": expected_cuda,
         "overflow_scale": _FLOAT32_OVERFLOW_SCALE,
         "routes": results,
     }
@@ -101,9 +127,9 @@ def run(output: Path):
     source_sha = str(legacy["source_sha"])
     cp, torch, device_id, torch_device = v5.v4.v3._require_gpu_backends()
 
-    # The schema-v6 analytic-weight inference matrix passed physically and its
-    # definition is reused unchanged here.  Do not call v6.run(): the failed v6
-    # overflow fixture intentionally remains immutable historical evidence.
+    # Reuse the schema-v6 analytic-weight inference matrix unchanged. Do not
+    # call v6.run(): the failed v6 overflow fixture intentionally remains
+    # immutable historical diagnostic evidence.
     analytic_weight_gate = v6._analytic_weight_inference_gate(
         cp, torch, device_id, torch_device
     )
