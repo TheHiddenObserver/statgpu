@@ -2,11 +2,11 @@
 
 The ordinary ``GeneralizedLinearModel`` source predates the shared weighted
 Newton repair and still rejects every weighted explicit smooth-solver request
-before solver entry.  Keep this installer narrow: it opens only that public
+before solver entry. Keep this installer narrow: it opens only that public
 boundary, preserves the requested solver, and publishes fit-recorded
 solver/backend/device provenance after a successful fit.
 
-Family-specific numerical domains belong to the loss/solver layer.  In
+Family-specific numerical domains belong to the loss/solver layer. In
 particular, inverse-power Gamma now obtains and preserves its smooth-domain
 interior through ``GammaLoss`` plus the shared Newton/L-BFGS domain hooks rather
 than through an estimator-specific ``fit_intercept`` guard or duplicate start.
@@ -28,6 +28,7 @@ from statgpu.linear_model._glm_base import (
 _INIT_MARKER = "_statgpu_weighted_explicit_solver_init_contract"
 _FIT_MARKER = "_statgpu_weighted_explicit_solver_fit_contract"
 _SMOOTH_MARKER = "_statgpu_weighted_explicit_solver_smooth_contract"
+_ALIGNMENT_MARKER = "_statgpu_weighted_explicit_solver_inference_alignment_contract"
 
 
 def _resolved_ordinary_solver(self) -> str:
@@ -75,6 +76,52 @@ def _install_init_contract() -> None:
     setattr(_init_with_provenance, _INIT_MARKER, True)
     _init_with_provenance._statgpu_original = current
     GeneralizedLinearModel.__init__ = _init_with_provenance
+
+
+def _install_inference_alignment_contract() -> None:
+    """Keep post-fit GLM design/parameters on a floating numerical dtype.
+
+    Smooth solvers promote integral public designs before optimization. The
+    historical inference-state builder instead reused the original design dtype,
+    which could cast a successful floating GPU coefficient vector back to an
+    integer dtype before log-likelihood or M-estimation inference. Align the
+    retained design to at least the fitted coefficient precision before the
+    existing layout helper reconstructs ``_X_design`` and ``_params``.
+    """
+    current = GeneralizedLinearModel._aligned_inference_design_glm
+    if getattr(current, _ALIGNMENT_MARKER, False):
+        return
+
+    @wraps(current)
+    def _aligned_inference_design_with_float_state(self, X_orig):
+        backend = _resolve_backend("auto", X_orig)
+        if backend == "torch":
+            import torch
+
+            coef_dtype = torch.as_tensor(np.asarray(self.coef_)).dtype
+            x_dtype = X_orig.dtype if torch.is_floating_point(X_orig) else coef_dtype
+            dtype = torch.promote_types(x_dtype, coef_dtype)
+            if not dtype.is_floating_point:
+                dtype = torch.float64
+            X_orig = X_orig.to(dtype=dtype)
+        elif backend == "cupy":
+            from statgpu.backends._utils import _get_xp
+
+            xp = _get_xp("cupy")
+            coef_dtype = xp.asarray(self.coef_).dtype
+            dtype = xp.result_type(X_orig.dtype, coef_dtype)
+            if getattr(dtype, "kind", "") != "f":
+                dtype = xp.float64
+            X_orig = X_orig.astype(dtype, copy=False)
+        # The existing NumPy branch already converts the inference design to
+        # floating point and therefore cannot truncate fitted coefficients.
+        return current(self, X_orig)
+
+    setattr(_aligned_inference_design_with_float_state, _ALIGNMENT_MARKER, True)
+    _aligned_inference_design_with_float_state._statgpu_original = current
+    GeneralizedLinearModel._aligned_inference_design_glm = (
+        _aligned_inference_design_with_float_state
+    )
 
 
 def _install_smooth_solver_contract() -> None:
@@ -134,7 +181,7 @@ def _install_smooth_solver_contract() -> None:
             p = X.shape[1]
         else:
             # Smooth solvers require floating arithmetic even when the public
-            # design container is integral.  Promote before solver entry so
+            # design container is integral. Promote before solver entry so
             # fractional analytic weights cannot be truncated while aligning
             # to the executed design dtype.
             if backend_name == "cupy":
@@ -187,7 +234,7 @@ def _install_smooth_solver_contract() -> None:
 
     setattr(_fit_smooth_solver_with_weights, _SMOOTH_MARKER, True)
     # The later inverse-Gamma consumer installer must not add a second ordinary
-    # wrapper.  This ordinary owner already delegates family-domain work to the
+    # wrapper. This ordinary owner already delegates family-domain work to the
     # shared loss/solver hooks; marking that contract lets the later installer
     # no-op its historical compatibility wrapper while still patching penalized
     # and CV consumers.
@@ -204,7 +251,7 @@ def _install_fit_provenance_contract() -> None:
     @wraps(current)
     def _fit_with_execution_provenance(self, *args, **kwargs):
         # Publish new provenance only after the existing fit transaction has
-        # returned successfully.  A failed refit therefore leaves the previous
+        # returned successfully. A failed refit therefore leaves the previous
         # successful provenance untouched, matching the existing ordinary-GLM
         # state behavior rather than inventing a new invalidation contract.
         result = current(self, *args, **kwargs)
@@ -229,5 +276,6 @@ def install_glm_weighted_explicit_solver_contract() -> None:
     """Install the bounded ordinary-GLM weighted smooth-solver contract."""
 
     _install_init_contract()
+    _install_inference_alignment_contract()
     _install_smooth_solver_contract()
     _install_fit_provenance_contract()
