@@ -58,10 +58,10 @@ penalty_conditioning_ = "fixed_penalty"
 $$
 \widehat{\mathrm{Var}}(\hat\beta)
 =
-(H+P'')^{-1} J (H+P'')^{-1}/n_{\mathrm{eff}},
+(H+P'')^{-1} J (H+P'')^{-1}/n,
 $$
 
-其中 `J` 是 statgpu analytic-weight 约定下的 average score outer product。`cov_type="nonrobust"` 使用既有 model-based penalized-information covariance。
+其中 `J` 是 statgpu analytic-weight 约定下的 average score outer product，`n` 是原始观测行数。`cov_type="nonrobust"` 使用对应的 model-based penalized-information covariance，同样保持在原始观测的 average scale 上。
 
 该 non-Gaussian 路径当前支持：
 
@@ -75,7 +75,25 @@ HC2、HC3 与 HAC 尚未为 penalized non-Gaussian M-estimation 实现，会明�
 
 non-Gaussian L2 M-estimation covariance 支持 analytic weights，并且 numerical inference 跟随实际执行拟合的 backend/device。
 
-维护中的 Newton solver 会把非均匀 analytic weights 贯穿 **同一个归一化 average-loss objective 的全部 Newton 阶段**：objective value、gradient、Hessian（或 fused gradient/Hessian）以及 Armijo trial evaluation 都使用 `sum_i w_i contribution_i / sum_i w_i`。因此把全部权重乘以任意正的常数不会改变 penalized optimum。对于浮点权重，满足历史 uniform-weight `allclose` 规则的向量继续走既有的 unweighted-equivalent 路径。
+维护中的 smooth GLM solver 会把非均匀 analytic weights 贯穿**同一个归一化 average-loss objective 的整个求解过程**。objective value、gradient、适用时的 Hessian、line-search trial evaluation 与 accepted-point derivative 都使用
+
+$$
+\frac{\sum_i w_i\,\ell_i(\beta)}{\sum_i w_i}.
+$$
+
+因此这里的 analytic weights 表示**观测的相对重要性**，而不是重复观测次数的 frequency weights。M-estimation covariance 计算前，statgpu 使用与原问题等价的 mean-one 权重
+
+$$
+\widetilde w_i
+=
+\frac{n w_i}{\sum_j w_j},
+\qquad
+\sum_i \widetilde w_i=n.
+$$
+
+这个归一化不会改变 weighted Hessian。HC0/HC1 的 `J` 使用同一组归一化 analytic weights；`nonrobust` 的 model-based information 与 dispersion 也使用同一 mean-one 约定。因此把全部 analytic weights 乘以任意正常数，不会改变拟合参数、标准误、检验统计量、p-value 或 confidence interval。所有权重为同一正常数时，推断与省略权重的 unweighted 问题相同。这个语义与 frequency-weight 模型有意区分；后者若把所有计数同时放大，表示的是更大的复制样本量。
+
+满足历史 effectively-uniform 判定的浮点权重向量继续走既有的 unweighted-equivalent 路径。
 
 公开 `solver="auto"` 时，weighted smooth non-Gaussian L2/无惩罚拟合与对应的 unweighted 拟合使用同一套 canonical solver dispatch。适用的 logistic/Poisson 行会解析到 backend-native Newton，而公开的 solver 请求仍保持 `auto`。
 
