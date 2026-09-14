@@ -69,6 +69,26 @@ def test_inverse_gamma_one_dimensional_weighted_solution_matches_closed_form(sol
 
 
 @pytest.mark.parametrize("solver", ["newton", "lbfgs"])
+def test_inverse_gamma_optimum_beyond_maintained_domain_fails_closed(solver):
+    # For X=1, the unpenalized inverse-Gamma optimum is eta=1/y.  Here that
+    # optimum is 1e8, far above the maintained smooth-training upper bound 1e3.
+    # A solver must not publish a tiny domain-capped step as convergence.
+    X = np.ones((8, 1), dtype=np.float64)
+    y = np.full(8, 1e-8, dtype=np.float64)
+
+    model = GammaRegression(
+        link="inverse_power",
+        fit_intercept=False,
+        solver=solver,
+        device="cpu",
+        max_iter=100,
+        tol=1e-8,
+    )
+    with pytest.raises(RuntimeError, match="pinned to the maintained smooth-domain boundary"):
+        model.fit(X, y)
+
+
+@pytest.mark.parametrize("solver", ["newton", "lbfgs"])
 @pytest.mark.parametrize("almost_uniform", [False, True])
 def test_inverse_gamma_no_intercept_uniform_weights_equal_unweighted_objective(
     solver, almost_uniform

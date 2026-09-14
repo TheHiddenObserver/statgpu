@@ -220,22 +220,21 @@ def lbfgs_solver(
                     "trial step for the maintained loss domain."
                 )
 
-            # The normal convergence rule below accepts an *accepted* step with
-            # ||s_k|| < tol. At floating-point resolution Armijo may instead
-            # reject that same tiny displacement because the requested decrease
-            # is no longer representable in the objective. Keep those two cases
-            # consistent: if the smallest step that was actually tried is
-            # already below the configured parameter-step tolerance, terminate
-            # through the existing small-step criterion rather than reporting a
-            # line-search failure. Genuine exhaustion at a material step still
-            # emits the warning.
+            # For unconstrained smooth losses, the ordinary step-size stopping
+            # rule and Armijo exhaustion must agree at floating-point resolution:
+            # a smallest tried displacement below tol is not a material line-
+            # search failure. A loss-owned domain cap is different: a tiny
+            # admissible displacement may mean the iterate is pinned to a
+            # maintained boundary while its gradient is still large, so domain-
+            # constrained routes must not use this shortcut.
             direction_norm_dev = _norm2_dev(direction)
             (direction_norm,) = _sync_scalars(
                 direction_norm_dev, backend=backend
             )
             smallest_tried_step = 2.0 * step
             numerically_small_trial = (
-                smallest_tried_step * direction_norm < tol
+                domain_cap is None
+                and smallest_tried_step * direction_norm < tol
             )
             if not numerically_small_trial:
                 warnings.warn(
@@ -245,6 +244,7 @@ def lbfgs_solver(
                     RuntimeWarning,
                     stacklevel=2,
                 )
+                break
 
         # Update gradient (fused) using the same weighted objective.
         _, grad_new = _call_loss_with_weight(
@@ -275,7 +275,18 @@ def lbfgs_solver(
         params = params_new
         grad = grad_new
         if s_norm < tol:
-            break
+            if domain_cap is None:
+                break
+            # A domain-capped tiny step is not convergence by itself. Only the
+            # same gradient criterion used at iteration entry may close the
+            # constrained route; otherwise continue until the loss declares the
+            # domain numerically pinned or a later step makes real progress.
+            grad_new_norm_dev = _norm2_dev(grad_new)
+            (grad_new_norm,) = _sync_scalars(
+                grad_new_norm_dev, backend=backend
+            )
+            if grad_new_norm < tol:
+                break
 
     n_iter = iteration + 1
     if n_iter >= max_iter:
