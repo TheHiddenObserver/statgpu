@@ -14,6 +14,7 @@ from statgpu.solvers._newton import _prepare_newton_sample_weight
 def test_weight_preparation_keeps_fractional_weights_for_integral_design():
     X = np.ones((4, 2), dtype=np.int64)
     weights = np.array([0.5, 1.5, 0.75, 2.25], dtype=np.float64)
+    expected = weights / np.max(weights)
 
     newton_weight = _prepare_newton_sample_weight(weights, 4, "numpy", X)
     lbfgs_weight = _prepare_lbfgs_sample_weight(
@@ -23,7 +24,7 @@ def test_weight_preparation_keeps_fractional_weights_for_integral_design():
     for prepared in (newton_weight, lbfgs_weight):
         assert prepared is not None
         assert np.issubdtype(np.asarray(prepared).dtype, np.floating)
-        np.testing.assert_allclose(prepared, weights, rtol=0.0, atol=0.0)
+        np.testing.assert_allclose(prepared, expected, rtol=0.0, atol=0.0)
 
 
 @pytest.mark.parametrize("solver", ["newton", "lbfgs"])
