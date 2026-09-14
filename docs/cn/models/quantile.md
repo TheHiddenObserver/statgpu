@@ -1,7 +1,7 @@
 # 分位数回归
 
 > 语言：中文  
-> 最后更新：2026-09-13  
+> 最后更新：2026-09-14  
 > 页面定位：模型文档  
 > 切换：[英文版](../../en/models/quantile.md)
 
@@ -72,7 +72,7 @@ $$
 | FISTA | ✅ | 非光滑/近端路径；权重支持以当前维护的 FISTA 路径为准 |
 | FISTA-BB | ✅ | 支持的稀疏路径可用；带权能力由当前损失函数和求解器路径共同决定 |
 | IRLS | ✅ | L2/无惩罚；`QuantileLoss.irls()` 有显式 `sample_weight` 路径 |
-| L-BFGS | ✅（无权重/均匀权重） | 直接使用真正非均匀权重时，当前通用 `LossBase` 路径会明确拒绝；见 Issue #153 |
+| L-BFGS | ✅（无权重/均匀权重） | 直接使用真正非均匀权重时，当前通用 `LossBase` 路径会明确拒绝 |
 | ADMM | ✅（无权重/均匀权重） | 共享 `admm_solver` 当前拒绝真正非均匀的 `sample_weight` |
 | Newton | ❌ | 分位数损失没有 Hessian |
 | Proximal Newton | ❌ | 分位数损失没有 Hessian |
@@ -103,7 +103,7 @@ $$
 - 直接调用 `lbfgs_solver` 时，真正非均匀的分位数权重仍会被明确拒绝；
 - 共享 `admm_solver` 目前只接受未传权重或均匀权重。
 
-`LossBase` 的统一带权支持约定由 GitHub Issue #153 跟踪。
+需要比较其他损失函数和求解器的带权范围时，见 [求解器 × 惩罚项兼容性矩阵](../guides/solver-penalty-matrix.md) 和 [求解器算法](../guides/solver-algorithms.md)。
 
 ## 示例
 
