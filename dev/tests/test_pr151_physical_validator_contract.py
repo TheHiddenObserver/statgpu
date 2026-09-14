@@ -10,8 +10,9 @@ from pathlib import Path
 VALIDATOR = Path("dev/benchmarks/validate_glm_weighted_explicit_solvers_gpu.py")
 VALIDATOR_V4 = Path("dev/benchmarks/validate_pr151_inverse_gamma_domain_gpu_v4.py")
 VALIDATOR_V5 = Path("dev/benchmarks/validate_pr151_final_gpu_v5.py")
+VALIDATOR_V6 = Path("dev/benchmarks/validate_pr151_final_gpu_v6.py")
 ARTIFACT_V5 = Path("dev/reviews/pr151_final_gpu_v5.json")
-ACCEPTED_SOURCE_SHA = "9eb39cee2c0e691160f528ab687b7379d26f3e42"
+ACCEPTED_V5_SOURCE_SHA = "9eb39cee2c0e691160f528ab687b7379d26f3e42"
 
 
 def _load_validator(path=VALIDATOR, name="pr151_validator"):
@@ -151,7 +152,7 @@ def test_pr151_schema_v5_accepted_artifact_identity_is_frozen():
     assert payload["schema_version"] == 5
     assert payload["status"] == "success"
     assert payload["source_clean"] is True
-    assert payload["source_sha"] == ACCEPTED_SOURCE_SHA
+    assert payload["source_sha"] == ACCEPTED_V5_SOURCE_SHA
     assert payload["frozen_tolerances"]["roundoff_solver_tol"] == 1.0e-9
     assert payload["frozen_tolerances"]["roundoff_weight_scale"] == 6.0
 
@@ -159,15 +160,43 @@ def test_pr151_schema_v5_accepted_artifact_identity_is_frozen():
     assert v4["schema_version"] == 4
     assert v4["status"] == "success"
     assert v4["source_clean"] is True
-    assert v4["source_sha"] == ACCEPTED_SOURCE_SHA
+    assert v4["source_sha"] == ACCEPTED_V5_SOURCE_SHA
 
     v3 = v4["legacy_schema_v3"]
     assert v3["schema_version"] == 3
     assert v3["status"] == "success"
     assert v3["source_clean"] is True
-    assert v3["source_sha"] == ACCEPTED_SOURCE_SHA
+    assert v3["source_sha"] == ACCEPTED_V5_SOURCE_SHA
 
     review = payload["review_closure"]
     assert "penalized_gamma_lbfgs_roundoff_stopping" in review
     assert "gpu_domain_pinned_fail_closed" in review
     assert set(review["gpu_domain_pinned_fail_closed"]) == {"cupy", "torch"}
+
+
+def test_pr151_schema_v6_extends_v5_for_analytic_weight_inference_closure():
+    module = _load_validator(VALIDATOR_V6, "pr151_validator_v6")
+    assert module.SCHEMA_VERSION == 6
+    assert module.SOLVER_TOL == 1.0e-8
+    assert module.ATOL_COEF == 2.0e-5
+    assert module.ATOL_INTERCEPT == 2.0e-5
+    assert module.ATOL_WEIGHT_RESCALE == 2.0e-6
+    assert module.ATOL_INFERENCE == 2.0e-5
+    assert module._WEIGHT_SCALE == 7.25
+    assert module._SOLVERS == ("newton", "lbfgs")
+
+    source = VALIDATOR_V6.read_text(encoding="utf-8")
+    assert "v5.run(v5_path)" in source
+    assert '"legacy_schema_v5": legacy' in source
+    assert '"source_sha": source_sha' in source
+    assert '"source_clean": True' in source
+    assert 'default=Path("dev/reviews/pr151_final_gpu_v6.json")' in source
+    assert '"analytic_weight_nonrobust_inference_scale_invariance"' in source
+    assert "_analytic_weight_inference_gate" in source
+    assert 'cov_type="nonrobust"' in source
+    assert 'inference_method="auto"' in source
+    assert '("ordinary", _fit_ordinary)' in source
+    assert '("penalized", _fit_penalized)' in source
+    assert '("cupy", "cuda")' in source
+    assert '("torch", "torch")' in source
+    assert '"inference_weight_scale": _WEIGHT_SCALE' in source
