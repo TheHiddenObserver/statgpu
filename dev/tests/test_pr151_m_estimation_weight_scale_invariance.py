@@ -23,17 +23,17 @@ def _logistic_data(seed=151921, n=160, p=3):
     return X, y, weights
 
 
-def _assert_same_parameter_inference(base, scaled):
-    np.testing.assert_allclose(base.coef_, scaled.coef_, rtol=2e-9, atol=2e-11)
+def _assert_same_parameter_inference(base, scaled, *, rtol=2e-9, atol=2e-11):
+    np.testing.assert_allclose(base.coef_, scaled.coef_, rtol=rtol, atol=atol)
     assert float(base.intercept_) == pytest.approx(
-        float(scaled.intercept_), rel=2e-9, abs=2e-11
+        float(scaled.intercept_), rel=rtol, abs=atol
     )
-    np.testing.assert_allclose(base._bse, scaled._bse, rtol=2e-9, atol=2e-11)
+    np.testing.assert_allclose(base._bse, scaled._bse, rtol=rtol, atol=atol)
     np.testing.assert_allclose(
-        base._pvalues, scaled._pvalues, rtol=2e-9, atol=2e-11
+        base._pvalues, scaled._pvalues, rtol=rtol, atol=atol
     )
     np.testing.assert_allclose(
-        base._conf_int, scaled._conf_int, rtol=2e-9, atol=2e-11
+        base._conf_int, scaled._conf_int, rtol=rtol, atol=atol
     )
 
 
@@ -94,6 +94,35 @@ def test_penalized_glm_analytic_weight_inference_is_global_scale_invariant(
     assert base.inference_resolved_method_ == "m_estimation"
     assert scaled.inference_resolved_method_ == "m_estimation"
     _assert_same_parameter_inference(base, scaled)
+
+
+def test_ordinary_nonrobust_inference_survives_float32_raw_sum_overflow():
+    X, y, _ = _logistic_data(seed=151924, n=96, p=3)
+    X = X.astype(np.float32)
+    raw = np.linspace(0.75, 1.05, X.shape[0], dtype=np.float32)
+    huge = raw * np.float32(3.0e38)
+    base = huge / np.float32(3.0e38)
+
+    assert np.all(np.isfinite(huge))
+    with np.errstate(over="ignore"):
+        assert not np.isfinite(np.sum(huge, dtype=np.float32))
+
+    kwargs = dict(
+        family="binomial",
+        fit_intercept=True,
+        solver="newton",
+        device="cpu",
+        max_iter=700,
+        tol=1.0e-8,
+        compute_inference=True,
+        cov_type="nonrobust",
+    )
+    reference = GeneralizedLinearModel(**kwargs).fit(X, y, sample_weight=base)
+    overflow = GeneralizedLinearModel(**kwargs).fit(X, y, sample_weight=huge)
+
+    _assert_same_parameter_inference(
+        reference, overflow, rtol=5e-6, atol=5e-7
+    )
 
 
 def test_m_estimation_constant_analytic_weights_equal_unweighted_nonrobust():
