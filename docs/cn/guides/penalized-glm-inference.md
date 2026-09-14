@@ -53,7 +53,7 @@ penalty_conditioning_ = "fixed_penalty"
 
 若 `alpha=0`，则目标是普通的未惩罚 population coefficient。
 
-数值引擎采用 average-loss 标度。记单样本 score contribution 为 `psi_i`，average Hessian 为 `H`，L2 curvature 为 `P''`，则 HC0/HC1 covariance 采用
+数值引擎采用 average-loss 标度。记单样本 score contribution 为 `psi_i`，average Hessian 为 `H`，L2 curvature 为 `P''`，则 HC0/HC1 covariance 可以写成原始观测 average scale 下的形式
 
 $$
 \widehat{\mathrm{Var}}(\hat\beta)
@@ -61,7 +61,7 @@ $$
 (H+P'')^{-1} J (H+P'')^{-1}/n,
 $$
 
-其中 `J` 是 statgpu analytic-weight 约定下的 average score outer product，`n` 是原始观测行数。`cov_type="nonrobust"` 使用对应的 model-based penalized-information covariance，同样保持在原始观测的 average scale 上。
+其中 `J` 是对应权重约定下的 average score outer product，`n` 是原始观测行数。`cov_type="nonrobust"` 使用 model-based penalized-information covariance。下文所述 weighted Newton/L-BFGS 路径会在 covariance 计算前显式把 analytic weights 放到这一原始观测 scale 上；其他 solver 路径保留各自既有的 weighting contract。
 
 该 non-Gaussian 路径当前支持：
 
@@ -75,13 +75,13 @@ HC2、HC3 与 HAC 尚未为 penalized non-Gaussian M-estimation 实现，会明�
 
 non-Gaussian L2 M-estimation covariance 支持 analytic weights，并且 numerical inference 跟随实际执行拟合的 backend/device。
 
-维护中的 smooth GLM solver 会把非均匀 analytic weights 贯穿**同一个归一化 average-loss objective 的整个求解过程**。objective value、gradient、适用时的 Hessian、line-search trial evaluation 与 accepted-point derivative 都使用
+对于显式 `solver="newton"` 或 `solver="lbfgs"`，以及 public `solver="auto"` 最终解析到这两个 solver 的行，维护中的 smooth GLM 路径会把非均匀 analytic weights 贯穿**同一个归一化 average-loss objective 的整个求解过程**。objective value、gradient、适用时的 Hessian、line-search trial evaluation 与 accepted-point derivative 都使用
 
 $$
 \frac{\sum_i w_i\,\ell_i(\beta)}{\sum_i w_i}.
 $$
 
-因此这里的 analytic weights 表示**观测的相对重要性**，而不是重复观测次数的 frequency weights。M-estimation covariance 计算前，statgpu 使用与原问题等价的 mean-one 权重
+在这些 Newton/L-BFGS 路径中，analytic weights 表示**观测的相对重要性**，而不是重复观测次数的 frequency weights。成功求解后会保留数值目标实际使用的 prepared relative-weight 向量；M-estimation covariance 计算前，再把同一向量等价地缩放成 mean-one 表示：
 
 $$
 \widetilde w_i
@@ -91,9 +91,9 @@ $$
 \sum_i \widetilde w_i=n.
 $$
 
-这个归一化不会改变 weighted Hessian。HC0/HC1 的 `J` 使用同一组归一化 analytic weights；`nonrobust` 的 model-based information 与 dispersion 也使用同一 mean-one 约定。因此把全部 analytic weights 乘以任意正常数，不会改变拟合参数、标准误、检验统计量、p-value 或 confidence interval。所有权重为同一正常数时，推断与省略权重的 unweighted 问题相同。这个语义与 frequency-weight 模型有意区分；后者若把所有计数同时放大，表示的是更大的复制样本量。
+这一共同缩放不会改变 weighted Hessian。HC0/HC1 的 `J` 使用同一 prepared analytic-weight identity；`nonrobust` 的 model-based information 与 dispersion 使用 mean-one 表示。因此在维护中的 weighted Newton/L-BFGS M-estimation 路径上，把全部 analytic weights 乘以任意正常数，不会在数值求解容差之外改变拟合参数、标准误、检验统计量、p-value 或 confidence interval。所有权重为同一正常数时，推断退化为与省略权重相同的问题。这个语义与 frequency-weight 模型有意区分；后者若把所有计数同时放大，表示的是更大的复制样本量。
 
-满足历史 effectively-uniform 判定的浮点权重向量继续走既有的 unweighted-equivalent 路径。
+满足历史 effectively-uniform 判定的浮点权重向量继续走既有的 unweighted-equivalent Newton/L-BFGS 路径。这个 explicit smooth contract 之外的 solver 路径保留其已有 weighting semantics，而不会在这里被静默重新解释。
 
 公开 `solver="auto"` 时，weighted smooth non-Gaussian L2/无惩罚拟合与对应的 unweighted 拟合使用同一套 canonical solver dispatch。适用的 logistic/Poisson 行会解析到 backend-native Newton，而公开的 solver 请求仍保持 `auto`。
 
