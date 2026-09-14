@@ -13,7 +13,10 @@ found by the final ``code-review`` / fix loop:
   ordinary binomial objective as their float64 design counterpart and retain
   floating post-fit diagnostic/inference state;
 - effectively-uniform penalized smooth GLM fits use the same unweighted
-  M-estimation inference objective on CuPy/Torch as their coefficient solve; and
+  M-estimation inference objective on CuPy/Torch as their coefficient solve;
+- penalized log-Gamma L-BFGS remains warning-free and invariant to global
+  analytic-weight rescaling at ``tol=1e-9`` when accepted progress reaches the
+  bounded floating-point Armijo/parameter-step resolution rule; and
 - inverse-power Gamma fails closed on CuPy/Torch when the mathematical optimum
   lies beyond the maintained smooth-training domain instead of publishing a
   tiny domain-capped step as convergence.
@@ -46,6 +49,8 @@ ATOL_WEIGHT_RESCALE = v4.ATOL_WEIGHT_RESCALE
 _SOLVERS = v4._SOLVERS
 _EXTREME_WEIGHT_SCALES = (1.0e-200, 1.0e200)
 _FLOAT32_OVERFLOW_SCALE = 3.0e38
+_ROUNDOFF_SOLVER_TOL = 1.0e-9
+_ROUNDOFF_WEIGHT_SCALE = 6.0
 
 
 def _ordinary_snapshot(model):
@@ -112,6 +117,30 @@ def _fit_penalized_logistic(solver, X, y, weights, *, device):
     return _penalized_snapshot(model)
 
 
+def _fit_penalized_gamma_roundoff(X, y, weights, *, device):
+    with v4.v3._solver_warning_gate():
+        model = PenalizedGeneralizedLinearModel(
+            loss="gamma",
+            loss_kwargs={"link": "log"},
+            penalty="l2",
+            alpha=0.025,
+            fit_intercept=True,
+            solver="lbfgs",
+            device=device,
+            max_iter=600,
+            tol=_ROUNDOFF_SOLVER_TOL,
+            compute_inference=False,
+        ).fit(X, y, sample_weight=weights)
+    return {
+        "coef": np.asarray(_to_numpy(model.coef_), dtype=np.float64),
+        "intercept": float(model.intercept_),
+        "selected_solver": str(model._selected_solver),
+        "backend": str(model._selected_backend_name),
+        "device": str(model._selected_backend_device),
+        "n_iter": int(model.n_iter_),
+    }
+
+
 def _integer_design_data(seed=151005, n=128, p=3):
     rng = np.random.default_rng(seed)
     X = rng.integers(-2, 3, size=(n, p), dtype=np.int64)
@@ -132,6 +161,16 @@ def _logistic_data(seed=151007, n=128, p=3):
     y = rng.binomial(1, prob).astype(np.float64)
     y[0], y[1] = 0.0, 1.0
     return X, y
+
+
+def _positive_gamma_data(seed=15203, n=96, p=3):
+    rng = np.random.default_rng(seed)
+    X = rng.normal(scale=0.3, size=(n, p)).astype(np.float64)
+    beta = np.array([0.18, -0.12, 0.08], dtype=np.float64)[:p]
+    mu = np.exp(0.15 + X @ beta)
+    y = mu * rng.lognormal(mean=0.0, sigma=0.12, size=n)
+    weights = np.linspace(0.5, 1.6, n, dtype=np.float64)
+    return X, y.astype(np.float64), weights
 
 
 def _assert_provenance(name, snap, *, solver, backend, device):
@@ -425,6 +464,84 @@ def _penalized_effective_uniform_inference_gate(cp, torch, device_id, torch_devi
     return results
 
 
+def _penalized_gamma_roundoff_gate(cp, torch, device_id, torch_device):
+    X_np, y_np, w_np = _positive_gamma_data()
+    expected_cuda = f"cuda:{device_id}"
+
+    ref = _fit_penalized_gamma_roundoff(
+        X_np, y_np, w_np, device="cpu"
+    )
+    ref_scaled = _fit_penalized_gamma_roundoff(
+        X_np, y_np, _ROUNDOFF_WEIGHT_SCALE * w_np, device="cpu"
+    )
+    ref_scale_errors = v4._errors(ref, ref_scaled)
+    if max(ref_scale_errors.values()) > ATOL_WEIGHT_RESCALE:
+        raise AssertionError(
+            "penalized_gamma_roundoff/numpy: global-rescaling drift "
+            f"{ref_scale_errors}"
+        )
+
+    results = {
+        "numpy": {
+            "base": _json_snap(ref),
+            "scaled": _json_snap(ref_scaled),
+            "errors_vs_base": ref_scale_errors,
+        }
+    }
+
+    for backend, device in (("cupy", "cuda"), ("torch", "torch")):
+        if backend == "cupy":
+            Xb = cp.asarray(X_np)
+            yb = cp.asarray(y_np)
+            wb = cp.asarray(w_np)
+            context = cp.cuda.Device(device_id)
+        else:
+            Xb = torch.as_tensor(X_np, dtype=torch.float64, device=torch_device)
+            yb = torch.as_tensor(y_np, dtype=torch.float64, device=torch_device)
+            wb = torch.as_tensor(w_np, dtype=torch.float64, device=torch_device)
+            context = torch.cuda.device(torch_device)
+
+        with context:
+            base = _fit_penalized_gamma_roundoff(
+                Xb, yb, wb, device=device
+            )
+            scaled = _fit_penalized_gamma_roundoff(
+                Xb,
+                yb,
+                _ROUNDOFF_WEIGHT_SCALE * wb,
+                device=device,
+            )
+
+        _assert_provenance(
+            f"penalized_gamma_roundoff/{backend}",
+            base,
+            solver="lbfgs",
+            backend=backend,
+            device=expected_cuda,
+        )
+        parity_errors = v4._errors(ref, base)
+        if (
+            parity_errors["coef"] > ATOL_COEF
+            or parity_errors["intercept"] > ATOL_INTERCEPT
+        ):
+            raise AssertionError(
+                f"penalized_gamma_roundoff/{backend}: parity error {parity_errors}"
+            )
+        scale_errors = v4._errors(base, scaled)
+        if max(scale_errors.values()) > ATOL_WEIGHT_RESCALE:
+            raise AssertionError(
+                f"penalized_gamma_roundoff/{backend}: global-rescaling drift "
+                f"{scale_errors}"
+            )
+        results[backend] = {
+            "base": _json_snap(base),
+            "scaled": _json_snap(scaled),
+            "errors_vs_numpy": parity_errors,
+            "errors_scaled_vs_base": scale_errors,
+        }
+    return results
+
+
 def _domain_pinned_gate(cp, torch, device_id, torch_device):
     X_np = np.ones((8, 1), dtype=np.float64)
     y_np = np.full(8, 1.0e-8, dtype=np.float64)
@@ -498,6 +615,8 @@ def run(output: Path):
             "intercept_abs": ATOL_INTERCEPT,
             "weight_rescale_max_abs": ATOL_WEIGHT_RESCALE,
             "solver_tol": SOLVER_TOL,
+            "roundoff_solver_tol": _ROUNDOFF_SOLVER_TOL,
+            "roundoff_weight_scale": _ROUNDOFF_WEIGHT_SCALE,
             "extreme_weight_scales": list(_EXTREME_WEIGHT_SCALES),
             "float32_overflow_scale": _FLOAT32_OVERFLOW_SCALE,
         },
@@ -517,6 +636,11 @@ def run(output: Path):
                     cp, torch, device_id, torch_device
                 )
             ),
+            "penalized_gamma_lbfgs_roundoff_stopping": (
+                _penalized_gamma_roundoff_gate(
+                    cp, torch, device_id, torch_device
+                )
+            ),
             "gpu_domain_pinned_fail_closed": _domain_pinned_gate(
                 cp, torch, device_id, torch_device
             ),
@@ -533,6 +657,7 @@ def run(output: Path):
         "float32_overflow_backend_solver_rows": len(_SOLVERS) * 2,
         "integer_design_backend_solver_rows": len(_SOLVERS) * 2,
         "penalized_inference_backend_solver_rows": len(_SOLVERS) * 2,
+        "penalized_gamma_roundoff_backend_rows": 2,
         "domain_pinned_backend_solver_rows": len(_SOLVERS) * 2,
         "output": str(output),
     }, indent=2))
