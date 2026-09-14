@@ -142,7 +142,7 @@ def lbfgs_solver(
     via auto-detection of *X*.
 
     Genuine non-uniform ``sample_weight`` is supported only when the loss
-    explicitly opts into the shared weighted-LBFGS contract. Maintained GLM
+    explicitly opts into the shared weighted-L-BFGS contract. Maintained GLM
     losses do so and evaluate value, gradient, line-search candidates, and the
     accepted iterate under one normalized objective
     ``sum_i w_i * contribution_i / sum_i w_i``. Generic non-GLM losses remain
