@@ -90,11 +90,6 @@ def test_weighted_lbfgs_is_invariant_to_positive_global_weight_rescaling(loss, d
     base = np.asarray(_solve(loss, X, y, weights=weights))
     scaled = np.asarray(_solve(loss, X, y, weights=7.25 * weights))
 
-    # The normalized weighted objective is scale invariant.  Separate L-BFGS
-    # runs can still terminate a few ulps apart because the scaled reduction
-    # perturbs line-search floating-point comparisons.  Keep this solver-level
-    # invariant far tighter than the physical CPU/GPU gate without requiring
-    # bitwise-identical iterative trajectories.
     np.testing.assert_allclose(base, scaled, rtol=1e-7, atol=1e-8)
 
 
@@ -102,8 +97,6 @@ def test_weighted_lbfgs_global_rescaling_cannot_cross_effective_uniformity_bound
     X, y = _logistic_data(seed=15011)
     X = X.copy()
     y = y.copy()
-    # Make the zero-weight row highly influential if it is accidentally
-    # reintroduced by misclassifying tiny heterogeneous weights as uniform.
     X[0] = np.array([18.0, -15.0, 12.0, -9.0])
     y[0] = 1.0
 
@@ -124,6 +117,7 @@ def test_weighted_lbfgs_global_rescaling_cannot_cross_effective_uniformity_bound
     for prepared in (tiny_newton, huge_newton, tiny_lbfgs, huge_lbfgs):
         assert prepared is not None
         assert float(np.asarray(prepared)[0]) == 0.0
+        assert float(np.max(np.asarray(prepared))) == 1.0
 
     tiny_fit = np.asarray(_solve(LogisticLoss(), X, y, weights=tiny))
     huge_fit = np.asarray(_solve(LogisticLoss(), X, y, weights=huge))
@@ -134,6 +128,29 @@ def test_weighted_lbfgs_global_rescaling_cannot_cross_effective_uniformity_bound
 
     np.testing.assert_allclose(tiny_fit, huge_fit, rtol=2e-7, atol=2e-8)
     np.testing.assert_allclose(tiny_fit, dropped, rtol=2e-7, atol=2e-8)
+
+
+def test_weight_preparation_is_scale_safe_for_float32_execution_dtype():
+    X = np.ones((4, 2), dtype=np.float32)
+    shape = np.array([0.0, 0.25, 0.5, 1.0], dtype=np.float64)
+    prepared = []
+
+    for scale in (1e-50, 1.0, 1e50):
+        weights = scale * shape
+        newton_weight = _prepare_newton_sample_weight(weights, 4, "numpy", X)
+        lbfgs_weight = _prepare_lbfgs_sample_weight(
+            weights, 4, "numpy", X, LogisticLoss()
+        )
+        for values in (newton_weight, lbfgs_weight):
+            assert values is not None
+            values = np.asarray(values)
+            assert values.dtype == np.float32
+            assert np.all(np.isfinite(values))
+            np.testing.assert_allclose(values, shape, rtol=0.0, atol=0.0)
+        prepared.append(np.asarray(newton_weight))
+
+    np.testing.assert_array_equal(prepared[0], prepared[1])
+    np.testing.assert_array_equal(prepared[1], prepared[2])
 
 
 def test_weighted_lbfgs_zero_weight_rows_equal_dropping_those_rows():
@@ -186,9 +203,6 @@ def test_effectively_uniform_classification_is_scale_invariant():
 
 def test_effectively_uniform_classification_is_permutation_invariant_at_tolerance_edge():
     X = np.ones((4, 2), dtype=np.float64)
-    # The spread is slightly above rtol*min but below rtol*max.  Using one row
-    # as the allclose reference therefore used to make the decision depend on
-    # which observation happened to appear first.
     delta = 1.000005e-5
     low_first = np.array([1.0, 1.0 + delta, 1.0, 1.0], dtype=np.float64)
     high_first = low_first[[1, 0, 2, 3]]
@@ -200,23 +214,20 @@ def test_effectively_uniform_classification_is_permutation_invariant_at_toleranc
         ) is None
 
 
-def test_lbfgs_weight_preparation_matches_newton_after_execution_dtype_alignment():
-    # The public contract classifies uniformity on the numerical design's
-    # backend/dtype.  This fixture is deliberately non-uniform in float64 but
-    # rounds to one value in float16; the old L-BFGS ordering classified before
-    # alignment and therefore diverged from Newton on the same executed design.
+def test_weight_preparation_matches_newton_after_scale_safe_execution_dtype_alignment():
     X = np.ones((4, 2), dtype=np.float16)
     weights = np.array([1.0, 1.0004, 1.0, 1.0], dtype=np.float64)
-    assert not np.allclose(weights, weights[0])
-    assert np.all(np.asarray(weights, dtype=np.float16) == np.float16(1.0))
 
     newton_weight = _prepare_newton_sample_weight(weights, 4, "numpy", X)
     lbfgs_weight = _prepare_lbfgs_sample_weight(
         weights, 4, "numpy", X, LogisticLoss()
     )
 
-    assert newton_weight is None
-    assert lbfgs_weight is None
+    assert newton_weight is not None
+    assert lbfgs_weight is not None
+    assert np.asarray(newton_weight).dtype == np.float16
+    np.testing.assert_array_equal(newton_weight, lbfgs_weight)
+    assert float(np.max(np.asarray(newton_weight))) == 1.0
 
 
 @pytest.mark.parametrize(

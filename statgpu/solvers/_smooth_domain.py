@@ -1,8 +1,8 @@
 """Private helpers for weighted smooth solvers and loss-owned domains.
 
-The public Newton/L-BFGS APIs stay generic.  Losses may optionally expose
+The public Newton/L-BFGS APIs stay generic. Losses may optionally expose
 private ``_loss_domain_*`` hooks to provide an interior start, validate an
-iterate, and cap a line-search step.  Losses without those hooks keep the
+iterate, and cap a line-search step. Losses without those hooks keep the
 historical unconstrained behavior.
 """
 
@@ -17,8 +17,8 @@ from ._utils import _as_backend_vector, _validate_sample_weight
 
 
 # Preserve the historical relative tolerance for "effectively uniform" weights
-# while making the classification invariant to both positive global rescaling
-# and observation ordering.
+# while making the classification invariant to positive global rescaling and
+# observation ordering.
 _EFFECTIVELY_UNIFORM_WEIGHT_RTOL = 1e-5
 
 
@@ -31,7 +31,7 @@ def _scalar_bool(value) -> bool:
 
 
 def _aligned_weight_dtype(ref_arr, backend):
-    """Choose a floating execution dtype for analytic weights when needed."""
+    """Choose the floating dtype consumed by the executed smooth objective."""
     if backend == "torch":
         import torch
 
@@ -46,27 +46,14 @@ def _effectively_uniform_weights(values, backend) -> bool:
     """Return whether aligned non-negative weights are relatively uniform.
 
     The criterion uses the full weight range rather than one observation as an
-    ``allclose`` reference.  This makes the classification symmetric under row
+    ``allclose`` reference. This makes the classification symmetric under row
     permutations and homogeneous under positive global rescaling:
 
         max(w) - min(w) <= rtol * max(w).
-
-    Exact integer-valued aligned arrays retain exact equality semantics.
     """
-    if backend == "torch":
-        import torch
-
-        if not torch.is_floating_point(values):
-            return _scalar_bool(torch.all(values == values[0]))
-        w_min = torch.min(values)
-        w_max = torch.max(values)
-    else:
-        xp = _get_xp(backend)
-        if getattr(values.dtype, "kind", "") != "f":
-            return _scalar_bool(xp.all(values == values[0]))
-        w_min = xp.min(values)
-        w_max = xp.max(values)
-
+    xp = _get_xp(backend)
+    w_min = xp.min(values)
+    w_max = xp.max(values)
     return _scalar_bool(
         (w_max - w_min) <= _EFFECTIVELY_UNIFORM_WEIGHT_RTOL * w_max
     )
@@ -78,27 +65,39 @@ def _prepare_analytic_sample_weight(
     backend,
     ref_arr,
 ):
-    """Validate, align, and classify analytic weights for smooth solvers.
+    """Validate, normalize, align, and classify analytic smooth-solver weights.
+
+    Analytic weights define a normalized objective, so multiplying every weight
+    by one positive constant must not change either the objective or the path
+    classification. After validating the public input, first move the weights to
+    the executed backend in float64 and divide by their maximum. The resulting
+    vector lies in ``[0, 1]`` with at least one exact 1, avoiding scale-induced
+    overflow/underflow before conversion to the numerical design dtype.
 
     Omitted, uniform, and historically effectively-uniform weights execute the
     unweighted objective. Genuine non-uniform weights remain backend-native.
-    Classification happens only after alignment to the executed design device
-    and a floating dtype compatible with that design. Integral design matrices
-    therefore cannot truncate fractional analytic weights during alignment.
-
-    The effectively-uniform comparison is deliberately relative-only and
-    symmetric across observations. Analytic weights are defined only up to a
-    positive global multiplier, and reordering observations cannot change the
-    statistical objective, so neither operation may switch between weighted
-    and unweighted paths.
+    Integral design matrices cannot truncate fractional weights because the
+    execution dtype is promoted to float64 in that case.
     """
     if sample_weight is None:
         return None
 
     _validate_sample_weight(sample_weight, n_samples)
     xp = _get_xp(backend)
-    values = xp_asarray(
+
+    # Normalize in backend-native float64 *before* casting to the design dtype.
+    # The public validator already guarantees finite non-negative values and a
+    # positive finite sum, hence max(weight) is finite and strictly positive.
+    wide = xp_asarray(
         sample_weight,
+        dtype=xp.float64,
+        xp=xp,
+        ref_arr=ref_arr,
+    ).reshape(-1)
+    wide = wide / xp.max(wide)
+
+    values = xp_asarray(
+        wide,
         dtype=_aligned_weight_dtype(ref_arr, backend),
         xp=xp,
         ref_arr=ref_arr,
