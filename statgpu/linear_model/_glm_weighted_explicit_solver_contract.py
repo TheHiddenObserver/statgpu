@@ -1,10 +1,11 @@
-"""Ordinary-GLM weighted explicit Newton/L-BFGS public contract.
+"""Weighted explicit Newton/L-BFGS GLM public-contract reconciliation.
 
 The ordinary ``GeneralizedLinearModel`` source predates the shared weighted
 Newton repair and still rejects every weighted explicit smooth-solver request
-before solver entry. Keep this installer narrow: it opens only that public
-boundary, preserves the requested solver, and publishes fit-recorded
-solver/backend/device provenance after a successful fit.
+before solver entry. Keep this installer narrow: it opens that ordinary public
+boundary, preserves the requested solver, publishes fit-recorded
+solver/backend/device provenance, and keeps ordinary/penalized post-fit
+inference consumers on the same effective weight objective as the smooth solve.
 
 Family-specific numerical domains belong to the loss/solver layer. In
 particular, inverse-power Gamma now obtains and preserves its smooth-domain
@@ -30,6 +31,9 @@ _FIT_MARKER = "_statgpu_weighted_explicit_solver_fit_contract"
 _SMOOTH_MARKER = "_statgpu_weighted_explicit_solver_smooth_contract"
 _ALIGNMENT_MARKER = "_statgpu_weighted_explicit_solver_inference_alignment_contract"
 _INFERENCE_MARKER = "_statgpu_weighted_explicit_solver_inference_weight_contract"
+_PENALIZED_INFERENCE_MARKER = (
+    "_statgpu_weighted_explicit_solver_penalized_inference_weight_contract"
+)
 
 
 def _resolved_ordinary_solver(self) -> str:
@@ -63,7 +67,7 @@ def _fit_device_label(X_design, backend: str) -> str:
 
 
 def _canonicalize_smooth_inference_weight_state(self, solver_name) -> None:
-    """Mirror smooth-solver effective-uniform classification in fitted state."""
+    """Mirror ordinary smooth-solver effective-uniform classification in state."""
     if solver_name not in ("newton", "lbfgs"):
         return
     sample_weight = getattr(self, "_sample_weight_inf", None)
@@ -87,6 +91,46 @@ def _canonicalize_smooth_inference_weight_state(self, solver_name) -> None:
         self._sample_weight_inf = None
 
 
+def _penalized_inference_sample_weight(self, sample_weight):
+    """Return the weight state matching a penalized smooth GLM fit objective."""
+    if sample_weight is None:
+        return None
+    solver_name = str(getattr(self, "_selected_solver", "") or "").lower()
+    if solver_name not in ("newton", "lbfgs"):
+        return sample_weight
+
+    from statgpu.glm_core._base import GLMLoss
+
+    if not isinstance(getattr(self, "_loss", None), GLMLoss):
+        return sample_weight
+
+    backend = str(getattr(self, "_selected_backend_name", "") or "").lower()
+    if backend not in ("numpy", "cupy", "torch"):
+        return sample_weight
+
+    # ``_PenalizedFitMixin._fit_loss_backend`` converts the smooth GLM design
+    # to float64 before Newton/L-BFGS. Reproduce that exact numerical dtype for
+    # the effective-uniform classification instead of classifying from the
+    # caller's original (possibly float32/integer) design or weight dtype.
+    from statgpu.backends._utils import _get_xp, xp_asarray
+    from statgpu.solvers._smooth_domain import _prepare_analytic_sample_weight
+
+    xp = _get_xp(backend)
+    ref = xp_asarray(
+        sample_weight,
+        dtype=xp.float64,
+        xp=xp,
+        ref_arr=sample_weight,
+    )
+    prepared = _prepare_analytic_sample_weight(
+        sample_weight,
+        int(ref.shape[0]),
+        backend,
+        ref,
+    )
+    return None if prepared is None else sample_weight
+
+
 def _install_init_contract() -> None:
     current = GeneralizedLinearModel.__init__
     if getattr(current, _INIT_MARKER, False):
@@ -105,15 +149,7 @@ def _install_init_contract() -> None:
 
 
 def _install_inference_alignment_contract() -> None:
-    """Keep post-fit GLM design/parameters on a floating numerical dtype.
-
-    Smooth solvers promote integral public designs before optimization. The
-    historical inference-state builder instead reused the original design dtype,
-    which could cast a successful floating GPU coefficient vector back to an
-    integer dtype before log-likelihood or M-estimation inference. Align the
-    retained design to at least the fitted coefficient precision before the
-    existing layout helper reconstructs ``_X_design`` and ``_params``.
-    """
+    """Keep post-fit ordinary-GLM design/parameters on a floating dtype."""
     current = GeneralizedLinearModel._aligned_inference_design_glm
     if getattr(current, _ALIGNMENT_MARKER, False):
         return
@@ -285,6 +321,34 @@ def _install_inference_weight_contract() -> None:
     GeneralizedLinearModel._compute_inference = _compute_inference_with_fit_weight_contract
 
 
+def _install_penalized_inference_weight_contract() -> None:
+    # Import lazily so the package's existing inference/API installers have
+    # already assembled their wrapper stack before PR151 adds this final
+    # objective-consistency shim.
+    from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
+
+    current = PenalizedGeneralizedLinearModel._compute_post_fit_gaussian_inference
+    if getattr(current, _PENALIZED_INFERENCE_MARKER, False):
+        return
+
+    @wraps(current)
+    def _compute_post_fit_with_fit_weight_contract(
+        self, X, y, sample_weight=None
+    ):
+        effective_weight = _penalized_inference_sample_weight(self, sample_weight)
+        return current(self, X, y, sample_weight=effective_weight)
+
+    setattr(
+        _compute_post_fit_with_fit_weight_contract,
+        _PENALIZED_INFERENCE_MARKER,
+        True,
+    )
+    _compute_post_fit_with_fit_weight_contract._statgpu_original = current
+    PenalizedGeneralizedLinearModel._compute_post_fit_gaussian_inference = (
+        _compute_post_fit_with_fit_weight_contract
+    )
+
+
 def _install_fit_provenance_contract() -> None:
     current = GeneralizedLinearModel.fit
     if getattr(current, _FIT_MARKER, False):
@@ -316,10 +380,11 @@ def _install_fit_provenance_contract() -> None:
 
 
 def install_glm_weighted_explicit_solver_contract() -> None:
-    """Install the bounded ordinary-GLM weighted smooth-solver contract."""
+    """Install the bounded weighted smooth-GLM contract."""
 
     _install_init_contract()
     _install_inference_alignment_contract()
     _install_smooth_solver_contract()
     _install_inference_weight_contract()
+    _install_penalized_inference_weight_contract()
     _install_fit_provenance_contract()
