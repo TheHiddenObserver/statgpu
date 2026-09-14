@@ -74,7 +74,7 @@ $$
 + \alpha P(\beta).
 $$
 
-The intercept is not penalized. `statgpu.glm_core` is intentionally GLM-specific; Cox partial likelihood, robust objectives, quantile objectives, and other non-GLM losses keep their own statistical contracts.
+The intercept is not penalized. `statgpu.glm_core` is intentionally GLM-specific; Cox partial likelihood, robust objectives, quantile objectives, and other non-GLM losses keep their own statistical definitions and documentation.
 
 ## Solver selection
 
@@ -88,7 +88,6 @@ Representative direct-fit `solver="auto"` behavior is:
 | squared error + L1/ElasticNet | FISTA/FISTA-BB sparse path |
 | logistic/Poisson/Gamma/Inverse-Gaussian/Tweedie/Negative-Binomial + L2 | Newton under the maintained direct-fit dispatch |
 | non-convex SCAD/MCP | FISTA + LLA continuation |
-| quantile | FISTA / quantile-specific path |
 
 `solver="auto"` is a request for the maintained dispatch policy. An explicit solver name is different: statgpu either runs that supported solver or raises an error; it does not silently substitute another solver.
 
@@ -107,27 +106,19 @@ This consistency is important: a weighted search direction is never paired with 
 
 Adding `sample_weight` does **not** replace an explicit Newton/L-BFGS request with IRLS or FISTA. Likewise, an explicit CUDA/Torch request does not fall back to CPU. Uniform and historically effectively-uniform weights retain the historical unweighted objective.
 
-#### Inverse-power Gamma smooth-domain contract
+#### Initializing `inverse_power` Gamma
 
-For `GammaRegression(link="inverse_power")`,
+`GammaRegression(link="inverse_power")` uses the inverse link, so fitting requires
 
 $$
-\eta_i=x_i^\top\beta>0,
-\qquad
-\ell_i(\eta_i)=y_i\eta_i-\log\eta_i.
+\eta_i=x_i^\top\beta>0.
 $$
 
-The maintained explicit Newton/L-BFGS paths construct a family-valid interior start on the executed backend and keep every active **training** predictor inside the unclipped numerical interval where the implemented value, gradient, and Hessian form one smooth objective. The line-search domain cap is computed from the final search direction after any singular/non-descent fallback, then the ordinary Armijo sufficient-decrease test is applied inside that cap.
-
-This means `fit_intercept=False` is no longer a categorical limitation. No-intercept fits are supported when statgpu can numerically certify an interior start for the executed design and the optimizer converges without being pinned to the numerical-domain boundary. Omitted, uniform, effectively-uniform, and genuinely non-uniform analytic weights use the same domain/initialization policy. For a genuinely weighted objective, rows with exactly zero analytic weight do not constrain the training domain.
-
-If an interior start cannot be numerically certified, or optimization reaches the maintained numerical boundary before convergence, the explicit smooth path fails visibly instead of publishing a fit that depends on predictor clipping. Public prediction and held-out validation keep their existing clipping semantics; the strict interior requirement is a training-optimization contract, not a guarantee on every unseen design row.
-
-The same loss-owned domain contract is used by maintained smooth L2 penalized inverse-Gamma direct fits. In `PenalizedGLM_CV(loss="gamma", loss_kwargs={"link": "inverse_power"}, penalty="l2")`, fold fitting, validation scoring, alpha selection, and the selected final refit preserve the inverse-power loss rather than using the log-link-only Gamma validation shortcut.
+Before the first objective evaluation, explicit Newton/L-BFGS constructs an interior starting point that satisfies this condition. With an intercept, the intercept column provides an immediate feasible direction. Without an intercept, statgpu searches the positive-weight training rows for a direction $d$ with $Xd>0$ and scales that direction to a valid interior point. If such a start cannot be numerically certified, fitting fails before optimization begins. Subsequent updates are kept inside the valid inverse-link domain internally; the detailed step constraints are solver implementation details described in [Solver Algorithms](../guides/solver-algorithms.md).
 
 #### Scope of weighted L-BFGS support
 
-Weighted L-BFGS is a **GLM loss capability**, not a blanket promise for every low-level `LossBase` implementation. Direct robust, quantile, and Cox losses keep their own weight semantics and may reject non-uniform weights in direct L-BFGS. Ordered GLMs also retain their separate weight policy.
+Weighted L-BFGS is a **GLM loss capability**, not a blanket promise for non-GLM `LossBase` implementations. Other model families retain their own weight and solver semantics; consult their model pages and the compatibility matrix. Ordered GLMs also retain their separate weight policy.
 
 Weighted penalized smooth GLMs use the same analytic-weight convention. Their existing direct-fit/CV dispatch remains authoritative: a supported L2 row may use Newton or L-BFGS according to that policy, not merely because weights are present.
 
@@ -137,11 +128,11 @@ Generic and typed penalized GLM estimators use `inference_method="auto"` as the 
 
 For supported smooth non-Gaussian L2/no-penalty models, `auto` resolves to fixed-penalty `m_estimation`. Positive L2 fits target the penalized estimating equation; no-penalty aliases are canonicalized to zero-strength L2 and target the unpenalized population parameter. Current covariance support is `nonrobust`, `hc0`, and `hc1`; HC2/HC3/HAC are not available on this penalized non-Gaussian path and raise instead of being substituted silently.
 
-Analytic weights are supported on the maintained inference routes, and numerical inference follows the backend/concrete device that actually executed the fit. Ordinary GLM inference uses the same fitted analytic-weight convention as estimation. Non-Gaussian L1/ElasticNet coefficient inference is not productized. SCAD/MCP oracle inference must be requested explicitly; group penalties and penalized Cox remain estimation-only.
+Analytic weights are supported on the maintained inference routes, and numerical inference follows the backend/concrete device that actually executed the fit. Ordinary GLM inference uses the same fitted analytic-weight convention as estimation. Non-Gaussian L1/ElasticNet coefficient inference is not productized. SCAD/MCP oracle inference must be requested explicitly; group-penalty paths remain estimation-only where noted.
 
 For supported Gaussian sparse penalties, `inference_method="bootstrap"` selects an unweighted residual bootstrap with `cov_type="nonrobust"`. The design matrix and fitted tuning configuration remain fixed: each draw resamples residuals, constructs a new Gaussian response around the fitted values, and refits the same penalized model. `n_bootstrap` controls the number of refits and `bootstrap_random_state` controls reproducibility.
 
-Bootstrap execution follows the successful fit's backend and concrete device. CPU fits use NumPy; CuPy and Torch CUDA fits keep bootstrap refits on the same GPU device. Final inference arrays use the standard NumPy reporting boundary. Weighted residual bootstrap, robust/HC or HAC/block bootstrap, non-Gaussian bootstrap, and Cox bootstrap are not supported.
+Bootstrap execution follows the successful fit's backend and concrete device. CPU fits use NumPy; CuPy and Torch CUDA fits keep bootstrap refits on the same GPU device. Final inference arrays use the standard NumPy reporting boundary. Weighted residual bootstrap, robust/HC or HAC/block bootstrap, and non-Gaussian bootstrap are not supported.
 
 See [Penalized GLM inference](../guides/penalized-glm-inference.md) and [Inference Modes](../guides/inference-modes.md) for the complete support matrix, resampling boundaries, and statistical interpretation.
 
@@ -254,31 +245,6 @@ fast_cv = PenalizedGLM_CV(
     device="cuda",
 )
 ```
-
-### Survival-aware penalized Cox CV
-
-`PenalizedGLM_CV(loss="cox_ph")` uses a separate survival path rather than the scalar-response GLM scorer. Pass `y` as an `(n_samples, 2)` array with columns `[time, event]`. L1, L2, ElasticNet, SCAD, and MCP are supported on NumPy, CuPy CUDA, and Torch CUDA. The path:
-
-- preserves the two-column target and never fits an intercept;
-- scores each held-out fold with unpenalized negative Cox partial likelihood per row;
-- selects an alpha only when every evaluable fold supplies finite evidence;
-- hard-fails without publishing fitted state when no alpha is supported; and
-- refits `PenalizedCoxPHModel` with `compute_inference=False`.
-
-```python
-survival_y = np.column_stack([time, event])
-cox_cv = PenalizedGLM_CV(
-    loss="cox_ph",
-    penalty="scad",              # l1, l2, elasticnet, scad, or mcp
-    alpha_grid=[0.1, 0.03, 0.01],
-    cv=5,
-    cv_strategy="strict",
-    loss_kwargs={"ties": "efron"},
-    device="cpu",                # or "cuda" / "torch"
-).fit(X, survival_y)
-```
-
-`cv_strategy="two_stage"`, `sample_weight`, dictionary targets, and post-selection coefficient inference are not supported for this Cox branch. `cv_results_` records per-fold losses, valid-evidence counts, event counts, failure reasons, the tie method, and the final-refit class.
 
 ## Outputs
 
