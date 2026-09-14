@@ -51,6 +51,14 @@ def _assert_same_parameter_inference(
     )
 
 
+def _assert_m_estimation_provenance(model, cov_type):
+    result = model._inference_result
+    assert result is not None
+    assert result.method == "m_estimation"
+    assert result.cov_type == cov_type
+    assert result.to_dict()["cov_type"] == cov_type
+
+
 @pytest.mark.parametrize("solver", ["newton", "lbfgs"])
 @pytest.mark.parametrize("cov_type", ["nonrobust", "hc0", "hc1"])
 def test_ordinary_glm_analytic_weight_inference_is_global_scale_invariant(
@@ -74,6 +82,8 @@ def test_ordinary_glm_analytic_weight_inference_is_global_scale_invariant(
     )
 
     assert base._selected_solver == scaled._selected_solver == solver
+    _assert_m_estimation_provenance(base, cov_type)
+    _assert_m_estimation_provenance(scaled, cov_type)
     _assert_same_parameter_inference(base, scaled)
 
 
@@ -107,6 +117,8 @@ def test_penalized_glm_analytic_weight_inference_is_global_scale_invariant(
     assert base._selected_solver == scaled._selected_solver == solver
     assert base.inference_resolved_method_ == "m_estimation"
     assert scaled.inference_resolved_method_ == "m_estimation"
+    _assert_m_estimation_provenance(base, cov_type)
+    _assert_m_estimation_provenance(scaled, cov_type)
     _assert_same_parameter_inference(base, scaled)
 
 
@@ -140,6 +152,7 @@ def test_ordinary_smooth_fit_retains_exact_prepared_weight_provenance(solver):
     # Fitted diagnostics use the exact solver-prepared relative-weight vector;
     # inference temporarily rescales the same vector to mean one.
     np.testing.assert_array_equal(model._sample_weight_inf, expected)
+    _assert_m_estimation_provenance(model, "nonrobust")
 
 
 def test_ordinary_nonrobust_inference_survives_float32_raw_sum_overflow():
@@ -166,6 +179,8 @@ def test_ordinary_nonrobust_inference_survives_float32_raw_sum_overflow():
     reference = GeneralizedLinearModel(**kwargs).fit(X, y, sample_weight=base)
     overflow = GeneralizedLinearModel(**kwargs).fit(X, y, sample_weight=huge)
 
+    _assert_m_estimation_provenance(reference, "nonrobust")
+    _assert_m_estimation_provenance(overflow, "nonrobust")
     _assert_same_parameter_inference(
         reference, overflow, rtol=5e-6, atol=5e-7
     )
