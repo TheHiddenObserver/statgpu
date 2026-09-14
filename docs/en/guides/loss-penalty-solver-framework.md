@@ -2,7 +2,7 @@
 
 > Language: English
 >
-> Last updated: 2026-09-13
+> Last updated: 2026-09-14
 
 ## Overview
 
@@ -135,7 +135,7 @@ These fields describe **numerical primitives or dispatch capability**. They do n
 | Fair | `FairLoss` | ✅ | ✅ | ✅ | `MASS::rlm(psi="fair")` |
 | Cox PH | `CoxPartialLikelihoodLoss` | ✅ | ✅ | ❌ | `survival::coxph()` |
 
-Huber's current `_supports_irls=False` means public dispatch does not enter a Huber IRLS route. Restoring and validating that path is tracked by Issue #156.
+Huber's current `_supports_irls=False` means public dispatch does not enter a Huber IRLS route. Explicit requests for that route therefore follow the current fail-closed compatibility contract rather than silently switching to another solver.
 
 ### Per-Sample Formulas
 
@@ -199,7 +199,7 @@ The `exact` solver in this table is the closed-form squared-error/L2 solver; it 
 
 ### All Solvers
 
-`sample_weight` support depends on the solver, the statistical semantics of the selected loss, and its value/gradient/curvature capabilities. The table below summarizes the maintained main paths; #153 tracks the complete support contract.
+`sample_weight` support depends on the solver, the statistical semantics of the selected loss, and its value/gradient/curvature capabilities. The table below summarizes the maintained main paths; combinations not declared here should not be inferred from another solver's capability.
 
 | Solver | Loss Constraints | Penalty Constraints | `sample_weight` | warm_start |
 |--------|:-----------------|:---------------------|:------------|:----------:|
