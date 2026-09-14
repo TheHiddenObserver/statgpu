@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 
 VALIDATOR = Path("dev/benchmarks/validate_glm_weighted_explicit_solvers_gpu.py")
 VALIDATOR_V4 = Path("dev/benchmarks/validate_pr151_inverse_gamma_domain_gpu_v4.py")
 VALIDATOR_V5 = Path("dev/benchmarks/validate_pr151_final_gpu_v5.py")
+ARTIFACT_V5 = Path("dev/reviews/pr151_final_gpu_v5.json")
+ACCEPTED_SOURCE_SHA = "9eb39cee2c0e691160f528ab687b7379d26f3e42"
 
 
 def _load_validator(path=VALIDATOR, name="pr151_validator"):
@@ -104,6 +107,8 @@ def test_pr151_schema_v5_extends_v4_for_final_review_closure():
     assert module._SOLVERS == ("newton", "lbfgs")
     assert module._EXTREME_WEIGHT_SCALES == (1.0e-200, 1.0e200)
     assert module._FLOAT32_OVERFLOW_SCALE == 3.0e38
+    assert module._ROUNDOFF_SOLVER_TOL == 1.0e-9
+    assert module._ROUNDOFF_WEIGHT_SCALE == 6.0
 
     source = VALIDATOR_V5.read_text(encoding="utf-8")
     assert "v4.run(v4_path)" in source
@@ -119,7 +124,11 @@ def test_pr151_schema_v5_covers_review_found_numerical_edges():
     assert '"float32_raw_sum_overflow"' in source
     assert '"integer_design_fractional_weights"' in source
     assert '"penalized_effective_uniform_inference"' in source
+    assert '"penalized_gamma_lbfgs_roundoff_stopping"' in source
     assert '"gpu_domain_pinned_fail_closed"' in source
+    assert "_penalized_gamma_roundoff_gate" in source
+    assert '"roundoff_solver_tol": _ROUNDOFF_SOLVER_TOL' in source
+    assert '"roundoff_weight_scale": _ROUNDOFF_WEIGHT_SCALE' in source
     assert "1.0e-200" in source
     assert "1.0e200" in source
     assert "3.0e38" in source
@@ -134,3 +143,31 @@ def test_pr151_schema_v5_covers_review_found_numerical_edges():
     assert '"postfit_design_is_floating"' in source
     assert '"postfit_params_error_vs_coef"' in source
     assert '"loglikelihood"' in source
+
+
+def test_pr151_schema_v5_accepted_artifact_identity_is_frozen():
+    payload = json.loads(ARTIFACT_V5.read_text(encoding="utf-8"))
+
+    assert payload["schema_version"] == 5
+    assert payload["status"] == "success"
+    assert payload["source_clean"] is True
+    assert payload["source_sha"] == ACCEPTED_SOURCE_SHA
+    assert payload["frozen_tolerances"]["roundoff_solver_tol"] == 1.0e-9
+    assert payload["frozen_tolerances"]["roundoff_weight_scale"] == 6.0
+
+    v4 = payload["legacy_schema_v4"]
+    assert v4["schema_version"] == 4
+    assert v4["status"] == "success"
+    assert v4["source_clean"] is True
+    assert v4["source_sha"] == ACCEPTED_SOURCE_SHA
+
+    v3 = v4["legacy_schema_v3"]
+    assert v3["schema_version"] == 3
+    assert v3["status"] == "success"
+    assert v3["source_clean"] is True
+    assert v3["source_sha"] == ACCEPTED_SOURCE_SHA
+
+    review = payload["review_closure"]
+    assert "penalized_gamma_lbfgs_roundoff_stopping" in review
+    assert "gpu_domain_pinned_fail_closed" in review
+    assert set(review["gpu_domain_pinned_fail_closed"]) == {"cupy", "torch"}
