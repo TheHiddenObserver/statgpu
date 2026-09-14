@@ -75,22 +75,31 @@ def _runtime_error_is_singular(exc: RuntimeError) -> bool:
 def _normalize_analytic_sample_weight(sample_weight, n_obs, xp):
     """Normalize analytic weights to mean one on their numerical backend.
 
-    The fitted GLM objective depends only on relative analytic weights.  The
-    inference pipeline must therefore use the same statistical identity rather
-    than interpreting ``sum(sample_weight)`` as a frequency count.  Returning
-    weights with ``sum(w) = n_obs`` preserves the weighted Hessian while making
-    model-based dispersion/information and sandwich covariance invariant to a
-    positive global rescaling of the caller's weight vector.
+    The fitted GLM objective depends only on relative analytic weights.  Scale
+    by the largest active value before summing so finite float16/float32 inputs
+    whose raw sum would overflow still produce the same mean-one weights.  The
+    result has ``sum(w) = n_obs`` and therefore preserves the weighted Hessian
+    while making model-based dispersion/information and sandwich covariance
+    invariant to positive global rescaling.
     """
     if sample_weight is None:
         return None
 
-    total = float(xp.sum(sample_weight))
-    if not np.isfinite(total) or total <= 0.0:
+    max_weight = float(xp.max(sample_weight))
+    if not np.isfinite(max_weight) or max_weight <= 0.0:
         raise ValueError(
-            "sample_weight must have a finite positive sum for M-estimation inference"
+            "sample_weight must contain at least one finite positive value "
+            "for M-estimation inference"
         )
-    return sample_weight * (float(n_obs) / total)
+
+    scaled = sample_weight / max_weight
+    scaled_total = float(xp.sum(scaled))
+    if not np.isfinite(scaled_total) or scaled_total <= 0.0:
+        raise ValueError(
+            "sample_weight must have a finite positive normalized sum "
+            "for M-estimation inference"
+        )
+    return scaled * (float(n_obs) / scaled_total)
 
 
 # ---------------------------------------------------------------------------
