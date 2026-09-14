@@ -66,38 +66,49 @@ def _fit_device_label(X_design, backend: str) -> str:
     return str(backend)
 
 
-def _canonicalize_smooth_inference_weight_state(self, solver_name) -> None:
-    """Mirror the ordinary smooth solver's exact executed weight identity."""
-    if solver_name not in ("newton", "lbfgs"):
-        return
-    sample_weight = getattr(self, "_sample_weight_inf", None)
-    if sample_weight is None:
-        return
+def _mean_one_prepared_weight(prepared_weight, n_obs, backend):
+    """Rescale a solver-prepared analytic-weight vector to sum to ``n_obs``."""
+    if prepared_weight is None:
+        return None
+    from statgpu.backends._utils import _get_xp
 
-    # The ordinary smooth owner records both the classification and the exact
-    # prepared weight vector on the solver-side design dtype/device.  Prefer
-    # that identity to rebuilding weights from the post-fit inference design,
-    # because NumPy reporting may promote a float32 fit design to float64.
+    xp = _get_xp(backend)
+    total = xp.sum(prepared_weight)
+    total_value = float(total.item() if hasattr(total, "item") else total)
+    if not np.isfinite(total_value) or total_value <= 0.0:
+        raise RuntimeError(
+            "Successful smooth GLM fit retained invalid prepared analytic weights."
+        )
+    return prepared_weight * (float(n_obs) / total_value)
+
+
+def _smooth_inference_weight(self, solver_name):
+    """Return mean-one inference weights matching the executed smooth objective."""
+    if solver_name not in ("newton", "lbfgs"):
+        return getattr(self, "_sample_weight_inf", None)
+
     fitted_unweighted = getattr(
         self, "_statgpu_smooth_effective_unweighted", None
     )
     prepared_weight = getattr(self, "_statgpu_smooth_prepared_weight", None)
     if fitted_unweighted is True:
-        self._sample_weight_inf = None
-        return
+        return None
     if fitted_unweighted is False:
         if prepared_weight is None:
             raise RuntimeError(
                 "Successful weighted smooth GLM fit is missing its prepared "
                 "analytic-weight provenance."
             )
-        self._sample_weight_inf = prepared_weight
-        return
+        backend = _resolve_backend("auto", prepared_weight)
+        return _mean_one_prepared_weight(
+            prepared_weight, int(prepared_weight.shape[0]), backend
+        )
 
     # Compatibility fallback for an object fitted before this marker existed.
+    sample_weight = getattr(self, "_sample_weight_inf", None)
     X_design = getattr(self, "_X_design", None)
-    if X_design is None:
-        return
+    if sample_weight is None or X_design is None:
+        return sample_weight
     from statgpu.solvers._smooth_domain import _prepare_analytic_sample_weight
 
     backend = _resolve_backend("auto", X_design)
@@ -107,11 +118,11 @@ def _canonicalize_smooth_inference_weight_state(self, solver_name) -> None:
         backend,
         X_design,
     )
-    self._sample_weight_inf = prepared
+    return _mean_one_prepared_weight(prepared, X_design.shape[0], backend)
 
 
 def _penalized_inference_sample_weight(self, sample_weight):
-    """Return the weight state matching a penalized smooth GLM fit objective."""
+    """Return mean-one weights matching a penalized smooth GLM fit objective."""
     if sample_weight is None:
         return None
     solver_name = str(getattr(self, "_selected_solver", "") or "").lower()
@@ -127,10 +138,6 @@ def _penalized_inference_sample_weight(self, sample_weight):
     if backend not in ("numpy", "cupy", "torch"):
         return sample_weight
 
-    # ``_PenalizedFitMixin._fit_loss_backend`` converts the smooth GLM design
-    # to float64 before Newton/L-BFGS. Reproduce that exact numerical dtype for
-    # the effective-uniform classification instead of classifying from the
-    # caller's original (possibly float32/integer) design or weight dtype.
     from statgpu.backends._utils import _get_xp, xp_asarray
     from statgpu.solvers._smooth_domain import _prepare_analytic_sample_weight
 
@@ -147,7 +154,7 @@ def _penalized_inference_sample_weight(self, sample_weight):
         backend,
         ref,
     )
-    return None if prepared is None else sample_weight
+    return _mean_one_prepared_weight(prepared, int(ref.shape[0]), backend)
 
 
 def _install_init_contract() -> None:
@@ -196,8 +203,6 @@ def _install_inference_alignment_contract() -> None:
             if getattr(dtype, "kind", "") != "f":
                 dtype = xp.float64
             X_orig = X_orig.astype(dtype, copy=False)
-        # The existing NumPy branch already converts the inference design to
-        # floating point and therefore cannot truncate fitted coefficients.
         return current(self, X_orig)
 
     setattr(_aligned_inference_design_with_float_state, _ALIGNMENT_MARKER, True)
@@ -264,10 +269,6 @@ def _install_smooth_solver_contract() -> None:
                 )
             p = X.shape[1]
         else:
-            # Smooth solvers require floating arithmetic even when the public
-            # design container is integral. Promote before solver entry so
-            # fractional analytic weights cannot be truncated while aligning
-            # to the executed design dtype.
             if backend_name == "cupy":
                 x_dtype = X.dtype if getattr(X.dtype, "kind", "") == "f" else xp.float64
                 X_work = X.astype(x_dtype, copy=False)
@@ -294,9 +295,6 @@ def _install_smooth_solver_contract() -> None:
             sample_weight=sample_weight,
         )
 
-        # Preserve the exact discrete weight vector consumed by the successful
-        # solver.  This is required for post-fit diagnostics/inference because
-        # reporting may promote the design dtype after optimization.
         prepared_weight = _prepare_analytic_sample_weight(
             sample_weight,
             X_work.shape[0],
@@ -337,8 +335,18 @@ def _install_inference_weight_contract() -> None:
     @wraps(current)
     def _compute_inference_with_fit_weight_contract(self, *args, **kwargs):
         solver_name = getattr(self, "_fit_metadata", {}).get("solver_used")
-        _canonicalize_smooth_inference_weight_state(self, solver_name)
-        return current(self, *args, **kwargs)
+        inference_weight = _smooth_inference_weight(self, solver_name)
+        if solver_name not in ("newton", "lbfgs"):
+            return current(self, *args, **kwargs)
+
+        # Keep public fitted diagnostics on their historical raw-weight state;
+        # only M-estimation covariance consumes the canonical mean-one weights.
+        diagnostic_weight = getattr(self, "_sample_weight_inf", None)
+        self._sample_weight_inf = inference_weight
+        try:
+            return current(self, *args, **kwargs)
+        finally:
+            self._sample_weight_inf = diagnostic_weight
 
     setattr(_compute_inference_with_fit_weight_contract, _INFERENCE_MARKER, True)
     _compute_inference_with_fit_weight_contract._statgpu_original = current
@@ -379,7 +387,6 @@ def _install_fit_provenance_contract() -> None:
     def _fit_with_execution_provenance(self, *args, **kwargs):
         result = current(self, *args, **kwargs)
         solver_name = _resolved_ordinary_solver(self)
-        _canonicalize_smooth_inference_weight_state(self, solver_name)
         if solver_name not in ("newton", "lbfgs"):
             self._statgpu_smooth_effective_unweighted = None
             self._statgpu_smooth_prepared_weight = None
