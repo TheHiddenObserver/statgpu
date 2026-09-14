@@ -98,6 +98,44 @@ def test_weighted_lbfgs_is_invariant_to_positive_global_weight_rescaling(loss, d
     np.testing.assert_allclose(base, scaled, rtol=1e-7, atol=1e-8)
 
 
+def test_weighted_lbfgs_global_rescaling_cannot_cross_effective_uniformity_boundary():
+    X, y = _logistic_data(seed=15011)
+    X = X.copy()
+    y = y.copy()
+    # Make the zero-weight row highly influential if it is accidentally
+    # reintroduced by misclassifying tiny heterogeneous weights as uniform.
+    X[0] = np.array([18.0, -15.0, 12.0, -9.0])
+    y[0] = 1.0
+
+    shape_weights = np.linspace(0.4, 1.7, X.shape[0], dtype=np.float64)
+    shape_weights[0] = 0.0
+    tiny = 1.0e-12 * shape_weights
+    huge = 1.0e12 * shape_weights
+
+    tiny_newton = _prepare_newton_sample_weight(tiny, X.shape[0], "numpy", X)
+    huge_newton = _prepare_newton_sample_weight(huge, X.shape[0], "numpy", X)
+    tiny_lbfgs = _prepare_lbfgs_sample_weight(
+        tiny, X.shape[0], "numpy", X, LogisticLoss()
+    )
+    huge_lbfgs = _prepare_lbfgs_sample_weight(
+        huge, X.shape[0], "numpy", X, LogisticLoss()
+    )
+
+    for prepared in (tiny_newton, huge_newton, tiny_lbfgs, huge_lbfgs):
+        assert prepared is not None
+        assert float(np.asarray(prepared)[0]) == 0.0
+
+    tiny_fit = np.asarray(_solve(LogisticLoss(), X, y, weights=tiny))
+    huge_fit = np.asarray(_solve(LogisticLoss(), X, y, weights=huge))
+    keep = shape_weights > 0.0
+    dropped = np.asarray(
+        _solve(LogisticLoss(), X[keep], y[keep], weights=shape_weights[keep])
+    )
+
+    np.testing.assert_allclose(tiny_fit, huge_fit, rtol=2e-7, atol=2e-8)
+    np.testing.assert_allclose(tiny_fit, dropped, rtol=2e-7, atol=2e-8)
+
+
 def test_weighted_lbfgs_zero_weight_rows_equal_dropping_those_rows():
     X, y = _logistic_data(seed=15004)
     weights = np.linspace(0.4, 1.6, X.shape[0], dtype=np.float64)
@@ -132,6 +170,18 @@ def test_uniform_and_historically_almost_uniform_weights_use_unweighted_path():
         rtol=0.0,
         atol=0.0,
     )
+
+
+def test_effectively_uniform_classification_is_scale_invariant():
+    X = np.ones((4, 2), dtype=np.float64)
+    base = np.array([3.5, 3.5, 3.5, 3.5 + 1e-8], dtype=np.float64)
+
+    for scale in (1e-12, 1.0, 1e12):
+        weights = scale * base
+        assert _prepare_newton_sample_weight(weights, 4, "numpy", X) is None
+        assert _prepare_lbfgs_sample_weight(
+            weights, 4, "numpy", X, LogisticLoss()
+        ) is None
 
 
 def test_lbfgs_weight_preparation_matches_newton_after_execution_dtype_alignment():

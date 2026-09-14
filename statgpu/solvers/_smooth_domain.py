@@ -16,6 +16,12 @@ from statgpu.backends._utils import _get_xp
 from ._utils import _as_backend_vector, _validate_sample_weight
 
 
+# Preserve the historical relative tolerance for "effectively uniform" weights
+# while removing the absolute tolerance that made classification depend on the
+# arbitrary global scale of the analytic weights.
+_EFFECTIVELY_UNIFORM_WEIGHT_RTOL = 1e-5
+
+
 class _LossDomainError(RuntimeError):
     """Fail-hard numerical loss-domain error for maintained smooth solvers."""
 
@@ -33,9 +39,14 @@ def _prepare_analytic_sample_weight(
     """Validate, align, and classify analytic weights for smooth solvers.
 
     Omitted, uniform, and historically effectively-uniform weights execute the
-    unweighted objective.  Genuine non-uniform weights remain backend-native.
+    unweighted objective. Genuine non-uniform weights remain backend-native.
     Classification happens only after alignment to the executed design dtype
     and device so Newton, L-BFGS, initialization, and domain masking agree.
+
+    The effectively-uniform comparison is deliberately relative-only
+    (``atol=0``). Analytic weights are defined only up to a positive global
+    multiplier, so ``w`` and ``c * w`` must never switch between the weighted
+    and unweighted paths merely because ``c`` crosses an absolute tolerance.
     """
     if sample_weight is None:
         return None
@@ -46,14 +57,24 @@ def _prepare_analytic_sample_weight(
         import torch
 
         uniform_dev = (
-            torch.allclose(values, values[0])
+            torch.allclose(
+                values,
+                values[0],
+                rtol=_EFFECTIVELY_UNIFORM_WEIGHT_RTOL,
+                atol=0.0,
+            )
             if torch.is_floating_point(values)
             else torch.all(values == values[0])
         )
     else:
         xp = _get_xp(backend)
         uniform_dev = (
-            xp.allclose(values, values[0])
+            xp.allclose(
+                values,
+                values[0],
+                rtol=_EFFECTIVELY_UNIFORM_WEIGHT_RTOL,
+                atol=0.0,
+            )
             if getattr(values.dtype, "kind", "") == "f"
             else xp.all(values == values[0])
         )
