@@ -103,6 +103,7 @@ def test_pr151_schema_v5_extends_v4_for_final_review_closure():
     assert module.ATOL_WEIGHT_RESCALE == 2.0e-6
     assert module._SOLVERS == ("newton", "lbfgs")
     assert module._EXTREME_WEIGHT_SCALES == (1.0e-200, 1.0e200)
+    assert module._FLOAT32_OVERFLOW_SCALE == 3.0e38
 
     source = VALIDATOR_V5.read_text(encoding="utf-8")
     assert "v4.run(v4_path)" in source
@@ -115,12 +116,18 @@ def test_pr151_schema_v5_extends_v4_for_final_review_closure():
 def test_pr151_schema_v5_covers_review_found_numerical_edges():
     source = VALIDATOR_V5.read_text(encoding="utf-8")
     assert '"extreme_global_weight_rescaling"' in source
+    assert '"float32_raw_sum_overflow"' in source
     assert '"integer_design_fractional_weights"' in source
+    assert '"penalized_effective_uniform_inference"' in source
     assert '"gpu_domain_pinned_fail_closed"' in source
     assert "1.0e-200" in source
     assert "1.0e200" in source
+    assert "3.0e38" in source
+    assert "raw_float32_sum_overflow" in source
     assert "rng.integers" in source
     assert 'dtype=torch.int64' in source
+    assert 'inference_method="auto"' in source
+    assert '"m_estimation"' in source
     assert 'boundary surrogate' in source
     assert '"pinned to the maintained smooth-domain boundary"' in source
     assert '"no positive interior line-search step"' in source
