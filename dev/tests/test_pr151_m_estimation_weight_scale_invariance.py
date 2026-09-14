@@ -100,7 +100,7 @@ def test_m_estimation_constant_analytic_weights_equal_unweighted_nonrobust():
     X, y, _ = _logistic_data(seed=151923, n=96, p=2)
     design = np.column_stack([X, np.ones(X.shape[0], dtype=np.float64)])
     coef = np.array([0.18, -0.11, 0.07], dtype=np.float64)
-    loss = get_glm_loss("binomial")
+    loss = get_glm_loss("logistic")
 
     unweighted = m_estimation_inference(
         loss,
