@@ -1,7 +1,7 @@
 # GeneralizedLinearModel and Penalized GLM
 
 > Language: English  
-> Last updated: 2026-09-13  
+> Last updated: 2026-09-14  
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/generalized-linear-model.md)
 
@@ -321,7 +321,7 @@ Validation coverage includes:
 - comparisons with sklearn and statsmodels where the objective definitions align;
 - runtime benchmarks with warm-up and GPU synchronization when performance is measured.
 
-Developer validation assets are separate from the user-facing API described above. Remote credentials must be supplied through environment variables and must not be committed.
+These checks validate the numerical consistency of the public capabilities described above; developer infrastructure, credentials, and concrete validation environments are outside this model page's user-facing API.
 
 ## References
 
