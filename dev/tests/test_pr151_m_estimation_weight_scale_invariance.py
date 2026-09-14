@@ -122,9 +122,9 @@ def test_ordinary_smooth_fit_retains_exact_prepared_weight_provenance(solver):
     assert model._statgpu_smooth_effective_unweighted is False
     assert model._statgpu_smooth_prepared_weight.dtype == np.float32
     np.testing.assert_array_equal(model._statgpu_smooth_prepared_weight, expected)
-    # Public fitted diagnostics retain the historical raw-weight state; only
-    # M-estimation inference consumes the mean-one prepared representation.
-    np.testing.assert_allclose(model._sample_weight_inf, weights, rtol=0.0, atol=0.0)
+    # Fitted diagnostics use the exact solver-prepared relative-weight vector;
+    # inference temporarily rescales the same vector to mean one.
+    np.testing.assert_array_equal(model._sample_weight_inf, expected)
 
 
 def test_ordinary_nonrobust_inference_survives_float32_raw_sum_overflow():
