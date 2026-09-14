@@ -173,6 +173,23 @@ def lbfgs_solver(
             direction,
             sample_weight=sample_weight,
         )
+        if domain_cap is not None:
+            # A domain cap limits the scalar line-search step, while the solver's
+            # stopping rule is expressed in parameter-space displacement. If the
+            # largest admissible displacement is already below ``tol`` while the
+            # gradient is still above ``tol``, the loss domain—not optimization
+            # convergence—is preventing further material progress. Fail closed
+            # instead of iterating to ``max_iter`` and publishing a boundary
+            # surrogate as though it were an ordinary non-converged fit.
+            direction_norm_dev = _norm2_dev(direction)
+            (direction_norm,) = _sync_scalars(
+                direction_norm_dev, backend=backend
+            )
+            if domain_cap * direction_norm <= tol:
+                raise _LossDomainError(
+                    f"loss='{getattr(loss, 'name', '?')}' is pinned to the "
+                    "maintained smooth-domain boundary before gradient convergence."
+                )
 
         # Line search -- stays on device and uses the same analytic weights as
         # the gradient that generated the search direction.
