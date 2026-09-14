@@ -12,11 +12,10 @@ from statgpu.solvers._smooth_domain import _prepare_analytic_sample_weight
 
 # Positive global rescaling defines the same analytic-weight problem, but the
 # final Newton/L-BFGS line-search and stopping path need not be bit-identical.
-# Keep this hosted gate substantially tighter than the frozen physical CUDA
-# scale-invariance tolerance (2e-6) without treating 1e-9-level roundoff as a
-# correctness failure.
-_SCALE_RTOL = 1.0e-8
-_SCALE_ATOL = 5.0e-10
+# Mirror the physical gate's max-absolute-error semantics while keeping this
+# hosted threshold 200x tighter than the frozen CUDA tolerance (2e-6).
+_SCALE_RTOL = 0.0
+_SCALE_ATOL = 1.0e-8
 
 
 def _logistic_data(seed=151921, n=160, p=3):
