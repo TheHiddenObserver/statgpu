@@ -31,6 +31,7 @@ from ._smooth_domain import (
     _LossDomainError,
     _domain_feasible,
     _domain_max_step,
+    _floating_eps,
     _initial_smooth_params,
     _prepare_analytic_sample_weight,
 )
@@ -96,8 +97,17 @@ def _armijo_domain_search(
     domain_cap,
     *,
     sample_weight,
+    objective_roundoff,
 ):
-    """Run one domain-aware Armijo search for an additive descent direction."""
+    """Run one Armijo search, with a bounded floating-point resolution rule.
+
+    The exact Armijo condition remains authoritative whenever its requested
+    decrease is numerically resolvable. If the requested decrease itself is no
+    larger than the objective's floating-point roundoff scale, accept a trial
+    only when its objective is non-increasing up to that same roundoff scale.
+    This avoids reporting false line-search failure at a numerical stationary
+    point without silently accepting an ordinary rejected Armijo step.
+    """
     step = min(1.0, domain_cap) if domain_cap is not None else 1.0
     evaluated_domain_trial = False
     rejected_by_domain = False
@@ -119,6 +129,13 @@ def _armijo_domain_search(
         )
         cand_val_dev = cand_val_dev + _smooth_penalty_value_dev(penalty, candidate)
         if _device_leq(cand_val_dev, old_val_dev + 1e-4 * step * gdd):
+            return candidate, True, step, evaluated_domain_trial, rejected_by_domain
+
+        required_decrease = max(0.0, -1e-4 * step * gdd)
+        if (
+            required_decrease <= objective_roundoff
+            and _device_leq(cand_val_dev, old_val_dev + objective_roundoff)
+        ):
             return candidate, True, step, evaluated_domain_trial, rejected_by_domain
         step *= 0.5
     return params, False, step, evaluated_domain_trial, rejected_by_domain
@@ -242,6 +259,10 @@ def lbfgs_solver(
             sample_weight=sample_weight,
         )
         old_val_dev = old_val_dev + _smooth_penalty_value_dev(penalty, params)
+        (old_val,) = _sync_scalars(old_val_dev, backend=backend)
+        objective_roundoff = (
+            64.0 * _floating_eps(X_proc) * max(1.0, abs(old_val))
+        )
 
         (
             params_new,
@@ -260,6 +281,7 @@ def lbfgs_solver(
             gdd,
             domain_cap,
             sample_weight=sample_weight,
+            objective_roundoff=objective_roundoff,
         )
 
         if not _ls_accepted and domain_cap is not None:
@@ -296,6 +318,7 @@ def lbfgs_solver(
                 gdd,
                 domain_cap,
                 sample_weight=sample_weight,
+                objective_roundoff=objective_roundoff,
             )
             evaluated_domain_trial = evaluated_domain_trial or fallback_evaluated
             rejected_by_domain = rejected_by_domain or fallback_rejected
