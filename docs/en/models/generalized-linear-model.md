@@ -114,7 +114,7 @@ $$
 \eta_i=x_i^\top\beta>0.
 $$
 
-Before the first objective evaluation, explicit Newton/L-BFGS constructs an interior starting point that satisfies this condition. With an intercept, the intercept column provides an immediate feasible direction. Without an intercept, statgpu searches the positive-weight training rows for a direction $d$ with $Xd>0$ and scales that direction to a valid interior point. If such a start cannot be numerically certified, fitting fails before optimization begins. Subsequent updates are kept inside the valid inverse-link domain internally; the detailed step constraints are solver implementation details described in [Solver Algorithms](../guides/solver-algorithms.md).
+Before the first objective evaluation, explicit Newton/L-BFGS constructs an interior starting point that satisfies this condition. With an intercept, the intercept column provides an immediate feasible direction. Without an intercept, statgpu searches the positive-weight training rows for a direction $d$ with $Xd>0$ and scales that direction to a valid interior point. If such a start cannot be numerically certified, fitting fails before optimization begins. Subsequent updates are kept inside the valid inverse-link domain by solver-owned feasibility checks and step caps; these are numerical safeguards rather than additional statistical assumptions on the Gamma model.
 
 #### Scope of weighted L-BFGS support
 
