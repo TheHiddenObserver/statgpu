@@ -1,7 +1,7 @@
 # Solver Algorithms
 
 > Language: English  
-> Last updated: 2026-09-13  
+> Last updated: 2026-09-14  
 > This page: Algorithm reference  
 > Switch: [Chinese](../../cn/guides/solver-algorithms.md)
 
@@ -227,8 +227,7 @@ $$
 
 $$
 H_k
-=\nabla^2F(\beta_k)
-=\nabla^2L(\beta_k)+\alpha I.
+=\nabla^2F(\beta_k)+\alpha I.
 $$
 
 Set $\alpha=0$ for the no-penalty route.
@@ -1113,7 +1112,7 @@ $$
 
 ### L-BFGS Armijo line search
 
-Starting with $t=1$, accept the first trial satisfying
+For an unconstrained loss, the line search starts from $t=1$ and accepts the first trial satisfying
 
 $$
 F(\beta_k+t p_k)
@@ -1121,15 +1120,45 @@ F(\beta_k+t p_k)
 F(\beta_k)+10^{-4}t\,g_k^\top p_k.
 $$
 
-If it fails,
+On failure,
 
 $$
 t\leftarrow\frac t2,
 $$
 
-for at most 25 backtracking trials.
+for at most 25 backtracking trials. If no trial is accepted, the unconstrained route retains the historical warning/stagnation behavior rather than silently accepting the last trial point.
 
-After acceptance, recompute $g_{k+1}$ and update the curvature history. The solver stops when either
+A loss may additionally expose a maintained smooth-domain cap for the finalized additive direction. Let
+
+$$
+t_{\max,k}>0
+$$
+
+be the largest certified scalar step returned for $p_k$. The first Armijo trial then uses
+
+$$
+t_0=\min\{1,t_{\max,k}\}.
+$$
+
+Before searching, the maintained domain route checks the largest admissible parameter displacement. If
+
+$$
+t_{\max,k}\,\|p_k\|_2\le\texttt{tol}
+\qquad\text{while}\qquad
+\|g_k\|_2>\texttt{tol},
+$$
+
+optimization is **domain-pinned**, not converged, and the solver fails closed.
+
+If the quasi-Newton direction exhausts all 25 Armijo trials inside the maintained domain, L-BFGS discards that direction for the recovery attempt and retries with steepest descent,
+
+$$
+p_k^{\rm sd}=-g_k,
+$$
+
+using a freshly recomputed domain cap $t_{\max,k}^{\rm sd}$. If the second, steepest-descent Armijo search also exhausts its 25 trials before gradient convergence, the maintained domain route raises a loss-domain error instead of publishing the current point as a successful fit.
+
+After an accepted step, recompute $g_{k+1}$ and update the curvature history. The ordinary unconstrained route may stop when either
 
 $$
 \|g_k\|_2<\texttt{tol}
@@ -1140,6 +1169,8 @@ or
 $$
 \|s_k\|_2<\texttt{tol}.
 $$
+
+For a domain-capped route, however, a small accepted $\|s_k\|_2$ is not by itself evidence of convergence. The route closes only when the gradient criterion is satisfied; otherwise it continues until a material step is found or the domain is reported as pinned/failing.
 
 ### L-BFGS-B: projected box-constrained variant
 
@@ -1159,8 +1190,7 @@ $$
 At an active bound, the projected gradient is zeroed when the gradient points outside the box:
 
 $$
-\bar g_j=
-\begin{cases}
+\bar g_j=\begin{cases}
 0,& \beta_j\le\ell_j\ \text{and}\ g_j>0,\\
 0,& \beta_j\ge u_j\ \text{and}\ g_j<0,\\
 g_j,& \text{otherwise}.
@@ -1197,6 +1227,8 @@ $$
 F(\beta)
 =\frac{\sum_i w_i\ell_i(\beta)}{\sum_i w_i}+P(\beta).
 $$
+
+Before smooth-solver evaluation, finite non-negative analytic weights with positive mass are normalized by a positive common scale on the executed backend. Consequently, representable global positive rescaling does not change the normalized objective merely because the raw input-dtype sum would overflow. Uniform/effectively-uniform weights retain the historical unweighted numerical route, and that same fitted-objective identity is preserved by maintained ordinary and penalized GLM inference consumers.
 
 ---
 
