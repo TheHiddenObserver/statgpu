@@ -183,6 +183,7 @@ def test_pr151_schema_v6_extends_v5_for_analytic_weight_inference_closure():
     assert module.ATOL_WEIGHT_RESCALE == 2.0e-6
     assert module.ATOL_INFERENCE == 2.0e-5
     assert module._WEIGHT_SCALE == 7.25
+    assert module._FLOAT32_OVERFLOW_SCALE == 3.0e38
     assert module._SOLVERS == ("newton", "lbfgs")
 
     source = VALIDATOR_V6.read_text(encoding="utf-8")
@@ -192,7 +193,9 @@ def test_pr151_schema_v6_extends_v5_for_analytic_weight_inference_closure():
     assert '"source_clean": True' in source
     assert 'default=Path("dev/reviews/pr151_final_gpu_v6.json")' in source
     assert '"analytic_weight_nonrobust_inference_scale_invariance"' in source
+    assert '"float32_raw_sum_overflow_inference"' in source
     assert "_analytic_weight_inference_gate" in source
+    assert "_float32_raw_sum_overflow_inference_gate" in source
     assert 'cov_type="nonrobust"' in source
     assert 'inference_method="auto"' in source
     assert '("ordinary", _fit_ordinary)' in source
@@ -200,3 +203,5 @@ def test_pr151_schema_v6_extends_v5_for_analytic_weight_inference_closure():
     assert '("cupy", "cuda")' in source
     assert '("torch", "torch")' in source
     assert '"inference_weight_scale": _WEIGHT_SCALE' in source
+    assert '"float32_overflow_scale": _FLOAT32_OVERFLOW_SCALE' in source
+    assert '"raw_float32_sum_overflow": True' in source
