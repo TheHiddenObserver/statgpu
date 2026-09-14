@@ -67,14 +67,30 @@ def _fit_device_label(X_design, backend: str) -> str:
 
 
 def _canonicalize_smooth_inference_weight_state(self, solver_name) -> None:
-    """Mirror ordinary smooth-solver effective-uniform classification in state."""
+    """Mirror the ordinary smooth solver's actual weight classification."""
     if solver_name not in ("newton", "lbfgs"):
         return
     sample_weight = getattr(self, "_sample_weight_inf", None)
-    X_design = getattr(self, "_X_design", None)
-    if sample_weight is None or X_design is None:
+    if sample_weight is None:
         return
 
+    # The ordinary smooth owner records the classification on the exact
+    # solver-side design dtype/device after a successful solve. Prefer that
+    # identity to reclassifying from the post-fit inference design, because the
+    # NumPy reporting layer may promote a float32 fit design to float64.
+    fitted_unweighted = getattr(
+        self, "_statgpu_smooth_effective_unweighted", None
+    )
+    if fitted_unweighted is True:
+        self._sample_weight_inf = None
+        return
+    if fitted_unweighted is False:
+        return
+
+    # Compatibility fallback for an object fitted before this marker existed.
+    X_design = getattr(self, "_X_design", None)
+    if X_design is None:
+        return
     from statgpu.solvers._smooth_domain import _prepare_analytic_sample_weight
 
     backend = _resolve_backend("auto", X_design)
@@ -85,9 +101,6 @@ def _canonicalize_smooth_inference_weight_state(self, solver_name) -> None:
         X_design,
     )
     if prepared is None:
-        # The explicit smooth solver optimized the historical unweighted path;
-        # diagnostics and M-estimation must consume that same fitted objective
-        # rather than reintroducing a tiny near-uniform weight perturbation.
         self._sample_weight_inf = None
 
 
@@ -142,6 +155,7 @@ def _install_init_contract() -> None:
         self._selected_solver = None
         self._selected_backend_name = None
         self._selected_backend_device = None
+        self._statgpu_smooth_effective_unweighted = None
 
     setattr(_init_with_provenance, _INIT_MARKER, True)
     _init_with_provenance._statgpu_original = current
@@ -202,6 +216,7 @@ def _install_smooth_solver_contract() -> None:
     ):
         from statgpu.glm_core import get_glm_loss
         from statgpu.solvers import lbfgs_solver, newton_solver
+        from statgpu.solvers._smooth_domain import _prepare_analytic_sample_weight
 
         loss_kwargs = self._get_loss_kwargs()
         loss = get_glm_loss(self.family_to_loss(), **loss_kwargs)
@@ -260,11 +275,6 @@ def _install_smooth_solver_contract() -> None:
                 X_work = X.astype(x_dtype, copy=False)
             p = X.shape[1]
 
-        # ``init_coef=None`` is intentional. Ordinary GLMs expose no public
-        # smooth-solver warm start, and losses with a maintained numerical
-        # domain (currently inverse-power Gamma) construct their own
-        # backend-native interior start inside Newton/L-BFGS. Other losses keep
-        # the historical zero/default solver start.
         solver = newton_solver if solver_name == "newton" else lbfgs_solver
         params, n_iter = solver(
             loss,
@@ -276,6 +286,17 @@ def _install_smooth_solver_contract() -> None:
             init_coef=None,
             sample_weight=sample_weight,
         )
+
+        # Record the exact weight identity used by the successful solver before
+        # later reporting/inference layers can change dtype. This is a boolean
+        # provenance fact, not an additional public fitted parameter.
+        prepared_weight = _prepare_analytic_sample_weight(
+            sample_weight,
+            X_work.shape[0],
+            backend_name,
+            X_work,
+        )
+        self._statgpu_smooth_effective_unweighted = prepared_weight is None
 
         params_np = _to_numpy(params)
         self.n_iter_ = n_iter
@@ -295,11 +316,6 @@ def _install_smooth_solver_contract() -> None:
         )
 
     setattr(_fit_smooth_solver_with_weights, _SMOOTH_MARKER, True)
-    # The later inverse-Gamma consumer installer must not add a second ordinary
-    # wrapper. This ordinary owner already delegates family-domain work to the
-    # shared loss/solver hooks; marking that contract lets the later installer
-    # no-op its historical compatibility wrapper while still patching penalized
-    # and CV consumers.
     setattr(_fit_smooth_solver_with_weights, "_statgpu_inverse_gamma_domain_ordinary", True)
     _fit_smooth_solver_with_weights._statgpu_original = current
     GeneralizedLinearModel._fit_smooth_solver = _fit_smooth_solver_with_weights
@@ -322,9 +338,6 @@ def _install_inference_weight_contract() -> None:
 
 
 def _install_penalized_inference_weight_contract() -> None:
-    # Import lazily so the package's existing inference/API installers have
-    # already assembled their wrapper stack before PR151 adds this final
-    # objective-consistency shim.
     from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
 
     current = PenalizedGeneralizedLinearModel._compute_post_fit_gaussian_inference
@@ -356,10 +369,6 @@ def _install_fit_provenance_contract() -> None:
 
     @wraps(current)
     def _fit_with_execution_provenance(self, *args, **kwargs):
-        # Publish new provenance only after the existing fit transaction has
-        # returned successfully. A failed refit therefore leaves the previous
-        # successful provenance untouched, matching the existing ordinary-GLM
-        # state behavior rather than inventing a new invalidation contract.
         result = current(self, *args, **kwargs)
         solver_name = _resolved_ordinary_solver(self)
         _canonicalize_smooth_inference_weight_state(self, solver_name)
