@@ -9,7 +9,9 @@ weight vector must therefore leave both fitted parameters and nonrobust
 covariance inference unchanged.
 
 The new gate covers ordinary and penalized logistic GLM consumers on CuPy and
-Torch for explicit Newton and L-BFGS, with NumPy as the reference backend.
+Torch for explicit Newton and L-BFGS, with NumPy as the reference backend.  It
+also exercises finite float32 analytic weights whose raw float32 sum overflows,
+so inference must use the same stable normalization principle as fitting.
 Earlier schema-v3/v4/v5 artifacts remain immutable historical exact-source
 evidence and are intentionally not rewritten.
 """
@@ -36,6 +38,7 @@ ATOL_INTERCEPT = v5.ATOL_INTERCEPT
 ATOL_WEIGHT_RESCALE = v5.ATOL_WEIGHT_RESCALE
 ATOL_INFERENCE = 2.0e-5
 _WEIGHT_SCALE = 7.25
+_FLOAT32_OVERFLOW_SCALE = 3.0e38
 _SOLVERS = v5._SOLVERS
 
 
@@ -147,16 +150,30 @@ def _fit_penalized(solver, X, y, weights, *, device):
 def _container_arrays(backend, X, y, weights, cp, torch, torch_device):
     if backend == "cupy":
         return cp.asarray(X), cp.asarray(y), cp.asarray(weights)
+
+    torch_dtype = torch.float32 if X.dtype == np.float32 else torch.float64
+    weight_dtype = (
+        torch.float32 if weights.dtype == np.float32 else torch.float64
+    )
     return (
-        torch.as_tensor(X, dtype=torch.float64, device=torch_device),
-        torch.as_tensor(y, dtype=torch.float64, device=torch_device),
-        torch.as_tensor(weights, dtype=torch.float64, device=torch_device),
+        torch.as_tensor(X, dtype=torch_dtype, device=torch_device),
+        torch.as_tensor(y, dtype=torch_dtype, device=torch_device),
+        torch.as_tensor(weights, dtype=weight_dtype, device=torch_device),
     )
 
 
-def _analytic_weight_inference_gate(cp, torch, device_id, torch_device):
-    X_np, y_np = v5._logistic_data(seed=151024, n=144, p=3)
-    weights_np = np.linspace(0.4, 1.9, X_np.shape[0], dtype=np.float64)
+def _consumer_matrix(
+    *,
+    X_np,
+    y_np,
+    base_weights,
+    scaled_weights,
+    cp,
+    torch,
+    device_id,
+    torch_device,
+    label,
+):
     expected_cuda = f"cuda:{device_id}"
     results = {"ordinary": {}, "penalized": {}}
 
@@ -165,12 +182,12 @@ def _analytic_weight_inference_gate(cp, torch, device_id, torch_device):
         ("penalized", _fit_penalized),
     ):
         for solver in _SOLVERS:
-            ref = fit_fn(solver, X_np, y_np, weights_np, device="cpu")
+            ref = fit_fn(solver, X_np, y_np, base_weights, device="cpu")
             ref_scaled = fit_fn(
-                solver, X_np, y_np, _WEIGHT_SCALE * weights_np, device="cpu"
+                solver, X_np, y_np, scaled_weights, device="cpu"
             )
             ref_scale_errors = _assert_scale_invariance(
-                f"analytic_weight_inference/{consumer}/{solver}/numpy",
+                f"{label}/{consumer}/{solver}/numpy",
                 ref,
                 ref_scaled,
             )
@@ -185,7 +202,22 @@ def _analytic_weight_inference_gate(cp, torch, device_id, torch_device):
 
             for backend, device in (("cupy", "cuda"), ("torch", "torch")):
                 Xb, yb, wb = _container_arrays(
-                    backend, X_np, y_np, weights_np, cp, torch, torch_device
+                    backend,
+                    X_np,
+                    y_np,
+                    base_weights,
+                    cp,
+                    torch,
+                    torch_device,
+                )
+                _, _, wb_scaled = _container_arrays(
+                    backend,
+                    X_np,
+                    y_np,
+                    scaled_weights,
+                    cp,
+                    torch,
+                    torch_device,
                 )
                 if backend == "cupy":
                     context = cp.cuda.Device(device_id)
@@ -195,23 +227,23 @@ def _analytic_weight_inference_gate(cp, torch, device_id, torch_device):
                 with context:
                     base = fit_fn(solver, Xb, yb, wb, device=device)
                     scaled = fit_fn(
-                        solver, Xb, yb, _WEIGHT_SCALE * wb, device=device
+                        solver, Xb, yb, wb_scaled, device=device
                     )
 
                 _assert_provenance(
-                    f"analytic_weight_inference/{consumer}/{solver}/{backend}",
+                    f"{label}/{consumer}/{solver}/{backend}",
                     base,
                     solver=solver,
                     backend=backend,
                     device=expected_cuda,
                 )
                 parity_errors = _assert_numpy_parity(
-                    f"analytic_weight_inference/{consumer}/{solver}/{backend}/base",
+                    f"{label}/{consumer}/{solver}/{backend}/base",
                     ref,
                     base,
                 )
                 scale_errors = _assert_scale_invariance(
-                    f"analytic_weight_inference/{consumer}/{solver}/{backend}/scale",
+                    f"{label}/{consumer}/{solver}/{backend}/scale",
                     base,
                     scaled,
                 )
@@ -223,6 +255,57 @@ def _analytic_weight_inference_gate(cp, torch, device_id, torch_device):
                 }
 
     return results
+
+
+def _analytic_weight_inference_gate(cp, torch, device_id, torch_device):
+    X_np, y_np = v5._logistic_data(seed=151024, n=144, p=3)
+    weights_np = np.linspace(0.4, 1.9, X_np.shape[0], dtype=np.float64)
+    return _consumer_matrix(
+        X_np=X_np,
+        y_np=y_np,
+        base_weights=weights_np,
+        scaled_weights=_WEIGHT_SCALE * weights_np,
+        cp=cp,
+        torch=torch,
+        device_id=device_id,
+        torch_device=torch_device,
+        label="analytic_weight_inference",
+    )
+
+
+def _float32_raw_sum_overflow_inference_gate(
+    cp, torch, device_id, torch_device
+):
+    X_np, y_np = v5._logistic_data(seed=151025, n=96, p=3)
+    X_np = X_np.astype(np.float32)
+    y_np = y_np.astype(np.float32)
+    raw = np.linspace(0.75, 1.05, X_np.shape[0], dtype=np.float32)
+    overflow_weights = raw * np.float32(_FLOAT32_OVERFLOW_SCALE)
+    base_weights = overflow_weights / np.float32(_FLOAT32_OVERFLOW_SCALE)
+
+    if not np.all(np.isfinite(overflow_weights)):
+        raise AssertionError("float32 overflow-inference fixture has non-finite entries")
+    with np.errstate(over="ignore"):
+        raw_sum = np.sum(overflow_weights, dtype=np.float32)
+    if np.isfinite(raw_sum):
+        raise AssertionError("float32 overflow-inference fixture raw sum did not overflow")
+
+    results = _consumer_matrix(
+        X_np=X_np,
+        y_np=y_np,
+        base_weights=base_weights,
+        scaled_weights=overflow_weights,
+        cp=cp,
+        torch=torch,
+        device_id=device_id,
+        torch_device=torch_device,
+        label="float32_raw_sum_overflow_inference",
+    )
+    return {
+        "raw_float32_sum_overflow": True,
+        "overflow_scale": _FLOAT32_OVERFLOW_SCALE,
+        "routes": results,
+    }
 
 
 def run(output: Path):
@@ -250,6 +333,7 @@ def run(output: Path):
             "inference_max_abs": ATOL_INFERENCE,
             "solver_tol": SOLVER_TOL,
             "inference_weight_scale": _WEIGHT_SCALE,
+            "float32_overflow_scale": _FLOAT32_OVERFLOW_SCALE,
         },
         "legacy_schema_v5": legacy,
         "review_closure": {
@@ -257,7 +341,12 @@ def run(output: Path):
                 _analytic_weight_inference_gate(
                     cp, torch, device_id, torch_device
                 )
-            )
+            ),
+            "float32_raw_sum_overflow_inference": (
+                _float32_raw_sum_overflow_inference_gate(
+                    cp, torch, device_id, torch_device
+                )
+            ),
         },
     }
 
@@ -269,6 +358,7 @@ def run(output: Path):
         "source_sha": source_sha,
         "ordinary_backend_solver_rows": len(_SOLVERS) * 2,
         "penalized_backend_solver_rows": len(_SOLVERS) * 2,
+        "float32_overflow_backend_solver_rows": len(_SOLVERS) * 2 * 2,
         "output": str(output),
     }, indent=2))
 
