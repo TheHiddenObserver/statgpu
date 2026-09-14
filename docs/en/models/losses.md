@@ -1,7 +1,7 @@
 # Loss Functions (LossBase)
 
 > Language: English  
-> Last updated: 2026-09-13  
+> Last updated: 2026-09-14  
 > This page: Low-level loss reference  
 > Switch: [Chinese](../../cn/models/losses.md)
 
@@ -70,12 +70,7 @@ $$
 \frac{\sum_i w_i\ell_i(\beta)}{\sum_i w_i}.
 $$
 
-That does **not** by itself define a complete weighted-solver contract. Hessians, Fisher information, Lipschitz constants, IRLS, Newton, L-BFGS, ADMM, and other solver consumers still require loss- and solver-specific semantics. GitHub Issue #153 tracks the work to make those capabilities explicit and auditable.
-
-It is therefore important to distinguish:
-
-1. `LossBase` already provides some shared weighted numerical primitives;
-2. support for non-uniform weights on a complete **loss × solver × estimator** route must still be established separately.
+This standardizes the **loss-layer first-order weight semantics only**. A complete weighted fitting route still depends on the concrete loss, solver, and estimator; algorithms that require Hessians, Fisher information, or Lipschitz constants must define those weighted quantities consistently with the same objective. For maintained combinations, see the [Solver × Penalty Compatibility Matrix](../guides/solver-penalty-matrix.md) and [Solver Algorithms](../guides/solver-algorithms.md).
 
 ### Quantile loss (check / pinball loss)
 
@@ -163,7 +158,7 @@ The table below describes the maintained **unweighted** low-level compatibility.
 | ADMM | ✅ | ✅ | ✅ | ✅ | ✅ |
 | IRLS | ✅ (L2/no penalty) | ❌ (currently unavailable) | ✅ (L2/no penalty) | ✅ (L2/no penalty) | ❌ |
 
-Huber IRLS is not currently exposed as a maintained public solver route; restoring and validating it is tracked by Issue #156.
+Huber IRLS is not currently exposed as a maintained public solver route; the ❌ entry therefore means that public dispatch does not select that route today.
 
 ### Non-uniform weights and direct L-BFGS
 
