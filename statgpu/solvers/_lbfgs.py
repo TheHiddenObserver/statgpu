@@ -98,15 +98,18 @@ def _armijo_domain_search(
     *,
     sample_weight,
     objective_roundoff,
+    direction_norm,
+    parameter_tol,
 ):
     """Run one Armijo search, with a bounded floating-point resolution rule.
 
     The exact Armijo condition remains authoritative whenever its requested
-    decrease is numerically resolvable. If the requested decrease itself is no
-    larger than the objective's floating-point roundoff scale, accept a trial
-    only when its objective is non-increasing up to that same roundoff scale.
-    This avoids reporting false line-search failure at a numerical stationary
-    point without silently accepting an ordinary rejected Armijo step.
+    decrease is numerically resolvable. A roundoff-limited trial may be accepted
+    only when both the requested decrease is below the objective's floating-
+    point resolution and the actual parameter displacement is below the solver
+    tolerance. The candidate objective must also be non-increasing up to that
+    same roundoff scale. This prevents a large bad direction with tiny
+    directional derivative from being mislabeled as numerical convergence.
     """
     step = min(1.0, domain_cap) if domain_cap is not None else 1.0
     evaluated_domain_trial = False
@@ -132,8 +135,10 @@ def _armijo_domain_search(
             return candidate, True, step, evaluated_domain_trial, rejected_by_domain
 
         required_decrease = max(0.0, -1e-4 * step * gdd)
+        parameter_displacement = step * direction_norm
         if (
             required_decrease <= objective_roundoff
+            and parameter_displacement <= parameter_tol
             and _device_leq(cand_val_dev, old_val_dev + objective_roundoff)
         ):
             return candidate, True, step, evaluated_domain_trial, rejected_by_domain
@@ -241,6 +246,9 @@ def lbfgs_solver(
             direction = -grad
             gdd = -gn * gn
 
+        direction_norm_dev = _norm2_dev(direction)
+        (direction_norm,) = _sync_scalars(direction_norm_dev, backend=backend)
+
         domain_cap = _domain_step_or_raise(
             loss,
             X_proc,
@@ -282,6 +290,8 @@ def lbfgs_solver(
             domain_cap,
             sample_weight=sample_weight,
             objective_roundoff=objective_roundoff,
+            direction_norm=direction_norm,
+            parameter_tol=tol,
         )
 
         if not _ls_accepted and domain_cap is not None:
@@ -292,6 +302,7 @@ def lbfgs_solver(
             # failures without publishing an unverified boundary iterate.
             direction = -grad
             gdd = -gn * gn
+            direction_norm = gn
             domain_cap = _domain_step_or_raise(
                 loss,
                 X_proc,
@@ -319,6 +330,8 @@ def lbfgs_solver(
                 domain_cap,
                 sample_weight=sample_weight,
                 objective_roundoff=objective_roundoff,
+                direction_norm=direction_norm,
+                parameter_tol=tol,
             )
             evaluated_domain_trial = evaluated_domain_trial or fallback_evaluated
             rejected_by_domain = rejected_by_domain or fallback_rejected
