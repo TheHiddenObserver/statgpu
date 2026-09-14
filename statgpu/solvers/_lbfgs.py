@@ -269,7 +269,7 @@ def lbfgs_solver(
         old_val_dev = old_val_dev + _smooth_penalty_value_dev(penalty, params)
         (old_val,) = _sync_scalars(old_val_dev, backend=backend)
         objective_roundoff = (
-            64.0 * _floating_eps(X_proc) * max(1.0, abs(old_val))
+            64.0 * _floating_eps(old_val_dev) * max(1.0, abs(old_val))
         )
 
         (
