@@ -142,7 +142,7 @@ def lbfgs_solver(
     via auto-detection of *X*.
 
     Genuine non-uniform ``sample_weight`` is supported only when the loss
-    explicitly opts into the shared weighted-L-BFGS contract. Maintained GLM
+    explicitly opts into the shared weighted-LBFGS contract. Maintained GLM
     losses do so and evaluate value, gradient, line-search candidates, and the
     accepted iterate under one normalized objective
     ``sum_i w_i * contribution_i / sum_i w_i``. Generic non-GLM losses remain
@@ -317,24 +317,14 @@ def lbfgs_solver(
                     "trial step for the maintained loss domain."
                 )
 
-            direction_norm_dev = _norm2_dev(direction)
-            (direction_norm,) = _sync_scalars(
-                direction_norm_dev, backend=backend
+            warnings.warn(
+                "lbfgs_solver: line search failed to find a descent step "
+                f"after 25 backtracking steps (iteration {iteration}). "
+                "Solver may stagnate.",
+                RuntimeWarning,
+                stacklevel=2,
             )
-            smallest_tried_step = 2.0 * step
-            numerically_small_trial = (
-                domain_cap is None
-                and smallest_tried_step * direction_norm < tol
-            )
-            if not numerically_small_trial:
-                warnings.warn(
-                    "lbfgs_solver: line search failed to find a descent step "
-                    f"after 25 backtracking steps (iteration {iteration}). "
-                    "Solver may stagnate.",
-                    RuntimeWarning,
-                    stacklevel=2,
-                )
-                break
+            break
 
         _, grad_new = _call_loss_with_weight(
             loss.fused_value_and_gradient,
