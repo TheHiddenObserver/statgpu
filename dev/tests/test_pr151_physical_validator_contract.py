@@ -234,6 +234,11 @@ def test_pr151_schema_v7_corrects_only_the_overflow_fixture_scope():
     assert '"float32_weight_raw_sum_overflow_inference"' in source
     assert 'X_np.dtype != np.float64 or y_np.dtype != np.float64' in source
     assert 'base_weights.dtype != np.float32 or overflow_weights.dtype != np.float32' in source
+    assert 'cp.isinf(cp.sum(cupy_overflow))' in source
+    assert 'torch.isinf(torch.sum(torch_overflow))' in source
+    assert '"backend_raw_float32_sum_overflow"' in source
+    assert '"cupy": cupy_raw_sum_overflow' in source
+    assert '"torch": torch_raw_sum_overflow' in source
     assert '"design_dtype": str(X_np.dtype)' in source
     assert '"response_dtype": str(y_np.dtype)' in source
     assert '"weight_dtype": str(overflow_weights.dtype)' in source
