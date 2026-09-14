@@ -1,7 +1,7 @@
 # 稳健回归
 
 > 语言：中文  
-> 最后更新：2026-09-13  
+> 最后更新：2026-09-14  
 > 页面定位：模型文档  
 > 切换：[English](../../en/models/robust.md)
 
@@ -102,7 +102,7 @@ $$
 | FISTA | ✅ | ✅ | ✅ | 稀疏/近端路径 |
 | FISTA-BB | ✅（受支持组合） | ✅（受支持组合） | ✅（受支持组合） | 自适应步长 |
 | FISTA-LLA | ✅ | ✅ | ✅ | SCAD/MCP 等非凸惩罚的 LLA 路径 |
-| IRLS | ❌（当前未开放） | ✅（L2/无惩罚） | ✅（L2/无惩罚） | Huber IRLS 的恢复与验证由 Issue #156 跟踪 |
+| IRLS | ❌（当前未开放） | ✅（L2/无惩罚） | ✅（L2/无惩罚） | 当前公共分发不会为 Huber 选择 IRLS |
 | Newton | ✅ | ✅ | ✅ | `solver="auto"` 下光滑 L2/无惩罚的主要路径 |
 | L-BFGS | ✅（光滑、无权重/均匀权重） | ✅（光滑、无权重/均匀权重） | ✅（光滑、无权重/均匀权重） | 通用非 GLM `LossBase` 当前未声明直接非均匀带权 L-BFGS |
 | ADMM | ✅（受支持形式） | ✅（受支持形式） | ✅（受支持形式） | 共享入口当前只接受未传或均匀 `sample_weight` |
@@ -177,7 +177,7 @@ w_i=\frac{\psi_\delta(r_i)}{r_i}
 =\min\left(1,\frac{\delta}{|r_i|}\right)
 $$
 
-与 Huber 一阶条件具有直接关系；是否恢复为维护中的公开求解路径正在 Issue #156 中重新验证。本 PR 只记录当前实现状态，不改变数值源码。
+与 Huber 一阶条件具有直接关系。这说明 Huber 可以自然地构造 IRLS 更新，但当前公开 API 并未把该路径声明为受支持能力；显式请求该组合时应明确拒绝，而不是静默切换到其他求解器。
 
 ## 输出
 
@@ -190,7 +190,7 @@ $$
 
 ## 外部验证
 
-- **Huber**：历史验证与 R `MASS::rlm(psi=psi.huber)` 对齐；恢复 IRLS 后需要在相同尺度约定下重新验证该显式求解路径。
+- **Huber**：已维护的公开路径与 R `MASS::rlm(psi=psi.huber)` 使用相同的 Huber M-估计目标；当前 Huber IRLS 不在公开支持矩阵中。
 - **Bisquare**：与 R `MASS::rlm(psi=psi.bisquare)` 对齐；非凸惩罚路径使用当前 LLA/FISTA 实现。
 - **Fair**：与 R `MASS::rlm(psi=psi.fair)` 对齐。
 
@@ -199,7 +199,7 @@ $$
 - 尺度计算目前会使用 NumPy 主机数组；完成尺度预计算后，维护中的数值优化路径继续使用所选 NumPy/CuPy/Torch 后端。
 - `sample_weight` 是否可用取决于损失函数、求解器和具体模型路径，而不是“所有 robust solver 自动支持”。
 - 三种损失都提供 Hessian 数值原语；这支持光滑 Newton 路径，但不等价于“任意非光滑惩罚都支持 Proximal Newton”。
-- Huber IRLS 当前未作为公开求解路径开放；Issue #156 跟踪其数学与实现验证。
+- Huber IRLS 当前未作为公开求解路径开放；显式选择该组合会按照当前兼容性约定失败。
 
 ## 参考文献
 
