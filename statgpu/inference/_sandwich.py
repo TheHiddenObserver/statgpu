@@ -13,7 +13,12 @@ which returns ``X'WX / n``:
     J_avg = (1/n) * sum_i psi_i psi_i'
     cov   = H_avg^{-1} @ J_avg @ H_avg^{-1} / n
 
-Where ``psi_i = per_sample_gradient(eta_i, y_i) * x_i``.
+Where ``psi_i = per_sample_gradient(eta_i, y_i) * x_i``.  The full
+M-estimation pipeline treats ``sample_weight`` as analytic weights: before
+covariance work they are normalized to mean one (``sum(w) = n``).  This keeps
+model-based and sandwich inference invariant to positive global rescaling of
+the same analytic-weight vector and makes positive constant weights identical
+to the unweighted inference problem.
 
 References
 ----------
@@ -65,6 +70,27 @@ def _runtime_error_is_singular(exc: RuntimeError) -> bool:
             "rank deficient",
         )
     )
+
+
+def _normalize_analytic_sample_weight(sample_weight, n_obs, xp):
+    """Normalize analytic weights to mean one on their numerical backend.
+
+    The fitted GLM objective depends only on relative analytic weights.  The
+    inference pipeline must therefore use the same statistical identity rather
+    than interpreting ``sum(sample_weight)`` as a frequency count.  Returning
+    weights with ``sum(w) = n_obs`` preserves the weighted Hessian while making
+    model-based dispersion/information and sandwich covariance invariant to a
+    positive global rescaling of the caller's weight vector.
+    """
+    if sample_weight is None:
+        return None
+
+    total = float(xp.sum(sample_weight))
+    if not np.isfinite(total) or total <= 0.0:
+        raise ValueError(
+            "sample_weight must have a finite positive sum for M-estimation inference"
+        )
+    return sample_weight * (float(n_obs) / total)
 
 
 # ---------------------------------------------------------------------------
@@ -221,15 +247,18 @@ def assemble_cov_avg(
     """Assemble covariance: cov = bread_avg @ meat_avg @ bread_avg / n_eff.
 
     HC1: multiply by n / (n - k), where ``n`` is the observation count.
-    For analytic weights this keeps the correction invariant to a global
-    rescaling of the weights; ``n_eff`` remains the sandwich normalization.
+    The full M-estimation pipeline normalizes analytic weights to ``sum(w)=n``
+    before reaching this helper, so its covariance is invariant to positive
+    global rescaling.  Direct helper callers may still supply another explicit
+    normalization through ``n_eff``.
 
     Parameters
     ----------
     bread_avg : ndarray (p, p)
     meat_avg : ndarray (p, p)
     n_eff : int
-        Effective sample size (n or sum(sample_weight)).
+        Covariance normalization. The full analytic-weight pipeline uses the
+        original observation count after mean-one weight normalization.
     k : int
         Number of parameters (including intercept if applicable).
     cov_type : str
@@ -276,6 +305,9 @@ def m_estimation_inference(
       (skips meat computation entirely)
     - ``cov_type="hc0"``, ``"hc1"``: robust sandwich H⁻¹·J·H⁻¹/n
 
+    Analytic ``sample_weight`` is normalized to mean one before these
+    calculations, matching the fitted normalized average-loss objective.
+
     Wald test::
 
         wald = coef' @ cov^{-1} @ coef ~ chi2(k)
@@ -297,6 +329,8 @@ def m_estimation_inference(
     dispersion : float or None
         Dispersion parameter φ. If None, computed from the loss.
     sample_weight : ndarray (n,) or None
+        Analytic weights. Positive global rescaling does not change the
+        inferential result.
     hac_maxlags : int or None
         Maximum lags for HAC (not yet implemented for non-Gaussian).
 
@@ -323,7 +357,11 @@ def m_estimation_inference(
         )
     _, xp = _resolve_backend_and_xp(X)
 
-    n_eff = float(xp.sum(sample_weight)) if sample_weight is not None else X.shape[0]
+    n_obs = int(X.shape[0])
+    sample_weight = _normalize_analytic_sample_weight(
+        sample_weight, n_obs, xp
+    )
+    n_eff = float(n_obs)
     k = int(coef.shape[0])
 
     # ---- bread ----
@@ -340,7 +378,7 @@ def m_estimation_inference(
     # ---- dispersion (for nonrobust) ----
     if dispersion is None and cov_type == "nonrobust":
         dispersion = _default_dispersion(
-            loss, X, y, coef, X.shape[0], k, sample_weight=sample_weight
+            loss, X, y, coef, n_obs, k, sample_weight=sample_weight
         )
 
     # ---- covariance ----
@@ -360,7 +398,7 @@ def m_estimation_inference(
             n_eff,
             k,
             cov_type,
-            hc1_n=X.shape[0],
+            hc1_n=n_obs,
         )
 
     # ---- standard errors ----
