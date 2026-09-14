@@ -13,7 +13,7 @@ import numpy as np
 from statgpu.backends import _resolve_backend
 from statgpu.backends._utils import _get_xp, xp_asarray
 
-from ._utils import _as_backend_vector, _validate_sample_weight
+from ._utils import _as_backend_vector, _native_sample_weight
 
 
 # Preserve the historical relative tolerance for "effectively uniform" weights
@@ -59,6 +59,33 @@ def _effectively_uniform_weights(values, backend) -> bool:
     )
 
 
+def _validate_analytic_weight_shape_values(sample_weight, n_samples):
+    """Validate smooth-solver weights without forming their raw floating sum.
+
+    For finite non-negative weights, ``sum(w) > 0`` is equivalent to at least
+    one strictly positive element. Checking that fact through ``max(w)`` avoids
+    rejecting an otherwise valid normalized analytic-weight problem merely
+    because a float16/float32/float64 raw reduction overflows after a positive
+    global rescaling. Other solvers retain their existing validator semantics;
+    this helper is private to the scale-normalizing Newton/L-BFGS path.
+    """
+    _source_backend, source_xp, source_values = _native_sample_weight(sample_weight)
+    if int(source_values.ndim) != 1 or int(source_values.shape[0]) != int(n_samples):
+        raise ValueError("sample_weight must be 1D with length n_samples")
+    try:
+        finite = source_xp.all(source_xp.isfinite(source_values))
+        negative = source_xp.any(source_values < 0)
+        positive = source_xp.any(source_values > 0)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("sample_weight must contain real finite values") from exc
+    if not _scalar_bool(finite):
+        raise ValueError("sample_weight must contain only finite values")
+    if _scalar_bool(negative):
+        raise ValueError("sample_weight must be non-negative")
+    if not _scalar_bool(positive):
+        raise ValueError("sample_weight must have a finite positive sum")
+
+
 def _prepare_analytic_sample_weight(
     sample_weight,
     n_samples,
@@ -69,10 +96,11 @@ def _prepare_analytic_sample_weight(
 
     Analytic weights define a normalized objective, so multiplying every weight
     by one positive constant must not change either the objective or the path
-    classification. After validating the public input, first move the weights to
-    the executed backend in float64 and divide by their maximum. The resulting
-    vector lies in ``[0, 1]`` with at least one exact 1, avoiding scale-induced
-    overflow/underflow before conversion to the numerical design dtype.
+    classification. Validate finite/non-negative/positive-mass input without a
+    raw sum, then move the weights to the executed backend in float64 and divide
+    by their maximum. The resulting vector lies in ``[0, 1]`` with at least one
+    exact 1, avoiding scale-induced reduction overflow and cast overflow before
+    conversion to the numerical design dtype.
 
     Omitted, uniform, and historically effectively-uniform weights execute the
     unweighted objective. Genuine non-uniform weights remain backend-native.
@@ -82,19 +110,25 @@ def _prepare_analytic_sample_weight(
     if sample_weight is None:
         return None
 
-    _validate_sample_weight(sample_weight, n_samples)
+    _validate_analytic_weight_shape_values(sample_weight, n_samples)
     xp = _get_xp(backend)
 
     # Normalize in backend-native float64 *before* casting to the design dtype.
-    # The public validator already guarantees finite non-negative values and a
-    # positive finite sum, hence max(weight) is finite and strictly positive.
+    # The source-side validation guarantees finite non-negative values and at
+    # least one positive entry; no raw sum must be representable at this stage.
     wide = xp_asarray(
         sample_weight,
         dtype=xp.float64,
         xp=xp,
         ref_arr=ref_arr,
     ).reshape(-1)
-    wide = wide / xp.max(wide)
+    wide_max = xp.max(wide)
+    if not _scalar_bool(xp.isfinite(wide_max)) or not _scalar_bool(wide_max > 0):
+        raise ValueError(
+            "sample_weight must be representable as finite positive float64 "
+            "values on the executed smooth-solver backend"
+        )
+    wide = wide / wide_max
 
     values = xp_asarray(
         wide,
