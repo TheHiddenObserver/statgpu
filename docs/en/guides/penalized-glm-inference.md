@@ -58,10 +58,10 @@ The numerical engine uses average-loss scaling. With score contribution `psi_i`,
 $$
 \widehat{\mathrm{Var}}(\hat\beta)
 =
-(H+P'')^{-1} J (H+P'')^{-1}/n_{\mathrm{eff}},
+(H+P'')^{-1} J (H+P'')^{-1}/n,
 $$
 
-where `J` is the average score outer product under statgpu's analytic-weight convention. `cov_type="nonrobust"` uses the maintained model-based penalized-information covariance.
+where `J` is the average score outer product under statgpu's analytic-weight convention and `n` is the original observation count. `cov_type="nonrobust"` uses the corresponding model-based penalized-information covariance, also on the original-observation average scale.
 
 Supported covariance choices for this non-Gaussian path are:
 
@@ -75,7 +75,25 @@ HC2, HC3, and HAC are not implemented for penalized non-Gaussian M-estimation an
 
 Analytic weights are supported by the non-Gaussian L2 M-estimation covariance path. The numerical inference follows the backend/device that actually executed the fit.
 
-The maintained Newton solver applies non-uniform analytic weights to the **same normalized average-loss objective at every Newton stage**: objective value, gradient, Hessian (or fused gradient/Hessian), and Armijo trial evaluation all use `sum_i w_i contribution_i / sum_i w_i`. Multiplying every weight by a positive constant therefore leaves the fitted penalized optimum unchanged. Floating-point vectors that satisfy the historical uniform-weight `allclose` rule retain the established unweighted-equivalent path.
+The maintained smooth GLM solvers apply non-uniform analytic weights to the **same normalized average-loss objective throughout the solve**: objective value, gradient, Hessian where applicable, line-search trial evaluation, and accepted-point derivatives all use
+
+$$
+\frac{\sum_i w_i\,\ell_i(\beta)}{\sum_i w_i}.
+$$
+
+Therefore analytic weights describe **relative observation importance**, not replicated frequency counts. Before M-estimation covariance is computed, statgpu uses the equivalent mean-one weights
+
+$$
+\widetilde w_i
+=
+\frac{n w_i}{\sum_j w_j},
+\qquad
+\sum_i \widetilde w_i=n.
+$$
+
+The Hessian is unchanged by this normalization. For HC0/HC1, `J` uses the same normalized analytic weights; for `nonrobust`, model-based information and dispersion use the same mean-one convention. Consequently, multiplying every analytic weight by any positive constant leaves the fitted parameters, standard errors, test statistics, p-values, and confidence intervals unchanged. Positive constant weights reduce to the same inference problem as omitted weights. This is intentionally different from a frequency-weight interpretation in which multiplying all counts would assert a larger replicated sample.
+
+Floating-point vectors that satisfy the historical effectively-uniform rule retain the established unweighted-equivalent path.
 
 With public `solver="auto"`, weighted smooth non-Gaussian L2/no-penalty fits use the same canonical solver-dispatch table as their unweighted counterparts. Applicable logistic/Poisson rows resolve to backend-native Newton while the public solver request remains `auto`.
 
