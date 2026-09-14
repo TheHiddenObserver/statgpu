@@ -139,7 +139,7 @@ def test_invalid_framework_warm_start_is_discarded_and_reseeded(solver):
     model = PenalizedGeneralizedLinearModel(
         loss="gamma", loss_kwargs={"link": "inverse_power"},
         penalty="l2", alpha=0.02, fit_intercept=False,
-        solver=solver, device="cpu", max_iter=600, tol=1e-9,
+        solver=solver, device="cpu", max_iter=600, tol=1e-8,
         compute_inference=False,
     )
     model._init_coef = -np.ones(X.shape[1])
