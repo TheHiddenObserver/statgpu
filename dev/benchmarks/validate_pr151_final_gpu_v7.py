@@ -127,9 +127,9 @@ def run(output: Path):
     source_sha = str(legacy["source_sha"])
     cp, torch, device_id, torch_device = v5.v4.v3._require_gpu_backends()
 
-    # Reuse the schema-v6 analytic-weight inference matrix unchanged. Do not
-    # call v6.run(): the failed v6 overflow fixture intentionally remains
-    # immutable historical diagnostic evidence.
+    # Reuse the schema-v6 analytic-weight inference matrix unchanged. The
+    # schema-v6 top-level runner is intentionally not invoked here, because its
+    # failed overflow fixture remains immutable historical diagnostic evidence.
     analytic_weight_gate = v6._analytic_weight_inference_gate(
         cp, torch, device_id, torch_device
     )
