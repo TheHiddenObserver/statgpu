@@ -1,7 +1,7 @@
 # Quantile Regression
 
 > Language: English  
-> Last updated: 2026-09-12  
+> Last updated: 2026-09-14  
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/quantile.md)
 
@@ -72,7 +72,7 @@ The support column below first describes unweighted algorithm availability. With
 | FISTA | ✅ | Proximal/non-smooth route; weighted behavior follows the maintained FISTA route |
 | FISTA-BB | ✅ | Available on supported sparse routes; weighted capability is loss/solver-route specific |
 | IRLS | ✅ | L2/none; `QuantileLoss.irls()` has an explicit `sample_weight` path |
-| L-BFGS | ✅ (unweighted/uniform weights) | Genuine non-uniform direct weighted L-BFGS is fail-closed for generic `LossBase`; see Issue #153 |
+| L-BFGS | ✅ (unweighted/uniform weights) | Genuine non-uniform direct weighted L-BFGS is fail-closed for generic `LossBase` |
 | ADMM | ✅ (unweighted/uniform weights) | Shared `admm_solver` currently rejects genuine non-uniform `sample_weight` |
 | Newton | ❌ | Quantile loss has no Hessian |
 | Proximal Newton | ❌ | Quantile loss has no Hessian |
@@ -103,7 +103,7 @@ But `sample_weight` is **not one universal solver capability**. In particular:
 - direct `lbfgs_solver` remains fail-closed for genuine non-uniform Quantile weights;
 - shared `admm_solver` currently accepts omitted or uniform weights only.
 
-GitHub Issue #153 tracks a unified, auditable weighted-capability contract for `LossBase`.
+For weighted support across other losses and solver families, see the [Solver × Penalty Compatibility Matrix](../guides/solver-penalty-matrix.md) and [Solver Algorithms](../guides/solver-algorithms.md).
 
 ## Examples
 
