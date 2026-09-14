@@ -73,7 +73,7 @@ $$
 + \alpha P(\beta).
 $$
 
-截距项不参与惩罚。`statgpu.glm_core` 有意只处理 GLM 目标；Cox、稳健回归、分位数回归等非 GLM 目标保留各自独立的统计定义和支持范围。
+截距项不参与惩罚。`statgpu.glm_core` 有意只处理 GLM 目标；Cox、稳健回归、分位数回归等非 GLM 目标保留各自独立的统计定义和文档。
 
 ## 求解器选择
 
@@ -85,7 +85,6 @@ $$
 | 平方误差 + L1/ElasticNet | FISTA/FISTA-BB 稀疏路径 |
 | 逻辑回归/Poisson/Gamma/逆高斯/Tweedie/负二项 + L2 | Newton |
 | 非凸 SCAD/MCP | FISTA + LLA 延续路径 |
-| 分位数回归 | FISTA 或分位数专用路径 |
 
 `solver="auto"` 表示使用当前模型的自动调度规则。若显式指定 `solver`，该请求不会因 `sample_weight` 而改变；如果对应组合不受支持，则拟合会报错。
 
@@ -104,17 +103,19 @@ $$
 
 `sample_weight` 不会更换显式指定的 Newton 或 L-BFGS。若所请求的加权组合不受支持，则直接报错。均匀权重，以及历史上与均匀权重等效的情况，继续使用既有的无权重数值路径。
 
-#### `inverse_power` Gamma 的训练域
+#### `inverse_power` Gamma 的初始化
 
-`GammaRegression(link="inverse_power")` 的显式 Newton/L-BFGS 路径使用由 Gamma 损失函数负责的可行初值与步长约束。无论是否拟合截距，只要**实际参与目标函数的设计矩阵**存在可以数值认证的方向，使所有正权重观测的线性预测子严格为正，statgpu 就会构造位于维护数值区间内部的初值，并把每一步限制在同一训练域中。
+`GammaRegression(link="inverse_power")` 使用逆链接，因此拟合时要求线性预测子满足
 
-权重为 0 的观测不约束这一可行性条件。若正权重观测的设计矩阵不存在可数值认证的严格正分离方向，拟合会在第一次目标函数评估之前明确失败，而不是依靠 `clip` 穿过逆链接的边界。
+$$
+\eta_i=x_i^\top\beta>0.
+$$
 
-因此，这里没有“无截距一律不支持”的规则；真正的边界由设计矩阵几何结构决定。带惩罚 L2 的 Newton/L-BFGS 以及 `PenalizedGLM_CV` 的 inverse-Gamma 光滑 L2 路径使用同一训练域约定，交叉验证评分与最终重拟合也保留声明的 `inverse_power` 链接。
+显式 Newton/L-BFGS 会在第一次目标函数评估前构造满足这一条件的内点初值。有截距时，截距列天然提供一个可行方向；无截距时，statgpu 会在实际参与拟合的正权重观测上寻找满足 $X d>0$ 的方向并将其缩放到合法内点。若无法数值认证这样的初值，则在优化开始前明确报错。后续迭代会在内部保持逆链接的合法域；具体步长约束属于求解器实现细节，见 [求解器算法](../guides/solver-algorithms.md)。
 
 #### 带权 L-BFGS 的适用范围
 
-非均匀权重下的 L-BFGS 支持目前是 **GLM 损失函数明确声明的能力**，并不自动扩展到所有底层 `LossBase`。稳健回归、分位数回归、Cox 等非 GLM 损失函数有各自的权重定义，直接调用 L-BFGS 时可能不接受非均匀 `sample_weight`。有序 GLM 也保留独立的权重规则。
+非均匀权重下的 L-BFGS 支持目前是 **GLM 损失函数明确声明的能力**，并不自动扩展到非 GLM 的底层 `LossBase`。其他模型族保留各自的权重和求解器语义，应以对应模型文档和兼容性矩阵为准。有序 GLM 也保留独立的权重规则。
 
 带惩罚的光滑 GLM 使用同一套解析权重定义，但求解器仍由直接拟合或交叉验证的既有调度规则决定。是否提供权重不会单独决定一个 L2 模型使用 Newton 还是 L-BFGS。
 
@@ -124,11 +125,11 @@ $$
 
 对于受支持的光滑非高斯 L2/无惩罚模型，`auto` 解析为固定惩罚的 `m_estimation`。正 L2 惩罚对应带惩罚的估计方程；无惩罚别名会规范为惩罚强度为 0 的 L2，对应无惩罚总体参数。当前协方差支持 `nonrobust`、`hc0`、`hc1`；HC2/HC3/HAC 在这一路径中不可用，并会明确报错。
 
-受支持的推断路径可以使用解析权重，数值计算跟随实际执行拟合的计算后端和具体设备。普通 GLM 的推断与拟合使用同一套权重定义。非高斯 L1/ElasticNet 的系数推断目前尚未产品化；SCAD/MCP 的 Oracle 型推断需要显式请求；分组惩罚与带惩罚 Cox 目前只提供估计。
+受支持的推断路径可以使用解析权重，数值计算跟随实际执行拟合的计算后端和具体设备。普通 GLM 的推断与拟合使用同一套权重定义。非高斯 L1/ElasticNet 的系数推断目前尚未产品化；SCAD/MCP 的 Oracle 型推断需要显式请求；分组惩罚目前只提供估计。
 
 对于受支持的高斯稀疏惩罚，`inference_method="bootstrap"` 表示 `cov_type="nonrobust"` 下的**无权重残差自助法**。设计矩阵和拟合后的调参配置保持固定：每次从残差中有放回抽样，在拟合值周围构造新的高斯响应，再用同一个带惩罚模型重新拟合。`n_bootstrap` 控制重拟合次数，`bootstrap_random_state` 控制随机数可复现性。
 
-CPU 拟合使用 NumPy；CuPy/Torch CUDA 拟合会把自助法重拟合留在同一个 GPU 设备。最终推断数组统一返回 NumPy。带权残差自助法、稳健/HC 协方差对应的自助法、HAC/分块自助法、非高斯自助法与 Cox 自助法当前都不支持。
+CPU 拟合使用 NumPy；CuPy/Torch CUDA 拟合会把自助法重拟合留在同一个 GPU 设备。最终推断数组统一返回 NumPy。带权残差自助法、稳健/HC 协方差对应的自助法、HAC/分块自助法与非高斯自助法当前都不支持。
 
 完整支持矩阵、重采样边界和统计解释见 [带惩罚 GLM 推断](../guides/penalized-glm-inference.md) 与 [推断模式](../guides/inference-modes.md)。
 
@@ -235,33 +236,6 @@ fast_cv = PenalizedGLM_CV(
     device="cuda",
 )
 ```
-
-### 生存分析的带惩罚 Cox 交叉验证
-
-`PenalizedGLM_CV(loss="cox_ph")` 使用独立的生存分析路径，不进入标量响应 GLM 的评分器。`y` 必须是 `(n_samples, 2)` 数组，两列依次为 `[time, event]`。L1、L2、ElasticNet、SCAD、MCP 均支持 NumPy、CuPy CUDA 和 Torch CUDA。
-
-该路径会：
-
-- 保留二维生存目标，且不拟合截距；
-- 用未惩罚的逐行 Cox 负部分似然评价验证折；
-- 只有在每个可评估折都得到有限数值时才选择 `alpha`；
-- 如果所有候选都无效，则直接失败且不发布拟合状态；
-- 最终以 `compute_inference=False` 重拟合 `PenalizedCoxPHModel`。
-
-```python
-survival_y = np.column_stack([time, event])
-cox_cv = PenalizedGLM_CV(
-    loss="cox_ph",
-    penalty="scad",
-    alpha_grid=[0.1, 0.03, 0.01],
-    cv=5,
-    cv_strategy="strict",
-    loss_kwargs={"ties": "efron"},
-    device="cpu",
-).fit(X, survival_y)
-```
-
-该 Cox 分支不支持 `cv_strategy="two_stage"`、`sample_weight`、字典形式的目标变量或选择后的系数推断。`cv_results_` 会记录逐折损失、有效证据数、事件数、失败原因、并列事件处理方法（`ties`）和最终重拟合模型类型。
 
 ## 输出
 
