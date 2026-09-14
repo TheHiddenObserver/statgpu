@@ -133,6 +133,50 @@ def test_weighted_explicit_solver_inference_uses_same_fit_contract(solver):
     assert np.isfinite(model.bic)
 
 
+@pytest.mark.parametrize("fit_intercept", [False, True])
+@pytest.mark.parametrize("x_dtype", ["int64", "float16"])
+def test_torch_inference_alignment_preserves_floating_fitted_parameters(
+    fit_intercept, x_dtype
+):
+    torch = pytest.importorskip("torch")
+    dtype = torch.int64 if x_dtype == "int64" else torch.float16
+    X = torch.tensor([[1, 2], [3, 4], [5, 6]], dtype=dtype)
+
+    model = GeneralizedLinearModel(
+        family="binomial",
+        fit_intercept=fit_intercept,
+        device="cpu",
+    )
+    model.coef_ = np.array([0.625, -0.375], dtype=np.float64)
+    model.intercept_ = 0.25 if fit_intercept else 0.0
+
+    X_inf, params, intercept_idx = model._aligned_inference_design_glm(X)
+
+    assert X_inf.is_floating_point()
+    assert params.is_floating_point()
+    assert X_inf.dtype == torch.float64
+    assert params.dtype == torch.float64
+    if fit_intercept:
+        assert intercept_idx == 0
+        np.testing.assert_allclose(
+            params.detach().cpu().numpy(),
+            np.array([0.25, 0.625, -0.375]),
+            rtol=0.0,
+            atol=0.0,
+        )
+        np.testing.assert_allclose(
+            X_inf[:, 0].detach().cpu().numpy(), 1.0, rtol=0.0, atol=0.0
+        )
+    else:
+        assert intercept_idx is None
+        np.testing.assert_allclose(
+            params.detach().cpu().numpy(),
+            np.array([0.625, -0.375]),
+            rtol=0.0,
+            atol=0.0,
+        )
+
+
 @pytest.mark.parametrize("solver", ["newton", "lbfgs"])
 def test_explicit_smooth_solver_preserves_existing_C_semantics(solver):
     X, y = _logistic_data(seed=15106)
@@ -221,14 +265,22 @@ def test_weighted_explicit_solver_installer_is_idempotent_and_preserves_signatur
 
     before_fit = GeneralizedLinearModel.fit
     before_smooth = GeneralizedLinearModel._fit_smooth_solver
+    before_alignment = GeneralizedLinearModel._aligned_inference_design_glm
     fit_signature = inspect.signature(before_fit)
     smooth_signature = inspect.signature(before_smooth)
+    alignment_signature = inspect.signature(before_alignment)
 
     contract.install_glm_weighted_explicit_solver_contract()
 
     assert GeneralizedLinearModel.fit is before_fit
     assert GeneralizedLinearModel._fit_smooth_solver is before_smooth
+    assert GeneralizedLinearModel._aligned_inference_design_glm is before_alignment
     assert inspect.signature(GeneralizedLinearModel.fit) == fit_signature
     assert inspect.signature(GeneralizedLinearModel._fit_smooth_solver) == smooth_signature
+    assert (
+        inspect.signature(GeneralizedLinearModel._aligned_inference_design_glm)
+        == alignment_signature
+    )
     assert hasattr(GeneralizedLinearModel.fit, "__wrapped__")
     assert hasattr(GeneralizedLinearModel._fit_smooth_solver, "__wrapped__")
+    assert hasattr(GeneralizedLinearModel._aligned_inference_design_glm, "__wrapped__")
