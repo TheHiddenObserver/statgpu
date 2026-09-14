@@ -124,3 +124,6 @@ def test_pr151_schema_v5_covers_review_found_numerical_edges():
     assert 'boundary surrogate' in source
     assert '"pinned to the maintained smooth-domain boundary"' in source
     assert '"no positive interior line-search step"' in source
+    assert '"postfit_design_is_floating"' in source
+    assert '"postfit_params_error_vs_coef"' in source
+    assert '"loglikelihood"' in source
