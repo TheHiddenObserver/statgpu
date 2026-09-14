@@ -11,6 +11,7 @@ VALIDATOR = Path("dev/benchmarks/validate_glm_weighted_explicit_solvers_gpu.py")
 VALIDATOR_V4 = Path("dev/benchmarks/validate_pr151_inverse_gamma_domain_gpu_v4.py")
 VALIDATOR_V5 = Path("dev/benchmarks/validate_pr151_final_gpu_v5.py")
 VALIDATOR_V6 = Path("dev/benchmarks/validate_pr151_final_gpu_v6.py")
+VALIDATOR_V7 = Path("dev/benchmarks/validate_pr151_final_gpu_v7.py")
 ARTIFACT_V5 = Path("dev/reviews/pr151_final_gpu_v5.json")
 ACCEPTED_V5_SOURCE_SHA = "9eb39cee2c0e691160f528ab687b7379d26f3e42"
 
@@ -207,3 +208,35 @@ def test_pr151_schema_v6_extends_v5_for_analytic_weight_inference_closure():
     assert '"inference_weight_scale": _WEIGHT_SCALE' in source
     assert '"float32_overflow_scale": _FLOAT32_OVERFLOW_SCALE' in source
     assert '"raw_float32_sum_overflow": True' in source
+
+
+def test_pr151_schema_v7_corrects_only_the_overflow_fixture_scope():
+    module = _load_validator(VALIDATOR_V7, "pr151_validator_v7")
+    assert module.SCHEMA_VERSION == 7
+    assert module.SOLVER_TOL == 1.0e-8
+    assert module.ATOL_COEF == 2.0e-5
+    assert module.ATOL_INTERCEPT == 2.0e-5
+    assert module.ATOL_WEIGHT_RESCALE == 2.0e-6
+    assert module.ATOL_INFERENCE == 2.0e-5
+    assert module._WEIGHT_SCALE == 7.25
+    assert module._FLOAT32_OVERFLOW_SCALE == 3.0e38
+    assert module._SOLVERS == ("newton", "lbfgs")
+
+    source = VALIDATOR_V7.read_text(encoding="utf-8")
+    assert "v5.run(v5_path)" in source
+    assert "v6._analytic_weight_inference_gate" in source
+    assert "v6._consumer_matrix" in source
+    assert '"legacy_schema_v5": legacy' in source
+    assert '"source_sha": source_sha' in source
+    assert '"source_clean": True' in source
+    assert 'default=Path("dev/reviews/pr151_final_gpu_v7.json")' in source
+    assert '"analytic_weight_nonrobust_inference_scale_invariance"' in source
+    assert '"float32_weight_raw_sum_overflow_inference"' in source
+    assert 'X_np.dtype != np.float64 or y_np.dtype != np.float64' in source
+    assert 'base_weights.dtype != np.float32 or overflow_weights.dtype != np.float32' in source
+    assert '"design_dtype": str(X_np.dtype)' in source
+    assert '"response_dtype": str(y_np.dtype)' in source
+    assert '"weight_dtype": str(overflow_weights.dtype)' in source
+    assert '"schema_v6_failure_disposition"' in source
+    assert '"failed_float32_design_parity_is_not_pr151_acceptance_scope": True' in source
+    assert "v6.run(" not in source
