@@ -1,7 +1,7 @@
 # 求解器算法
 
 > 语言：中文  
-> 最后更新：2026-09-13  
+> 最后更新：2026-09-14  
 > 页面定位：算法参考  
 > 切换：[English](../../en/guides/solver-algorithms.md)
 
@@ -1121,7 +1121,7 @@ $$
 
 ### L-BFGS Armijo 线搜索
 
-从 $t=1$ 开始，接受第一个满足
+对无约束损失，线搜索从 $t=1$ 开始，接受第一个满足
 
 $$
 F(\beta_k+t p_k)
@@ -1135,9 +1135,39 @@ $$
 t\leftarrow\frac t2,
 $$
 
-最多回溯 25 次。
+最多回溯 25 次。若全部失败，无约束路径保持历史行为：发出线搜索/停滞警告，不会静默接受最后一个未验证候选点。
 
-接受新点后重新计算 $g_{k+1}$ 并更新曲率历史。求解器在
+某些损失会为最终搜索方向提供维护中的光滑定义域上界。记该方向允许的最大认证步长为
+
+$$
+t_{\max,k}>0.
+$$
+
+这时第一次 Armijo 试探从
+
+$$
+t_0=\min\{1,t_{\max,k}\}
+$$
+
+开始。搜索前还会检查最大可行参数位移。若
+
+$$
+t_{\max,k}\,\|p_k\|_2\le\texttt{tol}
+\qquad\text{且}\qquad
+\|g_k\|_2>\texttt{tol},
+$$
+
+则算法不是“已经收敛”，而是被维护中的定义域边界钉住（domain-pinned），此时会明确失败。
+
+如果拟牛顿方向在定义域内连续 25 次 Armijo 试探都失败，L-BFGS 会丢弃本轮拟牛顿方向，用最速下降方向重新尝试：
+
+$$
+p_k^{\rm sd}=-g_k.
+$$
+
+同时针对这个新方向重新计算定义域上界 $t_{\max,k}^{\rm sd}$。若第二轮最速下降 Armijo 仍在梯度尚未收敛时耗尽 25 次试探，则定义域路径抛出错误，而不是把当前点当作成功拟合结果发布。
+
+接受新点后重新计算 $g_{k+1}$ 并更新曲率历史。普通无约束路径可在
 
 $$
 \|g_k\|_2<\texttt{tol}
@@ -1149,7 +1179,7 @@ $$
 \|s_k\|_2<\texttt{tol}
 $$
 
-时结束。
+时结束。但在带定义域上界的路径上，一个很小的已接受 $\|s_k\|_2$ 本身不能证明收敛；只有梯度判据满足时才能闭合，否则继续寻找有效步长，或最终以 domain-pinned / 定义域线搜索失败结束。
 
 ### L-BFGS-B：盒约束投影版本
 
@@ -1207,6 +1237,8 @@ $$
 F(\beta)
 =\frac{\sum_i w_i\ell_i(\beta)}{\sum_i w_i}+P(\beta).
 $$
+
+在进入光滑求解器前，有限、非负且具有正总质量的解析权重，会先在实际执行后端按一个正的公共尺度做归一化。因此，只要缩放后的单个权重仍可表示，整体乘以正数不会仅仅因为输入 dtype 的原始求和溢出而改变归一化目标。均匀/数值上等效均匀的权重继续使用历史无权重数值路径；维护中的普通 GLM 和带惩罚 GLM 推断消费者也沿用同一个拟合目标身份。
 
 ---
 
@@ -1395,8 +1427,8 @@ $$
 - Barzilai, J. & Borwein, J. M. (1988). Two-Point Step Size Gradient Methods. *IMA J. Numer. Anal.*, 8(1), 141-148.
 - O'Donoghue, B. & Candes, E. (2015). Adaptive Restart for Accelerated Gradient Schemes. *Foundations of Computational Mathematics*, 15(3), 715-732.
 - Lee, J. D., Sun, Y. & Saunders, M. A. (2014). Proximal Newton-Type Methods for Minimizing Composite Functions. *SIAM J. Optimization*, 24(3), 1420-1443.
-- Liu, D. C. & Nocedal, J. (1989). On the Limited Memory BFGS Method for Large Scale Optimization. *Mathematical Programming*, 45, 503-528.
+- Liu, D. C. & Nocedal, J. M. (1989). On the Limited Memory BFGS Method for Large Scale Optimization. *Mathematical Programming*, 45, 503-528.
 - Byrd, R. H., Lu, P., Nocedal, J. & Zhu, C. (1995). A Limited Memory Algorithm for Bound Constrained Optimization. *SIAM J. Scientific Computing*, 16(5), 1190-1208.
 - Boyd, S. et al. (2011). Distributed Optimization and Statistical Learning via ADMM. *Foundations and Trends in Machine Learning*, 3(1), 1-122.
-- Fan, J. & Li, R. (2001). Variable Selection via Nonconcave Penalized Likelihood. *JASA*, 96, 1348-1360.
+- Fan, J. & Li, R. (2001). Variable Selection via Nonconcave Penalized Likelihood Models. *JASA*, 96, 1348-1360.
 - Zou, H. & Li, R. (2008). One-step Sparse Estimates in Nonconcave Penalized Likelihood Models. *Annals of Statistics*, 36(4), 1509-1533.
