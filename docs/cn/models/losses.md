@@ -23,7 +23,7 @@
 | 分位数 | `QuantileLoss` | `quantreg::rq()` | 条件分位数、中位数回归 |
 | Huber | `HuberLoss` | `MASS::rlm()` | 稳健 M-估计 |
 | Bisquare | `BisquareLoss` | `MASS::rlm(psi="bisquare")` | 重降型 M-估计 |
-| Fair | `FairLoss` | `MASS::rlm(psi="fair")` | Fair 稳健损失 |
+| Fair | `FairLoss` | 需要自定义 psi/参考实现；MASS 没有内置 Fair psi | Fair 稳健损失 |
 | Cox PH | `CoxPartialLikelihoodLoss` | `survival::coxph()` | 生存分析 |
 
 **统一接口不等于统一能力。** 某个底层函数带有 `sample_weight` 参数，并不意味着该损失函数在所有求解器、所有统计模型下都支持任意非均匀权重。

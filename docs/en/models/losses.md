@@ -23,7 +23,7 @@ Five non-GLM loss types extend the shared loss interface:
 | Quantile | `QuantileLoss` | `quantreg::rq()` | Conditional quantiles, median regression |
 | Huber | `HuberLoss` | `MASS::rlm()` | Robust M-estimation |
 | Bisquare | `BisquareLoss` | `MASS::rlm(psi="bisquare")` | Redescending M-estimation |
-| Fair | `FairLoss` | `MASS::rlm(psi="fair")` | Robust Fair loss |
+| Fair | `FairLoss` | custom psi/reference required; MASS has no built-in Fair psi | Robust Fair loss |
 | Cox PH | `CoxPartialLikelihoodLoss` | `survival::coxph()` | Survival analysis |
 
 A shared interface does **not** imply a shared statistical contract. A low-level method accepting `sample_weight` does not mean that the loss supports arbitrary non-uniform weights under every solver or model.
