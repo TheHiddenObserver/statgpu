@@ -11,8 +11,7 @@ from __future__ import annotations
 import numpy as np
 
 from statgpu.backends import _resolve_backend
-from statgpu.backends._array_ops import _xp_asarray
-from statgpu.backends._utils import _get_xp
+from statgpu.backends._utils import _get_xp, xp_asarray
 
 from ._utils import _as_backend_vector, _validate_sample_weight
 
@@ -97,10 +96,12 @@ def _prepare_analytic_sample_weight(
         return None
 
     _validate_sample_weight(sample_weight, n_samples)
-    values = _xp_asarray(
+    xp = _get_xp(backend)
+    values = xp_asarray(
         sample_weight,
-        _aligned_weight_dtype(ref_arr, backend),
-        ref_arr,
+        dtype=_aligned_weight_dtype(ref_arr, backend),
+        xp=xp,
+        ref_arr=ref_arr,
     ).reshape(-1)
     return None if _effectively_uniform_weights(values, backend) else values
 
