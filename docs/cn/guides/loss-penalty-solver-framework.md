@@ -2,7 +2,7 @@
 
 > 语言：中文
 >
-> 最后更新：2026-09-13
+> 最后更新：2026-09-14
 >
 > 切换：[英文版](../../en/guides/loss-penalty-solver-framework.md)
 
@@ -137,7 +137,7 @@ class LossBase:
 | Fair | `FairLoss` | ✅ | ✅ | ✅ | `MASS::rlm(psi="fair")` |
 | Cox PH | `CoxPartialLikelihoodLoss` | ✅ | ✅ | ❌ | `survival::coxph()` |
 
-Huber 当前的 `_supports_irls=False` 表示公共调度不会进入 Huber IRLS；恢复并验证该路径由 Issue #156 跟踪。
+Huber 当前的 `_supports_irls=False` 表示公共调度不会进入 Huber IRLS；因此显式请求该路径时按当前兼容性约定拒绝，而不是静默切换到其他求解器。
 
 ### 逐样本公式
 
@@ -206,7 +206,7 @@ $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\be
 
 ### 全部求解器
 
-`sample_weight` 的支持取决于求解器、损失函数统计语义以及函数值、梯度、曲率等数值能力。下表列出当前主要路径；完整的支持约定由 #153 跟踪。
+`sample_weight` 的支持取决于求解器、损失函数统计语义以及函数值、梯度、曲率等数值能力。下表列出当前维护的主要路径；未在表中声明的组合不应从其他求解器能力类推。
 
 | 求解器 | 损失约束 | 惩罚约束 | `sample_weight` | `warm_start` |
 |--------|:-----------------|:---------------------|:------------|:----------:|
