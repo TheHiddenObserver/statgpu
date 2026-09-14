@@ -8,7 +8,8 @@ found by the final ``code-review`` / fix loop:
 - analytic-weight classification is invariant to extreme positive global
   rescaling on CuPy and Torch for Newton and L-BFGS;
 - integral public designs with fractional analytic weights execute the same
-  ordinary binomial objective as their float64 design counterpart; and
+  ordinary binomial objective as their float64 design counterpart and retain
+  floating post-fit diagnostic/inference state; and
 - inverse-power Gamma fails closed on CuPy/Torch when the mathematical optimum
   lies beyond the maintained smooth-training domain instead of publishing a
   tiny domain-capped step as convergence.
@@ -42,12 +43,20 @@ _EXTREME_WEIGHT_SCALES = (1.0e-200, 1.0e200)
 
 
 def _ordinary_snapshot(model):
+    coef = np.asarray(_to_numpy(model.coef_), dtype=np.float64)
+    params = np.asarray(_to_numpy(model._params), dtype=np.float64)
+    design = np.asarray(_to_numpy(model._X_design))
     return {
-        "coef": np.asarray(_to_numpy(model.coef_), dtype=np.float64),
+        "coef": coef,
         "intercept": float(model.intercept_),
         "selected_solver": str(model._selected_solver),
         "backend": str(model._selected_backend_name),
         "device": str(model._selected_backend_device),
+        "postfit_design_is_floating": bool(
+            np.issubdtype(design.dtype, np.floating)
+        ),
+        "postfit_params_error_vs_coef": float(np.max(np.abs(params - coef))),
+        "loglikelihood": float(model.loglikelihood),
     }
 
 
@@ -198,6 +207,20 @@ def _integer_design_gate(cp, torch, device_id, torch_device):
             if errors["coef"] > ATOL_COEF or errors["intercept"] > ATOL_INTERCEPT:
                 raise AssertionError(
                     f"integer_design/{solver}/{backend}: parity error {errors}"
+                )
+            if not snap["postfit_design_is_floating"]:
+                raise AssertionError(
+                    f"integer_design/{solver}/{backend}: retained inference "
+                    "design was not floating"
+                )
+            if snap["postfit_params_error_vs_coef"] > 1.0e-12:
+                raise AssertionError(
+                    f"integer_design/{solver}/{backend}: retained post-fit "
+                    f"parameters were truncated ({snap['postfit_params_error_vs_coef']})"
+                )
+            if not np.isfinite(snap["loglikelihood"]):
+                raise AssertionError(
+                    f"integer_design/{solver}/{backend}: non-finite loglikelihood"
                 )
             results[solver][backend] = {
                 **_json_snap(snap),
