@@ -12,16 +12,16 @@ This page records user-visible changes for current and recent statgpu releases.
 ### Changed
 
 - Ordinary `GeneralizedLinearModel` explicit `solver="newton"` and `solver="lbfgs"` now accept genuine non-uniform analytic `sample_weight` on supported GLM rows without silently substituting IRLS/FISTA or changing an explicit NumPy/CuPy/Torch execution request.
-- Maintained GLM smooth solvers use one normalized analytic-weight objective across the complete solve. Final review/fix passes made effective-uniform classification scale- and permutation-invariant, normalize before execution-dtype casting, preserve fractional weights for integral designs, avoid raw float32-weight-sum overflow before normalization, and keep ordinary/penalized post-fit inference on the same fitted weight identity. L-BFGS preserves visible line-search failure while allowing only a bounded floating-point Armijo acceptance when both the requested objective decrease and parameter displacement are below maintained numerical resolution. Global positive rescaling, zero-weight-row deletion, integer row replication, effectively-uniform compatibility, integer-design post-fit state, inference consumers, and the L-BFGS roundoff stopping boundary are covered by regression tests.
+- Maintained GLM smooth solvers use one normalized analytic-weight objective across the complete solve. Review/fix passes made effective-uniform classification scale- and permutation-invariant, normalize before execution-dtype casting, preserve fractional weights for integral designs, avoid raw float32-weight-sum overflow before normalization, and retain the exact solver-prepared weight identity for ordinary post-fit diagnostics/inference. On Newton/L-BFGS M-estimation routes, that identity is rescaled to an equivalent mean-one representation before covariance evaluation, so positive global analytic-weight rescaling preserves coefficients and nonrobust/HC0/HC1 inference up to numerical solver tolerance without redefining unrelated IRLS/FISTA weighting semantics. `ParameterInferenceResult` also publishes the actual M-estimation `cov_type` when a constructor omitted that standard result field. L-BFGS preserves visible line-search failure while allowing only a bounded floating-point Armijo acceptance when both the requested objective decrease and parameter displacement are below maintained numerical resolution.
 - `GammaRegression(link="inverse_power")` now uses a loss-owned smooth-domain contract for explicit Newton/L-BFGS rather than a blanket no-intercept rejection. A domain-capped tiny L-BFGS step does not count as convergence by itself; when a domain-aware quasi-Newton Armijo search is exhausted, the solver retries with steepest descent and a freshly computed domain cap, then fails closed if recovery also fails before gradient convergence. Feasible no-intercept designs fit normally, while infeasible, uncertifiable, or domain-pinned fits fail visibly.
 - The same inverse-Gamma domain contract is closed through penalized L2 Newton/L-BFGS and `PenalizedGLM_CV`: framework warm starts are reused only when domain-feasible, validation scoring uses the declared `inverse_power` objective, and selected full-data refits preserve the link. Typed `PenalizedGammaRegression` preserves historical `loss_kwargs["link"]` precedence while remaining sklearn-clone safe.
-- Existing `solver="auto"`, IRLS/FISTA, explicit smooth-solver `C`, Ordered GLM, standalone LogisticRegression behavior, and non-inverse Gamma links are preserved. Ordinary GLM fits continue to record the solver/backend/device that actually completed successfully.
+- Existing `solver="auto"`, IRLS/FISTA, explicit smooth-solver `C`, Ordered GLM, standalone LogisticRegression behavior, and non-inverse Gamma links are preserved unless explicitly covered above. Ordinary GLM fits continue to record the solver/backend/device that actually completed successfully.
 
 ### Validation
 
-- Final reviewed numerical source `9eb39cee2c0e691160f528ab687b7379d26f3e42` passed all seven hosted PR workflows. The complete CPU suite reported **3395 passed / 831 skipped / 0 failed**; Python 3.9/3.10/3.11/3.12 regression matrices, static/documentation contracts, Torch 2.0 CPU regression, maintenance compatibility, release-note/package validation, Gaussian-inference, node-wise-inference, Panel external alignment, and Benchmark Frontend gates were green. Subsequent closure commits are documentation/evidence-only and do not alter that numerical source.
-- The Tesla P100 schema-v3 artifact at `c6781cb6a2e1fe500f325e832d23cdc80a99b564` and schema-v4 inverse-Gamma artifact at `9ef5b34ffc8abf133bc6262e98a855d5efe37d3c` remain **historical exact-source evidence only** after later numerical review fixes. Their unchanged raw JSON files remain at `dev/reviews/pr151_glm_weighted_explicit_solvers_gpu.json` and `dev/reviews/pr151_inverse_gamma_domain_gpu_v4.json`; neither is physical acceptance of the final numerical source.
-- Final physical CUDA promotion **passed** on exact clean source `9eb39cee2c0e691160f528ab687b7379d26f3e42` using Tesla P100-SXM2-16GB, CuPy 13.6.0, Torch 2.0.0+cu117, NumPy 1.24.2, and Python 3.9.16. `dev/benchmarks/validate_pr151_final_gpu_v5.py` reran the full v5→v4→v3 chain successfully and covered CuPy/Torch × Newton/L-BFGS review edges for extreme positive global weight rescaling, float32 raw-sum-overflow weights, integral designs with fractional weights and floating post-fit state, penalized effectively-uniform M-estimation identity, inverse-Gamma domain-pinned fail-closed behavior, and the penalized log-Gamma L-BFGS roundoff stopping boundary at `tol=1e-9` under `w` versus `6w`. The accepted artifact records `schema_version=5`, `status="success"`, `source_clean=true`, and maximum review-closure parity error about `1.17e-8` versus frozen coefficient tolerance `2e-5`; it is retained at `dev/reviews/pr151_final_gpu_v5.json`.
+- Historical hosted/physical evidence remains exact-source-specific. Numerical/validator source `9eb39cee2c0e691160f528ab687b7379d26f3e42` passed all seven hosted PR workflows and the Tesla P100 schema-v5 gate; the complete CPU suite on that source reported **3395 passed / 831 skipped / 0 failed**. Fresh review later changed production inference/result provenance, so neither that hosted run nor schema v5 is acceptance of the current branch.
+- The Tesla P100 schema-v3 artifact at `c6781cb6a2e1fe500f325e832d23cdc80a99b564`, schema-v4 inverse-Gamma artifact at `9ef5b34ffc8abf133bc6262e98a855d5efe37d3c`, and schema-v5 artifact at `9eb39cee2c0e691160f528ab687b7379d26f3e42` remain immutable **historical exact-source evidence only**. Their retained files are `dev/reviews/pr151_glm_weighted_explicit_solvers_gpu.json`, `dev/reviews/pr151_inverse_gamma_domain_gpu_v4.json`, and `dev/reviews/pr151_final_gpu_v5.json`.
+- `dev/benchmarks/validate_pr151_final_gpu_v6.py` is the pending final physical CUDA gate. It reruns the unchanged v5→v4→v3 chain on one new exact clean source, then adds CuPy/Torch × Newton/L-BFGS ordinary/penalized nonrobust M-estimation checks for analytic-weight scale invariance, NumPy parity, BSE/p-value/CI parity, result covariance provenance, concrete backend/device provenance, and the float32 raw-sum-overflow inference edge. PR #151 remains **not merge-ready** until the fresh review is clean, all hosted workflows are green on the final exact PR head, and schema-v6 physical CUDA acceptance passes on that same numerical/validator source.
 
 ## Unreleased — Backend-native Gaussian residual bootstrap (PR #147 / Issue #145, targeted for 0.2.6)
 
@@ -221,7 +221,7 @@ Related: Issue #112 and pull request #116.
 
 ### Survival analysis
 
-- Completed CoxPH Phase 1 with Breslow, Efron, and Exact ties; delayed-entry
+- Completed CoxPH Phase 1 with Breslow, Efron, and Exact ties; delayed entry
   and `(start, stop]` counting-process data; shared-coefficient stratification;
   subject identifiers; and `Surv(start, stop, event)` formula input.
 - Added shared NumPy, CuPy, and Torch-CUDA risk-set primitives for objectives,
@@ -229,23 +229,22 @@ Related: Issue #112 and pull request #116.
   partitions use backend-native dynamic programming.
 - Extended `CoxPHCV` held-out partial likelihood to all supported tie methods,
   delayed entry, start-stop rows, strata, and subject-grouped folds.
-- Hardened Cox inference, centered risk-set numerics, log-domain baseline
-  prediction, formula NA alignment, singular-information handling, CV cache
-  identity, fold eligibility, selected-penalty refitting, and failed-fit state
-  resets.
+- Hardened Cox inference, centered risk-set numerics, log-domain baseline prediction,
+  formula NA alignment, singular-information handling, CV cache identity, fold eligibility,
+  selected-penalty full-data refit, and failed-fit state resets.
 - Hardened L1, L2, Elastic Net, SCAD, and MCP penalized Cox estimation; removed
-  the unidentified intercept; corrected Cox-specific warm starts; and made the
-  Torch Efron value, gradient, and Hessian paths native.
+  the unidentified intercept; corrected Cox-specific warm starts; and made the Torch Efron
+  value, gradient, and Hessian paths native.
 
 ### Cross-validation and grouped penalties
 
-- Requested CoxPHCV two-stage and successive-halving controls now execute one
-  explicit exhaustive full-precision candidate pass, preserving deterministic
-  selection while avoiding repeated complete-grid fitting.
-- One-shot `CoxPHCV.cv_splits` iterators are reusable across repeated fit,
-  scikit-learn clone, parameter reconstruction, and pickle.
-- Public Group Lasso and Adaptive Group Lasso use the generic loss-gradient and
-  exact group-proximal path consistently across supported backends.
+- Requested CoxPHCV two-stage or successive-halving controls execute one explicit exhaustive
+  full-precision candidate pass, preserving deterministic selection while avoiding repeated
+  complete-grid fitting.
+- One-shot `CoxPHCV.cv_splits` iterators are reusable across repeated fit, scikit-learn clone,
+  parameter reconstruction, and pickle.
+- Public Group Lasso and Adaptive Group Lasso use the generic loss-gradient and exact
+  group-proximal path consistently across supported backends.
 
 ### Validation and packaging
 
@@ -258,10 +257,9 @@ Related: Issue #112 and pull request #116.
   It records 134/134 passing checks, zero child and nested return codes, empty
   gate-failure arrays, clean source state before and after execution, and SHA-256
   `bd4058450def691dd29e9d78853534016c6da70c33192a97dc312d95cbe5d76d`.
-- The package version is now `0.2.3`. Release-package validation checks version
-  consistency, builds the pure-Python wheel and sdist, runs `twine check`,
-  validates artifact contents, and smoke-installs both distributions in clean
-  environments.
+- The package version is now `0.2.3`. Release-package validation checks version consistency,
+  builds the pure-Python wheel and sdist, runs `twine check`, validates artifact contents,
+  and smoke-installs both distributions in clean environments.
 
 ## Earlier history
 
