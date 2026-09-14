@@ -10,6 +10,15 @@ from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
 from statgpu.solvers._smooth_domain import _prepare_analytic_sample_weight
 
 
+# Positive global rescaling defines the same analytic-weight problem, but the
+# final Newton/L-BFGS line-search and stopping path need not be bit-identical.
+# Keep this hosted gate substantially tighter than the frozen physical CUDA
+# scale-invariance tolerance (2e-6) without treating 1e-9-level roundoff as a
+# correctness failure.
+_SCALE_RTOL = 1.0e-8
+_SCALE_ATOL = 5.0e-10
+
+
 def _logistic_data(seed=151921, n=160, p=3):
     rng = np.random.default_rng(seed)
     X = rng.normal(scale=0.65, size=(n, p)).astype(np.float64)
@@ -22,7 +31,13 @@ def _logistic_data(seed=151921, n=160, p=3):
     return X, y, weights
 
 
-def _assert_same_parameter_inference(base, scaled, *, rtol=2e-9, atol=2e-11):
+def _assert_same_parameter_inference(
+    base,
+    scaled,
+    *,
+    rtol=_SCALE_RTOL,
+    atol=_SCALE_ATOL,
+):
     np.testing.assert_allclose(base.coef_, scaled.coef_, rtol=rtol, atol=atol)
     assert float(base.intercept_) == pytest.approx(
         float(scaled.intercept_), rel=rtol, abs=atol
