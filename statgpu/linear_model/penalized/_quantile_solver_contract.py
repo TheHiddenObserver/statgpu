@@ -10,8 +10,9 @@ penalized-model contract installers:
 
 * auto + Quantile + L2/none resolves to ordinary Quantile IRLS;
 * sparse Quantile auto routes keep the existing FISTA-family policy;
-* explicit FISTA + smooth Quantile fails before backend numerical dispatch
-  instead of silently executing IRLS.
+* explicit FISTA/FISTA-BB + smooth Quantile fails before backend numerical
+  dispatch instead of selecting an unmaintained non-smooth first-order route
+  or silently executing IRLS.
 
 SCAD/MCP continue to use their dedicated Proximal IRLS-CD continuation path;
 this installer does not relabel that algorithm as ordinary IRLS.
@@ -83,13 +84,14 @@ def _install_explicit_fista_guard() -> None:
         loss_name = str(getattr(self, "loss", "") or "").lower()
         penalty_name = _penalty_name(getattr(self, "_penalty", self.penalty))
         if (
-            solver_name == "fista"
+            solver_name in ("fista", "fista_bb")
             and loss_name == "quantile"
             and penalty_name in _SMOOTH_PENALTIES
         ):
             raise ValueError(
-                "solver='fista' is not a maintained smooth Quantile route for "
-                "L2/no-penalty objectives; use solver='irls' or solver='auto'."
+                f"solver='{solver_name}' is not a maintained smooth Quantile "
+                "route for L2/no-penalty objectives; use solver='irls' or "
+                "solver='auto'."
             )
 
     setattr(_validate_with_quantile_fista_guard, _VALIDATE_MARKER, True)
