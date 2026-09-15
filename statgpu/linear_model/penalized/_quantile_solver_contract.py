@@ -15,23 +15,30 @@ penalized-model contract installers:
   dispatch instead of being silently substituted by another algorithm.
 
 ``proximal_irls_cd`` is an internal resolved-provenance label, not a new public
-``solver=`` keyword; users request the dedicated non-convex route with
-``solver='auto'``.
+``solver=`` keyword. ``PenalizedGLM_CV`` is allowed to pass that resolved label
+to its private child estimators only inside a call-local context; a user who
+constructs an estimator with that spelling still fails closed.
 """
 
 from __future__ import annotations
 
+from contextvars import ContextVar
 from functools import wraps
 
 from . import _fit_mixin as _fit_mixin
 from ._base import PenalizedGeneralizedLinearModel
+from ._penalized_cv import PenalizedGLM_CV
 
 
 _POLICY_MARKER = "_statgpu_quantile_solver_policy_contract"
 _VALIDATE_MARKER = "_statgpu_quantile_solver_validate_contract"
+_CV_CONTEXT_MARKER = "_statgpu_quantile_solver_cv_context_contract"
 _SMOOTH_PENALTIES = frozenset({"l2", "none", "null", ""})
 _NONCONVEX_QUANTILE_PENALTIES = frozenset({"scad", "mcp"})
 _DEDICATED_NONCONVEX_SOLVER = "proximal_irls_cd"
+_INTERNAL_CV_RESOLVED_SOLVER = ContextVar(
+    "statgpu_quantile_internal_cv_resolved_solver", default=False
+)
 
 
 def _loss_name(value) -> str:
@@ -77,6 +84,34 @@ def _install_policy_contract() -> None:
     _fit_mixin._preferred_penalized_glm_solver = _preferred_with_truthful_quantile_route
 
 
+def _install_cv_internal_context() -> None:
+    if getattr(PenalizedGLM_CV, _CV_CONTEXT_MARKER, False):
+        return
+
+    current_fold = PenalizedGLM_CV._cv_fold_general
+    current_refit = PenalizedGLM_CV._refit_best
+
+    @wraps(current_fold)
+    def _cv_fold_with_internal_resolved_solver(*args, **kwargs):
+        token = _INTERNAL_CV_RESOLVED_SOLVER.set(True)
+        try:
+            return current_fold(*args, **kwargs)
+        finally:
+            _INTERNAL_CV_RESOLVED_SOLVER.reset(token)
+
+    @wraps(current_refit)
+    def _refit_with_internal_resolved_solver(*args, **kwargs):
+        token = _INTERNAL_CV_RESOLVED_SOLVER.set(True)
+        try:
+            return current_refit(*args, **kwargs)
+        finally:
+            _INTERNAL_CV_RESOLVED_SOLVER.reset(token)
+
+    PenalizedGLM_CV._cv_fold_general = _cv_fold_with_internal_resolved_solver
+    PenalizedGLM_CV._refit_best = _refit_with_internal_resolved_solver
+    setattr(PenalizedGLM_CV, _CV_CONTEXT_MARKER, True)
+
+
 def _install_explicit_route_guard() -> None:
     current = PenalizedGeneralizedLinearModel._validate_solver_penalty
     if getattr(current, _VALIDATE_MARKER, False):
@@ -102,10 +137,14 @@ def _install_explicit_route_guard() -> None:
                 "solver='auto'."
             )
 
-        if (
-            penalty_name in _NONCONVEX_QUANTILE_PENALTIES
-            and solver_name != "auto"
-        ):
+        if penalty_name in _NONCONVEX_QUANTILE_PENALTIES:
+            if solver_name == "auto":
+                return
+            if (
+                solver_name == _DEDICATED_NONCONVEX_SOLVER
+                and _INTERNAL_CV_RESOLVED_SOLVER.get()
+            ):
+                return
             raise ValueError(
                 f"solver='{solver_name}' is not a public explicit Quantile "
                 f"{penalty_name.upper()} route; use solver='auto' so the "
@@ -122,6 +161,7 @@ def _install_explicit_route_guard() -> None:
 def install_quantile_solver_contract() -> None:
     """Install the Quantile solver/provenance reconciliation idempotently."""
     _install_policy_contract()
+    _install_cv_internal_context()
     _install_explicit_route_guard()
 
 
