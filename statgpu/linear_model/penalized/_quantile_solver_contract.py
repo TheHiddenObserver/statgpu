@@ -1,9 +1,16 @@
-"""Truthful solver routing for penalized Quantile models.
+"""Truthful solver routing and scoring for penalized Quantile models.
 
 Historically the generic auto-dispatch labeled every Quantile fit as FISTA,
 while the fit path internally substituted different algorithms for selected
 penalties. That made ``_selected_solver`` and explicit solver requests disagree
 with the algorithm that actually ran.
+
+A fresh review of the same consumer graph also found that several accelerated
+CV scoring paths constructed their validation registry calls without carrying
+the requested Quantile level. Training children received ``loss_kwargs`` while
+those registry calls fell back to ``tau=0.5``. The contract installed here
+therefore keeps the requested Quantile level in a call-local CV context shared
+by the residual/validation registries.
 
 Keep this compatibility installer narrow and composable with the existing
 penalized-model contract installers:
@@ -12,7 +19,9 @@ penalized-model contract installers:
 * sparse Quantile auto routes keep the existing FISTA-family policy;
 * auto + Quantile + SCAD/MCP resolves to the dedicated Proximal IRLS-CD route;
 * incompatible explicit Quantile solver requests fail before backend numerical
-  dispatch instead of being silently substituted by another algorithm.
+  dispatch instead of being silently substituted by another algorithm;
+* every Quantile CV candidate/validation route uses the caller's requested
+  Quantile level, including fold-batched sparse and weighted registry paths.
 
 ``proximal_irls_cd`` is an internal resolved-provenance label, not a new public
 ``solver=`` keyword. ``PenalizedGLM_CV`` is allowed to pass that resolved label
@@ -27,18 +36,25 @@ from contextvars import ContextVar
 from functools import wraps
 
 from . import _fit_mixin as _fit_mixin
+from . import _penalized_cv as _cv_mod
 from ._base import PenalizedGeneralizedLinearModel
-from ._penalized_cv import PenalizedGLM_CV
+
+PenalizedGLM_CV = _cv_mod.PenalizedGLM_CV
 
 
 _POLICY_MARKER = "_statgpu_quantile_solver_policy_contract"
 _VALIDATE_MARKER = "_statgpu_quantile_solver_validate_contract"
 _CV_CONTEXT_MARKER = "_statgpu_quantile_solver_cv_context_contract"
+_CV_SCORE_CONTEXT_MARKER = "_statgpu_quantile_cv_score_context_contract"
+_CV_REGISTRY_MARKER = "_statgpu_quantile_cv_registry_contract"
 _SMOOTH_PENALTIES = frozenset({"l2", "none", "null", ""})
 _NONCONVEX_QUANTILE_PENALTIES = frozenset({"scad", "mcp"})
 _DEDICATED_NONCONVEX_SOLVER = "proximal_irls_cd"
 _INTERNAL_CV_RESOLVED_SOLVER = ContextVar(
     "statgpu_quantile_internal_cv_resolved_solver", default=False
+)
+_QUANTILE_CV_LEVEL = ContextVar(
+    "statgpu_quantile_cv_level", default=None
 )
 
 
@@ -113,6 +129,69 @@ def _install_cv_internal_context() -> None:
     setattr(PenalizedGLM_CV, _CV_CONTEXT_MARKER, True)
 
 
+def _inject_requested_quantile(fn):
+    if getattr(fn, _CV_REGISTRY_MARKER, False):
+        return fn
+
+    @wraps(fn)
+    def _with_requested_quantile(eta, y, **kwargs):
+        if "quantile" not in kwargs:
+            quantile = _QUANTILE_CV_LEVEL.get()
+            if quantile is not None:
+                kwargs = {**kwargs, "quantile": float(quantile)}
+        return fn(eta, y, **kwargs)
+
+    setattr(_with_requested_quantile, _CV_REGISTRY_MARKER, True)
+    _with_requested_quantile._statgpu_original = fn
+    return _with_requested_quantile
+
+
+def _install_cv_registry_contract() -> None:
+    residual = _cv_mod._LOSS_RESIDUAL_FNS.get("quantile")
+    val_loss = _cv_mod._LOSS_VALLOSS_FNS.get("quantile")
+    if residual is None or val_loss is None:
+        raise RuntimeError("Quantile CV registry entries are unavailable")
+
+    residual_wrapped = _inject_requested_quantile(residual)
+    val_wrapped = _inject_requested_quantile(val_loss)
+    _cv_mod._LOSS_RESIDUAL_FNS["quantile"] = residual_wrapped
+    _cv_mod._LOSS_VALLOSS_FNS["quantile"] = val_wrapped
+
+    eval_entry = _cv_mod._LOSS_EVAL_DISPATCH.get("quantile")
+    if eval_entry is not None:
+        _cv_mod._LOSS_EVAL_DISPATCH["quantile"] = (
+            val_wrapped,
+            eval_entry[1],
+        )
+
+
+def _install_cv_score_context() -> None:
+    current = PenalizedGLM_CV._compute_cv_scores
+    if getattr(current, _CV_SCORE_CONTEXT_MARKER, False):
+        return
+
+    @wraps(current)
+    def _compute_cv_scores_with_quantile_level(self, *args, **kwargs):
+        if _loss_name(getattr(self, "loss", "")) != "quantile":
+            return current(self, *args, **kwargs)
+
+        loss_kwargs = getattr(self, "_loss_kwargs", None) or {}
+        quantile = float(loss_kwargs.get("quantile", 0.5))
+        token = _QUANTILE_CV_LEVEL.set(quantile)
+        try:
+            return current(self, *args, **kwargs)
+        finally:
+            _QUANTILE_CV_LEVEL.reset(token)
+
+    setattr(
+        _compute_cv_scores_with_quantile_level,
+        _CV_SCORE_CONTEXT_MARKER,
+        True,
+    )
+    _compute_cv_scores_with_quantile_level._statgpu_original = current
+    PenalizedGLM_CV._compute_cv_scores = _compute_cv_scores_with_quantile_level
+
+
 def _install_explicit_route_guard() -> None:
     current = PenalizedGeneralizedLinearModel._validate_solver_penalty
     if getattr(current, _VALIDATE_MARKER, False):
@@ -166,9 +245,11 @@ def _install_explicit_route_guard() -> None:
 
 
 def install_quantile_solver_contract() -> None:
-    """Install the Quantile solver/provenance reconciliation idempotently."""
+    """Install Quantile solver/provenance/scoring reconciliation idempotently."""
     _install_policy_contract()
     _install_cv_internal_context()
+    _install_cv_registry_contract()
+    _install_cv_score_context()
     _install_explicit_route_guard()
 
 
