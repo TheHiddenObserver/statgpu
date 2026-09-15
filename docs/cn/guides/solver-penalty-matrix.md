@@ -69,10 +69,10 @@
 | `fista_bb` | 受支持的稀疏惩罚 | 平滑 Quantile L2/无惩罚以及其他不支持组合 | FISTA + BB 自适应步长 |
 | `admm` | 受支持的近端形式 | 不支持的组合 | 变量分裂 + 近端更新 |
 | `irls_cd` | 专用标量路径 | 不支持的组合 | 不是当前 `squared_error + SCAD/MCP` 的公开 auto 路径 |
-| `proximal_irls_cd` | 分位数损失 + 标量 SCAD/MCP | 非分位数损失与分组惩罚 | 分位数上界近似 + LLA |
+| `proximal_irls_cd` | **不是公开显式 `solver=` 关键字** | 所有用户显式请求 | 仅作为 Quantile SCAD/MCP 经 `solver="auto"` 选择后的内部 resolved label；算法为 Proximal IRLS-CD 上界近似 + LLA |
 | `proximal_newton` | L2/none 使用 Newton；非光滑直接调用改用 FISTA | 不支持的惩罚结构 | 当前不采用欧氏近端近似 |
 
-不支持的显式组合会在数值拟合前报错。
+不支持的显式组合会在数值拟合前报错。Quantile SCAD/MCP 应由用户通过 `solver="auto"` 请求；`proximal_irls_cd` 只作为内部/实际执行 solver provenance 发布。
 
 ## 3. 求解器能力
 
