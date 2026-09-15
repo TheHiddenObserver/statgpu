@@ -137,10 +137,11 @@ def test_weighted_explicit_family_matrix_global_weight_rescaling(case, solver):
 @pytest.mark.parametrize("solver", ["newton", "lbfgs"])
 @pytest.mark.parametrize("case", _NO_INTERCEPT_CASES)
 def test_weighted_explicit_no_intercept_family_matrix(case, solver):
-    # Inverse-power Gamma is the one reviewed exception: genuine non-uniform
-    # weights + no intercept fail closed because no generic family-valid interior
-    # start exists.  Every other claimed ordinary row must execute both explicit
-    # smooth solvers warning-free without an intercept.
+    # Inverse-power Gamma has a domain-dependent no-intercept contract and is
+    # covered by dedicated boundary tests: certifiably feasible designs fit,
+    # while infeasible or uncertifiable designs fail closed. This generic family
+    # matrix therefore excludes that row. Every other claimed ordinary row must
+    # execute both explicit smooth solvers warning-free without an intercept.
     model, X, y = _case(case, solver, fit_intercept=False)
     weights = np.linspace(0.55, 1.65, X.shape[0], dtype=np.float64)
 
