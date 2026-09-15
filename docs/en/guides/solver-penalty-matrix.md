@@ -69,10 +69,10 @@ If a finite design cannot be numerically certified, or optimization reaches the 
 | `fista_bb` | supported sparse penalties | smooth Quantile L2/no penalty and unsupported combinations | FISTA + BB step adaptation |
 | `admm` | supported proximal formulations | unsupported combinations | variable splitting + proximal update |
 | `irls_cd` | specialized scalar routes | unsupported combinations | not the current squared-error SCAD/MCP public auto route |
-| `proximal_irls_cd` | quantile + scalar SCAD/MCP | non-quantile losses and group penalties | quantile majorization + LLA |
+| `proximal_irls_cd` | **not a public explicit solver keyword** | all user-supplied explicit requests | internal resolved label for Quantile SCAD/MCP selected through `solver="auto"`; Proximal IRLS-CD majorization + LLA |
 | `proximal_newton` | L2 / none uses Newton; non-smooth direct calls visibly use FISTA | unsupported penalty structures | no Euclidean-prox approximation |
 
-Unsupported explicit combinations fail before numerical fitting.
+Unsupported explicit combinations fail before numerical fitting. In particular, users request Quantile SCAD/MCP through `solver="auto"`; `proximal_irls_cd` is published only as internal/executed solver provenance.
 
 ## 3. Solver capabilities
 
