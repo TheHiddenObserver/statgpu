@@ -814,8 +814,7 @@ IRLS Fisher 工作权重为
 
 $$
 w_i^{\rm work}
-=\frac{1}
-{V(\mu_i^{(k)})\,[g'(\mu_i^{(k)})]^2},
+=\frac1{V(\mu_i^{(k)})\,[g'(\mu_i^{(k)})]^2},
 $$
 
 工作响应为
@@ -1435,22 +1434,24 @@ $$
 ```text
 直接拟合，solver="auto"
 ├── squared_error + L2/none              → CPU exact / GPU Newton
+├── Quantile + L2/none                   → IRLS
+├── Quantile + L1/ElasticNet             → FISTA
+├── Quantile + SCAD/MCP                  → Proximal IRLS-CD
 ├── 光滑非高斯 GLM + L2/none             → Newton
 ├── squared_error + 凸稀疏惩罚            → FISTA
 ├── gamma / inverse-Gaussian + 稀疏惩罚   → FISTA
 ├── logistic / poisson / NB + 稀疏惩罚    → FISTA-BB
 ├── tweedie + 稀疏惩罚                    → CPU FISTA-BB / GPU FISTA
-├── SCAD/MCP                              → FISTA-LLA
+├── 其他标量 SCAD/MCP                     → FISTA-LLA
 ├── adaptive L1                           → 先初始化 adaptive weights，再按凸稀疏 FISTA/FISTA-BB 规则
-├── Quantile 普通凸惩罚                    → FISTA
-│   ├── 显式请求时，L2/none 仍可使用 IRLS
-│   └── SCAD/MCP 使用专用 Proximal IRLS-CD
 └── 分组惩罚                              → Group FISTA / FISTA-LLA
 ```
 
+对于平滑 Quantile L2/无惩罚目标，显式 `solver="irls"` 与 `auto` 选择同一维护算法。显式 `solver="fista"` 或 `solver="fista_bb"` 不会被静默替换成 IRLS；这些平滑组合会在数值 dispatch 前明确失败。稀疏 Quantile 的 FISTA-family 与 SCAD/MCP 的 Proximal IRLS-CD 保持为不同算法。
+
 这棵树有意只给出摘要。family/backend/problem-size 的精确规则——尤其 Poisson 与 Negative-Binomial 的 CV 稀疏路由——以 [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md) 为准。
 
-`PenalizedGLM_CV` 的光滑 L2 分发与直接拟合相关但有意独立。Gamma、Inverse-Gaussian、Negative-Binomial 的 L2 交叉验证/最终重拟合路径使用 L-BFGS，而 logistic、Poisson、Tweedie 的 L2 组合使用 Newton。不要从直接拟合的分发树推断交叉验证行为，应以兼容性矩阵为准。
+`PenalizedGLM_CV` 的光滑 L2 分发与直接拟合相关但有意独立。Quantile L2/无惩罚的候选拟合与最终重拟合使用 IRLS。Gamma、Inverse-Gaussian、Negative-Binomial 的 L2 交叉验证/最终重拟合路径使用 L-BFGS，而 logistic、Poisson、Tweedie 的 L2 组合使用 Newton。不要从直接拟合的分发树推断交叉验证行为，应以兼容性矩阵为准。
 
 `sample_weight` 不会改变显式指定的 `solver`。不支持的带权组合会直接报错，而不是选择另一个求解器。
 
