@@ -4,11 +4,10 @@ All notable changes to statgpu are documented here, organized by release and dat
 
 ## Unreleased — 2026-09-11
 
-### PR #164 / Issue #163 — Truthful penalized Quantile solver provenance and CV scoring (targeted for 0.2.6)
-- Reconciled penalized Quantile solver identity with execution: L2/no-penalty `solver="auto"` resolves to IRLS, L1/ElasticNet retains the FISTA family, and scalar SCAD/MCP records the dedicated Proximal IRLS-CD route.
-- Made incompatible explicit Quantile solver requests fail before numerical dispatch instead of silently executing another algorithm; `proximal_irls_cd` remains an internal resolved-provenance label rather than a new public `solver=` keyword.
-- Fixed `PenalizedGLM_CV(loss="quantile", loss_kwargs={"quantile": q})` so candidate validation uses the same requested `q` as training, including weighted and unweighted scoring, instead of silently falling back to median (`q=0.5`) pinball loss for alpha selection.
-- Kept the repair within existing numerical capability: incomplete private Quantile fold-batched sparse and SCAD/MCP fast helpers fail safely back to the maintained per-fold estimator path rather than acquiring a new numerical implementation in this provenance/scoring reconciliation. Added direct, CV/final-refit, formula, import-order, explicit-solver, non-median scoring, and fallback regressions.
+### PR #162 / Issue #161 — Quantile IRLS penalty contract (targeted for 0.2.6)
+- Tightened low-level `QuantileLoss.irls()` to the maintained no-penalty/L2 objective. ElasticNet, L1, SCAD/MCP, group/adaptive, and unknown penalty objects now fail before numerical iteration instead of silently solving only a smooth subset of the declared penalty.
+- Preserved the public estimator boundary: explicit Quantile `solver="irls"` remains a L2/no-penalty route, while non-smooth penalties continue to use FISTA-family or their dedicated Quantile non-convex solver.
+- Added focused regressions for fail-closed unsupported penalties, unpenalized/L2 execution, analytic-weight scale invariance, estimator-level validation, and Torch CPU backend preservation.
 
 ### PR #151 / Issue #150 — Weighted explicit Newton/L-BFGS GLM fits (targeted for 0.2.6)
 - Reconciled ordinary `GeneralizedLinearModel` with the maintained analytic-weight solver contract: explicit `solver="newton"` and `solver="lbfgs"` accept genuine non-uniform `sample_weight` on supported GLM rows without silently substituting IRLS/FISTA or changing an explicit CPU/CuPy/Torch device request.

@@ -7,20 +7,18 @@
 
 This page records user-visible changes for current and recent statgpu releases.
 
-## Unreleased — Penalized Quantile solver provenance and CV scoring (PR #164 / Issue #163, targeted for 0.2.6)
+## Unreleased — Quantile IRLS penalty contract (PR #162 / Issue #161, targeted for 0.2.6)
 
 ### Fixed
 
-- Penalized Quantile solver provenance now names the algorithm that actually executes. L2/no-penalty `solver="auto"` resolves to ordinary Quantile IRLS; L1/ElasticNet retains the FISTA family; scalar SCAD/MCP resolves internally to the dedicated Proximal IRLS-CD continuation algorithm.
-- Explicit solver requests are no longer silently substituted on Quantile routes. Smooth L2/no-penalty requests for FISTA/FISTA-BB fail before backend numerical work and direct users to `irls`/`auto`; incompatible explicit SCAD/MCP solver requests fail and direct users to `auto`. `proximal_irls_cd` remains an internal resolved-provenance label rather than a new public `solver=` keyword.
-- `PenalizedGLM_CV(loss="quantile", loss_kwargs={"quantile": q})` now scores validation candidates with the same requested `q` used for training, including weighted and unweighted scoring. Non-median fits therefore no longer train at `q` while silently selecting alpha with median (`q=0.5`) pinball loss.
-- The same policy covers generic/typed direct fits, formula fits, CV candidate selection, and the selected full-data final refit. Private Quantile fold-batched sparse and SCAD/MCP fast helpers whose loss-parameter contract is incomplete fail safely back to the maintained per-fold estimator path instead of gaining a new numerical implementation in this reconciliation PR.
-- This is a solver-identity/dispatch and CV-scoring reconciliation, not a new Quantile numerical method; existing smooth, sparse, and non-convex algorithms keep their maintained implementation boundaries.
+- Low-level `QuantileLoss.irls()` now accepts only no penalty or L2. ElasticNet, L1, SCAD/MCP, group/adaptive penalties, and unknown penalty objects fail before numerical iteration instead of allowing an IRLS solve that applies only the smooth L2 component of a declared non-smooth objective.
+- The public estimator contract is unchanged: explicit Quantile `solver="irls"` remains a maintained L2/no-penalty route, while non-smooth penalties continue through FISTA-family or dedicated Quantile non-convex algorithms.
+- The IRLS docstring now matches the executable low-level contract. Unsupported direct low-level calls receive a precise fail-closed error rather than a plausible-looking partial-penalty result.
 
 ### Validation
 
-- Added generic/typed direct-fit, sparse/non-convex, CV/final-refit, formula, import-order, signature-preservation, explicit-solver fail-closed, non-median weighted/unweighted scoring, and fail-safe fast-path fallback regressions. The non-median scoring tests compare directly with manual pinball loss and verify that the call-local quantile context does not leak after CV returns.
-- Merge readiness requires both green hosted validation on the final exact PR head and a passing exact-source schema-v1 physical CUDA run from `dev/benchmarks/validate_quantile_solver_provenance_gpu.py`; hosted CI does not substitute for that CuPy/Torch CUDA gate.
+- Added focused regressions for direct ElasticNet/L1/SCAD/unknown-penalty rejection before the linear solve, retained unpenalized/L2 execution, positive global analytic-weight scale invariance, the existing estimator-level fail-closed boundary, and Torch CPU L2 backend preservation.
+- This repair removes an unsupported route and does not alter the maintained None/L2 IRLS numerical algorithm, so it does not by itself create a new physical-CUDA acceptance requirement.
 
 ## Unreleased — Weighted explicit Newton/L-BFGS GLM fits (PR #151 / Issue #150, targeted for 0.2.6)
 

@@ -5,20 +5,18 @@
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
-## 未发布 — Penalized Quantile 求解器 provenance 与 CV 评分修复（PR #164 / Issue #163，目标 0.2.6）
+## 未发布 — Quantile IRLS 惩罚契约修复（PR #162 / Issue #161，目标 0.2.6）
 
 ### 修复
 
-- 带惩罚 Quantile 现在按实际执行算法记录求解器 provenance。L2/无惩罚的 `solver="auto"` 解析为普通 Quantile IRLS；L1/ElasticNet 保留 FISTA family；标量 SCAD/MCP 在内部解析为专用 Proximal IRLS-CD continuation 路径。
-- 显式 solver 请求不再在 Quantile 路径上被静默替换。smooth L2/无惩罚下显式 FISTA/FISTA-BB 会在 backend numerical work 前 fail closed，并提示使用 `irls`/`auto`；SCAD/MCP 下不兼容的显式 solver 同样 fail closed，并要求通过 `auto` 选择专用路径。`proximal_irls_cd` 只是内部 resolved-provenance 标签，不新增为公开 `solver=` 关键字。
-- `PenalizedGLM_CV(loss="quantile", loss_kwargs={"quantile": q})` 的 validation scoring 现在与训练使用同一个调用者请求的 `q`，包括 weighted 与 unweighted 路径；非 0.5 分位数不再出现“按 `q` 拟合、按默认 0.5 pinball loss 选择 alpha”的错位。
-- 同一策略覆盖 generic/typed direct fit、formula fit、CV candidate selection 与 selected full-data final refit。对尚未具备完整 Quantile loss-parameter contract 的私有 fold-batched sparse 和 SCAD/MCP fast helper，本次修复不会顺手新增数值实现，而是明确返回到维护中的 per-fold estimator 路径，优先保证统计语义正确。
-- 这是 solver identity/dispatch 与 CV scoring reconciliation，不是新增 Quantile 数值算法；既有 smooth、sparse 与 non-convex 算法保持其维护中的实现边界。
+- 底层 `QuantileLoss.irls()` 现在只接受无惩罚或 L2。ElasticNet、L1、SCAD/MCP、group/adaptive penalty 以及未知 penalty object 会在数值迭代前 fail closed，不再允许 IRLS 只处理声明目标中的光滑 L2 部分而忽略非光滑项。
+- 公开 estimator 契约保持不变：显式 Quantile `solver="irls"` 仍然只属于 L2/无惩罚维护路径；非光滑惩罚继续通过 FISTA family 或 Quantile 专用的非凸求解算法处理。
+- IRLS docstring 与可执行低层契约现在一致；不支持的直接底层调用会得到明确错误，而不是返回看似合理但只优化了部分惩罚的结果。
 
 ### 验证
 
-- 新增 generic/typed direct-fit、sparse/non-convex、CV/final-refit、formula、import-order、signature preservation、显式 solver fail-closed，以及非中位数 Quantile weighted/unweighted CV 评分回归；后者直接与手工 pinball loss 对照，并验证离开 CV call-local context 后默认 evaluator 行为不泄漏。
-- 对不完整私有 fast path 增加 fail-safe fallback 回归，确保本 PR 不会为了修 provenance/评分语义而静默扩大 numerical capability。merge-ready 需要 final exact PR head 的 hosted validation 全绿，并且 `dev/benchmarks/validate_quantile_solver_provenance_gpu.py` 的 schema-v1 exact-source physical CUDA gate 同时在 CuPy 与 Torch CUDA 上通过；hosted CI 不能替代该物理 gate。
+- 增加 focused regressions，覆盖 direct ElasticNet/L1/SCAD/未知 penalty 在 linear solve 前拒绝、保留无惩罚/L2 执行、解析权重整体正比例缩放不变性、既有 estimator-level fail-closed boundary，以及 Torch CPU 的 L2 backend 保持。
+- 本修复删除的是不受支持的路径，并未改变维护中的 None/L2 IRLS 数值算法，因此本身不新增 physical CUDA acceptance 要求。
 
 ## 未发布 — GLM 显式 Newton/L-BFGS 的解析权重支持（PR #151 / Issue #150，目标 0.2.6）
 

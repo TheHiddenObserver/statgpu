@@ -145,8 +145,10 @@ class QuantileLoss(LossBase):
         X : array of shape (n, p)
         y : array of shape (n,)
         penalty : Penalty, optional
-            Smooth penalty (L2, ElasticNet). Non-smooth penalties (L1, SCAD, MCP)
-            are not supported — use FISTA instead.
+            L2 penalty only. Non-smooth penalties, including ElasticNet, L1,
+            adaptive/group penalties, SCAD, and MCP, are not supported by this
+            IRLS subproblem; use FISTA or the maintained dedicated non-convex
+            Quantile route instead.
         max_iter : int
         tol : float
         init_coef : array of shape (p,), optional
@@ -163,6 +165,16 @@ class QuantileLoss(LossBase):
         coef : array of shape (p,)
         n_iter : int
         """
+        if penalty is not None:
+            pen_name = str(getattr(penalty, "name", "")).lower().strip()
+            if pen_name != "l2":
+                display_name = pen_name or type(penalty).__name__
+                raise ValueError(
+                    "QuantileLoss.irls() supports only L2 or no penalty; "
+                    f"got penalty='{display_name}'. Use FISTA or the dedicated "
+                    "Quantile non-convex solver for non-smooth penalties."
+                )
+
         xp = _get_xp(X)
         X_dev = xp.asarray(X, dtype=xp.float64)
         y_dev = xp.asarray(y, dtype=xp.float64)
@@ -179,18 +191,6 @@ class QuantileLoss(LossBase):
             sw = sw * (n / sw_sum)  # normalize so sum(sw) = n
         else:
             sw = None
-
-        # Check penalty compatibility
-        if penalty is not None:
-            pen_name = type(penalty).__name__.lower()
-            if 'l1' in pen_name and 'elastic' not in pen_name and 'adaptive' not in pen_name:
-                raise NotImplementedError(
-                    "IRLS does not support L1 penalty. Use FISTA instead."
-                )
-            if 'scad' in pen_name or 'mcp' in pen_name or 'group' in pen_name:
-                raise NotImplementedError(
-                    "IRLS does not support non-smooth penalties. Use FISTA instead."
-                )
 
         if init_coef is not None:
             beta = xp.asarray(init_coef, dtype=xp.float64).copy()
@@ -219,30 +219,23 @@ class QuantileLoss(LossBase):
             if sw is not None:
                 w = w * sw
 
-            # Weighted least squares + penalty
+            # Weighted least squares + L2 penalty
             WX = X_dev * w[:, None]
             XtWX = X_dev.T @ WX
             XtWy = X_dev.T @ (w * y_dev)
 
-            # Add penalty contribution to XtWX
+            # Add numerical ridge plus optional L2 curvature. The public
+            # objective uses average-loss scaling, so this unnormalized normal
+            # equation receives n * alpha on penalized coordinates.
             ridge = eps * xp.eye(p, dtype=xp.float64) if xp.__name__ != "torch" else eps * xp.eye(p, dtype=xp.float64, device=X_dev.device)
             A = XtWX + ridge
 
             if penalty is not None:
-                # For L2: A += n * alpha * I, b += 0
-                # For ElasticNet: A += n * alpha * (1-l1_ratio) * I
-                # Skip intercept column (last column) if fit_intercept=True
-                if hasattr(penalty, 'alpha'):
-                    alpha = float(penalty.alpha)
-                    # Build diagonal penalty matrix (skip intercept column)
-                    pen_diag = xp.ones(p, dtype=xp.float64)
-                    if fit_intercept and p > 1:
-                        pen_diag[-1] = 0.0  # don't penalize intercept
-                    if hasattr(penalty, 'l1_ratio'):
-                        l1r = float(penalty.l1_ratio)
-                        A = A + n * alpha * (1.0 - l1r) * xp.diag(pen_diag)
-                    else:
-                        A = A + n * alpha * xp.diag(pen_diag)
+                alpha = float(penalty.alpha)
+                pen_diag = xp.ones(p, dtype=xp.float64)
+                if fit_intercept and p > 1:
+                    pen_diag[-1] = 0.0  # don't penalize intercept
+                A = A + n * alpha * xp.diag(pen_diag)
 
             beta_new = xp.linalg.solve(A, XtWy)
 
