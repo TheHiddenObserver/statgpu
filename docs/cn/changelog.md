@@ -5,6 +5,19 @@
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
+## 未发布 — Quantile IRLS 惩罚契约修复（PR #162 / Issue #161，目标 0.2.6）
+
+### 修复
+
+- 底层 `QuantileLoss.irls()` 现在只接受无惩罚或 L2。ElasticNet、L1、SCAD/MCP、group/adaptive penalty 以及未知 penalty object 会在数值迭代前 fail closed，不再允许 IRLS 只处理声明目标中的光滑 L2 部分而忽略非光滑项。
+- 公开 estimator 契约保持不变：显式 Quantile `solver="irls"` 仍然只属于 L2/无惩罚维护路径；非光滑惩罚继续通过 FISTA family 或 Quantile 专用的非凸求解算法处理。
+- IRLS docstring 与可执行低层契约现在一致；不支持的直接底层调用会得到明确错误，而不是返回看似合理但只优化了部分惩罚的结果。
+
+### 验证
+
+- 增加 focused regressions，覆盖 direct ElasticNet/L1/SCAD/未知 penalty 在 linear solve 前拒绝、保留无惩罚/L2 执行、解析权重整体正比例缩放不变性、既有 estimator-level fail-closed boundary，以及 Torch CPU 的 L2 backend 保持。
+- 本修复删除的是不受支持的路径，并未改变维护中的 None/L2 IRLS 数值算法，因此本身不新增 physical CUDA acceptance 要求。
+
 ## 未发布 — GLM 显式 Newton/L-BFGS 的解析权重支持（PR #151 / Issue #150，目标 0.2.6）
 
 ### 变更
