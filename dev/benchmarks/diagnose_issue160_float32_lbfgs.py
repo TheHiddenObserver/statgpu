@@ -1,16 +1,23 @@
 #!/usr/bin/env python3
 """Issue #160 diagnostic runner for float32 GLM L-BFGS parity.
 
-This runner is diagnostic evidence, not a production solver variant.  It mirrors
+This runner is diagnostic evidence, not a production solver variant. It mirrors
 ``lbfgs_solver`` using the same private solver primitives while recording the
-iteration-level state needed to explain backend divergence.  Each traced solve
+iteration-level state needed to explain backend divergence. Each traced solve
 is checked against the production solver on the same backend before its trace
 is accepted.
 
-The runner works on NumPy and Torch CPU in hosted environments.  When CuPy and
+The historical float32 case reproduces the schema-v6 weight construction
+exactly: finite float32 weights are multiplied by ``3e38`` so their raw float32
+sum overflows, then divided by the same float32 scale to obtain the ordinary-
+scale weights used by the failing fit. The runner also bridges the low-level
+trace back to the public ordinary ``GeneralizedLinearModel`` route whenever
+that backend is publicly executable in the current environment.
+
+The runner works on NumPy and Torch CPU in hosted environments. When CuPy and
 Torch CUDA are available it additionally records both CUDA backends on their
-concrete device.  Absence of CUDA is reported explicitly and is not treated as
-physical evidence.
+concrete device. Absence of CUDA is reported explicitly and is not treated as
+physical evidence. Use ``--require-cuda`` for a physical acceptance run.
 """
 
 from __future__ import annotations
@@ -35,6 +42,7 @@ from statgpu.backends._array_ops import (
     _sync_scalars,
 )
 from statgpu.glm_core._logistic import LogisticLoss
+from statgpu.linear_model import GeneralizedLinearModel
 from statgpu.solvers import lbfgs_solver
 from statgpu.solvers._lbfgs import (
     _call_loss_with_weight,
@@ -58,6 +66,7 @@ N_FEATURES = 3
 MAX_ITER = 1000
 TOL = 1.0e-8
 HISTORY_SIZE = 10
+FLOAT32_OVERFLOW_SCALE = 3.0e38
 
 
 def _git(*args: str) -> str:
@@ -72,6 +81,51 @@ def _source_identity():
         }
     except Exception:
         return {"sha": None, "clean": None}
+
+
+def _environment(cuda):
+    env = {
+        "python": platform.python_version(),
+        "numpy": np.__version__,
+        "cuda_available": dict(cuda),
+    }
+    try:
+        import torch
+
+        env["torch"] = str(torch.__version__)
+        env["torch_cuda_build"] = str(torch.version.cuda)
+        if cuda.get("torch"):
+            env["torch_cuda_device"] = {
+                "ordinal": 0,
+                "name": str(torch.cuda.get_device_name(0)),
+                "capability": list(torch.cuda.get_device_capability(0)),
+            }
+    except Exception as exc:
+        env["torch"] = None
+        env["torch_probe_error"] = type(exc).__name__
+
+    try:
+        import cupy as cp
+
+        env["cupy"] = str(cp.__version__)
+        env["cuda_runtime_version"] = int(cp.cuda.runtime.runtimeGetVersion())
+        env["cuda_driver_version"] = int(cp.cuda.runtime.driverGetVersion())
+        if cuda.get("cupy"):
+            props = cp.cuda.runtime.getDeviceProperties(0)
+            raw_name = props.get("name", "")
+            if isinstance(raw_name, bytes):
+                raw_name = raw_name.decode(errors="replace")
+            env["cupy_cuda_device"] = {
+                "ordinal": 0,
+                "name": str(raw_name),
+                "major": int(props.get("major", -1)),
+                "minor": int(props.get("minor", -1)),
+                "total_global_mem": int(props.get("totalGlobalMem", 0)),
+            }
+    except Exception as exc:
+        env["cupy"] = None
+        env["cupy_probe_error"] = type(exc).__name__
+    return env
 
 
 def _to_float(value) -> float:
@@ -424,7 +478,19 @@ def _data(seed, dtype):
     X, y = v5._logistic_data(seed=seed, n=N_SAMPLES, p=N_FEATURES)
     X = X.astype(dtype)
     y = y.astype(dtype)
-    weights = np.linspace(0.75, 1.05, N_SAMPLES, dtype=dtype)
+    raw = np.linspace(0.75, 1.05, N_SAMPLES, dtype=dtype)
+    if np.dtype(dtype) == np.dtype(np.float32):
+        scale = np.float32(FLOAT32_OVERFLOW_SCALE)
+        overflow_weights = raw * scale
+        if not np.all(np.isfinite(overflow_weights)):
+            raise AssertionError("schema-v6 float32 fixture has non-finite entries")
+        with np.errstate(over="ignore"):
+            raw_sum = np.sum(overflow_weights, dtype=np.float32)
+        if np.isfinite(raw_sum):
+            raise AssertionError("schema-v6 float32 fixture raw sum did not overflow")
+        weights = overflow_weights / scale
+    else:
+        weights = raw
     return X, y, weights
 
 
@@ -477,6 +543,52 @@ def _final_metrics(loss, X, y, params, weights):
     }
 
 
+def _public_estimator_bridge(backend_name, X, y, w, production_params, *, use_cuda):
+    if backend_name == "torch" and not use_cuda:
+        return {
+            "available": False,
+            "reason": "public device='torch' is a CUDA route; Torch CPU is trace-only",
+        }
+
+    if backend_name == "numpy":
+        device = "cpu"
+    elif backend_name == "cupy":
+        device = "cuda"
+    else:
+        device = "torch"
+
+    with v5.v4.v3._solver_warning_gate():
+        model = GeneralizedLinearModel(
+            family="binomial",
+            fit_intercept=True,
+            solver="lbfgs",
+            device=device,
+            max_iter=MAX_ITER,
+            tol=TOL,
+            compute_inference=False,
+        ).fit(X, y, sample_weight=w)
+
+    estimator_params = np.concatenate([
+        np.asarray(model.coef_, dtype=np.float64),
+        np.asarray([model.intercept_], dtype=np.float64),
+    ])
+    production_np = np.asarray(_to_numpy(production_params), dtype=np.float64)
+    error = float(np.max(np.abs(estimator_params - production_np)))
+    if error > 1.0e-12:
+        raise AssertionError(
+            f"ordinary estimator drifted from traced low-level route on {backend_name}: "
+            f"error={error:.3e}"
+        )
+    return {
+        "available": True,
+        "params_max_abs": error,
+        "selected_solver": str(model._selected_solver),
+        "backend": str(model._selected_backend_name),
+        "device": str(model._selected_backend_device),
+        "n_iter": int(model.n_iter_),
+    }
+
+
 def _one_case(backend_name, X_np, y_np, w_np, *, use_cuda):
     X, y, w, ctx = _backend_arrays(
         backend_name, X_np, y_np, w_np, use_cuda=use_cuda
@@ -506,9 +618,13 @@ def _one_case(backend_name, X_np, y_np, w_np, *, use_cuda):
                 f"n_iter={traced_iter}/{production_iter}, error={reproduction_error:.3e}"
             )
         metrics = _final_metrics(loss, X_work, y, production, w)
+        estimator_bridge = _public_estimator_bridge(
+            backend_name, X, y, w, production, use_cuda=use_cuda
+        )
     return {
         "production_n_iter": int(production_iter),
         "trace_matches_production_max_abs": reproduction_error,
+        "ordinary_estimator_bridge": estimator_bridge,
         "final": metrics,
         "trace": trace,
     }
@@ -534,21 +650,38 @@ def _available_backends():
     return result, cuda
 
 
-def run(output: Path):
+def run(output: Path, *, require_cuda: bool = False):
+    source = _source_identity()
+    if source.get("clean") is not True:
+        raise RuntimeError(
+            "Issue #160 diagnostic evidence requires an exact clean source tree"
+        )
+
     backend_specs, cuda = _available_backends()
+    if require_cuda and not (cuda.get("cupy") and cuda.get("torch")):
+        raise RuntimeError(
+            "--require-cuda needs both CuPy CUDA and Torch CUDA on the physical device"
+        )
+
     payload = {
-        "schema": 1,
-        "source": _source_identity(),
-        "environment": {
-            "python": platform.python_version(),
-            "numpy": np.__version__,
-            "cuda_available": cuda,
+        "schema": 2,
+        "source": source,
+        "environment": _environment(cuda),
+        "fixture": {
+            "historical_seed": 151025,
+            "n_samples": N_SAMPLES,
+            "n_features": N_FEATURES,
+            "float32_weight_construction": (
+                "base_weights=(linspace(float32)*float32(3e38))/float32(3e38)"
+            ),
+            "float32_raw_sum_overflow_required": True,
         },
         "solver": {
             "tol": TOL,
             "max_iter": MAX_ITER,
             "history_size": HISTORY_SIZE,
         },
+        "physical_cuda_complete": bool(cuda.get("cupy") and cuda.get("torch")),
         "cases": {},
     }
 
@@ -563,24 +696,23 @@ def run(output: Path):
                 seed_result[backend_label] = _one_case(
                     backend_name, X, y, w, use_cuda=use_cuda
                 )
-            ref32 = seed_result["numpy"]["final"]
+            ref = seed_result["numpy"]["final"]
             for label, result in seed_result.items():
-                p_ref = np.asarray(ref32["params"], dtype=np.float64)
+                p_ref = np.asarray(ref["params"], dtype=np.float64)
                 p_other = np.asarray(result["final"]["params"], dtype=np.float64)
                 result["errors_vs_numpy"] = {
                     "params_max_abs": float(np.max(np.abs(p_other - p_ref))),
                     "objective_abs": abs(
                         float(result["final"]["objective"])
-                        - float(ref32["objective"])
+                        - float(ref["objective"])
                     ),
                     "gradient_norm_abs": abs(
                         float(result["final"]["gradient_norm"])
-                        - float(ref32["gradient_norm"])
+                        - float(ref["gradient_norm"])
                     ),
                 }
             payload["cases"][dtype_name][str(seed)] = seed_result
 
-    # Compare each float32 backend against the same backend's float64 solve.
     for seed in SEEDS:
         seed_key = str(seed)
         for backend_label in payload["cases"]["float32"][seed_key]:
@@ -602,6 +734,7 @@ def run(output: Path):
         "status": "diagnostic_complete",
         "source": payload["source"],
         "cuda_available": cuda,
+        "physical_cuda_complete": payload["physical_cuda_complete"],
         "output": str(output),
     }, indent=2))
     return payload
@@ -614,8 +747,13 @@ def main():
         type=Path,
         default=Path("dev/reviews/issue160_float32_lbfgs_diagnostics.json"),
     )
+    parser.add_argument(
+        "--require-cuda",
+        action="store_true",
+        help="fail unless both CuPy CUDA and Torch CUDA are available",
+    )
     args = parser.parse_args()
-    run(args.output)
+    run(args.output, require_cuda=args.require_cuda)
 
 
 if __name__ == "__main__":
