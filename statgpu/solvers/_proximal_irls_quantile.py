@@ -140,9 +140,6 @@ def proximal_irls_quantile_solver(
     # Precompute X^2 for weighted Hessian diagonal (reused each IRLS step)
     X_sq = X_work * X_work  # (n, p)
 
-    # GPU convergence check frequency: batch syncs to reduce overhead
-    _conv_check_freq = 5 if backend in ("torch", "cupy") else 1
-
     for cont_i, cont_alpha in enumerate(alpha_path):
         pen_step = copy.copy(penalty)
         pen_step.alpha = float(cont_alpha)
@@ -182,15 +179,19 @@ def proximal_irls_quantile_solver(
 
                 total_iter += 1
 
-                # Convergence check — GPU comparison stays on device, only bool synced
-                if irls_iter % _conv_check_freq == 0:
-                    delta_dev = xp.abs(beta - beta_old)
-                    if backend in ("torch", "cupy"):
-                        if bool(_to_numpy(xp.max(delta_dev) < xp.asarray(tol, dtype=delta_dev.dtype))):
-                            break
-                    else:
-                        if float(_to_numpy(xp.max(delta_dev))) < tol:
-                            break
+                # Stopping semantics are part of the non-convex algorithm, not
+                # a backend performance knob. Delaying this check on GPU can
+                # advance IRLS several extra steps, change the next LLA point,
+                # and send SCAD/MCP into a different local basin. Keep the
+                # comparison backend-native, but apply it every iteration on
+                # every backend.
+                delta_dev = xp.abs(beta - beta_old)
+                if backend in ("torch", "cupy"):
+                    if bool(_to_numpy(xp.max(delta_dev) < xp.asarray(tol, dtype=delta_dev.dtype))):
+                        break
+                else:
+                    if float(_to_numpy(xp.max(delta_dev))) < tol:
+                        break
 
             # LLA convergence check — GPU comparison stays on device
             lla_delta_dev = xp.abs(beta - beta_before_lla)
