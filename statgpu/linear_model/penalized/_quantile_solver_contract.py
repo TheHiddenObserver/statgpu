@@ -27,6 +27,7 @@ PenalizedGLM_CV = _cv_mod.PenalizedGLM_CV
 
 _POLICY_MARKER = "_statgpu_quantile_solver_policy_contract"
 _VALIDATE_MARKER = "_statgpu_quantile_solver_validate_contract"
+_CV_PUBLIC_SOLVER_MARKER = "_statgpu_quantile_cv_public_solver_contract"
 _CV_CONTEXT_MARKER = "_statgpu_quantile_solver_cv_context_contract"
 _CV_SCORE_CONTEXT_MARKER = "_statgpu_quantile_cv_score_context_contract"
 _CV_EVAL_MARKER = "_statgpu_quantile_cv_eval_contract"
@@ -92,6 +93,35 @@ def _install_policy_contract() -> None:
     setattr(_preferred_with_truthful_quantile_route, _POLICY_MARKER, True)
     _preferred_with_truthful_quantile_route._statgpu_original = current
     _fit_mixin._preferred_penalized_glm_solver = _preferred_with_truthful_quantile_route
+
+
+def _install_cv_public_solver_guard() -> None:
+    """Keep the dedicated Quantile provenance label internal to CV auto routing."""
+    current = PenalizedGLM_CV._solver_for_cv
+    if getattr(current, _CV_PUBLIC_SOLVER_MARKER, False):
+        return
+
+    @wraps(current)
+    def _solver_for_cv_with_public_boundary(self, *args, **kwargs):
+        if (
+            _loss_name(getattr(self, "loss", "")) == "quantile"
+            and str(getattr(self, "_solver", "") or "").lower().strip()
+            == _DEDICATED_NONCONVEX_SOLVER
+        ):
+            raise ValueError(
+                f"solver='{_DEDICATED_NONCONVEX_SOLVER}' is an internal resolved "
+                "Quantile solver label, not a public explicit solver; use "
+                "solver='auto'."
+            )
+        return current(self, *args, **kwargs)
+
+    setattr(
+        _solver_for_cv_with_public_boundary,
+        _CV_PUBLIC_SOLVER_MARKER,
+        True,
+    )
+    _solver_for_cv_with_public_boundary._statgpu_original = current
+    PenalizedGLM_CV._solver_for_cv = _solver_for_cv_with_public_boundary
 
 
 def _install_cv_internal_context() -> None:
@@ -307,6 +337,7 @@ def _install_explicit_route_guard() -> None:
 def install_quantile_solver_contract() -> None:
     """Install Quantile solver/provenance/scoring reconciliation idempotently."""
     _install_policy_contract()
+    _install_cv_public_solver_guard()
     _install_cv_internal_context()
     _install_cv_eval_contract()
     _install_scad_quantile_guard()
