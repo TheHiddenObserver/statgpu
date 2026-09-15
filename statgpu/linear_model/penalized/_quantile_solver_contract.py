@@ -86,6 +86,28 @@ def _validate_quantile_solver_request(
             "solver label, not a public explicit solver; use solver='auto'."
         )
 
+    if resolved_penalty in _NONCONVEX_QUANTILE_PENALTIES:
+        if resolved_solver == "auto":
+            return
+        raise ValueError(
+            f"solver='{resolved_solver}' is not a public explicit Quantile "
+            f"{resolved_penalty.upper()} route; use solver='auto' so the "
+            "dedicated Proximal IRLS-CD algorithm is selected."
+        )
+
+    if resolved_solver == "irls" and resolved_penalty not in _SMOOTH_PENALTIES:
+        raise ValueError(
+            "solver='irls' only supports smooth L2 or no-penalty Quantile "
+            "objectives."
+        )
+
+    if resolved_solver in ("newton", "lbfgs", "exact"):
+        raise ValueError(
+            f"solver='{resolved_solver}' requires Hessian-compatible smooth "
+            "structure, but quantile loss has no Hessian. Use solver='auto', "
+            "'irls', or a maintained sparse solver as appropriate."
+        )
+
     if (
         resolved_solver in ("fista", "fista_bb")
         and resolved_penalty in _SMOOTH_PENALTIES
@@ -94,15 +116,6 @@ def _validate_quantile_solver_request(
             f"solver='{resolved_solver}' is not a maintained smooth Quantile "
             "route for L2/no-penalty objectives; use solver='irls' or "
             "solver='auto'."
-        )
-
-    if resolved_penalty in _NONCONVEX_QUANTILE_PENALTIES:
-        if resolved_solver == "auto":
-            return
-        raise ValueError(
-            f"solver='{resolved_solver}' is not a public explicit Quantile "
-            f"{resolved_penalty.upper()} route; use solver='auto' so the "
-            "dedicated Proximal IRLS-CD algorithm is selected."
         )
 
 
