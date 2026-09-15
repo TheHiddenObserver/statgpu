@@ -93,9 +93,15 @@ def test_quantile_cv_general_scores_use_requested_tau(weighted):
     assert contract._QUANTILE_CV_LEVEL.get() is None
 
 
-def test_quantile_cv_registry_injects_tau_for_fold_batch_residual_and_validation():
+def test_quantile_eval_dispatch_uses_call_local_tau_without_registering_fast_residual():
     from statgpu.linear_model.penalized import _penalized_cv as cv_mod
     from statgpu.linear_model.penalized import _quantile_solver_contract as contract
+
+    # This reconciliation must not silently create a new fold-batch Quantile
+    # residual implementation. Sparse GPU two-stage CV falls back to the
+    # maintained general estimator path instead.
+    assert "quantile" not in cv_mod._LOSS_RESIDUAL_FNS
+    assert "quantile" not in cv_mod._LOSS_VALLOSS_FNS
 
     eta = np.array([-0.2, 0.1, 0.8], dtype=np.float64)
     y = np.array([0.4, -0.1, 1.2], dtype=np.float64)
@@ -103,27 +109,85 @@ def test_quantile_cv_registry_injects_tau_for_fold_batch_residual_and_validation
 
     token = contract._QUANTILE_CV_LEVEL.set(tau)
     try:
-        residual = cv_mod._LOSS_RESIDUAL_FNS["quantile"](eta, y)
-        val_loss = cv_mod._LOSS_VALLOSS_FNS["quantile"](eta, y)
         eval_fn, _ = cv_mod._LOSS_EVAL_DISPATCH["quantile"]
-        eval_loss = eval_fn(eta, y)
+        observed = eval_fn(eta, y)
     finally:
         contract._QUANTILE_CV_LEVEL.reset(token)
 
     u = y - eta
-    expected_residual = -tau + (u < 0).astype(np.float64)
-    expected_loss = np.where(u >= 0.0, tau * u, (tau - 1.0) * u)
-    np.testing.assert_allclose(residual, expected_residual, rtol=0.0, atol=0.0)
-    np.testing.assert_allclose(val_loss, expected_loss, rtol=0.0, atol=0.0)
-    np.testing.assert_allclose(eval_loss, expected_loss, rtol=0.0, atol=0.0)
+    expected = np.where(u >= 0.0, tau * u, (tau - 1.0) * u)
+    np.testing.assert_allclose(observed, expected, rtol=0.0, atol=0.0)
     assert contract._QUANTILE_CV_LEVEL.get() is None
 
 
-def test_quantile_registry_preserves_historical_default_outside_cv_context():
+def test_quantile_sparse_fold_batch_is_fail_safe_to_general_path():
+    from statgpu.linear_model.penalized import _penalized_cv as cv_mod
+
+    # The guard returns before touching backend arrays. This proves that the
+    # incomplete private fold-batch Quantile route is not accidentally promoted
+    # into a new numerical capability by the provenance/scoring repair.
+    result = cv_mod._glm_sparse_cv_folds(
+        None,
+        None,
+        [],
+        np.array([0.03]),
+        "l1",
+        1.0,
+        5,
+        1e-4,
+        "quantile",
+        "torch",
+    )
+    assert result is None
+
+
+def test_quantile_scad_weighted_validation_uses_requested_tau():
+    from statgpu.linear_model.penalized import _penalized_cv as cv_mod
+    from statgpu.linear_model.penalized import _quantile_solver_contract as contract
+
+    X, y, _ = _data(seed=16322, n=48)
+    train_idx = np.arange(0, 32)
+    val_idx = np.arange(32, 48)
+    tau = 0.2
+    alpha = 0.025
+    val_weight = np.linspace(0.5, 1.7, val_idx.size, dtype=np.float64)
+
+    token = contract._QUANTILE_CV_LEVEL.set(tau)
+    try:
+        path = cv_mod._scad_mcp_cv_path(
+            "quantile",
+            X[train_idx],
+            y[train_idx],
+            np.array([alpha], dtype=np.float64),
+            "scad",
+            1.0,
+            80,
+            1e-6,
+            Device.CPU,
+            X_val=X[val_idx],
+            y_val=y[val_idx],
+            val_sample_weight=val_weight,
+            return_path=True,
+        )
+    finally:
+        contract._QUANTILE_CV_LEVEL.reset(token)
+
+    assert path is not None
+    assert path["scores"].shape == (1,)
+    eta = X[val_idx] @ path["coef"][0] + path["intercept"][0]
+    expected = _pinball(y[val_idx], eta, tau, val_weight)
+    median = _pinball(y[val_idx], eta, 0.5, val_weight)
+    assert path["scores"][0] == pytest.approx(expected, rel=2e-8, abs=2e-10)
+    assert abs(path["scores"][0] - median) > 1e-4
+    assert contract._QUANTILE_CV_LEVEL.get() is None
+
+
+def test_quantile_eval_preserves_historical_default_outside_cv_context():
     from statgpu.linear_model.penalized import _penalized_cv as cv_mod
 
     eta = np.array([0.0, 0.5], dtype=np.float64)
     y = np.array([1.0, 0.0], dtype=np.float64)
-    observed = cv_mod._LOSS_VALLOSS_FNS["quantile"](eta, y)
+    eval_fn, _ = cv_mod._LOSS_EVAL_DISPATCH["quantile"]
+    observed = eval_fn(eta, y)
     expected = np.array([0.5, 0.25], dtype=np.float64)
     np.testing.assert_allclose(observed, expected, rtol=0.0, atol=0.0)
