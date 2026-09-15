@@ -54,7 +54,9 @@ def proximal_irls_quantile_solver(
     penalty : Penalty
         Nonconvex penalty (SCAD, MCP).
     X : array (n, p)
-        Design matrix (NO intercept column -- intercept is handled by centering).
+        Design matrix without an intercept column. When ``fit_intercept=True``
+        the solver augments the numerical design with an unpenalized ones
+        column so the intercept is optimized in the pinball objective.
     y : array (n,)
         Response variable.
     alpha_path : array
@@ -68,7 +70,7 @@ def proximal_irls_quantile_solver(
     tol : float
         IRLS convergence tolerance.
     fit_intercept : bool
-        Whether to fit an intercept (via centering).
+        Whether to fit an unpenalized intercept coordinate.
     sample_weight : array (n,), optional
         Sample weights. If provided, the IRLS weights are scaled accordingly.
 
@@ -110,26 +112,27 @@ def proximal_irls_quantile_solver(
     else:
         sw = None
 
-    # Center X and y for intercept
+    # Quantile regression is not translation-equivalent under mean centering:
+    # the intercept must minimize the asymmetric pinball objective itself.
+    # Treat it as one additional, unpenalized coordinate. This matches the
+    # non-quadratic intercept contract used by the maintained FISTA-LLA path.
     if fit_intercept:
-        if sw is not None:
-            X_mean = xp.sum(X_dev * sw[:, None], axis=0) / n
-            y_mean_dev = xp.sum(y_dev * sw) / n
+        if backend == "torch":
+            ones = xp.ones((n, 1), dtype=X_dev.dtype, device=X_dev.device)
         else:
-            X_mean = xp.mean(X_dev, axis=0)
-            y_mean_dev = xp.mean(y_dev)
-        y_mean = float(_to_numpy(y_mean_dev))
-        X_work = X_dev - X_mean
-        y_work = y_dev - y_mean_dev
+            ones = xp.ones((n, 1), dtype=X_dev.dtype)
+        X_work = xp.concatenate([X_dev, ones], axis=1)
+        y_work = y_dev
+        n_work_features = p + 1
     else:
-        X_mean = None
-        y_mean = 0.0
         X_work = X_dev
         y_work = y_dev
+        n_work_features = p
 
-    n_features = p
+    n_features = p  # Penalized feature coordinates only; intercept is excluded.
 
-    # Initialize coefficients with OLS on centered data
+    # Initialize coefficients with OLS on the numerical design. For the
+    # intercept-bearing route this initializes the augmented intercept too.
     if backend == "torch":
         beta = xp.linalg.lstsq(X_work, y_work).solution
     else:
@@ -138,7 +141,7 @@ def proximal_irls_quantile_solver(
     total_iter = 0
 
     # Precompute X^2 for weighted Hessian diagonal (reused each IRLS step)
-    X_sq = X_work * X_work  # (n, p)
+    X_sq = X_work * X_work
 
     for cont_i, cont_alpha in enumerate(alpha_path):
         pen_step = copy.copy(penalty)
@@ -146,9 +149,18 @@ def proximal_irls_quantile_solver(
         _mi = max_iter[cont_i] if isinstance(max_iter, (list, tuple)) else max_iter
 
         for lla_i in range(max_lla_per_step):
-            # LLA weights = P'(|beta_j|) — penalty derivative at current coef.
+            # LLA weights = P'(|beta_j|) for feature coefficients only.
             lla_w = _compute_lla_weights(pen_step, beta, n_features, xp, backend)
-            thresh = n * lla_w  # (p,) per-coordinate threshold
+            feature_thresh = n * lla_w
+            if fit_intercept:
+                # The final augmented coordinate is the intercept and must not
+                # receive SCAD/MCP shrinkage.
+                intercept_thresh = xp.zeros(1, dtype=feature_thresh.dtype)
+                if backend == "torch":
+                    intercept_thresh = intercept_thresh.to(device=feature_thresh.device)
+                thresh = xp.concatenate([feature_thresh, intercept_thresh])
+            else:
+                thresh = feature_thresh
 
             beta_before_lla = _copy(beta)
 
@@ -175,16 +187,13 @@ def proximal_irls_quantile_solver(
                 # Parallel diagonal majorization step (Jacobi-style)
                 beta = _parallel_majorization_step(
                     X_work, X_sq, y_work, w, beta, thresh,
-                    n_features, eps, xp, backend)
+                    n_work_features, eps, xp, backend)
 
                 total_iter += 1
 
                 # Stopping semantics are part of the non-convex algorithm, not
-                # a backend performance knob. Delaying this check on GPU can
-                # advance IRLS several extra steps, change the next LLA point,
-                # and send SCAD/MCP into a different local basin. Keep the
-                # comparison backend-native, but apply it every iteration on
-                # every backend.
+                # a backend performance knob. Keep the comparison backend-native
+                # but apply the same criterion every iteration on every backend.
                 delta_dev = xp.abs(beta - beta_old)
                 if backend in ("torch", "cupy"):
                     if bool(_to_numpy(xp.max(delta_dev) < xp.asarray(tol, dtype=delta_dev.dtype))):
@@ -202,12 +211,12 @@ def proximal_irls_quantile_solver(
                 if float(_to_numpy(xp.max(lla_delta_dev))) < lla_tol:
                     break
 
-    # Reconstruct intercept
-    coef_np = _to_numpy(beta).astype(np.float64)
+    beta_np = _to_numpy(beta).astype(np.float64)
     if fit_intercept:
-        X_mean_np = _to_numpy(X_mean).astype(np.float64)
-        intercept = float(y_mean - X_mean_np @ coef_np)
+        coef_np = beta_np[:p]
+        intercept = float(beta_np[p])
     else:
+        coef_np = beta_np
         intercept = 0.0
 
     return coef_np, intercept, total_iter
@@ -223,20 +232,20 @@ def _parallel_majorization_step(X, X_sq, y, w, beta, thresh, p, eps, xp, backend
       h = diag(X' @ diag(w) @ X)            -- weighted Hessian diagonal
       beta = S(g + h * beta, thresh) / h    -- soft-threshold update
 
-    Note: This is a Jacobi-style parallel update, not cyclic coordinate descent.
-    All coordinates are updated simultaneously using "old" beta values.
-    For strongly correlated designs, convergence may differ from true CD.
+    ``thresh`` is zero for any unpenalized coordinate such as an augmented
+    intercept. This is a Jacobi-style parallel update, not cyclic coordinate
+    descent: all coordinates are updated simultaneously using old beta values.
     GPU-friendly: only matrix operations, no per-coordinate kernel launches.
     """
     r = y - X @ beta  # (n,)
     wr = w * r         # (n,)
 
     # Weighted gradient: g = X' @ (w * r)  -- O(np)
-    g = X.T @ wr       # (p,)
+    g = X.T @ wr
 
     # Weighted Hessian diagonal: h = sum(X^2 * w, axis=0)  -- O(np)
-    w_col = w[:, None] if w.ndim == 1 else w  # (n,1) for broadcast
-    h = xp.sum(X_sq * w_col, axis=0)           # (p,)
+    w_col = w[:, None] if w.ndim == 1 else w
+    h = xp.sum(X_sq * w_col, axis=0)
     h = xp.maximum(h, xp.asarray(eps, dtype=h.dtype))
 
     # Soft-threshold update: beta = S(g + h*beta, thresh) / h
