@@ -31,13 +31,18 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
     alpha : float, default=1.0
         Regularization strength.
     solver : str, default='auto'
-        Solver: 'auto', 'fista', 'fista_bb'.
-        'auto' selects FISTA (quantile loss has no Hessian).
+        Solver policy. For L2/no-penalty Quantile objectives, ``'auto'``
+        resolves to the maintained Quantile IRLS algorithm. Convex sparse
+        L1/ElasticNet objectives use FISTA-family routes, while SCAD/MCP use
+        the dedicated Proximal IRLS-CD continuation path. Explicit
+        ``solver='irls'`` is supported for L2/no penalty. Explicit
+        ``solver='fista'`` is not a maintained smooth Quantile route and fails
+        visibly instead of being silently substituted by IRLS.
     max_iter : int, default=1000
         Maximum iterations.
     tol : float, default=1e-4
-        Convergence tolerance.  For quantile regression, tighter
-        tolerance (1e-8) is used internally for IRLS convergence.
+        Convergence tolerance. Quantile IRLS uses a tighter internal tolerance
+        (at most 1e-8) on the maintained smooth route.
     fit_intercept : bool, default=True
         Whether to fit an intercept.
     device : str, default='auto'
@@ -46,12 +51,12 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
     Examples
     --------
     >>> from statgpu.linear_model import PenalizedQuantileRegression
-    >>> # Median regression
+    >>> # Median regression; auto resolves to IRLS for this L2 objective.
     >>> model = PenalizedQuantileRegression(quantile=0.5, penalty='l2', alpha=0.01)
     >>> model.fit(X, y)
     >>> pred = model.predict(X_test)
 
-    >>> # 90th percentile with L1 penalty (sparse)
+    >>> # 90th percentile with L1 penalty (sparse FISTA-family route)
     >>> model = PenalizedQuantileRegression(quantile=0.9, penalty='l1', alpha=0.05)
     """
 
