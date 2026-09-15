@@ -16,8 +16,9 @@ penalized-model contract installers:
 
 ``proximal_irls_cd`` is an internal resolved-provenance label, not a new public
 ``solver=`` keyword. ``PenalizedGLM_CV`` is allowed to pass that resolved label
-to its private child estimators only inside a call-local context; a user who
-constructs an estimator with that spelling still fails closed.
+to its private SCAD/MCP child estimators only inside a call-local context; a
+user who constructs an estimator with that spelling still fails closed for
+all Quantile penalties.
 """
 
 from __future__ import annotations
@@ -127,6 +128,17 @@ def _install_explicit_route_guard() -> None:
         if loss_name != "quantile":
             return
 
+        if solver_name == _DEDICATED_NONCONVEX_SOLVER:
+            if (
+                penalty_name in _NONCONVEX_QUANTILE_PENALTIES
+                and _INTERNAL_CV_RESOLVED_SOLVER.get()
+            ):
+                return
+            raise ValueError(
+                f"solver='{solver_name}' is an internal resolved Quantile "
+                "solver label, not a public explicit solver; use solver='auto'."
+            )
+
         if (
             solver_name in ("fista", "fista_bb")
             and penalty_name in _SMOOTH_PENALTIES
@@ -139,11 +151,6 @@ def _install_explicit_route_guard() -> None:
 
         if penalty_name in _NONCONVEX_QUANTILE_PENALTIES:
             if solver_name == "auto":
-                return
-            if (
-                solver_name == _DEDICATED_NONCONVEX_SOLVER
-                and _INTERNAL_CV_RESOLVED_SOLVER.get()
-            ):
                 return
             raise ValueError(
                 f"solver='{solver_name}' is not a public explicit Quantile "
