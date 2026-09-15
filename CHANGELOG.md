@@ -8,8 +8,7 @@ All notable changes to statgpu are documented here, organized by release and dat
 - Reconciled penalized Quantile solver identity with execution: L2/no-penalty `solver="auto"` resolves to IRLS, L1/ElasticNet retains the FISTA family, and scalar SCAD/MCP records the dedicated Proximal IRLS-CD route.
 - Made incompatible explicit Quantile solver requests fail before numerical dispatch instead of silently executing another algorithm; `proximal_irls_cd` remains an internal resolved-provenance label rather than a new public `solver=` keyword.
 - Fixed `PenalizedGLM_CV(loss="quantile", loss_kwargs={"quantile": q})` so candidate validation uses the same requested `q` as training, including weighted and unweighted scoring, instead of silently falling back to median (`q=0.5`) pinball loss for alpha selection.
-- Fixed the typed `PenalizedQuantileRegression(quantile=q)` constructor path so an omitted public `loss_kwargs` no longer causes clone-safe constructor capture to reset the numerical loss to the default median (`q=0.5`). Generic and typed Quantile fits now share the same effective `q`; an explicit `loss_kwargs["quantile"]` keeps its historical precedence, and adaptive-L1 initialization receives the same resolved Quantile contract.
-- Kept the repair within existing numerical capability: incomplete private Quantile fold-batched sparse and SCAD/MCP fast helpers fail safely back to the maintained per-fold estimator path rather than acquiring a new numerical implementation in this provenance/scoring reconciliation. Added direct, CV/final-refit, formula, import-order, explicit-solver, non-median scoring, typed/generic parity, clone/constructor-capture, adaptive-initialization, and fallback regressions.
+- Kept the repair within existing numerical capability: incomplete private Quantile fold-batched sparse and SCAD/MCP fast helpers fail safely back to the maintained per-fold estimator path rather than acquiring a new numerical implementation in this provenance/scoring reconciliation. Added direct, CV/final-refit, formula, import-order, explicit-solver, non-median scoring, and fallback regressions.
 
 ### PR #151 / Issue #150 — Weighted explicit Newton/L-BFGS GLM fits (targeted for 0.2.6)
 - Reconciled ordinary `GeneralizedLinearModel` with the maintained analytic-weight solver contract: explicit `solver="newton"` and `solver="lbfgs"` accept genuine non-uniform `sample_weight` on supported GLM rows without silently substituting IRLS/FISTA or changing an explicit CPU/CuPy/Torch device request.
@@ -120,12 +119,14 @@ All notable changes to statgpu are documented here, organized by release and dat
 ## 2026-08-07
 
 ### PR #119 — Panel Tier-1 shared framework Stage A
+
 - Added an internal `BasePanelModel`, shared panel index/balance metadata, and structured diagnostic/fit-stat result substrate for the later Tier-1 diagnostics stages without adding new public diagnostics.
 - Centralized the existing residual-based panel OLS covariance dispatch while preserving each estimator's current nonrobust, HC1, clustered, and HAC normalization/df conventions; Fama-MacBeth keeps its distinct beta-series covariance.
 - Migrated `PanelOLS`, `RandomEffects`, `PooledOLS`, `BetweenOLS`, `FirstDifferenceOLS`, and `FamaMacBeth` to the shared lifecycle where statistically valid, while preserving formula behavior, prediction/summary contracts, fixed-effect recovery, Swamy-Arora GLS, and backend-specific output semantics.
 - Added pre-refactor golden regression coverage plus maintained Torch 2.0 CPU coverage for shared panel metadata/covariance/inference paths. Stage B diagnostics and Stage C covariance expansion remain pending under Issue #93.
 
 ### PR #116 — Torch LogisticRegressionCV strict-CUDA repair
+
 - Fixed the mixed-precision Torch strict-CUDA `LogisticRegressionCV` failure by allocating batched IRLS parameters and ridge diagonals in the active CV working dtype and keeping candidate path outputs backend-native through validation scoring.
 - Added regression coverage for float32/float64 CV, weighted and unweighted fitting, intercept/no-intercept paths, and the full CV selector, plus a Python 3.9 + Torch 2.0 CPU CI gate so optional-Torch coverage cannot silently skip.
 - Validated the unchanged numerical implementation head `e6e4846b06604ed53e65fc9afd9054bd5777098f` on Tesla P100 with PyTorch 2.0.0+cu117/CUDA 11.7 and CuPy 13.6.0: all 18 statgpu canonical CV backend runs succeeded without CPU fallback, including `LogisticRegressionCV` on NumPy, CuPy, and Torch.
@@ -133,6 +134,7 @@ All notable changes to statgpu are documented here, organized by release and dat
 ## 0.2.4 — 2026-08-06
 
 ### Logistic regression and GLM correctness
+
 - Corrected arbitrary-link Binomial IRLS Fisher weights, working responses, line-search objectives, backend-native warm starts, and quadratic-penalty validation.
 - Hardened direct `LogisticRegression` response/control validation, transactional refits, convergence reporting, integer prediction dtype, single-column response handling, and finite decision thresholds.
 - Unified fitted logistic likelihood diagnostics across NumPy, CuPy, and Torch with the registered numerically stable `LogisticLoss` objective; likelihood, AIC, BIC, pseudo-R², and convergence remain independent of covariance inference.
@@ -143,6 +145,7 @@ All notable changes to statgpu are documented here, organized by release and dat
 - Aligned formula sample weights only after Patsy missing-row filtering and corrected weighted Gaussian FISTA centering.
 
 ### Cross-validation, inference, and estimator contracts
+
 - Made `RidgeCV`, `ElasticNetCV`, and `LogisticRegressionCV` fits failure-safe: stale state is cleared before fitting and selected parameters are published only after the final full-data refit succeeds.
 - Preserved explicit Torch/CuPy requests and pinned `device="auto"` final refits to the backend selected during cross-validation.
 - Updated Logistic and Elastic Net default regularization grids to incorporate analytic weights and satisfy integer-weight row-replication equivalence.
@@ -152,6 +155,7 @@ All notable changes to statgpu are documented here, organized by release and dat
 - Made public estimator finite-input guards, cloning, sklearn tags, nested `set_params`, and fitted-state invalidation transactional, including legacy scikit-learn clone identity checks.
 
 ### Solver and backend safety
+
 - Corrected the executable loss/penalty/solver matrix so Newton, L-BFGS, and L-BFGS-B reject unsupported non-smooth penalties rather than optimizing only the smooth component.
 - Removed the incorrect Euclidean-prox Newton shortcut. Smooth L2/no-penalty objectives retain Newton updates; non-smooth proximal-Newton requests delegate visibly to backend-native FISTA until a Hessian-metric proximal solver exists.
 - Narrowed Armijo, linear-solve, alpha-grid, and inference fallbacks to recognized numeric or rank failures; CUDA OOM, device, index, contract, and unrelated runtime failures propagate.
@@ -167,6 +171,7 @@ All notable changes to statgpu are documented here, organized by release and dat
 - Bumped package metadata to `0.2.4` and added the authoritative GitHub Release document at `.github/releases/v0.2.4.md`.
 
 ### Validation
+
 - The final PR #87 implementation head passed the complete CPU suite with 2239 passed and 719 skipped, static and documentation contracts, Python 3.9–3.12 regression jobs, scikit-learn 1.2.2/1.3.2/latest compatibility, and release-package validation.
 - Physical NVIDIA validation passed on the unchanged numerical implementation: RTX 4090 with PyTorch 2.8.0+cu128 passed the selected compile/CUDA Graph matrix 9/9 and runtime assertions; Tesla P100 with CuPy 13.6.0 passed the corresponding runtime assertions.
 - The focused release PR changes version metadata and release-facing documentation only; all exact release-head hosted gates must pass before creating tag `v0.2.4`.

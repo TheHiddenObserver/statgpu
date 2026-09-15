@@ -12,14 +12,13 @@
 - 带惩罚 Quantile 现在按实际执行算法记录求解器 provenance。L2/无惩罚的 `solver="auto"` 解析为普通 Quantile IRLS；L1/ElasticNet 保留 FISTA family；标量 SCAD/MCP 在内部解析为专用 Proximal IRLS-CD continuation 路径。
 - 显式 solver 请求不再在 Quantile 路径上被静默替换。smooth L2/无惩罚下显式 FISTA/FISTA-BB 会在 backend numerical work 前 fail closed，并提示使用 `irls`/`auto`；SCAD/MCP 下不兼容的显式 solver 同样 fail closed，并要求通过 `auto` 选择专用路径。`proximal_irls_cd` 只是内部 resolved-provenance 标签，不新增为公开 `solver=` 关键字。
 - `PenalizedGLM_CV(loss="quantile", loss_kwargs={"quantile": q})` 的 validation scoring 现在与训练使用同一个调用者请求的 `q`，包括 weighted 与 unweighted 路径；非 0.5 分位数不再出现“按 `q` 拟合、按默认 0.5 pinball loss 选择 alpha”的错位。
-- `PenalizedQuantileRegression(quantile=q)` 在省略公开 `loss_kwargs` 时，现在会跨越 clone-safe constructor-capture 边界保留 typed `q`。因此实际私有 Quantile loss 与 adaptive-L1 初始化不再数值上退回默认中位数 `q=0.5`；若用户显式提供 `loss_kwargs["quantile"]`，仍保持历史上的显式覆盖优先级。
 - 同一策略覆盖 generic/typed direct fit、formula fit、CV candidate selection 与 selected full-data final refit。对尚未具备完整 Quantile loss-parameter contract 的私有 fold-batched sparse 和 SCAD/MCP fast helper，本次修复不会顺手新增数值实现，而是明确返回到维护中的 per-fold estimator 路径，优先保证统计语义正确。
 - 这是 solver identity/dispatch 与 CV scoring reconciliation，不是新增 Quantile 数值算法；既有 smooth、sparse 与 non-convex 算法保持其维护中的实现边界。
 
 ### 验证
 
-- 新增 generic/typed direct-fit、sparse/non-convex、CV/final-refit、formula、import-order、signature preservation、显式 solver fail-closed、非中位数 Quantile weighted/unweighted CV 评分、typed/generic 精确 fixture 一致性、clone/constructor-capture、adaptive initializer 以及 fail-safe fast-path fallback 回归；非中位数评分直接与手工 pinball loss 对照，并验证离开 CV call-local context 后默认 evaluator 行为不泄漏。
-- merge-ready 需要 final exact PR head 的 hosted validation 全绿，并通过 `dev/benchmarks/run_quantile_solver_provenance_gpu_gate.py` 发布的 exact-source physical CUDA gate；hosted CI 不能替代 CuPy/Torch CUDA 物理验收，较早物理结果也不能验收后续发生 production-source 修复的新 head。
+- 新增 generic/typed direct-fit、sparse/non-convex、CV/final-refit、formula、import-order、signature preservation、显式 solver fail-closed，以及非中位数 Quantile weighted/unweighted CV 评分回归；后者直接与手工 pinball loss 对照，并验证离开 CV call-local context 后默认 evaluator 行为不泄漏。
+- 对不完整私有 fast path 增加 fail-safe fallback 回归，确保本 PR 不会为了修 provenance/评分语义而静默扩大 numerical capability。merge-ready 需要 final exact PR head 的 hosted validation 全绿，并且 `dev/benchmarks/validate_quantile_solver_provenance_gpu.py` 的 schema-v1 exact-source physical CUDA gate 同时在 CuPy 与 Torch CUDA 上通过；hosted CI 不能替代该物理 gate。
 
 ## 未发布 — GLM 显式 Newton/L-BFGS 的解析权重支持（PR #151 / Issue #150，目标 0.2.6）
 
@@ -205,7 +204,7 @@ Stage B diagnostics 与 Stage C covariance 扩展继续由 Issue #93 跟踪；St
 - 增加 float32/float64 CV、weighted/unweighted、intercept/no-intercept 以及完整 selector consumer 的 regression coverage；新增 Python 3.9 + Torch 2.0 CPU CI gate，避免 optional Torch 缺失时相关回归测试被静默跳过。
 - 在精确数值实现 head `e6e4846b06604ed53e65fc9afd9054bd5777098f` 上完成物理 GPU 验证：Tesla P100-SXM2-16GB、Python 3.9.16、PyTorch 2.0.0+cu117 / CUDA 11.7、CuPy 13.6.0。四个 focused Torch CUDA case 均与 CPU reference 选择相同的 `C=0.2`；最大 mean-loss 差异小于 `6.2e-8`，float64 路径达到机器精度一致。
 - canonical 六类 CV rerun 中，statgpu 的 18 个 NumPy/CuPy/Torch backend row 全部成功，failed candidate/fold 均为 0，最终 refit 全部收敛。`LogisticRegressionCV` 在 NumPy、CuPy、Torch 和 sklearn 上均选择 `C=0.1`；Torch 与 NumPy 的 validation-loss 差异小于 `4.7e-8`。
-- 历史 pre-fix P100 failure source 保持不可变并继续注册；post-fix exact-head source 单独从 `results/pr116_p100/cv_benchmark_pr116_p100.json` 注册，`focused_validation.json` 作为 validation-only 证据保留，不作为 dashboard timing source。
+- 历史 pre-fix P100 failure source 保持不可变并继续注册；post-fix exact-head source 单独从 `results/pr116_p100/cv_benchmark_pr116_p100.json` 注册，`focused_validation.json` 作为 validation-only evidence 保留，不作为 dashboard timing source。
 
 关联：Issue #112 与 pull request #116。
 
