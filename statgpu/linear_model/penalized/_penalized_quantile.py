@@ -81,6 +81,33 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
         )
         self.quantile = quantile
 
+    def _resolved_quantile_loss_kwargs(self) -> dict:
+        """Build effective Quantile kwargs without mutating clone-safe state.
+
+        ``BaseEstimator`` restores public constructor attributes to the exact
+        values supplied to the most-derived wrapper. Consequently
+        ``self.loss_kwargs`` legitimately remains ``None`` when omitted even
+        though this typed wrapper owns a separate ``quantile`` parameter.
+        Numerical resolution must recombine those public controls. An explicit
+        ``loss_kwargs['quantile']`` retains the historical precedence used by
+        this wrapper; otherwise the typed ``quantile`` value is authoritative.
+        """
+        kwargs = {"quantile": float(getattr(self, "quantile", 0.5))}
+        if self.loss_kwargs:
+            kwargs.update(dict(self.loss_kwargs))
+        return kwargs
+
+    def _resolve_loss(self):
+        from statgpu.losses import get_loss
+
+        kwargs = self._resolved_quantile_loss_kwargs()
+        # The shared fit preamble mirrors clone-safe public ``loss_kwargs`` into
+        # ``_loss_kwargs``. Restore the resolved internal kwargs here so every
+        # downstream numerical helper sees the same quantile as the loss object
+        # without changing ``get_params()`` / sklearn-clone constructor state.
+        self._loss_kwargs = dict(kwargs)
+        return get_loss("quantile", **kwargs)
+
     def predict(self, X, return_cpu=True):
         """Predict using fitted model (identity link).
 
