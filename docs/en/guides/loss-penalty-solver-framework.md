@@ -2,7 +2,7 @@
 
 > Language: English
 >
-> Last updated: 2026-09-14
+> Last updated: 2026-09-15
 
 ## Overview
 
@@ -132,10 +132,10 @@ These fields describe **numerical primitives or dispatch capability**. They do n
 | Quantile | `QuantileLoss` | ❌ | ❌ | ✅ | `quantreg::rq()` |
 | Huber | `HuberLoss` | ✅ | ✅ | ❌ | `MASS::rlm()` |
 | Bisquare | `BisquareLoss` | ✅ | ✅ | ✅ | `MASS::rlm(psi="bisquare")` |
-| Fair | `FairLoss` | ✅ | ✅ | ✅ | `MASS::rlm(psi="fair")` |
+| Fair | `FairLoss` | ✅ | ✅ | ✅ | custom psi/reference required; MASS has no built-in Fair psi |
 | Cox PH | `CoxPartialLikelihoodLoss` | ✅ | ✅ | ❌ | `survival::coxph()` |
 
-Huber's current `_supports_irls=False` means public dispatch does not enter a Huber IRLS route. Explicit requests for that route therefore follow the current fail-closed compatibility contract rather than silently switching to another solver.
+Huber's current `_supports_irls=False` means public dispatch does not enter a Huber IRLS route. Explicit requests for that route therefore follow the current fail-closed compatibility contract rather than silently switching to another solver. Fair-loss comparisons likewise require an explicitly matched Fair psi implementation rather than a nonexistent built-in `MASS::rlm(psi="fair")` option.
 
 ### Per-Sample Formulas
 
@@ -170,6 +170,8 @@ The high-level `CoxPH` estimator additionally provides Exact ties, delayed-entry
 | Group MCP | ❌ | ❌ | block proximal | ✅ | · |
 | Group SCAD | ❌ | ❌ | block proximal | ✅ | · |
 
+`AdaptiveL1Penalty` is convex once its data-driven coordinate weights have been prepared. Its `LLA Support` capability does **not** make standalone adaptive L1 a non-convex LLA route; current auto dispatch treats it as a convex sparse penalty after initialization.
+
 ### SCAD Formula
 $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\beta|^2 - 2a\alpha|\beta| + \alpha^2)}{2(a-1)} & \alpha < |\beta| \leq a\alpha \\ \frac{(a+1)\alpha^2}{2} & |\beta| > a\alpha \end{cases}$$
 
@@ -183,19 +185,19 @@ Non-convex penalties (SCAD, MCP) are solved via LLA:
 
 ### Solver Dispatch Table
 
-The main `solver="auto"` dispatch can be summarized as follows:
+The main `solver="auto"` dispatch can be summarized as follows. Public `none` / `null` is canonicalized to `L2(alpha=0)` before this selection, so no-penalty smooth rows follow the L2 branch.
 
 | Priority | Solver | Condition |
 |----------|--------|-----------|
-| 1 | `exact` | squared_error + L2 + NumPy |
-| 2 | `newton` | squared_error + L2 + GPU |
-| 3 | `fista` + LLA | non-convex penalties such as SCAD/MCP/adaptive routes |
-| 4 | quantile-specific FISTA/IRLS paths | quantile loss |
-| 5 | `fista` / `fista_bb` | squared_error/GLM/robust + sparse penalties |
+| 1 | `exact` | squared_error + L2/none + NumPy |
+| 2 | `newton` | squared_error + L2/none + GPU |
+| 3 | `fista` + LLA wrapper | non-convex SCAD/MCP and group non-convex penalties |
+| 4 | `fista` | Quantile `solver="auto"`; explicit Quantile IRLS is a separate supported L2/no-penalty request |
+| 5 | `fista` / `fista_bb` | convex sparse penalties, including adaptive L1 after its initialization; exact choice is loss/backend/CV dependent |
 | 6 | `lbfgs` / `newton` | CV + L2 + loss-specific routing |
 | 7 | `newton` | maintained smooth L2/no-penalty GLM/robust/Cox paths with Hessian support |
 
-The `exact` solver in this table is the closed-form squared-error/L2 solver; it is unrelated to `CoxPH(ties="exact")`.
+The `exact` solver in this table is the closed-form squared-error/L2 solver; it is unrelated to `CoxPH(ties="exact")`. For the exact family/backend-specific sparse dispatch, use the [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md).
 
 ### All Solvers
 
@@ -210,7 +212,7 @@ The `exact` solver in this table is the closed-form squared-error/L2 solver; it 
 | `lbfgs_b` | smooth box-constrained problems | L2 / none | no generic non-uniform-weight contract declared | ❌ |
 | `fista` | losses supporting gradient/proximal routes | supported proximal penalties | loss-dependent | ✅ |
 | `fista_bb` | losses supporting gradient/proximal routes | supported sparse penalties | loss-dependent | ✅ |
-| `fista_lla` | losses supporting the maintained LLA route | SCAD/MCP/adaptive | loss-dependent | ✅ |
+| `fista_lla` | losses supporting the maintained LLA route | SCAD/MCP and group non-convex LLA routes | loss-dependent | ✅ |
 | `proximal_irls_cd` | quantile only | SCAD/MCP | ✅ | ✅ |
 | `proximal_newton` | smooth losses with Hessian support | L2 / none | loss-dependent | ✅ |
 | `admm` | maintained ADMM losses | supported proximal forms | omitted/uniform only; genuine non-uniform weights fail closed | ✅ |
@@ -361,7 +363,7 @@ That Hessian-metric proximal subproblem is not implemented in the current solver
 **FISTA-LLA** (generic non-convex path):
 1. Continuation path: λ_max → target α (3-5 steps)
 2. LLA outer loop (2-5 iterations per step)
-3. The maintained generic composite route uses a weighted-convex FISTA inner solve. A Proximal-Newton inner route should be enabled only if a loss explicitly provides the correct Hessian-metric proximal subproblem. Cox currently remains on FISTA-LLA.
+3. The maintained generic composite route uses a weighted-convex FISTA inner solve. A Proximal-Newton inner route should be enabled only if a loss explicitly provides the correct Hessian-metric proximal subproblem. Cox SCAD/MCP currently remains on FISTA-LLA.
 
 ## 4. Backend Coverage
 
@@ -372,7 +374,7 @@ That Hessian-metric proximal subproblem is not implemented in the current solver
 | FISTA (weighted) | ✅ | ✅ | ✅ |
 | FISTA-BB (weighted) | ✅ | ✅ | ✅ |
 | FISTA-LLA (weighted) | ✅ | ✅ | ✅ |
-| Quantile IRLS (smooth penalty) | ✅ | ✅ | ✅ |
+| Quantile IRLS (explicit smooth-penalty request) | ✅ | ✅ | ✅ |
 | Cox partial likelihood (Breslow/Efron) | ✅ native | ✅ native | ✅ native |
 | CoxPH counting process / strata / Exact | ✅ native | ✅ native | ✅ native |
 | DBSCAN | ✅ | GPU dist + host-sync CC | ✅ on-device |
@@ -383,14 +385,14 @@ That Hessian-metric proximal subproblem is not implemented in the current solver
 These are the public model classes users normally construct and call with `.fit()`; internally they resolve Loss, Penalty, Solver, and Backend objects/policies.
 
 | Class | Loss | Penalties | Main solver routes |
-|-------|------|-----------|---------|
+|-------|------|-----------|--------------------|
 | `PenalizedGeneralizedLinearModel` | any registered loss | registered penalties | auto-dispatched from the full loss × penalty × backend combination, or explicitly selected |
-| `PenalizedLinearRegression` | squared_error | l1/l2/elasticnet/scad/mcp/adaptive_l1 | exact / Newton / FISTA / LLA |
-| `PenalizedLogisticRegression` | logistic | l1/l2/elasticnet/scad/mcp/adaptive_l1 | Newton / FISTA / LLA |
-| `PenalizedPoissonRegression` | poisson | l1/l2/elasticnet/scad/mcp/adaptive_l1 | Newton / FISTA / LLA |
-| `PenalizedQuantileRegression` | quantile | scad/mcp/l2 and related supported penalties | quantile IRLS / Proximal IRLS-CD / FISTA |
-| `PenalizedRobustRegression` | huber/bisquare/fair | l1/l2/elasticnet/scad/mcp and related penalties | Newton / FISTA / FISTA-LLA; maintained IRLS additionally exists for Bisquare/Fair |
-| `PenalizedCoxPHModel` | cox_ph | l1/l2/elasticnet/scad/mcp | FISTA; FISTA-LLA for SCAD/MCP |
+| `PenalizedLinearRegression` | squared_error | l1/l2/elasticnet/scad/mcp/adaptive_l1 | CPU exact / GPU Newton for L2/none; FISTA for convex sparse; FISTA-LLA for SCAD/MCP |
+| `PenalizedLogisticRegression` | logistic | l1/l2/elasticnet/scad/mcp/adaptive_l1 | Newton for L2/none; FISTA-BB for direct convex sparse; FISTA-LLA for SCAD/MCP |
+| `PenalizedPoissonRegression` | poisson | l1/l2/elasticnet/scad/mcp/adaptive_l1 | Newton for L2/none; FISTA-BB for direct convex sparse; FISTA-LLA for SCAD/MCP |
+| `PenalizedQuantileRegression` | quantile | scad/mcp/l2 and related supported penalties | `auto` FISTA for ordinary convex routes; explicit IRLS for L2/none; Proximal IRLS-CD for SCAD/MCP |
+| `PenalizedRobustRegression` | huber/bisquare/fair | l1/l2/elasticnet/scad/mcp and related penalties | Newton for L2/none; FISTA for convex sparse; FISTA-LLA for SCAD/MCP; explicit IRLS additionally exists for Bisquare/Fair |
+| `PenalizedCoxPHModel` | cox_ph | l1/l2/elasticnet/scad/mcp | Newton for L2/none; FISTA-BB for direct L1/ElasticNet; FISTA-LLA for SCAD/MCP |
 
 `PenalizedCoxPHModel` provides penalized Cox coefficient estimation; use `statgpu.survival.CoxPH` when covariance, significance tests, baseline hazard, or survival curves are required.
 
