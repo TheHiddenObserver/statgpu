@@ -18,11 +18,17 @@ import tempfile
 from pathlib import Path
 
 
-RUNNER = Path(__file__).with_name("validate_quantile_solver_provenance_gpu.py")
+REPO_ROOT = Path(__file__).resolve().parents[2]
+RUNNER = Path(__file__).resolve().with_name(
+    "validate_quantile_solver_provenance_gpu.py"
+)
+EXPECTED_SCHEMA_VERSION = 1
 
 
 def _git(*args: str) -> str:
-    return subprocess.check_output(["git", *args], text=True).strip()
+    return subprocess.check_output(
+        ["git", *args], cwd=REPO_ROOT, text=True
+    ).strip()
 
 
 def _require_clean_source() -> str:
@@ -48,6 +54,7 @@ def main() -> int:
         temp_output = Path(temp_dir) / "pr164-gpu.json"
         subprocess.run(
             [sys.executable, str(RUNNER), "--output", str(temp_output)],
+            cwd=REPO_ROOT,
             check=True,
         )
         payload = json.loads(temp_output.read_text(encoding="utf-8"))
@@ -57,6 +64,11 @@ def main() -> int:
         raise RuntimeError(
             "PR164 source HEAD changed during physical validation: "
             f"{source_before} -> {source_after}"
+        )
+    if payload.get("schema_version") != EXPECTED_SCHEMA_VERSION:
+        raise RuntimeError(
+            "PR164 inner-runner schema mismatch: "
+            f"{payload.get('schema_version')!r} != {EXPECTED_SCHEMA_VERSION!r}"
         )
     if payload.get("source_sha") != source_before:
         raise RuntimeError(
@@ -74,9 +86,13 @@ def main() -> int:
     payload["source_sha_after_execution"] = source_after
     payload["source_clean_before"] = True
     payload["source_clean_after_execution"] = True
-    payload["evidence_wrapper"] = str(Path(__file__).as_posix())
+    payload["evidence_wrapper"] = str(
+        Path(__file__).resolve().relative_to(REPO_ROOT).as_posix()
+    )
 
     output = Path(args.output)
+    if not output.is_absolute():
+        output = REPO_ROOT / output
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
         json.dumps(payload, indent=2, sort_keys=True) + "\n",
