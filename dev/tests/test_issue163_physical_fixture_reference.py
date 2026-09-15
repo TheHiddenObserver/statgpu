@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 import numpy as np
 
 from dev.benchmarks import validate_quantile_solver_provenance_gpu as gate
@@ -175,3 +177,73 @@ def test_physical_fixture_direct_cv_scores_match_generic_manual_oracle():
 
     np.testing.assert_allclose(observed, expected, rtol=2e-8, atol=2e-10)
     assert float(np.max(np.abs(observed - median))) > 1e-4
+
+
+def test_physical_fixture_scad_irls_stopping_is_backend_invariant(monkeypatch):
+    """GPU synchronization policy must not change the non-convex SCAD path."""
+    from statgpu.losses import QuantileLoss
+    from statgpu.penalties import SCADPenalty
+    from statgpu.solvers import _proximal_irls_quantile as solver_mod
+
+    X, y, weights, _ = gate._data()
+    n = X.shape[0]
+    residual = y - float(np.quantile(y, gate.Q))
+    psi = np.where(residual >= 0.0, gate.Q, -(1.0 - gate.Q))
+    lambda_max = float(np.max(np.abs(X.T @ psi / n)))
+    alpha_path = np.geomspace(
+        max(lambda_max, gate.SCAD_ALPHA * 1.1), gate.SCAD_ALPHA, 3
+    )
+    max_iter = [100, 100, 220]
+    max_lla_per_step = 16
+
+    loss = QuantileLoss(quantile=gate.Q)
+    penalty = SCADPenalty(alpha=gate.SCAD_ALPHA)
+    coef_np, intercept_np, _ = solver_mod.proximal_irls_quantile_solver(
+        loss,
+        penalty,
+        X,
+        y,
+        alpha_path=alpha_path,
+        max_lla_per_step=max_lla_per_step,
+        lla_tol=1e-6,
+        max_iter=max_iter,
+        tol=1e-6,
+        fit_intercept=True,
+        sample_weight=weights,
+    )
+
+    # Exercise the GPU control-flow branch without requiring CUDA. Historically
+    # this branch checked convergence only every fifth IRLS iteration, which is
+    # enough on this exact fixture to move SCAD to a different local basin.
+    monkeypatch.setattr(solver_mod, "_resolve_backend", lambda _requested, _X: "cupy")
+    monkeypatch.setitem(sys.modules, "cupy", np)
+    coef_gpu_policy, intercept_gpu_policy, _ = (
+        solver_mod.proximal_irls_quantile_solver(
+            loss,
+            penalty,
+            X,
+            y,
+            alpha_path=alpha_path,
+            max_lla_per_step=max_lla_per_step,
+            lla_tol=1e-6,
+            max_iter=max_iter,
+            tol=1e-6,
+            fit_intercept=True,
+            sample_weight=weights,
+        )
+    )
+
+    obj_np = gate._scad_objective(
+        X, y, weights, coef_np, intercept_np, alpha=gate.SCAD_ALPHA
+    )
+    obj_gpu_policy = gate._scad_objective(
+        X,
+        y,
+        weights,
+        coef_gpu_policy,
+        intercept_gpu_policy,
+        alpha=gate.SCAD_ALPHA,
+    )
+    assert abs(obj_gpu_policy - obj_np) <= gate.ATOL_SCAD_OBJECTIVE
+    np.testing.assert_allclose(coef_gpu_policy, coef_np, rtol=0.0, atol=1e-12)
+    assert abs(float(intercept_gpu_policy) - float(intercept_np)) <= 1e-12
