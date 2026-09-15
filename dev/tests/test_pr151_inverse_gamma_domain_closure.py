@@ -296,24 +296,41 @@ def test_ordinary_inverse_gamma_no_intercept_formula_matches_array_route():
     np.testing.assert_allclose(formula.coef_, direct.coef_, rtol=2e-8, atol=2e-10)
 
 
-def test_ordinary_failed_domain_refit_does_not_publish_attempted_provenance():
+@pytest.mark.parametrize("solver", ["newton", "lbfgs"])
+def test_ordinary_failed_domain_refit_invalidates_prior_fit_and_inference(solver):
     X, y, weights = _data(seed=15163, n=40, p=1)
     model = GammaRegression(
-        link="inverse_power", fit_intercept=False, solver="lbfgs",
+        link="inverse_power", fit_intercept=False, solver=solver,
         device="cpu", max_iter=400, tol=1e-9,
+        compute_inference=True, cov_type="hc0",
     ).fit(X, y, sample_weight=weights)
-    prior_solver = model._selected_solver
-    prior_backend = model._selected_backend_name
-    prior_device = model._selected_backend_device
+    assert model._fitted
+    assert model._inference_result is not None
+    assert model._selected_solver == solver
 
     X_bad = np.array([[1.0], [-1.0]], dtype=np.float64)
     y_bad = np.ones(2, dtype=np.float64)
     with pytest.raises(RuntimeError, match="numerically certified smooth-domain start"):
         model.fit(X_bad, y_bad)
 
-    assert model._selected_solver == prior_solver
-    assert model._selected_backend_name == prior_backend
-    assert model._selected_backend_device == prior_device
+    assert not model._fitted
+    assert model.coef_ is None
+    assert model.intercept_ is None
+    assert model._params is None
+    assert model._nobs is None
+    assert model._df_resid is None
+    assert model._loss is None
+    assert model._X_design is None
+    assert model._y_inf is None
+    assert model._sample_weight_inf is None
+    assert model._inference_result is None
+    assert model._bse is None
+    assert model._pvalues is None
+    assert model._conf_int is None
+    assert model._fit_metadata == {}
+    assert model._selected_solver is None
+    assert model._selected_backend_name is None
+    assert model._selected_backend_device is None
 
 
 def test_penalized_domain_failure_invalidates_prior_fit_and_inference():
