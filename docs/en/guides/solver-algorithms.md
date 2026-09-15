@@ -1,7 +1,7 @@
 # Solver Algorithms
 
 > Language: English  
-> Last updated: 2026-09-14  
+> Last updated: 2026-09-15  
 > This page: Algorithm reference  
 > Switch: [Chinese](../../cn/guides/solver-algorithms.md)
 
@@ -1417,20 +1417,27 @@ with estimator-specific intercept treatment applied separately.
 
 ## Solver dispatch
 
-For direct model fitting, `solver="auto"` follows the maintained model-level table. A simplified view is:
+For direct model fitting, `solver="auto"` follows the maintained model-level table. Public `none` / `null` is canonicalized to `L2(alpha=0)` before dispatch, so no-penalty smooth rows follow the L2 branch. A simplified view is:
 
 ```text
 direct fit with solver="auto"
-├── squared_error + L2 + NumPy/CPU → exact
-├── squared_error + L2 + GPU       → Newton
-├── squared_error + sparse penalty → FISTA/FISTA-BB
-├── smooth non-Gaussian GLM + L2   → Newton
-├── SCAD/MCP/adaptive path          → LLA + FISTA-family inner solve
-├── quantile                        → quantile-specific FISTA/IRLS path
-└── group penalty                   → group-aware FISTA / FISTA-LLA
+├── squared_error + L2/none              → CPU exact / GPU Newton
+├── smooth non-Gaussian GLM + L2/none    → Newton
+├── squared_error + convex sparse        → FISTA
+├── gamma / inverse-Gaussian + sparse    → FISTA
+├── logistic / poisson / NB + sparse     → FISTA-BB
+├── tweedie + sparse                     → CPU FISTA-BB / GPU FISTA
+├── SCAD/MCP                             → FISTA-LLA
+├── adaptive L1                          → initialize adaptive weights, then convex sparse FISTA/FISTA-BB policy
+├── quantile ordinary convex penalties   → FISTA
+│   ├── explicit L2/none IRLS remains available when requested
+│   └── SCAD/MCP uses specialized Proximal IRLS-CD
+└── group penalties                      → group-aware FISTA / FISTA-LLA
 ```
 
-`PenalizedGLM_CV` has a related but intentionally separate smooth-L2 policy. In particular, Gamma, Inverse-Gaussian, and Negative-Binomial L2 CV/final-refit routes use L-BFGS, while logistic, Poisson, and Tweedie L2 rows use Newton. Consult the compatibility matrix rather than inferring CV behavior from the direct-fit tree.
+The tree is intentionally a summary. Exact family/backend/problem-size rules—especially Poisson and Negative-Binomial CV sparse routing—are defined in the [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md).
+
+`PenalizedGLM_CV` has a related but intentionally separate smooth-L2 policy. Gamma, Inverse-Gaussian, and Negative-Binomial L2 CV/final-refit routes use L-BFGS, while logistic, Poisson, and Tweedie L2 rows use Newton. Consult the compatibility matrix rather than inferring CV behavior from the direct-fit tree.
 
 `sample_weight` does not change an explicitly requested solver. Unsupported weighted combinations raise instead of selecting a different solver.
 
