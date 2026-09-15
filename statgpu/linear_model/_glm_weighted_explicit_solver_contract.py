@@ -135,6 +135,47 @@ def _canonicalize_smooth_diagnostic_weight_state(self, solver_name) -> None:
     self._sample_weight_inf = _smooth_prepared_weight(self, solver_name)
 
 
+def _invalidate_ordinary_smooth_fit_state(self) -> None:
+    """Fail closed before/after an explicit smooth-GLM fit transaction.
+
+    ``GeneralizedLinearModel.fit`` mutates attempt-local fields such as
+    ``_nobs`` before the solver is entered.  If a later domain/line-search or
+    inference/provenance step raises, retaining the previous successful
+    ``_fitted`` flag would expose a hybrid object containing old coefficients
+    and new-attempt metadata.  Clear all fitted/reporting state owned by this
+    ordinary GLM surface while leaving constructor parameters untouched.
+    """
+
+    self._fitted = False
+    self.coef_ = None
+    self.intercept_ = None
+    self.n_iter_ = None
+    self._nobs = None
+    self._df_resid = None
+    self._params = None
+    self._feature_names = None
+    self._design_info = None
+    self._formula_has_intercept = None
+    self._use_intercept = None
+    self._loss = None
+    self._X_design = None
+    self._y_inf = None
+    self._sample_weight_inf = None
+    self._intercept_idx = None
+    self._fit_metadata = {}
+    self._inference_result = None
+    self._bse = None
+    self._zvalues = None
+    self._pvalues = None
+    self._conf_int = None
+    self._selected_solver = None
+    self._selected_backend_name = None
+    self._selected_backend_device = None
+    self._statgpu_smooth_effective_unweighted = None
+    self._statgpu_smooth_prepared_weight = None
+    self.__dict__.pop("n_features_in_", None)
+
+
 def _penalized_inference_sample_weight(self, sample_weight):
     """Return mean-one weights matching a penalized smooth GLM fit objective."""
     if sample_weight is None:
@@ -397,23 +438,31 @@ def _install_fit_provenance_contract() -> None:
 
     @wraps(current)
     def _fit_with_execution_provenance(self, *args, **kwargs):
-        result = current(self, *args, **kwargs)
         solver_name = _resolved_ordinary_solver(self)
-        if solver_name in ("newton", "lbfgs"):
-            _canonicalize_smooth_diagnostic_weight_state(self, solver_name)
-        else:
-            self._statgpu_smooth_effective_unweighted = None
-            self._statgpu_smooth_prepared_weight = None
-        X_design = getattr(self, "_X_design", None)
-        if X_design is None:
-            raise RuntimeError(
-                "Successful GLM fit did not retain its numerical design for provenance."
-            )
-        backend = _resolve_backend("auto", X_design)
-        self._selected_solver = solver_name
-        self._selected_backend_name = backend
-        self._selected_backend_device = _fit_device_label(X_design, backend)
-        return result
+        is_explicit_smooth = solver_name in ("newton", "lbfgs")
+        if is_explicit_smooth:
+            _invalidate_ordinary_smooth_fit_state(self)
+        try:
+            result = current(self, *args, **kwargs)
+            if is_explicit_smooth:
+                _canonicalize_smooth_diagnostic_weight_state(self, solver_name)
+            else:
+                self._statgpu_smooth_effective_unweighted = None
+                self._statgpu_smooth_prepared_weight = None
+            X_design = getattr(self, "_X_design", None)
+            if X_design is None:
+                raise RuntimeError(
+                    "Successful GLM fit did not retain its numerical design for provenance."
+                )
+            backend = _resolve_backend("auto", X_design)
+            self._selected_solver = solver_name
+            self._selected_backend_name = backend
+            self._selected_backend_device = _fit_device_label(X_design, backend)
+            return result
+        except Exception:
+            if is_explicit_smooth:
+                _invalidate_ordinary_smooth_fit_state(self)
+            raise
 
     setattr(_fit_with_execution_provenance, _FIT_MARKER, True)
     _fit_with_execution_provenance._statgpu_original = current
