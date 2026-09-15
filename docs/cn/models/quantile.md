@@ -1,7 +1,7 @@
 # 分位数回归
 
 > 语言：中文  
-> 最后更新：2026-09-14  
+> 最后更新：2026-09-15  
 > 页面定位：模型文档  
 > 切换：[英文版](../../en/models/quantile.md)
 
@@ -69,23 +69,26 @@ $$
 | 求解器 | 支持 | 说明 |
 |--------|:---:|------|
 | Proximal IRLS-CD | ✅ | 专用 IRLS 上界 + LLA，主要用于 SCAD/MCP；当前维护路径支持相应解析权重 |
-| FISTA | ✅ | 非光滑/近端路径；权重支持以当前维护的 FISTA 路径为准 |
-| FISTA-BB | ✅ | 支持的稀疏路径可用；带权能力由当前损失函数和求解器路径共同决定 |
-| IRLS | ✅ | L2/无惩罚；`QuantileLoss.irls()` 有显式 `sample_weight` 路径 |
-| L-BFGS | ✅（无权重/均匀权重） | 直接使用真正非均匀权重时，当前通用 `LossBase` 路径会明确拒绝 |
+| FISTA | ✅ | **普通凸 Quantile 惩罚下 `solver="auto"` 的默认路径**，包括 L2/无惩罚 |
+| FISTA-BB | ✅ | 可在受支持的稀疏路径上显式选择；Quantile 的 `auto` 不会选择它 |
+| IRLS | ✅ | 显式 L2/无惩罚路径；`QuantileLoss.irls()` 有显式 `sample_weight` 支持 |
+| L-BFGS | ✅（底层无权重/均匀权重边界） | 公开 `PenalizedQuantileRegression` 因 Quantile 没有 Hessian-compatible smooth contract 而拒绝 L-BFGS；通用 `LossBase` 的真正非均匀 direct weighted L-BFGS 也会 fail closed |
 | ADMM | ✅（无权重/均匀权重） | 共享 `admm_solver` 当前拒绝真正非均匀的 `sample_weight` |
 | Newton | ❌ | 分位数损失没有 Hessian |
 | Proximal Newton | ❌ | 分位数损失没有 Hessian |
 
+必须区分 `auto` 与显式 IRLS：`PenalizedQuantileRegression(..., solver="auto")` 因 Quantile 没有 Hessian 而解析到 FISTA；`solver="irls"` 则是 L2/无惩罚 Quantile 的另一条维护中显式路径。
+
 ## 惩罚兼容性
 
 | 惩罚 | `solver="auto"` 的主要路径 | 说明 |
-|---------|---------------|-------|
-| L2 / 无惩罚 | IRLS | 分位数专用 IRLS |
+|---------|----------------------------|-------|
+| L2 / 无惩罚 | FISTA | `none` 会先规范化为 `L2(alpha=0)`；显式 `solver="irls"` 仍然可用 |
 | L1 / ElasticNet | FISTA | 近端/次梯度路径 |
-| SCAD / MCP | Proximal IRLS-CD | IRLS 上界 + LLA |
-| 自适应 L1 | FISTA-LLA | 加权 L1 近端 |
-| 分组惩罚 | FISTA-LLA / 分组路径 | 使用对应分组近端算子 |
+| SCAD / MCP | Proximal IRLS-CD | Quantile 专用 IRLS 上界 + LLA |
+| adaptive_l1 | FISTA | 先准备 adaptive weights，再进入 Quantile FISTA |
+| group_lasso / adaptive group | 分组 FISTA | 面向分组的近端路径 |
+| group_scad / group_mcp | 分组 FISTA-LLA | Group LLA surrogate + group-aware FISTA 内层 |
 
 ## `sample_weight` 语义
 
@@ -99,7 +102,8 @@ $$
 但 `sample_weight` **不是所有求解器自动具备的统一能力**。当前尤其需要区分：
 
 - Quantile IRLS / Proximal IRLS-CD 等维护中的带权路径具有显式带权实现；
-- 通用 `LossBase` 的共享函数值和梯度已经可以计算归一化带权目标；
+- 受支持的 FISTA 路径使用损失层的归一化带权目标；
+- 通用 `LossBase` 的共享函数值和梯度可以计算归一化带权目标；
 - 直接调用 `lbfgs_solver` 时，真正非均匀的分位数权重仍会被明确拒绝；
 - 共享 `admm_solver` 目前只接受未传权重或均匀权重。
 
@@ -131,13 +135,37 @@ print(model._conf_int)
 ```python
 from statgpu.linear_model.penalized import PenalizedQuantileRegression
 
+# 这个 L2 Quantile 问题中，solver="auto" 使用 FISTA。
 model = PenalizedQuantileRegression(
+    quantile=0.5,
+    penalty="l2",
+    alpha=0.1,
+    solver="auto",
+)
+model.fit(X, y)
+
+# SCAD/MCP 使用专用 Proximal IRLS-CD 延续路径。
+scad_model = PenalizedQuantileRegression(
     quantile=0.5,
     penalty="scad",
     alpha=0.1,
 )
-model.fit(X, y)
+scad_model.fit(X, y)
 ```
+
+### 显式 Quantile IRLS
+
+```python
+irls_model = PenalizedQuantileRegression(
+    quantile=0.5,
+    penalty="l2",
+    alpha=0.01,
+    solver="irls",
+)
+irls_model.fit(X, y)
+```
+
+显式 IRLS 只应在维护中的 L2/无惩罚边界使用。ElasticNet 等非光滑惩罚应使用 FISTA 而不是 IRLS；底层 `QuantileLoss.irls()` 的 ElasticNet 契约已单独由 Issue #161 跟踪。
 
 ### GPU（Torch CUDA）
 
@@ -177,12 +205,12 @@ model.fit(X, y, sample_weight=sample_weight)
 
 详细更新公式见 [求解器算法](../guides/solver-algorithms.md#1-proximal-irls-cd)。其核心是把 check loss 的 IRLS 二次上界与 SCAD/MCP 的局部线性近似结合起来。
 
-### IRLS（L2/无惩罚）
+### 显式 IRLS（L2/无惩罚）
 
-令
+IRLS 不是 Quantile 的 `auto` 路径，但在显式指定并使用 L2/无惩罚时仍然可用。令
 
 $$
-r_i=y_i-x_i^\top\beta,
+r_i=y_i-x_i^\top\beta.
 $$
 
 分位数 IRLS 权重为
@@ -219,16 +247,16 @@ L2 路径在左侧加入相应 Ridge 对角项；截距坐标不参与惩罚。�
 | 属性 | 类型 | 说明 |
 |------|------|------|
 | `coef_` | `(p,)` float | 估计系数 |
-| `intercept_` | float | 估计截距 |
+| `intercept_` | float | 截距 |
 | `n_iter_` | int | 迭代次数 |
 | `quantile` | float | 目标分位数 |
 
-## 注意事项
+## 说明
 
-- `score()` 使用 check/pinball 损失，并按照 sklearn “越大越好”的约定返回其负值。
-- `sample_weight` 是否受支持，取决于损失函数、求解器和具体模型路径三者的组合，而不是“所有求解器自动支持”。
-- 显式请求不受支持的带权求解器组合时，应在数值迭代前报错，而不是更换求解器。
-- GPU 设备（`cuda`/`torch`）在维护中的支持路径上不应自动回退到 CPU。
+- `score()` 使用 check/pinball loss，并返回其相反数以符合 sklearn“越大越好”的约定。
+- `sample_weight` 支持是 **loss × solver × estimator** 路径能力，而不是所有 solver 自动拥有的属性。
+- 不支持的显式带权求解器组合应在数值迭代前失败，而不是静默替换成其他 solver。
+- 维护中的 GPU 路径（`cuda`/`torch`）不能静默回退到 CPU。
 
 ## 参考文献
 
