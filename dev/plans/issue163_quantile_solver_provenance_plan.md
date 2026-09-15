@@ -56,6 +56,7 @@ Coverage includes:
 - SCAD/MCP remain dedicated Proximal IRLS-CD and do not report ordinary IRLS;
 - `proximal_irls_cd` cannot be requested explicitly as a public keyword;
 - `PenalizedGLM_CV(loss="quantile")` candidate policy and final refit provenance agree for L2, sparse, and SCAD paths;
+- public `cv_strategy="two_stage"` L1 and SCAD paths complete through the maintained per-fold fallback after incomplete private fast helpers decline;
 - formula routing and installer import-order/signature/idempotence boundaries;
 - weighted and unweighted non-median Quantile CV scores agree with manual pinball loss and differ visibly from the median objective;
 - incomplete private Quantile fast helpers fail safely back to maintained paths.
@@ -78,6 +79,7 @@ Learner pages state current behavior, not Issue/PR tracking status.
 2. Run targeted tests and exact-head hosted CI.
 3. Fresh-review the whole PR diff under `.claude/skills/code-review`.
 4. Fix findings and re-review the new exact head from scratch.
-5. Because the final repair changes the publicly reachable `cv_strategy="two_stage"` Quantile CUDA execution path by routing incomplete private fast helpers back to the maintained per-fold estimator implementation, hosted CI alone is not final acceptance.
-6. Freeze and run `dev/benchmarks/validate_quantile_solver_provenance_gpu.py` on a clean exact source with both CuPy CUDA and Torch CUDA. The physical gate covers direct L2/L1/SCAD solver provenance, non-median weighted L2 CV score parity, and two-stage SCAD CV/final-refit provenance. It makes no timing or universal performance claim.
-7. Only after exact-head hosted CI, fresh review, and the exact-source physical CUDA artifact all pass may PR #164 be marked merge-ready.
+5. Because the final repair changes publicly reachable `cv_strategy="two_stage"` Quantile CUDA execution paths by routing incomplete sparse and non-convex private fast helpers back to the maintained per-fold estimator implementation, hosted CI alone is not final acceptance.
+6. Freeze the schema-v1 matrix in `dev/benchmarks/validate_quantile_solver_provenance_gpu.py`, and publish evidence only through `dev/benchmarks/run_quantile_solver_provenance_gpu_gate.py`. The wrapper requires the same clean HEAD before and after the matrix run, verifies the inner schema/source/status, and writes the artifact only after those checks pass.
+7. Run the exact-source wrapper with both CuPy CUDA and Torch CUDA. The matrix covers direct L2/L1/SCAD solver provenance, full weighted pinball + SCAD penalized-objective parity, non-median weighted L2 CV score/alpha parity, and public two-stage L1/SCAD CV stage-1/strict/final-refit provenance. It makes no timing or universal performance claim.
+8. Only after exact-head hosted CI, fresh review, and the exact-source physical CUDA artifact all pass may PR #164 be marked merge-ready.
