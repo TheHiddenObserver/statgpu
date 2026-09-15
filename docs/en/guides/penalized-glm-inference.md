@@ -53,15 +53,15 @@ penalty_conditioning_ = "fixed_penalty"
 
 For an unpenalized (`alpha=0`) fit, the target is the ordinary unpenalized population coefficient.
 
-The numerical engine uses average-loss scaling. With score contribution `psi_i`, average Hessian `H`, and L2 curvature `P''`, HC0/HC1 covariance has the form
+The numerical engine uses average-loss scaling. With score contribution `psi_i`, average Hessian `H`, and L2 curvature `P''`, HC0/HC1 covariance can be written on an original-observation average scale as
 
 $$
 \widehat{\mathrm{Var}}(\hat\beta)
 =
-(H+P'')^{-1} J (H+P'')^{-1}/n_{\mathrm{eff}},
+(H+P'')^{-1} J (H+P'')^{-1}/n,
 $$
 
-where `J` is the average score outer product under statgpu's analytic-weight convention. `cov_type="nonrobust"` uses the maintained model-based penalized-information covariance.
+where `J` is the average score outer product under the corresponding weight convention and `n` is the original observation count. `cov_type="nonrobust"` uses model-based penalized-information covariance. The weighted Newton/L-BFGS routes described below explicitly place analytic weights on this original-observation scale before covariance evaluation; other solver routes retain their existing solver-specific weighting contract.
 
 Supported covariance choices for this non-Gaussian path are:
 
@@ -75,7 +75,25 @@ HC2, HC3, and HAC are not implemented for penalized non-Gaussian M-estimation an
 
 Analytic weights are supported by the non-Gaussian L2 M-estimation covariance path. The numerical inference follows the backend/device that actually executed the fit.
 
-The maintained Newton solver applies non-uniform analytic weights to the **same normalized average-loss objective at every Newton stage**: objective value, gradient, Hessian (or fused gradient/Hessian), and Armijo trial evaluation all use `sum_i w_i contribution_i / sum_i w_i`. Multiplying every weight by a positive constant therefore leaves the fitted penalized optimum unchanged. Floating-point vectors that satisfy the historical uniform-weight `allclose` rule retain the established unweighted-equivalent path.
+For explicit `solver="newton"` or `solver="lbfgs"`—and for public `solver="auto"` rows that resolve to one of those solvers—the maintained smooth GLM path applies non-uniform analytic weights to the **same normalized average-loss objective throughout the solve**. Objective value, gradient, Hessian where applicable, line-search trial evaluation, and accepted-point derivatives all use
+
+$$
+\frac{\sum_i w_i\,\ell_i(\beta)}{\sum_i w_i}.
+$$
+
+On these Newton/L-BFGS routes, analytic weights describe **relative observation importance**, not replicated frequency counts. The successful solve retains the actual prepared relative-weight vector used by the numerical objective. Before M-estimation covariance is computed, the same vector is rescaled to an equivalent mean-one representation,
+
+$$
+\widetilde w_i
+=
+\frac{n w_i}{\sum_j w_j},
+\qquad
+\sum_i \widetilde w_i=n.
+$$
+
+This common rescaling does not change the weighted Hessian. For HC0/HC1, `J` uses the same prepared analytic-weight identity; for `nonrobust`, model-based information and dispersion use the mean-one representation. Consequently, on the maintained weighted Newton/L-BFGS M-estimation path, multiplying every analytic weight by any positive constant leaves the fitted parameters, standard errors, test statistics, p-values, and confidence intervals unchanged up to numerical solver tolerance. Positive constant weights reduce to the same inference problem as omitted weights. This is intentionally different from a frequency-weight interpretation in which multiplying all counts would assert a larger replicated sample.
+
+Floating-point vectors that satisfy the historical effectively-uniform rule retain the established unweighted-equivalent Newton/L-BFGS path. Solver routes outside this explicit smooth contract keep their existing weighting semantics rather than being silently reinterpreted here.
 
 With public `solver="auto"`, weighted smooth non-Gaussian L2/no-penalty fits use the same canonical solver-dispatch table as their unweighted counterparts. Applicable logistic/Poisson rows resolve to backend-native Newton while the public solver request remains `auto`.
 

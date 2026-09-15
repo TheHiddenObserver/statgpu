@@ -24,17 +24,126 @@ from statgpu.backends._array_ops import (
     _dot_dev,
     _norm2_dev,
     _sync_scalars,
-    _zeros,
 )
 
 from ._convergence import ConvergenceWarning
+from ._smooth_domain import (
+    _LossDomainError,
+    _domain_feasible,
+    _domain_max_step,
+    _floating_eps,
+    _initial_smooth_params,
+    _prepare_analytic_sample_weight,
+)
 from ._utils import (
     _smooth_penalty_gradient,
     _smooth_penalty_value_dev,
-    _validate_uniform_sample_weight,
-    _as_backend_vector,
     _validate_smooth_penalty,
 )
+
+
+def _prepare_lbfgs_sample_weight(sample_weight, n_samples, backend, ref_arr, loss):
+    """Prepare analytic weights and enforce the L-BFGS capability gate."""
+    values = _prepare_analytic_sample_weight(
+        sample_weight, n_samples, backend, ref_arr
+    )
+    if values is None:
+        return None
+    if not bool(getattr(loss, "_supports_nonuniform_lbfgs_weights", False)):
+        raise ValueError(
+            "lbfgs_solver does not support non-uniform sample_weight for "
+            f"loss='{getattr(loss, 'name', '?')}'."
+        )
+    return values
+
+
+def _call_loss_with_weight(fn, *args, sample_weight=None):
+    """Call one loss primitive with analytic weights when they are active."""
+    if sample_weight is None:
+        return fn(*args)
+    return fn(*args, sample_weight=sample_weight)
+
+
+def _domain_step_or_raise(loss, X, params, direction, tol, sample_weight, backend):
+    """Return the loss-owned cap and fail when no material domain step remains."""
+    domain_cap = _domain_max_step(
+        loss,
+        X,
+        params,
+        direction,
+        sample_weight=sample_weight,
+    )
+    if domain_cap is None:
+        return None
+    direction_norm_dev = _norm2_dev(direction)
+    (direction_norm,) = _sync_scalars(direction_norm_dev, backend=backend)
+    if domain_cap * direction_norm <= tol:
+        raise _LossDomainError(
+            f"loss='{getattr(loss, 'name', '?')}' is pinned to the "
+            "maintained smooth-domain boundary before gradient convergence."
+        )
+    return domain_cap
+
+
+def _armijo_domain_search(
+    loss,
+    penalty,
+    X,
+    y,
+    params,
+    direction,
+    old_val_dev,
+    gdd,
+    domain_cap,
+    *,
+    sample_weight,
+    objective_roundoff,
+    direction_norm,
+    parameter_tol,
+):
+    """Run one Armijo search, with a bounded floating-point resolution rule.
+
+    The exact Armijo condition remains authoritative whenever its requested
+    decrease is numerically resolvable. A roundoff-limited trial may be accepted
+    only when both the requested decrease is below the objective's floating-
+    point resolution and the actual parameter displacement is below the solver
+    tolerance. The candidate objective must also be non-increasing up to that
+    same roundoff scale. This prevents a large bad direction with tiny
+    directional derivative from being mislabeled as numerical convergence.
+    """
+    step = min(1.0, domain_cap) if domain_cap is not None else 1.0
+    evaluated_domain_trial = False
+    rejected_by_domain = False
+    for _ in range(25):
+        candidate = params + step * direction
+        if not _domain_feasible(
+            loss, X, candidate, sample_weight=sample_weight
+        ):
+            rejected_by_domain = True
+            step *= 0.5
+            continue
+        evaluated_domain_trial = True
+        cand_val_dev, _ = _call_loss_with_weight(
+            loss.fused_value_and_gradient,
+            X,
+            y,
+            candidate,
+            sample_weight=sample_weight,
+        )
+        cand_val_dev = cand_val_dev + _smooth_penalty_value_dev(penalty, candidate)
+        if _device_leq(cand_val_dev, old_val_dev + 1e-4 * step * gdd):
+            return candidate, True, step, evaluated_domain_trial, rejected_by_domain
+
+        required_decrease = max(0.0, -1e-4 * step * gdd)
+        parameter_displacement = step * direction_norm
+        if (
+            required_decrease <= objective_roundoff
+            and parameter_displacement <= parameter_tol
+            and _device_leq(cand_val_dev, old_val_dev + objective_roundoff)
+        ):
+            return candidate, True, step, evaluated_domain_trial, rejected_by_domain
+        step *= 0.5
+    return params, False, step, evaluated_domain_trial, rejected_by_domain
 
 
 def lbfgs_solver(
@@ -51,66 +160,61 @@ def lbfgs_solver(
     """Limited-memory BFGS for smooth objectives.
 
     Works with any loss that implements ``fused_value_and_gradient(X, y, coef)``
-    returning ``(value, gradient)``.  Supports numpy / cupy / torch backends
+    returning ``(value, gradient)``. Supports numpy / cupy / torch backends
     via auto-detection of *X*.
 
-    Parameters
-    ----------
-    loss : object
-        Loss with ``fused_value_and_gradient(X, y, coef)`` and
-        ``preprocess(X, y)`` methods.
-    penalty : object or None
-        Smooth penalty (l2 or none).
-    X, y : array-like
-        Design matrix and response vector.
-    max_iter : int
-        Maximum number of L-BFGS iterations.
-    tol : float
-        Convergence tolerance on gradient norm and step norm.
-    init_coef : array-like or None
-        Initial coefficient vector.  Zeros if *None*.
-    history_size : int
-        Number of past (s, y) pairs to store.
-    sample_weight : array-like or None
-        Sample weights.  Must be uniform (all equal) for this solver.
+    Genuine non-uniform ``sample_weight`` is supported only when the loss
+    explicitly opts into the shared weighted-L-BFGS contract. Maintained GLM
+    losses do so and evaluate value, gradient, line-search candidates, and the
+    accepted iterate under one normalized objective
+    ``sum_i w_i * contribution_i / sum_i w_i``. Generic non-GLM losses remain
+    fail-closed unless they independently declare the same capability.
 
-    Returns
-    -------
-    params : array
-        Optimised coefficient vector.
-    n_iter : int
-        Number of iterations performed.
+    Uniform weights are normalized away using the historical uniformity rule,
+    preserving the established unweighted objective. Losses may additionally
+    expose private ``_loss_domain_*`` hooks; L-BFGS then validates/generates an
+    interior start and caps Armijo using the final post-fallback search
+    direction without evaluating infeasible candidates. If a quasi-Newton
+    direction exhausts Armijo inside a maintained domain, the solver retries
+    once with steepest descent and a freshly computed domain cap; failure of
+    that recovery path is a hard domain error rather than a publishable fit.
     """
     _validate_smooth_penalty(penalty, "lbfgs_solver")
     backend = _resolve_backend("auto", X)
     X_proc, y_proc = loss.preprocess(X, y)
     n_features = X_proc.shape[1]
-    _validate_uniform_sample_weight(sample_weight, X_proc.shape[0], "lbfgs_solver")
+    sample_weight = _prepare_lbfgs_sample_weight(
+        sample_weight, X_proc.shape[0], backend, X_proc, loss
+    )
 
-    if init_coef is not None:
-        params = _as_backend_vector(init_coef, backend, X_proc)
-    else:
-        params = _zeros(n_features, backend, ref_tensor=X_proc)
+    params = _initial_smooth_params(
+        loss,
+        X_proc,
+        y_proc,
+        backend=backend,
+        n_features=n_features,
+        init_coef=init_coef,
+        sample_weight=sample_weight,
+    )
 
     s_hist = []
     y_hist = []
     rho_hist = []
 
-    # Initial gradient (fused to avoid redundant X@coef)
-    _init_val_dev, grad = loss.fused_value_and_gradient(X_proc, y_proc, params)
+    _init_val_dev, grad = _call_loss_with_weight(
+        loss.fused_value_and_gradient,
+        X_proc,
+        y_proc,
+        params,
+        sample_weight=sample_weight,
+    )
     grad = grad + _smooth_penalty_gradient(penalty, params)
 
-    if backend == "torch":
-        import torch
-        tol_dev = torch.tensor(tol, dtype=torch.float64, device=params.device)
-    else:
-        tol_dev = tol
-    iteration = -1  # default if max_iter=0
+    iteration = -1
 
     for iteration in range(max_iter):
         grad_norm_dev = _norm2_dev(grad)
 
-        # Two-loop recursion -- all dot products stay on device
         q = _copy_arr(grad)
         alphas = []
         for s_vec, y_vec, rho in reversed(list(zip(s_hist, y_hist, rho_hist))):
@@ -135,32 +239,120 @@ def lbfgs_solver(
         direction = -r
         gdd_dev = _dot_dev(grad, direction)
 
-        # Batch sync: grad_norm + grad_dot_dir
         gn, gdd = _sync_scalars(grad_norm_dev, gdd_dev, backend=backend)
         if gn < tol:
             break
-        if gdd >= 0:
+        if gdd >= 0 or not np.isfinite(gdd):
             direction = -grad
-            gdd = -gn * gn  # grad'(-grad) = -||grad||^2
+            gdd = -gn * gn
 
-        # Line search -- stays on device
-        old_val_dev, _ = loss.fused_value_and_gradient(X_proc, y_proc, params)
+        direction_norm_dev = _norm2_dev(direction)
+        (direction_norm,) = _sync_scalars(direction_norm_dev, backend=backend)
+
+        domain_cap = _domain_step_or_raise(
+            loss,
+            X_proc,
+            params,
+            direction,
+            tol,
+            sample_weight,
+            backend,
+        )
+
+        old_val_dev, _ = _call_loss_with_weight(
+            loss.fused_value_and_gradient,
+            X_proc,
+            y_proc,
+            params,
+            sample_weight=sample_weight,
+        )
         old_val_dev = old_val_dev + _smooth_penalty_value_dev(penalty, params)
+        (old_val,) = _sync_scalars(old_val_dev, backend=backend)
+        objective_roundoff = (
+            64.0 * _floating_eps(old_val_dev) * max(1.0, abs(old_val))
+        )
 
-        step = 1.0
-        params_new = params
-        _ls_accepted = False
-        for _ in range(25):
-            candidate = params + step * direction
-            cand_val_dev, _ = loss.fused_value_and_gradient(X_proc, y_proc, candidate)
-            cand_val_dev = cand_val_dev + _smooth_penalty_value_dev(penalty, candidate)
-            # Device-side comparison -- single sync for the bool
-            if _device_leq(cand_val_dev, old_val_dev + 1e-4 * step * gdd):
-                params_new = candidate
-                _ls_accepted = True
-                break
-            step *= 0.5
+        (
+            params_new,
+            _ls_accepted,
+            step,
+            evaluated_domain_trial,
+            rejected_by_domain,
+        ) = _armijo_domain_search(
+            loss,
+            penalty,
+            X_proc,
+            y_proc,
+            params,
+            direction,
+            old_val_dev,
+            gdd,
+            domain_cap,
+            sample_weight=sample_weight,
+            objective_roundoff=objective_roundoff,
+            direction_norm=direction_norm,
+            parameter_tol=tol,
+        )
+
+        if not _ls_accepted and domain_cap is not None:
+            # A maintained loss domain is a fail-closed path. Before declaring
+            # non-convergence, discard quasi-Newton history for this step and
+            # retry the mathematically valid steepest-descent direction with a
+            # newly computed cap. This salvages recoverable curvature-history
+            # failures without publishing an unverified boundary iterate.
+            direction = -grad
+            gdd = -gn * gn
+            direction_norm = gn
+            domain_cap = _domain_step_or_raise(
+                loss,
+                X_proc,
+                params,
+                direction,
+                tol,
+                sample_weight,
+                backend,
+            )
+            (
+                params_new,
+                _ls_accepted,
+                step,
+                fallback_evaluated,
+                fallback_rejected,
+            ) = _armijo_domain_search(
+                loss,
+                penalty,
+                X_proc,
+                y_proc,
+                params,
+                direction,
+                old_val_dev,
+                gdd,
+                domain_cap,
+                sample_weight=sample_weight,
+                objective_roundoff=objective_roundoff,
+                direction_norm=direction_norm,
+                parameter_tol=tol,
+            )
+            evaluated_domain_trial = evaluated_domain_trial or fallback_evaluated
+            rejected_by_domain = rejected_by_domain or fallback_rejected
+            if not _ls_accepted:
+                if rejected_by_domain and not evaluated_domain_trial:
+                    raise _LossDomainError(
+                        "lbfgs_solver could not evaluate a numerically interior "
+                        "trial step for the maintained loss domain."
+                    )
+                raise _LossDomainError(
+                    "lbfgs_solver Armijo line search failed inside the maintained "
+                    "loss domain before gradient convergence."
+                )
+
         if not _ls_accepted:
+            if rejected_by_domain and not evaluated_domain_trial:
+                raise _LossDomainError(
+                    "lbfgs_solver could not evaluate a numerically interior "
+                    "trial step for the maintained loss domain."
+                )
+
             warnings.warn(
                 "lbfgs_solver: line search failed to find a descent step "
                 f"after 25 backtracking steps (iteration {iteration}). "
@@ -168,9 +360,15 @@ def lbfgs_solver(
                 RuntimeWarning,
                 stacklevel=2,
             )
+            break
 
-        # Update gradient (fused)
-        _, grad_new = loss.fused_value_and_gradient(X_proc, y_proc, params_new)
+        _, grad_new = _call_loss_with_weight(
+            loss.fused_value_and_gradient,
+            X_proc,
+            y_proc,
+            params_new,
+            sample_weight=sample_weight,
+        )
         grad_new = grad_new + _smooth_penalty_gradient(penalty, params_new)
 
         s_vec = params_new - params
@@ -178,7 +376,6 @@ def lbfgs_solver(
         ys_dev = _dot_dev(y_vec, s_vec)
         s_norm_dev = _norm2_dev(s_vec)
 
-        # Batch sync: ys + s_norm
         ys, s_norm = _sync_scalars(ys_dev, s_norm_dev, backend=backend)
         if ys > 1e-12:
             s_hist.append(s_vec)
@@ -192,7 +389,14 @@ def lbfgs_solver(
         params = params_new
         grad = grad_new
         if s_norm < tol:
-            break
+            if domain_cap is None:
+                break
+            grad_new_norm_dev = _norm2_dev(grad_new)
+            (grad_new_norm,) = _sync_scalars(
+                grad_new_norm_dev, backend=backend
+            )
+            if grad_new_norm < tol:
+                break
 
     n_iter = iteration + 1
     if n_iter >= max_iter:

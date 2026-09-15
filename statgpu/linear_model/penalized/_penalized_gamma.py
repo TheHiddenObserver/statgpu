@@ -28,7 +28,10 @@ class PenalizedGammaRegression(PenalizedGeneralizedLinearModel):
     link : str, default='log'
         Link function: 'log' or 'inverse_power'.
     loss_kwargs : dict, optional
-        Additional keyword arguments for the loss constructor.
+        Additional keyword arguments for the loss constructor.  For backward
+        compatibility, an explicit ``loss_kwargs['link']`` takes precedence
+        over the typed ``link`` argument; otherwise ``link`` supplies the
+        Gamma link.
     """
 
     def __init__(
@@ -84,3 +87,29 @@ class PenalizedGammaRegression(PenalizedGeneralizedLinearModel):
             lla_tol=lla_tol,
             loss_kwargs=_loss_kwargs,
         )
+
+    def _resolved_gamma_loss_kwargs(self) -> dict:
+        """Build internal Gamma kwargs without mutating clone-safe public state.
+
+        ``BaseEstimator`` restores constructor attributes to the exact objects
+        supplied to the most-derived public constructor.  Consequently
+        ``self.loss_kwargs`` legitimately remains ``None`` when omitted even
+        though this typed wrapper also owns a separate ``link`` parameter.
+        Numerical resolution recombines those two public controls while
+        preserving the wrapper's historical precedence: an explicit link in
+        ``loss_kwargs`` wins, otherwise the typed ``link`` value is used.
+        """
+        kwargs = dict(self.loss_kwargs) if self.loss_kwargs else {}
+        kwargs.setdefault("link", getattr(self, "link", "log"))
+        return kwargs
+
+    def _resolve_loss(self):
+        from statgpu.glm_core import get_glm_loss
+
+        kwargs = self._resolved_gamma_loss_kwargs()
+        # ``_pre_fit`` initially mirrors the clone-safe public ``loss_kwargs``
+        # into ``_loss_kwargs``. Restore the resolved internal kwargs here so
+        # downstream fit helpers see the same link as the loss object without
+        # mutating public constructor state.
+        self._loss_kwargs = dict(kwargs)
+        return get_glm_loss("gamma", **kwargs)

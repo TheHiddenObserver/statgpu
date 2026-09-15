@@ -1,0 +1,1459 @@
+{
+  "cross_container_cases": {
+    "lbfgs/cupy_to_torch": {
+      "errors_vs_numpy": {
+        "coef": 5.551115123125783e-17,
+        "intercept": 2.7755575615628914e-17
+      },
+      "snapshot": {
+        "backend": "torch",
+        "coef": [
+          2.1780359786948096,
+          -0.7188382384907737,
+          -0.2426551453467982
+        ],
+        "design_backend": "torch",
+        "device": "cuda:0",
+        "intercept": 0.12659262132391155,
+        "n_iter": 16,
+        "selected_solver": "lbfgs",
+        "weight_backend": "torch"
+      }
+    },
+    "lbfgs/torch_to_cupy": {
+      "errors_vs_numpy": {
+        "coef": 5.551115123125783e-17,
+        "intercept": 2.7755575615628914e-17
+      },
+      "snapshot": {
+        "backend": "cupy",
+        "coef": [
+          2.1780359786948096,
+          -0.7188382384907737,
+          -0.2426551453467982
+        ],
+        "design_backend": "cupy",
+        "device": "cuda:0",
+        "intercept": 0.12659262132391155,
+        "n_iter": 16,
+        "selected_solver": "lbfgs",
+        "weight_backend": "cupy"
+      }
+    },
+    "newton/cupy_to_torch": {
+      "errors_vs_numpy": {
+        "coef": 1.1102230246251565e-16,
+        "intercept": 2.7755575615628914e-17
+      },
+      "snapshot": {
+        "backend": "torch",
+        "coef": [
+          2.1780358318182187,
+          -0.7188379672625976,
+          -0.24265521984537722
+        ],
+        "design_backend": "torch",
+        "device": "cuda:0",
+        "intercept": 0.12659256574551758,
+        "n_iter": 4,
+        "selected_solver": "newton",
+        "weight_backend": "torch"
+      }
+    },
+    "newton/torch_to_cupy": {
+      "errors_vs_numpy": {
+        "coef": 1.1102230246251565e-16,
+        "intercept": 5.551115123125783e-17
+      },
+      "snapshot": {
+        "backend": "cupy",
+        "coef": [
+          2.1780358318182187,
+          -0.7188379672625974,
+          -0.24265521984537733
+        ],
+        "design_backend": "cupy",
+        "device": "cuda:0",
+        "intercept": 0.12659256574551755,
+        "n_iter": 4,
+        "selected_solver": "newton",
+        "weight_backend": "cupy"
+      }
+    }
+  },
+  "data_contract": {
+    "n_features": 3,
+    "n_samples": 128,
+    "seed": 150001,
+    "solver_tol": 1e-08,
+    "weight_pattern": "linspace(0.55,1.65), every 17th row zero"
+  },
+  "environment": {
+    "cuda_device_ordinal": 0,
+    "cupy": "13.6.0",
+    "cupy_device_name": "Tesla P100-SXM2-16GB",
+    "numpy": "1.24.2",
+    "platform": "Linux-3.10.0-1062.el7.x86_64-x86_64-with-glibc2.31",
+    "python": "3.9.16",
+    "torch": "2.0.0+cu117",
+    "torch_device_name": "Tesla P100-SXM2-16GB"
+  },
+  "ordinary_cases": {
+    "binomial/lbfgs": {
+      "cupy": {
+        "errors_vs_numpy": {
+          "coef": 5.551115123125783e-17,
+          "intercept": 2.7755575615628914e-17
+        },
+        "errors_weight_rescale": {
+          "coef": 4.440892098500626e-16,
+          "intercept": 2.7755575615628914e-17
+        },
+        "snapshot": {
+          "backend": "cupy",
+          "coef": [
+            2.1780359786948096,
+            -0.7188382384907737,
+            -0.2426551453467982
+          ],
+          "design_backend": "cupy",
+          "device": "cuda:0",
+          "intercept": 0.12659262132391155,
+          "n_iter": 16,
+          "selected_solver": "lbfgs",
+          "weight_backend": "cupy"
+        }
+      },
+      "numpy": {
+        "snapshot": {
+          "backend": "numpy",
+          "coef": [
+            2.1780359786948096,
+            -0.7188382384907737,
+            -0.24265514534679813
+          ],
+          "design_backend": "numpy",
+          "device": "cpu",
+          "intercept": 0.12659262132391152,
+          "n_iter": 16,
+          "selected_solver": "lbfgs",
+          "weight_backend": "numpy"
+        }
+      },
+      "torch": {
+        "errors_vs_numpy": {
+          "coef": 5.551115123125783e-17,
+          "intercept": 2.7755575615628914e-17
+        },
+        "errors_weight_rescale": {
+          "coef": 2.220446049250313e-16,
+          "intercept": 2.7755575615628914e-17
+        },
+        "snapshot": {
+          "backend": "torch",
+          "coef": [
+            2.1780359786948096,
+            -0.7188382384907737,
+            -0.2426551453467982
+          ],
+          "design_backend": "torch",
+          "device": "cuda:0",
+          "intercept": 0.12659262132391155,
+          "n_iter": 16,
+          "selected_solver": "lbfgs",
+          "weight_backend": "torch"
+        }
+      }
+    },
+    "binomial/newton": {
+      "cupy": {
+        "errors_vs_numpy": {
+          "coef": 1.1102230246251565e-16,
+          "intercept": 5.551115123125783e-17
+        },
+        "errors_weight_rescale": {
+          "coef": 4.440892098500626e-16,
+          "intercept": 2.7755575615628914e-17
+        },
+        "snapshot": {
+          "backend": "cupy",
+          "coef": [
+            2.1780358318182187,
+            -0.7188379672625974,
+            -0.24265521984537733
+          ],
+          "design_backend": "cupy",
+          "device": "cuda:0",
+          "intercept": 0.12659256574551755,
+          "n_iter": 4,
+          "selected_solver": "newton",
+          "weight_backend": "cupy"
+        }
+      },
+      "numpy": {
+        "snapshot": {
+          "backend": "numpy",
+          "coef": [
+            2.1780358318182187,
+            -0.7188379672625975,
+            -0.24265521984537722
+          ],
+          "design_backend": "numpy",
+          "device": "cpu",
+          "intercept": 0.1265925657455176,
+          "n_iter": 4,
+          "selected_solver": "newton",
+          "weight_backend": "numpy"
+        }
+      },
+      "torch": {
+        "errors_vs_numpy": {
+          "coef": 1.1102230246251565e-16,
+          "intercept": 2.7755575615628914e-17
+        },
+        "errors_weight_rescale": {
+          "coef": 4.440892098500626e-16,
+          "intercept": 5.551115123125783e-17
+        },
+        "snapshot": {
+          "backend": "torch",
+          "coef": [
+            2.1780358318182187,
+            -0.7188379672625976,
+            -0.24265521984537722
+          ],
+          "design_backend": "torch",
+          "device": "cuda:0",
+          "intercept": 0.12659256574551758,
+          "n_iter": 4,
+          "selected_solver": "newton",
+          "weight_backend": "torch"
+        }
+      }
+    },
+    "gamma_inverse/lbfgs": {
+      "cupy": {
+        "errors_vs_numpy": {
+          "coef": 7.979727989493313e-17,
+          "intercept": 0.0
+        },
+        "errors_weight_rescale": {
+          "coef": 6.245004513516506e-17,
+          "intercept": 0.0
+        },
+        "snapshot": {
+          "backend": "cupy",
+          "coef": [
+            0.10393009129979142,
+            -0.035342027492209896,
+            0.021969453745860564
+          ],
+          "design_backend": "cupy",
+          "device": "cuda:0",
+          "intercept": 0.9981092272454628,
+          "n_iter": 13,
+          "selected_solver": "lbfgs",
+          "weight_backend": "cupy"
+        }
+      },
+      "numpy": {
+        "snapshot": {
+          "backend": "numpy",
+          "coef": [
+            0.10393009129979146,
+            -0.035342027492209944,
+            0.021969453745860644
+          ],
+          "design_backend": "numpy",
+          "device": "cpu",
+          "intercept": 0.9981092272454628,
+          "n_iter": 13,
+          "selected_solver": "lbfgs",
+          "weight_backend": "numpy"
+        }
+      },
+      "torch": {
+        "errors_vs_numpy": {
+          "coef": 4.85722573273506e-17,
+          "intercept": 0.0
+        },
+        "errors_weight_rescale": {
+          "coef": 6.938893903907228e-17,
+          "intercept": 0.0
+        },
+        "snapshot": {
+          "backend": "torch",
+          "coef": [
+            0.10393009129979146,
+            -0.035342027492209896,
+            0.02196945374586064
+          ],
+          "design_backend": "torch",
+          "device": "cuda:0",
+          "intercept": 0.9981092272454628,
+          "n_iter": 13,
+          "selected_solver": "lbfgs",
+          "weight_backend": "torch"
+        }
+      }
+    },
+    "gamma_inverse/newton": {
+      "cupy": {
+        "errors_vs_numpy": {
+          "coef": 4.163336342344337e-17,
+          "intercept": 0.0
+        },
+        "errors_weight_rescale": {
+          "coef": 5.551115123125783e-17,
+          "intercept": 0.0
+        },
+        "snapshot": {
+          "backend": "cupy",
+          "coef": [
+            0.10393010683981052,
+            -0.03534203762717241,
+            0.021969470115267307
+          ],
+          "design_backend": "cupy",
+          "device": "cuda:0",
+          "intercept": 0.9981092196547223,
+          "n_iter": 4,
+          "selected_solver": "newton",
+          "weight_backend": "cupy"
+        }
+      },
+      "numpy": {
+        "snapshot": {
+          "backend": "numpy",
+          "coef": [
+            0.10393010683981048,
+            -0.03534203762717243,
+            0.021969470115267283
+          ],
+          "design_backend": "numpy",
+          "device": "cpu",
+          "intercept": 0.9981092196547223,
+          "n_iter": 4,
+          "selected_solver": "newton",
+          "weight_backend": "numpy"
+        }
+      },
+      "torch": {
+        "errors_vs_numpy": {
+          "coef": 4.85722573273506e-17,
+          "intercept": 0.0
+        },
+        "errors_weight_rescale": {
+          "coef": 2.7755575615628914e-17,
+          "intercept": 0.0
+        },
+        "snapshot": {
+          "backend": "torch",
+          "coef": [
+            0.1039301068398105,
+            -0.03534203762717238,
+            0.02196947011526729
+          ],
+          "design_backend": "torch",
+          "device": "cuda:0",
+          "intercept": 0.9981092196547223,
+          "n_iter": 4,
+          "selected_solver": "newton",
+          "weight_backend": "torch"
+        }
+      }
+    },
+    "gamma_log/lbfgs": {
+      "cupy": {
+        "errors_vs_numpy": {
+          "coef": 6.938893903907228e-18,
+          "intercept": 0.0
+        },
+        "errors_weight_rescale": {
+          "coef": 0.0,
+          "intercept": 0.0
+        },
+        "snapshot": {
+          "backend": "cupy",
+          "coef": [
+            0.24381590833032976,
+            -0.0842854983287746,
+            0.04777079763063197
+          ],
+          "design_backend": "cupy",
+          "device": "cuda:0",
+          "intercept": 0.20312743991307028,
+          "n_iter": 18,
+          "selected_solver": "lbfgs",
+          "weight_backend": "cupy"
+        }
+      },
+      "numpy": {
+        "snapshot": {
+          "backend": "numpy",
+          "coef": [
+            0.24381590833032976,
+            -0.0842854983287746,
+            0.047770797630631974
+          ],
+          "design_backend": "numpy",
+          "device": "cpu",
+          "intercept": 0.20312743991307028,
+          "n_iter": 18,
+          "selected_solver": "lbfgs",
+          "weight_backend": "numpy"
+        }
+      },
+      "torch": {
+        "errors_vs_numpy": {
+          "coef": 4.85722573273506e-17,
+          "intercept": 0.0
+        },
+        "errors_weight_rescale": {
+          "coef": 3.469446951953614e-17,
+          "intercept": 0.0
+        },
+        "snapshot": {
+          "backend": "torch",
+          "coef": [
+            0.24381590833032973,
+            -0.0842854983287746,
+            0.047770797630631925
+          ],
+          "design_backend": "torch",
+          "device": "cuda:0",
+          "intercept": 0.20312743991307028,
+          "n_iter": 18,
+          "selected_solver": "lbfgs",
+          "weight_backend": "torch"
+        }
+      }
+    },
+    "gamma_log/newton": {
+      "cupy": {
+        "errors_vs_numpy": {
+          "coef": 6.938893903907228e-17,
+          "intercept": 0.0
+        },
+        "errors_weight_rescale": {
+          "coef": 2.7755575615628914e-17,
+          "intercept": 0.0
+        },
+        "snapshot": {
+          "backend": "cupy",
+          "coef": [
+            0.2438159699311882,
+            -0.08428552846821367,
+            0.04777080218887303
+          ],
+          "design_backend": "cupy",
+          "device": "cuda:0",
+          "intercept": 0.2031274363806343,
+          "n_iter": 5,
+          "selected_solver": "newton",
+          "weight_backend": "cupy"
+        }
+      },
+      "numpy": {
+        "snapshot": {
+          "backend": "numpy",
+          "coef": [
+            0.24381596993118826,
+            -0.08428552846821366,
+            0.0477708021888731
+          ],
+          "design_backend": "numpy",
+          "device": "cpu",
+          "intercept": 0.2031274363806343,
+          "n_iter": 5,
+          "selected_solver": "newton",
+          "weight_backend": "numpy"
+        }
+      },
+      "torch": {
+        "errors_vs_numpy": {
+          "coef": 5.551115123125783e-17,
+          "intercept": 0.0
+        },
+        "errors_weight_rescale": {
+          "coef": 2.7755575615628914e-17,
+          "intercept": 0.0
+        },
+        "snapshot": {
+          "backend": "torch",
+          "coef": [
+            0.2438159699311882,
+            -0.08428552846821369,
+            0.04777080218887304
+          ],
+          "design_backend": "torch",
+          "device": "cuda:0",
+          "intercept": 0.2031274363806343,
+          "n_iter": 5,
+          "selected_solver": "newton",
+          "weight_backend": "torch"
+        }
+      }
+    },
+    "gaussian/lbfgs": {
+      "cupy": {
+        "errors_vs_numpy": {
+          "coef": 6.938893903907228e-18,
+          "intercept": 0.0
+        },
+        "errors_weight_rescale": {
+          "coef": 6.938893903907228e-18,
+          "intercept": 0.0
+        },
+        "snapshot": {
+          "backend": "cupy",
+          "coef": [
+            0.15114713979863445,
+            -0.036207989649740424,
+            0.06162863064202753
+          ],
+          "design_backend": "cupy",
+          "device": "cuda:0",
+          "intercept": 0.20256626605629435,
+          "n_iter": 9,
+          "selected_solver": "lbfgs",
+          "weight_backend": "cupy"
+        }
+      },
+      "numpy": {
+        "snapshot": {
+          "backend": "numpy",
+          "coef": [
+            0.15114713979863445,
+            -0.03620798964974043,
+            0.06162863064202754
+          ],
+          "design_backend": "numpy",
+          "device": "cpu",
+          "intercept": 0.20256626605629435,
+          "n_iter": 9,
+          "selected_solver": "lbfgs",
+          "weight_backend": "numpy"
+        }
+      },
+      "torch": {
+        "errors_vs_numpy": {
+          "coef": 6.938893903907228e-18,
+          "intercept": 0.0
+        },
+        "errors_weight_rescale": {
+          "coef": 0.0,
+          "intercept": 0.0
+        },
+        "snapshot": {
+          "backend": "torch",
+          "coef": [
+            0.15114713979863445,
+            -0.036207989649740424,
+            0.06162863064202754
+          ],
+          "design_backend": "torch",
+          "device": "cuda:0",
+          "intercept": 0.20256626605629435,
+          "n_iter": 9,
+          "selected_solver": "lbfgs",
+          "weight_backend": "torch"
+        }
+      }
+    },
+    "gaussian/newton": {
+      "cupy": {
+        "errors_vs_numpy": {
+          "coef": 7.632783294297951e-17,
+          "intercept": 0.0
+        },
+        "errors_weight_rescale": {
+          "coef": 1.6653345369377348e-16,
+          "intercept": 0.0
+        },
+        "snapshot": {
+          "backend": "cupy",
+          "coef": [
+            0.1511471258197642,
+            -0.03620797576678741,
+            0.061628619967412396
+          ],
+          "design_backend": "cupy",
+          "device": "cuda:0",
+          "intercept": 0.20256626697085542,
+          "n_iter": 2,
+          "selected_solver": "newton",
+          "weight_backend": "cupy"
+        }
+      },
+      "numpy": {
+        "snapshot": {
+          "backend": "numpy",
+          "coef": [
+            0.15114712581976417,
+            -0.03620797576678737,
+            0.06162861996741247
+          ],
+          "design_backend": "numpy",
+          "device": "cpu",
+          "intercept": 0.20256626697085542,
+          "n_iter": 2,
+          "selected_solver": "newton",
+          "weight_backend": "numpy"
+        }
+      },
+      "torch": {
+        "errors_vs_numpy": {
+          "coef": 6.938893903907228e-17,
+          "intercept": 2.7755575615628914e-17
+        },
+        "errors_weight_rescale": {
+          "coef": 1.942890293094024e-16,
+          "intercept": 0.0
+        },
+        "snapshot": {
+          "backend": "torch",
+          "coef": [
+            0.15114712581976417,
+            -0.0362079757667874,
+            0.0616286199674124
+          ],
+          "design_backend": "torch",
+          "device": "cuda:0",
+          "intercept": 0.20256626697085545,
+          "n_iter": 2,
+          "selected_solver": "newton",
+          "weight_backend": "torch"
+        }
+      }
+    },
+    "inverse_gaussian/lbfgs": {
+      "cupy": {
+        "errors_vs_numpy": {
+          "coef": 4.163336342344337e-17,
+          "intercept": 2.7755575615628914e-17
+        },
+        "errors_weight_rescale": {
+          "coef": 2.7755575615628914e-17,
+          "intercept": 0.0
+        },
+        "snapshot": {
+          "backend": "cupy",
+          "coef": [
+            0.16423840045566993,
+            -0.11911513126342572,
+            0.07595960372521637
+          ],
+          "design_backend": "cupy",
+          "device": "cuda:0",
+          "intercept": 0.19754343994192083,
+          "n_iter": 19,
+          "selected_solver": "lbfgs",
+          "weight_backend": "cupy"
+        }
+      },
+      "numpy": {
+        "snapshot": {
+          "backend": "numpy",
+          "coef": [
+            0.16423840045566993,
+            -0.11911513126342568,
+            0.07595960372521642
+          ],
+          "design_backend": "numpy",
+          "device": "cpu",
+          "intercept": 0.19754343994192086,
+          "n_iter": 19,
+          "selected_solver": "lbfgs",
+          "weight_backend": "numpy"
+        }
+      },
+      "torch": {
+        "errors_vs_numpy": {
+          "coef": 4.163336342344337e-17,
+          "intercept": 2.7755575615628914e-17
+        },
+        "errors_weight_rescale": {
+          "coef": 1.3877787807814457e-17,
+          "intercept": 0.0
+        },
+        "snapshot": {
+          "backend": "torch",
+          "coef": [
+            0.16423840045566993,
+            -0.11911513126342572,
+            0.07595960372521637
+          ],
+          "design_backend": "torch",
+          "device": "cuda:0",
+          "intercept": 0.19754343994192083,
+          "n_iter": 19,
+          "selected_solver": "lbfgs",
+          "weight_backend": "torch"
+        }
+      }
+    },
+    "inverse_gaussian/newton": {
+      "cupy": {
+        "errors_vs_numpy": {
+          "coef": 5.551115123125783e-17,
+          "intercept": 5.551115123125783e-17
+        },
+        "errors_weight_rescale": {
+          "coef": 2.7755575615628914e-17,
+          "intercept": 0.0
+        },
+        "snapshot": {
+          "backend": "cupy",
+          "coef": [
+            0.16423842176864611,
+            -0.11911514803963441,
+            0.07595962066615468
+          ],
+          "design_backend": "cupy",
+          "device": "cuda:0",
+          "intercept": 0.1975434415941603,
+          "n_iter": 6,
+          "selected_solver": "newton",
+          "weight_backend": "cupy"
+        }
+      },
+      "numpy": {
+        "snapshot": {
+          "backend": "numpy",
+          "coef": [
+            0.16423842176864606,
+            -0.1191151480396344,
+            0.07595962066615465
+          ],
+          "design_backend": "numpy",
+          "device": "cpu",
+          "intercept": 0.19754344159416035,
+          "n_iter": 6,
+          "selected_solver": "newton",
+          "weight_backend": "numpy"
+        }
+      },
+      "torch": {
+        "errors_vs_numpy": {
+          "coef": 5.551115123125783e-17,
+          "intercept": 5.551115123125783e-17
+        },
+        "errors_weight_rescale": {
+          "coef": 2.7755575615628914e-17,
+          "intercept": 0.0
+        },
+        "snapshot": {
+          "backend": "torch",
+          "coef": [
+            0.16423842176864611,
+            -0.11911514803963441,
+            0.07595962066615465
+          ],
+          "design_backend": "torch",
+          "device": "cuda:0",
+          "intercept": 0.1975434415941603,
+          "n_iter": 6,
+          "selected_solver": "newton",
+          "weight_backend": "torch"
+        }
+      }
+    },
+    "negative_binomial/lbfgs": {
+      "cupy": {
+        "errors_vs_numpy": {
+          "coef": 1.6653345369377348e-16,
+          "intercept": 0.0
+        },
+        "errors_weight_rescale": {
+          "coef": 1.1102230246251565e-16,
+          "intercept": 0.0
+        },
+        "snapshot": {
+          "backend": "cupy",
+          "coef": [
+            0.28363582364809414,
+            -0.7948989278681571,
+            -0.22093217254916264
+          ],
+          "design_backend": "cupy",
+          "device": "cuda:0",
+          "intercept": 0.25578037915074203,
+          "n_iter": 18,
+          "selected_solver": "lbfgs",
+          "weight_backend": "cupy"
+        }
+      },
+      "numpy": {
+        "snapshot": {
+          "backend": "numpy",
+          "coef": [
+            0.2836358236480943,
+            -0.794898927868157,
+            -0.22093217254916278
+          ],
+          "design_backend": "numpy",
+          "device": "cpu",
+          "intercept": 0.25578037915074203,
+          "n_iter": 18,
+          "selected_solver": "lbfgs",
+          "weight_backend": "numpy"
+        }
+      },
+      "torch": {
+        "errors_vs_numpy": {
+          "coef": 1.1102230246251565e-16,
+          "intercept": 0.0
+        },
+        "errors_weight_rescale": {
+          "coef": 8.326672684688674e-17,
+          "intercept": 0.0
+        },
+        "snapshot": {
+          "backend": "torch",
+          "coef": [
+            0.2836358236480943,
+            -0.7948989278681571,
+            -0.2209321725491627
+          ],
+          "design_backend": "torch",
+          "device": "cuda:0",
+          "intercept": 0.25578037915074203,
+          "n_iter": 18,
+          "selected_solver": "lbfgs",
+          "weight_backend": "torch"
+        }
+      }
+    },
+    "negative_binomial/newton": {
+      "cupy": {
+        "errors_vs_numpy": {
+          "coef": 1.1102230246251565e-16,
+          "intercept": 5.551115123125783e-17
+        },
+        "errors_weight_rescale": {
+          "coef": 1.6653345369377348e-16,
+          "intercept": 5.551115123125783e-17
+        },
+        "snapshot": {
+          "backend": "cupy",
+          "coef": [
+            0.2836358724426603,
+            -0.7948989724261191,
+            -0.22093208965407385
+          ],
+          "design_backend": "cupy",
+          "device": "cuda:0",
+          "intercept": 0.25578038148649074,
+          "n_iter": 9,
+          "selected_solver": "newton",
+          "weight_backend": "cupy"
+        }
+      },
+      "numpy": {
+        "snapshot": {
+          "backend": "numpy",
+          "coef": [
+            0.2836358724426602,
+            -0.794898972426119,
+            -0.22093208965407396
+          ],
+          "design_backend": "numpy",
+          "device": "cpu",
+          "intercept": 0.2557803814864907,
+          "n_iter": 9,
+          "selected_solver": "newton",
+          "weight_backend": "numpy"
+        }
+      },
+      "torch": {
+        "errors_vs_numpy": {
+          "coef": 1.1102230246251565e-16,
+          "intercept": 0.0
+        },
+        "errors_weight_rescale": {
+          "coef": 1.1102230246251565e-16,
+          "intercept": 5.551115123125783e-17
+        },
+        "snapshot": {
+          "backend": "torch",
+          "coef": [
+            0.2836358724426602,
+            -0.7948989724261191,
+            -0.22093208965407396
+          ],
+          "design_backend": "torch",
+          "device": "cuda:0",
+          "intercept": 0.2557803814864907,
+          "n_iter": 9,
+          "selected_solver": "newton",
+          "weight_backend": "torch"
+        }
+      }
+    },
+    "poisson/lbfgs": {
+      "cupy": {
+        "errors_vs_numpy": {
+          "coef": 5.551115123125783e-17,
+          "intercept": 3.469446951953614e-18
+        },
+        "errors_weight_rescale": {
+          "coef": 6.938893903907228e-17,
+          "intercept": 1.734723475976807e-17
+        },
+        "snapshot": {
+          "backend": "cupy",
+          "coef": [
+            0.10903723407817366,
+            0.19846683857498132,
+            0.31455451771653126
+          ],
+          "design_backend": "cupy",
+          "device": "cuda:0",
+          "intercept": 0.019025110145397116,
+          "n_iter": 16,
+          "selected_solver": "lbfgs",
+          "weight_backend": "cupy"
+        }
+      },
+      "numpy": {
+        "snapshot": {
+          "backend": "numpy",
+          "coef": [
+            0.1090372340781737,
+            0.1984668385749813,
+            0.3145545177165312
+          ],
+          "design_backend": "numpy",
+          "device": "cpu",
+          "intercept": 0.019025110145397112,
+          "n_iter": 16,
+          "selected_solver": "lbfgs",
+          "weight_backend": "numpy"
+        }
+      },
+      "torch": {
+        "errors_vs_numpy": {
+          "coef": 5.551115123125783e-17,
+          "intercept": 6.938893903907228e-18
+        },
+        "errors_weight_rescale": {
+          "coef": 1.1102230246251565e-16,
+          "intercept": 3.122502256758253e-17
+        },
+        "snapshot": {
+          "backend": "torch",
+          "coef": [
+            0.10903723407817367,
+            0.19846683857498124,
+            0.31455451771653126
+          ],
+          "design_backend": "torch",
+          "device": "cuda:0",
+          "intercept": 0.019025110145397105,
+          "n_iter": 16,
+          "selected_solver": "lbfgs",
+          "weight_backend": "torch"
+        }
+      }
+    },
+    "poisson/newton": {
+      "cupy": {
+        "errors_vs_numpy": {
+          "coef": 1.1102230246251565e-16,
+          "intercept": 1.3877787807814457e-17
+        },
+        "errors_weight_rescale": {
+          "coef": 1.5265566588595902e-16,
+          "intercept": 1.734723475976807e-17
+        },
+        "snapshot": {
+          "backend": "cupy",
+          "coef": [
+            0.10903723057942415,
+            0.19846682259777332,
+            0.3145545446870768
+          ],
+          "design_backend": "cupy",
+          "device": "cuda:0",
+          "intercept": 0.01902510639423854,
+          "n_iter": 4,
+          "selected_solver": "newton",
+          "weight_backend": "cupy"
+        }
+      },
+      "numpy": {
+        "snapshot": {
+          "backend": "numpy",
+          "coef": [
+            0.10903723057942404,
+            0.19846682259777323,
+            0.3145545446870768
+          ],
+          "design_backend": "numpy",
+          "device": "cpu",
+          "intercept": 0.019025106394238555,
+          "n_iter": 4,
+          "selected_solver": "newton",
+          "weight_backend": "numpy"
+        }
+      },
+      "torch": {
+        "errors_vs_numpy": {
+          "coef": 5.551115123125783e-17,
+          "intercept": 1.734723475976807e-17
+        },
+        "errors_weight_rescale": {
+          "coef": 1.1102230246251565e-16,
+          "intercept": 1.3877787807814457e-17
+        },
+        "snapshot": {
+          "backend": "torch",
+          "coef": [
+            0.10903723057942402,
+            0.1984668225977733,
+            0.3145545446870768
+          ],
+          "design_backend": "torch",
+          "device": "cuda:0",
+          "intercept": 0.019025106394238572,
+          "n_iter": 4,
+          "selected_solver": "newton",
+          "weight_backend": "torch"
+        }
+      }
+    },
+    "tweedie/lbfgs": {
+      "cupy": {
+        "errors_vs_numpy": {
+          "coef": 2.7755575615628914e-17,
+          "intercept": 2.7755575615628914e-17
+        },
+        "errors_weight_rescale": {
+          "coef": 2.7755575615628914e-17,
+          "intercept": 0.0
+        },
+        "snapshot": {
+          "backend": "cupy",
+          "coef": [
+            0.15645630602691638,
+            -0.24284000757872065,
+            0.15439790072856655
+          ],
+          "design_backend": "cupy",
+          "device": "cuda:0",
+          "intercept": 0.206079748790713,
+          "n_iter": 18,
+          "selected_solver": "lbfgs",
+          "weight_backend": "cupy"
+        }
+      },
+      "numpy": {
+        "snapshot": {
+          "backend": "numpy",
+          "coef": [
+            0.1564563060269164,
+            -0.24284000757872065,
+            0.15439790072856655
+          ],
+          "design_backend": "numpy",
+          "device": "cpu",
+          "intercept": 0.20607974879071303,
+          "n_iter": 18,
+          "selected_solver": "lbfgs",
+          "weight_backend": "numpy"
+        }
+      },
+      "torch": {
+        "errors_vs_numpy": {
+          "coef": 5.551115123125783e-17,
+          "intercept": 2.7755575615628914e-17
+        },
+        "errors_weight_rescale": {
+          "coef": 2.7755575615628914e-17,
+          "intercept": 0.0
+        },
+        "snapshot": {
+          "backend": "torch",
+          "coef": [
+            0.15645630602691635,
+            -0.24284000757872065,
+            0.15439790072856655
+          ],
+          "design_backend": "torch",
+          "device": "cuda:0",
+          "intercept": 0.206079748790713,
+          "n_iter": 18,
+          "selected_solver": "lbfgs",
+          "weight_backend": "torch"
+        }
+      }
+    },
+    "tweedie/newton": {
+      "cupy": {
+        "errors_vs_numpy": {
+          "coef": 8.326672684688674e-17,
+          "intercept": 2.7755575615628914e-17
+        },
+        "errors_weight_rescale": {
+          "coef": 2.7755575615628914e-17,
+          "intercept": 0.0
+        },
+        "snapshot": {
+          "backend": "cupy",
+          "coef": [
+            0.1564562759885119,
+            -0.24284001766705318,
+            0.15439793826064765
+          ],
+          "design_backend": "cupy",
+          "device": "cuda:0",
+          "intercept": 0.20607974991725186,
+          "n_iter": 3,
+          "selected_solver": "newton",
+          "weight_backend": "cupy"
+        }
+      },
+      "numpy": {
+        "snapshot": {
+          "backend": "numpy",
+          "coef": [
+            0.15645627598851186,
+            -0.2428400176670531,
+            0.15439793826064763
+          ],
+          "design_backend": "numpy",
+          "device": "cpu",
+          "intercept": 0.2060797499172519,
+          "n_iter": 3,
+          "selected_solver": "newton",
+          "weight_backend": "numpy"
+        }
+      },
+      "torch": {
+        "errors_vs_numpy": {
+          "coef": 5.551115123125783e-17,
+          "intercept": 0.0
+        },
+        "errors_weight_rescale": {
+          "coef": 5.551115123125783e-17,
+          "intercept": 2.7755575615628914e-17
+        },
+        "snapshot": {
+          "backend": "torch",
+          "coef": [
+            0.15645627598851186,
+            -0.24284001766705315,
+            0.15439793826064765
+          ],
+          "design_backend": "torch",
+          "device": "cuda:0",
+          "intercept": 0.2060797499172519,
+          "n_iter": 3,
+          "selected_solver": "newton",
+          "weight_backend": "torch"
+        }
+      }
+    }
+  },
+  "schema_version": 3,
+  "shared_consumers": {
+    "gamma": {
+      "cupy": {
+        "cv": {
+          "backend": "cupy",
+          "coef": [
+            0.1547946402023723,
+            -0.05413256477055196,
+            0.042919790089777275
+          ],
+          "device": "cuda:0",
+          "errors_vs_numpy": {
+            "coef": 3.469446951953614e-17,
+            "intercept": 2.7755575615628914e-17
+          },
+          "intercept": 0.20290667035651505,
+          "selected_alpha": 0.03,
+          "selected_alpha_matches_numpy": true,
+          "selected_solver": "lbfgs"
+        },
+        "penalized": {
+          "backend": "cupy",
+          "coef": [
+            0.1547946402023723,
+            -0.05413256477055196,
+            0.042919790089777275
+          ],
+          "device": "cuda:0",
+          "errors_vs_numpy": {
+            "coef": 3.469446951953614e-17,
+            "intercept": 2.7755575615628914e-17
+          },
+          "intercept": 0.20290667035651505,
+          "selected_solver": "lbfgs"
+        }
+      },
+      "numpy": {
+        "cv": {
+          "backend": "numpy",
+          "coef": [
+            0.15479464020237232,
+            -0.05413256477055196,
+            0.04291979008977731
+          ],
+          "device": "cpu",
+          "intercept": 0.20290667035651502,
+          "selected_alpha": 0.03,
+          "selected_solver": "lbfgs"
+        },
+        "penalized": {
+          "backend": "numpy",
+          "coef": [
+            0.15479464020237232,
+            -0.05413256477055196,
+            0.04291979008977731
+          ],
+          "device": "cpu",
+          "intercept": 0.20290667035651502,
+          "selected_solver": "lbfgs"
+        }
+      },
+      "torch": {
+        "cv": {
+          "backend": "torch",
+          "coef": [
+            0.15479464020237232,
+            -0.05413256477055197,
+            0.04291979008977729
+          ],
+          "device": "cuda:0",
+          "errors_vs_numpy": {
+            "coef": 2.0816681711721685e-17,
+            "intercept": 2.7755575615628914e-17
+          },
+          "intercept": 0.20290667035651505,
+          "selected_alpha": 0.03,
+          "selected_alpha_matches_numpy": true,
+          "selected_solver": "lbfgs"
+        },
+        "penalized": {
+          "backend": "torch",
+          "coef": [
+            0.15479464020237232,
+            -0.05413256477055197,
+            0.04291979008977729
+          ],
+          "device": "cuda:0",
+          "errors_vs_numpy": {
+            "coef": 2.0816681711721685e-17,
+            "intercept": 2.7755575615628914e-17
+          },
+          "intercept": 0.20290667035651505,
+          "selected_solver": "lbfgs"
+        }
+      }
+    },
+    "inverse_gaussian": {
+      "cupy": {
+        "cv": {
+          "backend": "cupy",
+          "coef": [
+            0.09855442510122144,
+            -0.07050253494160755,
+            0.035549287469243275
+          ],
+          "device": "cuda:0",
+          "errors_vs_numpy": {
+            "coef": 2.7755575615628914e-17,
+            "intercept": 2.7755575615628914e-17
+          },
+          "intercept": 0.2019526020496156,
+          "selected_alpha": 0.03,
+          "selected_alpha_matches_numpy": true,
+          "selected_solver": "lbfgs"
+        },
+        "penalized": {
+          "backend": "cupy",
+          "coef": [
+            0.09855442510122144,
+            -0.07050253494160755,
+            0.035549287469243275
+          ],
+          "device": "cuda:0",
+          "errors_vs_numpy": {
+            "coef": 2.7755575615628914e-17,
+            "intercept": 2.7755575615628914e-17
+          },
+          "intercept": 0.2019526020496156,
+          "selected_solver": "lbfgs"
+        }
+      },
+      "numpy": {
+        "cv": {
+          "backend": "numpy",
+          "coef": [
+            0.09855442510122142,
+            -0.07050253494160752,
+            0.035549287469243275
+          ],
+          "device": "cpu",
+          "intercept": 0.20195260204961563,
+          "selected_alpha": 0.03,
+          "selected_solver": "lbfgs"
+        },
+        "penalized": {
+          "backend": "numpy",
+          "coef": [
+            0.09855442510122142,
+            -0.07050253494160752,
+            0.035549287469243275
+          ],
+          "device": "cpu",
+          "intercept": 0.20195260204961563,
+          "selected_solver": "lbfgs"
+        }
+      },
+      "torch": {
+        "cv": {
+          "backend": "torch",
+          "coef": [
+            0.09855442510122144,
+            -0.07050253494160755,
+            0.035549287469243275
+          ],
+          "device": "cuda:0",
+          "errors_vs_numpy": {
+            "coef": 2.7755575615628914e-17,
+            "intercept": 2.7755575615628914e-17
+          },
+          "intercept": 0.2019526020496156,
+          "selected_alpha": 0.03,
+          "selected_alpha_matches_numpy": true,
+          "selected_solver": "lbfgs"
+        },
+        "penalized": {
+          "backend": "torch",
+          "coef": [
+            0.09855442510122144,
+            -0.07050253494160755,
+            0.035549287469243275
+          ],
+          "device": "cuda:0",
+          "errors_vs_numpy": {
+            "coef": 2.7755575615628914e-17,
+            "intercept": 2.7755575615628914e-17
+          },
+          "intercept": 0.2019526020496156,
+          "selected_solver": "lbfgs"
+        }
+      }
+    },
+    "negative_binomial": {
+      "cupy": {
+        "cv": {
+          "backend": "cupy",
+          "coef": [
+            0.17038938532234624,
+            -0.44503093185630493,
+            -0.10212450925224566
+          ],
+          "device": "cuda:0",
+          "errors_vs_numpy": {
+            "coef": 6.938893903907228e-17,
+            "intercept": 5.551115123125783e-17
+          },
+          "intercept": 0.27728193140823315,
+          "selected_alpha": 0.03,
+          "selected_alpha_matches_numpy": true,
+          "selected_solver": "lbfgs"
+        },
+        "penalized": {
+          "backend": "cupy",
+          "coef": [
+            0.17038938532234624,
+            -0.44503093185630493,
+            -0.10212450925224566
+          ],
+          "device": "cuda:0",
+          "errors_vs_numpy": {
+            "coef": 6.938893903907228e-17,
+            "intercept": 5.551115123125783e-17
+          },
+          "intercept": 0.27728193140823315,
+          "selected_solver": "lbfgs"
+        }
+      },
+      "numpy": {
+        "cv": {
+          "backend": "numpy",
+          "coef": [
+            0.1703893853223462,
+            -0.4450309318563049,
+            -0.10212450925224559
+          ],
+          "device": "cpu",
+          "intercept": 0.2772819314082332,
+          "selected_alpha": 0.03,
+          "selected_solver": "lbfgs"
+        },
+        "penalized": {
+          "backend": "numpy",
+          "coef": [
+            0.1703893853223462,
+            -0.4450309318563049,
+            -0.10212450925224559
+          ],
+          "device": "cpu",
+          "intercept": 0.2772819314082332,
+          "selected_solver": "lbfgs"
+        }
+      },
+      "torch": {
+        "cv": {
+          "backend": "torch",
+          "coef": [
+            0.17038938532234618,
+            -0.4450309318563049,
+            -0.10212450925224566
+          ],
+          "device": "cuda:0",
+          "errors_vs_numpy": {
+            "coef": 6.938893903907228e-17,
+            "intercept": 5.551115123125783e-17
+          },
+          "intercept": 0.27728193140823315,
+          "selected_alpha": 0.03,
+          "selected_alpha_matches_numpy": true,
+          "selected_solver": "lbfgs"
+        },
+        "penalized": {
+          "backend": "torch",
+          "coef": [
+            0.17038938532234618,
+            -0.4450309318563049,
+            -0.10212450925224566
+          ],
+          "device": "cuda:0",
+          "errors_vs_numpy": {
+            "coef": 6.938893903907228e-17,
+            "intercept": 5.551115123125783e-17
+          },
+          "intercept": 0.27728193140823315,
+          "selected_solver": "lbfgs"
+        }
+      }
+    }
+  },
+  "source_clean": true,
+  "source_sha": "c6781cb6a2e1fe500f325e832d23cdc80a99b564",
+  "status": "success",
+  "tolerances": {
+    "coef_max_abs": 2e-05,
+    "intercept_abs": 2e-05,
+    "weight_rescale_max_abs": 2e-06
+  },
+  "warning_gate": {
+    "convergence_warning": "error",
+    "lbfgs_line_search_failure": "error"
+  }
+}

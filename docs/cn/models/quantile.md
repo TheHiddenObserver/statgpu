@@ -1,67 +1,113 @@
 # 分位数回归
 
 > 语言：中文  
-> 最后更新：2026-07-01  
+> 最后更新：2026-09-15  
 > 页面定位：模型文档  
-> 切换：[English](../../en/models/quantile.md)
+> 切换：[英文版](../../en/models/quantile.md)
 
 ## 概述
 
-`QuantileLoss` 实现 quantile 回归的 pinball（check）损失。`PenalizedQuantileRegression` 封装了最多 10 种惩罚和 8 种求解器，包括专门针对 SCAD/MCP 的 Proximal IRLS-CD 求解器。
+`QuantileLoss` 实现分位数回归的 **check loss（又称 pinball loss）**。这两个名称指的是同一个非对称绝对损失，而不是两种不同的损失函数。`PenalizedQuantileRegression` 在此基础上提供带惩罚估计，并包含针对 SCAD/MCP 的 Proximal IRLS-CD 路径。
 
 | 组件 | 路径 |
 |------|------|
-| 损失 | `statgpu.losses.QuantileLoss` |
+| 损失函数 | `statgpu.losses.QuantileLoss` |
 | 独立模型 | `statgpu.linear_model.QuantileRegression` |
-| 惩罚模型 | `statgpu.linear_model.penalized.PenalizedQuantileRegression` |
+| 带惩罚模型 | `statgpu.linear_model.penalized.PenalizedQuantileRegression` |
 | 专用求解器 | `statgpu.solvers._proximal_irls_quantile.proximal_irls_quantile_solver` |
-| R 等价 | `quantreg::rq()` |
+| R 中的对应方法 | `quantreg::rq()` |
 
 ## 目标函数
 
-Pinball 损失，在分位数 τ ∈ (0, 1) 处：
+在分位数 $\tau\in(0,1)$ 处，check / pinball 损失定义为
 
 $$
-\ell(\eta, y) = \rho_\tau(y - \eta), \quad \rho_\tau(u) = u \cdot (\tau - \mathbf{1}\{u < 0\})
+\ell(\eta,y)=\rho_\tau(y-\eta),
+\qquad
+\rho_\tau(u)=u\left(\tau-\mathbf 1\{u<0\}\right).
 $$
 
-逐样本梯度（subgradient，在 u=0 处）：
+等价地，
 
 $$
-\frac{\partial \ell}{\partial \eta} = -\tau + \mathbf{1}\{y - \eta < 0\}
+\rho_\tau(u)=
+\begin{cases}
+\tau u, & u\ge 0,\\
+(\tau-1)u, & u<0.
+\end{cases}
 $$
 
-关键属性：梯度是阶梯函数，不随残差大小变化。因此 `has_hessian = False`、`smooth_gradient = False`。
+它对正残差和负残差使用不同的线性斜率，因此最优解对应条件 $\tau$ 分位数。其折线形状是 “pinball” 名称的来源；“check loss” 是分位数回归文献中的传统名称。
+
+当 $\tau=0.5$ 时，
+
+$$
+\rho_{0.5}(u)=\frac12|u|,
+$$
+
+因此中位数回归与最小绝对偏差只差一个不影响最优解的常数比例。
+
+逐样本次梯度为
+
+$$
+\frac{\partial\ell}{\partial\eta}
+=-\tau+\mathbf 1\{y-\eta<0\},
+$$
+
+在残差为 0 的折点处使用次梯度解释。梯度是阶梯函数，因此 `has_hessian=False`、`smooth_gradient=False`。
 
 ## 参数
 
 | 参数 | 默认值 | 说明 |
 |---|---:|---|
-| `quantile` | `0.5` | 目标分位数，取值范围 (0, 1)。τ=0.5 为中位数回归。 |
-
-无尺度参数；quantile 回归是尺度无关的。
+| `quantile` | `0.5` | 目标分位数，取值范围 `(0,1)`；`0.5` 为中位数回归 |
 
 ## 求解器兼容性
 
+下面的“支持”首先描述无权重时的算法能力。传入 `sample_weight` 后，还必须满足对应损失函数与求解器的带权支持约定；不能从无权重支持直接推出任意非均匀权重也受支持。
+
 | 求解器 | 支持 | 说明 |
 |--------|:---:|------|
-| Proximal IRLS-CD | ✅ | 专用：IRLS 上界 + LLA 处理 SCAD/MCP。大规模 ~49x GPU 加速。 |
-| FISTA | ✅ | 非光滑惩罚（L1、SCAD、MCP）和非凸 group 惩罚。 |
-| IRLS | ✅ | 光滑惩罚（L2、none）。使用 Frisch-Newton 算法（匹配 statsmodels QuantReg）。 |
-| L-BFGS | ✅ | 光滑惩罚，中低维度。 |
-| ADMM | ✅ | 所有惩罚的替代方案。 |
-| Newton | ❌ | Quantile 无 Hessian。 |
-| Proximal Newton | ❌ | Quantile 无 Hessian。 |
+| Proximal IRLS-CD | ✅ | 专用 IRLS 上界 + LLA，主要用于 SCAD/MCP；当前维护路径支持相应解析权重 |
+| FISTA | ✅ | **普通凸 Quantile 惩罚下 `solver="auto"` 的默认路径**，包括 L2/无惩罚 |
+| FISTA-BB | ✅ | 可在受支持的稀疏路径上显式选择；Quantile 的 `auto` 不会选择它 |
+| IRLS | ✅ | 显式 L2/无惩罚路径；`QuantileLoss.irls()` 有显式 `sample_weight` 支持 |
+| L-BFGS | ✅（底层无权重/均匀权重边界） | 公开 `PenalizedQuantileRegression` 因 Quantile 没有 Hessian-compatible smooth contract 而拒绝 L-BFGS；通用 `LossBase` 的真正非均匀 direct weighted L-BFGS 也会 fail closed |
+| ADMM | ✅（无权重/均匀权重） | 共享 `admm_solver` 当前拒绝真正非均匀的 `sample_weight` |
+| Newton | ❌ | 分位数损失没有 Hessian |
+| Proximal Newton | ❌ | 分位数损失没有 Hessian |
+
+必须区分 `auto` 与显式 IRLS：`PenalizedQuantileRegression(..., solver="auto")` 因 Quantile 没有 Hessian 而解析到 FISTA；`solver="irls"` 则是 L2/无惩罚 Quantile 的另一条维护中显式路径。
 
 ## 惩罚兼容性
 
-| 惩罚 | 求解器 (auto) | 说明 |
-|---------|---------------|-------|
-| l2 / none | IRLS | 5-15 次迭代收敛。 |
-| l1 / elasticnet | FISTA | 基于 subgradient。 |
-| SCAD / MCP | Proximal IRLS-CD | 最快：CPU ~3x / GPU ~49x 加速。 |
-| adaptive_l1 | FISTA-LLA | 加权 L1 proximal。 |
-| group_* | FISTA-LLA | Group proximal 算子。 |
+| 惩罚 | `solver="auto"` 的主要路径 | 说明 |
+|---------|----------------------------|-------|
+| L2 / 无惩罚 | FISTA | `none` 会先规范化为 `L2(alpha=0)`；显式 `solver="irls"` 仍然可用 |
+| L1 / ElasticNet | FISTA | 近端/次梯度路径 |
+| SCAD / MCP | Proximal IRLS-CD | Quantile 专用 IRLS 上界 + LLA |
+| adaptive_l1 | FISTA | 先准备 adaptive weights，再进入 Quantile FISTA |
+| group_lasso / adaptive group | 分组 FISTA | 面向分组的近端路径 |
+| group_scad / group_mcp | 分组 FISTA-LLA | Group LLA surrogate + group-aware FISTA 内层 |
+
+## `sample_weight` 语义
+
+对已经声明支持非均匀解析权重的分位数路径，数据拟合项使用加权 check/pinball 目标。以逐样本损失 $\rho_\tau(r_i)$ 为例，归一化形式为
+
+$$
+L_w(\beta)
+=\frac{\sum_i w_i\rho_\tau(y_i-x_i^\top\beta)}{\sum_i w_i}.
+$$
+
+但 `sample_weight` **不是所有求解器自动具备的统一能力**。当前尤其需要区分：
+
+- Quantile IRLS / Proximal IRLS-CD 等维护中的带权路径具有显式带权实现；
+- 受支持的 FISTA 路径使用损失层的归一化带权目标；
+- 通用 `LossBase` 的共享函数值和梯度可以计算归一化带权目标；
+- 直接调用 `lbfgs_solver` 时，真正非均匀的分位数权重仍会被明确拒绝；
+- 共享 `admm_solver` 目前只接受未传权重或均匀权重。
+
+需要比较其他损失函数和求解器的带权范围时，见 [求解器 × 惩罚项兼容性矩阵](../guides/solver-penalty-matrix.md) 和 [求解器算法](../guides/solver-algorithms.md)。
 
 ## 示例
 
@@ -70,113 +116,147 @@ $$
 ```python
 from statgpu.linear_model import QuantileRegression
 
-# 中位数回归，含 kernel 标准误
 model = QuantileRegression(
     quantile=0.5,
     compute_inference=True,
-    inference_method="kernel",   # Powell (1991) sandwich
-    kernel="epa",                # Epanechnikov 核
-    bandwidth="hsheather",       # Hall-Sheather 带宽
+    inference_method="kernel",
+    kernel="epa",
+    bandwidth="hsheather",
 )
 model.fit(X, y)
-print(model.coef_)        # 系数
-print(model._bse)         # 标准误
-print(model._pvalues)     # p 值
-print(model._conf_int)    # 95% 置信区间
-
-# Bootstrap 推断，使用批量 FISTA（GPU 加速）
-model = QuantileRegression(
-    quantile=0.5,
-    compute_inference=True,
-    inference_method="bootstrap",
-    n_bootstrap=200,
-    device="cuda",         # 或 "torch" / "cpu"
-)
-model.fit(X, y)
+print(model.coef_)
+print(model._bse)
+print(model._pvalues)
+print(model._conf_int)
 ```
 
-### 带惩罚项的分位数回归
+### 带惩罚分位数回归
 
 ```python
 from statgpu.linear_model.penalized import PenalizedQuantileRegression
 
-# 中位数回归 (τ=0.5)
-model = PenalizedQuantileRegression(quantile=0.5, penalty='scad', alpha=0.1)
+# 这个 L2 Quantile 问题中，solver="auto" 使用 FISTA。
+model = PenalizedQuantileRegression(
+    quantile=0.5,
+    penalty="l2",
+    alpha=0.1,
+    solver="auto",
+)
 model.fit(X, y)
-print(model.coef_)
 
-# 上四分位数 + L2 惩罚
-model = PenalizedQuantileRegression(quantile=0.75, penalty='l2', alpha=0.01)
-model.fit(X, y)
-
-# 下四分位数 + MCP
-model = PenalizedQuantileRegression(quantile=0.25, penalty='mcp', alpha=0.1)
-model.fit(X, y)
+# SCAD/MCP 使用专用 Proximal IRLS-CD 延续路径。
+scad_model = PenalizedQuantileRegression(
+    quantile=0.5,
+    penalty="scad",
+    alpha=0.1,
+)
+scad_model.fit(X, y)
 ```
 
-### GPU (torch-CUDA)
+### 显式 Quantile IRLS
+
+```python
+irls_model = PenalizedQuantileRegression(
+    quantile=0.5,
+    penalty="l2",
+    alpha=0.01,
+    solver="irls",
+)
+irls_model.fit(X, y)
+```
+
+显式 IRLS 只应在维护中的 L2/无惩罚边界使用。ElasticNet 等非光滑惩罚应使用 FISTA 而不是 IRLS；直接调用底层 `QuantileLoss.irls()` 也不属于维护中的 ElasticNet 拟合路径。
+
+### GPU（Torch CUDA）
 
 ```python
 import torch
+
 X_t = torch.tensor(X, dtype=torch.float64).cuda()
 y_t = torch.tensor(y, dtype=torch.float64).cuda()
 
-model = PenalizedQuantileRegression(quantile=0.5, penalty='scad', alpha=0.1)
+model = PenalizedQuantileRegression(
+    quantile=0.5,
+    penalty="scad",
+    alpha=0.1,
+)
 model.fit(X_t, y_t)
 ```
 
-### 加权 Quantile
+### 加权分位数回归
 
 ```python
 sample_weight = np.ones(n)
-sample_weight[:50] = 5.0  # 前 50 个样本权重加倍
+sample_weight[:50] = 5.0
 
-model = PenalizedQuantileRegression(quantile=0.5, penalty='l2', alpha=0.01)
+model = PenalizedQuantileRegression(
+    quantile=0.5,
+    penalty="l2",
+    alpha=0.01,
+)
 model.fit(X, y, sample_weight=sample_weight)
 ```
 
+这里展示的是模型层已经维护的带权路径，不能据此推断显式选择任意底层求解器时都支持同样的非均匀权重。
+
 ## 算法详解
 
-### Proximal IRLS-CD (SCAD/MCP)
+### Proximal IRLS-CD（SCAD/MCP）
 
-对于 quantile + 非凸惩罚，专用求解器使用：
+详细更新公式见 [求解器算法](../guides/solver-algorithms.md#1-proximal-irls-cd)。其核心是把 check loss 的 IRLS 二次上界与 SCAD/MCP 的局部线性近似结合起来。
 
-1. **IRLS 二次上界**：每次迭代计算权重 w_i = τ_i / max(|r_i|, ε)。形成非光滑 pinball 损失的二次上界：Q(β) = ½ Σ w_i(y_i − X_iβ)²。
+### 显式 IRLS（L2/无惩罚）
 
-2. **LLA（局部线性近似）**：非凸 SCAD/MCP 通过 P'(|β_j|) 权重转为加权 L1。
+IRLS 不是 Quantile 的 `auto` 路径，但在显式指定并使用 L2/无惩罚时仍然可用。令
 
-3. **并行对角化**：Jacobi 风格更新使用矩阵运算（每次 O(np)）——GPU 友好。
+$$
+r_i=y_i-x_i^\top\beta.
+$$
 
-4. **GPU 优化**：收敛检查在 device 上比较，仅同步 bool 到 CPU。每 5 次迭代检查。
+分位数 IRLS 权重为
 
-### IRLS (L2/none)
+$$
+w_i^{\mathrm{IRLS}}
+=\frac{\tau+(1-2\tau)\mathbf1\{r_i<0\}}
+{\max(|r_i|,\varepsilon)}.
+$$
 
-使用 Frisch-Newton 算法（匹配 statsmodels `QuantReg`）：
-1. IRLS 权重：w_i = (τ + (1−2τ)·1_{r_i<0}) / max(|r_i|, ε)
-2. 求解加权最小二乘：(X'WX + n·α·I) β = X'Wy
-3. 重复至收敛（~5-15 次迭代）
+若同时传入解析权重 $s_i$，维护中的实现先把它归一化为
+
+$$
+\widetilde s_i=\frac{n s_i}{\sum_j s_j},
+$$
+
+再使用
+
+$$
+w_i=\widetilde s_i w_i^{\mathrm{IRLS}}.
+$$
+
+记 $W=\operatorname{diag}(w)$，无惩罚时更新满足
+
+$$
+(X^\top W X+\varepsilon I)\beta_{\mathrm{new}}
+=X^\top W y.
+$$
+
+L2 路径在左侧加入相应 Ridge 对角项；截距坐标不参与惩罚。完整实现细节见 [IRLS 算法参考](../guides/solver-algorithms.md#6-irls迭代重加权最小二乘)。
 
 ## 输出
 
 | 属性 | 类型 | 说明 |
 |------|------|------|
-| `coef_` | (p,) float | 估计系数 |
-| `intercept_` | float | 估计截距 |
+| `coef_` | `(p,)` float | 估计系数 |
+| `intercept_` | float | 截距 |
 | `n_iter_` | int | 迭代次数 |
 | `quantile` | float | 目标分位数 |
 
-## 外部验证
+## 说明
 
-- **R `quantreg::rq()`**: IRLS 路径系数与 Frisch-Newton IRLS 匹配到 1e-6。
-- **sklearn `QuantileRegressor`**: HiGHS LP 求解器产生相同的 active set 和系数（tol=1e-8）。
-- **FISTA-LLA 对等性**: Proximal IRLS-CD 与 FISTA-LLA 的 active set 一致（rtol=0.15）。
-
-## 注意事项
-
-- Score 使用加权 pinball 损失：`score()` 返回负平均 pinball 损失以兼容 sklearn。
-- `sample_weight` 全求解器支持。
-- GPU 设备（`cuda`/`torch`）不静默回退 CPU。
-- 大规模问题（n=10K, p=500）GPU 比 CPU 快 ~49x。
+- `score()` 使用 check/pinball loss，并返回其相反数以符合 sklearn“越大越好”的约定。
+- `sample_weight` 支持是 **loss × solver × estimator** 路径能力，而不是所有 solver 自动拥有的属性。
+- 不支持的显式带权求解器组合应在数值迭代前失败，而不是静默替换成其他 solver。
+- 维护中的 GPU 路径（`cuda`/`torch`）不能静默回退到 CPU。
 
 ## 参考文献
 

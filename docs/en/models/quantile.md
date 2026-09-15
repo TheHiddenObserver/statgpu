@@ -1,13 +1,13 @@
 # Quantile Regression
 
 > Language: English  
-> Last updated: 2026-07-01  
+> Last updated: 2026-09-15  
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/quantile.md)
 
 ## Overview
 
-`QuantileLoss` implements pinball (check) loss for quantile regression. `PenalizedQuantileRegression` wraps it with up to 10 penalty types and 8 solvers, including the specialized Proximal IRLS-CD solver for SCAD/MCP.
+`QuantileLoss` implements the **check loss (also called pinball loss)** used in quantile regression. These are two names for the same asymmetric absolute-loss objective, not two different losses. `PenalizedQuantileRegression` adds penalized estimation, including the specialized Proximal IRLS-CD route for SCAD/MCP.
 
 | Component | Path |
 |-----------|------|
@@ -15,179 +15,248 @@
 | Standalone Model | `statgpu.linear_model.QuantileRegression` |
 | Penalized Model | `statgpu.linear_model.penalized.PenalizedQuantileRegression` |
 | Specialized Solver | `statgpu.solvers._proximal_irls_quantile.proximal_irls_quantile_solver` |
-| R Equivalent | `quantreg::rq()` |
+| R equivalent | `quantreg::rq()` |
 
-## Objective Function
+## Objective function
 
-Pinball loss at quantile τ ∈ (0, 1):
-
-$$
-\ell(\eta, y) = \rho_\tau(y - \eta), \quad \rho_\tau(u) = u \cdot (\tau - \mathbf{1}\{u < 0\})
-$$
-
-Per-sample gradient (subgradient at u=0):
+For quantile $\tau\in(0,1)$, the check / pinball loss is
 
 $$
-\frac{\partial \ell}{\partial \eta} = -\tau + \mathbf{1}\{y - \eta < 0\}
+\ell(\eta,y)=\rho_\tau(y-\eta),
+\qquad
+\rho_\tau(u)=u\left(\tau-\mathbf 1\{u<0\}\right).
 $$
 
-Key property: the gradient is a step function — it does not vary with residual magnitude. This makes `has_hessian = False` and `smooth_gradient = False`.
+Equivalently,
+
+$$
+\rho_\tau(u)=
+\begin{cases}
+\tau u, & u\ge 0,\\
+(\tau-1)u, & u<0.
+\end{cases}
+$$
+
+The asymmetric linear slopes select the requested conditional quantile. “Check loss” is the traditional quantile-regression term; “pinball loss” is a common modern name referring to the same piecewise-linear shape.
+
+At $\tau=0.5$,
+
+$$
+\rho_{0.5}(u)=\frac12|u|,
+$$
+
+so median regression differs from least absolute deviations only by a constant scale factor.
+
+A per-observation subgradient is
+
+$$
+\frac{\partial\ell}{\partial\eta}
+=-\tau+\mathbf 1\{y-\eta<0\},
+$$
+
+with the usual subgradient interpretation at zero residual. The gradient is a step function, so `has_hessian=False` and `smooth_gradient=False`.
 
 ## Parameters
 
 | Parameter | Default | Description |
 |---|---:|---|
-| `quantile` | `0.5` | Target quantile in (0, 1). τ=0.5 = median regression. |
+| `quantile` | `0.5` | Target quantile in `(0,1)`; `0.5` is median regression |
 
-No scale parameter; quantile regression is scale-free.
+## Solver compatibility
 
-## Solver Compatibility
+The support column below first describes unweighted algorithm availability. With `sample_weight`, the selected route must also satisfy the corresponding weighted capability contract; unweighted solver support does not imply arbitrary non-uniform weight support.
 
 | Solver | Support | Notes |
 |--------|:---:|-------|
-| Proximal IRLS-CD | ✅ | Specialized: IRLS majorization + LLA for SCAD/MCP. ~49x GPU speedup at large scale. |
-| FISTA | ✅ | For non-smooth penalties (L1, SCAD, MCP) and non-convex group penalties. |
-| IRLS | ✅ | For smooth penalties (L2, none). Uses Frisch-Newton algorithm (matches statsmodels QuantReg). |
-| L-BFGS | ✅ | For smooth penalties, moderate dimensions. |
-| ADMM | ✅ | Alternative for all penalties. |
-| Newton | ❌ | Quantile has no Hessian. |
-| Proximal Newton | ❌ | Quantile has no Hessian. |
+| Proximal IRLS-CD | ✅ | Specialized IRLS majorization + LLA for SCAD/MCP; maintained route has explicit analytic-weight handling |
+| FISTA | ✅ | **Default `solver="auto"` route for ordinary convex Quantile penalties**, including L2/none |
+| FISTA-BB | ✅ | Available when explicitly selected on supported sparse routes; `auto` does not select it for Quantile |
+| IRLS | ✅ | Explicit L2/no-penalty route; `QuantileLoss.irls()` has an explicit `sample_weight` path |
+| L-BFGS | ✅ (unweighted/uniform weights at the low-level solver boundary) | Public `PenalizedQuantileRegression` rejects L-BFGS because Quantile has no Hessian-compatible smooth contract; genuine non-uniform direct weighted L-BFGS is fail-closed for generic `LossBase` |
+| ADMM | ✅ (unweighted/uniform weights) | Shared `admm_solver` currently rejects genuine non-uniform `sample_weight` |
+| Newton | ❌ | Quantile loss has no Hessian |
+| Proximal Newton | ❌ | Quantile loss has no Hessian |
 
-## Penalty Compatibility
+The distinction between `auto` and explicit IRLS matters: `PenalizedQuantileRegression(..., solver="auto")` resolves to FISTA because Quantile has no Hessian, while `solver="irls"` is a separate maintained request for L2/no-penalty Quantile fitting.
 
-| Penalty | Solver (auto) | Notes |
-|---------|---------------|-------|
-| l2 / none | IRLS | Converges in 5-15 iterations. |
-| l1 / elasticnet | FISTA | Subgradient-based. |
-| SCAD / MCP | Proximal IRLS-CD | Fastest: ~3x CPU / ~49x GPU over FISTA-LLA. |
-| adaptive_l1 | FISTA-LLA | Weighted L1 proximal. |
-| group_* | FISTA-LLA | Group proximal operators. |
+## Penalty compatibility
+
+| Penalty | Main `solver="auto"` route | Notes |
+|---------|----------------------------|-------|
+| l2 / none | FISTA | `none` is canonicalized to `L2(alpha=0)`; explicit `solver="irls"` remains available |
+| l1 / elasticnet | FISTA | Proximal/subgradient route |
+| SCAD / MCP | Proximal IRLS-CD | Specialized Quantile IRLS majorization + LLA |
+| adaptive_l1 | FISTA | Adaptive weights are prepared first, then the Quantile FISTA route is used |
+| group_lasso / adaptive group | Group FISTA | Group-aware proximal route |
+| group_scad / group_mcp | Group FISTA-LLA | Group LLA surrogate with a group-aware FISTA inner solve |
+
+## `sample_weight` semantics
+
+On quantile routes that explicitly support non-uniform analytic weights, the data-fit objective is the weighted check/pinball loss. With per-observation loss $\rho_\tau(r_i)$,
+
+$$
+L_w(\beta)
+=\frac{\sum_i w_i\rho_\tau(y_i-x_i^\top\beta)}{\sum_i w_i}.
+$$
+
+But `sample_weight` is **not one universal solver capability**. In particular:
+
+- maintained Quantile IRLS / Proximal IRLS-CD routes have explicit weighted implementations;
+- maintained FISTA routes use the loss-layer normalized weighted objective where supported;
+- generic `LossBase` shared value/gradient primitives can evaluate the normalized weighted objective;
+- direct `lbfgs_solver` remains fail-closed for genuine non-uniform Quantile weights;
+- shared `admm_solver` currently accepts omitted or uniform weights only.
+
+For weighted support across other losses and solver families, see the [Solver × Penalty Compatibility Matrix](../guides/solver-penalty-matrix.md) and [Solver Algorithms](../guides/solver-algorithms.md).
 
 ## Examples
 
-### Standalone Model (with inference)
+### Standalone model with inference
 
 ```python
 from statgpu.linear_model import QuantileRegression
 
-# Median regression with kernel-based standard errors
 model = QuantileRegression(
     quantile=0.5,
     compute_inference=True,
-    inference_method="kernel",   # Powell (1991) sandwich
-    kernel="epa",                # Epanechnikov kernel
-    bandwidth="hsheather",       # Hall-Sheather bandwidth
+    inference_method="kernel",
+    kernel="epa",
+    bandwidth="hsheather",
 )
 model.fit(X, y)
-print(model.coef_)        # coefficients
-print(model._bse)         # standard errors
-print(model._pvalues)     # p-values
-print(model._conf_int)    # 95% confidence intervals
-
-# Bootstrap inference with batched FISTA (GPU-accelerated)
-model = QuantileRegression(
-    quantile=0.5,
-    compute_inference=True,
-    inference_method="bootstrap",
-    n_bootstrap=200,
-    device="cuda",         # or "torch" / "cpu"
-)
-model.fit(X, y)
+print(model.coef_)
+print(model._bse)
+print(model._pvalues)
+print(model._conf_int)
 ```
 
-### Penalized Quantile (with penalty selection)
+### Penalized quantile regression
 
 ```python
 from statgpu.linear_model.penalized import PenalizedQuantileRegression
 
-# Median regression (τ=0.5)
-model = PenalizedQuantileRegression(quantile=0.5, penalty='scad', alpha=0.1)
+# solver="auto" uses FISTA for this L2 Quantile problem.
+model = PenalizedQuantileRegression(
+    quantile=0.5,
+    penalty="l2",
+    alpha=0.1,
+    solver="auto",
+)
 model.fit(X, y)
-print(model.coef_)
 
-# Upper quartile with L2 penalty
-model = PenalizedQuantileRegression(quantile=0.75, penalty='l2', alpha=0.01)
-model.fit(X, y)
-
-# Lower quartile with MCP
-model = PenalizedQuantileRegression(quantile=0.25, penalty='mcp', alpha=0.1)
-model.fit(X, y)
+# SCAD/MCP use the specialized Proximal IRLS-CD continuation path.
+scad_model = PenalizedQuantileRegression(
+    quantile=0.5,
+    penalty="scad",
+    alpha=0.1,
+)
+scad_model.fit(X, y)
 ```
 
-### GPU (torch-CUDA)
+### Explicit Quantile IRLS
+
+```python
+irls_model = PenalizedQuantileRegression(
+    quantile=0.5,
+    penalty="l2",
+    alpha=0.01,
+    solver="irls",
+)
+irls_model.fit(X, y)
+```
+
+Use explicit IRLS only on its maintained L2/no-penalty boundary. Non-smooth penalties such as ElasticNet should use FISTA rather than IRLS; direct low-level `QuantileLoss.irls()` calls are not a maintained ElasticNet fitting route.
+
+### GPU (Torch CUDA)
 
 ```python
 import torch
+
 X_t = torch.tensor(X, dtype=torch.float64).cuda()
 y_t = torch.tensor(y, dtype=torch.float64).cuda()
 
-model = PenalizedQuantileRegression(quantile=0.5, penalty='scad', alpha=0.1)
+model = PenalizedQuantileRegression(
+    quantile=0.5,
+    penalty="scad",
+    alpha=0.1,
+)
 model.fit(X_t, y_t)
 ```
 
-### GPU (cupy-CUDA)
-
-```python
-import cupy as cp
-X_cp = cp.asarray(X)
-y_cp = cp.asarray(y)
-
-model = PenalizedQuantileRegression(quantile=0.5, penalty='scad', alpha=0.1)
-model.fit(X_cp, y_cp)
-```
-
-### Weighted Quantile
+### Weighted quantile
 
 ```python
 sample_weight = np.ones(n)
-sample_weight[:50] = 5.0  # upweight first 50 observations
+sample_weight[:50] = 5.0
 
-model = PenalizedQuantileRegression(quantile=0.5, penalty='l2', alpha=0.01)
+model = PenalizedQuantileRegression(
+    quantile=0.5,
+    penalty="l2",
+    alpha=0.01,
+)
 model.fit(X, y, sample_weight=sample_weight)
 ```
 
-## Algorithm Details
+This example uses a maintained estimator-level weighted route. It does not imply that every explicitly selected low-level solver supports the same non-uniform weights.
+
+## Algorithm details
 
 ### Proximal IRLS-CD (SCAD/MCP)
 
-For quantile + nonconvex penalties, the specialized solver uses:
+See [Solver Algorithms](../guides/solver-algorithms.md#1-proximal-irls-cd) for the full update equations. The method combines an IRLS quadratic majorization of the check loss with local linear approximation of SCAD/MCP.
 
-1. **IRLS quadratic majorization**: At each iteration, compute weights w_i = τ_i / max(|r_i|, ε). This forms a quadratic upper bound of the non-smooth pinball loss: Q(β) = ½ Σ w_i(y_i − X_iβ)².
+### Explicit IRLS (L2/none)
 
-2. **LLA (Local Linear Approximation)**: Non-convex SCAD/MCP is converted to weighted L1 via P'(|β_j|) weights.
+IRLS is not the Quantile `auto` route, but it remains available when explicitly requested with L2/no penalty. Let
 
-3. **Parallel diagonal majorization**: A Jacobi-style update uses matrix operations (O(np) per sweep) — GPU-friendly.
+$$
+r_i=y_i-x_i^\top\beta.
+$$
 
-4. **GPU optimization**: Convergence check compares on-device, only syncs a bool to CPU. Throttled to every 5 iterations.
+The quantile IRLS weight is
 
-### IRLS (L2/none)
+$$
+w_i^{\mathrm{IRLS}}
+=\frac{\tau+(1-2\tau)\mathbf1\{r_i<0\}}
+{\max(|r_i|,\varepsilon)}.
+$$
 
-Uses the Frisch-Newton algorithm (matching statsmodels `QuantReg`):
-1. IRLS weights: w_i = (τ + (1−2τ)·1_{r_i<0}) / max(|r_i|, ε)
-2. Solve weighted least squares: (X'WX + n·α·I) β = X'Wy
-3. Repeat until convergence (~5-15 iterations)
+With analytic weights $s_i$, the maintained implementation first normalizes them as
+
+$$
+\widetilde s_i=\frac{n s_i}{\sum_j s_j},
+$$
+
+then uses
+
+$$
+w_i=\widetilde s_i w_i^{\mathrm{IRLS}}.
+$$
+
+For $W=\operatorname{diag}(w)$, the unpenalized update solves
+
+$$
+(X^\top W X+\varepsilon I)\beta_{\mathrm{new}}
+=X^\top W y.
+$$
+
+The L2 route adds the corresponding ridge diagonal term, excluding the intercept coordinate from the penalty. See the [IRLS solver reference](../guides/solver-algorithms.md#6-irls-iteratively-reweighted-least-squares) for the complete maintained behavior.
 
 ## Outputs
 
 | Attribute | Type | Description |
 |-----------|------|-------------|
-| `coef_` | (p,) float | Estimated coefficients |
+| `coef_` | `(p,)` float | Estimated coefficients |
 | `intercept_` | float | Estimated intercept |
 | `n_iter_` | int | Number of iterations |
 | `quantile` | float | Target quantile |
 
-## External Validation
-
-- **R `quantreg::rq()`**: IRLS path matches Frisch-Newton IRLS coefficient to 1e-6.
-- **sklearn `QuantileRegressor`**: HiGHS LP solver generates same active set and coefficients (tol=1e-8).
-- **FISTA-LLA parity**: Proximal IRLS-CD produces same active set as FISTA-LLA within rtol=0.15.
-
 ## Notes
 
-- Score uses weighted pinball loss: `score()` returns negative mean pinball loss for sklearn compatibility.
-- `sample_weight` fully supported across all solvers.
-- GPU devices (`cuda`/`torch`) do not silently fall back to CPU.
-- For large problems (n=10K, p=500), GPU is ~49x faster than CPU.
+- `score()` uses check/pinball loss and returns its negative to follow sklearn's “higher is better” convention.
+- `sample_weight` support is a **loss × solver × estimator** route capability, not an automatic property of every solver.
+- Unsupported explicit weighted-solver combinations should fail before numerical iteration rather than silently substitute another solver.
+- Maintained GPU routes (`cuda`/`torch`) must not silently fall back to CPU.
 
 ## References
 

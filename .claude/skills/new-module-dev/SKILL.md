@@ -157,6 +157,8 @@ Update the user/developer surfaces changed by the task **before the final indepe
 
 For learner-facing model pages, prefer a learner-first explanation while preserving a complete public API inventory or an explicit link to the canonical API reference. Key-parameter teaching tables may be selective; the reference inventory may not silently omit public parameters. Keep EN/CN capability claims conceptually aligned when both pages are maintained.
 
+**Keep documentation layers separate.** Learner-facing model pages and user-facing reference/guides should explain the current user contract: concepts and formulas, supported/unsupported behavior, failure semantics, usage, and links to canonical compatibility/algorithm pages. Do not insert project-management or development-log prose there merely because it is technically true. PR/Issue tracking status, follow-up ownership, exact-head CI/validator provenance, remote credentials, developer invocation quirks, and notes about what “this PR” does belong in changelogs, `dev/` plans/reviews, issues/PR descriptions, or evidence artifacts unless a user must act on that information. When a user-facing page needs to explain an unsupported route, state the present behavior and rationale rather than which Issue tracks future work.
+
 Reference/implementation pages may remain reference-first. Document objective/penalty mapping when external comparisons depend on it. Performance/evidence claims must identify auditable source artifacts.
 
 For unreleased public behavior, state the current published version separately from the target release (for example “implemented on master; targeted for X.Y.Z”). Release-time wording/version metadata should be updated by the release task, not preemptively by an unrelated feature task.
