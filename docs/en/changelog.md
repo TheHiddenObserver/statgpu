@@ -7,18 +7,20 @@
 
 This page records user-visible changes for current and recent statgpu releases.
 
-## Unreleased — Penalized Quantile solver provenance (PR #164 / Issue #163, targeted for 0.2.6)
+## Unreleased — Penalized Quantile solver provenance and CV scoring (PR #164 / Issue #163, targeted for 0.2.6)
 
 ### Fixed
 
 - Penalized Quantile solver provenance now names the algorithm that actually executes. L2/no-penalty `solver="auto"` resolves to ordinary Quantile IRLS; L1/ElasticNet retains the FISTA family; scalar SCAD/MCP resolves internally to the dedicated Proximal IRLS-CD continuation algorithm.
-- Explicit solver requests are no longer silently substituted on Quantile routes. Smooth L2/no-penalty requests for FISTA/FISTA-BB fail before backend numerical work and direct users to `irls`/`auto`; incompatible explicit SCAD/MCP solver requests fail and direct users to `auto` so the dedicated route is selected. `proximal_irls_cd` is reported as an internal resolved-provenance label, not exposed as a new public `solver=` keyword.
-- The same policy applies to the generic and typed direct estimators, formula fits, `PenalizedGLM_CV` candidate selection, and the selected full-data final refit. Sparse convex Quantile CV continues to use FISTA, while smooth L2 CV/final refit reports IRLS and SCAD/MCP reports the dedicated Proximal IRLS-CD route.
-- This is a solver-identity/dispatch reconciliation rather than a new numerical method: the smooth and non-convex algorithms above were already the algorithms executed internally; the change removes misleading provenance and silent explicit-solver substitution.
+- Explicit solver requests are no longer silently substituted on Quantile routes. Smooth L2/no-penalty requests for FISTA/FISTA-BB fail before backend numerical work and direct users to `irls`/`auto`; incompatible explicit SCAD/MCP solver requests fail and direct users to `auto`. `proximal_irls_cd` remains an internal resolved-provenance label rather than a new public `solver=` keyword.
+- `PenalizedGLM_CV(loss="quantile", loss_kwargs={"quantile": q})` now scores validation candidates with the same requested `q` used for training, including weighted and unweighted scoring. Non-median fits therefore no longer train at `q` while silently selecting alpha with median (`q=0.5`) pinball loss.
+- The same policy covers generic/typed direct fits, formula fits, CV candidate selection, and the selected full-data final refit. Private Quantile fold-batched sparse and SCAD/MCP fast helpers whose loss-parameter contract is incomplete fail safely back to the maintained per-fold estimator path instead of gaining a new numerical implementation in this reconciliation PR.
+- This is a solver-identity/dispatch and CV-scoring reconciliation, not a new Quantile numerical method; existing smooth, sparse, and non-convex algorithms keep their maintained implementation boundaries.
 
 ### Validation
 
-- Added direct generic/typed, sparse and non-convex, CV/final-refit, formula, import-order, signature-preservation, and fail-closed explicit-solver regressions. Hosted validation must belong to the final exact PR head before merge readiness is claimed.
+- Added generic/typed direct-fit, sparse/non-convex, CV/final-refit, formula, import-order, signature-preservation, explicit-solver fail-closed, non-median weighted/unweighted scoring, and fail-safe fast-path fallback regressions. The non-median scoring tests compare directly with manual pinball loss and verify that the call-local quantile context does not leak after CV returns.
+- Only hosted validation on the final exact PR head is used for merge-readiness assessment.
 
 ## Unreleased — Weighted explicit Newton/L-BFGS GLM fits (PR #151 / Issue #150, targeted for 0.2.6)
 
