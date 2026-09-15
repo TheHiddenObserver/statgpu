@@ -180,9 +180,9 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
         return raw
 
     def score(self, X, y, sample_weight=None):
-        """Pinball loss (quantile loss) on test data. Lower is better.
+        """Return negative pinball loss on test data; higher is better.
 
-        For quantile=0.5, this is the mean absolute error / 2.
+        For quantile=0.5, this is negative mean absolute error / 2.
         """
         y_pred = self.predict(X, return_cpu=True)
         y = np.asarray(y)
