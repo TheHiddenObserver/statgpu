@@ -9,8 +9,8 @@ CUDA device through both CuPy and Torch:
 * sparse L1 ``auto`` remains FISTA-family;
 * SCAD ``auto`` executes/reports the dedicated Proximal IRLS-CD route;
 * non-median Quantile CV scores use the requested ``q``;
-* public ``cv_strategy="two_stage"`` SCAD CV remains executable after the
-  incomplete private fast path is routed back to the maintained per-fold
+* public ``cv_strategy="two_stage"`` L1 and SCAD CV remain executable after
+  incomplete private fast paths are routed back to the maintained per-fold
   estimator implementation.
 
 The gate requires a clean exact-source worktree and both CuPy CUDA and Torch
@@ -36,10 +36,12 @@ import numpy as np
 from statgpu.backends import _to_numpy
 from statgpu.linear_model import PenalizedGLM_CV
 from statgpu.linear_model.penalized import PenalizedQuantileRegression
+from statgpu.penalties import SCADPenalty
 
 
 SCHEMA_VERSION = 1
 Q = 0.20
+SCAD_ALPHA = 0.025
 ATOL_L2_COEF = 2e-5
 ATOL_L2_SCORE = 2e-5
 ATOL_SCAD_OBJECTIVE = 2e-4
@@ -84,7 +86,7 @@ def _data(seed=16401, n=128, p=3):
     X = rng.normal(size=(n, p)).astype(np.float64)
     beta = np.array([0.78, -0.42, 0.24], dtype=np.float64)[:p]
     # Deliberately asymmetric noise: q=.20 and q=.50 validation objectives are
-    # observably different, so this gate can detect a median-scoring regression.
+    # observably different, so the gate can detect a median-scoring regression.
     noise = rng.exponential(scale=0.28, size=n) - 0.28
     y = (0.22 + X @ beta + noise).astype(np.float64)
     weights = np.linspace(0.55, 1.65, n, dtype=np.float64)
@@ -111,6 +113,14 @@ def _pinball(y, eta, q, sample_weight=None) -> float:
     return float(
         np.average(values, weights=np.asarray(sample_weight, dtype=np.float64))
     )
+
+
+def _scad_objective(X, y, weights, coef, intercept, *, alpha=SCAD_ALPHA) -> float:
+    """Return the declared weighted Quantile + feature-only SCAD objective."""
+    coef = np.asarray(coef, dtype=np.float64).ravel()
+    data_fit = _pinball(y, X @ coef + float(intercept), Q, weights)
+    penalty = SCADPenalty(alpha=float(alpha)).value(coef)
+    return float(data_fit + penalty)
 
 
 def _max_abs(a, b) -> float:
@@ -203,6 +213,10 @@ def _cv_fit(
         max_iter=max_iter,
         tol=tol,
     ).fit(X, y, sample_weight=weights)
+    if str(model.cv_strategy_) != cv_strategy:
+        raise AssertionError(
+            f"{penalty} CV strategy drifted: {model.cv_strategy_!r} != {cv_strategy!r}"
+        )
     return model
 
 
@@ -215,10 +229,14 @@ def _snapshot_cv(model):
         stage1 = np.asarray(stage1, dtype=np.float64)
         if not np.all(np.isfinite(stage1)):
             raise AssertionError("two-stage CV produced non-finite screening scores")
+    refined_mask = model.cv_results_.get("refined_mask")
+    if refined_mask is not None:
+        refined_mask = np.asarray(refined_mask, dtype=bool)
     return {
         "alpha": float(model.alpha_),
         "scores": scores,
         "stage1_scores": stage1,
+        "refined_mask": refined_mask,
         "coef": _to_host(model.coef_).ravel(),
         "intercept": float(model.intercept_),
     }
@@ -293,7 +311,7 @@ def main() -> int:
         "tolerances": {
             "l2_coef_intercept": ATOL_L2_COEF,
             "l2_cv_score": ATOL_L2_SCORE,
-            "scad_pinball_objective": ATOL_SCAD_OBJECTIVE,
+            "scad_penalized_objective": ATOL_SCAD_OBJECTIVE,
         },
         "cases": [],
     }
@@ -328,7 +346,7 @@ def main() -> int:
         y,
         weights,
         penalty="scad",
-        alpha=0.025,
+        alpha=SCAD_ALPHA,
         device="cpu",
         max_iter=220,
         tol=1e-6,
@@ -340,38 +358,35 @@ def main() -> int:
         "numpy",
         "cpu",
     )
-    cpu_scad_loss = _pinball(
-        y,
-        X @ cpu_scad_coef + cpu_scad_intercept,
-        Q,
-        weights,
+    cpu_scad_objective = _scad_objective(
+        X, y, weights, cpu_scad_coef, cpu_scad_intercept
     )
 
-    cv_alphas = np.asarray([0.045, 0.02], dtype=np.float64)
-    cpu_cv = _cv_fit(
+    l2_cv_alphas = np.asarray([0.045, 0.02], dtype=np.float64)
+    cpu_l2_cv = _cv_fit(
         X,
         y,
         weights,
         folds,
         penalty="l2",
-        alpha_grid=cv_alphas,
+        alpha_grid=l2_cv_alphas,
         device="cpu",
         cv_strategy="strict",
         max_iter=600,
         tol=1e-9,
     )
-    cpu_cv_snap = _snapshot_cv(cpu_cv)
+    cpu_l2_cv_snap = _snapshot_cv(cpu_l2_cv)
     _assert_provenance(
         "cpu/cv/l2/final",
-        cpu_cv.estimator_,
+        cpu_l2_cv.estimator_,
         "irls",
         "numpy",
         "cpu",
     )
 
-    for alpha_index, alpha in enumerate(cv_alphas):
+    for alpha_index, alpha in enumerate(l2_cv_alphas):
         expected, median = _manual_fold_scores(X, y, weights, folds, float(alpha))
-        observed = cpu_cv_snap["scores"][:, alpha_index]
+        observed = cpu_l2_cv_snap["scores"][:, alpha_index]
         err = _max_abs(observed, expected)
         if err > ATOL_L2_SCORE:
             raise AssertionError(
@@ -382,13 +397,37 @@ def main() -> int:
                 "non-median fixture does not distinguish q=.20 from q=.50 scoring"
             )
 
+    sparse_cv_alphas = np.asarray([0.04, 0.02], dtype=np.float64)
+    cpu_l1_cv = _cv_fit(
+        X,
+        y,
+        weights,
+        folds,
+        penalty="l1",
+        alpha_grid=sparse_cv_alphas,
+        device="cpu",
+        cv_strategy="two_stage",
+        max_iter=700,
+        tol=1e-7,
+    )
+    cpu_l1_cv_snap = _snapshot_cv(cpu_l1_cv)
+    _assert_provenance(
+        "cpu/cv/l1/two_stage/final",
+        cpu_l1_cv.estimator_,
+        "fista",
+        "numpy",
+        "cpu",
+    )
+    if cpu_l1_cv_snap["stage1_scores"] is None:
+        raise AssertionError("two-stage L1 CPU reference did not publish stage-1 scores")
+
     cpu_scad_cv = _cv_fit(
         X,
         y,
         weights,
         folds,
         penalty="scad",
-        alpha_grid=np.asarray([0.025], dtype=np.float64),
+        alpha_grid=np.asarray([SCAD_ALPHA], dtype=np.float64),
         device="cpu",
         cv_strategy="two_stage",
         max_iter=180,
@@ -408,7 +447,7 @@ def main() -> int:
     max_errors = {
         "l2_coef_intercept": 0.0,
         "l2_cv_score": 0.0,
-        "scad_pinball_objective": 0.0,
+        "scad_penalized_objective": 0.0,
     }
 
     for backend in ("cupy", "torch"):
@@ -477,7 +516,7 @@ def main() -> int:
             yb,
             wb,
             penalty="scad",
-            alpha=0.025,
+            alpha=SCAD_ALPHA,
             device=device,
             max_iter=220,
             tol=1e-6,
@@ -489,69 +528,106 @@ def main() -> int:
             backend,
             expected_device,
         )
-        scad_loss = _pinball(
-            y,
-            X @ scad_coef + scad_intercept,
-            Q,
-            weights,
+        scad_objective = _scad_objective(
+            X, y, weights, scad_coef, scad_intercept
         )
-        scad_objective_error = abs(scad_loss - cpu_scad_loss)
-        max_errors["scad_pinball_objective"] = max(
-            max_errors["scad_pinball_objective"], scad_objective_error
+        scad_objective_error = abs(scad_objective - cpu_scad_objective)
+        max_errors["scad_penalized_objective"] = max(
+            max_errors["scad_penalized_objective"], scad_objective_error
         )
         if scad_objective_error > ATOL_SCAD_OBJECTIVE:
             raise AssertionError(
-                f"{backend}/direct/scad pinball parity failed: "
+                f"{backend}/direct/scad penalized-objective parity failed: "
                 f"{scad_objective_error:.3e}"
             )
         payload["cases"].append(
             {
                 "name": f"{backend}/direct/scad",
                 "provenance": scad_provenance,
-                "pinball_loss": scad_loss,
-                "cpu_pinball_loss": cpu_scad_loss,
-                "pinball_error": scad_objective_error,
+                "penalized_objective": scad_objective,
+                "cpu_penalized_objective": cpu_scad_objective,
+                "objective_error": scad_objective_error,
             }
         )
 
-        cv_model = _cv_fit(
+        l2_cv = _cv_fit(
             Xb,
             yb,
             wb,
             folds,
             penalty="l2",
-            alpha_grid=cv_alphas,
+            alpha_grid=l2_cv_alphas,
             device=device,
             cv_strategy="strict",
             max_iter=600,
             tol=1e-9,
         )
-        cv_snap = _snapshot_cv(cv_model)
-        cv_provenance = _assert_provenance(
+        l2_cv_snap = _snapshot_cv(l2_cv)
+        l2_cv_provenance = _assert_provenance(
             f"{backend}/cv/l2/final",
-            cv_model.estimator_,
+            l2_cv.estimator_,
             "irls",
             backend,
             expected_device,
         )
-        score_error = _max_abs(cv_snap["scores"], cpu_cv_snap["scores"])
+        score_error = _max_abs(l2_cv_snap["scores"], cpu_l2_cv_snap["scores"])
         max_errors["l2_cv_score"] = max(max_errors["l2_cv_score"], score_error)
         if score_error > ATOL_L2_SCORE:
             raise AssertionError(
                 f"{backend}/cv/l2 score parity failed: {score_error:.3e}"
             )
-        if cv_snap["alpha"] != cpu_cv_snap["alpha"]:
+        if l2_cv_snap["alpha"] != cpu_l2_cv_snap["alpha"]:
             raise AssertionError(
                 f"{backend}/cv/l2 selected alpha drifted: "
-                f"{cv_snap['alpha']} != {cpu_cv_snap['alpha']}"
+                f"{l2_cv_snap['alpha']} != {cpu_l2_cv_snap['alpha']}"
             )
         payload["cases"].append(
             {
                 "name": f"{backend}/cv/l2",
-                "provenance": cv_provenance,
-                "selected_alpha": cv_snap["alpha"],
+                "provenance": l2_cv_provenance,
+                "selected_alpha": l2_cv_snap["alpha"],
                 "score_error": score_error,
-                "scores": cv_snap["scores"].tolist(),
+                "scores": l2_cv_snap["scores"].tolist(),
+            }
+        )
+
+        l1_cv = _cv_fit(
+            Xb,
+            yb,
+            wb,
+            folds,
+            penalty="l1",
+            alpha_grid=sparse_cv_alphas,
+            device=device,
+            cv_strategy="two_stage",
+            max_iter=700,
+            tol=1e-7,
+        )
+        l1_cv_snap = _snapshot_cv(l1_cv)
+        l1_cv_provenance = _assert_provenance(
+            f"{backend}/cv/l1/two_stage/final",
+            l1_cv.estimator_,
+            "fista",
+            backend,
+            expected_device,
+        )
+        if l1_cv_snap["stage1_scores"] is None:
+            raise AssertionError(
+                f"{backend}/cv/l1/two_stage did not publish stage-1 scores"
+            )
+        if l1_cv_snap["alpha"] not in set(sparse_cv_alphas.tolist()):
+            raise AssertionError(
+                f"{backend}/cv/l1/two_stage selected unexpected alpha "
+                f"{l1_cv_snap['alpha']}"
+            )
+        payload["cases"].append(
+            {
+                "name": f"{backend}/cv/l1/two_stage",
+                "provenance": l1_cv_provenance,
+                "selected_alpha": l1_cv_snap["alpha"],
+                "stage1_scores": l1_cv_snap["stage1_scores"].tolist(),
+                "strict_scores": l1_cv_snap["scores"].tolist(),
+                "cpu_selected_alpha": cpu_l1_cv_snap["alpha"],
             }
         )
 
@@ -561,7 +637,7 @@ def main() -> int:
             wb,
             folds,
             penalty="scad",
-            alpha_grid=np.asarray([0.025], dtype=np.float64),
+            alpha_grid=np.asarray([SCAD_ALPHA], dtype=np.float64),
             device=device,
             cv_strategy="two_stage",
             max_iter=180,
@@ -579,7 +655,7 @@ def main() -> int:
             raise AssertionError(
                 f"{backend}/cv/scad/two_stage did not publish stage-1 scores"
             )
-        if scad_cv_snap["alpha"] != 0.025:
+        if scad_cv_snap["alpha"] != SCAD_ALPHA:
             raise AssertionError(
                 f"{backend}/cv/scad/two_stage selected unexpected alpha "
                 f"{scad_cv_snap['alpha']}"
