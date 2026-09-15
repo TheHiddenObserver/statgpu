@@ -7,9 +7,10 @@ This compatibility contract reconciles two existing-capability mismatches:
   than silently falling back to the median objective.
 
 The repair is deliberately narrow. It does not register a new Quantile
-fold-batched/FISTA loss implementation. In particular, the incomplete private
-GPU fold-batch Quantile optimization continues through the maintained general
-CV path instead of being promoted into a new numerical capability by this PR.
+fold-batched/FISTA residual implementation. In particular, the incomplete
+private GPU fold-batch Quantile optimization continues through the maintained
+general CV path instead of being promoted into a new numerical capability by
+this PR.
 """
 
 from __future__ import annotations
@@ -38,7 +39,6 @@ _INTERNAL_CV_RESOLVED_SOLVER = ContextVar(
     "statgpu_quantile_internal_cv_resolved_solver", default=False
 )
 _QUANTILE_CV_LEVEL = ContextVar("statgpu_quantile_cv_level", default=None)
-_MISSING = object()
 
 
 def _loss_name(value) -> str:
@@ -160,6 +160,13 @@ def _install_cv_eval_contract() -> None:
             uses_design,
         )
 
+    # Quantile intentionally remains absent from _LOSS_RESIDUAL_FNS, so this
+    # validation-only registration does not enable the incomplete fold-batched
+    # sparse solver. It only gives existing weighted scoring paths a backend-
+    # native pinball evaluator and is safe for concurrent CV fits because the
+    # requested tau comes from ContextVar rather than shared mutable state.
+    _cv_mod._LOSS_VALLOSS_FNS["quantile"] = _quantile_backend_value
+
     current_numpy_eval = _cv_mod._evaluate_loss_numpy
     if getattr(current_numpy_eval, _CV_EVAL_MARKER, False):
         return
@@ -217,16 +224,7 @@ def _install_scad_quantile_context() -> None:
         has_positional_loss_kwargs = len(args) > 16 and args[16] is not None
         if not has_positional_loss_kwargs and kwargs.get("loss_kwargs") is None:
             kwargs = {**kwargs, "loss_kwargs": {"quantile": float(quantile)}}
-
-        previous = _cv_mod._LOSS_VALLOSS_FNS.get("quantile", _MISSING)
-        _cv_mod._LOSS_VALLOSS_FNS["quantile"] = _quantile_backend_value
-        try:
-            return current(*args, **kwargs)
-        finally:
-            if previous is _MISSING:
-                _cv_mod._LOSS_VALLOSS_FNS.pop("quantile", None)
-            else:
-                _cv_mod._LOSS_VALLOSS_FNS["quantile"] = previous
+        return current(*args, **kwargs)
 
     setattr(_scad_mcp_with_requested_quantile, _CV_SCAD_MARKER, True)
     _scad_mcp_with_requested_quantile._statgpu_original = current
