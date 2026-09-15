@@ -177,7 +177,7 @@ def proximal_irls_quantile_solver(
                     y_work,
                     penalty=None,
                     max_iter=_mi,
-                    tol=tol,
+                    tol=min(tol, 1e-8),
                     init_coef=beta,
                     eps=eps,
                     sample_weight=sw,
