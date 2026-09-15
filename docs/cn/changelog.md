@@ -18,7 +18,7 @@
 ### 验证
 
 - 新增 generic/typed direct-fit、sparse/non-convex、CV/final-refit、formula、import-order、signature preservation、显式 solver fail-closed，以及非中位数 Quantile weighted/unweighted CV 评分回归；后者直接与手工 pinball loss 对照，并验证离开 CV call-local context 后默认 evaluator 行为不泄漏。
-- 对不完整私有 fast path 增加 fail-safe fallback 回归，确保本 PR 不会为了修 provenance/评分语义而静默扩大 numerical capability。只有 final exact PR head 的 hosted validation 才用于 merge-readiness 判断。
+- 对不完整私有 fast path 增加 fail-safe fallback 回归，确保本 PR 不会为了修 provenance/评分语义而静默扩大 numerical capability。merge-ready 需要 final exact PR head 的 hosted validation 全绿，并且 `dev/benchmarks/validate_quantile_solver_provenance_gpu.py` 的 schema-v1 exact-source physical CUDA gate 同时在 CuPy 与 Torch CUDA 上通过；hosted CI 不能替代该物理 gate。
 
 ## 未发布 — GLM 显式 Newton/L-BFGS 的解析权重支持（PR #151 / Issue #150，目标 0.2.6）
 
