@@ -57,3 +57,40 @@ def test_typed_quantile_sklearn_clone_preserves_public_quantile_when_available()
     y = 0.1 + X @ np.array([0.5, -0.25]) + rng.laplace(scale=0.1, size=48)
     fitted = cloned.fit(X, y)
     assert fitted._loss._tau == pytest.approx(0.2)
+
+
+@pytest.mark.parametrize(
+    "loss_kwargs, expected_q",
+    [
+        (None, 0.2),
+        ({"quantile": 0.35}, 0.35),
+    ],
+)
+def test_typed_quantile_score_uses_effective_quantile(loss_kwargs, expected_q):
+    rng = np.random.default_rng(16332)
+    X = rng.normal(size=(64, 2))
+    y = 0.15 + X @ np.array([0.55, -0.2]) + rng.laplace(scale=0.12, size=64)
+    weights = np.linspace(0.5, 1.5, X.shape[0])
+
+    model = PenalizedQuantileRegression(
+        quantile=0.2,
+        penalty="l2",
+        alpha=0.025,
+        solver="irls",
+        device="cpu",
+        max_iter=400,
+        tol=1e-9,
+        loss_kwargs=loss_kwargs,
+    ).fit(X, y)
+
+    pred = model.predict(X)
+    resid = y - pred
+    per_sample = np.where(
+        resid >= 0.0,
+        expected_q * resid,
+        (expected_q - 1.0) * resid,
+    )
+    expected = -float(np.average(per_sample, weights=weights))
+    assert model.score(X, y, sample_weight=weights) == pytest.approx(
+        expected, rel=0.0, abs=1e-12
+    )
