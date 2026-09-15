@@ -46,7 +46,7 @@ def test_quantile_cv_general_scores_use_requested_tau(weighted):
         loss_kwargs={"quantile": tau},
         penalty="l2",
         alpha_grid=np.array([alpha], dtype=np.float64),
-        cv=folds,
+        cv=2,
         solver="auto",
         device="cpu",
         max_iter=500,
