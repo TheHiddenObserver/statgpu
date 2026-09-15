@@ -159,6 +159,7 @@ def run(output: Path, *, require_cuda: bool = False):
 
     payload = {
         "schema": 1,
+        "status": "running",
         "source": source,
         "environment": diag._environment(cuda),
         "physical_cuda_complete": bool(cuda.get("cupy") and cuda.get("torch")),
@@ -196,11 +197,25 @@ def run(output: Path, *, require_cuda: bool = False):
                     f32_seed[backend_label][mode],
                 )
 
+    source_after = diag._source_identity()
+    if source_after.get("clean") is not True:
+        raise RuntimeError(
+            "Issue #160 source became dirty during diagnostic execution"
+        )
+    if source_after.get("sha") != source.get("sha"):
+        raise RuntimeError(
+            "Issue #160 source HEAD changed during diagnostic execution: "
+            f"{source.get('sha')} -> {source_after.get('sha')}"
+        )
+    payload["source_after_execution"] = source_after
+    payload["status"] = "diagnostic_complete"
+
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     print(json.dumps({
-        "status": "diagnostic_matrix_complete",
+        "status": payload["status"],
         "source": source,
+        "source_after_execution": source_after,
         "physical_cuda_complete": payload["physical_cuda_complete"],
         "backends": [label for label, _ in backend_specs],
         "modes": payload["fixture"]["modes"],
