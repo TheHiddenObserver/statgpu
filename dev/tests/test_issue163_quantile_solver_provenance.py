@@ -112,6 +112,45 @@ def test_sparse_quantile_auto_remains_fista_family():
     assert np.all(np.isfinite(model.coef_))
 
 
+def test_nonconvex_quantile_auto_reports_dedicated_proximal_irls_cd():
+    X, y = _data(seed=16307, n=64)
+    model = PenalizedQuantileRegression(
+        quantile=0.5,
+        penalty="scad",
+        alpha=0.02,
+        solver="auto",
+        device="cpu",
+        max_iter=160,
+        tol=1e-6,
+    ).fit(X, y)
+
+    assert model._selected_solver == "proximal_irls_cd"
+    assert model._selected_backend_name == "numpy"
+    assert np.all(np.isfinite(model.coef_))
+    assert np.isfinite(model.intercept_)
+
+
+@pytest.mark.parametrize("solver", ["fista", "fista_bb", "admm"])
+def test_explicit_solver_does_not_silently_replace_quantile_scad(
+    monkeypatch, solver
+):
+    X, y = _data(seed=16308, n=48)
+    model = PenalizedQuantileRegression(
+        quantile=0.5,
+        penalty="scad",
+        alpha=0.02,
+        solver=solver,
+        device="cpu",
+    )
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("backend fit must not run for rejected explicit solver")
+
+    monkeypatch.setattr(model, "_fit_cpu", forbidden)
+    with pytest.raises(ValueError, match="dedicated Proximal IRLS-CD"):
+        model.fit(X, y)
+
+
 def test_quantile_cv_l2_uses_irls_for_candidates_and_final_refit():
     X, y = _data(seed=16305, n=72)
     cv = PenalizedGLM_CV(
@@ -154,6 +193,27 @@ def test_quantile_cv_sparse_path_and_final_refit_remain_fista():
     assert np.all(np.isfinite(cv.coef_))
 
 
+def test_quantile_cv_scad_reports_dedicated_solver_for_candidates_and_refit():
+    X, y = _data(seed=16309, n=60)
+    cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.5},
+        penalty="scad",
+        alpha_grid=np.array([0.025], dtype=np.float64),
+        cv=2,
+        random_state=163,
+        solver="auto",
+        device="cpu",
+        max_iter=140,
+        tol=1e-6,
+    ).fit(X, y)
+
+    assert cv._solver_for_cv("cpu", X=X) == "proximal_irls_cd"
+    assert cv.estimator_._selected_solver == "proximal_irls_cd"
+    assert cv.alpha_ == pytest.approx(0.025)
+    assert np.all(np.isfinite(cv.coef_))
+
+
 def test_quantile_solver_contract_installer_is_idempotent_and_signature_safe():
     from statgpu.linear_model.penalized import _fit_mixin
     from statgpu.linear_model.penalized import _quantile_solver_contract as contract
@@ -189,6 +249,9 @@ payload = {
     "sparse_auto": _fit_mixin._preferred_penalized_glm_solver(
         "quantile", "l1", backend_name="numpy"
     ),
+    "nonconvex_auto": _fit_mixin._preferred_penalized_glm_solver(
+        "quantile", "scad", backend_name="numpy"
+    ),
     "policy_wrapped": hasattr(
         _fit_mixin._preferred_penalized_glm_solver, "__wrapped__"
     ),
@@ -203,6 +266,7 @@ print(json.dumps(payload, sort_keys=True))
     )
     payload = json.loads(proc.stdout.strip().splitlines()[-1])
     assert payload == {
+        "nonconvex_auto": "proximal_irls_cd",
         "policy_wrapped": True,
         "smooth_auto": "irls",
         "sparse_auto": "fista",
