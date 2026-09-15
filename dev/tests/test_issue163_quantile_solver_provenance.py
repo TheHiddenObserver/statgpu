@@ -214,6 +214,38 @@ def test_quantile_cv_scad_reports_dedicated_solver_for_candidates_and_refit():
     assert np.all(np.isfinite(cv.coef_))
 
 
+def test_quantile_formula_route_preserves_auto_irls_identity_and_numerics():
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("patsy")
+
+    X, y = _data(seed=16310, n=84)
+    df = pd.DataFrame({"y": y, "x1": X[:, 0], "x2": X[:, 1]})
+    common = dict(
+        quantile=0.45,
+        penalty="l2",
+        alpha=0.025,
+        solver="auto",
+        device="cpu",
+        max_iter=350,
+        tol=1e-9,
+    )
+
+    array_model = PenalizedQuantileRegression(**common).fit(X, y)
+    formula_model = PenalizedQuantileRegression(**common).fit(
+        formula="y ~ x1 + x2", data=df
+    )
+
+    assert array_model._selected_solver == "irls"
+    assert formula_model._selected_solver == "irls"
+    assert array_model._selected_backend_name == formula_model._selected_backend_name == "numpy"
+    np.testing.assert_allclose(
+        formula_model.coef_, array_model.coef_, rtol=0.0, atol=2e-10
+    )
+    assert formula_model.intercept_ == pytest.approx(
+        array_model.intercept_, rel=0.0, abs=2e-10
+    )
+
+
 def test_quantile_solver_contract_installer_is_idempotent_and_signature_safe():
     from statgpu.linear_model.penalized import _fit_mixin
     from statgpu.linear_model.penalized import _quantile_solver_contract as contract
