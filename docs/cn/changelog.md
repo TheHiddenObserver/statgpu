@@ -1,7 +1,7 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-09-14<br>
+> 最后更新：2026-09-15<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
@@ -14,12 +14,14 @@
 - `GammaRegression(link="inverse_power")` 的显式 Newton/L-BFGS 现在使用由 Gamma 损失函数拥有的光滑训练域契约，而不再对无截距情况作一刀切拒绝。domain-capped 的很小 L-BFGS 步长本身不构成收敛；若定义域内的拟牛顿 Armijo 搜索耗尽，会用重新计算定义域上界的最速下降方向再尝试一次，若梯度尚未收敛且恢复仍失败则明确 fail closed。可行的无截距设计可以正常拟合；零权重观测不约束域可行性；真正不可行、数值上无法认证或被定义域边界钉住的拟合会显式失败。
 - 同一 inverse-Gamma 域契约已经闭合到带惩罚 L2 Newton/L-BFGS 和 `PenalizedGLM_CV`：框架 warm start 只有在域内时才复用；CV 评分使用声明的 `inverse_power` 目标，不再错误使用 log-link evaluator；最终全数据重拟合保留链接。`PenalizedGammaRegression` 同时保持历史 `loss_kwargs["link"]` 优先级，并通过 sklearn clone/get_params 契约。
 - 既有 `solver="auto"`、IRLS/FISTA、显式 smooth-solver `C`、Ordered GLM、standalone LogisticRegression、非 inverse Gamma 链接，以及成功拟合后的 solver/backend/device provenance 语义保持不变，除非上文明确说明属于本次修复范围。
+- ordinary 显式 Newton/L-BFGS refit 现在对 validation、optimization、inference 与 provenance publication 实施原子事务。失败 refit 会完整恢复上一次成功 estimator state，而不会暴露“旧系数 + 新 attempt metadata”的混合对象；第一次 fit 失败仍保持 unfitted。此前成功执行的 solver/backend/device provenance 会保留，但失败 attempt 不会被发布成新的执行证据。
 
 ### 验证
 
-- 历史 hosted/physical evidence 继续只对各自精确源码有效。数值/validator 源 `9eb39cee2c0e691160f528ab687b7379d26f3e42` 曾通过全部 7 个 hosted PR workflow 和 Tesla P100 schema-v5 gate；该源码的完整 CPU suite 为 **3395 passed / 831 skipped / 0 failed**。后续 fresh review 已修改 production inference/result provenance，因此这些 hosted 结果和 schema v5 都不能作为当前分支的验收。
+- 历史 hosted/physical evidence 继续只对各自精确源码有效。数值/validator 源 `9eb39cee2c0e691160f528ab687b7379d26f3e42` 曾通过全部 7 个 hosted PR workflow 和 Tesla P100 schema-v5 gate；该源码的完整 CPU suite 为 **3395 passed / 831 skipped / 0 failed**。后续 fresh review 已修改 production inference/result provenance，因此这些 hosted 结果和 schema v5 都不能作为后续源码的验收。
 - Tesla P100 schema-v3 artifact 对应 `c6781cb6a2e1fe500f325e832d23cdc80a99b564`，schema-v4 inverse-Gamma artifact 对应 `9ef5b34ffc8abf133bc6262e98a855d5efe37d3c`，schema-v5 artifact 对应 `9eb39cee2c0e691160f528ab687b7379d26f3e42`；三者现在都只作为各自源码的不可变**历史 exact-source 证据**保留。对应文件为 `dev/reviews/pr151_glm_weighted_explicit_solvers_gpu.json`、`dev/reviews/pr151_inverse_gamma_domain_gpu_v4.json` 与 `dev/reviews/pr151_final_gpu_v5.json`。
-- `dev/benchmarks/validate_pr151_final_gpu_v6.py` 是当前等待执行的最终 physical CUDA gate。它会在同一个新的 exact clean source 上先原样重跑 v5→v4→v3 链，再新增 CuPy/Torch × Newton/L-BFGS 的 ordinary/penalized nonrobust M-estimation 检查：analytic-weight scale invariance、NumPy parity、BSE/p-value/CI parity、result covariance provenance、具体 backend/device provenance，以及 float32 raw-sum-overflow inference 边界。PR #151 只有在 fresh review clean、final exact PR head 的 hosted workflows 全绿，并且 schema-v6 在同一数值/validator 源上完成 physical CUDA acceptance 后，才可以恢复 merge-ready。Issue #152 保持已完成。
+- schema v6 是不可变的**历史失败 validator**，不再是当前验收 gate。其 float32 overflow inference fixture 除了预期的 float32 analytic weights 外，还意外把 `X/y` 一起转成 float32，从而额外引入了无关的 float32-design CuPy L-BFGS cross-backend parity 要求。这个独立精度问题由 Issue #160 跟踪；PR151 不会为了让该错误 fixture 通过而放宽冻结 tolerance 或扩大 generic L-BFGS 的修改范围。
+- `dev/benchmarks/validate_pr151_final_gpu_v7.py` 是修正后的 physical CUDA gate：design/response 保持 float64，overflow weights 保持 float32，复用 v6 的 analytic-weight inference matrix，重跑已接受的 v5→v4→v3 链，并显式记录 v6 failure disposition。精确干净源码 `e1cbf3756d269a6073461de8331da11c6235fb4e` 已在 Tesla P100-SXM2-16GB 上通过 schema v7，记录 `status: success` 与 `source_clean: true`；artifact 保存在 `dev/reviews/pr151_final_gpu_v7.json`。之后 fresh review 又修改了 ordinary explicit-smooth refit transaction，因此这份 v7 artifact 现在也只是不可变的**历史 exact-source 证据**，不是 final reviewed source 的验收。PR #151 只有在最新 review clean、final head 的 hosted workflows 全绿，并且 schema v7 在 final exact clean production source 上重新通过后，才可以恢复 merge-ready。Issue #152 保持已完成。
 
 ## 未发布 — 后端原生 Gaussian residual bootstrap（PR #147 / Issue #145，目标 0.2.6）
 
