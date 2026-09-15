@@ -1,7 +1,7 @@
 # GeneralizedLinearModel and Penalized GLM
 
 > Language: English  
-> Last updated: 2026-09-14  
+> Last updated: 2026-09-15  
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/generalized-linear-model.md)
 
@@ -277,22 +277,4 @@ Future unified result objects are reserved for later work and are not part of th
 
 ## External validation
 
-Local and hosted checks cover imports, solver/objective invariants, CPU references, and regression matrices. GPU numerical parity and concrete-device behavior are validated separately with maintained physical-CUDA validators before release claims are promoted.
-
-Validation coverage includes:
-
-- CPU/CuPy/Torch coefficient and intercept parity;
-- analytic-weight global-rescaling, uniform-weight, and zero-weight-row identities;
-- objective-gap and KKT-residual checks for penalized paths;
-- comparisons with sklearn and statsmodels where the objective definitions align;
-- runtime benchmarks with warm-up and GPU synchronization when performance is measured.
-
-These checks validate the numerical consistency of the public capabilities described above; developer infrastructure, credentials, and concrete validation environments are outside this model page's user-facing API.
-
-## References
-
-- McCullagh, P., & Nelder, J. A. (1989). *Generalized Linear Models* (2nd ed.). Chapman & Hall/CRC.
-- Hastie, T., Tibshirani, R., & Friedman, J. (2009). *The Elements of Statistical Learning* (2nd ed.). Springer.
-- Friedman, J., Hastie, T., & Tibshirani, R. (2010). Regularization paths for generalized linear models via coordinate descent. *Journal of Statistical Software*, 33(1), 1-22. [https://doi.org/10.18637/jss.v033.i01](https://doi.org/10.18637/jss.v033.i01)
-- scikit-learn linear models documentation: [https://scikit-learn.org/stable/modules/linear_model.html](https://scikit-learn.org/stable/modules/linear_model.html)
-- statsmodels GLM documentation: [https://www.statsmodels.org/stable/glm.html](https://www.statsmodels.org/stable/glm.html)
+Local and hosted checks cover ordinary and penalized GLM paths, solver provenance, formula handling, backend/device boundaries, and inference contracts. Physical-GPU claims remain exact-source evidence rather than generic promises; see the project changelog and validation artifacts for the accepted Tesla P100 runs.
