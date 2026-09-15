@@ -4,6 +4,11 @@ All notable changes to statgpu are documented here, organized by release and dat
 
 ## Unreleased — 2026-09-11
 
+### PR #164 / Issue #163 — Truthful penalized Quantile solver provenance (targeted for 0.2.6)
+- Reconciled penalized Quantile solver identity with execution: L2/no-penalty `solver="auto"` resolves to IRLS, L1/ElasticNet retains the FISTA family, and scalar SCAD/MCP records the dedicated Proximal IRLS-CD route.
+- Made incompatible explicit Quantile solver requests fail before numerical dispatch instead of silently executing another algorithm; `proximal_irls_cd` remains an internal resolved-provenance label rather than a new public `solver=` keyword.
+- Added generic/typed direct-fit, CV/final-refit, formula, installer/import-order, and bilingual solver-documentation regressions without introducing a new numerical algorithm.
+
 ### PR #151 / Issue #150 — Weighted explicit Newton/L-BFGS GLM fits (targeted for 0.2.6)
 - Reconciled ordinary `GeneralizedLinearModel` with the maintained analytic-weight solver contract: explicit `solver="newton"` and `solver="lbfgs"` accept genuine non-uniform `sample_weight` on supported GLM rows without silently substituting IRLS/FISTA or changing an explicit CPU/CuPy/Torch device request.
 - Maintained GLM smooth solvers use one normalized analytic-weight objective across the complete solve. Review/fix passes made effective-uniform classification scale- and permutation-invariant, normalize before execution-dtype casting, preserve fractional weights for integral designs, avoid raw float32-weight-sum overflow before normalization, and retain the exact solver-prepared weight identity for ordinary post-fit diagnostics/inference. On Newton/L-BFGS M-estimation routes that identity is rescaled to an equivalent mean-one representation before covariance evaluation, so positive global analytic-weight rescaling preserves coefficients and nonrobust/HC0/HC1 inference up to numerical solver tolerance without redefining unrelated IRLS/FISTA weighting semantics. `ParameterInferenceResult` also publishes the actual M-estimation `cov_type` when a constructor omitted that standard result field. L-BFGS preserves visible line-search failure while allowing only a bounded floating-point Armijo acceptance when both the requested objective decrease and parameter displacement are below maintained numerical resolution.
