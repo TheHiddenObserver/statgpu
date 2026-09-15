@@ -27,6 +27,7 @@ PenalizedGLM_CV = _cv_mod.PenalizedGLM_CV
 
 _POLICY_MARKER = "_statgpu_quantile_solver_policy_contract"
 _VALIDATE_MARKER = "_statgpu_quantile_solver_validate_contract"
+_CV_FIT_VALIDATE_MARKER = "_statgpu_quantile_cv_fit_validate_contract"
 _CV_PUBLIC_SOLVER_MARKER = "_statgpu_quantile_cv_public_solver_contract"
 _CV_CONTEXT_MARKER = "_statgpu_quantile_solver_cv_context_contract"
 _CV_SCORE_CONTEXT_MARKER = "_statgpu_quantile_cv_score_context_contract"
@@ -58,6 +59,51 @@ def _requested_quantile(owner) -> float:
         getattr(owner, "loss", "quantile"), loss_kwargs=loss_kwargs
     )
     return float(getattr(resolved, "_tau", getattr(resolved, "quantile", 0.5)))
+
+
+def _validate_quantile_solver_request(
+    *,
+    loss_name,
+    penalty_name,
+    solver_name,
+    allow_internal_nonconvex=False,
+) -> None:
+    """Validate the public Quantile solver contract before numerical dispatch."""
+    resolved_loss = _loss_name(loss_name)
+    resolved_penalty = _penalty_name(penalty_name)
+    resolved_solver = str(solver_name or "").lower().strip()
+    if resolved_loss != "quantile":
+        return
+
+    if resolved_solver == _DEDICATED_NONCONVEX_SOLVER:
+        if (
+            allow_internal_nonconvex
+            and resolved_penalty in _NONCONVEX_QUANTILE_PENALTIES
+        ):
+            return
+        raise ValueError(
+            f"solver='{resolved_solver}' is an internal resolved Quantile "
+            "solver label, not a public explicit solver; use solver='auto'."
+        )
+
+    if (
+        resolved_solver in ("fista", "fista_bb")
+        and resolved_penalty in _SMOOTH_PENALTIES
+    ):
+        raise ValueError(
+            f"solver='{resolved_solver}' is not a maintained smooth Quantile "
+            "route for L2/no-penalty objectives; use solver='irls' or "
+            "solver='auto'."
+        )
+
+    if resolved_penalty in _NONCONVEX_QUANTILE_PENALTIES:
+        if resolved_solver == "auto":
+            return
+        raise ValueError(
+            f"solver='{resolved_solver}' is not a public explicit Quantile "
+            f"{resolved_penalty.upper()} route; use solver='auto' so the "
+            "dedicated Proximal IRLS-CD algorithm is selected."
+        )
 
 
 def _install_policy_contract() -> None:
@@ -93,6 +139,31 @@ def _install_policy_contract() -> None:
     setattr(_preferred_with_truthful_quantile_route, _POLICY_MARKER, True)
     _preferred_with_truthful_quantile_route._statgpu_original = current
     _fit_mixin._preferred_penalized_glm_solver = _preferred_with_truthful_quantile_route
+
+
+def _install_cv_fit_route_guard() -> None:
+    """Reject invalid explicit Quantile CV solvers before alpha-grid work."""
+    current = PenalizedGLM_CV._fit_standard
+    if getattr(current, _CV_FIT_VALIDATE_MARKER, False):
+        return
+
+    @wraps(current)
+    def _fit_standard_with_quantile_solver_guard(self, *args, **kwargs):
+        _validate_quantile_solver_request(
+            loss_name=getattr(self, "loss", ""),
+            penalty_name=getattr(self, "penalty", ""),
+            solver_name=getattr(self, "_solver", ""),
+            allow_internal_nonconvex=False,
+        )
+        return current(self, *args, **kwargs)
+
+    setattr(
+        _fit_standard_with_quantile_solver_guard,
+        _CV_FIT_VALIDATE_MARKER,
+        True,
+    )
+    _fit_standard_with_quantile_solver_guard._statgpu_original = current
+    PenalizedGLM_CV._fit_standard = _fit_standard_with_quantile_solver_guard
 
 
 def _install_cv_public_solver_guard() -> None:
@@ -290,42 +361,12 @@ def _install_explicit_route_guard() -> None:
     @wraps(current)
     def _validate_with_quantile_route_guard(self):
         current(self)
-        solver_name = str(getattr(self, "_solver", "") or "").lower()
-        loss_name = str(getattr(self, "loss", "") or "").lower()
-        penalty_name = _penalty_name(getattr(self, "_penalty", self.penalty))
-
-        if loss_name != "quantile":
-            return
-
-        if solver_name == _DEDICATED_NONCONVEX_SOLVER:
-            if (
-                penalty_name in _NONCONVEX_QUANTILE_PENALTIES
-                and _INTERNAL_CV_RESOLVED_SOLVER.get()
-            ):
-                return
-            raise ValueError(
-                f"solver='{solver_name}' is an internal resolved Quantile "
-                "solver label, not a public explicit solver; use solver='auto'."
-            )
-
-        if (
-            solver_name in ("fista", "fista_bb")
-            and penalty_name in _SMOOTH_PENALTIES
-        ):
-            raise ValueError(
-                f"solver='{solver_name}' is not a maintained smooth Quantile "
-                "route for L2/no-penalty objectives; use solver='irls' or "
-                "solver='auto'."
-            )
-
-        if penalty_name in _NONCONVEX_QUANTILE_PENALTIES:
-            if solver_name == "auto":
-                return
-            raise ValueError(
-                f"solver='{solver_name}' is not a public explicit Quantile "
-                f"{penalty_name.upper()} route; use solver='auto' so the "
-                "dedicated Proximal IRLS-CD algorithm is selected."
-            )
+        _validate_quantile_solver_request(
+            loss_name=getattr(self, "loss", ""),
+            penalty_name=getattr(self, "_penalty", self.penalty),
+            solver_name=getattr(self, "_solver", ""),
+            allow_internal_nonconvex=_INTERNAL_CV_RESOLVED_SOLVER.get(),
+        )
 
     setattr(_validate_with_quantile_route_guard, _VALIDATE_MARKER, True)
     _validate_with_quantile_route_guard._statgpu_original = current
@@ -337,6 +378,7 @@ def _install_explicit_route_guard() -> None:
 def install_quantile_solver_contract() -> None:
     """Install Quantile solver/provenance/scoring reconciliation idempotently."""
     _install_policy_contract()
+    _install_cv_fit_route_guard()
     _install_cv_public_solver_guard()
     _install_cv_internal_context()
     _install_cv_eval_contract()
