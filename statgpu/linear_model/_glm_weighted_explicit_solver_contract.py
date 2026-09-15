@@ -136,14 +136,14 @@ def _canonicalize_smooth_diagnostic_weight_state(self, solver_name) -> None:
 
 
 def _invalidate_ordinary_smooth_fit_state(self) -> None:
-    """Fail closed before/after an explicit smooth-GLM fit transaction.
+    """Clear result-bearing state before an explicit smooth-GLM fit attempt.
 
     ``GeneralizedLinearModel.fit`` mutates attempt-local fields such as
-    ``_nobs`` before the solver is entered.  If a later domain/line-search or
-    inference/provenance step raises, retaining the previous successful
-    ``_fitted`` flag would expose a hybrid object containing old coefficients
-    and new-attempt metadata.  Clear all fitted/reporting state owned by this
-    ordinary GLM surface while leaving constructor parameters untouched.
+    ``_nobs`` before the solver is entered.  Starting from a cleared result
+    surface prevents a successful refit from accidentally inheriting stale
+    fitted/reporting fields.  The caller snapshots the complete prior
+    ``__dict__`` and restores it atomically if the new transaction raises, so a
+    failed refit cannot expose a hybrid of the old fit and the new attempt.
     """
 
     self._fitted = False
@@ -440,6 +440,7 @@ def _install_fit_provenance_contract() -> None:
     def _fit_with_execution_provenance(self, *args, **kwargs):
         solver_name = _resolved_ordinary_solver(self)
         is_explicit_smooth = solver_name in ("newton", "lbfgs")
+        prior_state = self.__dict__.copy() if is_explicit_smooth else None
         if is_explicit_smooth:
             _invalidate_ordinary_smooth_fit_state(self)
         try:
@@ -459,9 +460,10 @@ def _install_fit_provenance_contract() -> None:
             self._selected_backend_name = backend
             self._selected_backend_device = _fit_device_label(X_design, backend)
             return result
-        except Exception:
-            if is_explicit_smooth:
-                _invalidate_ordinary_smooth_fit_state(self)
+        except BaseException:
+            if prior_state is not None:
+                self.__dict__.clear()
+                self.__dict__.update(prior_state)
             raise
 
     setattr(_fit_with_execution_provenance, _FIT_MARKER, True)
