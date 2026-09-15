@@ -25,7 +25,9 @@ def test_proximal_irls_cd_is_internal_resolved_label_not_public_solver_keyword(p
 
 
 @pytest.mark.parametrize("cv_strategy", ["strict", "two_stage"])
-def test_cv_rejects_public_use_of_internal_proximal_irls_cd_label(cv_strategy):
+def test_cv_rejects_public_use_of_internal_proximal_irls_cd_label_before_grid_work(
+    monkeypatch, cv_strategy
+):
     rng = np.random.default_rng(16312)
     X = rng.normal(size=(36, 2))
     y = 0.2 + X @ np.array([0.6, -0.25]) + rng.laplace(scale=0.15, size=36)
@@ -34,7 +36,6 @@ def test_cv_rejects_public_use_of_internal_proximal_irls_cd_label(cv_strategy):
         loss="quantile",
         loss_kwargs={"quantile": 0.5},
         penalty="scad",
-        alpha_grid=np.array([0.02, 0.01]),
         cv=2,
         solver="proximal_irls_cd",
         cv_strategy=cv_strategy,
@@ -42,5 +43,9 @@ def test_cv_rejects_public_use_of_internal_proximal_irls_cd_label(cv_strategy):
         device="cpu",
     )
 
+    def forbidden_grid_work(*args, **kwargs):
+        raise AssertionError("alpha-grid numerical work must not run")
+
+    monkeypatch.setattr(model, "_generate_alpha_grid", forbidden_grid_work)
     with pytest.raises(ValueError, match="internal resolved Quantile solver label"):
         model.fit(X, y)
