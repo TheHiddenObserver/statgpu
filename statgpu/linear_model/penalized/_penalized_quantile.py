@@ -108,6 +108,34 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
         self._loss_kwargs = dict(kwargs)
         return get_loss("quantile", **kwargs)
 
+    def _fit_initial(self, X, y, backend_name="numpy"):
+        """Preserve the typed quantile in adaptive-L1 initialization."""
+        penalty_name = str(getattr(self._penalty, "name", "")).lower()
+        if penalty_name not in ("adaptive_l1", "adaptive_lasso"):
+            return super()._fit_initial(X, y, backend_name=backend_name)
+
+        from statgpu.backends import get_backend
+        from statgpu.backends._utils import _to_numpy
+        from statgpu.linear_model.penalized._fit_mixin import _irls_ridge_init
+
+        if backend_name in ("torch", "cupy"):
+            backend = get_backend(backend=backend_name, device="cuda")
+            X_b = backend.asarray(X, dtype=backend.float64)
+            y_b = backend.asarray(y, dtype=backend.float64)
+        else:
+            X_b = np.asarray(_to_numpy(X), dtype=np.float64)
+            y_b = np.asarray(_to_numpy(y), dtype=np.float64)
+
+        return _irls_ridge_init(
+            X_b,
+            y_b,
+            loss_name="quantile",
+            alpha=0.01,
+            max_iter=100,
+            tol=1e-4,
+            loss_kwargs=self._resolved_quantile_loss_kwargs(),
+        )
+
     def predict(self, X, return_cpu=True):
         """Predict using fitted model (identity link).
 
