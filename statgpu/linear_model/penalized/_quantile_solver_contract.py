@@ -1,33 +1,15 @@
-"""Truthful solver routing and scoring for penalized Quantile models.
+"""Truthful solver routing and CV scoring for penalized Quantile models.
 
-Historically the generic auto-dispatch labeled every Quantile fit as FISTA,
-while the fit path internally substituted different algorithms for selected
-penalties. That made ``_selected_solver`` and explicit solver requests disagree
-with the algorithm that actually ran.
+This compatibility contract reconciles two existing-capability mismatches:
 
-A fresh review of the same consumer graph also found that several accelerated
-CV scoring paths constructed their validation registry calls without carrying
-the requested Quantile level. Training children received ``loss_kwargs`` while
-those registry calls fell back to ``tau=0.5``. The contract installed here
-therefore keeps the requested Quantile level in a call-local CV context shared
-by the residual/validation registries.
+* reported Quantile solver identity must match the algorithm that executes;
+* Quantile CV scoring must use the caller's requested quantile level rather
+  than silently falling back to the median objective.
 
-Keep this compatibility installer narrow and composable with the existing
-penalized-model contract installers:
-
-* auto + Quantile + L2/none resolves to ordinary Quantile IRLS;
-* sparse Quantile auto routes keep the existing FISTA-family policy;
-* auto + Quantile + SCAD/MCP resolves to the dedicated Proximal IRLS-CD route;
-* incompatible explicit Quantile solver requests fail before backend numerical
-  dispatch instead of being silently substituted by another algorithm;
-* every Quantile CV candidate/validation route uses the caller's requested
-  Quantile level, including fold-batched sparse and weighted registry paths.
-
-``proximal_irls_cd`` is an internal resolved-provenance label, not a new public
-``solver=`` keyword. ``PenalizedGLM_CV`` is allowed to pass that resolved label
-to its private SCAD/MCP child estimators only inside a call-local context; a
-user who constructs an estimator with that spelling still fails closed for
-all Quantile penalties.
+The repair is deliberately narrow. It does not register a new Quantile
+fold-batched/FISTA loss implementation. In particular, the incomplete private
+GPU fold-batch Quantile optimization continues through the maintained general
+CV path instead of being promoted into a new numerical capability by this PR.
 """
 
 from __future__ import annotations
@@ -46,16 +28,17 @@ _POLICY_MARKER = "_statgpu_quantile_solver_policy_contract"
 _VALIDATE_MARKER = "_statgpu_quantile_solver_validate_contract"
 _CV_CONTEXT_MARKER = "_statgpu_quantile_solver_cv_context_contract"
 _CV_SCORE_CONTEXT_MARKER = "_statgpu_quantile_cv_score_context_contract"
-_CV_REGISTRY_MARKER = "_statgpu_quantile_cv_registry_contract"
+_CV_EVAL_MARKER = "_statgpu_quantile_cv_eval_contract"
+_CV_SCAD_MARKER = "_statgpu_quantile_cv_scad_contract"
+_CV_FOLDBATCH_MARKER = "_statgpu_quantile_cv_foldbatch_contract"
 _SMOOTH_PENALTIES = frozenset({"l2", "none", "null", ""})
 _NONCONVEX_QUANTILE_PENALTIES = frozenset({"scad", "mcp"})
 _DEDICATED_NONCONVEX_SOLVER = "proximal_irls_cd"
 _INTERNAL_CV_RESOLVED_SOLVER = ContextVar(
     "statgpu_quantile_internal_cv_resolved_solver", default=False
 )
-_QUANTILE_CV_LEVEL = ContextVar(
-    "statgpu_quantile_cv_level", default=None
-)
+_QUANTILE_CV_LEVEL = ContextVar("statgpu_quantile_cv_level", default=None)
+_MISSING = object()
 
 
 def _loss_name(value) -> str:
@@ -64,6 +47,16 @@ def _loss_name(value) -> str:
 
 def _penalty_name(value) -> str:
     return str(getattr(value, "name", value) or "").lower().strip()
+
+
+def _requested_quantile(owner) -> float:
+    loss_kwargs = getattr(owner, "_loss_kwargs", None) or {}
+    if "quantile" in loss_kwargs:
+        return float(loss_kwargs["quantile"])
+    resolved = _fit_mixin._resolve_loss_name(
+        getattr(owner, "loss", "quantile"), loss_kwargs=loss_kwargs
+    )
+    return float(getattr(resolved, "_tau", getattr(resolved, "quantile", 0.5)))
 
 
 def _install_policy_contract() -> None:
@@ -109,18 +102,22 @@ def _install_cv_internal_context() -> None:
     current_refit = PenalizedGLM_CV._refit_best
 
     @wraps(current_fold)
-    def _cv_fold_with_internal_resolved_solver(*args, **kwargs):
+    def _cv_fold_with_internal_resolved_solver(self, *args, **kwargs):
+        if _loss_name(getattr(self, "loss", "")) != "quantile":
+            return current_fold(self, *args, **kwargs)
         token = _INTERNAL_CV_RESOLVED_SOLVER.set(True)
         try:
-            return current_fold(*args, **kwargs)
+            return current_fold(self, *args, **kwargs)
         finally:
             _INTERNAL_CV_RESOLVED_SOLVER.reset(token)
 
     @wraps(current_refit)
-    def _refit_with_internal_resolved_solver(*args, **kwargs):
+    def _refit_with_internal_resolved_solver(self, *args, **kwargs):
+        if _loss_name(getattr(self, "loss", "")) != "quantile":
+            return current_refit(self, *args, **kwargs)
         token = _INTERNAL_CV_RESOLVED_SOLVER.set(True)
         try:
-            return current_refit(*args, **kwargs)
+            return current_refit(self, *args, **kwargs)
         finally:
             _INTERNAL_CV_RESOLVED_SOLVER.reset(token)
 
@@ -129,40 +126,136 @@ def _install_cv_internal_context() -> None:
     setattr(PenalizedGLM_CV, _CV_CONTEXT_MARKER, True)
 
 
-def _inject_requested_quantile(fn):
-    if getattr(fn, _CV_REGISTRY_MARKER, False):
-        return fn
+def _quantile_backend_value(eta, y, **kwargs):
+    quantile = kwargs.get("quantile")
+    if quantile is None:
+        quantile = _QUANTILE_CV_LEVEL.get()
+    if quantile is None:
+        quantile = 0.5
+    q = float(quantile)
+    u = y - eta
+    xp = _cv_mod._get_xp(u)
+    return xp.where(u >= 0, q * u, (q - 1.0) * u)
 
-    @wraps(fn)
-    def _with_requested_quantile(eta, y, **kwargs):
-        if "quantile" not in kwargs:
+
+def _install_cv_eval_contract() -> None:
+    entry = _cv_mod._LOSS_EVAL_DISPATCH.get("quantile")
+    if entry is None:
+        raise RuntimeError("Quantile CV evaluation entry is unavailable")
+
+    current_eval_fn, uses_design = entry
+    if not getattr(current_eval_fn, _CV_EVAL_MARKER, False):
+        @wraps(current_eval_fn)
+        def _eval_with_requested_quantile(eta, y, **kwargs):
+            if "quantile" not in kwargs:
+                quantile = _QUANTILE_CV_LEVEL.get()
+                if quantile is not None:
+                    kwargs = {**kwargs, "quantile": float(quantile)}
+            return current_eval_fn(eta, y, **kwargs)
+
+        setattr(_eval_with_requested_quantile, _CV_EVAL_MARKER, True)
+        _eval_with_requested_quantile._statgpu_original = current_eval_fn
+        _cv_mod._LOSS_EVAL_DISPATCH["quantile"] = (
+            _eval_with_requested_quantile,
+            uses_design,
+        )
+
+    current_numpy_eval = _cv_mod._evaluate_loss_numpy
+    if getattr(current_numpy_eval, _CV_EVAL_MARKER, False):
+        return
+
+    @wraps(current_numpy_eval)
+    def _evaluate_loss_numpy_with_requested_quantile(
+        loss_name,
+        loss_fn,
+        X_val_np,
+        y_val_np,
+        coef_np,
+        intercept,
+        fit_intercept,
+        sample_weight=None,
+    ):
+        if _loss_name(loss_name) == "quantile":
             quantile = _QUANTILE_CV_LEVEL.get()
             if quantile is not None:
-                kwargs = {**kwargs, "quantile": float(quantile)}
-        return fn(eta, y, **kwargs)
-
-    setattr(_with_requested_quantile, _CV_REGISTRY_MARKER, True)
-    _with_requested_quantile._statgpu_original = fn
-    return _with_requested_quantile
-
-
-def _install_cv_registry_contract() -> None:
-    residual = _cv_mod._LOSS_RESIDUAL_FNS.get("quantile")
-    val_loss = _cv_mod._LOSS_VALLOSS_FNS.get("quantile")
-    if residual is None or val_loss is None:
-        raise RuntimeError("Quantile CV registry entries are unavailable")
-
-    residual_wrapped = _inject_requested_quantile(residual)
-    val_wrapped = _inject_requested_quantile(val_loss)
-    _cv_mod._LOSS_RESIDUAL_FNS["quantile"] = residual_wrapped
-    _cv_mod._LOSS_VALLOSS_FNS["quantile"] = val_wrapped
-
-    eval_entry = _cv_mod._LOSS_EVAL_DISPATCH.get("quantile")
-    if eval_entry is not None:
-        _cv_mod._LOSS_EVAL_DISPATCH["quantile"] = (
-            val_wrapped,
-            eval_entry[1],
+                loss_fn = _fit_mixin._resolve_loss_name(
+                    "quantile", loss_kwargs={"quantile": float(quantile)}
+                )
+        return current_numpy_eval(
+            loss_name,
+            loss_fn,
+            X_val_np,
+            y_val_np,
+            coef_np,
+            intercept,
+            fit_intercept,
+            sample_weight=sample_weight,
         )
+
+    setattr(_evaluate_loss_numpy_with_requested_quantile, _CV_EVAL_MARKER, True)
+    _evaluate_loss_numpy_with_requested_quantile._statgpu_original = current_numpy_eval
+    _cv_mod._evaluate_loss_numpy = _evaluate_loss_numpy_with_requested_quantile
+
+
+def _install_scad_quantile_context() -> None:
+    current = _cv_mod._scad_mcp_cv_path
+    if getattr(current, _CV_SCAD_MARKER, False):
+        return
+
+    @wraps(current)
+    def _scad_mcp_with_requested_quantile(*args, **kwargs):
+        loss_name = kwargs.get("loss_name", args[0] if args else "")
+        if _loss_name(loss_name) != "quantile":
+            return current(*args, **kwargs)
+
+        quantile = _QUANTILE_CV_LEVEL.get()
+        if quantile is None:
+            return current(*args, **kwargs)
+
+        # loss_kwargs is the 17th positional parameter. Current CV callers do
+        # not pass it positionally, but preserve such a call if one appears.
+        has_positional_loss_kwargs = len(args) > 16 and args[16] is not None
+        if not has_positional_loss_kwargs and kwargs.get("loss_kwargs") is None:
+            kwargs = {**kwargs, "loss_kwargs": {"quantile": float(quantile)}}
+
+        previous = _cv_mod._LOSS_VALLOSS_FNS.get("quantile", _MISSING)
+        _cv_mod._LOSS_VALLOSS_FNS["quantile"] = _quantile_backend_value
+        try:
+            return current(*args, **kwargs)
+        finally:
+            if previous is _MISSING:
+                _cv_mod._LOSS_VALLOSS_FNS.pop("quantile", None)
+            else:
+                _cv_mod._LOSS_VALLOSS_FNS["quantile"] = previous
+
+    setattr(_scad_mcp_with_requested_quantile, _CV_SCAD_MARKER, True)
+    _scad_mcp_with_requested_quantile._statgpu_original = current
+    _cv_mod._scad_mcp_cv_path = _scad_mcp_with_requested_quantile
+
+
+def _install_incomplete_fold_batch_guard() -> None:
+    current = _cv_mod._glm_sparse_cv_folds
+    if getattr(current, _CV_FOLDBATCH_MARKER, False):
+        return
+
+    @wraps(current)
+    def _fold_batch_without_unmaintained_quantile_route(*args, **kwargs):
+        loss_name = kwargs.get("loss_name", args[8] if len(args) > 8 else "")
+        if _loss_name(loss_name) == "quantile":
+            # Quantile has no registered residual in this private fast-path
+            # registry. Return None so _compute_cv_scores uses the maintained
+            # per-fold estimator path instead of crashing or inventing a new
+            # numerical implementation inside this reconciliation PR.
+            return None
+        return current(*args, **kwargs)
+
+    setattr(
+        _fold_batch_without_unmaintained_quantile_route,
+        _CV_FOLDBATCH_MARKER,
+        True,
+    )
+    _fold_batch_without_unmaintained_quantile_route._statgpu_original = current
+    _cv_mod._glm_sparse_cv_folds = _fold_batch_without_unmaintained_quantile_route
 
 
 def _install_cv_score_context() -> None:
@@ -175,9 +268,7 @@ def _install_cv_score_context() -> None:
         if _loss_name(getattr(self, "loss", "")) != "quantile":
             return current(self, *args, **kwargs)
 
-        loss_kwargs = getattr(self, "_loss_kwargs", None) or {}
-        quantile = float(loss_kwargs.get("quantile", 0.5))
-        token = _QUANTILE_CV_LEVEL.set(quantile)
+        token = _QUANTILE_CV_LEVEL.set(_requested_quantile(self))
         try:
             return current(self, *args, **kwargs)
         finally:
@@ -248,7 +339,9 @@ def install_quantile_solver_contract() -> None:
     """Install Quantile solver/provenance/scoring reconciliation idempotently."""
     _install_policy_contract()
     _install_cv_internal_context()
-    _install_cv_registry_contract()
+    _install_cv_eval_contract()
+    _install_scad_quantile_context()
+    _install_incomplete_fold_batch_guard()
     _install_cv_score_context()
     _install_explicit_route_guard()
 
