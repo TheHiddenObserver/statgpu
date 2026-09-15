@@ -2,7 +2,7 @@
 
 > 语言：中文
 >
-> 最后更新：2026-09-14
+> 最后更新：2026-09-15
 >
 > 切换：[英文版](../../en/guides/loss-penalty-solver-framework.md)
 
@@ -134,10 +134,10 @@ class LossBase:
 | 分位数 | `QuantileLoss` | ❌ | ❌ | ✅ | `quantreg::rq()` |
 | Huber | `HuberLoss` | ✅ | ✅ | ❌ | `MASS::rlm()` |
 | Bisquare | `BisquareLoss` | ✅ | ✅ | ✅ | `MASS::rlm(psi="bisquare")` |
-| Fair | `FairLoss` | ✅ | ✅ | ✅ | `MASS::rlm(psi="fair")` |
+| Fair | `FairLoss` | ✅ | ✅ | ✅ | 需要自定义 psi/外部 reference；MASS 没有内建 Fair psi |
 | Cox PH | `CoxPartialLikelihoodLoss` | ✅ | ✅ | ❌ | `survival::coxph()` |
 
-Huber 当前的 `_supports_irls=False` 表示公共调度不会进入 Huber IRLS；因此显式请求该路径时按当前兼容性约定拒绝，而不是静默切换到其他求解器。
+Huber 当前的 `_supports_irls=False` 表示公共调度不会进入 Huber IRLS；因此显式请求该路径时按当前兼容性约定拒绝，而不是静默切换到其他求解器。Fair loss 的外部比较也需要显式匹配 Fair psi 实现，不能使用并不存在的 `MASS::rlm(psi="fair")` 内建选项。
 
 ### 逐样本公式
 
@@ -179,6 +179,8 @@ $$
 | 分组 MCP | ❌ | ❌ | 分组近端 | ✅ | · |
 | 分组 SCAD | ❌ | ❌ | 分组近端 | ✅ | · |
 
+`AdaptiveL1Penalty` 在数据驱动的坐标权重确定后是凸惩罚。表中的 “LLA 支持” 不代表 standalone adaptive L1 是非凸 LLA 路径；当前 auto dispatch 在初始化权重后把它作为凸稀疏惩罚处理。
+
 ### SCAD 公式
 $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\beta|^2 - 2a\alpha|\beta| + \alpha^2)}{2(a-1)} & \alpha < |\beta| \leq a\alpha \\ \frac{(a+1)\alpha^2}{2} & |\beta| > a\alpha \end{cases}$$
 
@@ -192,17 +194,19 @@ $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\be
 
 ### 自动调度表
 
-`solver="auto"` 的主要分发可概括为：
+`solver="auto"` 的主要分发可概括如下。公开的 `none` / `null` 会在求解器选择前规范化为 `L2(alpha=0)`，因此无惩罚的光滑行与 L2 使用同一个分支。
 
 | 优先级 | 求解器 | 条件 |
 |----------|--------|------|
-| 1 | `exact` | `squared_error` + L2 + NumPy |
-| 2 | `newton` | `squared_error` + L2 + GPU |
-| 3 | `fista` + LLA | 非凸惩罚（SCAD/MCP/自适应等） |
-| 4 | 分位数专用 FISTA/IRLS 路径 | 分位数损失 |
-| 5 | `fista` / `fista_bb` | 平方误差/GLM/稳健损失 + 稀疏惩罚 |
+| 1 | `exact` | `squared_error` + L2/none + NumPy |
+| 2 | `newton` | `squared_error` + L2/none + GPU |
+| 3 | `fista` + LLA wrapper | SCAD/MCP 与分组非凸惩罚 |
+| 4 | `fista` | Quantile 的 `solver="auto"`；显式 Quantile IRLS 是另一条 L2/无惩罚维护路径 |
+| 5 | `fista` / `fista_bb` | 凸稀疏惩罚，包括初始化后的 adaptive L1；精确选择依 loss/backend/CV 而定 |
 | 6 | `lbfgs` / `newton` | 交叉验证 + L2 + 特定损失函数 |
 | 7 | `newton` | GLM/稳健/Cox 等具有维护中 Hessian 的光滑 L2/无惩罚路径 |
+
+这里的 `exact` 是平方误差/L2 的闭式求解器，与 `CoxPH(ties="exact")` 无关。需要 family/backend-specific 的精确稀疏分派时，请查看 [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md)。
 
 ### 全部求解器
 
@@ -215,9 +219,9 @@ $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\be
 | `newton` | 有 Hessian 的损失 | L2 / 无惩罚 | 由损失函数能力决定；普通 GLM ✅ | ❌ |
 | `lbfgs` | 光滑损失 | L2 / 无惩罚 | 受能力声明约束；普通 GLM ✅ | ❌ |
 | `lbfgs_b` | 光滑盒约束问题 | L2 / 无惩罚 | 尚未声明通用的非均匀权重约定 | ❌ |
-| `fista` | 支持梯度/近端路径的损失 | 全部受支持的近端惩罚 | 由具体损失路径决定 | ✅ |
+| `fista` | 支持梯度/近端路径的损失 | 受支持的近端惩罚 | 由具体损失路径决定 | ✅ |
 | `fista_bb` | 支持梯度/近端路径的损失 | 受支持的稀疏惩罚 | 由具体损失路径决定 | ✅ |
-| `fista_lla` | 支持当前 LLA 路径的损失 | SCAD/MCP/自适应 | 由具体损失路径决定 | ✅ |
+| `fista_lla` | 支持当前 LLA 路径的损失 | SCAD/MCP 与分组非凸 LLA 路径 | 由具体损失路径决定 | ✅ |
 | `proximal_irls_cd` | 仅分位数损失 | SCAD/MCP | ✅ | ✅ |
 | `proximal_newton` | 有 Hessian 的光滑损失 | L2 / 无惩罚 | 由具体损失路径决定 | ✅ |
 | `admm` | 当前维护的 ADMM 损失 | 受支持的近端形式 | 仅未传权重或均匀权重；真正非均匀权重会明确报错 | ✅ |
@@ -320,7 +324,7 @@ $$
 q_k=g_k^\top d_k>0.
 $$
 
-若 $q_k$ 非有限或不大于 0，则同样改用最速下降方向
+若 $q_k$ 非有限或不大于 0，则同样使用最速下降：
 
 $$
 d_k=g_k,
@@ -335,7 +339,7 @@ t_m=2^{-m},
 \qquad m=0,1,\ldots,24,
 $$
 
-并接受第一个满足
+接受第一个满足
 
 $$
 F(\beta_k-t_m d_k)
@@ -343,15 +347,15 @@ F(\beta_k-t_m d_k)
 F(\beta_k)-10^{-4}t_m q_k
 $$
 
-的候选点，然后设置
+的候选点，并更新
 
 $$
 \beta_{k+1}=\beta_k-t_m d_k.
 $$
 
-若 25 个候选步长都不满足条件，则恢复 $\beta_{k+1}=\beta_k$，发出线搜索失败警告并结束。默认 `max_iter=50`、`tol=1e-6`；若没有传入 `init_coef`，初值为 $\beta_0=0$。
+若 25 个候选步长全部失败，则恢复 $\beta_{k+1}=\beta_k$，发出线搜索警告并停止。默认值为 `max_iter=50`、`tol=1e-6`；未提供 `init_coef` 时取 $\beta_0=0$。
 
-对于真正的非光滑复合目标，Proximal Newton 应解 Hessian 度量下的近端子问题
+对于真正的非光滑复合目标，Proximal Newton 应求解 Hessian 度量下的近端子问题
 
 $$
 \Delta_k
@@ -363,12 +367,12 @@ $$
 \right\}.
 $$
 
-当前实现尚未提供这个 Hessian-metric 近端子问题求解器；非光滑惩罚请求会在进入 Newton 迭代前显式转到 FISTA。因而当前 L2/无惩罚的 `proximal_newton` 路径数值上就是带 Armijo 线搜索的稳定化 Newton，不会再额外应用一个欧氏近端算子，从而避免重复计入 L2 曲率。
+当前求解器没有实现该 Hessian-metric proximal 子问题，因此非光滑惩罚会在进入 Newton 迭代前转交 FISTA。也就是说，当前 L2/无惩罚的 `proximal_newton` 数值上是稳定化的 damped Newton + Armijo，不会额外套一次欧氏近端算子，从而避免重复计算 L2 曲率。
 
-**FISTA-LLA**（通用非凸路径；也是 Cox + SCAD/MCP 的当前路径）：
-1. 延续路径：从 `λ_max` 逐步到目标 `α`（3–5 步）；
-2. LLA 外层循环（每步 2–5 次迭代）；
-3. 当前通用复合路径使用 FISTA 内层求解加权凸近似问题；只有未来某个损失函数明确提供正确的 Hessian 度量近端子问题时，才应启用 Proximal Newton 内层。Cox 当前保持 FISTA-LLA。
+**FISTA-LLA**（通用非凸路径）：
+1. continuation：λ_max → 目标 α（3–5 步）；
+2. LLA 外循环（每步 2–5 次）；
+3. 通用复合路径使用加权凸 FISTA 内层。只有当损失函数显式提供正确的 Hessian-metric proximal 子问题时，才应启用 Proximal-Newton 内层。Cox 的 SCAD/MCP 当前继续使用 FISTA-LLA。
 
 ## 4. 后端覆盖
 
@@ -376,47 +380,47 @@ $$
 |:---------------|:---:|:---:|:---:|
 | Proximal IRLS-CD | ✅ | ✅ | ✅ |
 | Proximal Newton（光滑路径） | ✅ | ✅ | ✅ |
-| FISTA（加权） | ✅ | ✅ | ✅ |
-| FISTA-BB（加权） | ✅ | ✅ | ✅ |
-| FISTA-LLA（加权） | ✅ | ✅ | ✅ |
-| 分位数 IRLS（光滑惩罚） | ✅ | ✅ | ✅ |
-| CoxPH Breslow/Efron 损失 | ✅ | ✅（后端原生） | ✅（后端原生） |
-| CoxPH Exact / `start-stop` / `strata` / `subject` | ✅ | ✅（共享计数过程实现） | ✅（共享计数过程实现） |
-| DBSCAN | ✅ | GPU 距离计算 + 主机同步的连通分量 | ✅（设备端） |
-| UMAP | ✅ | 识别后端 + 必要的主机传输 | 识别后端 + 必要的主机传输 |
+| FISTA（带权） | ✅ | ✅ | ✅ |
+| FISTA-BB（带权） | ✅ | ✅ | ✅ |
+| FISTA-LLA（带权） | ✅ | ✅ | ✅ |
+| Quantile IRLS（显式光滑惩罚请求） | ✅ | ✅ | ✅ |
+| Cox partial likelihood（Breslow/Efron） | ✅ 原生 | ✅ 原生 | ✅ 原生 |
+| CoxPH counting process / strata / Exact | ✅ 原生 | ✅ 原生 | ✅ 原生 |
+| DBSCAN | ✅ | GPU 距离 + host-sync CC | ✅ on-device |
+| UMAP | 是 | 支持，存在显式 SciPy host graph 边界 | 支持，存在显式 SciPy host graph 边界 |
 
 ## 5. 面向用户的带惩罚模型
 
-这些类是用户通常直接构造并调用 `.fit()` 的公共模型层；它们内部解析损失函数、惩罚项、求解器与计算后端。
+这些是普通用户直接构造并调用 `.fit()` 的公开模型类；内部会解析 Loss、Penalty、Solver 与 Backend。
 
 | 类 | 损失 | 惩罚 | 主要求解路径 |
-|-------|------|-----------|---------|
-| `PenalizedGeneralizedLinearModel` | 任意已注册损失 | 已注册惩罚 | 根据完整 loss × penalty × backend 组合自动分发，也可显式指定 |
-| `PenalizedLinearRegression` | `squared_error` | l1/l2/elasticnet/scad/mcp/adaptive_l1 | exact / Newton / FISTA / LLA |
-| `PenalizedLogisticRegression` | `logistic` | l1/l2/elasticnet/scad/mcp/adaptive_l1 | Newton / FISTA / LLA |
-| `PenalizedPoissonRegression` | `poisson` | l1/l2/elasticnet/scad/mcp/adaptive_l1 | Newton / FISTA / LLA |
-| `PenalizedQuantileRegression` | `quantile` | scad/mcp/l2 等 | 分位数 IRLS / Proximal IRLS-CD / FISTA |
-| `PenalizedRobustRegression` | huber/bisquare/fair | l1/l2/elasticnet/scad/mcp 等 | Newton / FISTA / FISTA-LLA；Bisquare/Fair 另有维护中的 IRLS |
-| `PenalizedCoxPHModel` | `cox_ph` | l1/l2/elasticnet/scad/mcp | FISTA；SCAD/MCP 使用 FISTA-LLA |
+|----|------|------|--------------|
+| `PenalizedGeneralizedLinearModel` | 任意已注册损失 | 已注册惩罚 | 根据完整 loss × penalty × backend 组合进行 auto dispatch，或使用显式 solver |
+| `PenalizedLinearRegression` | squared_error | l1/l2/elasticnet/scad/mcp/adaptive_l1 | L2/none：CPU exact / GPU Newton；凸稀疏：FISTA；SCAD/MCP：FISTA-LLA |
+| `PenalizedLogisticRegression` | logistic | l1/l2/elasticnet/scad/mcp/adaptive_l1 | L2/none：Newton；direct 凸稀疏：FISTA-BB；SCAD/MCP：FISTA-LLA |
+| `PenalizedPoissonRegression` | poisson | l1/l2/elasticnet/scad/mcp/adaptive_l1 | L2/none：Newton；direct 凸稀疏：FISTA-BB；SCAD/MCP：FISTA-LLA |
+| `PenalizedQuantileRegression` | quantile | scad/mcp/l2 及其他受支持惩罚 | 普通凸路径 `auto`：FISTA；L2/none 可显式 IRLS；SCAD/MCP：Proximal IRLS-CD |
+| `PenalizedRobustRegression` | huber/bisquare/fair | l1/l2/elasticnet/scad/mcp 等 | L2/none：Newton；凸稀疏：FISTA；SCAD/MCP：FISTA-LLA；Bisquare/Fair 另有显式 IRLS |
+| `PenalizedCoxPHModel` | cox_ph | l1/l2/elasticnet/scad/mcp | L2/none：Newton；direct L1/ElasticNet：FISTA-BB；SCAD/MCP：FISTA-LLA |
 
-`PenalizedCoxPHModel` 提供带惩罚 Cox 系数估计；需要协方差、显著性检验、基线风险或生存曲线时，使用 `statgpu.survival.CoxPH`。
+`PenalizedCoxPHModel` 只负责带惩罚 Cox 系数估计；需要协方差、显著性检验、基线风险或生存曲线时应使用 `statgpu.survival.CoxPH`。
 
-## 6. 快速参考
+## 6. 快速示例
 
 ```python
-# 分位数回归 + SCAD
+# Quantile + SCAD
 from statgpu.linear_model.penalized import PenalizedQuantileRegression
 model = PenalizedQuantileRegression(quantile=0.5, penalty='scad', alpha=0.1)
 model.fit(X, y)
 
-# 稳健回归 + MCP
+# Robust + MCP
 from statgpu.linear_model.penalized import PenalizedRobustRegression
 model = PenalizedRobustRegression(loss='huber', penalty='mcp', alpha=0.1)
 model.fit(X, y)
 
-# Cox PH + SCAD 惩罚（FISTA-LLA；响应为 [time, event]）
+# Cox PH + SCAD
 import numpy as np
-from statgpu.linear_model import PenalizedCoxPHModel
+from statgpu.linear_model.penalized import PenalizedCoxPHModel
 
 y_surv = np.column_stack([time, event])
 model = PenalizedCoxPHModel(
@@ -425,7 +429,7 @@ model = PenalizedCoxPHModel(
 )
 model.fit(X, y_surv)
 
-# 通过 PenalizedGeneralizedLinearModel 组合不同损失与惩罚
+# 通过通用 PenalizedGeneralizedLinearModel 组合损失与惩罚
 from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
 model = PenalizedGeneralizedLinearModel(loss='gamma', penalty='scad', alpha=0.1)
 model.fit(X, y)
