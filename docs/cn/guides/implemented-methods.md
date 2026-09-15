@@ -1,6 +1,6 @@
 # 已实现方法
 
-> 最后更新：2026-07-24  
+> 最后更新：2026-09-15  
 > 切换：[English](../../en/guides/implemented-methods.md)
 
 本页是 statgpu 当前公开模型、函数与主要求解器族的维护中清单。详细数学定义、
@@ -68,7 +68,7 @@ model.fit(X, y)
 | `ElasticNetCV` | 联合搜索 `l1_ratio` 与 alpha | NumPy, CuPy, Torch |
 | `LogisticRegressionCV` | Logistic 回归 CV | NumPy, CuPy, Torch |
 | `PenalizedGLM_CV` | 统一惩罚 GLM CV | NumPy, CuPy, Torch |
-| `CoxPHCV` | Cox penalty 搜索与最终 refit | NumPy, CuPy；见 CoxPH 文档 |
+| `CoxPHCV` | Cox penalty 搜索与最终 refit | NumPy, CuPy, Torch |
 
 ## 方差分析
 
