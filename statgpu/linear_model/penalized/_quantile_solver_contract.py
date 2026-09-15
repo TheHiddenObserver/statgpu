@@ -7,10 +7,10 @@ This compatibility contract reconciles two existing-capability mismatches:
   than silently falling back to the median objective.
 
 The repair is deliberately narrow. It does not register a new Quantile
-fold-batched/FISTA residual implementation. In particular, the incomplete
-private GPU fold-batch Quantile optimization continues through the maintained
-general CV path instead of being promoted into a new numerical capability by
-this PR.
+fold-batched/FISTA residual or SCAD/MCP fast-path implementation. Private
+accelerated Quantile routes whose loss-parameter contract is incomplete return
+``None`` so the existing CV dispatcher uses the maintained per-fold estimator
+path instead.
 """
 
 from __future__ import annotations
@@ -126,18 +126,6 @@ def _install_cv_internal_context() -> None:
     setattr(PenalizedGLM_CV, _CV_CONTEXT_MARKER, True)
 
 
-def _quantile_backend_value(eta, y, **kwargs):
-    quantile = kwargs.get("quantile")
-    if quantile is None:
-        quantile = _QUANTILE_CV_LEVEL.get()
-    if quantile is None:
-        quantile = 0.5
-    q = float(quantile)
-    u = y - eta
-    xp = _cv_mod._get_xp(u)
-    return xp.where(u >= 0, q * u, (q - 1.0) * u)
-
-
 def _install_cv_eval_contract() -> None:
     entry = _cv_mod._LOSS_EVAL_DISPATCH.get("quantile")
     if entry is None:
@@ -159,13 +147,6 @@ def _install_cv_eval_contract() -> None:
             _eval_with_requested_quantile,
             uses_design,
         )
-
-    # Quantile intentionally remains absent from _LOSS_RESIDUAL_FNS, so this
-    # validation-only registration does not enable the incomplete fold-batched
-    # sparse solver. It only gives existing weighted scoring paths a backend-
-    # native pinball evaluator and is safe for concurrent CV fits because the
-    # requested tau comes from ContextVar rather than shared mutable state.
-    _cv_mod._LOSS_VALLOSS_FNS["quantile"] = _quantile_backend_value
 
     current_numpy_eval = _cv_mod._evaluate_loss_numpy
     if getattr(current_numpy_eval, _CV_EVAL_MARKER, False):
@@ -204,31 +185,25 @@ def _install_cv_eval_contract() -> None:
     _cv_mod._evaluate_loss_numpy = _evaluate_loss_numpy_with_requested_quantile
 
 
-def _install_scad_quantile_context() -> None:
+def _install_scad_quantile_guard() -> None:
     current = _cv_mod._scad_mcp_cv_path
     if getattr(current, _CV_SCAD_MARKER, False):
         return
 
     @wraps(current)
-    def _scad_mcp_with_requested_quantile(*args, **kwargs):
+    def _scad_mcp_without_unmaintained_quantile_fast_path(*args, **kwargs):
         loss_name = kwargs.get("loss_name", args[0] if args else "")
-        if _loss_name(loss_name) != "quantile":
-            return current(*args, **kwargs)
-
-        quantile = _QUANTILE_CV_LEVEL.get()
-        if quantile is None:
-            return current(*args, **kwargs)
-
-        # loss_kwargs is the 17th positional parameter. Current CV callers do
-        # not pass it positionally, but preserve such a call if one appears.
-        has_positional_loss_kwargs = len(args) > 16 and args[16] is not None
-        if not has_positional_loss_kwargs and kwargs.get("loss_kwargs") is None:
-            kwargs = {**kwargs, "loss_kwargs": {"quantile": float(quantile)}}
+        if _loss_name(loss_name) == "quantile":
+            return None
         return current(*args, **kwargs)
 
-    setattr(_scad_mcp_with_requested_quantile, _CV_SCAD_MARKER, True)
-    _scad_mcp_with_requested_quantile._statgpu_original = current
-    _cv_mod._scad_mcp_cv_path = _scad_mcp_with_requested_quantile
+    setattr(
+        _scad_mcp_without_unmaintained_quantile_fast_path,
+        _CV_SCAD_MARKER,
+        True,
+    )
+    _scad_mcp_without_unmaintained_quantile_fast_path._statgpu_original = current
+    _cv_mod._scad_mcp_cv_path = _scad_mcp_without_unmaintained_quantile_fast_path
 
 
 def _install_incomplete_fold_batch_guard() -> None:
@@ -240,10 +215,6 @@ def _install_incomplete_fold_batch_guard() -> None:
     def _fold_batch_without_unmaintained_quantile_route(*args, **kwargs):
         loss_name = kwargs.get("loss_name", args[8] if len(args) > 8 else "")
         if _loss_name(loss_name) == "quantile":
-            # Quantile has no registered residual in this private fast-path
-            # registry. Return None so _compute_cv_scores uses the maintained
-            # per-fold estimator path instead of crashing or inventing a new
-            # numerical implementation inside this reconciliation PR.
             return None
         return current(*args, **kwargs)
 
@@ -338,7 +309,7 @@ def install_quantile_solver_contract() -> None:
     _install_policy_contract()
     _install_cv_internal_context()
     _install_cv_eval_contract()
-    _install_scad_quantile_context()
+    _install_scad_quantile_guard()
     _install_incomplete_fold_batch_guard()
     _install_cv_score_context()
     _install_explicit_route_guard()
