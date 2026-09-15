@@ -20,7 +20,7 @@ This page records user-visible changes for current and recent statgpu releases.
 ### Validation
 
 - Added generic/typed direct-fit, sparse/non-convex, CV/final-refit, formula, import-order, signature-preservation, explicit-solver fail-closed, non-median weighted/unweighted scoring, and fail-safe fast-path fallback regressions. The non-median scoring tests compare directly with manual pinball loss and verify that the call-local quantile context does not leak after CV returns.
-- Only hosted validation on the final exact PR head is used for merge-readiness assessment.
+- Merge readiness requires both green hosted validation on the final exact PR head and a passing exact-source schema-v1 physical CUDA run from `dev/benchmarks/validate_quantile_solver_provenance_gpu.py`; hosted CI does not substitute for that CuPy/Torch CUDA gate.
 
 ## Unreleased — Weighted explicit Newton/L-BFGS GLM fits (PR #151 / Issue #150, targeted for 0.2.6)
 
