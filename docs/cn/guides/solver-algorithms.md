@@ -116,13 +116,29 @@ statgpu 提供一阶、二阶、近端和闭式等多类求解器。对大多数
 
    这里实际采用的是 Jacobi 风格的并行对角上界更新，而不是逐坐标循环更新。
 
-4. **收敛判据。** IRLS 内循环检查
+4. **截距与完全平坦的 LLA 近似。** 分位数损失不是二次损失，因此不能通过对 $X$ 与 $y$ 做均值中心化来精确消去截距。`fit_intercept=True` 时，数值设计矩阵会增广一列常数 1，截距作为 pinball 目标中的真实坐标共同优化，其局部惩罚阈值固定为 0。
+
+   如果某一轮中所有特征侧 LLA 导数都严格为零，
 
    $$
-   \|\beta^{\mathrm{new}}-\beta\|_\infty<\texttt{tol},
+   d_1=\cdots=d_p=0,
    $$
 
-   LLA 外循环检查
+   则当前 SCAD/MCP 近似已经没有活动惩罚，退化成普通带权分位数回归。此时求解器复用维护中的完整 `QuantileLoss.irls()` WLS 更新来闭合该近似，而不是继续使用对角 Jacobi 近似。这个完全平坦近似使用
+
+   $$
+   \min(\texttt{tol},10^{-8})
+   $$
+
+   作为 IRLS 收敛容差，与维护中的平滑 Quantile IRLS 精度契约一致。只要仍有任意 $d_j>0$，就继续执行上面的常规 Proximal IRLS-CD 内循环。
+
+5. **收敛判据。** 对仍有活动惩罚的 Proximal IRLS-CD 步，内循环检查
+
+   $$
+   \|\beta^{\mathrm{new}}-\beta\|_\infty<\texttt{tol}.
+   $$
+
+   完全平坦的近似则使用维护中的 Quantile IRLS $\ell_2$ 参数变化判据。LLA 外循环仍检查
 
    $$
    \|\beta-\beta_{\mathrm{before\,LLA}}\|_\infty<\texttt{lla\_tol}.
@@ -186,7 +202,7 @@ L(\beta)
 \qquad
 \eta_i=x_i^\top\beta,
 \qquad
-s=\sum_{i=1}^n w_i.
+s=\sum_i w_i.
 $$
 
 无权重时等价于 $w_i=1$、$s=n$。若相应损失可以逐样本写出
@@ -1312,7 +1328,7 @@ $$
 
 $$
 u^{k+1}
-=u^k+w^{k+1}-z^{k+1}.
+=u^k+w^{k+1}-z^k.
 $$
 
 ### $w$ 子问题：平方误差闭式路径
