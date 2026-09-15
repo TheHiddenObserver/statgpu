@@ -4,10 +4,11 @@ All notable changes to statgpu are documented here, organized by release and dat
 
 ## Unreleased — 2026-09-11
 
-### PR #164 / Issue #163 — Truthful penalized Quantile solver provenance (targeted for 0.2.6)
+### PR #164 / Issue #163 — Truthful penalized Quantile solver provenance and CV scoring (targeted for 0.2.6)
 - Reconciled penalized Quantile solver identity with execution: L2/no-penalty `solver="auto"` resolves to IRLS, L1/ElasticNet retains the FISTA family, and scalar SCAD/MCP records the dedicated Proximal IRLS-CD route.
 - Made incompatible explicit Quantile solver requests fail before numerical dispatch instead of silently executing another algorithm; `proximal_irls_cd` remains an internal resolved-provenance label rather than a new public `solver=` keyword.
-- Added generic/typed direct-fit, CV/final-refit, formula, installer/import-order, and bilingual solver-documentation regressions without introducing a new numerical algorithm.
+- Fixed `PenalizedGLM_CV(loss="quantile", loss_kwargs={"quantile": q})` so candidate validation uses the same requested `q` as training, including weighted and unweighted scoring, instead of silently falling back to median (`q=0.5`) pinball loss for alpha selection.
+- Kept the repair within existing numerical capability: incomplete private Quantile fold-batched sparse and SCAD/MCP fast helpers fail safely back to the maintained per-fold estimator path rather than acquiring a new numerical implementation in this provenance/scoring reconciliation. Added direct, CV/final-refit, formula, import-order, explicit-solver, non-median scoring, and fallback regressions.
 
 ### PR #151 / Issue #150 — Weighted explicit Newton/L-BFGS GLM fits (targeted for 0.2.6)
 - Reconciled ordinary `GeneralizedLinearModel` with the maintained analytic-weight solver contract: explicit `solver="newton"` and `solver="lbfgs"` accept genuine non-uniform `sample_weight` on supported GLM rows without silently substituting IRLS/FISTA or changing an explicit CPU/CuPy/Torch device request.
