@@ -187,7 +187,7 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
         y_pred = self.predict(X, return_cpu=True)
         y = np.asarray(y)
         u = y - y_pred
-        q = self._quantile
+        q = float(self._resolved_quantile_loss_kwargs()["quantile"])
         per_sample = np.where(u >= 0, q * u, (q - 1.0) * u)
         if sample_weight is not None:
             sw = np.asarray(sample_weight, dtype=np.float64)
