@@ -5,18 +5,20 @@
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
-## 未发布 — Penalized Quantile 求解器 provenance 修复（PR #164 / Issue #163，目标 0.2.6）
+## 未发布 — Penalized Quantile 求解器 provenance 与 CV 评分修复（PR #164 / Issue #163，目标 0.2.6）
 
 ### 修复
 
-- 带惩罚 Quantile 现在会按实际执行算法记录求解器 provenance。L2/无惩罚的 `solver="auto"` 解析到普通 Quantile IRLS；L1/ElasticNet 继续使用 FISTA family；标量 SCAD/MCP 则在内部解析为专用 Proximal IRLS-CD continuation 路径。
+- 带惩罚 Quantile 现在按实际执行算法记录求解器 provenance。L2/无惩罚的 `solver="auto"` 解析为普通 Quantile IRLS；L1/ElasticNet 保留 FISTA family；标量 SCAD/MCP 在内部解析为专用 Proximal IRLS-CD continuation 路径。
 - 显式 solver 请求不再在 Quantile 路径上被静默替换。smooth L2/无惩罚下显式 FISTA/FISTA-BB 会在 backend numerical work 前 fail closed，并提示使用 `irls`/`auto`；SCAD/MCP 下不兼容的显式 solver 同样 fail closed，并要求通过 `auto` 选择专用路径。`proximal_irls_cd` 只是内部 resolved-provenance 标签，不新增为公开 `solver=` 关键字。
-- 同一策略覆盖 generic/typed direct fit、formula fit、`PenalizedGLM_CV` candidate selection 与 selected full-data final refit。凸稀疏 Quantile CV 继续使用 FISTA；smooth L2 的 CV/final refit 报告 IRLS；SCAD/MCP 报告专用 Proximal IRLS-CD。
-- 这是 solver identity/dispatch reconciliation，而不是新增数值算法：上述 smooth 与 non-convex 数值路径此前已经在内部实际执行，本次修复的是错误 provenance 与显式请求被静默替换的问题。
+- `PenalizedGLM_CV(loss="quantile", loss_kwargs={"quantile": q})` 的 validation scoring 现在与训练使用同一个调用者请求的 `q`，包括 weighted 与 unweighted 路径；非 0.5 分位数不再出现“按 `q` 拟合、按默认 0.5 pinball loss 选择 alpha”的错位。
+- 同一策略覆盖 generic/typed direct fit、formula fit、CV candidate selection 与 selected full-data final refit。对尚未具备完整 Quantile loss-parameter contract 的私有 fold-batched sparse 和 SCAD/MCP fast helper，本次修复不会顺手新增数值实现，而是明确返回到维护中的 per-fold estimator 路径，优先保证统计语义正确。
+- 这是 solver identity/dispatch 与 CV scoring reconciliation，不是新增 Quantile 数值算法；既有 smooth、sparse 与 non-convex 算法保持其维护中的实现边界。
 
 ### 验证
 
-- 新增 generic/typed direct-fit、sparse/non-convex、CV/final-refit、formula、import-order、signature preservation 与显式 solver fail-closed 回归；只有 final exact PR head 的 hosted validation 才能用于 merge-readiness 判断。
+- 新增 generic/typed direct-fit、sparse/non-convex、CV/final-refit、formula、import-order、signature preservation、显式 solver fail-closed，以及非中位数 Quantile weighted/unweighted CV 评分回归；后者直接与手工 pinball loss 对照，并验证离开 CV call-local context 后默认 evaluator 行为不泄漏。
+- 对不完整私有 fast path 增加 fail-safe fallback 回归，确保本 PR 不会为了修 provenance/评分语义而静默扩大 numerical capability。只有 final exact PR head 的 hosted validation 才用于 merge-readiness 判断。
 
 ## 未发布 — GLM 显式 Newton/L-BFGS 的解析权重支持（PR #151 / Issue #150，目标 0.2.6）
 
@@ -72,22 +74,29 @@
 - “统计方法是什么”与“在哪个硬件执行”严格正交。显式 `device="cpu"`、`"cuda"` 或 `"torch"` 即使面对异构 input container 仍具有权威性；只有真正的 AUTO policy 才允许保留 native CuPy/Torch-CUDA 输入。LassoCV 现在让 CV 与 selected-alpha final refit 固定在同一 resolved backend，并把 CuPy response/weight 对齐到 design 的具体 CUDA ordinal。
 - `post_selection_ols` 在 fit-recorded NumPy/CuPy/Torch backend 上执行无惩罚 active-set OLS/WLS refit，同时保留 penalized `coef_` 用于预测。nonrobust 继续使用 Student-t 与历史 inactive-coordinate placeholder。rank-deficient active design 使用 effective rank 计算 residual df，并通过 design-level Moore-Penrose/SVD 完成系数 refit 与 covariance bread；robust/HAC 以及 empty-active no-intercept case 保留调用者请求的 covariance/reference family。
 - active-refit diagnostic state 与 penalized-fit 的 R-squared/F/log-likelihood/AIC/BIC ownership 分离。`summary()` 分开报告 penalized-fit 与 post-selection residual DoF；formula 路径保持 categorical/missing-row/sample-weight 对齐；失败 refit fail closed，不保留上一轮成功 fit 或当前半成品 inference state。
-- 统一 sparse-Gaussian analytic-weight 语义：NumPy/CuPy/Torch direct fit 与 weighted LassoCV 都先在原始 observation 上 weighted-center，再使用等价的 `sqrt(w * n / sum(w))` transform；default alpha grid、fold objective、validation MSE 与 final refit 使用同一 convention。正的常数权重严格等价于 unweighted CV 问题。
-- 统一 debiased inference 的 centered average-loss working problem；intercept-inclusive simultaneous max-|Z| inference 现在把原始坐标 intercept influence 纳入 joint maximum，成功 refit 也会在发布新 inference 前清除 stale simultaneous/precision state。
+- 统一 sparse-Gaussian analytic-weight 语义：NumPy/CuPy/Torch direct fit 与 weighted LassoCV 都先在原始 observation 上 weighted-center，再使用等价的 `sqrt(w * n / sum(w))` row transform。默认 CV alpha grid、fold objective、weighted validation MSE 与 final refit 使用同一约定；所有权重为同一正常数时精确等价于 unweighted CV。weighted 非 Gaussian sparse GLM 继续保留各自 loss-specific、sample-weight-aware objective。
+- NumPy/CuPy/Torch `debiased` 统一到同一个 centered average-loss working problem，使 omitted weights、all-one weights 与全局等比例缩放 analytic weights 的结果一致。intercept-inclusive simultaneous max-|Z| inference 现在让原始坐标系 intercept influence 真正进入 bootstrap maximum；成功 refit 会先清除 stale simultaneous/precision state 再发布新结果。
+- 字符串与公开 `Penalty` 对象形式共享同一个 sparse-Gaussian migration 与 AUTO-routing contract。clone/get-params/set-params、warning call site、LassoCV final-refit ownership、backend/device provenance、formula routing 与 failure transaction 都有 maintained regression 覆盖。
 
 ### 验证
 
-- hosted coverage 包括 Python 3.9/3.12、Torch 2.0 CPU、完整 CPU suite、maintenance compatibility、static/documentation checks、release packaging 与 benchmark-frontend contracts。
-- `dev/benchmarks/validate_post_selection_ols_gpu.py` 是最终 schema-v7 22-case CuPy/Torch physical gate。历史 P100 artifacts 继续只对各自记录的 source SHA 有效；当前 source 在 merge-ready 前仍要求一次 fresh exact-head physical rerun。本变更不做 GPU speedup 声明。
+- hosted validation 覆盖 Python 3.9/3.12、Torch 2.0 CPU、完整 CPU suite、scikit-learn 1.2.2/1.3.2/current maintenance compatibility、static/ruff、documentation、release package 与 benchmark-frontend contract。
+- `dev/benchmarks/validate_post_selection_ols_gpu.py` 是最终 physical-CUDA gate，目前为 **schema v7 / 22 cases**：保留原始 4 个 direct-Lasso case，并增加 18 个 CuPy/Torch closure case，覆盖 ElasticNet/generic sparse Gaussian、weighted/unweighted debiased、真实 weighted multi-alpha LassoCV selection+final refit、rank-deficient SVD refit、Penalty-object AUTO routing、empty-active HC3 与 intercept-inclusive simultaneous max-|Z|。既有 post-selection 数值 tolerance 没有放宽。
+- 之前 Tesla P100 artifact 只继续作为各自历史 exact SHA 的不可变证据。后续 review/fix loop 已修改有效 production numerical path，因此当前 source 的 physical acceptance 仍然 **等待 final exact clean-head schema-v7 22/22 CuPy/Torch CUDA rerun**。hosted checks 不替代该 gate，本变更也不做 GPU 性能声明。
 
-## 未发布 — Penalized solver API 清理（PR #135，目标 0.2.6）
+## 未发布 — Penalized solver API 清理（PR #135）
 
 ### 变更
 
-- 将 backend-neutral `solver` 作为整个 public penalized estimator family 的权威 direct-fit solver selector。
-- legacy `cpu_solver` 保留一个兼容周期。有实际语义的旧用法发出 `FutureWarning`；省略该参数不告警并保持历史行为。
-- `LassoCV` 增加阶段专用 `cv_solver` 控制 fold/path execution，并用 fitted `cv_solver_` 记录实际执行算法；`solver` 继续控制最终 full-data refit。
-- 兼容窗口内保持旧 CUDA/Torch FISTA 行为，不会把 `cpu_solver` 静默映射到另一个 direct numerical path。
+- 公开 direct penalized estimator 统一以与后端无关的 `solver` 作为 direct-fit 的权威算法选择器。旧 `cpu_solver` 暂时保留一个兼容周期，调用者显式使用时产生 `FutureWarning`，但不会被静默映射成 `solver`，从而保持当前 unified-engine 的实际数值行为。
+- `LassoCV` 将 `solver`（最终全数据 refit）与 `cv_solver`（CV folds/path）分开；`cv_solver="auto"` 在 CPU 上解析为 coordinate descent，在 CUDA/Torch 上解析为 FISTA，拟合后的 `cv_solver_` 记录实际执行算法。
+- 已弃用的 `LassoCV(cpu_solver=...)` 保留历史阶段语义：CPU 上继续作为旧 CV-solver alias；CUDA/Torch 上会 warning，但保持非权威，因此不会替换维护中的 GPU FISTA 路径。
+
+### 兼容性
+
+- 省略 direct `cpu_solver` 与框架内部 reconstruction 不会产生弃用噪声，包括 scikit-learn 1.2 的 `get_params() -> constructor` clone 路径和较新版本的 `__sklearn_clone__` 路径。
+- 显式 `set_params(cpu_solver=...)` 以及 legacy `LassoCV(..., cpu_solver=...).fit(...)` 的 warning 会指向调用者，而不是 statgpu 内部 reconstruction/validation frame。
+- 迁移指南明确区分“删除已经非权威的 direct `cpu_solver` 以保持当前实际行为”和“把旧算法意图显式搬到 `solver`、主动改变实际 solver”两种操作。
 
 ### 验证
 
@@ -148,16 +157,22 @@ Stage C 完成 Panel Tier-1 的协方差与推断能力，同时保持 estimator
 
 针对 PR 分支的最新一轮 review-fix 循环继续加固数值与设备路径，并在 exact head `5068da3f` 上重跑完整物理矩阵：
 
-- **双向聚类协方差性能**：精确的逐行 dyadic two-sum fallback（普通均衡面板在约 6.5k 行以上必然触发，10k 行时每次 CuPy fit 约 1000 秒）现在由 residual-acceptance 检查门控——普通设计停留在向量化 Gram 路径，只有真正可恢复的 cancellation residual 才回退到精确行级展开。Tesla P100 上 `pooled_cluster_two_way` 的 10k 行 CuPy fit 从 **约 1018 秒降到约 1.3 秒**。
-- **数值加固**：CuPy `maximum.at`/`scatter_max` 在约 1e7..1e308 的 float64 幅度上返回 `inf`，因此 group min/max scatter 改为 sequential host scatter；Torch CUDA SVD 必须使用精确 `gesvd` driver，不可用时 fail closed（默认 `gesvdj` 会在结构零位置泄漏 ~1e-16，再被巨大响应放大）；失败 panel fit 保留实际 executed-backend provenance；Student-t(1) p-value 使用 `2 atan(1/x)/pi` 的稳定形式；formula side-array 过长会 fail closed。
-- **CuPy device affinity**：backend availability probe 不再切换当前 CUDA device；panel scatter target、dummy 与 row weight 都绑定 reference device，并新增 CuPy/Torch physical device-affinity gate。
+- **双向聚类协方差性能**：精确的逐行 dyadic two-sum fallback（普通均衡面板在约 6.5k 行以上必然触发，10k 行时每次 CuPy fit 约 1000 秒）现在由 residual-acceptance 检查门控——普通设计停留在向量化 Gram 路径，只有真正可恢复的 cancellation residual 才回退到精确行级展开。Tesla P100 上 `pooled_cluster_two_way` 的 10k 行 CuPy fit 从 **约 1018 秒降到约 1.3 秒**（Torch 约 0.2 秒；100k 行约 0.4 秒），`benchmark_panel_stage_c_covariance.py` 的 60 行矩阵约 40 秒完成（此前超时）。
+- **数值加固**：CuPy `maximum.at`/`cupyx.scatter_max` 对 1e7..1e308 量级的 float64 返回 `inf`（CuPy 13.6 实测），组内 min/max scatter 改为顺序 host scatter；Torch CUDA SVD 改用精确 `gesvd` driver（默认 `gesvdj` 会在结构零位置泄漏约 1e-16，被巨大响应放大）；失败的 panel fit 保留实际执行后端 provenance；Student-t(1) 的 p-value 改用良态的 `2 atan(1/x)/pi` 形式，极端统计量（如 |t|=1e154）保留可表示尾部（此前 subtractive survival 在约 1e15 即坍缩为 0）；formula side-array 对齐对超长输入 fail closed。
+- **CuPy 设备亲和性**：后端可用性探测不再切换当前 CUDA device，panel 分配（scatter 目标、dummy 矩阵、行权重、SVD 单位阵）绑定到参考 device；新增物理 device-affinity gate（`validate_panel_cupy_device_affinity_gpu.py`）覆盖 CuPy 与 Torch CUDA。
+- 全部 12 个 physical runner 在 exact head 的 Tesla P100（CuPy 13.6.0 / Torch 2.0.0+cu117）上通过：Stage-C correctness（每后端 35 case + 12 primitive）、focused Fama-MacBeth oracle + certified-Gram provenance、HAC chronology、极端 t(2) 尾部、device affinity、Fama-MacBeth scaling、RHS cancellation、rank precedence、intercept cancellation。产物：`results/pr126_perf_fix_528d967e/`、`results/pr126_review_fix_da3604ee/`。
 
 ## 2026-08-08
 
 ### PR #122 — Panel Tier-1 diagnostics Stage B
 
-- 增加结构化 `fit_statistics_`，覆盖 within/between/overall/adjusted R²、classical model F、pooling F、one-way entity Breusch-Pagan LM 与 classical FE-vs-RE Hausman，同时保持 Stage-A coefficient inference 与 legacy df/R² attributes。
-- 增加 NumPy/CuPy/Torch、formula-row alignment、linearmodels 7.0 definition alignment 与 exact-head physical GPU acceptance coverage。
+- 新增公开的结构化 `PanelTestResult`、`PanelFitStatistics` 以及维护中 panel estimator 的标准化 `fit_statistics_`。新的 fit statistics 包含 parameter-based within/between/overall R²、显式定义的 adjusted R²，以及在存在 residual-OLS 拟合空间时的 classical homoskedastic model F。
+- Stage-A 的 coefficient inference 与 legacy R²/df 行为保持不变。特别是 `PanelOLS` 继续公开历史 residual df 和 BSE/t/p/CI；Stage-B diagnostics 使用单独的标准 fixed-effect nuisance-rank df，经典 Hausman 只读取按该标准 denominator 重标度的小型 diagnostic covariance，不修改公共 inference。
+- 新增 fixed-effects classical pooling F、one-way entity error-components Breusch-Pagan LM（包含 Baltagi-Li unbalanced-panel 公式）以及 classical one-way entity FE-vs-RE Hausman。计量上不适用的情况返回结构化 reason；Hausman covariance difference 若为奇异 PSD，则使用明确记录的 generalized-inverse/rank extension；若实质 indefinite，则直接报告不可用。
+- `PooledOLS.fit()` 与 `FamaMacBeth.fit()` 的可选 `entity_ids` 只用于 Stage-B within/between fit statistics 和 panel BP-LM。Pooled HAC 稳定排序现在让 entity diagnostic metadata 与 X/y 使用完全相同的 permutation；formula missing-row filtering 也会在形成 diagnostics 前对齐 observation-level side arrays。
+- 增加 analytic/fitted regression、维护中的 Python 3.9 + Torch 2.0 CPU parity，以及可执行的 `linearmodels==7.0` definition-alignment job。FirstDifference 的外部比较只在两边 transformed sample 定义一致的 panel 上执行；Stage B 不会为了 external gate 静默改变 Stage-A 对内部缺期采用 adjacent-observed-row differencing 的既有契约。
+- 新增 `dev/benchmarks/validate_panel_stage_b_gpu.py` 作为 exact-head physical correctness/provenance gate。此前在数值实现 `a57efcea29b0e87ecb89865c5a6902d5773812c6` 上接受的 P100 artifact 继续作为不可变的历史证据保留：CuPy 与 Torch 各自通过全部 17 个 estimator case，requested/executed backend 一致且无 fallback；focused disconnected two-way FE artifact 也把 df=1 inference boundary 验证到机器精度。该运行中每个 backend 的 4 个 Hausman parameterization 都是正确的结构化 `applicable=false` case，因此它们验证了 applicability/reason parity，但没有在物理 GPU 上执行 applicable Hausman 的 statistic/p-value/df 路径。
+- 重新打开的 physical gate 已在精确 clean measurement head `2701aa9feb3796c33c94e6480fcb78c80c6a809c` 上闭合：Tesla P100 的 CuPy 与 Torch 各自通过全部 17 个 estimator case 和 5 个 Hausman diagnostic，requested/executed backend 一致且没有 CPU fallback。新增的 48-observation nonzero-effect fixture 在两个 backend 上均为 `applicable=true`、df=1；Hausman statistic 相对 NumPy 的最大差异不超过 `1.10e-13`，p-value 不超过 `2.19e-14`。新的 44-row canonical validation source 保留该分支的 statistic/pvalue/df；旧的 42-row a57efcea source 继续作为历史审计证据保留。本次证据不包含 timing 或 speedup 声明。
 
 关联：Issue #93 与 pull request #122。
 
