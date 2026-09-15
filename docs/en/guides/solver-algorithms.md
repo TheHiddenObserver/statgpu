@@ -1422,22 +1422,24 @@ For direct model fitting, `solver="auto"` follows the maintained model-level tab
 ```text
 direct fit with solver="auto"
 ├── squared_error + L2/none              → CPU exact / GPU Newton
+├── quantile + L2/none                   → IRLS
+├── quantile + L1/ElasticNet             → FISTA
+├── quantile + SCAD/MCP                  → Proximal IRLS-CD
 ├── smooth non-Gaussian GLM + L2/none    → Newton
 ├── squared_error + convex sparse        → FISTA
 ├── gamma / inverse-Gaussian + sparse    → FISTA
 ├── logistic / poisson / NB + sparse     → FISTA-BB
 ├── tweedie + sparse                     → CPU FISTA-BB / GPU FISTA
-├── SCAD/MCP                             → FISTA-LLA
+├── SCAD/MCP (other scalar routes)       → FISTA-LLA
 ├── adaptive L1                          → initialize adaptive weights, then convex sparse FISTA/FISTA-BB policy
-├── quantile ordinary convex penalties   → FISTA
-│   ├── explicit L2/none IRLS remains available when requested
-│   └── SCAD/MCP uses specialized Proximal IRLS-CD
 └── group penalties                      → group-aware FISTA / FISTA-LLA
 ```
 
+For smooth Quantile L2/no-penalty objectives, explicit `solver="irls"` selects the same maintained algorithm as `auto`. Explicit `solver="fista"` or `solver="fista_bb"` is not silently substituted by IRLS; those smooth combinations fail before numerical dispatch. Sparse Quantile FISTA-family and SCAD/MCP Proximal IRLS-CD remain distinct algorithms.
+
 The tree is intentionally a summary. Exact family/backend/problem-size rules—especially Poisson and Negative-Binomial CV sparse routing—are defined in the [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md).
 
-`PenalizedGLM_CV` has a related but intentionally separate smooth-L2 policy. Gamma, Inverse-Gaussian, and Negative-Binomial L2 CV/final-refit routes use L-BFGS, while logistic, Poisson, and Tweedie L2 rows use Newton. Consult the compatibility matrix rather than inferring CV behavior from the direct-fit tree.
+`PenalizedGLM_CV` has a related but intentionally separate smooth-L2 policy. Quantile L2/no-penalty candidates and selected final refits use IRLS. Gamma, Inverse-Gaussian, and Negative-Binomial L2 CV/final-refit routes use L-BFGS, while logistic, Poisson, and Tweedie L2 rows use Newton. Consult the compatibility matrix rather than inferring CV behavior from the direct-fit tree.
 
 `sample_weight` does not change an explicitly requested solver. Unsupported weighted combinations raise instead of selecting a different solver.
 
