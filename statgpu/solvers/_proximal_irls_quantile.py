@@ -165,15 +165,23 @@ def proximal_irls_quantile_solver(
             beta_before_lla = _copy(beta)
 
             # If every SCAD/MCP derivative is exactly zero, this LLA surrogate
-            # has no active penalty at all. Solve that degenerate surrogate with
-            # the full weighted IRLS WLS system instead of continuing the
-            # diagonal Jacobi approximation. This removes finite-precision path
-            # dependence near pinned residuals while leaving every genuinely
-            # penalized LLA step on the Proximal IRLS-CD path.
+            # has no active penalty at all. Reuse the loss-owned full weighted
+            # Quantile IRLS implementation rather than continuing the diagonal
+            # Jacobi approximation. This is the same maintained numerical
+            # kernel used by ordinary smooth Quantile IRLS; only genuinely
+            # penalized LLA steps remain on the Proximal IRLS-CD inner loop.
             zero_penalty = bool(_to_numpy(xp.all(lla_w == 0)))
             if zero_penalty:
-                beta, used_iter = _unpenalized_irls_refine(
-                    X_work, y_work, beta, tau, sw, _mi, tol, eps, xp, backend
+                beta, used_iter = loss.irls(
+                    X_work,
+                    y_work,
+                    penalty=None,
+                    max_iter=_mi,
+                    tol=tol,
+                    init_coef=beta,
+                    eps=eps,
+                    sample_weight=sw,
+                    fit_intercept=fit_intercept,
                 )
                 total_iter += used_iter
             else:
@@ -233,47 +241,6 @@ def proximal_irls_quantile_solver(
         intercept = 0.0
 
     return coef_np, intercept, total_iter
-
-
-def _unpenalized_irls_refine(X, y, beta, tau, sw, max_iter, tol, eps, xp, backend):
-    """Solve a zero-LLA-weight Quantile surrogate by full weighted IRLS.
-
-    When every local SCAD/MCP derivative is zero, the LLA surrogate contains
-    no penalty and reduces to ordinary weighted quantile regression. The full
-    WLS system is both the natural IRLS update and materially less sensitive
-    than diagonal Jacobi steps to residuals that are pinned near zero.
-    """
-    p_work = int(X.shape[1])
-    for iteration in range(max_iter):
-        beta_old = _copy(beta)
-        r = y - X @ beta
-        abs_r = xp.abs(r)
-        abs_r_safe = xp.maximum(abs_r, xp.asarray(eps, dtype=abs_r.dtype))
-        pos_mask = (r >= 0).to(dtype=abs_r.dtype) if backend == "torch" else (r >= 0).astype(abs_r.dtype)
-        tau_vec = tau * pos_mask + (1.0 - tau) * (1.0 - pos_mask)
-        w = tau_vec / abs_r_safe
-        if sw is not None:
-            w = w * sw
-        w = xp.minimum(w, xp.asarray(100.0 / eps, dtype=w.dtype))
-
-        WX = X * w[:, None]
-        XtWX = X.T @ WX
-        XtWy = X.T @ (w * y)
-        if backend == "torch":
-            ridge = eps * xp.eye(p_work, dtype=X.dtype, device=X.device)
-        else:
-            ridge = eps * xp.eye(p_work, dtype=X.dtype)
-        beta = xp.linalg.solve(XtWX + ridge, XtWy)
-
-        delta_dev = xp.linalg.norm(beta - beta_old)
-        if backend in ("torch", "cupy"):
-            if bool(_to_numpy(delta_dev < xp.asarray(tol, dtype=delta_dev.dtype))):
-                return beta, iteration + 1
-        else:
-            if float(_to_numpy(delta_dev)) < tol:
-                return beta, iteration + 1
-
-    return beta, max_iter
 
 
 # ── Parallel diagonal majorization step (all backends) ─────────────
