@@ -13,6 +13,10 @@ penalized-model contract installers:
 * auto + Quantile + SCAD/MCP resolves to the dedicated Proximal IRLS-CD route;
 * incompatible explicit Quantile solver requests fail before backend numerical
   dispatch instead of being silently substituted by another algorithm.
+
+``proximal_irls_cd`` is an internal resolved-provenance label, not a new public
+``solver=`` keyword; users request the dedicated non-convex route with
+``solver='auto'``.
 """
 
 from __future__ import annotations
@@ -100,10 +104,10 @@ def _install_explicit_route_guard() -> None:
 
         if (
             penalty_name in _NONCONVEX_QUANTILE_PENALTIES
-            and solver_name not in ("auto", _DEDICATED_NONCONVEX_SOLVER)
+            and solver_name != "auto"
         ):
             raise ValueError(
-                f"solver='{solver_name}' is not a maintained Quantile "
+                f"solver='{solver_name}' is not a public explicit Quantile "
                 f"{penalty_name.upper()} route; use solver='auto' so the "
                 "dedicated Proximal IRLS-CD algorithm is selected."
             )
