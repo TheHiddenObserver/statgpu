@@ -297,7 +297,7 @@ def test_ordinary_inverse_gamma_no_intercept_formula_matches_array_route():
 
 
 @pytest.mark.parametrize("solver", ["newton", "lbfgs"])
-def test_ordinary_failed_domain_refit_invalidates_prior_fit_and_inference(solver):
+def test_ordinary_failed_domain_refit_rolls_back_prior_fit_atomically(solver):
     X, y, weights = _data(seed=15163, n=40, p=1)
     model = GammaRegression(
         link="inverse_power", fit_intercept=False, solver=solver,
@@ -308,29 +308,51 @@ def test_ordinary_failed_domain_refit_invalidates_prior_fit_and_inference(solver
     assert model._inference_result is not None
     assert model._selected_solver == solver
 
+    prior_coef = model.coef_.copy()
+    prior_intercept = model.intercept_
+    prior_params = model._params.copy()
+    prior_nobs = model._nobs
+    prior_df_resid = model._df_resid
+    prior_loss = model._loss
+    prior_design = model._X_design
+    prior_y = model._y_inf
+    prior_weight = model._sample_weight_inf
+    prior_result = model._inference_result
+    prior_bse = np.asarray(model._bse).copy()
+    prior_pvalues = np.asarray(model._pvalues).copy()
+    prior_conf_int = np.asarray(model._conf_int).copy()
+    prior_metadata = dict(model._fit_metadata)
+    prior_provenance = (
+        model._selected_solver,
+        model._selected_backend_name,
+        model._selected_backend_device,
+    )
+
     X_bad = np.array([[1.0], [-1.0]], dtype=np.float64)
     y_bad = np.ones(2, dtype=np.float64)
     with pytest.raises(RuntimeError, match="numerically certified smooth-domain start"):
         model.fit(X_bad, y_bad)
 
-    assert not model._fitted
-    assert model.coef_ is None
-    assert model.intercept_ is None
-    assert model._params is None
-    assert model._nobs is None
-    assert model._df_resid is None
-    assert model._loss is None
-    assert model._X_design is None
-    assert model._y_inf is None
-    assert model._sample_weight_inf is None
-    assert model._inference_result is None
-    assert model._bse is None
-    assert model._pvalues is None
-    assert model._conf_int is None
-    assert model._fit_metadata == {}
-    assert model._selected_solver is None
-    assert model._selected_backend_name is None
-    assert model._selected_backend_device is None
+    assert model._fitted
+    np.testing.assert_array_equal(model.coef_, prior_coef)
+    assert model.intercept_ == prior_intercept
+    np.testing.assert_array_equal(model._params, prior_params)
+    assert model._nobs == prior_nobs
+    assert model._df_resid == prior_df_resid
+    assert model._loss is prior_loss
+    assert model._X_design is prior_design
+    assert model._y_inf is prior_y
+    assert model._sample_weight_inf is prior_weight
+    assert model._inference_result is prior_result
+    np.testing.assert_array_equal(np.asarray(model._bse), prior_bse)
+    np.testing.assert_array_equal(np.asarray(model._pvalues), prior_pvalues)
+    np.testing.assert_array_equal(np.asarray(model._conf_int), prior_conf_int)
+    assert model._fit_metadata == prior_metadata
+    assert (
+        model._selected_solver,
+        model._selected_backend_name,
+        model._selected_backend_device,
+    ) == prior_provenance
 
 
 def test_penalized_domain_failure_invalidates_prior_fit_and_inference():
