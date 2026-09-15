@@ -75,18 +75,21 @@ def test_explicit_irls_l2_matches_auto_quantile_fit():
     assert auto.intercept_ == pytest.approx(explicit.intercept_, rel=0.0, abs=0.0)
 
 
-def test_explicit_fista_smooth_quantile_fails_before_backend_fit(monkeypatch):
+@pytest.mark.parametrize("solver", ["fista", "fista_bb"])
+def test_explicit_first_order_smooth_quantile_fails_before_backend_fit(
+    monkeypatch, solver
+):
     X, y = _data(seed=16303)
     model = PenalizedQuantileRegression(
         quantile=0.5,
         penalty="l2",
         alpha=0.03,
-        solver="fista",
+        solver=solver,
         device="cpu",
     )
 
     def forbidden(*args, **kwargs):
-        raise AssertionError("backend fit must not run for rejected explicit FISTA")
+        raise AssertionError("backend fit must not run for rejected explicit solver")
 
     monkeypatch.setattr(model, "_fit_cpu", forbidden)
     with pytest.raises(ValueError, match="not a maintained smooth Quantile route"):
@@ -127,6 +130,27 @@ def test_quantile_cv_l2_uses_irls_for_candidates_and_final_refit():
     assert cv._solver_for_cv("cpu", X=X) == "irls"
     assert cv.estimator_._selected_solver == "irls"
     assert cv.alpha_ in {0.04, 0.02}
+    assert np.all(np.isfinite(cv.coef_))
+
+
+def test_quantile_cv_sparse_path_and_final_refit_remain_fista():
+    X, y = _data(seed=16306, n=72)
+    cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.5},
+        penalty="l1",
+        alpha_grid=np.array([0.04], dtype=np.float64),
+        cv=2,
+        random_state=163,
+        solver="auto",
+        device="cpu",
+        max_iter=350,
+        tol=1e-7,
+    ).fit(X, y)
+
+    assert cv._solver_for_cv("cpu", X=X) == "fista"
+    assert cv.estimator_._selected_solver == "fista"
+    assert cv.alpha_ == pytest.approx(0.04)
     assert np.all(np.isfinite(cv.coef_))
 
 
