@@ -165,7 +165,7 @@ irls_model = PenalizedQuantileRegression(
 irls_model.fit(X, y)
 ```
 
-显式 IRLS 只应在维护中的 L2/无惩罚边界使用。ElasticNet 等非光滑惩罚应使用 FISTA 而不是 IRLS；底层 `QuantileLoss.irls()` 的 ElasticNet 契约已单独由 Issue #161 跟踪。
+显式 IRLS 只应在维护中的 L2/无惩罚边界使用。ElasticNet 等非光滑惩罚应使用 FISTA 而不是 IRLS；直接调用底层 `QuantileLoss.irls()` 也不属于维护中的 ElasticNet 拟合路径。
 
 ### GPU（Torch CUDA）
 
