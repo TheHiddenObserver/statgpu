@@ -97,11 +97,11 @@ def test_quantile_eval_dispatch_uses_call_local_tau_without_registering_fast_res
     from statgpu.linear_model.penalized import _penalized_cv as cv_mod
     from statgpu.linear_model.penalized import _quantile_solver_contract as contract
 
-    # This reconciliation must not silently create a new fold-batch Quantile
-    # residual implementation. Sparse GPU two-stage CV falls back to the
-    # maintained general estimator path instead.
+    # Validation gets a backend-native registry helper, but there is still no
+    # Quantile residual registration. Therefore this PR does not silently
+    # enable the incomplete fold-batched sparse solver.
     assert "quantile" not in cv_mod._LOSS_RESIDUAL_FNS
-    assert "quantile" not in cv_mod._LOSS_VALLOSS_FNS
+    assert "quantile" in cv_mod._LOSS_VALLOSS_FNS
 
     eta = np.array([-0.2, 0.1, 0.8], dtype=np.float64)
     y = np.array([0.4, -0.1, 1.2], dtype=np.float64)
@@ -110,13 +110,15 @@ def test_quantile_eval_dispatch_uses_call_local_tau_without_registering_fast_res
     token = contract._QUANTILE_CV_LEVEL.set(tau)
     try:
         eval_fn, _ = cv_mod._LOSS_EVAL_DISPATCH["quantile"]
-        observed = eval_fn(eta, y)
+        dispatch_loss = eval_fn(eta, y)
+        registry_loss = cv_mod._LOSS_VALLOSS_FNS["quantile"](eta, y)
     finally:
         contract._QUANTILE_CV_LEVEL.reset(token)
 
     u = y - eta
     expected = np.where(u >= 0.0, tau * u, (tau - 1.0) * u)
-    np.testing.assert_allclose(observed, expected, rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(dispatch_loss, expected, rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(registry_loss, expected, rtol=0.0, atol=0.0)
     assert contract._QUANTILE_CV_LEVEL.get() is None
 
 
@@ -188,6 +190,8 @@ def test_quantile_eval_preserves_historical_default_outside_cv_context():
     eta = np.array([0.0, 0.5], dtype=np.float64)
     y = np.array([1.0, 0.0], dtype=np.float64)
     eval_fn, _ = cv_mod._LOSS_EVAL_DISPATCH["quantile"]
-    observed = eval_fn(eta, y)
+    dispatch_loss = eval_fn(eta, y)
+    registry_loss = cv_mod._LOSS_VALLOSS_FNS["quantile"](eta, y)
     expected = np.array([0.5, 0.25], dtype=np.float64)
-    np.testing.assert_allclose(observed, expected, rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(dispatch_loss, expected, rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(registry_loss, expected, rtol=0.0, atol=0.0)
