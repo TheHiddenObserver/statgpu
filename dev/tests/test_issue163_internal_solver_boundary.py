@@ -24,9 +24,19 @@ def test_proximal_irls_cd_is_internal_resolved_label_not_public_solver_keyword(p
         model.fit(X, y)
 
 
+@pytest.mark.parametrize(
+    "penalty,solver,match",
+    [
+        ("scad", "proximal_irls_cd", "internal resolved Quantile solver label"),
+        ("scad", "fista", "not a public explicit Quantile SCAD route"),
+        ("l2", "fista", "not a maintained smooth Quantile route"),
+        ("l2", "newton", "quantile loss has no Hessian"),
+        ("l1", "irls", "only supports smooth L2 or no-penalty Quantile"),
+    ],
+)
 @pytest.mark.parametrize("cv_strategy", ["strict", "two_stage"])
-def test_cv_rejects_public_use_of_internal_proximal_irls_cd_label_before_grid_work(
-    monkeypatch, cv_strategy
+def test_cv_rejects_incompatible_explicit_quantile_solver_before_grid_work(
+    monkeypatch, penalty, solver, match, cv_strategy
 ):
     rng = np.random.default_rng(16312)
     X = rng.normal(size=(36, 2))
@@ -35,9 +45,9 @@ def test_cv_rejects_public_use_of_internal_proximal_irls_cd_label_before_grid_wo
     model = PenalizedGLM_CV(
         loss="quantile",
         loss_kwargs={"quantile": 0.5},
-        penalty="scad",
+        penalty=penalty,
         cv=2,
-        solver="proximal_irls_cd",
+        solver=solver,
         cv_strategy=cv_strategy,
         acknowledge_approx=(cv_strategy == "two_stage"),
         device="cpu",
@@ -47,5 +57,5 @@ def test_cv_rejects_public_use_of_internal_proximal_irls_cd_label_before_grid_wo
         raise AssertionError("alpha-grid numerical work must not run")
 
     monkeypatch.setattr(model, "_generate_alpha_grid", forbidden_grid_work)
-    with pytest.raises(ValueError, match="internal resolved Quantile solver label"):
+    with pytest.raises(ValueError, match=match):
         model.fit(X, y)
