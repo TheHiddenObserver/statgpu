@@ -373,7 +373,7 @@ def main() -> int:
         expected, median = _manual_fold_scores(X, y, weights, folds, float(alpha))
         observed = cpu_cv_snap["scores"][:, alpha_index]
         err = _max_abs(observed, expected)
-        if err > 1e-10:
+        if err > ATOL_L2_SCORE:
             raise AssertionError(
                 f"cpu/cv/l2 alpha={alpha}: manual q-score mismatch {err:.3e}"
             )
