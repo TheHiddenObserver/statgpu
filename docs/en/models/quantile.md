@@ -165,7 +165,7 @@ irls_model = PenalizedQuantileRegression(
 irls_model.fit(X, y)
 ```
 
-Use explicit IRLS only on its maintained L2/no-penalty boundary. Non-smooth penalties such as ElasticNet should use FISTA rather than IRLS; the low-level `QuantileLoss.irls()` ElasticNet contract is tracked separately in Issue #161.
+Use explicit IRLS only on its maintained L2/no-penalty boundary. Non-smooth penalties such as ElasticNet should use FISTA rather than IRLS; direct low-level `QuantileLoss.irls()` calls are not a maintained ElasticNet fitting route.
 
 ### GPU (Torch CUDA)
 
