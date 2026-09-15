@@ -200,13 +200,13 @@ $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\be
 |----------|--------|------|
 | 1 | `exact` | `squared_error` + L2/none + NumPy |
 | 2 | `newton` | `squared_error` + L2/none + GPU |
-| 3 | `fista` + LLA wrapper | SCAD/MCP 与分组非凸惩罚 |
-| 4 | `fista` | Quantile 的 `solver="auto"`；显式 Quantile IRLS 是另一条 L2/无惩罚维护路径 |
-| 5 | `fista` / `fista_bb` | 凸稀疏惩罚，包括初始化后的 adaptive L1；精确选择依 loss/backend/CV 而定 |
+| 3 | 专用延续路径 | Quantile SCAD/MCP → Proximal IRLS-CD；其他 SCAD/MCP 与分组非凸惩罚使用对应维护中的 LLA wrapper |
+| 4 | `irls` | Quantile + L2/none |
+| 5 | `fista` / `fista_bb` | Quantile 凸稀疏及其他凸稀疏惩罚，包括初始化后的 adaptive L1；精确选择依 loss/backend/CV 而定 |
 | 6 | `lbfgs` / `newton` | 交叉验证 + L2 + 特定损失函数 |
 | 7 | `newton` | GLM/稳健/Cox 等具有维护中 Hessian 的光滑 L2/无惩罚路径 |
 
-这里的 `exact` 是平方误差/L2 的闭式求解器，与 `CoxPH(ties="exact")` 无关。需要 family/backend-specific 的精确稀疏分派时，请查看 [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md)。
+显式 smooth Quantile `fista`/`fista_bb` 请求不会被静默替换为 IRLS；它们会在数值 dispatch 前明确失败。这里的 `exact` 是平方误差/L2 的闭式求解器，与 `CoxPH(ties="exact")` 无关。需要 family/backend-specific 的精确分派时，请查看 [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md)。
 
 ### 全部求解器
 
@@ -383,7 +383,7 @@ $$
 | FISTA（带权） | ✅ | ✅ | ✅ |
 | FISTA-BB（带权） | ✅ | ✅ | ✅ |
 | FISTA-LLA（带权） | ✅ | ✅ | ✅ |
-| Quantile IRLS（显式光滑惩罚请求） | ✅ | ✅ | ✅ |
+| Quantile IRLS（平滑 L2/无惩罚 auto 或显式请求） | ✅ | ✅ | ✅ |
 | Cox partial likelihood（Breslow/Efron） | ✅ 原生 | ✅ 原生 | ✅ 原生 |
 | CoxPH counting process / strata / Exact | ✅ 原生 | ✅ 原生 | ✅ 原生 |
 | DBSCAN | ✅ | GPU 距离 + host-sync CC | ✅ on-device |
@@ -399,7 +399,7 @@ $$
 | `PenalizedLinearRegression` | squared_error | l1/l2/elasticnet/scad/mcp/adaptive_l1 | L2/none：CPU exact / GPU Newton；凸稀疏：FISTA；SCAD/MCP：FISTA-LLA |
 | `PenalizedLogisticRegression` | logistic | l1/l2/elasticnet/scad/mcp/adaptive_l1 | L2/none：Newton；direct 凸稀疏：FISTA-BB；SCAD/MCP：FISTA-LLA |
 | `PenalizedPoissonRegression` | poisson | l1/l2/elasticnet/scad/mcp/adaptive_l1 | L2/none：Newton；direct 凸稀疏：FISTA-BB；SCAD/MCP：FISTA-LLA |
-| `PenalizedQuantileRegression` | quantile | scad/mcp/l2 及其他受支持惩罚 | 普通凸路径 `auto`：FISTA；L2/none 可显式 IRLS；SCAD/MCP：Proximal IRLS-CD |
+| `PenalizedQuantileRegression` | quantile | scad/mcp/l2 及其他受支持惩罚 | L2/none 的 auto 或显式请求：IRLS；凸稀疏：FISTA-family；SCAD/MCP：Proximal IRLS-CD |
 | `PenalizedRobustRegression` | huber/bisquare/fair | l1/l2/elasticnet/scad/mcp 等 | L2/none：Newton；凸稀疏：FISTA；SCAD/MCP：FISTA-LLA；Bisquare/Fair 另有显式 IRLS |
 | `PenalizedCoxPHModel` | cox_ph | l1/l2/elasticnet/scad/mcp | L2/none：Newton；direct L1/ElasticNet：FISTA-BB；SCAD/MCP：FISTA-LLA |
 

@@ -116,13 +116,29 @@ statgpu 提供一阶、二阶、近端和闭式等多类求解器。对大多数
 
    这里实际采用的是 Jacobi 风格的并行对角上界更新，而不是逐坐标循环更新。
 
-4. **收敛判据。** IRLS 内循环检查
+4. **截距与完全平坦的 LLA 近似。** 分位数损失不是二次损失，因此不能通过对 $X$ 与 $y$ 做均值中心化来精确消去截距。`fit_intercept=True` 时，数值设计矩阵会增广一列常数 1，截距作为 pinball 目标中的真实坐标共同优化，其局部惩罚阈值固定为 0。
+
+   如果某一轮中所有特征侧 LLA 导数都严格为零，
 
    $$
-   \|\beta^{\mathrm{new}}-\beta\|_\infty<\texttt{tol},
+   d_1=\cdots=d_p=0,
    $$
 
-   LLA 外循环检查
+   则当前 SCAD/MCP 近似已经没有活动惩罚，退化成普通带权分位数回归。此时求解器复用维护中的完整 `QuantileLoss.irls()` WLS 更新来闭合该近似，而不是继续使用对角 Jacobi 近似。这个完全平坦近似使用
+
+   $$
+   \min(\texttt{tol},10^{-8})
+   $$
+
+   作为 IRLS 收敛容差，与维护中的平滑 Quantile IRLS 精度契约一致。只要仍有任意 $d_j>0$，就继续执行上面的常规 Proximal IRLS-CD 内循环。
+
+5. **收敛判据。** 对仍有活动惩罚的 Proximal IRLS-CD 步，内循环检查
+
+   $$
+   \|\beta^{\mathrm{new}}-\beta\|_\infty<\texttt{tol}.
+   $$
+
+   完全平坦的近似则使用维护中的 Quantile IRLS $\ell_2$ 参数变化判据。LLA 外循环仍检查
 
    $$
    \|\beta-\beta_{\mathrm{before\,LLA}}\|_\infty<\texttt{lla\_tol}.
@@ -1435,22 +1451,24 @@ $$
 ```text
 直接拟合，solver="auto"
 ├── squared_error + L2/none              → CPU exact / GPU Newton
+├── Quantile + L2/none                   → IRLS
+├── Quantile + L1/ElasticNet             → FISTA
+├── Quantile + SCAD/MCP                  → Proximal IRLS-CD
 ├── 光滑非高斯 GLM + L2/none             → Newton
 ├── squared_error + 凸稀疏惩罚            → FISTA
 ├── gamma / inverse-Gaussian + 稀疏惩罚   → FISTA
 ├── logistic / poisson / NB + 稀疏惩罚    → FISTA-BB
 ├── tweedie + 稀疏惩罚                    → CPU FISTA-BB / GPU FISTA
-├── SCAD/MCP                              → FISTA-LLA
+├── 其他标量 SCAD/MCP                     → FISTA-LLA
 ├── adaptive L1                           → 先初始化 adaptive weights，再按凸稀疏 FISTA/FISTA-BB 规则
-├── Quantile 普通凸惩罚                    → FISTA
-│   ├── 显式请求时，L2/none 仍可使用 IRLS
-│   └── SCAD/MCP 使用专用 Proximal IRLS-CD
 └── 分组惩罚                              → Group FISTA / FISTA-LLA
 ```
 
+对于平滑 Quantile L2/无惩罚目标，显式 `solver="irls"` 与 `auto` 选择同一维护算法。显式 `solver="fista"` 或 `solver="fista_bb"` 不会被静默替换成 IRLS；这些平滑组合会在数值 dispatch 前明确失败。稀疏 Quantile 的 FISTA-family 与 SCAD/MCP 的 Proximal IRLS-CD 保持为不同算法。
+
 这棵树有意只给出摘要。family/backend/problem-size 的精确规则——尤其 Poisson 与 Negative-Binomial 的 CV 稀疏路由——以 [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md) 为准。
 
-`PenalizedGLM_CV` 的光滑 L2 分发与直接拟合相关但有意独立。Gamma、Inverse-Gaussian、Negative-Binomial 的 L2 交叉验证/最终重拟合路径使用 L-BFGS，而 logistic、Poisson、Tweedie 的 L2 组合使用 Newton。不要从直接拟合的分发树推断交叉验证行为，应以兼容性矩阵为准。
+`PenalizedGLM_CV` 的光滑 L2 分发与直接拟合相关但有意独立。Quantile L2/无惩罚的候选拟合与最终重拟合使用 IRLS。Gamma、Inverse-Gaussian、Negative-Binomial 的 L2 交叉验证/最终重拟合路径使用 L-BFGS，而 logistic、Poisson、Tweedie 的 L2 组合使用 Newton。不要从直接拟合的分发树推断交叉验证行为，应以兼容性矩阵为准。
 
 `sample_weight` 不会改变显式指定的 `solver`。不支持的带权组合会直接报错，而不是选择另一个求解器。
 
