@@ -14,13 +14,14 @@ This page records user-visible changes for current and recent statgpu releases.
 - Penalized Quantile solver provenance now names the algorithm that actually executes. L2/no-penalty `solver="auto"` resolves to ordinary Quantile IRLS; L1/ElasticNet retains the FISTA family; scalar SCAD/MCP resolves internally to the dedicated Proximal IRLS-CD continuation algorithm.
 - Explicit solver requests are no longer silently substituted on Quantile routes. Smooth L2/no-penalty requests for FISTA/FISTA-BB fail before backend numerical work and direct users to `irls`/`auto`; incompatible explicit SCAD/MCP solver requests fail and direct users to `auto`. `proximal_irls_cd` remains an internal resolved-provenance label rather than a new public `solver=` keyword.
 - `PenalizedGLM_CV(loss="quantile", loss_kwargs={"quantile": q})` now scores validation candidates with the same requested `q` used for training, including weighted and unweighted scoring. Non-median fits therefore no longer train at `q` while silently selecting alpha with median (`q=0.5`) pinball loss.
+- `PenalizedQuantileRegression(quantile=q)` now preserves the typed quantile through the clone-safe constructor-capture boundary when public `loss_kwargs` is omitted. The effective private Quantile loss and adaptive-L1 initializer therefore use the caller's `q` instead of reverting numerically to `q=0.5`; an explicit `loss_kwargs["quantile"]` keeps its historical precedence.
 - The same policy covers generic/typed direct fits, formula fits, CV candidate selection, and the selected full-data final refit. Private Quantile fold-batched sparse and SCAD/MCP fast helpers whose loss-parameter contract is incomplete fail safely back to the maintained per-fold estimator path instead of gaining a new numerical implementation in this reconciliation PR.
 - This is a solver-identity/dispatch and CV-scoring reconciliation, not a new Quantile numerical method; existing smooth, sparse, and non-convex algorithms keep their maintained implementation boundaries.
 
 ### Validation
 
-- Added generic/typed direct-fit, sparse/non-convex, CV/final-refit, formula, import-order, signature-preservation, explicit-solver fail-closed, non-median weighted/unweighted scoring, and fail-safe fast-path fallback regressions. The non-median scoring tests compare directly with manual pinball loss and verify that the call-local quantile context does not leak after CV returns.
-- Merge readiness requires both green hosted validation on the final exact PR head and a passing exact-source schema-v1 physical CUDA run from `dev/benchmarks/validate_quantile_solver_provenance_gpu.py`; hosted CI does not substitute for that CuPy/Torch CUDA gate.
+- Added generic/typed direct-fit, sparse/non-convex, CV/final-refit, formula, import-order, signature-preservation, explicit-solver fail-closed, non-median weighted/unweighted scoring, typed/generic exact-fixture parity, clone/constructor-capture, adaptive-initializer, and fail-safe fast-path fallback regressions. The non-median scoring tests compare directly with manual pinball loss and verify that the call-local quantile context does not leak after CV returns.
+- Merge readiness requires green hosted validation on the final exact PR head plus a passing exact-source physical CUDA run published through `dev/benchmarks/run_quantile_solver_provenance_gpu_gate.py`; hosted CI does not substitute for that CuPy/Torch CUDA gate, and an earlier physical result does not accept a later production-source repair.
 
 ## Unreleased — Weighted explicit Newton/L-BFGS GLM fits (PR #151 / Issue #150, targeted for 0.2.6)
 
@@ -125,15 +126,13 @@ This page records user-visible changes for current and recent statgpu releases.
 
 ### PR #129 / Issue #127 — Gaussian linear-model backend-native inference
 
+### Changed
+
 - Migrated maintained Gaussian linear-model covariance, standard-error, statistic, p-value, and confidence-interval numerical work to the executed NumPy/CuPy/Torch backend while preserving the established final NumPy reporting snapshot.
-- Routed normal/Student-t reference-distribution work through the maintained shared inference layer, including stable df=1/df=2 extreme-tail handling. Missing or invalid executed-backend provenance now fails closed instead of silently routing inference through NumPy.
-- Preserved Ridge/L2 average-loss scaling, analytic weights, `RidgeCV` selected-final-refit inference, formula row alignment, rank-deficient designs, multi-target inference, and the public NumPy result/reporting contract.
-- Added exact-backend provenance checks and no-host-transfer regressions for direct Gaussian and Ridge/CV consumers.
-
-### Validation
-
-- Hosted CI and the fresh final review are complete for the merged numerical source.
-- Tesla P100 physical validation passed on the accepted exact numerical source with NumPy/CuPy/Torch covariance/BSE/statistic/p-value/CI parity, weighted/rank/multi-target/small-df cases, concrete backend/device provenance, and a `RidgeCV` final-refit case. Later docs-only closure reused that immutable numerical artifact under the explicitly approved documentation-only evidence exception.
+- Routed normal/Student-t inference through the maintained reference-distribution layer, including stable df=1/df=2 extreme-tail handling. Missing or invalid executed-backend provenance now fails closed instead of silently routing inference through NumPy.
+- Preserved Ridge/L2 average-loss semantics and the `n_eff * alpha` inference mapping, including weighted fits and `RidgeCV` final-refit inference; added public `LinearRegression`, formula, robust/weighted, rank-deficient, multi-target, float32, external statsmodels, and no-host-transfer regression coverage.
+- Added focused hosted CI and a maintained exact-SHA physical CUDA validator covering CuPy/Torch backend/device provenance, clean-tree checks, covariance/BSE/statistic/p-value/CI errors, weighted/rank/multi-target/small-df cases, and a `RidgeCV` final-refit case.
+- Validation remains intentionally incomplete: all hosted gates and the fresh complete-diff review are green on the reviewed implementation head, but final acceptance still requires exact clean-head CuPy/Torch CUDA validation on the final source SHA. PR #129 remains open/unmerged and #127 is not yet `COMPLETE`. No GPU speedup claim is made.
 
 ## 0.2.5 — 2026-08-26
 
@@ -167,7 +166,7 @@ This page records user-visible changes for current and recent statgpu releases.
 
 ### PR #121 — CuPy inverse-quantile LUT correctness
 
-- Fixed CuPy `betaincinv` / `gammaincinv` lookup-table cache ordering and restored public CuPy Student-t, Beta, F, Gamma, and chi-square inverse quantiles.
+- Fixed CuPy `betaincinv` / `gammaincinv` lookup-table cache ordering and restored public CuPy Student-t/Beta/F/Gamma/chi-square inverse quantiles.
 - Validated the unchanged two-line numerical repair on Tesla P100 and added maintained public-distribution plus downstream Panel inference regressions.
 
 ### PR #119 — Panel Tier-1 shared framework Stage A
