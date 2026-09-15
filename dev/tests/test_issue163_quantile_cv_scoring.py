@@ -154,6 +154,56 @@ def test_quantile_scad_fast_helper_is_fail_safe_to_general_path():
     assert result is None
 
 
+@pytest.mark.parametrize(
+    "penalty,alpha_grid,expected_solver",
+    [
+        ("l1", np.array([0.04, 0.02], dtype=np.float64), "fista"),
+        ("scad", np.array([0.025], dtype=np.float64), "proximal_irls_cd"),
+    ],
+)
+def test_quantile_public_two_stage_falls_back_to_maintained_per_fold_path(
+    penalty, alpha_grid, expected_solver
+):
+    """Public approximate CV remains usable when incomplete fast helpers decline."""
+    X, y, folds = _data(seed=16322, n=72)
+    tau = 0.2
+    weights = np.linspace(0.55, 1.65, X.shape[0], dtype=np.float64)
+
+    cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": tau},
+        penalty=penalty,
+        alpha_grid=alpha_grid,
+        cv=2,
+        cv_splits=folds,
+        random_state=163,
+        solver="auto",
+        device="cpu",
+        cv_strategy="two_stage",
+        acknowledge_approx=True,
+        refine_top_k=1,
+        max_iter=500,
+        tol=1e-7 if penalty == "l1" else 1e-6,
+    ).fit(X, y, sample_weight=weights)
+
+    assert cv.cv_strategy_ == "two_stage"
+    assert cv.estimator_._selected_solver == expected_solver
+    assert cv.estimator_._selected_backend_name == "numpy"
+    assert cv.alpha_ in set(alpha_grid.tolist())
+
+    stage1 = np.asarray(cv.cv_results_["all_scores_stage1"], dtype=np.float64)
+    strict = np.asarray(cv.cv_results_["all_scores"], dtype=np.float64)
+    assert stage1.shape == strict.shape == (len(folds), len(alpha_grid))
+    assert np.all(np.isfinite(stage1))
+    assert np.all(np.isfinite(strict))
+    assert np.all(np.isfinite(np.asarray(cv.coef_, dtype=np.float64)))
+    assert np.isfinite(float(cv.intercept_))
+
+    from statgpu.linear_model.penalized import _quantile_solver_contract as contract
+
+    assert contract._QUANTILE_CV_LEVEL.get() is None
+
+
 def test_quantile_eval_preserves_historical_default_outside_cv_context():
     from statgpu.linear_model.penalized import _penalized_cv as cv_mod
 
