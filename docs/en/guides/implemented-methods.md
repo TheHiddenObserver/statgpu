@@ -1,6 +1,6 @@
 # Implemented Methods
 
-> Last updated: 2026-07-24  
+> Last updated: 2026-09-15  
 > Switch: [Chinese](../../cn/guides/implemented-methods.md)
 
 This page is the maintained inventory of public models, functions, and major solver
@@ -71,7 +71,7 @@ model.fit(X, y)
 | `ElasticNetCV` | Joint `l1_ratio` and alpha search | NumPy, CuPy, Torch |
 | `LogisticRegressionCV` | Logistic-regression CV | NumPy, CuPy, Torch |
 | `PenalizedGLM_CV` | Unified penalized-GLM CV | NumPy, CuPy, Torch |
-| `CoxPHCV` | Cox penalty search and final refit | NumPy, CuPy; see CoxPH docs |
+| `CoxPHCV` | Cox penalty search and final refit | NumPy, CuPy, Torch |
 
 ## ANOVA
 
