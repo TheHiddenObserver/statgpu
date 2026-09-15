@@ -1,7 +1,7 @@
 # Quantile Regression
 
 > Language: English  
-> Last updated: 2026-09-14  
+> Last updated: 2026-09-15  
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/quantile.md)
 
@@ -69,23 +69,26 @@ The support column below first describes unweighted algorithm availability. With
 | Solver | Support | Notes |
 |--------|:---:|-------|
 | Proximal IRLS-CD | ✅ | Specialized IRLS majorization + LLA for SCAD/MCP; maintained route has explicit analytic-weight handling |
-| FISTA | ✅ | Proximal/non-smooth route; weighted behavior follows the maintained FISTA route |
-| FISTA-BB | ✅ | Available on supported sparse routes; weighted capability is loss/solver-route specific |
-| IRLS | ✅ | L2/none; `QuantileLoss.irls()` has an explicit `sample_weight` path |
-| L-BFGS | ✅ (unweighted/uniform weights) | Genuine non-uniform direct weighted L-BFGS is fail-closed for generic `LossBase` |
+| FISTA | ✅ | **Default `solver="auto"` route for ordinary convex Quantile penalties**, including L2/none |
+| FISTA-BB | ✅ | Available when explicitly selected on supported sparse routes; `auto` does not select it for Quantile |
+| IRLS | ✅ | Explicit L2/no-penalty route; `QuantileLoss.irls()` has an explicit `sample_weight` path |
+| L-BFGS | ✅ (unweighted/uniform weights at the low-level solver boundary) | Public `PenalizedQuantileRegression` rejects L-BFGS because Quantile has no Hessian-compatible smooth contract; genuine non-uniform direct weighted L-BFGS is fail-closed for generic `LossBase` |
 | ADMM | ✅ (unweighted/uniform weights) | Shared `admm_solver` currently rejects genuine non-uniform `sample_weight` |
 | Newton | ❌ | Quantile loss has no Hessian |
 | Proximal Newton | ❌ | Quantile loss has no Hessian |
+
+The distinction between `auto` and explicit IRLS matters: `PenalizedQuantileRegression(..., solver="auto")` resolves to FISTA because Quantile has no Hessian, while `solver="irls"` is a separate maintained request for L2/no-penalty Quantile fitting.
 
 ## Penalty compatibility
 
 | Penalty | Main `solver="auto"` route | Notes |
 |---------|----------------------------|-------|
-| l2 / none | IRLS | Quantile-specific IRLS |
+| l2 / none | FISTA | `none` is canonicalized to `L2(alpha=0)`; explicit `solver="irls"` remains available |
 | l1 / elasticnet | FISTA | Proximal/subgradient route |
-| SCAD / MCP | Proximal IRLS-CD | IRLS majorization + LLA |
-| adaptive_l1 | FISTA-LLA | Weighted-L1 proximal surrogate |
-| group_* | FISTA-LLA / group route | Corresponding group proximal operator |
+| SCAD / MCP | Proximal IRLS-CD | Specialized Quantile IRLS majorization + LLA |
+| adaptive_l1 | FISTA | Adaptive weights are prepared first, then the Quantile FISTA route is used |
+| group_lasso / adaptive group | Group FISTA | Group-aware proximal route |
+| group_scad / group_mcp | Group FISTA-LLA | Group LLA surrogate with a group-aware FISTA inner solve |
 
 ## `sample_weight` semantics
 
@@ -99,6 +102,7 @@ $$
 But `sample_weight` is **not one universal solver capability**. In particular:
 
 - maintained Quantile IRLS / Proximal IRLS-CD routes have explicit weighted implementations;
+- maintained FISTA routes use the loss-layer normalized weighted objective where supported;
 - generic `LossBase` shared value/gradient primitives can evaluate the normalized weighted objective;
 - direct `lbfgs_solver` remains fail-closed for genuine non-uniform Quantile weights;
 - shared `admm_solver` currently accepts omitted or uniform weights only.
@@ -131,13 +135,37 @@ print(model._conf_int)
 ```python
 from statgpu.linear_model.penalized import PenalizedQuantileRegression
 
+# solver="auto" uses FISTA for this L2 Quantile problem.
 model = PenalizedQuantileRegression(
+    quantile=0.5,
+    penalty="l2",
+    alpha=0.1,
+    solver="auto",
+)
+model.fit(X, y)
+
+# SCAD/MCP use the specialized Proximal IRLS-CD continuation path.
+scad_model = PenalizedQuantileRegression(
     quantile=0.5,
     penalty="scad",
     alpha=0.1,
 )
-model.fit(X, y)
+scad_model.fit(X, y)
 ```
+
+### Explicit Quantile IRLS
+
+```python
+irls_model = PenalizedQuantileRegression(
+    quantile=0.5,
+    penalty="l2",
+    alpha=0.01,
+    solver="irls",
+)
+irls_model.fit(X, y)
+```
+
+Use explicit IRLS only on its maintained L2/no-penalty boundary. Non-smooth penalties such as ElasticNet should use FISTA rather than IRLS; the low-level `QuantileLoss.irls()` ElasticNet contract is tracked separately in Issue #161.
 
 ### GPU (Torch CUDA)
 
@@ -177,9 +205,9 @@ This example uses a maintained estimator-level weighted route. It does not imply
 
 See [Solver Algorithms](../guides/solver-algorithms.md#1-proximal-irls-cd) for the full update equations. The method combines an IRLS quadratic majorization of the check loss with local linear approximation of SCAD/MCP.
 
-### IRLS (L2/none)
+### Explicit IRLS (L2/none)
 
-Let
+IRLS is not the Quantile `auto` route, but it remains available when explicitly requested with L2/no penalty. Let
 
 $$
 r_i=y_i-x_i^\top\beta.
