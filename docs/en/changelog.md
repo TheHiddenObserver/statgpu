@@ -7,6 +7,19 @@
 
 This page records user-visible changes for current and recent statgpu releases.
 
+## Unreleased — Quantile IRLS penalty contract (PR #162 / Issue #161, targeted for 0.2.6)
+
+### Fixed
+
+- Low-level `QuantileLoss.irls()` now accepts only no penalty or L2. ElasticNet, L1, SCAD/MCP, group/adaptive penalties, and unknown penalty objects fail before numerical iteration instead of allowing an IRLS solve that applies only the smooth L2 component of a declared non-smooth objective.
+- The public estimator contract is unchanged: explicit Quantile `solver="irls"` remains a maintained L2/no-penalty route, while non-smooth penalties continue through FISTA-family or dedicated Quantile non-convex algorithms.
+- The IRLS docstring now matches the executable low-level contract. Unsupported direct low-level calls receive a precise fail-closed error rather than a plausible-looking partial-penalty result.
+
+### Validation
+
+- Added focused regressions for direct ElasticNet/L1/SCAD/unknown-penalty rejection before the linear solve, retained unpenalized/L2 execution, positive global analytic-weight scale invariance, the existing estimator-level fail-closed boundary, and Torch CPU L2 backend preservation.
+- This repair removes an unsupported route and does not alter the maintained None/L2 IRLS numerical algorithm, so it does not by itself create a new physical-CUDA acceptance requirement.
+
 ## Unreleased — Weighted explicit Newton/L-BFGS GLM fits (PR #151 / Issue #150, targeted for 0.2.6)
 
 ### Changed
