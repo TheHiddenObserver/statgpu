@@ -1,7 +1,7 @@
 # Solver Algorithms
 
 > Language: English  
-> Last updated: 2026-09-15  
+> Last updated: 2026-09-16  
 > This page: Algorithm reference  
 > Switch: [Chinese](../../cn/guides/solver-algorithms.md)
 
@@ -33,7 +33,7 @@ For model-level dispatch, see [Solver × Penalty Compatibility Matrix](solver-pe
 | ADMM | separable/proximal formulations | NumPy, CuPy, Torch |
 | `exact` | squared error + L2 closed-form path | NumPy, CuPy, Torch |
 
-The backend column describes numerical implementation capability only. Estimator and loss contracts can further narrow the valid combinations.
+The backend column describes numerical implementation capability only. Estimator and loss contracts can further narrow the valid combinations. Quantile/check loss is one such narrowing: ordinary FISTA is maintained on supported sparse convex routes, while FISTA-BB, L-BFGS, and shared ADMM are not maintained Quantile algorithms.
 
 ---
 
@@ -483,7 +483,7 @@ Weighted objective tracking and the weighted Lipschitz estimate use the same ana
 
 **File**: `statgpu/solvers/_fista_bb.py`
 
-**Use case**: FISTA with local Barzilai-Borwein curvature estimates for step-size selection on supported sparse-penalty GLM routes.
+**Use case**: FISTA with local Barzilai-Borwein curvature estimates for step-size selection on supported sparse-penalty GLM routes. Quantile/check loss is excluded because its step-function subgradient does not provide the smooth gradient differences required by the BB curvature estimate.
 
 ### Lipschitz burn-in and BB curvature
 
@@ -1030,7 +1030,7 @@ Multiplying all active weights by one positive constant therefore leaves the opt
 
 **Files**: `statgpu/solvers/_lbfgs.py`, `statgpu/solvers/_lbfgs_b.py`
 
-**Use case**: Limited-memory quasi-Newton optimization for smooth objectives, plus a projected box-constrained variant.
+**Use case**: Limited-memory quasi-Newton optimization for smooth objectives, plus a projected box-constrained variant. Public `lbfgs_solver(QuantileLoss, ...)` calls fail closed because check loss does not satisfy the smooth-objective curvature/line-search contract.
 
 ### L-BFGS curvature history
 
@@ -1262,7 +1262,8 @@ Non-uniform direct L-BFGS weights are loss-level opt-in:
 | Direct L-BFGS route | Non-uniform `sample_weight` |
 |---|---|
 | Maintained `GLMLoss` | ✅ Supported |
-| Generic robust / quantile / Cox `LossBase` consumers | ❌ Not implied by unweighted support |
+| Generic robust / Cox `LossBase` consumers | ❌ Not implied by unweighted support |
+| Quantile | ❌ L-BFGS is not a maintained Quantile route even without weights |
 
 For maintained GLMs, the initial gradient, current objective, every line-search candidate, and accepted-point gradient use the same normalized objective
 
@@ -1379,7 +1380,7 @@ $$
 <\texttt{cg\_tol}\times p.
 $$
 
-Although the public/internal arguments are still named `cg_max_iter` and `cg_tol`, the current non-Cholesky fallback is Nesterov accelerated gradient, not conjugate gradient.
+Although the public/internal arguments are still named `cg_max_iter` and `cg_tol`, the current non-Cholesky fallback is Nesterov accelerated gradient, not conjugate gradient. Quantile/check loss is excluded from this shared ADMM route because its step-function subgradient does not satisfy the smooth-gradient assumptions of this inner solve.
 
 ### Primal/dual residuals and adaptive $\rho$
 
@@ -1412,7 +1413,7 @@ r_{\rm p}<\texttt{tol}
 r_{\rm d}<\texttt{tol}.
 $$
 
-The solver returns $z$, since $z$ is always the variable after applying the penalty proximal operator. The shared `admm_solver` currently accepts only omitted or uniform `sample_weight`; genuine non-uniform analytic weights are not part of this entry point's current capability.
+The solver returns $z$, since $z$ is always the variable after applying the penalty proximal operator. The shared `admm_solver` currently accepts only omitted or uniform `sample_weight` on losses for which ADMM is otherwise maintained; public Quantile calls fail closed before this weighting contract is reached.
 
 ---
 
@@ -1439,7 +1440,7 @@ For direct model fitting, `solver="auto"` follows the maintained model-level tab
 direct fit with solver="auto"
 ├── squared_error + L2/none              → CPU exact / GPU Newton
 ├── quantile + L2/none                   → IRLS
-├── quantile + L1/ElasticNet             → FISTA
+├── quantile + L1/ElasticNet             → ordinary FISTA
 ├── quantile + SCAD/MCP                  → Proximal IRLS-CD
 ├── smooth non-Gaussian GLM + L2/none    → Newton
 ├── squared_error + convex sparse        → FISTA
@@ -1451,7 +1452,7 @@ direct fit with solver="auto"
 └── group penalties                      → group-aware FISTA / FISTA-LLA
 ```
 
-For smooth Quantile L2/no-penalty objectives, explicit `solver="irls"` selects the same maintained algorithm as `auto`. Explicit `solver="fista"` or `solver="fista_bb"` is not silently substituted by IRLS; those smooth combinations fail before numerical dispatch. Sparse Quantile FISTA-family and SCAD/MCP Proximal IRLS-CD remain distinct algorithms.
+For smooth Quantile L2/no-penalty objectives, explicit `solver="irls"` selects the same maintained algorithm as `auto`, while explicit `solver="fista"` fails rather than being silently substituted by IRLS. Across all Quantile penalties, explicit FISTA-BB, L-BFGS, and ADMM requests fail before numerical dispatch. Sparse Quantile ordinary FISTA and SCAD/MCP Proximal IRLS-CD remain distinct maintained algorithms.
 
 The tree is intentionally a summary. Exact family/backend/problem-size rules—especially Poisson and Negative-Binomial CV sparse routing—are defined in the [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md).
 
