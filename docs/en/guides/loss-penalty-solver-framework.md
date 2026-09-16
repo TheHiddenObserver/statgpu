@@ -2,7 +2,7 @@
 
 > Language: English
 >
-> Last updated: 2026-09-15
+> Last updated: 2026-09-16
 
 ## Overview
 
@@ -193,11 +193,11 @@ The main `solver="auto"` dispatch can be summarized as follows. Public `none` / 
 | 2 | `newton` | squared_error + L2/none + GPU |
 | 3 | specialized continuation | Quantile SCAD/MCP → Proximal IRLS-CD; other non-convex SCAD/MCP and group non-convex penalties use their maintained LLA wrappers |
 | 4 | `irls` | Quantile + L2/none |
-| 5 | `fista` / `fista_bb` | Quantile sparse convex and other convex sparse penalties, including adaptive L1 after initialization; exact choice is loss/backend/CV dependent |
+| 5 | `fista` / `fista_bb` | Quantile convex sparse → ordinary FISTA; other convex sparse penalties, including adaptive L1 after initialization, use the loss/backend/CV-specific FISTA or FISTA-BB policy |
 | 6 | `lbfgs` / `newton` | CV + L2 + loss-specific routing |
 | 7 | `newton` | maintained smooth L2/no-penalty GLM/robust/Cox paths with Hessian support |
 
-Explicit smooth Quantile `fista`/`fista_bb` requests are not silently replaced by IRLS; they fail before numerical dispatch. The `exact` solver in this table is the closed-form squared-error/L2 solver and is unrelated to `CoxPH(ties="exact")`. For exact family/backend-specific dispatch, use the [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md).
+For Quantile, ordinary FISTA is maintained only on supported sparse convex routes; L2/no-penalty uses IRLS and SCAD/MCP use Proximal IRLS-CD. Explicit smooth Quantile `fista` and every Quantile `fista_bb`, `lbfgs`, or `admm` request fail before numerical dispatch rather than being silently substituted or run through an unsupported generic algorithm. The `exact` solver in this table is the closed-form squared-error/L2 solver and is unrelated to `CoxPH(ties="exact")`. For exact family/backend-specific dispatch, use the [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md).
 
 ### All Solvers
 
@@ -208,14 +208,14 @@ Explicit smooth Quantile `fista`/`fista_bb` requests are not silently replaced b
 | `exact` | squared_error only | L2 only | ✅ | ❌ |
 | `irls` | losses declaring maintained IRLS dispatch | L2 / none | available where the IRLS loss supports it | ❌ |
 | `newton` | losses with Hessian support | L2 / none | loss-dependent; ordinary GLM ✅ | ❌ |
-| `lbfgs` | smooth losses | L2 / none | capability-gated; ordinary GLM ✅ | ❌ |
+| `lbfgs` | smooth losses; excludes Quantile | L2 / none | capability-gated; ordinary GLM ✅ | ❌ |
 | `lbfgs_b` | smooth box-constrained problems | L2 / none | no generic non-uniform-weight contract declared | ❌ |
 | `fista` | losses supporting gradient/proximal routes | supported proximal penalties | loss-dependent | ✅ |
-| `fista_bb` | losses supporting gradient/proximal routes | supported sparse penalties | loss-dependent | ✅ |
+| `fista_bb` | smooth-gradient-compatible losses; excludes Quantile | supported sparse penalties | loss-dependent | ✅ |
 | `fista_lla` | losses supporting the maintained LLA route | SCAD/MCP and group non-convex LLA routes | loss-dependent | ✅ |
 | `proximal_irls_cd` | quantile only | SCAD/MCP | ✅ | ✅ |
 | `proximal_newton` | smooth losses with Hessian support | L2 / none | loss-dependent | ✅ |
-| `admm` | maintained ADMM losses | supported proximal forms | omitted/uniform only; genuine non-uniform weights fail closed | ✅ |
+| `admm` | maintained ADMM losses with a smooth w-update; excludes Quantile | supported proximal forms | omitted/uniform only; genuine non-uniform weights fail closed | ✅ |
 
 ### Specialized Solvers
 
@@ -390,7 +390,7 @@ These are the public model classes users normally construct and call with `.fit(
 | `PenalizedLinearRegression` | squared_error | l1/l2/elasticnet/scad/mcp/adaptive_l1 | CPU exact / GPU Newton for L2/none; FISTA for convex sparse; FISTA-LLA for SCAD/MCP |
 | `PenalizedLogisticRegression` | logistic | l1/l2/elasticnet/scad/mcp/adaptive_l1 | Newton for L2/none; FISTA-BB for direct convex sparse; FISTA-LLA for SCAD/MCP |
 | `PenalizedPoissonRegression` | poisson | l1/l2/elasticnet/scad/mcp/adaptive_l1 | Newton for L2/none; FISTA-BB for direct convex sparse; FISTA-LLA for SCAD/MCP |
-| `PenalizedQuantileRegression` | quantile | scad/mcp/l2 and related supported penalties | IRLS for L2/none auto or explicit; FISTA-family for convex sparse routes; Proximal IRLS-CD for SCAD/MCP |
+| `PenalizedQuantileRegression` | quantile | scad/mcp/l2 and related supported penalties | IRLS for L2/none auto or explicit; ordinary FISTA for convex sparse routes; Proximal IRLS-CD for SCAD/MCP |
 | `PenalizedRobustRegression` | huber/bisquare/fair | l1/l2/elasticnet/scad/mcp and related penalties | Newton for L2/none; FISTA for convex sparse; FISTA-LLA for SCAD/MCP; explicit IRLS additionally exists for Bisquare/Fair |
 | `PenalizedCoxPHModel` | cox_ph | l1/l2/elasticnet/scad/mcp | Newton for L2/none; FISTA-BB for direct L1/ElasticNet; FISTA-LLA for SCAD/MCP |
 
