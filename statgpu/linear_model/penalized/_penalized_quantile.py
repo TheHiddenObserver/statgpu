@@ -52,6 +52,14 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
         Whether to fit an intercept.
     device : str, default='auto'
         Device: 'auto', 'cpu', 'cuda', 'torch'.
+    loss_kwargs : dict, optional
+        Advanced low-level Quantile-loss overrides. For historical
+        compatibility, ``loss_kwargs={'quantile': q}`` takes precedence over
+        the typed ``quantile=`` argument for fitting and scoring, while the
+        public ``quantile`` attribute retains the outer constructor value for
+        clone identity. Prefer the typed ``quantile=`` argument for ordinary
+        use and avoid supplying conflicting values unless this compatibility
+        behavior is intentionally required.
 
     Examples
     --------
