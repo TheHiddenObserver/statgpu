@@ -1,14 +1,19 @@
 """Fail-closed low-level solver boundaries for non-smooth Quantile loss.
 
-The generic solver modules below are maintained for algorithmic assumptions
-that Quantile/check loss does not satisfy:
+Two generic solver modules rely on smooth-gradient structure that the
+Quantile/check loss does not provide:
 
-* L-BFGS expects a smooth objective for its curvature history and Armijo search;
 * FISTA-BB estimates local curvature from smooth-gradient differences;
-* ADMM solves its w-subproblem with Nesterov-accelerated gradient descent.
+* ADMM solves its generic w-subproblem with Nesterov-accelerated gradient descent.
 
 Ordinary Quantile FISTA remains a maintained sparse route, while smooth
 L2/no-penalty Quantile uses IRLS and SCAD/MCP use Proximal IRLS-CD.
+
+Low-level ``lbfgs_solver(QuantileLoss, ...)`` is intentionally not wrapped
+here: unweighted/uniform direct Quantile L-BFGS is an existing maintained
+compatibility surface with regression coverage. Estimator-level explicit
+Quantile L-BFGS remains fail-closed in the penalized model validator, and
+non-uniform direct weights remain fail-closed in the L-BFGS weight contract.
 """
 
 from __future__ import annotations
@@ -17,7 +22,6 @@ from functools import wraps
 
 from ._admm import admm_solver as _admm_solver
 from ._fista_bb import fista_bb_solver as _fista_bb_solver
-from ._lbfgs import lbfgs_solver as _lbfgs_solver
 
 
 def _is_quantile(loss) -> bool:
@@ -41,17 +45,6 @@ def fista_bb_solver(loss, *args, **kwargs):
             "BB step sizes require meaningful smooth-gradient differences",
         )
     return _fista_bb_solver(loss, *args, **kwargs)
-
-
-@wraps(_lbfgs_solver)
-def lbfgs_solver(loss, *args, **kwargs):
-    """Run L-BFGS only when its smooth-objective contract holds."""
-    if _is_quantile(loss):
-        _reject_quantile(
-            "lbfgs_solver",
-            "the quasi-Newton curvature and line-search contract requires a smooth objective",
-        )
-    return _lbfgs_solver(loss, *args, **kwargs)
 
 
 @wraps(_admm_solver)
