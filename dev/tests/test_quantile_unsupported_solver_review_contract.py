@@ -1,0 +1,124 @@
+"""Post-merge review regressions for unsupported explicit Quantile solvers."""
+
+from __future__ import annotations
+
+import inspect
+
+import numpy as np
+import pytest
+
+from statgpu import glm_core
+from statgpu.linear_model.penalized import PenalizedGLM_CV, PenalizedQuantileRegression
+from statgpu.losses import QuantileLoss
+from statgpu.penalties import L1Penalty, L2Penalty
+from statgpu import solvers
+from statgpu.solvers import _admm as _admm_mod
+from statgpu.solvers import _fista_bb as _fista_bb_mod
+from statgpu.solvers import _lbfgs as _lbfgs_mod
+
+
+_UNSUPPORTED_ESTIMATOR_CASES = [
+    ("admm", "l1"),
+    ("fista_bb", "l1"),
+    ("lbfgs", "l2"),
+]
+
+_LOW_LEVEL_CASES = [
+    (solvers.admm_solver, glm_core.admm_solver, _admm_mod.admm_solver, L1Penalty(0.04)),
+    (
+        solvers.fista_bb_solver,
+        glm_core.fista_bb_solver,
+        _fista_bb_mod.fista_bb_solver,
+        L1Penalty(0.04),
+    ),
+    (
+        solvers.lbfgs_solver,
+        glm_core.lbfgs_solver,
+        _lbfgs_mod.lbfgs_solver,
+        L2Penalty(0.04),
+    ),
+]
+
+
+def _data(seed=16491):
+    rng = np.random.default_rng(seed)
+    X = rng.normal(size=(48, 3))
+    y = 0.15 + X @ np.array([0.55, -0.3, 0.12])
+    y = y + rng.exponential(scale=0.18, size=X.shape[0]) - 0.18
+    return X, y
+
+
+@pytest.mark.parametrize("solver_name,penalty", _UNSUPPORTED_ESTIMATOR_CASES)
+def test_direct_quantile_unsupported_solver_fails_before_backend_work(
+    monkeypatch, solver_name, penalty
+):
+    X, y = _data()
+    model = PenalizedQuantileRegression(
+        quantile=0.2,
+        penalty=penalty,
+        alpha=0.04,
+        solver=solver_name,
+        device="cpu",
+    )
+
+    def forbidden_backend(*args, **kwargs):
+        raise AssertionError("backend numerical work must not start")
+
+    monkeypatch.setattr(model, "_get_backend", forbidden_backend)
+    with pytest.raises(ValueError):
+        model.fit(X, y)
+
+
+@pytest.mark.parametrize("solver_name,penalty", _UNSUPPORTED_ESTIMATOR_CASES)
+@pytest.mark.parametrize("cv_strategy", ["strict", "two_stage"])
+def test_cv_quantile_unsupported_solver_fails_before_alpha_grid(
+    monkeypatch, solver_name, penalty, cv_strategy
+):
+    X, y = _data(seed=16492)
+    model = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.2},
+        penalty=penalty,
+        cv=2,
+        solver=solver_name,
+        cv_strategy=cv_strategy,
+        acknowledge_approx=(cv_strategy == "two_stage"),
+        device="cpu",
+    )
+
+    def forbidden_grid(*args, **kwargs):
+        raise AssertionError("alpha-grid numerical work must not start")
+
+    monkeypatch.setattr(model, "_generate_alpha_grid", forbidden_grid)
+    with pytest.raises(ValueError, match="not a maintained Quantile route"):
+        model.fit(X, y)
+
+
+@pytest.mark.parametrize("solver_fn,glm_alias,internal_fn,penalty", _LOW_LEVEL_CASES)
+def test_public_low_level_solver_rejects_quantile_before_loss_work(
+    monkeypatch, solver_fn, glm_alias, internal_fn, penalty
+):
+    X, y = _data(seed=16493)
+    loss = QuantileLoss(quantile=0.2)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("loss numerical work must not start")
+
+    monkeypatch.setattr(loss, "preprocess", forbidden)
+    monkeypatch.setattr(loss, "gradient", forbidden)
+    monkeypatch.setattr(loss, "fused_value_and_gradient", forbidden)
+
+    for public_fn in (solver_fn, glm_alias):
+        with pytest.raises(ValueError, match="does not support Quantile loss"):
+            public_fn(loss, penalty, X, y, max_iter=5)
+
+    # ``functools.wraps`` keeps public introspection compatible with the
+    # underlying generic solver while changing only the Quantile support row.
+    assert inspect.signature(solver_fn) == inspect.signature(internal_fn)
+    assert inspect.signature(glm_alias) == inspect.signature(internal_fn)
+
+
+def test_glm_core_solver_aliases_use_the_guarded_public_exports():
+    assert glm_core.admm_solver is solvers.admm_solver
+    assert glm_core.fista_bb_solver is solvers.fista_bb_solver
+    assert glm_core.lbfgs_solver is solvers.lbfgs_solver
