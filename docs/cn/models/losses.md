@@ -1,7 +1,7 @@
 # 损失函数（LossBase）
 
 > 语言：中文  
-> 最后更新：2026-09-14  
+> 最后更新：2026-09-16  
 > 页面定位：底层损失函数参考  
 > 切换：[英文版](../../en/models/losses.md)
 
@@ -70,7 +70,7 @@ $$
 \frac{\sum_i w_i\ell_i(\beta)}{\sum_i w_i}.
 $$
 
-这里统一的是**损失函数层的一阶权重语义**。完整的带权拟合能力仍由具体损失函数、求解器与模型路径共同决定；需要 Hessian、Fisher 信息或 Lipschitz 常数的算法，也必须在对应路径上给出与目标函数一致的带权定义。实际可用组合请以 [求解器 × 惩罚项兼容性矩阵](../guides/solver-penalty-matrix.md) 和 [求解器算法](../guides/solver-algorithms.md) 为准。
+这里统一的是**损失函数层的一阶权重语义**。完整的带权拟合能力仍由具体损失函数、求解器与模型路径共同决定；需要 Hessian、Fisher 信息、Lipschitz 常数、smooth-gradient difference 或拟牛顿曲率的算法，也必须在对应路径上满足这些额外前提。实际可用组合请以 [求解器 × 惩罚项兼容性矩阵](../guides/solver-penalty-matrix.md) 和 [求解器算法](../guides/solver-algorithms.md) 为准。
 
 ### 分位数损失（check / pinball loss）
 
@@ -98,7 +98,7 @@ $$
 \rho_{0.5}(u)=\frac12|u|,
 $$
 
-与绝对损失只差一个常数比例，对应中位数回归。
+与绝对损失只差一个常数比例，对应中位数回归。它的次梯度是阶梯函数，因此依赖 smooth-gradient curvature 的底层算法不属于维护中的 Quantile 路径。
 
 ### Huber 损失
 
@@ -151,16 +151,16 @@ $$
 | 求解器 | 分位数 | Huber | Bisquare | Fair | Cox PH |
 |--------|----------|-------|----------|------|--------|
 | FISTA | ✅ | ✅ | ✅ | ✅ | ✅ |
-| FISTA-BB | ✅ | ✅ | ✅ | ✅ | ✅ |
+| FISTA-BB | ❌（非光滑梯度） | ✅ | ✅ | ✅ | ✅ |
 | FISTA-LLA | ✅（SCAD/MCP） | ✅ | ✅ | ✅ | ✅（SCAD/MCP） |
 | Proximal IRLS-CD | ✅（SCAD/MCP） | ❌ | ❌ | ❌ | ❌ |
 | Proximal Newton | ❌（无 Hessian） | ✅（L2/无惩罚） | ✅（L2/无惩罚） | ✅（L2/无惩罚） | ❌ |
 | Newton | ❌（无 Hessian） | ✅ | ✅ | ✅ | ✅ |
-| L-BFGS | ✅ | ✅ | ✅ | ✅ | ✅ |
-| ADMM | ✅ | ✅ | ✅ | ✅ | ✅ |
+| L-BFGS | ❌（非光滑目标） | ✅ | ✅ | ✅ | ✅ |
+| ADMM | ❌（共享 w-update 要求光滑梯度） | ✅ | ✅ | ✅ | ✅ |
 | IRLS | ✅（L2/无惩罚） | ❌（当前未开放） | ✅（L2/无惩罚） | ✅（L2/无惩罚） | ❌ |
 
-Huber IRLS 当前未作为维护中的公开求解路径开放；因此表中的 ❌ 表示当前公共分发不会选择该路径。
+对 Quantile loss，公开底层 `fista_bb_solver`、`lbfgs_solver` 与 `admm_solver` 会在数值迭代前 fail closed。普通 FISTA 继续作为维护中的稀疏凸路径；L2/无惩罚使用 Quantile IRLS，SCAD/MCP 使用 Proximal IRLS-CD。Huber IRLS 当前未作为维护中的公开求解路径开放；因此该行的 ❌ 表示公共分发不会选择它。
 
 ### 非均匀权重与直接调用 L-BFGS
 
@@ -169,12 +169,13 @@ Huber IRLS 当前未作为维护中的公开求解路径开放；因此表中的
 | 路径 | 非均匀 `sample_weight` |
 |---|---|
 | 当前维护的 `GLMLoss` | ✅ 支持 |
-| 分位数 / Huber / Bisquare / Fair | ❌ 不能由“无权重 L-BFGS 可用”推出 |
+| 分位数 | ❌ 即使无权重也不是维护中的 L-BFGS 路径 |
+| Huber / Bisquare / Fair | ❌ 不能由“无权重 L-BFGS 可用”推出 |
 | Cox 部分似然 | ❌ 当前明确不支持 `sample_weight` |
 
-`GLMLoss` 能够支持这一能力，是因为其融合的函数值/梯度接口明确定义了归一化解析权重目标。通用的非 GLM 损失继续拒绝真正非均匀的直接 L-BFGS 权重，除非该损失以后单独定义并验证相应统计语义。
+`GLMLoss` 能够支持这一能力，是因为其融合的函数值/梯度接口明确定义了归一化解析权重目标。通用的非 GLM 损失继续拒绝真正非均匀的直接 L-BFGS 权重，除非该损失以后单独定义并验证相应统计语义。对 Quantile，则适用更强的“非光滑目标”排除，与是否加权无关。
 
-均匀权重继续保持历史无权重 L-BFGS 行为。
+均匀权重只在其无权重 L-BFGS 路径本身仍受维护的损失函数上保留历史行为。
 
 ## 参数
 
@@ -211,25 +212,22 @@ Huber IRLS 当前未作为维护中的公开求解路径开放；因此表中的
 
 | 参数 | 默认值 | 说明 |
 |---|---:|---|
-| `ties` | `"breslow"` | `"breslow"` 或 `"efron"`；Exact 并列事件处理请使用 `CoxPH` |
+| `ties` | `"breslow"` 或 `"efron"`；Exact 并列事件处理请使用 `CoxPH` | `"breslow"` |
 
 ## 示例
 
 ### CPU 直接调用求解器
 
 ```python
-from statgpu.losses import QuantileLoss, HuberLoss
+from statgpu.losses import HuberLoss
 from statgpu.solvers import lbfgs_solver
 
-# 下面两个例子有意使用无权重的底层直接调用。
-quantile_loss = QuantileLoss(quantile=0.5)
-coef_q, n_iter_q = lbfgs_solver(quantile_loss, None, X, y)
-
+# 一个有意保持无权重的低层光滑损失示例。
 huber_loss = HuberLoss()
 coef_h, n_iter_h = lbfgs_solver(huber_loss, None, X, y)
 ```
 
-这些例子只说明无权重 L-BFGS 可以直接调用，不能据此推断分位数损失或 Huber 损失已经支持非均匀带权 L-BFGS。需要加权稳健回归或分位数回归时，请以对应模型文档为准。
+这里有意不再展示 Quantile 的直接 L-BFGS 调用：其阶梯次梯度不满足维护中的 smooth-objective L-BFGS 契约。分位数回归请使用 [分位数回归](quantile.md) 页面列出的模型路径。
 
 ### GPU（Torch CUDA）
 
@@ -268,7 +266,7 @@ hessian = loss.hessian(X, y_surv, coef)
 
 跨 NumPy/CuPy/Torch 的数值一致性和“某种权重解释是否已经声明为受支持”是两个不同问题。三后端一致本身不能证明一个尚未声明带权统计语义的损失函数支持该加权方式。
 
-- `QuantileLoss` 非光滑且没有 Hessian；模型层的 SCAD/MCP 路径使用 FISTA 或 Proximal IRLS-CD。
+- `QuantileLoss` 非光滑且没有 Hessian；维护路径是受支持稀疏凸目标的普通 FISTA、L2/无惩罚的 IRLS，以及明确记录的 Proximal IRLS-CD/FISTA-LLA。FISTA-BB、L-BFGS 和共享 ADMM 对 Quantile fail closed。
 - 稳健损失有各自的模型层权重语义；这不会自动扩展成直接调用 L-BFGS 时的非均匀权重支持。
 - `CoxPartialLikelihoodLoss` 当前明确拒绝 `sample_weight`；如果以后定义 Cox 的病例权重、频数权重或抽样权重，需要单独固定统计语义并完成验证。
 - 面板模型使用独立的 `BasePanelModel` 架构，不是 `LossBase` 子类，也不应从本页推断其目标函数或权重语义。
