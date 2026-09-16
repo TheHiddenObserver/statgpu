@@ -118,25 +118,29 @@ def test_cv_quantile_new_unsupported_solver_fails_before_alpha_grid(
         model.fit(X, y)
 
 
-def test_existing_estimator_quantile_lbfgs_rejection_keeps_prior_boundary(monkeypatch):
+@pytest.mark.parametrize("estimator_kind", ["generic", "typed"])
+def test_estimator_quantile_lbfgs_rejection_has_truthful_reason(
+    monkeypatch, estimator_kind
+):
     X, y = _data(seed=16494)
-    model = PenalizedQuantileRegression(
-        quantile=0.2,
+    model = _direct_quantile_model(
+        estimator_kind,
+        solver_name="lbfgs",
         penalty="l2",
-        alpha=0.04,
-        solver="lbfgs",
-        device="cpu",
     )
 
     def forbidden_backend(*args, **kwargs):
         raise AssertionError("backend numerical work must not start")
 
     monkeypatch.setattr(model, "_get_backend", forbidden_backend)
-    with pytest.raises(ValueError, match="requires Hessian"):
+    with pytest.raises(
+        ValueError,
+        match="not a maintained estimator/CV Quantile route.*smooth loss gradient",
+    ):
         model.fit(X, y)
 
 
-def test_existing_cv_quantile_lbfgs_rejection_keeps_prior_boundary(monkeypatch):
+def test_cv_quantile_lbfgs_rejection_has_truthful_reason(monkeypatch):
     X, y = _data(seed=16495)
     model = PenalizedGLM_CV(
         loss="quantile",
@@ -151,7 +155,10 @@ def test_existing_cv_quantile_lbfgs_rejection_keeps_prior_boundary(monkeypatch):
         raise AssertionError("alpha-grid numerical work must not start")
 
     monkeypatch.setattr(model, "_generate_alpha_grid", forbidden_grid)
-    with pytest.raises(ValueError, match="requires Hessian"):
+    with pytest.raises(
+        ValueError,
+        match="not a maintained estimator/CV Quantile route.*smooth loss gradient",
+    ):
         model.fit(X, y)
 
 
@@ -229,19 +236,38 @@ def test_estimator_guard_installer_is_import_order_safe_and_idempotent():
     before = _guard_contract._quantile_contract._validate_quantile_solver_request
     before_signature = inspect.signature(before)
     before_wrapped = getattr(before, "__wrapped__", None)
+    estimator_before = (
+        _guard_contract._quantile_contract.PenalizedGeneralizedLinearModel
+        ._validate_solver_penalty
+    )
+    estimator_signature = inspect.signature(estimator_before)
+    estimator_wrapped = getattr(estimator_before, "__wrapped__", None)
 
     _guard_contract.install_quantile_unsupported_solver_guard_contract()
     assert (
         _guard_contract._quantile_contract._validate_quantile_solver_request
         is before
     )
+    assert (
+        _guard_contract._quantile_contract.PenalizedGeneralizedLinearModel
+        ._validate_solver_penalty
+        is estimator_before
+    )
 
     # Re-executing the contract module models a repeated/import-order install.
-    # The marker lives on the installed wrapper, so reload must not stack a
-    # second wrapper or change public validator introspection.
+    # The markers live on the installed wrappers, so reload must not stack a
+    # second wrapper or change public validator/estimator introspection.
     importlib.reload(_guard_contract)
     after = _guard_contract._quantile_contract._validate_quantile_solver_request
+    estimator_after = (
+        _guard_contract._quantile_contract.PenalizedGeneralizedLinearModel
+        ._validate_solver_penalty
+    )
     assert after is before
     assert getattr(after, _guard_contract._MARKER, False)
     assert getattr(after, "__wrapped__", None) is before_wrapped
     assert inspect.signature(after) == before_signature
+    assert estimator_after is estimator_before
+    assert getattr(estimator_after, _guard_contract._ESTIMATOR_MARKER, False)
+    assert getattr(estimator_after, "__wrapped__", None) is estimator_wrapped
+    assert inspect.signature(estimator_after) == estimator_signature
