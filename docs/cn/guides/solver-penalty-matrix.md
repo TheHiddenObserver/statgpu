@@ -59,20 +59,22 @@
 
 ## 2. 显式求解器约束
 
+本节是 **estimator/CV 模型层**兼容性表，不会重新定义所有底层 solver 直接调用。
+
 | 求解器 | 接受 | 拒绝 / 限制 | 说明 |
 |--------|------|-------------|------|
 | `exact` | 仅 L2 + 平方误差 | 其他所有 | 闭式/特征分解路径 |
 | `irls` | 声明维护中 IRLS 支持的损失函数上的 L2/无惩罚 | 非光滑惩罚 | 损失函数/分布族专用 IRLS；平滑 Quantile 的 `auto` 也解析到该路径 |
 | `newton` | 有 Hessian 的光滑损失 + L2/none | L1、ElasticNet、非凸及分组惩罚；Quantile | Newton + Armijo 线搜索 |
-| `lbfgs` | 光滑损失 + L2/none | L1、ElasticNet、非凸及分组惩罚；**所有 Quantile 请求** | 有限内存 BFGS + 线搜索；公开底层 Quantile 调用同样 fail closed |
+| `lbfgs` | 光滑损失 + L2/none | L1、ElasticNet、非凸及分组惩罚；**所有 Quantile estimator/CV 请求** | 有限内存 BFGS + 线搜索；底层无权重/均匀权重 Quantile 兼容面属于另一层接口 |
 | `fista` | 支持近端算子的惩罚 | 平滑 Quantile L2/无惩罚以及其他不支持组合 | 平滑 Quantile 显式 FISTA 会失败，而不是静默执行 IRLS |
-| `fista_bb` | 具有有效 smooth-gradient difference 的受支持稀疏目标 | **所有 Quantile 请求**以及其他不支持组合 | FISTA + BB 自适应步长；公开底层 Quantile 调用 fail closed |
-| `admm` | 具有维护中光滑 w-update 的受支持近端形式 | **所有 Quantile 请求**以及其他不支持组合 | 共享 w-subproblem 使用 accelerated gradient descent；公开底层 Quantile 调用 fail closed |
+| `fista_bb` | 具有有效 smooth-gradient difference 的受支持稀疏目标 | **所有 Quantile 请求**以及其他不支持组合 | FISTA + BB 自适应步长；公开底层 Quantile 调用同样 fail closed |
+| `admm` | 具有维护中光滑 w-update 的受支持近端形式 | **所有 Quantile 请求**以及其他不支持组合 | 共享 w-subproblem 使用 accelerated gradient descent；公开底层 Quantile 调用同样 fail closed |
 | `irls_cd` | 专用标量路径 | 不支持的组合 | 不是当前 `squared_error + SCAD/MCP` 的公开 auto 路径 |
 | `proximal_irls_cd` | **不是公开显式 `solver=` 关键字** | 所有用户显式请求 | 仅作为 Quantile SCAD/MCP 经 `solver="auto"` 选择后的内部 resolved label；算法为 Proximal IRLS-CD 上界近似 + LLA |
 | `proximal_newton` | L2/none 使用 Newton；非光滑直接调用改用 FISTA | 不支持的惩罚结构 | 当前不采用欧氏近端近似 |
 
-不支持的显式组合会在数值拟合前报错。Quantile 只在维护中的稀疏路径公开普通 FISTA，L2/无惩罚使用 IRLS，SCAD/MCP 通过 `solver="auto"` 使用 Proximal IRLS-CD。Quantile FISTA-BB、L-BFGS 与 ADMM 都不是维护中的 estimator 或公开底层 solver 路径。
+不支持的显式 estimator 组合会在数值拟合前报错。Quantile 只在维护中的稀疏模型路径公开普通 FISTA，L2/无惩罚使用 IRLS，SCAD/MCP 通过 `solver="auto"` 使用 Proximal IRLS-CD。Quantile FISTA-BB 与 ADMM 在 estimator 和公开底层两层都被拒绝；estimator/CV L-BFGS 被拒绝，而底层无权重/均匀权重 Quantile L-BFGS 继续作为既有兼容面保留。
 
 ## 3. 求解器能力
 
@@ -81,7 +83,7 @@
 | `exact` | ✅（对应支持路径） | ❌ | ✅（OLS 路径） | 平方误差 + L2 |
 | `irls` | 依模型/损失函数而定 | ❌ | 依模型而定 | 维护中的平滑 Quantile 与 GLM IRLS 路径 |
 | `newton` | 当前 GLM 支持解析权重 | ❌ | 依模型而定 | 有 Hessian 的光滑目标 |
-| `lbfgs` | 当前 GLM 支持解析权重；其他损失函数依具体路径 | ❌ | 依模型而定 | 不希望形成完整 Hessian 的光滑目标 |
+| `lbfgs` | 当前 GLM 支持解析权重；其他损失函数依具体路径 | ❌ | 依模型而定 | 不希望形成完整 Hessian 的光滑目标；底层 Quantile 保留未传/均匀权重兼容面 |
 | `fista` | 受支持的加权路径 ✅ | ✅ | 依模型而定 | 凸稀疏/分组目标与 LLA 内层 |
 | `fista_bb` | 受支持的加权路径 ✅ | ✅ | 依模型而定 | 带 BB 自适应步长的受支持稀疏目标；不含 Quantile |
 | `admm` | 共享 `admm_solver` 在受支持损失上仅接受未传/均匀权重 | ✅ | 依模型而定 | 具有光滑 w-update 的受支持近端形式；不含 Quantile |
@@ -91,7 +93,7 @@
 
 `sum(w_i * loss_i) / sum(w_i)`。
 
-Quantile 与公开 L-BFGS 无论是否加权都不兼容；通用稳健回归与 Cox 的 direct L-BFGS 则各自保留既有权重边界。共享 `admm_solver` 只在 ADMM 本身受维护的损失上要求未传/均匀权重；Quantile 在进入该权重契约之前就会被拒绝。
+底层直接 Quantile L-BFGS 保留未传/均匀权重兼容面，但真正非均匀权重会失败；`PenalizedQuantileRegression` / `PenalizedGLM_CV` 的显式 L-BFGS 仍不支持。通用稳健回归与 Cox 的 direct L-BFGS 各自保留既有权重边界。共享 `admm_solver` 只在 ADMM 本身受维护的损失上要求未传/均匀权重；Quantile 在进入该权重契约之前就会被拒绝。
 
 分组模型的 `warm_start` 会把系数和截距状态一起带入一次拟合，并在成功或失败后清除。
 
