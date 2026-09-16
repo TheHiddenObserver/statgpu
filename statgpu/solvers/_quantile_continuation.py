@@ -155,7 +155,8 @@ def resolve_auto_quantile_continuation_path(
         total_weight = xp.sum(weights_dev)
         score = X_dev.T @ (weights_dev * psi) / total_weight
 
-    lambda_start = _scalar_float(xp.max(xp.abs(score))) if int(score.size) else 0.0
+    score_size = int(score.numel()) if hasattr(score, "numel") else int(score.size)
+    lambda_start = _scalar_float(xp.max(xp.abs(score))) if score_size else 0.0
     return _continuation_path_from_start(
         lambda_start,
         float(path_values[-1]),
