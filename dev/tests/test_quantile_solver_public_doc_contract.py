@@ -42,3 +42,10 @@ def test_typed_quantile_runtime_help_names_ordinary_fista_boundary():
     assert "L1/ElasticNet objectives use ordinary FISTA" in doc
     assert "FISTA-BB and shared ADMM are not maintained Quantile routes" in doc
     assert "shared L-BFGS route assumes a smooth loss gradient" in doc
+
+
+def test_typed_quantile_runtime_help_documents_loss_kwargs_precedence():
+    doc = " ".join((inspect.getdoc(PenalizedQuantileRegression) or "").split())
+    assert "loss_kwargs={'quantile': q}" in doc
+    assert "takes precedence over the typed ``quantile=`` argument" in doc
+    assert "public ``quantile`` attribute retains the outer constructor value" in doc
