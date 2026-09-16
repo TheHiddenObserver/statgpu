@@ -59,20 +59,22 @@ If a finite design cannot be numerically certified, or optimization reaches the 
 
 ## 2. Explicit solver constraints
 
+This section is an **estimator/CV** compatibility table. It does not redefine every direct low-level solver call.
+
 | Solver | Accepts | Rejects / limits | Notes |
 |--------|---------|------------------|-------|
 | `exact` | L2 + squared error only | everything else | closed-form/eigendecomposition path |
 | `irls` | L2/no penalty on losses declaring maintained IRLS support | non-smooth penalties | loss/family-specific IRLS; smooth Quantile `auto` also resolves to this route |
 | `newton` | L2 / none on smooth losses with Hessian support | L1, ElasticNet, non-convex and group penalties; Quantile | Newton + Armijo line search |
-| `lbfgs` | L2 / none on smooth losses | L1, ElasticNet, non-convex and group penalties; **all Quantile requests** | limited-memory BFGS + line search; public low-level Quantile calls also fail closed |
+| `lbfgs` | L2 / none on smooth losses | L1, ElasticNet, non-convex and group penalties; **all Quantile estimator/CV requests** | limited-memory BFGS + line search; the direct low-level unweighted/uniform Quantile compatibility surface is separate |
 | `fista` | supported proximal penalties | smooth Quantile L2/no penalty and unsupported model combinations | explicit smooth Quantile FISTA fails instead of silently executing IRLS |
-| `fista_bb` | supported sparse penalties on losses with meaningful smooth-gradient differences | **all Quantile requests** and unsupported combinations | FISTA + BB step adaptation; public low-level Quantile calls fail closed |
-| `admm` | supported proximal formulations with a maintained smooth w-update | **all Quantile requests** and unsupported combinations | shared w-subproblem uses accelerated gradient descent; public low-level Quantile calls fail closed |
+| `fista_bb` | supported sparse penalties on losses with meaningful smooth-gradient differences | **all Quantile requests** and unsupported combinations | FISTA + BB step adaptation; public low-level Quantile calls also fail closed |
+| `admm` | supported proximal formulations with a maintained smooth w-update | **all Quantile requests** and unsupported combinations | shared w-subproblem uses accelerated gradient descent; public low-level Quantile calls also fail closed |
 | `irls_cd` | specialized scalar routes | unsupported combinations | not the current squared-error SCAD/MCP public auto route |
 | `proximal_irls_cd` | **not a public explicit solver keyword** | all user-supplied explicit requests | internal resolved label for Quantile SCAD/MCP selected through `solver="auto"`; Proximal IRLS-CD majorization + LLA |
 | `proximal_newton` | L2 / none uses Newton; non-smooth direct calls visibly use FISTA | unsupported penalty structures | no Euclidean-prox approximation |
 
-Unsupported explicit combinations fail before numerical fitting. In particular, Quantile exposes ordinary FISTA only on maintained sparse routes, IRLS on L2/no penalty, and Proximal IRLS-CD for SCAD/MCP through `solver="auto"`. Quantile FISTA-BB, L-BFGS, and ADMM are not maintained estimator or public low-level solver routes.
+Unsupported explicit estimator combinations fail before numerical fitting. In particular, Quantile exposes ordinary FISTA only on maintained sparse estimator routes, IRLS on L2/no penalty, and Proximal IRLS-CD for SCAD/MCP through `solver="auto"`. Quantile FISTA-BB and ADMM are excluded both at estimator and public low-level boundaries; estimator/CV L-BFGS is excluded while direct low-level unweighted/uniform Quantile L-BFGS remains an existing compatibility surface.
 
 ## 3. Solver capabilities
 
@@ -81,7 +83,7 @@ Unsupported explicit combinations fail before numerical fitting. In particular, 
 | `exact` | ✅ on its maintained route | ❌ | ✅ (OLS path) | squared error + L2 |
 | `irls` | estimator/loss dependent | ❌ | estimator dependent | maintained smooth Quantile and GLM IRLS routes |
 | `newton` | maintained GLMs support analytic weights | ❌ | estimator dependent | smooth objectives with Hessian support |
-| `lbfgs` | maintained GLMs support analytic weights; other losses are route-specific | ❌ | estimator dependent | smooth objectives without forming a full Hessian |
+| `lbfgs` | maintained GLMs support analytic weights; other losses are route-specific | ❌ | estimator dependent | smooth objectives without forming a full Hessian; low-level Quantile retains omitted/uniform compatibility |
 | `fista` | ✅ on maintained weighted routes | ✅ | estimator dependent | convex sparse/group objectives and LLA inner solves |
 | `fista_bb` | ✅ on maintained weighted routes | ✅ | estimator dependent | supported sparse objectives with adaptive BB steps; excludes Quantile |
 | `admm` | shared `admm_solver`: omitted/uniform weights only on supported losses | ✅ | estimator dependent | supported proximal formulations with smooth w-updates; excludes Quantile |
@@ -91,7 +93,7 @@ For Newton and L-BFGS, `sample_weight` support is a **loss/estimator contract**,
 
 `sum(w_i * loss_i) / sum(w_i)`
 
-for the data-fit term. Quantile is excluded from public L-BFGS regardless of weights; generic robust and Cox direct L-BFGS consumers retain their own weight boundaries. The shared `admm_solver` requires `sample_weight` to be omitted or uniform on losses for which ADMM is otherwise maintained; Quantile is excluded before that weight contract is considered.
+for the data-fit term. Direct low-level Quantile L-BFGS retains omitted/uniform-weight compatibility but rejects genuine non-uniform weights; `PenalizedQuantileRegression` / `PenalizedGLM_CV` explicit L-BFGS remains unsupported. Generic robust and Cox direct L-BFGS consumers retain their own weight boundaries. The shared `admm_solver` requires `sample_weight` to be omitted or uniform on losses for which ADMM is otherwise maintained; Quantile is excluded before that weight contract is considered.
 
 Group warm starts carry coefficient and intercept state together for one fit call and are cleared after success or failure.
 
