@@ -192,7 +192,9 @@ def proximal_irls_quantile_solver(
                     # Residuals and IRLS weights
                     r = y_work - X_work @ beta
                     abs_r = xp.abs(r)
-                    abs_r_safe = xp.maximum(abs_r, xp.asarray(eps, dtype=abs_r.dtype))
+                    abs_r_safe = xp.maximum(
+                        abs_r, _scalar_like(eps, abs_r, xp, backend)
+                    )
                     pos_mask = (r >= 0).to(dtype=abs_r.dtype) if backend == "torch" else (r >= 0).astype(abs_r.dtype)
                     tau_vec = tau * pos_mask + (1.0 - tau) * (1.0 - pos_mask)
                     w = tau_vec / abs_r_safe  # (n,), always positive
@@ -203,7 +205,7 @@ def proximal_irls_quantile_solver(
 
                     # Clamp IRLS weights to prevent numerical overflow
                     w_max = 100.0 / eps
-                    w = xp.minimum(w, xp.asarray(w_max, dtype=w.dtype))
+                    w = xp.minimum(w, _scalar_like(w_max, w, xp, backend))
 
                     # Parallel diagonal majorization step (Jacobi-style)
                     beta = _parallel_majorization_step(
@@ -217,7 +219,10 @@ def proximal_irls_quantile_solver(
                     # but apply the same criterion every iteration on every backend.
                     delta_dev = xp.abs(beta - beta_old)
                     if backend in ("torch", "cupy"):
-                        if bool(_to_numpy(xp.max(delta_dev) < xp.asarray(tol, dtype=delta_dev.dtype))):
+                        if bool(_to_numpy(
+                            xp.max(delta_dev)
+                            < _scalar_like(tol, delta_dev, xp, backend)
+                        )):
                             break
                     else:
                         if float(_to_numpy(xp.max(delta_dev))) < tol:
@@ -226,7 +231,10 @@ def proximal_irls_quantile_solver(
             # LLA convergence check — GPU comparison stays on device
             lla_delta_dev = xp.abs(beta - beta_before_lla)
             if backend in ("torch", "cupy"):
-                if bool(_to_numpy(xp.max(lla_delta_dev) < xp.asarray(lla_tol, dtype=lla_delta_dev.dtype))):
+                if bool(_to_numpy(
+                    xp.max(lla_delta_dev)
+                    < _scalar_like(lla_tol, lla_delta_dev, xp, backend)
+                )):
                     break
             else:
                 if float(_to_numpy(xp.max(lla_delta_dev))) < lla_tol:
@@ -267,14 +275,16 @@ def _parallel_majorization_step(X, X_sq, y, w, beta, thresh, p, eps, xp, backend
     # Weighted Hessian diagonal: h = sum(X^2 * w, axis=0)  -- O(np)
     w_col = w[:, None] if w.ndim == 1 else w
     h = xp.sum(X_sq * w_col, axis=0)
-    h = xp.maximum(h, xp.asarray(eps, dtype=h.dtype))
+    h = xp.maximum(h, _scalar_like(eps, h, xp, backend))
 
     # Soft-threshold update: beta = S(g + h*beta, thresh) / h
     # S(x, t) = sign(x) * max(|x| - t, 0)
     u = g + h * beta
     abs_u = xp.abs(u)
     sign_u = xp.sign(u)
-    beta_new = sign_u * xp.maximum(abs_u - thresh, xp.asarray(0.0, dtype=abs_u.dtype)) / h
+    beta_new = sign_u * xp.maximum(
+        abs_u - thresh, _scalar_like(0.0, abs_u, xp, backend)
+    ) / h
 
     return beta_new
 
@@ -286,6 +296,13 @@ def _copy(arr):
     if hasattr(arr, 'clone'):
         return arr.clone()
     return arr.copy()
+
+
+def _scalar_like(value, ref, xp, backend):
+    """Create a scalar on the same dtype/device as a backend-native array."""
+    if backend == "torch":
+        return xp.tensor(value, dtype=ref.dtype, device=ref.device)
+    return xp.asarray(value, dtype=ref.dtype)
 
 
 def _compute_lla_weights(penalty, coef, p, xp, backend):
@@ -306,15 +323,18 @@ def _compute_lla_weights(penalty, coef, p, xp, backend):
         denom = a * alpha - alpha
         if abs(denom) < 1e-15:
             # Degenerate case: a ~ 1, fall back to L1
-            w = xp.full(p, alpha, dtype=xp.float64)
+            w = xp.full_like(abs_coef, alpha)
         else:
             v = (a * alpha - abs_coef) / denom
             v = xp.clip(v, 0.0, 1.0)
             w = alpha * v
     elif 'mcp' in pen_name:
         gamma = getattr(penalty, 'gamma', 3.0)
-        w = xp.maximum(xp.asarray(0.0, dtype=xp.float64), alpha - abs_coef / gamma)
+        w = xp.maximum(
+            _scalar_like(0.0, abs_coef, xp, backend),
+            alpha - abs_coef / gamma,
+        )
     else:
-        w = xp.full(p, alpha, dtype=xp.float64)
+        w = xp.full_like(abs_coef, alpha)
 
     return w
