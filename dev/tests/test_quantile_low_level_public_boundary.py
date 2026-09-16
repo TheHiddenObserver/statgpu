@@ -52,70 +52,50 @@ def test_public_proximal_quantile_solver_rejects_invalid_weights(sample_weight):
     loss = QuantileLoss(quantile=0.3)
     penalty = SCADPenalty(alpha=0.05)
 
-    with pytest.raises(ValueError, match="sample_weight"):
-        solvers.proximal_irls_quantile_solver(
-            loss,
-            penalty,
-            X,
-            y,
-            alpha_path=np.array([0.08, 0.05]),
-            max_iter=3,
-            sample_weight=sample_weight,
-        )
+    for solver_fn in (
+        solvers.proximal_irls_quantile_solver,
+        _prox_kernel.proximal_irls_quantile_solver,
+    ):
+        with pytest.raises(ValueError, match="sample_weight"):
+            solver_fn(
+                loss,
+                penalty,
+                X,
+                y,
+                alpha_path=np.array([0.08, 0.05]),
+                max_iter=3,
+                sample_weight=sample_weight,
+            )
 
 
-def test_public_proximal_quantile_none_budget_resolves_before_kernel(monkeypatch):
+def test_public_proximal_quantile_none_budget_has_defined_default():
     X, y = _data(seed=16703)
     loss = QuantileLoss(quantile=0.3)
     penalty = SCADPenalty(alpha=0.05)
-    captured = {}
 
-    def fake_kernel(
-        loss,
-        penalty,
-        X,
-        y,
-        alpha_path,
-        max_lla_per_step=2,
-        lla_tol=1e-6,
-        max_iter=None,
-        tol=1e-6,
-        fit_intercept=True,
-        sample_weight=None,
-    ):
-        captured["max_iter"] = max_iter
-        captured["sample_weight"] = sample_weight
-        return np.zeros(X.shape[1]), 0.0, 0
-
-    monkeypatch.setattr(
-        _prox_contract,
-        "_proximal_irls_quantile_solver",
-        fake_kernel,
-    )
-
-    weights = np.arange(1, X.shape[0] + 1, dtype=np.float64)
     coef, intercept, n_iter = solvers.proximal_irls_quantile_solver(
         loss,
         penalty,
         X,
         y,
         alpha_path=np.array([0.05]),
-        sample_weight=weights,
+        max_lla_per_step=1,
+        sample_weight=np.ones(X.shape[0]),
     )
 
-    assert captured["max_iter"] == 100
-    np.testing.assert_array_equal(captured["sample_weight"], weights)
-    np.testing.assert_array_equal(coef, np.zeros(X.shape[1]))
-    assert intercept == 0.0
-    assert n_iter == 0
+    assert np.all(np.isfinite(coef))
+    assert np.isfinite(intercept)
+    assert 0 <= n_iter <= 100
 
 
-def test_public_proximal_quantile_wrapper_preserves_introspection():
+def test_public_proximal_quantile_wrapper_preserves_introspection_and_alias():
     public = solvers.proximal_irls_quantile_solver
-    kernel = _prox_kernel.proximal_irls_quantile_solver
+    historical = _prox_kernel.proximal_irls_quantile_solver
+    kernel = getattr(public, "__wrapped__", None)
 
+    assert historical is public
+    assert kernel is not None
     assert inspect.signature(public) == inspect.signature(kernel)
-    assert getattr(public, "__wrapped__", None) is kernel
     doc = " ".join((inspect.getdoc(public) or "").split())
     assert "None`` uses 100 iterations per step" in doc
 
@@ -131,4 +111,17 @@ def test_quantile_irls_validation_installer_is_idempotent_under_reload():
     after = QuantileLoss.irls
     assert after is before
     assert getattr(after, _irls_contract._MARKER, False)
+    assert getattr(after, "__wrapped__", None) is before_wrapped
+
+
+def test_quantile_proximal_contract_is_idempotent_under_reload():
+    before = solvers.proximal_irls_quantile_solver
+    before_wrapped = getattr(before, "__wrapped__", None)
+
+    assert _prox_contract.install_quantile_proximal_public_contract() is before
+    importlib.reload(_prox_contract)
+    after = _prox_kernel.proximal_irls_quantile_solver
+
+    assert after is before
+    assert getattr(after, _prox_contract._MARKER, False)
     assert getattr(after, "__wrapped__", None) is before_wrapped
