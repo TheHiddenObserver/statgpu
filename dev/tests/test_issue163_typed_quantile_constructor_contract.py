@@ -1,0 +1,96 @@
+"""Typed Quantile constructor-capture regressions for Issue #163."""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+from statgpu.linear_model.penalized import PenalizedQuantileRegression
+
+
+def test_typed_quantile_resolves_private_loss_kwargs_without_mutating_public_state():
+    model = PenalizedQuantileRegression(quantile=0.2, penalty="l2", alpha=0.04)
+
+    # BaseEstimator intentionally preserves the exact outer public constructor
+    # argument for sklearn clone compatibility.
+    assert model.loss_kwargs is None
+    assert model.quantile == pytest.approx(0.2)
+
+    loss = model._resolve_loss()
+    assert loss._tau == pytest.approx(0.2)
+    assert model._loss_kwargs == {"quantile": pytest.approx(0.2)}
+    assert model.loss_kwargs is None
+
+
+def test_typed_quantile_explicit_loss_kwargs_keeps_historical_precedence():
+    model = PenalizedQuantileRegression(
+        quantile=0.2,
+        penalty="l2",
+        alpha=0.04,
+        loss_kwargs={"quantile": 0.35},
+    )
+    loss = model._resolve_loss()
+    assert loss._tau == pytest.approx(0.35)
+    assert model._loss_kwargs["quantile"] == pytest.approx(0.35)
+    assert model.quantile == pytest.approx(0.2)
+    assert model.loss_kwargs == {"quantile": 0.35}
+
+
+def test_typed_quantile_sklearn_clone_preserves_public_quantile_when_available():
+    sklearn = pytest.importorskip("sklearn")
+    from sklearn.base import clone
+
+    model = PenalizedQuantileRegression(
+        quantile=0.2,
+        penalty="l2",
+        alpha=0.04,
+        solver="irls",
+        device="cpu",
+    )
+    cloned = clone(model)
+    assert cloned.quantile == pytest.approx(0.2)
+    assert cloned.loss_kwargs is None
+    assert cloned.get_params(deep=False)["quantile"] == pytest.approx(0.2)
+
+    rng = np.random.default_rng(16331)
+    X = rng.normal(size=(48, 2))
+    y = 0.1 + X @ np.array([0.5, -0.25]) + rng.laplace(scale=0.1, size=48)
+    fitted = cloned.fit(X, y)
+    assert fitted._loss._tau == pytest.approx(0.2)
+
+
+@pytest.mark.parametrize(
+    "loss_kwargs, expected_q",
+    [
+        (None, 0.2),
+        ({"quantile": 0.35}, 0.35),
+    ],
+)
+def test_typed_quantile_score_uses_effective_quantile(loss_kwargs, expected_q):
+    rng = np.random.default_rng(16332)
+    X = rng.normal(size=(64, 2))
+    y = 0.15 + X @ np.array([0.55, -0.2]) + rng.laplace(scale=0.12, size=64)
+    weights = np.linspace(0.5, 1.5, X.shape[0])
+
+    model = PenalizedQuantileRegression(
+        quantile=0.2,
+        penalty="l2",
+        alpha=0.025,
+        solver="irls",
+        device="cpu",
+        max_iter=400,
+        tol=1e-9,
+        loss_kwargs=loss_kwargs,
+    ).fit(X, y)
+
+    pred = model.predict(X)
+    resid = y - pred
+    per_sample = np.where(
+        resid >= 0.0,
+        expected_q * resid,
+        (expected_q - 1.0) * resid,
+    )
+    expected = -float(np.average(per_sample, weights=weights))
+    assert model.score(X, y, sample_weight=weights) == pytest.approx(
+        expected, rel=0.0, abs=1e-12
+    )

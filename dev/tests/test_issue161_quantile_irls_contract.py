@@ -122,11 +122,23 @@ def test_public_quantile_estimator_keeps_irls_elasticnet_fail_closed():
         model.fit(X[:, :1], y)
 
 
-def test_direct_l2_quantile_irls_preserves_torch_cpu_backend_when_available():
+def test_direct_l2_quantile_irls_preserves_torch_cpu_backend_when_available(
+    monkeypatch,
+):
     torch = pytest.importorskip("torch")
     X_np, y_np = _data(seed=16106, n=48)
     X = torch.as_tensor(X_np, dtype=torch.float64)
     y = torch.as_tensor(y_np, dtype=torch.float64)
+
+    real_ones = torch.ones
+    penalty_diag_devices = []
+
+    def tracked_ones(*args, **kwargs):
+        if args and args[0] == X.shape[1] and kwargs.get("dtype") == torch.float64:
+            penalty_diag_devices.append(kwargs.get("device"))
+        return real_ones(*args, **kwargs)
+
+    monkeypatch.setattr(torch, "ones", tracked_ones)
 
     coef, n_iter = QuantileLoss(quantile=0.5).irls(
         X,
@@ -137,6 +149,8 @@ def test_direct_l2_quantile_irls_preserves_torch_cpu_backend_when_available():
         tol=1e-8,
     )
 
+    assert penalty_diag_devices
+    assert all(device == X.device for device in penalty_diag_devices)
     assert isinstance(coef, torch.Tensor)
     assert coef.device.type == "cpu"
     assert coef.dtype == torch.float64

@@ -193,7 +193,11 @@ class QuantileLoss(LossBase):
             sw = None
 
         if init_coef is not None:
-            beta = xp.asarray(init_coef, dtype=xp.float64).copy()
+            beta = xp.asarray(init_coef, dtype=xp.float64)
+            if xp.__name__ == "torch":
+                beta = beta.to(device=X_dev.device).clone()
+            else:
+                beta = beta.copy()
         else:
             # OLS initial estimate
             if xp.__name__ == "torch":
@@ -232,7 +236,7 @@ class QuantileLoss(LossBase):
 
             if penalty is not None:
                 alpha = float(penalty.alpha)
-                pen_diag = xp.ones(p, dtype=xp.float64)
+                pen_diag = xp.ones(p, dtype=xp.float64) if xp.__name__ != "torch" else xp.ones(p, dtype=xp.float64, device=X_dev.device)
                 if fit_intercept and p > 1:
                     pen_diag[-1] = 0.0  # don't penalize intercept
                 A = A + n * alpha * xp.diag(pen_diag)

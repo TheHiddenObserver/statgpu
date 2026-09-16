@@ -116,13 +116,29 @@ For each continuation value of `alpha`:
 
    This is a Jacobi-style parallel diagonal-majorization update rather than a cyclic coordinate-descent sweep.
 
-4. **Convergence.** The IRLS inner loop checks
+4. **Intercept and a flat LLA surrogate.** Quantile loss is not quadratic, so an intercept cannot be eliminated by mean-centering $X$ and $y$. When `fit_intercept=True`, the numerical design is augmented with a column of ones and the intercept is optimized as an ordinary coordinate of the pinball objective, with its local penalty threshold fixed at zero.
+
+   If every feature-side LLA derivative is exactly zero,
+
+   $$
+   d_1=\cdots=d_p=0,
+   $$
+
+   then the current SCAD/MCP surrogate has no active penalty and reduces to ordinary weighted quantile regression. In that degenerate case, the solver closes the surrogate with the maintained full `QuantileLoss.irls()` WLS update rather than continuing the diagonal Jacobi approximation. The flat-surrogate IRLS tolerance is
+
+   $$
+   \min(\texttt{tol},10^{-8}),
+   $$
+
+   matching the maintained smooth Quantile IRLS precision contract. If any $d_j>0$, the ordinary Proximal IRLS-CD inner loop above remains in force.
+
+5. **Convergence.** On genuinely penalized Proximal IRLS-CD steps the inner loop checks
 
    $$
    \|\beta^{\mathrm{new}}-\beta\|_\infty<\texttt{tol},
    $$
 
-   and the LLA outer loop checks
+   while a fully flat surrogate uses the maintained Quantile IRLS $\ell_2$ parameter-change criterion. The LLA outer loop checks
 
    $$
    \|\beta-\beta_{\mathrm{before\,LLA}}\|_\infty<\texttt{lla\_tol}.
@@ -180,7 +196,7 @@ L(\beta)
 \qquad
 \eta_i=x_i^\top\beta,
 \qquad
-s=\sum_{i=1}^n w_i.
+s=\sum_i w_i.
 $$
 
 The unweighted case is $w_i=1$ and $s=n$. For losses admitting per-observation score and curvature terms,
@@ -1422,22 +1438,24 @@ For direct model fitting, `solver="auto"` follows the maintained model-level tab
 ```text
 direct fit with solver="auto"
 ├── squared_error + L2/none              → CPU exact / GPU Newton
+├── quantile + L2/none                   → IRLS
+├── quantile + L1/ElasticNet             → FISTA
+├── quantile + SCAD/MCP                  → Proximal IRLS-CD
 ├── smooth non-Gaussian GLM + L2/none    → Newton
 ├── squared_error + convex sparse        → FISTA
 ├── gamma / inverse-Gaussian + sparse    → FISTA
 ├── logistic / poisson / NB + sparse     → FISTA-BB
 ├── tweedie + sparse                     → CPU FISTA-BB / GPU FISTA
-├── SCAD/MCP                             → FISTA-LLA
+├── SCAD/MCP (other scalar routes)       → FISTA-LLA
 ├── adaptive L1                          → initialize adaptive weights, then convex sparse FISTA/FISTA-BB policy
-├── quantile ordinary convex penalties   → FISTA
-│   ├── explicit L2/none IRLS remains available when requested
-│   └── SCAD/MCP uses specialized Proximal IRLS-CD
 └── group penalties                      → group-aware FISTA / FISTA-LLA
 ```
 
+For smooth Quantile L2/no-penalty objectives, explicit `solver="irls"` selects the same maintained algorithm as `auto`. Explicit `solver="fista"` or `solver="fista_bb"` is not silently substituted by IRLS; those smooth combinations fail before numerical dispatch. Sparse Quantile FISTA-family and SCAD/MCP Proximal IRLS-CD remain distinct algorithms.
+
 The tree is intentionally a summary. Exact family/backend/problem-size rules—especially Poisson and Negative-Binomial CV sparse routing—are defined in the [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md).
 
-`PenalizedGLM_CV` has a related but intentionally separate smooth-L2 policy. Gamma, Inverse-Gaussian, and Negative-Binomial L2 CV/final-refit routes use L-BFGS, while logistic, Poisson, and Tweedie L2 rows use Newton. Consult the compatibility matrix rather than inferring CV behavior from the direct-fit tree.
+`PenalizedGLM_CV` has a related but intentionally separate smooth-L2 policy. Quantile L2/no-penalty candidates and selected final refits use IRLS. Gamma, Inverse-Gaussian, and Negative-Binomial L2 CV/final-refit routes use L-BFGS, while logistic, Poisson, and Tweedie L2 rows use Newton. Consult the compatibility matrix rather than inferring CV behavior from the direct-fit tree.
 
 `sample_weight` does not change an explicitly requested solver. Unsupported weighted combinations raise instead of selecting a different solver.
 

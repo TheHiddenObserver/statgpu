@@ -1,9 +1,25 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-09-15<br>
+> 最后更新：2026-09-16<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
+
+## 未发布 — Quantile solver provenance 对齐（PR #164 / Issue #163，目标 0.2.6）
+
+### 修复
+
+- Penalized Quantile 的 solver identity 现在与实际执行算法一致。L2/无惩罚的 `solver="auto"` 解析为普通 Quantile IRLS，L1/ElasticNet 继续使用维护中的 FISTA family，SCAD/MCP 解析为专用 Proximal IRLS-CD。`proximal_irls_cd` 仍然只是内部 resolved/executed provenance label，不成为公开可显式请求的 `solver=` keyword。
+- 不兼容的显式 Quantile solver 请求现在会在 numerical dispatch 或 CV grid work 之前 fail closed，不再静默执行另一种算法。direct fit、CV candidate/fold 与 selected full-data refit 的 requested/resolved/executed solver identity 因而保持一致。
+- 非中位数 Quantile CV 评分会保留调用者配置的 quantile level，包括 analytic validation weights；typed `PenalizedQuantileRegression(quantile=q)` 也会在 clone-safe construction、adaptive-L1 initialization 与 `score()` 中保留同一个 `q`。
+- SCAD/MCP Quantile 的 intercept 现在作为 pinball objective 中不受惩罚的 coordinate 直接优化。若 LLA surrogate 完全变平，则通过维护中的完整 `QuantileLoss.irls()` kernel 闭合，而不是继续使用 diagonal approximation。
+- Torch Quantile execution 现在会让 L2 penalty diagonal、IRLS warm start、Proximal IRLS-CD 的 epsilon/threshold/tolerance scalar 以及 fallback weights 始终跟随当前 tensor 的 dtype/device；warm start 使用 Torch-native clone，而不是 NumPy/CuPy 的 `.copy()` 路径。
+
+### 验证
+
+- 精确干净的 numerical source `2de971402004efc703dc98f510942db3980988e4` 已在 Tesla P100-SXM2-16GB 上通过冻结的 schema-v1 physical gate，环境为 CuPy 13.6.0、Torch 2.0.0+cu117、NumPy 1.24.2、Python 3.9.16。CuPy/Torch CUDA 的 direct/CV 共 **12/12** case 全部通过，并记录具体 `cuda:0` provenance 与预期的 IRLS/FISTA/`proximal_irls_cd` solver identity。
+- 冻结 tolerance 没有放宽：L2 coefficient/intercept 最大误差为 `6.938893903907228e-15`（阈值 `2e-5`），L2 CV-score 最大误差为 `7.965850201685498e-15`（阈值 `2e-5`），SCAD penalized-objective 最大误差为 `1.4085439563257807e-06`（阈值 `2e-4`）。
+- canonical exact-source artifact 为 `dev/reviews/pr164_quantile_solver_provenance_gpu.json`。commit `230eaebbd4dfaf090e84011fe0eb190339389411` 直接位于已验证 numerical source 之上，并且只新增该 artifact。后续 release/changelog 收尾严格属于 documentation-only，并显式复用这一 immutable numerical-source acceptance；任何 numerical、validator、solver、backend 或 tolerance 变化都会重新要求 physical rerun。
 
 ## 未发布 — Quantile IRLS 惩罚契约修复（PR #162 / Issue #161，目标 0.2.6）
 

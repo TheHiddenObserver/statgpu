@@ -58,6 +58,12 @@ from . import (
     as _final_finite_validation_cleanup_contract,
 )
 
+# Quantile smooth fits historically reported FISTA while the FISTA branch
+# internally substituted IRLS. Reconcile the runtime policy after the generic
+# estimator/CV classes are fully defined so direct and CV consumers share the
+# same truthful solver identity.
+from . import _quantile_solver_contract as _quantile_solver_contract
+
 __all__ = [
     "PenalizedGeneralizedLinearModel",
     "SelectivePenalty",

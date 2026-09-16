@@ -31,13 +31,18 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
     alpha : float, default=1.0
         Regularization strength.
     solver : str, default='auto'
-        Solver: 'auto', 'fista', 'fista_bb'.
-        'auto' selects FISTA (quantile loss has no Hessian).
+        Solver policy. For L2/no-penalty Quantile objectives, ``'auto'``
+        resolves to the maintained Quantile IRLS algorithm. Convex sparse
+        L1/ElasticNet objectives use FISTA-family routes, while SCAD/MCP use
+        the dedicated Proximal IRLS-CD continuation path. Explicit
+        ``solver='irls'`` is supported for L2/no penalty. Explicit
+        ``solver='fista'`` is not a maintained smooth Quantile route and fails
+        visibly instead of being silently substituted by IRLS.
     max_iter : int, default=1000
         Maximum iterations.
     tol : float, default=1e-4
-        Convergence tolerance.  For quantile regression, tighter
-        tolerance (1e-8) is used internally for IRLS convergence.
+        Convergence tolerance. Quantile IRLS uses a tighter internal tolerance
+        (at most 1e-8) on the maintained smooth route.
     fit_intercept : bool, default=True
         Whether to fit an intercept.
     device : str, default='auto'
@@ -46,12 +51,12 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
     Examples
     --------
     >>> from statgpu.linear_model import PenalizedQuantileRegression
-    >>> # Median regression
+    >>> # Median regression; auto resolves to IRLS for this L2 objective.
     >>> model = PenalizedQuantileRegression(quantile=0.5, penalty='l2', alpha=0.01)
     >>> model.fit(X, y)
     >>> pred = model.predict(X_test)
 
-    >>> # 90th percentile with L1 penalty (sparse)
+    >>> # 90th percentile with L1 penalty (sparse FISTA-family route)
     >>> model = PenalizedQuantileRegression(quantile=0.9, penalty='l1', alpha=0.05)
     """
 
@@ -75,6 +80,61 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
             loss_kwargs=_lk, **kwargs,
         )
         self.quantile = quantile
+
+    def _resolved_quantile_loss_kwargs(self) -> dict:
+        """Build effective Quantile kwargs without mutating clone-safe state.
+
+        ``BaseEstimator`` restores public constructor attributes to the exact
+        values supplied to the most-derived wrapper. Consequently
+        ``self.loss_kwargs`` legitimately remains ``None`` when omitted even
+        though this typed wrapper owns a separate ``quantile`` parameter.
+        Numerical resolution must recombine those public controls. An explicit
+        ``loss_kwargs['quantile']`` retains the historical precedence used by
+        this wrapper; otherwise the typed ``quantile`` value is authoritative.
+        """
+        kwargs = {"quantile": float(getattr(self, "quantile", 0.5))}
+        if self.loss_kwargs:
+            kwargs.update(dict(self.loss_kwargs))
+        return kwargs
+
+    def _resolve_loss(self):
+        from statgpu.losses import get_loss
+
+        kwargs = self._resolved_quantile_loss_kwargs()
+        # The shared fit preamble mirrors clone-safe public ``loss_kwargs`` into
+        # ``_loss_kwargs``. Restore the resolved internal kwargs here so every
+        # downstream numerical helper sees the same quantile as the loss object
+        # without changing ``get_params()`` / sklearn-clone constructor state.
+        self._loss_kwargs = dict(kwargs)
+        return get_loss("quantile", **kwargs)
+
+    def _fit_initial(self, X, y, backend_name="numpy"):
+        """Preserve the typed quantile in adaptive-L1 initialization."""
+        penalty_name = str(getattr(self._penalty, "name", "")).lower()
+        if penalty_name not in ("adaptive_l1", "adaptive_lasso"):
+            return super()._fit_initial(X, y, backend_name=backend_name)
+
+        from statgpu.backends import get_backend
+        from statgpu.backends._utils import _to_numpy
+        from statgpu.linear_model.penalized._fit_mixin import _irls_ridge_init
+
+        if backend_name in ("torch", "cupy"):
+            backend = get_backend(backend=backend_name, device="cuda")
+            X_b = backend.asarray(X, dtype=backend.float64)
+            y_b = backend.asarray(y, dtype=backend.float64)
+        else:
+            X_b = np.asarray(_to_numpy(X), dtype=np.float64)
+            y_b = np.asarray(_to_numpy(y), dtype=np.float64)
+
+        return _irls_ridge_init(
+            X_b,
+            y_b,
+            loss_name="quantile",
+            alpha=0.01,
+            max_iter=100,
+            tol=1e-4,
+            loss_kwargs=self._resolved_quantile_loss_kwargs(),
+        )
 
     def predict(self, X, return_cpu=True):
         """Predict using fitted model (identity link).
@@ -120,14 +180,14 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
         return raw
 
     def score(self, X, y, sample_weight=None):
-        """Pinball loss (quantile loss) on test data. Lower is better.
+        """Return negative pinball loss on test data; higher is better.
 
-        For quantile=0.5, this is the mean absolute error / 2.
+        For quantile=0.5, this is negative mean absolute error / 2.
         """
         y_pred = self.predict(X, return_cpu=True)
         y = np.asarray(y)
         u = y - y_pred
-        q = self._quantile
+        q = float(self._resolved_quantile_loss_kwargs()["quantile"])
         per_sample = np.where(u >= 0, q * u, (q - 1.0) * u)
         if sample_weight is not None:
             sw = np.asarray(sample_weight, dtype=np.float64)

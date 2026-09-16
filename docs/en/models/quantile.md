@@ -7,7 +7,7 @@
 
 ## Overview
 
-`QuantileLoss` implements the **check loss (also called pinball loss)** used in quantile regression. These are two names for the same asymmetric absolute-loss objective, not two different losses. `PenalizedQuantileRegression` adds penalized estimation, including the specialized Proximal IRLS-CD route for SCAD/MCP.
+`QuantileLoss` implements the **check loss (also called pinball loss)** used in quantile regression. These are two names for the same asymmetric absolute-loss objective, not two different losses. `PenalizedQuantileRegression` adds penalized estimation, including ordinary IRLS for smooth L2/no-penalty objectives and the specialized Proximal IRLS-CD route for SCAD/MCP.
 
 | Component | Path |
 |-----------|------|
@@ -69,21 +69,21 @@ The support column below first describes unweighted algorithm availability. With
 | Solver | Support | Notes |
 |--------|:---:|-------|
 | Proximal IRLS-CD | ✅ | Specialized IRLS majorization + LLA for SCAD/MCP; maintained route has explicit analytic-weight handling |
-| FISTA | ✅ | **Default `solver="auto"` route for ordinary convex Quantile penalties**, including L2/none |
-| FISTA-BB | ✅ | Available when explicitly selected on supported sparse routes; `auto` does not select it for Quantile |
-| IRLS | ✅ | Explicit L2/no-penalty route; `QuantileLoss.irls()` has an explicit `sample_weight` path |
+| IRLS | ✅ | **Default `solver="auto"` route for L2/no-penalty Quantile objectives**; `QuantileLoss.irls()` has an explicit `sample_weight` path |
+| FISTA | ✅ (sparse routes) | Maintained for L1/ElasticNet and related proximal routes. Explicit FISTA is not a maintained L2/no-penalty Quantile request; use `auto` or `irls` there |
+| FISTA-BB | ✅ | Available when explicitly selected on supported sparse routes; smooth Quantile `auto` does not select it |
 | L-BFGS | ✅ (unweighted/uniform weights at the low-level solver boundary) | Public `PenalizedQuantileRegression` rejects L-BFGS because Quantile has no Hessian-compatible smooth contract; genuine non-uniform direct weighted L-BFGS is fail-closed for generic `LossBase` |
 | ADMM | ✅ (unweighted/uniform weights) | Shared `admm_solver` currently rejects genuine non-uniform `sample_weight` |
 | Newton | ❌ | Quantile loss has no Hessian |
 | Proximal Newton | ❌ | Quantile loss has no Hessian |
 
-The distinction between `auto` and explicit IRLS matters: `PenalizedQuantileRegression(..., solver="auto")` resolves to FISTA because Quantile has no Hessian, while `solver="irls"` is a separate maintained request for L2/no-penalty Quantile fitting.
+For smooth Quantile objectives the distinction between `auto`, IRLS, and FISTA is explicit: `PenalizedQuantileRegression(..., solver="auto", penalty="l2")` resolves to IRLS, and `solver="irls"` requests the same maintained algorithm directly. An explicit smooth `solver="fista"` request fails visibly instead of being silently substituted by IRLS. Sparse Quantile penalties retain their FISTA-family routes.
 
 ## Penalty compatibility
 
 | Penalty | Main `solver="auto"` route | Notes |
 |---------|----------------------------|-------|
-| l2 / none | FISTA | `none` is canonicalized to `L2(alpha=0)`; explicit `solver="irls"` remains available |
+| l2 / none | IRLS | `none` is canonicalized to `L2(alpha=0)`; explicit `solver="irls"` selects the same maintained route |
 | l1 / elasticnet | FISTA | Proximal/subgradient route |
 | SCAD / MCP | Proximal IRLS-CD | Specialized Quantile IRLS majorization + LLA |
 | adaptive_l1 | FISTA | Adaptive weights are prepared first, then the Quantile FISTA route is used |
@@ -135,7 +135,7 @@ print(model._conf_int)
 ```python
 from statgpu.linear_model.penalized import PenalizedQuantileRegression
 
-# solver="auto" uses FISTA for this L2 Quantile problem.
+# solver="auto" resolves to IRLS for this smooth L2 Quantile problem.
 model = PenalizedQuantileRegression(
     quantile=0.5,
     penalty="l2",
@@ -205,9 +205,9 @@ This example uses a maintained estimator-level weighted route. It does not imply
 
 See [Solver Algorithms](../guides/solver-algorithms.md#1-proximal-irls-cd) for the full update equations. The method combines an IRLS quadratic majorization of the check loss with local linear approximation of SCAD/MCP.
 
-### Explicit IRLS (L2/none)
+### IRLS (L2/none)
 
-IRLS is not the Quantile `auto` route, but it remains available when explicitly requested with L2/no penalty. Let
+IRLS is the maintained `auto` route for L2/no-penalty Quantile objectives and can also be requested explicitly. Let
 
 $$
 r_i=y_i-x_i^\top\beta.
@@ -255,6 +255,7 @@ The L2 route adds the corresponding ridge diagonal term, excluding the intercept
 
 - `score()` uses check/pinball loss and returns its negative to follow sklearn's “higher is better” convention.
 - `sample_weight` support is a **loss × solver × estimator** route capability, not an automatic property of every solver.
+- Explicit solver requests are authoritative: unsupported smooth Quantile FISTA fails instead of being silently replaced by IRLS.
 - Unsupported explicit weighted-solver combinations should fail before numerical iteration rather than silently substitute another solver.
 - Maintained GPU routes (`cuda`/`torch`) must not silently fall back to CPU.
 
