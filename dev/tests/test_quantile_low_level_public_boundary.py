@@ -46,6 +46,22 @@ def test_direct_quantile_irls_rejects_invalid_weights_before_numerics(sample_wei
         loss.irls(X, y, sample_weight=sample_weight, max_iter=3)
 
 
+def test_direct_quantile_irls_validation_preserves_array_like_design_input():
+    X, y = _data(seed=16704)
+    loss = QuantileLoss(quantile=0.3)
+
+    coef, n_iter = loss.irls(
+        X.tolist(),
+        y.tolist(),
+        sample_weight=np.ones(X.shape[0]),
+        max_iter=2,
+    )
+
+    assert np.asarray(coef).shape == (X.shape[1],)
+    assert np.all(np.isfinite(np.asarray(coef)))
+    assert 1 <= n_iter <= 2
+
+
 @pytest.mark.parametrize("sample_weight", _invalid_weights(24))
 def test_public_proximal_quantile_solver_rejects_invalid_weights(sample_weight):
     X, y = _data(seed=16702)
