@@ -1,7 +1,7 @@
 # Solver × Penalty Compatibility Matrix
 
 > Language: English  
-> Last updated: 2026-09-15  
+> Last updated: 2026-09-16  
 > This page: Reference guide  
 > Switch: [Chinese](../../cn/guides/solver-penalty-matrix.md)
 
@@ -35,9 +35,9 @@ The most important distinction is between **direct fitting** and **cross-validat
 ### How to read the table
 
 - The table describes the **effective maintained route**, not only an internal dispatch string.
-- Smooth Quantile L2/no-penalty `auto` resolves to ordinary Quantile IRLS. Sparse Quantile L1/ElasticNet remains on FISTA-family routes. Quantile SCAD/MCP is different again: it uses the dedicated Proximal IRLS-CD continuation path rather than ordinary Quantile IRLS.
+- Smooth Quantile L2/no-penalty `auto` resolves to ordinary Quantile IRLS. Sparse Quantile L1/ElasticNet remains on ordinary FISTA routes. Quantile SCAD/MCP is different again: it uses the dedicated Proximal IRLS-CD continuation path rather than ordinary Quantile IRLS.
 - `fista_lla` is an internal continuation path, not a public `solver=` keyword. For squared-error SCAD/MCP, `fit()` enters the fused `fista_lla_path()` directly.
-- Direct logistic, Poisson, and Negative-Binomial sparse convex rows reach the default FISTA-BB rule. Gamma and Inverse-Gaussian sparse rows are explicitly pinned to FISTA. Tweedie sparse rows use FISTA on CuPy/Torch and the default FISTA-BB route on CPU.
+- Direct logistic, Poisson, and Negative-Binomial sparse convex rows reach the default FISTA-BB rule. Gamma and Inverse-Gaussian sparse rows are explicitly pinned to FISTA. Tweedie sparse rows use FISTA on CuPy/Torch and the default FISTA-BB route on CPU. Quantile does not use FISTA-BB because its step-function subgradient does not provide the smooth-gradient differences required by BB curvature updates.
 - Group Lasso and Adaptive Group Lasso use the group-aware FISTA path. Group SCAD/MCP use a weighted Group-Lasso LLA surrogate with a group-aware FISTA inner solve.
 - `sample_weight` does not rewrite an explicit solver request. Unsupported loss/solver/weight combinations raise rather than silently selecting another algorithm.
 
@@ -63,16 +63,16 @@ If a finite design cannot be numerically certified, or optimization reaches the 
 |--------|---------|------------------|-------|
 | `exact` | L2 + squared error only | everything else | closed-form/eigendecomposition path |
 | `irls` | L2/no penalty on losses declaring maintained IRLS support | non-smooth penalties | loss/family-specific IRLS; smooth Quantile `auto` also resolves to this route |
-| `newton` | L2 / none on smooth losses with Hessian support | L1, ElasticNet, non-convex and group penalties | Newton + Armijo line search |
-| `lbfgs` | L2 / none on smooth losses | L1, ElasticNet, non-convex and group penalties | limited-memory BFGS + line search |
+| `newton` | L2 / none on smooth losses with Hessian support | L1, ElasticNet, non-convex and group penalties; Quantile | Newton + Armijo line search |
+| `lbfgs` | L2 / none on smooth losses | L1, ElasticNet, non-convex and group penalties; **all Quantile requests** | limited-memory BFGS + line search; public low-level Quantile calls also fail closed |
 | `fista` | supported proximal penalties | smooth Quantile L2/no penalty and unsupported model combinations | explicit smooth Quantile FISTA fails instead of silently executing IRLS |
-| `fista_bb` | supported sparse penalties | smooth Quantile L2/no penalty and unsupported combinations | FISTA + BB step adaptation |
-| `admm` | supported proximal formulations | unsupported combinations | variable splitting + proximal update |
+| `fista_bb` | supported sparse penalties on losses with meaningful smooth-gradient differences | **all Quantile requests** and unsupported combinations | FISTA + BB step adaptation; public low-level Quantile calls fail closed |
+| `admm` | supported proximal formulations with a maintained smooth w-update | **all Quantile requests** and unsupported combinations | shared w-subproblem uses accelerated gradient descent; public low-level Quantile calls fail closed |
 | `irls_cd` | specialized scalar routes | unsupported combinations | not the current squared-error SCAD/MCP public auto route |
 | `proximal_irls_cd` | **not a public explicit solver keyword** | all user-supplied explicit requests | internal resolved label for Quantile SCAD/MCP selected through `solver="auto"`; Proximal IRLS-CD majorization + LLA |
 | `proximal_newton` | L2 / none uses Newton; non-smooth direct calls visibly use FISTA | unsupported penalty structures | no Euclidean-prox approximation |
 
-Unsupported explicit combinations fail before numerical fitting. In particular, users request Quantile SCAD/MCP through `solver="auto"`; `proximal_irls_cd` is published only as internal/executed solver provenance.
+Unsupported explicit combinations fail before numerical fitting. In particular, Quantile exposes ordinary FISTA only on maintained sparse routes, IRLS on L2/no penalty, and Proximal IRLS-CD for SCAD/MCP through `solver="auto"`. Quantile FISTA-BB, L-BFGS, and ADMM are not maintained estimator or public low-level solver routes.
 
 ## 3. Solver capabilities
 
@@ -83,15 +83,15 @@ Unsupported explicit combinations fail before numerical fitting. In particular, 
 | `newton` | maintained GLMs support analytic weights | ❌ | estimator dependent | smooth objectives with Hessian support |
 | `lbfgs` | maintained GLMs support analytic weights; other losses are route-specific | ❌ | estimator dependent | smooth objectives without forming a full Hessian |
 | `fista` | ✅ on maintained weighted routes | ✅ | estimator dependent | convex sparse/group objectives and LLA inner solves |
-| `fista_bb` | ✅ on maintained weighted routes | ✅ | estimator dependent | supported sparse objectives with adaptive steps |
-| `admm` | shared `admm_solver`: omitted/uniform weights only | ✅ | estimator dependent | supported proximal formulations |
+| `fista_bb` | ✅ on maintained weighted routes | ✅ | estimator dependent | supported sparse objectives with adaptive BB steps; excludes Quantile |
+| `admm` | shared `admm_solver`: omitted/uniform weights only on supported losses | ✅ | estimator dependent | supported proximal formulations with smooth w-updates; excludes Quantile |
 | `irls_cd` | route-specific | ✅ | estimator dependent | specialized scalar coordinate-descent routes |
 
 For Newton and L-BFGS, `sample_weight` support is a **loss/estimator contract**, not a property that can be inferred from the solver signature alone. Maintained GLM losses use
 
 `sum(w_i * loss_i) / sum(w_i)`
 
-for the data-fit term. Generic robust, quantile, and Cox direct L-BFGS consumers retain their own weight boundaries. The shared `admm_solver` requires `sample_weight` to be omitted or uniform; genuinely non-uniform analytic weights fail before numerical iteration.
+for the data-fit term. Quantile is excluded from public L-BFGS regardless of weights; generic robust and Cox direct L-BFGS consumers retain their own weight boundaries. The shared `admm_solver` requires `sample_weight` to be omitted or uniform on losses for which ADMM is otherwise maintained; Quantile is excluded before that weight contract is considered.
 
 Group warm starts carry coefficient and intercept state together for one fit call and are cleared after success or failure.
 
@@ -110,7 +110,7 @@ Group warm starts carry coefficient and intercept state together for one fit cal
 | **tweedie** | Newton | CPU FISTA-BB / GPU FISTA | FISTA-LLA | CPU FISTA-BB / GPU FISTA | Group FISTA | Group FISTA-LLA |
 | **quantile** | IRLS | FISTA | Proximal IRLS-CD | FISTA | Group FISTA | Group FISTA-LLA |
 
-For Quantile CV, the same policy is used for candidate fitting and the selected full-data refit: smooth L2/no-penalty rows report and execute IRLS; convex sparse rows remain FISTA-family. SCAD/MCP remains its separate Proximal IRLS-CD continuation algorithm.
+For Quantile CV, the same `auto` policy is used for candidate fitting and the selected full-data refit: smooth L2/no-penalty rows report and execute IRLS; convex sparse rows use ordinary FISTA. SCAD/MCP remains its separate Proximal IRLS-CD continuation algorithm. Explicit Quantile FISTA-BB, L-BFGS, and ADMM requests fail before alpha-grid work.
 
 The Poisson GPU L1 FISTA-BB rule is size-gated: the maintained fast path applies below roughly two million design elements; larger rows use FISTA. Negative-Binomial GPU ElasticNet uses FISTA in the maintained medium-size band (roughly 200k–1M design elements) and FISTA-BB outside that band. These thresholds are internal dispatch policy, not universal performance guarantees.
 
