@@ -46,7 +46,7 @@ def _data(seed=16301, n=96, p=2):
         ),
     ],
 )
-def test_smooth_quantile_auto_reports_and_executes_irls(factory):
+def test_l2_quantile_auto_reports_and_executes_irls(factory):
     X, y = _data()
     model = factory().fit(X, y)
 
@@ -76,7 +76,7 @@ def test_explicit_irls_l2_matches_auto_quantile_fit():
 
 
 @pytest.mark.parametrize("solver", ["fista", "fista_bb"])
-def test_explicit_first_order_smooth_quantile_fails_before_backend_fit(
+def test_explicit_first_order_l2_quantile_fails_before_backend_fit(
     monkeypatch, solver
 ):
     X, y = _data(seed=16303)
@@ -92,7 +92,7 @@ def test_explicit_first_order_smooth_quantile_fails_before_backend_fit(
         raise AssertionError("backend fit must not run for rejected explicit solver")
 
     monkeypatch.setattr(model, "_fit_cpu", forbidden)
-    with pytest.raises(ValueError, match="not a maintained smooth Quantile route"):
+    with pytest.raises(ValueError, match="not a maintained L2/no-penalty Quantile route"):
         model.fit(X, y)
 
 
@@ -275,7 +275,7 @@ import json
 from statgpu.linear_model.penalized import _fit_mixin
 from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
 payload = {
-    "smooth_auto": _fit_mixin._preferred_penalized_glm_solver(
+    "l2_auto": _fit_mixin._preferred_penalized_glm_solver(
         "quantile", "l2", backend_name="numpy"
     ),
     "sparse_auto": _fit_mixin._preferred_penalized_glm_solver(
@@ -298,9 +298,9 @@ print(json.dumps(payload, sort_keys=True))
     )
     payload = json.loads(proc.stdout.strip().splitlines()[-1])
     assert payload == {
+        "l2_auto": "irls",
         "nonconvex_auto": "proximal_irls_cd",
         "policy_wrapped": True,
-        "smooth_auto": "irls",
         "sparse_auto": "fista",
         "validate_wrapped": True,
     }
