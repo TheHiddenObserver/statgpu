@@ -6,10 +6,13 @@ Tests all combinations of:
 - Penalties: None, L1, L2, ElasticNet, SCAD, MCP
 - Solvers: FISTA, FISTA-BB, Newton, L-BFGS, ADMM
 
-For each combination, verifies:
+For maintained combinations, verifies:
 1. Runs without error
 2. Coefficients are finite
 3. Solution has lower loss than zero coefficients
+
+Explicitly unsupported combinations are skipped here and receive focused
+fail-closed coverage in their dedicated contract tests.
 """
 
 import pytest
@@ -151,14 +154,14 @@ def _run_solver(solver_name, solver_info, loss, penalty, X, y):
 # ── Tests ────────────────────────────────────────────────────────────
 
 class TestLossPenaltySolverMatrix:
-    """Test all loss × penalty × solver combinations."""
+    """Test maintained loss × penalty × solver combinations."""
 
     @pytest.mark.parametrize("loss_name", list(LOSSES.keys()))
     @pytest.mark.parametrize("penalty_name", ["none", "l1", "l2", "elasticnet", "scad", "mcp", "adaptive_l1", "group_lasso", "group_mcp", "group_scad"])
     @pytest.mark.parametrize("solver_name", list(SOLVERS.keys()))
     def test_combination(self, loss_name, penalty_name, solver_name,
                          continuous_data, survival_data):
-        """Test that each loss × penalty × solver combination runs and produces finite results."""
+        """Test that each maintained combination produces finite results."""
         loss_info = LOSSES[loss_name]
         solver_info = SOLVERS[solver_name]
 
@@ -167,24 +170,20 @@ class TestLossPenaltySolverMatrix:
         penalties = _make_penalties(X.shape[1])
         penalty = penalties[penalty_name]
 
-        # Skip incompatible combinations
+        # Skip incompatible combinations. Quantile's explicit FISTA-BB,
+        # L-BFGS, and ADMM rows are intentionally unsupported and have focused
+        # pre-dispatch/low-level fail-closed regressions elsewhere.
         if solver_info["needs_hessian"] and loss_name == "quantile":
             pytest.skip(f"{solver_name} needs Hessian, {loss_name} has none")
 
         if solver_info["needs_smooth_penalty"] and penalty_name in NON_SMOOTH_PENALTIES:
             pytest.skip(f"{solver_name} needs smooth penalty, {penalty_name} is non-smooth")
 
-        # L-BFGS line search fails for quantile (non-smooth gradient)
-        if solver_name == "lbfgs" and loss_name == "quantile":
-            pytest.skip(f"lbfgs line search fails for quantile (non-smooth gradient)")
+        if solver_name in ("lbfgs", "fista_bb", "admm") and loss_name == "quantile":
+            pytest.skip(f"{solver_name} is not a maintained Quantile solver route")
 
-        # fista_bb doesn't converge well for quantile (non-smooth gradient)
-        if solver_name == "fista_bb" and loss_name == "quantile":
-            pytest.skip(f"fista_bb doesn't converge for quantile (non-smooth gradient, use fista instead)")
-
-        # ADMM doesn't converge well for non-standard losses (quantile has non-smooth
-        # gradient, huber/cox_ph have non-standard loss landscapes)
-        if solver_name == "admm" and loss_name in ("quantile", "huber", "cox_ph"):
+        # Huber/Cox ADMM remain outside this Quantile-specific reconciliation.
+        if solver_name == "admm" and loss_name in ("huber", "cox_ph"):
             pytest.skip(f"admm doesn't converge well for {loss_name} (use fista instead)")
 
         # adaptive_l1: warm-start handled in _run_solver via L2 init
