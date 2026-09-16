@@ -84,6 +84,12 @@ def resolve_auto_quantile_continuation_path(
     weighted intercept-only Quantile solution and the corresponding normalized
     weighted pinball score. Weight rescaling leaves the start unchanged.
 
+    This is a ``lambda_max``-style continuation start rather than a claim that
+    the chosen subgradient at zero residual is the unique exact KKT-minimal
+    lambda. Its contract is objective consistency: the same analytic weights,
+    intercept policy, and normalization used by the fitted Quantile objective
+    also define the automatically generated continuation score.
+
     Equal weights with an intercept preserve the historical unweighted path
     bit-for-bit. With ``fit_intercept=False`` the score is evaluated at the
     contractually fixed intercept zero. A plain user-supplied ``alpha_path``
