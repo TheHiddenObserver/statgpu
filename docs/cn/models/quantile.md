@@ -71,13 +71,13 @@ $$
 | Proximal IRLS-CD | ✅ | 专用 IRLS 上界 + LLA，主要用于 SCAD/MCP；当前维护路径支持相应解析权重 |
 | IRLS | ✅ | **L2/无惩罚 Quantile 下 `solver="auto"` 的默认路径**；`QuantileLoss.irls()` 有显式 `sample_weight` 支持 |
 | FISTA | ✅（稀疏路径） | L1/ElasticNet 等近端路径继续维护。L2/无惩罚 Quantile 不维护显式 FISTA 请求；应使用 `auto` 或 `irls` |
-| FISTA-BB | ✅ | 可在受支持的稀疏路径上显式选择；平滑 Quantile 的 `auto` 不会选择它 |
-| L-BFGS | ✅（底层无权重/均匀权重边界） | 公开 `PenalizedQuantileRegression` 因 Quantile 没有 Hessian-compatible smooth contract 而拒绝 L-BFGS；通用 `LossBase` 的真正非均匀 direct weighted L-BFGS 也会 fail closed |
-| ADMM | ❌ | 共享 ADMM 的 w-update 使用 accelerated gradient descent，因此要求光滑损失梯度。Quantile 的梯度是阶梯函数；模型层 `solver="admm"` 与公开 `admm_solver(QuantileLoss, ...)` 都会在数值迭代前 fail closed |
+| FISTA-BB | ❌ | BB 步长通过 smooth-gradient difference 估计局部曲率；Quantile 的次梯度是阶梯函数，因此 estimator/CV 的显式请求与公开底层 `fista_bb_solver(QuantileLoss, ...)` 都会 fail closed |
+| L-BFGS | ❌ | L-BFGS 只维护在光滑目标上；estimator/CV 的显式请求与公开底层 `lbfgs_solver(QuantileLoss, ...)` 都会在数值迭代前 fail closed |
+| ADMM | ❌ | 共享 ADMM 的 w-update 使用 accelerated gradient descent，因此要求光滑损失梯度。Quantile 的梯度是阶梯函数；estimator/CV 的显式请求与公开底层 `admm_solver(QuantileLoss, ...)` 都会在数值迭代前 fail closed |
 | Newton | ❌ | 分位数损失没有 Hessian |
 | Proximal Newton | ❌ | 分位数损失没有 Hessian |
 
-对平滑 Quantile 目标，`auto`、IRLS 和 FISTA 的语义现在是明确分开的：`PenalizedQuantileRegression(..., solver="auto", penalty="l2")` 会解析到 IRLS；显式 `solver="irls"` 直接请求同一维护算法。显式 smooth `solver="fista"` 会明确失败，而不会在内部静默替换成 IRLS。稀疏 Quantile 惩罚继续保留 FISTA-family 路径。
+对平滑 Quantile 目标，`auto`、IRLS 和 FISTA 的语义现在是明确分开的：`PenalizedQuantileRegression(..., solver="auto", penalty="l2")` 会解析到 IRLS；显式 `solver="irls"` 直接请求同一维护算法。显式 smooth `solver="fista"` 会明确失败，而不会在内部静默替换成 IRLS。稀疏 Quantile 惩罚的 `auto` 继续保留普通 FISTA-family 路径，但 BB 变体不属于维护中的 Quantile 算法。
 
 ## 惩罚兼容性
 
@@ -102,10 +102,9 @@ $$
 但 `sample_weight` **不是所有求解器自动具备的统一能力**。当前尤其需要区分：
 
 - Quantile IRLS / Proximal IRLS-CD 等维护中的带权路径具有显式带权实现；
-- 受支持的 FISTA 路径使用损失层的归一化带权目标；
+- 受支持的普通 FISTA 路径使用损失层的归一化带权目标；
 - 通用 `LossBase` 的共享函数值和梯度可以计算归一化带权目标；
-- 直接调用 `lbfgs_solver` 时，真正非均匀的分位数权重仍会被明确拒绝；
-- ADMM 在任何权重设置下都不是维护中的 Quantile 路径，因为共享 ADMM 的 w-update 要求光滑损失梯度。
+- FISTA-BB、L-BFGS 与 ADMM 在任何权重设置下都不是维护中的 Quantile 路径，因为这些通用算法依赖 check loss 并不具备的 smooth-gradient 结构。
 
 需要比较其他损失函数和求解器的带权范围时，见 [求解器 × 惩罚项兼容性矩阵](../guides/solver-penalty-matrix.md) 和 [求解器算法](../guides/solver-algorithms.md)。
 
@@ -165,7 +164,7 @@ irls_model = PenalizedQuantileRegression(
 irls_model.fit(X, y)
 ```
 
-显式 IRLS 只应在维护中的 L2/无惩罚边界使用。ElasticNet 等非光滑惩罚应使用 FISTA 而不是 IRLS；直接调用底层 `QuantileLoss.irls()` 也不属于维护中的 ElasticNet 拟合路径。
+显式 IRLS 只应在维护中的 L2/无惩罚边界使用。ElasticNet 等非光滑惩罚应使用普通 FISTA 而不是 IRLS；直接调用底层 `QuantileLoss.irls()` 也不属于维护中的 ElasticNet 拟合路径。
 
 ### GPU（Torch CUDA）
 
@@ -255,7 +254,7 @@ L2 路径在左侧加入相应 Ridge 对角项；截距坐标不参与惩罚。�
 
 - `score()` 使用 check/pinball loss，并返回其相反数以符合 sklearn“越大越好”的约定。
 - `sample_weight` 支持是 **loss × solver × estimator** 路径能力，而不是所有 solver 自动拥有的属性。
-- 显式 solver 请求保持权威；不受支持的 smooth Quantile FISTA 与 Quantile ADMM 请求都会在数值迭代前明确失败，而不是被静默替换或运行不受支持的算法。
+- 显式 solver 请求保持权威：不受支持的 smooth Quantile FISTA，以及所有 Quantile FISTA-BB/L-BFGS/ADMM 请求都会在数值迭代前明确失败，而不是被静默替换或运行不受支持的算法。
 - 不支持的显式带权求解器组合应在数值迭代前失败，而不是静默替换成其他 solver。
 - 维护中的 GPU 路径（`cuda`/`torch`）不能静默回退到 CPU。
 
