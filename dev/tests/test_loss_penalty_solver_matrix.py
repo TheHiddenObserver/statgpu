@@ -6,13 +6,13 @@ Tests all combinations of:
 - Penalties: None, L1, L2, ElasticNet, SCAD, MCP
 - Solvers: FISTA, FISTA-BB, Newton, L-BFGS, ADMM
 
-For maintained combinations, verifies:
+For maintained combinations covered by this broad matrix, verifies:
 1. Runs without error
 2. Coefficients are finite
 3. Solution has lower loss than zero coefficients
 
-Explicitly unsupported combinations are skipped here and receive focused
-fail-closed coverage in their dedicated contract tests.
+Combinations outside this broad matrix are skipped here and receive focused
+fail-closed or focused compatibility coverage in their dedicated tests.
 """
 
 import pytest
@@ -161,7 +161,7 @@ class TestLossPenaltySolverMatrix:
     @pytest.mark.parametrize("solver_name", list(SOLVERS.keys()))
     def test_combination(self, loss_name, penalty_name, solver_name,
                          continuous_data, survival_data):
-        """Test that each maintained combination produces finite results."""
+        """Test that each maintained matrix combination produces finite results."""
         loss_info = LOSSES[loss_name]
         solver_info = SOLVERS[solver_name]
 
@@ -170,17 +170,23 @@ class TestLossPenaltySolverMatrix:
         penalties = _make_penalties(X.shape[1])
         penalty = penalties[penalty_name]
 
-        # Skip incompatible combinations. Quantile's explicit FISTA-BB,
-        # L-BFGS, and ADMM rows are intentionally unsupported and have focused
-        # pre-dispatch/low-level fail-closed regressions elsewhere.
+        # Skip incompatible combinations. Quantile's FISTA-BB and ADMM rows
+        # are explicitly unsupported and have focused fail-closed regressions.
         if solver_info["needs_hessian"] and loss_name == "quantile":
             pytest.skip(f"{solver_name} needs Hessian, {loss_name} has none")
 
         if solver_info["needs_smooth_penalty"] and penalty_name in NON_SMOOTH_PENALTIES:
             pytest.skip(f"{solver_name} needs smooth penalty, {penalty_name} is non-smooth")
 
-        if solver_name in ("lbfgs", "fista_bb", "admm") and loss_name == "quantile":
+        if solver_name in ("fista_bb", "admm") and loss_name == "quantile":
             pytest.skip(f"{solver_name} is not a maintained Quantile solver route")
+
+        # This broad matrix does not certify the narrow historical direct
+        # Quantile L-BFGS compatibility surface across every penalty row.
+        # Focused unweighted/uniform coverage lives in test_losses.py, while
+        # genuine non-uniform weights are checked in the weighted L-BFGS tests.
+        if solver_name == "lbfgs" and loss_name == "quantile":
+            pytest.skip("Quantile L-BFGS is covered by focused low-level compatibility tests")
 
         # Huber/Cox ADMM remain outside this Quantile-specific reconciliation.
         if solver_name == "admm" and loss_name in ("huber", "cox_ph"):
