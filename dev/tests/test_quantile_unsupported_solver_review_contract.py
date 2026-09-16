@@ -9,7 +9,11 @@ import numpy as np
 import pytest
 
 from statgpu import glm_core
-from statgpu.linear_model.penalized import PenalizedGLM_CV, PenalizedQuantileRegression
+from statgpu.linear_model.penalized import (
+    PenalizedGLM_CV,
+    PenalizedGeneralizedLinearModel,
+    PenalizedQuantileRegression,
+)
 import statgpu.linear_model.penalized._quantile_unsupported_solver_guard_contract as _guard_contract
 from statgpu.losses import QuantileLoss
 from statgpu.penalties import L1Penalty
@@ -42,17 +46,32 @@ def _data(seed=16491):
     return X, y
 
 
-@pytest.mark.parametrize("solver_name,penalty", _NEW_UNSUPPORTED_ESTIMATOR_CASES)
-def test_direct_quantile_new_unsupported_solver_fails_before_backend_work(
-    monkeypatch, solver_name, penalty
-):
-    X, y = _data()
-    model = PenalizedQuantileRegression(
-        quantile=0.2,
+def _direct_quantile_model(estimator_kind, *, solver_name, penalty):
+    common = dict(
         penalty=penalty,
         alpha=0.04,
         solver=solver_name,
         device="cpu",
+    )
+    if estimator_kind == "generic":
+        return PenalizedGeneralizedLinearModel(
+            loss="quantile",
+            loss_kwargs={"quantile": 0.2},
+            **common,
+        )
+    return PenalizedQuantileRegression(quantile=0.2, **common)
+
+
+@pytest.mark.parametrize("estimator_kind", ["generic", "typed"])
+@pytest.mark.parametrize("solver_name,penalty", _NEW_UNSUPPORTED_ESTIMATOR_CASES)
+def test_direct_quantile_new_unsupported_solver_fails_before_backend_work(
+    monkeypatch, estimator_kind, solver_name, penalty
+):
+    X, y = _data()
+    model = _direct_quantile_model(
+        estimator_kind,
+        solver_name=solver_name,
+        penalty=penalty,
     )
 
     def forbidden_backend(*args, **kwargs):
