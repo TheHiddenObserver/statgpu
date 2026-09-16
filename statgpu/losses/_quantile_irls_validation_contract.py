@@ -41,7 +41,7 @@ def install_quantile_irls_validation_contract() -> None:
 
             sample_weight = validate_glm_sample_weight(
                 sample_weight,
-                int(X.shape[0]),
+                len(X),
             )
 
         return current(
