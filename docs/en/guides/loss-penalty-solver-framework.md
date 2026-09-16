@@ -197,7 +197,7 @@ The main `solver="auto"` dispatch can be summarized as follows. Public `none` / 
 | 6 | `lbfgs` / `newton` | CV + L2 + loss-specific routing |
 | 7 | `newton` | maintained smooth L2/no-penalty GLM/robust/Cox paths with Hessian support |
 
-For Quantile, ordinary FISTA is maintained only on supported sparse convex estimator routes; L2/no-penalty uses IRLS and SCAD/MCP use Proximal IRLS-CD. Explicit smooth Quantile `fista` and every estimator/CV Quantile `fista_bb`, `lbfgs`, or `admm` request fail before numerical dispatch. At the low-level solver API, FISTA-BB and ADMM also fail closed for Quantile, while direct unweighted/uniform Quantile L-BFGS remains an existing compatibility surface. The `exact` solver in this table is the closed-form squared-error/L2 solver and is unrelated to `CoxPH(ties="exact")`. For exact family/backend-specific dispatch, use the [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md).
+For Quantile, ordinary FISTA is maintained only on supported sparse convex estimator routes; L2/no-penalty uses IRLS and SCAD/MCP use Proximal IRLS-CD. Explicit L2/no-penalty Quantile `fista` and every estimator/CV Quantile `fista_bb`, `lbfgs`, or `admm` request fail before numerical dispatch. At the low-level solver API, FISTA-BB and ADMM also fail closed for Quantile, while direct unweighted/uniform Quantile L-BFGS remains an existing compatibility surface. The `exact` solver in this table is the closed-form squared-error/L2 solver and is unrelated to `CoxPH(ties="exact")`. For exact family/backend-specific dispatch, use the [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md).
 
 ### All Solvers
 
@@ -376,7 +376,7 @@ That Hessian-metric proximal subproblem is not implemented in the current solver
 | FISTA (weighted) | ✅ | ✅ | ✅ |
 | FISTA-BB (weighted) | ✅ | ✅ | ✅ |
 | FISTA-LLA (weighted) | ✅ | ✅ | ✅ |
-| Quantile IRLS (smooth L2/no-penalty auto or explicit request) | ✅ | ✅ | ✅ |
+| Quantile IRLS (L2/no-penalty auto or explicit request) | ✅ | ✅ | ✅ |
 | Cox partial likelihood (Breslow/Efron) | ✅ native | ✅ native | ✅ native |
 | CoxPH counting process / strata / Exact | ✅ native | ✅ native | ✅ native |
 | DBSCAN | ✅ | GPU dist + host-sync CC | ✅ on-device |
