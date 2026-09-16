@@ -7,7 +7,10 @@ import importlib
 import numpy as np
 import pytest
 
-from statgpu.linear_model.penalized import PenalizedQuantileRegression
+from statgpu.linear_model.penalized import (
+    PenalizedGLM_CV,
+    PenalizedQuantileRegression,
+)
 from statgpu.losses import QuantileLoss
 from statgpu.solvers._quantile_continuation import (
     is_auto_quantile_continuation_path,
@@ -15,6 +18,7 @@ from statgpu.solvers._quantile_continuation import (
     resolve_auto_quantile_continuation_path,
 )
 import statgpu.linear_model.penalized._quantile_continuation_contract as _path_contract
+import statgpu.solvers._quantile_proximal_public_contract as _prox_contract
 
 
 def _data(seed=16671, n=20, p=3):
@@ -211,6 +215,57 @@ def test_high_level_quantile_nonconvex_path_is_marked_for_weight_alignment(
         weights,
         rtol=0.0,
         atol=0.0,
+    )
+
+
+def test_quantile_scad_cv_uses_fold_local_training_weights(monkeypatch):
+    X, y, weights = _data(seed=16677, n=18)
+    idx = np.arange(X.shape[0])
+    folds = [
+        (idx[9:], idx[:9]),
+        (idx[:9], idx[9:]),
+    ]
+    seen_weights = []
+    real_resolver = _prox_contract.resolve_auto_quantile_continuation_path
+
+    def capture_resolver(loss, X_fit, y_fit, alpha_path, **kwargs):
+        sample_weight = kwargs.get("sample_weight")
+        if sample_weight is not None:
+            seen_weights.append(np.asarray(sample_weight, dtype=np.float64).copy())
+        return real_resolver(loss, X_fit, y_fit, alpha_path, **kwargs)
+
+    monkeypatch.setattr(
+        _prox_contract,
+        "resolve_auto_quantile_continuation_path",
+        capture_resolver,
+    )
+
+    PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.20},
+        penalty="scad",
+        alpha_grid=np.asarray([0.025], dtype=np.float64),
+        cv=2,
+        cv_splits=folds,
+        random_state=16677,
+        solver="auto",
+        device="cpu",
+        cv_strategy="two_stage",
+        acknowledge_approx=True,
+        refine_top_k=1,
+        max_iter=40,
+        tol=1e-5,
+    ).fit(X, y, sample_weight=weights)
+
+    for train_idx, _ in folds:
+        assert any(
+            observed.shape == weights[train_idx].shape
+            and np.array_equal(observed, weights[train_idx])
+            for observed in seen_weights
+        )
+    assert any(
+        observed.shape == weights.shape and np.array_equal(observed, weights)
+        for observed in seen_weights
     )
 
 
