@@ -11,8 +11,11 @@ def test_guarded_public_solver_docstrings_expose_quantile_boundary():
 
     assert "Quantile" in fista_doc
     assert "not a maintained FISTA-BB route" in fista_doc
+    assert "bb_burn_in" in fista_doc
+
     assert "Nesterov-accelerated gradient descent" in admm_doc
     assert "not a maintained ADMM route" in admm_doc
+    assert "cg_max_iter" in admm_doc
 
     # glm_core re-exports the same guarded public callables, so runtime help
     # must remain identical across both maintained public import paths.
