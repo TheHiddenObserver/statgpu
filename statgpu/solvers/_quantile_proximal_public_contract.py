@@ -43,7 +43,7 @@ def install_quantile_proximal_public_contract():
 
             sample_weight = validate_glm_sample_weight(
                 sample_weight,
-                int(X.shape[0]),
+                len(X),
             )
 
         # ``None`` has historically appeared in the public signature even though
