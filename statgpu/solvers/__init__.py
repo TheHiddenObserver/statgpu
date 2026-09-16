@@ -1,8 +1,10 @@
 """Generic optimization solvers for penalized loss functions.
 
-These solvers work with any loss that implements the GLMLoss interface
-(value, gradient, fused_value_and_gradient, lipschitz, hessian, preprocess)
-and any penalty with a proximal operator.
+These solvers consume loss objects that implement the required numerical
+interface (for example value/gradient/Hessian/Lipschitz primitives) together
+with compatible penalty objects. Support is solver-specific: implementing the
+shared loss interface does not imply that every loss × solver combination is
+maintained, and public solver boundaries fail closed for unsupported routes.
 """
 
 __all__ = [
