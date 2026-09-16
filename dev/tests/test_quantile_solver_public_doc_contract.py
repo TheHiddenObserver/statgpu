@@ -3,7 +3,10 @@
 import inspect
 
 from statgpu import glm_core, solvers
-from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
+from statgpu.linear_model.penalized import (
+    PenalizedGeneralizedLinearModel,
+    PenalizedQuantileRegression,
+)
 
 
 def test_guarded_public_solver_docstrings_expose_quantile_boundary():
@@ -32,3 +35,10 @@ def test_penalized_glm_runtime_help_lists_public_admm_solver():
     assert "'admm'" in doc
     assert "Support is loss/penalty dependent" in doc
     assert "unsupported explicit combinations fail closed" in doc
+
+
+def test_typed_quantile_runtime_help_names_ordinary_fista_boundary():
+    doc = " ".join((inspect.getdoc(PenalizedQuantileRegression) or "").split())
+    assert "L1/ElasticNet objectives use ordinary FISTA" in doc
+    assert "FISTA-BB and shared ADMM are not maintained Quantile routes" in doc
+    assert "shared L-BFGS route assumes a smooth loss gradient" in doc
