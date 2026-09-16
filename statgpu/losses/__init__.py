@@ -24,6 +24,11 @@ from ._huber import HuberLoss
 from ._bisquare import BisquareLoss
 from ._fair import FairLoss
 
+# Direct ``QuantileLoss.irls()`` calls are a maintained low-level weighted
+# surface. Install their fail-closed analytic-weight validation after the class
+# is defined, without changing the reviewed numerical IRLS kernel itself.
+from . import _quantile_irls_validation_contract as _quantile_irls_validation_contract
+
 
 def __getattr__(name):
     """Load survival losses only when their public symbol is requested.
