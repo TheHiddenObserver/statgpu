@@ -1,8 +1,9 @@
 """Public contract wrapper for Proximal IRLS-CD Quantile calls.
 
 The reviewed numerical kernel lives in ``_proximal_irls_quantile``. This module
-adds only public-input validation and a defined meaning for the historical
-``max_iter=None`` default, then delegates unchanged valid inputs to that kernel.
+adds public-input validation, a defined meaning for the historical
+``max_iter=None`` default, and objective-consistent handling of estimator-
+generated Quantile continuation starts before delegating to that kernel.
 The wrapper is installed on the kernel module itself so the maintained top-level
 export and the historically documented module path cannot diverge.
 """
@@ -12,6 +13,7 @@ from __future__ import annotations
 from functools import wraps
 
 from . import _proximal_irls_quantile as _kernel_module
+from ._quantile_continuation import resolve_auto_quantile_continuation_path
 
 
 _MARKER = "_statgpu_quantile_proximal_public_contract"
@@ -46,6 +48,20 @@ def install_quantile_proximal_public_contract():
                 len(X),
             )
 
+        # Only estimator-generated Quantile paths carry the internal marker.
+        # Non-uniform analytic weights define the data-fit objective, so their
+        # automatic continuation start uses the same weighted intercept/score.
+        # Direct low-level callers supplying a plain alpha_path remain
+        # authoritative and are never rewritten here.
+        alpha_path = resolve_auto_quantile_continuation_path(
+            loss,
+            X,
+            y,
+            alpha_path,
+            sample_weight=sample_weight,
+            fit_intercept=fit_intercept,
+        )
+
         # ``None`` has historically appeared in the public signature even though
         # the kernel requires a concrete iteration budget. Give that default a
         # deterministic public meaning instead of reaching ``range(None)``.
@@ -70,8 +86,8 @@ def install_quantile_proximal_public_contract():
     _with_public_boundary._statgpu_original = current
 
     # ``functools.wraps`` retains signature/``__wrapped__`` compatibility.
-    # Extend runtime help with the one public-default clarification absent from
-    # the frozen kernel docstring.
+    # Extend runtime help with the public-default and automatic weighted-path
+    # clarifications absent from the frozen kernel docstring.
     doc = current.__doc__ or ""
     old = "    max_iter : int or list\n        Maximum IRLS iterations per continuation step."
     new = (
@@ -80,7 +96,17 @@ def install_quantile_proximal_public_contract():
         "iterations per step."
     )
     if old in doc:
-        _with_public_boundary.__doc__ = doc.replace(old, new)
+        doc = doc.replace(old, new)
+    old_path = "    alpha_path : array\n        Continuation path from lambda_max to target alpha."
+    new_path = (
+        "    alpha_path : array\n"
+        "        Continuation path from lambda_max to target alpha. Estimator-"
+        "generated paths use the declared analytic weights in the Quantile "
+        "continuation start; an explicitly supplied low-level path is preserved."
+    )
+    if old_path in doc:
+        doc = doc.replace(old_path, new_path)
+    _with_public_boundary.__doc__ = doc
 
     _kernel_module.proximal_irls_quantile_solver = _with_public_boundary
     return _with_public_boundary
