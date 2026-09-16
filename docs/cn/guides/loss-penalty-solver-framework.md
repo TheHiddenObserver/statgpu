@@ -206,7 +206,7 @@ $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\be
 | 6 | `lbfgs` / `newton` | 交叉验证 + L2 + 特定损失函数 |
 | 7 | `newton` | GLM/稳健/Cox 等具有维护中 Hessian 的光滑 L2/无惩罚路径 |
 
-对 Quantile，普通 FISTA 只用于受支持的凸稀疏模型路径；L2/无惩罚使用 IRLS，SCAD/MCP 使用 Proximal IRLS-CD。显式 smooth Quantile `fista`，以及模型/CV 层任意 Quantile `fista_bb`、`lbfgs`、`admm` 请求，都会在数值 dispatch 前明确失败。底层 solver API 中，FISTA-BB 与 ADMM 同样对 Quantile fail closed，而直接无权重/均匀权重 Quantile L-BFGS 继续作为既有兼容面保留。这里的 `exact` 是平方误差/L2 的闭式求解器，与 `CoxPH(ties="exact")` 无关。需要 family/backend-specific 的精确分派时，请查看 [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md)。
+对 Quantile，普通 FISTA 只用于受支持的凸稀疏模型路径；L2/无惩罚使用 IRLS，SCAD/MCP 使用 Proximal IRLS-CD。显式 L2/无惩罚 Quantile `fista`，以及模型/CV 层任意 Quantile `fista_bb`、`lbfgs`、`admm` 请求，都会在数值 dispatch 前明确失败。底层 solver API 中，FISTA-BB 与 ADMM 同样对 Quantile fail closed，而直接无权重/均匀权重 Quantile L-BFGS 继续作为既有兼容面保留。这里的 `exact` 是平方误差/L2 的闭式求解器，与 `CoxPH(ties="exact")` 无关。需要 family/backend-specific 的精确分派时，请查看 [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md)。
 
 ### 全部求解器
 
@@ -385,7 +385,7 @@ $$
 | FISTA（带权） | ✅ | ✅ | ✅ |
 | FISTA-BB（带权） | ✅ | ✅ | ✅ |
 | FISTA-LLA（带权） | ✅ | ✅ | ✅ |
-| Quantile IRLS（平滑 L2/无惩罚 auto 或显式请求） | ✅ | ✅ | ✅ |
+| Quantile IRLS（L2/无惩罚 auto 或显式请求） | ✅ | ✅ | ✅ |
 | Cox partial likelihood（Breslow/Efron） | ✅ 原生 | ✅ 原生 | ✅ 原生 |
 | CoxPH counting process / strata / Exact | ✅ 原生 | ✅ 原生 | ✅ 原生 |
 | DBSCAN | ✅ | GPU 距离 + host-sync CC | ✅ on-device |
