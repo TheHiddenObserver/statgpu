@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from statgpu.glm_core import admm_solver as glm_core_admm_solver
 from statgpu.linear_model.penalized import PenalizedGLM_CV, PenalizedQuantileRegression
 from statgpu.losses import QuantileLoss
 from statgpu.penalties import L1Penalty
@@ -59,7 +60,10 @@ def test_cv_quantile_admm_fails_before_alpha_grid(monkeypatch, cv_strategy):
         model.fit(X, y)
 
 
-def test_public_admm_solver_rejects_quantile_before_gradient_work(monkeypatch):
+@pytest.mark.parametrize("solver_fn", [admm_solver, glm_core_admm_solver])
+def test_public_admm_solver_rejects_quantile_before_gradient_work(
+    monkeypatch, solver_fn
+):
     X, y = _data(seed=16493)
     loss = QuantileLoss(quantile=0.2)
     penalty = L1Penalty(alpha=0.04)
@@ -69,4 +73,4 @@ def test_public_admm_solver_rejects_quantile_before_gradient_work(monkeypatch):
 
     monkeypatch.setattr(loss, "gradient", forbidden_gradient)
     with pytest.raises(ValueError, match="requires a smooth loss gradient"):
-        admm_solver(loss, penalty, X, y, max_iter=5)
+        solver_fn(loss, penalty, X, y, max_iter=5)
