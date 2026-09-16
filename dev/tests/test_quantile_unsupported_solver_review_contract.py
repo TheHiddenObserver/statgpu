@@ -12,32 +12,24 @@ from statgpu import glm_core
 from statgpu.linear_model.penalized import PenalizedGLM_CV, PenalizedQuantileRegression
 import statgpu.linear_model.penalized._quantile_unsupported_solver_guard_contract as _guard_contract
 from statgpu.losses import QuantileLoss
-from statgpu.penalties import L1Penalty, L2Penalty
+from statgpu.penalties import L1Penalty
 from statgpu import solvers
 from statgpu.solvers import _admm as _admm_mod
 from statgpu.solvers import _fista_bb as _fista_bb_mod
 from statgpu.solvers import _lbfgs as _lbfgs_mod
 
 
-_UNSUPPORTED_ESTIMATOR_CASES = [
+_NEW_UNSUPPORTED_ESTIMATOR_CASES = [
     ("admm", "l1"),
     ("fista_bb", "l1"),
-    ("lbfgs", "l2"),
 ]
 
-_LOW_LEVEL_CASES = [
-    (solvers.admm_solver, glm_core.admm_solver, _admm_mod.admm_solver, L1Penalty(0.04)),
+_LOW_LEVEL_GUARD_CASES = [
+    (solvers.admm_solver, glm_core.admm_solver, _admm_mod.admm_solver),
     (
         solvers.fista_bb_solver,
         glm_core.fista_bb_solver,
         _fista_bb_mod.fista_bb_solver,
-        L1Penalty(0.04),
-    ),
-    (
-        solvers.lbfgs_solver,
-        glm_core.lbfgs_solver,
-        _lbfgs_mod.lbfgs_solver,
-        L2Penalty(0.04),
     ),
 ]
 
@@ -50,8 +42,8 @@ def _data(seed=16491):
     return X, y
 
 
-@pytest.mark.parametrize("solver_name,penalty", _UNSUPPORTED_ESTIMATOR_CASES)
-def test_direct_quantile_unsupported_solver_fails_before_backend_work(
+@pytest.mark.parametrize("solver_name,penalty", _NEW_UNSUPPORTED_ESTIMATOR_CASES)
+def test_direct_quantile_new_unsupported_solver_fails_before_backend_work(
     monkeypatch, solver_name, penalty
 ):
     X, y = _data()
@@ -71,9 +63,9 @@ def test_direct_quantile_unsupported_solver_fails_before_backend_work(
         model.fit(X, y)
 
 
-@pytest.mark.parametrize("solver_name,penalty", _UNSUPPORTED_ESTIMATOR_CASES)
+@pytest.mark.parametrize("solver_name,penalty", _NEW_UNSUPPORTED_ESTIMATOR_CASES)
 @pytest.mark.parametrize("cv_strategy", ["strict", "two_stage"])
-def test_cv_quantile_unsupported_solver_fails_before_alpha_grid(
+def test_cv_quantile_new_unsupported_solver_fails_before_alpha_grid(
     monkeypatch, solver_name, penalty, cv_strategy
 ):
     X, y = _data(seed=16492)
@@ -96,12 +88,50 @@ def test_cv_quantile_unsupported_solver_fails_before_alpha_grid(
         model.fit(X, y)
 
 
-@pytest.mark.parametrize("solver_fn,glm_alias,internal_fn,penalty", _LOW_LEVEL_CASES)
-def test_public_low_level_solver_rejects_quantile_before_loss_work(
-    monkeypatch, solver_fn, glm_alias, internal_fn, penalty
+def test_existing_estimator_quantile_lbfgs_rejection_keeps_prior_boundary(monkeypatch):
+    X, y = _data(seed=16494)
+    model = PenalizedQuantileRegression(
+        quantile=0.2,
+        penalty="l2",
+        alpha=0.04,
+        solver="lbfgs",
+        device="cpu",
+    )
+
+    def forbidden_backend(*args, **kwargs):
+        raise AssertionError("backend numerical work must not start")
+
+    monkeypatch.setattr(model, "_get_backend", forbidden_backend)
+    with pytest.raises(ValueError, match="requires Hessian"):
+        model.fit(X, y)
+
+
+def test_existing_cv_quantile_lbfgs_rejection_keeps_prior_boundary(monkeypatch):
+    X, y = _data(seed=16495)
+    model = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.2},
+        penalty="l2",
+        cv=2,
+        solver="lbfgs",
+        device="cpu",
+    )
+
+    def forbidden_grid(*args, **kwargs):
+        raise AssertionError("alpha-grid numerical work must not start")
+
+    monkeypatch.setattr(model, "_generate_alpha_grid", forbidden_grid)
+    with pytest.raises(ValueError, match="requires Hessian"):
+        model.fit(X, y)
+
+
+@pytest.mark.parametrize("solver_fn,glm_alias,internal_fn", _LOW_LEVEL_GUARD_CASES)
+def test_public_low_level_new_guard_rejects_quantile_before_loss_work(
+    monkeypatch, solver_fn, glm_alias, internal_fn
 ):
     X, y = _data(seed=16493)
     loss = QuantileLoss(quantile=0.2)
+    penalty = L1Penalty(0.04)
 
     def forbidden(*args, **kwargs):
         raise AssertionError("loss numerical work must not start")
@@ -120,10 +150,11 @@ def test_public_low_level_solver_rejects_quantile_before_loss_work(
     assert inspect.signature(glm_alias) == inspect.signature(internal_fn)
 
 
-def test_glm_core_solver_aliases_use_the_guarded_public_exports():
+def test_glm_core_solver_aliases_preserve_guard_and_existing_lbfgs_export():
     assert glm_core.admm_solver is solvers.admm_solver
     assert glm_core.fista_bb_solver is solvers.fista_bb_solver
     assert glm_core.lbfgs_solver is solvers.lbfgs_solver
+    assert solvers.lbfgs_solver is _lbfgs_mod.lbfgs_solver
 
 
 def test_estimator_guard_installer_is_import_order_safe_and_idempotent():
