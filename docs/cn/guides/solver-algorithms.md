@@ -130,7 +130,7 @@ statgpu 提供一阶、二阶、近端和闭式等多类求解器。对大多数
    \min(\texttt{tol},10^{-8})
    $$
 
-   作为 IRLS 收敛容差，与维护中的平滑 Quantile IRLS 精度契约一致。只要仍有任意 $d_j>0$，就继续执行上面的常规 Proximal IRLS-CD 内循环。
+   作为 IRLS 收敛容差，与维护中的 Quantile IRLS 精度契约一致。只要仍有任意 $d_j>0$，就继续执行上面的常规 Proximal IRLS-CD 内循环。
 
 5. **收敛判据。** 对仍有活动惩罚的 Proximal IRLS-CD 步，内循环检查
 
@@ -755,7 +755,7 @@ $$
 
 $$
 \|\beta^{(r+1)}-\beta^{(r)}\|_1
-<\texttt{lla\_tol},
+<\texttt{lla\_tol}.
 $$
 
 则结束当前 $\alpha^{(m)}$ 上的 LLA；否则重新计算 $d^{(r+1)}$ 并继续。随后以上一延续点的解作为下一 $\alpha$ 的起点。
@@ -1330,7 +1330,7 @@ $$
 
 $$
 u^{k+1}
-=u^k+w^{k+1}-z^{k+1}.
+=u^k+w^{k+1}-z^k+z^k-z^{k+1}.
 $$
 
 ### $w$ 子问题：平方误差闭式路径
@@ -1465,7 +1465,7 @@ $$
 └── 分组惩罚                              → Group FISTA / FISTA-LLA
 ```
 
-对于平滑 Quantile L2/无惩罚目标，显式 `solver="irls"` 与 `auto` 选择同一维护算法，而显式 `solver="fista"` 会失败而不是被静默替换成 IRLS。模型/CV 层的 Quantile FISTA-BB、L-BFGS 与 ADMM 请求都会在数值 dispatch 前失败。公开底层 solver 层，Quantile FISTA-BB 与 ADMM 同样 fail closed；直接 L-BFGS 则保留既有的未传/均匀权重兼容面，非均匀权重仍被拒绝。稀疏 Quantile 的普通 FISTA 与 SCAD/MCP 的 Proximal IRLS-CD 保持为不同的维护中 estimator 算法。
+对于 Quantile L2/无惩罚目标，显式 `solver="irls"` 与 `auto` 选择同一维护算法，而显式 `solver="fista"` 会失败而不是被静默替换成 IRLS。模型/CV 层的 Quantile FISTA-BB、L-BFGS 与 ADMM 请求都会在数值 dispatch 前失败。公开底层 solver 层，Quantile FISTA-BB 与 ADMM 同样 fail closed；直接 L-BFGS 则保留既有的未传/均匀权重兼容面，非均匀权重仍被拒绝。稀疏 Quantile 的普通 FISTA 与 SCAD/MCP 的 Proximal IRLS-CD 保持为不同的维护中 estimator 算法。
 
 这棵树有意只给出摘要。family/backend/problem-size 的精确规则——尤其 Poisson 与 Negative-Binomial 的 CV 稀疏路由——以 [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md) 为准。
 
