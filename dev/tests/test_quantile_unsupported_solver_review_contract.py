@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import inspect
 
 import numpy as np
@@ -9,6 +10,7 @@ import pytest
 
 from statgpu import glm_core
 from statgpu.linear_model.penalized import PenalizedGLM_CV, PenalizedQuantileRegression
+import statgpu.linear_model.penalized._quantile_unsupported_solver_guard_contract as _guard_contract
 from statgpu.losses import QuantileLoss
 from statgpu.penalties import L1Penalty, L2Penalty
 from statgpu import solvers
@@ -65,7 +67,7 @@ def test_direct_quantile_unsupported_solver_fails_before_backend_work(
         raise AssertionError("backend numerical work must not start")
 
     monkeypatch.setattr(model, "_get_backend", forbidden_backend)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="not a maintained Quantile route"):
         model.fit(X, y)
 
 
@@ -122,3 +124,25 @@ def test_glm_core_solver_aliases_use_the_guarded_public_exports():
     assert glm_core.admm_solver is solvers.admm_solver
     assert glm_core.fista_bb_solver is solvers.fista_bb_solver
     assert glm_core.lbfgs_solver is solvers.lbfgs_solver
+
+
+def test_estimator_guard_installer_is_import_order_safe_and_idempotent():
+    before = _guard_contract._quantile_contract._validate_quantile_solver_request
+    before_signature = inspect.signature(before)
+    before_wrapped = getattr(before, "__wrapped__", None)
+
+    _guard_contract.install_quantile_unsupported_solver_guard_contract()
+    assert (
+        _guard_contract._quantile_contract._validate_quantile_solver_request
+        is before
+    )
+
+    # Re-executing the contract module models a repeated/import-order install.
+    # The marker lives on the installed wrapper, so reload must not stack a
+    # second wrapper or change public validator introspection.
+    importlib.reload(_guard_contract)
+    after = _guard_contract._quantile_contract._validate_quantile_solver_request
+    assert after is before
+    assert getattr(after, _guard_contract._MARKER, False)
+    assert getattr(after, "__wrapped__", None) is before_wrapped
+    assert inspect.signature(after) == before_signature
