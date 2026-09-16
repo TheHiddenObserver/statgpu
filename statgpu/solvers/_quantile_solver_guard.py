@@ -47,17 +47,22 @@ def fista_bb_solver(loss, *args, **kwargs):
     return _fista_bb_solver(loss, *args, **kwargs)
 
 
-# ``functools.wraps`` intentionally preserves the generic solver signature and
-# ``__wrapped__`` chain, but it also copies the generic docstring. Override only
-# the public documentation after decoration so runtime help exposes the actual
-# fail-closed Quantile boundary without changing introspection/signature.
-fista_bb_solver.__doc__ = """Public FISTA-BB solver entrypoint.
+# ``functools.wraps`` preserves the generic solver signature and ``__wrapped__``
+# chain while initially copying the complete generic docstring. Prefix the
+# public boundary instead of replacing that documentation so ``help()`` keeps
+# the established parameter/return reference as well as the Quantile contract.
+_fista_boundary_doc = """Public Quantile boundary
 
 FISTA-BB estimates local curvature from smooth-gradient differences. Quantile
 loss has a step-function subgradient and is therefore not a maintained
 FISTA-BB route; public calls with ``QuantileLoss`` fail before loss numerical
 work. Use ordinary FISTA for maintained sparse Quantile routes.
 """
+fista_bb_solver.__doc__ = (
+    _fista_boundary_doc.rstrip()
+    + "\n\n"
+    + (_fista_bb_solver.__doc__ or "").lstrip()
+)
 
 
 @wraps(_admm_solver)
@@ -71,10 +76,15 @@ def admm_solver(loss, *args, **kwargs):
     return _admm_solver(loss, *args, **kwargs)
 
 
-admm_solver.__doc__ = """Public ADMM solver entrypoint.
+_admm_boundary_doc = """Public Quantile boundary
 
 The shared non-Cholesky w-update uses Nesterov-accelerated gradient descent and
 therefore requires a smooth loss gradient. Quantile loss has a step-function
 subgradient and is not a maintained ADMM route; public calls with
 ``QuantileLoss`` fail before loss numerical work.
 """
+admm_solver.__doc__ = (
+    _admm_boundary_doc.rstrip()
+    + "\n\n"
+    + (_admm_solver.__doc__ or "").lstrip()
+)
