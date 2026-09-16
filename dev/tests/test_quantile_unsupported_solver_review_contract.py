@@ -188,6 +188,43 @@ def test_glm_core_solver_aliases_preserve_guard_and_existing_lbfgs_export():
     assert solvers.lbfgs_solver is _lbfgs_mod.lbfgs_solver
 
 
+@pytest.mark.parametrize("reconstruction", ["set_params", "clone"])
+def test_quantile_guard_survives_standard_estimator_reconstruction(
+    monkeypatch, reconstruction
+):
+    X, y = _data(seed=16496)
+    if reconstruction == "set_params":
+        model = PenalizedQuantileRegression(
+            quantile=0.2,
+            penalty="l1",
+            alpha=0.04,
+            solver="auto",
+            device="cpu",
+        )
+        assert model.set_params(solver="admm") is model
+    else:
+        sklearn_base = pytest.importorskip("sklearn.base")
+        model = sklearn_base.clone(
+            PenalizedQuantileRegression(
+                quantile=0.2,
+                penalty="l1",
+                alpha=0.04,
+                solver="admm",
+                device="cpu",
+            )
+        )
+
+    assert model.solver == "admm"
+    assert model._solver == "admm"
+
+    def forbidden_backend(*args, **kwargs):
+        raise AssertionError("backend numerical work must not start")
+
+    monkeypatch.setattr(model, "_get_backend", forbidden_backend)
+    with pytest.raises(ValueError, match="not a maintained Quantile route"):
+        model.fit(X, y)
+
+
 def test_estimator_guard_installer_is_import_order_safe_and_idempotent():
     before = _guard_contract._quantile_contract._validate_quantile_solver_request
     before_signature = inspect.signature(before)
