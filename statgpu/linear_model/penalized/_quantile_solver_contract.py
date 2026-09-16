@@ -97,8 +97,7 @@ def _validate_quantile_solver_request(
 
     if resolved_solver == "irls" and resolved_penalty not in _SMOOTH_PENALTIES:
         raise ValueError(
-            "solver='irls' only supports smooth L2 or no-penalty Quantile "
-            "objectives."
+            "solver='irls' only supports L2 or no-penalty Quantile objectives."
         )
 
     if resolved_solver in ("newton", "lbfgs", "exact"):
@@ -113,9 +112,8 @@ def _validate_quantile_solver_request(
         and resolved_penalty in _SMOOTH_PENALTIES
     ):
         raise ValueError(
-            f"solver='{resolved_solver}' is not a maintained smooth Quantile "
-            "route for L2/no-penalty objectives; use solver='irls' or "
-            "solver='auto'."
+            f"solver='{resolved_solver}' is not a maintained L2/no-penalty "
+            "Quantile route; use solver='irls' or solver='auto'."
         )
 
 
