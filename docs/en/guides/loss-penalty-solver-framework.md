@@ -197,7 +197,7 @@ The main `solver="auto"` dispatch can be summarized as follows. Public `none` / 
 | 6 | `lbfgs` / `newton` | CV + L2 + loss-specific routing |
 | 7 | `newton` | maintained smooth L2/no-penalty GLM/robust/Cox paths with Hessian support |
 
-For Quantile, ordinary FISTA is maintained only on supported sparse convex routes; L2/no-penalty uses IRLS and SCAD/MCP use Proximal IRLS-CD. Explicit smooth Quantile `fista` and every Quantile `fista_bb`, `lbfgs`, or `admm` request fail before numerical dispatch rather than being silently substituted or run through an unsupported generic algorithm. The `exact` solver in this table is the closed-form squared-error/L2 solver and is unrelated to `CoxPH(ties="exact")`. For exact family/backend-specific dispatch, use the [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md).
+For Quantile, ordinary FISTA is maintained only on supported sparse convex estimator routes; L2/no-penalty uses IRLS and SCAD/MCP use Proximal IRLS-CD. Explicit smooth Quantile `fista` and every estimator/CV Quantile `fista_bb`, `lbfgs`, or `admm` request fail before numerical dispatch. At the low-level solver API, FISTA-BB and ADMM also fail closed for Quantile, while direct unweighted/uniform Quantile L-BFGS remains an existing compatibility surface. The `exact` solver in this table is the closed-form squared-error/L2 solver and is unrelated to `CoxPH(ties="exact")`. For exact family/backend-specific dispatch, use the [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md).
 
 ### All Solvers
 
@@ -208,7 +208,7 @@ For Quantile, ordinary FISTA is maintained only on supported sparse convex route
 | `exact` | squared_error only | L2 only | ✅ | ❌ |
 | `irls` | losses declaring maintained IRLS dispatch | L2 / none | available where the IRLS loss supports it | ❌ |
 | `newton` | losses with Hessian support | L2 / none | loss-dependent; ordinary GLM ✅ | ❌ |
-| `lbfgs` | smooth losses; excludes Quantile | L2 / none | capability-gated; ordinary GLM ✅ | ❌ |
+| `lbfgs` | smooth losses; plus legacy direct Quantile compatibility for omitted/uniform weights | L2 / none | capability-gated; ordinary GLM ✅; Quantile non-uniform ❌ | ❌ |
 | `lbfgs_b` | smooth box-constrained problems | L2 / none | no generic non-uniform-weight contract declared | ❌ |
 | `fista` | losses supporting gradient/proximal routes | supported proximal penalties | loss-dependent | ✅ |
 | `fista_bb` | smooth-gradient-compatible losses; excludes Quantile | supported sparse penalties | loss-dependent | ✅ |
@@ -216,6 +216,8 @@ For Quantile, ordinary FISTA is maintained only on supported sparse convex route
 | `proximal_irls_cd` | quantile only | SCAD/MCP | ✅ | ✅ |
 | `proximal_newton` | smooth losses with Hessian support | L2 / none | loss-dependent | ✅ |
 | `admm` | maintained ADMM losses with a smooth w-update; excludes Quantile | supported proximal forms | omitted/uniform only; genuine non-uniform weights fail closed | ✅ |
+
+The `lbfgs` row describes the generic low-level solver surface, not estimator dispatch. `PenalizedQuantileRegression` and `PenalizedGLM_CV` continue to reject explicit `solver="lbfgs"` before numerical fitting.
 
 ### Specialized Solvers
 
