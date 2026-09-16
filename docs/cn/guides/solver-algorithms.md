@@ -1,7 +1,7 @@
 # 求解器算法
 
 > 语言：中文  
-> 最后更新：2026-09-15  
+> 最后更新：2026-09-16  
 > 页面定位：算法参考  
 > 切换：[English](../../en/guides/solver-algorithms.md)
 
@@ -33,7 +33,7 @@ statgpu 提供一阶、二阶、近端和闭式等多类求解器。对大多数
 | ADMM | 可分/近端形式 | NumPy, CuPy, Torch |
 | `exact` | 平方误差 + L2 闭式路径 | NumPy, CuPy, Torch |
 
-后端列只描述数值实现能力；具体模型和损失函数还会进一步限制可用组合。
+后端列只描述数值实现能力；具体模型和损失函数还会进一步限制可用组合。Quantile/check loss 就存在这种收窄：受支持的凸稀疏模型路径使用普通 FISTA，FISTA-BB 与共享 ADMM 被排除；底层直接 L-BFGS 则保留历史的未传/均匀权重 Quantile 兼容面，但 estimator/CV 的 `solver="lbfgs"` 仍不支持，真正非均匀 Quantile L-BFGS 权重也继续 fail closed。
 
 ---
 
@@ -489,7 +489,7 @@ $$
 
 **文件**：`statgpu/solvers/_fista_bb.py`
 
-**用途**：在 FISTA 近端更新上使用 Barzilai-Borwein 曲率估计来选择步长，适合受支持的 GLM 稀疏惩罚路径。
+**用途**：在 FISTA 近端更新上使用 Barzilai-Borwein 曲率估计来选择步长，适合受支持的 GLM 稀疏惩罚路径。Quantile/check loss 的次梯度是阶梯函数，不能提供 BB 曲率估计所需的 smooth-gradient difference，因此公开底层和模型层 FISTA-BB 都排除 Quantile。
 
 ### Lipschitz 预热与 BB 曲率
 
@@ -1038,7 +1038,7 @@ $$
 
 **文件**：`statgpu/solvers/_lbfgs.py`、`statgpu/solvers/_lbfgs_b.py`
 
-**用途**：光滑目标的有限内存拟牛顿法，以及其盒约束投影版本。
+**用途**：L-BFGS 的通用设计目标是光滑目标，以及其盒约束投影版本。底层直接 `lbfgs_solver(QuantileLoss, ...)` 的历史兼容面通过回归测试保留在未传/均匀权重情形；这不意味着 estimator/CV 支持 Quantile `solver="lbfgs"`，也不会开放真正非均匀 Quantile 权重。
 
 ### L-BFGS 曲率历史
 
@@ -1271,7 +1271,8 @@ $$
 | 直接 L-BFGS 路径 | 非均匀 `sample_weight` |
 |---|---|
 | 维护中的 `GLMLoss` | ✅ 支持 |
-| 通用稳健 / 分位数 / Cox `LossBase` | ❌ 不能由无权重支持自动推出 |
+| 通用稳健 / Cox `LossBase` | ❌ 不能由无权重支持自动推出 |
+| Quantile | ❌ 非均匀权重 fail closed；底层未传/均匀权重兼容面保留 |
 
 对维护中的 GLM，初始梯度、当前目标函数、每个线搜索候选点和接受新点后的梯度都使用同一组归一化权重：
 
@@ -1280,7 +1281,7 @@ F(\beta)
 =\frac{\sum_i w_i\ell_i(\beta)}{\sum_i w_i}+P(\beta).
 $$
 
-在进入光滑求解器前，有限、非负且具有正总质量的解析权重，会先在实际执行后端按一个正的公共尺度做归一化。因此，只要缩放后的单个权重仍可表示，整体乘以正数不会仅仅因为输入 dtype 的原始求和溢出而改变归一化目标。均匀/数值上等效均匀的权重继续使用历史无权重数值路径；维护中的普通 GLM 和带惩罚 GLM 推断消费者也沿用同一个拟合目标身份。
+在进入光滑求解器前，有限、非负且具有正总质量的解析权重，会先在实际执行后端按一个正的公共尺度做归一化。因此，只要缩放后的单个权重仍可表示，整体乘以正数不会仅仅因为输入 dtype 的原始求和溢出而改变归一化目标。均匀/数值上等效均匀的权重继续使用历史无权重数值路径，包括底层 Quantile 的直接兼容面；模型/CV 层 Quantile `solver="lbfgs"` 仍是另一条不支持的请求。
 
 ---
 
@@ -1390,7 +1391,7 @@ $$
 <\texttt{cg\_tol}\times p
 $$
 
-时提前结束。虽然参数仍名为 `cg_max_iter` / `cg_tol`，当前非 Cholesky fallback 实际执行的是 Nesterov 加速梯度，而不是共轭梯度。
+时提前结束。虽然参数仍名为 `cg_max_iter` / `cg_tol`，当前非 Cholesky fallback 实际执行的是 Nesterov 加速梯度，而不是共轭梯度。Quantile/check loss 的次梯度是阶梯函数，不满足该内层求解所需的光滑梯度假设，因此共享 ADMM 路径排除 Quantile。
 
 ### 原始/对偶残差与自适应 $\rho$
 
@@ -1425,7 +1426,7 @@ r_{\rm p}<\texttt{tol}
 r_{\rm d}<\texttt{tol}.
 $$
 
-最终返回 $z$，因为 $z$ 始终是应用惩罚近端算子后的变量。共享 `admm_solver` 当前只接受未传权重或均匀 `sample_weight`；真正非均匀解析权重不属于该入口的当前能力。
+最终返回 $z$，因为 $z$ 始终是应用惩罚近端算子后的变量。共享 `admm_solver` 当前只在 ADMM 本身受维护的损失上接受未传或均匀 `sample_weight`；Quantile 会在进入这一权重契约之前 fail closed。
 
 ---
 
@@ -1452,7 +1453,7 @@ $$
 直接拟合，solver="auto"
 ├── squared_error + L2/none              → CPU exact / GPU Newton
 ├── Quantile + L2/none                   → IRLS
-├── Quantile + L1/ElasticNet             → FISTA
+├── Quantile + L1/ElasticNet             → 普通 FISTA
 ├── Quantile + SCAD/MCP                  → Proximal IRLS-CD
 ├── 光滑非高斯 GLM + L2/none             → Newton
 ├── squared_error + 凸稀疏惩罚            → FISTA
@@ -1464,7 +1465,7 @@ $$
 └── 分组惩罚                              → Group FISTA / FISTA-LLA
 ```
 
-对于平滑 Quantile L2/无惩罚目标，显式 `solver="irls"` 与 `auto` 选择同一维护算法。显式 `solver="fista"` 或 `solver="fista_bb"` 不会被静默替换成 IRLS；这些平滑组合会在数值 dispatch 前明确失败。稀疏 Quantile 的 FISTA-family 与 SCAD/MCP 的 Proximal IRLS-CD 保持为不同算法。
+对于平滑 Quantile L2/无惩罚目标，显式 `solver="irls"` 与 `auto` 选择同一维护算法，而显式 `solver="fista"` 会失败而不是被静默替换成 IRLS。模型/CV 层的 Quantile FISTA-BB、L-BFGS 与 ADMM 请求都会在数值 dispatch 前失败。公开底层 solver 层，Quantile FISTA-BB 与 ADMM 同样 fail closed；直接 L-BFGS 则保留既有的未传/均匀权重兼容面，非均匀权重仍被拒绝。稀疏 Quantile 的普通 FISTA 与 SCAD/MCP 的 Proximal IRLS-CD 保持为不同的维护中 estimator 算法。
 
 这棵树有意只给出摘要。family/backend/problem-size 的精确规则——尤其 Poisson 与 Negative-Binomial 的 CV 稀疏路由——以 [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md) 为准。
 
