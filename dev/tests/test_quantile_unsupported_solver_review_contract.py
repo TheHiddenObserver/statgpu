@@ -24,9 +24,10 @@ from statgpu.solvers import _lbfgs as _lbfgs_mod
 
 
 # Each row below is a public estimator/CV request that the new guard itself
-# closes. ADMM needs both a smooth and a sparse representative because the
-# pre-existing Quantile validator did not reject ADMM on either branch, while
-# smooth FISTA-BB was already rejected by the older Quantile contract.
+# closes. ADMM needs both an L2/no-penalty-branch representative and a sparse
+# representative because the pre-existing Quantile validator did not reject
+# ADMM on either branch, while L2/no-penalty FISTA-BB was already rejected by
+# the older Quantile contract.
 _NEW_UNSUPPORTED_ESTIMATOR_CASES = [
     ("admm", "l1"),
     ("admm", "l2"),
