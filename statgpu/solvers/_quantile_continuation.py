@@ -85,9 +85,10 @@ def resolve_auto_quantile_continuation_path(
     contractually fixed intercept zero. A plain user-supplied ``alpha_path``
     is returned unchanged.
 
-    The calculation remains on the input NumPy/CuPy/Torch backend. Only the
-    final scalar ``lambda_start`` is synchronized to the host to build the
-    small NumPy continuation vector consumed by the existing solver contract.
+    The calculation remains on the input NumPy/CuPy/Torch backend in float64,
+    matching the maintained Quantile numerical paths. Only the final scalar
+    ``lambda_start`` is synchronized to the host to build the small NumPy
+    continuation vector consumed by the existing solver contract.
     """
     if not is_auto_quantile_continuation_path(alpha_path):
         return alpha_path
@@ -98,9 +99,10 @@ def resolve_auto_quantile_continuation_path(
     if path_values.ndim != 1 or path_values.size == 0:
         return alpha_path
 
-    ref_dtype = getattr(X, "dtype", None)
-    X_dev = _to_backend(X, backend="auto", ref_tensor=X, dtype=ref_dtype)
-    y_dev = _to_backend(y, backend="auto", ref_tensor=X_dev, dtype=X_dev.dtype)
+    xp_hint = _get_xp(X)
+    float64 = xp_hint.float64
+    X_dev = _to_backend(X, backend="auto", ref_tensor=X, dtype=float64)
+    y_dev = _to_backend(y, backend="auto", ref_tensor=X_dev, dtype=float64)
     if int(getattr(y_dev, "ndim", 1)) != 1:
         y_dev = y_dev.reshape(-1)
     xp = _get_xp(X_dev)
@@ -115,7 +117,7 @@ def resolve_auto_quantile_continuation_path(
             sample_weight,
             backend="auto",
             ref_tensor=X_dev,
-            dtype=X_dev.dtype,
+            dtype=float64,
         ).reshape(-1)
         if int(weights_dev.shape[0]) != n:
             raise ValueError("sample_weight must have length n_samples")
@@ -144,8 +146,8 @@ def resolve_auto_quantile_continuation_path(
         intercept = 0.0
 
     residual = y_dev - intercept
-    pos = xp.full_like(residual, tau)
-    neg = xp.full_like(residual, -(1.0 - tau))
+    pos = xp.full_like(residual, tau, dtype=float64)
+    neg = xp.full_like(residual, -(1.0 - tau), dtype=float64)
     psi = xp.where(residual >= 0.0, pos, neg)
     if weights_dev is None:
         score = X_dev.T @ psi / float(n)
