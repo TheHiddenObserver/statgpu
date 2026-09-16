@@ -41,7 +41,11 @@ def _weighted_lower_quantile_backend(y, sample_weight, tau: float, xp):
     order = xp.argsort(y)
     y_sorted = y[order]
     w_sorted = sample_weight[order]
-    cumulative = xp.cumsum(w_sorted)
+    cumulative = (
+        xp.cumsum(w_sorted, dim=0)
+        if xp.__name__ == "torch"
+        else xp.cumsum(w_sorted)
+    )
     cutoff = float(tau) * xp.sum(w_sorted)
     if xp.__name__ == "torch":
         index = xp.searchsorted(cumulative, cutoff, right=False)
