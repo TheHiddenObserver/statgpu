@@ -8,7 +8,7 @@ only the missing all-penalty boundaries for:
 * shared ADMM, whose generic w-subproblem uses accelerated gradient descent.
 
 Existing Quantile validation remains authoritative first. That preserves the
-more specific historical errors for smooth FISTA-BB, SCAD/MCP dedicated
+more specific historical errors for L2/no-penalty FISTA-BB, SCAD/MCP dedicated
 Proximal IRLS-CD routing, L-BFGS, Newton, and other already-unsupported rows.
 Only requests that the existing validator accepted can reach the new guard.
 """
