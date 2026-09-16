@@ -73,6 +73,14 @@ from . import (
     as _quantile_unsupported_solver_guard_contract,
 )
 
+# The non-convex Quantile solver receives an automatically generated
+# continuation path. Mark that internal path after the solver-support contracts
+# are installed so the public Proximal IRLS-CD boundary can align its start with
+# non-uniform analytic weights without rewriting user-supplied low-level paths.
+from . import (
+    _quantile_continuation_contract as _quantile_continuation_contract,
+)
+
 __all__ = [
     "PenalizedGeneralizedLinearModel",
     "SelectivePenalty",
