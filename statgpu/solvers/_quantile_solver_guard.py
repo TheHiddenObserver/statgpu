@@ -47,6 +47,19 @@ def fista_bb_solver(loss, *args, **kwargs):
     return _fista_bb_solver(loss, *args, **kwargs)
 
 
+# ``functools.wraps`` intentionally preserves the generic solver signature and
+# ``__wrapped__`` chain, but it also copies the generic docstring. Override only
+# the public documentation after decoration so runtime help exposes the actual
+# fail-closed Quantile boundary without changing introspection/signature.
+fista_bb_solver.__doc__ = """Public FISTA-BB solver entrypoint.
+
+FISTA-BB estimates local curvature from smooth-gradient differences. Quantile
+loss has a step-function subgradient and is therefore not a maintained
+FISTA-BB route; public calls with ``QuantileLoss`` fail before loss numerical
+work. Use ordinary FISTA for maintained sparse Quantile routes.
+"""
+
+
 @wraps(_admm_solver)
 def admm_solver(loss, *args, **kwargs):
     """Run ADMM only when the shared smooth w-update contract is satisfied."""
@@ -56,3 +69,12 @@ def admm_solver(loss, *args, **kwargs):
             "the shared w-update uses accelerated gradient descent and requires a smooth loss gradient",
         )
     return _admm_solver(loss, *args, **kwargs)
+
+
+admm_solver.__doc__ = """Public ADMM solver entrypoint.
+
+The shared non-Cholesky w-update uses Nesterov-accelerated gradient descent and
+therefore requires a smooth loss gradient. Quantile loss has a step-function
+subgradient and is not a maintained ADMM route; public calls with
+``QuantileLoss`` fail before loss numerical work.
+"""
