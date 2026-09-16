@@ -64,6 +64,11 @@ from . import (
 # same truthful solver identity.
 from . import _quantile_solver_contract as _quantile_solver_contract
 
+# The shared ADMM implementation uses a smooth-gradient w-update; Quantile loss
+# is non-smooth. Install the narrow fail-closed public boundary after the main
+# Quantile contract so direct and CV validation share the same rejection.
+from . import _quantile_admm_guard_contract as _quantile_admm_guard_contract
+
 __all__ = [
     "PenalizedGeneralizedLinearModel",
     "SelectivePenalty",
