@@ -1,11 +1,27 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-09-15  
+> Last updated: 2026-09-16  
 > This page: Release history  
 > Switch: [Chinese](../cn/changelog.md)
 
 This page records user-visible changes for current and recent statgpu releases.
+
+## Unreleased — Quantile solver provenance reconciliation (PR #164 / Issue #163, targeted for 0.2.6)
+
+### Fixed
+
+- Penalized Quantile solver identity is now consistent with the algorithm that actually executes. L2/no-penalty `solver="auto"` resolves to ordinary Quantile IRLS, L1/ElasticNet remain on the maintained FISTA family, and SCAD/MCP resolve to the dedicated Proximal IRLS-CD implementation. `proximal_irls_cd` remains an internal resolved/executed provenance label rather than a public explicit `solver=` keyword.
+- Incompatible explicit Quantile solver requests now fail before numerical dispatch or CV grid work instead of silently executing another algorithm. Direct fits, CV candidate/fold execution, and the selected full-data refit therefore agree on requested/resolved/executed solver identity.
+- Non-median Quantile CV scoring preserves the caller's configured quantile level, including analytic validation weights. Typed `PenalizedQuantileRegression(quantile=q)` also preserves that level through clone-safe construction, adaptive-L1 initialization, and scoring.
+- SCAD/MCP Quantile intercepts are optimized as unpenalized coordinates of the pinball objective. A fully flat LLA surrogate closes through the maintained full `QuantileLoss.irls()` kernel rather than continuing a diagonal approximation.
+- Torch Quantile execution now keeps L2 penalty diagonals, IRLS warm starts, Proximal IRLS-CD epsilon/threshold/tolerance scalars, and fallback weights on the active tensor dtype/device. Warm starts use Torch-native cloning rather than the NumPy/CuPy copy path.
+
+### Validation
+
+- Exact clean numerical source `2de971402004efc703dc98f510942db3980988e4` passed the frozen schema-v1 physical gate on Tesla P100-SXM2-16GB with CuPy 13.6.0, Torch 2.0.0+cu117, NumPy 1.24.2, and Python 3.9.16. All **12/12** direct/CV CuPy and Torch CUDA cases passed with concrete `cuda:0` provenance and the expected IRLS/FISTA/`proximal_irls_cd` identities.
+- Frozen parity tolerances were not loosened. The maximum L2 coefficient/intercept error was `6.938893903907228e-15` against `2e-5`, the maximum L2 CV-score error was `7.965850201685498e-15` against `2e-5`, and the maximum SCAD penalized-objective error was `1.4085439563257807e-06` against `2e-4`.
+- The canonical exact-source artifact is `dev/reviews/pr164_quantile_solver_provenance_gpu.json`. Commit `230eaebbd4dfaf090e84011fe0eb190339389411` adds only that artifact directly above the validated numerical source. Subsequent release/changelog closure is documentation-only and explicitly reuses this immutable numerical-source acceptance; any numerical, validator, solver, backend, or tolerance change requires a fresh physical run.
 
 ## Unreleased — Quantile IRLS penalty contract (PR #162 / Issue #161, targeted for 0.2.6)
 

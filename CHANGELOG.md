@@ -2,6 +2,13 @@
 
 All notable changes to statgpu are documented here, organized by release and date.
 
+## Unreleased — 2026-09-16
+
+### PR #164 / Issue #163 — Quantile solver provenance reconciliation (targeted for 0.2.6)
+- Reconciled penalized Quantile solver provenance across direct and CV paths: L2/no-penalty `solver="auto"` resolves to IRLS, L1/ElasticNet remain FISTA-family, SCAD/MCP resolve to the dedicated internal `proximal_irls_cd` algorithm, and incompatible explicit solver requests fail before numerical dispatch.
+- Corrected non-median Quantile CV scoring and typed-quantile propagation, preserved unpenalized-intercept semantics for SCAD/MCP, and hardened Torch IRLS/Proximal Quantile execution so warm starts, penalty diagonals, and numerical scalar temporaries stay on the active device.
+- Exact clean numerical source `2de971402004efc703dc98f510942db3980988e4` passed the frozen Tesla P100 schema-v1 gate with all 12 CuPy/Torch CUDA cases. The canonical artifact is `dev/reviews/pr164_quantile_solver_provenance_gpu.json`; commit `230eaebbd4dfaf090e84011fe0eb190339389411` adds only that evidence, so later documentation-only closure reuses the immutable numerical-source acceptance without reopening the physical gate.
+
 ## Unreleased — 2026-09-11
 
 ### PR #162 / Issue #161 — Quantile IRLS penalty contract (targeted for 0.2.6)
