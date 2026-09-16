@@ -71,13 +71,13 @@ The support column below first describes unweighted algorithm availability. With
 | Proximal IRLS-CD | ✅ | Specialized IRLS majorization + LLA for SCAD/MCP; maintained route has explicit analytic-weight handling |
 | IRLS | ✅ | **Default `solver="auto"` route for L2/no-penalty Quantile objectives**; `QuantileLoss.irls()` has an explicit `sample_weight` path |
 | FISTA | ✅ (sparse routes) | Maintained for L1/ElasticNet and related proximal routes. Explicit FISTA is not a maintained L2/no-penalty Quantile request; use `auto` or `irls` there |
-| FISTA-BB | ✅ | Available when explicitly selected on supported sparse routes; smooth Quantile `auto` does not select it |
-| L-BFGS | ✅ (unweighted/uniform weights at the low-level solver boundary) | Public `PenalizedQuantileRegression` rejects L-BFGS because Quantile has no Hessian-compatible smooth contract; genuine non-uniform direct weighted L-BFGS is fail-closed for generic `LossBase` |
-| ADMM | ❌ | The shared ADMM w-update uses accelerated gradient descent and requires a smooth loss gradient. Quantile has a step-function subgradient, so estimator-level `solver="admm"` and public `admm_solver(QuantileLoss, ...)` calls fail closed before numerical iteration |
+| FISTA-BB | ❌ | BB step sizes use smooth-gradient differences as local-curvature estimates. Quantile has a step-function subgradient, so explicit estimator/CV requests and public low-level `fista_bb_solver(QuantileLoss, ...)` fail closed |
+| L-BFGS | ❌ | L-BFGS is maintained for smooth objectives. Public estimator/CV requests and public low-level `lbfgs_solver(QuantileLoss, ...)` fail closed before numerical iteration |
+| ADMM | ❌ | The shared ADMM w-update uses accelerated gradient descent and requires a smooth loss gradient. Quantile has a step-function subgradient, so estimator/CV requests and public low-level `admm_solver(QuantileLoss, ...)` fail closed before numerical iteration |
 | Newton | ❌ | Quantile loss has no Hessian |
 | Proximal Newton | ❌ | Quantile loss has no Hessian |
 
-For smooth Quantile objectives the distinction between `auto`, IRLS, and FISTA is explicit: `PenalizedQuantileRegression(..., solver="auto", penalty="l2")` resolves to IRLS, and `solver="irls"` requests the same maintained algorithm directly. An explicit smooth `solver="fista"` request fails visibly instead of being silently substituted by IRLS. Sparse Quantile penalties retain their FISTA-family routes.
+For smooth Quantile objectives the distinction between `auto`, IRLS, and FISTA is explicit: `PenalizedQuantileRegression(..., solver="auto", penalty="l2")` resolves to IRLS, and `solver="irls"` requests the same maintained algorithm directly. An explicit smooth `solver="fista"` request fails visibly instead of being silently substituted by IRLS. Sparse Quantile penalties retain the ordinary FISTA-family route selected by `auto`; the BB variant is not maintained for Quantile.
 
 ## Penalty compatibility
 
@@ -102,10 +102,9 @@ $$
 But `sample_weight` is **not one universal solver capability**. In particular:
 
 - maintained Quantile IRLS / Proximal IRLS-CD routes have explicit weighted implementations;
-- maintained FISTA routes use the loss-layer normalized weighted objective where supported;
+- maintained ordinary FISTA routes use the loss-layer normalized weighted objective where supported;
 - generic `LossBase` shared value/gradient primitives can evaluate the normalized weighted objective;
-- direct `lbfgs_solver` remains fail-closed for genuine non-uniform Quantile weights;
-- ADMM is not a maintained Quantile route at any weighting level because the shared ADMM w-update requires a smooth loss gradient.
+- FISTA-BB, L-BFGS, and ADMM are not maintained Quantile routes at any weighting level because their generic algorithms rely on smooth-gradient structure that check loss does not provide.
 
 For weighted support across other losses and solver families, see the [Solver × Penalty Compatibility Matrix](../guides/solver-penalty-matrix.md) and [Solver Algorithms](../guides/solver-algorithms.md).
 
@@ -165,7 +164,7 @@ irls_model = PenalizedQuantileRegression(
 irls_model.fit(X, y)
 ```
 
-Use explicit IRLS only on its maintained L2/no-penalty boundary. Non-smooth penalties such as ElasticNet should use FISTA rather than IRLS; direct low-level `QuantileLoss.irls()` calls are not a maintained ElasticNet fitting route.
+Use explicit IRLS only on its maintained L2/no-penalty boundary. Non-smooth penalties such as ElasticNet should use ordinary FISTA rather than IRLS; direct low-level `QuantileLoss.irls()` calls are not a maintained ElasticNet fitting route.
 
 ### GPU (Torch CUDA)
 
@@ -255,7 +254,7 @@ The L2 route adds the corresponding ridge diagonal term, excluding the intercept
 
 - `score()` uses check/pinball loss and returns its negative to follow sklearn's “higher is better” convention.
 - `sample_weight` support is a **loss × solver × estimator** route capability, not an automatic property of every solver.
-- Explicit solver requests are authoritative: unsupported smooth Quantile FISTA and Quantile ADMM requests fail before numerical iteration rather than being silently substituted or run through an unsupported algorithm.
+- Explicit solver requests are authoritative: unsupported smooth Quantile FISTA plus all Quantile FISTA-BB/L-BFGS/ADMM requests fail before numerical iteration rather than being silently substituted or run through an unsupported algorithm.
 - Unsupported explicit weighted-solver combinations should fail before numerical iteration rather than silently substitute another solver.
 - Maintained GPU routes (`cuda`/`torch`) must not silently fall back to CPU.
 
