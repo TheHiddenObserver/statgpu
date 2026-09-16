@@ -184,6 +184,8 @@ jobs:
             dev/tests/test_logistic_cv_torch_dtype.py \
             dev/tests/test_panel_stage_a_torch_cpu.py \
             dev/tests/test_panel_stage_b_torch_cpu.py \
+            dev/tests/test_issue161_quantile_irls_contract.py \
+            dev/tests/test_issue163_quantile_torch_device_binding.py \
             -q --tb=short
 
   panel-stage-b-linearmodels:
