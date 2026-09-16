@@ -30,7 +30,7 @@ from ._fista import fista_solver
 from ._fista_lla_group_contract import fista_lla_path
 from ._newton import newton_solver
 from ._proximal_newton import proximal_newton_solver
-from ._proximal_irls_quantile import proximal_irls_quantile_solver
+from ._quantile_proximal_public_contract import proximal_irls_quantile_solver
 from ._quantile_cd import quantile_cd_solver
 from ._lbfgs import lbfgs_solver
 from ._lbfgs_b import lbfgs_b_solver
