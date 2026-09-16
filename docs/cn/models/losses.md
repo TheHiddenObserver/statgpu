@@ -212,7 +212,7 @@ $$
 
 | 参数 | 默认值 | 说明 |
 |---|---:|---|
-| `ties` | `"breslow"` 或 `"efron"`；Exact 并列事件处理请使用 `CoxPH` | `"breslow"` |
+| `ties` | `"breslow"` | `"breslow"` 或 `"efron"`；Exact 并列事件处理请使用 `CoxPH` |
 
 ## 示例
 
