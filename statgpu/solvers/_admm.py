@@ -58,9 +58,11 @@ def admm_solver(
         z^{k+1} = prox_{p/rho}(w^{k+1} + u^k)
         u^{k+1} = u^k + w^{k+1} - z^{k+1}
 
-    The w-update is a smooth, strongly convex problem solved via conjugate
-    gradient. The z-update reuses penalty.proximal(). Both are GPU-friendly:
-    w-update uses dense matmuls (cuBLAS), z-update is element-wise.
+    The w-update uses a direct Cholesky solve on the maintained constant-Hessian
+    squared-error route when available. Otherwise it uses Nesterov-accelerated
+    gradient descent on the smooth w-subproblem. The z-update reuses
+    ``penalty.proximal()``. Both paths are GPU-friendly: the iterative w-update
+    uses dense matmuls, while the z-update is element-wise.
 
     Supports numpy / cupy / torch backends via auto-detection of X.
 
@@ -78,9 +80,11 @@ def admm_solver(
     adaptive_rho : bool
         Adapt rho based on primal/dual residual balance.
     cg_max_iter : int
-        Maximum CG iterations for w-update subproblem.
+        Maximum inner Nesterov iterations for the w-update subproblem. The
+        historical parameter name is retained for API compatibility.
     cg_tol : float
-        CG convergence tolerance.
+        Inner Nesterov coefficient-change tolerance. The historical parameter
+        name is retained for API compatibility.
     init_coef : array, optional
         Initial coefficients.
     sample_weight : array, optional
