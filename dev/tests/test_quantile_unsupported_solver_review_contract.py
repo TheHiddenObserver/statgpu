@@ -16,15 +16,20 @@ from statgpu.linear_model.penalized import (
 )
 import statgpu.linear_model.penalized._quantile_unsupported_solver_guard_contract as _guard_contract
 from statgpu.losses import QuantileLoss
-from statgpu.penalties import L1Penalty
+from statgpu.penalties import L1Penalty, L2Penalty
 from statgpu import solvers
 from statgpu.solvers import _admm as _admm_mod
 from statgpu.solvers import _fista_bb as _fista_bb_mod
 from statgpu.solvers import _lbfgs as _lbfgs_mod
 
 
+# Each row below is a public estimator/CV request that the new guard itself
+# closes. ADMM needs both a smooth and a sparse representative because the
+# pre-existing Quantile validator did not reject ADMM on either branch, while
+# smooth FISTA-BB was already rejected by the older Quantile contract.
 _NEW_UNSUPPORTED_ESTIMATOR_CASES = [
     ("admm", "l1"),
+    ("admm", "l2"),
     ("fista_bb", "l1"),
 ]
 
@@ -35,6 +40,11 @@ _LOW_LEVEL_GUARD_CASES = [
         glm_core.fista_bb_solver,
         _fista_bb_mod.fista_bb_solver,
     ),
+]
+
+_LOW_LEVEL_PENALTIES = [
+    pytest.param(lambda: L1Penalty(0.04), id="l1"),
+    pytest.param(lambda: L2Penalty(0.04), id="l2"),
 ]
 
 
@@ -144,13 +154,14 @@ def test_existing_cv_quantile_lbfgs_rejection_keeps_prior_boundary(monkeypatch):
         model.fit(X, y)
 
 
+@pytest.mark.parametrize("penalty_factory", _LOW_LEVEL_PENALTIES)
 @pytest.mark.parametrize("solver_fn,glm_alias,internal_fn", _LOW_LEVEL_GUARD_CASES)
 def test_public_low_level_new_guard_rejects_quantile_before_loss_work(
-    monkeypatch, solver_fn, glm_alias, internal_fn
+    monkeypatch, penalty_factory, solver_fn, glm_alias, internal_fn
 ):
     X, y = _data(seed=16493)
     loss = QuantileLoss(quantile=0.2)
-    penalty = L1Penalty(0.04)
+    penalty = penalty_factory()
 
     def forbidden(*args, **kwargs):
         raise AssertionError("loss numerical work must not start")
