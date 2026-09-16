@@ -193,7 +193,11 @@ class QuantileLoss(LossBase):
             sw = None
 
         if init_coef is not None:
-            beta = xp.asarray(init_coef, dtype=xp.float64).copy()
+            beta = xp.asarray(init_coef, dtype=xp.float64)
+            if xp.__name__ == "torch":
+                beta = beta.to(device=X_dev.device).clone()
+            else:
+                beta = beta.copy()
         else:
             # OLS initial estimate
             if xp.__name__ == "torch":
