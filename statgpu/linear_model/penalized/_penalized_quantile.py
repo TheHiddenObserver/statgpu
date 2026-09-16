@@ -36,13 +36,13 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
         L1/ElasticNet objectives use FISTA-family routes, while SCAD/MCP use
         the dedicated Proximal IRLS-CD continuation path. Explicit
         ``solver='irls'`` is supported for L2/no penalty. Explicit
-        ``solver='fista'`` is not a maintained smooth Quantile route and fails
-        visibly instead of being silently substituted by IRLS.
+        ``solver='fista'`` is not a maintained L2/no-penalty Quantile route and
+        fails visibly instead of being silently substituted by IRLS.
     max_iter : int, default=1000
         Maximum iterations.
     tol : float, default=1e-4
         Convergence tolerance. Quantile IRLS uses a tighter internal tolerance
-        (at most 1e-8) on the maintained smooth route.
+        (at most 1e-8) on the maintained L2/no-penalty route.
     fit_intercept : bool, default=True
         Whether to fit an intercept.
     device : str, default='auto'
