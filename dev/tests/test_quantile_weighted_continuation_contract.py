@@ -7,6 +7,7 @@ import importlib
 import numpy as np
 import pytest
 
+from dev.benchmarks import validate_quantile_solver_provenance_gpu as _pr164_gate
 from statgpu.linear_model.penalized import (
     PenalizedGLM_CV,
     PenalizedQuantileRegression,
@@ -172,6 +173,32 @@ def test_user_supplied_low_level_path_is_never_rewritten():
     )
     assert observed is user_path
     np.testing.assert_array_equal(observed, user_path)
+
+
+def test_pr164_physical_fixture_exercises_weighted_start_not_legacy_start():
+    X, y, weights, _ = _pr164_gate._data()
+    tau = float(_pr164_gate.Q)
+    target = float(_pr164_gate.SCAD_ALPHA)
+    legacy_residual = y - float(np.quantile(y, tau))
+    legacy_psi = np.where(legacy_residual >= 0.0, tau, -(1.0 - tau))
+    legacy_start = float(np.max(np.abs(X.T @ legacy_psi / X.shape[0])))
+
+    auto = mark_auto_quantile_continuation_path(
+        np.geomspace(max(legacy_start, target * 1.1), target, 3)
+    )
+    resolved = resolve_auto_quantile_continuation_path(
+        QuantileLoss(quantile=tau),
+        X,
+        y,
+        auto,
+        sample_weight=weights,
+        fit_intercept=True,
+    )
+    weighted_start = _manual_weighted_start(X, y, weights, tau)
+    expected = np.geomspace(max(weighted_start, target * 1.1), target, 3)
+
+    np.testing.assert_allclose(resolved, expected, rtol=0.0, atol=1e-15)
+    assert not np.isclose(weighted_start, legacy_start, rtol=0.0, atol=1e-8)
 
 
 @pytest.mark.parametrize("penalty", ["scad", "mcp"])
