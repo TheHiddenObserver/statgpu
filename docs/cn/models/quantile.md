@@ -7,7 +7,7 @@
 
 ## 概述
 
-`QuantileLoss` 实现分位数回归的 **check loss（又称 pinball loss）**。这两个名称指的是同一个非对称绝对损失，而不是两种不同的损失函数。`PenalizedQuantileRegression` 在此基础上提供带惩罚估计；平滑的 L2/无惩罚问题使用普通 Quantile IRLS，SCAD/MCP 则使用专门的 Proximal IRLS-CD 路径。
+`QuantileLoss` 实现分位数回归的 **check loss（又称 pinball loss）**。这两个名称指的是同一个非对称绝对损失，而不是两种不同的损失函数。`PenalizedQuantileRegression` 在此基础上提供带惩罚估计；L2/无惩罚问题使用普通 Quantile IRLS，SCAD/MCP 则使用专门的 Proximal IRLS-CD 路径。
 
 | 组件 | 路径 |
 |------|------|
@@ -77,7 +77,7 @@ $$
 | Newton | ❌ | 分位数损失没有 Hessian |
 | Proximal Newton | ❌ | 分位数损失没有 Hessian |
 
-对平滑 Quantile 目标，`auto`、IRLS 和 FISTA 的语义现在是明确分开的：`PenalizedQuantileRegression(..., solver="auto", penalty="l2")` 会解析到 IRLS；显式 `solver="irls"` 直接请求同一维护算法。显式 smooth `solver="fista"` 会明确失败，而不会在内部静默替换成 IRLS。稀疏 Quantile 惩罚的 `auto` 继续使用普通 FISTA；BB 变体不属于维护中的 Quantile 算法。
+对 L2/无惩罚 Quantile 目标，`auto`、IRLS 和 FISTA 的语义现在是明确分开的：`PenalizedQuantileRegression(..., solver="auto", penalty="l2")` 会解析到 IRLS；显式 `solver="irls"` 直接请求同一维护算法。显式 L2/无惩罚 `solver="fista"` 会明确失败，而不会在内部静默替换成 IRLS。稀疏 Quantile 惩罚的 `auto` 继续使用普通 FISTA；BB 变体不属于维护中的 Quantile 算法。
 
 ## 惩罚兼容性
 
@@ -135,7 +135,7 @@ print(model._conf_int)
 ```python
 from statgpu.linear_model.penalized import PenalizedQuantileRegression
 
-# 这个平滑 L2 Quantile 问题中，solver="auto" 解析到 IRLS。
+# 这个 L2 惩罚的 Quantile 问题中，solver="auto" 解析到 IRLS。
 model = PenalizedQuantileRegression(
     quantile=0.5,
     penalty="l2",
@@ -255,7 +255,7 @@ L2 路径在左侧加入相应 Ridge 对角项；截距坐标不参与惩罚。�
 
 - `score()` 使用 check/pinball loss，并返回其相反数以符合 sklearn“越大越好”的约定。
 - `sample_weight` 支持是 **loss × solver × estimator** 路径能力，而不是所有 solver 自动拥有的属性。
-- 显式 solver 请求保持权威：不受支持的 smooth Quantile FISTA，以及所有 Quantile FISTA-BB/ADMM 请求都会在数值迭代前明确失败，而不是被静默替换或运行不受支持的算法。模型/CV 层 L-BFGS 继续不支持，但底层无权重/均匀权重 L-BFGS 的既有兼容边界保留。
+- 显式 solver 请求保持权威：不受支持的 L2/无惩罚 Quantile FISTA，以及所有 Quantile FISTA-BB/ADMM 请求都会在数值迭代前明确失败，而不是被静默替换或运行不受支持的算法。模型/CV 层 L-BFGS 继续不支持，但底层无权重/均匀权重 L-BFGS 的既有兼容边界保留。
 - 不支持的显式带权求解器组合应在数值迭代前失败，而不是静默替换成其他 solver。
 - 维护中的 GPU 路径（`cuda`/`torch`）不能静默回退到 CPU。
 
