@@ -33,11 +33,16 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
     solver : str, default='auto'
         Solver policy. For L2/no-penalty Quantile objectives, ``'auto'``
         resolves to the maintained Quantile IRLS algorithm. Convex sparse
-        L1/ElasticNet objectives use FISTA-family routes, while SCAD/MCP use
-        the dedicated Proximal IRLS-CD continuation path. Explicit
+        L1/ElasticNet objectives use ordinary FISTA, while SCAD/MCP use the
+        dedicated Proximal IRLS-CD continuation path. Explicit
         ``solver='irls'`` is supported for L2/no penalty. Explicit
         ``solver='fista'`` is not a maintained L2/no-penalty Quantile route and
-        fails visibly instead of being silently substituted by IRLS.
+        fails visibly instead of being silently substituted by IRLS. FISTA-BB
+        and shared ADMM are not maintained Quantile routes. Estimator/CV
+        ``solver='lbfgs'`` also fails closed because the maintained shared
+        L-BFGS route assumes a smooth loss gradient; the separate low-level
+        omitted/uniform-weight Quantile L-BFGS compatibility surface is not an
+        estimator-level solver option.
     max_iter : int, default=1000
         Maximum iterations.
     tol : float, default=1e-4
@@ -56,7 +61,7 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
     >>> model.fit(X, y)
     >>> pred = model.predict(X_test)
 
-    >>> # 90th percentile with L1 penalty (sparse FISTA-family route)
+    >>> # 90th percentile with L1 penalty (ordinary FISTA route)
     >>> model = PenalizedQuantileRegression(quantile=0.9, penalty='l1', alpha=0.05)
     """
 
