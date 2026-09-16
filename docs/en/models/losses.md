@@ -97,7 +97,7 @@ $$
 \rho_{0.5}(u)=\frac12|u|,
 $$
 
-so median regression differs from absolute loss only by a constant scale factor. Its subgradient is a step function, so low-level algorithms that require smooth-gradient curvature are not maintained Quantile routes.
+so median regression differs from absolute loss only by a constant scale factor. Its subgradient is a step function. Under the current generic implementations this excludes Quantile from FISTA-BB and shared ADMM; direct unweighted/uniform L-BFGS is retained as an existing low-level compatibility surface and is documented separately from estimator-level solver support.
 
 ### Huber loss
 
@@ -154,11 +154,11 @@ The table below describes the maintained **unweighted** low-level compatibility.
 | Proximal IRLS-CD | ✅ (SCAD/MCP) | ❌ | ❌ | ❌ | ❌ |
 | Proximal Newton | ❌ (no Hessian) | ✅ (L2/no penalty) | ✅ (L2/no penalty) | ✅ (L2/no penalty) | ❌ |
 | Newton | ❌ (no Hessian) | ✅ | ✅ | ✅ | ✅ |
-| L-BFGS | ❌ (non-smooth objective) | ✅ | ✅ | ✅ | ✅ |
+| L-BFGS | ✅ (unweighted/uniform) | ✅ | ✅ | ✅ | ✅ |
 | ADMM | ❌ (shared w-update requires smooth gradient) | ✅ | ✅ | ✅ | ✅ |
 | IRLS | ✅ (L2/no penalty) | ❌ (currently unavailable) | ✅ (L2/no penalty) | ✅ (L2/no penalty) | ❌ |
 
-For Quantile loss, the public low-level `fista_bb_solver`, `lbfgs_solver`, and `admm_solver` exports fail closed before numerical iteration. Ordinary FISTA remains the maintained sparse convex route; L2/no-penalty uses Quantile IRLS, and SCAD/MCP use Proximal IRLS-CD. Huber IRLS is not currently exposed as a maintained public solver route; the ❌ entry there means that public dispatch does not select that route today.
+For Quantile loss, the public low-level `fista_bb_solver` and `admm_solver` exports fail closed before numerical iteration. Direct `lbfgs_solver` preserves the existing unweighted/uniform Quantile compatibility boundary, while genuine non-uniform weights fail closed. Ordinary FISTA remains the maintained sparse convex estimator route; L2/no-penalty uses Quantile IRLS, and SCAD/MCP use Proximal IRLS-CD. Huber IRLS is not currently exposed as a maintained public solver route; the ❌ entry there means that public dispatch does not select that route today.
 
 ### Non-uniform weights and direct L-BFGS
 
@@ -167,13 +167,12 @@ Direct L-BFGS is deliberately conservative about non-uniform weights:
 | Direct `lbfgs_solver` route | Genuine non-uniform `sample_weight` |
 |---|---|
 | Maintained `GLMLoss` implementations | ✅ Supported by the GLM weighted-objective contract |
-| Quantile | ❌ L-BFGS is not a maintained Quantile route even without weights |
-| Huber / Bisquare / Fair | ❌ Not implied by unweighted L-BFGS support |
+| Quantile / Huber / Bisquare / Fair | ❌ Not implied by unweighted L-BFGS support |
 | Cox partial likelihood | ❌ `sample_weight` is currently unsupported |
 
-`GLMLoss` can opt in because its fused value/gradient contract defines one normalized analytic-weight objective. Generic non-GLM losses remain closed to genuine non-uniform direct L-BFGS weights unless that specific loss later defines and validates an equivalent contract. For Quantile, the stronger non-smooth-objective exclusion applies regardless of weights.
+`GLMLoss` can opt in because its fused value/gradient contract defines one normalized analytic-weight objective. Generic non-GLM losses remain closed to genuine non-uniform direct L-BFGS weights unless that specific loss later defines and validates an equivalent contract.
 
-Uniform weights retain historical unweighted L-BFGS behavior only for losses whose unweighted L-BFGS route remains maintained.
+Uniform weights retain historical unweighted L-BFGS behavior, including the direct Quantile compatibility surface. This low-level compatibility does not make `solver="lbfgs"` a supported `PenalizedQuantileRegression` or `PenalizedGLM_CV` request.
 
 ## Parameters
 
@@ -217,15 +216,18 @@ Uniform weights retain historical unweighted L-BFGS behavior only for losses who
 ### Direct CPU solver calls
 
 ```python
-from statgpu.losses import HuberLoss
+from statgpu.losses import QuantileLoss, HuberLoss
 from statgpu.solvers import lbfgs_solver
 
-# An intentionally unweighted low-level smooth-loss example.
+# These examples intentionally use the unweighted low-level compatibility surface.
+quantile_loss = QuantileLoss(quantile=0.5)
+coef_q, n_iter_q = lbfgs_solver(quantile_loss, None, X, y)
+
 huber_loss = HuberLoss()
 coef_h, n_iter_h = lbfgs_solver(huber_loss, None, X, y)
 ```
 
-Quantile is intentionally absent from the direct L-BFGS example: its step-function subgradient does not satisfy the maintained smooth-objective L-BFGS contract. Use the Quantile model routes documented on [Quantile Regression](quantile.md).
+These examples demonstrate unweighted direct L-BFGS only. They do not establish non-uniform weighted L-BFGS support for Quantile or Huber loss, and the direct Quantile example does not imply estimator-level `solver="lbfgs"` support. For weighted robust/quantile procedures, follow the corresponding model documentation.
 
 ### GPU (Torch CUDA)
 
@@ -264,7 +266,7 @@ For estimator APIs, data scope, and inference behavior of `CoxPH`, `CoxPHCV`, an
 
 Loss-specific numerical validation follows the corresponding model and solver contracts. Cross-backend parity and statistical weight semantics are separate questions: agreement across NumPy/CuPy/Torch is not, by itself, evidence that a new weighting interpretation is valid for a loss that has not declared one.
 
-- `QuantileLoss` is non-smooth and has no Hessian; maintained routes are ordinary FISTA for supported sparse convex objectives, IRLS for L2/no penalty, and Proximal IRLS-CD/FISTA-LLA where explicitly documented. FISTA-BB, L-BFGS, and shared ADMM fail closed for Quantile.
+- `QuantileLoss` is non-smooth and has no Hessian; maintained estimator routes are ordinary FISTA for supported sparse convex objectives, IRLS for L2/no penalty, and Proximal IRLS-CD/FISTA-LLA where explicitly documented. Low-level FISTA-BB and shared ADMM fail closed; direct unweighted/uniform L-BFGS remains an existing compatibility surface.
 - Robust losses expose estimator-level weight semantics; those semantics do not automatically extend to direct non-uniform weighted L-BFGS.
 - `CoxPartialLikelihoodLoss` currently rejects `sample_weight`; any future Cox case/frequency/sampling-weight support needs a separately defined statistical contract.
 - Panel estimators use the separate `BasePanelModel` architecture rather than inheriting from `LossBase`.
