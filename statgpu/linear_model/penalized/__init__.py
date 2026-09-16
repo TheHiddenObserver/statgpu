@@ -64,10 +64,10 @@ from . import (
 # same truthful solver identity.
 from . import _quantile_solver_contract as _quantile_solver_contract
 
-# Generic FISTA-BB, L-BFGS, and shared ADMM all require smooth-gradient
-# structure that Quantile/check loss does not provide. Install the narrow
-# fail-closed explicit-solver boundary after the main Quantile contract so
-# direct and CV validation share the same rejection.
+# Generic FISTA-BB and shared ADMM require smooth-gradient structure that
+# Quantile/check loss does not provide. Install the narrow additional boundary
+# after the main Quantile contract so existing, more-specific rejection
+# semantics remain authoritative and only previously-open rows are closed.
 from . import (
     _quantile_unsupported_solver_guard_contract
     as _quantile_unsupported_solver_guard_contract,
