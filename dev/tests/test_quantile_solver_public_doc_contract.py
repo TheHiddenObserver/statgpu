@@ -14,7 +14,8 @@ def test_guarded_public_solver_docstrings_expose_quantile_boundary():
 
     assert "Quantile" in fista_text
     assert "not a maintained FISTA-BB route" in fista_text
-    assert "bb_burn_in" in fista_doc
+    assert "alternating BB1/BB2 steps" in fista_text
+    assert "Supports numpy / cupy / torch backends" in fista_text
 
     assert "Nesterov-accelerated gradient descent" in admm_text
     assert "not a maintained ADMM route" in admm_text
