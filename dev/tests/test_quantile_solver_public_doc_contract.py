@@ -9,13 +9,15 @@ from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
 def test_guarded_public_solver_docstrings_expose_quantile_boundary():
     fista_doc = inspect.getdoc(solvers.fista_bb_solver) or ""
     admm_doc = inspect.getdoc(solvers.admm_solver) or ""
+    fista_text = " ".join(fista_doc.split())
+    admm_text = " ".join(admm_doc.split())
 
-    assert "Quantile" in fista_doc
-    assert "not a maintained FISTA-BB route" in fista_doc
+    assert "Quantile" in fista_text
+    assert "not a maintained FISTA-BB route" in fista_text
     assert "bb_burn_in" in fista_doc
 
-    assert "Nesterov-accelerated gradient descent" in admm_doc
-    assert "not a maintained ADMM route" in admm_doc
+    assert "Nesterov-accelerated gradient descent" in admm_text
+    assert "not a maintained ADMM route" in admm_text
     assert "cg_max_iter" in admm_doc
 
     # glm_core re-exports the same guarded public callables, so runtime help
