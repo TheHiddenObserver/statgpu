@@ -130,7 +130,7 @@ For each continuation value of `alpha`:
    \min(\texttt{tol},10^{-8}),
    $$
 
-   matching the maintained smooth Quantile IRLS precision contract. If any $d_j>0$, the ordinary Proximal IRLS-CD inner loop above remains in force.
+   matching the maintained Quantile IRLS precision contract. If any $d_j>0$, the ordinary Proximal IRLS-CD inner loop above remains in force.
 
 5. **Convergence.** On genuinely penalized Proximal IRLS-CD steps the inner loop checks
 
@@ -1452,7 +1452,7 @@ direct fit with solver="auto"
 └── group penalties                      → group-aware FISTA / FISTA-LLA
 ```
 
-For smooth Quantile L2/no-penalty objectives, explicit `solver="irls"` selects the same maintained algorithm as `auto`, while explicit `solver="fista"` fails rather than being silently substituted by IRLS. At the estimator/CV boundary, Quantile FISTA-BB, L-BFGS, and ADMM requests fail before numerical dispatch. At the public low-level solver boundary, Quantile FISTA-BB and ADMM also fail closed; direct L-BFGS preserves the existing omitted/uniform compatibility surface, with non-uniform weights still rejected. Sparse Quantile ordinary FISTA and SCAD/MCP Proximal IRLS-CD remain distinct maintained estimator algorithms.
+For Quantile L2/no-penalty objectives, explicit `solver="irls"` selects the same maintained algorithm as `auto`, while explicit `solver="fista"` fails rather than being silently substituted by IRLS. At the estimator/CV boundary, Quantile FISTA-BB, L-BFGS, and ADMM requests fail before numerical dispatch. At the public low-level solver boundary, Quantile FISTA-BB and ADMM also fail closed; direct L-BFGS preserves the existing omitted/uniform compatibility surface, with non-uniform weights still rejected. Sparse Quantile ordinary FISTA and SCAD/MCP Proximal IRLS-CD remain distinct maintained estimator algorithms.
 
 The tree is intentionally a summary. Exact family/backend/problem-size rules—especially Poisson and Negative-Binomial CV sparse routing—are defined in the [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md).
 
