@@ -33,7 +33,7 @@ For model-level dispatch, see [Solver × Penalty Compatibility Matrix](solver-pe
 | ADMM | separable/proximal formulations | NumPy, CuPy, Torch |
 | `exact` | squared error + L2 closed-form path | NumPy, CuPy, Torch |
 
-The backend column describes numerical implementation capability only. Estimator and loss contracts can further narrow the valid combinations. Quantile/check loss is one such narrowing: ordinary FISTA is maintained on supported sparse convex routes, while FISTA-BB, L-BFGS, and shared ADMM are not maintained Quantile algorithms.
+The backend column describes numerical implementation capability only. Estimator and loss contracts can further narrow the valid combinations. Quantile/check loss is one such narrowing: ordinary FISTA is maintained on supported sparse convex estimator routes, while FISTA-BB and shared ADMM are excluded. Direct low-level L-BFGS retains the historical omitted/uniform-weight Quantile compatibility surface even though estimator/CV `solver="lbfgs"` is unsupported and genuine non-uniform Quantile L-BFGS weights fail closed.
 
 ---
 
@@ -1030,7 +1030,7 @@ Multiplying all active weights by one positive constant therefore leaves the opt
 
 **Files**: `statgpu/solvers/_lbfgs.py`, `statgpu/solvers/_lbfgs_b.py`
 
-**Use case**: Limited-memory quasi-Newton optimization for smooth objectives, plus a projected box-constrained variant. Public `lbfgs_solver(QuantileLoss, ...)` calls fail closed because check loss does not satisfy the smooth-objective curvature/line-search contract.
+**Use case**: Limited-memory quasi-Newton optimization is intended for smooth objectives, plus a projected box-constrained variant. A historical direct low-level `lbfgs_solver(QuantileLoss, ...)` compatibility surface is regression-covered and retained for omitted/uniform weights; this does not make estimator/CV `solver="lbfgs"` supported for Quantile and does not enable genuine non-uniform Quantile weights.
 
 ### L-BFGS curvature history
 
@@ -1263,7 +1263,7 @@ Non-uniform direct L-BFGS weights are loss-level opt-in:
 |---|---|
 | Maintained `GLMLoss` | ✅ Supported |
 | Generic robust / Cox `LossBase` consumers | ❌ Not implied by unweighted support |
-| Quantile | ❌ L-BFGS is not a maintained Quantile route even without weights |
+| Quantile | ❌ Non-uniform weights fail closed; omitted/uniform direct compatibility is retained |
 
 For maintained GLMs, the initial gradient, current objective, every line-search candidate, and accepted-point gradient use the same normalized objective
 
@@ -1272,7 +1272,7 @@ F(\beta)
 =\frac{\sum_i w_i\ell_i(\beta)}{\sum_i w_i}+P(\beta).
 $$
 
-Before smooth-solver evaluation, finite non-negative analytic weights with positive mass are normalized by a positive common scale on the executed backend. Consequently, representable global positive rescaling does not change the normalized objective merely because the raw input-dtype sum would overflow. Uniform/effectively-uniform weights retain the historical unweighted numerical route, and that same fitted-objective identity is preserved by maintained ordinary and penalized GLM inference consumers.
+Before smooth-solver evaluation, finite non-negative analytic weights with positive mass are normalized by a positive common scale on the executed backend. Consequently, representable global positive rescaling does not change the normalized objective merely because the raw input-dtype sum would overflow. Uniform/effectively-uniform weights retain the historical unweighted numerical route, including the direct low-level Quantile compatibility surface. Estimator/CV Quantile `solver="lbfgs"` remains a separate unsupported request.
 
 ---
 
@@ -1452,7 +1452,7 @@ direct fit with solver="auto"
 └── group penalties                      → group-aware FISTA / FISTA-LLA
 ```
 
-For smooth Quantile L2/no-penalty objectives, explicit `solver="irls"` selects the same maintained algorithm as `auto`, while explicit `solver="fista"` fails rather than being silently substituted by IRLS. Across all Quantile penalties, explicit FISTA-BB, L-BFGS, and ADMM requests fail before numerical dispatch. Sparse Quantile ordinary FISTA and SCAD/MCP Proximal IRLS-CD remain distinct maintained algorithms.
+For smooth Quantile L2/no-penalty objectives, explicit `solver="irls"` selects the same maintained algorithm as `auto`, while explicit `solver="fista"` fails rather than being silently substituted by IRLS. At the estimator/CV boundary, Quantile FISTA-BB, L-BFGS, and ADMM requests fail before numerical dispatch. At the public low-level solver boundary, Quantile FISTA-BB and ADMM also fail closed; direct L-BFGS preserves the existing omitted/uniform compatibility surface, with non-uniform weights still rejected. Sparse Quantile ordinary FISTA and SCAD/MCP Proximal IRLS-CD remain distinct maintained estimator algorithms.
 
 The tree is intentionally a summary. Exact family/backend/problem-size rules—especially Poisson and Negative-Binomial CV sparse routing—are defined in the [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md).
 
