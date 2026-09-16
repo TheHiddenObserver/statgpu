@@ -1,7 +1,7 @@
 # Quantile Regression
 
 > Language: English  
-> Last updated: 2026-09-15  
+> Last updated: 2026-09-16  
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/quantile.md)
 
@@ -73,7 +73,7 @@ The support column below first describes unweighted algorithm availability. With
 | FISTA | ✅ (sparse routes) | Maintained for L1/ElasticNet and related proximal routes. Explicit FISTA is not a maintained L2/no-penalty Quantile request; use `auto` or `irls` there |
 | FISTA-BB | ✅ | Available when explicitly selected on supported sparse routes; smooth Quantile `auto` does not select it |
 | L-BFGS | ✅ (unweighted/uniform weights at the low-level solver boundary) | Public `PenalizedQuantileRegression` rejects L-BFGS because Quantile has no Hessian-compatible smooth contract; genuine non-uniform direct weighted L-BFGS is fail-closed for generic `LossBase` |
-| ADMM | ✅ (unweighted/uniform weights) | Shared `admm_solver` currently rejects genuine non-uniform `sample_weight` |
+| ADMM | ❌ | The shared ADMM w-update uses accelerated gradient descent and requires a smooth loss gradient. Quantile has a step-function subgradient, so estimator-level `solver="admm"` and public `admm_solver(QuantileLoss, ...)` calls fail closed before numerical iteration |
 | Newton | ❌ | Quantile loss has no Hessian |
 | Proximal Newton | ❌ | Quantile loss has no Hessian |
 
@@ -105,7 +105,7 @@ But `sample_weight` is **not one universal solver capability**. In particular:
 - maintained FISTA routes use the loss-layer normalized weighted objective where supported;
 - generic `LossBase` shared value/gradient primitives can evaluate the normalized weighted objective;
 - direct `lbfgs_solver` remains fail-closed for genuine non-uniform Quantile weights;
-- shared `admm_solver` currently accepts omitted or uniform weights only.
+- ADMM is not a maintained Quantile route at any weighting level because the shared ADMM w-update requires a smooth loss gradient.
 
 For weighted support across other losses and solver families, see the [Solver × Penalty Compatibility Matrix](../guides/solver-penalty-matrix.md) and [Solver Algorithms](../guides/solver-algorithms.md).
 
@@ -255,7 +255,7 @@ The L2 route adds the corresponding ridge diagonal term, excluding the intercept
 
 - `score()` uses check/pinball loss and returns its negative to follow sklearn's “higher is better” convention.
 - `sample_weight` support is a **loss × solver × estimator** route capability, not an automatic property of every solver.
-- Explicit solver requests are authoritative: unsupported smooth Quantile FISTA fails instead of being silently replaced by IRLS.
+- Explicit solver requests are authoritative: unsupported smooth Quantile FISTA and Quantile ADMM requests fail before numerical iteration rather than being silently substituted or run through an unsupported algorithm.
 - Unsupported explicit weighted-solver combinations should fail before numerical iteration rather than silently substitute another solver.
 - Maintained GPU routes (`cuda`/`torch`) must not silently fall back to CPU.
 
