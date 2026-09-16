@@ -94,7 +94,11 @@ def resolve_auto_quantile_continuation_path(
         weights_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).reshape(-1)
         if weights_np.shape[0] != n:
             raise ValueError("sample_weight must have length n_samples")
-        nonuniform_weight = not bool(np.allclose(weights_np, weights_np[0]))
+        # Equal analytic weights define the same objective as the unweighted
+        # fit up to a common scale. Preserve that exact historical path, but do
+        # not classify merely-near-equal weights as uniform: any genuine
+        # observation-weight difference belongs in the weighted objective.
+        nonuniform_weight = not bool(np.all(weights_np == weights_np[0]))
 
     # Preserve the exact historical path when the objective is effectively
     # unweighted and an intercept is fitted.  This avoids changing ordinary
