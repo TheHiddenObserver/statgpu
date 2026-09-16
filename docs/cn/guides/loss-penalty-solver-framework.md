@@ -2,7 +2,7 @@
 
 > 语言：中文
 >
-> 最后更新：2026-09-15
+> 最后更新：2026-09-16
 >
 > 切换：[英文版](../../en/guides/loss-penalty-solver-framework.md)
 
@@ -202,11 +202,11 @@ $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\be
 | 2 | `newton` | `squared_error` + L2/none + GPU |
 | 3 | 专用延续路径 | Quantile SCAD/MCP → Proximal IRLS-CD；其他 SCAD/MCP 与分组非凸惩罚使用对应维护中的 LLA wrapper |
 | 4 | `irls` | Quantile + L2/none |
-| 5 | `fista` / `fista_bb` | Quantile 凸稀疏及其他凸稀疏惩罚，包括初始化后的 adaptive L1；精确选择依 loss/backend/CV 而定 |
+| 5 | `fista` / `fista_bb` | Quantile 凸稀疏 → 普通 FISTA；其他凸稀疏惩罚（包括初始化后的 adaptive L1）按 loss/backend/CV 选择 FISTA 或 FISTA-BB |
 | 6 | `lbfgs` / `newton` | 交叉验证 + L2 + 特定损失函数 |
 | 7 | `newton` | GLM/稳健/Cox 等具有维护中 Hessian 的光滑 L2/无惩罚路径 |
 
-显式 smooth Quantile `fista`/`fista_bb` 请求不会被静默替换为 IRLS；它们会在数值 dispatch 前明确失败。这里的 `exact` 是平方误差/L2 的闭式求解器，与 `CoxPH(ties="exact")` 无关。需要 family/backend-specific 的精确分派时，请查看 [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md)。
+对 Quantile，普通 FISTA 只用于受支持的凸稀疏路径；L2/无惩罚使用 IRLS，SCAD/MCP 使用 Proximal IRLS-CD。显式 smooth Quantile `fista`，以及任意 Quantile `fista_bb`、`lbfgs`、`admm` 请求，都会在数值 dispatch 前明确失败，而不是被静默替换或交给不受支持的通用算法。这里的 `exact` 是平方误差/L2 的闭式求解器，与 `CoxPH(ties="exact")` 无关。需要 family/backend-specific 的精确分派时，请查看 [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md)。
 
 ### 全部求解器
 
@@ -217,14 +217,14 @@ $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\be
 | `exact` | 仅平方误差 | 仅 L2 | ✅ | ❌ |
 | `irls` | 声明 IRLS 调度能力的损失 | L2 / 无惩罚 | 对应损失的 IRLS 路径支持时可用 | ❌ |
 | `newton` | 有 Hessian 的损失 | L2 / 无惩罚 | 由损失函数能力决定；普通 GLM ✅ | ❌ |
-| `lbfgs` | 光滑损失 | L2 / 无惩罚 | 受能力声明约束；普通 GLM ✅ | ❌ |
+| `lbfgs` | 光滑损失；不含 Quantile | L2 / 无惩罚 | 受能力声明约束；普通 GLM ✅ | ❌ |
 | `lbfgs_b` | 光滑盒约束问题 | L2 / 无惩罚 | 尚未声明通用的非均匀权重约定 | ❌ |
 | `fista` | 支持梯度/近端路径的损失 | 受支持的近端惩罚 | 由具体损失路径决定 | ✅ |
-| `fista_bb` | 支持梯度/近端路径的损失 | 受支持的稀疏惩罚 | 由具体损失路径决定 | ✅ |
+| `fista_bb` | 具有有效 smooth-gradient difference 的损失；不含 Quantile | 受支持的稀疏惩罚 | 由具体损失路径决定 | ✅ |
 | `fista_lla` | 支持当前 LLA 路径的损失 | SCAD/MCP 与分组非凸 LLA 路径 | 由具体损失路径决定 | ✅ |
 | `proximal_irls_cd` | 仅分位数损失 | SCAD/MCP | ✅ | ✅ |
 | `proximal_newton` | 有 Hessian 的光滑损失 | L2 / 无惩罚 | 由具体损失路径决定 | ✅ |
-| `admm` | 当前维护的 ADMM 损失 | 受支持的近端形式 | 仅未传权重或均匀权重；真正非均匀权重会明确报错 | ✅ |
+| `admm` | 具有维护中光滑 w-update 的 ADMM 损失；不含 Quantile | 受支持的近端形式 | 仅未传权重或均匀权重；真正非均匀权重会明确报错 | ✅ |
 
 ### 专用求解器
 
@@ -399,7 +399,7 @@ $$
 | `PenalizedLinearRegression` | squared_error | l1/l2/elasticnet/scad/mcp/adaptive_l1 | L2/none：CPU exact / GPU Newton；凸稀疏：FISTA；SCAD/MCP：FISTA-LLA |
 | `PenalizedLogisticRegression` | logistic | l1/l2/elasticnet/scad/mcp/adaptive_l1 | L2/none：Newton；direct 凸稀疏：FISTA-BB；SCAD/MCP：FISTA-LLA |
 | `PenalizedPoissonRegression` | poisson | l1/l2/elasticnet/scad/mcp/adaptive_l1 | L2/none：Newton；direct 凸稀疏：FISTA-BB；SCAD/MCP：FISTA-LLA |
-| `PenalizedQuantileRegression` | quantile | scad/mcp/l2 及其他受支持惩罚 | L2/none 的 auto 或显式请求：IRLS；凸稀疏：FISTA-family；SCAD/MCP：Proximal IRLS-CD |
+| `PenalizedQuantileRegression` | quantile | scad/mcp/l2 及其他受支持惩罚 | L2/none 的 auto 或显式请求：IRLS；凸稀疏：普通 FISTA；SCAD/MCP：Proximal IRLS-CD |
 | `PenalizedRobustRegression` | huber/bisquare/fair | l1/l2/elasticnet/scad/mcp 等 | L2/none：Newton；凸稀疏：FISTA；SCAD/MCP：FISTA-LLA；Bisquare/Fair 另有显式 IRLS |
 | `PenalizedCoxPHModel` | cox_ph | l1/l2/elasticnet/scad/mcp | L2/none：Newton；direct L1/ElasticNet：FISTA-BB；SCAD/MCP：FISTA-LLA |
 
