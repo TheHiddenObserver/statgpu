@@ -206,7 +206,7 @@ $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\be
 | 6 | `lbfgs` / `newton` | 交叉验证 + L2 + 特定损失函数 |
 | 7 | `newton` | GLM/稳健/Cox 等具有维护中 Hessian 的光滑 L2/无惩罚路径 |
 
-对 Quantile，普通 FISTA 只用于受支持的凸稀疏路径；L2/无惩罚使用 IRLS，SCAD/MCP 使用 Proximal IRLS-CD。显式 smooth Quantile `fista`，以及任意 Quantile `fista_bb`、`lbfgs`、`admm` 请求，都会在数值 dispatch 前明确失败，而不是被静默替换或交给不受支持的通用算法。这里的 `exact` 是平方误差/L2 的闭式求解器，与 `CoxPH(ties="exact")` 无关。需要 family/backend-specific 的精确分派时，请查看 [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md)。
+对 Quantile，普通 FISTA 只用于受支持的凸稀疏模型路径；L2/无惩罚使用 IRLS，SCAD/MCP 使用 Proximal IRLS-CD。显式 smooth Quantile `fista`，以及模型/CV 层任意 Quantile `fista_bb`、`lbfgs`、`admm` 请求，都会在数值 dispatch 前明确失败。底层 solver API 中，FISTA-BB 与 ADMM 同样对 Quantile fail closed，而直接无权重/均匀权重 Quantile L-BFGS 继续作为既有兼容面保留。这里的 `exact` 是平方误差/L2 的闭式求解器，与 `CoxPH(ties="exact")` 无关。需要 family/backend-specific 的精确分派时，请查看 [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md)。
 
 ### 全部求解器
 
@@ -217,7 +217,7 @@ $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\be
 | `exact` | 仅平方误差 | 仅 L2 | ✅ | ❌ |
 | `irls` | 声明 IRLS 调度能力的损失 | L2 / 无惩罚 | 对应损失的 IRLS 路径支持时可用 | ❌ |
 | `newton` | 有 Hessian 的损失 | L2 / 无惩罚 | 由损失函数能力决定；普通 GLM ✅ | ❌ |
-| `lbfgs` | 光滑损失；不含 Quantile | L2 / 无惩罚 | 受能力声明约束；普通 GLM ✅ | ❌ |
+| `lbfgs` | 光滑损失；另保留未传/均匀权重的底层 Quantile 兼容面 | L2 / 无惩罚 | 受能力声明约束；普通 GLM ✅；Quantile 非均匀权重 ❌ | ❌ |
 | `lbfgs_b` | 光滑盒约束问题 | L2 / 无惩罚 | 尚未声明通用的非均匀权重约定 | ❌ |
 | `fista` | 支持梯度/近端路径的损失 | 受支持的近端惩罚 | 由具体损失路径决定 | ✅ |
 | `fista_bb` | 具有有效 smooth-gradient difference 的损失；不含 Quantile | 受支持的稀疏惩罚 | 由具体损失路径决定 | ✅ |
@@ -225,6 +225,8 @@ $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\be
 | `proximal_irls_cd` | 仅分位数损失 | SCAD/MCP | ✅ | ✅ |
 | `proximal_newton` | 有 Hessian 的光滑损失 | L2 / 无惩罚 | 由具体损失路径决定 | ✅ |
 | `admm` | 具有维护中光滑 w-update 的 ADMM 损失；不含 Quantile | 受支持的近端形式 | 仅未传权重或均匀权重；真正非均匀权重会明确报错 | ✅ |
+
+`lbfgs` 这一行描述的是通用底层 solver 能力，不是模型层 dispatch。`PenalizedQuantileRegression` 与 `PenalizedGLM_CV` 仍会在数值拟合前拒绝显式 `solver="lbfgs"`。
 
 ### 专用求解器
 
