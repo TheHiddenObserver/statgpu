@@ -6,7 +6,7 @@ Quantile/check loss does not provide:
 * FISTA-BB estimates local curvature from smooth-gradient differences;
 * ADMM solves its generic w-subproblem with Nesterov-accelerated gradient descent.
 
-Ordinary Quantile FISTA remains a maintained sparse route, while smooth
+Ordinary Quantile FISTA remains a maintained sparse route, while
 L2/no-penalty Quantile uses IRLS and SCAD/MCP use Proximal IRLS-CD.
 
 Low-level ``lbfgs_solver(QuantileLoss, ...)`` is intentionally not wrapped
