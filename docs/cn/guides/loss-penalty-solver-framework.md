@@ -115,7 +115,7 @@ class LossBase:
     y_type: str             # "continuous" / "survival"
     smooth_gradient: bool   # 逐样本梯度是否为光滑梯度
     has_hessian: bool       # 是否提供 Hessian 数值原语
-    _supports_irls: bool    # 是否声明可进入维护中的 IRLS 调度路径
+    _supports_irls: bool    # 是否支持 IRLS 调度
 ```
 
 这些字段描述的是损失函数提供的**数值原语或调度能力**，并不单独决定完整的 solver × penalty 支持关系。
@@ -137,7 +137,7 @@ class LossBase:
 | Fair | `FairLoss` | ✅ | ✅ | ✅ | 需要自定义 psi/外部 reference；MASS 没有内建 Fair psi |
 | Cox PH | `CoxPartialLikelihoodLoss` | ✅ | ✅ | ❌ | `survival::coxph()` |
 
-Huber 当前的 `_supports_irls=False` 表示公共调度不会进入 Huber IRLS；因此显式请求该路径时按当前兼容性约定拒绝，而不是静默切换到其他求解器。Fair loss 的外部比较也需要显式匹配 Fair psi 实现，不能使用并不存在的 `MASS::rlm(psi="fair")` 内建选项。
+Huber 当前的 `_supports_irls=False` 表示公共调度不会进入 Huber IRLS；因此显式请求该路径时会直接报错，而不是静默切换到其他求解器。Fair loss 的外部比较也需要显式匹配 Fair psi 实现，不能使用并不存在的 `MASS::rlm(psi="fair")` 内建选项。
 
 ### 逐样本公式
 
@@ -200,17 +200,17 @@ $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\be
 |----------|--------|------|
 | 1 | `exact` | `squared_error` + L2/none + NumPy |
 | 2 | `newton` | `squared_error` + L2/none + GPU |
-| 3 | 专用延续路径 | Quantile SCAD/MCP → Proximal IRLS-CD；其他 SCAD/MCP 与分组非凸惩罚使用对应维护中的 LLA wrapper |
+| 3 | 专用延续路径 | Quantile SCAD/MCP → Proximal IRLS-CD；其他 SCAD/MCP 与分组非凸惩罚使用对应 LLA wrapper |
 | 4 | `irls` | Quantile + L2/none（`auto` 优先） |
 | 5 | `fista` / `fista_bb` | Quantile 的显式 L2/none 与凸稀疏路径可使用普通 FISTA；其他凸稀疏惩罚（包括初始化后的 adaptive L1）按 loss/backend/CV 选择 FISTA 或 FISTA-BB |
 | 6 | `lbfgs` / `newton` | 交叉验证 + L2 + 特定损失函数 |
-| 7 | `newton` | GLM/稳健/Cox 等具有维护中 Hessian 的光滑 L2/无惩罚路径 |
+| 7 | `newton` | GLM/稳健/Cox 等具有 Hessian 的光滑 L2/无惩罚路径 |
 
-对 Quantile，L2/无惩罚的 `auto` 仍优先 IRLS，但显式普通 `solver="fista"` 也受维护，并会真实执行通用 FISTA engine，而不会静默替换成 IRLS。凸稀疏 Quantile 使用普通 FISTA，SCAD/MCP 使用 Proximal IRLS-CD。模型/CV 层任意 Quantile `fista_bb`、`lbfgs`、`admm` 请求仍会 fail closed。底层 solver API 中，FISTA-BB 与 ADMM 同样对 Quantile fail closed，而直接无权重/均匀权重 Quantile L-BFGS 继续作为既有兼容面保留。由于 check loss 的次梯度是阶梯函数，普通 Quantile FISTA 是维护中的一阶近端/次梯度路径，而不是宣称经典 smooth-gradient FISTA 的收敛假设成立。这里的 `exact` 是平方误差/L2 的闭式求解器，与 `CoxPH(ties="exact")` 无关。需要 family/backend-specific 的精确分派时，请查看 [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md)。
+对 Quantile，L2/无惩罚的 `auto` 仍优先 IRLS，但显式普通 `solver="fista"` 也受支持，并会真实执行通用 FISTA engine，而不会静默替换成 IRLS。凸稀疏 Quantile 使用普通 FISTA，SCAD/MCP 使用 Proximal IRLS-CD。模型/CV 层的 Quantile `fista_bb`、`lbfgs`、`admm` 请求均不受支持，会在数值迭代前直接报错。底层 solver API 中，FISTA-BB 与 ADMM 同样拒绝 Quantile，而直接无权重/均匀权重 Quantile L-BFGS 继续作为既有兼容面保留。由于 check loss 的次梯度是阶梯函数，普通 Quantile FISTA 是一阶近端/次梯度路径，而不是宣称经典 smooth-gradient FISTA 的收敛假设成立。这里的 `exact` 是平方误差/L2 的闭式求解器，与 `CoxPH(ties="exact")` 无关。需要 family/backend-specific 的精确分派时，请查看 [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md)。
 
 ### 全部求解器
 
-`sample_weight` 的支持取决于求解器、损失函数统计语义以及函数值、梯度、曲率等数值能力。下表列出当前维护的主要路径；未在表中声明的组合不应从其他求解器能力类推。
+`sample_weight` 的支持取决于求解器、损失函数统计语义以及函数值、梯度、曲率等数值能力。下表列出当前支持的主要路径；未在表中声明的组合不应从其他求解器能力类推。
 
 | 求解器 | 损失约束 | 惩罚约束 | `sample_weight` | `warm_start` |
 |--------|:-----------------|:---------------------|:------------|:----------:|
@@ -219,12 +219,12 @@ $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\be
 | `newton` | 有 Hessian 的损失 | L2 / 无惩罚 | 由损失函数能力决定；普通 GLM ✅ | ❌ |
 | `lbfgs` | 光滑损失；另保留未传/均匀权重的底层 Quantile 兼容面 | L2 / 无惩罚 | 受能力声明约束；普通 GLM ✅；Quantile 非均匀权重 ❌ | ❌ |
 | `lbfgs_b` | 光滑盒约束问题 | L2 / 无惩罚 | 尚未声明通用的非均匀权重约定 | ❌ |
-| `fista` | 维护中的一阶梯度/次梯度 + 近端路径 | 受支持的近端惩罚，包括显式 Quantile L2/none | 由具体损失路径决定；维护中的 Quantile FISTA 使用归一化解析权重 | ✅ |
+| `fista` | 一阶梯度/次梯度 + 近端路径 | 受支持的近端惩罚，包括显式 Quantile L2/none | 由具体损失路径决定；Quantile FISTA 在支持时使用归一化解析权重 | ✅ |
 | `fista_bb` | 具有有效 smooth-gradient difference 的损失；不含 Quantile | 受支持的稀疏惩罚 | 由具体损失路径决定 | ✅ |
-| `fista_lla` | 支持当前 LLA 路径的损失 | SCAD/MCP 与分组非凸 LLA 路径 | 由具体损失路径决定 | ✅ |
+| `fista_lla` | 支持 LLA 路径的损失 | SCAD/MCP 与分组非凸 LLA 路径 | 由具体损失路径决定 | ✅ |
 | `proximal_irls_cd` | 仅分位数损失 | SCAD/MCP | ✅ | ✅ |
 | `proximal_newton` | 有 Hessian 的光滑损失 | L2 / 无惩罚 | 由具体损失路径决定 | ✅ |
-| `admm` | 具有维护中光滑 w-update 的 ADMM 损失；不含 Quantile | 受支持的近端形式 | 仅未传权重或均匀权重；真正非均匀权重会明确报错 | ✅ |
+| `admm` | 具有光滑 w-update 且支持 ADMM 的损失；不含 Quantile | 受支持的近端形式 | 仅未传权重或均匀权重；真正非均匀权重会明确报错 | ✅ |
 
 `lbfgs` 这一行描述的是通用底层 solver 能力，不是模型层 dispatch。`PenalizedQuantileRegression` 与 `PenalizedGLM_CV` 仍会在数值拟合前拒绝显式 `solver="lbfgs"`。
 
@@ -236,7 +236,7 @@ $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\be
 3. 执行并行对角上界更新并结合 LLA 阈值；
 4. GPU 上的收敛比较留在设备端，只同步最终布尔结果。
 
-**Proximal Newton**（当前维护的光滑路径）使用完整目标
+**Proximal Newton**（光滑路径）使用完整目标
 
 $$
 F(\beta)=L(\beta)+P(\beta).
@@ -270,7 +270,7 @@ $$
 =\frac{X^\top\operatorname{diag}(w\odot h)X}{s}.
 $$
 
-结构化损失直接使用自身实现的 Hessian 接口。对于当前维护的 L2 惩罚，
+结构化损失直接使用自身实现的 Hessian 接口。对于 L2 惩罚，
 
 $$
 P(\beta)=\frac{\alpha}{2}\|\beta\|_2^2,
