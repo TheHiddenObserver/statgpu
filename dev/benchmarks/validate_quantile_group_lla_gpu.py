@@ -23,7 +23,7 @@ GROUPS = [[0, 1], [2, 3]]
 DIRECT_ALPHA = 0.04
 ALPHA_GRID = np.asarray([0.05, 0.03], dtype=np.float64)
 ATOL_OBJECTIVE = 8e-5
-ATOL_COEF = 1e-4
+ATOL_PARAM = 1e-4
 ATOL_CV_SCORE = 1e-4
 
 
@@ -146,8 +146,21 @@ def _host(value):
     return np.asarray(_to_numpy(value), dtype=np.float64)
 
 
+def _parameter_error(actual, reference):
+    coef_error = float(
+        np.max(
+            np.abs(
+                _host(actual.coef_).reshape(-1)
+                - _host(reference.coef_).reshape(-1)
+            )
+        )
+    )
+    intercept_error = abs(float(actual.intercept_) - float(reference.intercept_))
+    return max(coef_error, intercept_error), coef_error, intercept_error
+
+
 def _objective(model, X, y, weights):
-    coef = np.asarray(model.coef_, dtype=np.float64).reshape(-1)
+    coef = _host(model.coef_).reshape(-1)
     residual = y - (X @ coef + float(model.intercept_))
     pinball = np.where(residual >= 0.0, Q * residual, (Q - 1.0) * residual)
     fit = float(np.average(pinball, weights=weights))
@@ -200,25 +213,25 @@ def main() -> int:
 
     cases = []
     max_objective_error = 0.0
-    max_coef_error = 0.0
+    max_direct_param_error = 0.0
     max_cv_score_error = 0.0
+    max_cv_param_error = 0.0
     for backend in ("cupy", "torch"):
         Xb, yb, wb, device = _native_inputs(backend, X, y, weights, cp, torch)
         for kind in ("group_scad", "group_mcp"):
             direct, direct_calls = _with_lla_counter(
                 lambda kind=kind: _fit(kind, Xb, yb, wb, device)
             )
-            coef = _host(direct.coef_).reshape(-1)
-            coef_error = float(
-                np.max(np.abs(coef - np.asarray(cpu[kind]["direct"].coef_)))
+            param_error, coef_error, intercept_error = _parameter_error(
+                direct, cpu[kind]["direct"]
             )
             objective = _objective(direct, X, y, weights)
             objective_error = abs(objective - float(cpu[kind]["objective"]))
-            max_coef_error = max(max_coef_error, coef_error)
+            max_direct_param_error = max(max_direct_param_error, param_error)
             max_objective_error = max(max_objective_error, objective_error)
-            if coef_error > ATOL_COEF:
+            if param_error > ATOL_PARAM:
                 raise AssertionError(
-                    f"{backend}/direct/{kind}: coef error {coef_error:.3e} > {ATOL_COEF:.3e}"
+                    f"{backend}/direct/{kind}: parameter error {param_error:.3e} > {ATOL_PARAM:.3e}"
                 )
             if objective_error > ATOL_OBJECTIVE:
                 raise AssertionError(
@@ -229,7 +242,9 @@ def main() -> int:
                     "name": f"{backend}/direct/{kind}",
                     "provenance": _provenance(direct, backend),
                     "fista_lla_calls": direct_calls,
+                    "parameter_error": param_error,
                     "coef_error": coef_error,
+                    "intercept_error": intercept_error,
                     "objective": objective,
                     "cpu_objective": float(cpu[kind]["objective"]),
                     "objective_error": objective_error,
@@ -241,10 +256,18 @@ def main() -> int:
             )
             scores = np.asarray(cv.cv_results_["all_scores"], dtype=np.float64)
             score_error = float(np.max(np.abs(scores - cpu[kind]["scores"])))
+            cv_param_error, cv_coef_error, cv_intercept_error = _parameter_error(
+                cv, cpu[kind]["cv"]
+            )
             max_cv_score_error = max(max_cv_score_error, score_error)
+            max_cv_param_error = max(max_cv_param_error, cv_param_error)
             if score_error > ATOL_CV_SCORE:
                 raise AssertionError(
                     f"{backend}/cv/{kind}: score error {score_error:.3e} > {ATOL_CV_SCORE:.3e}"
+                )
+            if cv_param_error > ATOL_PARAM:
+                raise AssertionError(
+                    f"{backend}/cv/{kind}: final-refit parameter error {cv_param_error:.3e} > {ATOL_PARAM:.3e}"
                 )
             if float(cv.alpha_) != float(cpu[kind]["cv"].alpha_):
                 raise AssertionError(
@@ -258,6 +281,9 @@ def main() -> int:
                     "selected_alpha": float(cv.alpha_),
                     "cpu_selected_alpha": float(cpu[kind]["cv"].alpha_),
                     "score_error": score_error,
+                    "final_refit_parameter_error": cv_param_error,
+                    "final_refit_coef_error": cv_coef_error,
+                    "final_refit_intercept_error": cv_intercept_error,
                 }
             )
 
@@ -271,12 +297,13 @@ def main() -> int:
         "cases": cases,
         "max_errors": {
             "direct_objective": max_objective_error,
-            "direct_coef": max_coef_error,
+            "direct_parameter": max_direct_param_error,
             "cv_score": max_cv_score_error,
+            "cv_final_refit_parameter": max_cv_param_error,
         },
         "tolerances": {
             "direct_objective": ATOL_OBJECTIVE,
-            "direct_coef": ATOL_COEF,
+            "parameter": ATOL_PARAM,
             "cv_score": ATOL_CV_SCORE,
         },
         "environment": {
