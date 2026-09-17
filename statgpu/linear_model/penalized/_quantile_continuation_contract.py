@@ -1,11 +1,11 @@
 """Mark estimator-generated Quantile continuation paths for objective alignment.
 
-The historical path generator remains authoritative for unweighted and exactly
-uniform-weight Quantile fits. For genuinely non-uniform analytic weights, the
-weighted start is resolved later by the public Quantile solver from backend-
-native X/y/weights. This contract therefore avoids first materializing the same
-full design and response on NumPy merely to construct path metadata that the
-weighted resolver will replace.
+The historical path generator remains authoritative for intercept fits with no
+weights or exactly uniform weights. For genuinely non-uniform analytic weights,
+or when ``fit_intercept=False`` fixes the intercept at zero, the continuation
+start is resolved later from backend-native X/y/weights. This contract avoids
+first materializing the same full design and response on NumPy merely to build
+path metadata that the objective-aware resolver will replace.
 """
 
 from __future__ import annotations
@@ -105,13 +105,14 @@ def install_quantile_continuation_contract() -> None:
             loss_name,
             n_cont=None,
         ):
-            if (
-                str(loss_name or "").lower() == "quantile"
-                and _is_nonuniform_weight(_QUANTILE_SAMPLE_WEIGHT.get())
+            is_quantile = str(loss_name or "").lower() == "quantile"
+            if is_quantile and (
+                not self._effective_intercept
+                or _is_nonuniform_weight(_QUANTILE_SAMPLE_WEIGHT.get())
             ):
-                # The weighted resolver will compute the actual start from the
-                # backend-native objective. Avoid the historical full X/y host
-                # snapshot whose numeric start would immediately be discarded.
+                # These cases are recomputed by the objective-aware resolver.
+                # Avoid the historical full X/y host snapshot whose numeric
+                # start would immediately be discarded.
                 return _quantile_path_metadata(self, n_cont=n_cont)
 
             alpha_path, max_lla_per_step, mi_path = current(
@@ -122,7 +123,7 @@ def install_quantile_continuation_contract() -> None:
                 loss_name,
                 n_cont=n_cont,
             )
-            if str(loss_name or "").lower() == "quantile":
+            if is_quantile:
                 alpha_path = mark_auto_quantile_continuation_path(alpha_path)
             return alpha_path, max_lla_per_step, mi_path
 
