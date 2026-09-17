@@ -135,6 +135,39 @@ def test_loss_reference_keeps_quantile_content_at_loss_layer():
         assert term not in cn
 
 
+def test_solver_penalty_matrix_stays_a_cross_model_reference():
+    en = (_ROOT / "docs/en/guides/solver-penalty-matrix.md").read_text(
+        encoding="utf-8"
+    )
+    cn = (_ROOT / "docs/cn/guides/solver-penalty-matrix.md").read_text(
+        encoding="utf-8"
+    )
+
+    # The page should keep the global direct/CV matrices and delegate model-
+    # specific derivations and implementation narratives to model pages.
+    for text in (en, cn):
+        assert "**squared_error**" in text
+        assert "**logistic**" in text
+        assert "**poisson**" in text
+        assert "**gamma**" in text
+        assert "**inverse_gaussian**" in text
+        assert "**negative_binomial**" in text
+        assert "**tweedie**" in text
+        assert "**quantile**" in text
+
+    assert "Inverse-power Gamma smooth-domain contract" not in en
+    assert "For Quantile CV" not in en
+    assert "Because check loss is non-smooth" not in en
+    assert "Poisson GPU L1 FISTA-BB rule is size-gated" not in en
+    assert "direct low-level Quantile L-BFGS" not in en
+
+    assert "`inverse_power` Gamma 的光滑定义域约定" not in cn
+    assert "对 Quantile CV" not in cn
+    assert "由于 check loss 非光滑" not in cn
+    assert "Poisson GPU L1 FISTA-BB 规则" not in cn
+    assert "底层直接 Quantile L-BFGS" not in cn
+
+
 def test_solver_algorithm_pages_preserve_explicit_quantile_fista_contract():
     en = (_ROOT / "docs/en/guides/solver-algorithms.md").read_text(encoding="utf-8")
     cn = (_ROOT / "docs/cn/guides/solver-algorithms.md").read_text(encoding="utf-8")
