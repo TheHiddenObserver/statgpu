@@ -2,16 +2,16 @@
 
 > 语言：中文  
 > 最后更新：2026-09-17  
-> 页面定位：Panel 模型族的公开 architecture  
+> 页面定位：Panel 模型族的公开架构说明  
 > 切换：[English](../../en/panel/architecture.md)
 
-本页说明 statgpu 的 Panel estimator 如何组织：哪些职责由共享层承担，各 estimator 的数据变换在哪里进入，以及估计如何连接 covariance、inference、diagnostics、prediction 与 summary。
+本页说明 statgpu 的 Panel 估计器如何组织：哪些职责由共享层承担，各估计器的数据变换在哪里进入，以及参数估计如何连接协方差估计、统计推断、诊断、预测与结果汇总。
 
-模型选择、识别假设、公式与统计解释应从 [面板模型总览](../models/panel.md)及各模型专页开始。内部 module ownership 与数值实现细节属于仓库 `dev/` architecture 文档。
+模型选择、识别假设、公式与统计解释应从 [面板模型总览](../models/panel.md)及各模型专页开始。内部模块归属与数值实现细节属于仓库 `dev/` 下的架构文档。
 
 ## 1. 总体结构
 
-用户通过以下 public Panel estimator 进行拟合：
+用户通过以下公开 Panel 估计器进行拟合：
 
 - `PanelOLS`
 - `RandomEffects`
@@ -20,100 +20,100 @@
 - `FirstDifferenceOLS`
 - `FamaMacBeth`
 
-这一模型族共享 `BasePanelModel` 基础设施，用来统一输入、状态、预测与 reporting 行为；具体 estimator 则负责定义该模型真正使用的统计变换或辅助估计。
+这一模型族共享 `BasePanelModel` 基础设施，用来统一输入、状态、预测与结果展示行为；具体估计器则负责定义各自真正使用的统计变换或辅助估计步骤。
 
 高层流程可以概括为：
 
 ```text
-输入 / formula / panel indices
+输入 / 公式 / 面板索引
         |
         v
-共享 Panel 输入与 metadata 处理
+共享的 Panel 输入与元数据处理
         |
         v
-estimator-specific transformation / regression construction
+各估计器专属的数据变换 / 回归问题构造
         |
         v
-OLS / GLS / period-wise numerical estimation
+OLS / GLS / 分时期数值估计
         |
         v
-covariance + inference + diagnostics
+协方差 + 推断 + 诊断
         |
         v
-fitted state + predict() + summary()
+已拟合状态 + predict() + summary()
 ```
 
-关键边界是：共享基础设施并没有定义一个“统一 Panel estimator”；具体 model class 仍决定数据如何变换，以及最终求解哪一个统计估计问题。
+关键边界是：共享基础设施并没有定义一个“统一的 Panel 估计器”。具体模型类仍然决定数据如何变换，以及最终求解哪一个统计估计问题。
 
 ## 2. 共享职责
 
-`BasePanelModel` 与共享 Panel layer 提供可复用能力，包括：
+`BasePanelModel` 与共享 Panel 层提供可复用能力，包括：
 
-- formula/input alignment；
-- entity/time index metadata；
-- backend/device preparation；
-- fitted-state lifecycle；
-- 共享 prediction 行为；
-- result/summary plumbing；
-- 在 estimator 可以写成 residual-OLS 形式时，对 covariance 与 coefficient inference 进行统一衔接。
+- 公式与输入数据的对齐；
+- 个体/时间索引元数据；
+- 后端与设备准备；
+- 已拟合状态的生命周期管理；
+- 共享的预测行为；
+- 结果对象与 `summary()` 的组织；
+- 当估计器可以写成基于残差的 OLS 形式时，统一衔接协方差估计与系数推断。
 
-共享 result object 还用于表示 panel index metadata、fit statistics 与 diagnostic-test result。
+共享结果对象还用于表示面板索引元数据、拟合统计量以及诊断检验结果。
 
-## 3. Estimator-specific construction
+## 3. 各估计器如何构造问题
 
-六类 estimator 复用相同基础设施，但构造不同的 estimation problem：
+六类估计器复用相同的外围基础设施，但构造不同的统计估计问题：
 
-| Estimator | 主要数据构造 | 数值形式 |
+| 估计器 | 主要数据构造 | 数值形式 |
 |---|---|---|
-| `PooledOLS` | 堆叠后的 level data | pooled OLS |
-| `PanelOLS` | level data 或 entity/time/two-way within transformation | transformed OLS |
-| `BetweenOLS` | entity means | 在 entity-level mean 上做 OLS |
-| `FirstDifferenceOLS` | entity 内的一阶差分 | differenced OLS |
-| `RandomEffects` | auxiliary regressions、variance components、quasi-demeaning | 通过 transformed regression 表示的 feasible GLS |
-| `FamaMacBeth` | 每个 period 单独构造 cross-sectional regression | period-wise OLS 后聚合 coefficient |
+| `PooledOLS` | 堆叠后的水平数据 | pooled OLS |
+| `PanelOLS` | 水平数据或个体/时间/双向组内变换 | 变换后的 OLS |
+| `BetweenOLS` | 个体均值 | 在个体层均值上做 OLS |
+| `FirstDifferenceOLS` | 个体内一阶差分 | 差分后的 OLS |
+| `RandomEffects` | 辅助回归、方差分量、准去均值变换 | 通过变换后回归表示的可行 GLS |
+| `FamaMacBeth` | 每个时期分别构造横截面回归 | 分时期 OLS 后聚合系数 |
 
-这张表描述的是 estimation pipeline 的 architecture。各变换的统计推导与假设应放在对应模型文档，而不是继续扩展本页。
+这张表描述的是估计流程的架构关系。各数据变换的统计推导与假设应放在对应模型文档，而不是继续扩展本页。
 
-## 4. Estimation 与 inference layer
+## 4. 参数估计与推断层
 
-多数 Panel estimator 最终会形成 regression design、response、coefficient 与 residual。拟合后的统计层再按 estimator 需要组合：
+多数 Panel 估计器最终都会形成回归设计矩阵、响应变量、系数与残差。拟合后的统计层再根据具体模型组合：
 
-- covariance estimation；
-- coefficient standard error、statistic、p-value 与 confidence interval；
-- degrees of freedom 与 fit statistics；
-- model-specific diagnostics；
-- 适用时的 effect recovery 或其他 model-specific state。
+- 协方差估计；
+- 系数标准误、统计量、p 值与置信区间；
+- 自由度与拟合统计量；
+- 模型专属诊断；
+- 适用时的效应恢复或其他模型专属状态。
 
-`FamaMacBeth` 与普通 residual-OLS model 在结构上不同，因为其 covariance 基于 period coefficient series，而不是只依赖一个堆叠 residual regression。即使共享外围基础设施，这一统计差别仍保持独立。
+`FamaMacBeth` 在结构上与普通的残差 OLS 模型不同，因为它的协方差基于各时期的系数序列，而不是只依赖一个堆叠后的残差回归。即使共享外围基础设施，这一统计差别仍然保留。
 
-covariance 定义与 diagnostic 的统计解释应查看 Panel covariance/diagnostic 文档，本 architecture 页不再重复承担统计 reference 的职责。
+协方差的定义与诊断检验的统计解释应查看 Panel 协方差/诊断文档；本架构页不再重复承担统计参考页的职责。
 
-## 5. Backend 边界
+## 5. 后端边界
 
-支持 NumPy、CuPy 与 Torch 的 Panel estimator 使用 [设备与 GPU 内存](../guides/device-and-memory.md)中统一的 `device` vocabulary。
+支持 NumPy、CuPy 与 Torch 的 Panel 估计器采用 [设备与 GPU 内存](../guides/device-and-memory.md) 中统一的 `device` 语义。
 
-显式 accelerator 请求保持显式：请求的 backend 不可用时直接报错，不会静默替换成 CPU。Formula parsing 或 metadata preparation 仍可以先在 CPU 上完成，然后再把数值数组准备到所选 backend。
+显式加速器请求保持权威：如果所请求的后端不可用，会直接报错，而不是静默改为 CPU。公式解析或元数据准备仍然可以先在 CPU 上完成，然后再把真正参与数值计算的数组准备到所选后端。
 
-具体 linear-algebra stabilization、rank detection、grouped reduction 与 implementation-specific numerical check 属于内部 numerical policy。用户应依赖公开 failure behavior 与模型输出，而不是 private helper 的组织方式。
+具体的线性代数稳定化、秩检测、分组归约和实现专属数值检查属于内部数值策略。用户应依赖公开的失败行为和模型输出，而不是私有辅助函数的组织方式。
 
-## 6. Fit lifecycle
+## 6. 拟合生命周期
 
-从用户角度看，Panel `fit()` 具有事务式语义：失败的 fit 不会留下看起来像成功模型的部分结果。成功拟合后，prediction、summary 与 inference property 都对应这一次成功发布的 fitted state。
+从用户角度看，Panel `fit()` 具有事务式语义：失败的拟合不会留下看起来像成功模型的部分结果。成功拟合后，预测、`summary()` 与推断属性都对应这一次成功发布的已拟合状态。
 
-Formula-based prediction 同样保持输入行对齐。如果 formula processing 会删除或使某些 prediction row 无效，statgpu 会报错，而不是返回与调用者输入行错位的输出。
+基于公式的预测同样保持输入行对齐。如果公式处理会删除某些预测行，或者使其无法得到有效输出，statgpu 会报错，而不是返回与调用者输入行错位的结果。
 
-## 7. 与通用 loss/penalty/solver framework 的关系
+## 7. 与通用损失函数 / 惩罚项 / 求解器框架的关系
 
-Panel model 以**panel-data construction + OLS/GLS/period-wise regression + Panel-specific post-fit statistics**组织计算。
+Panel 模型以**面板数据构造 + OLS/GLS/分时期回归 + Panel 专属拟合后统计量**的方式组织计算。
 
-这与 penalized objective-based estimator 使用的通用 `LossBase + Penalty + Solver` 组合方式不同。后者见 [Loss × Penalty × Solver 框架](../guides/loss-penalty-solver-framework.md)。
+这与惩罚模型通过通用的 `LossBase + Penalty + Solver` 组合来定义目标函数的方式不同。后者见 [损失函数 × 惩罚项 × 求解器框架](../guides/loss-penalty-solver-framework.md)。
 
-因此，没有额外的 generic `PanelLoss` layer 并不代表缺少某个 public capability；Panel estimator 通过各自的数据变换与 regression construction 表达自己的统计定义。
+因此，没有额外定义一个通用 `PanelLoss` 层，并不表示缺少某种公开能力；Panel 估计器通过各自的数据变换与回归问题构造来表达自己的统计定义。
 
 ## 8. 下一步阅读
 
 - [面板模型总览](../models/panel.md) — 模型选择与模型族概览
 - 各 Panel 模型专页 — 公式、假设、参数、示例与结果解释
-- [设备与 GPU 内存](../guides/device-and-memory.md) — device 语义
-- Panel covariance/diagnostic 页面 — covariance estimator 与 specification test
-- [Loss × Penalty × Solver 框架](../guides/loss-penalty-solver-framework.md) — objective-composed penalized model 的 architecture
+- [设备与 GPU 内存](../guides/device-and-memory.md) — 设备语义
+- Panel 协方差/诊断页面 — 协方差估计与设定检验
+- [损失函数 × 惩罚项 × 求解器框架](../guides/loss-penalty-solver-framework.md) — 由目标函数组合而成的惩罚模型架构
