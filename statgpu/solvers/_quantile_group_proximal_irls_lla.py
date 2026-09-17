@@ -45,7 +45,8 @@ def _external_warning_stacklevel() -> int:
     try:
         while frame is not None:
             module_name = str(frame.f_globals.get("__name__", ""))
-            if not module_name.startswith("statgpu."):
+            is_internal = module_name == "statgpu" or module_name.startswith("statgpu.")
+            if not is_internal:
                 return level
             frame = frame.f_back
             level += 1
