@@ -222,6 +222,14 @@
     "torch_cuda": "11.7",
     "torch_device_name": "Tesla P100-SXM2-16GB"
   },
+  "evidence_metadata": {
+    "basis": "operator-reported clean exact-source P100 run plus inner-validator success artifact",
+    "kind": "canonical_provenance_repair",
+    "note": "The numerical GPU acceptance was executed at source_sha. These metadata fields record the reported clean source lock without claiming that the outer wrapper was executed for this artifact.",
+    "physical_rerun_required_for_metadata_repair": false
+  },
+  "evidence_wrapper_contract": "dev/benchmarks/run_quantile_solver_provenance_gpu_gate.py",
+  "evidence_wrapper_executed": false,
   "max_errors": {
     "l2_coef_intercept": 6.938893903907228e-15,
     "l2_cv_score": 7.965850201685498e-15,
@@ -230,7 +238,11 @@
   "quantile": 0.2,
   "schema_version": 1,
   "source_clean": true,
+  "source_clean_after_execution": true,
+  "source_clean_before": true,
   "source_sha": "90194ce15f3753a3af7d0ce3539e75b233a9b801",
+  "source_sha_after_execution": "90194ce15f3753a3af7d0ce3539e75b233a9b801",
+  "source_sha_before": "90194ce15f3753a3af7d0ce3539e75b233a9b801",
   "status": "success",
   "tolerances": {
     "l2_coef_intercept": 2e-05,
