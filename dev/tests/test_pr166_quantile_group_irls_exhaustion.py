@@ -14,8 +14,8 @@ from statgpu.solvers import _quantile_group_proximal_irls_lla as solver_mod
 GROUPS = [[0, 1], [2, 3]]
 
 
-def test_active_quantile_group_target_irls_exhaustion_fails_closed(monkeypatch):
-    """An unconverged target IRLS surrogate must not feed an approximate point to LLA."""
+def test_active_quantile_group_target_lla_exhaustion_fails_closed(monkeypatch):
+    """An unconverged target LLA loop must not return a plausible approximate fit."""
     X = np.eye(4, dtype=np.float64)
     y = np.asarray([0.8, -0.5, 0.4, -0.3], dtype=np.float64)
     loss = QuantileLoss(0.35)
@@ -25,14 +25,14 @@ def test_active_quantile_group_target_irls_exhaustion_fails_closed(monkeypatch):
     def drifting_admm(loss_arg, penalty_arg, X_arg, y_arg, **kwargs):
         calls["value"] += 1
         current = np.asarray(kwargs["init_coef"], dtype=np.float64)
-        # Deliberately keep the outer IRLS iterate moving by a visible amount.
+        # Deliberately keep the target LLA update away from its outer tolerance.
         return current + 0.05, 1
 
     monkeypatch.setattr(solver_mod, "admm_solver", drifting_admm)
 
     with pytest.raises(
         ConvergenceWarning,
-        match="did not converge within 2 IRLS iterations at the target",
+        match="did not converge within 1 LLA iterations at the target",
     ):
         solver_mod.quantile_group_proximal_irls_lla_solver(
             loss,
@@ -43,14 +43,15 @@ def test_active_quantile_group_target_irls_exhaustion_fails_closed(monkeypatch):
             max_lla_per_step=1,
             max_iter=2,
             tol=1e-12,
+            lla_tol=1e-12,
             fit_intercept=False,
         )
 
     assert calls["value"] == 2
 
 
-def test_intermediate_quantile_group_irls_exhaustion_is_only_a_warm_path(monkeypatch):
-    """A low-budget intermediate alpha may be inexact when the final target closes."""
+def test_intermediate_quantile_group_lla_exhaustion_is_only_a_warm_path(monkeypatch):
+    """An inexact intermediate alpha is allowed when the final target LLA closes."""
     X = np.eye(4, dtype=np.float64)
     y = np.asarray([0.8, -0.5, 0.4, -0.3], dtype=np.float64)
     loss = QuantileLoss(0.35)
@@ -62,7 +63,7 @@ def test_intermediate_quantile_group_irls_exhaustion_is_only_a_warm_path(monkeyp
         current = np.asarray(kwargs["init_coef"], dtype=np.float64)
         if calls["value"] <= 2:
             return current + 0.05, 1
-        # The final target returns the same point, so its IRLS delta is zero.
+        # The final target returns the same point, so its outer LLA delta is zero.
         return current.copy(), 1
 
     monkeypatch.setattr(solver_mod, "admm_solver", warm_then_converged_admm)
@@ -76,6 +77,7 @@ def test_intermediate_quantile_group_irls_exhaustion_is_only_a_warm_path(monkeyp
         max_lla_per_step=1,
         max_iter=[2, 2],
         tol=1e-12,
+        lla_tol=1e-12,
         fit_intercept=False,
     )
 
