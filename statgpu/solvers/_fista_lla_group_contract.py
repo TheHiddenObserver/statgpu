@@ -54,10 +54,9 @@ class _QuantileWeightedStepScaleProxy:
 
     The fused engine supplies ``sample_weight`` on its initial step-scale call
     but omits it on periodic refreshes. Quantile's step scale follows the
-    normalized weighted objective, so direct public and estimator-mediated
-    Quantile Group SCAD/MCP calls must reuse the same backend-native weights.
-    This proxy is installed only for ``loss.name == 'quantile'``; other group
-    losses retain their previously validated behavior.
+    normalized weighted objective, so every public Quantile FISTA-LLA call must
+    reuse the same backend-native weights. This proxy is Quantile-only; all
+    other losses retain their previously validated behavior.
     """
 
     def __init__(self, loss):
@@ -150,14 +149,17 @@ def fista_lla_path(
     return_path=False,
 ):
     """Run the fused LLA path with exact Group MCP/SCAD surrogate scaling."""
+    # Quantile's weighted step scale must remain objective-consistent for both
+    # scalar and group penalties, including direct public low-level calls.
+    if str(getattr(loss, "name", "")).lower() == "quantile":
+        loss = _QuantileWeightedStepScaleProxy(loss)
+
     penalty_name = str(getattr(scad_penalty, "name", "")).lower()
     if penalty_name in _GROUP_NONCONVEX_NAMES:
         # Group-norm penalties require a group-norm convex surrogate whether
         # the caller supplied the historical factory or called this exported
         # solver directly without one.
         lla_penalty_factory = _group_surrogate_factory(scad_penalty)
-        if str(getattr(loss, "name", "")).lower() == "quantile":
-            loss = _QuantileWeightedStepScaleProxy(loss)
         loss = _GroupFISTALossProxy(loss)
 
     return _base_fista_lla_path(
