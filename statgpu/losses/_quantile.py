@@ -43,28 +43,52 @@ class QuantileLoss(LossBase):
         self._tau = self.quantile
 
     def lipschitz(self, X, coef, y=None, sample_weight=None):
-        """Return the design-scaled initial step parameter for first-order routes.
+        """Return the design-scaled step parameter for first-order routes.
 
         Quantile/check loss has a discontinuous subgradient and therefore does
         **not** have a classical smooth-gradient Lipschitz constant. The shared
         solver interface nevertheless asks losses for a positive ``lipschitz``
-        scale. For Quantile we provide
+        scale. For an unweighted objective we use
 
-        ``max(tau, 1-tau) * lambda_max(X'X) / n``
+        ``max(tau, 1-tau) * lambda_max(X'X / n)``.
 
-        as a conservative design/subgradient scale used to initialize fixed-step
-        or backtracking first-order iterations. It must not be interpreted as a
-        proof that textbook smooth-FISTA assumptions hold for pinball loss.
+        For normalized analytic weights, the same design scale follows the
+        fitted objective and uses
+
+        ``max(tau, 1-tau) * lambda_max(X' W X / sum(w))``.
+
+        This is an initialization/fixed-step design scale for a non-smooth
+        subgradient route; it must not be interpreted as a proof that textbook
+        smooth-FISTA assumptions hold for pinball loss.
         """
         from statgpu.backends._array_ops import _max_eigval_power
-        cache_key = id(X)
+
+        weight_key = None if sample_weight is None else id(sample_weight)
+        cache_key = (id(X), weight_key)
         if not hasattr(self, '_lipschitz_cache'):
             self._lipschitz_cache = {}
         if cache_key in self._lipschitz_cache:
             return self._lipschitz_cache[cache_key]
-        XtX = X.T @ X
+
+        if sample_weight is None:
+            gram = (X.T @ X) / X.shape[0]
+        else:
+            xp = _get_xp(X)
+            if xp.__name__ == "torch":
+                import torch
+                if torch.is_tensor(sample_weight):
+                    sw = sample_weight.to(dtype=X.dtype, device=X.device)
+                else:
+                    sw = torch.as_tensor(
+                        sample_weight, dtype=X.dtype, device=X.device
+                    )
+            else:
+                sw = xp.asarray(sample_weight, dtype=X.dtype)
+            sw = sw.reshape(-1)
+            gram = X.T @ (X * sw[:, None]) / xp.sum(sw)
+
         grad_bound = max(self._tau, 1.0 - self._tau)
-        L = grad_bound * _max_eigval_power(XtX) / X.shape[0]
+        L = grad_bound * _max_eigval_power(gram)
         self._lipschitz_cache[cache_key] = L
         return L
 
