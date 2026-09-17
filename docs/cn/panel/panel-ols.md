@@ -131,13 +131,13 @@ model = PanelOLS(
 ```python
 from statgpu.panel import PanelOLS
 
-# 双向固定效应：pipe 写法
+# 双向固定效应：pipe 语法
 two_way = PanelOLS().fit(
     formula="y ~ x1 + x2 | entity + time",
     data=df,
 )
 
-# 等价的 effect-token 写法
+# 等价的固定效应标记写法
 two_way_tokens = PanelOLS().fit(
     formula="y ~ x1 + x2 + EntityEffects + TimeEffects",
     data=df,
@@ -150,7 +150,7 @@ level_no_intercept = PanelOLS().fit(
 )
 ```
 
-固定效应可以使用 pipe 语法，也可以使用 effect token，但同一个公式中不能混用。如果同时从公式和显式参数提供个体/时间标签，两者必须在公式筛选后的样本上完全一致。
+固定效应可以使用 pipe 语法，也可以使用 `EntityEffects` / `TimeEffects` 等固定效应标记，但同一个公式中不能混用。如果同时从公式和显式参数提供个体/时间标签，两者必须在公式筛选后的样本上完全一致。
 
 ## 输出与解释
 
