@@ -27,7 +27,7 @@ _CLEANED_CN_PAGES = (
 )
 
 # These are prose-level English noun phrases that previously appeared inside
-# otherwise Chinese sentences.  Do not broaden this into a ban on individual
+# otherwise Chinese sentences. Do not broaden this into a ban on individual
 # English words: API identifiers and established algorithm names must remain
 # searchable and recognizable.
 _PROSE_FRAGMENTS_TO_AVOID = (
@@ -89,5 +89,4 @@ def test_documentation_policy_states_chinese_language_rule():
     assert "### Chinese prose consistency" in style
     assert "API identifiers" in style
     assert "Chinese syntax and Chinese explanatory vocabulary" in style
-    assert "Do not pursue artificial“zero English.”".replace("“", " “").replace(".”", ".”) ") not in style
-    assert "Do not pursue artificial \u201czero English.\u201d" in style
+    assert "Do not pursue artificial “zero English.”" in style
