@@ -75,16 +75,39 @@ def test_explicit_irls_l2_matches_auto_quantile_fit():
     assert auto.intercept_ == pytest.approx(explicit.intercept_, rel=0.0, abs=0.0)
 
 
-@pytest.mark.parametrize("solver", ["fista", "fista_bb"])
-def test_explicit_first_order_l2_quantile_fails_before_backend_fit(
-    monkeypatch, solver
-):
+def test_explicit_fista_l2_quantile_executes_true_fista(monkeypatch):
+    from statgpu.losses import QuantileLoss
+
+    X, y = _data(seed=16303)
+
+    def forbidden_irls(*args, **kwargs):
+        raise AssertionError("explicit solver='fista' must not execute Quantile IRLS")
+
+    monkeypatch.setattr(QuantileLoss, "irls", forbidden_irls)
+    model = PenalizedQuantileRegression(
+        quantile=0.5,
+        penalty="l2",
+        alpha=0.03,
+        solver="fista",
+        device="cpu",
+        max_iter=1200,
+        tol=1e-7,
+    ).fit(X, y)
+
+    assert model._selected_solver == "fista"
+    assert model._selected_backend_name == "numpy"
+    assert np.all(np.isfinite(model.coef_))
+    assert np.isfinite(model.intercept_)
+    assert model.n_iter_ >= 1
+
+
+def test_explicit_fista_bb_l2_quantile_fails_before_backend_fit(monkeypatch):
     X, y = _data(seed=16303)
     model = PenalizedQuantileRegression(
         quantile=0.5,
         penalty="l2",
         alpha=0.03,
-        solver=solver,
+        solver="fista_bb",
         device="cpu",
     )
 
