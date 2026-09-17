@@ -12,6 +12,7 @@ Use this page to enter the user documentation. Detailed support matrices live on
 - [Implemented Methods](guides/implemented-methods.md) — public estimator and method inventory
 - [Device and GPU Memory](guides/device-and-memory.md) — CPU/CUDA/Torch behavior and memory controls
 - [Cross-Validation](guides/cross-validation.md) — folds, tuning grids, selection, and final refit
+- [How statgpu Cross-Validation Works](guides/cross-validation-design.md) — public CV execution model and acceleration semantics
 - [Inference Modes](guides/inference-modes.md) — choose and interpret coefficient-inference methods
 - [Inference API](guides/inference-api.md) — distributions, multiple testing, permutation tests, and bootstrap utilities
 - [Changelog](changelog.md) — release history
