@@ -13,6 +13,10 @@ from statgpu.linear_model.penalized import (
 _ROOT = Path(__file__).resolve().parents[2]
 _PUBLIC_DOC_PAIRS = (
     (
+        "docs/en/README.md",
+        "docs/cn/README.md",
+    ),
+    (
         "docs/en/guides/solver-algorithms.md",
         "docs/cn/guides/solver-algorithms.md",
     ),
@@ -37,6 +41,10 @@ _PUBLIC_DOC_PAIRS = (
         "docs/cn/guides/cross-validation.md",
     ),
     (
+        "docs/en/guides/inference-api.md",
+        "docs/cn/guides/inference-api.md",
+    ),
+    (
         "docs/en/guides/inference-modes.md",
         "docs/cn/guides/inference-modes.md",
     ),
@@ -53,12 +61,20 @@ _PUBLIC_DOC_PAIRS = (
         "docs/cn/guides/implemented-methods.md",
     ),
     (
+        "docs/en/guides/cox-cv-staged-safety.md",
+        "docs/cn/guides/cox-cv-staged-safety.md",
+    ),
+    (
         "docs/en/guides/nodewise-alpha-migration.md",
         "docs/cn/guides/nodewise-alpha-migration.md",
     ),
     (
         "docs/en/guides/penalized-glm-inference.md",
         "docs/cn/guides/penalized-glm-inference.md",
+    ),
+    (
+        "docs/en/guides/penalized-solver-api-migration.md",
+        "docs/cn/guides/penalized-solver-api-migration.md",
     ),
     (
         "docs/en/panel/architecture.md",
@@ -142,6 +158,15 @@ def test_repository_documentation_language_policy_is_canonicalized():
         assert "dev/DOCUMENTATION_STYLE.md" in entrypoint
 
     assert "User-facing docs describe observable support/behavior" in contributing
+
+
+def test_documentation_root_portal_stays_user_facing():
+    portal = (_ROOT / "docs/index.md").read_text(encoding="utf-8")
+
+    assert "Choose a documentation entry point" in portal
+    assert "maintained documentation entry point" not in portal.lower()
+    assert "pull-request validation records" not in portal.lower()
+    assert ".claude/skills/" not in portal
 
 
 def test_loss_reference_keeps_quantile_content_at_loss_layer():
