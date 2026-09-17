@@ -31,8 +31,8 @@ def _scalar_bool(value) -> bool:
 
 
 def _scalar_float(value) -> float:
-    # Only scalar continuation metadata crosses to host. X/y/weights stay on
-    # their declared backend/device throughout the score calculation.
+    # Scalar control/continuation metadata may cross to host. Full X/y/weight
+    # arrays remain on their declared backend/device throughout this resolver.
     return float(np.asarray(_to_numpy(value)).reshape(()))
 
 
@@ -95,10 +95,11 @@ def resolve_auto_quantile_continuation_path(
     contractually fixed intercept zero. A plain user-supplied ``alpha_path``
     is returned unchanged.
 
-    The calculation remains on the input NumPy/CuPy/Torch backend in float64,
-    matching the maintained Quantile numerical paths. Only the final scalar
-    ``lambda_start`` is synchronized to the host to build the small NumPy
-    continuation vector consumed by the existing solver contract.
+    The full design, response, and weight arrays remain on the input
+    NumPy/CuPy/Torch backend in float64 while the weighted score is formed.
+    Only scalar control decisions and scalar continuation metadata (including
+    ``lambda_start``) may synchronize to the host; no full-array host snapshot
+    is required for the non-uniform weighted recomputation.
     """
     if not is_auto_quantile_continuation_path(alpha_path):
         return alpha_path
