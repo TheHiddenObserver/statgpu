@@ -17,9 +17,9 @@ statgpu 中的交叉验证是包在 estimator 外层的**模型选择过程**。
     -> 在全部观测上重新拟合所选配置
 ```
 
-本页只说明用户需要依赖的公开行为：fold 与 tuning grid 如何配置，solver/device 如何与 CV 交互，最终 refit 属于哪一步，以及 CV 后推断应如何解释。
+本页只说明任务导向的公开行为：fold 与 tuning grid 如何配置，solver/device 如何与 CV 交互，最终 refit 属于哪一步，以及 CV 后推断应如何解释。
 
-GPU batching、内部 fast path、cache key、benchmark 得出的自动路由阈值等属于实现细节，不是本页的用户契约。
+如果想进一步理解 selection/refit 为什么分成两个阶段、pathwise reuse / GPU batching 怎样加速、selection cache 可以复用什么，以及这些优化为什么不能改变统计问题，请看 [statgpu 的交叉验证如何工作](cross-validation-design.md)。private fast path、cache key 的精确字段、helper 名称与 benchmark 得出的路由阈值仍然属于内部实现。
 
 ## 可用的 CV estimator
 
@@ -166,6 +166,8 @@ CV fold 内的拟合只是候选拟合。候选网格完成评分后，所选 hy
 - 当 estimator 分别提供 CV solver 与 final-refit solver 控制时，两阶段可以合法使用不同算法；
 - 支持推断的 estimator 会在选择完成后对最终 refit 做推断，而不是在每个 fold 内分别发布推断结果。
 
+为什么这一分离属于 CV 设计本身，而不仅仅是实现细节，见 [statgpu 的交叉验证如何工作](cross-validation-design.md)。
+
 ## CV 后推断
 
 对于支持 `compute_inference=True` 的 estimator，candidate fit 保持 selection-only。statgpu 先选择 tuning parameter，再在全部观测上拟合所选模型，最后才执行请求的 inference。
@@ -185,7 +187,7 @@ CV 与 direct estimator 使用相同的显式设备规则：
 
 自动路由属于实现选择，可能随实际性能测量而变化。应用代码不应依赖某个内部样本量/维度阈值；如果必须固定执行 backend，请显式指定。
 
-完整设备语义见 [设备与 GPU 内存](device-and-memory.md)。
+公开 design 页进一步解释了为什么 auto backend 选择和 GPU batching 可以变化、但不能改变 CV 的统计问题：[statgpu 的交叉验证如何工作](cross-validation-design.md)。完整设备语义见 [设备与 GPU 内存](device-and-memory.md)。
 
 ## 拟合结果
 
@@ -214,6 +216,7 @@ CV 与 direct estimator 使用相同的显式设备规则：
 
 ## 相关文档
 
+- [statgpu 的交叉验证如何工作](cross-validation-design.md) — 公开 execution model、加速思想与统计不变量
 - [已实现方法](implemented-methods.md) — 可用 public estimator
 - [Solver × Penalty 兼容性矩阵](solver-penalty-matrix.md) — 显式组合兼容性
 - [求解器算法](solver-algorithms.md) — 优化算法
