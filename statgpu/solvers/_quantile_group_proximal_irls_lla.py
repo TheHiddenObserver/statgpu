@@ -292,30 +292,36 @@ def quantile_group_proximal_irls_lla_solver(
 
         if is_final_continuation:
             if flat_irls_exhausted:
-                message = (
+                base_message = (
                     "Quantile Group Proximal IRLS-LLA flat target reached "
                     f"max_iter={irls_limit} in Quantile IRLS at "
-                    f"alpha={float(cont_alpha):.12g}; returning the final iterate. "
-                    "Increase max_iter for a stricter convergence check."
+                    f"alpha={float(cont_alpha):.12g}"
                 )
                 if fail_on_target_nonconvergence:
-                    raise FloatingPointError(message)
+                    raise FloatingPointError(
+                        base_message
+                        + "; the CV candidate was not scored because target convergence was not established."
+                    )
                 warnings.warn(
-                    message,
+                    base_message
+                    + "; returning the final iterate. Increase max_iter for a stricter convergence check.",
                     ConvergenceWarning,
                     stacklevel=_external_warning_stacklevel(),
                 )
             elif not lla_converged:
-                message = (
+                base_message = (
                     "Quantile Group Proximal IRLS-LLA reached "
                     f"max_lla_per_step={int(max_lla_per_step)} at the target "
-                    f"alpha={float(cont_alpha):.12g}; returning the final iterate. "
-                    "Increase max_lla_iters or relax lla_tol if needed."
+                    f"alpha={float(cont_alpha):.12g}"
                 )
                 if fail_on_target_nonconvergence:
-                    raise FloatingPointError(message)
+                    raise FloatingPointError(
+                        base_message
+                        + "; the CV candidate was not scored because target convergence was not established."
+                    )
                 warnings.warn(
-                    message,
+                    base_message
+                    + "; returning the final iterate. Increase max_lla_iters or relax lla_tol if needed.",
                     ConvergenceWarning,
                     stacklevel=_external_warning_stacklevel(),
                 )
