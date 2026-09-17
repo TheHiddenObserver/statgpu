@@ -286,7 +286,6 @@ def test_quantile_group_scad_explicit_fista_cv_stays_explicit(monkeypatch):
         random_state=166,
         solver="fista",
         device="cpu",
-        fit_intercept=False,
         max_iter=30,
         tol=1e-6,
     ).fit(X, y, sample_weight=weights)
