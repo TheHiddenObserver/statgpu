@@ -1,46 +1,49 @@
-# CoxPHCV 实验性筛选安全策略
+# CoxPHCV 实验性筛选控制
 
-> 最后更新：2026-08-04  
-> 适用对象：`statgpu.survival.CoxPHCV`
+> 最后更新：2026-09-17  
+> 适用对象：`statgpu.survival.CoxPHCV`  
+> 切换：[English](../../en/guides/cox-cv-staged-safety.md)
 
-## 当前状态
-
-`CoxPHCV` 提供两个由环境变量控制的实验性优化开关：
+`CoxPHCV` 识别两个实验性环境变量：
 
 - `STATGPU_COXPHCV_TWO_STAGE`
 - `STATGPU_COXPHCV_SUCCESSIVE_HALVING`
 
-当前这两个开关**不会删除或近似处理任何 penalty candidate**。只要请求其中任一开关，statgpu 就会发出 `RuntimeWarning`，并以完整 solver 精度评估整个 penalty grid。该 correctness-first fallback 可避免初步分数、数值并列或近似并列改变最终选择的正则化参数。
+## 当前用户可见行为
 
-## 后端行为
+请求任一控制项时，statgpu **不会**删除、近似处理或跳过任何 penalty candidate。它会发出 `RuntimeWarning`，并按普通 solver 精度评估完整 penalty grid。
 
-NumPy、CuPy 和 Torch CUDA 遵循相同的统计与执行契约：
+用户可观察到的选择流程仍然是：
 
-- 每个 candidate 都接受 full-precision evaluation；
-- 不筛除任何 candidate；
-- 原始 staged 与 successive-halving 分支均被禁用；
-- 只执行一次 exhaustive candidate pass；
-- 最终选择基于完整 candidate set；
-- 使用所选 penalty 在完整数据上重新拟合。
+```text
+完整 penalty grid
+    -> 评估每个 candidate
+    -> 从完整 candidate set 中选择
+    -> 在全部数据上 refit 所选 penalty
+```
 
-特别地，CuPy 不再先把 staged candidate 集合扩展为完整 grid，再把同一批 full-precision finalists 重跑一遍。三个后端现在都只调用一次普通 exhaustive selector，从而消除后端特有的双重 full-grid 拟合，同时保持相同的 penalty 选择契约。
+这一行为在受支持的 NumPy、CuPy 与 Torch 执行路径上相同。
+
+如果应用真正需要 staged screening 或 successive halving，目前不能把这两个环境变量解释为已经提供相应算法。
 
 ## 诊断字段
 
-请求实验性开关后，`cv_results_` 包含以下字段：
+请求实验性控制后，`cv_results_` 会通过以下字段说明实际发生的执行方式：
 
 | 字段 | 含义 |
 |---|---|
-| `two_stage_requested` | 是否请求 two-stage 环境开关 |
-| `two_stage_enabled` | screening 安全禁用期间恒为 `False` |
+| `two_stage_requested` | 是否请求 two-stage control |
+| `two_stage_enabled` | 当前 exhaustive 行为下为 `False` |
 | `successive_halving_requested` | 是否请求 successive halving |
-| `successive_halving_enabled` | screening 安全禁用期间恒为 `False` |
+| `successive_halving_enabled` | 当前 exhaustive 行为下为 `False` |
 | `staged_execution_mode` | `"exhaustive_safety_fallback"` |
-| `staged_safety_strategy` | 恒为 `"single_pass_exhaustive"` |
-| `staged_fallback_reason` | 禁用 screening 的用户可见原因 |
+| `staged_safety_strategy` | `"single_pass_exhaustive"` |
+| `staged_fallback_reason` | 未使用 staged screening 的用户可见原因 |
 | `fast_pass_candidate_mask` | 全部为 `False` |
 | `full_precision_candidate_mask` | 全部为 `True` |
 | `screened_out_candidate_mask` | 全部为 `False` |
+
+字段名称保留现有 API spelling，即使当前实际计算采用 exhaustive evaluation。
 
 ## 示例
 
@@ -59,9 +62,12 @@ model = CoxPHCV(
 ).fit(X, time, event)
 
 assert model.cv_results_["staged_execution_mode"] == "exhaustive_safety_fallback"
-assert model.cv_results_["staged_safety_strategy"] == "single_pass_exhaustive"
 assert model.cv_results_["full_precision_candidate_mask"].all()
 assert not model.cv_results_["screened_out_candidate_mask"].any()
 ```
 
-这些环境变量目前应被视为预留的实验性控制项。只有在 deterministic candidate ranking 以及 NumPy、CuPy、Torch 三后端 correctness 与 performance evidence 完整之后，未来版本才可能重新启用实际 screening。
+## 实际使用建议
+
+普通 Cox penalty selection 应直接依赖上面描述的 exhaustive candidate-selection 行为。如果程序必须知道是否真正执行了 screening，应检查 enabled/diagnostic 字段，而不是根据环境变量是否设置来推断。
+
+fold、final refit 与 Cox-specific 统计限制见 [Cox 比例风险模型](../models/coxph.md)和 [交叉验证](cross-validation.md)。
