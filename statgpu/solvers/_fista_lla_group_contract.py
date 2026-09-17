@@ -27,7 +27,7 @@ import copy
 import numpy as np
 
 from statgpu.backends import _resolve_backend, _to_numpy
-from statgpu.backends._array_ops import _copy_arr, _zeros
+from statgpu.backends._array_ops import _abs_sum_dev, _copy_arr, _zeros
 from statgpu.backends._utils import xp_ones
 from statgpu.penalties import AdaptiveGroupLassoPenalty, AdaptiveL1Penalty
 from ._fista_lla import fista_lla_path as _base_fista_lla_path
@@ -336,7 +336,7 @@ def _quantile_fista_lla_path(
                     if float(_to_numpy(delta_dev)) < float(tol):
                         break
 
-            lla_delta = xp.max(xp.abs(params - before_lla))
+            lla_delta = _abs_sum_dev(params - before_lla)
             if float(_to_numpy(lla_delta)) < float(lla_tol):
                 break
 
