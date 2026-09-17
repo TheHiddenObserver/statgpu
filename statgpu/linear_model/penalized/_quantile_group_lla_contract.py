@@ -2,19 +2,21 @@
 
 The generic group-penalty contract already routes convex Group Lasso through
 loss-gradient FISTA rather than the historical Gaussian block update. Group
-SCAD/MCP have a separate canonical contract: local linear approximation (LLA)
+SCAD/MCP have a separate automatic contract: local linear approximation (LLA)
 with an Adaptive Group Lasso surrogate. Quantile was accidentally excluded from
-that branch by the legacy ``_SPECIAL_LLA_LOSSES`` classification, so its public
-``solver='auto'`` path fell through to direct non-convex proximal FISTA instead
-of the documented Group FISTA-LLA algorithm.
+that automatic branch by the legacy ``_SPECIAL_LLA_LOSSES`` classification, so
+``solver='auto'`` fell through to direct non-convex proximal FISTA instead of
+the documented Group FISTA-LLA algorithm.
 
-This narrow wrapper restores the declared route without changing other losses.
-It also resolves the Quantile continuation start from the same analytic weights,
-intercept policy, and normalized pinball score used by the fitted objective.
+This narrow wrapper restores the declared automatic route without changing the
+historical meaning of an explicit ``solver='fista'`` request. The same
+distinction is preserved inside CV: only an auto-resolved child/final refit uses
+Group FISTA-LLA; explicit-FISTA CV remains explicit FISTA.
 """
 
 from __future__ import annotations
 
+from contextvars import ContextVar
 from functools import wraps
 
 import numpy as np
@@ -27,10 +29,13 @@ from statgpu.solvers._quantile_continuation import (
 )
 from . import _fit_mixin
 from . import _quantile_continuation_contract as _continuation_contract
+from . import _quantile_solver_contract as _quantile_contract
 
 
 _MARKER = "_statgpu_quantile_group_lla_contract"
+_CV_MARKER = "_statgpu_quantile_group_lla_cv_auto_context_contract"
 _GROUP_NONCONVEX = frozenset({"group_mcp", "gmcp", "group_scad", "gscad"})
+_AUTO_CV_GROUP_LLA = ContextVar("statgpu_quantile_group_auto_cv_lla", default=False)
 
 
 def _penalty_name(owner) -> str:
@@ -40,12 +45,73 @@ def _penalty_name(owner) -> str:
     ).lower().strip()
 
 
+def _loss_name(owner) -> str:
+    return str(
+        getattr(getattr(owner, "_loss", None), "name", getattr(owner, "loss", ""))
+        or ""
+    ).lower().strip()
+
+
 def _is_quantile_group_nonconvex(owner) -> bool:
+    return _loss_name(owner) == "quantile" and _penalty_name(owner) in _GROUP_NONCONVEX
+
+
+def _public_solver_is_auto(owner) -> bool:
+    return str(getattr(owner, "_solver", "") or "").lower().strip() == "auto"
+
+
+def _use_auto_group_lla(owner, solver_name) -> bool:
     return (
-        str(getattr(getattr(owner, "_loss", None), "name", "")).lower().strip()
-        == "quantile"
-        and _penalty_name(owner) in _GROUP_NONCONVEX
+        _is_quantile_group_nonconvex(owner)
+        and str(solver_name or "").lower().strip() == "fista"
+        and (_public_solver_is_auto(owner) or _AUTO_CV_GROUP_LLA.get())
     )
+
+
+def _install_cv_auto_context() -> None:
+    """Mark only auto-routed Quantile group CV child/refit fits as LLA-owned."""
+    CV = _quantile_contract.PenalizedGLM_CV
+    if getattr(CV, _CV_MARKER, False):
+        return
+
+    current_fold = CV._cv_fold_general
+    current_refit = CV._refit_best
+
+    def _is_auto_quantile_group_cv(owner) -> bool:
+        penalty_name = str(
+            getattr(getattr(owner, "penalty", None), "name", getattr(owner, "penalty", ""))
+            or ""
+        ).lower().strip()
+        loss_name = str(getattr(owner, "loss", "") or "").lower().strip()
+        return (
+            loss_name == "quantile"
+            and penalty_name in _GROUP_NONCONVEX
+            and _public_solver_is_auto(owner)
+        )
+
+    @wraps(current_fold)
+    def _cv_fold_with_quantile_group_auto_context(self, *args, **kwargs):
+        if not _is_auto_quantile_group_cv(self):
+            return current_fold(self, *args, **kwargs)
+        token = _AUTO_CV_GROUP_LLA.set(True)
+        try:
+            return current_fold(self, *args, **kwargs)
+        finally:
+            _AUTO_CV_GROUP_LLA.reset(token)
+
+    @wraps(current_refit)
+    def _refit_with_quantile_group_auto_context(self, *args, **kwargs):
+        if not _is_auto_quantile_group_cv(self):
+            return current_refit(self, *args, **kwargs)
+        token = _AUTO_CV_GROUP_LLA.set(True)
+        try:
+            return current_refit(self, *args, **kwargs)
+        finally:
+            _AUTO_CV_GROUP_LLA.reset(token)
+
+    CV._cv_fold_general = _cv_fold_with_quantile_group_auto_context
+    CV._refit_best = _refit_with_quantile_group_auto_context
+    setattr(CV, _CV_MARKER, True)
 
 
 def _install_quantile_group_lla_route() -> None:
@@ -57,12 +123,7 @@ def _install_quantile_group_lla_route() -> None:
     def _fit_loss_backend_with_quantile_group_lla(
         self, X, y, sample_weight, solver_name, backend_name
     ):
-        if not _is_quantile_group_nonconvex(self):
-            return current(self, X, y, sample_weight, solver_name, backend_name)
-
-        # Group SCAD/MCP are public auto-routed LLA objectives. Do not let an
-        # unrelated explicit solver request silently enter this resolved route.
-        if str(solver_name or "").lower().strip() != "fista":
+        if not _use_auto_group_lla(self, solver_name):
             return current(self, X, y, sample_weight, solver_name, backend_name)
 
         xp = _get_xp(backend_name)
@@ -143,6 +204,7 @@ def _install_quantile_group_lla_route() -> None:
     )
 
 
+_install_cv_auto_context()
 _install_quantile_group_lla_route()
 
 
