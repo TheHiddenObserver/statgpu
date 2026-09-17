@@ -28,7 +28,7 @@ class QuantileLoss(LossBase):
 
     name = "quantile"
     y_type = "continuous"
-    smooth_gradient = False   # non-smooth at u=0; FISTA handles via proximal
+    smooth_gradient = False   # non-smooth at u=0; first-order routes use a subgradient
     has_hessian = False
     _supports_irls = True     # has irls() method (Frisch-Newton)
 
@@ -43,10 +43,18 @@ class QuantileLoss(LossBase):
         self._tau = self.quantile
 
     def lipschitz(self, X, coef, y=None, sample_weight=None):
-        """Lipschitz constant: max(tau, 1-tau) * lambda_max(X'X) / n.
+        """Return the design-scaled initial step parameter for first-order routes.
 
-        The per-sample gradient of quantile loss is bounded by max(tau, 1-tau),
-        not 1. For median (tau=0.5), this gives a 2x larger step size.
+        Quantile/check loss has a discontinuous subgradient and therefore does
+        **not** have a classical smooth-gradient Lipschitz constant. The shared
+        solver interface nevertheless asks losses for a positive ``lipschitz``
+        scale. For Quantile we provide
+
+        ``max(tau, 1-tau) * lambda_max(X'X) / n``
+
+        as a conservative design/subgradient scale used to initialize fixed-step
+        or backtracking first-order iterations. It must not be interpreted as a
+        proof that textbook smooth-FISTA assumptions hold for pinball loss.
         """
         from statgpu.backends._array_ops import _max_eigval_power
         cache_key = id(X)
