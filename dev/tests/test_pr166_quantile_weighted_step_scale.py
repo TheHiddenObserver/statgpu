@@ -1,4 +1,4 @@
-"""Weighted first-order step-scale contracts for PR #166 Quantile FISTA-LLA."""
+"""Weighted Quantile step-scale and LLA surrogate contracts for PR #166."""
 
 from __future__ import annotations
 
@@ -6,11 +6,7 @@ import numpy as np
 import pytest
 
 from statgpu.losses import QuantileLoss
-from statgpu.penalties import GroupSCADPenalty, SCADPenalty
-from statgpu.solvers import _fista_lla_group_contract as group_contract
-from statgpu.solvers._fista_lla_group_contract import (
-    _QuantileWeightedStepScaleProxy,
-)
+from statgpu.solvers import _fista_lla_group_contract as lla_contract
 
 
 def test_quantile_weighted_step_scale_matches_normalized_weighted_gram():
@@ -36,8 +32,7 @@ def test_quantile_weighted_step_scale_matches_normalized_weighted_gram():
     expected = max(tau, 1.0 - tau) * float(np.linalg.eigvalsh(gram)[-1])
 
     # Production uses the shared 20-step power iteration with tol=1e-8 rather
-    # than a full eigendecomposition, so compare the implemented step scale to
-    # the analytic eigenvalue at that declared numerical accuracy.
+    # than a full eigendecomposition.
     assert actual == pytest.approx(expected, rel=1e-8, abs=1e-10)
 
 
@@ -67,111 +62,40 @@ def test_quantile_equal_weights_recover_unweighted_step_scale():
     assert weighted == pytest.approx(unweighted, rel=2e-12, abs=2e-14)
 
 
-def test_quantile_step_proxy_retains_weight_for_periodic_refresh():
-    class RecordingLoss:
-        name = "quantile"
+def test_scalar_lla_surrogate_preserves_raw_derivative_scale_and_free_intercept():
+    """Scalar SCAD/MCP LLA derivatives are not Adaptive-Lasso normalized."""
+    derivatives = np.asarray([0.3, 0.1, 0.0, 0.2, 0.0], dtype=np.float64)
+    penalty = lla_contract._scalar_surrogate_factory(derivatives)
 
-        def __init__(self):
-            self.weights = []
-
-        def lipschitz(self, X, coef, y=None, sample_weight=None):
-            self.weights.append(sample_weight)
-            return 1.0
-
-    base = RecordingLoss()
-    proxy = _QuantileWeightedStepScaleProxy(base)
-    X = np.eye(3, dtype=np.float64)
-    coef = np.zeros(3, dtype=np.float64)
-    weights = np.asarray([0.5, 1.0, 2.0], dtype=np.float64)
-
-    assert proxy.lipschitz(X, coef, sample_weight=weights) == 1.0
-    assert proxy.lipschitz(X, coef) == 1.0
-
-    assert base.weights[0] is weights
-    assert base.weights[1] is weights
+    assert penalty.name == "adaptive_l1"
+    assert penalty.alpha == pytest.approx(1.0)
+    assert penalty.normalize is False
+    np.testing.assert_array_equal(penalty._weights, derivatives)
+    # The final derivative is the augmented intercept coordinate and remains
+    # exactly unpenalized in the convex WLS surrogate.
+    assert penalty._weights[-1] == 0.0
 
 
-def _recording_quantile_loss():
-    class RecordingQuantileLoss:
-        name = "quantile"
-        has_hessian = False
-
-        def __init__(self):
-            self.weights = []
-
-        def lipschitz(self, X, coef, y=None, sample_weight=None):
-            self.weights.append(sample_weight)
-            return 1.0
-
-    return RecordingQuantileLoss()
-
-
-def test_public_group_lla_installs_quantile_weight_proxy(monkeypatch):
-    """Direct public group calls get the same weighted refresh contract."""
-    loss = _recording_quantile_loss()
-    penalty = GroupSCADPenalty(alpha=0.1, a=3.7, groups=[[0, 1], [2, 3]])
-    weights = np.asarray([0.4, 0.8, 1.2, 1.6], dtype=np.float64)
+def test_quantile_irls_observation_weights_include_normalized_analytic_weights():
+    """The WLS majorizer must use the same normalized analytic weights as Quantile IRLS."""
+    loss = QuantileLoss(0.35)
     X = np.eye(4, dtype=np.float64)
-    y = np.zeros(4, dtype=np.float64)
-    captured = {}
+    y = np.asarray([0.5, -0.25, 0.8, -0.4], dtype=np.float64)
+    params = np.zeros(4, dtype=np.float64)
+    raw = np.asarray([0.4, 0.8, 1.2, 1.6], dtype=np.float64)
+    normalized = raw * (4.0 / float(np.sum(raw)))
 
-    def fake_base(loss_proxy, *args, **kwargs):
-        captured["loss_proxy"] = loss_proxy
-        assert loss_proxy.lipschitz(
-            X, np.zeros(4), sample_weight=weights
-        ) == 1.0
-        assert loss_proxy.lipschitz(X, np.zeros(4)) == 1.0
-        return np.zeros(4), 0.0, 2
-
-    monkeypatch.setattr(group_contract, "_base_fista_lla_path", fake_base)
-    result = group_contract.fista_lla_path(
+    actual = lla_contract._quantile_irls_weights(
         loss,
-        penalty,
         X,
         y,
-        alpha_path=[0.1],
-        fit_intercept=False,
-        sample_weight=weights,
+        params,
+        normalized,
+        np,
+        "numpy",
     )
+    residual = y.copy()
+    asym = np.where(residual < 0.0, 1.0 - 0.35, 0.35)
+    expected = normalized * asym / np.maximum(np.abs(residual), 1e-8)
 
-    assert result[2] == 2
-    assert isinstance(
-        captured["loss_proxy"]._loss,
-        _QuantileWeightedStepScaleProxy,
-    )
-    assert loss.weights[0] is weights
-    assert loss.weights[1] is weights
-
-
-def test_public_scalar_lla_installs_quantile_weight_proxy(monkeypatch):
-    """Scalar direct public Quantile LLA calls retain weighted step state too."""
-    loss = _recording_quantile_loss()
-    penalty = SCADPenalty(alpha=0.1, a=3.7)
-    weights = np.asarray([0.4, 0.8, 1.2, 1.6], dtype=np.float64)
-    X = np.eye(4, dtype=np.float64)
-    y = np.zeros(4, dtype=np.float64)
-    captured = {}
-
-    def fake_base(loss_proxy, *args, **kwargs):
-        captured["loss_proxy"] = loss_proxy
-        assert loss_proxy.lipschitz(
-            X, np.zeros(4), sample_weight=weights
-        ) == 1.0
-        assert loss_proxy.lipschitz(X, np.zeros(4)) == 1.0
-        return np.zeros(4), 0.0, 2
-
-    monkeypatch.setattr(group_contract, "_base_fista_lla_path", fake_base)
-    result = group_contract.fista_lla_path(
-        loss,
-        penalty,
-        X,
-        y,
-        alpha_path=[0.1],
-        fit_intercept=False,
-        sample_weight=weights,
-    )
-
-    assert result[2] == 2
-    assert isinstance(captured["loss_proxy"], _QuantileWeightedStepScaleProxy)
-    assert loss.weights[0] is weights
-    assert loss.weights[1] is weights
+    np.testing.assert_allclose(actual, expected, rtol=0.0, atol=1e-15)
