@@ -14,8 +14,12 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GROUP_RUNNER = Path(__file__).resolve().with_name("validate_quantile_group_lla_gpu.py")
 SCALAR_RUNNER = Path(__file__).resolve().with_name("validate_quantile_scalar_lla_gpu.py")
+BOUNDARY_RUNNER = Path(__file__).resolve().with_name(
+    "validate_quantile_group_boundary_probe_gpu.py"
+)
 GROUP_SCHEMA_VERSION = 2
 SCALAR_SCHEMA_VERSION = 1
+BOUNDARY_SCHEMA_VERSION = 1
 
 
 def _git(*args: str) -> str:
@@ -85,6 +89,9 @@ def main() -> int:
         scalar_payload = _run_inner(
             SCALAR_RUNNER, temp_dir / "quantile-scalar-lla-gpu.json"
         )
+        boundary_payload = _run_inner(
+            BOUNDARY_RUNNER, temp_dir / "quantile-group-boundary-probe-gpu.json"
+        )
 
     source_after = _require_clean_source()
     if source_after != source_before:
@@ -104,9 +111,16 @@ def main() -> int:
         label="Quantile low-level FISTA-LLA inner runner",
         schema_version=SCALAR_SCHEMA_VERSION,
     )
+    _validate_inner(
+        boundary_payload,
+        source_sha=source_before,
+        label="Quantile Group flat-IRLS boundary-probe runner",
+        schema_version=BOUNDARY_SCHEMA_VERSION,
+    )
 
     payload = dict(group_payload)
     payload["low_level_scalar_fista_lla"] = scalar_payload
+    payload["flat_irls_boundary_probe"] = boundary_payload
     payload["source_sha_before"] = source_before
     payload["source_sha_after_execution"] = source_after
     payload["source_clean_before"] = True
