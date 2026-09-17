@@ -17,9 +17,9 @@ candidate grid
     -> refit the selected configuration on all observations
 ```
 
-This page documents that public behavior: how to configure folds and tuning grids, how solver/device choices interact with CV, what happens during the final refit, and how inference after CV should be interpreted.
+This page documents the task-oriented public behavior: how to configure folds and tuning grids, how solver/device choices interact with CV, what happens during the final refit, and how inference after CV should be interpreted.
 
-Implementation details such as GPU batching, internal fast paths, cache keys, and benchmark-specific routing thresholds are not part of the user contract.
+For the public execution model behind these behaviors—including the selection/refit split, pathwise reuse, GPU batching, and selection-cache semantics—see [How statgpu Cross-Validation Works](cross-validation-design.md). Exact private fast paths, cache-key fields, helper names, and benchmark-derived routing thresholds remain implementation details.
 
 ## Available CV estimators
 
@@ -166,6 +166,8 @@ This distinction matters for interpretation:
 - a solver used only for the CV path need not be the same solver used for the final refit when the estimator exposes separate controls;
 - inference, when supported, is computed from the selected full-data refit rather than separately inside every fold.
 
+For why this separation is part of the design rather than just an implementation detail, see [How statgpu Cross-Validation Works](cross-validation-design.md).
+
 ## Inference after CV
 
 For estimators that support `compute_inference=True`, candidate fits remain selection-only. statgpu first selects the tuning parameter, refits the selected model on all observations, and then runs the requested inference on that final estimator.
@@ -185,7 +187,7 @@ CV follows the same explicit-device rule as direct estimators:
 
 Automatic routing is an implementation choice and may evolve with measured performance. Do not write application logic that depends on a particular internal size threshold. If a specific execution backend is required, request it explicitly.
 
-See [Device and GPU Memory](device-and-memory.md) for the device contract.
+The public design page explains why automatic backend choice and GPU batching are allowed to vary without changing the CV statistical problem: [How statgpu Cross-Validation Works](cross-validation-design.md). See [Device and GPU Memory](device-and-memory.md) for the device contract.
 
 ## Fitted results
 
@@ -214,6 +216,7 @@ A practical sequence is:
 
 ## Related documentation
 
+- [How statgpu Cross-Validation Works](cross-validation-design.md) — public execution model, acceleration concepts, and statistical invariants
 - [Implemented Methods](implemented-methods.md) — available public estimators
 - [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md) — explicit compatibility
 - [Solver Algorithms](solver-algorithms.md) — optimization algorithms
