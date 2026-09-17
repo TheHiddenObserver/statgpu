@@ -253,7 +253,8 @@ def quantile_group_proximal_irls_lla_solver(
                 if not irls_converged:
                     raise ConvergenceWarning(
                         "Quantile Group Proximal IRLS-LLA did not converge "
-                        f"within {irls_limit} IRLS iterations at alpha={float(cont_alpha):.12g}."
+                        f"within {irls_limit} IRLS iterations at alpha={float(cont_alpha):.12g}; "
+                        "no approximate LLA iterate was accepted. Increase max_iter or relax tol."
                     )
 
             lla_delta = _abs_sum_dev(params - before_lla)
