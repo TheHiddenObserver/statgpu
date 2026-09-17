@@ -1,4 +1,4 @@
-"""Convergence-failure contract for PR #166 Quantile group IRLS-LLA."""
+"""Convergence-reporting contract for PR #166 Quantile group IRLS-LLA."""
 
 from __future__ import annotations
 
@@ -14,8 +14,8 @@ from statgpu.solvers import _quantile_group_proximal_irls_lla as solver_mod
 GROUPS = [[0, 1], [2, 3]]
 
 
-def test_active_quantile_group_target_lla_exhaustion_fails_closed(monkeypatch):
-    """An unconverged target LLA loop must not return a plausible approximate fit."""
+def test_active_quantile_group_target_lla_exhaustion_warns(monkeypatch):
+    """An exhausted target LLA loop is observable rather than silently successful."""
     X = np.eye(4, dtype=np.float64)
     y = np.asarray([0.8, -0.5, 0.4, -0.3], dtype=np.float64)
     loss = QuantileLoss(0.35)
@@ -25,16 +25,15 @@ def test_active_quantile_group_target_lla_exhaustion_fails_closed(monkeypatch):
     def drifting_admm(loss_arg, penalty_arg, X_arg, y_arg, **kwargs):
         calls["value"] += 1
         current = np.asarray(kwargs["init_coef"], dtype=np.float64)
-        # Deliberately keep the target LLA update away from its outer tolerance.
         return current + 0.05, 1
 
     monkeypatch.setattr(solver_mod, "admm_solver", drifting_admm)
 
-    with pytest.raises(
+    with pytest.warns(
         ConvergenceWarning,
-        match="did not converge within 1 LLA iterations at the target",
+        match="max_lla_per_step=1 at the target",
     ):
-        solver_mod.quantile_group_proximal_irls_lla_solver(
+        coef, intercept, n_iter = solver_mod.quantile_group_proximal_irls_lla_solver(
             loss,
             penalty,
             X,
@@ -48,6 +47,9 @@ def test_active_quantile_group_target_lla_exhaustion_fails_closed(monkeypatch):
         )
 
     assert calls["value"] == 2
+    assert n_iter == 2
+    np.testing.assert_allclose(coef, np.full(4, 0.1), rtol=0.0, atol=0.0)
+    assert intercept == 0.0
 
 
 def test_intermediate_quantile_group_lla_exhaustion_is_only_a_warm_path(monkeypatch):
@@ -63,7 +65,6 @@ def test_intermediate_quantile_group_lla_exhaustion_is_only_a_warm_path(monkeypa
         current = np.asarray(kwargs["init_coef"], dtype=np.float64)
         if calls["value"] <= 2:
             return current + 0.05, 1
-        # The final target returns the same point, so its outer LLA delta is zero.
         return current.copy(), 1
 
     monkeypatch.setattr(solver_mod, "admm_solver", warm_then_converged_admm)
@@ -87,8 +88,8 @@ def test_intermediate_quantile_group_lla_exhaustion_is_only_a_warm_path(monkeypa
     assert intercept == 0.0
 
 
-def test_flat_quantile_group_target_irls_budget_exhaustion_fails_closed(monkeypatch):
-    """A flat target still requires the delegated Quantile IRLS solve to close."""
+def test_flat_quantile_group_target_irls_budget_exhaustion_warns(monkeypatch):
+    """A flat target reports exhaustion of its delegated Quantile IRLS budget."""
     X = np.eye(4, dtype=np.float64)
     y = np.asarray([0.8, -0.5, 0.4, -0.3], dtype=np.float64)
     loss = QuantileLoss(0.35)
@@ -109,11 +110,11 @@ def test_flat_quantile_group_target_irls_budget_exhaustion_fails_closed(monkeypa
 
     monkeypatch.setattr(loss, "irls", exhausted_irls)
 
-    with pytest.raises(
+    with pytest.warns(
         ConvergenceWarning,
-        match="flat target did not close within 2 Quantile IRLS iterations",
+        match="flat target reached max_iter=2 in Quantile IRLS",
     ):
-        solver_mod.quantile_group_proximal_irls_lla_solver(
+        coef, intercept, n_iter = solver_mod.quantile_group_proximal_irls_lla_solver(
             loss,
             penalty,
             X,
@@ -126,3 +127,7 @@ def test_flat_quantile_group_target_irls_budget_exhaustion_fails_closed(monkeypa
             fit_intercept=False,
             init_coef=np.full(4, 2.0, dtype=np.float64),
         )
+
+    assert n_iter == 2
+    np.testing.assert_array_equal(coef, np.zeros(4, dtype=np.float64))
+    assert intercept == 0.0
