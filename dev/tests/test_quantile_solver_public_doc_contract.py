@@ -153,6 +153,9 @@ def test_repository_documentation_language_policy_is_canonicalized():
     # keeps out of ordinary user documentation.
     assert "maintained route" in style
     assert "fail closed" in style
+    assert "## English and Chinese pages" in style
+    assert "### Chinese prose consistency" in style
+    assert "Chinese syntax and Chinese explanatory vocabulary" in style
 
     for entrypoint in (contributing, claude):
         assert "dev/DOCUMENTATION_STYLE.md" in entrypoint
@@ -173,9 +176,6 @@ def test_loss_reference_keeps_quantile_content_at_loss_layer():
     en = (_ROOT / "docs/en/models/losses.md").read_text(encoding="utf-8")
     cn = (_ROOT / "docs/cn/models/losses.md").read_text(encoding="utf-8")
 
-    # The loss reference should retain the mathematical/numerical properties
-    # of QuantileLoss, while estimator routing belongs on quantile.md and the
-    # shared solver references.
     assert "QuantileLoss" in en
     assert "non-smooth step-function subgradient and no Hessian" in en
     assert "[Quantile Regression](quantile.md)" in en
@@ -204,8 +204,6 @@ def test_solver_penalty_matrix_stays_a_cross_model_reference():
         encoding="utf-8"
     )
 
-    # The page should keep the global direct/CV matrices and delegate model-
-    # specific derivations and implementation narratives to model pages.
     for text in (en, cn):
         assert "**squared_error**" in text
         assert "**logistic**" in text
@@ -237,7 +235,6 @@ def test_loss_penalty_solver_framework_stays_at_composition_layer():
         encoding="utf-8"
     )
 
-    # The framework owns the architecture and composition contracts.
     for heading in (
         "## 1. Runtime architecture",
         "## 2. Component responsibilities",
@@ -254,16 +251,14 @@ def test_loss_penalty_solver_framework_stays_at_composition_layer():
         "## 1. 运行架构",
         "## 2. 各组件的职责",
         "## 3. 契约如何组合",
-        "## 4. Capability matching 与 solver 分发",
+        "## 4. 能力匹配与求解器分发",
         "## 5. `sample_weight` 与目标函数一致性",
-        "## 6. Backend 与 device 边界",
-        "## 7. CV 与 meta-estimator 边界",
+        "## 6. 后端与设备边界",
+        "## 7. CV 与元估计器边界",
         "## 9. 文档职责分工",
     ):
         assert heading in cn
 
-    # Detailed formulas, model-specific route narratives, full dispatch tables,
-    # and unrelated backend examples belong to their canonical pages.
     for old_detail in (
         "### All Implemented Losses",
         "### Per-Sample Formulas",
@@ -313,10 +308,14 @@ def test_cross_validation_guide_stays_at_user_selection_layer():
     en = (_ROOT / "docs/en/guides/cross-validation.md").read_text(encoding="utf-8")
     cn = (_ROOT / "docs/cn/guides/cross-validation.md").read_text(encoding="utf-8")
 
+    assert "candidate" in en
+    assert "final refit" in en
+    assert "cv_solver" in en
+    assert "候选" in cn
+    assert "最终重拟合" in cn
+    assert "cv_solver" in cn
+
     for text in (en, cn):
-        assert "candidate" in text
-        assert "final refit" in text
-        assert "cv_solver" in text
         assert "Part II: Architecture and Implementation" not in text
         assert "_effective_cv_device" not in text
         assert "_compute_cv_scores" not in text
@@ -364,9 +363,12 @@ def test_float32_lbfgs_page_is_guidance_not_validation_evidence():
         encoding="utf-8"
     )
 
+    assert "float64" in en
+    assert "objective" in en
+    assert "float64" in cn
+    assert "目标函数" in cn
+
     for text in (en, cn):
-        assert "float64" in text
-        assert "objective" in text
         assert "Issue #" not in text
         assert "acceptance bound" not in text.lower()
         assert "验收边界" not in text
