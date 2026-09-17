@@ -34,6 +34,9 @@ _MARKER = "_statgpu_quantile_group_lla_contract"
 _CV_MARKER = "_statgpu_quantile_group_lla_cv_auto_context_contract"
 _GROUP_NONCONVEX = frozenset({"group_mcp", "gmcp", "group_scad", "gscad"})
 _AUTO_CV_GROUP_LLA = ContextVar("statgpu_quantile_group_auto_cv_lla", default=False)
+_CV_GROUP_LLA_CANDIDATE_STRICT = ContextVar(
+    "statgpu_quantile_group_cv_candidate_strict", default=False
+)
 _EXECUTED_SOLVER = "group_proximal_irls_lla"
 
 
@@ -92,11 +95,13 @@ def _install_cv_auto_context() -> None:
     def _cv_fold_with_quantile_group_auto_context(self, *args, **kwargs):
         if not _is_auto_quantile_group_cv(self):
             return current_fold(self, *args, **kwargs)
-        token = _AUTO_CV_GROUP_LLA.set(True)
+        auto_token = _AUTO_CV_GROUP_LLA.set(True)
+        strict_token = _CV_GROUP_LLA_CANDIDATE_STRICT.set(True)
         try:
             return current_fold(self, *args, **kwargs)
         finally:
-            _AUTO_CV_GROUP_LLA.reset(token)
+            _CV_GROUP_LLA_CANDIDATE_STRICT.reset(strict_token)
+            _AUTO_CV_GROUP_LLA.reset(auto_token)
 
     @wraps(current_refit)
     def _refit_with_quantile_group_auto_context(self, *args, **kwargs):
@@ -177,6 +182,7 @@ def _install_quantile_group_lla_route() -> None:
             sample_weight=sample_weight,
             init_coef=getattr(self, "_init_coef", None),
             init_intercept=getattr(self, "_init_intercept", None),
+            fail_on_target_nonconvergence=_CV_GROUP_LLA_CANDIDATE_STRICT.get(),
         )
 
         coef_np = np.asarray(_to_numpy(coef), dtype=np.float64).reshape(-1)
