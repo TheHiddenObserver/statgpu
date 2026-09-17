@@ -30,7 +30,7 @@ NumPy、CuPy 与 Torch 之间的传输可以在内部采用优化机制。应用
 
 如果应用需要可复现的硬件 placement，应显式指定 device，而不是依赖内部 `auto` 阈值。
 
-## Solver 兼容性单独维护
+## Solver 兼容性另见专门文档
 
 设备支持与 solver 兼容性是两个不同问题。某个 backend 可以正常使用，但特定 loss × penalty × solver 组合仍可能不受支持。
 
