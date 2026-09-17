@@ -90,7 +90,9 @@ IRLS 仍是自动选择，因为 pinball loss 本身非光滑；这里的 Quanti
 | SCAD / MCP | Proximal IRLS-CD | Quantile 专用 IRLS 上界 + LLA |
 | adaptive_l1 | FISTA | 先准备自适应权重，再进入 Quantile FISTA |
 | group_lasso / adaptive group | 分组 FISTA | 面向分组的近端路径 |
-| group_scad / group_mcp | 分组 FISTA-LLA | Group LLA 近似 + 分组 FISTA 内层 |
+| group_scad / group_mcp | 分组 FISTA-LLA | 分组 LLA；Quantile 下先构造 IRLS 二次上界，再由分组 FISTA 求解对应的加权最小二乘凸代理问题 |
+
+上表描述的是自动路径。若对 Group SCAD/MCP 显式指定 `solver="fista"`，该请求仍然保持为显式近端 FISTA，不会被静默改写成自动选择的分组 FISTA-LLA 路径。
 
 ## `sample_weight` 语义
 
@@ -104,6 +106,7 @@ $$
 但 `sample_weight` **不是所有求解器自动具备的统一能力**。当前尤其需要区分：
 
 - Quantile IRLS / Proximal IRLS-CD 具有明确的带权实现；
+- 自动选择的分组 FISTA-LLA 会把同一组归一化解析权重带入 Quantile IRLS 二次上界，再求解对应的分组凸代理问题；
 - 普通 FISTA（包括显式选择的 L2/无惩罚 FISTA）使用损失函数层的归一化带权目标；
 - 通用 `LossBase` 的共享函数值和梯度可以计算归一化带权目标；
 - FISTA-BB 与 ADMM 在任何权重设置下都不支持 Quantile，因为这些通用算法依赖 check loss 不具备的光滑梯度结构；
@@ -214,6 +217,33 @@ model.fit(X, y, sample_weight=sample_weight)
 ### Proximal IRLS-CD（SCAD/MCP）
 
 详细更新公式见 [求解器算法](../guides/solver-algorithms.md#1-proximal-irls-cd)。其核心是把 check loss 的 IRLS 二次上界与 SCAD/MCP 的局部线性近似结合起来。
+
+### 分组 FISTA-LLA（Group SCAD/MCP）
+
+对于自动选择的 Group SCAD/MCP 路径，外层 LLA 把非凸分组惩罚转化成加权 Group-Lasso 凸代理问题。记 $D_g^{(k)}$ 为当前分组惩罚对 $\|\beta_g\|_2$ 的导数，Quantile 专用内层首先根据当前残差构造 IRLS 权重
+
+$$
+w_i^{(t)}
+=
+\widetilde s_i
+\frac{\tau+(1-2\tau)\mathbf 1\{r_i^{(t)}<0\}}
+{\max(|r_i^{(t)}|,\varepsilon)},
+\qquad
+\widetilde s_i=\frac{n s_i}{\sum_j s_j},
+$$
+
+无解析权重时取 $s_i=1$。随后求解凸的加权最小二乘代理问题
+
+$$
+\min_\beta
+\frac{1}{2n}
+\sum_i w_i^{(t)}
+\left(y_i-x_i^\top\beta\right)^2
++
+\sum_g D_g^{(k)}\|\beta_g\|_2,
+$$
+
+该凸子问题由分组 FISTA 求解。截距包含在二次模型中，但不参与惩罚。如果所有 $D_g^{(k)}$ 都为 0，则当前 LLA 代理问题恰好退化为无惩罚 Quantile 回归，此时直接用 Quantile IRLS 闭合。因此这里的“分组 FISTA-LLA”描述的是外层 LLA 与凸分组 FISTA 的组合结构，并不意味着直接对非光滑 pinball loss 套用经典光滑 FISTA。
 
 ### IRLS（L2/无惩罚）
 
