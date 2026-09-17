@@ -90,6 +90,11 @@ from . import (
     _quantile_continuation_contract as _quantile_continuation_contract,
 )
 
+# Group SCAD/MCP use the canonical group-aware LLA surrogate. Install this last
+# so it sees the fully composed Quantile solver/weight contracts and can restore
+# the documented Quantile Group FISTA-LLA route without perturbing other losses.
+from . import _quantile_group_lla_contract as _quantile_group_lla_contract
+
 __all__ = [
     "PenalizedGeneralizedLinearModel",
     "SelectivePenalty",
