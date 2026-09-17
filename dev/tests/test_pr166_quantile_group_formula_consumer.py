@@ -1,4 +1,4 @@
-"""Formula consumer coverage for the PR #166 Quantile group LLA route."""
+"""Formula consumer coverage for the PR #166 Quantile group auto route."""
 
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ def test_weighted_quantile_group_scad_formula_matches_array_route():
 
     formula_model = PenalizedGeneralizedLinearModel(
         **common,
-        fit_intercept=False,  # formula intercept must remain authoritative
+        fit_intercept=False,
     ).fit(
         formula=formula,
         data=data,
@@ -66,8 +66,8 @@ def test_weighted_quantile_group_scad_formula_matches_array_route():
 
     assert formula_model._effective_intercept is True
     assert formula_model._formula_has_intercept is True
-    assert formula_model._selected_solver == "fista"
-    assert array_model._selected_solver == "fista"
+    assert formula_model._selected_solver == "group_proximal_irls_lla"
+    assert array_model._selected_solver == "group_proximal_irls_lla"
     np.testing.assert_allclose(
         formula_model.coef_, array_model.coef_, rtol=2e-8, atol=2e-9
     )
