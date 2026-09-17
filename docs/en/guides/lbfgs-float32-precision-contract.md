@@ -1,58 +1,75 @@
-# L-BFGS Float32 Precision Contract
+# L-BFGS Float32 Numerical Behavior
 
 > Language: English  
-> Last updated: 2026-09-15  
-> This page: numerical-precision contract  
+> Last updated: 2026-09-17  
+> This page: user-facing numerical guidance  
 > Switch: [Chinese](../../cn/guides/lbfgs-float32-precision-contract.md)
 
 ## Scope
 
-This page describes the maintained **float32 numerical comparison contract** for ordinary smooth L-BFGS routes. It does not change the L-BFGS algorithm, the declared statistical objective, solver selection, analytic-weight semantics, or explicit backend/device authority.
+This page explains how to interpret native float32 L-BFGS results across NumPy, CuPy, and Torch. It does not change the L-BFGS algorithm, the statistical objective, analytic-weight semantics, solver selection, or explicit device behavior.
 
-The algorithm itself is documented in [Solver Algorithms](solver-algorithms.md).
+For the algorithm itself, see [Solver Algorithms](solver-algorithms.md).
 
-## Why float32 is not a coefficient-by-coefficient backend oracle
+## Why float32 coefficients can differ across backends
 
-L-BFGS is path dependent at finite precision. Small rounding differences in objective/gradient reductions can change late-iteration curvature-pair history, Armijo backtracking, and whether termination occurs through the gradient criterion or through an unrepresentably small parameter step.
+L-BFGS is path dependent at finite precision. Small rounding differences in objective and gradient reductions can change:
 
-Consequently, two valid native-float32 executions can have coefficient differences that are materially larger than their objective-value difference. A NumPy float32 result is therefore **not** treated as an exact coefficient oracle for CuPy or Torch float32 execution.
+- which curvature pairs enter the limited-memory history;
+- how many Armijo backtracking steps are taken;
+- the final sequence of accepted iterates; and
+- whether termination occurs through a gradient criterion or because a further parameter step is below float32 resolution.
 
-This distinction is specific to the float32 numerical contract. Float64 remains the strict cross-backend reference regime.
+As a result, two valid float32 runs can have coefficient differences that are noticeably larger than their difference in objective value.
 
-## Maintained acceptance dimensions
+This means that a NumPy float32 coefficient vector should **not** be treated as an exact coordinate-by-coordinate oracle for CuPy or Torch float32 execution.
 
-A maintained float32 L-BFGS result is assessed jointly through:
+## What to compare instead
 
-1. **objective agreement** — the complete declared objective must agree with the corresponding references at float32-appropriate numerical scale;
-2. **stationarity** — the final gradient norm must be small enough to certify a numerically stationary solution, including when a backend terminates through parameter resolution rather than the gradient test;
-3. **same-backend float64 comparison** — the float32 solution is compared with the same backend solving the same numerical data in float64;
-4. **cross-backend diagnostics** — float32 parameter differences across backends are recorded, but are not interpreted as exact-oracle disagreement by themselves;
-5. **analytic-weight rescaling** — multiplying all positive analytic weights by a common constant must preserve the statistical objective, while finite-precision optimization-path differences are judged under the same float32 objective/stationarity contract;
-6. **execution fidelity** — diagnostic traces must reproduce the production solver, and public estimator routes must preserve the requested backend/device and executed L-BFGS identity.
+When checking whether two float32 L-BFGS fits are numerically consistent, look at the complete numerical picture rather than only the largest coefficient difference:
 
-The reviewed Issue #160 physical-evidence gate uses the following conservative bounds for the maintained diagnostic fixture matrix:
+1. **Objective value** — both fits should optimize the same declared objective to a float32-appropriate numerical scale.
+2. **Stationarity** — the final gradient or equivalent stopping diagnostic should indicate that the fit is close to a stationary point.
+3. **Same-backend float64 result** — when tighter diagnosis is needed, compare a float32 run with the same backend solving the same problem in float64.
+4. **Statistical invariances** — transformations that should leave the objective unchanged, such as multiplying all positive analytic weights by the same constant under the normalized-weight convention, should continue to describe the same statistical problem.
+5. **Requested execution path** — an explicit backend/device request should still execute on that backend rather than being silently replaced by a CPU solve.
 
-| Quantity | Float32 acceptance bound |
-|---|---:|
-| objective absolute difference vs same-backend float64 | `2e-6` |
-| parameter max-absolute difference vs same-backend float64 | `2e-3` |
-| final gradient norm | `2e-4` |
-| objective absolute difference vs NumPy float32 | `2e-6` |
-| parameter max-absolute difference vs NumPy float32 | `2e-3` |
-| objective difference under global analytic-weight rescaling | `2e-6` |
-| parameter max-absolute difference under global analytic-weight rescaling | `1e-3` |
-| gradient-norm difference under global analytic-weight rescaling | `2e-4` |
+A modest coefficient discrepancy by itself is therefore not sufficient evidence of a backend error when the objective and stationarity agree at the expected float32 scale.
 
-The cross-backend float32 parameter bound is a **diagnostic bound**, not a claim that the NumPy float32 coefficient vector is the mathematically preferred solution.
+## Analytic weights
 
-## Float64 remains strict
+For L-BFGS routes that support analytic `sample_weight`, the normalized weighted objective is
 
-Issue #160 does not weaken the float64 L-BFGS contract. In the retained physical matrix, float64 NumPy/CuPy/Torch solutions and global-weight-rescaling controls agree at or near float64 roundoff. Float64 remains the appropriate regime when strict cross-backend parameter reproducibility is required.
+$$
+L_w(\beta)
+=
+\frac{\sum_i w_i\,\ell_i(\beta)}{\sum_i w_i}.
+$$
 
-## Practical guidance
+Multiplying all positive weights by a common constant leaves this objective unchanged. Finite-precision optimization trajectories may still differ slightly, but the statistical target is the same.
 
-For ordinary use, no special action is required: statgpu preserves native float32 execution when float32 data reach a maintained L-BFGS route.
+See [Penalized GLM inference](penalized-glm-inference.md) for the inferential meaning of analytic weights on supported penalized GLM routes.
 
-If an application requires tight cross-backend coefficient reproducibility rather than float32-level objective/stationarity agreement, use float64 inputs. Do not infer a backend failure solely from a small float32 coefficient discrepancy when the objective, stationarity, same-backend float64 comparison, and execution provenance are all within contract.
+## When to use float64
 
-The physical evidence and the reviewed Option-A decision are retained in `dev/reviews/issue160_float32_lbfgs_matrix.json` and `dev/reviews/issue160_float32_lbfgs_contract_decision.md`.
+Use float64 when your application requires tighter cross-backend coefficient reproducibility or when small coefficient differences are substantively important.
+
+Float32 is appropriate when native lower-precision execution is desired and objective/stationarity accuracy at float32 scale is sufficient. Float64 reduces the room for backend-specific rounding paths and is the better diagnostic reference when investigating a suspected numerical discrepancy.
+
+## Practical interpretation
+
+If NumPy, CuPy, and Torch float32 L-BFGS runs produce slightly different coefficient vectors:
+
+- first compare the objective values;
+- check convergence/stationarity diagnostics;
+- confirm that all runs used the same data, objective normalization, weights, penalty, and stopping controls;
+- compare each backend with a float64 run when a tighter reference is needed;
+- use float64 if the application requires close coefficient agreement rather than merely an equivalent optimized objective.
+
+Do not loosen the statistical objective or change solver semantics merely to force bitwise-like float32 coefficient agreement across backends.
+
+## Related documentation
+
+- [Solver Algorithms](solver-algorithms.md) — L-BFGS update and line-search algorithm
+- [Device and GPU Memory](device-and-memory.md) — explicit backend/device behavior
+- [Penalized GLM inference](penalized-glm-inference.md) — weighted objective and inference semantics
