@@ -1,7 +1,7 @@
 # Loss Functions (LossBase)
 
 > Language: English  
-> Last updated: 2026-09-16  
+> Last updated: 2026-09-17  
 > This page: Low-level loss reference  
 > Switch: [Chinese](../../cn/models/losses.md)
 
@@ -70,7 +70,7 @@ $$
 \frac{\sum_i w_i\ell_i(\beta)}{\sum_i w_i}.
 $$
 
-This standardizes the **loss-layer first-order weight semantics only**. A complete weighted fitting route still depends on the concrete loss, solver, and estimator; algorithms that require Hessians, Fisher information, Lipschitz constants, smooth-gradient differences, or quasi-Newton curvature must define those quantities consistently with the same objective. For maintained combinations, see the [Solver × Penalty Compatibility Matrix](../guides/solver-penalty-matrix.md) and [Solver Algorithms](../guides/solver-algorithms.md).
+This standardizes the **loss-layer first-order weight semantics only**. A complete weighted fitting route still depends on the concrete loss, solver, and estimator; algorithms that require Hessians, Fisher information, Lipschitz constants, smooth-gradient differences, or quasi-Newton curvature must define those quantities consistently with the same objective. For supported combinations, see the [Solver × Penalty Compatibility Matrix](../guides/solver-penalty-matrix.md) and [Solver Algorithms](../guides/solver-algorithms.md).
 
 ### Quantile loss (check / pinball loss)
 
@@ -144,7 +144,7 @@ every risk-set numerator and denominator receives the same factor $e^c$, which c
 
 ## Solver compatibility
 
-The table below describes the maintained **unweighted** low-level compatibility. It should not be read as a weighted-support matrix.
+The table below describes the supported **unweighted** low-level compatibility. It should not be read as a weighted-support matrix.
 
 | Solver | Quantile | Huber | Bisquare | Fair | Cox PH |
 |--------|----------|-------|----------|------|--------|
@@ -158,7 +158,7 @@ The table below describes the maintained **unweighted** low-level compatibility.
 | ADMM | ❌ (shared w-update requires smooth gradient) | ✅ | ✅ | ✅ | ✅ |
 | IRLS | ✅ (L2/no penalty) | ❌ (currently unavailable) | ✅ (L2/no penalty) | ✅ (L2/no penalty) | ❌ |
 
-For Quantile loss, the public low-level `fista_bb_solver` and `admm_solver` exports fail closed before numerical iteration. Direct `lbfgs_solver` preserves the existing unweighted/uniform Quantile compatibility boundary, while genuine non-uniform weights fail closed. Ordinary FISTA remains the maintained sparse convex estimator route; L2/no-penalty uses Quantile IRLS, and SCAD/MCP use Proximal IRLS-CD. Huber IRLS is not currently exposed as a maintained public solver route; the ❌ entry there means that public dispatch does not select that route today.
+For Quantile loss, the public low-level `fista_bb_solver` and `admm_solver` exports raise an error before numerical iteration. Direct `lbfgs_solver` preserves the existing unweighted/uniform Quantile compatibility boundary, while genuine non-uniform weights raise an error. Ordinary FISTA is the supported sparse convex estimator route; L2/no-penalty uses Quantile IRLS by default and can also use explicit ordinary FISTA, while SCAD/MCP use Proximal IRLS-CD. Huber IRLS is not currently exposed as a public solver route; the ❌ entry means that public dispatch does not select that route today.
 
 ### Non-uniform weights and direct L-BFGS
 
@@ -166,7 +166,7 @@ Direct L-BFGS is deliberately conservative about non-uniform weights:
 
 | Direct `lbfgs_solver` route | Genuine non-uniform `sample_weight` |
 |---|---|
-| Maintained `GLMLoss` implementations | ✅ Supported by the GLM weighted-objective contract |
+| `GLMLoss` implementations with weighted-objective support | ✅ Supported by the GLM weighted-objective contract |
 | Quantile / Huber / Bisquare / Fair | ❌ Not implied by unweighted L-BFGS support |
 | Cox partial likelihood | ❌ `sample_weight` is currently unsupported |
 
@@ -266,7 +266,7 @@ For estimator APIs, data scope, and inference behavior of `CoxPH`, `CoxPHCV`, an
 
 Loss-specific numerical validation follows the corresponding model and solver contracts. Cross-backend parity and statistical weight semantics are separate questions: agreement across NumPy/CuPy/Torch is not, by itself, evidence that a new weighting interpretation is valid for a loss that has not declared one.
 
-- `QuantileLoss` is non-smooth and has no Hessian; maintained estimator routes are ordinary FISTA for supported sparse convex objectives, IRLS for L2/no penalty, and Proximal IRLS-CD/FISTA-LLA where explicitly documented. Low-level FISTA-BB and shared ADMM fail closed; direct unweighted/uniform L-BFGS remains an existing compatibility surface.
+- `QuantileLoss` is non-smooth and has no Hessian; supported estimator routes are ordinary FISTA for sparse convex objectives, IRLS for L2/no penalty, explicit ordinary FISTA for L2/no penalty when requested, and Proximal IRLS-CD/FISTA-LLA where documented. Low-level FISTA-BB and shared ADMM reject Quantile; direct unweighted/uniform L-BFGS remains an existing compatibility surface.
 - Robust losses expose estimator-level weight semantics; those semantics do not automatically extend to direct non-uniform weighted L-BFGS.
 - `CoxPartialLikelihoodLoss` currently rejects `sample_weight`; any future Cox case/frequency/sampling-weight support needs a separately defined statistical contract.
 - Panel estimators use the separate `BasePanelModel` architecture rather than inheriting from `LossBase`.
