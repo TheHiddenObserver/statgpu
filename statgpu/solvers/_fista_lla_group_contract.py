@@ -18,9 +18,10 @@ The generic proximal-Newton inner loop is intentionally disabled for group
 nonconvex LLA. Its Armijo condition is based on a smooth Newton direction plus a
 post-hoc group proximal map; on valid Huber Group MCP/SCAD problems it can reject
 all trial steps, restore the old iterate, and return without a failure status.
-The group-aware fixed-step FISTA path uses the loss Lipschitz contract and the
-exact weighted Group Lasso proximal operator, so convergence is observable
-through actual proximal updates rather than a silently stalled Newton step.
+The group-aware fixed-step FISTA path uses the loss Lipschitz/step-scale contract
+and the exact weighted Group Lasso proximal operator, so convergence is
+observable through actual proximal updates rather than a silently stalled
+Newton step.
 """
 
 from __future__ import annotations
@@ -37,15 +38,37 @@ _GROUP_NONCONVEX_NAMES = frozenset(
 
 
 class _GroupFISTALossProxy:
-    """Delegate a loss while disabling the generic proximal-Newton branch."""
+    """Delegate a loss while disabling proximal Newton and retaining weights."""
 
     has_hessian = False
 
     def __init__(self, loss):
         self._loss = loss
+        self._sample_weight = None
 
     def __getattr__(self, name):
         return getattr(self._loss, name)
+
+    def lipschitz(self, X, coef, y=None, sample_weight=None):
+        """Keep the fitted analytic weights across periodic step-scale refreshes.
+
+        The fused FISTA-LLA engine supplies ``sample_weight`` on its initial
+        step-scale calculation but historically omitted it on periodic
+        recomputation. Group LLA uses one proxy instance per solve, so retaining
+        the initial backend-native weight vector here keeps every refresh on the
+        same declared weighted objective without introducing host transfer.
+        """
+        if sample_weight is not None:
+            self._sample_weight = sample_weight
+        effective_weight = (
+            sample_weight if sample_weight is not None else self._sample_weight
+        )
+        return self._loss.lipschitz(
+            X,
+            coef,
+            y=y,
+            sample_weight=effective_weight,
+        )
 
 
 def _group_surrogate_factory(scad_penalty):
