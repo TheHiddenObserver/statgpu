@@ -2,7 +2,7 @@
 
 > Language: English
 >
-> Last updated: 2026-08-06
+> Last updated: 2026-09-17
 >
 > Switch: [Chinese](../cn/README.md)
 
@@ -13,17 +13,17 @@
 ## Guides
 
 - [Inference API](guides/inference-api.md) — distributions, multiple testing, permutation test, bootstrap
-- [Implemented Methods](guides/implemented-methods.md) — full method list with solvers, penalties, link functions
-- [Cross-Validation](guides/cross-validation.md) — CV API, architecture, GPU acceleration, caching
-- [CoxPHCV Experimental Screening Safety](guides/cox-cv-staged-safety.md) — full-candidate fallback, diagnostics, and backend behavior
+- [Implemented Methods](guides/implemented-methods.md) — public model and method inventory
+- [Cross-Validation](guides/cross-validation.md) — folds, tuning grids, selection, and final refit
+- [CoxPHCV Experimental Screening Safety](guides/cox-cv-staged-safety.md) — user-visible behavior of experimental screening controls
 - [Solver × Penalty Matrix](guides/solver-penalty-matrix.md) — loss × penalty × solver compatibility
 - [Device and GPU Memory](guides/device-and-memory.md) — device selection, memory cleanup
 - [PyTorch Backend](guides/pytorch-backend.md) — torch backend guide, torch.compile
 - [Distribution API](guides/distribution-api.md) — statistical distribution functions
-- [Inference Modes](guides/inference-modes.md) — Lasso inference (debiased, bootstrap)
+- [Inference Modes](guides/inference-modes.md) — choosing and interpreting coefficient-inference methods
 - [Multiple Testing](guides/multiple-testing-combine-pvalues.md) — p-value adjustment and combination
-- [Benchmarks](guides/benchmarks.md) — benchmark scripts, artifacts, and comparison notes
-- [Interactive Benchmark Dashboard](guides/statgpu_benchmark_dashboard.md) — filters, charts, metric panels, data provenance, and reproduction
+- [Benchmarks](guides/benchmarks.md) — benchmark methodology and comparison notes
+- [Interactive Benchmark Dashboard](guides/statgpu_benchmark_dashboard.md) — filters, charts, metric panels, and data provenance
 
 ## Models
 
@@ -36,8 +36,8 @@
 - [MCP](models/mcp.md) — non-convex penalty with oracle property
 - [AdaptiveLasso](models/adaptive-lasso.md) — adaptive L1 penalty
 
-### Loss Functions (v0.2.1)
-- [Loss Functions (LossBase)](models/losses.md) — architecture for 12 loss types
+### Loss Functions
+- [Loss Functions (LossBase)](models/losses.md) — low-level loss definitions and numerical properties
 - [Quantile Regression](models/quantile.md) — pinball loss + PenalizedQuantileRegression
 - [Robust Regression](models/robust.md) — Huber, Bisquare, Fair + PenalizedRobustRegression
 
@@ -48,16 +48,12 @@
 - [Ordered Models](models/ordered.md) — ordered logit/probit
 
 ### Survival
-- [CoxPH](models/coxph.md) — Breslow/Efron/Exact Cox models with
-  delayed-entry/start-stop data, strata, robust covariance, and native
-  NumPy/CuPy/Torch paths
-- [CoxPHCV](models/coxph.md) — L2 grid selection and refit with
-  subject-preserving folds
-- [PenalizedCoxPHModel](models/coxph.md) — estimation-only
-  L1/L2/ElasticNet/SCAD/MCP Cox fits; no intercept
+- [CoxPH](models/coxph.md) — Breslow/Efron/Exact Cox models with delayed-entry/start-stop data, strata, robust covariance, and NumPy/CuPy/Torch paths
+- [CoxPHCV](models/coxph.md) — L2 grid selection and refit with subject-preserving folds
+- [PenalizedCoxPHModel](models/coxph.md) — estimation-only L1/L2/ElasticNet/SCAD/MCP Cox fits; no intercept
 
 ### Unsupervised
-- [Unsupervised Overview](models/unsupervised.md) — 13 algorithms: PCA, KMeans, DBSCAN, GMM, UMAP, NNDescent, t-SNE, NMF, Agglomerative, TruncatedSVD, IncrementalPCA, MiniBatchKMeans, MiniBatchNMF
+- [Unsupervised Overview](models/unsupervised.md) — PCA, clustering, mixture, manifold, and matrix-factorization methods
 
 ### Panel
 - [Panel](models/panel.md) — six panel estimators including pooled, between, first-difference, and Fama–MacBeth
@@ -71,13 +67,14 @@
 ### Inference
 - [ANOVA](models/anova.md) — one/two-way, Welch, post-hoc, and effect sizes
 - [Covariance](models/covariance.md) — empirical/shrinkage, robust MCD, and sparse precision
-- [Multiple Testing](models/multiple-testing.md) — p-value adjustment (BH, Holm, Bonferroni) and combination (Fisher, Cauchy, Stouffer)
+- [Multiple Testing](models/multiple-testing.md) — p-value adjustment and combination
 - [Knockoff](models/knockoff.md) — knockoff feature selection
 - [Feature Selection](models/feature-selection.md) — stepwise selection and knockoff overview
 - [Regression Diagnostics](guides/regression-diagnostics.md) — residuals, leverage, Cook’s distance, and VIF
 
 ## Reference
 
-- [Solver Algorithms](guides/solver-algorithms.md) — 10 solvers: algorithm details
-- [Loss × Penalty × Solver Framework](guides/loss-penalty-solver-framework.md) — dispatch logic
+- [Solver Algorithms](guides/solver-algorithms.md) — optimization algorithm details
+- [Loss × Penalty × Solver Framework](guides/loss-penalty-solver-framework.md) — component composition and dispatch
+- [L-BFGS Float32 Numerical Behavior](guides/lbfgs-float32-precision-contract.md) — interpreting native float32 backend differences
 - [Changelog](changelog.md) — version history
