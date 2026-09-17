@@ -21,9 +21,12 @@ _CLEANED_CN_PAGES = (
     "docs/cn/guides/penalized-solver-api-migration.md",
     "docs/cn/guides/solver-penalty-matrix.md",
     "docs/cn/guides/cox-cv-staged-safety.md",
+    "docs/cn/guides/pytorch-backend.md",
+    "docs/cn/models/README.md",
     "docs/cn/models/losses.md",
     "docs/cn/models/quantile.md",
     "docs/cn/panel/architecture.md",
+    "docs/cn/panel/covariance.md",
 )
 
 # These are prose-level English noun phrases that previously appeared inside
@@ -54,6 +57,10 @@ _PROSE_FRAGMENTS_TO_AVOID = (
     "held-out scoring",
     "warm start storage",
     "batching layout",
+    "Validation Matrix",
+    "Physical GPU",
+    "exact head",
+    "fail closed",
 )
 
 
@@ -72,6 +79,8 @@ def test_chinese_pages_keep_real_api_identifiers_searchable():
     cv = _read("docs/cn/guides/cross-validation.md")
     inference = _read("docs/cn/guides/inference-modes.md")
     quantile = _read("docs/cn/models/quantile.md")
+    torch_guide = _read("docs/cn/guides/pytorch-backend.md")
+    covariance = _read("docs/cn/panel/covariance.md")
 
     for token in ("`LassoCV`", "`cv_solver`", '`device="auto"`', "`sample_weight`"):
         assert token in cv
@@ -81,6 +90,12 @@ def test_chinese_pages_keep_real_api_identifiers_searchable():
 
     for token in ("FISTA", "IRLS", "SCAD", "MCP", '`solver="auto"`'):
         assert token in quantile
+
+    for token in ('`device="torch"`', "PyTorch", "Torch CUDA"):
+        assert token in torch_guide
+
+    for token in ("HC0", "HC3", "Driscoll", "`cov_type`"):
+        assert token in covariance
 
 
 def test_documentation_policy_states_chinese_language_rule():
