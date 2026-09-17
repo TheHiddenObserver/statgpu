@@ -16,7 +16,7 @@ Q = 0.35
 def test_nonconverged_quantile_group_candidate_is_nan_and_cannot_be_selected(
     monkeypatch,
 ):
-    """CV candidates use strict convergence while the selected refit does not."""
+    """One failed fold invalidates the whole alpha; selected refit stays non-strict."""
     rng = np.random.default_rng(166901)
     X = rng.normal(size=(16, 4)).astype(np.float64)
     y = (0.2 + X @ np.array([0.7, -0.35, 0.2, 0.1])).astype(np.float64)
@@ -24,12 +24,14 @@ def test_nonconverged_quantile_group_candidate_is_nan_and_cannot_be_selected(
     idx = np.arange(X.shape[0])
     folds = [(idx[8:], idx[:8]), (idx[:8], idx[8:])]
     seen = []
+    failed_once = {"value": False}
 
     def fake_solver(loss, penalty, X_fit, y_fit, alpha_path, **kwargs):
         alpha = float(penalty.alpha)
         strict = bool(kwargs.get("fail_on_target_nonconvergence"))
         seen.append((strict, alpha, int(X_fit.shape[0])))
-        if strict and alpha == pytest.approx(0.05):
+        if strict and np.isclose(alpha, 0.05) and not failed_once["value"]:
+            failed_once["value"] = True
             raise FloatingPointError("sentinel target nonconvergence")
         return np.zeros(X_fit.shape[1], dtype=np.float64), 0.0, 1
 
@@ -54,6 +56,8 @@ def test_nonconverged_quantile_group_candidate_is_nan_and_cannot_be_selected(
 
     scores = np.asarray(cv.cv_results_["all_scores"], dtype=np.float64)
     assert scores.shape == (2, 2)
+    # alpha=0.05 fails in only one fold, but strict CV requires complete fold
+    # evidence, so the otherwise finite second-fold score is invalidated too.
     assert np.all(np.isnan(scores[:, 0]))
     assert np.all(np.isfinite(scores[:, 1]))
     assert cv.alpha_ == pytest.approx(0.03)
