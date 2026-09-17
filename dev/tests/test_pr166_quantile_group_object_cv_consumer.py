@@ -13,14 +13,17 @@ GROUPS = [[0, 1], [2, 3]]
 
 
 def _data():
-    rng = np.random.default_rng(166701)
-    X = rng.normal(size=(22, 4)).astype(np.float64)
-    y = 0.25 + X @ np.array([0.75, -0.4, 0.28, 0.18])
+    # Reuse the maintained physical-acceptance fixture so this consumer test
+    # compares two genuinely converged CV paths rather than two equally
+    # exhausted low-budget paths.
+    rng = np.random.default_rng(166401)
+    X = rng.normal(size=(64, 4)).astype(np.float64)
+    y = 0.25 + X @ np.array([0.85, -0.42, 0.28, 0.16])
     y += rng.laplace(scale=0.16, size=X.shape[0])
-    weights = np.linspace(0.45, 1.75, X.shape[0], dtype=np.float64)
+    weights = np.linspace(0.45, 1.85, X.shape[0], dtype=np.float64)
     rng.shuffle(weights)
     idx = np.arange(X.shape[0])
-    folds = [(idx[11:], idx[:11]), (idx[:11], idx[11:])]
+    folds = [(idx[:32], idx[32:]), (idx[32:], idx[:32])]
     return X, y, weights, folds
 
 
@@ -36,8 +39,8 @@ def _cv(penalty, folds, penalty_kwargs=None):
         random_state=166,
         solver="auto",
         device="cpu",
-        max_iter=80,
-        tol=1e-5,
+        max_iter=400,
+        tol=1e-6,
     )
 
 
