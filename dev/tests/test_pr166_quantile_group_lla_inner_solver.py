@@ -1,4 +1,4 @@
-"""Inner-solver correctness contracts for PR #166 Quantile Group FISTA-LLA."""
+"""Inner-solver correctness contracts for PR #166 Quantile LLA."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import pytest
 from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
 from statgpu.penalties import GroupSCADPenalty
 from statgpu.solvers import _fista as fista_module
-from statgpu.solvers import _fista_lla_group_contract as group_contract
+from statgpu.solvers import _fista_lla_group_contract as lla_contract
 
 
 GROUPS = [[0, 1], [2, 3]]
@@ -43,28 +43,32 @@ class _FakeQuantileLoss:
         return coef, 3
 
 
-def test_nonzero_quantile_group_surrogate_uses_generic_fista(monkeypatch):
-    """Active Group LLA surrogates must use maintained Group FISTA/backtracking."""
+def test_nonzero_quantile_group_surrogate_uses_irls_weighted_squared_fista(monkeypatch):
+    """Active Group LLA surrogates use IRLS WLS + Group FISTA, not pinball fixed-step FISTA."""
     loss = _FakeQuantileLoss()
     penalty = GroupSCADPenalty(alpha=0.3, a=3.7, groups=GROUPS)
     X = np.eye(4, dtype=np.float64)
-    y = np.zeros(4, dtype=np.float64)
+    y = np.asarray([0.2, -0.1, 0.3, -0.2], dtype=np.float64)
     weights = np.asarray([0.5, 0.8, 1.1, 1.6], dtype=np.float64)
     seen = {}
 
     def forbidden_base(*args, **kwargs):
-        raise AssertionError("Quantile Group LLA must not use fixed-step base loop")
+        raise AssertionError("Quantile LLA must not use the historical fixed-step base loop")
 
     def fake_fista(loss_arg, penalty_arg, X_arg, y_arg, **kwargs):
+        seen["loss_name"] = getattr(loss_arg, "name", None)
         seen["penalty_name"] = getattr(penalty_arg, "name", None)
-        seen["weights"] = kwargs.get("sample_weight")
+        seen["sample_weight"] = kwargs.get("sample_weight")
         seen["max_iter"] = kwargs.get("max_iter")
-        return np.zeros(X_arg.shape[1], dtype=np.float64), 4
+        seen["X"] = np.asarray(X_arg, dtype=np.float64).copy()
+        seen["y"] = np.asarray(y_arg, dtype=np.float64).copy()
+        # Keep the warm start unchanged so the outer IRLS loop closes in one step.
+        return np.asarray(kwargs["init_coef"], dtype=np.float64).copy(), 4
 
-    monkeypatch.setattr(group_contract, "_base_fista_lla_path", forbidden_base)
+    monkeypatch.setattr(lla_contract, "_base_fista_lla_path", forbidden_base)
     monkeypatch.setattr(fista_module, "fista_solver", fake_fista)
 
-    coef, intercept, n_iter = group_contract.fista_lla_path(
+    coef, intercept, n_iter = lla_contract.fista_lla_path(
         loss,
         penalty,
         X,
@@ -77,9 +81,14 @@ def test_nonzero_quantile_group_surrogate_uses_generic_fista(monkeypatch):
         sample_weight=weights,
     )
 
+    assert seen["loss_name"] == "squared_error"
     assert seen["penalty_name"] == "adaptive_group_lasso"
-    assert seen["weights"] is weights
-    assert seen["max_iter"] == 17
+    # Analytic weights are absorbed into the IRLS quadratic design/response;
+    # the inner squared-error FISTA therefore receives no second weight vector.
+    assert seen["sample_weight"] is None
+    assert seen["max_iter"] == 50
+    assert not np.array_equal(seen["X"], X)
+    assert not np.array_equal(seen["y"], y)
     assert loss.irls_calls == 0
     assert n_iter == 4
     np.testing.assert_array_equal(coef, np.zeros(4))
@@ -99,7 +108,7 @@ def test_zero_quantile_group_surrogate_closes_with_irls(monkeypatch):
 
     monkeypatch.setattr(fista_module, "fista_solver", forbidden_fista)
 
-    coef, intercept, n_iter = group_contract.fista_lla_path(
+    coef, intercept, n_iter = lla_contract.fista_lla_path(
         loss,
         penalty,
         X,
