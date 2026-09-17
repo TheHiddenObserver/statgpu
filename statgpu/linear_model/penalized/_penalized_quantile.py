@@ -32,23 +32,22 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
         Regularization strength.
     solver : str, default='auto'
         Solver policy. For L2/no-penalty Quantile objectives, ``'auto'``
-        resolves to the maintained Quantile IRLS algorithm. Explicit
-        ``solver='irls'`` requests the same route, while explicit ordinary
-        ``solver='fista'`` is also supported and executes the generic FISTA
-        engine rather than being silently substituted by IRLS. IRLS remains
-        the preferred automatic route for these smooth penalties. Convex sparse
-        L1/ElasticNet objectives use ordinary FISTA, while SCAD/MCP use the
-        dedicated Proximal IRLS-CD continuation path. FISTA-BB and shared ADMM
-        are not maintained Quantile routes. Estimator/CV ``solver='lbfgs'``
-        also fails closed because the maintained shared L-BFGS route assumes a
-        smooth loss gradient; the separate low-level omitted/uniform-weight
-        Quantile L-BFGS compatibility surface is not an estimator-level solver
-        option.
+        resolves to Quantile IRLS. Explicit ``solver='irls'`` requests the
+        same algorithm, while explicit ordinary ``solver='fista'`` is also
+        supported and executes the generic FISTA engine rather than being
+        silently substituted by IRLS. IRLS remains the default automatic
+        choice for these objectives. Convex sparse L1/ElasticNet objectives
+        use ordinary FISTA, while SCAD/MCP use the dedicated Proximal IRLS-CD
+        continuation path. FISTA-BB and shared ADMM do not support Quantile.
+        Estimator/CV ``solver='lbfgs'`` is also unsupported because the shared
+        L-BFGS implementation assumes a smooth loss gradient; the separate
+        low-level omitted/uniform-weight Quantile L-BFGS compatibility behavior
+        is not an estimator-level solver option.
     max_iter : int, default=1000
         Maximum iterations.
     tol : float, default=1e-4
         Convergence tolerance. Quantile IRLS uses a tighter internal tolerance
-        (at most 1e-8) on the maintained L2/no-penalty route.
+        (at most 1e-8) on the L2/no-penalty path.
     fit_intercept : bool, default=True
         Whether to fit an intercept.
     device : str, default='auto'
