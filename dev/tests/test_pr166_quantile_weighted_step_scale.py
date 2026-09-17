@@ -31,7 +31,10 @@ def test_quantile_weighted_step_scale_matches_normalized_weighted_gram():
     gram = X.T @ (X * weights[:, None]) / float(np.sum(weights))
     expected = max(tau, 1.0 - tau) * float(np.linalg.eigvalsh(gram)[-1])
 
-    assert actual == pytest.approx(expected, rel=2e-12, abs=2e-14)
+    # Production uses the shared 20-step power iteration with tol=1e-8 rather
+    # than a full eigendecomposition, so compare the implemented step scale to
+    # the analytic eigenvalue at that declared numerical accuracy.
+    assert actual == pytest.approx(expected, rel=1e-8, abs=1e-10)
 
 
 def test_quantile_weighted_step_scale_is_weight_rescaling_invariant():
