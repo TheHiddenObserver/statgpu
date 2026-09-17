@@ -180,6 +180,7 @@ def quantile_group_proximal_irls_lla_solver(
         admm_limit = max(500, min(2000, 2 * irls_limit))
         admm_tol = max(float(tol), 1e-7)
         is_final_continuation = cont_i == n_continuation - 1
+        lla_converged = False
 
         for _lla_iter in range(int(max_lla_per_step)):
             feature_params = params[:n_features]
@@ -217,7 +218,10 @@ def quantile_group_proximal_irls_lla_solver(
                 )
                 inner_penalty = factory(factory_values)
 
-                irls_converged = False
+                # The IRLS/MM subloop may be inexact; each of its convex WLS
+                # problems must nevertheless be solved to the declared ADMM
+                # tolerance.  The non-convex convergence gate belongs to the
+                # outer LLA loop below, not to any single IRLS subloop.
                 for _irls_iter in range(irls_limit):
                     params_old = _copy_arr(params)
                     obs_weight = _quantile_irls_weights(
@@ -227,9 +231,6 @@ def quantile_group_proximal_irls_lla_solver(
                     X_quad = X_work * sqrt_weight[:, None]
                     y_quad = y_dev * sqrt_weight
 
-                    # Every convex WLS subproblem must close.  A nonconverged
-                    # ADMM solve is never accepted, even on an intermediate
-                    # continuation point.
                     with warnings.catch_warnings():
                         warnings.simplefilter("error", ConvergenceWarning)
                         params, inner_iter = admm_solver(
@@ -248,24 +249,24 @@ def quantile_group_proximal_irls_lla_solver(
 
                     delta_dev = xp.max(xp.abs(params - params_old))
                     if float(_to_numpy(delta_dev)) < float(tol):
-                        irls_converged = True
                         break
-
-                # Intermediate continuation values are deliberately assigned a
-                # smaller IRLS budget and act only as warm starts.  The target
-                # alpha is the statistical result and must not accept an
-                # unconverged active IRLS/MM surrogate.
-                if not irls_converged and is_final_continuation:
-                    raise ConvergenceWarning(
-                        "Quantile Group Proximal IRLS-LLA did not converge "
-                        f"within {irls_limit} IRLS iterations at the target "
-                        f"alpha={float(cont_alpha):.12g}; no approximate target "
-                        "LLA iterate was accepted. Increase max_iter or relax tol."
-                    )
 
             lla_delta = _abs_sum_dev(params - before_lla)
             if float(_to_numpy(lla_delta)) < float(lla_tol):
+                lla_converged = True
                 break
+
+        # Intermediate continuation points are warm starts and may be inexact.
+        # The target alpha is the actual statistical result, so exhausting its
+        # non-convex LLA budget without satisfying the outer convergence test is
+        # a real solver failure and must not return a plausible-looking fit.
+        if is_final_continuation and not lla_converged:
+            raise ConvergenceWarning(
+                "Quantile Group Proximal IRLS-LLA did not converge "
+                f"within {int(max_lla_per_step)} LLA iterations at the target "
+                f"alpha={float(cont_alpha):.12g}; no approximate target fit was "
+                "accepted. Increase max_lla_iters or relax lla_tol."
+            )
 
     params_np = np.asarray(_to_numpy(params), dtype=np.float64).reshape(-1)
     if fit_intercept:
