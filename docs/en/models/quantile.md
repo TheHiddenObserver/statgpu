@@ -300,6 +300,7 @@ Quantile/check loss is non-smooth, so this route should not be interpreted as sa
 
 - `score()` uses check/pinball loss and returns its negative to follow sklearn's “higher is better” convention.
 - `sample_weight` support is a **loss × solver × estimator** route capability, not an automatic property of every solver.
+- For automatic Group SCAD/MCP cross-validation, a target-level non-converged fold fit is not scored. An alpha is eligible for strict selection only when every fold has a finite score. The selected full-data refit follows direct-estimator convergence reporting: target budget exhaustion emits `ConvergenceWarning` and returns the final iterate.
 - Explicit ordinary L2/no-penalty Quantile FISTA is supported and is authoritative: it executes FISTA rather than silently substituting IRLS. Explicit Group SCAD/MCP FISTA is likewise not rewritten into the automatic Group Proximal IRLS-LLA route.
 - Quantile FISTA-BB/direct ADMM remain unsupported and raise an error before numerical iteration. Estimator/CV L-BFGS remains unsupported, while the existing low-level unweighted/uniform L-BFGS compatibility boundary is preserved.
 - Unsupported explicit weighted-solver combinations raise an error before numerical iteration rather than silently substituting another solver.
