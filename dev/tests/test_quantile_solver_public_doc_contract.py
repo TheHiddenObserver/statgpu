@@ -87,6 +87,27 @@ def test_typed_quantile_runtime_help_documents_loss_kwargs_precedence():
     assert "public ``quantile`` attribute retains the outer constructor value" in doc
 
 
+def test_repository_documentation_language_policy_is_canonicalized():
+    style = (_ROOT / "dev/DOCUMENTATION_STYLE.md").read_text(encoding="utf-8")
+    contributing = (_ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    claude = (_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+
+    assert "Internal documentation may describe capability/status" in style
+    assert (
+        "user-facing documentation should describe observable behavior/support"
+        in style
+    )
+    # The canonical policy itself intentionally names the internal terms it
+    # keeps out of ordinary user documentation.
+    assert "maintained route" in style
+    assert "fail closed" in style
+
+    for entrypoint in (contributing, claude):
+        assert "dev/DOCUMENTATION_STYLE.md" in entrypoint
+
+    assert "User-facing docs describe observable support/behavior" in contributing
+
+
 def test_solver_algorithm_pages_preserve_explicit_quantile_fista_contract():
     en = (_ROOT / "docs/en/guides/solver-algorithms.md").read_text(encoding="utf-8")
     cn = (_ROOT / "docs/cn/guides/solver-algorithms.md").read_text(encoding="utf-8")
@@ -111,5 +132,7 @@ def test_public_solver_docs_do_not_expose_internal_review_vocabulary():
 
         assert "maintained" not in en.lower(), en_path
         assert "fail closed" not in en.lower(), en_path
+        assert "fail-closed" not in en.lower(), en_path
         assert "维护" not in cn, cn_path
         assert "fail closed" not in cn.lower(), cn_path
+        assert "fail-closed" not in cn.lower(), cn_path
