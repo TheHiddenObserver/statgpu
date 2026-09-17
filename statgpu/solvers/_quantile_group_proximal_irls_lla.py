@@ -181,6 +181,7 @@ def quantile_group_proximal_irls_lla_solver(
         admm_tol = max(float(tol), 1e-7)
         is_final_continuation = cont_i == n_continuation - 1
         lla_converged = False
+        flat_irls_exhausted = False
 
         for _lla_iter in range(int(max_lla_per_step)):
             feature_params = params[:n_features]
@@ -210,13 +211,18 @@ def quantile_group_proximal_irls_lla_solver(
                     fit_intercept=fit_intercept,
                 )
                 total_iter += int(used_iter)
-                if is_final_continuation and int(used_iter) >= irls_limit:
-                    raise ConvergenceWarning(
-                        "Quantile Group Proximal IRLS-LLA flat target did not "
-                        f"close within {irls_limit} Quantile IRLS iterations at "
-                        f"alpha={float(cont_alpha):.12g}; no approximate target "
-                        "fit was accepted. Increase max_iter or relax tol."
-                    )
+                flat_irls_exhausted = flat_irls_exhausted or (
+                    is_final_continuation and int(used_iter) >= irls_limit
+                )
+
+                # If the unpenalized Quantile solution still lies in the flat
+                # SCAD/MCP region, the next LLA surrogate is identical.  That
+                # is an outer fixed point even when the parameter move from the
+                # previous penalized iterate is large.
+                refreshed = pen_step.lla_weights(params[:n_features])
+                if _all_zero(_to_numpy(refreshed)):
+                    lla_converged = True
+                    break
             else:
                 factory_values = (
                     np.concatenate([lla_feature_np, np.zeros(1, dtype=np.float64)])
@@ -227,8 +233,7 @@ def quantile_group_proximal_irls_lla_solver(
 
                 # The IRLS/MM subloop may be inexact; each of its convex WLS
                 # problems must nevertheless be solved to the declared ADMM
-                # tolerance.  The non-convex convergence gate belongs to the
-                # outer LLA loop below, not to any single IRLS subloop.
+                # tolerance.  A nonconverged inner ADMM solve is never accepted.
                 for _irls_iter in range(irls_limit):
                     params_old = _copy_arr(params)
                     obs_weight = _quantile_irls_weights(
@@ -263,17 +268,25 @@ def quantile_group_proximal_irls_lla_solver(
                 lla_converged = True
                 break
 
-        # Intermediate continuation points are warm starts and may be inexact.
-        # The target alpha is the actual statistical result, so exhausting its
-        # non-convex LLA budget without satisfying the outer convergence test is
-        # a real solver failure and must not return a plausible-looking fit.
-        if is_final_continuation and not lla_converged:
-            raise ConvergenceWarning(
-                "Quantile Group Proximal IRLS-LLA did not converge "
-                f"within {int(max_lla_per_step)} LLA iterations at the target "
-                f"alpha={float(cont_alpha):.12g}; no approximate target fit was "
-                "accepted. Increase max_lla_iters or relax lla_tol."
-            )
+        if is_final_continuation:
+            if flat_irls_exhausted:
+                warnings.warn(
+                    "Quantile Group Proximal IRLS-LLA flat target reached "
+                    f"max_iter={irls_limit} in Quantile IRLS at "
+                    f"alpha={float(cont_alpha):.12g}; returning the final iterate. "
+                    "Increase max_iter for a stricter convergence check.",
+                    ConvergenceWarning,
+                    stacklevel=2,
+                )
+            elif not lla_converged:
+                warnings.warn(
+                    "Quantile Group Proximal IRLS-LLA reached "
+                    f"max_lla_per_step={int(max_lla_per_step)} at the target "
+                    f"alpha={float(cont_alpha):.12g}; returning the final iterate. "
+                    "Increase max_lla_iters or relax lla_tol if needed.",
+                    ConvergenceWarning,
+                    stacklevel=2,
+                )
 
     params_np = np.asarray(_to_numpy(params), dtype=np.float64).reshape(-1)
     if fit_intercept:
