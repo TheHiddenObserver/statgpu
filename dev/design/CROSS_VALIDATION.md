@@ -107,18 +107,20 @@ Benchmark-derived thresholds should be updated together with their evidence rath
 
 `LassoCV` has a selection-only LRU cache in `statgpu.linear_model.wrappers._lasso`. The cache reuses alpha-selection evidence; it does not cache the final full-data estimator.
 
-The cache identity includes the pieces that can change candidate scoring, including:
+The current implementation represents each of `X`, `y`, and `sample_weight` through `_array_identity_token(...)`. The selection key is assembled by `_make_lasso_cv_auto_cache_key(...)` and includes the pieces that can change candidate scoring:
 
-- identity tokens for `X`, `y`, and `sample_weight`;
-- the evaluated alpha grid;
-- complete train/validation index arrays;
-- intercept mode and resolved CV execution mode;
-- CV solver/method controls;
-- iteration/tolerance controls and relevant mixed-precision settings.
+- the `X`, `y`, and `sample_weight` identity tokens;
+- a digest of the complete evaluated alpha grid;
+- complete train and validation index arrays for every fold;
+- intercept mode and whether CV execution is GPU-backed;
+- `max_iter` and `tol`;
+- the resolved CV solver and normalized method controls;
+- `cd_kkt_check_every`;
+- `gpu_cv_mixed_precision`.
 
-The final-refit `solver` is intentionally not a selection-cache key when it cannot change CV scoring. Cache hits return cloned result arrays so callers cannot mutate stored selection evidence.
+The final-refit `solver` is intentionally absent when it cannot change CV scoring. Cache hits return cloned NumPy arrays for the selection payload so callers cannot mutate stored evidence.
 
-The default capacity is controlled internally by `STATGPU_LASSO_CV_CACHE_SIZE`. Capacity, hashing strategy, and sampled-content identity are performance implementation details and should not be documented as user-facing statistical semantics.
+The LRU capacity defaults to **64** and is controlled at import time by `STATGPU_LASSO_CV_CACHE_SIZE`. Capacity, hashing strategy, sampled-content identity, and helper names are internal performance contracts and should remain here rather than in the public CV guide.
 
 ## 7. Performance implementation notes
 
