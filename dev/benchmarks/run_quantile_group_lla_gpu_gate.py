@@ -32,8 +32,18 @@ def _require_clean_source() -> str:
 
 
 def _run_inner(runner: Path, output: Path):
+    # Physical acceptance must prove both numerical parity and converged solver
+    # state. Run the maintained validator unchanged, but promote statgpu's
+    # ConvergenceWarning to an exception for this acceptance process.
+    bootstrap = (
+        "import runpy, sys, warnings; "
+        "from statgpu.solvers._convergence import ConvergenceWarning; "
+        "warnings.simplefilter('error', ConvergenceWarning); "
+        f"sys.argv=[{str(runner)!r}, '--output', {str(output)!r}]; "
+        f"runpy.run_path({str(runner)!r}, run_name='__main__')"
+    )
     subprocess.run(
-        [sys.executable, str(runner), "--output", str(output)],
+        [sys.executable, "-c", bootstrap],
         cwd=REPO_ROOT,
         check=True,
     )
