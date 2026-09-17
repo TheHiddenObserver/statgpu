@@ -210,6 +210,13 @@ def quantile_group_proximal_irls_lla_solver(
                     fit_intercept=fit_intercept,
                 )
                 total_iter += int(used_iter)
+                if is_final_continuation and int(used_iter) >= irls_limit:
+                    raise ConvergenceWarning(
+                        "Quantile Group Proximal IRLS-LLA flat target did not "
+                        f"close within {irls_limit} Quantile IRLS iterations at "
+                        f"alpha={float(cont_alpha):.12g}; no approximate target "
+                        "fit was accepted. Increase max_iter or relax tol."
+                    )
             else:
                 factory_values = (
                     np.concatenate([lla_feature_np, np.zeros(1, dtype=np.float64)])
