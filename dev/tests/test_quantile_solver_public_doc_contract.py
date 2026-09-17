@@ -1,4 +1,4 @@
-"""Runtime-help contract for guarded public Quantile solver boundaries."""
+"""Runtime-help and public-documentation placement contracts."""
 
 import inspect
 from pathlib import Path
@@ -31,6 +31,42 @@ _PUBLIC_DOC_PAIRS = (
     (
         "docs/en/models/quantile.md",
         "docs/cn/models/quantile.md",
+    ),
+    (
+        "docs/en/guides/cross-validation.md",
+        "docs/cn/guides/cross-validation.md",
+    ),
+    (
+        "docs/en/guides/inference-modes.md",
+        "docs/cn/guides/inference-modes.md",
+    ),
+    (
+        "docs/en/guides/lbfgs-float32-precision-contract.md",
+        "docs/cn/guides/lbfgs-float32-precision-contract.md",
+    ),
+    (
+        "docs/en/guides/device-and-memory.md",
+        "docs/cn/guides/device-and-memory.md",
+    ),
+    (
+        "docs/en/guides/implemented-methods.md",
+        "docs/cn/guides/implemented-methods.md",
+    ),
+    (
+        "docs/en/guides/nodewise-alpha-migration.md",
+        "docs/cn/guides/nodewise-alpha-migration.md",
+    ),
+    (
+        "docs/en/guides/penalized-glm-inference.md",
+        "docs/cn/guides/penalized-glm-inference.md",
+    ),
+    (
+        "docs/en/panel/architecture.md",
+        "docs/cn/panel/architecture.md",
+    ),
+    (
+        "docs/en/usage.md",
+        "docs/cn/usage.md",
     ),
 )
 
@@ -246,6 +282,96 @@ def test_solver_algorithm_pages_preserve_explicit_quantile_fista_contract():
     assert "只有显式 `solver=\"fista\"` 才选择这条普通 FISTA 路径" in cn
     assert "该请求对 CV 子拟合和最终全数据重拟合都保持有效并执行普通 FISTA" in cn
     assert "显式 `solver=\"fista\"` 会失败而不是被静默替换成 IRLS" not in cn
+
+
+def test_cross_validation_guide_stays_at_user_selection_layer():
+    en = (_ROOT / "docs/en/guides/cross-validation.md").read_text(encoding="utf-8")
+    cn = (_ROOT / "docs/cn/guides/cross-validation.md").read_text(encoding="utf-8")
+
+    for text in (en, cn):
+        assert "candidate" in text
+        assert "final refit" in text
+        assert "cv_solver" in text
+        assert "Part II: Architecture and Implementation" not in text
+        assert "_effective_cv_device" not in text
+        assert "_compute_cv_scores" not in text
+        assert "dev/tests/" not in text
+        assert "dev/benchmarks/" not in text
+        assert "PR #" not in text
+
+    internal = (_ROOT / "dev/design/CROSS_VALIDATION.md").read_text(encoding="utf-8")
+    assert "Scoring-path families" in internal
+    assert "LassoCV selection cache" in internal
+    assert "Device heuristics" in internal
+
+
+def test_usage_portals_do_not_embed_contributor_or_validation_workflows():
+    en = (_ROOT / "docs/en/usage.md").read_text(encoding="utf-8")
+    cn = (_ROOT / "docs/cn/usage.md").read_text(encoding="utf-8")
+
+    for text in (en, cn):
+        assert "Cross-Validation" in text or "交叉验证" in text
+        assert "Contributor Checklist" not in text
+        assert "Validation and Evidence" not in text
+        assert "dev/AGENTS.md" not in text
+        assert ".claude/skills/" not in text
+        assert "physical GPU" not in text.lower()
+
+
+def test_inference_guides_do_not_expose_internal_execution_plumbing():
+    en = (_ROOT / "docs/en/guides/inference-modes.md").read_text(encoding="utf-8")
+    cn = (_ROOT / "docs/cn/guides/inference-modes.md").read_text(encoding="utf-8")
+
+    for text in (en, cn):
+        assert "post_selection_ols" in text
+        assert "debiased" in text
+        assert "bootstrap" in text
+        assert "_selected_backend_name" not in text
+        assert "simultaneous_reporting_boundary" not in text
+        assert "cache provenance" not in text.lower()
+
+
+def test_float32_lbfgs_page_is_guidance_not_validation_evidence():
+    en = (_ROOT / "docs/en/guides/lbfgs-float32-precision-contract.md").read_text(
+        encoding="utf-8"
+    )
+    cn = (_ROOT / "docs/cn/guides/lbfgs-float32-precision-contract.md").read_text(
+        encoding="utf-8"
+    )
+
+    for text in (en, cn):
+        assert "float64" in text
+        assert "objective" in text
+        assert "Issue #" not in text
+        assert "acceptance bound" not in text.lower()
+        assert "验收边界" not in text
+        assert "dev/reviews/" not in text
+
+
+def test_secondary_public_guides_keep_their_declared_layer():
+    device_en = (_ROOT / "docs/en/guides/device-and-memory.md").read_text(
+        encoding="utf-8"
+    )
+    methods_en = (_ROOT / "docs/en/guides/implemented-methods.md").read_text(
+        encoding="utf-8"
+    )
+    panel_en = (_ROOT / "docs/en/panel/architecture.md").read_text(encoding="utf-8")
+    nodewise_en = (_ROOT / "docs/en/guides/nodewise-alpha-migration.md").read_text(
+        encoding="utf-8"
+    )
+    inference_en = (_ROOT / "docs/en/guides/penalized-glm-inference.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "| Solver | NumPy | CuPy | Torch |" not in device_en
+    assert "dev/benchmarks/" not in device_en
+    assert "## Validation Scope" not in methods_en
+    assert "## 5. Fixed Effects Example" not in panel_en
+    assert "_linalg.py" not in panel_en
+    assert "1e-8" not in nodewise_en
+    assert "3000" not in nodewise_en
+    assert "cache provenance" not in nodewise_en.lower()
+    assert "Status: targeted" not in inference_en
 
 
 def test_public_solver_docs_do_not_expose_internal_review_vocabulary():
