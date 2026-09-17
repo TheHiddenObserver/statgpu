@@ -233,7 +233,11 @@ def quantile_group_proximal_irls_lla_solver(
                     fit_intercept=fit_intercept,
                 )
                 total_iter += int(used_iter)
-                flat_irls_exhausted = flat_irls_exhausted or (
+                # This flag describes the currently accepted final-state route,
+                # not historical work within the same LLA step.  If the flat
+                # solve leaves the flat region and a later active surrogate
+                # converges, that later state owns the final convergence verdict.
+                flat_irls_exhausted = (
                     is_final_continuation and int(used_iter) >= irls_limit
                 )
 
@@ -246,6 +250,10 @@ def quantile_group_proximal_irls_lla_solver(
                     lla_converged = True
                     break
             else:
+                # An active surrogate supersedes any earlier exhausted flat
+                # solve in this continuation step.  Its own LLA convergence
+                # status determines whether the final candidate is acceptable.
+                flat_irls_exhausted = False
                 factory_values = (
                     np.concatenate([lla_feature_np, np.zeros(1, dtype=np.float64)])
                     if fit_intercept
