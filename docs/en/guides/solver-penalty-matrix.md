@@ -2,22 +2,29 @@
 
 > Language: English  
 > Last updated: 2026-09-17  
-> This page: Reference guide  
+> This page: Compatibility reference  
 > Switch: [Chinese](../../cn/guides/solver-penalty-matrix.md)
 
 ## Overview
 
-This page is the model-level reference for choosing a solver in `PenalizedGeneralizedLinearModel` and `PenalizedGLM_CV`.
+This page is the compact model-level reference for **which solver statgpu selects or permits for a given loss × penalty combination**. It is intended to be read as a matrix, not as model-specific algorithm documentation.
 
-The most important distinction is between **direct fitting** and **cross-validation**:
+Use this page to answer three questions:
 
-- direct `solver="auto"` uses the direct-fit dispatch table in section 1;
-- `PenalizedGLM_CV` has a related but intentionally different policy, shown in section 4;
-- an explicit solver request is validated before numerical work and is never silently replaced because `sample_weight` is present.
+1. What does direct-fit `solver="auto"` select?
+2. What numerical conditions constrain an explicit solver request?
+3. What does `PenalizedGLM_CV` select under `solver="auto"`?
 
-`none` / `null` penalties are canonicalized to `L2(alpha=0)` before solver selection. Therefore an unpenalized smooth route follows the same auto-dispatch branch as L2.
+Detailed model behavior belongs on the model pages; update equations and algorithmic assumptions belong in [Solver Algorithms](solver-algorithms.md).
 
-`AdaptiveGroupLassoPenalty` is available as a public penalty object but intentionally has no string-registry alias because callers must supply explicit group weights.
+General conventions:
+
+- `none` / `null` is canonicalized to `L2(alpha=0)` before solver selection;
+- an explicit solver request is validated before numerical fitting and is not silently replaced because weights are present;
+- backend-specific entries are shown only when the backend changes the effective route;
+- internal resolved labels such as FISTA-LLA or Proximal IRLS-CD may appear in the matrix even when they are not public `solver=` keywords.
+
+`AdaptiveGroupLassoPenalty` is available as a public penalty object but has no string-registry alias because callers must supply explicit group weights.
 
 ## 1. Direct-fit `solver="auto"`
 
@@ -32,76 +39,53 @@ The most important distinction is between **direct fitting** and **cross-validat
 | **tweedie** | Newton | CPU FISTA-BB / GPU FISTA | CPU FISTA-BB / GPU FISTA | FISTA-LLA | FISTA-LLA | CPU FISTA-BB / GPU FISTA | Group FISTA | Group FISTA-LLA | Group FISTA-LLA |
 | **quantile** | IRLS | FISTA | FISTA | Proximal IRLS-CD | Proximal IRLS-CD | FISTA | Group FISTA | Group FISTA-LLA | Group FISTA-LLA |
 
-### How to read the table
+### Reading the table
 
-- The table describes the **effective `auto` route**, not every valid explicit solver choice.
-- Quantile L2/no-penalty `auto` resolves to ordinary Quantile IRLS. Explicit `solver="fista"` is also supported for those convex objectives and executes ordinary FISTA rather than being redirected to IRLS. Sparse Quantile L1/ElasticNet remains on ordinary FISTA routes. Quantile SCAD/MCP uses the dedicated Proximal IRLS-CD continuation path.
-- `fista_lla` is an internal continuation path, not a public `solver=` keyword. For squared-error SCAD/MCP, `fit()` enters the fused `fista_lla_path()` directly.
-- Direct logistic, Poisson, and Negative-Binomial sparse convex rows reach the default FISTA-BB rule. Gamma and Inverse-Gaussian sparse rows are explicitly pinned to FISTA. Tweedie sparse rows use FISTA on CuPy/Torch and the default FISTA-BB route on CPU. Quantile does not use FISTA-BB because its step-function subgradient does not provide the smooth-gradient differences required by BB curvature updates.
-- Group Lasso and Adaptive Group Lasso use the group-aware FISTA path. Group SCAD/MCP use a weighted Group-Lasso LLA surrogate with a group-aware FISTA inner solve.
-- `sample_weight` does not rewrite an explicit solver request. Unsupported loss/solver/weight combinations raise an error rather than silently selecting another algorithm.
+- The cells show the **effective automatic route**, not every explicit solver that may be valid.
+- FISTA-LLA denotes the non-convex continuation route used for scalar SCAD/MCP objectives; Group FISTA-LLA is the corresponding group route.
+- Proximal IRLS-CD is a specialized resolved route rather than a public explicit solver keyword.
+- Group Lasso and Adaptive Group Lasso use the group-aware FISTA path; Group SCAD/MCP use a group-aware LLA path.
+- Model-specific reasons for a cell belong in the corresponding model page rather than in this matrix.
 
-### Inverse-power Gamma smooth-domain contract
-
-For inverse-power Gamma,
-
-\[
-\eta_i=x_i^\top\beta>0,
-\qquad
-\ell_i(\eta_i)=y_i\eta_i-\log\eta_i.
-\]
-
-The explicit `newton` and `lbfgs` paths construct a backend-native interior start and keep every **active training** predictor inside the unclipped numerical interval where the implemented value, gradient, and Hessian describe one smooth objective. The Armijo step cap is computed only after the solver has finalized its actual post-fallback search direction.
-
-`fit_intercept=False` is therefore not categorically rejected. It is supported when statgpu can certify an interior start for the executed design and the optimizer converges without being pinned to the numerical-domain boundary. Omitted, uniform, effectively-uniform, and genuinely non-uniform analytic weights use the same domain policy; with genuine weighting, rows whose analytic weight is exactly zero do not constrain the training domain.
-
-If a finite design cannot be numerically certified, or optimization reaches the domain boundary before convergence, the explicit smooth path raises an error instead of publishing a clipped surrogate fit. Public prediction and held-out validation retain their existing clipping semantics, so this training-domain guarantee is not a claim that every unseen design row must remain in the training interval.
+For family/link domain restrictions, weighting semantics, or special initialization rules, see [GeneralizedLinearModel](../models/generalized-linear-model.md). For Quantile-specific solver choices and non-smooth behavior, see [Quantile Regression](../models/quantile.md).
 
 ## 2. Explicit solver constraints
 
-This section is an **estimator/CV** compatibility table. It does not redefine every direct low-level solver call.
+This table summarizes the numerical prerequisites for **model-level explicit solver requests**. Low-level solver functions can have narrower or different contracts and should be read from their API/algorithm documentation.
 
-| Solver | Accepts | Rejects / limits | Notes |
-|--------|---------|------------------|-------|
-| `exact` | L2 + squared error only | everything else | closed-form/eigendecomposition path |
-| `irls` | L2/no penalty on losses declaring IRLS support | non-smooth penalties | loss/family-specific IRLS; Quantile L2/no-penalty `auto` also resolves to this route |
-| `newton` | L2 / none on smooth losses with Hessian support | L1, ElasticNet, non-convex and group penalties; Quantile | Newton + Armijo line search |
-| `lbfgs` | L2 / none on smooth losses | L1, ElasticNet, non-convex and group penalties; **all Quantile estimator/CV requests** | limited-memory BFGS + line search; the direct low-level unweighted/uniform Quantile compatibility surface is separate |
-| `fista` | supported proximal penalties, including explicit Quantile L2/none | unsupported model combinations and non-convex Quantile SCAD/MCP explicit requests | Quantile L2/no-penalty explicit FISTA executes the generic FISTA engine; `auto` still prefers IRLS |
-| `fista_bb` | supported sparse penalties on losses with meaningful smooth-gradient differences | **all Quantile requests** and unsupported combinations | FISTA + BB step adaptation; public low-level Quantile calls also raise an error |
-| `admm` | supported proximal formulations with a smooth w-update | **all Quantile requests** and unsupported combinations | shared w-subproblem uses accelerated gradient descent; public low-level Quantile calls also raise an error |
-| `irls_cd` | specialized scalar routes | unsupported combinations | not the current squared-error SCAD/MCP public auto route |
-| `proximal_irls_cd` | **not a public explicit solver keyword** | all user-supplied explicit requests | internal resolved label for Quantile SCAD/MCP selected through `solver="auto"`; Proximal IRLS-CD majorization + LLA |
-| `proximal_newton` | L2 / none uses Newton; non-smooth direct calls visibly use FISTA | unsupported penalty structures | no Euclidean-prox approximation |
+| Solver | Main numerical prerequisite | Typical penalty scope | Public-request notes |
+|--------|-----------------------------|-----------------------|----------------------|
+| `exact` | quadratic squared-error objective | L2 / none | squared-error route only |
+| `irls` | the loss exposes an estimator-level IRLS route | L2 / none | family/loss specific |
+| `newton` | smooth objective with Hessian support | L2 / none | uses Newton + line search |
+| `lbfgs` | smooth objective with a consistent gradient | L2 / none | avoids forming a full Hessian |
+| `fista` | compatible first-order loss primitive plus proximal penalty step | convex proximal routes and selected explicit routes | route-specific support |
+| `fista_bb` | smooth-gradient differences suitable for BB step adaptation | supported sparse proximal routes | excluded when the loss lacks meaningful smooth-gradient differences |
+| `admm` | supported splitting with a smooth w-subproblem | supported proximal formulations | route-specific support |
+| `irls_cd` | specialized scalar IRLS/coordinate-descent formulation | specialized routes | not a general-purpose fallback |
+| `proximal_irls_cd` | specialized proximal IRLS majorization | specialized non-convex routes | internal resolved label; not a public explicit `solver=` keyword |
+| `proximal_newton` | compatible Newton/proximal structure | route specific | behavior depends on loss and penalty structure |
 
-Unsupported explicit estimator combinations raise an error before numerical fitting. Quantile exposes IRLS as the L2/no-penalty `auto` route and also permits explicit ordinary FISTA on L2/no penalty; sparse convex Quantile objectives use ordinary FISTA, while SCAD/MCP resolve through `auto` to Proximal IRLS-CD. Quantile FISTA-BB and ADMM are excluded both at estimator and public low-level boundaries; estimator/CV L-BFGS is excluded while direct low-level unweighted/uniform Quantile L-BFGS remains an existing compatibility surface.
+Unsupported explicit estimator combinations raise an error before numerical fitting. The matrix intentionally states the shared numerical conditions here; model-specific exclusions and alternatives are documented on the corresponding model page.
 
-Because check loss is non-smooth, the explicit L2/no-penalty Quantile FISTA route is a first-order proximal/subgradient algorithm, not a claim that the classical smooth-gradient FISTA convergence assumptions apply. This is why `auto` continues to prefer IRLS even though explicit FISTA is available.
+## 3. Solver capability summary
 
-## 3. Solver capabilities
+| Solver | Core requirement | Typical use | `sample_weight` | `warm_start` |
+|--------|------------------|-------------|-----------------|:------------:|
+| `exact` | quadratic closed form / eigensystem | squared error + L2 | supported on its declared route | ❌ |
+| `irls` | loss-specific reweighted least-squares update | supported L2/no-penalty routes | loss/estimator dependent | ❌ |
+| `newton` | gradient + Hessian | smooth L2/no-penalty objectives | loss/estimator dependent | ❌ |
+| `lbfgs` | consistent smooth gradient | smooth L2/no-penalty objectives | loss/estimator dependent | ❌ |
+| `fista` | first-order loss primitive + proximal step | convex proximal objectives and LLA inner solves | route dependent | ✅ |
+| `fista_bb` | smooth-gradient differences + proximal step | sparse objectives with adaptive BB steps | route dependent | ✅ |
+| `admm` | compatible splitting and smooth w-update | proximal formulations | route dependent | ✅ |
+| `irls_cd` | specialized IRLS + coordinate descent | specialized scalar routes | route dependent | ✅ |
 
-| Solver | `sample_weight` | `warm_start` | Inference | Best for |
-|--------|:---------------:|:------------:|:---------:|----------|
-| `exact` | ✅ on its supported route | ❌ | ✅ (OLS path) | squared error + L2 |
-| `irls` | estimator/loss dependent | ❌ | estimator dependent | Quantile L2/no-penalty and GLM IRLS routes |
-| `newton` | GLMs with weighted-objective support accept analytic weights | ❌ | estimator dependent | smooth objectives with Hessian support |
-| `lbfgs` | GLMs with weighted-objective support accept analytic weights; other losses are route-specific | ❌ | estimator dependent | smooth objectives without forming a full Hessian; low-level Quantile retains omitted/uniform compatibility |
-| `fista` | ✅ on supported weighted routes | ✅ | estimator dependent | convex proximal objectives, including explicit Quantile L2/none, sparse objectives, and LLA inner solves |
-| `fista_bb` | ✅ on supported weighted routes | ✅ | estimator dependent | supported sparse objectives with adaptive BB steps; excludes Quantile |
-| `admm` | shared `admm_solver`: omitted/uniform weights only on supported losses | ✅ | estimator dependent | supported proximal formulations with smooth w-updates; excludes Quantile |
-| `irls_cd` | route-specific | ✅ | estimator dependent | specialized scalar coordinate-descent routes |
+`sample_weight` support is a **loss × solver × estimator** contract; it cannot be inferred from a solver signature alone. Weight semantics and unsupported combinations are documented on the relevant model page and in [Loss × Penalty × Solver Framework](loss-penalty-solver-framework.md).
 
-For Newton and L-BFGS, `sample_weight` support is a **loss/estimator contract**, not a property that can be inferred from the solver signature alone. GLM losses with analytic-weight support use
+## 4. CV `solver="auto"` (`PenalizedGLM_CV`)
 
-`sum(w_i * loss_i) / sum(w_i)`
-
-for the data-fit term. Direct low-level Quantile L-BFGS retains omitted/uniform-weight compatibility but rejects genuine non-uniform weights; `PenalizedQuantileRegression` / `PenalizedGLM_CV` explicit L-BFGS remains unsupported. Generic robust and Cox direct L-BFGS consumers retain their own weight boundaries. The shared `admm_solver` requires `sample_weight` to be omitted or uniform on losses for which ADMM is supported; Quantile is excluded before that weight rule is considered.
-
-Group warm starts carry coefficient and intercept state together for one fit call and are cleared after success or failure.
-
-## 4. CV support (`PenalizedGLM_CV`)
-
-`PenalizedGLM_CV` keeps the public `solver="auto"` request but uses a family-, backend-, and sometimes problem-size-specific policy for candidate fits and the selected full-data final refit.
+Cross-validation may intentionally choose a different numerical route from direct fitting because candidate fitting, backend execution, and final refitting have different performance tradeoffs.
 
 | Loss | l2 | l1 / elasticnet | scad / mcp | adaptive_l1 | group_lasso / adaptive group | group_scad / group_mcp |
 |------|:--:|:---------------:|:----------:|:-----------:|:----------------------------:|:-----------------------:|
@@ -114,64 +98,39 @@ Group warm starts carry coefficient and intercept state together for one fit cal
 | **tweedie** | Newton | CPU FISTA-BB / GPU FISTA | FISTA-LLA | CPU FISTA-BB / GPU FISTA | Group FISTA | Group FISTA-LLA |
 | **quantile** | IRLS | FISTA | Proximal IRLS-CD | FISTA | Group FISTA | Group FISTA-LLA |
 
-For Quantile CV, `solver="auto"` uses IRLS for L2/no-penalty candidate fits and the selected full-data refit, while convex sparse rows use ordinary FISTA. An explicit L2/no-penalty `solver="fista"` is also supported and uses FISTA consistently for CV children and final refit. SCAD/MCP remains its separate Proximal IRLS-CD continuation algorithm. Explicit Quantile FISTA-BB, L-BFGS, and ADMM requests raise an error before alpha-grid work.
+### CV notes
 
-The Poisson GPU L1 FISTA-BB rule is size-gated: the fast path applies below roughly two million design elements; larger rows use FISTA. Negative-Binomial GPU ElasticNet uses FISTA in a medium-size band (roughly 200k–1M design elements) and FISTA-BB outside that band. These thresholds are internal dispatch policy, not universal performance guarantees.
-
-Weights do not substitute another solver. For the three L-BFGS smooth-L2 families above, weighted candidate/final-refit support follows the GLM weighted-objective contract. For `loss="gamma"` with `loss_kwargs={"link": "inverse_power"}`, smooth-L2 CV preserves that actual loss object through candidate fitting, validation scoring, alpha selection, and final refit rather than using the log-link-only Gamma validation shortcut.
-
-Group validation happens before alpha-grid generation, fold construction, or candidate fitting. Groups are interpreted against the final design width, including formula-expanded columns. Missing unweighted features are completed as singleton groups once; out-of-range indices and incomplete adaptive weighted groups fail before candidate fitting.
-
-CV uses fit-local penalty state and does not mutate a caller's penalty object or `penalty_kwargs` dictionary. For penalty objects, each candidate is rebuilt at the candidate alpha; the selected final estimator exposes a penalty snapshot whose alpha and groups match the resolved objective. The top-level CV estimator retains its original constructor parameter.
+- The table records the actual automatic route; backend- or size-dependent policies are shown directly in the affected cells.
+- An explicit solver request remains authoritative when that loss × penalty × solver combination is supported; CV does not silently replace it simply because folds or weights are present.
+- Candidate fits and the selected full-data refit preserve the resolved loss, penalty, groups, and solver contract.
+- Group validation is performed before candidate fitting; detailed group-input rules are documented in [Loss × Penalty × Solver Framework](loss-penalty-solver-framework.md).
+- Strict/two-stage CV semantics and model-specific validation behavior are documented on the relevant model pages rather than duplicated here.
 
 ## 5. Penalty reference
 
-| Penalty | Formula | Proximal form | Main parameters |
-|---------|---------|---------------|-----------------|
+| Penalty | Formula | Proximal / surrogate form | Main parameters |
+|---------|---------|---------------------------|-----------------|
 | `l2` | ½α‖β‖² | ridge scaling | `alpha` |
 | `l1` | α‖β‖₁ | soft threshold | `alpha` |
 | `elasticnet` | α[λ‖β‖₁ + ½(1-λ)‖β‖²] | soft threshold + L2 scaling | `alpha`, `l1_ratio` |
-| `scad` | SCAD(β; α, a) | SCAD thresholding / LLA route | `alpha`, `a` |
-| `mcp` | MCP(β; α, γ) | MCP thresholding / LLA route | `alpha`, `gamma` |
+| `scad` | SCAD(β; α, a) | SCAD thresholding / LLA | `alpha`, `a` |
+| `mcp` | MCP(β; α, γ) | MCP thresholding / LLA | `alpha`, `gamma` |
 | `adaptive_l1` | αΣ_j w_j|β_j| | weighted soft threshold | `alpha`, weights |
 | `group_lasso` | αΣ_g √p_g‖β_g‖₂ | block soft threshold | `alpha`, `groups` |
 | `AdaptiveGroupLassoPenalty` | αΣ_g w_g√p_g‖β_g‖₂ | weighted block soft threshold | `alpha`, `groups`, `weights`; object-only |
 | `group_scad` | Σ_g SCAD(‖β_g‖₂; α√p_g, a) | group LLA surrogate | `alpha`, `groups`, `a` |
 | `group_mcp` | Σ_g MCP(‖β_g‖₂; α√p_g, γ) | group LLA surrogate | `alpha`, `groups`, `gamma` |
 
-For Group SCAD/MCP, let `D_g` denote the derivative with respect to `‖β_g‖₂`. The exact convex surrogate is `Σ_g D_g‖β_g‖₂`, represented internally by `AdaptiveGroupLassoPenalty(alpha=1, weights_g=D_g/√p_g)`. Target alpha and group size are not multiplied twice. Group LLA uses FISTA rather than the generic Proximal Newton branch.
+For Group SCAD/MCP, the convex LLA surrogate is represented through an adaptive group-lasso problem. Group metadata must match the final design width; exact validation rules are documented in [Loss × Penalty × Solver Framework](loss-penalty-solver-framework.md).
 
-Group inputs use a strict contract: hyperparameters must be finite numeric scalars; group indices/IDs must be non-negative integer-valued numerics representable as signed `int64`; explicit groups must be non-empty and duplicate-free; flat IDs must be contiguous from zero; and public numerical penalty methods require exactly the grouped feature dimension.
+## 6. Related references
 
-## 6. Inference support
+This page intentionally does not reproduce model-specific derivations, optimization safeguards, inference contracts, or validation procedures.
 
-| Penalty | Inference method | Status |
-|---------|------------------|--------|
-| `l2` | standard / M-estimation where exposed by the estimator | ✅ Available on supported routes |
-| `l1` | Debiased Lasso | ✅ Supported routes |
-| `elasticnet` | method dependent | See estimator contract |
-| `scad` / `mcp` | oracle/bootstrap where implemented | See estimator contract |
-| `adaptive_l1` | method dependent | See estimator contract |
-| Group Lasso / Adaptive Group Lasso / Group SCAD / Group MCP | group-preserving covariance/bootstrap | Not implemented; inference requests raise an error before fitting |
-
-## 7. Choosing a solver
-
-For most users, start with `solver="auto"` and override it only when you have a reason to require a particular algorithm.
-
-```text
-direct solver="auto"
-├── squared_error + L2/none?             → CPU exact / GPU Newton
-├── quantile + L2/none?                  → IRLS
-├── quantile + L1/ElasticNet?            → FISTA
-├── quantile + SCAD/MCP?                 → Proximal IRLS-CD
-├── smooth non-Gaussian GLM + L2/none?  → Newton
-├── squared_error sparse convex?         → FISTA
-├── gamma / inverse-Gaussian sparse?     → FISTA
-├── logistic / poisson / NB sparse?      → FISTA-BB
-├── tweedie sparse?                      → CPU FISTA-BB / GPU FISTA
-├── scalar SCAD/MCP?                     → FISTA-LLA
-├── convex group penalty?                → Group FISTA
-└── group SCAD/MCP?                      → Group FISTA-LLA
-```
-
-For Quantile L2/no penalty, the tree above shows the `auto` choice only; users may explicitly select ordinary FISTA when algorithm control is desired. For `PenalizedGLM_CV`, use the separate CV table above. Gamma, Inverse-Gaussian, and Negative-Binomial L2 rows intentionally use L-BFGS during CV/final refit even though direct-fit `auto` uses Newton.
+- [Solver Algorithms](solver-algorithms.md) — update equations, convergence/stopping behavior, and algorithmic assumptions
+- [Loss × Penalty × Solver Framework](loss-penalty-solver-framework.md) — computation architecture and dispatch concepts
+- [Loss Functions](../models/losses.md) — loss-layer mathematics and numerical primitives
+- [GeneralizedLinearModel](../models/generalized-linear-model.md) — GLM family/link behavior, weights, CV, and inference
+- [Quantile Regression](../models/quantile.md) — Quantile-specific solver, penalty, weighting, and inference behavior
+- [Robust Regression](../models/robust.md) — robust-loss estimator behavior
+- [Penalized GLM inference](penalized-glm-inference.md) and [Inference Modes](inference-modes.md) — inference support and interpretation
