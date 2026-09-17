@@ -258,6 +258,127 @@
   },
   "evidence_wrapper": "dev/benchmarks/run_quantile_group_lla_gpu_gate.py",
   "executed_solver": "group_proximal_irls_lla",
+  "flat_irls_boundary_probe": {
+    "cases": [
+      {
+        "backend": "numpy",
+        "device": "cpu",
+        "irls_calls": [
+          {
+            "X": [
+              "numpy",
+              "cpu"
+            ],
+            "init_coef": null,
+            "max_iter": 2,
+            "sample_weight": [
+              "numpy",
+              "cpu"
+            ]
+          },
+          {
+            "X": [
+              "numpy",
+              "cpu"
+            ],
+            "init_coef": [
+              "numpy",
+              "cpu"
+            ],
+            "max_iter": 1,
+            "sample_weight": [
+              "numpy",
+              "cpu"
+            ]
+          }
+        ],
+        "n_iter": 2,
+        "parameter_error": 0.0
+      },
+      {
+        "backend": "cupy",
+        "device": "cuda:0",
+        "irls_calls": [
+          {
+            "X": [
+              "cupy",
+              "cuda:0"
+            ],
+            "init_coef": null,
+            "max_iter": 2,
+            "sample_weight": [
+              "cupy",
+              "cuda:0"
+            ]
+          },
+          {
+            "X": [
+              "cupy",
+              "cuda:0"
+            ],
+            "init_coef": [
+              "cupy",
+              "cuda:0"
+            ],
+            "max_iter": 1,
+            "sample_weight": [
+              "cupy",
+              "cuda:0"
+            ]
+          }
+        ],
+        "n_iter": 2,
+        "parameter_error": 0.0
+      },
+      {
+        "backend": "torch",
+        "device": "cuda:0",
+        "irls_calls": [
+          {
+            "X": [
+              "torch",
+              "cuda:0"
+            ],
+            "init_coef": null,
+            "max_iter": 2,
+            "sample_weight": [
+              "torch",
+              "cuda:0"
+            ]
+          },
+          {
+            "X": [
+              "torch",
+              "cuda:0"
+            ],
+            "init_coef": [
+              "torch",
+              "cuda:0"
+            ],
+            "max_iter": 1,
+            "sample_weight": [
+              "torch",
+              "cuda:0"
+            ]
+          }
+        ],
+        "n_iter": 2,
+        "parameter_error": 0.0
+      }
+    ],
+    "environment": {
+      "cupy": "13.6.0",
+      "cupy_device_name": "Tesla P100-SXM2-16GB",
+      "numpy": "1.24.2",
+      "torch": "2.0.0+cu117",
+      "torch_cuda": "11.7",
+      "torch_device_name": "Tesla P100-SXM2-16GB"
+    },
+    "schema_version": 1,
+    "source_clean": true,
+    "source_sha": "32fc5aaa0cae304d6857c1e7b1e8c6149522164a",
+    "status": "success"
+  },
   "groups": [
     [
       0,
@@ -335,7 +456,7 @@
     "quantile": 0.35,
     "schema_version": 1,
     "source_clean": true,
-    "source_sha": "6b466e691a07a9bc1110dab3d37bc36abe8dd7d8",
+    "source_sha": "32fc5aaa0cae304d6857c1e7b1e8c6149522164a",
     "status": "success",
     "tolerances": {
       "objective": 8e-05,
@@ -353,9 +474,9 @@
   "source_clean": true,
   "source_clean_after_execution": true,
   "source_clean_before": true,
-  "source_sha": "6b466e691a07a9bc1110dab3d37bc36abe8dd7d8",
-  "source_sha_after_execution": "6b466e691a07a9bc1110dab3d37bc36abe8dd7d8",
-  "source_sha_before": "6b466e691a07a9bc1110dab3d37bc36abe8dd7d8",
+  "source_sha": "32fc5aaa0cae304d6857c1e7b1e8c6149522164a",
+  "source_sha_after_execution": "32fc5aaa0cae304d6857c1e7b1e8c6149522164a",
+  "source_sha_before": "32fc5aaa0cae304d6857c1e7b1e8c6149522164a",
   "status": "success",
   "tolerances": {
     "cv_score": 0.0001,
