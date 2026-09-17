@@ -6,8 +6,10 @@ import numpy as np
 import pytest
 
 from statgpu.losses import QuantileLoss
-from statgpu.linear_model.penalized._quantile_group_lla_contract import (
-    _QuantileGroupStepScaleProxy,
+from statgpu.penalties import GroupSCADPenalty
+from statgpu.solvers import _fista_lla_group_contract as group_contract
+from statgpu.solvers._fista_lla_group_contract import (
+    _QuantileWeightedStepScaleProxy,
 )
 
 
@@ -67,6 +69,8 @@ def test_quantile_equal_weights_recover_unweighted_step_scale():
 
 def test_quantile_group_step_proxy_retains_weight_for_periodic_refresh():
     class RecordingLoss:
+        name = "quantile"
+
         def __init__(self):
             self.weights = []
 
@@ -75,7 +79,7 @@ def test_quantile_group_step_proxy_retains_weight_for_periodic_refresh():
             return 1.0
 
     base = RecordingLoss()
-    proxy = _QuantileGroupStepScaleProxy(base)
+    proxy = _QuantileWeightedStepScaleProxy(base)
     X = np.eye(3, dtype=np.float64)
     coef = np.zeros(3, dtype=np.float64)
     weights = np.asarray([0.5, 1.0, 2.0], dtype=np.float64)
@@ -85,3 +89,51 @@ def test_quantile_group_step_proxy_retains_weight_for_periodic_refresh():
 
     assert base.weights[0] is weights
     assert base.weights[1] is weights
+
+
+def test_public_group_lla_installs_quantile_weight_proxy(monkeypatch):
+    """Direct public solver calls get the same weighted refresh contract."""
+    class RecordingQuantileLoss:
+        name = "quantile"
+        has_hessian = False
+
+        def __init__(self):
+            self.weights = []
+
+        def lipschitz(self, X, coef, y=None, sample_weight=None):
+            self.weights.append(sample_weight)
+            return 1.0
+
+    loss = RecordingQuantileLoss()
+    penalty = GroupSCADPenalty(alpha=0.1, a=3.7, groups=[[0, 1], [2, 3]])
+    weights = np.asarray([0.4, 0.8, 1.2, 1.6], dtype=np.float64)
+    X = np.eye(4, dtype=np.float64)
+    y = np.zeros(4, dtype=np.float64)
+    captured = {}
+
+    def fake_base(loss_proxy, *args, **kwargs):
+        captured["loss_proxy"] = loss_proxy
+        assert loss_proxy.lipschitz(
+            X, np.zeros(4), sample_weight=weights
+        ) == 1.0
+        assert loss_proxy.lipschitz(X, np.zeros(4)) == 1.0
+        return np.zeros(4), 0.0, 2
+
+    monkeypatch.setattr(group_contract, "_base_fista_lla_path", fake_base)
+    result = group_contract.fista_lla_path(
+        loss,
+        penalty,
+        X,
+        y,
+        alpha_path=[0.1],
+        fit_intercept=False,
+        sample_weight=weights,
+    )
+
+    assert result[2] == 2
+    assert isinstance(
+        captured["loss_proxy"]._loss,
+        _QuantileWeightedStepScaleProxy,
+    )
+    assert loss.weights[0] is weights
+    assert loss.weights[1] is weights
