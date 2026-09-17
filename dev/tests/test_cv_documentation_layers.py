@@ -17,9 +17,12 @@ def test_cv_public_guide_links_public_design_layer():
     assert "[How statgpu Cross-Validation Works](cross-validation-design.md)" in en
     assert "[statgpu 的交叉验证如何工作](cross-validation-design.md)" in cn
 
+    assert "cv_solver" in en
+    assert "final refit" in en
+    assert "cv_solver" in cn
+    assert "最终重拟合" in cn
+
     for text in (en, cn):
-        assert "cv_solver" in text
-        assert "final refit" in text
         assert "_effective_cv_device" not in text
         assert "_array_identity_token" not in text
         assert "_make_lasso_cv_auto_cache_key" not in text
@@ -46,16 +49,16 @@ def test_cv_public_design_explains_stable_execution_model():
         assert fragment in en
 
     required_cn = (
-        "selection work",
-        "final refit",
+        "选择阶段的计算",
+        "最终重拟合",
         "统计不变量与执行自由度",
-        "Pathwise reuse 与 warm start",
-        "GPU batching",
-        "Selection cache",
-        "CV 中的 device 选择",
-        "权重必须贯穿整个 CV lifecycle",
+        "沿路径复用计算与热启动",
+        "GPU 批处理",
+        "选择缓存",
+        "CV 中的设备选择",
+        "权重必须贯穿整个 CV 流程",
         "为什么 Cox CV 在结构上不同",
-        "Tuning 完成后的 inference",
+        "调参完成后的推断",
     )
     for fragment in required_cn:
         assert fragment in cn
