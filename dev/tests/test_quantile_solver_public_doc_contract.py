@@ -11,6 +11,28 @@ from statgpu.linear_model.penalized import (
 
 
 _ROOT = Path(__file__).resolve().parents[2]
+_PUBLIC_DOC_PAIRS = (
+    (
+        "docs/en/guides/solver-algorithms.md",
+        "docs/cn/guides/solver-algorithms.md",
+    ),
+    (
+        "docs/en/guides/loss-penalty-solver-framework.md",
+        "docs/cn/guides/loss-penalty-solver-framework.md",
+    ),
+    (
+        "docs/en/guides/solver-penalty-matrix.md",
+        "docs/cn/guides/solver-penalty-matrix.md",
+    ),
+    (
+        "docs/en/models/losses.md",
+        "docs/cn/models/losses.md",
+    ),
+    (
+        "docs/en/models/quantile.md",
+        "docs/cn/models/quantile.md",
+    ),
+)
 
 
 def test_guarded_public_solver_docstrings_expose_quantile_boundary():
@@ -74,13 +96,20 @@ def test_solver_algorithm_pages_preserve_explicit_quantile_fista_contract():
     assert "only an explicit `solver=\"fista\"` request selects this ordinary-FISTA path" in en
     assert "an explicit `solver=\"fista\"` request remains authoritative for both CV child fits" in en
     assert "explicit `solver=\"fista\"` fails rather than being silently substituted by IRLS" not in en
-    assert "maintained" not in en.lower()
-    assert "fail closed" not in en.lower()
 
     assert "显式 `solver=\"fista\"` 则真正执行普通 FISTA" in cn
     assert "并不声称 pinball loss 满足教科书式 smooth-gradient FISTA 的收敛假设" in cn
     assert "只有显式 `solver=\"fista\"` 才选择这条普通 FISTA 路径" in cn
     assert "该请求对 CV 子拟合和最终全数据重拟合都保持有效并执行普通 FISTA" in cn
     assert "显式 `solver=\"fista\"` 会失败而不是被静默替换成 IRLS" not in cn
-    assert "维护" not in cn
-    assert "fail closed" not in cn.lower()
+
+
+def test_public_solver_docs_do_not_expose_internal_review_vocabulary():
+    for en_path, cn_path in _PUBLIC_DOC_PAIRS:
+        en = (_ROOT / en_path).read_text(encoding="utf-8")
+        cn = (_ROOT / cn_path).read_text(encoding="utf-8")
+
+        assert "maintained" not in en.lower(), en_path
+        assert "fail closed" not in en.lower(), en_path
+        assert "维护" not in cn, cn_path
+        assert "fail closed" not in cn.lower(), cn_path
