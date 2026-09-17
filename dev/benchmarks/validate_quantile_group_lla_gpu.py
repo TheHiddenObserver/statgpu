@@ -89,12 +89,53 @@ def _native_inputs(backend, X, y, weights, cp, torch):
     )
 
 
-def _with_lla_counter(fn):
+def _array_backend_and_device(value):
+    module = type(value).__module__
+    if module.startswith("cupy"):
+        return "cupy", f"cuda:{int(value.device.id)}"
+    if module.startswith("torch"):
+        return "torch", str(value.device)
+    return "numpy", "cpu"
+
+
+def _with_lla_counter(fn, *, expected_backend, min_calls=1):
+    """Execute a case while proving every LLA call owns the expected arrays."""
     original = solvers.fista_lla_path
     count = {"value": 0}
+    observed_devices = set()
 
     def counted(*args, **kwargs):
         count["value"] += 1
+        if len(args) < 4:
+            raise AssertionError("fista_lla_path call did not expose X/y positionally")
+        X_arg, y_arg = args[2], args[3]
+        sw_arg = kwargs.get("sample_weight")
+        X_backend, X_device = _array_backend_and_device(X_arg)
+        y_backend, y_device = _array_backend_and_device(y_arg)
+        if X_backend != expected_backend or y_backend != expected_backend:
+            raise AssertionError(
+                "Quantile group LLA array backend drifted: "
+                f"X={X_backend!r}, y={y_backend!r}, expected={expected_backend!r}"
+            )
+        if expected_backend in ("cupy", "torch"):
+            if X_device != "cuda:0" or y_device != "cuda:0":
+                raise AssertionError(
+                    "Quantile group LLA array device drifted: "
+                    f"X={X_device!r}, y={y_device!r}"
+                )
+        if sw_arg is None:
+            raise AssertionError("weighted Quantile group LLA lost sample_weight")
+        sw_backend, sw_device = _array_backend_and_device(sw_arg)
+        if sw_backend != expected_backend:
+            raise AssertionError(
+                "Quantile group LLA weight backend drifted: "
+                f"{sw_backend!r} != {expected_backend!r}"
+            )
+        if expected_backend in ("cupy", "torch") and sw_device != "cuda:0":
+            raise AssertionError(
+                f"Quantile group LLA weight device drifted: {sw_device!r}"
+            )
+        observed_devices.add((X_backend, X_device, sw_backend, sw_device))
         return original(*args, **kwargs)
 
     solvers.fista_lla_path = counted
@@ -102,9 +143,12 @@ def _with_lla_counter(fn):
         result = fn()
     finally:
         solvers.fista_lla_path = original
-    if count["value"] <= 0:
-        raise AssertionError("Quantile group route did not execute fista_lla_path")
-    return result, int(count["value"])
+    if count["value"] < int(min_calls):
+        raise AssertionError(
+            "Quantile group route executed too few fista_lla_path calls: "
+            f"{count['value']} < {min_calls}"
+        )
+    return result, int(count["value"]), sorted(observed_devices)
 
 
 def _fit(kind, X, y, weights, device):
@@ -193,21 +237,27 @@ def main() -> int:
     source_sha, source_clean = _source_state()
     cp, torch = _require_gpu_backends()
     X, y, weights, folds = _data()
+    expected_cv_calls = len(folds) * len(ALPHA_GRID) + 1
 
     cpu = {}
     for kind in ("group_scad", "group_mcp"):
-        direct, direct_calls = _with_lla_counter(
-            lambda kind=kind: _fit(kind, X, y, weights, "cpu")
+        direct, direct_calls, direct_locations = _with_lla_counter(
+            lambda kind=kind: _fit(kind, X, y, weights, "cpu"),
+            expected_backend="numpy",
         )
-        cv, cv_calls = _with_lla_counter(
-            lambda kind=kind: _cv(kind, X, y, weights, folds, "cpu")
+        cv, cv_calls, cv_locations = _with_lla_counter(
+            lambda kind=kind: _cv(kind, X, y, weights, folds, "cpu"),
+            expected_backend="numpy",
+            min_calls=expected_cv_calls,
         )
         cpu[kind] = {
             "direct": direct,
             "direct_calls": direct_calls,
+            "direct_locations": direct_locations,
             "objective": _objective(direct, X, y, weights),
             "cv": cv,
             "cv_calls": cv_calls,
+            "cv_locations": cv_locations,
             "scores": np.asarray(cv.cv_results_["all_scores"], dtype=np.float64),
         }
 
@@ -219,8 +269,9 @@ def main() -> int:
     for backend in ("cupy", "torch"):
         Xb, yb, wb, device = _native_inputs(backend, X, y, weights, cp, torch)
         for kind in ("group_scad", "group_mcp"):
-            direct, direct_calls = _with_lla_counter(
-                lambda kind=kind: _fit(kind, Xb, yb, wb, device)
+            direct, direct_calls, direct_locations = _with_lla_counter(
+                lambda kind=kind: _fit(kind, Xb, yb, wb, device),
+                expected_backend=backend,
             )
             param_error, coef_error, intercept_error = _parameter_error(
                 direct, cpu[kind]["direct"]
@@ -242,6 +293,7 @@ def main() -> int:
                     "name": f"{backend}/direct/{kind}",
                     "provenance": _provenance(direct, backend),
                     "fista_lla_calls": direct_calls,
+                    "fista_lla_input_locations": direct_locations,
                     "parameter_error": param_error,
                     "coef_error": coef_error,
                     "intercept_error": intercept_error,
@@ -251,8 +303,10 @@ def main() -> int:
                 }
             )
 
-            cv, cv_calls = _with_lla_counter(
-                lambda kind=kind: _cv(kind, Xb, yb, wb, folds, device)
+            cv, cv_calls, cv_locations = _with_lla_counter(
+                lambda kind=kind: _cv(kind, Xb, yb, wb, folds, device),
+                expected_backend=backend,
+                min_calls=expected_cv_calls,
             )
             scores = np.asarray(cv.cv_results_["all_scores"], dtype=np.float64)
             score_error = float(np.max(np.abs(scores - cpu[kind]["scores"])))
@@ -278,6 +332,8 @@ def main() -> int:
                     "name": f"{backend}/cv/{kind}",
                     "provenance": _provenance(cv.estimator_, backend),
                     "fista_lla_calls": cv_calls,
+                    "min_expected_fista_lla_calls": expected_cv_calls,
+                    "fista_lla_input_locations": cv_locations,
                     "selected_alpha": float(cv.alpha_),
                     "cpu_selected_alpha": float(cpu[kind]["cv"].alpha_),
                     "score_error": score_error,
@@ -314,7 +370,11 @@ def main() -> int:
             "torch": torch.__version__,
             "torch_cuda": torch.version.cuda,
             "device_ordinal": 0,
-            "cupy_device_name": cp.cuda.runtime.getDeviceProperties(0)["name"].decode(),
+            "cupy_device_name": (
+                cp.cuda.runtime.getDeviceProperties(0)["name"].decode()
+                if isinstance(cp.cuda.runtime.getDeviceProperties(0)["name"], bytes)
+                else str(cp.cuda.runtime.getDeviceProperties(0)["name"])
+            ),
             "torch_device_name": torch.cuda.get_device_name(0),
         },
     }
