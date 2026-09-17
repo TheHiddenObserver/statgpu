@@ -1,7 +1,7 @@
 # 求解器 × 惩罚项兼容性矩阵
 
 > 语言：中文  
-> 最后更新：2026-09-16  
+> 最后更新：2026-09-17  
 > 页面定位：参考指南  
 > 切换：[英文版](../../en/guides/solver-penalty-matrix.md)
 
@@ -34,8 +34,8 @@
 
 ### 如何阅读这张表
 
-- 表中写的是**实际维护的执行路径**，而不仅是某个内部 dispatch 字符串。
-- Quantile 的 L2/无惩罚 `auto` 会解析到普通 Quantile IRLS；L1/ElasticNet 等凸稀疏 Quantile 继续走普通 FISTA；Quantile SCAD/MCP 则使用独立的 Proximal IRLS-CD 延续路径，而不是普通 IRLS。
+- 表中写的是**实际维护的 `auto` 执行路径**，而不是所有允许的显式 solver 选择。
+- Quantile 的 L2/无惩罚 `auto` 会解析到普通 Quantile IRLS；这些凸目标也维护显式 `solver="fista"`，并真实执行普通 FISTA，而不会再重定向到 IRLS。L1/ElasticNet 等凸稀疏 Quantile 继续走普通 FISTA；Quantile SCAD/MCP 使用独立的 Proximal IRLS-CD 延续路径。
 - `fista_lla` 是内部延续路径，不是公开的 `solver=` 参数值。`squared_error + SCAD/MCP` 会在 `fit()` 中直接进入融合的 `fista_lla_path()`。
 - direct logistic、Poisson 与负二项的凸稀疏行会落到默认 FISTA-BB 规则；Gamma 和逆高斯的稀疏行被显式固定为 FISTA；Tweedie 的稀疏行在 CuPy/Torch 上走 FISTA、在 CPU 上落到 FISTA-BB。Quantile 不使用 FISTA-BB，因为它的阶梯次梯度不能提供 BB 曲率更新所要求的 smooth-gradient difference。
 - 分组 Lasso 与自适应分组 Lasso 使用 group-aware FISTA；Group SCAD/MCP 使用加权 Group-Lasso LLA surrogate 与 group-aware FISTA 内层。
@@ -67,14 +67,16 @@
 | `irls` | 声明维护中 IRLS 支持的损失函数上的 L2/无惩罚 | 非光滑惩罚 | 损失函数/分布族专用 IRLS；Quantile 的 L2/无惩罚 `auto` 也解析到该路径 |
 | `newton` | 有 Hessian 的光滑损失 + L2/none | L1、ElasticNet、非凸及分组惩罚；Quantile | Newton + Armijo 线搜索 |
 | `lbfgs` | 光滑损失 + L2/none | L1、ElasticNet、非凸及分组惩罚；**所有 Quantile estimator/CV 请求** | 有限内存 BFGS + 线搜索；底层无权重/均匀权重 Quantile 兼容面属于另一层接口 |
-| `fista` | 支持近端算子的惩罚 | Quantile L2/无惩罚以及其他不支持组合 | L2/无惩罚 Quantile 显式 FISTA 会失败，而不是静默执行 IRLS |
+| `fista` | 受支持的近端惩罚，包括显式 Quantile L2/无惩罚 | 其他不支持组合，以及 Quantile SCAD/MCP 的显式请求 | Quantile L2/无惩罚显式 FISTA 真正执行通用 FISTA engine；`auto` 仍优先 IRLS |
 | `fista_bb` | 具有有效 smooth-gradient difference 的受支持稀疏目标 | **所有 Quantile 请求**以及其他不支持组合 | FISTA + BB 自适应步长；公开底层 Quantile 调用同样 fail closed |
 | `admm` | 具有维护中光滑 w-update 的受支持近端形式 | **所有 Quantile 请求**以及其他不支持组合 | 共享 w-subproblem 使用 accelerated gradient descent；公开底层 Quantile 调用同样 fail closed |
 | `irls_cd` | 专用标量路径 | 不支持的组合 | 不是当前 `squared_error + SCAD/MCP` 的公开 auto 路径 |
 | `proximal_irls_cd` | **不是公开显式 `solver=` 关键字** | 所有用户显式请求 | 仅作为 Quantile SCAD/MCP 经 `solver="auto"` 选择后的内部 resolved label；算法为 Proximal IRLS-CD 上界近似 + LLA |
 | `proximal_newton` | L2/none 使用 Newton；非光滑直接调用改用 FISTA | 不支持的惩罚结构 | 当前不采用欧氏近端近似 |
 
-不支持的显式 estimator 组合会在数值拟合前报错。Quantile 只在维护中的稀疏模型路径公开普通 FISTA，L2/无惩罚使用 IRLS，SCAD/MCP 通过 `solver="auto"` 使用 Proximal IRLS-CD。Quantile FISTA-BB 与 ADMM 在 estimator 和公开底层两层都被拒绝；estimator/CV L-BFGS 被拒绝，而底层无权重/均匀权重 Quantile L-BFGS 继续作为既有兼容面保留。
+不支持的显式 estimator 组合会在数值拟合前报错。Quantile 的 L2/无惩罚 `auto` 路径是 IRLS，同时允许显式普通 FISTA；稀疏凸 Quantile 使用普通 FISTA，SCAD/MCP 通过 `auto` 解析到 Proximal IRLS-CD。Quantile FISTA-BB 与 ADMM 在 estimator 和公开底层两层都被拒绝；estimator/CV L-BFGS 被拒绝，而底层无权重/均匀权重 Quantile L-BFGS 继续作为既有兼容面保留。
+
+由于 check loss 非光滑，显式 L2/无惩罚 Quantile FISTA 是维护中的一阶近端/次梯度算法，而不是宣称经典 smooth-gradient FISTA 的收敛假设成立。这也是 `auto` 即使在显式 FISTA 可用后仍继续优先 IRLS 的原因。
 
 ## 3. 求解器能力
 
@@ -84,7 +86,7 @@
 | `irls` | 依模型/损失函数而定 | ❌ | 依模型而定 | 维护中的 Quantile L2/无惩罚与 GLM IRLS 路径 |
 | `newton` | 当前 GLM 支持解析权重 | ❌ | 依模型而定 | 有 Hessian 的光滑目标 |
 | `lbfgs` | 当前 GLM 支持解析权重；其他损失函数依具体路径 | ❌ | 依模型而定 | 不希望形成完整 Hessian 的光滑目标；底层 Quantile 保留未传/均匀权重兼容面 |
-| `fista` | 受支持的加权路径 ✅ | ✅ | 依模型而定 | 凸稀疏/分组目标与 LLA 内层 |
+| `fista` | 受支持的加权路径 ✅ | ✅ | 依模型而定 | 凸近端目标，包括显式 Quantile L2/无惩罚、稀疏目标与 LLA 内层 |
 | `fista_bb` | 受支持的加权路径 ✅ | ✅ | 依模型而定 | 带 BB 自适应步长的受支持稀疏目标；不含 Quantile |
 | `admm` | 共享 `admm_solver` 在受支持损失上仅接受未传/均匀权重 | ✅ | 依模型而定 | 具有光滑 w-update 的受支持近端形式；不含 Quantile |
 | `irls_cd` | 依具体路径而定 | ✅ | 依模型而定 | 专用标量坐标下降路径 |
@@ -112,7 +114,7 @@
 | **tweedie** | Newton | CPU FISTA-BB / GPU FISTA | FISTA-LLA | CPU FISTA-BB / GPU FISTA | 分组 FISTA | 分组 FISTA-LLA |
 | **quantile** | IRLS | FISTA | Proximal IRLS-CD | FISTA | 分组 FISTA | 分组 FISTA-LLA |
 
-Quantile CV 的候选拟合和最终全数据 refit 使用同一 `auto` 策略：L2/无惩罚 Quantile 行会报告并执行 IRLS；凸稀疏行使用普通 FISTA；SCAD/MCP 继续使用独立的 Proximal IRLS-CD 延续算法。显式 Quantile FISTA-BB、L-BFGS 与 ADMM 请求会在 `alpha` 网格工作前失败。
+Quantile CV 的 `solver="auto"` 在 L2/无惩罚候选拟合与最终全数据 refit 中使用 IRLS，凸稀疏行使用普通 FISTA。显式 L2/无惩罚 `solver="fista"` 也受维护，并在 CV 子模型和最终 refit 中一致使用 FISTA。SCAD/MCP 继续使用独立的 Proximal IRLS-CD 延续算法。显式 Quantile FISTA-BB、L-BFGS 与 ADMM 请求会在 `alpha` 网格工作前失败。
 
 Poisson GPU L1 的 FISTA-BB 是按规模门控的：维护中的快路径用于大约两百万个 design elements 以下，较大的问题使用 FISTA。Negative-Binomial GPU ElasticNet 在维护中的中等规模区间（约 200k–1M 个 design elements）使用 FISTA，区间之外使用 FISTA-BB。这些阈值属于内部 dispatch policy，不是通用性能保证。
 
@@ -172,4 +174,4 @@ direct solver="auto"
 └── group SCAD/MCP?                      → 分组 FISTA-LLA
 ```
 
-`PenalizedGLM_CV` 请使用上面的独立交叉验证表。Gamma、逆高斯、负二项的 L2 在交叉验证和最终重拟合中有意使用 L-BFGS，而直接拟合的 `auto` 使用 Newton。
+对 Quantile L2/无惩罚，上面的树只描述 `auto` 选择；需要显式算法控制时，可以指定普通 FISTA。`PenalizedGLM_CV` 请使用上面的独立交叉验证表。Gamma、逆高斯、负二项的 L2 在交叉验证和最终重拟合中有意使用 L-BFGS，而直接拟合的 `auto` 使用 Newton。
