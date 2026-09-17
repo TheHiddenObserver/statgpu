@@ -89,7 +89,7 @@ def test_direct_quantile_new_unsupported_solver_fails_before_backend_work(
         raise AssertionError("backend numerical work must not start")
 
     monkeypatch.setattr(model, "_get_backend", forbidden_backend)
-    with pytest.raises(ValueError, match="not a maintained Quantile route"):
+    with pytest.raises(ValueError, match="does not support Quantile loss"):
         model.fit(X, y)
 
 
@@ -114,7 +114,7 @@ def test_cv_quantile_new_unsupported_solver_fails_before_alpha_grid(
         raise AssertionError("alpha-grid numerical work must not start")
 
     monkeypatch.setattr(model, "_generate_alpha_grid", forbidden_grid)
-    with pytest.raises(ValueError, match="not a maintained Quantile route"):
+    with pytest.raises(ValueError, match="does not support Quantile loss"):
         model.fit(X, y)
 
 
@@ -135,7 +135,7 @@ def test_estimator_quantile_lbfgs_rejection_has_truthful_reason(
     monkeypatch.setattr(model, "_get_backend", forbidden_backend)
     with pytest.raises(
         ValueError,
-        match="not a maintained estimator/CV Quantile route.*smooth loss gradient",
+        match="not supported for Quantile estimators or Quantile CV.*smooth loss gradient",
     ):
         model.fit(X, y)
 
@@ -157,7 +157,7 @@ def test_cv_quantile_lbfgs_rejection_has_truthful_reason(monkeypatch):
     monkeypatch.setattr(model, "_generate_alpha_grid", forbidden_grid)
     with pytest.raises(
         ValueError,
-        match="not a maintained estimator/CV Quantile route.*smooth loss gradient",
+        match="not supported for Quantile estimators or Quantile CV.*smooth loss gradient",
     ):
         model.fit(X, y)
 
@@ -228,7 +228,7 @@ def test_quantile_guard_survives_standard_estimator_reconstruction(
         raise AssertionError("backend numerical work must not start")
 
     monkeypatch.setattr(model, "_get_backend", forbidden_backend)
-    with pytest.raises(ValueError, match="not a maintained Quantile route"):
+    with pytest.raises(ValueError, match="does not support Quantile loss"):
         model.fit(X, y)
 
 
