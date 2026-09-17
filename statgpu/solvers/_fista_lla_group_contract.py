@@ -31,6 +31,7 @@ from statgpu.backends._array_ops import _copy_arr, _zeros
 from statgpu.backends._utils import xp_ones
 from statgpu.penalties import AdaptiveGroupLassoPenalty, AdaptiveL1Penalty
 from ._fista_lla import fista_lla_path as _base_fista_lla_path
+from ._utils import _validate_sample_weight
 
 
 _GROUP_NONCONVEX_NAMES = frozenset(
@@ -157,12 +158,8 @@ def _normalized_sample_weight(sample_weight, n_samples, X_work, xp, backend):
     if sample_weight is None:
         return None
     sw = _to_backend_vector(sample_weight, X_work, xp, backend).reshape(-1)
-    if int(sw.shape[0]) != int(n_samples):
-        raise ValueError("sample_weight must have length n_samples")
     total = xp.sum(sw)
     total_f = float(_to_numpy(total))
-    if not np.isfinite(total_f) or total_f <= 0.0:
-        raise ValueError("sample_weight must have a finite positive sum")
     return sw * (float(n_samples) / total_f)
 
 
@@ -222,6 +219,9 @@ def _quantile_fista_lla_path(
     n_samples, n_features = X_dev.shape
     if int(y_dev.shape[0]) != int(n_samples):
         raise ValueError("Quantile LLA response length must match X rows")
+    # The public Quantile wrapper bypasses the base fused implementation, so
+    # preserve its exact low-level sample_weight validation contract here.
+    _validate_sample_weight(sample_weight, n_samples)
 
     if fit_intercept:
         ones = xp_ones((n_samples, 1), dtype=X_dev.dtype, xp=xp, ref_arr=X_dev)
