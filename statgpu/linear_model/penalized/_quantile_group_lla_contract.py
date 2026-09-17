@@ -38,6 +38,38 @@ _GROUP_NONCONVEX = frozenset({"group_mcp", "gmcp", "group_scad", "gscad"})
 _AUTO_CV_GROUP_LLA = ContextVar("statgpu_quantile_group_auto_cv_lla", default=False)
 
 
+class _QuantileGroupStepScaleProxy:
+    """Retain analytic weights across Quantile FISTA-LLA step-scale refreshes.
+
+    The fused FISTA-LLA engine supplies ``sample_weight`` to its initial
+    ``loss.lipschitz`` call but omits it from periodic refreshes.  Quantile's
+    first-order step scale is objective-weighted, so this route-local proxy
+    remembers the initial backend-native weight vector and reuses it later.
+    Keeping this state here avoids changing the shared Group FISTA-LLA behavior
+    of Huber/GLM losses that is outside PR #166's physical-validation scope.
+    """
+
+    def __init__(self, loss):
+        self._loss = loss
+        self._sample_weight = None
+
+    def __getattr__(self, name):
+        return getattr(self._loss, name)
+
+    def lipschitz(self, X, coef, y=None, sample_weight=None):
+        if sample_weight is not None:
+            self._sample_weight = sample_weight
+        effective_weight = (
+            sample_weight if sample_weight is not None else self._sample_weight
+        )
+        return self._loss.lipschitz(
+            X,
+            coef,
+            y=y,
+            sample_weight=effective_weight,
+        )
+
+
 def _penalty_name(owner) -> str:
     return str(
         getattr(getattr(owner, "_penalty", None), "name", getattr(owner, "penalty", ""))
@@ -163,8 +195,9 @@ def _install_quantile_group_lla_route() -> None:
 
         from statgpu.solvers import fista_lla_path
 
+        lla_loss = _QuantileGroupStepScaleProxy(self._loss)
         coef, intercept, n_iter = fista_lla_path(
-            self._loss,
+            lla_loss,
             self._penalty,
             X_arr,
             y_arr,
