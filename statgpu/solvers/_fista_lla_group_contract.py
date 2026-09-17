@@ -18,9 +18,10 @@ The generic proximal-Newton inner loop is intentionally disabled for group
 nonconvex LLA. Its Armijo condition is based on a smooth Newton direction plus a
 post-hoc group proximal map; on valid Huber Group MCP/SCAD problems it can reject
 all trial steps, restore the old iterate, and return without a failure status.
-The group-aware fixed-step FISTA path uses the loss Lipschitz contract and the
-exact weighted Group Lasso proximal operator, so convergence is observable
-through actual proximal updates rather than a silently stalled Newton step.
+The group-aware fixed-step FISTA path uses the loss Lipschitz/step-scale contract
+and the exact weighted Group Lasso proximal operator, so convergence is
+observable through actual proximal updates rather than a silently stalled
+Newton step.
 """
 
 from __future__ import annotations
@@ -46,6 +47,38 @@ class _GroupFISTALossProxy:
 
     def __getattr__(self, name):
         return getattr(self._loss, name)
+
+
+class _QuantileWeightedStepScaleProxy:
+    """Retain analytic weights across Quantile FISTA-LLA step refreshes.
+
+    The fused engine supplies ``sample_weight`` on its initial step-scale call
+    but omits it on periodic refreshes. Quantile's step scale follows the
+    normalized weighted objective, so direct public and estimator-mediated
+    Quantile Group SCAD/MCP calls must reuse the same backend-native weights.
+    This proxy is installed only for ``loss.name == 'quantile'``; other group
+    losses retain their previously validated behavior.
+    """
+
+    def __init__(self, loss):
+        self._loss = loss
+        self._sample_weight = None
+
+    def __getattr__(self, name):
+        return getattr(self._loss, name)
+
+    def lipschitz(self, X, coef, y=None, sample_weight=None):
+        if sample_weight is not None:
+            self._sample_weight = sample_weight
+        effective_weight = (
+            sample_weight if sample_weight is not None else self._sample_weight
+        )
+        return self._loss.lipschitz(
+            X,
+            coef,
+            y=y,
+            sample_weight=effective_weight,
+        )
 
 
 def _group_surrogate_factory(scad_penalty):
@@ -123,6 +156,8 @@ def fista_lla_path(
         # the caller supplied the historical factory or called this exported
         # solver directly without one.
         lla_penalty_factory = _group_surrogate_factory(scad_penalty)
+        if str(getattr(loss, "name", "")).lower() == "quantile":
+            loss = _QuantileWeightedStepScaleProxy(loss)
         loss = _GroupFISTALossProxy(loss)
 
     return _base_fista_lla_path(
