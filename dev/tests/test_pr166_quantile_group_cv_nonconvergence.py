@@ -13,16 +13,21 @@ GROUPS = [[0, 1], [2, 3]]
 Q = 0.35
 
 
-def test_nonconverged_quantile_group_candidate_is_nan_and_cannot_be_selected(
-    monkeypatch,
-):
-    """One failed fold invalidates the whole alpha; selected refit stays non-strict."""
+def _fixture():
     rng = np.random.default_rng(166901)
     X = rng.normal(size=(16, 4)).astype(np.float64)
     y = (0.2 + X @ np.array([0.7, -0.35, 0.2, 0.1])).astype(np.float64)
     weights = np.linspace(0.5, 1.5, X.shape[0], dtype=np.float64)
     idx = np.arange(X.shape[0])
     folds = [(idx[8:], idx[:8]), (idx[:8], idx[8:])]
+    return X, y, weights, folds
+
+
+def test_nonconverged_quantile_group_candidate_is_nan_and_cannot_be_selected(
+    monkeypatch,
+):
+    """One failed fold invalidates the whole alpha; selected refit stays non-strict."""
+    X, y, weights, folds = _fixture()
     seen = []
     failed_once = {"value": False}
 
@@ -70,3 +75,49 @@ def test_nonconverged_quantile_group_candidate_is_nan_and_cannot_be_selected(
     assert len(refit_calls) == 1
     assert refit_calls[0][1] == pytest.approx(0.03)
     assert refit_calls[0][2] == X.shape[0]
+
+
+def test_two_stage_screening_stays_relaxed_before_strict_refinement(monkeypatch):
+    """Stage-1 screening is non-strict; refinement is strict; refit is non-strict."""
+    X, y, weights, folds = _fixture()
+    seen = []
+
+    def fake_solver(loss, penalty, X_fit, y_fit, alpha_path, **kwargs):
+        seen.append(
+            (
+                bool(kwargs.get("fail_on_target_nonconvergence")),
+                float(penalty.alpha),
+                int(X_fit.shape[0]),
+            )
+        )
+        return np.zeros(X_fit.shape[1], dtype=np.float64), 0.0, 1
+
+    monkeypatch.setattr(
+        group_solver, "quantile_group_proximal_irls_lla_solver", fake_solver
+    )
+
+    cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": Q},
+        penalty="group_scad",
+        penalty_kwargs={"groups": GROUPS, "a": 3.7},
+        alpha_grid=np.asarray([0.05, 0.03], dtype=np.float64),
+        cv=2,
+        cv_splits=folds,
+        random_state=166,
+        solver="auto",
+        device="cpu",
+        cv_strategy="two_stage",
+        acknowledge_approx=True,
+        refine_top_k=1,
+        max_iter=200,
+        tol=1e-6,
+    ).fit(X, y, sample_weight=weights)
+
+    fold_calls = [item for item in seen if item[2] == 8]
+    refit_calls = [item for item in seen if item[2] == X.shape[0]]
+    assert any(not item[0] for item in fold_calls)
+    assert any(item[0] for item in fold_calls)
+    assert len(refit_calls) == 1
+    assert refit_calls[0][0] is False
+    assert cv.estimator_._selected_solver == "group_proximal_irls_lla"
