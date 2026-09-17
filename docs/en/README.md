@@ -15,6 +15,7 @@
 - [Inference API](guides/inference-api.md) — distributions, multiple testing, permutation test, bootstrap
 - [Implemented Methods](guides/implemented-methods.md) — public model and method inventory
 - [Cross-Validation](guides/cross-validation.md) — folds, tuning grids, selection, and final refit
+- [How statgpu Cross-Validation Works](guides/cross-validation-design.md) — public CV execution model, acceleration concepts, and statistical invariants
 - [CoxPHCV Experimental Screening Safety](guides/cox-cv-staged-safety.md) — user-visible behavior of experimental screening controls
 - [Solver × Penalty Matrix](guides/solver-penalty-matrix.md) — loss × penalty × solver compatibility
 - [Device and GPU Memory](guides/device-and-memory.md) — device selection, memory cleanup
