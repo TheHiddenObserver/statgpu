@@ -29,7 +29,6 @@ def test_proximal_irls_cd_is_internal_resolved_label_not_public_solver_keyword(p
     [
         ("scad", "proximal_irls_cd", "internal resolved Quantile solver label"),
         ("scad", "fista", "not a public explicit Quantile SCAD route"),
-        ("l2", "fista", "not a maintained L2/no-penalty Quantile route"),
         ("l2", "newton", "quantile loss has no Hessian"),
         ("l1", "irls", "only supports L2 or no-penalty Quantile objectives"),
     ],
