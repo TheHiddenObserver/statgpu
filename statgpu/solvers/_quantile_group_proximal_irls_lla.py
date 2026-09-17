@@ -136,6 +136,7 @@ def _flat_irls_boundary_converged(
     tol,
     sample_weight,
     fit_intercept,
+    xp,
 ) -> bool:
     """Disambiguate ``n_iter == max_iter`` without accepting an extra iterate.
 
@@ -144,7 +145,8 @@ def _flat_irls_boundary_converged(
     a genuinely exhausted solve therefore both report ``n_iter == max_iter``.
     Starting from the returned point, one additional one-step IRLS probe tells
     those states apart.  The probe is diagnostic only: its coefficient is not
-    accepted and is not included in the public iteration count.
+    accepted and is not included in the public iteration count.  Its norm stays
+    on the active backend; only the final scalar is synchronized.
     """
     probe, _ = loss.irls(
         X_work,
@@ -156,10 +158,8 @@ def _flat_irls_boundary_converged(
         sample_weight=sample_weight,
         fit_intercept=fit_intercept,
     )
-    delta = np.linalg.norm(
-        np.asarray(_to_numpy(probe), dtype=np.float64).reshape(-1)
-        - np.asarray(_to_numpy(params), dtype=np.float64).reshape(-1)
-    )
+    delta_dev = xp.linalg.norm(probe - params)
+    delta = float(_to_numpy(delta_dev))
     return bool(np.isfinite(delta) and delta < float(tol))
 
 
@@ -279,6 +279,7 @@ def quantile_group_proximal_irls_lla_solver(
                         tol=flat_tol,
                         sample_weight=sw,
                         fit_intercept=fit_intercept,
+                        xp=xp,
                     )
                     flat_irls_exhausted = not boundary_converged
                 else:
