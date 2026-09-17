@@ -71,13 +71,14 @@ def _use_auto_group_lla(owner, solver_name) -> bool:
 
 
 def _install_cv_auto_context() -> None:
-    """Mark only auto-routed Quantile group CV child/refit fits as LLA-owned."""
+    """Own auto Quantile Group CV routing and candidate eligibility."""
     CV = _quantile_contract.PenalizedGLM_CV
     if getattr(CV, _CV_MARKER, False):
         return
 
     current_fold = CV._cv_fold_general
     current_refit = CV._refit_best
+    current_scores = CV._compute_cv_scores
 
     def _is_auto_quantile_group_cv(owner) -> bool:
         penalty_name = str(
@@ -113,8 +114,27 @@ def _install_cv_auto_context() -> None:
         finally:
             _AUTO_CV_GROUP_LLA.reset(token)
 
+    @wraps(current_scores)
+    def _scores_with_complete_quantile_group_candidates(self, *args, **kwargs):
+        scores = current_scores(self, *args, **kwargs)
+        if not _is_auto_quantile_group_cv(self):
+            return scores
+        strict = kwargs.get("strict", args[8] if len(args) > 8 else True)
+        if not bool(strict):
+            return scores
+        values = np.asarray(scores, dtype=np.float64)
+        if values.ndim != 2 or values.shape[0] == 0:
+            return scores
+        incomplete = ~np.all(np.isfinite(values), axis=0)
+        if not np.any(incomplete):
+            return scores
+        values = np.array(values, copy=True)
+        values[:, incomplete] = np.nan
+        return values
+
     CV._cv_fold_general = _cv_fold_with_quantile_group_auto_context
     CV._refit_best = _refit_with_quantile_group_auto_context
+    CV._compute_cv_scores = _scores_with_complete_quantile_group_candidates
     setattr(CV, _CV_MARKER, True)
 
 
