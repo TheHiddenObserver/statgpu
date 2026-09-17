@@ -127,6 +127,42 @@ def _all_zero(values) -> bool:
     return bool(array.size and np.all(array == 0.0))
 
 
+def _flat_irls_boundary_converged(
+    loss,
+    X_work,
+    y_dev,
+    params,
+    *,
+    tol,
+    sample_weight,
+    fit_intercept,
+) -> bool:
+    """Disambiguate ``n_iter == max_iter`` without accepting an extra iterate.
+
+    ``QuantileLoss.irls`` returns only ``(coef, n_iter)``.  A solve that first
+    satisfies its parameter-change criterion on the last allowed iteration and
+    a genuinely exhausted solve therefore both report ``n_iter == max_iter``.
+    Starting from the returned point, one additional one-step IRLS probe tells
+    those states apart.  The probe is diagnostic only: its coefficient is not
+    accepted and is not included in the public iteration count.
+    """
+    probe, _ = loss.irls(
+        X_work,
+        y_dev,
+        penalty=None,
+        max_iter=1,
+        tol=float(tol),
+        init_coef=params,
+        sample_weight=sample_weight,
+        fit_intercept=fit_intercept,
+    )
+    delta = np.linalg.norm(
+        np.asarray(_to_numpy(probe), dtype=np.float64).reshape(-1)
+        - np.asarray(_to_numpy(params), dtype=np.float64).reshape(-1)
+    )
+    return bool(np.isfinite(delta) and delta < float(tol))
+
+
 def quantile_group_proximal_irls_lla_solver(
     loss,
     penalty,
@@ -199,6 +235,7 @@ def quantile_group_proximal_irls_lla_solver(
         pen_step.alpha = float(cont_alpha)
         irls_limit = max_iter[cont_i] if isinstance(max_iter, (list, tuple)) else max_iter
         irls_limit = max(1, int(irls_limit))
+        flat_tol = min(float(tol), 1e-8)
         admm_limit = max(500, min(2000, 2 * irls_limit))
         admm_tol = max(float(tol), 1e-7)
         is_final_continuation = cont_i == n_continuation - 1
@@ -218,41 +255,42 @@ def quantile_group_proximal_irls_lla_solver(
             before_lla = _copy_arr(params)
 
             if _all_zero(lla_feature_np):
-                # Once every group derivative is flat, the exact LLA target is
-                # ordinary weighted Quantile regression.  Use the canonical
-                # unpenalized initialization rather than retaining a path-
-                # dependent penalized iterate.
                 params, used_iter = loss.irls(
                     X_work,
                     y_dev,
                     penalty=None,
                     max_iter=irls_limit,
-                    tol=min(float(tol), 1e-8),
+                    tol=flat_tol,
                     init_coef=None,
                     sample_weight=sw,
                     fit_intercept=fit_intercept,
                 )
                 total_iter += int(used_iter)
-                # This flag describes the currently accepted final-state route,
-                # not historical work within the same LLA step.  If the flat
-                # solve leaves the flat region and a later active surrogate
-                # converges, that later state owns the final convergence verdict.
-                flat_irls_exhausted = (
+
+                at_budget_boundary = (
                     is_final_continuation and int(used_iter) >= irls_limit
                 )
+                if at_budget_boundary:
+                    boundary_converged = _flat_irls_boundary_converged(
+                        loss,
+                        X_work,
+                        y_dev,
+                        params,
+                        tol=flat_tol,
+                        sample_weight=sw,
+                        fit_intercept=fit_intercept,
+                    )
+                    flat_irls_exhausted = not boundary_converged
+                else:
+                    flat_irls_exhausted = False
 
-                # If the unpenalized Quantile solution still lies in the flat
-                # SCAD/MCP region, the next LLA surrogate is identical.  That
-                # is an outer fixed point even when the parameter move from the
-                # previous penalized iterate is large.
                 refreshed = pen_step.lla_weights(params[:n_features])
                 if _all_zero(_to_numpy(refreshed)):
                     lla_converged = True
                     break
             else:
-                # An active surrogate supersedes any earlier exhausted flat
-                # solve in this continuation step.  Its own LLA convergence
-                # status determines whether the final candidate is acceptable.
+                # A later active surrogate owns the current target state, so a
+                # previously exhausted flat solve cannot poison its verdict.
                 flat_irls_exhausted = False
                 factory_values = (
                     np.concatenate([lla_feature_np, np.zeros(1, dtype=np.float64)])
@@ -261,9 +299,6 @@ def quantile_group_proximal_irls_lla_solver(
                 )
                 inner_penalty = factory(factory_values)
 
-                # The IRLS/MM subloop may be inexact; each of its convex WLS
-                # problems must nevertheless be solved to the declared ADMM
-                # tolerance.  A nonconverged inner ADMM solve is never accepted.
                 for _irls_iter in range(irls_limit):
                     params_old = _copy_arr(params)
                     obs_weight = _quantile_irls_weights(
