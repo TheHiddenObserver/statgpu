@@ -115,7 +115,7 @@ def test_explicit_fista_bb_l2_quantile_fails_before_backend_fit(monkeypatch):
         raise AssertionError("backend fit must not run for rejected explicit solver")
 
     monkeypatch.setattr(model, "_fit_cpu", forbidden)
-    with pytest.raises(ValueError, match="not a maintained L2/no-penalty Quantile route"):
+    with pytest.raises(ValueError, match="not supported for L2/no-penalty Quantile objectives"):
         model.fit(X, y)
 
 
