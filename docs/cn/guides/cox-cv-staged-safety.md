@@ -11,63 +11,46 @@
 
 ## 当前用户可见行为
 
-请求任一控制项时，statgpu **不会**删除、近似处理或跳过任何 penalty candidate。它会发出 `RuntimeWarning`，并按普通 solver 精度评估完整 penalty grid。
+无论这两个环境变量是否设置，当前 `CoxPHCV` 都会对**完整惩罚参数网格**执行全精度交叉验证，再选择惩罚强度并进行最终重拟合。
 
-用户可观察到的选择流程仍然是：
+换句话说，开启这些实验控制目前**不会减少实际评估的候选惩罚参数数量**。它们只保留公开拼写和诊断信息，以便用户能够明确知道自己请求了实验性筛选模式，但当前计算仍采用完整评估。
 
-```text
-完整 penalty grid
-    -> 评估每个 candidate
-    -> 从完整 candidate set 中选择
-    -> 在全部数据上 refit 所选 penalty
-```
+这种行为保证：
 
-这一行为在受支持的 NumPy、CuPy 与 Torch 执行路径上相同。
+- 候选惩罚参数集合不会因为实验开关而改变；
+- 各数据折的评分仍基于完整精度拟合；
+- 选出的惩罚强度与最终重拟合遵循普通 `CoxPHCV` 的统计语义；
+- 实验控制不会静默改变当前的参数选择结果。
 
-如果应用真正需要 staged screening 或 successive halving，目前不能把这两个环境变量解释为已经提供相应算法。
+## 诊断信息
 
-## 诊断字段
+拟合完成后，相关诊断字段会记录调用者是否请求了实验控制，以及本次运行实际采用了什么选择方式。具体字段名称属于公开结果属性时，应以 `CoxPHCV` API 为准。
 
-请求实验性控制后，`cv_results_` 会通过以下字段说明实际发生的执行方式：
+重要的是区分：
 
-| 字段 | 含义 |
-|---|---|
-| `two_stage_requested` | 是否请求 two-stage control |
-| `two_stage_enabled` | 当前 exhaustive 行为下为 `False` |
-| `successive_halving_requested` | 是否请求 successive halving |
-| `successive_halving_enabled` | 当前 exhaustive 行为下为 `False` |
-| `staged_execution_mode` | `"exhaustive_safety_fallback"` |
-| `staged_safety_strategy` | `"single_pass_exhaustive"` |
-| `staged_fallback_reason` | 未使用 staged screening 的用户可见原因 |
-| `fast_pass_candidate_mask` | 全部为 `False` |
-| `full_precision_candidate_mask` | 全部为 `True` |
-| `screened_out_candidate_mask` | 全部为 `False` |
+- **请求状态**：用户是否设置了实验性环境变量；
+- **实际行为**：当前仍然完整评估全部候选项；
+- **选择结果**：最终选出的惩罚强度来自完整 CV 证据，而不是近似筛选结果。
 
-字段名称保留现有 API spelling，即使当前实际计算采用 exhaustive evaluation。
+因此，不应把“实验开关已设置”解释成“两阶段筛选或 successive halving 已经实际启用”。
 
-## 示例
+## 为什么保留这些控制项
 
-```python
-import os
-from statgpu.survival import CoxPHCV
+这些环境变量用于保留实验接口和可诊断性，让后续实现可以在不改变公开拼写的情况下继续研究更快的候选筛选方式。
 
-os.environ["STATGPU_COXPHCV_TWO_STAGE"] = "1"
-os.environ["STATGPU_COXPHCV_SUCCESSIVE_HALVING"] = "1"
+如果未来重新启用分阶段筛选，用户可依赖的核心统计语义仍应明确说明，包括：
 
-model = CoxPHCV(
-    penalties=[0.8, 0.4, 0.2, 0.12, 0.1, 0.06, 0.04, 0.02],
-    cv=3,
-    device="cuda",
-    compute_inference=False,
-).fit(X, time, event)
+- 哪些候选项会进入高精度阶段；
+- 各数据折如何分配计算预算；
+- 近似筛选是否可能改变最终候选集合；
+- 最终重拟合是否仍在全部数据上使用选定配置。
 
-assert model.cv_results_["staged_execution_mode"] == "exhaustive_safety_fallback"
-assert model.cv_results_["full_precision_candidate_mask"].all()
-assert not model.cv_results_["screened_out_candidate_mask"].any()
-```
+这些行为如果发生变化，应在用户文档中直接描述实际可观察行为，而不是通过内部验证状态来表达。
 
-## 实际使用建议
+## 使用建议
 
-普通 Cox penalty selection 应直接依赖上面描述的 exhaustive candidate-selection 行为。如果程序必须知道是否真正执行了 screening，应检查 enabled/diagnostic 字段，而不是根据环境变量是否设置来推断。
+如果你只需要标准的 Cox 惩罚参数选择，不需要设置这些实验环境变量；默认行为已经完整评估候选网格。
 
-fold、final refit 与 Cox-specific 统计限制见 [Cox 比例风险模型](../models/coxph.md)和 [交叉验证](cross-validation.md)。
+如果你正在测试实验性控制，可以设置相应环境变量，并通过公开诊断属性确认“请求了什么”和“实际执行了什么”。当前应预期完整候选评估，而不是计算量减少。
+
+一般的 CV 数据折、选择和最终重拟合语义见 [交叉验证](cross-validation.md)；Cox 专属的数据结构、风险集与评分语义见 [Cox 比例风险模型](../models/coxph.md)。
