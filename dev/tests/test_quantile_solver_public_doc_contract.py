@@ -108,6 +108,33 @@ def test_repository_documentation_language_policy_is_canonicalized():
     assert "User-facing docs describe observable support/behavior" in contributing
 
 
+def test_loss_reference_keeps_quantile_content_at_loss_layer():
+    en = (_ROOT / "docs/en/models/losses.md").read_text(encoding="utf-8")
+    cn = (_ROOT / "docs/cn/models/losses.md").read_text(encoding="utf-8")
+
+    # The loss reference should retain the mathematical/numerical properties
+    # of QuantileLoss, while estimator routing belongs on quantile.md and the
+    # shared solver references.
+    assert "QuantileLoss" in en
+    assert "non-smooth step-function subgradient and no Hessian" in en
+    assert "[Quantile Regression](quantile.md)" in en
+    assert "`QuantileLoss`" in cn
+    assert "次梯度为阶梯函数，并且没有 Hessian" in cn
+    assert "[分位数回归](quantile.md)" in cn
+
+    estimator_solver_terms = (
+        "PenalizedQuantileRegression",
+        'solver="auto"',
+        "FISTA-BB",
+        "Proximal IRLS-CD",
+        "L-BFGS",
+        "ADMM",
+    )
+    for term in estimator_solver_terms:
+        assert term not in en
+        assert term not in cn
+
+
 def test_solver_algorithm_pages_preserve_explicit_quantile_fista_contract():
     en = (_ROOT / "docs/en/guides/solver-algorithms.md").read_text(encoding="utf-8")
     cn = (_ROOT / "docs/cn/guides/solver-algorithms.md").read_text(encoding="utf-8")
