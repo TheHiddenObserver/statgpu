@@ -116,7 +116,7 @@ def test_quantile_group_nonconvex_auto_uses_group_fista_lla(monkeypatch, kind):
         return np.zeros(X_fit.shape[1], dtype=np.float64), 0.0, 1
 
     def forbidden_fista(*args, **kwargs):
-        raise AssertionError("Quantile Group SCAD/MCP must use Group FISTA-LLA")
+        raise AssertionError("Quantile Group SCAD/MCP auto must use Group FISTA-LLA")
 
     monkeypatch.setattr(solvers, "fista_lla_path", fake_lla)
     monkeypatch.setattr(solvers, "fista_solver", forbidden_fista)
@@ -146,6 +146,43 @@ def test_quantile_group_nonconvex_auto_uses_group_fista_lla(monkeypatch, kind):
         rtol=0.0,
         atol=1e-15,
     )
+
+
+@pytest.mark.parametrize("kind", ["group_scad", "group_mcp"])
+def test_quantile_group_nonconvex_explicit_fista_stays_explicit(monkeypatch, kind):
+    """An explicit solver request must not be silently converted into LLA."""
+    X, y, weights = _data(seed=166307)
+    import statgpu.solvers as solvers
+
+    seen = {"fista": 0}
+
+    def forbidden_lla(*args, **kwargs):
+        raise AssertionError("explicit Quantile group FISTA must not enter LLA")
+
+    def fake_fista(loss, penalty, X_fit, y_fit, **kwargs):
+        seen["fista"] += 1
+        assert getattr(loss, "name", None) == "quantile"
+        assert getattr(penalty, "name", None) == kind
+        return np.zeros(X_fit.shape[1], dtype=np.float64), 1
+
+    monkeypatch.setattr(solvers, "fista_lla_path", forbidden_lla)
+    monkeypatch.setattr(solvers, "fista_solver", fake_fista)
+
+    model = PenalizedGeneralizedLinearModel(
+        loss="quantile",
+        loss_kwargs={"quantile": Q},
+        penalty=kind,
+        penalty_kwargs=_penalty_kwargs(kind),
+        alpha=0.04,
+        solver="fista",
+        device="cpu",
+        fit_intercept=False,
+        max_iter=20,
+        tol=1e-6,
+    ).fit(X, y, sample_weight=weights)
+
+    assert model._selected_solver == "fista"
+    assert seen["fista"] == 1
 
 
 @pytest.mark.parametrize("kind", ["group_scad", "group_mcp"])
@@ -217,6 +254,46 @@ def test_quantile_group_scad_cv_uses_fold_local_weights_and_group_lla(monkeypatc
         observed.shape == weights.shape and np.array_equal(observed, weights)
         for observed in seen_weights
     )
+
+
+def test_quantile_group_scad_explicit_fista_cv_stays_explicit(monkeypatch):
+    """Explicit-FISTA CV children and final refit must not be auto-upgraded to LLA."""
+    X, y, weights = _data(seed=166308, n=18)
+    idx = np.arange(X.shape[0])
+    folds = [(idx[9:], idx[:9]), (idx[:9], idx[9:])]
+    import statgpu.solvers as solvers
+
+    seen = {"fista": 0}
+
+    def forbidden_lla(*args, **kwargs):
+        raise AssertionError("explicit Quantile group FISTA CV must not enter LLA")
+
+    def fake_fista(loss, penalty, X_fit, y_fit, **kwargs):
+        seen["fista"] += 1
+        return np.zeros(X_fit.shape[1], dtype=np.float64), 1
+
+    monkeypatch.setattr(solvers, "fista_lla_path", forbidden_lla)
+    monkeypatch.setattr(solvers, "fista_solver", fake_fista)
+
+    cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": Q},
+        penalty="group_scad",
+        penalty_kwargs={"groups": GROUPS, "a": 3.7},
+        alpha_grid=np.asarray([0.04], dtype=np.float64),
+        cv=2,
+        cv_splits=folds,
+        random_state=166,
+        solver="fista",
+        device="cpu",
+        fit_intercept=False,
+        max_iter=30,
+        tol=1e-6,
+    ).fit(X, y, sample_weight=weights)
+
+    assert cv.alpha_ == pytest.approx(0.04)
+    assert cv.estimator_._selected_solver == "fista"
+    assert seen["fista"] >= 3  # two folds plus the selected full-data refit
 
 
 def test_quantile_group_scad_actual_cpu_cv_runs_full_lla():
