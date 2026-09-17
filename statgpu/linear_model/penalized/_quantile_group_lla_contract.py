@@ -71,11 +71,26 @@ def _install_quantile_group_lla_route() -> None:
         y_arr = _xp_asarray(y, xp.float64, X_arr)
         p = int(X_arr.shape[1])
 
-        # Build only target/length metadata here. The weighted resolver computes
-        # the actual lambda-style start from backend-native X/y/weights.
-        alpha_path, max_lla_per_step, mi_path = (
-            _continuation_contract._quantile_path_metadata(self)
+        # Unweighted/equal-weight intercept fits keep the historical Quantile
+        # continuation path exactly. Non-uniform weights or a fixed zero
+        # intercept are objective-dependent cases that the backend-native
+        # resolver recomputes anyway, so they can skip the legacy full-host
+        # path calculation and carry only target/length metadata into it.
+        needs_objective_resolve = (
+            not self._effective_intercept
+            or _continuation_contract._is_nonuniform_weight(sample_weight)
         )
+        if needs_objective_resolve:
+            alpha_path, max_lla_per_step, mi_path = (
+                _continuation_contract._quantile_path_metadata(self)
+            )
+        else:
+            alpha_path, max_lla_per_step, mi_path = self._compute_lla_path(
+                X_arr,
+                y_arr,
+                p,
+                "quantile",
+            )
         alpha_path = resolve_auto_quantile_continuation_path(
             self._loss,
             X_arr,
