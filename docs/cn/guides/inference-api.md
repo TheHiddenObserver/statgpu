@@ -1,218 +1,118 @@
 # 推断 API 参考
 
-> **模块:** `statgpu.inference`  
-> **最后更新:** 2026-06-14  
-> **后端:** NumPy, CuPy, PyTorch
+> 语言：中文  
+> 最后更新：2026-09-17  
+> 模块：`statgpu.inference`  
+> 切换：[English](../../en/guides/inference-api.md)
 
-`statgpu.inference` 模块提供统计推断工具：分布函数、多重检验、排列检验和自助法。
+`statgpu.inference` 汇总可复用的统计工具，包括概率分布、多重检验、p 值合并、排列检验与 bootstrap。
+
+本页只作为**模块入口**。分布函数的详细行为统一放在 [分布 API](distribution-api.md)；模型 coefficient inference 的方法选择统一放在 [推断模式](inference-modes.md)。
 
 ## 快速参考
 
 ```python
-from statgpu.inference import norm, poisson, t, adjust_pvalues, combine_pvalues, permutation_test
+from statgpu.inference import (
+    norm,
+    t,
+    adjust_pvalues,
+    combine_pvalues,
+    permutation_test,
+    bootstrap_statistic,
+)
 ```
 
-| 函数/类 | 说明 |
-|---|---|
-| `norm`, `t`, `chi2`, `f`, `beta`, `gamma`, `poisson`, `binom`, `uniform`, `expon`, `cauchy`, `laplace`, `logistic`, `lognorm`, `weibull_min` | 分布对象（与 scipy 兼容的 API） |
-| `get_distribution(name, backend=...)` | 动态分布查找 |
-| `adjust_pvalues(pvals, method=...)` | 多重检验校正 |
-| `combine_pvalues(pvals, method=...)` | 全局 p 值合并 |
-| `permutation_test(statistic, X, y, ...)` | 基于排列的假设检验 |
-| `bootstrap_statistic(statistic, arrays, ...)` | 通用自助法引擎 |
-| `multipletests(...)` | `adjust_pvalues` 的别名（科学命名） |
-
----
+| API | 用途 | 详细文档 |
+|---|---|---|
+| `norm`、`t`、`chi2`、`poisson` 等 distribution object | CDF/SF/PPF/PDF/PMF/随机采样 | [分布 API](distribution-api.md) |
+| `get_distribution(...)` | 动态选择 distribution/backend | [分布 API](distribution-api.md) |
+| `adjust_pvalues(...)` | 多重检验校正 | [多重检验](multiple-testing-combine-pvalues.md) |
+| `combine_pvalues(...)` | 合并多个 p 值中的证据 | [多重检验](multiple-testing-combine-pvalues.md) |
+| `permutation_test(...)` | permutation-based hypothesis test | 本页 |
+| `bootstrap_statistic(...)` | 对用户给定 statistic 做通用 bootstrap | 本页 |
 
 ## 分布函数
 
-### 直接导入（默认 NumPy）
+Distribution object 提供与 scipy 风格接近的 `cdf`、`sf`、`ppf`、`isf`、`pdf`/`pmf` 与 `rvs` 方法。
 
 ```python
-from statgpu.inference import norm, poisson, t
+from statgpu.inference import norm, t
 
-# 生成随机样本
-X = norm.rvs(size=1000)
-
-# CDF、生存函数、PPF
-p = norm.cdf(1.96)           # 0.975
-s = norm.sf(1.96)            # 0.025
-q = norm.ppf(0.975)          # 1.96
-
-# 带参数的 Poisson
-y = poisson.rvs(mu=3.0, size=1000)
-
-# 带自由度的 t 分布
-p = t.cdf(2.0, df=10)
+p = norm.cdf(1.96)
+q = t.ppf(0.975, df=10)
 ```
 
-### GPU 后端
+backend 选择、可用 distribution、inverse-function 精度、R-style compatibility alias 与 legacy name 都统一见 [分布 API](distribution-api.md)，本页不再复制一套。
+
+## 多重检验与 p 值合并
 
 ```python
-from statgpu.inference import norm
-
-# Torch 后端
-X_torch = norm.rvs(size=1000, backend="torch")    # CUDA 上的 torch tensor
-p = norm.cdf(x_torch, backend="torch")
-
-# CuPy 后端
-X_cupy = norm.rvs(size=1000, backend="cupy")      # GPU 上的 CuPy array
-
-# 从输入类型自动检测后端
-import torch
-x = torch.tensor([0.0, 1.96]).cuda()
-p = norm.cdf(x)  # 自动使用 torch 后端
-```
-
-### 可用分布
-
-| 分布 | 参数 | 方法 |
-|---|---|---|
-| `norm` | — | rvs, cdf, sf, ppf, isf, pdf |
-| `t` | `df` | rvs, cdf, sf, ppf, isf, pdf |
-| `chi2` | `df` | rvs, cdf, sf, ppf, isf, pdf |
-| `f` | `dfn, dfd` | rvs, cdf, sf, ppf, isf, pdf |
-| `beta` | `a, b` | rvs, cdf, sf, ppf, isf, pdf |
-| `gamma` | `a` | rvs, cdf, sf, ppf, isf, pdf |
-| `uniform` | — | rvs, cdf, sf, ppf, isf, pdf |
-| `expon` | — | rvs, cdf, sf, ppf, isf, pdf |
-| `cauchy` | — | rvs, cdf, sf, ppf, isf, pdf |
-| `laplace` | — | rvs, cdf, sf, ppf, isf, pdf |
-| `logistic` | — | rvs, cdf, sf, ppf, isf, pdf |
-| `lognorm` | `s` | rvs, cdf, sf, ppf, isf, pdf |
-| `weibull_min` | `c` | rvs, cdf, sf, ppf, isf, pdf |
-| `poisson` | `mu` | rvs, cdf, sf, ppf, pmf |
-| `binom` | `n, p` | rvs, cdf, sf, ppf, pmf |
-
-### 动态查找
-
-```python
-from statgpu.inference import get_distribution
-
-# 按名称查找
-norm = get_distribution("norm", backend="torch")
-pois = get_distribution("poisson", backend="cupy")
-
-# 列出可用分布
-from statgpu.inference import list_available_distributions
-print(list_available_distributions())
-```
-
----
-
-## 多重检验
-
-### adjust_pvalues（p 值校正）
-
-```python
-from statgpu.inference import adjust_pvalues
 import numpy as np
+from statgpu.inference import adjust_pvalues, combine_pvalues
 
 pvals = np.array([0.001, 0.01, 0.03, 0.05, 0.5])
 
-# Benjamini-Hochberg（FDR 控制）
-reject, pvals_adj = adjust_pvalues(pvals, method='bh')
-
-# 其他方法：'bonferroni', 'holm', 'hochberg', 'by'（Benjamini-Yekutieli）
-reject, pvals_adj = adjust_pvalues(pvals, method='bonferroni')
+reject, pvals_bh = adjust_pvalues(pvals, method="bh")
+stat, p_global = combine_pvalues(pvals, method="fisher")
 ```
 
-### combine_pvalues（全局 p 值）
-
-```python
-from statgpu.inference import combine_pvalues
-
-pvals = np.array([0.01, 0.04, 0.03, 0.40])
-
-# Fisher 方法
-stat, p_global = combine_pvalues(pvals, method='fisher')
-
-# Cauchy 合并检验（ACAT）
-stat, p_global = combine_pvalues(pvals, method='cauchy')
-
-# Stouffer 方法
-stat, p_global = combine_pvalues(pvals, method='stouffer')
-```
-
----
+可用的 adjustment/combination method 及其统计解释见 [多重检验](multiple-testing-combine-pvalues.md)。
 
 ## 排列检验
 
+`permutation_test` 根据 API 定义对输入数据重复排列，并重新计算用户提供的 statistic，从而构造 permutation reference distribution。
+
 ```python
-from statgpu.inference import permutation_test
 import numpy as np
+from statgpu.inference import permutation_test
 
 rng = np.random.default_rng(42)
 X = rng.standard_normal((100, 5))
 y = X @ np.ones(5) + rng.standard_normal(100)
 
-# 检验 X[:,0] 和 y 的相关性
 result = permutation_test(
     lambda X_, y_: np.corrcoef(X_[:, 0], y_)[0, 1],
-    X, y,
+    X,
+    y,
     n_resamples=999,
     random_state=42,
 )
-print(f"p 值: {result.pvalue:.4f}")
+
+print(result.pvalue)
 ```
 
----
+statistic 与 permutation scheme 应与应用中的 null hypothesis 相匹配；通用 permutation engine 无法替用户判断具体数据是否满足 exchangeability 假设。
 
-## 自助法
+## 通用 bootstrap
+
+`bootstrap_statistic` 对调用者提供的 statistic 执行 bootstrap。
 
 ```python
-from statgpu.inference import bootstrap_statistic
 import numpy as np
+from statgpu.inference import bootstrap_statistic
 
 rng = np.random.default_rng(42)
 data = rng.standard_normal(1000)
 
-# 自助法均值
 result = bootstrap_statistic(
-    np.mean, (data,),
+    np.mean,
+    (data,),
     n_resamples=9999,
     random_state=42,
 )
-print(f"均值: {result.statistic:.4f}")
-print(f"95% CI: [{result.confidence_interval.low:.4f}, {result.confidence_interval.high:.4f}]")
+
+print(result.statistic)
+print(result.confidence_interval)
 ```
 
----
+这个通用工具与 estimator-specific inference mode（例如 penalized Gaussian residual bootstrap）不是同一件事。若目标是 fitted model 的 coefficient inference，应先看 [推断模式](inference-modes.md)，不要假定 generic bootstrap 自动复现某个模型专属推断程序。
 
-## R 兼容性
+## 文档导航
 
-从 R 迁移的用户可以使用 R 兼容的函数名：
+可以按问题选择页面：
 
-```python
-from statgpu.inference import norm
-
-# R 风格：dnorm, pnorm, qnorm, rnorm
-from statgpu.inference import dnorm_gpu, pnorm_gpu, qnorm_gpu, rnorm_gpu
-
-# 这些是 R 的 dnorm/pnorm/qnorm/rnorm 的 GPU 加速等价物
-```
-
----
-
-## 常见问题
-
-**Q: 什么时候用 `get_distribution()` vs 直接导入？**  
-A: numpy 后端用直接导入（`from statgpu.inference import norm`）。需要控制后端时用 `get_distribution("norm", backend="torch")`。
-
-**Q: 可以用 statgpu 分布替代 scipy 吗？**  
-A: 可以。API 与 scipy 兼容：`rvs`, `cdf`, `sf`, `ppf`, `isf`, `pdf`/`pmf` 签名相同。将 `scipy.stats.norm` 替换为 `statgpu.inference.norm` 即可。
-
-**Q: 如何使用 GPU 加速的分布？**  
-A: 给任何分布方法传 `backend="torch"` 或 `backend="cupy"`：`norm.rvs(size=1000, backend="torch")`。
-
-**Q: `sf` 和 `1 - cdf` 有什么区别？**  
-A: `sf(x)` 是生存函数（1 - CDF）。当 CDF 接近 1 时，`sf` 数值更稳定。
-
----
-
-## 参考文献
-
-- **scipy.stats**: [https://docs.scipy.org/doc/scipy/reference/stats.html](https://docs.scipy.org/doc/scipy/reference/stats.html)
-- **R 分布**: [https://stat.ethz.ch/R-manual/R-patched/library/stats/html/Distributions.html](https://stat.ethz.ch/R-manual/R-patched/library/stats/html/Distributions.html)
-- **多重检验**: Benjamini & Hochberg (1995), "Controlling the False Discovery Rate"
-- **Cauchy 合并**: Liu & Xie (2020), "Cauchy Combination Test"
+- **如何在 NumPy/CuPy/Torch 上计算概率分布？** → [分布 API](distribution-api.md)
+- **如何校正或合并多个 p 值？** → [多重检验](multiple-testing-combine-pvalues.md)
+- **如何运行通用 permutation/bootstrap？** → 本页
+- **回归 estimator 应该选哪种 inference method？** → [推断模式](inference-modes.md)
+- **penalized-GLM coefficient inference 的统计 target 是什么？** → [Penalized GLM 推断](penalized-glm-inference.md)
