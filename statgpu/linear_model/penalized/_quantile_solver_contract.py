@@ -104,7 +104,7 @@ def _validate_quantile_solver_request(
         raise ValueError(
             f"solver='{resolved_solver}' requires Hessian-compatible smooth "
             "structure, but quantile loss has no Hessian. Use solver='auto', "
-            "'irls', or a maintained sparse solver as appropriate."
+            "'irls', or a supported sparse solver as appropriate."
         )
 
     if (
@@ -112,8 +112,8 @@ def _validate_quantile_solver_request(
         and resolved_penalty in _SMOOTH_PENALTIES
     ):
         raise ValueError(
-            f"solver='{resolved_solver}' is not a maintained L2/no-penalty "
-            "Quantile route; use solver='irls' or solver='auto'."
+            f"solver='{resolved_solver}' is not supported for L2/no-penalty "
+            "Quantile objectives; use solver='irls' or solver='auto'."
         )
 
 
