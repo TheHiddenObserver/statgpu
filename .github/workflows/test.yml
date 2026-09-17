@@ -187,6 +187,7 @@ jobs:
             dev/tests/test_issue161_quantile_irls_contract.py \
             dev/tests/test_issue163_quantile_torch_device_binding.py \
             dev/tests/test_quantile_continuation_backend_contract.py \
+            dev/tests/test_quantile_smooth_fista_contract.py \
             -q --tb=short
 
   panel-stage-b-linearmodels:
@@ -253,6 +254,7 @@ jobs:
             statgpu/linear_model/penalized/_penalized_cv.py \
             statgpu/linear_model/penalized/_penalized_linear.py \
             statgpu/linear_model/penalized/_quantile_continuation_contract.py \
+            statgpu/linear_model/penalized/_quantile_smooth_fista_contract.py \
             statgpu/linear_model/wrappers/_linear.py \
             statgpu/linear_model/wrappers/_ridge.py \
             statgpu/losses/_cox_ph.py \
