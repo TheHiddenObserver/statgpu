@@ -98,8 +98,38 @@ A statement can be factually correct and still be a documentation defect if it i
 
 EN/CN pages do not need word-for-word translation, but their capability claims and documentation layer must match. Internal review terminology should not be translated literally into the other language and then exposed to users.
 
+### Chinese prose consistency
+
+Chinese user-facing pages should read as natural Chinese technical documentation, not as English notes with Chinese connective words.
+
+Keep English when it is the actual identifier or the established technical name readers need to map back to code, for example:
+
+- public class, function, attribute, parameter, and enum/value names such as `LassoCV`, `sample_weight`, `cv_solver`, and `solver="auto"`;
+- mathematical or algorithm names that are normally written as acronyms or proper names, such as Lasso, SCAD, MCP, FISTA, IRLS, ADMM, HAC, NumPy, CuPy, and Torch;
+- a short English term in parentheses on first use when it materially helps map a Chinese concept to the literature.
+
+Translate ordinary explanatory prose when there is a clear Chinese expression. Prefer, for example:
+
+- `估计器` rather than prose-level `estimator`;
+- `后端` rather than prose-level `backend`;
+- `候选项` / `候选集合` rather than prose-level `candidate`;
+- `调参网格` rather than prose-level `tuning grid`;
+- `选择阶段` and `最终重拟合` rather than `selection` and `final refit`;
+- `热启动` rather than prose-level `warm start`;
+- `批处理` rather than prose-level `batching`;
+- `缓存` rather than prose-level `cache`;
+- `推断目标` rather than prose-level `inference target`;
+- `已拟合状态` rather than prose-level `fitted state`;
+- `模型专属` rather than prose-level `model-specific`.
+
+Avoid embedding multi-word English noun phrases in an otherwise Chinese sentence when those words are not literal API identifiers. A sentence such as `selection cache 可以复用 selection evidence` should normally be written as `选择缓存可以复用已经计算的选择结果`.
+
+Do not pursue artificial “zero English.” Terms that must match the API or established statistical literature should remain recognizable. The goal is **Chinese syntax and Chinese explanatory vocabulary around stable technical identifiers**.
+
 ## Review and regression protection
 
 Documentation review should treat this boundary as part of correctness, not only style. When a PR changes user-facing support claims, reviewers should check both wording and placement.
 
-Focused documentation-contract tests may prohibit known internal-status phrases on pages affected by a change. Broader enforcement should be expanded deliberately as older documentation is cleaned up, rather than breaking unrelated pages solely to impose a repository-wide word ban in one step.
+Focused documentation-contract tests may prohibit known internal-status phrases or known prose-level English fragments on pages affected by a change. Such tests should be targeted: they must not reject legitimate API identifiers, code blocks, formulas, or standard algorithm acronyms merely because they are English.
+
+Broader enforcement should be expanded deliberately as older documentation is cleaned up, rather than breaking unrelated pages solely to impose a repository-wide word ban in one step.
