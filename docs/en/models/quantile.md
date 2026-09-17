@@ -88,7 +88,9 @@ For L2/no-penalty Quantile objectives, `PenalizedQuantileRegression(..., solver=
 | SCAD / MCP | Proximal IRLS-CD | Specialized Quantile IRLS majorization + LLA |
 | adaptive_l1 | FISTA | Adaptive weights are prepared first, then the Quantile FISTA route is used |
 | group_lasso / adaptive group | Group FISTA | Group-aware proximal route |
-| group_scad / group_mcp | Group FISTA-LLA | Group LLA surrogate with a group-aware FISTA inner solve |
+| group_scad / group_mcp | Group FISTA-LLA | Group LLA; for Quantile, each convex group surrogate uses an IRLS quadratic majorization and Group FISTA on the resulting weighted least-squares problem |
+
+The table describes the automatic route. An explicit Group SCAD/MCP `solver="fista"` request remains an explicit proximal-FISTA request; it is not silently rewritten into the automatic Group FISTA-LLA route.
 
 ## `sample_weight` semantics
 
@@ -102,6 +104,7 @@ $$
 But `sample_weight` is **not one universal solver capability**. In particular:
 
 - Quantile IRLS / Proximal IRLS-CD have explicit weighted implementations;
+- the automatic Group FISTA-LLA route carries the same normalized analytic weights into its Quantile IRLS majorization before solving each convex group surrogate;
 - ordinary FISTA, including explicitly selected L2/no-penalty FISTA, uses the loss-layer normalized weighted objective where supported;
 - generic `LossBase` shared value/gradient primitives can evaluate the normalized weighted objective;
 - FISTA-BB and ADMM do not support Quantile because their generic algorithms rely on smooth-gradient structure that check loss does not provide;
@@ -212,6 +215,33 @@ This example uses an estimator path that supports analytic weights. It does not 
 ### Proximal IRLS-CD (SCAD/MCP)
 
 See [Solver Algorithms](../guides/solver-algorithms.md#1-proximal-irls-cd) for the full update equations. The method combines an IRLS quadratic majorization of the check loss with local linear approximation of SCAD/MCP.
+
+### Group FISTA-LLA (Group SCAD/MCP)
+
+For the automatic Group SCAD/MCP route, the outer LLA step converts the non-convex group penalty into a convex weighted Group-Lasso surrogate. If $D_g^{(k)}$ denotes the current derivative of the group penalty with respect to $\|\beta_g\|_2$, the Quantile-specific inner iteration first constructs the IRLS weights
+
+$$
+w_i^{(t)}
+=
+\widetilde s_i
+\frac{\tau+(1-2\tau)\mathbf 1\{r_i^{(t)}<0\}}
+{\max(|r_i^{(t)}|,\varepsilon)},
+\qquad
+\widetilde s_i=\frac{n s_i}{\sum_j s_j},
+$$
+
+where $s_i=1$ in the unweighted case. It then solves the convex weighted least-squares surrogate
+
+$$
+\min_\beta
+\frac{1}{2n}
+\sum_i w_i^{(t)}
+\left(y_i-x_i^\top\beta\right)^2
++
+\sum_g D_g^{(k)}\|\beta_g\|_2
+$$
+
+with Group FISTA. The intercept is included in the quadratic model but remains unpenalized. If all $D_g^{(k)}$ are zero, the current LLA surrogate is exactly unpenalized Quantile regression and the route closes through Quantile IRLS directly. Thus “Group FISTA-LLA” names the outer LLA plus convex Group-FISTA solver structure; it does not mean applying textbook smooth-loss FISTA directly to the non-smooth pinball loss.
 
 ### IRLS (L2/none)
 
