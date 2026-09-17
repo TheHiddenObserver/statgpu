@@ -7,30 +7,18 @@
 
 ## Overview
 
-`LossBase` is the common low-level interface between statgpu loss functions, penalties, and optimization solvers. Most users should start from a model class rather than instantiate a loss directly; this page is mainly useful when you need to understand solver compatibility or call a solver at the loss level.
+`LossBase` is the low-level interface used by statgpu loss functions to expose the data-fit term of an optimization problem. Most users should start from a model class; this page is for readers who need the loss definition itself, its numerical primitives, parameters, or direct loss-level API.
 
-Related model documentation:
+This page deliberately stops at the **loss layer**. Estimator solver selection, penalty-specific routing, CV behavior, inference, and model-level `sample_weight` support belong in the corresponding model and solver documentation.
 
-- [Quantile Regression](quantile.md) — check loss (also called pinball loss) and quantile-regression estimators
-- [Robust Regression](robust.md) — Huber, Bisquare, Fair losses and robust estimators
-- [CoxPH](coxph.md) — Cox partial likelihood, tie handling, counting-process data, and inference
-- [GeneralizedLinearModel](generalized-linear-model.md) — GLM objective and analytic-weight semantics
+Related documentation:
 
-Five non-GLM loss types extend the shared loss interface:
-
-| Loss | Class | Related R function | Typical use |
-|------|-------|--------------------|-------------|
-| Quantile | `QuantileLoss` | `quantreg::rq()` | Conditional quantiles, median regression |
-| Huber | `HuberLoss` | `MASS::rlm()` | Robust M-estimation |
-| Bisquare | `BisquareLoss` | `MASS::rlm(psi="bisquare")` | Redescending M-estimation |
-| Fair | `FairLoss` | custom psi/reference required; MASS has no built-in Fair psi | Robust Fair loss |
-| Cox PH | `CoxPartialLikelihoodLoss` | `survival::coxph()` | Survival analysis |
-
-A shared interface does **not** imply a shared statistical contract. A low-level method accepting `sample_weight` does not mean that the loss supports arbitrary non-uniform weights under every solver or model.
-
-This page lists the **loss layer only**. `QuantileRegression`, `PenalizedQuantileRegression`, `PenalizedRobustRegression`, `CoxPH`, and `PenalizedCoxPHModel` are estimators and belong in their model documentation rather than in the `statgpu.losses` public-path list.
-
-Panel estimators are also outside the `LossBase` hierarchy. They use the separate `BasePanelModel` estimator architecture for panel-data preparation, transformed OLS, covariance/inference, and fit lifecycle, so panel models should not be added to the loss hierarchy on this page.
+- [Quantile Regression](quantile.md) — quantile-regression estimators, solver choices, weighting, and inference
+- [Robust Regression](robust.md) — Huber, Bisquare, and Fair estimators
+- [CoxPH](coxph.md) — Cox models, tie handling, counting-process data, and inference
+- [GeneralizedLinearModel](generalized-linear-model.md) — GLM objectives and analytic-weight semantics
+- [Solver × Penalty Compatibility Matrix](../guides/solver-penalty-matrix.md) — supported solver combinations
+- [Solver Algorithms](../guides/solver-algorithms.md) — numerical algorithms and their assumptions
 
 ## Public paths
 
@@ -43,80 +31,76 @@ statgpu.losses.FairLoss
 statgpu.losses.CoxPartialLikelihoodLoss
 ```
 
-## Architecture
+## Loss hierarchy
 
 ```text
 LossBase (statgpu/losses/_base.py)
-├── GLMLoss (statgpu/glm_core/_base.py) — GLM-specific value/gradient/Hessian contract
+├── GLMLoss (statgpu/glm_core/_base.py)
 │   ├── SquaredErrorLoss, LogisticLoss, PoissonLoss, ...
-├── QuantileLoss — check / pinball loss, non-smooth
-├── HuberLoss — robust, smooth
-├── BisquareLoss — redescending robust loss
-├── FairLoss — robust Fair loss
-└── CoxPartialLikelihoodLoss — survival loss with Hessian support
+├── QuantileLoss
+├── HuberLoss
+├── BisquareLoss
+├── FairLoss
+└── CoxPartialLikelihoodLoss
 ```
 
-## Objective and weight semantics
+The hierarchy provides a common numerical interface; it does not make these losses members of one statistical model family.
 
-An unweighted loss/penalty problem has the form
+## Shared objective and weight semantics
 
-$$
-\min_{\beta} \frac{1}{n}\sum_{i=1}^n \ell_i(\beta) + P(\beta).
-$$
-
-The shared `LossBase.value()`, `gradient()`, and `fused_value_and_gradient()` primitives already accept `sample_weight`. On those shared first-order primitives, analytic weights use the normalized data-fit term
+For a per-observation loss \(\ell_i(\beta)\), the unweighted data-fit term is
 
 $$
-\frac{\sum_i w_i\ell_i(\beta)}{\sum_i w_i}.
+L(\beta)=\frac{1}{n}\sum_{i=1}^n \ell_i(\beta).
 $$
 
-This standardizes the **loss-layer first-order weight semantics only**. A complete weighted fitting route still depends on the concrete loss, solver, and estimator; algorithms that require Hessians, Fisher information, Lipschitz constants, smooth-gradient differences, or quasi-Newton curvature must define those quantities consistently with the same objective. For supported combinations, see the [Solver × Penalty Compatibility Matrix](../guides/solver-penalty-matrix.md) and [Solver Algorithms](../guides/solver-algorithms.md).
-
-### Quantile loss (check / pinball loss)
-
-**Check loss** and **pinball loss** are two names for the same quantile-regression loss; they are not two different objectives.
+When a `LossBase` implementation accepts analytic `sample_weight` through the shared first-order primitives, the normalized data-fit term is
 
 $$
-\ell(\eta, y) = \rho_\tau(y - \eta), \quad
-\rho_\tau(u) = u\left(\tau - \mathbf{1}\{u < 0\}\right).
+L_w(\beta)
+=\frac{\sum_i w_i\ell_i(\beta)}{\sum_i w_i}.
 $$
 
-Equivalently,
+`value()`, `gradient()`, and `fused_value_and_gradient()` expose these loss-level primitives. Some subclasses additionally provide Hessian or specialized primitives; others may reject a requested weighted operation. A solver or estimator is supported only when all numerical quantities required by that route are defined consistently. See the [Solver × Penalty Compatibility Matrix](../guides/solver-penalty-matrix.md) for route-level support.
+
+## Implemented non-GLM losses
+
+| Loss | Class | Response | Smooth gradient | Hessian | Typical use |
+|---|---|---|:---:|:---:|---|
+| Quantile | `QuantileLoss` | continuous | ❌ | ❌ | Conditional quantiles, median regression |
+| Huber | `HuberLoss` | continuous | ✅ | ✅ | Robust M-estimation |
+| Bisquare | `BisquareLoss` | continuous | ✅ | ✅ | Redescending robust M-estimation |
+| Fair | `FairLoss` | continuous | ✅ | ✅ | Smooth robust M-estimation |
+| Cox PH | `CoxPartialLikelihoodLoss` | survival | ✅ | ✅ | Cox partial-likelihood optimization |
+
+These properties describe the loss object itself. They are inputs to solver selection, not a substitute for the solver-support matrix.
+
+### Quantile loss (check / pinball)
+
+For residual \(u=y-\eta\) and quantile \(\tau\in(0,1)\),
 
 $$
-\rho_\tau(u)=
-\begin{cases}
-\tau u, & u\ge 0,\\
-(\tau-1)u, & u<0.
-\end{cases}
+\rho_\tau(u)
+=u\left(\tau-\mathbf 1\{u<0\}\right).
 $$
 
-The asymmetric linear slopes select the requested conditional quantile and give the objective its familiar pinball/check shape. At $\tau=0.5$,
-
-$$
-\rho_{0.5}(u)=\frac12|u|,
-$$
-
-so median regression differs from absolute loss only by a constant scale factor. Its subgradient is a step function. Under the current generic implementations this excludes Quantile from FISTA-BB and shared ADMM; direct unweighted/uniform L-BFGS is retained as an existing low-level compatibility surface and is documented separately from estimator-level solver support.
+At \(\tau=0.5\), \(\rho_{0.5}(u)=\tfrac12|u|\). The loss is piecewise linear, so `QuantileLoss` has a non-smooth step-function subgradient and no Hessian. For quantile-regression solver selection, penalties, weighting, CV, and inference, see [Quantile Regression](quantile.md).
 
 ### Huber loss
 
+For residual \(u=y-\eta\),
+
 $$
-\ell(\eta, y) = \begin{cases}
-\frac{1}{2}(y - \eta)^2 & \text{if } |y - \eta| \le \delta, \\
-\delta\left(|y - \eta| - \frac{1}{2}\delta\right) & \text{otherwise}.
+\rho_\delta(u)=
+\begin{cases}
+\frac12u^2, & |u|\le\delta,\\
+\delta\left(|u|-\frac12\delta\right), & |u|>\delta.
 \end{cases}
 $$
 
 ### Bisquare loss (Tukey biweight)
 
-Let $u=y-\eta$. Then
-
-$$
-\ell(\eta,y)=\rho_c(u),
-$$
-
-with
+For residual \(u=y-\eta\),
 
 $$
 \rho_c(u)=
@@ -126,53 +110,22 @@ $$
 \end{cases}
 $$
 
-### Cox partial likelihood (negative log scale)
+### Fair loss
+
+For residual \(u=y-\eta\),
 
 $$
-\ell(\beta) = -\frac{1}{n}\log L(\beta).
+\rho_c(u)
+=c^2\left(\frac{|u|}{c}-\log\left(1+\frac{|u|}{c}\right)\right).
 $$
 
-The low-level `CoxPartialLikelihoodLoss` targets ordinary right-censored data and accepts either a `{"time": ..., "event": ...}` dictionary or an `(n, 2)` `[time, event]` response. It implements Breslow or Efron partial likelihood. The high-level `statgpu.survival.CoxPH` estimator additionally supports Exact ties, delayed-entry/start-stop data, and strata.
+Its score changes smoothly with the residual and gradually down-weights large residuals.
 
-The Cox partial likelihood is invariant to an additive constant in the linear predictor. If
+### Cox partial likelihood
 
-$$
-\eta_i=x_i^\top\beta+c,
-$$
+`CoxPartialLikelihoodLoss` represents the negative log partial likelihood for ordinary right-censored Cox data. It accepts either a `{"time": ..., "event": ...}` dictionary or an `(n, 2)` `[time, event]` response and supports Breslow or Efron ties at this low level.
 
-every risk-set numerator and denominator receives the same factor $e^c$, which cancels. Equivalently, the constant can be absorbed into the unknown baseline hazard. The intercept is therefore not identifiable from the Cox partial likelihood; `PenalizedCoxPHModel(fit_intercept=False)` reflects the model definition rather than a missing implementation feature.
-
-## Solver compatibility
-
-The table below describes the supported **unweighted** low-level compatibility. It should not be read as a weighted-support matrix.
-
-| Solver | Quantile | Huber | Bisquare | Fair | Cox PH |
-|--------|----------|-------|----------|------|--------|
-| FISTA | ✅ | ✅ | ✅ | ✅ | ✅ |
-| FISTA-BB | ❌ (non-smooth gradient) | ✅ | ✅ | ✅ | ✅ |
-| FISTA-LLA | ✅ (SCAD/MCP) | ✅ | ✅ | ✅ | ✅ (SCAD/MCP) |
-| Proximal IRLS-CD | ✅ (SCAD/MCP) | ❌ | ❌ | ❌ | ❌ |
-| Proximal Newton | ❌ (no Hessian) | ✅ (L2/no penalty) | ✅ (L2/no penalty) | ✅ (L2/no penalty) | ❌ |
-| Newton | ❌ (no Hessian) | ✅ | ✅ | ✅ | ✅ |
-| L-BFGS | ✅ (unweighted/uniform) | ✅ | ✅ | ✅ | ✅ |
-| ADMM | ❌ (shared w-update requires smooth gradient) | ✅ | ✅ | ✅ | ✅ |
-| IRLS | ✅ (L2/no penalty) | ❌ (currently unavailable) | ✅ (L2/no penalty) | ✅ (L2/no penalty) | ❌ |
-
-For Quantile loss, the public low-level `fista_bb_solver` and `admm_solver` exports raise an error before numerical iteration. Direct `lbfgs_solver` preserves the existing unweighted/uniform Quantile compatibility boundary, while genuine non-uniform weights raise an error. Ordinary FISTA is the supported sparse convex estimator route; L2/no-penalty uses Quantile IRLS by default and can also use explicit ordinary FISTA, while SCAD/MCP use Proximal IRLS-CD. Huber IRLS is not currently exposed as a public solver route; the ❌ entry means that public dispatch does not select that route today.
-
-### Non-uniform weights and direct L-BFGS
-
-Direct L-BFGS is deliberately conservative about non-uniform weights:
-
-| Direct `lbfgs_solver` route | Genuine non-uniform `sample_weight` |
-|---|---|
-| `GLMLoss` implementations with weighted-objective support | ✅ Supported by the GLM weighted-objective contract |
-| Quantile / Huber / Bisquare / Fair | ❌ Not implied by unweighted L-BFGS support |
-| Cox partial likelihood | ❌ `sample_weight` is currently unsupported |
-
-`GLMLoss` can opt in because its fused value/gradient contract defines one normalized analytic-weight objective. Generic non-GLM losses remain closed to genuine non-uniform direct L-BFGS weights unless that specific loss later defines and validates an equivalent contract.
-
-Uniform weights retain historical unweighted L-BFGS behavior, including the direct Quantile compatibility surface. This low-level compatibility does not make `solver="lbfgs"` a supported `PenalizedQuantileRegression` or `PenalizedGLM_CV` request.
+The partial likelihood is invariant to adding a common constant to all linear predictors, so an intercept is not identifiable from this loss. Higher-level Cox data structures, Exact ties, delayed entry, strata, and inference are documented on the [CoxPH](coxph.md) page.
 
 ## Parameters
 
@@ -194,7 +147,7 @@ Uniform weights retain historical unweighted L-BFGS behavior, including the dire
 
 | Parameter | Default | Description |
 |---|---:|---|
-| `epsilon` | `4.685` | Robustness tuning constant (commonly used for about 95% Gaussian efficiency) |
+| `epsilon` | `4.685` | Robustness tuning constant |
 | `method` | `"MAD"` | Scale-estimation method |
 
 ### `FairLoss`
@@ -211,66 +164,59 @@ Uniform weights retain historical unweighted L-BFGS behavior, including the dire
 |---|---:|---|
 | `ties` | `"breslow"` | `"breslow"` or `"efron"`; use `CoxPH` for Exact ties |
 
-## Examples
+## Direct loss-level examples
 
-### Direct CPU solver calls
-
-```python
-from statgpu.losses import QuantileLoss, HuberLoss
-from statgpu.solvers import lbfgs_solver
-
-# These examples intentionally use the unweighted low-level compatibility surface.
-quantile_loss = QuantileLoss(quantile=0.5)
-coef_q, n_iter_q = lbfgs_solver(quantile_loss, None, X, y)
-
-huber_loss = HuberLoss()
-coef_h, n_iter_h = lbfgs_solver(huber_loss, None, X, y)
-```
-
-These examples demonstrate unweighted direct L-BFGS only. They do not establish non-uniform weighted L-BFGS support for Quantile or Huber loss, and the direct Quantile example does not imply estimator-level `solver="lbfgs"` support. For weighted robust/quantile procedures, follow the corresponding model documentation.
-
-### GPU (Torch CUDA)
+### Value and gradient
 
 ```python
-import torch
+import numpy as np
 from statgpu.losses import HuberLoss
-from statgpu.penalties import SCADPenalty
-from statgpu.solvers import fista_solver
 
-X_t = torch.tensor(X, dtype=torch.float64).cuda()
-y_t = torch.tensor(y, dtype=torch.float64).cuda()
+loss = HuberLoss(delta=1.5)
+coef = np.zeros(X.shape[1])
 
-loss = HuberLoss()
-coef, n_iter = fista_solver(loss, SCADPenalty(alpha=0.1), X_t, y_t)
+value = loss.value(X, y, coef)
+gradient = loss.gradient(X, y, coef)
 ```
+
+### Weighted first-order evaluation
+
+```python
+sample_weight = np.ones(X.shape[0])
+sample_weight[:50] = 5.0
+
+value = loss.value(X, y, coef, sample_weight=sample_weight)
+gradient = loss.gradient(X, y, coef, sample_weight=sample_weight)
+```
+
+This demonstrates the loss-layer weighted primitives only. Whether a complete estimator/solver route supports the same weights is documented separately.
 
 ### Cox partial likelihood
 
 ```python
-import numpy as np
 from statgpu.losses import CoxPartialLikelihoodLoss
 
-y_surv = np.column_stack([time, event])
 loss = CoxPartialLikelihoodLoss(ties="efron")
+y_surv = np.column_stack([time, event])
 coef = np.zeros(X.shape[1])
+
 value = loss.value(X, y_surv, coef)
 gradient = loss.gradient(X, y_surv, coef)
 hessian = loss.hessian(X, y_surv, coef)
 ```
 
-Iterative numerical arrays remain on the selected NumPy, CuPy, or Torch backend. Cox preprocessing makes a one-time host copy of sorted `time` and `event` values to build deterministic failure-group metadata; the resulting indices are cached on the selected device, while the design matrix, predictor, objective, gradient, and Hessian remain on the numerical backend during solver iterations.
+## Backend behavior
 
-For estimator APIs, data scope, and inference behavior of `CoxPH`, `CoxPHCV`, and `PenalizedCoxPHModel`, see the [CoxPH model documentation](coxph.md).
+Loss evaluation follows the selected NumPy, CuPy, or Torch backend when the concrete loss supports that operation. Backend parity describes numerical execution; it does not by itself establish model-level solver, weighting, CV, or inference support.
 
-## Validation and notes
+Cox preprocessing makes a one-time host copy of sorted `time` and `event` values to construct deterministic failure-group metadata. The resulting indices are cached on the selected device, while the design matrix, linear predictor, objective, gradient, and Hessian remain on the numerical backend during iterative computation.
 
-Loss-specific numerical validation follows the corresponding model and solver contracts. Cross-backend parity and statistical weight semantics are separate questions: agreement across NumPy/CuPy/Torch is not, by itself, evidence that a new weighting interpretation is valid for a loss that has not declared one.
+## Where to go next
 
-- `QuantileLoss` is non-smooth and has no Hessian; supported estimator routes are ordinary FISTA for sparse convex objectives, IRLS for L2/no penalty, explicit ordinary FISTA for L2/no penalty when requested, and Proximal IRLS-CD/FISTA-LLA where documented. Low-level FISTA-BB and shared ADMM reject Quantile; direct unweighted/uniform L-BFGS remains an existing compatibility surface.
-- Robust losses expose estimator-level weight semantics; those semantics do not automatically extend to direct non-uniform weighted L-BFGS.
-- `CoxPartialLikelihoodLoss` currently rejects `sample_weight`; any future Cox case/frequency/sampling-weight support needs a separately defined statistical contract.
-- Panel estimators use the separate `BasePanelModel` architecture rather than inheriting from `LossBase`.
-- See [Loss × Penalty × Solver Framework](../guides/loss-penalty-solver-framework.md) for broader compatibility details.
+- Use the model pages for estimator APIs, defaults, weighting, CV, and inference.
+- Use the [Solver × Penalty Compatibility Matrix](../guides/solver-penalty-matrix.md) for supported combinations.
+- Use [Solver Algorithms](../guides/solver-algorithms.md) for update equations and algorithmic assumptions.
+- Use [Loss × Penalty × Solver Framework](../guides/loss-penalty-solver-framework.md) for the full computational architecture.
 
 ## References
 
@@ -278,5 +224,3 @@ Loss-specific numerical validation follows the corresponding model and solver co
 - Huber, P. J. (1964). Robust Estimation of a Location Parameter. *Annals of Mathematical Statistics*, 35(1), 73-101.
 - Beaton, A. E. & Tukey, J. W. (1974). The Fitting of Power Series. *Technometrics*, 16(2), 147-185.
 - Cox, D. R. (1972). Regression Models and Life-Tables. *Journal of the Royal Statistical Society*, B34, 187-220.
-- Wu, Y. & Liu, Y. (2009). Variable Selection in Quantile Regression. *Statistica Sinica*, 19, 801-817.
-- Fan, J. & Li, R. (2001). Variable Selection via Nonconcave Penalized Likelihood. *JASA*, 96, 1348-1360.
