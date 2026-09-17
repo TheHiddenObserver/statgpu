@@ -113,7 +113,7 @@ class LossBase:
     y_type: str             # "continuous" or "survival"
     smooth_gradient: bool   # whether the per-sample gradient is smooth
     has_hessian: bool       # whether Hessian primitives are provided
-    _supports_irls: bool    # whether maintained IRLS dispatch is declared
+    _supports_irls: bool    # whether IRLS dispatch is supported
 ```
 
 These fields describe **numerical primitives or dispatch capability**. They do not by themselves determine a complete solver × penalty support route.
@@ -135,7 +135,7 @@ These fields describe **numerical primitives or dispatch capability**. They do n
 | Fair | `FairLoss` | ✅ | ✅ | ✅ | custom psi/reference required; MASS has no built-in Fair psi |
 | Cox PH | `CoxPartialLikelihoodLoss` | ✅ | ✅ | ❌ | `survival::coxph()` |
 
-Huber's current `_supports_irls=False` means public dispatch does not enter a Huber IRLS route. Explicit requests for that route therefore follow the current fail-closed compatibility contract rather than silently switching to another solver. Fair-loss comparisons likewise require an explicitly matched Fair psi implementation rather than a nonexistent built-in `MASS::rlm(psi="fair")` option.
+Huber's current `_supports_irls=False` means public dispatch does not enter a Huber IRLS route. Explicit requests for that route raise an error rather than silently switching to another solver. Fair-loss comparisons likewise require an explicitly matched Fair psi implementation rather than a nonexistent built-in `MASS::rlm(psi="fair")` option.
 
 ### Per-Sample Formulas
 
@@ -191,31 +191,31 @@ The main `solver="auto"` dispatch can be summarized as follows. Public `none` / 
 |----------|--------|-----------|
 | 1 | `exact` | squared_error + L2/none + NumPy |
 | 2 | `newton` | squared_error + L2/none + GPU |
-| 3 | specialized continuation | Quantile SCAD/MCP → Proximal IRLS-CD; other non-convex SCAD/MCP and group non-convex penalties use their maintained LLA wrappers |
+| 3 | specialized continuation | Quantile SCAD/MCP → Proximal IRLS-CD; other non-convex SCAD/MCP and group non-convex penalties use their LLA wrappers |
 | 4 | `irls` | Quantile + L2/none (`auto` preference) |
 | 5 | `fista` / `fista_bb` | ordinary FISTA is available for explicit Quantile L2/none and for Quantile convex sparse routes; other convex sparse penalties use the loss/backend/CV-specific FISTA or FISTA-BB policy |
 | 6 | `lbfgs` / `newton` | CV + L2 + loss-specific routing |
-| 7 | `newton` | maintained smooth L2/no-penalty GLM/robust/Cox paths with Hessian support |
+| 7 | `newton` | smooth L2/no-penalty GLM/robust/Cox paths with Hessian support |
 
-For Quantile, L2/no-penalty `auto` prefers IRLS, but an explicit ordinary `solver="fista"` is also maintained and executes the generic FISTA engine rather than being silently substituted by IRLS. Sparse convex Quantile routes use ordinary FISTA, and SCAD/MCP use Proximal IRLS-CD. Every estimator/CV Quantile `fista_bb`, `lbfgs`, or `admm` request remains fail-closed. At the low-level solver API, FISTA-BB and ADMM also fail closed for Quantile, while direct unweighted/uniform Quantile L-BFGS remains an existing compatibility surface. Because check loss has a step-function subgradient, the ordinary Quantile FISTA route is a maintained first-order proximal/subgradient route rather than a claim that classical smooth-gradient FISTA convergence assumptions apply. The `exact` solver in this table is the closed-form squared-error/L2 solver and is unrelated to `CoxPH(ties="exact")`. For exact family/backend-specific dispatch, use the [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md).
+For Quantile, L2/no-penalty `auto` prefers IRLS, but an explicit ordinary `solver="fista"` is also supported and executes the generic FISTA engine rather than being silently substituted by IRLS. Sparse convex Quantile routes use ordinary FISTA, and SCAD/MCP use Proximal IRLS-CD. Estimator/CV Quantile `fista_bb`, `lbfgs`, and `admm` requests are unsupported and raise an error before numerical iteration. At the low-level solver API, FISTA-BB and ADMM likewise reject Quantile, while direct unweighted/uniform Quantile L-BFGS remains an existing compatibility surface. Because check loss has a step-function subgradient, ordinary Quantile FISTA is a first-order proximal/subgradient route rather than a claim that classical smooth-gradient FISTA convergence assumptions apply. The `exact` solver in this table is the closed-form squared-error/L2 solver and is unrelated to `CoxPH(ties="exact")`. For exact family/backend-specific dispatch, use the [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md).
 
 ### All Solvers
 
-`sample_weight` support depends on the solver, the statistical semantics of the selected loss, and its value/gradient/curvature capabilities. The table below summarizes the maintained main paths; combinations not declared here should not be inferred from another solver's capability.
+`sample_weight` support depends on the solver, the statistical semantics of the selected loss, and its value/gradient/curvature capabilities. The table below summarizes the supported main paths; combinations not declared here should not be inferred from another solver's capability.
 
 | Solver | Loss Constraints | Penalty Constraints | `sample_weight` | warm_start |
 |--------|:-----------------|:---------------------|:------------|:----------:|
 | `exact` | squared_error only | L2 only | ✅ | ❌ |
-| `irls` | losses declaring maintained IRLS dispatch | L2 / none | available where the IRLS loss supports it | ❌ |
+| `irls` | losses supporting IRLS dispatch | L2 / none | available where the IRLS loss supports it | ❌ |
 | `newton` | losses with Hessian support | L2 / none | loss-dependent; ordinary GLM ✅ | ❌ |
 | `lbfgs` | smooth losses; plus legacy direct Quantile compatibility for omitted/uniform weights | L2 / none | capability-gated; ordinary GLM ✅; Quantile non-uniform ❌ | ❌ |
 | `lbfgs_b` | smooth box-constrained problems | L2 / none | no generic non-uniform-weight contract declared | ❌ |
-| `fista` | maintained first-order gradient/subgradient + proximal routes | supported proximal penalties, including explicit Quantile L2/none | loss-dependent; maintained Quantile routes support normalized analytic weights | ✅ |
+| `fista` | first-order gradient/subgradient + proximal routes | supported proximal penalties, including explicit Quantile L2/none | loss-dependent; Quantile routes use normalized analytic weights where supported | ✅ |
 | `fista_bb` | smooth-gradient-compatible losses; excludes Quantile | supported sparse penalties | loss-dependent | ✅ |
-| `fista_lla` | losses supporting the maintained LLA route | SCAD/MCP and group non-convex LLA routes | loss-dependent | ✅ |
+| `fista_lla` | losses supporting the LLA route | SCAD/MCP and group non-convex LLA routes | loss-dependent | ✅ |
 | `proximal_irls_cd` | quantile only | SCAD/MCP | ✅ | ✅ |
 | `proximal_newton` | smooth losses with Hessian support | L2 / none | loss-dependent | ✅ |
-| `admm` | maintained ADMM losses with a smooth w-update; excludes Quantile | supported proximal forms | omitted/uniform only; genuine non-uniform weights fail closed | ✅ |
+| `admm` | ADMM-compatible losses with a smooth w-update; excludes Quantile | supported proximal forms | omitted/uniform only; genuine non-uniform weights raise an error | ✅ |
 
 The `lbfgs` row describes the generic low-level solver surface, not estimator dispatch. `PenalizedQuantileRegression` and `PenalizedGLM_CV` continue to reject explicit `solver="lbfgs"` before numerical fitting.
 
@@ -227,7 +227,7 @@ The `lbfgs` row describes the generic low-level solver surface, not estimator di
 3. Parallel diagonal-majorization step + LLA threshold
 4. GPU convergence checks remain on device except for the final boolean synchronization
 
-**Proximal Newton** (maintained smooth route) uses the full objective
+**Proximal Newton** (smooth route) uses the full objective
 
 $$
 F(\beta)=L(\beta)+P(\beta).
@@ -261,7 +261,7 @@ $$
 =\frac{X^\top\operatorname{diag}(w\odot h)X}{s}.
 $$
 
-Structured losses use their own Hessian implementation directly. For the maintained L2 penalty,
+Structured losses use their own Hessian implementation directly. For the L2 penalty,
 
 $$
 P(\beta)=\frac{\alpha}{2}\|\beta\|_2^2,
@@ -305,7 +305,7 @@ $$
 \beta_k(t)=\beta_k-t d_k.
 $$
 
-If the linear system is recognized as singular or ill-conditioned, the maintained implementation does not use a least-squares fallback; it instead sets
+If the linear system is recognized as singular or ill-conditioned, the implementation does not use a least-squares fallback; it instead sets
 
 $$
 d_k=g_k.
@@ -360,12 +360,12 @@ $$
 \right\}.
 $$
 
-That Hessian-metric proximal subproblem is not implemented in the current solver. Non-smooth penalty requests therefore delegate to FISTA before Newton iterations begin. Consequently, the maintained L2/no-penalty `proximal_newton` route is numerically a stabilized damped-Newton method with Armijo line search; it does not apply an additional Euclidean proximal operator and therefore does not double-count L2 curvature.
+That Hessian-metric proximal subproblem is not implemented in the current solver. Non-smooth penalty requests therefore delegate to FISTA before Newton iterations begin. Consequently, the L2/no-penalty `proximal_newton` route is numerically a stabilized damped-Newton method with Armijo line search; it does not apply an additional Euclidean proximal operator and therefore does not double-count L2 curvature.
 
 **FISTA-LLA** (generic non-convex path):
 1. Continuation path: λ_max → target α (3-5 steps)
 2. LLA outer loop (2-5 iterations per step)
-3. The maintained generic composite route uses a weighted-convex FISTA inner solve. A Proximal-Newton inner route should be enabled only if a loss explicitly provides the correct Hessian-metric proximal subproblem. Cox SCAD/MCP currently remains on FISTA-LLA.
+3. The generic composite route uses a weighted-convex FISTA inner solve. A Proximal-Newton inner route should be enabled only if a loss explicitly provides the correct Hessian-metric proximal subproblem. Cox SCAD/MCP currently remains on FISTA-LLA.
 
 ## 4. Backend Coverage
 
