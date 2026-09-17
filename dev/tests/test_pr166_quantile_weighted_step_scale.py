@@ -6,7 +6,9 @@ import numpy as np
 import pytest
 
 from statgpu.losses import QuantileLoss
-from statgpu.solvers._fista_lla_group_contract import _GroupFISTALossProxy
+from statgpu.linear_model.penalized._quantile_group_lla_contract import (
+    _QuantileGroupStepScaleProxy,
+)
 
 
 def test_quantile_weighted_step_scale_matches_normalized_weighted_gram():
@@ -63,7 +65,7 @@ def test_quantile_equal_weights_recover_unweighted_step_scale():
     assert weighted == pytest.approx(unweighted, rel=2e-12, abs=2e-14)
 
 
-def test_group_fista_loss_proxy_retains_weight_for_periodic_refresh():
+def test_quantile_group_step_proxy_retains_weight_for_periodic_refresh():
     class RecordingLoss:
         def __init__(self):
             self.weights = []
@@ -73,7 +75,7 @@ def test_group_fista_loss_proxy_retains_weight_for_periodic_refresh():
             return 1.0
 
     base = RecordingLoss()
-    proxy = _GroupFISTALossProxy(base)
+    proxy = _QuantileGroupStepScaleProxy(base)
     X = np.eye(3, dtype=np.float64)
     coef = np.zeros(3, dtype=np.float64)
     weights = np.asarray([0.5, 1.0, 2.0], dtype=np.float64)
