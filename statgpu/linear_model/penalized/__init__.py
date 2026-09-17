@@ -73,6 +73,15 @@ from . import (
     as _quantile_unsupported_solver_guard_contract,
 )
 
+# The provenance repair above intentionally failed explicit smooth-Quantile
+# FISTA closed because the historical FISTA branch actually executed IRLS.
+# Complete that public capability after unsupported FISTA-BB/ADMM boundaries
+# are installed: auto still prefers IRLS, while an explicit ordinary FISTA
+# request now reaches the generic FISTA engine without silent substitution.
+from . import (
+    _quantile_smooth_fista_contract as _quantile_smooth_fista_contract,
+)
+
 # The non-convex Quantile solver receives an automatically generated
 # continuation path. Mark that internal path after the solver-support contracts
 # are installed so the public Proximal IRLS-CD boundary can align its start with
