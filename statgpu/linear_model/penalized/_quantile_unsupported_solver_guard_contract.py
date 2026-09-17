@@ -1,17 +1,17 @@
 """Fail-closed public boundaries for unsupported explicit Quantile solvers.
 
-The maintained Quantile estimator routes are deliberately narrower than the
-set of generic optimization engines exported by statgpu. This follow-up adds
-only the missing all-penalty boundaries for:
+The Quantile estimator surface is deliberately narrower than the set of generic
+optimization engines exported by statgpu. This follow-up adds only the missing
+all-penalty boundaries for:
 
 * FISTA-BB, which relies on smooth-gradient differences for BB curvature;
 * shared ADMM, whose generic w-subproblem uses accelerated gradient descent.
 
 It also corrects the estimator/CV failure reason for explicit Quantile L-BFGS.
-L-BFGS does not require a Hessian, but the maintained shared implementation
-assumes a smooth loss gradient; Quantile/check loss has a step-function
-subgradient. The separate low-level omitted/uniform-weight Quantile L-BFGS
-compatibility surface remains unchanged.
+L-BFGS does not require a Hessian, but the shared implementation assumes a
+smooth loss gradient; Quantile/check loss has a step-function subgradient. The
+separate low-level omitted/uniform-weight Quantile L-BFGS compatibility surface
+remains unchanged.
 
 Existing Quantile validation remains authoritative first for all other rows.
 That preserves the more specific historical errors for L2/no-penalty FISTA-BB,
@@ -34,10 +34,10 @@ _UNSUPPORTED = frozenset({"admm", "fista_bb"})
 
 def _reject_quantile_lbfgs() -> None:
     raise ValueError(
-        "solver='lbfgs' is not a maintained estimator/CV Quantile route: "
-        "shared L-BFGS assumes a smooth loss gradient, while Quantile loss "
-        "has a step-function subgradient. Use solver='auto'/'irls' for L2 "
-        "or no penalty, or ordinary FISTA for maintained sparse routes. "
+        "solver='lbfgs' is not supported for Quantile estimators or Quantile CV: "
+        "the shared L-BFGS implementation assumes a smooth loss gradient, while "
+        "Quantile loss has a step-function subgradient. Use solver='auto'/'irls' "
+        "for L2 or no penalty, or ordinary FISTA for supported sparse objectives. "
         "Direct low-level lbfgs_solver(QuantileLoss, ...) retains its separate "
         "omitted/uniform-weight compatibility boundary."
     )
@@ -63,7 +63,7 @@ def _install_quantile_validator_boundary() -> None:
         solver_name,
         allow_internal_nonconvex=False,
     ):
-        # L-BFGS is already fail-closed at estimator/CV level, but the older
+        # L-BFGS is already rejected at estimator/CV level, but the older
         # Quantile validator grouped it with Hessian-based solvers. Correct the
         # public reason before that historical branch can emit a false claim.
         if _is_quantile_lbfgs(loss_name, solver_name):
@@ -95,9 +95,9 @@ def _install_quantile_validator_boundary() -> None:
                 "and requires a smooth loss gradient"
             )
         raise ValueError(
-            f"solver='{resolved_solver}' is not a maintained Quantile route: "
+            f"solver='{resolved_solver}' does not support Quantile loss: "
             f"{reason}, while Quantile loss is non-smooth. Use ordinary "
-            "FISTA for maintained sparse convex routes, solver='auto'/'irls' "
+            "FISTA for supported sparse convex objectives, solver='auto'/'irls' "
             "for L2 or no penalty, or solver='auto' for SCAD/MCP."
         )
 
@@ -117,8 +117,8 @@ def _install_estimator_lbfgs_boundary() -> None:
     def _validate_estimator_with_quantile_lbfgs_boundary(self):
         # The shared base validator historically rejects Quantile L-BFGS with
         # a Hessian-specific message. Preempt only this one row so direct
-        # generic/typed estimator failure semantics match the truthful CV
-        # boundary without changing any numerical route.
+        # generic/typed estimator failure semantics match the CV boundary
+        # without changing any numerical route.
         if _is_quantile_lbfgs(
             getattr(self, "loss", ""),
             getattr(self, "_solver", ""),
