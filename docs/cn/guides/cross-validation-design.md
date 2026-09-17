@@ -7,188 +7,188 @@
 
 ## 为什么需要这一页
 
-[交叉验证](cross-validation.md) 主要回答“**怎样配置和使用** statgpu 的 CV estimator”。本页则解释这套接口背后的设计：为什么选择阶段与最终重拟合要分开，pathwise / GPU 加速可以在哪些位置进入，selection cache 可以安全复用什么，以及实现选择更快的执行方式时哪些统计语义必须保持不变。
+[交叉验证](cross-validation.md) 主要回答“**怎样配置和使用** statgpu 的 CV 估计器”。本页解释这套接口背后的设计：为什么参数选择与最终重拟合要分成两个阶段，沿正则化路径复用计算和 GPU 批处理可以在哪些位置加速，选择缓存能够安全复用哪些结果，以及采用更快的执行方式时哪些统计语义必须保持不变。
 
-这是一份面向用户的设计说明，不是源码实现文档。private helper 名称、cache key 的精确字段、backend 阈值、benchmark 得出的 cutoff 与 validation artifact 都属于仓库内部 design / validation 文档。
+这是一份面向用户的设计说明，而不是源码实现文档。私有辅助函数的名称、缓存键的精确字段、后端切换阈值、由基准测试得到的分界值以及验证产物，都属于仓库内部的设计与验证文档。
 
 ## 1. CV 的执行模型
 
-可以把一个 CV estimator 理解为包在基础 estimator 外层的模型选择过程：
+可以把 CV 估计器理解为包在基础估计器外层的模型选择过程：
 
 ```text
-模型 + tuning space + folds
+模型 + 调参空间 + 数据划分
           |
           v
-      构造候选
+      构造候选项
           |
           v
    在训练折上拟合
           |
           v
-    held-out scoring
+    在验证折上评分
           |
           v
-        选择
+      选择候选项
           |
           v
-   全数据 final refit
+    全数据最终重拟合
           |
           v
-预测 / diagnostics / 可选 inference
+预测 / 诊断 / 可选推断
 ```
 
-最重要的区别是：**selection work** 与最终对外发布的 **fitted model** 不是同一件事。
+最重要的区别是：**选择阶段的计算**与最终对外提供的**已拟合模型**不是同一件事。
 
-选择过程中 statgpu 可能拟合很多临时模型，它们只用于比较候选 tuning configuration。选定候选后，所选配置会在全部观测上重新拟合。公开的 fitted coefficient、prediction、普通模型诊断和受支持的 coefficient inference 都属于这个 final refit，而不是某个任意 fold 中的临时拟合。
+选择过程中，statgpu 可能拟合许多临时模型，它们只用于比较候选调参配置。候选项确定后，所选配置会在全部观测上重新拟合。公开的系数、预测、常规模型诊断以及受支持的系数推断，都属于这次最终重拟合，而不是某个训练折中的临时模型。
 
 ## 2. 统计不变量与执行自由度
 
-加速可以改变同一个 CV 问题“**怎样计算**”，但不能静默改变“**在计算什么统计问题**”。
+加速可以改变同一个 CV 问题“**怎样计算**”，但不能静默改变“**计算的是什么统计问题**”。
 
-对一个固定的用户请求，下列内容属于公开的统计设计：
+对于一个固定的用户请求，下列内容属于公开的统计设计：
 
-- 经过公开输入验证后的 candidate tuning values；
-- train / validation folds；
-- 与该模型对应的 loss 或 validation criterion；
-- 在支持权重的路径上所采用的 analytic-weight 语义；
-- candidate selection rule；
-- 选定后用于 full-data refit 的配置；
-- 在组合受支持时，用户显式指定的 solver 与 device 请求。
+- 通过公开输入验证后的候选调参值；
+- 训练折与验证折；
+- 与模型对应的损失函数或验证准则；
+- 在支持权重的路径上采用的解析权重语义；
+- 候选项的选择规则；
+- 选择完成后用于全数据重拟合的配置；
+- 在组合受支持时，用户显式指定的 `solver` 与 `device` 请求。
 
-而实现可以在保持这些语义不变的前提下选择更快的执行方式，例如：
+在这些语义保持不变的前提下，实现可以采用不同的加速策略，例如：
 
-- 在多个候选之间复用 factorization 或 sufficient statistics；
-- 用相邻 tuning value 的结果作为 warm start；
-- 在 accelerator 上联合执行多个 fold / candidate；
-- 通过 cache 复用已经计算过的 selection evidence；
-- 当用户指定 `device="auto"` 时，根据 workload 自动选择 backend。
+- 在多个候选项之间复用分解结果或充分统计量；
+- 使用相邻调参值的结果进行热启动；
+- 在加速器上批量处理多个数据折、多个候选项，或同时批量处理二者；
+- 通过缓存复用已经计算过的选择结果；
+- 当用户指定 `device="auto"` 时，根据工作量自动选择后端。
 
-这些都是性能实现选择。应用代码不应依赖某个具体 batching layout、cache 实现、private fast-path 名称或自动路由阈值。
+这些都是性能层面的实现选择。应用代码不应依赖某一种具体的批处理布局、缓存实现、私有快速路径名称或自动路由阈值。
 
-## 3. 为什么 selection 与 final refit 必须分开
+## 3. 为什么选择与最终重拟合必须分开
 
-交叉验证利用 held-out data 回答“该选哪个 tuning configuration”；最终 estimator 则在 tuning 完成后利用全部观测回答“在所选配置下如何拟合最终模型”。
+交叉验证利用留出数据回答“应该选择哪个调参配置”；最终估计器则在调参完成后利用全部观测回答“在所选配置下如何拟合最终模型”。
 
 这一分工解释了多个公开行为：
 
-- `alpha_` 等属性描述的是**选择出来的 tuning configuration**；
-- `coef_`、`intercept_`、prediction 和普通 final diagnostics 描述的是**全数据 final refit**；
-- 支持 inference 时，推断发生在选择完成后的 final refit，而不是每个 fold 内单独发布；
-- 某个 CV estimator 可以合理地对 selection path 和 final refit 分别暴露 solver 控制。
+- `alpha_` 等属性描述的是**选择得到的调参配置**；
+- `coef_`、`intercept_`、预测结果和常规最终诊断描述的是**全数据最终重拟合**；
+- 支持推断时，推断发生在选择完成后的最终重拟合上，而不是在每个数据折内分别发布结果；
+- 某些 CV 估计器可以分别为选择阶段和最终重拟合提供求解器控制。
 
-`LassoCV` 是最清楚的例子：`cv_solver` 控制 CV path，`solver` 控制最终 full-data `Lasso` 拟合。只要两阶段都遵循各自公开的 objective 与 solver contract，它们使用不同算法并不会改变 selected `alpha` 的统计含义。
+`LassoCV` 是最清楚的例子：`cv_solver` 控制交叉验证阶段的求解算法，`solver` 控制最终全数据 `Lasso` 的拟合算法。只要两个阶段都遵守各自公开的目标函数与求解器约定，使用不同算法并不会改变所选 `alpha` 的统计含义。
 
-## 4. Candidate grid 与 fold 是一等设计输入
+## 4. 候选网格与数据折是一等设计输入
 
-CV 结果只能相对于“实际评估过的候选集合”和“实际采用的 folds”来理解。
+CV 结果只能相对于“实际评估过的候选集合”和“实际采用的数据折”来理解。
 
-若 estimator 自动生成 tuning grid，该 grid 会依赖数据和模型；若用户显式提供 grid，则经过公开验证后的 grid 就是请求的候选集合。
+如果估计器自动生成调参网格，该网格会依赖数据和模型；如果用户显式提供网格，那么通过公开验证后的网格就是本次请求的候选集合。
 
-fold 也不仅仅是实现里的循环索引，它定义了 resampling design。时间序列、分组、cluster 或 survival data 可能需要不同的 splitting rule。statgpu 会检查 supplied split 的结构以及 estimator-specific 要求，但某个 split 是否符合具体科学问题仍然是用户的建模判断。
+数据折也不仅仅是实现中的循环索引，它定义了重抽样设计。时间序列、分组数据、聚类数据或生存数据可能需要不同的划分规则。statgpu 会检查用户提供的数据划分是否满足结构要求和模型专属要求，但某种划分是否符合具体科学问题，仍然需要由用户根据建模背景判断。
 
-从设计上看，一旦本次 fit 的 folds 与 candidates 已经确定，后续加速应围绕**同一个 selection problem**展开，而不是因为更换执行路径就重新定义候选或 folds。
+从设计上看，一旦一次拟合的候选集合和数据折已经确定，后续加速就应围绕**同一个选择问题**展开，而不能因为更换执行路径就重新定义候选项或数据折。
 
-## 5. Pathwise reuse 与 warm start
+## 5. 沿路径复用计算与热启动
 
-许多正则化问题会沿一组有序 tuning values 求解。相邻候选的解往往也比较接近，因此每个候选都从完全无关的初值重新开始会重复很多工作。
+许多正则化问题需要沿一组有序的调参值反复求解。相邻候选项的解通常也比较接近，因此如果每个候选项都从完全无关的初值开始，就会产生大量重复计算。
 
-CV 实现可以在 path 上安全复用信息，例如：
+CV 实现可以安全地复用与当前统计问题一致的信息，例如：
 
-- 将前一个 candidate 的 coefficient 作为下一个 candidate 的初值；
-- 在同一个 fold 内复用不随 candidate 改变的 decomposition 或 cross-product；
-- 复用与同一统计 objective 一致的其他 fold-local numerical state。
+- 把前一个候选项的系数作为下一个候选项的初值；
+- 在同一个数据折内复用不随候选项改变的矩阵分解或交叉乘积；
+- 复用与同一目标函数一致的其他折内数值状态。
 
-这只是减少重复计算，并不是另一种 CV 方法。每个 candidate 的 score 和最终 selection 仍必须对应声明的 candidate configuration。
+这只是减少重复计算，并不是另一种交叉验证方法。每个候选项的评分和最终选择仍必须对应声明的候选配置。
 
-对非凸 penalty 或某些 model-specific loss，适合的 continuation/path strategy 可能与普通 L1/L2 不同。具体数值路线应查看相应模型页与 solver 文档；本页只描述共同的设计原则。
+对于非凸惩罚或某些模型专属损失函数，合适的延续策略或路径策略可能与普通 L1/L2 不同。具体数值路线应查看相应模型页与求解器文档；本页只说明共同的设计原则。
 
-## 6. GPU batching：加速重复计算，而不是重新定义 CV
+## 6. GPU 批处理：加速重复计算，而不是重新定义 CV
 
-最直接的实现会对每个 `(fold, candidate)` 分别执行很多小操作。在 GPU 上，这可能导致设备利用率不足，并产生过多 host/device synchronization。
+最直接的实现会对每个“数据折 × 候选项”组合分别执行许多小规模操作。在 GPU 上，这可能导致设备利用率不足，并引入过多的主机与设备同步。
 
-当数值结构允许时，statgpu 可以把重复工作组织成更大的 backend-native operation，例如同时处理多个 fold、多个 candidate，或二者的组合。
+当数值结构允许时，statgpu 可以把重复工作组织成更大的后端原生运算，例如同时处理多个数据折、多个候选项，或二者的组合。
 
-用户不需要依赖某个具体 batching layout。真正需要保持的是：
+用户不需要依赖某一种具体的批处理布局。真正需要保持不变的是：
 
-- effective candidate set 不变；
-- fold membership 不变；
-- model objective 与 validation criterion 不变；
-- weight semantics 不变；
-- selection rule 不变；
-- full-data final refit 的解释不变。
+- 实际候选集合不变；
+- 各观测所属的数据折不变；
+- 模型目标函数与验证准则不变；
+- 权重语义不变；
+- 选择规则不变；
+- 全数据最终重拟合的解释不变。
 
-因此未来版本可以改变 batching strategy，而不要求用户代码同步修改。
+因此，未来版本可以调整批处理策略，而不要求用户代码随之修改。
 
-## 7. Selection cache
+## 7. 选择缓存
 
-有些 CV workload 会反复提出完全相同的**选择问题**。当 inputs 与所有影响 selection 的控制项都没有变化时，重复计算整个 fold × candidate scoring 过程通常没有必要。
+有些 CV 工作负载会反复提出完全相同的**选择问题**。当输入数据以及所有影响选择结果的控制项都没有变化时，没有必要重复计算整个“数据折 × 候选项”的评分过程。
 
-selection cache 可以在这种情况下复用已经计算好的 selection evidence。它的公开语义刻意保持很窄：
+选择缓存可以在这种情况下复用已经计算好的选择结果。它的公开语义刻意保持得很窄：
 
-- cache 用来加速 candidate selection；
-- cache **不会**用一个缓存的最终 estimator 取代新的 full-data final refit；
-- 如果 data、folds、tuning values、weighting 或影响 selection 的 numerical control 发生变化，就不能错误复用不兼容的 evidence；
-- 修改一次返回的结果不能污染后续 cache hit；
-- 是否命中 cache 不能改变 selected configuration 的统计解释。
+- 缓存只用于加速候选项选择；
+- 缓存**不会**用旧的最终模型取代新的全数据最终重拟合；
+- 数据、数据折、调参值、权重或其他会影响选择结果的数值控制发生变化后，不得错误复用不兼容的结果；
+- 修改一次返回结果不能污染后续缓存命中得到的结果；
+- 是否命中缓存不能改变所选配置的统计解释。
 
-cache identity 的具体字段、容量、hashing strategy 与 private helper 都属于实现细节，不是公开 API 保证。
+缓存标识的具体字段、容量、哈希方式与私有辅助函数都属于实现细节，不是公开 API 保证。
 
-## 8. CV 中的 device 选择
+## 8. CV 中的设备选择
 
-显式 device 请求与自动 device 选择承担不同职责。
+显式设备请求与自动设备选择承担不同职责。
 
-当用户显式指定 `device="cpu"`、`"cuda"` 或 `"torch"` 时，estimator 按公开 backend contract 执行；若对应 accelerator 路径不可用或该组合不支持，会直接报错。CV 加速不能仅因为 CPU 更容易实现，就把一个显式 GPU 请求静默改成 CPU fit。
+当用户显式指定 `device="cpu"`、`"cuda"` 或 `"torch"` 时，估计器按照公开的后端约定执行；如果对应的加速器路径不可用或该组合不受支持，会直接报错。CV 加速不能仅因为 CPU 路径更容易执行，就把显式 GPU 请求静默改成 CPU 拟合。
 
-当 `device="auto"` 时，statgpu 可以根据 backend availability 与 workload 特征自动选择执行位置。具体 crossover threshold 属于 performance tuning parameter，因此可能随 kernel 与硬件支持变化。
+当 `device="auto"` 时，statgpu 可以根据后端可用性和工作量特征自动选择执行位置。具体的切换阈值属于性能调优参数，因此可能随着内核实现和硬件支持改进而变化。
 
-核心设计原则是：backend 选择可以改变“在哪里/如何”执行一个合法的 CV 问题，但不应静默替换 loss、penalty、candidate set 或 validation criterion。
+核心设计原则是：后端选择可以改变一个合法 CV 问题“在哪里、怎样执行”，但不应静默替换损失函数、惩罚项、候选集合或验证准则。
 
-## 9. 权重必须贯穿整个 CV lifecycle
+## 9. 权重必须贯穿整个 CV 流程
 
-在支持 `sample_weight` 的路径上，weighting 是统计问题的一部分，而不是最后才附加的 post-processing option。
+在支持 `sample_weight` 的路径上，权重是统计问题的一部分，而不是最后才附加的后处理选项。
 
-一致的 weighted CV lifecycle 可以表示为：
+一致的带权 CV 流程可以表示为：
 
 ```text
-full-data weights
+全数据权重
       |
-      +--> training-fold weights -> weighted candidate fit
+      +--> 训练折权重 -> 带权候选模型拟合
       |
-      +--> validation-fold weights -> weighted held-out score
+      +--> 验证折权重 -> 带权留出评分
       |
-      `--> full-data weights -> selected final refit
+      `--> 全数据权重 -> 所选模型最终重拟合
 ```
 
-具体 normalization 由对应 estimator/loss contract 决定。任何加速路径只有在保持同一权重约定时才是等价的。不支持 weighted objective 的组合应明确报告限制，而不是静默丢弃 weights。
+具体归一化方式由对应估计器和损失函数的约定决定。任何加速路径只有在保持同一权重约定时才是等价的。不支持带权目标的组合应明确报告限制，而不是静默丢弃权重。
 
 ## 10. 为什么 Cox CV 在结构上不同
 
-Cox cross-validation 不能总被看成“换了一个 loss 名称的普通 scalar-response regression”。held-out partial-likelihood evidence 与 survival target、event support 以及 risk-set semantics 有关。
+Cox 交叉验证不能简单看成“换了一个损失函数名称的普通标量响应回归”。留出数据上的部分似然评价依赖生存结局、事件支持情况以及风险集的定义。
 
-因此 Cox path 往往需要不同的 preparation order，并在 candidate scoring 之前额外验证 folds。selection → final refit 的通用模型仍然成立，但 survival-specific 的合法 fold 与 score 定义应以 [Cox 比例风险模型](../models/coxph.md) 为准。
+因此，Cox 路径可能需要不同的准备顺序，并在候选项评分之前额外验证数据折。通用的“选择 → 最终重拟合”模型仍然成立，但生存分析中什么样的数据折和评分才是有效的，应以 [Cox 比例风险模型](../models/coxph.md) 文档为准。
 
-这也体现了更一般的原则：共享 CV infrastructure 不应为了强行统一实现而抹掉 model-specific statistical structure。
+这体现了更一般的设计原则：共享的 CV 基础设施不应为了强行统一实现而抹掉各模型特有的统计结构。
 
-## 11. Tuning 完成后的 inference
+## 11. 调参完成后的推断
 
-当 coefficient inference 受支持时，statgpu 会在 tuning 完成后，对 selected final refit 做 inference。
+当系数推断受支持时，statgpu 会在调参结束后，对所选配置的最终重拟合执行推断。
 
-这样可以避免为每个临时 fold fit 发布没有实际意义的 coefficient-inference result。同时也意味着，普通 CV 后 confidence interval 和 p-value 通常是**以已经选定的 tuning configuration 为条件**的；除非某个具体 inference method 明确校正了 tuning / selection uncertainty。
+这样可以避免为每个临时的折内拟合发布没有实际意义的系数推断结果。同时也意味着，普通 CV 后得到的置信区间和 p 值通常应解释为**以已经选定的调参配置为条件**的结果；除非某一种具体推断方法明确校正了调参或模型选择带来的额外不确定性。
 
-具体 inferential target 与限制见 [推断模式](inference-modes.md)和 [Penalized GLM 推断](penalized-glm-inference.md)。
+具体推断目标与限制见 [推断模式](inference-modes.md) 和 [惩罚 GLM 推断](penalized-glm-inference.md)。
 
 ## 12. 哪些内容用户可以依赖
 
 | 稳定的公开设计 | 可能变化的实现细节 |
 |---|---|
-| selection 完成后进行 full-data refit | private call graph |
-| 受支持的显式 solver/device 请求保持权威 | `auto` 的 device threshold |
-| folds/candidates/weights 定义统计 selection problem | batching 维度与 kernel fusion |
-| `cv_solver` 与 final-refit `solver` 可以表示不同阶段 | 内部 warm-start storage |
-| cache 可以复用 selection evidence，但不能替代 final refit | cache key 字段、容量、hash 方法 |
-| model-specific CV 语义继续属于对应模型 | 具体由哪个内部 fast path 执行 |
+| 选择完成后进行全数据最终重拟合 | 私有调用关系 |
+| 受支持的显式 `solver` / `device` 请求保持权威 | `device="auto"` 的切换阈值 |
+| 数据折、候选项和权重共同定义统计选择问题 | 批处理维度与内核融合方式 |
+| `cv_solver` 与最终重拟合的 `solver` 可以对应不同阶段 | 内部热启动状态的保存方式 |
+| 缓存可以复用选择结果，但不能替代最终重拟合 | 缓存键字段、容量与哈希方法 |
+| 模型专属的 CV 语义仍由对应模型定义 | 具体采用哪条内部快速路径 |
 
-这种分层允许 statgpu 持续优化性能，而不把每一个 optimization choice 都变成永久的 public API 承诺。
+这种分层让 statgpu 可以持续优化性能，而不必把每一种性能优化方案都变成永久的公开 API 承诺。
 
 ## 13. CV 文档怎么分工
 
@@ -196,9 +196,9 @@ Cox cross-validation 不能总被看成“换了一个 loss 名称的普通 scal
 
 - **怎样配置和使用 CV？** → [交叉验证](cross-validation.md)
 - **statgpu 的 CV 在概念上怎样组织、为什么能加速？** → 本页
-- **哪些 loss × penalty × solver 组合可用？** → [Solver × Penalty 兼容性矩阵](solver-penalty-matrix.md)
-- **某个 solver 本身怎样计算？** → [求解器算法](solver-algorithms.md)
-- **selection 后 inference 应如何解释？** → [推断模式](inference-modes.md)
-- **survival CV 有什么特殊之处？** → [Cox 比例风险模型](../models/coxph.md)
+- **哪些损失函数 × 惩罚项 × 求解器组合可用？** → [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md)
+- **某个求解器本身怎样计算？** → [求解器算法](solver-algorithms.md)
+- **选择完成后的推断应如何解释？** → [推断模式](inference-modes.md)
+- **生存分析中的 CV 有什么特殊之处？** → [Cox 比例风险模型](../models/coxph.md)
 
-仓库内部 call graph、private cache contract、heuristic threshold 和 validation/evidence 仍放在 `dev/` 下，不属于本公开设计页。
+仓库内部的调用关系、私有缓存约定、启发式阈值以及验证证据仍放在 `dev/` 下，不属于本公开设计页。
