@@ -4,7 +4,7 @@ These solvers consume loss objects that implement the required numerical
 interface (for example value/gradient/Hessian/Lipschitz primitives) together
 with compatible penalty objects. Support is solver-specific: implementing the
 shared loss interface does not imply that every loss × solver combination is
-maintained, and public solver boundaries fail closed for unsupported routes.
+supported, and unsupported public calls raise an error.
 """
 
 __all__ = [
