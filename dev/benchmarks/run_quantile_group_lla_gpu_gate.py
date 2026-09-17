@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exact-source wrapper for the PR #166 Quantile FISTA-LLA CUDA gate."""
+"""Exact-source wrapper for PR #166 Quantile Group/low-level LLA CUDA gates."""
 
 from __future__ import annotations
 
@@ -14,7 +14,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GROUP_RUNNER = Path(__file__).resolve().with_name("validate_quantile_group_lla_gpu.py")
 SCALAR_RUNNER = Path(__file__).resolve().with_name("validate_quantile_scalar_lla_gpu.py")
-EXPECTED_SCHEMA_VERSION = 1
+GROUP_SCHEMA_VERSION = 2
+SCALAR_SCHEMA_VERSION = 1
 
 
 def _git(*args: str) -> str:
@@ -25,7 +26,7 @@ def _require_clean_source() -> str:
     sha = _git("rev-parse", "HEAD")
     if _git("status", "--porcelain"):
         raise RuntimeError(
-            "PR166 Quantile FISTA-LLA physical acceptance requires a clean exact-source worktree"
+            "PR166 Quantile Group/LLA physical acceptance requires a clean exact-source worktree"
         )
     return sha
 
@@ -39,11 +40,11 @@ def _run_inner(runner: Path, output: Path):
     return json.loads(output.read_text(encoding="utf-8"))
 
 
-def _validate_inner(payload, *, source_sha, label):
-    if payload.get("schema_version") != EXPECTED_SCHEMA_VERSION:
+def _validate_inner(payload, *, source_sha, label, schema_version):
+    if payload.get("schema_version") != schema_version:
         raise RuntimeError(
             f"PR166 {label} schema mismatch: "
-            f"{payload.get('schema_version')!r} != {EXPECTED_SCHEMA_VERSION!r}"
+            f"{payload.get('schema_version')!r} != {schema_version!r}"
         )
     if payload.get("source_sha") != source_sha:
         raise RuntimeError(
@@ -78,18 +79,20 @@ def main() -> int:
     source_after = _require_clean_source()
     if source_after != source_before:
         raise RuntimeError(
-            "PR166 Quantile FISTA-LLA source changed during physical validation: "
+            "PR166 Quantile Group/LLA source changed during physical validation: "
             f"{source_before} -> {source_after}"
         )
     _validate_inner(
         group_payload,
         source_sha=source_before,
-        label="Quantile group-LLA inner runner",
+        label="Quantile Group Proximal IRLS-LLA inner runner",
+        schema_version=GROUP_SCHEMA_VERSION,
     )
     _validate_inner(
         scalar_payload,
         source_sha=source_before,
-        label="Quantile scalar-LLA inner runner",
+        label="Quantile low-level FISTA-LLA inner runner",
+        schema_version=SCALAR_SCHEMA_VERSION,
     )
 
     payload = dict(group_payload)
