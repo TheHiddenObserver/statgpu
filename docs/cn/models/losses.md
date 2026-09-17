@@ -7,9 +7,9 @@
 
 ## 概览
 
-`LossBase` 是 statgpu 中用于描述优化问题数据拟合项的底层损失函数接口。对大多数用户，应优先从具体模型类开始；本页主要用于查阅损失函数本身的数学定义、数值原语、参数以及直接的 loss-level API。
+`LossBase` 是 statgpu 中用于描述优化问题数据拟合项的底层损失函数接口。对大多数用户，应优先从具体模型类开始；本页主要用于查阅损失函数本身的数学定义、数值原语、参数以及直接的损失函数 API。
 
-本页刻意只讨论 **loss layer**。模型层如何选择求解器、不同惩罚项如何分发、CV、推断以及完整的 `sample_weight` 支持范围，应放在对应模型页和求解器文档中说明。
+本页刻意只讨论**损失函数层**。模型层怎样选择求解器、不同惩罚项如何分发、交叉验证、统计推断以及完整的 `sample_weight` 支持范围，应放在对应模型页和求解器文档中说明。
 
 相关文档：
 
@@ -48,7 +48,7 @@ LossBase (statgpu/losses/_base.py)
 
 ## 共享目标函数与权重语义
 
-对逐观测损失 \(\ell_i(\beta)\)，无权重的数据拟合项为
+对逐观测损失 $\ell_i(\beta)$，无权重的数据拟合项为
 
 $$
 L(\beta)=\frac{1}{n}\sum_{i=1}^n\ell_i(\beta).
@@ -58,10 +58,10 @@ $$
 
 $$
 L_w(\beta)
-=\frac{\sum_i w_i\ell_i(\beta)}{\sum_i w_i}.
+=\frac{\sum_i w_i\ell_i(\beta)}{\sum_iw_i}.
 $$
 
-`value()`、`gradient()` 与 `fused_value_and_gradient()` 暴露这些损失函数层的数值原语。部分损失还提供 Hessian 或其他专用原语；某些损失也可能拒绝特定带权操作。只有当某条求解路径所需的全部数值量都与同一个目标函数一致时，完整的 solver/estimator 路径才是受支持的。具体组合请查阅 [求解器 × 惩罚项兼容性矩阵](../guides/solver-penalty-matrix.md)。
+`value()`、`gradient()` 与 `fused_value_and_gradient()` 暴露损失函数层的这些数值原语。部分损失函数还提供 Hessian 或其他专用原语；某些损失函数也可能拒绝特定的带权操作。只有当某条求解路径所需的全部数值量都与同一个目标函数一致时，完整的求解器/估计器路径才是受支持的。具体组合请查阅 [求解器 × 惩罚项兼容性矩阵](../guides/solver-penalty-matrix.md)。
 
 ## 已实现的非 GLM 损失
 
@@ -77,18 +77,18 @@ $$
 
 ### 分位数损失（check / pinball）
 
-令残差 \(u=y-\eta\)，分位数 \(\tau\in(0,1)\)，则
+令残差 $u=y-\eta$，分位数 $\tau\in(0,1)$，则
 
 $$
 \rho_\tau(u)
 =u\left(\tau-\mathbf 1\{u<0\}\right).
 $$
 
-当 \(\tau=0.5\) 时，\(\rho_{0.5}(u)=\tfrac12|u|\)。该损失是分段线性的，因此 `QuantileLoss` 的次梯度为阶梯函数，并且没有 Hessian。分位数回归中的求解器选择、惩罚项、权重、CV 与推断请见 [分位数回归](quantile.md)。
+当 $\tau=0.5$ 时，$\rho_{0.5}(u)=\tfrac12|u|$。该损失是分段线性的，因此 `QuantileLoss` 的次梯度为阶梯函数，并且没有 Hessian。分位数回归中的求解器选择、惩罚项、权重、CV 与推断请见 [分位数回归](quantile.md)。
 
 ### Huber 损失
 
-令残差 \(u=y-\eta\)，则
+令残差 $u=y-\eta$，则
 
 $$
 \rho_\delta(u)=
@@ -100,7 +100,7 @@ $$
 
 ### Bisquare 损失（Tukey biweight）
 
-令残差 \(u=y-\eta\)，则
+令残差 $u=y-\eta$，则
 
 $$
 \rho_c(u)=
@@ -112,14 +112,14 @@ $$
 
 ### Fair 损失
 
-令残差 \(u=y-\eta\)，则
+令残差 $u=y-\eta$，则
 
 $$
 \rho_c(u)
 =c^2\left(\frac{|u|}{c}-\log\left(1+\frac{|u|}{c}\right)\right).
 $$
 
-其 score 随残差平滑变化，并逐渐降低大残差的影响。
+它的得分函数随残差平滑变化，并逐渐降低大残差的影响。
 
 ### Cox 部分似然
 
@@ -189,7 +189,7 @@ value = loss.value(X, y, coef, sample_weight=sample_weight)
 gradient = loss.gradient(X, y, coef, sample_weight=sample_weight)
 ```
 
-这里展示的只是损失函数层的一阶带权原语；完整的 estimator/solver 路径是否支持相同权重，需要以对应模型与求解器文档为准。
+这里展示的只是损失函数层的一阶带权原语；完整的估计器/求解器路径是否支持相同权重，需要以对应模型与求解器文档为准。
 
 ### Cox 部分似然
 
@@ -207,13 +207,13 @@ hessian = loss.hessian(X, y_surv, coef)
 
 ## 后端行为
 
-当具体损失函数支持相应操作时，损失计算沿用选定的 NumPy、CuPy 或 Torch 后端。不同后端数值一致，只说明计算执行的一致性；它本身不能推出模型层的求解器、权重、CV 或推断能力。
+当具体损失函数支持相应操作时，损失计算沿用选定的 NumPy、CuPy 或 Torch 后端。不同后端的数值结果一致，只说明数值计算执行一致；它本身不能推出模型层的求解器、权重、CV 或推断能力。
 
-Cox 预处理会把排序后的 `time` 与 `event` 一次性复制到主机，用于构造确定性的失效组元数据；随后索引缓存到选定设备，而设计矩阵、线性预测子、目标函数、梯度和 Hessian 在迭代计算中保持在数值后端。
+Cox 预处理会把排序后的 `time` 与 `event` 一次性复制到主机端，用于构造确定性的失效组元数据；随后索引会缓存到选定设备，而设计矩阵、线性预测子、目标函数、梯度和 Hessian 在迭代计算中保持在数值后端。
 
 ## 下一步文档
 
-- 模型页：查看 estimator API、默认行为、权重、CV 与推断。
+- 模型页：查看估计器 API、默认行为、权重、CV 与推断。
 - [求解器 × 惩罚项兼容性矩阵](../guides/solver-penalty-matrix.md)：查看实际支持的组合。
 - [求解器算法](../guides/solver-algorithms.md)：查看更新公式和算法前提。
 - [损失函数 × 惩罚项 × 求解器框架](../guides/loss-penalty-solver-framework.md)：查看完整计算架构。
