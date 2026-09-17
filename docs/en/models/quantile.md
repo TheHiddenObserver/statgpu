@@ -7,7 +7,7 @@
 
 ## Overview
 
-`QuantileLoss` implements the **check loss (also called pinball loss)** used in quantile regression. These are two names for the same asymmetric absolute-loss objective, not two different losses. `PenalizedQuantileRegression` adds penalized estimation, including ordinary IRLS for the automatic L2/no-penalty route, an explicitly selectable ordinary FISTA route for convex objectives, and the specialized Proximal IRLS-CD route for SCAD/MCP.
+`QuantileLoss` implements the **check loss (also called pinball loss)** used in quantile regression. These are two names for the same asymmetric absolute-loss objective, not two different losses. `PenalizedQuantileRegression` adds penalized estimation, including ordinary IRLS for the automatic L2/no-penalty route, an explicitly selectable ordinary FISTA route for convex objectives, the specialized Proximal IRLS-CD route for scalar SCAD/MCP, and a Group Proximal IRLS-LLA automatic route for Group SCAD/MCP.
 
 | Component | Path |
 |-----------|------|
@@ -68,12 +68,13 @@ The support column below first describes unweighted algorithm availability. With
 
 | Solver | Support | Notes |
 |--------|:---:|-------|
-| Proximal IRLS-CD | ✅ | Specialized IRLS majorization + LLA for SCAD/MCP; supports analytic `sample_weight` |
+| Proximal IRLS-CD | ✅ | Specialized IRLS majorization + LLA for scalar SCAD/MCP; supports analytic `sample_weight` |
+| Group Proximal IRLS-LLA | ✅ | Automatic Group SCAD/MCP route; Quantile IRLS/MM plus a convex Adaptive-Group-Lasso weighted least-squares solve on the selected backend |
 | IRLS | ✅ | **Default `solver="auto"` route for L2/no-penalty Quantile objectives**; `QuantileLoss.irls()` has an explicit `sample_weight` path |
 | FISTA | ✅ | Used for L1/ElasticNet and related proximal routes; explicit L2/no-penalty `solver="fista"` also executes ordinary FISTA, while `auto` continues to prefer IRLS there |
 | FISTA-BB | ❌ | BB step sizes use smooth-gradient differences as local-curvature estimates. Quantile has a step-function subgradient, so estimator/CV requests and public low-level `fista_bb_solver(QuantileLoss, ...)` raise an error |
 | L-BFGS | ✅ (unweighted/uniform at the low-level boundary) | Public `PenalizedQuantileRegression` / `PenalizedGLM_CV` explicit L-BFGS requests are unsupported. Direct low-level `lbfgs_solver(QuantileLoss, ...)` retains its historical unweighted/uniform compatibility; genuine non-uniform weights are rejected |
-| ADMM | ❌ | The shared ADMM w-update uses accelerated gradient descent and requires a smooth loss gradient. Quantile has a step-function subgradient, so estimator/CV requests and public low-level `admm_solver(QuantileLoss, ...)` raise an error before numerical iteration |
+| ADMM | ❌ as a direct Quantile solver | Public `admm_solver(QuantileLoss, ...)` is unsupported because its generic w-update assumes a smooth loss. The automatic Group Proximal IRLS-LLA route may internally use ADMM only after Quantile IRLS has produced a smooth weighted least-squares surrogate |
 | Newton | ❌ | Quantile loss has no Hessian |
 | Proximal Newton | ❌ | Quantile loss has no Hessian |
 
@@ -88,9 +89,9 @@ For L2/no-penalty Quantile objectives, `PenalizedQuantileRegression(..., solver=
 | SCAD / MCP | Proximal IRLS-CD | Specialized Quantile IRLS majorization + LLA |
 | adaptive_l1 | FISTA | Adaptive weights are prepared first, then the Quantile FISTA route is used |
 | group_lasso / adaptive group | Group FISTA | Group-aware proximal route |
-| group_scad / group_mcp | Group FISTA-LLA | Group LLA; for Quantile, each convex group surrogate uses an IRLS quadratic majorization and Group FISTA on the resulting weighted least-squares problem |
+| group_scad / group_mcp | Group Proximal IRLS-LLA | Group LLA with Quantile IRLS/MM; each convex Adaptive-Group-Lasso weighted least-squares surrogate is solved on the selected backend |
 
-The table describes the automatic route. An explicit Group SCAD/MCP `solver="fista"` request remains an explicit proximal-FISTA request; it is not silently rewritten into the automatic Group FISTA-LLA route.
+The table describes the automatic route. An explicit Group SCAD/MCP `solver="fista"` request remains an explicit proximal-FISTA request; it is not silently rewritten into Group Proximal IRLS-LLA. Likewise, the public low-level `fista_lla_path` retains its FISTA-LLA meaning rather than aliasing this automatic estimator route.
 
 ## `sample_weight` semantics
 
@@ -104,10 +105,10 @@ $$
 But `sample_weight` is **not one universal solver capability**. In particular:
 
 - Quantile IRLS / Proximal IRLS-CD have explicit weighted implementations;
-- the automatic Group FISTA-LLA route carries the same normalized analytic weights into its Quantile IRLS majorization before solving each convex group surrogate;
+- Group Proximal IRLS-LLA normalizes the same analytic weights and carries them into each Quantile IRLS/MM majorization before solving the convex group surrogate;
 - ordinary FISTA, including explicitly selected L2/no-penalty FISTA, uses the loss-layer normalized weighted objective where supported;
 - generic `LossBase` shared value/gradient primitives can evaluate the normalized weighted objective;
-- FISTA-BB and ADMM do not support Quantile because their generic algorithms rely on smooth-gradient structure that check loss does not provide;
+- FISTA-BB and direct public ADMM do not support Quantile because their generic algorithms rely on smooth-gradient structure that check loss does not provide;
 - direct low-level Quantile L-BFGS retains omitted/uniform-weight compatibility, while genuine non-uniform weights raise an error; estimator/CV explicit L-BFGS remains unsupported.
 
 For weighted support across other losses and solver families, see the [Solver × Penalty Compatibility Matrix](../guides/solver-penalty-matrix.md) and [Solver Algorithms](../guides/solver-algorithms.md).
@@ -147,7 +148,7 @@ model = PenalizedQuantileRegression(
 )
 model.fit(X, y)
 
-# SCAD/MCP use the specialized Proximal IRLS-CD continuation path.
+# Scalar SCAD/MCP use the specialized Proximal IRLS-CD continuation path.
 scad_model = PenalizedQuantileRegression(
     quantile=0.5,
     penalty="scad",
@@ -216,9 +217,9 @@ This example uses an estimator path that supports analytic weights. It does not 
 
 See [Solver Algorithms](../guides/solver-algorithms.md#1-proximal-irls-cd) for the full update equations. The method combines an IRLS quadratic majorization of the check loss with local linear approximation of SCAD/MCP.
 
-### Group FISTA-LLA (Group SCAD/MCP)
+### Group Proximal IRLS-LLA (Group SCAD/MCP)
 
-For the automatic Group SCAD/MCP route, the outer LLA step converts the non-convex group penalty into a convex weighted Group-Lasso surrogate. If $D_g^{(k)}$ denotes the current derivative of the group penalty with respect to $\|\beta_g\|_2$, the Quantile-specific inner iteration first constructs the IRLS weights
+For the automatic Group SCAD/MCP route, the outer LLA step converts the non-convex group penalty into a convex weighted Group-Lasso surrogate. If $D_g^{(k)}$ denotes the current derivative of the group penalty with respect to $\|\beta_g\|_2$, the Quantile-specific inner iteration first constructs
 
 $$
 w_i^{(t)}
@@ -238,10 +239,12 @@ $$
 \sum_i w_i^{(t)}
 \left(y_i-x_i^\top\beta\right)^2
 +
-\sum_g D_g^{(k)}\|\beta_g\|_2
+\sum_g D_g^{(k)}\|\beta_g\|_2.
 $$
 
-with Group FISTA. The intercept is included in the quadratic model but remains unpenalized. If all $D_g^{(k)}$ are zero, the current LLA surrogate is exactly unpenalized Quantile regression and the route closes through Quantile IRLS directly. Thus “Group FISTA-LLA” names the outer LLA plus convex Group-FISTA solver structure; it does not mean applying textbook smooth-loss FISTA directly to the non-smooth pinball loss.
+The convex subproblem is solved with a backend-native splitting method whose quadratic update uses the weighted least-squares system and whose proximal update is the exact Adaptive Group Lasso block shrinkage. The intercept is part of the quadratic model but remains unpenalized. If all $D_g^{(k)}$ are zero, the LLA target is exactly unpenalized Quantile regression, so the route closes through ordinary weighted Quantile IRLS.
+
+This automatic route is separate from explicit FISTA control: `solver="fista"` and direct low-level `fista_lla_path(...)` continue to mean FISTA-based algorithms.
 
 ### IRLS (L2/none)
 
@@ -297,7 +300,8 @@ Quantile/check loss is non-smooth, so this route should not be interpreted as sa
 
 - `score()` uses check/pinball loss and returns its negative to follow sklearn's “higher is better” convention.
 - `sample_weight` support is a **loss × solver × estimator** route capability, not an automatic property of every solver.
-- Explicit ordinary L2/no-penalty Quantile FISTA is supported and is authoritative: it executes FISTA rather than silently substituting IRLS. Quantile FISTA-BB/ADMM remain unsupported and raise an error before numerical iteration. Estimator/CV L-BFGS remains unsupported, while the existing low-level unweighted/uniform L-BFGS compatibility boundary is preserved.
+- Explicit ordinary L2/no-penalty Quantile FISTA is supported and is authoritative: it executes FISTA rather than silently substituting IRLS. Explicit Group SCAD/MCP FISTA is likewise not rewritten into the automatic Group Proximal IRLS-LLA route.
+- Quantile FISTA-BB/direct ADMM remain unsupported and raise an error before numerical iteration. Estimator/CV L-BFGS remains unsupported, while the existing low-level unweighted/uniform L-BFGS compatibility boundary is preserved.
 - Unsupported explicit weighted-solver combinations raise an error before numerical iteration rather than silently substituting another solver.
 - Supported GPU routes (`cuda`/`torch`) do not silently fall back to CPU.
 
