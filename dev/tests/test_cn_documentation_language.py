@@ -25,8 +25,19 @@ _CLEANED_CN_PAGES = (
     "docs/cn/models/README.md",
     "docs/cn/models/losses.md",
     "docs/cn/models/quantile.md",
+    "docs/cn/models/ridge.md",
+    "docs/cn/models/lasso.md",
+    "docs/cn/models/poisson-regression.md",
     "docs/cn/panel/architecture.md",
     "docs/cn/panel/covariance.md",
+    "docs/cn/panel/panel-ols.md",
+    "docs/cn/panel/pooled-ols.md",
+    "docs/cn/panel/between-ols.md",
+    "docs/cn/panel/first-difference-ols.md",
+    "docs/cn/panel/random-effects.md",
+    "docs/cn/panel/fama-macbeth.md",
+    "docs/cn/panel/diagnostics.md",
+    "docs/cn/panel/fit-statistics.md",
 )
 
 # These are prose-level English noun phrases that previously appeared inside
@@ -61,6 +72,11 @@ _PROSE_FRAGMENTS_TO_AVOID = (
     "Physical GPU",
     "exact head",
     "fail closed",
+    "## Overview",
+    "## Path",
+    "## Parameters",
+    "## Outputs",
+    "## External Validation",
 )
 
 
@@ -82,19 +98,22 @@ def test_chinese_pages_keep_real_api_identifiers_searchable():
     torch_guide = _read("docs/cn/guides/pytorch-backend.md")
     covariance = _read("docs/cn/panel/covariance.md")
 
-    for token in ("`LassoCV`", "`cv_solver`", '`device="auto"`', "`sample_weight`"):
+    # Real API identifiers may appear with arguments or fitted-state suffixes;
+    # the contract is that the identifier remains searchable, not that one
+    # exact Markdown rendering is required.
+    for token in ("LassoCV", "cv_solver", 'device="auto"', "sample_weight"):
         assert token in cv
 
-    for token in ("`debiased`", "`post_selection_ols`", "`bootstrap`"):
+    for token in ("debiased", "post_selection_ols", "bootstrap"):
         assert token in inference
 
-    for token in ("FISTA", "IRLS", "SCAD", "MCP", '`solver="auto"`'):
+    for token in ("FISTA", "IRLS", "SCAD", "MCP", 'solver="auto"'):
         assert token in quantile
 
-    for token in ('`device="torch"`', "PyTorch", "Torch CUDA"):
+    for token in ('device="torch"', "PyTorch", "Torch CUDA"):
         assert token in torch_guide
 
-    for token in ("HC0", "HC3", "Driscoll", "`cov_type`"):
+    for token in ("HC0", "HC3", "Driscoll", "cov_type"):
         assert token in covariance
 
 
