@@ -1,4 +1,4 @@
-"""Inner-solver correctness contracts for PR #166 Quantile LLA."""
+"""Inner-solver correctness contracts for PR #166 Quantile Group LLA."""
 
 from __future__ import annotations
 
@@ -6,12 +6,11 @@ import warnings
 
 import numpy as np
 import pytest
-from sklearn.exceptions import ConvergenceWarning
 
 from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
 from statgpu.penalties import GroupSCADPenalty
-from statgpu.solvers import _fista as fista_module
-from statgpu.solvers import _fista_lla_group_contract as lla_contract
+from statgpu.solvers._convergence import ConvergenceWarning
+from statgpu.solvers import _quantile_group_proximal_irls_lla as group_solver
 
 
 GROUPS = [[0, 1], [2, 3]]
@@ -24,7 +23,7 @@ class _FakeQuantileLoss:
     _tau = Q
 
     def __init__(self):
-        self.irls_calls = 0
+        self.irls_calls = []
 
     def irls(
         self,
@@ -38,7 +37,14 @@ class _FakeQuantileLoss:
         sample_weight=None,
         fit_intercept=False,
     ):
-        self.irls_calls += 1
+        self.irls_calls.append(
+            {
+                "penalty": penalty,
+                "init_coef": init_coef,
+                "sample_weight": sample_weight,
+                "fit_intercept": fit_intercept,
+            }
+        )
         if init_coef is None:
             coef = np.zeros(X.shape[1], dtype=np.float64)
         else:
@@ -46,8 +52,8 @@ class _FakeQuantileLoss:
         return coef, 3
 
 
-def test_nonzero_quantile_group_surrogate_uses_irls_weighted_squared_fista(monkeypatch):
-    """Active Group LLA surrogates use IRLS WLS + Group FISTA, not pinball fixed-step FISTA."""
+def test_nonzero_quantile_group_surrogate_uses_irls_weighted_squared_admm(monkeypatch):
+    """Active Group LLA surrogates use IRLS WLS + Group ADMM closure."""
     loss = _FakeQuantileLoss()
     penalty = GroupSCADPenalty(alpha=0.3, a=3.7, groups=GROUPS)
     X = np.eye(4, dtype=np.float64)
@@ -55,24 +61,21 @@ def test_nonzero_quantile_group_surrogate_uses_irls_weighted_squared_fista(monke
     weights = np.asarray([0.5, 0.8, 1.1, 1.6], dtype=np.float64)
     seen = {}
 
-    def forbidden_base(*args, **kwargs):
-        raise AssertionError("Quantile LLA must not use the historical fixed-step base loop")
-
-    def fake_fista(loss_arg, penalty_arg, X_arg, y_arg, **kwargs):
+    def fake_admm(loss_arg, penalty_arg, X_arg, y_arg, **kwargs):
         seen["loss_name"] = getattr(loss_arg, "name", None)
         seen["penalty_name"] = getattr(penalty_arg, "name", None)
         seen["sample_weight"] = kwargs.get("sample_weight")
         seen["max_iter"] = kwargs.get("max_iter")
         seen["tol"] = kwargs.get("tol")
+        seen["rho"] = kwargs.get("rho")
+        seen["adaptive_rho"] = kwargs.get("adaptive_rho")
         seen["X"] = np.asarray(X_arg, dtype=np.float64).copy()
         seen["y"] = np.asarray(y_arg, dtype=np.float64).copy()
-        # Keep the warm start unchanged so the outer IRLS loop closes in one step.
         return np.asarray(kwargs["init_coef"], dtype=np.float64).copy(), 4
 
-    monkeypatch.setattr(lla_contract, "_base_fista_lla_path", forbidden_base)
-    monkeypatch.setattr(fista_module, "fista_solver", fake_fista)
+    monkeypatch.setattr(group_solver, "admm_solver", fake_admm)
 
-    coef, intercept, n_iter = lla_contract.fista_lla_path(
+    coef, intercept, n_iter = group_solver.quantile_group_proximal_irls_lla_solver(
         loss,
         penalty,
         X,
@@ -87,20 +90,21 @@ def test_nonzero_quantile_group_surrogate_uses_irls_weighted_squared_fista(monke
 
     assert seen["loss_name"] == "squared_error"
     assert seen["penalty_name"] == "adaptive_group_lasso"
-    # Analytic weights are absorbed into the IRLS quadratic design/response;
-    # the inner squared-error FISTA therefore receives no second weight vector.
+    # Analytic weights are already folded into X_quad/y_quad.
     assert seen["sample_weight"] is None
-    assert seen["max_iter"] == 250
+    assert seen["max_iter"] == 500
     assert seen["tol"] == pytest.approx(1e-7)
+    assert seen["rho"] == pytest.approx(1.0)
+    assert seen["adaptive_rho"] is False
     assert not np.array_equal(seen["X"], X)
     assert not np.array_equal(seen["y"], y)
-    assert loss.irls_calls == 0
+    assert loss.irls_calls == []
     assert n_iter == 4
     np.testing.assert_array_equal(coef, np.zeros(4))
     assert intercept == 0.0
 
 
-def test_zero_quantile_group_surrogate_closes_with_irls(monkeypatch):
+def test_zero_quantile_group_surrogate_closes_with_canonical_irls(monkeypatch):
     """A completely flat Group SCAD surrogate is ordinary Quantile regression."""
     loss = _FakeQuantileLoss()
     penalty = GroupSCADPenalty(alpha=0.04, a=3.7, groups=GROUPS)
@@ -108,12 +112,12 @@ def test_zero_quantile_group_surrogate_closes_with_irls(monkeypatch):
     y = np.zeros(4, dtype=np.float64)
     init = np.asarray([1.0, 1.0, 1.0, 1.0], dtype=np.float64)
 
-    def forbidden_fista(*args, **kwargs):
+    def forbidden_admm(*args, **kwargs):
         raise AssertionError("zero Group LLA surrogate must close through IRLS")
 
-    monkeypatch.setattr(fista_module, "fista_solver", forbidden_fista)
+    monkeypatch.setattr(group_solver, "admm_solver", forbidden_admm)
 
-    coef, intercept, n_iter = lla_contract.fista_lla_path(
+    coef, intercept, n_iter = group_solver.quantile_group_proximal_irls_lla_solver(
         loss,
         penalty,
         X,
@@ -126,9 +130,12 @@ def test_zero_quantile_group_surrogate_closes_with_irls(monkeypatch):
         init_coef=init,
     )
 
-    assert loss.irls_calls == 1
+    assert len(loss.irls_calls) == 1
+    # Flat closure deliberately restarts the exact unpenalized problem from its
+    # canonical initialization instead of retaining a path-dependent iterate.
+    assert loss.irls_calls[0]["init_coef"] is None
     assert n_iter == 3
-    np.testing.assert_array_equal(coef, init)
+    np.testing.assert_array_equal(coef, np.zeros(4))
     assert intercept == 0.0
 
 
@@ -166,23 +173,20 @@ def _fit_group_scad_fixture(X, y, weights):
 
 
 def test_quantile_group_wls_surrogates_do_not_accept_max_iter_as_success():
-    """The physical-style Group path must close convex WLS surrogates without warnings."""
+    """Convex WLS subproblems must close without statgpu convergence warnings."""
     X, y, weights = _fixture()
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always", ConvergenceWarning)
         _fit_group_scad_fixture(X, y, weights)
 
     relevant = [
-        item
-        for item in caught
-        if issubclass(item.category, ConvergenceWarning)
-        and "loss=squared_error, penalty=adaptive_group_lasso" in str(item.message)
+        item for item in caught if issubclass(item.category, ConvergenceWarning)
     ]
     assert relevant == []
 
 
 def test_flat_target_group_scad_closes_to_weighted_quantile_irls():
-    """The physical-gate fixture has a flat final SCAD surrogate; close it exactly."""
+    """This fixture's correct target solution lies in SCAD's flat region."""
     X, y, weights = _fixture()
     group = _fit_group_scad_fixture(X, y, weights)
 
@@ -202,7 +206,12 @@ def test_flat_target_group_scad_closes_to_weighted_quantile_irls():
         [np.linalg.norm(group.coef_[indices]) for indices in GROUPS],
         dtype=np.float64,
     )
+    reference_norms = np.asarray(
+        [np.linalg.norm(reference.coef_[indices]) for indices in GROUPS],
+        dtype=np.float64,
+    )
     flat_threshold = 3.7 * 0.04 * np.sqrt(2.0)
+    assert np.all(reference_norms > flat_threshold)
     assert np.all(group_norms > flat_threshold)
 
     group_fit = _pinball(y, X @ group.coef_ + group.intercept_, weights)
@@ -210,3 +219,4 @@ def test_flat_target_group_scad_closes_to_weighted_quantile_irls():
     assert abs(group_fit - ref_fit) <= 2e-6
     np.testing.assert_allclose(group.coef_, reference.coef_, rtol=0.0, atol=5e-5)
     assert group.intercept_ == pytest.approx(reference.intercept_, abs=5e-5)
+    assert group._selected_solver == "group_proximal_irls_lla"
