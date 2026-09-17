@@ -148,6 +148,33 @@ def test_quantile_group_nonconvex_auto_uses_group_fista_lla(monkeypatch, kind):
     )
 
 
+@pytest.mark.parametrize("kind", ["group_scad", "group_mcp"])
+def test_quantile_group_nonconvex_actual_cpu_fit_runs_full_lla(kind):
+    """Exercise the real Quantile + group LLA inner loop without route stubs."""
+    X, y, weights = _data(seed=166305, n=20)
+    model = PenalizedGeneralizedLinearModel(
+        loss="quantile",
+        loss_kwargs={"quantile": Q},
+        penalty=kind,
+        penalty_kwargs=_penalty_kwargs(kind),
+        alpha=0.04,
+        solver="auto",
+        device="cpu",
+        fit_intercept=True,
+        compute_inference=False,
+        max_iter=80,
+        tol=1e-5,
+        max_lla_iters=9,
+        lla_tol=1e-5,
+    ).fit(X, y, sample_weight=weights)
+
+    assert model._selected_solver == "fista"
+    assert model.n_iter_ >= 1
+    assert np.all(np.isfinite(model.coef_))
+    assert np.isfinite(model.intercept_)
+    assert np.all(np.isfinite(model.predict(X)))
+
+
 def test_quantile_group_scad_cv_uses_fold_local_weights_and_group_lla(monkeypatch):
     X, y, weights = _data(seed=166303, n=20)
     idx = np.arange(X.shape[0])
@@ -190,6 +217,33 @@ def test_quantile_group_scad_cv_uses_fold_local_weights_and_group_lla(monkeypatc
         observed.shape == weights.shape and np.array_equal(observed, weights)
         for observed in seen_weights
     )
+
+
+def test_quantile_group_scad_actual_cpu_cv_runs_full_lla():
+    """The real CV children and selected full-data refit must complete via LLA."""
+    X, y, weights = _data(seed=166306, n=18)
+    idx = np.arange(X.shape[0])
+    folds = [(idx[9:], idx[:9]), (idx[:9], idx[9:])]
+    cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": Q},
+        penalty="group_scad",
+        penalty_kwargs={"groups": GROUPS, "a": 3.7},
+        alpha_grid=np.asarray([0.04], dtype=np.float64),
+        cv=2,
+        cv_splits=folds,
+        random_state=166,
+        solver="auto",
+        device="cpu",
+        max_iter=60,
+        tol=1e-5,
+    ).fit(X, y, sample_weight=weights)
+
+    assert cv.alpha_ == pytest.approx(0.04)
+    assert cv.estimator_._selected_solver == "fista"
+    assert np.all(np.isfinite(cv.coef_))
+    assert np.isfinite(cv.intercept_)
+    assert np.all(np.isfinite(cv.cv_results_["all_scores"]))
 
 
 def test_nonuniform_quantile_path_metadata_avoids_legacy_full_host_snapshot(monkeypatch):
