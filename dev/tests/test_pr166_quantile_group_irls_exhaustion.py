@@ -85,3 +85,44 @@ def test_intermediate_quantile_group_lla_exhaustion_is_only_a_warm_path(monkeypa
     assert n_iter == 3
     np.testing.assert_allclose(coef, np.full(4, 0.1), rtol=0.0, atol=0.0)
     assert intercept == 0.0
+
+
+def test_flat_quantile_group_target_irls_budget_exhaustion_fails_closed(monkeypatch):
+    """A flat target still requires the delegated Quantile IRLS solve to close."""
+    X = np.eye(4, dtype=np.float64)
+    y = np.asarray([0.8, -0.5, 0.4, -0.3], dtype=np.float64)
+    loss = QuantileLoss(0.35)
+    penalty = GroupSCADPenalty(alpha=0.3, a=3.7, groups=GROUPS)
+
+    def exhausted_irls(
+        X_arg,
+        y_arg,
+        penalty=None,
+        max_iter=100,
+        tol=1e-6,
+        init_coef=None,
+        eps=1e-8,
+        sample_weight=None,
+        fit_intercept=False,
+    ):
+        return np.zeros(X_arg.shape[1], dtype=np.float64), int(max_iter)
+
+    monkeypatch.setattr(loss, "irls", exhausted_irls)
+
+    with pytest.raises(
+        ConvergenceWarning,
+        match="flat target did not close within 2 Quantile IRLS iterations",
+    ):
+        solver_mod.quantile_group_proximal_irls_lla_solver(
+            loss,
+            penalty,
+            X,
+            y,
+            alpha_path=np.asarray([0.3], dtype=np.float64),
+            max_lla_per_step=1,
+            max_iter=2,
+            tol=1e-12,
+            lla_tol=1e-12,
+            fit_intercept=False,
+            init_coef=np.full(4, 2.0, dtype=np.float64),
+        )
