@@ -22,12 +22,26 @@ The group-aware fixed-step FISTA path uses the loss Lipschitz/step-scale contrac
 and the exact weighted Group Lasso proximal operator, so convergence is
 observable through actual proximal updates rather than a silently stalled
 Newton step.
+
+Quantile is a narrower exception. Its pinball loss is non-smooth, and the fused
+fixed-step inner loop can exhaust its iteration limit while still moving enough
+for tiny backend roundoff differences to select different non-convex LLA
+trajectories. Quantile Group SCAD/MCP therefore keeps the same outer LLA
+algorithm but solves each convex Adaptive-Group-Lasso surrogate with the
+maintained generic Group FISTA/backtracking engine. When every LLA derivative is
+zero, the surrogate is exactly unpenalized Quantile regression and closes
+through ``QuantileLoss.irls()`` instead of returning an unconverged first-order
+iterate.
 """
 
 from __future__ import annotations
 
+import copy
 import numpy as np
 
+from statgpu.backends import _resolve_backend, _to_numpy
+from statgpu.backends._array_ops import _abs_sum_dev, _copy_arr, _zeros
+from statgpu.backends._utils import xp_ones
 from statgpu.penalties import AdaptiveGroupLassoPenalty
 from ._fista_lla import fista_lla_path as _base_fista_lla_path
 
@@ -94,9 +108,9 @@ def _group_surrogate_factory(scad_penalty):
         alpha=1.0,
         weights=np.ones(len(group_indices), dtype=float),
     )
-    # The fused LLA solver appends one unpenalized intercept coordinate when
-    # fit_intercept=True. Public group penalties remain exact-dimensional; only
-    # this private surrogate opts into that one-coordinate extension.
+    # The numerical design can append one unpenalized intercept coordinate.
+    # Public group penalties remain exact-dimensional; only this private
+    # surrogate opts into that one-coordinate extension.
     inner_penalty._allow_trailing_unpenalized_intercept = True
 
     def factory(per_coordinate_derivatives):
@@ -131,6 +145,160 @@ def _group_surrogate_factory(scad_penalty):
     return factory
 
 
+def _quantile_group_fista_lla_path(
+    loss,
+    scad_penalty,
+    X,
+    y,
+    alpha_path,
+    max_lla_per_step=6,
+    lla_tol=1e-6,
+    max_iter=1000,
+    tol=1e-4,
+    fit_intercept=True,
+    sample_weight=None,
+    lla_penalty_factory=None,
+    init_coef=None,
+    init_intercept=None,
+    return_path=False,
+):
+    """Quantile Group LLA with convergent convex-surrogate ownership.
+
+    Each LLA surrogate is an Adaptive Group Lasso problem. Non-zero surrogates
+    are delegated to the maintained generic Group FISTA solver (including its
+    backtracking/failure semantics); an exactly zero surrogate is ordinary
+    weighted Quantile regression and is solved by ``loss.irls``.
+    """
+    backend = _resolve_backend("auto", X)
+    if backend == "torch":
+        import torch as xp
+    elif backend == "cupy":
+        import cupy as xp
+    else:
+        xp = np
+
+    n_samples, n_features = X.shape
+    if fit_intercept:
+        ones = xp_ones((n_samples, 1), dtype=X.dtype, xp=xp, ref_arr=X)
+        X_work = xp.concatenate([X, ones], axis=1)
+        n_aug = n_features + 1
+    else:
+        X_work = X
+        n_aug = n_features
+
+    if init_coef is None:
+        params = _zeros(n_aug, backend, ref_tensor=X_work)
+    else:
+        if backend == "torch":
+            params = xp.as_tensor(init_coef, dtype=X_work.dtype, device=X_work.device)
+        else:
+            params = xp.asarray(init_coef, dtype=X_work.dtype)
+        if fit_intercept and int(params.shape[0]) == n_features:
+            intercept0 = 0.0 if init_intercept is None else float(init_intercept)
+            if backend == "torch":
+                params = xp.cat(
+                    [
+                        params,
+                        xp.tensor([intercept0], dtype=X_work.dtype, device=X_work.device),
+                    ]
+                )
+            else:
+                params = xp.concatenate(
+                    [params, xp.asarray([intercept0], dtype=X_work.dtype)]
+                )
+        else:
+            params = _copy_arr(params)
+
+    factory = lla_penalty_factory or _group_surrogate_factory(scad_penalty)
+    total_iter = 0
+    path_records = [] if return_path else None
+
+    def _split(current):
+        current_np = np.asarray(_to_numpy(current), dtype=np.float64).reshape(-1)
+        if fit_intercept:
+            return current_np[:n_features].copy(), float(current_np[n_features])
+        return current_np.copy(), 0.0
+
+    for cont_i, cont_alpha in enumerate(alpha_path):
+        pen_step = copy.copy(scad_penalty)
+        pen_step.alpha = float(cont_alpha)
+        mi = max_iter[cont_i] if isinstance(max_iter, (list, tuple)) else max_iter
+        mi = int(mi)
+
+        for _ in range(int(max_lla_per_step)):
+            lla_weights = pen_step.lla_weights(params)
+            lla_weights_np = np.asarray(_to_numpy(lla_weights), dtype=np.float64)
+            inner_penalty = factory(lla_weights_np)
+            before = _copy_arr(params)
+
+            group_weights = np.asarray(
+                getattr(inner_penalty, "_group_weights", ()), dtype=np.float64
+            )
+            zero_surrogate = bool(
+                group_weights.size and np.all(group_weights == 0.0)
+            )
+
+            if zero_surrogate:
+                # The LLA surrogate contains no active penalty. Quantile IRLS
+                # is the maintained full weighted solver for this exact convex
+                # objective and avoids accepting a max-iteration FISTA iterate.
+                params, used_iter = loss.irls(
+                    X_work,
+                    y,
+                    penalty=None,
+                    max_iter=mi,
+                    tol=min(float(tol), 1e-8),
+                    init_coef=params,
+                    sample_weight=sample_weight,
+                    fit_intercept=fit_intercept,
+                )
+            else:
+                from ._fista import fista_solver
+
+                params, used_iter = fista_solver(
+                    loss,
+                    inner_penalty,
+                    X_work,
+                    y,
+                    max_iter=mi,
+                    tol=tol,
+                    init_coef=params,
+                    sample_weight=sample_weight,
+                    cv_mode=False,
+                )
+
+            total_iter += int(used_iter)
+            delta = float(_to_numpy(_abs_sum_dev(params - before)))
+            if delta < float(lla_tol):
+                break
+
+        if path_records is not None:
+            coef_rec, intercept_rec = _split(params)
+            path_records.append(
+                {
+                    "alpha": float(cont_alpha),
+                    "coef": coef_rec,
+                    "intercept": intercept_rec,
+                    "n_iter": int(total_iter),
+                }
+            )
+
+    coef_np, intercept = _split(params)
+    if return_path:
+        path = {
+            "alpha": np.asarray([r["alpha"] for r in path_records], dtype=np.float64),
+            "coef": np.vstack([r["coef"] for r in path_records]).astype(
+                np.float64, copy=False
+            ),
+            "intercept": np.asarray(
+                [r["intercept"] for r in path_records], dtype=np.float64
+            ),
+            "n_iter": np.asarray([r["n_iter"] for r in path_records], dtype=np.int64),
+        }
+        return coef_np, intercept, total_iter, path
+    return coef_np, intercept, total_iter
+
+
 def fista_lla_path(
     loss,
     scad_penalty,
@@ -149,17 +317,31 @@ def fista_lla_path(
     return_path=False,
 ):
     """Run the fused LLA path with exact Group MCP/SCAD surrogate scaling."""
-    # Quantile's weighted step scale must remain objective-consistent for both
-    # scalar and group penalties, including direct public low-level calls.
-    if str(getattr(loss, "name", "")).lower() == "quantile":
+    is_quantile = str(getattr(loss, "name", "")).lower() == "quantile"
+    if is_quantile:
         loss = _QuantileWeightedStepScaleProxy(loss)
 
     penalty_name = str(getattr(scad_penalty, "name", "")).lower()
     if penalty_name in _GROUP_NONCONVEX_NAMES:
-        # Group-norm penalties require a group-norm convex surrogate whether
-        # the caller supplied the historical factory or called this exported
-        # solver directly without one.
         lla_penalty_factory = _group_surrogate_factory(scad_penalty)
+        if is_quantile:
+            return _quantile_group_fista_lla_path(
+                loss,
+                scad_penalty,
+                X,
+                y,
+                alpha_path,
+                max_lla_per_step=max_lla_per_step,
+                lla_tol=lla_tol,
+                max_iter=max_iter,
+                tol=tol,
+                fit_intercept=fit_intercept,
+                sample_weight=sample_weight,
+                lla_penalty_factory=lla_penalty_factory,
+                init_coef=init_coef,
+                init_intercept=init_intercept,
+                return_path=return_path,
+            )
         loss = _GroupFISTALossProxy(loss)
 
     return _base_fista_lla_path(
