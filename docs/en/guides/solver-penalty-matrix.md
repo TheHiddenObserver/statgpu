@@ -22,7 +22,7 @@ General conventions:
 - `none` / `null` is canonicalized to `L2(alpha=0)` before solver selection;
 - an explicit solver request is validated before numerical fitting and is not silently replaced because weights are present;
 - backend-specific entries are shown only when the backend changes the effective route;
-- internal resolved labels such as FISTA-LLA or Proximal IRLS-CD may appear in the matrix even when they are not public `solver=` keywords.
+- internal resolved labels such as FISTA-LLA, Proximal IRLS-CD, or Group Proximal IRLS-LLA may appear in the matrix even when they are not public `solver=` keywords.
 
 `AdaptiveGroupLassoPenalty` is available as a public penalty object but has no string-registry alias because callers must supply explicit group weights.
 
@@ -37,14 +37,15 @@ General conventions:
 | **inverse_gaussian** | Newton | FISTA | FISTA | FISTA-LLA | FISTA-LLA | FISTA | Group FISTA | Group FISTA-LLA | Group FISTA-LLA |
 | **negative_binomial** | Newton | FISTA-BB | FISTA-BB | FISTA-LLA | FISTA-LLA | FISTA-BB | Group FISTA | Group FISTA-LLA | Group FISTA-LLA |
 | **tweedie** | Newton | CPU FISTA-BB / GPU FISTA | CPU FISTA-BB / GPU FISTA | FISTA-LLA | FISTA-LLA | CPU FISTA-BB / GPU FISTA | Group FISTA | Group FISTA-LLA | Group FISTA-LLA |
-| **quantile** | IRLS | FISTA | FISTA | Proximal IRLS-CD | Proximal IRLS-CD | FISTA | Group FISTA | Group FISTA-LLA | Group FISTA-LLA |
+| **quantile** | IRLS | FISTA | FISTA | Proximal IRLS-CD | Proximal IRLS-CD | FISTA | Group FISTA | Group Proximal IRLS-LLA | Group Proximal IRLS-LLA |
 
 ### Reading the table
 
 - The cells show the **effective automatic route**, not every explicit solver that may be valid.
-- FISTA-LLA denotes the non-convex continuation route used for scalar SCAD/MCP objectives; Group FISTA-LLA is the corresponding group route.
-- Proximal IRLS-CD is a specialized resolved route rather than a public explicit solver keyword.
-- Group Lasso and Adaptive Group Lasso use the group-aware FISTA path; Group SCAD/MCP use a group-aware LLA path.
+- FISTA-LLA denotes the non-convex continuation route used for scalar SCAD/MCP objectives; Group FISTA-LLA is the corresponding group route for losses whose smooth/first-order structure supports it.
+- Quantile Group SCAD/MCP instead uses Group Proximal IRLS-LLA: the pinball objective is majorized by Quantile IRLS, and each convex Adaptive-Group-Lasso weighted least-squares surrogate is solved on the selected backend.
+- Proximal IRLS-CD and Group Proximal IRLS-LLA are specialized resolved routes rather than public explicit solver keywords.
+- Group Lasso and Adaptive Group Lasso use the group-aware FISTA path.
 - Model-specific reasons for a cell belong in the corresponding model page rather than in this matrix.
 
 For family/link domain restrictions, weighting semantics, or special initialization rules, see [GeneralizedLinearModel](../models/generalized-linear-model.md). For Quantile-specific solver choices and non-smooth behavior, see [Quantile Regression](../models/quantile.md).
@@ -63,10 +64,11 @@ This table summarizes the numerical prerequisites for **model-level explicit sol
 | `fista_bb` | smooth-gradient differences suitable for BB step adaptation | supported sparse proximal routes | excluded when the loss lacks meaningful smooth-gradient differences |
 | `admm` | supported splitting with a smooth w-subproblem | supported proximal formulations | route-specific support |
 | `irls_cd` | specialized scalar IRLS/coordinate-descent formulation | specialized routes | not a general-purpose fallback |
-| `proximal_irls_cd` | specialized proximal IRLS majorization | specialized non-convex routes | internal resolved label; not a public explicit `solver=` keyword |
+| `proximal_irls_cd` | specialized proximal IRLS majorization | specialized scalar non-convex routes | internal resolved label; not a public explicit `solver=` keyword |
+| `group_proximal_irls_lla` | Quantile IRLS majorization + group LLA convex surrogate | Quantile Group SCAD/MCP automatic route | internal executed label; not a public explicit `solver=` keyword |
 | `proximal_newton` | compatible Newton/proximal structure | route specific | behavior depends on loss and penalty structure |
 
-Unsupported explicit estimator combinations raise an error before numerical fitting. The matrix intentionally states the shared numerical conditions here; model-specific exclusions and alternatives are documented on the corresponding model page.
+Unsupported explicit estimator combinations raise an error before numerical fitting. An explicit Group SCAD/MCP `solver="fista"` request remains an explicit proximal-FISTA request when supported; it is not rewritten into the automatic Group Proximal IRLS-LLA route.
 
 ## 3. Solver capability summary
 
@@ -78,7 +80,7 @@ Unsupported explicit estimator combinations raise an error before numerical fitt
 | `lbfgs` | consistent smooth gradient | smooth L2/no-penalty objectives | loss/estimator dependent | ❌ |
 | `fista` | first-order loss primitive + proximal step | convex proximal objectives and LLA inner solves | route dependent | ✅ |
 | `fista_bb` | smooth-gradient differences + proximal step | sparse objectives with adaptive BB steps | route dependent | ✅ |
-| `admm` | compatible splitting and smooth w-update | proximal formulations | route dependent | ✅ |
+| `admm` | compatible splitting and smooth w-update | proximal formulations and internal convex surrogate solves | route dependent | ✅ |
 | `irls_cd` | specialized IRLS + coordinate descent | specialized scalar routes | route dependent | ✅ |
 
 `sample_weight` support is a **loss × solver × estimator** contract; it cannot be inferred from a solver signature alone. Weight semantics and unsupported combinations are documented on the relevant model page and in [Loss × Penalty × Solver Framework](loss-penalty-solver-framework.md).
@@ -96,13 +98,14 @@ Cross-validation may intentionally choose a different numerical route from direc
 | **inverse_gaussian** | L-BFGS | FISTA | FISTA-LLA | FISTA | Group FISTA | Group FISTA-LLA |
 | **negative_binomial** | L-BFGS | FISTA-BB, except a GPU ElasticNet size band uses FISTA | FISTA-LLA | FISTA-BB | Group FISTA | Group FISTA-LLA |
 | **tweedie** | Newton | CPU FISTA-BB / GPU FISTA | FISTA-LLA | CPU FISTA-BB / GPU FISTA | Group FISTA | Group FISTA-LLA |
-| **quantile** | IRLS | FISTA | Proximal IRLS-CD | FISTA | Group FISTA | Group FISTA-LLA |
+| **quantile** | IRLS | FISTA | Proximal IRLS-CD | FISTA | Group FISTA | Group Proximal IRLS-LLA |
 
 ### CV notes
 
 - The table records the actual automatic route; backend- or size-dependent policies are shown directly in the affected cells.
 - An explicit solver request remains authoritative when that loss × penalty × solver combination is supported; CV does not silently replace it simply because folds or weights are present.
 - Candidate fits and the selected full-data refit preserve the resolved loss, penalty, groups, and solver contract.
+- Quantile Group SCAD/MCP CV uses fold-local analytic weights inside the Group Proximal IRLS-LLA candidate fits and full-data weights in the selected final refit.
 - Group validation is performed before candidate fitting; detailed group-input rules are documented in [Loss × Penalty × Solver Framework](loss-penalty-solver-framework.md).
 - Strict/two-stage CV semantics and model-specific validation behavior are documented on the relevant model pages rather than duplicated here.
 
