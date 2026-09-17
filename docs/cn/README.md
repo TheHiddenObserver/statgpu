@@ -14,6 +14,7 @@
 - [分布 API](guides/distribution-api.md) — 详细分布函数与 backend 使用
 - [已实现方法](guides/implemented-methods.md) — public model 与方法清单
 - [交叉验证](guides/cross-validation.md) — fold、tuning grid、选择与最终重拟合
+- [statgpu 的交叉验证如何工作](guides/cross-validation-design.md) — 公开 CV execution model、加速思想与统计不变量
 - [CoxPHCV 实验性筛选安全策略](guides/cox-cv-staged-safety.md) — experimental screening control 的用户可见行为
 - [Solver × Penalty 矩阵](guides/solver-penalty-matrix.md) — loss × penalty × solver 兼容性
 - [设备与 GPU 内存](guides/device-and-memory.md) — 设备选择、内存清理
