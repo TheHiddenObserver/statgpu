@@ -1,4 +1,4 @@
-"""Penalty-object CV consumer coverage for PR #166 Quantile Group FISTA-LLA."""
+"""Penalty-object CV consumer coverage for PR #166 Quantile Group LLA."""
 
 from __future__ import annotations
 
@@ -68,10 +68,8 @@ def test_quantile_group_scad_penalty_object_matches_string_cv_and_refit():
         string_cv.intercept_, rel=3e-7, abs=3e-9
     )
 
-    # The caller-owned template is immutable; the selected full-data estimator
-    # exposes a separate snapshot at the selected CV alpha.
     assert penalty_object.alpha == pytest.approx(0.9)
     assert object_cv.penalty is penalty_object
     assert object_cv.estimator_.penalty is not penalty_object
     assert object_cv.estimator_.penalty.alpha == pytest.approx(object_cv.alpha_)
-    assert object_cv.estimator_._selected_solver == "fista"
+    assert object_cv.estimator_._selected_solver == "group_proximal_irls_lla"
