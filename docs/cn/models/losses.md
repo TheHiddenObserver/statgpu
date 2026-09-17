@@ -1,7 +1,7 @@
 # 损失函数（LossBase）
 
 > 语言：中文  
-> 最后更新：2026-09-16  
+> 最后更新：2026-09-17  
 > 页面定位：底层损失函数参考  
 > 切换：[英文版](../../en/models/losses.md)
 
@@ -146,7 +146,7 @@ $$
 
 ## 求解器兼容性
 
-下表描述的是当前维护的**无权重**底层求解器兼容性，不能直接当成带权支持矩阵。
+下表描述的是当前支持的**无权重**底层求解器兼容性，不能直接当成带权支持矩阵。
 
 | 求解器 | 分位数 | Huber | Bisquare | Fair | Cox PH |
 |--------|----------|-------|----------|------|--------|
@@ -160,7 +160,7 @@ $$
 | ADMM | ❌（共享 w-update 要求光滑梯度） | ✅ | ✅ | ✅ | ✅ |
 | IRLS | ✅（L2/无惩罚） | ❌（当前未开放） | ✅（L2/无惩罚） | ✅（L2/无惩罚） | ❌ |
 
-对 Quantile loss，公开底层 `fista_bb_solver` 与 `admm_solver` 会在数值迭代前 fail closed。直接 `lbfgs_solver` 保留既有的无权重/均匀权重 Quantile 兼容边界，真正非均匀权重仍 fail closed。普通 FISTA 继续作为维护中的模型层稀疏凸路径；L2/无惩罚使用 Quantile IRLS，SCAD/MCP 使用 Proximal IRLS-CD。Huber IRLS 当前未作为维护中的公开求解路径开放；因此该行的 ❌ 表示公共分发不会选择它。
+对 Quantile loss，公开底层 `fista_bb_solver` 与 `admm_solver` 会在数值迭代前报错。直接 `lbfgs_solver` 保留既有的无权重/均匀权重 Quantile 兼容边界，真正非均匀权重同样会报错。普通 FISTA 是受支持的模型层稀疏凸路径；L2/无惩罚默认使用 Quantile IRLS，也可以显式选择普通 FISTA；SCAD/MCP 使用 Proximal IRLS-CD。Huber IRLS 当前未作为公开求解路径开放；因此该行的 ❌ 表示公共分发不会选择它。
 
 ### 非均匀权重与直接调用 L-BFGS
 
@@ -168,7 +168,7 @@ $$
 
 | 路径 | 非均匀 `sample_weight` |
 |---|---|
-| 当前维护的 `GLMLoss` | ✅ 支持 |
+| 支持带权目标的 `GLMLoss` | ✅ 支持 |
 | 分位数 / Huber / Bisquare / Fair | ❌ 不能由“无权重 L-BFGS 可用”推出 |
 | Cox 部分似然 | ❌ 当前明确不支持 `sample_weight` |
 
@@ -268,7 +268,7 @@ hessian = loss.hessian(X, y_surv, coef)
 
 跨 NumPy/CuPy/Torch 的数值一致性和“某种权重解释是否已经声明为受支持”是两个不同问题。三后端一致本身不能证明一个尚未声明带权统计语义的损失函数支持该加权方式。
 
-- `QuantileLoss` 非光滑且没有 Hessian；维护中的模型层路径是受支持稀疏凸目标的普通 FISTA、L2/无惩罚的 IRLS，以及明确记录的 Proximal IRLS-CD/FISTA-LLA。底层 FISTA-BB 和共享 ADMM 对 Quantile fail closed；直接无权重/均匀权重 L-BFGS 保留为既有兼容面。
+- `QuantileLoss` 非光滑且没有 Hessian；模型层支持受支持稀疏凸目标的普通 FISTA、L2/无惩罚的 IRLS，也支持显式选择 L2/无惩罚普通 FISTA；另外在相应场景使用 Proximal IRLS-CD/FISTA-LLA。底层 FISTA-BB 和共享 ADMM 拒绝 Quantile；直接无权重/均匀权重 L-BFGS 保留为既有兼容面。
 - 稳健损失有各自的模型层权重语义；这不会自动扩展成直接调用 L-BFGS 时的非均匀权重支持。
 - `CoxPartialLikelihoodLoss` 当前明确拒绝 `sample_weight`；如果以后定义 Cox 的病例权重、频数权重或抽样权重，需要单独固定统计语义并完成验证。
 - 面板模型使用独立的 `BasePanelModel` 架构，不是 `LossBase` 子类，也不应从本页推断其目标函数或权重语义。
