@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Physical CUDA acceptance for Quantile Group SCAD/MCP FISTA-LLA routing."""
+"""Physical CUDA acceptance for Quantile Group SCAD/MCP LLA routing."""
 
 from __future__ import annotations
 
@@ -25,6 +25,7 @@ ALPHA_GRID = np.asarray([0.05, 0.03], dtype=np.float64)
 ATOL_OBJECTIVE = 8e-5
 ATOL_PARAM = 1e-4
 ATOL_CV_SCORE = 1e-4
+ATOL_FLAT_REFERENCE = 5e-5
 
 
 def _git(*args: str) -> str:
@@ -99,7 +100,7 @@ def _array_backend_and_device(value):
 
 
 def _with_lla_counter(fn, *, expected_backend, min_calls=1):
-    """Execute a case while proving every LLA call owns the expected arrays."""
+    """Execute a case while proving every public LLA call owns expected arrays."""
     original = solvers.fista_lla_path
     count = {"value": 0}
     observed_devices = set()
@@ -186,6 +187,21 @@ def _cv(kind, X, y, weights, folds, device):
     ).fit(X, y, sample_weight=weights)
 
 
+def _unpenalized_reference(X, y, weights):
+    return PenalizedGeneralizedLinearModel(
+        loss="quantile",
+        loss_kwargs={"quantile": Q},
+        penalty="l2",
+        alpha=0.0,
+        solver="irls",
+        device="cpu",
+        fit_intercept=True,
+        compute_inference=False,
+        max_iter=800,
+        tol=1e-9,
+    ).fit(X, y, sample_weight=weights)
+
+
 def _host(value):
     return np.asarray(_to_numpy(value), dtype=np.float64)
 
@@ -203,13 +219,71 @@ def _parameter_error(actual, reference):
     return max(coef_error, intercept_error), coef_error, intercept_error
 
 
+def _pinball_fit(coef, intercept, X, y, weights):
+    residual = y - (X @ coef + float(intercept))
+    pinball = np.where(residual >= 0.0, Q * residual, (Q - 1.0) * residual)
+    return float(np.average(pinball, weights=weights))
+
+
 def _objective(model, X, y, weights):
     coef = _host(model.coef_).reshape(-1)
-    residual = y - (X @ coef + float(model.intercept_))
-    pinball = np.where(residual >= 0.0, Q * residual, (Q - 1.0) * residual)
-    fit = float(np.average(pinball, weights=weights))
+    fit = _pinball_fit(coef, model.intercept_, X, y, weights)
     penalty = float(model._penalty.value(coef))
     return fit + penalty
+
+
+def _flat_threshold(kind):
+    group_scale = np.sqrt(2.0)
+    if kind == "group_scad":
+        return 3.7 * DIRECT_ALPHA * group_scale
+    return 3.0 * DIRECT_ALPHA * group_scale
+
+
+def _validate_flat_reference(kind, model, reference, X, y, weights):
+    coef = _host(model.coef_).reshape(-1)
+    ref_coef = _host(reference.coef_).reshape(-1)
+    threshold = _flat_threshold(kind)
+    group_norms = np.asarray(
+        [np.linalg.norm(coef[np.asarray(group, dtype=int)]) for group in GROUPS],
+        dtype=np.float64,
+    )
+    ref_group_norms = np.asarray(
+        [np.linalg.norm(ref_coef[np.asarray(group, dtype=int)]) for group in GROUPS],
+        dtype=np.float64,
+    )
+    if not np.all(group_norms > threshold):
+        raise AssertionError(
+            f"{kind}: fitted groups did not enter the flat penalty region: "
+            f"norms={group_norms!r}, threshold={threshold:.6g}"
+        )
+    if not np.all(ref_group_norms > threshold):
+        raise AssertionError(
+            f"{kind}: unpenalized reference is not in the same flat region: "
+            f"norms={ref_group_norms!r}, threshold={threshold:.6g}"
+        )
+    fit = _pinball_fit(coef, model.intercept_, X, y, weights)
+    ref_fit = _pinball_fit(ref_coef, reference.intercept_, X, y, weights)
+    param_error, coef_error, intercept_error = _parameter_error(model, reference)
+    fit_error = abs(fit - ref_fit)
+    if param_error > ATOL_FLAT_REFERENCE:
+        raise AssertionError(
+            f"{kind}: flat-region parameter closure {param_error:.3e} "
+            f"> {ATOL_FLAT_REFERENCE:.3e}"
+        )
+    if fit_error > ATOL_FLAT_REFERENCE:
+        raise AssertionError(
+            f"{kind}: flat-region data-fit closure {fit_error:.3e} "
+            f"> {ATOL_FLAT_REFERENCE:.3e}"
+        )
+    return {
+        "threshold": threshold,
+        "group_norms": group_norms.tolist(),
+        "reference_group_norms": ref_group_norms.tolist(),
+        "parameter_error": param_error,
+        "coef_error": coef_error,
+        "intercept_error": intercept_error,
+        "data_fit_error": fit_error,
+    }
 
 
 def _provenance(model, backend):
@@ -238,12 +312,16 @@ def main() -> int:
     cp, torch = _require_gpu_backends()
     X, y, weights, folds = _data()
     expected_cv_calls = len(folds) * len(ALPHA_GRID) + 1
+    unpenalized = _unpenalized_reference(X, y, weights)
 
     cpu = {}
     for kind in ("group_scad", "group_mcp"):
         direct, direct_calls, direct_locations = _with_lla_counter(
             lambda kind=kind: _fit(kind, X, y, weights, "cpu"),
             expected_backend="numpy",
+        )
+        flat_reference = _validate_flat_reference(
+            kind, direct, unpenalized, X, y, weights
         )
         cv, cv_calls, cv_locations = _with_lla_counter(
             lambda kind=kind: _cv(kind, X, y, weights, folds, "cpu"),
@@ -254,6 +332,7 @@ def main() -> int:
             "direct": direct,
             "direct_calls": direct_calls,
             "direct_locations": direct_locations,
+            "flat_reference": flat_reference,
             "objective": _objective(direct, X, y, weights),
             "cv": cv,
             "cv_calls": cv_calls,
@@ -294,6 +373,7 @@ def main() -> int:
                     "provenance": _provenance(direct, backend),
                     "fista_lla_calls": direct_calls,
                     "fista_lla_input_locations": direct_locations,
+                    "cpu_flat_reference": cpu[kind]["flat_reference"],
                     "parameter_error": param_error,
                     "coef_error": coef_error,
                     "intercept_error": intercept_error,
@@ -361,6 +441,7 @@ def main() -> int:
             "direct_objective": ATOL_OBJECTIVE,
             "parameter": ATOL_PARAM,
             "cv_score": ATOL_CV_SCORE,
+            "flat_reference": ATOL_FLAT_REFERENCE,
         },
         "environment": {
             "python": platform.python_version(),
