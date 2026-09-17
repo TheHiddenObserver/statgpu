@@ -400,6 +400,16 @@ def test_secondary_public_guides_keep_their_declared_layer():
 
 
 def test_public_solver_docs_do_not_expose_internal_review_vocabulary():
+    cn_internal_status_phrases = (
+        "维护中的路径",
+        "维护路径",
+        "维护的路径",
+        "维护中的实现",
+        "维护实现",
+        "维护中的求解",
+        "维护求解",
+    )
+
     for en_path, cn_path in _PUBLIC_DOC_PAIRS:
         en = (_ROOT / en_path).read_text(encoding="utf-8")
         cn = (_ROOT / cn_path).read_text(encoding="utf-8")
@@ -407,6 +417,7 @@ def test_public_solver_docs_do_not_expose_internal_review_vocabulary():
         assert "maintained" not in en.lower(), en_path
         assert "fail closed" not in en.lower(), en_path
         assert "fail-closed" not in en.lower(), en_path
-        assert "维护" not in cn, cn_path
+        for phrase in cn_internal_status_phrases:
+            assert phrase not in cn, f"{cn_path}: {phrase}"
         assert "fail closed" not in cn.lower(), cn_path
         assert "fail-closed" not in cn.lower(), cn_path
