@@ -205,7 +205,7 @@ Driscoll–Kraay 核名称支持 Bartlett/Newey–West、Parzen/Gallant 与 QS/Q
 - [面板模型总览](../models/panel.md) — 模型选择与统计解释
 - [面板模型架构](architecture.md) — 各估计器如何共享输入、拟合与推断基础设施
 - [设备与 GPU 内存](../guides/device-and-memory.md) — 后端与设备语义
-- [PooledOLS](pooled-ols.md)、[PanelOLS](fixed-effects.md)、[RandomEffects](random-effects.md)、[BetweenOLS](between-ols.md)、[FirstDifferenceOLS](first-difference.md)、[FamaMacBeth](fama-macbeth.md) — 模型专属行为
+- [PooledOLS](pooled-ols.md)、[PanelOLS](panel-ols.md)、[RandomEffects](random-effects.md)、[BetweenOLS](between-ols.md)、[FirstDifferenceOLS](first-difference-ols.md)、[FamaMacBeth](fama-macbeth.md) — 模型专属行为
 
 ## 参考文献
 
