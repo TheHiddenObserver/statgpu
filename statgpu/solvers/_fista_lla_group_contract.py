@@ -1,37 +1,35 @@
-"""Exact group-LLA surrogate scaling and Quantile LLA inner-solver ownership.
+"""Group-penalty contract wrapper for the fused FISTA-LLA path.
 
-Group MCP/SCAD local-linear approximation (LLA) produces derivatives with
-respect to each group norm.  The matching convex surrogate is
+The base fused solver expects an optional factory mapping the current penalty's
+per-coordinate LLA derivatives to an inner convex penalty. Group MCP/SCAD
+provide the derivative with respect to each group norm, repeated on the group's
+original feature coordinates. The matching convex surrogate is
 
     sum_g D_g ||beta_g||_2.
 
 ``AdaptiveGroupLassoPenalty(alpha=1, weights=D_g/sqrt(p_g))`` represents this
-surrogate exactly.  The wrapper below owns that mapping for every public Group
-MCP/SCAD ``fista_lla_path`` call.
+surrogate exactly. The historical estimator caller instead took an L2 norm of
+the repeated derivatives and used the target regularization strength again,
+producing ``alpha_target * p_g * D_g``. Direct public solver calls without a
+factory fell back to coordinate-wise Adaptive L1. Both paths optimize the wrong
+surrogate and are normalized here.
 
-For smooth/robust losses the historical fused FISTA-LLA implementation remains
-unchanged.  Quantile/check loss is deliberately different: its subgradient is
-discontinuous, and the historical fixed-step FISTA inner loop can exhaust its
-iteration budget without converging.  Small backend roundoff differences can
-then be amplified by the non-convex outer LLA path.  Quantile LLA therefore
-uses its standard IRLS quadratic majorization and solves each resulting convex
-L1/Group-Lasso surrogate with the maintained squared-error FISTA engine.  This
-keeps scalar and group Quantile LLA on one objective-consistent numerical core.
-When the LLA derivative is identically zero, the target surrogate is exactly
-unpenalized Quantile regression and closes through ``QuantileLoss.irls()``.
+The generic proximal-Newton inner loop is intentionally disabled for group
+nonconvex LLA. Its Armijo condition is based on a smooth Newton direction plus a
+post-hoc group proximal map; on valid Huber Group MCP/SCAD problems it can reject
+all trial steps, restore the old iterate, and return without a failure status.
+The group-aware fixed-step FISTA path uses the loss Lipschitz/step-scale contract
+and the exact weighted Group Lasso proximal operator, so convergence is
+observable through actual proximal updates rather than a silently stalled
+Newton step.
 """
 
 from __future__ import annotations
 
-import copy
 import numpy as np
 
-from statgpu.backends import _resolve_backend, _to_numpy
-from statgpu.backends._array_ops import _abs_sum_dev, _copy_arr, _zeros
-from statgpu.backends._utils import xp_ones
-from statgpu.penalties import AdaptiveGroupLassoPenalty, AdaptiveL1Penalty
+from statgpu.penalties import AdaptiveGroupLassoPenalty
 from ._fista_lla import fista_lla_path as _base_fista_lla_path
-from ._utils import _validate_sample_weight
 
 
 _GROUP_NONCONVEX_NAMES = frozenset(
@@ -51,6 +49,37 @@ class _GroupFISTALossProxy:
         return getattr(self._loss, name)
 
 
+class _QuantileWeightedStepScaleProxy:
+    """Retain analytic weights across Quantile FISTA-LLA step refreshes.
+
+    The fused engine supplies ``sample_weight`` on its initial step-scale call
+    but omits it on periodic refreshes. Quantile's step scale follows the
+    normalized weighted objective, so every public Quantile FISTA-LLA call must
+    reuse the same backend-native weights. This proxy is Quantile-only; all
+    other losses retain their previously validated behavior.
+    """
+
+    def __init__(self, loss):
+        self._loss = loss
+        self._sample_weight = None
+
+    def __getattr__(self, name):
+        return getattr(self._loss, name)
+
+    def lipschitz(self, X, coef, y=None, sample_weight=None):
+        if sample_weight is not None:
+            self._sample_weight = sample_weight
+        effective_weight = (
+            sample_weight if sample_weight is not None else self._sample_weight
+        )
+        return self._loss.lipschitz(
+            X,
+            coef,
+            y=y,
+            sample_weight=effective_weight,
+        )
+
+
 def _group_surrogate_factory(scad_penalty):
     groups = getattr(scad_penalty, "_group_indices", None)
     if groups is None:
@@ -65,8 +94,9 @@ def _group_surrogate_factory(scad_penalty):
         alpha=1.0,
         weights=np.ones(len(group_indices), dtype=float),
     )
-    # Quantile/smooth LLA can append one unpenalized intercept coordinate to
-    # the numerical design. Public group specifications remain feature-only.
+    # The fused LLA solver appends one unpenalized intercept coordinate when
+    # fit_intercept=True. Public group penalties remain exact-dimensional; only
+    # this private surrogate opts into that one-coordinate extension.
     inner_penalty._allow_trailing_unpenalized_intercept = True
 
     def factory(per_coordinate_derivatives):
@@ -101,272 +131,6 @@ def _group_surrogate_factory(scad_penalty):
     return factory
 
 
-def _scalar_surrogate_factory(per_coordinate_derivatives):
-    """Return the exact Adaptive-L1 surrogate without weight renormalization."""
-    values = np.asarray(per_coordinate_derivatives, dtype=np.float64).ravel()
-    if not np.all(np.isfinite(values)):
-        raise FloatingPointError("scalar LLA derivatives must be finite")
-    if np.any(values < -1e-12):
-        raise ValueError("scalar LLA derivatives must be non-negative")
-    values = np.maximum(values, 0.0)
-    return AdaptiveL1Penalty(
-        alpha=1.0,
-        normalize=False,
-        weights=values,
-    )
-
-
-def _backend_scalar(value, ref, xp, backend):
-    if backend == "torch":
-        return xp.tensor(value, dtype=ref.dtype, device=ref.device)
-    return xp.asarray(value, dtype=ref.dtype)
-
-
-def _to_backend_vector(value, ref, xp, backend):
-    if backend == "torch":
-        return xp.as_tensor(value, dtype=ref.dtype, device=ref.device)
-    return xp.asarray(value, dtype=ref.dtype)
-
-
-def _augment_initial_params(
-    init_coef,
-    init_intercept,
-    *,
-    n_features,
-    fit_intercept,
-    X_work,
-    xp,
-    backend,
-):
-    n_aug = n_features + (1 if fit_intercept else 0)
-    if init_coef is None:
-        return _zeros(n_aug, backend, ref_tensor=X_work)
-
-    params = _to_backend_vector(init_coef, X_work, xp, backend).reshape(-1)
-    if fit_intercept and int(params.shape[0]) == n_features:
-        intercept0 = 0.0 if init_intercept is None else float(init_intercept)
-        extra = _to_backend_vector([intercept0], X_work, xp, backend)
-        params = xp.cat([params, extra]) if backend == "torch" else xp.concatenate([params, extra])
-    if int(params.shape[0]) != n_aug:
-        raise ValueError(
-            f"Quantile LLA init_coef has length {int(params.shape[0])}, expected {n_aug}"
-        )
-    return _copy_arr(params)
-
-
-def _normalized_sample_weight(sample_weight, n_samples, X_work, xp, backend):
-    if sample_weight is None:
-        return None
-    sw = _to_backend_vector(sample_weight, X_work, xp, backend).reshape(-1)
-    total = xp.sum(sw)
-    total_f = float(_to_numpy(total))
-    return sw * (float(n_samples) / total_f)
-
-
-def _quantile_irls_weights(loss, X_work, y, params, sw, xp, backend):
-    """Build the same Quantile IRLS observation weights as the maintained solver."""
-    tau = float(getattr(loss, "_tau", getattr(loss, "quantile", 0.5)))
-    residual = y - X_work @ params
-    abs_residual = xp.abs(residual)
-    eps = _backend_scalar(1e-8, abs_residual, xp, backend)
-    abs_safe = xp.maximum(abs_residual, eps)
-    if backend == "torch":
-        neg = (residual < 0).to(abs_residual.dtype)
-    else:
-        neg = (residual < 0).astype(abs_residual.dtype)
-    asym = tau + (1.0 - 2.0 * tau) * neg
-    weights = asym / abs_safe
-    if sw is not None:
-        weights = weights * sw
-    # Match the scalar Proximal-IRLS safety cap.
-    cap = _backend_scalar(1.0e10, weights, xp, backend)
-    return xp.minimum(weights, cap)
-
-
-def _surrogate_is_zero(derivatives):
-    values = np.asarray(derivatives, dtype=np.float64).ravel()
-    return bool(values.size and np.all(values == 0.0))
-
-
-def _quantile_fista_lla_path(
-    loss,
-    nonconvex_penalty,
-    X,
-    y,
-    alpha_path,
-    max_lla_per_step=6,
-    lla_tol=1e-6,
-    max_iter=1000,
-    tol=1e-4,
-    fit_intercept=True,
-    sample_weight=None,
-    lla_penalty_factory=None,
-    init_coef=None,
-    init_intercept=None,
-    return_path=False,
-):
-    """Quantile LLA via IRLS majorization and convex FISTA subproblems."""
-    backend = _resolve_backend("auto", X)
-    if backend == "torch":
-        import torch as xp
-    elif backend == "cupy":
-        import cupy as xp
-    else:
-        xp = np
-
-    X_dev = _to_backend_vector(X, X, xp, backend)
-    y_dev = _to_backend_vector(y, X_dev, xp, backend).reshape(-1)
-    n_samples, n_features = X_dev.shape
-    if int(y_dev.shape[0]) != int(n_samples):
-        raise ValueError("Quantile LLA response length must match X rows")
-    # The public Quantile wrapper bypasses the base fused implementation, so
-    # preserve its exact low-level sample_weight validation contract here.
-    _validate_sample_weight(sample_weight, n_samples)
-
-    if fit_intercept:
-        ones = xp_ones((n_samples, 1), dtype=X_dev.dtype, xp=xp, ref_arr=X_dev)
-        X_work = xp.concatenate([X_dev, ones], axis=1)
-    else:
-        X_work = X_dev
-
-    params = _augment_initial_params(
-        init_coef,
-        init_intercept,
-        n_features=n_features,
-        fit_intercept=fit_intercept,
-        X_work=X_work,
-        xp=xp,
-        backend=backend,
-    )
-    sw = _normalized_sample_weight(sample_weight, n_samples, X_work, xp, backend)
-
-    penalty_name = str(getattr(nonconvex_penalty, "name", "")).lower()
-    is_group = penalty_name in _GROUP_NONCONVEX_NAMES
-    if is_group:
-        factory = lla_penalty_factory or _group_surrogate_factory(nonconvex_penalty)
-    else:
-        factory = lla_penalty_factory or _scalar_surrogate_factory
-
-    from statgpu.glm_core._squared import SquaredErrorLoss
-    from ._fista import fista_solver
-
-    quadratic_loss = SquaredErrorLoss()
-    total_iter = 0
-    path_records = [] if return_path else None
-
-    def split_current(current):
-        current_np = np.asarray(_to_numpy(current), dtype=np.float64).reshape(-1)
-        if fit_intercept:
-            return current_np[:n_features].copy(), float(current_np[n_features])
-        return current_np.copy(), 0.0
-
-    for cont_i, cont_alpha in enumerate(alpha_path):
-        pen_step = copy.copy(nonconvex_penalty)
-        pen_step.alpha = float(cont_alpha)
-        irls_limit = max_iter[cont_i] if isinstance(max_iter, (list, tuple)) else max_iter
-        irls_limit = max(1, int(irls_limit))
-        # The convex WLS subproblem need not be solved more tightly than the
-        # outer IRLS iterate.  Give it a meaningful minimum budget so a small
-        # outer continuation budget does not manufacture a convergence failure,
-        # while still bounding work for large problems.
-        fista_limit = max(250, min(1000, 4 * irls_limit))
-        fista_tol = max(float(tol), 1e-7)
-
-        for _ in range(int(max_lla_per_step)):
-            # Public group penalties are feature-dimensional.  Never pass the
-            # augmented intercept coordinate into their LLA derivative API.
-            feature_params = params[:n_features]
-            lla_feature = pen_step.lla_weights(feature_params)
-            lla_feature_np = np.asarray(
-                _to_numpy(lla_feature), dtype=np.float64
-            ).reshape(-1)
-            if int(lla_feature_np.size) != int(n_features):
-                raise ValueError(
-                    "Quantile LLA derivative vector must match feature count"
-                )
-
-            if fit_intercept:
-                lla_factory_values = np.concatenate(
-                    [lla_feature_np, np.zeros(1, dtype=np.float64)]
-                )
-            else:
-                lla_factory_values = lla_feature_np
-            inner_penalty = factory(lla_factory_values)
-            before_lla = _copy_arr(params)
-
-            if _surrogate_is_zero(lla_feature_np):
-                # Flat SCAD/MCP region: the exact LLA target is unpenalized
-                # weighted Quantile regression.
-                params, used_iter = loss.irls(
-                    X_work,
-                    y_dev,
-                    penalty=None,
-                    max_iter=irls_limit,
-                    tol=min(float(tol), 1e-8),
-                    init_coef=params,
-                    sample_weight=sw,
-                    fit_intercept=fit_intercept,
-                )
-                total_iter += int(used_iter)
-            else:
-                # Quantile IRLS/MM: at each iterate build the weighted least-
-                # squares quadratic majorizer, then solve that convex L1/group
-                # surrogate through the maintained squared-error FISTA engine.
-                for _irls_iter in range(irls_limit):
-                    params_old = _copy_arr(params)
-                    obs_weight = _quantile_irls_weights(
-                        loss, X_work, y_dev, params, sw, xp, backend
-                    )
-                    sqrt_weight = xp.sqrt(obs_weight)
-                    X_quad = X_work * sqrt_weight[:, None]
-                    y_quad = y_dev * sqrt_weight
-                    params, inner_iter = fista_solver(
-                        quadratic_loss,
-                        inner_penalty,
-                        X_quad,
-                        y_quad,
-                        max_iter=fista_limit,
-                        tol=fista_tol,
-                        init_coef=params,
-                        sample_weight=None,
-                        cv_mode=False,
-                    )
-                    total_iter += int(inner_iter)
-                    delta_dev = xp.max(xp.abs(params - params_old))
-                    if float(_to_numpy(delta_dev)) < float(tol):
-                        break
-
-            lla_delta = _abs_sum_dev(params - before_lla)
-            if float(_to_numpy(lla_delta)) < float(lla_tol):
-                break
-
-        if path_records is not None:
-            coef_rec, intercept_rec = split_current(params)
-            path_records.append(
-                {
-                    "alpha": float(cont_alpha),
-                    "coef": coef_rec,
-                    "intercept": intercept_rec,
-                    "n_iter": int(total_iter),
-                }
-            )
-
-    coef_np, intercept = split_current(params)
-    if return_path:
-        path = {
-            "alpha": np.asarray([r["alpha"] for r in path_records], dtype=np.float64),
-            "coef": np.vstack([r["coef"] for r in path_records]).astype(
-                np.float64, copy=False
-            ),
-            "intercept": np.asarray(
-                [r["intercept"] for r in path_records], dtype=np.float64
-            ),
-            "n_iter": np.asarray([r["n_iter"] for r in path_records], dtype=np.int64),
-        }
-        return coef_np, intercept, total_iter, path
-    return coef_np, intercept, total_iter
-
-
 def fista_lla_path(
     loss,
     scad_penalty,
@@ -384,35 +148,17 @@ def fista_lla_path(
     init_intercept=None,
     return_path=False,
 ):
-    """Run LLA with exact group scaling and Quantile-specific majorization."""
-    is_quantile = str(getattr(loss, "name", "")).lower() == "quantile"
+    """Run the fused LLA path with exact Group MCP/SCAD surrogate scaling."""
+    # Quantile's weighted step scale must remain objective-consistent for both
+    # scalar and group penalties, including direct public low-level calls.
+    if str(getattr(loss, "name", "")).lower() == "quantile":
+        loss = _QuantileWeightedStepScaleProxy(loss)
+
     penalty_name = str(getattr(scad_penalty, "name", "")).lower()
-
-    if is_quantile:
-        # Scalar and group Quantile LLA share the same IRLS/MM numerical core;
-        # only the convex surrogate penalty factory differs.
-        factory = lla_penalty_factory
-        if penalty_name in _GROUP_NONCONVEX_NAMES:
-            factory = _group_surrogate_factory(scad_penalty)
-        return _quantile_fista_lla_path(
-            loss,
-            scad_penalty,
-            X,
-            y,
-            alpha_path,
-            max_lla_per_step=max_lla_per_step,
-            lla_tol=lla_tol,
-            max_iter=max_iter,
-            tol=tol,
-            fit_intercept=fit_intercept,
-            sample_weight=sample_weight,
-            lla_penalty_factory=factory,
-            init_coef=init_coef,
-            init_intercept=init_intercept,
-            return_path=return_path,
-        )
-
     if penalty_name in _GROUP_NONCONVEX_NAMES:
+        # Group-norm penalties require a group-norm convex surrogate whether
+        # the caller supplied the historical factory or called this exported
+        # solver directly without one.
         lla_penalty_factory = _group_surrogate_factory(scad_penalty)
         loss = _GroupFISTALossProxy(loss)
 
