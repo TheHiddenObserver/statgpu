@@ -106,7 +106,7 @@ def _constructor_warning_policy():
 
 
 def _install_base_docstring_contract():
-    """Keep runtime help() aligned with the maintained public solver contract."""
+    """Keep runtime help() aligned with the public solver API."""
     doc = PenalizedGeneralizedLinearModel.__doc__
     if not doc:
         return
@@ -130,8 +130,8 @@ def _install_base_docstring_contract():
     new_solver = (
         "    solver : str, default='auto'\n"
         "        Solver: 'auto', 'fista', 'fista_bb', 'admm', 'irls', 'newton', "
-        "'lbfgs', or 'exact'. Support is loss/penalty dependent; unsupported "
-        "explicit combinations fail closed."
+        "'lbfgs', or 'exact'. Support depends on the loss and penalty; "
+        "unsupported explicit combinations raise an error."
     )
     if old_solver in doc:
         doc = doc.replace(old_solver, new_solver)
