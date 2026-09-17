@@ -40,6 +40,9 @@ def test_penalized_glm_runtime_help_lists_public_admm_solver():
 def test_typed_quantile_runtime_help_names_ordinary_fista_boundary():
     doc = " ".join((inspect.getdoc(PenalizedQuantileRegression) or "").split())
     assert "L1/ElasticNet objectives use ordinary FISTA" in doc
+    assert "explicit ordinary ``solver='fista'`` is also supported" in doc
+    assert "executes the generic FISTA engine rather than being silently substituted by IRLS" in doc
+    assert "IRLS remains the preferred automatic route" in doc
     assert "FISTA-BB and shared ADMM are not maintained Quantile routes" in doc
     assert "shared L-BFGS route assumes a smooth loss gradient" in doc
 
