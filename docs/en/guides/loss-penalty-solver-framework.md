@@ -2,7 +2,7 @@
 
 > Language: English
 >
-> Last updated: 2026-09-16
+> Last updated: 2026-09-17
 
 ## Overview
 
@@ -192,12 +192,12 @@ The main `solver="auto"` dispatch can be summarized as follows. Public `none` / 
 | 1 | `exact` | squared_error + L2/none + NumPy |
 | 2 | `newton` | squared_error + L2/none + GPU |
 | 3 | specialized continuation | Quantile SCAD/MCP → Proximal IRLS-CD; other non-convex SCAD/MCP and group non-convex penalties use their maintained LLA wrappers |
-| 4 | `irls` | Quantile + L2/none |
-| 5 | `fista` / `fista_bb` | Quantile convex sparse → ordinary FISTA; other convex sparse penalties, including adaptive L1 after initialization, use the loss/backend/CV-specific FISTA or FISTA-BB policy |
+| 4 | `irls` | Quantile + L2/none (`auto` preference) |
+| 5 | `fista` / `fista_bb` | ordinary FISTA is available for explicit Quantile L2/none and for Quantile convex sparse routes; other convex sparse penalties use the loss/backend/CV-specific FISTA or FISTA-BB policy |
 | 6 | `lbfgs` / `newton` | CV + L2 + loss-specific routing |
 | 7 | `newton` | maintained smooth L2/no-penalty GLM/robust/Cox paths with Hessian support |
 
-For Quantile, ordinary FISTA is maintained only on supported sparse convex estimator routes; L2/no-penalty uses IRLS and SCAD/MCP use Proximal IRLS-CD. Explicit L2/no-penalty Quantile `fista` and every estimator/CV Quantile `fista_bb`, `lbfgs`, or `admm` request fail before numerical dispatch. At the low-level solver API, FISTA-BB and ADMM also fail closed for Quantile, while direct unweighted/uniform Quantile L-BFGS remains an existing compatibility surface. The `exact` solver in this table is the closed-form squared-error/L2 solver and is unrelated to `CoxPH(ties="exact")`. For exact family/backend-specific dispatch, use the [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md).
+For Quantile, L2/no-penalty `auto` prefers IRLS, but an explicit ordinary `solver="fista"` is also maintained and executes the generic FISTA engine rather than being silently substituted by IRLS. Sparse convex Quantile routes use ordinary FISTA, and SCAD/MCP use Proximal IRLS-CD. Every estimator/CV Quantile `fista_bb`, `lbfgs`, or `admm` request remains fail-closed. At the low-level solver API, FISTA-BB and ADMM also fail closed for Quantile, while direct unweighted/uniform Quantile L-BFGS remains an existing compatibility surface. Because check loss has a step-function subgradient, the ordinary Quantile FISTA route is a maintained first-order proximal/subgradient route rather than a claim that classical smooth-gradient FISTA convergence assumptions apply. The `exact` solver in this table is the closed-form squared-error/L2 solver and is unrelated to `CoxPH(ties="exact")`. For exact family/backend-specific dispatch, use the [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md).
 
 ### All Solvers
 
@@ -210,7 +210,7 @@ For Quantile, ordinary FISTA is maintained only on supported sparse convex estim
 | `newton` | losses with Hessian support | L2 / none | loss-dependent; ordinary GLM ✅ | ❌ |
 | `lbfgs` | smooth losses; plus legacy direct Quantile compatibility for omitted/uniform weights | L2 / none | capability-gated; ordinary GLM ✅; Quantile non-uniform ❌ | ❌ |
 | `lbfgs_b` | smooth box-constrained problems | L2 / none | no generic non-uniform-weight contract declared | ❌ |
-| `fista` | losses supporting gradient/proximal routes | supported proximal penalties | loss-dependent | ✅ |
+| `fista` | maintained first-order gradient/subgradient + proximal routes | supported proximal penalties, including explicit Quantile L2/none | loss-dependent; maintained Quantile routes support normalized analytic weights | ✅ |
 | `fista_bb` | smooth-gradient-compatible losses; excludes Quantile | supported sparse penalties | loss-dependent | ✅ |
 | `fista_lla` | losses supporting the maintained LLA route | SCAD/MCP and group non-convex LLA routes | loss-dependent | ✅ |
 | `proximal_irls_cd` | quantile only | SCAD/MCP | ✅ | ✅ |
@@ -373,7 +373,7 @@ That Hessian-metric proximal subproblem is not implemented in the current solver
 |:---------------|:---:|:---:|:---:|
 | Proximal IRLS-CD | ✅ | ✅ | ✅ |
 | Proximal Newton (smooth route) | ✅ | ✅ | ✅ |
-| FISTA (weighted) | ✅ | ✅ | ✅ |
+| FISTA (weighted, including explicit Quantile L2/none) | ✅ | ✅ | ✅ |
 | FISTA-BB (weighted) | ✅ | ✅ | ✅ |
 | FISTA-LLA (weighted) | ✅ | ✅ | ✅ |
 | Quantile IRLS (L2/no-penalty auto or explicit request) | ✅ | ✅ | ✅ |
@@ -392,7 +392,7 @@ These are the public model classes users normally construct and call with `.fit(
 | `PenalizedLinearRegression` | squared_error | l1/l2/elasticnet/scad/mcp/adaptive_l1 | CPU exact / GPU Newton for L2/none; FISTA for convex sparse; FISTA-LLA for SCAD/MCP |
 | `PenalizedLogisticRegression` | logistic | l1/l2/elasticnet/scad/mcp/adaptive_l1 | Newton for L2/none; FISTA-BB for direct convex sparse; FISTA-LLA for SCAD/MCP |
 | `PenalizedPoissonRegression` | poisson | l1/l2/elasticnet/scad/mcp/adaptive_l1 | Newton for L2/none; FISTA-BB for direct convex sparse; FISTA-LLA for SCAD/MCP |
-| `PenalizedQuantileRegression` | quantile | scad/mcp/l2 and related supported penalties | IRLS for L2/none auto or explicit; ordinary FISTA for convex sparse routes; Proximal IRLS-CD for SCAD/MCP |
+| `PenalizedQuantileRegression` | quantile | scad/mcp/l2 and related supported penalties | IRLS for L2/none auto or explicit; explicit ordinary FISTA also supported for L2/none; FISTA for convex sparse routes; Proximal IRLS-CD for SCAD/MCP |
 | `PenalizedRobustRegression` | huber/bisquare/fair | l1/l2/elasticnet/scad/mcp and related penalties | Newton for L2/none; FISTA for convex sparse; FISTA-LLA for SCAD/MCP; explicit IRLS additionally exists for Bisquare/Fair |
 | `PenalizedCoxPHModel` | cox_ph | l1/l2/elasticnet/scad/mcp | Newton for L2/none; FISTA-BB for direct L1/ElasticNet; FISTA-LLA for SCAD/MCP |
 
@@ -405,6 +405,12 @@ These are the public model classes users normally construct and call with `.fit(
 from statgpu.linear_model.penalized import PenalizedQuantileRegression
 model = PenalizedQuantileRegression(quantile=0.5, penalty='scad', alpha=0.1)
 model.fit(X, y)
+
+# Explicit ordinary FISTA for a Quantile L2 objective
+fista_model = PenalizedQuantileRegression(
+    quantile=0.5, penalty='l2', alpha=0.01, solver='fista'
+)
+fista_model.fit(X, y)
 
 # Robust regression with MCP
 from statgpu.linear_model.penalized import PenalizedRobustRegression
