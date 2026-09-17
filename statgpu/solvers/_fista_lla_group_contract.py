@@ -265,11 +265,12 @@ def _quantile_fista_lla_path(
         pen_step.alpha = float(cont_alpha)
         irls_limit = max_iter[cont_i] if isinstance(max_iter, (list, tuple)) else max_iter
         irls_limit = max(1, int(irls_limit))
-        # Each WLS surrogate is convex and warm-started.  A bounded inner solve
-        # is enough to make the IRLS/MM step descend while keeping the overall
-        # continuation cost predictable on large problems.
-        fista_limit = max(50, min(250, irls_limit))
-        fista_tol = min(max(float(tol) * 0.1, 1e-10), 1e-7)
+        # The convex WLS subproblem need not be solved more tightly than the
+        # outer IRLS iterate.  Give it a meaningful minimum budget so a small
+        # outer continuation budget does not manufacture a convergence failure,
+        # while still bounding work for large problems.
+        fista_limit = max(250, min(1000, 4 * irls_limit))
+        fista_tol = max(float(tol), 1e-7)
 
         for _ in range(int(max_lla_per_step)):
             # Public group penalties are feature-dimensional.  Never pass the
