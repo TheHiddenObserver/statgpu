@@ -12,6 +12,7 @@
 - [已实现方法](guides/implemented-methods.md) — public estimator 与方法清单
 - [设备与 GPU 内存](guides/device-and-memory.md) — CPU/CUDA/Torch 行为与内存控制
 - [交叉验证](guides/cross-validation.md) — fold、tuning grid、选择与最终重拟合
+- [statgpu 的交叉验证如何工作](guides/cross-validation-design.md) — 公开 CV execution model 与加速语义
 - [推断模式](guides/inference-modes.md) — 选择并解释系数推断方法
 - [推断 API](guides/inference-api.md) — 分布函数、多重检验、排列检验与 bootstrap 工具
 - [变更记录](changelog.md) — 版本历史
