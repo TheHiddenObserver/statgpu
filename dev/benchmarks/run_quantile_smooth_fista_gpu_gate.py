@@ -32,6 +32,25 @@ def _require_clean_source() -> str:
     return sha
 
 
+def _run_inner(output: Path):
+    # Physical acceptance must prove convergence state as well as numerical
+    # parity. Promote statgpu's solver convergence warning to an exception while
+    # executing the maintained validator unchanged.
+    bootstrap = (
+        "import runpy, sys, warnings; "
+        "from statgpu.solvers._convergence import ConvergenceWarning; "
+        "warnings.simplefilter('error', ConvergenceWarning); "
+        f"sys.argv=[{str(RUNNER)!r}, '--output', {str(output)!r}]; "
+        f"runpy.run_path({str(RUNNER)!r}, run_name='__main__')"
+    )
+    subprocess.run(
+        [sys.executable, "-c", bootstrap],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+    return json.loads(output.read_text(encoding="utf-8"))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -43,12 +62,7 @@ def main() -> int:
     source_before = _require_clean_source()
     with tempfile.TemporaryDirectory(prefix="statgpu-pr166-smooth-fista-") as temp_dir:
         temp_output = Path(temp_dir) / "pr166-smooth-fista-gpu.json"
-        subprocess.run(
-            [sys.executable, str(RUNNER), "--output", str(temp_output)],
-            cwd=REPO_ROOT,
-            check=True,
-        )
-        payload = json.loads(temp_output.read_text(encoding="utf-8"))
+        payload = _run_inner(temp_output)
 
     source_after = _require_clean_source()
     if source_after != source_before:
