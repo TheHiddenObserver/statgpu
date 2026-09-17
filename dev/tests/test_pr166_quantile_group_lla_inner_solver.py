@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pytest
+from sklearn.exceptions import ConvergenceWarning
 
 from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
 from statgpu.penalties import GroupSCADPenalty
@@ -60,6 +63,7 @@ def test_nonzero_quantile_group_surrogate_uses_irls_weighted_squared_fista(monke
         seen["penalty_name"] = getattr(penalty_arg, "name", None)
         seen["sample_weight"] = kwargs.get("sample_weight")
         seen["max_iter"] = kwargs.get("max_iter")
+        seen["tol"] = kwargs.get("tol")
         seen["X"] = np.asarray(X_arg, dtype=np.float64).copy()
         seen["y"] = np.asarray(y_arg, dtype=np.float64).copy()
         # Keep the warm start unchanged so the outer IRLS loop closes in one step.
@@ -86,7 +90,8 @@ def test_nonzero_quantile_group_surrogate_uses_irls_weighted_squared_fista(monke
     # Analytic weights are absorbed into the IRLS quadratic design/response;
     # the inner squared-error FISTA therefore receives no second weight vector.
     assert seen["sample_weight"] is None
-    assert seen["max_iter"] == 50
+    assert seen["max_iter"] == 250
+    assert seen["tol"] == pytest.approx(1e-7)
     assert not np.array_equal(seen["X"], X)
     assert not np.array_equal(seen["y"], y)
     assert loss.irls_calls == 0
@@ -143,10 +148,8 @@ def _pinball(y, eta, weights):
     return float(np.average(values, weights=weights))
 
 
-def test_flat_target_group_scad_closes_to_weighted_quantile_irls():
-    """The physical-gate fixture has a flat final SCAD surrogate; close it exactly."""
-    X, y, weights = _fixture()
-    group = PenalizedGeneralizedLinearModel(
+def _fit_group_scad_fixture(X, y, weights):
+    return PenalizedGeneralizedLinearModel(
         loss="quantile",
         loss_kwargs={"quantile": Q},
         penalty="group_scad",
@@ -160,6 +163,28 @@ def test_flat_target_group_scad_closes_to_weighted_quantile_irls():
         max_lla_iters=18,
         lla_tol=1e-7,
     ).fit(X, y, sample_weight=weights)
+
+
+def test_quantile_group_wls_surrogates_do_not_accept_max_iter_as_success():
+    """The physical-style Group path must close convex WLS surrogates without warnings."""
+    X, y, weights = _fixture()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", ConvergenceWarning)
+        _fit_group_scad_fixture(X, y, weights)
+
+    relevant = [
+        item
+        for item in caught
+        if issubclass(item.category, ConvergenceWarning)
+        and "loss=squared_error, penalty=adaptive_group_lasso" in str(item.message)
+    ]
+    assert relevant == []
+
+
+def test_flat_target_group_scad_closes_to_weighted_quantile_irls():
+    """The physical-gate fixture has a flat final SCAD surrogate; close it exactly."""
+    X, y, weights = _fixture()
+    group = _fit_group_scad_fixture(X, y, weights)
 
     reference = PenalizedGeneralizedLinearModel(
         loss="quantile",
