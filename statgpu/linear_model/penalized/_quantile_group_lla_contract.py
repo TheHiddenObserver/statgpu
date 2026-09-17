@@ -1,17 +1,15 @@
-"""Quantile Group SCAD/MCP routing through the canonical group FISTA-LLA path.
+"""Quantile Group SCAD/MCP automatic routing through Proximal IRLS-LLA.
 
-The generic group-penalty contract already routes convex Group Lasso through
-loss-gradient FISTA rather than the historical Gaussian block update. Group
-SCAD/MCP have a separate automatic contract: local linear approximation (LLA)
-with an Adaptive Group Lasso surrogate. Quantile was accidentally excluded from
-that automatic branch by the legacy ``_SPECIAL_LLA_LOSSES`` classification, so
-``solver='auto'`` fell through to direct non-convex proximal FISTA instead of
-the documented Group FISTA-LLA algorithm.
+Convex Group Lasso remains on loss-gradient Group FISTA. Group SCAD/MCP need a
+non-convex local-linear-approximation (LLA) outer loop. For Quantile/check loss,
+the automatic route uses the loss's IRLS/MM quadratic majorization and solves
+each convex Adaptive-Group-Lasso surrogate with a backend-native exact-WLS ADMM
+inner solver. This avoids treating a discontinuous pinball subgradient as a
+smooth fixed-step FISTA problem.
 
-This narrow wrapper restores the declared automatic route without changing the
-historical meaning of an explicit ``solver='fista'`` request. The same
-distinction is preserved inside CV: only an auto-resolved child/final refit uses
-Group FISTA-LLA; explicit-FISTA CV remains explicit FISTA.
+The wrapper applies only to the public ``solver='auto'`` policy. An explicit
+``solver='fista'`` request remains explicit proximal FISTA in direct fits and in
+CV children/final refits.
 """
 
 from __future__ import annotations
@@ -36,6 +34,7 @@ _MARKER = "_statgpu_quantile_group_lla_contract"
 _CV_MARKER = "_statgpu_quantile_group_lla_cv_auto_context_contract"
 _GROUP_NONCONVEX = frozenset({"group_mcp", "gmcp", "group_scad", "gscad"})
 _AUTO_CV_GROUP_LLA = ContextVar("statgpu_quantile_group_auto_cv_lla", default=False)
+_EXECUTED_SOLVER = "group_proximal_irls_lla"
 
 
 def _penalty_name(owner) -> str:
@@ -133,10 +132,9 @@ def _install_quantile_group_lla_route() -> None:
         p = int(X_arr.shape[1])
 
         # Unweighted/equal-weight intercept fits keep the historical Quantile
-        # continuation path exactly. Non-uniform weights or a fixed zero
-        # intercept are objective-dependent cases that the backend-native
-        # resolver recomputes anyway, so they can skip the legacy full-host
-        # path calculation and carry only target/length metadata into it.
+        # continuation path exactly. Non-uniform weights or a fixed-zero
+        # intercept are objective-dependent cases whose start is recomputed on
+        # the selected backend, so only target/length metadata is needed first.
         needs_objective_resolve = (
             not self._effective_intercept
             or _continuation_contract._is_nonuniform_weight(sample_weight)
@@ -161,9 +159,11 @@ def _install_quantile_group_lla_route() -> None:
             fit_intercept=self._effective_intercept,
         )
 
-        from statgpu.solvers import fista_lla_path
+        from statgpu.solvers._quantile_group_proximal_irls_lla import (
+            quantile_group_proximal_irls_lla_solver,
+        )
 
-        coef, intercept, n_iter = fista_lla_path(
+        coef, intercept, n_iter = quantile_group_proximal_irls_lla_solver(
             self._loss,
             self._penalty,
             X_arr,
@@ -190,6 +190,7 @@ def _install_quantile_group_lla_route() -> None:
         self._df_resid = self._nobs - (
             p + (1 if self._effective_intercept else 0)
         )
+        self._selected_solver = _EXECUTED_SOLVER
 
         if backend_name == "cupy":
             self._cleanup_cuda_memory()
