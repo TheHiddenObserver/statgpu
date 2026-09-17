@@ -168,6 +168,69 @@ def test_solver_penalty_matrix_stays_a_cross_model_reference():
     assert "底层直接 Quantile L-BFGS" not in cn
 
 
+def test_loss_penalty_solver_framework_stays_at_composition_layer():
+    en = (_ROOT / "docs/en/guides/loss-penalty-solver-framework.md").read_text(
+        encoding="utf-8"
+    )
+    cn = (_ROOT / "docs/cn/guides/loss-penalty-solver-framework.md").read_text(
+        encoding="utf-8"
+    )
+
+    # The framework owns the architecture and composition contracts.
+    for heading in (
+        "## 1. Runtime architecture",
+        "## 2. Component responsibilities",
+        "## 3. Contract composition",
+        "## 4. Capability matching and solver dispatch",
+        "## 5. `sample_weight` and objective consistency",
+        "## 6. Backend and device boundary",
+        "## 7. CV and meta-estimator boundary",
+        "## 9. Documentation ownership",
+    ):
+        assert heading in en
+
+    for heading in (
+        "## 1. 运行架构",
+        "## 2. 各组件的职责",
+        "## 3. 契约如何组合",
+        "## 4. Capability matching 与 solver 分发",
+        "## 5. `sample_weight` 与目标函数一致性",
+        "## 6. Backend 与 device 边界",
+        "## 7. CV 与 meta-estimator 边界",
+        "## 9. 文档职责分工",
+    ):
+        assert heading in cn
+
+    # Detailed formulas, model-specific route narratives, full dispatch tables,
+    # and unrelated backend examples belong to their canonical pages.
+    for old_detail in (
+        "### All Implemented Losses",
+        "### Per-Sample Formulas",
+        "### SCAD Formula",
+        "### Specialized Solvers",
+        "## 4. Backend Coverage",
+        "| Priority | Solver | Condition |",
+        "PenalizedQuantileRegression(",
+        "DBSCAN",
+    ):
+        assert old_detail not in en
+
+    for old_detail in (
+        "### 已实现的全部损失函数",
+        "### 逐样本公式",
+        "### SCAD 公式",
+        "### 专用求解器",
+        "## 4. 后端覆盖",
+        "| 优先级 | 求解器 | 条件 |",
+        "PenalizedQuantileRegression(",
+        "DBSCAN",
+    ):
+        assert old_detail not in cn
+
+    assert "[Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md)" in en
+    assert "[求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md)" in cn
+
+
 def test_solver_algorithm_pages_preserve_explicit_quantile_fista_contract():
     en = (_ROOT / "docs/en/guides/solver-algorithms.md").read_text(encoding="utf-8")
     cn = (_ROOT / "docs/cn/guides/solver-algorithms.md").read_text(encoding="utf-8")
