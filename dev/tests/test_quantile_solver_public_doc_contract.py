@@ -1,12 +1,16 @@
 """Runtime-help contract for guarded public Quantile solver boundaries."""
 
 import inspect
+from pathlib import Path
 
 from statgpu import glm_core, solvers
 from statgpu.linear_model.penalized import (
     PenalizedGeneralizedLinearModel,
     PenalizedQuantileRegression,
 )
+
+
+_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_guarded_public_solver_docstrings_expose_quantile_boundary():
@@ -52,3 +56,20 @@ def test_typed_quantile_runtime_help_documents_loss_kwargs_precedence():
     assert "loss_kwargs={'quantile': q}" in doc
     assert "takes precedence over the typed ``quantile=`` argument" in doc
     assert "public ``quantile`` attribute retains the outer constructor value" in doc
+
+
+def test_solver_algorithm_pages_preserve_explicit_quantile_fista_contract():
+    en = (_ROOT / "docs/en/guides/solver-algorithms.md").read_text(encoding="utf-8")
+    cn = (_ROOT / "docs/cn/guides/solver-algorithms.md").read_text(encoding="utf-8")
+
+    assert "explicit `solver=\"fista\"` executes ordinary FISTA" in en
+    assert "not a claim that textbook smooth-gradient FISTA convergence theory applies" in en
+    assert "only an explicit `solver=\"fista\"` request selects this ordinary-FISTA route" in en
+    assert "an explicit `solver=\"fista\"` request remains authoritative for both CV child fits" in en
+    assert "explicit `solver=\"fista\"` fails rather than being silently substituted by IRLS" not in en
+
+    assert "显式 `solver=\"fista\"` 则真正执行普通 FISTA" in cn
+    assert "并不声称 pinball loss 满足教科书式 smooth-gradient FISTA 的收敛假设" in cn
+    assert "只有显式 `solver=\"fista\"` 才选择这条普通 FISTA 路径" in cn
+    assert "该请求对 CV 子拟合和最终全数据重拟合都保持权威并执行普通 FISTA" in cn
+    assert "显式 `solver=\"fista\"` 会失败而不是被静默替换成 IRLS" not in cn
