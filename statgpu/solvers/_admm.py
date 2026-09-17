@@ -58,9 +58,9 @@ def admm_solver(
         z^{k+1} = prox_{p/rho}(w^{k+1} + u^k)
         u^{k+1} = u^k + w^{k+1} - z^{k+1}
 
-    The w-update uses a direct Cholesky solve on the maintained constant-Hessian
-    squared-error route when available. Otherwise it uses Nesterov-accelerated
-    gradient descent on the smooth w-subproblem. The z-update reuses
+    The w-update uses a direct Cholesky solve for constant-Hessian squared-error
+    problems when available. Otherwise it uses Nesterov-accelerated gradient
+    descent on the smooth w-subproblem. The z-update reuses
     ``penalty.proximal()``. Both paths are GPU-friendly: the iterative w-update
     uses dense matmuls, while the z-update is element-wise.
 
