@@ -96,8 +96,9 @@ def _install_cv_auto_context() -> None:
     def _cv_fold_with_quantile_group_auto_context(self, *args, **kwargs):
         if not _is_auto_quantile_group_cv(self):
             return current_fold(self, *args, **kwargs)
+        strict = kwargs.get("strict", args[7] if len(args) > 7 else True)
         auto_token = _AUTO_CV_GROUP_LLA.set(True)
-        strict_token = _CV_GROUP_LLA_CANDIDATE_STRICT.set(True)
+        strict_token = _CV_GROUP_LLA_CANDIDATE_STRICT.set(bool(strict))
         try:
             return current_fold(self, *args, **kwargs)
         finally:
