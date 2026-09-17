@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
 from statgpu.losses import QuantileLoss
 from statgpu.penalties import GroupSCADPenalty
 from statgpu.solvers._convergence import ConvergenceWarning
@@ -58,6 +59,36 @@ def test_active_quantile_group_target_lla_exhaustion_warns_at_external_callsite(
     assert n_iter == 2
     np.testing.assert_allclose(coef, np.full(4, 0.1), rtol=0.0, atol=0.0)
     assert intercept == 0.0
+
+
+def test_estimator_target_warning_points_to_external_fit_callsite(monkeypatch):
+    """The public fit wrapper must not become the reported warning location."""
+    X, y, _, _ = _drifting_problem()
+
+    def drifting_admm(loss_arg, penalty_arg, X_arg, y_arg, **kwargs):
+        current = np.asarray(kwargs["init_coef"], dtype=np.float64)
+        return current + 0.001, 1
+
+    monkeypatch.setattr(solver_mod, "admm_solver", drifting_admm)
+    model = PenalizedGeneralizedLinearModel(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.35},
+        penalty="group_scad",
+        penalty_kwargs={"groups": GROUPS, "a": 3.7},
+        alpha=0.3,
+        solver="auto",
+        device="cpu",
+        compute_inference=False,
+        max_iter=2,
+        tol=1e-12,
+        lla_tol=1e-12,
+    )
+
+    with pytest.warns(ConvergenceWarning) as caught:
+        model.fit(X, y)
+
+    assert caught[-1].filename == __file__
+    assert model._selected_solver == "group_proximal_irls_lla"
 
 
 def test_active_quantile_group_target_lla_exhaustion_fails_in_strict_cv_mode(
