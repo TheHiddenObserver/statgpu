@@ -15,6 +15,7 @@ does not change the public low-level ``fista_lla_path`` contract, and explicit
 from __future__ import annotations
 
 import copy
+import inspect
 import warnings
 
 import numpy as np
@@ -32,6 +33,25 @@ from ._utils import _validate_sample_weight
 _GROUP_NONCONVEX_NAMES = frozenset(
     {"group_mcp", "gmcp", "group_scad", "gscad"}
 )
+
+
+def _external_warning_stacklevel() -> int:
+    """Return a warning stacklevel pointing past internal statgpu wrappers."""
+    frame = inspect.currentframe()
+    if frame is None:
+        return 2
+    frame = frame.f_back
+    level = 1
+    try:
+        while frame is not None:
+            module_name = str(frame.f_globals.get("__name__", ""))
+            if not module_name.startswith("statgpu."):
+                return level
+            frame = frame.f_back
+            level += 1
+    finally:
+        del frame
+    return 2
 
 
 def _backend_array(value, *, ref, xp, backend):
@@ -121,6 +141,7 @@ def quantile_group_proximal_irls_lla_solver(
     sample_weight=None,
     init_coef=None,
     init_intercept=None,
+    fail_on_target_nonconvergence=False,
 ):
     """Solve automatic Quantile Group SCAD/MCP through stable convex surrogates."""
     if str(getattr(loss, "name", "")).lower() != "quantile":
@@ -270,22 +291,32 @@ def quantile_group_proximal_irls_lla_solver(
 
         if is_final_continuation:
             if flat_irls_exhausted:
-                warnings.warn(
+                message = (
                     "Quantile Group Proximal IRLS-LLA flat target reached "
                     f"max_iter={irls_limit} in Quantile IRLS at "
                     f"alpha={float(cont_alpha):.12g}; returning the final iterate. "
-                    "Increase max_iter for a stricter convergence check.",
+                    "Increase max_iter for a stricter convergence check."
+                )
+                if fail_on_target_nonconvergence:
+                    raise FloatingPointError(message)
+                warnings.warn(
+                    message,
                     ConvergenceWarning,
-                    stacklevel=2,
+                    stacklevel=_external_warning_stacklevel(),
                 )
             elif not lla_converged:
-                warnings.warn(
+                message = (
                     "Quantile Group Proximal IRLS-LLA reached "
                     f"max_lla_per_step={int(max_lla_per_step)} at the target "
                     f"alpha={float(cont_alpha):.12g}; returning the final iterate. "
-                    "Increase max_lla_iters or relax lla_tol if needed.",
+                    "Increase max_lla_iters or relax lla_tol if needed."
+                )
+                if fail_on_target_nonconvergence:
+                    raise FloatingPointError(message)
+                warnings.warn(
+                    message,
                     ConvergenceWarning,
-                    stacklevel=2,
+                    stacklevel=_external_warning_stacklevel(),
                 )
 
     params_np = np.asarray(_to_numpy(params), dtype=np.float64).reshape(-1)
