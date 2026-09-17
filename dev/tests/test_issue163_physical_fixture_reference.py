@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import sys
+from pathlib import Path
 
 import numpy as np
 
@@ -21,6 +23,37 @@ def _pinball(y, eta, q, sample_weight):
     u = y - eta
     values = np.where(u >= 0.0, q * u, (q - 1.0) * u)
     return float(np.average(values, weights=np.asarray(sample_weight, dtype=np.float64)))
+
+
+def test_canonical_physical_artifact_preserves_exact_source_provenance():
+    """Canonical GPU evidence must retain auditable exact-source provenance."""
+    artifact = (
+        Path(__file__).resolve().parents[1]
+        / "reviews"
+        / "pr164_quantile_solver_provenance_gpu.json"
+    )
+    payload = json.loads(artifact.read_text(encoding="utf-8"))
+
+    assert payload["status"] == "success"
+    assert payload["source_clean"] is True
+    source_sha = payload["source_sha"]
+    assert isinstance(source_sha, str) and len(source_sha) == 40
+    int(source_sha, 16)
+
+    assert payload["source_sha_before"] == source_sha
+    assert payload["source_sha_after_execution"] == source_sha
+    assert payload["source_clean_before"] is True
+    assert payload["source_clean_after_execution"] is True
+
+    wrapper = "dev/benchmarks/run_quantile_solver_provenance_gpu_gate.py"
+    if "evidence_wrapper" in payload:
+        assert payload["evidence_wrapper"] == wrapper
+    else:
+        assert payload["evidence_wrapper_contract"] == wrapper
+        assert payload["evidence_wrapper_executed"] is False
+        metadata = payload["evidence_metadata"]
+        assert metadata["kind"] == "canonical_provenance_repair"
+        assert metadata["physical_rerun_required_for_metadata_repair"] is False
 
 
 def test_physical_fixture_public_fit_matches_direct_cv_scores():
