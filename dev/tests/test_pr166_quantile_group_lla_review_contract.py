@@ -16,6 +16,7 @@ from statgpu.linear_model.penalized import (
 from statgpu.linear_model.penalized import (
     _quantile_group_lla_contract as _group_lla_contract,
 )
+from statgpu.solvers import _quantile_group_proximal_irls_lla as group_solver
 from statgpu.solvers._quantile_continuation import (
     is_auto_quantile_continuation_path,
 )
@@ -58,7 +59,7 @@ def _manual_weighted_path(X, y, weights, target_alpha, n_cont=3):
 
 
 def test_quantile_group_lasso_bypasses_gaussian_block_cd(monkeypatch):
-    """The stacked group + Quantile contracts must retain loss-gradient FISTA."""
+    """Convex Quantile Group Lasso remains on loss-gradient FISTA."""
     X, y, weights = _data()
     import statgpu.solvers as solvers
 
@@ -93,19 +94,15 @@ def test_quantile_group_lasso_bypasses_gaussian_block_cd(monkeypatch):
 
     assert model._selected_solver == "fista"
     assert seen["loss"] == "quantile"
-    # The group contract deliberately hides the historical block-CD spelling
-    # while preserving the actual group penalty proximal operator.
     assert seen["penalty"] == "_group_lasso_generic"
 
 
 @pytest.mark.parametrize("kind", ["group_scad", "group_mcp"])
-def test_quantile_group_nonconvex_auto_uses_group_fista_lla(monkeypatch, kind):
+def test_quantile_group_nonconvex_auto_uses_group_proximal_irls_lla(monkeypatch, kind):
     X, y, weights = _data(seed=166302)
-    import statgpu.solvers as solvers
-
     captured = {}
 
-    def fake_lla(loss, penalty, X_fit, y_fit, alpha_path, **kwargs):
+    def fake_solver(loss, penalty, X_fit, y_fit, alpha_path, **kwargs):
         captured["loss"] = getattr(loss, "name", None)
         captured["penalty"] = getattr(penalty, "name", None)
         captured["alpha_path"] = np.asarray(alpha_path, dtype=np.float64).copy()
@@ -115,11 +112,9 @@ def test_quantile_group_nonconvex_auto_uses_group_fista_lla(monkeypatch, kind):
         captured["fit_intercept"] = bool(kwargs.get("fit_intercept"))
         return np.zeros(X_fit.shape[1], dtype=np.float64), 0.0, 1
 
-    def forbidden_fista(*args, **kwargs):
-        raise AssertionError("Quantile Group SCAD/MCP auto must use Group FISTA-LLA")
-
-    monkeypatch.setattr(solvers, "fista_lla_path", fake_lla)
-    monkeypatch.setattr(solvers, "fista_solver", forbidden_fista)
+    monkeypatch.setattr(
+        group_solver, "quantile_group_proximal_irls_lla_solver", fake_solver
+    )
 
     target = 0.04
     model = PenalizedGeneralizedLinearModel(
@@ -135,7 +130,7 @@ def test_quantile_group_nonconvex_auto_uses_group_fista_lla(monkeypatch, kind):
         tol=1e-7,
     ).fit(X, y, sample_weight=weights)
 
-    assert model._selected_solver == "fista"
+    assert model._selected_solver == "group_proximal_irls_lla"
     assert captured["loss"] == "quantile"
     assert captured["penalty"] == kind
     assert captured["fit_intercept"] is True
@@ -150,14 +145,14 @@ def test_quantile_group_nonconvex_auto_uses_group_fista_lla(monkeypatch, kind):
 
 @pytest.mark.parametrize("kind", ["group_scad", "group_mcp"])
 def test_quantile_group_nonconvex_explicit_fista_stays_explicit(monkeypatch, kind):
-    """An explicit solver request must not be silently converted into LLA."""
+    """An explicit solver request must not be converted into the auto route."""
     X, y, weights = _data(seed=166307)
     import statgpu.solvers as solvers
 
     seen = {"fista": 0}
 
-    def forbidden_lla(*args, **kwargs):
-        raise AssertionError("explicit Quantile group FISTA must not enter LLA")
+    def forbidden_auto(*args, **kwargs):
+        raise AssertionError("explicit Quantile group FISTA must not enter Proximal IRLS-LLA")
 
     def fake_fista(loss, penalty, X_fit, y_fit, **kwargs):
         seen["fista"] += 1
@@ -165,7 +160,9 @@ def test_quantile_group_nonconvex_explicit_fista_stays_explicit(monkeypatch, kin
         assert getattr(penalty, "name", None) == kind
         return np.zeros(X_fit.shape[1], dtype=np.float64), 1
 
-    monkeypatch.setattr(solvers, "fista_lla_path", forbidden_lla)
+    monkeypatch.setattr(
+        group_solver, "quantile_group_proximal_irls_lla_solver", forbidden_auto
+    )
     monkeypatch.setattr(solvers, "fista_solver", fake_fista)
 
     model = PenalizedGeneralizedLinearModel(
@@ -186,8 +183,7 @@ def test_quantile_group_nonconvex_explicit_fista_stays_explicit(monkeypatch, kin
 
 
 @pytest.mark.parametrize("kind", ["group_scad", "group_mcp"])
-def test_quantile_group_nonconvex_actual_cpu_fit_runs_full_lla(kind):
-    """Exercise the real Quantile + group LLA inner loop without route stubs."""
+def test_quantile_group_nonconvex_actual_cpu_fit_runs_full_auto_route(kind):
     X, y, weights = _data(seed=166305, n=20)
     model = PenalizedGeneralizedLinearModel(
         loss="quantile",
@@ -205,28 +201,28 @@ def test_quantile_group_nonconvex_actual_cpu_fit_runs_full_lla(kind):
         lla_tol=1e-5,
     ).fit(X, y, sample_weight=weights)
 
-    assert model._selected_solver == "fista"
+    assert model._selected_solver == "group_proximal_irls_lla"
     assert model.n_iter_ >= 1
     assert np.all(np.isfinite(model.coef_))
     assert np.isfinite(model.intercept_)
     assert np.all(np.isfinite(model.predict(X)))
 
 
-def test_quantile_group_scad_cv_uses_fold_local_weights_and_group_lla(monkeypatch):
+def test_quantile_group_scad_cv_uses_fold_local_weights_and_auto_route(monkeypatch):
     X, y, weights = _data(seed=166303, n=20)
     idx = np.arange(X.shape[0])
     folds = [(idx[10:], idx[:10]), (idx[:10], idx[10:])]
-    import statgpu.solvers as solvers
-
     seen_weights = []
 
-    def fake_lla(loss, penalty, X_fit, y_fit, alpha_path, **kwargs):
+    def fake_solver(loss, penalty, X_fit, y_fit, alpha_path, **kwargs):
         sample_weight = kwargs.get("sample_weight")
         if sample_weight is not None:
             seen_weights.append(np.asarray(sample_weight, dtype=np.float64).copy())
         return np.zeros(X_fit.shape[1], dtype=np.float64), 0.0, 1
 
-    monkeypatch.setattr(solvers, "fista_lla_path", fake_lla)
+    monkeypatch.setattr(
+        group_solver, "quantile_group_proximal_irls_lla_solver", fake_solver
+    )
 
     cv = PenalizedGLM_CV(
         loss="quantile",
@@ -244,6 +240,7 @@ def test_quantile_group_scad_cv_uses_fold_local_weights_and_group_lla(monkeypatc
     ).fit(X, y, sample_weight=weights)
 
     assert cv.alpha_ == pytest.approx(0.04)
+    assert cv.estimator_._selected_solver == "group_proximal_irls_lla"
     for train_idx, _ in folds:
         assert any(
             observed.shape == weights[train_idx].shape
@@ -257,7 +254,7 @@ def test_quantile_group_scad_cv_uses_fold_local_weights_and_group_lla(monkeypatc
 
 
 def test_quantile_group_scad_explicit_fista_cv_stays_explicit(monkeypatch):
-    """Explicit-FISTA CV children and final refit must not be auto-upgraded to LLA."""
+    """Explicit-FISTA CV children and final refit stay explicit FISTA."""
     X, y, weights = _data(seed=166308, n=18)
     idx = np.arange(X.shape[0])
     folds = [(idx[9:], idx[:9]), (idx[:9], idx[9:])]
@@ -265,14 +262,16 @@ def test_quantile_group_scad_explicit_fista_cv_stays_explicit(monkeypatch):
 
     seen = {"fista": 0}
 
-    def forbidden_lla(*args, **kwargs):
-        raise AssertionError("explicit Quantile group FISTA CV must not enter LLA")
+    def forbidden_auto(*args, **kwargs):
+        raise AssertionError("explicit Quantile group FISTA CV must not enter auto LLA")
 
     def fake_fista(loss, penalty, X_fit, y_fit, **kwargs):
         seen["fista"] += 1
         return np.zeros(X_fit.shape[1], dtype=np.float64), 1
 
-    monkeypatch.setattr(solvers, "fista_lla_path", forbidden_lla)
+    monkeypatch.setattr(
+        group_solver, "quantile_group_proximal_irls_lla_solver", forbidden_auto
+    )
     monkeypatch.setattr(solvers, "fista_solver", fake_fista)
 
     cv = PenalizedGLM_CV(
@@ -292,11 +291,10 @@ def test_quantile_group_scad_explicit_fista_cv_stays_explicit(monkeypatch):
 
     assert cv.alpha_ == pytest.approx(0.04)
     assert cv.estimator_._selected_solver == "fista"
-    assert seen["fista"] >= 3  # two folds plus the selected full-data refit
+    assert seen["fista"] >= 3
 
 
-def test_quantile_group_scad_actual_cpu_cv_runs_full_lla():
-    """The real CV children and selected full-data refit must complete via LLA."""
+def test_quantile_group_scad_actual_cpu_cv_runs_full_auto_route():
     X, y, weights = _data(seed=166306, n=18)
     idx = np.arange(X.shape[0])
     folds = [(idx[9:], idx[:9]), (idx[:9], idx[9:])]
@@ -316,14 +314,13 @@ def test_quantile_group_scad_actual_cpu_cv_runs_full_lla():
     ).fit(X, y, sample_weight=weights)
 
     assert cv.alpha_ == pytest.approx(0.04)
-    assert cv.estimator_._selected_solver == "fista"
+    assert cv.estimator_._selected_solver == "group_proximal_irls_lla"
     assert np.all(np.isfinite(cv.coef_))
     assert np.isfinite(cv.intercept_)
     assert np.all(np.isfinite(cv.cv_results_["all_scores"]))
 
 
 def test_nonuniform_quantile_path_metadata_avoids_legacy_full_host_snapshot(monkeypatch):
-    """Non-uniform weighted metadata must not call the old X/y NumPy generator."""
     X, y, weights = _data(seed=166304)
     model = PenalizedGeneralizedLinearModel(
         loss="quantile",
@@ -345,8 +342,6 @@ def test_nonuniform_quantile_path_metadata_avoids_legacy_full_host_snapshot(monk
     def forbidden_legacy(*args, **kwargs):
         raise AssertionError("legacy full-host Quantile path generator was called")
 
-    # The wrapper closes over the old generator, so patching module _to_numpy is
-    # the reliable signal that no full X/y host conversion occurred.
     monkeypatch.setattr(_fit_mixin, "_to_numpy", forbidden_legacy)
     token = _continuation_contract._QUANTILE_SAMPLE_WEIGHT.set(weights)
     try:
