@@ -1,7 +1,7 @@
 # Solver Algorithms
 
 > Language: English  
-> Last updated: 2026-09-16  
+> Last updated: 2026-09-17  
 > This page: Algorithm reference  
 > Switch: [Chinese](../../cn/guides/solver-algorithms.md)
 
@@ -23,7 +23,7 @@ For model-level dispatch, see [Solver × Penalty Compatibility Matrix](solver-pe
 |--------|----------|:---:|
 | Proximal IRLS-CD | quantile + SCAD/MCP | NumPy, CuPy, Torch |
 | Proximal Newton | smooth loss + L2/no penalty; non-smooth requests use FISTA | NumPy, CuPy, Torch |
-| FISTA | general non-smooth penalties | NumPy, CuPy, Torch |
+| FISTA | proximal-gradient routes; maintained Quantile subgradient routes | NumPy, CuPy, Torch |
 | FISTA-BB | GLM + sparse penalties | NumPy, CuPy, Torch |
 | FISTA-LLA | non-convex penalties via continuation/LLA | NumPy, CuPy, Torch |
 | IRLS | losses with a maintained IRLS representation | NumPy, CuPy, Torch |
@@ -33,7 +33,7 @@ For model-level dispatch, see [Solver × Penalty Compatibility Matrix](solver-pe
 | ADMM | separable/proximal formulations | NumPy, CuPy, Torch |
 | `exact` | squared error + L2 closed-form path | NumPy, CuPy, Torch |
 
-The backend column describes numerical implementation capability only. Estimator and loss contracts can further narrow the valid combinations. Quantile/check loss is one such narrowing: ordinary FISTA is maintained on supported sparse convex estimator routes, while FISTA-BB and shared ADMM are excluded. Direct low-level L-BFGS retains the historical omitted/uniform-weight Quantile compatibility surface even though estimator/CV `solver="lbfgs"` is unsupported and genuine non-uniform Quantile L-BFGS weights fail closed.
+The backend column describes numerical implementation capability only. Estimator and loss contracts can further narrow the valid combinations. Quantile/check loss is one such narrowing: ordinary FISTA is maintained on supported sparse convex estimator routes and is also available when explicitly requested for Quantile L2/no-penalty objectives; `solver="auto"` continues to prefer IRLS for those L2/no-penalty rows. This Quantile use is a maintained first-order proximal/subgradient route, not a claim that textbook smooth-gradient FISTA convergence theory applies to pinball loss. FISTA-BB and shared ADMM remain excluded. Direct low-level L-BFGS retains the historical omitted/uniform-weight Quantile compatibility surface even though estimator/CV `solver="lbfgs"` is unsupported and genuine non-uniform Quantile L-BFGS weights fail closed.
 
 ---
 
@@ -370,13 +370,15 @@ Thus the maintained L2/no-penalty path named `proximal_newton_solver` is numeric
 
 **File**: `statgpu/solvers/_fista.py`
 
-**Use case**: Composite objectives
+**Classical use case**: Composite objectives
 
 $$
 F(\beta)=f(\beta)+P(\beta),
 $$
 
-with smooth $f$ and a penalty $P$ that has a proximal operator.
+with smooth $f$ and a penalty $P$ that has a proximal operator. This is the textbook FISTA setting.
+
+statgpu also deliberately maintains ordinary-FISTA Quantile routes. On those routes the same engine uses the check-loss subgradient supplied by `QuantileLoss`; because check/pinball loss is non-smooth, this should be read as a maintained accelerated first-order proximal/subgradient implementation, not as a claim that the Beck-Teboulle smooth-composite convergence assumptions apply. For Quantile L2/no penalty, `solver="auto"` remains IRLS; only an explicit `solver="fista"` request selects this ordinary-FISTA route.
 
 ### Proximal-gradient update
 
@@ -386,10 +388,16 @@ $$
 \beta_0=y_0,\qquad t_0=1.
 $$
 
-At momentum point $y_k$, compute
+For a classical smooth route, the momentum-point gradient is
 
 $$
 g_k=\nabla f(y_k).
+$$
+
+On a maintained Quantile ordinary-FISTA route, the loss layer instead supplies a selected check-loss subgradient,
+
+$$
+g_k\in\partial f(y_k).
 $$
 
 For current Lipschitz constant $L_k$, use
@@ -421,7 +429,7 @@ $$
 \Delta_k=\beta_{k+1}-y_k.
 $$
 
-A trial step must satisfy the smooth-part quadratic upper bound
+A trial step checks the smooth-route quadratic upper bound
 
 $$
 f(\beta_{k+1})
@@ -439,6 +447,8 @@ L_k\leftarrow1.5L_k,
 $$
 
 and the proximal step is recomputed, for at most 20 backtracking attempts. Supported asynchronous GPU non-smooth routes use a conservative fixed $L_k$ instead of synchronizing for every backtracking trial; the proximal update itself is unchanged.
+
+For the maintained Quantile ordinary-FISTA route, this same check is used as a numerical step-size safeguard with the selected subgradient. It does not make the check loss smooth and does not supply the textbook smooth-FISTA convergence guarantee.
 
 ### Nesterov momentum
 
@@ -470,7 +480,7 @@ g(\beta)
 =\frac{X^\top(s\odot\psi)}{\sum_i s_i}.
 $$
 
-Weighted objective tracking and the weighted Lipschitz estimate use the same analytic-weight convention. A weighted FISTA implementation does not by itself imply that every model/loss combination supports weights.
+Weighted objective tracking and the weighted Lipschitz estimate use the same analytic-weight convention. A weighted FISTA implementation does not by itself imply that every model/loss combination supports weights. The maintained Quantile ordinary-FISTA route, including explicitly selected L2/no-penalty FISTA, uses this normalized analytic-weight convention where that estimator route supports `sample_weight`.
 
 ### Defaults
 
@@ -1452,11 +1462,11 @@ direct fit with solver="auto"
 └── group penalties                      → group-aware FISTA / FISTA-LLA
 ```
 
-For Quantile L2/no-penalty objectives, explicit `solver="irls"` selects the same maintained algorithm as `auto`, while explicit `solver="fista"` fails rather than being silently substituted by IRLS. At the estimator/CV boundary, Quantile FISTA-BB, L-BFGS, and ADMM requests fail before numerical dispatch. At the public low-level solver boundary, Quantile FISTA-BB and ADMM also fail closed; direct L-BFGS preserves the existing omitted/uniform compatibility surface, with non-uniform weights still rejected. Sparse Quantile ordinary FISTA and SCAD/MCP Proximal IRLS-CD remain distinct maintained estimator algorithms.
+For Quantile L2/no-penalty objectives, explicit `solver="irls"` selects the same maintained algorithm as `auto`, while explicit `solver="fista"` executes ordinary FISTA and is never silently substituted by IRLS. At the estimator/CV boundary, Quantile FISTA-BB, L-BFGS, and ADMM requests fail before numerical dispatch. At the public low-level solver boundary, Quantile FISTA-BB and ADMM also fail closed; direct L-BFGS preserves the existing omitted/uniform compatibility surface, with non-uniform weights still rejected. Sparse Quantile ordinary FISTA and SCAD/MCP Proximal IRLS-CD remain distinct maintained estimator algorithms.
 
 The tree is intentionally a summary. Exact family/backend/problem-size rules—especially Poisson and Negative-Binomial CV sparse routing—are defined in the [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md).
 
-`PenalizedGLM_CV` has a related but intentionally separate smooth-L2 policy. Quantile L2/no-penalty candidates and selected final refits use IRLS. Gamma, Inverse-Gaussian, and Negative-Binomial L2 CV/final-refit routes use L-BFGS, while logistic, Poisson, and Tweedie L2 rows use Newton. Consult the compatibility matrix rather than inferring CV behavior from the direct-fit tree.
+`PenalizedGLM_CV` has a related but intentionally separate smooth-L2 policy. With `solver="auto"`, Quantile L2/no-penalty candidates and selected final refits use IRLS; an explicit `solver="fista"` request remains authoritative for both CV child fits and the selected full-data refit. Gamma, Inverse-Gaussian, and Negative-Binomial L2 CV/final-refit routes use L-BFGS, while logistic, Poisson, and Tweedie L2 rows use Newton. Consult the compatibility matrix rather than inferring CV behavior from the direct-fit tree.
 
 `sample_weight` does not change an explicitly requested solver. Unsupported weighted combinations raise instead of selecting a different solver.
 
