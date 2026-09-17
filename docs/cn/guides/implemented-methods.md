@@ -1,10 +1,9 @@
 # 已实现方法
 
-> 最后更新：2026-09-15  
+> 最后更新：2026-09-17  
 > 切换：[English](../../en/guides/implemented-methods.md)
 
-本页是 statgpu 当前公开模型、函数与主要求解器族的维护中清单。详细数学定义、
-推断范围与后端契约以对应模型页和指南为准。
+本页是 statgpu 当前公开模型、函数与主要求解器族的用户侧清单。详细数学定义、推断范围与兼容性规则以对应模型页和指南为准。
 
 ## 回归与广义线性模型
 
@@ -26,9 +25,7 @@
 
 ## 惩罚模型
 
-Penalty registry 包含 L1、L2、Elastic Net、SCAD、MCP、adaptive L1、
-group Lasso、adaptive group Lasso、group MCP 与 group SCAD。部分 penalty
-还接受别名；应以 registry 与兼容矩阵为准，不再在文档中维护容易漂移的固定数量。
+Penalty registry 包含 L1、L2、Elastic Net、SCAD、MCP、adaptive L1、group Lasso、adaptive group Lasso、group MCP 与 group SCAD。部分 penalty 接受别名；solver 支持应以兼容性 reference 为准，不能仅由 penalty 名称推断。
 
 | Class | Loss 或模型族 | 后端 |
 |---|---|---|
@@ -36,20 +33,17 @@ group Lasso、adaptive group Lasso、group MCP 与 group SCAD。部分 penalty
 | `PenalizedLinearRegression` | 惩罚 Gaussian 回归 | NumPy, CuPy, Torch |
 | `PenalizedLogisticRegression` | 惩罚二元回归 | NumPy, CuPy, Torch |
 | `PenalizedPoissonRegression` | 惩罚 Poisson 回归 | NumPy, CuPy, Torch |
-| `PenalizedQuantileRegression` | Quantile loss 与 proximal/FISTA 路径 | NumPy, CuPy, Torch |
+| `PenalizedQuantileRegression` | Quantile loss 与受支持的 proximal/FISTA/IRLS 路径 | NumPy, CuPy, Torch |
 | `PenalizedRobustRegression` | 支持范围内的 Huber、bisquare 与 fair loss | NumPy, CuPy, Torch |
 | `PenalizedCoxPHModel` | 惩罚 Cox partial likelihood | NumPy, CuPy, Torch |
 
-显式 solver 的可用性取决于 loss 与 penalty。使用前请查看
-[Loss × Penalty × Solver 框架](loss-penalty-solver-framework.md)和
-[Solver × Penalty 矩阵](solver-penalty-matrix.md)。
+显式 solver 的可用性取决于 loss 与 penalty。使用前请查看 [Loss × Penalty × Solver 框架](loss-penalty-solver-framework.md)和 [Solver × Penalty 矩阵](solver-penalty-matrix.md)。
 
 ### 示例
 
 ```python
 from statgpu.linear_model import PenalizedGeneralizedLinearModel
 
-# L1 是非光滑惩罚，应使用 FISTA 或 solver="auto"。
 model = PenalizedGeneralizedLinearModel(
     loss="poisson",
     penalty="l1",
@@ -64,11 +58,13 @@ model.fit(X, y)
 | Class | 说明 | 后端 |
 |---|---|---|
 | `RidgeCV` | Ridge alpha 选择 | NumPy, CuPy, Torch |
-| `LassoCV` | Warm-start Lasso path | NumPy, CuPy, Torch |
+| `LassoCV` | Lasso alpha-path 选择与全数据 refit | NumPy, CuPy, Torch |
 | `ElasticNetCV` | 联合搜索 `l1_ratio` 与 alpha | NumPy, CuPy, Torch |
 | `LogisticRegressionCV` | Logistic 回归 CV | NumPy, CuPy, Torch |
 | `PenalizedGLM_CV` | 统一惩罚 GLM CV | NumPy, CuPy, Torch |
 | `CoxPHCV` | Cox penalty 搜索与最终 refit | NumPy, CuPy, Torch |
+
+fold、selection、refit、weights 与 inference-after-selection 语义见 [交叉验证](cross-validation.md)。
 
 ## 方差分析
 
@@ -103,7 +99,7 @@ model.fit(X, y)
 - `FirstDifferenceOLS`
 - `FamaMacBeth`
 
-协方差、秩亏与后端保持预测契约见 [面板模型](../models/panel.md)。
+模型选择、协方差、秩亏与预测行为见 [面板模型](../models/panel.md)。
 
 ## 非参数与半参数方法
 
@@ -127,14 +123,11 @@ model.fit(X, y)
 
 | Class | 说明 | 后端 |
 |---|---|---|
-| `CoxPH` | Breslow/Efron/Exact ties、delayed entry、`(start, stop]` 行、strata、robust/cluster 推断与后端原生预测 | NumPy, CuPy, Torch |
+| `CoxPH` | Breslow/Efron/Exact ties、delayed entry、`(start, stop]` 行、strata、robust/cluster 推断与 backend-aware prediction | NumPy, CuPy, Torch |
 | `CoxPHCV` | 使用同一风险集语义的 L2 网格选择，并保持受试者完整分组 | NumPy, CuPy, Torch |
 | `PenalizedCoxPHModel` | 支持范围内的标准右删失凸/非凸 Cox 惩罚 | NumPy, CuPy, Torch |
 
-基础安装已包含维护中的 Cox 实现。可选 `statgpu[survival]` extra 安装
-statsmodels，用于外部验证与比较；delayed entry 和 strict Breslow/Efron
-稳健推断不依赖该 extra。精确支持矩阵见
-[Cox 比例风险模型](../models/coxph.md)。
+基础安装已经包含 Cox 拟合。可选 `statgpu[survival]` extra 安装 statsmodels，用于外部比较；statgpu 的 Cox estimator 本身不依赖该 extra。精确支持矩阵见 [Cox 比例风险模型](../models/coxph.md)。
 
 ## 特征选择与诊断
 
@@ -149,7 +142,4 @@ statsmodels，用于外部验证与比较；delayed entry 和 strict Breslow/Efr
 - `permutation_test`
 - inference API 暴露的 bootstrap 工具
 
-## 验证范围
-
-本清单中的后端支持表示公开执行路径存在。数值、性能与物理 GPU 结论仍应限定到
-对应测试或验证 artifact 所记录的具体模型、后端、硬件与 commit。
+需要详细语义时，请继续查看对应模型/reference 页，不要仅根据本清单推断 solver、inference 或 device 支持。
