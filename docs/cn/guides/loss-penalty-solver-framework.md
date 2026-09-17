@@ -2,7 +2,7 @@
 
 > 语言：中文
 >
-> 最后更新：2026-09-16
+> 最后更新：2026-09-17
 >
 > 切换：[英文版](../../en/guides/loss-penalty-solver-framework.md)
 
@@ -201,12 +201,12 @@ $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\be
 | 1 | `exact` | `squared_error` + L2/none + NumPy |
 | 2 | `newton` | `squared_error` + L2/none + GPU |
 | 3 | 专用延续路径 | Quantile SCAD/MCP → Proximal IRLS-CD；其他 SCAD/MCP 与分组非凸惩罚使用对应维护中的 LLA wrapper |
-| 4 | `irls` | Quantile + L2/none |
-| 5 | `fista` / `fista_bb` | Quantile 凸稀疏 → 普通 FISTA；其他凸稀疏惩罚（包括初始化后的 adaptive L1）按 loss/backend/CV 选择 FISTA 或 FISTA-BB |
+| 4 | `irls` | Quantile + L2/none（`auto` 优先） |
+| 5 | `fista` / `fista_bb` | Quantile 的显式 L2/none 与凸稀疏路径可使用普通 FISTA；其他凸稀疏惩罚（包括初始化后的 adaptive L1）按 loss/backend/CV 选择 FISTA 或 FISTA-BB |
 | 6 | `lbfgs` / `newton` | 交叉验证 + L2 + 特定损失函数 |
 | 7 | `newton` | GLM/稳健/Cox 等具有维护中 Hessian 的光滑 L2/无惩罚路径 |
 
-对 Quantile，普通 FISTA 只用于受支持的凸稀疏模型路径；L2/无惩罚使用 IRLS，SCAD/MCP 使用 Proximal IRLS-CD。显式 L2/无惩罚 Quantile `fista`，以及模型/CV 层任意 Quantile `fista_bb`、`lbfgs`、`admm` 请求，都会在数值 dispatch 前明确失败。底层 solver API 中，FISTA-BB 与 ADMM 同样对 Quantile fail closed，而直接无权重/均匀权重 Quantile L-BFGS 继续作为既有兼容面保留。这里的 `exact` 是平方误差/L2 的闭式求解器，与 `CoxPH(ties="exact")` 无关。需要 family/backend-specific 的精确分派时，请查看 [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md)。
+对 Quantile，L2/无惩罚的 `auto` 仍优先 IRLS，但显式普通 `solver="fista"` 也受维护，并会真实执行通用 FISTA engine，而不会静默替换成 IRLS。凸稀疏 Quantile 使用普通 FISTA，SCAD/MCP 使用 Proximal IRLS-CD。模型/CV 层任意 Quantile `fista_bb`、`lbfgs`、`admm` 请求仍会 fail closed。底层 solver API 中，FISTA-BB 与 ADMM 同样对 Quantile fail closed，而直接无权重/均匀权重 Quantile L-BFGS 继续作为既有兼容面保留。由于 check loss 的次梯度是阶梯函数，普通 Quantile FISTA 是维护中的一阶近端/次梯度路径，而不是宣称经典 smooth-gradient FISTA 的收敛假设成立。这里的 `exact` 是平方误差/L2 的闭式求解器，与 `CoxPH(ties="exact")` 无关。需要 family/backend-specific 的精确分派时，请查看 [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md)。
 
 ### 全部求解器
 
@@ -219,7 +219,7 @@ $$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\be
 | `newton` | 有 Hessian 的损失 | L2 / 无惩罚 | 由损失函数能力决定；普通 GLM ✅ | ❌ |
 | `lbfgs` | 光滑损失；另保留未传/均匀权重的底层 Quantile 兼容面 | L2 / 无惩罚 | 受能力声明约束；普通 GLM ✅；Quantile 非均匀权重 ❌ | ❌ |
 | `lbfgs_b` | 光滑盒约束问题 | L2 / 无惩罚 | 尚未声明通用的非均匀权重约定 | ❌ |
-| `fista` | 支持梯度/近端路径的损失 | 受支持的近端惩罚 | 由具体损失路径决定 | ✅ |
+| `fista` | 维护中的一阶梯度/次梯度 + 近端路径 | 受支持的近端惩罚，包括显式 Quantile L2/none | 由具体损失路径决定；维护中的 Quantile FISTA 使用归一化解析权重 | ✅ |
 | `fista_bb` | 具有有效 smooth-gradient difference 的损失；不含 Quantile | 受支持的稀疏惩罚 | 由具体损失路径决定 | ✅ |
 | `fista_lla` | 支持当前 LLA 路径的损失 | SCAD/MCP 与分组非凸 LLA 路径 | 由具体损失路径决定 | ✅ |
 | `proximal_irls_cd` | 仅分位数损失 | SCAD/MCP | ✅ | ✅ |
@@ -382,7 +382,7 @@ $$
 |:---------------|:---:|:---:|:---:|
 | Proximal IRLS-CD | ✅ | ✅ | ✅ |
 | Proximal Newton（光滑路径） | ✅ | ✅ | ✅ |
-| FISTA（带权） | ✅ | ✅ | ✅ |
+| FISTA（带权，包括显式 Quantile L2/none） | ✅ | ✅ | ✅ |
 | FISTA-BB（带权） | ✅ | ✅ | ✅ |
 | FISTA-LLA（带权） | ✅ | ✅ | ✅ |
 | Quantile IRLS（L2/无惩罚 auto 或显式请求） | ✅ | ✅ | ✅ |
@@ -401,7 +401,7 @@ $$
 | `PenalizedLinearRegression` | squared_error | l1/l2/elasticnet/scad/mcp/adaptive_l1 | L2/none：CPU exact / GPU Newton；凸稀疏：FISTA；SCAD/MCP：FISTA-LLA |
 | `PenalizedLogisticRegression` | logistic | l1/l2/elasticnet/scad/mcp/adaptive_l1 | L2/none：Newton；direct 凸稀疏：FISTA-BB；SCAD/MCP：FISTA-LLA |
 | `PenalizedPoissonRegression` | poisson | l1/l2/elasticnet/scad/mcp/adaptive_l1 | L2/none：Newton；direct 凸稀疏：FISTA-BB；SCAD/MCP：FISTA-LLA |
-| `PenalizedQuantileRegression` | quantile | scad/mcp/l2 及其他受支持惩罚 | L2/none 的 auto 或显式请求：IRLS；凸稀疏：普通 FISTA；SCAD/MCP：Proximal IRLS-CD |
+| `PenalizedQuantileRegression` | quantile | scad/mcp/l2 及其他受支持惩罚 | L2/none 的 auto 或显式 IRLS：IRLS；L2/none 也支持显式普通 FISTA；凸稀疏：普通 FISTA；SCAD/MCP：Proximal IRLS-CD |
 | `PenalizedRobustRegression` | huber/bisquare/fair | l1/l2/elasticnet/scad/mcp 等 | L2/none：Newton；凸稀疏：FISTA；SCAD/MCP：FISTA-LLA；Bisquare/Fair 另有显式 IRLS |
 | `PenalizedCoxPHModel` | cox_ph | l1/l2/elasticnet/scad/mcp | L2/none：Newton；direct L1/ElasticNet：FISTA-BB；SCAD/MCP：FISTA-LLA |
 
@@ -414,6 +414,12 @@ $$
 from statgpu.linear_model.penalized import PenalizedQuantileRegression
 model = PenalizedQuantileRegression(quantile=0.5, penalty='scad', alpha=0.1)
 model.fit(X, y)
+
+# Quantile L2 显式普通 FISTA
+fista_model = PenalizedQuantileRegression(
+    quantile=0.5, penalty='l2', alpha=0.01, solver='fista'
+)
+fista_model.fit(X, y)
 
 # Robust + MCP
 from statgpu.linear_model.penalized import PenalizedRobustRegression
@@ -441,7 +447,7 @@ model.fit(X, y)
 
 - Fan & Li (2001): Variable selection via nonconcave penalized likelihood (SCAD)
 - Zhang (2010): Nearly unbiased variable selection under minimax concave penalty (MCP)
-- Wu & Liu (2009): Variable selection in quantile regression
+- Wu & Liu (2009): Variable Selection in Quantile Regression
 - Hunter & Li (2005): MM algorithms for nonconvex penalized estimation
 - Barzilai & Borwein (1988): Two-point step size gradient methods (BB)
 - O'Donoghue & Candes (2015): Adaptive restart for accelerated gradient schemes
