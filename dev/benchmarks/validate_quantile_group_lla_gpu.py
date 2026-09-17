@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Physical CUDA acceptance for Quantile Group SCAD/MCP LLA routing."""
+"""Physical CUDA acceptance for automatic Quantile Group Proximal IRLS-LLA."""
 
 from __future__ import annotations
 
@@ -14,10 +14,10 @@ import numpy as np
 from statgpu.backends import _to_numpy
 from statgpu.linear_model import PenalizedGLM_CV
 from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
-import statgpu.solvers as solvers
+from statgpu.solvers import _quantile_group_proximal_irls_lla as group_solver
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 Q = 0.35
 GROUPS = [[0, 1], [2, 3]]
 DIRECT_ALPHA = 0.04
@@ -26,6 +26,7 @@ ATOL_OBJECTIVE = 8e-5
 ATOL_PARAM = 1e-4
 ATOL_CV_SCORE = 1e-4
 ATOL_FLAT_REFERENCE = 5e-5
+EXECUTED_SOLVER = "group_proximal_irls_lla"
 
 
 def _git(*args: str) -> str:
@@ -99,57 +100,55 @@ def _array_backend_and_device(value):
     return "numpy", "cpu"
 
 
-def _with_lla_counter(fn, *, expected_backend, min_calls=1):
-    """Execute a case while proving every public LLA call owns expected arrays."""
-    original = solvers.fista_lla_path
+def _with_group_solver_counter(fn, *, expected_backend, min_calls=1):
+    """Prove every automatic Group solver call owns the expected arrays."""
+    original = group_solver.quantile_group_proximal_irls_lla_solver
     count = {"value": 0}
-    observed_devices = set()
+    observed_locations = set()
 
     def counted(*args, **kwargs):
         count["value"] += 1
         if len(args) < 4:
-            raise AssertionError("fista_lla_path call did not expose X/y positionally")
+            raise AssertionError("Group Proximal IRLS-LLA did not expose X/y positionally")
         X_arg, y_arg = args[2], args[3]
         sw_arg = kwargs.get("sample_weight")
         X_backend, X_device = _array_backend_and_device(X_arg)
         y_backend, y_device = _array_backend_and_device(y_arg)
         if X_backend != expected_backend or y_backend != expected_backend:
             raise AssertionError(
-                "Quantile group LLA array backend drifted: "
+                "Quantile Group solver backend drifted: "
                 f"X={X_backend!r}, y={y_backend!r}, expected={expected_backend!r}"
             )
         if expected_backend in ("cupy", "torch"):
             if X_device != "cuda:0" or y_device != "cuda:0":
                 raise AssertionError(
-                    "Quantile group LLA array device drifted: "
-                    f"X={X_device!r}, y={y_device!r}"
+                    f"Quantile Group solver device drifted: X={X_device!r}, y={y_device!r}"
                 )
         if sw_arg is None:
-            raise AssertionError("weighted Quantile group LLA lost sample_weight")
+            raise AssertionError("weighted Quantile Group solver lost sample_weight")
         sw_backend, sw_device = _array_backend_and_device(sw_arg)
         if sw_backend != expected_backend:
             raise AssertionError(
-                "Quantile group LLA weight backend drifted: "
-                f"{sw_backend!r} != {expected_backend!r}"
+                f"Quantile Group weight backend drifted: {sw_backend!r} != {expected_backend!r}"
             )
         if expected_backend in ("cupy", "torch") and sw_device != "cuda:0":
             raise AssertionError(
-                f"Quantile group LLA weight device drifted: {sw_device!r}"
+                f"Quantile Group weight device drifted: {sw_device!r}"
             )
-        observed_devices.add((X_backend, X_device, sw_backend, sw_device))
+        observed_locations.add((X_backend, X_device, sw_backend, sw_device))
         return original(*args, **kwargs)
 
-    solvers.fista_lla_path = counted
+    group_solver.quantile_group_proximal_irls_lla_solver = counted
     try:
         result = fn()
     finally:
-        solvers.fista_lla_path = original
+        group_solver.quantile_group_proximal_irls_lla_solver = original
+
     if count["value"] < int(min_calls):
         raise AssertionError(
-            "Quantile group route executed too few fista_lla_path calls: "
-            f"{count['value']} < {min_calls}"
+            f"Quantile Group auto route executed {count['value']} calls, expected >= {min_calls}"
         )
-    return result, int(count["value"]), sorted(observed_devices)
+    return result, int(count["value"]), sorted(observed_locations)
 
 
 def _fit(kind, X, y, weights, device):
@@ -228,8 +227,7 @@ def _pinball_fit(coef, intercept, X, y, weights):
 def _objective(model, X, y, weights):
     coef = _host(model.coef_).reshape(-1)
     fit = _pinball_fit(coef, model.intercept_, X, y, weights)
-    penalty = float(model._penalty.value(coef))
-    return fit + penalty
+    return fit + float(model._penalty.value(coef))
 
 
 def _flat_threshold(kind):
@@ -251,15 +249,15 @@ def _validate_flat_reference(kind, model, reference, X, y, weights):
         [np.linalg.norm(ref_coef[np.asarray(group, dtype=int)]) for group in GROUPS],
         dtype=np.float64,
     )
-    if not np.all(group_norms > threshold):
-        raise AssertionError(
-            f"{kind}: fitted groups did not enter the flat penalty region: "
-            f"norms={group_norms!r}, threshold={threshold:.6g}"
-        )
     if not np.all(ref_group_norms > threshold):
         raise AssertionError(
-            f"{kind}: unpenalized reference is not in the same flat region: "
+            f"{kind}: reference fixture is not in the flat region: "
             f"norms={ref_group_norms!r}, threshold={threshold:.6g}"
+        )
+    if not np.all(group_norms > threshold):
+        raise AssertionError(
+            f"{kind}: fitted groups did not reach the flat region: "
+            f"norms={group_norms!r}, threshold={threshold:.6g}"
         )
     fit = _pinball_fit(coef, model.intercept_, X, y, weights)
     ref_fit = _pinball_fit(ref_coef, reference.intercept_, X, y, weights)
@@ -267,13 +265,11 @@ def _validate_flat_reference(kind, model, reference, X, y, weights):
     fit_error = abs(fit - ref_fit)
     if param_error > ATOL_FLAT_REFERENCE:
         raise AssertionError(
-            f"{kind}: flat-region parameter closure {param_error:.3e} "
-            f"> {ATOL_FLAT_REFERENCE:.3e}"
+            f"{kind}: flat-region parameter closure {param_error:.3e} > {ATOL_FLAT_REFERENCE:.3e}"
         )
     if fit_error > ATOL_FLAT_REFERENCE:
         raise AssertionError(
-            f"{kind}: flat-region data-fit closure {fit_error:.3e} "
-            f"> {ATOL_FLAT_REFERENCE:.3e}"
+            f"{kind}: flat-region data-fit closure {fit_error:.3e} > {ATOL_FLAT_REFERENCE:.3e}"
         )
     return {
         "threshold": threshold,
@@ -292,7 +288,7 @@ def _provenance(model, backend):
         "backend": str(getattr(model, "_selected_backend_name", "") or ""),
         "device": str(getattr(model, "_selected_backend_device", "") or ""),
     }
-    if observed["solver"] != "fista":
+    if observed["solver"] != EXECUTED_SOLVER:
         raise AssertionError(f"resolved solver drifted: {observed['solver']!r}")
     if observed["backend"] != backend:
         raise AssertionError(f"backend drifted: {observed['backend']!r} != {backend!r}")
@@ -316,14 +312,14 @@ def main() -> int:
 
     cpu = {}
     for kind in ("group_scad", "group_mcp"):
-        direct, direct_calls, direct_locations = _with_lla_counter(
+        direct, direct_calls, direct_locations = _with_group_solver_counter(
             lambda kind=kind: _fit(kind, X, y, weights, "cpu"),
             expected_backend="numpy",
         )
         flat_reference = _validate_flat_reference(
             kind, direct, unpenalized, X, y, weights
         )
-        cv, cv_calls, cv_locations = _with_lla_counter(
+        cv, cv_calls, cv_locations = _with_group_solver_counter(
             lambda kind=kind: _cv(kind, X, y, weights, folds, "cpu"),
             expected_backend="numpy",
             min_calls=expected_cv_calls,
@@ -348,7 +344,7 @@ def main() -> int:
     for backend in ("cupy", "torch"):
         Xb, yb, wb, device = _native_inputs(backend, X, y, weights, cp, torch)
         for kind in ("group_scad", "group_mcp"):
-            direct, direct_calls, direct_locations = _with_lla_counter(
+            direct, direct_calls, direct_locations = _with_group_solver_counter(
                 lambda kind=kind: _fit(kind, Xb, yb, wb, device),
                 expected_backend=backend,
             )
@@ -371,8 +367,8 @@ def main() -> int:
                 {
                     "name": f"{backend}/direct/{kind}",
                     "provenance": _provenance(direct, backend),
-                    "fista_lla_calls": direct_calls,
-                    "fista_lla_input_locations": direct_locations,
+                    "group_solver_calls": direct_calls,
+                    "group_solver_input_locations": direct_locations,
                     "cpu_flat_reference": cpu[kind]["flat_reference"],
                     "parameter_error": param_error,
                     "coef_error": coef_error,
@@ -383,7 +379,7 @@ def main() -> int:
                 }
             )
 
-            cv, cv_calls, cv_locations = _with_lla_counter(
+            cv, cv_calls, cv_locations = _with_group_solver_counter(
                 lambda kind=kind: _cv(kind, Xb, yb, wb, folds, device),
                 expected_backend=backend,
                 min_calls=expected_cv_calls,
@@ -411,9 +407,8 @@ def main() -> int:
                 {
                     "name": f"{backend}/cv/{kind}",
                     "provenance": _provenance(cv.estimator_, backend),
-                    "fista_lla_calls": cv_calls,
-                    "min_expected_fista_lla_calls": expected_cv_calls,
-                    "fista_lla_input_locations": cv_locations,
+                    "group_solver_calls": cv_calls,
+                    "group_solver_input_locations": cv_locations,
                     "selected_alpha": float(cv.alpha_),
                     "cpu_selected_alpha": float(cpu[kind]["cv"].alpha_),
                     "score_error": score_error,
@@ -428,6 +423,7 @@ def main() -> int:
         "status": "success",
         "source_sha": source_sha,
         "source_clean": source_clean,
+        "executed_solver": EXECUTED_SOLVER,
         "quantile": Q,
         "groups": GROUPS,
         "cases": cases,
@@ -441,7 +437,6 @@ def main() -> int:
             "direct_objective": ATOL_OBJECTIVE,
             "parameter": ATOL_PARAM,
             "cv_score": ATOL_CV_SCORE,
-            "flat_reference": ATOL_FLAT_REFERENCE,
         },
         "environment": {
             "python": platform.python_version(),
