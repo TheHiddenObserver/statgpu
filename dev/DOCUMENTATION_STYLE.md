@@ -13,7 +13,7 @@ A reader of the public documentation should be able to answer what a feature doe
 Treat the following as user-facing unless a file clearly says otherwise:
 
 - `README.md`;
-- `docs/en/` and `docs/cn/` model, guide, API, and reference pages;
+- `docs/en/` and `docs/cn/` model, guide, API, reference, and public-design pages;
 - public Python docstrings and `help()` output;
 - user-visible warnings and exceptions;
 - examples intended for ordinary library users.
@@ -29,6 +29,20 @@ On these surfaces, prefer language such as:
 - use X instead when Y is unsupported.
 
 State the current observable contract directly. When a limitation has a mathematical or statistical reason, explain that reason rather than its project-management history.
+
+## Public design / architecture pages
+
+A user-facing design or architecture page may explain more than a task-oriented guide. It may describe:
+
+- the stable execution model a user needs in order to interpret results;
+- component or stage boundaries such as selection versus final refit;
+- invariants that performance optimizations must preserve;
+- conceptual acceleration strategies such as path reuse, batching, caching, or automatic backend choice;
+- which aspects are deliberately allowed to change without changing the public statistical contract.
+
+It should not promote current private implementation details into public guarantees. Exact helper names, cache-key fields, internal capacities, heuristic thresholds, source-level call graphs, synchronization placement, benchmark cutoffs, and validation/evidence ownership belong in `dev/` unless the user can directly configure or observe them as part of the public API.
+
+A useful test is: **does the detail help a user understand what statgpu guarantees, or does it specify how the current source code happens to implement that guarantee?** The former can belong on a public design page; the latter belongs in internal engineering documentation.
 
 ## Internal engineering surfaces
 
@@ -73,6 +87,8 @@ User-facing model/guides/reference pages should contain:
 - failure semantics that users can observe;
 - examples and alternatives;
 - links to canonical compatibility or algorithm references.
+
+Public design pages may additionally explain stable stage/component relationships and conceptual optimization strategies, provided they clearly distinguish those stable ideas from private implementation details.
 
 Project-management status, review findings, follow-up ownership, exact-source evidence, remote execution details, and CI state belong in PR/issues, changelogs when release-relevant, or `dev/` evidence/review files.
 
