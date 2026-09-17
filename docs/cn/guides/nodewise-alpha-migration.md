@@ -1,76 +1,113 @@
-# 逐节点 Lasso 推断调参迁移说明
+# 逐节点 Lasso 推断调参迁移
 
-> 状态：适用于 0.2.5 选择后 OLS API 迁移之后引入的逐节点调参契约。
+> 最后更新：2026-09-17  
+> 切换：[English](../../en/guides/nodewise-alpha-migration.md)
 
-## 改了什么
+稀疏 Gaussian debiased inference 对 `Lasso`、`ElasticNet`、相应 Gaussian penalized interface，以及 `LassoCV` / `ElasticNetCV` 的 final-refit inference 暴露 public `nodewise_alpha` 控制。
 
-稀疏 Gaussian 纠偏推断现在公开 `nodewise_alpha` 参数，覆盖 `Lasso`、`ElasticNet`、相应的 Gaussian penalized 基础接口，以及 `LassoCV` / `ElasticNetCV` 的最终重拟合推断配置。
+## `alpha` 与 `nodewise_alpha` 是不同参数
 
-主模型 `alpha` 与 `nodewise_alpha` 是两个不同的参数：
+- `alpha` 控制 penalized prediction/selection fit；
+- `nodewise_alpha` 只控制 debiased inference 中用于估计近似 design precision matrix 的 node-wise Lasso regression。
 
-- `alpha` 控制用于预测/变量选择的惩罚拟合；
-- `nodewise_alpha` 只控制纠偏推断中用于近似设计精度矩阵的逐节点 Lasso 问题。
+调用者给出的有限正值会直接使用；`nodewise_alpha=None` 请求 statgpu 的自动规则。
 
-用户显式给出的有限正标量具有最高优先级；`nodewise_alpha=None` 才使用 statgpu 的自动规则。
+## 自动规则
 
-## 有意修正默认行为
-
-历史内部实现使用主响应模型的残差尺度来决定逐节点惩罚：
-
-$$
-\hat\sigma_y\sqrt{\frac{2\log(\max(p,2))}{n}}.
-$$
-
-这个规则从未作为公开调参契约承诺给用户，而且会使设计侧精度矩阵估计依赖 `y` 的计量单位。新的自动规则先对已经完成中心化/加权处理的规范工作设计进行标准化，再使用
+自动 node-wise penalty 定义在标准化后的 centered/weighted working design 上，其尺度为
 
 $$
 \lambda_{\mathrm{nw}}
 =
-\sqrt{\frac{2\log(\max(p,2))}{n_{\mathrm{nw}}}}.
+\sqrt{\frac{2\log(\max(p,2))}{n_{\mathrm{nw}}}},
 $$
 
-无分析权重时 `n_nw=n`；非均匀分析权重下使用 Kish 型有效样本量。$\sqrt{\log(p)/n}$ 的量级具有高维逐节点回归的理论动机，但具体的常数和加权有效样本量约定属于 statgpu 的默认选择，并不是某个定理规定的唯一形式。
+无 analytic weight 时 `n_nw=n`；非均匀 analytic weight 下使用 Kish-style effective sample size。
 
-本次迁移**不提供**旧的、依赖响应尺度的内部规则作为兼容选项。需要特定逐节点惩罚时，应在标准化逐节点尺度上显式设置 `nodewise_alpha=`。
+$\sqrt{\log(p)/n}$ 的量级来自高维 node-wise regression 的理论动机；具体常数和 effective-sample-size convention 是 statgpu 的默认选择，并不是某个定理规定的唯一形式。
 
-## 精度矩阵构造
+此前内部使用的 response-scale-dependent rule 不再作为 compatibility option 暴露。如果需要固定的 node-wise penalty，应在标准化 node-wise scale 上显式设置 `nodewise_alpha=`。
 
-令 `X_w` 表示稀疏 Gaussian 推断路径已经定义好的中心化/加权平均损失工作设计，并令
+## Precision matrix 构造
+
+令 `X_w` 表示 sparse Gaussian inference 使用的 centered/weighted working design。statgpu 通过
 
 $$
-d_j^2=\frac{1}{n}\sum_iX_{w,ij}^2,
-\qquad Z=X_wD^{-1}.
+d_j^2
+=
+\frac{1}{n}\sum_i X_{w,ij}^2,
+\qquad
+Z=X_wD^{-1}
 $$
 
-statgpu 在 `Z` 上对每个特征求解逐节点 Lasso，随后独立重新检查完整 KKT 残差，并使用更接近原始文献记号的归一化量
+对列进行标准化。
+
+对每个 feature，在 `Z` 上求解 node-wise Lasso，并采用
 
 $$
 \hat\tau_j^2
 =
-\frac{\|r_j\|_2^2}{n}
+\frac{\lVert r_j\rVert_2^2}{n}
 +
-\lambda_{\mathrm{nw}}\|\hat\gamma_j\|_1.
+\lambda_{\mathrm{nw}}\lVert\hat\gamma_j\rVert_1
 $$
 
-标准化尺度上得到的近似精度矩阵最后再变换回原工作特征尺度。特征尺度退化、非有限精度状态、KKT 检验失败或归一化量无效时，推断会 fail closed，不再发布历史上的 identity-row 占位结果。
+作为 residual normalizer。标准化尺度上的近似 precision matrix 最后再变换回 working-feature scale。
 
-当 `p=1` 时不存在 nuisance 逐节点回归；statgpu 直接使用一维解析精度矩阵，并令 `nodewise_alpha_` 保持为 `None`。
+如果 feature scale 退化、precision state 非有限、normalizer 无效，或 post-solve optimality check 失败，inference 会报错，而不是发布 placeholder precision row。
 
-## 内部求解与溯源信息
+当 `p=1` 时没有 nuisance node-wise regression；statgpu 直接使用一维解析 precision，并令 `nodewise_alpha_` 保持为 `None`。
 
-逐节点 FISTA 的内部迭代停止阈值故意设置得比最终 KKT 发布门槛更严格。目前内部使用 `coef_delta` 停止准则、`1e-8` 迭代容差和 3000 次最大迭代预算，随后还必须通过独立的 `1e-5` KKT 检验。这些属于内部数值设置，不是新的公开调参参数。
+## 实际使用的值
 
-多特征纠偏推断成功后，实际使用的值通过 `nodewise_alpha_` 暴露。`_inference_result.metadata` 会记录请求值、解析值、来源、自动规则标识、加权有效样本量、逐节点求解设置、最大 KKT 残差、缓存信息以及实际数值后端/设备。
+多 feature debiased inference 会通过 `nodewise_alpha_` 暴露实际采用的值。这样用户可以检查自动 tuning 结果，而无需把 node-wise solver 的内部 stopping setting 变成额外 public tuning parameter。
 
-## 交叉验证
+## Cross-validation
 
-`LassoCV(nodewise_alpha=...)` 与 `ElasticNetCV(nodewise_alpha=...)` 都把该参数视为**最终全数据重拟合的推断配置**。它不会进入主正则化参数候选网格，也不会改变折内评分、最终 `alpha_` 或 `l1_ratio_` 的选择。
+`LassoCV(nodewise_alpha=...)` 与 `ElasticNetCV(nodewise_alpha=...)` 把 `nodewise_alpha` 视为**仅属于 final-refit inference 的配置**。
 
-## 后端与权重契约
+它不会进入：
 
-NumPy、CuPy 与 Torch 使用同一个标准化统计定义。显式 CUDA/Torch 推断不会在数值计算阶段静默回退到 CPU。分析权重继续满足既有平均损失约定、全局正权重缩放不变性、全 1 权重恒等性，以及自动逐节点调参对零权重行增删的不变性。
+- 主 alpha grid；
+- fold scoring；
+- `alpha_` 的选择；
+- `l1_ratio_` 的选择。
 
-精度矩阵缓存可以为了缓存身份对后端驻留的工作设计做分块哈希，但逐节点求解、KKT 检验、精度矩阵回变换以及 GPU 同时推断的数值计算仍在所选后端/设备上完成。
+只有 CV 已经选出 prediction model，并在全部数据上进行 final refit 后执行 inference 时，`nodewise_alpha` 才参与计算。
+
+## Backend 与 analytic weights
+
+在 debiased route 支持的范围内，NumPy、CuPy 与 Torch 使用同一个标准化统计定义。显式 CUDA/Torch inference 请求不会被静默替换成 CPU 数值计算。
+
+Analytic weights 继续使用 sparse Gaussian average-loss convention；尤其是所有正权重同乘一个常数不会改变自动 node-wise tuning 的统计 target。
+
+## 迁移建议
+
+如果过去并没有依赖某个内部 node-wise penalty 数值，保留 `nodewise_alpha=None`，直接使用新的标准化自动规则即可。
+
+如果可复现性要求固定 node-wise tuning value，应显式设置：
+
+```python
+from statgpu.linear_model import Lasso
+
+model = Lasso(
+    alpha=0.05,
+    compute_inference=True,
+    inference_method="debiased",
+    nodewise_alpha=0.08,
+)
+model.fit(X, y)
+
+print(model.nodewise_alpha_)
+```
+
+不要机械地把主模型 `alpha` 复制到 `nodewise_alpha`：两者对应不同优化问题，并且工作尺度也不同。
+
+## 相关文档
+
+- [推断模式](inference-modes.md) — debiased、post-selection 与 bootstrap 的选择
+- [交叉验证](cross-validation.md) — selection 与 final-refit 语义
+- [Lasso](../models/lasso.md) 与 [ElasticNet](../models/elastic-net.md) — 模型专属 inference 控制
 
 ## 参考文献
 
