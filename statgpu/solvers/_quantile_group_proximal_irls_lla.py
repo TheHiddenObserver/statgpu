@@ -215,6 +215,7 @@ def quantile_group_proximal_irls_lla_solver(
                 )
                 inner_penalty = factory(factory_values)
 
+                irls_converged = False
                 for _irls_iter in range(irls_limit):
                     params_old = _copy_arr(params)
                     obs_weight = _quantile_irls_weights(
@@ -246,7 +247,14 @@ def quantile_group_proximal_irls_lla_solver(
 
                     delta_dev = xp.max(xp.abs(params - params_old))
                     if float(_to_numpy(delta_dev)) < float(tol):
+                        irls_converged = True
                         break
+
+                if not irls_converged:
+                    raise ConvergenceWarning(
+                        "Quantile Group Proximal IRLS-LLA did not converge "
+                        f"within {irls_limit} IRLS iterations at alpha={float(cont_alpha):.12g}."
+                    )
 
             lla_delta = _abs_sum_dev(params - before_lla)
             if float(_to_numpy(lla_delta)) < float(lla_tol):
