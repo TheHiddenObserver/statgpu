@@ -80,6 +80,68 @@ def test_direct_quantile_irls_rejects_invalid_xy_shapes_before_numerics(
 
 
 @pytest.mark.parametrize(
+    ("target", "message"),
+    [
+        ("X", "X must contain finite values"),
+        ("y", "y must contain finite values"),
+    ],
+)
+def test_direct_quantile_irls_rejects_nonfinite_xy_before_numerics(target, message):
+    X, y = _data(seed=16718)
+    X_bad = X.copy()
+    y_bad = y.copy()
+    if target == "X":
+        X_bad[0, 0] = np.nan
+    else:
+        y_bad[0] = np.inf
+
+    loss = QuantileLoss(quantile=0.3)
+    with pytest.raises(ValueError, match=message):
+        loss.irls(X_bad, y_bad, max_iter=3)
+
+
+@pytest.mark.parametrize(
+    ("solver_name", "penalty"),
+    [
+        ("fista_solver", L2Penalty(alpha=0.04)),
+        ("lbfgs_solver", None),
+    ],
+)
+@pytest.mark.parametrize(
+    ("target", "message"),
+    [
+        ("X", "X must contain finite values"),
+        ("y", "y must contain finite values"),
+    ],
+)
+def test_public_quantile_fista_lbfgs_reject_nonfinite_xy_before_loss_work(
+    monkeypatch, solver_name, penalty, target, message
+):
+    X, y = _data(seed=16719)
+    X_bad = X.copy()
+    y_bad = y.copy()
+    if target == "X":
+        X_bad[0, 0] = np.nan
+    else:
+        y_bad[0] = np.inf
+
+    loss = QuantileLoss(quantile=0.3)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("loss numerical work must not start")
+
+    monkeypatch.setattr(loss, "preprocess", forbidden)
+    with pytest.raises(ValueError, match=message):
+        getattr(solvers, solver_name)(
+            loss,
+            penalty,
+            X_bad,
+            y_bad,
+            max_iter=3,
+        )
+
+
+@pytest.mark.parametrize(
     ("solver_name", "penalty"),
     [
         ("fista_solver", L2Penalty(alpha=0.04)),
@@ -157,6 +219,46 @@ def test_public_quantile_cd_solver_is_fail_closed_compatibility_symbol(monkeypat
             X,
             y,
             sample_weight=np.linspace(0.5, 1.5, X.shape[0]),
+        )
+
+
+@pytest.mark.parametrize(
+    ("target", "message"),
+    [
+        ("X", "X must contain finite values"),
+        ("y", "y must contain finite values"),
+    ],
+)
+def test_public_proximal_quantile_rejects_nonfinite_xy_before_path_work(
+    monkeypatch, target, message
+):
+    X, y = _data(seed=16720)
+    X_bad = X.copy()
+    y_bad = y.copy()
+    if target == "X":
+        X_bad[0, 0] = np.nan
+    else:
+        y_bad[0] = np.inf
+
+    loss = QuantileLoss(quantile=0.3)
+    penalty = SCADPenalty(alpha=0.05)
+
+    def forbidden_path(*args, **kwargs):
+        raise AssertionError("continuation/backend work must not start")
+
+    monkeypatch.setattr(
+        _prox_contract,
+        "resolve_auto_quantile_continuation_path",
+        forbidden_path,
+    )
+    with pytest.raises(ValueError, match=message):
+        solvers.proximal_irls_quantile_solver(
+            loss,
+            penalty,
+            X_bad,
+            y_bad,
+            alpha_path=np.array([0.08, 0.05]),
+            max_iter=3,
         )
 
 

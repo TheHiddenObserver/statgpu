@@ -51,6 +51,48 @@ def test_quantile_fista_lla_rejects_invalid_xy_shapes_before_loss_work(
 
 
 @pytest.mark.parametrize(
+    ("target", "message"),
+    [
+        ("X", "X must contain finite values"),
+        ("y", "y must contain finite values"),
+    ],
+)
+def test_quantile_fista_lla_rejects_nonfinite_xy_before_loss_work(
+    monkeypatch, target, message
+):
+    X = np.eye(4, dtype=np.float64)
+    y = np.asarray([0.4, -0.2, 0.6, -0.1], dtype=np.float64)
+    X_bad = X.copy()
+    y_bad = y.copy()
+    if target == "X":
+        X_bad[0, 0] = np.nan
+    else:
+        y_bad[0] = np.inf
+
+    loss = QuantileLoss(0.35)
+    penalty = SCADPenalty(alpha=0.04, a=3.7)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("loss numerical work must not start")
+
+    monkeypatch.setattr(loss, "preprocess", forbidden)
+    monkeypatch.setattr(loss, "lipschitz", forbidden)
+
+    with pytest.raises(ValueError, match=message):
+        fista_lla_path(
+            loss,
+            penalty,
+            X_bad,
+            y_bad,
+            alpha_path=np.asarray([0.04], dtype=np.float64),
+            max_lla_per_step=1,
+            max_iter=20,
+            tol=1e-6,
+            fit_intercept=False,
+        )
+
+
+@pytest.mark.parametrize(
     ("kwargs", "message"),
     [
         ({"fit_intercept": "False"}, "fit_intercept must be boolean"),
