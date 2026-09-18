@@ -2181,6 +2181,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
     ):
         super().__init__(cv=cv, random_state=random_state, device=device)
         self.cv_splits = cv_splits
+        self._cv_split_source = None
+        self._cv_split_snapshot = None
         cv_strategy = str(cv_strategy).lower()
         if cv_strategy not in ("strict", "two_stage"):
             raise ValueError(
@@ -2208,6 +2210,34 @@ class PenalizedGLM_CV(CVEstimatorBase):
         self.cv_strategy_ = None
         self.cv_selected_device_ = None
         self._cv_auto_reason_ = None
+
+    @staticmethod
+    def _is_one_shot_cv_splits(value):
+        if value is None:
+            return False
+        try:
+            return iter(value) is value
+        except TypeError:
+            return False
+
+    def _materialize_cv_splits(self):
+        """Materialize a one-shot custom splitter once without rewriting it."""
+        splits = self.cv_splits
+        if splits is None or not self._is_one_shot_cv_splits(splits):
+            return splits
+        if self._cv_split_source is splits and self._cv_split_snapshot is not None:
+            return self._cv_split_snapshot
+        snapshot = list(splits)
+        self._cv_split_source = splits
+        self._cv_split_snapshot = snapshot
+        return snapshot
+
+    def get_params(self, deep=True):
+        """Expose reusable custom folds for cloning without changing public state."""
+        params = super().get_params(deep=deep)
+        if self._is_one_shot_cv_splits(params.get("cv_splits")):
+            params["cv_splits"] = self._materialize_cv_splits()
+        return params
 
     def _reset_cv_fit_state(self):
         """Clear fitted selection state before every CV invocation."""
@@ -3060,11 +3090,12 @@ class PenalizedGLM_CV(CVEstimatorBase):
         n_samples = X.shape[0]
         n_alphas = len(alpha_grid)
         if self.cv_splits is not None:
-            # Normalize to list (generators would exhaust on first pass).
+            effective_splits = self._materialize_cv_splits()
+            # Normalize reusable non-list containers for the current fit.
             folds = (
-                list(self.cv_splits)
-                if not isinstance(self.cv_splits, list)
-                else self.cv_splits
+                list(effective_splits)
+                if not isinstance(effective_splits, list)
+                else effective_splits
             )
         else:
             folds = kfold_indices(n_samples, self._cv, self.random_state)

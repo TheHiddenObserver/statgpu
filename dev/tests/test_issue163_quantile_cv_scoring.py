@@ -94,6 +94,86 @@ def test_quantile_cv_general_scores_use_requested_tau(weighted):
     assert contract._QUANTILE_CV_LEVEL.get() is None
 
 
+def test_quantile_cv_reuses_one_shot_custom_splits_across_refits():
+    X, y, _ = _data(seed=16338, n=60)
+    idx = np.arange(X.shape[0])
+    folds = [
+        (np.concatenate([idx[:start], idx[stop:]]), idx[start:stop])
+        for start, stop in ((0, 20), (20, 40), (40, 60))
+    ]
+    iterations = []
+
+    def one_shot():
+        iterations.append(1)
+        if len(iterations) > 1:
+            raise AssertionError("custom split generator was consumed twice")
+        yield from folds
+
+    generator = one_shot()
+    cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.35},
+        penalty="l2",
+        alpha_grid=np.asarray([0.03], dtype=np.float64),
+        cv=3,
+        cv_splits=generator,
+        solver="auto",
+        device="cpu",
+        max_iter=300,
+        tol=1e-8,
+    )
+
+    cv.fit(X, y)
+    first_coef = np.asarray(cv.coef_, dtype=np.float64).copy()
+    first_score = float(cv.best_score_)
+    cv.fit(X, y)
+
+    assert iterations == [1]
+    assert cv.cv_splits is generator
+    np.testing.assert_allclose(cv.coef_, first_coef, rtol=0.0, atol=1e-12)
+    assert cv.best_score_ == pytest.approx(first_score, rel=0.0, abs=1e-12)
+    assert cv.cv_results_["device_sizing_fold_count"] == len(folds)
+
+
+def test_quantile_cv_clone_materializes_one_shot_custom_splits_once():
+    sklearn = pytest.importorskip("sklearn")
+    from sklearn.base import clone
+
+    X, _, _ = _data(seed=16339, n=48)
+    idx = np.arange(X.shape[0])
+    folds = [
+        (np.setdiff1d(idx, val, assume_unique=True), val)
+        for val in np.array_split(idx, 3)
+    ]
+    iterations = []
+
+    def one_shot():
+        iterations.append(1)
+        if len(iterations) > 1:
+            raise AssertionError("custom split generator was consumed twice")
+        yield from folds
+
+    generator = one_shot()
+    cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.35},
+        penalty="l2",
+        alpha_grid=np.asarray([0.03], dtype=np.float64),
+        cv=3,
+        cv_splits=generator,
+        solver="auto",
+        device="cpu",
+    )
+    cloned = clone(cv)
+
+    assert sklearn is not None
+    assert iterations == [1]
+    assert cv.cv_splits is generator
+    assert isinstance(cloned.cv_splits, list)
+    assert len(cloned.cv_splits) == len(folds)
+    assert cloned._fitted is False
+
+
 def test_quantile_cv_public_fold_count_replacement_is_authoritative():
     X, y, _ = _data(seed=16326, n=72)
     cv = PenalizedGLM_CV(
