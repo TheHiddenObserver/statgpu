@@ -208,6 +208,12 @@ def _sync_public_quantile_fit_controls(owner, *, cv: bool) -> None:
         owner._max_lla_iters = _positive_integer(
             owner.max_lla_iters, "max_lla_iters"
         )
+        min_lla_steps = int(_fit_mixin._N_CONT_STEPS_NONSMOOTH)
+        if owner._max_lla_iters < min_lla_steps:
+            raise ValueError(
+                f"max_lla_iters must be at least {min_lla_steps} for the Quantile "
+                "continuation path so every alpha step can run once"
+            )
         owner._lla_tol = _finite_positive(owner.lla_tol, "lla_tol")
 
 
