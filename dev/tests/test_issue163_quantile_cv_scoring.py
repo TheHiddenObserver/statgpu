@@ -305,13 +305,6 @@ def test_quantile_scad_fast_helper_is_fail_safe_to_general_path():
     assert result is None
 
 
-@pytest.mark.parametrize(
-    "penalty,alpha_grid,expected_solver",
-    [
-        ("l1", np.array([0.04, 0.02], dtype=np.float64), "fista"),
-        ("scad", np.array([0.025], dtype=np.float64), "proximal_irls_cd"),
-    ],
-)
 def test_quantile_scalar_scad_penalty_object_matches_string_cv_and_refit():
     X, y, folds = _data(seed=16331, n=72)
     weights = np.linspace(0.5, 1.7, X.shape[0], dtype=np.float64)
@@ -365,6 +358,13 @@ def test_quantile_scalar_scad_penalty_object_matches_string_cv_and_refit():
     assert object_cv.estimator_._penalty.alpha == pytest.approx(object_cv.alpha_)
 
 
+@pytest.mark.parametrize(
+    "penalty,alpha_grid,expected_solver",
+    [
+        ("l1", np.array([0.04, 0.02], dtype=np.float64), "fista"),
+        ("scad", np.array([0.025], dtype=np.float64), "proximal_irls_cd"),
+    ],
+)
 def test_quantile_public_two_stage_falls_back_to_maintained_per_fold_path(
     penalty, alpha_grid, expected_solver
 ):
