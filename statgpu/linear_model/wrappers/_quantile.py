@@ -70,8 +70,13 @@ class QuantileRegression(BaseEstimator):
         gpu_memory_cleanup: bool = False,
     ):
         super().__init__(device=device, n_jobs=n_jobs)
-        if not 0.0 < quantile < 1.0:
-            raise ValueError(f"quantile must be in (0, 1), got {quantile}")
+        if (
+            isinstance(quantile, (bool, np.bool_))
+            or not isinstance(quantile, Real)
+            or not np.isfinite(float(quantile))
+            or not 0.0 < float(quantile) < 1.0
+        ):
+            raise ValueError(f"quantile must be a finite real number in (0, 1), got {quantile}")
         self.quantile = float(quantile)
         self.fit_intercept = fit_intercept
         self.max_iter = max_iter
@@ -112,6 +117,13 @@ class QuantileRegression(BaseEstimator):
 
     def _validate_public_controls(self):
         """Validate mutable public controls before backend or numerical work."""
+        if (
+            isinstance(self._quantile, (bool, np.bool_))
+            or not isinstance(self._quantile, Real)
+            or not np.isfinite(float(self._quantile))
+            or not 0.0 < float(self._quantile) < 1.0
+        ):
+            raise ValueError("quantile must be a finite real number in (0, 1)")
         if not isinstance(self._fit_intercept, (bool, np.bool_)):
             raise ValueError("fit_intercept must be boolean")
         if not isinstance(self._compute_inference_enabled, (bool, np.bool_)):
@@ -160,6 +172,7 @@ class QuantileRegression(BaseEstimator):
                         "n_bootstrap must be an integer greater than or equal to 2 "
                         "for QuantileRegression bootstrap inference"
                     )
+
     @staticmethod
     def _has_nonuniform_weight(sample_weight):
         module = type(sample_weight).__module__

@@ -113,6 +113,8 @@ class TestQuantileRegression:
     @pytest.mark.parametrize(
         ("kwargs", "message"),
         [
+            ({"quantile": "0.5"}, "quantile must be a finite real number"),
+            ({"quantile": True}, "quantile must be a finite real number"),
             ({"fit_intercept": "False"}, "fit_intercept must be boolean"),
             ({"max_iter": True}, "max_iter must be a positive integer"),
             ({"max_iter": 0}, "max_iter must be a positive integer"),
@@ -130,6 +132,19 @@ class TestQuantileRegression:
 
         monkeypatch.setattr(model, "_get_backend", forbidden)
         with pytest.raises(ValueError, match=message):
+            model.fit(self.X, self.y)
+        assert model._fitted is False
+        assert model.coef_ is None
+
+    def test_mutated_quantile_control_fails_before_backend(self, monkeypatch):
+        model = QuantileRegression(quantile=0.5)
+        model.set_params(quantile="0.5")
+
+        def forbidden(*args, **kwargs):
+            raise AssertionError("invalid mutated quantile must fail before backend work")
+
+        monkeypatch.setattr(model, "_get_backend", forbidden)
+        with pytest.raises(ValueError, match="quantile must be a finite real number"):
             model.fit(self.X, self.y)
         assert model._fitted is False
         assert model.coef_ is None
