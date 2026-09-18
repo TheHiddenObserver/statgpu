@@ -6,6 +6,8 @@ This class provides a clean API with quantile-specific parameters and scoring.
 
 __all__ = ["PenalizedQuantileRegression"]
 
+from numbers import Real
+
 import numpy as np
 from ._base import PenalizedGeneralizedLinearModel
 
@@ -86,10 +88,17 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
                  penalty_kwargs=None, device='auto',
                  lla=True, max_lla_iters=50, lla_tol=1e-6,
                  loss_kwargs=None, **kwargs):
-        if not 0.0 < quantile < 1.0:
-            raise ValueError(f"quantile must be in (0, 1), got {quantile}")
+        if (
+            isinstance(quantile, (bool, np.bool_))
+            or not isinstance(quantile, Real)
+            or not np.isfinite(float(quantile))
+            or not 0.0 < float(quantile) < 1.0
+        ):
+            raise ValueError(
+                f"quantile must be a finite real number in (0, 1), got {quantile}"
+            )
 
-        _lk = {'quantile': quantile}
+        _lk = {'quantile': float(quantile)}
         if loss_kwargs:
             _lk.update(loss_kwargs)
 

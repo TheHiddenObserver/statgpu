@@ -11,6 +11,10 @@ Supports numpy / cupy / torch backends via _xp dispatch.
 Matches R's quantreg::rq() interface.
 """
 
+from numbers import Real
+
+import numpy as np
+
 from statgpu.backends._array_ops import _xp as _get_xp
 from ._base import LossBase
 from ._registry import register_loss
@@ -37,8 +41,15 @@ class QuantileLoss(LossBase):
     _prefer_fista_over_bb = False
 
     def __init__(self, quantile: float = 0.5):
-        if not 0.0 < quantile < 1.0:
-            raise ValueError(f"quantile must be in (0, 1), got {quantile}")
+        if (
+            isinstance(quantile, (bool, np.bool_))
+            or not isinstance(quantile, Real)
+            or not np.isfinite(float(quantile))
+            or not 0.0 < float(quantile) < 1.0
+        ):
+            raise ValueError(
+                f"quantile must be a finite real number in (0, 1), got {quantile}"
+            )
         self.quantile = float(quantile)
         self._tau = self.quantile
 

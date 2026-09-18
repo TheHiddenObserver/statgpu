@@ -5,7 +5,30 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from statgpu.linear_model.penalized import PenalizedQuantileRegression
+from statgpu.linear_model.penalized import (
+    PenalizedGeneralizedLinearModel,
+    PenalizedQuantileRegression,
+)
+
+
+@pytest.mark.parametrize("bad_quantile", ["0.2", True, np.nan])
+def test_typed_quantile_rejects_invalid_quantile_with_value_error(bad_quantile):
+    with pytest.raises(ValueError, match="finite real number in"):
+        PenalizedQuantileRegression(quantile=bad_quantile)
+
+
+def test_generic_quantile_loss_kwargs_reject_invalid_quantile_on_fit():
+    X = np.arange(24, dtype=np.float64).reshape(12, 2)
+    y = np.linspace(-0.4, 0.7, 12)
+    model = PenalizedGeneralizedLinearModel(
+        loss="quantile",
+        loss_kwargs={"quantile": "0.2"},
+        penalty="l2",
+        alpha=0.02,
+        device="cpu",
+    )
+    with pytest.raises(ValueError, match="finite real number in"):
+        model.fit(X, y)
 
 
 def test_typed_quantile_resolves_private_loss_kwargs_without_mutating_public_state():
