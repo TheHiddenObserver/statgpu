@@ -27,6 +27,23 @@ def _data(seed=16701):
     return X, y
 
 
+def test_quantile_response_validation_preserves_torch_backend():
+    torch = pytest.importorskip("torch")
+    loss = QuantileLoss(quantile=0.3)
+    response = torch.tensor(
+        [[-0.2], [0.1], [0.4]],
+        dtype=torch.float64,
+    )
+
+    validated = loss.validate_response(response)
+
+    assert torch.is_tensor(validated)
+    assert validated.device == response.device
+    assert validated.dtype == response.dtype
+    assert tuple(validated.shape) == (3,)
+    torch.testing.assert_close(validated, response.reshape(-1))
+
+
 def _invalid_weights(n):
     negative = np.ones(n, dtype=np.float64)
     negative[2] = -0.25
