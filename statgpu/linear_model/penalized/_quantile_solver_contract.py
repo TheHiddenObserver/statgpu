@@ -186,6 +186,15 @@ def _sync_public_quantile_fit_controls(owner, *, cv: bool) -> None:
     owner._max_iter = _positive_integer(owner.max_iter, "max_iter")
     owner._tol = _finite_positive(owner.tol, "tol")
 
+    # Public constructor dictionaries are refit controls. Keep the runtime
+    # mirrors authoritative for both direct estimators and CV owners.
+    owner._loss_kwargs = dict(
+        getattr(owner, "loss_kwargs", None) or {}
+    )
+    owner._penalty_kwargs = dict(
+        getattr(owner, "penalty_kwargs", None) or {}
+    )
+
     if cv:
         cv_value = _positive_integer(owner.cv, "cv")
         if cv_value < 2:
@@ -211,12 +220,6 @@ def _sync_public_quantile_fit_controls(owner, *, cv: bool) -> None:
             owner.refine_top_k, "refine_top_k"
         )
 
-        owner._loss_kwargs = dict(
-            getattr(owner, "loss_kwargs", None) or {}
-        )
-        owner._penalty_kwargs = dict(
-            getattr(owner, "penalty_kwargs", None) or {}
-        )
         if hasattr(owner, "alpha_grid"):
             owner._alpha_grid_input = owner.alpha_grid
 

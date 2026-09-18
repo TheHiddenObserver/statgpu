@@ -231,6 +231,25 @@ def test_quantile_invalid_public_device_replacement_fails_closed(owner_kind):
         owner.fit(X, y)
 
 
+def test_generic_quantile_direct_public_loss_kwargs_replacement_is_authoritative():
+    X, y = _data(seed=16335)
+    model = PenalizedGeneralizedLinearModel(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.2},
+        penalty="l2",
+        alpha=0.02,
+        solver="auto",
+        device="cpu",
+        max_iter=300,
+        tol=1e-8,
+    )
+    model.loss_kwargs = {"quantile": 0.8}
+    model.fit(X, y)
+
+    assert model._loss_kwargs == {"quantile": 0.8}
+    assert getattr(model._loss, "_tau", None) == pytest.approx(0.8)
+
+
 def test_quantile_direct_public_fit_intercept_replacement_is_authoritative():
     X, y = _data(seed=16315)
     model = PenalizedQuantileRegression(

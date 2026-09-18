@@ -52,6 +52,46 @@ def test_explicit_group_fista_is_not_gated_by_unrelated_lla_controls(monkeypatch
     assert model._selected_solver == "fista"
 
 
+def test_direct_group_public_penalty_kwargs_replacement_reaches_auto_solver(
+    monkeypatch,
+):
+    from statgpu.solvers import _quantile_group_proximal_irls_lla as solver_mod
+
+    X, y, _ = _data()
+    captured = {}
+
+    def fake_group_solver(loss, penalty, X_fit, y_fit, alpha_path, **kwargs):
+        captured["a"] = float(penalty.a)
+        captured["groups"] = [list(g) for g in penalty.groups]
+        return np.zeros(X_fit.shape[1], dtype=np.float64), 0.0, 1
+
+    monkeypatch.setattr(
+        solver_mod, "quantile_group_proximal_irls_lla_solver", fake_group_solver
+    )
+    model = PenalizedGeneralizedLinearModel(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.35},
+        penalty="group_scad",
+        penalty_kwargs={"groups": GROUPS, "a": 3.7},
+        alpha=0.04,
+        solver="auto",
+        device="cpu",
+        compute_inference=False,
+        max_iter=20,
+        tol=1e-6,
+        max_lla_iters=6,
+        lla_tol=1e-6,
+    )
+    replacement_groups = [[0, 2], [1, 3]]
+    model.penalty_kwargs = {"groups": replacement_groups, "a": 4.2}
+    model.fit(X, y)
+
+    assert model._penalty_kwargs["a"] == pytest.approx(4.2)
+    assert model._penalty_kwargs["groups"] == replacement_groups
+    assert captured["a"] == pytest.approx(4.2)
+    assert captured["groups"] == replacement_groups
+
+
 def test_direct_group_public_solver_replacement_from_fista_to_auto_uses_auto_route(
     monkeypatch,
 ):
