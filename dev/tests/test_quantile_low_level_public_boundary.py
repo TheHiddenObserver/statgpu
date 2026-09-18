@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from statgpu import solvers
+from statgpu.solvers._convergence import ConvergenceWarning
 from statgpu.losses import QuantileLoss
 from statgpu.penalties import SCADPenalty
 import statgpu.losses._quantile_irls_validation_contract as _irls_contract
@@ -131,6 +132,72 @@ def test_public_proximal_quantile_rejects_invalid_stopping_controls(kwargs, mess
             alpha_path=np.array([0.08, 0.05]),
             **kwargs,
         )
+
+
+def test_public_proximal_quantile_active_target_exhaustion_warns(monkeypatch):
+    X, y = _data(seed=16707)
+    loss = QuantileLoss(quantile=0.3)
+    penalty = SCADPenalty(alpha=0.05)
+    from statgpu.solvers import _proximal_irls_quantile as kernel
+
+    monkeypatch.setattr(
+        kernel,
+        "_compute_lla_weights",
+        lambda penalty_arg, coef, p, xp, backend: xp.ones(p, dtype=coef.dtype),
+    )
+
+    def drift(X_arg, X_sq_arg, y_arg, w_arg, beta_arg, thresh_arg, p_arg, eps_arg, xp, backend):
+        return beta_arg + 0.1
+
+    monkeypatch.setattr(kernel, "_parallel_majorization_step", drift)
+
+    with pytest.warns(ConvergenceWarning, match="target reached max_iter=2"):
+        solvers.proximal_irls_quantile_solver(
+            loss,
+            penalty,
+            X,
+            y,
+            alpha_path=np.array([0.05]),
+            max_lla_per_step=1,
+            max_iter=2,
+            tol=1e-12,
+            lla_tol=1.0,
+        )
+
+
+def test_public_proximal_quantile_strict_target_exhaustion_raises(monkeypatch):
+    X, y = _data(seed=16708)
+    loss = QuantileLoss(quantile=0.3)
+    penalty = SCADPenalty(alpha=0.05)
+    from statgpu.solvers import _proximal_irls_quantile as kernel
+
+    monkeypatch.setattr(
+        kernel,
+        "_compute_lla_weights",
+        lambda penalty_arg, coef, p, xp, backend: xp.ones(p, dtype=coef.dtype),
+    )
+    monkeypatch.setattr(
+        kernel,
+        "_parallel_majorization_step",
+        lambda X_arg, X_sq_arg, y_arg, w_arg, beta_arg, thresh_arg, p_arg, eps_arg, xp, backend: beta_arg + 0.1,
+    )
+
+    token = kernel._STRICT_CV_TARGET.set(True)
+    try:
+        with pytest.raises(FloatingPointError, match="target reached max_iter=2"):
+            solvers.proximal_irls_quantile_solver(
+                loss,
+                penalty,
+                X,
+                y,
+                alpha_path=np.array([0.05]),
+                max_lla_per_step=1,
+                max_iter=2,
+                tol=1e-12,
+                lla_tol=1.0,
+            )
+    finally:
+        kernel._STRICT_CV_TARGET.reset(token)
 
 
 def test_public_proximal_quantile_none_budget_has_defined_default():

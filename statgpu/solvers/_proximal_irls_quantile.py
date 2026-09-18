@@ -24,10 +24,68 @@ References:
 
 __all__ = ["proximal_irls_quantile_solver"]
 
+_STRICT_CV_TARGET = ContextVar(
+    "statgpu_quantile_scalar_strict_cv_target",
+    default=False,
+)
+
 import copy
+from contextvars import ContextVar
+import inspect
+import warnings
+
 import numpy as np
 
+from ._convergence import ConvergenceWarning
+
 from statgpu.backends import _resolve_backend, _to_numpy
+
+
+def _external_warning_stacklevel() -> int:
+    frame = inspect.currentframe()
+    if frame is None:
+        return 2
+    frame = frame.f_back
+    level = 1
+    try:
+        while frame is not None:
+            module_name = str(frame.f_globals.get("__name__", ""))
+            is_internal = module_name == "statgpu" or module_name.startswith("statgpu.")
+            if not is_internal:
+                return level
+            frame = frame.f_back
+            level += 1
+    finally:
+        del frame
+    return 2
+
+
+def _flat_irls_boundary_converged(
+    loss,
+    X_work,
+    y_work,
+    beta,
+    *,
+    tol,
+    eps,
+    sample_weight,
+    fit_intercept,
+    xp,
+) -> bool:
+    probe, _ = loss.irls(
+        X_work,
+        y_work,
+        penalty=None,
+        max_iter=1,
+        tol=float(tol),
+        init_coef=beta,
+        eps=eps,
+        sample_weight=sample_weight,
+        fit_intercept=fit_intercept,
+    )
+    delta_dev = xp.linalg.norm(probe - beta)
+    delta = float(_to_numpy(delta_dev))
+    return bool(np.isfinite(delta) and delta < float(tol))
 
 
 def proximal_irls_quantile_solver(
@@ -143,10 +201,14 @@ def proximal_irls_quantile_solver(
     # Precompute X^2 for weighted Hessian diagonal (reused each IRLS step)
     X_sq = X_work * X_work
 
+    n_continuation = int(len(alpha_path))
     for cont_i, cont_alpha in enumerate(alpha_path):
         pen_step = copy.copy(penalty)
         pen_step.alpha = float(cont_alpha)
         _mi = max_iter[cont_i] if isinstance(max_iter, (list, tuple)) else max_iter
+        is_final_continuation = cont_i == n_continuation - 1
+        lla_converged = False
+        target_irls_exhausted = False
 
         for lla_i in range(max_lla_per_step):
             # LLA weights = P'(|beta_j|) for feature coefficients only.
@@ -172,19 +234,36 @@ def proximal_irls_quantile_solver(
             # penalized LLA steps remain on the Proximal IRLS-CD inner loop.
             zero_penalty = bool(_to_numpy(xp.all(lla_w == 0)))
             if zero_penalty:
+                flat_tol = min(tol, 1e-8)
                 beta, used_iter = loss.irls(
                     X_work,
                     y_work,
                     penalty=None,
                     max_iter=_mi,
-                    tol=min(tol, 1e-8),
+                    tol=flat_tol,
                     init_coef=beta,
                     eps=eps,
                     sample_weight=sw,
                     fit_intercept=fit_intercept,
                 )
                 total_iter += used_iter
+                if is_final_continuation and int(used_iter) >= int(_mi):
+                    target_irls_exhausted = not _flat_irls_boundary_converged(
+                        loss,
+                        X_work,
+                        y_work,
+                        beta,
+                        tol=flat_tol,
+                        eps=eps,
+                        sample_weight=sw,
+                        fit_intercept=fit_intercept,
+                        xp=xp,
+                    )
+                else:
+                    target_irls_exhausted = False
             else:
+                target_irls_exhausted = False
+                irls_converged = False
                 # IRLS-CD inner loop
                 for irls_iter in range(_mi):
                     beta_old = _copy(beta)
@@ -223,10 +302,15 @@ def proximal_irls_quantile_solver(
                             xp.max(delta_dev)
                             < _scalar_like(tol, delta_dev, xp, backend)
                         )):
+                            irls_converged = True
                             break
                     else:
                         if float(_to_numpy(xp.max(delta_dev))) < tol:
+                            irls_converged = True
                             break
+
+                if is_final_continuation and not irls_converged:
+                    target_irls_exhausted = True
 
             # LLA convergence check — GPU comparison stays on device
             lla_delta_dev = xp.abs(beta - beta_before_lla)
@@ -235,10 +319,40 @@ def proximal_irls_quantile_solver(
                     xp.max(lla_delta_dev)
                     < _scalar_like(lla_tol, lla_delta_dev, xp, backend)
                 )):
+                    lla_converged = True
                     break
             else:
                 if float(_to_numpy(xp.max(lla_delta_dev))) < lla_tol:
+                    lla_converged = True
                     break
+
+        if is_final_continuation:
+            if target_irls_exhausted:
+                message = (
+                    "Quantile Proximal IRLS-CD target reached "
+                    f"max_iter={int(_mi)} before IRLS convergence at "
+                    f"alpha={float(cont_alpha):.12g}"
+                )
+            elif not lla_converged:
+                message = (
+                    "Quantile Proximal IRLS-CD target reached "
+                    f"max_lla_per_step={int(max_lla_per_step)} before LLA "
+                    f"convergence at alpha={float(cont_alpha):.12g}"
+                )
+            else:
+                message = None
+
+            if message is not None:
+                if _STRICT_CV_TARGET.get():
+                    raise FloatingPointError(
+                        message
+                        + "; the CV candidate was not scored because target convergence was not established."
+                    )
+                warnings.warn(
+                    message + "; returning the final iterate.",
+                    ConvergenceWarning,
+                    stacklevel=_external_warning_stacklevel(),
+                )
 
     beta_np = _to_numpy(beta).astype(np.float64)
     if fit_intercept:

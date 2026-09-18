@@ -316,10 +316,21 @@ def _install_cv_internal_context() -> None:
     def _cv_fold_with_internal_resolved_solver(self, *args, **kwargs):
         if _loss_name(getattr(self, "loss", "")) != "quantile":
             return current_fold(self, *args, **kwargs)
+
+        strict = kwargs.get("strict", args[7] if len(args) > 7 else True)
+        from statgpu.solvers import _proximal_irls_quantile as _prox_kernel
+
+        scalar_strict = (
+            bool(strict)
+            and _penalty_name(getattr(self, "penalty", ""))
+            in _NONCONVEX_QUANTILE_PENALTIES
+        )
         token = _INTERNAL_CV_RESOLVED_SOLVER.set(True)
+        convergence_token = _prox_kernel._STRICT_CV_TARGET.set(scalar_strict)
         try:
             return current_fold(self, *args, **kwargs)
         finally:
+            _prox_kernel._STRICT_CV_TARGET.reset(convergence_token)
             _INTERNAL_CV_RESOLVED_SOLVER.reset(token)
 
     @wraps(current_refit)
