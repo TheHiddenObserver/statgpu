@@ -3276,6 +3276,18 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 "penalty='none' is non-tunable in PenalizedGLM_CV; "
                 "use the corresponding direct estimator for an unpenalized fit."
             )
+        # Resolve and validate fold structure before automatic alpha-grid work.
+        # Invalid custom folds, impossible cv counts, and zero fold weight mass
+        # are public input errors and must fail before any auxiliary numerical
+        # score/fit used only to size the candidate grid.
+        n_samples = X.shape[0]
+        if self.cv_splits is not None:
+            effective_splits = self._materialize_cv_splits()
+            folds = _validate_scalar_cv_folds(effective_splits, n_samples)
+        else:
+            folds = kfold_indices(n_samples, self._cv, self.random_state)
+        _validate_cv_fold_weight_mass(sample_weight, folds)
+
         alpha_grid = None
         if self._alpha_grid_input is not None:
             alpha_grid = _normalize_scalar_alpha_grid(
@@ -3289,14 +3301,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
         alpha_grid = _validate_final_scalar_alpha_grid(alpha_grid)
 
         self.alpha_grid_ = alpha_grid
-        n_samples = X.shape[0]
         n_alphas = len(alpha_grid)
-        if self.cv_splits is not None:
-            effective_splits = self._materialize_cv_splits()
-            folds = _validate_scalar_cv_folds(effective_splits, n_samples)
-        else:
-            folds = kfold_indices(n_samples, self._cv, self.random_state)
-        _validate_cv_fold_weight_mass(sample_weight, folds)
         cv_device = self._effective_cv_device(
             X, penalty_name, n_alphas, n_folds=len(folds)
         )

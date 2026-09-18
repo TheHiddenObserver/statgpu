@@ -271,6 +271,67 @@ def test_quantile_cv_rejects_malformed_custom_folds_before_candidate_work(
     assert model.estimator_ is None
 
 
+def test_quantile_cv_rejects_malformed_custom_folds_before_auto_grid_work(
+    monkeypatch,
+):
+    X, y, _ = _data(seed=16360, n=24)
+    model = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.35},
+        penalty="l2",
+        cv=2,
+        cv_splits=[(np.array([0, 1]), np.array([1, 2]))],
+        solver="auto",
+        device="cpu",
+    )
+
+    def forbidden_grid(*args, **kwargs):
+        raise AssertionError("invalid custom folds must fail before auto-grid work")
+
+    monkeypatch.setattr(model, "_generate_alpha_grid", forbidden_grid)
+    with pytest.raises(ValueError, match="disjoint"):
+        model.fit(X, y)
+
+    assert model._fitted is False
+    assert model.alpha_grid_ is None
+    assert model.estimator_ is None
+
+
+def test_quantile_cv_rejects_zero_fold_weight_mass_before_auto_grid_work(
+    monkeypatch,
+):
+    X = np.array(
+        [[-1.0, 0.2], [0.0, -0.1], [0.5, 0.4], [1.0, -0.3]],
+        dtype=np.float64,
+    )
+    y = np.array([-0.4, 0.1, 0.35, 0.8], dtype=np.float64)
+    folds = [
+        (np.array([2, 3]), np.array([0, 1])),
+        (np.array([0, 1]), np.array([2, 3])),
+    ]
+    weights = np.asarray([0.0, 0.0, 1.0, 1.0], dtype=np.float64)
+    model = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.35},
+        penalty="l2",
+        cv=2,
+        cv_splits=folds,
+        solver="auto",
+        device="cpu",
+    )
+
+    def forbidden_grid(*args, **kwargs):
+        raise AssertionError("zero fold weight mass must fail before auto-grid work")
+
+    monkeypatch.setattr(model, "_generate_alpha_grid", forbidden_grid)
+    with pytest.raises(ValueError, match="positive sum"):
+        model.fit(X, y, sample_weight=weights)
+
+    assert model._fitted is False
+    assert model.alpha_grid_ is None
+    assert model.estimator_ is None
+
+
 def test_quantile_cv_reuses_one_shot_custom_splits_across_refits():
     X, y, _ = _data(seed=16338, n=60)
     idx = np.arange(X.shape[0])
