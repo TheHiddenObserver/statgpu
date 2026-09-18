@@ -3460,12 +3460,14 @@ class PenalizedGLM_CV(CVEstimatorBase):
     def score(self, X, y, sample_weight=None):
         """Return the score on the given data.
 
-        For squared_error loss, returns R². For GLM losses, returns
-        the deviance-based pseudo-R² (1 - deviance/null_deviance). For
-        ``cox_ph``, delegates to the final penalized Cox concordance score.
+        For scalar-response fits, delegates to the refit estimator's
+        response-scale R² score. This includes Quantile CV; it does not return
+        pinball loss or a deviance pseudo-R². For ``cox_ph``, delegates to
+        the final penalized Cox concordance score.
 
         Note: ``best_score_`` is negative CV loss (sklearn convention),
-        while ``score()`` returns R² or accuracy. These are different metrics.
+        while scalar ``score()`` returns response-scale R². These are
+        different metrics.
         """
         if not getattr(self, '_fitted', False):
             raise RuntimeError("PenalizedGLM_CV is not fitted yet. Call fit() first.")
