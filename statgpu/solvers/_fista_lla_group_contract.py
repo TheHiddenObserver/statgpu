@@ -175,12 +175,16 @@ def fista_lla_path(
         else:
             lla_tol = value
 
+    path_ndim = getattr(alpha_path, "ndim", 1)
+    if path_ndim != 1:
+        raise ValueError("alpha_path must be a non-empty one-dimensional sequence")
     try:
         path_len = len(alpha_path)
     except TypeError as exc:
         raise ValueError("alpha_path must be a non-empty one-dimensional sequence") from exc
     if path_len < 1:
         raise ValueError("alpha_path must be a non-empty one-dimensional sequence")
+    path_values = []
     for value in alpha_path:
         if isinstance(value, (bool, np.bool_, str, bytes)):
             raise ValueError("alpha_path must contain finite positive numbers")
@@ -192,6 +196,15 @@ def fista_lla_path(
             ) from exc
         if not np.isfinite(numeric) or numeric <= 0.0:
             raise ValueError("alpha_path must contain finite positive numbers")
+        path_values.append(numeric)
+
+    if any(
+        path_values[i + 1] > path_values[i]
+        for i in range(len(path_values) - 1)
+    ):
+        raise ValueError(
+            "alpha_path must be non-increasing from continuation start to target"
+        )
 
     if isinstance(max_iter, (list, tuple)):
         if len(max_iter) != path_len:

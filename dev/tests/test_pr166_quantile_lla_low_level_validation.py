@@ -26,6 +26,11 @@ from statgpu.solvers import fista_lla_path
         ({"alpha_path": []}, "alpha_path must be a non-empty"),
         ({"alpha_path": [0.04, 0.0]}, "alpha_path must contain finite positive"),
         ({"alpha_path": ["0.04"]}, "alpha_path must contain finite positive"),
+        ({"alpha_path": [[0.08, 0.04]]}, "one-dimensional"),
+        (
+            {"alpha_path": [0.04, 0.08]},
+            "alpha_path must be non-increasing",
+        ),
     ],
 )
 def test_quantile_fista_lla_rejects_invalid_public_controls_before_loss_work(
