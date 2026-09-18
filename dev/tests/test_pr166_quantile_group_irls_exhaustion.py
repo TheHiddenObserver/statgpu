@@ -246,6 +246,40 @@ def test_intermediate_quantile_group_lla_exhaustion_is_only_a_warm_path(monkeypa
     assert intercept == 0.0
 
 
+def test_flat_quantile_group_irls_reuses_current_lla_iterate(monkeypatch):
+    """A flat surrogate continues from the current LLA/continuation state."""
+    X, y, loss, penalty = _drifting_problem()
+    initial = np.full(4, 2.0, dtype=np.float64)
+    seen = []
+
+    def stable_irls(
+        X_arg, y_arg, penalty=None, max_iter=100, tol=1e-6,
+        init_coef=None, eps=1e-8, sample_weight=None, fit_intercept=False,
+    ):
+        assert init_coef is not None
+        current = np.asarray(init_coef, dtype=np.float64).copy()
+        seen.append(current)
+        return current, 1
+
+    monkeypatch.setattr(loss, "irls", stable_irls)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        coef, intercept, n_iter = solver_mod.quantile_group_proximal_irls_lla_solver(
+            loss, penalty, X, y,
+            alpha_path=np.asarray([0.3], dtype=np.float64),
+            max_lla_per_step=1, max_iter=2, tol=1e-12, lla_tol=1e-12,
+            fit_intercept=False, init_coef=initial,
+            fail_on_target_nonconvergence=True,
+        )
+
+    assert len(seen) == 1
+    np.testing.assert_array_equal(seen[0], initial)
+    np.testing.assert_array_equal(coef, initial)
+    assert intercept == 0.0
+    assert n_iter == 1
+
+
 def _install_genuinely_exhausted_flat_irls(monkeypatch, loss):
     calls = {"value": 0}
 
@@ -254,10 +288,9 @@ def _install_genuinely_exhausted_flat_irls(monkeypatch, loss):
         init_coef=None, eps=1e-8, sample_weight=None, fit_intercept=False,
     ):
         calls["value"] += 1
-        if init_coef is None:
-            return np.zeros(X_arg.shape[1], dtype=np.float64), int(max_iter)
-        # The boundary probe still sees a material next-step move, so this is
-        # a true exhausted state rather than last-iteration convergence.
+        assert init_coef is not None
+        # Both the target solve and the diagnostic probe continue from the
+        # current iterate. A material next-step move proves true exhaustion.
         return np.asarray(init_coef, dtype=np.float64) + 0.1, int(max_iter)
 
     monkeypatch.setattr(loss, "irls", exhausted_irls)
@@ -279,7 +312,9 @@ def test_flat_quantile_group_target_irls_budget_exhaustion_warns_at_external_cal
     assert calls["value"] == 2  # solve + diagnostic one-step boundary probe
     assert caught[0].filename == __file__
     assert n_iter == 2
-    np.testing.assert_array_equal(coef, np.zeros(4, dtype=np.float64))
+    np.testing.assert_allclose(
+        coef, np.full(4, 2.1, dtype=np.float64), rtol=0.0, atol=1e-15
+    )
     assert intercept == 0.0
 
 

@@ -265,7 +265,7 @@ def quantile_group_proximal_irls_lla_solver(
                     penalty=None,
                     max_iter=irls_limit,
                     tol=flat_tol,
-                    init_coef=None,
+                    init_coef=params,
                     sample_weight=sw,
                     fit_intercept=fit_intercept,
                 )
