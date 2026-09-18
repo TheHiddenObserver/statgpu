@@ -368,6 +368,7 @@ def _install_public_solver_refit_sync() -> None:
             use_scalar_object_clone = (
                 not isinstance(original_penalty, str)
                 and penalty_name not in _GROUP_PENALTY_NAMES
+                and hasattr(original_penalty, "alpha")
             )
             if use_scalar_object_clone:
                 routed_penalty = _clone_scalar_penalty(original_penalty)
