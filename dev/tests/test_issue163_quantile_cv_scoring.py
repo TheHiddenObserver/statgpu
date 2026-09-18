@@ -174,6 +174,91 @@ def test_quantile_cv_clone_materializes_one_shot_custom_splits_once():
     assert cloned._fitted is False
 
 
+def test_quantile_two_stage_falls_back_to_full_strict_grid_when_refined_set_fails(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    X, y, folds = _data(seed=16340, n=56)
+    alpha_grid = np.asarray([0.07, 0.06, 0.05, 0.04, 0.03, 0.02, 0.01])
+    calls = []
+
+    def fake_scores(
+        self,
+        X_arg,
+        y_arg,
+        alpha_grid_arg,
+        cv_device,
+        folds_arg,
+        *,
+        sample_weight=None,
+        max_iter=None,
+        tol=None,
+        strict=True,
+    ):
+        alpha_grid_arg = np.asarray(alpha_grid_arg, dtype=np.float64)
+        calls.append((bool(strict), alpha_grid_arg.copy()))
+        out = np.full((len(folds_arg), len(alpha_grid_arg)), np.nan)
+        if not strict:
+            stage1_mean = {
+                0.07: 5.0,
+                0.06: 4.0,
+                0.05: 3.0,
+                0.04: 0.0,
+                0.03: 3.0,
+                0.02: 4.0,
+                0.01: 5.0,
+            }
+            for j, alpha in enumerate(alpha_grid_arg):
+                out[:, j] = stage1_mean[float(alpha)]
+            return out
+
+        if len(alpha_grid_arg) == len(alpha_grid):
+            # Only an alpha omitted by the approximate shortlist is strictly
+            # usable; full-grid recovery must discover it.
+            j = int(np.flatnonzero(np.isclose(alpha_grid_arg, 0.06))[0])
+            out[:, j] = 0.125
+        return out
+
+    def fake_refit(self, X_arg, y_arg, best_alpha, sample_weight=None):
+        return SimpleNamespace(
+            coef_=np.zeros(X_arg.shape[1], dtype=np.float64),
+            intercept_=0.0,
+        )
+
+    monkeypatch.setattr(PenalizedGLM_CV, "_compute_cv_scores", fake_scores)
+    monkeypatch.setattr(PenalizedGLM_CV, "_refit_best", fake_refit)
+
+    model = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.35},
+        penalty="scad",
+        alpha_grid=alpha_grid,
+        cv=2,
+        cv_splits=folds,
+        solver="auto",
+        device="cpu",
+        cv_strategy="two_stage",
+        acknowledge_approx=True,
+        refine_top_k=1,
+        max_iter=80,
+        tol=1e-6,
+    )
+
+    with pytest.warns(
+        RuntimeWarning,
+        match="retrying the full alpha grid with strict solves",
+    ):
+        model.fit(X, y)
+
+    assert [strict for strict, _ in calls] == [False, True, True]
+    assert len(calls[1][1]) < len(alpha_grid)
+    np.testing.assert_array_equal(calls[2][1], alpha_grid)
+    assert model.alpha_ == pytest.approx(0.06)
+    assert np.all(model.cv_results_["refined_mask"])
+    assert model.cv_results_["mean_score"][1] == pytest.approx(0.125)
+
+
 def test_quantile_cv_public_fold_count_replacement_is_authoritative():
     X, y, _ = _data(seed=16326, n=72)
     cv = PenalizedGLM_CV(

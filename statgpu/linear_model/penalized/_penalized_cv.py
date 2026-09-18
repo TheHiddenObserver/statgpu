@@ -3159,16 +3159,46 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 tol=self._tol,
                 strict=True,
             )
-            all_scores = np.array(all_scores_stage1, copy=True)
-            all_scores[:, refined_mask] = refined_scores
-            mean_scores = _finite_column_mean(all_scores)
             refined_mean = _finite_column_mean(refined_scores)
-            refined_best = self._best_index_from_scores(
-                refined_mean,
-                refined_alpha_grid,
-                cv_solver,
-            )
-            best_idx = int(np.flatnonzero(refined_mask)[refined_best])
+            if not np.any(np.isfinite(refined_mean)):
+                warnings.warn(
+                    "Two-stage strict refinement produced no finite candidate; "
+                    "retrying the full alpha grid with strict solves.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+                refined_mask[:] = True
+                refined_alpha_grid = alpha_grid
+                refined_scores = self._compute_cv_scores(
+                    X,
+                    y,
+                    refined_alpha_grid,
+                    cv_device,
+                    folds,
+                    sample_weight=sample_weight,
+                    max_iter=self._max_iter,
+                    tol=self._tol,
+                    strict=True,
+                )
+                all_scores = np.array(refined_scores, copy=True)
+                mean_scores = _finite_column_mean(all_scores)
+                refined_mean = mean_scores
+                refined_best = self._best_index_from_scores(
+                    refined_mean,
+                    refined_alpha_grid,
+                    cv_solver,
+                )
+                best_idx = int(refined_best)
+            else:
+                all_scores = np.array(all_scores_stage1, copy=True)
+                all_scores[:, refined_mask] = refined_scores
+                mean_scores = _finite_column_mean(all_scores)
+                refined_best = self._best_index_from_scores(
+                    refined_mean,
+                    refined_alpha_grid,
+                    cv_solver,
+                )
+                best_idx = int(np.flatnonzero(refined_mask)[refined_best])
         else:
             all_scores = self._compute_cv_scores(
                 X,
