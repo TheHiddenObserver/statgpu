@@ -37,6 +37,37 @@ def _pinball(y, eta, tau, sample_weight=None):
     return float(np.average(values, weights=np.asarray(sample_weight)))
 
 
+@pytest.mark.parametrize(
+    "sample_weight",
+    [
+        np.array([1.0, -0.1, 1.0, 1.0]),
+        np.array([1.0, np.nan, 1.0, 1.0]),
+        np.zeros(4, dtype=np.float64),
+        np.ones(3, dtype=np.float64),
+    ],
+)
+def test_quantile_cv_score_rejects_invalid_sample_weight(sample_weight):
+    X = np.array(
+        [[-1.0, 0.2], [0.0, -0.1], [0.5, 0.4], [1.0, -0.3]],
+        dtype=np.float64,
+    )
+    y = np.array([-0.4, 0.1, 0.35, 0.8], dtype=np.float64)
+    model = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.3},
+        penalty="l2",
+        alpha_grid=np.asarray([0.02], dtype=np.float64),
+        cv=2,
+        solver="auto",
+        device="cpu",
+        max_iter=200,
+        tol=1e-8,
+    ).fit(X, y)
+
+    with pytest.raises(ValueError, match="sample_weight"):
+        model.score(X, y, sample_weight=sample_weight)
+
+
 @pytest.mark.parametrize("weighted", [False, True])
 def test_quantile_cv_general_scores_use_requested_tau(weighted):
     X, y, folds = _data()

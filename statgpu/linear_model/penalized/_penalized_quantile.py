@@ -211,7 +211,10 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
         q = float(self._resolved_quantile_loss_kwargs()["quantile"])
         per_sample = np.where(u >= 0, q * u, (q - 1.0) * u)
         if sample_weight is not None:
-            sw = np.asarray(sample_weight, dtype=np.float64)
+            from statgpu.glm_core._validation import validate_glm_sample_weight
+
+            sw = validate_glm_sample_weight(sample_weight, y.shape[0])
+            sw = np.asarray(_to_numpy(sw), dtype=np.float64)
             pinball = float(np.average(per_sample, weights=sw))
         else:
             pinball = float(np.mean(per_sample))

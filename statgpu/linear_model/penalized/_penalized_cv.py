@@ -3451,4 +3451,12 @@ class PenalizedGLM_CV(CVEstimatorBase):
         """
         if not getattr(self, '_fitted', False):
             raise RuntimeError("PenalizedGLM_CV is not fitted yet. Call fit() first.")
+        if str(self.loss).lower().strip() == "quantile" and sample_weight is not None:
+            from statgpu.glm_core._validation import validate_glm_sample_weight
+
+            sample_weight = validate_glm_sample_weight(sample_weight, len(y))
+            sample_weight = np.asarray(
+                _to_numpy(sample_weight),
+                dtype=np.float64,
+            )
         return self.estimator_.score(X, y, sample_weight=sample_weight)
