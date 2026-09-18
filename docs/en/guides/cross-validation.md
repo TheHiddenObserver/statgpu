@@ -148,7 +148,7 @@ Cox grids have survival-specific validation rules; see the Cox model page rather
 
 ## Sample weights
 
-Where a CV estimator supports `sample_weight`, the weights enter the training-fold objective and the corresponding weighted validation criterion, and the selected final model is refit with the full-data weights.
+Where a CV estimator supports `sample_weight`, the weights enter the training-fold objective and the corresponding weighted validation criterion, and the selected final model is refit with the full-data weights. For `PenalizedGLM_CV`, every evaluated training fold and validation fold must retain a finite positive total analytic weight. A fold with zero weight mass is undefined for the declared weighted objective and raises before candidate fitting; statgpu does not replace that fold by an unweighted score.
 
 ```python
 from statgpu.linear_model import RidgeCV
