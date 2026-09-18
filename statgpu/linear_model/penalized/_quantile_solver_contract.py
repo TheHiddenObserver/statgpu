@@ -23,6 +23,7 @@ from numbers import Integral, Real
 import numpy as np
 
 from statgpu._config import Device
+from statgpu.penalties._categories import GROUP as _GROUP_PENALTY_NAMES
 
 from . import _fit_mixin as _fit_mixin
 from . import _penalized_cv as _cv_mod
@@ -151,7 +152,7 @@ def _finite_positive(value, name: str) -> float:
     return value
 
 
-def _clone_scalar_nonconvex_penalty(penalty, *, alpha=None):
+def _clone_scalar_penalty(penalty, *, alpha=None):
     params = {}
     get_params = getattr(penalty, "get_params", None)
     if callable(get_params):
@@ -276,12 +277,12 @@ def _install_scalar_cv_penalty_object_contract() -> None:
         penalty = current(self)
         if (
             _loss_name(getattr(self, "loss", "")) != "quantile"
-            or _penalty_name(penalty) not in _NONCONVEX_QUANTILE_PENALTIES
+            or _penalty_name(penalty) in _GROUP_PENALTY_NAMES
             or not bool(getattr(penalty, _SCALAR_CV_ALPHA_MARKER, False))
         ):
             return penalty
 
-        resolved = _clone_scalar_nonconvex_penalty(
+        resolved = _clone_scalar_penalty(
             penalty,
             alpha=float(self.alpha),
         )
@@ -366,10 +367,10 @@ def _install_public_solver_refit_sync() -> None:
             penalty_name = _penalty_name(original_penalty)
             use_scalar_object_clone = (
                 not isinstance(original_penalty, str)
-                and penalty_name in _NONCONVEX_QUANTILE_PENALTIES
+                and penalty_name not in _GROUP_PENALTY_NAMES
             )
             if use_scalar_object_clone:
-                routed_penalty = _clone_scalar_nonconvex_penalty(original_penalty)
+                routed_penalty = _clone_scalar_penalty(original_penalty)
                 setattr(routed_penalty, _SCALAR_CV_ALPHA_MARKER, True)
                 self.penalty = routed_penalty
             try:

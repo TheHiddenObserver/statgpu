@@ -8,7 +8,7 @@ import pytest
 from statgpu._config import Device
 from statgpu.linear_model import PenalizedGLM_CV
 from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
-from statgpu.penalties import SCADPenalty
+from statgpu.penalties import ElasticNetPenalty, L2Penalty, SCADPenalty
 
 
 def _data(seed=16321, n=64):
@@ -649,6 +649,90 @@ def test_quantile_scalar_scad_two_stage_uses_maintained_per_alpha_path_for_objec
         object_cv.cv_results_["refined_mask"],
         string_cv.cv_results_["refined_mask"],
     )
+
+
+def test_quantile_l2_penalty_object_matches_string_cv_and_refit():
+    X, y, folds = _data(seed=16344, n=72)
+    alpha_grid = np.asarray([0.05, 0.02], dtype=np.float64)
+
+    penalty_object = L2Penalty(alpha=0.9)
+    object_cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.3},
+        penalty=penalty_object,
+        alpha_grid=alpha_grid,
+        cv=2,
+        cv_splits=folds,
+        solver="auto",
+        device="cpu",
+        max_iter=400,
+        tol=1e-8,
+    ).fit(X, y)
+    string_cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.3},
+        penalty="l2",
+        alpha_grid=alpha_grid,
+        cv=2,
+        cv_splits=folds,
+        solver="auto",
+        device="cpu",
+        max_iter=400,
+        tol=1e-8,
+    ).fit(X, y)
+
+    np.testing.assert_allclose(
+        object_cv.cv_results_["all_scores"],
+        string_cv.cv_results_["all_scores"],
+        rtol=2e-8,
+        atol=2e-10,
+    )
+    assert object_cv.alpha_ == pytest.approx(string_cv.alpha_)
+    np.testing.assert_allclose(
+        object_cv.coef_, string_cv.coef_, rtol=2e-8, atol=2e-10
+    )
+    assert object_cv.intercept_ == pytest.approx(
+        string_cv.intercept_, rel=2e-8, abs=2e-10
+    )
+    assert penalty_object.alpha == pytest.approx(0.9)
+    assert object_cv.penalty is penalty_object
+    assert object_cv.estimator_.penalty is not penalty_object
+    assert object_cv.estimator_.penalty.alpha == pytest.approx(object_cv.alpha_)
+    assert object_cv.estimator_._penalty.alpha == pytest.approx(object_cv.alpha_)
+
+
+def test_quantile_elasticnet_penalty_object_auto_grid_uses_object_l1_ratio():
+    X, y, _ = _data(seed=16345, n=64)
+    tau = 0.27
+    ratio = 0.25
+
+    object_model = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": tau},
+        penalty=ElasticNetPenalty(alpha=0.9, l1_ratio=ratio),
+        l1_ratio=0.8,
+        alpha_grid=None,
+        n_alphas=4,
+        cv=2,
+        solver="auto",
+        device="cpu",
+    )
+    string_model = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": tau},
+        penalty="elasticnet",
+        l1_ratio=ratio,
+        alpha_grid=None,
+        n_alphas=4,
+        cv=2,
+        solver="auto",
+        device="cpu",
+    )
+
+    object_grid = object_model._generate_alpha_grid(X, y)
+    string_grid = string_model._generate_alpha_grid(X, y)
+
+    np.testing.assert_allclose(object_grid, string_grid, rtol=0.0, atol=1e-14)
 
 
 def test_quantile_scalar_scad_penalty_object_matches_string_cv_and_refit():
