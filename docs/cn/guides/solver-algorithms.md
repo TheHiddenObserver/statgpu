@@ -1477,7 +1477,7 @@ $$
 └── 其他分组惩罚                          → Group FISTA / FISTA-LLA
 ```
 
-对于 Quantile L2/无惩罚目标，显式 `solver="irls"` 与 `auto` 选择同一算法；显式 `solver="fista"` 则真正执行普通 FISTA，不会被静默替换成 IRLS。自动 Quantile Group SCAD/MCP 使用私有的分组 Proximal IRLS-LLA estimator/CV 路径；若对 Group SCAD/MCP 显式请求 `solver="fista"`，则仍执行普通分组近端 FISTA，不会被改写成该自动路径。分组 Proximal IRLS-LLA 的代理目标、权重与更新公式见 [分位数回归模型页](../models/quantile.md#分组-proximal-irls-llagroup-scadmcp)。Quantile FISTA-BB、模型/CV 层 L-BFGS 与 ADMM 请求均不受支持，并会在数值迭代前报错。底层直接 L-BFGS 保留未传/均匀权重的 Quantile 行为，非均匀权重则被拒绝。稀疏 Quantile 的普通 FISTA 与 SCAD/MCP 的 Proximal IRLS-CD 是不同的 estimator 算法。
+对于 Quantile L2/无惩罚目标，显式 `solver="irls"` 与 `auto` 选择同一算法；显式 `solver="fista"` 则真正执行普通 FISTA，不会被静默替换成 IRLS。自动 Quantile Group SCAD/MCP 使用私有的分组 Proximal IRLS-LLA estimator/CV 路径；若对 Group SCAD/MCP 显式请求 `solver="fista"`，则仍执行普通分组近端 FISTA，不会被改写成该自动路径。分组 Proximal IRLS-LLA 的代理目标、权重与更新公式见 [分位数回归模型页](../models/quantile.md)。Quantile FISTA-BB、模型/CV 层 L-BFGS 与 ADMM 请求均不受支持，并会在数值迭代前报错。底层直接 L-BFGS 保留未传/均匀权重的 Quantile 行为，非均匀权重则被拒绝。稀疏 Quantile 的普通 FISTA 与 SCAD/MCP 的 Proximal IRLS-CD 是不同的 estimator 算法。
 
 这棵树有意只给出摘要。family/backend/problem-size 的精确规则——尤其 Poisson 与 Negative-Binomial 的 CV 稀疏路由——以 [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md) 为准。
 
