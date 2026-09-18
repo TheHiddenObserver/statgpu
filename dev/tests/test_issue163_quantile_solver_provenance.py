@@ -697,6 +697,7 @@ def test_quantile_solver_contract_reload_preserves_layered_explicit_solver_seman
     import importlib
 
     from statgpu.losses import QuantileLoss
+    from statgpu.linear_model.penalized import _fit_mixin
     from statgpu.linear_model.penalized import _quantile_solver_contract as contract
 
     before_direct_fit = PenalizedGeneralizedLinearModel.fit
