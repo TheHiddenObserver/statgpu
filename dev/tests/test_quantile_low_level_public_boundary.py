@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import inspect
+import warnings
 
 import numpy as np
 import pytest
@@ -169,7 +170,8 @@ def test_public_proximal_quantile_flat_target_remains_valid_when_lla_weights_sta
 
     token = _prox_kernel._STRICT_CV_TARGET.set(True)
     try:
-        with pytest.warns(None) as caught:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
             coef, intercept, n_iter = solvers.proximal_irls_quantile_solver(
                 loss,
                 penalty,
