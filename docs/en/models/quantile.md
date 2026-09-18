@@ -1,7 +1,7 @@
 # Quantile Regression
 
 > Language: English  
-> Last updated: 2026-09-17  
+> Last updated: 2026-09-18  
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/quantile.md)
 
@@ -300,8 +300,9 @@ Quantile/check loss is non-smooth, so this route should not be interpreted as sa
 
 - `score()` uses check/pinball loss and returns its negative to follow sklearn's “higher is better” convention.
 - `sample_weight` support is a **loss × solver × estimator** route capability, not an automatic property of every solver.
-- For automatic Group SCAD/MCP cross-validation, a target-level non-converged fold fit is not scored. An alpha is eligible for strict selection only when every fold has a finite score. The selected full-data refit follows direct-estimator convergence reporting: target budget exhaustion emits `ConvergenceWarning` and returns the final iterate.
-- Group Proximal IRLS-LLA rejects invalid stopping controls instead of coercing them into a usable budget: `max_iter` must be a positive integer and `tol` a finite positive number. Direct Group Proximal IRLS-LLA fits additionally require positive-integer `max_lla_iters` and finite-positive `lla_tol`; `PenalizedGLM_CV` exposes `max_iter`/`tol`; candidate fits and the final refit use the route's built-in LLA defaults.
+- For automatic scalar SCAD/MCP and automatic Group SCAD/MCP cross-validation, a fold fit that does not establish convergence at the target alpha is not scored in strict selection. An alpha is eligible only when every fold has a finite score. The selected full-data refit follows direct-estimator reporting: target IRLS/LLA budget exhaustion emits `ConvergenceWarning` and returns the final iterate.
+- Quantile non-convex continuation routes reject stopping-control coercion. `max_iter` must be a positive integer and `tol` a finite positive real number; direct scalar SCAD/MCP, automatic Group SCAD/MCP, and explicit Group SCAD/MCP FISTA also require integer `max_lla_iters` and finite-positive `lla_tol`. The current automatic Quantile continuation has three alpha steps, so `max_lla_iters` must be at least 3 to give every step one LLA update. Intermediate continuation steps use a reduced IRLS budget that never exceeds the public `max_iter`; the target step may use the full budget.
+- The public low-level `QuantileLoss.irls()` and `proximal_irls_quantile_solver()` boundaries likewise reject non-boolean `fit_intercept` values and invalid stopping controls instead of relying on Python truth-value or numeric-string coercion.
 - Explicit ordinary L2/no-penalty Quantile FISTA is supported and is authoritative: it executes FISTA rather than silently substituting IRLS. Explicit Group SCAD/MCP FISTA is likewise not rewritten into the automatic Group Proximal IRLS-LLA route.
 - Quantile FISTA-BB/direct ADMM remain unsupported and raise an error before numerical iteration. Estimator/CV L-BFGS remains unsupported, while the existing low-level unweighted/uniform L-BFGS compatibility boundary is preserved.
 - Unsupported explicit weighted-solver combinations raise an error before numerical iteration rather than silently substituting another solver.
