@@ -9,23 +9,88 @@ Quantile/check loss does not provide:
 Ordinary Quantile FISTA is supported for the corresponding convex objectives,
 while L2/no-penalty Quantile defaults to IRLS and SCAD/MCP use Proximal IRLS-CD.
 
-Low-level ``lbfgs_solver(QuantileLoss, ...)`` is intentionally not wrapped
-here: unweighted/uniform direct Quantile L-BFGS retains its historical
-compatibility behavior. Estimator-level explicit Quantile L-BFGS is unsupported,
-and non-uniform direct weights are rejected by the L-BFGS weight check.
+Low-level ``lbfgs_solver(QuantileLoss, ...)`` retains its historical
+unweighted/uniform numerical compatibility behavior. The public wrapper below
+only validates supervised input shape before delegating to that unchanged
+kernel. Estimator-level explicit Quantile L-BFGS remains unsupported, and
+non-uniform direct weights are still rejected by the L-BFGS weight check.
 """
 
 from __future__ import annotations
 
 from functools import wraps
 
+import numpy as np
+
 from ._admm import admm_solver as _admm_solver
+from ._fista import fista_solver as _fista_solver
 from ._fista_bb import fista_bb_solver as _fista_bb_solver
+from ._lbfgs import lbfgs_solver as _lbfgs_solver
 
 
 def _is_quantile(loss) -> bool:
     return str(getattr(loss, "name", "") or "").lower().strip() == "quantile"
 
+
+def _validate_quantile_xy_shapes(loss, X, y, solver_name: str) -> None:
+    """Validate supported low-level Quantile solver inputs before numerics."""
+    if not _is_quantile(loss):
+        return
+
+    x_ndim = getattr(X, "ndim", None)
+    x_shape = getattr(X, "shape", None)
+    if x_ndim is None or x_shape is None:
+        X_host = np.asarray(X)
+        x_ndim = X_host.ndim
+        x_shape = X_host.shape
+
+    y_ndim = getattr(y, "ndim", None)
+    y_shape = getattr(y, "shape", None)
+    if y_ndim is None or y_shape is None:
+        y_host = np.asarray(y)
+        y_ndim = y_host.ndim
+        y_shape = y_host.shape
+
+    if int(x_ndim) != 2:
+        raise ValueError(f"X must be two-dimensional for {solver_name}")
+    if int(y_ndim) != 1:
+        raise ValueError(f"y must be one-dimensional for {solver_name}")
+    if int(y_shape[0]) != int(x_shape[0]):
+        raise ValueError(
+            f"y must have the same number of observations as X for {solver_name}"
+        )
+
+
+@wraps(_fista_solver)
+def fista_solver(loss, penalty, X, y, *args, **kwargs):
+    """Run ordinary FISTA with the public Quantile supervised-shape contract."""
+    _validate_quantile_xy_shapes(loss, X, y, "fista_solver")
+    return _fista_solver(loss, penalty, X, y, *args, **kwargs)
+
+
+@wraps(_lbfgs_solver)
+def lbfgs_solver(loss, penalty, X, y, *args, **kwargs):
+    """Run L-BFGS while preserving its maintained Quantile compatibility row."""
+    _validate_quantile_xy_shapes(loss, X, y, "lbfgs_solver")
+    return _lbfgs_solver(loss, penalty, X, y, *args, **kwargs)
+
+
+_quantile_supported_shape_doc = """Quantile supervised-input boundary
+
+For direct public Quantile calls, X must be two-dimensional, y must be
+one-dimensional, and their observation counts must agree. Malformed shapes are
+rejected before loss preprocessing or numerical iteration.
+"""
+fista_solver.__doc__ = (
+    _quantile_supported_shape_doc.rstrip()
+    + "\n\n"
+    + (_fista_solver.__doc__ or "").lstrip()
+)
+lbfgs_solver.__doc__ = (
+    _quantile_supported_shape_doc.rstrip()
+    + "\n\n"
+    + (_lbfgs_solver.__doc__ or "").lstrip()
+)
 
 def _reject_quantile(solver_name: str, reason: str) -> None:
     raise ValueError(

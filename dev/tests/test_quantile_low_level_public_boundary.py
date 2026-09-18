@@ -79,6 +79,47 @@ def test_direct_quantile_irls_rejects_invalid_xy_shapes_before_numerics(
         loss.irls(X_transform(X), y_transform(y), max_iter=3)
 
 
+@pytest.mark.parametrize(
+    ("solver_name", "penalty"),
+    [
+        ("fista_solver", L2Penalty(alpha=0.04)),
+        ("lbfgs_solver", None),
+    ],
+)
+@pytest.mark.parametrize(
+    ("X_transform", "y_transform", "message"),
+    [
+        (lambda X: X[:, 0], lambda y: y, "X must be two-dimensional"),
+        (lambda X: X, lambda y: y[:, None], "y must be one-dimensional"),
+        (
+            lambda X: X,
+            lambda y: y[:1],
+            "same number of observations as X",
+        ),
+    ],
+)
+def test_public_quantile_fista_lbfgs_reject_invalid_xy_before_loss_work(
+    monkeypatch, solver_name, penalty, X_transform, y_transform, message
+):
+    X, y = _data(seed=16715)
+    loss = QuantileLoss(quantile=0.3)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("loss numerical work must not start")
+
+    monkeypatch.setattr(loss, "preprocess", forbidden)
+    solver_fn = getattr(solvers, solver_name)
+
+    with pytest.raises(ValueError, match=message):
+        solver_fn(
+            loss,
+            penalty,
+            X_transform(X),
+            y_transform(y),
+            max_iter=3,
+        )
+
+
 @pytest.mark.parametrize("sample_weight", _invalid_weights(24))
 def test_direct_quantile_irls_rejects_invalid_weights_before_numerics(sample_weight):
     X, y = _data()

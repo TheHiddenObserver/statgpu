@@ -6,8 +6,10 @@ This package provides loss types beyond GLM families:
 - HuberLoss: robust regression (Huber M-estimator)
 - CoxPartialLikelihoodLoss: survival analysis (Cox PH)
 
-All losses inherit from LossBase and plug into the existing
-penalty/solver infrastructure (FISTA, Newton, L-BFGS, ADMM).
+All losses inherit from LossBase and plug into the shared
+penalty/solver infrastructure. Solver compatibility is capability-specific:
+implementing the loss interface does not imply support for every generic
+optimizer (FISTA, Newton, L-BFGS, ADMM, and related variants).
 
 Usage:
     from statgpu.losses import QuantileLoss, HuberLoss, get_loss
