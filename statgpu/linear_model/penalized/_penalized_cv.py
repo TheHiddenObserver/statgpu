@@ -2157,6 +2157,11 @@ class PenalizedGLM_CV(CVEstimatorBase):
     uses a survival-specific strict-CV path that preserves the two-column
     target, scores unpenalized held-out partial likelihood, forbids an
     intercept, and refits :class:`PenalizedCoxPHModel`.
+
+    Custom ``cv_splits`` may be a reusable sequence or a one-shot iterator.
+    A one-shot iterator is materialized privately once and reused across
+    repeated fits and scikit-learn cloning; the public ``cv_splits``
+    attribute is not rewritten during fit.
     """
 
     def __init__(

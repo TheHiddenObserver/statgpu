@@ -115,6 +115,8 @@ model.fit(X, y)
 
 当普通随机 k 折不符合数据结构时，例如数据具有时间顺序或分组结构，应由用户提供合适的划分。statgpu 会验证划分是否符合接口要求，但不会替用户判断某一种划分是否符合具体应用的科学设计。
 
+对于 `PenalizedGLM_CV`，`cv_splits` 也可以是 generator 等一次性 iterator。statgpu 会在首次需要时私下将其物化为可复用快照，并在重复 `fit()` 与 scikit-learn clone 中复用；公开的 `cv_splits` 属性本身不会在拟合时被改写。可重复迭代的 list/tuple 仍直接使用。
+
 ### Cox 数据
 
 Cox CV 还需要满足事件信息和风险集相关的要求。对于 `PenalizedGLM_CV(loss="cox_ph", ...)`，生存结局在选择过程中保持二维形式，并且每个实际参与评估的训练/验证分区都必须包含 Cox 评分所需的事件信息；不合法的分区会在候选项选择之前报错。
