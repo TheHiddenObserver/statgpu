@@ -382,6 +382,44 @@ def test_invalid_quantile_cv_refit_control_clears_prior_selection_state():
         ),
     ],
 )
+@pytest.mark.parametrize(
+    "factory",
+    [
+        lambda: PenalizedQuantileRegression(
+            quantile=0.3,
+            penalty="l2",
+            alpha=0.02,
+            solver="irls",
+            device="cpu",
+        ),
+        lambda: PenalizedGeneralizedLinearModel(
+            loss="quantile",
+            loss_kwargs={"quantile": 0.3},
+            penalty="l2",
+            alpha=0.02,
+            solver="auto",
+            device="cpu",
+        ),
+    ],
+)
+def test_quantile_predict_rejects_non_2d_or_wrong_width_before_backend(
+    monkeypatch, factory
+):
+    model = factory()
+    model.coef_ = np.asarray([0.5, -0.2], dtype=np.float64)
+    model.intercept_ = 0.1
+
+    def forbidden_backend(*args, **kwargs):
+        raise AssertionError("invalid prediction shape must fail before backend work")
+
+    monkeypatch.setattr(model, "_prediction_backend_name", forbidden_backend)
+
+    with pytest.raises(ValueError, match="two-dimensional"):
+        model.predict(np.asarray([1.0, 2.0], dtype=np.float64))
+    with pytest.raises(ValueError, match="same number of features"):
+        model.predict(np.ones((3, 1), dtype=np.float64))
+
+
 def test_quantile_score_uses_explicit_reporting_conversion_for_backend_y(
     monkeypatch, factory, module
 ):

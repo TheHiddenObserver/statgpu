@@ -15,6 +15,23 @@ _ETA_CLIP = 500.0
 
 class _PenalizedPredictMixin:
 
+    def _validate_quantile_predict_X(self, X):
+        """Validate Quantile prediction shape without host-copying GPU arrays."""
+        x_ndim = getattr(X, "ndim", None)
+        x_shape = getattr(X, "shape", None)
+        if x_ndim is None or x_shape is None:
+            X_host = np.asarray(X)
+            x_ndim = X_host.ndim
+            x_shape = X_host.shape
+        if int(x_ndim) != 2:
+            raise ValueError("X must be two-dimensional for Quantile prediction")
+        expected_features = int(np.asarray(self.coef_).reshape(-1).shape[0])
+        if int(x_shape[1]) != expected_features:
+            raise ValueError(
+                "X must have the same number of features as the fitted Quantile model"
+            )
+        return X
+
     def _prepare_predict_X(self, X):
         """Apply stored formula design metadata to DataFrame inputs."""
         if self._design_info is not None:
@@ -97,6 +114,8 @@ class _PenalizedPredictMixin:
             raise RuntimeError("Model has not been fitted yet.")
 
         X = self._prepare_predict_X(X)
+        if str(getattr(self, "loss", "")).lower().strip() == "quantile":
+            self._validate_quantile_predict_X(X)
         backend_name = self._prediction_backend_name()
         if backend_name == "cupy":
             import cupy as cp

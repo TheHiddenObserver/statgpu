@@ -187,6 +187,7 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
             raise RuntimeError("Model has not been fitted yet.")
 
         X = self._prepare_predict_X(X)
+        self._validate_quantile_predict_X(X)
         backend_name = self._prediction_backend_name()
 
         if backend_name == "cupy":
