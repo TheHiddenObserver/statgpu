@@ -20,22 +20,17 @@ def _data():
     return X, y, folds
 
 
-@pytest.mark.parametrize(
-    ("name", "value", "message"),
-    [
-        ("lla", False, "require lla=True"),
-        ("lla", "False", "lla must be boolean"),
-        ("max_lla_iters", 2, "max_lla_iters must be at least 3"),
-        ("max_lla_iters", 2.5, "max_lla_iters must be a positive integer"),
-        ("max_lla_iters", "6", "max_lla_iters must be a positive integer"),
-        ("lla_tol", False, "lla_tol must be a finite positive number"),
-        ("lla_tol", "1e-6", "lla_tol must be a finite positive number"),
-    ],
-)
-def test_explicit_group_fista_rejects_coerced_lla_controls_before_numerics(
-    monkeypatch, name, value, message
-):
+def test_explicit_group_fista_is_not_gated_by_unrelated_lla_controls(monkeypatch):
+    import statgpu.solvers as solvers
+
     X, y, _ = _data()
+    seen = {"fista": 0}
+
+    def fake_fista(loss, penalty, X_fit, y_fit, **kwargs):
+        seen["fista"] += 1
+        return np.zeros(X_fit.shape[1], dtype=np.float64), 1
+
+    monkeypatch.setattr(solvers, "fista_solver", fake_fista)
     model = PenalizedGeneralizedLinearModel(
         loss="quantile",
         loss_kwargs={"quantile": 0.35},
@@ -47,17 +42,14 @@ def test_explicit_group_fista_rejects_coerced_lla_controls_before_numerics(
         compute_inference=False,
         max_iter=20,
         tol=1e-6,
-        max_lla_iters=6,
-        lla_tol=1e-6,
+        lla=False,
+        max_lla_iters=1,
+        lla_tol="unused-by-explicit-fista",
     )
-    setattr(model, name, value)
+    model.fit(X, y)
 
-    def forbidden_backend(*args, **kwargs):
-        raise AssertionError("backend numerical work must not start")
-
-    monkeypatch.setattr(model, "_get_backend", forbidden_backend)
-    with pytest.raises(ValueError, match=message):
-        model.fit(X, y)
+    assert seen["fista"] == 1
+    assert model._selected_solver == "fista"
 
 
 def test_direct_group_public_solver_replacement_from_fista_to_auto_uses_auto_route(

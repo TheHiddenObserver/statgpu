@@ -226,7 +226,16 @@ def _sync_public_quantile_fit_controls(owner, *, cv: bool) -> None:
             raise ValueError("fit_intercept must be boolean")
         owner._fit_intercept = bool(fit_intercept)
 
-    if not cv and _penalty_name(getattr(owner, "penalty", "")) in _QUANTILE_LLA_PENALTIES:
+    penalty_name = _penalty_name(getattr(owner, "penalty", ""))
+    solver_name = str(getattr(owner, "_solver", "") or "").lower().strip()
+    uses_quantile_lla = (
+        penalty_name in _NONCONVEX_QUANTILE_PENALTIES
+        or (
+            penalty_name in _GROUP_NONCONVEX_QUANTILE_PENALTIES
+            and solver_name == "auto"
+        )
+    )
+    if not cv and uses_quantile_lla:
         lla = getattr(owner, "lla", getattr(owner, "_lla_enabled", True))
         if not isinstance(lla, (bool, np.bool_)):
             raise ValueError("lla must be boolean for Quantile non-convex penalties")
