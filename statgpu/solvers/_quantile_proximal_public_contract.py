@@ -11,6 +11,9 @@ export and the historically documented module path cannot diverge.
 from __future__ import annotations
 
 from functools import wraps
+from numbers import Integral, Real
+
+import numpy as np
 
 from . import _proximal_irls_quantile as _kernel_module
 from ._quantile_continuation import resolve_auto_quantile_continuation_path
@@ -67,6 +70,48 @@ def install_quantile_proximal_public_contract():
         # deterministic public meaning instead of reaching ``range(None)``.
         if max_iter is None:
             max_iter = 100
+
+        if isinstance(max_lla_per_step, (bool, np.bool_)) or not isinstance(
+            max_lla_per_step, Integral
+        ) or int(max_lla_per_step) < 1:
+            raise ValueError("max_lla_per_step must be a positive integer")
+        max_lla_per_step = int(max_lla_per_step)
+
+        for name, value in (("tol", tol), ("lla_tol", lla_tol)):
+            if isinstance(value, (bool, np.bool_)) or not isinstance(value, Real):
+                raise ValueError(f"{name} must be a finite positive number")
+            value = float(value)
+            if not np.isfinite(value) or value <= 0.0:
+                raise ValueError(f"{name} must be a finite positive number")
+            if name == "tol":
+                tol = value
+            else:
+                lla_tol = value
+
+        if isinstance(max_iter, (list, tuple)):
+            if len(max_iter) != len(alpha_path):
+                raise ValueError(
+                    "max_iter sequence must have one positive integer per alpha_path step"
+                )
+            normalized_max_iter = []
+            for value in max_iter:
+                if isinstance(value, (bool, np.bool_)) or not isinstance(value, Integral):
+                    raise ValueError(
+                        "max_iter sequence must contain only positive integers"
+                    )
+                value = int(value)
+                if value < 1:
+                    raise ValueError(
+                        "max_iter sequence must contain only positive integers"
+                    )
+                normalized_max_iter.append(value)
+            max_iter = normalized_max_iter
+        else:
+            if isinstance(max_iter, (bool, np.bool_)) or not isinstance(max_iter, Integral):
+                raise ValueError("max_iter must be a positive integer or sequence")
+            max_iter = int(max_iter)
+            if max_iter < 1:
+                raise ValueError("max_iter must be a positive integer or sequence")
 
         return current(
             loss,

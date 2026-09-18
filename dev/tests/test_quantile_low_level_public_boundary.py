@@ -46,6 +46,25 @@ def test_direct_quantile_irls_rejects_invalid_weights_before_numerics(sample_wei
         loss.irls(X, y, sample_weight=sample_weight, max_iter=3)
 
 
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"max_iter": 0}, "max_iter must be a positive integer"),
+        ({"max_iter": True}, "max_iter must be a positive integer"),
+        ({"tol": 0.0}, "tol must be a finite positive number"),
+        ({"tol": True}, "tol must be a finite positive number"),
+        ({"tol": "1e-6"}, "tol must be a finite positive number"),
+        ({"eps": 0.0}, "eps must be a finite positive number"),
+    ],
+)
+def test_direct_quantile_irls_rejects_invalid_stopping_controls(kwargs, message):
+    X, y = _data(seed=16705)
+    loss = QuantileLoss(quantile=0.3)
+
+    with pytest.raises(ValueError, match=message):
+        loss.irls(X, y, **kwargs)
+
+
 def test_direct_quantile_irls_validation_preserves_array_like_design_input():
     X, y = _data(seed=16704)
     loss = QuantileLoss(quantile=0.3)
@@ -82,6 +101,36 @@ def test_public_proximal_quantile_solver_rejects_invalid_weights(sample_weight):
                 max_iter=3,
                 sample_weight=sample_weight,
             )
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"max_iter": 0}, "max_iter must be a positive integer or sequence"),
+        ({"max_iter": True}, "max_iter must be a positive integer or sequence"),
+        ({"max_iter": [2, 0]}, "max_iter sequence must contain only positive integers"),
+        ({"max_iter": [2]}, "max_iter sequence must have one positive integer per alpha_path step"),
+        ({"max_lla_per_step": 0}, "max_lla_per_step must be a positive integer"),
+        ({"max_lla_per_step": True}, "max_lla_per_step must be a positive integer"),
+        ({"tol": 0.0}, "tol must be a finite positive number"),
+        ({"tol": "1e-6"}, "tol must be a finite positive number"),
+        ({"lla_tol": False}, "lla_tol must be a finite positive number"),
+    ],
+)
+def test_public_proximal_quantile_rejects_invalid_stopping_controls(kwargs, message):
+    X, y = _data(seed=16706)
+    loss = QuantileLoss(quantile=0.3)
+    penalty = SCADPenalty(alpha=0.05)
+
+    with pytest.raises(ValueError, match=message):
+        solvers.proximal_irls_quantile_solver(
+            loss,
+            penalty,
+            X,
+            y,
+            alpha_path=np.array([0.08, 0.05]),
+            **kwargs,
+        )
 
 
 def test_public_proximal_quantile_none_budget_has_defined_default():

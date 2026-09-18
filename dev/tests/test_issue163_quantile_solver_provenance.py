@@ -57,6 +57,59 @@ def test_l2_quantile_auto_reports_and_executes_irls(factory):
     assert model.n_iter_ >= 1
 
 
+@pytest.mark.parametrize(
+    ("name", "value", "message"),
+    [
+        ("max_iter", 0, "max_iter must be a positive integer"),
+        ("max_iter", True, "max_iter must be a positive integer"),
+        ("tol", 0.0, "tol must be a finite positive number"),
+        ("tol", "1e-6", "tol must be a finite positive number"),
+    ],
+)
+def test_quantile_direct_public_stopping_controls_fail_closed(name, value, message):
+    X, y = _data(seed=16311)
+    model = PenalizedQuantileRegression(
+        quantile=0.4,
+        penalty="l2",
+        alpha=0.02,
+        solver="auto",
+        device="cpu",
+        max_iter=100,
+        tol=1e-6,
+    )
+    setattr(model, name, value)
+
+    with pytest.raises(ValueError, match=message):
+        model.fit(X, y)
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "message"),
+    [
+        ("max_iter", 0, "max_iter must be a positive integer"),
+        ("tol", True, "tol must be a finite positive number"),
+        ("tol", "1e-6", "tol must be a finite positive number"),
+    ],
+)
+def test_quantile_cv_public_stopping_controls_fail_closed(name, value, message):
+    X, y = _data(seed=16312, n=72)
+    cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.4},
+        penalty="l2",
+        alpha_grid=np.asarray([0.03], dtype=np.float64),
+        cv=2,
+        solver="auto",
+        device="cpu",
+        max_iter=100,
+        tol=1e-6,
+    )
+    setattr(cv, name, value)
+
+    with pytest.raises(ValueError, match=message):
+        cv.fit(X, y)
+
+
 def test_explicit_irls_l2_matches_auto_quantile_fit():
     X, y = _data(seed=16302)
     common = dict(
@@ -133,6 +186,34 @@ def test_sparse_quantile_auto_remains_fista_family():
 
     assert model._selected_solver == "fista"
     assert np.all(np.isfinite(model.coef_))
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "message"),
+    [
+        ("max_lla_iters", 0, "max_lla_iters must be a positive integer"),
+        ("max_lla_iters", False, "max_lla_iters must be a positive integer"),
+        ("lla_tol", 0.0, "lla_tol must be a finite positive number"),
+        ("lla_tol", "1e-6", "lla_tol must be a finite positive number"),
+    ],
+)
+def test_scalar_nonconvex_quantile_public_lla_controls_fail_closed(
+    name, value, message
+):
+    X, y = _data(seed=16313, n=64)
+    model = PenalizedQuantileRegression(
+        quantile=0.5,
+        penalty="scad",
+        alpha=0.02,
+        solver="auto",
+        device="cpu",
+        max_iter=100,
+        tol=1e-6,
+    )
+    setattr(model, name, value)
+
+    with pytest.raises(ValueError, match=message):
+        model.fit(X, y)
 
 
 def test_nonconvex_quantile_auto_reports_dedicated_proximal_irls_cd():

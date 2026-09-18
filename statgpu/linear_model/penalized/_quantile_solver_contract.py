@@ -17,6 +17,9 @@ from __future__ import annotations
 
 from contextvars import ContextVar
 from functools import wraps
+from numbers import Integral, Real
+
+import numpy as np
 
 from . import _fit_mixin as _fit_mixin
 from . import _penalized_cv as _cv_mod
@@ -119,10 +122,36 @@ def _validate_quantile_solver_request(
         )
 
 
-def _sync_public_solver(owner) -> None:
-    """Make direct public solver replacement authoritative for the next fit."""
+def _positive_integer(value, name: str) -> int:
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, Integral):
+        raise ValueError(f"{name} must be a positive integer")
+    value = int(value)
+    if value < 1:
+        raise ValueError(f"{name} must be a positive integer")
+    return value
+
+
+def _finite_positive(value, name: str) -> float:
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, Real):
+        raise ValueError(f"{name} must be a finite positive number")
+    value = float(value)
+    if not np.isfinite(value) or value <= 0.0:
+        raise ValueError(f"{name} must be a finite positive number")
+    return value
+
+
+def _sync_public_quantile_fit_controls(owner, *, cv: bool) -> None:
+    """Validate current public Quantile refit controls and sync runtime mirrors."""
     solver = getattr(owner, "solver", getattr(owner, "_solver", "auto"))
     owner._solver = solver.lower() if isinstance(solver, str) else solver
+    owner._max_iter = _positive_integer(owner.max_iter, "max_iter")
+    owner._tol = _finite_positive(owner.tol, "tol")
+
+    if not cv and _penalty_name(getattr(owner, "penalty", "")) in _NONCONVEX_QUANTILE_PENALTIES:
+        owner._max_lla_iters = _positive_integer(
+            owner.max_lla_iters, "max_lla_iters"
+        )
+        owner._lla_tol = _finite_positive(owner.lla_tol, "lla_tol")
 
 
 def _install_public_solver_refit_sync() -> None:
@@ -134,7 +163,7 @@ def _install_public_solver_refit_sync() -> None:
         @wraps(current_direct_fit)
         def _fit_with_current_public_solver(self, *args, **kwargs):
             if _loss_name(getattr(self, "loss", "")) == "quantile":
-                _sync_public_solver(self)
+                _sync_public_quantile_fit_controls(self, cv=False)
             return current_direct_fit(self, *args, **kwargs)
 
         setattr(
@@ -151,7 +180,7 @@ def _install_public_solver_refit_sync() -> None:
         @wraps(current_cv_fit)
         def _cv_fit_with_current_public_solver(self, *args, **kwargs):
             if _loss_name(getattr(self, "loss", "")) == "quantile":
-                _sync_public_solver(self)
+                _sync_public_quantile_fit_controls(self, cv=True)
             return current_cv_fit(self, *args, **kwargs)
 
         setattr(
