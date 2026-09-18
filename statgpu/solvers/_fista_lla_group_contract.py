@@ -175,7 +175,10 @@ def fista_lla_path(
         else:
             lla_tol = value
 
-    path_ndim = getattr(alpha_path, "ndim", 1)
+    if isinstance(alpha_path, (list, tuple)):
+        path_ndim = np.asarray(alpha_path, dtype=object).ndim
+    else:
+        path_ndim = getattr(alpha_path, "ndim", 1)
     if path_ndim != 1:
         raise ValueError("alpha_path must be a non-empty one-dimensional sequence")
     try:
