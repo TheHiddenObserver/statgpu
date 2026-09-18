@@ -84,6 +84,45 @@ def test_quantile_direct_public_stopping_controls_fail_closed(name, value, messa
         model.fit(X, y)
 
 
+def test_rejected_quantile_refit_clears_all_fit_derived_state():
+    X, y = _data(seed=16333, n=64)
+    model = PenalizedQuantileRegression(
+        quantile=0.4,
+        penalty="l2",
+        alpha=0.02,
+        solver="auto",
+        device="cpu",
+        max_iter=200,
+        tol=1e-8,
+    ).fit(X, y)
+
+    assert model._loss is not None
+    assert model._penalty is not None
+    assert model._nobs == X.shape[0]
+    assert model._df_resid is not None
+
+    model.tol = 0.0
+    with pytest.raises(ValueError, match="tol must be a finite positive number"):
+        model.fit(X, y)
+
+    assert model._fitted is False
+    assert model.coef_ is None
+    assert model.intercept_ is None
+    assert model.n_iter_ == 0
+    assert model._selected_solver is None
+    assert model._selected_backend_name is None
+    assert model._selected_backend_device is None
+    assert model._loss is None
+    assert model._penalty is None
+    assert model._nobs is None
+    assert model._df_resid is None
+    assert model._X_design is None
+    assert model._y is None
+    assert model._resid is None
+    assert model._scale is None
+    assert not hasattr(model, "n_features_in_")
+
+
 @pytest.mark.parametrize(
     ("name", "value", "message"),
     [

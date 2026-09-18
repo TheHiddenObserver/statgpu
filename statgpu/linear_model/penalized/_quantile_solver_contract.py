@@ -283,6 +283,29 @@ def _install_scalar_cv_penalty_object_contract() -> None:
     )
 
 
+def _invalidate_rejected_direct_quantile_refit(owner) -> None:
+    """Clear all fit-derived Quantile state after pre-dispatch rejection."""
+    from ._no_inference_cleanup_contract import _invalidate_failed_no_inference_fit
+
+    _invalidate_failed_no_inference_fit(owner)
+    for name in (
+        "_X_design",
+        "_y",
+        "_resid",
+        "_raw_resid",
+        "_scale",
+        "_nobs",
+        "_df_resid",
+        "_sample_weight_fit",
+        "_loss",
+        "_penalty",
+        "_init_coef",
+        "_init_intercept",
+    ):
+        if hasattr(owner, name):
+            setattr(owner, name, None)
+
+
 def _install_public_solver_refit_sync() -> None:
     """Synchronize the public Quantile solver before validation/dispatch."""
 
@@ -295,11 +318,7 @@ def _install_public_solver_refit_sync() -> None:
                 try:
                     _sync_public_quantile_fit_controls(self, cv=False)
                 except Exception:
-                    from ._no_inference_cleanup_contract import (
-                        _invalidate_failed_no_inference_fit,
-                    )
-
-                    _invalidate_failed_no_inference_fit(self)
+                    _invalidate_rejected_direct_quantile_refit(self)
                     raise
             return current_direct_fit(self, *args, **kwargs)
 
