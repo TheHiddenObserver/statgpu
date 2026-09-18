@@ -26,6 +26,8 @@ Newton step.
 
 from __future__ import annotations
 
+from numbers import Integral, Real
+
 import numpy as np
 
 from statgpu.penalties import AdaptiveGroupLassoPenalty
@@ -150,6 +152,72 @@ def fista_lla_path(
     return_path=False,
 ):
     """Run the fused LLA path with exact Group MCP/SCAD surrogate scaling."""
+    if not isinstance(fit_intercept, (bool, np.bool_)):
+        raise ValueError("fit_intercept must be boolean")
+    fit_intercept = bool(fit_intercept)
+
+    if isinstance(max_lla_per_step, (bool, np.bool_)) or not isinstance(
+        max_lla_per_step, Integral
+    ):
+        raise ValueError("max_lla_per_step must be a positive integer")
+    max_lla_per_step = int(max_lla_per_step)
+    if max_lla_per_step < 1:
+        raise ValueError("max_lla_per_step must be a positive integer")
+
+    for name, value in (("tol", tol), ("lla_tol", lla_tol)):
+        if isinstance(value, (bool, np.bool_)) or not isinstance(value, Real):
+            raise ValueError(f"{name} must be a finite positive number")
+        value = float(value)
+        if not np.isfinite(value) or value <= 0.0:
+            raise ValueError(f"{name} must be a finite positive number")
+        if name == "tol":
+            tol = value
+        else:
+            lla_tol = value
+
+    try:
+        path_len = len(alpha_path)
+    except TypeError as exc:
+        raise ValueError("alpha_path must be a non-empty one-dimensional sequence") from exc
+    if path_len < 1:
+        raise ValueError("alpha_path must be a non-empty one-dimensional sequence")
+    for value in alpha_path:
+        if isinstance(value, (bool, np.bool_, str, bytes)):
+            raise ValueError("alpha_path must contain finite positive numbers")
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "alpha_path must contain finite positive numbers"
+            ) from exc
+        if not np.isfinite(numeric) or numeric <= 0.0:
+            raise ValueError("alpha_path must contain finite positive numbers")
+
+    if isinstance(max_iter, (list, tuple)):
+        if len(max_iter) != path_len:
+            raise ValueError(
+                "max_iter sequence must have one positive integer per alpha_path step"
+            )
+        normalized_max_iter = []
+        for value in max_iter:
+            if isinstance(value, (bool, np.bool_)) or not isinstance(value, Integral):
+                raise ValueError(
+                    "max_iter sequence must contain only positive integers"
+                )
+            value = int(value)
+            if value < 1:
+                raise ValueError(
+                    "max_iter sequence must contain only positive integers"
+                )
+            normalized_max_iter.append(value)
+        max_iter = normalized_max_iter
+    else:
+        if isinstance(max_iter, (bool, np.bool_)) or not isinstance(max_iter, Integral):
+            raise ValueError("max_iter must be a positive integer or sequence")
+        max_iter = int(max_iter)
+        if max_iter < 1:
+            raise ValueError("max_iter must be a positive integer or sequence")
+
     penalty_name = str(getattr(scad_penalty, "name", "") or "").lower().strip()
     if penalty_name not in _LLA_NONCONVEX_NAMES:
         raise ValueError(
