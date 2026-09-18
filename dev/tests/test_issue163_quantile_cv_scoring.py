@@ -455,6 +455,42 @@ def test_quantile_two_stage_falls_back_to_full_strict_grid_when_refined_set_fail
     assert model.cv_results_["mean_score"][1] == pytest.approx(0.125)
 
 
+def test_quantile_auto_alpha_grid_uses_empirical_pinball_intercept():
+    X = np.arange(5, dtype=np.float64)[:, None]
+    y = np.asarray([0.0, 1.0, 4.0, 8.0, 9.0], dtype=np.float64)
+    tau = 0.3
+    model = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": tau},
+        penalty="l1",
+        alpha_grid=None,
+        n_alphas=3,
+        cv=2,
+        solver="auto",
+        device="cpu",
+    )
+
+    grid = model._generate_alpha_grid(X, y)
+
+    lower_intercept = 1.0
+    residual = y - lower_intercept
+    psi = np.where(residual >= 0.0, tau, -(1.0 - tau))
+    expected = float(np.max(np.abs(X.T @ psi / X.shape[0])))
+
+    linear_intercept = float(np.sort(y, kind="stable")[max(int(np.ceil(tau * len(y))) - 1, 0)])
+    linear_residual = y - linear_intercept
+    linear_psi = np.where(
+        linear_residual >= 0.0,
+        tau,
+        -(1.0 - tau),
+    )
+    legacy_linear = float(np.max(np.abs(X.T @ linear_psi / X.shape[0])))
+
+    assert lower_intercept != pytest.approx(linear_intercept)
+    assert grid[0] == pytest.approx(expected, rel=0.0, abs=1e-15)
+    assert abs(grid[0] - legacy_linear) > 1e-3
+
+
 def test_quantile_auto_alpha_grid_uniform_weights_is_bitwise_unweighted():
     X, y, _ = _data(seed=16347, n=40)
     kwargs = dict(
@@ -546,7 +582,7 @@ def test_quantile_group_nonconvex_auto_alpha_grid_uses_group_public_scale(
 
     grid = model._generate_alpha_grid(X, y)
 
-    intercept = float(np.quantile(y, tau))
+    intercept = float(np.sort(y, kind="stable")[max(int(np.ceil(tau * len(y))) - 1, 0)])
     residual = y - intercept
     psi = np.where(residual >= 0.0, tau, -(1.0 - tau))
     score = X.T @ psi / float(X.shape[0])
@@ -972,7 +1008,7 @@ def test_quantile_adaptive_l1_fixed_weights_auto_grid_uses_public_scale():
     object_grid = object_model._generate_alpha_grid(X, y)
     string_grid = string_model._generate_alpha_grid(X, y)
 
-    intercept = float(np.quantile(y, tau))
+    intercept = float(np.sort(y, kind="stable")[max(int(np.ceil(tau * len(y))) - 1, 0)])
     residual = y - intercept
     psi = np.where(residual >= 0.0, tau, -(1.0 - tau))
     score = X.T @ psi / float(X.shape[0])
@@ -1006,7 +1042,7 @@ def test_quantile_adaptive_group_fixed_weights_auto_grid_uses_public_scale():
 
     grid = model._generate_alpha_grid(X, y)
 
-    intercept = float(np.quantile(y, tau))
+    intercept = float(np.sort(y, kind="stable")[max(int(np.ceil(tau * len(y))) - 1, 0)])
     residual = y - intercept
     psi = np.where(residual >= 0.0, tau, -(1.0 - tau))
     score = X.T @ psi / float(X.shape[0])

@@ -327,6 +327,16 @@ def _finite_column_mean(scores):
     return means
 
 
+def _lower_empirical_quantile_numpy(y, tau):
+    """Return the lower empirical Quantile/check-loss intercept minimizer."""
+    y_sorted = np.sort(np.asarray(y, dtype=np.float64), kind="stable")
+    if y_sorted.size == 0:
+        raise ValueError("Quantile response must be non-empty")
+    index = int(np.ceil(float(tau) * y_sorted.size)) - 1
+    index = min(max(index, 0), y_sorted.size - 1)
+    return float(y_sorted[index])
+
+
 def _weighted_lower_quantile_numpy(y, sample_weight, tau):
     """Deterministic lower weighted empirical quantile for Quantile CV grids."""
     order = np.argsort(y, kind="stable")
@@ -346,7 +356,7 @@ def _quantile_zero_score(X, y, tau, sample_weight=None):
     n = int(X.shape[0])
 
     if sample_weight is None:
-        intercept = float(np.quantile(y, tau))
+        intercept = _lower_empirical_quantile_numpy(y, tau)
         residual = y - intercept
         psi = np.where(residual >= 0.0, tau, -(1.0 - tau))
         return X.T @ psi / float(n)
@@ -355,7 +365,7 @@ def _quantile_zero_score(X, y, tau, sample_weight=None):
     total = float(np.sum(weights))
     # Exactly equal weights define the unweighted objective up to scale.
     if bool(np.all(weights == weights[0])):
-        intercept = float(np.quantile(y, tau))
+        intercept = _lower_empirical_quantile_numpy(y, tau)
         residual = y - intercept
         psi = np.where(residual >= 0.0, tau, -(1.0 - tau))
         return X.T @ psi / float(n)

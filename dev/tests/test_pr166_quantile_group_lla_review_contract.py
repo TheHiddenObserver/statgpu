@@ -216,7 +216,7 @@ def test_quantile_group_unweighted_continuation_uses_group_alpha_scale(
         tol=1e-7,
     ).fit(X, y)
 
-    intercept = float(np.quantile(y, Q))
+    intercept = float(np.sort(y, kind="stable")[max(int(np.ceil(Q * len(y))) - 1, 0)])
     residual = y - intercept
     psi = np.where(residual >= 0.0, Q, -(1.0 - Q))
     score = X.T @ psi / float(X.shape[0])

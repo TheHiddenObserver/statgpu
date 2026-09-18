@@ -36,6 +36,18 @@ def _scalar_float(value) -> float:
     return float(np.asarray(_to_numpy(value)).reshape(()))
 
 
+def _lower_empirical_quantile_backend(y, tau: float, xp):
+    """Return the lower empirical Quantile/check-loss minimizer on-device."""
+    order = xp.argsort(y)
+    y_sorted = y[order]
+    n = int(y_sorted.shape[0])
+    if n == 0:
+        raise ValueError("Quantile response must be non-empty")
+    index = int(np.ceil(float(tau) * n)) - 1
+    index = min(max(index, 0), n - 1)
+    return y_sorted[index]
+
+
 def _weighted_lower_quantile_backend(y, sample_weight, tau: float, xp):
     """Return a deterministic weighted pinball intercept minimizer on-device."""
     order = xp.argsort(y)
@@ -231,7 +243,11 @@ def resolve_auto_quantile_continuation_path(
                 xp,
             )
         else:
-            intercept = xp.quantile(y_dev, tau)
+            intercept = _lower_empirical_quantile_backend(
+                y_dev,
+                tau,
+                xp,
+            )
     else:
         intercept = 0.0
 
