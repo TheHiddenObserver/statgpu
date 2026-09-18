@@ -125,10 +125,12 @@ def resolve_auto_quantile_continuation_path(
     intercept policy, and normalization used by the fitted Quantile objective
     also define the automatically generated continuation score.
 
-    Equal weights with an intercept preserve the historical unweighted path
-    bit-for-bit. With ``fit_intercept=False`` the score is evaluated at the
-    contractually fixed intercept zero. A plain user-supplied ``alpha_path``
-    is returned unchanged.
+    Equal weights with an intercept preserve the historical scalar-penalty
+    path bit-for-bit. Group penalties use their public group-alpha scale and
+    therefore recompute the continuation start even in the unweighted case.
+    With ``fit_intercept=False`` the score is evaluated at the contractually
+    fixed intercept zero. A plain user-supplied ``alpha_path`` is returned
+    unchanged.
 
     The full design, response, and weight arrays remain on the input
     NumPy/CuPy/Torch backend in float64 while the weighted score is formed.
