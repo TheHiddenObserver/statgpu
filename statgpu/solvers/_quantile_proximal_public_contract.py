@@ -22,6 +22,48 @@ from ._quantile_continuation import resolve_auto_quantile_continuation_path
 _MARKER = "_statgpu_quantile_proximal_public_contract"
 
 
+def _validate_alpha_path(alpha_path):
+    """Validate the public continuation path before any numerical work."""
+    if isinstance(alpha_path, (list, tuple)):
+        path_ndim = np.asarray(alpha_path, dtype=object).ndim
+    else:
+        path_ndim = getattr(alpha_path, "ndim", 1)
+    if path_ndim != 1:
+        raise ValueError("alpha_path must be a non-empty one-dimensional sequence")
+
+    try:
+        path_len = len(alpha_path)
+    except TypeError as exc:
+        raise ValueError(
+            "alpha_path must be a non-empty one-dimensional sequence"
+        ) from exc
+    if path_len < 1:
+        raise ValueError("alpha_path must be a non-empty one-dimensional sequence")
+
+    path_values = []
+    for value in alpha_path:
+        if isinstance(value, (bool, np.bool_, str, bytes)):
+            raise ValueError("alpha_path must contain finite positive numbers")
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "alpha_path must contain finite positive numbers"
+            ) from exc
+        if not np.isfinite(numeric) or numeric <= 0.0:
+            raise ValueError("alpha_path must contain finite positive numbers")
+        path_values.append(numeric)
+
+    if any(
+        path_values[i + 1] > path_values[i]
+        for i in range(len(path_values) - 1)
+    ):
+        raise ValueError(
+            "alpha_path must be non-increasing from continuation start to target"
+        )
+    return alpha_path
+
+
 def install_quantile_proximal_public_contract():
     current = _kernel_module.proximal_irls_quantile_solver
     if getattr(current, _MARKER, False):
@@ -67,6 +109,12 @@ def install_quantile_proximal_public_contract():
                 sample_weight,
                 len(X),
             )
+
+        # Validate the public path before the objective-aware resolver or the
+        # numerical kernel sees it. Plain low-level paths remain authoritative,
+        # but they must still describe a finite positive continuation from a
+        # no-smaller start to the target alpha.
+        alpha_path = _validate_alpha_path(alpha_path)
 
         # Only estimator-generated Quantile paths carry the internal marker.
         # Non-uniform analytic weights define the data-fit objective, so their

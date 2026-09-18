@@ -157,6 +157,44 @@ def test_public_proximal_quantile_solver_rejects_invalid_weights(sample_weight):
 
 
 @pytest.mark.parametrize(
+    ("alpha_path", "message"),
+    [
+        ([], "alpha_path must be a non-empty"),
+        (np.array([[0.08, 0.05]]), "one-dimensional"),
+        ([0.08, 0.0], "finite positive"),
+        ([0.08, np.nan], "finite positive"),
+        ([0.08, True], "finite positive"),
+        ([0.05, 0.08], "non-increasing"),
+    ],
+)
+def test_public_proximal_quantile_rejects_invalid_alpha_path_before_path_work(
+    monkeypatch, alpha_path, message
+):
+    X, y = _data(seed=16712)
+    loss = QuantileLoss(quantile=0.3)
+    penalty = SCADPenalty(alpha=0.05)
+
+    def forbidden_path(*args, **kwargs):
+        raise AssertionError("continuation/backend work must not start")
+
+    monkeypatch.setattr(
+        _prox_contract,
+        "resolve_auto_quantile_continuation_path",
+        forbidden_path,
+    )
+
+    with pytest.raises(ValueError, match=message):
+        solvers.proximal_irls_quantile_solver(
+            loss,
+            penalty,
+            X,
+            y,
+            alpha_path=alpha_path,
+            max_iter=3,
+        )
+
+
+@pytest.mark.parametrize(
     ("kwargs", "message"),
     [
         ({"max_iter": 0}, "max_iter must be a positive integer or sequence"),
