@@ -204,3 +204,91 @@ def test_cv_public_stopping_replacement_is_validated_at_refit(
 
     assert model.alpha_ is None
     assert model.estimator_ is None
+
+
+def test_two_stage_public_stopping_replacement_updates_screening_and_refinement(
+    monkeypatch,
+):
+    """Two-stage budgets must derive from current public max_iter/tol values."""
+    from types import SimpleNamespace
+
+    X, y, folds = _data()
+    calls = []
+
+    def fake_scores(
+        self,
+        X_arg,
+        y_arg,
+        alpha_grid,
+        cv_device,
+        folds_arg,
+        **kwargs,
+    ):
+        calls.append(
+            {
+                "max_iter": kwargs["max_iter"],
+                "tol": kwargs["tol"],
+                "strict": kwargs["strict"],
+                "n_alphas": len(alpha_grid),
+            }
+        )
+        return np.zeros((len(folds_arg), len(alpha_grid)), dtype=np.float64)
+
+    def fake_refit(self, X_arg, y_arg, best_alpha, sample_weight=None):
+        return SimpleNamespace(
+            coef_=np.zeros(X_arg.shape[1], dtype=np.float64),
+            intercept_=0.0,
+        )
+
+    monkeypatch.setattr(PenalizedGLM_CV, "_compute_cv_scores", fake_scores)
+    monkeypatch.setattr(PenalizedGLM_CV, "_refit_best", fake_refit)
+
+    model = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.35},
+        penalty="group_scad",
+        penalty_kwargs={"groups": GROUPS, "a": 3.7},
+        alpha_grid=np.asarray([0.05, 0.03], dtype=np.float64),
+        cv=2,
+        cv_splits=folds,
+        solver="auto",
+        device="cpu",
+        cv_strategy="two_stage",
+        acknowledge_approx=True,
+        refine_top_k=1,
+        max_iter=20,
+        tol=1e-6,
+    )
+    model.max_iter = 7
+    model.tol = 2e-5
+    model.fit(X, y)
+
+    assert len(calls) == 2
+    assert calls[0]["strict"] is False
+    assert calls[0]["max_iter"] == 7
+    assert calls[0]["tol"] == pytest.approx(2e-4)
+    assert calls[1]["strict"] is True
+    assert calls[1]["max_iter"] == 7
+    assert calls[1]["tol"] == pytest.approx(2e-5)
+
+
+def test_quantile_group_cv_installer_reload_is_idempotent_for_fit_wrapper():
+    import importlib
+
+    from statgpu.linear_model.penalized import _quantile_group_lla_contract as contract
+
+    before = (
+        PenalizedGLM_CV.fit,
+        PenalizedGLM_CV._cv_fold_general,
+        PenalizedGLM_CV._refit_best,
+        PenalizedGLM_CV._compute_cv_scores,
+    )
+    importlib.reload(contract)
+    after = (
+        PenalizedGLM_CV.fit,
+        PenalizedGLM_CV._cv_fold_general,
+        PenalizedGLM_CV._refit_best,
+        PenalizedGLM_CV._compute_cv_scores,
+    )
+
+    assert after == before
