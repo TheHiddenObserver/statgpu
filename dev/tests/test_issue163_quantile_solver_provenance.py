@@ -408,32 +408,6 @@ def test_invalid_quantile_cv_refit_control_clears_prior_selection_state():
 
 
 @pytest.mark.parametrize(
-    ("factory", "module"),
-    [
-        (
-            lambda: PenalizedQuantileRegression(
-                quantile=0.3,
-                penalty="l2",
-                alpha=0.02,
-                solver="irls",
-                device="cpu",
-            ),
-            _typed_quantile_mod,
-        ),
-        (
-            lambda: PenalizedGeneralizedLinearModel(
-                loss="quantile",
-                loss_kwargs={"quantile": 0.3},
-                penalty="l2",
-                alpha=0.02,
-                solver="auto",
-                device="cpu",
-            ),
-            _predict_mixin_mod,
-        ),
-    ],
-)
-@pytest.mark.parametrize(
     "factory",
     [
         lambda: PenalizedQuantileRegression(
@@ -471,6 +445,32 @@ def test_quantile_predict_rejects_non_2d_or_wrong_width_before_backend(
         model.predict(np.ones((3, 1), dtype=np.float64))
 
 
+@pytest.mark.parametrize(
+    ("factory", "module"),
+    [
+        (
+            lambda: PenalizedQuantileRegression(
+                quantile=0.3,
+                penalty="l2",
+                alpha=0.02,
+                solver="irls",
+                device="cpu",
+            ),
+            _typed_quantile_mod,
+        ),
+        (
+            lambda: PenalizedGeneralizedLinearModel(
+                loss="quantile",
+                loss_kwargs={"quantile": 0.3},
+                penalty="l2",
+                alpha=0.02,
+                solver="auto",
+                device="cpu",
+            ),
+            _predict_mixin_mod,
+        ),
+    ],
+)
 def test_quantile_score_uses_explicit_reporting_conversion_for_backend_y(
     monkeypatch, factory, module
 ):
