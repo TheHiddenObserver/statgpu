@@ -310,6 +310,33 @@ def test_scalar_nonconvex_quantile_public_lla_controls_fail_closed(
         model.fit(X, y)
 
 
+def test_scalar_quantile_small_max_iter_is_never_expanded_by_continuation(
+    monkeypatch,
+):
+    import statgpu.solvers as solvers
+
+    X, y = _data(seed=16319, n=64)
+    seen = {}
+
+    def fake_solver(loss, penalty, X_fit, y_fit, alpha_path, **kwargs):
+        seen["max_iter"] = list(kwargs["max_iter"])
+        return np.zeros(X_fit.shape[1], dtype=np.float64), 0.0, 1
+
+    monkeypatch.setattr(solvers, "proximal_irls_quantile_solver", fake_solver)
+    PenalizedQuantileRegression(
+        quantile=0.5,
+        penalty="scad",
+        alpha=0.02,
+        solver="auto",
+        device="cpu",
+        max_iter=7,
+        tol=1e-6,
+        max_lla_iters=6,
+    ).fit(X, y)
+
+    assert seen["max_iter"] == [1, 1, 7]
+
+
 def test_scalar_quantile_three_lla_budget_maps_to_one_update_per_continuation(
     monkeypatch,
 ):

@@ -59,6 +59,17 @@ def _quantile_lla_budget(self, n_cont: int) -> int:
     return max(1, budget // n_cont)
 
 
+def _quantile_iteration_budgets(self, n_cont: int) -> list[int]:
+    """Keep every Quantile continuation step within public max_iter."""
+    n_cont = int(n_cont)
+    saved_max_iter = int(getattr(self, "_max_iter", 1000))
+    warm_budget = max(1, saved_max_iter // 10)
+    return [
+        saved_max_iter if i == n_cont - 1 else warm_budget
+        for i in range(n_cont)
+    ]
+
+
 def _quantile_path_metadata(self, n_cont=None):
     """Build only continuation shape/target metadata; start is resolved later."""
     if n_cont is None:
@@ -71,11 +82,7 @@ def _quantile_path_metadata(self, n_cont=None):
         alpha_path = np.linspace(max(target_alpha, 0.0), target_alpha, n_cont)
     alpha_path = mark_auto_quantile_continuation_path(alpha_path)
     max_lla_per_step = _quantile_lla_budget(self, n_cont)
-    saved_max_iter = self._max_iter
-    mi_path = [
-        saved_max_iter if i == n_cont - 1 else max(100, saved_max_iter // 10)
-        for i in range(n_cont)
-    ]
+    mi_path = _quantile_iteration_budgets(self, n_cont)
     return alpha_path, max_lla_per_step, mi_path
 
 
@@ -135,6 +142,9 @@ def install_quantile_continuation_contract() -> None:
             if is_quantile:
                 alpha_path = mark_auto_quantile_continuation_path(alpha_path)
                 max_lla_per_step = _quantile_lla_budget(
+                    self, len(alpha_path)
+                )
+                mi_path = _quantile_iteration_budgets(
                     self, len(alpha_path)
                 )
             return alpha_path, max_lla_per_step, mi_path

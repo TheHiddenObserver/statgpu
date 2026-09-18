@@ -286,7 +286,7 @@ def test_direct_public_stopping_replacement_reaches_group_solver(monkeypatch):
     model.lla_tol = 3e-5
     model.fit(X, y)
 
-    assert seen["max_iter"][-1] == 7
+    assert seen["max_iter"] == [1, 1, 7]
     assert seen["max_lla_per_step"] == 3
     assert seen["tol"] == pytest.approx(2e-5)
     assert seen["lla_tol"] == pytest.approx(3e-5)
