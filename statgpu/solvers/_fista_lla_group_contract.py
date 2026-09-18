@@ -42,30 +42,23 @@ _LLA_NONCONVEX_NAMES = frozenset({"scad", "mcp"}) | _GROUP_NONCONVEX_NAMES
 
 
 def _validate_quantile_xy_shapes(X, y) -> int:
-    """Validate Quantile public-input shapes without host-copying GPU data."""
-    x_ndim = getattr(X, "ndim", None)
-    x_shape = getattr(X, "shape", None)
-    if x_ndim is None or x_shape is None:
-        X_host = np.asarray(X)
-        x_ndim = X_host.ndim
-        x_shape = X_host.shape
-    y_ndim = getattr(y, "ndim", None)
-    y_shape = getattr(y, "shape", None)
-    if y_ndim is None or y_shape is None:
-        y_host = np.asarray(y)
-        y_ndim = y_host.ndim
-        y_shape = y_host.shape
+    """Validate Quantile FISTA-LLA inputs without host-copying GPU arrays."""
+    from statgpu.glm_core._validation import _as_native_array, _require_real_finite
 
-    if int(x_ndim) != 2:
+    X_values = _as_native_array(X, name="X")
+    y_values = _as_native_array(y, name="y")
+    if int(X_values.ndim) != 2:
         raise ValueError("X must be two-dimensional for Quantile fista_lla_path")
-    if int(y_ndim) != 1:
+    if int(y_values.ndim) != 1:
         raise ValueError("y must be one-dimensional for Quantile fista_lla_path")
-    n_samples = int(x_shape[0])
-    if int(y_shape[0]) != n_samples:
+    n_samples = int(X_values.shape[0])
+    if int(y_values.shape[0]) != n_samples:
         raise ValueError(
             "y must have the same number of observations as X for "
             "Quantile fista_lla_path"
         )
+    _require_real_finite(X_values, name="X")
+    _require_real_finite(y_values, name="y")
     return n_samples
 
 

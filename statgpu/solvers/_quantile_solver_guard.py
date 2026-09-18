@@ -89,32 +89,24 @@ def _is_quantile(loss) -> bool:
 
 
 def _validate_quantile_xy_shapes(loss, X, y, solver_name: str) -> None:
-    """Validate supported low-level Quantile solver inputs before numerics."""
+    """Validate supported low-level Quantile inputs before numerics."""
     if not _is_quantile(loss):
         return
 
-    x_ndim = getattr(X, "ndim", None)
-    x_shape = getattr(X, "shape", None)
-    if x_ndim is None or x_shape is None:
-        X_host = np.asarray(X)
-        x_ndim = X_host.ndim
-        x_shape = X_host.shape
+    from statgpu.glm_core._validation import _as_native_array, _require_real_finite
 
-    y_ndim = getattr(y, "ndim", None)
-    y_shape = getattr(y, "shape", None)
-    if y_ndim is None or y_shape is None:
-        y_host = np.asarray(y)
-        y_ndim = y_host.ndim
-        y_shape = y_host.shape
-
-    if int(x_ndim) != 2:
+    X_values = _as_native_array(X, name="X")
+    y_values = _as_native_array(y, name="y")
+    if int(X_values.ndim) != 2:
         raise ValueError(f"X must be two-dimensional for {solver_name}")
-    if int(y_ndim) != 1:
+    if int(y_values.ndim) != 1:
         raise ValueError(f"y must be one-dimensional for {solver_name}")
-    if int(y_shape[0]) != int(x_shape[0]):
+    if int(y_values.shape[0]) != int(X_values.shape[0]):
         raise ValueError(
             f"y must have the same number of observations as X for {solver_name}"
         )
+    _require_real_finite(X_values, name="X")
+    _require_real_finite(y_values, name="y")
 
 
 @wraps(_fista_solver)
