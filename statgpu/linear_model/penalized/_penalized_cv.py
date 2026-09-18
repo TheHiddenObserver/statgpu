@@ -356,8 +356,11 @@ def _quantile_zero_score(X, y, tau, sample_weight=None):
     # Exactly equal weights define the unweighted objective up to scale.
     if bool(np.all(weights == weights[0])):
         intercept = float(np.quantile(y, tau))
-    else:
-        intercept = _weighted_lower_quantile_numpy(y, weights, tau)
+        residual = y - intercept
+        psi = np.where(residual >= 0.0, tau, -(1.0 - tau))
+        return X.T @ psi / float(n)
+
+    intercept = _weighted_lower_quantile_numpy(y, weights, tau)
     residual = y - intercept
     psi = np.where(residual >= 0.0, tau, -(1.0 - tau))
     return X.T @ (weights * psi) / total

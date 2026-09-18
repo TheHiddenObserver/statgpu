@@ -328,6 +328,28 @@ def test_quantile_two_stage_falls_back_to_full_strict_grid_when_refined_set_fail
     assert model.cv_results_["mean_score"][1] == pytest.approx(0.125)
 
 
+def test_quantile_auto_alpha_grid_uniform_weights_is_bitwise_unweighted():
+    X, y, _ = _data(seed=16347, n=40)
+    kwargs = dict(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.23},
+        penalty="l1",
+        alpha_grid=None,
+        n_alphas=5,
+        cv=2,
+        solver="auto",
+        device="cpu",
+    )
+    unweighted = PenalizedGLM_CV(**kwargs)._generate_alpha_grid(X, y)
+    weighted = PenalizedGLM_CV(**kwargs)._generate_alpha_grid(
+        X,
+        y,
+        sample_weight=np.full(X.shape[0], 3.5, dtype=np.float64),
+    )
+
+    np.testing.assert_array_equal(weighted, unweighted)
+
+
 def test_quantile_auto_alpha_grid_uses_weighted_pinball_zero_score():
     X, y, _ = _data(seed=16342, n=40)
     tau = 0.23
