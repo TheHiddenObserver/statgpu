@@ -114,6 +114,7 @@ def _install_cv_auto_context() -> None:
     if getattr(CV, _CV_MARKER, False):
         return
 
+    current_fit = CV.fit
     current_fold = CV._cv_fold_general
     current_refit = CV._refit_best
     current_scores = CV._compute_cv_scores
@@ -129,6 +130,15 @@ def _install_cv_auto_context() -> None:
             and penalty_name in _GROUP_NONCONVEX
             and _public_solver_is_auto(owner)
         )
+
+    @wraps(current_fit)
+    def _fit_with_quantile_group_stopping_controls(self, *args, **kwargs):
+        if _is_auto_quantile_group_cv(self):
+            # Synchronize public refit-time controls before _fit_standard()
+            # derives two-stage screening budgets from the private runtime
+            # fields. Later score/refit validation remains defense-in-depth.
+            _validate_cv_group_lla_controls(self)
+        return current_fit(self, *args, **kwargs)
 
     @wraps(current_fold)
     def _cv_fold_with_quantile_group_auto_context(self, *args, **kwargs):
@@ -173,6 +183,7 @@ def _install_cv_auto_context() -> None:
         values[:, incomplete] = np.nan
         return values
 
+    CV.fit = _fit_with_quantile_group_stopping_controls
     CV._cv_fold_general = _cv_fold_with_quantile_group_auto_context
     CV._refit_best = _refit_with_quantile_group_auto_context
     CV._compute_cv_scores = _scores_with_complete_quantile_group_candidates
