@@ -399,6 +399,54 @@ def test_strict_scalar_nonconvex_quantile_cv_marks_target_nonconvergence_failed(
     assert np.all(np.isnan(scores))
 
 
+def test_strict_scalar_nonconvex_quantile_cv_invalidates_partial_fold_candidate(
+    monkeypatch,
+):
+    import statgpu.solvers as solvers
+    from statgpu.solvers import _proximal_irls_quantile as kernel
+
+    X, y, folds = _data(seed=16330, n=48)
+    calls = {"strict": 0}
+
+    def fail_first_strict_fold(loss, penalty, X_fit, y_fit, alpha_path, **kwargs):
+        if kernel._STRICT_CV_TARGET.get():
+            calls["strict"] += 1
+            if calls["strict"] == 1:
+                raise FloatingPointError("first strict fold did not converge")
+        return np.zeros(X_fit.shape[1], dtype=np.float64), 0.0, 1
+
+    monkeypatch.setattr(
+        solvers, "proximal_irls_quantile_solver", fail_first_strict_fold
+    )
+    cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.2},
+        penalty="scad",
+        alpha_grid=np.asarray([0.025], dtype=np.float64),
+        cv=2,
+        cv_splits=folds,
+        solver="auto",
+        device="cpu",
+        max_iter=20,
+        tol=1e-6,
+    )
+    scores = cv._compute_cv_scores(
+        X,
+        y,
+        np.asarray([0.025], dtype=np.float64),
+        Device.CPU,
+        folds,
+        sample_weight=None,
+        max_iter=20,
+        tol=1e-6,
+        strict=True,
+    )
+
+    assert calls["strict"] == len(folds)
+    assert scores.shape == (len(folds), 1)
+    assert np.all(np.isnan(scores[:, 0]))
+
+
 def test_quantile_eval_preserves_historical_default_outside_cv_context():
     from statgpu.linear_model.penalized import _penalized_cv as cv_mod
 

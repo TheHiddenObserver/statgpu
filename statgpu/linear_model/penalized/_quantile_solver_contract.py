@@ -521,9 +521,21 @@ def _install_cv_score_context() -> None:
 
         token = _QUANTILE_CV_LEVEL.set(_requested_quantile(self))
         try:
-            return current(self, *args, **kwargs)
+            scores = current(self, *args, **kwargs)
         finally:
             _QUANTILE_CV_LEVEL.reset(token)
+
+        strict = kwargs.get("strict", args[8] if len(args) > 8 else True)
+        penalty_name = _penalty_name(getattr(self, "penalty", ""))
+        if bool(strict) and penalty_name in _NONCONVEX_QUANTILE_PENALTIES:
+            values = np.asarray(scores, dtype=np.float64)
+            if values.ndim == 2 and values.shape[0] > 0:
+                incomplete = ~np.all(np.isfinite(values), axis=0)
+                if np.any(incomplete):
+                    values = np.array(values, copy=True)
+                    values[:, incomplete] = np.nan
+                    scores = values
+        return scores
 
     setattr(
         _compute_cv_scores_with_quantile_level,
