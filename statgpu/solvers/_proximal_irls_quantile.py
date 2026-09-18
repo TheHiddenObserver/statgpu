@@ -72,19 +72,17 @@ def _flat_irls_boundary_converged(
     fit_intercept,
     xp,
 ) -> bool:
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", ConvergenceWarning)
-        probe, _ = loss.irls(
-            X_work,
-            y_work,
-            penalty=None,
-            max_iter=1,
-            tol=float(tol),
-            init_coef=beta,
-            eps=eps,
-            sample_weight=sample_weight,
-            fit_intercept=fit_intercept,
-        )
+    probe, _ = loss.irls(
+        X_work,
+        y_work,
+        penalty=None,
+        max_iter=1,
+        tol=float(tol),
+        init_coef=beta,
+        eps=eps,
+        sample_weight=sample_weight,
+        fit_intercept=fit_intercept,
+    )
     delta_dev = xp.linalg.norm(probe - beta)
     delta = float(_to_numpy(delta_dev))
     return bool(np.isfinite(delta) and delta < float(tol))
@@ -237,19 +235,17 @@ def proximal_irls_quantile_solver(
             zero_penalty = bool(_to_numpy(xp.all(lla_w == 0)))
             if zero_penalty:
                 flat_tol = min(tol, 1e-8)
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", ConvergenceWarning)
-                    beta, used_iter = loss.irls(
-                        X_work,
-                        y_work,
-                        penalty=None,
-                        max_iter=_mi,
-                        tol=flat_tol,
-                        init_coef=beta,
-                        eps=eps,
-                        sample_weight=sw,
-                        fit_intercept=fit_intercept,
-                    )
+                beta, used_iter = loss.irls(
+                    X_work,
+                    y_work,
+                    penalty=None,
+                    max_iter=_mi,
+                    tol=flat_tol,
+                    init_coef=beta,
+                    eps=eps,
+                    sample_weight=sw,
+                    fit_intercept=fit_intercept,
+                )
                 total_iter += used_iter
                 if is_final_continuation and int(used_iter) >= int(_mi):
                     target_irls_exhausted = not _flat_irls_boundary_converged(

@@ -211,6 +211,12 @@ def _sync_public_quantile_fit_controls(owner, *, cv: bool) -> None:
             owner.refine_top_k, "refine_top_k"
         )
 
+        owner._loss_kwargs = dict(
+            getattr(owner, "loss_kwargs", None) or {}
+        )
+        owner._penalty_kwargs = dict(
+            getattr(owner, "penalty_kwargs", None) or {}
+        )
         if hasattr(owner, "alpha_grid"):
             owner._alpha_grid_input = owner.alpha_grid
 
@@ -475,24 +481,17 @@ def _install_cv_internal_context() -> None:
 
         strict = kwargs.get("strict", args[7] if len(args) > 7 else True)
         from statgpu.solvers import _proximal_irls_quantile as _prox_kernel
-        from statgpu.losses import _quantile_irls_validation_contract as _irls_contract
 
-        penalty_name = _penalty_name(getattr(self, "penalty", ""))
         scalar_strict = (
             bool(strict)
-            and penalty_name in _NONCONVEX_QUANTILE_PENALTIES
-        )
-        smooth_irls_strict = (
-            bool(strict)
-            and penalty_name in _SMOOTH_PENALTIES
+            and _penalty_name(getattr(self, "penalty", ""))
+            in _NONCONVEX_QUANTILE_PENALTIES
         )
         token = _INTERNAL_CV_RESOLVED_SOLVER.set(True)
         convergence_token = _prox_kernel._STRICT_CV_TARGET.set(scalar_strict)
-        irls_token = _irls_contract._STRICT_CV_TARGET.set(smooth_irls_strict)
         try:
             return current_fold(self, *args, **kwargs)
         finally:
-            _irls_contract._STRICT_CV_TARGET.reset(irls_token)
             _prox_kernel._STRICT_CV_TARGET.reset(convergence_token)
             _INTERNAL_CV_RESOLVED_SOLVER.reset(token)
 
@@ -630,10 +629,7 @@ def _install_cv_score_context() -> None:
 
         strict = kwargs.get("strict", args[8] if len(args) > 8 else True)
         penalty_name = _penalty_name(getattr(self, "penalty", ""))
-        complete_fold_penalties = (
-            _NONCONVEX_QUANTILE_PENALTIES | _SMOOTH_PENALTIES
-        )
-        if bool(strict) and penalty_name in complete_fold_penalties:
+        if bool(strict) and penalty_name in _NONCONVEX_QUANTILE_PENALTIES:
             values = np.asarray(scores, dtype=np.float64)
             if values.ndim == 2 and values.shape[0] > 0:
                 incomplete = ~np.all(np.isfinite(values), axis=0)

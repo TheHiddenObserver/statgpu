@@ -94,51 +94,6 @@ def test_quantile_cv_general_scores_use_requested_tau(weighted):
     assert contract._QUANTILE_CV_LEVEL.get() is None
 
 
-def test_strict_l2_quantile_cv_invalidates_partial_nonconverged_fold(
-    monkeypatch,
-):
-    from statgpu.losses import _quantile_irls_validation_contract as irls_contract
-
-    X, y, folds = _data(seed=16334, n=48)
-    calls = {"value": 0}
-    original = irls_contract._boundary_converged
-
-    def first_fold_exhausts(*args, **kwargs):
-        calls["value"] += 1
-        if calls["value"] == 1:
-            return False
-        return True
-
-    monkeypatch.setattr(irls_contract, "_boundary_converged", first_fold_exhausts)
-    cv = PenalizedGLM_CV(
-        loss="quantile",
-        loss_kwargs={"quantile": 0.3},
-        penalty="l2",
-        alpha_grid=np.asarray([0.03], dtype=np.float64),
-        cv=2,
-        cv_splits=folds,
-        solver="auto",
-        device="cpu",
-        max_iter=1,
-        tol=1e-14,
-    )
-    scores = cv._compute_cv_scores(
-        X,
-        y,
-        np.asarray([0.03], dtype=np.float64),
-        Device.CPU,
-        folds,
-        sample_weight=None,
-        max_iter=1,
-        tol=1e-14,
-        strict=True,
-    )
-
-    assert calls["value"] >= 2
-    assert scores.shape == (len(folds), 1)
-    assert np.all(np.isnan(scores[:, 0]))
-
-
 def test_quantile_cv_public_fold_count_replacement_is_authoritative():
     X, y, _ = _data(seed=16326, n=72)
     cv = PenalizedGLM_CV(

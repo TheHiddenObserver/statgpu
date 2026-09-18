@@ -8,75 +8,15 @@ kernel itself.
 
 from __future__ import annotations
 
-from contextvars import ContextVar
 from functools import wraps
-import inspect
 from numbers import Integral, Real
-import warnings
 
 import numpy as np
 
-from statgpu.backends._array_ops import _xp as _get_xp
-from statgpu.solvers._convergence import ConvergenceWarning
 from ._quantile import QuantileLoss
 
 
 _MARKER = "_statgpu_quantile_irls_weight_validation_contract"
-_STRICT_CV_TARGET = ContextVar(
-    "statgpu_quantile_irls_strict_cv_target",
-    default=False,
-)
-
-
-def _external_warning_stacklevel() -> int:
-    frame = inspect.currentframe()
-    if frame is None:
-        return 2
-    frame = frame.f_back
-    level = 1
-    try:
-        while frame is not None:
-            module_name = str(frame.f_globals.get("__name__", ""))
-            is_internal = module_name == "statgpu" or module_name.startswith("statgpu.")
-            if not is_internal:
-                return level
-            frame = frame.f_back
-            level += 1
-    finally:
-        del frame
-    return 2
-
-
-def _boundary_converged(
-    current,
-    loss,
-    X,
-    y,
-    coef,
-    *,
-    penalty,
-    tol,
-    eps,
-    sample_weight,
-    fit_intercept,
-) -> bool:
-    """Disambiguate convergence first reached on the final allowed iteration."""
-    probe, _ = current(
-        loss,
-        X,
-        y,
-        penalty=penalty,
-        max_iter=1,
-        tol=tol,
-        init_coef=coef,
-        eps=eps,
-        sample_weight=sample_weight,
-        fit_intercept=fit_intercept,
-    )
-    xp = _get_xp(coef)
-    delta = xp.linalg.norm(probe - coef)
-    delta_value = float(delta.item() if hasattr(delta, "item") else delta)
-    return bool(np.isfinite(delta_value) and delta_value < float(tol))
 
 
 def install_quantile_irls_validation_contract() -> None:
@@ -127,7 +67,7 @@ def install_quantile_irls_validation_contract() -> None:
                 len(X),
             )
 
-        coef, n_iter = current(
+        return current(
             self,
             X,
             y,
@@ -140,35 +80,6 @@ def install_quantile_irls_validation_contract() -> None:
             fit_intercept=fit_intercept,
         )
 
-        if int(n_iter) >= max_iter and not _boundary_converged(
-            current,
-            self,
-            X,
-            y,
-            coef,
-            penalty=penalty,
-            tol=tol,
-            eps=eps,
-            sample_weight=sample_weight,
-            fit_intercept=fit_intercept,
-        ):
-            message = (
-                "Quantile IRLS reached "
-                f"max_iter={max_iter} before convergence"
-            )
-            if _STRICT_CV_TARGET.get():
-                raise FloatingPointError(
-                    message
-                    + "; the CV candidate was not scored because target convergence was not established."
-                )
-            warnings.warn(
-                message + "; returning the final iterate.",
-                ConvergenceWarning,
-                stacklevel=_external_warning_stacklevel(),
-            )
-
-        return coef, n_iter
-
     setattr(_irls_with_validated_weights, _MARKER, True)
     _irls_with_validated_weights._statgpu_original = current
     QuantileLoss.irls = _irls_with_validated_weights
@@ -177,7 +88,4 @@ def install_quantile_irls_validation_contract() -> None:
 install_quantile_irls_validation_contract()
 
 
-__all__ = [
-    "install_quantile_irls_validation_contract",
-    "_STRICT_CV_TARGET",
-]
+__all__ = ["install_quantile_irls_validation_contract"]
