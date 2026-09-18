@@ -93,6 +93,48 @@ def test_quantile_cv_general_scores_use_requested_tau(weighted):
     assert contract._QUANTILE_CV_LEVEL.get() is None
 
 
+def test_quantile_cv_public_loss_kwargs_replacement_is_authoritative():
+    X, y, folds = _data(seed=16324, n=72)
+    cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.2},
+        penalty="l2",
+        alpha_grid=np.asarray([0.03], dtype=np.float64),
+        cv=2,
+        cv_splits=folds,
+        solver="auto",
+        device="cpu",
+        max_iter=300,
+        tol=1e-8,
+    )
+    cv.loss_kwargs = {"quantile": 0.8}
+    cv.fit(X, y)
+
+    assert cv._loss_kwargs == {"quantile": 0.8}
+    assert getattr(cv.estimator_._loss, "_tau", None) == pytest.approx(0.8)
+
+
+def test_quantile_cv_public_alpha_grid_replacement_is_authoritative():
+    X, y, folds = _data(seed=16325, n=72)
+    cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.3},
+        penalty="l2",
+        alpha_grid=np.asarray([0.09], dtype=np.float64),
+        cv=2,
+        cv_splits=folds,
+        solver="auto",
+        device="cpu",
+        max_iter=300,
+        tol=1e-8,
+    )
+    cv.alpha_grid = np.asarray([0.03], dtype=np.float64)
+    cv.fit(X, y)
+
+    np.testing.assert_array_equal(cv.alpha_grid_, np.asarray([0.03]))
+    assert cv.alpha_ == pytest.approx(0.03)
+
+
 def test_quantile_eval_dispatch_uses_call_local_tau_without_fast_registries():
     from statgpu.linear_model.penalized import _penalized_cv as cv_mod
     from statgpu.linear_model.penalized import _quantile_solver_contract as contract

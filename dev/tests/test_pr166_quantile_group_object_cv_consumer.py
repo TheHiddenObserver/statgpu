@@ -44,6 +44,42 @@ def _cv(penalty, folds, penalty_kwargs=None):
     )
 
 
+def test_quantile_group_cv_public_penalty_kwargs_replacement_reaches_children(
+    monkeypatch,
+):
+    from statgpu.solvers import _quantile_group_proximal_irls_lla as solver_mod
+
+    X, y, weights, folds = _data()
+    seen = []
+
+    def fake_solver(loss, penalty, X_fit, y_fit, alpha_path, **kwargs):
+        seen.append(
+            {
+                "a": float(getattr(penalty, "a", np.nan)),
+                "groups": [list(group) for group in penalty.groups],
+            }
+        )
+        return np.zeros(X_fit.shape[1], dtype=np.float64), 0.0, 1
+
+    monkeypatch.setattr(
+        solver_mod, "quantile_group_proximal_irls_lla_solver", fake_solver
+    )
+    cv = _cv(
+        "group_scad",
+        folds,
+        penalty_kwargs={"groups": GROUPS, "a": 3.7},
+    )
+    replacement_groups = [[0, 2], [1, 3]]
+    cv.penalty_kwargs = {"groups": replacement_groups, "a": 4.2}
+    cv.fit(X, y, sample_weight=weights)
+
+    assert cv._penalty_kwargs["a"] == pytest.approx(4.2)
+    assert cv._penalty_kwargs["groups"] == replacement_groups
+    assert seen
+    assert all(item["a"] == pytest.approx(4.2) for item in seen)
+    assert all(item["groups"] == replacement_groups for item in seen)
+
+
 def test_quantile_group_scad_penalty_object_matches_string_cv_and_refit():
     X, y, weights, folds = _data()
     penalty_object = GroupSCADPenalty(alpha=0.9, a=3.7, groups=GROUPS)

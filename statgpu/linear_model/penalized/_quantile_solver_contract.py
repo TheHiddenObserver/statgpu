@@ -164,6 +164,16 @@ def _sync_public_quantile_fit_controls(owner, *, cv: bool) -> None:
     owner._max_iter = _positive_integer(owner.max_iter, "max_iter")
     owner._tol = _finite_positive(owner.tol, "tol")
 
+    if cv:
+        owner._loss_kwargs = dict(
+            getattr(owner, "loss_kwargs", None) or {}
+        )
+        owner._penalty_kwargs = dict(
+            getattr(owner, "penalty_kwargs", None) or {}
+        )
+        if hasattr(owner, "alpha_grid"):
+            owner._alpha_grid_input = owner.alpha_grid
+
     if not cv:
         fit_intercept = getattr(owner, "fit_intercept", True)
         if not isinstance(fit_intercept, (bool, np.bool_)):
