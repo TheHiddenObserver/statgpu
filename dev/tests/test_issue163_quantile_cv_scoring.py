@@ -305,6 +305,63 @@ def test_quantile_scad_fast_helper_is_fail_safe_to_general_path():
     assert result is None
 
 
+def test_quantile_scalar_scad_penalty_object_uses_same_two_stage_lla_screening(
+    monkeypatch,
+):
+    from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
+
+    X, y, folds = _data(seed=16336, n=72)
+    alpha_grid = np.asarray([0.04, 0.025], dtype=np.float64)
+    seen = {"object_path": 0, "string_path": 0}
+    original_fit = PenalizedGeneralizedLinearModel.fit
+    active_label = {"value": None}
+
+    def tracking_fit(self, *args, **kwargs):
+        if (
+            str(getattr(self, "loss", "")).lower() == "quantile"
+            and getattr(self, "_cv_alpha_path", None) is not None
+        ):
+            seen[active_label["value"]] += 1
+        return original_fit(self, *args, **kwargs)
+
+    monkeypatch.setattr(PenalizedGeneralizedLinearModel, "fit", tracking_fit)
+
+    common = dict(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.25},
+        alpha_grid=alpha_grid,
+        cv=2,
+        cv_splits=folds,
+        solver="auto",
+        device="cpu",
+        cv_strategy="two_stage",
+        acknowledge_approx=True,
+        refine_top_k=1,
+        max_iter=300,
+        tol=1e-6,
+    )
+
+    active_label["value"] = "object_path"
+    object_cv = PenalizedGLM_CV(
+        penalty=SCADPenalty(alpha=0.9, a=3.7),
+        **common,
+    ).fit(X, y)
+
+    active_label["value"] = "string_path"
+    string_cv = PenalizedGLM_CV(
+        penalty="scad",
+        penalty_kwargs={"a": 3.7},
+        **common,
+    ).fit(X, y)
+
+    assert seen["object_path"] > 0
+    assert seen["object_path"] == seen["string_path"]
+    np.testing.assert_array_equal(
+        object_cv.cv_results_["refined_mask"],
+        string_cv.cv_results_["refined_mask"],
+    )
+
+
 def test_quantile_scalar_scad_penalty_object_matches_string_cv_and_refit():
     X, y, folds = _data(seed=16331, n=72)
     weights = np.linspace(0.5, 1.7, X.shape[0], dtype=np.float64)

@@ -2527,7 +2527,9 @@ class PenalizedGLM_CV(CVEstimatorBase):
             return self._populate_refit_model(model, coef, intercept, X, refit_device)
 
         can_infer = (self.loss == 'squared_error' and self.penalty == 'l2')
-        penalty_name = str(self.penalty).lower()
+        penalty_name = str(
+            getattr(self.penalty, "name", self.penalty)
+        ).lower().strip()
         alpha_arr = np.asarray([best_alpha], dtype=np.float64)
 
         # Try specialized refit paths (each returns model or None)
