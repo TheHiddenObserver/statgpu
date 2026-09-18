@@ -15,6 +15,7 @@ from statgpu.linear_model.penalized import (
     PenalizedQuantileRegression,
 )
 import statgpu.linear_model.penalized._quantile_unsupported_solver_guard_contract as _guard_contract
+import statgpu.solvers._quantile_solver_guard as _solver_guard
 from statgpu.losses import QuantileLoss
 from statgpu.penalties import L1Penalty, L2Penalty
 from statgpu import solvers
@@ -219,6 +220,29 @@ def test_glm_core_solver_aliases_preserve_guard_and_existing_lbfgs_export():
     assert solvers.fista_solver is _fista_mod.fista_solver
     assert solvers.lbfgs_solver is _lbfgs_mod.lbfgs_solver
     assert solvers.quantile_cd_solver is _quantile_cd_mod.quantile_cd_solver
+
+
+def test_low_level_quantile_solver_guard_reload_is_idempotent_and_alias_safe():
+    before_fista = solvers.fista_solver
+    before_lbfgs = solvers.lbfgs_solver
+    before_cd = solvers.quantile_cd_solver
+    fista_original = getattr(before_fista, "_statgpu_original", None)
+    lbfgs_original = getattr(before_lbfgs, "_statgpu_original", None)
+    cd_original = getattr(before_cd, "_statgpu_original", None)
+
+    importlib.reload(_solver_guard)
+
+    assert solvers.fista_solver is before_fista
+    assert solvers.lbfgs_solver is before_lbfgs
+    assert solvers.quantile_cd_solver is before_cd
+    assert _fista_mod.fista_solver is before_fista
+    assert _lbfgs_mod.lbfgs_solver is before_lbfgs
+    assert _quantile_cd_mod.quantile_cd_solver is before_cd
+    assert getattr(before_fista, "_statgpu_original", None) is fista_original
+    assert getattr(before_lbfgs, "_statgpu_original", None) is lbfgs_original
+    assert getattr(before_cd, "_statgpu_original", None) is cd_original
+    assert glm_core.fista_solver is before_fista
+    assert glm_core.lbfgs_solver is before_lbfgs
 
 
 @pytest.mark.parametrize("reconstruction", ["set_params", "clone"])

@@ -35,6 +35,30 @@ from ._proximal_newton import proximal_newton_solver as _proximal_newton_solver
 from ._quantile_cd import quantile_cd_solver as _quantile_cd_solver
 
 
+_FISTA_SHAPE_MARKER = "_statgpu_quantile_fista_shape_guard"
+_LBFGS_SHAPE_MARKER = "_statgpu_quantile_lbfgs_shape_guard"
+_QUANTILE_CD_TOMBSTONE_MARKER = "_statgpu_quantile_cd_tombstone"
+
+
+def _unwrap_existing_guard(function, marker):
+    """Return the numerical original and any already-installed guard."""
+    if getattr(function, marker, False):
+        original = getattr(function, "_statgpu_original", None)
+        if callable(original):
+            return original, function
+    return function, None
+
+
+_fista_solver, _existing_fista_guard = _unwrap_existing_guard(
+    _fista_solver, _FISTA_SHAPE_MARKER
+)
+_lbfgs_solver, _existing_lbfgs_guard = _unwrap_existing_guard(
+    _lbfgs_solver, _LBFGS_SHAPE_MARKER
+)
+_quantile_cd_solver, _existing_quantile_cd_guard = _unwrap_existing_guard(
+    _quantile_cd_solver, _QUANTILE_CD_TOMBSTONE_MARKER
+)
+
 def _is_quantile(loss) -> bool:
     return str(getattr(loss, "name", "") or "").lower().strip() == "quantile"
 
@@ -98,6 +122,14 @@ lbfgs_solver.__doc__ = (
     + "\n\n"
     + (_lbfgs_solver.__doc__ or "").lstrip()
 )
+setattr(fista_solver, _FISTA_SHAPE_MARKER, True)
+fista_solver._statgpu_original = _fista_solver
+setattr(lbfgs_solver, _LBFGS_SHAPE_MARKER, True)
+lbfgs_solver._statgpu_original = _lbfgs_solver
+if _existing_fista_guard is not None:
+    fista_solver = _existing_fista_guard
+if _existing_lbfgs_guard is not None:
+    lbfgs_solver = _existing_lbfgs_guard
 
 @wraps(_quantile_cd_solver)
 def quantile_cd_solver(*args, **kwargs):
@@ -121,6 +153,10 @@ SCAD/MCP Quantile objectives or ordinary fista_solver for supported convex
 Quantile objectives.
 """
 quantile_cd_solver.__doc__ = _quantile_cd_solver_doc
+setattr(quantile_cd_solver, _QUANTILE_CD_TOMBSTONE_MARKER, True)
+quantile_cd_solver._statgpu_original = _quantile_cd_solver
+if _existing_quantile_cd_guard is not None:
+    quantile_cd_solver = _existing_quantile_cd_guard
 
 def _reject_quantile(solver_name: str, reason: str) -> None:
     raise ValueError(
@@ -220,3 +256,21 @@ admm_solver.__doc__ = (
 _fista_module.fista_solver = fista_solver
 _lbfgs_module.lbfgs_solver = lbfgs_solver
 _quantile_cd_module.quantile_cd_solver = quantile_cd_solver
+
+# A direct importlib.reload of this guard module reuses the existing supported
+# wrappers above, then refreshes public package aliases so import order cannot
+# split the public and historical module-path identities.
+import sys as _sys
+_solver_package = _sys.modules.get(__package__)
+if _solver_package is not None:
+    for _name in (
+        "fista_solver", "fista_bb_solver", "newton_solver",
+        "proximal_newton_solver", "lbfgs_solver", "lbfgs_b_solver",
+        "admm_solver", "quantile_cd_solver",
+    ):
+        setattr(_solver_package, _name, globals()[_name])
+
+_glm_core_module = _sys.modules.get("statgpu.glm_core")
+if _glm_core_module is not None:
+    for _name in ("fista_solver", "fista_bb_solver", "newton_solver", "lbfgs_solver", "admm_solver"):
+        setattr(_glm_core_module, _name, globals()[_name])
