@@ -136,6 +136,61 @@ def test_public_proximal_quantile_rejects_invalid_stopping_controls(kwargs, mess
         )
 
 
+def test_public_proximal_quantile_flat_target_remains_valid_when_lla_weights_stay_zero(
+    monkeypatch,
+):
+    X, y = _data(seed=16709)
+    loss = QuantileLoss(quantile=0.3)
+    penalty = SCADPenalty(alpha=0.05)
+
+    monkeypatch.setattr(
+        _prox_kernel,
+        "_compute_lla_weights",
+        lambda penalty_arg, coef, p, xp, backend: xp.zeros(
+            p, dtype=coef.dtype
+        ),
+    )
+
+    def converged_flat_irls(
+        X_arg,
+        y_arg,
+        penalty=None,
+        max_iter=100,
+        tol=1e-6,
+        init_coef=None,
+        eps=1e-8,
+        sample_weight=None,
+        fit_intercept=False,
+    ):
+        point = np.full(X_arg.shape[1], 2.0, dtype=np.float64)
+        return point, 1
+
+    monkeypatch.setattr(loss, "irls", converged_flat_irls)
+
+    token = _prox_kernel._STRICT_CV_TARGET.set(True)
+    try:
+        with pytest.warns(None) as caught:
+            coef, intercept, n_iter = solvers.proximal_irls_quantile_solver(
+                loss,
+                penalty,
+                X,
+                y,
+                alpha_path=np.array([0.05]),
+                max_lla_per_step=1,
+                max_iter=2,
+                tol=1e-12,
+                lla_tol=1e-12,
+                fit_intercept=False,
+            )
+    finally:
+        _prox_kernel._STRICT_CV_TARGET.reset(token)
+
+    assert not [w for w in caught if issubclass(w.category, ConvergenceWarning)]
+    assert n_iter == 1
+    np.testing.assert_array_equal(coef, np.full(X.shape[1], 2.0))
+    assert intercept == 0.0
+
+
 def test_public_proximal_quantile_active_target_exhaustion_warns(monkeypatch):
     X, y = _data(seed=16707)
     loss = QuantileLoss(quantile=0.3)

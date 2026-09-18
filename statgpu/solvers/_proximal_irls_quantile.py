@@ -261,6 +261,17 @@ def proximal_irls_quantile_solver(
                     )
                 else:
                     target_irls_exhausted = False
+
+                # A flat derivative that remains flat after the loss solve is
+                # already an LLA fixed point even when the coefficient move
+                # itself was larger than lla_tol. Match the maintained Group
+                # route and do not reject that target solely on outer delta.
+                refreshed = _compute_lla_weights(
+                    pen_step, beta, n_features, xp, backend
+                )
+                if bool(_to_numpy(xp.all(refreshed == 0))):
+                    lla_converged = True
+                    break
             else:
                 target_irls_exhausted = False
                 irls_converged = False
