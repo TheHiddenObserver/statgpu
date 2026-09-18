@@ -2596,7 +2596,9 @@ class PenalizedGLM_CV(CVEstimatorBase):
         )
 
     def _best_index_from_scores(self, mean_scores, alpha_grid, cv_solver):
-        penalty_name = str(self.penalty).lower()
+        penalty_name = str(
+            getattr(self.penalty, "name", self.penalty)
+        ).lower().strip()
         loss_name = str(self.loss).lower()
         if loss_name == "poisson" and penalty_name in ("l1", "elasticnet", "en"):
             # Poisson sparse CV curves can be nearly flat at the low-alpha end.
@@ -2635,7 +2637,9 @@ class PenalizedGLM_CV(CVEstimatorBase):
 
         alpha_grid = np.asarray(alpha_grid, dtype=np.float64).ravel()
         n_alphas = len(alpha_grid)
-        penalty_name = str(self.penalty).lower()
+        penalty_name = str(
+            getattr(self.penalty, "name", self.penalty)
+        ).lower().strip()
         loss_name = str(self.loss).lower()
         device_name = _device_to_name(cv_device)
         max_iter = int(self._max_iter if max_iter is None else max_iter)
@@ -2818,7 +2822,9 @@ class PenalizedGLM_CV(CVEstimatorBase):
         from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
         from statgpu.linear_model.penalized._fit_mixin import _resolve_loss_name
 
-        penalty_name = str(self.penalty).lower()
+        penalty_name = str(
+            getattr(self.penalty, "name", self.penalty)
+        ).lower().strip()
         device_name = _device_to_name(cv_device)
 
         X_val_np = _to_numpy(X_val).astype(np.float64)
