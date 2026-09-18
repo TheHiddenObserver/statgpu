@@ -21,6 +21,8 @@ from numbers import Integral, Real
 
 import numpy as np
 
+from statgpu._config import Device
+
 from . import _fit_mixin as _fit_mixin
 from . import _penalized_cv as _cv_mod
 from ._base import PenalizedGeneralizedLinearModel
@@ -150,6 +152,15 @@ def _sync_public_quantile_fit_controls(owner, *, cv: bool) -> None:
     """Validate current public Quantile refit controls and sync runtime mirrors."""
     solver = getattr(owner, "solver", getattr(owner, "_solver", "auto"))
     owner._solver = solver.lower() if isinstance(solver, str) else solver
+
+    device = getattr(owner, "device", getattr(owner, "_device", Device.AUTO))
+    try:
+        owner._device = device if isinstance(device, Device) else Device(device)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "device must be one of 'auto', 'cpu', 'cuda', or 'torch'"
+        ) from exc
+
     owner._max_iter = _positive_integer(owner.max_iter, "max_iter")
     owner._tol = _finite_positive(owner.tol, "tol")
 

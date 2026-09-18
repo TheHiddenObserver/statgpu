@@ -7,6 +7,7 @@ import inspect
 import numpy as np
 import pytest
 
+from statgpu._config import Device
 from statgpu.linear_model import PenalizedGLM_CV
 from statgpu.linear_model.penalized import (
     PenalizedGeneralizedLinearModel,
@@ -108,6 +109,88 @@ def test_quantile_cv_public_stopping_controls_fail_closed(name, value, message):
 
     with pytest.raises(ValueError, match=message):
         cv.fit(X, y)
+
+
+def test_quantile_direct_public_device_replacement_is_authoritative_before_backend(
+    monkeypatch,
+):
+    X, y = _data(seed=16320)
+    model = PenalizedQuantileRegression(
+        quantile=0.4,
+        penalty="l2",
+        alpha=0.02,
+        solver="auto",
+        device="cpu",
+        max_iter=100,
+        tol=1e-6,
+    )
+    model.device = "cuda"
+
+    def capture_backend(backend="auto"):
+        assert model._device == Device.CUDA
+        raise RuntimeError("device sync sentinel")
+
+    monkeypatch.setattr(model, "_get_backend", capture_backend)
+    with pytest.raises(RuntimeError, match="device sync sentinel"):
+        model.fit(X, y)
+
+
+def test_quantile_cv_public_device_replacement_is_authoritative_before_routing(
+    monkeypatch,
+):
+    X, y = _data(seed=16321, n=72)
+    cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.4},
+        penalty="l2",
+        alpha_grid=np.asarray([0.03], dtype=np.float64),
+        cv=2,
+        solver="auto",
+        device="cpu",
+        max_iter=100,
+        tol=1e-6,
+    )
+    cv.device = "torch"
+    seen = {}
+
+    original = PenalizedGLM_CV._effective_cv_device
+
+    def capture_device(self, *args, **kwargs):
+        seen["device"] = self._device
+        return Device.CPU
+
+    monkeypatch.setattr(PenalizedGLM_CV, "_effective_cv_device", capture_device)
+    cv.fit(X, y)
+
+    assert seen["device"] == Device.TORCH
+    assert cv._device == Device.TORCH
+
+
+@pytest.mark.parametrize("owner_kind", ["direct", "cv"])
+def test_quantile_invalid_public_device_replacement_fails_closed(owner_kind):
+    X, y = _data(seed=16322, n=72)
+    if owner_kind == "direct":
+        owner = PenalizedQuantileRegression(
+            quantile=0.4,
+            penalty="l2",
+            alpha=0.02,
+            solver="auto",
+            device="cpu",
+        )
+    else:
+        owner = PenalizedGLM_CV(
+            loss="quantile",
+            loss_kwargs={"quantile": 0.4},
+            penalty="l2",
+            alpha_grid=np.asarray([0.03], dtype=np.float64),
+            cv=2,
+            solver="auto",
+            device="cpu",
+        )
+
+    owner.device = "not-a-device"
+    with pytest.raises(ValueError, match="device must be one of"):
+        owner.fit(X, y)
 
 
 def test_quantile_direct_public_fit_intercept_replacement_is_authoritative():
