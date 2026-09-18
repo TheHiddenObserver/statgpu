@@ -263,7 +263,7 @@ def fit_penalized_cox_cv(estimator, X, y, sample_weight=None):
         raise ValueError("Penalized Cox CV ties must be 'breslow' or 'efron'")
 
     folds = _coerce_folds(
-        estimator.cv_splits,
+        estimator._materialize_cv_splits(),
         n_samples,
         estimator.cv,
         estimator.random_state,
