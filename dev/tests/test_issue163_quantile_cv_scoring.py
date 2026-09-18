@@ -8,7 +8,13 @@ import pytest
 from statgpu._config import Device
 from statgpu.linear_model import PenalizedGLM_CV
 from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
-from statgpu.penalties import ElasticNetPenalty, L2Penalty, SCADPenalty
+from statgpu.penalties import (
+    AdaptiveGroupLassoPenalty,
+    AdaptiveL1Penalty,
+    ElasticNetPenalty,
+    L2Penalty,
+    SCADPenalty,
+)
 
 
 def _data(seed=16321, n=64):
@@ -748,6 +754,110 @@ def test_quantile_l2_penalty_object_matches_string_cv_and_refit():
     assert object_cv.estimator_.penalty is not penalty_object
     assert object_cv.estimator_.penalty.alpha == pytest.approx(object_cv.alpha_)
     assert object_cv.estimator_._penalty.alpha == pytest.approx(object_cv.alpha_)
+
+
+def test_quantile_adaptive_l1_fixed_weights_auto_grid_uses_public_scale():
+    X, y, _ = _data(seed=16349, n=64)
+    tau = 0.27
+    raw_weights = np.asarray([0.5, 2.0], dtype=np.float64)
+
+    object_penalty = AdaptiveL1Penalty(
+        alpha=0.9,
+        weights=raw_weights,
+        normalize=True,
+    )
+    object_model = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": tau},
+        penalty=object_penalty,
+        alpha_grid=None,
+        n_alphas=4,
+        cv=2,
+        solver="auto",
+        device="cpu",
+    )
+    string_model = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": tau},
+        penalty="adaptive_l1",
+        penalty_kwargs={"weights": raw_weights, "normalize": True},
+        alpha_grid=None,
+        n_alphas=4,
+        cv=2,
+        solver="auto",
+        device="cpu",
+    )
+
+    object_grid = object_model._generate_alpha_grid(X, y)
+    string_grid = string_model._generate_alpha_grid(X, y)
+
+    intercept = float(np.quantile(y, tau))
+    residual = y - intercept
+    psi = np.where(residual >= 0.0, tau, -(1.0 - tau))
+    score = X.T @ psi / float(X.shape[0])
+    effective_weights = np.asarray(object_penalty._weights, dtype=np.float64)
+    expected = float(np.max(np.abs(score) / effective_weights))
+
+    assert object_grid[0] == pytest.approx(expected, rel=0.0, abs=1e-14)
+    np.testing.assert_allclose(object_grid, string_grid, rtol=0.0, atol=1e-14)
+
+
+def test_quantile_adaptive_group_fixed_weights_auto_grid_uses_public_scale():
+    X, y, _ = _data(seed=16350, n=64)
+    tau = 0.27
+    groups = [[0], [1]]
+    group_weights = np.asarray([0.5, 2.0], dtype=np.float64)
+    penalty = AdaptiveGroupLassoPenalty(
+        groups=groups,
+        alpha=0.9,
+        weights=group_weights,
+    )
+    model = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": tau},
+        penalty=penalty,
+        alpha_grid=None,
+        n_alphas=4,
+        cv=2,
+        solver="auto",
+        device="cpu",
+    )
+
+    grid = model._generate_alpha_grid(X, y)
+
+    intercept = float(np.quantile(y, tau))
+    residual = y - intercept
+    psi = np.where(residual >= 0.0, tau, -(1.0 - tau))
+    score = X.T @ psi / float(X.shape[0])
+    expected = max(
+        abs(float(score[0])) / group_weights[0],
+        abs(float(score[1])) / group_weights[1],
+    )
+    assert grid[0] == pytest.approx(expected, rel=0.0, abs=1e-14)
+
+
+def test_quantile_adaptive_group_zero_weight_keeps_finite_heuristic_grid():
+    X, y, _ = _data(seed=16351, n=64)
+    penalty = AdaptiveGroupLassoPenalty(
+        groups=[[0], [1]],
+        alpha=0.9,
+        weights=np.asarray([0.0, 1.0], dtype=np.float64),
+    )
+    model = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.27},
+        penalty=penalty,
+        alpha_grid=None,
+        n_alphas=4,
+        cv=2,
+        solver="auto",
+        device="cpu",
+    )
+
+    grid = model._generate_alpha_grid(X, y)
+
+    assert np.all(np.isfinite(grid))
+    assert np.all(grid > 0.0)
 
 
 def test_quantile_elasticnet_zero_l1_ratio_uses_l2_grid_scale():

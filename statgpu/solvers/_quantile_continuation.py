@@ -68,20 +68,55 @@ def quantile_penalty_alpha_start(score, penalty=None) -> float:
         return 0.0
 
     penalty_name = str(getattr(penalty, "name", "") or "").lower().strip()
+
+    if penalty_name in {"adaptive_l1", "adaptive_lasso"}:
+        weights = getattr(penalty, "_weights", None)
+        if weights is not None:
+            weights_np = np.asarray(_to_numpy(weights), dtype=np.float64).reshape(-1)
+            if (
+                weights_np.size == size
+                and np.all(np.isfinite(weights_np))
+                and np.all(weights_np > 0.0)
+            ):
+                score_np = np.asarray(_to_numpy(score), dtype=np.float64).reshape(-1)
+                return float(np.max(np.abs(score_np) / weights_np))
+
     group_names = {
-        "group_lasso", "gl", "group_scad", "gscad", "group_mcp", "gmcp"
+        "group_lasso", "gl", "adaptive_group_lasso",
+        "group_scad", "gscad", "group_mcp", "gmcp"
     }
     groups = getattr(penalty, "_group_indices", None)
     if penalty_name in group_names and groups:
+        adaptive_weights = (
+            getattr(penalty, "_group_weights", None)
+            if penalty_name == "adaptive_group_lasso"
+            else None
+        )
+        if adaptive_weights is not None:
+            adaptive_weights = np.asarray(
+                _to_numpy(adaptive_weights), dtype=np.float64
+            ).reshape(-1)
+            if (
+                adaptive_weights.size != len(groups)
+                or not np.all(np.isfinite(adaptive_weights))
+                or np.any(adaptive_weights <= 0.0)
+            ):
+                # A zero adaptive weight leaves a group unpenalized, so no
+                # finite all-zero KKT threshold exists in general. Preserve
+                # the historical heuristic rather than inventing infinity.
+                return _scalar_float(xp.max(xp.abs(score)))
+
         thresholds = []
-        for group in groups:
+        for group_index, group in enumerate(groups):
             idx = np.asarray(group, dtype=np.int64).reshape(-1)
             if idx.size == 0:
                 continue
             group_score = score[idx.tolist()]
+            denominator = float(np.sqrt(idx.size))
+            if adaptive_weights is not None:
+                denominator *= float(adaptive_weights[group_index])
             thresholds.append(
-                _scalar_float(xp.linalg.norm(group_score))
-                / float(np.sqrt(idx.size))
+                _scalar_float(xp.linalg.norm(group_score)) / denominator
             )
         return max(thresholds, default=0.0)
 

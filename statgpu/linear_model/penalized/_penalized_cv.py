@@ -366,25 +366,22 @@ def _quantile_zero_score(X, y, tau, sample_weight=None):
     return X.T @ (weights * psi) / total
 
 
-def _group_alpha_max_from_score(score, penalty, penalty_kwargs):
-    """Map a zero-model slope score to the public group-penalty alpha scale."""
+def _penalty_alpha_max_from_score(score, penalty, penalty_kwargs):
+    """Map a Quantile zero-model score to the penalty's public alpha scale."""
     penalty_name = str(getattr(penalty, "name", penalty)).lower().strip()
-    if penalty_name not in {
-        "group_lasso", "gl", "group_scad", "gscad", "group_mcp", "gmcp"
-    }:
-        return float(np.max(np.abs(score)))
+    needs_object = penalty_name in {
+        "adaptive_l1", "adaptive_lasso",
+        "group_lasso", "gl", "adaptive_group_lasso",
+        "group_scad", "gscad", "group_mcp", "gmcp",
+    }
 
-    penalty_obj = penalty if getattr(penalty, "_group_indices", None) is not None else None
-    if penalty_obj is None:
+    penalty_obj = penalty if not isinstance(penalty, str) else None
+    if penalty_obj is None and needs_object and penalty_name != "adaptive_group_lasso":
         from statgpu.penalties import get_penalty
 
         kwargs = dict(penalty_kwargs or {})
         kwargs["alpha"] = 1.0
         penalty_obj = get_penalty(penalty_name, **kwargs)
-
-    groups = getattr(penalty_obj, "_group_indices", None)
-    if not groups:
-        raise ValueError("group penalty requires non-empty groups for alpha-grid generation")
 
     from statgpu.solvers._quantile_continuation import (
         quantile_penalty_alpha_start,
@@ -2503,7 +2500,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 tau,
                 sample_weight=sw_np,
             )
-            alpha_max = _group_alpha_max_from_score(
+            alpha_max = _penalty_alpha_max_from_score(
                 score,
                 self.penalty,
                 getattr(self, "_penalty_kwargs", None),
