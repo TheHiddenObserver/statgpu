@@ -111,9 +111,10 @@ class QuantileLoss(LossBase):
         return tau * pos + (1.0 - tau) * neg
 
     def per_sample_gradient(self, eta, y):
-        """Gradient w.r.t. eta: -tau + (1-tau) * (u < 0).
+        """Gradient w.r.t. eta: -tau + 1.0 * (u < 0).
 
-        At u=0 (y=eta), returns -tau (arbitrary subgradient choice).
+        Thus u < 0 gives 1 - tau, while u >= 0 gives -tau. At u=0
+        (y=eta), the implementation uses -tau as its subgradient choice.
         """
         u = y - eta
         tau = self._tau

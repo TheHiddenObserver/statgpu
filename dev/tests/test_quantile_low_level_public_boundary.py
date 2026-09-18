@@ -40,6 +40,28 @@ def _invalid_weights(n):
     ]
 
 
+@pytest.mark.parametrize(
+    ("X_transform", "y_transform", "message"),
+    [
+        (lambda X: X[:, 0], lambda y: y, "X must be two-dimensional"),
+        (lambda X: X, lambda y: y[:, None], "y must be one-dimensional"),
+        (
+            lambda X: X,
+            lambda y: y[:1],
+            "same number of observations as X",
+        ),
+    ],
+)
+def test_direct_quantile_irls_rejects_invalid_xy_shapes_before_numerics(
+    X_transform, y_transform, message
+):
+    X, y = _data(seed=16713)
+    loss = QuantileLoss(quantile=0.3)
+
+    with pytest.raises(ValueError, match=message):
+        loss.irls(X_transform(X), y_transform(y), max_iter=3)
+
+
 @pytest.mark.parametrize("sample_weight", _invalid_weights(24))
 def test_direct_quantile_irls_rejects_invalid_weights_before_numerics(sample_weight):
     X, y = _data()
@@ -129,6 +151,45 @@ def test_public_proximal_quantile_solver_rejects_wrong_objective_before_path_wor
             penalty_factory(),
             X,
             y,
+            alpha_path=np.array([0.08, 0.05]),
+            max_iter=3,
+        )
+
+
+@pytest.mark.parametrize(
+    ("X_transform", "y_transform", "message"),
+    [
+        (lambda X: X[:, 0], lambda y: y, "X must be two-dimensional"),
+        (lambda X: X, lambda y: y[:, None], "y must be one-dimensional"),
+        (
+            lambda X: X,
+            lambda y: y[:1],
+            "same number of observations as X",
+        ),
+    ],
+)
+def test_public_proximal_quantile_rejects_invalid_xy_shapes_before_path_work(
+    monkeypatch, X_transform, y_transform, message
+):
+    X, y = _data(seed=16714)
+    loss = QuantileLoss(quantile=0.3)
+    penalty = SCADPenalty(alpha=0.05)
+
+    def forbidden_path(*args, **kwargs):
+        raise AssertionError("continuation/backend work must not start")
+
+    monkeypatch.setattr(
+        _prox_contract,
+        "resolve_auto_quantile_continuation_path",
+        forbidden_path,
+    )
+
+    with pytest.raises(ValueError, match=message):
+        solvers.proximal_irls_quantile_solver(
+            loss,
+            penalty,
+            X_transform(X),
+            y_transform(y),
             alpha_path=np.array([0.08, 0.05]),
             max_iter=3,
         )

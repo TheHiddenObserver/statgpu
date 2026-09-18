@@ -41,6 +41,34 @@ _GROUP_NONCONVEX_NAMES = frozenset(
 _LLA_NONCONVEX_NAMES = frozenset({"scad", "mcp"}) | _GROUP_NONCONVEX_NAMES
 
 
+def _validate_quantile_xy_shapes(X, y) -> int:
+    """Validate Quantile public-input shapes without host-copying GPU data."""
+    x_ndim = getattr(X, "ndim", None)
+    x_shape = getattr(X, "shape", None)
+    if x_ndim is None or x_shape is None:
+        X_host = np.asarray(X)
+        x_ndim = X_host.ndim
+        x_shape = X_host.shape
+    y_ndim = getattr(y, "ndim", None)
+    y_shape = getattr(y, "shape", None)
+    if y_ndim is None or y_shape is None:
+        y_host = np.asarray(y)
+        y_ndim = y_host.ndim
+        y_shape = y_host.shape
+
+    if int(x_ndim) != 2:
+        raise ValueError("X must be two-dimensional for Quantile fista_lla_path")
+    if int(y_ndim) != 1:
+        raise ValueError("y must be one-dimensional for Quantile fista_lla_path")
+    n_samples = int(x_shape[0])
+    if int(y_shape[0]) != n_samples:
+        raise ValueError(
+            "y must have the same number of observations as X for "
+            "Quantile fista_lla_path"
+        )
+    return n_samples
+
+
 class _GroupFISTALossProxy:
     """Delegate a loss while disabling the generic proximal-Newton branch."""
 
@@ -235,7 +263,13 @@ def fista_lla_path(
         if max_iter < 1:
             raise ValueError("max_iter must be a positive integer or sequence")
 
-    _validate_sample_weight(sample_weight, len(X))
+    loss_name = str(getattr(loss, "name", "") or "").lower().strip()
+    n_samples = (
+        _validate_quantile_xy_shapes(X, y)
+        if loss_name == "quantile"
+        else len(X)
+    )
+    _validate_sample_weight(sample_weight, n_samples)
 
     penalty_name = str(getattr(scad_penalty, "name", "") or "").lower().strip()
     if penalty_name not in _LLA_NONCONVEX_NAMES:
@@ -245,7 +279,7 @@ def fista_lla_path(
 
     # Quantile's weighted step scale must remain objective-consistent for both
     # scalar and group penalties, including direct public low-level calls.
-    if str(getattr(loss, "name", "")).lower() == "quantile":
+    if loss_name == "quantile":
         loss = _QuantileWeightedStepScaleProxy(loss)
 
     if penalty_name in _GROUP_NONCONVEX_NAMES:

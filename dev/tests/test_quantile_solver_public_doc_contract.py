@@ -87,6 +87,12 @@ _PUBLIC_DOC_PAIRS = (
 )
 
 
+def test_quantile_gradient_runtime_help_matches_executable_subgradient():
+    doc = inspect.getdoc(QuantileLoss.per_sample_gradient) or ""
+    assert "-tau + 1.0 * (u < 0)" in doc
+    assert "-tau + (1-tau) * (u < 0)" not in doc
+
+
 def test_guarded_public_solver_docstrings_expose_quantile_boundary():
     fista_doc = inspect.getdoc(solvers.fista_bb_solver) or ""
     admm_doc = inspect.getdoc(solvers.admm_solver) or ""

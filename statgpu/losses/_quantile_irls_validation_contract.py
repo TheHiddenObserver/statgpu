@@ -19,6 +19,33 @@ from ._quantile import QuantileLoss
 _MARKER = "_statgpu_quantile_irls_weight_validation_contract"
 
 
+def _validate_quantile_xy_shapes(X, y) -> int:
+    """Validate supervised array shapes without materializing GPU data."""
+    x_ndim = getattr(X, "ndim", None)
+    x_shape = getattr(X, "shape", None)
+    if x_ndim is None or x_shape is None:
+        X_host = np.asarray(X)
+        x_ndim = X_host.ndim
+        x_shape = X_host.shape
+    y_ndim = getattr(y, "ndim", None)
+    y_shape = getattr(y, "shape", None)
+    if y_ndim is None or y_shape is None:
+        y_host = np.asarray(y)
+        y_ndim = y_host.ndim
+        y_shape = y_host.shape
+
+    if int(x_ndim) != 2:
+        raise ValueError("X must be two-dimensional for Quantile IRLS")
+    if int(y_ndim) != 1:
+        raise ValueError("y must be one-dimensional for Quantile IRLS")
+    n_samples = int(x_shape[0])
+    if int(y_shape[0]) != n_samples:
+        raise ValueError(
+            "y must have the same number of observations as X for Quantile IRLS"
+        )
+    return n_samples
+
+
 def install_quantile_irls_validation_contract() -> None:
     current = QuantileLoss.irls
     if getattr(current, _MARKER, False):
@@ -57,6 +84,8 @@ def install_quantile_irls_validation_contract() -> None:
             else:
                 eps = value
 
+        n_samples = _validate_quantile_xy_shapes(X, y)
+
         if sample_weight is not None:
             # Import lazily so the losses package does not enter glm_core while
             # module initialization is still resolving the generic solver graph.
@@ -64,7 +93,7 @@ def install_quantile_irls_validation_contract() -> None:
 
             sample_weight = validate_glm_sample_weight(
                 sample_weight,
-                len(X),
+                n_samples,
             )
 
         return current(

@@ -11,6 +11,46 @@ from statgpu.solvers import fista_lla_path
 
 
 @pytest.mark.parametrize(
+    ("X_transform", "y_transform", "message"),
+    [
+        (lambda X: X[:, 0], lambda y: y, "X must be two-dimensional"),
+        (lambda X: X, lambda y: y[:, None], "y must be one-dimensional"),
+        (
+            lambda X: X,
+            lambda y: y[:1],
+            "same number of observations as X",
+        ),
+    ],
+)
+def test_quantile_fista_lla_rejects_invalid_xy_shapes_before_loss_work(
+    monkeypatch, X_transform, y_transform, message
+):
+    X = np.eye(4, dtype=np.float64)
+    y = np.asarray([0.4, -0.2, 0.6, -0.1], dtype=np.float64)
+    loss = QuantileLoss(0.35)
+    penalty = SCADPenalty(alpha=0.04, a=3.7)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("loss numerical work must not start")
+
+    monkeypatch.setattr(loss, "preprocess", forbidden)
+    monkeypatch.setattr(loss, "lipschitz", forbidden)
+
+    with pytest.raises(ValueError, match=message):
+        fista_lla_path(
+            loss,
+            penalty,
+            X_transform(X),
+            y_transform(y),
+            alpha_path=np.asarray([0.04], dtype=np.float64),
+            max_lla_per_step=1,
+            max_iter=20,
+            tol=1e-6,
+            fit_intercept=False,
+        )
+
+
+@pytest.mark.parametrize(
     ("kwargs", "message"),
     [
         ({"fit_intercept": "False"}, "fit_intercept must be boolean"),

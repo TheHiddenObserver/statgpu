@@ -22,6 +22,38 @@ from ._quantile_continuation import resolve_auto_quantile_continuation_path
 _MARKER = "_statgpu_quantile_proximal_public_contract"
 
 
+def _validate_quantile_xy_shapes(X, y) -> int:
+    """Validate public solver shapes without transferring GPU arrays."""
+    x_ndim = getattr(X, "ndim", None)
+    x_shape = getattr(X, "shape", None)
+    if x_ndim is None or x_shape is None:
+        X_host = np.asarray(X)
+        x_ndim = X_host.ndim
+        x_shape = X_host.shape
+    y_ndim = getattr(y, "ndim", None)
+    y_shape = getattr(y, "shape", None)
+    if y_ndim is None or y_shape is None:
+        y_host = np.asarray(y)
+        y_ndim = y_host.ndim
+        y_shape = y_host.shape
+
+    if int(x_ndim) != 2:
+        raise ValueError(
+            "X must be two-dimensional for proximal_irls_quantile_solver"
+        )
+    if int(y_ndim) != 1:
+        raise ValueError(
+            "y must be one-dimensional for proximal_irls_quantile_solver"
+        )
+    n_samples = int(x_shape[0])
+    if int(y_shape[0]) != n_samples:
+        raise ValueError(
+            "y must have the same number of observations as X for "
+            "proximal_irls_quantile_solver"
+        )
+    return n_samples
+
+
 def _validate_alpha_path(alpha_path):
     """Validate the public continuation path before any numerical work."""
     if isinstance(alpha_path, (list, tuple)):
@@ -100,6 +132,8 @@ def install_quantile_proximal_public_contract():
             raise ValueError("fit_intercept must be boolean")
         fit_intercept = bool(fit_intercept)
 
+        n_samples = _validate_quantile_xy_shapes(X, y)
+
         if sample_weight is not None:
             # Import lazily to avoid a package-initialization cycle through
             # ``glm_core.__init__`` -> ``statgpu.solvers``.
@@ -107,7 +141,7 @@ def install_quantile_proximal_public_contract():
 
             sample_weight = validate_glm_sample_weight(
                 sample_weight,
-                len(X),
+                n_samples,
             )
 
         # Validate the public path before the objective-aware resolver or the
