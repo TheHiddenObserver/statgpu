@@ -94,6 +94,33 @@ def test_quantile_cv_general_scores_use_requested_tau(weighted):
     assert contract._QUANTILE_CV_LEVEL.get() is None
 
 
+@pytest.mark.parametrize("penalty", ["none", "null", "", None])
+def test_quantile_cv_rejects_non_tunable_no_penalty_alias_before_grid_work(
+    monkeypatch, penalty
+):
+    X, y, _ = _data(seed=16346, n=32)
+    model = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.35},
+        penalty=penalty,
+        alpha_grid=np.asarray([0.1, 0.03], dtype=np.float64),
+        cv=2,
+        solver="auto",
+        device="cpu",
+    )
+
+    def forbidden_grid(*args, **kwargs):
+        raise AssertionError("no-penalty CV must fail before grid work")
+
+    monkeypatch.setattr(model, "_generate_alpha_grid", forbidden_grid)
+    with pytest.raises(ValueError, match="non-tunable"):
+        model.fit(X, y)
+
+    assert model._fitted is False
+    assert model.alpha_ is None
+    assert model.estimator_ is None
+
+
 @pytest.mark.parametrize(
     ("folds", "message"),
     [

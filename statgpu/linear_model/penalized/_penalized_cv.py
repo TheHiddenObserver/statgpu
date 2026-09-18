@@ -3208,6 +3208,11 @@ class PenalizedGLM_CV(CVEstimatorBase):
         penalty_name = str(
             getattr(self.penalty, "name", self.penalty)
         ).lower().strip()
+        if penalty_name in ("none", "null", ""):
+            raise ValueError(
+                "penalty='none' is non-tunable in PenalizedGLM_CV; "
+                "use the corresponding direct estimator for an unpenalized fit."
+            )
         alpha_grid = None
         if self._alpha_grid_input is not None:
             alpha_grid = _normalize_scalar_alpha_grid(
