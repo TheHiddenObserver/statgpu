@@ -292,3 +292,48 @@ def test_quantile_group_cv_installer_reload_is_idempotent_for_fit_wrapper():
     )
 
     assert after == before
+
+
+def test_invalid_cv_control_refit_clears_prior_selection_state():
+    X, y, folds = _data()
+    model = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.35},
+        penalty="group_scad",
+        penalty_kwargs={"groups": GROUPS, "a": 3.7},
+        alpha_grid=np.asarray([0.05, 0.03], dtype=np.float64),
+        cv=2,
+        cv_splits=folds,
+        solver="auto",
+        device="cpu",
+        max_iter=20,
+        tol=1e-6,
+    )
+
+    # Simulate a prior successful fit. A rejected refit must never leave these
+    # results visible as though the new request had succeeded.
+    model._fitted = True
+    model.alpha_ = 0.03
+    model.alpha_grid_ = np.asarray([0.05, 0.03], dtype=np.float64)
+    model.best_score_ = -0.1
+    model.cv_results_ = {"mean_score": np.asarray([0.2, 0.1])}
+    model.estimator_ = object()
+    model.coef_ = np.ones(X.shape[1], dtype=np.float64)
+    model.intercept_ = 0.25
+    model.cv_strategy_ = "strict"
+    model.cv_selected_device_ = "cpu"
+
+    model.max_iter = 0
+    with pytest.raises(ValueError, match="max_iter must be a positive integer"):
+        model.fit(X, y)
+
+    assert model._fitted is False
+    assert model.alpha_ is None
+    assert model.alpha_grid_ is None
+    assert model.best_score_ is None
+    assert model.cv_results_ is None
+    assert model.estimator_ is None
+    assert model.coef_ is None
+    assert model.intercept_ is None
+    assert model.cv_strategy_ is None
+    assert model.cv_selected_device_ is None
