@@ -2707,7 +2707,11 @@ class PenalizedGLM_CV(CVEstimatorBase):
         # path_fn(X_train, y_train, alpha_sorted, ..., X_val, y_val, sw_train, sw_val) -> dict or None
 
         def _cond_scad_mcp(loss_name, penalty_name, cv_solver, strict):
-            return penalty_name in ("scad", "mcp") and (loss_name == "squared_error" or not strict)
+            return (
+                loss_name != "quantile"
+                and penalty_name in ("scad", "mcp")
+                and (loss_name == "squared_error" or not strict)
+            )
 
         def _path_scad_mcp(X_train, y_train, alpha_sorted, penalty_name, l1_ratio,
                            max_iter, tol, cv_device, X_val, y_val, sw_train, sw_val):
@@ -2835,7 +2839,9 @@ class PenalizedGLM_CV(CVEstimatorBase):
         # For SCAD/MCP on non-squared-error: use LLA path CV instead of warm-start.
         use_warm_start = True
         use_lla_path_cv = (
-            not strict and loss_name != "squared_error" and penalty_name in ("scad", "mcp")
+            not strict
+            and loss_name not in ("squared_error", "quantile")
+            and penalty_name in ("scad", "mcp")
         )
 
         # Transfer to GPU if needed

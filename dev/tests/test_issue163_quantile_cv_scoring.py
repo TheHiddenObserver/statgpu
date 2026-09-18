@@ -305,7 +305,7 @@ def test_quantile_scad_fast_helper_is_fail_safe_to_general_path():
     assert result is None
 
 
-def test_quantile_scalar_scad_penalty_object_uses_same_two_stage_lla_screening(
+def test_quantile_scalar_scad_two_stage_uses_maintained_per_alpha_path_for_object_and_string(
     monkeypatch,
 ):
     from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
@@ -354,8 +354,13 @@ def test_quantile_scalar_scad_penalty_object_uses_same_two_stage_lla_screening(
         **common,
     ).fit(X, y)
 
-    assert seen["object_path"] > 0
-    assert seen["object_path"] == seen["string_path"]
+    assert seen == {"object_path": 0, "string_path": 0}
+    np.testing.assert_allclose(
+        object_cv.cv_results_["all_scores_stage1"],
+        string_cv.cv_results_["all_scores_stage1"],
+        rtol=2e-8,
+        atol=2e-10,
+    )
     np.testing.assert_array_equal(
         object_cv.cv_results_["refined_mask"],
         string_cv.cv_results_["refined_mask"],
