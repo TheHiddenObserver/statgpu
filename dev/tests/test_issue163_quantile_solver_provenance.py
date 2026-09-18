@@ -366,6 +366,8 @@ def test_sparse_quantile_auto_remains_fista_family():
 @pytest.mark.parametrize(
     ("name", "value", "message"),
     [
+        ("lla", False, "require lla=True"),
+        ("lla", "False", "lla must be boolean"),
         ("max_lla_iters", 0, "max_lla_iters must be a positive integer"),
         ("max_lla_iters", False, "max_lla_iters must be a positive integer"),
         ("max_lla_iters", 2, "max_lla_iters must be at least 3"),

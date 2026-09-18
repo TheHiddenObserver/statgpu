@@ -205,6 +205,15 @@ def _sync_public_quantile_fit_controls(owner, *, cv: bool) -> None:
         owner._fit_intercept = bool(fit_intercept)
 
     if not cv and _penalty_name(getattr(owner, "penalty", "")) in _QUANTILE_LLA_PENALTIES:
+        lla = getattr(owner, "lla", getattr(owner, "_lla_enabled", True))
+        if not isinstance(lla, (bool, np.bool_)):
+            raise ValueError("lla must be boolean for Quantile non-convex penalties")
+        owner._lla_enabled = bool(lla)
+        if not owner._lla_enabled:
+            raise ValueError(
+                "Quantile SCAD/MCP and Group SCAD/MCP require lla=True"
+            )
+
         owner._max_lla_iters = _positive_integer(
             owner.max_lla_iters, "max_lla_iters"
         )

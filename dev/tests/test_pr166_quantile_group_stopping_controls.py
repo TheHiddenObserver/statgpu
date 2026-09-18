@@ -23,6 +23,8 @@ def _data():
 @pytest.mark.parametrize(
     ("name", "value", "message"),
     [
+        ("lla", False, "require lla=True"),
+        ("lla", "False", "lla must be boolean"),
         ("max_lla_iters", 2, "max_lla_iters must be at least 3"),
         ("max_lla_iters", 2.5, "max_lla_iters must be a positive integer"),
         ("max_lla_iters", "6", "max_lla_iters must be a positive integer"),
