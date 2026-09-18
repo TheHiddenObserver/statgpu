@@ -676,6 +676,40 @@ class QuantileRegression(BaseEstimator):
             self._cleanup_backend_memory(backend_name)
         return result
 
+    def score(self, X, y, sample_weight=None):
+        """Return negative pinball loss on test data; higher is better."""
+        self._check_is_fitted()
+        from statgpu.backends import _to_numpy
+        from statgpu.glm_core._validation import validate_glm_sample_weight
+
+        y_np = np.asarray(_to_numpy(y))
+        if y_np.ndim != 1:
+            raise ValueError("y must be one-dimensional for QuantileRegression score")
+        if sample_weight is not None:
+            sw = validate_glm_sample_weight(sample_weight, y_np.shape[0])
+            sw = np.asarray(_to_numpy(sw), dtype=np.float64)
+        else:
+            sw = None
+
+        pred = np.asarray(self.predict(X), dtype=np.float64)
+        if y_np.shape[0] != pred.shape[0]:
+            raise ValueError(
+                "y must have the same number of observations as X for "
+                "QuantileRegression score"
+            )
+        residual = y_np - pred
+        tau = float(self._quantile)
+        per_sample = np.where(
+            residual >= 0.0,
+            tau * residual,
+            (tau - 1.0) * residual,
+        )
+        if sw is None:
+            loss = float(np.mean(per_sample))
+        else:
+            loss = float(np.average(per_sample, weights=sw))
+        return -loss
+
     # ---- GPU memory management ----
 
     def _cleanup_cuda_memory(self):

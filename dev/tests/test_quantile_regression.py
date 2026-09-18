@@ -283,6 +283,60 @@ class TestQuantileRegression:
         assert len(m._bse) == 4
         assert np.all(m._bse > 0)
 
+    def test_score_is_negative_pinball_loss(self):
+        model = QuantileRegression(quantile=0.25).fit(self.X, self.y)
+        pred = model.predict(self.X)
+        residual = self.y - pred
+        expected = -float(np.mean(np.where(
+            residual >= 0.0,
+            0.25 * residual,
+            (0.25 - 1.0) * residual,
+        )))
+        assert model.score(self.X, self.y) == pytest.approx(
+            expected, rel=0.0, abs=1e-12
+        )
+
+    def test_score_supports_analytic_weights(self):
+        model = QuantileRegression(quantile=0.35).fit(self.X, self.y)
+        weights = np.linspace(0.5, 1.5, self.X.shape[0])
+        pred = model.predict(self.X)
+        residual = self.y - pred
+        per_sample = np.where(
+            residual >= 0.0,
+            0.35 * residual,
+            (0.35 - 1.0) * residual,
+        )
+        expected = -float(np.average(per_sample, weights=weights))
+        assert model.score(self.X, self.y, sample_weight=weights) == pytest.approx(
+            expected, rel=0.0, abs=1e-12
+        )
+
+    def test_score_rejects_response_shape_and_length_mismatch(self):
+        model = QuantileRegression(quantile=0.5).fit(self.X, self.y)
+        with pytest.raises(ValueError, match="one-dimensional"):
+            model.score(self.X, self.y[:, None])
+        with pytest.raises(ValueError, match="same number of observations as X"):
+            model.score(self.X, self.y[:1])
+
+    def test_sklearn_clone_preserves_public_controls(self):
+        sklearn_base = pytest.importorskip("sklearn.base")
+        model = QuantileRegression(
+            quantile=0.3,
+            fit_intercept=False,
+            max_iter=321,
+            tol=2e-5,
+            compute_inference=True,
+            inference_method="bootstrap",
+            n_bootstrap=7,
+            random_state=19,
+        )
+        cloned = sklearn_base.clone(model)
+        assert cloned.get_params(deep=False) == model.get_params(deep=False)
+        assert cloned.quantile == pytest.approx(0.3)
+        assert cloned._quantile == pytest.approx(0.3)
+        assert cloned._max_iter == 321
+        assert cloned._n_bootstrap == 7
+
     def test_predict(self):
         m = QuantileRegression(quantile=0.5)
         m.fit(self.X, self.y)
