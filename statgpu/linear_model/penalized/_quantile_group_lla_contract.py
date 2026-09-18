@@ -70,6 +70,42 @@ def _use_auto_group_lla(owner, solver_name) -> bool:
     )
 
 
+def _positive_integer(value, name: str) -> int:
+    if isinstance(value, (bool, np.bool_)) or not isinstance(
+        value, (int, np.integer)
+    ):
+        raise ValueError(f"{name} must be a positive integer")
+    value = int(value)
+    if value < 1:
+        raise ValueError(f"{name} must be a positive integer")
+    return value
+
+
+def _finite_positive(value, name: str) -> float:
+    try:
+        value = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a finite positive number") from exc
+    if not np.isfinite(value) or value <= 0.0:
+        raise ValueError(f"{name} must be a finite positive number")
+    return value
+
+
+def _validate_direct_group_lla_controls(owner) -> None:
+    _positive_integer(getattr(owner, "_max_iter", owner.max_iter), "max_iter")
+    _positive_integer(
+        getattr(owner, "_max_lla_iters", owner.max_lla_iters),
+        "max_lla_iters",
+    )
+    _finite_positive(getattr(owner, "_tol", owner.tol), "tol")
+    _finite_positive(getattr(owner, "_lla_tol", owner.lla_tol), "lla_tol")
+
+
+def _validate_cv_group_lla_controls(owner) -> None:
+    _positive_integer(getattr(owner, "_max_iter", owner.max_iter), "max_iter")
+    _finite_positive(getattr(owner, "_tol", owner.tol), "tol")
+
+
 def _install_cv_auto_context() -> None:
     """Own auto Quantile Group CV routing and candidate eligibility."""
     CV = _quantile_contract.PenalizedGLM_CV
@@ -109,6 +145,7 @@ def _install_cv_auto_context() -> None:
     def _refit_with_quantile_group_auto_context(self, *args, **kwargs):
         if not _is_auto_quantile_group_cv(self):
             return current_refit(self, *args, **kwargs)
+        _validate_cv_group_lla_controls(self)
         token = _AUTO_CV_GROUP_LLA.set(True)
         try:
             return current_refit(self, *args, **kwargs)
@@ -117,9 +154,10 @@ def _install_cv_auto_context() -> None:
 
     @wraps(current_scores)
     def _scores_with_complete_quantile_group_candidates(self, *args, **kwargs):
-        scores = current_scores(self, *args, **kwargs)
         if not _is_auto_quantile_group_cv(self):
-            return scores
+            return current_scores(self, *args, **kwargs)
+        _validate_cv_group_lla_controls(self)
+        scores = current_scores(self, *args, **kwargs)
         strict = kwargs.get("strict", args[8] if len(args) > 8 else True)
         if not bool(strict):
             return scores
@@ -151,6 +189,7 @@ def _install_quantile_group_lla_route() -> None:
         if not _use_auto_group_lla(self, solver_name):
             return current(self, X, y, sample_weight, solver_name, backend_name)
 
+        _validate_direct_group_lla_controls(self)
         xp = _get_xp(backend_name)
         ref = X if not isinstance(X, np.ndarray) else xp.zeros(1, dtype=xp.float64)
         X_arr = _xp_asarray(X, xp.float64, ref)
