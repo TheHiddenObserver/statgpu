@@ -3276,6 +3276,16 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 "penalty='none' is non-tunable in PenalizedGLM_CV; "
                 "use the corresponding direct estimator for an unpenalized fit."
             )
+        # Preserve the historical pure-validation precedence for an explicit
+        # grid. Only automatic grid generation does auxiliary numerical work.
+        alpha_grid = None
+        if self._alpha_grid_input is not None:
+            alpha_grid = _normalize_scalar_alpha_grid(
+                self._alpha_grid_input,
+                penalty_name=penalty_name,
+            )
+            alpha_grid = _validate_final_scalar_alpha_grid(alpha_grid)
+
         # Resolve and validate fold structure before automatic alpha-grid work.
         # Invalid custom folds, impossible cv counts, and zero fold weight mass
         # are public input errors and must fail before any auxiliary numerical
@@ -3288,17 +3298,11 @@ class PenalizedGLM_CV(CVEstimatorBase):
             folds = kfold_indices(n_samples, self._cv, self.random_state)
         _validate_cv_fold_weight_mass(sample_weight, folds)
 
-        alpha_grid = None
-        if self._alpha_grid_input is not None:
-            alpha_grid = _normalize_scalar_alpha_grid(
-                self._alpha_grid_input,
-                penalty_name=penalty_name,
-            )
         if alpha_grid is None:
             alpha_grid = self._generate_alpha_grid(
                 X, y, sample_weight=sample_weight
             )
-        alpha_grid = _validate_final_scalar_alpha_grid(alpha_grid)
+            alpha_grid = _validate_final_scalar_alpha_grid(alpha_grid)
 
         self.alpha_grid_ = alpha_grid
         n_alphas = len(alpha_grid)
