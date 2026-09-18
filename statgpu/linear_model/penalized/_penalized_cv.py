@@ -3310,7 +3310,10 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 strict=True,
             )
             refined_mean = _finite_column_mean(refined_scores)
-            if not np.any(np.isfinite(refined_mean)):
+            if (
+                not np.any(np.isfinite(refined_mean))
+                and not np.all(refined_mask)
+            ):
                 warnings.warn(
                     "Two-stage strict refinement produced no finite candidate; "
                     "retrying the full alpha grid with strict solves.",
@@ -3333,6 +3336,15 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 all_scores = np.array(refined_scores, copy=True)
                 mean_scores = _finite_column_mean(all_scores)
                 refined_mean = mean_scores
+                refined_best = self._best_index_from_scores(
+                    refined_mean,
+                    refined_alpha_grid,
+                    cv_solver,
+                )
+                best_idx = int(refined_best)
+            elif not np.any(np.isfinite(refined_mean)):
+                all_scores = np.array(refined_scores, copy=True)
+                mean_scores = refined_mean
                 refined_best = self._best_index_from_scores(
                     refined_mean,
                     refined_alpha_grid,

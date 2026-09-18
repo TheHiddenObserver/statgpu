@@ -289,6 +289,56 @@ def test_quantile_cv_clone_materializes_one_shot_custom_splits_once():
     assert cloned._fitted is False
 
 
+def test_quantile_two_stage_does_not_repeat_strict_grid_when_all_candidates_refined(
+    monkeypatch,
+):
+    X, y, folds = _data(seed=16355, n=48)
+    alpha_grid = np.asarray([0.04, 0.02], dtype=np.float64)
+    calls = []
+
+    def fake_scores(
+        self,
+        X_arg,
+        y_arg,
+        alpha_grid_arg,
+        cv_device,
+        folds_arg,
+        *,
+        sample_weight=None,
+        max_iter=None,
+        tol=None,
+        strict=True,
+    ):
+        alpha_grid_arg = np.asarray(alpha_grid_arg, dtype=np.float64)
+        calls.append((bool(strict), alpha_grid_arg.copy()))
+        if not strict:
+            return np.zeros((len(folds_arg), len(alpha_grid_arg)), dtype=np.float64)
+        return np.full((len(folds_arg), len(alpha_grid_arg)), np.nan)
+
+    monkeypatch.setattr(PenalizedGLM_CV, "_compute_cv_scores", fake_scores)
+    model = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.35},
+        penalty="scad",
+        alpha_grid=alpha_grid,
+        cv=2,
+        cv_splits=folds,
+        solver="auto",
+        device="cpu",
+        cv_strategy="two_stage",
+        acknowledge_approx=True,
+        refine_top_k=len(alpha_grid),
+        max_iter=80,
+        tol=1e-6,
+    )
+
+    with pytest.raises(RuntimeError, match="no finite candidate score"):
+        model.fit(X, y)
+
+    assert [strict for strict, _ in calls] == [False, True]
+    np.testing.assert_array_equal(calls[1][1], alpha_grid)
+
+
 def test_quantile_two_stage_falls_back_to_full_strict_grid_when_refined_set_fails(
     monkeypatch,
 ):
