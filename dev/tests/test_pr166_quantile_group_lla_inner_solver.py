@@ -104,6 +104,35 @@ def test_nonzero_quantile_group_surrogate_uses_irls_weighted_squared_admm(monkey
     assert intercept == 0.0
 
 
+def test_quantile_group_inner_admm_preserves_tight_public_tolerance(monkeypatch):
+    loss = _FakeQuantileLoss()
+    penalty = GroupSCADPenalty(alpha=0.3, a=3.7, groups=GROUPS)
+    X = np.eye(4, dtype=np.float64)
+    y = np.asarray([0.2, -0.1, 0.3, -0.2], dtype=np.float64)
+    captured = {}
+
+    def fake_admm(loss_arg, penalty_arg, X_arg, y_arg, **kwargs):
+        captured["tol"] = kwargs["tol"]
+        return np.asarray(kwargs["init_coef"], dtype=np.float64).copy(), 1
+
+    monkeypatch.setattr(group_solver, "admm_solver", fake_admm)
+
+    group_solver.quantile_group_proximal_irls_lla_solver(
+        loss,
+        penalty,
+        X,
+        y,
+        alpha_path=[0.3],
+        max_lla_per_step=1,
+        max_iter=2,
+        tol=1e-9,
+        lla_tol=1e-6,
+        fit_intercept=False,
+    )
+
+    assert captured["tol"] == pytest.approx(1e-9, rel=0.0, abs=0.0)
+
+
 def test_zero_quantile_group_surrogate_closes_with_canonical_irls(monkeypatch):
     """A completely flat Group SCAD surrogate is ordinary Quantile regression."""
     loss = _FakeQuantileLoss()

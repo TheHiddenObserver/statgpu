@@ -237,7 +237,7 @@ def quantile_group_proximal_irls_lla_solver(
         irls_limit = max(1, int(irls_limit))
         flat_tol = min(float(tol), 1e-8)
         admm_limit = max(500, min(2000, 2 * irls_limit))
-        admm_tol = max(float(tol), 1e-7)
+        admm_tol = float(tol)
         is_final_continuation = cont_i == n_continuation - 1
         lla_converged = False
         flat_irls_exhausted = False
