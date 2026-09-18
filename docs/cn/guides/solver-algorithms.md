@@ -34,7 +34,7 @@ statgpu 提供一阶、二阶、近端和闭式等多类求解器。对大多数
 | ADMM | 可分/近端形式 | NumPy, CuPy, Torch |
 | `exact` | 平方误差 + L2 闭式路径 | NumPy, CuPy, Torch |
 
-后端列只描述数值实现能力；具体模型和损失函数还会进一步限制可用组合。Quantile/check loss 就存在这种收窄：普通 FISTA 可用于受支持的凸稀疏模型，也可以在 Quantile L2/无惩罚目标上被显式请求；这些 L2/无惩罚组合的 `solver="auto"` 仍优先 IRLS。这里的 Quantile FISTA 是明确支持的一阶近端/次梯度方法，并不声称 pinball loss 满足教科书式 smooth-gradient FISTA 的收敛假设。FISTA-BB 与共享 ADMM 不支持 Quantile；底层直接 L-BFGS 则保留历史的未传/均匀权重 Quantile 行为，但 estimator/CV 的 `solver="lbfgs"` 不受支持，真正非均匀 Quantile L-BFGS 权重会直接报错。
+后端列只描述数值实现能力；具体模型和损失函数还会进一步限制可用组合。Quantile/check loss 就存在这种收窄：普通 FISTA 可用于受支持的凸稀疏模型，也可以在 Quantile L2/无惩罚目标上被显式请求；这些 L2/无惩罚组合的 `solver="auto"` 仍优先 IRLS。这里的 Quantile FISTA 是明确支持的一阶近端/次梯度方法，并不声称 pinball loss 满足教科书式 smooth-gradient FISTA 的收敛假设。FISTA-BB、共享 ADMM、Newton、Proximal Newton 与 L-BFGS-B 都不支持 Quantile；只有底层直接普通 L-BFGS 保留历史的未传/均匀权重 Quantile 行为，estimator/CV 的 `solver="lbfgs"` 不受支持，真正非均匀 Quantile L-BFGS 权重也会直接报错。
 
 ---
 
