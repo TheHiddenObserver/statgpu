@@ -4,6 +4,7 @@ import inspect
 from pathlib import Path
 
 from statgpu import glm_core, solvers
+from statgpu.losses import QuantileLoss
 from statgpu.linear_model.penalized import (
     PenalizedGeneralizedLinearModel,
     PenalizedQuantileRegression,
