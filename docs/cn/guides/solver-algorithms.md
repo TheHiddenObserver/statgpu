@@ -1,7 +1,7 @@
 # 求解器算法
 
 > 语言：中文  
-> 最后更新：2026-09-17  
+> 最后更新：2026-09-18  
 > 页面定位：算法参考  
 > 切换：[English](../../en/guides/solver-algorithms.md)
 
@@ -22,6 +22,7 @@ statgpu 提供一阶、二阶、近端和闭式等多类求解器。对大多数
 | 求解器 | 最适合 | 后端支持 |
 |--------|--------|:---:|
 | Proximal IRLS-CD | 分位数回归 + SCAD/MCP | NumPy, CuPy, Torch |
+| 分组 Proximal IRLS-LLA | 自动 Quantile + Group SCAD/MCP | NumPy, CuPy, Torch |
 | Proximal Newton | 光滑损失 + L2/无惩罚；非光滑请求使用 FISTA | NumPy, CuPy, Torch |
 | FISTA | 近端梯度路径；受支持的 Quantile 一阶路径 | NumPy, CuPy, Torch |
 | FISTA-BB | GLM + 稀疏惩罚 | NumPy, CuPy, Torch |
@@ -1465,6 +1466,7 @@ $$
 ├── Quantile + L2/none                   → IRLS
 ├── Quantile + L1/ElasticNet             → 普通 FISTA
 ├── Quantile + SCAD/MCP                  → Proximal IRLS-CD
+├── Quantile + Group SCAD/MCP            → 分组 Proximal IRLS-LLA
 ├── 光滑非高斯 GLM + L2/none             → Newton
 ├── squared_error + 凸稀疏惩罚            → FISTA
 ├── gamma / inverse-Gaussian + 稀疏惩罚   → FISTA
@@ -1472,10 +1474,10 @@ $$
 ├── tweedie + 稀疏惩罚                    → CPU FISTA-BB / GPU FISTA
 ├── 其他标量 SCAD/MCP                     → FISTA-LLA
 ├── adaptive L1                           → 先初始化 adaptive weights，再按凸稀疏 FISTA/FISTA-BB 规则
-└── 分组惩罚                              → Group FISTA / FISTA-LLA
+└── 其他分组惩罚                          → Group FISTA / FISTA-LLA
 ```
 
-对于 Quantile L2/无惩罚目标，显式 `solver="irls"` 与 `auto` 选择同一算法；显式 `solver="fista"` 则真正执行普通 FISTA，不会被静默替换成 IRLS。Quantile FISTA-BB、模型/CV 层 L-BFGS 与 ADMM 请求均不受支持，并会在数值迭代前报错。底层直接 L-BFGS 保留未传/均匀权重的 Quantile 行为，非均匀权重则被拒绝。稀疏 Quantile 的普通 FISTA 与 SCAD/MCP 的 Proximal IRLS-CD 是不同的 estimator 算法。
+对于 Quantile L2/无惩罚目标，显式 `solver="irls"` 与 `auto` 选择同一算法；显式 `solver="fista"` 则真正执行普通 FISTA，不会被静默替换成 IRLS。自动 Quantile Group SCAD/MCP 使用私有的分组 Proximal IRLS-LLA estimator/CV 路径；若对 Group SCAD/MCP 显式请求 `solver="fista"`，则仍执行普通分组近端 FISTA，不会被改写成该自动路径。分组 Proximal IRLS-LLA 的代理目标、权重与更新公式见 [分位数回归模型页](../models/quantile.md#分组-proximal-irls-llagroup-scadmcp)。Quantile FISTA-BB、模型/CV 层 L-BFGS 与 ADMM 请求均不受支持，并会在数值迭代前报错。底层直接 L-BFGS 保留未传/均匀权重的 Quantile 行为，非均匀权重则被拒绝。稀疏 Quantile 的普通 FISTA 与 SCAD/MCP 的 Proximal IRLS-CD 是不同的 estimator 算法。
 
 这棵树有意只给出摘要。family/backend/problem-size 的精确规则——尤其 Poisson 与 Negative-Binomial 的 CV 稀疏路由——以 [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md) 为准。
 

@@ -1,7 +1,7 @@
 # Solver Algorithms
 
 > Language: English  
-> Last updated: 2026-09-17  
+> Last updated: 2026-09-18  
 > This page: Algorithm reference  
 > Switch: [Chinese](../../cn/guides/solver-algorithms.md)
 
@@ -22,6 +22,7 @@ For model-level dispatch, see [Solver × Penalty Compatibility Matrix](solver-pe
 | Solver | Best for | Backend support |
 |--------|----------|:---:|
 | Proximal IRLS-CD | quantile + SCAD/MCP | NumPy, CuPy, Torch |
+| Group Proximal IRLS-LLA | automatic quantile + Group SCAD/MCP | NumPy, CuPy, Torch |
 | Proximal Newton | smooth loss + L2/no penalty; non-smooth requests use FISTA | NumPy, CuPy, Torch |
 | FISTA | proximal-gradient routes; supported Quantile first-order routes | NumPy, CuPy, Torch |
 | FISTA-BB | GLM + sparse penalties | NumPy, CuPy, Torch |
@@ -1452,6 +1453,7 @@ direct fit with solver="auto"
 ├── quantile + L2/none                   → IRLS
 ├── quantile + L1/ElasticNet             → ordinary FISTA
 ├── quantile + SCAD/MCP                  → Proximal IRLS-CD
+├── quantile + Group SCAD/MCP            → Group Proximal IRLS-LLA
 ├── smooth non-Gaussian GLM + L2/none    → Newton
 ├── squared_error + convex sparse        → FISTA
 ├── gamma / inverse-Gaussian + sparse    → FISTA
@@ -1459,10 +1461,10 @@ direct fit with solver="auto"
 ├── tweedie + sparse                     → CPU FISTA-BB / GPU FISTA
 ├── SCAD/MCP (other scalar routes)       → FISTA-LLA
 ├── adaptive L1                          → initialize adaptive weights, then convex sparse FISTA/FISTA-BB policy
-└── group penalties                      → group-aware FISTA / FISTA-LLA
+└── other group penalties                → group-aware FISTA / FISTA-LLA
 ```
 
-For Quantile L2/no-penalty objectives, explicit `solver="irls"` selects the same algorithm as `auto`, while explicit `solver="fista"` executes ordinary FISTA and is never silently substituted by IRLS. Quantile FISTA-BB, estimator/CV L-BFGS, and ADMM requests are unsupported and raise an error before numerical iteration. Direct low-level L-BFGS retains the existing omitted/uniform Quantile behavior, with non-uniform weights rejected. Sparse Quantile ordinary FISTA and SCAD/MCP Proximal IRLS-CD are separate estimator algorithms.
+For Quantile L2/no-penalty objectives, explicit `solver="irls"` selects the same algorithm as `auto`, while explicit `solver="fista"` executes ordinary FISTA and is never silently substituted by IRLS. Automatic Quantile Group SCAD/MCP uses the private Group Proximal IRLS-LLA estimator/CV route; an explicit Group SCAD/MCP `solver="fista"` remains ordinary group proximal FISTA and is not rewritten into that automatic route. The Group Proximal IRLS-LLA surrogate equations and weighting semantics are given in the [Quantile Regression model page](../models/quantile.md#group-proximal-irls-lla-group-scadmcp). Quantile FISTA-BB, estimator/CV L-BFGS, and ADMM requests are unsupported and raise an error before numerical iteration. Direct low-level L-BFGS retains the existing omitted/uniform Quantile behavior, with non-uniform weights rejected. Sparse Quantile ordinary FISTA and SCAD/MCP Proximal IRLS-CD are separate estimator algorithms.
 
 The tree is intentionally a summary. Exact family/backend/problem-size rules—especially Poisson and Negative-Binomial CV sparse routing—are defined in the [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md).
 
