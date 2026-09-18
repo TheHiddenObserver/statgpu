@@ -129,11 +129,22 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
         self._loss_kwargs = dict(kwargs)
         return get_loss("quantile", **kwargs)
 
-    def _fit_initial(self, X, y, backend_name="numpy"):
-        """Preserve the typed quantile in adaptive-L1 initialization."""
+    def _fit_initial(
+        self,
+        X,
+        y,
+        backend_name="numpy",
+        sample_weight=None,
+    ):
+        """Preserve the typed quantile and weights in adaptive-L1 initialization."""
         penalty_name = str(getattr(self._penalty, "name", "")).lower()
         if penalty_name not in ("adaptive_l1", "adaptive_lasso"):
-            return super()._fit_initial(X, y, backend_name=backend_name)
+            return super()._fit_initial(
+                X,
+                y,
+                backend_name=backend_name,
+                sample_weight=sample_weight,
+            )
 
         from statgpu.backends import get_backend
         from statgpu.backends._utils import _to_numpy
@@ -155,6 +166,7 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
             max_iter=100,
             tol=1e-4,
             loss_kwargs=self._resolved_quantile_loss_kwargs(),
+            sample_weight=sample_weight,
         )
 
     def predict(self, X, return_cpu=True):

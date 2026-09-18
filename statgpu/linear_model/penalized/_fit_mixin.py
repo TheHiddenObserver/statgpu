@@ -185,7 +185,16 @@ def _resolve_loss_name(loss_name, loss_kwargs=None):
         return get_loss(loss_name, **loss_kwargs)
 
 
-def _irls_ridge_init(X, y, loss_name, alpha=0.01, max_iter=100, tol=1e-4, loss_kwargs=None):
+def _irls_ridge_init(
+    X,
+    y,
+    loss_name,
+    alpha=0.01,
+    max_iter=100,
+    tol=1e-4,
+    loss_kwargs=None,
+    sample_weight=None,
+):
     """Compute ridge-penalized GLM coefficients for adaptive_l1 init.
 
     For squared_error uses IRLS-CD (matching R glmnet's ridge solver).
@@ -213,7 +222,14 @@ def _irls_ridge_init(X, y, loss_name, alpha=0.01, max_iter=100, tol=1e-4, loss_k
         Ridge-penalized coefficient estimates (no intercept).
     """
     if loss_name in ("squared_error", ""):
-        coef = _irls_ridge_init_cd(X, y, alpha, max_iter, tol)
+        coef = _irls_ridge_init_cd(
+            X,
+            y,
+            alpha,
+            max_iter,
+            tol,
+            sample_weight=sample_weight,
+        )
     else:
         # For GLM losses, use FISTA with L2 penalty (robust line search)
         # Pass arrays directly — solver handles backend detection internally
@@ -221,13 +237,28 @@ def _irls_ridge_init(X, y, loss_name, alpha=0.01, max_iter=100, tol=1e-4, loss_k
         from statgpu.penalties import get_penalty
         l2_pen = get_penalty("l2", alpha=alpha)
         loss_obj = _resolve_loss_name(loss_name, loss_kwargs=loss_kwargs)
-        coef, _ = fista_solver(loss_obj, l2_pen, X, y, max_iter=max_iter, tol=tol)
+        coef, _ = fista_solver(
+            loss_obj,
+            l2_pen,
+            X,
+            y,
+            max_iter=max_iter,
+            tol=tol,
+            sample_weight=sample_weight,
+        )
     # Return as numpy array (caller expects numpy for penalty.set_weights)
     from statgpu.backends import _to_numpy
     return np.asarray(_to_numpy(coef), dtype=np.float64)
 
 
-def _irls_ridge_init_cd(X, y, alpha, max_iter, tol):
+def _irls_ridge_init_cd(
+    X,
+    y,
+    alpha,
+    max_iter,
+    tol,
+    sample_weight=None,
+):
     """Ridge regression initialization for adaptive L1 weights.
 
     Uses closed-form solution: beta = (X'X + alpha*I)^-1 X'y
@@ -241,20 +272,52 @@ def _irls_ridge_init_cd(X, y, alpha, max_iter, tol):
     xp = _get_xp(backend)
 
     n, p = X.shape
-    # Normalize features
-    feat_norms = xp.sqrt(xp.sum(X ** 2, axis=0))
+    sw = None
+    if sample_weight is not None:
+        if backend == "torch":
+            import torch
+            sw = torch.as_tensor(
+                sample_weight,
+                dtype=X.dtype,
+                device=X.device,
+            ).reshape(-1)
+        else:
+            sw = xp.asarray(sample_weight, dtype=X.dtype).reshape(-1)
+        sw_sum = xp.sum(sw)
+        feat_norms = xp.sqrt(xp.sum((sw[:, None] * X) * X, axis=0))
+        norm_scale = xp.sqrt(sw_sum)
+    else:
+        # Unweighted historical scaling: standardize each column to norm sqrt(n).
+        feat_norms = xp.sqrt(xp.sum(X ** 2, axis=0))
+        if backend == "torch":
+            import torch
+            norm_scale = torch.tensor(
+                float(n) ** 0.5,
+                dtype=X.dtype,
+                device=X.device,
+            )
+        else:
+            norm_scale = xp.asarray(float(n) ** 0.5, dtype=X.dtype)
+
     if backend == "torch":
         import torch
-        feat_norms = xp.maximum(feat_norms, torch.tensor(1e-20, dtype=feat_norms.dtype, device=feat_norms.device))
-        scale = torch.tensor(float(n) ** 0.5, dtype=X.dtype, device=X.device) / feat_norms
+        feat_norms = xp.maximum(
+            feat_norms,
+            torch.tensor(1e-20, dtype=feat_norms.dtype, device=feat_norms.device),
+        )
     else:
         feat_norms = xp.maximum(feat_norms, 1e-20)
-        scale = xp.asarray(float(n) ** 0.5, dtype=X.dtype) / feat_norms
+    scale = norm_scale / feat_norms
     X_work = X * scale
 
-    # Closed-form Ridge: (X'X + alpha*I)^-1 X'y
-    XtX = X_work.T @ X_work / n
-    Xty = X_work.T @ y / n
+    # Closed-form weighted Ridge on the same average-loss normalization used
+    # by the final fit. Uniform analytic weights reduce to the unweighted path.
+    if sw is None:
+        XtX = X_work.T @ X_work / n
+        Xty = X_work.T @ y / n
+    else:
+        XtX = X_work.T @ (sw[:, None] * X_work) / sw_sum
+        Xty = X_work.T @ (sw * y) / sw_sum
 
     if backend == "torch":
         import torch
@@ -393,7 +456,12 @@ class _PenalizedFitMixin:
 
         # Handle penalties requiring initialization (e.g., Adaptive Lasso)
         if self._penalty.requires_init:
-            init_coef = self._fit_initial(X, y, backend_name=backend_name)
+            init_coef = self._fit_initial(
+                X,
+                y,
+                backend_name=backend_name,
+                sample_weight=_sw_arr,
+            )
             self._penalty.set_weights(init_coef)
 
         # Non-convex penalties (SCAD, MCP) for squared_error: use IRLS-CD
@@ -598,7 +666,13 @@ class _PenalizedFitMixin:
 
         return backend_name
 
-    def _fit_initial(self, X, y, backend_name="numpy"):
+    def _fit_initial(
+        self,
+        X,
+        y,
+        backend_name="numpy",
+        sample_weight=None,
+    ):
         """Fit initial model for penalties requiring initialization.
 
         Parameters
@@ -660,8 +734,13 @@ class _PenalizedFitMixin:
                 X_b = np.asarray(_to_numpy(X), dtype=np.float64)
                 y_b = np.asarray(_to_numpy(y), dtype=np.float64)
             init_coef, _ = fista_solver(
-                loss_obj, l2_pen, X_b, y_b,
-                max_iter=500, tol=1e-4,
+                loss_obj,
+                l2_pen,
+                X_b,
+                y_b,
+                max_iter=500,
+                tol=1e-4,
+                sample_weight=sample_weight,
             )
             return init_coef
 
@@ -687,6 +766,7 @@ class _PenalizedFitMixin:
                 max_iter=100,
                 tol=1e-4,
                 loss_kwargs=getattr(self, "loss_kwargs", None),
+                sample_weight=sample_weight,
             )
             return init_coef
 
@@ -697,7 +777,7 @@ class _PenalizedFitMixin:
             fit_intercept=self._effective_intercept,
             device=self._device,
         )
-        init_model.fit(X, y)
+        init_model.fit(X, y, sample_weight=sample_weight)
         return init_model.coef_
 
     def _compute_lla_path(self, X_work, y_arr, p, loss_name, n_cont=None):
