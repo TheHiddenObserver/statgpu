@@ -301,6 +301,83 @@ def test_quantile_two_stage_falls_back_to_full_strict_grid_when_refined_set_fail
     assert model.cv_results_["mean_score"][1] == pytest.approx(0.125)
 
 
+def test_quantile_auto_alpha_grid_uses_weighted_pinball_zero_score():
+    X, y, _ = _data(seed=16342, n=40)
+    tau = 0.23
+    weights = np.linspace(0.35, 1.9, X.shape[0], dtype=np.float64)
+
+    model = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": tau},
+        penalty="l2",
+        alpha_grid=None,
+        n_alphas=4,
+        cv=2,
+        solver="auto",
+        device="cpu",
+    )
+
+    grid = model._generate_alpha_grid(X, y, sample_weight=weights)
+
+    order = np.argsort(y, kind="stable")
+    y_sorted = y[order]
+    w_sorted = weights[order]
+    cutoff = tau * float(np.sum(w_sorted))
+    q_index = min(
+        int(np.searchsorted(np.cumsum(w_sorted), cutoff, side="left")),
+        len(y_sorted) - 1,
+    )
+    intercept = float(y_sorted[q_index])
+    residual = y - intercept
+    psi = np.where(residual >= 0.0, tau, -(1.0 - tau))
+    score = X.T @ (weights * psi) / float(np.sum(weights))
+    expected = float(np.max(np.abs(score)))
+
+    assert grid[0] == pytest.approx(expected, rel=0.0, abs=1e-14)
+    assert not np.isclose(
+        grid[0],
+        float(np.max(np.abs(X.T @ (weights * residual) / np.sum(weights)))),
+        rtol=1e-4,
+        atol=1e-8,
+    )
+
+
+def test_quantile_group_scad_auto_alpha_grid_uses_group_public_scale():
+    X, y, _ = _data(seed=16343, n=44)
+    tau = 0.31
+    groups = [[0], [1]]
+    model = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": tau},
+        penalty="group_scad",
+        penalty_kwargs={"groups": groups, "a": 3.7},
+        alpha_grid=None,
+        n_alphas=3,
+        cv=2,
+        solver="auto",
+        device="cpu",
+    )
+    # The group contract normally prepares this metadata at fit entry. Build
+    # the same resolved penalty state here so this focused grid test exercises
+    # the public alpha scaling without running candidate fits.
+    from statgpu.penalties import GroupSCADPenalty
+
+    model.penalty = GroupSCADPenalty(alpha=1.0, groups=groups, a=3.7)
+    model._penalty_kwargs = {"groups": groups, "a": 3.7}
+
+    grid = model._generate_alpha_grid(X, y)
+
+    intercept = float(np.quantile(y, tau))
+    residual = y - intercept
+    psi = np.where(residual >= 0.0, tau, -(1.0 - tau))
+    score = X.T @ psi / float(X.shape[0])
+    expected = max(
+        float(np.linalg.norm(score[np.asarray(group)])) / np.sqrt(len(group))
+        for group in groups
+    )
+    assert grid[0] == pytest.approx(expected, rel=0.0, abs=1e-14)
+
+
 def test_quantile_cv_public_fold_count_replacement_is_authoritative():
     X, y, _ = _data(seed=16326, n=72)
     cv = PenalizedGLM_CV(

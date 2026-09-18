@@ -327,6 +327,74 @@ def _finite_column_mean(scores):
     return means
 
 
+def _weighted_lower_quantile_numpy(y, sample_weight, tau):
+    """Deterministic lower weighted empirical quantile for Quantile CV grids."""
+    order = np.argsort(y, kind="stable")
+    y_sorted = np.asarray(y, dtype=np.float64)[order]
+    w_sorted = np.asarray(sample_weight, dtype=np.float64)[order]
+    cumulative = np.cumsum(w_sorted)
+    cutoff = float(tau) * float(np.sum(w_sorted))
+    index = int(np.searchsorted(cumulative, cutoff, side="left"))
+    index = min(index, y_sorted.size - 1)
+    return float(y_sorted[index])
+
+
+def _quantile_zero_score(X, y, tau, sample_weight=None):
+    """Return the objective-aligned slope score at the intercept-only model."""
+    X = np.asarray(X, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64).reshape(-1)
+    n = int(X.shape[0])
+
+    if sample_weight is None:
+        intercept = float(np.quantile(y, tau))
+        residual = y - intercept
+        psi = np.where(residual >= 0.0, tau, -(1.0 - tau))
+        return X.T @ psi / float(n)
+
+    weights = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
+    total = float(np.sum(weights))
+    # Exactly equal weights define the unweighted objective up to scale.
+    if bool(np.all(weights == weights[0])):
+        intercept = float(np.quantile(y, tau))
+    else:
+        intercept = _weighted_lower_quantile_numpy(y, weights, tau)
+    residual = y - intercept
+    psi = np.where(residual >= 0.0, tau, -(1.0 - tau))
+    return X.T @ (weights * psi) / total
+
+
+def _group_alpha_max_from_score(score, penalty, penalty_kwargs):
+    """Map a zero-model slope score to the public group-penalty alpha scale."""
+    penalty_name = str(getattr(penalty, "name", penalty)).lower().strip()
+    if penalty_name not in {
+        "group_lasso", "gl", "group_scad", "gscad", "group_mcp", "gmcp"
+    }:
+        return float(np.max(np.abs(score)))
+
+    penalty_obj = penalty if getattr(penalty, "_group_indices", None) is not None else None
+    if penalty_obj is None:
+        from statgpu.penalties import get_penalty
+
+        kwargs = dict(penalty_kwargs or {})
+        kwargs["alpha"] = 1.0
+        penalty_obj = get_penalty(penalty_name, **kwargs)
+
+    groups = getattr(penalty_obj, "_group_indices", None)
+    if not groups:
+        raise ValueError("group penalty requires non-empty groups for alpha-grid generation")
+
+    thresholds = []
+    score = np.asarray(score, dtype=np.float64).reshape(-1)
+    for group in groups:
+        idx = np.asarray(group, dtype=np.int64).reshape(-1)
+        if idx.size == 0:
+            continue
+        thresholds.append(
+            float(np.linalg.norm(score[idx])) / float(np.sqrt(idx.size))
+        )
+    return max(thresholds, default=0.0)
+
+
 def _coerce_scalar_alpha_grid_values(alpha_grid):
     """Return float64 grid values without hiding malformed element types."""
     if isinstance(alpha_grid, (list, tuple)):
@@ -2401,7 +2469,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
             if normalization <= 0.0:
                 raise ValueError("sample_weight must have a positive sum")
 
-        if self.loss == 'squared_error':
+        loss_name = str(self.loss).lower().strip()
+        if loss_name == 'squared_error':
             if sw_np is None:
                 x_mean = np.mean(X_np, axis=0)
                 y_mean = float(np.mean(y_np))
@@ -2411,7 +2480,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 y_mean = float(np.sum(y_np * sw_np) / normalization)
                 grad = (X_np - x_mean).T @ (sw_np * (y_np - y_mean)) / normalization
             alpha_max = float(np.max(np.abs(grad)))
-        elif self.loss == 'logistic':
+        elif loss_name == 'logistic':
             if sw_np is None:
                 mu_null = float(np.mean(y_np))
                 grad = X_np.T @ (y_np - mu_null) / normalization
@@ -2419,6 +2488,25 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 mu_null = float(np.sum(y_np * sw_np) / normalization)
                 grad = X_np.T @ (sw_np * (y_np - mu_null)) / normalization
             alpha_max = float(np.max(np.abs(grad)))
+        elif loss_name == "quantile":
+            from statgpu.linear_model.penalized._fit_mixin import _resolve_loss_name
+
+            loss_fn = _resolve_loss_name(
+                "quantile",
+                loss_kwargs=getattr(self, "_loss_kwargs", None),
+            )
+            tau = float(getattr(loss_fn, "_tau", getattr(loss_fn, "quantile", 0.5)))
+            score = _quantile_zero_score(
+                X_np,
+                y_np,
+                tau,
+                sample_weight=sw_np,
+            )
+            alpha_max = _group_alpha_max_from_score(
+                score,
+                self.penalty,
+                getattr(self, "_penalty_kwargs", None),
+            )
         else:
             try:
                 model = PenalizedGeneralizedLinearModel(
