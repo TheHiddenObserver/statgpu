@@ -558,6 +558,66 @@ def test_quantile_cv_public_two_stage_controls_are_authoritative():
         ("refine_top_k", 0, "refine_top_k must be a positive integer"),
     ],
 )
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        (True, "l1_ratio must be a finite real number in \\[0, 1\\]"),
+        ("0.4", "l1_ratio must be a finite real number in \\[0, 1\\]"),
+        (np.nan, "l1_ratio must be a finite real number in \\[0, 1\\]"),
+        (-0.1, "l1_ratio must be a finite real number in \\[0, 1\\]"),
+        (1.1, "l1_ratio must be a finite real number in \\[0, 1\\]"),
+    ],
+)
+def test_quantile_elasticnet_public_l1_ratio_rejects_invalid_refit_before_grid(
+    monkeypatch, value, message
+):
+    X, y, _ = _data(seed=16353, n=48)
+    cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.3},
+        penalty="elasticnet",
+        l1_ratio=0.5,
+        alpha_grid=None,
+        n_alphas=3,
+        cv=2,
+        solver="auto",
+        device="cpu",
+    )
+    cv.l1_ratio = value
+
+    def forbidden_grid(*args, **kwargs):
+        raise AssertionError("invalid l1_ratio must fail before grid work")
+
+    monkeypatch.setattr(cv, "_generate_alpha_grid", forbidden_grid)
+    with pytest.raises(ValueError, match=message):
+        cv.fit(X, y)
+
+    assert cv._fitted is False
+    assert cv.alpha_ is None
+    assert cv.estimator_ is None
+
+
+def test_quantile_elasticnet_public_l1_ratio_replacement_is_authoritative():
+    X, y, _ = _data(seed=16354, n=56)
+    cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.3},
+        penalty="elasticnet",
+        l1_ratio=0.8,
+        alpha_grid=np.asarray([0.04], dtype=np.float64),
+        cv=2,
+        solver="auto",
+        device="cpu",
+        max_iter=300,
+        tol=1e-7,
+    )
+    cv.l1_ratio = 0.25
+    cv.fit(X, y)
+
+    assert cv.l1_ratio == pytest.approx(0.25)
+    assert cv.estimator_._penalty.l1_ratio == pytest.approx(0.25)
+
+
 def test_quantile_cv_public_search_controls_reject_coercion(name, value, message):
     X, y, _ = _data(seed=16329, n=48)
     cv = PenalizedGLM_CV(

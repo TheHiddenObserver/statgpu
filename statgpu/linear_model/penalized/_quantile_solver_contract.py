@@ -195,6 +195,26 @@ def _sync_public_quantile_fit_controls(owner, *, cv: bool) -> None:
 
         owner._n_alphas = _positive_integer(owner.n_alphas, "n_alphas")
 
+        penalty_name = _penalty_name(getattr(owner, "penalty", ""))
+        if (
+            isinstance(getattr(owner, "penalty", None), str)
+            and penalty_name in ("elasticnet", "en")
+        ):
+            l1_ratio = getattr(owner, "l1_ratio", 0.5)
+            if (
+                isinstance(l1_ratio, (bool, np.bool_))
+                or not isinstance(l1_ratio, Real)
+            ):
+                raise ValueError(
+                    "l1_ratio must be a finite real number in [0, 1]"
+                )
+            l1_ratio = float(l1_ratio)
+            if not np.isfinite(l1_ratio) or not (0.0 <= l1_ratio <= 1.0):
+                raise ValueError(
+                    "l1_ratio must be a finite real number in [0, 1]"
+                )
+            owner.l1_ratio = l1_ratio
+
         strategy = getattr(owner, "cv_strategy", "strict")
         if not isinstance(strategy, str):
             raise ValueError("cv_strategy must be either 'strict' or 'two_stage'")
