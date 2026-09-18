@@ -1,10 +1,10 @@
 """
 Unified cross-validated penalized GLM estimator.
 
-Supports scalar-response GLM losses (squared_error, logistic, poisson, gamma,
-inverse_gaussian, negative_binomial, tweedie) plus a separate survival-aware
-``cox_ph`` path with its supported penalty types
-(l1, l2, elasticnet, scad, mcp).
+Supports scalar-response losses including squared_error, logistic, poisson,
+gamma, inverse_gaussian, negative_binomial, tweedie, quantile, and the
+maintained robust-loss families, plus a separate survival-aware ``cox_ph``
+path with its supported penalty types (l1, l2, elasticnet, scad, mcp).
 
 Optimizations:
 - Warm-start across alpha values (descending order)
