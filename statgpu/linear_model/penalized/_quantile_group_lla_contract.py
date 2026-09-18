@@ -63,8 +63,12 @@ def _public_solver_is_auto(owner) -> bool:
 
 
 def _use_auto_group_lla(owner, solver_name) -> bool:
+    lla_enabled = bool(
+        getattr(owner, "_lla_enabled", getattr(owner, "lla", True))
+    )
     return (
         _is_quantile_group_nonconvex(owner)
+        and lla_enabled
         and str(solver_name or "").lower().strip() == "fista"
         and (_public_solver_is_auto(owner) or _AUTO_CV_GROUP_LLA.get())
     )
