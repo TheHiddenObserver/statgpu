@@ -93,6 +93,114 @@ def test_quantile_cv_general_scores_use_requested_tau(weighted):
     assert contract._QUANTILE_CV_LEVEL.get() is None
 
 
+def test_quantile_cv_public_fold_count_replacement_is_authoritative():
+    X, y, _ = _data(seed=16326, n=72)
+    cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.3},
+        penalty="l2",
+        alpha_grid=np.asarray([0.03], dtype=np.float64),
+        cv=2,
+        solver="auto",
+        device="cpu",
+        max_iter=300,
+        tol=1e-8,
+    )
+    cv.cv = 3
+    cv.fit(X, y)
+
+    assert cv._cv == 3
+    assert np.asarray(cv.cv_results_["all_scores"]).shape[0] == 3
+
+
+def test_quantile_cv_public_n_alphas_replacement_controls_generated_grid():
+    X, y, _ = _data(seed=16327, n=72)
+    cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.3},
+        penalty="l2",
+        alpha_grid=None,
+        n_alphas=5,
+        cv=2,
+        solver="auto",
+        device="cpu",
+        max_iter=300,
+        tol=1e-8,
+    )
+    cv.n_alphas = 3
+    cv.fit(X, y)
+
+    assert cv._n_alphas == 3
+    assert len(cv.alpha_grid_) == 3
+
+
+def test_quantile_cv_public_two_stage_controls_are_authoritative():
+    X, y, folds = _data(seed=16328, n=72)
+    cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.3},
+        penalty="l2",
+        alpha_grid=np.asarray([0.04, 0.02], dtype=np.float64),
+        cv=2,
+        cv_splits=folds,
+        solver="auto",
+        device="cpu",
+        cv_strategy="strict",
+        acknowledge_approx=False,
+        refine_top_k=2,
+        max_iter=300,
+        tol=1e-8,
+    )
+    cv.cv_strategy = "two_stage"
+    cv.acknowledge_approx = True
+    cv.refine_top_k = 1
+    cv.fit(X, y)
+
+    assert cv._cv_strategy == "two_stage"
+    assert cv._acknowledge_approx is True
+    assert cv._refine_top_k == 1
+    assert cv.cv_strategy_ == "two_stage"
+    assert "all_scores_stage1" in cv.cv_results_
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "message"),
+    [
+        ("cv", True, "cv must be a positive integer"),
+        ("cv", 2.5, "cv must be a positive integer"),
+        ("cv", 1, "cv must be an integer greater than or equal to 2"),
+        ("n_alphas", True, "n_alphas must be a positive integer"),
+        ("n_alphas", "3", "n_alphas must be a positive integer"),
+        ("cv_strategy", 2, "cv_strategy must be either"),
+        ("cv_strategy", "fast", "cv_strategy must be either"),
+        ("acknowledge_approx", "False", "acknowledge_approx must be boolean"),
+        ("refine_top_k", True, "refine_top_k must be a positive integer"),
+        ("refine_top_k", 0, "refine_top_k must be a positive integer"),
+    ],
+)
+def test_quantile_cv_public_search_controls_reject_coercion(name, value, message):
+    X, y, _ = _data(seed=16329, n=48)
+    cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.3},
+        penalty="l2",
+        alpha_grid=np.asarray([0.03], dtype=np.float64),
+        cv=2,
+        solver="auto",
+        device="cpu",
+        max_iter=100,
+        tol=1e-6,
+    )
+    setattr(cv, name, value)
+
+    with pytest.raises(ValueError, match=message):
+        cv.fit(X, y)
+
+    assert cv._fitted is False
+    assert cv.estimator_ is None
+    assert cv.cv_results_ is None
+
+
 def test_quantile_cv_public_loss_kwargs_replacement_is_authoritative():
     X, y, folds = _data(seed=16324, n=72)
     cv = PenalizedGLM_CV(

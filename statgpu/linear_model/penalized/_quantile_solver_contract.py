@@ -165,6 +165,30 @@ def _sync_public_quantile_fit_controls(owner, *, cv: bool) -> None:
     owner._tol = _finite_positive(owner.tol, "tol")
 
     if cv:
+        cv_value = _positive_integer(owner.cv, "cv")
+        if cv_value < 2:
+            raise ValueError("cv must be an integer greater than or equal to 2")
+        owner._cv = cv_value
+
+        owner._n_alphas = _positive_integer(owner.n_alphas, "n_alphas")
+
+        strategy = getattr(owner, "cv_strategy", "strict")
+        if not isinstance(strategy, str):
+            raise ValueError("cv_strategy must be either 'strict' or 'two_stage'")
+        strategy = strategy.lower()
+        if strategy not in ("strict", "two_stage"):
+            raise ValueError("cv_strategy must be either 'strict' or 'two_stage'")
+        owner._cv_strategy = strategy
+
+        acknowledge = getattr(owner, "acknowledge_approx", False)
+        if not isinstance(acknowledge, (bool, np.bool_)):
+            raise ValueError("acknowledge_approx must be boolean")
+        owner._acknowledge_approx = bool(acknowledge)
+
+        owner._refine_top_k = _positive_integer(
+            owner.refine_top_k, "refine_top_k"
+        )
+
         owner._loss_kwargs = dict(
             getattr(owner, "loss_kwargs", None) or {}
         )
