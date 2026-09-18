@@ -8,6 +8,7 @@ import pytest
 from statgpu._config import Device
 from statgpu.linear_model import PenalizedGLM_CV
 from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
+from statgpu.penalties import SCADPenalty
 
 
 def _data(seed=16321, n=64):
@@ -311,6 +312,59 @@ def test_quantile_scad_fast_helper_is_fail_safe_to_general_path():
         ("scad", np.array([0.025], dtype=np.float64), "proximal_irls_cd"),
     ],
 )
+def test_quantile_scalar_scad_penalty_object_matches_string_cv_and_refit():
+    X, y, folds = _data(seed=16331, n=72)
+    weights = np.linspace(0.5, 1.7, X.shape[0], dtype=np.float64)
+    alpha_grid = np.asarray([0.04, 0.025], dtype=np.float64)
+
+    penalty_object = SCADPenalty(alpha=0.9, a=3.7)
+    object_cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.25},
+        penalty=penalty_object,
+        alpha_grid=alpha_grid,
+        cv=2,
+        cv_splits=folds,
+        solver="auto",
+        device="cpu",
+        max_iter=300,
+        tol=1e-6,
+    ).fit(X, y, sample_weight=weights)
+    string_cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.25},
+        penalty="scad",
+        penalty_kwargs={"a": 3.7},
+        alpha_grid=alpha_grid,
+        cv=2,
+        cv_splits=folds,
+        solver="auto",
+        device="cpu",
+        max_iter=300,
+        tol=1e-6,
+    ).fit(X, y, sample_weight=weights)
+
+    np.testing.assert_allclose(
+        object_cv.cv_results_["all_scores"],
+        string_cv.cv_results_["all_scores"],
+        rtol=2e-8,
+        atol=2e-10,
+    )
+    assert object_cv.alpha_ == pytest.approx(string_cv.alpha_)
+    np.testing.assert_allclose(
+        object_cv.coef_, string_cv.coef_, rtol=2e-8, atol=2e-10
+    )
+    assert object_cv.intercept_ == pytest.approx(
+        string_cv.intercept_, rel=2e-8, abs=2e-10
+    )
+
+    assert penalty_object.alpha == pytest.approx(0.9)
+    assert object_cv.penalty is penalty_object
+    assert object_cv.estimator_.penalty is not penalty_object
+    assert object_cv.estimator_.penalty.alpha == pytest.approx(object_cv.alpha_)
+    assert object_cv.estimator_._penalty.alpha == pytest.approx(object_cv.alpha_)
+
+
 def test_quantile_public_two_stage_falls_back_to_maintained_per_fold_path(
     penalty, alpha_grid, expected_solver
 ):

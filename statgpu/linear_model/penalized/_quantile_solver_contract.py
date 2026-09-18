@@ -15,6 +15,7 @@ path instead.
 
 from __future__ import annotations
 
+import copy
 from contextvars import ContextVar
 from functools import wraps
 from numbers import Integral, Real
@@ -41,6 +42,8 @@ _CV_SCORE_CONTEXT_MARKER = "_statgpu_quantile_cv_score_context_contract"
 _CV_EVAL_MARKER = "_statgpu_quantile_cv_eval_contract"
 _CV_SCAD_MARKER = "_statgpu_quantile_cv_scad_contract"
 _CV_FOLDBATCH_MARKER = "_statgpu_quantile_cv_foldbatch_contract"
+_RESOLVE_PENALTY_MARKER = "_statgpu_quantile_scalar_cv_penalty_object_contract"
+_SCALAR_CV_ALPHA_MARKER = "_statgpu_quantile_scalar_cv_alpha_from_estimator"
 _SMOOTH_PENALTIES = frozenset({"l2", "none", "null", ""})
 _NONCONVEX_QUANTILE_PENALTIES = frozenset({"scad", "mcp"})
 _GROUP_NONCONVEX_QUANTILE_PENALTIES = frozenset(
@@ -148,6 +151,25 @@ def _finite_positive(value, name: str) -> float:
     return value
 
 
+def _clone_scalar_nonconvex_penalty(penalty, *, alpha=None):
+    params = {}
+    get_params = getattr(penalty, "get_params", None)
+    if callable(get_params):
+        try:
+            params = dict(get_params(deep=False))
+        except TypeError:
+            params = dict(get_params())
+    if alpha is not None:
+        params["alpha"] = float(alpha)
+    try:
+        return type(penalty)(**params)
+    except Exception:
+        cloned = copy.deepcopy(penalty)
+        if alpha is not None:
+            cloned.alpha = float(alpha)
+        return cloned
+
+
 def _sync_public_quantile_fit_controls(owner, *, cv: bool) -> None:
     """Validate current public Quantile refit controls and sync runtime mirrors."""
     solver = getattr(owner, "solver", getattr(owner, "_solver", "auto"))
@@ -226,6 +248,41 @@ def _sync_public_quantile_fit_controls(owner, *, cv: bool) -> None:
         owner._lla_tol = _finite_positive(owner.lla_tol, "lla_tol")
 
 
+def _install_scalar_cv_penalty_object_contract() -> None:
+    current = PenalizedGeneralizedLinearModel._resolve_penalty
+    if getattr(current, _RESOLVE_PENALTY_MARKER, False):
+        return
+
+    @wraps(current)
+    def _resolve_penalty_with_scalar_quantile_cv_alpha(self):
+        penalty = current(self)
+        if (
+            _loss_name(getattr(self, "loss", "")) != "quantile"
+            or _penalty_name(penalty) not in _NONCONVEX_QUANTILE_PENALTIES
+            or not bool(getattr(penalty, _SCALAR_CV_ALPHA_MARKER, False))
+        ):
+            return penalty
+
+        resolved = _clone_scalar_nonconvex_penalty(
+            penalty,
+            alpha=float(self.alpha),
+        )
+        # Internal CV children own this clone, so their public penalty should
+        # report the same alpha as the numerical penalty that actually fits.
+        self.penalty = resolved
+        return resolved
+
+    setattr(
+        _resolve_penalty_with_scalar_quantile_cv_alpha,
+        _RESOLVE_PENALTY_MARKER,
+        True,
+    )
+    _resolve_penalty_with_scalar_quantile_cv_alpha._statgpu_original = current
+    PenalizedGeneralizedLinearModel._resolve_penalty = (
+        _resolve_penalty_with_scalar_quantile_cv_alpha
+    )
+
+
 def _install_public_solver_refit_sync() -> None:
     """Synchronize the public Quantile solver before validation/dispatch."""
 
@@ -259,13 +316,30 @@ def _install_public_solver_refit_sync() -> None:
 
         @wraps(current_cv_fit)
         def _cv_fit_with_current_public_solver(self, *args, **kwargs):
-            if _loss_name(getattr(self, "loss", "")) == "quantile":
-                try:
-                    _sync_public_quantile_fit_controls(self, cv=True)
-                except Exception:
-                    self._reset_cv_fit_state()
-                    raise
-            return current_cv_fit(self, *args, **kwargs)
+            if _loss_name(getattr(self, "loss", "")) != "quantile":
+                return current_cv_fit(self, *args, **kwargs)
+
+            try:
+                _sync_public_quantile_fit_controls(self, cv=True)
+            except Exception:
+                self._reset_cv_fit_state()
+                raise
+
+            original_penalty = self.penalty
+            penalty_name = _penalty_name(original_penalty)
+            use_scalar_object_clone = (
+                not isinstance(original_penalty, str)
+                and penalty_name in _NONCONVEX_QUANTILE_PENALTIES
+            )
+            if use_scalar_object_clone:
+                routed_penalty = _clone_scalar_nonconvex_penalty(original_penalty)
+                setattr(routed_penalty, _SCALAR_CV_ALPHA_MARKER, True)
+                self.penalty = routed_penalty
+            try:
+                return current_cv_fit(self, *args, **kwargs)
+            finally:
+                if use_scalar_object_clone:
+                    self.penalty = original_penalty
 
         setattr(
             _cv_fit_with_current_public_solver,
@@ -570,6 +644,7 @@ def _install_explicit_route_guard() -> None:
 
 def install_quantile_solver_contract() -> None:
     """Install Quantile solver/provenance/scoring reconciliation idempotently."""
+    _install_scalar_cv_penalty_object_contract()
     _install_public_solver_refit_sync()
     _install_policy_contract()
     _install_cv_fit_route_guard()
