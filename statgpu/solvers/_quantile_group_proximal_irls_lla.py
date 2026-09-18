@@ -148,16 +148,18 @@ def _flat_irls_boundary_converged(
     accepted and is not included in the public iteration count.  Its norm stays
     on the active backend; only the final scalar is synchronized.
     """
-    probe, _ = loss.irls(
-        X_work,
-        y_dev,
-        penalty=None,
-        max_iter=1,
-        tol=float(tol),
-        init_coef=params,
-        sample_weight=sample_weight,
-        fit_intercept=fit_intercept,
-    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ConvergenceWarning)
+        probe, _ = loss.irls(
+            X_work,
+            y_dev,
+            penalty=None,
+            max_iter=1,
+            tol=float(tol),
+            init_coef=params,
+            sample_weight=sample_weight,
+            fit_intercept=fit_intercept,
+        )
     delta_dev = xp.linalg.norm(probe - params)
     delta = float(_to_numpy(delta_dev))
     return bool(np.isfinite(delta) and delta < float(tol))
@@ -259,16 +261,18 @@ def quantile_group_proximal_irls_lla_solver(
                 # A flat surrogate owns the current target state. Any active
                 # IRLS exhaustion from an earlier LLA step is now historical.
                 active_irls_exhausted = False
-                params, used_iter = loss.irls(
-                    X_work,
-                    y_dev,
-                    penalty=None,
-                    max_iter=irls_limit,
-                    tol=flat_tol,
-                    init_coef=None,
-                    sample_weight=sw,
-                    fit_intercept=fit_intercept,
-                )
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", ConvergenceWarning)
+                    params, used_iter = loss.irls(
+                        X_work,
+                        y_dev,
+                        penalty=None,
+                        max_iter=irls_limit,
+                        tol=flat_tol,
+                        init_coef=None,
+                        sample_weight=sw,
+                        fit_intercept=fit_intercept,
+                    )
                 total_iter += int(used_iter)
 
                 at_budget_boundary = (

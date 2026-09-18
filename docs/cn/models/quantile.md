@@ -302,7 +302,7 @@ Quantile/check loss 本身非光滑，因此这里不应解释为满足经典光
 
 - `score()` 使用 check/pinball loss，并返回其相反数，以符合 sklearn“越大越好”的约定。
 - `sample_weight` 支持是**损失函数 × 求解器 × 估计器**路径能力，而不是所有求解器自动拥有的属性。
-- 对自动标量 SCAD/MCP 和自动 Group SCAD/MCP 交叉验证，如果某一折在目标 α 上未建立收敛，则该折不会计分；strict selection 只接受所有折都有有限得分的 α。选中 α 后的全数据最终重拟合沿用直接估计器的收敛报告语义：目标 IRLS/LLA 预算耗尽会发出 `ConvergenceWarning` 并返回最终迭代结果。
+- 对 strict 自动 L2/无惩罚 IRLS、自动标量 SCAD/MCP 和自动 Group SCAD/MCP 交叉验证，如果某一折在目标 α 上未建立收敛，则该折不会计分；strict selection 只接受所有折都有有限得分的 α。选中 α 后的全数据最终重拟合沿用直接估计器的收敛报告语义：目标 IRLS/LLA 预算耗尽会发出 `ConvergenceWarning` 并返回最终迭代结果。
 - Quantile 非凸 continuation 路径会拒绝停止控制的隐式类型转换。`max_iter` 必须是正整数，`tol` 必须是有限正实数；直接标量 SCAD/MCP 与自动 Group SCAD/MCP 还要求布尔型 `lla=True`、整数 `max_lla_iters` 和有限正数 `lla_tol`。当前自动 Quantile continuation 含 3 个 alpha step，因此 `max_lla_iters` 至少为 3，才能保证每一步至少执行一次 LLA 更新。中间 continuation step 使用缩减后的 IRLS 预算，但不会超过公开的 `max_iter`；目标 step 最多使用完整预算。显式 Group SCAD/MCP `solver="fista"` 不进入 LLA continuation，因此 `lla`、`max_lla_iters` 与 `lla_tol` 不控制这条显式算法。
 - 公开底层 `QuantileLoss.irls()` 与 `proximal_irls_quantile_solver()` 同样会拒绝非布尔 `fit_intercept` 和非法停止控制，而不会依赖 Python truth-value 或数值字符串的隐式转换。
 - 显式普通 L2/无惩罚 Quantile FISTA 受支持并保持权威；Group SCAD/MCP 的显式 FISTA 同样不会被改写成自动的分组 Proximal IRLS-LLA。

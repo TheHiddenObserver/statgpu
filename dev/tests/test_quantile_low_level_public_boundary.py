@@ -68,6 +68,41 @@ def test_direct_quantile_irls_rejects_invalid_stopping_controls(kwargs, message)
         loss.irls(X, y, **kwargs)
 
 
+def test_direct_quantile_irls_budget_exhaustion_warns():
+    X, y = _data(seed=16710)
+    loss = QuantileLoss(quantile=0.3)
+
+    with pytest.warns(ConvergenceWarning, match="Quantile IRLS reached max_iter=1"):
+        coef, n_iter = loss.irls(
+            X,
+            y,
+            max_iter=1,
+            tol=1e-14,
+        )
+
+    assert n_iter == 1
+    assert np.all(np.isfinite(np.asarray(coef)))
+
+
+def test_direct_quantile_irls_final_iteration_convergence_does_not_false_warn():
+    X = np.eye(3, dtype=np.float64)
+    y = np.zeros(3, dtype=np.float64)
+    loss = QuantileLoss(quantile=0.3)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        coef, n_iter = loss.irls(
+            X,
+            y,
+            max_iter=1,
+            tol=1e-12,
+        )
+
+    assert n_iter == 1
+    np.testing.assert_array_equal(np.asarray(coef), np.zeros(3))
+    assert not [w for w in caught if issubclass(w.category, ConvergenceWarning)]
+
+
 def test_direct_quantile_irls_validation_preserves_array_like_design_input():
     X, y = _data(seed=16704)
     loss = QuantileLoss(quantile=0.3)
