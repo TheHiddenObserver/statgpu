@@ -526,6 +526,23 @@ def test_nonconvex_quantile_auto_reports_dedicated_proximal_irls_cd():
     assert np.isfinite(model.intercept_)
 
 
+def test_explicit_scalar_scad_solver_error_precedes_irrelevant_lla_controls():
+    X, y = _data(seed=16337, n=48)
+    model = PenalizedQuantileRegression(
+        quantile=0.5,
+        penalty="scad",
+        alpha=0.02,
+        solver="fista",
+        device="cpu",
+        lla=False,
+        max_lla_iters=1,
+        lla_tol="unused-for-rejected-explicit-route",
+    )
+
+    with pytest.raises(ValueError, match="dedicated Proximal IRLS-CD"):
+        model.fit(X, y)
+
+
 @pytest.mark.parametrize("solver", ["fista", "fista_bb", "admm"])
 def test_explicit_solver_does_not_silently_replace_quantile_scad(
     monkeypatch, solver

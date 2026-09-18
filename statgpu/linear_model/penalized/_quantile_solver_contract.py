@@ -228,8 +228,17 @@ def _sync_public_quantile_fit_controls(owner, *, cv: bool) -> None:
 
     penalty_name = _penalty_name(getattr(owner, "penalty", ""))
     solver_name = str(getattr(owner, "_solver", "") or "").lower().strip()
-    uses_quantile_lla = (
+    scalar_internal_lla = (
         penalty_name in _NONCONVEX_QUANTILE_PENALTIES
+        and solver_name == _DEDICATED_NONCONVEX_SOLVER
+        and _INTERNAL_CV_RESOLVED_SOLVER.get()
+    )
+    uses_quantile_lla = (
+        (
+            penalty_name in _NONCONVEX_QUANTILE_PENALTIES
+            and solver_name == "auto"
+        )
+        or scalar_internal_lla
         or (
             penalty_name in _GROUP_NONCONVEX_QUANTILE_PENALTIES
             and solver_name == "auto"
