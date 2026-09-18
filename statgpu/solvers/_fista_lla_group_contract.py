@@ -32,6 +32,7 @@ import numpy as np
 
 from statgpu.penalties import AdaptiveGroupLassoPenalty
 from ._fista_lla import fista_lla_path as _base_fista_lla_path
+from ._utils import _validate_sample_weight
 
 
 _GROUP_NONCONVEX_NAMES = frozenset(
@@ -233,6 +234,8 @@ def fista_lla_path(
         max_iter = int(max_iter)
         if max_iter < 1:
             raise ValueError("max_iter must be a positive integer or sequence")
+
+    _validate_sample_weight(sample_weight, len(X))
 
     penalty_name = str(getattr(scad_penalty, "name", "") or "").lower().strip()
     if penalty_name not in _LLA_NONCONVEX_NAMES:

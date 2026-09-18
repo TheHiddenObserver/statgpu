@@ -109,16 +109,25 @@ def test_quantile_fista_lla_preserves_shared_sample_weight_validation(weights, m
     loss = QuantileLoss(0.35)
     penalty = SCADPenalty(alpha=0.04, a=3.7)
 
-    with pytest.raises(ValueError, match=message):
-        fista_lla_path(
-            loss,
-            penalty,
-            X,
-            y,
-            alpha_path=np.asarray([0.04], dtype=np.float64),
-            max_lla_per_step=1,
-            max_iter=20,
-            tol=1e-6,
-            fit_intercept=False,
-            sample_weight=weights,
-        )
+    def forbidden(*args, **kwargs):
+        raise AssertionError("invalid weights must fail before loss numerical work")
+
+    monkeypatch = pytest.MonkeyPatch()
+    try:
+        monkeypatch.setattr(loss, "preprocess", forbidden)
+        monkeypatch.setattr(loss, "lipschitz", forbidden)
+        with pytest.raises(ValueError, match=message):
+            fista_lla_path(
+                loss,
+                penalty,
+                X,
+                y,
+                alpha_path=np.asarray([0.04], dtype=np.float64),
+                max_lla_per_step=1,
+                max_iter=20,
+                tol=1e-6,
+                fit_intercept=False,
+                sample_weight=weights,
+            )
+    finally:
+        monkeypatch.undo()
