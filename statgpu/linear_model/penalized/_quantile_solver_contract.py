@@ -41,6 +41,12 @@ _CV_SCAD_MARKER = "_statgpu_quantile_cv_scad_contract"
 _CV_FOLDBATCH_MARKER = "_statgpu_quantile_cv_foldbatch_contract"
 _SMOOTH_PENALTIES = frozenset({"l2", "none", "null", ""})
 _NONCONVEX_QUANTILE_PENALTIES = frozenset({"scad", "mcp"})
+_GROUP_NONCONVEX_QUANTILE_PENALTIES = frozenset(
+    {"group_scad", "gscad", "group_mcp", "gmcp"}
+)
+_QUANTILE_LLA_PENALTIES = (
+    _NONCONVEX_QUANTILE_PENALTIES | _GROUP_NONCONVEX_QUANTILE_PENALTIES
+)
 _DEDICATED_NONCONVEX_SOLVER = "proximal_irls_cd"
 _INTERNAL_CV_RESOLVED_SOLVER = ContextVar(
     "statgpu_quantile_internal_cv_resolved_solver", default=False
@@ -153,7 +159,7 @@ def _sync_public_quantile_fit_controls(owner, *, cv: bool) -> None:
             raise ValueError("fit_intercept must be boolean")
         owner._fit_intercept = bool(fit_intercept)
 
-    if not cv and _penalty_name(getattr(owner, "penalty", "")) in _NONCONVEX_QUANTILE_PENALTIES:
+    if not cv and _penalty_name(getattr(owner, "penalty", "")) in _QUANTILE_LLA_PENALTIES:
         owner._max_lla_iters = _positive_integer(
             owner.max_lla_iters, "max_lla_iters"
         )

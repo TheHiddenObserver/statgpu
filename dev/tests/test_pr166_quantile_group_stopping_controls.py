@@ -20,6 +20,43 @@ def _data():
     return X, y, folds
 
 
+@pytest.mark.parametrize(
+    ("name", "value", "message"),
+    [
+        ("max_lla_iters", 2.5, "max_lla_iters must be a positive integer"),
+        ("max_lla_iters", "6", "max_lla_iters must be a positive integer"),
+        ("lla_tol", False, "lla_tol must be a finite positive number"),
+        ("lla_tol", "1e-6", "lla_tol must be a finite positive number"),
+    ],
+)
+def test_explicit_group_fista_rejects_coerced_lla_controls_before_numerics(
+    monkeypatch, name, value, message
+):
+    X, y, _ = _data()
+    model = PenalizedGeneralizedLinearModel(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.35},
+        penalty="group_scad",
+        penalty_kwargs={"groups": GROUPS, "a": 3.7},
+        alpha=0.04,
+        solver="fista",
+        device="cpu",
+        compute_inference=False,
+        max_iter=20,
+        tol=1e-6,
+        max_lla_iters=6,
+        lla_tol=1e-6,
+    )
+    setattr(model, name, value)
+
+    def forbidden_backend(*args, **kwargs):
+        raise AssertionError("backend numerical work must not start")
+
+    monkeypatch.setattr(model, "_get_backend", forbidden_backend)
+    with pytest.raises(ValueError, match=message):
+        model.fit(X, y)
+
+
 def test_direct_group_public_solver_replacement_from_fista_to_auto_uses_auto_route(
     monkeypatch,
 ):
