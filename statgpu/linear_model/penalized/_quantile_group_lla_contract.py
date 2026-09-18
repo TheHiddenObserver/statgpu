@@ -92,18 +92,20 @@ def _finite_positive(value, name: str) -> float:
 
 
 def _validate_direct_group_lla_controls(owner) -> None:
-    _positive_integer(getattr(owner, "_max_iter", owner.max_iter), "max_iter")
-    _positive_integer(
-        getattr(owner, "_max_lla_iters", owner.max_lla_iters),
-        "max_lla_iters",
+    # Direct public parameter replacement is part of the penalized refit API.
+    # Validate the current public values, then synchronize the normalized
+    # runtime fields consumed by continuation/solver code.
+    owner._max_iter = _positive_integer(owner.max_iter, "max_iter")
+    owner._max_lla_iters = _positive_integer(
+        owner.max_lla_iters, "max_lla_iters"
     )
-    _finite_positive(getattr(owner, "_tol", owner.tol), "tol")
-    _finite_positive(getattr(owner, "_lla_tol", owner.lla_tol), "lla_tol")
+    owner._tol = _finite_positive(owner.tol, "tol")
+    owner._lla_tol = _finite_positive(owner.lla_tol, "lla_tol")
 
 
 def _validate_cv_group_lla_controls(owner) -> None:
-    _positive_integer(getattr(owner, "_max_iter", owner.max_iter), "max_iter")
-    _finite_positive(getattr(owner, "_tol", owner.tol), "tol")
+    owner._max_iter = _positive_integer(owner.max_iter, "max_iter")
+    owner._tol = _finite_positive(owner.tol, "tol")
 
 
 def _install_cv_auto_context() -> None:
