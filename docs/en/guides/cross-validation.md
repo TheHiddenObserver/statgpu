@@ -129,7 +129,7 @@ Specialized estimators such as `RidgeCV`, `LassoCV`, and `ElasticNetCV` expose `
 
 When a grid is omitted, the estimator constructs a data-dependent grid appropriate to its model. A user-supplied grid is treated as the requested candidate set after the estimator's public validation rules are applied.
 
-For Quantile rows in `PenalizedGLM_CV`, the automatic grid uses the intercept-only check-loss score at the requested quantile rather than a squared-residual surrogate. Analytic `sample_weight` enters the same normalized pinball subgradient. For Group SCAD/MCP, the feature score is mapped to the public group-penalty scale through `max_g ||score_g||_2 / sqrt(p_g)`, matching the penalty's `alpha * sqrt(p_g)` local threshold.
+For Quantile rows in `PenalizedGLM_CV`, the automatic grid uses the intercept-only check-loss score at the requested quantile rather than a squared-residual surrogate. Analytic `sample_weight` enters the same normalized pinball subgradient. For Group SCAD/MCP, the feature score is mapped to the public group-penalty scale through `max_g ||score_g||_2 / sqrt(p_g)`, matching the penalty's `alpha * sqrt(p_g)` local threshold. With fixed positive Adaptive L1 weights, the same score is divided coordinatewise by the effective adaptive weights before taking the maximum; fixed positive Adaptive Group Lasso weights analogously use `max_g ||score_g||_2 / (w_g sqrt(p_g))`. When adaptive weights are not yet fixed and will be learned from an initialization fit, the generated grid remains a pre-initialization heuristic rather than an exact all-zero KKT threshold.
 
 ```python
 import numpy as np
