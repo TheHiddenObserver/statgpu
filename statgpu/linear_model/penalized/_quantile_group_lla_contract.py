@@ -136,8 +136,13 @@ def _install_cv_auto_context() -> None:
         if _is_auto_quantile_group_cv(self):
             # Synchronize public refit-time controls before _fit_standard()
             # derives two-stage screening budgets from the private runtime
-            # fields. Later score/refit validation remains defense-in-depth.
-            _validate_cv_group_lla_controls(self)
+            # fields. If pre-validation fails, clear any prior successful CV
+            # result because this wrapper sits outside the group transaction.
+            try:
+                _validate_cv_group_lla_controls(self)
+            except Exception:
+                self._reset_cv_fit_state()
+                raise
         return current_fit(self, *args, **kwargs)
 
     @wraps(current_fold)
