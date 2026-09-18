@@ -22,13 +22,6 @@ References:
 - Hunter & Li (2005): MM algorithms for nonconvex penalized estimation
 """
 
-__all__ = ["proximal_irls_quantile_solver"]
-
-_STRICT_CV_TARGET = ContextVar(
-    "statgpu_quantile_scalar_strict_cv_target",
-    default=False,
-)
-
 import copy
 from contextvars import ContextVar
 import inspect
@@ -37,6 +30,13 @@ import warnings
 import numpy as np
 
 from ._convergence import ConvergenceWarning
+
+__all__ = ["proximal_irls_quantile_solver"]
+
+_STRICT_CV_TARGET = ContextVar(
+    "statgpu_quantile_scalar_strict_cv_target",
+    default=False,
+)
 
 from statgpu.backends import _resolve_backend, _to_numpy
 
