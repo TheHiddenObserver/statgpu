@@ -129,6 +129,8 @@ Cox CV 还需要满足事件信息和风险集相关的要求。对于 `Penalize
 
 没有显式提供网格时，估计器会根据数据与模型构造相应的候选网格。用户提供的网格通过该估计器的公开输入验证后，就作为本次请求的候选集合。
 
+对于 `PenalizedGLM_CV` 的 Quantile 路径，自动网格使用所请求分位数下 intercept-only check-loss 的次梯度 score，而不是平方残差代理；解析 `sample_weight` 进入同一个归一化 pinball score。Group SCAD/MCP 再通过 `max_g ||score_g||_2 / sqrt(p_g)` 映射到公开 group penalty 的 alpha 尺度，与其 `alpha * sqrt(p_g)` 局部阈值保持一致。
+
 ```python
 import numpy as np
 from statgpu.linear_model import RidgeCV
