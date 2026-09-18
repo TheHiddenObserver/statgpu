@@ -217,7 +217,11 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
 
         For quantile=0.5, this is negative mean absolute error / 2.
         """
-        y = np.asarray(y)
+        # Scoring is a reporting boundary: predictions already return to CPU,
+        # so accept backend-native response containers through the same explicit
+        # small/reporting conversion instead of relying on NumPy implicit
+        # conversion (which CuPy and Torch CUDA intentionally reject).
+        y = np.asarray(_to_numpy(y))
         if sample_weight is not None:
             from statgpu.glm_core._validation import validate_glm_sample_weight
 

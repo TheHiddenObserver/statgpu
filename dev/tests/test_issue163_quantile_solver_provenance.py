@@ -13,6 +13,19 @@ from statgpu.linear_model.penalized import (
     PenalizedGeneralizedLinearModel,
     PenalizedQuantileRegression,
 )
+from statgpu.linear_model.penalized import _penalized_quantile as _typed_quantile_mod
+from statgpu.linear_model.penalized import _predict_mixin as _predict_mixin_mod
+
+
+class _NoImplicitNumpyArray:
+    """Backend-like response container that forbids NumPy implicit conversion."""
+
+    def __init__(self, values):
+        self.values = np.asarray(values, dtype=np.float64)
+        self.shape = self.values.shape
+
+    def __array__(self, *args, **kwargs):
+        raise TypeError("implicit host conversion is forbidden")
 
 
 def _data(seed=16301, n=96, p=2):
@@ -341,6 +354,53 @@ def test_invalid_quantile_cv_refit_control_clears_prior_selection_state():
     assert cv.coef_ is None
     assert cv.intercept_ is None
     assert cv.cv_results_ is None
+
+
+@pytest.mark.parametrize(
+    ("factory", "module"),
+    [
+        (
+            lambda: PenalizedQuantileRegression(
+                quantile=0.3,
+                penalty="l2",
+                alpha=0.02,
+                solver="irls",
+                device="cpu",
+            ),
+            _typed_quantile_mod,
+        ),
+        (
+            lambda: PenalizedGeneralizedLinearModel(
+                loss="quantile",
+                loss_kwargs={"quantile": 0.3},
+                penalty="l2",
+                alpha=0.02,
+                solver="auto",
+                device="cpu",
+            ),
+            _predict_mixin_mod,
+        ),
+    ],
+)
+def test_quantile_score_uses_explicit_reporting_conversion_for_backend_y(
+    monkeypatch, factory, module
+):
+    X, y = _data(seed=16361, n=24)
+    backend_y = _NoImplicitNumpyArray(y)
+    model = factory()
+    model.predict = lambda X_arg, return_cpu=True: np.zeros_like(y)
+
+    original_to_numpy = module._to_numpy
+
+    def reporting_to_numpy(value):
+        if value is backend_y:
+            return backend_y.values
+        return original_to_numpy(value)
+
+    monkeypatch.setattr(module, "_to_numpy", reporting_to_numpy)
+
+    score = model.score(X, backend_y)
+    assert np.isfinite(score)
 
 
 def test_generic_quantile_score_rejects_invalid_weights_before_prediction(monkeypatch):

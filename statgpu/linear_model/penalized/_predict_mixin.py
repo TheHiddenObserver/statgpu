@@ -172,11 +172,15 @@ class _PenalizedPredictMixin:
         score : float
             R² or pseudo-R² score.
         """
-        y = np.asarray(y)
-        if (
+        is_quantile = (
             str(getattr(self, "loss", "")).lower().strip() == "quantile"
-            and sample_weight is not None
-        ):
+        )
+        # Quantile GPU fits accept backend-native response arrays. Its public
+        # score is reported on CPU, so use the explicit reporting conversion
+        # rather than NumPy's implicit array protocol. Leave all other loss
+        # families on their historical score conversion path.
+        y = np.asarray(_to_numpy(y) if is_quantile else y)
+        if is_quantile and sample_weight is not None:
             from statgpu.glm_core._validation import validate_glm_sample_weight
 
             sample_weight = validate_glm_sample_weight(
