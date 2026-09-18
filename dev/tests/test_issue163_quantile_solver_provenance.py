@@ -37,30 +37,6 @@ def _data(seed=16301, n=96, p=2):
 
 
 @pytest.mark.parametrize(
-    "factory",
-    [
-        lambda: PenalizedGeneralizedLinearModel(
-            loss="quantile",
-            loss_kwargs={"quantile": 0.5},
-            penalty="l2",
-            alpha=0.03,
-            solver="auto",
-            device="cpu",
-            max_iter=300,
-            tol=1e-8,
-        ),
-        lambda: PenalizedQuantileRegression(
-            quantile=0.5,
-            penalty="l2",
-            alpha=0.03,
-            solver="auto",
-            device="cpu",
-            max_iter=300,
-            tol=1e-8,
-        ),
-    ],
-)
-@pytest.mark.parametrize(
     ("penalty", "penalty_kwargs"),
     [
         ("l1", None),
@@ -111,6 +87,30 @@ def test_quantile_fit_single_column_response_matches_one_dimensional_response():
     )
 
 
+@pytest.mark.parametrize(
+    "factory",
+    [
+        lambda: PenalizedGeneralizedLinearModel(
+            loss="quantile",
+            loss_kwargs={"quantile": 0.5},
+            penalty="l2",
+            alpha=0.03,
+            solver="auto",
+            device="cpu",
+            max_iter=300,
+            tol=1e-8,
+        ),
+        lambda: PenalizedQuantileRegression(
+            quantile=0.5,
+            penalty="l2",
+            alpha=0.03,
+            solver="auto",
+            device="cpu",
+            max_iter=300,
+            tol=1e-8,
+        ),
+    ],
+)
 def test_l2_quantile_auto_reports_and_executes_irls(factory):
     X, y = _data()
     model = factory().fit(X, y)
