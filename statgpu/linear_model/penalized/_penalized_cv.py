@@ -383,16 +383,14 @@ def _group_alpha_max_from_score(score, penalty, penalty_kwargs):
     if not groups:
         raise ValueError("group penalty requires non-empty groups for alpha-grid generation")
 
-    thresholds = []
-    score = np.asarray(score, dtype=np.float64).reshape(-1)
-    for group in groups:
-        idx = np.asarray(group, dtype=np.int64).reshape(-1)
-        if idx.size == 0:
-            continue
-        thresholds.append(
-            float(np.linalg.norm(score[idx])) / float(np.sqrt(idx.size))
-        )
-    return max(thresholds, default=0.0)
+    from statgpu.solvers._quantile_continuation import (
+        quantile_penalty_alpha_start,
+    )
+
+    return quantile_penalty_alpha_start(
+        np.asarray(score, dtype=np.float64).reshape(-1),
+        penalty_obj,
+    )
 
 
 def _coerce_scalar_alpha_grid_values(alpha_grid):

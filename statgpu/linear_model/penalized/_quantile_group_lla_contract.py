@@ -246,6 +246,7 @@ def _install_quantile_group_lla_route() -> None:
             alpha_path,
             sample_weight=sample_weight,
             fit_intercept=self._effective_intercept,
+            penalty=self._penalty,
         )
 
         from statgpu.solvers._quantile_group_proximal_irls_lla import (

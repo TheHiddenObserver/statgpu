@@ -60,6 +60,34 @@ def _weighted_lower_quantile_backend(y, sample_weight, tau: float, xp):
     return y_sorted[index_value]
 
 
+def quantile_penalty_alpha_start(score, penalty=None) -> float:
+    """Map a Quantile slope score to the public penalty alpha scale."""
+    xp = _get_xp(score)
+    size = int(score.numel()) if hasattr(score, "numel") else int(score.size)
+    if size == 0:
+        return 0.0
+
+    penalty_name = str(getattr(penalty, "name", "") or "").lower().strip()
+    group_names = {
+        "group_lasso", "gl", "group_scad", "gscad", "group_mcp", "gmcp"
+    }
+    groups = getattr(penalty, "_group_indices", None)
+    if penalty_name in group_names and groups:
+        thresholds = []
+        for group in groups:
+            idx = np.asarray(group, dtype=np.int64).reshape(-1)
+            if idx.size == 0:
+                continue
+            group_score = score[idx.tolist()]
+            thresholds.append(
+                _scalar_float(xp.linalg.norm(group_score))
+                / float(np.sqrt(idx.size))
+            )
+        return max(thresholds, default=0.0)
+
+    return _scalar_float(xp.max(xp.abs(score)))
+
+
 def _continuation_path_from_start(lambda_start, target_alpha, n_cont):
     lambda_start = float(lambda_start)
     target_alpha = float(target_alpha)
@@ -82,6 +110,7 @@ def resolve_auto_quantile_continuation_path(
     *,
     sample_weight=None,
     fit_intercept=True,
+    penalty=None,
 ):
     """Align an estimator-generated Quantile continuation start with its objective.
 
@@ -144,21 +173,28 @@ def resolve_auto_quantile_continuation_path(
         # observation-weight difference belongs in the weighted objective.
         nonuniform_weight = not _scalar_bool(xp.all(weights_dev == weights_dev[0]))
 
-    # Preserve the exact historical path when the objective is effectively
-    # unweighted and an intercept is fitted. This avoids changing ordinary
-    # unweighted/constant-weight fits solely because weighted quantiles need a
-    # deterministic empirical-CDF convention.
-    if bool(fit_intercept) and not nonuniform_weight:
+    penalty_name = str(getattr(penalty, "name", "") or "").lower().strip()
+    group_scaled = penalty_name in {
+        "group_lasso", "gl", "group_scad", "gscad", "group_mcp", "gmcp"
+    }
+
+    # Preserve the exact historical scalar path when the objective is
+    # effectively unweighted and an intercept is fitted. Group penalties use
+    # a different public alpha scale and therefore must recompute their start.
+    if bool(fit_intercept) and not nonuniform_weight and not group_scaled:
         return alpha_path
 
     tau = float(getattr(loss, "_tau", getattr(loss, "quantile", 0.5)))
     if bool(fit_intercept):
-        intercept = _weighted_lower_quantile_backend(
-            y_dev,
-            weights_dev,
-            tau,
-            xp,
-        )
+        if nonuniform_weight:
+            intercept = _weighted_lower_quantile_backend(
+                y_dev,
+                weights_dev,
+                tau,
+                xp,
+            )
+        else:
+            intercept = xp.quantile(y_dev, tau)
     else:
         intercept = 0.0
 
@@ -166,14 +202,13 @@ def resolve_auto_quantile_continuation_path(
     pos = xp.full_like(residual, tau, dtype=float64)
     neg = xp.full_like(residual, -(1.0 - tau), dtype=float64)
     psi = xp.where(residual >= 0.0, pos, neg)
-    if weights_dev is None:
+    if weights_dev is None or not nonuniform_weight:
         score = X_dev.T @ psi / float(n)
     else:
         total_weight = xp.sum(weights_dev)
         score = X_dev.T @ (weights_dev * psi) / total_weight
 
-    score_size = int(score.numel()) if hasattr(score, "numel") else int(score.size)
-    lambda_start = _scalar_float(xp.max(xp.abs(score))) if score_size else 0.0
+    lambda_start = quantile_penalty_alpha_start(score, penalty)
     return _continuation_path_from_start(
         lambda_start,
         float(path_values[-1]),
@@ -185,4 +220,5 @@ __all__ = [
     "mark_auto_quantile_continuation_path",
     "is_auto_quantile_continuation_path",
     "resolve_auto_quantile_continuation_path",
+    "quantile_penalty_alpha_start",
 ]

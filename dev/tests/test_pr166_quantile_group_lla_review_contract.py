@@ -54,7 +54,12 @@ def _manual_weighted_path(X, y, weights, target_alpha, n_cont=3):
     intercept = float(y_sorted[min(idx, y_sorted.size - 1)])
     residual = y - intercept
     psi = np.where(residual >= 0.0, Q, -(1.0 - Q))
-    lam = float(np.max(np.abs(X.T @ (weights * psi) / float(np.sum(weights)))))
+    score = X.T @ (weights * psi) / float(np.sum(weights))
+    lam = max(
+        float(np.linalg.norm(score[np.asarray(group, dtype=int)]))
+        / np.sqrt(len(group))
+        for group in GROUPS
+    )
     return np.geomspace(max(lam, target_alpha * 1.1), target_alpha, n_cont)
 
 
@@ -140,6 +145,50 @@ def test_quantile_group_nonconvex_auto_uses_group_proximal_irls_lla(monkeypatch,
         _manual_weighted_path(X, y, weights, target),
         rtol=0.0,
         atol=1e-15,
+    )
+
+
+@pytest.mark.parametrize("kind", ["group_scad", "group_mcp"])
+def test_quantile_group_unweighted_continuation_uses_group_alpha_scale(
+    monkeypatch, kind
+):
+    X, y, _ = _data(seed=166312)
+    captured = {}
+
+    def fake_solver(loss, penalty, X_fit, y_fit, alpha_path, **kwargs):
+        captured["alpha_path"] = np.asarray(alpha_path, dtype=np.float64).copy()
+        return np.zeros(X_fit.shape[1], dtype=np.float64), 0.0, 1
+
+    monkeypatch.setattr(
+        group_solver, "quantile_group_proximal_irls_lla_solver", fake_solver
+    )
+
+    target = 0.04
+    PenalizedGeneralizedLinearModel(
+        loss="quantile",
+        loss_kwargs={"quantile": Q},
+        penalty=kind,
+        penalty_kwargs=_penalty_kwargs(kind),
+        alpha=target,
+        solver="auto",
+        device="cpu",
+        fit_intercept=True,
+        max_iter=80,
+        tol=1e-7,
+    ).fit(X, y)
+
+    intercept = float(np.quantile(y, Q))
+    residual = y - intercept
+    psi = np.where(residual >= 0.0, Q, -(1.0 - Q))
+    score = X.T @ psi / float(X.shape[0])
+    lam = max(
+        float(np.linalg.norm(score[np.asarray(group, dtype=int)]))
+        / np.sqrt(len(group))
+        for group in GROUPS
+    )
+    expected = np.geomspace(max(lam, target * 1.1), target, 3)
+    np.testing.assert_allclose(
+        captured["alpha_path"], expected, rtol=0.0, atol=1e-15
     )
 
 
