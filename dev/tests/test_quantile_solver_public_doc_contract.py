@@ -115,6 +115,7 @@ def test_guarded_public_solver_docstrings_expose_quantile_boundary():
 
 def test_penalized_glm_runtime_help_lists_public_admm_solver():
     doc = inspect.getdoc(PenalizedGeneralizedLinearModel) or ""
+    assert "'quantile'" in doc
     assert "'admm'" in doc
     assert "Support depends on the loss and penalty" in doc
     assert "unsupported explicit combinations raise an error" in doc

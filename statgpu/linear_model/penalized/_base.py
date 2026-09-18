@@ -146,8 +146,10 @@ class PenalizedGeneralizedLinearModel(
     Parameters
     ----------
     loss : str, default='squared_error'
-        Loss function: 'squared_error', 'logistic', 'poisson', 'gamma',
-        'negative_binomial', 'tweedie', 'inverse_gaussian'.
+        Loss function, including 'squared_error', 'logistic', 'poisson',
+        'gamma', 'negative_binomial', 'tweedie', 'inverse_gaussian', and
+        'quantile'. Solver and inference support remain combination-specific;
+        consult the compatibility matrix for the selected loss and penalty.
     penalty : str or Penalty
         Penalty type: 'l1', 'l2', 'elasticnet', 'scad', 'mcp', 'adaptive_l1',
         'group_lasso', 'group_scad', 'group_mcp', or a Penalty instance.
