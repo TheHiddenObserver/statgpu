@@ -118,6 +118,8 @@ For weighted support across other losses and solver families, see the [Solver ×
 
 ### Standalone model with inference
 
+Standalone kernel/bootstrap inference is defined only for omitted or uniform `sample_weight`; genuinely non-uniform analytic weights are estimation-only on this class and raise when `compute_inference=True`. Bootstrap inference also requires `n_bootstrap >= 2`.
+
 ```python
 from statgpu.linear_model import QuantileRegression
 

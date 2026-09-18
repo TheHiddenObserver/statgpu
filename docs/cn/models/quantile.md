@@ -120,6 +120,8 @@ $$
 
 ### 独立模型（含统计推断）
 
+独立 `QuantileRegression` 的 kernel/bootstrap 推断只支持未传权重或均匀 `sample_weight`；真正非均匀的解析权重在该类中仅支持估计，若同时设置 `compute_inference=True` 会明确报错。bootstrap 推断还要求 `n_bootstrap >= 2`。
+
 ```python
 from statgpu.linear_model import QuantileRegression
 

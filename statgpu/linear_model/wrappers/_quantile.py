@@ -48,6 +48,7 @@ class QuantileRegression(BaseEstimator):
         Bandwidth rule: 'hsheather' (Hall-Sheather), 'bofinger' (Bofinger),
         'chamberlain' (Chamberlain).  Only for inference_method='kernel'.
     n_bootstrap : int, default=200
+        Number of bootstrap resamples; bootstrap inference requires at least 2.
     gpu_memory_cleanup : bool, default=False
     """
 
@@ -155,6 +156,16 @@ class QuantileRegression(BaseEstimator):
                     f"Unknown inference_method='{self._inference_method}'. "
                     "Valid options: ['bootstrap', 'kernel']."
                 )
+            if self._inference_method == "bootstrap":
+                if (
+                    isinstance(self._n_bootstrap, (bool, np.bool_))
+                    or not isinstance(self._n_bootstrap, (int, np.integer))
+                    or int(self._n_bootstrap) < 2
+                ):
+                    raise ValueError(
+                        "n_bootstrap must be an integer greater than or equal to 2 "
+                        "for QuantileRegression bootstrap inference"
+                    )
             if sample_weight_native is not None and self._has_nonuniform_weight(
                 sample_weight_native
             ):

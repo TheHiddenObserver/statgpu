@@ -77,6 +77,26 @@ class TestQuantileRegression:
         assert model.coef_ is None
         assert model._inference_result is None
 
+    @pytest.mark.parametrize("n_bootstrap", [0, 1, True, 2.5])
+    def test_invalid_bootstrap_count_fails_before_solver(self, monkeypatch, n_bootstrap):
+        import statgpu.linear_model.wrappers._quantile as quantile_mod
+
+        model = QuantileRegression(
+            quantile=0.3,
+            compute_inference=True,
+            inference_method="bootstrap",
+            n_bootstrap=n_bootstrap,
+        )
+
+        def forbidden(*args, **kwargs):
+            raise AssertionError("invalid bootstrap count must fail before FISTA")
+
+        monkeypatch.setattr(quantile_mod, "fista_solver", forbidden)
+        with pytest.raises(ValueError, match="n_bootstrap must be an integer"):
+            model.fit(self.X, self.y)
+        assert model._fitted is False
+        assert model.coef_ is None
+
     def test_failed_inference_fit_clears_partial_state(self):
         model = QuantileRegression(
             quantile=0.4,
