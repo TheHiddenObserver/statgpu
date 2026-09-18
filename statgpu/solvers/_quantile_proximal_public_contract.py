@@ -210,9 +210,11 @@ def install_quantile_proximal_public_contract():
     old_path = "    alpha_path : array\n        Continuation path from lambda_max to target alpha."
     new_path = (
         "    alpha_path : array\n"
-        "        Continuation path from lambda_max to target alpha. Estimator-"
-        "generated paths use the declared analytic weights in the Quantile "
-        "continuation start; an explicitly supplied low-level path is preserved."
+        "        Non-empty one-dimensional continuation path of finite positive "
+        "values in non-increasing order from lambda_max/start to target alpha. "
+        "Estimator-generated paths use the declared analytic weights in the "
+        "Quantile continuation start; an explicitly supplied low-level path is "
+        "preserved subject to the same shape/value/order requirements."
     )
     if old_path in doc:
         doc = doc.replace(old_path, new_path)

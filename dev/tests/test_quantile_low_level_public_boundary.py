@@ -377,6 +377,8 @@ def test_public_proximal_quantile_wrapper_preserves_introspection_and_alias():
     assert inspect.signature(public) == inspect.signature(kernel)
     doc = " ".join((inspect.getdoc(public) or "").split())
     assert "None`` uses 100 iterations per step" in doc
+    assert "Non-empty one-dimensional continuation path" in doc
+    assert "finite positive values in non-increasing order" in doc
 
 
 def test_quantile_irls_validation_installer_is_idempotent_under_reload():
