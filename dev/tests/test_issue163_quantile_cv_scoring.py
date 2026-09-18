@@ -94,6 +94,48 @@ def test_quantile_cv_general_scores_use_requested_tau(weighted):
     assert contract._QUANTILE_CV_LEVEL.get() is None
 
 
+@pytest.mark.parametrize(
+    ("folds", "message"),
+    [
+        ([], "at least one fold"),
+        ([(np.array([], dtype=int), np.array([0, 1]))], "non-empty"),
+        ([(np.array([0, 1]), np.array([], dtype=int))], "non-empty"),
+        ([(np.array([0, 0, 1]), np.array([2, 3]))], "duplicates"),
+        ([(np.array([0, 1]), np.array([1, 2]))], "disjoint"),
+        ([(np.array([-1, 0]), np.array([1, 2]))], "out of bounds"),
+        ([(np.array([0, 1]), np.array([2, 99]))], "out of bounds"),
+        ([(np.array([0.5, 1.0]), np.array([2, 3]))], "integers"),
+        ([(np.array([True, False]), np.array([2, 3]))], "integers"),
+        ([(np.array(["0", "1"]), np.array([2, 3]))], "integers"),
+    ],
+)
+def test_quantile_cv_rejects_malformed_custom_folds_before_candidate_work(
+    monkeypatch, folds, message
+):
+    X, y, _ = _data(seed=16341, n=24)
+    model = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.35},
+        penalty="l2",
+        alpha_grid=np.asarray([0.03], dtype=np.float64),
+        cv=2,
+        cv_splits=folds,
+        solver="auto",
+        device="cpu",
+    )
+
+    def forbidden_device(*args, **kwargs):
+        raise AssertionError("CV numerical routing must not start")
+
+    monkeypatch.setattr(model, "_effective_cv_device", forbidden_device)
+    with pytest.raises(ValueError, match=message):
+        model.fit(X, y)
+
+    assert model._fitted is False
+    assert model.alpha_ is None
+    assert model.estimator_ is None
+
+
 def test_quantile_cv_reuses_one_shot_custom_splits_across_refits():
     X, y, _ = _data(seed=16338, n=60)
     idx = np.arange(X.shape[0])

@@ -37,6 +37,7 @@ from statgpu.backends._array_ops import (
 from statgpu.backends._utils import _to_float_scalar
 from statgpu.cross_validation._base import (
     CVEstimatorBase,
+    _coerce_cv_indices,
     _cuda_backend_available,
     kfold_indices,
 )
@@ -262,6 +263,42 @@ def _should_build_squared_error_cv_cache(loss_name, penalty_name, solver_name, d
     # The default GPU Ridge route is Newton and does not read _cv_cache.
     # Explicit exact Ridge and sparse squared-error paths do consume it.
     return not (penalty_name == "l2" and solver_name != "exact")
+
+
+def _validate_scalar_cv_folds(folds, n_samples):
+    """Validate custom scalar-response folds before any CV numerical work."""
+    folds = list(folds)
+    if not folds:
+        raise ValueError("cv_splits must contain at least one fold")
+
+    normalized = []
+    for fold_idx, pair in enumerate(folds):
+        if not isinstance(pair, (tuple, list)) or len(pair) != 2:
+            raise ValueError(
+                f"cv_splits fold {fold_idx} must be a (train, validation) pair"
+            )
+        train = _coerce_cv_indices(pair[0], fold_idx=fold_idx, name="train")
+        validation = _coerce_cv_indices(
+            pair[1], fold_idx=fold_idx, name="validation"
+        )
+        if train.size == 0 or validation.size == 0:
+            raise ValueError("CV train and validation folds must be non-empty")
+        if (
+            np.unique(train).size != train.size
+            or np.unique(validation).size != validation.size
+        ):
+            raise ValueError("CV fold indices must not contain duplicates")
+        if (
+            np.any(train < 0)
+            or np.any(validation < 0)
+            or np.any(train >= n_samples)
+            or np.any(validation >= n_samples)
+        ):
+            raise ValueError("CV fold indices are out of bounds")
+        if np.intersect1d(train, validation).size:
+            raise ValueError("CV train and validation folds must be disjoint")
+        normalized.append((train, validation))
+    return normalized
 
 
 def _slice_rows(arr, idx):
@@ -3096,12 +3133,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
         n_alphas = len(alpha_grid)
         if self.cv_splits is not None:
             effective_splits = self._materialize_cv_splits()
-            # Normalize reusable non-list containers for the current fit.
-            folds = (
-                list(effective_splits)
-                if not isinstance(effective_splits, list)
-                else effective_splits
-            )
+            folds = _validate_scalar_cv_folds(effective_splits, n_samples)
         else:
             folds = kfold_indices(n_samples, self._cv, self.random_state)
         cv_device = self._effective_cv_device(
