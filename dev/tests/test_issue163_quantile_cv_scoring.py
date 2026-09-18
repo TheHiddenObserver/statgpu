@@ -210,6 +210,46 @@ def test_quantile_cv_reuses_one_shot_custom_splits_across_refits():
     assert cv.cv_results_["device_sizing_fold_count"] == len(folds)
 
 
+def test_quantile_cv_pickle_materializes_one_shot_custom_splits_once():
+    import pickle
+
+    X, _, _ = _data(seed=16352, n=48)
+    idx = np.arange(X.shape[0])
+    folds = [
+        (np.setdiff1d(idx, val, assume_unique=True), val)
+        for val in np.array_split(idx, 3)
+    ]
+    iterations = []
+
+    def one_shot():
+        iterations.append(1)
+        if len(iterations) > 1:
+            raise AssertionError("custom split generator was consumed twice")
+        yield from folds
+
+    generator = one_shot()
+    cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.35},
+        penalty="l2",
+        alpha_grid=np.asarray([0.03], dtype=np.float64),
+        cv=3,
+        cv_splits=generator,
+        solver="auto",
+        device="cpu",
+    )
+
+    restored = pickle.loads(pickle.dumps(cv))
+
+    assert iterations == [1]
+    assert cv.cv_splits is generator
+    assert isinstance(restored.cv_splits, list)
+    assert len(restored.cv_splits) == len(folds)
+    assert restored._cv_split_source is None
+    assert restored._cv_split_snapshot is None
+    assert restored._fitted is False
+
+
 def test_quantile_cv_clone_materializes_one_shot_custom_splits_once():
     sklearn = pytest.importorskip("sklearn")
     from sklearn.base import clone

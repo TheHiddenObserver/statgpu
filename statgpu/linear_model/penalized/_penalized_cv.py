@@ -2347,6 +2347,29 @@ class PenalizedGLM_CV(CVEstimatorBase):
             params["cv_splits"] = self._materialize_cv_splits()
         return params
 
+    def __getstate__(self):
+        """Serialize one-shot custom folds as a reusable constructor sequence."""
+        import copy
+
+        state = self.__dict__.copy()
+        raw_params = state.get("_constructor_params_raw")
+        public_one_shot = self._is_one_shot_cv_splits(state.get("cv_splits"))
+        raw_one_shot = (
+            isinstance(raw_params, dict)
+            and self._is_one_shot_cv_splits(raw_params.get("cv_splits"))
+        )
+        if public_one_shot or raw_one_shot:
+            reusable = copy.deepcopy(self._materialize_cv_splits())
+            state["cv_splits"] = reusable
+            if isinstance(raw_params, dict):
+                raw_params = raw_params.copy()
+                raw_params["cv_splits"] = copy.deepcopy(reusable)
+                state["_constructor_params_raw"] = raw_params
+
+        state["_cv_split_source"] = None
+        state["_cv_split_snapshot"] = None
+        return state
+
     def _reset_cv_fit_state(self):
         """Clear fitted selection state before every CV invocation."""
         self._fitted = False
