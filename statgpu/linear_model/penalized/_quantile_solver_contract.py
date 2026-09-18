@@ -171,22 +171,16 @@ def _finite_positive(value, name: str) -> float:
 
 
 def _clone_scalar_penalty(penalty, *, alpha=None):
-    params = {}
-    get_params = getattr(penalty, "get_params", None)
-    if callable(get_params):
-        try:
-            params = dict(get_params(deep=False))
-        except TypeError:
-            params = dict(get_params())
+    """Clone a scalar penalty without dropping constructor or learned state."""
+    cloned = copy.deepcopy(penalty)
     if alpha is not None:
-        params["alpha"] = float(alpha)
-    try:
-        return type(penalty)(**params)
-    except Exception:
-        cloned = copy.deepcopy(penalty)
-        if alpha is not None:
-            cloned.alpha = float(alpha)
-        return cloned
+        cloned.alpha = float(alpha)
+    # The marker belongs only to the CV owner's routed source object. Child
+    # penalties are ordinary resolved snapshots and must not request another
+    # candidate-alpha rewrite on later introspection/refit.
+    if hasattr(cloned, _SCALAR_CV_ALPHA_MARKER):
+        delattr(cloned, _SCALAR_CV_ALPHA_MARKER)
+    return cloned
 
 
 def _sync_public_quantile_fit_controls(owner, *, cv: bool) -> None:
@@ -316,17 +310,28 @@ def _install_scalar_cv_penalty_object_contract() -> None:
         if (
             _loss_name(getattr(self, "loss", "")) != "quantile"
             or _penalty_name(penalty) in _GROUP_PENALTY_NAMES
-            or not bool(getattr(penalty, _SCALAR_CV_ALPHA_MARKER, False))
         ):
+            return penalty
+
+        marked_cv_source = bool(
+            getattr(penalty, _SCALAR_CV_ALPHA_MARKER, False)
+        )
+        direct_public_object = (
+            penalty is getattr(self, "penalty", None)
+            and not isinstance(getattr(self, "penalty", None), str)
+            and hasattr(penalty, "alpha")
+        )
+        if not marked_cv_source and not direct_public_object:
             return penalty
 
         resolved = _clone_scalar_penalty(
             penalty,
-            alpha=float(self.alpha),
+            alpha=float(self.alpha) if marked_cv_source else None,
         )
-        # Internal CV children own this clone, so their public penalty should
-        # report the same alpha as the numerical penalty that actually fits.
-        self.penalty = resolved
+        if marked_cv_source:
+            # Internal CV children own this clone, so their public penalty
+            # reports the same alpha as the numerical penalty that actually fits.
+            self.penalty = resolved
         return resolved
 
     setattr(

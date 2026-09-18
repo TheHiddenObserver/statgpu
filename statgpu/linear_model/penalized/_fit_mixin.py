@@ -454,8 +454,13 @@ class _PenalizedFitMixin:
             )
             _sw_arr = self._to_array(sample_weight, backend=backend_name)
 
-        # Handle penalties requiring initialization (e.g., Adaptive Lasso)
-        if self._penalty.requires_init:
+        # Handle penalties requiring initialization (currently Adaptive L1).
+        # User-supplied fixed adaptive weights are already the complete penalty
+        # definition and must not trigger a discarded initialization fit.
+        if (
+            self._penalty.requires_init
+            and getattr(self._penalty, "_weights", None) is None
+        ):
             init_coef = self._fit_initial(
                 X,
                 y,
