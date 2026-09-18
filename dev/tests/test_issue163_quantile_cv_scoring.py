@@ -594,21 +594,6 @@ def test_quantile_cv_public_two_stage_controls_are_authoritative():
 
 
 @pytest.mark.parametrize(
-    ("name", "value", "message"),
-    [
-        ("cv", True, "cv must be a positive integer"),
-        ("cv", 2.5, "cv must be a positive integer"),
-        ("cv", 1, "cv must be an integer greater than or equal to 2"),
-        ("n_alphas", True, "n_alphas must be a positive integer"),
-        ("n_alphas", "3", "n_alphas must be a positive integer"),
-        ("cv_strategy", 2, "cv_strategy must be either"),
-        ("cv_strategy", "fast", "cv_strategy must be either"),
-        ("acknowledge_approx", "False", "acknowledge_approx must be boolean"),
-        ("refine_top_k", True, "refine_top_k must be a positive integer"),
-        ("refine_top_k", 0, "refine_top_k must be a positive integer"),
-    ],
-)
-@pytest.mark.parametrize(
     ("value", "message"),
     [
         (True, "l1_ratio must be a finite real number in \\[0, 1\\]"),
@@ -668,6 +653,21 @@ def test_quantile_elasticnet_public_l1_ratio_replacement_is_authoritative():
     assert cv.estimator_._penalty.l1_ratio == pytest.approx(0.25)
 
 
+@pytest.mark.parametrize(
+    ("name", "value", "message"),
+    [
+        ("cv", True, "cv must be a positive integer"),
+        ("cv", 2.5, "cv must be a positive integer"),
+        ("cv", 1, "cv must be an integer greater than or equal to 2"),
+        ("n_alphas", True, "n_alphas must be a positive integer"),
+        ("n_alphas", "3", "n_alphas must be a positive integer"),
+        ("cv_strategy", 2, "cv_strategy must be either"),
+        ("cv_strategy", "fast", "cv_strategy must be either"),
+        ("acknowledge_approx", "False", "acknowledge_approx must be boolean"),
+        ("refine_top_k", True, "refine_top_k must be a positive integer"),
+        ("refine_top_k", 0, "refine_top_k must be a positive integer"),
+    ],
+)
 def test_quantile_cv_public_search_controls_reject_coercion(name, value, message):
     X, y, _ = _data(seed=16329, n=48)
     cv = PenalizedGLM_CV(
