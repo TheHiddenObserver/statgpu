@@ -53,6 +53,39 @@ class TestQuantileRegression:
         assert g_nonnegative == pytest.approx(-0.2)
         assert g_negative == pytest.approx(0.8)
 
+    def test_nonmedian_batched_bootstrap_targets_requested_quantile(self):
+        tau = 0.2
+        n = 80
+        B = 8
+        X = np.ones((n, 1), dtype=np.float64)
+        y = np.linspace(-4.0, 4.0, n, dtype=np.float64)
+        model = QuantileRegression(
+            quantile=tau,
+            fit_intercept=False,
+            max_iter=300,
+            tol=1e-7,
+            n_bootstrap=B,
+            random_state=17,
+        )
+        model.coef_ = np.zeros(1, dtype=np.float64)
+        model.intercept_ = 0.0
+
+        boot_params, _, _ = model._compute_bootstrap_batched(X, y)
+
+        rng = np.random.default_rng(model.random_state)
+        y_batch = np.array([
+            y[rng.integers(0, n, size=n)]
+            for _ in range(B)
+        ])
+        target_q = np.quantile(y_batch, tau, axis=1)
+        wrong_q = np.quantile(y_batch, 1.0 - tau, axis=1)
+        estimated = np.asarray(boot_params[:, 0], dtype=np.float64)
+
+        target_error = np.mean(np.abs(estimated - target_q))
+        wrong_error = np.mean(np.abs(estimated - wrong_q))
+        assert target_error < wrong_error
+        assert float(np.median(estimated)) < 0.0
+
     @pytest.mark.parametrize("inference_method", ["kernel", "bootstrap"])
     def test_nonuniform_weighted_inference_fails_before_solver(
         self, monkeypatch, inference_method
