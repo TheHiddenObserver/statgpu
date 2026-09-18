@@ -109,6 +109,25 @@ def test_guarded_public_solver_docstrings_expose_quantile_boundary():
     assert "does not support Quantile" in admm_text
     assert "cg_max_iter" in admm_doc
 
+    for solver_fn in (
+        solvers.newton_solver,
+        solvers.proximal_newton_solver,
+        solvers.lbfgs_b_solver,
+    ):
+        solver_text = " ".join((inspect.getdoc(solver_fn) or "").split())
+        assert "Quantile compatibility" in solver_text
+        assert "Quantile" in solver_text
+
+    assert "raise before loss preprocessing" in " ".join(
+        (inspect.getdoc(solvers.newton_solver) or "").split()
+    )
+    assert "never silently becomes ordinary Quantile FISTA" in " ".join(
+        (inspect.getdoc(solvers.proximal_newton_solver) or "").split()
+    )
+    assert "projected smooth quasi-Newton route" in " ".join(
+        (inspect.getdoc(solvers.lbfgs_b_solver) or "").split()
+    )
+
     # glm_core re-exports the same guarded public callables, so runtime help
     # must remain identical across both public import paths.
     assert inspect.getdoc(glm_core.fista_bb_solver) == fista_doc
@@ -134,7 +153,7 @@ def test_typed_quantile_runtime_help_names_ordinary_fista_boundary():
     assert "explicit ordinary ``solver='fista'`` is also supported" in doc
     assert "executes the generic FISTA engine rather than being silently substituted by IRLS" in doc
     assert "IRLS remains the default automatic choice" in doc
-    assert "FISTA-BB and shared ADMM do not support Quantile" in doc
+    assert "FISTA-BB, shared ADMM, Newton, Proximal Newton, and L-BFGS-B do not support Quantile" in doc
     assert "shared L-BFGS implementation assumes a smooth loss gradient" in doc
     assert "maintained" not in doc.lower()
     assert "fail closed" not in doc.lower()

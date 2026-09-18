@@ -197,6 +197,40 @@ def lbfgs_b_solver(loss, *args, **kwargs):
         )
     return _lbfgs_b_solver(loss, *args, **kwargs)
 
+_newton_quantile_doc = """Quantile compatibility
+
+Newton requires a Hessian. QuantileLoss does not provide one, so public
+newton_solver calls with QuantileLoss raise before loss preprocessing or
+numerical iteration.
+"""
+newton_solver.__doc__ = (
+    _newton_quantile_doc.rstrip() + "\n\n" + (_newton_solver.__doc__ or "").lstrip()
+)
+
+_proximal_newton_quantile_doc = """Quantile compatibility
+
+The public Proximal Newton route does not support QuantileLoss. Quantile calls
+raise before the generic non-smooth-penalty FISTA delegation, so requesting
+Proximal Newton never silently becomes ordinary Quantile FISTA.
+"""
+proximal_newton_solver.__doc__ = (
+    _proximal_newton_quantile_doc.rstrip()
+    + "\n\n"
+    + (_proximal_newton_solver.__doc__ or "").lstrip()
+)
+
+_lbfgs_b_quantile_doc = """Quantile compatibility
+
+L-BFGS-B is a projected smooth quasi-Newton route. QuantileLoss has a
+step-function subgradient, so public lbfgs_b_solver Quantile calls raise before
+loss preprocessing or numerical iteration.
+"""
+lbfgs_b_solver.__doc__ = (
+    _lbfgs_b_quantile_doc.rstrip()
+    + "\n\n"
+    + (_lbfgs_b_solver.__doc__ or "").lstrip()
+)
+
 
 @wraps(_fista_bb_solver)
 def fista_bb_solver(loss, *args, **kwargs):

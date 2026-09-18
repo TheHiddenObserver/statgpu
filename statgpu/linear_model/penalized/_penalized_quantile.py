@@ -38,8 +38,9 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
         silently substituted by IRLS. IRLS remains the default automatic
         choice for these objectives. Convex sparse L1/ElasticNet objectives
         use ordinary FISTA, while SCAD/MCP use the dedicated Proximal IRLS-CD
-        continuation path. FISTA-BB and shared ADMM do not support Quantile.
-        Estimator/CV ``solver='lbfgs'`` is also unsupported because the shared
+        continuation path. FISTA-BB, shared ADMM, Newton, Proximal Newton,
+        and L-BFGS-B do not support Quantile. Estimator/CV ``solver='lbfgs'``
+        is also unsupported because the shared
         L-BFGS implementation assumes a smooth loss gradient; the separate
         low-level omitted/uniform-weight Quantile L-BFGS compatibility behavior
         is not an estimator-level solver option.
