@@ -64,6 +64,7 @@ def test_direct_group_public_solver_replacement_from_fista_to_auto_uses_auto_rou
         ("max_iter", 1.5, "max_iter must be a positive integer"),
         ("max_iter", True, "max_iter must be a positive integer"),
         ("max_lla_iters", 0, "max_lla_iters must be a positive integer"),
+        ("max_lla_iters", 2, "max_lla_iters must be at least 3"),
         ("max_lla_iters", 2.5, "max_lla_iters must be a positive integer"),
         ("max_lla_iters", False, "max_lla_iters must be a positive integer"),
         ("tol", 0.0, "tol must be a finite positive number"),
@@ -176,6 +177,40 @@ def test_direct_public_stopping_replacement_is_validated_at_refit(
 
     with pytest.raises(ValueError, match=message):
         model.fit(X, y)
+
+
+def test_group_quantile_three_lla_budget_maps_to_one_update_per_continuation(
+    monkeypatch,
+):
+    from statgpu.solvers import _quantile_group_proximal_irls_lla as solver_mod
+
+    X, y, _ = _data()
+    seen = {}
+
+    def fake_solver(loss, penalty, X_fit, y_fit, alpha_path, **kwargs):
+        seen["n_steps"] = len(alpha_path)
+        seen["max_lla_per_step"] = kwargs["max_lla_per_step"]
+        return np.zeros(X_fit.shape[1], dtype=np.float64), 0.0, 1
+
+    monkeypatch.setattr(
+        solver_mod, "quantile_group_proximal_irls_lla_solver", fake_solver
+    )
+    model = PenalizedGeneralizedLinearModel(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.35},
+        penalty="group_scad",
+        penalty_kwargs={"groups": GROUPS, "a": 3.7},
+        alpha=0.04,
+        solver="auto",
+        device="cpu",
+        compute_inference=False,
+        max_iter=20,
+        tol=1e-6,
+        max_lla_iters=3,
+        lla_tol=1e-6,
+    ).fit(X, y)
+
+    assert seen == {"n_steps": 3, "max_lla_per_step": 1}
 
 
 def test_direct_public_stopping_replacement_reaches_group_solver(monkeypatch):

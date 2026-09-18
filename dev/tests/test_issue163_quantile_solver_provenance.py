@@ -193,6 +193,7 @@ def test_sparse_quantile_auto_remains_fista_family():
     [
         ("max_lla_iters", 0, "max_lla_iters must be a positive integer"),
         ("max_lla_iters", False, "max_lla_iters must be a positive integer"),
+        ("max_lla_iters", 2, "max_lla_iters must be at least 3"),
         ("lla_tol", 0.0, "lla_tol must be a finite positive number"),
         ("lla_tol", "1e-6", "lla_tol must be a finite positive number"),
     ],
@@ -214,6 +215,35 @@ def test_scalar_nonconvex_quantile_public_lla_controls_fail_closed(
 
     with pytest.raises(ValueError, match=message):
         model.fit(X, y)
+
+
+def test_scalar_quantile_three_lla_budget_maps_to_one_update_per_continuation(
+    monkeypatch,
+):
+    import statgpu.solvers as solvers
+
+    X, y = _data(seed=16314, n=64)
+    seen = {}
+
+    def fake_solver(loss, penalty, X_fit, y_fit, alpha_path, **kwargs):
+        seen["n_steps"] = len(alpha_path)
+        seen["max_lla_per_step"] = kwargs["max_lla_per_step"]
+        return np.zeros(X_fit.shape[1], dtype=np.float64), 0.0, 1
+
+    monkeypatch.setattr(solvers, "proximal_irls_quantile_solver", fake_solver)
+    model = PenalizedQuantileRegression(
+        quantile=0.5,
+        penalty="scad",
+        alpha=0.02,
+        solver="auto",
+        device="cpu",
+        max_iter=100,
+        tol=1e-6,
+        max_lla_iters=3,
+    ).fit(X, y)
+
+    assert seen == {"n_steps": 3, "max_lla_per_step": 1}
+    assert model._selected_solver == "proximal_irls_cd"
 
 
 def test_nonconvex_quantile_auto_reports_dedicated_proximal_irls_cd():

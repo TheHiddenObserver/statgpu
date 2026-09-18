@@ -47,6 +47,18 @@ def _is_nonuniform_weight(sample_weight) -> bool:
     return not bool(uniform.item() if hasattr(uniform, "item") else uniform)
 
 
+def _quantile_lla_budget(self, n_cont: int) -> int:
+    """Return a per-step LLA budget that never exceeds max_lla_iters overall."""
+    n_cont = int(n_cont)
+    budget = int(getattr(self, "_max_lla_iters", 50))
+    if budget < n_cont:
+        raise ValueError(
+            f"max_lla_iters must be at least {n_cont} for the Quantile "
+            "continuation path so every alpha step can run once"
+        )
+    return max(1, budget // n_cont)
+
+
 def _quantile_path_metadata(self, n_cont=None):
     """Build only continuation shape/target metadata; start is resolved later."""
     if n_cont is None:
@@ -58,10 +70,7 @@ def _quantile_path_metadata(self, n_cont=None):
     else:
         alpha_path = np.linspace(max(target_alpha, 0.0), target_alpha, n_cont)
     alpha_path = mark_auto_quantile_continuation_path(alpha_path)
-    max_lla_per_step = max(
-        _fit_mixin._MAX_LLA_PER_STEP_DEFAULT,
-        getattr(self, "_max_lla_iters", 50) // max(n_cont, 1),
-    )
+    max_lla_per_step = _quantile_lla_budget(self, n_cont)
     saved_max_iter = self._max_iter
     mi_path = [
         saved_max_iter if i == n_cont - 1 else max(100, saved_max_iter // 10)
@@ -125,6 +134,9 @@ def install_quantile_continuation_contract() -> None:
             )
             if is_quantile:
                 alpha_path = mark_auto_quantile_continuation_path(alpha_path)
+                max_lla_per_step = _quantile_lla_budget(
+                    self, len(alpha_path)
+                )
             return alpha_path, max_lla_per_step, mi_path
 
         setattr(_compute_lla_path_with_quantile_provenance, _MARKER, True)
