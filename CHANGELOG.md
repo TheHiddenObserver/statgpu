@@ -2,6 +2,13 @@
 
 All notable changes to statgpu are documented here, organized by release and date.
 
+## Unreleased — 2026-09-19
+
+### PR #166 — Quantile solver and inference contract closure (targeted for 0.2.6)
+- Closed Quantile solver/input contracts across direct, CV, and low-level public consumers: malformed response/design/path/stopping/weight inputs fail before numerical work, unsupported Newton/Proximal-Newton/FISTA-BB/ADMM/L-BFGS-B rows fail closed, and the unsafe historical `quantile_cd_solver` is retained only as an import-compatible fail-closed symbol.
+- Corrected standalone `QuantileRegression` inference: non-median batched bootstrap now uses the requested pinball-gradient asymmetry, non-uniform weighted inference fails closed, bootstrap requires at least two draws, invalid kernel bandwidths cannot publish NaN inference, failed fits are transactional, and CuPy cleanup follows the executed backend.
+- Added regression coverage for public solver alias/reload identity, NumPy/Torch response validation, prediction/score shapes, CV fold/grid ordering, standalone inference controls, and the non-median bootstrap direction. Earlier PR166 physical-GPU artifacts remain historical exact-source evidence only after these numerical changes.
+
 ## Unreleased — 2026-09-16
 
 ### PR #164 / Issue #163 — Quantile solver provenance reconciliation (targeted for 0.2.6)
