@@ -304,7 +304,6 @@ Quantile/check loss 本身非光滑，因此这里不应解释为满足经典光
 - `sample_weight` 支持是**损失函数 × 求解器 × 估计器**路径能力，而不是所有求解器自动拥有的属性。
 - 对自动 Group SCAD/MCP 交叉验证，如果某一折在目标 α 上未建立收敛，则该折不会计分；严格选择只接受所有折都有有限得分的 α。选中 α 后的全数据最终重拟合沿用直接估计器的收敛报告语义：若达到目标迭代预算，会发出 `ConvergenceWarning` 并返回最终迭代结果。
 - 分组 Proximal IRLS-LLA 会严格校验停止控制，而不是静默夹到其他预算：`max_iter` 必须是正整数，`tol` 必须是有限正数。直接估计器还要求 `max_lla_iters` 为正整数、`lla_tol` 为有限正数；`PenalizedGLM_CV` 公开 `max_iter`/`tol`；候选拟合和最终重拟合使用该路径内置的 LLA 默认控制。
-- 对直接的 `PenalizedGeneralizedLinearModel` 拟合，`lla=False` 会退出 Quantile Group SCAD/MCP 的自动分组 Proximal IRLS-LLA 专用路径，转而使用 auto 解析出的普通近端 FISTA。`PenalizedGLM_CV` 不公开 `lla` 开关。
 - 显式普通 L2/无惩罚 Quantile FISTA 受支持并保持权威；Group SCAD/MCP 的显式 FISTA 同样不会被改写成自动的分组 Proximal IRLS-LLA。
 - FISTA-BB 与公开的直接 ADMM 不支持 Quantile；显式请求会在进入数值迭代前报错。
 - 模型/CV 层的 Quantile L-BFGS 不受支持；底层公开 L-BFGS 只保留历史的无权重/均匀权重兼容边界。
