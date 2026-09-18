@@ -223,26 +223,36 @@ def test_glm_core_solver_aliases_preserve_guard_and_existing_lbfgs_export():
 
 
 def test_low_level_quantile_solver_guard_reload_is_idempotent_and_alias_safe():
-    before_fista = solvers.fista_solver
-    before_lbfgs = solvers.lbfgs_solver
-    before_cd = solvers.quantile_cd_solver
-    fista_original = getattr(before_fista, "_statgpu_original", None)
-    lbfgs_original = getattr(before_lbfgs, "_statgpu_original", None)
-    cd_original = getattr(before_cd, "_statgpu_original", None)
+    guarded_names = (
+        "fista_solver",
+        "fista_bb_solver",
+        "newton_solver",
+        "proximal_newton_solver",
+        "lbfgs_solver",
+        "lbfgs_b_solver",
+        "admm_solver",
+        "quantile_cd_solver",
+    )
+    before = {name: getattr(solvers, name) for name in guarded_names}
+    originals = {
+        name: getattr(function, "_statgpu_original", None)
+        for name, function in before.items()
+    }
 
     importlib.reload(_solver_guard)
 
-    assert solvers.fista_solver is before_fista
-    assert solvers.lbfgs_solver is before_lbfgs
-    assert solvers.quantile_cd_solver is before_cd
-    assert _fista_mod.fista_solver is before_fista
-    assert _lbfgs_mod.lbfgs_solver is before_lbfgs
-    assert _quantile_cd_mod.quantile_cd_solver is before_cd
-    assert getattr(before_fista, "_statgpu_original", None) is fista_original
-    assert getattr(before_lbfgs, "_statgpu_original", None) is lbfgs_original
-    assert getattr(before_cd, "_statgpu_original", None) is cd_original
-    assert glm_core.fista_solver is before_fista
-    assert glm_core.lbfgs_solver is before_lbfgs
+    for name, function in before.items():
+        assert getattr(solvers, name) is function
+        assert getattr(function, "_statgpu_original", None) is originals[name]
+
+    assert _fista_mod.fista_solver is before["fista_solver"]
+    assert _lbfgs_mod.lbfgs_solver is before["lbfgs_solver"]
+    assert _quantile_cd_mod.quantile_cd_solver is before["quantile_cd_solver"]
+    assert glm_core.fista_solver is before["fista_solver"]
+    assert glm_core.fista_bb_solver is before["fista_bb_solver"]
+    assert glm_core.newton_solver is before["newton_solver"]
+    assert glm_core.lbfgs_solver is before["lbfgs_solver"]
+    assert glm_core.admm_solver is before["admm_solver"]
 
 
 @pytest.mark.parametrize("reconstruction", ["set_params", "clone"])

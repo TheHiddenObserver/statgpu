@@ -38,6 +38,11 @@ from ._quantile_cd import quantile_cd_solver as _quantile_cd_solver
 _FISTA_SHAPE_MARKER = "_statgpu_quantile_fista_shape_guard"
 _LBFGS_SHAPE_MARKER = "_statgpu_quantile_lbfgs_shape_guard"
 _QUANTILE_CD_TOMBSTONE_MARKER = "_statgpu_quantile_cd_tombstone"
+_FISTA_BB_GUARD_MARKER = "_statgpu_quantile_fista_bb_guard"
+_ADMM_GUARD_MARKER = "_statgpu_quantile_admm_guard"
+_NEWTON_GUARD_MARKER = "_statgpu_quantile_newton_guard"
+_PROXIMAL_NEWTON_GUARD_MARKER = "_statgpu_quantile_proximal_newton_guard"
+_LBFGS_B_GUARD_MARKER = "_statgpu_quantile_lbfgs_b_guard"
 
 
 def _unwrap_existing_guard(function, marker):
@@ -57,6 +62,26 @@ _lbfgs_solver, _existing_lbfgs_guard = _unwrap_existing_guard(
 )
 _quantile_cd_solver, _existing_quantile_cd_guard = _unwrap_existing_guard(
     _quantile_cd_solver, _QUANTILE_CD_TOMBSTONE_MARKER
+)
+def _existing_public_guard(name, marker):
+    current = globals().get(name)
+    return current if callable(current) and getattr(current, marker, False) else None
+
+
+_existing_fista_bb_guard = _existing_public_guard(
+    "fista_bb_solver", _FISTA_BB_GUARD_MARKER
+)
+_existing_admm_guard = _existing_public_guard(
+    "admm_solver", _ADMM_GUARD_MARKER
+)
+_existing_newton_guard = _existing_public_guard(
+    "newton_solver", _NEWTON_GUARD_MARKER
+)
+_existing_proximal_newton_guard = _existing_public_guard(
+    "proximal_newton_solver", _PROXIMAL_NEWTON_GUARD_MARKER
+)
+_existing_lbfgs_b_guard = _existing_public_guard(
+    "lbfgs_b_solver", _LBFGS_B_GUARD_MARKER
 )
 
 def _is_quantile(loss) -> bool:
@@ -230,6 +255,18 @@ lbfgs_b_solver.__doc__ = (
     + "\n\n"
     + (_lbfgs_b_solver.__doc__ or "").lstrip()
 )
+setattr(newton_solver, _NEWTON_GUARD_MARKER, True)
+newton_solver._statgpu_original = _newton_solver
+setattr(proximal_newton_solver, _PROXIMAL_NEWTON_GUARD_MARKER, True)
+proximal_newton_solver._statgpu_original = _proximal_newton_solver
+setattr(lbfgs_b_solver, _LBFGS_B_GUARD_MARKER, True)
+lbfgs_b_solver._statgpu_original = _lbfgs_b_solver
+if _existing_newton_guard is not None:
+    newton_solver = _existing_newton_guard
+if _existing_proximal_newton_guard is not None:
+    proximal_newton_solver = _existing_proximal_newton_guard
+if _existing_lbfgs_b_guard is not None:
+    lbfgs_b_solver = _existing_lbfgs_b_guard
 
 
 @wraps(_fista_bb_solver)
@@ -259,6 +296,10 @@ fista_bb_solver.__doc__ = (
     + "\n\n"
     + (_fista_bb_solver.__doc__ or "").lstrip()
 )
+setattr(fista_bb_solver, _FISTA_BB_GUARD_MARKER, True)
+fista_bb_solver._statgpu_original = _fista_bb_solver
+if _existing_fista_bb_guard is not None:
+    fista_bb_solver = _existing_fista_bb_guard
 
 
 @wraps(_admm_solver)
@@ -284,6 +325,10 @@ admm_solver.__doc__ = (
     + "\n\n"
     + (_admm_solver.__doc__ or "").lstrip()
 )
+setattr(admm_solver, _ADMM_GUARD_MARKER, True)
+admm_solver._statgpu_original = _admm_solver
+if _existing_admm_guard is not None:
+    admm_solver = _existing_admm_guard
 # Keep historical direct-module aliases aligned with guarded supported symbols.
 # This prevents callers from bypassing Quantile shape/tombstone contracts through
 # the long-standing solver module paths while preserving object identity.
