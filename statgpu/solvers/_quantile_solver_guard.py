@@ -22,10 +22,16 @@ from functools import wraps
 
 import numpy as np
 
+from . import _fista as _fista_module
+from . import _lbfgs as _lbfgs_module
+from . import _quantile_cd as _quantile_cd_module
 from ._admm import admm_solver as _admm_solver
 from ._fista import fista_solver as _fista_solver
 from ._fista_bb import fista_bb_solver as _fista_bb_solver
 from ._lbfgs import lbfgs_solver as _lbfgs_solver
+from ._lbfgs_b import lbfgs_b_solver as _lbfgs_b_solver
+from ._newton import newton_solver as _newton_solver
+from ._proximal_newton import proximal_newton_solver as _proximal_newton_solver
 from ._quantile_cd import quantile_cd_solver as _quantile_cd_solver
 
 
@@ -123,6 +129,38 @@ def _reject_quantile(solver_name: str, reason: str) -> None:
         "IRLS for L2/no penalty, or Proximal IRLS-CD for SCAD/MCP."
     )
 
+@wraps(_newton_solver)
+def newton_solver(loss, *args, **kwargs):
+    """Reject Quantile before entering a Hessian-based Newton kernel."""
+    if _is_quantile(loss):
+        _reject_quantile(
+            "newton_solver",
+            "Newton requires a maintained Hessian, which Quantile loss does not provide",
+        )
+    return _newton_solver(loss, *args, **kwargs)
+
+
+@wraps(_proximal_newton_solver)
+def proximal_newton_solver(loss, *args, **kwargs):
+    """Reject Quantile rather than substituting generic FISTA delegation."""
+    if _is_quantile(loss):
+        _reject_quantile(
+            "proximal_newton_solver",
+            "the maintained Quantile routes do not expose a Hessian-metric proximal Newton method",
+        )
+    return _proximal_newton_solver(loss, *args, **kwargs)
+
+
+@wraps(_lbfgs_b_solver)
+def lbfgs_b_solver(loss, *args, **kwargs):
+    """Reject non-smooth Quantile loss from the smooth L-BFGS-B route."""
+    if _is_quantile(loss):
+        _reject_quantile(
+            "lbfgs_b_solver",
+            "the projected quasi-Newton update requires a smooth objective gradient",
+        )
+    return _lbfgs_b_solver(loss, *args, **kwargs)
+
 
 @wraps(_fista_bb_solver)
 def fista_bb_solver(loss, *args, **kwargs):
@@ -176,3 +214,9 @@ admm_solver.__doc__ = (
     + "\n\n"
     + (_admm_solver.__doc__ or "").lstrip()
 )
+# Keep historical direct-module aliases aligned with guarded supported symbols.
+# This prevents callers from bypassing Quantile shape/tombstone contracts through
+# the long-standing solver module paths while preserving object identity.
+_fista_module.fista_solver = fista_solver
+_lbfgs_module.lbfgs_solver = lbfgs_solver
+_quantile_cd_module.quantile_cd_solver = quantile_cd_solver

@@ -20,7 +20,9 @@ from statgpu.penalties import L1Penalty, L2Penalty
 from statgpu import solvers
 from statgpu.solvers import _admm as _admm_mod
 from statgpu.solvers import _fista_bb as _fista_bb_mod
+from statgpu.solvers import _fista as _fista_mod
 from statgpu.solvers import _lbfgs as _lbfgs_mod
+from statgpu.solvers import _quantile_cd as _quantile_cd_mod
 
 
 # Each row below is a public estimator/CV request that the new guard itself
@@ -214,7 +216,9 @@ def test_glm_core_solver_aliases_preserve_guard_and_existing_lbfgs_export():
     assert glm_core.admm_solver is solvers.admm_solver
     assert glm_core.fista_bb_solver is solvers.fista_bb_solver
     assert glm_core.lbfgs_solver is solvers.lbfgs_solver
+    assert solvers.fista_solver is _fista_mod.fista_solver
     assert solvers.lbfgs_solver is _lbfgs_mod.lbfgs_solver
+    assert solvers.quantile_cd_solver is _quantile_cd_mod.quantile_cd_solver
 
 
 @pytest.mark.parametrize("reconstruction", ["set_params", "clone"])

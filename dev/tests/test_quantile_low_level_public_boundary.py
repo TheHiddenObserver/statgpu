@@ -120,6 +120,25 @@ def test_public_quantile_fista_lbfgs_reject_invalid_xy_before_loss_work(
         )
 
 
+@pytest.mark.parametrize(
+    "solver_name",
+    ["newton_solver", "proximal_newton_solver", "lbfgs_b_solver"],
+)
+def test_public_smooth_second_order_solvers_reject_quantile_before_loss_work(
+    monkeypatch, solver_name
+):
+    X, y = _data(seed=16717)
+    loss = QuantileLoss(quantile=0.3)
+    penalty = L2Penalty(alpha=0.04)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("unsupported Quantile solver must fail before loss work")
+
+    monkeypatch.setattr(loss, "preprocess", forbidden)
+    with pytest.raises(ValueError, match="does not support Quantile loss"):
+        getattr(solvers, solver_name)(loss, penalty, X, y, max_iter=3)
+
+
 def test_public_quantile_cd_solver_is_fail_closed_compatibility_symbol(monkeypatch):
     X, y = _data(seed=16716)
     loss = QuantileLoss(quantile=0.3)
