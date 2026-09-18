@@ -241,6 +241,7 @@ def quantile_group_proximal_irls_lla_solver(
         is_final_continuation = cont_i == n_continuation - 1
         lla_converged = False
         flat_irls_exhausted = False
+        active_irls_exhausted = False
 
         for _lla_iter in range(int(max_lla_per_step)):
             feature_params = params[:n_features]
@@ -255,6 +256,9 @@ def quantile_group_proximal_irls_lla_solver(
             before_lla = _copy_arr(params)
 
             if _all_zero(lla_feature_np):
+                # A flat surrogate owns the current target state. Any active
+                # IRLS exhaustion from an earlier LLA step is now historical.
+                active_irls_exhausted = False
                 params, used_iter = loss.irls(
                     X_work,
                     y_dev,
@@ -293,6 +297,7 @@ def quantile_group_proximal_irls_lla_solver(
                 # A later active surrogate owns the current target state, so a
                 # previously exhausted flat solve cannot poison its verdict.
                 flat_irls_exhausted = False
+                active_irls_converged = False
                 factory_values = (
                     np.concatenate([lla_feature_np, np.zeros(1, dtype=np.float64)])
                     if fit_intercept
@@ -327,7 +332,16 @@ def quantile_group_proximal_irls_lla_solver(
 
                     delta_dev = xp.max(xp.abs(params - params_old))
                     if float(_to_numpy(delta_dev)) < float(tol):
+                        active_irls_converged = True
                         break
+
+                # Unlike the loss-owned flat IRLS call, this loop owns its
+                # stopping comparison directly, so exhausting the budget is
+                # unambiguous. A small outer LLA change must not convert an
+                # unconverged active IRLS target into a successful candidate.
+                active_irls_exhausted = (
+                    is_final_continuation and not active_irls_converged
+                )
 
             lla_delta = _abs_sum_dev(params - before_lla)
             if float(_to_numpy(lla_delta)) < float(lla_tol):
@@ -338,6 +352,23 @@ def quantile_group_proximal_irls_lla_solver(
             if flat_irls_exhausted:
                 base_message = (
                     "Quantile Group Proximal IRLS-LLA flat target reached "
+                    f"max_iter={irls_limit} in Quantile IRLS at "
+                    f"alpha={float(cont_alpha):.12g}"
+                )
+                if fail_on_target_nonconvergence:
+                    raise FloatingPointError(
+                        base_message
+                        + "; the CV candidate was not scored because target convergence was not established."
+                    )
+                warnings.warn(
+                    base_message
+                    + "; returning the final iterate. Increase max_iter for a stricter convergence check.",
+                    ConvergenceWarning,
+                    stacklevel=_external_warning_stacklevel(),
+                )
+            elif active_irls_exhausted:
+                base_message = (
+                    "Quantile Group Proximal IRLS-LLA active target reached "
                     f"max_iter={irls_limit} in Quantile IRLS at "
                     f"alpha={float(cont_alpha):.12g}"
                 )

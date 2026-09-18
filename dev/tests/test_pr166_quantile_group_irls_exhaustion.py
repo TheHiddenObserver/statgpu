@@ -32,7 +32,9 @@ def test_active_quantile_group_target_lla_exhaustion_warns_at_external_callsite(
     def drifting_admm(loss_arg, penalty_arg, X_arg, y_arg, **kwargs):
         calls["value"] += 1
         current = np.asarray(kwargs["init_coef"], dtype=np.float64)
-        return current + 0.05, 1
+        if calls["value"] == 1:
+            return current + 0.05, 1
+        return current.copy(), 1
 
     monkeypatch.setattr(solver_mod, "admm_solver", drifting_admm)
 
@@ -47,7 +49,7 @@ def test_active_quantile_group_target_lla_exhaustion_warns_at_external_callsite(
     assert caught[0].filename == __file__
     assert calls["value"] == 2
     assert n_iter == 2
-    np.testing.assert_allclose(coef, np.full(4, 0.1), rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(coef, np.full(4, 0.05), rtol=0.0, atol=0.0)
     assert intercept == 0.0
 
 
@@ -80,7 +82,9 @@ def test_active_quantile_group_target_lla_exhaustion_fails_in_strict_cv_mode(mon
     def drifting_admm(loss_arg, penalty_arg, X_arg, y_arg, **kwargs):
         calls["value"] += 1
         current = np.asarray(kwargs["init_coef"], dtype=np.float64)
-        return current + 0.05, 1
+        if calls["value"] == 1:
+            return current + 0.05, 1
+        return current.copy(), 1
 
     monkeypatch.setattr(solver_mod, "admm_solver", drifting_admm)
 
@@ -93,6 +97,91 @@ def test_active_quantile_group_target_lla_exhaustion_fails_in_strict_cv_mode(mon
         )
 
     assert calls["value"] == 2
+
+
+def test_active_quantile_group_target_irls_budget_exhaustion_warns_even_when_lla_delta_is_small(monkeypatch):
+    """Inner IRLS exhaustion must outrank a looser outer LLA tolerance."""
+    X, y, loss, penalty = _drifting_problem()
+    calls = {"value": 0}
+
+    def slowly_drifting_admm(loss_arg, penalty_arg, X_arg, y_arg, **kwargs):
+        calls["value"] += 1
+        current = np.asarray(kwargs["init_coef"], dtype=np.float64)
+        return current + 6e-4, 1
+
+    monkeypatch.setattr(solver_mod, "admm_solver", slowly_drifting_admm)
+
+    with pytest.warns(
+        ConvergenceWarning,
+        match="active target reached max_iter=2 in Quantile IRLS",
+    ) as caught:
+        coef, intercept, n_iter = solver_mod.quantile_group_proximal_irls_lla_solver(
+            loss, penalty, X, y,
+            alpha_path=np.asarray([0.3], dtype=np.float64),
+            max_lla_per_step=1, max_iter=2, tol=5e-4, lla_tol=1e-2,
+            fit_intercept=False,
+        )
+
+    assert caught[0].filename == __file__
+    assert calls["value"] == 2
+    assert n_iter == 2
+    np.testing.assert_allclose(coef, np.full(4, 1.2e-3), rtol=0.0, atol=1e-15)
+    assert intercept == 0.0
+
+
+def test_active_quantile_group_target_irls_budget_exhaustion_fails_in_strict_cv_mode(monkeypatch):
+    """Strict CV must not score a target whose active IRLS loop exhausted."""
+    X, y, loss, penalty = _drifting_problem()
+    calls = {"value": 0}
+
+    def slowly_drifting_admm(loss_arg, penalty_arg, X_arg, y_arg, **kwargs):
+        calls["value"] += 1
+        current = np.asarray(kwargs["init_coef"], dtype=np.float64)
+        return current + 6e-4, 1
+
+    monkeypatch.setattr(solver_mod, "admm_solver", slowly_drifting_admm)
+
+    with pytest.raises(
+        FloatingPointError,
+        match="active target reached max_iter=2 in Quantile IRLS",
+    ):
+        solver_mod.quantile_group_proximal_irls_lla_solver(
+            loss, penalty, X, y,
+            alpha_path=np.asarray([0.3], dtype=np.float64),
+            max_lla_per_step=1, max_iter=2, tol=5e-4, lla_tol=1e-2,
+            fit_intercept=False, fail_on_target_nonconvergence=True,
+        )
+
+    assert calls["value"] == 2
+
+
+def test_later_converged_active_irls_clears_prior_active_exhaustion(monkeypatch):
+    """A later active surrogate that truly converges owns the final verdict."""
+    X, y, loss, penalty = _drifting_problem()
+    calls = {"value": 0}
+
+    def exhaust_then_converge(loss_arg, penalty_arg, X_arg, y_arg, **kwargs):
+        calls["value"] += 1
+        current = np.asarray(kwargs["init_coef"], dtype=np.float64)
+        if calls["value"] <= 2:
+            return current + 6e-4, 1
+        return current.copy(), 1
+
+    monkeypatch.setattr(solver_mod, "admm_solver", exhaust_then_converge)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        coef, intercept, n_iter = solver_mod.quantile_group_proximal_irls_lla_solver(
+            loss, penalty, X, y,
+            alpha_path=np.asarray([0.3], dtype=np.float64),
+            max_lla_per_step=2, max_iter=2, tol=5e-4, lla_tol=1e-3,
+            fit_intercept=False, fail_on_target_nonconvergence=True,
+        )
+
+    assert calls["value"] == 3
+    assert n_iter == 3
+    np.testing.assert_allclose(coef, np.full(4, 1.2e-3), rtol=0.0, atol=1e-15)
+    assert intercept == 0.0
 
 
 def test_intermediate_quantile_group_lla_exhaustion_is_only_a_warm_path(monkeypatch):
