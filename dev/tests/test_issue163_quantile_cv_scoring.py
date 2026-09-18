@@ -345,7 +345,7 @@ def test_quantile_auto_alpha_grid_uses_weighted_pinball_zero_score():
 def test_quantile_group_scad_auto_alpha_grid_uses_group_public_scale():
     X, y, _ = _data(seed=16343, n=44)
     tau = 0.31
-    groups = [[0], [1]]
+    groups = [[0, 1]]
     model = PenalizedGLM_CV(
         loss="quantile",
         loss_kwargs={"quantile": tau},
