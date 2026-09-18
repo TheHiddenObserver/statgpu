@@ -46,6 +46,58 @@ class TestQuantileRegression:
         # SE should be positive
         assert np.all(m._bse > 0)
 
+    def test_nonmedian_pinball_eta_gradient_matches_requested_quantile(self):
+        from statgpu.linear_model.wrappers._quantile import _pinball_eta_gradient_values
+
+        g_nonnegative, g_negative = _pinball_eta_gradient_values(0.2)
+        assert g_nonnegative == pytest.approx(-0.2)
+        assert g_negative == pytest.approx(0.8)
+
+    @pytest.mark.parametrize("inference_method", ["kernel", "bootstrap"])
+    def test_nonuniform_weighted_inference_fails_before_solver(
+        self, monkeypatch, inference_method
+    ):
+        import statgpu.linear_model.wrappers._quantile as quantile_mod
+
+        model = QuantileRegression(
+            quantile=0.3,
+            compute_inference=True,
+            inference_method=inference_method,
+            n_bootstrap=4,
+        )
+        weights = np.linspace(0.5, 1.5, self.X.shape[0])
+
+        def forbidden(*args, **kwargs):
+            raise AssertionError("unsupported weighted inference must fail before FISTA")
+
+        monkeypatch.setattr(quantile_mod, "fista_solver", forbidden)
+        with pytest.raises(NotImplementedError, match="non-uniform sample_weight"):
+            model.fit(self.X, self.y, sample_weight=weights)
+        assert model._fitted is False
+        assert model.coef_ is None
+        assert model._inference_result is None
+
+    def test_failed_inference_fit_clears_partial_state(self):
+        model = QuantileRegression(
+            quantile=0.4,
+            compute_inference=True,
+            inference_method="invalid",
+        )
+        with pytest.raises(ValueError, match="Unknown inference_method"):
+            model.fit(self.X, self.y)
+        assert model._fitted is False
+        assert model.coef_ is None
+        assert model.intercept_ == 0.0
+        assert model._params is None
+        assert model._inference_result is None
+
+    def test_predict_rejects_non_2d_and_wrong_feature_width(self):
+        model = QuantileRegression(quantile=0.5).fit(self.X, self.y)
+        with pytest.raises(ValueError, match="two-dimensional design matrix"):
+            model.predict(self.X[0])
+        with pytest.raises(ValueError, match="same number of features"):
+            model.predict(self.X[:, :2])
+
     def test_fit_with_bootstrap_inference(self):
         m = QuantileRegression(quantile=0.5, compute_inference=True,
                                 inference_method='bootstrap', n_bootstrap=50)

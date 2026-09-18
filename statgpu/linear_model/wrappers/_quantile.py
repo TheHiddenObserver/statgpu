@@ -7,6 +7,12 @@ import numpy as np
 # Pre-computed scalar constants (Python floats, safe for GPU tensor broadcast)
 _INV_SQRT_2PI = 1.0 / _math.sqrt(2.0 * _math.pi)
 
+
+def _pinball_eta_gradient_values(tau):
+    """Return d rho_tau(y-eta) / d eta on nonnegative/negative residuals."""
+    tau = float(tau)
+    return -tau, 1.0 - tau
+
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.losses._quantile import QuantileLoss
@@ -87,16 +93,84 @@ class QuantileRegression(BaseEstimator):
         self._inference_result = None
         self._fitted = False
 
+    def _reset_fit_state(self):
+        """Clear all result-bearing state after a failed or new fit attempt."""
+        self.coef_ = None
+        self.intercept_ = 0.0
+        self.n_iter_ = None
+        self._params = None
+        self._bse = None
+        self._zvalues = None
+        self._pvalues = None
+        self._conf_int = None
+        self._inference_result = None
+        self._fitted = False
+        self._selected_backend_name = None
+        self.__dict__.pop("n_features_in_", None)
+
+    @staticmethod
+    def _has_nonuniform_weight(sample_weight):
+        module = type(sample_weight).__module__
+        values = sample_weight.reshape(-1)
+        if module.startswith("torch"):
+            import torch
+            uniform = torch.all(values == values[0])
+        elif module.startswith("cupy"):
+            import cupy as cp
+            uniform = cp.all(values == values[0])
+        else:
+            uniform = np.all(np.asarray(values) == np.asarray(values)[0])
+        return not bool(uniform.item() if hasattr(uniform, "item") else uniform)
+
     def fit(self, X, y, sample_weight=None):
-        backend = self._get_backend(backend="auto")
-        backend_name = backend.name
+        self._reset_fit_state()
+        try:
+            return self._fit_impl(X, y, sample_weight=sample_weight)
+        except Exception:
+            self._reset_fit_state()
+            raise
+
+    def _fit_impl(self, X, y, sample_weight=None):
+        from statgpu.glm_core._validation import (
+            validate_glm_design_matrix,
+            validate_glm_sample_weight,
+        )
         from statgpu.backends import _to_numpy
 
-        X_arr = self._to_array(X, backend=backend_name)
-        y_arr = self._to_array(y, backend=backend_name)
-        n, p = X_arr.shape
-
+        X_native = validate_glm_design_matrix(X)
         loss = QuantileLoss(quantile=self._quantile)
+        y_native = loss.validate_response(y)
+        if int(y_native.shape[0]) != int(X_native.shape[0]):
+            raise ValueError("Response length must match the number of X rows.")
+
+        sample_weight_native = None
+        if sample_weight is not None:
+            sample_weight_native = validate_glm_sample_weight(
+                sample_weight, X_native.shape[0]
+            )
+
+        if self._compute_inference_enabled:
+            if self._inference_method not in {"kernel", "bootstrap"}:
+                raise ValueError(
+                    f"Unknown inference_method='{self._inference_method}'. "
+                    "Valid options: ['bootstrap', 'kernel']."
+                )
+            if sample_weight_native is not None and self._has_nonuniform_weight(
+                sample_weight_native
+            ):
+                raise NotImplementedError(
+                    "Standalone QuantileRegression inference does not support "
+                    "non-uniform sample_weight. Fit with compute_inference=False "
+                    "or omit/use uniform weights."
+                )
+
+        backend = self._get_backend(backend="auto")
+        backend_name = backend.name
+        X_arr = self._to_array(X_native, backend=backend_name)
+        y_arr = self._to_array(y_native, backend=backend_name)
+        n, p = X_arr.shape
+        self.n_features_in_ = int(p)
+        sample_weight = sample_weight_native
 
         if self._fit_intercept:
             from statgpu.penalties._l2 import L2Penalty
@@ -125,12 +199,12 @@ class QuantileRegression(BaseEstimator):
         else:
             self._params = self.coef_.copy()
         self._selected_backend_name = backend_name
-        self._fitted = True
 
         if self._compute_inference_enabled:
             self._compute_inference(X_arr, y_arr, loss,
                                      backend_name=backend_name)
 
+        self._fitted = True
         if self._gpu_memory_cleanup:
             self._cleanup_backend_memory(backend_name)
 
@@ -387,9 +461,12 @@ class QuantileRegression(BaseEstimator):
         if is_cupy:
             _d_eta_buf = xp.empty_like(y_gpu.T)
             _loss_buf = xp.empty_like(y_gpu.T)
+            grad_nonnegative, grad_negative = _pinball_eta_gradient_values(tau)
             @xp.fuse()
             def _pinball_grad_kernel(_r, _out):
-                _out[:] = xp.where(_r > 0, float(tau - 1.0), float(tau))
+                _out[:] = xp.where(
+                    _r >= 0, float(grad_nonnegative), float(grad_negative)
+                )
             @xp.fuse()
             def _pinball_loss_kernel(_r, _out):
                 _out[:] = xp.where(_r > 0, float(tau) * _r, float(tau - 1.0) * _r)
@@ -404,7 +481,10 @@ class QuantileRegression(BaseEstimator):
                 _pinball_grad_kernel(r_z, _d_eta_buf)
                 d_eta = _d_eta_buf
             else:
-                d_eta = xp.where(r_z > 0, float(tau - 1.0), float(tau))
+                grad_nonnegative, grad_negative = _pinball_eta_gradient_values(tau)
+                d_eta = xp.where(
+                    r_z >= 0, float(grad_nonnegative), float(grad_negative)
+                )
                 if is_torch: d_eta = d_eta.to(Xd.dtype)
 
             grad = Xd.T @ d_eta / n
@@ -495,8 +575,15 @@ class QuantileRegression(BaseEstimator):
 
     def predict(self, X):
         self._check_is_fitted()
+        from statgpu.glm_core._validation import validate_glm_design_matrix
+
+        X_native = validate_glm_design_matrix(X)
+        if int(X_native.shape[1]) != int(np.asarray(self.coef_).size):
+            raise ValueError(
+                "X must have the same number of features as the fitted QuantileRegression"
+            )
         backend_name = self._selected_backend_name or "numpy"
-        X_arr = self._to_array(X, backend=backend_name)
+        X_arr = self._to_array(X_native, backend=backend_name)
         from statgpu.backends._utils import _get_xp, xp_asarray
         xp = _get_xp(backend_name)
         coef = xp_asarray(self.coef_, xp=xp, ref_arr=X_arr)
