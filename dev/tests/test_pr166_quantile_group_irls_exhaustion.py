@@ -8,9 +8,11 @@ import numpy as np
 import pytest
 
 from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
+from statgpu.glm_core._squared import SquaredErrorLoss
 from statgpu.losses import QuantileLoss
-from statgpu.penalties import GroupSCADPenalty
+from statgpu.penalties import GroupSCADPenalty, L2Penalty
 from statgpu.solvers._convergence import ConvergenceWarning
+from statgpu.solvers import _admm as admm_mod
 from statgpu.solvers import _quantile_group_proximal_irls_lla as solver_mod
 
 
@@ -153,6 +155,40 @@ def test_active_quantile_group_target_irls_budget_exhaustion_fails_in_strict_cv_
         )
 
     assert calls["value"] == 2
+
+
+def test_inner_admm_last_allowed_iteration_convergence_is_not_false_exhaustion(monkeypatch):
+    """A residual pass on the final ADMM iteration is genuine convergence."""
+    X = np.eye(2, dtype=np.float64)
+    y = np.zeros(2, dtype=np.float64)
+    loss = SquaredErrorLoss()
+    penalty = L2Penalty(alpha=0.1)
+    residuals = [(1.0, 1.0), (0.0, 0.0)]
+    calls = {"value": 0}
+
+    def staged_residuals(*args, **kwargs):
+        idx = calls["value"]
+        calls["value"] += 1
+        return residuals[idx]
+
+    monkeypatch.setattr(admm_mod, "_sync_scalars", staged_residuals)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        coef, n_iter = admm_mod.admm_solver(
+            loss,
+            penalty,
+            X,
+            y,
+            max_iter=2,
+            tol=0.1,
+            rho=1.0,
+            adaptive_rho=False,
+        )
+
+    assert calls["value"] == 2
+    assert n_iter == 2
+    np.testing.assert_array_equal(coef, np.zeros(2, dtype=np.float64))
 
 
 def test_later_converged_active_irls_clears_prior_active_exhaustion(monkeypatch):

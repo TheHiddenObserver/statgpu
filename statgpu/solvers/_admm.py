@@ -168,6 +168,7 @@ def admm_solver(
             L_f = 1.0
         lr_sub = 1.0 / (L_f + rho + 1e-8)
     iteration = -1  # default if max_iter=0
+    converged = False
 
     for iteration in range(max_iter):
         z_old = _copy_arr(z)
@@ -237,12 +238,13 @@ def admm_solver(
             lr_sub = 1.0 / (L_f + rho + 1e-8)
 
         if rp < tol and r_dual < tol:
+            converged = True
             break
 
     # Return z (penalized/feasible variable), not w (unconstrained).
     # At convergence w ≈ z, but z always satisfies the penalty structure.
     n_iter = iteration + 1
-    if n_iter >= max_iter:
+    if not converged:
         warnings.warn(
             f"admm_solver did not converge within {max_iter} iterations "
             f"(loss={getattr(loss, 'name', '?')}, penalty={getattr(penalty, 'name', '?')}).",
