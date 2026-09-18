@@ -217,16 +217,20 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
 
         For quantile=0.5, this is negative mean absolute error / 2.
         """
-        y_pred = self.predict(X, return_cpu=True)
         y = np.asarray(y)
-        u = y - y_pred
-        q = float(self._resolved_quantile_loss_kwargs()["quantile"])
-        per_sample = np.where(u >= 0, q * u, (q - 1.0) * u)
         if sample_weight is not None:
             from statgpu.glm_core._validation import validate_glm_sample_weight
 
             sw = validate_glm_sample_weight(sample_weight, y.shape[0])
             sw = np.asarray(_to_numpy(sw), dtype=np.float64)
+        else:
+            sw = None
+
+        y_pred = self.predict(X, return_cpu=True)
+        u = y - y_pred
+        q = float(self._resolved_quantile_loss_kwargs()["quantile"])
+        per_sample = np.where(u >= 0, q * u, (q - 1.0) * u)
+        if sw is not None:
             pinball = float(np.average(per_sample, weights=sw))
         else:
             pinball = float(np.mean(per_sample))
