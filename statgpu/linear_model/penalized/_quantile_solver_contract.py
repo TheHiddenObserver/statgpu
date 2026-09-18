@@ -147,6 +147,12 @@ def _sync_public_quantile_fit_controls(owner, *, cv: bool) -> None:
     owner._max_iter = _positive_integer(owner.max_iter, "max_iter")
     owner._tol = _finite_positive(owner.tol, "tol")
 
+    if not cv:
+        fit_intercept = getattr(owner, "fit_intercept", True)
+        if not isinstance(fit_intercept, (bool, np.bool_)):
+            raise ValueError("fit_intercept must be boolean")
+        owner._fit_intercept = bool(fit_intercept)
+
     if not cv and _penalty_name(getattr(owner, "penalty", "")) in _NONCONVEX_QUANTILE_PENALTIES:
         owner._max_lla_iters = _positive_integer(
             owner.max_lla_iters, "max_lla_iters"

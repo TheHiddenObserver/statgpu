@@ -182,6 +182,37 @@ def test_quantile_group_nonconvex_explicit_fista_stays_explicit(monkeypatch, kin
     assert seen["fista"] == 1
 
 
+def test_group_quantile_public_fit_intercept_replacement_reaches_solver(monkeypatch):
+    X, y, weights = _data(seed=166309)
+    captured = {}
+
+    def fake_solver(loss, penalty, X_fit, y_fit, alpha_path, **kwargs):
+        captured["fit_intercept"] = kwargs["fit_intercept"]
+        return np.zeros(X_fit.shape[1], dtype=np.float64), 0.0, 1
+
+    monkeypatch.setattr(
+        group_solver, "quantile_group_proximal_irls_lla_solver", fake_solver
+    )
+    model = PenalizedGeneralizedLinearModel(
+        loss="quantile",
+        loss_kwargs={"quantile": Q},
+        penalty="group_scad",
+        penalty_kwargs=_penalty_kwargs("group_scad"),
+        alpha=0.04,
+        solver="auto",
+        device="cpu",
+        fit_intercept=True,
+        max_iter=40,
+        tol=1e-6,
+    )
+    model.fit_intercept = False
+    model.fit(X, y, sample_weight=weights)
+
+    assert captured["fit_intercept"] is False
+    assert model._effective_intercept is False
+    assert model.intercept_ == 0.0
+
+
 @pytest.mark.parametrize("kind", ["group_scad", "group_mcp"])
 def test_quantile_group_nonconvex_actual_cpu_fit_runs_full_auto_route(kind):
     X, y, weights = _data(seed=166305, n=20)

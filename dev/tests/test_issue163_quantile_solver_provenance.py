@@ -110,6 +110,46 @@ def test_quantile_cv_public_stopping_controls_fail_closed(name, value, message):
         cv.fit(X, y)
 
 
+def test_quantile_direct_public_fit_intercept_replacement_is_authoritative():
+    X, y = _data(seed=16315)
+    model = PenalizedQuantileRegression(
+        quantile=0.4,
+        penalty="l2",
+        alpha=0.02,
+        solver="auto",
+        fit_intercept=True,
+        device="cpu",
+        max_iter=300,
+        tol=1e-8,
+    )
+    model.fit_intercept = False
+    model.fit(X, y)
+
+    assert model._fit_intercept is False
+    assert model._effective_intercept is False
+    assert model.intercept_ == 0.0
+
+
+def test_quantile_direct_invalid_public_fit_intercept_fails_before_backend(monkeypatch):
+    X, y = _data(seed=16316)
+    model = PenalizedQuantileRegression(
+        quantile=0.4,
+        penalty="l2",
+        alpha=0.02,
+        solver="auto",
+        fit_intercept=True,
+        device="cpu",
+    )
+    model.fit_intercept = "False"
+
+    def forbidden_backend(*args, **kwargs):
+        raise AssertionError("backend work must not start")
+
+    monkeypatch.setattr(model, "_get_backend", forbidden_backend)
+    with pytest.raises(ValueError, match="fit_intercept must be boolean"):
+        model.fit(X, y)
+
+
 def test_explicit_irls_l2_matches_auto_quantile_fit():
     X, y = _data(seed=16302)
     common = dict(
