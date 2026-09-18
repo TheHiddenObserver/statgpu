@@ -35,6 +35,32 @@ class TestQuantileRegression:
         assert m.n_iter_ > 0
         assert not hasattr(m, '_bse') or m._bse is None
 
+    def test_extreme_quantile_kernel_inference_fails_closed(self):
+        model = QuantileRegression(
+            quantile=0.01,
+            compute_inference=True,
+            inference_method="kernel",
+            bandwidth="hsheather",
+        )
+        with pytest.raises(ValueError, match="q ± h leaves the probability interval"):
+            model.fit(self.X, self.y)
+        assert model._fitted is False
+        assert model.coef_ is None
+        assert model._inference_result is None
+
+    def test_degenerate_kernel_bandwidth_fails_closed(self):
+        X = self.X.copy()
+        y = np.full(self.X.shape[0], 2.0, dtype=np.float64)
+        model = QuantileRegression(
+            quantile=0.5,
+            compute_inference=True,
+            inference_method="kernel",
+        )
+        with pytest.raises(ValueError, match="bandwidth must be finite and positive"):
+            model.fit(X, y)
+        assert model._fitted is False
+        assert model._inference_result is None
+
     def test_fit_with_kernel_inference(self):
         m = QuantileRegression(quantile=0.5, compute_inference=True,
                                 inference_method='kernel')

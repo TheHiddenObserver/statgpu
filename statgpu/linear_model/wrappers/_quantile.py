@@ -330,7 +330,25 @@ class QuantileRegression(BaseEstimator):
         else:
             raise ValueError(f"bandwidth must be 'hsheather', 'bofinger', or 'chamberlain', got '{rule}'")
 
-        return scale * (_norm.ppf(q + h_base) - _norm.ppf(q - h_base))
+        lower_prob = float(q - h_base)
+        upper_prob = float(q + h_base)
+        if not (0.0 < lower_prob < upper_prob < 1.0):
+            raise ValueError(
+                "Quantile inference bandwidth is undefined for this quantile/sample-size "
+                "combination because q ± h leaves the probability interval (0, 1). "
+                "Use a less extreme quantile, more observations, or a different "
+                "validated bandwidth rule."
+            )
+        bandwidth_value = scale * (
+            _norm.ppf(upper_prob) - _norm.ppf(lower_prob)
+        )
+        bandwidth_value = float(bandwidth_value)
+        if not np.isfinite(bandwidth_value) or bandwidth_value <= 0.0:
+            raise ValueError(
+                "Quantile inference bandwidth must be finite and positive; "
+                "the response/residual scale is degenerate for kernel inference."
+            )
+        return bandwidth_value
 
     def _compute_inference_kernel(self, X, y):
         """Kernel-based sandwich covariance (Powell 1991).
