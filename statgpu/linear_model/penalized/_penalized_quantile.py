@@ -222,6 +222,8 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
         # reporting conversion instead of relying on NumPy implicit
         # conversion (which CuPy and Torch CUDA intentionally reject).
         y = np.asarray(_to_numpy(y))
+        if y.ndim != 1:
+            raise ValueError("y must be one-dimensional for Quantile score")
         if sample_weight is not None:
             from statgpu.glm_core._validation import validate_glm_sample_weight
 
@@ -230,7 +232,11 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
         else:
             sw = None
 
-        y_pred = self.predict(X, return_cpu=True)
+        y_pred = np.asarray(self.predict(X, return_cpu=True))
+        if y.shape[0] != y_pred.shape[0]:
+            raise ValueError(
+                "y must have the same number of observations as X for Quantile score"
+            )
         u = y - y_pred
         q = float(self._resolved_quantile_loss_kwargs()["quantile"])
         per_sample = np.where(u >= 0, q * u, (q - 1.0) * u)

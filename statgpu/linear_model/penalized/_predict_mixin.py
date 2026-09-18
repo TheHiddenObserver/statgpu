@@ -180,6 +180,8 @@ class _PenalizedPredictMixin:
         # rather than NumPy's implicit array protocol. Leave all other loss
         # families on their historical score conversion path.
         y = np.asarray(_to_numpy(y) if is_quantile else y)
+        if is_quantile and y.ndim != 1:
+            raise ValueError("y must be one-dimensional for Quantile score")
         if is_quantile and sample_weight is not None:
             from statgpu.glm_core._validation import validate_glm_sample_weight
 
@@ -193,6 +195,10 @@ class _PenalizedPredictMixin:
         # predict() and score() backend resolution logic. Quantile weight
         # validation above intentionally runs before any prediction work.
         y_pred_np = np.asarray(_to_numpy(self.predict(X, return_cpu=True)))
+        if is_quantile and y.shape[0] != y_pred_np.shape[0]:
+            raise ValueError(
+                "y must have the same number of observations as X for Quantile score"
+            )
         sw = np.asarray(sample_weight, dtype=np.float64).ravel() if sample_weight is not None else None
         resid_sq = (y - y_pred_np) ** 2
         if sw is not None:

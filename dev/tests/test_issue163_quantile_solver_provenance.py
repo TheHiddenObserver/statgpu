@@ -403,6 +403,69 @@ def test_quantile_score_uses_explicit_reporting_conversion_for_backend_y(
     assert np.isfinite(score)
 
 
+@pytest.mark.parametrize(
+    "factory",
+    [
+        lambda: PenalizedQuantileRegression(
+            quantile=0.3,
+            penalty="l2",
+            alpha=0.02,
+            solver="irls",
+            device="cpu",
+        ),
+        lambda: PenalizedGeneralizedLinearModel(
+            loss="quantile",
+            loss_kwargs={"quantile": 0.3},
+            penalty="l2",
+            alpha=0.02,
+            solver="auto",
+            device="cpu",
+        ),
+    ],
+)
+def test_quantile_score_rejects_non_1d_response_before_prediction(
+    monkeypatch, factory
+):
+    X, y = _data(seed=16362, n=20)
+    model = factory()
+
+    def forbidden_predict(*args, **kwargs):
+        raise AssertionError("invalid response shape must fail before prediction")
+
+    monkeypatch.setattr(model, "predict", forbidden_predict)
+    with pytest.raises(ValueError, match="one-dimensional"):
+        model.score(X, y[:, None])
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        lambda: PenalizedQuantileRegression(
+            quantile=0.3,
+            penalty="l2",
+            alpha=0.02,
+            solver="irls",
+            device="cpu",
+        ),
+        lambda: PenalizedGeneralizedLinearModel(
+            loss="quantile",
+            loss_kwargs={"quantile": 0.3},
+            penalty="l2",
+            alpha=0.02,
+            solver="auto",
+            device="cpu",
+        ),
+    ],
+)
+def test_quantile_score_rejects_response_length_mismatch(factory):
+    X, y = _data(seed=16363, n=20)
+    model = factory()
+    model.predict = lambda X_arg, return_cpu=True: np.zeros(X.shape[0], dtype=np.float64)
+
+    with pytest.raises(ValueError, match="same number of observations as X"):
+        model.score(X, y[:1])
+
+
 def test_generic_quantile_score_rejects_invalid_weights_before_prediction(monkeypatch):
     X = np.array(
         [[-1.0, 0.2], [0.0, -0.1], [0.5, 0.4], [1.0, -0.3]],
