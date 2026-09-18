@@ -120,6 +120,27 @@ def test_public_quantile_fista_lbfgs_reject_invalid_xy_before_loss_work(
         )
 
 
+def test_public_quantile_cd_solver_is_fail_closed_compatibility_symbol(monkeypatch):
+    X, y = _data(seed=16716)
+    loss = QuantileLoss(quantile=0.3)
+    penalty = SCADPenalty(alpha=0.04)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("retired Quantile CD kernel must not execute")
+
+    import statgpu.solvers._quantile_solver_guard as guard_mod
+
+    monkeypatch.setattr(guard_mod, "_quantile_cd_solver", forbidden)
+    with pytest.raises(NotImplementedError, match="compatibility symbol"):
+        solvers.quantile_cd_solver(
+            loss,
+            penalty,
+            X,
+            y,
+            sample_weight=np.linspace(0.5, 1.5, X.shape[0]),
+        )
+
+
 @pytest.mark.parametrize("sample_weight", _invalid_weights(24))
 def test_direct_quantile_irls_rejects_invalid_weights_before_numerics(sample_weight):
     X, y = _data()

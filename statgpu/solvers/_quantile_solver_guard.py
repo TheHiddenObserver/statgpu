@@ -26,6 +26,7 @@ from ._admm import admm_solver as _admm_solver
 from ._fista import fista_solver as _fista_solver
 from ._fista_bb import fista_bb_solver as _fista_bb_solver
 from ._lbfgs import lbfgs_solver as _lbfgs_solver
+from ._quantile_cd import quantile_cd_solver as _quantile_cd_solver
 
 
 def _is_quantile(loss) -> bool:
@@ -91,6 +92,29 @@ lbfgs_solver.__doc__ = (
     + "\n\n"
     + (_lbfgs_solver.__doc__ or "").lstrip()
 )
+
+@wraps(_quantile_cd_solver)
+def quantile_cd_solver(*args, **kwargs):
+    """Fail closed for the retired experimental Quantile coordinate-descent path."""
+    raise NotImplementedError(
+        "quantile_cd_solver is retained only as a compatibility symbol and is "
+        "not a maintained public numerical route. The historical implementation "
+        "silently ignored sample_weight and could not represent an unpenalized "
+        "intercept reliably. Use proximal_irls_quantile_solver for maintained "
+        "scalar SCAD/MCP Quantile fitting, or ordinary fista_solver for supported "
+        "convex Quantile objectives."
+    )
+
+
+_quantile_cd_solver_doc = """Compatibility boundary
+
+The historical Quantile coordinate-descent implementation is not a maintained
+public numerical route. It is retained only as an import-compatible symbol and
+fails before numerical work. Use proximal_irls_quantile_solver for scalar
+SCAD/MCP Quantile objectives or ordinary fista_solver for supported convex
+Quantile objectives.
+"""
+quantile_cd_solver.__doc__ = _quantile_cd_solver_doc
 
 def _reject_quantile(solver_name: str, reason: str) -> None:
     raise ValueError(
