@@ -271,6 +271,31 @@ def test_quantile_cv_rejects_malformed_custom_folds_before_candidate_work(
     assert model.estimator_ is None
 
 
+def test_quantile_cv_rejects_response_length_mismatch_before_grid_work(
+    monkeypatch,
+):
+    X, y, _ = _data(seed=16366, n=24)
+    model = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.35},
+        penalty="l1",
+        cv=2,
+        solver="auto",
+        device="cpu",
+    )
+
+    def forbidden_standard(*args, **kwargs):
+        raise AssertionError("invalid response length must fail before CV grid work")
+
+    monkeypatch.setattr(model, "_fit_standard", forbidden_standard)
+    with pytest.raises(ValueError, match="Response length must match"):
+        model.fit(X, y[:1])
+
+    assert model._fitted is False
+    assert model.alpha_grid_ is None
+    assert model.estimator_ is None
+
+
 def test_quantile_cv_rejects_malformed_custom_folds_before_auto_grid_work(
     monkeypatch,
 ):

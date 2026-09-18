@@ -60,6 +60,57 @@ def _data(seed=16301, n=96, p=2):
         ),
     ],
 )
+@pytest.mark.parametrize(
+    ("penalty", "penalty_kwargs"),
+    [
+        ("l1", None),
+        ("group_lasso", {"groups": [[0], [1]]}),
+    ],
+)
+def test_quantile_fit_rejects_response_length_mismatch_before_backend(
+    monkeypatch, penalty, penalty_kwargs
+):
+    X, y = _data(seed=16364, n=32, p=2)
+    model = PenalizedQuantileRegression(
+        quantile=0.3,
+        penalty=penalty,
+        penalty_kwargs=penalty_kwargs,
+        alpha=0.02,
+        solver="auto",
+        device="cpu",
+        compute_inference=False,
+    )
+
+    def forbidden_backend(*args, **kwargs):
+        raise AssertionError("invalid response length must fail before backend work")
+
+    monkeypatch.setattr(model, "_get_backend", forbidden_backend)
+    with pytest.raises(ValueError, match="Response length must match"):
+        model.fit(X, y[:1])
+
+
+def test_quantile_fit_single_column_response_matches_one_dimensional_response():
+    X, y = _data(seed=16365, n=40, p=2)
+    common = dict(
+        quantile=0.35,
+        penalty="l2",
+        alpha=0.02,
+        solver="auto",
+        device="cpu",
+        max_iter=300,
+        tol=1e-8,
+    )
+    one_dimensional = PenalizedQuantileRegression(**common).fit(X, y)
+    single_column = PenalizedQuantileRegression(**common).fit(X, y[:, None])
+
+    np.testing.assert_allclose(
+        single_column.coef_, one_dimensional.coef_, rtol=0.0, atol=0.0
+    )
+    assert single_column.intercept_ == pytest.approx(
+        one_dimensional.intercept_, rel=0.0, abs=0.0
+    )
+
+
 def test_l2_quantile_auto_reports_and_executes_irls(factory):
     X, y = _data()
     model = factory().fit(X, y)
