@@ -342,28 +342,31 @@ def test_quantile_auto_alpha_grid_uses_weighted_pinball_zero_score():
     )
 
 
-def test_quantile_group_scad_auto_alpha_grid_uses_group_public_scale():
+@pytest.mark.parametrize(
+    ("penalty_name", "penalty_kwargs"),
+    [
+        ("group_scad", {"a": 3.7}),
+        ("group_mcp", {"gamma": 3.0}),
+    ],
+)
+def test_quantile_group_nonconvex_auto_alpha_grid_uses_group_public_scale(
+    penalty_name, penalty_kwargs
+):
     X, y, _ = _data(seed=16343, n=44)
     tau = 0.31
     groups = [[0, 1]]
+    kwargs = {"groups": groups, **penalty_kwargs}
     model = PenalizedGLM_CV(
         loss="quantile",
         loss_kwargs={"quantile": tau},
-        penalty="group_scad",
-        penalty_kwargs={"groups": groups, "a": 3.7},
+        penalty=penalty_name,
+        penalty_kwargs=kwargs,
         alpha_grid=None,
         n_alphas=3,
         cv=2,
         solver="auto",
         device="cpu",
     )
-    # The group contract normally prepares this metadata at fit entry. Build
-    # the same resolved penalty state here so this focused grid test exercises
-    # the public alpha scaling without running candidate fits.
-    from statgpu.penalties import GroupSCADPenalty
-
-    model.penalty = GroupSCADPenalty(alpha=1.0, groups=groups, a=3.7)
-    model._penalty_kwargs = {"groups": groups, "a": 3.7}
 
     grid = model._generate_alpha_grid(X, y)
 
@@ -371,10 +374,7 @@ def test_quantile_group_scad_auto_alpha_grid_uses_group_public_scale():
     residual = y - intercept
     psi = np.where(residual >= 0.0, tau, -(1.0 - tau))
     score = X.T @ psi / float(X.shape[0])
-    expected = max(
-        float(np.linalg.norm(score[np.asarray(group)])) / np.sqrt(len(group))
-        for group in groups
-    )
+    expected = float(np.linalg.norm(score)) / np.sqrt(score.size)
     assert grid[0] == pytest.approx(expected, rel=0.0, abs=1e-14)
 
 
