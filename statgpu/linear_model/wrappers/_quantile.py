@@ -138,11 +138,15 @@ class QuantileRegression(BaseEstimator):
                     "Valid options: ['bootstrap', 'kernel']."
                 )
             if self._inference_method == "kernel":
-                if self.kernel not in {"epa", "gau", "biw", "cos", "par"}:
+                if not isinstance(self.kernel, str) or self.kernel not in {
+                    "epa", "gau", "biw", "cos", "par"
+                }:
                     raise ValueError(
                         "kernel must be one of ['epa', 'gau', 'biw', 'cos', 'par']"
                     )
-                if self.bandwidth not in {"hsheather", "bofinger", "chamberlain"}:
+                if not isinstance(self.bandwidth, str) or self.bandwidth not in {
+                    "hsheather", "bofinger", "chamberlain"
+                }:
                     raise ValueError(
                         "bandwidth must be 'hsheather', 'bofinger', or 'chamberlain'"
                     )
@@ -175,6 +179,9 @@ class QuantileRegression(BaseEstimator):
         try:
             return self._fit_impl(X, y, sample_weight=sample_weight)
         except Exception:
+            backend_name = getattr(self, "_selected_backend_name", None)
+            if self._gpu_memory_cleanup and backend_name is not None:
+                self._cleanup_backend_memory(backend_name)
             self._reset_fit_state()
             raise
 
@@ -210,6 +217,7 @@ class QuantileRegression(BaseEstimator):
 
         backend = self._get_backend(backend="auto")
         backend_name = backend.name
+        self._selected_backend_name = backend_name
         X_arr = self._to_array(X_native, backend=backend_name)
         y_arr = self._to_array(y_native, backend=backend_name)
         n, p = X_arr.shape
@@ -242,8 +250,6 @@ class QuantileRegression(BaseEstimator):
             self._params = np.concatenate([[self.intercept_], self.coef_])
         else:
             self._params = self.coef_.copy()
-        self._selected_backend_name = backend_name
-
         if self._compute_inference_enabled:
             self._compute_inference(X_arr, y_arr, loss,
                                      backend_name=backend_name)
@@ -662,7 +668,7 @@ class QuantileRegression(BaseEstimator):
             pass
 
     def _cleanup_backend_memory(self, backend_name):
-        if backend_name == "cuda":
+        if backend_name in ("cuda", "cupy"):
             self._cleanup_cuda_memory()
         elif backend_name == "torch":
             self._cleanup_torch_memory()

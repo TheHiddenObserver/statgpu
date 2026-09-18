@@ -101,6 +101,66 @@ class TestQuantileRegression:
         assert model._fitted is False
         assert model.coef_ is None
 
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            ({"kernel": ["epa"], "compute_inference": True}, "kernel must be one of"),
+            (
+                {"bandwidth": ["hsheather"], "compute_inference": True},
+                "bandwidth must be",
+            ),
+        ],
+    )
+    def test_unhashable_inference_controls_raise_public_value_error(
+        self, kwargs, message
+    ):
+        model = QuantileRegression(**kwargs)
+        with pytest.raises(ValueError, match=message):
+            model.fit(self.X, self.y)
+        assert model._fitted is False
+        assert model.coef_ is None
+
+    def test_cleanup_backend_routes_cupy_name_to_cuda_cleanup(self, monkeypatch):
+        model = QuantileRegression(gpu_memory_cleanup=True)
+        calls = []
+        monkeypatch.setattr(model, "_cleanup_cuda_memory", lambda: calls.append("cupy"))
+        monkeypatch.setattr(model, "_cleanup_torch_memory", lambda: calls.append("torch"))
+
+        model._cleanup_backend_memory("cupy")
+        model._cleanup_backend_memory("torch")
+
+        assert calls == ["cupy", "torch"]
+
+    def test_failed_cupy_fit_runs_cleanup_before_state_reset(self, monkeypatch):
+        import statgpu.linear_model.wrappers._quantile as quantile_mod
+
+        class FakeBackend:
+            name = "cupy"
+
+        model = QuantileRegression(
+            fit_intercept=False,
+            gpu_memory_cleanup=True,
+            compute_inference=False,
+        )
+        cleanup_calls = []
+        monkeypatch.setattr(model, "_get_backend", lambda backend="auto": FakeBackend())
+        monkeypatch.setattr(model, "_to_array", lambda value, backend=None: np.asarray(value))
+        monkeypatch.setattr(
+            model, "_cleanup_cuda_memory", lambda: cleanup_calls.append("cupy")
+        )
+
+        def failing_solver(*args, **kwargs):
+            raise RuntimeError("synthetic solver failure")
+
+        monkeypatch.setattr(quantile_mod, "fista_solver", failing_solver)
+        with pytest.raises(RuntimeError, match="synthetic solver failure"):
+            model.fit(self.X, self.y)
+
+        assert cleanup_calls == ["cupy"]
+        assert model._fitted is False
+        assert model.coef_ is None
+        assert model._selected_backend_name is None
+
     @pytest.mark.parametrize("n_bootstrap", [0, 1, True, 2.5])
     def test_invalid_bootstrap_count_fails_before_solver(self, monkeypatch, n_bootstrap):
         import statgpu.linear_model.wrappers._quantile as quantile_mod
