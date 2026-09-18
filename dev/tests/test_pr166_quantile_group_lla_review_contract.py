@@ -149,6 +149,45 @@ def test_quantile_group_nonconvex_auto_uses_group_proximal_irls_lla(monkeypatch,
 
 
 @pytest.mark.parametrize("kind", ["group_scad", "group_mcp"])
+def test_quantile_group_auto_does_not_build_discarded_scalar_continuation(
+    monkeypatch, kind
+):
+    X, y, _ = _data(seed=166313)
+
+    def forbidden_scalar_path(*args, **kwargs):
+        raise AssertionError("Group Quantile auto route must not build scalar continuation")
+
+    def fake_solver(loss, penalty, X_fit, y_fit, alpha_path, **kwargs):
+        return np.zeros(X_fit.shape[1], dtype=np.float64), 0.0, 1
+
+    monkeypatch.setattr(
+        PenalizedGeneralizedLinearModel,
+        "_compute_lla_path",
+        forbidden_scalar_path,
+    )
+    monkeypatch.setattr(
+        group_solver,
+        "quantile_group_proximal_irls_lla_solver",
+        fake_solver,
+    )
+
+    model = PenalizedGeneralizedLinearModel(
+        loss="quantile",
+        loss_kwargs={"quantile": Q},
+        penalty=kind,
+        penalty_kwargs=_penalty_kwargs(kind),
+        alpha=0.04,
+        solver="auto",
+        device="cpu",
+        fit_intercept=True,
+        max_iter=80,
+        tol=1e-7,
+    ).fit(X, y)
+
+    assert model._selected_solver == "group_proximal_irls_lla"
+
+
+@pytest.mark.parametrize("kind", ["group_scad", "group_mcp"])
 def test_quantile_group_unweighted_continuation_uses_group_alpha_scale(
     monkeypatch, kind
 ):
