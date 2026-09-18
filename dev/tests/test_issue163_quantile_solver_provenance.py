@@ -275,6 +275,8 @@ def test_quantile_solver_contract_installer_is_idempotent_and_signature_safe():
 
     before_policy = _fit_mixin._preferred_penalized_glm_solver
     before_validate = PenalizedGeneralizedLinearModel._validate_solver_penalty
+    before_direct_fit = PenalizedGeneralizedLinearModel.fit
+    before_cv_fit = PenalizedGLM_CV.fit
     policy_signature = inspect.signature(before_policy)
     validate_signature = inspect.signature(before_validate)
 
@@ -282,10 +284,16 @@ def test_quantile_solver_contract_installer_is_idempotent_and_signature_safe():
 
     assert _fit_mixin._preferred_penalized_glm_solver is before_policy
     assert PenalizedGeneralizedLinearModel._validate_solver_penalty is before_validate
+    assert PenalizedGeneralizedLinearModel.fit is before_direct_fit
+    assert PenalizedGLM_CV.fit is before_cv_fit
     assert inspect.signature(before_policy) == policy_signature
     assert inspect.signature(before_validate) == validate_signature
     assert hasattr(before_policy, "__wrapped__")
     assert hasattr(before_validate, "__wrapped__")
+    assert getattr(
+        before_direct_fit, contract._DIRECT_FIT_SOLVER_SYNC_MARKER, False
+    )
+    assert getattr(before_cv_fit, contract._CV_FIT_SOLVER_SYNC_MARKER, False)
 
 
 def test_quantile_solver_installer_is_import_order_safe_in_fresh_interpreter():

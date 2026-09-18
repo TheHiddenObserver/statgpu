@@ -28,6 +28,8 @@ PenalizedGLM_CV = _cv_mod.PenalizedGLM_CV
 _POLICY_MARKER = "_statgpu_quantile_solver_policy_contract"
 _VALIDATE_MARKER = "_statgpu_quantile_solver_validate_contract"
 _CV_FIT_VALIDATE_MARKER = "_statgpu_quantile_cv_fit_validate_contract"
+_DIRECT_FIT_SOLVER_SYNC_MARKER = "_statgpu_quantile_direct_fit_solver_sync_contract"
+_CV_FIT_SOLVER_SYNC_MARKER = "_statgpu_quantile_cv_fit_solver_sync_contract"
 _CV_PUBLIC_SOLVER_MARKER = "_statgpu_quantile_cv_public_solver_contract"
 _CV_CONTEXT_MARKER = "_statgpu_quantile_solver_cv_context_contract"
 _CV_SCORE_CONTEXT_MARKER = "_statgpu_quantile_cv_score_context_contract"
@@ -115,6 +117,50 @@ def _validate_quantile_solver_request(
             f"solver='{resolved_solver}' is not supported for L2/no-penalty "
             "Quantile objectives; use solver='irls' or solver='auto'."
         )
+
+
+def _sync_public_solver(owner) -> None:
+    """Make direct public solver replacement authoritative for the next fit."""
+    solver = getattr(owner, "solver", getattr(owner, "_solver", "auto"))
+    owner._solver = solver.lower() if isinstance(solver, str) else solver
+
+
+def _install_public_solver_refit_sync() -> None:
+    """Synchronize the public Quantile solver before validation/dispatch."""
+
+    current_direct_fit = PenalizedGeneralizedLinearModel.fit
+    if not getattr(current_direct_fit, _DIRECT_FIT_SOLVER_SYNC_MARKER, False):
+
+        @wraps(current_direct_fit)
+        def _fit_with_current_public_solver(self, *args, **kwargs):
+            if _loss_name(getattr(self, "loss", "")) == "quantile":
+                _sync_public_solver(self)
+            return current_direct_fit(self, *args, **kwargs)
+
+        setattr(
+            _fit_with_current_public_solver,
+            _DIRECT_FIT_SOLVER_SYNC_MARKER,
+            True,
+        )
+        _fit_with_current_public_solver._statgpu_original = current_direct_fit
+        PenalizedGeneralizedLinearModel.fit = _fit_with_current_public_solver
+
+    current_cv_fit = PenalizedGLM_CV.fit
+    if not getattr(current_cv_fit, _CV_FIT_SOLVER_SYNC_MARKER, False):
+
+        @wraps(current_cv_fit)
+        def _cv_fit_with_current_public_solver(self, *args, **kwargs):
+            if _loss_name(getattr(self, "loss", "")) == "quantile":
+                _sync_public_solver(self)
+            return current_cv_fit(self, *args, **kwargs)
+
+        setattr(
+            _cv_fit_with_current_public_solver,
+            _CV_FIT_SOLVER_SYNC_MARKER,
+            True,
+        )
+        _cv_fit_with_current_public_solver._statgpu_original = current_cv_fit
+        PenalizedGLM_CV.fit = _cv_fit_with_current_public_solver
 
 
 def _install_policy_contract() -> None:
@@ -388,6 +434,7 @@ def _install_explicit_route_guard() -> None:
 
 def install_quantile_solver_contract() -> None:
     """Install Quantile solver/provenance/scoring reconciliation idempotently."""
+    _install_public_solver_refit_sync()
     _install_policy_contract()
     _install_cv_fit_route_guard()
     _install_cv_public_solver_guard()

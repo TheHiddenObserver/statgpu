@@ -20,6 +20,43 @@ def _data():
     return X, y, folds
 
 
+def test_direct_group_public_solver_replacement_from_fista_to_auto_uses_auto_route(
+    monkeypatch,
+):
+    from statgpu.solvers import _quantile_group_proximal_irls_lla as solver_mod
+
+    X, y, _ = _data()
+    seen = {"group": 0}
+
+    def fake_group_solver(loss, penalty, X_fit, y_fit, alpha_path, **kwargs):
+        seen["group"] += 1
+        return np.zeros(X_fit.shape[1], dtype=np.float64), 0.0, 1
+
+    monkeypatch.setattr(
+        solver_mod, "quantile_group_proximal_irls_lla_solver", fake_group_solver
+    )
+    model = PenalizedGeneralizedLinearModel(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.35},
+        penalty="group_scad",
+        penalty_kwargs={"groups": GROUPS, "a": 3.7},
+        alpha=0.04,
+        solver="fista",
+        device="cpu",
+        compute_inference=False,
+        max_iter=20,
+        tol=1e-6,
+        max_lla_iters=6,
+        lla_tol=1e-6,
+    )
+    model.solver = "auto"
+    model.fit(X, y)
+
+    assert model._solver == "auto"
+    assert model._selected_solver == "group_proximal_irls_lla"
+    assert seen["group"] == 1
+
+
 @pytest.mark.parametrize(
     ("name", "value", "message"),
     [

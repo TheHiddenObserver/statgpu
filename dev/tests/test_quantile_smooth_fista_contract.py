@@ -74,6 +74,56 @@ def test_explicit_smooth_quantile_fista_is_true_fista_and_weighted(
     assert model.n_iter_ >= 1
 
 
+def test_direct_public_solver_replacement_from_auto_to_fista_is_authoritative(monkeypatch):
+    X, y, weights = _data(seed=16685, n=64)
+
+    def forbidden_irls(*args, **kwargs):
+        raise AssertionError("public solver='fista' replacement must not execute IRLS")
+
+    monkeypatch.setattr(QuantileLoss, "irls", forbidden_irls)
+    model = PenalizedQuantileRegression(
+        quantile=0.35,
+        penalty="l2",
+        alpha=0.02,
+        solver="auto",
+        device="cpu",
+        max_iter=2500,
+        tol=1e-7,
+    )
+    model.solver = "fista"
+    model.fit(X, y, sample_weight=weights)
+
+    assert model._solver == "fista"
+    assert model._selected_solver == "fista"
+
+
+def test_cv_public_solver_replacement_from_auto_to_fista_is_authoritative(monkeypatch):
+    X, y, weights = _data(seed=16686, n=60)
+
+    def forbidden_irls(*args, **kwargs):
+        raise AssertionError("CV public solver='fista' replacement must not execute IRLS")
+
+    monkeypatch.setattr(QuantileLoss, "irls", forbidden_irls)
+    cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.4},
+        penalty="l2",
+        alpha_grid=np.array([0.03], dtype=np.float64),
+        cv=2,
+        random_state=166,
+        solver="auto",
+        device="cpu",
+        max_iter=2500,
+        tol=1e-7,
+    )
+    cv.solver = "fista"
+    cv.fit(X, y, sample_weight=weights)
+
+    assert cv._solver == "fista"
+    assert cv._solver_for_cv("cpu", X=X) == "fista"
+    assert cv.estimator_._selected_solver == "fista"
+
+
 def test_explicit_l2_quantile_fista_matches_irls_objective():
     X, y, weights = _data(seed=16682, n=96)
     common = dict(

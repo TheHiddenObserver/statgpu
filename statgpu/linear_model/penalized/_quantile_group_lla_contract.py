@@ -59,7 +59,11 @@ def _is_quantile_group_nonconvex(owner) -> bool:
 
 
 def _public_solver_is_auto(owner) -> bool:
-    return str(getattr(owner, "_solver", "") or "").lower().strip() == "auto"
+    # Public constructor parameters are refit controls. Read the public value
+    # here because this predicate can run in an outer CV wrapper before the
+    # Quantile fit-entry synchronization wrapper has copied it to _solver.
+    value = getattr(owner, "solver", getattr(owner, "_solver", ""))
+    return str(value or "").lower().strip() == "auto"
 
 
 def _use_auto_group_lla(owner, solver_name) -> bool:

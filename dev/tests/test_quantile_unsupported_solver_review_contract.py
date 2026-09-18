@@ -119,6 +119,28 @@ def test_cv_quantile_new_unsupported_solver_fails_before_alpha_grid(
 
 
 @pytest.mark.parametrize("estimator_kind", ["generic", "typed"])
+def test_direct_public_solver_replacement_to_unsupported_admm_fails_before_backend(
+    monkeypatch, estimator_kind
+):
+    X, y = _data(seed=16497)
+    model = _direct_quantile_model(
+        estimator_kind,
+        solver_name="auto",
+        penalty="l1",
+    )
+    model.solver = "admm"
+
+    def forbidden_backend(*args, **kwargs):
+        raise AssertionError("backend numerical work must not start")
+
+    monkeypatch.setattr(model, "_get_backend", forbidden_backend)
+    with pytest.raises(ValueError, match="does not support Quantile loss"):
+        model.fit(X, y)
+
+    assert model._solver == "admm"
+
+
+@pytest.mark.parametrize("estimator_kind", ["generic", "typed"])
 def test_estimator_quantile_lbfgs_rejection_has_truthful_reason(
     monkeypatch, estimator_kind
 ):
