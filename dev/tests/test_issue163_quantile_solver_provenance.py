@@ -343,6 +343,36 @@ def test_invalid_quantile_cv_refit_control_clears_prior_selection_state():
     assert cv.cv_results_ is None
 
 
+@pytest.mark.parametrize(
+    "sample_weight",
+    [
+        np.array([1.0, -0.2, 1.0, 1.0]),
+        np.array([1.0, np.nan, 1.0, 1.0]),
+        np.zeros(4, dtype=np.float64),
+        np.ones(3, dtype=np.float64),
+    ],
+)
+def test_generic_quantile_score_rejects_invalid_sample_weight(sample_weight):
+    X = np.array(
+        [[-1.0, 0.2], [0.0, -0.1], [0.5, 0.4], [1.0, -0.3]],
+        dtype=np.float64,
+    )
+    y = np.array([-0.4, 0.1, 0.35, 0.8], dtype=np.float64)
+    model = PenalizedGeneralizedLinearModel(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.3},
+        penalty="l2",
+        alpha=0.02,
+        solver="auto",
+        device="cpu",
+        max_iter=200,
+        tol=1e-8,
+    ).fit(X, y)
+
+    with pytest.raises(ValueError, match="sample_weight"):
+        model.score(X, y, sample_weight=sample_weight)
+
+
 def test_explicit_irls_l2_matches_auto_quantile_fit():
     X, y = _data(seed=16302)
     common = dict(

@@ -176,6 +176,17 @@ class _PenalizedPredictMixin:
         # predict() and score() backend resolution logic.
         y_pred_np = np.asarray(_to_numpy(self.predict(X, return_cpu=True)))
         y = np.asarray(y)
+        if (
+            str(getattr(self, "loss", "")).lower().strip() == "quantile"
+            and sample_weight is not None
+        ):
+            from statgpu.glm_core._validation import validate_glm_sample_weight
+
+            sample_weight = validate_glm_sample_weight(
+                sample_weight,
+                y.shape[0],
+            )
+            sample_weight = _to_numpy(sample_weight)
         sw = np.asarray(sample_weight, dtype=np.float64).ravel() if sample_weight is not None else None
         resid_sq = (y - y_pred_np) ** 2
         if sw is not None:
