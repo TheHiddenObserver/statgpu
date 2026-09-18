@@ -41,6 +41,19 @@ def install_quantile_proximal_public_contract():
         fit_intercept=True,
         sample_weight=None,
     ):
+        loss_name = str(getattr(loss, "name", "") or "").lower().strip()
+        if loss_name != "quantile":
+            raise ValueError(
+                "proximal_irls_quantile_solver requires QuantileLoss"
+            )
+        penalty_name = str(
+            getattr(penalty, "name", "") or ""
+        ).lower().strip()
+        if penalty_name not in {"scad", "mcp"}:
+            raise ValueError(
+                "proximal_irls_quantile_solver requires scalar SCAD or MCP penalty"
+            )
+
         if not isinstance(fit_intercept, (bool, np.bool_)):
             raise ValueError("fit_intercept must be boolean")
         fit_intercept = bool(fit_intercept)

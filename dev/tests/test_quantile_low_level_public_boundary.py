@@ -12,7 +12,8 @@ import pytest
 from statgpu import solvers
 from statgpu.solvers._convergence import ConvergenceWarning
 from statgpu.losses import QuantileLoss
-from statgpu.penalties import SCADPenalty
+from statgpu.penalties import GroupSCADPenalty, L2Penalty, SCADPenalty
+from statgpu.glm_core._squared import SquaredErrorLoss
 import statgpu.losses._quantile_irls_validation_contract as _irls_contract
 import statgpu.solvers._quantile_proximal_public_contract as _prox_contract
 from statgpu.solvers import _proximal_irls_quantile as _prox_kernel
@@ -82,6 +83,55 @@ def test_direct_quantile_irls_validation_preserves_array_like_design_input():
     assert np.asarray(coef).shape == (X.shape[1],)
     assert np.all(np.isfinite(np.asarray(coef)))
     assert 1 <= n_iter <= 2
+
+
+@pytest.mark.parametrize(
+    ("loss_factory", "penalty_factory", "message"),
+    [
+        (
+            lambda: SquaredErrorLoss(),
+            lambda: SCADPenalty(alpha=0.05),
+            "requires QuantileLoss",
+        ),
+        (
+            lambda: QuantileLoss(quantile=0.3),
+            lambda: L2Penalty(alpha=0.05),
+            "requires scalar SCAD or MCP",
+        ),
+        (
+            lambda: QuantileLoss(quantile=0.3),
+            lambda: GroupSCADPenalty(
+                alpha=0.05,
+                a=3.7,
+                groups=[[0, 1], [2]],
+            ),
+            "requires scalar SCAD or MCP",
+        ),
+    ],
+)
+def test_public_proximal_quantile_solver_rejects_wrong_objective_before_path_work(
+    monkeypatch, loss_factory, penalty_factory, message
+):
+    X, y = _data(seed=16711)
+
+    def forbidden_path(*args, **kwargs):
+        raise AssertionError("continuation/backend work must not start")
+
+    monkeypatch.setattr(
+        _prox_contract,
+        "resolve_auto_quantile_continuation_path",
+        forbidden_path,
+    )
+
+    with pytest.raises(ValueError, match=message):
+        solvers.proximal_irls_quantile_solver(
+            loss_factory(),
+            penalty_factory(),
+            X,
+            y,
+            alpha_path=np.array([0.08, 0.05]),
+            max_iter=3,
+        )
 
 
 @pytest.mark.parametrize("sample_weight", _invalid_weights(24))
