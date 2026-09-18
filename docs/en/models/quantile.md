@@ -107,6 +107,7 @@ But `sample_weight` is **not one universal solver capability**. In particular:
 - Quantile IRLS / Proximal IRLS-CD have explicit weighted implementations;
 - Group Proximal IRLS-LLA normalizes the same analytic weights and carries them into each Quantile IRLS/MM majorization before solving the convex group surrogate;
 - ordinary FISTA, including explicitly selected L2/no-penalty FISTA, uses the loss-layer normalized weighted objective where supported;
+- Adaptive L1 uses the same analytic training weights when it must learn adaptive penalty weights from its initialization fit; user-supplied fixed adaptive weights are used directly and do not trigger a redundant initializer;
 - generic `LossBase` shared value/gradient primitives can evaluate the normalized weighted objective;
 - FISTA-BB and direct public ADMM do not support Quantile because their generic algorithms rely on smooth-gradient structure that check loss does not provide;
 - direct low-level Quantile L-BFGS retains omitted/uniform-weight compatibility, while genuine non-uniform weights raise an error; estimator/CV explicit L-BFGS remains unsupported.

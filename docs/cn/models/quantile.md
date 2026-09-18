@@ -109,6 +109,7 @@ $$
 - Quantile IRLS / Proximal IRLS-CD 具有明确的带权实现；
 - 分组 Proximal IRLS-LLA 使用同一组归一化解析权重构造 Quantile IRLS/MM 上界，然后求解相应的凸分组代理问题；
 - 普通 FISTA（包括显式选择的 L2/无惩罚 FISTA）使用损失函数层的归一化带权目标；
+- Adaptive L1 需要从初始化拟合学习 adaptive penalty weights 时，会使用同一组解析训练权重；若用户已经显式给定固定 adaptive weights，则直接使用，不再额外运行一次无效初始化；
 - 通用 `LossBase` 的共享函数值和梯度可以计算归一化带权目标；
 - FISTA-BB 与公开的直接 ADMM 不支持 Quantile，因为这些通用算法依赖 check loss 不具备的光滑梯度结构；
 - 底层 Quantile L-BFGS 保留无权重/均匀权重兼容面，但真正非均匀权重会报错；模型/CV 层显式 L-BFGS 仍不支持。
