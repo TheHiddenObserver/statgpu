@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from contextvars import ContextVar
 from functools import wraps
+from numbers import Real
 
 import numpy as np
 
@@ -86,10 +87,11 @@ def _positive_integer(value, name: str) -> int:
 
 
 def _finite_positive(value, name: str) -> float:
-    try:
-        value = float(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{name} must be a finite positive number") from exc
+    # Stopping controls are explicit numerical API, not string/truth-value
+    # coercion points. In particular True must not silently become 1.0.
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, Real):
+        raise ValueError(f"{name} must be a finite positive number")
+    value = float(value)
     if not np.isfinite(value) or value <= 0.0:
         raise ValueError(f"{name} must be a finite positive number")
     return value

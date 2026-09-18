@@ -68,8 +68,12 @@ def test_direct_group_public_solver_replacement_from_fista_to_auto_uses_auto_rou
         ("max_lla_iters", False, "max_lla_iters must be a positive integer"),
         ("tol", 0.0, "tol must be a finite positive number"),
         ("tol", np.inf, "tol must be a finite positive number"),
+        ("tol", True, "tol must be a finite positive number"),
+        ("tol", "1e-6", "tol must be a finite positive number"),
         ("lla_tol", 0.0, "lla_tol must be a finite positive number"),
         ("lla_tol", np.nan, "lla_tol must be a finite positive number"),
+        ("lla_tol", False, "lla_tol must be a finite positive number"),
+        ("lla_tol", "1e-6", "lla_tol must be a finite positive number"),
     ],
 )
 def test_direct_quantile_group_auto_rejects_invalid_stopping_controls(
@@ -105,6 +109,8 @@ def test_direct_quantile_group_auto_rejects_invalid_stopping_controls(
         ("max_iter", True, "max_iter must be a positive integer"),
         ("tol", 0.0, "tol must be a finite positive number"),
         ("tol", np.inf, "tol must be a finite positive number"),
+        ("tol", True, "tol must be a finite positive number"),
+        ("tol", "1e-6", "tol must be a finite positive number"),
     ],
 )
 def test_quantile_group_cv_rejects_invalid_stopping_controls_as_user_errors(
@@ -141,7 +147,11 @@ def test_quantile_group_cv_rejects_invalid_stopping_controls_as_user_errors(
         ("max_iter", 0, "max_iter must be a positive integer"),
         ("max_lla_iters", 0, "max_lla_iters must be a positive integer"),
         ("tol", 0.0, "tol must be a finite positive number"),
+        ("tol", True, "tol must be a finite positive number"),
+        ("tol", "1e-6", "tol must be a finite positive number"),
         ("lla_tol", np.nan, "lla_tol must be a finite positive number"),
+        ("lla_tol", False, "lla_tol must be a finite positive number"),
+        ("lla_tol", "1e-6", "lla_tol must be a finite positive number"),
     ],
 )
 def test_direct_public_stopping_replacement_is_validated_at_refit(
