@@ -104,6 +104,13 @@ def quantile_balanced_subgradient(
     fixed_sum = tau * positive_mass - (1.0 - tau) * negative_mass
     if _scalar_bool(zero_mass > 0):
         zero_value = -fixed_sum / zero_mass
+        # Floating summation order can make a clamped empirical quantile miss
+        # the exact intercept KKT inequality by a few ulps under extreme
+        # weights. Keep the chosen zero-residual value inside the legal
+        # pinball subgradient interval even in that case.
+        lower = -(1.0 - tau)
+        upper = tau
+        zero_value = xp.clip(zero_value, lower, upper)
     else:
         # No zero residual means there is no set-valued coordinate to balance.
         # The value is unused, but keep it finite for the nested where below.

@@ -104,6 +104,16 @@ def test_weighted_quantile_cutoff_roundoff_cannot_overflow_searchsorted():
     )
     assert intercept == y[-1]
 
+    residual = y - intercept
+    psi = _continuation.quantile_balanced_subgradient(
+        residual,
+        tau,
+        sample_weight=weights,
+    )
+    assert np.all(psi <= tau)
+    assert np.all(psi >= -(1.0 - tau))
+    assert psi[-1] == pytest.approx(tau, rel=0.0, abs=0.0)
+
     X = np.column_stack([np.ones_like(y), np.linspace(-1.0, 1.0, y.size)])
     auto = mark_auto_quantile_continuation_path(
         np.asarray([0.2, 0.05], dtype=np.float64)
