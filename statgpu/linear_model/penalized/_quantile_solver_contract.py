@@ -169,7 +169,15 @@ def _install_public_solver_refit_sync() -> None:
         @wraps(current_direct_fit)
         def _fit_with_current_public_solver(self, *args, **kwargs):
             if _loss_name(getattr(self, "loss", "")) == "quantile":
-                _sync_public_quantile_fit_controls(self, cv=False)
+                try:
+                    _sync_public_quantile_fit_controls(self, cv=False)
+                except Exception:
+                    from ._no_inference_cleanup_contract import (
+                        _invalidate_failed_no_inference_fit,
+                    )
+
+                    _invalidate_failed_no_inference_fit(self)
+                    raise
             return current_direct_fit(self, *args, **kwargs)
 
         setattr(
@@ -186,7 +194,11 @@ def _install_public_solver_refit_sync() -> None:
         @wraps(current_cv_fit)
         def _cv_fit_with_current_public_solver(self, *args, **kwargs):
             if _loss_name(getattr(self, "loss", "")) == "quantile":
-                _sync_public_quantile_fit_controls(self, cv=True)
+                try:
+                    _sync_public_quantile_fit_controls(self, cv=True)
+                except Exception:
+                    self._reset_cv_fit_state()
+                    raise
             return current_cv_fit(self, *args, **kwargs)
 
         setattr(

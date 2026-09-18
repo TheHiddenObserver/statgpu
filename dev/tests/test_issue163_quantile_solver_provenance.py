@@ -150,6 +150,59 @@ def test_quantile_direct_invalid_public_fit_intercept_fails_before_backend(monke
         model.fit(X, y)
 
 
+def test_invalid_direct_quantile_refit_control_clears_prior_fit_state():
+    X, y = _data(seed=16317)
+    model = PenalizedQuantileRegression(
+        quantile=0.4,
+        penalty="l2",
+        alpha=0.02,
+        solver="auto",
+        device="cpu",
+        max_iter=300,
+        tol=1e-8,
+    ).fit(X, y)
+    assert model._fitted is True
+    assert model.coef_ is not None
+
+    model.max_iter = 0
+    with pytest.raises(ValueError, match="max_iter must be a positive integer"):
+        model.fit(X, y)
+
+    assert model._fitted is False
+    assert model.coef_ is None
+    assert model.intercept_ is None
+    assert model._params is None
+    assert model._selected_solver is None
+
+
+def test_invalid_quantile_cv_refit_control_clears_prior_selection_state():
+    X, y = _data(seed=16318, n=72)
+    cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.4},
+        penalty="l2",
+        alpha_grid=np.asarray([0.03], dtype=np.float64),
+        cv=2,
+        solver="auto",
+        device="cpu",
+        max_iter=300,
+        tol=1e-8,
+    ).fit(X, y)
+    assert cv._fitted is True
+    assert cv.estimator_ is not None
+
+    cv.tol = "1e-6"
+    with pytest.raises(ValueError, match="tol must be a finite positive number"):
+        cv.fit(X, y)
+
+    assert cv._fitted is False
+    assert cv.alpha_ is None
+    assert cv.estimator_ is None
+    assert cv.coef_ is None
+    assert cv.intercept_ is None
+    assert cv.cv_results_ is None
+
+
 def test_explicit_irls_l2_matches_auto_quantile_fit():
     X, y = _data(seed=16302)
     common = dict(
