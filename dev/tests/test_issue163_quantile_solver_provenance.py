@@ -699,7 +699,15 @@ def test_quantile_solver_contract_reload_preserves_layered_explicit_solver_seman
     from statgpu.losses import QuantileLoss
     from statgpu.linear_model.penalized import _quantile_solver_contract as contract
 
+    before_direct_fit = PenalizedGeneralizedLinearModel.fit
+    before_cv_fit = PenalizedGLM_CV.fit
+    before_backend_fit = _fit_mixin._PenalizedFitMixin._fit_loss_backend
+
     reloaded = importlib.reload(contract)
+
+    assert PenalizedGeneralizedLinearModel.fit is before_direct_fit
+    assert PenalizedGLM_CV.fit is before_cv_fit
+    assert _fit_mixin._PenalizedFitMixin._fit_loss_backend is before_backend_fit
 
     X, y = _data(seed=16338, n=48)
 

@@ -61,6 +61,23 @@ _INTERNAL_CV_RESOLVED_SOLVER = ContextVar(
 _QUANTILE_CV_LEVEL = ContextVar("statgpu_quantile_cv_level", default=None)
 
 
+def _wrapper_chain_has_marker(function, marker: str) -> bool:
+    """Return whether a contract marker exists anywhere in a wrapper chain."""
+    current = function
+    seen = set()
+    while callable(current) and id(current) not in seen:
+        seen.add(id(current))
+        if bool(getattr(current, marker, False)):
+            return True
+        wrapped = getattr(current, "_statgpu_original", None)
+        if not callable(wrapped):
+            wrapped = getattr(current, "__wrapped__", None)
+        if not callable(wrapped):
+            break
+        current = wrapped
+    return False
+
+
 def _loss_name(value) -> str:
     return str(getattr(value, "name", value) or "").lower().strip()
 
@@ -290,7 +307,7 @@ def _sync_public_quantile_fit_controls(owner, *, cv: bool) -> None:
 
 def _install_scalar_cv_penalty_object_contract() -> None:
     current = PenalizedGeneralizedLinearModel._resolve_penalty
-    if getattr(current, _RESOLVE_PENALTY_MARKER, False):
+    if _wrapper_chain_has_marker(current, _RESOLVE_PENALTY_MARKER):
         return
 
     @wraps(current)
@@ -350,7 +367,9 @@ def _install_public_solver_refit_sync() -> None:
     """Synchronize the public Quantile solver before validation/dispatch."""
 
     current_direct_fit = PenalizedGeneralizedLinearModel.fit
-    if not getattr(current_direct_fit, _DIRECT_FIT_SOLVER_SYNC_MARKER, False):
+    if not _wrapper_chain_has_marker(
+        current_direct_fit, _DIRECT_FIT_SOLVER_SYNC_MARKER
+    ):
 
         @wraps(current_direct_fit)
         def _fit_with_current_public_solver(self, *args, **kwargs):
@@ -371,7 +390,9 @@ def _install_public_solver_refit_sync() -> None:
         PenalizedGeneralizedLinearModel.fit = _fit_with_current_public_solver
 
     current_cv_fit = PenalizedGLM_CV.fit
-    if not getattr(current_cv_fit, _CV_FIT_SOLVER_SYNC_MARKER, False):
+    if not _wrapper_chain_has_marker(
+        current_cv_fit, _CV_FIT_SOLVER_SYNC_MARKER
+    ):
 
         @wraps(current_cv_fit)
         def _cv_fit_with_current_public_solver(self, *args, **kwargs):
@@ -412,7 +433,7 @@ def _install_public_solver_refit_sync() -> None:
 
 def _install_policy_contract() -> None:
     current = _fit_mixin._preferred_penalized_glm_solver
-    if getattr(current, _POLICY_MARKER, False):
+    if _wrapper_chain_has_marker(current, _POLICY_MARKER):
         return
 
     @wraps(current)
@@ -448,7 +469,7 @@ def _install_policy_contract() -> None:
 def _install_cv_fit_route_guard() -> None:
     """Reject invalid explicit Quantile CV solvers before alpha-grid work."""
     current = PenalizedGLM_CV._fit_standard
-    if getattr(current, _CV_FIT_VALIDATE_MARKER, False):
+    if _wrapper_chain_has_marker(current, _CV_FIT_VALIDATE_MARKER):
         return
 
     @wraps(current)
@@ -473,7 +494,7 @@ def _install_cv_fit_route_guard() -> None:
 def _install_cv_public_solver_guard() -> None:
     """Keep the dedicated Quantile provenance label internal to CV auto routing."""
     current = PenalizedGLM_CV._solver_for_cv
-    if getattr(current, _CV_PUBLIC_SOLVER_MARKER, False):
+    if _wrapper_chain_has_marker(current, _CV_PUBLIC_SOLVER_MARKER):
         return
 
     @wraps(current)
@@ -548,7 +569,7 @@ def _install_cv_eval_contract() -> None:
         raise RuntimeError("Quantile CV evaluation entry is unavailable")
 
     current_eval_fn, uses_design = entry
-    if not getattr(current_eval_fn, _CV_EVAL_MARKER, False):
+    if not _wrapper_chain_has_marker(current_eval_fn, _CV_EVAL_MARKER):
         @wraps(current_eval_fn)
         def _eval_with_requested_quantile(eta, y, **kwargs):
             if "quantile" not in kwargs:
@@ -565,7 +586,7 @@ def _install_cv_eval_contract() -> None:
         )
 
     current_numpy_eval = _cv_mod._evaluate_loss_numpy
-    if getattr(current_numpy_eval, _CV_EVAL_MARKER, False):
+    if _wrapper_chain_has_marker(current_numpy_eval, _CV_EVAL_MARKER):
         return
 
     @wraps(current_numpy_eval)
@@ -603,7 +624,7 @@ def _install_cv_eval_contract() -> None:
 
 def _install_scad_quantile_guard() -> None:
     current = _cv_mod._scad_mcp_cv_path
-    if getattr(current, _CV_SCAD_MARKER, False):
+    if _wrapper_chain_has_marker(current, _CV_SCAD_MARKER):
         return
 
     @wraps(current)
@@ -624,7 +645,7 @@ def _install_scad_quantile_guard() -> None:
 
 def _install_incomplete_fold_batch_guard() -> None:
     current = _cv_mod._glm_sparse_cv_folds
-    if getattr(current, _CV_FOLDBATCH_MARKER, False):
+    if _wrapper_chain_has_marker(current, _CV_FOLDBATCH_MARKER):
         return
 
     @wraps(current)
@@ -645,7 +666,7 @@ def _install_incomplete_fold_batch_guard() -> None:
 
 def _install_cv_score_context() -> None:
     current = PenalizedGLM_CV._compute_cv_scores
-    if getattr(current, _CV_SCORE_CONTEXT_MARKER, False):
+    if _wrapper_chain_has_marker(current, _CV_SCORE_CONTEXT_MARKER):
         return
 
     @wraps(current)
@@ -682,7 +703,7 @@ def _install_cv_score_context() -> None:
 
 def _install_explicit_route_guard() -> None:
     current = PenalizedGeneralizedLinearModel._validate_solver_penalty
-    if getattr(current, _VALIDATE_MARKER, False):
+    if _wrapper_chain_has_marker(current, _VALIDATE_MARKER):
         return
 
     @wraps(current)

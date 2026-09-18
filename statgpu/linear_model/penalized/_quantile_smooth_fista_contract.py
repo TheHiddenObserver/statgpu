@@ -50,6 +50,22 @@ class _QuantileFistaLossView:
         return getattr(self._loss, name)
 
 
+def _wrapper_chain_has_marker(function, marker: str) -> bool:
+    current = function
+    seen = set()
+    while callable(current) and id(current) not in seen:
+        seen.add(id(current))
+        if bool(getattr(current, marker, False)):
+            return True
+        wrapped = getattr(current, "_statgpu_original", None)
+        if not callable(wrapped):
+            wrapped = getattr(current, "__wrapped__", None)
+        if not callable(wrapped):
+            break
+        current = wrapped
+    return False
+
+
 def _is_smooth_quantile_fista_request(
     *, loss_name, penalty_name, solver_name
 ) -> bool:
@@ -62,7 +78,7 @@ def _is_smooth_quantile_fista_request(
 
 def _install_validator_allowance() -> None:
     current = _quantile_contract._validate_quantile_solver_request
-    if getattr(current, _VALIDATOR_MARKER, False):
+    if _wrapper_chain_has_marker(current, _VALIDATOR_MARKER):
         return
 
     @wraps(current)
@@ -99,7 +115,7 @@ def _install_validator_allowance() -> None:
 
 def _install_execution_route() -> None:
     current = _fit_mixin._PenalizedFitMixin._fit_loss_backend
-    if getattr(current, _FIT_MARKER, False):
+    if _wrapper_chain_has_marker(current, _FIT_MARKER):
         return
 
     @wraps(current)
