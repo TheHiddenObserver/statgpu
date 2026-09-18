@@ -319,7 +319,7 @@ def _install_scalar_cv_penalty_object_contract() -> None:
         direct_public_object = (
             penalty is getattr(self, "penalty", None)
             and not isinstance(getattr(self, "penalty", None), str)
-            and hasattr(penalty, "alpha")
+            and _penalty_name(penalty) in ("adaptive_l1", "adaptive_lasso")
         )
         if not marked_cv_source and not direct_public_object:
             return penalty
