@@ -115,7 +115,7 @@ model.fit(X, y)
 
 Use custom splits when ordinary randomly shuffled folds are statistically inappropriate, for example with ordered or grouped data. The split itself is part of the statistical design; statgpu does not infer whether a user-supplied split is scientifically appropriate for the application.
 
-For `PenalizedGLM_CV`, `cv_splits` may also be a one-shot iterator such as a generator. statgpu materializes that iterator privately once and reuses the snapshot for repeated `fit()` calls and scikit-learn cloning, while leaving the public `cv_splits` attribute unchanged. Reusable lists and tuples continue to be read directly.
+For `PenalizedGLM_CV`, `cv_splits` may also be a one-shot iterator such as a generator. statgpu materializes that iterator privately once and reuses the snapshot for repeated `fit()` calls, scikit-learn cloning, and pickle serialization, while leaving the public `cv_splits` attribute unchanged. Reusable lists and tuples continue to be read directly.
 
 ### Cox data
 

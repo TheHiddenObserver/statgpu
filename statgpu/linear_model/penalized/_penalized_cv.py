@@ -2263,8 +2263,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
 
     Custom ``cv_splits`` may be a reusable sequence or a one-shot iterator.
     A one-shot iterator is materialized privately once and reused across
-    repeated fits and scikit-learn cloning; the public ``cv_splits``
-    attribute is not rewritten during fit.
+    repeated fits, scikit-learn cloning, and serialization; the public
+    ``cv_splits`` attribute is not rewritten during fit.
     """
 
     def __init__(
