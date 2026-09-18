@@ -51,7 +51,13 @@ def _weighted_lower_quantile_backend(y, sample_weight, tau: float, xp):
         index = xp.searchsorted(cumulative, cutoff, right=False)
     else:
         index = xp.searchsorted(cumulative, cutoff, side="left")
-    return y_sorted[int(index.item() if hasattr(index, "item") else index)]
+    index_value = int(index.item() if hasattr(index, "item") else index)
+    # Parallel/reassociated sum(w) can round a few ulps above the final
+    # sequential cumsum value. For tau extremely close to one, searchsorted
+    # may then return len(y) even though all validated weights are positive.
+    # Clamp only that insertion-point overflow to the final observation.
+    index_value = min(index_value, int(y_sorted.shape[0]) - 1)
+    return y_sorted[index_value]
 
 
 def _continuation_path_from_start(lambda_start, target_alpha, n_cont):

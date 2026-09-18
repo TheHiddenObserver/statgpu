@@ -13,6 +13,7 @@ from statgpu.linear_model.penalized import (
     PenalizedQuantileRegression,
 )
 from statgpu.losses import QuantileLoss
+from statgpu.solvers import _quantile_continuation as _continuation
 from statgpu.solvers._quantile_continuation import (
     is_auto_quantile_continuation_path,
     mark_auto_quantile_continuation_path,
@@ -66,6 +67,39 @@ def test_weighted_auto_continuation_matches_declared_weighted_score():
     expected = np.geomspace(max(lambda_start, target * 1.1), target, 3)
 
     np.testing.assert_allclose(observed, expected, rtol=0.0, atol=1e-15)
+
+
+def test_weighted_quantile_cutoff_roundoff_cannot_overflow_searchsorted():
+    # Pairwise sum retains some unit weights that sequential cumsum loses
+    # after the leading 1e16. At the largest float64 tau below one this makes
+    # tau * sum(w) exceed cumsum(w)[-1], which previously returned index == n.
+    n_small = 10
+    y = np.arange(n_small + 1, dtype=np.float64)
+    weights = np.concatenate(
+        [np.asarray([1.0e16], dtype=np.float64), np.ones(n_small)]
+    )
+    tau = np.nextafter(1.0, 0.0)
+    assert tau * np.sum(weights) > np.cumsum(weights)[-1]
+
+    intercept = _continuation._weighted_lower_quantile_backend(
+        y, weights, tau, np
+    )
+    assert intercept == y[-1]
+
+    X = np.column_stack([np.ones_like(y), np.linspace(-1.0, 1.0, y.size)])
+    auto = mark_auto_quantile_continuation_path(
+        np.asarray([0.2, 0.05], dtype=np.float64)
+    )
+    resolved = resolve_auto_quantile_continuation_path(
+        QuantileLoss(quantile=tau),
+        X,
+        y,
+        auto,
+        sample_weight=weights,
+        fit_intercept=True,
+    )
+    assert np.all(np.isfinite(resolved))
+    assert resolved[-1] == pytest.approx(0.05, rel=0.0, abs=0.0)
 
 
 def test_weighted_auto_continuation_is_invariant_to_weight_rescaling():
