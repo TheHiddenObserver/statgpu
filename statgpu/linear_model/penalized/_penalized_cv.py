@@ -3284,7 +3284,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 self._alpha_grid_input,
                 penalty_name=penalty_name,
             )
-            alpha_grid = _validate_final_scalar_alpha_grid(alpha_grid)
+            if alpha_grid is not None:
+                alpha_grid = _validate_final_scalar_alpha_grid(alpha_grid)
 
         # Resolve and validate fold structure before automatic alpha-grid work.
         # Invalid custom folds, impossible cv counts, and zero fold weight mass
