@@ -301,6 +301,28 @@ def _validate_scalar_cv_folds(folds, n_samples):
     return normalized
 
 
+def _validate_cv_fold_weight_mass(sample_weight, folds):
+    """Require positive analytic-weight mass in every train/validation fold."""
+    if sample_weight is None:
+        return
+    for fold_idx, (train_idx, validation_idx) in enumerate(folds):
+        for name, idx in (("train", train_idx), ("validation", validation_idx)):
+            fold_weight = _slice_rows(sample_weight, idx)
+            module = type(fold_weight).__module__
+            if module.startswith("torch"):
+                total = float(fold_weight.sum().item())
+            elif module.startswith("cupy"):
+                total = float(fold_weight.sum().item())
+            else:
+                total = float(np.sum(fold_weight))
+            if not np.isfinite(total) or total <= 0.0:
+                raise ValueError(
+                    "sample_weight must have a finite positive sum in every "
+                    f"CV train and validation fold; fold {fold_idx} {name} "
+                    "weight mass is not positive"
+                )
+
+
 def _slice_rows(arr, idx):
     """Slice rows with backend-native indices when arr lives on GPU."""
     mod = type(arr).__module__
@@ -626,8 +648,10 @@ def _weighted_mean(per_sample, sw):
     """Compute weighted or unweighted mean of per-sample values."""
     if sw is not None:
         w_sum = float(np.sum(sw))
-        if w_sum <= 0:
-            return float(np.mean(per_sample))
+        if not np.isfinite(w_sum) or w_sum <= 0.0:
+            raise ValueError(
+                "sample_weight must have a finite positive sum in each CV validation fold"
+            )
         return float(np.dot(sw, per_sample) / w_sum)
     return float(np.mean(per_sample))
 
@@ -3272,6 +3296,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             folds = _validate_scalar_cv_folds(effective_splits, n_samples)
         else:
             folds = kfold_indices(n_samples, self._cv, self.random_state)
+        _validate_cv_fold_weight_mass(sample_weight, folds)
         cv_device = self._effective_cv_device(
             X, penalty_name, n_alphas, n_folds=len(folds)
         )

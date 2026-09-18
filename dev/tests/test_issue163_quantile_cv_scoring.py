@@ -182,6 +182,54 @@ def test_quantile_cv_rejects_non_tunable_no_penalty_alias_before_grid_work(
 
 
 @pytest.mark.parametrize(
+    ("weights", "message"),
+    [
+        (
+            np.asarray([0.0, 0.0, 1.0, 1.0], dtype=np.float64),
+            "validation fold",
+        ),
+        (
+            np.asarray([1.0, 1.0, 0.0, 0.0], dtype=np.float64),
+            "train and validation fold",
+        ),
+    ],
+)
+def test_quantile_cv_rejects_zero_weight_fold_mass_before_candidate_work(
+    monkeypatch, weights, message
+):
+    X = np.array(
+        [[-1.0, 0.2], [0.0, -0.1], [0.5, 0.4], [1.0, -0.3]],
+        dtype=np.float64,
+    )
+    y = np.array([-0.4, 0.1, 0.35, 0.8], dtype=np.float64)
+    folds = [
+        (np.array([2, 3]), np.array([0, 1])),
+        (np.array([0, 1]), np.array([2, 3])),
+    ]
+    model = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.35},
+        penalty="l2",
+        alpha_grid=np.asarray([0.03], dtype=np.float64),
+        cv=2,
+        cv_splits=folds,
+        solver="auto",
+        device="cpu",
+    )
+
+    def forbidden_device(*args, **kwargs):
+        raise AssertionError("CV numerical routing must not start")
+
+    monkeypatch.setattr(model, "_effective_cv_device", forbidden_device)
+    with pytest.raises(ValueError, match="positive sum"):
+        model.fit(X, y, sample_weight=weights)
+
+    assert model._fitted is False
+    assert model.alpha_ is None
+    assert model.estimator_ is None
+
+
+@pytest.mark.parametrize(
     ("folds", "message"),
     [
         ([], "at least one fold"),
