@@ -230,6 +230,7 @@ def fista_solver(
         Xty = None
 
     iteration = -1  # default if max_iter=0
+    converged = False
 
     for iteration in range(max_iter):
         coef_old = _copy_arr(coef)
@@ -296,6 +297,7 @@ def fista_solver(
                     if abs(_obj_val_f - _obj_prev_f) < tol * max(abs(_obj_val_f), 1.0):
                         _obj_stable_count += 1
                         if _obj_stable_count >= 5:
+                            converged = True
                             break
                     else:
                         _obj_stable_count = 0
@@ -368,10 +370,12 @@ def fista_solver(
                 _conv_dev = _abs_sum_dev(coef - coef_old)
                 _conv_f = float(_conv_dev)
                 if _conv_f < tol:
+                    converged = True
                     break
                 if iteration > 20 and abs(_obj_val_f - _obj_prev_f) < tol * max(abs(_obj_val_f), 1.0):
                     _obj_stable_count += 1
                     if _obj_stable_count >= 5:
+                        converged = True
                         break
                 else:
                     _obj_stable_count = 0
@@ -446,10 +450,12 @@ def fista_solver(
                     # coefficients to oscillate near the optimum, so coef_diff
                     # never reaches tol.  Check objective stability as fallback.
                     if _conv_f < tol:
+                        converged = True
                         break
                     if iteration > 20 and abs(_obj_val_f - _obj_prev_f) < tol * max(abs(_obj_val_f), 1.0):
                         _obj_stable_count += 1
                         if _obj_stable_count >= 5:
+                            converged = True
                             break
                     else:
                         _obj_stable_count = 0
@@ -471,6 +477,7 @@ def fista_solver(
                 elif _do_conv_check:
                     _conv_f = _to_float_scalar(_conv_dev)
                     if _conv_f < tol:
+                        converged = True
                         break
 
                     # Lipschitz recompute (reuse convergence sync)
@@ -517,10 +524,12 @@ def fista_solver(
 
                 # Convergence: coefficient change OR objective stability
                 if _conv_f < tol:
+                    converged = True
                     break
                 if iteration > 20 and abs(_obj_val_f - _obj_prev_f) < tol * max(abs(_obj_val_f), 1.0):
                     _obj_stable_count += 1
                     if _obj_stable_count >= 5:
+                        converged = True
                         break
                 else:
                     _obj_stable_count = 0
@@ -555,7 +564,7 @@ def fista_solver(
         coef = _copy_arr(_coef_best_fista)
 
     n_iter = iteration + 1
-    if n_iter >= max_iter:
+    if not converged:
         warnings.warn(
             f"fista_solver did not converge within {max_iter} iterations "
             f"(loss={getattr(loss, 'name', '?')}, penalty={getattr(penalty, 'name', '?')}). "

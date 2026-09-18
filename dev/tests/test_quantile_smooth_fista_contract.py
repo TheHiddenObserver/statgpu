@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import warnings
 
 import numpy as np
 import pytest
@@ -12,7 +13,11 @@ from statgpu.linear_model.penalized import (
     PenalizedGeneralizedLinearModel,
     PenalizedQuantileRegression,
 )
+from statgpu.glm_core._squared import SquaredErrorLoss
 from statgpu.losses import QuantileLoss
+from statgpu.penalties import L2Penalty
+from statgpu.solvers import fista_solver
+from statgpu.solvers._convergence import ConvergenceWarning
 
 
 def _data(seed=16681, n=72, p=2):
@@ -122,6 +127,25 @@ def test_cv_public_solver_replacement_from_auto_to_fista_is_authoritative(monkey
     assert cv._solver == "fista"
     assert cv._solver_for_cv("cpu", X=X) == "fista"
     assert cv.estimator_._selected_solver == "fista"
+
+
+def test_fista_last_allowed_iteration_convergence_is_not_false_exhaustion():
+    X = np.eye(2, dtype=np.float64)
+    y = np.zeros(2, dtype=np.float64)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        coef, n_iter = fista_solver(
+            SquaredErrorLoss(),
+            L2Penalty(alpha=0.1),
+            X,
+            y,
+            max_iter=1,
+            tol=1e-12,
+        )
+
+    assert n_iter == 1
+    np.testing.assert_array_equal(coef, np.zeros(2, dtype=np.float64))
 
 
 def test_explicit_l2_quantile_fista_matches_irls_objective():
