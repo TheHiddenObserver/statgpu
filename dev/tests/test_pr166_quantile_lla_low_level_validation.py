@@ -21,7 +21,7 @@ from statgpu.solvers import fista_lla_path
         ({"lla_tol": False}, "lla_tol must be a finite positive number"),
         ({"max_iter": 0}, "max_iter must be a positive integer or sequence"),
         ({"max_iter": True}, "max_iter must be a positive integer or sequence"),
-        ({"max_iter": [2, 0]}, "max_iter sequence must contain only positive integers"),
+        ({"max_iter": [0]}, "max_iter sequence must contain only positive integers"),
         ({"max_iter": [2, 2]}, "one positive integer per alpha_path step"),
         ({"alpha_path": []}, "alpha_path must be a non-empty"),
         ({"alpha_path": [0.04, 0.0]}, "alpha_path must contain finite positive"),
