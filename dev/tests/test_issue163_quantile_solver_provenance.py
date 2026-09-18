@@ -691,6 +691,54 @@ def test_quantile_solver_contract_installer_is_idempotent_and_signature_safe():
     )
 
 
+def test_quantile_solver_contract_reload_preserves_layered_explicit_solver_semantics(
+    monkeypatch,
+):
+    import importlib
+
+    from statgpu.losses import QuantileLoss
+    from statgpu.linear_model.penalized import _quantile_solver_contract as contract
+
+    reloaded = importlib.reload(contract)
+
+    X, y = _data(seed=16338, n=48)
+
+    def forbidden_irls(*args, **kwargs):
+        raise AssertionError(
+            "reload must not make explicit smooth Quantile FISTA fall back to IRLS"
+        )
+
+    monkeypatch.setattr(QuantileLoss, "irls", forbidden_irls)
+    model = PenalizedQuantileRegression(
+        quantile=0.5,
+        penalty="l2",
+        alpha=0.03,
+        solver="fista",
+        device="cpu",
+        max_iter=300,
+        tol=1e-6,
+    ).fit(X, y)
+
+    assert model._selected_solver == "fista"
+    assert model._selected_backend_name == "numpy"
+
+    rejected = PenalizedQuantileRegression(
+        quantile=0.5,
+        penalty="l2",
+        alpha=0.03,
+        solver="fista_bb",
+        device="cpu",
+    )
+    with pytest.raises(ValueError, match="not supported|does not support"):
+        rejected.fit(X, y)
+
+    assert getattr(
+        reloaded._validate_quantile_solver_request,
+        "_statgpu_quantile_smooth_fista_validator_contract",
+        False,
+    )
+
+
 def test_quantile_solver_installer_is_import_order_safe_in_fresh_interpreter():
     import json
     import subprocess

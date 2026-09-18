@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import copy
 from contextvars import ContextVar
+import sys
 from functools import wraps
 from numbers import Integral, Real
 
@@ -701,6 +702,33 @@ def _install_explicit_route_guard() -> None:
     )
 
 
+def _reinstall_loaded_quantile_solver_layers() -> None:
+    """Restore layered Quantile solver semantics after this module is reloaded.
+
+    Normal package import installs the dependent contracts later from the
+    penalized package initializer. A direct importlib.reload of this base
+    contract recreates its module-level validator, so any already-loaded
+    wrappers around that function must be re-applied in the same order to keep
+    public solver behavior import-order invariant.
+    """
+    for module_name, installer_name in (
+        (
+            "statgpu.linear_model.penalized._quantile_unsupported_solver_guard_contract",
+            "install_quantile_unsupported_solver_guard_contract",
+        ),
+        (
+            "statgpu.linear_model.penalized._quantile_smooth_fista_contract",
+            "install_quantile_smooth_fista_contract",
+        ),
+    ):
+        module = sys.modules.get(module_name)
+        if module is None:
+            continue
+        installer = getattr(module, installer_name, None)
+        if callable(installer):
+            installer()
+
+
 def install_quantile_solver_contract() -> None:
     """Install Quantile solver/provenance/scoring reconciliation idempotently."""
     _install_scalar_cv_penalty_object_contract()
@@ -714,6 +742,7 @@ def install_quantile_solver_contract() -> None:
     _install_incomplete_fold_batch_guard()
     _install_cv_score_context()
     _install_explicit_route_guard()
+    _reinstall_loaded_quantile_solver_layers()
 
 
 install_quantile_solver_contract()
