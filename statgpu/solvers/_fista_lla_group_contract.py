@@ -35,6 +35,7 @@ from ._fista_lla import fista_lla_path as _base_fista_lla_path
 _GROUP_NONCONVEX_NAMES = frozenset(
     {"group_mcp", "gmcp", "group_scad", "gscad"}
 )
+_LLA_NONCONVEX_NAMES = frozenset({"scad", "mcp"}) | _GROUP_NONCONVEX_NAMES
 
 
 class _GroupFISTALossProxy:
@@ -149,12 +150,17 @@ def fista_lla_path(
     return_path=False,
 ):
     """Run the fused LLA path with exact Group MCP/SCAD surrogate scaling."""
+    penalty_name = str(getattr(scad_penalty, "name", "") or "").lower().strip()
+    if penalty_name not in _LLA_NONCONVEX_NAMES:
+        raise ValueError(
+            "fista_lla_path requires SCAD/MCP or Group SCAD/MCP penalty"
+        )
+
     # Quantile's weighted step scale must remain objective-consistent for both
     # scalar and group penalties, including direct public low-level calls.
     if str(getattr(loss, "name", "")).lower() == "quantile":
         loss = _QuantileWeightedStepScaleProxy(loss)
 
-    penalty_name = str(getattr(scad_penalty, "name", "")).lower()
     if penalty_name in _GROUP_NONCONVEX_NAMES:
         # Group-norm penalties require a group-norm convex surrogate whether
         # the caller supplied the historical factory or called this exported
