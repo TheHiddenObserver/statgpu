@@ -2540,8 +2540,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
         ).lower().strip()
         if penalty_name in ("elasticnet", "en"):
             _l1r = float(getattr(self.penalty, "l1_ratio", self.l1_ratio))
-            _l1r = max(_l1r, 1e-10)
-            alpha_max = alpha_max / _l1r
+            if _l1r > 0.0:
+                alpha_max = alpha_max / _l1r
 
         if alpha_max <= 0:
             warnings.warn(

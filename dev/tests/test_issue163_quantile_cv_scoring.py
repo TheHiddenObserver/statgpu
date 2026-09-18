@@ -750,6 +750,49 @@ def test_quantile_l2_penalty_object_matches_string_cv_and_refit():
     assert object_cv.estimator_._penalty.alpha == pytest.approx(object_cv.alpha_)
 
 
+def test_quantile_elasticnet_zero_l1_ratio_uses_l2_grid_scale():
+    X, y, _ = _data(seed=16348, n=64)
+    tau = 0.27
+
+    l2_grid = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": tau},
+        penalty="l2",
+        alpha_grid=None,
+        n_alphas=4,
+        cv=2,
+        solver="auto",
+        device="cpu",
+    )._generate_alpha_grid(X, y)
+
+    string_grid = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": tau},
+        penalty="elasticnet",
+        l1_ratio=0.0,
+        alpha_grid=None,
+        n_alphas=4,
+        cv=2,
+        solver="auto",
+        device="cpu",
+    )._generate_alpha_grid(X, y)
+
+    object_grid = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": tau},
+        penalty=ElasticNetPenalty(alpha=0.9, l1_ratio=0.0),
+        l1_ratio=0.8,
+        alpha_grid=None,
+        n_alphas=4,
+        cv=2,
+        solver="auto",
+        device="cpu",
+    )._generate_alpha_grid(X, y)
+
+    np.testing.assert_array_equal(string_grid, l2_grid)
+    np.testing.assert_array_equal(object_grid, l2_grid)
+
+
 def test_quantile_elasticnet_penalty_object_auto_grid_uses_object_l1_ratio():
     X, y, _ = _data(seed=16345, n=64)
     tau = 0.27
