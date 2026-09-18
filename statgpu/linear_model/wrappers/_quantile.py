@@ -1,6 +1,7 @@
 """Quantile regression with bootstrap inference support."""
 
 import math as _math
+from numbers import Integral, Real
 from typing import Optional
 import numpy as np
 
@@ -109,6 +110,52 @@ class QuantileRegression(BaseEstimator):
         self._selected_backend_name = None
         self.__dict__.pop("n_features_in_", None)
 
+    def _validate_public_controls(self):
+        """Validate mutable public controls before backend or numerical work."""
+        if not isinstance(self._fit_intercept, (bool, np.bool_)):
+            raise ValueError("fit_intercept must be boolean")
+        if not isinstance(self._compute_inference_enabled, (bool, np.bool_)):
+            raise ValueError("compute_inference must be boolean")
+        if not isinstance(self._gpu_memory_cleanup, (bool, np.bool_)):
+            raise ValueError("gpu_memory_cleanup must be boolean")
+
+        if isinstance(self._max_iter, (bool, np.bool_)) or not isinstance(
+            self._max_iter, Integral
+        ) or int(self._max_iter) < 1:
+            raise ValueError("max_iter must be a positive integer")
+        if isinstance(self._tol, (bool, np.bool_)) or not isinstance(self._tol, Real):
+            raise ValueError("tol must be a finite positive number")
+        tol = float(self._tol)
+        if not np.isfinite(tol) or tol <= 0.0:
+            raise ValueError("tol must be a finite positive number")
+
+        if self._compute_inference_enabled:
+            if not isinstance(self._inference_method, str) or self._inference_method not in {
+                "kernel", "bootstrap"
+            }:
+                raise ValueError(
+                    f"Unknown inference_method='{self._inference_method}'. "
+                    "Valid options: ['bootstrap', 'kernel']."
+                )
+            if self._inference_method == "kernel":
+                if self.kernel not in {"epa", "gau", "biw", "cos", "par"}:
+                    raise ValueError(
+                        "kernel must be one of ['epa', 'gau', 'biw', 'cos', 'par']"
+                    )
+                if self.bandwidth not in {"hsheather", "bofinger", "chamberlain"}:
+                    raise ValueError(
+                        "bandwidth must be 'hsheather', 'bofinger', or 'chamberlain'"
+                    )
+            else:
+                if (
+                    isinstance(self._n_bootstrap, (bool, np.bool_))
+                    or not isinstance(self._n_bootstrap, Integral)
+                    or int(self._n_bootstrap) < 2
+                ):
+                    raise ValueError(
+                        "n_bootstrap must be an integer greater than or equal to 2 "
+                        "for QuantileRegression bootstrap inference"
+                    )
     @staticmethod
     def _has_nonuniform_weight(sample_weight):
         module = type(sample_weight).__module__
@@ -132,6 +179,7 @@ class QuantileRegression(BaseEstimator):
             raise
 
     def _fit_impl(self, X, y, sample_weight=None):
+        self._validate_public_controls()
         from statgpu.glm_core._validation import (
             validate_glm_design_matrix,
             validate_glm_sample_weight,
@@ -151,21 +199,6 @@ class QuantileRegression(BaseEstimator):
             )
 
         if self._compute_inference_enabled:
-            if self._inference_method not in {"kernel", "bootstrap"}:
-                raise ValueError(
-                    f"Unknown inference_method='{self._inference_method}'. "
-                    "Valid options: ['bootstrap', 'kernel']."
-                )
-            if self._inference_method == "bootstrap":
-                if (
-                    isinstance(self._n_bootstrap, (bool, np.bool_))
-                    or not isinstance(self._n_bootstrap, (int, np.integer))
-                    or int(self._n_bootstrap) < 2
-                ):
-                    raise ValueError(
-                        "n_bootstrap must be an integer greater than or equal to 2 "
-                        "for QuantileRegression bootstrap inference"
-                    )
             if sample_weight_native is not None and self._has_nonuniform_weight(
                 sample_weight_native
             ):

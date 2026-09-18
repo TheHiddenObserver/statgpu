@@ -77,6 +77,30 @@ class TestQuantileRegression:
         assert model.coef_ is None
         assert model._inference_result is None
 
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            ({"fit_intercept": "False"}, "fit_intercept must be boolean"),
+            ({"max_iter": True}, "max_iter must be a positive integer"),
+            ({"max_iter": 0}, "max_iter must be a positive integer"),
+            ({"tol": "1e-4"}, "tol must be a finite positive number"),
+            ({"tol": 0.0}, "tol must be a finite positive number"),
+            ({"compute_inference": "False"}, "compute_inference must be boolean"),
+            ({"gpu_memory_cleanup": "False"}, "gpu_memory_cleanup must be boolean"),
+        ],
+    )
+    def test_invalid_public_controls_fail_before_backend(self, monkeypatch, kwargs, message):
+        model = QuantileRegression(**kwargs)
+
+        def forbidden(*args, **kwargs):
+            raise AssertionError("invalid public controls must fail before backend work")
+
+        monkeypatch.setattr(model, "_get_backend", forbidden)
+        with pytest.raises(ValueError, match=message):
+            model.fit(self.X, self.y)
+        assert model._fitted is False
+        assert model.coef_ is None
+
     @pytest.mark.parametrize("n_bootstrap", [0, 1, True, 2.5])
     def test_invalid_bootstrap_count_fails_before_solver(self, monkeypatch, n_bootstrap):
         import statgpu.linear_model.wrappers._quantile as quantile_mod
