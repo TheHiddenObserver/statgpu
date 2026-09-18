@@ -37,6 +37,10 @@ def install_quantile_irls_validation_contract() -> None:
         sample_weight=None,
         fit_intercept=False,
     ):
+        if not isinstance(fit_intercept, (bool, np.bool_)):
+            raise ValueError("fit_intercept must be boolean")
+        fit_intercept = bool(fit_intercept)
+
         if isinstance(max_iter, (bool, np.bool_)) or not isinstance(max_iter, Integral):
             raise ValueError("max_iter must be a positive integer")
         max_iter = int(max_iter)

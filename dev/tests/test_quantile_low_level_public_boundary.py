@@ -56,6 +56,7 @@ def test_direct_quantile_irls_rejects_invalid_weights_before_numerics(sample_wei
         ({"tol": True}, "tol must be a finite positive number"),
         ({"tol": "1e-6"}, "tol must be a finite positive number"),
         ({"eps": 0.0}, "eps must be a finite positive number"),
+        ({"fit_intercept": "False"}, "fit_intercept must be boolean"),
     ],
 )
 def test_direct_quantile_irls_rejects_invalid_stopping_controls(kwargs, message):
@@ -116,6 +117,7 @@ def test_public_proximal_quantile_solver_rejects_invalid_weights(sample_weight):
         ({"tol": 0.0}, "tol must be a finite positive number"),
         ({"tol": "1e-6"}, "tol must be a finite positive number"),
         ({"lla_tol": False}, "lla_tol must be a finite positive number"),
+        ({"fit_intercept": "False"}, "fit_intercept must be boolean"),
     ],
 )
 def test_public_proximal_quantile_rejects_invalid_stopping_controls(kwargs, message):

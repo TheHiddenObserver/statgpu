@@ -41,6 +41,10 @@ def install_quantile_proximal_public_contract():
         fit_intercept=True,
         sample_weight=None,
     ):
+        if not isinstance(fit_intercept, (bool, np.bool_)):
+            raise ValueError("fit_intercept must be boolean")
+        fit_intercept = bool(fit_intercept)
+
         if sample_weight is not None:
             # Import lazily to avoid a package-initialization cycle through
             # ``glm_core.__init__`` -> ``statgpu.solvers``.
