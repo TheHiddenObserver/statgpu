@@ -153,14 +153,13 @@ def test_quantile_cv_public_device_replacement_is_authoritative_before_routing(
     cv.device = "torch"
     seen = {}
 
-    original = PenalizedGLM_CV._effective_cv_device
-
     def capture_device(self, *args, **kwargs):
         seen["device"] = self._device
-        return Device.CPU
+        raise RuntimeError("device routing sentinel")
 
     monkeypatch.setattr(PenalizedGLM_CV, "_effective_cv_device", capture_device)
-    cv.fit(X, y)
+    with pytest.raises(RuntimeError, match="device routing sentinel"):
+        cv.fit(X, y)
 
     assert seen["device"] == Device.TORCH
     assert cv._device == Device.TORCH
