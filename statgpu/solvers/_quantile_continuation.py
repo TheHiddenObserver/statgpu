@@ -72,6 +72,52 @@ def _weighted_lower_quantile_backend(y, sample_weight, tau: float, xp):
     return y_sorted[index_value]
 
 
+def quantile_balanced_subgradient(
+    residual,
+    tau: float,
+    sample_weight=None,
+):
+    """Choose a pinball subgradient with zero intercept score when possible.
+
+    At nonzero residuals the pinball subgradient is fixed. At zero residuals
+    it is set-valued. For an intercept-only empirical Quantile solution, choose
+    one common admissible zero-residual value so the weighted intercept score
+    is exactly zero. This makes the slope score invariant to translating every
+    feature by a constant when an intercept is fitted.
+    """
+    xp = _get_xp(residual)
+    tau = float(tau)
+    positive = residual > 0
+    negative = residual < 0
+    zero = ~(positive | negative)
+
+    if sample_weight is None:
+        positive_mass = xp.sum(positive)
+        negative_mass = xp.sum(negative)
+        zero_mass = xp.sum(zero)
+    else:
+        weights = sample_weight
+        positive_mass = xp.sum(weights * positive)
+        negative_mass = xp.sum(weights * negative)
+        zero_mass = xp.sum(weights * zero)
+
+    fixed_sum = tau * positive_mass - (1.0 - tau) * negative_mass
+    if _scalar_bool(zero_mass > 0):
+        zero_value = -fixed_sum / zero_mass
+    else:
+        # No zero residual means there is no set-valued coordinate to balance.
+        # The value is unused, but keep it finite for the nested where below.
+        zero_value = 0.0
+
+    pos_value = xp.full_like(residual, tau)
+    neg_value = xp.full_like(residual, -(1.0 - tau))
+    return xp.where(
+        positive,
+        pos_value,
+        xp.where(negative, neg_value, zero_value),
+    )
+
+
 def quantile_penalty_alpha_start(score, penalty=None) -> float:
     """Map a Quantile slope score to the public penalty alpha scale."""
     xp = _get_xp(score)
@@ -252,9 +298,18 @@ def resolve_auto_quantile_continuation_path(
         intercept = 0.0
 
     residual = y_dev - intercept
-    pos = xp.full_like(residual, tau, dtype=float64)
-    neg = xp.full_like(residual, -(1.0 - tau), dtype=float64)
-    psi = xp.where(residual >= 0.0, pos, neg)
+    if bool(fit_intercept):
+        psi = quantile_balanced_subgradient(
+            residual,
+            tau,
+            sample_weight=weights_dev if nonuniform_weight else None,
+        )
+    else:
+        # With a fixed intercept there is no intercept stationarity condition
+        # to enforce; preserve the historical deterministic zero-residual side.
+        pos = xp.full_like(residual, tau, dtype=float64)
+        neg = xp.full_like(residual, -(1.0 - tau), dtype=float64)
+        psi = xp.where(residual >= 0.0, pos, neg)
     if weights_dev is None or not nonuniform_weight:
         score = X_dev.T @ psi / float(n)
     else:
@@ -274,4 +329,5 @@ __all__ = [
     "is_auto_quantile_continuation_path",
     "resolve_auto_quantile_continuation_path",
     "quantile_penalty_alpha_start",
+    "quantile_balanced_subgradient",
 ]

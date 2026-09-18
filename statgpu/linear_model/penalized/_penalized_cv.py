@@ -355,10 +355,14 @@ def _quantile_zero_score(X, y, tau, sample_weight=None):
     y = np.asarray(y, dtype=np.float64).reshape(-1)
     n = int(X.shape[0])
 
+    from statgpu.solvers._quantile_continuation import (
+        quantile_balanced_subgradient,
+    )
+
     if sample_weight is None:
         intercept = _lower_empirical_quantile_numpy(y, tau)
         residual = y - intercept
-        psi = np.where(residual >= 0.0, tau, -(1.0 - tau))
+        psi = quantile_balanced_subgradient(residual, tau)
         return X.T @ psi / float(n)
 
     weights = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
@@ -367,12 +371,16 @@ def _quantile_zero_score(X, y, tau, sample_weight=None):
     if bool(np.all(weights == weights[0])):
         intercept = _lower_empirical_quantile_numpy(y, tau)
         residual = y - intercept
-        psi = np.where(residual >= 0.0, tau, -(1.0 - tau))
+        psi = quantile_balanced_subgradient(residual, tau)
         return X.T @ psi / float(n)
 
     intercept = _weighted_lower_quantile_numpy(y, weights, tau)
     residual = y - intercept
-    psi = np.where(residual >= 0.0, tau, -(1.0 - tau))
+    psi = quantile_balanced_subgradient(
+        residual,
+        tau,
+        sample_weight=weights,
+    )
     return X.T @ (weights * psi) / total
 
 

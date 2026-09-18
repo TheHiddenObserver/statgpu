@@ -45,6 +45,29 @@ def _penalty_kwargs(kind):
     return result
 
 
+def _balanced_psi(residual, tau, weights=None):
+    residual = np.asarray(residual, dtype=np.float64)
+    positive = residual > 0.0
+    negative = residual < 0.0
+    zero = ~(positive | negative)
+    if weights is None:
+        positive_mass = float(np.sum(positive))
+        negative_mass = float(np.sum(negative))
+        zero_mass = float(np.sum(zero))
+    else:
+        weights = np.asarray(weights, dtype=np.float64)
+        positive_mass = float(np.sum(weights * positive))
+        negative_mass = float(np.sum(weights * negative))
+        zero_mass = float(np.sum(weights * zero))
+    fixed_sum = tau * positive_mass - (1.0 - tau) * negative_mass
+    zero_value = -fixed_sum / zero_mass if zero_mass > 0.0 else 0.0
+    return np.where(
+        positive,
+        tau,
+        np.where(negative, -(1.0 - tau), zero_value),
+    )
+
+
 def _manual_weighted_path(X, y, weights, target_alpha, n_cont=3):
     order = np.argsort(y, kind="mergesort")
     y_sorted = y[order]
@@ -53,7 +76,7 @@ def _manual_weighted_path(X, y, weights, target_alpha, n_cont=3):
     idx = int(np.searchsorted(np.cumsum(w_sorted), cutoff, side="left"))
     intercept = float(y_sorted[min(idx, y_sorted.size - 1)])
     residual = y - intercept
-    psi = np.where(residual >= 0.0, Q, -(1.0 - Q))
+    psi = _balanced_psi(residual, Q, weights)
     score = X.T @ (weights * psi) / float(np.sum(weights))
     lam = max(
         float(np.linalg.norm(score[np.asarray(group, dtype=int)]))
@@ -218,7 +241,7 @@ def test_quantile_group_unweighted_continuation_uses_group_alpha_scale(
 
     intercept = float(np.sort(y, kind="stable")[max(int(np.ceil(Q * len(y))) - 1, 0)])
     residual = y - intercept
-    psi = np.where(residual >= 0.0, Q, -(1.0 - Q))
+    psi = _balanced_psi(residual, Q)
     score = X.T @ psi / float(X.shape[0])
     lam = max(
         float(np.linalg.norm(score[np.asarray(group, dtype=int)]))

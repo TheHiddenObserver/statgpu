@@ -33,6 +33,24 @@ def _data(seed=16671, n=20, p=3):
     return X, y, weights
 
 
+def _balanced_psi(residual, tau, weights):
+    residual = np.asarray(residual, dtype=np.float64)
+    weights = np.asarray(weights, dtype=np.float64)
+    positive = residual > 0.0
+    negative = residual < 0.0
+    zero = ~(positive | negative)
+    positive_mass = float(np.sum(weights * positive))
+    negative_mass = float(np.sum(weights * negative))
+    zero_mass = float(np.sum(weights * zero))
+    fixed_sum = tau * positive_mass - (1.0 - tau) * negative_mass
+    zero_value = -fixed_sum / zero_mass if zero_mass > 0.0 else 0.0
+    return np.where(
+        positive,
+        tau,
+        np.where(negative, -(1.0 - tau), zero_value),
+    )
+
+
 def _manual_weighted_start(X, y, weights, tau):
     order = np.argsort(y, kind="mergesort")
     y_sorted = y[order]
@@ -41,7 +59,7 @@ def _manual_weighted_start(X, y, weights, tau):
     index = int(np.searchsorted(np.cumsum(w_sorted), cutoff, side="left"))
     intercept = float(y_sorted[min(index, y_sorted.size - 1)])
     residual = y - intercept
-    psi = np.where(residual >= 0.0, tau, -(1.0 - tau))
+    psi = _balanced_psi(residual, tau, weights)
     return float(
         np.max(np.abs(X.T @ (weights * psi) / float(np.sum(weights))))
     )

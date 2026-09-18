@@ -29,6 +29,29 @@ def _data(seed=16321, n=64):
     return X, y, folds
 
 
+def _balanced_psi(residual, tau, sample_weight=None):
+    residual = np.asarray(residual, dtype=np.float64)
+    positive = residual > 0.0
+    negative = residual < 0.0
+    zero = ~(positive | negative)
+    if sample_weight is None:
+        positive_mass = float(np.sum(positive))
+        negative_mass = float(np.sum(negative))
+        zero_mass = float(np.sum(zero))
+    else:
+        weights = np.asarray(sample_weight, dtype=np.float64)
+        positive_mass = float(np.sum(weights * positive))
+        negative_mass = float(np.sum(weights * negative))
+        zero_mass = float(np.sum(weights * zero))
+    fixed_sum = tau * positive_mass - (1.0 - tau) * negative_mass
+    zero_value = -fixed_sum / zero_mass if zero_mass > 0.0 else 0.0
+    return np.where(
+        positive,
+        tau,
+        np.where(negative, -(1.0 - tau), zero_value),
+    )
+
+
 def _pinball(y, eta, tau, sample_weight=None):
     u = np.asarray(y) - np.asarray(eta)
     values = np.where(u >= 0.0, tau * u, (tau - 1.0) * u)
@@ -474,10 +497,10 @@ def test_quantile_auto_alpha_grid_uses_empirical_pinball_intercept():
 
     lower_intercept = 1.0
     residual = y - lower_intercept
-    psi = np.where(residual >= 0.0, tau, -(1.0 - tau))
+    psi = _balanced_psi(residual, tau)
     expected = float(np.max(np.abs(X.T @ psi / X.shape[0])))
 
-    linear_intercept = float(np.sort(y, kind="stable")[max(int(np.ceil(tau * len(y))) - 1, 0)])
+    linear_intercept = float(np.quantile(y, tau))
     linear_residual = y - linear_intercept
     linear_psi = np.where(
         linear_residual >= 0.0,
@@ -489,6 +512,30 @@ def test_quantile_auto_alpha_grid_uses_empirical_pinball_intercept():
     assert lower_intercept != pytest.approx(linear_intercept)
     assert grid[0] == pytest.approx(expected, rel=0.0, abs=1e-15)
     assert abs(grid[0] - legacy_linear) > 1e-3
+
+
+def test_quantile_auto_alpha_grid_is_translation_invariant_with_intercept():
+    X = np.array(
+        [[-2.0, 0.5], [-1.0, 1.5], [0.0, -0.5], [1.0, 2.0], [3.0, -1.0]],
+        dtype=np.float64,
+    )
+    y = np.asarray([0.0, 1.0, 4.0, 8.0, 9.0], dtype=np.float64)
+    kwargs = dict(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.3},
+        penalty="l1",
+        alpha_grid=None,
+        n_alphas=4,
+        cv=2,
+        solver="auto",
+        device="cpu",
+    )
+    base = PenalizedGLM_CV(**kwargs)._generate_alpha_grid(X, y)
+    shifted = PenalizedGLM_CV(**kwargs)._generate_alpha_grid(
+        X + np.asarray([17.0, -9.0]),
+        y,
+    )
+    np.testing.assert_allclose(shifted, base, rtol=0.0, atol=1e-15)
 
 
 def test_quantile_auto_alpha_grid_uniform_weights_is_bitwise_unweighted():
@@ -541,7 +588,7 @@ def test_quantile_auto_alpha_grid_uses_weighted_pinball_zero_score():
     )
     intercept = float(y_sorted[q_index])
     residual = y - intercept
-    psi = np.where(residual >= 0.0, tau, -(1.0 - tau))
+    psi = _balanced_psi(residual, tau, weights)
     score = X.T @ (weights * psi) / float(np.sum(weights))
     expected = float(np.max(np.abs(score)))
 
@@ -584,7 +631,7 @@ def test_quantile_group_nonconvex_auto_alpha_grid_uses_group_public_scale(
 
     intercept = float(np.sort(y, kind="stable")[max(int(np.ceil(tau * len(y))) - 1, 0)])
     residual = y - intercept
-    psi = np.where(residual >= 0.0, tau, -(1.0 - tau))
+    psi = _balanced_psi(residual, tau)
     score = X.T @ psi / float(X.shape[0])
     expected = float(np.linalg.norm(score)) / np.sqrt(score.size)
     assert grid[0] == pytest.approx(expected, rel=0.0, abs=1e-14)
@@ -1010,7 +1057,7 @@ def test_quantile_adaptive_l1_fixed_weights_auto_grid_uses_public_scale():
 
     intercept = float(np.sort(y, kind="stable")[max(int(np.ceil(tau * len(y))) - 1, 0)])
     residual = y - intercept
-    psi = np.where(residual >= 0.0, tau, -(1.0 - tau))
+    psi = _balanced_psi(residual, tau)
     score = X.T @ psi / float(X.shape[0])
     effective_weights = np.asarray(object_penalty._weights, dtype=np.float64)
     expected = float(np.max(np.abs(score) / effective_weights))
@@ -1044,7 +1091,7 @@ def test_quantile_adaptive_group_fixed_weights_auto_grid_uses_public_scale():
 
     intercept = float(np.sort(y, kind="stable")[max(int(np.ceil(tau * len(y))) - 1, 0)])
     residual = y - intercept
-    psi = np.where(residual >= 0.0, tau, -(1.0 - tau))
+    psi = _balanced_psi(residual, tau)
     score = X.T @ psi / float(X.shape[0])
     expected = max(
         abs(float(score[0])) / group_weights[0],
