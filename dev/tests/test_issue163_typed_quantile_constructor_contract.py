@@ -36,6 +36,34 @@ def test_typed_quantile_explicit_loss_kwargs_keeps_historical_precedence():
     assert model.loss_kwargs == {"quantile": 0.35}
 
 
+def test_typed_quantile_get_params_and_clone_preserve_lla_controls_when_available():
+    sklearn = pytest.importorskip("sklearn")
+    from sklearn.base import clone
+
+    model = PenalizedQuantileRegression(
+        quantile=0.2,
+        penalty="scad",
+        alpha=0.04,
+        solver="auto",
+        device="cpu",
+        lla=True,
+        max_lla_iters=3,
+        lla_tol=2e-5,
+    )
+    params = model.get_params(deep=False)
+    assert params["lla"] is True
+    assert params["max_lla_iters"] == 3
+    assert params["lla_tol"] == pytest.approx(2e-5)
+
+    cloned = clone(model)
+    assert cloned.lla is True
+    assert cloned.max_lla_iters == 3
+    assert cloned.lla_tol == pytest.approx(2e-5)
+    assert cloned._lla_enabled is True
+    assert cloned._max_lla_iters == 3
+    assert cloned._lla_tol == pytest.approx(2e-5)
+
+
 def test_typed_quantile_sklearn_clone_preserves_public_quantile_when_available():
     sklearn = pytest.importorskip("sklearn")
     from sklearn.base import clone

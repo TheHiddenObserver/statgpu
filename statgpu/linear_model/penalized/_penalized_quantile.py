@@ -50,6 +50,12 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
         (at most 1e-8) on the L2/no-penalty path.
     fit_intercept : bool, default=True
         Whether to fit an intercept.
+    lla : bool, default=True
+        Enable the LLA outer loop required by SCAD/MCP and Group SCAD/MCP.
+    max_lla_iters : int, default=50
+        Total LLA budget used by automatic Quantile non-convex continuation.
+    lla_tol : float, default=1e-6
+        LLA convergence tolerance.
     device : str, default='auto'
         Device: 'auto', 'cpu', 'cuda', 'torch'.
     loss_kwargs : dict, optional
@@ -77,6 +83,7 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
                  solver='auto', max_iter=1000, tol=1e-4,
                  fit_intercept=True, l1_ratio=0.5,
                  penalty_kwargs=None, device='auto',
+                 lla=True, max_lla_iters=50, lla_tol=1e-6,
                  loss_kwargs=None, **kwargs):
         if not 0.0 < quantile < 1.0:
             raise ValueError(f"quantile must be in (0, 1), got {quantile}")
@@ -90,6 +97,7 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
             solver=solver, max_iter=max_iter, tol=tol,
             fit_intercept=fit_intercept, l1_ratio=l1_ratio,
             penalty_kwargs=penalty_kwargs, device=device,
+            lla=lla, max_lla_iters=max_lla_iters, lla_tol=lla_tol,
             loss_kwargs=_lk, **kwargs,
         )
         self.quantile = quantile
