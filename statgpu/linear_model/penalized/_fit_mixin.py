@@ -798,7 +798,13 @@ class _PenalizedFitMixin:
         _y_feat = _to_numpy(y_arr)
         _n = _X_feat.shape[0]
 
-        if loss_name == "quantile":
+        if int(_X_feat.shape[1]) == 0:
+            # Intercept-only designs have no penalized slope score. The
+            # continuation start is therefore zero; downstream Quantile IRLS
+            # and squared-error centering can solve the unpenalized intercept
+            # without inventing a fake feature coordinate.
+            _lam_max = 0.0
+        elif loss_name == "quantile":
             # Quantile-specific lambda_max: max_j |X_j' @ psi_tau(y - intercept) / n|
             _tau = getattr(self._loss, '_tau', 0.5)
             _intercept = float(_np.quantile(_y_feat, _tau))
