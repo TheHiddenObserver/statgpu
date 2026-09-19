@@ -815,9 +815,13 @@ $$
 
 如果使用 L2 惩罚，则在左侧再加入对应的对角 ridge 项；当 `fit_intercept=True` 时，截距坐标不参与惩罚。收敛判据为
 
-$$
+$
 \|\beta_{\mathrm{new}}-\beta\|_2<\texttt{tol}.
-$$
+$
+
+如果在达到上述判据前就耗尽迭代预算，求解器会返回最后一次迭代并发出
+`ConvergenceWarning`。因此调用方可以区分正常收敛与受 `max_iter` 限制的结果，
+而不改变现有返回值结构。
 
 ### GLM IRLS
 

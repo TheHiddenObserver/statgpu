@@ -808,9 +808,14 @@ $$
 
 For an L2 penalty, this path adds the corresponding diagonal ridge term. When `fit_intercept=True`, the intercept coordinate is excluded from the penalty. Convergence is checked with
 
-$$
+$
 \|\beta_{\mathrm{new}}-\beta\|_2<\texttt{tol}.
-$$
+$
+
+If the iteration budget is exhausted before this criterion is met, the solver
+returns the final iterate and emits `ConvergenceWarning`. Callers can therefore
+distinguish a converged IRLS solve from a budget-limited result without changing
+the existing return-value shape.
 
 ### GLM IRLS
 

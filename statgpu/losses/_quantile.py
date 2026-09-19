@@ -344,4 +344,13 @@ class QuantileLoss(LossBase):
 
             beta = beta_new
 
+        import warnings
+        from statgpu.solvers._convergence import ConvergenceWarning
+
+        warnings.warn(
+            "QuantileLoss.irls() did not converge within "
+            f"{max_iter} iterations; returning the final iterate.",
+            ConvergenceWarning,
+            stacklevel=2,
+        )
         return beta, max_iter

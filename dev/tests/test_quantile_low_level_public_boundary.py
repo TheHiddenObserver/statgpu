@@ -262,6 +262,24 @@ def test_public_proximal_quantile_rejects_nonfinite_xy_before_path_work(
         )
 
 
+def test_direct_quantile_irls_budget_exhaustion_is_observable():
+    from statgpu.solvers._convergence import ConvergenceWarning
+
+    X, y = _data(seed=16721)
+    loss = QuantileLoss(quantile=0.3)
+
+    with pytest.warns(ConvergenceWarning, match="did not converge within 1 iterations"):
+        coef, n_iter = loss.irls(
+            X,
+            y,
+            max_iter=1,
+            tol=1e-16,
+        )
+
+    assert n_iter == 1
+    assert np.all(np.isfinite(np.asarray(coef)))
+
+
 @pytest.mark.parametrize("sample_weight", _invalid_weights(24))
 def test_direct_quantile_irls_rejects_invalid_weights_before_numerics(sample_weight):
     X, y = _data()
