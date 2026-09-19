@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Physical CUDA acceptance for explicit smooth Quantile FISTA in PR #166.
 
-This focused validator covers the capability restored after Issue #163's
-truthful-provenance repair: explicit ``solver='fista'`` on Quantile L2 and
-no-penalty objectives. ``solver='auto'`` intentionally remains IRLS and is
-validated by the existing PR #164 artifact.
+This focused validator covers explicit ``solver='fista'`` on Quantile L2 and
+no-penalty objectives and the standalone non-median batched-bootstrap path
+repaired during the PR #166 review/fix loop. ``solver='auto'`` intentionally
+remains IRLS and is validated by the existing PR #164 artifact.
 
 The gate exercises both CuPy CUDA and Torch CUDA, including non-uniform analytic
-weights, direct L2/no-penalty fits, and strict L2 CV.  It also replaces
+weights, direct L2/no-penalty fits, strict L2 CV, and a tau=0.20 standalone
+bootstrap direction check.  It also replaces
 ``QuantileLoss.irls`` with a forbidden sentinel while the explicit-FISTA cases
 run, so a passing result proves that the estimator/CV path did not silently
 substitute IRLS.
@@ -24,15 +25,19 @@ from pathlib import Path
 import numpy as np
 
 from statgpu.backends import _to_numpy
-from statgpu.linear_model import PenalizedGLM_CV
+from statgpu.linear_model import PenalizedGLM_CV, QuantileRegression
 from statgpu.linear_model.penalized import PenalizedQuantileRegression
 from statgpu.losses import QuantileLoss
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 Q = 0.35
 ATOL_OBJECTIVE = 2e-5
 ATOL_CV_SCORE = 2e-5
+BOOTSTRAP_Q = 0.20
+BOOTSTRAP_N = 80
+BOOTSTRAP_B = 12
+BOOTSTRAP_SEED = 16692
 
 
 def _git(*args: str) -> str:
@@ -110,6 +115,73 @@ def _native_inputs(backend, X, y, weights, cp, torch):
         torch.as_tensor(weights, dtype=torch.float64, device=device),
         "torch",
     )
+
+
+def _standalone_bootstrap_direction_case(backend, cp, torch):
+    """Exercise the backend-specific batched Quantile bootstrap at tau != 0.5."""
+    X = np.ones((BOOTSTRAP_N, 1), dtype=np.float64)
+    y = np.linspace(-4.0, 4.0, BOOTSTRAP_N, dtype=np.float64)
+    if backend == "cupy":
+        Xb = cp.asarray(X, dtype=cp.float64)
+        yb = cp.asarray(y, dtype=cp.float64)
+        device = "cuda:0"
+    else:
+        torch_device = torch.device("cuda:0")
+        Xb = torch.as_tensor(X, dtype=torch.float64, device=torch_device)
+        yb = torch.as_tensor(y, dtype=torch.float64, device=torch_device)
+        device = str(torch_device)
+
+    model = QuantileRegression(
+        quantile=BOOTSTRAP_Q,
+        fit_intercept=False,
+        max_iter=400,
+        tol=1e-7,
+        n_bootstrap=BOOTSTRAP_B,
+        random_state=BOOTSTRAP_SEED,
+        device="cuda" if backend == "cupy" else "torch",
+    )
+    # The batched bootstrap solver only needs the already-fitted parameter
+    # snapshot.  A zero coefficient makes each residual draw exactly a draw
+    # from y, giving an independent direction check against known quantiles.
+    model.coef_ = np.zeros(1, dtype=np.float64)
+    model.intercept_ = 0.0
+    boot_params, _, _ = model._compute_bootstrap_batched(Xb, yb)
+    estimated = np.asarray(boot_params[:, 0], dtype=np.float64)
+
+    rng = np.random.default_rng(BOOTSTRAP_SEED)
+    y_batch = np.array(
+        [y[rng.integers(0, BOOTSTRAP_N, size=BOOTSTRAP_N)] for _ in range(BOOTSTRAP_B)]
+    )
+    requested = np.quantile(y_batch, BOOTSTRAP_Q, axis=1)
+    complementary = np.quantile(y_batch, 1.0 - BOOTSTRAP_Q, axis=1)
+    target_error = float(np.mean(np.abs(estimated - requested)))
+    wrong_direction_error = float(np.mean(np.abs(estimated - complementary)))
+    median_estimate = float(np.median(estimated))
+
+    if not np.all(np.isfinite(estimated)):
+        raise AssertionError(f"{backend}/standalone/bootstrap: non-finite parameters")
+    if not target_error < wrong_direction_error:
+        raise AssertionError(
+            f"{backend}/standalone/bootstrap: requested-quantile error "
+            f"{target_error:.3e} is not below complementary-quantile error "
+            f"{wrong_direction_error:.3e}"
+        )
+    if not median_estimate < 0.0:
+        raise AssertionError(
+            f"{backend}/standalone/bootstrap: median estimate {median_estimate:.3e} "
+            "does not lie on the requested lower-quantile side"
+        )
+
+    return {
+        "name": f"{backend}/standalone/bootstrap/q{BOOTSTRAP_Q:.2f}",
+        "backend": backend,
+        "device": device,
+        "quantile": BOOTSTRAP_Q,
+        "n_bootstrap": BOOTSTRAP_B,
+        "target_error": target_error,
+        "complementary_quantile_error": wrong_direction_error,
+        "median_estimate": median_estimate,
+    }
 
 
 def _provenance(model, backend):
@@ -196,6 +268,7 @@ def main() -> int:
     try:
         for backend in ("cupy", "torch"):
             Xb, yb, wb, device = _native_inputs(backend, X, y, weights, cp, torch)
+            cases.append(_standalone_bootstrap_direction_case(backend, cp, torch))
 
             for penalty, alpha, cpu_coef, cpu_intercept in (
                 ("l2", 0.02, cpu_l2_coef, cpu_l2_intercept),
