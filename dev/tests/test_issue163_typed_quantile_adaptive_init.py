@@ -14,6 +14,7 @@ from statgpu.linear_model.penalized import _fit_mixin
 from statgpu.penalties import AdaptiveL1Penalty
 import statgpu.backends as _backends
 import statgpu.backends._array_ops as _array_ops
+import statgpu.backends._utils as _backend_utils
 
 
 def test_typed_quantile_adaptive_initializer_receives_resolved_quantile(monkeypatch):
@@ -171,6 +172,45 @@ def test_ridge_initializer_aligns_weights_to_design_reference(monkeypatch):
 
     assert np.all(np.isfinite(coef))
     assert any(value is weights and ref is X for value, ref in calls)
+
+
+def test_ridge_initializer_binds_unweighted_scalars_and_identity_to_design(
+    monkeypatch,
+):
+    asarray_refs = []
+    eye_refs = []
+    original_asarray = _array_ops._xp_asarray
+    original_eye = _backend_utils.xp_eye
+
+    def recording_asarray(value, dtype, ref):
+        asarray_refs.append(ref)
+        return original_asarray(value, dtype, ref)
+
+    def recording_eye(n, dtype, xp, ref_arr=None):
+        eye_refs.append(ref_arr)
+        return original_eye(n, dtype, xp, ref_arr=ref_arr)
+
+    monkeypatch.setattr(_array_ops, "_xp_asarray", recording_asarray)
+    monkeypatch.setattr(_backend_utils, "xp_eye", recording_eye)
+
+    X = np.asarray(
+        [[1.0, 0.2], [0.3, -0.4], [-0.5, 1.1], [0.8, 0.6]],
+        dtype=np.float64,
+    )
+    y = np.asarray([0.7, -0.1, 0.2, 1.0], dtype=np.float64)
+
+    coef = _fit_mixin._irls_ridge_init_cd(
+        X,
+        y,
+        alpha=0.01,
+        max_iter=5,
+        tol=1e-6,
+        sample_weight=None,
+    )
+
+    assert np.all(np.isfinite(coef))
+    assert X in asarray_refs
+    assert eye_refs == [X]
 
 
 def test_typed_quantile_adaptive_initializer_receives_analytic_weights(monkeypatch):
