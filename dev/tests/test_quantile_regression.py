@@ -35,6 +35,28 @@ class TestQuantileRegression:
         assert m.n_iter_ > 0
         assert not hasattr(m, '_bse') or m._bse is None
 
+    def test_zero_kernel_density_estimate_fails_closed(self, monkeypatch):
+        model = QuantileRegression(quantile=0.5).fit(self.X, self.y)
+
+        monkeypatch.setattr(
+            model,
+            "_get_kernel_fn",
+            lambda name, xp=None: (
+                lambda u: np.zeros_like(np.asarray(u), dtype=np.float64)
+            ),
+        )
+
+        with pytest.raises(ValueError, match="finite positive residual density estimate"):
+            model._compute_inference_kernel(self.X, self.y)
+
+        assert model._inference_result is None
+        assert model._bse is None
+
+    @pytest.mark.parametrize("fhat", [0.0, -1.0, np.nan, np.inf])
+    def test_kernel_density_estimate_validator_rejects_invalid_values(self, fhat):
+        with pytest.raises(ValueError, match="finite positive residual density estimate"):
+            QuantileRegression._validate_kernel_density_estimate(fhat)
+
     def test_extreme_quantile_kernel_inference_fails_closed(self):
         model = QuantileRegression(
             quantile=0.01,

@@ -310,6 +310,18 @@ class QuantileRegression(BaseEstimator):
         return _KERNELS[name]
 
     @staticmethod
+    def _validate_kernel_density_estimate(fhat):
+        """Require a finite positive residual density at zero for inference."""
+        fhat = float(fhat)
+        if not np.isfinite(fhat) or fhat <= 0.0:
+            raise ValueError(
+                "Quantile kernel inference requires a finite positive residual "
+                "density estimate at zero. Try a different kernel/bandwidth, "
+                "more observations, or bootstrap inference."
+            )
+        return fhat
+
+    @staticmethod
     def _get_bandwidth_h(n, q, rule, resid, y_std):
         from statgpu.inference._distributions_backend import get_distribution
         _norm = get_distribution("norm", backend="numpy")
@@ -377,8 +389,10 @@ class QuantileRegression(BaseEstimator):
         # Sparsity via kernel density
         kernel_fn = self._get_kernel_fn(self.kernel)
         u = resid / h
-        fhat = _np.sum(kernel_fn(u)) / (n * h)
-        sparsity = 1.0 / max(fhat, 1e-10)
+        fhat = self._validate_kernel_density_estimate(
+            _np.sum(kernel_fn(u)) / (n * h)
+        )
+        sparsity = 1.0 / fhat
 
         # Powell (1991) sandwich covariance
         D = _np.where(resid > 0, (tau / fhat) ** 2, ((1.0 - tau) / fhat) ** 2)
@@ -461,8 +475,10 @@ class QuantileRegression(BaseEstimator):
         # Sparsity
         kernel_fn = self._get_kernel_fn(self.kernel, xp)
         u = resid / h
-        fhat = float(xp.sum(kernel_fn(u))) / (n * h)
-        sparsity = 1.0 / max(fhat, 1e-10)
+        fhat = self._validate_kernel_density_estimate(
+            float(xp.sum(kernel_fn(u))) / (n * h)
+        )
+        sparsity = 1.0 / fhat
 
         # Sandwich covariance
         D = xp.where(resid > 0, (tau / fhat) ** 2, ((1.0 - tau) / fhat) ** 2)
