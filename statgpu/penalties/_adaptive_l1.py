@@ -224,10 +224,10 @@ class AdaptiveL1Penalty(Penalty):
         elif backend == "cupy":
             import cupy as cp
             aligned = _xp_asarray(source, target_dtype, ref)
-            alpha_scalar = _xp_asarray(alpha_value, target_dtype, ref)
+            alpha_scalar = np.dtype(target_dtype).type(alpha_value)
         else:
             aligned = np.asarray(source, dtype=target_dtype)
-            alpha_scalar = np.asarray(alpha_value, dtype=target_dtype)
+            alpha_scalar = np.dtype(target_dtype).type(alpha_value)
 
         cached = alpha_scalar * aligned
         setattr(self, cache_key, cached)
