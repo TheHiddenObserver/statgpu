@@ -88,6 +88,12 @@ _PUBLIC_DOC_PAIRS = (
 )
 
 
+def test_quantile_loss_runtime_help_preserves_class_docstring():
+    doc = inspect.getdoc(QuantileLoss) or ""
+    assert "Quantile regression loss" in doc
+    assert "Target quantile in (0, 1)" in doc
+
+
 def test_quantile_gradient_runtime_help_matches_executable_subgradient():
     doc = inspect.getdoc(QuantileLoss.per_sample_gradient) or ""
     assert "-tau + 1.0 * (u < 0)" in doc

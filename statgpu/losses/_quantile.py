@@ -22,7 +22,6 @@ from ._registry import register_loss
 
 @register_loss('quantile')
 class QuantileLoss(LossBase):
-    _lipschitz_static = True
     """Quantile regression loss (pinball loss).
 
     Parameters
@@ -31,6 +30,7 @@ class QuantileLoss(LossBase):
         Target quantile in (0, 1).
     """
 
+    _lipschitz_static = True
     name = "quantile"
     y_type = "continuous"
     smooth_gradient = False   # non-smooth at u=0; first-order routes use a subgradient
