@@ -181,6 +181,53 @@ class TestQuantileRegression:
         ):
             model._compute_inference_kernel_gpu(X, y)
 
+    def test_kernel_torch_cpu_uses_numpy_population_std_bandwidth(self):
+        torch = pytest.importorskip("torch")
+
+        X_np = np.linspace(-1.0, 1.0, 48, dtype=np.float64).reshape(-1, 1)
+        y_np = (
+            0.35 * X_np[:, 0]
+            + np.linspace(-0.4, 0.6, 48, dtype=np.float64)
+        )
+
+        cpu = QuantileRegression(
+            quantile=0.4,
+            fit_intercept=False,
+            kernel="gau",
+            bandwidth="hsheather",
+        )
+        cpu.coef_ = np.array([0.3], dtype=np.float64)
+        cpu.intercept_ = 0.0
+        cpu._selected_backend_name = "numpy"
+        cpu._selected_backend_device = "cpu"
+        cpu._compute_inference_kernel(X_np, y_np)
+
+        X_t = torch.as_tensor(X_np, dtype=torch.float64)
+        y_t = torch.as_tensor(y_np, dtype=torch.float64)
+        torch_model = QuantileRegression(
+            quantile=0.4,
+            fit_intercept=False,
+            kernel="gau",
+            bandwidth="hsheather",
+        )
+        torch_model.coef_ = np.array([0.3], dtype=np.float64)
+        torch_model.intercept_ = 0.0
+        torch_model._selected_backend_name = "torch"
+        torch_model._selected_backend_device = "cpu"
+        torch_model._compute_inference_kernel_gpu(X_t, y_t)
+
+        assert torch_model._inference_result.metadata["bandwidth"] == pytest.approx(
+            cpu._inference_result.metadata["bandwidth"],
+            rel=1e-12,
+            abs=1e-12,
+        )
+        np.testing.assert_allclose(
+            torch_model._bse,
+            cpu._bse,
+            rtol=1e-10,
+            atol=1e-12,
+        )
+
     def test_kernel_gpu_reference_distribution_follows_torch_device(
         self, monkeypatch
     ):

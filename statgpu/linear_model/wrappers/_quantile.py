@@ -686,7 +686,14 @@ class QuantileRegression(BaseEstimator):
         q75 = xp.quantile(resid, 0.75)
         q25 = xp.quantile(resid, 0.25)
         iqre = float(q75 - q25)
-        y_std = float(xp.std(y))
+        # Match NumPy/CuPy population-standard-deviation semantics exactly.
+        # torch.std defaults to Bessel correction (unbiased=True), which would
+        # otherwise change the bandwidth and therefore the reported inference.
+        y_std = (
+            float(xp.std(y, unbiased=False))
+            if is_torch
+            else float(xp.std(y))
+        )
         scale = min(y_std, iqre / 1.34)
         h = self._get_bandwidth_h_from_scale(
             n,
