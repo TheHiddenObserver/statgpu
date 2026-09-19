@@ -152,6 +152,7 @@ class QuantileRegression(BaseEstimator):
         self._bootstrap_schedule_sha256_ = None
         self._fitted = False
         self._selected_backend_name = None
+        self._selected_backend_device = None
         self.__dict__.pop("n_features_in_", None)
 
     def _validate_public_controls(self):
@@ -272,6 +273,17 @@ class QuantileRegression(BaseEstimator):
         self._selected_backend_name = backend_name
         X_arr = self._to_array(X_native, backend=backend_name)
         y_arr = self._to_array(y_native, backend=backend_name)
+        if backend_name == "numpy":
+            backend_device = "cpu"
+        elif backend_name == "cupy":
+            backend_device = f"cuda:{int(X_arr.device.id)}"
+        elif backend_name == "torch":
+            backend_device = str(X_arr.device)
+        else:
+            raise RuntimeError(
+                f"Unsupported QuantileRegression backend provenance: {backend_name!r}"
+            )
+        self._selected_backend_device = backend_device
         n, p = X_arr.shape
         self.n_features_in_ = int(p)
         sample_weight = sample_weight_native
@@ -578,9 +590,18 @@ class QuantileRegression(BaseEstimator):
             statistic=zvalues_np.copy(), statistic_name="z",
             pvalues=pvalues_np.copy(), conf_int=conf_int_np.copy(),
             distribution="normal",
-            metadata={"method": "powell_1991_sandwich", "kernel": self.kernel,
-                       "bandwidth_rule": self.bandwidth, "bandwidth": float(h),
-                       "sparsity": float(sparsity), "quantile": tau, "backend": backend})
+            metadata={
+                "method": "powell_1991_sandwich",
+                "kernel": self.kernel,
+                "bandwidth_rule": self.bandwidth,
+                "bandwidth": float(h),
+                "sparsity": float(sparsity),
+                "quantile": tau,
+                "backend": backend,
+                "numerical_backend": backend,
+                "numerical_device": self._selected_backend_device,
+                "reporting_backend": "numpy",
+            })
         result.apply_to(self)
 
     def _compute_bootstrap_batched(self, X, y):
@@ -879,7 +900,12 @@ class QuantileRegression(BaseEstimator):
                 "response_construction": "backend_native",
                 "solver": "batched_pinball_fista",
                 "solver_n_iter": int(self._bootstrap_n_iter_),
-                "backend": getattr(self, '_selected_backend_name', 'numpy'),
+                "backend": getattr(self, "_selected_backend_name", "numpy"),
+                "numerical_backend": getattr(
+                    self, "_selected_backend_name", "numpy"
+                ),
+                "numerical_device": self._selected_backend_device,
+                "reporting_backend": "numpy",
             })
         result.apply_to(self)
         # Backward-compatible aliases: these are estimate/SE ratios only.

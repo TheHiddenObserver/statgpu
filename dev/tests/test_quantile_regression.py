@@ -129,6 +129,20 @@ class TestQuantileRegression:
         assert model._fitted is False
         assert model._inference_result is None
 
+    def test_kernel_inference_records_concrete_backend_device(self):
+        model = QuantileRegression(
+            quantile=0.5,
+            compute_inference=True,
+            inference_method="kernel",
+        ).fit(self.X, self.y)
+
+        assert model._selected_backend_name == "numpy"
+        assert model._selected_backend_device == "cpu"
+        metadata = model._inference_result.metadata
+        assert metadata["numerical_backend"] == "numpy"
+        assert metadata["numerical_device"] == "cpu"
+        assert metadata["reporting_backend"] == "numpy"
+
     def test_fit_with_kernel_inference(self):
         m = QuantileRegression(quantile=0.5, compute_inference=True,
                                 inference_method='kernel')
@@ -593,6 +607,22 @@ class TestQuantileRegression:
             model.predict(self.X[0])
         with pytest.raises(ValueError, match="same number of features"):
             model.predict(self.X[:, :2])
+
+    def test_bootstrap_inference_records_concrete_backend_device(self):
+        model = QuantileRegression(
+            quantile=0.5,
+            compute_inference=True,
+            inference_method="bootstrap",
+            n_bootstrap=8,
+            random_state=41,
+            max_iter=400,
+            tol=1e-6,
+        ).fit(self.X, self.y)
+
+        metadata = model._inference_result.metadata
+        assert metadata["numerical_backend"] == "numpy"
+        assert metadata["numerical_device"] == "cpu"
+        assert metadata["reporting_backend"] == "numpy"
 
     def test_bootstrap_inference_metadata_records_schedule_identity(self):
         model = QuantileRegression(
