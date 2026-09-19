@@ -767,6 +767,73 @@ def test_public_proximal_quantile_flat_target_remains_valid_when_lla_weights_sta
     assert intercept == 0.0
 
 
+def test_public_proximal_quantile_flat_boundary_probe_does_not_leak_internal_warning(
+    monkeypatch,
+):
+    X, y = _data(seed=16710)
+    loss = QuantileLoss(quantile=0.3)
+    penalty = SCADPenalty(alpha=0.05)
+    from statgpu.solvers import _proximal_irls_quantile as kernel
+
+    monkeypatch.setattr(
+        kernel,
+        "_compute_lla_weights",
+        lambda penalty_arg, coef, p, xp, backend: xp.zeros(
+            p, dtype=coef.dtype
+        ),
+    )
+    calls = {"irls": 0}
+
+    def exhausted_flat_irls(
+        X_arg,
+        y_arg,
+        penalty=None,
+        max_iter=100,
+        tol=1e-6,
+        init_coef=None,
+        eps=1e-8,
+        sample_weight=None,
+        fit_intercept=False,
+    ):
+        calls["irls"] += 1
+        point = np.asarray(init_coef, dtype=np.float64)
+        if calls["irls"] == 1:
+            return point.copy(), int(max_iter)
+        warnings.warn(
+            "diagnostic IRLS exhausted its one-step budget",
+            ConvergenceWarning,
+            stacklevel=2,
+        )
+        return point + 0.1, int(max_iter)
+
+    monkeypatch.setattr(loss, "irls", exhausted_flat_irls)
+
+    token = kernel._STRICT_CV_TARGET.set(True)
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", ConvergenceWarning)
+            with pytest.raises(
+                FloatingPointError,
+                match="target reached max_iter=2 before IRLS convergence",
+            ):
+                solvers.proximal_irls_quantile_solver(
+                    loss,
+                    penalty,
+                    X,
+                    y,
+                    alpha_path=np.array([0.05]),
+                    max_lla_per_step=1,
+                    max_iter=2,
+                    tol=1e-12,
+                    lla_tol=1e-12,
+                    fit_intercept=False,
+                )
+    finally:
+        kernel._STRICT_CV_TARGET.reset(token)
+
+    assert calls["irls"] == 2
+
+
 def test_public_proximal_quantile_active_target_exhaustion_warns(monkeypatch):
     X, y = _data(seed=16707)
     loss = QuantileLoss(quantile=0.3)

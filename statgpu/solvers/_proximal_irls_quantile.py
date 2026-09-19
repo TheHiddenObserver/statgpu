@@ -72,17 +72,22 @@ def _flat_irls_boundary_converged(
     fit_intercept,
     xp,
 ) -> bool:
-    probe, _ = loss.irls(
-        X_work,
-        y_work,
-        penalty=None,
-        max_iter=1,
-        tol=float(tol),
-        init_coef=beta,
-        eps=eps,
-        sample_weight=sample_weight,
-        fit_intercept=fit_intercept,
-    )
+    # This one-step call is a diagnostic fixed-point probe. Its expected
+    # budget-exhaustion warning is not a user-facing solver failure: the
+    # returned step size below is the signal that classifies the target.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ConvergenceWarning)
+        probe, _ = loss.irls(
+            X_work,
+            y_work,
+            penalty=None,
+            max_iter=1,
+            tol=float(tol),
+            init_coef=beta,
+            eps=eps,
+            sample_weight=sample_weight,
+            fit_intercept=fit_intercept,
+        )
     delta_dev = xp.linalg.norm(probe - beta)
     delta = float(_to_numpy(delta_dev))
     return bool(np.isfinite(delta) and delta < float(tol))

@@ -148,16 +148,21 @@ def _flat_irls_boundary_converged(
     accepted and is not included in the public iteration count.  Its norm stays
     on the active backend; only the final scalar is synchronized.
     """
-    probe, _ = loss.irls(
-        X_work,
-        y_dev,
-        penalty=None,
-        max_iter=1,
-        tol=float(tol),
-        init_coef=params,
-        sample_weight=sample_weight,
-        fit_intercept=fit_intercept,
-    )
+    # This one-step call is diagnostic only. Suppress the IRLS helper's
+    # expected max_iter=1 warning and classify the target from the probe delta;
+    # the outer Group LLA solver owns the public convergence warning/error.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ConvergenceWarning)
+        probe, _ = loss.irls(
+            X_work,
+            y_dev,
+            penalty=None,
+            max_iter=1,
+            tol=float(tol),
+            init_coef=params,
+            sample_weight=sample_weight,
+            fit_intercept=fit_intercept,
+        )
     delta_dev = xp.linalg.norm(probe - params)
     delta = float(_to_numpy(delta_dev))
     return bool(np.isfinite(delta) and delta < float(tol))

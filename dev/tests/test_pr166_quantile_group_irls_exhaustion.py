@@ -246,7 +246,9 @@ def test_intermediate_quantile_group_lla_exhaustion_is_only_a_warm_path(monkeypa
     assert intercept == 0.0
 
 
-def _install_genuinely_exhausted_flat_irls(monkeypatch, loss):
+def _install_genuinely_exhausted_flat_irls(
+    monkeypatch, loss, *, warn_on_probe=False
+):
     calls = {"value": 0}
 
     def exhausted_irls(
@@ -258,6 +260,12 @@ def _install_genuinely_exhausted_flat_irls(monkeypatch, loss):
             return np.zeros(X_arg.shape[1], dtype=np.float64), int(max_iter)
         # The boundary probe still sees a material next-step move, so this is
         # a true exhausted state rather than last-iteration convergence.
+        if warn_on_probe:
+            warnings.warn(
+                "diagnostic IRLS exhausted its one-step budget",
+                ConvergenceWarning,
+                stacklevel=2,
+            )
         return np.asarray(init_coef, dtype=np.float64) + 0.1, int(max_iter)
 
     monkeypatch.setattr(loss, "irls", exhausted_irls)
@@ -285,16 +293,26 @@ def test_flat_quantile_group_target_irls_budget_exhaustion_warns_at_external_cal
 
 def test_flat_quantile_group_target_irls_budget_exhaustion_fails_in_strict_cv_mode(monkeypatch):
     X, y, loss, penalty = _drifting_problem()
-    calls = _install_genuinely_exhausted_flat_irls(monkeypatch, loss)
+    calls = _install_genuinely_exhausted_flat_irls(
+        monkeypatch, loss, warn_on_probe=True
+    )
 
-    with pytest.raises(FloatingPointError, match="flat target reached max_iter=2 in Quantile IRLS"):
-        solver_mod.quantile_group_proximal_irls_lla_solver(
-            loss, penalty, X, y,
-            alpha_path=np.asarray([0.3], dtype=np.float64),
-            max_lla_per_step=1, max_iter=2, tol=1e-12, lla_tol=1e-12,
-            fit_intercept=False, init_coef=np.full(4, 2.0, dtype=np.float64),
-            fail_on_target_nonconvergence=True,
-        )
+    # The diagnostic max_iter=1 IRLS warning is internal bookkeeping. Even
+    # when callers escalate ConvergenceWarning, strict CV must reach the outer
+    # solver's intentional FloatingPointError rather than leak the probe warning.
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        with pytest.raises(
+            FloatingPointError,
+            match="flat target reached max_iter=2 in Quantile IRLS",
+        ):
+            solver_mod.quantile_group_proximal_irls_lla_solver(
+                loss, penalty, X, y,
+                alpha_path=np.asarray([0.3], dtype=np.float64),
+                max_lla_per_step=1, max_iter=2, tol=1e-12, lla_tol=1e-12,
+                fit_intercept=False, init_coef=np.full(4, 2.0, dtype=np.float64),
+                fail_on_target_nonconvergence=True,
+            )
 
     assert calls["value"] == 2
 
