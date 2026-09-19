@@ -13,7 +13,7 @@ from dev.benchmarks import run_quantile_smooth_fista_gpu_gate as smooth_wrapper
 from dev.benchmarks import validate_quantile_smooth_fista_gpu as smooth_gate
 from dev.benchmarks import validate_quantile_solver_provenance_gpu as gate
 from statgpu._config import Device
-from statgpu.linear_model import PenalizedGLM_CV
+from statgpu.linear_model import PenalizedGLM_CV, QuantileRegression
 from statgpu.linear_model.penalized import (
     PenalizedGeneralizedLinearModel,
     PenalizedQuantileRegression,
@@ -35,6 +35,50 @@ def test_pr166_smooth_bootstrap_physical_gate_schema_is_locked():
     assert 0.0 < smooth_gate.BOOTSTRAP_Q < 1.0
     assert smooth_gate.BOOTSTRAP_B >= 2
     assert callable(smooth_gate._standalone_bootstrap_public_case)
+
+
+def test_pr166_public_bootstrap_physical_fixture_converges_on_cpu():
+    X = np.ones((smooth_gate.BOOTSTRAP_N, 1), dtype=np.float64)
+    y = np.linspace(
+        -4.0,
+        4.0,
+        smooth_gate.BOOTSTRAP_N,
+        dtype=np.float64,
+    )
+    model = QuantileRegression(
+        quantile=smooth_gate.BOOTSTRAP_Q,
+        fit_intercept=False,
+        max_iter=1600,
+        tol=1e-7,
+        compute_inference=True,
+        inference_method="bootstrap",
+        n_bootstrap=smooth_gate.BOOTSTRAP_B,
+        random_state=smooth_gate.BOOTSTRAP_SEED,
+        device="cpu",
+    ).fit(X, y)
+
+    assert model._fitted is True
+    assert model._selected_backend_name == "numpy"
+    assert model._selected_backend_device == "cpu"
+    assert 1 <= model.n_iter_ <= model.max_iter
+
+    result = model._inference_result
+    assert result is not None
+    assert result.method == "bootstrap"
+    metadata = result.metadata
+    assert metadata["solver"] == "batched_pinball_fista"
+    assert metadata["numerical_backend"] == "numpy"
+    assert metadata["numerical_device"] == "cpu"
+    assert metadata["reporting_backend"] == "numpy"
+    assert metadata["response_construction"] == "backend_native"
+    assert metadata["resampling_schedule"] == "numpy_generator_control_plane"
+    schedule_hash = metadata["resampling_schedule_sha256"]
+    assert isinstance(schedule_hash, str) and len(schedule_hash) == 64
+    int(schedule_hash, 16)
+    assert 1 <= int(metadata["solver_n_iter"]) <= model.max_iter
+    assert np.all(np.isfinite(np.asarray(result.bse)))
+    assert np.all(np.isfinite(np.asarray(result.pvalues)))
+    assert np.all(np.isfinite(np.asarray(result.conf_int)))
 
 
 def test_canonical_physical_artifact_preserves_exact_source_provenance():
