@@ -198,6 +198,16 @@ class QuantileLoss(LossBase):
         # implicit device synchronization on CuPy/Torch numerical paths.
         return float(value) if xp.__name__ == "numpy" else value
 
+    def gradient(self, X, y, coef, sample_weight=None):
+        """Pinball gradient with weighted normalization kept on backend."""
+        xp = _get_xp(X)
+        eta = X @ coef
+        resid = self.per_sample_gradient(eta, y)
+        if sample_weight is not None:
+            total_weight = xp.sum(sample_weight)
+            return X.T @ (sample_weight * resid) / total_weight
+        return X.T @ resid / X.shape[0]
+
     def fused_value_and_gradient(self, X, y, coef, sample_weight=None):
         """Fused value+gradient: single X@coef, shared intermediate results.
 
