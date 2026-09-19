@@ -266,6 +266,7 @@ def fista_lla_path(
     if loss_name == "quantile":
         from statgpu.glm_core._validation import (
             _as_native_array,
+            _is_boolean_array,
             _require_real_finite,
         )
 
@@ -276,6 +277,8 @@ def fista_lla_path(
                 raise ValueError("init_coef must be one-dimensional")
             if int(init_values.shape[0]) != n_features:
                 raise ValueError("init_coef must have length n_features")
+            if _is_boolean_array(init_values):
+                raise ValueError("init_coef must contain real numeric values")
             _require_real_finite(init_values, name="init_coef")
 
         if init_intercept is not None:
@@ -285,7 +288,7 @@ def fista_lla_path(
             )
             if int(intercept_value.ndim) != 0:
                 raise ValueError("init_intercept must be a scalar")
-            if getattr(intercept_value.dtype, "kind", "") == "b":
+            if _is_boolean_array(intercept_value):
                 raise ValueError("init_intercept must be a finite real scalar")
             _require_real_finite(intercept_value, name="init_intercept")
 
