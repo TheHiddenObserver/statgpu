@@ -114,6 +114,9 @@ def _zeros(n, backend, ref_tensor=None, dtype=None):
         out_dtype = (
             dtype if dtype is not None else getattr(ref_tensor, "dtype", cp.float64)
         )
+        if ref_tensor is not None and type(ref_tensor).__module__.startswith("cupy"):
+            with cp.cuda.Device(int(ref_tensor.device.id)):
+                return cp.zeros(n, dtype=out_dtype)
         return cp.zeros(n, dtype=out_dtype)
     import torch
     device = getattr(ref_tensor, "device", "cpu") if ref_tensor is not None else "cpu"
