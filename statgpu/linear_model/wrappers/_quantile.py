@@ -1140,6 +1140,10 @@ class QuantileRegression(BaseEstimator):
             raise ValueError(
                 "y must contain real numeric values for QuantileRegression score"
             )
+        if not np.all(np.isfinite(y_np)):
+            raise ValueError(
+                "y must contain finite values for QuantileRegression score"
+            )
         if sample_weight is not None:
             sw = validate_glm_sample_weight(sample_weight, y_np.shape[0])
             sw = np.asarray(_to_numpy(sw), dtype=np.float64)
