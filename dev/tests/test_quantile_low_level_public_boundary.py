@@ -15,6 +15,7 @@ from statgpu import solvers
 from statgpu.solvers import _fista as _fista_mod
 from statgpu.solvers._convergence import ConvergenceWarning
 from statgpu.losses import QuantileLoss
+import statgpu.losses._quantile as _quantile_loss_mod
 from statgpu.penalties import GroupSCADPenalty, L1Penalty, L2Penalty, MCPPenalty, SCADPenalty
 from statgpu.glm_core._squared import SquaredErrorLoss
 from statgpu.backends._array_ops import (
@@ -549,6 +550,42 @@ def test_public_proximal_quantile_rejects_nonfinite_xy_before_path_work(
             alpha_path=np.array([0.08, 0.05]),
             max_iter=3,
         )
+
+
+def test_direct_quantile_irls_uses_reference_aware_ridge_allocations(
+    monkeypatch,
+):
+    X, y = _data(seed=16720)
+    loss = QuantileLoss(quantile=0.3)
+    penalty = L2Penalty(alpha=0.1)
+    calls = []
+
+    original_eye = _quantile_loss_mod.xp_eye
+    original_ones = _quantile_loss_mod.xp_ones
+
+    def recording_eye(n, dtype, xp, ref_arr=None):
+        calls.append(("eye", ref_arr))
+        return original_eye(n, dtype, xp, ref_arr=ref_arr)
+
+    def recording_ones(n, dtype, xp, ref_arr=None):
+        calls.append(("ones", ref_arr))
+        return original_ones(n, dtype, xp, ref_arr=ref_arr)
+
+    monkeypatch.setattr(_quantile_loss_mod, "xp_eye", recording_eye)
+    monkeypatch.setattr(_quantile_loss_mod, "xp_ones", recording_ones)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ConvergenceWarning)
+        loss.irls(
+            X,
+            y,
+            penalty=penalty,
+            max_iter=1,
+            fit_intercept=True,
+        )
+
+    assert [name for name, _ in calls] == ["eye", "ones"]
+    assert all(ref is not None and ref.shape == X.shape for _, ref in calls)
 
 
 def test_direct_quantile_irls_budget_exhaustion_is_observable():
