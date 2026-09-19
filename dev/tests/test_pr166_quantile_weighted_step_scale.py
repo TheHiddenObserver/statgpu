@@ -6,7 +6,8 @@ import numpy as np
 import pytest
 
 from statgpu.losses import QuantileLoss
-from statgpu.penalties import GroupSCADPenalty
+from statgpu.penalties import GroupSCADPenalty, SCADPenalty
+from statgpu.solvers import _fista_lla as fista_lla_base
 from statgpu.solvers import _fista_lla_group_contract as fista_lla_contract
 from statgpu.solvers import _quantile_group_proximal_irls_lla as group_solver
 from statgpu.solvers._fista_lla_group_contract import (
@@ -69,6 +70,40 @@ def test_quantile_equal_weights_recover_unweighted_step_scale():
     weighted = loss.lipschitz(X, coef, sample_weight=weights)
 
     assert weighted == pytest.approx(unweighted, rel=2e-12, abs=2e-14)
+
+
+def test_quantile_fista_lla_normalizes_response_weight_and_warm_start(monkeypatch):
+    loss = QuantileLoss(0.35)
+    penalty = SCADPenalty(alpha=0.05)
+    X = np.eye(3, dtype=np.float64)
+    y = np.asarray([0.4, -0.2, 0.7], dtype=np.float64)
+    weights = np.asarray([0.5, 1.0, 1.5], dtype=np.float64)
+    init = np.asarray([0.1, -0.05, 0.02], dtype=np.float64)
+    original = fista_lla_base._xp_asarray
+    calls = []
+
+    def recording_asarray(value, dtype, ref):
+        calls.append((value, ref))
+        return original(value, dtype, ref)
+
+    monkeypatch.setattr(fista_lla_base, "_xp_asarray", recording_asarray)
+
+    fista_lla_base.fista_lla_path(
+        loss,
+        penalty,
+        X,
+        y,
+        alpha_path=[0.05],
+        max_lla_per_step=1,
+        max_iter=1,
+        fit_intercept=False,
+        sample_weight=weights,
+        init_coef=init,
+    )
+
+    assert any(value is y and ref is X for value, ref in calls)
+    assert any(value is weights and ref is X for value, ref in calls)
+    assert any(value is init for value, _ in calls)
 
 
 def test_low_level_quantile_fista_lla_proxy_retains_periodic_weight():
