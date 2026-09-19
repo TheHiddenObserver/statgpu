@@ -15,7 +15,7 @@ __all__ = ["AdaptiveL1Penalty"]
 from statgpu.backends._torch_compile import compile_torch
 from typing import Optional
 import numpy as np
-from statgpu.backends._array_ops import _xp
+from statgpu.backends._array_ops import _xp, _xp_asarray
 from statgpu.penalties._base import Penalty
 
 # ---- torch.compile lazy-loader (fuses elementwise ops into 1 kernel) ---------
@@ -132,10 +132,62 @@ class AdaptiveL1Penalty(Penalty):
                 self._norm_factor = mean_w
         self._weights = raw
         # Invalidate cached device tensors so proximal recomputes them.
-        for _k in ('_alpha_w_torch', '_alpha_w_cupy',
-                    '_alpha_w_torch_src', '_alpha_w_cupy_src'):
+        for _k in (
+            '_alpha_w_torch', '_alpha_w_cupy',
+            '_alpha_w_torch_src', '_alpha_w_cupy_src',
+            '_alpha_w_torch_alpha', '_alpha_w_cupy_alpha',
+        ):
             if hasattr(self, _k):
                 delattr(self, _k)
+
+    def _cached_alpha_weights(self, ref, backend: str):
+        """Return alpha*weights on ref's concrete device with a truthful cache."""
+        cache_key = f"_alpha_w_{backend}"
+        src_key = f"_alpha_w_{backend}_src"
+        alpha_key = f"_alpha_w_{backend}_alpha"
+        cached = getattr(self, cache_key, None)
+        source = self._weights
+        cached_source = getattr(self, src_key, None)
+        cached_alpha = getattr(self, alpha_key, None)
+        alpha_value = float(self.alpha)
+
+        same_device = True
+        if cached is not None and backend == "torch":
+            same_device = getattr(cached, "device", None) == getattr(ref, "device", None)
+        elif cached is not None and backend == "cupy":
+            cached_device = getattr(getattr(cached, "device", None), "id", None)
+            ref_device = getattr(getattr(ref, "device", None), "id", None)
+            same_device = cached_device is not None and ref_device is not None and int(cached_device) == int(ref_device)
+
+        if (
+            cached is not None
+            and cached_source is source
+            and cached_alpha == alpha_value
+            and same_device
+        ):
+            return cached
+
+        if backend == "torch":
+            import torch
+            if type(source).__module__.startswith("torch"):
+                aligned = source.to(device=ref.device, dtype=torch.float64)
+            else:
+                aligned = torch.as_tensor(
+                    np.asarray(source, dtype=np.float64),
+                    device=ref.device,
+                    dtype=torch.float64,
+                )
+        elif backend == "cupy":
+            import cupy as cp
+            aligned = _xp_asarray(source, cp.float64, ref)
+        else:
+            aligned = np.asarray(source, dtype=np.float64)
+
+        cached = alpha_value * aligned
+        setattr(self, cache_key, cached)
+        setattr(self, src_key, source)
+        setattr(self, alpha_key, alpha_value)
+        return cached
 
     # ----------------------------------------------------------------
     # Value
@@ -147,42 +199,12 @@ class AdaptiveL1Penalty(Penalty):
         mod = type(coef).__module__
         if mod.startswith("torch"):
             import torch
-            # Reuse cached device tensor from proximal() if available
-            _cached = getattr(self, '_alpha_w_torch', None)
-            _src = getattr(self, '_alpha_w_torch_src', None)
-            if _cached is not None and _src is self._weights:
-                return (_cached * torch.abs(coef)).sum().item()
-            w = self._weights
-            _is_dev = type(w).__module__.startswith("torch")
-            if _is_dev:
-                if _cached is None or _src is not w:
-                    _cached = self.alpha * w.to(device=coef.device, dtype=torch.float64)
-                    self._alpha_w_torch = _cached
-                    self._alpha_w_torch_src = w
-            else:
-                if _cached is None or _src is not w:
-                    _cached = torch.tensor(self.alpha * np.asarray(w, dtype=float),
-                                           device=coef.device, dtype=torch.float64)
-                    self._alpha_w_torch = _cached
-                    self._alpha_w_torch_src = w
-            return (_cached * torch.abs(coef)).sum().item()
+            alpha_w = self._cached_alpha_weights(coef, "torch")
+            return (alpha_w * torch.abs(coef)).sum().item()
         elif mod.startswith("cupy"):
             import cupy as cp
-            _cached = getattr(self, '_alpha_w_cupy', None)
-            _src = getattr(self, '_alpha_w_cupy_src', None)
-            w = self._weights
-            _is_dev = type(w).__module__.startswith("cupy")
-            if _is_dev:
-                if _cached is None or _src is not w:
-                    _cached = self.alpha * w
-                    self._alpha_w_cupy = _cached
-                    self._alpha_w_cupy_src = w
-            else:
-                if _cached is None or _src is not w:
-                    _cached = cp.asarray(self.alpha * np.asarray(w, dtype=float))
-                    self._alpha_w_cupy = _cached
-                    self._alpha_w_cupy_src = w
-            return float((_cached * cp.abs(coef)).sum())
+            alpha_w = self._cached_alpha_weights(coef, "cupy")
+            return float((alpha_w * cp.abs(coef)).sum())
         else:
             return self.alpha * np.sum(self._weights * np.abs(coef))
 
@@ -194,7 +216,8 @@ class AdaptiveL1Penalty(Penalty):
         xp = _xp(coef)
         if not hasattr(self, "_weights"):
             self._weights = xp.ones_like(coef)
-        return self.alpha * self._weights * xp.sign(coef)
+        weights = self.lla_weights(coef)
+        return self.alpha * weights * xp.sign(coef)
 
     # ----------------------------------------------------------------
     # Proximal operator (FISTA path)
@@ -234,43 +257,12 @@ class AdaptiveL1Penalty(Penalty):
                     ''',
                     'adaptive_l1_proximal',
                 )
-            # Cache device tensor for alpha*weights across calls.
-            # Use _weights_src_id to detect when _weights is reassigned externally.
-            _cache_key = '_alpha_w_cupy'
-            _src_key = '_alpha_w_cupy_src'
-            _cached = getattr(self, _cache_key, None)
-            _src = getattr(self, _src_key, None)
-            if _is_device:
-                if _cached is None or _src is not self._weights:
-                    _cached = self.alpha * self._weights
-                    setattr(self, _cache_key, _cached)
-                    setattr(self, _src_key, self._weights)
-            else:
-                if _cached is None or _src is not self._weights:
-                    alpha_w = self.alpha * np.asarray(self._weights, dtype=float)
-                    _cached = cp.asarray(alpha_w)
-                    setattr(self, _cache_key, _cached)
-                    setattr(self, _src_key, self._weights)
+            _cached = self._cached_alpha_weights(w, "cupy")
             thresh_gpu = _cached * step
             return AdaptiveL1Penalty._ADAPTIVE_L1_PROXIMAL_CUPY(w, thresh_gpu)
         elif backend == "torch":
             import torch
-            # Cache device tensor for alpha*weights across calls.
-            _cache_key = '_alpha_w_torch'
-            _src_key = '_alpha_w_torch_src'
-            _cached = getattr(self, _cache_key, None)
-            _src = getattr(self, _src_key, None)
-            if _is_device:
-                if _cached is None or _src is not self._weights:
-                    _cached = self.alpha * self._weights.to(device=w.device, dtype=torch.float64)
-                    setattr(self, _cache_key, _cached)
-                    setattr(self, _src_key, self._weights)
-            else:
-                if _cached is None or _src is not self._weights:
-                    alpha_w = self.alpha * np.asarray(self._weights, dtype=float)
-                    _cached = torch.tensor(alpha_w, device=w.device, dtype=torch.float64)
-                    setattr(self, _cache_key, _cached)
-                    setattr(self, _src_key, self._weights)
+            _cached = self._cached_alpha_weights(w, "torch")
             thresh_t = _cached * step
             compiled_fn = _get_adaptive_l1_torch_compiled()
             if compiled_fn is not None:
@@ -289,12 +281,11 @@ class AdaptiveL1Penalty(Penalty):
         """Return LLA weights, converted to the same backend as coef."""
         if not hasattr(self, "_weights"):
             self._weights = np.ones_like(np.asarray(coef))
-        # Convert weights to the same backend as coef to avoid device-to-host transfer
-        from statgpu.backends._array_ops import _xp
+        # Convert weights to the same backend and concrete device as coef.
         xp = _xp(coef)
         if xp is np:
-            return self._weights.copy()
-        return xp.asarray(self._weights, dtype=coef.dtype)
+            return np.asarray(self._weights, dtype=coef.dtype).copy()
+        return _xp_asarray(self._weights, coef.dtype, coef)
 
     # ----------------------------------------------------------------
 
