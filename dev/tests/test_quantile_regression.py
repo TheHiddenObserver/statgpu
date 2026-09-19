@@ -221,6 +221,47 @@ class TestQuantileRegression:
         assert len(calls) == 1
         assert torch.is_tensor(calls[0])
 
+    def test_nonmedian_batched_bootstrap_torch_cpu_runs_armijo(self):
+        torch = pytest.importorskip("torch")
+
+        tau = 0.2
+        n = 64
+        B = 6
+        X_np = np.ones((n, 1), dtype=np.float64)
+        y_np = np.linspace(-4.0, 4.0, n, dtype=np.float64)
+        X = torch.as_tensor(X_np, dtype=torch.float64)
+        y = torch.as_tensor(y_np, dtype=torch.float64)
+
+        model = QuantileRegression(
+            quantile=tau,
+            fit_intercept=False,
+            max_iter=300,
+            tol=1e-7,
+            n_bootstrap=B,
+            random_state=29,
+        )
+        model.coef_ = np.zeros(1, dtype=np.float64)
+        model.intercept_ = 0.0
+
+        boot_params, params_native, design_native = model._compute_bootstrap_batched(X, y)
+        assert torch.is_tensor(params_native)
+        assert torch.is_tensor(design_native)
+        assert 1 <= model._bootstrap_n_iter_ <= model.max_iter
+
+        rng = np.random.default_rng(model.random_state)
+        y_batch = np.array([
+            y_np[rng.integers(0, n, size=n)]
+            for _ in range(B)
+        ])
+        target_q = np.quantile(y_batch, tau, axis=1)
+        wrong_q = np.quantile(y_batch, 1.0 - tau, axis=1)
+        estimated = np.asarray(boot_params[:, 0], dtype=np.float64)
+
+        assert np.mean(np.abs(estimated - target_q)) < np.mean(
+            np.abs(estimated - wrong_q)
+        )
+        assert float(np.median(estimated)) < 0.0
+
     def test_batched_bootstrap_zero_gradient_returns_current_point(self):
         X = np.zeros((12, 1), dtype=np.float64)
         y = np.zeros(12, dtype=np.float64)
