@@ -2,6 +2,7 @@
 
 import hashlib
 import math as _math
+import warnings
 from numbers import Integral, Real
 from typing import Optional
 import numpy as np
@@ -59,6 +60,7 @@ from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.losses._quantile import QuantileLoss
 from statgpu.solvers import fista_solver
+from statgpu.solvers._convergence import ConvergenceWarning
 from statgpu.solvers._constants import _SLACK_TOLERANCE
 
 
@@ -340,17 +342,35 @@ class QuantileRegression(BaseEstimator):
             ones = xp_ones(n, X_arr.dtype, xp, ref_arr=X_arr)
             X_aug = xp.column_stack([X_arr, ones])
             pen = L2Penalty(alpha=0.0)
-            params, n_iter = fista_solver(loss, pen, X_aug, y_arr,
-                                          max_iter=self._max_iter, tol=self._tol,
-                                          sample_weight=sample_weight)
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always", ConvergenceWarning)
+                params, n_iter = fista_solver(
+                    loss,
+                    pen,
+                    X_aug,
+                    y_arr,
+                    max_iter=self._max_iter,
+                    tol=self._tol,
+                    sample_weight=sample_weight,
+                )
+            self._handle_estimation_convergence_warnings(caught)
             self.coef_ = np.asarray(_to_numpy(params[:-1]))
             self.intercept_ = float(_to_numpy(params[-1]))
         else:
             from statgpu.penalties._l2 import L2Penalty
             pen = L2Penalty(alpha=0.0)
-            params, n_iter = fista_solver(loss, pen, X_arr, y_arr,
-                                          max_iter=self._max_iter, tol=self._tol,
-                                          sample_weight=sample_weight)
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always", ConvergenceWarning)
+                params, n_iter = fista_solver(
+                    loss,
+                    pen,
+                    X_arr,
+                    y_arr,
+                    max_iter=self._max_iter,
+                    tol=self._tol,
+                    sample_weight=sample_weight,
+                )
+            self._handle_estimation_convergence_warnings(caught)
             self.coef_ = np.asarray(_to_numpy(params))
             self.intercept_ = 0.0
 
@@ -371,6 +391,28 @@ class QuantileRegression(BaseEstimator):
             )
 
         return self
+
+    def _handle_estimation_convergence_warnings(self, caught):
+        """Keep estimation-only compatibility but forbid inference on nonconvergence."""
+        convergence_warnings = [
+            item
+            for item in caught
+            if issubclass(item.category, ConvergenceWarning)
+        ]
+        if not convergence_warnings:
+            return
+        message = str(convergence_warnings[-1].message)
+        if self._compute_inference_enabled:
+            raise RuntimeError(
+                "QuantileRegression cannot compute inference because the "
+                f"point-estimation FISTA solve did not converge: {message}"
+            )
+        for item in convergence_warnings:
+            warnings.warn(
+                item.message,
+                item.category,
+                stacklevel=3,
+            )
 
     def _compute_inference(self, X, y, loss, backend_name="numpy"):
         """Dispatch to kernel-based or bootstrap inference."""

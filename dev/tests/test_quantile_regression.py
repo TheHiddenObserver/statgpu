@@ -3,6 +3,7 @@ import numpy as np
 import pytest
 
 from statgpu.linear_model import QuantileRegression
+from statgpu.solvers._convergence import ConvergenceWarning
 from statgpu.linear_model.wrappers._quantile import (
     _BOOTSTRAP_MAX_BACKTRACKS,
     _bootstrap_armijo_accept,
@@ -253,6 +254,40 @@ class TestQuantileRegression:
         assert model._statistic is None
         assert model._pvalues is None
         assert model._conf_int is None
+
+    def test_inference_fit_rejects_unconverged_point_estimate(self):
+        model = QuantileRegression(
+            quantile=0.5,
+            max_iter=1,
+            tol=1e-16,
+            compute_inference=True,
+            inference_method="kernel",
+        )
+
+        with pytest.raises(RuntimeError, match="point-estimation FISTA solve did not converge"):
+            model.fit(self.X, self.y)
+
+        assert model._fitted is False
+        assert model.coef_ is None
+        assert model._inference_result is None
+        assert model._bse is None
+        assert model._selected_backend_name is None
+        assert model._selected_backend_device is None
+
+    def test_estimation_only_preserves_fista_nonconvergence_warning(self):
+        model = QuantileRegression(
+            quantile=0.5,
+            max_iter=1,
+            tol=1e-16,
+            compute_inference=False,
+        )
+
+        with pytest.warns(ConvergenceWarning, match="did not converge within 1 iterations"):
+            model.fit(self.X, self.y)
+
+        assert model._fitted is True
+        assert model.coef_ is not None
+        assert model._inference_result is None
 
     def test_fit_with_kernel_inference(self):
         m = QuantileRegression(quantile=0.5, compute_inference=True,
