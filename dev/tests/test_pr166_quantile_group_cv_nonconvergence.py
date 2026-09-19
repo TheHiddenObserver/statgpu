@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pytest
 
 from statgpu.linear_model import PenalizedGLM_CV
+import statgpu.solvers as solvers
 from statgpu.solvers import _quantile_group_proximal_irls_lla as group_solver
+from statgpu.solvers._convergence import ConvergenceWarning
 
 
 GROUPS = [[0, 1], [2, 3]]
@@ -75,6 +79,48 @@ def test_nonconverged_quantile_group_candidate_is_nan_and_cannot_be_selected(
     assert len(refit_calls) == 1
     assert refit_calls[0][1] == pytest.approx(0.03)
     assert refit_calls[0][2] == X.shape[0]
+
+
+def test_strict_quantile_fista_requires_complete_converged_fold_evidence(
+    monkeypatch,
+):
+    """A warning in one smooth-FISTA fold invalidates the entire alpha."""
+    X, y, weights, folds = _fixture()
+    failed_once = {"value": False}
+
+    def fake_fista(loss, penalty, X_fit, y_fit, **kwargs):
+        inner = getattr(penalty, "_pen", penalty)
+        alpha = float(
+            getattr(inner, "alpha", getattr(penalty, "_alpha", 0.0))
+        )
+        if np.isclose(alpha, 0.05) and not failed_once["value"]:
+            failed_once["value"] = True
+            warnings.warn(
+                "sentinel FISTA nonconvergence",
+                ConvergenceWarning,
+                stacklevel=2,
+            )
+        return np.zeros(X_fit.shape[1], dtype=np.float64), 1
+
+    monkeypatch.setattr(solvers, "fista_solver", fake_fista)
+
+    cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": Q},
+        penalty="l2",
+        alpha_grid=np.asarray([0.05, 0.03], dtype=np.float64),
+        cv=2,
+        cv_splits=folds,
+        solver="fista",
+        device="cpu",
+        max_iter=20,
+        tol=1e-6,
+    ).fit(X, y, sample_weight=weights)
+
+    scores = np.asarray(cv.cv_results_["all_scores"], dtype=np.float64)
+    assert np.all(np.isnan(scores[:, 0]))
+    assert np.all(np.isfinite(scores[:, 1]))
+    assert cv.alpha_ == pytest.approx(0.03)
 
 
 def test_two_stage_screening_stays_relaxed_before_strict_refinement(monkeypatch):
