@@ -233,8 +233,9 @@ class QuantileRegression(BaseEstimator):
             return self._fit_impl(X, y, sample_weight=sample_weight)
         except Exception:
             backend_name = getattr(self, "_selected_backend_name", None)
+            backend_device = getattr(self, "_selected_backend_device", None)
             if self._gpu_memory_cleanup and backend_name is not None:
-                self._cleanup_backend_memory(backend_name)
+                self._cleanup_backend_memory(backend_name, backend_device)
             self._reset_fit_state()
             raise
 
@@ -320,7 +321,10 @@ class QuantileRegression(BaseEstimator):
 
         self._fitted = True
         if self._gpu_memory_cleanup:
-            self._cleanup_backend_memory(backend_name)
+            self._cleanup_backend_memory(
+                backend_name,
+                self._selected_backend_device,
+            )
 
         return self
 
@@ -932,7 +936,10 @@ class QuantileRegression(BaseEstimator):
         from statgpu.backends import _to_numpy
         result = np.asarray(_to_numpy(raw)) if backend_name != "numpy" else raw
         if self._gpu_memory_cleanup:
-            self._cleanup_backend_memory(backend_name)
+            self._cleanup_backend_memory(
+                backend_name,
+                self._selected_backend_device,
+            )
         return result
 
     def score(self, X, y, sample_weight=None):
@@ -975,36 +982,64 @@ class QuantileRegression(BaseEstimator):
 
     # ---- GPU memory management ----
 
-    def _cleanup_cuda_memory(self):
+    def _cleanup_cuda_memory(self, device_label=None):
         if not self._gpu_memory_cleanup:
             return
         try:
             import cupy as cp
-            cp.get_default_memory_pool().free_all_blocks()
-            cp.get_default_pinned_memory_pool().free_all_blocks()
+
+            selected = str(
+                device_label
+                or getattr(self, "_selected_backend_device", "")
+                or ""
+            )
+            if selected.startswith("cuda:"):
+                device_id = int(selected.split(":", 1)[1])
+                with cp.cuda.Device(device_id):
+                    cp.get_default_memory_pool().free_all_blocks()
+                    cp.get_default_pinned_memory_pool().free_all_blocks()
+            else:
+                cp.get_default_memory_pool().free_all_blocks()
+                cp.get_default_pinned_memory_pool().free_all_blocks()
         except Exception:
             pass
 
-    def _cleanup_torch_memory(self):
+    def _cleanup_torch_memory(self, device_label=None):
         if not self._gpu_memory_cleanup:
             return
         try:
             import torch
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
+
+            selected = str(
+                device_label
+                or getattr(self, "_selected_backend_device", "")
+                or ""
+            )
+            if selected.startswith("cuda:"):
+                target = torch.device(selected)
+                with torch.cuda.device(target):
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize(target)
+            elif selected in ("", "cuda"):
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
         except Exception:
             pass
 
-    def _cleanup_backend_memory(self, backend_name):
+    def _cleanup_backend_memory(self, backend_name, device_label=None):
         if backend_name in ("cuda", "cupy"):
-            self._cleanup_cuda_memory()
+            self._cleanup_cuda_memory(device_label)
         elif backend_name == "torch":
-            self._cleanup_torch_memory()
+            self._cleanup_torch_memory(device_label)
 
     def __del__(self):
         try:
-            self._cleanup_cuda_memory()
-            self._cleanup_torch_memory()
+            backend_name = getattr(self, "_selected_backend_name", None)
+            if backend_name is not None:
+                self._cleanup_backend_memory(
+                    backend_name,
+                    getattr(self, "_selected_backend_device", None),
+                )
         except Exception:
             pass
 

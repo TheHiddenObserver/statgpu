@@ -488,6 +488,55 @@ class TestQuantileRegression:
         assert model._fitted is False
         assert model.coef_ is None
 
+    def test_cupy_cleanup_uses_recorded_concrete_device(self, monkeypatch):
+        import sys
+        import types
+
+        state = {"current": 0, "events": []}
+
+        class FakeDevice:
+            def __init__(self, device_id):
+                self.device_id = int(device_id)
+                self.previous = None
+
+            def __enter__(self):
+                self.previous = state["current"]
+                state["current"] = self.device_id
+                state["events"].append(("enter", self.device_id))
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                state["events"].append(("exit", self.device_id))
+                state["current"] = self.previous
+
+        class FakePool:
+            def __init__(self, name):
+                self.name = name
+
+            def free_all_blocks(self):
+                state["events"].append(
+                    (self.name, state["current"])
+                )
+
+        fake_cupy = types.SimpleNamespace(
+            cuda=types.SimpleNamespace(Device=FakeDevice),
+            get_default_memory_pool=lambda: FakePool("device_pool"),
+            get_default_pinned_memory_pool=lambda: FakePool("pinned_pool"),
+        )
+        monkeypatch.setitem(sys.modules, "cupy", fake_cupy)
+
+        model = QuantileRegression(gpu_memory_cleanup=True)
+        model._selected_backend_name = "cupy"
+        model._selected_backend_device = "cuda:4"
+
+        model._cleanup_backend_memory("cupy", "cuda:4")
+
+        assert ("enter", 4) in state["events"]
+        assert ("device_pool", 4) in state["events"]
+        assert ("pinned_pool", 4) in state["events"]
+        assert ("exit", 4) in state["events"]
+        assert state["current"] == 0
+
     def test_cleanup_backend_routes_cupy_name_to_cuda_cleanup(self, monkeypatch):
         model = QuantileRegression(gpu_memory_cleanup=True)
         calls = []
