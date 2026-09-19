@@ -163,7 +163,8 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
         if backend_name in ("torch", "cupy"):
             backend = get_backend(backend=backend_name, device="cuda")
             X_b = backend.asarray(X, dtype=backend.float64)
-            y_b = backend.asarray(y, dtype=backend.float64)
+            from statgpu.backends._array_ops import _xp_asarray
+            y_b = _xp_asarray(y, X_b.dtype, X_b)
         else:
             X_b = np.asarray(_to_numpy(X), dtype=np.float64)
             y_b = np.asarray(_to_numpy(y), dtype=np.float64)
