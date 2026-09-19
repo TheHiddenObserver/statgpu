@@ -4,6 +4,7 @@ import pytest
 
 from statgpu.linear_model import QuantileRegression
 from statgpu.linear_model.wrappers._quantile import (
+    _BOOTSTRAP_MAX_BACKTRACKS,
     _bootstrap_armijo_accept,
     _bootstrap_schedule_to_backend,
 )
@@ -410,6 +411,9 @@ class TestQuantileRegression:
 
         np.testing.assert_allclose(boot_params, 0.0, rtol=0.0, atol=0.0)
         assert model._bootstrap_n_iter_ == 1
+
+    def test_batched_bootstrap_backtracking_budget_is_bounded(self):
+        assert _BOOTSTRAP_MAX_BACKTRACKS == 20
 
     def test_batched_bootstrap_armijo_requires_every_draw_to_descend(self):
         loss_old = np.array([1.0, 1.0], dtype=np.float64)

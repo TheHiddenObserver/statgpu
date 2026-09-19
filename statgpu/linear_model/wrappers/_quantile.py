@@ -8,6 +8,7 @@ import numpy as np
 
 # Pre-computed scalar constants (Python floats, safe for GPU tensor broadcast)
 _INV_SQRT_2PI = 1.0 / _math.sqrt(2.0 * _math.pi)
+_BOOTSTRAP_MAX_BACKTRACKS = 20
 
 
 def _bootstrap_schedule_to_backend(schedule, resid, backend, xp):
@@ -824,7 +825,7 @@ class QuantileRegression(BaseEstimator):
             grad_norm_sq_by_draw = xp.sum(grad * grad, axis=0)
 
             accepted = False
-            for _ in range(10):
+            for _ in range(_BOOTSTRAP_MAX_BACKTRACKS):
                 coef_new = z - step * grad
                 pred_new = Xd @ coef_new
                 r_new = y_gpu.T - pred_new
@@ -982,6 +983,7 @@ class QuantileRegression(BaseEstimator):
                 "response_construction": "backend_native",
                 "solver": "batched_pinball_fista",
                 "solver_n_iter": int(self._bootstrap_n_iter_),
+                "max_backtracks_per_iteration": _BOOTSTRAP_MAX_BACKTRACKS,
                 "backend": getattr(self, "_selected_backend_name", "numpy"),
                 "numerical_backend": getattr(
                     self, "_selected_backend_name", "numpy"
