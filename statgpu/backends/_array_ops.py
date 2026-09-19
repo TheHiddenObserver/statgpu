@@ -172,6 +172,13 @@ def _to_backend(arr, backend="auto", ref_tensor=None, dtype=None):
                 out_dtype = ref_dtype
             else:
                 out_dtype = cp.float64
+        if ref_tensor is not None and type(ref_tensor).__module__.startswith("cupy"):
+            from statgpu.backends._utils import _cupy_asarray_on_device
+            return _cupy_asarray_on_device(
+                arr,
+                int(ref_tensor.device.id),
+                dtype=out_dtype,
+            )
         return cp.asarray(arr, dtype=out_dtype)
     if backend == "torch":
         import torch
