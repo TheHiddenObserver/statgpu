@@ -113,6 +113,7 @@ class QuantileRegression(BaseEstimator):
         self._pvalues = None
         self._conf_int = None
         self._inference_result = None
+        self._bootstrap_n_iter_ = None
         self._fitted = False
         self._selected_backend_name = None
         self.__dict__.pop("n_features_in_", None)
@@ -555,6 +556,10 @@ class QuantileRegression(BaseEstimator):
         c1 = 1e-4
         t_iter = 1.0
         is_cupy = (not is_torch and hasattr(xp, 'fuse'))
+        converged = False
+        best_obj = None
+        best_coef = None
+        best_obj_stable_count = 0
 
         # CuPy: pre-allocate scratch arrays to avoid allocation in hot loop
         if is_cupy:
@@ -588,8 +593,12 @@ class QuantileRegression(BaseEstimator):
 
             grad = Xd.T @ d_eta / n
 
-            # ---- Convergence check ----
+            # A tiny selected subgradient is a valid fast-path. At pinball
+            # kinks this condition can remain nonzero for a valid minimizer, so
+            # the best-objective plateau criterion below is also required.
             if float(xp.max(xp.abs(grad))) < self._tol:
+                converged = True
+                best_coef = coef.clone() if is_torch else coef.copy()
                 break
 
             # ---- Backtracking line search ----
@@ -602,25 +611,97 @@ class QuantileRegression(BaseEstimator):
                 loss_z = xp.sum(xp.where(r_z > 0, tau * r_z, (tau - 1.0) * r_z)) / n
             grad_norm_sq = xp.sum(grad * grad)
 
+            accepted = False
             for _ in range(10):
                 coef_new = z - step * grad
                 pred_new = Xd @ coef_new
                 r_new = y_gpu.T - pred_new
                 if is_cupy:
                     _pinball_loss_kernel(r_new, _loss_buf)
-                    loss_new = xp.sum(_loss_buf) / n
+                    loss_new_by_draw = xp.sum(_loss_buf, axis=0) / n
                 else:
-                    loss_new = xp.sum(xp.where(r_new > 0, tau * r_new, (tau - 1.0) * r_new)) / n
+                    loss_entries_new = xp.where(
+                        r_new > 0, tau * r_new, (tau - 1.0) * r_new
+                    )
+                    loss_new_by_draw = xp.sum(loss_entries_new, axis=0) / n
+                loss_new = xp.sum(loss_new_by_draw)
                 if float(loss_new - loss_z + c1 * step * grad_norm_sq) <= 0:
+                    accepted = True
                     break
                 step *= 0.5
+
+            if not accepted:
+                self._bootstrap_n_iter_ = iteration + 1
+                raise RuntimeError(
+                    "QuantileRegression bootstrap FISTA line search failed "
+                    f"after {iteration + 1} iterations"
+                )
+
+            # Track each bootstrap draw independently.  Pinball minima occur at
+            # kinks where one arbitrary subgradient need not approach zero, so
+            # convergence is based on coefficient stability or sustained lack
+            # of improvement in the best per-draw objective.
+            coef_delta_by_draw = xp.sum(xp.abs(coef_new - coef), axis=0)
+            max_coef_delta = float(xp.max(coef_delta_by_draw))
+
+            if best_obj is None:
+                best_obj = (
+                    loss_new_by_draw.clone()
+                    if is_torch
+                    else loss_new_by_draw.copy()
+                )
+                best_coef = coef_new.clone() if is_torch else coef_new.copy()
+                relative_best_improvement = float("inf")
+            else:
+                improvement = best_obj - loss_new_by_draw
+                positive_improvement = xp.where(
+                    improvement > 0,
+                    improvement,
+                    xp.zeros_like(improvement),
+                )
+                scale = xp.where(
+                    xp.abs(best_obj) > 1.0,
+                    xp.abs(best_obj),
+                    xp.ones_like(best_obj),
+                )
+                relative_best_improvement = float(
+                    xp.max(positive_improvement / scale)
+                )
+                improved = loss_new_by_draw < best_obj
+                best_obj = xp.where(improved, loss_new_by_draw, best_obj)
+                best_coef[:, improved] = coef_new[:, improved]
+
+            if max_coef_delta < self._tol:
+                converged = True
+                coef = coef_new
+                break
+
+            if iteration > 20:
+                if relative_best_improvement < self._tol:
+                    best_obj_stable_count += 1
+                    if best_obj_stable_count >= 10:
+                        converged = True
+                        coef = coef_new
+                        break
+                else:
+                    best_obj_stable_count = 0
 
             # ---- FISTA momentum update ----
             t_new = 0.5 * (1.0 + (1.0 + 4.0 * t_iter * t_iter) ** 0.5)
             z = coef_new + ((t_iter - 1.0) / t_new) * (coef_new - coef)
-            coef = coef_new; t_iter = t_new
+            coef = coef_new
+            t_iter = t_new
 
-        return np.asarray(_to_numpy(coef.T)), params, Xd
+        self._bootstrap_n_iter_ = iteration + 1
+        if not converged:
+            raise RuntimeError(
+                "QuantileRegression bootstrap FISTA did not converge within "
+                f"{self._max_iter} iterations"
+            )
+        if best_coef is None:
+            best_coef = coef.clone() if is_torch else coef.copy()
+
+        return np.asarray(_to_numpy(best_coef.T)), params, Xd
 
     def _compute_inference_bootstrap(self, X, y):
         """Residual bootstrap inference for quantile regression.
@@ -668,6 +749,7 @@ class QuantileRegression(BaseEstimator):
                 "ci_method": "percentile",
                 "pvalue_method": "bootstrap_sign_test",
                 "solver": "batched_pinball_fista",
+                "solver_n_iter": int(self._bootstrap_n_iter_),
                 "backend": getattr(self, '_selected_backend_name', 'numpy'),
             })
         self._inference_result.apply_to(self)

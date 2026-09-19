@@ -134,6 +134,25 @@ class TestQuantileRegression:
         assert target_error < wrong_error
         assert float(np.median(estimated)) < 0.0
 
+    def test_batched_bootstrap_budget_exhaustion_fails_closed(self):
+        n = 48
+        X = np.ones((n, 1), dtype=np.float64)
+        y = np.linspace(-3.0, 3.0, n, dtype=np.float64)
+        model = QuantileRegression(
+            quantile=0.2,
+            fit_intercept=False,
+            max_iter=1,
+            tol=1e-12,
+            n_bootstrap=4,
+            random_state=23,
+        )
+        model.coef_ = np.zeros(1, dtype=np.float64)
+        model.intercept_ = 0.0
+
+        with pytest.raises(RuntimeError, match="did not converge within 1 iterations"):
+            model._compute_bootstrap_batched(X, y)
+        assert model._bootstrap_n_iter_ == 1
+
     @pytest.mark.parametrize("inference_method", ["kernel", "bootstrap"])
     def test_nonuniform_weighted_inference_fails_before_solver(
         self, monkeypatch, inference_method
@@ -342,6 +361,11 @@ class TestQuantileRegression:
         assert m._bse is not None
         assert len(m._bse) == 4
         assert np.all(m._bse > 0)
+        assert 1 <= m._bootstrap_n_iter_ <= m.max_iter
+        assert (
+            m._inference_result.metadata["solver_n_iter"]
+            == m._bootstrap_n_iter_
+        )
 
     def test_score_is_negative_pinball_loss(self):
         model = QuantileRegression(quantile=0.25).fit(self.X, self.y)
