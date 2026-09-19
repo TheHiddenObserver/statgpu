@@ -90,10 +90,21 @@ def _is_quantile(loss) -> bool:
 
 
 def _canonical_solver_signature(function, required_names):
-    """Find the first wrapped numerical signature exposing required controls."""
+    """Resolve the numerical signature through reload-safe wrapper chains."""
     import inspect
 
     required = set(required_names)
+
+    # functools.wraps publishes __wrapped__; let inspect follow the canonical
+    # chain first. This is robust to stacked installers whose private
+    # _statgpu_original links may point at another generic boundary wrapper.
+    try:
+        signature = inspect.signature(function, follow_wrapped=True)
+    except (TypeError, ValueError):
+        signature = None
+    if signature is not None and required.issubset(signature.parameters):
+        return signature
+
     current = function
     seen = set()
     while callable(current) and id(current) not in seen:
@@ -104,12 +115,20 @@ def _canonical_solver_signature(function, required_names):
             signature = None
         if signature is not None and required.issubset(signature.parameters):
             return signature
-        wrapped = getattr(current, "_statgpu_original", None)
-        if not callable(wrapped):
-            wrapped = getattr(current, "__wrapped__", None)
-        if not callable(wrapped):
-            break
-        current = wrapped
+
+        candidates = (
+            getattr(current, "__wrapped__", None),
+            getattr(current, "_statgpu_original", None),
+        )
+        current = next(
+            (
+                candidate
+                for candidate in candidates
+                if callable(candidate) and id(candidate) not in seen
+            ),
+            None,
+        )
+
     raise RuntimeError(
         "Could not resolve canonical solver signature for Quantile public validation"
     )
