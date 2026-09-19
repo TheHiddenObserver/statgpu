@@ -296,6 +296,63 @@ def test_quantile_cv_rejects_response_length_mismatch_before_grid_work(
     assert model.estimator_ is None
 
 
+def test_strict_quantile_irls_exhaustion_marks_candidate_unusable():
+    X, y, _ = _data(seed=16367, n=24)
+    folds = [
+        (np.arange(12, 24), np.arange(0, 12)),
+        (np.arange(0, 12), np.arange(12, 24)),
+    ]
+    model = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.35},
+        penalty="l2",
+        alpha_grid=np.asarray([0.02], dtype=np.float64),
+        cv=2,
+        cv_splits=folds,
+        solver="irls",
+        device="cpu",
+        max_iter=1,
+        tol=1e-16,
+        cv_strategy="strict",
+    )
+
+    scores = model._compute_cv_scores(
+        X,
+        y,
+        np.asarray([0.02], dtype=np.float64),
+        model._device,
+        folds,
+        max_iter=1,
+        tol=1e-16,
+        strict=True,
+    )
+    assert np.all(np.isnan(scores))
+
+
+def test_quantile_irls_final_refit_exhaustion_is_not_published():
+    X, y, _ = _data(seed=16368, n=28)
+    model = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.35},
+        penalty="l2",
+        alpha_grid=np.asarray([0.02], dtype=np.float64),
+        cv=2,
+        solver="irls",
+        device="cpu",
+        max_iter=1,
+        tol=1e-16,
+        cv_strategy="strict",
+    )
+
+    from statgpu.solvers._convergence import ConvergenceWarning
+
+    with pytest.raises(ConvergenceWarning, match="did not converge within 1 iterations"):
+        model._refit_best(X, y, 0.02)
+
+    assert model._fitted is False
+    assert model.estimator_ is None
+
+
 def test_quantile_cv_rejects_malformed_custom_folds_before_auto_grid_work(
     monkeypatch,
 ):
