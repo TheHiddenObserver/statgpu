@@ -88,6 +88,36 @@ def _is_quantile(loss) -> bool:
     return str(getattr(loss, "name", "") or "").lower().strip() == "quantile"
 
 
+def _normalize_quantile_xy_for_low_level(X, y):
+    """Normalize supported Quantile low-level inputs to X's backend/device."""
+    from statgpu.backends import _resolve_backend
+    from statgpu.backends._array_ops import _xp_asarray
+    from statgpu.backends._utils import _get_xp
+
+    backend = _resolve_backend("auto", X)
+    xp = _get_xp(backend)
+    if backend == "torch":
+        import torch
+        target_dtype = (
+            X.dtype
+            if torch.is_tensor(X) and torch.is_floating_point(X)
+            else torch.float64
+        )
+    else:
+        dtype = getattr(X, "dtype", None)
+        if dtype is None and backend == "numpy":
+            dtype = np.asarray(X).dtype
+        try:
+            design_kind = np.dtype(dtype).kind
+        except (TypeError, ValueError):
+            design_kind = "f"
+        target_dtype = dtype if design_kind in "fc" else xp.float64
+
+    X_arr = _xp_asarray(X, target_dtype, X)
+    y_arr = _xp_asarray(y, target_dtype, X_arr)
+    return X_arr, y_arr
+
+
 def _validate_quantile_xy_shapes(loss, X, y, solver_name: str) -> None:
     """Validate supported low-level Quantile inputs before numerics."""
     if not _is_quantile(loss):
@@ -120,6 +150,8 @@ def fista_solver(loss, penalty, X, y, *args, **kwargs):
 def lbfgs_solver(loss, penalty, X, y, *args, **kwargs):
     """Run L-BFGS while preserving its maintained Quantile compatibility row."""
     _validate_quantile_xy_shapes(loss, X, y, "lbfgs_solver")
+    if _is_quantile(loss):
+        X, y = _normalize_quantile_xy_for_low_level(X, y)
     return _lbfgs_solver(loss, penalty, X, y, *args, **kwargs)
 
 
