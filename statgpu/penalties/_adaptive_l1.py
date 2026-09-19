@@ -217,14 +217,25 @@ class AdaptiveL1Penalty(Penalty):
             if hasattr(self, _k):
                 delattr(self, _k)
 
-    def _require_weights(self):
-        """Return initialized adaptive weights or fail before numerical use."""
+    def _require_weights(self, ref=None):
+        """Return initialized per-coordinate weights with exact dimension."""
         weights = getattr(self, "_weights", None)
         if weights is None:
             raise RuntimeError(
                 "AdaptiveL1Penalty weights are not initialized; call "
                 "set_weights() or pass weights=... before numerical use."
             )
+        if ref is not None:
+            shape = getattr(ref, "shape", None)
+            if shape is None:
+                shape = np.asarray(ref).shape
+            if len(shape) != 1:
+                raise ValueError("AdaptiveL1Penalty coefficients must be one-dimensional")
+            if int(np.asarray(weights).size) != int(shape[0]):
+                raise ValueError(
+                    "AdaptiveL1Penalty weights must have the same length as "
+                    "the coefficient vector"
+                )
         return weights
 
     def _cached_alpha_weights(self, ref, backend: str):
@@ -234,7 +245,7 @@ class AdaptiveL1Penalty(Penalty):
         alpha_key = f"_alpha_w_{backend}_alpha"
         dtype_key = f"_alpha_w_{backend}_dtype"
         cached = getattr(self, cache_key, None)
-        source = self._require_weights()
+        source = self._require_weights(ref)
         cached_source = getattr(self, src_key, None)
         cached_alpha = getattr(self, alpha_key, None)
         cached_dtype = getattr(self, dtype_key, None)
@@ -317,7 +328,7 @@ class AdaptiveL1Penalty(Penalty):
     # ----------------------------------------------------------------
 
     def value(self, coef) -> float:
-        self._require_weights()
+        self._require_weights(coef)
         mod = type(coef).__module__
         if mod.startswith("torch"):
             import torch
@@ -336,7 +347,7 @@ class AdaptiveL1Penalty(Penalty):
 
     def gradient(self, coef):
         xp = _xp(coef)
-        self._require_weights()
+        self._require_weights(coef)
         weights = self.lla_weights(coef)
         return self.alpha * weights * xp.sign(coef)
 
@@ -354,7 +365,7 @@ class AdaptiveL1Penalty(Penalty):
         backend: str = "numpy",
     ):
         """Per-coordinate soft-threshold with per-coordinate thresholds."""
-        self._require_weights()
+        self._require_weights(w)
 
         # Check if _weights is already a device tensor (from lla_weights on GPU)
         _w_mod = type(self._weights).__module__
@@ -422,7 +433,7 @@ class AdaptiveL1Penalty(Penalty):
 
     def lla_weights(self, coef):
         """Return LLA weights, converted to the same backend as coef."""
-        self._require_weights()
+        self._require_weights(coef)
         # Convert weights to the same backend and concrete device as coef.
         xp = _xp(coef)
         if xp is np:
