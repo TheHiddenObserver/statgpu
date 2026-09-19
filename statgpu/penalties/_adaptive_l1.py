@@ -254,7 +254,13 @@ class AdaptiveL1Penalty(Penalty):
                     raise ValueError(
                         "AdaptiveL1Penalty coefficients must be one-dimensional"
                     )
-                if int(np.asarray(weights).size) != int(shape[0]):
+                if hasattr(weights, "numel"):
+                    weight_size = int(weights.numel())
+                elif hasattr(weights, "size") and not callable(weights.size):
+                    weight_size = int(weights.size)
+                else:
+                    weight_size = int(np.asarray(weights).size)
+                if weight_size != int(shape[0]):
                     raise ValueError(
                         "AdaptiveL1Penalty weights must have the same length as "
                         "the coefficient vector"
