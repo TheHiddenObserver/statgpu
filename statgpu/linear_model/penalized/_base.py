@@ -63,9 +63,11 @@ class SelectivePenalty:
         result_feat = self._pen.proximal(w_feat, step, backend=b)
         if b == "cupy":
             import cupy as cp
-            result = cp.empty(w.shape[0], dtype=w.dtype)
+            result = cp.empty_like(w)
             result[:self._p] = result_feat
-            result[-1] = cp.clip(w[-1], -_INTERCEPT_CLIP_BOUND, _INTERCEPT_CLIP_BOUND)
+            result[-1] = cp.clip(
+                w[-1], -_INTERCEPT_CLIP_BOUND, _INTERCEPT_CLIP_BOUND
+            )
         elif b == "torch":
             import torch
             result = torch.empty(w.shape[0], dtype=w.dtype, device=w.device)
@@ -118,7 +120,7 @@ class SelectivePenalty:
         sa = self._smooth_alpha()
         if self._backend == "cupy":
             import cupy as cp
-            diag = cp.zeros(coef.shape[0], dtype=coef.dtype)
+            diag = cp.zeros_like(coef)
             diag[:self._p] = sa
             return cp.diag(diag)
         if self._backend == "torch":
