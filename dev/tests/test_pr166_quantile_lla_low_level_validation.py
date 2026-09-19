@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from statgpu.losses import QuantileLoss
-from statgpu.penalties import L1Penalty, L2Penalty, SCADPenalty
+from statgpu.penalties import L1Penalty, L2Penalty, MCPPenalty, SCADPenalty
 from statgpu.solvers import fista_lla_path
 
 
@@ -84,6 +84,64 @@ def test_quantile_fista_lla_rejects_nonfinite_xy_before_loss_work(
             penalty,
             X_bad,
             y_bad,
+            alpha_path=np.asarray([0.04], dtype=np.float64),
+            max_lla_per_step=1,
+            max_iter=20,
+            tol=1e-6,
+            fit_intercept=False,
+        )
+
+
+@pytest.mark.parametrize(
+    ("factory", "attr", "bad_value", "message"),
+    [
+        (
+            lambda: SCADPenalty(alpha=0.04, a=3.7),
+            "a",
+            np.nan,
+            "SCAD penalty a must be",
+        ),
+        (
+            lambda: SCADPenalty(alpha=0.04, a=3.7),
+            "a",
+            2.0,
+            "SCAD penalty a must be",
+        ),
+        (
+            lambda: MCPPenalty(alpha=0.04, gamma=3.0),
+            "gamma",
+            np.nan,
+            "MCP penalty gamma must be",
+        ),
+        (
+            lambda: MCPPenalty(alpha=0.04, gamma=3.0),
+            "gamma",
+            1.0,
+            "MCP penalty gamma must be",
+        ),
+    ],
+)
+def test_quantile_fista_lla_rejects_mutated_penalty_shape_before_loss_work(
+    monkeypatch, factory, attr, bad_value, message
+):
+    X = np.eye(4, dtype=np.float64)
+    y = np.asarray([0.4, -0.2, 0.6, -0.1], dtype=np.float64)
+    loss = QuantileLoss(0.35)
+    penalty = factory()
+    setattr(penalty, attr, bad_value)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("invalid penalty shape must fail before loss work")
+
+    monkeypatch.setattr(loss, "preprocess", forbidden)
+    monkeypatch.setattr(loss, "lipschitz", forbidden)
+
+    with pytest.raises(ValueError, match=message):
+        fista_lla_path(
+            loss,
+            penalty,
+            X,
+            y,
             alpha_path=np.asarray([0.04], dtype=np.float64),
             max_lla_per_step=1,
             max_iter=20,

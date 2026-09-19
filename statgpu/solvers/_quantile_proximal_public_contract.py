@@ -120,6 +120,28 @@ def install_quantile_proximal_public_contract():
             raise ValueError(
                 "proximal_irls_quantile_solver requires scalar SCAD or MCP penalty"
             )
+        if penalty_name == "scad":
+            shape = getattr(penalty, "a", None)
+            if (
+                isinstance(shape, (bool, np.bool_))
+                or not isinstance(shape, Real)
+                or not np.isfinite(float(shape))
+                or float(shape) <= 2.0
+            ):
+                raise ValueError(
+                    "SCAD penalty a must be a finite real number greater than 2"
+                )
+        else:
+            shape = getattr(penalty, "gamma", None)
+            if (
+                isinstance(shape, (bool, np.bool_))
+                or not isinstance(shape, Real)
+                or not np.isfinite(float(shape))
+                or float(shape) <= 1.0
+            ):
+                raise ValueError(
+                    "MCP penalty gamma must be a finite real number greater than 1"
+                )
 
         if not isinstance(fit_intercept, (bool, np.bool_)):
             raise ValueError("fit_intercept must be boolean")

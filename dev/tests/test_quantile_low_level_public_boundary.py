@@ -12,7 +12,7 @@ import pytest
 from statgpu import solvers
 from statgpu.solvers._convergence import ConvergenceWarning
 from statgpu.losses import QuantileLoss
-from statgpu.penalties import GroupSCADPenalty, L2Penalty, SCADPenalty
+from statgpu.penalties import GroupSCADPenalty, L2Penalty, MCPPenalty, SCADPenalty
 from statgpu.glm_core._squared import SquaredErrorLoss
 import statgpu.losses._quantile_irls_validation_contract as _irls_contract
 import statgpu.solvers._quantile_proximal_public_contract as _prox_contract
@@ -450,6 +450,62 @@ def test_public_proximal_quantile_rejects_invalid_xy_shapes_before_path_work(
             X_transform(X),
             y_transform(y),
             alpha_path=np.array([0.08, 0.05]),
+            max_iter=3,
+        )
+
+
+@pytest.mark.parametrize(
+    ("factory", "attr", "bad_value", "message"),
+    [
+        (
+            lambda: SCADPenalty(alpha=0.05, a=3.7),
+            "a",
+            np.nan,
+            "SCAD penalty a must be",
+        ),
+        (
+            lambda: SCADPenalty(alpha=0.05, a=3.7),
+            "a",
+            2.0,
+            "SCAD penalty a must be",
+        ),
+        (
+            lambda: MCPPenalty(alpha=0.05, gamma=3.0),
+            "gamma",
+            np.nan,
+            "MCP penalty gamma must be",
+        ),
+        (
+            lambda: MCPPenalty(alpha=0.05, gamma=3.0),
+            "gamma",
+            1.0,
+            "MCP penalty gamma must be",
+        ),
+    ],
+)
+def test_public_proximal_quantile_rejects_mutated_penalty_shape_before_path_work(
+    monkeypatch, factory, attr, bad_value, message
+):
+    X, y = _data(seed=16724)
+    loss = QuantileLoss(quantile=0.3)
+    penalty = factory()
+    setattr(penalty, attr, bad_value)
+
+    def forbidden_path(*args, **kwargs):
+        raise AssertionError("invalid penalty shape must fail before path work")
+
+    monkeypatch.setattr(
+        _prox_contract,
+        "resolve_auto_quantile_continuation_path",
+        forbidden_path,
+    )
+    with pytest.raises(ValueError, match=message):
+        solvers.proximal_irls_quantile_solver(
+            loss,
+            penalty,
+            X,
+            y,
+            alpha_path=np.asarray([0.08, 0.05]),
             max_iter=3,
         )
 

@@ -297,6 +297,30 @@ def fista_lla_path(
             "fista_lla_path requires SCAD/MCP or Group SCAD/MCP penalty"
         )
 
+    if loss_name == "quantile":
+        if "scad" in penalty_name:
+            shape = getattr(scad_penalty, "a", None)
+            if (
+                isinstance(shape, (bool, np.bool_))
+                or not isinstance(shape, Real)
+                or not np.isfinite(float(shape))
+                or float(shape) <= 2.0
+            ):
+                raise ValueError(
+                    "SCAD penalty a must be a finite real number greater than 2"
+                )
+        else:
+            shape = getattr(scad_penalty, "gamma", None)
+            if (
+                isinstance(shape, (bool, np.bool_))
+                or not isinstance(shape, Real)
+                or not np.isfinite(float(shape))
+                or float(shape) <= 1.0
+            ):
+                raise ValueError(
+                    "MCP penalty gamma must be a finite real number greater than 1"
+                )
+
     # Quantile's weighted step scale must remain objective-consistent for both
     # scalar and group penalties, including direct public low-level calls.
     if loss_name == "quantile":
