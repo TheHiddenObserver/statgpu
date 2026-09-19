@@ -72,6 +72,29 @@ def test_quantile_equal_weights_recover_unweighted_step_scale():
     assert weighted == pytest.approx(unweighted, rel=2e-12, abs=2e-14)
 
 
+def test_quantile_fista_lla_accepts_numpy_response_with_torch_design():
+    torch = pytest.importorskip("torch")
+    loss = QuantileLoss(0.35)
+    penalty = SCADPenalty(alpha=0.05)
+    X = torch.eye(3, dtype=torch.float64)
+    y = np.asarray([0.4, -0.2, 0.7], dtype=np.float64)
+
+    coef, intercept, n_iter = fista_lla_base.fista_lla_path(
+        loss,
+        penalty,
+        X,
+        y,
+        alpha_path=[0.05],
+        max_lla_per_step=1,
+        max_iter=1,
+        fit_intercept=False,
+    )
+
+    assert np.all(np.isfinite(np.asarray(coef)))
+    assert np.isfinite(float(intercept))
+    assert n_iter >= 1
+
+
 def test_quantile_fista_lla_normalizes_response_and_weight(monkeypatch):
     loss = QuantileLoss(0.35)
     penalty = SCADPenalty(alpha=0.05)
