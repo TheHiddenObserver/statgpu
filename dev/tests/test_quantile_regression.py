@@ -1188,18 +1188,21 @@ class TestQuantileRegression:
         with pytest.raises(ValueError, match="kernel must be one of"):
             m.fit(self.X, self.y)
 
-    def test_singular_design_raises(self):
+    def test_singular_design_fails_instead_of_publishing_nonfinite_inference(self):
         X_bad = np.column_stack([self.X[:, 0], self.X[:, 0]])
-        m = QuantileRegression(compute_inference=True, inference_method='kernel')
-        try:
-            m.fit(X_bad, self.y)
-            # If fit succeeds, BSE should be NaN for the collinear columns
-            assert m._bse is not None
-            # At least one BSE should be invalid (NaN or Inf)
-            assert np.any(np.isnan(m._bse)) or np.any(np.isinf(m._bse)), \
-                f"Expected NaN/Inf BSE for singular design, got {m._bse}"
-        except (np.linalg.LinAlgError, RuntimeError):
-            pass  # raising is also acceptable
+        model = QuantileRegression(
+            compute_inference=True,
+            inference_method="kernel",
+        )
+
+        with pytest.raises((np.linalg.LinAlgError, RuntimeError)):
+            model.fit(X_bad, self.y)
+
+        assert model._fitted is False
+        assert model._inference_result is None
+        assert model._bse is None
+        assert model._pvalues is None
+        assert model._conf_int is None
 
     def test_n_categories_validator_is_not_quantile(self):
         """QuantileRegression does not have n_categories."""
