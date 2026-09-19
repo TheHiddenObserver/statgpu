@@ -274,7 +274,8 @@ def fista_lla_path(
             _require_real_finite,
         )
 
-        n_features = int(getattr(X, "shape")[1])
+        X_values = _as_native_array(X, name="X")
+        n_features = int(X_values.shape[1])
         if init_coef is not None:
             init_values = _as_native_array(init_coef, name="init_coef")
             if int(init_values.ndim) != 1:
