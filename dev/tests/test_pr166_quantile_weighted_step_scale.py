@@ -8,6 +8,7 @@ import pytest
 from statgpu.losses import QuantileLoss
 from statgpu.penalties import GroupSCADPenalty, SCADPenalty
 from statgpu.solvers import _fista_lla as fista_lla_base
+from statgpu.solvers._fista import _weighted_gram_lipschitz
 from statgpu.solvers import _fista_lla_group_contract as fista_lla_contract
 from statgpu.solvers import _quantile_group_proximal_irls_lla as group_solver
 from statgpu.solvers._convergence import ConvergenceWarning
@@ -45,6 +46,30 @@ def test_quantile_weighted_step_scale_uses_safe_normalized_weighted_gram_bound()
 
     assert actual == pytest.approx(scale * safe_bound, rel=1e-12, abs=1e-14)
     assert actual >= scale * exact
+
+
+def test_fista_weighted_gram_uses_quantile_declared_scale():
+    rng = np.random.default_rng(166500)
+    X = rng.normal(size=(14, 3))
+    weights = np.ones(X.shape[0], dtype=np.float64)
+    loss = QuantileLoss(0.35)
+    coef = np.zeros(X.shape[1], dtype=np.float64)
+
+    gram = X.T @ X / X.shape[0]
+    weighted_solver_scale = _weighted_gram_lipschitz(gram, loss=loss)
+    unweighted_loss_scale = loss.lipschitz(X, coef)
+    weighted_loss_scale = loss.lipschitz(
+        X,
+        coef,
+        sample_weight=weights,
+    )
+
+    assert weighted_solver_scale == pytest.approx(
+        unweighted_loss_scale, rel=1e-12, abs=1e-14
+    )
+    assert weighted_solver_scale == pytest.approx(
+        weighted_loss_scale, rel=1e-12, abs=1e-14
+    )
 
 
 def test_quantile_weighted_step_scale_is_weight_rescaling_invariant():
