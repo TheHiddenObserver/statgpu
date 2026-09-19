@@ -306,6 +306,58 @@ def test_quantile_lipschitz_uses_safe_psd_upper_bound():
     assert observed >= exact_scaled
 
 
+def test_public_quantile_fista_integer_design_preserves_fractional_inputs():
+    X_int = np.asarray(
+        [[1, 0, 2], [0, 1, -1], [2, 1, 0], [-1, 2, 1]],
+        dtype=np.int64,
+    )
+    X_float = X_int.astype(np.float64)
+    y = np.asarray([0.25, -0.4, 1.15, 0.6], dtype=np.float64)
+    weights = np.asarray([0.25, 0.75, 1.25, 1.75], dtype=np.float64)
+    loss = QuantileLoss(quantile=0.35)
+    penalty = L2Penalty(alpha=0.0)
+
+    def solve(X):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", ConvergenceWarning)
+            return solvers.fista_solver(
+                loss,
+                penalty,
+                X,
+                y,
+                max_iter=12,
+                tol=1e-10,
+                sample_weight=weights,
+            )
+
+    coef_int, n_iter_int = solve(X_int)
+    coef_float, n_iter_float = solve(X_float)
+    np.testing.assert_allclose(coef_int, coef_float, rtol=0.0, atol=1e-14)
+    assert n_iter_int == n_iter_float
+
+
+def test_public_quantile_fista_accepts_numpy_response_with_torch_design():
+    torch = pytest.importorskip("torch")
+    X = torch.eye(3, dtype=torch.float64)
+    y = np.asarray([0.4, -0.2, 0.7], dtype=np.float64)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ConvergenceWarning)
+        coef, n_iter = solvers.fista_solver(
+            QuantileLoss(quantile=0.35),
+            L2Penalty(alpha=0.0),
+            X,
+            y,
+            max_iter=3,
+            tol=1e-8,
+        )
+
+    assert torch.is_tensor(coef)
+    assert coef.device == X.device
+    assert bool(torch.all(torch.isfinite(coef)).item())
+    assert n_iter >= 1
+
+
 def test_fista_rejects_unverified_trial_after_backtracking_exhaustion():
     class AlwaysRejectingLoss:
         name = "always_reject"
