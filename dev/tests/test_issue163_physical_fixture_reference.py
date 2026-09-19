@@ -29,11 +29,12 @@ def _pinball(y, eta, q, sample_weight):
 
 
 def test_pr166_smooth_bootstrap_physical_gate_schema_is_locked():
-    assert smooth_gate.SCHEMA_VERSION == 2
+    assert smooth_gate.SCHEMA_VERSION == 3
     assert smooth_wrapper.EXPECTED_SCHEMA_VERSION == smooth_gate.SCHEMA_VERSION
     assert smooth_gate.BOOTSTRAP_Q != pytest.approx(0.5)
     assert 0.0 < smooth_gate.BOOTSTRAP_Q < 1.0
     assert smooth_gate.BOOTSTRAP_B >= 2
+    assert callable(smooth_gate._standalone_bootstrap_public_case)
 
 
 def test_canonical_physical_artifact_preserves_exact_source_provenance():

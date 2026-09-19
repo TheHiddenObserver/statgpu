@@ -7,8 +7,9 @@ repaired during the PR #166 review/fix loop. ``solver='auto'`` intentionally
 remains IRLS and is validated by the existing PR #164 artifact.
 
 The gate exercises both CuPy CUDA and Torch CUDA, including non-uniform analytic
-weights, direct L2/no-penalty fits, strict L2 CV, and a tau=0.20 standalone
-bootstrap direction check.  It also replaces
+weights, direct L2/no-penalty fits, strict L2 CV, a tau=0.20 standalone
+bootstrap direction check, and a full public standalone bootstrap-inference fit.
+It also replaces
 ``QuantileLoss.irls`` with a forbidden sentinel while the explicit-FISTA cases
 run, so a passing result proves that the estimator/CV path did not silently
 substitute IRLS.
@@ -30,7 +31,7 @@ from statgpu.linear_model.penalized import PenalizedQuantileRegression
 from statgpu.losses import QuantileLoss
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 Q = 0.35
 ATOL_OBJECTIVE = 2e-5
 ATOL_CV_SCORE = 2e-5
@@ -219,6 +220,120 @@ def _standalone_bootstrap_direction_case(backend, cp, torch):
     }
 
 
+def _standalone_bootstrap_public_case(backend, cp, torch):
+    """Exercise the complete public standalone fit + bootstrap-inference route."""
+    X = np.ones((BOOTSTRAP_N, 1), dtype=np.float64)
+    y = np.linspace(-4.0, 4.0, BOOTSTRAP_N, dtype=np.float64)
+    if backend == "cupy":
+        Xb = cp.asarray(X, dtype=cp.float64)
+        yb = cp.asarray(y, dtype=cp.float64)
+        device_request = "cuda"
+        expected_device = "cuda:0"
+    else:
+        torch_device = torch.device("cuda:0")
+        Xb = torch.as_tensor(X, dtype=torch.float64, device=torch_device)
+        yb = torch.as_tensor(y, dtype=torch.float64, device=torch_device)
+        device_request = "torch"
+        expected_device = str(torch_device)
+
+    model = QuantileRegression(
+        quantile=BOOTSTRAP_Q,
+        fit_intercept=False,
+        max_iter=1600,
+        tol=1e-7,
+        compute_inference=True,
+        inference_method="bootstrap",
+        n_bootstrap=BOOTSTRAP_B,
+        random_state=BOOTSTRAP_SEED,
+        device=device_request,
+    ).fit(Xb, yb)
+
+    if not bool(getattr(model, "_fitted", False)):
+        raise AssertionError(f"{backend}/standalone/public: model was not fitted")
+    if model._selected_backend_name != backend:
+        raise AssertionError(
+            f"{backend}/standalone/public: backend provenance "
+            f"{model._selected_backend_name!r} != {backend!r}"
+        )
+    if model._selected_backend_device != expected_device:
+        raise AssertionError(
+            f"{backend}/standalone/public: device provenance "
+            f"{model._selected_backend_device!r} != {expected_device!r}"
+        )
+    if not 1 <= int(model.n_iter_) <= int(model.max_iter):
+        raise AssertionError(
+            f"{backend}/standalone/public: invalid point-fit n_iter={model.n_iter_}"
+        )
+
+    result = model._inference_result
+    if result is None or result.method != "bootstrap":
+        raise AssertionError(
+            f"{backend}/standalone/public: bootstrap result was not published"
+        )
+    metadata = dict(result.metadata)
+    expected_meta = {
+        "solver": "batched_pinball_fista",
+        "numerical_backend": backend,
+        "numerical_device": expected_device,
+        "reporting_backend": "numpy",
+        "response_construction": "backend_native",
+        "resampling_schedule": "numpy_generator_control_plane",
+    }
+    for key, expected in expected_meta.items():
+        if metadata.get(key) != expected:
+            raise AssertionError(
+                f"{backend}/standalone/public: metadata[{key!r}]="
+                f"{metadata.get(key)!r} != {expected!r}"
+            )
+    schedule_hash = str(metadata.get("resampling_schedule_sha256", ""))
+    if len(schedule_hash) != 64:
+        raise AssertionError(
+            f"{backend}/standalone/public: invalid schedule hash {schedule_hash!r}"
+        )
+    try:
+        int(schedule_hash, 16)
+    except ValueError as exc:
+        raise AssertionError(
+            f"{backend}/standalone/public: non-hex schedule hash {schedule_hash!r}"
+        ) from exc
+
+    solver_n_iter = int(metadata.get("solver_n_iter", 0))
+    if not 1 <= solver_n_iter <= int(model.max_iter):
+        raise AssertionError(
+            f"{backend}/standalone/public: invalid bootstrap solver_n_iter="
+            f"{solver_n_iter}"
+        )
+
+    snapshots = {
+        "coef": np.asarray(model.coef_, dtype=np.float64),
+        "bse": np.asarray(result.bse, dtype=np.float64),
+        "pvalues": np.asarray(result.pvalues, dtype=np.float64),
+        "conf_int": np.asarray(result.conf_int, dtype=np.float64),
+    }
+    for name, values in snapshots.items():
+        if not np.all(np.isfinite(values)):
+            raise AssertionError(
+                f"{backend}/standalone/public: non-finite {name}"
+            )
+    if np.any((snapshots["pvalues"] < 0.0) | (snapshots["pvalues"] > 1.0)):
+        raise AssertionError(
+            f"{backend}/standalone/public: p-values outside [0, 1]"
+        )
+
+    return {
+        "name": f"{backend}/standalone/public-bootstrap/q{BOOTSTRAP_Q:.2f}",
+        "backend": backend,
+        "device": expected_device,
+        "quantile": BOOTSTRAP_Q,
+        "point_solver": "fista",
+        "point_n_iter": int(model.n_iter_),
+        "inference_method": str(result.method),
+        "bootstrap_solver": str(metadata["solver"]),
+        "bootstrap_solver_n_iter": solver_n_iter,
+        "resampling_schedule_sha256": schedule_hash,
+    }
+
+
 def _provenance(model, backend):
     expected_backend = backend
     solver = str(getattr(model, "_selected_solver", "") or "")
@@ -304,6 +419,7 @@ def main() -> int:
         for backend in ("cupy", "torch"):
             Xb, yb, wb, device = _native_inputs(backend, X, y, weights, cp, torch)
             cases.append(_standalone_bootstrap_direction_case(backend, cp, torch))
+            cases.append(_standalone_bootstrap_public_case(backend, cp, torch))
 
             for penalty, alpha, cpu_coef, cpu_intercept in (
                 ("l2", 0.02, cpu_l2_coef, cpu_l2_intercept),
