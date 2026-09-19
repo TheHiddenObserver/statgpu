@@ -223,14 +223,35 @@ class AdaptiveL1Penalty(Penalty):
             self._weights = np.ones_like(coef_np)
             self._norm_factor = 1.0
             return
-        raw = 1.0 / (np.abs(coef_np) + self.eps) ** self.nu
+        with np.errstate(
+            over="ignore",
+            under="ignore",
+            divide="ignore",
+            invalid="ignore",
+        ):
+            learned = 1.0 / (np.abs(coef_np) + self.eps) ** self.nu
+        if not np.all(np.isfinite(learned)) or np.any(learned < 0.0):
+            raise ValueError(
+                "AdaptiveL1Penalty learned weights must be finite and "
+                "non-negative; reduce nu, increase eps, or use a "
+                "better-scaled initial estimate."
+            )
+
         self._norm_factor = 1.0
         if self.normalize:
-            mean_w = float(np.mean(raw))
-            if mean_w > 0:
-                raw = raw / mean_w
-                self._norm_factor = mean_w
-        self._weights = raw
+            mean_w = float(np.mean(learned))
+            if not np.isfinite(mean_w) or mean_w <= 0.0:
+                raise ValueError(
+                    "AdaptiveL1Penalty learned weights must have a finite "
+                    "positive mean when normalize=True."
+                )
+            learned = learned / mean_w
+            self._norm_factor = mean_w
+        if not np.all(np.isfinite(learned)):
+            raise ValueError(
+                "AdaptiveL1Penalty normalized learned weights must be finite."
+            )
+        self._weights = learned
         # Invalidate cached device tensors so proximal recomputes them.
         for _k in (
             '_alpha_w_torch', '_alpha_w_cupy',
