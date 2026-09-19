@@ -159,6 +159,104 @@ def test_solver_zeros_cupy_targets_reference_device(monkeypatch):
     assert captured["zeros_device"] == 7
 
 
+def test_cupy_solver_primitives_follow_operand_device(monkeypatch):
+    state = {
+        "current": None,
+        "entered": [],
+        "seed_device": None,
+        "sync_targets": [],
+    }
+
+    class FakeDeviceContext:
+        def __init__(self, device_id):
+            self.device_id = int(device_id)
+            self.previous = None
+
+        def __enter__(self):
+            self.previous = state["current"]
+            state["current"] = self.device_id
+            state["entered"].append(self.device_id)
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            state["current"] = self.previous
+
+    def fake_arange(*args, dtype=None):
+        state["seed_device"] = state["current"]
+        return np.arange(*args, dtype=dtype)
+
+    fake_cupy = types.SimpleNamespace(
+        __name__="cupy",
+        float64=np.float64,
+        abs=np.abs,
+        arange=fake_arange,
+        asnumpy=np.asarray,
+        dot=np.dot,
+        maximum=np.maximum,
+        ones_like=np.ones_like,
+        sqrt=np.sqrt,
+        stack=np.stack,
+        sum=np.sum,
+        where=np.where,
+        cuda=types.SimpleNamespace(Device=FakeDeviceContext),
+    )
+    monkeypatch.setitem(__import__("sys").modules, "cupy", fake_cupy)
+
+    grad = np.asarray([2.0, -1.0], dtype=np.float64)
+    coef = np.asarray([0.5, -0.25], dtype=np.float64)
+    clipped = _array_ops_mod._clip_grad_on_device(grad, coef, "cupy")
+    assert np.all(np.isfinite(clipped))
+
+    class FakeDevice:
+        id = 9
+
+    class FakeScalar:
+        __module__ = "cupy._core.core"
+
+        def __init__(self, value):
+            self.value = float(value)
+            self.device = FakeDevice()
+
+    def fake_align(value, target_device, dtype=None):
+        state["sync_targets"].append(int(target_device))
+        payload = value.value if isinstance(value, FakeScalar) else value
+        return np.asarray(payload, dtype=dtype)
+
+    monkeypatch.setattr(
+        _backend_utils,
+        "_cupy_asarray_on_device",
+        fake_align,
+    )
+    monkeypatch.setattr(_array_ops_mod, "_resolve_backend", lambda *a: "cupy")
+    synced = _array_ops_mod._sync_scalars(
+        FakeScalar(1.25),
+        FakeScalar(-0.5),
+        backend="cupy",
+    )
+    assert synced == pytest.approx((1.25, -0.5))
+    assert state["sync_targets"] == [9, 9]
+
+    class FakeMatrix:
+        __module__ = "cupy._core.core"
+
+        def __init__(self, values):
+            self.values = np.asarray(values, dtype=np.float64)
+            self.shape = self.values.shape
+            self.dtype = self.values.dtype
+            self.device = FakeDevice()
+
+        def __matmul__(self, other):
+            return self.values @ other
+
+    monkeypatch.setattr(_array_ops_mod, "_xp", lambda value: fake_cupy)
+    estimate = _array_ops_mod._max_eigval_power(
+        FakeMatrix([[2.0, 0.0], [0.0, 1.0]]),
+        n_iter=3,
+    )
+    assert np.isfinite(estimate)
+    assert state["seed_device"] == 9
+
+
 def test_safe_psd_spectral_bound_handles_empty_gram():
     empty = np.empty((0, 0), dtype=np.float64)
     assert _psd_spectral_upper_bound(empty) == 0.0
