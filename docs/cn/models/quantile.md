@@ -120,7 +120,7 @@ $$
 
 ### 独立模型（含统计推断）
 
-独立 `QuantileRegression` 的 kernel/bootstrap 推断只支持未传权重或均匀 `sample_weight`；真正非均匀的解析权重在该类中仅支持估计，若同时设置 `compute_inference=True` 会明确报错。bootstrap 推断还要求 `n_bootstrap >= 2`。
+独立 `QuantileRegression` 的 kernel/bootstrap 推断只支持未传权重或均匀 `sample_weight`；真正非均匀的解析权重在该类中仅支持估计，若同时设置 `compute_inference=True` 会明确报错。bootstrap 推断还要求 `n_bootstrap >= 2`。 kernel 推断还要求所选 bandwidth 规则使 `q ± h` 保持在 `(0, 1)` 内，并得到有限且严格为正的零点残差密度估计；条件不满足时会直接报错，而不是发布非有限标准误。
 
 ```python
 from statgpu.linear_model import QuantileRegression
@@ -307,7 +307,7 @@ Quantile/check loss 本身非光滑，因此这里不应解释为满足经典光
 - `sample_weight` 支持是**损失函数 × 求解器 × 估计器**路径能力，而不是所有求解器自动拥有的属性。
 - 对自动标量 SCAD/MCP 和自动 Group SCAD/MCP 交叉验证，如果某一折在目标 α 上未建立收敛，则该折不会计分；strict selection 只接受所有折都有有限得分的 α。选中 α 后的全数据最终重拟合沿用直接估计器的收敛报告语义：目标 IRLS/LLA 预算耗尽会发出 `ConvergenceWarning` 并返回最终迭代结果。
 - Quantile 非凸 continuation 路径会拒绝停止控制的隐式类型转换。`max_iter` 必须是正整数，`tol` 必须是有限正实数；直接标量 SCAD/MCP 与自动 Group SCAD/MCP 还要求布尔型 `lla=True`、整数 `max_lla_iters` 和有限正数 `lla_tol`。当前自动 Quantile continuation 含 3 个 alpha step，因此 `max_lla_iters` 至少为 3，才能保证每一步至少执行一次 LLA 更新。中间 continuation step 使用缩减后的 IRLS 预算，但不会超过公开的 `max_iter`；目标 step 最多使用完整预算。显式 Group SCAD/MCP `solver="fista"` 不进入 LLA continuation，因此 `lla`、`max_lla_iters` 与 `lla_tol` 不控制这条显式算法。
-- 公开底层 Quantile solver 调用——包括普通 `fista_solver`、保留兼容边界的直接 `lbfgs_solver`、`QuantileLoss.irls()`、`proximal_irls_quantile_solver()` 与 Quantile `fista_lla_path()`——都会在数值计算前拒绝非法的监督输入形状：`X` 必须为二维、`y` 必须为一维，且二者行数一致。IRLS/continuation 专用边界还会拒绝非法的截距、停止、路径和权重控制，不依赖 broadcasting 或隐式类型转换；直接 continuation 调用的 `alpha_path` 还必须是一维非空、元素均为有限正数、并从起点到目标值保持非递增的序列。
+- 公开底层 Quantile solver 调用——包括普通 `fista_solver`、保留兼容边界的直接 `lbfgs_solver`、`QuantileLoss.irls()`、`proximal_irls_quantile_solver()` 与 Quantile `fista_lla_path()`——都会在数值计算前拒绝非法的监督输入形状：`X` 必须为二维、`y` 必须为一维，且二者行数一致，并且二者都必须只包含有限实数。IRLS/continuation 专用边界还会拒绝非法的截距、停止、路径和权重控制，不依赖 broadcasting 或隐式类型转换；直接 continuation 调用的 `alpha_path` 还必须是一维非空、元素均为有限正数、并从起点到目标值保持非递增的序列。
 - 显式普通 L2/无惩罚 Quantile FISTA 受支持并保持权威；Group SCAD/MCP 的显式 FISTA 同样不会被改写成自动的分组 Proximal IRLS-LLA。
 - FISTA-BB、公开直接 ADMM、Newton、Proximal Newton 与 L-BFGS-B 都不支持 Quantile，并会在进入数值迭代前报错。普通 estimator/CV L-BFGS 同样不支持 Quantile；只有底层 `lbfgs_solver` 的未加权/均匀权重历史兼容边界继续保留。 历史 `quantile_cd_solver` 名称仅作为 import 兼容的 fail-closed 符号保留：旧实现会忽略 `sample_weight`，且无法可靠表示不受惩罚的截距，因此维护中的标量 SCAD/MCP 拟合改用 Proximal IRLS-CD。
 - 模型/CV 层的 Quantile L-BFGS 不受支持；底层公开 L-BFGS 只保留历史的无权重/均匀权重兼容边界。

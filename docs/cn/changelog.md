@@ -10,15 +10,15 @@
 ### 修复
 
 - **公开 Quantile solver 边界**：direct/CV/底层公开 consumer 现在共享 fail-closed 的 response/design shape、停止控制、continuation path、sample-weight 与 solver compatibility 契约。文档声明的普通 FISTA 和底层未加权/均匀权重 L-BFGS 历史兼容行继续保留；FISTA-BB、ADMM、Newton、Proximal Newton 与 L-BFGS-B 会在数值工作前拒绝 Quantile。历史 `quantile_cd_solver` 会静默忽略 `sample_weight`，且不能可靠表示不受惩罚的截距，因此其名称现在仅作为 import-compatible 的 fail-closed 符号保留；维护中的标量 SCAD/MCP 使用 Proximal IRLS-CD。
-- **direct/CV 契约对齐**：Quantile response validation 保持 backend 原生，并统一覆盖 generic/typed direct fit 与 `PenalizedGLM_CV`；非法 custom fold 与零 fold weight mass 会在自动 alpha-grid 数值工作前失败；continuation scale、adaptive/group penalty ownership 与拟合目标保持一致。prediction/score 会拒绝非法 shape，不再让 NumPy broadcasting 生成看似正常但错误的结果。
+- **direct/CV 契约对齐**：Quantile response validation 保持 backend 原生，并统一覆盖 generic/typed direct fit 与 `PenalizedGLM_CV`；公开底层 Quantile 路径也会在数值工作前拒绝含 NaN/Inf 的 `X/y`。非法 custom fold 与零 fold weight mass 会在自动 alpha-grid 数值工作前失败；continuation scale、adaptive/group penalty ownership 与拟合目标保持一致。prediction/score 会拒绝非法 shape，不再让 NumPy broadcasting 生成看似正常但错误的结果。
 - **独立 `QuantileRegression` 推断正确性**：非中位数 batched bootstrap 的梯度现在在非负 residual 上使用 `-tau`、负 residual 上使用 `1-tau`，修复了此前可能朝互补分位数方向求解的非对称性错误。standalone 非均匀权重推断在没有维护中的 weighted kernel/bootstrap 定义前明确 fail closed；均匀权重继续对应等价的未加权推断目标。
-- **standalone 推断生命周期与控制**：bootstrap 至少需要 2 次 resample；非法 inference method/kernel/bandwidth/停止/布尔/quantile 控制会在 backend work 前失败；Hall-Sheather/Bofinger/Chamberlain 在 `q ± h` 离开 `(0,1)` 或最终 bandwidth 非有限/非正时 fail closed。fit/inference publication 采用事务语义，失败拟合清除结果状态；`gpu_memory_cleanup=True` 也会正确识别执行记录中的 `cupy` backend，并覆盖成功与失败路径。
+- **standalone 推断生命周期与控制**：bootstrap 至少需要 2 次 resample；非法 inference method/kernel/bandwidth/停止/布尔/quantile 控制会在 backend work 前失败；Hall-Sheather/Bofinger/Chamberlain 在 `q ± h` 离开 `(0,1)`、最终 bandwidth 非有限/非正，或零点 residual density estimate 非有限/非正时都会在 covariance 发布前明确报错。standalone `score()` 现在按文档返回负 pinball loss，并支持可选解析权重。fit/inference publication 采用事务语义并清理统计量兼容别名；`gpu_memory_cleanup=True` 也会正确识别执行记录中的 `cupy` backend，并覆盖成功与失败路径。
 - **runtime/API 文档**：Quantile 次梯度 runtime help 与实际导数一致；generic penalized runtime help 明确列出公开 Quantile loss surface；solver wrapper 的 reload/import-order 保持幂等，并保留历史 public-module identity。
 
 ### 验证
 
 - 增加 focused regressions，覆盖 Python 版本 collection safety、公开 solver alias/reload 幂等、底层 shape/path/weight 拒绝、direct/CV response validation、prediction/score broadcasting guard、Torch response backend 保持、standalone failure transaction/control/cleanup、kernel-bandwidth 定义域失败，以及一个 `tau=0.2` 的集成 batched-bootstrap 检查，用于区分调用者请求的分位数与错误的互补分位数方向。
-- PR166 早先提交的 physical CUDA artifact 指纹对应更早源码；在上述 solver/inference 数值变化之后只能作为历史 exact-source 证据。当前 exact head 的 physical revalidation 仍是独立验收步骤，hosted checks 不能替代。
+- PR166 smooth-FISTA physical validator 已升级为 schema v2：保留 penalized explicit-FISTA/CV 矩阵，并新增 CuPy/Torch standalone `tau=0.20` batched-bootstrap 方向检查。PR166 早先提交的 physical CUDA artifact 对应更早源码/schema，只能作为历史 exact-source 证据；当前 exact head 必须单独执行 schema-v2 physical revalidation，hosted checks 不能替代。
 
 ## 未发布 — Quantile solver provenance 对齐（PR #164 / Issue #163，目标 0.2.6）
 
