@@ -143,6 +143,44 @@ def test_public_group_nonconvex_cupy_caches_migrate_with_operand_device(
     assert targets == [1, 1]
 
 
+def test_noncontiguous_group_routes_use_backend_flat_indices(monkeypatch):
+    groups = [[0, 2], [1, 3]]
+    coef = np.asarray([0.8, -0.4, 0.25, 0.15], dtype=np.float64)
+
+    adaptive = AdaptiveGroupLassoPenalty(
+        groups=groups,
+        alpha=0.1,
+        weights=[0.75, 1.25],
+    )
+    adaptive_calls = []
+    adaptive_original = adaptive._get_flat_indices
+
+    def adaptive_flat(xp, ref):
+        adaptive_calls.append(ref)
+        return adaptive_original(xp, ref)
+
+    monkeypatch.setattr(adaptive, "_get_flat_indices", adaptive_flat)
+    result = adaptive.proximal(coef.copy(), 0.2, backend="numpy")
+    assert np.all(np.isfinite(result))
+    assert adaptive_calls
+
+    for penalty in (
+        GroupSCADPenalty(alpha=0.1, a=3.7, groups=groups),
+        GroupMCPPenalty(alpha=0.1, gamma=3.0, groups=groups),
+    ):
+        calls = []
+        original = penalty._get_flat_indices
+
+        def recording_flat(xp, ref, *, _calls=calls, _original=original):
+            _calls.append(ref)
+            return _original(xp, ref)
+
+        monkeypatch.setattr(penalty, "_get_flat_indices", recording_flat)
+        weights = penalty.lla_weights(coef)
+        assert np.all(np.isfinite(np.asarray(weights)))
+        assert calls
+
+
 def _penalty_kwargs(kind):
     result = {"groups": GROUPS}
     if kind == "group_scad":
