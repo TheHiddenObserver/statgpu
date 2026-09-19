@@ -12,6 +12,8 @@ from statgpu.linear_model.penalized import (
 )
 from statgpu.linear_model.penalized import _fit_mixin
 from statgpu.penalties import AdaptiveL1Penalty
+import statgpu.backends as _backends
+import statgpu.backends._array_ops as _array_ops
 
 
 def test_typed_quantile_adaptive_initializer_receives_resolved_quantile(monkeypatch):
@@ -58,6 +60,117 @@ def test_typed_quantile_adaptive_initializer_receives_resolved_quantile(monkeypa
     }
     assert model.loss_kwargs is None
     assert model._loss_kwargs["quantile"] == pytest.approx(0.2)
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        lambda: PenalizedQuantileRegression(
+            quantile=0.2,
+            penalty="adaptive_l1",
+            alpha=0.04,
+            solver="auto",
+            device="cpu",
+        ),
+        lambda: PenalizedGeneralizedLinearModel(
+            loss="quantile",
+            loss_kwargs={"quantile": 0.2},
+            penalty="adaptive_l1",
+            alpha=0.04,
+            solver="auto",
+            device="cpu",
+        ),
+    ],
+)
+def test_quantile_adaptive_initializer_aligns_response_to_design_reference(
+    monkeypatch, factory
+):
+    captured = {"alignments": []}
+
+    class FakeBackend:
+        float64 = np.float64
+
+        def asarray(self, value, dtype=None):
+            return np.asarray(value, dtype=dtype).copy()
+
+    fake_backend = FakeBackend()
+    monkeypatch.setattr(
+        _fit_mixin,
+        "get_backend",
+        lambda backend, device: fake_backend,
+    )
+    monkeypatch.setattr(
+        _backends,
+        "get_backend",
+        lambda backend, device: fake_backend,
+    )
+
+    def recording_asarray(value, dtype, ref):
+        captured["alignments"].append((value, ref))
+        return np.asarray(value, dtype=np.float64).copy()
+
+    monkeypatch.setattr(_array_ops, "_xp_asarray", recording_asarray)
+
+    def fake_init(
+        X,
+        y,
+        loss_name,
+        alpha=0.01,
+        max_iter=100,
+        tol=1e-4,
+        loss_kwargs=None,
+        sample_weight=None,
+    ):
+        captured["init_X"] = X
+        captured["init_y"] = y
+        return np.full(X.shape[1], 0.25, dtype=np.float64)
+
+    monkeypatch.setattr(_fit_mixin, "_irls_ridge_init", fake_init)
+
+    model = factory()
+    model._penalty_kwargs = model.penalty_kwargs or {}
+    model._loss_kwargs = model.loss_kwargs or {}
+    model._penalty = model._resolve_penalty()
+    model._loss = model._resolve_loss()
+
+    X = np.arange(24, dtype=np.float64).reshape(8, 3) / 10.0
+    y = np.linspace(-0.4, 0.7, 8)
+    model._fit_initial(X, y, backend_name="cupy")
+
+    assert any(
+        value is y and ref is captured["init_X"]
+        for value, ref in captured["alignments"]
+    )
+
+
+def test_ridge_initializer_aligns_weights_to_design_reference(monkeypatch):
+    calls = []
+    original = _array_ops._xp_asarray
+
+    def recording_asarray(value, dtype, ref):
+        calls.append((value, ref))
+        return original(value, dtype, ref)
+
+    monkeypatch.setattr(_array_ops, "_xp_asarray", recording_asarray)
+
+    X = np.asarray(
+        [[1.0, 0.2], [0.3, -0.4], [-0.5, 1.1], [0.8, 0.6]],
+        dtype=np.float64,
+    )
+    y = np.asarray([0.7, -0.1, 0.2, 1.0], dtype=np.float64)
+    weights = np.asarray([0.4, 0.8, 1.2, 1.6], dtype=np.float64)
+
+    coef = _fit_mixin._irls_ridge_init_cd(
+        X,
+        y,
+        alpha=0.01,
+        max_iter=5,
+        tol=1e-6,
+        sample_weight=weights,
+    )
+
+    assert np.all(np.isfinite(coef))
+    assert any(value is weights and ref is X for value, ref in calls)
 
 
 def test_typed_quantile_adaptive_initializer_receives_analytic_weights(monkeypatch):
