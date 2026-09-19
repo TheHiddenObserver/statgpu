@@ -485,8 +485,8 @@ Weighted objective tracking and the weighted Lipschitz estimate use the same ana
 
 ### Defaults
 
-- default `max_iter=500`;
-- default `tol=1e-6`.
+- default `max_iter=1000`;
+- default `tol=1e-4`.
 
 ---
 
