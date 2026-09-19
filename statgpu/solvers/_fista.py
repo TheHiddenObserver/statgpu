@@ -47,9 +47,13 @@ from ._utils import (
 )
 
 
-def _weighted_gram_lipschitz(XtWX):
-    """Return a safe spectral step scale for a symmetric weighted Gram matrix."""
-    return _psd_spectral_upper_bound(XtWX)
+def _weighted_gram_lipschitz(XtWX, loss=None):
+    """Return the loss-consistent safe step scale for a weighted Gram matrix."""
+    scale = _psd_spectral_upper_bound(XtWX)
+    if str(getattr(loss, "name", "") or "").lower() == "quantile":
+        tau = float(getattr(loss, "_tau", getattr(loss, "quantile", 0.5)))
+        scale *= max(tau, 1.0 - tau)
+    return scale
 
 
 def _sample_weight_dtype_for_design(X, backend):
@@ -194,7 +198,7 @@ def fista_solver(
             sw_sum = _to_float_scalar(_xp_mod.sum(_sw))
             sw_col = _sw[:, None] if _sw.ndim == 1 else _sw
             XtWX = X_proc.T @ (X_proc * sw_col) / sw_sum
-            L = _weighted_gram_lipschitz(XtWX)
+            L = _weighted_gram_lipschitz(XtWX, loss=loss)
             if L <= 0:
                 L = 1.0
             # Cache for periodic recomputation in the loop (X and weights are constant)
@@ -378,7 +382,8 @@ def fista_solver(
                     if sample_weight is not None and _cached_XtWX_weighted is not None:
                         # Use cached weighted Gram matrix (X and weights are constant)
                         L_new = _weighted_gram_lipschitz(
-                            _cached_XtWX_weighted
+                            _cached_XtWX_weighted,
+                            loss=loss,
                         )
                     else:
                         L_new = loss.lipschitz(X_proc, coef, y=y_proc)
