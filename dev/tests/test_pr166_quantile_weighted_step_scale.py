@@ -109,6 +109,44 @@ def test_public_quantile_fista_lla_rejects_invalid_public_controls(kwargs, messa
         )
 
 
+def test_public_quantile_fista_lla_accepts_python_array_like_design_and_response():
+    X = [
+        [1.0, 0.0, 2.0],
+        [0.0, 1.0, -1.0],
+        [2.0, 1.0, 0.0],
+        [-1.0, 2.0, 1.0],
+    ]
+    y = [0.25, -0.4, 1.15, 0.6]
+    weights = [0.25, 0.75, 1.25, 1.75]
+
+    coef_list, intercept_list, n_iter_list = fista_lla_contract.fista_lla_path(
+        QuantileLoss(0.35),
+        SCADPenalty(alpha=0.05),
+        X,
+        y,
+        alpha_path=[0.05],
+        max_lla_per_step=1,
+        max_iter=8,
+        fit_intercept=False,
+        sample_weight=weights,
+    )
+    coef_array, intercept_array, n_iter_array = fista_lla_contract.fista_lla_path(
+        QuantileLoss(0.35),
+        SCADPenalty(alpha=0.05),
+        np.asarray(X, dtype=np.float64),
+        np.asarray(y, dtype=np.float64),
+        alpha_path=[0.05],
+        max_lla_per_step=1,
+        max_iter=8,
+        fit_intercept=False,
+        sample_weight=np.asarray(weights, dtype=np.float64),
+    )
+
+    np.testing.assert_allclose(coef_list, coef_array, rtol=0.0, atol=1e-14)
+    assert intercept_list == pytest.approx(intercept_array, rel=0.0, abs=1e-14)
+    assert n_iter_list == n_iter_array
+
+
 def test_quantile_fista_lla_integer_design_preserves_fractional_response_and_weights():
     X_int = np.asarray(
         [[1, 0, 2], [0, 1, -1], [2, 1, 0], [-1, 2, 1]],
