@@ -160,8 +160,9 @@ def proximal_irls_quantile_solver(
     else:
         xp = np
 
-    # Ensure float64 for numerical stability
-    X_dev = xp.asarray(X, dtype=xp.float64)
+    # Ensure float64 for numerical stability while preserving the concrete
+    # device that owns the public design.
+    X_dev = _xp_asarray(X, xp.float64, X)
     y_dev = _xp_asarray(y, xp.float64, X_dev)
 
     # Handle sample_weight
