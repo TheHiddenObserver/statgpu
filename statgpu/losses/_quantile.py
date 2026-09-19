@@ -184,6 +184,20 @@ class QuantileLoss(LossBase):
             neg_mask = (u < 0).astype(u.dtype)
         return -tau + 1.0 * neg_mask
 
+    def value(self, X, y, coef, sample_weight=None):
+        """Pinball objective with GPU scalar kept on the active backend."""
+        xp = _get_xp(X)
+        eta = X @ coef
+        ps = self.per_sample_value(eta, y)
+        if sample_weight is not None:
+            total_weight = xp.sum(sample_weight)
+            value = xp.sum(sample_weight * ps) / total_weight
+        else:
+            value = xp.sum(ps) / X.shape[0]
+        # Preserve the long-standing CPU scalar contract while avoiding an
+        # implicit device synchronization on CuPy/Torch numerical paths.
+        return float(value) if xp.__name__ == "numpy" else value
+
     def fused_value_and_gradient(self, X, y, coef, sample_weight=None):
         """Fused value+gradient: single X@coef, shared intermediate results.
 
