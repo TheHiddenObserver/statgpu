@@ -461,8 +461,28 @@ class _PenalizedFitMixin:
             self._nobs = X.shape[0]
             X_arr = self._to_array(X, backend=backend_name)
             y_arr = self._to_array(y, backend=backend_name)
-            _alpha_path, _max_lla_per_step, _mi_path = self._compute_lla_path(
-                X_arr, y_arr, X_arr.shape[1], _loss_name)
+            if _loss_name == "quantile":
+                # The scalar Quantile SCAD/MCP fast branch reaches continuation
+                # generation before _fit_loss_backend(), so publish the already
+                # validated/aligned analytic weights here. This lets the
+                # continuation contract skip the historical full X/y host
+                # snapshot for non-uniform weighted GPU fits.
+                from ._quantile_continuation_contract import (
+                    _QUANTILE_SAMPLE_WEIGHT,
+                )
+                _weight_token = _QUANTILE_SAMPLE_WEIGHT.set(_sw_arr)
+                try:
+                    _alpha_path, _max_lla_per_step, _mi_path = (
+                        self._compute_lla_path(
+                            X_arr, y_arr, X_arr.shape[1], _loss_name
+                        )
+                    )
+                finally:
+                    _QUANTILE_SAMPLE_WEIGHT.reset(_weight_token)
+            else:
+                _alpha_path, _max_lla_per_step, _mi_path = self._compute_lla_path(
+                    X_arr, y_arr, X_arr.shape[1], _loss_name
+                )
 
             if _loss_name == "quantile":
                 # Quantile + SCAD/MCP: use Proximal IRLS (IRLS quadratic
