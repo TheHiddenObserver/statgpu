@@ -150,6 +150,8 @@ Cox 调参网格有生存分析专属的验证规则，应查看 Cox 模型页�
 
 当某个 CV 估计器支持 `sample_weight` 时，权重会进入训练折的目标函数和相应的加权验证准则，并在选择结束后用于全数据最终重拟合。对于 `PenalizedGLM_CV`，每个实际参与评估的训练折和验证折都必须保留有限且严格为正的 analytic weight 总质量；若某一折的权重总和为 0，则所声明的带权目标本身没有定义，系统会在候选拟合前报错，而不会把该折静默改成无权评分。
 
+对于 Quantile 路径，strict selection 还要求每个 α 都具有完整的折级证据。若某一折的求解器未建立收敛，则该 α 整体失去候选资格，不能只用其余有限折的均值继续参与选择。`cv_strategy="two_stage"` 的第一阶段筛选仍保持 relaxed；完整证据规则在 strict refinement 和普通 strict CV 中执行。
+
 ```python
 from statgpu.linear_model import RidgeCV
 
