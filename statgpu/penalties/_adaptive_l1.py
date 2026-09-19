@@ -230,10 +230,10 @@ class AdaptiveL1Penalty(Penalty):
             invalid="ignore",
         ):
             learned = 1.0 / (np.abs(coef_np) + self.eps) ** self.nu
-        if not np.all(np.isfinite(learned)) or np.any(learned < 0.0):
+        if not np.all(np.isfinite(learned)) or np.any(learned <= 0.0):
             raise ValueError(
                 "AdaptiveL1Penalty learned weights must be finite and "
-                "non-negative; reduce nu, increase eps, or use a "
+                "strictly positive; reduce nu, increase eps, or use a "
                 "better-scaled initial estimate."
             )
 
