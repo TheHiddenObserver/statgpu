@@ -244,16 +244,25 @@ def fista_lla_path(
     if str(getattr(loss, "name", "") or "").lower() == "quantile":
         if backend == "torch":
             import torch
-            if not torch.is_floating_point(X):
-                X = X.to(dtype=torch.float64)
+            target_dtype = (
+                X.dtype
+                if torch.is_tensor(X) and torch.is_floating_point(X)
+                else torch.float64
+            )
         else:
+            dtype = getattr(X, "dtype", None)
+            if dtype is None and backend == "numpy":
+                dtype = np.asarray(X).dtype
             try:
-                design_kind = np.dtype(getattr(X, "dtype", None)).kind
+                design_kind = np.dtype(dtype).kind
             except (TypeError, ValueError):
                 design_kind = "f"
-            if design_kind in "biu":
-                X = _xp_asarray(X, xp.float64, X)
-        y = _xp_asarray(y, getattr(X, "dtype", None), X)
+            target_dtype = dtype if design_kind in "fc" else xp.float64
+        # Always normalize Quantile X, even for ordinary Python array-likes.
+        # The public contract accepts list/tuple designs after validation, so
+        # the fused kernel must not rely on an ndarray-only .shape attribute.
+        X = _xp_asarray(X, target_dtype, X)
+        y = _xp_asarray(y, target_dtype, X)
 
     if _is_preprocessed:
         X_proc, y_proc = X, y
