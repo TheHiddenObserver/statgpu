@@ -682,6 +682,59 @@ def test_public_quantile_fista_rejects_invalid_controls_before_loss_work(
     ],
 )
 @pytest.mark.parametrize(
+    ("init_coef", "message"),
+    [
+        (
+            np.zeros((3, 1), dtype=np.float64),
+            "init_coef must be one-dimensional",
+        ),
+        (
+            np.zeros(2, dtype=np.float64),
+            "init_coef must have length n_features",
+        ),
+        (
+            np.asarray([0.0, np.nan, 0.0], dtype=np.float64),
+            "init_coef must contain finite values",
+        ),
+        (
+            np.asarray([True, False, True], dtype=bool),
+            "init_coef must contain real numeric values",
+        ),
+        (
+            np.asarray([1.0j, 0.0j, 0.0j], dtype=np.complex128),
+            "init_coef must contain real numeric values",
+        ),
+    ],
+)
+def test_public_quantile_first_order_rejects_invalid_warm_start_before_loss_work(
+    monkeypatch, solver_name, penalty, init_coef, message
+):
+    X, y = _data(seed=16733)
+    loss = QuantileLoss(quantile=0.3)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("loss numerical work must not start")
+
+    monkeypatch.setattr(loss, "preprocess", forbidden)
+    with pytest.raises(ValueError, match=message):
+        getattr(solvers, solver_name)(
+            loss,
+            penalty,
+            X,
+            y,
+            init_coef=init_coef,
+            max_iter=3,
+        )
+
+
+@pytest.mark.parametrize(
+    ("solver_name", "penalty"),
+    [
+        ("fista_solver", L2Penalty(alpha=0.04)),
+        ("lbfgs_solver", None),
+    ],
+)
+@pytest.mark.parametrize(
     ("target", "message"),
     [
         ("X", "X must contain finite values"),
