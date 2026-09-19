@@ -23,6 +23,7 @@ from statgpu.backends._array_ops import (
     _sync_scalars,
     _zeros,
     _max_eigval_power,
+    _psd_spectral_upper_bound,
 )
 from ._convergence import ConvergenceWarning
 from ._constants import (
@@ -46,8 +47,8 @@ from ._utils import (
 
 
 def _weighted_gram_lipschitz(XtWX):
-    """Return the spectral scale of a symmetric weighted design Gram matrix."""
-    return float(_max_eigval_power(XtWX))
+    """Return a safe spectral step scale for a symmetric weighted Gram matrix."""
+    return _psd_spectral_upper_bound(XtWX)
 
 
 def _sample_weight_dtype_for_design(X, backend):

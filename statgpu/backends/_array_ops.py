@@ -430,6 +430,21 @@ def _clip_grad_on_device(grad, coef_old, backend):
     return grad * scale
 
 
+def _psd_spectral_upper_bound(mat):
+    """Safe deterministic upper bound for a symmetric PSD spectral radius.
+
+    Both the induced infinity norm (maximum absolute row sum) and Frobenius
+    norm dominate the spectral norm. Their minimum is therefore still an upper
+    bound, while avoiding the orthogonality failure mode of single-seed power
+    iteration.
+    """
+    xp = _xp(mat)
+    row_bound = xp.max(xp.sum(xp.abs(mat), axis=1))
+    frob_bound = xp.sqrt(xp.sum(mat * mat))
+    bound = xp.minimum(row_bound, frob_bound)
+    return float(bound.item() if hasattr(bound, "item") else bound)
+
+
 def _max_eigval_power(mat, n_iter=20, tol=1e-8):
     """Largest eigenvalue of a symmetric matrix via power iteration.
 

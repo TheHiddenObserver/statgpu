@@ -15,6 +15,11 @@ from statgpu.solvers._convergence import ConvergenceWarning
 from statgpu.losses import QuantileLoss
 from statgpu.penalties import GroupSCADPenalty, L1Penalty, L2Penalty, MCPPenalty, SCADPenalty
 from statgpu.glm_core._squared import SquaredErrorLoss
+from statgpu.backends._array_ops import (
+    _max_eigval_power,
+    _psd_spectral_upper_bound,
+)
+from statgpu.solvers._fista import _weighted_gram_lipschitz
 import statgpu.losses._quantile_irls_validation_contract as _irls_contract
 import statgpu.solvers._quantile_proximal_public_contract as _prox_contract
 from statgpu.solvers import _proximal_irls_quantile as _prox_kernel
@@ -26,6 +31,37 @@ def _data(seed=16701):
     y = 0.2 + X @ np.array([0.5, -0.25, 0.1])
     y = y + rng.laplace(scale=0.08, size=X.shape[0])
     return X, y
+
+
+def test_safe_psd_spectral_bound_closes_power_seed_orthogonality_gap():
+    gram = np.array(
+        [[8.2, -3.6], [-3.6, 2.8]],
+        dtype=np.float64,
+    )
+    exact = float(np.linalg.eigvalsh(gram)[-1])
+    approximate = float(_max_eigval_power(gram))
+    safe = float(_psd_spectral_upper_bound(gram))
+
+    assert exact == pytest.approx(10.0, rel=0.0, abs=1e-12)
+    assert approximate == pytest.approx(1.0, rel=0.0, abs=1e-12)
+    assert safe >= exact
+    assert _weighted_gram_lipschitz(gram) == pytest.approx(safe)
+
+
+def test_quantile_lipschitz_uses_safe_psd_upper_bound():
+    gram = np.array(
+        [[8.2, -3.6], [-3.6, 2.8]],
+        dtype=np.float64,
+    )
+    eigvals, eigvecs = np.linalg.eigh(gram)
+    sqrt_gram = eigvecs @ np.diag(np.sqrt(eigvals)) @ eigvecs.T
+    X = np.sqrt(2.0) * sqrt_gram
+    loss = QuantileLoss(quantile=0.5)
+
+    observed = float(loss.lipschitz(X, np.zeros(2)))
+    exact_scaled = 0.5 * float(np.linalg.eigvalsh(gram)[-1])
+
+    assert observed >= exact_scaled
 
 
 def test_quantile_fused_value_stays_on_torch_backend():

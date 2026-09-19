@@ -15,7 +15,10 @@ from numbers import Real
 
 import numpy as np
 
-from statgpu.backends._array_ops import _xp as _get_xp
+from statgpu.backends._array_ops import (
+    _psd_spectral_upper_bound,
+    _xp as _get_xp,
+)
 from ._base import LossBase
 from ._registry import register_loss
 
@@ -107,19 +110,17 @@ class QuantileLoss(LossBase):
         solver interface nevertheless asks losses for a positive ``lipschitz``
         scale. For an unweighted objective we use
 
-        ``max(tau, 1-tau) * lambda_max(X'X / n)``.
+        ``max(tau, 1-tau)`` times a safe upper bound on ``lambda_max(X'X / n)``.
 
         For normalized analytic weights, the same design scale follows the
         fitted objective and uses
 
-        ``max(tau, 1-tau) * lambda_max(X' W X / sum(w))``.
+        ``max(tau, 1-tau)`` times a safe upper bound on ``lambda_max(X' W X / sum(w))``.
 
         This is an initialization/fixed-step design scale for a non-smooth
         subgradient route; it must not be interpreted as a proof that textbook
         smooth-FISTA assumptions hold for pinball loss.
         """
-        from statgpu.backends._array_ops import _max_eigval_power
-
         if sample_weight is None:
             gram = (X.T @ X) / X.shape[0]
         else:
@@ -158,7 +159,7 @@ class QuantileLoss(LossBase):
             gram = X.T @ (X * sw[:, None]) / xp.sum(sw)
 
         grad_bound = max(self._tau, 1.0 - self._tau)
-        return grad_bound * _max_eigval_power(gram)
+        return grad_bound * _psd_spectral_upper_bound(gram)
 
     # ── Per-sample formulas (backend-aware, dtype-safe) ──────────────
 
