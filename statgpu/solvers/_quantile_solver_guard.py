@@ -109,7 +109,7 @@ def _validate_quantile_init_coef(X, init_coef, solver_name: str) -> None:
     _require_real_finite(init_values, name="init_coef")
 
 
-def _validate_quantile_fista_controls(*, max_iter, tol, cv_mode) -> None:
+def _validate_quantile_iteration_controls(*, max_iter, tol) -> None:
     if isinstance(max_iter, (bool, np.bool_)) or not isinstance(max_iter, Integral):
         raise ValueError("max_iter must be a positive integer")
     if int(max_iter) < 1:
@@ -118,6 +118,10 @@ def _validate_quantile_fista_controls(*, max_iter, tol, cv_mode) -> None:
         raise ValueError("tol must be a finite positive number")
     if not np.isfinite(float(tol)) or float(tol) <= 0.0:
         raise ValueError("tol must be a finite positive number")
+
+
+def _validate_quantile_fista_controls(*, max_iter, tol, cv_mode) -> None:
+    _validate_quantile_iteration_controls(max_iter=max_iter, tol=tol)
     if not isinstance(cv_mode, (bool, np.bool_)):
         raise ValueError("cv_mode must be boolean")
 
@@ -206,6 +210,12 @@ def lbfgs_solver(loss, penalty, X, y, *args, **kwargs):
         import inspect
         signature = inspect.signature(_lbfgs_solver)
         bound = signature.bind_partial(loss, penalty, X, y, *args, **kwargs)
+        _validate_quantile_iteration_controls(
+            max_iter=bound.arguments.get(
+                "max_iter", signature.parameters["max_iter"].default
+            ),
+            tol=bound.arguments.get("tol", signature.parameters["tol"].default),
+        )
         _validate_quantile_init_coef(
             X,
             bound.arguments.get(
