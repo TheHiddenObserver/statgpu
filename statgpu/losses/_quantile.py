@@ -18,6 +18,7 @@ import numpy as np
 from statgpu.backends._array_ops import (
     _psd_spectral_upper_bound,
     _xp as _get_xp,
+    _xp_asarray,
 )
 from ._base import LossBase
 from ._registry import register_loss
@@ -133,17 +134,6 @@ class QuantileLoss(LossBase):
                     if getattr(X.dtype, "is_floating_point", False)
                     else torch.float64
                 )
-                if torch.is_tensor(sample_weight):
-                    sw = sample_weight.to(
-                        dtype=weight_dtype,
-                        device=X.device,
-                    )
-                else:
-                    sw = torch.as_tensor(
-                        sample_weight,
-                        dtype=weight_dtype,
-                        device=X.device,
-                    )
             else:
                 try:
                     design_kind = np.dtype(X.dtype).kind
@@ -154,8 +144,7 @@ class QuantileLoss(LossBase):
                     if design_kind in "fc"
                     else xp.float64
                 )
-                sw = xp.asarray(sample_weight, dtype=weight_dtype)
-            sw = sw.reshape(-1)
+            sw = _xp_asarray(sample_weight, weight_dtype, X).reshape(-1)
             gram = X.T @ (X * sw[:, None]) / xp.sum(sw)
 
         grad_bound = max(self._tau, 1.0 - self._tau)
@@ -278,25 +267,22 @@ class QuantileLoss(LossBase):
 
         xp = _get_xp(X)
         X_dev = xp.asarray(X, dtype=xp.float64)
-        y_dev = xp.asarray(y, dtype=xp.float64)
+        y_dev = _xp_asarray(y, xp.float64, X_dev)
         n, p = int(X_dev.shape[0]), int(X_dev.shape[1])
         tau = self._tau
 
         # Handle sample_weight
         if sample_weight is not None:
-            sw = xp.asarray(sample_weight, dtype=xp.float64)
-            # Ensure sw is on same device as X for torch CUDA
-            if hasattr(X_dev, 'device') and hasattr(sw, 'to'):
-                sw = sw.to(device=X_dev.device)
+            sw = _xp_asarray(sample_weight, xp.float64, X_dev)
             sw_sum = float(xp.sum(sw))
             sw = sw * (n / sw_sum)  # normalize so sum(sw) = n
         else:
             sw = None
 
         if init_coef is not None:
-            beta = xp.asarray(init_coef, dtype=xp.float64)
+            beta = _xp_asarray(init_coef, xp.float64, X_dev)
             if xp.__name__ == "torch":
-                beta = beta.to(device=X_dev.device).clone()
+                beta = beta.clone()
             else:
                 beta = beta.copy()
         else:
