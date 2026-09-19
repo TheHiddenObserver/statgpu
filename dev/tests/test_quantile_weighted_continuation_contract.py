@@ -265,6 +265,39 @@ def test_pr164_physical_fixture_exercises_weighted_start_not_legacy_start():
 
 
 @pytest.mark.parametrize("penalty", ["scad", "mcp"])
+def test_high_level_quantile_nonconvex_supports_intercept_only_design(penalty):
+    y = np.asarray(
+        [-1.0, -0.4, -0.1, 0.2, 0.5, 0.9, 1.3, 1.8],
+        dtype=np.float64,
+    )
+    X = np.empty((y.shape[0], 0), dtype=np.float64)
+
+    model = PenalizedQuantileRegression(
+        quantile=0.35,
+        penalty=penalty,
+        alpha=0.025,
+        solver="auto",
+        device="cpu",
+        fit_intercept=True,
+        max_iter=120,
+        tol=1e-6,
+        compute_inference=False,
+    ).fit(X, y)
+
+    assert model._fitted is True
+    assert model._selected_solver == "proximal_irls_cd"
+    assert np.asarray(model.coef_).shape == (0,)
+    assert np.isfinite(float(model.intercept_))
+    pred = np.asarray(model.predict(X), dtype=np.float64)
+    np.testing.assert_allclose(
+        pred,
+        np.full(y.shape[0], float(model.intercept_), dtype=np.float64),
+        rtol=0.0,
+        atol=0.0,
+    )
+
+
+@pytest.mark.parametrize("penalty", ["scad", "mcp"])
 def test_high_level_quantile_nonconvex_path_is_marked_for_weight_alignment(
     monkeypatch, penalty
 ):
