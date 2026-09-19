@@ -148,6 +148,24 @@ def test_adaptive_l1_torch_cache_refreshes_on_dtype_change():
     assert penalty._alpha_w_torch.dtype == torch.float64
 
 
+def test_adaptive_l1_weight_dimension_check_does_not_host_materialize():
+    penalty = AdaptiveL1Penalty(
+        alpha=0.2,
+        weights=[1.0, 2.0],
+        normalize=False,
+    )
+
+    class FakeDeviceWeights:
+        size = 2
+
+        def __array__(self, *args, **kwargs):
+            raise AssertionError("device weights must not use NumPy array protocol")
+
+    fake = FakeDeviceWeights()
+    penalty._weights = fake
+    assert penalty._require_weights(np.zeros(2, dtype=np.float64)) is fake
+
+
 @pytest.mark.parametrize("method", ["value", "gradient", "proximal", "lla_weights"])
 def test_adaptive_l1_weight_dimension_must_match_coefficients(method):
     penalty = AdaptiveL1Penalty(
