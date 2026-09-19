@@ -339,6 +339,23 @@ class AdaptiveGroupLassoPenalty(
             self._group_weights_cupy = cached
         return cached
 
+    def proximal(self, w, step: float, backend: str = "numpy"):
+        """Apply the adaptive group proximal map with canonical group layout.
+
+        Keep NumPy/CuPy/Torch on the same gather/scatter implementation so
+        non-contiguous public groups use the precomputed flat-index mapping in
+        every numerical method.
+        """
+        if self._group_indices is None:
+            raise ValueError("groups must be set before calling proximal()")
+        if backend == "cupy":
+            import cupy as xp
+        elif backend == "torch":
+            import torch as xp
+        else:
+            xp = np
+        return self._proximal_vectorized(w, step, xp)
+
     def _weighted_group_components(self, coef):
         if self._group_indices is None:
             raise ValueError("groups must be set before evaluating the penalty")
