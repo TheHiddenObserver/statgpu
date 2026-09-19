@@ -3,6 +3,7 @@ import numpy as np
 import pytest
 
 from statgpu.linear_model import QuantileRegression
+from statgpu.linear_model.wrappers._quantile import _bootstrap_armijo_accept
 
 
 # ---- GPU availability checks ----
@@ -135,6 +136,32 @@ class TestQuantileRegression:
         assert m._conf_int.shape == (4, 2)
         # SE should be positive
         assert np.all(m._bse > 0)
+
+    def test_batched_bootstrap_armijo_requires_every_draw_to_descend(self):
+        loss_old = np.array([1.0, 1.0], dtype=np.float64)
+        loss_new = np.array([0.2, 1.05], dtype=np.float64)
+        grad_norm_sq = np.array([1.0, 1.0], dtype=np.float64)
+
+        # The summed objective improves, but the second bootstrap problem worsens.
+        assert float(np.sum(loss_new - loss_old)) < 0.0
+        assert not _bootstrap_armijo_accept(
+            loss_new,
+            loss_old,
+            grad_norm_sq,
+            step=0.1,
+            c1=1e-4,
+            xp=np,
+        )
+
+        loss_new[1] = 0.9
+        assert _bootstrap_armijo_accept(
+            loss_new,
+            loss_old,
+            grad_norm_sq,
+            step=0.1,
+            c1=1e-4,
+            xp=np,
+        )
 
     def test_nonmedian_pinball_eta_gradient_matches_requested_quantile(self):
         from statgpu.linear_model.wrappers._quantile import _pinball_eta_gradient_values

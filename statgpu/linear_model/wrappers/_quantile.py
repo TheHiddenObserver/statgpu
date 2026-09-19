@@ -9,6 +9,24 @@ import numpy as np
 _INV_SQRT_2PI = 1.0 / _math.sqrt(2.0 * _math.pi)
 
 
+def _bootstrap_armijo_accept(
+    loss_new_by_draw,
+    loss_old_by_draw,
+    grad_norm_sq_by_draw,
+    step,
+    c1,
+    xp,
+):
+    """Require the shared bootstrap step to descend every independent draw."""
+    armijo_residual = (
+        loss_new_by_draw
+        - loss_old_by_draw
+        + c1 * step * grad_norm_sq_by_draw
+    )
+    accepted = xp.all(armijo_residual <= 0)
+    return bool(accepted.item() if hasattr(accepted, "item") else accepted)
+
+
 def _pinball_eta_gradient_values(tau):
     """Return d rho_tau(y-eta) / d eta on nonnegative/negative residuals."""
     tau = float(tau)
@@ -652,11 +670,9 @@ class QuantileRegression(BaseEstimator):
 
             # ---- Backtracking line search ----
             step = 1.0 / L0
-            # The coefficient columns are independent bootstrap problems, but a
-            # single conservative step keeps the update vectorized.  Armijo is
-            # evaluated on the summed separable objective; final reporting still
-            # uses a per-draw best iterate so temporary movement in one draw
-            # cannot overwrite that draw's best solution.
+            # Each coefficient column is an independent bootstrap problem.
+            # Keep one shared step for vectorization, but accept it only when
+            # every draw satisfies its own Armijo decrease condition.
             if is_cupy:
                 _pinball_loss_kernel(r_z, _loss_buf)
                 loss_z_by_draw = xp.sum(_loss_buf, axis=0) / n
@@ -665,8 +681,7 @@ class QuantileRegression(BaseEstimator):
                     r_z > 0, tau * r_z, (tau - 1.0) * r_z
                 )
                 loss_z_by_draw = xp.sum(loss_entries_z, axis=0) / n
-            loss_z = xp.sum(loss_z_by_draw)
-            grad_norm_sq = xp.sum(grad * grad)
+            grad_norm_sq_by_draw = xp.sum(grad * grad, axis=0)
 
             accepted = False
             for _ in range(10):
@@ -681,8 +696,14 @@ class QuantileRegression(BaseEstimator):
                         r_new > 0, tau * r_new, (tau - 1.0) * r_new
                     )
                     loss_new_by_draw = xp.sum(loss_entries_new, axis=0) / n
-                loss_new = xp.sum(loss_new_by_draw)
-                if float(loss_new - loss_z + c1 * step * grad_norm_sq) <= 0:
+                if _bootstrap_armijo_accept(
+                    loss_new_by_draw,
+                    loss_z_by_draw,
+                    grad_norm_sq_by_draw,
+                    step,
+                    c1,
+                    xp,
+                ):
                     accepted = True
                     break
                 step *= 0.5
