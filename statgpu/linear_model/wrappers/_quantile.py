@@ -1,5 +1,6 @@
 """Quantile regression with bootstrap inference support."""
 
+import hashlib
 import math as _math
 from numbers import Integral, Real
 from typing import Optional
@@ -148,6 +149,7 @@ class QuantileRegression(BaseEstimator):
         self._conf_int = None
         self._inference_result = None
         self._bootstrap_n_iter_ = None
+        self._bootstrap_schedule_sha256_ = None
         self._fitted = False
         self._selected_backend_name = None
         self.__dict__.pop("n_features_in_", None)
@@ -614,6 +616,10 @@ class QuantileRegression(BaseEstimator):
             [rng.integers(0, n, size=n, dtype=np.int64) for _ in range(B)],
             axis=0,
         )
+        normalized_schedule = np.ascontiguousarray(schedule, dtype="<i8")
+        self._bootstrap_schedule_sha256_ = hashlib.sha256(
+            normalized_schedule.view(np.uint8)
+        ).hexdigest()
 
         # Only the deterministic integer resampling schedule lives on the CPU
         # control plane. Residual gathering and bootstrap-response construction
@@ -863,6 +869,13 @@ class QuantileRegression(BaseEstimator):
                 "pvalue_method": "bootstrap_sign_test",
                 "statistic_method": "estimate_over_bootstrap_se",
                 "resampling_schedule": "numpy_generator_control_plane",
+                "resampling_schedule_sha256": self._bootstrap_schedule_sha256_,
+                "random_state": (
+                    int(self.random_state)
+                    if isinstance(self.random_state, (int, np.integer))
+                    and not isinstance(self.random_state, (bool, np.bool_))
+                    else repr(self.random_state)
+                ),
                 "response_construction": "backend_native",
                 "solver": "batched_pinball_fista",
                 "solver_n_iter": int(self._bootstrap_n_iter_),

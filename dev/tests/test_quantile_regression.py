@@ -262,6 +262,33 @@ class TestQuantileRegression:
         )
         assert float(np.median(estimated)) < 0.0
 
+    def test_bootstrap_schedule_hash_is_deterministic_and_seed_sensitive(self):
+        X = np.zeros((16, 1), dtype=np.float64)
+        y = np.zeros(16, dtype=np.float64)
+
+        def run(seed):
+            model = QuantileRegression(
+                quantile=0.5,
+                fit_intercept=False,
+                max_iter=5,
+                tol=1e-8,
+                n_bootstrap=4,
+                random_state=seed,
+            )
+            model.coef_ = np.zeros(1, dtype=np.float64)
+            model.intercept_ = 0.0
+            model._compute_bootstrap_batched(X, y)
+            return model._bootstrap_schedule_sha256_
+
+        hash_a = run(31)
+        hash_b = run(31)
+        hash_c = run(32)
+
+        assert isinstance(hash_a, str) and len(hash_a) == 64
+        int(hash_a, 16)
+        assert hash_a == hash_b
+        assert hash_a != hash_c
+
     def test_batched_bootstrap_zero_gradient_returns_current_point(self):
         X = np.zeros((12, 1), dtype=np.float64)
         y = np.zeros(12, dtype=np.float64)
@@ -566,6 +593,23 @@ class TestQuantileRegression:
             model.predict(self.X[0])
         with pytest.raises(ValueError, match="same number of features"):
             model.predict(self.X[:, :2])
+
+    def test_bootstrap_inference_metadata_records_schedule_identity(self):
+        model = QuantileRegression(
+            quantile=0.5,
+            compute_inference=True,
+            inference_method="bootstrap",
+            n_bootstrap=8,
+            random_state=37,
+            max_iter=400,
+            tol=1e-6,
+        ).fit(self.X, self.y)
+
+        metadata = model._inference_result.metadata
+        assert metadata["random_state"] == 37
+        assert metadata["resampling_schedule"] == "numpy_generator_control_plane"
+        assert metadata["resampling_schedule_sha256"] == model._bootstrap_schedule_sha256_
+        assert len(metadata["resampling_schedule_sha256"]) == 64
 
     def test_fit_with_bootstrap_inference(self):
         m = QuantileRegression(quantile=0.5, compute_inference=True,
