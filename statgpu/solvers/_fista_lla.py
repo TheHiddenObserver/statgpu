@@ -241,7 +241,7 @@ def fista_lla_path(
     # independently of the design backend. Normalize the response onto the
     # design's concrete backend/device before the fused kernel sees it.
     if str(getattr(loss, "name", "") or "").lower() == "quantile":
-        y = _xp_asarray(y, getattr(y, "dtype", None), X)
+        y = _xp_asarray(y, getattr(X, "dtype", None), X)
 
     if _is_preprocessed:
         X_proc, y_proc = X, y
