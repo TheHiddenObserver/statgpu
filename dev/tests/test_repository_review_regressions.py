@@ -352,6 +352,62 @@ def test_adaptive_l1_learned_weights_remain_fit_local_constructor_state():
     assert penalty._weights is not None
 
 
+def test_generic_adaptive_penalty_object_is_fit_local(monkeypatch):
+    import statgpu.solvers as solvers
+    from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
+    from statgpu.linear_model.penalized import _fit_mixin
+
+    penalty = AdaptiveL1Penalty(
+        alpha=0.04,
+        weights=None,
+        normalize=False,
+    )
+    model = PenalizedGeneralizedLinearModel(
+        loss="squared_error",
+        penalty=penalty,
+        alpha=0.04,
+        solver="fista",
+        device="cpu",
+        fit_intercept=False,
+        max_iter=10,
+        tol=1e-6,
+    )
+    init_values = [
+        np.array([1.0, 2.0], dtype=np.float64),
+        np.array([2.0, 1.0], dtype=np.float64),
+    ]
+    init_calls = {"value": 0}
+    seen_weights = []
+
+    def fake_init(self, X, y, backend_name="numpy", sample_weight=None):
+        value = init_values[init_calls["value"]].copy()
+        init_calls["value"] += 1
+        return value
+
+    def fake_fista(loss, resolved_penalty, X, y, **kwargs):
+        seen_weights.append(np.asarray(resolved_penalty._weights).copy())
+        return np.zeros(X.shape[1], dtype=np.float64), 1
+
+    monkeypatch.setattr(_fit_mixin._PenalizedFitMixin, "_fit_initial", fake_init)
+    monkeypatch.setattr(solvers, "fista_solver", fake_fista)
+
+    X = np.array(
+        [[1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [2.0, -1.0]],
+        dtype=np.float64,
+    )
+    model.fit(X, np.array([1.0, 0.5, 1.2, -0.1], dtype=np.float64))
+    first_internal = model._penalty
+    model.fit(X, np.array([-0.2, 1.1, 0.4, 0.8], dtype=np.float64))
+    second_internal = model._penalty
+
+    assert init_calls["value"] == 2
+    assert first_internal is not second_internal
+    assert first_internal is not penalty
+    assert second_internal is not penalty
+    assert penalty._weights is None
+    assert not np.array_equal(seen_weights[0], seen_weights[1])
+
+
 def test_nndescent_numpy_unique_and_validated():
     X = np.random.default_rng(123).normal(size=(24, 4))
     indices, distances = nndescent_numpy(X, k=5, max_iter=3, seed=7)
