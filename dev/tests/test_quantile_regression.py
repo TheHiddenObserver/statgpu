@@ -934,6 +934,32 @@ class TestQuantileRegression:
         assert model._max_iter == 7
         assert model._tol == pytest.approx(2e-7)
 
+    @pytest.mark.parametrize("bad_seed", [True, -1, "42"])
+    def test_invalid_bootstrap_random_state_fails_before_backend(
+        self, monkeypatch, bad_seed
+    ):
+        model = QuantileRegression(
+            quantile=0.5,
+            compute_inference=True,
+            inference_method="bootstrap",
+            n_bootstrap=4,
+            random_state=42,
+            device="cpu",
+        )
+        model.random_state = bad_seed
+
+        def forbidden(*args, **kwargs):
+            raise AssertionError(
+                "invalid bootstrap random_state must fail before backend work"
+            )
+
+        monkeypatch.setattr(model, "_get_backend", forbidden)
+        with pytest.raises(ValueError, match="random_state must be None or"):
+            model.fit(self.X, self.y)
+
+        assert model._fitted is False
+        assert model.coef_ is None
+
     def test_direct_invalid_device_replacement_fails_before_backend(
         self, monkeypatch
     ):
