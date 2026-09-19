@@ -408,6 +408,69 @@ def test_generic_adaptive_penalty_object_is_fit_local(monkeypatch):
     assert not np.array_equal(seen_weights[0], seen_weights[1])
 
 
+def test_generic_cv_penalty_object_owns_candidate_and_refit_alpha(monkeypatch):
+    from statgpu.linear_model import PenalizedGLM_CV
+    from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
+
+    user_penalty = AdaptiveL1Penalty(
+        alpha=0.7,
+        weights=[1.0, 1.5],
+        normalize=False,
+    )
+    alpha_grid = np.array([0.2, 0.1], dtype=np.float64)
+    seen = []
+
+    def fake_fit(self, X, y, sample_weight=None, **kwargs):
+        seen.append(
+            (
+                int(X.shape[0]),
+                float(self.alpha),
+                float(self.penalty.alpha),
+                self.penalty is user_penalty,
+            )
+        )
+        self.coef_ = np.zeros(X.shape[1], dtype=np.float64)
+        self.intercept_ = 0.0
+        self.n_iter_ = 1
+        self._fitted = True
+        self._selected_solver = "fista"
+        return self
+
+    monkeypatch.setattr(PenalizedGeneralizedLinearModel, "fit", fake_fit)
+
+    X = np.array(
+        [[1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [2.0, -1.0],
+         [-1.0, 2.0], [0.5, 0.5]],
+        dtype=np.float64,
+    )
+    y = np.array([1.0, 0.5, 1.2, -0.1, 0.7, 0.2], dtype=np.float64)
+    idx = np.arange(X.shape[0])
+    folds = [(idx[:3], idx[3:]), (idx[3:], idx[:3])]
+
+    cv = PenalizedGLM_CV(
+        loss="squared_error",
+        penalty=user_penalty,
+        alpha_grid=alpha_grid,
+        cv=2,
+        cv_splits=folds,
+        solver="fista",
+        device="cpu",
+        max_iter=10,
+        tol=1e-6,
+    ).fit(X, y)
+
+    fold_alphas = [
+        penalty_alpha for n_rows, _, penalty_alpha, _ in seen
+        if n_rows == 3
+    ]
+    assert fold_alphas.count(pytest.approx(0.2)) == 2
+    assert fold_alphas.count(pytest.approx(0.1)) == 2
+    assert all(not is_user for _, _, _, is_user in seen)
+    assert user_penalty.alpha == pytest.approx(0.7)
+    assert cv.estimator_.penalty is not user_penalty
+    assert cv.estimator_.penalty.alpha == pytest.approx(cv.alpha_)
+
+
 def test_nndescent_numpy_unique_and_validated():
     X = np.random.default_rng(123).normal(size=(24, 4))
     indices, distances = nndescent_numpy(X, k=5, max_iter=3, seed=7)
