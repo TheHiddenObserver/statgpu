@@ -258,6 +258,30 @@ def test_adaptive_l1_shallow_params_are_complete_and_clone_safe():
     )
 
 
+@pytest.mark.parametrize(
+    ("coef", "error_type", "message"),
+    [
+        (np.zeros((2, 1), dtype=np.float64), ValueError, "one-dimensional"),
+        (np.array([True, False]), TypeError, "real numeric"),
+        (np.array([1.0 + 1.0j, 0.5 + 0.0j]), TypeError, "real numeric"),
+        (np.array([1.0, np.nan]), ValueError, "finite"),
+        (np.array([1.0, np.inf]), ValueError, "finite"),
+        (np.array(["1.0", "2.0"]), TypeError, "real numeric"),
+    ],
+)
+def test_adaptive_l1_set_weights_rejects_invalid_initializer_output(
+    coef, error_type, message
+):
+    penalty = AdaptiveL1Penalty(
+        alpha=0.2,
+        weights=None,
+        normalize=False,
+    )
+    with pytest.raises(error_type, match=message):
+        penalty.set_weights(coef)
+    assert penalty._weights is None
+
+
 def test_adaptive_l1_learned_weights_remain_fit_local_constructor_state():
     penalty = AdaptiveL1Penalty(
         alpha=0.2,
