@@ -145,8 +145,41 @@ def _standalone_bootstrap_direction_case(backend, cp, torch):
     # from y, giving an independent direction check against known quantiles.
     model.coef_ = np.zeros(1, dtype=np.float64)
     model.intercept_ = 0.0
-    boot_params, _, _ = model._compute_bootstrap_batched(Xb, yb)
+    boot_params, params_native, design_native = model._compute_bootstrap_batched(Xb, yb)
     estimated = np.asarray(boot_params[:, 0], dtype=np.float64)
+
+    if backend == "cupy":
+        if not isinstance(design_native, cp.ndarray):
+            raise AssertionError(
+                "cupy/standalone/bootstrap: numerical design left the CuPy backend"
+            )
+        if int(design_native.device.id) != 0:
+            raise AssertionError(
+                "cupy/standalone/bootstrap: numerical design left CUDA device 0"
+            )
+        if not isinstance(params_native, cp.ndarray):
+            raise AssertionError(
+                "cupy/standalone/bootstrap: parameter snapshot left the CuPy backend"
+            )
+    else:
+        if not torch.is_tensor(design_native) or not design_native.is_cuda:
+            raise AssertionError(
+                "torch/standalone/bootstrap: numerical design left Torch CUDA"
+            )
+        if str(design_native.device) != "cuda:0":
+            raise AssertionError(
+                "torch/standalone/bootstrap: numerical design left CUDA device 0"
+            )
+        if not torch.is_tensor(params_native) or not params_native.is_cuda:
+            raise AssertionError(
+                "torch/standalone/bootstrap: parameter snapshot left Torch CUDA"
+            )
+
+    solver_n_iter = int(model._bootstrap_n_iter_)
+    if not 1 <= solver_n_iter <= int(model.max_iter):
+        raise AssertionError(
+            f"{backend}/standalone/bootstrap: invalid solver_n_iter={solver_n_iter}"
+        )
 
     rng = np.random.default_rng(BOOTSTRAP_SEED)
     y_batch = np.array(
@@ -178,6 +211,8 @@ def _standalone_bootstrap_direction_case(backend, cp, torch):
         "device": device,
         "quantile": BOOTSTRAP_Q,
         "n_bootstrap": BOOTSTRAP_B,
+        "solver": "batched_pinball_fista",
+        "solver_n_iter": solver_n_iter,
         "target_error": target_error,
         "complementary_quantile_error": wrong_direction_error,
         "median_estimate": median_estimate,
