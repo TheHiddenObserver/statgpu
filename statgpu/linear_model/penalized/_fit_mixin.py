@@ -274,15 +274,8 @@ def _irls_ridge_init_cd(
     n, p = X.shape
     sw = None
     if sample_weight is not None:
-        if backend == "torch":
-            import torch
-            sw = torch.as_tensor(
-                sample_weight,
-                dtype=X.dtype,
-                device=X.device,
-            ).reshape(-1)
-        else:
-            sw = xp.asarray(sample_weight, dtype=X.dtype).reshape(-1)
+        from statgpu.backends._array_ops import _xp_asarray
+        sw = _xp_asarray(sample_weight, X.dtype, X).reshape(-1)
         sw_sum = xp.sum(sw)
         feat_norms = xp.sqrt(xp.sum((sw[:, None] * X) * X, axis=0))
         norm_scale = xp.sqrt(sw_sum)
@@ -734,7 +727,8 @@ class _PenalizedFitMixin:
             if backend_name in ("torch", "cupy"):
                 backend = get_backend(backend=backend_name, device='cuda')
                 X_b = backend.asarray(X, dtype=backend.float64)
-                y_b = backend.asarray(y, dtype=backend.float64)
+                from statgpu.backends._array_ops import _xp_asarray
+                y_b = _xp_asarray(y, X_b.dtype, X_b)
             else:
                 X_b = np.asarray(_to_numpy(X), dtype=np.float64)
                 y_b = np.asarray(_to_numpy(y), dtype=np.float64)
@@ -760,7 +754,8 @@ class _PenalizedFitMixin:
             if backend_name in ("torch", "cupy"):
                 backend = get_backend(backend=backend_name, device='cuda')
                 X_b = backend.asarray(X, dtype=backend.float64)
-                y_b = backend.asarray(y, dtype=backend.float64)
+                from statgpu.backends._array_ops import _xp_asarray
+                y_b = _xp_asarray(y, X_b.dtype, X_b)
             else:
                 X_b = np.asarray(_to_numpy(X), dtype=np.float64)
                 y_b = np.asarray(_to_numpy(y), dtype=np.float64)
