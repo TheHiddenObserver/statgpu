@@ -21,7 +21,12 @@ import warnings
 import numpy as np
 
 from statgpu.backends import _resolve_backend, _to_numpy
-from statgpu.backends._array_ops import _abs_sum_dev, _copy_arr, _zeros
+from statgpu.backends._array_ops import (
+    _abs_sum_dev,
+    _copy_arr,
+    _xp_asarray,
+    _zeros,
+)
 from statgpu.backends._utils import xp_ones
 from statgpu.glm_core._squared import SquaredErrorLoss
 from ._admm import admm_solver
@@ -56,15 +61,11 @@ def _external_warning_stacklevel() -> int:
 
 
 def _backend_array(value, *, ref, xp, backend):
-    if backend == "torch":
-        return xp.as_tensor(value, dtype=ref.dtype, device=ref.device)
-    return xp.asarray(value, dtype=ref.dtype)
+    return _xp_asarray(value, ref.dtype, ref)
 
 
 def _backend_scalar(value, *, ref, xp, backend):
-    if backend == "torch":
-        return xp.tensor(value, dtype=ref.dtype, device=ref.device)
-    return xp.asarray(value, dtype=ref.dtype)
+    return _xp_asarray(value, ref.dtype, ref)
 
 
 def _normalized_sample_weight(sample_weight, n_samples, X_work, xp, backend):
@@ -204,10 +205,9 @@ def quantile_group_proximal_irls_lla_solver(
 
     if backend == "torch":
         X_dev = xp.as_tensor(X, dtype=xp.float64, device=getattr(X, "device", None))
-        y_dev = xp.as_tensor(y, dtype=xp.float64, device=X_dev.device).reshape(-1)
     else:
         X_dev = xp.asarray(X, dtype=xp.float64)
-        y_dev = xp.asarray(y, dtype=xp.float64).reshape(-1)
+    y_dev = _xp_asarray(y, xp.float64, X_dev).reshape(-1)
 
     n_samples, n_features = int(X_dev.shape[0]), int(X_dev.shape[1])
     if int(y_dev.shape[0]) != n_samples:
