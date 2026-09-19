@@ -83,9 +83,13 @@ def test_quantile_equal_weights_recover_unweighted_step_scale():
             {"init_intercept": np.asarray(True, dtype=bool)},
             "init_intercept must be a finite real scalar",
         ),
+        (
+            {"return_path": "False"},
+            "return_path must be boolean",
+        ),
     ],
 )
-def test_public_quantile_fista_lla_rejects_boolean_warm_starts(kwargs, message):
+def test_public_quantile_fista_lla_rejects_invalid_public_controls(kwargs, message):
     loss = QuantileLoss(0.35)
     penalty = SCADPenalty(alpha=0.05)
     X = np.eye(3, dtype=np.float64)
