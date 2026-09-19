@@ -353,6 +353,21 @@ def test_adaptive_l1_rejects_nonfinite_learned_weights_before_publication():
     assert penalty._weights is None
 
 
+def test_adaptive_l1_rejects_underflowed_zero_learned_weights():
+    penalty = AdaptiveL1Penalty(
+        alpha=0.2,
+        nu=1000.0,
+        eps=1.0,
+        weights=None,
+        normalize=False,
+    )
+
+    with pytest.raises(ValueError, match="strictly positive"):
+        penalty.set_weights(np.array([1000.0, 2.0], dtype=np.float64))
+
+    assert penalty._weights is None
+
+
 def test_adaptive_l1_learned_weights_remain_fit_local_constructor_state():
     penalty = AdaptiveL1Penalty(
         alpha=0.2,
