@@ -8,6 +8,8 @@ from pathlib import Path
 
 import numpy as np
 
+from dev.benchmarks import run_quantile_smooth_fista_gpu_gate as smooth_wrapper
+from dev.benchmarks import validate_quantile_smooth_fista_gpu as smooth_gate
 from dev.benchmarks import validate_quantile_solver_provenance_gpu as gate
 from statgpu._config import Device
 from statgpu.linear_model import PenalizedGLM_CV
@@ -23,6 +25,14 @@ def _pinball(y, eta, q, sample_weight):
     u = y - eta
     values = np.where(u >= 0.0, q * u, (q - 1.0) * u)
     return float(np.average(values, weights=np.asarray(sample_weight, dtype=np.float64)))
+
+
+def test_pr166_smooth_bootstrap_physical_gate_schema_is_locked():
+    assert smooth_gate.SCHEMA_VERSION == 2
+    assert smooth_wrapper.EXPECTED_SCHEMA_VERSION == smooth_gate.SCHEMA_VERSION
+    assert smooth_gate.BOOTSTRAP_Q != pytest.approx(0.5)
+    assert 0.0 < smooth_gate.BOOTSTRAP_Q < 1.0
+    assert smooth_gate.BOOTSTRAP_B >= 2
 
 
 def test_canonical_physical_artifact_preserves_exact_source_provenance():
