@@ -40,7 +40,12 @@ def _bootstrap_armijo_accept(
         - loss_old_by_draw
         + c1 * step * grad_norm_sq_by_draw
     )
-    accepted = xp.all(armijo_residual <= 0)
+    # Pinball minima occur at kinks. A mathematically zero Armijo residual can
+    # land a few ulps above zero after backend reductions, so preserve the
+    # per-draw decrease requirement while accepting only solver-scale numerical
+    # slack. Meaningful objective increases remain rejected.
+    slack = _SLACK_TOLERANCE * (1.0 + xp.abs(loss_old_by_draw))
+    accepted = xp.all(armijo_residual <= slack)
     return bool(accepted.item() if hasattr(accepted, "item") else accepted)
 
 
@@ -53,6 +58,7 @@ from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.losses._quantile import QuantileLoss
 from statgpu.solvers import fista_solver
+from statgpu.solvers._constants import _SLACK_TOLERANCE
 
 
 class QuantileRegression(BaseEstimator):

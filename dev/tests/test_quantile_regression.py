@@ -437,6 +437,19 @@ class TestQuantileRegression:
             xp=np,
         )
 
+        # A tiny positive residual within the shared solver slack is numerical
+        # zero and must not make a valid kink solution fail line search.
+        tiny_increase = loss_old.copy()
+        tiny_increase[1] += 1e-16
+        assert _bootstrap_armijo_accept(
+            tiny_increase,
+            loss_old,
+            np.zeros_like(grad_norm_sq),
+            step=0.1,
+            c1=1e-4,
+            xp=np,
+        )
+
     def test_nonmedian_pinball_eta_gradient_matches_requested_quantile(self):
         from statgpu.linear_model.wrappers._quantile import _pinball_eta_gradient_values
 
@@ -578,7 +591,20 @@ class TestQuantileRegression:
         assert model.coef_ is None
 
     def test_early_gpu_validation_failure_cleans_input_device(self, monkeypatch):
+        import sys
         import types
+
+        class FakeFinite:
+            def all(self):
+                return self
+
+            def item(self):
+                return True
+
+        fake_cupy = types.SimpleNamespace(
+            isfinite=lambda value: FakeFinite(),
+        )
+        monkeypatch.setitem(sys.modules, "cupy", fake_cupy)
 
         class FakeCuPyArray:
             pass
@@ -659,8 +685,16 @@ class TestQuantileRegression:
     def test_cleanup_backend_routes_cupy_name_to_cuda_cleanup(self, monkeypatch):
         model = QuantileRegression(gpu_memory_cleanup=True)
         calls = []
-        monkeypatch.setattr(model, "_cleanup_cuda_memory", lambda: calls.append("cupy"))
-        monkeypatch.setattr(model, "_cleanup_torch_memory", lambda: calls.append("torch"))
+        monkeypatch.setattr(
+            model,
+            "_cleanup_cuda_memory",
+            lambda device_label=None: calls.append("cupy"),
+        )
+        monkeypatch.setattr(
+            model,
+            "_cleanup_torch_memory",
+            lambda device_label=None: calls.append("torch"),
+        )
 
         model._cleanup_backend_memory("cupy")
         model._cleanup_backend_memory("torch")
@@ -679,10 +713,23 @@ class TestQuantileRegression:
             compute_inference=False,
         )
         cleanup_calls = []
+
+        class FakeCuPyArray(np.ndarray):
+            @property
+            def device(self):
+                import types
+
+                return types.SimpleNamespace(id=0)
+
+        def fake_to_array(value, backend=None):
+            return np.asarray(value).view(FakeCuPyArray)
+
         monkeypatch.setattr(model, "_get_backend", lambda backend="auto": FakeBackend())
-        monkeypatch.setattr(model, "_to_array", lambda value, backend=None: np.asarray(value))
+        monkeypatch.setattr(model, "_to_array", fake_to_array)
         monkeypatch.setattr(
-            model, "_cleanup_cuda_memory", lambda: cleanup_calls.append("cupy")
+            model,
+            "_cleanup_cuda_memory",
+            lambda device_label=None: cleanup_calls.append("cupy"),
         )
 
         def failing_solver(*args, **kwargs):
