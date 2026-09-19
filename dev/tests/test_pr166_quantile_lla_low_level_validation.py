@@ -95,6 +95,72 @@ def test_quantile_fista_lla_rejects_nonfinite_xy_before_loss_work(
 @pytest.mark.parametrize(
     ("kwargs", "message"),
     [
+        (
+            {"init_coef": np.zeros((4, 1), dtype=np.float64)},
+            "init_coef must be one-dimensional",
+        ),
+        (
+            {"init_coef": np.zeros(3, dtype=np.float64)},
+            "init_coef must have length n_features",
+        ),
+        (
+            {"init_coef": np.asarray([0.0, 0.0, np.nan, 0.0])},
+            "init_coef must contain finite values",
+        ),
+        (
+            {"init_coef": np.asarray([0.0, 0.0, 1.0j, 0.0])},
+            "init_coef must contain real numeric values",
+        ),
+        (
+            {"init_intercept": np.asarray([0.1])},
+            "init_intercept must be a scalar",
+        ),
+        (
+            {"init_intercept": np.nan},
+            "init_intercept must contain finite values",
+        ),
+        (
+            {"init_intercept": 1.0j},
+            "init_intercept must contain real numeric values",
+        ),
+        (
+            {"init_intercept": True},
+            "init_intercept must be a finite real scalar",
+        ),
+    ],
+)
+def test_quantile_fista_lla_rejects_invalid_warm_start_before_loss_work(
+    monkeypatch, kwargs, message
+):
+    X = np.eye(4, dtype=np.float64)
+    y = np.asarray([0.4, -0.2, 0.6, -0.1], dtype=np.float64)
+    loss = QuantileLoss(0.35)
+    penalty = SCADPenalty(alpha=0.04, a=3.7)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("loss numerical work must not start")
+
+    monkeypatch.setattr(loss, "preprocess", forbidden)
+    monkeypatch.setattr(loss, "lipschitz", forbidden)
+
+    with pytest.raises(ValueError, match=message):
+        fista_lla_path(
+            loss,
+            penalty,
+            X,
+            y,
+            alpha_path=np.asarray([0.04], dtype=np.float64),
+            max_lla_per_step=1,
+            max_iter=20,
+            tol=1e-6,
+            fit_intercept=False,
+            **kwargs,
+        )
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
         ({"fit_intercept": "False"}, "fit_intercept must be boolean"),
         ({"max_lla_per_step": 0}, "max_lla_per_step must be a positive integer"),
         ({"max_lla_per_step": True}, "max_lla_per_step must be a positive integer"),
