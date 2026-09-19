@@ -276,6 +276,44 @@ class TestQuantileRegression:
         assert model._fitted is False
         assert model.coef_ is None
 
+    def test_refit_without_inference_clears_prior_statistic_aliases(self):
+        model = QuantileRegression(
+            quantile=0.5,
+            compute_inference=True,
+            inference_method="kernel",
+        ).fit(self.X, self.y)
+        assert model._zvalues is not None
+        assert model._tvalues is not None
+
+        model.set_params(compute_inference=False)
+        model.fit(self.X, self.y)
+
+        assert model._inference_result is None
+        assert model._bse is None
+        assert model._zvalues is None
+        assert model._tvalues is None
+        assert model._statistic is None
+        assert model._pvalues is None
+        assert model._conf_int is None
+
+    def test_failed_refit_clears_prior_statistic_aliases(self):
+        model = QuantileRegression(
+            quantile=0.5,
+            compute_inference=True,
+            inference_method="kernel",
+        ).fit(self.X, self.y)
+        assert model._tvalues is not None
+
+        model.set_params(inference_method="bootstrap", n_bootstrap=1)
+        with pytest.raises(ValueError, match="n_bootstrap must be an integer"):
+            model.fit(self.X, self.y)
+
+        assert model._fitted is False
+        assert model._inference_result is None
+        assert model._zvalues is None
+        assert model._tvalues is None
+        assert model._statistic is None
+
     def test_failed_inference_fit_clears_partial_state(self):
         model = QuantileRegression(
             quantile=0.4,
