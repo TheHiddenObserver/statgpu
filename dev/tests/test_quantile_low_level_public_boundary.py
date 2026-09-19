@@ -33,6 +33,11 @@ def _data(seed=16701):
     return X, y
 
 
+def test_safe_psd_spectral_bound_handles_empty_gram():
+    empty = np.empty((0, 0), dtype=np.float64)
+    assert _psd_spectral_upper_bound(empty) == 0.0
+
+
 def test_safe_psd_spectral_bound_closes_power_seed_orthogonality_gap():
     gram = np.array(
         [[8.2, -3.6], [-3.6, 2.8]],

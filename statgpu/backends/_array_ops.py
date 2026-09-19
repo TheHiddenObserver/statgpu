@@ -436,8 +436,10 @@ def _psd_spectral_upper_bound(mat):
     Both the induced infinity norm (maximum absolute row sum) and Frobenius
     norm dominate the spectral norm. Their minimum is therefore still an upper
     bound, while avoiding the orthogonality failure mode of single-seed power
-    iteration.
+    iteration. The empty 0x0 Gram has spectral radius zero.
     """
+    if int(mat.shape[0]) == 0:
+        return 0.0
     xp = _xp(mat)
     row_bound = xp.max(xp.sum(xp.abs(mat), axis=1))
     frob_bound = xp.sqrt(xp.sum(mat * mat))
