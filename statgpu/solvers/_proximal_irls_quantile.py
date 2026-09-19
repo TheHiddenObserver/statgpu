@@ -39,6 +39,7 @@ _STRICT_CV_TARGET = ContextVar(
 )
 
 from statgpu.backends import _resolve_backend, _to_numpy
+from statgpu.backends._array_ops import _xp_asarray
 
 
 def _external_warning_stacklevel() -> int:
@@ -161,14 +162,11 @@ def proximal_irls_quantile_solver(
 
     # Ensure float64 for numerical stability
     X_dev = xp.asarray(X, dtype=xp.float64)
-    y_dev = xp.asarray(y, dtype=xp.float64)
+    y_dev = _xp_asarray(y, xp.float64, X_dev)
 
     # Handle sample_weight
     if sample_weight is not None:
-        sw = xp.asarray(sample_weight, dtype=xp.float64)
-        # Ensure sw is on the same device as X_dev (for torch CUDA)
-        if hasattr(X_dev, 'device') and hasattr(sw, 'to'):
-            sw = sw.to(device=X_dev.device)
+        sw = _xp_asarray(sample_weight, xp.float64, X_dev)
         sw_sum = float(_to_numpy(xp.sum(sw)))
         # Normalize so sum(sw) = n (keeps penalty scale consistent)
         sw = sw * (n / sw_sum)
@@ -180,10 +178,11 @@ def proximal_irls_quantile_solver(
     # Treat it as one additional, unpenalized coordinate. This matches the
     # non-quadratic intercept contract used by the maintained FISTA-LLA path.
     if fit_intercept:
-        if backend == "torch":
-            ones = xp.ones((n, 1), dtype=X_dev.dtype, device=X_dev.device)
-        else:
-            ones = xp.ones((n, 1), dtype=X_dev.dtype)
+        ones = _xp_asarray(
+            np.ones((n, 1), dtype=np.float64),
+            X_dev.dtype,
+            X_dev,
+        )
         X_work = xp.concatenate([X_dev, ones], axis=1)
         y_work = y_dev
         n_work_features = p + 1
@@ -222,9 +221,11 @@ def proximal_irls_quantile_solver(
             if fit_intercept:
                 # The final augmented coordinate is the intercept and must not
                 # receive SCAD/MCP shrinkage.
-                intercept_thresh = xp.zeros(1, dtype=feature_thresh.dtype)
-                if backend == "torch":
-                    intercept_thresh = intercept_thresh.to(device=feature_thresh.device)
+                intercept_thresh = _xp_asarray(
+                    np.zeros(1, dtype=np.float64),
+                    feature_thresh.dtype,
+                    feature_thresh,
+                )
                 thresh = xp.concatenate([feature_thresh, intercept_thresh])
             else:
                 thresh = feature_thresh
@@ -430,9 +431,7 @@ def _copy(arr):
 
 def _scalar_like(value, ref, xp, backend):
     """Create a scalar on the same dtype/device as a backend-native array."""
-    if backend == "torch":
-        return xp.tensor(value, dtype=ref.dtype, device=ref.device)
-    return xp.asarray(value, dtype=ref.dtype)
+    return _xp_asarray(value, ref.dtype, ref)
 
 
 def _compute_lla_weights(penalty, coef, p, xp, backend):
