@@ -2757,6 +2757,14 @@ class PenalizedGLM_CV(CVEstimatorBase):
         penalty_name = str(
             getattr(self.penalty, "name", self.penalty)
         ).lower().strip()
+        from statgpu.penalties import Penalty
+        refit_penalty = (
+            copy.deepcopy(self.penalty)
+            if isinstance(self.penalty, Penalty)
+            else self.penalty
+        )
+        if isinstance(refit_penalty, Penalty) and hasattr(refit_penalty, "alpha"):
+            refit_penalty.alpha = float(best_alpha)
         alpha_arr = np.asarray([best_alpha], dtype=np.float64)
 
         # Try specialized refit paths (each returns model or None)
@@ -2785,7 +2793,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             path = get_path()
             if path is not None:
                 model = PenalizedGeneralizedLinearModel(
-                    loss=self.loss, penalty=self.penalty, alpha=best_alpha,
+                    loss=self.loss, penalty=refit_penalty, alpha=best_alpha,
                     l1_ratio=self.l1_ratio, device=refit_device,
                     compute_inference=False, max_iter=self._max_iter,
                     tol=self._tol, solver=cv_solver,
@@ -2799,7 +2807,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
 
         # General fallback: model.fit()
         model = PenalizedGeneralizedLinearModel(
-            loss=self.loss, penalty=self.penalty, alpha=best_alpha,
+            loss=self.loss, penalty=refit_penalty, alpha=best_alpha,
             l1_ratio=self.l1_ratio, device=refit_device,
             compute_inference=can_infer, max_iter=self._max_iter,
             tol=self._tol, solver=cv_solver,
