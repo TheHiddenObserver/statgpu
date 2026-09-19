@@ -14,6 +14,9 @@ from dev.benchmarks import validate_quantile_smooth_fista_gpu as smooth_gate
 from dev.benchmarks import validate_quantile_solver_provenance_gpu as gate
 from statgpu._config import Device
 from statgpu.linear_model import PenalizedGLM_CV, QuantileRegression
+from statgpu.losses import QuantileLoss
+from statgpu.penalties import L1Penalty
+from statgpu.solvers import fista_solver
 from statgpu.linear_model.penalized import (
     PenalizedGeneralizedLinearModel,
     PenalizedQuantileRegression,
@@ -29,12 +32,41 @@ def _pinball(y, eta, q, sample_weight):
 
 
 def test_pr166_smooth_bootstrap_physical_gate_schema_is_locked():
-    assert smooth_gate.SCHEMA_VERSION == 4
+    assert smooth_gate.SCHEMA_VERSION == 5
     assert smooth_wrapper.EXPECTED_SCHEMA_VERSION == smooth_gate.SCHEMA_VERSION
     assert smooth_gate.BOOTSTRAP_Q != pytest.approx(0.5)
     assert 0.0 < smooth_gate.BOOTSTRAP_Q < 1.0
     assert smooth_gate.BOOTSTRAP_B >= 2
     assert callable(smooth_gate._standalone_bootstrap_public_case)
+    assert callable(smooth_gate._async_weighted_l1_case)
+    assert smooth_gate.ATOL_ASYNC_L1_OBJECTIVE > 0.0
+
+
+def test_pr166_async_weighted_l1_fixture_has_spectral_gap_and_cpu_reference():
+    X, y, weights, ratio = smooth_gate._async_weighted_data()
+    assert ratio > 1.5
+
+    coef, n_iter = fista_solver(
+        QuantileLoss(quantile=smooth_gate.Q),
+        L1Penalty(alpha=smooth_gate.ASYNC_L1_ALPHA),
+        X,
+        y,
+        max_iter=6000,
+        tol=1e-7,
+        sample_weight=weights,
+        cv_mode=False,
+    )
+    objective = smooth_gate._l1_objective(
+        X,
+        y,
+        weights,
+        coef,
+        smooth_gate.ASYNC_L1_ALPHA,
+    )
+
+    assert 1 <= n_iter <= 6000
+    assert np.all(np.isfinite(np.asarray(coef)))
+    assert np.isfinite(objective)
 
 
 def test_pr166_weighted_l1_cv_physical_fixture_converges_on_cpu():

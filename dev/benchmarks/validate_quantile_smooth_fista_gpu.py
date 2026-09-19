@@ -7,9 +7,9 @@ repaired during the PR #166 review/fix loop. ``solver='auto'`` intentionally
 remains IRLS and is validated by the existing PR #164 artifact.
 
 The gate exercises both CuPy CUDA and Torch CUDA, including non-uniform analytic
-weights, direct L2/no-penalty fits, strict weighted L2/L1 CV, a tau=0.20
-standalone bootstrap direction check, and a full public standalone
-bootstrap-inference fit.
+weights, direct L2/no-penalty fits, strict weighted L2/L1 CV, a direct
+non-uniform weighted L1 `cv_mode=True` async-FISTA case, a tau=0.20 standalone
+bootstrap direction check, and a full public standalone bootstrap-inference fit.
 It also replaces
 ``QuantileLoss.irls`` with a forbidden sentinel while the explicit-FISTA cases
 run, so a passing result proves that the estimator/CV path did not silently
@@ -30,13 +30,17 @@ from statgpu.backends import _to_numpy
 from statgpu.linear_model import PenalizedGLM_CV, QuantileRegression
 from statgpu.linear_model.penalized import PenalizedQuantileRegression
 from statgpu.losses import QuantileLoss
+from statgpu.penalties import L1Penalty
+from statgpu.solvers import fista_solver
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 Q = 0.35
 ATOL_OBJECTIVE = 2e-5
 ATOL_CV_SCORE = 2e-5
 ATOL_CV_L1_SCORE = 2e-4
+ATOL_ASYNC_L1_OBJECTIVE = 5e-4
+ASYNC_L1_ALPHA = 0.02
 CV_ALPHA_GRID = np.asarray([0.03, 0.015], dtype=np.float64)
 BOOTSTRAP_Q = 0.20
 BOOTSTRAP_N = 80
@@ -86,6 +90,34 @@ def _data(seed=16691, n=96, p=3):
     return X, y, weights, folds
 
 
+def _async_weighted_data(seed=16693, n=96):
+    rng = np.random.default_rng(seed)
+    base = rng.normal(size=n)
+    X = np.column_stack(
+        [
+            base,
+            base + 0.03 * rng.normal(size=n),
+            0.5 * base + 0.20 * rng.normal(size=n),
+        ]
+    ).astype(np.float64)
+    beta = np.asarray([0.75, -0.45, 0.30], dtype=np.float64)
+    y = (
+        X @ beta
+        + rng.laplace(scale=0.18, size=n)
+    ).astype(np.float64)
+    weights = np.linspace(0.45, 1.85, n, dtype=np.float64)
+    rng.shuffle(weights)
+    gram = X.T @ (X * weights[:, None]) / float(np.sum(weights))
+    spectral = float(np.linalg.eigvalsh(gram)[-1])
+    max_diagonal = float(np.max(np.diag(gram)))
+    ratio = spectral / max(max_diagonal, 1e-30)
+    if ratio <= 1.5:
+        raise AssertionError(
+            f"async weighted fixture is not sufficiently correlated: ratio={ratio:.3f}"
+        )
+    return X, y, weights, ratio
+
+
 def _host(value):
     return np.asarray(_to_numpy(value), dtype=np.float64)
 
@@ -102,6 +134,25 @@ def _objective(X, y, weights, coef, intercept, alpha):
     )
     data_fit = float(np.average(pinball, weights=np.asarray(weights, dtype=np.float64)))
     return data_fit + 0.5 * float(alpha) * float(np.dot(coef, coef))
+
+
+def _l1_objective(X, y, weights, coef, alpha):
+    coef = np.asarray(coef, dtype=np.float64).ravel()
+    residual = np.asarray(y, dtype=np.float64) - (
+        np.asarray(X, dtype=np.float64) @ coef
+    )
+    pinball = np.where(
+        residual >= 0.0,
+        Q * residual,
+        (Q - 1.0) * residual,
+    )
+    data_fit = float(
+        np.average(
+            pinball,
+            weights=np.asarray(weights, dtype=np.float64),
+        )
+    )
+    return data_fit + float(alpha) * float(np.sum(np.abs(coef)))
 
 
 def _native_inputs(backend, X, y, weights, cp, torch):
@@ -337,6 +388,88 @@ def _standalone_bootstrap_public_case(backend, cp, torch):
     }
 
 
+def _async_weighted_l1_case(
+    backend,
+    cp,
+    torch,
+    X,
+    y,
+    weights,
+    cpu_objective,
+    spectral_ratio,
+):
+    """Exercise the actual non-smooth GPU async FISTA branch."""
+    Xb, yb, wb, _ = _native_inputs(
+        backend,
+        X,
+        y,
+        weights,
+        cp,
+        torch,
+    )
+    loss = QuantileLoss(quantile=Q)
+    penalty = L1Penalty(alpha=ASYNC_L1_ALPHA)
+    coef, n_iter = fista_solver(
+        loss,
+        penalty,
+        Xb,
+        yb,
+        max_iter=6000,
+        tol=1e-7,
+        sample_weight=wb,
+        cv_mode=True,
+    )
+    coef_host = _host(coef).ravel()
+    if not np.all(np.isfinite(coef_host)):
+        raise AssertionError(
+            f"{backend}/async-weighted-l1: non-finite coefficients"
+        )
+    objective = _l1_objective(
+        X,
+        y,
+        weights,
+        coef_host,
+        ASYNC_L1_ALPHA,
+    )
+    error = abs(objective - cpu_objective)
+    if error > ATOL_ASYNC_L1_OBJECTIVE:
+        raise AssertionError(
+            f"{backend}/async-weighted-l1: objective error "
+            f"{error:.3e} > {ATOL_ASYNC_L1_OBJECTIVE:.3e}"
+        )
+
+    if backend == "cupy":
+        if not isinstance(coef, cp.ndarray):
+            raise AssertionError(
+                "cupy/async-weighted-l1: coefficient left CuPy"
+            )
+        device = f"cuda:{int(coef.device.id)}"
+    else:
+        if not torch.is_tensor(coef) or not coef.is_cuda:
+            raise AssertionError(
+                "torch/async-weighted-l1: coefficient left Torch CUDA"
+            )
+        device = str(coef.device)
+    if device != "cuda:0":
+        raise AssertionError(
+            f"{backend}/async-weighted-l1: device drifted to {device!r}"
+        )
+
+    return {
+        "name": f"{backend}/async-weighted-l1/cv-mode",
+        "backend": backend,
+        "device": device,
+        "solver": "fista",
+        "cv_mode": True,
+        "n_iter": int(n_iter),
+        "alpha": ASYNC_L1_ALPHA,
+        "weighted_gram_spectral_to_maxdiag_ratio": spectral_ratio,
+        "cpu_objective": cpu_objective,
+        "objective": objective,
+        "objective_error": error,
+    }
+
+
 def _provenance(model, backend):
     expected_backend = backend
     solver = str(getattr(model, "_selected_solver", "") or "")
@@ -425,6 +558,26 @@ def main() -> int:
         )
         for penalty, model in cpu_cv.items()
     }
+    async_X, async_y, async_weights, async_spectral_ratio = (
+        _async_weighted_data()
+    )
+    async_cpu_coef, async_cpu_iter = fista_solver(
+        QuantileLoss(quantile=Q),
+        L1Penalty(alpha=ASYNC_L1_ALPHA),
+        async_X,
+        async_y,
+        max_iter=6000,
+        tol=1e-7,
+        sample_weight=async_weights,
+        cv_mode=False,
+    )
+    async_cpu_objective = _l1_objective(
+        async_X,
+        async_y,
+        async_weights,
+        async_cpu_coef,
+        ASYNC_L1_ALPHA,
+    )
 
     def forbidden_irls(*_args, **_kwargs):
         raise AssertionError("explicit Quantile FISTA physically executed IRLS")
@@ -439,6 +592,18 @@ def main() -> int:
             Xb, yb, wb, device = _native_inputs(backend, X, y, weights, cp, torch)
             cases.append(_standalone_bootstrap_direction_case(backend, cp, torch))
             cases.append(_standalone_bootstrap_public_case(backend, cp, torch))
+            cases.append(
+                _async_weighted_l1_case(
+                    backend,
+                    cp,
+                    torch,
+                    async_X,
+                    async_y,
+                    async_weights,
+                    async_cpu_objective,
+                    async_spectral_ratio,
+                )
+            )
 
             for penalty, alpha, cpu_coef, cpu_intercept in (
                 ("l2", 0.02, cpu_l2_coef, cpu_l2_intercept),
@@ -542,6 +707,7 @@ def main() -> int:
             "direct_objective": ATOL_OBJECTIVE,
             "cv_score": ATOL_CV_SCORE,
             "cv_l1_score": ATOL_CV_L1_SCORE,
+            "async_weighted_l1_objective": ATOL_ASYNC_L1_OBJECTIVE,
         },
         "environment": {
             "python": platform.python_version(),
