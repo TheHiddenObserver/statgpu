@@ -3188,7 +3188,15 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 prev_coef = coef_np.copy()
                 prev_intercept = intercept
             except Exception as exc:
-                _raise_unless_recoverable_cv_candidate_failure(exc)
+                is_quantile_irls_exhaustion = False
+                if strict and loss_name == "quantile" and cv_solver == "irls":
+                    from statgpu.solvers._convergence import ConvergenceWarning
+                    is_quantile_irls_exhaustion = isinstance(
+                        exc, ConvergenceWarning
+                    )
+                if not is_quantile_irls_exhaustion:
+                    _raise_unless_recoverable_cv_candidate_failure(exc)
+
                 orig_idx = sort_idx[alpha_idx_sorted]
                 all_scores[fold_idx, orig_idx] = np.nan
                 logger.warning(

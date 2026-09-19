@@ -329,6 +329,61 @@ def test_strict_quantile_irls_exhaustion_marks_candidate_unusable():
     assert np.all(np.isnan(scores))
 
 
+def test_strict_quantile_irls_exhaustion_does_not_abort_other_candidates(
+    monkeypatch,
+):
+    X, y, _ = _data(seed=16369, n=24)
+    folds = [
+        (np.arange(12, 24), np.arange(0, 12)),
+        (np.arange(0, 12), np.arange(12, 24)),
+    ]
+    model = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.35},
+        penalty="l2",
+        alpha_grid=np.asarray([0.04, 0.02], dtype=np.float64),
+        cv=2,
+        cv_splits=folds,
+        solver="irls",
+        device="cpu",
+        max_iter=50,
+        tol=1e-8,
+        cv_strategy="strict",
+    )
+
+    import statgpu.linear_model.penalized._penalized_cv as cv_mod
+    from statgpu.solvers._convergence import ConvergenceWarning
+
+    original_fit = PenalizedGeneralizedLinearModel.fit
+    calls = {"n": 0}
+
+    def selective_fit(self, *args, **kwargs):
+        calls["n"] += 1
+        if float(self.alpha) == pytest.approx(0.04):
+            raise ConvergenceWarning("synthetic quantile irls exhaustion")
+        return original_fit(self, *args, **kwargs)
+
+    monkeypatch.setattr(
+        PenalizedGeneralizedLinearModel,
+        "fit",
+        selective_fit,
+    )
+
+    scores = model._compute_cv_scores(
+        X,
+        y,
+        np.asarray([0.04, 0.02], dtype=np.float64),
+        model._device,
+        folds,
+        max_iter=50,
+        tol=1e-8,
+        strict=True,
+    )
+    assert np.all(np.isnan(scores[:, 0]))
+    assert np.all(np.isfinite(scores[:, 1]))
+    assert calls["n"] >= 4
+
+
 def test_quantile_irls_final_refit_exhaustion_is_not_published():
     X, y, _ = _data(seed=16368, n=28)
     model = PenalizedGLM_CV(
