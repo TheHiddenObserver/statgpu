@@ -44,39 +44,23 @@ def test_quantile_response_validation_preserves_torch_backend():
     torch.testing.assert_close(validated, response.reshape(-1))
 
 
-def test_quantile_fista_clears_lipschitz_cache_between_solves():
+def test_quantile_lipschitz_reflects_in_place_design_mutation():
     X = np.asarray(
         [[1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [2.0, -1.0]],
         dtype=np.float64,
     )
-    y = np.asarray([0.1, -0.2, 0.4, 0.8], dtype=np.float64)
+    coef = np.zeros(X.shape[1], dtype=np.float64)
     loss = QuantileLoss(quantile=0.3)
-    penalty = L2Penalty(alpha=0.0)
 
-    solvers.fista_solver(
-        loss,
-        penalty,
-        X,
-        y,
-        max_iter=2,
-        tol=1e-12,
-    )
-    assert getattr(loss, "_lipschitz_cache", None)
-
-    old_value = next(iter(loss._lipschitz_cache.values()))
+    before = float(loss.lipschitz(X, coef))
     X *= 5.0
+    after = float(loss.lipschitz(X, coef))
 
-    solvers.fista_solver(
-        loss,
-        penalty,
-        X,
-        y,
-        max_iter=2,
-        tol=1e-12,
-    )
-    new_value = next(iter(loss._lipschitz_cache.values()))
+    assert after > before * 10.0
 
-    assert float(new_value) > float(old_value) * 10.0
+
+def test_quantile_lipschitz_is_declared_static_within_one_fista_solve():
+    assert QuantileLoss._lipschitz_static is True
 
 
 def _invalid_weights(n):

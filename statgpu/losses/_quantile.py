@@ -22,6 +22,7 @@ from ._registry import register_loss
 
 @register_loss('quantile')
 class QuantileLoss(LossBase):
+    _lipschitz_static = True
     """Quantile regression loss (pinball loss).
 
     Parameters
@@ -98,12 +99,6 @@ class QuantileLoss(LossBase):
             raise ValueError("quantile response requires finite values")
         return values
 
-    def _clear_solver_cache(self):
-        """Clear solve-local caches before a new optimizer call."""
-        cache = getattr(self, "_lipschitz_cache", None)
-        if isinstance(cache, dict):
-            cache.clear()
-
     def lipschitz(self, X, coef, y=None, sample_weight=None):
         """Return the design-scaled step parameter for first-order routes.
 
@@ -124,13 +119,6 @@ class QuantileLoss(LossBase):
         smooth-FISTA assumptions hold for pinball loss.
         """
         from statgpu.backends._array_ops import _max_eigval_power
-
-        weight_key = None if sample_weight is None else id(sample_weight)
-        cache_key = (id(X), weight_key)
-        if not hasattr(self, '_lipschitz_cache'):
-            self._lipschitz_cache = {}
-        if cache_key in self._lipschitz_cache:
-            return self._lipschitz_cache[cache_key]
 
         if sample_weight is None:
             gram = (X.T @ X) / X.shape[0]
@@ -170,9 +158,7 @@ class QuantileLoss(LossBase):
             gram = X.T @ (X * sw[:, None]) / xp.sum(sw)
 
         grad_bound = max(self._tau, 1.0 - self._tau)
-        L = grad_bound * _max_eigval_power(gram)
-        self._lipschitz_cache[cache_key] = L
-        return L
+        return grad_bound * _max_eigval_power(gram)
 
     # ── Per-sample formulas (backend-aware, dtype-safe) ──────────────
 

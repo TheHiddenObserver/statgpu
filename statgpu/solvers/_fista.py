@@ -104,10 +104,6 @@ def fista_solver(
     n_iter : int
         Number of iterations.
     """
-    clear_solver_cache = getattr(loss, "_clear_solver_cache", None)
-    if callable(clear_solver_cache):
-        clear_solver_cache()
-
     backend = _resolve_backend("auto", X)
     X_proc, y_proc = loss.preprocess(X, y)
     # Validate before any weighted Lipschitz or matrix operation so direct
@@ -329,7 +325,11 @@ def fista_solver(
                 # Periodic Lipschitz recomputation (piggyback on same sync)
                 # Skip for quadratic losses -- Lipschitz is constant (spectral norm of X^T X).
                 # Interval matches CPU path for trajectory consistency.
-                if not _is_quadratic and iteration % _lip_interval == 0:
+                if (
+                    not _is_quadratic
+                    and not getattr(loss, "_lipschitz_static", False)
+                    and iteration % _lip_interval == 0
+                ):
                     if sample_weight is not None and _cached_XtWX_weighted is not None:
                         # Use cached weighted Gram matrix (X and weights are constant)
                         _xp_lip = _get_xp(backend)
