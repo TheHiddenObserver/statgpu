@@ -1,11 +1,26 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-09-16  
+> Last updated: 2026-09-19  
 > This page: Release history  
 > Switch: [Chinese](../cn/changelog.md)
 
 This page records user-visible changes for current and recent statgpu releases.
+
+## Unreleased — Quantile solver and inference contract closure (PR #166, targeted for 0.2.6)
+
+### Fixed
+
+- **Public Quantile solver boundaries**: direct/CV/low-level consumers now share fail-closed response/design shape, stopping, continuation-path, sample-weight, and solver-compatibility contracts. Ordinary FISTA and the historical omitted/uniform-weight low-level L-BFGS row remain available where documented; FISTA-BB, ADMM, Newton, Proximal Newton, and L-BFGS-B reject Quantile before numerical work. The historical `quantile_cd_solver` implementation silently ignored `sample_weight` and did not reliably represent an unpenalized intercept, so its public name is now only an import-compatible fail-closed symbol; maintained scalar SCAD/MCP fitting uses Proximal IRLS-CD.
+- **Direct/CV contract reconciliation**: Quantile response validation is backend-preserving and shared by generic/typed direct fits and `PenalizedGLM_CV`; public low-level Quantile routes also reject non-finite `X/y` before numerical work. Malformed custom folds and zero fold weight mass fail before automatic alpha-grid numerical work; continuation scales and adaptive/group penalty ownership remain aligned with the fitted objective. Prediction and score reject malformed shapes instead of allowing NumPy broadcasting to return plausible but invalid results.
+- **Standalone `QuantileRegression` inference correctness**: the batched bootstrap gradient for non-median quantiles now uses `-tau` for nonnegative residuals and `1-tau` for negative residuals, rather than the reversed asymmetry that could target the complementary quantile. Standalone non-uniform weighted inference is fail-closed until a weighted kernel/bootstrap inferential definition is maintained; uniform weights retain the equivalent unweighted inferential target.
+- **Standalone inference lifecycle and controls**: bootstrap requires at least two resamples; invalid inference method/kernel/bandwidth/stopping/boolean/quantile controls fail before backend work; Hall-Sheather/Bofinger/Chamberlain bandwidth evaluation rejects `q ± h` outside `(0,1)`, non-finite/non-positive bandwidths, and non-finite/non-positive residual-density estimates at zero before covariance publication. Standalone `score()` now returns the documented negative pinball loss with optional analytic weights. Fit/inference publication is transactional, including statistic aliases, and `gpu_memory_cleanup=True` recognizes the recorded `cupy` backend on success and failure paths.
+- **Runtime/API documentation**: Quantile subgradient help now matches the executable derivative, generic penalized runtime help names the public Quantile loss surface, and solver wrappers remain idempotent/import-order safe while preserving historical public-module identities.
+
+### Validation
+
+- Added focused regressions for Python-version collection safety, public solver aliases/reload idempotence, low-level shape/path/weight rejection, direct/CV response validation, prediction/score broadcasting guards, Torch response-backend preservation, standalone failure transactions/controls/cleanup, kernel-bandwidth domain failures, and an integrated `tau=0.2` batched-bootstrap check that distinguishes the requested quantile from the incorrect complementary-quantile direction.
+- The PR166 smooth-FISTA physical validator is now schema v5. User-level weighted L1 strict-CV parity remains covered, while a separate direct non-uniform weighted L1 `fista_solver(..., cv_mode=True)` CuPy/Torch case now exercises the actual async FISTA branch, including the weighted-Gram spectral step scale and non-quadratic convergence state. Private/public standalone bootstrap CUDA cases remain in the same gate. Physical CUDA evidence committed earlier in PR166 fingerprints earlier source/schema and is historical only; current exact-head schema-v5 revalidation remains a separate acceptance step, and hosted checks do not substitute for it.
 
 ## Unreleased — Quantile solver provenance reconciliation (PR #164 / Issue #163, targeted for 0.2.6)
 

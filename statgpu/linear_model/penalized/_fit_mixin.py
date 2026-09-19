@@ -185,7 +185,16 @@ def _resolve_loss_name(loss_name, loss_kwargs=None):
         return get_loss(loss_name, **loss_kwargs)
 
 
-def _irls_ridge_init(X, y, loss_name, alpha=0.01, max_iter=100, tol=1e-4, loss_kwargs=None):
+def _irls_ridge_init(
+    X,
+    y,
+    loss_name,
+    alpha=0.01,
+    max_iter=100,
+    tol=1e-4,
+    loss_kwargs=None,
+    sample_weight=None,
+):
     """Compute ridge-penalized GLM coefficients for adaptive_l1 init.
 
     For squared_error uses IRLS-CD (matching R glmnet's ridge solver).
@@ -213,7 +222,14 @@ def _irls_ridge_init(X, y, loss_name, alpha=0.01, max_iter=100, tol=1e-4, loss_k
         Ridge-penalized coefficient estimates (no intercept).
     """
     if loss_name in ("squared_error", ""):
-        coef = _irls_ridge_init_cd(X, y, alpha, max_iter, tol)
+        coef = _irls_ridge_init_cd(
+            X,
+            y,
+            alpha,
+            max_iter,
+            tol,
+            sample_weight=sample_weight,
+        )
     else:
         # For GLM losses, use FISTA with L2 penalty (robust line search)
         # Pass arrays directly — solver handles backend detection internally
@@ -221,13 +237,28 @@ def _irls_ridge_init(X, y, loss_name, alpha=0.01, max_iter=100, tol=1e-4, loss_k
         from statgpu.penalties import get_penalty
         l2_pen = get_penalty("l2", alpha=alpha)
         loss_obj = _resolve_loss_name(loss_name, loss_kwargs=loss_kwargs)
-        coef, _ = fista_solver(loss_obj, l2_pen, X, y, max_iter=max_iter, tol=tol)
+        coef, _ = fista_solver(
+            loss_obj,
+            l2_pen,
+            X,
+            y,
+            max_iter=max_iter,
+            tol=tol,
+            sample_weight=sample_weight,
+        )
     # Return as numpy array (caller expects numpy for penalty.set_weights)
     from statgpu.backends import _to_numpy
     return np.asarray(_to_numpy(coef), dtype=np.float64)
 
 
-def _irls_ridge_init_cd(X, y, alpha, max_iter, tol):
+def _irls_ridge_init_cd(
+    X,
+    y,
+    alpha,
+    max_iter,
+    tol,
+    sample_weight=None,
+):
     """Ridge regression initialization for adaptive L1 weights.
 
     Uses closed-form solution: beta = (X'X + alpha*I)^-1 X'y
@@ -235,38 +266,46 @@ def _irls_ridge_init_cd(X, y, alpha, max_iter, tol):
     Much faster than sequential coordinate descent on GPU.
     """
     from statgpu.backends import _resolve_backend
-    from statgpu.backends._utils import _get_xp
+    from statgpu.backends._array_ops import _xp_asarray
+    from statgpu.backends._utils import _get_xp, xp_eye
 
     backend = _resolve_backend("auto", X)
     xp = _get_xp(backend)
 
     n, p = X.shape
-    # Normalize features
-    feat_norms = xp.sqrt(xp.sum(X ** 2, axis=0))
+    sw = None
+    if sample_weight is not None:
+        sw = _xp_asarray(sample_weight, X.dtype, X).reshape(-1)
+        sw_sum = xp.sum(sw)
+        feat_norms = xp.sqrt(xp.sum((sw[:, None] * X) * X, axis=0))
+        norm_scale = xp.sqrt(sw_sum)
+    else:
+        # Unweighted historical scaling: standardize each column to norm sqrt(n).
+        feat_norms = xp.sqrt(xp.sum(X ** 2, axis=0))
+        norm_scale = _xp_asarray(float(n) ** 0.5, X.dtype, X)
+
     if backend == "torch":
         import torch
-        feat_norms = xp.maximum(feat_norms, torch.tensor(1e-20, dtype=feat_norms.dtype, device=feat_norms.device))
-        scale = torch.tensor(float(n) ** 0.5, dtype=X.dtype, device=X.device) / feat_norms
+        feat_norms = xp.maximum(
+            feat_norms,
+            torch.tensor(1e-20, dtype=feat_norms.dtype, device=feat_norms.device),
+        )
     else:
         feat_norms = xp.maximum(feat_norms, 1e-20)
-        scale = xp.asarray(float(n) ** 0.5, dtype=X.dtype) / feat_norms
+    scale = norm_scale / feat_norms
     X_work = X * scale
 
-    # Closed-form Ridge: (X'X + alpha*I)^-1 X'y
-    XtX = X_work.T @ X_work / n
-    Xty = X_work.T @ y / n
-
-    if backend == "torch":
-        import torch
-        I_mat = torch.eye(p, dtype=X.dtype, device=X.device)
-        beta = torch.linalg.solve(XtX + alpha * I_mat, Xty)
-    elif backend == "cupy":
-        import cupy as cp
-        I_mat = cp.eye(p, dtype=X.dtype)
-        beta = cp.linalg.solve(XtX + alpha * I_mat, Xty)
+    # Closed-form weighted Ridge on the same average-loss normalization used
+    # by the final fit. Uniform analytic weights reduce to the unweighted path.
+    if sw is None:
+        XtX = X_work.T @ X_work / n
+        Xty = X_work.T @ y / n
     else:
-        I_mat = np.eye(p, dtype=X.dtype)
-        beta = np.linalg.solve(XtX + alpha * I_mat, Xty)
+        XtX = X_work.T @ (sw[:, None] * X_work) / sw_sum
+        Xty = X_work.T @ (sw * y) / sw_sum
+
+    I_mat = xp_eye(p, X.dtype, xp, ref_arr=X)
+    beta = xp.linalg.solve(XtX + alpha * I_mat, Xty)
 
     return beta * scale
 
@@ -391,9 +430,19 @@ class _PenalizedFitMixin:
             )
             _sw_arr = self._to_array(sample_weight, backend=backend_name)
 
-        # Handle penalties requiring initialization (e.g., Adaptive Lasso)
-        if self._penalty.requires_init:
-            init_coef = self._fit_initial(X, y, backend_name=backend_name)
+        # Handle penalties requiring initialization (currently Adaptive L1).
+        # User-supplied fixed adaptive weights are already the complete penalty
+        # definition and must not trigger a discarded initialization fit.
+        if (
+            self._penalty.requires_init
+            and getattr(self._penalty, "_weights", None) is None
+        ):
+            init_coef = self._fit_initial(
+                X,
+                y,
+                backend_name=backend_name,
+                sample_weight=_sw_arr,
+            )
             self._penalty.set_weights(init_coef)
 
         # Non-convex penalties (SCAD, MCP) for squared_error: use IRLS-CD
@@ -412,8 +461,28 @@ class _PenalizedFitMixin:
             self._nobs = X.shape[0]
             X_arr = self._to_array(X, backend=backend_name)
             y_arr = self._to_array(y, backend=backend_name)
-            _alpha_path, _max_lla_per_step, _mi_path = self._compute_lla_path(
-                X_arr, y_arr, X_arr.shape[1], _loss_name)
+            if _loss_name == "quantile":
+                # The scalar Quantile SCAD/MCP fast branch reaches continuation
+                # generation before _fit_loss_backend(), so publish the already
+                # validated/aligned analytic weights here. This lets the
+                # continuation contract skip the historical full X/y host
+                # snapshot for non-uniform weighted GPU fits.
+                from ._quantile_continuation_contract import (
+                    _QUANTILE_SAMPLE_WEIGHT,
+                )
+                _weight_token = _QUANTILE_SAMPLE_WEIGHT.set(_sw_arr)
+                try:
+                    _alpha_path, _max_lla_per_step, _mi_path = (
+                        self._compute_lla_path(
+                            X_arr, y_arr, X_arr.shape[1], _loss_name
+                        )
+                    )
+                finally:
+                    _QUANTILE_SAMPLE_WEIGHT.reset(_weight_token)
+            else:
+                _alpha_path, _max_lla_per_step, _mi_path = self._compute_lla_path(
+                    X_arr, y_arr, X_arr.shape[1], _loss_name
+                )
 
             if _loss_name == "quantile":
                 # Quantile + SCAD/MCP: use Proximal IRLS (IRLS quadratic
@@ -598,7 +667,13 @@ class _PenalizedFitMixin:
 
         return backend_name
 
-    def _fit_initial(self, X, y, backend_name="numpy"):
+    def _fit_initial(
+        self,
+        X,
+        y,
+        backend_name="numpy",
+        sample_weight=None,
+    ):
         """Fit initial model for penalties requiring initialization.
 
         Parameters
@@ -655,13 +730,19 @@ class _PenalizedFitMixin:
             if backend_name in ("torch", "cupy"):
                 backend = get_backend(backend=backend_name, device='cuda')
                 X_b = backend.asarray(X, dtype=backend.float64)
-                y_b = backend.asarray(y, dtype=backend.float64)
+                from statgpu.backends._array_ops import _xp_asarray
+                y_b = _xp_asarray(y, X_b.dtype, X_b)
             else:
                 X_b = np.asarray(_to_numpy(X), dtype=np.float64)
                 y_b = np.asarray(_to_numpy(y), dtype=np.float64)
             init_coef, _ = fista_solver(
-                loss_obj, l2_pen, X_b, y_b,
-                max_iter=500, tol=1e-4,
+                loss_obj,
+                l2_pen,
+                X_b,
+                y_b,
+                max_iter=500,
+                tol=1e-4,
+                sample_weight=sample_weight,
             )
             return init_coef
 
@@ -676,7 +757,8 @@ class _PenalizedFitMixin:
             if backend_name in ("torch", "cupy"):
                 backend = get_backend(backend=backend_name, device='cuda')
                 X_b = backend.asarray(X, dtype=backend.float64)
-                y_b = backend.asarray(y, dtype=backend.float64)
+                from statgpu.backends._array_ops import _xp_asarray
+                y_b = _xp_asarray(y, X_b.dtype, X_b)
             else:
                 X_b = np.asarray(_to_numpy(X), dtype=np.float64)
                 y_b = np.asarray(_to_numpy(y), dtype=np.float64)
@@ -687,6 +769,7 @@ class _PenalizedFitMixin:
                 max_iter=100,
                 tol=1e-4,
                 loss_kwargs=getattr(self, "loss_kwargs", None),
+                sample_weight=sample_weight,
             )
             return init_coef
 
@@ -697,7 +780,7 @@ class _PenalizedFitMixin:
             fit_intercept=self._effective_intercept,
             device=self._device,
         )
-        init_model.fit(X, y)
+        init_model.fit(X, y, sample_weight=sample_weight)
         return init_model.coef_
 
     def _compute_lla_path(self, X_work, y_arr, p, loss_name, n_cont=None):
@@ -715,7 +798,13 @@ class _PenalizedFitMixin:
         _y_feat = _to_numpy(y_arr)
         _n = _X_feat.shape[0]
 
-        if loss_name == "quantile":
+        if int(_X_feat.shape[1]) == 0:
+            # Intercept-only designs have no penalized slope score. The
+            # continuation start is therefore zero; downstream Quantile IRLS
+            # and squared-error centering can solve the unpenalized intercept
+            # without inventing a fake feature coordinate.
+            _lam_max = 0.0
+        elif loss_name == "quantile":
             # Quantile-specific lambda_max: max_j |X_j' @ psi_tau(y - intercept) / n|
             _tau = getattr(self._loss, '_tau', 0.5)
             _intercept = float(_np.quantile(_y_feat, _tau))

@@ -1,436 +1,229 @@
 # Loss × Penalty × Solver Framework
 
-> Language: English
->
-> Last updated: 2026-09-15
+> Language: English  
+> Last updated: 2026-09-17  
+> This page: Architecture guide  
+> Switch: [Chinese](../../cn/guides/loss-penalty-solver-framework.md)
 
 ## Overview
 
-statgpu separates its public API from its numerical-computation interfaces: **model classes face users and orchestrate a fit; Loss + Penalty define the optimization problem; Solvers consume that problem and perform the numerical optimization; Backend is a cross-cutting execution dimension across those steps.**
+statgpu separates the public statistical API from the numerical components used to fit a model:
 
-“Loss functions × penalty types × solvers × backends” form the composable computation structure used inside model fitting, independently of the model-class inheritance hierarchy. This page documents the current runtime call graph, dispatch logic, and coverage matrix.
+- a **Model** owns the user-facing statistical contract and fit lifecycle;
+- a **Loss** defines the data-fit term and the numerical primitives available from it;
+- a **Penalty** defines regularization and its numerical primitives;
+- a **Solver** consumes those primitives and performs optimization;
+- a **Backend** supplies NumPy, CuPy, or Torch execution across the numerical layers;
+- a **CV/meta-estimator** repeatedly reconstructs and evaluates compatible fits before a final refit.
 
-## Architecture
+This page documents how those pieces compose and where their responsibilities begin and end. It intentionally does **not** duplicate per-loss formulas, model-specific solver rules, solver update equations, or the full compatibility matrix.
 
-### User-facing runtime call graph
+Use the following references for those details:
+
+- [Loss Functions](../models/losses.md) — loss definitions and loss-level numerical properties
+- [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md) — actual loss × penalty × solver routes
+- [Solver Algorithms](solver-algorithms.md) — update equations, convergence behavior, and algorithmic assumptions
+- model pages such as [GeneralizedLinearModel](../models/generalized-linear-model.md), [Quantile Regression](../models/quantile.md), [Robust Regression](../models/robust.md), and [CoxPH](../models/coxph.md) — model-specific statistical behavior
+
+## 1. Runtime architecture
+
+A typical fit follows this structure:
 
 ```text
 User
   │
-  │  model = Estimator(...)
-  │  model.fit(X, y, sample_weight=...)
+  │  estimator = Model(...)
+  │  estimator.fit(X, y, sample_weight=...)
   ▼
-Model class / public API
+Model / public API
   │
-  ├── formula / X,y parsing and validation
-  ├── backend / device selection
-  ├── _resolve_loss()      → LossBase subclass instance
-  ├── _resolve_penalty()   → Penalty subclass instance
-  ├── _select_solver()     → solver name (auto or explicit)
-  ├── sample_weight / intercept / initialization handling
+  ├── parse and validate data / formula inputs
+  ├── resolve backend and device
+  ├── construct the Loss
+  ├── construct the Penalty
+  ├── validate or resolve the Solver
+  ├── prepare intercept / initialization / fit-local state
   │
   ▼
 Optimization problem
   │
-  │      F(β) = L(β) + P(β)
-  │       ▲           ▲
-  │       │           │
-  │      Loss      Penalty
-  │
+  │               F(β) = L(β) + P(β)
+  │                      ▲       ▲
+  │                      │       │
+  │                    Loss   Penalty
   ▼
 Solver
   │
-  ├── exact / IRLS / Newton / L-BFGS
-  ├── FISTA / FISTA-BB / FISTA-LLA
-  ├── proximal IRLS / proximal Newton
-  └── ADMM / specialized paths
+  ├── evaluate the primitives required by its algorithm
+  ├── iterate on the selected numerical backend
+  ├── apply stopping / convergence rules
   │
-  │  returns coef / intercept / n_iter / convergence state
   ▼
 Fitted-model state
   │
-  ├── coef_ / intercept_
-  ├── inference / fitted-state metadata
-  ├── backend / solver provenance
-  └── predict() / summary()
+  ├── coefficients / intercept
+  ├── convergence and solver provenance
+  ├── inference or CV state when the estimator exposes it
+  └── prediction / scoring interface
 ```
 
-On the current penalized-model path, `_PenalizedFitMixin.fit()` performs this orchestration: it constructs `self._loss` and `self._penalty`, chooses the backend and solver, then enters `_fit_loss_backend()`, `_dispatch_irls()`, or a specialized SCAD/MCP path. `LossBase` describes the optimization objective at this layer and is constructed by the model before being consumed by the solver.
+The model class is the orchestration boundary. A loss, penalty, or low-level solver object can be useful independently, but its existence does not by itself establish a complete public estimator route.
 
-### Responsibilities
+## 2. Component responsibilities
 
-| Component | Primary responsibility | Normally user-facing? |
-|---|---|:---:|
-| Model class | Public API, formula/data validation, backend/solver selection, state management, inference, prediction | ✅ |
-| Loss | Defines data-fit term `L(β)` and value/gradient/Hessian-style primitives | Usually no |
-| Penalty | Defines `P(β)` and regularization primitives such as gradient/proximal/LLA | Usually no |
-| Solver | Reads Loss + Penalty capabilities and runs the numerical algorithm | No |
-| Backend | NumPy/CuPy/Torch arrays, device, and numerical primitives; cuts across all layers above | Selected through the model class |
+| Component | Owns | Does not by itself establish |
+|---|---|---|
+| **Model / estimator** | public parameters, data validation, formula handling, loss/penalty construction, solver selection, fitted state, prediction, estimator-level inference | low-level algorithm equations |
+| **Loss** | data-fit term `L(β)`, value/gradient and optional curvature or specialized primitives | which penalties or public estimators are supported |
+| **Penalty** | regularization term `P(β)`, gradients/proximal maps/LLA or group metadata as applicable | whether a loss provides the primitives required by a solver |
+| **Solver** | numerical update rule, line search/step policy, stopping and convergence behavior | statistical meaning of a loss, weight, estimand, or CV procedure |
+| **Backend** | array type, device, linear algebra and backend-native numerical operations | statistical support for a route |
+| **CV/meta-estimator** | fold-local reconstruction, scoring, selection, and final refit | permission to bypass an unsupported direct-fit contract |
 
-Loss and Penalty compose the objective in parallel:
+This separation is important when reading APIs. For example, a solver function may accept an argument named `sample_weight`, but the complete route is supported only when the loss, solver, and estimator all define compatible semantics for that argument.
+
+## 3. Contract composition
+
+The generic optimization problem is
 
 $$
 F(\beta)=L(\beta)+P(\beta).
 $$
 
-A solver then consumes primitives such as
+Different solvers require different primitives. Depending on the algorithm, a route may need some subset of
 
 $$
-L(\beta),\quad \nabla L(\beta),\quad \nabla^2L(\beta),\quad
-P(\beta),\quad \nabla P(\beta),\quad
-\operatorname{prox}_{\gamma P}(v)
+L(\beta),\qquad
+\nabla L(\beta),\qquad
+\nabla^2 L(\beta),\qquad
+P(\beta),\qquad
+\nabla P(\beta),\qquad
+\operatorname{prox}_{\gamma P}(v),
 $$
 
-to implement Newton, L-BFGS, FISTA, ADMM, and related algorithms.
+plus loss- or penalty-specific operations such as an IRLS majorization, a local-linear surrogate, or structured/group metadata.
 
-### Backend is a cross-cutting execution dimension
+A public route is coherent only when all required pieces describe the **same objective and parameterization**. Having each method separately callable is not enough. In particular:
 
-NumPy, CuPy, and Torch span model preparation, objective evaluation, penalty operations, and solver iterations. The model first resolves the actual backend/device; `X`, `y`, `sample_weight`, Loss derivatives, Penalty proximal operations, and Solver iterations then remain on that execution backend whenever the interface contract permits. Only explicitly allowed metadata or final small results cross to host.
+- gradient and objective evaluations must use the same scaling and weighting convention;
+- a curvature-based method needs curvature consistent with the objective it is minimizing;
+- a proximal algorithm needs a penalty representation compatible with its proximal or surrogate step;
+- intercept treatment must remain consistent across loss, penalty, initialization, and solver updates;
+- backend/device handling must preserve the same numerical problem rather than silently changing the route.
+
+The exact route-level combinations are listed in the [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md).
+
+## 4. Capability matching and solver dispatch
+
+At a high level, model fitting resolves a route in the following order:
+
+1. Normalize public aliases and validate model parameters.
+2. Build the concrete loss and penalty objects.
+3. Resolve the numerical backend/device.
+4. If a solver was explicitly requested, validate that the complete loss × penalty × estimator route supports it.
+5. If `solver="auto"` was requested, select the model's compatible automatic route.
+6. Execute that solver without silently changing an explicit user request.
+7. Record the resolved solver/backend information exposed by the estimator.
+
+`solver="auto"` is therefore a **dispatch policy**, not a numerical algorithm. Its result can vary by loss, penalty, backend, and estimator type. Direct fitting and CV may also intentionally use different automatic routes because their computational workloads differ.
+
+Internal resolved labels may identify specialized continuation or composite paths that are not valid public `solver=` values. The compatibility matrix distinguishes public requests from such resolved implementation routes.
+
+For the exact current dispatch, use the [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md); for how each numerical method works, use [Solver Algorithms](solver-algorithms.md).
+
+## 5. `sample_weight` and objective consistency
+
+`sample_weight` is not a universal solver capability. Its meaning and availability are part of the **loss × solver × estimator** contract.
+
+When a route uses normalized analytic objective weights, the data-fit term has the form
+
+$$
+L_w(\beta)
+=
+\frac{\sum_i w_i\,\ell_i(\beta)}{\sum_i w_i}.
+$$
+
+A complete weighted route must apply the same convention to every numerical quantity used by the algorithm. Depending on the solver, that may include the objective, gradient, Hessian or other curvature, line-search candidates, majorization weights, stopping quantities, and validation scoring.
+
+Consequently:
+
+- accepting `sample_weight` in a shared method signature does not imply full weighted-estimator support;
+- an explicit solver request is not changed merely because weights are supplied;
+- unsupported weighted combinations should raise an error instead of changing the statistical or numerical problem invisibly;
+- common rescaling of weights is invariant only on routes whose declared objective has that normalization.
+
+Model-specific weight semantics belong on the corresponding model page. Loss-level first-order semantics are documented in [Loss Functions](../models/losses.md).
+
+## 6. Backend and device boundary
+
+Backend is a cross-cutting execution dimension rather than a separate statistical model layer:
 
 ```text
                   NumPy / CuPy / Torch
-                ┌───────────────────────┐
-Model      ──────┤ backend/device choice │
-Loss       ──────┤ value/grad/Hessian    │
-Penalty    ──────┤ value/grad/prox       │
-Solver     ──────┤ numerical iterations  │
-                └───────────────────────┘
+                ┌──────────────────────┐
+Model      ──────┤ device selection     │
+Loss       ──────┤ objective primitives │
+Penalty    ──────┤ prox / gradients     │
+Solver     ──────┤ iterative numerics   │
+                └──────────────────────┘
 ```
 
-This page focuses on model paths that construct `Loss + Penalty` and pass that objective to the generic Solver layer. Panel models organize computation around panel-data transformations, OLS/GLS/period-wise regressions, and Panel-specific inference; see [Panel Architecture](../panel/architecture.md).
+On a supported route, numerical arrays and iterative operations remain on the resolved backend/device except for explicitly documented reporting metadata or small synchronization boundaries. An explicit GPU request is not a request for silent CPU substitution.
 
-## 1. Loss Functions
+Backend support is still route-specific: a solver being implemented for NumPy, CuPy, and Torch does not prove that every loss, estimator, or inference procedure supports all three. Model-specific preprocessing or device boundaries belong in the corresponding model documentation.
 
-### LossBase
+## 7. CV and meta-estimator boundary
 
-Abstract base class at `statgpu/losses/_base.py`. Subclasses implement `per_sample_value()` and `per_sample_gradient()`. The base class derives `value()`, `gradient()`, and `fused_value_and_gradient()` automatically.
+A CV/meta-estimator adds another orchestration layer around ordinary fits. Its responsibilities include:
 
-`LossBase` is an **optimization-problem definition interface**. Models normally construct a Loss object through `_resolve_loss()` or a registry/factory and pass it to a solver together with a Penalty object.
+- constructing fold-local estimator state;
+- rebuilding mutable loss/penalty state rather than leaking it between candidates;
+- applying fold-local training data and weights;
+- evaluating the declared validation score;
+- selecting tuning parameters;
+- performing the selected full-data final refit with the intended route.
 
-```python
-class LossBase:
-    name: str               # "quantile", "huber", etc.
-    y_type: str             # "continuous" or "survival"
-    smooth_gradient: bool   # whether the per-sample gradient is smooth
-    has_hessian: bool       # whether Hessian primitives are provided
-    _supports_irls: bool    # whether maintained IRLS dispatch is declared
-```
-
-These fields describe **numerical primitives or dispatch capability**. They do not by themselves determine a complete solver × penalty support route.
+The public loss/penalty/solver contract still applies inside each candidate. CV does not make an unsupported solver combination valid, and it should not silently reinterpret an explicit solver request.
 
-### All Implemented Losses
+The automatic route used by CV can differ from direct-fit `solver="auto"` for performance reasons. Those differences are part of the compatibility reference and are listed in the [CV matrix](solver-penalty-matrix.md#4-cv-solverauto-penalizedglm_cv).
 
-| Loss | Class | `has_hessian` | `smooth_gradient` | `_supports_irls` | R Equivalent |
-|------|-------|:---:|:---:|:---:|--------------|
-| Squared Error | `GLMLoss` (squared_error) | ✅ | ✅ | ✅ | `lm()` |
-| Logistic | `GLMLoss` (logistic) | ✅ | ✅ | ✅ | `glm(…, binomial)` |
-| Poisson | `GLMLoss` (poisson) | ✅ | ✅ | ✅ | `glm(…, poisson)` |
-| Gamma | `GLMLoss` (gamma) | ✅ | ✅ | ✅ | `glm(…, Gamma)` |
-| Inverse Gaussian | `GLMLoss` (inverse_gaussian) | ✅ | ✅ | ✅ | `glm(…, inverse.gaussian)` |
-| Negative Binomial | `GLMLoss` (negative_binomial) | ✅ | ✅ | ✅ | `glm.nb()` |
-| Tweedie | `GLMLoss` (tweedie) | ✅ | ✅ | ✅ | `glm(…, tweedie)` |
-| Quantile | `QuantileLoss` | ❌ | ❌ | ✅ | `quantreg::rq()` |
-| Huber | `HuberLoss` | ✅ | ✅ | ❌ | `MASS::rlm()` |
-| Bisquare | `BisquareLoss` | ✅ | ✅ | ✅ | `MASS::rlm(psi="bisquare")` |
-| Fair | `FairLoss` | ✅ | ✅ | ✅ | custom psi/reference required; MASS has no built-in Fair psi |
-| Cox PH | `CoxPartialLikelihoodLoss` | ✅ | ✅ | ❌ | `survival::coxph()` |
+Statistical details such as strict versus approximate CV, loss-specific scoring, continuation-path construction, or model-specific final-refit behavior belong on the relevant model/CV documentation.
 
-Huber's current `_supports_irls=False` means public dispatch does not enter a Huber IRLS route. Explicit requests for that route therefore follow the current fail-closed compatibility contract rather than silently switching to another solver. Fair-loss comparisons likewise require an explicitly matched Fair psi implementation rather than a nonexistent built-in `MASS::rlm(psi="fair")` option.
+## 8. Public estimator APIs versus low-level APIs
 
-### Per-Sample Formulas
-
-**Quantile (check, also called pinball)**:
-$$\ell(u) = u \cdot (\tau - \mathbf{1}_{u<0}), \quad u = y - \eta$$
+For normal use, model classes are the canonical entry point. Low-level loss, penalty, and solver APIs are also public where documented, but their contracts can be narrower or simply different from estimator-level dispatch.
 
-**Huber** (effective threshold $\delta$):
-$$\ell(u) = \begin{cases} \frac{1}{2}u^2 & |u| \leq \delta \\ \delta|u| - \frac{1}{2}\delta^2 & |u| > \delta \end{cases}$$
+Do not infer estimator support from any single low-level fact such as:
 
-**Bisquare (Tukey biweight)** (c = 4.685):
-$$\ell(u) = \begin{cases} \frac{c^2}{6}[1 - (1-(u/c)^2)^3] & |u| \leq c \\ c^2/6 & |u| > c \end{cases}$$
-
-**Cox Partial Likelihood** (Breslow / Efron ties in `CoxPartialLikelihoodLoss`):
-$$L(\beta) = \prod_{i:\delta_i=1} \frac{\exp(X_i\beta)}{\sum_{j:T_j \geq T_i} \exp(X_j\beta)}$$
-
-The high-level `CoxPH` estimator additionally provides Exact ties, delayed-entry/counting-process risk sets, strata, and the corresponding survival-model data structures.
+- a loss exposing `gradient()` or `hessian()`;
+- a penalty exposing `prox()`;
+- a solver function accepting a parameter in its signature;
+- a low-level call succeeding for one backend or one unweighted case.
 
-## 2. Penalty Functions
-
-### All Implemented Penalties
-
-| Penalty | `is_convex` | `is_smooth` | Proximal Operator | LLA Support | P(β) |
-|---------|:---:|:---:|:---:|:---:|------|
-| None / Null | ✅ | ✅ | identity | ❌ | 0 |
-| L2 (Ridge) | ✅ | ✅ | — | ❌ | $\frac{\alpha}{2}\|\beta\|_2^2$ |
-| L1 (Lasso) | ✅ | ❌ | soft-threshold | ❌ | α·‖β‖₁ |
-| ElasticNet | ✅ | ❌ | soft-threshold | ❌ | $\alpha\left(r\|\beta\|_1+\frac{1-r}{2}\|\beta\|_2^2\right)$ |
-| SCAD | ❌ | ❌ | 3-region | ✅ | piecewise |
-| MCP | ❌ | ❌ | 3-region | ✅ | piecewise |
-| Adaptive L1 | ✅ | ❌ | weighted soft-threshold | ✅ | α/|β̂|^ν · |β| |
-| Group Lasso | ✅ | ❌ | block soft-threshold | ❌ | · |
-| Group MCP | ❌ | ❌ | block proximal | ✅ | · |
-| Group SCAD | ❌ | ❌ | block proximal | ✅ | · |
-
-`AdaptiveL1Penalty` is convex once its data-driven coordinate weights have been prepared. Its `LLA Support` capability does **not** make standalone adaptive L1 a non-convex LLA route; current auto dispatch treats it as a convex sparse penalty after initialization.
-
-### SCAD Formula
-$$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\beta|^2 - 2a\alpha|\beta| + \alpha^2)}{2(a-1)} & \alpha < |\beta| \leq a\alpha \\ \frac{(a+1)\alpha^2}{2} & |\beta| > a\alpha \end{cases}$$
-
-### LLA (Local Linear Approximation)
-Non-convex penalties (SCAD, MCP) are solved via LLA:
-1. Compute weights `w_j = P'(|\beta_j|)` at the current iterate
-2. Solve the weighted L1 problem: `min L(β) + Σ w_j·|β_j|`
-3. Repeat until convergence (typically 2-5 iterations)
-
-## 3. Solvers
-
-### Solver Dispatch Table
-
-The main `solver="auto"` dispatch can be summarized as follows. Public `none` / `null` is canonicalized to `L2(alpha=0)` before this selection, so no-penalty smooth rows follow the L2 branch.
-
-| Priority | Solver | Condition |
-|----------|--------|-----------|
-| 1 | `exact` | squared_error + L2/none + NumPy |
-| 2 | `newton` | squared_error + L2/none + GPU |
-| 3 | specialized continuation | Quantile SCAD/MCP → Proximal IRLS-CD; other non-convex SCAD/MCP and group non-convex penalties use their maintained LLA wrappers |
-| 4 | `irls` | Quantile + L2/none |
-| 5 | `fista` / `fista_bb` | Quantile sparse convex and other convex sparse penalties, including adaptive L1 after initialization; exact choice is loss/backend/CV dependent |
-| 6 | `lbfgs` / `newton` | CV + L2 + loss-specific routing |
-| 7 | `newton` | maintained smooth L2/no-penalty GLM/robust/Cox paths with Hessian support |
-
-Explicit smooth Quantile `fista`/`fista_bb` requests are not silently replaced by IRLS; they fail before numerical dispatch. The `exact` solver in this table is the closed-form squared-error/L2 solver and is unrelated to `CoxPH(ties="exact")`. For exact family/backend-specific dispatch, use the [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md).
-
-### All Solvers
-
-`sample_weight` support depends on the solver, the statistical semantics of the selected loss, and its value/gradient/curvature capabilities. The table below summarizes the maintained main paths; combinations not declared here should not be inferred from another solver's capability.
-
-| Solver | Loss Constraints | Penalty Constraints | `sample_weight` | warm_start |
-|--------|:-----------------|:---------------------|:------------|:----------:|
-| `exact` | squared_error only | L2 only | ✅ | ❌ |
-| `irls` | losses declaring maintained IRLS dispatch | L2 / none | available where the IRLS loss supports it | ❌ |
-| `newton` | losses with Hessian support | L2 / none | loss-dependent; ordinary GLM ✅ | ❌ |
-| `lbfgs` | smooth losses | L2 / none | capability-gated; ordinary GLM ✅ | ❌ |
-| `lbfgs_b` | smooth box-constrained problems | L2 / none | no generic non-uniform-weight contract declared | ❌ |
-| `fista` | losses supporting gradient/proximal routes | supported proximal penalties | loss-dependent | ✅ |
-| `fista_bb` | losses supporting gradient/proximal routes | supported sparse penalties | loss-dependent | ✅ |
-| `fista_lla` | losses supporting the maintained LLA route | SCAD/MCP and group non-convex LLA routes | loss-dependent | ✅ |
-| `proximal_irls_cd` | quantile only | SCAD/MCP | ✅ | ✅ |
-| `proximal_newton` | smooth losses with Hessian support | L2 / none | loss-dependent | ✅ |
-| `admm` | maintained ADMM losses | supported proximal forms | omitted/uniform only; genuine non-uniform weights fail closed | ✅ |
+Conversely, an estimator can combine several lower-level pieces behind one resolved route. Public support is defined by the complete estimator contract and the compatibility matrix, not by one component in isolation.
 
-### Specialized Solvers
+## 9. Documentation ownership
 
-**Proximal IRLS-CD** (quantile + SCAD/MCP):
-1. Compute IRLS weights: `w_i = τ_i / max(|r_i|, ε)`
-2. Quadratic majorization: `Q(β) = ½ Σ w_i(y_i - X_iβ)²`
-3. Parallel diagonal-majorization step + LLA threshold
-4. GPU convergence checks remain on device except for the final boolean synchronization
+To keep the documentation layers stable, use this ownership map:
 
-**Proximal Newton** (maintained smooth route) uses the full objective
+| Question | Canonical documentation |
+|---|---|
+| What is this loss mathematically? What primitives does it provide? | [Loss Functions](../models/losses.md) |
+| Which loss × penalty combination uses which solver? | [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md) |
+| How does Newton/FISTA/ADMM/etc. update the parameters? | [Solver Algorithms](solver-algorithms.md) |
+| How do Loss, Penalty, Solver, Backend, and CV compose? | **This page** |
+| What does a specific model support, and why? | the corresponding model page |
+| What inference procedure/estimand is available? | [Inference Modes](inference-modes.md) and model-specific inference docs |
 
-$$
-F(\beta)=L(\beta)+P(\beta).
-$$
+This separation is intentional: a model-specific exception can change without turning the framework page into a second compatibility matrix or a second model manual.
 
-For a per-observation loss route with analytic weights,
+## See also
 
-$$
-L(\beta)=\frac{1}{s}\sum_{i=1}^n w_i\,\ell_i(x_i^\top\beta),
-\qquad
-s=\sum_i w_i,
-$$
-
-with $w_i=1$ and $s=n$ in the unweighted case. Writing
-
-$$
-\psi_i=\frac{\partial\ell_i}{\partial\eta_i},
-\qquad
-h_i=\frac{\partial^2\ell_i}{\partial\eta_i^2},
-\qquad
-\eta_i=x_i^\top\beta,
-$$
-
-gives, on routes whose loss contract provides these per-observation curvatures,
-
-$$
-\nabla L(\beta)
-=\frac{X^\top(w\odot\psi)}{s},
-\qquad
-\nabla^2L(\beta)
-=\frac{X^\top\operatorname{diag}(w\odot h)X}{s}.
-$$
-
-Structured losses use their own Hessian implementation directly. For the maintained L2 penalty,
-
-$$
-P(\beta)=\frac{\alpha}{2}\|\beta\|_2^2,
-\qquad
-\nabla P(\beta)=\alpha\beta,
-\qquad
-\nabla^2P(\beta)=\alpha I.
-$$
-
-Thus iteration $k$ forms the full-objective gradient and Hessian
-
-$$
-g_k=\nabla L(\beta_k)+\alpha\beta_k,
-\qquad
-H_k=\nabla^2L(\beta_k)+\alpha I,
-$$
-
-with $\alpha=0$ for no penalty. The implementation symmetrizes the Hessian and adds a fixed numerical ridge:
-
-$$
-\bar H_k=\frac12(H_k+H_k^\top),
-\qquad
-\widetilde H_k=\bar H_k+10^{-10}I.
-$$
-
-If
-
-$$
-\|g_k\|_2\le\texttt{tol},
-$$
-
-optimization stops. Otherwise the solver computes $d_k$ from
-
-$$
-\widetilde H_k d_k=g_k.
-$$
-
-The code uses a subtract-direction convention, so trial points are
-
-$$
-\beta_k(t)=\beta_k-t d_k.
-$$
-
-If the linear system is recognized as singular or ill-conditioned, the maintained implementation does not use a least-squares fallback; it instead sets
-
-$$
-d_k=g_k.
-$$
-
-The descent quantity must satisfy
-
-$$
-q_k=g_k^\top d_k>0.
-$$
-
-If $q_k$ is non-finite or non-positive, the solver again uses steepest descent,
-
-$$
-d_k=g_k,
-\qquad
-q_k=\|g_k\|_2^2.
-$$
-
-Armijo backtracking starts from $t_0=1$ and tries
-
-$$
-t_m=2^{-m},
-\qquad m=0,1,\ldots,24,
-$$
-
-accepting the first candidate satisfying
-
-$$
-F(\beta_k-t_m d_k)
-\le
-F(\beta_k)-10^{-4}t_m q_k.
-$$
-
-The accepted update is
-
-$$
-\beta_{k+1}=\beta_k-t_m d_k.
-$$
-
-If none of the 25 candidate step sizes passes Armijo, the solver restores $\beta_{k+1}=\beta_k$, emits a line-search warning, and stops. Defaults are `max_iter=50` and `tol=1e-6`; when `init_coef` is omitted, $\beta_0=0$.
-
-For a genuinely non-smooth composite objective, a Proximal Newton method should instead solve the Hessian-metric proximal subproblem
-
-$$
-\Delta_k
-=\arg\min_{\Delta}
-\left\{
-\nabla L(\beta_k)^\top\Delta
-+\frac12\Delta^\top\nabla^2L(\beta_k)\Delta
-+P(\beta_k+\Delta)
-\right\}.
-$$
-
-That Hessian-metric proximal subproblem is not implemented in the current solver. Non-smooth penalty requests therefore delegate to FISTA before Newton iterations begin. Consequently, the maintained L2/no-penalty `proximal_newton` route is numerically a stabilized damped-Newton method with Armijo line search; it does not apply an additional Euclidean proximal operator and therefore does not double-count L2 curvature.
-
-**FISTA-LLA** (generic non-convex path):
-1. Continuation path: λ_max → target α (3-5 steps)
-2. LLA outer loop (2-5 iterations per step)
-3. The maintained generic composite route uses a weighted-convex FISTA inner solve. A Proximal-Newton inner route should be enabled only if a loss explicitly provides the correct Hessian-metric proximal subproblem. Cox SCAD/MCP currently remains on FISTA-LLA.
-
-## 4. Backend Coverage
-
-| Solver / Path | NumPy | CuPy | Torch |
-|:---------------|:---:|:---:|:---:|
-| Proximal IRLS-CD | ✅ | ✅ | ✅ |
-| Proximal Newton (smooth route) | ✅ | ✅ | ✅ |
-| FISTA (weighted) | ✅ | ✅ | ✅ |
-| FISTA-BB (weighted) | ✅ | ✅ | ✅ |
-| FISTA-LLA (weighted) | ✅ | ✅ | ✅ |
-| Quantile IRLS (smooth L2/no-penalty auto or explicit request) | ✅ | ✅ | ✅ |
-| Cox partial likelihood (Breslow/Efron) | ✅ native | ✅ native | ✅ native |
-| CoxPH counting process / strata / Exact | ✅ native | ✅ native | ✅ native |
-| DBSCAN | ✅ | GPU dist + host-sync CC | ✅ on-device |
-| UMAP | yes | supported with explicit SciPy host graph boundary | supported with explicit SciPy host graph boundary |
-
-## 5. User-Facing Penalized Models
-
-These are the public model classes users normally construct and call with `.fit()`; internally they resolve Loss, Penalty, Solver, and Backend objects/policies.
-
-| Class | Loss | Penalties | Main solver routes |
-|-------|------|-----------|--------------------|
-| `PenalizedGeneralizedLinearModel` | any registered loss | registered penalties | auto-dispatched from the full loss × penalty × backend combination, or explicitly selected |
-| `PenalizedLinearRegression` | squared_error | l1/l2/elasticnet/scad/mcp/adaptive_l1 | CPU exact / GPU Newton for L2/none; FISTA for convex sparse; FISTA-LLA for SCAD/MCP |
-| `PenalizedLogisticRegression` | logistic | l1/l2/elasticnet/scad/mcp/adaptive_l1 | Newton for L2/none; FISTA-BB for direct convex sparse; FISTA-LLA for SCAD/MCP |
-| `PenalizedPoissonRegression` | poisson | l1/l2/elasticnet/scad/mcp/adaptive_l1 | Newton for L2/none; FISTA-BB for direct convex sparse; FISTA-LLA for SCAD/MCP |
-| `PenalizedQuantileRegression` | quantile | scad/mcp/l2 and related supported penalties | IRLS for L2/none auto or explicit; FISTA-family for convex sparse routes; Proximal IRLS-CD for SCAD/MCP |
-| `PenalizedRobustRegression` | huber/bisquare/fair | l1/l2/elasticnet/scad/mcp and related penalties | Newton for L2/none; FISTA for convex sparse; FISTA-LLA for SCAD/MCP; explicit IRLS additionally exists for Bisquare/Fair |
-| `PenalizedCoxPHModel` | cox_ph | l1/l2/elasticnet/scad/mcp | Newton for L2/none; FISTA-BB for direct L1/ElasticNet; FISTA-LLA for SCAD/MCP |
-
-`PenalizedCoxPHModel` provides penalized Cox coefficient estimation; use `statgpu.survival.CoxPH` when covariance, significance tests, baseline hazard, or survival curves are required.
-
-## 6. Quick Reference
-
-```python
-# Quantile regression with SCAD
-from statgpu.linear_model.penalized import PenalizedQuantileRegression
-model = PenalizedQuantileRegression(quantile=0.5, penalty='scad', alpha=0.1)
-model.fit(X, y)
-
-# Robust regression with MCP
-from statgpu.linear_model.penalized import PenalizedRobustRegression
-model = PenalizedRobustRegression(loss='huber', penalty='mcp', alpha=0.1)
-model.fit(X, y)
-
-# Cox PH with SCAD penalty
-import numpy as np
-from statgpu.linear_model.penalized import PenalizedCoxPHModel
-
-y_surv = np.column_stack([time, event])
-model = PenalizedCoxPHModel(
-    penalty='scad', alpha=0.1,
-    fit_intercept=False, compute_inference=False,
-)
-model.fit(X, y_surv)
-
-# All penalties + losses via PenalizedGeneralizedLinearModel
-from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
-model = PenalizedGeneralizedLinearModel(loss='gamma', penalty='scad', alpha=0.1)
-model.fit(X, y)
-```
-
-## References
-
-- Fan & Li (2001): Variable selection via nonconcave penalized likelihood (SCAD)
-- Zhang (2010): Nearly unbiased variable selection under minimax concave penalty (MCP)
-- Wu & Liu (2009): Variable selection in quantile regression
-- Hunter & Li (2005): MM algorithms for nonconvex penalized estimation
-- Barzilai & Borwein (1988): Two-point step size gradient methods (BB)
-- O'Donoghue & Candes (2015): Adaptive restart for accelerated gradient schemes
+- [Loss Functions](../models/losses.md)
+- [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md)
+- [Solver Algorithms](solver-algorithms.md)
+- [GeneralizedLinearModel](../models/generalized-linear-model.md)
+- [Quantile Regression](../models/quantile.md)
+- [Robust Regression](../models/robust.md)
+- [CoxPH](../models/coxph.md)
+- [Inference Modes](inference-modes.md)

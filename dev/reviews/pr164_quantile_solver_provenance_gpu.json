@@ -19,10 +19,10 @@
       }
     },
     {
-      "cpu_penalized_objective": 0.061957978806048815,
+      "cpu_penalized_objective": 0.061957978891189765,
       "name": "cupy/direct/scad",
-      "objective_error": 1.4085439563257807e-06,
-      "penalized_objective": 0.06195938735000514,
+      "objective_error": 3.270869686211597e-11,
+      "penalized_objective": 0.06195797892389846,
       "provenance": {
         "backend": "cupy",
         "device": "cuda:0",
@@ -89,18 +89,18 @@
       "selected_alpha": 0.025,
       "stage1_scores": [
         [
-          0.1288501688501606
+          0.06448375829125232
         ],
         [
-          0.06115759927910683
+          0.06115759935483144
         ]
       ],
       "strict_scores": [
         [
-          0.06448375831176843
+          0.06448375832240649
         ],
         [
-          0.061157599406503275
+          0.06115759938367495
         ]
       ]
     },
@@ -123,10 +123,10 @@
       }
     },
     {
-      "cpu_penalized_objective": 0.061957978806048815,
+      "cpu_penalized_objective": 0.061957978891189765,
       "name": "torch/direct/scad",
-      "objective_error": 1.40845240401144e-06,
-      "penalized_objective": 0.061959387258452826,
+      "objective_error": 1.9315091193128353e-11,
+      "penalized_objective": 0.061957978871874674,
       "provenance": {
         "backend": "torch",
         "device": "cuda:0",
@@ -193,18 +193,18 @@
       "selected_alpha": 0.025,
       "stage1_scores": [
         [
-          0.12788564001487823
+          0.06448375829125065
         ],
         [
-          0.06115759927910262
+          0.06115759935217151
         ]
       ],
       "strict_scores": [
         [
-          0.13425769169494609
+          0.06448375829125988
         ],
         [
-          0.06115759933983437
+          0.061157599279105225
         ]
       ]
     }
@@ -222,20 +222,27 @@
     "torch_cuda": "11.7",
     "torch_device_name": "Tesla P100-SXM2-16GB"
   },
-  "evidence_wrapper": "dev/benchmarks/run_quantile_solver_provenance_gpu_gate.py",
+  "evidence_metadata": {
+    "basis": "operator-reported clean exact-source P100 run plus inner-validator success artifact",
+    "kind": "canonical_provenance_repair",
+    "note": "The numerical GPU acceptance was executed at source_sha. These metadata fields record the reported clean source lock without claiming that the outer wrapper was executed for this artifact.",
+    "physical_rerun_required_for_metadata_repair": false
+  },
+  "evidence_wrapper_contract": "dev/benchmarks/run_quantile_solver_provenance_gpu_gate.py",
+  "evidence_wrapper_executed": false,
   "max_errors": {
     "l2_coef_intercept": 6.938893903907228e-15,
     "l2_cv_score": 7.965850201685498e-15,
-    "scad_penalized_objective": 1.4085439563257807e-06
+    "scad_penalized_objective": 3.270869686211597e-11
   },
   "quantile": 0.2,
   "schema_version": 1,
   "source_clean": true,
   "source_clean_after_execution": true,
   "source_clean_before": true,
-  "source_sha": "2de971402004efc703dc98f510942db3980988e4",
-  "source_sha_after_execution": "2de971402004efc703dc98f510942db3980988e4",
-  "source_sha_before": "2de971402004efc703dc98f510942db3980988e4",
+  "source_sha": "90194ce15f3753a3af7d0ce3539e75b233a9b801",
+  "source_sha_after_execution": "90194ce15f3753a3af7d0ce3539e75b233a9b801",
+  "source_sha_before": "90194ce15f3753a3af7d0ce3539e75b233a9b801",
   "status": "success",
   "tolerances": {
     "l2_coef_intercept": 2e-05,

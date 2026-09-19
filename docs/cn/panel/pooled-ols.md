@@ -1,34 +1,31 @@
 # PooledOLS
 
 > 语言：中文  
-> 最后更新：2026-08-19  
+> 最后更新：2026-09-17  
+> 页面定位：面板模型文档  
 > 切换：[English](../../en/panel/pooled-ols.md)
 
-## Overview
+## 概览
 
-`PooledOLS` 把所有 panel observation 直接堆叠起来，拟合一个具有公共截距和公共斜率的普通线性回归。它**不会**去除 entity effect 或 time effect，因此适用于本来就希望所有观测共享同一个 pooled conditional-mean relationship 的场景。
+`PooledOLS` 把所有面板观测直接堆叠起来，拟合一个具有公共截距和公共斜率的普通线性回归。它**不会**消除个体效应或时间效应，因此适用于本来就希望所有观测共享同一个条件均值关系的场景。
 
-`entity_ids` 是可选的：提供它不会改变 coefficient estimate，但可以额外计算 panel-specific fit statistics，并启用 Breusch-Pagan LM diagnostic。
+`entity_ids` 是可选的：提供它不会改变系数估计，但可以额外计算面板专属拟合统计量，并启用 Breusch–Pagan LM 诊断。
 
-## Path
+## 统计模型与识别
 
-实现：`statgpu/panel/_pooled.py`。
-
-## Statistical Model and Identification
-
-Pooled linear model 可以写成
+合并线性模型可以写成
 
 $$
 y_{it}=\alpha+x_{it}^{\top}\beta+u_{it}.
 $$
 
-要把 $\beta$ 解释为 pooled conditional-mean slope，一个常见的充分条件是
+若要把 $\beta$ 解释为合并条件均值中的斜率，一个常见的充分条件是
 
 $$
 E(u_{it}\mid X_i)=0,
 $$
 
-其中 $X_i=(x_{i1},\ldots,x_{iT_i})$。因此，任何没有显式建模的 entity 或 time heterogeneity 都会被并入 composite error $u_{it}$。
+其中 $X_i=(x_{i1},\ldots,x_{iT_i})$。没有显式建模的个体或时间异质性都会并入复合误差项 $u_{it}$。
 
 例如，如果真实数据满足
 
@@ -36,50 +33,69 @@ $$
 y_{it}=\alpha+x_{it}^{\top}\beta+a_i+\varepsilon_{it},
 $$
 
-那么 pooled OLS 并不会消除 $a_i$。若希望仍然识别同一个 structural $\beta$，combined error $a_i+\varepsilon_{it}$ 必须与 regressors 正交。如果 entity heterogeneity 与 regressor history 相关，pooled OLS 一般不会识别与 fixed-effects estimator 相同的 slope。
+那么 pooled OLS 并不会消除 $a_i$。如果仍希望识别同一个结构参数 $\beta$，复合误差 $a_i+\varepsilon_{it}$ 必须与解释变量正交。若个体异质性与解释变量历史相关，PooledOLS 一般不会识别与固定效应估计量相同的斜率。
 
-HC、clustered、HAC 或 Driscoll-Kraay 等 covariance choice 只改变 uncertainty 的计算方式，不能修复 mean model 中外生性条件失效造成的识别问题。
+HC、聚类稳健、HAC 或 Driscoll–Kraay 等协方差选择只改变不确定性的计算方式，不能修复条件均值模型中外生性假设失效造成的识别问题。
 
-## Estimator
+## 估计量
 
-令 $Z=[\mathbf 1,X]$，则
+令 $Z=[\mathbf1,X]$，则
 
 $$
 \widehat\beta_{\mathrm{pooled}}
-=\arg\min_\beta\|y-Z\beta\|_2^2
-=(Z^\top Z)^+Z^\top y.
+=
+\arg\min_\beta\|y-Z\beta\|_2^2
+=
+(Z^\top Z)^+Z^\top y.
 $$
 
-因此，coefficient estimate 就是把所有 panel rows 当作一个普通回归样本后得到的 OLS 结果。
+因此，系数估计就是把所有面板观测看作一个普通回归样本后得到的 OLS 结果。
 
-## Covariance and Inference
+## 协方差与推断
 
-`cov_type` 只改变 standard error 的计算方式，不改变 OLS coefficient estimate。除了 nonrobust 和 HC covariance 外，`PooledOLS` 还支持 clustered covariance，以及两种考虑时间相关性的方式：
+`cov_type` 只改变标准误的计算方式，不改变 OLS 系数估计。除经典协方差与 HC0–HC3 外，`PooledOLS` 还支持聚类稳健协方差，以及两种处理时间相关性的方式：
 
-- `cov_type="hac"` 把 observations 看作一条有顺序的序列并应用 Bartlett/Newey-West HAC。若提供 `time_index`，会先按其时间顺序排序；否则直接使用输入数据的行顺序。numeric 与 datetime label 使用自然顺序；ordered pandas categorical 使用用户声明的 category order。普通 string label 按字符串字典序排序；其他非 categorical object label 按其可比较值排序，不能相互比较时会直接报错。因此 `t1, t2, t10` 这类字符串标签若不应按字典序解释，需要改用 ordered categorical 或 numeric/datetime key。
-- `cov_type="driscoll-kraay"` 按 `time_index` 将 observations 分到各 period，并先在 period 内聚合其 covariance contribution，再对跨期 lag 加权。
+- `cov_type="hac"`：把观测看作一条有顺序的序列，并使用 Bartlett/Newey–West HAC。若提供 `time_index`，会先按时间顺序排序；否则使用输入数据的行顺序；
+- `cov_type="driscoll-kraay"`：先按照 `time_index` 把观测分配到各时期，在时期内聚合协方差贡献，再对跨期滞后进行核加权。
 
-因此这两种 covariance 不能互换理解。完整公式见 [面板 covariance](covariance.md)。
+因此，HAC 与 Driscoll–Kraay 不能互换解释。完整公式见 [面板模型协方差](covariance.md)。
 
-## Parameters
+### 时间标签顺序
+
+当协方差计算需要时间顺序时：
+
+- 数值与 datetime 标签使用自然顺序；
+- 有序 pandas categorical 使用用户声明的类别顺序；
+- 普通字符串按字典序排序；
+- 其他可比较对象按其自然比较顺序排序；
+- 标签无法相互比较时会报错。
+
+如果 `t1, t2, t10` 这类字符串不应按字典序解释，应改用数值/datetime 键，或显式使用有序 categorical。
+
+## 参数
 
 | 参数 | 默认值 | 可选值 / 约束 | 含义 |
 |---|---:|---|---|
-| `cov_type` | `"nonrobust"` | `nonrobust`、`robust`/`hc1`、`hc0`、`hc2`、`hc3`、`clustered`、`hac`、`driscoll-kraay`/`dk`/`kernel` | coefficient standard error 的计算方式。 |
-| `alpha` | `0.05` | 有限且严格位于 0 与 1 之间 | 置信区间显著性水平；`0.05` 对应 95% 区间。 |
-| `bandwidth` | `None` | `None` 或非负整数 | HAC/DK 的 lag 或 smoothing bandwidth。legacy HAC 最多使用 $n-1$ 个 lag；DK 的规则见 [面板 covariance](covariance.md)。 |
-| `kernel` | `"bartlett"` | `hac` 只允许 Bartlett；DK 还支持 Parzen 与 QS aliases | HAC/DK 使用的 kernel。 |
-| `device` | `"auto"` | `auto`、`cpu`、`cuda`、`torch` | 数值计算运行在哪个 backend/device。 |
-| `n_jobs` | `None` | integer 或 `None` | 共享并行参数。 |
-| `group_debias` | `False` | boolean；仅 clustered covariance 使用 | 是否应用 small-number-of-clusters correction。 |
+| `cov_type` | `"nonrobust"` | `nonrobust`、`robust`/`hc1`、`hc0`、`hc2`、`hc3`、`clustered`、`hac`、`driscoll-kraay`/`dk`/`kernel` | 系数标准误的计算方式 |
+| `alpha` | `0.05` | 有限且严格位于 `(0,1)` | 置信区间显著性水平；`0.05` 对应 95% 区间 |
+| `bandwidth` | `None` | `None` 或非负整数 | HAC/DK 的滞后阶或平滑带宽 |
+| `kernel` | `"bartlett"` | HAC 只允许 Bartlett；DK 还支持 Parzen 与 QS 别名 | HAC/DK 使用的核函数 |
+| `device` | `"auto"` | `auto` / `cpu` / `cuda` / `torch` | 数值计算的执行后端与设备 |
+| `n_jobs` | `None` | 整数或 `None` | 共享并行参数 |
+| `group_debias` | `False` | 布尔值；仅聚类协方差使用 | 是否应用小聚类数修正 |
+
+拟合接口：
 
 ```python
 model.fit(X, y, cluster=None, time_index=None, entity_ids=None)
 ```
 
-使用 clustered covariance 时传入 `cluster`；使用 Driscoll-Kraay 时必须传入 `time_index`。对 legacy HAC，`time_index` 是可选的；提供后，它决定 HAC 使用的 observation ordering。若还希望得到 standardized within/between $R^2$ 或 Breusch-Pagan LM test，则提供 `entity_ids`。
+- 使用聚类稳健协方差时传入 `cluster`；
+- 使用 Driscoll–Kraay 时必须传入 `time_index`；
+- 对 HAC 而言，`time_index` 可选；提供后，它决定 HAC 使用的观测顺序；
+- 如果还希望得到标准化的组内/组间 $R^2$ 或 Breusch–Pagan LM 检验，可以提供 `entity_ids`。
 
-## CPU and GPU Example
+## CPU 与 GPU 示例
 
 ```python
 from statgpu.panel import PooledOLS
@@ -89,11 +105,11 @@ cuda = PooledOLS(device="cuda").fit(X, y)
 torch = PooledOLS(device="torch").fit(X, y)
 ```
 
-若显式指定的 GPU backend 不可用，`.fit()` 会直接报错，而不是切换到 CPU。
+若显式请求的 GPU 后端不可用，`.fit()` 会直接报错，而不会静默切换到 CPU。
 
-## Formula Example
+## 公式接口
 
-假设 `df` 包含 `y`、`x1` 与 `x2` 列。
+假设 `df` 包含 `y`、`x1` 与 `x2`：
 
 ```python
 from statgpu.panel import PooledOLS
@@ -104,38 +120,45 @@ model = PooledOLS().fit(
 )
 ```
 
-`PooledOLS` 始终包含截距，因此显式 no-intercept formula 会被拒绝。
+`PooledOLS` 始终包含截距，因此显式无截距公式会被拒绝。
 
-## Outputs
+## 输出
 
-常用结果包括 `coef_`、`bse_`、`tvalues_`、`pvalues_`、`conf_int_`、`rsquared`、`fit_statistics_`、`nobs` 与 `df_resid`。提供 `entity_ids` 后还可调用 `breusch_pagan_lm_test()`；见 [面板 diagnostics](diagnostics.md)。
+常用结果包括：
 
-## Numerical and Strict Behavior
+- `coef_`、`bse_`、`tvalues_`、`pvalues_`、`conf_int_`；
+- `rsquared`、`fit_statistics_`；
+- `nobs`、`df_resid`；
+- 提供 `entity_ids` 后可使用 `breusch_pagan_lm_test()`，见 [面板诊断](diagnostics.md)。
 
-自动添加的 constant/intercept 会防止 response cancellation 把可表示的低阶截距项静默抹掉。普通 response 完全保留历史 SVD/BLAS solve；只有当 response 被现有 classifier 判为 magnitude/cancellation-sensitive 时，才在保持同一个 SVD、numerical-rank cutoff、design scaling 与 minimum-norm parameterization 的前提下，用共享 magnitude-tiered reduction 计算 SVD response projection。例如 `[2**55, 1, -2**55]` 中可表示的 intercept tail 不会被错误降为 0。legacy pooled $R^2$ 在物理 `y-mean(y)` 可能溢出时也复用 range-safe working-scale centering。
+## 数值行为与失败语义
 
-covariance 所需的附加信息会在计算前检查。例如，clustered covariance 缺少 `cluster`、Driscoll-Kraay 缺少 `time_index`，或 cluster 数组长度/形状不匹配时，都会直接报错，而不会自动改用另一种 covariance。legacy HAC 的 time metadata 若含 missing/non-finite value 也会 fail closed，而不会猜测排序。
+用户可以依赖以下公开行为：
 
-每次新的 `fit()` 都会先失效上一轮 fitted/inference state。如果 refit 在后续任意阶段失败，已经部分写入的新输出也会被清理；此后 `predict()` 与 `summary()` 会把 estimator 视为未拟合状态。
+- 自动加入的截距会使用稳定的数值处理，避免极端响应尺度下可表示的低阶截距贡献被静默抹除；
+- 聚类稳健协方差缺少 `cluster`、Driscoll–Kraay 缺少 `time_index`，或聚类数组长度/形状不匹配时，会直接报错，而不会自动切换到另一种协方差；
+- HAC 的时间元数据含缺失值或非有限值时会报错，不会猜测排序；
+- 每次新的 `fit()` 都会先失效上一轮的已拟合/推断状态。如果重拟合在后续任意阶段失败，对象保持未拟合状态；
+- 如果设计矩阵精确秩亏，拟合值仍可能有意义，但系数向量不唯一。此时不会继续发布依赖唯一系数表示的标准误、检验、p 值与置信区间；
+- 显式 `device="cuda"` 或 `device="torch"` 要求对应后端可用，否则会报错而不是切换到 CPU。
 
-如果 design matrix 精确 rank deficient，模型仍可能得到 fitted values，但 coefficient vector 不唯一。statgpu 会对该次拟合整体关闭 coefficient-level standard error、检验、p-value 与 confidence interval，而不是从任意一种 coefficient representation 中继续做推断；详见 [面板 covariance](covariance.md)。
+这些公开行为不要求用户依赖内部具体使用哪一种 SVD/BLAS 归约、数值缩放或验证脚本。
 
-显式指定 `device="cuda"` 或 `device="torch"` 时也要求对应 backend 可用，否则直接报错而不是切换到 CPU。
+## 常见问题
 
-## FAQ
+**提供 `entity_ids` 会改变系数吗？**  
+不会；它只额外启用面板专属的拟合统计量与诊断。
 
-**提供 `entity_ids` 会改变 coefficient 吗？**  不会；它只额外启用 panel-aware fit statistics 与 diagnostics。
+**`hac` 与 Driscoll–Kraay 相同吗？**  
+不同。HAC 把观测当作一条有顺序的序列；Driscoll–Kraay 则先按时间时期聚合观测贡献，再计算跨期相关。
 
-**`hac` 与 Driscoll-Kraay 相同吗？**  不同。HAC 把 observations 当作一条有顺序的序列；Driscoll-Kraay 则先在用户提供的各 time period 内聚合 observation contribution。
+## 相关文档
 
-## External Validation
+- [面板模型总览](../models/panel.md) — Panel 模型选择与解释
+- [面板模型协方差](covariance.md) — HC、cluster、HAC 与 Driscoll–Kraay 公式
+- [面板诊断](diagnostics.md) — Breusch–Pagan LM 等诊断
+- [设备与 GPU 内存](../guides/device-and-memory.md) — 后端与设备语义
 
-我们将 `PooledOLS` 与 `linearmodels==7.0` 比较，覆盖 Driscoll-Kraay coefficient、covariance、BSE，以及 group-debiased clustered covariance。coefficient 使用 `rtol=2e-10, atol=2e-11`；covariance/BSE 使用 `rtol=5e-9, atol=5e-11`。HC、cluster、Driscoll-Kraay、default bandwidth 与 R `sandwich` 的定义级检查见 [validation matrix](covariance.md#validation-matrix)。
-
-GPU 一致性单独验证：CuPy 与 Torch 输出分别和 NumPy 比较，默认容差为 `rtol=5e-6, atol=5e-7`；实际最大差异保存在 PR #126 的 physical validation artifacts 中。专用的 `dev/benchmarks/validate_panel_hac_chronology_gpu.py` gate 还会在最终 exact source 上验证 ordered-categorical legacy-HAC chronology、lexical-order negative control、formula missing-row alignment，以及 requested/executed CuPy/Torch backend identity。新增的 `dev/benchmarks/validate_panel_intercept_cancellation_gpu.py` gate 会在两个物理 GPU backend 上验证 cancellation-sensitive automatic-intercept 路径。
-
-## 参考（References）
+## 参考文献
 
 - Wooldridge, J. M. (2010). *Econometric Analysis of Cross Section and Panel Data* (2nd ed.). The MIT Press.
-
-covariance 专门参考文献见 [面板 covariance](covariance.md)。

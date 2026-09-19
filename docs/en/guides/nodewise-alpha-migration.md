@@ -1,27 +1,20 @@
-# Node-wise Lasso inference tuning migration
+# Node-wise Lasso Inference Tuning Migration
 
-> Status: applies to the node-wise-alpha inference contract introduced after the 0.2.5 post-selection OLS API migration.
+> Last updated: 2026-09-17  
+> Switch: [Chinese](../../cn/guides/nodewise-alpha-migration.md)
 
-## What changed
+Sparse Gaussian de-biased inference exposes a public `nodewise_alpha` control on `Lasso`, `ElasticNet`, the corresponding Gaussian penalized interfaces, and the final-refit inference configuration of `LassoCV` / `ElasticNetCV`.
 
-Sparse Gaussian debiased inference now exposes a public `nodewise_alpha` control on `Lasso`, `ElasticNet`, their maintained Gaussian penalized base surfaces, and the final-refit inference configuration of `LassoCV` / `ElasticNetCV`.
-
-The main model `alpha` and `nodewise_alpha` are different parameters:
+## `alpha` and `nodewise_alpha` are different parameters
 
 - `alpha` controls the penalized prediction/selection fit;
-- `nodewise_alpha` controls only the node-wise Lasso problems used to approximate the design precision matrix for debiased inference.
+- `nodewise_alpha` controls only the node-wise Lasso regressions used to estimate the approximate design precision matrix for de-biased inference.
 
-A finite positive scalar supplied by the user is authoritative. `nodewise_alpha=None` invokes statgpu's automatic rule.
+A finite positive value supplied by the caller is used directly. `nodewise_alpha=None` requests statgpu's automatic rule.
 
-## Intentional default correction
+## Automatic rule
 
-The historical internal implementation selected the node-wise penalty with the main-response residual scale,
-
-$$
-\hat\sigma_y\sqrt{\frac{2\log(\max(p,2))}{n}}.
-$$
-
-That rule was never a public tuning contract and made the design-side precision estimate depend on the units of `y`. The new automatic rule standardizes the already canonical centered/weighted working design and uses
+The automatic node-wise penalty is defined on the standardized centered/weighted working design. Its scale is
 
 $$
 \lambda_{\mathrm{nw}}
@@ -29,48 +22,90 @@ $$
 \sqrt{\frac{2\log(\max(p,2))}{n_{\mathrm{nw}}}},
 $$
 
-where `n_nw=n` without analytic weights and a Kish-style effective sample size is used for non-uniform analytic weights. The order `sqrt(log(p)/n)` is theory-motivated; the exact constant and weighted effective-sample-size convention are statgpu defaults rather than a uniquely theorem-mandated choice.
+where `n_nw=n` without analytic weights and a Kish-style effective sample size is used for non-uniform analytic weights.
 
-There is no compatibility selector for the old response-dependent internal rule. If a specific node-wise penalty is required, set `nodewise_alpha=` explicitly on the standardized node-wise scale.
+The order $\sqrt{\log(p)/n}$ is motivated by high-dimensional node-wise regression theory. The exact constant and effective-sample-size convention are statgpu defaults rather than a unique theorem-mandated choice.
 
-## Precision construction
+The previous internal response-scale-dependent rule is not exposed as a compatibility option. If a specific node-wise penalty is required, set `nodewise_alpha=` explicitly on the standardized node-wise scale.
 
-Let `X_w` be the centered/weighted average-loss working design already defined by the sparse Gaussian inference path. Set
+## Precision-matrix construction
+
+Let `X_w` denote the centered/weighted working design used by sparse Gaussian inference. statgpu standardizes its columns through
 
 $$
-d_j^2=\frac{1}{n}\sum_iX_{w,ij}^2,
-\qquad Z=X_wD^{-1}.
+d_j^2
+=
+\frac{1}{n}\sum_i X_{w,ij}^2,
+\qquad
+Z=X_wD^{-1}.
 $$
 
-For each feature, statgpu solves the node-wise Lasso on `Z`, validates an independent full KKT residual, uses the paper-style normalizer
+For each feature, a node-wise Lasso regression is solved on `Z`. The residual normalization follows
 
 $$
 \hat\tau_j^2
 =
-\frac{\|r_j\|_2^2}{n}
+\frac{\lVert r_j\rVert_2^2}{n}
 +
-\lambda_{\mathrm{nw}}\|\hat\gamma_j\|_1,
+\lambda_{\mathrm{nw}}\lVert\hat\gamma_j\rVert_1.
 $$
 
-and transforms the resulting standardized approximate precision back to the working-feature scale. Degenerate scales, non-finite precision state, KKT failure, or invalid normalizers fail closed instead of publishing an identity-row fallback.
+The resulting standardized approximate precision matrix is transformed back to the working-feature scale.
 
-For `p=1`, no nuisance node-wise regression exists; statgpu uses the analytic univariate precision and `nodewise_alpha_` remains `None`.
+Degenerate feature scales, non-finite precision state, an invalid normalizer, or failure of the post-solve optimality check cause inference to raise instead of publishing a placeholder precision row.
 
-## Solver and provenance
+For `p=1`, there is no nuisance node-wise regression. statgpu uses the analytic univariate precision and `nodewise_alpha_` remains `None`.
 
-The internal node-wise FISTA stopping tolerance is intentionally tighter than the publication KKT gate. The implementation uses `coef_delta` iteration stopping with a `1e-8` internal tolerance and an iteration budget of 3000, followed by an independent `1e-5` KKT publication check. These are internal numerical settings, not additional public tuning parameters.
+## Resolved value
 
-Successful multi-feature debiased inference exposes the resolved value as `nodewise_alpha_`. `_inference_result.metadata` records the requested/resolved value, source, automatic-rule identifier, weighted effective sample size, node-wise solver settings, maximum KKT residual, cache provenance, and numerical backend/device.
+For multi-feature de-biased inference, `nodewise_alpha_` exposes the value actually used. This makes the automatic choice inspectable without turning the node-wise solver's internal stopping settings into additional public tuning parameters.
 
 ## Cross-validation
 
-`LassoCV(nodewise_alpha=...)` and `ElasticNetCV(nodewise_alpha=...)` treat the parameter as **final-refit inference configuration only**. It does not enter the main regularization grid, fold scoring, selected `alpha_`, or selected `l1_ratio_`.
+`LassoCV(nodewise_alpha=...)` and `ElasticNetCV(nodewise_alpha=...)` treat `nodewise_alpha` as **final-refit inference configuration only**.
 
-## Backend and weighting contract
+It does not enter:
 
-NumPy, CuPy, and Torch use the same standardized statistical definition. Explicit CUDA/Torch inference does not numerically fall back to CPU. Analytic weights preserve the existing average-loss convention, global positive weight-scale invariance, all-one-weight identity, and zero-weight-row invariance of automatic node-wise tuning.
+- the main alpha grid;
+- fold scoring;
+- selection of `alpha_`;
+- selection of `l1_ratio_`.
 
-The precision cache may hash backend-resident working-design data for cache identity, but the node-wise solve, KKT validation, precision back-transformation, and GPU simultaneous inference remain numerical operations on the selected backend/device.
+The value matters only after CV has selected the prediction model and inference is run on the full-data final refit.
+
+## Backend and analytic weights
+
+NumPy, CuPy, and Torch use the same standardized statistical definition where the de-biased route is supported. An explicit CUDA/Torch inference request is not silently replaced by a CPU numerical calculation.
+
+Analytic weights preserve the sparse Gaussian average-loss convention. In particular, multiplying all positive weights by the same constant does not change the automatic node-wise tuning target.
+
+## Migration guidance
+
+If you did not previously depend on an internal node-wise penalty value, leave `nodewise_alpha=None` and use the automatic standardized rule.
+
+If reproducibility requires a fixed node-wise tuning value, set it explicitly:
+
+```python
+from statgpu.linear_model import Lasso
+
+model = Lasso(
+    alpha=0.05,
+    compute_inference=True,
+    inference_method="debiased",
+    nodewise_alpha=0.08,
+)
+model.fit(X, y)
+
+print(model.nodewise_alpha_)
+```
+
+Do not copy the main-model `alpha` into `nodewise_alpha` automatically: the two parameters solve different optimization problems and operate on different scales.
+
+## Related documentation
+
+- [Inference Modes](inference-modes.md) — choosing between de-biased, post-selection, and bootstrap inference
+- [Cross-Validation](cross-validation.md) — selection and final-refit semantics
+- [Lasso](../models/lasso.md) and [ElasticNet](../models/elastic-net.md) — model-specific inference controls
 
 ## References
 

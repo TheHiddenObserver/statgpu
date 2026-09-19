@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+import json
 import sys
+from pathlib import Path
 
 import numpy as np
+import pytest
 
+from dev.benchmarks import run_quantile_smooth_fista_gpu_gate as smooth_wrapper
+from dev.benchmarks import validate_quantile_smooth_fista_gpu as smooth_gate
 from dev.benchmarks import validate_quantile_solver_provenance_gpu as gate
 from statgpu._config import Device
-from statgpu.linear_model import PenalizedGLM_CV
+from statgpu.linear_model import PenalizedGLM_CV, QuantileRegression
+from statgpu.losses import QuantileLoss
+from statgpu.penalties import L1Penalty
+from statgpu.solvers import fista_solver
 from statgpu.linear_model.penalized import (
     PenalizedGeneralizedLinearModel,
     PenalizedQuantileRegression,
@@ -21,6 +29,140 @@ def _pinball(y, eta, q, sample_weight):
     u = y - eta
     values = np.where(u >= 0.0, q * u, (q - 1.0) * u)
     return float(np.average(values, weights=np.asarray(sample_weight, dtype=np.float64)))
+
+
+def test_pr166_smooth_bootstrap_physical_gate_schema_is_locked():
+    assert smooth_gate.SCHEMA_VERSION == 5
+    assert smooth_wrapper.EXPECTED_SCHEMA_VERSION == smooth_gate.SCHEMA_VERSION
+    assert smooth_gate.BOOTSTRAP_Q != pytest.approx(0.5)
+    assert 0.0 < smooth_gate.BOOTSTRAP_Q < 1.0
+    assert smooth_gate.BOOTSTRAP_B >= 2
+    assert callable(smooth_gate._standalone_bootstrap_public_case)
+    assert callable(smooth_gate._async_weighted_l1_case)
+    assert smooth_gate.ATOL_ASYNC_L1_OBJECTIVE > 0.0
+
+
+def test_pr166_async_weighted_l1_fixture_has_spectral_gap_and_cpu_reference():
+    X, y, weights, ratio = smooth_gate._async_weighted_data()
+    assert ratio > 1.5
+
+    coef, n_iter = fista_solver(
+        QuantileLoss(quantile=smooth_gate.Q),
+        L1Penalty(alpha=smooth_gate.ASYNC_L1_ALPHA),
+        X,
+        y,
+        max_iter=6000,
+        tol=1e-7,
+        sample_weight=weights,
+        cv_mode=False,
+    )
+    objective = smooth_gate._l1_objective(
+        X,
+        y,
+        weights,
+        coef,
+        smooth_gate.ASYNC_L1_ALPHA,
+    )
+
+    assert 1 <= n_iter <= 6000
+    assert np.all(np.isfinite(np.asarray(coef)))
+    assert np.isfinite(objective)
+
+
+def test_pr166_weighted_l1_cv_physical_fixture_converges_on_cpu():
+    X, y, weights, folds = smooth_gate._data()
+    model = smooth_gate._cv(
+        X,
+        y,
+        weights,
+        folds,
+        device="cpu",
+        penalty="l1",
+    )
+
+    assert model.alpha_ in set(smooth_gate.CV_ALPHA_GRID.tolist())
+    scores = np.asarray(
+        model.cv_results_["all_scores"],
+        dtype=np.float64,
+    )
+    assert scores.shape == (2, smooth_gate.CV_ALPHA_GRID.size)
+    assert np.all(np.isfinite(scores))
+    assert model.estimator_._selected_solver == "fista"
+
+
+def test_pr166_public_bootstrap_physical_fixture_converges_on_cpu():
+    X = np.ones((smooth_gate.BOOTSTRAP_N, 1), dtype=np.float64)
+    y = np.linspace(
+        -4.0,
+        4.0,
+        smooth_gate.BOOTSTRAP_N,
+        dtype=np.float64,
+    )
+    model = QuantileRegression(
+        quantile=smooth_gate.BOOTSTRAP_Q,
+        fit_intercept=False,
+        max_iter=1600,
+        tol=1e-7,
+        compute_inference=True,
+        inference_method="bootstrap",
+        n_bootstrap=smooth_gate.BOOTSTRAP_B,
+        random_state=smooth_gate.BOOTSTRAP_SEED,
+        device="cpu",
+    ).fit(X, y)
+
+    assert model._fitted is True
+    assert model._selected_backend_name == "numpy"
+    assert model._selected_backend_device == "cpu"
+    assert 1 <= model.n_iter_ <= model.max_iter
+
+    result = model._inference_result
+    assert result is not None
+    assert result.method == "bootstrap"
+    metadata = result.metadata
+    assert metadata["solver"] == "batched_pinball_fista"
+    assert metadata["numerical_backend"] == "numpy"
+    assert metadata["numerical_device"] == "cpu"
+    assert metadata["reporting_backend"] == "numpy"
+    assert metadata["response_construction"] == "backend_native"
+    assert metadata["resampling_schedule"] == "numpy_generator_control_plane"
+    schedule_hash = metadata["resampling_schedule_sha256"]
+    assert isinstance(schedule_hash, str) and len(schedule_hash) == 64
+    int(schedule_hash, 16)
+    assert 1 <= int(metadata["solver_n_iter"]) <= model.max_iter
+    assert np.all(np.isfinite(np.asarray(result.bse)))
+    assert np.all(np.isfinite(np.asarray(result.pvalues)))
+    assert np.all(np.isfinite(np.asarray(result.conf_int)))
+
+
+def test_canonical_physical_artifact_preserves_exact_source_provenance():
+    """Canonical GPU evidence must retain auditable exact-source provenance."""
+    artifact = (
+        Path(__file__).resolve().parents[1]
+        / "reviews"
+        / "pr164_quantile_solver_provenance_gpu.json"
+    )
+    payload = json.loads(artifact.read_text(encoding="utf-8"))
+
+    assert payload["status"] == "success"
+    assert payload["source_clean"] is True
+    source_sha = payload["source_sha"]
+    assert isinstance(source_sha, str) and len(source_sha) == 40
+    int(source_sha, 16)
+
+    assert payload["source_sha_before"] == source_sha
+    assert payload["source_sha_after_execution"] == source_sha
+    assert payload["source_clean_before"] is True
+    assert payload["source_clean_after_execution"] is True
+
+    wrapper = "dev/benchmarks/run_quantile_solver_provenance_gpu_gate.py"
+    if "evidence_wrapper" in payload:
+        assert payload["evidence_wrapper"] == wrapper
+    else:
+        assert payload["evidence_wrapper_contract"] == wrapper
+        assert payload["evidence_wrapper_executed"] is False
+        metadata = payload["evidence_metadata"]
+        assert metadata["kind"] == "canonical_provenance_repair"
+        assert metadata["physical_rerun_required_for_metadata_repair"] is False
 
 
 def test_physical_fixture_public_fit_matches_direct_cv_scores():

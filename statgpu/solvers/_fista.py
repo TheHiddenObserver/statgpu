@@ -22,6 +22,9 @@ from statgpu.backends._array_ops import (
     _sum_sq_dev,
     _sync_scalars,
     _zeros,
+    _max_eigval_power,
+    _psd_spectral_upper_bound,
+    _xp_asarray,
 )
 from ._convergence import ConvergenceWarning
 from ._constants import (
@@ -42,6 +45,29 @@ from ._utils import (
     _abs_mean_max,
     _tracking_penalty_value,
 )
+
+
+def _weighted_gram_lipschitz(XtWX, loss=None):
+    """Return the loss-consistent safe step scale for a weighted Gram matrix."""
+    scale = _psd_spectral_upper_bound(XtWX)
+    if str(getattr(loss, "name", "") or "").lower() == "quantile":
+        tau = float(getattr(loss, "_tau", getattr(loss, "quantile", 0.5)))
+        scale *= max(tau, 1.0 - tau)
+    return scale
+
+
+def _sample_weight_dtype_for_design(X, backend):
+    """Preserve fractional analytic weights for integral/boolean designs."""
+    dtype = getattr(X, "dtype", None)
+    if backend == "torch":
+        import torch
+
+        return dtype if getattr(dtype, "is_floating_point", False) else torch.float64
+    try:
+        kind = np.dtype(dtype).kind
+    except (TypeError, ValueError):
+        kind = "f"
+    return dtype if kind in "fc" else np.float64
 
 
 def fista_solver(
@@ -91,6 +117,32 @@ def fista_solver(
         Number of iterations.
     """
     backend = _resolve_backend("auto", X)
+
+    # QuantileLoss.preprocess() is intentionally a no-op. Normalize its public
+    # low-level inputs here so mixed host/device responses follow X and
+    # integral/bool designs do not perform Gram/Lipschitz arithmetic in an
+    # integer dtype. Preserve existing floating design dtypes.
+    if str(getattr(loss, "name", "") or "").lower() == "quantile":
+        xp = _get_xp(backend)
+        if backend == "torch":
+            import torch
+            target_dtype = (
+                X.dtype
+                if torch.is_tensor(X) and torch.is_floating_point(X)
+                else torch.float64
+            )
+        else:
+            dtype = getattr(X, "dtype", None)
+            if dtype is None and backend == "numpy":
+                dtype = np.asarray(X).dtype
+            try:
+                design_kind = np.dtype(dtype).kind
+            except (TypeError, ValueError):
+                design_kind = "f"
+            target_dtype = dtype if design_kind in "fc" else xp.float64
+        X = _xp_asarray(X, target_dtype, X)
+        y = _xp_asarray(y, target_dtype, X)
+
     X_proc, y_proc = loss.preprocess(X, y)
     # Validate before any weighted Lipschitz or matrix operation so direct
     # solver callers receive the public contract error rather than a backend
@@ -138,13 +190,15 @@ def fista_solver(
             # Weighted Lipschitz: eigenvalue of X' diag(w) X / sum(w)
             _xp_mod = _get_xp(backend)
             # Ensure sample_weight is on same backend/device as X_proc
-            _sw = _xp_mod.asarray(sample_weight, dtype=X_proc.dtype)
-            if hasattr(X_proc, 'device') and hasattr(_sw, 'to'):
-                _sw = _sw.to(device=X_proc.device)
+            _sw = _xp_asarray(
+                sample_weight,
+                _sample_weight_dtype_for_design(X_proc, backend),
+                X_proc,
+            )
             sw_sum = _to_float_scalar(_xp_mod.sum(_sw))
             sw_col = _sw[:, None] if _sw.ndim == 1 else _sw
             XtWX = X_proc.T @ (X_proc * sw_col) / sw_sum
-            L = _to_float_scalar(_xp_mod.max(_xp_mod.diag(XtWX)))  # conservative bound
+            L = _weighted_gram_lipschitz(XtWX, loss=loss)
             if L <= 0:
                 L = 1.0
             # Cache for periodic recomputation in the loop (X and weights are constant)
@@ -214,9 +268,11 @@ def fista_solver(
     _sw_arr = None
     if sample_weight is not None:
         _xp_mod = _get_xp(backend)
-        _sw_arr = _xp_mod.asarray(sample_weight, dtype=X_proc.dtype)
-        if hasattr(X_proc, "device") and hasattr(_sw_arr, "to"):
-            _sw_arr = _sw_arr.to(device=X_proc.device)
+        _sw_arr = _xp_asarray(
+            sample_weight,
+            _sample_weight_dtype_for_design(X_proc, backend),
+            X_proc,
+        )
 
     # Gram matrix optimization for squared_error on async GPU path only.
     # Precompute X'X/n and X'y/n to avoid redundant X@coef per iteration.
@@ -230,6 +286,8 @@ def fista_solver(
         Xty = None
 
     iteration = -1  # default if max_iter=0
+    converged = False
+    line_search_failed = False
 
     for iteration in range(max_iter):
         coef_old = _copy_arr(coef)
@@ -259,6 +317,7 @@ def fista_solver(
             # call in the worst case) while matching CPU path behavior.
             w_tilde = y_k - step * grad
             coef = penalty.proximal(w_tilde, step, backend=backend)
+            _conv_dev = _abs_sum_dev(coef - coef_old)
 
             # GPU path: single proximal step (no backtracking).
             # Backtracking on GPU requires loss.value() + GPU→CPU sync per
@@ -273,8 +332,12 @@ def fista_solver(
                     _obj_dev = loss.value(X_proc, y_proc, coef, sample_weight=_sw_arr)
                 else:
                     _obj_dev = loss.value(X_proc, y_proc, coef)
-                # Single D2H transfer: extract float, then check finiteness.
-                _obj_val_f = float(_to_numpy(_obj_dev))
+                # One batched sync: objective and coefficient change.
+                _obj_val_f, _conv_f = _sync_scalars(
+                    _obj_dev,
+                    _conv_dev,
+                    backend=backend,
+                )
                 _all_finite = np.isfinite(_obj_val_f)
                 if not _all_finite:
                     if _coef_best_fista is not None:
@@ -290,24 +353,38 @@ def fista_solver(
                 if _obj_val_f < _obj_best_fista:
                     _obj_best_fista = _obj_val_f
                     _coef_best_fista = _copy_arr(coef)
-                # Convergence check for quadratic losses on GPU:
-                # objective stability (adaptive penalties oscillate in coef space)
-                if _is_quadratic and iteration > 20:
-                    if abs(_obj_val_f - _obj_prev_f) < tol * max(abs(_obj_val_f), 1.0):
-                        _obj_stable_count += 1
-                        if _obj_stable_count >= 5:
-                            break
-                    else:
-                        _obj_stable_count = 0
-                    _obj_prev_f = _obj_val_f
+                # Convergence applies to every async loss family.  The
+                # previous implementation updated this state only for quadratic
+                # losses, so non-quadratic sparse CV always exhausted max_iter.
+                if _conv_f < tol:
+                    converged = True
+                    break
+                if (
+                    iteration > 20
+                    and abs(_obj_val_f - _obj_prev_f)
+                    < tol * max(abs(_obj_val_f), 1.0)
+                ):
+                    _obj_stable_count += 1
+                    if _obj_stable_count >= 5:
+                        converged = True
+                        break
+                else:
+                    _obj_stable_count = 0
+                _obj_prev_f = _obj_val_f
                 # Periodic Lipschitz recomputation (piggyback on same sync)
                 # Skip for quadratic losses -- Lipschitz is constant (spectral norm of X^T X).
                 # Interval matches CPU path for trajectory consistency.
-                if not _is_quadratic and iteration % _lip_interval == 0:
+                if (
+                    not _is_quadratic
+                    and not getattr(loss, "_lipschitz_static", False)
+                    and iteration % _lip_interval == 0
+                ):
                     if sample_weight is not None and _cached_XtWX_weighted is not None:
                         # Use cached weighted Gram matrix (X and weights are constant)
-                        _xp_lip = _get_xp(backend)
-                        L_new = _to_float_scalar(_xp_lip.max(_xp_lip.diag(_cached_XtWX_weighted)))
+                        L_new = _weighted_gram_lipschitz(
+                            _cached_XtWX_weighted,
+                            loss=loss,
+                        )
                     else:
                         L_new = loss.lipschitz(X_proc, coef, y=y_proc)
                     if L_new > 0:
@@ -355,6 +432,16 @@ def fista_solver(
                 L *= 1.5
                 step = 1.0 / L
 
+            if not _bt_accepted:
+                # Never publish an unverified backtracking trial.  Match the
+                # maintained Newton-family failure semantics: restore the last
+                # accepted iterate, stop, and make the line-search failure
+                # visible to the caller.
+                coef = _copy_arr(coef_old)
+                y_k = _copy_arr(coef_old)
+                line_search_failed = True
+                break
+
             coef = coef_new
 
             # ── CPU convergence for quadratic losses ──
@@ -368,10 +455,12 @@ def fista_solver(
                 _conv_dev = _abs_sum_dev(coef - coef_old)
                 _conv_f = float(_conv_dev)
                 if _conv_f < tol:
+                    converged = True
                     break
                 if iteration > 20 and abs(_obj_val_f - _obj_prev_f) < tol * max(abs(_obj_val_f), 1.0):
                     _obj_stable_count += 1
                     if _obj_stable_count >= 5:
+                        converged = True
                         break
                 else:
                     _obj_stable_count = 0
@@ -446,10 +535,12 @@ def fista_solver(
                     # coefficients to oscillate near the optimum, so coef_diff
                     # never reaches tol.  Check objective stability as fallback.
                     if _conv_f < tol:
+                        converged = True
                         break
                     if iteration > 20 and abs(_obj_val_f - _obj_prev_f) < tol * max(abs(_obj_val_f), 1.0):
                         _obj_stable_count += 1
                         if _obj_stable_count >= 5:
+                            converged = True
                             break
                     else:
                         _obj_stable_count = 0
@@ -471,6 +562,7 @@ def fista_solver(
                 elif _do_conv_check:
                     _conv_f = _to_float_scalar(_conv_dev)
                     if _conv_f < tol:
+                        converged = True
                         break
 
                     # Lipschitz recompute (reuse convergence sync)
@@ -517,10 +609,12 @@ def fista_solver(
 
                 # Convergence: coefficient change OR objective stability
                 if _conv_f < tol:
+                    converged = True
                     break
                 if iteration > 20 and abs(_obj_val_f - _obj_prev_f) < tol * max(abs(_obj_val_f), 1.0):
                     _obj_stable_count += 1
                     if _obj_stable_count >= 5:
+                        converged = True
                         break
                 else:
                     _obj_stable_count = 0
@@ -555,7 +649,16 @@ def fista_solver(
         coef = _copy_arr(_coef_best_fista)
 
     n_iter = iteration + 1
-    if n_iter >= max_iter:
+    if line_search_failed:
+        warnings.warn(
+            "fista_solver line search failed to find an acceptable proximal "
+            f"step (loss={getattr(loss, 'name', '?')}, "
+            f"penalty={getattr(penalty, 'name', '?')}); returning an "
+            "accepted iterate (the tracked best accepted iterate when available).",
+            ConvergenceWarning,
+            stacklevel=2,
+        )
+    elif not converged:
         warnings.warn(
             f"fista_solver did not converge within {max_iter} iterations "
             f"(loss={getattr(loss, 'name', '?')}, penalty={getattr(penalty, 'name', '?')}). "

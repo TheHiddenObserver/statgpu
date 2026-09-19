@@ -1,10 +1,10 @@
 """
 Unified cross-validated penalized GLM estimator.
 
-Supports scalar-response GLM losses (squared_error, logistic, poisson, gamma,
-inverse_gaussian, negative_binomial, tweedie) plus a separate survival-aware
-``cox_ph`` path with its supported penalty types
-(l1, l2, elasticnet, scad, mcp).
+Supports scalar-response losses including squared_error, logistic, poisson,
+gamma, inverse_gaussian, negative_binomial, tweedie, quantile, and the
+maintained robust-loss families, plus a separate survival-aware ``cox_ph``
+path with its supported penalty types (l1, l2, elasticnet, scad, mcp).
 
 Optimizations:
 - Warm-start across alpha values (descending order)
@@ -37,6 +37,7 @@ from statgpu.backends._array_ops import (
 from statgpu.backends._utils import _to_float_scalar
 from statgpu.cross_validation._base import (
     CVEstimatorBase,
+    _coerce_cv_indices,
     _cuda_backend_available,
     kfold_indices,
 )
@@ -264,6 +265,64 @@ def _should_build_squared_error_cv_cache(loss_name, penalty_name, solver_name, d
     return not (penalty_name == "l2" and solver_name != "exact")
 
 
+def _validate_scalar_cv_folds(folds, n_samples):
+    """Validate custom scalar-response folds before any CV numerical work."""
+    folds = list(folds)
+    if not folds:
+        raise ValueError("cv_splits must contain at least one fold")
+
+    normalized = []
+    for fold_idx, pair in enumerate(folds):
+        if not isinstance(pair, (tuple, list)) or len(pair) != 2:
+            raise ValueError(
+                f"cv_splits fold {fold_idx} must be a (train, validation) pair"
+            )
+        train = _coerce_cv_indices(pair[0], fold_idx=fold_idx, name="train")
+        validation = _coerce_cv_indices(
+            pair[1], fold_idx=fold_idx, name="validation"
+        )
+        if train.size == 0 or validation.size == 0:
+            raise ValueError("CV train and validation folds must be non-empty")
+        if (
+            np.unique(train).size != train.size
+            or np.unique(validation).size != validation.size
+        ):
+            raise ValueError("CV fold indices must not contain duplicates")
+        if (
+            np.any(train < 0)
+            or np.any(validation < 0)
+            or np.any(train >= n_samples)
+            or np.any(validation >= n_samples)
+        ):
+            raise ValueError("CV fold indices are out of bounds")
+        if np.intersect1d(train, validation).size:
+            raise ValueError("CV train and validation folds must be disjoint")
+        normalized.append((train, validation))
+    return normalized
+
+
+def _validate_cv_fold_weight_mass(sample_weight, folds):
+    """Require positive analytic-weight mass in every train/validation fold."""
+    if sample_weight is None:
+        return
+    for fold_idx, (train_idx, validation_idx) in enumerate(folds):
+        for name, idx in (("train", train_idx), ("validation", validation_idx)):
+            fold_weight = _slice_rows(sample_weight, idx)
+            module = type(fold_weight).__module__
+            if module.startswith("torch"):
+                total = float(fold_weight.sum().item())
+            elif module.startswith("cupy"):
+                total = float(fold_weight.sum().item())
+            else:
+                total = float(np.sum(fold_weight))
+            if not np.isfinite(total) or total <= 0.0:
+                raise ValueError(
+                    "sample_weight must have a finite positive sum in every "
+                    f"CV train and validation fold; fold {fold_idx} {name} "
+                    "weight mass is not positive"
+                )
+
+
 def _slice_rows(arr, idx):
     """Slice rows with backend-native indices when arr lives on GPU."""
     mod = type(arr).__module__
@@ -288,6 +347,90 @@ def _finite_column_mean(scores):
     means = np.full(scores.shape[1], np.nan, dtype=np.float64)
     np.divide(totals, counts, out=means, where=counts > 0)
     return means
+
+
+def _lower_empirical_quantile_numpy(y, tau):
+    """Return the lower empirical Quantile/check-loss intercept minimizer."""
+    y_sorted = np.sort(np.asarray(y, dtype=np.float64), kind="stable")
+    if y_sorted.size == 0:
+        raise ValueError("Quantile response must be non-empty")
+    index = int(np.ceil(float(tau) * y_sorted.size)) - 1
+    index = min(max(index, 0), y_sorted.size - 1)
+    return float(y_sorted[index])
+
+
+def _weighted_lower_quantile_numpy(y, sample_weight, tau):
+    """Deterministic lower weighted empirical quantile for Quantile CV grids."""
+    order = np.argsort(y, kind="stable")
+    y_sorted = np.asarray(y, dtype=np.float64)[order]
+    w_sorted = np.asarray(sample_weight, dtype=np.float64)[order]
+    cumulative = np.cumsum(w_sorted)
+    cutoff = float(tau) * float(np.sum(w_sorted))
+    index = int(np.searchsorted(cumulative, cutoff, side="left"))
+    index = min(index, y_sorted.size - 1)
+    return float(y_sorted[index])
+
+
+def _quantile_zero_score(X, y, tau, sample_weight=None):
+    """Return the objective-aligned slope score at the intercept-only model."""
+    X = np.asarray(X, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64).reshape(-1)
+    n = int(X.shape[0])
+
+    from statgpu.solvers._quantile_continuation import (
+        quantile_balanced_subgradient,
+    )
+
+    if sample_weight is None:
+        intercept = _lower_empirical_quantile_numpy(y, tau)
+        residual = y - intercept
+        psi = quantile_balanced_subgradient(residual, tau)
+        return X.T @ psi / float(n)
+
+    weights = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
+    total = float(np.sum(weights))
+    # Exactly equal weights define the unweighted objective up to scale.
+    if bool(np.all(weights == weights[0])):
+        intercept = _lower_empirical_quantile_numpy(y, tau)
+        residual = y - intercept
+        psi = quantile_balanced_subgradient(residual, tau)
+        return X.T @ psi / float(n)
+
+    intercept = _weighted_lower_quantile_numpy(y, weights, tau)
+    residual = y - intercept
+    psi = quantile_balanced_subgradient(
+        residual,
+        tau,
+        sample_weight=weights,
+    )
+    return X.T @ (weights * psi) / total
+
+
+def _penalty_alpha_max_from_score(score, penalty, penalty_kwargs):
+    """Map a Quantile zero-model score to the penalty's public alpha scale."""
+    penalty_name = str(getattr(penalty, "name", penalty)).lower().strip()
+    needs_object = penalty_name in {
+        "adaptive_l1", "adaptive_lasso",
+        "group_lasso", "gl", "adaptive_group_lasso",
+        "group_scad", "gscad", "group_mcp", "gmcp",
+    }
+
+    penalty_obj = penalty if not isinstance(penalty, str) else None
+    if penalty_obj is None and needs_object and penalty_name != "adaptive_group_lasso":
+        from statgpu.penalties import get_penalty
+
+        kwargs = dict(penalty_kwargs or {})
+        kwargs["alpha"] = 1.0
+        penalty_obj = get_penalty(penalty_name, **kwargs)
+
+    from statgpu.solvers._quantile_continuation import (
+        quantile_penalty_alpha_start,
+    )
+
+    return quantile_penalty_alpha_start(
+        np.asarray(score, dtype=np.float64).reshape(-1),
+        penalty_obj,
+    )
 
 
 def _coerce_scalar_alpha_grid_values(alpha_grid):
@@ -505,8 +648,10 @@ def _weighted_mean(per_sample, sw):
     """Compute weighted or unweighted mean of per-sample values."""
     if sw is not None:
         w_sum = float(np.sum(sw))
-        if w_sum <= 0:
-            return float(np.mean(per_sample))
+        if not np.isfinite(w_sum) or w_sum <= 0.0:
+            raise ValueError(
+                "sample_weight must have a finite positive sum in each CV validation fold"
+            )
         return float(np.dot(sw, per_sample) / w_sum)
     return float(np.mean(per_sample))
 
@@ -2157,6 +2302,11 @@ class PenalizedGLM_CV(CVEstimatorBase):
     uses a survival-specific strict-CV path that preserves the two-column
     target, scores unpenalized held-out partial likelihood, forbids an
     intercept, and refits :class:`PenalizedCoxPHModel`.
+
+    Custom ``cv_splits`` may be a reusable sequence or a one-shot iterator.
+    A one-shot iterator is materialized privately once and reused across
+    repeated fits, scikit-learn cloning, and serialization; the public
+    ``cv_splits`` attribute is not rewritten during fit.
     """
 
     def __init__(
@@ -2181,6 +2331,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
     ):
         super().__init__(cv=cv, random_state=random_state, device=device)
         self.cv_splits = cv_splits
+        self._cv_split_source = None
+        self._cv_split_snapshot = None
         cv_strategy = str(cv_strategy).lower()
         if cv_strategy not in ("strict", "two_stage"):
             raise ValueError(
@@ -2208,6 +2360,57 @@ class PenalizedGLM_CV(CVEstimatorBase):
         self.cv_strategy_ = None
         self.cv_selected_device_ = None
         self._cv_auto_reason_ = None
+
+    @staticmethod
+    def _is_one_shot_cv_splits(value):
+        if value is None:
+            return False
+        try:
+            return iter(value) is value
+        except TypeError:
+            return False
+
+    def _materialize_cv_splits(self):
+        """Materialize a one-shot custom splitter once without rewriting it."""
+        splits = self.cv_splits
+        if splits is None or not self._is_one_shot_cv_splits(splits):
+            return splits
+        if self._cv_split_source is splits and self._cv_split_snapshot is not None:
+            return self._cv_split_snapshot
+        snapshot = list(splits)
+        self._cv_split_source = splits
+        self._cv_split_snapshot = snapshot
+        return snapshot
+
+    def get_params(self, deep=True):
+        """Expose reusable custom folds for cloning without changing public state."""
+        params = super().get_params(deep=deep)
+        if self._is_one_shot_cv_splits(params.get("cv_splits")):
+            params["cv_splits"] = self._materialize_cv_splits()
+        return params
+
+    def __getstate__(self):
+        """Serialize one-shot custom folds as a reusable constructor sequence."""
+        import copy
+
+        state = self.__dict__.copy()
+        raw_params = state.get("_constructor_params_raw")
+        public_one_shot = self._is_one_shot_cv_splits(state.get("cv_splits"))
+        raw_one_shot = (
+            isinstance(raw_params, dict)
+            and self._is_one_shot_cv_splits(raw_params.get("cv_splits"))
+        )
+        if public_one_shot or raw_one_shot:
+            reusable = copy.deepcopy(self._materialize_cv_splits())
+            state["cv_splits"] = reusable
+            if isinstance(raw_params, dict):
+                raw_params = raw_params.copy()
+                raw_params["cv_splits"] = copy.deepcopy(reusable)
+                state["_constructor_params_raw"] = raw_params
+
+        state["_cv_split_source"] = None
+        state["_cv_split_snapshot"] = None
+        return state
 
     def _reset_cv_fit_state(self):
         """Clear fitted selection state before every CV invocation."""
@@ -2329,7 +2532,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
             if normalization <= 0.0:
                 raise ValueError("sample_weight must have a positive sum")
 
-        if self.loss == 'squared_error':
+        loss_name = str(self.loss).lower().strip()
+        if loss_name == 'squared_error':
             if sw_np is None:
                 x_mean = np.mean(X_np, axis=0)
                 y_mean = float(np.mean(y_np))
@@ -2339,7 +2543,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 y_mean = float(np.sum(y_np * sw_np) / normalization)
                 grad = (X_np - x_mean).T @ (sw_np * (y_np - y_mean)) / normalization
             alpha_max = float(np.max(np.abs(grad)))
-        elif self.loss == 'logistic':
+        elif loss_name == 'logistic':
             if sw_np is None:
                 mu_null = float(np.mean(y_np))
                 grad = X_np.T @ (y_np - mu_null) / normalization
@@ -2347,6 +2551,25 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 mu_null = float(np.sum(y_np * sw_np) / normalization)
                 grad = X_np.T @ (sw_np * (y_np - mu_null)) / normalization
             alpha_max = float(np.max(np.abs(grad)))
+        elif loss_name == "quantile":
+            from statgpu.linear_model.penalized._fit_mixin import _resolve_loss_name
+
+            loss_fn = _resolve_loss_name(
+                "quantile",
+                loss_kwargs=getattr(self, "_loss_kwargs", None),
+            )
+            tau = float(getattr(loss_fn, "_tau", getattr(loss_fn, "quantile", 0.5)))
+            score = _quantile_zero_score(
+                X_np,
+                y_np,
+                tau,
+                sample_weight=sw_np,
+            )
+            alpha_max = _penalty_alpha_max_from_score(
+                score,
+                self.penalty,
+                getattr(self, "_penalty_kwargs", None),
+            )
         else:
             try:
                 model = PenalizedGeneralizedLinearModel(
@@ -2372,11 +2595,15 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 )
                 alpha_max = 1.0
 
-        # For elasticnet, the L1 component threshold is alpha*l1_ratio,
-        # so alpha_max should be scaled by 1/l1_ratio
-        if self.penalty == 'elasticnet' and hasattr(self, 'l1_ratio'):
-            _l1r = max(float(self.l1_ratio), 1e-10)
-            alpha_max = alpha_max / _l1r
+        # For ElasticNet, the L1 component threshold is alpha*l1_ratio,
+        # so alpha_max must use the effective penalty object's mixing weight.
+        penalty_name = str(
+            getattr(self.penalty, "name", self.penalty)
+        ).lower().strip()
+        if penalty_name in ("elasticnet", "en"):
+            _l1r = float(getattr(self.penalty, "l1_ratio", self.l1_ratio))
+            if _l1r > 0.0:
+                alpha_max = alpha_max / _l1r
 
         if alpha_max <= 0:
             warnings.warn(
@@ -2527,7 +2754,17 @@ class PenalizedGLM_CV(CVEstimatorBase):
             return self._populate_refit_model(model, coef, intercept, X, refit_device)
 
         can_infer = (self.loss == 'squared_error' and self.penalty == 'l2')
-        penalty_name = str(self.penalty).lower()
+        penalty_name = str(
+            getattr(self.penalty, "name", self.penalty)
+        ).lower().strip()
+        from statgpu.penalties import Penalty
+        refit_penalty = (
+            copy.deepcopy(self.penalty)
+            if isinstance(self.penalty, Penalty)
+            else self.penalty
+        )
+        if isinstance(refit_penalty, Penalty) and hasattr(refit_penalty, "alpha"):
+            refit_penalty.alpha = float(best_alpha)
         alpha_arr = np.asarray([best_alpha], dtype=np.float64)
 
         # Try specialized refit paths (each returns model or None)
@@ -2556,7 +2793,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             path = get_path()
             if path is not None:
                 model = PenalizedGeneralizedLinearModel(
-                    loss=self.loss, penalty=self.penalty, alpha=best_alpha,
+                    loss=self.loss, penalty=refit_penalty, alpha=best_alpha,
                     l1_ratio=self.l1_ratio, device=refit_device,
                     compute_inference=False, max_iter=self._max_iter,
                     tol=self._tol, solver=cv_solver,
@@ -2570,7 +2807,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
 
         # General fallback: model.fit()
         model = PenalizedGeneralizedLinearModel(
-            loss=self.loss, penalty=self.penalty, alpha=best_alpha,
+            loss=self.loss, penalty=refit_penalty, alpha=best_alpha,
             l1_ratio=self.l1_ratio, device=refit_device,
             compute_inference=can_infer, max_iter=self._max_iter,
             tol=self._tol, solver=cv_solver,
@@ -2594,7 +2831,9 @@ class PenalizedGLM_CV(CVEstimatorBase):
         )
 
     def _best_index_from_scores(self, mean_scores, alpha_grid, cv_solver):
-        penalty_name = str(self.penalty).lower()
+        penalty_name = str(
+            getattr(self.penalty, "name", self.penalty)
+        ).lower().strip()
         loss_name = str(self.loss).lower()
         if loss_name == "poisson" and penalty_name in ("l1", "elasticnet", "en"):
             # Poisson sparse CV curves can be nearly flat at the low-alpha end.
@@ -2633,7 +2872,9 @@ class PenalizedGLM_CV(CVEstimatorBase):
 
         alpha_grid = np.asarray(alpha_grid, dtype=np.float64).ravel()
         n_alphas = len(alpha_grid)
-        penalty_name = str(self.penalty).lower()
+        penalty_name = str(
+            getattr(self.penalty, "name", self.penalty)
+        ).lower().strip()
         loss_name = str(self.loss).lower()
         device_name = _device_to_name(cv_device)
         max_iter = int(self._max_iter if max_iter is None else max_iter)
@@ -2701,7 +2942,11 @@ class PenalizedGLM_CV(CVEstimatorBase):
         # path_fn(X_train, y_train, alpha_sorted, ..., X_val, y_val, sw_train, sw_val) -> dict or None
 
         def _cond_scad_mcp(loss_name, penalty_name, cv_solver, strict):
-            return penalty_name in ("scad", "mcp") and (loss_name == "squared_error" or not strict)
+            return (
+                loss_name != "quantile"
+                and penalty_name in ("scad", "mcp")
+                and (loss_name == "squared_error" or not strict)
+            )
 
         def _path_scad_mcp(X_train, y_train, alpha_sorted, penalty_name, l1_ratio,
                            max_iter, tol, cv_device, X_val, y_val, sw_train, sw_val):
@@ -2815,8 +3060,11 @@ class PenalizedGLM_CV(CVEstimatorBase):
         """General per-fold CV path: model.fit() per alpha with warm-start."""
         from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
         from statgpu.linear_model.penalized._fit_mixin import _resolve_loss_name
+        from statgpu.penalties import Penalty
 
-        penalty_name = str(self.penalty).lower()
+        penalty_name = str(
+            getattr(self.penalty, "name", self.penalty)
+        ).lower().strip()
         device_name = _device_to_name(cv_device)
 
         X_val_np = _to_numpy(X_val).astype(np.float64)
@@ -2827,7 +3075,9 @@ class PenalizedGLM_CV(CVEstimatorBase):
         # For SCAD/MCP on non-squared-error: use LLA path CV instead of warm-start.
         use_warm_start = True
         use_lla_path_cv = (
-            not strict and loss_name != "squared_error" and penalty_name in ("scad", "mcp")
+            not strict
+            and loss_name not in ("squared_error", "quantile")
+            and penalty_name in ("scad", "mcp")
         )
 
         # Transfer to GPU if needed
@@ -2851,8 +3101,15 @@ class PenalizedGLM_CV(CVEstimatorBase):
         else:
             cv_cache, L_np = None, None
 
+        child_penalty = (
+            copy.deepcopy(self.penalty)
+            if isinstance(self.penalty, Penalty)
+            else self.penalty
+        )
+        if isinstance(child_penalty, Penalty) and hasattr(child_penalty, "alpha"):
+            child_penalty.alpha = float(alpha_sorted[0])
         model = PenalizedGeneralizedLinearModel(
-            loss=loss_name, penalty=self.penalty, alpha=alpha_sorted[0],
+            loss=loss_name, penalty=child_penalty, alpha=alpha_sorted[0],
             l1_ratio=self.l1_ratio, device=cv_device, compute_inference=False,
             max_iter=max_iter, tol=tol, solver=cv_solver,
             loss_kwargs=getattr(self, '_loss_kwargs', None),
@@ -2868,6 +3125,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
         if use_lla_path_cv:
             try:
                 model.alpha = float(alpha_sorted[-1])
+                if isinstance(model.penalty, Penalty) and hasattr(model.penalty, "alpha"):
+                    model.penalty.alpha = float(alpha_sorted[-1])
                 if hasattr(model, "_penalty") and model._penalty is not None:
                     model._penalty.alpha = float(alpha_sorted[-1])
                 model._cv_alpha_path = np.asarray(alpha_sorted, dtype=np.float64)
@@ -2911,6 +3170,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 if cv_cache is not None:
                     model._cv_cache = cv_cache
                 model.alpha = alpha
+                if isinstance(model.penalty, Penalty) and hasattr(model.penalty, "alpha"):
+                    model.penalty.alpha = float(alpha)
                 if hasattr(model, "_penalty") and model._penalty is not None:
                     model._penalty.alpha = alpha
                 if use_warm_start and prev_coef is not None:
@@ -2919,7 +3180,11 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 else:
                     model._init_coef = None
                     model._init_intercept = None
-                model.fit(X_train_fit, y_train_fit, sample_weight=sw_train_fit)
+                model.fit(
+                    X_train_fit,
+                    y_train_fit,
+                    sample_weight=sw_train_fit,
+                )
 
                 coef_np = _to_numpy(model.coef_).ravel()
                 intercept = float(model.intercept_)
@@ -3030,30 +3295,42 @@ class PenalizedGLM_CV(CVEstimatorBase):
         penalty_name = str(
             getattr(self.penalty, "name", self.penalty)
         ).lower().strip()
+        if penalty_name in ("none", "null", ""):
+            raise ValueError(
+                "penalty='none' is non-tunable in PenalizedGLM_CV; "
+                "use the corresponding direct estimator for an unpenalized fit."
+            )
+        # Preserve the historical pure-validation precedence for an explicit
+        # grid. Only automatic grid generation does auxiliary numerical work.
         alpha_grid = None
         if self._alpha_grid_input is not None:
             alpha_grid = _normalize_scalar_alpha_grid(
                 self._alpha_grid_input,
                 penalty_name=penalty_name,
             )
+            if alpha_grid is not None:
+                alpha_grid = _validate_final_scalar_alpha_grid(alpha_grid)
+
+        # Resolve and validate fold structure before automatic alpha-grid work.
+        # Invalid custom folds, impossible cv counts, and zero fold weight mass
+        # are public input errors and must fail before any auxiliary numerical
+        # score/fit used only to size the candidate grid.
+        n_samples = X.shape[0]
+        if self.cv_splits is not None:
+            effective_splits = self._materialize_cv_splits()
+            folds = _validate_scalar_cv_folds(effective_splits, n_samples)
+        else:
+            folds = kfold_indices(n_samples, self._cv, self.random_state)
+        _validate_cv_fold_weight_mass(sample_weight, folds)
+
         if alpha_grid is None:
             alpha_grid = self._generate_alpha_grid(
                 X, y, sample_weight=sample_weight
             )
-        alpha_grid = _validate_final_scalar_alpha_grid(alpha_grid)
+            alpha_grid = _validate_final_scalar_alpha_grid(alpha_grid)
 
         self.alpha_grid_ = alpha_grid
-        n_samples = X.shape[0]
         n_alphas = len(alpha_grid)
-        if self.cv_splits is not None:
-            # Normalize to list (generators would exhaust on first pass).
-            folds = (
-                list(self.cv_splits)
-                if not isinstance(self.cv_splits, list)
-                else self.cv_splits
-            )
-        else:
-            folds = kfold_indices(n_samples, self._cv, self.random_state)
         cv_device = self._effective_cv_device(
             X, penalty_name, n_alphas, n_folds=len(folds)
         )
@@ -3109,16 +3386,58 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 tol=self._tol,
                 strict=True,
             )
-            all_scores = np.array(all_scores_stage1, copy=True)
-            all_scores[:, refined_mask] = refined_scores
-            mean_scores = _finite_column_mean(all_scores)
             refined_mean = _finite_column_mean(refined_scores)
-            refined_best = self._best_index_from_scores(
-                refined_mean,
-                refined_alpha_grid,
-                cv_solver,
-            )
-            best_idx = int(np.flatnonzero(refined_mask)[refined_best])
+            if (
+                not np.any(np.isfinite(refined_mean))
+                and not np.all(refined_mask)
+            ):
+                warnings.warn(
+                    "Two-stage strict refinement produced no finite candidate; "
+                    "retrying the full alpha grid with strict solves.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+                refined_mask[:] = True
+                refined_alpha_grid = alpha_grid
+                refined_scores = self._compute_cv_scores(
+                    X,
+                    y,
+                    refined_alpha_grid,
+                    cv_device,
+                    folds,
+                    sample_weight=sample_weight,
+                    max_iter=self._max_iter,
+                    tol=self._tol,
+                    strict=True,
+                )
+                all_scores = np.array(refined_scores, copy=True)
+                mean_scores = _finite_column_mean(all_scores)
+                refined_mean = mean_scores
+                refined_best = self._best_index_from_scores(
+                    refined_mean,
+                    refined_alpha_grid,
+                    cv_solver,
+                )
+                best_idx = int(refined_best)
+            elif not np.any(np.isfinite(refined_mean)):
+                all_scores = np.array(refined_scores, copy=True)
+                mean_scores = refined_mean
+                refined_best = self._best_index_from_scores(
+                    refined_mean,
+                    refined_alpha_grid,
+                    cv_solver,
+                )
+                best_idx = int(refined_best)
+            else:
+                all_scores = np.array(all_scores_stage1, copy=True)
+                all_scores[:, refined_mask] = refined_scores
+                mean_scores = _finite_column_mean(all_scores)
+                refined_best = self._best_index_from_scores(
+                    refined_mean,
+                    refined_alpha_grid,
+                    cv_solver,
+                )
+                best_idx = int(np.flatnonzero(refined_mask)[refined_best])
         else:
             all_scores = self._compute_cv_scores(
                 X,
@@ -3200,12 +3519,14 @@ class PenalizedGLM_CV(CVEstimatorBase):
     def score(self, X, y, sample_weight=None):
         """Return the score on the given data.
 
-        For squared_error loss, returns R². For GLM losses, returns
-        the deviance-based pseudo-R² (1 - deviance/null_deviance). For
-        ``cox_ph``, delegates to the final penalized Cox concordance score.
+        For scalar-response fits, delegates to the refit estimator's
+        response-scale R² score. This includes Quantile CV; it does not return
+        pinball loss or a deviance pseudo-R². For ``cox_ph``, delegates to
+        the final penalized Cox concordance score.
 
         Note: ``best_score_`` is negative CV loss (sklearn convention),
-        while ``score()`` returns R² or accuracy. These are different metrics.
+        while scalar ``score()`` returns response-scale R². These are
+        different metrics.
         """
         if not getattr(self, '_fitted', False):
             raise RuntimeError("PenalizedGLM_CV is not fitted yet. Call fit() first.")

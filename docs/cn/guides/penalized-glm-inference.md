@@ -1,20 +1,23 @@
 # 惩罚 GLM 推断
 
 > 语言：中文  
-> 状态：目标版本为 0.2.6；当前已发布版本仍是 0.2.5。  
+> 最后更新：2026-09-17  
+> 页面定位：系数推断的统计目标与公开支持行为  
 > 切换：[English](../../en/guides/penalized-glm-inference.md)
 
 ## 这个接口表达什么
 
-`PenalizedGeneralizedLinearModel` 与各 typed penalized GLM wrapper 通过 `compute_inference`、`inference_method` 和 `cov_type` 暴露系数推断。接口明确区分 **用户请求的方法**、**statgpu 解析得到的方法** 与 **结果实际报告的方法**。
+`PenalizedGeneralizedLinearModel` 与各类带类型的惩罚 GLM 封装器通过 `compute_inference`、`inference_method` 和 `cov_type` 提供系数推断。
 
-对于 generic / typed penalized-GLM 接口，推荐默认值为：
+对于通用接口，通常可以先从
 
 ```python
 inference_method="auto"
 ```
 
-成功完成推断的拟合会发布：
+开始。
+
+成功完成推断后，模型会区分调用者请求的方法与最终实际解析得到的方法。相关已拟合属性包括：
 
 - `inference_requested_method_`；
 - `inference_resolved_method_`；
@@ -23,65 +26,65 @@ inference_method="auto"
 - `penalty_conditioning_`；
 - `penalty_selection_adjusted_`。
 
-相同 provenance 也会写入 `_inference_result.metadata`，并在适用时记录实际 numerical backend/device。
+这些字段用于说明报告的不确定性究竟对应哪个统计参数，尤其适用于带惩罚拟合或经过 CV 选择之后的结果。
 
-## 支持矩阵
+## 支持概览
 
-| loss / penalty | 支持的推断 | `auto` 解析 |
+| 损失函数 / 惩罚项 | 支持的推断 | `auto` 行为 |
 |---|---|---|
-| squared error + L2/无惩罚 | 既有 Gaussian classical/robust covariance | `cov_type="nonrobust"` 时为 `classical`，否则走既有 Gaussian sandwich 路径 |
-| squared error + L1/ElasticNet | debiased inference；既有 `post_selection_ols` contract | `debiased` |
-| smooth non-Gaussian GLM + L2/无惩罚 | 固定惩罚 M-estimation | `m_estimation` |
-| Gaussian L1/ElasticNet/SCAD/MCP | 显式请求时可用 NumPy/CuPy/Torch 三后端的无权重 residual bootstrap | 不自动选择 |
-| SCAD/MCP scalar GLM family | 显式请求的 active-set oracle refit | 不自动选择 |
-| non-Gaussian L1/ElasticNet | 未实现 | fail closed |
-| group penalties | 仅估计 | fail closed |
-| `PenalizedCoxPHModel` / `PenalizedGLM_CV` 的 Cox 分支 | 仅估计 | fail closed |
+| 平方误差 + L2/无惩罚 | Gaussian 经典/稳健协方差 | 按 `cov_type` 使用经典或 Gaussian 稳健协方差 |
+| 平方误差 + L1/ElasticNet | 去偏推断；显式请求时可用 `post_selection_ols` | `debiased` |
+| 光滑非 Gaussian GLM + L2/无惩罚 | 固定惩罚 M-估计 | `m_estimation` |
+| 受支持的 Gaussian 惩罚模型 | 显式请求残差自助法 | 不自动选择 |
+| 受支持的 SCAD/MCP 标量 GLM | 显式请求活跃集上的 oracle 重拟合 | 不自动选择 |
+| 非 Gaussian L1/ElasticNet | 未实现系数推断 | 请求会报错 |
+| 分组惩罚 | 仅估计 | 请求推断会报错 |
+| `PenalizedCoxPHModel` / `PenalizedGLM_CV` 的 Cox 分支 | 仅估计 | 请求推断会报错 |
 
-历史的 `cpu_ols` / `gpu_ols` 拼写继续保留既有的一周期迁移，仅在 sparse Gaussian 模型中映射到 `post_selection_ols`。它们不再承担执行硬件选择含义。
+稀疏 Gaussian 模型中的 `debiased`、`post_selection_ols` 等方法如何选择与解释，见 [推断模式](inference-modes.md)。
 
-对于 L2/无惩罚模型，显式 `inference_method="debiased"` 暂时作为 deprecated compatibility spelling 接受。它会发出 warning，并解析到该模型真正使用的推断方法；L2 推断并不是 debiased-Lasso 推断。
+## 固定惩罚 M-估计
 
-## 固定惩罚 M-estimation
+对于受支持的光滑非 Gaussian L2 / 无惩罚拟合，statgpu 把已拟合系数看作给定惩罚强度下估计方程的解。
 
-对于受支持的 non-Gaussian smooth L2/无惩罚拟合，statgpu 将拟合系数视作 penalized estimating equation 的解。正 L2 penalty 时会报告：
+当 L2 惩罚强度为正时，会报告：
 
 ```text
 inference_target_ = "penalized_estimating_equation"
 penalty_conditioning_ = "fixed_penalty"
 ```
 
-若 `alpha=0`，则目标是普通的未惩罚 population coefficient。
+无惩罚拟合（`alpha=0` 或对应的无惩罚配置）的推断目标是普通的无惩罚总体参数。
 
-数值引擎采用 average-loss 标度。记单样本 score contribution 为 `psi_i`，average Hessian 为 `H`，L2 curvature 为 `P''`，则 HC0/HC1 covariance 可以写成原始观测 average scale 下的形式
+记单个观测的得分贡献为 $\psi_i$，平均 Hessian 为 $H$，L2 曲率为 $P''$，平均得分外积为 $J$，则 HC0/HC1 协方差具有形式
 
 $$
 \widehat{\mathrm{Var}}(\hat\beta)
 =
-(H+P'')^{-1} J (H+P'')^{-1}/n,
+(H+P'')^{-1}J(H+P'')^{-1}/n.
 $$
 
-其中 `J` 是对应权重约定下的 average score outer product，`n` 是原始观测行数。`cov_type="nonrobust"` 使用 model-based penalized-information covariance。下文所述 weighted Newton/L-BFGS 路径会在 covariance 计算前显式把 analytic weights 放到这一原始观测 scale 上；其他 solver 路径保留各自既有的 weighting contract。
+`cov_type="nonrobust"` 使用基于模型的惩罚信息矩阵协方差。
 
-该 non-Gaussian 路径当前支持：
+当前非 Gaussian 固定惩罚路径支持：
 
 - `nonrobust`；
 - `hc0`；
 - `hc1`。
 
-HC2、HC3 与 HAC 尚未为 penalized non-Gaussian M-estimation 实现，会明确报错。
+HC2、HC3 与 HAC 在该路径上不可用，请求时会报错。
 
-## Analytic weights
+## 解析权重
 
-non-Gaussian L2 M-estimation covariance 支持 analytic weights，并且 numerical inference 跟随实际执行拟合的 backend/device。
-
-对于显式 `solver="newton"` 或 `solver="lbfgs"`，以及 public `solver="auto"` 最终解析到这两个 solver 的行，维护中的 smooth GLM 路径会把非均匀 analytic weights 贯穿**同一个归一化 average-loss objective 的整个求解过程**。objective value、gradient、适用时的 Hessian、line-search trial evaluation 与 accepted-point derivative 都使用
+当所选光滑 GLM 求解器支持解析 `sample_weight` 时，整个拟合使用同一个归一化带权目标：
 
 $$
+L_w(\beta)
+=
 \frac{\sum_i w_i\,\ell_i(\beta)}{\sum_i w_i}.
 $$
 
-在这些 Newton/L-BFGS 路径中，analytic weights 表示**观测的相对重要性**，而不是重复观测次数的 frequency weights。成功求解后会保留数值目标实际使用的 prepared relative-weight 向量；M-estimation covariance 计算前，再把同一向量等价地缩放成 mean-one 表示：
+对应的 M-估计采用相同的相对权重解释。计算协方差时，可以把权重等价地归一化到均值为 1 的尺度：
 
 $$
 \widetilde w_i
@@ -91,72 +94,82 @@ $$
 \sum_i \widetilde w_i=n.
 $$
 
-这一共同缩放不会改变 weighted Hessian。HC0/HC1 的 `J` 使用同一 prepared analytic-weight identity；`nonrobust` 的 model-based information 与 dispersion 使用 mean-one 表示。因此在维护中的 weighted Newton/L-BFGS M-estimation 路径上，把全部 analytic weights 乘以任意正常数，不会在数值求解容差之外改变拟合参数、标准误、检验统计量、p-value 或 confidence interval。所有权重为同一正常数时，推断退化为与省略权重相同的问题。这个语义与 frequency-weight 模型有意区分；后者若把所有计数同时放大，表示的是更大的复制样本量。
+因此，把所有正的解析权重同时乘上一个常数，不会改变统计目标和推断目标；数值结果只会受到求解器容差范围内有限精度误差的影响。
 
-满足历史 effectively-uniform 判定的浮点权重向量继续走既有的 unweighted-equivalent Newton/L-BFGS 路径。这个 explicit smooth contract 之外的 solver 路径保留其已有 weighting semantics，而不会在这里被静默重新解释。
+这里的权重是**解析权重 / 相对重要性权重**，不是频数权重；把全部权重统一放大，并不等价于复制观测从而增大样本量。
 
-公开 `solver="auto"` 时，weighted smooth non-Gaussian L2/无惩罚拟合与对应的 unweighted 拟合使用同一套 canonical solver dispatch。适用的 logistic/Poisson 行会解析到 backend-native Newton，而公开的 solver 请求仍保持 `auto`。
+如果某个损失函数没有定义所请求的带权拟合，真正的非均匀权重会被拒绝，而不是被静默丢弃。
 
-显式指定 solver 时仍以用户请求为准，不会被静默替换。对于统计 contract 本身不定义 sample weighting 的 loss（例如 Cox），真正的非均匀权重仍会明确报错，而不是被静默丢弃。
+## 求解器选择与权重
 
-## Backend / device provenance
+受支持的显式求解器请求保持权威。对于光滑非 Gaussian L2 / 无惩罚路径，Newton 与 L-BFGS 在支持解析权重时使用上面的带权目标。
 
-受支持的 non-Gaussian M-estimation 会在拟合实际选择的 backend 上完成 covariance/statistic/p-value/CI 数值计算：
+`solver="auto"` 则继续遵循模型本身的正常求解器分发规则。用户的公开请求仍然是 `auto`；推断描述的是实际成功拟合出的模型，而不会为了推断单独换成无关的求解算法。
 
-- CPU 上的 NumPy；
-- 拟合记录的具体 CUDA device 上的 CuPy；
-- 拟合记录的具体 Torch device 上的 Torch。
+求解器兼容性见 [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md)。
 
-显式 `device="cuda"` 或 `device="torch"` 不会静默改为 NumPy inference。只有在 numerical inference 完成后，较小的报告数组才允许 snapshot 到 NumPy。结果 metadata 会记录 `numerical_backend`、`numerical_device`、`reporting_backend` 与 reporting boundary。
+## 后端与设备行为
 
-## Residual bootstrap 的范围
+受支持的非 Gaussian M-估计会在拟合实际使用的后端和设备上完成协方差、统计量、p 值与置信区间的数值计算。
 
-`inference_method="bootstrap"` **不是通用 GLM bootstrap**。它只用于受支持的 Gaussian penalized model，并保持拟合设计矩阵与 tuning 配置固定。
+显式 `device="cuda"` 或 `device="torch"` 请求不会被静默替换成 NumPy 推断。数值推断完成后，小型结果数组可以转换为 NumPy；这个用于结果整理的边界不会改变数值程序实际运行的位置。
 
-每一次 bootstrap draw 中，statgpu 会：
+部分推断方法支持的后端范围比基础估计器更窄。例如，当前 SCAD/MCP 的 oracle 重拟合只支持 CPU；GPU 拟合后请求这一方法会报错，而不会把 CPU 计算结果描述成原生 GPU 推断。
 
-1. 根据已拟合的 Gaussian 模型计算 `y_hat` 与 residual；
-2. 对 residual 做有放回抽样；
-3. 构造 `y_star = y_hat + residual_star`；
-4. 使用同一个 `alpha`、penalty family、ElasticNet mixing / penalty options、intercept 约定、solver/stopping controls 与 SCAD/MCP LLA controls 重新拟合；
-5. 用 bootstrap 系数分布计算标准误、基于符号的双侧 p-value 与 percentile confidence interval。
+## 残差自助法的范围
 
-需要可复现的抽样时请设置 `bootstrap_random_state`；`n_bootstrap` 控制重拟合次数，并且至少为 2。
+`inference_method="bootstrap"` 指的是 Gaussian 惩罚模型的残差自助法，而不是通用 GLM 自助法。
 
-bootstrap refit 会跟随父模型成功拟合时实际使用的 backend 与 concrete device：CPU 拟合继续使用 NumPy；CuPy 或 Torch CUDA 拟合会把 bootstrap response 与数值 refit 留在同一 GPU device 上。GPU 只改变**在哪里计算**，不会改变统计 procedure。最终 reporting arrays 仍遵循统一的 NumPy reporting boundary。
+每次重抽样中，statgpu 会：
 
-该方法要求 `sample_weight=None` 且 `cov_type="nonrobust"`。weighted residual bootstrap、robust/HC 或 HAC/block bootstrap、non-Gaussian bootstrap 与 Cox bootstrap 都没有由这个接口定义；对应请求会明确失败，而不是自动猜测 resampling scheme。
+1. 根据已拟合 Gaussian 模型计算拟合值与残差；
+2. 对残差进行有放回抽样；
+3. 构造新的自助法响应变量；
+4. 使用相同的调参配置重新拟合同一个惩罚模型；
+5. 汇总自助法样本形成的系数分布。
 
-这些区间反映的是 fixed-design、fixed-tuning residual-bootstrap 下 penalized estimator 的抽样波动，不应解释成一般的 selective-inference confidence interval，也不会自动校正变量选择不确定性。
+需要可复现抽样时设置 `bootstrap_random_state`。`n_bootstrap` 控制重拟合次数，并且至少为 2。
 
-## SCAD/MCP oracle 边界
+当前残差自助法路径要求：
 
-`inference_method="oracle"` 必须显式请求，因为它条件于已选择的 active set；`auto` 不会静默选择 oracle。当前 oracle implementation 使用 CPU active-set refit，因此实际在 CuPy/Torch 上完成拟合后请求 oracle inference 会明确失败，而不会伪装成 backend-native oracle inference。
+- `sample_weight=None`；
+- `cov_type="nonrobust"`。
 
-## Cross-validation
+带权残差自助法、稳健/HC 自助法、HAC/分块自助法、非 Gaussian 自助法与 Cox 自助法都不由这一接口提供。
 
-`PenalizedGLM_CV` 增加以下控制项：
+这些区间描述的是固定设计、固定调参配置下的残差自助法过程；它们不是一般意义上的选择后推断区间，也不会自动校正调参或变量选择带来的额外不确定性。
 
-```python
-PenalizedGLM_CV(
-    ...,
-    compute_inference=False,
-    inference_method="auto",
-    cov_type="nonrobust",
-    hac_maxlags=None,
-)
+## SCAD/MCP oracle 推断
+
+`inference_method="oracle"` 必须显式请求，因为它以惩罚拟合已经选出的活跃集为条件。`auto` 不会静默采用这种解释。
+
+在支持范围内，该程序会在所选活跃集上进行不含原非凸惩罚的重拟合，并对这一条件重拟合报告不确定性。请求前应检查相应模型和后端的支持范围。
+
+## 交叉验证
+
+`PenalizedGLM_CV` 把调参和系数推断分成两个阶段：
+
+```text
+在各数据折和候选参数上拟合
+    -> 选择 alpha
+    -> 在全部观测上重拟合所选模型
+    -> 只对最终重拟合执行一次推断
 ```
 
-fold/path/grid 拟合始终保持 estimation-only。如果请求 inference，statgpu 先完成 `alpha` 选择，然后只在全数据 selected-penalty final refit 上运行一次推断。成功的 CV inference 会报告：
+成功完成推断的 CV 拟合会报告类似：
 
 ```text
 penalty_conditioning_ = "cv_selected_penalty"
 penalty_selection_adjusted_ = False
 ```
 
-因此标准误、p-value 与 confidence interval **条件于 CV 选出的 penalty**，并没有校正 tuning-selection uncertainty。对于 residual bootstrap，只有在 CV 选定 `alpha` 之后才开始 resampling；fold 与 candidate fit 本身不会做 bootstrap。
+因此，标准误、p 值和置信区间都是**以 CV 已经选择的惩罚强度为条件**的，并不会自动调整调参选择带来的额外不确定性。
 
-Cox 分支仍保持 estimation-only。
+对于残差自助法，只有 CV 选定调参值后才开始重抽样；候选项选择过程本身不会进行自助法重抽样。
+
+Cox 分支仍然只提供估计，不提供这一系数推断接口。
+
+一般的选择与最终重拟合约定见 [交叉验证](cross-validation.md)。
 
 ## 示例
 
@@ -175,13 +188,18 @@ model.fit(X, y, sample_weight=w)
 
 print(model.inference_requested_method_)  # auto
 print(model.inference_resolved_method_)   # m_estimation
-print(model.inference_method_)            # m_estimation
 print(model.inference_target_)            # penalized_estimating_equation
-print(model._bse)
-print(model._pvalues)
+print(model.summary())
 ```
 
-对于 sparse non-Gaussian L1/ElasticNet，目前没有提供系数推断方法；应使用 `compute_inference=False`，而不是期待 Gaussian 的 debiasing 或 bootstrap 规则自动套用到其他 family。
+对于稀疏的非 Gaussian L1/ElasticNet，目前没有提供系数推断；应使用 `compute_inference=False`，而不要假定 Gaussian 模型的去偏或自助法程序会自动适用于其他分布族。
+
+## 相关文档
+
+- [推断模式](inference-modes.md) — 推断方法的选择与解释
+- [交叉验证](cross-validation.md) — 调参与最终重拟合
+- [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md) — 求解器兼容性
+- [设备与 GPU 内存](device-and-memory.md) — 设备语义
 
 ## 参考文献
 

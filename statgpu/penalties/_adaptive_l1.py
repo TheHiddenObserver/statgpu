@@ -15,7 +15,7 @@ __all__ = ["AdaptiveL1Penalty"]
 from statgpu.backends._torch_compile import compile_torch
 from typing import Optional
 import numpy as np
-from statgpu.backends._array_ops import _xp
+from statgpu.backends._array_ops import _xp, _xp_asarray
 from statgpu.penalties._base import Penalty
 
 # ---- torch.compile lazy-loader (fuses elementwise ops into 1 kernel) ---------
@@ -31,6 +31,83 @@ def _get_adaptive_l1_torch_compiled():
         return torch.sign(w) * torch.relu(torch.abs(w) - thresh_tensor)
     _ADAPTIVE_L1_PROXIMAL_TORCH_COMPILED = compile_torch(_prox, dynamic=True, workload="iterative")
     return _ADAPTIVE_L1_PROXIMAL_TORCH_COMPILED
+
+def _normalize_adaptive_controls(alpha, nu, eps, init_method, normalize):
+    """Validate public Adaptive-L1 constructor controls."""
+    from numbers import Real
+
+    def numeric(value, name, *, allow_zero):
+        if isinstance(value, (bool, np.bool_)) or not isinstance(
+            value, (Real, np.number)
+        ):
+            raise TypeError(f"{name} must be a finite numeric scalar")
+        result = float(value)
+        if not np.isfinite(result) or (result < 0.0 if allow_zero else result <= 0.0):
+            qualifier = "non-negative" if allow_zero else "positive"
+            raise ValueError(f"{name} must be a finite {qualifier} scalar")
+        return result
+
+    alpha_value = numeric(alpha, "alpha", allow_zero=True)
+    nu_value = numeric(nu, "nu", allow_zero=False)
+    eps_value = numeric(eps, "eps", allow_zero=False)
+
+    if not isinstance(init_method, str):
+        raise TypeError("init_method must be one of 'auto', 'ols', or 'ridge'")
+    normalized_method = init_method.lower()
+    if normalized_method not in ("auto", "ols", "ridge"):
+        raise ValueError("init_method must be one of 'auto', 'ols', or 'ridge'")
+    # Preserve already-canonical strings by identity for sklearn<=1.2 clone.
+    method_value = init_method if init_method == normalized_method else normalized_method
+
+    if not isinstance(normalize, (bool, np.bool_)):
+        raise TypeError("normalize must be boolean")
+    normalize_value = bool(normalize)
+
+    return alpha_value, nu_value, eps_value, method_value, normalize_value
+
+
+def _normalize_external_weights(weights):
+    """Validate external adaptive weights and return a clone-safe snapshot."""
+    if weights is None:
+        return None
+
+    module = type(weights).__module__
+    if module.startswith("torch"):
+        raw = np.asarray(weights.detach().cpu().numpy())
+    elif module.startswith("cupy"):
+        raw = np.asarray(weights.get())
+    else:
+        raw = np.asarray(weights)
+    if raw.ndim != 1 or raw.size == 0:
+        raise ValueError("weights must be a non-empty one-dimensional array")
+    if raw.dtype.kind in ("b", "S", "U"):
+        raise TypeError("weights must contain real numeric values")
+    if raw.dtype.kind == "O":
+        from numbers import Real
+        for value in raw:
+            if isinstance(value, (bool, np.bool_)) or not isinstance(
+                value, (Real, np.number)
+            ):
+                raise TypeError("weights must contain real numeric values")
+    try:
+        values = np.asarray(raw, dtype=np.float64)
+    except (TypeError, ValueError) as exc:
+        raise TypeError("weights must contain real numeric values") from exc
+    if not np.all(np.isfinite(values)):
+        raise ValueError("weights must contain only finite values")
+    if np.any(values < 0.0):
+        raise ValueError("weights must be non-negative")
+
+    normalized = tuple(float(value) for value in values)
+    if (
+        isinstance(weights, tuple)
+        and len(weights) == len(normalized)
+        and all(type(value) is float for value in weights)
+        and weights == normalized
+    ):
+        return weights
+    return normalized
+
 
 class AdaptiveL1Penalty(Penalty):
     """Adaptive L1 penalty (Adaptive Lasso).
@@ -79,13 +156,18 @@ class AdaptiveL1Penalty(Penalty):
         normalize: bool = True,
         weights: Optional[np.ndarray] = None,
     ):
-        self.alpha = alpha
-        self.nu = nu
-        self.eps = eps
-        self.init_method = init_method
-        self.normalize = normalize
-        if weights is not None:
-            w = np.asarray(weights, dtype=float)
+        (
+            self.alpha,
+            self.nu,
+            self.eps,
+            self.init_method,
+            self.normalize,
+        ) = _normalize_adaptive_controls(
+            alpha, nu, eps, init_method, normalize
+        )
+        self.weights = _normalize_external_weights(weights)
+        if self.weights is not None:
+            w = np.asarray(self.weights, dtype=np.float64)
             self._norm_factor = 1.0
             if self.normalize:
                 # Normalize by mean to match R glmnet's penalty.factor convention.
@@ -114,75 +196,204 @@ class AdaptiveL1Penalty(Penalty):
         """
         if self._weights is not None:
             return
-        # Convert to numpy for weight computation (weights are always stored as numpy)
+        # Convert to NumPy for validation/weight computation. Reject malformed
+        # initializer output before publishing learned penalty state.
         from statgpu.backends._utils import _to_numpy
-        coef_np = np.asarray(_to_numpy(coef), dtype=np.float64).ravel()
+        raw = np.asarray(_to_numpy(coef))
+        if raw.ndim != 1:
+            raise ValueError("coef must be one-dimensional for AdaptiveL1Penalty")
+        if raw.dtype.kind in ("b", "c", "S", "U"):
+            raise TypeError("coef must contain real numeric values")
+        if raw.dtype.kind == "O":
+            from numbers import Real
+            for value in raw:
+                if isinstance(value, (bool, np.bool_)) or not isinstance(
+                    value, (Real, np.number)
+                ) or np.iscomplexobj(value):
+                    raise TypeError("coef must contain real numeric values")
+        try:
+            coef_np = np.asarray(raw, dtype=np.float64)
+        except (TypeError, ValueError) as exc:
+            raise TypeError("coef must contain real numeric values") from exc
+        if not np.all(np.isfinite(coef_np)):
+            raise ValueError("coef must contain only finite values")
         # If the init coef is all-zero (e.g., ridge init diverged),
         # fall back to uniform weights so adaptive_l1 reduces to L1.
         if not np.any(np.abs(coef_np) > 1e-12):
             self._weights = np.ones_like(coef_np)
             self._norm_factor = 1.0
             return
-        raw = 1.0 / (np.abs(coef_np) + self.eps) ** self.nu
+        with np.errstate(
+            over="ignore",
+            under="ignore",
+            divide="ignore",
+            invalid="ignore",
+        ):
+            learned = 1.0 / (np.abs(coef_np) + self.eps) ** self.nu
+        if not np.all(np.isfinite(learned)) or np.any(learned <= 0.0):
+            raise ValueError(
+                "AdaptiveL1Penalty learned weights must be finite and "
+                "strictly positive; reduce nu, increase eps, or use a "
+                "better-scaled initial estimate."
+            )
+
         self._norm_factor = 1.0
         if self.normalize:
-            mean_w = float(np.mean(raw))
-            if mean_w > 0:
-                raw = raw / mean_w
-                self._norm_factor = mean_w
-        self._weights = raw
+            mean_w = float(np.mean(learned))
+            if not np.isfinite(mean_w) or mean_w <= 0.0:
+                raise ValueError(
+                    "AdaptiveL1Penalty learned weights must have a finite "
+                    "positive mean when normalize=True."
+                )
+            learned = learned / mean_w
+            self._norm_factor = mean_w
+        if not np.all(np.isfinite(learned)):
+            raise ValueError(
+                "AdaptiveL1Penalty normalized learned weights must be finite."
+            )
+        self._weights = learned
         # Invalidate cached device tensors so proximal recomputes them.
-        for _k in ('_alpha_w_torch', '_alpha_w_cupy',
-                    '_alpha_w_torch_src', '_alpha_w_cupy_src'):
+        for _k in (
+            '_alpha_w_torch', '_alpha_w_cupy',
+            '_alpha_w_torch_src', '_alpha_w_cupy_src',
+            '_alpha_w_torch_alpha', '_alpha_w_cupy_alpha',
+            '_alpha_w_torch_dtype', '_alpha_w_cupy_dtype',
+        ):
             if hasattr(self, _k):
                 delattr(self, _k)
+
+    def _require_weights(self, ref=None):
+        """Return initialized per-coordinate weights with exact dimension."""
+        weights = getattr(self, "_weights", None)
+        if weights is None:
+            raise RuntimeError(
+                "AdaptiveL1Penalty weights are not initialized; call "
+                "set_weights() or pass weights=... before numerical use."
+            )
+        if ref is not None:
+            shape = getattr(ref, "shape", None)
+            # Real numerical array containers expose shape.  Internal cache/
+            # device contract tests may use opaque reference sentinels that
+            # intentionally carry only dtype/device; do not invent dimensions
+            # for such objects.
+            if shape is not None:
+                if len(shape) != 1:
+                    raise ValueError(
+                        "AdaptiveL1Penalty coefficients must be one-dimensional"
+                    )
+                if hasattr(weights, "numel"):
+                    weight_size = int(weights.numel())
+                elif hasattr(weights, "size") and not callable(weights.size):
+                    weight_size = int(weights.size)
+                else:
+                    weight_size = int(np.asarray(weights).size)
+                if weight_size != int(shape[0]):
+                    raise ValueError(
+                        "AdaptiveL1Penalty weights must have the same length as "
+                        "the coefficient vector"
+                    )
+        return weights
+
+    def _cached_alpha_weights(self, ref, backend: str):
+        """Return alpha*weights on ref's concrete device/dtype with truthful cache."""
+        cache_key = f"_alpha_w_{backend}"
+        src_key = f"_alpha_w_{backend}_src"
+        alpha_key = f"_alpha_w_{backend}_alpha"
+        dtype_key = f"_alpha_w_{backend}_dtype"
+        cached = getattr(self, cache_key, None)
+        source = self._require_weights(ref)
+        cached_source = getattr(self, src_key, None)
+        cached_alpha = getattr(self, alpha_key, None)
+        cached_dtype = getattr(self, dtype_key, None)
+        alpha_value = float(self.alpha)
+
+        if backend == "torch":
+            import torch
+            target_dtype = (
+                ref.dtype if torch.is_floating_point(ref) else torch.float64
+            )
+            dtype_token = str(target_dtype)
+        elif backend == "cupy":
+            import cupy as cp
+            try:
+                ref_kind = np.dtype(ref.dtype).kind
+            except (TypeError, ValueError):
+                ref_kind = "f"
+            target_dtype = ref.dtype if ref_kind in "fc" else cp.float64
+            dtype_token = str(np.dtype(target_dtype))
+        else:
+            ref_arr = np.asarray(ref)
+            target_dtype = (
+                ref_arr.dtype if ref_arr.dtype.kind in "fc" else np.float64
+            )
+            dtype_token = str(np.dtype(target_dtype))
+
+        same_device = True
+        if cached is not None and backend == "torch":
+            same_device = (
+                getattr(cached, "device", None) == getattr(ref, "device", None)
+            )
+        elif cached is not None and backend == "cupy":
+            cached_device = getattr(getattr(cached, "device", None), "id", None)
+            ref_device = getattr(getattr(ref, "device", None), "id", None)
+            same_device = (
+                cached_device is not None
+                and ref_device is not None
+                and int(cached_device) == int(ref_device)
+            )
+
+        if (
+            cached is not None
+            and cached_source is source
+            and cached_alpha == alpha_value
+            and cached_dtype == dtype_token
+            and same_device
+        ):
+            return cached
+
+        if backend == "torch":
+            import torch
+            if type(source).__module__.startswith("torch"):
+                aligned = source.to(device=ref.device, dtype=target_dtype)
+            else:
+                aligned = torch.as_tensor(
+                    np.asarray(source, dtype=np.float64),
+                    device=ref.device,
+                    dtype=target_dtype,
+                )
+            alpha_scalar = torch.as_tensor(
+                alpha_value, device=ref.device, dtype=target_dtype
+            )
+        elif backend == "cupy":
+            import cupy as cp
+            aligned = _xp_asarray(source, target_dtype, ref)
+            alpha_scalar = np.dtype(target_dtype).type(alpha_value)
+        else:
+            aligned = np.asarray(source, dtype=target_dtype)
+            alpha_scalar = np.dtype(target_dtype).type(alpha_value)
+
+        cached = alpha_scalar * aligned
+        setattr(self, cache_key, cached)
+        setattr(self, src_key, source)
+        setattr(self, alpha_key, alpha_value)
+        setattr(self, dtype_key, dtype_token)
+        return cached
 
     # ----------------------------------------------------------------
     # Value
     # ----------------------------------------------------------------
 
     def value(self, coef) -> float:
-        if not hasattr(self, "_weights"):
-            self._weights = np.ones_like(np.asarray(coef))
+        self._require_weights(coef)
         mod = type(coef).__module__
         if mod.startswith("torch"):
             import torch
-            # Reuse cached device tensor from proximal() if available
-            _cached = getattr(self, '_alpha_w_torch', None)
-            _src = getattr(self, '_alpha_w_torch_src', None)
-            if _cached is not None and _src is self._weights:
-                return (_cached * torch.abs(coef)).sum().item()
-            w = self._weights
-            _is_dev = type(w).__module__.startswith("torch")
-            if _is_dev:
-                if _cached is None or _src is not w:
-                    _cached = self.alpha * w.to(device=coef.device, dtype=torch.float64)
-                    self._alpha_w_torch = _cached
-                    self._alpha_w_torch_src = w
-            else:
-                if _cached is None or _src is not w:
-                    _cached = torch.tensor(self.alpha * np.asarray(w, dtype=float),
-                                           device=coef.device, dtype=torch.float64)
-                    self._alpha_w_torch = _cached
-                    self._alpha_w_torch_src = w
-            return (_cached * torch.abs(coef)).sum().item()
+            alpha_w = self._cached_alpha_weights(coef, "torch")
+            return (alpha_w * torch.abs(coef)).sum().item()
         elif mod.startswith("cupy"):
             import cupy as cp
-            _cached = getattr(self, '_alpha_w_cupy', None)
-            _src = getattr(self, '_alpha_w_cupy_src', None)
-            w = self._weights
-            _is_dev = type(w).__module__.startswith("cupy")
-            if _is_dev:
-                if _cached is None or _src is not w:
-                    _cached = self.alpha * w
-                    self._alpha_w_cupy = _cached
-                    self._alpha_w_cupy_src = w
-            else:
-                if _cached is None or _src is not w:
-                    _cached = cp.asarray(self.alpha * np.asarray(w, dtype=float))
-                    self._alpha_w_cupy = _cached
-                    self._alpha_w_cupy_src = w
-            return float((_cached * cp.abs(coef)).sum())
+            alpha_w = self._cached_alpha_weights(coef, "cupy")
+            return float((alpha_w * cp.abs(coef)).sum())
         else:
             return self.alpha * np.sum(self._weights * np.abs(coef))
 
@@ -192,9 +403,9 @@ class AdaptiveL1Penalty(Penalty):
 
     def gradient(self, coef):
         xp = _xp(coef)
-        if not hasattr(self, "_weights"):
-            self._weights = xp.ones_like(coef)
-        return self.alpha * self._weights * xp.sign(coef)
+        self._require_weights(coef)
+        weights = self.lla_weights(coef)
+        return self.alpha * weights * xp.sign(coef)
 
     # ----------------------------------------------------------------
     # Proximal operator (FISTA path)
@@ -210,8 +421,7 @@ class AdaptiveL1Penalty(Penalty):
         backend: str = "numpy",
     ):
         """Per-coordinate soft-threshold with per-coordinate thresholds."""
-        if not hasattr(self, "_weights"):
-            self._weights = np.ones_like(np.asarray(w))
+        self._require_weights(w)
 
         # Check if _weights is already a device tensor (from lla_weights on GPU)
         _w_mod = type(self._weights).__module__
@@ -219,67 +429,59 @@ class AdaptiveL1Penalty(Penalty):
 
         if backend == "cupy":
             import cupy as cp
+            try:
+                kind = np.dtype(w.dtype).kind
+            except (TypeError, ValueError):
+                kind = "f"
+            w_work = w if kind in "fc" else _xp_asarray(w, cp.float64, w)
             if AdaptiveL1Penalty._ADAPTIVE_L1_PROXIMAL_CUPY is None:
                 AdaptiveL1Penalty._ADAPTIVE_L1_PROXIMAL_CUPY = cp.ElementwiseKernel(
-                    'float64 w, float64 thresh',
-                    'float64 result',
+                    'T w, T thresh',
+                    'T result',
                     '''
-                    double abs_w = abs(w);
-                    double sign_w = (w > 0.0) ? 1.0 : ((w < 0.0) ? -1.0 : 0.0);
+                    T abs_w = abs(w);
+                    T sign_w = (w > (T)0) ? (T)1 : ((w < (T)0) ? (T)-1 : (T)0);
                     if (abs_w > thresh) {
                         result = sign_w * (abs_w - thresh);
                     } else {
-                        result = 0.0;
+                        result = (T)0;
                     }
                     ''',
                     'adaptive_l1_proximal',
                 )
-            # Cache device tensor for alpha*weights across calls.
-            # Use _weights_src_id to detect when _weights is reassigned externally.
-            _cache_key = '_alpha_w_cupy'
-            _src_key = '_alpha_w_cupy_src'
-            _cached = getattr(self, _cache_key, None)
-            _src = getattr(self, _src_key, None)
-            if _is_device:
-                if _cached is None or _src is not self._weights:
-                    _cached = self.alpha * self._weights
-                    setattr(self, _cache_key, _cached)
-                    setattr(self, _src_key, self._weights)
-            else:
-                if _cached is None or _src is not self._weights:
-                    alpha_w = self.alpha * np.asarray(self._weights, dtype=float)
-                    _cached = cp.asarray(alpha_w)
-                    setattr(self, _cache_key, _cached)
-                    setattr(self, _src_key, self._weights)
-            thresh_gpu = _cached * step
-            return AdaptiveL1Penalty._ADAPTIVE_L1_PROXIMAL_CUPY(w, thresh_gpu)
+            _cached = self._cached_alpha_weights(w_work, "cupy")
+            step_value = _xp_asarray(step, w_work.dtype, w_work)
+            thresh_gpu = _cached * step_value
+            return AdaptiveL1Penalty._ADAPTIVE_L1_PROXIMAL_CUPY(
+                w_work, thresh_gpu
+            )
         elif backend == "torch":
             import torch
-            # Cache device tensor for alpha*weights across calls.
-            _cache_key = '_alpha_w_torch'
-            _src_key = '_alpha_w_torch_src'
-            _cached = getattr(self, _cache_key, None)
-            _src = getattr(self, _src_key, None)
-            if _is_device:
-                if _cached is None or _src is not self._weights:
-                    _cached = self.alpha * self._weights.to(device=w.device, dtype=torch.float64)
-                    setattr(self, _cache_key, _cached)
-                    setattr(self, _src_key, self._weights)
-            else:
-                if _cached is None or _src is not self._weights:
-                    alpha_w = self.alpha * np.asarray(self._weights, dtype=float)
-                    _cached = torch.tensor(alpha_w, device=w.device, dtype=torch.float64)
-                    setattr(self, _cache_key, _cached)
-                    setattr(self, _src_key, self._weights)
-            thresh_t = _cached * step
+            w_work = w if torch.is_floating_point(w) else w.to(torch.float64)
+            _cached = self._cached_alpha_weights(w_work, "torch")
+            step_value = torch.as_tensor(
+                step, dtype=w_work.dtype, device=w_work.device
+            )
+            thresh_t = _cached * step_value
             compiled_fn = _get_adaptive_l1_torch_compiled()
             if compiled_fn is not None:
-                return compiled_fn(w, thresh_t)
-            return torch.sign(w) * torch.relu(torch.abs(w) - thresh_t)
+                return compiled_fn(w_work, thresh_t)
+            return torch.sign(w_work) * torch.relu(torch.abs(w_work) - thresh_t)
         else:
-            alpha_w = self.alpha * np.asarray(self._weights, dtype=float)
-            thresh_arr = alpha_w * step
-            return np.sign(w) * np.maximum(np.abs(w) - thresh_arr, 0.0)
+            w_work = np.asarray(w)
+            target_dtype = (
+                w_work.dtype if w_work.dtype.kind in "fc" else np.dtype(np.float64)
+            )
+            w_work = np.asarray(w_work, dtype=target_dtype)
+            alpha_w = (
+                np.asarray(self.alpha, dtype=target_dtype)
+                * np.asarray(self._weights, dtype=target_dtype)
+            )
+            thresh_arr = alpha_w * np.asarray(step, dtype=target_dtype)
+            return np.sign(w_work) * np.maximum(
+                np.abs(w_work) - thresh_arr,
+                np.asarray(0.0, dtype=target_dtype),
+            )
 
     # ----------------------------------------------------------------
     # LLA weights (identity: this is already a weighted L1 penalty)
@@ -287,21 +489,51 @@ class AdaptiveL1Penalty(Penalty):
 
     def lla_weights(self, coef):
         """Return LLA weights, converted to the same backend as coef."""
-        if not hasattr(self, "_weights"):
-            self._weights = np.ones_like(np.asarray(coef))
-        # Convert weights to the same backend as coef to avoid device-to-host transfer
-        from statgpu.backends._array_ops import _xp
+        self._require_weights(coef)
+        # Convert weights to the same backend and concrete device as coef.
         xp = _xp(coef)
         if xp is np:
-            return self._weights.copy()
-        return xp.asarray(self._weights, dtype=coef.dtype)
+            coef_arr = np.asarray(coef)
+            target_dtype = (
+                coef_arr.dtype
+                if coef_arr.dtype.kind in "fc"
+                else np.dtype(np.float64)
+            )
+            return np.asarray(self._weights, dtype=target_dtype).copy()
+        if xp.__name__ == "torch":
+            import torch
+            target_dtype = (
+                coef.dtype if torch.is_floating_point(coef) else torch.float64
+            )
+        else:
+            try:
+                kind = np.dtype(coef.dtype).kind
+            except (TypeError, ValueError):
+                kind = "f"
+            target_dtype = coef.dtype if kind in "fc" else xp.float64
+        return _xp_asarray(self._weights, target_dtype, coef)
 
     # ----------------------------------------------------------------
 
-    def get_params(self) -> dict:
-        params = super().get_params()
+    def get_params(self, deep: bool = True) -> dict:
+        """Return constructor params for clone or descriptive serialization."""
+        if not deep:
+            return {
+                "alpha": self.alpha,
+                "nu": self.nu,
+                "eps": self.eps,
+                "init_method": self.init_method,
+                "normalize": self.normalize,
+                "weights": self.weights,
+            }
+
+        params = super().get_params(deep=deep)
         params.update({
             "alpha": self.alpha,
             "nu": self.nu,
+            "eps": self.eps,
+            "init_method": self.init_method,
+            "normalize": self.normalize,
+            "weights": None if self.weights is None else list(self.weights),
         })
         return params
