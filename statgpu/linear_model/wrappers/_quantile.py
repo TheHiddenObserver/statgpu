@@ -152,6 +152,8 @@ class QuantileRegression(BaseEstimator):
         self._params = None
         self._bse = None
         self._zvalues = None
+        self._tvalues = None
+        self._statistic = None
         self._pvalues = None
         self._conf_int = None
         self._inference_result = None

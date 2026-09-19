@@ -233,6 +233,27 @@ class TestQuantileRegression:
         assert observed["ppf_dtype"] == torch.float64
         assert (X.shape[0],) not in host_shapes
 
+    def test_refit_without_inference_clears_all_statistic_aliases(self):
+        model = QuantileRegression(
+            quantile=0.5,
+            compute_inference=True,
+            inference_method="kernel",
+        ).fit(self.X, self.y)
+
+        assert model._zvalues is not None
+        assert model._tvalues is not None
+
+        model.set_params(compute_inference=False)
+        model.fit(self.X, self.y)
+
+        assert model._inference_result is None
+        assert model._bse is None
+        assert model._zvalues is None
+        assert model._tvalues is None
+        assert model._statistic is None
+        assert model._pvalues is None
+        assert model._conf_int is None
+
     def test_fit_with_kernel_inference(self):
         m = QuantileRegression(quantile=0.5, compute_inference=True,
                                 inference_method='kernel')
