@@ -3052,6 +3052,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
         """General per-fold CV path: model.fit() per alpha with warm-start."""
         from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
         from statgpu.linear_model.penalized._fit_mixin import _resolve_loss_name
+        from statgpu.penalties import Penalty
 
         penalty_name = str(
             getattr(self.penalty, "name", self.penalty)
@@ -3092,8 +3093,15 @@ class PenalizedGLM_CV(CVEstimatorBase):
         else:
             cv_cache, L_np = None, None
 
+        child_penalty = (
+            copy.deepcopy(self.penalty)
+            if isinstance(self.penalty, Penalty)
+            else self.penalty
+        )
+        if isinstance(child_penalty, Penalty) and hasattr(child_penalty, "alpha"):
+            child_penalty.alpha = float(alpha_sorted[0])
         model = PenalizedGeneralizedLinearModel(
-            loss=loss_name, penalty=self.penalty, alpha=alpha_sorted[0],
+            loss=loss_name, penalty=child_penalty, alpha=alpha_sorted[0],
             l1_ratio=self.l1_ratio, device=cv_device, compute_inference=False,
             max_iter=max_iter, tol=tol, solver=cv_solver,
             loss_kwargs=getattr(self, '_loss_kwargs', None),
@@ -3109,6 +3117,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
         if use_lla_path_cv:
             try:
                 model.alpha = float(alpha_sorted[-1])
+                if isinstance(model.penalty, Penalty) and hasattr(model.penalty, "alpha"):
+                    model.penalty.alpha = float(alpha_sorted[-1])
                 if hasattr(model, "_penalty") and model._penalty is not None:
                     model._penalty.alpha = float(alpha_sorted[-1])
                 model._cv_alpha_path = np.asarray(alpha_sorted, dtype=np.float64)
@@ -3152,6 +3162,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 if cv_cache is not None:
                     model._cv_cache = cv_cache
                 model.alpha = alpha
+                if isinstance(model.penalty, Penalty) and hasattr(model.penalty, "alpha"):
+                    model.penalty.alpha = float(alpha)
                 if hasattr(model, "_penalty") and model._penalty is not None:
                     model._penalty.alpha = alpha
                 if use_warm_start and prev_coef is not None:
