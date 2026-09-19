@@ -307,7 +307,27 @@ def _sync_scalars(*dev_vals, backend):
         host = stacked.detach().cpu().numpy()
         return tuple(float(value) for value in host)
     import cupy as cp
-    stacked = cp.stack([cp.asarray(v) for v in dev_vals])
+    ref = next(
+        (
+            value
+            for value in dev_vals
+            if type(value).__module__.startswith("cupy")
+        ),
+        None,
+    )
+    if ref is None:
+        stacked = cp.stack([cp.asarray(value) for value in dev_vals])
+    else:
+        from statgpu.backends._utils import _cupy_asarray_on_device
+
+        device_id = int(ref.device.id)
+        with cp.cuda.Device(device_id):
+            stacked = cp.stack(
+                [
+                    _cupy_asarray_on_device(value, device_id)
+                    for value in dev_vals
+                ]
+            )
     host = cp.asnumpy(stacked)
     return tuple(float(value) for value in host)
 
@@ -435,7 +455,7 @@ def _clip_grad_on_device(grad, coef_old, backend):
     scale = cp.where(
         gn_sq > gmax * gmax,
         gmax / cp.sqrt(gn_sq + 1e-30),
-        cp.ones(1, dtype=grad.dtype),
+        cp.ones_like(gn_sq),
     )
     return grad * scale
 
@@ -484,6 +504,13 @@ def _max_eigval_power(mat, n_iter=20, tol=1e-8):
     # eigenspace (e.g., [[1,-1],[-1,1]]).
     if xp.__name__ == "torch":
         v = xp.arange(1, p + 1, dtype=dtype, device=mat.device)
+    elif xp.__name__ == "cupy":
+        with xp.cuda.Device(int(mat.device.id)):
+            v = xp.arange(
+                1,
+                p + 1,
+                dtype=dtype if dtype is not None else xp.float64,
+            )
     elif dtype is not None:
         v = xp.arange(1, p + 1, dtype=dtype)
     else:
