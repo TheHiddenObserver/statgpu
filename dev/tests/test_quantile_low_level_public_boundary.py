@@ -451,6 +451,36 @@ def test_direct_quantile_irls_rejects_invalid_init_coef(init_coef, message):
         )
 
 
+def test_direct_quantile_irls_never_penalizes_intercept_only_coordinate():
+    loss = QuantileLoss(quantile=0.4)
+    X = np.ones((7, 1), dtype=np.float64)
+    y = np.asarray([-1.0, -0.4, 0.1, 0.3, 0.8, 1.2, 2.0], dtype=np.float64)
+    init = np.asarray([0.25], dtype=np.float64)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ConvergenceWarning)
+        unpenalized, _ = loss.irls(
+            X,
+            y,
+            penalty=None,
+            max_iter=1,
+            tol=1e-20,
+            init_coef=init,
+            fit_intercept=True,
+        )
+        penalized, _ = loss.irls(
+            X,
+            y,
+            penalty=L2Penalty(alpha=100.0),
+            max_iter=1,
+            tol=1e-20,
+            init_coef=init,
+            fit_intercept=True,
+        )
+
+    np.testing.assert_array_equal(penalized, unpenalized)
+
+
 @pytest.mark.parametrize("alpha", [np.nan, -0.1, True, "0.1"])
 def test_direct_quantile_irls_rejects_invalid_mutated_l2_alpha(alpha):
     X, y = _data(seed=16723)
