@@ -209,8 +209,9 @@ def test_ridge_initializer_binds_unweighted_scalars_and_identity_to_design(
     )
 
     assert np.all(np.isfinite(coef))
-    assert X in asarray_refs
-    assert eye_refs == [X]
+    assert any(ref is X for ref in asarray_refs)
+    assert len(eye_refs) == 1
+    assert eye_refs[0] is X
 
 
 def test_typed_quantile_adaptive_initializer_receives_analytic_weights(monkeypatch):
