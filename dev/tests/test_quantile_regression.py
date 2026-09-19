@@ -1,4 +1,6 @@
 """Tests for standalone QuantileRegression with compute_inference."""
+import warnings
+
 import numpy as np
 import pytest
 
@@ -344,6 +346,32 @@ class TestQuantileRegression:
         assert model._bse is None
         assert model._selected_backend_name is None
         assert model._selected_backend_device is None
+
+    def test_estimation_fit_reemits_nonconvergence_independent_warnings(
+        self, monkeypatch
+    ):
+        import statgpu.linear_model.wrappers._quantile as quantile_mod
+
+        def warning_solver(loss, penalty, X, y, **kwargs):
+            warnings.warn(
+                "synthetic numerical warning",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return np.zeros(X.shape[1], dtype=np.float64), 1
+
+        monkeypatch.setattr(quantile_mod, "fista_solver", warning_solver)
+        model = QuantileRegression(
+            quantile=0.5,
+            fit_intercept=False,
+            compute_inference=False,
+        )
+
+        with pytest.warns(RuntimeWarning, match="synthetic numerical warning"):
+            model.fit(self.X, self.y)
+
+        assert model._fitted is True
+        assert model.coef_ is not None
 
     def test_estimation_only_preserves_fista_nonconvergence_warning(self):
         model = QuantileRegression(

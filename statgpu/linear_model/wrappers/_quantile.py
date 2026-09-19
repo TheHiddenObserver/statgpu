@@ -422,14 +422,24 @@ class QuantileRegression(BaseEstimator):
         return self
 
     def _handle_estimation_convergence_warnings(self, caught):
-        """Keep estimation-only compatibility but forbid inference on nonconvergence."""
-        convergence_warnings = [
-            item
-            for item in caught
-            if issubclass(item.category, ConvergenceWarning)
-        ]
+        """Preserve solver warnings while making inference require convergence."""
+        convergence_warnings = []
+        for item in caught:
+            if issubclass(item.category, ConvergenceWarning):
+                convergence_warnings.append(item)
+                continue
+            # catch_warnings(record=True) captures all visible warnings emitted
+            # during FISTA, including backend/NumPy RuntimeWarnings. Never hide
+            # those merely because convergence ownership is handled here.
+            warnings.warn(
+                item.message,
+                item.category,
+                stacklevel=3,
+            )
+
         if not convergence_warnings:
             return
+
         message = str(convergence_warnings[-1].message)
         if self._compute_inference_enabled:
             raise RuntimeError(
