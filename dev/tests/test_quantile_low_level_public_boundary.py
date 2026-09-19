@@ -644,6 +644,37 @@ def test_public_quantile_lbfgs_aligns_numpy_response_to_torch_design(monkeypatch
 
 
 @pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"max_iter": True}, "max_iter must be a positive integer"),
+        ({"max_iter": 0}, "max_iter must be a positive integer"),
+        ({"tol": True}, "tol must be a finite positive number"),
+        ({"tol": "1e-4"}, "tol must be a finite positive number"),
+        ({"tol": np.nan}, "tol must be a finite positive number"),
+        ({"cv_mode": "False"}, "cv_mode must be boolean"),
+    ],
+)
+def test_public_quantile_fista_rejects_invalid_controls_before_loss_work(
+    monkeypatch, kwargs, message
+):
+    X, y = _data(seed=16732)
+    loss = QuantileLoss(quantile=0.3)
+
+    def forbidden(*args, **kw):
+        raise AssertionError("loss numerical work must not start")
+
+    monkeypatch.setattr(loss, "preprocess", forbidden)
+    with pytest.raises(ValueError, match=message):
+        solvers.fista_solver(
+            loss,
+            L2Penalty(alpha=0.04),
+            X,
+            y,
+            **kwargs,
+        )
+
+
+@pytest.mark.parametrize(
     ("solver_name", "penalty"),
     [
         ("fista_solver", L2Penalty(alpha=0.04)),
