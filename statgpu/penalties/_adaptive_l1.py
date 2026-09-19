@@ -71,7 +71,13 @@ def _normalize_external_weights(weights):
     if weights is None:
         return None
 
-    raw = np.asarray(weights)
+    module = type(weights).__module__
+    if module.startswith("torch"):
+        raw = np.asarray(weights.detach().cpu().numpy())
+    elif module.startswith("cupy"):
+        raw = np.asarray(weights.get())
+    else:
+        raw = np.asarray(weights)
     if raw.ndim != 1 or raw.size == 0:
         raise ValueError("weights must be a non-empty one-dimensional array")
     if raw.dtype.kind in ("b", "S", "U"):
