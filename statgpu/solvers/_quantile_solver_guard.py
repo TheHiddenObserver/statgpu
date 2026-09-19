@@ -89,6 +89,32 @@ def _is_quantile(loss) -> bool:
     return str(getattr(loss, "name", "") or "").lower().strip() == "quantile"
 
 
+def _canonical_solver_signature(function, required_names):
+    """Find the first wrapped numerical signature exposing required controls."""
+    import inspect
+
+    required = set(required_names)
+    current = function
+    seen = set()
+    while callable(current) and id(current) not in seen:
+        seen.add(id(current))
+        try:
+            signature = inspect.signature(current, follow_wrapped=False)
+        except (TypeError, ValueError):
+            signature = None
+        if signature is not None and required.issubset(signature.parameters):
+            return signature
+        wrapped = getattr(current, "_statgpu_original", None)
+        if not callable(wrapped):
+            wrapped = getattr(current, "__wrapped__", None)
+        if not callable(wrapped):
+            break
+        current = wrapped
+    raise RuntimeError(
+        "Could not resolve canonical solver signature for Quantile public validation"
+    )
+
+
 def _validate_quantile_init_coef(X, init_coef, solver_name: str) -> None:
     if init_coef is None:
         return
@@ -183,8 +209,10 @@ def fista_solver(loss, penalty, X, y, *args, **kwargs):
     bound = None
     params = None
     if _is_quantile(loss):
-        import inspect
-        signature = inspect.signature(_fista_solver)
+        signature = _canonical_solver_signature(
+            _fista_solver,
+            {"max_iter", "tol", "init_coef", "cv_mode"},
+        )
         bound = signature.bind_partial(loss, penalty, X, y, *args, **kwargs)
         params = signature.parameters
         _validate_quantile_fista_controls(
@@ -207,8 +235,10 @@ def lbfgs_solver(loss, penalty, X, y, *args, **kwargs):
     """Run L-BFGS while preserving its maintained Quantile compatibility row."""
     _validate_quantile_xy_shapes(loss, X, y, "lbfgs_solver")
     if _is_quantile(loss):
-        import inspect
-        signature = inspect.signature(_lbfgs_solver)
+        signature = _canonical_solver_signature(
+            _lbfgs_solver,
+            {"max_iter", "tol", "init_coef"},
+        )
         bound = signature.bind_partial(loss, penalty, X, y, *args, **kwargs)
         _validate_quantile_iteration_controls(
             max_iter=bound.arguments.get(
