@@ -1,8 +1,12 @@
 
+import sys
+import types
+
 import numpy as np
 import pytest
 
 from statgpu.penalties import AdaptiveL1Penalty
+import statgpu.penalties._adaptive_l1 as _adaptive_l1_impl
 from statgpu.unsupervised import UMAP
 from statgpu.unsupervised._nndescent import nndescent_numpy
 import statgpu.unsupervised._umap as umap_module
@@ -15,6 +19,96 @@ def test_adaptive_l1_gradient_numpy():
     np.testing.assert_array_equal(
         penalty.gradient(np.array([-4.0, 5.0])), np.array([-2.0, 6.0])
     )
+
+
+def test_adaptive_l1_cached_alpha_weights_refresh_on_alpha_change_and_cupy_device(
+    monkeypatch,
+):
+    penalty = AdaptiveL1Penalty(
+        alpha=0.1,
+        weights=np.array([1.0, 2.0]),
+        normalize=False,
+    )
+    calls = []
+
+    class FakeDevice:
+        def __init__(self, device_id):
+            self.id = int(device_id)
+
+    class FakeArray:
+        __module__ = "cupy._core.core"
+
+        def __init__(self, device_id, scale=1.0):
+            self.device = FakeDevice(device_id)
+            self.dtype = np.dtype("float64")
+            self.scale = float(scale)
+
+        def __rmul__(self, value):
+            return FakeArray(self.device.id, self.scale * float(value))
+
+    def fake_align(value, dtype, ref):
+        calls.append(int(ref.device.id))
+        return FakeArray(ref.device.id)
+
+    monkeypatch.setattr(_adaptive_l1_impl, "_xp_asarray", fake_align)
+    monkeypatch.setitem(
+        sys.modules,
+        "cupy",
+        types.SimpleNamespace(float64=np.float64),
+    )
+
+    ref0 = FakeArray(0)
+    first = penalty._cached_alpha_weights(ref0, "cupy")
+    assert first.device.id == 0
+    assert first.scale == pytest.approx(0.1)
+    assert calls == [0]
+
+    # Same source weights and device, but a new alpha must invalidate the
+    # threshold cache rather than silently reusing the old regularization.
+    penalty.alpha = 0.25
+    second = penalty._cached_alpha_weights(ref0, "cupy")
+    assert second.device.id == 0
+    assert second.scale == pytest.approx(0.25)
+    assert calls == [0, 0]
+
+    # Reusing the same public penalty on another CUDA ordinal must migrate the
+    # cached threshold tensor to the operand device.
+    ref1 = FakeArray(1)
+    third = penalty._cached_alpha_weights(ref1, "cupy")
+    assert third.device.id == 1
+    assert third.scale == pytest.approx(0.25)
+    assert calls == [0, 0, 1]
+
+
+def test_adaptive_l1_lla_weights_follow_operand_device(monkeypatch):
+    penalty = AdaptiveL1Penalty(
+        alpha=0.2,
+        weights=np.array([1.0, 3.0]),
+        normalize=False,
+    )
+    targets = []
+
+    class FakeDevice:
+        id = 4
+
+    class FakeCoef:
+        __module__ = "cupy._core.core"
+        device = FakeDevice()
+        dtype = np.dtype("float64")
+
+    fake_xp = types.SimpleNamespace(__name__="cupy")
+
+    def fake_align(value, dtype, ref):
+        targets.append(int(ref.device.id))
+        return ("aligned", int(ref.device.id), dtype)
+
+    monkeypatch.setattr(_adaptive_l1_impl, "_xp", lambda value: fake_xp)
+    monkeypatch.setattr(_adaptive_l1_impl, "_xp_asarray", fake_align)
+
+    result = penalty.lla_weights(FakeCoef())
+    assert result[0] == "aligned"
+    assert result[1] == 4
+    assert targets == [4]
 
 
 def test_nndescent_numpy_unique_and_validated():
