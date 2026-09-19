@@ -6,6 +6,7 @@ import warnings
 import numpy as np
 import pytest
 
+from statgpu._config import Device
 from statgpu.linear_model import QuantileRegression
 import statgpu.backends._utils as _backend_utils
 from statgpu.solvers._convergence import ConvergenceWarning
