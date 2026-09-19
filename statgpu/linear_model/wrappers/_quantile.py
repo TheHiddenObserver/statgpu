@@ -393,12 +393,12 @@ class QuantileRegression(BaseEstimator):
         return fhat
 
     @staticmethod
-    def _get_bandwidth_h(n, q, rule, resid, y_std):
+    def _get_bandwidth_h_from_scale(n, q, rule, scale):
+        """Evaluate the Quantile bandwidth rule from an already-reduced scale."""
         from statgpu.inference._distributions_backend import get_distribution
+
         _norm = get_distribution("norm", backend="numpy")
         import numpy as _np
-        iqre = float(_np.percentile(resid, 75) - _np.percentile(resid, 25))
-        scale = min(y_std, iqre / 1.34)
 
         if rule == 'hsheather':
             z = _norm.ppf(q)
@@ -411,7 +411,9 @@ class QuantileRegression(BaseEstimator):
         elif rule == 'chamberlain':
             h_base = _norm.ppf(0.975) * _np.sqrt(q * (1-q) / n)
         else:
-            raise ValueError(f"bandwidth must be 'hsheather', 'bofinger', or 'chamberlain', got '{rule}'")
+            raise ValueError(
+                f"bandwidth must be 'hsheather', 'bofinger', or 'chamberlain', got '{rule}'"
+            )
 
         lower_prob = float(q - h_base)
         upper_prob = float(q + h_base)
@@ -422,7 +424,7 @@ class QuantileRegression(BaseEstimator):
                 "Use a less extreme quantile, more observations, or a different "
                 "validated bandwidth rule."
             )
-        bandwidth_value = scale * (
+        bandwidth_value = float(scale) * (
             _norm.ppf(upper_prob) - _norm.ppf(lower_prob)
         )
         bandwidth_value = float(bandwidth_value)
@@ -432,6 +434,19 @@ class QuantileRegression(BaseEstimator):
                 "the response/residual scale is degenerate for kernel inference."
             )
         return bandwidth_value
+
+    @staticmethod
+    def _get_bandwidth_h(n, q, rule, resid, y_std):
+        import numpy as _np
+
+        iqre = float(_np.percentile(resid, 75) - _np.percentile(resid, 25))
+        scale = min(float(y_std), iqre / 1.34)
+        return QuantileRegression._get_bandwidth_h_from_scale(
+            n,
+            q,
+            rule,
+            scale,
+        )
 
     def _compute_inference_kernel(self, X, y):
         """Kernel-based sandwich covariance (Powell 1991).
@@ -548,10 +563,19 @@ class QuantileRegression(BaseEstimator):
         resid = (y - X_design @ params).ravel()
         tau = self._quantile
 
-        # Bandwidth (scipy operates on CPU scalars only)
-        resid_cpu = np.asarray(_to_numpy(resid)).ravel()
+        # Bandwidth rules need only scalar scale statistics. Keep residual
+        # quantiles and response dispersion on the executed backend/device.
+        q75 = xp.quantile(resid, 0.75)
+        q25 = xp.quantile(resid, 0.25)
+        iqre = float(q75 - q25)
         y_std = float(xp.std(y))
-        h = self._get_bandwidth_h(n, tau, self.bandwidth, resid_cpu, y_std)
+        scale = min(y_std, iqre / 1.34)
+        h = self._get_bandwidth_h_from_scale(
+            n,
+            tau,
+            self.bandwidth,
+            scale,
+        )
 
         # Sparsity
         kernel_fn = self._get_kernel_fn(self.kernel, xp)

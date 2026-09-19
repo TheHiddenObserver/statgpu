@@ -177,6 +177,17 @@ class TestQuantileRegression:
         model._selected_backend_device = "cpu"
 
         observed = {}
+        host_shapes = []
+        import statgpu.backends as backends
+
+        original_to_numpy = backends._to_numpy
+
+        def recording_to_numpy(value):
+            shape = getattr(value, "shape", None)
+            host_shapes.append(None if shape is None else tuple(shape))
+            return original_to_numpy(value)
+
+        monkeypatch.setattr(backends, "_to_numpy", recording_to_numpy)
 
         class FakeNorm:
             def sf(self, value):
@@ -219,6 +230,7 @@ class TestQuantileRegression:
         assert observed["sf_device"] == "cpu"
         assert observed["ppf_device"] == "cpu"
         assert observed["ppf_dtype"] == torch.float64
+        assert (X.shape[0],) not in host_shapes
 
     def test_fit_with_kernel_inference(self):
         m = QuantileRegression(quantile=0.5, compute_inference=True,
