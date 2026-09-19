@@ -89,6 +89,26 @@ def _is_quantile(loss) -> bool:
     return str(getattr(loss, "name", "") or "").lower().strip() == "quantile"
 
 
+def _validate_quantile_init_coef(X, init_coef, solver_name: str) -> None:
+    if init_coef is None:
+        return
+    from statgpu.glm_core._validation import (
+        _as_native_array,
+        _is_boolean_array,
+        _require_real_finite,
+    )
+
+    X_values = _as_native_array(X, name="X")
+    init_values = _as_native_array(init_coef, name="init_coef")
+    if int(init_values.ndim) != 1:
+        raise ValueError(f"init_coef must be one-dimensional for {solver_name}")
+    if int(init_values.shape[0]) != int(X_values.shape[1]):
+        raise ValueError(f"init_coef must have length n_features for {solver_name}")
+    if _is_boolean_array(init_values):
+        raise ValueError(f"init_coef must contain real numeric values for {solver_name}")
+    _require_real_finite(init_values, name="init_coef")
+
+
 def _validate_quantile_fista_controls(*, max_iter, tol, cv_mode) -> None:
     if isinstance(max_iter, (bool, np.bool_)) or not isinstance(max_iter, Integral):
         raise ValueError("max_iter must be a positive integer")
@@ -156,18 +176,25 @@ def _validate_quantile_xy_shapes(loss, X, y, solver_name: str) -> None:
 @wraps(_fista_solver)
 def fista_solver(loss, penalty, X, y, *args, **kwargs):
     """Run ordinary FISTA with the public Quantile supervised-shape contract."""
+    bound = None
+    params = None
     if _is_quantile(loss):
         import inspect
-        bound = inspect.signature(_fista_solver).bind_partial(
-            loss, penalty, X, y, *args, **kwargs
-        )
-        params = inspect.signature(_fista_solver).parameters
+        signature = inspect.signature(_fista_solver)
+        bound = signature.bind_partial(loss, penalty, X, y, *args, **kwargs)
+        params = signature.parameters
         _validate_quantile_fista_controls(
             max_iter=bound.arguments.get("max_iter", params["max_iter"].default),
             tol=bound.arguments.get("tol", params["tol"].default),
             cv_mode=bound.arguments.get("cv_mode", params["cv_mode"].default),
         )
     _validate_quantile_xy_shapes(loss, X, y, "fista_solver")
+    if bound is not None:
+        _validate_quantile_init_coef(
+            X,
+            bound.arguments.get("init_coef", params["init_coef"].default),
+            "fista_solver",
+        )
     return _fista_solver(loss, penalty, X, y, *args, **kwargs)
 
 
@@ -176,6 +203,16 @@ def lbfgs_solver(loss, penalty, X, y, *args, **kwargs):
     """Run L-BFGS while preserving its maintained Quantile compatibility row."""
     _validate_quantile_xy_shapes(loss, X, y, "lbfgs_solver")
     if _is_quantile(loss):
+        import inspect
+        signature = inspect.signature(_lbfgs_solver)
+        bound = signature.bind_partial(loss, penalty, X, y, *args, **kwargs)
+        _validate_quantile_init_coef(
+            X,
+            bound.arguments.get(
+                "init_coef", signature.parameters["init_coef"].default
+            ),
+            "lbfgs_solver",
+        )
         X, y = _normalize_quantile_xy_for_low_level(X, y)
     return _lbfgs_solver(loss, penalty, X, y, *args, **kwargs)
 
