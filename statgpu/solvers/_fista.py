@@ -24,6 +24,7 @@ from statgpu.backends._array_ops import (
     _zeros,
     _max_eigval_power,
     _psd_spectral_upper_bound,
+    _xp_asarray,
 )
 from ._convergence import ConvergenceWarning
 from ._constants import (
@@ -159,12 +160,11 @@ def fista_solver(
             # Weighted Lipschitz: eigenvalue of X' diag(w) X / sum(w)
             _xp_mod = _get_xp(backend)
             # Ensure sample_weight is on same backend/device as X_proc
-            _sw = _xp_mod.asarray(
+            _sw = _xp_asarray(
                 sample_weight,
-                dtype=_sample_weight_dtype_for_design(X_proc, backend),
+                _sample_weight_dtype_for_design(X_proc, backend),
+                X_proc,
             )
-            if hasattr(X_proc, 'device') and hasattr(_sw, 'to'):
-                _sw = _sw.to(device=X_proc.device)
             sw_sum = _to_float_scalar(_xp_mod.sum(_sw))
             sw_col = _sw[:, None] if _sw.ndim == 1 else _sw
             XtWX = X_proc.T @ (X_proc * sw_col) / sw_sum
@@ -238,12 +238,11 @@ def fista_solver(
     _sw_arr = None
     if sample_weight is not None:
         _xp_mod = _get_xp(backend)
-        _sw_arr = _xp_mod.asarray(
+        _sw_arr = _xp_asarray(
             sample_weight,
-            dtype=_sample_weight_dtype_for_design(X_proc, backend),
+            _sample_weight_dtype_for_design(X_proc, backend),
+            X_proc,
         )
-        if hasattr(X_proc, "device") and hasattr(_sw_arr, "to"):
-            _sw_arr = _sw_arr.to(device=X_proc.device)
 
     # Gram matrix optimization for squared_error on async GPU path only.
     # Precompute X'X/n and X'y/n to avoid redundant X@coef per iteration.
