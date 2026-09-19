@@ -44,7 +44,7 @@ def _vector_norm(x, xp, dim=None):
 
 
 def _to_backend_array(arr, xp, ref_arr=None):
-    """Convert numpy array to backend array type."""
+    """Convert an array to the requested backend and reference device."""
     if xp.__name__ == "torch":
         import torch
         arr_np = np.asarray(arr)
@@ -56,17 +56,26 @@ def _to_backend_array(arr, xp, ref_arr=None):
         if ref_arr is not None:
             t = t.to(device=ref_arr.device)
         return t
+    if xp.__name__ == "cupy" and ref_arr is not None:
+        from statgpu.backends._utils import _cupy_asarray_on_device
+        return _cupy_asarray_on_device(
+            arr,
+            int(ref_arr.device.id),
+        )
     return xp.asarray(arr)
 
 
 def _backend_zeros(shape, xp, dtype=None, ref_arr=None):
-    """Create zeros array on the correct backend."""
+    """Create zeros on the requested backend and reference device."""
     if xp.__name__ == "torch":
         import torch
         t = torch.zeros(shape, dtype=dtype if dtype is not None else torch.float64)
         if ref_arr is not None:
             t = t.to(device=ref_arr.device)
         return t
+    if xp.__name__ == "cupy" and ref_arr is not None:
+        with xp.cuda.Device(int(ref_arr.device.id)):
+            return xp.zeros(shape, dtype=dtype)
     return xp.zeros(shape, dtype=dtype)
 
 
@@ -425,9 +434,17 @@ class GroupLassoPenalty(Penalty):
                 self._sqrt_pg_torch = _to_backend_array(self._sqrt_pg, xp, w)
             return self._sqrt_pg_torch
         elif xp.__name__ == "cupy":
-            if self._sqrt_pg_cupy is None:
-                self._sqrt_pg_cupy = _to_backend_array(self._sqrt_pg, xp, w)
-            return self._sqrt_pg_cupy
+            cached = self._sqrt_pg_cupy
+            same_device = (
+                cached is not None
+                and getattr(cached, "device", None) is not None
+                and getattr(w, "device", None) is not None
+                and int(cached.device.id) == int(w.device.id)
+            )
+            if not same_device:
+                cached = _to_backend_array(self._sqrt_pg, xp, w)
+                self._sqrt_pg_cupy = cached
+            return cached
         else:
             # numpy: return raw numpy array (no caching needed)
             return self._sqrt_pg
@@ -442,7 +459,19 @@ class GroupLassoPenalty(Penalty):
         if cached is None:
             cached = _to_backend_array(getattr(self, attr_name), xp, w)
             setattr(self, cache_attr, cached)
-        elif xp.__name__ == "torch" and hasattr(cached, 'device') and cached.device != w.device:
+        elif (
+            xp.__name__ == "torch"
+            and hasattr(cached, "device")
+            and cached.device != w.device
+        ):
+            cached = _to_backend_array(getattr(self, attr_name), xp, w)
+            setattr(self, cache_attr, cached)
+        elif (
+            xp.__name__ == "cupy"
+            and getattr(cached, "device", None) is not None
+            and getattr(w, "device", None) is not None
+            and int(cached.device.id) != int(w.device.id)
+        ):
             cached = _to_backend_array(getattr(self, attr_name), xp, w)
             setattr(self, cache_attr, cached)
         return cached
