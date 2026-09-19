@@ -825,7 +825,14 @@ class TestQuantileRegression:
         assert calls == ["cupy", "torch"]
 
     def test_failed_cupy_fit_runs_cleanup_before_state_reset(self, monkeypatch):
+        import statgpu.backends._utils as backend_utils
         import statgpu.linear_model.wrappers._quantile as quantile_mod
+
+        monkeypatch.setattr(
+            backend_utils,
+            "_cupy_asarray_on_device",
+            lambda value, device_id, dtype=None: value,
+        )
 
         class FakeBackend:
             name = "cupy"
