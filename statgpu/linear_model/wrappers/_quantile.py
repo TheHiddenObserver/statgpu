@@ -12,6 +12,35 @@ _INV_SQRT_2PI = 1.0 / _math.sqrt(2.0 * _math.pi)
 _BOOTSTRAP_MAX_BACKTRACKS = 20
 
 
+def _align_quantile_fit_inputs(X_arr, y_arr, sample_weight_arr, backend_name):
+    """Align response/weights to the concrete device that owns the design."""
+    if backend_name == "numpy":
+        return y_arr, sample_weight_arr, "cpu"
+
+    if backend_name == "torch":
+        target = X_arr.device
+        y_arr = y_arr.to(target)
+        if sample_weight_arr is not None:
+            sample_weight_arr = sample_weight_arr.to(target)
+        return y_arr, sample_weight_arr, str(target)
+
+    if backend_name == "cupy":
+        from statgpu.backends._utils import _cupy_asarray_on_device
+
+        device_id = int(X_arr.device.id)
+        y_arr = _cupy_asarray_on_device(y_arr, device_id)
+        if sample_weight_arr is not None:
+            sample_weight_arr = _cupy_asarray_on_device(
+                sample_weight_arr,
+                device_id,
+            )
+        return y_arr, sample_weight_arr, f"cuda:{device_id}"
+
+    raise RuntimeError(
+        f"Unsupported QuantileRegression backend provenance: {backend_name!r}"
+    )
+
+
 def _bootstrap_schedule_to_backend(schedule, resid, backend, xp):
     """Move a deterministic resampling schedule to the exact numerical device."""
     if backend == "torch":
@@ -320,20 +349,20 @@ class QuantileRegression(BaseEstimator):
         self._selected_backend_name = backend_name
         X_arr = self._to_array(X_native, backend=backend_name)
         y_arr = self._to_array(y_native, backend=backend_name)
-        if backend_name == "numpy":
-            backend_device = "cpu"
-        elif backend_name == "cupy":
-            backend_device = f"cuda:{int(X_arr.device.id)}"
-        elif backend_name == "torch":
-            backend_device = str(X_arr.device)
-        else:
-            raise RuntimeError(
-                f"Unsupported QuantileRegression backend provenance: {backend_name!r}"
-            )
+        sample_weight_arr = (
+            None
+            if sample_weight_native is None
+            else self._to_array(sample_weight_native, backend=backend_name)
+        )
+        y_arr, sample_weight, backend_device = _align_quantile_fit_inputs(
+            X_arr,
+            y_arr,
+            sample_weight_arr,
+            backend_name,
+        )
         self._selected_backend_device = backend_device
         n, p = X_arr.shape
         self.n_features_in_ = int(p)
-        sample_weight = sample_weight_native
 
         if self._fit_intercept:
             from statgpu.penalties._l2 import L2Penalty

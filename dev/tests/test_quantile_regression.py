@@ -6,6 +6,7 @@ from statgpu.linear_model import QuantileRegression
 from statgpu.solvers._convergence import ConvergenceWarning
 from statgpu.linear_model.wrappers._quantile import (
     _BOOTSTRAP_MAX_BACKTRACKS,
+    _align_quantile_fit_inputs,
     _bootstrap_armijo_accept,
     _bootstrap_schedule_to_backend,
 )
@@ -299,6 +300,45 @@ class TestQuantileRegression:
         assert m._conf_int.shape == (4, 2)
         # SE should be positive
         assert np.all(m._bse > 0)
+
+    def test_fit_inputs_follow_exact_cupy_design_device(self, monkeypatch):
+        import statgpu.backends._utils as backend_utils
+
+        events = []
+
+        class Device:
+            id = 5
+
+        class FakeX:
+            device = Device()
+
+        y_source = object()
+        weight_source = object()
+
+        def fake_cupy_align(value, device_id, dtype=None):
+            events.append((value, int(device_id), dtype))
+            return ("aligned", value, int(device_id))
+
+        monkeypatch.setattr(
+            backend_utils,
+            "_cupy_asarray_on_device",
+            fake_cupy_align,
+        )
+
+        y_aligned, w_aligned, device = _align_quantile_fit_inputs(
+            FakeX(),
+            y_source,
+            weight_source,
+            "cupy",
+        )
+
+        assert y_aligned == ("aligned", y_source, 5)
+        assert w_aligned == ("aligned", weight_source, 5)
+        assert device == "cuda:5"
+        assert events == [
+            (y_source, 5, None),
+            (weight_source, 5, None),
+        ]
 
     def test_bootstrap_schedule_follows_exact_cupy_device(self):
         events = []
