@@ -20,6 +20,7 @@ from statgpu.solvers._quantile_continuation import (
     resolve_auto_quantile_continuation_path,
 )
 import statgpu.linear_model.penalized._quantile_continuation_contract as _path_contract
+import statgpu.linear_model.penalized._fit_mixin as _fit_mixin
 import statgpu.solvers._quantile_proximal_public_contract as _prox_contract
 
 
@@ -305,6 +306,47 @@ def test_high_level_quantile_nonconvex_path_is_marked_for_weight_alignment(
         rtol=0.0,
         atol=0.0,
     )
+
+
+def test_weighted_direct_quantile_nonconvex_path_skips_legacy_host_snapshot(
+    monkeypatch,
+):
+    X, y, weights = _data(seed=16678)
+    import statgpu.solvers as solvers
+
+    def forbidden_to_numpy(*args, **kwargs):
+        raise AssertionError(
+            "weighted Quantile continuation metadata must not snapshot full X/y"
+        )
+
+    def fake_solver(
+        loss,
+        penalty_obj,
+        X_solver,
+        y_solver,
+        alpha_path,
+        **kwargs,
+    ):
+        assert is_auto_quantile_continuation_path(alpha_path)
+        return np.zeros(X_solver.shape[1], dtype=np.float64), 0.0, 1
+
+    monkeypatch.setattr(_fit_mixin, "_to_numpy", forbidden_to_numpy)
+    monkeypatch.setattr(solvers, "proximal_irls_quantile_solver", fake_solver)
+
+    model = PenalizedQuantileRegression(
+        quantile=0.20,
+        penalty="scad",
+        alpha=0.025,
+        solver="auto",
+        device="cpu",
+        max_iter=20,
+        tol=1e-6,
+        compute_inference=False,
+    )
+    model.fit(X, y, sample_weight=weights)
+
+    assert model._fitted is True
+    assert model._selected_solver == "proximal_irls_cd"
 
 
 def test_quantile_scad_cv_uses_fold_local_training_weights(monkeypatch):
