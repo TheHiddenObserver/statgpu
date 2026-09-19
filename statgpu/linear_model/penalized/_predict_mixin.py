@@ -85,6 +85,70 @@ class _PenalizedPredictMixin:
             )
         return "numpy"
 
+    def _quantile_cupy_linear_prediction(self, X):
+        """Evaluate the Quantile linear predictor on the recorded fit device."""
+        import cupy as cp
+        from statgpu.backends._utils import _cupy_asarray_on_device
+
+        selected = str(
+            getattr(self, "_selected_backend_device", "") or ""
+        ).lower()
+        if selected.startswith("cuda:"):
+            device_id = int(selected.split(":", 1)[1])
+            with cp.cuda.Device(device_id):
+                X_converted = self._to_array(X, Device.CUDA)
+                Xb = _cupy_asarray_on_device(X_converted, device_id)
+                coef = _cupy_asarray_on_device(self.coef_, device_id)
+                raw = Xb @ coef
+                if self._effective_intercept:
+                    raw = raw + _cupy_asarray_on_device(
+                        self.intercept_,
+                        device_id,
+                        dtype=raw.dtype,
+                    )
+                return raw
+
+        # Compatibility fallback for fitted states created before concrete
+        # device provenance was recorded. Preserve the historical backend
+        # choice, then bind coefficient/intercept placement to Xb.device.
+        Xb = cp.asarray(self._to_array(X, Device.CUDA))
+        device_id = int(Xb.device.id)
+        coef = _cupy_asarray_on_device(self.coef_, device_id)
+        raw = Xb @ coef
+        if self._effective_intercept:
+            raw = raw + _cupy_asarray_on_device(
+                self.intercept_,
+                device_id,
+                dtype=raw.dtype,
+            )
+        return raw
+
+    def _quantile_torch_linear_prediction(self, X):
+        """Evaluate the Quantile linear predictor on the recorded Torch device."""
+        import torch
+
+        selected = str(
+            getattr(self, "_selected_backend_device", "") or ""
+        ).lower()
+        target = selected if selected.startswith("cuda:") else "cuda"
+        Xb = self._to_torch(X, device=target).to(
+            device=target,
+            dtype=torch.float64,
+        )
+        coef = torch.as_tensor(
+            self.coef_,
+            dtype=Xb.dtype,
+            device=Xb.device,
+        )
+        raw = Xb @ coef
+        if self._effective_intercept:
+            raw = raw + torch.as_tensor(
+                self.intercept_,
+                dtype=raw.dtype,
+                device=raw.device,
+            )
+        return raw
+
     def predict(self, X, return_cpu=True):
         """
         Predict using fitted model.
@@ -114,16 +178,22 @@ class _PenalizedPredictMixin:
             raise RuntimeError("Model has not been fitted yet.")
 
         X = self._prepare_predict_X(X)
-        if str(getattr(self, "loss", "")).lower().strip() == "quantile":
+        is_quantile = (
+            str(getattr(self, "loss", "")).lower().strip() == "quantile"
+        )
+        if is_quantile:
             self._validate_quantile_predict_X(X)
         backend_name = self._prediction_backend_name()
         if backend_name == "cupy":
             import cupy as cp
-            Xb = cp.asarray(self._to_array(X, Device.CUDA))
-            coef = cp.asarray(self.coef_)
-            raw = Xb @ coef
-            if self._effective_intercept:
-                raw += cp.asarray(self.intercept_, dtype=raw.dtype)
+            if is_quantile:
+                raw = self._quantile_cupy_linear_prediction(X)
+            else:
+                Xb = cp.asarray(self._to_array(X, Device.CUDA))
+                coef = cp.asarray(self.coef_)
+                raw = Xb @ coef
+                if self._effective_intercept:
+                    raw += cp.asarray(self.intercept_, dtype=raw.dtype)
             if self.loss == "logistic":
                 p = 1.0 / (1.0 + cp.exp(-cp.clip(raw, -_ETA_CLIP, _ETA_CLIP)))
                 result = (p > 0.5).astype(float)
@@ -136,13 +206,20 @@ class _PenalizedPredictMixin:
             return _to_numpy(result) if return_cpu else result
         if backend_name == "torch":
             import torch
-            Xb = self._to_array(X, Device.TORCH, backend="torch").to(torch.float64)
-            coef = torch.as_tensor(self.coef_, dtype=Xb.dtype, device=Xb.device)
-            raw = Xb @ coef
-            if self._effective_intercept:
-                raw = raw + torch.as_tensor(
-                    self.intercept_, dtype=raw.dtype, device=raw.device
+            if is_quantile:
+                raw = self._quantile_torch_linear_prediction(X)
+            else:
+                Xb = self._to_array(
+                    X, Device.TORCH, backend="torch"
+                ).to(torch.float64)
+                coef = torch.as_tensor(
+                    self.coef_, dtype=Xb.dtype, device=Xb.device
                 )
+                raw = Xb @ coef
+                if self._effective_intercept:
+                    raw = raw + torch.as_tensor(
+                        self.intercept_, dtype=raw.dtype, device=raw.device
+                    )
             if self.loss == "logistic":
                 p = 1.0 / (1.0 + torch.exp(-torch.clamp(raw, -_ETA_CLIP, _ETA_CLIP)))
                 result = (p > 0.5).to(raw.dtype)
