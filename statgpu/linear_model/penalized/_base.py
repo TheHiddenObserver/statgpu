@@ -481,6 +481,13 @@ class PenalizedGeneralizedLinearModel(
         from statgpu.penalties import get_penalty, Penalty
 
         if isinstance(self.penalty, Penalty):
+            # Penalties with learned initialization state (currently
+            # Adaptive-L1) must be fit-local. Reusing the caller's object would
+            # leak learned weights/caches from one dataset or refit into the
+            # next. Stateless/fixed penalties retain their historical identity.
+            if bool(getattr(self.penalty, "requires_init", False)):
+                import copy
+                return copy.deepcopy(self.penalty)
             return self.penalty
 
         # Map "none"/"null" to l2 with alpha=0 (no regularization)
