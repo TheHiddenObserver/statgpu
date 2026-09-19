@@ -41,6 +41,7 @@ from statgpu.cross_validation._base import (
     _cuda_backend_available,
     kfold_indices,
 )
+from statgpu.solvers._convergence import ConvergenceWarning
 from statgpu.solvers._utils import _nesterov_momentum
 
 
@@ -3160,11 +3161,20 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 else:
                     model._init_coef = None
                     model._init_intercept = None
-                model.fit(
-                    X_train_fit,
-                    y_train_fit,
-                    sample_weight=sw_train_fit,
-                )
+                with warnings.catch_warnings():
+                    if strict and loss_name == "quantile":
+                        warnings.simplefilter("error", ConvergenceWarning)
+                    try:
+                        model.fit(
+                            X_train_fit,
+                            y_train_fit,
+                            sample_weight=sw_train_fit,
+                        )
+                    except ConvergenceWarning as exc:
+                        raise FloatingPointError(
+                            "strict Quantile CV candidate did not establish "
+                            "solver convergence"
+                        ) from exc
 
                 coef_np = _to_numpy(model.coef_).ravel()
                 intercept = float(model.intercept_)
