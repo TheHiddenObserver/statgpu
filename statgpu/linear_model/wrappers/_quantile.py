@@ -1113,12 +1113,23 @@ class QuantileRegression(BaseEstimator):
             ).lower()
             if selected.startswith("cuda:"):
                 device_id = int(selected.split(":", 1)[1])
-                return _cupy_asarray_on_device(
-                    X,
-                    device_id,
-                    dtype=cp.float64,
-                )
-            return cp.asarray(X, dtype=cp.float64)
+                with cp.cuda.Device(device_id):
+                    converted = self._to_array(
+                        X,
+                        Device.CUDA,
+                        backend="cupy",
+                    )
+                    return _cupy_asarray_on_device(
+                        converted,
+                        device_id,
+                        dtype=cp.float64,
+                    )
+            converted = self._to_array(
+                X,
+                Device.CUDA,
+                backend="cupy",
+            )
+            return cp.asarray(converted, dtype=cp.float64)
 
         if backend_name == "torch":
             import torch
