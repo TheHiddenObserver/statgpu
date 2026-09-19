@@ -73,6 +73,51 @@ def test_xp_asarray_cupy_targets_reference_device(monkeypatch):
     assert captured["dtype"] is np.float64
 
 
+def test_to_backend_cupy_targets_reference_device(monkeypatch):
+    class _FakeDevice:
+        id = 5
+
+    class _FakeRef:
+        __module__ = "cupy._core.core"
+        device = _FakeDevice()
+        dtype = np.dtype("float64")
+
+    captured = {}
+
+    def fake_cupy_asarray_on_device(value, target_device, dtype=None):
+        captured["value"] = value
+        captured["target_device"] = target_device
+        captured["dtype"] = dtype
+        return "aligned"
+
+    monkeypatch.setattr(_array_ops_mod, "_resolve_backend", lambda *args: "cupy")
+    monkeypatch.setattr(
+        _backend_utils,
+        "_cupy_asarray_on_device",
+        fake_cupy_asarray_on_device,
+    )
+
+    fake_cupy = type(
+        "_FakeCupyModule",
+        (),
+        {"float64": np.float64, "asarray": staticmethod(lambda *a, **k: "raw")},
+    )
+    monkeypatch.setitem(__import__("sys").modules, "cupy", fake_cupy)
+
+    source = np.asarray([1.0, 2.0], dtype=np.float64)
+    result = _array_ops_mod._to_backend(
+        source,
+        backend="auto",
+        ref_tensor=_FakeRef(),
+        dtype=np.float64,
+    )
+
+    assert result == "aligned"
+    assert captured["value"] is source
+    assert captured["target_device"] == 5
+    assert captured["dtype"] is np.float64
+
+
 def test_safe_psd_spectral_bound_handles_empty_gram():
     empty = np.empty((0, 0), dtype=np.float64)
     assert _psd_spectral_upper_bound(empty) == 0.0
