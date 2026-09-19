@@ -9,6 +9,22 @@ import numpy as np
 _INV_SQRT_2PI = 1.0 / _math.sqrt(2.0 * _math.pi)
 
 
+def _bootstrap_schedule_to_backend(schedule, resid, backend, xp):
+    """Move a deterministic resampling schedule to the exact numerical device."""
+    if backend == "torch":
+        import torch
+
+        return torch.as_tensor(
+            schedule,
+            dtype=torch.long,
+            device=resid.device,
+        )
+    if backend == "cupy":
+        with xp.cuda.Device(int(resid.device.id)):
+            return xp.asarray(schedule, dtype=xp.int64)
+    return schedule
+
+
 def _bootstrap_armijo_accept(
     loss_new_by_draw,
     loss_old_by_draw,
@@ -602,18 +618,12 @@ class QuantileRegression(BaseEstimator):
         # Only the deterministic integer resampling schedule lives on the CPU
         # control plane. Residual gathering and bootstrap-response construction
         # stay on the actual numerical backend/device.
-        if is_torch:
-            import torch
-
-            schedule_native = torch.as_tensor(
-                schedule,
-                dtype=torch.long,
-                device=resid.device,
-            )
-        elif backend == "cupy":
-            schedule_native = xp.asarray(schedule, dtype=xp.int64)
-        else:
-            schedule_native = schedule
+        schedule_native = _bootstrap_schedule_to_backend(
+            schedule,
+            resid,
+            backend,
+            xp,
+        )
         y_gpu = eta[None, :] + resid[schedule_native]
 
         # Lipschitz constant + backtracking line search

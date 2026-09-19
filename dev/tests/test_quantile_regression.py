@@ -3,7 +3,10 @@ import numpy as np
 import pytest
 
 from statgpu.linear_model import QuantileRegression
-from statgpu.linear_model.wrappers._quantile import _bootstrap_armijo_accept
+from statgpu.linear_model.wrappers._quantile import (
+    _bootstrap_armijo_accept,
+    _bootstrap_schedule_to_backend,
+)
 
 
 # ---- GPU availability checks ----
@@ -136,6 +139,51 @@ class TestQuantileRegression:
         assert m._conf_int.shape == (4, 2)
         # SE should be positive
         assert np.all(m._bse > 0)
+
+    def test_bootstrap_schedule_follows_exact_cupy_device(self):
+        events = []
+
+        class FakeDeviceContext:
+            def __init__(self, device_id):
+                self.device_id = int(device_id)
+
+            def __enter__(self):
+                events.append(("enter", self.device_id))
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                events.append(("exit", self.device_id))
+
+        class FakeCuda:
+            Device = FakeDeviceContext
+
+        class FakeXP:
+            cuda = FakeCuda()
+            int64 = np.int64
+
+            @staticmethod
+            def asarray(value, dtype=None):
+                events.append(("asarray", dtype))
+                return np.asarray(value, dtype=dtype)
+
+        class FakeResid:
+            class Device:
+                id = 3
+
+            device = Device()
+
+        schedule = np.array([[0, 1], [1, 0]], dtype=np.int64)
+        converted = _bootstrap_schedule_to_backend(
+            schedule,
+            FakeResid(),
+            "cupy",
+            FakeXP(),
+        )
+
+        np.testing.assert_array_equal(converted, schedule)
+        assert events[0] == ("enter", 3)
+        assert events[-1] == ("exit", 3)
+        assert any(event[0] == "asarray" for event in events)
 
     def test_batched_bootstrap_torch_keeps_response_construction_native(
         self, monkeypatch
