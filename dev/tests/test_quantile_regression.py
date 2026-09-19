@@ -1174,6 +1174,25 @@ class TestQuantileRegression:
             )
 
 
+    @pytest.mark.parametrize("bad_value", [np.nan, np.inf, -np.inf])
+    def test_score_rejects_nonfinite_response_before_prediction(
+        self, monkeypatch, bad_value
+    ):
+        model = QuantileRegression(quantile=0.5)
+        model._fitted = True
+        model.coef_ = np.zeros(self.X.shape[1], dtype=np.float64)
+
+        def forbidden_predict(*args, **kwargs):
+            raise AssertionError(
+                "non-finite score response must fail before prediction"
+            )
+
+        monkeypatch.setattr(model, "predict", forbidden_predict)
+        bad_y = self.y.copy()
+        bad_y[0] = bad_value
+        with pytest.raises(ValueError, match="finite values"):
+            model.score(self.X, bad_y)
+
     def test_score_rejects_response_shape_and_length_mismatch(self):
         model = QuantileRegression(quantile=0.5).fit(self.X, self.y)
         with pytest.raises(ValueError, match="one-dimensional"):
