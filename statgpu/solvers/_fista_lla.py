@@ -238,9 +238,21 @@ def fista_lla_path(
         xp = np
 
     # Quantile's public low-level FISTA-LLA path accepts response containers
-    # independently of the design backend. Normalize the response onto the
-    # design's concrete backend/device before the fused kernel sees it.
+    # independently of the design backend. Integral/bool designs must first be
+    # promoted so continuous responses and fractional analytic weights are not
+    # silently truncated to X.dtype. Preserve existing floating dtypes.
     if str(getattr(loss, "name", "") or "").lower() == "quantile":
+        if backend == "torch":
+            import torch
+            if not torch.is_floating_point(X):
+                X = X.to(dtype=torch.float64)
+        else:
+            try:
+                design_kind = np.dtype(getattr(X, "dtype", None)).kind
+            except (TypeError, ValueError):
+                design_kind = "f"
+            if design_kind in "biu":
+                X = _xp_asarray(X, xp.float64, X)
         y = _xp_asarray(y, getattr(X, "dtype", None), X)
 
     if _is_preprocessed:
