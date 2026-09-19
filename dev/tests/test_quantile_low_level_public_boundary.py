@@ -115,6 +115,49 @@ def test_to_backend_cupy_targets_reference_device(monkeypatch):
     assert captured["dtype"] is np.float64
 
 
+def test_solver_zeros_cupy_targets_reference_device(monkeypatch):
+    captured = {"active_device": None, "zeros_device": None}
+
+    class _DeviceContext:
+        def __init__(self, device_id):
+            self.device_id = int(device_id)
+            self.previous = None
+
+        def __enter__(self):
+            self.previous = captured["active_device"]
+            captured["active_device"] = self.device_id
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            captured["active_device"] = self.previous
+
+    def fake_zeros(n, dtype=None):
+        captured["zeros_device"] = captured["active_device"]
+        return np.zeros(n, dtype=dtype)
+
+    fake_cupy = types.SimpleNamespace(
+        float64=np.float64,
+        zeros=fake_zeros,
+        cuda=types.SimpleNamespace(Device=_DeviceContext),
+    )
+
+    class _FakeDevice:
+        id = 7
+
+    class _FakeRef:
+        __module__ = "cupy._core.core"
+        device = _FakeDevice()
+        dtype = np.dtype("float64")
+
+    monkeypatch.setattr(_array_ops_mod, "_resolve_backend", lambda *args: "cupy")
+    monkeypatch.setitem(__import__("sys").modules, "cupy", fake_cupy)
+
+    result = _array_ops_mod._zeros(3, "cupy", ref_tensor=_FakeRef())
+
+    np.testing.assert_array_equal(result, np.zeros(3, dtype=np.float64))
+    assert captured["zeros_device"] == 7
+
+
 def test_safe_psd_spectral_bound_handles_empty_gram():
     empty = np.empty((0, 0), dtype=np.float64)
     assert _psd_spectral_upper_bound(empty) == 0.0
