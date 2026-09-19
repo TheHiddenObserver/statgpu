@@ -160,6 +160,82 @@ def test_adaptive_l1_uninitialized_weights_fail_closed(method):
             getattr(penalty, method)(coef)
 
 
+@pytest.mark.parametrize(
+    ("weights", "error_type", "message"),
+    [
+        ([], ValueError, "non-empty one-dimensional"),
+        ([[1.0, 2.0]], ValueError, "one-dimensional"),
+        ([1.0, np.nan], ValueError, "finite"),
+        ([1.0, np.inf], ValueError, "finite"),
+        ([1.0, -0.1], ValueError, "non-negative"),
+        ([True, False], TypeError, "real numeric"),
+        (["1.0", "2.0"], TypeError, "real numeric"),
+    ],
+)
+def test_adaptive_l1_external_weights_fail_closed(weights, error_type, message):
+    with pytest.raises(error_type, match=message):
+        AdaptiveL1Penalty(
+            alpha=0.2,
+            weights=weights,
+            normalize=False,
+        )
+
+
+def test_adaptive_l1_shallow_params_are_complete_and_clone_safe():
+    penalty = AdaptiveL1Penalty(
+        alpha=0.3,
+        nu=2.0,
+        eps=1e-5,
+        init_method="ridge",
+        normalize=True,
+        weights=[1.0, 3.0],
+    )
+    params = penalty.get_params(deep=False)
+
+    assert set(params) == {
+        "alpha",
+        "nu",
+        "eps",
+        "init_method",
+        "normalize",
+        "weights",
+    }
+    assert params["weights"] == (1.0, 3.0)
+    np.testing.assert_allclose(
+        penalty._weights,
+        np.array([0.5, 1.5], dtype=np.float64),
+        rtol=0.0,
+        atol=0.0,
+    )
+
+    reconstructed = AdaptiveL1Penalty(**params)
+    reconstructed_params = reconstructed.get_params(deep=False)
+    assert reconstructed_params["weights"] is params["weights"]
+    assert reconstructed_params["eps"] == pytest.approx(1e-5)
+    assert reconstructed_params["init_method"] == "ridge"
+    assert reconstructed_params["normalize"] is True
+    np.testing.assert_allclose(
+        reconstructed._weights,
+        penalty._weights,
+        rtol=0.0,
+        atol=0.0,
+    )
+
+
+def test_adaptive_l1_learned_weights_remain_fit_local_constructor_state():
+    penalty = AdaptiveL1Penalty(
+        alpha=0.2,
+        weights=None,
+        normalize=False,
+    )
+    assert penalty.get_params(deep=False)["weights"] is None
+
+    penalty.set_weights(np.array([2.0, 1.0], dtype=np.float64))
+    assert penalty.get_params(deep=False)["weights"] is None
+    assert penalty.weights is None
+    assert penalty._weights is not None
+
+
 def test_nndescent_numpy_unique_and_validated():
     X = np.random.default_rng(123).normal(size=(24, 4))
     indices, distances = nndescent_numpy(X, k=5, max_iter=3, seed=7)
