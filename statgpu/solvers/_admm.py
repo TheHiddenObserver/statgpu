@@ -132,8 +132,12 @@ def admm_solver(
                     _L = np.linalg.cholesky(_A_mat)
                 elif backend == "cupy":
                     import cupy as cp
-                    _A_mat = _hess_const + rho * cp.eye(n_features, dtype=_hess_const.dtype)
-                    _L = cp.linalg.cholesky(_A_mat)
+                    with cp.cuda.Device(int(_hess_const.device.id)):
+                        _A_mat = (
+                            _hess_const
+                            + rho * cp.eye(n_features, dtype=_hess_const.dtype)
+                        )
+                        _L = cp.linalg.cholesky(_A_mat)
                 else:
                     import torch
                     _A_mat = _hess_const + rho * torch.eye(n_features, dtype=_hess_const.dtype, device=_hess_const.device)
