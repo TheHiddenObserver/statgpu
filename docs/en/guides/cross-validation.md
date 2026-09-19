@@ -150,6 +150,8 @@ Cox grids have survival-specific validation rules; see the Cox model page rather
 
 Where a CV estimator supports `sample_weight`, the weights enter the training-fold objective and the corresponding weighted validation criterion, and the selected final model is refit with the full-data weights. For `PenalizedGLM_CV`, every evaluated training fold and validation fold must retain a finite positive total analytic weight. A fold with zero weight mass is undefined for the declared weighted objective and raises before candidate fitting; statgpu does not replace that fold by an unweighted score.
 
+For Quantile rows, strict selection also requires complete fold evidence for each alpha. A fold-level solver convergence failure makes that alpha ineligible rather than allowing the remaining finite folds to determine its mean score. With `cv_strategy="two_stage"`, the screening pass remains relaxed; the complete-evidence rule is enforced in strict refinement and ordinary strict CV.
+
 ```python
 from statgpu.linear_model import RidgeCV
 
