@@ -14,24 +14,6 @@ def _pinball_eta_gradient_values(tau):
     tau = float(tau)
     return -tau, 1.0 - tau
 
-def _all_draws_armijo_satisfied(
-    loss_new_by_draw,
-    loss_old_by_draw,
-    grad_norm_sq_by_draw,
-    *,
-    step,
-    c1,
-    xp,
-):
-    """Require the shared bootstrap step to decrease every draw's objective."""
-    violation = (
-        loss_new_by_draw
-        - loss_old_by_draw
-        + float(c1) * float(step) * grad_norm_sq_by_draw
-    )
-    return float(xp.max(violation)) <= 0.0
-
-
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.losses._quantile import QuantileLoss
@@ -640,9 +622,11 @@ class QuantileRegression(BaseEstimator):
 
             # ---- Backtracking line search ----
             step = 1.0 / L0
-            # Each bootstrap draw is an independent optimization problem.
-            # A common step size is used for vectorization, but Armijo must hold
-            # draw-by-draw rather than only for the aggregate objective.
+            # The coefficient columns are independent bootstrap problems, but a
+            # single conservative step keeps the update vectorized.  Armijo is
+            # evaluated on the summed separable objective; final reporting still
+            # uses a per-draw best iterate so temporary movement in one draw
+            # cannot overwrite that draw's best solution.
             if is_cupy:
                 _pinball_loss_kernel(r_z, _loss_buf)
                 loss_z_by_draw = xp.sum(_loss_buf, axis=0) / n
@@ -651,7 +635,8 @@ class QuantileRegression(BaseEstimator):
                     r_z > 0, tau * r_z, (tau - 1.0) * r_z
                 )
                 loss_z_by_draw = xp.sum(loss_entries_z, axis=0) / n
-            grad_norm_sq_by_draw = xp.sum(grad * grad, axis=0)
+            loss_z = xp.sum(loss_z_by_draw)
+            grad_norm_sq = xp.sum(grad * grad)
 
             accepted = False
             for _ in range(10):
@@ -666,14 +651,8 @@ class QuantileRegression(BaseEstimator):
                         r_new > 0, tau * r_new, (tau - 1.0) * r_new
                     )
                     loss_new_by_draw = xp.sum(loss_entries_new, axis=0) / n
-                if _all_draws_armijo_satisfied(
-                    loss_new_by_draw,
-                    loss_z_by_draw,
-                    grad_norm_sq_by_draw,
-                    step=step,
-                    c1=c1,
-                    xp=xp,
-                ):
+                loss_new = xp.sum(loss_new_by_draw)
+                if float(loss_new - loss_z + c1 * step * grad_norm_sq) <= 0:
                     accepted = True
                     break
                 step *= 0.5
@@ -708,8 +687,7 @@ class QuantileRegression(BaseEstimator):
             )
             improved = loss_new_by_draw < best_obj
             best_obj = xp.where(improved, loss_new_by_draw, best_obj)
-            best_coef[:, improved] = coef_new[:, improved
-            ]
+            best_coef[:, improved] = coef_new[:, improved]
 
             if max_coef_delta < self._tol:
                 converged = True
