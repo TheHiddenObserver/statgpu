@@ -158,6 +158,29 @@ class TestQuantileRegression:
         assert metadata["numerical_device"] == "cpu"
         assert metadata["reporting_backend"] == "numpy"
 
+    def test_kernel_gpu_singular_design_matches_cpu_failure_semantics(self):
+        torch = pytest.importorskip("torch")
+
+        x = torch.linspace(-1.0, 1.0, 48, dtype=torch.float64)
+        X = torch.column_stack([x, x])
+        y = 0.4 * x + torch.linspace(-0.25, 0.25, 48, dtype=torch.float64)
+        model = QuantileRegression(
+            quantile=0.5,
+            fit_intercept=False,
+            kernel="gau",
+            bandwidth="hsheather",
+        )
+        model.coef_ = np.zeros(2, dtype=np.float64)
+        model.intercept_ = 0.0
+        model._selected_backend_name = "torch"
+        model._selected_backend_device = "cpu"
+
+        with pytest.raises(
+            np.linalg.LinAlgError,
+            match="design matrix is singular.*cannot compute kernel standard errors",
+        ):
+            model._compute_inference_kernel_gpu(X, y)
+
     def test_kernel_gpu_reference_distribution_follows_torch_device(
         self, monkeypatch
     ):

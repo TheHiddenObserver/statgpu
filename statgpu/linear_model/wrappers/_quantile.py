@@ -655,7 +655,10 @@ class QuantileRegression(BaseEstimator):
         """GPU-native kernel-based sandwich covariance (Powell 1991)."""
         from statgpu.backends import _to_numpy, _resolve_backend
         from statgpu.backends._utils import _get_xp, xp_ones, xp_eye, xp_asarray
-        from statgpu.backends._array_ops import _clip
+        from statgpu.backends._array_ops import (
+            _clip,
+            _linalg_exception_is_rank_failure,
+        )
         from statgpu.inference._distributions_backend import get_distribution
 
         backend = _resolve_backend("auto", X)
@@ -703,7 +706,19 @@ class QuantileRegression(BaseEstimator):
         # Sandwich covariance
         D = xp.where(resid > 0, (tau / fhat) ** 2, ((1.0 - tau) / fhat) ** 2)
         XtX = X_design.T @ X_design
-        XtX_inv = xp.linalg.solve(XtX, xp_eye(k, X.dtype, xp, ref_arr=X))
+        try:
+            XtX_inv = xp.linalg.solve(
+                XtX,
+                xp_eye(k, X.dtype, xp, ref_arr=X),
+            )
+        except Exception as exc:
+            if not _linalg_exception_is_rank_failure(exc):
+                raise
+            raise np.linalg.LinAlgError(
+                "Quantile regression design matrix is singular — cannot compute "
+                "kernel standard errors. This may indicate collinear features. "
+                "Consider using inference_method='bootstrap' instead."
+            ) from exc
         XtDX = X_design.T @ (X_design * D[:, None])
         cov = XtX_inv @ XtDX @ XtX_inv
 
