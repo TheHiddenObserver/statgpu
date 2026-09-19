@@ -463,8 +463,8 @@ def test_generic_cv_penalty_object_owns_candidate_and_refit_alpha(monkeypatch):
         penalty_alpha for n_rows, _, penalty_alpha, _ in seen
         if n_rows == 3
     ]
-    assert fold_alphas.count(pytest.approx(0.2)) == 2
-    assert fold_alphas.count(pytest.approx(0.1)) == 2
+    assert sum(np.isclose(fold_alphas, 0.2, rtol=0.0, atol=1e-15)) == 2
+    assert sum(np.isclose(fold_alphas, 0.1, rtol=0.0, atol=1e-15)) == 2
     assert all(not is_user for _, _, _, is_user in seen)
     assert user_penalty.alpha == pytest.approx(0.7)
     assert cv.estimator_.penalty is not user_penalty
