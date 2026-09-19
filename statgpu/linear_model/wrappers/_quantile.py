@@ -14,6 +14,24 @@ def _pinball_eta_gradient_values(tau):
     tau = float(tau)
     return -tau, 1.0 - tau
 
+def _all_draws_armijo_satisfied(
+    loss_new_by_draw,
+    loss_old_by_draw,
+    grad_norm_sq_by_draw,
+    *,
+    step,
+    c1,
+    xp,
+):
+    """Require the shared bootstrap step to decrease every draw's objective."""
+    violation = (
+        loss_new_by_draw
+        - loss_old_by_draw
+        + float(c1) * float(step) * grad_norm_sq_by_draw
+    )
+    return float(xp.max(violation)) <= 0.0
+
+
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.losses._quantile import QuantileLoss
@@ -557,8 +575,6 @@ class QuantileRegression(BaseEstimator):
         t_iter = 1.0
         is_cupy = (not is_torch and hasattr(xp, 'fuse'))
         converged = False
-        best_obj = None
-        best_coef = None
         best_obj_stable_count = 0
 
         # CuPy: pre-allocate scratch arrays to avoid allocation in hot loop
@@ -574,6 +590,27 @@ class QuantileRegression(BaseEstimator):
             @xp.fuse()
             def _pinball_loss_kernel(_r, _out):
                 _out[:] = xp.where(_r > 0, float(tau) * _r, float(tau - 1.0) * _r)
+
+        # Include the actual starting coefficient matrix in per-draw best-iterate
+        # tracking.  A shared step can only be accepted when every draw descends,
+        # but each draw still owns its own best objective/parameter snapshot.
+        r_initial = y_gpu.T - Xd @ coef
+        if is_cupy:
+            _pinball_loss_kernel(r_initial, _loss_buf)
+            initial_obj_by_draw = xp.sum(_loss_buf, axis=0) / n
+        else:
+            initial_entries = xp.where(
+                r_initial > 0,
+                tau * r_initial,
+                (tau - 1.0) * r_initial,
+            )
+            initial_obj_by_draw = xp.sum(initial_entries, axis=0) / n
+        best_obj = (
+            initial_obj_by_draw.clone()
+            if is_torch
+            else initial_obj_by_draw.copy()
+        )
+        best_coef = coef.clone() if is_torch else coef.copy()
 
         for iteration in range(self._max_iter):
             # ---- Gradient (all backends) ----
@@ -603,13 +640,18 @@ class QuantileRegression(BaseEstimator):
 
             # ---- Backtracking line search ----
             step = 1.0 / L0
-            # Compute loss once; reuse for Armijo checks
+            # Each bootstrap draw is an independent optimization problem.
+            # A common step size is used for vectorization, but Armijo must hold
+            # draw-by-draw rather than only for the aggregate objective.
             if is_cupy:
                 _pinball_loss_kernel(r_z, _loss_buf)
-                loss_z = xp.sum(_loss_buf) / n
+                loss_z_by_draw = xp.sum(_loss_buf, axis=0) / n
             else:
-                loss_z = xp.sum(xp.where(r_z > 0, tau * r_z, (tau - 1.0) * r_z)) / n
-            grad_norm_sq = xp.sum(grad * grad)
+                loss_entries_z = xp.where(
+                    r_z > 0, tau * r_z, (tau - 1.0) * r_z
+                )
+                loss_z_by_draw = xp.sum(loss_entries_z, axis=0) / n
+            grad_norm_sq_by_draw = xp.sum(grad * grad, axis=0)
 
             accepted = False
             for _ in range(10):
@@ -624,8 +666,14 @@ class QuantileRegression(BaseEstimator):
                         r_new > 0, tau * r_new, (tau - 1.0) * r_new
                     )
                     loss_new_by_draw = xp.sum(loss_entries_new, axis=0) / n
-                loss_new = xp.sum(loss_new_by_draw)
-                if float(loss_new - loss_z + c1 * step * grad_norm_sq) <= 0:
+                if _all_draws_armijo_satisfied(
+                    loss_new_by_draw,
+                    loss_z_by_draw,
+                    grad_norm_sq_by_draw,
+                    step=step,
+                    c1=c1,
+                    xp=xp,
+                ):
                     accepted = True
                     break
                 step *= 0.5
@@ -644,32 +692,24 @@ class QuantileRegression(BaseEstimator):
             coef_delta_by_draw = xp.sum(xp.abs(coef_new - coef), axis=0)
             max_coef_delta = float(xp.max(coef_delta_by_draw))
 
-            if best_obj is None:
-                best_obj = (
-                    loss_new_by_draw.clone()
-                    if is_torch
-                    else loss_new_by_draw.copy()
-                )
-                best_coef = coef_new.clone() if is_torch else coef_new.copy()
-                relative_best_improvement = float("inf")
-            else:
-                improvement = best_obj - loss_new_by_draw
-                positive_improvement = xp.where(
-                    improvement > 0,
-                    improvement,
-                    xp.zeros_like(improvement),
-                )
-                scale = xp.where(
-                    xp.abs(best_obj) > 1.0,
-                    xp.abs(best_obj),
-                    xp.ones_like(best_obj),
-                )
-                relative_best_improvement = float(
-                    xp.max(positive_improvement / scale)
-                )
-                improved = loss_new_by_draw < best_obj
-                best_obj = xp.where(improved, loss_new_by_draw, best_obj)
-                best_coef[:, improved] = coef_new[:, improved]
+            improvement = best_obj - loss_new_by_draw
+            positive_improvement = xp.where(
+                improvement > 0,
+                improvement,
+                xp.zeros_like(improvement),
+            )
+            scale = xp.where(
+                xp.abs(best_obj) > 1.0,
+                xp.abs(best_obj),
+                xp.ones_like(best_obj),
+            )
+            relative_best_improvement = float(
+                xp.max(positive_improvement / scale)
+            )
+            improved = loss_new_by_draw < best_obj
+            best_obj = xp.where(improved, loss_new_by_draw, best_obj)
+            best_coef[:, improved] = coef_new[:, improved
+            ]
 
             if max_coef_delta < self._tol:
                 converged = True
@@ -698,9 +738,6 @@ class QuantileRegression(BaseEstimator):
                 "QuantileRegression bootstrap FISTA did not converge within "
                 f"{self._max_iter} iterations"
             )
-        if best_coef is None:
-            best_coef = coef.clone() if is_torch else coef.copy()
-
         return np.asarray(_to_numpy(best_coef.T)), params, Xd
 
     def _compute_inference_bootstrap(self, X, y):

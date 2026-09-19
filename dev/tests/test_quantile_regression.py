@@ -1,6 +1,8 @@
 """Tests for standalone QuantileRegression with compute_inference."""
 import numpy as np
 import pytest
+
+from statgpu.linear_model.wrappers._quantile import _all_draws_armijo_satisfied
 from statgpu.linear_model import QuantileRegression
 
 
@@ -93,6 +95,32 @@ class TestQuantileRegression:
         assert m._conf_int.shape == (4, 2)
         # SE should be positive
         assert np.all(m._bse > 0)
+
+    def test_batched_armijo_rejects_aggregate_only_descent(self):
+        old = np.asarray([10.0, 1.0], dtype=np.float64)
+        new = np.asarray([8.0, 2.0], dtype=np.float64)
+        grad_sq = np.asarray([1.0, 1.0], dtype=np.float64)
+
+        # Total objective falls from 11 to 10, but draw 2 gets worse.
+        assert float(new.sum()) < float(old.sum())
+        assert not _all_draws_armijo_satisfied(
+            new,
+            old,
+            grad_sq,
+            step=1.0,
+            c1=1e-4,
+            xp=np,
+        )
+
+        good = np.asarray([8.0, 0.8], dtype=np.float64)
+        assert _all_draws_armijo_satisfied(
+            good,
+            old,
+            grad_sq,
+            step=1.0,
+            c1=1e-4,
+            xp=np,
+        )
 
     def test_nonmedian_pinball_eta_gradient_matches_requested_quantile(self):
         from statgpu.linear_model.wrappers._quantile import _pinball_eta_gradient_values
