@@ -19,6 +19,8 @@ from statgpu.backends._array_ops import (
     _max_eigval_power,
     _psd_spectral_upper_bound,
 )
+import statgpu.backends._array_ops as _array_ops_mod
+import statgpu.backends._utils as _backend_utils
 from statgpu.solvers._fista import _weighted_gram_lipschitz
 import statgpu.losses._quantile_irls_validation_contract as _irls_contract
 import statgpu.solvers._quantile_proximal_public_contract as _prox_contract
@@ -31,6 +33,44 @@ def _data(seed=16701):
     y = 0.2 + X @ np.array([0.5, -0.25, 0.1])
     y = y + rng.laplace(scale=0.08, size=X.shape[0])
     return X, y
+
+
+def test_xp_asarray_cupy_targets_reference_device(monkeypatch):
+    class _FakeDevice:
+        id = 3
+
+    class _FakeRef:
+        device = _FakeDevice()
+
+    class _FakeCupy:
+        __name__ = "cupy"
+
+        @staticmethod
+        def asarray(*args, **kwargs):
+            raise AssertionError("raw cp.asarray must not own device placement")
+
+    captured = {}
+
+    def fake_cupy_asarray_on_device(value, target_device, dtype=None):
+        captured["value"] = value
+        captured["target_device"] = target_device
+        captured["dtype"] = dtype
+        return "aligned"
+
+    monkeypatch.setattr(_array_ops_mod, "_xp", lambda ref: _FakeCupy)
+    monkeypatch.setattr(
+        _backend_utils,
+        "_cupy_asarray_on_device",
+        fake_cupy_asarray_on_device,
+    )
+
+    source = np.asarray([1.0, 2.0], dtype=np.float64)
+    result = _array_ops_mod._xp_asarray(source, np.float64, _FakeRef())
+
+    assert result == "aligned"
+    assert captured["value"] is source
+    assert captured["target_device"] == 3
+    assert captured["dtype"] is np.float64
 
 
 def test_safe_psd_spectral_bound_handles_empty_gram():
