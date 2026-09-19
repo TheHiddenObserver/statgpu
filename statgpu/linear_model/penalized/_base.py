@@ -684,7 +684,8 @@ class PenalizedGeneralizedLinearModel(
     def _ones(self, n, backend_name, ref):
         if backend_name == "cupy":
             import cupy as cp
-            return cp.ones(n, dtype=ref.dtype)
+            with cp.cuda.Device(int(ref.device.id)):
+                return cp.ones(n, dtype=ref.dtype)
         if backend_name == "torch":
             import torch
             return torch.ones(n, dtype=ref.dtype, device=ref.device)
