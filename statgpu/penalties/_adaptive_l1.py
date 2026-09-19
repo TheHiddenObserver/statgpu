@@ -32,6 +32,43 @@ def _get_adaptive_l1_torch_compiled():
     _ADAPTIVE_L1_PROXIMAL_TORCH_COMPILED = compile_torch(_prox, dynamic=True, workload="iterative")
     return _ADAPTIVE_L1_PROXIMAL_TORCH_COMPILED
 
+def _normalize_external_weights(weights):
+    """Validate external adaptive weights and return a clone-safe snapshot."""
+    if weights is None:
+        return None
+
+    raw = np.asarray(weights)
+    if raw.ndim != 1 or raw.size == 0:
+        raise ValueError("weights must be a non-empty one-dimensional array")
+    if raw.dtype.kind in ("b", "S", "U"):
+        raise TypeError("weights must contain real numeric values")
+    if raw.dtype.kind == "O":
+        from numbers import Real
+        for value in raw:
+            if isinstance(value, (bool, np.bool_)) or not isinstance(
+                value, (Real, np.number)
+            ):
+                raise TypeError("weights must contain real numeric values")
+    try:
+        values = np.asarray(raw, dtype=np.float64)
+    except (TypeError, ValueError) as exc:
+        raise TypeError("weights must contain real numeric values") from exc
+    if not np.all(np.isfinite(values)):
+        raise ValueError("weights must contain only finite values")
+    if np.any(values < 0.0):
+        raise ValueError("weights must be non-negative")
+
+    normalized = tuple(float(value) for value in values)
+    if (
+        isinstance(weights, tuple)
+        and len(weights) == len(normalized)
+        and all(type(value) is float for value in weights)
+        and weights == normalized
+    ):
+        return weights
+    return normalized
+
+
 class AdaptiveL1Penalty(Penalty):
     """Adaptive L1 penalty (Adaptive Lasso).
 
@@ -84,8 +121,9 @@ class AdaptiveL1Penalty(Penalty):
         self.eps = eps
         self.init_method = init_method
         self.normalize = normalize
-        if weights is not None:
-            w = np.asarray(weights, dtype=float)
+        self.weights = _normalize_external_weights(weights)
+        if self.weights is not None:
+            w = np.asarray(self.weights, dtype=np.float64)
             self._norm_factor = 1.0
             if self.normalize:
                 # Normalize by mean to match R glmnet's penalty.factor convention.
