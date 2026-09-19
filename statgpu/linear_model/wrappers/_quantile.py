@@ -1102,6 +1102,38 @@ class QuantileRegression(BaseEstimator):
         self._zvalues = zvalues.copy()
         self._tvalues = zvalues.copy()
 
+    def _prediction_array_on_fit_device(self, X, backend_name):
+        """Normalize prediction design to float64 on the recorded fit device."""
+        if backend_name == "cupy":
+            import cupy as cp
+            from statgpu.backends._utils import _cupy_asarray_on_device
+
+            selected = str(
+                getattr(self, "_selected_backend_device", "") or ""
+            ).lower()
+            if selected.startswith("cuda:"):
+                device_id = int(selected.split(":", 1)[1])
+                return _cupy_asarray_on_device(
+                    X,
+                    device_id,
+                    dtype=cp.float64,
+                )
+            return cp.asarray(X, dtype=cp.float64)
+
+        if backend_name == "torch":
+            import torch
+
+            selected = str(
+                getattr(self, "_selected_backend_device", "") or ""
+            ).lower()
+            target = selected if selected.startswith("cuda:") else "cuda"
+            return self._to_torch(X, device=target).to(
+                device=target,
+                dtype=torch.float64,
+            )
+
+        return np.asarray(X, dtype=np.float64)
+
     def predict(self, X):
         self._check_is_fitted()
         from statgpu.glm_core._validation import validate_glm_design_matrix
@@ -1112,11 +1144,21 @@ class QuantileRegression(BaseEstimator):
                 "X must have the same number of features as the fitted QuantileRegression"
             )
         backend_name = self._selected_backend_name or "numpy"
-        X_arr = self._to_array(X_native, backend=backend_name)
+        X_arr = self._prediction_array_on_fit_device(X_native, backend_name)
         from statgpu.backends._utils import _get_xp, xp_asarray
         xp = _get_xp(backend_name)
-        coef = xp_asarray(self.coef_, xp=xp, ref_arr=X_arr)
-        intercept = xp_asarray(self.intercept_, xp=xp, ref_arr=X_arr)
+        coef = xp_asarray(
+            self.coef_,
+            dtype=X_arr.dtype,
+            xp=xp,
+            ref_arr=X_arr,
+        )
+        intercept = xp_asarray(
+            self.intercept_,
+            dtype=X_arr.dtype,
+            xp=xp,
+            ref_arr=X_arr,
+        )
         raw = X_arr @ coef + intercept
         from statgpu.backends import _to_numpy
         result = np.asarray(_to_numpy(raw)) if backend_name != "numpy" else raw
