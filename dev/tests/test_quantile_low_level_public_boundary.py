@@ -306,6 +306,51 @@ def test_quantile_lipschitz_uses_safe_psd_upper_bound():
     assert observed >= exact_scaled
 
 
+def test_fista_rejects_unverified_trial_after_backtracking_exhaustion():
+    class AlwaysRejectingLoss:
+        name = "always_reject"
+        _is_quadratic = False
+        _lipschitz_static = True
+
+        def preprocess(self, X, y):
+            return X, y
+
+        def lipschitz(self, X, coef, y=None, sample_weight=None):
+            return 1.0
+
+        def fused_value_and_gradient(
+            self, X, y, coef, sample_weight=None
+        ):
+            # At the current point the surrogate starts from zero objective
+            # with a nonzero gradient.
+            return np.asarray(0.0), np.ones_like(coef)
+
+        def value(self, X, y, coef, sample_weight=None):
+            # Every proposed trial is deliberately above the quadratic bound,
+            # so none of the 20 backtracking attempts may be accepted.
+            return np.asarray(1.0)
+
+    X = np.eye(2, dtype=np.float64)
+    y = np.zeros(2, dtype=np.float64)
+    penalty = L2Penalty(alpha=0.0)
+
+    with pytest.warns(
+        ConvergenceWarning,
+        match="line search failed to find an acceptable proximal step",
+    ):
+        coef, n_iter = _fista_mod.fista_solver(
+            AlwaysRejectingLoss(),
+            penalty,
+            X,
+            y,
+            max_iter=5,
+            tol=1e-12,
+        )
+
+    np.testing.assert_array_equal(coef, np.zeros(2, dtype=np.float64))
+    assert n_iter == 1
+
+
 def test_quantile_fused_value_stays_on_torch_backend():
     torch = pytest.importorskip("torch")
     loss = QuantileLoss(quantile=0.3)
