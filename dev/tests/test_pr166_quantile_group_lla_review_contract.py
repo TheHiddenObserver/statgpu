@@ -21,7 +21,11 @@ from statgpu.solvers import _quantile_group_proximal_irls_lla as group_solver
 from statgpu.solvers._quantile_continuation import (
     is_auto_quantile_continuation_path,
 )
-from statgpu.penalties import AdaptiveGroupLassoPenalty
+from statgpu.penalties import (
+    AdaptiveGroupLassoPenalty,
+    GroupMCPPenalty,
+    GroupSCADPenalty,
+)
 import statgpu.penalties._group_lasso as _group_lasso_impl
 import statgpu.backends._utils as _backend_utils
 
@@ -90,6 +94,53 @@ def test_public_group_penalty_cupy_caches_migrate_with_operand_device(monkeypatc
     assert group_index.device.id == 1
     assert group_weights.device.id == 1
     assert targets == [1, 1, 1]
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        lambda: GroupMCPPenalty(alpha=0.1, gamma=3.0, groups=GROUPS),
+        lambda: GroupSCADPenalty(alpha=0.1, a=3.7, groups=GROUPS),
+    ],
+)
+def test_public_group_nonconvex_cupy_caches_migrate_with_operand_device(
+    monkeypatch, factory
+):
+    penalty = factory()
+    targets = []
+
+    class FakeDevice:
+        def __init__(self, device_id):
+            self.id = int(device_id)
+
+    class FakeArray:
+        __module__ = "cupy._core.core"
+
+        def __init__(self, device_id):
+            self.device = FakeDevice(device_id)
+            self.dtype = np.dtype("float64")
+
+    def fake_cupy_align(value, target_device, dtype=None):
+        targets.append(int(target_device))
+        return FakeArray(target_device)
+
+    monkeypatch.setattr(
+        _backend_utils,
+        "_cupy_asarray_on_device",
+        fake_cupy_align,
+    )
+
+    xp = types.SimpleNamespace(__name__="cupy")
+    w = FakeArray(1)
+    penalty._sqrt_pg_cupy = FakeArray(0)
+    penalty._group_feat_idx_cupy = FakeArray(0)
+
+    sqrt_pg = penalty._get_sqrt_pg(xp, w)
+    group_index = penalty._get_cached("_group_feat_idx", xp, w)
+
+    assert sqrt_pg.device.id == 1
+    assert group_index.device.id == 1
+    assert targets == [1, 1]
 
 
 def _penalty_kwargs(kind):
