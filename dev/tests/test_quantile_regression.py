@@ -408,6 +408,27 @@ class TestQuantileRegression:
             m._inference_result.metadata["solver_n_iter"]
             == m._bootstrap_n_iter_
         )
+        assert (
+            m._inference_result.statistic_name
+            == "estimate_over_bootstrap_se"
+        )
+        assert (
+            m._inference_result.metadata["pvalue_method"]
+            == "bootstrap_sign_test"
+        )
+        assert (
+            m._inference_result.metadata["statistic_method"]
+            == "estimate_over_bootstrap_se"
+        )
+        np.testing.assert_allclose(
+            m._zvalues,
+            m._inference_result.statistic,
+            rtol=0.0,
+            atol=0.0,
+        )
+        table = m._inference_result.to_dataframe()
+        assert "estimate_over_bootstrap_se" in table.columns
+        assert "z" not in table.columns
 
     def test_score_is_negative_pinball_loss(self):
         model = QuantileRegression(quantile=0.25).fit(self.X, self.y)

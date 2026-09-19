@@ -801,18 +801,24 @@ class QuantileRegression(BaseEstimator):
         from statgpu.inference._results import ParameterInferenceResult
         result = ParameterInferenceResult(
             method="bootstrap", params=params.copy(), bse=bse.copy(),
-            statistic=zvalues.copy(), statistic_name="z",
+            statistic=zvalues.copy(),
+            statistic_name="estimate_over_bootstrap_se",
             pvalues=pvalues.copy(), conf_int=conf_int.copy(),
             distribution="bootstrap_percentile",
             metadata={
                 "n_bootstrap": self._n_bootstrap,
                 "ci_method": "percentile",
                 "pvalue_method": "bootstrap_sign_test",
+                "statistic_method": "estimate_over_bootstrap_se",
                 "solver": "batched_pinball_fista",
                 "solver_n_iter": int(self._bootstrap_n_iter_),
                 "backend": getattr(self, '_selected_backend_name', 'numpy'),
             })
         result.apply_to(self)
+        # Backward-compatible aliases: these are estimate/SE ratios only.
+        # Bootstrap p-values are sign-test p-values, not normal z-tail p-values.
+        self._zvalues = zvalues.copy()
+        self._tvalues = zvalues.copy()
 
     def predict(self, X):
         self._check_is_fitted()
