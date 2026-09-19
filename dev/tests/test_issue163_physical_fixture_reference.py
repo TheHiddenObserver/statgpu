@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from dev.benchmarks import run_quantile_smooth_fista_gpu_gate as smooth_wrapper
 from dev.benchmarks import validate_quantile_smooth_fista_gpu as smooth_gate
