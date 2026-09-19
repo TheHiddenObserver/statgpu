@@ -109,6 +109,36 @@ def test_public_quantile_fista_lla_rejects_invalid_public_controls(kwargs, messa
         )
 
 
+def test_quantile_fista_lla_integer_design_preserves_fractional_response_and_weights():
+    X_int = np.asarray(
+        [[1, 0, 2], [0, 1, -1], [2, 1, 0], [-1, 2, 1]],
+        dtype=np.int64,
+    )
+    X_float = X_int.astype(np.float64)
+    y = np.asarray([0.25, -0.4, 1.15, 0.6], dtype=np.float64)
+    weights = np.asarray([0.25, 0.75, 1.25, 1.75], dtype=np.float64)
+
+    def solve(X):
+        return fista_lla_contract.fista_lla_path(
+            QuantileLoss(0.35),
+            SCADPenalty(alpha=0.05),
+            X,
+            y,
+            alpha_path=[0.05],
+            max_lla_per_step=1,
+            max_iter=8,
+            fit_intercept=False,
+            sample_weight=weights,
+        )
+
+    coef_int, intercept_int, n_iter_int = solve(X_int)
+    coef_float, intercept_float, n_iter_float = solve(X_float)
+
+    np.testing.assert_allclose(coef_int, coef_float, rtol=0.0, atol=1e-14)
+    assert intercept_int == pytest.approx(intercept_float, rel=0.0, abs=1e-14)
+    assert n_iter_int == n_iter_float
+
+
 def test_quantile_fista_lla_accepts_numpy_response_with_torch_design():
     torch = pytest.importorskip("torch")
     loss = QuantileLoss(0.35)
