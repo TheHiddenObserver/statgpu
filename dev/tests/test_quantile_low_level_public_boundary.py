@@ -28,6 +28,53 @@ def _data(seed=16701):
     return X, y
 
 
+def test_quantile_fused_value_stays_on_torch_backend():
+    torch = pytest.importorskip("torch")
+    loss = QuantileLoss(quantile=0.3)
+    X = torch.tensor(
+        [[1.0, -0.5], [0.2, 0.7], [-0.3, 0.4]],
+        dtype=torch.float64,
+    )
+    y = torch.tensor([0.2, -0.1, 0.5], dtype=torch.float64)
+    coef = torch.tensor([0.1, -0.2], dtype=torch.float64)
+    weights = torch.tensor([0.5, 1.0, 1.5], dtype=torch.float64)
+
+    value, grad = loss.fused_value_and_gradient(
+        X,
+        y,
+        coef,
+        sample_weight=weights,
+    )
+
+    assert torch.is_tensor(value)
+    assert value.ndim == 0
+    assert value.device == X.device
+    assert value.dtype == X.dtype
+    assert torch.is_tensor(grad)
+    assert grad.device == X.device
+    assert grad.dtype == X.dtype
+
+    eta = X @ coef
+    residual = y - eta
+    per_sample = torch.where(
+        residual >= 0.0,
+        0.3 * residual,
+        (0.3 - 1.0) * residual,
+    )
+    expected_value = torch.sum(weights * per_sample) / torch.sum(weights)
+    expected_grad = X.T @ (
+        weights
+        * torch.where(
+            residual < 0.0,
+            torch.tensor(0.7, dtype=X.dtype),
+            torch.tensor(-0.3, dtype=X.dtype),
+        )
+    ) / torch.sum(weights)
+
+    torch.testing.assert_close(value, expected_value)
+    torch.testing.assert_close(grad, expected_grad)
+
+
 def test_quantile_response_validation_preserves_torch_backend():
     torch = pytest.importorskip("torch")
     loss = QuantileLoss(quantile=0.3)

@@ -219,17 +219,16 @@ class QuantileLoss(LossBase):
             neg_mask = (u < 0).astype(u.dtype)
         resid = -tau + 1.0 * neg_mask
 
-        # Aggregate
+        # Aggregate. Keep the objective scalar on the active backend so async
+        # FISTA does not synchronize GPU->CPU on every iteration merely to
+        # obtain a value that is consumed by device-side line-search algebra.
         if sample_weight is not None:
-            sw_sum = float(xp.dot(sample_weight, ps).item()) if xp.__name__ == "torch" else float(xp.dot(sample_weight, ps))
-            val = sw_sum / float(sample_weight.sum())
-            grad = X.T @ (sample_weight * resid) / float(sample_weight.sum())
+            sw_total = xp.sum(sample_weight)
+            val = xp.sum(sample_weight * ps) / sw_total
+            grad = X.T @ (sample_weight * resid) / sw_total
         else:
             n = X.shape[0]
-            if xp.__name__ == "torch":
-                val = float(xp.sum(ps).item()) / n
-            else:
-                val = float(xp.sum(ps)) / n
+            val = xp.sum(ps) / n
             grad = X.T @ resid / n
         return val, grad
 
