@@ -53,6 +53,19 @@ def test_safe_psd_spectral_bound_closes_power_seed_orthogonality_gap():
     assert _weighted_gram_lipschitz(gram) == pytest.approx(safe)
 
 
+def test_safe_psd_spectral_bound_preserves_torch_backend():
+    torch = pytest.importorskip("torch")
+    gram = torch.tensor(
+        [[8.2, -3.6], [-3.6, 2.8]],
+        dtype=torch.float64,
+    )
+    safe = _psd_spectral_upper_bound(gram)
+    exact = float(torch.linalg.eigvalsh(gram)[-1])
+
+    assert safe >= exact
+    assert _weighted_gram_lipschitz(gram) == pytest.approx(safe)
+
+
 def test_quantile_lipschitz_uses_safe_psd_upper_bound():
     gram = np.array(
         [[8.2, -3.6], [-3.6, 2.8]],
