@@ -137,6 +137,42 @@ class TestQuantileRegression:
         # SE should be positive
         assert np.all(m._bse > 0)
 
+    def test_batched_bootstrap_torch_keeps_response_construction_native(
+        self, monkeypatch
+    ):
+        torch = pytest.importorskip("torch")
+        import statgpu.backends as backends
+
+        X = torch.zeros((12, 1), dtype=torch.float64)
+        y = torch.zeros(12, dtype=torch.float64)
+        model = QuantileRegression(
+            quantile=0.5,
+            fit_intercept=False,
+            max_iter=5,
+            tol=1e-8,
+            n_bootstrap=3,
+            random_state=11,
+        )
+        model.coef_ = np.zeros(1, dtype=np.float64)
+        model.intercept_ = 0.0
+
+        calls = []
+        original_to_numpy = backends._to_numpy
+
+        def recording_to_numpy(value):
+            calls.append(value)
+            return original_to_numpy(value)
+
+        monkeypatch.setattr(backends, "_to_numpy", recording_to_numpy)
+        boot_params, params_native, design_native = model._compute_bootstrap_batched(X, y)
+
+        assert torch.is_tensor(params_native)
+        assert torch.is_tensor(design_native)
+        np.testing.assert_allclose(boot_params, 0.0, rtol=0.0, atol=0.0)
+        # Only the completed parameter matrix crosses the reporting boundary.
+        assert len(calls) == 1
+        assert torch.is_tensor(calls[0])
+
     def test_batched_bootstrap_zero_gradient_returns_current_point(self):
         X = np.zeros((12, 1), dtype=np.float64)
         y = np.zeros(12, dtype=np.float64)

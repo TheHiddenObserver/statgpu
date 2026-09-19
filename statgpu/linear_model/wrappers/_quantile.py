@@ -591,12 +591,30 @@ class QuantileRegression(BaseEstimator):
         p = Xd.shape[1]
 
         eta = Xd @ params
-        resid_cpu = np.asarray(_to_numpy((y - eta).ravel()))
-        eta_cpu = np.asarray(_to_numpy(eta))
+        resid = (y - eta).ravel()
         B = self._n_bootstrap
         rng = np.random.default_rng(self.random_state)
-        y_batch = np.array([eta_cpu + resid_cpu[rng.integers(0, n, size=n)] for _ in range(B)])
-        y_gpu = xp_asarray(y_batch, dtype=X.dtype, xp=xp, ref_arr=X)
+        schedule = np.stack(
+            [rng.integers(0, n, size=n, dtype=np.int64) for _ in range(B)],
+            axis=0,
+        )
+
+        # Only the deterministic integer resampling schedule lives on the CPU
+        # control plane. Residual gathering and bootstrap-response construction
+        # stay on the actual numerical backend/device.
+        if is_torch:
+            import torch
+
+            schedule_native = torch.as_tensor(
+                schedule,
+                dtype=torch.long,
+                device=resid.device,
+            )
+        elif backend == "cupy":
+            schedule_native = xp.asarray(schedule, dtype=xp.int64)
+        else:
+            schedule_native = schedule
+        y_gpu = eta[None, :] + resid[schedule_native]
 
         # Lipschitz constant + backtracking line search
         L0 = max(float(xp.linalg.norm(Xd, ord=2)) ** 2 / n, 1e-10)
@@ -834,6 +852,8 @@ class QuantileRegression(BaseEstimator):
                 "ci_method": "percentile",
                 "pvalue_method": "bootstrap_sign_test",
                 "statistic_method": "estimate_over_bootstrap_se",
+                "resampling_schedule": "numpy_generator_control_plane",
+                "response_construction": "backend_native",
                 "solver": "batched_pinball_fista",
                 "solver_n_iter": int(self._bootstrap_n_iter_),
                 "backend": getattr(self, '_selected_backend_name', 'numpy'),
