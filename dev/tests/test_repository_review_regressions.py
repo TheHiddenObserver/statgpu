@@ -161,6 +161,26 @@ def test_adaptive_l1_uninitialized_weights_fail_closed(method):
 
 
 @pytest.mark.parametrize(
+    ("kwargs", "error_type", "message"),
+    [
+        ({"alpha": -0.1}, ValueError, "alpha.*non-negative"),
+        ({"alpha": np.nan}, ValueError, "alpha.*finite"),
+        ({"alpha": True}, TypeError, "alpha.*numeric"),
+        ({"nu": 0.0}, ValueError, "nu.*positive"),
+        ({"nu": np.inf}, ValueError, "nu.*finite"),
+        ({"eps": 0.0}, ValueError, "eps.*positive"),
+        ({"eps": -1e-8}, ValueError, "eps.*positive"),
+        ({"init_method": "bad"}, ValueError, "init_method"),
+        ({"init_method": 1}, TypeError, "init_method"),
+        ({"normalize": "False"}, TypeError, "normalize.*boolean"),
+    ],
+)
+def test_adaptive_l1_public_controls_fail_closed(kwargs, error_type, message):
+    with pytest.raises(error_type, match=message):
+        AdaptiveL1Penalty(**kwargs)
+
+
+@pytest.mark.parametrize(
     ("weights", "error_type", "message"),
     [
         ([], ValueError, "non-empty one-dimensional"),
