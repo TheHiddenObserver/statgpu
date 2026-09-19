@@ -98,6 +98,12 @@ class QuantileLoss(LossBase):
             raise ValueError("quantile response requires finite values")
         return values
 
+    def _clear_solver_cache(self):
+        """Clear solve-local caches before a new optimizer call."""
+        cache = getattr(self, "_lipschitz_cache", None)
+        if isinstance(cache, dict):
+            cache.clear()
+
     def lipschitz(self, X, coef, y=None, sample_weight=None):
         """Return the design-scaled step parameter for first-order routes.
 

@@ -104,6 +104,10 @@ def fista_solver(
     n_iter : int
         Number of iterations.
     """
+    clear_solver_cache = getattr(loss, "_clear_solver_cache", None)
+    if callable(clear_solver_cache):
+        clear_solver_cache()
+
     backend = _resolve_backend("auto", X)
     X_proc, y_proc = loss.preprocess(X, y)
     # Validate before any weighted Lipschitz or matrix operation so direct
