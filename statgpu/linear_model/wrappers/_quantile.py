@@ -196,7 +196,64 @@ class QuantileRegression(BaseEstimator):
         self.__dict__.pop("n_features_in_", None)
 
     def _validate_public_controls(self):
-        """Validate mutable public controls before backend or numerical work."""
+        """Validate and synchronize mutable public controls before numerics."""
+        # Direct public attribute replacement is a supported refit pattern.
+        # Keep clone-facing public objects untouched while rebuilding the
+        # normalized runtime mirrors consumed by numerical/inference code.
+        quantile = self.quantile
+        fit_intercept = self.fit_intercept
+        max_iter = self.max_iter
+        tol = self.tol
+        compute_inference = self.compute_inference
+        inference_method = self.inference_method
+        n_bootstrap = self.n_bootstrap
+        gpu_memory_cleanup = self.gpu_memory_cleanup
+        device = self.device
+
+        if (
+            isinstance(quantile, (bool, np.bool_))
+            or not isinstance(quantile, Real)
+            or not np.isfinite(float(quantile))
+            or not 0.0 < float(quantile) < 1.0
+        ):
+            raise ValueError("quantile must be a finite real number in (0, 1)")
+        self._quantile = float(quantile)
+
+        if not isinstance(fit_intercept, (bool, np.bool_)):
+            raise ValueError("fit_intercept must be boolean")
+        self._fit_intercept = bool(fit_intercept)
+
+        if not isinstance(compute_inference, (bool, np.bool_)):
+            raise ValueError("compute_inference must be boolean")
+        self._compute_inference_enabled = bool(compute_inference)
+
+        if not isinstance(gpu_memory_cleanup, (bool, np.bool_)):
+            raise ValueError("gpu_memory_cleanup must be boolean")
+        self._gpu_memory_cleanup = bool(gpu_memory_cleanup)
+
+        if isinstance(max_iter, (bool, np.bool_)) or not isinstance(
+            max_iter, Integral
+        ) or int(max_iter) < 1:
+            raise ValueError("max_iter must be a positive integer")
+        self._max_iter = int(max_iter)
+
+        if isinstance(tol, (bool, np.bool_)) or not isinstance(tol, Real):
+            raise ValueError("tol must be a finite positive number")
+        tol_value = float(tol)
+        if not np.isfinite(tol_value) or tol_value <= 0.0:
+            raise ValueError("tol must be a finite positive number")
+        self._tol = tol_value
+
+        self._inference_method = inference_method
+        self._n_bootstrap = n_bootstrap
+
+        try:
+            self._device = device if isinstance(device, Device) else Device(device)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "device must be one of 'auto', 'cpu', 'cuda', or 'torch'"
+            ) from exc
+
         if (
             isinstance(self._quantile, (bool, np.bool_))
             or not isinstance(self._quantile, Real)
@@ -204,23 +261,6 @@ class QuantileRegression(BaseEstimator):
             or not 0.0 < float(self._quantile) < 1.0
         ):
             raise ValueError("quantile must be a finite real number in (0, 1)")
-        if not isinstance(self._fit_intercept, (bool, np.bool_)):
-            raise ValueError("fit_intercept must be boolean")
-        if not isinstance(self._compute_inference_enabled, (bool, np.bool_)):
-            raise ValueError("compute_inference must be boolean")
-        if not isinstance(self._gpu_memory_cleanup, (bool, np.bool_)):
-            raise ValueError("gpu_memory_cleanup must be boolean")
-
-        if isinstance(self._max_iter, (bool, np.bool_)) or not isinstance(
-            self._max_iter, Integral
-        ) or int(self._max_iter) < 1:
-            raise ValueError("max_iter must be a positive integer")
-        if isinstance(self._tol, (bool, np.bool_)) or not isinstance(self._tol, Real):
-            raise ValueError("tol must be a finite positive number")
-        tol = float(self._tol)
-        if not np.isfinite(tol) or tol <= 0.0:
-            raise ValueError("tol must be a finite positive number")
-
         if self._compute_inference_enabled:
             if not isinstance(self._inference_method, str) or self._inference_method not in {
                 "kernel", "bootstrap"
