@@ -2806,13 +2806,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             loss_kwargs=getattr(self, '_loss_kwargs', None),
             penalty_kwargs=getattr(self, '_penalty_kwargs', None),
         )
-        if self.loss == "quantile" and cv_solver == "irls":
-            from statgpu.solvers._convergence import ConvergenceWarning
-            with warnings.catch_warnings():
-                warnings.simplefilter("error", ConvergenceWarning)
-                model.fit(X, y, sample_weight=sample_weight)
-        else:
-            model.fit(X, y, sample_weight=sample_weight)
+        model.fit(X, y, sample_weight=sample_weight)
         return model
 
     def _uses_glm_sparse_path(self, penalty_name, cv_solver):
@@ -3166,21 +3160,11 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 else:
                     model._init_coef = None
                     model._init_intercept = None
-                if strict and loss_name == "quantile" and cv_solver == "irls":
-                    from statgpu.solvers._convergence import ConvergenceWarning
-                    with warnings.catch_warnings():
-                        warnings.simplefilter("error", ConvergenceWarning)
-                        model.fit(
-                            X_train_fit,
-                            y_train_fit,
-                            sample_weight=sw_train_fit,
-                        )
-                else:
-                    model.fit(
-                        X_train_fit,
-                        y_train_fit,
-                        sample_weight=sw_train_fit,
-                    )
+                model.fit(
+                    X_train_fit,
+                    y_train_fit,
+                    sample_weight=sw_train_fit,
+                )
 
                 coef_np = _to_numpy(model.coef_).ravel()
                 intercept = float(model.intercept_)
@@ -3188,15 +3172,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 prev_coef = coef_np.copy()
                 prev_intercept = intercept
             except Exception as exc:
-                is_quantile_irls_exhaustion = False
-                if strict and loss_name == "quantile" and cv_solver == "irls":
-                    from statgpu.solvers._convergence import ConvergenceWarning
-                    is_quantile_irls_exhaustion = isinstance(
-                        exc, ConvergenceWarning
-                    )
-                if not is_quantile_irls_exhaustion:
-                    _raise_unless_recoverable_cv_candidate_failure(exc)
-
+                _raise_unless_recoverable_cv_candidate_failure(exc)
                 orig_idx = sort_idx[alpha_idx_sorted]
                 all_scores[fold_idx, orig_idx] = np.nan
                 logger.warning(

@@ -161,12 +161,6 @@ Weight support is **not** a blanket property of the word “CV”: it depends on
 
 ## Selection and final refit
 
-For Quantile L2/no-penalty rows that execute IRLS, strict CV does not score a
-fold/alpha whose IRLS solve exhausts its iteration budget. That candidate is
-treated as unusable for the affected fold. The selected full-data Quantile IRLS
-refit must also converge; otherwise CV fitting fails instead of publishing a
-budget-limited final estimator.
-
 CV fold fits are temporary candidate fits. After scoring the candidate grid, the selected hyperparameter configuration is fitted again on the complete dataset.
 
 This distinction matters for interpretation:
