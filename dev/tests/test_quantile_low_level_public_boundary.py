@@ -434,6 +434,40 @@ def test_quantile_value_stays_on_torch_backend_and_matches_numpy():
     assert float(observed.item()) == pytest.approx(expected, rel=0.0, abs=1e-15)
 
 
+def test_quantile_weighted_gradient_stays_on_torch_backend_and_matches_numpy():
+    torch = pytest.importorskip("torch")
+    loss = QuantileLoss(quantile=0.3)
+    X_np = np.array(
+        [[1.0, -0.5], [0.2, 0.7], [-0.3, 0.4]],
+        dtype=np.float64,
+    )
+    y_np = np.array([0.2, -0.1, 0.5], dtype=np.float64)
+    coef_np = np.array([0.1, -0.2], dtype=np.float64)
+    weights_np = np.array([0.5, 1.0, 1.5], dtype=np.float64)
+
+    expected = loss.gradient(
+        X_np,
+        y_np,
+        coef_np,
+        sample_weight=weights_np,
+    )
+    observed = loss.gradient(
+        torch.as_tensor(X_np),
+        torch.as_tensor(y_np),
+        torch.as_tensor(coef_np),
+        sample_weight=torch.as_tensor(weights_np),
+    )
+
+    assert torch.is_tensor(observed)
+    assert observed.device.type == "cpu"
+    np.testing.assert_allclose(
+        observed.detach().numpy(),
+        expected,
+        rtol=0.0,
+        atol=1e-15,
+    )
+
+
 def test_quantile_fused_value_stays_on_torch_backend():
     torch = pytest.importorskip("torch")
     loss = QuantileLoss(quantile=0.3)
