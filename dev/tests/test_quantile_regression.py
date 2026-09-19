@@ -1,10 +1,13 @@
 """Tests for standalone QuantileRegression with compute_inference."""
+import sys
+import types
 import warnings
 
 import numpy as np
 import pytest
 
 from statgpu.linear_model import QuantileRegression
+import statgpu.backends._utils as _backend_utils
 from statgpu.solvers._convergence import ConvergenceWarning
 from statgpu.linear_model.wrappers._quantile import (
     _BOOTSTRAP_MAX_BACKTRACKS,
@@ -36,6 +39,84 @@ class TestQuantileRegression:
         np.random.seed(42)
         self.X = np.random.randn(200, 3)
         self.y = 1.0 + self.X @ [0.5, -0.3, 0.8] + 0.5 * np.random.randn(200)
+
+    def test_predict_integer_design_preserves_float_coefficients(self):
+        model = QuantileRegression(quantile=0.5, device="cpu")
+        model._fitted = True
+        model.coef_ = np.asarray([0.5, -0.25], dtype=np.float64)
+        model.intercept_ = 0.2
+        model._selected_backend_name = "numpy"
+        model._selected_backend_device = "cpu"
+
+        X = np.asarray([[2, 4], [-1, 3]], dtype=np.int64)
+        pred = model.predict(X)
+
+        assert pred.dtype == np.float64
+        np.testing.assert_allclose(
+            pred,
+            X.astype(np.float64) @ model.coef_ + model.intercept_,
+            rtol=0.0,
+            atol=0.0,
+        )
+
+    def test_prediction_design_reuses_recorded_cupy_device(self, monkeypatch):
+        model = QuantileRegression(quantile=0.5, device="cpu")
+        model._selected_backend_device = "cuda:3"
+        captured = {}
+
+        fake_cupy = types.SimpleNamespace(
+            float64=np.float64,
+            asarray=lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("ambient cp.asarray must not own placement")
+            ),
+        )
+        monkeypatch.setitem(sys.modules, "cupy", fake_cupy)
+
+        def fake_align(value, target_device, dtype=None):
+            captured["target_device"] = int(target_device)
+            captured["dtype"] = dtype
+            return np.asarray(value, dtype=dtype)
+
+        monkeypatch.setattr(
+            _backend_utils,
+            "_cupy_asarray_on_device",
+            fake_align,
+        )
+
+        X = np.asarray([[1, 2], [3, 4]], dtype=np.int64)
+        result = model._prediction_array_on_fit_device(X, "cupy")
+
+        assert captured["target_device"] == 3
+        assert captured["dtype"] is np.float64
+        assert result.dtype == np.float64
+
+    def test_prediction_design_reuses_recorded_torch_device(self, monkeypatch):
+        torch = pytest.importorskip("torch")
+        model = QuantileRegression(quantile=0.5, device="cpu")
+        model._selected_backend_device = "cuda:2"
+        calls = []
+
+        class FakeTensor:
+            def to(self, *, device, dtype):
+                calls.append(("to", str(device), dtype))
+                return self
+
+        def fake_to_torch(value, device=None):
+            calls.append(("convert", str(device)))
+            return FakeTensor()
+
+        monkeypatch.setattr(model, "_to_torch", fake_to_torch)
+
+        result = model._prediction_array_on_fit_device(
+            np.asarray([[1.0]], dtype=np.float64),
+            "torch",
+        )
+
+        assert isinstance(result, FakeTensor)
+        assert calls == [
+            ("convert", "cuda:2"),
+            ("to", "cuda:2", torch.float64),
+        ]
 
     def test_fractional_weights_are_preserved_for_integer_design(self):
         X_int = np.ones((4, 1), dtype=np.int64)
