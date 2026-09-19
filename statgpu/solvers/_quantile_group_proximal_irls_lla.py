@@ -203,10 +203,7 @@ def quantile_group_proximal_irls_lla_solver(
     else:
         xp = np
 
-    if backend == "torch":
-        X_dev = xp.as_tensor(X, dtype=xp.float64, device=getattr(X, "device", None))
-    else:
-        X_dev = xp.asarray(X, dtype=xp.float64)
+    X_dev = _xp_asarray(X, xp.float64, X)
     y_dev = _xp_asarray(y, xp.float64, X_dev).reshape(-1)
 
     n_samples, n_features = int(X_dev.shape[0]), int(X_dev.shape[1])
