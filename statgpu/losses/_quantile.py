@@ -20,6 +20,7 @@ from statgpu.backends._array_ops import (
     _xp as _get_xp,
     _xp_asarray,
 )
+from statgpu.backends._utils import xp_eye, xp_ones
 from ._base import LossBase
 from ._registry import register_loss
 
@@ -318,12 +319,22 @@ class QuantileLoss(LossBase):
             # Add numerical ridge plus optional L2 curvature. The public
             # objective uses average-loss scaling, so this unnormalized normal
             # equation receives n * alpha on penalized coordinates.
-            ridge = eps * xp.eye(p, dtype=xp.float64) if xp.__name__ != "torch" else eps * xp.eye(p, dtype=xp.float64, device=X_dev.device)
+            ridge = eps * xp_eye(
+                p,
+                xp.float64,
+                xp,
+                ref_arr=X_dev,
+            )
             A = XtWX + ridge
 
             if penalty is not None:
                 alpha = float(penalty.alpha)
-                pen_diag = xp.ones(p, dtype=xp.float64) if xp.__name__ != "torch" else xp.ones(p, dtype=xp.float64, device=X_dev.device)
+                pen_diag = xp_ones(
+                    p,
+                    xp.float64,
+                    xp,
+                    ref_arr=X_dev,
+                )
                 if fit_intercept and p > 0:
                     pen_diag[-1] = 0.0  # don't penalize intercept
                 A = A + n * alpha * xp.diag(pen_diag)
