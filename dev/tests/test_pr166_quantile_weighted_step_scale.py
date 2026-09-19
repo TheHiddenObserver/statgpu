@@ -72,6 +72,39 @@ def test_quantile_equal_weights_recover_unweighted_step_scale():
     assert weighted == pytest.approx(unweighted, rel=2e-12, abs=2e-14)
 
 
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        (
+            {"init_coef": np.asarray([True, False, True], dtype=bool)},
+            "init_coef must contain real numeric values",
+        ),
+        (
+            {"init_intercept": np.asarray(True, dtype=bool)},
+            "init_intercept must be a finite real scalar",
+        ),
+    ],
+)
+def test_public_quantile_fista_lla_rejects_boolean_warm_starts(kwargs, message):
+    loss = QuantileLoss(0.35)
+    penalty = SCADPenalty(alpha=0.05)
+    X = np.eye(3, dtype=np.float64)
+    y = np.asarray([0.4, -0.2, 0.7], dtype=np.float64)
+
+    with pytest.raises(ValueError, match=message):
+        fista_lla_contract.fista_lla_path(
+            loss,
+            penalty,
+            X,
+            y,
+            alpha_path=[0.05],
+            max_lla_per_step=1,
+            max_iter=1,
+            fit_intercept=True,
+            **kwargs,
+        )
+
+
 def test_quantile_fista_lla_accepts_numpy_response_with_torch_design():
     torch = pytest.importorskip("torch")
     loss = QuantileLoss(0.35)
