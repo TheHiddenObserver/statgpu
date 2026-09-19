@@ -178,6 +178,10 @@ def fista_lla_path(
         raise ValueError("fit_intercept must be boolean")
     fit_intercept = bool(fit_intercept)
 
+    if not isinstance(return_path, (bool, np.bool_)):
+        raise ValueError("return_path must be boolean")
+    return_path = bool(return_path)
+
     if isinstance(max_lla_per_step, (bool, np.bool_)) or not isinstance(
         max_lla_per_step, Integral
     ):
