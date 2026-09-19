@@ -338,6 +338,21 @@ def test_adaptive_l1_set_weights_rejects_invalid_initializer_output(
     assert penalty._weights is None
 
 
+def test_adaptive_l1_rejects_nonfinite_learned_weights_before_publication():
+    penalty = AdaptiveL1Penalty(
+        alpha=0.2,
+        nu=1000.0,
+        eps=1e-12,
+        weights=None,
+        normalize=False,
+    )
+
+    with pytest.raises(ValueError, match="learned weights must be finite"):
+        penalty.set_weights(np.array([1e-10, 1.0], dtype=np.float64))
+
+    assert penalty._weights is None
+
+
 def test_adaptive_l1_learned_weights_remain_fit_local_constructor_state():
     penalty = AdaptiveL1Penalty(
         alpha=0.2,
