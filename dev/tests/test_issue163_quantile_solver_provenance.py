@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import inspect
+import sys
+import types
 
 import numpy as np
 import pytest
@@ -15,6 +17,83 @@ from statgpu.linear_model.penalized import (
 )
 from statgpu.linear_model.penalized import _penalized_quantile as _typed_quantile_mod
 from statgpu.linear_model.penalized import _predict_mixin as _predict_mixin_mod
+import statgpu.backends._utils as _backend_utils
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        lambda: PenalizedQuantileRegression(
+            quantile=0.3,
+            penalty="l2",
+            alpha=0.02,
+            device="cpu",
+        ),
+        lambda: PenalizedGeneralizedLinearModel(
+            loss="quantile",
+            loss_kwargs={"quantile": 0.3},
+            penalty="l2",
+            alpha=0.02,
+            device="cpu",
+        ),
+    ],
+)
+def test_quantile_cupy_prediction_reuses_recorded_fit_device(
+    monkeypatch, factory
+):
+    model = factory()
+    model.coef_ = np.asarray([0.5, -0.25], dtype=np.float64)
+    model.intercept_ = 0.2
+    model._selected_backend_name = "cupy"
+    model._selected_backend_device = "cuda:4"
+
+    state = {"current": None, "entered": [], "targets": []}
+
+    class FakeDevice:
+        def __init__(self, device_id):
+            self.device_id = int(device_id)
+            self.previous = None
+
+        def __enter__(self):
+            self.previous = state["current"]
+            state["current"] = self.device_id
+            state["entered"].append(self.device_id)
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            state["current"] = self.previous
+
+    fake_cupy = types.SimpleNamespace(
+        cuda=types.SimpleNamespace(Device=FakeDevice)
+    )
+    monkeypatch.setitem(sys.modules, "cupy", fake_cupy)
+
+    def fake_align(value, target_device, dtype=None):
+        state["targets"].append(int(target_device))
+        return np.asarray(value, dtype=dtype)
+
+    monkeypatch.setattr(
+        _backend_utils,
+        "_cupy_asarray_on_device",
+        fake_align,
+    )
+    monkeypatch.setattr(
+        model,
+        "_to_array",
+        lambda value, device: np.asarray(value),
+    )
+
+    X = np.asarray([[1.0, 2.0], [-1.0, 0.5]], dtype=np.float64)
+    raw = model._quantile_cupy_linear_prediction(X)
+
+    np.testing.assert_allclose(
+        raw,
+        X @ model.coef_ + model.intercept_,
+        rtol=0.0,
+        atol=0.0,
+    )
+    assert state["entered"] == [4]
+    assert state["targets"] == [4, 4, 4]
 
 
 class _NoImplicitNumpyArray:
