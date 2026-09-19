@@ -338,7 +338,7 @@ class QuantileLoss(LossBase):
             if penalty is not None:
                 alpha = float(penalty.alpha)
                 pen_diag = xp.ones(p, dtype=xp.float64) if xp.__name__ != "torch" else xp.ones(p, dtype=xp.float64, device=X_dev.device)
-                if fit_intercept and p > 1:
+                if fit_intercept and p > 0:
                     pen_diag[-1] = 0.0  # don't penalize intercept
                 A = A + n * alpha * xp.diag(pen_diag)
 
