@@ -136,33 +136,64 @@ class AdaptiveL1Penalty(Penalty):
             '_alpha_w_torch', '_alpha_w_cupy',
             '_alpha_w_torch_src', '_alpha_w_cupy_src',
             '_alpha_w_torch_alpha', '_alpha_w_cupy_alpha',
+            '_alpha_w_torch_dtype', '_alpha_w_cupy_dtype',
         ):
             if hasattr(self, _k):
                 delattr(self, _k)
 
     def _cached_alpha_weights(self, ref, backend: str):
-        """Return alpha*weights on ref's concrete device with a truthful cache."""
+        """Return alpha*weights on ref's concrete device/dtype with truthful cache."""
         cache_key = f"_alpha_w_{backend}"
         src_key = f"_alpha_w_{backend}_src"
         alpha_key = f"_alpha_w_{backend}_alpha"
+        dtype_key = f"_alpha_w_{backend}_dtype"
         cached = getattr(self, cache_key, None)
         source = self._weights
         cached_source = getattr(self, src_key, None)
         cached_alpha = getattr(self, alpha_key, None)
+        cached_dtype = getattr(self, dtype_key, None)
         alpha_value = float(self.alpha)
+
+        if backend == "torch":
+            import torch
+            target_dtype = (
+                ref.dtype if torch.is_floating_point(ref) else torch.float64
+            )
+            dtype_token = str(target_dtype)
+        elif backend == "cupy":
+            import cupy as cp
+            try:
+                ref_kind = np.dtype(ref.dtype).kind
+            except (TypeError, ValueError):
+                ref_kind = "f"
+            target_dtype = ref.dtype if ref_kind in "fc" else cp.float64
+            dtype_token = str(np.dtype(target_dtype))
+        else:
+            ref_arr = np.asarray(ref)
+            target_dtype = (
+                ref_arr.dtype if ref_arr.dtype.kind in "fc" else np.float64
+            )
+            dtype_token = str(np.dtype(target_dtype))
 
         same_device = True
         if cached is not None and backend == "torch":
-            same_device = getattr(cached, "device", None) == getattr(ref, "device", None)
+            same_device = (
+                getattr(cached, "device", None) == getattr(ref, "device", None)
+            )
         elif cached is not None and backend == "cupy":
             cached_device = getattr(getattr(cached, "device", None), "id", None)
             ref_device = getattr(getattr(ref, "device", None), "id", None)
-            same_device = cached_device is not None and ref_device is not None and int(cached_device) == int(ref_device)
+            same_device = (
+                cached_device is not None
+                and ref_device is not None
+                and int(cached_device) == int(ref_device)
+            )
 
         if (
             cached is not None
             and cached_source is source
             and cached_alpha == alpha_value
+            and cached_dtype == dtype_token
             and same_device
         ):
             return cached
@@ -170,23 +201,29 @@ class AdaptiveL1Penalty(Penalty):
         if backend == "torch":
             import torch
             if type(source).__module__.startswith("torch"):
-                aligned = source.to(device=ref.device, dtype=torch.float64)
+                aligned = source.to(device=ref.device, dtype=target_dtype)
             else:
                 aligned = torch.as_tensor(
                     np.asarray(source, dtype=np.float64),
                     device=ref.device,
-                    dtype=torch.float64,
+                    dtype=target_dtype,
                 )
+            alpha_scalar = torch.as_tensor(
+                alpha_value, device=ref.device, dtype=target_dtype
+            )
         elif backend == "cupy":
             import cupy as cp
-            aligned = _xp_asarray(source, cp.float64, ref)
+            aligned = _xp_asarray(source, target_dtype, ref)
+            alpha_scalar = _xp_asarray(alpha_value, target_dtype, ref)
         else:
-            aligned = np.asarray(source, dtype=np.float64)
+            aligned = np.asarray(source, dtype=target_dtype)
+            alpha_scalar = np.asarray(alpha_value, dtype=target_dtype)
 
-        cached = alpha_value * aligned
+        cached = alpha_scalar * aligned
         setattr(self, cache_key, cached)
         setattr(self, src_key, source)
         setattr(self, alpha_key, alpha_value)
+        setattr(self, dtype_key, dtype_token)
         return cached
 
     # ----------------------------------------------------------------
@@ -242,36 +279,59 @@ class AdaptiveL1Penalty(Penalty):
 
         if backend == "cupy":
             import cupy as cp
+            try:
+                kind = np.dtype(w.dtype).kind
+            except (TypeError, ValueError):
+                kind = "f"
+            w_work = w if kind in "fc" else _xp_asarray(w, cp.float64, w)
             if AdaptiveL1Penalty._ADAPTIVE_L1_PROXIMAL_CUPY is None:
                 AdaptiveL1Penalty._ADAPTIVE_L1_PROXIMAL_CUPY = cp.ElementwiseKernel(
-                    'float64 w, float64 thresh',
-                    'float64 result',
+                    'T w, T thresh',
+                    'T result',
                     '''
-                    double abs_w = abs(w);
-                    double sign_w = (w > 0.0) ? 1.0 : ((w < 0.0) ? -1.0 : 0.0);
+                    T abs_w = abs(w);
+                    T sign_w = (w > (T)0) ? (T)1 : ((w < (T)0) ? (T)-1 : (T)0);
                     if (abs_w > thresh) {
                         result = sign_w * (abs_w - thresh);
                     } else {
-                        result = 0.0;
+                        result = (T)0;
                     }
                     ''',
                     'adaptive_l1_proximal',
                 )
-            _cached = self._cached_alpha_weights(w, "cupy")
-            thresh_gpu = _cached * step
-            return AdaptiveL1Penalty._ADAPTIVE_L1_PROXIMAL_CUPY(w, thresh_gpu)
+            _cached = self._cached_alpha_weights(w_work, "cupy")
+            step_value = _xp_asarray(step, w_work.dtype, w_work)
+            thresh_gpu = _cached * step_value
+            return AdaptiveL1Penalty._ADAPTIVE_L1_PROXIMAL_CUPY(
+                w_work, thresh_gpu
+            )
         elif backend == "torch":
             import torch
-            _cached = self._cached_alpha_weights(w, "torch")
-            thresh_t = _cached * step
+            w_work = w if torch.is_floating_point(w) else w.to(torch.float64)
+            _cached = self._cached_alpha_weights(w_work, "torch")
+            step_value = torch.as_tensor(
+                step, dtype=w_work.dtype, device=w_work.device
+            )
+            thresh_t = _cached * step_value
             compiled_fn = _get_adaptive_l1_torch_compiled()
             if compiled_fn is not None:
-                return compiled_fn(w, thresh_t)
-            return torch.sign(w) * torch.relu(torch.abs(w) - thresh_t)
+                return compiled_fn(w_work, thresh_t)
+            return torch.sign(w_work) * torch.relu(torch.abs(w_work) - thresh_t)
         else:
-            alpha_w = self.alpha * np.asarray(self._weights, dtype=float)
-            thresh_arr = alpha_w * step
-            return np.sign(w) * np.maximum(np.abs(w) - thresh_arr, 0.0)
+            w_work = np.asarray(w)
+            target_dtype = (
+                w_work.dtype if w_work.dtype.kind in "fc" else np.dtype(np.float64)
+            )
+            w_work = np.asarray(w_work, dtype=target_dtype)
+            alpha_w = (
+                np.asarray(self.alpha, dtype=target_dtype)
+                * np.asarray(self._weights, dtype=target_dtype)
+            )
+            thresh_arr = alpha_w * np.asarray(step, dtype=target_dtype)
+            return np.sign(w_work) * np.maximum(
+                np.abs(w_work) - thresh_arr,
+                np.asarray(0.0, dtype=target_dtype),
+            )
 
     # ----------------------------------------------------------------
     # LLA weights (identity: this is already a weighted L1 penalty)
@@ -284,8 +344,25 @@ class AdaptiveL1Penalty(Penalty):
         # Convert weights to the same backend and concrete device as coef.
         xp = _xp(coef)
         if xp is np:
-            return np.asarray(self._weights, dtype=coef.dtype).copy()
-        return _xp_asarray(self._weights, coef.dtype, coef)
+            coef_arr = np.asarray(coef)
+            target_dtype = (
+                coef_arr.dtype
+                if coef_arr.dtype.kind in "fc"
+                else np.dtype(np.float64)
+            )
+            return np.asarray(self._weights, dtype=target_dtype).copy()
+        if xp.__name__ == "torch":
+            import torch
+            target_dtype = (
+                coef.dtype if torch.is_floating_point(coef) else torch.float64
+            )
+        else:
+            try:
+                kind = np.dtype(coef.dtype).kind
+            except (TypeError, ValueError):
+                kind = "f"
+            target_dtype = coef.dtype if kind in "fc" else xp.float64
+        return _xp_asarray(self._weights, target_dtype, coef)
 
     # ----------------------------------------------------------------
 
