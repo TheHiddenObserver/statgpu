@@ -113,6 +113,32 @@ def fista_solver(
         Number of iterations.
     """
     backend = _resolve_backend("auto", X)
+
+    # QuantileLoss.preprocess() is intentionally a no-op. Normalize its public
+    # low-level inputs here so mixed host/device responses follow X and
+    # integral/bool designs do not perform Gram/Lipschitz arithmetic in an
+    # integer dtype. Preserve existing floating design dtypes.
+    if str(getattr(loss, "name", "") or "").lower() == "quantile":
+        xp = _get_xp(backend)
+        if backend == "torch":
+            import torch
+            target_dtype = (
+                X.dtype
+                if torch.is_tensor(X) and torch.is_floating_point(X)
+                else torch.float64
+            )
+        else:
+            dtype = getattr(X, "dtype", None)
+            if dtype is None and backend == "numpy":
+                dtype = np.asarray(X).dtype
+            try:
+                design_kind = np.dtype(dtype).kind
+            except (TypeError, ValueError):
+                design_kind = "f"
+            target_dtype = dtype if design_kind in "fc" else xp.float64
+        X = _xp_asarray(X, target_dtype, X)
+        y = _xp_asarray(y, target_dtype, X)
+
     X_proc, y_proc = loss.preprocess(X, y)
     # Validate before any weighted Lipschitz or matrix operation so direct
     # solver callers receive the public contract error rather than a backend
