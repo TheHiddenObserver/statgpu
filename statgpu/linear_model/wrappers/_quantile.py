@@ -514,6 +514,9 @@ class QuantileRegression(BaseEstimator):
                 "bandwidth": float(h),
                 "sparsity": float(sparsity),
                 "quantile": tau,
+                "numerical_backend": "numpy",
+                "numerical_device": "cpu",
+                "reporting_backend": "numpy",
             },
         )
         result.apply_to(self)
@@ -568,9 +571,19 @@ class QuantileRegression(BaseEstimator):
         cov_diag = xp.diag(cov)
         bse = xp.sqrt(_clip(cov_diag, 0.0, None))
         z_values = params / (bse + 1e-30)
-        _norm = get_distribution("norm", backend=backend)
+        _norm = get_distribution(
+            "norm",
+            backend=backend,
+            device=str(dev) if is_torch else None,
+        )
         pvalues = 2.0 * _norm.sf(xp.abs(z_values))
-        z_crit = _norm.ppf(0.975)
+        q_crit = xp_asarray(
+            0.975,
+            dtype=X.dtype,
+            xp=xp,
+            ref_arr=X,
+        )
+        z_crit = _norm.ppf(q_crit)
 
         params_np = np.asarray(_to_numpy(params))
         bse_np = np.asarray(_to_numpy(bse))

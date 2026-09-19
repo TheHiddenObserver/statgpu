@@ -143,6 +143,83 @@ class TestQuantileRegression:
         assert metadata["numerical_device"] == "cpu"
         assert metadata["reporting_backend"] == "numpy"
 
+    def test_kernel_inference_records_cpu_provenance(self):
+        model = QuantileRegression(
+            quantile=0.5,
+            compute_inference=True,
+            inference_method="kernel",
+        ).fit(self.X, self.y)
+
+        metadata = model._inference_result.metadata
+        assert metadata["numerical_backend"] == "numpy"
+        assert metadata["numerical_device"] == "cpu"
+        assert metadata["reporting_backend"] == "numpy"
+
+    def test_kernel_gpu_reference_distribution_follows_torch_device(
+        self, monkeypatch
+    ):
+        torch = pytest.importorskip("torch")
+        import statgpu.inference._distributions_backend as dist_mod
+
+        X = torch.linspace(-1.0, 1.0, 32, dtype=torch.float64).reshape(-1, 1)
+        y = 0.4 * X[:, 0] + torch.linspace(
+            -0.3, 0.3, 32, dtype=torch.float64
+        )
+        model = QuantileRegression(
+            quantile=0.5,
+            fit_intercept=False,
+            kernel="gau",
+            bandwidth="hsheather",
+        )
+        model.coef_ = np.array([0.35], dtype=np.float64)
+        model.intercept_ = 0.0
+        model._selected_backend_name = "torch"
+        model._selected_backend_device = "cpu"
+
+        observed = {}
+
+        class FakeNorm:
+            def sf(self, value):
+                observed["sf_device"] = str(value.device)
+                return torch.full_like(value, 0.25)
+
+            def ppf(self, value):
+                observed["ppf_device"] = str(value.device)
+                observed["ppf_dtype"] = value.dtype
+                return torch.as_tensor(
+                    1.959963984540054,
+                    dtype=value.dtype,
+                    device=value.device,
+                )
+
+        original_get_distribution = dist_mod.get_distribution
+
+        def recording_get_distribution(name, backend="auto", device=None, **kwargs):
+            if name == "norm" and backend == "torch":
+                observed["backend"] = backend
+                observed["device"] = device
+                return FakeNorm()
+            return original_get_distribution(
+                name,
+                backend=backend,
+                device=device,
+                **kwargs,
+            )
+
+        monkeypatch.setattr(
+            dist_mod,
+            "get_distribution",
+            recording_get_distribution,
+        )
+
+        model._compute_inference_kernel_gpu(X, y)
+
+        assert observed["backend"] == "torch"
+        assert observed["device"] == "cpu"
+        assert observed["sf_device"] == "cpu"
+        assert observed["ppf_device"] == "cpu"
+        assert observed["ppf_dtype"] == torch.float64
+
     def test_fit_with_kernel_inference(self):
         m = QuantileRegression(quantile=0.5, compute_inference=True,
                                 inference_method='kernel')
