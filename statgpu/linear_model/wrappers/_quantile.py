@@ -617,7 +617,6 @@ class QuantileRegression(BaseEstimator):
             # the best-objective plateau criterion below is also required.
             if float(xp.max(xp.abs(grad))) < self._tol:
                 converged = True
-                best_coef = coef.clone() if is_torch else coef.copy()
                 break
 
             # ---- Backtracking line search ----
