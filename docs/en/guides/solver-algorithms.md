@@ -447,7 +447,7 @@ L_k\leftarrow1.5L_k,
 \gamma_k\leftarrow\frac1{L_k},
 $$
 
-and the proximal step is recomputed, for at most 20 backtracking attempts. Supported asynchronous GPU non-smooth routes use a conservative fixed $L_k$ instead of synchronizing for every backtracking trial; the proximal update itself is unchanged.
+and the proximal step is recomputed, for at most 20 backtracking attempts. If no trial satisfies the safeguard, the solver restores the last accepted iterate, emits a `ConvergenceWarning`, and stops rather than publishing an unverified trial. Supported asynchronous GPU non-smooth routes use a conservative fixed $L_k$ instead of synchronizing for every backtracking trial; the proximal update itself is unchanged.
 
 For the Quantile ordinary-FISTA path, this same check is used as a numerical step-size safeguard with the selected subgradient. It does not make the check loss smooth and does not supply the textbook smooth-FISTA convergence guarantee.
 
