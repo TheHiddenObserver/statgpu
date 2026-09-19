@@ -280,6 +280,47 @@ def test_direct_quantile_irls_budget_exhaustion_is_observable():
     assert np.all(np.isfinite(np.asarray(coef)))
 
 
+@pytest.mark.parametrize(
+    ("init_coef", "message"),
+    [
+        (np.zeros((2, 1), dtype=np.float64), "init_coef must be one-dimensional"),
+        (np.zeros(1, dtype=np.float64), "init_coef must have length n_features"),
+        (np.asarray([0.0, np.nan]), "init_coef must contain finite values"),
+        (
+            np.asarray([0.0 + 1.0j, 0.0 + 0.0j]),
+            "init_coef must contain real values",
+        ),
+    ],
+)
+def test_direct_quantile_irls_rejects_invalid_init_coef(init_coef, message):
+    X, y = _data(seed=16722)
+    loss = QuantileLoss(quantile=0.3)
+
+    with pytest.raises(ValueError, match=message):
+        loss.irls(
+            X,
+            y,
+            init_coef=init_coef,
+            max_iter=3,
+        )
+
+
+@pytest.mark.parametrize("alpha", [np.nan, -0.1, True, "0.1"])
+def test_direct_quantile_irls_rejects_invalid_mutated_l2_alpha(alpha):
+    X, y = _data(seed=16723)
+    loss = QuantileLoss(quantile=0.3)
+    penalty = L2Penalty(alpha=0.1)
+    penalty.alpha = alpha
+
+    with pytest.raises(ValueError, match="L2 penalty alpha must be"):
+        loss.irls(
+            X,
+            y,
+            penalty=penalty,
+            max_iter=3,
+        )
+
+
 @pytest.mark.parametrize("sample_weight", _invalid_weights(24))
 def test_direct_quantile_irls_rejects_invalid_weights_before_numerics(sample_weight):
     X, y = _data()

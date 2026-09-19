@@ -78,6 +78,34 @@ def install_quantile_irls_validation_contract() -> None:
                 eps = value
 
         n_samples = _validate_quantile_xy_shapes(X, y)
+        n_features = int(getattr(X, "shape")[1])
+
+        if init_coef is not None:
+            from statgpu.glm_core._validation import (
+                _as_native_array,
+                _require_real_finite,
+            )
+
+            init_values = _as_native_array(init_coef, name="init_coef")
+            if int(init_values.ndim) != 1:
+                raise ValueError("init_coef must be one-dimensional")
+            if int(init_values.shape[0]) != n_features:
+                raise ValueError("init_coef must have length n_features")
+            _require_real_finite(init_values, name="init_coef")
+
+        if penalty is not None:
+            pen_name = str(getattr(penalty, "name", "")).lower().strip()
+            if pen_name == "l2":
+                alpha = getattr(penalty, "alpha", None)
+                if (
+                    isinstance(alpha, (bool, np.bool_))
+                    or not isinstance(alpha, Real)
+                    or not np.isfinite(float(alpha))
+                    or float(alpha) < 0.0
+                ):
+                    raise ValueError(
+                        "L2 penalty alpha must be a finite non-negative real number"
+                    )
 
         if sample_weight is not None:
             # Import lazily so the losses package does not enter glm_core while
