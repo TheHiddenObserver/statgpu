@@ -37,6 +37,41 @@ class TestQuantileRegression:
         self.X = np.random.randn(200, 3)
         self.y = 1.0 + self.X @ [0.5, -0.3, 0.8] + 0.5 * np.random.randn(200)
 
+    def test_fractional_weights_are_preserved_for_integer_design(self):
+        X_int = np.ones((4, 1), dtype=np.int64)
+        X_float = X_int.astype(np.float64)
+        y = np.array([0.0, 1.0, 2.0, 10.0], dtype=np.float64)
+        weights = np.array([0.6, 0.6, 0.6, 1.1], dtype=np.float64)
+
+        common = dict(
+            quantile=0.5,
+            fit_intercept=False,
+            max_iter=2000,
+            tol=1e-8,
+            compute_inference=False,
+            device="cpu",
+        )
+        integer_fit = QuantileRegression(**common).fit(
+            X_int,
+            y,
+            sample_weight=weights,
+        )
+        float_fit = QuantileRegression(**common).fit(
+            X_float,
+            y,
+            sample_weight=weights,
+        )
+
+        np.testing.assert_allclose(
+            integer_fit.coef_,
+            float_fit.coef_,
+            rtol=0.0,
+            atol=1e-7,
+        )
+        # Correct fractional weighting places the median near y=2; truncating
+        # the first three 0.6 weights to zero would instead target y=10.
+        assert float(integer_fit.coef_[0]) < 5.0
+
     def test_fit_without_inference(self):
         m = QuantileRegression(quantile=0.5)
         m.fit(self.X, self.y)

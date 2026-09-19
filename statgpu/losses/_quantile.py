@@ -132,14 +132,34 @@ class QuantileLoss(LossBase):
             xp = _get_xp(X)
             if xp.__name__ == "torch":
                 import torch
+
+                weight_dtype = (
+                    X.dtype
+                    if getattr(X.dtype, "is_floating_point", False)
+                    else torch.float64
+                )
                 if torch.is_tensor(sample_weight):
-                    sw = sample_weight.to(dtype=X.dtype, device=X.device)
+                    sw = sample_weight.to(
+                        dtype=weight_dtype,
+                        device=X.device,
+                    )
                 else:
                     sw = torch.as_tensor(
-                        sample_weight, dtype=X.dtype, device=X.device
+                        sample_weight,
+                        dtype=weight_dtype,
+                        device=X.device,
                     )
             else:
-                sw = xp.asarray(sample_weight, dtype=X.dtype)
+                try:
+                    design_kind = np.dtype(X.dtype).kind
+                except (TypeError, ValueError):
+                    design_kind = "f"
+                weight_dtype = (
+                    X.dtype
+                    if design_kind in "fc"
+                    else xp.float64
+                )
+                sw = xp.asarray(sample_weight, dtype=weight_dtype)
             sw = sw.reshape(-1)
             gram = X.T @ (X * sw[:, None]) / xp.sum(sw)
 

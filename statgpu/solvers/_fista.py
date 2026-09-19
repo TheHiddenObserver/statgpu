@@ -44,6 +44,20 @@ from ._utils import (
 )
 
 
+def _sample_weight_dtype_for_design(X, backend):
+    """Preserve fractional analytic weights for integral/boolean designs."""
+    dtype = getattr(X, "dtype", None)
+    if backend == "torch":
+        import torch
+
+        return dtype if getattr(dtype, "is_floating_point", False) else torch.float64
+    try:
+        kind = np.dtype(dtype).kind
+    except (TypeError, ValueError):
+        kind = "f"
+    return dtype if kind in "fc" else np.float64
+
+
 def fista_solver(
     loss,
     penalty,
@@ -138,7 +152,10 @@ def fista_solver(
             # Weighted Lipschitz: eigenvalue of X' diag(w) X / sum(w)
             _xp_mod = _get_xp(backend)
             # Ensure sample_weight is on same backend/device as X_proc
-            _sw = _xp_mod.asarray(sample_weight, dtype=X_proc.dtype)
+            _sw = _xp_mod.asarray(
+                sample_weight,
+                dtype=_sample_weight_dtype_for_design(X_proc, backend),
+            )
             if hasattr(X_proc, 'device') and hasattr(_sw, 'to'):
                 _sw = _sw.to(device=X_proc.device)
             sw_sum = _to_float_scalar(_xp_mod.sum(_sw))
@@ -214,7 +231,10 @@ def fista_solver(
     _sw_arr = None
     if sample_weight is not None:
         _xp_mod = _get_xp(backend)
-        _sw_arr = _xp_mod.asarray(sample_weight, dtype=X_proc.dtype)
+        _sw_arr = _xp_mod.asarray(
+            sample_weight,
+            dtype=_sample_weight_dtype_for_design(X_proc, backend),
+        )
         if hasattr(X_proc, "device") and hasattr(_sw_arr, "to"):
             _sw_arr = _sw_arr.to(device=X_proc.device)
 
