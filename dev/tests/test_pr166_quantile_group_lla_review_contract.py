@@ -164,6 +164,13 @@ def test_noncontiguous_group_routes_use_backend_flat_indices(monkeypatch):
     assert np.all(np.isfinite(result))
     assert adaptive_calls
 
+    adaptive_calls.clear()
+    value = adaptive.value(coef)
+    gradient = adaptive.gradient(coef)
+    assert np.isfinite(float(value))
+    assert np.all(np.isfinite(np.asarray(gradient)))
+    assert len(adaptive_calls) >= 2
+
     for penalty in (
         GroupSCADPenalty(alpha=0.1, a=3.7, groups=groups),
         GroupMCPPenalty(alpha=0.1, gamma=3.0, groups=groups),
