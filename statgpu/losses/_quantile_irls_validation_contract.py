@@ -78,7 +78,6 @@ def install_quantile_irls_validation_contract() -> None:
                 eps = value
 
         n_samples = _validate_quantile_xy_shapes(X, y)
-        n_features = int(getattr(X, "shape")[1])
 
         if init_coef is not None:
             from statgpu.glm_core._validation import (
@@ -86,6 +85,8 @@ def install_quantile_irls_validation_contract() -> None:
                 _require_real_finite,
             )
 
+            X_values = _as_native_array(X, name="X")
+            n_features = int(X_values.shape[1])
             init_values = _as_native_array(init_coef, name="init_coef")
             if int(init_values.ndim) != 1:
                 raise ValueError("init_coef must be one-dimensional")

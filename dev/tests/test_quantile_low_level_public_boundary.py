@@ -285,9 +285,9 @@ def test_direct_quantile_irls_budget_exhaustion_is_observable():
     [
         (np.zeros((2, 1), dtype=np.float64), "init_coef must be one-dimensional"),
         (np.zeros(1, dtype=np.float64), "init_coef must have length n_features"),
-        (np.asarray([0.0, np.nan]), "init_coef must contain finite values"),
+        (np.asarray([0.0, np.nan, 0.0]), "init_coef must contain finite values"),
         (
-            np.asarray([0.0 + 1.0j, 0.0 + 0.0j]),
+            np.asarray([0.0 + 1.0j, 0.0 + 0.0j, 0.0 + 0.0j]),
             "init_coef must contain real values",
         ),
     ],
