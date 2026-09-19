@@ -686,8 +686,10 @@ def _install_cv_score_context() -> None:
             _QUANTILE_CV_LEVEL.reset(token)
 
         strict = kwargs.get("strict", args[8] if len(args) > 8 else True)
-        penalty_name = _penalty_name(getattr(self, "penalty", ""))
-        if bool(strict) and penalty_name in _NONCONVEX_QUANTILE_PENALTIES:
+        # Strict Quantile CV requires complete fold evidence for every alpha,
+        # independent of penalty family.  A numerical/convergence failure in
+        # one fold must not be averaged away by the finite-column mean.
+        if bool(strict):
             values = np.asarray(scores, dtype=np.float64)
             if values.ndim == 2 and values.shape[0] > 0:
                 incomplete = ~np.all(np.isfinite(values), axis=0)
