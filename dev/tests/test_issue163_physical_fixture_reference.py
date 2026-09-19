@@ -29,12 +29,33 @@ def _pinball(y, eta, q, sample_weight):
 
 
 def test_pr166_smooth_bootstrap_physical_gate_schema_is_locked():
-    assert smooth_gate.SCHEMA_VERSION == 3
+    assert smooth_gate.SCHEMA_VERSION == 4
     assert smooth_wrapper.EXPECTED_SCHEMA_VERSION == smooth_gate.SCHEMA_VERSION
     assert smooth_gate.BOOTSTRAP_Q != pytest.approx(0.5)
     assert 0.0 < smooth_gate.BOOTSTRAP_Q < 1.0
     assert smooth_gate.BOOTSTRAP_B >= 2
     assert callable(smooth_gate._standalone_bootstrap_public_case)
+
+
+def test_pr166_weighted_l1_cv_physical_fixture_converges_on_cpu():
+    X, y, weights, folds = smooth_gate._data()
+    model = smooth_gate._cv(
+        X,
+        y,
+        weights,
+        folds,
+        device="cpu",
+        penalty="l1",
+    )
+
+    assert model.alpha_ in set(smooth_gate.CV_ALPHA_GRID.tolist())
+    scores = np.asarray(
+        model.cv_results_["all_scores"],
+        dtype=np.float64,
+    )
+    assert scores.shape == (2, smooth_gate.CV_ALPHA_GRID.size)
+    assert np.all(np.isfinite(scores))
+    assert model.estimator_._selected_solver == "fista"
 
 
 def test_pr166_public_bootstrap_physical_fixture_converges_on_cpu():

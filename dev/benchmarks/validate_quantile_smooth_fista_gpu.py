@@ -7,8 +7,9 @@ repaired during the PR #166 review/fix loop. ``solver='auto'`` intentionally
 remains IRLS and is validated by the existing PR #164 artifact.
 
 The gate exercises both CuPy CUDA and Torch CUDA, including non-uniform analytic
-weights, direct L2/no-penalty fits, strict L2 CV, a tau=0.20 standalone
-bootstrap direction check, and a full public standalone bootstrap-inference fit.
+weights, direct L2/no-penalty fits, strict weighted L2/L1 CV, a tau=0.20
+standalone bootstrap direction check, and a full public standalone
+bootstrap-inference fit.
 It also replaces
 ``QuantileLoss.irls`` with a forbidden sentinel while the explicit-FISTA cases
 run, so a passing result proves that the estimator/CV path did not silently
@@ -31,10 +32,12 @@ from statgpu.linear_model.penalized import PenalizedQuantileRegression
 from statgpu.losses import QuantileLoss
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 Q = 0.35
 ATOL_OBJECTIVE = 2e-5
 ATOL_CV_SCORE = 2e-5
+ATOL_CV_L1_SCORE = 2e-4
+CV_ALPHA_GRID = np.asarray([0.03, 0.015], dtype=np.float64)
 BOOTSTRAP_Q = 0.20
 BOOTSTRAP_N = 80
 BOOTSTRAP_B = 12
@@ -367,19 +370,19 @@ def _direct(X, y, weights, *, penalty, alpha, device):
     return model, coef, intercept
 
 
-def _cv(X, y, weights, folds, *, device):
+def _cv(X, y, weights, folds, *, device, penalty="l2"):
     return PenalizedGLM_CV(
         loss="quantile",
         loss_kwargs={"quantile": Q},
-        penalty="l2",
-        alpha_grid=np.asarray([0.03, 0.015], dtype=np.float64),
+        penalty=penalty,
+        alpha_grid=CV_ALPHA_GRID,
         cv=2,
         cv_splits=folds,
         random_state=166,
         solver="fista",
         device=device,
         cv_strategy="strict",
-        max_iter=3500,
+        max_iter=6000,
         tol=1e-8,
     ).fit(X, y, sample_weight=weights)
 
@@ -404,8 +407,24 @@ def main() -> int:
     cpu_none, cpu_none_coef, cpu_none_intercept = _direct(
         X, y, weights, penalty="none", alpha=0.0, device="cpu"
     )
-    cpu_cv = _cv(X, y, weights, folds, device="cpu")
-    cpu_cv_scores = np.asarray(cpu_cv.cv_results_["all_scores"], dtype=np.float64)
+    cpu_cv = {
+        penalty: _cv(
+            X,
+            y,
+            weights,
+            folds,
+            device="cpu",
+            penalty=penalty,
+        )
+        for penalty in ("l2", "l1")
+    }
+    cpu_cv_scores = {
+        penalty: np.asarray(
+            model.cv_results_["all_scores"],
+            dtype=np.float64,
+        )
+        for penalty, model in cpu_cv.items()
+    }
 
     def forbidden_irls(*_args, **_kwargs):
         raise AssertionError("explicit Quantile FISTA physically executed IRLS")
@@ -449,30 +468,62 @@ def main() -> int:
                     }
                 )
 
-            cv = _cv(Xb, yb, wb, folds, device=device)
-            if float(cv.alpha_) != float(cpu_cv.alpha_):
-                raise AssertionError(
-                    f"{backend}/cv/l2: selected alpha {cv.alpha_!r} "
-                    f"!= CPU {cpu_cv.alpha_!r}"
+            for cv_penalty in ("l2", "l1"):
+                cv = _cv(
+                    Xb,
+                    yb,
+                    wb,
+                    folds,
+                    device=device,
+                    penalty=cv_penalty,
                 )
-            scores = np.asarray(cv.cv_results_["all_scores"], dtype=np.float64)
-            score_error = float(np.max(np.abs(scores - cpu_cv_scores)))
-            max_cv_score_error = max(max_cv_score_error, score_error)
-            if score_error > ATOL_CV_SCORE:
-                raise AssertionError(
-                    f"{backend}/cv/l2: score error {score_error:.3e} "
-                    f"> {ATOL_CV_SCORE:.3e}"
+                cpu_reference = cpu_cv[cv_penalty]
+                if float(cv.alpha_) != float(cpu_reference.alpha_):
+                    raise AssertionError(
+                        f"{backend}/cv/{cv_penalty}: selected alpha "
+                        f"{cv.alpha_!r} != CPU {cpu_reference.alpha_!r}"
+                    )
+                scores = np.asarray(
+                    cv.cv_results_["all_scores"],
+                    dtype=np.float64,
                 )
-            cases.append(
-                {
-                    "name": f"{backend}/cv/l2",
-                    "provenance": _provenance(cv.estimator_, backend),
-                    "selected_alpha": float(cv.alpha_),
-                    "cpu_selected_alpha": float(cpu_cv.alpha_),
-                    "scores": scores.tolist(),
-                    "score_error": score_error,
-                }
-            )
+                score_error = float(
+                    np.max(
+                        np.abs(
+                            scores - cpu_cv_scores[cv_penalty]
+                        )
+                    )
+                )
+                max_cv_score_error = max(
+                    max_cv_score_error,
+                    score_error,
+                )
+                tolerance = (
+                    ATOL_CV_L1_SCORE
+                    if cv_penalty == "l1"
+                    else ATOL_CV_SCORE
+                )
+                if score_error > tolerance:
+                    raise AssertionError(
+                        f"{backend}/cv/{cv_penalty}: score error "
+                        f"{score_error:.3e} > {tolerance:.3e}"
+                    )
+                cases.append(
+                    {
+                        "name": f"{backend}/cv/{cv_penalty}",
+                        "provenance": _provenance(
+                            cv.estimator_,
+                            backend,
+                        ),
+                        "selected_alpha": float(cv.alpha_),
+                        "cpu_selected_alpha": float(
+                            cpu_reference.alpha_
+                        ),
+                        "scores": scores.tolist(),
+                        "score_error": score_error,
+                        "tolerance": tolerance,
+                    }
+                )
     finally:
         QuantileLoss.irls = original_irls
 
@@ -490,6 +541,7 @@ def main() -> int:
         "tolerances": {
             "direct_objective": ATOL_OBJECTIVE,
             "cv_score": ATOL_CV_SCORE,
+            "cv_l1_score": ATOL_CV_L1_SCORE,
         },
         "environment": {
             "python": platform.python_version(),
