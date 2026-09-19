@@ -149,6 +149,22 @@ def test_adaptive_l1_torch_cache_refreshes_on_dtype_change():
 
 
 @pytest.mark.parametrize("method", ["value", "gradient", "proximal", "lla_weights"])
+def test_adaptive_l1_weight_dimension_must_match_coefficients(method):
+    penalty = AdaptiveL1Penalty(
+        alpha=0.2,
+        weights=[1.0],
+        normalize=False,
+    )
+    coef = np.array([0.8, -0.5, 0.3], dtype=np.float64)
+
+    with pytest.raises(ValueError, match="same length"):
+        if method == "proximal":
+            penalty.proximal(coef, 0.1, backend="numpy")
+        else:
+            getattr(penalty, method)(coef)
+
+
+@pytest.mark.parametrize("method", ["value", "gradient", "proximal", "lla_weights"])
 def test_adaptive_l1_uninitialized_weights_fail_closed(method):
     penalty = AdaptiveL1Penalty(alpha=0.2, weights=None, normalize=False)
     coef = np.array([0.8, -0.5], dtype=np.float64)
