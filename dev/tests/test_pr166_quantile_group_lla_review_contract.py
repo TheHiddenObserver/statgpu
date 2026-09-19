@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import types
 
 import numpy as np
 import pytest
@@ -20,6 +21,9 @@ from statgpu.solvers import _quantile_group_proximal_irls_lla as group_solver
 from statgpu.solvers._quantile_continuation import (
     is_auto_quantile_continuation_path,
 )
+from statgpu.penalties import AdaptiveGroupLassoPenalty
+import statgpu.penalties._group_lasso as _group_lasso_impl
+import statgpu.backends._utils as _backend_utils
 
 
 GROUPS = [[0, 1], [2, 3]]
@@ -34,6 +38,58 @@ def _data(seed=166301, n=24):
     weights = np.linspace(0.4, 1.9, n, dtype=np.float64)
     rng.shuffle(weights)
     return X, y, weights
+
+
+def test_public_group_penalty_cupy_caches_migrate_with_operand_device(monkeypatch):
+    penalty = AdaptiveGroupLassoPenalty(
+        groups=GROUPS,
+        alpha=0.1,
+        weights=[0.75, 1.25],
+    )
+    targets = []
+
+    class FakeDevice:
+        def __init__(self, device_id):
+            self.id = int(device_id)
+
+    class FakeArray:
+        __module__ = "cupy._core.core"
+
+        def __init__(self, device_id, dtype=np.float64):
+            self.device = FakeDevice(device_id)
+            self.dtype = np.dtype(dtype)
+
+        def astype(self, dtype, copy=False):
+            self.dtype = np.dtype(dtype)
+            return self
+
+    def fake_cupy_align(value, target_device, dtype=None):
+        targets.append(int(target_device))
+        return FakeArray(target_device, dtype or np.float64)
+
+    monkeypatch.setattr(
+        _backend_utils,
+        "_cupy_asarray_on_device",
+        fake_cupy_align,
+    )
+
+    xp = types.SimpleNamespace(__name__="cupy")
+    w = FakeArray(1)
+
+    # Seed stale caches as if the same public penalty had previously executed
+    # on cuda:0, then reuse it for a cuda:1 fit.
+    penalty._sqrt_pg_cupy = FakeArray(0)
+    penalty._group_feat_idx_cupy = FakeArray(0)
+    penalty._group_weights_cupy = FakeArray(0)
+
+    sqrt_pg = penalty._get_sqrt_pg(xp, w)
+    group_index = penalty._get_cached("_group_feat_idx", xp, w)
+    group_weights = penalty._get_group_weights(xp, w)
+
+    assert sqrt_pg.device.id == 1
+    assert group_index.device.id == 1
+    assert group_weights.device.id == 1
+    assert targets == [1, 1, 1]
 
 
 def _penalty_kwargs(kind):
