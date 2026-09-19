@@ -10,6 +10,7 @@ from statgpu.penalties import GroupSCADPenalty, SCADPenalty
 from statgpu.solvers import _fista_lla as fista_lla_base
 from statgpu.solvers import _fista_lla_group_contract as fista_lla_contract
 from statgpu.solvers import _quantile_group_proximal_irls_lla as group_solver
+from statgpu.solvers._convergence import ConvergenceWarning
 from statgpu.solvers._fista_lla_group_contract import (
     _QuantileWeightedStepScaleProxy,
 )
@@ -175,6 +176,35 @@ def test_quantile_fista_lla_integer_design_preserves_fractional_response_and_wei
     np.testing.assert_allclose(coef_int, coef_float, rtol=0.0, atol=1e-14)
     assert intercept_int == pytest.approx(intercept_float, rel=0.0, abs=1e-14)
     assert n_iter_int == n_iter_float
+
+
+def test_public_quantile_fista_lla_reports_target_budget_exhaustion():
+    X = np.asarray(
+        [[1.0, 0.2], [0.3, -0.5], [1.2, 0.7], [-0.4, 1.1]],
+        dtype=np.float64,
+    )
+    y = np.asarray([0.8, -0.2, 1.4, 0.1], dtype=np.float64)
+
+    with pytest.warns(
+        ConvergenceWarning,
+        match="Quantile FISTA-LLA target alpha did not establish",
+    ):
+        coef, intercept, n_iter = fista_lla_contract.fista_lla_path(
+            QuantileLoss(0.35),
+            SCADPenalty(alpha=0.05),
+            X,
+            y,
+            alpha_path=[0.05],
+            max_lla_per_step=1,
+            max_iter=1,
+            tol=1e-20,
+            lla_tol=1e-20,
+            fit_intercept=True,
+        )
+
+    assert np.all(np.isfinite(np.asarray(coef)))
+    assert np.isfinite(float(intercept))
+    assert n_iter == 1
 
 
 def test_quantile_fista_lla_accepts_numpy_response_with_torch_design():
