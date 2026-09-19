@@ -18,6 +18,7 @@ from statgpu.backends._array_ops import (
     _clip_grad_on_device,
     _copy_arr,
     _norm2_dev,
+    _xp_asarray,
     _zeros,
 )
 from statgpu.penalties._categories import NONSMOOTH as _NONSMOOTH_ALL
@@ -235,6 +236,13 @@ def fista_lla_path(
         import torch as xp
     else:
         xp = np
+
+    # Quantile's public low-level FISTA-LLA path accepts response containers
+    # independently of the design backend. Normalize the response onto the
+    # design's concrete backend/device before the fused kernel sees it.
+    if str(getattr(loss, "name", "") or "").lower() == "quantile":
+        y = _xp_asarray(y, getattr(y, "dtype", None), X)
+
     if _is_preprocessed:
         X_proc, y_proc = X, y
     else:
@@ -255,9 +263,7 @@ def fista_lla_path(
     # Convert sample_weight to backend-native array (avoid CPU/CUDA mismatch)
     _sw_arr = None
     if sample_weight is not None:
-        _sw_arr = xp.asarray(sample_weight, dtype=X_proc.dtype)
-        if hasattr(X_proc, 'device') and hasattr(_sw_arr, 'to'):
-            _sw_arr = _sw_arr.to(device=X_proc.device)
+        _sw_arr = _xp_asarray(sample_weight, X_proc.dtype, X_proc)
 
     # --- Intercept handling ---
     # For squared_error (identity link): centering X, y is exact.
@@ -348,12 +354,14 @@ def fista_lla_path(
             return _init.clone()
         if backend == "cupy":
             import cupy as cp
-            _init = cp.asarray(init_coef, dtype=X_c.dtype)
+            _init = _xp_asarray(init_coef, X_c.dtype, X_c)
             if _augment_intercept and _init.shape[0] == n_features:
-                return cp.concatenate([
-                    _init,
-                    cp.array([0.0 if init_intercept is None else init_intercept], dtype=X_c.dtype),
-                ])
+                _intercept = _xp_asarray(
+                    [0.0 if init_intercept is None else init_intercept],
+                    X_c.dtype,
+                    X_c,
+                )
+                return cp.concatenate([_init, _intercept])
             return _init.copy()
         _init = np.asarray(init_coef, dtype=np.float64)
         if _augment_intercept and _init.shape[0] == n_features:
@@ -598,7 +606,7 @@ def fista_lla_path(
                     if _fused_clip_update is not None and hasattr(inner_pen, '_weights'):
                         _w_dev = inner_pen._weights
                         if isinstance(_w_dev, np.ndarray):
-                            _w_dev = xp.asarray(_w_dev, dtype=coef.dtype)
+                            _w_dev = _xp_asarray(_w_dev, coef.dtype, coef)
 
                     for iteration in range(_mi):
                         coef_old = _copy_arr(coef)
@@ -648,9 +656,9 @@ def fista_lla_path(
                                     grad, y_k, step, thresh, coef_old, beta_mom,
                                     _do_clip_t, _gn_t, _gcap_t)
                             else:
-                                _do_clip_c = xp.array(_do_clip)
-                                _gn_c = xp.array(_gn, dtype=coef.dtype)
-                                _gcap_c = xp.array(_gcap, dtype=coef.dtype)
+                                _do_clip_c = _xp_asarray(_do_clip, None, coef)
+                                _gn_c = _xp_asarray(_gn, coef.dtype, coef)
+                                _gcap_c = _xp_asarray(_gcap, coef.dtype, coef)
                                 coef, y_k = _fused_clip_update(
                                     grad, y_k, step, thresh, coef_old, beta_mom,
                                     _do_clip_c, _gn_c, _gcap_c)
