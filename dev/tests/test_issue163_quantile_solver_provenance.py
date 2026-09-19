@@ -96,6 +96,54 @@ def test_quantile_cupy_prediction_reuses_recorded_fit_device(
     assert state["targets"] == [4, 4, 4]
 
 
+def test_penalized_quantile_intercept_column_uses_design_cupy_device(monkeypatch):
+    model = PenalizedGeneralizedLinearModel(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.3},
+        penalty="l2",
+        alpha=0.02,
+        device="cpu",
+    )
+    state = {"current": None, "entered": [], "ones_device": None}
+
+    class FakeDeviceContext:
+        def __init__(self, device_id):
+            self.device_id = int(device_id)
+            self.previous = None
+
+        def __enter__(self):
+            self.previous = state["current"]
+            state["current"] = self.device_id
+            state["entered"].append(self.device_id)
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            state["current"] = self.previous
+
+    def fake_ones(n, dtype=None):
+        state["ones_device"] = state["current"]
+        return np.ones(n, dtype=dtype)
+
+    fake_cupy = types.SimpleNamespace(
+        ones=fake_ones,
+        cuda=types.SimpleNamespace(Device=FakeDeviceContext),
+    )
+    monkeypatch.setitem(sys.modules, "cupy", fake_cupy)
+
+    class FakeDevice:
+        id = 6
+
+    class FakeRef:
+        device = FakeDevice()
+        dtype = np.dtype("float64")
+
+    result = model._ones(4, "cupy", FakeRef())
+
+    np.testing.assert_array_equal(result, np.ones(4, dtype=np.float64))
+    assert state["entered"] == [6]
+    assert state["ones_device"] == 6
+
+
 class _NoImplicitNumpyArray:
     """Backend-like response container that forbids NumPy implicit conversion."""
 
