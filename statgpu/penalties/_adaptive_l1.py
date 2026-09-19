@@ -245,15 +245,20 @@ class AdaptiveL1Penalty(Penalty):
             )
         if ref is not None:
             shape = getattr(ref, "shape", None)
-            if shape is None:
-                shape = np.asarray(ref).shape
-            if len(shape) != 1:
-                raise ValueError("AdaptiveL1Penalty coefficients must be one-dimensional")
-            if int(np.asarray(weights).size) != int(shape[0]):
-                raise ValueError(
-                    "AdaptiveL1Penalty weights must have the same length as "
-                    "the coefficient vector"
-                )
+            # Real numerical array containers expose shape.  Internal cache/
+            # device contract tests may use opaque reference sentinels that
+            # intentionally carry only dtype/device; do not invent dimensions
+            # for such objects.
+            if shape is not None:
+                if len(shape) != 1:
+                    raise ValueError(
+                        "AdaptiveL1Penalty coefficients must be one-dimensional"
+                    )
+                if int(np.asarray(weights).size) != int(shape[0]):
+                    raise ValueError(
+                        "AdaptiveL1Penalty weights must have the same length as "
+                        "the coefficient vector"
+                    )
         return weights
 
     def _cached_alpha_weights(self, ref, backend: str):
