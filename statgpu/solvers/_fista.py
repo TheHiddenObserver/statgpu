@@ -22,6 +22,7 @@ from statgpu.backends._array_ops import (
     _sum_sq_dev,
     _sync_scalars,
     _zeros,
+    _max_eigval_power,
 )
 from ._convergence import ConvergenceWarning
 from ._constants import (
@@ -42,6 +43,11 @@ from ._utils import (
     _abs_mean_max,
     _tracking_penalty_value,
 )
+
+
+def _weighted_gram_lipschitz(XtWX):
+    """Return the spectral scale of a symmetric weighted design Gram matrix."""
+    return float(_max_eigval_power(XtWX))
 
 
 def _sample_weight_dtype_for_design(X, backend):
@@ -161,7 +167,7 @@ def fista_solver(
             sw_sum = _to_float_scalar(_xp_mod.sum(_sw))
             sw_col = _sw[:, None] if _sw.ndim == 1 else _sw
             XtWX = X_proc.T @ (X_proc * sw_col) / sw_sum
-            L = _to_float_scalar(_xp_mod.max(_xp_mod.diag(XtWX)))  # conservative bound
+            L = _weighted_gram_lipschitz(XtWX)
             if L <= 0:
                 L = 1.0
             # Cache for periodic recomputation in the loop (X and weights are constant)
@@ -332,8 +338,9 @@ def fista_solver(
                 ):
                     if sample_weight is not None and _cached_XtWX_weighted is not None:
                         # Use cached weighted Gram matrix (X and weights are constant)
-                        _xp_lip = _get_xp(backend)
-                        L_new = _to_float_scalar(_xp_lip.max(_xp_lip.diag(_cached_XtWX_weighted)))
+                        L_new = _weighted_gram_lipschitz(
+                            _cached_XtWX_weighted
+                        )
                     else:
                         L_new = loss.lipschitz(X_proc, coef, y=y_proc)
                     if L_new > 0:

@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from statgpu import solvers
+from statgpu.solvers import _fista as _fista_mod
 from statgpu.solvers._convergence import ConvergenceWarning
 from statgpu.losses import QuantileLoss
 from statgpu.penalties import GroupSCADPenalty, L2Penalty, MCPPenalty, SCADPenalty
@@ -42,6 +43,20 @@ def test_quantile_response_validation_preserves_torch_backend():
     assert validated.dtype == response.dtype
     assert tuple(validated.shape) == (3,)
     torch.testing.assert_close(validated, response.reshape(-1))
+
+
+def test_weighted_fista_uses_spectral_gram_scale_not_max_diagonal():
+    gram = np.asarray(
+        [[1.0, 0.99], [0.99, 1.0]],
+        dtype=np.float64,
+    )
+
+    observed = _fista_mod._weighted_gram_lipschitz(gram)
+    max_diagonal = float(np.max(np.diag(gram)))
+    exact = float(np.linalg.eigvalsh(gram)[-1])
+
+    assert observed == pytest.approx(exact, rel=2e-2, abs=1e-8)
+    assert observed > max_diagonal * 1.9
 
 
 def test_quantile_lipschitz_reflects_in_place_design_mutation():
