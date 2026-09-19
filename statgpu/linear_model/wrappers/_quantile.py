@@ -123,6 +123,8 @@ class QuantileRegression(BaseEstimator):
         'chamberlain' (Chamberlain).  Only for inference_method='kernel'.
     n_bootstrap : int, default=200
         Number of bootstrap resamples; bootstrap inference requires at least 2.
+    random_state : int or None, default=42
+        Seed for residual-bootstrap resampling.
     gpu_memory_cleanup : bool, default=False
     """
 
@@ -290,6 +292,19 @@ class QuantileRegression(BaseEstimator):
                 ):
                     raise ValueError(
                         "n_bootstrap must be an integer greater than or equal to 2 "
+                        "for QuantileRegression bootstrap inference"
+                    )
+                random_state = self.random_state
+                if (
+                    random_state is not None
+                    and (
+                        isinstance(random_state, (bool, np.bool_))
+                        or not isinstance(random_state, Integral)
+                        or int(random_state) < 0
+                    )
+                ):
+                    raise ValueError(
+                        "random_state must be None or a non-negative integer "
                         "for QuantileRegression bootstrap inference"
                     )
 
