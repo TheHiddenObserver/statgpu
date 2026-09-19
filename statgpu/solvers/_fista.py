@@ -648,8 +648,8 @@ def fista_solver(
         warnings.warn(
             "fista_solver line search failed to find an acceptable proximal "
             f"step (loss={getattr(loss, 'name', '?')}, "
-            f"penalty={getattr(penalty, 'name', '?')}); returning the last "
-            "accepted iterate.",
+            f"penalty={getattr(penalty, 'name', '?')}); returning an "
+            "accepted iterate (the tracked best accepted iterate when available).",
             ConvergenceWarning,
             stacklevel=2,
         )
