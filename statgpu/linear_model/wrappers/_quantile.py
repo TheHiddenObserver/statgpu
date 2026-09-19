@@ -780,9 +780,10 @@ class QuantileRegression(BaseEstimator):
             except Exception:
                 lines.append(f"  coef: {self._params}")
                 if self._bse is not None:
-                    lines.append(f"  std err (bootstrap): {self._bse}")
+                    method = str(getattr(self._inference_result, "method", "inference"))
+                    lines.append(f"  std err ({method}): {self._bse}")
         else:
             lines.append(f"  coef: {self._params}")
-            lines.append("  (bootstrap inference not computed)")
+            lines.append("  (inference not computed)")
         lines.append(f"{'='*60}")
         return "\n".join(lines)

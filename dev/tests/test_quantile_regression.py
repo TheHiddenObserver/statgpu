@@ -359,6 +359,16 @@ class TestQuantileRegression:
         assert cloned._max_iter == 321
         assert cloned._n_bootstrap == 7
 
+    def test_summary_without_inference_is_method_neutral(self):
+        model = QuantileRegression(
+            quantile=0.5,
+            compute_inference=False,
+            inference_method="kernel",
+        ).fit(self.X, self.y)
+        text = model.summary()
+        assert "inference not computed" in text
+        assert "bootstrap inference not computed" not in text
+
     def test_predict(self):
         m = QuantileRegression(quantile=0.5)
         m.fit(self.X, self.y)
