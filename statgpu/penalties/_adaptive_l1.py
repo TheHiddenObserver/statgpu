@@ -32,6 +32,40 @@ def _get_adaptive_l1_torch_compiled():
     _ADAPTIVE_L1_PROXIMAL_TORCH_COMPILED = compile_torch(_prox, dynamic=True, workload="iterative")
     return _ADAPTIVE_L1_PROXIMAL_TORCH_COMPILED
 
+def _normalize_adaptive_controls(alpha, nu, eps, init_method, normalize):
+    """Validate public Adaptive-L1 constructor controls."""
+    from numbers import Real
+
+    def numeric(value, name, *, allow_zero):
+        if isinstance(value, (bool, np.bool_)) or not isinstance(
+            value, (Real, np.number)
+        ):
+            raise TypeError(f"{name} must be a finite numeric scalar")
+        result = float(value)
+        if not np.isfinite(result) or (result < 0.0 if allow_zero else result <= 0.0):
+            qualifier = "non-negative" if allow_zero else "positive"
+            raise ValueError(f"{name} must be a finite {qualifier} scalar")
+        return result
+
+    alpha_value = numeric(alpha, "alpha", allow_zero=True)
+    nu_value = numeric(nu, "nu", allow_zero=False)
+    eps_value = numeric(eps, "eps", allow_zero=False)
+
+    if not isinstance(init_method, str):
+        raise TypeError("init_method must be one of 'auto', 'ols', or 'ridge'")
+    normalized_method = init_method.lower()
+    if normalized_method not in ("auto", "ols", "ridge"):
+        raise ValueError("init_method must be one of 'auto', 'ols', or 'ridge'")
+    # Preserve already-canonical strings by identity for sklearn<=1.2 clone.
+    method_value = init_method if init_method == normalized_method else normalized_method
+
+    if not isinstance(normalize, (bool, np.bool_)):
+        raise TypeError("normalize must be boolean")
+    normalize_value = bool(normalize)
+
+    return alpha_value, nu_value, eps_value, method_value, normalize_value
+
+
 def _normalize_external_weights(weights):
     """Validate external adaptive weights and return a clone-safe snapshot."""
     if weights is None:
@@ -116,11 +150,15 @@ class AdaptiveL1Penalty(Penalty):
         normalize: bool = True,
         weights: Optional[np.ndarray] = None,
     ):
-        self.alpha = alpha
-        self.nu = nu
-        self.eps = eps
-        self.init_method = init_method
-        self.normalize = normalize
+        (
+            self.alpha,
+            self.nu,
+            self.eps,
+            self.init_method,
+            self.normalize,
+        ) = _normalize_adaptive_controls(
+            alpha, nu, eps, init_method, normalize
+        )
         self.weights = _normalize_external_weights(weights)
         if self.weights is not None:
             w = np.asarray(self.weights, dtype=np.float64)
