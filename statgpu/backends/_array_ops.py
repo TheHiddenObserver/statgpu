@@ -584,11 +584,19 @@ def _xp_asarray(arr, dtype, ref_arr):
                                   dtype=dtype, device=ref_arr.device)
         return out
     if xp.__name__ == "cupy":
-        # Convert torch dtypes to numpy for cupy compatibility
+        # Convert torch dtypes to numpy for cupy compatibility.
         if hasattr(dtype, '__module__') and 'torch' in str(getattr(dtype, '__module__', '')):
             from statgpu.backends._utils import _torch_dtype_to_np
             dtype = _torch_dtype_to_np(dtype)
-        return xp.asarray(arr, dtype=dtype)
+        # cp.asarray follows the current CUDA device for host inputs and can
+        # preserve a CuPy array on another device. This helper's contract is
+        # stronger: the result must follow ref_arr.device.
+        from statgpu.backends._utils import _cupy_asarray_on_device
+        return _cupy_asarray_on_device(
+            arr,
+            int(ref_arr.device.id),
+            dtype=dtype,
+        )
     return np.asarray(arr, dtype=dtype)
 
 
