@@ -214,6 +214,44 @@ def test_adaptive_l1_public_controls_fail_closed(kwargs, error_type, message):
         AdaptiveL1Penalty(**kwargs)
 
 
+def test_adaptive_l1_external_torch_weights_are_snapshotted():
+    torch = pytest.importorskip("torch")
+    weights = torch.tensor(
+        [1.0, 3.0],
+        dtype=torch.float64,
+        requires_grad=True,
+    )
+    penalty = AdaptiveL1Penalty(
+        alpha=0.2,
+        weights=weights,
+        normalize=False,
+    )
+
+    assert penalty.weights == (1.0, 3.0)
+    np.testing.assert_array_equal(
+        penalty._weights,
+        np.array([1.0, 3.0], dtype=np.float64),
+    )
+
+
+def test_adaptive_l1_external_cupy_like_weights_use_explicit_snapshot():
+    class FakeCupyWeights:
+        __module__ = "cupy._core.core"
+
+        def get(self):
+            return np.array([0.5, 1.5], dtype=np.float64)
+
+        def __array__(self, *args, **kwargs):
+            raise AssertionError("CuPy-like weights must use explicit .get()")
+
+    penalty = AdaptiveL1Penalty(
+        alpha=0.2,
+        weights=FakeCupyWeights(),
+        normalize=False,
+    )
+    assert penalty.weights == (0.5, 1.5)
+
+
 @pytest.mark.parametrize(
     ("weights", "error_type", "message"),
     [
