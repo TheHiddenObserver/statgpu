@@ -577,6 +577,36 @@ class TestQuantileRegression:
         assert model._fitted is False
         assert model.coef_ is None
 
+    def test_early_gpu_validation_failure_cleans_input_device(self, monkeypatch):
+        import types
+
+        class FakeCuPyArray:
+            pass
+
+        FakeCuPyArray.__module__ = "cupy._core.core"
+        X = FakeCuPyArray()
+        X.device = types.SimpleNamespace(id=3)
+
+        model = QuantileRegression(gpu_memory_cleanup=True)
+        cleanup_calls = []
+
+        def failing_fit_impl(*args, **kwargs):
+            raise RuntimeError("synthetic early validation failure")
+
+        monkeypatch.setattr(model, "_fit_impl", failing_fit_impl)
+        monkeypatch.setattr(
+            model,
+            "_cleanup_backend_memory",
+            lambda backend, device=None: cleanup_calls.append((backend, device)),
+        )
+
+        with pytest.raises(RuntimeError, match="synthetic early validation failure"):
+            model.fit(X, np.zeros(2, dtype=np.float64))
+
+        assert cleanup_calls == [("cupy", "cuda:3")]
+        assert model._selected_backend_name is None
+        assert model._selected_backend_device is None
+
     def test_cupy_cleanup_uses_recorded_concrete_device(self, monkeypatch):
         import sys
         import types

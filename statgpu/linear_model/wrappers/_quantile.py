@@ -214,6 +214,28 @@ class QuantileRegression(BaseEstimator):
                     )
 
     @staticmethod
+    def _input_cleanup_targets(*values):
+        """Return GPU input backend/device pairs used before fit provenance exists."""
+        targets = []
+        for value in values:
+            if value is None:
+                continue
+            module = str(type(value).__module__ or "")
+            if module.startswith("cupy"):
+                device = getattr(value, "device", None)
+                device_id = getattr(device, "id", None)
+                if device_id is not None:
+                    targets.append(("cupy", f"cuda:{int(device_id)}"))
+            elif module.startswith("torch"):
+                device = getattr(value, "device", None)
+                label = str(device or "")
+                if label.startswith("cuda"):
+                    targets.append(("torch", label))
+        # Preserve first-seen order while avoiding duplicate cleanup calls.
+        return tuple(dict.fromkeys(targets))
+
+
+    @staticmethod
     def _has_nonuniform_weight(sample_weight):
         module = type(sample_weight).__module__
         values = sample_weight.reshape(-1)
@@ -228,14 +250,27 @@ class QuantileRegression(BaseEstimator):
         return not bool(uniform.item() if hasattr(uniform, "item") else uniform)
 
     def fit(self, X, y, sample_weight=None):
+        cleanup_targets = self._input_cleanup_targets(X, y, sample_weight)
         self._reset_fit_state()
         try:
             return self._fit_impl(X, y, sample_weight=sample_weight)
         except Exception:
-            backend_name = getattr(self, "_selected_backend_name", None)
-            backend_device = getattr(self, "_selected_backend_device", None)
-            if self._gpu_memory_cleanup and backend_name is not None:
-                self._cleanup_backend_memory(backend_name, backend_device)
+            if self._gpu_memory_cleanup:
+                backend_name = getattr(self, "_selected_backend_name", None)
+                backend_device = getattr(self, "_selected_backend_device", None)
+                selected = (
+                    (backend_name, backend_device)
+                    if backend_name is not None
+                    else None
+                )
+                targets = list(cleanup_targets)
+                if selected is not None and selected not in targets:
+                    targets.append(selected)
+                for cleanup_backend, cleanup_device in targets:
+                    self._cleanup_backend_memory(
+                        cleanup_backend,
+                        cleanup_device,
+                    )
             self._reset_fit_state()
             raise
 
