@@ -286,6 +286,7 @@ def fista_solver(
             # call in the worst case) while matching CPU path behavior.
             w_tilde = y_k - step * grad
             coef = penalty.proximal(w_tilde, step, backend=backend)
+            _conv_dev = _abs_sum_dev(coef - coef_old)
 
             # GPU path: single proximal step (no backtracking).
             # Backtracking on GPU requires loss.value() + GPU→CPU sync per
@@ -300,8 +301,12 @@ def fista_solver(
                     _obj_dev = loss.value(X_proc, y_proc, coef, sample_weight=_sw_arr)
                 else:
                     _obj_dev = loss.value(X_proc, y_proc, coef)
-                # Single D2H transfer: extract float, then check finiteness.
-                _obj_val_f = float(_to_numpy(_obj_dev))
+                # One batched sync: objective and coefficient change.
+                _obj_val_f, _conv_f = _sync_scalars(
+                    _obj_dev,
+                    _conv_dev,
+                    backend=backend,
+                )
                 _all_finite = np.isfinite(_obj_val_f)
                 if not _all_finite:
                     if _coef_best_fista is not None:
@@ -317,17 +322,24 @@ def fista_solver(
                 if _obj_val_f < _obj_best_fista:
                     _obj_best_fista = _obj_val_f
                     _coef_best_fista = _copy_arr(coef)
-                # Convergence check for quadratic losses on GPU:
-                # objective stability (adaptive penalties oscillate in coef space)
-                if _is_quadratic and iteration > 20:
-                    if abs(_obj_val_f - _obj_prev_f) < tol * max(abs(_obj_val_f), 1.0):
-                        _obj_stable_count += 1
-                        if _obj_stable_count >= 5:
-                            converged = True
-                            break
-                    else:
-                        _obj_stable_count = 0
-                    _obj_prev_f = _obj_val_f
+                # Convergence applies to every async loss family.  The
+                # previous implementation updated this state only for quadratic
+                # losses, so non-quadratic sparse CV always exhausted max_iter.
+                if _conv_f < tol:
+                    converged = True
+                    break
+                if (
+                    iteration > 20
+                    and abs(_obj_val_f - _obj_prev_f)
+                    < tol * max(abs(_obj_val_f), 1.0)
+                ):
+                    _obj_stable_count += 1
+                    if _obj_stable_count >= 5:
+                        converged = True
+                        break
+                else:
+                    _obj_stable_count = 0
+                _obj_prev_f = _obj_val_f
                 # Periodic Lipschitz recomputation (piggyback on same sync)
                 # Skip for quadratic losses -- Lipschitz is constant (spectral norm of X^T X).
                 # Interval matches CPU path for trajectory consistency.

@@ -13,7 +13,7 @@ from statgpu import solvers
 from statgpu.solvers import _fista as _fista_mod
 from statgpu.solvers._convergence import ConvergenceWarning
 from statgpu.losses import QuantileLoss
-from statgpu.penalties import GroupSCADPenalty, L2Penalty, MCPPenalty, SCADPenalty
+from statgpu.penalties import GroupSCADPenalty, L1Penalty, L2Penalty, MCPPenalty, SCADPenalty
 from statgpu.glm_core._squared import SquaredErrorLoss
 import statgpu.losses._quantile_irls_validation_contract as _irls_contract
 import statgpu.solvers._quantile_proximal_public_contract as _prox_contract
@@ -43,6 +43,35 @@ def test_quantile_response_validation_preserves_torch_backend():
     assert validated.dtype == response.dtype
     assert tuple(validated.shape) == (3,)
     torch.testing.assert_close(validated, response.reshape(-1))
+
+
+def test_async_quantile_fista_cv_mode_can_converge_on_torch_cpu():
+    torch = pytest.importorskip("torch")
+
+    X = torch.zeros((8, 1), dtype=torch.float64)
+    y = torch.zeros(8, dtype=torch.float64)
+    loss = QuantileLoss(quantile=0.5)
+    penalty = L1Penalty(alpha=0.1)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", ConvergenceWarning)
+        coef, n_iter = solvers.fista_solver(
+            loss,
+            penalty,
+            X,
+            y,
+            max_iter=5,
+            tol=1e-10,
+            cv_mode=True,
+        )
+
+    assert n_iter == 2
+    assert torch.is_tensor(coef)
+    torch.testing.assert_close(coef, torch.zeros_like(coef))
+    assert not any(
+        issubclass(item.category, ConvergenceWarning)
+        for item in caught
+    )
 
 
 def test_weighted_fista_uses_spectral_gram_scale_not_max_diagonal():
