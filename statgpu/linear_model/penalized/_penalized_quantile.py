@@ -201,21 +201,11 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
         backend_name = self._prediction_backend_name()
 
         if backend_name == "cupy":
-            import cupy as cp
-            Xb = cp.asarray(self._to_array(X, Device.CUDA))
-            coef = cp.asarray(self.coef_)
-            raw = Xb @ coef
-            if self._effective_intercept:
-                raw += cp.asarray(self.intercept_, dtype=raw.dtype)
+            raw = self._quantile_cupy_linear_prediction(X)
             return _to_numpy(raw) if return_cpu else raw
 
         if backend_name == "torch":
-            import torch
-            Xb = self._to_array(X, Device.TORCH, backend="torch").to(torch.float64)
-            coef = torch.as_tensor(self.coef_, dtype=Xb.dtype, device=Xb.device)
-            raw = Xb @ coef
-            if self._effective_intercept:
-                raw = raw + torch.as_tensor(self.intercept_, dtype=raw.dtype, device=raw.device)
+            raw = self._quantile_torch_linear_prediction(X)
             return _to_numpy(raw) if return_cpu else raw
 
         raw = X @ self.coef_
