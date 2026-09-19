@@ -13,6 +13,7 @@ import pytest
 
 from statgpu import solvers
 from statgpu.solvers import _fista as _fista_mod
+import statgpu.solvers._quantile_solver_guard as _solver_guard
 from statgpu.solvers._convergence import ConvergenceWarning
 from statgpu.losses import QuantileLoss
 import statgpu.losses._quantile as _quantile_loss_mod
@@ -583,6 +584,63 @@ def test_direct_quantile_irls_rejects_nonfinite_xy_before_numerics(target, messa
     loss = QuantileLoss(quantile=0.3)
     with pytest.raises(ValueError, match=message):
         loss.irls(X_bad, y_bad, max_iter=3)
+
+
+def test_public_quantile_lbfgs_normalizes_python_array_like_inputs(monkeypatch):
+    X, y = _data(seed=16731)
+    captured = {}
+
+    def fake_lbfgs(loss, penalty, X_arg, y_arg, *args, **kwargs):
+        captured["X"] = X_arg
+        captured["y"] = y_arg
+        return np.zeros(X_arg.shape[1], dtype=np.float64), 1
+
+    monkeypatch.setattr(_solver_guard, "_lbfgs_solver", fake_lbfgs)
+
+    coef, n_iter = solvers.lbfgs_solver(
+        QuantileLoss(quantile=0.3),
+        None,
+        X.tolist(),
+        y.tolist(),
+        max_iter=3,
+    )
+
+    assert isinstance(captured["X"], np.ndarray)
+    assert isinstance(captured["y"], np.ndarray)
+    assert captured["X"].dtype == np.float64
+    assert captured["y"].dtype == np.float64
+    np.testing.assert_array_equal(coef, np.zeros(X.shape[1]))
+    assert n_iter == 1
+
+
+def test_public_quantile_lbfgs_aligns_numpy_response_to_torch_design(monkeypatch):
+    torch = pytest.importorskip("torch")
+    X = torch.eye(3, dtype=torch.float64)
+    y = np.asarray([0.4, -0.2, 0.7], dtype=np.float64)
+    captured = {}
+
+    def fake_lbfgs(loss, penalty, X_arg, y_arg, *args, **kwargs):
+        captured["X"] = X_arg
+        captured["y"] = y_arg
+        return torch.zeros(X_arg.shape[1], dtype=X_arg.dtype, device=X_arg.device), 1
+
+    monkeypatch.setattr(_solver_guard, "_lbfgs_solver", fake_lbfgs)
+
+    coef, n_iter = solvers.lbfgs_solver(
+        QuantileLoss(quantile=0.35),
+        None,
+        X,
+        y,
+        max_iter=3,
+    )
+
+    assert torch.is_tensor(captured["X"])
+    assert torch.is_tensor(captured["y"])
+    assert captured["X"].device == X.device
+    assert captured["y"].device == X.device
+    assert captured["y"].dtype == X.dtype
+    assert torch.is_tensor(coef)
+    assert n_iter == 1
 
 
 @pytest.mark.parametrize(
