@@ -851,6 +851,10 @@ class QuantileRegression(BaseEstimator):
         y_np = np.asarray(_to_numpy(y))
         if y_np.ndim != 1:
             raise ValueError("y must be one-dimensional for QuantileRegression score")
+        if y_np.dtype.kind not in "biuf":
+            raise ValueError(
+                "y must contain real numeric values for QuantileRegression score"
+            )
         if sample_weight is not None:
             sw = validate_glm_sample_weight(sample_weight, y_np.shape[0])
             sw = np.asarray(_to_numpy(sw), dtype=np.float64)

@@ -512,6 +512,40 @@ def test_quantile_score_uses_explicit_reporting_conversion_for_backend_y(
         ),
     ],
 )
+def test_quantile_score_rejects_complex_response_before_prediction(
+    monkeypatch, factory
+):
+    X, y = _data(seed=16370, n=20)
+    model = factory()
+
+    def forbidden_predict(*args, **kwargs):
+        raise AssertionError("non-real score response must fail before prediction")
+
+    monkeypatch.setattr(model, "predict", forbidden_predict)
+    with pytest.raises(ValueError, match="real numeric values"):
+        model.score(X, y.astype(np.complex128) + 1j)
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        lambda: PenalizedQuantileRegression(
+            quantile=0.3,
+            penalty="l2",
+            alpha=0.02,
+            solver="irls",
+            device="cpu",
+        ),
+        lambda: PenalizedGeneralizedLinearModel(
+            loss="quantile",
+            loss_kwargs={"quantile": 0.3},
+            penalty="l2",
+            alpha=0.02,
+            solver="auto",
+            device="cpu",
+        ),
+    ],
+)
 def test_quantile_score_rejects_non_1d_response_before_prediction(
     monkeypatch, factory
 ):

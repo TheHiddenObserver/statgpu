@@ -235,6 +235,8 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
         y = np.asarray(_to_numpy(y))
         if y.ndim != 1:
             raise ValueError("y must be one-dimensional for Quantile score")
+        if y.dtype.kind not in "biuf":
+            raise ValueError("y must contain real numeric values for Quantile score")
         if sample_weight is not None:
             from statgpu.glm_core._validation import validate_glm_sample_weight
 

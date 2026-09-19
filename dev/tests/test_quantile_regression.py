@@ -458,6 +458,22 @@ class TestQuantileRegression:
             expected, rel=0.0, abs=1e-12
         )
 
+    def test_score_rejects_complex_response_before_prediction(self, monkeypatch):
+        model = QuantileRegression(quantile=0.5)
+        model._fitted = True
+        model.coef_ = np.zeros(self.X.shape[1], dtype=np.float64)
+
+        def forbidden_predict(*args, **kwargs):
+            raise AssertionError("non-real score response must fail before prediction")
+
+        monkeypatch.setattr(model, "predict", forbidden_predict)
+        with pytest.raises(ValueError, match="real numeric values"):
+            model.score(
+                self.X,
+                self.y.astype(np.complex128) + 1j,
+            )
+
+
     def test_score_rejects_response_shape_and_length_mismatch(self):
         model = QuantileRegression(quantile=0.5).fit(self.X, self.y)
         with pytest.raises(ValueError, match="one-dimensional"):
