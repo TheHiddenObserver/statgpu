@@ -654,7 +654,14 @@ class AdaptiveGroupLassoPenalty(GroupLassoPenalty):
 
         norms = _vector_norm(w_mat, xp, dim=1)
         thresh = self.alpha * weights_arr * sqrt_pg_arr * step
-        scale = xp.clamp(1.0 - thresh / (norms + 1e-12), 0.0, None) if xp.__name__ == "torch" else xp.clip(1.0 - thresh / (norms + 1e-12), 0.0, None)
+        # Preserve the exact group-prox formula for every nonzero norm.  Only
+        # zero-norm groups need a safe denominator, and their scaled vector is
+        # identically zero regardless of the temporary scale value.
+        safe_norms = xp.where(norms > 0.0, norms, xp.ones_like(norms))
+        if xp.__name__ == "torch":
+            scale = xp.clamp(1.0 - thresh / safe_norms, min=0.0)
+        else:
+            scale = xp.clip(1.0 - thresh / safe_norms, 0.0, None)
         scaled_flat = (w_mat * scale[:, None]).reshape(-1)
 
         result = w.clone() if hasattr(w, 'clone') else w.copy()
@@ -687,10 +694,11 @@ class AdaptiveGroupLassoPenalty(GroupLassoPenalty):
                 weights_arr = weights_arr.to(device=w.device)
 
         thresh = self.alpha * weights_arr * sqrt_pg_arr * step
+        safe_norms = xp.where(norms > 0.0, norms, xp.ones_like(norms))
         if xp.__name__ == "torch":
-            scale = xp.clamp(1.0 - thresh / (norms + 1e-12), min=0.0)
+            scale = xp.clamp(1.0 - thresh / safe_norms, min=0.0)
         else:
-            scale = xp.clip(1.0 - thresh / (norms + 1e-12), 0.0, None)
+            scale = xp.clip(1.0 - thresh / safe_norms, 0.0, None)
         padded_scaled = padded * scale[:, None]
 
         result = w.copy() if hasattr(w, 'copy') else w.clone()
