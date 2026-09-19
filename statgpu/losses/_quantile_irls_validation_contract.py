@@ -82,6 +82,7 @@ def install_quantile_irls_validation_contract() -> None:
         if init_coef is not None:
             from statgpu.glm_core._validation import (
                 _as_native_array,
+                _is_boolean_array,
                 _require_real_finite,
             )
 
@@ -92,6 +93,8 @@ def install_quantile_irls_validation_contract() -> None:
                 raise ValueError("init_coef must be one-dimensional")
             if int(init_values.shape[0]) != n_features:
                 raise ValueError("init_coef must have length n_features")
+            if _is_boolean_array(init_values):
+                raise ValueError("init_coef must contain real numeric values")
             _require_real_finite(init_values, name="init_coef")
 
         if penalty is not None:
