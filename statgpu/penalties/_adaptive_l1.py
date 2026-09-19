@@ -410,10 +410,25 @@ class AdaptiveL1Penalty(Penalty):
 
     # ----------------------------------------------------------------
 
-    def get_params(self) -> dict:
-        params = super().get_params()
+    def get_params(self, deep: bool = True) -> dict:
+        """Return constructor params for clone or descriptive serialization."""
+        if not deep:
+            return {
+                "alpha": self.alpha,
+                "nu": self.nu,
+                "eps": self.eps,
+                "init_method": self.init_method,
+                "normalize": self.normalize,
+                "weights": self.weights,
+            }
+
+        params = super().get_params(deep=deep)
         params.update({
             "alpha": self.alpha,
             "nu": self.nu,
+            "eps": self.eps,
+            "init_method": self.init_method,
+            "normalize": self.normalize,
+            "weights": None if self.weights is None else list(self.weights),
         })
         return params
