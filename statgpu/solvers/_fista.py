@@ -257,6 +257,7 @@ def fista_solver(
 
     iteration = -1  # default if max_iter=0
     converged = False
+    line_search_failed = False
 
     for iteration in range(max_iter):
         coef_old = _copy_arr(coef)
@@ -399,6 +400,16 @@ def fista_solver(
                     break
                 L *= 1.5
                 step = 1.0 / L
+
+            if not _bt_accepted:
+                # Never publish an unverified backtracking trial.  Match the
+                # maintained Newton-family failure semantics: restore the last
+                # accepted iterate, stop, and make the line-search failure
+                # visible to the caller.
+                coef = _copy_arr(coef_old)
+                y_k = _copy_arr(coef_old)
+                line_search_failed = True
+                break
 
             coef = coef_new
 
@@ -607,7 +618,16 @@ def fista_solver(
         coef = _copy_arr(_coef_best_fista)
 
     n_iter = iteration + 1
-    if not converged:
+    if line_search_failed:
+        warnings.warn(
+            "fista_solver line search failed to find an acceptable proximal "
+            f"step (loss={getattr(loss, 'name', '?')}, "
+            f"penalty={getattr(penalty, 'name', '?')}); returning the last "
+            "accepted iterate.",
+            ConvergenceWarning,
+            stacklevel=2,
+        )
+    elif not converged:
         warnings.warn(
             f"fista_solver did not converge within {max_iter} iterations "
             f"(loss={getattr(loss, 'name', '?')}, penalty={getattr(penalty, 'name', '?')}). "
