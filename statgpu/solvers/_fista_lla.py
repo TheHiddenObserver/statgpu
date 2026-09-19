@@ -9,6 +9,7 @@ __all__ = ["fista_lla_path"]
 
 from statgpu.backends._torch_compile import compile_torch
 import copy
+import warnings
 import numpy as np
 
 from statgpu.backends import _resolve_backend, _to_numpy
@@ -23,6 +24,7 @@ from statgpu.backends._array_ops import (
 )
 from statgpu.penalties._categories import NONSMOOTH as _NONSMOOTH_ALL
 from statgpu.penalties._adaptive_l1 import AdaptiveL1Penalty
+from ._convergence import ConvergenceWarning
 from ._constants import (
     _GRAD_CLIP_COEF_FACTOR,
     _GRAD_CLIP_ABS_FLOOR,
@@ -407,6 +409,11 @@ def fista_lla_path(
     total_iter = 0
     inner_pen = AdaptiveL1Penalty(alpha=1.0)
     path_records = [] if return_path else None
+    _is_quantile_lla = (
+        str(getattr(loss, "name", "") or "").lower().strip() == "quantile"
+    )
+    _quantile_target_inner_converged = True
+    _quantile_target_lla_converged = True
 
     def _split_current_coef(current_coef):
         coef_all = np.asarray(_to_numpy(current_coef), dtype=np.float64).ravel()
@@ -595,6 +602,10 @@ def fista_lla_path(
                 _pen_step = copy.copy(scad_penalty)
                 _pen_step.alpha = float(cont_alpha)
                 _mi = max_iter[_cont_i] if isinstance(max_iter, (list, tuple)) else max_iter
+                _is_target_continuation = _cont_i == len(alpha_path) - 1
+                if _is_quantile_lla and _is_target_continuation:
+                    _quantile_target_inner_converged = False
+                    _quantile_target_lla_converged = False
                 # Warm-start: at first step for non-GLM losses, at last step for GLM
                 if _fista_warm_at_start and _cont_i == 0:
                     coef = _copy_arr(warm_coef)
@@ -618,6 +629,7 @@ def fista_lla_path(
                     coef_before_lla = _copy_arr(coef)
 
                     # FISTA inner solve (fixed-step, no backtracking)
+                    _inner_converged = False
                     y_k = _copy_arr(coef)
                     t_k = 1.0
                     L = L_base
@@ -713,6 +725,7 @@ def fista_lla_path(
                                         "FISTA-LLA produced non-finite state"
                                     )
                                 if bool(_converged):
+                                    _inner_converged = True
                                     break
                             else:
                                 if not (
@@ -723,6 +736,7 @@ def fista_lla_path(
                                         "FISTA-LLA produced non-finite state"
                                     )
                                 if float(_to_numpy(_conv_dev)) < tol:
+                                    _inner_converged = True
                                     break
 
                         # Periodic Lipschitz recomputation
@@ -735,10 +749,31 @@ def fista_lla_path(
                                 step = 1.0 / L
 
                     # LLA convergence check
+                    if _is_quantile_lla and _is_target_continuation:
+                        _quantile_target_inner_converged = _inner_converged
                     delta = float(_to_numpy(_abs_sum_dev(coef - coef_before_lla)))
                     if delta < lla_tol:
+                        if _is_quantile_lla and _is_target_continuation:
+                            _quantile_target_lla_converged = True
                         break
                 _record_path_alpha(cont_alpha)
+
+    if _is_quantile_lla and (
+        not _quantile_target_inner_converged
+        or not _quantile_target_lla_converged
+    ):
+        missing = []
+        if not _quantile_target_inner_converged:
+            missing.append("inner FISTA convergence")
+        if not _quantile_target_lla_converged:
+            missing.append("outer LLA convergence")
+        warnings.warn(
+            "Quantile FISTA-LLA target alpha did not establish "
+            + " and ".join(missing)
+            + "; returning the final accepted iterate.",
+            ConvergenceWarning,
+            stacklevel=2,
+        )
 
     # Extract coef and intercept
     coef_np, intercept = _split_current_coef(coef)
