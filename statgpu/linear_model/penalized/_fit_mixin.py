@@ -266,7 +266,8 @@ def _irls_ridge_init_cd(
     Much faster than sequential coordinate descent on GPU.
     """
     from statgpu.backends import _resolve_backend
-    from statgpu.backends._utils import _get_xp
+    from statgpu.backends._array_ops import _xp_asarray
+    from statgpu.backends._utils import _get_xp, xp_eye
 
     backend = _resolve_backend("auto", X)
     xp = _get_xp(backend)
@@ -274,7 +275,6 @@ def _irls_ridge_init_cd(
     n, p = X.shape
     sw = None
     if sample_weight is not None:
-        from statgpu.backends._array_ops import _xp_asarray
         sw = _xp_asarray(sample_weight, X.dtype, X).reshape(-1)
         sw_sum = xp.sum(sw)
         feat_norms = xp.sqrt(xp.sum((sw[:, None] * X) * X, axis=0))
@@ -282,15 +282,7 @@ def _irls_ridge_init_cd(
     else:
         # Unweighted historical scaling: standardize each column to norm sqrt(n).
         feat_norms = xp.sqrt(xp.sum(X ** 2, axis=0))
-        if backend == "torch":
-            import torch
-            norm_scale = torch.tensor(
-                float(n) ** 0.5,
-                dtype=X.dtype,
-                device=X.device,
-            )
-        else:
-            norm_scale = xp.asarray(float(n) ** 0.5, dtype=X.dtype)
+        norm_scale = _xp_asarray(float(n) ** 0.5, X.dtype, X)
 
     if backend == "torch":
         import torch
@@ -312,17 +304,8 @@ def _irls_ridge_init_cd(
         XtX = X_work.T @ (sw[:, None] * X_work) / sw_sum
         Xty = X_work.T @ (sw * y) / sw_sum
 
-    if backend == "torch":
-        import torch
-        I_mat = torch.eye(p, dtype=X.dtype, device=X.device)
-        beta = torch.linalg.solve(XtX + alpha * I_mat, Xty)
-    elif backend == "cupy":
-        import cupy as cp
-        I_mat = cp.eye(p, dtype=X.dtype)
-        beta = cp.linalg.solve(XtX + alpha * I_mat, Xty)
-    else:
-        I_mat = np.eye(p, dtype=X.dtype)
-        beta = np.linalg.solve(XtX + alpha * I_mat, Xty)
+    I_mat = xp_eye(p, X.dtype, xp, ref_arr=X)
+    beta = xp.linalg.solve(XtX + alpha * I_mat, Xty)
 
     return beta * scale
 
