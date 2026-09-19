@@ -260,7 +260,7 @@ class GroupSCADPenalty(Penalty):
         w_feat = w[:p_total]  # handle augmented intercept
         if self._is_contiguous:
             return w_feat.reshape(G, gs)
-        return w_feat[self._flat_indices].reshape(G, gs)
+        return w_feat[self._get_flat_indices(xp, w)].reshape(G, gs)
 
     def _scatter_from_flat(self, flat_vals, result, xp):
         p_total = len(flat_vals)
@@ -292,7 +292,7 @@ class GroupSCADPenalty(Penalty):
             if self._is_contiguous:
                 w_mat = coef_feat.reshape(self._n_groups, gs)
             else:
-                w_mat = coef_feat[self._flat_indices].reshape(self._n_groups, gs)
+                w_mat = coef_feat[self._get_flat_indices(xp, coef)].reshape(self._n_groups, gs)
             norms = _vector_norm(w_mat, xp, dim=1)
         else:
             norms = self._batched_group_norms_vec(coef_feat, xp, coef)
@@ -360,7 +360,7 @@ class GroupSCADPenalty(Penalty):
             if self._is_contiguous:
                 w_mat = coef_feat.reshape(G, gs)
             else:
-                w_mat = coef_feat[self._flat_indices].reshape(G, gs)
+                w_mat = coef_feat[self._get_flat_indices(xp, coef)].reshape(G, gs)
             norms = _vector_norm(w_mat, xp, dim=1)
         else:
             norms = self._batched_group_norms_vec(coef_feat, xp, coef)
@@ -549,7 +549,7 @@ class GroupSCADPenalty(Penalty):
             if self._is_contiguous:
                 w_mat = coef_feat.reshape(self._n_groups, gs)
             else:
-                w_mat = coef_feat[self._flat_indices].reshape(self._n_groups, gs)
+                w_mat = coef_feat[self._get_flat_indices(xp, coef)].reshape(self._n_groups, gs)
             norms = _vector_norm(w_mat, xp, dim=1)
         else:
             norms = self._batched_group_norms_vec(coef_feat, xp, coef)
