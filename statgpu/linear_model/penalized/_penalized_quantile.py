@@ -123,7 +123,7 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
         ``loss_kwargs['quantile']`` retains the historical precedence used by
         this wrapper; otherwise the typed ``quantile`` value is authoritative.
         """
-        kwargs = {"quantile": float(getattr(self, "quantile", 0.5))}
+        kwargs = {"quantile": getattr(self, "quantile", 0.5)}
         if self.loss_kwargs:
             kwargs.update(dict(self.loss_kwargs))
         return kwargs
@@ -251,7 +251,14 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
                 "y must have the same number of observations as X for Quantile score"
             )
         u = y - y_pred
-        q = float(self._resolved_quantile_loss_kwargs()["quantile"])
+        from statgpu.losses import get_loss
+
+        q = float(
+            get_loss(
+                "quantile",
+                **self._resolved_quantile_loss_kwargs(),
+            ).quantile
+        )
         per_sample = np.where(u >= 0, q * u, (q - 1.0) * u)
         if sw is not None:
             pinball = float(np.average(per_sample, weights=sw))

@@ -110,6 +110,44 @@ def test_typed_quantile_sklearn_clone_preserves_public_quantile_when_available()
     assert fitted._loss._tau == pytest.approx(0.2)
 
 
+def test_typed_quantile_mutated_public_quantile_stays_strict_on_score():
+    X = np.array(
+        [[-1.0, 0.2], [0.0, -0.1], [0.5, 0.4], [1.0, -0.3]],
+        dtype=np.float64,
+    )
+    y = np.array([-0.4, 0.1, 0.35, 0.8], dtype=np.float64)
+    model = PenalizedQuantileRegression(
+        quantile=0.3,
+        penalty="l2",
+        alpha=0.02,
+        solver="irls",
+        device="cpu",
+    ).fit(X, y)
+
+    model.quantile = "0.2"
+    with pytest.raises(ValueError, match="finite real number in"):
+        model.score(X, y)
+
+
+def test_typed_quantile_mutated_loss_kwargs_stays_strict_on_score():
+    X = np.array(
+        [[-1.0, 0.2], [0.0, -0.1], [0.5, 0.4], [1.0, -0.3]],
+        dtype=np.float64,
+    )
+    y = np.array([-0.4, 0.1, 0.35, 0.8], dtype=np.float64)
+    model = PenalizedQuantileRegression(
+        quantile=0.3,
+        penalty="l2",
+        alpha=0.02,
+        solver="irls",
+        device="cpu",
+    ).fit(X, y)
+
+    model.loss_kwargs = {"quantile": "0.2"}
+    with pytest.raises(ValueError, match="finite real number in"):
+        model.score(X, y)
+
+
 def test_typed_quantile_score_rejects_invalid_weights_before_prediction(monkeypatch):
     X = np.array(
         [[-1.0, 0.2], [0.0, -0.1], [0.5, 0.4], [1.0, -0.3]],
