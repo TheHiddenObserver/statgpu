@@ -190,9 +190,27 @@ class AdaptiveL1Penalty(Penalty):
         """
         if self._weights is not None:
             return
-        # Convert to numpy for weight computation (weights are always stored as numpy)
+        # Convert to NumPy for validation/weight computation. Reject malformed
+        # initializer output before publishing learned penalty state.
         from statgpu.backends._utils import _to_numpy
-        coef_np = np.asarray(_to_numpy(coef), dtype=np.float64).ravel()
+        raw = np.asarray(_to_numpy(coef))
+        if raw.ndim != 1:
+            raise ValueError("coef must be one-dimensional for AdaptiveL1Penalty")
+        if raw.dtype.kind in ("b", "c", "S", "U"):
+            raise TypeError("coef must contain real numeric values")
+        if raw.dtype.kind == "O":
+            from numbers import Real
+            for value in raw:
+                if isinstance(value, (bool, np.bool_)) or not isinstance(
+                    value, (Real, np.number)
+                ) or np.iscomplexobj(value):
+                    raise TypeError("coef must contain real numeric values")
+        try:
+            coef_np = np.asarray(raw, dtype=np.float64)
+        except (TypeError, ValueError) as exc:
+            raise TypeError("coef must contain real numeric values") from exc
+        if not np.all(np.isfinite(coef_np)):
+            raise ValueError("coef must contain only finite values")
         # If the init coef is all-zero (e.g., ridge init diverged),
         # fall back to uniform weights so adaptive_l1 reduces to L1.
         if not np.any(np.abs(coef_np) > 1e-12):
