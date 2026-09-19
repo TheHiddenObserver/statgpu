@@ -19,6 +19,7 @@ non-uniform direct weights are still rejected by the L-BFGS weight check.
 from __future__ import annotations
 
 from functools import wraps
+from numbers import Integral, Real
 
 import numpy as np
 
@@ -88,6 +89,19 @@ def _is_quantile(loss) -> bool:
     return str(getattr(loss, "name", "") or "").lower().strip() == "quantile"
 
 
+def _validate_quantile_fista_controls(*, max_iter, tol, cv_mode) -> None:
+    if isinstance(max_iter, (bool, np.bool_)) or not isinstance(max_iter, Integral):
+        raise ValueError("max_iter must be a positive integer")
+    if int(max_iter) < 1:
+        raise ValueError("max_iter must be a positive integer")
+    if isinstance(tol, (bool, np.bool_)) or not isinstance(tol, Real):
+        raise ValueError("tol must be a finite positive number")
+    if not np.isfinite(float(tol)) or float(tol) <= 0.0:
+        raise ValueError("tol must be a finite positive number")
+    if not isinstance(cv_mode, (bool, np.bool_)):
+        raise ValueError("cv_mode must be boolean")
+
+
 def _normalize_quantile_xy_for_low_level(X, y):
     """Normalize supported Quantile low-level inputs to X's backend/device."""
     from statgpu.backends import _resolve_backend
@@ -142,6 +156,17 @@ def _validate_quantile_xy_shapes(loss, X, y, solver_name: str) -> None:
 @wraps(_fista_solver)
 def fista_solver(loss, penalty, X, y, *args, **kwargs):
     """Run ordinary FISTA with the public Quantile supervised-shape contract."""
+    if _is_quantile(loss):
+        import inspect
+        bound = inspect.signature(_fista_solver).bind_partial(
+            loss, penalty, X, y, *args, **kwargs
+        )
+        params = inspect.signature(_fista_solver).parameters
+        _validate_quantile_fista_controls(
+            max_iter=bound.arguments.get("max_iter", params["max_iter"].default),
+            tol=bound.arguments.get("tol", params["tol"].default),
+            cv_mode=bound.arguments.get("cv_mode", params["cv_mode"].default),
+        )
     _validate_quantile_xy_shapes(loss, X, y, "fista_solver")
     return _fista_solver(loss, penalty, X, y, *args, **kwargs)
 
