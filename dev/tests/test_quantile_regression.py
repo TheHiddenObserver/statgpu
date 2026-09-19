@@ -62,10 +62,22 @@ class TestQuantileRegression:
     def test_prediction_design_reuses_recorded_cupy_device(self, monkeypatch):
         model = QuantileRegression(quantile=0.5, device="cpu")
         model._selected_backend_device = "cuda:3"
-        captured = {}
+        captured = {"entered": [], "convert": []}
+
+        class FakeDevice:
+            def __init__(self, device_id):
+                self.device_id = int(device_id)
+
+            def __enter__(self):
+                captured["entered"].append(self.device_id)
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
 
         fake_cupy = types.SimpleNamespace(
             float64=np.float64,
+            cuda=types.SimpleNamespace(Device=FakeDevice),
             asarray=lambda *args, **kwargs: (_ for _ in ()).throw(
                 AssertionError("ambient cp.asarray must not own placement")
             ),
@@ -82,10 +94,20 @@ class TestQuantileRegression:
             "_cupy_asarray_on_device",
             fake_align,
         )
+        monkeypatch.setattr(
+            model,
+            "_to_array",
+            lambda value, device, backend=None: (
+                captured["convert"].append((device, backend))
+                or np.asarray(value)
+            ),
+        )
 
         X = np.asarray([[1, 2], [3, 4]], dtype=np.int64)
         result = model._prediction_array_on_fit_device(X, "cupy")
 
+        assert captured["entered"] == [3]
+        assert captured["convert"] == [(Device.CUDA, "cupy")]
         assert captured["target_device"] == 3
         assert captured["dtype"] is np.float64
         assert result.dtype == np.float64
