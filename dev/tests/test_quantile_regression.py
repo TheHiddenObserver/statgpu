@@ -137,6 +137,25 @@ class TestQuantileRegression:
         # SE should be positive
         assert np.all(m._bse > 0)
 
+    def test_batched_bootstrap_zero_gradient_returns_current_point(self):
+        X = np.zeros((12, 1), dtype=np.float64)
+        y = np.zeros(12, dtype=np.float64)
+        model = QuantileRegression(
+            quantile=0.5,
+            fit_intercept=False,
+            max_iter=5,
+            tol=1e-8,
+            n_bootstrap=3,
+            random_state=11,
+        )
+        model.coef_ = np.zeros(1, dtype=np.float64)
+        model.intercept_ = 0.0
+
+        boot_params, _, _ = model._compute_bootstrap_batched(X, y)
+
+        np.testing.assert_allclose(boot_params, 0.0, rtol=0.0, atol=0.0)
+        assert model._bootstrap_n_iter_ == 1
+
     def test_batched_bootstrap_armijo_requires_every_draw_to_descend(self):
         loss_old = np.array([1.0, 1.0], dtype=np.float64)
         loss_new = np.array([0.2, 1.05], dtype=np.float64)
