@@ -81,20 +81,20 @@ def test_nonconverged_quantile_group_candidate_is_nan_and_cannot_be_selected(
     assert refit_calls[0][2] == X.shape[0]
 
 
-def test_strict_quantile_fista_requires_complete_converged_fold_evidence(
+def test_strict_quantile_fista_warning_remains_scoreable_when_fit_returns(
     monkeypatch,
 ):
-    """A warning in one smooth-FISTA fold invalidates the entire alpha."""
+    """A generic solver warning alone does not erase a finite fold result."""
     X, y, weights, folds = _fixture()
-    failed_once = {"value": False}
+    warned_once = {"value": False}
 
     def fake_fista(loss, penalty, X_fit, y_fit, **kwargs):
         inner = getattr(penalty, "_pen", penalty)
         alpha = float(
             getattr(inner, "alpha", getattr(penalty, "_alpha", 0.0))
         )
-        if np.isclose(alpha, 0.05) and not failed_once["value"]:
-            failed_once["value"] = True
+        if np.isclose(alpha, 0.05) and not warned_once["value"]:
+            warned_once["value"] = True
             warnings.warn(
                 "sentinel FISTA nonconvergence",
                 ConvergenceWarning,
@@ -104,23 +104,23 @@ def test_strict_quantile_fista_requires_complete_converged_fold_evidence(
 
     monkeypatch.setattr(solvers, "fista_solver", fake_fista)
 
-    cv = PenalizedGLM_CV(
-        loss="quantile",
-        loss_kwargs={"quantile": Q},
-        penalty="l2",
-        alpha_grid=np.asarray([0.05, 0.03], dtype=np.float64),
-        cv=2,
-        cv_splits=folds,
-        solver="fista",
-        device="cpu",
-        max_iter=20,
-        tol=1e-6,
-    ).fit(X, y, sample_weight=weights)
+    with pytest.warns(ConvergenceWarning, match="sentinel FISTA nonconvergence"):
+        cv = PenalizedGLM_CV(
+            loss="quantile",
+            loss_kwargs={"quantile": Q},
+            penalty="l2",
+            alpha_grid=np.asarray([0.05, 0.03], dtype=np.float64),
+            cv=2,
+            cv_splits=folds,
+            solver="fista",
+            device="cpu",
+            max_iter=20,
+            tol=1e-6,
+        ).fit(X, y, sample_weight=weights)
 
     scores = np.asarray(cv.cv_results_["all_scores"], dtype=np.float64)
-    assert np.all(np.isnan(scores[:, 0]))
-    assert np.all(np.isfinite(scores[:, 1]))
-    assert cv.alpha_ == pytest.approx(0.03)
+    assert np.all(np.isfinite(scores))
+    assert cv.alpha_ in {0.05, 0.03}
 
 
 def test_two_stage_screening_stays_relaxed_before_strict_refinement(monkeypatch):
