@@ -404,6 +404,36 @@ def test_fista_rejects_unverified_trial_after_backtracking_exhaustion():
     assert n_iter == 1
 
 
+def test_quantile_value_stays_on_torch_backend_and_matches_numpy():
+    torch = pytest.importorskip("torch")
+    loss = QuantileLoss(quantile=0.3)
+    X_np = np.array(
+        [[1.0, -0.5], [0.2, 0.7], [-0.3, 0.4]],
+        dtype=np.float64,
+    )
+    y_np = np.array([0.2, -0.1, 0.5], dtype=np.float64)
+    coef_np = np.array([0.1, -0.2], dtype=np.float64)
+    weights_np = np.array([0.5, 1.0, 1.5], dtype=np.float64)
+
+    expected = loss.value(
+        X_np,
+        y_np,
+        coef_np,
+        sample_weight=weights_np,
+    )
+    observed = loss.value(
+        torch.as_tensor(X_np),
+        torch.as_tensor(y_np),
+        torch.as_tensor(coef_np),
+        sample_weight=torch.as_tensor(weights_np),
+    )
+
+    assert isinstance(expected, float)
+    assert torch.is_tensor(observed)
+    assert observed.device.type == "cpu"
+    assert float(observed.item()) == pytest.approx(expected, rel=0.0, abs=1e-15)
+
+
 def test_quantile_fused_value_stays_on_torch_backend():
     torch = pytest.importorskip("torch")
     loss = QuantileLoss(quantile=0.3)
