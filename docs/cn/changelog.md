@@ -18,7 +18,7 @@
 ### 验证
 
 - 增加 focused regressions，覆盖 Python 版本 collection safety、公开 solver alias/reload 幂等、底层 shape/path/weight 拒绝、direct/CV response validation、prediction/score broadcasting guard、Torch response backend 保持、standalone failure transaction/control/cleanup、kernel-bandwidth 定义域失败，以及一个 `tau=0.2` 的集成 batched-bootstrap 检查，用于区分调用者请求的分位数与错误的互补分位数方向。
-- PR166 smooth-FISTA physical validator 已升级为 schema v3：保留 penalized explicit-FISTA/CV 矩阵与 CuPy/Torch standalone `tau=0.20` 私有 batched-bootstrap 方向检查，并新增完整公开 `fit(..., compute_inference=True, inference_method="bootstrap")` CUDA case，验证 point-fit 收敛、推断结果发布、具体 device provenance、resampling schedule 身份与有限 reporting 输出。PR166 早先提交的 physical CUDA artifact 对应更早源码/schema，只能作为历史 exact-source 证据；当前 exact head 必须单独执行 schema-v3 physical revalidation，hosted checks 不能替代。
+- PR166 smooth-FISTA physical validator 已升级为 schema v4：保留 penalized explicit-FISTA 矩阵与 CuPy/Torch standalone 私有/公开 bootstrap case，并新增 non-uniform weighted L1 strict-CV 与 CPU reference 的 parity 检查，直接覆盖 GPU async CV 中 shared weighted-FISTA 的 spectral Gram step scale。PR166 早先提交的 physical CUDA artifact 对应更早源码/schema，只能作为历史 exact-source 证据；当前 exact head 必须单独执行 schema-v3 physical revalidation，hosted checks 不能替代。
 
 ## 未发布 — Quantile solver provenance 对齐（PR #164 / Issue #163，目标 0.2.6）
 
