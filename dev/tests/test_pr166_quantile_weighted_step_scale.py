@@ -14,7 +14,7 @@ from statgpu.solvers._fista_lla_group_contract import (
 )
 
 
-def test_quantile_weighted_step_scale_matches_normalized_weighted_gram():
+def test_quantile_weighted_step_scale_uses_safe_normalized_weighted_gram_bound():
     X = np.asarray(
         [
             [4.0, 0.0],
@@ -34,9 +34,15 @@ def test_quantile_weighted_step_scale_matches_normalized_weighted_gram():
         sample_weight=weights,
     )
     gram = X.T @ (X * weights[:, None]) / float(np.sum(weights))
-    expected = max(tau, 1.0 - tau) * float(np.linalg.eigvalsh(gram)[-1])
+    exact = float(np.linalg.eigvalsh(gram)[-1])
+    safe_bound = min(
+        float(np.max(np.sum(np.abs(gram), axis=1))),
+        float(np.sqrt(np.sum(gram * gram))),
+    )
+    scale = max(tau, 1.0 - tau)
 
-    assert actual == pytest.approx(expected, rel=1e-8, abs=1e-10)
+    assert actual == pytest.approx(scale * safe_bound, rel=1e-12, abs=1e-14)
+    assert actual >= scale * exact
 
 
 def test_quantile_weighted_step_scale_is_weight_rescaling_invariant():

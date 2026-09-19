@@ -6,6 +6,8 @@ import importlib
 import inspect
 import warnings
 
+import types
+
 import numpy as np
 import pytest
 
@@ -42,12 +44,7 @@ def test_xp_asarray_cupy_targets_reference_device(monkeypatch):
     class _FakeRef:
         device = _FakeDevice()
 
-    class _FakeCupy:
-        __name__ = "cupy"
-
-        @staticmethod
-        def asarray(*args, **kwargs):
-            raise AssertionError("raw cp.asarray must not own device placement")
+    fake_cupy = types.SimpleNamespace(__name__="cupy")
 
     captured = {}
 
@@ -57,7 +54,7 @@ def test_xp_asarray_cupy_targets_reference_device(monkeypatch):
         captured["dtype"] = dtype
         return "aligned"
 
-    monkeypatch.setattr(_array_ops_mod, "_xp", lambda ref: _FakeCupy)
+    monkeypatch.setattr(_array_ops_mod, "_xp", lambda ref: fake_cupy)
     monkeypatch.setattr(
         _backend_utils,
         "_cupy_asarray_on_device",
