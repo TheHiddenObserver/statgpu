@@ -894,6 +894,63 @@ class TestQuantileRegression:
         assert model._fitted is False
         assert model.coef_ is None
 
+    def test_direct_public_control_replacement_drives_next_fit(
+        self, monkeypatch
+    ):
+        import statgpu.linear_model.wrappers._quantile as quantile_mod
+
+        model = QuantileRegression(
+            quantile=0.5,
+            fit_intercept=True,
+            max_iter=100,
+            tol=1e-4,
+            device="cpu",
+        )
+        model.quantile = 0.2
+        model.fit_intercept = False
+        model.max_iter = 7
+        model.tol = 2e-7
+
+        captured = {}
+
+        def fake_fista(loss, penalty, X, y, **kwargs):
+            captured["quantile"] = float(loss.quantile)
+            captured["shape"] = tuple(X.shape)
+            captured["max_iter"] = kwargs["max_iter"]
+            captured["tol"] = kwargs["tol"]
+            return np.zeros(X.shape[1], dtype=np.float64), 1
+
+        monkeypatch.setattr(quantile_mod, "fista_solver", fake_fista)
+        model.fit(self.X, self.y)
+
+        assert captured == {
+            "quantile": pytest.approx(0.2),
+            "shape": self.X.shape,
+            "max_iter": 7,
+            "tol": pytest.approx(2e-7),
+        }
+        assert model._quantile == pytest.approx(0.2)
+        assert model._fit_intercept is False
+        assert model._max_iter == 7
+        assert model._tol == pytest.approx(2e-7)
+
+    def test_direct_invalid_device_replacement_fails_before_backend(
+        self, monkeypatch
+    ):
+        model = QuantileRegression(quantile=0.5, device="cpu")
+        model.device = "not-a-device"
+
+        def forbidden(*args, **kwargs):
+            raise AssertionError("invalid device must fail before backend work")
+
+        monkeypatch.setattr(model, "_get_backend", forbidden)
+        with pytest.raises(ValueError, match="device must be one of"):
+            model.fit(self.X, self.y)
+
+        assert model._fitted is False
+        assert model.coef_ is None
+        assert model._selected_backend_name is None
+
     @pytest.mark.parametrize("bad_quantile", ["0.5", True])
     def test_invalid_quantile_constructor_fails_closed(self, bad_quantile):
         with pytest.raises(ValueError, match="quantile must be a finite real number"):
