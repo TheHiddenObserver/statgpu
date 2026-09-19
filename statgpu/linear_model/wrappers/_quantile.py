@@ -313,6 +313,22 @@ class QuantileRegression(BaseEstimator):
         return _KERNELS[name]
 
     @staticmethod
+    def _validate_inference_outputs(**arrays):
+        """Reject non-finite inference snapshots before estimator publication."""
+        for name, value in arrays.items():
+            arr = np.asarray(value)
+            if not np.all(np.isfinite(arr)):
+                raise ValueError(
+                    f"QuantileRegression inference produced non-finite {name}"
+                )
+        if "pvalues" in arrays:
+            pvalues = np.asarray(arrays["pvalues"], dtype=np.float64)
+            if np.any((pvalues < 0.0) | (pvalues > 1.0)):
+                raise ValueError(
+                    "QuantileRegression inference produced p-values outside [0, 1]"
+                )
+
+    @staticmethod
     def _validate_kernel_density_estimate(fhat):
         """Require a finite positive residual density at zero for inference."""
         fhat = float(fhat)
@@ -413,24 +429,31 @@ class QuantileRegression(BaseEstimator):
         XtDX = X_design.T @ (X_design * D[:, None])
         cov = XtX_inv @ XtDX @ XtX_inv
 
-        self._bse = _np.sqrt(_np.maximum(_np.diag(cov), 0.0))
-        self._zvalues = params / (self._bse + 1e-30)
-        self._pvalues = 2.0 * _norm.sf(_np.abs(self._zvalues))
+        bse = _np.sqrt(_np.maximum(_np.diag(cov), 0.0))
+        zvalues = params / (bse + 1e-30)
+        pvalues = 2.0 * _norm.sf(_np.abs(zvalues))
         z_crit = _norm.ppf(0.975)
-        self._conf_int = _np.column_stack([
-            params - z_crit * self._bse,
-            params + z_crit * self._bse,
+        conf_int = _np.column_stack([
+            params - z_crit * bse,
+            params + z_crit * bse,
         ])
+        self._validate_inference_outputs(
+            params=params,
+            bse=bse,
+            statistic=zvalues,
+            pvalues=pvalues,
+            conf_int=conf_int,
+        )
 
         from statgpu.inference._results import ParameterInferenceResult
-        self._inference_result = ParameterInferenceResult(
+        result = ParameterInferenceResult(
             method="kernel",
             params=params.copy(),
-            bse=self._bse.copy(),
-            statistic=self._zvalues.copy(),
+            bse=bse.copy(),
+            statistic=zvalues.copy(),
             statistic_name="z",
-            pvalues=self._pvalues.copy(),
-            conf_int=self._conf_int.copy(),
+            pvalues=pvalues.copy(),
+            conf_int=conf_int.copy(),
             distribution="normal",
             metadata={
                 "method": "powell_1991_sandwich",
@@ -441,7 +464,7 @@ class QuantileRegression(BaseEstimator):
                 "quantile": tau,
             },
         )
-        self._inference_result.apply_to(self)
+        result.apply_to(self)
 
     def _compute_inference_kernel_gpu(self, X, y):
         """GPU-native kernel-based sandwich covariance (Powell 1991)."""
@@ -497,24 +520,32 @@ class QuantileRegression(BaseEstimator):
         pvalues = 2.0 * _norm.sf(xp.abs(z_values))
         z_crit = _norm.ppf(0.975)
 
-        self._bse = np.asarray(_to_numpy(bse))
-        self._zvalues = np.asarray(_to_numpy(z_values))
-        self._pvalues = np.asarray(_to_numpy(pvalues))
-        self._conf_int = np.column_stack([
+        params_np = np.asarray(_to_numpy(params))
+        bse_np = np.asarray(_to_numpy(bse))
+        zvalues_np = np.asarray(_to_numpy(z_values))
+        pvalues_np = np.asarray(_to_numpy(pvalues))
+        conf_int_np = np.column_stack([
             np.asarray(_to_numpy(params - z_crit * bse)),
-            np.asarray(_to_numpy(params + z_crit * bse))])
-        self._params = np.asarray(_to_numpy(params))
+            np.asarray(_to_numpy(params + z_crit * bse)),
+        ])
+        self._validate_inference_outputs(
+            params=params_np,
+            bse=bse_np,
+            statistic=zvalues_np,
+            pvalues=pvalues_np,
+            conf_int=conf_int_np,
+        )
 
         from statgpu.inference._results import ParameterInferenceResult
-        self._inference_result = ParameterInferenceResult(
-            method="kernel", params=self._params.copy(), bse=self._bse.copy(),
-            statistic=self._zvalues.copy(), statistic_name="z",
-            pvalues=self._pvalues.copy(), conf_int=self._conf_int.copy(),
+        result = ParameterInferenceResult(
+            method="kernel", params=params_np.copy(), bse=bse_np.copy(),
+            statistic=zvalues_np.copy(), statistic_name="z",
+            pvalues=pvalues_np.copy(), conf_int=conf_int_np.copy(),
             distribution="normal",
             metadata={"method": "powell_1991_sandwich", "kernel": self.kernel,
                        "bandwidth_rule": self.bandwidth, "bandwidth": float(h),
                        "sparsity": float(sparsity), "quantile": tau, "backend": backend})
-        self._inference_result.apply_to(self)
+        result.apply_to(self)
 
     def _compute_bootstrap_batched(self, X, y):
         """Batched pinball FISTA — solves all B bootstrap samples in parallel.
@@ -742,21 +773,36 @@ class QuantileRegression(BaseEstimator):
 
         boot_params, _, _ = self._compute_bootstrap_batched(X, y)
         boot_params = np.asarray(boot_params)
-        self._bse = np.std(boot_params, axis=0, ddof=1)
-        self._zvalues = params / (self._bse + 1e-30)
-        pvalues = np.array([min(2.0 * min(np.mean(boot_params[:, i] <= 0.0),
-                                           np.mean(boot_params[:, i] >= 0.0)), 1.0)
-                            for i in range(len(params))])
-        self._pvalues = pvalues
-        self._conf_int = np.column_stack([
+        bse = np.std(boot_params, axis=0, ddof=1)
+        zvalues = params / (bse + 1e-30)
+        pvalues = np.array([
+            min(
+                2.0 * min(
+                    np.mean(boot_params[:, i] <= 0.0),
+                    np.mean(boot_params[:, i] >= 0.0),
+                ),
+                1.0,
+            )
+            for i in range(len(params))
+        ])
+        conf_int = np.column_stack([
             np.quantile(boot_params, 0.025, axis=0),
-            np.quantile(boot_params, 0.975, axis=0)])
+            np.quantile(boot_params, 0.975, axis=0),
+        ])
+        self._validate_inference_outputs(
+            params=params,
+            boot_params=boot_params,
+            bse=bse,
+            statistic=zvalues,
+            pvalues=pvalues,
+            conf_int=conf_int,
+        )
 
         from statgpu.inference._results import ParameterInferenceResult
-        self._inference_result = ParameterInferenceResult(
-            method="bootstrap", params=params.copy(), bse=self._bse.copy(),
-            statistic=self._zvalues.copy(), statistic_name="z",
-            pvalues=self._pvalues.copy(), conf_int=self._conf_int.copy(),
+        result = ParameterInferenceResult(
+            method="bootstrap", params=params.copy(), bse=bse.copy(),
+            statistic=zvalues.copy(), statistic_name="z",
+            pvalues=pvalues.copy(), conf_int=conf_int.copy(),
             distribution="bootstrap_percentile",
             metadata={
                 "n_bootstrap": self._n_bootstrap,
@@ -766,7 +812,7 @@ class QuantileRegression(BaseEstimator):
                 "solver_n_iter": int(self._bootstrap_n_iter_),
                 "backend": getattr(self, '_selected_backend_name', 'numpy'),
             })
-        self._inference_result.apply_to(self)
+        result.apply_to(self)
 
     def predict(self, X):
         self._check_is_fitted()

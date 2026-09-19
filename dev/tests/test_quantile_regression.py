@@ -36,6 +36,47 @@ class TestQuantileRegression:
         assert m.n_iter_ > 0
         assert not hasattr(m, '_bse') or m._bse is None
 
+    @pytest.mark.parametrize(
+        ("name", "value"),
+        [
+            ("bse", np.asarray([1.0, np.nan])),
+            ("statistic", np.asarray([0.0, np.inf])),
+            ("conf_int", np.asarray([[0.0, 1.0], [np.nan, 2.0]])),
+        ],
+    )
+    def test_inference_output_validator_rejects_nonfinite_arrays(self, name, value):
+        with pytest.raises(ValueError, match=f"non-finite {name}"):
+            QuantileRegression._validate_inference_outputs(**{name: value})
+
+    def test_inference_output_validator_rejects_invalid_pvalues(self):
+        with pytest.raises(ValueError, match="p-values outside"):
+            QuantileRegression._validate_inference_outputs(
+                pvalues=np.asarray([0.2, 1.1])
+            )
+
+    def test_bootstrap_nonfinite_snapshot_is_not_published(self, monkeypatch):
+        model = QuantileRegression(
+            quantile=0.5,
+            compute_inference=False,
+            n_bootstrap=4,
+        ).fit(self.X, self.y)
+
+        bad = np.zeros((4, len(model._params)), dtype=np.float64)
+        bad[0, 0] = np.nan
+        monkeypatch.setattr(
+            model,
+            "_compute_bootstrap_batched",
+            lambda X, y: (bad, None, None),
+        )
+
+        with pytest.raises(ValueError, match="non-finite boot_params"):
+            model._compute_inference_bootstrap(self.X, self.y)
+
+        assert model._inference_result is None
+        assert model._bse is None
+        assert model._pvalues is None
+        assert model._conf_int is None
+
     def test_zero_kernel_density_estimate_fails_closed(self, monkeypatch):
         model = QuantileRegression(quantile=0.5).fit(self.X, self.y)
 
