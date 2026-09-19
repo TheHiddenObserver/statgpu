@@ -288,7 +288,7 @@ class GroupLassoPenalty(Penalty):
             if self._is_contiguous:
                 w_mat = coef_feat.reshape(self._n_groups, gs)
             else:
-                w_mat = coef_feat[self._flat_indices].reshape(self._n_groups, gs)
+                w_mat = coef_feat[self._get_flat_indices(xp, coef)].reshape(self._n_groups, gs)
             norms = _vector_norm(w_mat, xp, dim=1)
         else:
             norms = self._batched_group_norms_vec(coef_feat, xp, coef)
@@ -324,7 +324,7 @@ class GroupLassoPenalty(Penalty):
             if self._is_contiguous:
                 w_mat = coef_feat.reshape(G, gs)
             else:
-                w_mat = coef_feat[self._flat_indices].reshape(G, gs)
+                w_mat = coef_feat[self._get_flat_indices(xp, coef)].reshape(G, gs)
 
             norms = _vector_norm(w_mat, xp, dim=1)
             sqrt_pg = self._get_sqrt_pg(xp, coef)
@@ -342,7 +342,7 @@ class GroupLassoPenalty(Penalty):
             if self._is_contiguous:
                 grad[:p_total] = grad_mat.reshape(-1)
             else:
-                grad[self._flat_indices] = grad_mat.reshape(-1)
+                grad[self._get_flat_indices(xp, grad)] = grad_mat.reshape(-1)
             return grad
 
         # Unequal groups: vectorized scale + scatter via _group_feat_idx
@@ -417,14 +417,14 @@ class GroupLassoPenalty(Penalty):
             raise ValueError("_gather requires equal-size groups; use _proximal_padded instead")
         if self._is_contiguous:
             return w.reshape(self._n_groups, self._group_size_uniform)
-        return w[self._flat_indices].reshape(self._n_groups, self._group_size_uniform)
+        return w[self._get_flat_indices(xp, w)].reshape(self._n_groups, self._group_size_uniform)
 
     def _scatter(self, w_mat_flat, result, xp):
         """Scatter vectorized result back. No-op if already contiguous."""
         if self._is_contiguous:
             result[:] = w_mat_flat
         else:
-            result[self._flat_indices] = w_mat_flat
+            result[self._get_flat_indices(xp, result)] = w_mat_flat
         return result
 
     def _get_sqrt_pg(self, xp, w):
@@ -511,7 +511,7 @@ class GroupLassoPenalty(Penalty):
         if self._is_contiguous:
             w_mat = w_feat.reshape(G, gs)
         else:
-            w_mat = w_feat[self._flat_indices].reshape(G, gs)
+            w_mat = w_feat[self._get_flat_indices(xp, w)].reshape(G, gs)
 
         sqrt_pg_arr = self._get_sqrt_pg(xp, w)
 
@@ -524,7 +524,7 @@ class GroupLassoPenalty(Penalty):
                 if self._is_contiguous:
                     result[:p_total] = scaled_flat
                 else:
-                    result[self._flat_indices] = scaled_flat
+                    result[self._get_flat_indices(xp, result)] = scaled_flat
                 return result
 
         # Generic vectorized path
@@ -537,7 +537,7 @@ class GroupLassoPenalty(Penalty):
         if self._is_contiguous:
             result[:p_total] = scaled_flat
         else:
-            result[self._flat_indices] = scaled_flat
+            result[self._get_flat_indices(xp, result)] = scaled_flat
         return result
 
     def _proximal_padded(self, w, step, xp, G, max_sz):
@@ -643,7 +643,7 @@ class AdaptiveGroupLassoPenalty(GroupLassoPenalty):
         if self._is_contiguous:
             w_mat = w_feat.reshape(G, gs)
         else:
-            w_mat = w_feat[self._flat_indices].reshape(G, gs)
+            w_mat = w_feat[self._get_flat_indices(xp, w)].reshape(G, gs)
 
         sqrt_pg_arr = self._get_sqrt_pg(xp, w)
         weights_arr = self._get_group_weights(xp, w)
@@ -661,7 +661,7 @@ class AdaptiveGroupLassoPenalty(GroupLassoPenalty):
         if self._is_contiguous:
             result[:p_total] = scaled_flat
         else:
-            result[self._flat_indices] = scaled_flat
+            result[self._get_flat_indices(xp, result)] = scaled_flat
         return result
 
     def _proximal_padded(self, w, step, xp, G, max_sz):
