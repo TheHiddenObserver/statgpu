@@ -32,6 +32,7 @@ from ._constants import (
 )
 from ._utils import (
     _abs_mean_max,
+    _external_warning_stacklevel,
     _nesterov_momentum,
     _validate_sample_weight,
 )
@@ -837,7 +838,11 @@ def fista_lla_path(
             + " and ".join(missing)
             + "; returning the final accepted iterate.",
             ConvergenceWarning,
-            stacklevel=2,
+            stacklevel=(
+                _external_warning_stacklevel()
+                if str(getattr(loss, "name", "") or "").lower() == "quantile"
+                else 2
+            ),
         )
 
     # Extract coef and intercept
