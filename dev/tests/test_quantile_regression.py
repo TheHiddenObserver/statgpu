@@ -19,6 +19,7 @@ from statgpu.linear_model.wrappers._quantile import (
     _bootstrap_schedule_to_backend,
     _center_quantile_bootstrap_residuals,
     _pinball_zero_eta_gradient_by_draw,
+    _refine_pinball_zero_subgradients,
 )
 
 
@@ -924,6 +925,63 @@ class TestQuantileRegression:
             rtol=0.0,
             atol=1e-15,
         )
+
+    def test_multifeature_zero_subgradient_refinement_reduces_kkt_score(self):
+        tau = 0.3
+        X = np.asarray(
+            [
+                [1.0, -0.5],
+                [1.0, 0.2],
+                [1.0, 0.9],
+                [1.0, 1.4],
+            ],
+            dtype=np.float64,
+        )
+        residual = np.asarray(
+            [
+                [0.0],
+                [0.0],
+                [0.8],
+                [-0.6],
+            ],
+            dtype=np.float64,
+        )
+        zero_gradient = _pinball_zero_eta_gradient_by_draw(
+            residual,
+            tau,
+            np,
+        )
+        d_eta = np.where(
+            residual > 0.0,
+            -tau,
+            np.where(
+                residual < 0.0,
+                1.0 - tau,
+                zero_gradient[None, :],
+            ),
+        )
+        before = np.linalg.norm(X.T @ d_eta / X.shape[0])
+        spectral = float(np.linalg.norm(X, ord=2) ** 2 / X.shape[0])
+
+        refined = _refine_pinball_zero_subgradients(
+            X,
+            d_eta,
+            residual == 0.0,
+            tau,
+            spectral,
+            X.shape[0],
+            np,
+        )
+        after = np.linalg.norm(X.T @ refined / X.shape[0])
+
+        assert after < before
+        assert np.all(refined[residual == 0.0] >= -tau)
+        assert np.all(refined[residual == 0.0] <= 1.0 - tau)
+        np.testing.assert_array_equal(
+            refined[residual != 0.0],
+            d_eta[residual != 0.0],
+        )
+
 
     def test_nonmedian_batched_bootstrap_targets_requested_quantile(self):
         tau = 0.2
