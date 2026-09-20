@@ -78,15 +78,24 @@ def _data(seed=166451, n=48):
 
 
 def _converged_data():
-    """Return an exact fixed-point case that must converge without warnings.
+    """Return an exact weighted fixed-point case that must converge cleanly.
 
-    The design and analytic weights remain nontrivial, while y=0 makes the
-    zero coefficient vector an exact Quantile+SCAD fixed point. This gives the
-    acceptance gate a deterministic converged low-level solve on every backend
-    instead of treating an exhausted nonsmooth trajectory as a numerical oracle.
+    QuantileLoss deliberately chooses the -tau subgradient at zero residual, so
+    y=0 alone does not make beta=0 stationary for an arbitrary design. Use
+    paired +/- coordinate rows with equal weights inside each pair. Their
+    weighted column sums cancel exactly while the weights remain non-uniform
+    across coordinates, making beta=0 a genuine Quantile+SCAD fixed point.
     """
-    X, _y, weights = _data()
-    return X, np.zeros(X.shape[0], dtype=np.float64), weights
+    eye = np.eye(4, dtype=np.float64)
+    rows = []
+    weights = []
+    pair_weights = np.asarray([0.4, 0.9, 1.4, 1.9], dtype=np.float64)
+    for row, weight in zip(eye, pair_weights):
+        rows.extend([row, -row])
+        weights.extend([weight, weight])
+    X = np.asarray(rows, dtype=np.float64)
+    y = np.zeros(X.shape[0], dtype=np.float64)
+    return X, y, np.asarray(weights, dtype=np.float64)
 
 
 def _native_inputs(backend, X, y, weights, cp, torch):
