@@ -1052,9 +1052,17 @@ class QuantileRegression(BaseEstimator):
         )
         y_gpu = eta[None, :] + resid[schedule_native]
 
-        # Lipschitz constant + backtracking line search
+        # Lipschitz constant + backtracking line search. Bootstrap responses
+        # are constructed around the fitted eta, so each child solve starts from
+        # that fitted parameter vector rather than from an unrelated zero model.
+        # This is both a valid warm start and makes the centered residual sample
+        # the exact initial bootstrap residual, including its target-quantile
+        # zero observations.
         L0 = max(float(xp.linalg.norm(Xd, ord=2)) ** 2 / n, 1e-10)
-        coef = xp_zeros((p, B), X.dtype, xp, ref_arr=X)
+        if is_torch:
+            coef = params.reshape(-1, 1).repeat(1, B)
+        else:
+            coef = xp.repeat(params.reshape(-1, 1), B, axis=1)
         z = coef.clone() if is_torch else coef.copy()
         c1 = 1e-4
         t_iter = 1.0
