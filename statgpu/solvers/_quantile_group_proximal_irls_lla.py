@@ -262,16 +262,29 @@ def quantile_group_proximal_irls_lla_solver(
                 # IRLS/ADMM exhaustion from an earlier LLA step is historical.
                 active_irls_exhausted = False
                 active_admm_exhausted = False
-                params, used_iter = loss.irls(
-                    X_work,
-                    y_dev,
-                    penalty=None,
-                    max_iter=irls_limit,
-                    tol=flat_tol,
-                    init_coef=None,
-                    sample_weight=sw,
-                    fit_intercept=fit_intercept,
-                )
+                with warnings.catch_warnings(record=True) as irls_warnings:
+                    warnings.simplefilter("always")
+                    params, used_iter = loss.irls(
+                        X_work,
+                        y_dev,
+                        penalty=None,
+                        max_iter=irls_limit,
+                        tol=flat_tol,
+                        init_coef=None,
+                        sample_weight=sw,
+                        fit_intercept=fit_intercept,
+                    )
+                # The Group solver owns target-level convergence reporting.
+                # Suppress the inner IRLS ConvergenceWarning so callers that
+                # escalate warnings do not bypass the boundary probe / strict
+                # CV fail-closed decision. Preserve unrelated warnings.
+                for item in irls_warnings:
+                    if not issubclass(item.category, ConvergenceWarning):
+                        warnings.warn(
+                            item.message,
+                            item.category,
+                            stacklevel=_external_warning_stacklevel(),
+                        )
                 total_iter += int(used_iter)
 
                 at_budget_boundary = (
