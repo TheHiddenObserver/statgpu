@@ -17,6 +17,7 @@ from __future__ import annotations
 
 __all__ = ["PenalizedGLM_CV"]
 
+import copy
 import logging
 import warnings
 
