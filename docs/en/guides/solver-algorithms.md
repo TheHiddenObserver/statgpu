@@ -125,7 +125,7 @@ For each continuation value of `alpha`:
    d_1=\cdots=d_p=0,
    $$
 
-   then the current SCAD/MCP surrogate has no active penalty and reduces to ordinary weighted quantile regression. In that degenerate case, the solver closes the surrogate with the full `QuantileLoss.irls()` WLS update rather than continuing the diagonal Jacobi approximation. The flat-surrogate IRLS tolerance is
+   then the current SCAD/MCP surrogate has no active penalty and reduces to ordinary weighted quantile regression. In that degenerate case, the solver solves the surrogate with the full `QuantileLoss.irls()` WLS update rather than continuing the diagonal Jacobi approximation. The flat-surrogate IRLS tolerance is
 
    $$
    \min(\texttt{tol},10^{-8}),
@@ -1229,7 +1229,7 @@ $$
 \|s_k\|_2<\texttt{tol}.
 $$
 
-For a domain-capped route, however, a small accepted $\|s_k\|_2$ is not by itself evidence of convergence. The route closes only when the gradient criterion is satisfied; otherwise it continues until a material step is found or the domain is reported as pinned/failing.
+For a domain-capped route, however, a small accepted $\|s_k\|_2$ is not by itself evidence of convergence. The route terminates successfully only when the gradient criterion is satisfied; otherwise it continues until a material step is found or the domain is reported as pinned/failing.
 
 ### L-BFGS-B: projected box-constrained variant
 
