@@ -34,7 +34,7 @@ def _pinball(y, eta, q, sample_weight):
 
 
 def test_pr166_smooth_bootstrap_physical_gate_schema_is_locked():
-    assert smooth_gate.SCHEMA_VERSION == 9
+    assert smooth_gate.SCHEMA_VERSION == 10
     assert smooth_wrapper.EXPECTED_SCHEMA_VERSION == smooth_gate.SCHEMA_VERSION
     assert smooth_gate.BOOTSTRAP_Q != pytest.approx(0.5)
     assert 0.0 < smooth_gate.BOOTSTRAP_Q < 1.0
@@ -42,6 +42,9 @@ def test_pr166_smooth_bootstrap_physical_gate_schema_is_locked():
     assert callable(smooth_gate._standalone_bootstrap_public_case)
     assert callable(smooth_gate._async_weighted_l1_case)
     assert smooth_gate.ATOL_ASYNC_L1_OBJECTIVE > 0.0
+    source = Path(smooth_gate.__file__).read_text(encoding="utf-8")
+    assert 'warnings.simplefilter("error", ConvergenceWarning)' in source
+    assert '"cpu_n_iter": int(cpu_n_iter)' in source
     controls = smooth_gate._solver_controls()
     assert controls["cv"]["l1_tol"] == smooth_gate.CV_L1_TOL
     assert controls["cv"]["l2_tol"] == smooth_gate.CV_L2_TOL
