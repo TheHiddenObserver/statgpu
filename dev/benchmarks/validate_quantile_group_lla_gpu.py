@@ -14,6 +14,8 @@ import numpy as np
 from statgpu.backends import _to_numpy
 from statgpu.linear_model import PenalizedGLM_CV
 from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
+from statgpu.losses import QuantileLoss
+from statgpu.penalties import GroupSCADPenalty
 from statgpu.solvers import _fista_lla_group_contract as group_contract
 from statgpu.solvers import _quantile_group_proximal_irls_lla as group_solver
 
@@ -233,6 +235,109 @@ def _with_group_solver_counter(fn, *, expected_backend, min_calls=1):
     return result, int(count["value"]), sorted(observed_locations)
 
 
+class _GroupFactoryProbeComplete(RuntimeError):
+    pass
+
+
+def _explicit_group_fista_lla_transfer_probe(backend, X, y, weights):
+    """Exercise fused FISTA-LLA up to its first real Group surrogate factory."""
+    original_factory = group_contract._group_surrogate_factory
+    original_to_numpy = group_contract._to_numpy
+    derivative_locations = []
+    transfer_sizes = []
+
+    def counted_to_numpy(value):
+        value_backend, value_device = _array_backend_and_device(value)
+        if value_backend in ("cupy", "torch"):
+            size = (
+                int(value.numel())
+                if hasattr(value, "numel")
+                else int(value.size)
+            )
+            transfer_sizes.append(size)
+        return original_to_numpy(value)
+
+    def probe_factory(penalty):
+        inner = original_factory(penalty)
+
+        def factory(derivatives):
+            observed_backend, observed_device = _array_backend_and_device(
+                derivatives
+            )
+            derivative_locations.append(
+                [observed_backend, observed_device]
+            )
+            if observed_backend != backend:
+                raise AssertionError(
+                    "Low-level Group FISTA-LLA derivative backend drifted: "
+                    f"{observed_backend!r} != {backend!r}"
+                )
+            if observed_device != "cuda:0":
+                raise AssertionError(
+                    "Low-level Group FISTA-LLA derivative device drifted: "
+                    f"{observed_device!r}"
+                )
+            inner(derivatives)
+            raise _GroupFactoryProbeComplete
+
+        # Preserve the internal factory capability marker. The assertion above
+        # therefore tests whether fused _fista_lla.py actually honors the
+        # native-derivative branch instead of pre-converting to NumPy.
+        factory._statgpu_accepts_native_derivatives = True
+        return factory
+
+    penalty = GroupSCADPenalty(
+        alpha=DIRECT_ALPHA,
+        a=3.7,
+        groups=GROUPS,
+    )
+    group_contract._group_surrogate_factory = probe_factory
+    group_contract._to_numpy = counted_to_numpy
+    try:
+        try:
+            group_contract.fista_lla_path(
+                QuantileLoss(Q),
+                penalty,
+                X,
+                y,
+                alpha_path=[DIRECT_ALPHA],
+                max_lla_per_step=1,
+                max_iter=1,
+                tol=1e-7,
+                lla_tol=1e-7,
+                fit_intercept=False,
+                sample_weight=weights,
+            )
+        except _GroupFactoryProbeComplete:
+            pass
+        else:
+            raise AssertionError(
+                "Low-level Group FISTA-LLA transfer probe did not reach "
+                "the first active LLA surrogate"
+            )
+    finally:
+        group_contract._group_surrogate_factory = original_factory
+        group_contract._to_numpy = original_to_numpy
+
+    expected_payload = len(GROUPS) + 3
+    if derivative_locations != [[backend, "cuda:0"]]:
+        raise AssertionError(
+            "Low-level Group FISTA-LLA derivative ownership drifted: "
+            f"{derivative_locations!r}"
+        )
+    if transfer_sizes != [expected_payload]:
+        raise AssertionError(
+            "Low-level Group FISTA-LLA reporting payload drifted: "
+            f"{transfer_sizes!r} != [{expected_payload}]"
+        )
+    return {
+        "name": f"{backend}/low-level/group-fista-lla-transfer",
+        "derivative_locations": derivative_locations,
+        "reporting_transfer_sizes": transfer_sizes,
+        "max_host_values_per_factory_transfer": expected_payload,
+    }
+
+
 def _fit(kind, X, y, weights, device):
     return PenalizedGeneralizedLinearModel(
         loss="quantile",
@@ -425,6 +530,14 @@ def main() -> int:
     max_cv_param_error = 0.0
     for backend in ("cupy", "torch"):
         Xb, yb, wb, device = _native_inputs(backend, X, y, weights, cp, torch)
+        cases.append(
+            _explicit_group_fista_lla_transfer_probe(
+                backend,
+                Xb,
+                yb,
+                wb,
+            )
+        )
         for kind in ("group_scad", "group_mcp"):
             direct, direct_calls, direct_locations = _with_group_solver_counter(
                 lambda kind=kind: _fit(kind, Xb, yb, wb, device),
