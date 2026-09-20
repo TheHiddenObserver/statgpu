@@ -837,8 +837,8 @@ class TestQuantileRegression:
     def test_nonmedian_pinball_eta_gradient_matches_requested_quantile(self):
         from statgpu.linear_model.wrappers._quantile import _pinball_eta_gradient_values
 
-        g_nonnegative, g_negative = _pinball_eta_gradient_values(0.2)
-        assert g_nonnegative == pytest.approx(-0.2)
+        g_positive, g_negative = _pinball_eta_gradient_values(0.2)
+        assert g_positive == pytest.approx(-0.2)
         assert g_negative == pytest.approx(0.8)
 
     def test_zero_residual_pinball_subgradient_balances_each_bootstrap_draw(self):
