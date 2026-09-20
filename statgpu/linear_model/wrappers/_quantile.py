@@ -70,6 +70,28 @@ def _center_quantile_bootstrap_residuals(resid, tau, xp):
     return resid - center
 
 
+def _bootstrap_armijo_accept_mask(
+    loss_new_by_draw,
+    loss_old_by_draw,
+    grad_norm_sq_by_draw,
+    step_by_draw,
+    c1,
+    xp,
+):
+    """Return the independent Armijo decision for every bootstrap draw."""
+    armijo_residual = (
+        loss_new_by_draw
+        - loss_old_by_draw
+        + c1 * step_by_draw * grad_norm_sq_by_draw
+    )
+    # Pinball minima occur at kinks. A mathematically zero Armijo residual can
+    # land a few ulps above zero after backend reductions, so preserve the
+    # per-draw decrease requirement while accepting only solver-scale numerical
+    # slack. Meaningful objective increases remain rejected.
+    slack = _SLACK_TOLERANCE * (1.0 + xp.abs(loss_old_by_draw))
+    return armijo_residual <= slack
+
+
 def _bootstrap_armijo_accept(
     loss_new_by_draw,
     loss_old_by_draw,
@@ -78,18 +100,17 @@ def _bootstrap_armijo_accept(
     c1,
     xp,
 ):
-    """Require the shared bootstrap step to descend every independent draw."""
-    armijo_residual = (
-        loss_new_by_draw
-        - loss_old_by_draw
-        + c1 * step * grad_norm_sq_by_draw
+    """Return whether every independent bootstrap draw satisfies Armijo."""
+    accepted = xp.all(
+        _bootstrap_armijo_accept_mask(
+            loss_new_by_draw,
+            loss_old_by_draw,
+            grad_norm_sq_by_draw,
+            step,
+            c1,
+            xp,
+        )
     )
-    # Pinball minima occur at kinks. A mathematically zero Armijo residual can
-    # land a few ulps above zero after backend reductions, so preserve the
-    # per-draw decrease requirement while accepting only solver-scale numerical
-    # slack. Meaningful objective increases remain rejected.
-    slack = _SLACK_TOLERANCE * (1.0 + xp.abs(loss_old_by_draw))
-    accepted = xp.all(armijo_residual <= slack)
     return bool(accepted.item() if hasattr(accepted, "item") else accepted)
 
 
@@ -1097,10 +1118,10 @@ class QuantileRegression(BaseEstimator):
                 break
 
             # ---- Backtracking line search ----
-            step = 1.0 / L0
-            # Each coefficient column is an independent bootstrap problem.
-            # Keep one shared step for vectorization, but accept it only when
-            # every draw satisfies its own Armijo decrease condition.
+            # Every coefficient column is an independent bootstrap problem.
+            # Keep the matrix operations batched, but let each draw own its
+            # Armijo step so a draw near a pinball kink cannot force all other
+            # draws onto the same repeatedly-halved step.
             if is_cupy:
                 _pinball_loss_kernel(r_z, _loss_buf)
                 loss_z_by_draw = xp.sum(_loss_buf, axis=0) / n
@@ -1110,10 +1131,11 @@ class QuantileRegression(BaseEstimator):
                 )
                 loss_z_by_draw = xp.sum(loss_entries_z, axis=0) / n
             grad_norm_sq_by_draw = xp.sum(grad * grad, axis=0)
+            step_by_draw = xp.ones_like(loss_z_by_draw) * (1.0 / L0)
 
             accepted = False
             for _ in range(_BOOTSTRAP_MAX_BACKTRACKS):
-                coef_new = z - step * grad
+                coef_new = z - grad * step_by_draw[None, :]
                 pred_new = Xd @ coef_new
                 r_new = y_gpu.T - pred_new
                 if is_cupy:
@@ -1124,17 +1146,28 @@ class QuantileRegression(BaseEstimator):
                         r_new > 0, tau * r_new, (tau - 1.0) * r_new
                     )
                     loss_new_by_draw = xp.sum(loss_entries_new, axis=0) / n
-                if _bootstrap_armijo_accept(
+
+                accepted_by_draw = _bootstrap_armijo_accept_mask(
                     loss_new_by_draw,
                     loss_z_by_draw,
                     grad_norm_sq_by_draw,
-                    step,
+                    step_by_draw,
                     c1,
                     xp,
+                )
+                all_accepted = xp.all(accepted_by_draw)
+                if bool(
+                    all_accepted.item()
+                    if hasattr(all_accepted, "item")
+                    else all_accepted
                 ):
                     accepted = True
                     break
-                step *= 0.5
+                step_by_draw = xp.where(
+                    accepted_by_draw,
+                    step_by_draw,
+                    0.5 * step_by_draw,
+                )
 
             if not accepted:
                 self._bootstrap_n_iter_ = iteration + 1
