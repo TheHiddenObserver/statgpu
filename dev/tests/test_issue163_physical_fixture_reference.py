@@ -32,7 +32,7 @@ def _pinball(y, eta, q, sample_weight):
 
 
 def test_pr166_smooth_bootstrap_physical_gate_schema_is_locked():
-    assert smooth_gate.SCHEMA_VERSION == 5
+    assert smooth_gate.SCHEMA_VERSION == 6
     assert smooth_wrapper.EXPECTED_SCHEMA_VERSION == smooth_gate.SCHEMA_VERSION
     assert smooth_gate.BOOTSTRAP_Q != pytest.approx(0.5)
     assert 0.0 < smooth_gate.BOOTSTRAP_Q < 1.0
@@ -124,6 +124,7 @@ def test_pr166_public_bootstrap_physical_fixture_converges_on_cpu():
     assert metadata["numerical_device"] == "cpu"
     assert metadata["reporting_backend"] == "numpy"
     assert metadata["response_construction"] == "backend_native"
+    assert metadata["residual_centering"] == "empirical_tau_quantile"
     assert metadata["resampling_schedule"] == "numpy_generator_control_plane"
     schedule_hash = metadata["resampling_schedule_sha256"]
     assert isinstance(schedule_hash, str) and len(schedule_hash) == 64
