@@ -256,6 +256,21 @@ def test_l2_quantile_auto_reports_and_executes_irls(factory):
         ("max_iter", True, "max_iter must be a positive integer"),
         ("tol", 0.0, "tol must be a finite positive number"),
         ("tol", "1e-6", "tol must be a finite positive number"),
+        (
+            "lipschitz_L",
+            0.0,
+            "lipschitz_L must be None or a finite positive number",
+        ),
+        (
+            "lipschitz_L",
+            True,
+            "lipschitz_L must be None or a finite positive number",
+        ),
+        (
+            "lipschitz_L",
+            "1.0",
+            "lipschitz_L must be None or a finite positive number",
+        ),
     ],
 )
 def test_quantile_direct_public_stopping_controls_fail_closed(name, value, message):
