@@ -819,6 +819,35 @@ def test_explicit_fista_l2_quantile_executes_true_fista(monkeypatch):
     assert model.n_iter_ >= 1
 
 
+def test_explicit_quantile_fista_propagates_public_lipschitz_control(monkeypatch):
+    import statgpu.solvers as solvers
+
+    X, y = _data(seed=163031)
+    captured = {}
+
+    def fake_fista(loss, penalty, X_fit, y_fit, **kwargs):
+        captured["lipschitz_L"] = kwargs.get("lipschitz_L")
+        return np.zeros(X_fit.shape[1], dtype=np.float64), 1
+
+    monkeypatch.setattr(solvers, "fista_solver", fake_fista)
+
+    model = PenalizedQuantileRegression(
+        quantile=0.4,
+        penalty="l2",
+        alpha=0.03,
+        solver="fista",
+        lipschitz_L=3.25,
+        device="cpu",
+        fit_intercept=False,
+        max_iter=20,
+        tol=1e-7,
+    ).fit(X, y)
+
+    assert captured["lipschitz_L"] == pytest.approx(3.25)
+    assert model._selected_solver == "fista"
+    assert model.n_iter_ == 1
+
+
 def test_explicit_fista_bb_l2_quantile_fails_before_backend_fit(monkeypatch):
     X, y = _data(seed=16303)
     model = PenalizedQuantileRegression(
