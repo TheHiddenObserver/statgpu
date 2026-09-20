@@ -1233,6 +1233,10 @@ def test_direct_quantile_irls_rejects_invalid_weights_before_numerics(sample_wei
         ({"tol": True}, "tol must be a finite positive number"),
         ({"tol": "1e-6"}, "tol must be a finite positive number"),
         ({"eps": 0.0}, "eps must be a finite positive number"),
+        (
+            {"eps": np.nextafter(0.0, 1.0)},
+            "eps is too small for finite float64 Quantile IRLS weights",
+        ),
         ({"fit_intercept": "False"}, "fit_intercept must be boolean"),
     ],
 )
