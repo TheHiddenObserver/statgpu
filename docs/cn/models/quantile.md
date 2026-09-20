@@ -120,7 +120,7 @@ $$
 
 ### 独立模型（含统计推断）
 
-独立 `QuantileRegression` 的 kernel/bootstrap 推断只支持未传权重或均匀 `sample_weight`；真正非均匀的解析权重在该类中仅支持估计，若同时设置 `compute_inference=True` 会明确报错。bootstrap 推断还要求 `n_bootstrap >= 2`。 kernel 推断还要求所选 bandwidth 规则使 `q ± h` 保持在 `(0, 1)` 内，并得到有限且严格为正的零点残差密度估计；条件不满足时会直接报错，而不是发布非有限标准误。
+独立 `QuantileRegression` 的 kernel/bootstrap 推断只支持未传权重或均匀 `sample_weight`；真正非均匀的解析权重在该类中仅支持估计，若同时设置 `compute_inference=True` 会明确报错。当前维护的 bootstrap 是 **i.i.d. residual bootstrap**：把拟合残差视为可交换样本进行重抽样，再用 batched pinball solver 重拟合。它不是 wild/multiplier bootstrap，也不宣称对一般异方差具有稳健覆盖；异方差 Quantile 回归需要不同的 bootstrap 构造。bootstrap 推断还要求 `n_bootstrap >= 2`。kernel 推断还要求所选 bandwidth 规则使 `q ± h` 保持在 `(0, 1)` 内，并得到有限且严格为正的零点残差密度估计；条件不满足时会直接报错，而不是发布非有限标准误。
 
 ```python
 from statgpu.linear_model import QuantileRegression
