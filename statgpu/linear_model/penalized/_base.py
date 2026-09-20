@@ -487,7 +487,22 @@ class PenalizedGeneralizedLinearModel(
             # next. Stateless/fixed penalties retain their historical identity.
             if bool(getattr(self.penalty, "requires_init", False)):
                 import copy
-                return copy.deepcopy(self.penalty)
+                cloned = copy.deepcopy(self.penalty)
+                # Adaptive-L1 distinguishes constructor-owned fixed weights
+                # (weights=...) from fit-learned _weights. A caller may reuse a
+                # template after it has previously learned weights; those
+                # learned values are not constructor state and must not seed a
+                # new fit on different data.
+                if (
+                    str(getattr(cloned, "name", "")).lower() == "adaptive_l1"
+                    and getattr(cloned, "weights", None) is None
+                ):
+                    cloned._weights = None
+                    cloned._norm_factor = 1.0
+                    for key in tuple(vars(cloned)):
+                        if key.startswith("_alpha_w_"):
+                            delattr(cloned, key)
+                return cloned
             return self.penalty
 
         # Map "none"/"null" to l2 with alpha=0 (no regularization)
