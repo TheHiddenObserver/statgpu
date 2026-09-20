@@ -562,8 +562,19 @@ def fista_lla_path(
                     else:
                         lla_w = _pen_step.lla_weights(coef)
                     if lla_penalty_factory is not None:
-                        lla_w_np = _to_numpy(lla_w) if type(lla_w).__module__ != "numpy" else lla_w
-                        inner_pen = lla_penalty_factory(lla_w_np)
+                        if getattr(
+                            lla_penalty_factory,
+                            "_statgpu_accepts_native_derivatives",
+                            False,
+                        ):
+                            inner_pen = lla_penalty_factory(lla_w)
+                        else:
+                            lla_w_np = (
+                                _to_numpy(lla_w)
+                                if type(lla_w).__module__ != "numpy"
+                                else lla_w
+                            )
+                            inner_pen = lla_penalty_factory(lla_w_np)
                     else:
                         inner_pen._weights = lla_w
 
@@ -622,8 +633,19 @@ def fista_lla_path(
                     else:
                         lla_w = _pen_step.lla_weights(coef)
                     if lla_penalty_factory is not None:
-                        lla_w_np = _to_numpy(lla_w) if type(lla_w).__module__ != "numpy" else lla_w
-                        inner_pen = lla_penalty_factory(lla_w_np)
+                        if getattr(
+                            lla_penalty_factory,
+                            "_statgpu_accepts_native_derivatives",
+                            False,
+                        ):
+                            inner_pen = lla_penalty_factory(lla_w)
+                        else:
+                            lla_w_np = (
+                                _to_numpy(lla_w)
+                                if type(lla_w).__module__ != "numpy"
+                                else lla_w
+                            )
+                            inner_pen = lla_penalty_factory(lla_w_np)
                     else:
                         inner_pen._weights = lla_w
 
