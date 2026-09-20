@@ -7,6 +7,7 @@ import argparse
 import json
 import platform
 import subprocess
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -15,13 +16,21 @@ from statgpu.backends import _to_numpy
 from statgpu.losses import QuantileLoss
 from statgpu.penalties import SCADPenalty
 from statgpu.solvers import fista_lla_path
+from statgpu.solvers._convergence import ConvergenceWarning
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 Q = 0.35
 ALPHA = 0.04
 ATOL_PARAM = 1e-4
 ATOL_OBJECTIVE = 8e-5
+PARITY_MAX_LLA_PER_STEP = 12
+PARITY_MAX_ITER = 1000
+PARITY_TOL = 1e-4
+PARITY_LLA_TOL = 1e-4
+PROBE_MAX_ITER = 30
+PROBE_TOL = 1e-30
+PROBE_LLA_TOL = 1e-30
 
 
 def _git(*args: str) -> str:
@@ -84,29 +93,28 @@ def _native_inputs(backend, X, y, weights, cp, torch):
 
 
 def _run(X, y, weights):
+    """Run the accepted numerical parity solve; warnings are gate failures."""
     loss = _RecordingQuantileLoss(Q)
     penalty = SCADPenalty(alpha=ALPHA, a=3.7)
-    coef, intercept, n_iter = fista_lla_path(
-        loss,
-        penalty,
-        X,
-        y,
-        alpha_path=np.asarray([ALPHA], dtype=np.float64),
-        max_lla_per_step=1,
-        max_iter=30,
-        lla_tol=0.0,
-        tol=0.0,
-        fit_intercept=True,
-        sample_weight=weights,
-    )
-    if int(n_iter) < 21:
-        raise AssertionError(
-            f"scalar Quantile LLA did not reach periodic step refresh: n_iter={n_iter}"
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        coef, intercept, n_iter = fista_lla_path(
+            loss,
+            penalty,
+            X,
+            y,
+            alpha_path=np.asarray([ALPHA], dtype=np.float64),
+            max_lla_per_step=PARITY_MAX_LLA_PER_STEP,
+            max_iter=PARITY_MAX_ITER,
+            lla_tol=PARITY_LLA_TOL,
+            tol=PARITY_TOL,
+            fit_intercept=True,
+            sample_weight=weights,
         )
-    if len(loss.weight_locations) < 2:
-        raise AssertionError(
-            "scalar Quantile LLA did not execute both initial and periodic step-scale calls"
-        )
+    if int(n_iter) < 1:
+        raise AssertionError(f"scalar Quantile LLA reported invalid n_iter={n_iter}")
+    if not loss.weight_locations:
+        raise AssertionError("scalar Quantile LLA did not evaluate weighted step scale")
     if any(location is None for location in loss.weight_locations):
         raise AssertionError(
             f"scalar Quantile LLA lost analytic weights: {loss.weight_locations!r}"
@@ -117,6 +125,57 @@ def _run(X, y, weights):
         int(n_iter),
         list(loss.weight_locations),
     )
+
+
+def _run_periodic_refresh_probe(X, y, weights):
+    """Force the periodic step-scale refresh without accepting its final iterate.
+
+    The probe deliberately uses a tiny positive stopping tolerance so it reaches
+    the iteration-20 refresh. Its expected target-exhaustion warning is captured
+    locally; only the separately converged _run() result is used for numerical
+    CPU/GPU parity.
+    """
+    loss = _RecordingQuantileLoss(Q)
+    penalty = SCADPenalty(alpha=ALPHA, a=3.7)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", ConvergenceWarning)
+        _coef, _intercept, n_iter = fista_lla_path(
+            loss,
+            penalty,
+            X,
+            y,
+            alpha_path=np.asarray([ALPHA], dtype=np.float64),
+            max_lla_per_step=1,
+            max_iter=PROBE_MAX_ITER,
+            lla_tol=PROBE_LLA_TOL,
+            tol=PROBE_TOL,
+            fit_intercept=True,
+            sample_weight=weights,
+        )
+    convergence_warnings = [
+        str(item.message)
+        for item in caught
+        if issubclass(item.category, ConvergenceWarning)
+    ]
+    if not convergence_warnings:
+        raise AssertionError(
+            "scalar Quantile LLA periodic-refresh probe unexpectedly converged; "
+            "the probe no longer guarantees the refresh branch is exercised"
+        )
+    if int(n_iter) < 21:
+        raise AssertionError(
+            f"scalar Quantile LLA did not reach periodic step refresh: n_iter={n_iter}"
+        )
+    if len(loss.weight_locations) < 2:
+        raise AssertionError(
+            "scalar Quantile LLA did not execute both initial and periodic step-scale calls"
+        )
+    if any(location is None for location in loss.weight_locations):
+        raise AssertionError(
+            f"scalar Quantile LLA periodic refresh lost analytic weights: "
+            f"{loss.weight_locations!r}"
+        )
+    return int(n_iter), list(loss.weight_locations), convergence_warnings
 
 
 def _objective(coef, intercept, X, y, weights):
@@ -148,6 +207,9 @@ def main() -> int:
 
     X, y, weights = _data()
     cpu_coef, cpu_intercept, cpu_iter, cpu_locations = _run(X, y, weights)
+    cpu_probe_iter, cpu_probe_locations, cpu_probe_warnings = (
+        _run_periodic_refresh_probe(X, y, weights)
+    )
     cpu_objective = _objective(cpu_coef, cpu_intercept, X, y, weights)
 
     cases = []
@@ -156,10 +218,19 @@ def main() -> int:
     for backend in ("cupy", "torch"):
         Xb, yb, wb = _native_inputs(backend, X, y, weights, cp, torch)
         coef, intercept, n_iter, locations = _run(Xb, yb, wb)
+        probe_iter, probe_locations, probe_warnings = _run_periodic_refresh_probe(
+            Xb, yb, wb
+        )
         expected_location = (backend, "cuda:0")
         if any(tuple(location) != expected_location for location in locations):
             raise AssertionError(
-                f"{backend}: scalar Quantile LLA step-scale device drift: {locations!r}"
+                f"{backend}: scalar Quantile LLA converged-solve step-scale "
+                f"device drift: {locations!r}"
+            )
+        if any(tuple(location) != expected_location for location in probe_locations):
+            raise AssertionError(
+                f"{backend}: scalar Quantile LLA periodic-refresh step-scale "
+                f"device drift: {probe_locations!r}"
             )
         coef_error = float(np.max(np.abs(coef - cpu_coef)))
         intercept_error = abs(intercept - cpu_intercept)
@@ -179,8 +250,11 @@ def main() -> int:
         cases.append(
             {
                 "backend": backend,
-                "step_scale_weight_locations": locations,
+                "converged_step_scale_weight_locations": locations,
+                "step_scale_weight_locations": probe_locations,
                 "n_iter": n_iter,
+                "periodic_refresh_probe_n_iter": probe_iter,
+                "periodic_refresh_warning_count": len(probe_warnings),
                 "coef_error": coef_error,
                 "intercept_error": intercept_error,
                 "parameter_error": param_error,
@@ -196,7 +270,19 @@ def main() -> int:
         "quantile": Q,
         "alpha": ALPHA,
         "cpu_n_iter": cpu_iter,
-        "cpu_step_scale_weight_locations": cpu_locations,
+        "cpu_converged_step_scale_weight_locations": cpu_locations,
+        "cpu_step_scale_weight_locations": cpu_probe_locations,
+        "cpu_periodic_refresh_probe_n_iter": cpu_probe_iter,
+        "cpu_periodic_refresh_warning_count": len(cpu_probe_warnings),
+        "solver_controls": {
+            "parity_max_lla_per_step": PARITY_MAX_LLA_PER_STEP,
+            "parity_max_iter": PARITY_MAX_ITER,
+            "parity_tol": PARITY_TOL,
+            "parity_lla_tol": PARITY_LLA_TOL,
+            "probe_max_iter": PROBE_MAX_ITER,
+            "probe_tol": PROBE_TOL,
+            "probe_lla_tol": PROBE_LLA_TOL,
+        },
         "cases": cases,
         "max_errors": {
             "parameter": max_param_error,
