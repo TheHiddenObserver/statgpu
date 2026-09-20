@@ -1636,6 +1636,45 @@ def test_public_proximal_quantile_strict_target_exhaustion_raises(monkeypatch):
         kernel._STRICT_CV_TARGET.reset(token)
 
 
+def test_scalar_proximal_irls_weights_match_maintained_formula_above_1e10(
+    monkeypatch,
+):
+    n = 256
+    X = np.ones((n, 1), dtype=np.float64)
+    y = np.zeros(n, dtype=np.float64)
+    raw = np.full(n, 1.0 / (n - 1), dtype=np.float64)
+    raw[0] = float(n - 1)
+    captured = {}
+
+    def capture_step(X_arg, X_sq, y_arg, w, beta, thresh, p, eps, xp, backend):
+        captured["w"] = np.asarray(w, dtype=np.float64).copy()
+        return np.asarray(beta, dtype=np.float64).copy()
+
+    monkeypatch.setattr(_prox_kernel, "_parallel_majorization_step", capture_step)
+
+    coef, intercept, n_iter = solvers.proximal_irls_quantile_solver(
+        QuantileLoss(quantile=0.5),
+        SCADPenalty(alpha=0.05, a=3.7),
+        X,
+        y,
+        alpha_path=np.asarray([0.05], dtype=np.float64),
+        max_lla_per_step=1,
+        max_iter=2,
+        tol=1e-12,
+        lla_tol=1e-12,
+        fit_intercept=False,
+        sample_weight=raw,
+    )
+
+    normalized = raw * (n / float(np.sum(raw)))
+    expected = normalized * 0.5 / 1e-8
+    assert expected[0] > 1.0e10
+    np.testing.assert_allclose(captured["w"], expected, rtol=0.0, atol=1e-6)
+    np.testing.assert_array_equal(coef, np.zeros(1, dtype=np.float64))
+    assert intercept == 0.0
+    assert n_iter == 1
+
+
 def test_public_proximal_quantile_none_budget_has_defined_default():
     X, y = _data(seed=16703)
     loss = QuantileLoss(quantile=0.3)
