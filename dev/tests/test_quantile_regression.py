@@ -202,6 +202,46 @@ class TestQuantileRegression:
                 pvalues=np.asarray([0.2, 1.1])
             )
 
+    def test_public_bootstrap_irls_failure_clears_partial_fit_state(
+        self,
+        monkeypatch,
+    ):
+        import statgpu.linear_model.wrappers._quantile as quantile_mod
+
+        model = QuantileRegression(
+            quantile=0.35,
+            compute_inference=True,
+            inference_method="bootstrap",
+            n_bootstrap=4,
+            max_iter=400,
+            tol=1e-6,
+        )
+
+        def failing_irls(*args, **kwargs):
+            raise RuntimeError("synthetic bootstrap IRLS failure")
+
+        monkeypatch.setattr(
+            quantile_mod,
+            "_batched_quantile_irls",
+            failing_irls,
+        )
+
+        with pytest.raises(RuntimeError, match="synthetic bootstrap IRLS failure"):
+            model.fit(self.X, self.y)
+
+        assert model._fitted is False
+        assert model.coef_ is None
+        assert model.intercept_ == 0.0
+        assert model.n_iter_ is None
+        assert model._params is None
+        assert model._inference_result is None
+        assert model._bse is None
+        assert model._pvalues is None
+        assert model._conf_int is None
+        assert model._bootstrap_n_iter_ is None
+        assert model._bootstrap_draw_chunk_size_ is None
+
+
     def test_bootstrap_nonfinite_snapshot_is_not_published(self, monkeypatch):
         model = QuantileRegression(
             quantile=0.5,
