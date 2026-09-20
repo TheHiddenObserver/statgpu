@@ -1066,11 +1066,8 @@ class QuantileRegression(BaseEstimator):
             )
 
             # A tiny selected subgradient for every draw is a valid fast-path.
-            if bool(
-                xp.all(settled_draws).item()
-                if hasattr(xp.all(settled_draws), "item")
-                else xp.all(settled_draws)
-            ):
+            all_settled = xp.all(settled_draws)
+            if bool(all_settled.item() if hasattr(all_settled, "item") else all_settled):
                 converged = True
                 # The convergence test is evaluated at the extrapolated point z,
                 # so publish that point rather than an older best iterate.
