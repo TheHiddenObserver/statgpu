@@ -982,9 +982,12 @@ class TestQuantileRegression:
         weights = np.linspace(0.5, 1.5, self.X.shape[0])
 
         def forbidden(*args, **kwargs):
-            raise AssertionError("unsupported weighted inference must fail before FISTA")
+            raise AssertionError(
+                "unsupported weighted inference must fail before numerical work"
+            )
 
         monkeypatch.setattr(quantile_mod, "fista_solver", forbidden)
+        monkeypatch.setattr(quantile_mod, "_batched_quantile_irls", forbidden)
         with pytest.raises(NotImplementedError, match="non-uniform sample_weight"):
             model.fit(self.X, self.y, sample_weight=weights)
         assert model._fitted is False
