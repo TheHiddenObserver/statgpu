@@ -264,6 +264,19 @@ def fista_solver(
         _conv_interval = 10
         _div_interval = 25
         _lip_interval = 25
+    elif (
+        _is_gpu
+        and str(getattr(loss, "name", "") or "").lower() == "quantile"
+        and not _non_smooth
+    ):
+        # Smooth-penalty Quantile still has a non-smooth pinball loss. Its
+        # backtracking path already synchronizes the Armijo scalar every
+        # iteration, so deferring best-iterate/objective-stability checks buys
+        # little while allowing NumPy and accelerator backends to stop at
+        # different accepted kinks. Match the CPU every-iteration convergence
+        # semantics for Quantile L2/no-penalty FISTA. The genuinely async
+        # non-smooth CV path above keeps its deferred checks.
+        _conv_interval = 1
 
     # Convert sample_weight to backend-native array (prevent CPU/CUDA mismatch)
     _sw_arr = None
