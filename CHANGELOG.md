@@ -2,7 +2,7 @@
 
 All notable changes to statgpu are documented here, organized by release and date.
 
-## Unreleased — 2026-09-19
+## Unreleased — 2026-09-20
 
 ### PR #166 — Quantile solver and inference updates (targeted for 0.2.6)
 - Updated Quantile solver and input behavior across direct, CV, and low-level public consumers. Malformed response/design/path/stopping/weight inputs are rejected before numerical work; unsupported Newton, Proximal Newton, FISTA-BB, ADMM, and L-BFGS-B requests raise instead of silently substituting another algorithm. The historical `quantile_cd_solver` name remains import-compatible but raises when called; scalar SCAD/MCP fitting uses Proximal IRLS-CD.
