@@ -36,13 +36,14 @@ from statgpu.solvers import fista_solver
 from statgpu.solvers._convergence import ConvergenceWarning
 
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 Q = 0.35
 ATOL_OBJECTIVE = 2e-5
 ATOL_CV_SCORE = 2e-5
 ATOL_CV_L1_SCORE = 2e-4
 ATOL_ASYNC_L1_OBJECTIVE = 5e-4
 ATOL_BOOTSTRAP_OBJECTIVE = 2e-6
+ATOL_BOOTSTRAP_INFERENCE = 2e-5
 ASYNC_L1_ALPHA = 0.02
 CV_ALPHA_GRID = np.asarray([0.03, 0.015], dtype=np.float64)
 
@@ -495,7 +496,7 @@ def _standalone_bootstrap_public_case(
         device_request = "torch"
         expected_device = str(torch_device)
 
-    model = QuantileRegression(
+    common = dict(
         quantile=BOOTSTRAP_Q,
         fit_intercept=bool(fit_intercept),
         max_iter=BOOTSTRAP_PUBLIC_MAX_ITER,
@@ -504,8 +505,9 @@ def _standalone_bootstrap_public_case(
         inference_method="bootstrap",
         n_bootstrap=BOOTSTRAP_B,
         random_state=BOOTSTRAP_SEED,
-        device=device_request,
-    ).fit(Xb, yb)
+    )
+    cpu_model = QuantileRegression(device="cpu", **common).fit(X, y)
+    model = QuantileRegression(device=device_request, **common).fit(Xb, yb)
 
     if not bool(getattr(model, "_fitted", False)):
         raise AssertionError(f"{backend}/standalone/public: model was not fitted")
@@ -575,6 +577,13 @@ def _standalone_bootstrap_public_case(
         "pvalues": np.asarray(result.pvalues, dtype=np.float64),
         "conf_int": np.asarray(result.conf_int, dtype=np.float64),
     }
+    cpu_result = cpu_model._inference_result
+    cpu_snapshots = {
+        "coef": np.asarray(cpu_model.coef_, dtype=np.float64),
+        "bse": np.asarray(cpu_result.bse, dtype=np.float64),
+        "pvalues": np.asarray(cpu_result.pvalues, dtype=np.float64),
+        "conf_int": np.asarray(cpu_result.conf_int, dtype=np.float64),
+    }
     for name, values in snapshots.items():
         if not np.all(np.isfinite(values)):
             raise AssertionError(
@@ -583,6 +592,28 @@ def _standalone_bootstrap_public_case(
     if np.any((snapshots["pvalues"] < 0.0) | (snapshots["pvalues"] > 1.0)):
         raise AssertionError(
             f"{backend}/standalone/public: p-values outside [0, 1]"
+        )
+
+    inference_errors = {
+        name: float(np.max(np.abs(snapshots[name] - cpu_snapshots[name])))
+        for name in ("coef", "bse", "pvalues", "conf_int")
+    }
+    inference_errors["intercept"] = abs(
+        float(model.intercept_) - float(cpu_model.intercept_)
+    )
+    max_inference_error = max(inference_errors.values())
+    if max_inference_error > ATOL_BOOTSTRAP_INFERENCE:
+        raise AssertionError(
+            f"{backend}/standalone/public: CPU parity error "
+            f"{max_inference_error:.3e} > {ATOL_BOOTSTRAP_INFERENCE:.3e}; "
+            f"details={inference_errors!r}"
+        )
+    if (
+        model._bootstrap_schedule_sha256_
+        != cpu_model._bootstrap_schedule_sha256_
+    ):
+        raise AssertionError(
+            f"{backend}/standalone/public: CPU/GPU bootstrap schedule drifted"
         )
 
     return {
@@ -602,6 +633,9 @@ def _standalone_bootstrap_public_case(
         "bootstrap_solver_n_iter": solver_n_iter,
         "residual_centering": str(metadata["residual_centering"]),
         "resampling_schedule_sha256": schedule_hash,
+        "inference_errors_vs_cpu": inference_errors,
+        "max_inference_error_vs_cpu": max_inference_error,
+        "inference_tolerance": ATOL_BOOTSTRAP_INFERENCE,
     }
 
 
@@ -962,6 +996,7 @@ def main() -> int:
             "cv_l1_score": ATOL_CV_L1_SCORE,
             "async_weighted_l1_objective": ATOL_ASYNC_L1_OBJECTIVE,
             "bootstrap_objective_vs_cpu": ATOL_BOOTSTRAP_OBJECTIVE,
+            "bootstrap_inference_vs_cpu": ATOL_BOOTSTRAP_INFERENCE,
         },
         "environment": {
             "python": platform.python_version(),
