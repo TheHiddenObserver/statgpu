@@ -340,6 +340,12 @@ def _install_cv_constructor_validation() -> None:
         penalty_kwargs=None,
     ):
         if _loss_name(loss) == "quantile":
+            if (
+                isinstance(cv, (bool, np.bool_))
+                or not isinstance(cv, Integral)
+                or int(cv) < 2
+            ):
+                raise ValueError("cv must be an integer greater than or equal to 2")
             if not isinstance(acknowledge_approx, (bool, np.bool_)):
                 raise ValueError("acknowledge_approx must be boolean")
             if (
