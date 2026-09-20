@@ -14,6 +14,7 @@ from statgpu.linear_model.wrappers._quantile import (
     _BOOTSTRAP_MAX_BACKTRACKS,
     _align_quantile_fit_inputs,
     _bootstrap_armijo_accept,
+    _bootstrap_armijo_accept_mask,
     _bootstrap_fista_extrapolate,
     _bootstrap_schedule_to_backend,
     _center_quantile_bootstrap_residuals,
@@ -857,6 +858,25 @@ class TestQuantileRegression:
             c1=1e-4,
             xp=np,
         )
+
+    def test_batched_bootstrap_armijo_mask_keeps_draws_independent(self):
+        loss_old = np.asarray([1.0, 1.0], dtype=np.float64)
+        loss_new = np.asarray([0.2, 1.05], dtype=np.float64)
+        grad_norm_sq = np.asarray([1.0, 1.0], dtype=np.float64)
+        steps = np.asarray([0.1, 0.1], dtype=np.float64)
+
+        mask = _bootstrap_armijo_accept_mask(
+            loss_new,
+            loss_old,
+            grad_norm_sq,
+            steps,
+            c1=1e-4,
+            xp=np,
+        )
+
+        np.testing.assert_array_equal(mask, np.asarray([True, False]))
+        reduced = np.where(mask, steps, 0.5 * steps)
+        np.testing.assert_array_equal(reduced, np.asarray([0.1, 0.05]))
 
     def test_nonmedian_pinball_eta_gradient_matches_requested_quantile(self):
         from statgpu.linear_model.wrappers._quantile import _pinball_eta_gradient_values
