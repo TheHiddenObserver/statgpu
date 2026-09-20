@@ -48,6 +48,9 @@ def test_pr166_smooth_bootstrap_physical_gate_schema_is_locked():
     source = Path(smooth_gate.__file__).read_text(encoding="utf-8")
     assert source.count('warnings.simplefilter("error", ConvergenceWarning)') >= 4
     assert '"cpu_n_iter": int(cpu_n_iter)' in source
+    assert source.count("_standalone_bootstrap_multifeature_parity_case(") >= 2
+    assert '"inference_errors_vs_cpu": inference_errors' in source
+    assert "CPU parity error" in source
     controls = smooth_gate._solver_controls()
     assert controls["cv"]["l1_tol"] == smooth_gate.CV_L1_TOL
     assert controls["cv"]["l2_tol"] == smooth_gate.CV_L2_TOL
