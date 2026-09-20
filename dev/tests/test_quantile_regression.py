@@ -948,6 +948,86 @@ class TestQuantileRegression:
         assert abs(float(np.median(estimated))) < abs(float(np.median(wrong_q)))
         assert model._bootstrap_residual_centering_ == "empirical_tau_quantile"
 
+    @pytest.mark.parametrize("fit_intercept", [False, True])
+    def test_nonmedian_multifeature_bootstrap_matches_lp_objective(
+        self,
+        fit_intercept,
+    ):
+        sklearn_linear = pytest.importorskip("sklearn.linear_model")
+        tau = 0.3
+        n = 48
+        B = 4
+        seed = 16695
+        rng = np.random.default_rng(16694)
+        X = rng.normal(size=(n, 2)).astype(np.float64)
+        coef0 = np.asarray([0.7, -0.35], dtype=np.float64)
+        intercept0 = 0.25 if fit_intercept else 0.0
+        residual = (
+            np.linspace(-1.2, 1.1, n, dtype=np.float64)
+            + 0.03 * rng.normal(size=n)
+        )
+        y = intercept0 + X @ coef0 + residual
+
+        model = QuantileRegression(
+            quantile=tau,
+            fit_intercept=fit_intercept,
+            max_iter=1200,
+            tol=1e-8,
+            n_bootstrap=B,
+            random_state=seed,
+        )
+        model.coef_ = coef0.copy()
+        model.intercept_ = float(intercept0)
+
+        boot_params, _, _ = model._compute_bootstrap_batched(X, y)
+
+        center_index = min(max(int(np.ceil(tau * n)) - 1, 0), n - 1)
+        residual_center = np.sort(residual)[center_index]
+        centered_residual = residual - residual_center
+        eta = intercept0 + X @ coef0
+        schedule_rng = np.random.default_rng(seed)
+        schedule = np.stack(
+            [schedule_rng.integers(0, n, size=n, dtype=np.int64) for _ in range(B)]
+        )
+
+        for draw in range(B):
+            y_draw = eta + centered_residual[schedule[draw]]
+            reference = sklearn_linear.QuantileRegressor(
+                quantile=tau,
+                alpha=0.0,
+                fit_intercept=fit_intercept,
+                solver="highs",
+            ).fit(X, y_draw)
+
+            if fit_intercept:
+                actual_intercept = float(boot_params[draw, 0])
+                actual_coef = np.asarray(boot_params[draw, 1:], dtype=np.float64)
+            else:
+                actual_intercept = 0.0
+                actual_coef = np.asarray(boot_params[draw], dtype=np.float64)
+
+            actual_residual = y_draw - (X @ actual_coef + actual_intercept)
+            reference_residual = y_draw - reference.predict(X)
+            actual_loss = float(
+                np.mean(
+                    np.where(
+                        actual_residual >= 0.0,
+                        tau * actual_residual,
+                        (tau - 1.0) * actual_residual,
+                    )
+                )
+            )
+            reference_loss = float(
+                np.mean(
+                    np.where(
+                        reference_residual >= 0.0,
+                        tau * reference_residual,
+                        (tau - 1.0) * reference_residual,
+                    )
+                )
+            )
+            assert actual_loss <= reference_loss + 2e-6
+
     def test_batched_bootstrap_budget_exhaustion_fails_closed(self):
         n = 48
         X = np.ones((n, 1), dtype=np.float64)
