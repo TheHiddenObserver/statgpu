@@ -536,9 +536,9 @@ def _direct(X, y, weights, *, penalty, alpha, device):
 def _cv(X, y, weights, folds, *, device, penalty="l2"):
     # The nonsmooth L1 Quantile fixture needs a tolerance that can terminate at
     # a pinball kink before the strict proximal line search runs out of useful
-    # floating-point steps. 1e-7 remains far tighter than the 2e-4 physical
+    # floating-point steps. 1e-5 remains 20x tighter than the 2e-4 physical
     # CV-score parity threshold. Keep the existing tighter L2 reference.
-    solver_tol = 1e-7 if penalty == "l1" else 1e-8
+    solver_tol = 1e-5 if penalty == "l1" else 1e-8
     return PenalizedGLM_CV(
         loss="quantile",
         loss_kwargs={"quantile": Q},
