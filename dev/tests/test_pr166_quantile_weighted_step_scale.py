@@ -88,17 +88,16 @@ def test_quantile_fista_skips_generic_response_magnitude_scaling(monkeypatch):
         )
 
     monkeypatch.setattr(fista_base, "_abs_mean_max", forbidden)
-    with pytest.warns(Warning):
-        # max_iter=1 intentionally leaves this tiny smoke solve unconverged;
-        # the assertion is that no generic response-magnitude scaling runs.
-        coef, n_iter = fista_base.fista_solver(
-            QuantileLoss(0.35),
-            SCADPenalty(alpha=0.05),
-            X,
-            y,
-            max_iter=1,
-            tol=1e-12,
-        )
+    # The assertion is that no generic response-magnitude scaling runs;
+    # convergence/warning behavior is owned by separate solver contracts.
+    coef, n_iter = fista_base.fista_solver(
+        QuantileLoss(0.35),
+        SCADPenalty(alpha=0.05),
+        X,
+        y,
+        max_iter=1,
+        tol=1e-12,
+    )
     assert np.all(np.isfinite(np.asarray(coef)))
     assert n_iter == 1
 
