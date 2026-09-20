@@ -455,6 +455,7 @@ def test_secondary_public_guides_keep_their_declared_layer():
 
 def test_public_solver_docs_do_not_expose_internal_review_vocabulary():
     cn_internal_status_phrases = (
+        "当前维护的",
         "维护中的",
         "维护中的路径",
         "维护路径",
