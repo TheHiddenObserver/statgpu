@@ -15,6 +15,7 @@ from statgpu.linear_model.wrappers._quantile import (
     _align_quantile_fit_inputs,
     _bootstrap_armijo_accept,
     _bootstrap_schedule_to_backend,
+    _center_quantile_bootstrap_residuals,
 )
 
 
@@ -622,6 +623,42 @@ class TestQuantileRegression:
         assert events[-1] == ("exit", 3)
         assert any(event[0] == "asarray" for event in events)
 
+    @pytest.mark.parametrize("tau", [0.2, 0.5, 0.8])
+    def test_bootstrap_residual_centering_sets_empirical_tau_quantile_to_zero(
+        self, tau
+    ):
+        residual = np.asarray(
+            [-3.0, -1.5, -0.4, 0.2, 0.9, 1.7, 4.0],
+            dtype=np.float64,
+        )
+        centered = _center_quantile_bootstrap_residuals(
+            residual,
+            tau,
+            np,
+        )
+        index = min(
+            max(int(np.ceil(tau * residual.size)) - 1, 0),
+            residual.size - 1,
+        )
+        assert np.sort(centered)[index] == pytest.approx(0.0, abs=0.0)
+
+    def test_bootstrap_residual_centering_preserves_torch_backend(self):
+        torch = pytest.importorskip("torch")
+        residual = torch.tensor(
+            [-3.0, -1.5, -0.4, 0.2, 0.9, 1.7, 4.0],
+            dtype=torch.float64,
+        )
+        centered = _center_quantile_bootstrap_residuals(
+            residual,
+            0.2,
+            torch,
+        )
+        assert torch.is_tensor(centered)
+        assert centered.device == residual.device
+        assert centered.dtype == residual.dtype
+        index = int(np.ceil(0.2 * residual.numel())) - 1
+        assert float(torch.sort(centered).values[index]) == 0.0
+
     def test_batched_bootstrap_torch_keeps_response_construction_native(
         self, monkeypatch
     ):
@@ -685,19 +722,28 @@ class TestQuantileRegression:
         assert torch.is_tensor(design_native)
         assert 1 <= model._bootstrap_n_iter_ <= model.max_iter
 
+        center_index = min(max(int(np.ceil(tau * n)) - 1, 0), n - 1)
+        residual_center = np.sort(y_np)[center_index]
+        centered_residual = y_np - residual_center
+
         rng = np.random.default_rng(model.random_state)
         y_batch = np.array([
-            y_np[rng.integers(0, n, size=n)]
+            centered_residual[rng.integers(0, n, size=n)]
             for _ in range(B)
         ])
-        target_q = np.quantile(y_batch, tau, axis=1)
-        wrong_q = np.quantile(y_batch, 1.0 - tau, axis=1)
+        sorted_batch = np.sort(y_batch, axis=1)
+        target_q = sorted_batch[:, center_index]
+        wrong_index = min(
+            max(int(np.ceil((1.0 - tau) * n)) - 1, 0),
+            n - 1,
+        )
+        wrong_q = sorted_batch[:, wrong_index]
         estimated = np.asarray(boot_params[:, 0], dtype=np.float64)
 
         assert np.mean(np.abs(estimated - target_q)) < np.mean(
             np.abs(estimated - wrong_q)
         )
-        assert float(np.median(estimated)) < 0.0
+        assert abs(float(np.median(estimated))) < abs(float(np.median(wrong_q)))
 
     def test_bootstrap_schedule_hash_is_deterministic_and_seed_sensitive(self):
         X = np.zeros((16, 1), dtype=np.float64)
@@ -1266,6 +1312,7 @@ class TestQuantileRegression:
         assert metadata["numerical_device"] == "cpu"
         assert metadata["reporting_backend"] == "numpy"
         assert metadata["bootstrap_type"] == "iid_residual"
+        assert metadata["residual_centering"] == "empirical_tau_quantile"
         assert metadata["heteroscedastic_robust"] is False
 
     def test_bootstrap_inference_metadata_records_schedule_identity(self):
