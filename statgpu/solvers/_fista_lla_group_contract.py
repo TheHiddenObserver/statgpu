@@ -309,6 +309,11 @@ def fista_lla_path(
             "fista_lla_path requires SCAD/MCP or Group SCAD/MCP penalty"
         )
 
+    if penalty_name in _GROUP_NONCONVEX_NAMES:
+        validate_n_features = getattr(scad_penalty, "validate_n_features", None)
+        if callable(validate_n_features):
+            validate_n_features(int(getattr(X, "shape")[1]))
+
     if loss_name == "quantile":
         if "scad" in penalty_name:
             shape = getattr(scad_penalty, "a", None)
