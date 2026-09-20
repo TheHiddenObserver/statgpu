@@ -84,7 +84,7 @@ def test_inverse_gamma_optimum_beyond_maintained_domain_fails_closed(solver):
         max_iter=100,
         tol=1e-8,
     )
-    with pytest.raises(RuntimeError, match="pinned to the maintained smooth-domain boundary"):
+    with pytest.raises(RuntimeError, match="pinned to the smooth-domain boundary"):
         model.fit(X, y)
 
 
