@@ -31,6 +31,7 @@ from ._constants import (
     _GRAD_CLIP_MAX,
 )
 from ._utils import (
+    _abs_mean_max,
     _nesterov_momentum,
     _validate_sample_weight,
 )
@@ -345,16 +346,13 @@ def fista_lla_path(
     # with mu, so L_base underestimates by up to max(y).
     # Cap at 10x -- periodic Lipschitz recomputation corrects any remaining
     # underestimate during the FISTA inner loop.
-    _skip_y_scaling = bool(
-        getattr(loss, '_skip_y_scaling', False)
-        or getattr(loss, '_lipschitz_uses_y', False)
-    )
+    _skip_y_scaling = getattr(loss, '_lipschitz_uses_y', False)
     _y_lipschitz_scale = 1.0
     if not _is_quadratic and not _skip_y_scaling:
-        _y_arr = _to_numpy(y_c)
-        _y_abs = np.abs(_y_arr)
-        _y_mean = float(np.mean(_y_abs))
-        _y_max = float(np.max(_y_abs))
+        # Preserve the existing response-magnitude safety factor without
+        # materializing the full response on the host. _abs_mean_max performs
+        # backend-native reductions and synchronizes only the two scalar stats.
+        _y_mean, _y_max = _abs_mean_max(y_c, backend)
         _y_lipschitz_scale = min(10.0, max(1.0, np.sqrt(_y_mean * _y_max)))
         if _y_lipschitz_scale > 1.0:
             L_base = L_base * _y_lipschitz_scale
