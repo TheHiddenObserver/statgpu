@@ -123,6 +123,18 @@ def _quantile_irls_weights(loss, X_work, y, params, sw, xp, backend):
 
 
 def _all_zero(values) -> bool:
+    """Reduce an all-zero derivative check on the owning backend."""
+    module = type(values).__module__
+    if module.startswith("torch"):
+        import torch
+
+        result = torch.all(values == 0.0)
+        return bool(result.item())
+    if module.startswith("cupy"):
+        import cupy as cp
+
+        result = cp.all(values == 0.0)
+        return bool(result.item())
     array = np.asarray(values, dtype=np.float64).reshape(-1)
     return bool(array.size and np.all(array == 0.0))
 
@@ -247,17 +259,14 @@ def quantile_group_proximal_irls_lla_solver(
 
         for _lla_iter in range(int(max_lla_per_step)):
             feature_params = params[:n_features]
-            lla_feature = pen_step.lla_weights(feature_params)
-            lla_feature_np = np.asarray(
-                _to_numpy(lla_feature), dtype=np.float64
-            ).reshape(-1)
-            if int(lla_feature_np.size) != n_features:
+            lla_feature = pen_step.lla_weights(feature_params).reshape(-1)
+            if int(lla_feature.shape[0]) != n_features:
                 raise ValueError(
                     "Quantile Group LLA derivative vector must match feature count"
                 )
             before_lla = _copy_arr(params)
 
-            if _all_zero(lla_feature_np):
+            if _all_zero(lla_feature):
                 # A flat surrogate owns the current target state. Any active
                 # IRLS/ADMM exhaustion from an earlier LLA step is historical.
                 active_irls_exhausted = False
@@ -306,7 +315,7 @@ def quantile_group_proximal_irls_lla_solver(
                     flat_irls_exhausted = False
 
                 refreshed = pen_step.lla_weights(params[:n_features])
-                if _all_zero(_to_numpy(refreshed)):
+                if _all_zero(refreshed):
                     lla_converged = True
                     break
             else:
@@ -315,12 +324,11 @@ def quantile_group_proximal_irls_lla_solver(
                 flat_irls_exhausted = False
                 active_irls_converged = False
                 active_admm_exhausted = False
-                factory_values = (
-                    np.concatenate([lla_feature_np, np.zeros(1, dtype=np.float64)])
-                    if fit_intercept
-                    else lla_feature_np
-                )
-                inner_penalty = factory(factory_values)
+                # The internal factory consumes backend-native feature
+                # derivatives and reduces them to one weight per group before
+                # crossing the reporting boundary. The private surrogate itself
+                # already opts into one trailing unpenalized intercept.
+                inner_penalty = factory(lla_feature)
 
                 for _irls_iter in range(irls_limit):
                     params_old = _copy_arr(params)
