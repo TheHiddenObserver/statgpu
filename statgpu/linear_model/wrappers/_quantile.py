@@ -70,6 +70,15 @@ def _center_quantile_bootstrap_residuals(resid, tau, xp):
     return resid - center
 
 
+class _BootstrapIRLSConvergenceError(RuntimeError):
+    """Internal bootstrap-IRLS exhaustion carrying diagnostic progress."""
+
+    def __init__(self, message, *, n_iter, chunk_size):
+        super().__init__(message)
+        self.n_iter = int(n_iter)
+        self.chunk_size = int(chunk_size)
+
+
 def _batched_quantile_irls(
     X,
     y_matrix,
@@ -231,9 +240,11 @@ def _batched_quantile_irls(
                 break
 
         if not converged:
-            raise RuntimeError(
+            raise _BootstrapIRLSConvergenceError(
                 "QuantileRegression bootstrap IRLS did not converge within "
-                f"{int(max_iter)} iterations"
+                f"{int(max_iter)} iterations",
+                n_iter=int(max_iter),
+                chunk_size=chunk_size,
             )
 
         max_used_iter = max(max_used_iter, int(used_iter))
@@ -342,6 +353,10 @@ class QuantileRegression(BaseEstimator):
         self._pvalues = None
         self._conf_int = None
         self._inference_result = None
+        self._bootstrap_n_iter_ = None
+        self._bootstrap_schedule_sha256_ = None
+        self._bootstrap_residual_centering_ = None
+        self._bootstrap_draw_chunk_size_ = None
         self._fitted = False
 
     def _reset_fit_state(self):
@@ -1094,15 +1109,20 @@ class QuantileRegression(BaseEstimator):
         y_boot = eta[None, :] + resid[schedule_native]
         y_matrix = y_boot.T
 
-        boot_coef, used_iter, chunk_size = _batched_quantile_irls(
-            Xd,
-            y_matrix,
-            params,
-            tau,
-            max_iter=self._max_iter,
-            tol=self._tol,
-            xp=xp,
-        )
+        try:
+            boot_coef, used_iter, chunk_size = _batched_quantile_irls(
+                Xd,
+                y_matrix,
+                params,
+                tau,
+                max_iter=self._max_iter,
+                tol=self._tol,
+                xp=xp,
+            )
+        except _BootstrapIRLSConvergenceError as exc:
+            self._bootstrap_n_iter_ = int(exc.n_iter)
+            self._bootstrap_draw_chunk_size_ = int(exc.chunk_size)
+            raise
         self._bootstrap_n_iter_ = int(used_iter)
         self._bootstrap_draw_chunk_size_ = int(chunk_size)
 
