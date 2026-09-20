@@ -2161,7 +2161,10 @@ def _scad_mcp_cv_path(
                         L_glm *= _safety
                     # Y-scaling for exp-link families
                     _loss_name_inner = getattr(loss_fn, 'name', '')
-                    _skip_ys = getattr(loss_fn, '_lipschitz_uses_y', False)
+                    _skip_ys = bool(
+                        getattr(loss_fn, '_skip_y_scaling', False)
+                        or getattr(loss_fn, '_lipschitz_uses_y', False)
+                    )
                     if _loss_name_inner not in ('squared_error',) and not _skip_ys:
                         _y_abs = np.abs(_to_numpy(yb))
                         _y_mean = float(np.mean(_y_abs))
