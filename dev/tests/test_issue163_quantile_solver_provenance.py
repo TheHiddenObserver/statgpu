@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import inspect
 import sys
 import types
@@ -17,6 +18,7 @@ from statgpu.linear_model.penalized import (
 )
 from statgpu.linear_model.penalized import _penalized_quantile as _typed_quantile_mod
 from statgpu.linear_model.penalized import _predict_mixin as _predict_mixin_mod
+from statgpu.linear_model.penalized import _quantile_solver_contract as _quantile_solver_contract
 import statgpu.backends._utils as _backend_utils
 
 
@@ -375,6 +377,29 @@ def test_quantile_cv_constructor_controls_fail_before_coercion(kwargs, message):
     constructor.update(kwargs)
     with pytest.raises(ValueError, match=message):
         PenalizedGLM_CV(**constructor)
+
+
+def test_quantile_cv_constructor_guard_is_idempotent_under_reload():
+    before = PenalizedGLM_CV.__init__
+    marker = _quantile_solver_contract._CV_INIT_VALIDATE_MARKER
+    assert getattr(before, marker, False)
+
+    reloaded = importlib.reload(_quantile_solver_contract)
+    after = PenalizedGLM_CV.__init__
+
+    assert after is before
+    assert getattr(after, reloaded._CV_INIT_VALIDATE_MARKER, False)
+    with pytest.raises(
+        ValueError,
+        match="cv must be an integer greater than or equal to 2",
+    ):
+        PenalizedGLM_CV(
+            loss="quantile",
+            penalty="l2",
+            alpha_grid=np.asarray([0.03], dtype=np.float64),
+            cv=2.5,
+            device="cpu",
+        )
 
 
 @pytest.mark.parametrize(
