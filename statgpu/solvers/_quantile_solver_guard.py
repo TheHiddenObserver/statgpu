@@ -165,10 +165,30 @@ def _validate_quantile_iteration_controls(*, max_iter, tol) -> None:
         raise ValueError("tol must be a finite positive number")
 
 
-def _validate_quantile_fista_controls(*, max_iter, tol, cv_mode) -> None:
+def _validate_quantile_fista_controls(
+    *, max_iter, tol, cv_mode, lipschitz_L
+) -> None:
     _validate_quantile_iteration_controls(max_iter=max_iter, tol=tol)
     if not isinstance(cv_mode, (bool, np.bool_)):
         raise ValueError("cv_mode must be boolean")
+    if lipschitz_L is not None:
+        if (
+            isinstance(lipschitz_L, (bool, np.bool_))
+            or not isinstance(lipschitz_L, Real)
+            or not np.isfinite(float(lipschitz_L))
+            or float(lipschitz_L) <= 0.0
+        ):
+            raise ValueError("lipschitz_L must be None or a finite positive number")
+
+
+def _validate_quantile_lbfgs_controls(*, max_iter, tol, history_size) -> None:
+    _validate_quantile_iteration_controls(max_iter=max_iter, tol=tol)
+    if (
+        isinstance(history_size, (bool, np.bool_))
+        or not isinstance(history_size, Integral)
+        or int(history_size) < 1
+    ):
+        raise ValueError("history_size must be a positive integer")
 
 
 def _normalize_quantile_xy_for_low_level(X, y):
@@ -241,6 +261,7 @@ def fista_solver(
             max_iter=max_iter,
             tol=tol,
             cv_mode=cv_mode,
+            lipschitz_L=lipschitz_L,
         )
     _validate_quantile_xy_shapes(loss, X, y, "fista_solver")
     if _is_quantile(loss):
@@ -274,7 +295,11 @@ def lbfgs_solver(
     """Run L-BFGS while preserving its maintained Quantile compatibility row."""
     _validate_quantile_xy_shapes(loss, X, y, "lbfgs_solver")
     if _is_quantile(loss):
-        _validate_quantile_iteration_controls(max_iter=max_iter, tol=tol)
+        _validate_quantile_lbfgs_controls(
+            max_iter=max_iter,
+            tol=tol,
+            history_size=history_size,
+        )
         _validate_quantile_init_coef(X, init_coef, "lbfgs_solver")
         X, y = _normalize_quantile_xy_for_low_level(X, y)
     return _lbfgs_solver(
