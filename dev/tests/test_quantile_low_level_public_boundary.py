@@ -1714,6 +1714,48 @@ def test_scalar_proximal_irls_weights_match_maintained_formula_above_1e10(
     assert n_iter == 1
 
 
+def test_public_proximal_quantile_accepts_python_array_like_inputs():
+    X, y = _data(seed=16744)
+    weights = np.linspace(0.5, 1.5, X.shape[0], dtype=np.float64)
+    loss = QuantileLoss(quantile=0.3)
+    penalty = SCADPenalty(alpha=0.05)
+
+    kwargs = dict(
+        alpha_path=np.asarray([0.05], dtype=np.float64),
+        max_lla_per_step=1,
+        max_iter=4,
+        tol=1e-8,
+        lla_tol=1e-8,
+        fit_intercept=False,
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ConvergenceWarning)
+        coef_np, intercept_np, n_iter_np = (
+            solvers.proximal_irls_quantile_solver(
+                loss,
+                penalty,
+                X,
+                y,
+                sample_weight=weights,
+                **kwargs,
+            )
+        )
+        coef_list, intercept_list, n_iter_list = (
+            solvers.proximal_irls_quantile_solver(
+                loss,
+                penalty,
+                X.tolist(),
+                y.tolist(),
+                sample_weight=weights.tolist(),
+                **kwargs,
+            )
+        )
+
+    np.testing.assert_allclose(coef_list, coef_np, rtol=0.0, atol=1e-12)
+    assert intercept_list == pytest.approx(intercept_np, rel=0.0, abs=1e-12)
+    assert n_iter_list == n_iter_np
+
+
 def test_public_proximal_quantile_none_budget_has_defined_default():
     X, y = _data(seed=16703)
     loss = QuantileLoss(quantile=0.3)
