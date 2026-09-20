@@ -1265,6 +1265,8 @@ class TestQuantileRegression:
         assert metadata["numerical_backend"] == "numpy"
         assert metadata["numerical_device"] == "cpu"
         assert metadata["reporting_backend"] == "numpy"
+        assert metadata["bootstrap_type"] == "iid_residual"
+        assert metadata["heteroscedastic_robust"] is False
 
     def test_bootstrap_inference_metadata_records_schedule_identity(self):
         model = QuantileRegression(
