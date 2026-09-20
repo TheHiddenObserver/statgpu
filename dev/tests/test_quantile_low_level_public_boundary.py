@@ -1000,8 +1000,13 @@ def test_public_smooth_second_order_solvers_reject_quantile_before_loss_work(
         raise AssertionError("unsupported Quantile solver must fail before loss work")
 
     monkeypatch.setattr(loss, "preprocess", forbidden)
-    with pytest.raises(ValueError, match="does not support Quantile loss"):
+    with pytest.raises(ValueError, match="does not support Quantile loss") as exc_info:
         getattr(solvers, solver_name)(loss, penalty, X, y, max_iter=3)
+
+    message = str(exc_info.value).lower()
+    assert "maintained" not in message
+    assert "fail closed" not in message
+    assert "fail-closed" not in message
 
 
 def test_public_quantile_cd_solver_is_fail_closed_compatibility_symbol(monkeypatch):
@@ -1015,7 +1020,7 @@ def test_public_quantile_cd_solver_is_fail_closed_compatibility_symbol(monkeypat
     import statgpu.solvers._quantile_solver_guard as guard_mod
 
     monkeypatch.setattr(guard_mod, "_quantile_cd_solver", forbidden)
-    with pytest.raises(NotImplementedError, match="compatibility symbol"):
+    with pytest.raises(NotImplementedError, match="compatibility symbol") as exc_info:
         solvers.quantile_cd_solver(
             loss,
             penalty,
@@ -1023,6 +1028,11 @@ def test_public_quantile_cd_solver_is_fail_closed_compatibility_symbol(monkeypat
             y,
             sample_weight=np.linspace(0.5, 1.5, X.shape[0]),
         )
+
+    message = str(exc_info.value).lower()
+    assert "maintained" not in message
+    assert "fail closed" not in message
+    assert "fail-closed" not in message
 
 
 @pytest.mark.parametrize(
