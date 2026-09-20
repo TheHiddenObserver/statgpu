@@ -824,6 +824,79 @@ class TestQuantileRegression:
         assert 1 <= n_iter <= 500
         assert 1 <= chunk_size <= y_matrix.shape[1]
 
+    def test_batched_quantile_irls_chunking_preserves_draw_order_and_objective(
+        self,
+        monkeypatch,
+    ):
+        import statgpu.linear_model.wrappers._quantile as quantile_mod
+
+        X = np.asarray(
+            [
+                [1.0, -1.0],
+                [1.0, -0.4],
+                [1.0, 0.2],
+                [1.0, 0.8],
+                [1.0, 1.4],
+                [1.0, 2.0],
+            ],
+            dtype=np.float64,
+        )
+        y_matrix = np.column_stack(
+            [
+                np.asarray([-1.0, -0.5, 0.1, 0.7, 1.1, 1.8]),
+                np.asarray([-0.7, -0.2, 0.4, 0.9, 1.5, 2.1]),
+                np.asarray([-1.2, -0.3, 0.0, 0.6, 1.4, 1.9]),
+            ]
+        )
+        init = np.zeros(X.shape[1], dtype=np.float64)
+        tau = 0.35
+
+        full, _, full_chunk = _batched_quantile_irls(
+            X,
+            y_matrix,
+            init,
+            tau,
+            max_iter=600,
+            tol=1e-9,
+            xp=np,
+        )
+        assert full_chunk == y_matrix.shape[1]
+
+        monkeypatch.setattr(
+            quantile_mod,
+            "_BOOTSTRAP_IRLS_GRAM_ELEMENT_CAP",
+            X.shape[1] * X.shape[1],
+        )
+        chunked, _, chunk_size = _batched_quantile_irls(
+            X,
+            y_matrix,
+            init,
+            tau,
+            max_iter=600,
+            tol=1e-9,
+            xp=np,
+        )
+        assert chunk_size == 1
+        assert chunked.shape == full.shape
+
+        def losses(params):
+            prediction = X @ params
+            residual = y_matrix - prediction
+            values = np.where(
+                residual >= 0.0,
+                tau * residual,
+                (tau - 1.0) * residual,
+            )
+            return np.mean(values, axis=0)
+
+        np.testing.assert_allclose(
+            losses(chunked),
+            losses(full),
+            rtol=0.0,
+            atol=2e-8,
+        )
+
+
     def test_nonmedian_batched_bootstrap_targets_requested_quantile(self):
         tau = 0.2
         n = 80
