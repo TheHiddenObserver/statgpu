@@ -129,6 +129,28 @@ def test_cv_public_solver_replacement_from_auto_to_fista_is_authoritative(monkey
     assert cv.estimator_._selected_solver == "fista"
 
 
+def test_quantile_fista_nonconvergence_warning_recommends_supported_routes():
+    X, y, _ = _data(seed=16687, n=48)
+
+    with pytest.warns(ConvergenceWarning) as caught:
+        fista_solver(
+            QuantileLoss(quantile=0.35),
+            L2Penalty(alpha=0.02),
+            X,
+            y,
+            max_iter=1,
+            tol=1e-30,
+        )
+
+    messages = [str(item.message) for item in caught]
+    message = next(
+        text for text in messages if "did not converge within 1 iterations" in text
+    )
+    assert "IRLS is also supported" in message
+    assert "newton" not in message.lower()
+    assert "lbfgs" not in message.lower()
+
+
 def test_fista_last_allowed_iteration_convergence_is_not_false_exhaustion():
     X = np.eye(2, dtype=np.float64)
     y = np.zeros(2, dtype=np.float64)
