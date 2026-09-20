@@ -44,6 +44,7 @@ class QuantileLoss(LossBase):
 
     # Optimization hints
     _lipschitz_safety = 1.0
+    _skip_y_scaling = True
     _prefer_fista_over_bb = False
 
     def __init__(self, quantile: float = 0.5):
