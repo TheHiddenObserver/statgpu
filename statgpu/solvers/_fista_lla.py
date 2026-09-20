@@ -345,7 +345,10 @@ def fista_lla_path(
     # with mu, so L_base underestimates by up to max(y).
     # Cap at 10x -- periodic Lipschitz recomputation corrects any remaining
     # underestimate during the FISTA inner loop.
-    _skip_y_scaling = getattr(loss, '_lipschitz_uses_y', False)
+    _skip_y_scaling = bool(
+        getattr(loss, '_skip_y_scaling', False)
+        or getattr(loss, '_lipschitz_uses_y', False)
+    )
     _y_lipschitz_scale = 1.0
     if not _is_quadratic and not _skip_y_scaling:
         _y_arr = _to_numpy(y_c)
