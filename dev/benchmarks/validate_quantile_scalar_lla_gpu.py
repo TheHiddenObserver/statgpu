@@ -157,10 +157,14 @@ def _run_periodic_refresh_probe(X, y, weights):
         for item in caught
         if issubclass(item.category, ConvergenceWarning)
     ]
-    if not convergence_warnings:
+    expected_warning = (
+        "Quantile FISTA-LLA target alpha did not establish"
+    )
+    if not any(expected_warning in message for message in convergence_warnings):
         raise AssertionError(
-            "scalar Quantile LLA periodic-refresh probe unexpectedly converged; "
-            "the probe no longer guarantees the refresh branch is exercised"
+            "scalar Quantile LLA periodic-refresh probe did not emit the "
+            "expected target-exhaustion diagnostic: "
+            f"{convergence_warnings!r}"
         )
     if int(n_iter) < 21:
         raise AssertionError(
