@@ -14,10 +14,11 @@ import numpy as np
 from statgpu.backends import _to_numpy
 from statgpu.linear_model import PenalizedGLM_CV
 from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
+from statgpu.solvers import _fista_lla_group_contract as group_contract
 from statgpu.solvers import _quantile_group_proximal_irls_lla as group_solver
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 Q = 0.35
 GROUPS = [[0, 1], [2, 3]]
 DIRECT_ALPHA = 0.04
@@ -27,6 +28,7 @@ ATOL_PARAM = 1e-4
 ATOL_CV_SCORE = 1e-4
 ATOL_FLAT_REFERENCE = 5e-5
 EXECUTED_SOLVER = "group_proximal_irls_lla"
+_DERIVATIVE_TRANSFER_EVIDENCE = []
 
 
 def _git(*args: str) -> str:
@@ -101,15 +103,62 @@ def _array_backend_and_device(value):
 
 
 def _with_group_solver_counter(fn, *, expected_backend, min_calls=1):
-    """Prove every automatic Group solver call owns the expected arrays."""
-    original = group_solver.quantile_group_proximal_irls_lla_solver
+    """Prove automatic Group solver and derivative-reduction ownership."""
+    original_solver = group_solver.quantile_group_proximal_irls_lla_solver
+    original_factory = group_solver._group_surrogate_factory
+    original_to_numpy = group_contract._to_numpy
     count = {"value": 0}
+    factory_calls = {"value": 0}
     observed_locations = set()
+    derivative_locations = set()
+    transfer_sizes = []
+
+    def counted_factory(penalty):
+        inner = original_factory(penalty)
+
+        def factory(derivatives):
+            factory_calls["value"] += 1
+            derivative_backend, derivative_device = _array_backend_and_device(
+                derivatives
+            )
+            if derivative_backend != expected_backend:
+                raise AssertionError(
+                    "Quantile Group LLA derivative backend drifted: "
+                    f"{derivative_backend!r} != {expected_backend!r}"
+                )
+            if expected_backend in ("cupy", "torch") and derivative_device != "cuda:0":
+                raise AssertionError(
+                    "Quantile Group LLA derivative device drifted: "
+                    f"{derivative_device!r}"
+                )
+            derivative_locations.add((derivative_backend, derivative_device))
+            return inner(derivatives)
+
+        return factory
+
+    def counted_to_numpy(value):
+        backend, _device = _array_backend_and_device(value)
+        if backend in ("cupy", "torch"):
+            size = (
+                int(value.numel())
+                if hasattr(value, "numel")
+                else int(value.size)
+            )
+            transfer_sizes.append(size)
+            expected_payload = len(GROUPS) + 3
+            if size > expected_payload:
+                raise AssertionError(
+                    "Quantile Group LLA derivative reporting transferred "
+                    f"{size} values to host; expected at most G+3={expected_payload}"
+                )
+        return original_to_numpy(value)
 
     def counted(*args, **kwargs):
         count["value"] += 1
         if len(args) < 4:
-            raise AssertionError("Group Proximal IRLS-LLA did not expose X/y positionally")
+            raise AssertionError(
+                "Group Proximal IRLS-LLA did not expose X/y positionally"
+            )
         X_arg, y_arg = args[2], args[3]
         sw_arg = kwargs.get("sample_weight")
         X_backend, X_device = _array_backend_and_device(X_arg)
@@ -122,32 +171,65 @@ def _with_group_solver_counter(fn, *, expected_backend, min_calls=1):
         if expected_backend in ("cupy", "torch"):
             if X_device != "cuda:0" or y_device != "cuda:0":
                 raise AssertionError(
-                    f"Quantile Group solver device drifted: X={X_device!r}, y={y_device!r}"
+                    "Quantile Group solver device drifted: "
+                    f"X={X_device!r}, y={y_device!r}"
                 )
         if sw_arg is None:
             raise AssertionError("weighted Quantile Group solver lost sample_weight")
         sw_backend, sw_device = _array_backend_and_device(sw_arg)
         if sw_backend != expected_backend:
             raise AssertionError(
-                f"Quantile Group weight backend drifted: {sw_backend!r} != {expected_backend!r}"
+                "Quantile Group weight backend drifted: "
+                f"{sw_backend!r} != {expected_backend!r}"
             )
         if expected_backend in ("cupy", "torch") and sw_device != "cuda:0":
             raise AssertionError(
                 f"Quantile Group weight device drifted: {sw_device!r}"
             )
         observed_locations.add((X_backend, X_device, sw_backend, sw_device))
-        return original(*args, **kwargs)
+        return original_solver(*args, **kwargs)
 
     group_solver.quantile_group_proximal_irls_lla_solver = counted
+    group_solver._group_surrogate_factory = counted_factory
+    group_contract._to_numpy = counted_to_numpy
     try:
         result = fn()
     finally:
-        group_solver.quantile_group_proximal_irls_lla_solver = original
+        group_solver.quantile_group_proximal_irls_lla_solver = original_solver
+        group_solver._group_surrogate_factory = original_factory
+        group_contract._to_numpy = original_to_numpy
 
     if count["value"] < int(min_calls):
         raise AssertionError(
-            f"Quantile Group auto route executed {count['value']} calls, expected >= {min_calls}"
+            f"Quantile Group auto route executed {count['value']} calls, "
+            f"expected >= {min_calls}"
         )
+    if factory_calls["value"] < 1:
+        raise AssertionError(
+            "Quantile Group fixture did not exercise an active LLA surrogate"
+        )
+    if expected_backend in ("cupy", "torch"):
+        expected_payload = len(GROUPS) + 3
+        if not transfer_sizes:
+            raise AssertionError(
+                "Quantile Group LLA factory did not expose its reduced "
+                "reporting transfer"
+            )
+        if any(size != expected_payload for size in transfer_sizes):
+            raise AssertionError(
+                "Quantile Group LLA reporting payload drifted: "
+                f"{transfer_sizes!r} != repeated G+3={expected_payload}"
+            )
+
+    _DERIVATIVE_TRANSFER_EVIDENCE.append(
+        {
+            "backend": expected_backend,
+            "solver_calls": int(count["value"]),
+            "group_factory_calls": int(factory_calls["value"]),
+            "derivative_locations": sorted(derivative_locations),
+            "reporting_transfer_sizes": list(transfer_sizes),
+        }
+    )
     return result, int(count["value"]), sorted(observed_locations)
 
 
@@ -426,6 +508,10 @@ def main() -> int:
         "executed_solver": EXECUTED_SOLVER,
         "quantile": Q,
         "groups": GROUPS,
+        "derivative_transfer_contract": {
+            "max_host_values_per_factory_transfer": len(GROUPS) + 3,
+            "evidence": _DERIVATIVE_TRANSFER_EVIDENCE,
+        },
         "cases": cases,
         "max_errors": {
             "direct_objective": max_objective_error,
