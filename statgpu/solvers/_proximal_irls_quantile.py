@@ -300,11 +300,11 @@ def proximal_irls_quantile_solver(
                     if sw is not None:
                         w = w * sw
 
-                    # Clamp IRLS weights to prevent numerical overflow
-                    w_max = 100.0 / eps
-                    w = xp.minimum(w, _scalar_like(w_max, w, xp, backend))
-
-                    # Parallel diagonal majorization step (Jacobi-style)
+                    # Parallel diagonal majorization step (Jacobi-style).
+                    # Keep the same IRLS/MM observation weights as
+                    # QuantileLoss.irls(); do not apply an undocumented
+                    # per-observation cap that changes the surrogate under
+                    # concentrated but valid analytic weights.
                     beta = _parallel_majorization_step(
                         X_work, X_sq, y_work, w, beta, thresh,
                         n_work_features, eps, xp, backend)
