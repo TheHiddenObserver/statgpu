@@ -223,57 +223,71 @@ def _validate_quantile_xy_shapes(loss, X, y, solver_name: str) -> None:
 
 
 @wraps(_fista_solver)
-def fista_solver(loss, penalty, X, y, *args, **kwargs):
+def fista_solver(
+    loss,
+    penalty,
+    X,
+    y,
+    max_iter=1000,
+    tol=1e-4,
+    init_coef=None,
+    sample_weight=None,
+    lipschitz_L=None,
+    cv_mode=False,
+):
     """Run ordinary FISTA with the public Quantile supervised-shape contract."""
-    bound = None
-    params = None
     if _is_quantile(loss):
-        signature = _canonical_solver_signature(
-            _fista_solver,
-            {"max_iter", "tol", "init_coef", "cv_mode"},
-        )
-        bound = signature.bind_partial(loss, penalty, X, y, *args, **kwargs)
-        params = signature.parameters
         _validate_quantile_fista_controls(
-            max_iter=bound.arguments.get("max_iter", params["max_iter"].default),
-            tol=bound.arguments.get("tol", params["tol"].default),
-            cv_mode=bound.arguments.get("cv_mode", params["cv_mode"].default),
+            max_iter=max_iter,
+            tol=tol,
+            cv_mode=cv_mode,
         )
     _validate_quantile_xy_shapes(loss, X, y, "fista_solver")
-    if bound is not None:
-        _validate_quantile_init_coef(
-            X,
-            bound.arguments.get("init_coef", params["init_coef"].default),
-            "fista_solver",
-        )
-    return _fista_solver(loss, penalty, X, y, *args, **kwargs)
+    if _is_quantile(loss):
+        _validate_quantile_init_coef(X, init_coef, "fista_solver")
+    return _fista_solver(
+        loss,
+        penalty,
+        X,
+        y,
+        max_iter=max_iter,
+        tol=tol,
+        init_coef=init_coef,
+        sample_weight=sample_weight,
+        lipschitz_L=lipschitz_L,
+        cv_mode=cv_mode,
+    )
 
 
 @wraps(_lbfgs_solver)
-def lbfgs_solver(loss, penalty, X, y, *args, **kwargs):
+def lbfgs_solver(
+    loss,
+    penalty,
+    X,
+    y,
+    max_iter=100,
+    tol=1e-4,
+    init_coef=None,
+    history_size=10,
+    sample_weight=None,
+):
     """Run L-BFGS while preserving its maintained Quantile compatibility row."""
     _validate_quantile_xy_shapes(loss, X, y, "lbfgs_solver")
     if _is_quantile(loss):
-        signature = _canonical_solver_signature(
-            _lbfgs_solver,
-            {"max_iter", "tol", "init_coef"},
-        )
-        bound = signature.bind_partial(loss, penalty, X, y, *args, **kwargs)
-        _validate_quantile_iteration_controls(
-            max_iter=bound.arguments.get(
-                "max_iter", signature.parameters["max_iter"].default
-            ),
-            tol=bound.arguments.get("tol", signature.parameters["tol"].default),
-        )
-        _validate_quantile_init_coef(
-            X,
-            bound.arguments.get(
-                "init_coef", signature.parameters["init_coef"].default
-            ),
-            "lbfgs_solver",
-        )
+        _validate_quantile_iteration_controls(max_iter=max_iter, tol=tol)
+        _validate_quantile_init_coef(X, init_coef, "lbfgs_solver")
         X, y = _normalize_quantile_xy_for_low_level(X, y)
-    return _lbfgs_solver(loss, penalty, X, y, *args, **kwargs)
+    return _lbfgs_solver(
+        loss,
+        penalty,
+        X,
+        y,
+        max_iter=max_iter,
+        tol=tol,
+        init_coef=init_coef,
+        history_size=history_size,
+        sample_weight=sample_weight,
+    )
 
 
 _quantile_supported_shape_doc = """Quantile supervised-input boundary
