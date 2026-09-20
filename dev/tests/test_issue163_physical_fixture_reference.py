@@ -112,13 +112,19 @@ def test_pr166_scalar_lla_physical_fixture_converges_and_probes_refresh_on_cpu()
     assert all(tuple(location) == ("numpy", "cpu") for location in locations)
 
     probe_X, probe_y, probe_weights = scalar_lla_gate._data()
-    probe_iter, probe_locations, probe_warnings = (
-        scalar_lla_gate._run_periodic_refresh_probe(
-            probe_X,
-            probe_y,
-            probe_weights,
-        )
+    (
+        probe_coef,
+        probe_intercept,
+        probe_iter,
+        probe_locations,
+        probe_warnings,
+    ) = scalar_lla_gate._run_periodic_refresh_probe(
+        probe_X,
+        probe_y,
+        probe_weights,
     )
+    assert np.all(np.isfinite(probe_coef))
+    assert np.isfinite(probe_intercept)
     assert probe_iter >= 21
     assert len(probe_locations) >= 2
     assert all(
