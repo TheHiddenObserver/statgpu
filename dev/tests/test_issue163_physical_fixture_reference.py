@@ -10,7 +10,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from dev.benchmarks import run_quantile_group_lla_gpu_gate as group_lla_wrapper
 from dev.benchmarks import run_quantile_smooth_fista_gpu_gate as smooth_wrapper
+from dev.benchmarks import validate_quantile_scalar_lla_gpu as scalar_lla_gate
 from dev.benchmarks import validate_quantile_smooth_fista_gpu as smooth_gate
 from dev.benchmarks import validate_quantile_solver_provenance_gpu as gate
 from statgpu._config import Device
@@ -34,7 +36,7 @@ def _pinball(y, eta, q, sample_weight):
 
 
 def test_pr166_smooth_bootstrap_physical_gate_schema_is_locked():
-    assert smooth_gate.SCHEMA_VERSION == 15
+    assert smooth_gate.SCHEMA_VERSION == 16
     assert smooth_wrapper.EXPECTED_SCHEMA_VERSION == smooth_gate.SCHEMA_VERSION
     assert smooth_gate.BOOTSTRAP_Q != pytest.approx(0.5)
     assert 0.0 < smooth_gate.BOOTSTRAP_Q < 1.0
@@ -60,6 +62,63 @@ def test_pr166_smooth_bootstrap_physical_gate_schema_is_locked():
     assert controls["bootstrap_public"]["n_bootstrap"] == smooth_gate.BOOTSTRAP_B
     assert controls["bootstrap_public"]["seed"] == smooth_gate.BOOTSTRAP_SEED
     assert controls["bootstrap_public"]["fit_intercept_cases"] == [False, True]
+
+
+def test_pr166_scalar_lla_physical_gate_schema_is_locked():
+    assert scalar_lla_gate.SCHEMA_VERSION == 2
+    assert group_lla_wrapper.SCALAR_SCHEMA_VERSION == scalar_lla_gate.SCHEMA_VERSION
+    assert scalar_lla_gate.PROBE_TOL > 0.0
+    assert scalar_lla_gate.PROBE_LLA_TOL > 0.0
+    assert scalar_lla_gate.PARITY_TOL > 0.0
+    assert scalar_lla_gate.PARITY_LLA_TOL > 0.0
+
+
+def test_pr166_weighted_l2_cv_physical_fixture_converges_on_cpu():
+    X, y, weights, folds = smooth_gate._data()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        model = smooth_gate._cv(
+            X,
+            y,
+            weights,
+            folds,
+            device="cpu",
+            penalty="l2",
+        )
+
+    assert model.alpha_ in set(smooth_gate.CV_ALPHA_GRID.tolist())
+    scores = np.asarray(
+        model.cv_results_["all_scores"],
+        dtype=np.float64,
+    )
+    assert scores.shape == (2, smooth_gate.CV_ALPHA_GRID.size)
+    assert np.all(np.isfinite(scores))
+    assert model.estimator_._selected_solver == "fista"
+    assert smooth_gate.CV_L2_TOL < smooth_gate.CV_L1_TOL
+
+
+def test_pr166_scalar_lla_physical_fixture_converges_and_probes_refresh_on_cpu():
+    X, y, weights = scalar_lla_gate._data()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        coef, intercept, n_iter, locations = scalar_lla_gate._run(X, y, weights)
+
+    assert np.all(np.isfinite(coef))
+    assert np.isfinite(intercept)
+    assert 1 <= n_iter
+    assert locations
+    assert all(tuple(location) == ("numpy", "cpu") for location in locations)
+
+    probe_iter, probe_locations, probe_warnings = (
+        scalar_lla_gate._run_periodic_refresh_probe(X, y, weights)
+    )
+    assert probe_iter >= 21
+    assert len(probe_locations) >= 2
+    assert all(
+        tuple(location) == ("numpy", "cpu")
+        for location in probe_locations
+    )
+    assert probe_warnings
 
 
 def test_pr166_async_weighted_l1_fixture_has_spectral_gap_and_cpu_reference():
