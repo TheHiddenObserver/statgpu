@@ -36,7 +36,7 @@ from statgpu.solvers import fista_solver
 from statgpu.solvers._convergence import ConvergenceWarning
 
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 Q = 0.35
 ATOL_OBJECTIVE = 2e-5
 ATOL_CV_SCORE = 2e-5
@@ -95,6 +95,7 @@ def _solver_controls():
             "seed": BOOTSTRAP_SEED,
             "max_iter": BOOTSTRAP_PUBLIC_MAX_ITER,
             "tol": BOOTSTRAP_TOL,
+            "fit_intercept_cases": [False, True],
         },
     }
 
@@ -353,10 +354,21 @@ def _standalone_bootstrap_direction_case(backend, cp, torch):
     }
 
 
-def _standalone_bootstrap_public_case(backend, cp, torch):
-    """Exercise the complete public standalone fit + bootstrap-inference route."""
-    X = np.ones((BOOTSTRAP_N, 1), dtype=np.float64)
-    y = np.linspace(-4.0, 4.0, BOOTSTRAP_N, dtype=np.float64)
+def _standalone_bootstrap_public_case(
+    backend,
+    cp,
+    torch,
+    *,
+    fit_intercept,
+):
+    """Exercise public standalone bootstrap inference with both intercept modes."""
+    rng = np.random.default_rng(BOOTSTRAP_SEED + 31)
+    X = rng.normal(size=(BOOTSTRAP_N, 1)).astype(np.float64)
+    y = (
+        0.35
+        + 0.75 * X[:, 0]
+        + rng.laplace(scale=0.22, size=BOOTSTRAP_N)
+    ).astype(np.float64)
     if backend == "cupy":
         Xb = cp.asarray(X, dtype=cp.float64)
         yb = cp.asarray(y, dtype=cp.float64)
@@ -371,7 +383,7 @@ def _standalone_bootstrap_public_case(backend, cp, torch):
 
     model = QuantileRegression(
         quantile=BOOTSTRAP_Q,
-        fit_intercept=False,
+        fit_intercept=bool(fit_intercept),
         max_iter=BOOTSTRAP_PUBLIC_MAX_ITER,
         tol=BOOTSTRAP_TOL,
         compute_inference=True,
@@ -438,6 +450,11 @@ def _standalone_bootstrap_public_case(backend, cp, torch):
             f"{solver_n_iter}"
         )
 
+    if not np.isfinite(float(model.intercept_)):
+        raise AssertionError(
+            f"{backend}/standalone/public: non-finite intercept"
+        )
+
     snapshots = {
         "coef": np.asarray(model.coef_, dtype=np.float64),
         "bse": np.asarray(result.bse, dtype=np.float64),
@@ -455,8 +472,13 @@ def _standalone_bootstrap_public_case(backend, cp, torch):
         )
 
     return {
-        "name": f"{backend}/standalone/public-bootstrap/q{BOOTSTRAP_Q:.2f}",
+        "name": (
+            f"{backend}/standalone/public-bootstrap/"
+            f"{'intercept' if fit_intercept else 'no-intercept'}/"
+            f"q{BOOTSTRAP_Q:.2f}"
+        ),
         "backend": backend,
+        "fit_intercept": bool(fit_intercept),
         "device": expected_device,
         "quantile": BOOTSTRAP_Q,
         "point_solver": "fista",
@@ -690,7 +712,15 @@ def main() -> int:
         for backend in ("cupy", "torch"):
             Xb, yb, wb, device = _native_inputs(backend, X, y, weights, cp, torch)
             cases.append(_standalone_bootstrap_direction_case(backend, cp, torch))
-            cases.append(_standalone_bootstrap_public_case(backend, cp, torch))
+            for fit_intercept in (False, True):
+                cases.append(
+                    _standalone_bootstrap_public_case(
+                        backend,
+                        cp,
+                        torch,
+                        fit_intercept=fit_intercept,
+                    )
+                )
             cases.append(
                 _async_weighted_l1_case(
                     backend,
