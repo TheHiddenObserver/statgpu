@@ -965,6 +965,7 @@ class TestQuantileRegression:
         with pytest.raises(RuntimeError, match="did not converge within 1 iterations"):
             model._compute_bootstrap_batched(X, y)
         assert model._bootstrap_n_iter_ == 1
+        assert model._bootstrap_draw_chunk_size_ == 4
 
     @pytest.mark.parametrize("inference_method", ["kernel", "bootstrap"])
     def test_nonuniform_weighted_inference_fails_before_solver(
