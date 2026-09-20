@@ -185,6 +185,49 @@ def test_public_quantile_fista_lla_rejects_invalid_public_controls(kwargs, messa
         )
 
 
+def test_public_quantile_group_fista_lla_accepts_python_array_like_design():
+    X = np.asarray(
+        [
+            [1.0, 0.0, 2.0],
+            [0.0, 1.0, -1.0],
+            [2.0, 1.0, 0.0],
+            [-1.0, 2.0, 1.0],
+        ],
+        dtype=np.float64,
+    )
+    y = np.asarray([0.25, -0.4, 1.15, 0.6], dtype=np.float64)
+    weights = np.asarray([0.25, 0.75, 1.25, 1.75], dtype=np.float64)
+    penalty = GroupSCADPenalty(
+        alpha=0.05,
+        a=3.7,
+        groups=[[0, 2], [1]],
+    )
+
+    def solve(X_value, y_value, w_value):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", ConvergenceWarning)
+            return fista_lla_contract.fista_lla_path(
+                QuantileLoss(0.35),
+                penalty,
+                X_value,
+                y_value,
+                alpha_path=[0.05],
+                max_lla_per_step=1,
+                max_iter=4,
+                fit_intercept=False,
+                sample_weight=w_value,
+            )
+
+    coef_np, intercept_np, n_iter_np = solve(X, y, weights)
+    coef_list, intercept_list, n_iter_list = solve(
+        X.tolist(), y.tolist(), weights.tolist()
+    )
+
+    np.testing.assert_allclose(coef_list, coef_np, rtol=0.0, atol=1e-12)
+    assert intercept_list == pytest.approx(intercept_np, rel=0.0, abs=1e-12)
+    assert n_iter_list == n_iter_np
+
+
 def test_public_quantile_fista_lla_accepts_python_array_like_design_and_response():
     X = [
         [1.0, 0.0, 2.0],
