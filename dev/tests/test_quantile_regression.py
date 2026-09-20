@@ -16,6 +16,7 @@ from statgpu.linear_model.wrappers._quantile import (
     _bootstrap_armijo_accept,
     _bootstrap_schedule_to_backend,
     _center_quantile_bootstrap_residuals,
+    _pinball_zero_eta_gradient_by_draw,
 )
 
 
@@ -840,6 +841,46 @@ class TestQuantileRegression:
         assert g_nonnegative == pytest.approx(-0.2)
         assert g_negative == pytest.approx(0.8)
 
+    def test_zero_residual_pinball_subgradient_balances_each_bootstrap_draw(self):
+        tau = 0.2
+        residual = np.asarray(
+            [
+                [0.0, -1.0],
+                [1.0, 0.0],
+                [2.0, 0.0],
+                [3.0, 1.0],
+                [4.0, 2.0],
+            ],
+            dtype=np.float64,
+        )
+        zero_gradient = _pinball_zero_eta_gradient_by_draw(
+            residual,
+            tau,
+            np,
+        )
+        np.testing.assert_allclose(
+            zero_gradient,
+            np.asarray([0.8, -0.2], dtype=np.float64),
+            rtol=0.0,
+            atol=1e-15,
+        )
+
+        d_eta = np.where(
+            residual > 0.0,
+            -tau,
+            np.where(
+                residual < 0.0,
+                1.0 - tau,
+                zero_gradient[None, :],
+            ),
+        )
+        np.testing.assert_allclose(
+            np.sum(d_eta, axis=0),
+            np.zeros(2, dtype=np.float64),
+            rtol=0.0,
+            atol=1e-15,
+        )
+
     def test_nonmedian_batched_bootstrap_targets_requested_quantile(self):
         tau = 0.2
         n = 80
@@ -859,19 +900,29 @@ class TestQuantileRegression:
 
         boot_params, _, _ = model._compute_bootstrap_batched(X, y)
 
+        center_index = min(max(int(np.ceil(tau * n)) - 1, 0), n - 1)
+        residual_center = np.sort(y)[center_index]
+        centered_residual = y - residual_center
+
         rng = np.random.default_rng(model.random_state)
         y_batch = np.array([
-            y[rng.integers(0, n, size=n)]
+            centered_residual[rng.integers(0, n, size=n)]
             for _ in range(B)
         ])
-        target_q = np.quantile(y_batch, tau, axis=1)
-        wrong_q = np.quantile(y_batch, 1.0 - tau, axis=1)
+        sorted_batch = np.sort(y_batch, axis=1)
+        target_q = sorted_batch[:, center_index]
+        wrong_index = min(
+            max(int(np.ceil((1.0 - tau) * n)) - 1, 0),
+            n - 1,
+        )
+        wrong_q = sorted_batch[:, wrong_index]
         estimated = np.asarray(boot_params[:, 0], dtype=np.float64)
 
         target_error = np.mean(np.abs(estimated - target_q))
         wrong_error = np.mean(np.abs(estimated - wrong_q))
         assert target_error < wrong_error
-        assert float(np.median(estimated)) < 0.0
+        assert abs(float(np.median(estimated))) < abs(float(np.median(wrong_q)))
+        assert model._bootstrap_residual_centering_ == "empirical_tau_quantile"
 
     def test_batched_bootstrap_budget_exhaustion_fails_closed(self):
         n = 48
