@@ -91,9 +91,66 @@ def _bootstrap_armijo_accept(
 
 
 def _pinball_eta_gradient_values(tau):
-    """Return d rho_tau(y-eta) / d eta on nonnegative/negative residuals."""
+    """Return d rho_tau(y-eta) / d eta on positive/negative residuals."""
     tau = float(tau)
     return -tau, 1.0 - tau
+
+
+def _pinball_zero_eta_gradient_by_draw(residual, tau, xp):
+    """Choose a valid zero-residual subgradient independently for each draw.
+
+    Centered residual bootstrap samples can contain exact zeros.  At those
+    pinball kinks the eta-gradient is set-valued on [-tau, 1-tau].  Choose one
+    common value for the zero residuals in each bootstrap draw that balances
+    the draw's scalar score whenever that is possible, then clip to the valid
+    subgradient interval.  This prevents an already-optimal kink from being
+    assigned an artificial ascent direction while keeping every selected
+    derivative inside the exact pinball subdifferential.
+    """
+    tau = float(tau)
+    grad_positive, grad_negative = _pinball_eta_gradient_values(tau)
+    positive = residual > 0
+    negative = residual < 0
+    zero = ~(positive | negative)
+
+    if xp.__name__ == "torch":
+        positive_count = xp.sum(positive, dim=0).to(dtype=residual.dtype)
+        negative_count = xp.sum(negative, dim=0).to(dtype=residual.dtype)
+        zero_count = xp.sum(zero, dim=0).to(dtype=residual.dtype)
+    else:
+        positive_count = xp.sum(positive, axis=0).astype(
+            residual.dtype, copy=False
+        )
+        negative_count = xp.sum(negative, axis=0).astype(
+            residual.dtype, copy=False
+        )
+        zero_count = xp.sum(zero, axis=0).astype(
+            residual.dtype, copy=False
+        )
+
+    fixed_score = (
+        float(grad_positive) * positive_count
+        + float(grad_negative) * negative_count
+    )
+    safe_zero_count = xp.where(
+        zero_count > 0,
+        zero_count,
+        xp.ones_like(zero_count),
+    )
+    zero_gradient = -fixed_score / safe_zero_count
+    if xp.__name__ == "torch":
+        zero_gradient = xp.clamp(
+            zero_gradient,
+            min=float(grad_positive),
+            max=float(grad_negative),
+        )
+    else:
+        zero_gradient = xp.clip(
+            zero_gradient,
+            float(grad_positive),
+            float(grad_negative),
+        )
+    return zero_gradient
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
@@ -930,9 +987,15 @@ class QuantileRegression(BaseEstimator):
             _loss_buf = xp.empty_like(y_gpu.T)
             grad_nonnegative, grad_negative = _pinball_eta_gradient_values(tau)
             @xp.fuse()
-            def _pinball_grad_kernel(_r, _out):
+            def _pinball_grad_kernel(_r, _zero_gradient, _out):
                 _out[:] = xp.where(
-                    _r >= 0, float(grad_nonnegative), float(grad_negative)
+                    _r > 0,
+                    float(grad_nonnegative),
+                    xp.where(
+                        _r < 0,
+                        float(grad_negative),
+                        _zero_gradient,
+                    ),
                 )
             @xp.fuse()
             def _pinball_loss_kernel(_r, _out):
@@ -964,23 +1027,50 @@ class QuantileRegression(BaseEstimator):
             pred_z = Xd @ z
             r_z = y_gpu.T - pred_z  # (n, B)
 
-            # Element-wise pinball gradient
+            # Element-wise pinball gradient. Exact zero residuals are
+            # kinks, so choose a valid per-draw zero-residual subgradient that
+            # balances the scalar score whenever possible.
+            zero_gradient = _pinball_zero_eta_gradient_by_draw(r_z, tau, xp)
             if is_cupy:
-                _pinball_grad_kernel(r_z, _d_eta_buf)
+                _pinball_grad_kernel(r_z, zero_gradient, _d_eta_buf)
                 d_eta = _d_eta_buf
             else:
                 grad_nonnegative, grad_negative = _pinball_eta_gradient_values(tau)
                 d_eta = xp.where(
-                    r_z >= 0, float(grad_nonnegative), float(grad_negative)
+                    r_z > 0,
+                    float(grad_nonnegative),
+                    xp.where(
+                        r_z < 0,
+                        float(grad_negative),
+                        zero_gradient[None, :],
+                    ),
                 )
-                if is_torch: d_eta = d_eta.to(Xd.dtype)
+                if is_torch:
+                    d_eta = d_eta.to(Xd.dtype)
 
             grad = Xd.T @ d_eta / n
 
-            # A tiny selected subgradient is a valid fast-path. At pinball
-            # kinks this condition can remain nonzero for a valid minimizer, so
-            # the best-objective plateau criterion below is also required.
-            if float(xp.max(xp.abs(grad))) < self._tol:
+            # Draws are independent even though they share a vectorized line
+            # search. Freeze any draw whose selected subgradient is already
+            # below tolerance so roundoff cannot move an exact kink optimum and
+            # make that draw veto every positive shared step.
+            if is_torch:
+                grad_inf_by_draw = xp.amax(xp.abs(grad), dim=0)
+            else:
+                grad_inf_by_draw = xp.max(xp.abs(grad), axis=0)
+            settled_draws = grad_inf_by_draw < self._tol
+            grad = xp.where(
+                settled_draws[None, :],
+                xp.zeros_like(grad),
+                grad,
+            )
+
+            # A tiny selected subgradient for every draw is a valid fast-path.
+            if bool(
+                xp.all(settled_draws).item()
+                if hasattr(xp.all(settled_draws), "item")
+                else xp.all(settled_draws)
+            ):
                 converged = True
                 # The convergence test is evaluated at the extrapolated point z,
                 # so publish that point rather than an older best iterate.
