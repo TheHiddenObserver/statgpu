@@ -34,7 +34,7 @@ from statgpu.penalties import L1Penalty
 from statgpu.solvers import fista_solver
 
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 Q = 0.35
 ATOL_OBJECTIVE = 2e-5
 ATOL_CV_SCORE = 2e-5
