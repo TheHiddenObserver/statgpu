@@ -22,6 +22,7 @@ import argparse
 import json
 import platform
 import subprocess
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -32,9 +33,10 @@ from statgpu.linear_model.penalized import PenalizedQuantileRegression
 from statgpu.losses import QuantileLoss
 from statgpu.penalties import L1Penalty
 from statgpu.solvers import fista_solver
+from statgpu.solvers._convergence import ConvergenceWarning
 
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 Q = 0.35
 ATOL_OBJECTIVE = 2e-5
 ATOL_CV_SCORE = 2e-5
@@ -475,6 +477,7 @@ def _async_weighted_l1_case(
     y,
     weights,
     cpu_objective,
+    cpu_n_iter,
     spectral_ratio,
 ):
     """Exercise the actual non-smooth GPU async FISTA branch."""
@@ -544,6 +547,7 @@ def _async_weighted_l1_case(
         "alpha": ASYNC_L1_ALPHA,
         "weighted_gram_spectral_to_maxdiag_ratio": spectral_ratio,
         "cpu_objective": cpu_objective,
+        "cpu_n_iter": int(cpu_n_iter),
         "objective": objective,
         "objective_error": error,
     }
@@ -645,16 +649,21 @@ def main() -> int:
     async_X, async_y, async_weights, async_spectral_ratio = (
         _async_weighted_data()
     )
-    async_cpu_coef, async_cpu_iter = fista_solver(
-        QuantileLoss(quantile=Q),
-        L1Penalty(alpha=ASYNC_L1_ALPHA),
-        async_X,
-        async_y,
-        max_iter=ASYNC_MAX_ITER,
-        tol=ASYNC_TOL,
-        sample_weight=async_weights,
-        cv_mode=False,
-    )
+    # The GPU parity target must itself be a converged solve. A finite
+    # coefficient vector from an exhausted/line-search-failed CPU run is not a
+    # valid numerical oracle merely because its objective is finite.
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        async_cpu_coef, async_cpu_iter = fista_solver(
+            QuantileLoss(quantile=Q),
+            L1Penalty(alpha=ASYNC_L1_ALPHA),
+            async_X,
+            async_y,
+            max_iter=ASYNC_MAX_ITER,
+            tol=ASYNC_TOL,
+            sample_weight=async_weights,
+            cv_mode=False,
+        )
     async_cpu_objective = _l1_objective(
         async_X,
         async_y,
@@ -685,6 +694,7 @@ def main() -> int:
                     async_y,
                     async_weights,
                     async_cpu_objective,
+                    async_cpu_iter,
                     async_spectral_ratio,
                 )
             )
