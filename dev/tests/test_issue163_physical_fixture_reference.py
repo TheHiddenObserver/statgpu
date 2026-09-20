@@ -34,7 +34,7 @@ def _pinball(y, eta, q, sample_weight):
 
 
 def test_pr166_smooth_bootstrap_physical_gate_schema_is_locked():
-    assert smooth_gate.SCHEMA_VERSION == 6
+    assert smooth_gate.SCHEMA_VERSION == 7
     assert smooth_wrapper.EXPECTED_SCHEMA_VERSION == smooth_gate.SCHEMA_VERSION
     assert smooth_gate.BOOTSTRAP_Q != pytest.approx(0.5)
     assert 0.0 < smooth_gate.BOOTSTRAP_Q < 1.0
