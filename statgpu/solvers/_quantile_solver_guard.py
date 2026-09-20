@@ -244,6 +244,10 @@ def _validate_quantile_xy_shapes(loss, X, y, solver_name: str) -> None:
         raise ValueError(f"X must be two-dimensional for {solver_name}")
     if int(y_values.ndim) != 1:
         raise ValueError(f"y must be one-dimensional for {solver_name}")
+    if int(X_values.shape[0]) < 1:
+        raise ValueError(
+            f"X must contain at least one observation for {solver_name}"
+        )
     if int(y_values.shape[0]) != int(X_values.shape[0]):
         raise ValueError(
             f"y must have the same number of observations as X for {solver_name}"
