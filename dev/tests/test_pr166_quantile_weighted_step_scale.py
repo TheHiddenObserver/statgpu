@@ -9,6 +9,7 @@ import pytest
 
 from statgpu.losses import QuantileLoss
 from statgpu.penalties import GroupSCADPenalty, SCADPenalty
+from statgpu.solvers import _fista as fista_base
 from statgpu.solvers import _fista_lla as fista_lla_base
 from statgpu.solvers._fista import _weighted_gram_lipschitz
 from statgpu.solvers import _fista_lla_group_contract as fista_lla_contract
@@ -72,6 +73,69 @@ def test_fista_weighted_gram_uses_quantile_declared_scale():
     assert weighted_solver_scale == pytest.approx(
         weighted_loss_scale, rel=1e-12, abs=1e-14
     )
+
+
+def test_quantile_fista_skips_generic_response_magnitude_scaling(monkeypatch):
+    X = np.asarray(
+        [[1.0, 0.2], [0.4, -0.8], [-0.6, 1.1], [0.9, 0.5]],
+        dtype=np.float64,
+    )
+    y = np.asarray([25.0, -40.0, 15.0, 60.0], dtype=np.float64)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError(
+            "Quantile FISTA step scale must not use generic y-magnitude scaling"
+        )
+
+    monkeypatch.setattr(fista_base, "_abs_mean_max", forbidden)
+    with pytest.warns(Warning):
+        # max_iter=1 intentionally leaves this tiny smoke solve unconverged;
+        # the assertion is that no generic response-magnitude scaling runs.
+        coef, n_iter = fista_base.fista_solver(
+            QuantileLoss(0.35),
+            SCADPenalty(alpha=0.05),
+            X,
+            y,
+            max_iter=1,
+            tol=1e-12,
+        )
+    assert np.all(np.isfinite(np.asarray(coef)))
+    assert n_iter == 1
+
+
+def test_quantile_fista_lla_does_not_host_snapshot_response_for_y_scaling(
+    monkeypatch,
+):
+    X = np.asarray(
+        [[1.0, 0.2], [0.4, -0.8], [-0.6, 1.1], [0.9, 0.5]],
+        dtype=np.float64,
+    )
+    y = np.asarray([25.0, -40.0, 15.0, 60.0], dtype=np.float64)
+    original = fista_lla_base._to_numpy
+    response_snapshots = []
+
+    def recording_to_numpy(value):
+        array = np.asarray(value)
+        if array.shape == y.shape and np.array_equal(array, y):
+            response_snapshots.append(True)
+        return original(value)
+
+    monkeypatch.setattr(fista_lla_base, "_to_numpy", recording_to_numpy)
+    coef, intercept, n_iter = fista_lla_base.fista_lla_path(
+        QuantileLoss(0.35),
+        SCADPenalty(alpha=0.05),
+        X,
+        y,
+        alpha_path=[0.05],
+        max_lla_per_step=1,
+        max_iter=1,
+        fit_intercept=False,
+    )
+
+    assert response_snapshots == []
+    assert np.all(np.isfinite(np.asarray(coef)))
+    assert np.isfinite(float(intercept))
+    assert n_iter >= 1
 
 
 def test_quantile_weighted_step_scale_is_weight_rescaling_invariant():
