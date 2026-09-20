@@ -36,6 +36,7 @@ from ._smooth_domain import (
     _prepare_analytic_sample_weight,
 )
 from ._utils import (
+    _external_warning_stacklevel,
     _smooth_penalty_gradient,
     _smooth_penalty_value_dev,
     _validate_smooth_penalty,
@@ -358,7 +359,11 @@ def lbfgs_solver(
                 f"after 25 backtracking steps (iteration {iteration}). "
                 "Solver may stagnate.",
                 RuntimeWarning,
-                stacklevel=2,
+                stacklevel=(
+                    _external_warning_stacklevel()
+                    if str(getattr(loss, "name", "") or "").lower() == "quantile"
+                    else 2
+                ),
             )
             break
 
@@ -404,6 +409,10 @@ def lbfgs_solver(
             f"lbfgs_solver did not converge within {max_iter} iterations "
             f"(loss={getattr(loss, 'name', '?')}, penalty={getattr(penalty, 'name', '?')}).",
             ConvergenceWarning,
-            stacklevel=2,
+            stacklevel=(
+                _external_warning_stacklevel()
+                if str(getattr(loss, "name", "") or "").lower() == "quantile"
+                else 2
+            ),
         )
     return params, n_iter
