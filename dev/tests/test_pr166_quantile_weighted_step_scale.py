@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -201,6 +203,44 @@ def test_quantile_fista_lla_integer_design_preserves_fractional_response_and_wei
     np.testing.assert_allclose(coef_int, coef_float, rtol=0.0, atol=1e-14)
     assert intercept_int == pytest.approx(intercept_float, rel=0.0, abs=1e-14)
     assert n_iter_int == n_iter_float
+
+
+def test_public_quantile_fista_lla_final_allowed_inner_iteration_can_converge(
+    monkeypatch,
+):
+    X = np.asarray(
+        [[1.0, 0.2], [0.3, -0.5], [1.2, 0.7], [-0.4, 1.1]],
+        dtype=np.float64,
+    )
+    y = np.asarray([0.8, -0.2, 1.4, 0.1], dtype=np.float64)
+    staged = iter([1.0, 0.0, 0.0])
+    calls = {"value": 0}
+
+    def staged_abs_sum(value):
+        calls["value"] += 1
+        return np.asarray(next(staged), dtype=np.float64)
+
+    monkeypatch.setattr(fista_lla_base, "_abs_sum_dev", staged_abs_sum)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        coef, intercept, n_iter = fista_lla_contract.fista_lla_path(
+            QuantileLoss(0.35),
+            SCADPenalty(alpha=0.05),
+            X,
+            y,
+            alpha_path=[0.05],
+            max_lla_per_step=1,
+            max_iter=2,
+            tol=0.5,
+            lla_tol=0.5,
+            fit_intercept=False,
+        )
+
+    assert calls["value"] == 3
+    assert np.all(np.isfinite(np.asarray(coef)))
+    assert np.isfinite(float(intercept))
+    assert n_iter == 2
 
 
 def test_public_quantile_fista_lla_reports_target_budget_exhaustion():
