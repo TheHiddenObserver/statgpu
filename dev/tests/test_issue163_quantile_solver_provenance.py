@@ -1208,6 +1208,85 @@ def test_quantile_formula_route_preserves_auto_irls_identity_and_numerics():
     )
 
 
+@pytest.mark.parametrize(
+    ("formula", "fit_intercept"),
+    [
+        ("y ~ x1 + x2", True),
+        ("y ~ 0 + x1 + x2", False),
+    ],
+)
+def test_quantile_scad_formula_missing_rows_align_weights_before_special_solver(
+    monkeypatch, formula, fit_intercept
+):
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("patsy")
+    import statgpu.solvers as solvers
+
+    X, y = _data(seed=16345, n=12)
+    frame = pd.DataFrame(
+        {
+            "y": y,
+            "x1": X[:, 0],
+            "x2": X[:, 1],
+        }
+    )
+    frame.loc[4, "x2"] = np.nan
+    weights = np.linspace(0.4, 1.7, len(frame), dtype=np.float64)
+    retained = np.arange(len(frame)) != 4
+    captured = {}
+
+    def fake_solver(loss, penalty, X_fit, y_fit, alpha_path, **kwargs):
+        captured["X"] = np.asarray(X_fit, dtype=np.float64).copy()
+        captured["y"] = np.asarray(y_fit, dtype=np.float64).copy()
+        captured["weights"] = np.asarray(
+            kwargs["sample_weight"], dtype=np.float64
+        ).copy()
+        captured["fit_intercept"] = bool(kwargs["fit_intercept"])
+        return np.zeros(X_fit.shape[1], dtype=np.float64), 0.0, 1
+
+    monkeypatch.setattr(
+        solvers,
+        "proximal_irls_quantile_solver",
+        fake_solver,
+    )
+
+    model = PenalizedQuantileRegression(
+        quantile=0.35,
+        penalty="scad",
+        alpha=0.04,
+        solver="auto",
+        device="cpu",
+        max_iter=50,
+        tol=1e-7,
+    ).fit(
+        formula=formula,
+        data=frame,
+        sample_weight=weights,
+    )
+
+    expected_X = np.column_stack(
+        [
+            frame.loc[retained, "x1"].to_numpy(dtype=np.float64),
+            frame.loc[retained, "x2"].to_numpy(dtype=np.float64),
+        ]
+    )
+    np.testing.assert_allclose(captured["X"], expected_X, rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(
+        captured["y"],
+        frame.loc[retained, "y"].to_numpy(dtype=np.float64),
+        rtol=0.0,
+        atol=0.0,
+    )
+    np.testing.assert_allclose(
+        captured["weights"],
+        weights[retained],
+        rtol=0.0,
+        atol=0.0,
+    )
+    assert captured["fit_intercept"] is fit_intercept
+    assert model._selected_solver == "proximal_irls_cd"
+
+
 def test_quantile_solver_contract_installer_is_idempotent_and_signature_safe():
     from statgpu.linear_model.penalized import _fit_mixin
     from statgpu.linear_model.penalized import _quantile_solver_contract as contract
