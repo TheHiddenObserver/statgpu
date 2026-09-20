@@ -30,6 +30,8 @@ from numbers import Integral, Real
 
 import numpy as np
 
+from statgpu.backends import _to_numpy
+from statgpu.backends._array_ops import _xp, _xp_asarray
 from statgpu.penalties import AdaptiveGroupLassoPenalty
 from ._fista_lla import fista_lla_path as _base_fista_lla_path
 from ._utils import _validate_sample_weight
@@ -118,6 +120,16 @@ def _group_surrogate_factory(scad_penalty):
     if np.any(group_sizes <= 0):
         raise ValueError("group penalty contains an empty group")
 
+    feature_count = max(int(indices.max()) for indices in group_indices) + 1
+    representative_indices = np.asarray(
+        [int(indices[0]) for indices in group_indices],
+        dtype=np.int64,
+    )
+    feature_group = np.empty(feature_count, dtype=np.int64)
+    for group_id, indices in enumerate(group_indices):
+        feature_group[indices] = group_id
+    sqrt_group_sizes = np.sqrt(group_sizes)
+
     inner_penalty = AdaptiveGroupLassoPenalty(
         groups=group_indices,
         alpha=1.0,
@@ -129,34 +141,86 @@ def _group_surrogate_factory(scad_penalty):
     inner_penalty._allow_trailing_unpenalized_intercept = True
 
     def factory(per_coordinate_derivatives):
-        values = np.asarray(per_coordinate_derivatives, dtype=np.float64).ravel()
-        group_weights = np.empty(len(group_indices), dtype=np.float64)
-        for group_id, (indices, size) in enumerate(
-            zip(group_indices, group_sizes)
-        ):
-            if indices.size == 0 or int(indices.max()) >= values.size:
-                raise ValueError("LLA derivative vector is shorter than group indices")
-            derivatives = values[indices]
-            if derivatives.size != int(size):
-                raise ValueError("LLA derivative vector is shorter than group indices")
-            if not np.all(np.isfinite(derivatives)):
-                raise FloatingPointError("group LLA derivatives must be finite")
-            reference = float(derivatives[0])
-            if not np.allclose(
-                derivatives,
-                reference,
-                rtol=1e-10,
-                atol=1e-12,
-            ):
+        xp = _xp(per_coordinate_derivatives)
+        if xp.__name__ == "numpy":
+            values = np.asarray(
+                per_coordinate_derivatives, dtype=np.float64
+            ).ravel()
+            if values.size < feature_count:
                 raise ValueError(
-                    "group LLA derivatives must be constant within each group"
+                    "LLA derivative vector is shorter than group indices"
                 )
-            if reference < -1e-12:
-                raise ValueError("group LLA derivatives must be non-negative")
-            group_weights[group_id] = max(reference, 0.0) / np.sqrt(size)
+            values = values[:feature_count]
+            references = values[representative_indices]
+            reference_per_feature = references[feature_group]
+            finite = bool(np.all(np.isfinite(values)))
+            constant = bool(
+                np.all(
+                    np.abs(values - reference_per_feature)
+                    <= 1e-12 + 1e-10 * np.abs(reference_per_feature)
+                )
+            )
+            nonnegative = bool(np.all(references >= -1e-12))
+            group_weights = np.maximum(references, 0.0) / sqrt_group_sizes
+        else:
+            values = per_coordinate_derivatives.reshape(-1)
+            size = int(values.numel()) if hasattr(values, "numel") else int(values.size)
+            if size < feature_count:
+                raise ValueError(
+                    "LLA derivative vector is shorter than group indices"
+                )
+            values = values[:feature_count]
+            rep_idx = _xp_asarray(
+                representative_indices, xp.int64, values
+            )
+            group_map = _xp_asarray(feature_group, xp.int64, values)
+            sqrt_sizes = _xp_asarray(
+                sqrt_group_sizes, values.dtype, values
+            )
+            references = values[rep_idx]
+            reference_per_feature = references[group_map]
+            finite = xp.all(xp.isfinite(values))
+            constant = xp.all(
+                xp.abs(values - reference_per_feature)
+                <= 1e-12 + 1e-10 * xp.abs(reference_per_feature)
+            )
+            nonnegative = xp.all(references >= -1e-12)
+            group_weights_native = xp.maximum(
+                references,
+                _xp_asarray(0.0, values.dtype, values),
+            ) / sqrt_sizes
+            status = xp.stack([finite, constant, nonnegative]).to(
+                dtype=values.dtype
+            ) if xp.__name__ == "torch" else xp.stack(
+                [finite, constant, nonnegative]
+            ).astype(values.dtype, copy=False)
+            payload = xp.concatenate([group_weights_native, status])
+            payload_np = np.asarray(
+                _to_numpy(payload), dtype=np.float64
+            ).reshape(-1)
+            group_weights = payload_np[:-3]
+            finite, constant, nonnegative = (
+                bool(payload_np[-3] != 0.0),
+                bool(payload_np[-2] != 0.0),
+                bool(payload_np[-1] != 0.0),
+            )
+
+        if not finite:
+            raise FloatingPointError("group LLA derivatives must be finite")
+        if not constant:
+            raise ValueError(
+                "group LLA derivatives must be constant within each group"
+            )
+        if not nonnegative:
+            raise ValueError("group LLA derivatives must be non-negative")
+
         inner_penalty.set_weights(group_weights)
         return inner_penalty
 
+    # The fused engine otherwise preserves the historical custom-factory
+    # contract by supplying NumPy derivatives. This internal factory can reduce
+    # device-native derivatives to a G+3 reporting payload before host transfer.
+    factory._statgpu_accepts_native_derivatives = True
     return factory
 
 
