@@ -36,7 +36,7 @@ from statgpu.solvers import fista_solver
 from statgpu.solvers._convergence import ConvergenceWarning
 
 
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 Q = 0.35
 ATOL_OBJECTIVE = 2e-5
 ATOL_CV_SCORE = 2e-5
@@ -50,7 +50,7 @@ CV_ALPHA_GRID = np.asarray([0.03, 0.015], dtype=np.float64)
 DIRECT_MAX_ITER = 5000
 DIRECT_TOL = 1e-8
 CV_MAX_ITER = 6000
-CV_L2_TOL = 1e-8
+CV_L2_TOL = 1e-7
 CV_L1_TOL = 1e-5
 ASYNC_MAX_ITER = 6000
 ASYNC_TOL = 1e-7
@@ -761,11 +761,11 @@ def _direct(X, y, weights, *, penalty, alpha, device):
 
 
 def _cv(X, y, weights, folds, *, device, penalty="l2"):
-    # The nonsmooth L1 Quantile fixture needs a tolerance that can terminate at
-    # a pinball kink before the strict proximal line search runs out of useful
-    # floating-point steps. The 1e-5 solver tolerance is a convergence control;
-    # the separate 2e-4 CV-score tolerance checks cross-backend parity and is
-    # not the same numerical quantity. Keep the existing tighter L2 control.
+    # Quantile FISTA is nonsmooth even with an L2 penalty. The half-sample CV
+    # folds use 1e-7 so the converged CPU oracle stops before the strict proximal
+    # line search reaches the floating-point floor at a pinball kink. L1 keeps
+    # the looser 1e-5 control. These are solver stopping controls; the separate
+    # CV-score tolerances below measure cross-backend prediction-score parity.
     solver_tol = CV_L1_TOL if penalty == "l1" else CV_L2_TOL
     with warnings.catch_warnings():
         warnings.simplefilter("error", ConvergenceWarning)
