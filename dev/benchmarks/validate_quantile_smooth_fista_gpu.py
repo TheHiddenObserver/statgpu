@@ -36,12 +36,13 @@ from statgpu.solvers import fista_solver
 from statgpu.solvers._convergence import ConvergenceWarning
 
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 Q = 0.35
 ATOL_OBJECTIVE = 2e-5
 ATOL_CV_SCORE = 2e-5
 ATOL_CV_L1_SCORE = 2e-4
 ATOL_ASYNC_L1_OBJECTIVE = 5e-4
+ATOL_BOOTSTRAP_OBJECTIVE = 2e-6
 ASYNC_L1_ALPHA = 0.02
 CV_ALPHA_GRID = np.asarray([0.03, 0.015], dtype=np.float64)
 
@@ -351,6 +352,119 @@ def _standalone_bootstrap_direction_case(backend, cp, torch):
         "target_error": target_error,
         "complementary_quantile_error": wrong_direction_error,
         "median_estimate": median_estimate,
+    }
+
+
+def _standalone_bootstrap_multifeature_parity_case(
+    backend,
+    cp,
+    torch,
+):
+    """Compare multifeature bootstrap IRLS objectives with the CPU path."""
+    tau = 0.30
+    n = 64
+    B = 8
+    seed = 16697
+    rng = np.random.default_rng(16696)
+    X = rng.normal(size=(n, 2)).astype(np.float64)
+    coef0 = np.asarray([0.72, -0.31], dtype=np.float64)
+    intercept0 = 0.27
+    residual = (
+        np.linspace(-1.15, 1.05, n, dtype=np.float64)
+        + 0.025 * rng.normal(size=n)
+    )
+    y = intercept0 + X @ coef0 + residual
+
+    def solve(X_arg, y_arg, *, device):
+        model = QuantileRegression(
+            quantile=tau,
+            fit_intercept=True,
+            max_iter=1200,
+            tol=1e-8,
+            n_bootstrap=B,
+            random_state=seed,
+            device=device,
+        )
+        model.coef_ = coef0.copy()
+        model.intercept_ = float(intercept0)
+        params, _, _ = model._compute_bootstrap_batched(X_arg, y_arg)
+        return np.asarray(params, dtype=np.float64), model
+
+    cpu_params, cpu_model = solve(X, y, device="cpu")
+    if backend == "cupy":
+        Xb = cp.asarray(X, dtype=cp.float64)
+        yb = cp.asarray(y, dtype=cp.float64)
+        device = "cuda"
+        expected_device = "cuda:0"
+    else:
+        torch_device = torch.device("cuda:0")
+        Xb = torch.as_tensor(X, dtype=torch.float64, device=torch_device)
+        yb = torch.as_tensor(y, dtype=torch.float64, device=torch_device)
+        device = "torch"
+        expected_device = str(torch_device)
+    gpu_params, gpu_model = solve(Xb, yb, device=device)
+
+    center_index = min(max(int(np.ceil(tau * n)) - 1, 0), n - 1)
+    centered_residual = residual - np.sort(residual)[center_index]
+    eta = intercept0 + X @ coef0
+    schedule_rng = np.random.default_rng(seed)
+    schedule = np.stack(
+        [schedule_rng.integers(0, n, size=n, dtype=np.int64) for _ in range(B)]
+    )
+    y_batch = np.asarray(
+        [eta + centered_residual[schedule[draw]] for draw in range(B)],
+        dtype=np.float64,
+    )
+
+    def objectives(params):
+        values = []
+        for draw in range(B):
+            intercept = float(params[draw, 0])
+            coef = np.asarray(params[draw, 1:], dtype=np.float64)
+            u = y_batch[draw] - (X @ coef + intercept)
+            values.append(
+                float(
+                    np.mean(
+                        np.where(
+                            u >= 0.0,
+                            tau * u,
+                            (tau - 1.0) * u,
+                        )
+                    )
+                )
+            )
+        return np.asarray(values, dtype=np.float64)
+
+    cpu_objective = objectives(cpu_params)
+    gpu_objective = objectives(gpu_params)
+    objective_error = float(np.max(np.abs(gpu_objective - cpu_objective)))
+    if objective_error > ATOL_BOOTSTRAP_OBJECTIVE:
+        raise AssertionError(
+            f"{backend}/standalone/bootstrap-multifeature: objective parity "
+            f"error {objective_error:.3e} > {ATOL_BOOTSTRAP_OBJECTIVE:.3e}"
+        )
+    if gpu_model._bootstrap_schedule_sha256_ != cpu_model._bootstrap_schedule_sha256_:
+        raise AssertionError(
+            f"{backend}/standalone/bootstrap-multifeature: schedule identity drifted"
+        )
+    if not 1 <= int(gpu_model._bootstrap_n_iter_) <= int(gpu_model.max_iter):
+        raise AssertionError(
+            f"{backend}/standalone/bootstrap-multifeature: invalid iteration count"
+        )
+
+    return {
+        "name": f"{backend}/standalone/bootstrap-multifeature/q{tau:.2f}",
+        "backend": backend,
+        "device": expected_device,
+        "quantile": tau,
+        "fit_intercept": True,
+        "n_bootstrap": B,
+        "solver": "batched_quantile_irls",
+        "cpu_solver_n_iter": int(cpu_model._bootstrap_n_iter_),
+        "solver_n_iter": int(gpu_model._bootstrap_n_iter_),
+        "objective_error_vs_cpu": objective_error,
+        "tolerance": ATOL_BOOTSTRAP_OBJECTIVE,
+        "resampling_schedule_sha256": gpu_model._bootstrap_schedule_sha256_,
     }
 
 
@@ -713,6 +827,13 @@ def main() -> int:
         for backend in ("cupy", "torch"):
             Xb, yb, wb, device = _native_inputs(backend, X, y, weights, cp, torch)
             cases.append(_standalone_bootstrap_direction_case(backend, cp, torch))
+            cases.append(
+                _standalone_bootstrap_multifeature_parity_case(
+                    backend,
+                    cp,
+                    torch,
+                )
+            )
             for fit_intercept in (False, True):
                 cases.append(
                     _standalone_bootstrap_public_case(
@@ -840,6 +961,7 @@ def main() -> int:
             "cv_score": ATOL_CV_SCORE,
             "cv_l1_score": ATOL_CV_L1_SCORE,
             "async_weighted_l1_objective": ATOL_ASYNC_L1_OBJECTIVE,
+            "bootstrap_objective_vs_cpu": ATOL_BOOTSTRAP_OBJECTIVE,
         },
         "environment": {
             "python": platform.python_version(),
