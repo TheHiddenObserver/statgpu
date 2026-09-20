@@ -35,6 +35,7 @@ PenalizedGLM_CV = _cv_mod.PenalizedGLM_CV
 
 _POLICY_MARKER = "_statgpu_quantile_solver_policy_contract"
 _VALIDATE_MARKER = "_statgpu_quantile_solver_validate_contract"
+_CV_INIT_VALIDATE_MARKER = "_statgpu_quantile_cv_init_validate_contract"
 _CV_FIT_VALIDATE_MARKER = "_statgpu_quantile_cv_fit_validate_contract"
 _DIRECT_FIT_SOLVER_SYNC_MARKER = "_statgpu_quantile_direct_fit_solver_sync_contract"
 _CV_FIT_SOLVER_SYNC_MARKER = "_statgpu_quantile_cv_fit_solver_sync_contract"
@@ -309,6 +310,73 @@ def _sync_public_quantile_fit_controls(owner, *, cv: bool) -> None:
                 "continuation path so every alpha step can run once"
             )
         owner._lla_tol = _finite_positive(owner.lla_tol, "lla_tol")
+
+
+def _install_cv_constructor_validation() -> None:
+    """Reject Quantile CV controls before the base constructor coerces them."""
+    current = PenalizedGLM_CV.__init__
+    if _wrapper_chain_has_marker(current, _CV_INIT_VALIDATE_MARKER):
+        return
+
+    @wraps(current)
+    def _quantile_cv_init_with_strict_controls(
+        self,
+        loss="squared_error",
+        penalty="l2",
+        alpha_grid=None,
+        n_alphas=100,
+        l1_ratio=0.5,
+        cv=5,
+        cv_splits=None,
+        random_state=0,
+        device=Device.AUTO,
+        max_iter=1000,
+        tol=1e-4,
+        solver="auto",
+        cv_strategy="strict",
+        acknowledge_approx=False,
+        refine_top_k=3,
+        loss_kwargs=None,
+        penalty_kwargs=None,
+    ):
+        if _loss_name(loss) == "quantile":
+            if not isinstance(acknowledge_approx, (bool, np.bool_)):
+                raise ValueError("acknowledge_approx must be boolean")
+            if (
+                isinstance(refine_top_k, (bool, np.bool_))
+                or not isinstance(refine_top_k, Integral)
+                or int(refine_top_k) < 1
+            ):
+                raise ValueError("refine_top_k must be a positive integer")
+
+        return current(
+            self,
+            loss=loss,
+            penalty=penalty,
+            alpha_grid=alpha_grid,
+            n_alphas=n_alphas,
+            l1_ratio=l1_ratio,
+            cv=cv,
+            cv_splits=cv_splits,
+            random_state=random_state,
+            device=device,
+            max_iter=max_iter,
+            tol=tol,
+            solver=solver,
+            cv_strategy=cv_strategy,
+            acknowledge_approx=acknowledge_approx,
+            refine_top_k=refine_top_k,
+            loss_kwargs=loss_kwargs,
+            penalty_kwargs=penalty_kwargs,
+        )
+
+    setattr(
+        _quantile_cv_init_with_strict_controls,
+        _CV_INIT_VALIDATE_MARKER,
+        True,
+    )
+    _quantile_cv_init_with_strict_controls._statgpu_original = current
+    PenalizedGLM_CV.__init__ = _quantile_cv_init_with_strict_controls
 
 
 def _install_scalar_cv_penalty_object_contract() -> None:
@@ -771,6 +839,7 @@ def _reinstall_loaded_quantile_solver_layers() -> None:
 
 def install_quantile_solver_contract() -> None:
     """Install Quantile solver/provenance/scoring reconciliation idempotently."""
+    _install_cv_constructor_validation()
     _install_scalar_cv_penalty_object_contract()
     _install_public_solver_refit_sync()
     _install_policy_contract()
