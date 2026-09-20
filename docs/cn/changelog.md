@@ -14,6 +14,7 @@
 - **独立 `QuantileRegression` 推断正确性**：重抽样前会按目标分位数的经验分位点对拟合残差做中心化，使 bootstrap 误差分布的经验 τ 分位数为 0；随后 child refit 使用后端原生的 batched Quantile IRLS/MM 求解调用者请求的 Quantile 目标。多特征、非中位数 bootstrap child objective 已与独立 Quantile LP 解做回归对齐，替代此前可能在 pinball 最优点之上提前停止的 batched 次梯度/FISTA 路径。standalone 非均匀权重推断会明确报错，因为当前没有实现对应的 weighted kernel/bootstrap 推断；均匀权重继续对应等价的未加权推断目标。bootstrap 是基于可交换中心化残差的 i.i.d. residual bootstrap，不把它描述为对一般异方差稳健的 wild/multiplier bootstrap。
 - **standalone 推断生命周期与控制**：bootstrap 至少需要 2 次 resample；非法 inference method/kernel/bandwidth/停止/布尔/quantile 控制会在 backend work 前报错；Hall-Sheather/Bofinger/Chamberlain 在 `q ± h` 离开 `(0,1)`、最终 bandwidth 非有限/非正，或零点 residual density estimate 非有限/非正时都会在 covariance 发布前报错。standalone `score()` 按文档返回负 pinball loss，并支持可选解析权重。失败拟合不会保留半成品推断结果；`gpu_memory_cleanup=True` 也会正确识别执行记录中的 `cupy` backend，并覆盖成功与失败路径。
 - **runtime/API 文档**：Quantile 次梯度 runtime help 与实际导数一致；generic penalized runtime help 明确列出公开 Quantile loss surface；solver wrapper 的 reload/import-order 保持安全，并保留历史 public-module identity。
+- **光滑 Quantile FISTA 后端一致性**：NumPy、CuPy 与 Torch 的 L2/无惩罚 Quantile 回溯路径现在使用相同的逐迭代 best-accepted/objective-stability 收敛语义，避免不同后端在不同 pinball kink 上提前停止；异步的非光滑 CV 路径继续保留延迟检查策略。
 
 ### 验证
 
