@@ -9,11 +9,10 @@ import numpy as np
 
 # Pre-computed scalar constants (Python floats, safe for GPU tensor broadcast)
 _INV_SQRT_2PI = 1.0 / _math.sqrt(2.0 * _math.pi)
-# Pinball objectives are piecewise linear. Near a kink, a shared batched step
-# may need more halvings than a smooth objective before every draw remains on a
-# descending segment. Keep Armijo strict and extend only the bounded search.
-_BOOTSTRAP_MAX_BACKTRACKS = 40
-_BOOTSTRAP_ZERO_SUBGRADIENT_REFINEMENTS = 32
+# Bound the temporary B_chunk x p x p normal-equation tensor used by
+# batched bootstrap IRLS. The cap is in matrix elements, independent of dtype.
+_BOOTSTRAP_IRLS_GRAM_ELEMENT_CAP = 2_000_000
+_BOOTSTRAP_IRLS_EPS = 1e-8
 
 
 def _align_quantile_fit_inputs(X_arr, y_arr, sample_weight_arr, backend_name):
@@ -71,174 +70,189 @@ def _center_quantile_bootstrap_residuals(resid, tau, xp):
     return resid - center
 
 
-def _bootstrap_armijo_accept_mask(
-    loss_new_by_draw,
-    loss_old_by_draw,
-    grad_norm_sq_by_draw,
-    step_by_draw,
-    c1,
-    xp,
-):
-    """Return the independent Armijo decision for every bootstrap draw."""
-    armijo_residual = (
-        loss_new_by_draw
-        - loss_old_by_draw
-        + c1 * step_by_draw * grad_norm_sq_by_draw
-    )
-    # Pinball minima occur at kinks. A mathematically zero Armijo residual can
-    # land a few ulps above zero after backend reductions, so preserve the
-    # per-draw decrease requirement while accepting only solver-scale numerical
-    # slack. Meaningful objective increases remain rejected.
-    slack = _SLACK_TOLERANCE * (1.0 + xp.abs(loss_old_by_draw))
-    return armijo_residual <= slack
-
-
-def _bootstrap_armijo_accept(
-    loss_new_by_draw,
-    loss_old_by_draw,
-    grad_norm_sq_by_draw,
-    step,
-    c1,
-    xp,
-):
-    """Return whether every independent bootstrap draw satisfies Armijo."""
-    accepted = xp.all(
-        _bootstrap_armijo_accept_mask(
-            loss_new_by_draw,
-            loss_old_by_draw,
-            grad_norm_sq_by_draw,
-            step,
-            c1,
-            xp,
-        )
-    )
-    return bool(accepted.item() if hasattr(accepted, "item") else accepted)
-
-
-def _pinball_eta_gradient_values(tau):
-    """Return d rho_tau(y-eta) / d eta on positive/negative residuals."""
-    tau = float(tau)
-    return -tau, 1.0 - tau
-
-
-def _refine_pinball_zero_subgradients(
+def _batched_quantile_irls(
     X,
-    d_eta,
-    zero_mask,
+    y_matrix,
+    init_params,
     tau,
-    lipschitz,
-    n_samples,
+    *,
+    max_iter,
+    tol,
     xp,
 ):
-    """Choose a near-minimum-norm valid subgradient at pinball kinks.
+    """Solve independent bootstrap Quantile problems by batched IRLS/MM.
 
-    Nonzero residuals have fixed eta-gradients. Each exact-zero residual may
-    independently choose any value in [-tau, 1-tau]. Projected gradient descent
-    minimizes ||X.T @ d_eta / n||^2 over those box-constrained zero-residual
-    coordinates, so multifeature kink solutions are not forced to share one
-    intercept-balancing subgradient value.
+    Parameters
+    ----------
+    X : array, shape (n, p)
+        Numerical design, including the intercept column when requested.
+    y_matrix : array, shape (n, B)
+        Bootstrap responses, one draw per column.
+    init_params : array, shape (p,)
+        Fitted full-sample parameter vector used as a warm start.
+    tau : float
+        Target quantile.
+    max_iter : int
+        Maximum IRLS iterations for every draw chunk.
+    tol : float
+        Maximum coefficient-change norm required for convergence.
+    xp : module
+        NumPy, CuPy, or Torch module owning the numerical arrays.
+
+    Returns
+    -------
+    params : array, shape (p, B)
+        Converged bootstrap parameter matrix on the active backend/device.
+    n_iter : int
+        Maximum IRLS iterations used by any draw chunk.
+    chunk_size : int
+        Number of bootstrap draws solved together in each normal-equation batch.
     """
-    has_zero = xp.any(zero_mask)
-    if not bool(has_zero.item() if hasattr(has_zero, "item") else has_zero):
-        return d_eta
+    from statgpu.backends._utils import xp_asarray, xp_eye
 
-    step = float(n_samples) / max(float(lipschitz), 1e-30)
-    lower = -float(tau)
-    upper = 1.0 - float(tau)
-    refined = d_eta
-    for _ in range(_BOOTSTRAP_ZERO_SUBGRADIENT_REFINEMENTS):
-        score = X.T @ refined / float(n_samples)
-        zero_direction = X @ score / float(n_samples)
-        candidate = refined - step * zero_direction
-        if xp.__name__ == "torch":
-            candidate = xp.clamp(candidate, min=lower, max=upper)
-        else:
-            candidate = xp.clip(candidate, lower, upper)
-        refined = xp.where(zero_mask, candidate, refined)
-    return refined
-
-
-def _bootstrap_fista_extrapolate(
-    coef_new,
-    coef_old,
-    t_old,
-    settled_draws,
-    xp,
-):
-    """Apply FISTA momentum without reactivating draws settled at a kink."""
-    t_new = 0.5 * (1.0 + (1.0 + 4.0 * t_old * t_old) ** 0.5)
-    momentum_delta = coef_new - coef_old
-    momentum_delta = xp.where(
-        settled_draws[None, :],
-        xp.zeros_like(momentum_delta),
-        momentum_delta,
+    X_work = xp_asarray(
+        X,
+        dtype=xp.float64,
+        xp=xp,
+        ref_arr=X,
     )
-    z_new = coef_new + ((t_old - 1.0) / t_new) * momentum_delta
-    return z_new, t_new
+    y_work = xp_asarray(
+        y_matrix,
+        dtype=xp.float64,
+        xp=xp,
+        ref_arr=X_work,
+    )
+    init = xp_asarray(
+        init_params,
+        dtype=xp.float64,
+        xp=xp,
+        ref_arr=X_work,
+    ).reshape(-1)
 
+    n = int(X_work.shape[0])
+    p = int(X_work.shape[1])
+    B = int(y_work.shape[1])
+    if int(y_work.shape[0]) != n:
+        raise ValueError("bootstrap response matrix must have n_samples rows")
+    if int(init.shape[0]) != p:
+        raise ValueError("bootstrap init_params must match numerical design width")
+    if B < 1:
+        raise ValueError("bootstrap response matrix must contain at least one draw")
 
-def _pinball_zero_eta_gradient_by_draw(residual, tau, xp):
-    """Choose a valid zero-residual subgradient independently for each draw.
-
-    Centered residual bootstrap samples can contain exact zeros.  At those
-    pinball kinks the eta-gradient is set-valued on [-tau, 1-tau].  Choose one
-    common value for the zero residuals in each bootstrap draw that balances
-    the draw's scalar score whenever that is possible, then clip to the valid
-    subgradient interval.  This prevents an already-optimal kink from being
-    assigned an artificial ascent direction while keeping every selected
-    derivative inside the exact pinball subdifferential.
-    """
+    gram_per_draw = max(p * p, 1)
+    chunk_size = max(
+        1,
+        min(
+            B,
+            int(_BOOTSTRAP_IRLS_GRAM_ELEMENT_CAP // gram_per_draw),
+        ),
+    )
+    eye = xp_eye(
+        p,
+        xp.float64,
+        xp,
+        ref_arr=X_work,
+    )
+    chunks = []
+    max_used_iter = 0
     tau = float(tau)
-    grad_positive, grad_negative = _pinball_eta_gradient_values(tau)
-    positive = residual > 0
-    negative = residual < 0
-    zero = ~(positive | negative)
+    eps = float(_BOOTSTRAP_IRLS_EPS)
 
-    if xp.__name__ == "torch":
-        positive_count = xp.sum(positive, dim=0).to(dtype=residual.dtype)
-        negative_count = xp.sum(negative, dim=0).to(dtype=residual.dtype)
-        zero_count = xp.sum(zero, dim=0).to(dtype=residual.dtype)
-    else:
-        positive_count = xp.sum(positive, axis=0).astype(
-            residual.dtype, copy=False
-        )
-        negative_count = xp.sum(negative, axis=0).astype(
-            residual.dtype, copy=False
-        )
-        zero_count = xp.sum(zero, axis=0).astype(
-            residual.dtype, copy=False
-        )
+    for start in range(0, B, chunk_size):
+        stop = min(start + chunk_size, B)
+        y_chunk = y_work[:, start:stop]
+        width = int(stop - start)
+        if xp.__name__ == "torch":
+            beta = init.reshape(-1, 1).repeat(1, width)
+        else:
+            beta = xp.repeat(init.reshape(-1, 1), width, axis=1)
 
-    fixed_score = (
-        float(grad_positive) * positive_count
-        + float(grad_negative) * negative_count
-    )
-    safe_zero_count = xp.where(
-        zero_count > 0,
-        zero_count,
-        xp.ones_like(zero_count),
-    )
-    zero_gradient = -fixed_score / safe_zero_count
-    if xp.__name__ == "torch":
-        zero_gradient = xp.clamp(
-            zero_gradient,
-            min=float(grad_positive),
-            max=float(grad_negative),
-        )
+        converged = False
+        for iteration in range(int(max_iter)):
+            residual = y_chunk - X_work @ beta
+            abs_residual = xp.abs(residual)
+            if xp.__name__ == "torch":
+                eps_arr = xp.as_tensor(
+                    eps,
+                    dtype=abs_residual.dtype,
+                    device=abs_residual.device,
+                )
+                abs_safe = xp.maximum(abs_residual, eps_arr)
+                negative = (residual < 0.0).to(abs_residual.dtype)
+            else:
+                abs_safe = xp.maximum(abs_residual, eps)
+                negative = (residual < 0.0).astype(
+                    abs_residual.dtype,
+                    copy=False,
+                )
+
+            weight = (
+                tau + (1.0 - 2.0 * tau) * negative
+            ) / abs_safe
+
+            # One weighted normal equation per bootstrap draw. Keep the
+            # draw dimension batched while chunking B to bound B*p*p memory.
+            gram = xp.einsum(
+                "ni,nb,nj->bij",
+                X_work,
+                weight,
+                X_work,
+            )
+            rhs = xp.einsum(
+                "ni,nb->bi",
+                X_work,
+                weight * y_chunk,
+            )
+            system = gram + eps * eye[None, :, :]
+            solved = xp.linalg.solve(
+                system,
+                rhs[..., None],
+            )[..., 0]
+            beta_new = solved.T
+
+            finite = xp.all(xp.isfinite(beta_new))
+            if not bool(finite.item() if hasattr(finite, "item") else finite):
+                raise FloatingPointError(
+                    "QuantileRegression bootstrap IRLS produced non-finite "
+                    "parameters"
+                )
+
+            delta_by_draw = xp.sqrt(
+                xp.sum((beta_new - beta) * (beta_new - beta), axis=0)
+            )
+            max_delta = xp.max(delta_by_draw)
+            max_delta_value = float(
+                max_delta.item() if hasattr(max_delta, "item") else max_delta
+            )
+            beta = beta_new
+            if max_delta_value < float(tol):
+                converged = True
+                used_iter = iteration + 1
+                break
+
+        if not converged:
+            raise RuntimeError(
+                "QuantileRegression bootstrap IRLS did not converge within "
+                f"{int(max_iter)} iterations"
+            )
+
+        max_used_iter = max(max_used_iter, int(used_iter))
+        chunks.append(beta)
+
+    if len(chunks) == 1:
+        params = chunks[0]
+    elif xp.__name__ == "torch":
+        params = xp.cat(chunks, dim=1)
     else:
-        zero_gradient = xp.clip(
-            zero_gradient,
-            float(grad_positive),
-            float(grad_negative),
-        )
-    return zero_gradient
+        params = xp.concatenate(chunks, axis=1)
+    return params, max_used_iter, chunk_size
+
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.losses._quantile import QuantileLoss
 from statgpu.solvers import fista_solver
 from statgpu.solvers._convergence import ConvergenceWarning
-from statgpu.solvers._constants import _SLACK_TOLERANCE
 
 
 class QuantileRegression(BaseEstimator):
@@ -259,7 +273,7 @@ class QuantileRegression(BaseEstimator):
         If True, compute SE, p-values, CI.
     inference_method : str, default='kernel'
         'kernel': Powell (1991) sandwich covariance with kernel density.
-        'bootstrap': i.i.d. residual bootstrap (batched FISTA) with percentile
+        'bootstrap': i.i.d. residual bootstrap (batched Quantile IRLS/MM) with percentile
             CI, bootstrap sign-test p-values, and bootstrap std errors. Fitted
             residuals are centered at their empirical tau-quantile before
             resampling so the bootstrap error distribution preserves a zero
@@ -346,6 +360,7 @@ class QuantileRegression(BaseEstimator):
         self._bootstrap_n_iter_ = None
         self._bootstrap_schedule_sha256_ = None
         self._bootstrap_residual_centering_ = None
+        self._bootstrap_draw_chunk_size_ = None
         self._fitted = False
         self._selected_backend_name = None
         self._selected_backend_device = None
@@ -1002,38 +1017,64 @@ class QuantileRegression(BaseEstimator):
         result.apply_to(self)
 
     def _compute_bootstrap_batched(self, X, y):
-        """Batched pinball FISTA — solves all B bootstrap samples in parallel.
+        """Solve all residual-bootstrap Quantile refits with batched IRLS/MM.
 
-        Works on all backends (CPU/GPU).  The pinball loss is convex but not
-        strictly convex; different backends may produce different but equally
-        valid solutions that minimize the same objective.
+        Bootstrap responses stay on the fit-recorded numerical backend/device.
+        Draws share the same design but own independent IRLS weights and
+        weighted normal equations. The draw dimension is chunked to bound
+        temporary B*p*p memory while NumPy, CuPy, and Torch execute the same
+        float64 numerical algorithm.
         """
         from statgpu.backends import _to_numpy, _resolve_backend
-        from statgpu.backends._utils import _get_xp, xp_ones, xp_zeros, xp_asarray
+        from statgpu.backends._utils import _get_xp, xp_ones, xp_asarray
+
         backend = _resolve_backend("auto", X)
         xp = _get_xp(backend)
-        is_torch = (backend == "torch")
-        n = X.shape[0]; tau = self._quantile; p = X.shape[1]
+        is_torch = backend == "torch"
+        n = int(X.shape[0])
+        tau = self._quantile
 
         if self._fit_intercept:
             ones = xp_ones((n, 1), X.dtype, xp, ref_arr=X)
-            Xd = xp.cat([ones, X], dim=1) if is_torch else xp.column_stack([ones, X])
-            inter = xp_asarray([self.intercept_], dtype=X.dtype, xp=xp, ref_arr=X)
-            cf = xp_asarray(self.coef_, dtype=X.dtype, xp=xp, ref_arr=X)
+            Xd = (
+                xp.cat([ones, X], dim=1)
+                if is_torch
+                else xp.column_stack([ones, X])
+            )
+            inter = xp_asarray(
+                [self.intercept_],
+                dtype=X.dtype,
+                xp=xp,
+                ref_arr=X,
+            )
+            cf = xp_asarray(
+                self.coef_,
+                dtype=X.dtype,
+                xp=xp,
+                ref_arr=X,
+            )
             params = xp.concatenate([inter, cf])
         else:
-            Xd = X; p = X.shape[1]
-            params = xp_asarray(self.coef_, dtype=X.dtype, xp=xp, ref_arr=X)
-        p = Xd.shape[1]
+            Xd = X
+            params = xp_asarray(
+                self.coef_,
+                dtype=X.dtype,
+                xp=xp,
+                ref_arr=X,
+            )
 
         eta = Xd @ params
         resid = (y - eta).ravel()
         resid = _center_quantile_bootstrap_residuals(resid, tau, xp)
         self._bootstrap_residual_centering_ = "empirical_tau_quantile"
+
         B = self._n_bootstrap
         rng = np.random.default_rng(self.random_state)
         schedule = np.stack(
-            [rng.integers(0, n, size=n, dtype=np.int64) for _ in range(B)],
+            [
+                rng.integers(0, n, size=n, dtype=np.int64)
+                for _ in range(B)
+            ],
             axis=0,
         )
         normalized_schedule = np.ascontiguousarray(schedule, dtype="<i8")
@@ -1042,255 +1083,30 @@ class QuantileRegression(BaseEstimator):
         ).hexdigest()
 
         # Only the deterministic integer resampling schedule lives on the CPU
-        # control plane. Residual gathering and bootstrap-response construction
-        # stay on the actual numerical backend/device.
+        # control plane. Residual gathering and response construction stay on
+        # the concrete numerical backend/device.
         schedule_native = _bootstrap_schedule_to_backend(
             schedule,
             resid,
             backend,
             xp,
         )
-        y_gpu = eta[None, :] + resid[schedule_native]
+        y_boot = eta[None, :] + resid[schedule_native]
+        y_matrix = y_boot.T
 
-        # Lipschitz constant + backtracking line search. Bootstrap responses
-        # are constructed around the fitted eta, so each child solve starts from
-        # that fitted parameter vector rather than from an unrelated zero model.
-        # This is both a valid warm start and makes the centered residual sample
-        # the exact initial bootstrap residual, including its target-quantile
-        # zero observations.
-        L0 = max(float(xp.linalg.norm(Xd, ord=2)) ** 2 / n, 1e-10)
-        if is_torch:
-            coef = params.reshape(-1, 1).repeat(1, B)
-        else:
-            coef = xp.repeat(params.reshape(-1, 1), B, axis=1)
-        z = coef.clone() if is_torch else coef.copy()
-        c1 = 1e-4
-        t_iter = 1.0
-        is_cupy = (not is_torch and hasattr(xp, 'fuse'))
-        converged = False
-        best_obj_stable_count = 0
-
-        # CuPy: pre-allocate scratch arrays to avoid allocation in hot loop
-        if is_cupy:
-            _d_eta_buf = xp.empty_like(y_gpu.T)
-            _loss_buf = xp.empty_like(y_gpu.T)
-            grad_positive, grad_negative = _pinball_eta_gradient_values(tau)
-            @xp.fuse()
-            def _pinball_grad_kernel(_r, _zero_gradient, _out):
-                _out[:] = xp.where(
-                    _r > 0,
-                    float(grad_positive),
-                    xp.where(
-                        _r < 0,
-                        float(grad_negative),
-                        _zero_gradient,
-                    ),
-                )
-            @xp.fuse()
-            def _pinball_loss_kernel(_r, _out):
-                _out[:] = xp.where(_r > 0, float(tau) * _r, float(tau - 1.0) * _r)
-
-        # Include the actual starting coefficient matrix in per-draw best-iterate
-        # tracking.  A shared step can only be accepted when every draw descends,
-        # but each draw still owns its own best objective/parameter snapshot.
-        r_initial = y_gpu.T - Xd @ coef
-        if is_cupy:
-            _pinball_loss_kernel(r_initial, _loss_buf)
-            initial_obj_by_draw = xp.sum(_loss_buf, axis=0) / n
-        else:
-            initial_entries = xp.where(
-                r_initial > 0,
-                tau * r_initial,
-                (tau - 1.0) * r_initial,
-            )
-            initial_obj_by_draw = xp.sum(initial_entries, axis=0) / n
-        best_obj = (
-            initial_obj_by_draw.clone()
-            if is_torch
-            else initial_obj_by_draw.copy()
+        boot_coef, used_iter, chunk_size = _batched_quantile_irls(
+            Xd,
+            y_matrix,
+            params,
+            tau,
+            max_iter=self._max_iter,
+            tol=self._tol,
+            xp=xp,
         )
-        best_coef = coef.clone() if is_torch else coef.copy()
+        self._bootstrap_n_iter_ = int(used_iter)
+        self._bootstrap_draw_chunk_size_ = int(chunk_size)
 
-        for iteration in range(self._max_iter):
-            # ---- Gradient (all backends) ----
-            pred_z = Xd @ z
-            r_z = y_gpu.T - pred_z  # (n, B)
-
-            # Element-wise pinball gradient. Exact zero residuals are
-            # kinks. Start from the intercept-balanced choice, then allow each
-            # zero-residual observation to move independently inside the valid
-            # subgradient interval so the full multifeature score is minimized.
-            zero_mask = r_z == 0.0
-            zero_gradient = _pinball_zero_eta_gradient_by_draw(r_z, tau, xp)
-            if is_cupy:
-                _pinball_grad_kernel(r_z, zero_gradient, _d_eta_buf)
-                d_eta = _d_eta_buf
-            else:
-                grad_positive, grad_negative = _pinball_eta_gradient_values(tau)
-                d_eta = xp.where(
-                    r_z > 0,
-                    float(grad_positive),
-                    xp.where(
-                        r_z < 0,
-                        float(grad_negative),
-                        zero_gradient[None, :],
-                    ),
-                )
-                if is_torch:
-                    d_eta = d_eta.to(Xd.dtype)
-
-            d_eta = _refine_pinball_zero_subgradients(
-                Xd,
-                d_eta,
-                zero_mask,
-                tau,
-                L0,
-                n,
-                xp,
-            )
-            grad = Xd.T @ d_eta / n
-
-            # Draws are independent even though they share a vectorized line
-            # search. Freeze any draw whose selected subgradient is already
-            # below tolerance so roundoff cannot move an exact kink optimum and
-            # make that draw veto every positive shared step.
-            if is_torch:
-                grad_inf_by_draw = xp.amax(xp.abs(grad), dim=0)
-            else:
-                grad_inf_by_draw = xp.max(xp.abs(grad), axis=0)
-            settled_draws = grad_inf_by_draw < self._tol
-            grad = xp.where(
-                settled_draws[None, :],
-                xp.zeros_like(grad),
-                grad,
-            )
-
-            # A tiny selected subgradient for every draw is a valid fast-path.
-            all_settled = xp.all(settled_draws)
-            if bool(all_settled.item() if hasattr(all_settled, "item") else all_settled):
-                converged = True
-                # The convergence test is evaluated at the extrapolated point z,
-                # so publish that point rather than an older best iterate.
-                best_coef = z.clone() if is_torch else z.copy()
-                break
-
-            # ---- Backtracking line search ----
-            # Every coefficient column is an independent bootstrap problem.
-            # Keep the matrix operations batched, but let each draw own its
-            # Armijo step so a draw near a pinball kink cannot force all other
-            # draws onto the same repeatedly-halved step.
-            if is_cupy:
-                _pinball_loss_kernel(r_z, _loss_buf)
-                loss_z_by_draw = xp.sum(_loss_buf, axis=0) / n
-            else:
-                loss_entries_z = xp.where(
-                    r_z > 0, tau * r_z, (tau - 1.0) * r_z
-                )
-                loss_z_by_draw = xp.sum(loss_entries_z, axis=0) / n
-            grad_norm_sq_by_draw = xp.sum(grad * grad, axis=0)
-            step_by_draw = xp.ones_like(loss_z_by_draw) * (1.0 / L0)
-
-            accepted = False
-            for _ in range(_BOOTSTRAP_MAX_BACKTRACKS):
-                coef_new = z - grad * step_by_draw[None, :]
-                pred_new = Xd @ coef_new
-                r_new = y_gpu.T - pred_new
-                if is_cupy:
-                    _pinball_loss_kernel(r_new, _loss_buf)
-                    loss_new_by_draw = xp.sum(_loss_buf, axis=0) / n
-                else:
-                    loss_entries_new = xp.where(
-                        r_new > 0, tau * r_new, (tau - 1.0) * r_new
-                    )
-                    loss_new_by_draw = xp.sum(loss_entries_new, axis=0) / n
-
-                accepted_by_draw = _bootstrap_armijo_accept_mask(
-                    loss_new_by_draw,
-                    loss_z_by_draw,
-                    grad_norm_sq_by_draw,
-                    step_by_draw,
-                    c1,
-                    xp,
-                )
-                all_accepted = xp.all(accepted_by_draw)
-                if bool(
-                    all_accepted.item()
-                    if hasattr(all_accepted, "item")
-                    else all_accepted
-                ):
-                    accepted = True
-                    break
-                step_by_draw = xp.where(
-                    accepted_by_draw,
-                    step_by_draw,
-                    0.5 * step_by_draw,
-                )
-
-            if not accepted:
-                self._bootstrap_n_iter_ = iteration + 1
-                raise RuntimeError(
-                    "QuantileRegression bootstrap FISTA line search failed "
-                    f"after {iteration + 1} iterations"
-                )
-
-            # Track each bootstrap draw independently.  Pinball minima occur at
-            # kinks where one arbitrary subgradient need not approach zero, so
-            # convergence is based on coefficient stability or sustained lack
-            # of improvement in the best per-draw objective.
-            coef_delta_by_draw = xp.sum(xp.abs(coef_new - coef), axis=0)
-            max_coef_delta = float(xp.max(coef_delta_by_draw))
-
-            improvement = best_obj - loss_new_by_draw
-            positive_improvement = xp.where(
-                improvement > 0,
-                improvement,
-                xp.zeros_like(improvement),
-            )
-            scale = xp.where(
-                xp.abs(best_obj) > 1.0,
-                xp.abs(best_obj),
-                xp.ones_like(best_obj),
-            )
-            relative_best_improvement = float(
-                xp.max(positive_improvement / scale)
-            )
-            improved = loss_new_by_draw < best_obj
-            best_obj = xp.where(improved, loss_new_by_draw, best_obj)
-            best_coef[:, improved] = coef_new[:, improved]
-
-            if max_coef_delta < self._tol:
-                converged = True
-                coef = coef_new
-                break
-
-            if iteration > 20:
-                if relative_best_improvement < self._tol:
-                    best_obj_stable_count += 1
-                    if best_obj_stable_count >= 10:
-                        converged = True
-                        coef = coef_new
-                        break
-                else:
-                    best_obj_stable_count = 0
-
-            # ---- FISTA momentum update ----
-            z, t_new = _bootstrap_fista_extrapolate(
-                coef_new,
-                coef,
-                t_iter,
-                settled_draws,
-                xp,
-            )
-            coef = coef_new
-            t_iter = t_new
-
-        self._bootstrap_n_iter_ = iteration + 1
-        if not converged:
-            raise RuntimeError(
-                "QuantileRegression bootstrap FISTA did not converge within "
-                f"{self._max_iter} iterations"
-            )
-        return np.asarray(_to_numpy(best_coef.T)), params, Xd
+        return np.asarray(_to_numpy(boot_coef.T)), params, Xd
 
     def _compute_inference_bootstrap(self, X, y):
         """I.i.d. residual-bootstrap inference for quantile regression.
@@ -1301,9 +1117,10 @@ class QuantileRegression(BaseEstimator):
         zero, including for no-intercept fits. It is not the wild/multiplier
         bootstrap used for general heteroscedastic quantile-regression inference.
 
-        Uses batched pinball FISTA for all backends (CPU/GPU), solving all B
-        bootstrap samples in parallel via a single ``(p, B)`` coefficient matrix.
-        This gives numerically identical results across backends (same rng seed).
+        Uses batched Quantile IRLS/MM for all backends (CPU/GPU). Draws share
+        the design but own independent IRLS weights and weighted normal
+        equations; draw chunks bound temporary Gram-matrix memory while keeping
+        the numerical work backend-native.
 
         Inference outputs:
         - Standard errors: bootstrap std (ddof=1)
@@ -1311,10 +1128,9 @@ class QuantileRegression(BaseEstimator):
         - Confidence intervals: percentile bootstrap (2.5%, 97.5%)
 
         .. note::
-           Batched FISTA does NOT call ``fista_solver()`` because the general
-           solver API operates on ``(p,)`` coefficients.  The batched variant
-           works on ``(p, B)`` coefficients for parallel solves and includes
-           its own backtracking line search with Armijo condition.
+           Bootstrap child refits use the Quantile-specific IRLS/MM objective,
+           not the generic smooth-gradient FISTA route. This avoids treating the
+           pinball loss's set-valued kink subgradient as a smooth gradient.
         """
         if self._fit_intercept:
             params = np.concatenate([[self.intercept_], self.coef_])
@@ -1372,9 +1188,9 @@ class QuantileRegression(BaseEstimator):
                     else repr(self.random_state)
                 ),
                 "response_construction": "backend_native",
-                "solver": "batched_pinball_fista",
+                "solver": "batched_quantile_irls",
                 "solver_n_iter": int(self._bootstrap_n_iter_),
-                "max_backtracks_per_iteration": _BOOTSTRAP_MAX_BACKTRACKS,
+                "draw_chunk_size": int(self._bootstrap_draw_chunk_size_),
                 "backend": getattr(self, "_selected_backend_name", "numpy"),
                 "numerical_backend": getattr(
                     self, "_selected_backend_name", "numpy"
