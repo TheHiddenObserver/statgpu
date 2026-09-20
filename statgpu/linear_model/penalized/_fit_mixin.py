@@ -1889,6 +1889,7 @@ class _PenalizedFitMixin:
                 self._loss, pen, X_work, y_arr,
                 max_iter=self._max_iter, tol=self._tol,
                 init_coef=init, sample_weight=sample_weight,
+                lipschitz_L=self.lipschitz_L,
             )
         elif _use_quantile_cd:
             # Quantile + SCAD/MCP: use Proximal IRLS (IRLS quadratic majorization
@@ -2160,6 +2161,7 @@ class _PenalizedFitMixin:
                     self._loss, pen, X_work, y_arr,
                     max_iter=self._max_iter, tol=self._tol,
                     init_coef=init, sample_weight=sample_weight,
+                    lipschitz_L=self.lipschitz_L,
                 )
             elif backend_name != "numpy":
                 coef_gpu, intercept, n_iter = self._block_cd_group_lasso_gpu(
@@ -2206,6 +2208,7 @@ class _PenalizedFitMixin:
                     self._loss, pen, X_work, y_arr,
                     max_iter=self._max_iter, tol=self._tol,
                     init_coef=init, sample_weight=sample_weight,
+                    lipschitz_L=self.lipschitz_L,
                 )
         elif solver_name == "fista_bb":
             params, n_iter = fista_bb_solver(
@@ -2258,6 +2261,7 @@ class _PenalizedFitMixin:
                 self._loss, pen, X_work, y_arr,
                 max_iter=self._max_iter, tol=self._tol,
                 init_coef=init, sample_weight=sample_weight,
+                lipschitz_L=self.lipschitz_L,
             )
         else:
             raise ValueError(f"Unsupported solver: {solver_name}")
