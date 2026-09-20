@@ -57,6 +57,16 @@ def _bootstrap_schedule_to_backend(schedule, resid, backend, xp):
     return schedule
 
 
+def _center_quantile_bootstrap_residuals(resid, tau, xp):
+    """Center residuals at their empirical tau-quantile on the active backend."""
+    from statgpu.solvers._quantile_continuation import (
+        _lower_empirical_quantile_backend,
+    )
+
+    center = _lower_empirical_quantile_backend(resid, float(tau), xp)
+    return resid - center
+
+
 def _bootstrap_armijo_accept(
     loss_new_by_draw,
     loss_old_by_draw,
@@ -112,8 +122,11 @@ class QuantileRegression(BaseEstimator):
     inference_method : str, default='kernel'
         'kernel': Powell (1991) sandwich covariance with kernel density.
         'bootstrap': i.i.d. residual bootstrap (batched FISTA) with percentile
-            CI, bootstrap sign-test p-values, and bootstrap std errors. This is
-            an exchangeable-residual procedure; it is not a wild/multiplier
+            CI, bootstrap sign-test p-values, and bootstrap std errors. Fitted
+            residuals are centered at their empirical tau-quantile before
+            resampling so the bootstrap error distribution preserves a zero
+            tau-quantile. This is an exchangeable-residual procedure; it is not
+            a wild/multiplier
             bootstrap and does not claim heteroscedastic-robust coverage.
             All backends (CPU/GPU) use the same batched solver for consistency.
     kernel : str, default='epa'
@@ -194,6 +207,7 @@ class QuantileRegression(BaseEstimator):
         self._inference_result = None
         self._bootstrap_n_iter_ = None
         self._bootstrap_schedule_sha256_ = None
+        self._bootstrap_residual_centering_ = None
         self._fitted = False
         self._selected_backend_name = None
         self._selected_backend_device = None
@@ -876,6 +890,8 @@ class QuantileRegression(BaseEstimator):
 
         eta = Xd @ params
         resid = (y - eta).ravel()
+        resid = _center_quantile_bootstrap_residuals(resid, tau, xp)
+        self._bootstrap_residual_centering_ = "empirical_tau_quantile"
         B = self._n_bootstrap
         rng = np.random.default_rng(self.random_state)
         schedule = np.stack(
@@ -1075,9 +1091,11 @@ class QuantileRegression(BaseEstimator):
     def _compute_inference_bootstrap(self, X, y):
         """I.i.d. residual-bootstrap inference for quantile regression.
 
-        This procedure resamples fitted residuals as exchangeable draws. It is
-        not the wild/multiplier bootstrap used for general heteroscedastic
-        quantile-regression inference.
+        This procedure centers fitted residuals at their empirical tau-quantile
+        and resamples the centered residuals as exchangeable draws. The
+        centering keeps the bootstrap error distribution's tau-quantile at
+        zero, including for no-intercept fits. It is not the wild/multiplier
+        bootstrap used for general heteroscedastic quantile-regression inference.
 
         Uses batched pinball FISTA for all backends (CPU/GPU), solving all B
         bootstrap samples in parallel via a single ``(p, B)`` coefficient matrix.
@@ -1136,6 +1154,7 @@ class QuantileRegression(BaseEstimator):
             metadata={
                 "n_bootstrap": self._n_bootstrap,
                 "bootstrap_type": "iid_residual",
+                "residual_centering": "empirical_tau_quantile",
                 "heteroscedastic_robust": False,
                 "ci_method": "percentile",
                 "pvalue_method": "bootstrap_sign_test",
