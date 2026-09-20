@@ -119,8 +119,7 @@ def _quantile_irls_weights(loss, X_work, y, params, sw, xp, backend):
     obs_weight = asym / abs_safe
     if sw is not None:
         obs_weight = obs_weight * sw
-    cap = _backend_scalar(1.0e10, ref=obs_weight, xp=xp, backend=backend)
-    return xp.minimum(obs_weight, cap)
+    return obs_weight
 
 
 def _all_zero(values) -> bool:
