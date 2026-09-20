@@ -165,6 +165,25 @@ def test_typed_quantile_runtime_help_names_ordinary_fista_boundary():
     assert "fail closed" not in doc.lower()
 
 
+def test_public_quantile_solver_runtime_help_avoids_internal_review_vocabulary():
+    public_solvers = (
+        solvers.fista_solver,
+        solvers.fista_bb_solver,
+        solvers.proximal_irls_quantile_solver,
+        solvers.quantile_cd_solver,
+        solvers.lbfgs_solver,
+        solvers.lbfgs_b_solver,
+        solvers.admm_solver,
+        solvers.newton_solver,
+        solvers.proximal_newton_solver,
+    )
+    for solver in public_solvers:
+        doc = (inspect.getdoc(solver) or "").lower()
+        assert "maintained" not in doc, solver.__name__
+        assert "fail closed" not in doc, solver.__name__
+        assert "fail-closed" not in doc, solver.__name__
+
+
 def test_typed_quantile_runtime_help_documents_loss_kwargs_precedence():
     doc = " ".join((inspect.getdoc(PenalizedQuantileRegression) or "").split())
     assert "loss_kwargs={'quantile': q}" in doc
@@ -436,6 +455,7 @@ def test_secondary_public_guides_keep_their_declared_layer():
 
 def test_public_solver_docs_do_not_expose_internal_review_vocabulary():
     cn_internal_status_phrases = (
+        "维护中的",
         "维护中的路径",
         "维护路径",
         "维护的路径",
