@@ -11,15 +11,10 @@ from statgpu.linear_model import QuantileRegression
 import statgpu.backends._utils as _backend_utils
 from statgpu.solvers._convergence import ConvergenceWarning
 from statgpu.linear_model.wrappers._quantile import (
-    _BOOTSTRAP_MAX_BACKTRACKS,
     _align_quantile_fit_inputs,
-    _bootstrap_armijo_accept,
-    _bootstrap_armijo_accept_mask,
-    _bootstrap_fista_extrapolate,
+    _batched_quantile_irls,
     _bootstrap_schedule_to_backend,
     _center_quantile_bootstrap_residuals,
-    _pinball_zero_eta_gradient_by_draw,
-    _refine_pinball_zero_subgradients,
 )
 
 
@@ -699,7 +694,7 @@ class TestQuantileRegression:
         assert len(calls) == 1
         assert torch.is_tensor(calls[0])
 
-    def test_nonmedian_batched_bootstrap_torch_cpu_runs_armijo(self):
+    def test_nonmedian_batched_bootstrap_torch_cpu_runs_irls(self):
         torch = pytest.importorskip("torch")
 
         tau = 0.2
@@ -795,193 +790,39 @@ class TestQuantileRegression:
         np.testing.assert_allclose(boot_params, 0.0, rtol=0.0, atol=0.0)
         assert model._bootstrap_n_iter_ == 1
 
-    def test_batched_bootstrap_backtracking_budget_is_bounded(self):
-        assert _BOOTSTRAP_MAX_BACKTRACKS == 40
-
-    def test_batched_bootstrap_momentum_keeps_settled_draws_fixed(self):
-        coef_old = np.asarray(
-            [[0.2, -0.4], [0.1, 0.3]],
-            dtype=np.float64,
-        )
-        coef_new = np.asarray(
-            [[0.5, -0.2], [0.4, 0.6]],
-            dtype=np.float64,
-        )
-        settled = np.asarray([True, False])
-
-        z_new, t_new = _bootstrap_fista_extrapolate(
-            coef_new,
-            coef_old,
-            2.0,
-            settled,
-            np,
-        )
-
-        np.testing.assert_array_equal(z_new[:, 0], coef_new[:, 0])
-        assert t_new > 2.0
-        assert np.any(z_new[:, 1] != coef_new[:, 1])
-
-    def test_batched_bootstrap_armijo_requires_every_draw_to_descend(self):
-        loss_old = np.array([1.0, 1.0], dtype=np.float64)
-        loss_new = np.array([0.2, 1.05], dtype=np.float64)
-        grad_norm_sq = np.array([1.0, 1.0], dtype=np.float64)
-
-        # The summed objective improves, but the second bootstrap problem worsens.
-        assert float(np.sum(loss_new - loss_old)) < 0.0
-        assert not _bootstrap_armijo_accept(
-            loss_new,
-            loss_old,
-            grad_norm_sq,
-            step=0.1,
-            c1=1e-4,
-            xp=np,
-        )
-
-        loss_new[1] = 0.9
-        assert _bootstrap_armijo_accept(
-            loss_new,
-            loss_old,
-            grad_norm_sq,
-            step=0.1,
-            c1=1e-4,
-            xp=np,
-        )
-
-        # A tiny positive residual within the shared solver slack is numerical
-        # zero and must not make a valid kink solution fail line search.
-        tiny_increase = loss_old.copy()
-        tiny_increase[1] += 1e-16
-        assert _bootstrap_armijo_accept(
-            tiny_increase,
-            loss_old,
-            np.zeros_like(grad_norm_sq),
-            step=0.1,
-            c1=1e-4,
-            xp=np,
-        )
-
-    def test_batched_bootstrap_armijo_mask_keeps_draws_independent(self):
-        loss_old = np.asarray([1.0, 1.0], dtype=np.float64)
-        loss_new = np.asarray([0.2, 1.05], dtype=np.float64)
-        grad_norm_sq = np.asarray([1.0, 1.0], dtype=np.float64)
-        steps = np.asarray([0.1, 0.1], dtype=np.float64)
-
-        mask = _bootstrap_armijo_accept_mask(
-            loss_new,
-            loss_old,
-            grad_norm_sq,
-            steps,
-            c1=1e-4,
-            xp=np,
-        )
-
-        np.testing.assert_array_equal(mask, np.asarray([True, False]))
-        reduced = np.where(mask, steps, 0.5 * steps)
-        np.testing.assert_array_equal(reduced, np.asarray([0.1, 0.05]))
-
-    def test_nonmedian_pinball_eta_gradient_matches_requested_quantile(self):
-        from statgpu.linear_model.wrappers._quantile import _pinball_eta_gradient_values
-
-        g_positive, g_negative = _pinball_eta_gradient_values(0.2)
-        assert g_positive == pytest.approx(-0.2)
-        assert g_negative == pytest.approx(0.8)
-
-    def test_zero_residual_pinball_subgradient_balances_each_bootstrap_draw(self):
-        tau = 0.2
-        residual = np.asarray(
-            [
-                [0.0, -1.0],
-                [1.0, 0.0],
-                [2.0, 0.0],
-                [3.0, 1.0],
-                [4.0, 2.0],
-            ],
-            dtype=np.float64,
-        )
-        zero_gradient = _pinball_zero_eta_gradient_by_draw(
-            residual,
-            tau,
-            np,
-        )
-        np.testing.assert_allclose(
-            zero_gradient,
-            np.asarray([0.8, -0.2], dtype=np.float64),
-            rtol=0.0,
-            atol=1e-15,
-        )
-
-        d_eta = np.where(
-            residual > 0.0,
-            -tau,
-            np.where(
-                residual < 0.0,
-                1.0 - tau,
-                zero_gradient[None, :],
-            ),
-        )
-        np.testing.assert_allclose(
-            np.sum(d_eta, axis=0),
-            np.zeros(2, dtype=np.float64),
-            rtol=0.0,
-            atol=1e-15,
-        )
-
-    def test_multifeature_zero_subgradient_refinement_reduces_kkt_score(self):
-        tau = 0.3
+    def test_batched_quantile_irls_returns_backend_matrix_and_chunk_metadata(self):
         X = np.asarray(
             [
-                [1.0, -0.5],
-                [1.0, 0.2],
-                [1.0, 0.9],
-                [1.0, 1.4],
+                [1.0, -1.0],
+                [1.0, -0.2],
+                [1.0, 0.4],
+                [1.0, 1.1],
+                [1.0, 1.8],
             ],
             dtype=np.float64,
         )
-        residual = np.asarray(
+        y_matrix = np.column_stack(
             [
-                [0.0],
-                [0.0],
-                [0.8],
-                [-0.6],
-            ],
-            dtype=np.float64,
+                np.asarray([-1.0, -0.3, 0.2, 0.9, 1.6]),
+                np.asarray([-0.8, -0.1, 0.5, 1.0, 1.9]),
+            ]
         )
-        zero_gradient = _pinball_zero_eta_gradient_by_draw(
-            residual,
-            tau,
-            np,
-        )
-        d_eta = np.where(
-            residual > 0.0,
-            -tau,
-            np.where(
-                residual < 0.0,
-                1.0 - tau,
-                zero_gradient[None, :],
-            ),
-        )
-        before = np.linalg.norm(X.T @ d_eta / X.shape[0])
-        spectral = float(np.linalg.norm(X, ord=2) ** 2 / X.shape[0])
+        init = np.zeros(X.shape[1], dtype=np.float64)
 
-        refined = _refine_pinball_zero_subgradients(
+        params, n_iter, chunk_size = _batched_quantile_irls(
             X,
-            d_eta,
-            residual == 0.0,
-            tau,
-            spectral,
-            X.shape[0],
-            np,
-        )
-        after = np.linalg.norm(X.T @ refined / X.shape[0])
-
-        assert after < before
-        assert np.all(refined[residual == 0.0] >= -tau)
-        assert np.all(refined[residual == 0.0] <= 1.0 - tau)
-        np.testing.assert_array_equal(
-            refined[residual != 0.0],
-            d_eta[residual != 0.0],
+            y_matrix,
+            init,
+            0.3,
+            max_iter=500,
+            tol=1e-8,
+            xp=np,
         )
 
+        assert params.shape == (X.shape[1], y_matrix.shape[1])
+        assert np.all(np.isfinite(params))
+        assert 1 <= n_iter <= 500
+        assert 1 <= chunk_size <= y_matrix.shape[1]
 
     def test_nonmedian_batched_bootstrap_targets_requested_quantile(self):
         tau = 0.2
