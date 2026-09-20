@@ -37,6 +37,11 @@ def _validate_quantile_xy_shapes(X, y) -> int:
             "y must be one-dimensional for proximal_irls_quantile_solver"
         )
     n_samples = int(X_values.shape[0])
+    if n_samples < 1:
+        raise ValueError(
+            "X must contain at least one observation for "
+            "proximal_irls_quantile_solver"
+        )
     if int(y_values.shape[0]) != n_samples:
         raise ValueError(
             "y must have the same number of observations as X for "
