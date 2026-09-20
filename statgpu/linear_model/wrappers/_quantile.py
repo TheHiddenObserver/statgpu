@@ -1163,7 +1163,13 @@ class QuantileRegression(BaseEstimator):
 
             # ---- FISTA momentum update ----
             t_new = 0.5 * (1.0 + (1.0 + 4.0 * t_iter * t_iter) ** 0.5)
-            z = coef_new + ((t_iter - 1.0) / t_new) * (coef_new - coef)
+            momentum_delta = coef_new - coef
+            momentum_delta = xp.where(
+                settled_draws[None, :],
+                xp.zeros_like(momentum_delta),
+                momentum_delta,
+            )
+            z = coef_new + ((t_iter - 1.0) / t_new) * momentum_delta
             coef = coef_new
             t_iter = t_new
 
