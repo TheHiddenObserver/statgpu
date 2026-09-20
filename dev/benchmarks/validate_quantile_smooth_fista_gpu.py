@@ -36,7 +36,7 @@ from statgpu.solvers import fista_solver
 from statgpu.solvers._convergence import ConvergenceWarning
 
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 Q = 0.35
 ATOL_OBJECTIVE = 2e-5
 ATOL_CV_SCORE = 2e-5
