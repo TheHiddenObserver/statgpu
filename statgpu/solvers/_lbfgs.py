@@ -80,7 +80,7 @@ def _domain_step_or_raise(loss, X, params, direction, tol, sample_weight, backen
     if domain_cap * direction_norm <= tol:
         raise _LossDomainError(
             f"loss='{getattr(loss, 'name', '?')}' is pinned to the "
-            "maintained smooth-domain boundary before gradient convergence."
+            "smooth-domain boundary before gradient convergence."
         )
     return domain_cap
 
@@ -164,18 +164,18 @@ def lbfgs_solver(
     via auto-detection of *X*.
 
     Genuine non-uniform ``sample_weight`` is supported only when the loss
-    explicitly opts into the shared weighted-L-BFGS contract. Maintained GLM
-    losses do so and evaluate value, gradient, line-search candidates, and the
-    accepted iterate under one normalized objective
-    ``sum_i w_i * contribution_i / sum_i w_i``. Generic non-GLM losses remain
-    fail-closed unless they independently declare the same capability.
+    explicitly opts into the shared weighted-L-BFGS contract. Built-in GLM
+    losses that advertise this capability evaluate value, gradient, line-search
+    candidates, and the accepted iterate under one normalized objective
+    ``sum_i w_i * contribution_i / sum_i w_i``. Generic non-GLM losses reject
+    non-uniform weights unless they independently declare the same capability.
 
     Uniform weights are normalized away using the historical uniformity rule,
     preserving the established unweighted objective. Losses may additionally
     expose private ``_loss_domain_*`` hooks; L-BFGS then validates/generates an
     interior start and caps Armijo using the final post-fallback search
     direction without evaluating infeasible candidates. If a quasi-Newton
-    direction exhausts Armijo inside a maintained domain, the solver retries
+    direction exhausts Armijo inside a declared loss domain, the solver retries
     once with steepest descent and a freshly computed domain cap; failure of
     that recovery path is a hard domain error rather than a publishable fit.
     """
@@ -339,10 +339,10 @@ def lbfgs_solver(
                 if rejected_by_domain and not evaluated_domain_trial:
                     raise _LossDomainError(
                         "lbfgs_solver could not evaluate a numerically interior "
-                        "trial step for the maintained loss domain."
+                        "trial step for the declared loss domain."
                     )
                 raise _LossDomainError(
-                    "lbfgs_solver Armijo line search failed inside the maintained "
+                    "lbfgs_solver Armijo line search failed inside the declared "
                     "loss domain before gradient convergence."
                 )
 
@@ -350,7 +350,7 @@ def lbfgs_solver(
             if rejected_by_domain and not evaluated_domain_trial:
                 raise _LossDomainError(
                     "lbfgs_solver could not evaluate a numerically interior "
-                    "trial step for the maintained loss domain."
+                    "trial step for the declared loss domain."
                 )
 
             warnings.warn(
