@@ -18,7 +18,7 @@ BOUNDARY_RUNNER = Path(__file__).resolve().with_name(
     "validate_quantile_group_boundary_probe_gpu.py"
 )
 GROUP_SCHEMA_VERSION = 3
-SCALAR_SCHEMA_VERSION = 1
+SCALAR_SCHEMA_VERSION = 2
 BOUNDARY_SCHEMA_VERSION = 1
 
 
