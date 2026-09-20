@@ -51,7 +51,8 @@ class LossBase(ABC):
     # ── Optimization hints (solvers read these, subclasses can override) ──
     _lipschitz_safety: float = 1.0       # Lipschitz safety factor
     _lipschitz_safety_cv: float = 1.0    # Extra safety factor in CV mode
-    _lipschitz_uses_y: bool = False      # Whether Lipschitz needs y-scaling
+    _lipschitz_uses_y: bool = False      # Whether loss-owned Lipschitz already accounts for y
+    _skip_y_scaling: bool = False         # Skip generic response-magnitude safety scaling
     _momentum_beta_cap: Optional[float] = None  # Nesterov momentum cap (None=unlimited)
     _skip_momentum: bool = False         # Disable momentum entirely
     _has_constant_hessian: bool = False  # Hessian is constant (Newton fast path)
