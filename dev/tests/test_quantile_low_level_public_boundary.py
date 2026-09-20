@@ -1565,6 +1565,11 @@ def test_public_proximal_quantile_flat_boundary_probe_does_not_leak_internal_war
         calls["irls"] += 1
         point = np.asarray(init_coef, dtype=np.float64)
         if calls["irls"] == 1:
+            warnings.warn(
+                "inner Quantile IRLS exhausted its solve budget",
+                ConvergenceWarning,
+                stacklevel=2,
+            )
             return point.copy(), int(max_iter)
         warnings.warn(
             "diagnostic IRLS exhausted its one-step budget",
@@ -1577,6 +1582,9 @@ def test_public_proximal_quantile_flat_boundary_probe_does_not_leak_internal_war
 
     token = kernel._STRICT_CV_TARGET.set(True)
     try:
+        # Both the main flat solve and its one-step diagnostic probe emit
+        # internal ConvergenceWarning here. Strict CV must still reach the
+        # outer solver's target-level FloatingPointError.
         with warnings.catch_warnings():
             warnings.simplefilter("error", ConvergenceWarning)
             with pytest.raises(
