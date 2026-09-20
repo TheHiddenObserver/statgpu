@@ -18,7 +18,7 @@
 ### 验证
 
 - 增加 focused regressions，覆盖 Python 版本 collection safety、公开 solver alias/reload 幂等、底层 shape/path/weight 拒绝、direct/CV response validation、prediction/score broadcasting guard、Torch response backend 保持、standalone failure transaction/control/cleanup、kernel-bandwidth 定义域失败，以及一个 `tau=0.2` 的集成 batched-bootstrap 检查，用于区分调用者请求的分位数与错误的互补分位数方向。
-- PR166 smooth-FISTA physical validator 已升级为 schema v5。用户级 non-uniform weighted L1 strict-CV parity 继续保留；另外新增独立的 CuPy/Torch `fista_solver(..., cv_mode=True)` weighted L1 case，真正进入 async FISTA 分支，直接验证 weighted-Gram spectral step scale 与非二次损失的收敛状态。standalone 私有/公开 bootstrap CUDA case 也继续保留。PR166 早先提交的 physical CUDA artifact 对应更早源码/schema，只能作为历史 exact-source 证据；当前 exact head 必须单独执行 schema-v5 physical revalidation，hosted checks 不能替代。
+- PR166 smooth-FISTA physical validator 已升级为 schema v5。用户级 non-uniform weighted L1 strict-CV parity 继续保留；另外新增独立的 CuPy/Torch `fista_solver(..., cv_mode=True)` weighted L1 case，真正进入 async FISTA 分支，直接验证 weighted-Gram spectral step scale 与非二次损失的收敛状态。standalone 私有/公开 bootstrap CUDA case 也继续保留。Group/low-level LLA physical gate 现为 schema v3：继续覆盖 automatic Group SCAD/MCP direct/CV parity、weighted scalar low-level FISTA-LLA refresh 与 flat-IRLS boundary probe，并新增真实 CuPy/Torch derivative-residency 检查，要求 Group LLA derivative 保持设备原生，factory 每次 reporting transfer 最多只跨越 `G+3` 个值。PR166 早先提交的 physical CUDA artifact 对应更早源码/schema，只能作为历史 exact-source 证据；当前 exact head 必须单独执行最新 physical revalidation，hosted checks 不能替代。
 
 ## 未发布 — Quantile solver provenance 对齐（PR #164 / Issue #163，目标 0.2.6）
 
