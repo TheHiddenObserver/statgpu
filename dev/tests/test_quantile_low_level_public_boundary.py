@@ -408,6 +408,84 @@ def test_public_quantile_low_level_surfaces_reject_empty_training_data():
         )
 
 
+class _AlwaysRejectingQuantileLoss:
+    name = "quantile"
+    _is_quadratic = False
+    _lipschitz_static = True
+
+    def preprocess(self, X, y):
+        return X, y
+
+    def lipschitz(self, X, coef, y=None, sample_weight=None):
+        return 1.0
+
+    def fused_value_and_gradient(
+        self, X, y, coef, sample_weight=None
+    ):
+        return np.asarray(0.0), np.ones_like(coef)
+
+    def value(self, X, y, coef, sample_weight=None):
+        return np.asarray(1.0)
+
+
+def test_public_quantile_fista_warning_points_to_caller():
+    X = np.eye(2, dtype=np.float64)
+    y = np.zeros(2, dtype=np.float64)
+    with pytest.warns(
+        ConvergenceWarning,
+        match="line search failed to find an acceptable proximal step",
+    ) as caught:
+        solvers.fista_solver(
+            _AlwaysRejectingQuantileLoss(),
+            L2Penalty(alpha=0.0),
+            X,
+            y,
+            max_iter=5,
+            tol=1e-12,
+        )
+    assert caught[0].filename == __file__
+
+
+def test_public_quantile_lbfgs_warning_points_to_caller():
+    X = np.eye(2, dtype=np.float64)
+    y = np.zeros(2, dtype=np.float64)
+    with pytest.warns(
+        RuntimeWarning,
+        match="line search failed to find a descent step",
+    ) as caught:
+        solvers.lbfgs_solver(
+            _AlwaysRejectingQuantileLoss(),
+            L2Penalty(alpha=0.0),
+            X,
+            y,
+            max_iter=5,
+            tol=1e-12,
+        )
+    assert caught[0].filename == __file__
+
+
+def test_public_quantile_fista_lla_warning_points_to_caller():
+    X = np.eye(3, dtype=np.float64)
+    y = np.asarray([1.0, -2.0, 3.0], dtype=np.float64)
+    with pytest.warns(
+        ConvergenceWarning,
+        match="Quantile FISTA-LLA target alpha did not establish",
+    ) as caught:
+        solvers.fista_lla_path(
+            QuantileLoss(0.35),
+            SCADPenalty(alpha=0.05),
+            X,
+            y,
+            alpha_path=[0.05],
+            max_lla_per_step=1,
+            max_iter=1,
+            tol=1e-12,
+            lla_tol=1e-12,
+            fit_intercept=False,
+        )
+    assert caught[0].filename == __file__
+
+
 def test_fista_rejects_unverified_trial_after_backtracking_exhaustion():
     class AlwaysRejectingLoss:
         name = "always_reject"
