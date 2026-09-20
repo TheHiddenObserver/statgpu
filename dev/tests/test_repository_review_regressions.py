@@ -438,6 +438,57 @@ def test_generic_adaptive_penalty_object_is_fit_local(monkeypatch):
     assert not np.array_equal(seen_weights[0], seen_weights[1])
 
 
+def test_generic_adaptive_template_drops_prelearned_fit_state(monkeypatch):
+    import statgpu.solvers as solvers
+    from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
+    from statgpu.linear_model.penalized import _fit_mixin
+
+    penalty = AdaptiveL1Penalty(
+        alpha=0.04,
+        weights=None,
+        normalize=False,
+    )
+    penalty.set_weights(np.array([4.0, 2.0], dtype=np.float64))
+    original_learned = np.asarray(penalty._weights).copy()
+
+    model = PenalizedGeneralizedLinearModel(
+        loss="squared_error",
+        penalty=penalty,
+        alpha=0.04,
+        solver="fista",
+        device="cpu",
+        fit_intercept=False,
+        max_iter=10,
+        tol=1e-6,
+    )
+
+    init_calls = {"value": 0}
+    seen = {}
+
+    def fake_init(self, X, y, backend_name="numpy", sample_weight=None):
+        init_calls["value"] += 1
+        return np.array([1.0, 3.0], dtype=np.float64)
+
+    def fake_fista(loss, resolved_penalty, X, y, **kwargs):
+        seen["weights"] = np.asarray(resolved_penalty._weights).copy()
+        return np.zeros(X.shape[1], dtype=np.float64), 1
+
+    monkeypatch.setattr(_fit_mixin._PenalizedFitMixin, "_fit_initial", fake_init)
+    monkeypatch.setattr(solvers, "fista_solver", fake_fista)
+
+    X = np.array(
+        [[1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [2.0, -1.0]],
+        dtype=np.float64,
+    )
+    y = np.array([1.0, 0.5, 1.2, -0.1], dtype=np.float64)
+    model.fit(X, y)
+
+    assert init_calls["value"] == 1
+    assert model._penalty is not penalty
+    assert not np.array_equal(seen["weights"], original_learned)
+    np.testing.assert_array_equal(penalty._weights, original_learned)
+
+
 def test_generic_cv_penalty_object_owns_candidate_and_refit_alpha(monkeypatch):
     from statgpu.linear_model import PenalizedGLM_CV
     from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
