@@ -296,7 +296,7 @@ def lbfgs_solver(
     history_size=10,
     sample_weight=None,
 ):
-    """Run L-BFGS while preserving its maintained Quantile compatibility row."""
+    """Run L-BFGS while preserving its documented Quantile compatibility behavior."""
     _validate_quantile_xy_shapes(loss, X, y, "lbfgs_solver")
     if _is_quantile(loss):
         _validate_quantile_lbfgs_controls(
@@ -346,12 +346,12 @@ if _existing_lbfgs_guard is not None:
 
 @wraps(_quantile_cd_solver)
 def quantile_cd_solver(*args, **kwargs):
-    """Fail closed for the retired experimental Quantile coordinate-descent path."""
+    """Reject calls to the retired experimental Quantile coordinate-descent path."""
     raise NotImplementedError(
         "quantile_cd_solver is retained only as a compatibility symbol and is "
-        "not a maintained public numerical route. The historical implementation "
+        "not a supported numerical solver. The historical implementation "
         "silently ignored sample_weight and could not represent an unpenalized "
-        "intercept reliably. Use proximal_irls_quantile_solver for maintained "
+        "intercept reliably. Use proximal_irls_quantile_solver for "
         "scalar SCAD/MCP Quantile fitting, or ordinary fista_solver for supported "
         "convex Quantile objectives."
     )
@@ -359,9 +359,9 @@ def quantile_cd_solver(*args, **kwargs):
 
 _quantile_cd_solver_doc = """Compatibility boundary
 
-The historical Quantile coordinate-descent implementation is not a maintained
-public numerical route. It is retained only as an import-compatible symbol and
-fails before numerical work. Use proximal_irls_quantile_solver for scalar
+The historical Quantile coordinate-descent implementation is not supported
+for numerical fitting. The name is retained only as an import-compatible symbol
+and raises before numerical work. Use proximal_irls_quantile_solver for scalar
 SCAD/MCP Quantile objectives or ordinary fista_solver for supported convex
 Quantile objectives.
 """
@@ -384,7 +384,7 @@ def newton_solver(loss, *args, **kwargs):
     if _is_quantile(loss):
         _reject_quantile(
             "newton_solver",
-            "Newton requires a maintained Hessian, which Quantile loss does not provide",
+            "Newton requires a Hessian, which Quantile loss does not provide",
         )
     return _newton_solver(loss, *args, **kwargs)
 
@@ -395,7 +395,7 @@ def proximal_newton_solver(loss, *args, **kwargs):
     if _is_quantile(loss):
         _reject_quantile(
             "proximal_newton_solver",
-            "the maintained Quantile routes do not expose a Hessian-metric proximal Newton method",
+            "Hessian-metric proximal Newton requires second-order loss structure that Quantile loss does not provide",
         )
     return _proximal_newton_solver(loss, *args, **kwargs)
 
