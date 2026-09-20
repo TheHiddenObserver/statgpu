@@ -99,6 +99,25 @@ def _pinball_eta_gradient_values(tau):
     return -tau, 1.0 - tau
 
 
+def _bootstrap_fista_extrapolate(
+    coef_new,
+    coef_old,
+    t_old,
+    settled_draws,
+    xp,
+):
+    """Apply FISTA momentum without reactivating draws settled at a kink."""
+    t_new = 0.5 * (1.0 + (1.0 + 4.0 * t_old * t_old) ** 0.5)
+    momentum_delta = coef_new - coef_old
+    momentum_delta = xp.where(
+        settled_draws[None, :],
+        xp.zeros_like(momentum_delta),
+        momentum_delta,
+    )
+    z_new = coef_new + ((t_old - 1.0) / t_new) * momentum_delta
+    return z_new, t_new
+
+
 def _pinball_zero_eta_gradient_by_draw(residual, tau, xp):
     """Choose a valid zero-residual subgradient independently for each draw.
 
@@ -1165,14 +1184,13 @@ class QuantileRegression(BaseEstimator):
                     best_obj_stable_count = 0
 
             # ---- FISTA momentum update ----
-            t_new = 0.5 * (1.0 + (1.0 + 4.0 * t_iter * t_iter) ** 0.5)
-            momentum_delta = coef_new - coef
-            momentum_delta = xp.where(
-                settled_draws[None, :],
-                xp.zeros_like(momentum_delta),
-                momentum_delta,
+            z, t_new = _bootstrap_fista_extrapolate(
+                coef_new,
+                coef,
+                t_iter,
+                settled_draws,
+                xp,
             )
-            z = coef_new + ((t_iter - 1.0) / t_new) * momentum_delta
             coef = coef_new
             t_iter = t_new
 
