@@ -242,17 +242,30 @@ def proximal_irls_quantile_solver(
             zero_penalty = bool(_to_numpy(xp.all(lla_w == 0)))
             if zero_penalty:
                 flat_tol = min(tol, 1e-8)
-                beta, used_iter = loss.irls(
-                    X_work,
-                    y_work,
-                    penalty=None,
-                    max_iter=_mi,
-                    tol=flat_tol,
-                    init_coef=beta,
-                    eps=eps,
-                    sample_weight=sw,
-                    fit_intercept=fit_intercept,
-                )
+                with warnings.catch_warnings(record=True) as irls_warnings:
+                    warnings.simplefilter("always")
+                    beta, used_iter = loss.irls(
+                        X_work,
+                        y_work,
+                        penalty=None,
+                        max_iter=_mi,
+                        tol=flat_tol,
+                        init_coef=beta,
+                        eps=eps,
+                        sample_weight=sw,
+                        fit_intercept=fit_intercept,
+                    )
+                # The Proximal IRLS-CD solver owns target-level convergence
+                # reporting. Suppress the inner IRLS ConvergenceWarning so
+                # warnings-as-error callers cannot bypass the boundary probe
+                # or strict-CV fail-closed decision. Preserve unrelated warnings.
+                for item in irls_warnings:
+                    if not issubclass(item.category, ConvergenceWarning):
+                        warnings.warn(
+                            item.message,
+                            item.category,
+                            stacklevel=_external_warning_stacklevel(),
+                        )
                 total_iter += used_iter
                 if is_final_continuation and int(used_iter) >= int(_mi):
                     target_irls_exhausted = not _flat_irls_boundary_converged(
