@@ -315,5 +315,6 @@ Quantile/check loss is non-smooth, so this route should not be interpreted as sa
 
 - Koenker, R. & Bassett, G. (1978). Regression Quantiles. *Econometrica*, 46(1), 33-50.
 - Koenker, R. (2005). *Quantile Regression*. Cambridge University Press.
+- Feng, X., He, X. & Hu, J. (2011). Wild bootstrap for quantile regression. *Biometrika*, 98(4), 995-999.
 - Wu, Y. & Liu, Y. (2009). Variable Selection in Quantile Regression. *Statistica Sinica*, 19, 801-817.
 - Hunter, D. R. & Li, R. (2005). Variable Selection using MM Algorithms. *Annals of Statistics*, 33(4), 1617-1642.
