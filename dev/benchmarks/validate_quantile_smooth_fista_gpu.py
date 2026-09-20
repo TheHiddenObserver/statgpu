@@ -34,7 +34,7 @@ from statgpu.penalties import L1Penalty
 from statgpu.solvers import fista_solver
 
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 Q = 0.35
 ATOL_OBJECTIVE = 2e-5
 ATOL_CV_SCORE = 2e-5
@@ -42,10 +42,59 @@ ATOL_CV_L1_SCORE = 2e-4
 ATOL_ASYNC_L1_OBJECTIVE = 5e-4
 ASYNC_L1_ALPHA = 0.02
 CV_ALPHA_GRID = np.asarray([0.03, 0.015], dtype=np.float64)
+
+DIRECT_MAX_ITER = 5000
+DIRECT_TOL = 1e-8
+CV_MAX_ITER = 6000
+CV_L2_TOL = 1e-8
+CV_L1_TOL = 1e-5
+ASYNC_MAX_ITER = 6000
+ASYNC_TOL = 1e-7
+
 BOOTSTRAP_Q = 0.20
 BOOTSTRAP_N = 80
 BOOTSTRAP_B = 12
 BOOTSTRAP_SEED = 16692
+BOOTSTRAP_DIRECTION_MAX_ITER = 400
+BOOTSTRAP_PUBLIC_MAX_ITER = 1600
+BOOTSTRAP_TOL = 1e-7
+
+
+def _solver_controls():
+    """Return JSON-serializable numerical controls owned by this validator."""
+    return {
+        "direct": {
+            "max_iter": DIRECT_MAX_ITER,
+            "tol": DIRECT_TOL,
+        },
+        "cv": {
+            "max_iter": CV_MAX_ITER,
+            "l2_tol": CV_L2_TOL,
+            "l1_tol": CV_L1_TOL,
+            "alpha_grid": CV_ALPHA_GRID.tolist(),
+        },
+        "async_weighted_l1": {
+            "alpha": ASYNC_L1_ALPHA,
+            "max_iter": ASYNC_MAX_ITER,
+            "tol": ASYNC_TOL,
+        },
+        "bootstrap_direction": {
+            "quantile": BOOTSTRAP_Q,
+            "n": BOOTSTRAP_N,
+            "n_bootstrap": BOOTSTRAP_B,
+            "seed": BOOTSTRAP_SEED,
+            "max_iter": BOOTSTRAP_DIRECTION_MAX_ITER,
+            "tol": BOOTSTRAP_TOL,
+        },
+        "bootstrap_public": {
+            "quantile": BOOTSTRAP_Q,
+            "n": BOOTSTRAP_N,
+            "n_bootstrap": BOOTSTRAP_B,
+            "seed": BOOTSTRAP_SEED,
+            "max_iter": BOOTSTRAP_PUBLIC_MAX_ITER,
+            "tol": BOOTSTRAP_TOL,
+        },
+    }
 
 
 def _git(*args: str) -> str:
@@ -189,8 +238,8 @@ def _standalone_bootstrap_direction_case(backend, cp, torch):
     model = QuantileRegression(
         quantile=BOOTSTRAP_Q,
         fit_intercept=False,
-        max_iter=400,
-        tol=1e-7,
+        max_iter=BOOTSTRAP_DIRECTION_MAX_ITER,
+        tol=BOOTSTRAP_TOL,
         n_bootstrap=BOOTSTRAP_B,
         random_state=BOOTSTRAP_SEED,
         device="cuda" if backend == "cupy" else "torch",
@@ -321,8 +370,8 @@ def _standalone_bootstrap_public_case(backend, cp, torch):
     model = QuantileRegression(
         quantile=BOOTSTRAP_Q,
         fit_intercept=False,
-        max_iter=1600,
-        tol=1e-7,
+        max_iter=BOOTSTRAP_PUBLIC_MAX_ITER,
+        tol=BOOTSTRAP_TOL,
         compute_inference=True,
         inference_method="bootstrap",
         n_bootstrap=BOOTSTRAP_B,
@@ -444,8 +493,8 @@ def _async_weighted_l1_case(
         penalty,
         Xb,
         yb,
-        max_iter=6000,
-        tol=1e-7,
+        max_iter=ASYNC_MAX_ITER,
+        tol=ASYNC_TOL,
         sample_weight=wb,
         cv_mode=True,
     )
@@ -523,8 +572,8 @@ def _direct(X, y, weights, *, penalty, alpha, device):
         alpha=alpha,
         solver="fista",
         device=device,
-        max_iter=5000,
-        tol=1e-8,
+        max_iter=DIRECT_MAX_ITER,
+        tol=DIRECT_TOL,
     ).fit(X, y, sample_weight=weights)
     coef = _host(model.coef_).ravel()
     intercept = float(model.intercept_)
@@ -538,7 +587,7 @@ def _cv(X, y, weights, folds, *, device, penalty="l2"):
     # a pinball kink before the strict proximal line search runs out of useful
     # floating-point steps. 1e-5 remains 20x tighter than the 2e-4 physical
     # CV-score parity threshold. Keep the existing tighter L2 reference.
-    solver_tol = 1e-5 if penalty == "l1" else 1e-8
+    solver_tol = CV_L1_TOL if penalty == "l1" else CV_L2_TOL
     return PenalizedGLM_CV(
         loss="quantile",
         loss_kwargs={"quantile": Q},
@@ -550,7 +599,7 @@ def _cv(X, y, weights, folds, *, device, penalty="l2"):
         solver="fista",
         device=device,
         cv_strategy="strict",
-        max_iter=6000,
+        max_iter=CV_MAX_ITER,
         tol=solver_tol,
     ).fit(X, y, sample_weight=weights)
 
@@ -601,8 +650,8 @@ def main() -> int:
         L1Penalty(alpha=ASYNC_L1_ALPHA),
         async_X,
         async_y,
-        max_iter=6000,
-        tol=1e-7,
+        max_iter=ASYNC_MAX_ITER,
+        tol=ASYNC_TOL,
         sample_weight=async_weights,
         cv_mode=False,
     )
@@ -733,6 +782,7 @@ def main() -> int:
         "source_sha": source_sha,
         "source_clean": source_clean,
         "quantile": Q,
+        "solver_controls": _solver_controls(),
         "cases": cases,
         "max_errors": {
             "direct_objective": max_objective_error,
