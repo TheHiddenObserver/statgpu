@@ -74,6 +74,37 @@ def test_group_surrogate_scaling_does_not_multiply_target_alpha_again(target_alp
     )
 
 
+def test_group_surrogate_factory_reduces_native_derivatives_before_host_transfer(
+    monkeypatch,
+):
+    torch = pytest.importorskip("torch")
+    penalty = GroupSCADPenalty(alpha=0.18, a=3.7, groups=_GROUPS)
+    factory = _group_surrogate_factory(penalty)
+    derivatives = torch.tensor(
+        [0.4, 1.2, 1.2, 0.4],
+        dtype=torch.float64,
+    )
+    transferred_sizes = []
+    original = group_contract._to_numpy
+
+    def recording_to_numpy(value):
+        transferred_sizes.append(int(value.numel()))
+        return original(value)
+
+    monkeypatch.setattr(group_contract, "_to_numpy", recording_to_numpy)
+    inner = factory(derivatives)
+
+    # Only G group weights plus three validation flags cross the reporting
+    # boundary; the full p-vector remains backend-native.
+    assert transferred_sizes == [len(_GROUPS) + 3]
+    np.testing.assert_allclose(
+        inner._group_weights,
+        np.array([0.4, 1.2]) / np.sqrt(2.0),
+        rtol=0.0,
+        atol=1e-15,
+    )
+
+
 def test_group_surrogate_factory_rejects_mixed_derivatives_within_group():
     penalty = GroupSCADPenalty(alpha=0.18, a=3.7, groups=_GROUPS)
     factory = _group_surrogate_factory(penalty)
