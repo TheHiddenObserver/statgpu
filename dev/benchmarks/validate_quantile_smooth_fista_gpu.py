@@ -615,8 +615,9 @@ def _direct(X, y, weights, *, penalty, alpha, device):
 def _cv(X, y, weights, folds, *, device, penalty="l2"):
     # The nonsmooth L1 Quantile fixture needs a tolerance that can terminate at
     # a pinball kink before the strict proximal line search runs out of useful
-    # floating-point steps. 1e-5 remains 20x tighter than the 2e-4 physical
-    # CV-score parity threshold. Keep the existing tighter L2 reference.
+    # floating-point steps. The 1e-5 solver tolerance is a convergence control;
+    # the separate 2e-4 CV-score tolerance checks cross-backend parity and is
+    # not the same numerical quantity. Keep the existing tighter L2 control.
     solver_tol = CV_L1_TOL if penalty == "l1" else CV_L2_TOL
     with warnings.catch_warnings():
         warnings.simplefilter("error", ConvergenceWarning)
