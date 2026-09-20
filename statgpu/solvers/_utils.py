@@ -288,6 +288,30 @@ def _tracking_penalty_value(penalty, coef):
     return 0.0
 
 
+def _external_warning_stacklevel() -> int:
+    """Return a stacklevel pointing past internal statgpu solver wrappers."""
+    import inspect
+
+    frame = inspect.currentframe()
+    if frame is None:
+        return 2
+    frame = frame.f_back
+    level = 1
+    try:
+        while frame is not None:
+            module_name = str(frame.f_globals.get("__name__", ""))
+            if not (
+                module_name == "statgpu"
+                or module_name.startswith("statgpu.")
+            ):
+                return level
+            frame = frame.f_back
+            level += 1
+    finally:
+        del frame
+    return 2
+
+
 def _abs_mean_max(y, backend):
     backend = _resolve_backend(backend, y)
     xp = _get_xp(backend)
