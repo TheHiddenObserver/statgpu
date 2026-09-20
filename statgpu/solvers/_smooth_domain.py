@@ -163,7 +163,7 @@ def _initial_smooth_params(
         params = _as_backend_vector(init_coef, backend, X)
         if not _domain_feasible(loss, X, params, sample_weight=sample_weight):
             raise ValueError(
-                f"Explicit init_coef is outside the maintained optimization "
+                f"Explicit init_coef is outside the supported optimization "
                 f"domain for loss='{getattr(loss, 'name', '?')}'."
             )
         return params
