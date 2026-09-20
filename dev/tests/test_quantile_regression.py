@@ -14,6 +14,7 @@ from statgpu.linear_model.wrappers._quantile import (
     _BOOTSTRAP_MAX_BACKTRACKS,
     _align_quantile_fit_inputs,
     _bootstrap_armijo_accept,
+    _bootstrap_fista_extrapolate,
     _bootstrap_schedule_to_backend,
     _center_quantile_bootstrap_residuals,
     _pinball_zero_eta_gradient_by_draw,
@@ -794,6 +795,29 @@ class TestQuantileRegression:
 
     def test_batched_bootstrap_backtracking_budget_is_bounded(self):
         assert _BOOTSTRAP_MAX_BACKTRACKS == 40
+
+    def test_batched_bootstrap_momentum_keeps_settled_draws_fixed(self):
+        coef_old = np.asarray(
+            [[0.2, -0.4], [0.1, 0.3]],
+            dtype=np.float64,
+        )
+        coef_new = np.asarray(
+            [[0.5, -0.2], [0.4, 0.6]],
+            dtype=np.float64,
+        )
+        settled = np.asarray([True, False])
+
+        z_new, t_new = _bootstrap_fista_extrapolate(
+            coef_new,
+            coef_old,
+            2.0,
+            settled,
+            np,
+        )
+
+        np.testing.assert_array_equal(z_new[:, 0], coef_new[:, 0])
+        assert t_new > 2.0
+        assert np.any(z_new[:, 1] != coef_new[:, 1])
 
     def test_batched_bootstrap_armijo_requires_every_draw_to_descend(self):
         loss_old = np.array([1.0, 1.0], dtype=np.float64)
