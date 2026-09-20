@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -17,6 +18,7 @@ from statgpu.linear_model import PenalizedGLM_CV, QuantileRegression
 from statgpu.losses import QuantileLoss
 from statgpu.penalties import L1Penalty
 from statgpu.solvers import fista_solver
+from statgpu.solvers._convergence import ConvergenceWarning
 from statgpu.linear_model.penalized import (
     PenalizedGeneralizedLinearModel,
     PenalizedQuantileRegression,
@@ -71,14 +73,16 @@ def test_pr166_async_weighted_l1_fixture_has_spectral_gap_and_cpu_reference():
 
 def test_pr166_weighted_l1_cv_physical_fixture_converges_on_cpu():
     X, y, weights, folds = smooth_gate._data()
-    model = smooth_gate._cv(
-        X,
-        y,
-        weights,
-        folds,
-        device="cpu",
-        penalty="l1",
-    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        model = smooth_gate._cv(
+            X,
+            y,
+            weights,
+            folds,
+            device="cpu",
+            penalty="l1",
+        )
 
     assert model.alpha_ in set(smooth_gate.CV_ALPHA_GRID.tolist())
     scores = np.asarray(
