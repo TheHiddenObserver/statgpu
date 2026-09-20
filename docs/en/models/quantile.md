@@ -245,7 +245,7 @@ $$
 \sum_g D_g^{(k)}\|\beta_g\|_2.
 $$
 
-The convex subproblem is solved with a backend-native splitting method whose quadratic update uses the weighted least-squares system and whose proximal update is the exact Adaptive Group Lasso block shrinkage. The intercept is part of the quadratic model but remains unpenalized. If all $D_g^{(k)}$ are zero, the LLA target is exactly unpenalized Quantile regression, so the route closes through ordinary weighted Quantile IRLS.
+The convex subproblem is solved with a backend-native splitting method whose quadratic update uses the weighted least-squares system and whose proximal update is the exact Adaptive Group Lasso block shrinkage. The intercept is part of the quadratic model but remains unpenalized. If all $D_g^{(k)}$ are zero, the LLA target is exactly unpenalized Quantile regression, so it is solved directly with ordinary weighted Quantile IRLS.
 
 This automatic route is separate from explicit FISTA control: `solver="fista"` and direct low-level `fista_lla_path(...)` continue to mean FISTA-based algorithms.
 
