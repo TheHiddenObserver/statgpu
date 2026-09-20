@@ -716,6 +716,9 @@ def test_public_quantile_lbfgs_aligns_numpy_response_to_torch_design(monkeypatch
         ({"tol": "1e-4"}, "tol must be a finite positive number"),
         ({"tol": np.nan}, "tol must be a finite positive number"),
         ({"cv_mode": "False"}, "cv_mode must be boolean"),
+        ({"lipschitz_L": True}, "lipschitz_L must be None or a finite positive number"),
+        ({"lipschitz_L": 0.0}, "lipschitz_L must be None or a finite positive number"),
+        ({"lipschitz_L": np.nan}, "lipschitz_L must be None or a finite positive number"),
     ],
 )
 def test_public_quantile_fista_rejects_invalid_controls_before_loss_work(
@@ -746,6 +749,9 @@ def test_public_quantile_fista_rejects_invalid_controls_before_loss_work(
         ({"tol": True}, "tol must be a finite positive number"),
         ({"tol": "1e-4"}, "tol must be a finite positive number"),
         ({"tol": np.nan}, "tol must be a finite positive number"),
+        ({"history_size": True}, "history_size must be a positive integer"),
+        ({"history_size": 0}, "history_size must be a positive integer"),
+        ({"history_size": -2}, "history_size must be a positive integer"),
     ],
 )
 def test_public_quantile_lbfgs_rejects_invalid_stopping_controls_before_loss_work(
