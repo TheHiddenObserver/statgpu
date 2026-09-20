@@ -988,12 +988,12 @@ class QuantileRegression(BaseEstimator):
         if is_cupy:
             _d_eta_buf = xp.empty_like(y_gpu.T)
             _loss_buf = xp.empty_like(y_gpu.T)
-            grad_nonnegative, grad_negative = _pinball_eta_gradient_values(tau)
+            grad_positive, grad_negative = _pinball_eta_gradient_values(tau)
             @xp.fuse()
             def _pinball_grad_kernel(_r, _zero_gradient, _out):
                 _out[:] = xp.where(
                     _r > 0,
-                    float(grad_nonnegative),
+                    float(grad_positive),
                     xp.where(
                         _r < 0,
                         float(grad_negative),
@@ -1038,10 +1038,10 @@ class QuantileRegression(BaseEstimator):
                 _pinball_grad_kernel(r_z, zero_gradient, _d_eta_buf)
                 d_eta = _d_eta_buf
             else:
-                grad_nonnegative, grad_negative = _pinball_eta_gradient_values(tau)
+                grad_positive, grad_negative = _pinball_eta_gradient_values(tau)
                 d_eta = xp.where(
                     r_z > 0,
-                    float(grad_nonnegative),
+                    float(grad_positive),
                     xp.where(
                         r_z < 0,
                         float(grad_negative),
