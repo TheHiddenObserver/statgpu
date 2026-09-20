@@ -148,7 +148,6 @@ def proximal_irls_quantile_solver(
         Total number of IRLS iterations.
     """
     backend = _resolve_backend("auto", X)
-    n, p = X.shape
     tau = loss._tau
     eps = 1e-8
 
@@ -161,9 +160,12 @@ def proximal_irls_quantile_solver(
         xp = np
 
     # Ensure float64 for numerical stability while preserving the concrete
-    # device that owns the public design.
+    # device that owns the public design. Read dimensions only after this
+    # normalization so maintained Python array-like inputs do not require a
+    # pre-existing .shape attribute.
     X_dev = _xp_asarray(X, xp.float64, X)
     y_dev = _xp_asarray(y, xp.float64, X_dev)
+    n, p = int(X_dev.shape[0]), int(X_dev.shape[1])
 
     # Handle sample_weight
     if sample_weight is not None:
