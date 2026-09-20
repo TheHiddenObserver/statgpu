@@ -221,10 +221,7 @@ def fista_solver(
     # Logistic now uses iterate-dependent Lipschitz, so y-scaling applies.
     # Gamma's expected Fisher Hessian X'X/n underestimates
     # true curvature by ~mean(y), so y-scaling IS needed.
-    _skip_y_scaling = bool(
-        getattr(loss, '_skip_y_scaling', False)
-        or getattr(loss, '_lipschitz_uses_y', False)
-    )
+    _skip_y_scaling = getattr(loss, '_lipschitz_uses_y', False)
     _y_scale = 1.0  # default; overridden below for families that need it
     if not _is_quadratic and not _skip_y_scaling:
         _y_mean, _y_max = _abs_mean_max(y_proc, backend)
