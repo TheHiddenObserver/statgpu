@@ -198,6 +198,18 @@ def _sync_public_quantile_fit_controls(owner, *, cv: bool) -> None:
 
     owner._max_iter = _positive_integer(owner.max_iter, "max_iter")
     owner._tol = _finite_positive(owner.tol, "tol")
+    lipschitz_L = getattr(owner, "lipschitz_L", None)
+    if lipschitz_L is not None:
+        if (
+            isinstance(lipschitz_L, (bool, np.bool_))
+            or not isinstance(lipschitz_L, Real)
+            or not np.isfinite(float(lipschitz_L))
+            or float(lipschitz_L) <= 0.0
+        ):
+            raise ValueError(
+                "lipschitz_L must be None or a finite positive number"
+            )
+        owner.lipschitz_L = float(lipschitz_L)
 
     if cv:
         cv_value = _positive_integer(owner.cv, "cv")
