@@ -34,7 +34,7 @@ def _pinball(y, eta, q, sample_weight):
 
 
 def test_pr166_smooth_bootstrap_physical_gate_schema_is_locked():
-    assert smooth_gate.SCHEMA_VERSION == 11
+    assert smooth_gate.SCHEMA_VERSION == 12
     assert smooth_wrapper.EXPECTED_SCHEMA_VERSION == smooth_gate.SCHEMA_VERSION
     assert smooth_gate.BOOTSTRAP_Q != pytest.approx(0.5)
     assert 0.0 < smooth_gate.BOOTSTRAP_Q < 1.0
@@ -53,6 +53,7 @@ def test_pr166_smooth_bootstrap_physical_gate_schema_is_locked():
     assert controls["bootstrap_public"]["quantile"] == smooth_gate.BOOTSTRAP_Q
     assert controls["bootstrap_public"]["n_bootstrap"] == smooth_gate.BOOTSTRAP_B
     assert controls["bootstrap_public"]["seed"] == smooth_gate.BOOTSTRAP_SEED
+    assert controls["bootstrap_public"]["fit_intercept_cases"] == [False, True]
 
 
 def test_pr166_async_weighted_l1_fixture_has_spectral_gap_and_cpu_reference():
