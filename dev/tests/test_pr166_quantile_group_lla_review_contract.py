@@ -277,6 +277,58 @@ def test_quantile_group_lasso_bypasses_gaussian_block_cd(monkeypatch):
     assert seen["penalty"] == "_group_lasso_generic"
 
 
+def test_automatic_quantile_group_solver_keeps_lla_derivatives_backend_native(
+    monkeypatch,
+):
+    torch = pytest.importorskip("torch")
+    X_np, y_np, _ = _data(seed=166320, n=12)
+    X = torch.as_tensor(X_np, dtype=torch.float64)
+    y = torch.as_tensor(y_np, dtype=torch.float64)
+    penalty = GroupSCADPenalty(alpha=0.08, a=3.7, groups=GROUPS)
+    captured = {}
+
+    def fake_factory(penalty_arg):
+        def factory(derivatives):
+            captured["derivatives"] = derivatives
+            return object()
+
+        return factory
+
+    def fake_admm(
+        loss,
+        inner_penalty,
+        X_quad,
+        y_quad,
+        *,
+        init_coef=None,
+        **kwargs,
+    ):
+        return init_coef.clone(), 1
+
+    monkeypatch.setattr(group_solver, "_group_surrogate_factory", fake_factory)
+    monkeypatch.setattr(group_solver, "admm_solver", fake_admm)
+
+    coef, intercept, n_iter = group_solver.quantile_group_proximal_irls_lla_solver(
+        loss=__import__("statgpu.losses", fromlist=["QuantileLoss"]).QuantileLoss(Q),
+        penalty=penalty,
+        X=X,
+        y=y,
+        alpha_path=np.asarray([0.08], dtype=np.float64),
+        max_lla_per_step=1,
+        max_iter=1,
+        tol=1e-8,
+        lla_tol=1e-8,
+        fit_intercept=False,
+    )
+
+    assert torch.is_tensor(captured["derivatives"])
+    assert captured["derivatives"].device == X.device
+    assert captured["derivatives"].dtype == X.dtype
+    assert np.all(np.isfinite(coef))
+    assert intercept == 0.0
+    assert n_iter == 1
+
+
 @pytest.mark.parametrize("kind", ["group_scad", "group_mcp"])
 def test_quantile_group_nonconvex_auto_uses_group_proximal_irls_lla(monkeypatch, kind):
     X, y, weights = _data(seed=166302)
