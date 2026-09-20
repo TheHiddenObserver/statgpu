@@ -111,9 +111,11 @@ class QuantileRegression(BaseEstimator):
         If True, compute SE, p-values, CI.
     inference_method : str, default='kernel'
         'kernel': Powell (1991) sandwich covariance with kernel density.
-        'bootstrap': residual bootstrap (batched FISTA) with percentile CI,
-            bootstrap sign-test p-values, and bootstrap std errors.  All
-            backends (CPU/GPU) use the same batched solver for consistency.
+        'bootstrap': i.i.d. residual bootstrap (batched FISTA) with percentile
+            CI, bootstrap sign-test p-values, and bootstrap std errors. This is
+            an exchangeable-residual procedure; it is not a wild/multiplier
+            bootstrap and does not claim heteroscedastic-robust coverage.
+            All backends (CPU/GPU) use the same batched solver for consistency.
     kernel : str, default='epa'
         Kernel for sparsity estimation: 'epa' (Epanechnikov), 'gau' (Gaussian),
         'biw' (Biweight), 'cos' (Cosine), 'par' (Parzen).  Only for
@@ -1071,7 +1073,11 @@ class QuantileRegression(BaseEstimator):
         return np.asarray(_to_numpy(best_coef.T)), params, Xd
 
     def _compute_inference_bootstrap(self, X, y):
-        """Residual bootstrap inference for quantile regression.
+        """I.i.d. residual-bootstrap inference for quantile regression.
+
+        This procedure resamples fitted residuals as exchangeable draws. It is
+        not the wild/multiplier bootstrap used for general heteroscedastic
+        quantile-regression inference.
 
         Uses batched pinball FISTA for all backends (CPU/GPU), solving all B
         bootstrap samples in parallel via a single ``(p, B)`` coefficient matrix.
@@ -1129,6 +1135,8 @@ class QuantileRegression(BaseEstimator):
             distribution="bootstrap_percentile",
             metadata={
                 "n_bootstrap": self._n_bootstrap,
+                "bootstrap_type": "iid_residual",
+                "heteroscedastic_robust": False,
                 "ci_method": "percentile",
                 "pvalue_method": "bootstrap_sign_test",
                 "statistic_method": "estimate_over_bootstrap_se",
