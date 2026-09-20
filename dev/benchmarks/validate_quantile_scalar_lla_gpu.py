@@ -181,11 +181,17 @@ def _run_periodic_refresh_probe(X, y, weights):
     expected_warning = (
         "Quantile FISTA-LLA target alpha did not establish"
     )
-    if not any(expected_warning in message for message in convergence_warnings):
+    matching_warnings = [
+        message for message in convergence_warnings if expected_warning in message
+    ]
+    unexpected_warnings = [
+        message for message in convergence_warnings if expected_warning not in message
+    ]
+    if len(matching_warnings) != 1 or unexpected_warnings:
         raise AssertionError(
-            "scalar Quantile LLA periodic-refresh probe did not emit the "
-            "expected target-exhaustion diagnostic: "
-            f"{convergence_warnings!r}"
+            "scalar Quantile LLA periodic-refresh probe must emit exactly the "
+            "expected target-exhaustion diagnostic and no other convergence "
+            f"warning: {convergence_warnings!r}"
         )
     if int(n_iter) < 21:
         raise AssertionError(
