@@ -74,6 +74,10 @@ def install_quantile_irls_validation_contract() -> None:
             value = float(value)
             if not np.isfinite(value) or value <= 0.0:
                 raise ValueError(f"{name} must be a finite positive number")
+            if name == "eps" and value < np.finfo(np.float64).tiny:
+                raise ValueError(
+                    "eps is too small for finite float64 Quantile IRLS weights"
+                )
             if name == "tol":
                 tol = value
             else:
