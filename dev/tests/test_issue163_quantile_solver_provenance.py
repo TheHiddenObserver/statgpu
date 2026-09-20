@@ -363,17 +363,18 @@ def test_rejected_quantile_refit_clears_all_fit_derived_state():
     ],
 )
 def test_quantile_cv_constructor_controls_fail_before_coercion(kwargs, message):
+    constructor = dict(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.4},
+        penalty="l2",
+        alpha_grid=np.asarray([0.03], dtype=np.float64),
+        cv=2,
+        solver="auto",
+        device="cpu",
+    )
+    constructor.update(kwargs)
     with pytest.raises(ValueError, match=message):
-        PenalizedGLM_CV(
-            loss="quantile",
-            loss_kwargs={"quantile": 0.4},
-            penalty="l2",
-            alpha_grid=np.asarray([0.03], dtype=np.float64),
-            cv=2,
-            solver="auto",
-            device="cpu",
-            **kwargs,
-        )
+        PenalizedGLM_CV(**constructor)
 
 
 @pytest.mark.parametrize(
