@@ -748,6 +748,48 @@ def fista_lla_path(
                                 L = max(L_new, L_base * 0.1)
                                 step = 1.0 / L
 
+                    # The deferred convergence cadence may skip the
+                    # final allowed inner iteration. For the Quantile target
+                    # alpha, inspect that already-computed final state once so
+                    # a solve that first satisfies tol on its last budgeted
+                    # update is not misclassified as exhausted. No extra
+                    # numerical iteration is accepted or counted.
+                    if (
+                        _is_quantile_lla
+                        and _is_target_continuation
+                        and not _inner_converged
+                        and iteration >= 0
+                        and iteration % _conv_check_freq != 0
+                    ):
+                        _final_conv_dev = _abs_sum_dev(coef - coef_old)
+                        if backend != "numpy":
+                            _final_finite_dev = (
+                                xp.all(xp.isfinite(grad))
+                                & xp.all(xp.isfinite(coef))
+                            )
+                            _final_status = xp.stack(
+                                [_final_finite_dev, _final_conv_dev < tol]
+                            )
+                            _final_finite, _final_converged = np.asarray(
+                                _to_numpy(_final_status), dtype=bool
+                            )
+                            if not bool(_final_finite):
+                                raise FloatingPointError(
+                                    "FISTA-LLA produced non-finite state"
+                                )
+                            _inner_converged = bool(_final_converged)
+                        else:
+                            if not (
+                                np.all(np.isfinite(grad))
+                                and np.all(np.isfinite(coef))
+                            ):
+                                raise FloatingPointError(
+                                    "FISTA-LLA produced non-finite state"
+                                )
+                            _inner_converged = (
+                                float(_to_numpy(_final_conv_dev)) < tol
+                            )
+
                     # LLA convergence check
                     if _is_quantile_lla and _is_target_continuation:
                         _quantile_target_inner_converged = _inner_converged
