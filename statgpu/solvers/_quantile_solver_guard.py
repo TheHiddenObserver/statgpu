@@ -89,6 +89,16 @@ def _is_quantile(loss) -> bool:
     return str(getattr(loss, "name", "") or "").lower().strip() == "quantile"
 
 
+def _reject_scalar_nonconvex_quantile_fista(penalty) -> None:
+    penalty_name = str(getattr(penalty, "name", "") or "").lower().strip()
+    if penalty_name in ("scad", "mcp"):
+        raise ValueError(
+            "fista_solver does not support scalar Quantile SCAD/MCP as a "
+            "maintained public route; use the dedicated Proximal IRLS-CD "
+            "estimator route or proximal_irls_quantile_solver."
+        )
+
+
 def _canonical_solver_signature(function, required_names):
     """Resolve the numerical signature through reload-safe wrapper chains."""
     import inspect
@@ -263,6 +273,7 @@ def fista_solver(
             cv_mode=cv_mode,
             lipschitz_L=lipschitz_L,
         )
+        _reject_scalar_nonconvex_quantile_fista(penalty)
     _validate_quantile_xy_shapes(loss, X, y, "fista_solver")
     if _is_quantile(loss):
         _validate_quantile_init_coef(X, init_coef, "fista_solver")
