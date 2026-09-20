@@ -355,6 +355,34 @@ def test_low_level_quantile_fista_lla_proxy_retains_periodic_weight():
     assert base.weights[1] is weights
 
 
+def test_public_group_fista_lla_rejects_group_index_outside_design_before_numerics(
+    monkeypatch,
+):
+    X = np.eye(3, dtype=np.float64)
+    y = np.asarray([0.2, -0.1, 0.4], dtype=np.float64)
+    loss = QuantileLoss(0.35)
+    penalty = GroupSCADPenalty(
+        alpha=0.1,
+        a=3.7,
+        groups=[[0, 1], [2, 3]],
+    )
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("loss numerical work must not start")
+
+    monkeypatch.setattr(loss, "lipschitz", forbidden)
+    with pytest.raises(ValueError, match="outside the design matrix"):
+        fista_lla_contract.fista_lla_path(
+            loss,
+            penalty,
+            X,
+            y,
+            alpha_path=[0.1],
+            fit_intercept=False,
+            max_iter=2,
+        )
+
+
 def test_public_group_fista_lla_stays_fista_and_installs_quantile_weight_proxy(monkeypatch):
     """Low-level fista_lla_path keeps FISTA semantics after the auto-route repair."""
     class RecordingQuantileLoss:
