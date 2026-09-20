@@ -105,6 +105,14 @@ def test_group_surrogate_factory_reduces_native_derivatives_before_host_transfer
     )
 
 
+def test_group_surrogate_factory_rejects_empty_group_metadata():
+    class EmptyGroupPenalty:
+        _group_indices = []
+
+    with pytest.raises(ValueError, match="at least one group"):
+        _group_surrogate_factory(EmptyGroupPenalty())
+
+
 def test_group_surrogate_factory_rejects_mixed_derivatives_within_group():
     penalty = GroupSCADPenalty(alpha=0.18, a=3.7, groups=_GROUPS)
     factory = _group_surrogate_factory(penalty)
