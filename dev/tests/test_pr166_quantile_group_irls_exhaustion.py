@@ -322,7 +322,7 @@ def test_intermediate_quantile_group_lla_exhaustion_is_only_a_warm_path(monkeypa
 
 
 def _install_genuinely_exhausted_flat_irls(
-    monkeypatch, loss, *, warn_on_probe=False
+    monkeypatch, loss, *, warn_on_solve=False, warn_on_probe=False
 ):
     calls = {"value": 0}
 
@@ -332,6 +332,12 @@ def _install_genuinely_exhausted_flat_irls(
     ):
         calls["value"] += 1
         if init_coef is None:
+            if warn_on_solve:
+                warnings.warn(
+                    "inner Quantile IRLS exhausted its solve budget",
+                    ConvergenceWarning,
+                    stacklevel=2,
+                )
             return np.zeros(X_arg.shape[1], dtype=np.float64), int(max_iter)
         # The boundary probe still sees a material next-step move, so this is
         # a true exhausted state rather than last-iteration convergence.
@@ -349,7 +355,9 @@ def _install_genuinely_exhausted_flat_irls(
 
 def test_flat_quantile_group_target_irls_budget_exhaustion_warns_at_external_callsite(monkeypatch):
     X, y, loss, penalty = _drifting_problem()
-    calls = _install_genuinely_exhausted_flat_irls(monkeypatch, loss)
+    calls = _install_genuinely_exhausted_flat_irls(
+        monkeypatch, loss, warn_on_solve=True
+    )
 
     with pytest.warns(ConvergenceWarning, match="flat target reached max_iter=2 in Quantile IRLS") as caught:
         coef, intercept, n_iter = solver_mod.quantile_group_proximal_irls_lla_solver(
@@ -360,6 +368,7 @@ def test_flat_quantile_group_target_irls_budget_exhaustion_warns_at_external_cal
         )
 
     assert calls["value"] == 2  # solve + diagnostic one-step boundary probe
+    assert len(caught) == 1  # inner IRLS convergence warning is solver-owned
     assert caught[0].filename == __file__
     assert n_iter == 2
     np.testing.assert_array_equal(coef, np.zeros(4, dtype=np.float64))
@@ -369,12 +378,15 @@ def test_flat_quantile_group_target_irls_budget_exhaustion_warns_at_external_cal
 def test_flat_quantile_group_target_irls_budget_exhaustion_fails_in_strict_cv_mode(monkeypatch):
     X, y, loss, penalty = _drifting_problem()
     calls = _install_genuinely_exhausted_flat_irls(
-        monkeypatch, loss, warn_on_probe=True
+        monkeypatch,
+        loss,
+        warn_on_solve=True,
+        warn_on_probe=True,
     )
 
-    # The diagnostic max_iter=1 IRLS warning is internal bookkeeping. Even
-    # when callers escalate ConvergenceWarning, strict CV must reach the outer
-    # solver's intentional FloatingPointError rather than leak the probe warning.
+    # Both the main flat solve and the diagnostic max_iter=1 probe may emit
+    # internal ConvergenceWarning. Even when callers escalate that category,
+    # strict CV must reach the outer solver's intentional FloatingPointError.
     with warnings.catch_warnings():
         warnings.simplefilter("error", ConvergenceWarning)
         with pytest.raises(
