@@ -99,6 +99,14 @@ def test_pr166_weighted_l2_cv_physical_fixture_converges_on_cpu():
 
 def test_pr166_scalar_lla_physical_fixture_converges_and_probes_refresh_on_cpu():
     X, y, weights = scalar_lla_gate._converged_data()
+    gradient_at_zero = QuantileLoss(scalar_lla_gate.Q).gradient(
+        X,
+        y,
+        np.zeros(X.shape[1], dtype=np.float64),
+        sample_weight=weights,
+    )
+    np.testing.assert_allclose(gradient_at_zero, 0.0, rtol=0.0, atol=1e-15)
+
     with warnings.catch_warnings():
         warnings.simplefilter("error", ConvergenceWarning)
         coef, intercept, n_iter, locations = scalar_lla_gate._run(X, y, weights)
