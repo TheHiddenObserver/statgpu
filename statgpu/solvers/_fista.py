@@ -43,6 +43,7 @@ from ._utils import (
     _penalty_name,
     _smooth_penalty_lipschitz,
     _abs_mean_max,
+    _external_warning_stacklevel,
     _tracking_penalty_value,
 )
 
@@ -649,6 +650,11 @@ def fista_solver(
         coef = _copy_arr(_coef_best_fista)
 
     n_iter = iteration + 1
+    warning_stacklevel = (
+        _external_warning_stacklevel()
+        if str(getattr(loss, "name", "") or "").lower() == "quantile"
+        else 2
+    )
     if line_search_failed:
         warnings.warn(
             "fista_solver line search failed to find an acceptable proximal "
@@ -656,7 +662,7 @@ def fista_solver(
             f"penalty={getattr(penalty, 'name', '?')}); returning an "
             "accepted iterate (the tracked best accepted iterate when available).",
             ConvergenceWarning,
-            stacklevel=2,
+            stacklevel=warning_stacklevel,
         )
     elif not converged:
         warnings.warn(
@@ -664,6 +670,6 @@ def fista_solver(
             f"(loss={getattr(loss, 'name', '?')}, penalty={getattr(penalty, 'name', '?')}). "
             f"Consider increasing max_iter or using a different solver (newton, lbfgs, irls).",
             ConvergenceWarning,
-            stacklevel=2,
+            stacklevel=warning_stacklevel,
         )
     return coef, n_iter
