@@ -665,10 +665,22 @@ def fista_solver(
             stacklevel=warning_stacklevel,
         )
     elif not converged:
+        loss_name = str(getattr(loss, "name", "") or "").lower()
+        if loss_name == "quantile":
+            advice = (
+                "Increase max_iter or relax tol if appropriate. "
+                "For Quantile L2/no-penalty objectives, IRLS is also supported; "
+                "for nonsmooth penalties use a Quantile-compatible proximal route."
+            )
+        else:
+            advice = (
+                "Consider increasing max_iter or using a different solver "
+                "(newton, lbfgs, irls)."
+            )
         warnings.warn(
             f"fista_solver did not converge within {max_iter} iterations "
             f"(loss={getattr(loss, 'name', '?')}, penalty={getattr(penalty, 'name', '?')}). "
-            f"Consider increasing max_iter or using a different solver (newton, lbfgs, irls).",
+            + advice,
             ConvergenceWarning,
             stacklevel=warning_stacklevel,
         )
