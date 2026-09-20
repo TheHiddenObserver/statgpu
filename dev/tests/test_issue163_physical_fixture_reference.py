@@ -98,19 +98,26 @@ def test_pr166_weighted_l2_cv_physical_fixture_converges_on_cpu():
 
 
 def test_pr166_scalar_lla_physical_fixture_converges_and_probes_refresh_on_cpu():
-    X, y, weights = scalar_lla_gate._data()
+    X, y, weights = scalar_lla_gate._converged_data()
     with warnings.catch_warnings():
         warnings.simplefilter("error", ConvergenceWarning)
         coef, intercept, n_iter, locations = scalar_lla_gate._run(X, y, weights)
 
     assert np.all(np.isfinite(coef))
     assert np.isfinite(intercept)
+    np.testing.assert_allclose(coef, 0.0, rtol=0.0, atol=1e-12)
+    assert intercept == pytest.approx(0.0, rel=0.0, abs=1e-12)
     assert 1 <= n_iter
     assert locations
     assert all(tuple(location) == ("numpy", "cpu") for location in locations)
 
+    probe_X, probe_y, probe_weights = scalar_lla_gate._data()
     probe_iter, probe_locations, probe_warnings = (
-        scalar_lla_gate._run_periodic_refresh_probe(X, y, weights)
+        scalar_lla_gate._run_periodic_refresh_probe(
+            probe_X,
+            probe_y,
+            probe_weights,
+        )
     )
     assert probe_iter >= 21
     assert len(probe_locations) >= 2
@@ -118,7 +125,10 @@ def test_pr166_scalar_lla_physical_fixture_converges_and_probes_refresh_on_cpu()
         tuple(location) == ("numpy", "cpu")
         for location in probe_locations
     )
-    assert probe_warnings
+    assert any(
+        "Quantile FISTA-LLA target alpha did not establish" in message
+        for message in probe_warnings
+    )
 
 
 def test_pr166_async_weighted_l1_fixture_has_spectral_gap_and_cpu_reference():
