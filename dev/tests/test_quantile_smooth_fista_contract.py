@@ -151,6 +151,50 @@ def test_quantile_fista_nonconvergence_warning_recommends_supported_routes():
     assert "lbfgs" not in message.lower()
 
 
+def test_smooth_quantile_fista_numpy_torch_point_parity_matches_public_fixture():
+    torch = pytest.importorskip("torch")
+
+    rng = np.random.default_rng(16692 + 31)
+    X = rng.normal(size=(80, 1)).astype(np.float64)
+    y = (
+        0.35
+        + 0.75 * X[:, 0]
+        + rng.laplace(scale=0.22, size=80)
+    ).astype(np.float64)
+    X_aug = np.column_stack([X, np.ones(X.shape[0], dtype=np.float64)])
+    loss = QuantileLoss(quantile=0.20)
+    penalty = L2Penalty(alpha=0.0)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        cpu_params, cpu_n_iter = fista_solver(
+            loss,
+            penalty,
+            X_aug,
+            y,
+            max_iter=1600,
+            tol=1e-7,
+        )
+        torch_params, torch_n_iter = fista_solver(
+            QuantileLoss(quantile=0.20),
+            L2Penalty(alpha=0.0),
+            torch.as_tensor(X_aug, dtype=torch.float64),
+            torch.as_tensor(y, dtype=torch.float64),
+            max_iter=1600,
+            tol=1e-7,
+        )
+
+    torch_params_np = torch_params.detach().cpu().numpy()
+    np.testing.assert_allclose(
+        torch_params_np,
+        np.asarray(cpu_params, dtype=np.float64),
+        rtol=0.0,
+        atol=2e-5,
+    )
+    assert 1 <= cpu_n_iter <= 1600
+    assert 1 <= torch_n_iter <= 1600
+
+
 def test_fista_last_allowed_iteration_convergence_is_not_false_exhaustion():
     X = np.eye(2, dtype=np.float64)
     y = np.zeros(2, dtype=np.float64)
