@@ -360,6 +360,54 @@ def test_public_quantile_fista_accepts_numpy_response_with_torch_design():
     assert n_iter >= 1
 
 
+def test_public_quantile_low_level_surfaces_reject_empty_training_data():
+    X = np.empty((0, 3), dtype=np.float64)
+    y = np.empty((0,), dtype=np.float64)
+    loss = QuantileLoss(quantile=0.3)
+
+    with pytest.raises(ValueError, match="at least one observation"):
+        loss.irls(X, y, max_iter=3)
+
+    with pytest.raises(ValueError, match="at least one observation"):
+        solvers.fista_solver(
+            loss,
+            L2Penalty(alpha=0.0),
+            X,
+            y,
+            max_iter=3,
+        )
+
+    with pytest.raises(ValueError, match="at least one observation"):
+        solvers.lbfgs_solver(
+            loss,
+            None,
+            X,
+            y,
+            max_iter=3,
+        )
+
+    with pytest.raises(ValueError, match="at least one observation"):
+        solvers.fista_lla_path(
+            loss,
+            SCADPenalty(alpha=0.05, a=3.7),
+            X,
+            y,
+            alpha_path=[0.05],
+            max_lla_per_step=1,
+            max_iter=3,
+        )
+
+    with pytest.raises(ValueError, match="at least one observation"):
+        solvers.proximal_irls_quantile_solver(
+            loss,
+            SCADPenalty(alpha=0.05, a=3.7),
+            X,
+            y,
+            alpha_path=np.asarray([0.05], dtype=np.float64),
+            max_iter=3,
+        )
+
+
 def test_fista_rejects_unverified_trial_after_backtracking_exhaustion():
     class AlwaysRejectingLoss:
         name = "always_reject"
