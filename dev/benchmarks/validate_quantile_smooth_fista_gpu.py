@@ -34,7 +34,7 @@ from statgpu.penalties import L1Penalty
 from statgpu.solvers import fista_solver
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 Q = 0.35
 ATOL_OBJECTIVE = 2e-5
 ATOL_CV_SCORE = 2e-5
@@ -196,8 +196,10 @@ def _standalone_bootstrap_direction_case(backend, cp, torch):
         device="cuda" if backend == "cupy" else "torch",
     )
     # The batched bootstrap solver only needs the already-fitted parameter
-    # snapshot.  A zero coefficient makes each residual draw exactly a draw
-    # from y, giving an independent direction check against known quantiles.
+    # snapshot. A zero coefficient makes fitted residuals equal y; the public
+    # bootstrap contract centers those residuals at their empirical target
+    # quantile before resampling, so the oracle below uses the same centered
+    # error distribution while remaining independent of the numerical solver.
     model.coef_ = np.zeros(1, dtype=np.float64)
     model.intercept_ = 0.0
     boot_params, params_native, design_native = model._compute_bootstrap_batched(Xb, yb)
@@ -236,15 +238,33 @@ def _standalone_bootstrap_direction_case(backend, cp, torch):
             f"{backend}/standalone/bootstrap: invalid solver_n_iter={solver_n_iter}"
         )
 
+    center_index = min(
+        max(int(np.ceil(BOOTSTRAP_Q * BOOTSTRAP_N)) - 1, 0),
+        BOOTSTRAP_N - 1,
+    )
+    residual_center = np.sort(y)[center_index]
+    centered_residual = y - residual_center
+
     rng = np.random.default_rng(BOOTSTRAP_SEED)
     y_batch = np.array(
-        [y[rng.integers(0, BOOTSTRAP_N, size=BOOTSTRAP_N)] for _ in range(BOOTSTRAP_B)]
+        [
+            centered_residual[
+                rng.integers(0, BOOTSTRAP_N, size=BOOTSTRAP_N)
+            ]
+            for _ in range(BOOTSTRAP_B)
+        ]
     )
-    requested = np.quantile(y_batch, BOOTSTRAP_Q, axis=1)
-    complementary = np.quantile(y_batch, 1.0 - BOOTSTRAP_Q, axis=1)
+    sorted_batch = np.sort(y_batch, axis=1)
+    requested = sorted_batch[:, center_index]
+    complementary_index = min(
+        max(int(np.ceil((1.0 - BOOTSTRAP_Q) * BOOTSTRAP_N)) - 1, 0),
+        BOOTSTRAP_N - 1,
+    )
+    complementary = sorted_batch[:, complementary_index]
     target_error = float(np.mean(np.abs(estimated - requested)))
     wrong_direction_error = float(np.mean(np.abs(estimated - complementary)))
     median_estimate = float(np.median(estimated))
+    wrong_median = float(np.median(complementary))
 
     if not np.all(np.isfinite(estimated)):
         raise AssertionError(f"{backend}/standalone/bootstrap: non-finite parameters")
@@ -254,10 +274,17 @@ def _standalone_bootstrap_direction_case(backend, cp, torch):
             f"{target_error:.3e} is not below complementary-quantile error "
             f"{wrong_direction_error:.3e}"
         )
-    if not median_estimate < 0.0:
+    if not abs(median_estimate) < abs(wrong_median):
         raise AssertionError(
             f"{backend}/standalone/bootstrap: median estimate {median_estimate:.3e} "
-            "does not lie on the requested lower-quantile side"
+            "is not closer to the centered requested quantile than the "
+            f"complementary oracle median {wrong_median:.3e}"
+        )
+    if model._bootstrap_residual_centering_ != "empirical_tau_quantile":
+        raise AssertionError(
+            f"{backend}/standalone/bootstrap: residual centering provenance "
+            f"{model._bootstrap_residual_centering_!r} != "
+            "'empirical_tau_quantile'"
         )
 
     return {
@@ -268,6 +295,7 @@ def _standalone_bootstrap_direction_case(backend, cp, torch):
         "n_bootstrap": BOOTSTRAP_B,
         "solver": "batched_pinball_fista",
         "solver_n_iter": solver_n_iter,
+        "residual_centering": model._bootstrap_residual_centering_,
         "target_error": target_error,
         "complementary_quantile_error": wrong_direction_error,
         "median_estimate": median_estimate,
@@ -331,6 +359,7 @@ def _standalone_bootstrap_public_case(backend, cp, torch):
         "numerical_device": expected_device,
         "reporting_backend": "numpy",
         "response_construction": "backend_native",
+        "residual_centering": "empirical_tau_quantile",
         "resampling_schedule": "numpy_generator_control_plane",
     }
     for key, expected in expected_meta.items():
@@ -384,6 +413,7 @@ def _standalone_bootstrap_public_case(backend, cp, torch):
         "inference_method": str(result.method),
         "bootstrap_solver": str(metadata["solver"]),
         "bootstrap_solver_n_iter": solver_n_iter,
+        "residual_centering": str(metadata["residual_centering"]),
         "resampling_schedule_sha256": schedule_hash,
     }
 
