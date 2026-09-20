@@ -36,7 +36,7 @@ from statgpu.solvers import fista_solver
 from statgpu.solvers._convergence import ConvergenceWarning
 
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 Q = 0.35
 ATOL_OBJECTIVE = 2e-5
 ATOL_CV_SCORE = 2e-5
@@ -345,7 +345,7 @@ def _standalone_bootstrap_direction_case(backend, cp, torch):
         "device": device,
         "quantile": BOOTSTRAP_Q,
         "n_bootstrap": BOOTSTRAP_B,
-        "solver": "batched_pinball_fista",
+        "solver": "batched_quantile_irls",
         "solver_n_iter": solver_n_iter,
         "residual_centering": model._bootstrap_residual_centering_,
         "target_error": target_error,
@@ -417,7 +417,7 @@ def _standalone_bootstrap_public_case(
         )
     metadata = dict(result.metadata)
     expected_meta = {
-        "solver": "batched_pinball_fista",
+        "solver": "batched_quantile_irls",
         "numerical_backend": backend,
         "numerical_device": expected_device,
         "reporting_backend": "numpy",
