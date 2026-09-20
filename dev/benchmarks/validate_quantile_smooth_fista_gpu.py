@@ -36,7 +36,7 @@ from statgpu.solvers import fista_solver
 from statgpu.solvers._convergence import ConvergenceWarning
 
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 Q = 0.35
 ATOL_OBJECTIVE = 2e-5
 ATOL_CV_SCORE = 2e-5
@@ -491,16 +491,18 @@ def _async_weighted_l1_case(
     )
     loss = QuantileLoss(quantile=Q)
     penalty = L1Penalty(alpha=ASYNC_L1_ALPHA)
-    coef, n_iter = fista_solver(
-        loss,
-        penalty,
-        Xb,
-        yb,
-        max_iter=ASYNC_MAX_ITER,
-        tol=ASYNC_TOL,
-        sample_weight=wb,
-        cv_mode=True,
-    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        coef, n_iter = fista_solver(
+            loss,
+            penalty,
+            Xb,
+            yb,
+            max_iter=ASYNC_MAX_ITER,
+            tol=ASYNC_TOL,
+            sample_weight=wb,
+            cv_mode=True,
+        )
     coef_host = _host(coef).ravel()
     if not np.all(np.isfinite(coef_host)):
         raise AssertionError(
@@ -570,15 +572,17 @@ def _provenance(model, backend):
 
 
 def _direct(X, y, weights, *, penalty, alpha, device):
-    model = PenalizedQuantileRegression(
-        quantile=Q,
-        penalty=penalty,
-        alpha=alpha,
-        solver="fista",
-        device=device,
-        max_iter=DIRECT_MAX_ITER,
-        tol=DIRECT_TOL,
-    ).fit(X, y, sample_weight=weights)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        model = PenalizedQuantileRegression(
+            quantile=Q,
+            penalty=penalty,
+            alpha=alpha,
+            solver="fista",
+            device=device,
+            max_iter=DIRECT_MAX_ITER,
+            tol=DIRECT_TOL,
+        ).fit(X, y, sample_weight=weights)
     coef = _host(model.coef_).ravel()
     intercept = float(model.intercept_)
     if not np.all(np.isfinite(coef)) or not np.isfinite(intercept):
@@ -592,20 +596,22 @@ def _cv(X, y, weights, folds, *, device, penalty="l2"):
     # floating-point steps. 1e-5 remains 20x tighter than the 2e-4 physical
     # CV-score parity threshold. Keep the existing tighter L2 reference.
     solver_tol = CV_L1_TOL if penalty == "l1" else CV_L2_TOL
-    return PenalizedGLM_CV(
-        loss="quantile",
-        loss_kwargs={"quantile": Q},
-        penalty=penalty,
-        alpha_grid=CV_ALPHA_GRID,
-        cv=2,
-        cv_splits=folds,
-        random_state=166,
-        solver="fista",
-        device=device,
-        cv_strategy="strict",
-        max_iter=CV_MAX_ITER,
-        tol=solver_tol,
-    ).fit(X, y, sample_weight=weights)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        return PenalizedGLM_CV(
+            loss="quantile",
+            loss_kwargs={"quantile": Q},
+            penalty=penalty,
+            alpha_grid=CV_ALPHA_GRID,
+            cv=2,
+            cv_splits=folds,
+            random_state=166,
+            solver="fista",
+            device=device,
+            cv_strategy="strict",
+            max_iter=CV_MAX_ITER,
+            tol=solver_tol,
+        ).fit(X, y, sample_weight=weights)
 
 
 def main() -> int:
