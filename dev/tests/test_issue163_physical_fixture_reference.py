@@ -139,10 +139,8 @@ def test_pr166_scalar_lla_physical_fixture_converges_and_probes_refresh_on_cpu()
         tuple(location) == ("numpy", "cpu")
         for location in probe_locations
     )
-    assert any(
-        "Quantile FISTA-LLA target alpha did not establish" in message
-        for message in probe_warnings
-    )
+    assert len(probe_warnings) == 1
+    assert "Quantile FISTA-LLA target alpha did not establish" in probe_warnings[0]
 
 
 def test_pr166_async_weighted_l1_fixture_has_spectral_gap_and_cpu_reference():
