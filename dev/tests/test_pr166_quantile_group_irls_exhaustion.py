@@ -101,6 +101,81 @@ def test_active_quantile_group_target_lla_exhaustion_fails_in_strict_cv_mode(mon
     assert calls["value"] == 2
 
 
+def test_target_inner_admm_exhaustion_is_owned_by_group_solver(monkeypatch):
+    X, y, loss, penalty = _drifting_problem()
+
+    def exhausted_admm(loss_arg, penalty_arg, X_arg, y_arg, **kwargs):
+        warnings.warn(
+            "sentinel inner ADMM exhaustion",
+            ConvergenceWarning,
+            stacklevel=2,
+        )
+        current = np.asarray(kwargs["init_coef"], dtype=np.float64)
+        return current.copy(), 7
+
+    monkeypatch.setattr(solver_mod, "admm_solver", exhausted_admm)
+
+    with pytest.warns(
+        ConvergenceWarning,
+        match="target inner ADMM reached max_iter=",
+    ) as caught:
+        coef, intercept, n_iter = (
+            solver_mod.quantile_group_proximal_irls_lla_solver(
+                loss,
+                penalty,
+                X,
+                y,
+                alpha_path=np.asarray([0.3], dtype=np.float64),
+                max_lla_per_step=1,
+                max_iter=2,
+                tol=1e-12,
+                lla_tol=1e-12,
+                fit_intercept=False,
+            )
+        )
+
+    assert len(caught) == 1
+    assert caught[0].filename == __file__
+    np.testing.assert_array_equal(coef, np.zeros(4, dtype=np.float64))
+    assert intercept == 0.0
+    assert n_iter == 7
+
+
+def test_target_inner_admm_exhaustion_fails_candidate_in_strict_cv_mode(monkeypatch):
+    X, y, loss, penalty = _drifting_problem()
+
+    def exhausted_admm(loss_arg, penalty_arg, X_arg, y_arg, **kwargs):
+        warnings.warn(
+            "sentinel inner ADMM exhaustion",
+            ConvergenceWarning,
+            stacklevel=2,
+        )
+        current = np.asarray(kwargs["init_coef"], dtype=np.float64)
+        return current.copy(), 7
+
+    monkeypatch.setattr(solver_mod, "admm_solver", exhausted_admm)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        with pytest.raises(
+            FloatingPointError,
+            match="target inner ADMM reached max_iter=",
+        ):
+            solver_mod.quantile_group_proximal_irls_lla_solver(
+                loss,
+                penalty,
+                X,
+                y,
+                alpha_path=np.asarray([0.3], dtype=np.float64),
+                max_lla_per_step=1,
+                max_iter=2,
+                tol=1e-12,
+                lla_tol=1e-12,
+                fit_intercept=False,
+                fail_on_target_nonconvergence=True,
+            )
+
+
 def test_active_quantile_group_target_irls_budget_exhaustion_warns_even_when_lla_delta_is_small(monkeypatch):
     """Inner IRLS exhaustion must outrank a looser outer LLA tolerance."""
     X, y, loss, penalty = _drifting_problem()
