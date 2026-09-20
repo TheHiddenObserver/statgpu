@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from statgpu.linear_model import PenalizedGLM_CV
+from statgpu.losses import QuantileLoss
 from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
 from statgpu.linear_model.penalized import _fit_mixin
 from statgpu.linear_model.penalized import (
@@ -309,7 +310,7 @@ def test_automatic_quantile_group_solver_keeps_lla_derivatives_backend_native(
     monkeypatch.setattr(group_solver, "admm_solver", fake_admm)
 
     coef, intercept, n_iter = group_solver.quantile_group_proximal_irls_lla_solver(
-        loss=__import__("statgpu.losses", fromlist=["QuantileLoss"]).QuantileLoss(Q),
+        loss=QuantileLoss(Q),
         penalty=penalty,
         X=X,
         y=y,
