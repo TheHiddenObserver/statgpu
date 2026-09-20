@@ -333,6 +333,18 @@ def test_rejected_quantile_refit_clears_all_fit_derived_state():
     ("kwargs", "message"),
     [
         (
+            {"cv": True},
+            "cv must be an integer greater than or equal to 2",
+        ),
+        (
+            {"cv": 2.5},
+            "cv must be an integer greater than or equal to 2",
+        ),
+        (
+            {"cv": "2"},
+            "cv must be an integer greater than or equal to 2",
+        ),
+        (
             {"acknowledge_approx": 1},
             "acknowledge_approx must be boolean",
         ),
