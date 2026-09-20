@@ -151,7 +151,7 @@ def _run_periodic_refresh_probe(X, y, weights):
     penalty = SCADPenalty(alpha=ALPHA, a=3.7)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always", ConvergenceWarning)
-        _coef, _intercept, n_iter = fista_lla_path(
+        coef, intercept, n_iter = fista_lla_path(
             loss,
             penalty,
             X,
@@ -191,7 +191,13 @@ def _run_periodic_refresh_probe(X, y, weights):
             f"scalar Quantile LLA periodic refresh lost analytic weights: "
             f"{loss.weight_locations!r}"
         )
-    return int(n_iter), list(loss.weight_locations), convergence_warnings
+    return (
+        np.asarray(_to_numpy(coef), dtype=np.float64).reshape(-1),
+        float(intercept),
+        int(n_iter),
+        list(loss.weight_locations),
+        convergence_warnings,
+    )
 
 
 def _objective(coef, intercept, X, y, weights):
@@ -224,10 +230,21 @@ def main() -> int:
     X, y, weights = _converged_data()
     probe_X, probe_y, probe_weights = _data()
     cpu_coef, cpu_intercept, cpu_iter, cpu_locations = _run(X, y, weights)
-    cpu_probe_iter, cpu_probe_locations, cpu_probe_warnings = (
-        _run_periodic_refresh_probe(probe_X, probe_y, probe_weights)
-    )
+    (
+        cpu_probe_coef,
+        cpu_probe_intercept,
+        cpu_probe_iter,
+        cpu_probe_locations,
+        cpu_probe_warnings,
+    ) = _run_periodic_refresh_probe(probe_X, probe_y, probe_weights)
     cpu_objective = _objective(cpu_coef, cpu_intercept, X, y, weights)
+    cpu_probe_objective = _objective(
+        cpu_probe_coef,
+        cpu_probe_intercept,
+        probe_X,
+        probe_y,
+        probe_weights,
+    )
 
     if np.max(np.abs(cpu_coef)) > 1e-12 or abs(cpu_intercept) > 1e-12:
         raise AssertionError(
@@ -237,15 +254,21 @@ def main() -> int:
     cases = []
     max_param_error = 0.0
     max_objective_error = 0.0
+    max_probe_param_error = 0.0
+    max_probe_objective_error = 0.0
     for backend in ("cupy", "torch"):
         Xb, yb, wb = _native_inputs(backend, X, y, weights, cp, torch)
         probe_Xb, probe_yb, probe_wb = _native_inputs(
             backend, probe_X, probe_y, probe_weights, cp, torch
         )
         coef, intercept, n_iter, locations = _run(Xb, yb, wb)
-        probe_iter, probe_locations, probe_warnings = _run_periodic_refresh_probe(
-            probe_Xb, probe_yb, probe_wb
-        )
+        (
+            probe_coef,
+            probe_intercept,
+            probe_iter,
+            probe_locations,
+            probe_warnings,
+        ) = _run_periodic_refresh_probe(probe_Xb, probe_yb, probe_wb)
         expected_location = (backend, "cuda:0")
         if any(tuple(location) != expected_location for location in locations):
             raise AssertionError(
@@ -262,8 +285,23 @@ def main() -> int:
         param_error = max(coef_error, intercept_error)
         objective = _objective(coef, intercept, X, y, weights)
         objective_error = abs(objective - cpu_objective)
+        probe_coef_error = float(np.max(np.abs(probe_coef - cpu_probe_coef)))
+        probe_intercept_error = abs(probe_intercept - cpu_probe_intercept)
+        probe_param_error = max(probe_coef_error, probe_intercept_error)
+        probe_objective = _objective(
+            probe_coef,
+            probe_intercept,
+            probe_X,
+            probe_y,
+            probe_weights,
+        )
+        probe_objective_error = abs(probe_objective - cpu_probe_objective)
         max_param_error = max(max_param_error, param_error)
         max_objective_error = max(max_objective_error, objective_error)
+        max_probe_param_error = max(max_probe_param_error, probe_param_error)
+        max_probe_objective_error = max(
+            max_probe_objective_error, probe_objective_error
+        )
         if param_error > ATOL_PARAM:
             raise AssertionError(
                 f"{backend}: scalar LLA parameter error {param_error:.3e} > {ATOL_PARAM:.3e}"
@@ -271,6 +309,19 @@ def main() -> int:
         if objective_error > ATOL_OBJECTIVE:
             raise AssertionError(
                 f"{backend}: scalar LLA objective error {objective_error:.3e} > {ATOL_OBJECTIVE:.3e}"
+            )
+        # The forced periodic-refresh trajectory is intentionally not a
+        # converged statistical oracle, but it should still be the same
+        # deterministic low-level algorithm on CPU/CuPy/Torch.
+        if probe_param_error > ATOL_PARAM:
+            raise AssertionError(
+                f"{backend}: scalar LLA periodic-refresh trajectory parameter "
+                f"error {probe_param_error:.3e} > {ATOL_PARAM:.3e}"
+            )
+        if probe_objective_error > ATOL_OBJECTIVE:
+            raise AssertionError(
+                f"{backend}: scalar LLA periodic-refresh trajectory objective "
+                f"error {probe_objective_error:.3e} > {ATOL_OBJECTIVE:.3e}"
             )
         cases.append(
             {
@@ -284,6 +335,10 @@ def main() -> int:
                 "intercept_error": intercept_error,
                 "parameter_error": param_error,
                 "objective_error": objective_error,
+                "periodic_refresh_diagnostic_coef_error": probe_coef_error,
+                "periodic_refresh_diagnostic_intercept_error": probe_intercept_error,
+                "periodic_refresh_diagnostic_parameter_error": probe_param_error,
+                "periodic_refresh_diagnostic_objective_error": probe_objective_error,
             }
         )
 
@@ -312,8 +367,10 @@ def main() -> int:
         },
         "cases": cases,
         "max_errors": {
-            "parameter": max_param_error,
-            "objective": max_objective_error,
+            "accepted_parameter": max_param_error,
+            "accepted_objective": max_objective_error,
+            "periodic_refresh_diagnostic_parameter": max_probe_param_error,
+            "periodic_refresh_diagnostic_objective": max_probe_objective_error,
         },
         "tolerances": {
             "parameter": ATOL_PARAM,
