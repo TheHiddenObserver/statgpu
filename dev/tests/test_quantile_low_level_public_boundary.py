@@ -28,6 +28,7 @@ import statgpu.backends._utils as _backend_utils
 from statgpu.solvers._fista import _weighted_gram_lipschitz
 import statgpu.losses._quantile_irls_validation_contract as _irls_contract
 import statgpu.solvers._quantile_proximal_public_contract as _prox_contract
+import statgpu.solvers._quantile_solver_guard as _solver_guard
 from statgpu.solvers import _proximal_irls_quantile as _prox_kernel
 
 
@@ -1619,6 +1620,49 @@ def test_public_proximal_quantile_wrapper_preserves_introspection_and_alias():
     assert "None`` uses 100 iterations per step" in doc
     assert "Non-empty one-dimensional continuation path" in doc
     assert "finite positive values in non-increasing order" in doc
+
+
+def test_quantile_solver_guard_reload_preserves_public_aliases_and_signatures(
+    monkeypatch,
+):
+    import statgpu.solvers._lbfgs as _lbfgs_module
+
+    reloaded = importlib.reload(_solver_guard)
+    assert solvers.fista_solver is reloaded.fista_solver
+    assert solvers.lbfgs_solver is reloaded.lbfgs_solver
+    assert _lbfgs_module.lbfgs_solver is reloaded.lbfgs_solver
+
+    fista_params = tuple(inspect.signature(solvers.fista_solver).parameters)
+    lbfgs_params = tuple(inspect.signature(solvers.lbfgs_solver).parameters)
+    assert fista_params == (
+        "loss", "penalty", "X", "y", "max_iter", "tol", "init_coef",
+        "sample_weight", "lipschitz_L", "cv_mode",
+    )
+    assert lbfgs_params == (
+        "loss", "penalty", "X", "y", "max_iter", "tol", "init_coef",
+        "history_size", "sample_weight",
+    )
+
+    captured = {}
+
+    def fake_lbfgs(loss, penalty, X, y, **kwargs):
+        captured["X"] = X
+        captured["y"] = y
+        return np.zeros(X.shape[1], dtype=np.float64), 1
+
+    monkeypatch.setattr(reloaded, "_lbfgs_solver", fake_lbfgs)
+    X, y = _data(seed=16741)
+    coef, n_iter = solvers.lbfgs_solver(
+        QuantileLoss(quantile=0.3),
+        None,
+        X.tolist(),
+        y.tolist(),
+        max_iter=3,
+    )
+    assert np.all(np.isfinite(coef))
+    assert n_iter == 1
+    assert isinstance(captured["X"], np.ndarray)
+    assert isinstance(captured["y"], np.ndarray)
 
 
 def test_quantile_irls_validation_installer_is_idempotent_under_reload():
