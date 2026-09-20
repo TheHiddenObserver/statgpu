@@ -13,6 +13,7 @@ _INV_SQRT_2PI = 1.0 / _math.sqrt(2.0 * _math.pi)
 # may need more halvings than a smooth objective before every draw remains on a
 # descending segment. Keep Armijo strict and extend only the bounded search.
 _BOOTSTRAP_MAX_BACKTRACKS = 40
+_BOOTSTRAP_ZERO_SUBGRADIENT_REFINEMENTS = 32
 
 
 def _align_quantile_fit_inputs(X_arr, y_arr, sample_weight_arr, backend_name):
@@ -118,6 +119,43 @@ def _pinball_eta_gradient_values(tau):
     """Return d rho_tau(y-eta) / d eta on positive/negative residuals."""
     tau = float(tau)
     return -tau, 1.0 - tau
+
+
+def _refine_pinball_zero_subgradients(
+    X,
+    d_eta,
+    zero_mask,
+    tau,
+    lipschitz,
+    n_samples,
+    xp,
+):
+    """Choose a near-minimum-norm valid subgradient at pinball kinks.
+
+    Nonzero residuals have fixed eta-gradients. Each exact-zero residual may
+    independently choose any value in [-tau, 1-tau]. Projected gradient descent
+    minimizes ||X.T @ d_eta / n||^2 over those box-constrained zero-residual
+    coordinates, so multifeature kink solutions are not forced to share one
+    intercept-balancing subgradient value.
+    """
+    has_zero = xp.any(zero_mask)
+    if not bool(has_zero.item() if hasattr(has_zero, "item") else has_zero):
+        return d_eta
+
+    step = float(n_samples) / max(float(lipschitz), 1e-30)
+    lower = -float(tau)
+    upper = 1.0 - float(tau)
+    refined = d_eta
+    for _ in range(_BOOTSTRAP_ZERO_SUBGRADIENT_REFINEMENTS):
+        score = X.T @ refined / float(n_samples)
+        zero_direction = X @ score / float(n_samples)
+        candidate = refined - step * zero_direction
+        if xp.__name__ == "torch":
+            candidate = xp.clamp(candidate, min=lower, max=upper)
+        else:
+            candidate = xp.clip(candidate, lower, upper)
+        refined = xp.where(zero_mask, candidate, refined)
+    return refined
 
 
 def _bootstrap_fista_extrapolate(
@@ -1071,8 +1109,10 @@ class QuantileRegression(BaseEstimator):
             r_z = y_gpu.T - pred_z  # (n, B)
 
             # Element-wise pinball gradient. Exact zero residuals are
-            # kinks, so choose a valid per-draw zero-residual subgradient that
-            # balances the scalar score whenever possible.
+            # kinks. Start from the intercept-balanced choice, then allow each
+            # zero-residual observation to move independently inside the valid
+            # subgradient interval so the full multifeature score is minimized.
+            zero_mask = r_z == 0.0
             zero_gradient = _pinball_zero_eta_gradient_by_draw(r_z, tau, xp)
             if is_cupy:
                 _pinball_grad_kernel(r_z, zero_gradient, _d_eta_buf)
@@ -1091,6 +1131,15 @@ class QuantileRegression(BaseEstimator):
                 if is_torch:
                     d_eta = d_eta.to(Xd.dtype)
 
+            d_eta = _refine_pinball_zero_subgradients(
+                Xd,
+                d_eta,
+                zero_mask,
+                tau,
+                L0,
+                n,
+                xp,
+            )
             grad = Xd.T @ d_eta / n
 
             # Draws are independent even though they share a vectorized line
