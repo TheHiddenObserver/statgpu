@@ -243,6 +243,7 @@ def quantile_group_proximal_irls_lla_solver(
         lla_converged = False
         flat_irls_exhausted = False
         active_irls_exhausted = False
+        active_admm_exhausted = False
 
         for _lla_iter in range(int(max_lla_per_step)):
             feature_params = params[:n_features]
@@ -258,8 +259,9 @@ def quantile_group_proximal_irls_lla_solver(
 
             if _all_zero(lla_feature_np):
                 # A flat surrogate owns the current target state. Any active
-                # IRLS exhaustion from an earlier LLA step is now historical.
+                # IRLS/ADMM exhaustion from an earlier LLA step is historical.
                 active_irls_exhausted = False
+                active_admm_exhausted = False
                 params, used_iter = loss.irls(
                     X_work,
                     y_dev,
@@ -299,6 +301,7 @@ def quantile_group_proximal_irls_lla_solver(
                 # previously exhausted flat solve cannot poison its verdict.
                 flat_irls_exhausted = False
                 active_irls_converged = False
+                active_admm_exhausted = False
                 factory_values = (
                     np.concatenate([lla_feature_np, np.zeros(1, dtype=np.float64)])
                     if fit_intercept
@@ -315,8 +318,8 @@ def quantile_group_proximal_irls_lla_solver(
                     X_quad = X_work * sqrt_weight[:, None]
                     y_quad = y_dev * sqrt_weight
 
-                    with warnings.catch_warnings():
-                        warnings.simplefilter("error", ConvergenceWarning)
+                    with warnings.catch_warnings(record=True) as admm_warnings:
+                        warnings.simplefilter("always")
                         params, inner_iter = admm_solver(
                             quadratic_loss,
                             inner_penalty,
@@ -329,6 +332,17 @@ def quantile_group_proximal_irls_lla_solver(
                             init_coef=params,
                             sample_weight=None,
                         )
+                    active_admm_exhausted = any(
+                        issubclass(item.category, ConvergenceWarning)
+                        for item in admm_warnings
+                    )
+                    for item in admm_warnings:
+                        if not issubclass(item.category, ConvergenceWarning):
+                            warnings.warn(
+                                item.message,
+                                item.category,
+                                stacklevel=_external_warning_stacklevel(),
+                            )
                     total_iter += int(inner_iter)
 
                     delta_dev = xp.max(xp.abs(params - params_old))
@@ -364,6 +378,23 @@ def quantile_group_proximal_irls_lla_solver(
                 warnings.warn(
                     base_message
                     + "; returning the final iterate. Increase max_iter for a stricter convergence check.",
+                    ConvergenceWarning,
+                    stacklevel=_external_warning_stacklevel(),
+                )
+            elif active_admm_exhausted:
+                base_message = (
+                    "Quantile Group Proximal IRLS-LLA target inner ADMM "
+                    f"reached max_iter={admm_limit} at "
+                    f"alpha={float(cont_alpha):.12g}"
+                )
+                if fail_on_target_nonconvergence:
+                    raise FloatingPointError(
+                        base_message
+                        + "; the CV candidate was not scored because target convergence was not established."
+                    )
+                warnings.warn(
+                    base_message
+                    + "; returning the final surrogate iterate. Increase max_iter for a stricter convergence check.",
                     ConvergenceWarning,
                     stacklevel=_external_warning_stacklevel(),
                 )
