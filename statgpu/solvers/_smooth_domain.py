@@ -221,7 +221,7 @@ def _domain_max_step(loss, X, coef, delta, sample_weight=None):
         )
     if cap <= _domain_step_floor(X):
         raise _LossDomainError(
-            f"loss='{getattr(loss, 'name', '?')}' is pinned to the maintained "
+            f"loss='{getattr(loss, 'name', '?')}' is pinned to the "
             "smooth-domain boundary before gradient convergence."
         )
     return cap
