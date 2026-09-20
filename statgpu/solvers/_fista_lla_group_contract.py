@@ -116,6 +116,8 @@ def _group_surrogate_factory(scad_penalty):
     if groups is None:
         raise ValueError("group penalty must define group indices for LLA")
     group_indices = [np.asarray(group, dtype=np.int64) for group in groups]
+    if not group_indices:
+        raise ValueError("group penalty must contain at least one group")
     group_sizes = np.asarray([len(group) for group in group_indices], dtype=float)
     if np.any(group_sizes <= 0):
         raise ValueError("group penalty contains an empty group")
