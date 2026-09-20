@@ -9,7 +9,10 @@ import numpy as np
 
 # Pre-computed scalar constants (Python floats, safe for GPU tensor broadcast)
 _INV_SQRT_2PI = 1.0 / _math.sqrt(2.0 * _math.pi)
-_BOOTSTRAP_MAX_BACKTRACKS = 20
+# Pinball objectives are piecewise linear. Near a kink, a shared batched step
+# may need more halvings than a smooth objective before every draw remains on a
+# descending segment. Keep Armijo strict and extend only the bounded search.
+_BOOTSTRAP_MAX_BACKTRACKS = 40
 
 
 def _align_quantile_fit_inputs(X_arr, y_arr, sample_weight_arr, backend_name):
