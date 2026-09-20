@@ -330,6 +330,41 @@ def test_rejected_quantile_refit_clears_all_fit_derived_state():
 
 
 @pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        (
+            {"acknowledge_approx": 1},
+            "acknowledge_approx must be boolean",
+        ),
+        (
+            {"refine_top_k": True},
+            "refine_top_k must be a positive integer",
+        ),
+        (
+            {"refine_top_k": 1.5},
+            "refine_top_k must be a positive integer",
+        ),
+        (
+            {"refine_top_k": "3"},
+            "refine_top_k must be a positive integer",
+        ),
+    ],
+)
+def test_quantile_cv_constructor_controls_fail_before_coercion(kwargs, message):
+    with pytest.raises(ValueError, match=message):
+        PenalizedGLM_CV(
+            loss="quantile",
+            loss_kwargs={"quantile": 0.4},
+            penalty="l2",
+            alpha_grid=np.asarray([0.03], dtype=np.float64),
+            cv=2,
+            solver="auto",
+            device="cpu",
+            **kwargs,
+        )
+
+
+@pytest.mark.parametrize(
     ("name", "value", "message"),
     [
         ("max_iter", 0, "max_iter must be a positive integer"),
