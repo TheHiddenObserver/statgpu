@@ -776,6 +776,54 @@ def test_public_quantile_lbfgs_rejects_invalid_stopping_controls_before_loss_wor
 
 
 @pytest.mark.parametrize(
+    "penalty",
+    [
+        SCADPenalty(alpha=0.04, a=3.7),
+        MCPPenalty(alpha=0.04, gamma=3.0),
+    ],
+)
+def test_public_quantile_fista_rejects_scalar_nonconvex_penalty_before_loss_work(
+    monkeypatch, penalty
+):
+    X, y = _data(seed=16742)
+    loss = QuantileLoss(quantile=0.3)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("loss numerical work must not start")
+
+    monkeypatch.setattr(loss, "preprocess", forbidden)
+    with pytest.raises(ValueError, match="scalar Quantile SCAD/MCP"):
+        solvers.fista_solver(loss, penalty, X, y, max_iter=3)
+
+
+def test_public_quantile_fista_keeps_group_scad_explicit_route(monkeypatch):
+    X, y = _data(seed=16743)
+    loss = QuantileLoss(quantile=0.3)
+    penalty = GroupSCADPenalty(
+        alpha=0.04,
+        a=3.7,
+        groups=[[0, 1], [2]],
+    )
+    captured = {}
+
+    def fake_fista(loss_arg, penalty_arg, X_arg, y_arg, **kwargs):
+        captured["penalty"] = penalty_arg
+        return np.zeros(X_arg.shape[1], dtype=np.float64), 1
+
+    monkeypatch.setattr(_solver_guard, "_fista_solver", fake_fista)
+    coef, n_iter = solvers.fista_solver(
+        loss,
+        penalty,
+        X,
+        y,
+        max_iter=3,
+    )
+    assert captured["penalty"] is penalty
+    assert np.all(np.isfinite(coef))
+    assert n_iter == 1
+
+
+@pytest.mark.parametrize(
     ("solver_name", "penalty"),
     [
         ("fista_solver", L2Penalty(alpha=0.04)),
