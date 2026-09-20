@@ -384,3 +384,29 @@ def test_group_proximal_irls_observation_weights_include_normalized_analytic_wei
     expected = normalized * asym / np.maximum(np.abs(y), 1e-8)
 
     np.testing.assert_allclose(actual, expected, rtol=0.0, atol=1e-15)
+
+
+def test_group_proximal_irls_weights_match_maintained_formula_above_1e10():
+    n = 256
+    loss = QuantileLoss(0.5)
+    X = np.ones((n, 1), dtype=np.float64)
+    y = np.zeros(n, dtype=np.float64)
+    params = np.zeros(1, dtype=np.float64)
+
+    normalized = np.full(n, 1.0 / (n - 1), dtype=np.float64)
+    normalized[0] = float(n - 1)
+    normalized *= n / float(np.sum(normalized))
+
+    actual = group_solver._quantile_irls_weights(
+        loss,
+        X,
+        y,
+        params,
+        normalized,
+        np,
+        "numpy",
+    )
+    expected = normalized * 0.5 / 1e-8
+
+    assert expected[0] > 1.0e10
+    np.testing.assert_allclose(actual, expected, rtol=0.0, atol=1e-6)
