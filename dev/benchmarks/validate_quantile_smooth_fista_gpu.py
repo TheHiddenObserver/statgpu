@@ -61,7 +61,7 @@ ASYNC_TOL = 1e-5
 ASYNC_MOMENTUM_BETA_CAP = 0.5
 ASYNC_STALL_CHECKS = 2
 ASYNC_STEP_CONTRACTION_FACTOR = 2.0
-ASYNC_STEP_NORMALIZED_DELTA = True
+ASYNC_REFERENCE = "scipy_highs_lp"
 
 BOOTSTRAP_Q = 0.20
 BOOTSTRAP_N = 80
@@ -92,7 +92,7 @@ def _solver_controls():
             "momentum_beta_cap": ASYNC_MOMENTUM_BETA_CAP,
             "stall_checks": ASYNC_STALL_CHECKS,
             "step_contraction_factor": ASYNC_STEP_CONTRACTION_FACTOR,
-            "step_normalized_delta": ASYNC_STEP_NORMALIZED_DELTA,
+            "reference": ASYNC_REFERENCE,
         },
         "bootstrap_direction": {
             "quantile": BOOTSTRAP_Q,
@@ -182,6 +182,61 @@ def _async_weighted_data(seed=16693, n=96):
             f"async weighted fixture is not sufficiently correlated: ratio={ratio:.3f}"
         )
     return X, y, weights, ratio
+
+
+def _async_weighted_l1_lp_reference(X, y, weights, alpha):
+    """Solve the convex weighted Quantile+L1 fixture by an independent LP."""
+    from scipy.optimize import linprog
+
+    X = np.asarray(X, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64).reshape(-1)
+    weights = np.asarray(weights, dtype=np.float64).reshape(-1)
+    n, p = X.shape
+    if y.shape != (n,) or weights.shape != (n,):
+        raise ValueError("async LP reference inputs have incompatible shapes")
+    total_weight = float(np.sum(weights))
+    if not np.isfinite(total_weight) or total_weight <= 0.0:
+        raise ValueError("async LP reference weights must have positive mass")
+
+    # beta = beta_plus - beta_minus
+    # residual = y - X beta = u_plus - u_minus
+    # All split variables are constrained non-negative.
+    n_var = 2 * p + 2 * n
+    objective = np.zeros(n_var, dtype=np.float64)
+    objective[:p] = float(alpha)
+    objective[p : 2 * p] = float(alpha)
+    normalized_weight = weights / total_weight
+    objective[2 * p : 2 * p + n] = Q * normalized_weight
+    objective[2 * p + n :] = (1.0 - Q) * normalized_weight
+
+    A_eq = np.zeros((n, n_var), dtype=np.float64)
+    A_eq[:, :p] = X
+    A_eq[:, p : 2 * p] = -X
+    A_eq[:, 2 * p : 2 * p + n] = np.eye(n, dtype=np.float64)
+    A_eq[:, 2 * p + n :] = -np.eye(n, dtype=np.float64)
+
+    result = linprog(
+        objective,
+        A_eq=A_eq,
+        b_eq=y,
+        bounds=(0.0, None),
+        method="highs",
+    )
+    if not bool(result.success):
+        raise AssertionError(
+            "async weighted-L1 LP reference failed: "
+            f"status={result.status}, message={result.message!r}"
+        )
+
+    solution = np.asarray(result.x, dtype=np.float64)
+    coef = solution[:p] - solution[p : 2 * p]
+    objective_value = _l1_objective(X, y, weights, coef, alpha)
+    if abs(objective_value - float(result.fun)) > 1e-10:
+        raise AssertionError(
+            "async weighted-L1 LP objective reconstruction drifted: "
+            f"{objective_value:.16g} vs solver {float(result.fun):.16g}"
+        )
+    return coef, objective_value
 
 
 def _host(value):
@@ -658,8 +713,9 @@ def _async_weighted_l1_case(
     X,
     y,
     weights,
-    cpu_objective,
-    cpu_n_iter,
+    reference_objective,
+    cpu_fista_objective,
+    cpu_fista_n_iter,
     spectral_ratio,
 ):
     """Exercise the actual non-smooth GPU async FISTA branch."""
@@ -697,7 +753,7 @@ def _async_weighted_l1_case(
         coef_host,
         ASYNC_L1_ALPHA,
     )
-    error = abs(objective - cpu_objective)
+    error = abs(objective - reference_objective)
     parity_ok = bool(error <= ATOL_ASYNC_L1_OBJECTIVE)
 
     if backend == "cupy":
@@ -728,10 +784,11 @@ def _async_weighted_l1_case(
         "momentum_beta_cap": ASYNC_MOMENTUM_BETA_CAP,
         "stall_checks": ASYNC_STALL_CHECKS,
         "step_contraction_factor": ASYNC_STEP_CONTRACTION_FACTOR,
-        "step_normalized_delta": ASYNC_STEP_NORMALIZED_DELTA,
+        "reference": ASYNC_REFERENCE,
         "weighted_gram_spectral_to_maxdiag_ratio": spectral_ratio,
-        "cpu_objective": cpu_objective,
-        "cpu_n_iter": int(cpu_n_iter),
+        "reference_objective": reference_objective,
+        "cpu_fista_objective": cpu_fista_objective,
+        "cpu_fista_n_iter": int(cpu_fista_n_iter),
         "objective": objective,
         "objective_error": error,
         "objective_tolerance": ATOL_ASYNC_L1_OBJECTIVE,
@@ -841,9 +898,19 @@ def main() -> int:
     async_X, async_y, async_weights, async_spectral_ratio = (
         _async_weighted_data()
     )
-    # The GPU parity target must itself be a converged solve. A finite
-    # coefficient vector from an exhausted/line-search-failed CPU run is not a
-    # valid numerical oracle merely because its objective is finite.
+    # The async Quantile+L1 fixture is convex but the CPU cv_mode=False
+    # generic FISTA path uses a smooth-style backtracking certificate on the
+    # non-smooth pinball loss. It can stop at a tiny-step iterate above the
+    # convex optimum, so it is retained only as a diagnostic—not as the
+    # acceptance oracle. Use an independent HiGHS linear-program reference.
+    async_reference_coef, async_reference_objective = (
+        _async_weighted_l1_lp_reference(
+            async_X,
+            async_y,
+            async_weights,
+            ASYNC_L1_ALPHA,
+        )
+    )
     with warnings.catch_warnings():
         warnings.simplefilter("error", ConvergenceWarning)
         async_cpu_coef, async_cpu_iter = fista_solver(
@@ -862,6 +929,9 @@ def main() -> int:
         async_weights,
         async_cpu_coef,
         ASYNC_L1_ALPHA,
+    )
+    async_cpu_excess_vs_lp = (
+        async_cpu_objective - async_reference_objective
     )
 
     def forbidden_irls(*_args, **_kwargs):
@@ -900,6 +970,7 @@ def main() -> int:
                 async_X,
                 async_y,
                 async_weights,
+                async_reference_objective,
                 async_cpu_objective,
                 async_cpu_iter,
                 async_spectral_ratio,
@@ -1000,9 +1071,10 @@ def main() -> int:
             {
                 "backend": case["backend"],
                 "n_iter": case["n_iter"],
-                "cpu_n_iter": case["cpu_n_iter"],
+                "cpu_fista_n_iter": case["cpu_fista_n_iter"],
                 "objective": case["objective"],
-                "cpu_objective": case["cpu_objective"],
+                "reference_objective": case["reference_objective"],
+                "cpu_fista_objective": case["cpu_fista_objective"],
                 "objective_error": case["objective_error"],
                 "tolerance": case["objective_tolerance"],
                 "coef": case["coef"],
@@ -1021,6 +1093,17 @@ def main() -> int:
         "source_clean": source_clean,
         "quantile": Q,
         "solver_controls": _solver_controls(),
+        "async_weighted_l1_reference": {
+            "method": ASYNC_REFERENCE,
+            "objective": async_reference_objective,
+            "coef": np.asarray(
+                async_reference_coef,
+                dtype=np.float64,
+            ).tolist(),
+            "cpu_fista_objective": async_cpu_objective,
+            "cpu_fista_excess_vs_reference": async_cpu_excess_vs_lp,
+            "cpu_fista_n_iter": int(async_cpu_iter),
+        },
         "cases": cases,
         "max_errors": {
             "direct_objective": max_objective_error,
