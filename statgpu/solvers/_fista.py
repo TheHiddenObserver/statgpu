@@ -331,12 +331,8 @@ def fista_solver(
     _quantile_async_stall_checks = 0
     _quantile_async_step_contractions = 0
     _quantile_async_last_obj = None
-    _quantile_async_last_raw_delta = None
     _quantile_async_last_delta = None
     _quantile_async_last_step = None
-    _quantile_async_initial_L = (
-        float(L) if _quantile_async_nonsmooth else None
-    )
     # The dedicated sparse-CV FISTA engine caps Nesterov momentum at 0.5.
     # Match that stability contract for Quantile's generic async non-smooth
     # cv_mode path. Pinball loss is itself non-smooth, so unconstrained
@@ -451,29 +447,14 @@ def fista_solver(
                 if _obj_val_f < _obj_best_fista:
                     _obj_best_fista = _obj_val_f
                     _coef_best_fista = _copy_arr(coef)
-                _conv_check_f = _conv_f
                 if _quantile_async_nonsmooth:
-                    # Adaptive step contraction must not manufacture
-                    # convergence merely by shrinking the raw coefficient
-                    # displacement. Re-express delta on the initial-step scale:
-                    #     delta_scaled = delta_raw * initial_step/current_step
-                    #                  = delta_raw * L/current_L0.
-                    # If stationarity genuinely improves, this normalized
-                    # displacement still decreases; a pure step contraction
-                    # leaves it approximately unchanged.
-                    _step_scale_ratio = max(
-                        float(L) / float(_quantile_async_initial_L),
-                        1.0,
-                    )
-                    _conv_check_f = float(_conv_f) * _step_scale_ratio
                     _quantile_async_last_obj = float(_obj_val_f)
-                    _quantile_async_last_raw_delta = float(_conv_f)
-                    _quantile_async_last_delta = float(_conv_check_f)
+                    _quantile_async_last_delta = float(_conv_f)
                     _quantile_async_last_step = float(1.0 / L)
-                # Convergence applies to every async loss family. Quantile's
-                # adaptive route uses the step-normalized displacement above
-                # so step contraction itself cannot trigger convergence.
-                if _conv_check_f < tol:
+                # Convergence applies to every async loss family.  The
+                # previous implementation updated this state only for quadratic
+                # losses, so non-quadratic sparse CV always exhausted max_iter.
+                if _conv_f < tol:
                     converged = True
                     break
                 if (
@@ -897,10 +878,7 @@ def fista_solver(
             _async_diagnostics = (
                 " Async diagnostics:"
                 f" last_checked_objective={_quantile_async_last_obj!r},"
-                " last_checked_raw_delta="
-                f"{_quantile_async_last_raw_delta!r},"
-                " last_checked_step_normalized_delta="
-                f"{_quantile_async_last_delta!r},"
+                f" last_checked_delta={_quantile_async_last_delta!r},"
                 f" last_step={_quantile_async_last_step!r},"
                 " step_contractions="
                 f"{_quantile_async_step_contractions}."
