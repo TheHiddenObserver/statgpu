@@ -394,14 +394,24 @@ def fista_solver(
                 # the same sync so adaptive step control does not add a second
                 # device->host boundary.
                 _quantile_async_l1_alpha = (
-                    float(getattr(penalty, "alpha", 0.0))
+                    float(
+                        getattr(
+                            penalty,
+                            "_alpha",
+                            getattr(penalty, "alpha", 0.0),
+                        )
+                    )
                     if _quantile_async_nonsmooth
                     and _pen_name_lower == "l1"
                     else None
                 )
                 if _quantile_async_l1_alpha is not None:
+                    _quantile_async_l1_width = int(
+                        getattr(penalty, "_p", n_features)
+                    )
                     _penalty_dev = (
-                        _quantile_async_l1_alpha * _abs_sum_dev(coef)
+                        _quantile_async_l1_alpha
+                        * _abs_sum_dev(coef[:_quantile_async_l1_width])
                     )
                     _obj_val_f, _conv_f, _penalty_f = _sync_scalars(
                         _obj_dev,
