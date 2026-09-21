@@ -58,6 +58,7 @@ ASYNC_MAX_ITER = 6000
 # L1 CV stopping contract. CPU/GPU objective parity remains a separate, tighter
 # acceptance condition below.
 ASYNC_TOL = 1e-5
+ASYNC_MOMENTUM_BETA_CAP = 0.5
 
 BOOTSTRAP_Q = 0.20
 BOOTSTRAP_N = 80
@@ -85,6 +86,7 @@ def _solver_controls():
             "alpha": ASYNC_L1_ALPHA,
             "max_iter": ASYNC_MAX_ITER,
             "tol": ASYNC_TOL,
+            "momentum_beta_cap": ASYNC_MOMENTUM_BETA_CAP,
         },
         "bootstrap_direction": {
             "quantile": BOOTSTRAP_Q,
@@ -721,6 +723,7 @@ def _async_weighted_l1_case(
         "cv_mode": True,
         "n_iter": int(n_iter),
         "alpha": ASYNC_L1_ALPHA,
+        "momentum_beta_cap": ASYNC_MOMENTUM_BETA_CAP,
         "weighted_gram_spectral_to_maxdiag_ratio": spectral_ratio,
         "cpu_objective": cpu_objective,
         "cpu_n_iter": int(cpu_n_iter),
