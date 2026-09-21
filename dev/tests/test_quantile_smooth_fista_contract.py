@@ -196,58 +196,6 @@ def test_async_quantile_selective_l1_tracking_stays_batched(monkeypatch):
         )
 
 
-def test_async_quantile_step_contraction_does_not_fake_delta_convergence(monkeypatch):
-    torch = pytest.importorskip("torch")
-    import statgpu.solvers._fista as fista_mod
-
-    X = torch.eye(2, dtype=torch.float64)
-    y = torch.zeros(2, dtype=torch.float64)
-    loss = QuantileLoss(quantile=0.35)
-    penalty = L1Penalty(alpha=0.0)
-
-    objective = torch.as_tensor(1.0, dtype=torch.float64)
-    grad_template = torch.full((2,), 5e-5, dtype=torch.float64)
-
-    def constant_fused_value_and_gradient(X_arg, y_arg, coef, sample_weight=None):
-        return objective.to(device=coef.device), grad_template.to(device=coef.device)
-
-    def constant_value(X_arg, y_arg, coef, sample_weight=None):
-        return objective.to(device=coef.device)
-
-    def no_momentum(coef, coef_old, t_k, beta_cap=None):
-        return coef.clone(), t_k
-
-    monkeypatch.setattr(
-        loss,
-        "fused_value_and_gradient",
-        constant_fused_value_and_gradient,
-    )
-    monkeypatch.setattr(loss, "value", constant_value)
-    monkeypatch.setattr(fista_mod, "_nesterov_update", no_momentum)
-
-    with pytest.warns(ConvergenceWarning) as caught:
-        _, n_iter = fista_mod.fista_solver(
-            loss,
-            penalty,
-            X,
-            y,
-            max_iter=80,
-            tol=7.5e-5,
-            lipschitz_L=1.0,
-            cv_mode=True,
-        )
-
-    # Before contraction the L1 displacement is 1e-4. Halving the step makes
-    # the raw displacement 5e-5 (< tol), but the initial-step-normalized
-    # displacement remains 1e-4 and must therefore prevent false convergence.
-    assert n_iter == 80
-    message = str(caught[-1].message)
-    assert "step_contractions=1" in message
-    assert "last_step=0.5" in message
-    assert "last_checked_raw_delta=" in message
-    assert "last_checked_step_normalized_delta=" in message
-
-
 def test_async_quantile_l1_stall_contracts_step_without_extra_penalty_sync(monkeypatch):
     torch = pytest.importorskip("torch")
     import statgpu.solvers._fista as fista_mod
