@@ -152,6 +152,109 @@ def test_quantile_fista_nonconvergence_warning_recommends_supported_routes():
     assert "lbfgs" not in message.lower()
 
 
+def test_quantile_cv_final_refit_marks_async_route_without_leaking(monkeypatch):
+    X, y, weights = _data(seed=16711, n=48)
+    seen = {}
+
+    def fake_fit(self, X_arg, y_arg, sample_weight=None):
+        seen["async_marker"] = bool(
+            getattr(self, "_quantile_cv_refit_async", False)
+        )
+        self.coef_ = np.zeros(X_arg.shape[1], dtype=np.float64)
+        self.intercept_ = 0.0
+        self.n_iter_ = 1
+        self._selected_solver = "fista"
+        self._selected_backend_name = "torch"
+        self._selected_backend_device = "cpu"
+        return self
+
+    monkeypatch.setattr(
+        PenalizedGeneralizedLinearModel,
+        "fit",
+        fake_fit,
+    )
+
+    cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.35},
+        penalty="l1",
+        alpha_grid=np.asarray([0.02], dtype=np.float64),
+        cv=2,
+        solver="fista",
+        device="cpu",
+        max_iter=100,
+        tol=1e-5,
+    )
+    # Exercise the accelerator-only final-refit branch without requiring CUDA
+    # in hosted CI; numerical execution itself is stubbed above.
+    cv._device = "torch"
+    monkeypatch.setattr(cv, "_solver_for_cv", lambda *args, **kwargs: "fista")
+
+    model = cv._refit_best(
+        X,
+        y,
+        0.02,
+        sample_weight=weights,
+    )
+
+    assert seen["async_marker"] is True
+    assert not hasattr(model, "_quantile_cv_refit_async")
+
+
+def test_quantile_fit_backend_passes_async_flag_only_for_marked_refit(monkeypatch):
+    import statgpu.solvers as solver_module
+
+    X, y, weights = _data(seed=16712, n=40)
+    observed = []
+
+    def fake_fista(
+        loss,
+        penalty,
+        X_arg,
+        y_arg,
+        *,
+        max_iter,
+        tol,
+        init_coef=None,
+        sample_weight=None,
+        lipschitz_L=None,
+        cv_mode=False,
+    ):
+        observed.append(bool(cv_mode))
+        return np.zeros(X_arg.shape[1], dtype=np.float64), 1
+
+    monkeypatch.setattr(solver_module, "fista_solver", fake_fista)
+
+    marked = PenalizedGeneralizedLinearModel(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.35},
+        penalty="l1",
+        alpha=0.02,
+        solver="fista",
+        device="cpu",
+        fit_intercept=False,
+        max_iter=100,
+        tol=1e-5,
+    )
+    marked._quantile_cv_refit_async = True
+    marked.fit(X, y, sample_weight=weights)
+
+    direct = PenalizedGeneralizedLinearModel(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.35},
+        penalty="l1",
+        alpha=0.02,
+        solver="fista",
+        device="cpu",
+        fit_intercept=False,
+        max_iter=100,
+        tol=1e-5,
+    )
+    direct.fit(X, y, sample_weight=weights)
+
+    assert observed == [True, False]
+
+
 def test_async_quantile_selective_l1_tracking_stays_batched(monkeypatch):
     torch = pytest.importorskip("torch")
 
