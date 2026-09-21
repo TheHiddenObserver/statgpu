@@ -264,18 +264,22 @@ def fista_solver(
         _conv_interval = 10
         _div_interval = 25
         _lip_interval = 25
-    elif (
+    _quantile_gpu_every_iter_check = (
         _is_gpu
         and str(getattr(loss, "name", "") or "").lower() == "quantile"
         and not _non_smooth
-    ):
-        # Smooth-penalty Quantile still has a non-smooth pinball loss. Its
-        # backtracking path already synchronizes the Armijo scalar every
-        # iteration, so deferring best-iterate/objective-stability checks buys
-        # little while allowing NumPy and accelerator backends to stop at
-        # different accepted kinks. Match the CPU every-iteration convergence
-        # semantics for Quantile L2/no-penalty FISTA. The genuinely async
-        # non-smooth CV path above keeps its deferred checks.
+    )
+    if _quantile_gpu_every_iter_check:
+        # Smooth-penalty Quantile still has a non-smooth pinball loss. Match
+        # CPU every-iteration best-accepted/objective-stability semantics so
+        # accelerator backends do not stop at a different accepted kink.
+        #
+        # Performance note: the backtracking Armijo test already requires one
+        # host-visible scalar decision per trial. The loop below batches the
+        # accepted trial's objective/coefficient-change (and norm when needed)
+        # into that same synchronization, so this does not add a second
+        # per-iteration convergence synchronization. The genuinely async
+        # non-smooth CV path keeps its deferred checks.
         _conv_interval = 1
 
     # Convert sample_weight to backend-native array (prevent CPU/CUDA mismatch)
@@ -425,6 +429,7 @@ def fista_solver(
 
             # Backtracking line search
             _bt_accepted = False
+            _accepted_quantile_check = None
             for _bt in range(20):
                 w_tilde = y_k - step * grad
                 coef_new = penalty.proximal(w_tilde, step, backend=backend)
@@ -440,8 +445,46 @@ def fista_solver(
                 bound_dev = q_yk_dev + _dot_dev(grad, diff) + 0.5 * L * _sum_sq_dev(diff)
                 slack_dev = bound_dev + _SLACK_TOLERANCE - q_new_dev
 
-                if _to_float_scalar(slack_dev) >= 0:
+                if _quantile_gpu_every_iter_check:
+                    # Armijo already needs a host-visible scalar decision.
+                    # Batch the convergence scalars into that same sync rather
+                    # than paying a second GPU->CPU synchronization after the
+                    # accepted trial.
+                    _trial_conv_dev = _abs_sum_dev(coef_new - coef_old)
+                    _trial_need_norm = iteration > 10
+                    if _trial_need_norm:
+                        (
+                            _slack_f,
+                            _trial_obj_f,
+                            _trial_coef_norm_f,
+                            _trial_conv_f,
+                        ) = _sync_scalars(
+                            slack_dev,
+                            q_new_dev,
+                            _norm2_dev(coef_new),
+                            _trial_conv_dev,
+                            backend=backend,
+                        )
+                    else:
+                        _slack_f, _trial_obj_f, _trial_conv_f = _sync_scalars(
+                            slack_dev,
+                            q_new_dev,
+                            _trial_conv_dev,
+                            backend=backend,
+                        )
+                        _trial_coef_norm_f = 0.0
+                else:
+                    _slack_f = _to_float_scalar(slack_dev)
+
+                if _slack_f >= 0:
                     _bt_accepted = True
+                    if _quantile_gpu_every_iter_check:
+                        _accepted_quantile_check = (
+                            _trial_obj_f,
+                            _trial_coef_norm_f,
+                            _trial_conv_f,
+                            _trial_need_norm,
+                        )
                     break
                 L *= 1.5
                 step = 1.0 / L
@@ -494,24 +537,33 @@ def fista_solver(
                 _do_lip_check = (iteration > 0 and iteration % 5 == 0)
 
                 if _do_full_check:
-                    # Compute ALL check values on device first, then ONE sync
-                    _obj_dev = _q_new_dev_last if _q_new_dev_last is not None else (
-                        loss.fused_value_and_gradient(X_proc, y_proc, coef, sample_weight=_sw_arr)[0]
-                        if sample_weight is not None else loss.value(X_proc, y_proc, coef)
-                    )
-                    _q_new_dev_last = None
-
-                    # ONE sync: (objective, coef_norm, coef_change_norm)
-                    _need_norm = (iteration > 10)
-                    if _need_norm:
-                        _obj_val_f, _coef_norm_f, _conv_f = _sync_scalars(
-                            _obj_dev, _norm2_dev(coef), _conv_dev, backend=backend
-                        )
+                    if _accepted_quantile_check is not None:
+                        (
+                            _obj_val_f,
+                            _coef_norm_f,
+                            _conv_f,
+                            _need_norm,
+                        ) = _accepted_quantile_check
+                        _q_new_dev_last = None
                     else:
-                        _obj_val_f, _conv_f = _sync_scalars(
-                            _obj_dev, _conv_dev, backend=backend
+                        # Compute ALL check values on device first, then ONE sync
+                        _obj_dev = _q_new_dev_last if _q_new_dev_last is not None else (
+                            loss.fused_value_and_gradient(X_proc, y_proc, coef, sample_weight=_sw_arr)[0]
+                            if sample_weight is not None else loss.value(X_proc, y_proc, coef)
                         )
-                        _coef_norm_f = 0.0
+                        _q_new_dev_last = None
+
+                        # ONE sync: (objective, coef_norm, coef_change_norm)
+                        _need_norm = (iteration > 10)
+                        if _need_norm:
+                            _obj_val_f, _coef_norm_f, _conv_f = _sync_scalars(
+                                _obj_dev, _norm2_dev(coef), _conv_dev, backend=backend
+                            )
+                        else:
+                            _obj_val_f, _conv_f = _sync_scalars(
+                                _obj_dev, _conv_dev, backend=backend
+                            )
+                            _coef_norm_f = 0.0
 
                     _finite_ok = np.isfinite(_obj_val_f)
 
