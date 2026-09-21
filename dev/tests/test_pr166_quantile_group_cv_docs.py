@@ -16,6 +16,6 @@ def test_quantile_model_pages_document_complete_fold_cv_eligibility():
     assert "selected full-data refit follows direct-estimator convergence reporting" in en
 
     assert "完整且有限的逐折证据" in cn
-    assert "明确把某一折标记为目标参数层面的收敛失败" in cn
+    assert "明确把某一折标记为目标 α 的收敛失败" in cn
     assert "`ConvergenceWarning` 并不会自动抹去" in cn
     assert "全数据最终重拟合沿用直接估计器的收敛报告语义" in cn
