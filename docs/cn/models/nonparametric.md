@@ -40,7 +40,7 @@ statgpu 非参数模块提供核平滑方法：
 
 ## 区间估计与推断
 
-该模块不使用回归模型中的 `cov_type` 协方差推断。KDE 提供 `kde_bootstrap_confidence_interval` 作为区间估计工具；核回归 以预测与对齐验证为主。
+该模块不使用回归模型中的 `cov_type` 协方差推断。KDE 提供 `kde_bootstrap_confidence_interval` 作为区间估计工具；核回归以预测与数值对照为主。
 
 ## 参数
 
@@ -88,16 +88,16 @@ pred_gpu = kernel_regression_predict(
 
 ## 输出
 
-- KDE 输出：密度估计向量、（可选）bootstrap 区间
-- 核回归 输出：在给定 `points` 的回归预测值
-- sklearn 风格类支持 `fit/predict`，其中 `KernelDensityEstimator` 额外支持 `score_samples`
+- KDE 输出：密度估计向量，以及可选的 bootstrap 置信区间
+- 核回归输出：给定 `points` 处的回归预测值
+- scikit-learn 风格的估计器支持 `fit`/`predict`，其中 `KernelDensityEstimator` 还支持 `score_samples`
 
 ## 常见问题（FAQ）
 
 - **`full` 与 `diagonal` 如何选？**  
   `diagonal` 更快且便于按特征调参；`full` 在特征相关性强时可能更稳健。
 - **CPU/GPU 结果是否应完全一致？**  
-  允许机器精度范围内差异，建议固定带宽与 kernel 后对比。
+  允许机器精度范围内差异，建议固定带宽和核函数后再比较。
 - **KDE 带宽优先选哪种？**  
   可先用 `scott/silverman` 做基线，再用 `ucv/sj` 做精调。
 

@@ -26,7 +26,7 @@ $$
 - `l1_ratio` (λ) 混合 L1 与 L2：λ=1 对应 Lasso 目标，λ=0 对应纯 L2 目标；
 - `1/(2n)` 表示公开 `alpha` 使用平均损失尺度。
 
-**正则化缩放说明**：`ElasticNet` 与 `Ridge` 使用同一平均损失约定，因此 `l1_ratio=0` 时，相同公开 `alpha` 下目标函数退化为对应的 L2 目标。不过 `ElasticNet` wrapper 仍保留自己的求解器和推断默认设置；若明确需要 Ridge 的估计器契约，应直接使用 `Ridge`。
+**正则化缩放说明**：`ElasticNet` 与 `Ridge` 使用同一平均损失约定，因此 `l1_ratio=0` 时，相同公开 `alpha` 下目标函数退化为对应的 L2 目标。不过 `ElasticNet` 估计器仍保留自己的求解器和推断默认设置；若明确需要 Ridge 的估计器契约，应直接使用 `Ridge`。
 
 ## 估计方程
 
@@ -36,7 +36,7 @@ $$
 \frac{1}{n} X^\top (X\hat{\beta} - y) + \alpha(1-\lambda)\hat{\beta} + \alpha\lambda \cdot \partial\|\hat{\beta}\|_1 = 0.
 $$
 
-对**直接单次拟合**，`solver` 是所有后端上的权威算法选择器。`device` 单独控制 CPU/CuPy/Torch 执行位置。历史 `cpu_solver` 参数已进入弃用流程，在统一引擎中不再代表第二套 CPU direct-fit solver。参见 [penalized solver API 迁移指南](../guides/penalized-solver-api-migration.md)。
+对**直接单次拟合**，`solver` 是所有后端上的权威算法选择器。`device` 单独控制 CPU/CuPy/Torch 执行位置。历史 `cpu_solver` 参数已进入弃用流程，在统一引擎中不再代表另一套 CPU 直接拟合求解器。参见 [penalized solver API 迁移指南](../guides/penalized-solver-api-migration.md)。
 
 ## 估计算法
 
@@ -137,11 +137,11 @@ model_gpu_torch = ElasticNet(
 model_gpu_torch.fit(X, y)
 ```
 
-后端性能取决于样本量、特征维数、dtype、硬件、数据驻留位置与传输成本。应针对实际工作负载进行基准测试。
+后端性能取决于样本量、特征维数、数据类型（dtype）、硬件、数据驻留位置与传输成本。应针对实际工作负载进行基准测试。
 
 ## 协方差/推断
 
-`ElasticNet` 默认仅进行估计。设置 `compute_inference=True` 后，通过共享的惩罚线性模型推断框架执行拟合后推断。默认 `inference_method="debiased"` 与稀疏高斯 Lasso 路径使用同一套标准化逐节点 Lasso 一步纠偏构造，用于建立近似精度矩阵、纠偏系数、标准误、z 统计量、p 值与置信区间。其统计有效性仍依赖设计、稀疏性、正则化尺度和模型假设；纠偏 Lasso 文献提供主要理论背景，但不等于对任意 `l1_ratio` 都自动给出无条件保证。推断成功后可调用 `summary()`。
+`ElasticNet` 默认仅进行估计。设置 `compute_inference=True` 后，通过共享的惩罚线性模型推断框架执行拟合后推断。默认 `inference_method="debiased"` 与稀疏高斯 Lasso 路径使用同一套标准化逐节点 Lasso 一步纠偏构造，用于构造近似精度矩阵，并计算纠偏系数、标准误、z 统计量、p 值和置信区间。其统计有效性仍依赖设计、稀疏性、正则化尺度和模型假设；纠偏 Lasso 文献提供主要理论背景，但不等于对任意 `l1_ratio` 都自动给出无条件保证。推断成功后可调用 `summary()`。
 
 | 参数 | 默认值 | 含义 |
 |------|--------|------|
@@ -158,7 +158,7 @@ $$
 =\sqrt{\frac{2\log(\max(p,2))}{n_{\mathrm{nw}}}}.
 $$
 
-无分析权重时 $n_{\mathrm{nw}}=n$；非均匀分析权重下使用 Kish 型有效样本量。该规则不依赖响应变量尺度，因此只改变 `y` 的计量单位不会改变设计侧精度矩阵问题。成功的多特征纠偏推断通过 `nodewise_alpha_` 暴露解析出的实际值，并在 `_inference_result.metadata` 中记录调参来源、有效样本量和 KKT 证据。单特征问题使用解析精度矩阵，不消费逐节点惩罚。
+无分析权重时 $n_{\mathrm{nw}}=n$；非均匀分析权重下使用 Kish 型有效样本量。该规则不依赖响应变量尺度，因此只改变 `y` 的计量单位不会改变设计侧精度矩阵问题。成功的多特征纠偏推断通过 `nodewise_alpha_` 暴露解析出的实际值，并在 `_inference_result.metadata` 中记录调参来源、有效样本量和 KKT 证据。单特征问题直接使用解析精度矩阵，不需要逐节点惩罚参数。
 
 `post_selection_ols` 是与硬件无关的活跃集诊断方法。历史名称 `cpu_ols` 与 `gpu_ols` 目前仍作为弃用别名接受，并会发出 `FutureWarning`，随后统一映射到 `post_selection_ols`；这些名称不再决定计算设备。
 
@@ -168,7 +168,7 @@ $$
 
 设备选择与统计方法彼此独立：显式指定 `cpu`、`cuda` 或 `torch` 时，以用户选择为准；只有 `device="auto"` 才会根据输入和可用设备自动选择后端。`post_selection_ols` 沿用主模型拟合时实际使用的后端；CuPy/Torch 的 `debiased` 推断也保留在相应 GPU 后端上。残差 `bootstrap` 目前仍在 CPU 上执行重拟合，因此即使主模型使用 GPU，bootstrap 也不会自动迁移到 GPU。
 
-对于带截距的 `debiased` 推断，公开的 `coef_` 和 `intercept_` 仍属于**用于预测的惩罚拟合结果**。推断报告使用纠偏后的斜率 `_params[1:]`，以及与之配套的原始坐标系截距 `_params[0] = ybar_w - xbar_w @ _params[1:]`；因此第一行 SE/z/p-value/CI 对应的是推断报告中的纠偏截距，而不是用于预测的 `intercept_`。结果元数据会记录 `intercept_estimator="centered_debiased"` 与 `intercept_influence="centered_nodewise"`。分析权重在 NumPy/CuPy/Torch 上使用同一个加权中心化平均损失问题，因此整体乘以正常数不会改变这套推断。
+对于带截距的 `debiased` 推断，公开的 `coef_` 和 `intercept_` 仍属于**用于预测的惩罚拟合结果**。推断报告使用纠偏后的斜率 `_params[1:]`，以及与之配套的原始坐标系截距 `_params[0] = ybar_w - xbar_w @ _params[1:]`；因此第一行 SE/z/p 值/CI 对应的是推断报告中的纠偏截距，而不是用于预测的 `intercept_`。结果元数据会记录 `intercept_estimator="centered_debiased"` 与 `intercept_influence="centered_nodewise"`。分析权重在 NumPy/CuPy/Torch 上使用同一个加权中心化平均损失问题，因此整体乘以正常数不会改变这套推断。
 
 对于 `ElasticNetCV`，`compute_inference=True` 仅作用于 alpha 与 `l1_ratio` 选定后的最终全数据重拟合；各折模型仍仅用于估计和评分。`nodewise_alpha` 也只属于最终重拟合的推断配置，不进入候选网格或折内评分；推断成功时，外层 `nodewise_alpha_` 与最终 `estimator_` 一致。当前 `ElasticNetCV` 仍固定最终推断方法为 `debiased`，这是当前推断选择器的限制，与本次逐节点调参修复分开处理。
 

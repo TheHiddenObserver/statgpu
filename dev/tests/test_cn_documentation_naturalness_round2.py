@@ -29,7 +29,7 @@ _FORBIDDEN_HEADINGS = (
 _FORBIDDEN_PROSE = re.compile(
     r"(?<![A-Za-z0-9_])(?:estimator|backend-native|candidate fit|final refit|"
     r"selection 来源|history 与 cache|benchmark baseline|production estimator code|"
-    r"strict inference|approximation fallback reason)(?![A-Za-z0-9_])",
+    r"strict inference|approximation fallback reason|ElasticNet wrapper|"
     re.IGNORECASE,
 )
 
