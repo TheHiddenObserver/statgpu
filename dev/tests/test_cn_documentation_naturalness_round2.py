@@ -46,7 +46,10 @@ def _prose(text: str) -> str:
         if fenced:
             continue
         line = re.sub(r"`[^`]*`", "", line)
-        lines.append(line)
+        # The rule targets mixed Chinese/English explanatory prose, not
+        # English-only bibliographic titles or paper names.
+        if re.search(r"[\u3400-\u9fff]", line):
+            lines.append(line)
     return "\n".join(lines)
 
 
