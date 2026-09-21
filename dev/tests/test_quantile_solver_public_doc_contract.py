@@ -350,7 +350,7 @@ def test_solver_algorithm_pages_preserve_explicit_quantile_fista_contract():
     assert "explicit `solver=\"fista\"` fails rather than being silently substituted by IRLS" not in en
 
     assert "显式 `solver=\"fista\"` 则真正执行普通 FISTA" in cn
-    assert "并不声称 pinball loss 满足教科书式 smooth-gradient FISTA 的收敛假设" in cn
+    assert "并不意味着 pinball loss 满足教科书中光滑梯度 FISTA 的收敛假设" in cn
     assert "只有显式 `solver=\"fista\"` 才选择这条普通 FISTA 路径" in cn
     assert "该请求对 CV 子拟合和最终全数据重拟合都保持有效并执行普通 FISTA" in cn
     assert "显式 `solver=\"fista\"` 会失败而不是被静默替换成 IRLS" not in cn
