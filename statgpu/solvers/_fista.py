@@ -269,6 +269,8 @@ def fista_solver(
         and str(getattr(loss, "name", "") or "").lower() == "quantile"
         and not _non_smooth
     )
+    _quantile_gpu_l2_alpha = 0.0
+    _quantile_gpu_l2_width = n_features
     if _quantile_gpu_every_iter_check:
         # Smooth-penalty Quantile still has a non-smooth pinball loss. Match
         # CPU every-iteration best-accepted/objective-stability semantics so
@@ -276,11 +278,25 @@ def fista_solver(
         #
         # Performance note: the backtracking Armijo test already requires one
         # host-visible scalar decision per trial. The loop below batches the
-        # accepted trial's objective/coefficient-change (and norm when needed)
-        # into that same synchronization, so this does not add a second
-        # per-iteration convergence synchronization. The genuinely async
-        # non-smooth CV path keeps its deferred checks.
+        # accepted trial's objective/coefficient-change, coefficient norm when
+        # needed, and L2 tracking value into that same synchronization, so this
+        # does not add a second per-iteration convergence synchronization.
+        # The genuinely async non-smooth CV path keeps its deferred checks.
         _conv_interval = 1
+        if _pen_name_lower == "l2":
+            # SelectivePenalty stores the underlying L2 alpha and the number of
+            # penalized feature coordinates separately from the trailing
+            # unpenalized intercept. Plain L2Penalty uses all coordinates.
+            _quantile_gpu_l2_alpha = float(
+                getattr(
+                    penalty,
+                    "_alpha",
+                    getattr(penalty, "alpha", 0.0),
+                )
+            )
+            _quantile_gpu_l2_width = int(
+                getattr(penalty, "_p", n_features)
+            )
 
     # Convert sample_weight to backend-native array (prevent CPU/CUDA mismatch)
     _sw_arr = None
@@ -447,32 +463,46 @@ def fista_solver(
 
                 if _quantile_gpu_every_iter_check:
                     # Armijo already needs a host-visible scalar decision.
-                    # Batch the convergence scalars into that same sync rather
-                    # than paying a second GPU->CPU synchronization after the
-                    # accepted trial.
+                    # Batch every scalar needed by the accepted trial's
+                    # convergence/objective tracking into that same sync.
                     _trial_conv_dev = _abs_sum_dev(coef_new - coef_old)
                     _trial_need_norm = iteration > 10
+                    _trial_penalty_dev = None
+                    if _quantile_gpu_l2_alpha > 0.0:
+                        _penalty_coef = coef_new[:_quantile_gpu_l2_width]
+                        _trial_penalty_dev = (
+                            0.5
+                            * _quantile_gpu_l2_alpha
+                            * _sum_sq_dev(_penalty_coef)
+                        )
+
+                    _sync_inputs = [slack_dev, q_new_dev]
                     if _trial_need_norm:
-                        (
-                            _slack_f,
-                            _trial_obj_f,
-                            _trial_coef_norm_f,
-                            _trial_conv_f,
-                        ) = _sync_scalars(
-                            slack_dev,
-                            q_new_dev,
-                            _norm2_dev(coef_new),
-                            _trial_conv_dev,
-                            backend=backend,
-                        )
+                        _sync_inputs.append(_norm2_dev(coef_new))
+                    _sync_inputs.append(_trial_conv_dev)
+                    if _trial_penalty_dev is not None:
+                        _sync_inputs.append(_trial_penalty_dev)
+                    _sync_values = _sync_scalars(
+                        *_sync_inputs,
+                        backend=backend,
+                    )
+
+                    _sync_i = 0
+                    _slack_f = _sync_values[_sync_i]
+                    _sync_i += 1
+                    _trial_obj_f = _sync_values[_sync_i]
+                    _sync_i += 1
+                    if _trial_need_norm:
+                        _trial_coef_norm_f = _sync_values[_sync_i]
+                        _sync_i += 1
                     else:
-                        _slack_f, _trial_obj_f, _trial_conv_f = _sync_scalars(
-                            slack_dev,
-                            q_new_dev,
-                            _trial_conv_dev,
-                            backend=backend,
-                        )
                         _trial_coef_norm_f = 0.0
+                    _trial_conv_f = _sync_values[_sync_i]
+                    _sync_i += 1
+                    if _trial_penalty_dev is not None:
+                        _trial_penalty_f = _sync_values[_sync_i]
+                    else:
+                        _trial_penalty_f = 0.0
                 else:
                     _slack_f = _to_float_scalar(slack_dev)
 
@@ -484,6 +514,7 @@ def fista_solver(
                             _trial_coef_norm_f,
                             _trial_conv_f,
                             _trial_need_norm,
+                            _trial_penalty_f,
                         )
                     break
                 L *= 1.5
@@ -549,9 +580,11 @@ def fista_solver(
                             _coef_norm_f,
                             _conv_f,
                             _need_norm,
+                            _precomputed_penalty_f,
                         ) = _accepted_quantile_check
                         _q_new_dev_last = None
                     else:
+                        _precomputed_penalty_f = None
                         # Compute ALL check values on device first, then ONE sync
                         _obj_dev = _q_new_dev_last if _q_new_dev_last is not None else (
                             loss.fused_value_and_gradient(X_proc, y_proc, coef, sample_weight=_sw_arr)[0]
@@ -580,8 +613,16 @@ def fista_solver(
                             y_k = _copy_arr(coef); t_k = 1.0; L *= 2.0
                             continue
 
-                    # Divergence
-                    _obj_val_f += _tracking_penalty_value(penalty, coef)
+                    # Divergence. Smooth Quantile accelerator backtracking
+                    # already synchronized its L2 tracking value together with
+                    # Armijo/convergence scalars; do not trigger a second
+                    # implicit device->host penalty.value() conversion.
+                    if _precomputed_penalty_f is None:
+                        _precomputed_penalty_f = _tracking_penalty_value(
+                            penalty,
+                            coef,
+                        )
+                    _obj_val_f += _precomputed_penalty_f
                     _diverged_f = False
                     if not np.isfinite(_obj_val_f):
                         _diverged_f = True
