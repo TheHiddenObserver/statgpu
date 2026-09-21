@@ -36,7 +36,7 @@ from statgpu.solvers import fista_solver
 from statgpu.solvers._convergence import ConvergenceWarning
 
 
-SCHEMA_VERSION = 20
+SCHEMA_VERSION = 21
 Q = 0.35
 ATOL_OBJECTIVE = 2e-5
 ATOL_CV_SCORE = 2e-5
@@ -61,6 +61,7 @@ ASYNC_TOL = 1e-5
 ASYNC_MOMENTUM_BETA_CAP = 0.5
 ASYNC_STALL_CHECKS = 2
 ASYNC_STEP_CONTRACTION_FACTOR = 2.0
+ASYNC_STEP_NORMALIZED_DELTA = True
 
 BOOTSTRAP_Q = 0.20
 BOOTSTRAP_N = 80
@@ -91,6 +92,7 @@ def _solver_controls():
             "momentum_beta_cap": ASYNC_MOMENTUM_BETA_CAP,
             "stall_checks": ASYNC_STALL_CHECKS,
             "step_contraction_factor": ASYNC_STEP_CONTRACTION_FACTOR,
+            "step_normalized_delta": ASYNC_STEP_NORMALIZED_DELTA,
         },
         "bootstrap_direction": {
             "quantile": BOOTSTRAP_Q,
@@ -696,11 +698,7 @@ def _async_weighted_l1_case(
         ASYNC_L1_ALPHA,
     )
     error = abs(objective - cpu_objective)
-    if error > ATOL_ASYNC_L1_OBJECTIVE:
-        raise AssertionError(
-            f"{backend}/async-weighted-l1: objective error "
-            f"{error:.3e} > {ATOL_ASYNC_L1_OBJECTIVE:.3e}"
-        )
+    parity_ok = bool(error <= ATOL_ASYNC_L1_OBJECTIVE)
 
     if backend == "cupy":
         if not isinstance(coef, cp.ndarray):
@@ -730,11 +728,15 @@ def _async_weighted_l1_case(
         "momentum_beta_cap": ASYNC_MOMENTUM_BETA_CAP,
         "stall_checks": ASYNC_STALL_CHECKS,
         "step_contraction_factor": ASYNC_STEP_CONTRACTION_FACTOR,
+        "step_normalized_delta": ASYNC_STEP_NORMALIZED_DELTA,
         "weighted_gram_spectral_to_maxdiag_ratio": spectral_ratio,
         "cpu_objective": cpu_objective,
         "cpu_n_iter": int(cpu_n_iter),
         "objective": objective,
         "objective_error": error,
+        "objective_tolerance": ATOL_ASYNC_L1_OBJECTIVE,
+        "parity_ok": parity_ok,
+        "coef": coef_host.tolist(),
     }
 
 
@@ -868,6 +870,7 @@ def main() -> int:
     original_irls = QuantileLoss.irls
     QuantileLoss.irls = forbidden_irls
     cases = []
+    async_parity_failures = []
     max_objective_error = 0.0
     max_cv_score_error = 0.0
     try:
@@ -890,19 +893,20 @@ def main() -> int:
                         fit_intercept=fit_intercept,
                     )
                 )
-            cases.append(
-                _async_weighted_l1_case(
-                    backend,
-                    cp,
-                    torch,
-                    async_X,
-                    async_y,
-                    async_weights,
-                    async_cpu_objective,
-                    async_cpu_iter,
-                    async_spectral_ratio,
-                )
+            async_case = _async_weighted_l1_case(
+                backend,
+                cp,
+                torch,
+                async_X,
+                async_y,
+                async_weights,
+                async_cpu_objective,
+                async_cpu_iter,
+                async_spectral_ratio,
             )
+            cases.append(async_case)
+            if not bool(async_case["parity_ok"]):
+                async_parity_failures.append(async_case)
 
             for penalty, alpha, cpu_coef, cpu_intercept in (
                 ("l2", 0.02, cpu_l2_coef, cpu_l2_intercept),
@@ -990,6 +994,25 @@ def main() -> int:
                 )
     finally:
         QuantileLoss.irls = original_irls
+
+    if async_parity_failures:
+        details = [
+            {
+                "backend": case["backend"],
+                "n_iter": case["n_iter"],
+                "cpu_n_iter": case["cpu_n_iter"],
+                "objective": case["objective"],
+                "cpu_objective": case["cpu_objective"],
+                "objective_error": case["objective_error"],
+                "tolerance": case["objective_tolerance"],
+                "coef": case["coef"],
+            }
+            for case in async_parity_failures
+        ]
+        raise AssertionError(
+            "async weighted-L1 objective parity failed after executing both "
+            f"accelerator backends: {details!r}"
+        )
 
     payload = {
         "schema_version": SCHEMA_VERSION,
