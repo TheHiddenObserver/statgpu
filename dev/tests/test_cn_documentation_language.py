@@ -79,6 +79,32 @@ _PROSE_FRAGMENTS_TO_AVOID = (
     "## External Validation",
 )
 
+_QUANTILE_PROSE_FRAGMENTS_TO_AVOID = (
+    "typed `PenalizedQuantileRegression.score()`",
+    "generic `PenalizedGeneralizedLinearModel",
+    "shared scalar-response",
+    "strict Quantile 交叉验证",
+    "target-level",
+    "failure signal",
+    "two-stage 的第一阶段",
+    " relaxed",
+    "strict refinement",
+    "strict selection",
+    "Quantile 非凸 continuation 路径",
+    "alpha step",
+    "continuation step",
+    "目标 step",
+    "Quantile solver 调用",
+    "IRLS/continuation",
+    "broadcasting",
+    "直接 continuation 调用",
+    "普通 estimator/CV",
+    "import 兼容符号",
+    "adaptive penalty weights",
+    "固定 adaptive weights",
+    "batched Quantile",
+)
+
 
 def _read(path: str) -> str:
     return (_ROOT / path).read_text(encoding="utf-8")
@@ -89,6 +115,15 @@ def test_cleaned_chinese_pages_avoid_known_mixed_language_prose():
         text = _read(path)
         for fragment in _PROSE_FRAGMENTS_TO_AVOID:
             assert fragment not in text, f"{path}: prose-level English fragment {fragment!r}"
+
+
+def test_quantile_page_uses_chinese_explanatory_prose():
+    text = _read("docs/cn/models/quantile.md")
+    for fragment in _QUANTILE_PROSE_FRAGMENTS_TO_AVOID:
+        assert fragment not in text, (
+            "docs/cn/models/quantile.md: explanatory prose fragment "
+            f"{fragment!r}"
+        )
 
 
 def test_chinese_pages_keep_real_api_identifiers_searchable():
