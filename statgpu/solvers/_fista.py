@@ -480,6 +480,7 @@ def fista_solver(
                     if _quantile_async_stall_checks >= 2:
                         L *= 2.0
                         _quantile_async_step_contractions += 1
+                        _quantile_async_last_step = float(1.0 / L)
                         _quantile_async_stall_checks = 0
                         _obj_stable_count = 0
                         y_k = _copy_arr(coef)
