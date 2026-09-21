@@ -152,13 +152,71 @@ def test_quantile_fista_nonconvergence_warning_recommends_supported_routes():
     assert "lbfgs" not in message.lower()
 
 
+def test_quantile_cv_fold_candidates_mark_async_route(monkeypatch):
+    X, y, weights = _data(seed=16710, n=48)
+    seen = []
+
+    def fake_fit(self, X_arg, y_arg, sample_weight=None):
+        seen.append(
+            bool(getattr(self, "_quantile_cv_async_fista", False))
+        )
+        self.coef_ = np.zeros(X_arg.shape[1], dtype=np.float64)
+        self.intercept_ = 0.0
+        self.n_iter_ = 1
+        return self
+
+    monkeypatch.setattr(
+        PenalizedGeneralizedLinearModel,
+        "fit",
+        fake_fit,
+    )
+
+    cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.35},
+        penalty="l1",
+        alpha_grid=np.asarray([0.03, 0.02], dtype=np.float64),
+        cv=2,
+        solver="fista",
+        device="cpu",
+        max_iter=100,
+        tol=1e-5,
+    )
+    cv_device = "torch"
+    cv_solver = "fista"
+    all_scores = np.full((1, 2), np.nan, dtype=np.float64)
+    train_idx = np.arange(0, 24)
+    val_idx = np.arange(24, 48)
+
+    cv._cv_fold_general(
+        all_scores,
+        0,
+        np.asarray([0, 1], dtype=np.int64),
+        np.asarray([0.03, 0.02], dtype=np.float64),
+        "quantile",
+        cv_device,
+        cv_solver,
+        True,
+        X[train_idx],
+        y[train_idx],
+        X[val_idx],
+        y[val_idx],
+        weights[train_idx],
+        weights[val_idx],
+        100,
+        1e-5,
+    )
+
+    assert seen == [True, True]
+
+
 def test_quantile_cv_final_refit_marks_async_route_without_leaking(monkeypatch):
     X, y, weights = _data(seed=16711, n=48)
     seen = {}
 
     def fake_fit(self, X_arg, y_arg, sample_weight=None):
         seen["async_marker"] = bool(
-            getattr(self, "_quantile_cv_refit_async", False)
+            getattr(self, "_quantile_cv_async_fista", False)
         )
         self.coef_ = np.zeros(X_arg.shape[1], dtype=np.float64)
         self.intercept_ = 0.0
@@ -198,7 +256,7 @@ def test_quantile_cv_final_refit_marks_async_route_without_leaking(monkeypatch):
     )
 
     assert seen["async_marker"] is True
-    assert not hasattr(model, "_quantile_cv_refit_async")
+    assert not hasattr(model, "_quantile_cv_async_fista")
 
 
 def test_quantile_fit_backend_passes_async_flag_only_for_marked_refit(monkeypatch):
@@ -236,7 +294,7 @@ def test_quantile_fit_backend_passes_async_flag_only_for_marked_refit(monkeypatc
         max_iter=100,
         tol=1e-5,
     )
-    marked._quantile_cv_refit_async = True
+    marked._quantile_cv_async_fista = True
     marked.fit(X, y, sample_weight=weights)
 
     direct = PenalizedGeneralizedLinearModel(
