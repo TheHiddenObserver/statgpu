@@ -36,7 +36,7 @@ def _pinball(y, eta, q, sample_weight):
 
 
 def test_pr166_smooth_bootstrap_physical_gate_schema_is_locked():
-    assert smooth_gate.SCHEMA_VERSION == 20
+    assert smooth_gate.SCHEMA_VERSION == 21
     assert smooth_wrapper.EXPECTED_SCHEMA_VERSION == smooth_gate.SCHEMA_VERSION
     assert smooth_gate.BOOTSTRAP_Q != pytest.approx(0.5)
     assert 0.0 < smooth_gate.BOOTSTRAP_Q < 1.0
@@ -70,6 +70,11 @@ def test_pr166_smooth_bootstrap_physical_gate_schema_is_locked():
         controls["async_weighted_l1"]["step_contraction_factor"]
         == smooth_gate.ASYNC_STEP_CONTRACTION_FACTOR
         == 2.0
+    )
+    assert (
+        controls["async_weighted_l1"]["step_normalized_delta"]
+        is smooth_gate.ASYNC_STEP_NORMALIZED_DELTA
+        is True
     )
     assert controls["cv"]["alpha_grid"] == smooth_gate.CV_ALPHA_GRID.tolist()
     assert smooth_gate.ATOL_CV_L1_SCORE > 0.0
