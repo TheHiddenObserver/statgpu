@@ -71,11 +71,7 @@ def test_pr166_smooth_bootstrap_physical_gate_schema_is_locked():
         == smooth_gate.ASYNC_STEP_CONTRACTION_FACTOR
         == 2.0
     )
-    assert (
-        controls["async_weighted_l1"]["step_normalized_delta"]
-        is smooth_gate.ASYNC_STEP_NORMALIZED_DELTA
-        is True
-    )
+    assert controls["async_weighted_l1"]["reference"] == "scipy_highs_lp"
     assert controls["cv"]["alpha_grid"] == smooth_gate.CV_ALPHA_GRID.tolist()
     assert smooth_gate.ATOL_CV_L1_SCORE > 0.0
     assert controls["bootstrap_public"]["quantile"] == smooth_gate.BOOTSTRAP_Q
@@ -163,41 +159,17 @@ def test_pr166_scalar_lla_physical_fixture_converges_and_probes_refresh_on_cpu()
     assert "Quantile FISTA-LLA target alpha did not establish" in probe_warnings[0]
 
 
-def test_pr166_async_weighted_l1_fixture_has_spectral_gap_and_cpu_reference():
+def test_pr166_async_weighted_l1_lp_reference_exposes_cpu_fista_gap():
     X, y, weights, ratio = smooth_gate._async_weighted_data()
     assert ratio > 1.5
     assert smooth_gate.ASYNC_TOL == smooth_gate.CV_L1_TOL
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", ConvergenceWarning)
-        coef, n_iter = fista_solver(
-            QuantileLoss(quantile=smooth_gate.Q),
-            L1Penalty(alpha=smooth_gate.ASYNC_L1_ALPHA),
-            X,
-            y,
-            max_iter=smooth_gate.ASYNC_MAX_ITER,
-            tol=smooth_gate.ASYNC_TOL,
-            sample_weight=weights,
-            cv_mode=False,
-        )
-    objective = smooth_gate._l1_objective(
+    lp_coef, lp_objective = smooth_gate._async_weighted_l1_lp_reference(
         X,
         y,
         weights,
-        coef,
         smooth_gate.ASYNC_L1_ALPHA,
     )
-
-    assert 1 <= n_iter <= smooth_gate.ASYNC_MAX_ITER
-    assert np.all(np.isfinite(np.asarray(coef)))
-    assert np.isfinite(objective)
-
-
-def test_pr166_async_weighted_l1_fixture_converges_on_torch_cv_mode():
-    torch = pytest.importorskip("torch")
-    X, y, weights, ratio = smooth_gate._async_weighted_data()
-    assert ratio > 1.5
-
     with warnings.catch_warnings():
         warnings.simplefilter("error", ConvergenceWarning)
         cpu_coef, cpu_iter = fista_solver(
@@ -210,6 +182,44 @@ def test_pr166_async_weighted_l1_fixture_converges_on_torch_cv_mode():
             sample_weight=weights,
             cv_mode=False,
         )
+    cpu_objective = smooth_gate._l1_objective(
+        X,
+        y,
+        weights,
+        cpu_coef,
+        smooth_gate.ASYNC_L1_ALPHA,
+    )
+
+    assert 1 <= cpu_iter <= smooth_gate.ASYNC_MAX_ITER
+    assert np.all(np.isfinite(np.asarray(cpu_coef)))
+    assert np.all(np.isfinite(np.asarray(lp_coef)))
+    assert lp_objective == pytest.approx(
+        0.11006920021499719,
+        rel=0.0,
+        abs=1e-12,
+    )
+    cpu_excess = cpu_objective - lp_objective
+    assert cpu_excess > smooth_gate.ATOL_ASYNC_L1_OBJECTIVE
+    assert cpu_excess == pytest.approx(
+        8.939268995e-4,
+        rel=0.0,
+        abs=5e-10,
+    )
+
+
+def test_pr166_async_weighted_l1_fixture_converges_on_torch_cv_mode():
+    torch = pytest.importorskip("torch")
+    X, y, weights, ratio = smooth_gate._async_weighted_data()
+    assert ratio > 1.5
+
+    _, reference_objective = smooth_gate._async_weighted_l1_lp_reference(
+        X,
+        y,
+        weights,
+        smooth_gate.ASYNC_L1_ALPHA,
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
         torch_coef, torch_iter = fista_solver(
             QuantileLoss(quantile=smooth_gate.Q),
             L1Penalty(alpha=smooth_gate.ASYNC_L1_ALPHA),
@@ -221,13 +231,6 @@ def test_pr166_async_weighted_l1_fixture_converges_on_torch_cv_mode():
             cv_mode=True,
         )
 
-    cpu_objective = smooth_gate._l1_objective(
-        X,
-        y,
-        weights,
-        np.asarray(cpu_coef, dtype=np.float64),
-        smooth_gate.ASYNC_L1_ALPHA,
-    )
     torch_objective = smooth_gate._l1_objective(
         X,
         y,
@@ -235,9 +238,11 @@ def test_pr166_async_weighted_l1_fixture_converges_on_torch_cv_mode():
         torch_coef.detach().cpu().numpy(),
         smooth_gate.ASYNC_L1_ALPHA,
     )
-    assert 1 <= cpu_iter <= smooth_gate.ASYNC_MAX_ITER
     assert 1 <= torch_iter <= smooth_gate.ASYNC_MAX_ITER
-    assert abs(torch_objective - cpu_objective) <= smooth_gate.ATOL_ASYNC_L1_OBJECTIVE
+    assert (
+        abs(torch_objective - reference_objective)
+        <= smooth_gate.ATOL_ASYNC_L1_OBJECTIVE
+    )
 
 
 def test_pr166_weighted_l1_cv_physical_fixture_converges_on_cpu():
