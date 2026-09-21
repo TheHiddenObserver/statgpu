@@ -15,7 +15,7 @@ from statgpu.linear_model.penalized import (
 )
 from statgpu.glm_core._squared import SquaredErrorLoss
 from statgpu.losses import QuantileLoss
-from statgpu.penalties import L2Penalty
+from statgpu.penalties import L1Penalty, L2Penalty
 from statgpu.solvers import fista_solver
 from statgpu.solvers._convergence import ConvergenceWarning
 
