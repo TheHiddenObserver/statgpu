@@ -151,6 +151,59 @@ def test_quantile_fista_nonconvergence_warning_recommends_supported_routes():
     assert "lbfgs" not in message.lower()
 
 
+def test_async_quantile_l1_caps_nesterov_momentum_without_affecting_smooth_path(monkeypatch):
+    torch = pytest.importorskip("torch")
+    import statgpu.solvers._fista as fista_mod
+
+    X_np = np.asarray(
+        [[1.0, 0.0], [-1.0, 0.0], [0.0, 1.0], [0.0, -1.0]],
+        dtype=np.float64,
+    )
+    y_np = np.zeros(X_np.shape[0], dtype=np.float64)
+    X = torch.as_tensor(X_np, dtype=torch.float64)
+    y = torch.as_tensor(y_np, dtype=torch.float64)
+
+    original_update = fista_mod._nesterov_update
+    observed_caps = []
+
+    def recording_update(coef, coef_old, t_k, beta_cap=None):
+        observed_caps.append(beta_cap)
+        return original_update(coef, coef_old, t_k, beta_cap=beta_cap)
+
+    monkeypatch.setattr(fista_mod, "_nesterov_update", recording_update)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        fista_mod.fista_solver(
+            QuantileLoss(quantile=0.35),
+            L1Penalty(alpha=0.02),
+            X,
+            y,
+            max_iter=20,
+            tol=1e-5,
+            cv_mode=True,
+        )
+
+    assert observed_caps
+    assert all(cap == pytest.approx(0.5) for cap in observed_caps)
+
+    observed_caps.clear()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        fista_mod.fista_solver(
+            QuantileLoss(quantile=0.35),
+            L2Penalty(alpha=0.0),
+            X,
+            y,
+            max_iter=20,
+            tol=1e-5,
+            cv_mode=False,
+        )
+
+    assert observed_caps
+    assert all(cap is None for cap in observed_caps)
+
+
 def test_smooth_quantile_torch_batches_armijo_and_convergence_sync(monkeypatch):
     torch = pytest.importorskip("torch")
     import statgpu.solvers._fista as fista_mod
