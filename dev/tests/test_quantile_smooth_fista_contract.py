@@ -151,6 +151,66 @@ def test_quantile_fista_nonconvergence_warning_recommends_supported_routes():
     assert "lbfgs" not in message.lower()
 
 
+def test_async_quantile_l1_stall_contracts_step_without_extra_penalty_sync(monkeypatch):
+    torch = pytest.importorskip("torch")
+    import statgpu.solvers._fista as fista_mod
+
+    X = torch.eye(2, dtype=torch.float64)
+    y = torch.zeros(2, dtype=torch.float64)
+    loss = QuantileLoss(quantile=0.35)
+    penalty = L1Penalty(alpha=0.0)
+
+    objective = torch.as_tensor(1.0, dtype=torch.float64)
+    grad_template = torch.full((2,), 1e-3, dtype=torch.float64)
+    steps = []
+
+    def constant_fused_value_and_gradient(X_arg, y_arg, coef, sample_weight=None):
+        return objective.to(device=coef.device), grad_template.to(device=coef.device)
+
+    def constant_value(X_arg, y_arg, coef, sample_weight=None):
+        return objective.to(device=coef.device)
+
+    original_proximal = penalty.proximal
+
+    def recording_proximal(w, step, backend="numpy"):
+        steps.append(float(step))
+        return original_proximal(w, step, backend=backend)
+
+    def forbidden_penalty_value(_coef):
+        raise AssertionError(
+            "async Quantile-L1 tracking must use the batched device reduction"
+        )
+
+    monkeypatch.setattr(
+        loss,
+        "fused_value_and_gradient",
+        constant_fused_value_and_gradient,
+    )
+    monkeypatch.setattr(loss, "value", constant_value)
+    monkeypatch.setattr(penalty, "proximal", recording_proximal)
+    monkeypatch.setattr(penalty, "value", forbidden_penalty_value)
+
+    with pytest.warns(ConvergenceWarning) as caught:
+        _, n_iter = fista_mod.fista_solver(
+            loss,
+            penalty,
+            X,
+            y,
+            max_iter=55,
+            tol=1e-30,
+            lipschitz_L=1.0,
+            cv_mode=True,
+        )
+
+    assert n_iter == 55
+    assert steps[0] == pytest.approx(1.0)
+    assert min(steps) == pytest.approx(0.5)
+    message = str(caught[-1].message)
+    assert "Async diagnostics:" in message
+    assert "step_contractions=1" in message
+    assert "last_step=0.5" in message
+
+
 def test_async_quantile_l1_caps_nesterov_momentum_without_affecting_smooth_path(monkeypatch):
     torch = pytest.importorskip("torch")
     import statgpu.solvers._fista as fista_mod
