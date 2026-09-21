@@ -264,9 +264,15 @@ def fista_solver(
         _conv_interval = 10
         _div_interval = 25
         _lip_interval = 25
+    _loss_name_lower = str(getattr(loss, "name", "") or "").lower()
+    _quantile_async_nonsmooth = (
+        _use_gpu_loop
+        and _loss_name_lower == "quantile"
+        and _non_smooth
+    )
     _quantile_gpu_every_iter_check = (
         _is_gpu
-        and str(getattr(loss, "name", "") or "").lower() == "quantile"
+        and _loss_name_lower == "quantile"
         and not _non_smooth
     )
     _quantile_gpu_l2_alpha = 0.0
@@ -322,6 +328,18 @@ def fista_solver(
     iteration = -1  # default if max_iter=0
     converged = False
     line_search_failed = False
+    # The dedicated sparse-CV FISTA engine caps Nesterov momentum at 0.5.
+    # Match that stability contract for Quantile's generic async non-smooth
+    # cv_mode path. Pinball loss is itself non-smooth, so unconstrained
+    # Nesterov beta -> 1 can sustain kink oscillation under a fixed GPU step.
+    # This is purely device-side scalar arithmetic and adds no synchronization.
+    _effective_momentum_beta_cap = _momentum_beta_cap
+    if _quantile_async_nonsmooth:
+        _effective_momentum_beta_cap = (
+            0.5
+            if _effective_momentum_beta_cap is None
+            else min(float(_effective_momentum_beta_cap), 0.5)
+        )
 
     for iteration in range(max_iter):
         coef_old = _copy_arr(coef)
@@ -748,9 +766,16 @@ def fista_solver(
         if _skip_momentum:
             # No momentum (e.g. inverse_gaussian): just copy coef
             y_k = _copy_arr(coef)
-        elif _momentum_beta_cap is not None:
-            # Conservative momentum with capped beta
-            y_k, t_k = _nesterov_update(coef, coef_old, t_k, beta_cap=_momentum_beta_cap)
+        elif _effective_momentum_beta_cap is not None:
+            # Conservative momentum with capped beta. Quantile's async
+            # non-smooth cv_mode path uses the same 0.5 cap as the dedicated
+            # sparse-CV FISTA engine.
+            y_k, t_k = _nesterov_update(
+                coef,
+                coef_old,
+                t_k,
+                beta_cap=_effective_momentum_beta_cap,
+            )
         else:
             y_k, t_k = _nesterov_update(coef, coef_old, t_k)
 
