@@ -2204,11 +2204,15 @@ class _PenalizedFitMixin:
                 )
                 params = _xp_asarray(params_irls, X_arr.dtype, X_arr)
             else:
+                _quantile_cv_refit_async = bool(
+                    getattr(self, "_quantile_cv_refit_async", False)
+                ) and _loss_name == "quantile"
                 params, n_iter = fista_solver(
                     self._loss, pen, X_work, y_arr,
                     max_iter=self._max_iter, tol=self._tol,
                     init_coef=init, sample_weight=sample_weight,
                     lipschitz_L=self.lipschitz_L,
+                    cv_mode=_quantile_cv_refit_async,
                 )
         elif solver_name == "fista_bb":
             params, n_iter = fista_bb_solver(
