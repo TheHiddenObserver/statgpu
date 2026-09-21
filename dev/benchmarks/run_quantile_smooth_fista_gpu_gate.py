@@ -13,7 +13,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RUNNER = Path(__file__).resolve().with_name("validate_quantile_smooth_fista_gpu.py")
-EXPECTED_SCHEMA_VERSION = 21
+EXPECTED_SCHEMA_VERSION = 22
 
 
 def _git(*args: str) -> str:
