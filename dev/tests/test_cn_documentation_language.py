@@ -20,6 +20,7 @@ _CLEANED_CN_PAGES = (
     "docs/cn/guides/penalized-glm-inference.md",
     "docs/cn/guides/penalized-solver-api-migration.md",
     "docs/cn/guides/solver-penalty-matrix.md",
+    "docs/cn/guides/solver-algorithms.md",
     "docs/cn/guides/cox-cv-staged-safety.md",
     "docs/cn/guides/pytorch-backend.md",
     "docs/cn/models/README.md",
@@ -103,6 +104,31 @@ _QUANTILE_PROSE_FRAGMENTS_TO_AVOID = (
     "adaptive penalty weights",
     "固定 adaptive weights",
     "batched Quantile",
+    "kernel/bootstrap 推断",
+)
+
+_PR166_CHANGELOG_FRAGMENTS_TO_AVOID = (
+    "direct、CV 与底层公开 consumer",
+    "response validation",
+    "backend work",
+    "child refit",
+    "bootstrap child objective",
+    "standalone 推断",
+    "runtime help",
+    "host sync",
+    "focused regressions",
+    "regression coverage",
+    "generic FISTA diagnostic",
+    "selected full-data refit",
+)
+
+_PR166_SOLVER_PROSE_FRAGMENTS_TO_AVOID = (
+    "smooth-gradient FISTA",
+    "estimator/CV",
+    "smooth-gradient difference",
+    "non Cholesky fallback",
+    "family/backend/problem-size",
+    "estimator 算法",
 )
 
 
@@ -122,6 +148,27 @@ def test_quantile_page_uses_chinese_explanatory_prose():
     for fragment in _QUANTILE_PROSE_FRAGMENTS_TO_AVOID:
         assert fragment not in text, (
             "docs/cn/models/quantile.md: explanatory prose fragment "
+            f"{fragment!r}"
+        )
+
+
+def test_pr166_changelog_section_uses_chinese_explanatory_prose():
+    text = _read("docs/cn/changelog.md")
+    start = text.index("## 未发布 — Quantile 求解器与推断更新（PR #166")
+    end = text.index("## 未发布 — Quantile solver provenance 对齐（PR #164", start)
+    section = text[start:end]
+    for fragment in _PR166_CHANGELOG_FRAGMENTS_TO_AVOID:
+        assert fragment not in section, (
+            "docs/cn/changelog.md PR166 section: explanatory prose fragment "
+            f"{fragment!r}"
+        )
+
+
+def test_pr166_solver_algorithm_prose_uses_chinese_explanatory_vocabulary():
+    text = _read("docs/cn/guides/solver-algorithms.md")
+    for fragment in _PR166_SOLVER_PROSE_FRAGMENTS_TO_AVOID:
+        assert fragment not in text, (
+            "docs/cn/guides/solver-algorithms.md: explanatory prose fragment "
             f"{fragment!r}"
         )
 

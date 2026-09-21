@@ -5,21 +5,23 @@
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
-## 未发布 — Quantile solver 与推断更新（PR #166，目标 0.2.6）
+## 未发布 — Quantile 求解器与推断更新（PR #166，目标 0.2.6）
 
 ### 修复
 
-- **公开 Quantile solver 边界**：direct、CV 与底层公开 consumer 现在使用一致的 response/design shape、停止控制、continuation path、sample-weight 与 solver compatibility 规则。文档声明的普通 FISTA 和底层未加权/均匀权重 L-BFGS 历史兼容行为继续保留；FISTA-BB、ADMM、Newton、Proximal Newton 与 L-BFGS-B 会在数值工作前拒绝 Quantile。历史 `quantile_cd_solver` 实现会忽略 `sample_weight`，且不能可靠表示不受惩罚的截距，因此公开名称只保留 import compatibility，并在调用时直接报错；标量 SCAD/MCP 使用 Proximal IRLS-CD。
-- **direct/CV 输入对齐**：Quantile response validation 保持活动 backend 原生，并统一覆盖 generic/typed direct fit 与 `PenalizedGLM_CV`；公开底层 Quantile 路径也会在数值工作前拒绝含 NaN/Inf 的 `X/y`。非法 custom fold 与零 fold weight mass 会在自动 alpha-grid 数值工作前报错；continuation scale、adaptive/group penalty ownership 与拟合目标保持一致。prediction/score 会拒绝非法 shape，不再让 NumPy broadcasting 生成看似正常但错误的结果。
-- **独立 `QuantileRegression` 推断正确性**：重抽样前会按目标分位数的经验分位点对拟合残差做中心化，使 bootstrap 误差分布的经验 τ 分位数为 0；随后 child refit 使用后端原生的 batched Quantile IRLS/MM 求解调用者请求的 Quantile 目标。多特征、非中位数 bootstrap child objective 已与独立 Quantile LP 解做回归对齐，替代此前可能在 pinball 最优点之上提前停止的 batched 次梯度/FISTA 路径。standalone 非均匀权重推断会明确报错，因为当前没有实现对应的 weighted kernel/bootstrap 推断；均匀权重继续对应等价的未加权推断目标。bootstrap 是基于可交换中心化残差的 i.i.d. residual bootstrap，不把它描述为对一般异方差稳健的 wild/multiplier bootstrap。
-- **standalone 推断生命周期与控制**：bootstrap 至少需要 2 次 resample；非法 inference method/kernel/bandwidth/停止/布尔/quantile 控制会在 backend work 前报错；Hall-Sheather/Bofinger/Chamberlain 在 `q ± h` 离开 `(0,1)`、最终 bandwidth 非有限/非正，或零点 residual density estimate 非有限/非正时都会在 covariance 发布前报错。standalone `score()` 按文档返回负 pinball loss，并支持可选解析权重。失败拟合不会保留半成品推断结果；`gpu_memory_cleanup=True` 也会正确识别执行记录中的 `cupy` backend，并覆盖成功与失败路径。
-- **runtime/API 文档**：Quantile 次梯度 runtime help 与实际导数一致；generic penalized runtime help 明确列出公开 Quantile loss surface；solver wrapper 的 reload/import-order 保持安全，并保留历史 public-module identity。
-- **光滑/异步 Quantile FISTA 后端一致性**：NumPy、CuPy 与 Torch 的 L2/无惩罚 Quantile 回溯路径使用与 CPU 等价的逐迭代 best-accepted/objective-stability 收敛语义；accelerator 会把已接受 trial 的 objective/coefficient-change 与 L2 tracking 标量并入该 trial 本来就需要的 Armijo 同步，避免额外的 convergence 或 penalty-tracking host sync。异步非光滑 Quantile CV 路径继续保留延迟检查，把 Nesterov momentum 上限设为 `0.5`，并且只有在 burn-in 之后连续两次 objective 检查都没有达到 tolerance-scale 改善时，才把 fixed step 减半并重启 momentum。adaptive control 复用既有 deferred sync，并把 L1 penalty tracking 合并进同一次检查，因此不会增加 host sync。physical 验收中的 async weighted-L1 fixture 现在改用独立的 SciPy/HiGHS 线性规划最优值作为 reference：在这组确定性数据上，CPU generic FISTA diagnostic 比真实凸最优值高约 `8.939e-4`，所以不再把“接近 CPU FISTA”当作正确性标准；原有 `5e-4` 阈值保持不变，直接针对 LP objective。 accelerator 上的 Quantile sparse CV 现在对每个 fold 的 L1/ElasticNet/Adaptive-L1 candidate 与 selected full-data refit 统一使用维护中的 async/adaptive FISTA；此前这些内部 `model.fit()` 会回落到 generic pinball backtracking，并可能在非光滑 kink 处触发 Armijo failure。普通 direct Quantile FISTA 的公开行为不变。 physical schema v23 进一步把 L1 CV 的 fold/alpha validation score、selected alpha 与 selected full-data penalized objective 全部改用独立 HiGHS LP reference。固定 fixture 上 CPU CV score 相对 LP 的最大偏差达到 `3.1335e-3`，因此 CPU CV 只保留为 diagnostic；accelerator 的 score 与 final-refit objective tolerance 均未放宽。
+- **公开 Quantile 求解器边界**：直接拟合、交叉验证和公开底层接口现在采用一致的响应/设计矩阵形状、停止条件、延续路径、样本权重和求解器兼容性规则。普通 FISTA，以及底层普通 L-BFGS 在未传权重或均匀权重下的历史兼容行为继续保留；FISTA-BB、共享 ADMM、Newton、Proximal Newton 和 L-BFGS-B 会在数值迭代前明确拒绝 Quantile。历史 `quantile_cd_solver` 会忽略 `sample_weight`，且不能可靠表示不受惩罚的截距，因此仅保留名称的导入兼容性，调用时直接报错；标量 SCAD/MCP 使用 Proximal IRLS-CD。
+- **直接拟合与交叉验证的输入对齐**：Quantile 的响应变量校验保持在当前数值后端上执行，并统一覆盖通用/类型化直接拟合与 `PenalizedGLM_CV`；公开底层 Quantile 路径也会在开始数值计算前拒绝含 NaN/Inf 的 `X/y`。非法的自定义交叉验证折和权重总质量为 0 的折，会在自动构造 `alpha` 网格之前报错；延续路径尺度、自适应/分组惩罚的归属关系与实际拟合目标保持一致。预测和评分会拒绝非法形状，不再允许 NumPy 广播产生外形正常但语义错误的结果。
+- **独立 `QuantileRegression` 的推断正确性**：进行残差重抽样前，先按目标分位数的经验分位点对拟合残差做中心化，使重抽样误差分布的经验 τ 分位数为 0；随后每个重拟合样本都使用后端原生的批量 Quantile IRLS/MM，求解调用者请求的 Quantile 目标。多特征、非中位数的 bootstrap 重拟合目标已与独立 Quantile 线性规划解对齐，替代此前可能在 pinball 最优点之上提前停止的批量次梯度/FISTA 路径。真正非均匀解析权重下的独立模型推断会明确报错，因为当前尚未实现相应的加权核方法/bootstrap 推断；均匀权重继续对应等价的未加权推断目标。这里的 bootstrap 是基于可交换中心化残差的 i.i.d. 残差 bootstrap，不将其描述为对一般异方差稳健的 wild/multiplier bootstrap。
+- **独立模型的推断生命周期与参数校验**：bootstrap 至少需要 2 次重抽样；非法的推断方法、核函数、带宽、停止条件、布尔参数或分位数设置会在进入后端数值计算前报错。Hall-Sheather、Bofinger 和 Chamberlain 规则在 `q ± h` 离开 `(0,1)`、最终带宽不是有限正数，或零点残差密度估计不是有限正数时，都会在发布协方差前报错。`score()` 按文档返回负 pinball loss，并支持可选解析权重。失败拟合不会保留半成品推断结果；`gpu_memory_cleanup=True` 也会正确识别执行记录中的 CuPy 后端，并覆盖成功与失败路径。
+- **运行时帮助与 API 文档**：Quantile 次梯度的运行时帮助与实际导数保持一致；通用带惩罚模型的运行时帮助明确列出公开的 Quantile 损失接口。求解器封装在重新加载和不同导入顺序下保持安全，同时保留历史公开模块的导入身份。
+- **光滑 Quantile FISTA 的后端一致性**：NumPy、CuPy 与 Torch 的 L2/无惩罚 Quantile 回溯路径采用与 CPU 一致的逐迭代“已接受点 + 目标稳定性”收敛语义。GPU 路径把已接受候选点的目标值、系数变化和 L2 跟踪量合并到该次 Armijo 检查原本就需要的同步中，避免额外的收敛检查或惩罚跟踪主机同步。
+- **异步稀疏 Quantile FISTA**：异步非光滑 Quantile 交叉验证继续采用延迟检查，将 Nesterov 动量上限设为 `0.5`；只有在预热阶段之后连续两次目标检查都没有达到容差尺度的改善时，才把固定步长减半并重启动量。自适应控制复用已有的延迟同步，并把 L1 惩罚跟踪合并到同一次检查中，因此不会增加主机同步。GPU 上的 Quantile 稀疏交叉验证会对每个折中的 L1/ElasticNet/Adaptive-L1 候选模型以及最终全数据重拟合统一使用维护中的异步/自适应 FISTA；此前这些内部 `model.fit()` 调用可能回落到通用 pinball 回溯，并在非光滑折点处触发 Armijo 失败。普通直接 Quantile FISTA 的公开行为不变。
+- **独立线性规划验证基准**：物理验收中的异步加权 L1 用例改用 SciPy/HiGHS 的线性规划最优值作为独立参考。在这组确定性数据上，CPU 通用 FISTA 的诊断目标值比真实凸最优值高约 `8.939e-4`，因此不再把“接近 CPU FISTA”作为正确性标准；原有 `5e-4` 阈值没有放宽，而是直接针对线性规划最优目标。schema v23 还把 L1 交叉验证的逐折/逐 `alpha` 验证得分、最终选择的 `alpha` 和最终全数据惩罚目标全部改为使用独立 HiGHS 线性规划参考。固定用例上 CPU 交叉验证得分相对线性规划的最大偏差达到 `3.1335e-3`，因此 CPU 结果只保留作诊断参考；GPU 得分和最终重拟合目标的容差均未放宽。
 
 ### 验证
 
-- 增加 focused regressions，覆盖 Python 版本 collection safety、公开 solver alias/reload 幂等、底层 shape/path/weight 拒绝、direct/CV response validation、prediction/score broadcasting guard、Torch response backend 保持、standalone failure transaction/control/cleanup、kernel-bandwidth 定义域失败，以及一个 `tau=0.2` 的集成 batched-bootstrap 检查，用于区分调用者请求的分位数与错误的互补分位数方向。
-- 扩展 CUDA regression coverage，覆盖 non-uniform weighted L1 FISTA、standalone bootstrap、automatic Group SCAD/MCP direct/CV、weighted scalar low-level FISTA-LLA refresh、flat-IRLS 行为，以及 Group LLA derivative 在 CuPy/Torch 上的设备驻留。
+- 新增有针对性的回归测试，覆盖 Python 版本下的测试收集安全性、公开求解器别名与重新加载幂等性、底层形状/路径/权重拒绝、直接拟合与交叉验证的响应校验、预测/评分的广播保护、Torch 响应后端保持、独立模型的失败事务/参数控制/内存清理、核方法带宽定义域失败，以及一个 `tau=0.2` 的集成批量 bootstrap 检查，用于区分调用者请求的分位数与错误的互补分位数方向。
+- 扩展 CUDA 回归覆盖，加入非均匀加权 L1 FISTA、独立模型 bootstrap、自动 Group SCAD/MCP 直接拟合/交叉验证、加权标量底层 FISTA-LLA 刷新、平坦 IRLS 行为，以及 Group LLA 导数在 CuPy/Torch 上的设备驻留检查。
 
 ## 未发布 — Quantile solver provenance 对齐（PR #164 / Issue #163，目标 0.2.6）
 
