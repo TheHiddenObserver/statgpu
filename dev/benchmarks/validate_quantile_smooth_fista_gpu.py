@@ -36,7 +36,7 @@ from statgpu.solvers import fista_solver
 from statgpu.solvers._convergence import ConvergenceWarning
 
 
-SCHEMA_VERSION = 21
+SCHEMA_VERSION = 22
 Q = 0.35
 ATOL_OBJECTIVE = 2e-5
 ATOL_CV_SCORE = 2e-5
@@ -52,6 +52,7 @@ DIRECT_TOL = 1e-8
 CV_MAX_ITER = 6000
 CV_L2_TOL = 1e-7
 CV_L1_TOL = 1e-5
+CV_L1_INTERNAL_ASYNC_FISTA = True
 ASYNC_MAX_ITER = 6000
 # This stress case exercises the same cv_mode=True async Quantile-L1 engine
 # used by public strict CV, so its convergence control follows the maintained
@@ -83,6 +84,7 @@ def _solver_controls():
             "max_iter": CV_MAX_ITER,
             "l2_tol": CV_L2_TOL,
             "l1_tol": CV_L1_TOL,
+            "l1_internal_async_fista": CV_L1_INTERNAL_ASYNC_FISTA,
             "alpha_grid": CV_ALPHA_GRID.tolist(),
         },
         "async_weighted_l1": {
