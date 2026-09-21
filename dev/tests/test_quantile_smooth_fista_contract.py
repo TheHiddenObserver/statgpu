@@ -171,6 +171,7 @@ def test_smooth_quantile_torch_batches_armijo_and_convergence_sync(monkeypatch):
     calls = {"sync": 0, "to_float": 0}
     original_sync = fista_mod._sync_scalars
     original_to_float = fista_mod._to_float_scalar
+    penalty = L2Penalty(alpha=0.1)
 
     def recording_sync(*args, **kwargs):
         calls["sync"] += 1
@@ -180,14 +181,20 @@ def test_smooth_quantile_torch_batches_armijo_and_convergence_sync(monkeypatch):
         calls["to_float"] += 1
         return original_to_float(*args, **kwargs)
 
+    def forbidden_penalty_value(_coef):
+        raise AssertionError(
+            "smooth Quantile GPU tracking must use the Armijo-batched L2 value"
+        )
+
     monkeypatch.setattr(fista_mod, "_sync_scalars", recording_sync)
     monkeypatch.setattr(fista_mod, "_to_float_scalar", recording_to_float)
+    monkeypatch.setattr(penalty, "value", forbidden_penalty_value)
 
     with warnings.catch_warnings():
         warnings.simplefilter("error", ConvergenceWarning)
         coef, n_iter = fista_mod.fista_solver(
             QuantileLoss(quantile=0.5),
-            L2Penalty(alpha=0.0),
+            penalty,
             X,
             y,
             max_iter=10,
