@@ -1865,6 +1865,10 @@ class _PenalizedFitMixin:
         # the original penalty's name so SCAD/MCP routing works.
         if not _pen_name:
             _pen_name = getattr(self._penalty, 'name', '')
+        _quantile_cv_async_fista = (
+            bool(getattr(self, "_quantile_cv_async_fista", False))
+            and _loss_name == "quantile"
+        )
         # Routing:
         #   adaptive_l1/adaptive_lasso -> FISTA (weighted L1 proximal)
         #   quantile + SCAD/MCP -> CD solver (coordinate descent, much faster)
@@ -1890,6 +1894,7 @@ class _PenalizedFitMixin:
                 max_iter=self._max_iter, tol=self._tol,
                 init_coef=init, sample_weight=sample_weight,
                 lipschitz_L=self.lipschitz_L,
+                cv_mode=_quantile_cv_async_fista,
             )
         elif _use_quantile_cd:
             # Quantile + SCAD/MCP: use Proximal IRLS (IRLS quadratic majorization
@@ -2204,9 +2209,6 @@ class _PenalizedFitMixin:
                 )
                 params = _xp_asarray(params_irls, X_arr.dtype, X_arr)
             else:
-                _quantile_cv_async_fista = bool(
-                    getattr(self, "_quantile_cv_async_fista", False)
-                ) and _loss_name == "quantile"
                 params, n_iter = fista_solver(
                     self._loss, pen, X_work, y_arr,
                     max_iter=self._max_iter, tol=self._tol,
