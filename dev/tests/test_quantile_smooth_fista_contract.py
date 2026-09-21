@@ -12,6 +12,7 @@ from statgpu.linear_model import PenalizedGLM_CV
 from statgpu.linear_model.penalized import (
     PenalizedGeneralizedLinearModel,
     PenalizedQuantileRegression,
+    SelectivePenalty,
 )
 from statgpu.glm_core._squared import SquaredErrorLoss
 from statgpu.losses import QuantileLoss
@@ -149,6 +150,50 @@ def test_quantile_fista_nonconvergence_warning_recommends_supported_routes():
     assert "IRLS is also supported" in message
     assert "newton" not in message.lower()
     assert "lbfgs" not in message.lower()
+
+
+def test_async_quantile_selective_l1_tracking_stays_batched(monkeypatch):
+    torch = pytest.importorskip("torch")
+
+    X = torch.eye(2, dtype=torch.float64)
+    y = torch.zeros(2, dtype=torch.float64)
+    loss = QuantileLoss(quantile=0.35)
+    penalty = SelectivePenalty()
+    penalty.configure(L1Penalty(alpha=0.2), p=1, backend="torch")
+
+    objective = torch.as_tensor(1.0, dtype=torch.float64)
+    grad_template = torch.full((2,), 1e-3, dtype=torch.float64)
+
+    def constant_fused_value_and_gradient(X_arg, y_arg, coef, sample_weight=None):
+        return objective.to(device=coef.device), grad_template.to(device=coef.device)
+
+    def constant_value(X_arg, y_arg, coef, sample_weight=None):
+        return objective.to(device=coef.device)
+
+    def forbidden_penalty_value(_coef):
+        raise AssertionError(
+            "SelectivePenalty.value must not add an async Quantile-L1 host sync"
+        )
+
+    monkeypatch.setattr(
+        loss,
+        "fused_value_and_gradient",
+        constant_fused_value_and_gradient,
+    )
+    monkeypatch.setattr(loss, "value", constant_value)
+    monkeypatch.setattr(penalty, "value", forbidden_penalty_value)
+
+    with pytest.warns(ConvergenceWarning):
+        fista_solver(
+            loss,
+            penalty,
+            X,
+            y,
+            max_iter=3,
+            tol=1e-30,
+            lipschitz_L=1.0,
+            cv_mode=True,
+        )
 
 
 def test_async_quantile_l1_stall_contracts_step_without_extra_penalty_sync(monkeypatch):
