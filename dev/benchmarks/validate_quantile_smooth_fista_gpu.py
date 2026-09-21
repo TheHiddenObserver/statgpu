@@ -36,7 +36,7 @@ from statgpu.solvers import fista_solver
 from statgpu.solvers._convergence import ConvergenceWarning
 
 
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 20
 Q = 0.35
 ATOL_OBJECTIVE = 2e-5
 ATOL_CV_SCORE = 2e-5
@@ -59,6 +59,8 @@ ASYNC_MAX_ITER = 6000
 # acceptance condition below.
 ASYNC_TOL = 1e-5
 ASYNC_MOMENTUM_BETA_CAP = 0.5
+ASYNC_STALL_CHECKS = 2
+ASYNC_STEP_CONTRACTION_FACTOR = 2.0
 
 BOOTSTRAP_Q = 0.20
 BOOTSTRAP_N = 80
@@ -87,6 +89,8 @@ def _solver_controls():
             "max_iter": ASYNC_MAX_ITER,
             "tol": ASYNC_TOL,
             "momentum_beta_cap": ASYNC_MOMENTUM_BETA_CAP,
+            "stall_checks": ASYNC_STALL_CHECKS,
+            "step_contraction_factor": ASYNC_STEP_CONTRACTION_FACTOR,
         },
         "bootstrap_direction": {
             "quantile": BOOTSTRAP_Q,
@@ -724,6 +728,8 @@ def _async_weighted_l1_case(
         "n_iter": int(n_iter),
         "alpha": ASYNC_L1_ALPHA,
         "momentum_beta_cap": ASYNC_MOMENTUM_BETA_CAP,
+        "stall_checks": ASYNC_STALL_CHECKS,
+        "step_contraction_factor": ASYNC_STEP_CONTRACTION_FACTOR,
         "weighted_gram_spectral_to_maxdiag_ratio": spectral_ratio,
         "cpu_objective": cpu_objective,
         "cpu_n_iter": int(cpu_n_iter),
