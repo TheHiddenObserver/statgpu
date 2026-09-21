@@ -2815,7 +2815,33 @@ class PenalizedGLM_CV(CVEstimatorBase):
             loss_kwargs=getattr(self, '_loss_kwargs', None),
             penalty_kwargs=getattr(self, '_penalty_kwargs', None),
         )
-        model.fit(X, y, sample_weight=sample_weight)
+
+        # Quantile sparse CV folds on accelerator backends use the maintained
+        # async/deferred-check FISTA route. Reuse that same numerical route for
+        # the selected full-data refit instead of dropping back to generic
+        # pinball backtracking, which can fail Armijo at a non-smooth kink.
+        # The marker is call-local to this refit and is removed before the
+        # fitted estimator is published; ordinary direct Quantile fits retain
+        # their existing FISTA semantics.
+        _quantile_async_refit = (
+            str(self.loss).lower() == "quantile"
+            and penalty_name in (
+                "l1",
+                "elasticnet",
+                "en",
+                "adaptive_l1",
+                "adaptive_lasso",
+            )
+            and _device_to_name(refit_device) in ("cuda", "torch")
+            and str(cv_solver).lower() == "fista"
+        )
+        if _quantile_async_refit:
+            model._quantile_cv_refit_async = True
+        try:
+            model.fit(X, y, sample_weight=sample_weight)
+        finally:
+            if hasattr(model, "_quantile_cv_refit_async"):
+                delattr(model, "_quantile_cv_refit_async")
         return model
 
     def _uses_glm_sparse_path(self, penalty_name, cv_solver):
