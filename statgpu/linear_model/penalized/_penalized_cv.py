@@ -253,6 +253,22 @@ def _device_to_name(device):
     return str(device).lower()
 
 
+def _uses_quantile_async_sparse_fista(
+    loss_name,
+    penalty_name,
+    device_name,
+    solver_name,
+) -> bool:
+    """Return whether an internal Quantile CV child should use async FISTA."""
+    return (
+        str(loss_name).lower() == "quantile"
+        and str(penalty_name).lower()
+        in ("l1", "elasticnet", "en", "adaptive_l1", "adaptive_lasso")
+        and _device_to_name(device_name) in ("cuda", "torch")
+        and str(solver_name).lower() == "fista"
+    )
+
+
 def _should_build_squared_error_cv_cache(loss_name, penalty_name, solver_name, device_name):
     """Return whether the general CV fallback can consume a Gram cache."""
     if str(loss_name).lower() != "squared_error":
@@ -2823,25 +2839,19 @@ class PenalizedGLM_CV(CVEstimatorBase):
         # The marker is call-local to this refit and is removed before the
         # fitted estimator is published; ordinary direct Quantile fits retain
         # their existing FISTA semantics.
-        _quantile_async_refit = (
-            str(self.loss).lower() == "quantile"
-            and penalty_name in (
-                "l1",
-                "elasticnet",
-                "en",
-                "adaptive_l1",
-                "adaptive_lasso",
-            )
-            and _device_to_name(refit_device) in ("cuda", "torch")
-            and str(cv_solver).lower() == "fista"
+        _quantile_async_refit = _uses_quantile_async_sparse_fista(
+            self.loss,
+            penalty_name,
+            refit_device,
+            cv_solver,
         )
         if _quantile_async_refit:
-            model._quantile_cv_refit_async = True
+            model._quantile_cv_async_fista = True
         try:
             model.fit(X, y, sample_weight=sample_weight)
         finally:
-            if hasattr(model, "_quantile_cv_refit_async"):
-                delattr(model, "_quantile_cv_refit_async")
+            if hasattr(model, "_quantile_cv_async_fista"):
+                delattr(model, "_quantile_cv_async_fista")
         return model
 
     def _uses_glm_sparse_path(self, penalty_name, cv_solver):
@@ -3142,6 +3152,13 @@ class PenalizedGLM_CV(CVEstimatorBase):
             loss_kwargs=getattr(self, '_loss_kwargs', None),
             penalty_kwargs=getattr(self, '_penalty_kwargs', None),
         )
+        if _uses_quantile_async_sparse_fista(
+            loss_name,
+            penalty_name,
+            cv_device,
+            cv_solver,
+        ):
+            model._quantile_cv_async_fista = True
         if cv_cache is not None:
             model._cv_cache = cv_cache
             model._preserve_cv_cache = True
