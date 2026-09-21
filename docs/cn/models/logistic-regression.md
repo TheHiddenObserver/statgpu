@@ -1,43 +1,41 @@
 # LogisticRegression
 
 > 语言: 中文  
-> 最后更新: 2026-08-06
+> 最后更新: 2026-09-21
 > 页面定位: 模型文档  
 > 切换: [English](../../en/models/logistic-regression.md)
 
-语言切换：[English](../../en/models/logistic-regression.md)
+## 概览
 
-## 概览（Overview）
+`LogisticRegression` 提供二分类 Logit（IRLS + L2）训练与推断，支持 CPU/GPU。当前公开接口聚焦二分类；多分类、L1 和 Elastic Net 暂未纳入这一估计器。
 
-`LogisticRegression` 提供二分类 Logit（IRLS + L2）训练与推断，支持 CPU/GPU。当前范围聚焦二分类；多分类、L1、elastic-net 暂未纳入主路径（见 `TO_DO.md`）。
-
-## 路径（Path）
+## 导入路径
 
 `statgpu.linear_model.LogisticRegression`
 
-## 目标函数（Objective Function）
+## 目标函数
 
 最小化二分类负对数似然与 L2 正则项（`C` 为正则强度倒数，`C` 越大正则越弱）。当 `C` 很大（如 `1e10`）时可近似无正则 MLE。
 
-## 估计方程（Estimating Equation）
+## 估计方程
 
-采用 IRLS/Newton/L-BFGS 求解，受 `max_iter` 与 `tol` 控制；`fit_intercept=True` 时联合估计截距。v23c (2026-05) 起，`solver="lbfgs"` 在各后端上正确支持 L2 惩罚。
+采用 IRLS、Newton 或 L-BFGS 求解，并由 `max_iter` 与 `tol` 控制迭代；`fit_intercept=True` 时同时估计截距。当前 `solver="lbfgs"` 在支持的各后端上都能处理 L2 惩罚。
 
-## 协方差与推断（Covariance/Inference）
+## 协方差与推断
 
 推断默认使用大样本正态近似（z 统计口径），支持：
 
 - `cov_type="nonrobust"`：经典信息矩阵协方差
-- `cov_type="hc0"`：White/sandwich 稳健
+- `cov_type="hc0"`：White（sandwich）稳健
 - `cov_type="hc1"`：HC0 + 自由度修正 `n/(n-k)`
-- `cov_type="hc2"`：基于 leverage 修正
-- `cov_type="hc3"`：更保守的 jackknife 风格修正
-- `cov_type="hac"`：Newey-West（Bartlett kernel）自相关稳健协方差
+- `cov_type="hc2"`：基于杠杆值（leverage）修正
+- `cov_type="hc3"`：更保守的 jackknife（留一法）风格修正
+- `cov_type="hac"`：Newey-West（Bartlett 核）自相关稳健协方差
 - `hac_maxlags`：仅 `cov_type="hac"` 生效
 
 似然、AIC、BIC、伪 R² 与 `converged_` 在 `compute_inference=False` 时仍可用；协方差相关字段不可用。
 
-## 参数（Parameters）
+## 参数
 
 | 参数 | 默认值 | 说明 |
 |---|---:|---|
@@ -49,9 +47,9 @@
 | `compute_inference` | `True` | 是否计算推断统计 |
 | `cov_type` | `"nonrobust"` | `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac` |
 | `hac_maxlags` | `None` | `cov_type="hac"` 时最大滞后阶 |
-| `gpu_memory_cleanup` | `False` | `fit` 后尝试释放 CuPy memory pool |
+| `gpu_memory_cleanup` | `False` | `fit` 后尝试释放 CuPy 内存池 |
 
-## CPU+GPU 示例（CPU+GPU Examples）
+## CPU/GPU 示例
 
 ```python
 from statgpu.linear_model import LogisticRegression
@@ -77,11 +75,11 @@ m_gpu = LogisticRegression(
 m_gpu.fit(X_gpu, y_gpu)
 ```
 
-## strict/approx 差异（strict/approx difference）
+## 严格计算与近似计算
 
-当前接口未暴露独立 `strict/approx` 开关。默认路径用于高一致性推断；GPU 与 CPU 在极小数值误差范围内可能存在差异。
+该估计器没有单独的严格/近似计算开关。CPU 与 GPU 使用相同的统计定义，但由于浮点运算和底层线性代数实现不同，结果可能存在机器精度量级的差异。
 
-## 输出（Outputs）
+## 输出
 
 - `fit(X, y) -> self`
 - 预测：`predict_proba(X)`、`predict(X)`、`predict_with_threshold(X, threshold)`
@@ -105,18 +103,11 @@ m_gpu.fit(X_gpu, y_gpu)
 - **为什么输出 z 统计量而不是 t？**  
   Logit 推断通常采用大样本正态近似。
 
-## 外部验证（External Validation）
+## 与外部实现的对照
 
-与 `statsmodels.Logit` 的对齐测试位于：
+稳健协方差与 `statsmodels.Logit` 做数值对照，并分别覆盖 CPU 与 GPU 路径；HC2、HC3 和 HAC 也纳入一致性验证。
 
-- `dev/tests/test_external_consistency.py`
-  - `test_logistic_robust_covariance_matches_statsmodels`
-  - `test_logistic_robust_covariance_gpu_matches_statsmodels`
-
-`HC2/HC3/HAC` 三方产物见：
-- `results/remote_covariance_full_compare_2026-04-10.json`
-
-## 参考（References）
+## 参考文献
 
 - McCullagh, P., & Nelder, J. A. (1989). *Generalized Linear Models* (2nd ed.). Chapman & Hall/CRC.
 - Hosmer, D. W., Lemeshow, S., & Sturdivant, R. X. (2013). *Applied Logistic Regression* (3rd ed.). Wiley.

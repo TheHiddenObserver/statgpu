@@ -1,7 +1,7 @@
 # Distribution API 使用指南
 
 > 语言: 中文
-> 最后更新: 2026-04-24
+> 最后更新: 2026-09-21
 > 页面定位: 指南文档
 > 切换: [English](../../en/guides/distribution-api.md)
 
@@ -99,9 +99,9 @@ y = dist.cdf(0.0)
 
 `backend` 参数可选：`"auto"`（默认）、`"numpy"`、`"cupy"`、`"torch"`。
 
-## 4) 显式启用 SciPy fallback（可选）
+## 4) 显式启用 SciPy 回退（可选）
 
-对于尚未原生实现的长尾分布，可以显式开启 fallback：
+对于尚未提供原生实现的少用分布，可以显式启用 SciPy 回退：
 
 ```python
 import numpy as np
@@ -113,7 +113,7 @@ out = dist.cdf(np.array([0.0, 1.0, 2.0]))
 
 说明：
 
-- 对于非原生分布名，`get_distribution` 配合 `backend="numpy"` 会包装对应的 `scipy.stats` 分布。
+- 对于尚无原生实现的分布名，`get_distribution` 配合 `backend="numpy"` 会包装对应的 `scipy.stats` 分布。
 - GPU 后端仅支持原生实现的分布。
 
 ## 5) 逆函数的 LUT 加速
