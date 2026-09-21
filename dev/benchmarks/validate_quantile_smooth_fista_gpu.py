@@ -36,11 +36,13 @@ from statgpu.solvers import fista_solver
 from statgpu.solvers._convergence import ConvergenceWarning
 
 
-SCHEMA_VERSION = 22
+SCHEMA_VERSION = 23
 Q = 0.35
 ATOL_OBJECTIVE = 2e-5
 ATOL_CV_SCORE = 2e-5
 ATOL_CV_L1_SCORE = 2e-4
+ATOL_CV_L1_REFIT_OBJECTIVE = 5e-4
+CV_L1_REFERENCE = "scipy_highs_lp"
 ATOL_ASYNC_L1_OBJECTIVE = 5e-4
 ATOL_BOOTSTRAP_OBJECTIVE = 2e-6
 ATOL_BOOTSTRAP_INFERENCE = 2e-5
@@ -85,6 +87,7 @@ def _solver_controls():
             "l2_tol": CV_L2_TOL,
             "l1_tol": CV_L1_TOL,
             "l1_internal_async_fista": CV_L1_INTERNAL_ASYNC_FISTA,
+            "l1_reference": CV_L1_REFERENCE,
             "alpha_grid": CV_ALPHA_GRID.tolist(),
         },
         "async_weighted_l1": {
@@ -186,8 +189,15 @@ def _async_weighted_data(seed=16693, n=96):
     return X, y, weights, ratio
 
 
-def _async_weighted_l1_lp_reference(X, y, weights, alpha):
-    """Solve the convex weighted Quantile+L1 fixture by an independent LP."""
+def _weighted_quantile_l1_lp_reference(
+    X,
+    y,
+    weights,
+    alpha,
+    *,
+    fit_intercept,
+):
+    """Solve a convex weighted Quantile+L1 objective by an independent LP."""
     from scipy.optimize import linprog
 
     X = np.asarray(X, dtype=np.float64)
@@ -195,50 +205,139 @@ def _async_weighted_l1_lp_reference(X, y, weights, alpha):
     weights = np.asarray(weights, dtype=np.float64).reshape(-1)
     n, p = X.shape
     if y.shape != (n,) or weights.shape != (n,):
-        raise ValueError("async LP reference inputs have incompatible shapes")
+        raise ValueError("Quantile-L1 LP reference inputs have incompatible shapes")
     total_weight = float(np.sum(weights))
     if not np.isfinite(total_weight) or total_weight <= 0.0:
-        raise ValueError("async LP reference weights must have positive mass")
+        raise ValueError("Quantile-L1 LP reference weights must have positive mass")
 
-    # beta = beta_plus - beta_minus
-    # residual = y - X beta = u_plus - u_minus
-    # All split variables are constrained non-negative.
-    n_var = 2 * p + 2 * n
+    intercept_width = 1 if fit_intercept else 0
+    intercept_idx = 2 * p if fit_intercept else None
+    up = 2 * p + intercept_width
+    um = up + n
+    n_var = 2 * p + intercept_width + 2 * n
+
     objective = np.zeros(n_var, dtype=np.float64)
     objective[:p] = float(alpha)
     objective[p : 2 * p] = float(alpha)
     normalized_weight = weights / total_weight
-    objective[2 * p : 2 * p + n] = Q * normalized_weight
-    objective[2 * p + n :] = (1.0 - Q) * normalized_weight
+    objective[up : up + n] = Q * normalized_weight
+    objective[um:] = (1.0 - Q) * normalized_weight
 
     A_eq = np.zeros((n, n_var), dtype=np.float64)
     A_eq[:, :p] = X
     A_eq[:, p : 2 * p] = -X
-    A_eq[:, 2 * p : 2 * p + n] = np.eye(n, dtype=np.float64)
-    A_eq[:, 2 * p + n :] = -np.eye(n, dtype=np.float64)
+    if fit_intercept:
+        A_eq[:, intercept_idx] = 1.0
+    A_eq[:, up : up + n] = np.eye(n, dtype=np.float64)
+    A_eq[:, um:] = -np.eye(n, dtype=np.float64)
+
+    bounds = [(0.0, None)] * (2 * p)
+    if fit_intercept:
+        bounds.append((None, None))
+    bounds.extend([(0.0, None)] * (2 * n))
 
     result = linprog(
         objective,
         A_eq=A_eq,
         b_eq=y,
-        bounds=(0.0, None),
+        bounds=bounds,
         method="highs",
     )
     if not bool(result.success):
         raise AssertionError(
-            "async weighted-L1 LP reference failed: "
+            "weighted Quantile-L1 LP reference failed: "
             f"status={result.status}, message={result.message!r}"
         )
 
     solution = np.asarray(result.x, dtype=np.float64)
     coef = solution[:p] - solution[p : 2 * p]
-    objective_value = _l1_objective(X, y, weights, coef, alpha)
+    intercept = (
+        float(solution[intercept_idx])
+        if fit_intercept
+        else 0.0
+    )
+    objective_value = _l1_objective_with_intercept(
+        X,
+        y,
+        weights,
+        coef,
+        intercept,
+        alpha,
+    )
     if abs(objective_value - float(result.fun)) > 1e-10:
         raise AssertionError(
-            "async weighted-L1 LP objective reconstruction drifted: "
+            "weighted Quantile-L1 LP objective reconstruction drifted: "
             f"{objective_value:.16g} vs solver {float(result.fun):.16g}"
         )
-    return coef, objective_value
+    return coef, intercept, objective_value
+
+
+def _async_weighted_l1_lp_reference(X, y, weights, alpha):
+    coef, _, objective = _weighted_quantile_l1_lp_reference(
+        X,
+        y,
+        weights,
+        alpha,
+        fit_intercept=False,
+    )
+    return coef, objective
+
+
+def _cv_l1_lp_reference(X, y, weights, folds):
+    scores = np.empty(
+        (len(folds), CV_ALPHA_GRID.size),
+        dtype=np.float64,
+    )
+    fold_train_objectives = np.empty_like(scores)
+    for fold_idx, (train_idx, val_idx) in enumerate(folds):
+        for alpha_idx, alpha in enumerate(CV_ALPHA_GRID):
+            coef, intercept, train_objective = (
+                _weighted_quantile_l1_lp_reference(
+                    X[train_idx],
+                    y[train_idx],
+                    weights[train_idx],
+                    float(alpha),
+                    fit_intercept=True,
+                )
+            )
+            fold_train_objectives[fold_idx, alpha_idx] = train_objective
+            residual = y[val_idx] - (
+                X[val_idx] @ coef + intercept
+            )
+            pinball = np.where(
+                residual >= 0.0,
+                Q * residual,
+                (Q - 1.0) * residual,
+            )
+            scores[fold_idx, alpha_idx] = float(
+                np.average(
+                    pinball,
+                    weights=weights[val_idx],
+                )
+            )
+
+    mean_scores = np.mean(scores, axis=0)
+    best_idx = int(np.argmin(mean_scores))
+    selected_alpha = float(CV_ALPHA_GRID[best_idx])
+    full_coef, full_intercept, full_objective = (
+        _weighted_quantile_l1_lp_reference(
+            X,
+            y,
+            weights,
+            selected_alpha,
+            fit_intercept=True,
+        )
+    )
+    return {
+        "method": CV_L1_REFERENCE,
+        "scores": scores,
+        "mean_scores": mean_scores,
+        "selected_alpha": selected_alpha,
+        "full_coef": full_coef,
+        "full_intercept": full_intercept,
+        "full_objective": full_objective,
+        "fold_train_objectives": fold_train_objectives,
+    }
 
 
 def _host(value):
@@ -259,10 +358,17 @@ def _objective(X, y, weights, coef, intercept, alpha):
     return data_fit + 0.5 * float(alpha) * float(np.dot(coef, coef))
 
 
-def _l1_objective(X, y, weights, coef, alpha):
+def _l1_objective_with_intercept(
+    X,
+    y,
+    weights,
+    coef,
+    intercept,
+    alpha,
+):
     coef = np.asarray(coef, dtype=np.float64).ravel()
     residual = np.asarray(y, dtype=np.float64) - (
-        np.asarray(X, dtype=np.float64) @ coef
+        np.asarray(X, dtype=np.float64) @ coef + float(intercept)
     )
     pinball = np.where(
         residual >= 0.0,
@@ -276,6 +382,17 @@ def _l1_objective(X, y, weights, coef, alpha):
         )
     )
     return data_fit + float(alpha) * float(np.sum(np.abs(coef)))
+
+
+def _l1_objective(X, y, weights, coef, alpha):
+    return _l1_objective_with_intercept(
+        X,
+        y,
+        weights,
+        coef,
+        0.0,
+        alpha,
+    )
 
 
 def _native_inputs(backend, X, y, weights, cp, torch):
@@ -897,6 +1014,12 @@ def main() -> int:
         )
         for penalty, model in cpu_cv.items()
     }
+    cv_l1_reference = _cv_l1_lp_reference(
+        X,
+        y,
+        weights,
+        folds,
+    )
     async_X, async_y, async_weights, async_spectral_ratio = (
         _async_weighted_data()
     )
@@ -1019,20 +1142,35 @@ def main() -> int:
                     penalty=cv_penalty,
                 )
                 cpu_reference = cpu_cv[cv_penalty]
-                if float(cv.alpha_) != float(cpu_reference.alpha_):
-                    raise AssertionError(
-                        f"{backend}/cv/{cv_penalty}: selected alpha "
-                        f"{cv.alpha_!r} != CPU {cpu_reference.alpha_!r}"
-                    )
                 scores = np.asarray(
                     cv.cv_results_["all_scores"],
                     dtype=np.float64,
                 )
+
+                if cv_penalty == "l1":
+                    reference_name = CV_L1_REFERENCE
+                    reference_alpha = float(
+                        cv_l1_reference["selected_alpha"]
+                    )
+                    reference_scores = np.asarray(
+                        cv_l1_reference["scores"],
+                        dtype=np.float64,
+                    )
+                else:
+                    reference_name = "cpu_fista"
+                    reference_alpha = float(cpu_reference.alpha_)
+                    reference_scores = cpu_cv_scores[cv_penalty]
+
+                if float(cv.alpha_) != reference_alpha:
+                    raise AssertionError(
+                        f"{backend}/cv/{cv_penalty}: selected alpha "
+                        f"{cv.alpha_!r} != {reference_name} "
+                        f"{reference_alpha!r}"
+                    )
+
                 score_error = float(
                     np.max(
-                        np.abs(
-                            scores - cpu_cv_scores[cv_penalty]
-                        )
+                        np.abs(scores - reference_scores)
                     )
                 )
                 max_cv_score_error = max(
@@ -1047,24 +1185,81 @@ def main() -> int:
                 if score_error > tolerance:
                     raise AssertionError(
                         f"{backend}/cv/{cv_penalty}: score error "
-                        f"{score_error:.3e} > {tolerance:.3e}"
+                        f"{score_error:.3e} > {tolerance:.3e} "
+                        f"vs {reference_name}"
                     )
-                cases.append(
-                    {
-                        "name": f"{backend}/cv/{cv_penalty}",
-                        "provenance": _provenance(
-                            cv.estimator_,
-                            backend,
-                        ),
-                        "selected_alpha": float(cv.alpha_),
-                        "cpu_selected_alpha": float(
-                            cpu_reference.alpha_
-                        ),
-                        "scores": scores.tolist(),
-                        "score_error": score_error,
-                        "tolerance": tolerance,
-                    }
-                )
+
+                case = {
+                    "name": f"{backend}/cv/{cv_penalty}",
+                    "provenance": _provenance(
+                        cv.estimator_,
+                        backend,
+                    ),
+                    "reference": reference_name,
+                    "selected_alpha": float(cv.alpha_),
+                    "reference_selected_alpha": reference_alpha,
+                    "scores": scores.tolist(),
+                    "reference_scores": np.asarray(
+                        reference_scores,
+                        dtype=np.float64,
+                    ).tolist(),
+                    "score_error": score_error,
+                    "tolerance": tolerance,
+                }
+
+                if cv_penalty == "l1":
+                    final_refit_objective = (
+                        _l1_objective_with_intercept(
+                            X,
+                            y,
+                            weights,
+                            np.asarray(
+                                cv.estimator_.coef_,
+                                dtype=np.float64,
+                            ),
+                            float(cv.estimator_.intercept_),
+                            float(cv.alpha_),
+                        )
+                    )
+                    final_refit_error = abs(
+                        final_refit_objective
+                        - float(cv_l1_reference["full_objective"])
+                    )
+                    if (
+                        final_refit_error
+                        > ATOL_CV_L1_REFIT_OBJECTIVE
+                    ):
+                        raise AssertionError(
+                            f"{backend}/cv/l1: final refit objective "
+                            f"error {final_refit_error:.3e} > "
+                            f"{ATOL_CV_L1_REFIT_OBJECTIVE:.3e} "
+                            "vs scipy_highs_lp"
+                        )
+                    case.update(
+                        {
+                            "cpu_diagnostic_selected_alpha": float(
+                                cpu_reference.alpha_
+                            ),
+                            "cpu_diagnostic_scores": np.asarray(
+                                cpu_cv_scores["l1"],
+                                dtype=np.float64,
+                            ).tolist(),
+                            "final_refit_objective": (
+                                final_refit_objective
+                            ),
+                            "reference_final_refit_objective": float(
+                                cv_l1_reference["full_objective"]
+                            ),
+                            "final_refit_objective_error": (
+                                final_refit_error
+                            ),
+                            "final_refit_objective_tolerance": (
+                                ATOL_CV_L1_REFIT_OBJECTIVE
+                            ),
+                        }
+                    )
+
+                cases.append(case)
     finally:
         QuantileLoss.irls = original_irls
 
@@ -1095,6 +1290,37 @@ def main() -> int:
         "source_clean": source_clean,
         "quantile": Q,
         "solver_controls": _solver_controls(),
+        "cv_l1_reference": {
+            "method": CV_L1_REFERENCE,
+            "scores": np.asarray(
+                cv_l1_reference["scores"],
+                dtype=np.float64,
+            ).tolist(),
+            "mean_scores": np.asarray(
+                cv_l1_reference["mean_scores"],
+                dtype=np.float64,
+            ).tolist(),
+            "selected_alpha": float(
+                cv_l1_reference["selected_alpha"]
+            ),
+            "full_coef": np.asarray(
+                cv_l1_reference["full_coef"],
+                dtype=np.float64,
+            ).tolist(),
+            "full_intercept": float(
+                cv_l1_reference["full_intercept"]
+            ),
+            "full_objective": float(
+                cv_l1_reference["full_objective"]
+            ),
+            "cpu_diagnostic_selected_alpha": float(
+                cpu_cv["l1"].alpha_
+            ),
+            "cpu_diagnostic_scores": np.asarray(
+                cpu_cv_scores["l1"],
+                dtype=np.float64,
+            ).tolist(),
+        },
         "async_weighted_l1_reference": {
             "method": ASYNC_REFERENCE,
             "objective": async_reference_objective,
@@ -1115,6 +1341,7 @@ def main() -> int:
             "direct_objective": ATOL_OBJECTIVE,
             "cv_score": ATOL_CV_SCORE,
             "cv_l1_score": ATOL_CV_L1_SCORE,
+            "cv_l1_final_refit_objective": ATOL_CV_L1_REFIT_OBJECTIVE,
             "async_weighted_l1_objective": ATOL_ASYNC_L1_OBJECTIVE,
             "bootstrap_objective_vs_cpu": ATOL_BOOTSTRAP_OBJECTIVE,
             "bootstrap_inference_vs_cpu": ATOL_BOOTSTRAP_INFERENCE,
