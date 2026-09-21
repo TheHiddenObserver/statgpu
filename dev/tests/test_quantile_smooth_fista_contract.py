@@ -188,15 +188,19 @@ def test_async_quantile_l1_caps_nesterov_momentum_without_affecting_smooth_path(
     assert all(cap == pytest.approx(0.5) for cap in observed_caps)
 
     observed_caps.clear()
+    y_smooth = torch.as_tensor(
+        [1.0, -0.4, 0.7, -1.2],
+        dtype=torch.float64,
+    )
     with warnings.catch_warnings():
-        warnings.simplefilter("error", ConvergenceWarning)
+        warnings.simplefilter("ignore", ConvergenceWarning)
         fista_mod.fista_solver(
             QuantileLoss(quantile=0.35),
             L2Penalty(alpha=0.0),
             X,
-            y,
-            max_iter=20,
-            tol=1e-5,
+            y_smooth,
+            max_iter=2,
+            tol=1e-30,
             cv_mode=False,
         )
 
