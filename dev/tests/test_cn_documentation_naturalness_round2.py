@@ -30,6 +30,8 @@ _FORBIDDEN_PROSE = re.compile(
     r"(?<![A-Za-z0-9_])(?:estimator|backend-native|candidate fit|final refit|"
     r"selection 来源|history 与 cache|benchmark baseline|production estimator code|"
     r"strict inference|approximation fallback reason|ElasticNet wrapper|"
+    r"direct-fit solver|核回归 以|核回归 输出|不同的 交叉验证折|"
+    r"失败组 × 样本|penalty 口径)(?![A-Za-z0-9_])",
     re.IGNORECASE,
 )
 
