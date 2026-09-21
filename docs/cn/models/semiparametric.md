@@ -1,13 +1,11 @@
 # GAM（广义可加模型）
 
 > 语言: 中文
-> 最后更新: 2026-05-28
+> 最后更新: 2026-09-21
 > 页面定位: 模型文档
 > 切换: [English](../../en/models/semiparametric.md)
 
-语言切换：[English](../../en/models/semiparametric.md)
-
-## 概览（Overview）
+## 概览
 
 `GAM` 使用惩罚 B 样条拟合广义可加模型，通过广义交叉验证（GCV）自动选择平滑参数。模型为：
 
@@ -19,11 +17,11 @@ $$
 
 底层 B 样条基工具请参见 [样条基函数](splines.md)。
 
-## 路径（Path）
+## 导入路径
 
 `statgpu.semiparametric.GAM`
 
-## 目标函数（Objective Function）
+## 目标函数
 
 GAM 拟合惩罚最小二乘模型：
 
@@ -33,7 +31,7 @@ $$
 
 其中 $B$ 为各特征样条基矩阵的列拼接（加一列截距），$S$ 为块对角差分惩罚矩阵，$\lambda$ 为平滑参数。默认惩罚阶数为 2（二阶差分），惩罚曲率。
 
-## 估计方程（Estimating Equation）
+## 估计方程
 
 惩罚目标的一阶条件给出如下系统：
 
@@ -43,7 +41,7 @@ $$
 
 通过 Cholesky 分解求解。
 
-**GCV 选择 lambda**（当 `lam=None` 时）：
+**GCV 选择平滑参数**（当 `lam=None` 时）：
 
 $$
 \text{GCV} = \frac{n \cdot \text{RSS}}{(n - \text{edf})^2}
@@ -55,16 +53,16 @@ $$
 \text{edf} = \text{tr}\!\left((B^\top B + \lambda S)^{-1} B^\top B\right)
 $$
 
-通过对数间隔网格搜索最小化 GCV 来选择 lambda。
+通过对数间隔网格搜索最小化 GCV，从而选择平滑参数。
 
-## 协方差与推断（Covariance/Inference）
+## 推断与拟合诊断
 
 - `edf_`：拟合模型的有效自由度。
-- `gcv_score_`：GCV 得分（lambda 自动选择时可用）。
+- `gcv_score_`：GCV 得分（自动选择平滑参数时可用）。
 - `lam_`：最终拟合使用的平滑参数。
 - 不产生系数层面的标准误或 p 值；GAM 是平滑器，而非参数推断工具。
 
-## 参数（Parameters）
+## 参数
 
 | 参数 | 默认值 | 说明 |
 |---|---:|---|
@@ -74,7 +72,7 @@ $$
 | `penalty_order` | `2` | 差分惩罚矩阵的阶数 |
 | `device` | `"auto"` | `cpu` / `cuda` / `auto` |
 
-## CPU+GPU 示例（CPU+GPU Examples）
+## CPU/GPU 示例
 
 ```python
 from statgpu.semiparametric import GAM
@@ -95,13 +93,13 @@ gam_gpu.fit(X, y)
 y_pred_gpu = gam_gpu.predict(X)
 ```
 
-## strict/approx 差异（strict/approx difference）
+## 网格选择与精确求解
 
-- 当 `lam=None`（默认）时，GAM 在对数间隔网格（1e-10 到 1e10，100 个点）上使用 GCV 选择平滑参数。这是近似路径；网格较粗糙，可能在狭窄谷底遗漏最优 lambda。
-- 当手动指定 `lam` 时，对该单一值计算精确的惩罚最小二乘解。这是精确路径。
-- 若需在默认网格之外进行精细调整，可传入自定义 `lam` 值，该值可通过更窄的搜索或领域知识获得。
+- 当 `lam=None`（默认）时，GAM 在对数间隔网格（1e-10 到 1e10，共 100 个点）上用 GCV 选择平滑参数。由于搜索发生在离散网格上，真正的最优值若位于两个网格点之间，可能不会被精确命中。
+- 手动指定 `lam` 时，模型会在该固定值下直接求解惩罚最小二乘问题，不再进行网格搜索。
+- 若需要更细的平滑参数选择，可先缩小候选范围，再显式传入更合适的 `lam`。
 
-## 输出（Outputs）
+## 输出
 
 **GAM 拟合属性**：
 
@@ -112,7 +110,7 @@ y_pred_gpu = gam_gpu.predict(X)
 | `edf_` | float | 有效自由度 |
 | `gcv_score_` | float | 所选 lambda 下的 GCV 得分 |
 | `lam_` | float | 使用的平滑参数 |
-| `knots_` | list of arrays | 各特征的节点位置 |
+| `knots_` | 数组列表 | 各特征的节点位置 |
 | `n_features_` | int | 输入特征数 |
 
 **方法**：`fit(X, y)`、`predict(X)`、`summary()`。
@@ -125,11 +123,11 @@ y_pred_gpu = gam_gpu.predict(X)
 
 **GPU 加速效果如何？** GAM 求解受 Cholesky 分解主导，对于大基维度可从 GPU 加速中获益。
 
-## 外部验证（External Validation）
+## 与外部实现的对照
 
-- GAM 预测在标准测试数据集上与 pyGAM 进行了验证。
+- GAM 的预测结果在标准测试数据集上与 `pyGAM` 做过数值对照。
 
-## 参考文献（References）
+## 参考文献
 
 - Hastie, T., & Tibshirani, R. (1990). *Generalized Additive Models*. Chapman & Hall.
 - Wood, S. N. (2017). *Generalized Additive Models: An Introduction with R* (2nd ed.). Chapman & Hall/CRC.
