@@ -1,6 +1,19 @@
 {
   "cases": [
     {
+      "derivative_locations": [
+        [
+          "cupy",
+          "cuda:0"
+        ]
+      ],
+      "max_host_values_per_factory_transfer": 5,
+      "name": "cupy/low-level/group-fista-lla-transfer",
+      "reporting_transfer_sizes": [
+        5
+      ]
+    },
+    {
       "coef_error": 2.7755575615628914e-15,
       "cpu_flat_reference": {
         "coef_error": 1.6989828821589725e-08,
@@ -121,6 +134,19 @@
       },
       "score_error": 5.329070518200751e-15,
       "selected_alpha": 0.05
+    },
+    {
+      "derivative_locations": [
+        [
+          "torch",
+          "cuda:0"
+        ]
+      ],
+      "max_host_values_per_factory_transfer": 5,
+      "name": "torch/low-level/group-fista-lla-transfer",
+      "reporting_transfer_sizes": [
+        5
+      ]
     },
     {
       "coef_error": 3.2751579226442118e-15,
@@ -245,6 +271,497 @@
       "selected_alpha": 0.05
     }
   ],
+  "derivative_transfer_contract": {
+    "evidence": [
+      {
+        "backend": "numpy",
+        "derivative_locations": [
+          [
+            "numpy",
+            "cpu"
+          ]
+        ],
+        "group_factory_calls": 9,
+        "reporting_transfer_sizes": [],
+        "solver_calls": 1
+      },
+      {
+        "backend": "numpy",
+        "derivative_locations": [
+          [
+            "numpy",
+            "cpu"
+          ]
+        ],
+        "group_factory_calls": 77,
+        "reporting_transfer_sizes": [],
+        "solver_calls": 5
+      },
+      {
+        "backend": "numpy",
+        "derivative_locations": [
+          [
+            "numpy",
+            "cpu"
+          ]
+        ],
+        "group_factory_calls": 9,
+        "reporting_transfer_sizes": [],
+        "solver_calls": 1
+      },
+      {
+        "backend": "numpy",
+        "derivative_locations": [
+          [
+            "numpy",
+            "cpu"
+          ]
+        ],
+        "group_factory_calls": 72,
+        "reporting_transfer_sizes": [],
+        "solver_calls": 5
+      },
+      {
+        "backend": "cupy",
+        "derivative_locations": [
+          [
+            "cupy",
+            "cuda:0"
+          ]
+        ],
+        "group_factory_calls": 9,
+        "reporting_transfer_sizes": [
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5
+        ],
+        "solver_calls": 1
+      },
+      {
+        "backend": "cupy",
+        "derivative_locations": [
+          [
+            "cupy",
+            "cuda:0"
+          ]
+        ],
+        "group_factory_calls": 77,
+        "reporting_transfer_sizes": [
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5
+        ],
+        "solver_calls": 5
+      },
+      {
+        "backend": "cupy",
+        "derivative_locations": [
+          [
+            "cupy",
+            "cuda:0"
+          ]
+        ],
+        "group_factory_calls": 9,
+        "reporting_transfer_sizes": [
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5
+        ],
+        "solver_calls": 1
+      },
+      {
+        "backend": "cupy",
+        "derivative_locations": [
+          [
+            "cupy",
+            "cuda:0"
+          ]
+        ],
+        "group_factory_calls": 72,
+        "reporting_transfer_sizes": [
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5
+        ],
+        "solver_calls": 5
+      },
+      {
+        "backend": "torch",
+        "derivative_locations": [
+          [
+            "torch",
+            "cuda:0"
+          ]
+        ],
+        "group_factory_calls": 9,
+        "reporting_transfer_sizes": [
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5
+        ],
+        "solver_calls": 1
+      },
+      {
+        "backend": "torch",
+        "derivative_locations": [
+          [
+            "torch",
+            "cuda:0"
+          ]
+        ],
+        "group_factory_calls": 77,
+        "reporting_transfer_sizes": [
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5
+        ],
+        "solver_calls": 5
+      },
+      {
+        "backend": "torch",
+        "derivative_locations": [
+          [
+            "torch",
+            "cuda:0"
+          ]
+        ],
+        "group_factory_calls": 9,
+        "reporting_transfer_sizes": [
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5
+        ],
+        "solver_calls": 1
+      },
+      {
+        "backend": "torch",
+        "derivative_locations": [
+          [
+            "torch",
+            "cuda:0"
+          ]
+        ],
+        "group_factory_calls": 72,
+        "reporting_transfer_sizes": [
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5
+        ],
+        "solver_calls": 5
+      }
+    ],
+    "max_host_values_per_factory_transfer": 5
+  },
   "environment": {
     "cupy": "13.6.0",
     "cupy_device_name": "Tesla P100-SXM2-16GB",
@@ -376,7 +893,7 @@
     },
     "schema_version": 1,
     "source_clean": true,
-    "source_sha": "c48fdb6aacba37ed7c05e30491f266afda9a719e",
+    "source_sha": "899d2269687fbeb224b0beb00d9bf40a2fb70cd1",
     "status": "success"
   },
   "groups": [
@@ -390,15 +907,28 @@
     ]
   ],
   "low_level_scalar_fista_lla": {
+    "accepted_fixture": "zero_response_fixed_point",
     "alpha": 0.04,
     "cases": [
       {
         "backend": "cupy",
-        "coef_error": 2.886579864025407e-15,
-        "intercept_error": 1.3600232051658168e-15,
-        "n_iter": 30,
-        "objective_error": 1.3877787807814457e-17,
-        "parameter_error": 2.886579864025407e-15,
+        "coef_error": 0.0,
+        "converged_step_scale_weight_locations": [
+          [
+            "cupy",
+            "cuda:0"
+          ]
+        ],
+        "intercept_error": 0.0,
+        "n_iter": 1,
+        "objective_error": 0.0,
+        "parameter_error": 0.0,
+        "periodic_refresh_diagnostic_coef_error": 2.220446049250313e-15,
+        "periodic_refresh_diagnostic_intercept_error": 5.134781488891349e-16,
+        "periodic_refresh_diagnostic_objective_error": 4.163336342344337e-17,
+        "periodic_refresh_diagnostic_parameter_error": 2.220446049250313e-15,
+        "periodic_refresh_probe_n_iter": 30,
+        "periodic_refresh_warning_count": 1,
         "step_scale_weight_locations": [
           [
             "cupy",
@@ -412,11 +942,23 @@
       },
       {
         "backend": "torch",
-        "coef_error": 6.5503158452884236e-15,
-        "intercept_error": 6.38378239159465e-16,
-        "n_iter": 30,
-        "objective_error": 1.790234627208065e-15,
-        "parameter_error": 6.5503158452884236e-15,
+        "coef_error": 0.0,
+        "converged_step_scale_weight_locations": [
+          [
+            "torch",
+            "cuda:0"
+          ]
+        ],
+        "intercept_error": 0.0,
+        "n_iter": 1,
+        "objective_error": 0.0,
+        "parameter_error": 0.0,
+        "periodic_refresh_diagnostic_coef_error": 1.7763568394002505e-15,
+        "periodic_refresh_diagnostic_intercept_error": 9.783840404509192e-16,
+        "periodic_refresh_diagnostic_objective_error": 4.163336342344337e-17,
+        "periodic_refresh_diagnostic_parameter_error": 1.7763568394002505e-15,
+        "periodic_refresh_probe_n_iter": 30,
+        "periodic_refresh_warning_count": 1,
         "step_scale_weight_locations": [
           [
             "torch",
@@ -429,7 +971,15 @@
         ]
       }
     ],
-    "cpu_n_iter": 30,
+    "cpu_converged_step_scale_weight_locations": [
+      [
+        "numpy",
+        "cpu"
+      ]
+    ],
+    "cpu_n_iter": 1,
+    "cpu_periodic_refresh_probe_n_iter": 30,
+    "cpu_periodic_refresh_warning_count": 1,
     "cpu_step_scale_weight_locations": [
       [
         "numpy",
@@ -450,13 +1000,25 @@
       "torch_device_name": "Tesla P100-SXM2-16GB"
     },
     "max_errors": {
-      "objective": 1.790234627208065e-15,
-      "parameter": 6.5503158452884236e-15
+      "accepted_objective": 0.0,
+      "accepted_parameter": 0.0,
+      "periodic_refresh_diagnostic_objective": 4.163336342344337e-17,
+      "periodic_refresh_diagnostic_parameter": 2.220446049250313e-15
     },
+    "periodic_refresh_fixture": "weighted_nontrivial_quantile",
     "quantile": 0.35,
-    "schema_version": 1,
+    "schema_version": 2,
+    "solver_controls": {
+      "parity_lla_tol": 1e-08,
+      "parity_max_iter": 30,
+      "parity_max_lla_per_step": 1,
+      "parity_tol": 1e-08,
+      "probe_lla_tol": 1e-30,
+      "probe_max_iter": 30,
+      "probe_tol": 1e-30
+    },
     "source_clean": true,
-    "source_sha": "c48fdb6aacba37ed7c05e30491f266afda9a719e",
+    "source_sha": "899d2269687fbeb224b0beb00d9bf40a2fb70cd1",
     "status": "success",
     "tolerances": {
       "objective": 8e-05,
@@ -470,13 +1032,13 @@
     "direct_parameter": 3.2751579226442118e-15
   },
   "quantile": 0.35,
-  "schema_version": 2,
+  "schema_version": 3,
   "source_clean": true,
   "source_clean_after_execution": true,
   "source_clean_before": true,
-  "source_sha": "c48fdb6aacba37ed7c05e30491f266afda9a719e",
-  "source_sha_after_execution": "c48fdb6aacba37ed7c05e30491f266afda9a719e",
-  "source_sha_before": "c48fdb6aacba37ed7c05e30491f266afda9a719e",
+  "source_sha": "899d2269687fbeb224b0beb00d9bf40a2fb70cd1",
+  "source_sha_after_execution": "899d2269687fbeb224b0beb00d9bf40a2fb70cd1",
+  "source_sha_before": "899d2269687fbeb224b0beb00d9bf40a2fb70cd1",
   "status": "success",
   "tolerances": {
     "cv_score": 0.0001,
