@@ -153,8 +153,15 @@ def test_quantile_fista_nonconvergence_warning_recommends_supported_routes():
 
 
 def test_quantile_cv_fold_candidates_mark_async_route(monkeypatch):
+    import statgpu.linear_model.penalized._penalized_cv as cv_mod
+
     X, y, weights = _data(seed=16710, n=48)
     seen = []
+    monkeypatch.setattr(
+        cv_mod,
+        "_to_backend_float64",
+        lambda values, backend: np.asarray(values, dtype=np.float64),
+    )
 
     def fake_fit(self, X_arg, y_arg, sample_weight=None):
         seen.append(
