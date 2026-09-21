@@ -36,7 +36,7 @@ from statgpu.solvers import fista_solver
 from statgpu.solvers._convergence import ConvergenceWarning
 
 
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 Q = 0.35
 ATOL_OBJECTIVE = 2e-5
 ATOL_CV_SCORE = 2e-5
@@ -53,7 +53,11 @@ CV_MAX_ITER = 6000
 CV_L2_TOL = 1e-7
 CV_L1_TOL = 1e-5
 ASYNC_MAX_ITER = 6000
-ASYNC_TOL = 1e-7
+# This stress case exercises the same cv_mode=True async Quantile-L1 engine
+# used by public strict CV, so its convergence control follows the maintained
+# L1 CV stopping contract. CPU/GPU objective parity remains a separate, tighter
+# acceptance condition below.
+ASYNC_TOL = 1e-5
 
 BOOTSTRAP_Q = 0.20
 BOOTSTRAP_N = 80
