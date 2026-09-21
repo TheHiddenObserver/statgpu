@@ -1130,6 +1130,7 @@ def test_quantile_cv_l2_uses_irls_for_candidates_and_final_refit():
 
     assert cv._solver_for_cv("cpu", X=X) == "irls"
     assert cv.estimator_._selected_solver == "irls"
+    assert cv.estimator_.solver == "irls"
     assert cv.alpha_ in {0.04, 0.02}
     assert np.all(np.isfinite(cv.coef_))
 
@@ -1151,6 +1152,7 @@ def test_quantile_cv_sparse_path_and_final_refit_remain_fista():
 
     assert cv._solver_for_cv("cpu", X=X) == "fista"
     assert cv.estimator_._selected_solver == "fista"
+    assert cv.estimator_.solver == "fista"
     assert cv.alpha_ == pytest.approx(0.04)
     assert np.all(np.isfinite(cv.coef_))
 

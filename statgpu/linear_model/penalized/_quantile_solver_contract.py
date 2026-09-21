@@ -650,13 +650,22 @@ def _install_cv_internal_context() -> None:
         # the selected estimator non-reusable (scalar SCAD/MCP) or would change
         # the algorithm on a later direct refit (Group SCAD/MCP).
         public_solver = getattr(self, "solver", getattr(self, "_solver", "auto"))
+        penalty_name = _penalty_name(getattr(self, "penalty", ""))
+        restore_public_auto = (
+            str(public_solver).lower().strip() == "auto"
+            and penalty_name
+            in (
+                _NONCONVEX_QUANTILE_PENALTIES
+                | _GROUP_NONCONVEX_QUANTILE_PENALTIES
+            )
+        )
         token = _INTERNAL_CV_RESOLVED_SOLVER.set(True)
         try:
             model = current_refit(self, *args, **kwargs)
         finally:
             _INTERNAL_CV_RESOLVED_SOLVER.reset(token)
 
-        if model is not None:
+        if model is not None and restore_public_auto:
             model.solver = public_solver
             model._solver = str(public_solver).lower().strip()
             raw_params = getattr(model, "_constructor_params_raw", None)
