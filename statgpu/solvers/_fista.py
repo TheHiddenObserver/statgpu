@@ -368,19 +368,15 @@ def fista_solver(
 
             step = 1.0 / L
 
-            # Single proximal step with one Armijo retry on device.
-            # First try step = 1/L; if objective increases, halve and retry.
-            # This keeps GPU↔CPU syncs minimal (only one extra proximal+loss
-            # call in the worst case) while matching CPU path behavior.
+            # Fixed-step proximal update. The async GPU path deliberately
+            # omits Armijo backtracking so ordinary iterations do not introduce
+            # a host-visible branch/synchronization. Quadratic rows use their
+            # exact design scale; other CV rows use their maintained safety
+            # controls. Quantile's non-smooth pinball route additionally uses
+            # the deferred objective-based restart/step contraction below.
             w_tilde = y_k - step * grad
             coef = penalty.proximal(w_tilde, step, backend=backend)
             _conv_dev = _abs_sum_dev(coef - coef_old)
-
-            # GPU path: single proximal step (no backtracking).
-            # Backtracking on GPU requires loss.value() + GPU→CPU sync per
-            # retry, which defeats the purpose of the async GPU path.
-            # The Lipschitz constant L is conservative enough that step=1/L
-            # almost always satisfies the Armijo condition on the first try.
 
             # ALL safety checks deferred -- no per-iteration GPU->CPU sync.
             # Finiteness + divergence + objective tracking batched together.
