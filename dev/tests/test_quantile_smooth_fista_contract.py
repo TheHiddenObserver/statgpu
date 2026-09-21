@@ -151,6 +151,56 @@ def test_quantile_fista_nonconvergence_warning_recommends_supported_routes():
     assert "lbfgs" not in message.lower()
 
 
+def test_smooth_quantile_torch_batches_armijo_and_convergence_sync(monkeypatch):
+    torch = pytest.importorskip("torch")
+    import statgpu.solvers._fista as fista_mod
+
+    X_np = np.asarray(
+        [
+            [1.0, 0.0],
+            [-1.0, 0.0],
+            [0.0, 1.0],
+            [0.0, -1.0],
+        ],
+        dtype=np.float64,
+    )
+    y_np = np.zeros(X_np.shape[0], dtype=np.float64)
+    X = torch.as_tensor(X_np, dtype=torch.float64)
+    y = torch.as_tensor(y_np, dtype=torch.float64)
+
+    calls = {"sync": 0, "to_float": 0}
+    original_sync = fista_mod._sync_scalars
+    original_to_float = fista_mod._to_float_scalar
+
+    def recording_sync(*args, **kwargs):
+        calls["sync"] += 1
+        return original_sync(*args, **kwargs)
+
+    def recording_to_float(*args, **kwargs):
+        calls["to_float"] += 1
+        return original_to_float(*args, **kwargs)
+
+    monkeypatch.setattr(fista_mod, "_sync_scalars", recording_sync)
+    monkeypatch.setattr(fista_mod, "_to_float_scalar", recording_to_float)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        coef, n_iter = fista_mod.fista_solver(
+            QuantileLoss(quantile=0.5),
+            L2Penalty(alpha=0.0),
+            X,
+            y,
+            max_iter=10,
+            tol=1e-8,
+        )
+
+    assert n_iter == 1
+    torch.testing.assert_close(coef, torch.zeros_like(coef), rtol=0.0, atol=0.0)
+    # The accepted Armijo trial and convergence decision share one batched
+    # synchronization; there is no separate host scalar conversion.
+    assert calls == {"sync": 1, "to_float": 0}
+
+
 def test_smooth_quantile_fista_numpy_torch_point_parity_matches_public_fixture():
     torch = pytest.importorskip("torch")
 
