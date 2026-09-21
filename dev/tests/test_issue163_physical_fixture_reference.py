@@ -36,7 +36,7 @@ def _pinball(y, eta, q, sample_weight):
 
 
 def test_pr166_smooth_bootstrap_physical_gate_schema_is_locked():
-    assert smooth_gate.SCHEMA_VERSION == 22
+    assert smooth_gate.SCHEMA_VERSION == 23
     assert smooth_wrapper.EXPECTED_SCHEMA_VERSION == smooth_gate.SCHEMA_VERSION
     assert smooth_gate.BOOTSTRAP_Q != pytest.approx(0.5)
     assert 0.0 < smooth_gate.BOOTSTRAP_Q < 1.0
@@ -63,6 +63,12 @@ def test_pr166_smooth_bootstrap_physical_gate_schema_is_locked():
         is smooth_gate.CV_L1_INTERNAL_ASYNC_FISTA
         is True
     )
+    assert (
+        controls["cv"]["l1_reference"]
+        == smooth_gate.CV_L1_REFERENCE
+        == "scipy_highs_lp"
+    )
+    assert smooth_gate.ATOL_CV_L1_REFIT_OBJECTIVE > 0.0
     assert (
         controls["async_weighted_l1"]["momentum_beta_cap"]
         == smooth_gate.ASYNC_MOMENTUM_BETA_CAP
@@ -252,11 +258,9 @@ def test_pr166_async_weighted_l1_fixture_converges_on_torch_cv_mode():
     )
 
 
-def test_pr166_weighted_l1_cv_cpu_scores_are_close_to_lp_reference():
-    from scipy.optimize import linprog
-
+def test_pr166_weighted_l1_cv_lp_reference_exposes_cpu_score_gap():
     X, y, weights, folds = smooth_gate._data()
-    model = smooth_gate._cv(
+    cpu_model = smooth_gate._cv(
         X,
         y,
         weights,
@@ -265,76 +269,42 @@ def test_pr166_weighted_l1_cv_cpu_scores_are_close_to_lp_reference():
         penalty="l1",
     )
     cpu_scores = np.asarray(
-        model.cv_results_["all_scores"],
+        cpu_model.cv_results_["all_scores"],
         dtype=np.float64,
     )
-    lp_scores = np.empty_like(cpu_scores)
-
-    for fold_idx, (train_idx, val_idx) in enumerate(folds):
-        X_train = X[train_idx]
-        y_train = y[train_idx]
-        w_train = weights[train_idx]
-        X_val = X[val_idx]
-        y_val = y[val_idx]
-        w_val = weights[val_idx]
-        n_train, p = X_train.shape
-        normalized_weight = w_train / float(np.sum(w_train))
-
-        for alpha_idx, alpha in enumerate(smooth_gate.CV_ALPHA_GRID):
-            # beta = beta_plus - beta_minus; intercept is unrestricted;
-            # residual = u_plus - u_minus.
-            n_var = 2 * p + 1 + 2 * n_train
-            objective = np.zeros(n_var, dtype=np.float64)
-            objective[:p] = float(alpha)
-            objective[p : 2 * p] = float(alpha)
-            up = 2 * p + 1
-            um = up + n_train
-            objective[up : up + n_train] = (
-                smooth_gate.Q * normalized_weight
-            )
-            objective[um:] = (
-                (1.0 - smooth_gate.Q) * normalized_weight
-            )
-
-            A_eq = np.zeros((n_train, n_var), dtype=np.float64)
-            A_eq[:, :p] = X_train
-            A_eq[:, p : 2 * p] = -X_train
-            A_eq[:, 2 * p] = 1.0
-            A_eq[:, up : up + n_train] = np.eye(
-                n_train,
-                dtype=np.float64,
-            )
-            A_eq[:, um:] = -np.eye(n_train, dtype=np.float64)
-            bounds = (
-                [(0.0, None)] * (2 * p)
-                + [(None, None)]
-                + [(0.0, None)] * (2 * n_train)
-            )
-            result = linprog(
-                objective,
-                A_eq=A_eq,
-                b_eq=y_train,
-                bounds=bounds,
-                method="highs",
-            )
-            assert result.success
-            solution = np.asarray(result.x, dtype=np.float64)
-            coef = solution[:p] - solution[p : 2 * p]
-            intercept = float(solution[2 * p])
-            residual = y_val - (X_val @ coef + intercept)
-            pinball = np.where(
-                residual >= 0.0,
-                smooth_gate.Q * residual,
-                (smooth_gate.Q - 1.0) * residual,
-            )
-            lp_scores[fold_idx, alpha_idx] = float(
-                np.average(pinball, weights=w_val)
-            )
+    lp_reference = smooth_gate._cv_l1_lp_reference(
+        X,
+        y,
+        weights,
+        folds,
+    )
+    lp_scores = np.asarray(
+        lp_reference["scores"],
+        dtype=np.float64,
+    )
 
     score_error = float(np.max(np.abs(cpu_scores - lp_scores)))
-    assert score_error <= smooth_gate.ATOL_CV_L1_SCORE
-    lp_best = int(np.argmin(np.mean(lp_scores, axis=0)))
-    assert float(model.alpha_) == float(smooth_gate.CV_ALPHA_GRID[lp_best])
+    assert score_error > smooth_gate.ATOL_CV_L1_SCORE
+    assert score_error == pytest.approx(
+        0.0031335441842233885,
+        rel=0.0,
+        abs=5e-10,
+    )
+    assert float(lp_reference["selected_alpha"]) == pytest.approx(
+        0.03,
+        rel=0.0,
+        abs=0.0,
+    )
+    assert np.isfinite(float(lp_reference["full_objective"]))
+    assert np.all(
+        np.isfinite(
+            np.asarray(
+                lp_reference["full_coef"],
+                dtype=np.float64,
+            )
+        )
+    )
+
 
 
 def test_pr166_weighted_l1_cv_physical_fixture_converges_on_cpu():
