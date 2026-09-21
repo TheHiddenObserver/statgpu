@@ -56,6 +56,11 @@ def test_pr166_smooth_bootstrap_physical_gate_schema_is_locked():
     controls = smooth_gate._solver_controls()
     assert controls["cv"]["l1_tol"] == smooth_gate.CV_L1_TOL
     assert controls["cv"]["l2_tol"] == smooth_gate.CV_L2_TOL
+    assert (
+        controls["async_weighted_l1"]["momentum_beta_cap"]
+        == smooth_gate.ASYNC_MOMENTUM_BETA_CAP
+        == 0.5
+    )
     assert controls["cv"]["alpha_grid"] == smooth_gate.CV_ALPHA_GRID.tolist()
     assert smooth_gate.ATOL_CV_L1_SCORE > 0.0
     assert controls["bootstrap_public"]["quantile"] == smooth_gate.BOOTSTRAP_Q
