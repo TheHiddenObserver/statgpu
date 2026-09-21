@@ -526,8 +526,14 @@ def fista_solver(
             # ═══ GPU: batch ALL checks into ONE sync every _check_interval iterations ═══
             # Skip checks entirely for early iterations (save syncs)
             if _is_gpu and not _is_quadratic:
-                # Always compute convergence metric on device (no sync)
-                _conv_dev = _abs_sum_dev(coef - coef_old)
+                # Smooth Quantile already computed coefficient change for the
+                # accepted Armijo trial and synchronized it together with the
+                # Armijo scalar. Avoid launching the same reduction twice.
+                _conv_dev = (
+                    None
+                    if _accepted_quantile_check is not None
+                    else _abs_sum_dev(coef - coef_old)
+                )
 
                 # Full check (objective + divergence): every _conv_interval
                 _do_full_check = (iteration < 20) or (iteration % _conv_interval == 0)
