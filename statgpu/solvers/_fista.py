@@ -328,6 +328,11 @@ def fista_solver(
     iteration = -1  # default if max_iter=0
     converged = False
     line_search_failed = False
+    _quantile_async_stall_checks = 0
+    _quantile_async_step_contractions = 0
+    _quantile_async_last_obj = None
+    _quantile_async_last_delta = None
+    _quantile_async_last_step = None
     # The dedicated sparse-CV FISTA engine caps Nesterov momentum at 0.5.
     # Match that stability contract for Quantile's generic async non-smooth
     # cv_mode path. Pinball loss is itself non-smooth, so unconstrained
@@ -385,11 +390,32 @@ def fista_solver(
                 else:
                     _obj_dev = loss.value(X_proc, y_proc, coef)
                 # One batched sync: objective and coefficient change.
-                _obj_val_f, _conv_f = _sync_scalars(
-                    _obj_dev,
-                    _conv_dev,
-                    backend=backend,
+                # For Quantile+L1, include the penalty tracking reduction in
+                # the same sync so adaptive step control does not add a second
+                # device->host boundary.
+                _quantile_async_l1_alpha = (
+                    float(getattr(penalty, "alpha", 0.0))
+                    if _quantile_async_nonsmooth
+                    and _pen_name_lower == "l1"
+                    else None
                 )
+                if _quantile_async_l1_alpha is not None:
+                    _penalty_dev = (
+                        _quantile_async_l1_alpha * _abs_sum_dev(coef)
+                    )
+                    _obj_val_f, _conv_f, _penalty_f = _sync_scalars(
+                        _obj_dev,
+                        _conv_dev,
+                        _penalty_dev,
+                        backend=backend,
+                    )
+                else:
+                    _obj_val_f, _conv_f = _sync_scalars(
+                        _obj_dev,
+                        _conv_dev,
+                        backend=backend,
+                    )
+                    _penalty_f = None
                 _all_finite = np.isfinite(_obj_val_f)
                 if not _all_finite:
                     if _coef_best_fista is not None:
@@ -400,11 +426,25 @@ def fista_solver(
                     t_k = 1.0
                     L = L * 2.0
                     continue
-                # Track best objective (reuse _obj_val_f from finiteness check above)
-                _obj_val_f += _tracking_penalty_value(penalty, coef)
+                # Track best objective (reuse the batched L1 value when
+                # available so Quantile async CV does not pay another sync).
+                if _penalty_f is None:
+                    _penalty_f = _tracking_penalty_value(penalty, coef)
+                _obj_val_f += _penalty_f
+                _best_before = _obj_best_fista
+                _meaningful_improvement = (
+                    not np.isfinite(_best_before)
+                    or _obj_val_f
+                    < _best_before
+                    - tol * max(abs(_obj_val_f), 1.0)
+                )
                 if _obj_val_f < _obj_best_fista:
                     _obj_best_fista = _obj_val_f
                     _coef_best_fista = _copy_arr(coef)
+                if _quantile_async_nonsmooth:
+                    _quantile_async_last_obj = float(_obj_val_f)
+                    _quantile_async_last_delta = float(_conv_f)
+                    _quantile_async_last_step = float(1.0 / L)
                 # Convergence applies to every async loss family.  The
                 # previous implementation updated this state only for quadratic
                 # losses, so non-quadratic sparse CV always exhausted max_iter.
@@ -423,6 +463,29 @@ def fista_solver(
                 else:
                     _obj_stable_count = 0
                 _obj_prev_f = _obj_val_f
+
+                # Quantile pinball loss is non-smooth, so the generic async
+                # fixed-step proximal route has no smooth-FISTA guarantee.
+                # If two consecutive post-burn-in checks fail to make a
+                # tolerance-scale improvement in the full objective, halve the
+                # step and restart momentum. This uses only scalars already
+                # synchronized by the deferred safety check; no new host sync
+                # is introduced. Convergence is still decided by the existing
+                # coefficient/objective criteria, not by a preset decay clock.
+                if _quantile_async_nonsmooth and iteration >= 20:
+                    if _meaningful_improvement:
+                        _quantile_async_stall_checks = 0
+                    else:
+                        _quantile_async_stall_checks += 1
+                    if _quantile_async_stall_checks >= 2:
+                        L *= 2.0
+                        _quantile_async_step_contractions += 1
+                        _quantile_async_stall_checks = 0
+                        _obj_stable_count = 0
+                        y_k = _copy_arr(coef)
+                        t_k = 1.0
+                        continue
+
                 # Periodic Lipschitz recomputation (piggyback on same sync)
                 # Skip for quadratic losses -- Lipschitz is constant (spectral norm of X^T X).
                 # Interval matches CPU path for trajectory consistency.
@@ -803,6 +866,16 @@ def fista_solver(
         )
     elif not converged:
         loss_name = str(getattr(loss, "name", "") or "").lower()
+        _async_diagnostics = ""
+        if _quantile_async_nonsmooth:
+            _async_diagnostics = (
+                " Async diagnostics:"
+                f" last_checked_objective={_quantile_async_last_obj!r},"
+                f" last_checked_delta={_quantile_async_last_delta!r},"
+                f" last_step={_quantile_async_last_step!r},"
+                " step_contractions="
+                f"{_quantile_async_step_contractions}."
+            )
         if loss_name == "quantile":
             advice = (
                 "Increase max_iter or relax tol if appropriate. "
@@ -817,7 +890,8 @@ def fista_solver(
         warnings.warn(
             f"fista_solver did not converge within {max_iter} iterations "
             f"(loss={getattr(loss, 'name', '?')}, penalty={getattr(penalty, 'name', '?')}). "
-            + advice,
+            + advice
+            + _async_diagnostics,
             ConvergenceWarning,
             stacklevel=warning_stacklevel,
         )
