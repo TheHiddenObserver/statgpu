@@ -588,6 +588,15 @@ def test_quantile_group_scad_cv_uses_fold_local_weights_and_auto_route(monkeypat
 
     assert cv.alpha_ == pytest.approx(0.04)
     assert cv.estimator_._selected_solver == "group_proximal_irls_lla"
+    assert cv.estimator_.solver == "auto"
+    assert cv.estimator_.get_params(deep=False)["solver"] == "auto"
+
+    from sklearn.base import clone
+
+    refit = clone(cv.estimator_).fit(X, y, sample_weight=weights)
+    assert refit.solver == "auto"
+    assert refit._selected_solver == "group_proximal_irls_lla"
+
     for train_idx, _ in folds:
         assert any(
             observed.shape == weights[train_idx].shape

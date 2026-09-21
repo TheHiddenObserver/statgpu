@@ -1172,8 +1172,16 @@ def test_quantile_cv_scad_reports_dedicated_solver_for_candidates_and_refit():
 
     assert cv._solver_for_cv("cpu", X=X) == "proximal_irls_cd"
     assert cv.estimator_._selected_solver == "proximal_irls_cd"
+    assert cv.estimator_.solver == "auto"
+    assert cv.estimator_.get_params(deep=False)["solver"] == "auto"
     assert cv.alpha_ == pytest.approx(0.025)
     assert np.all(np.isfinite(cv.coef_))
+
+    from sklearn.base import clone
+
+    refit = clone(cv.estimator_).fit(X, y)
+    assert refit.solver == "auto"
+    assert refit._selected_solver == "proximal_irls_cd"
 
 
 def test_quantile_formula_route_preserves_auto_irls_identity_and_numerics():
