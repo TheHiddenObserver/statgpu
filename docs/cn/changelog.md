@@ -23,21 +23,21 @@
 - 新增有针对性的回归测试，覆盖 Python 版本下的测试收集安全性、公开求解器别名与重新加载幂等性、底层形状/路径/权重拒绝、直接拟合与交叉验证的响应校验、预测/评分的广播保护、Torch 响应后端保持、独立模型的失败事务/参数控制/内存清理、核方法带宽定义域失败，以及一个 `tau=0.2` 的集成批量 bootstrap 检查，用于区分调用者请求的分位数与错误的互补分位数方向。
 - 扩展 CUDA 回归覆盖，加入非均匀加权 L1 FISTA、独立模型 bootstrap、自动 Group SCAD/MCP 直接拟合/交叉验证、加权标量底层 FISTA-LLA 刷新、平坦 IRLS 行为，以及 Group LLA 导数在 CuPy/Torch 上的设备驻留检查。
 
-## 未发布 — Quantile solver provenance 对齐（PR #164 / Issue #163，目标 0.2.6）
+## 未发布 — Quantile 求解器来源对齐（PR #164 / Issue #163，目标 0.2.6）
 
 ### 修复
 
-- Penalized Quantile 的 solver identity 现在与实际执行算法一致。L2/无惩罚的 `solver="auto"` 解析为普通 Quantile IRLS，L1/ElasticNet 继续使用维护中的 FISTA family，SCAD/MCP 解析为专用 Proximal IRLS-CD。`proximal_irls_cd` 仍然只是内部 resolved/executed provenance label，不成为公开可显式请求的 `solver=` keyword。
-- 不兼容的显式 Quantile solver 请求现在会在 numerical dispatch 或 CV grid work 之前 fail closed，不再静默执行另一种算法。direct fit、CV candidate/fold 与 selected full-data refit 的 requested/resolved/executed solver identity 因而保持一致。
-- 非中位数 Quantile CV 评分会保留调用者配置的 quantile level，包括 analytic validation weights；typed `PenalizedQuantileRegression(quantile=q)` 也会在 clone-safe construction、adaptive-L1 initialization 与 `score()` 中保留同一个 `q`。
-- SCAD/MCP Quantile 的 intercept 现在作为 pinball objective 中不受惩罚的 coordinate 直接优化。若 LLA surrogate 完全变平，则通过维护中的完整 `QuantileLoss.irls()` kernel 闭合，而不是继续使用 diagonal approximation。
-- Torch Quantile execution 现在会让 L2 penalty diagonal、IRLS warm start、Proximal IRLS-CD 的 epsilon/threshold/tolerance scalar 以及 fallback weights 始终跟随当前 tensor 的 dtype/device；warm start 使用 Torch-native clone，而不是 NumPy/CuPy 的 `.copy()` 路径。
+- Penalized Quantile 的求解器身份现在与实际执行算法一致。L2/无惩罚的 `solver="auto"` 解析为普通 Quantile IRLS，L1/ElasticNet 继续使用维护中的 FISTA 系列，SCAD/MCP 解析为专用 Proximal IRLS-CD。`proximal_irls_cd` 仍然只是内部记录解析结果与实际执行的标签，不成为公开可显式请求的 `solver=` 关键字。
+- 不兼容的显式 Quantile 求解器请求现在会在进入数值调度或 CV 网格计算之前直接报错，不再静默执行另一种算法。直接拟合、CV 候选与折、以及选定的全数据重拟合的请求/解析/实际执行求解器身份因而保持一致。
+- 非中位数 Quantile CV 评分会保留调用者配置的分位数水平，包括使用解析验证权重时；类型化 `PenalizedQuantileRegression(quantile=q)` 也会在克隆安全的构造、自适应 L1 初始化与 `score()` 中保留同一个 `q`。
+- SCAD/MCP Quantile 的截距现在作为 pinball 目标中不受惩罚的坐标直接优化。若 LLA 替代目标完全变平，则通过维护中的完整 `QuantileLoss.irls()` 内核闭合，而不是继续使用对角近似。
+- Torch 上的 Quantile 执行现在会让 L2 惩罚对角项、IRLS 热启动、Proximal IRLS-CD 的 epsilon/threshold/tolerance 标量以及回退权重始终跟随当前 tensor 的 dtype/device；热启动使用 Torch 原生克隆，而不是 NumPy/CuPy 的 `.copy()` 路径。
 
 ### 验证
 
-- 精确干净的 numerical source `2de971402004efc703dc98f510942db3980988e4` 已在 Tesla P100-SXM2-16GB 上通过冻结的 schema-v1 physical gate，环境为 CuPy 13.6.0、Torch 2.0.0+cu117、NumPy 1.24.2、Python 3.9.16。CuPy/Torch CUDA 的 direct/CV 共 **12/12** case 全部通过，并记录具体 `cuda:0` provenance 与预期的 IRLS/FISTA/`proximal_irls_cd` solver identity。
-- 冻结 tolerance 没有放宽：L2 coefficient/intercept 最大误差为 `6.938893903907228e-15`（阈值 `2e-5`），L2 CV-score 最大误差为 `7.965850201685498e-15`（阈值 `2e-5`），SCAD penalized-objective 最大误差为 `1.4085439563257807e-06`（阈值 `2e-4`）。
-- canonical exact-source artifact 为 `dev/reviews/pr164_quantile_solver_provenance_gpu.json`。commit `230eaebbd4dfaf090e84011fe0eb190339389411` 直接位于已验证 numerical source 之上，并且只新增该 artifact。后续 release/changelog 收尾严格属于 documentation-only，并显式复用这一 immutable numerical-source acceptance；任何 numerical、validator、solver、backend 或 tolerance 变化都会重新要求 physical rerun。
+- 精确干净的数值源码 `2de971402004efc703dc98f510942db3980988e4` 已在 Tesla P100-SXM2-16GB 上通过冻结的 schema-v1 物理验收，环境为 CuPy 13.6.0、Torch 2.0.0+cu117、NumPy 1.24.2、Python 3.9.16。CuPy/Torch CUDA 的直接拟合/交叉验证共 **12/12** 用例全部通过，并记录具体 `cuda:0` 设备来源与预期的 IRLS/FISTA/`proximal_irls_cd` 求解器身份。
+- 冻结容差没有放宽：L2 系数/截距最大误差为 `6.938893903907228e-15`（阈值 `2e-5`），L2 CV 得分最大误差为 `7.965850201685498e-15`（阈值 `2e-5`），SCAD 惩罚目标最大误差为 `1.4085439563257807e-06`（阈值 `2e-4`）。
+- 规范的确切源码 artifact 为 `dev/reviews/pr164_quantile_solver_provenance_gpu.json`。commit `230eaebbd4dfaf090e84011fe0eb190339389411` 直接位于已验证的数值源码之上，并且只新增该 artifact。后续 release/changelog 收尾严格属于仅文档变更，并显式复用这一不可变的数值源码验收；任何数值、validator、求解器、后端或容差变化都会重新要求物理复跑。
 
 ## 未发布 — Quantile IRLS 惩罚契约修复（PR #162 / Issue #161，目标 0.2.6）
 

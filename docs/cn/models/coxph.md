@@ -460,7 +460,7 @@ fit 时抛出 `CoxFitNumericalError`，在预测时抛出 `FloatingPointError`�
 - 诊断：定义时的 `log_likelihood`、`aic`、`bic`、`concordance_index`；
 - 收敛：`converged_`、`termination_reason_`、`optimization_stop_reason_`、`n_iter_`、
   `final_kkt_inf_`、`final_kkt_normalized_`；
-- provenance：`inference_method_`、`inference_backend_`、
+- 来源信息：`inference_method_`、`inference_backend_`、
   `inference_approximate_`、`inference_fallback_reason_`、
   `inference_target_`、`penalty_conditioning_`、`penalty_selection_adjusted_`、
   `full_host_transfer_performed_`。
@@ -508,7 +508,7 @@ commit `a726937...`；后续文档或 schema 提交不会自动继承这一验�
 | Campaign 文件名 / machine schema | `schema3` / 历史 outer schema `2` |
 | Validation tier | `remote-full-final-promotion-suite` |
 | 汇总检查 | 134/134 passed |
-| Runtime provenance | 9 个 provenance payload；导入路径和 hash 均位于 `/root/statgpu` |
+| 运行时来源信息 | 9 条来源记录；导入路径和 hash 均位于 `/root/statgpu` |
 | Group suite | CuPy 24/24；Torch CUDA 24/24 |
 | Gate failures | outer、child、nested 数组全部为 `[]` |
 

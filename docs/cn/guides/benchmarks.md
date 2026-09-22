@@ -10,17 +10,17 @@
 - **打开面板**：[Benchmark Dashboard](../../assets/benchmarks/index.html)
 - **使用说明**：[筛选、图表、指标与复现](../../en/guides/statgpu_benchmark_dashboard.md)
 
-当前 canonical dashboard 只注册日期不早于 **2026-06-01** 的 benchmark source，共包含：
+当前规范面板只注册日期不早于 **2026-06-01** 的基准数据源，共包含：
 
 ```text
-8 个已注册 source
+8 个已注册数据源
 1,774 条 normalized runs
 36 个 models
 ```
 
 已覆盖的主要模块包括：惩罚 GLM、GLM、近期线性模型、稳健/分位数回归、生存分析、无监督学习、有序模型、非参数方法、面板模型、协方差估计和 ANOVA。Feature Selection 分类已经预留，但在出现 2026-06 或之后的结构化 benchmark 前保持为空。
 
-2026 年 4 月的 ElasticNet、LassoCV、comprehensive validation、Cox package comparison 和 knockoff 结果不会接入当前 dashboard。已有的 6 月 distribution Markdown 汇总也不会直接转换成 measured rows；需要保留原始重复计时和精度元数据的结构化 JSON 或重新运行。
+2026 年 4 月的 ElasticNet、LassoCV、comprehensive validation、Cox package comparison 和 knockoff 结果不会接入当前面板。已有的 6 月 distribution Markdown 汇总也不会直接转换成实测记录；需要保留原始重复计时和精度元数据的结构化 JSON，或重新运行。
 
 当前功能包括：
 
@@ -33,9 +33,9 @@
 - Timing 与 Speedup 图，并区分 computed 和 runner-reported speedup；
 - 带 Scope 列的可排序、可分页明细表；
 - Validation、Accuracy、Inference、Prediction、Convergence、Selection 指标面板；
-- Source provenance、parse report 与 source inventory。
+- 数据源来源信息、解析报告与数据源清单。
 
-生成并验证 canonical bundle：
+生成并验证规范数据包：
 
 ```bash
 python dev/benchmarks/generate_benchmark_data.py \
@@ -64,11 +64,11 @@ npm run test:e2e:production
 ## 推断相关
 
 - `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`
-  - 使用 canonical `inference_method="post_selection_ols"`，对 NumPy CPU 与 CuPy CUDA 的完整 fit + inference transaction 做基准和数值对照；
-  - 输出 penalized coefficients、active-refit parameters、SE/statistic/p-value/CI、active-set identity 以及 inference backend/device provenance 的 CPU/CuPy parity；
-  - 这不是 inference-only 加速基准：硬件由 `device` 选择，而不是由 `inference_method` 选择。
+  - 使用规范 `inference_method="post_selection_ols"`，对 NumPy CPU 与 CuPy CUDA 的完整拟合与推断事务做基准和数值对照；
+  - 输出惩罚系数、活跃集重拟合参数、标准误/统计量/p 值/置信区间、活跃集一致性，以及推断后端与具体设备来源的 CPU/CuPy 对照结果；
+  - 这不是仅推断阶段的加速基准：硬件由 `device` 选择，而不是由 `inference_method` 选择。
 
-当前 dashboard 中已接入的 inference 还包括 Ordered Logit/Probit、Quantile kernel/bootstrap、penalized-logistic HC0/oracle 和 penalized-linear bootstrap。CV 前端 contract 已经实现，但在新的合格 CV source 接入前显示为 `CV (0)`。
+当前面板中已接入的推断结果还包括 Ordered Logit/Probit、Quantile 核方法与 bootstrap、penalized-logistic HC0/oracle 和 penalized-linear bootstrap。CV 前端契约已经实现，但在新的合格 CV 数据源接入前显示为 `CV (0)`。
 
 ## 非参数方法
 
@@ -99,4 +99,4 @@ npm run test:e2e:production
 - `results/remote_fisher_cauchy_benchmark_2026-04-05.json`
 - `results/remote_fisher_cauchy_benchmark_2026-04-05.md`
 
-这些历史文件不自动成为当前 canonical source。
+这些历史文件不会自动成为当前规范数据源。

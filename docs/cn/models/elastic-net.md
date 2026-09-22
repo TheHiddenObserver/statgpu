@@ -164,7 +164,7 @@ $$
 
 `post_selection_ols` 会先使用 penalized model 的 fitted coefficients 确定活跃集，再在成功拟合所记录的后端上，只对该活跃集做无惩罚 OLS；传入 `sample_weight` 时做 WLS。原始 penalized `coef_` 保持不变并继续用于预测，活跃集重拟合通过 `_params` / `_inference_result` 等字段参与推断与报告。
 
-选择后 OLS 仍是启发式诊断，不提供一般选择性推断覆盖保证。推断条件于已选择的正则化参数，并不会改变 penalized coefficients。
+选择后 OLS 仍是启发式诊断，不提供一般选择性推断覆盖保证。推断条件于已选择的正则化参数，并不会改变惩罚系数。
 
 设备选择与统计方法正交：显式 `cpu` / `cuda` / `torch` 始终具有权威性；只有真正的 `device="auto"` 才允许 backend-native CuPy 或 Torch-CUDA 输入参与自动路由。`post_selection_ols` 复用 fit-resolved backend；维护中的 CuPy/Torch `debiased` 路径也会把数值推断留在实际执行的 GPU backend，包括 normal-reference 的 scalar critical value。残差 `bootstrap` 当前仍是 CPU-native residual-refit 路径；显式 GPU `device` 会控制 penalized fit，但不会让 bootstrap 变成 GPU-native。
 
@@ -186,11 +186,11 @@ $$
 
 | 属性 | 说明 |
 |------|------|
-| `coef_` | 用于预测的 penalized coefficients |
+| `coef_` | 用于预测的惩罚系数 |
 | `intercept_` | 用于预测的 penalized fitted intercept |
 | `n_iter_` | 收敛所需迭代次数 |
 | `nodewise_alpha_` | 多特征 `debiased` 推断成功后解析出的逐节点调参值；其他情况为 `None` |
-| `_params` | 推断成功时的 reporting 参数向量；`debiased` 下包含 coherent debiased intercept 与 debiased slopes；`post_selection_ols` 下是嵌入完整参数布局的 active-set OLS/WLS 重拟合 |
+| `_params` | 推断成功时的 reporting 参数向量；`debiased` 下包含 coherent debiased intercept 与 debiased slopes；`post_selection_ols` 下是嵌入完整参数布局的活跃集 OLS/WLS 重拟合 |
 | `_inference_result` | structured inference result，以及数值后端与逐节点调参 metadata |
 | `aic` | 可用时的兼容性 plug-in 拟合诊断；不是 penalty-aware 有效自由度准则 |
 | `bic` | 可用时的兼容性 plug-in 拟合诊断；不是 penalty-aware 有效自由度准则 |
@@ -199,7 +199,7 @@ $$
 
 ## 数值验证
 
-维护中的回归测试会按 dtype 与 solver path 检查支持后端之间及与参考实现的数值一致性。solver API 迁移行为由 `dev/tests/test_penalized_solver_api_cleanup.py` 覆盖；逐节点调参契约由 `dev/tests/test_nodewise_alpha_inference_contract.py` 覆盖；post-selection OLS API 迁移与 active-set OLS/WLS 行为由 `dev/tests/test_post_selection_ols_inference_api.py` 覆盖。
+维护中的回归测试会按 dtype 与 solver path 检查支持后端之间及与参考实现的数值一致性。solver API 迁移行为由 `dev/tests/test_penalized_solver_api_cleanup.py` 覆盖；逐节点调参契约由 `dev/tests/test_nodewise_alpha_inference_contract.py` 覆盖；post-selection OLS API 迁移与活跃集 OLS/WLS 行为由 `dev/tests/test_post_selection_ols_inference_api.py` 覆盖。
 
 ## 参考文献
 
