@@ -31,7 +31,7 @@
 - 不兼容的显式 Quantile 求解器请求现在会在进入数值调度或 CV 网格计算之前直接报错，不再静默执行另一种算法。直接拟合、CV 候选与折、以及选定的全数据重拟合的请求/解析/实际执行求解器身份因而保持一致。
 - 非中位数 Quantile CV 评分会保留调用者配置的分位数水平，包括使用解析验证权重时；类型化 `PenalizedQuantileRegression(quantile=q)` 也会在克隆安全的构造、自适应 L1 初始化与 `score()` 中保留同一个 `q`。
 - SCAD/MCP Quantile 的截距现在作为 pinball 目标中不受惩罚的坐标直接优化。若 LLA 替代目标完全变平，则通过维护中的完整 `QuantileLoss.irls()` 内核闭合，而不是继续使用对角近似。
-- Torch 上的 Quantile 执行现在会让 L2 惩罚对角项、IRLS 热启动、Proximal IRLS-CD 的 epsilon/threshold/tolerance 标量以及回退权重始终跟随当前 tensor 的 dtype/device；热启动使用 Torch 原生克隆，而不是 NumPy/CuPy 的 `.copy()` 路径。
+- Torch 上的 Quantile 执行现在会让 L2 惩罚对角项、IRLS 热启动、Proximal IRLS-CD 的 epsilon/threshold/tolerance 标量以及回退权重始终跟随当前张量的 dtype/device；热启动使用 Torch 原生克隆，而不是 NumPy/CuPy 的 `.copy()` 路径。
 
 ### 验证
 
@@ -43,7 +43,7 @@
 
 ### 修复
 
-- 底层 `QuantileLoss.irls()` 现在只接受无惩罚或 L2。ElasticNet、L1、SCAD/MCP、group/adaptive penalty 以及未知 penalty object 会在数值迭代前直接报错，不再允许 IRLS 只处理声明目标中的光滑 L2 部分而忽略非光滑项。
+- 底层 `QuantileLoss.irls()` 现在只接受无惩罚或 L2。ElasticNet、L1、SCAD/MCP、group/adaptive penalty 以及未知 penalty 对象会在数值迭代前直接报错，不再允许 IRLS 只处理声明目标中的光滑 L2 部分而忽略非光滑项。
 - 公开估计器契约保持不变：显式 Quantile `solver="irls"` 仍然只属于 L2/无惩罚维护路径；非光滑惩罚继续通过 FISTA 系列或 Quantile 专用的非凸求解算法处理。
 - IRLS 文档字符串与可执行的低层契约现在一致；不支持的直接底层调用会得到明确错误，而不是返回看似合理但只优化了部分惩罚的结果。
 
@@ -102,18 +102,18 @@
 
 ### 变更
 
-- 为稀疏 Gaussian `Lasso`、`ElasticNet` 以及公开 generic `PenalizedGeneralizedLinearModel(loss="squared_error", penalty="l1" | "elasticnet")` surface 增加与硬件无关的规范 `inference_method="post_selection_ols"`。旧 `cpu_ols` / `gpu_ols` 作为一个兼容周期的 `FutureWarning` 别名保留；`LassoCV` 在 CV 兼容边界继续接受更早的 `cpu_ols_inference` / `gpu_ols_inference` 拼法。
+- 为稀疏 Gaussian `Lasso`、`ElasticNet` 以及公开通用 `PenalizedGeneralizedLinearModel(loss="squared_error", penalty="l1" | "elasticnet")` 接口增加与硬件无关的规范 `inference_method="post_selection_ols"`。旧 `cpu_ols` / `gpu_ols` 作为一个兼容周期的 `FutureWarning` 别名保留；`LassoCV` 在 CV 兼容边界继续接受更早的 `cpu_ols_inference` / `gpu_ols_inference` 拼法。
 - “统计方法是什么”与“在哪个硬件执行”严格正交。显式 `device="cpu"`、`"cuda"` 或 `"torch"` 即使面对异构输入容器仍具有权威性；只有真正的 AUTO 策略才允许保留原生 CuPy/Torch-CUDA 输入。LassoCV 现在让 CV 与选中 alpha 的最终重拟合固定在同一解析后端，并把 CuPy 响应/权重对齐到设计矩阵的具体 CUDA 序号。
 - `post_selection_ols` 在拟合记录在案的 NumPy/CuPy/Torch 后端上执行无惩罚活跃集 OLS/WLS 重拟合，同时保留惩罚 `coef_` 用于预测。nonrobust 继续使用 Student-t 与历史非活跃坐标占位。秩亏的活跃设计使用有效秩计算残差自由度，并通过设计级 Moore-Penrose/SVD 完成系数重拟合与协方差 bread；robust/HAC 以及空活跃集无截距情形保留调用者请求的协方差/参考分布族。
 - 活跃集重拟合的诊断状态与惩罚拟合的 R-squared/F/对数似然/AIC/BIC 归属分离。`summary()` 分开报告惩罚拟合与选择后残差自由度；formula 路径保持 categorical/缺失行/样本权重对齐；失败的重拟合直接报错，不保留上一轮成功拟合或当前半成品推断状态。
 - 统一稀疏 Gaussian 解析权重语义：NumPy/CuPy/Torch 直接拟合与加权 LassoCV 都先在原始观测上按权重中心化，再使用等价的 `sqrt(w * n / sum(w))` 行变换。默认 CV alpha 网格、折目标、加权验证 MSE 与最终重拟合使用同一约定；所有权重为同一正常数时精确等价于无权重 CV。加权非 Gaussian 稀疏 GLM 继续保留各自损失专属、感知样本权重的目标。
 - NumPy/CuPy/Torch 的 `debiased` 统一到同一个中心化平均损失工作问题，使省略权重、全 1 权重与全局等比例缩放解析权重的结果一致。含截距的 simultaneous max-|Z| 推断现在让原始坐标系下的截距影响真正进入 bootstrap 最大值；成功重拟合会先清除过期的 simultaneous/精度状态再发布新结果。
-- 字符串与公开 `Penalty` 对象形式共享同一个稀疏 Gaussian 迁移与 AUTO 路由契约。clone/get-params/set-params、warning 调用点、LassoCV 最终重拟合归属、后端/设备来源、formula 路由与失败事务都有维护中的回归覆盖。
+- 字符串与公开 `Penalty` 对象形式共享同一个稀疏 Gaussian 迁移与 AUTO 路由契约。clone/get-params/set-params、警告调用点、LassoCV 最终重拟合归属、后端/设备来源、formula 路由与失败事务都有维护中的回归覆盖。
 
 ### 验证
 
 - hosted 验证覆盖 Python 3.9/3.12、Torch 2.0 CPU、完整 CPU 测试套件、scikit-learn 1.2.2/1.3.2/current 维护兼容性、static/ruff、文档、发布包与 benchmark 前端契约。
-- `dev/benchmarks/validate_post_selection_ols_gpu.py` 是最终物理 CUDA 验收门禁，目前为 **schema v7 / 22 个用例**：保留原始 4 个直接 Lasso 用例，并增加 18 个 CuPy/Torch 收尾用例，覆盖 ElasticNet/generic 稀疏 Gaussian、加权/无权重 debiased、真实加权多 alpha LassoCV 选择+最终重拟合、秩亏 SVD 重拟合、Penalty 对象 AUTO 路由、空活跃集 HC3 与含截距 simultaneous max-|Z|。既有 post-selection 数值容差没有放宽。
+- `dev/benchmarks/validate_post_selection_ols_gpu.py` 是最终物理 CUDA 验收门禁，目前为 **schema v7 / 22 个用例**：保留原始 4 个直接 Lasso 用例，并增加 18 个 CuPy/Torch 收尾用例，覆盖 ElasticNet/通用稀疏 Gaussian、加权/无权重 debiased、真实加权多 alpha LassoCV 选择+最终重拟合、秩亏 SVD 重拟合、Penalty 对象 AUTO 路由、空活跃集 HC3 与含截距 simultaneous max-|Z|。既有 post-selection 数值容差没有放宽。
 - 之前 Tesla P100 artifact 只继续作为各自历史确切提交的不可变证据。后续 review/fix 循环已修改有效的生产数值路径，因此当前源码的物理验收仍然 **等待最终确切干净提交上的 schema-v7 22/22 CuPy/Torch CUDA 复跑**。hosted 检查不替代该门禁，本变更也不做 GPU 性能声明。
 
 ## 未发布 — Penalized solver API 清理（PR #135）
@@ -132,7 +132,7 @@
 
 ### 验证
 
-- 增加针对性求解器/弃用回归覆盖，覆盖直接拟合求解器权威性、参数省略与显式旧值、sklearn clone/重建、内部 helper warning 抑制、`set_params`、LassoCV CPU/GPU 别名、`cv_solver_` 与 warning 调用点。
+- 增加针对性求解器/弃用回归覆盖，覆盖直接拟合求解器权威性、参数省略与显式旧值、sklearn clone/重建、内部 helper 警告抑制、`set_params`、LassoCV CPU/GPU 别名、`cv_solver_` 与警告调用点。
 - 维护兼容性 workflow 会在 scikit-learn 1.2.2、1.3.2 与 current 上运行该针对性测试集；最终确切提交的 hosted 结果在 PR #135 的最终源码提交完成 CI 后记录。
 
 ## 未发布 — Gaussian 后端原生推断（PR #129 / Issue #127）

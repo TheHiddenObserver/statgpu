@@ -1466,7 +1466,7 @@ $$
 
 ```text
 直接拟合，solver="auto"
-├── squared_error + L2/none              → CPU exact / GPU Newton
+├── squared_error + L2/none              → CPU 精确解 / GPU Newton
 ├── Quantile + L2/none                   → IRLS
 ├── Quantile + L1/ElasticNet             → 普通 FISTA
 ├── Quantile + SCAD/MCP                  → Proximal IRLS-CD

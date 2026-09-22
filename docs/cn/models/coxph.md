@@ -529,22 +529,22 @@ HC1 使用 3,000 个独立单元，cluster 使用 120 个单元。StatGPU 相对
 
 | 现象 | 含义与处理 |
 |---|---|
-| 显式 `device="cuda"` 或 `device="torch"` 失败 | 对应 package、CUDA runtime 或设备不可用。安装兼容后端或改用 `device="cpu"`；StatGPU 不会静默回退。 |
-| `predict_survival()` 提示 baseline 不可用 | 使用 `compute_inference=True` 重新拟合；风险评分与风险比预测不需要 baseline。 |
-| 分层生存预测拒绝标签 | 只要拟合时显式分层，每个预测行都必须提供一个训练时已知的 stratum，形状为 `(n_samples,)`；训练时只有一个 stratum 也不能省略。 |
-| 分层评分拒绝标签 | 多 stratum 拟合必须逐行提供已知标签；单 stratum 拟合可省略标签，但一旦提供，仍必须具有 `(n_samples,)` 形状且属于训练标签。 |
-| 已知 stratum 的生存率恒为 1 | 该拟合 stratum 没有观察到 failure，累计 baseline hazard 恒为零；这是合法拟合状态，不是 baseline 数据缺失。 |
-| `HC1 covariance requires n_units > n_features` | 增加独立 subject/cluster、减少特征，或采用研究设计能够支持的协方差约定。 |
-| 稳健协方差要求至少两个独立单元 | 单 subject/cluster 无法估计单元间变异；可用 `compute_inference=False` 仅执行估计。 |
+| 显式 `device="cuda"` 或 `device="torch"` 失败 | 对应包、CUDA 运行时或设备不可用。安装兼容后端或改用 `device="cpu"`；StatGPU 不会静默回退。 |
+| `predict_survival()` 提示基线风险不可用 | 使用 `compute_inference=True` 重新拟合；风险评分与风险比预测不需要基线风险。 |
+| 分层生存预测拒绝标签 | 只要拟合时显式分层，每个预测行都必须提供一个训练时已知的分层，形状为 `(n_samples,)`；训练时只有一个分层也不能省略。 |
+| 分层评分拒绝标签 | 多分层拟合必须逐行提供已知标签；单分层拟合可省略标签，但一旦提供，仍必须具有 `(n_samples,)` 形状且属于训练标签。 |
+| 已知分层的生存率恒为 1 | 该拟合分层没有观察到失败事件，累计基线风险恒为零；这是合法拟合状态，不是基线风险数据缺失。 |
+| `HC1 covariance requires n_units > n_features` | 增加独立受试者或聚类数、减少特征，或采用研究设计能够支持的协方差约定。 |
+| 稳健协方差要求至少两个独立单元 | 单个受试者或聚类无法估计单元间变异；可用 `compute_inference=False` 仅执行估计。 |
 | 观测信息矩阵奇异 | 检查共线性、常量列、分离/饱和与事件支持；减少设计或使用有明确依据的 L2 惩罚。 |
 | hazard-ratio 预测抛出 `FloatingPointError` | `exp(X @ coef_)` 超出有限 float64 范围。检查 `predict_risk_score()`、缩放特征并检查外推。 |
 | `converged_` 为 false | 检查 `optimization_stop_reason_`、`final_kkt_inf_` 与 `final_kkt_normalized_`；单纯增加 `max_iter` 不能修复线搜索失败或病态设计。 |
 | 精确 ties 很慢或触发工作区门禁 | 精确似然对最大并列事件组具有组合复杂度；科学上允许时使用 Breslow/Efron，或减小最大精确 tie 组。 |
-| `score()` 返回 `0.5` | 数据中不存在 permissible concordance pair；`0.5` 是文档化的中性返回值。 |
+| `score()` 返回 `0.5` | 数据中不存在可允许的 concordance 配对；`0.5` 是文档化的中性返回值。 |
 
 ## 限制
 
-- 精确 ties 尚不支持 robust/cluster 协方差；
+- 精确 ties 尚不支持稳健/聚类协方差；
 - 精确 ties 使用组合动态规划，适合规模适中的并列事件组，不适合无限制的大型 tie 组；
 - 尚未实现 frailty/random-effect 项；
 - 可选 `torch.compile` 加速要求兼容 Triton 的硬件，不属于可移植正确性契约。

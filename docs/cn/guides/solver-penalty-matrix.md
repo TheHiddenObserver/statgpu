@@ -90,7 +90,7 @@
 
 | 损失 | l2 | l1 / elasticnet | scad / mcp | adaptive_l1 | group_lasso / adaptive group | group_scad / group_mcp |
 |------|:--:|:---------------:|:----------:|:-----------:|:----------------------------:|:-----------------------:|
-| **squared_error** | 批量特征分解 / CPU exact 类路径；GPU 最终拟合在适用时使用 Newton | FISTA | FISTA-LLA | FISTA | 分组 FISTA | 分组 FISTA-LLA |
+| **squared_error** | 批量特征分解 / CPU 精确类路径；GPU 最终拟合在适用时使用 Newton | FISTA | FISTA-LLA | FISTA | 分组 FISTA | 分组 FISTA-LLA |
 | **logistic** | Newton | FISTA | FISTA-LLA | FISTA | 分组 FISTA | 分组 FISTA-LLA |
 | **poisson** | Newton | CPU FISTA；GPU L1 可按规模选择 FISTA-BB，GPU ElasticNet 使用 FISTA-BB | FISTA-LLA | FISTA | 分组 FISTA | 分组 FISTA-LLA |
 | **gamma** | L-BFGS | FISTA | FISTA-LLA | FISTA | 分组 FISTA | 分组 FISTA-LLA |
@@ -112,14 +112,14 @@
 
 | 惩罚项 | 公式 | 近端 / 近似形式 | 主要参数 |
 |---------|------|-----------------|----------|
-| `l2` | ½α‖β‖² | ridge scaling | `alpha` |
-| `l1` | α‖β‖₁ | soft threshold | `alpha` |
-| `elasticnet` | α[λ‖β‖₁ + ½(1-λ)‖β‖²] | soft threshold + L2 scaling | `alpha`, `l1_ratio` |
-| `scad` | SCAD(β; α, a) | SCAD thresholding / LLA | `alpha`, `a` |
-| `mcp` | MCP(β; α, γ) | MCP thresholding / LLA | `alpha`, `gamma` |
-| `adaptive_l1` | αΣ_j w_j|β_j| | 带权 soft threshold | `alpha`、weights |
-| `group_lasso` | αΣ_g √p_g‖β_g‖₂ | block soft threshold | `alpha`、`groups` |
-| `AdaptiveGroupLassoPenalty` | αΣ_g w_g√p_g‖β_g‖₂ | 带权 block soft threshold | `alpha`、`groups`、`weights`；仅对象形式 |
+| `l2` | ½α‖β‖² | Ridge 缩放 | `alpha` |
+| `l1` | α‖β‖₁ | 软阈值 | `alpha` |
+| `elasticnet` | α[λ‖β‖₁ + ½(1-λ)‖β‖²] | 软阈值 + L2 缩放 | `alpha`, `l1_ratio` |
+| `scad` | SCAD(β; α, a) | SCAD 阈值化 / LLA | `alpha`, `a` |
+| `mcp` | MCP(β; α, γ) | MCP 阈值化 / LLA | `alpha`, `gamma` |
+| `adaptive_l1` | αΣ_j w_j|β_j| | 带权软阈值 | `alpha`、weights |
+| `group_lasso` | αΣ_g √p_g‖β_g‖₂ | 分块软阈值 | `alpha`、`groups` |
+| `AdaptiveGroupLassoPenalty` | αΣ_g w_g√p_g‖β_g‖₂ | 带权分块软阈值 | `alpha`、`groups`、`weights`；仅对象形式 |
 | `group_scad` | Σ_g SCAD(‖β_g‖₂; α√p_g, a) | 分组 LLA 近似 | `alpha`、`groups`、`a` |
 | `group_mcp` | Σ_g MCP(‖β_g‖₂; α√p_g, γ) | 分组 LLA 近似 | `alpha`、`groups`、`gamma` |
 

@@ -22,8 +22,8 @@ PR #79 已完成全仓库正确性审查、精确提交上的 CI 验证与维护
 ## 最终 review 闭合的用户可见合同
 
 - CoxPH 在三后端统一线搜索、收敛、终止原因、最终 KKT、Hessian、协方差与拟合状态。
-- delayed-entry robust/cluster 推断在 `compute_inference=True` 时显式报错；`compute_inference=False` 时允许仅估计，推断字段保持未设置。
-- Cox 预测和评分保留 estimator 后端。
+- 延迟进入的稳健/聚类推断在 `compute_inference=True` 时显式报错；`compute_inference=False` 时允许仅估计，推断字段保持未设置。
+- Cox 预测和评分保留估计器后端。
 - `PooledOLS.predict()` 不再对 CuPy 或 Torch 输入进行 eager NumPy 转换。
 - PooledOLS HAC 使用经过验证的稳定 `time_index` 排序。
 - 秩亏 PooledOLS 使用有效秩计算 residual degrees of freedom；拟合空间结果仍有效，系数级推断标记为 `NOT_COMPARABLE`。

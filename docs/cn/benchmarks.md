@@ -114,7 +114,7 @@ Remote Phase 3C artifacts:
 
 - `dev/benchmarks/benchmark_gpu_memory_cleanup.py`
   - 对比 `gpu_memory_cleanup=False/True`
-  - 输出 `fit_ms` 与 CuPy memory pool 指标
+  - 输出 `fit_ms` 与 CuPy 内存池指标
 
 ## 训练性能 / 停止准则
 
