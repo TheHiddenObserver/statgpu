@@ -98,6 +98,31 @@ _PROSE_FRAGMENTS_TO_AVOID = (
     "active-refit",
     "active-set identity",
     "inference backend/device",
+    "machine schema",
+    "Validation tier",
+    "Gate failures",
+    "Campaign 文件名",
+    "unsupported",
+    "line search",
+    "right-censored",
+    "delayed entry",
+    "child refit",
+    "score residual",
+    "log-link evaluator",
+    "row-streaming",
+    "failure-group",
+    "mean-one",
+    "effectively-uniform",
+    "domain-capped",
+    "compatibility-only alias",
+    "estimation-only",
+    "covariance estimator",
+    "working problem",
+    "inactive-coordinate placeholder",
+    "attempt metadata",
+    "estimator state",
+    "failure transaction",
+    "installer idempotence",
 )
 
 _QUANTILE_PROSE_FRAGMENTS_TO_AVOID = (
@@ -178,6 +203,48 @@ _PR164_CHANGELOG_FRAGMENTS_TO_AVOID = (
     "physical rerun",
 )
 
+_UNRELEASED_CHANGELOG_FRAGMENTS_TO_AVOID = (
+    "fail closed",
+    "physical CUDA acceptance",
+    "physical CUDA gate",
+    "physical CUDA validator",
+    "physical acceptance",
+    "physical validation",
+    "physical gate",
+    "hosted coverage",
+    "hosted validation",
+    "hosted checks",
+    "hosted gates",
+    "exact-source",
+    "exact SHA",
+    "exact clean-head",
+    "canonical dispatch",
+    "canonical artifact",
+    "consumer",
+    "tolerance",
+    "child inference",
+    "child optimization",
+    "child context",
+    "warm start",
+    "log-link",
+    "fixture",
+    "resampling",
+    "resample",
+    "snapshot",
+    "unsupported rows",
+    "reconciliation boundary",
+    "compatibility boundary",
+    "ownership",
+    "placeholder",
+    "unfitted",
+    "weighted-center",
+    "row transform",
+    "provenance publication",
+    "result provenance",
+    "closed-form",
+    "checklist",
+)
+
 _PR166_SOLVER_PROSE_FRAGMENTS_TO_AVOID = (
     "smooth-gradient FISTA",
     "estimator/CV",
@@ -229,6 +296,18 @@ def test_pr164_changelog_section_uses_chinese_explanatory_prose():
         assert fragment not in section, (
             "docs/cn/changelog.md PR164 section: explanatory prose fragment "
             f"{fragment!r}"
+        )
+
+
+def test_remaining_unreleased_changelog_sections_use_chinese_explanatory_prose():
+    text = _read("docs/cn/changelog.md")
+    start = text.index("## 未发布 — Quantile IRLS 惩罚契约修复（PR #162")
+    end = text.index("## 0.2.5 — 2026-08-26（已发布）", start)
+    section = text[start:end]
+    for fragment in _UNRELEASED_CHANGELOG_FRAGMENTS_TO_AVOID:
+        assert fragment not in section, (
+            "docs/cn/changelog.md unreleased PR162-PR129 sections: "
+            f"explanatory prose fragment {fragment!r}"
         )
 
 
