@@ -39,6 +39,12 @@ _CLEANED_CN_PAGES = (
     "docs/cn/panel/fama-macbeth.md",
     "docs/cn/panel/diagnostics.md",
     "docs/cn/panel/fit-statistics.md",
+    "docs/cn/benchmarks.md",
+    "docs/cn/guides/benchmarks.md",
+    "docs/cn/models/coxph.md",
+    "docs/cn/models/elastic-net.md",
+    "docs/cn/models/scad.md",
+    "docs/cn/releases/pr79-final-validation.md",
 )
 
 # These are prose-level English noun phrases that previously appeared inside
@@ -78,6 +84,20 @@ _PROSE_FRAGMENTS_TO_AVOID = (
     "## Parameters",
     "## Outputs",
     "## External Validation",
+    "Source provenance",
+    "parse report",
+    "source inventory",
+    "Runtime provenance",
+    "provenance payload",
+    "clean exact-head",
+    "exact-head artifact",
+    "exact-head CI",
+    "前端 contract",
+    "inference-only",
+    "penalized coefficients",
+    "active-refit",
+    "active-set identity",
+    "inference backend/device",
 )
 
 _QUANTILE_PROSE_FRAGMENTS_TO_AVOID = (
@@ -122,6 +142,42 @@ _PR166_CHANGELOG_FRAGMENTS_TO_AVOID = (
     "selected full-data refit",
 )
 
+_PR164_CHANGELOG_FRAGMENTS_TO_AVOID = (
+    "solver identity",
+    "FISTA family",
+    "resolved/executed provenance",
+    "solver= keyword",
+    "numerical dispatch",
+    "CV grid work",
+    "fail closed",
+    "direct fit、CV candidate/fold",
+    "selected full-data refit",
+    "requested/resolved/executed",
+    "quantile level",
+    "analytic validation weights",
+    "clone-safe construction",
+    "adaptive-L1 initialization",
+    "pinball objective",
+    "LLA surrogate",
+    "diagonal approximation",
+    "Torch Quantile execution",
+    "penalty diagonal",
+    "warm start",
+    "fallback weights",
+    "Torch-native clone",
+    "numerical source",
+    "physical gate",
+    "case 全部通过",
+    "tolerance 没有放宽",
+    "coefficient/intercept",
+    "CV-score",
+    "penalized-objective",
+    "canonical exact-source artifact",
+    "documentation-only",
+    "immutable numerical-source acceptance",
+    "physical rerun",
+)
+
 _PR166_SOLVER_PROSE_FRAGMENTS_TO_AVOID = (
     "smooth-gradient FISTA",
     "estimator/CV",
@@ -155,11 +211,23 @@ def test_quantile_page_uses_chinese_explanatory_prose():
 def test_pr166_changelog_section_uses_chinese_explanatory_prose():
     text = _read("docs/cn/changelog.md")
     start = text.index("## 未发布 — Quantile 求解器与推断更新（PR #166")
-    end = text.index("## 未发布 — Quantile solver provenance 对齐（PR #164", start)
+    end = text.index("## 未发布 — Quantile 求解器来源对齐（PR #164", start)
     section = text[start:end]
     for fragment in _PR166_CHANGELOG_FRAGMENTS_TO_AVOID:
         assert fragment not in section, (
             "docs/cn/changelog.md PR166 section: explanatory prose fragment "
+            f"{fragment!r}"
+        )
+
+
+def test_pr164_changelog_section_uses_chinese_explanatory_prose():
+    text = _read("docs/cn/changelog.md")
+    start = text.index("## 未发布 — Quantile 求解器来源对齐（PR #164")
+    end = text.index("## 未发布 — Quantile IRLS 惩罚契约修复（PR #162", start)
+    section = text[start:end]
+    for fragment in _PR164_CHANGELOG_FRAGMENTS_TO_AVOID:
+        assert fragment not in section, (
+            "docs/cn/changelog.md PR164 section: explanatory prose fragment "
             f"{fragment!r}"
         )
 
