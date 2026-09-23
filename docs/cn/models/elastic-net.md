@@ -1,9 +1,9 @@
 # Elastic Net 弹性网络
 
-> Language: Chinese (中文)  
-> Last updated: 2026-09-10<br>
-> This page: 模型文档  
-> Language switch: [English](../../en/models/elastic-net.md)
+> 语言：中文  
+> 最后更新：2026-09-23<br>
+> 页面定位：模型文档  
+> 切换：[English](../../en/models/elastic-net.md)
 
 ## 概述
 
