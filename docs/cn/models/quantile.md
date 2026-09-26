@@ -1,16 +1,16 @@
 # 分位数回归
 
 > 语言：中文  
-> 最后更新：2026-09-15  
+> 最后更新：2026-09-21  
 > 页面定位：模型文档  
 > 切换：[英文版](../../en/models/quantile.md)
 
 ## 概述
 
-`QuantileLoss` 实现分位数回归的 **check loss（又称 pinball loss）**。这两个名称指的是同一个非对称绝对损失，而不是两种不同的损失函数。`PenalizedQuantileRegression` 在此基础上提供带惩罚估计；平滑的 L2/无惩罚问题使用普通 Quantile IRLS，SCAD/MCP 则使用专门的 Proximal IRLS-CD 路径。
+`QuantileLoss` 实现分位数回归的 **check loss（又称 pinball loss）**。这两个名称指的是同一个非对称绝对损失，而不是两种不同的损失函数。`PenalizedQuantileRegression` 在此基础上提供带惩罚估计：L2/无惩罚目标的自动路径使用普通 Quantile IRLS，凸目标也可以显式选择普通 FISTA，标量 SCAD/MCP 使用 Proximal IRLS-CD，而 Group SCAD/MCP 的自动路径使用分组 Proximal IRLS-LLA。
 
 | 组件 | 路径 |
-|------|------|
+|---|---|
 | 损失函数 | `statgpu.losses.QuantileLoss` |
 | 独立模型 | `statgpu.linear_model.QuantileRegression` |
 | 带惩罚模型 | `statgpu.linear_model.penalized.PenalizedQuantileRegression` |
@@ -64,35 +64,40 @@ $$
 
 ## 求解器兼容性
 
-下面的“支持”首先描述无权重时的算法能力。传入 `sample_weight` 后，还必须满足对应损失函数与求解器的带权支持约定；不能从无权重支持直接推出任意非均匀权重也受支持。
+下面的“支持”首先描述无权重时的算法能力。传入 `sample_weight` 后，还必须满足对应损失函数与求解器的带权约定；不能从无权重支持直接推出任意非均匀权重也受支持。
 
 | 求解器 | 支持 | 说明 |
-|--------|:---:|------|
-| Proximal IRLS-CD | ✅ | 专用 IRLS 上界 + LLA，主要用于 SCAD/MCP；当前维护路径支持相应解析权重 |
-| IRLS | ✅ | **L2/无惩罚 Quantile 下 `solver="auto"` 的默认路径**；`QuantileLoss.irls()` 有显式 `sample_weight` 支持 |
-| FISTA | ✅（稀疏路径） | L1/ElasticNet 等近端路径继续维护。L2/无惩罚 Quantile 不维护显式 FISTA 请求；应使用 `auto` 或 `irls` |
-| FISTA-BB | ✅ | 可在受支持的稀疏路径上显式选择；平滑 Quantile 的 `auto` 不会选择它 |
-| L-BFGS | ✅（底层无权重/均匀权重边界） | 公开 `PenalizedQuantileRegression` 因 Quantile 没有 Hessian-compatible smooth contract 而拒绝 L-BFGS；通用 `LossBase` 的真正非均匀 direct weighted L-BFGS 也会 fail closed |
-| ADMM | ✅（无权重/均匀权重） | 共享 `admm_solver` 当前拒绝真正非均匀的 `sample_weight` |
+|---|:---:|---|
+| Proximal IRLS-CD | ✅ | 专用 IRLS 上界 + LLA，用于标量 SCAD/MCP；支持解析权重 |
+| 分组 Proximal IRLS-LLA | ✅ | Group SCAD/MCP 的自动路径；Quantile IRLS/MM 与凸 Adaptive Group Lasso 加权最小二乘子问题组合 |
+| IRLS | ✅ | **L2/无惩罚 Quantile 下 `solver="auto"` 的默认路径**；`QuantileLoss.irls()` 明确支持 `sample_weight` |
+| FISTA | ✅ | 用于 L1/ElasticNet 等近端路径；L2/无惩罚下显式 `solver="fista"` 也会真正执行普通 FISTA，而 `auto` 仍优先 IRLS |
+| FISTA-BB | ❌ | BB 步长通过光滑梯度差估计局部曲率；Quantile 的次梯度是阶梯函数，因此估计器/CV 的显式请求与公开底层 `fista_bb_solver(QuantileLoss, ...)` 都会直接报错 |
+| L-BFGS | ✅（仅底层无权重/均匀权重兼容边界） | 公开 `PenalizedQuantileRegression` / `PenalizedGLM_CV` 的显式 L-BFGS 请求不受支持；底层 `lbfgs_solver(QuantileLoss, ...)` 保留历史上的无权重/均匀权重兼容面，真正的非均匀权重仍会被拒绝 |
+| ADMM | ❌（不能直接用于 Quantile） | 公开 `admm_solver(QuantileLoss, ...)` 不受支持，因为其通用 w 子问题要求光滑损失。分组 Proximal IRLS-LLA 只会在 Quantile IRLS 已经构造出光滑加权最小二乘代理问题之后，内部使用变量分裂法求解该凸子问题 |
 | Newton | ❌ | 分位数损失没有 Hessian |
 | Proximal Newton | ❌ | 分位数损失没有 Hessian |
 
-对平滑 Quantile 目标，`auto`、IRLS 和 FISTA 的语义现在是明确分开的：`PenalizedQuantileRegression(..., solver="auto", penalty="l2")` 会解析到 IRLS；显式 `solver="irls"` 直接请求同一维护算法。显式 smooth `solver="fista"` 会明确失败，而不会在内部静默替换成 IRLS。稀疏 Quantile 惩罚继续保留 FISTA-family 路径。
+对于 L2/无惩罚 Quantile 目标，`PenalizedQuantileRegression(..., solver="auto")` 会解析到 IRLS，显式 `solver="irls"` 也直接请求同一算法。显式普通 `solver="fista"` 同样受支持：它会真正进入通用 FISTA 求解过程，而不会静默替换成 IRLS。
 
-## 惩罚兼容性
+IRLS 仍是自动选择，因为 pinball loss 本身非光滑；这里的 Quantile FISTA 是一阶近端/次梯度路径，并不声称满足教科书中光滑梯度 FISTA 的经典收敛假设。FISTA-BB 仍不支持，因为它的 BB 曲率更新明确依赖有意义的光滑梯度差分。
 
-| 惩罚 | `solver="auto"` 的主要路径 | 说明 |
-|---------|----------------------------|-------|
-| L2 / 无惩罚 | IRLS | `none` 会先规范化为 `L2(alpha=0)`；显式 `solver="irls"` 选择同一维护路径 |
+## 惩罚项兼容性
+
+| 惩罚项 | `solver="auto"` 的主要路径 | 说明 |
+|---|---|---|
+| L2 / 无惩罚 | IRLS | `none` 会先规范化为 `L2(alpha=0)`；显式 `irls` 选择同一路径，显式普通 `fista` 也可按需选择 |
 | L1 / ElasticNet | FISTA | 近端/次梯度路径 |
 | SCAD / MCP | Proximal IRLS-CD | Quantile 专用 IRLS 上界 + LLA |
-| adaptive_l1 | FISTA | 先准备 adaptive weights，再进入 Quantile FISTA |
+| adaptive_l1 | FISTA | 先准备自适应权重，再进入 Quantile FISTA |
 | group_lasso / adaptive group | 分组 FISTA | 面向分组的近端路径 |
-| group_scad / group_mcp | 分组 FISTA-LLA | Group LLA surrogate + group-aware FISTA 内层 |
+| group_scad / group_mcp | 分组 Proximal IRLS-LLA | 分组 LLA + Quantile IRLS/MM；每个凸 Adaptive Group Lasso 加权最小二乘代理问题都在所选后端求解 |
+
+上表描述的是自动路径。若对 Group SCAD/MCP 显式指定 `solver="fista"`，该请求仍然保持为显式近端 FISTA，不会被静默改写成自动的分组 Proximal IRLS-LLA。公开底层 `fista_lla_path(...)` 也继续表示真正的 FISTA-LLA，而不是该自动估计器路径的别名。
 
 ## `sample_weight` 语义
 
-对已经声明支持非均匀解析权重的分位数路径，数据拟合项使用加权 check/pinball 目标。以逐样本损失 $\rho_\tau(r_i)$ 为例，归一化形式为
+对于已经声明支持非均匀解析权重的分位数路径，数据拟合项使用加权 check/pinball 目标。以逐样本损失 $\rho_\tau(r_i)$ 为例，归一化形式为
 
 $$
 L_w(\beta)
@@ -101,17 +106,21 @@ $$
 
 但 `sample_weight` **不是所有求解器自动具备的统一能力**。当前尤其需要区分：
 
-- Quantile IRLS / Proximal IRLS-CD 等维护中的带权路径具有显式带权实现；
-- 受支持的 FISTA 路径使用损失层的归一化带权目标；
+- Quantile IRLS / Proximal IRLS-CD 具有明确的带权实现；
+- 分组 Proximal IRLS-LLA 使用同一组归一化解析权重构造 Quantile IRLS/MM 上界，然后求解相应的凸分组代理问题；
+- 普通 FISTA（包括显式选择的 L2/无惩罚 FISTA）使用损失函数层的归一化带权目标；
+- Adaptive L1 需要通过初始化拟合学习自适应惩罚权重时，会使用同一组解析训练权重；若用户已经显式给定固定的自适应权重，则直接使用，不再额外运行一次无效初始化；
 - 通用 `LossBase` 的共享函数值和梯度可以计算归一化带权目标；
-- 直接调用 `lbfgs_solver` 时，真正非均匀的分位数权重仍会被明确拒绝；
-- 共享 `admm_solver` 目前只接受未传权重或均匀权重。
+- FISTA-BB 与公开的直接 ADMM 不支持 Quantile，因为这些通用算法依赖 check loss 不具备的光滑梯度结构；
+- 底层 Quantile L-BFGS 保留无权重/均匀权重兼容面，但真正非均匀权重会报错；模型/CV 层显式 L-BFGS 仍不支持。
 
 需要比较其他损失函数和求解器的带权范围时，见 [求解器 × 惩罚项兼容性矩阵](../guides/solver-penalty-matrix.md) 和 [求解器算法](../guides/solver-algorithms.md)。
 
 ## 示例
 
 ### 独立模型（含统计推断）
+
+独立 `QuantileRegression` 的 `kernel` 与 `bootstrap` 推断只支持未传权重或均匀 `sample_weight`；真正非均匀的解析权重在该类中仅支持估计，若同时设置 `compute_inference=True` 会明确报错。`bootstrap` 采用 **i.i.d. 残差 bootstrap**：先按目标分位数的经验分位点对拟合残差做中心化，使重抽样误差分布的经验 τ 分位数为 0，再把中心化残差视为可交换样本进行重抽样，并用后端原生的批量 Quantile IRLS/MM 完成重拟合。它不是 wild/multiplier bootstrap，也不宣称对一般异方差具有稳健覆盖；异方差 Quantile 回归需要不同的 bootstrap 构造。`bootstrap` 推断还要求 `n_bootstrap >= 2`。`kernel` 推断则要求所选带宽规则使 `q ± h` 保持在 `(0, 1)` 内，并得到有限且严格为正的零点残差密度估计；条件不满足时会直接报错，而不是发布非有限标准误。
 
 ```python
 from statgpu.linear_model import QuantileRegression
@@ -135,7 +144,7 @@ print(model._conf_int)
 ```python
 from statgpu.linear_model.penalized import PenalizedQuantileRegression
 
-# 这个平滑 L2 Quantile 问题中，solver="auto" 解析到 IRLS。
+# 这个 L2 惩罚的 Quantile 问题中，solver="auto" 解析到 IRLS。
 model = PenalizedQuantileRegression(
     quantile=0.5,
     penalty="l2",
@@ -144,7 +153,7 @@ model = PenalizedQuantileRegression(
 )
 model.fit(X, y)
 
-# SCAD/MCP 使用专用 Proximal IRLS-CD 延续路径。
+# 标量 SCAD/MCP 使用专用 Proximal IRLS-CD 延续路径。
 scad_model = PenalizedQuantileRegression(
     quantile=0.5,
     penalty="scad",
@@ -153,7 +162,7 @@ scad_model = PenalizedQuantileRegression(
 scad_model.fit(X, y)
 ```
 
-### 显式 Quantile IRLS
+### 显式 Quantile IRLS 或 FISTA
 
 ```python
 irls_model = PenalizedQuantileRegression(
@@ -163,9 +172,17 @@ irls_model = PenalizedQuantileRegression(
     solver="irls",
 )
 irls_model.fit(X, y)
+
+fista_model = PenalizedQuantileRegression(
+    quantile=0.5,
+    penalty="l2",
+    alpha=0.01,
+    solver="fista",
+)
+fista_model.fit(X, y)
 ```
 
-显式 IRLS 只应在维护中的 L2/无惩罚边界使用。ElasticNet 等非光滑惩罚应使用 FISTA 而不是 IRLS；直接调用底层 `QuantileLoss.irls()` 也不属于维护中的 ElasticNet 拟合路径。
+对于 L2/无惩罚，`auto` 与显式 IRLS 使用同一 IRLS 路径。显式普通 FISTA 是独立的算法控制选项，并且会真正执行 FISTA，而不是 IRLS 的别名或备用路径。ElasticNet 等非光滑惩罚本来就使用普通 FISTA。
 
 ### GPU（Torch CUDA）
 
@@ -197,7 +214,7 @@ model = PenalizedQuantileRegression(
 model.fit(X, y, sample_weight=sample_weight)
 ```
 
-这里展示的是模型层已经维护的带权路径，不能据此推断显式选择任意底层求解器时都支持同样的非均匀权重。
+这里展示的是支持解析权重的模型路径，不能据此推断显式选择任意底层求解器时都支持同样的非均匀权重。
 
 ## 算法详解
 
@@ -205,9 +222,38 @@ model.fit(X, y, sample_weight=sample_weight)
 
 详细更新公式见 [求解器算法](../guides/solver-algorithms.md#1-proximal-irls-cd)。其核心是把 check loss 的 IRLS 二次上界与 SCAD/MCP 的局部线性近似结合起来。
 
+### 分组 Proximal IRLS-LLA（Group SCAD/MCP）
+
+自动 Group SCAD/MCP 路径的外层 LLA 会把非凸分组惩罚转化成加权 Adaptive Group Lasso 凸代理问题。记 $D_g^{(k)}$ 为当前分组惩罚对 $\|\beta_g\|_2$ 的导数，Quantile 专用内层首先根据当前残差构造
+
+$$
+w_i^{(t)}
+=
+\widetilde s_i
+\frac{\tau+(1-2\tau)\mathbf 1\{r_i^{(t)}<0\}}
+{\max(|r_i^{(t)}|,\varepsilon)},
+\qquad
+\widetilde s_i=\frac{n s_i}{\sum_j s_j},
+$$
+
+无解析权重时取 $s_i=1$。随后求解凸的加权最小二乘代理问题
+
+$$
+\min_\beta
+\frac{1}{2n}
+\sum_i w_i^{(t)}
+\left(y_i-x_i^\top\beta\right)^2
++
+\sum_g D_g^{(k)}\|\beta_g\|_2.
+$$
+
+该凸子问题使用后端原生的变量分裂求解：二次更新对应加权最小二乘线性系统，近端更新则使用精确的 Adaptive Group Lasso 分组收缩。截距包含在二次模型中，但不参与惩罚。如果所有 $D_g^{(k)}$ 都为 0，则当前 LLA 目标恰好退化为无惩罚 Quantile 回归，此时直接使用普通带权 Quantile IRLS 求解。
+
+这条自动路径与显式 FISTA 控制相互独立：`solver="fista"` 以及底层 `fista_lla_path(...)` 都继续表示基于 FISTA 的算法。
+
 ### IRLS（L2/无惩罚）
 
-IRLS 是 L2/无惩罚 Quantile 目标的维护中 `auto` 路径，也可以显式请求。令
+IRLS 是 L2/无惩罚 Quantile 目标的 `auto` 路径，也可以显式请求。令
 
 $$
 r_i=y_i-x_i^\top\beta.
@@ -221,7 +267,7 @@ w_i^{\mathrm{IRLS}}
 {\max(|r_i|,\varepsilon)}.
 $$
 
-若同时传入解析权重 $s_i$，维护中的实现先把它归一化为
+若同时传入解析权重 $s_i$，实现先把它归一化为
 
 $$
 \widetilde s_i=\frac{n s_i}{\sum_j s_j},
@@ -240,12 +286,16 @@ $$
 =X^\top W y.
 $$
 
-L2 路径在左侧加入相应 Ridge 对角项；截距坐标不参与惩罚。完整实现细节见 [IRLS 算法参考](../guides/solver-algorithms.md#6-irls迭代重加权最小二乘)。
+L2 路径在左侧加入相应的 Ridge 对角项；截距坐标不参与惩罚。完整实现细节见 [IRLS 算法参考](../guides/solver-algorithms.md#6-irls迭代重加权最小二乘)。
+
+### 普通 FISTA（显式 L2/无惩罚与稀疏凸路径）
+
+Quantile/check loss 本身非光滑，因此这里不应解释为满足经典光滑梯度 FISTA 的全部理论假设。statgpu 使用注册的 Quantile 次梯度、已有的一阶步长策略以及所请求惩罚项的近端算子。该路径用于显式算法控制以及凸稀疏 Quantile 路径；L2/无惩罚的自动策略仍然是 IRLS。
 
 ## 输出
 
 | 属性 | 类型 | 说明 |
-|------|------|------|
+|---|---|---|
 | `coef_` | `(p,)` float | 估计系数 |
 | `intercept_` | float | 截距 |
 | `n_iter_` | int | 迭代次数 |
@@ -253,15 +303,18 @@ L2 路径在左侧加入相应 Ridge 对角项；截距坐标不参与惩罚。�
 
 ## 说明
 
-- `score()` 使用 check/pinball loss，并返回其相反数以符合 sklearn“越大越好”的约定。
-- `sample_weight` 支持是 **loss × solver × estimator** 路径能力，而不是所有 solver 自动拥有的属性。
-- 显式 solver 请求保持权威；不受支持的 smooth Quantile FISTA 会明确失败，而不是被静默替换成 IRLS。
-- 不支持的显式带权求解器组合应在数值迭代前失败，而不是静默替换成其他 solver。
-- 维护中的 GPU 路径（`cuda`/`torch`）不能静默回退到 CPU。
+- `QuantileRegression.score()` 与类型化封装 `PenalizedQuantileRegression.score()` 使用 check/pinball 损失，并返回其相反数，以符合 sklearn“越大越好”的约定。NumPy、CuPy 与 Torch 的响应变量/权重容器在受支持路径上均可直接传入；评分只在最终返回 Python 标量时将所需数据转为 CPU 快照。通用 `PenalizedGeneralizedLinearModel(loss="quantile")` 则保留共享的标量响应 `score()` 契约，因此返回响应尺度上的 R²；`PenalizedGLM_CV.score()` 委托给选中 α 后的最终重拟合模型。CV 的 `best_score_` 是验证集损失的相反数，与拟合后的 `score()` 本来就是不同指标。
+- `sample_weight` 支持是**损失函数 × 求解器 × 估计器**路径能力，而不是所有求解器自动拥有的属性。
+- 严格 Quantile 交叉验证对所有惩罚家族都要求完整且有限的逐折证据。只有当对应求解器路径明确把某一折标记为目标 α 的收敛失败时，该折才不会计分；只有所有折都有有限得分的 α 才有候选资格。如果任一折拟合失败或携带这种明确的目标 α 收敛失败信号，则该 α 整列都视为无效，不能只对剩余有限折求均值。通用求解器单独发出 `ConvergenceWarning` 并不会自动抹去一个已经得到的有限候选结果。两阶段策略的第一阶段筛选仍有意采用较宽松的准则；完整证据规则在后续的严格精炼与严格选择阶段执行。选中 α 后的全数据最终重拟合沿用直接估计器的收敛报告语义，并可按该语义发出 `ConvergenceWarning`，而不是作为 CV 候选失败处理。
+- Quantile 非凸延续路径会拒绝停止控制的隐式类型转换。`max_iter` 必须是正整数，`tol` 必须是有限正实数；直接标量 SCAD/MCP 与自动 Group SCAD/MCP 还要求布尔型 `lla=True`、整数 `max_lla_iters` 和有限正数 `lla_tol`。当前自动 Quantile 延续路径包含 3 个 α 步骤，因此 `max_lla_iters` 至少为 3，才能保证每一步至少执行一次 LLA 更新。中间延续步骤使用缩减后的 IRLS 预算，但不会超过公开的 `max_iter`；目标步骤最多使用完整预算。显式 Group SCAD/MCP `solver="fista"` 不进入 LLA 延续路径，因此 `lla`、`max_lla_iters` 与 `lla_tol` 不控制这条显式算法。
+- 公开底层 Quantile 求解器调用——包括普通 `fista_solver`、保留兼容边界的直接 `lbfgs_solver`、`QuantileLoss.irls()`、`proximal_irls_quantile_solver()` 与 Quantile `fista_lla_path()`——都会在数值计算前拒绝非法的监督输入形状：`X` 必须为二维、`y` 必须为一维，且二者行数一致，并且二者都必须只包含有限实数。IRLS/延续路径专用边界还会拒绝非法的截距、停止、路径和权重控制，不依赖广播或隐式类型转换；直接延续路径调用的 `alpha_path` 还必须是一维非空、元素均为有限正数、并从起点到目标值保持非递增的序列。
+- 显式普通 L2/无惩罚 Quantile FISTA 受支持并保持权威；Group SCAD/MCP 的显式 FISTA 同样不会被改写成自动的分组 Proximal IRLS-LLA。
+- FISTA-BB、公开直接 ADMM、Newton、Proximal Newton 与 L-BFGS-B 都不支持 Quantile，并会在进入数值迭代前报错。普通估计器/CV 层的 L-BFGS 同样不支持 Quantile；只有底层 `lbfgs_solver` 的未加权/均匀权重历史兼容边界继续保留。历史 `quantile_cd_solver` 名称仅作为导入兼容符号保留，并在调用时立即报错：旧实现会忽略 `sample_weight`，且无法可靠表示不受惩罚的截距，因此标量 SCAD/MCP 拟合改用 Proximal IRLS-CD。
+- 受支持的 GPU 路径不会静默回退到 CPU。
 
-## 参考文献
+## 相关文档
 
-- Koenker, R. & Bassett, G. (1978). Regression Quantiles. *Econometrica*, 46(1), 33-50.
-- Koenker, R. (2005). *Quantile Regression*. Cambridge University Press.
-- Wu, Y. & Liu, Y. (2009). Variable Selection in Quantile Regression. *Statistica Sinica*, 19, 801-817.
-- Hunter, D. R. & Li, R. (2005). Variable Selection using MM Algorithms. *Annals of Statistics*, 33(4), 1617-1642.
+- [损失函数](losses.md) — `QuantileLoss` 的底层定义
+- [求解器 × 惩罚项兼容性矩阵](../guides/solver-penalty-matrix.md) — 组合支持范围
+- [求解器算法](../guides/solver-algorithms.md) — IRLS、FISTA 与 Proximal IRLS-CD 的数值细节
+- [交叉验证](../guides/cross-validation.md) — CV 选择与最终重拟合

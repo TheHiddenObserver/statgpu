@@ -1,7 +1,7 @@
 # SCAD
 
 > 语言：中文  
-> 最后更新：2026-06-14  
+> 最后更新：2026-09-23  
 > 页面定位：模型文档  
 > 切换：[English](../../en/models/scad.md)
 
@@ -54,7 +54,7 @@ SCAD 对大系数产生**无偏**估计（不像 Lasso 将所有系数向零收�
 
 ## 推断
 
-- `compute_inference=True` + `inference_method='oracle'` 支持 active-set 推断（Fan & Li 2001）。当前仅 CPU；CuPy/Torch 抛出 ``NotImplementedError``。
+- `compute_inference=True` + `inference_method='oracle'` 支持活跃集推断（Fan & Li 2001）。当前仅 CPU；CuPy/Torch 抛出 ``NotImplementedError``。
 - `inference_method='bootstrap'` 也可用（仅 CPU）。
 
 ## 参数

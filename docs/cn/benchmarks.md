@@ -1,7 +1,7 @@
 # 基准脚本索引
 
 > 语言: 中文  
-> 最后更新: 2026-09-08
+> 最后更新: 2026-09-23
 > 页面定位: 基准脚本索引  
 > 切换: [English](../en/benchmarks.md)
 
@@ -10,9 +10,9 @@
 ## 推断相关
 
 - `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`
-  - 使用 canonical `inference_method="post_selection_ols"`，对 NumPy CPU 与 CuPy CUDA 的完整 fit + inference transaction 做基准和数值对照；
-  - 输出 penalized coefficients、active-refit parameters、SE/statistic/p-value/CI、active-set identity 以及 inference backend/device provenance 的 CPU/CuPy parity；
-  - 这不是 inference-only 加速基准：硬件由 `device` 选择，而不是由 `inference_method` 选择。
+  - 使用规范 `inference_method="post_selection_ols"`，对 NumPy CPU 与 CuPy CUDA 的完整拟合与推断事务做基准和数值对照；
+  - 输出惩罚系数、活跃集重拟合参数、标准误/统计量/p 值/置信区间、活跃集一致性，以及推断后端与具体设备来源的 CPU/CuPy 对照结果；
+  - 这不是仅推断阶段的加速基准：硬件由 `device` 选择，而不是由 `inference_method` 选择。
 
 ## 非参数方法
 
@@ -114,7 +114,7 @@ Remote Phase 3C artifacts:
 
 - `dev/benchmarks/benchmark_gpu_memory_cleanup.py`
   - 对比 `gpu_memory_cleanup=False/True`
-  - 输出 `fit_ms` 与 CuPy memory pool 指标
+  - 输出 `fit_ms` 与 CuPy 内存池指标
 
 ## 训练性能 / 停止准则
 

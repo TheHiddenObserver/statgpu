@@ -5,7 +5,7 @@
 > 硬件：Tesla P100-SXM2-16GB  
 > 后端：NumPy、CuPy CUDA、Torch CUDA
 
-PR #79 已完成全仓库正确性 review、exact-head CI 验证与维护中的真实 GPU 验收。目前没有已知未闭合的 CRITICAL 或 HIGH 级生产缺陷。
+PR #79 已完成全仓库正确性审查、精确提交上的 CI 验证与维护中的真实 GPU 验收。目前没有已知未闭合的 CRITICAL 或 HIGH 级生产缺陷。
 
 ## 最终状态
 
@@ -21,19 +21,19 @@ PR #79 已完成全仓库正确性 review、exact-head CI 验证与维护中的�
 
 ## 最终 review 闭合的用户可见合同
 
-- CoxPH 在三后端统一 line search、收敛、终止原因、最终 KKT、Hessian、协方差与拟合状态。
-- delayed-entry robust/cluster 推断在 `compute_inference=True` 时显式报错；`compute_inference=False` 时允许仅估计，推断字段保持未设置。
-- Cox 预测和评分保留 estimator 后端。
+- CoxPH 在三后端统一线搜索、收敛、终止原因、最终 KKT、Hessian、协方差与拟合状态。
+- 延迟进入的稳健/聚类推断在 `compute_inference=True` 时显式报错；`compute_inference=False` 时允许仅估计，推断字段保持未设置。
+- Cox 预测和评分保留估计器后端。
 - `PooledOLS.predict()` 不再对 CuPy 或 Torch 输入进行 eager NumPy 转换。
 - PooledOLS HAC 使用经过验证的稳定 `time_index` 排序。
 - 秩亏 PooledOLS 使用有效秩计算 residual degrees of freedom；拟合空间结果仍有效，系数级推断标记为 `NOT_COMPARABLE`。
-- PR79 canonical report 只能由经过验证的 clean exact-head artifact 渲染。missing、non-finite、duplicate、failed、dirty 或 wrong-SHA 证据全部 fail closed。
+- PR79 的正式报告只能由经过验证、来源提交精确且工作区干净的 artifact 渲染。缺失、非有限、重复、失败、工作区不干净或提交 SHA 不匹配的证据一律拒绝渲染。
 
 ## 证据口径
 
 维护中的真实 GPU 验收计数为 **33/33 passed**。另外执行的旧诊断脚本未纳入维护 pytest Gate，由 Issue #83 跟踪。
 
-旧的硬编码 `results/pr79/final/final_accuracy_report.*` 文件不符合当前 renderer schema，不能作为权威结果。只有在 exact target SHA 上重新执行完整 raw matrix，并通过 `aggregate_results.py` 与 `emit_final_report.py` 后，才可以重新提交 full canonical report。
+旧的硬编码 `results/pr79/final/final_accuracy_report.*` 文件不符合当前报告渲染器的 schema，不能作为权威结果。只有在精确目标提交上重新执行完整原始矩阵，并通过 `aggregate_results.py` 与 `emit_final_report.py` 后，才可以重新提交完整的正式报告。
 
 ## 后续工作
 

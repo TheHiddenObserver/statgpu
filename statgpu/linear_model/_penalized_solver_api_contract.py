@@ -106,7 +106,7 @@ def _constructor_warning_policy():
 
 
 def _install_base_docstring_contract():
-    """Keep runtime help() aligned with the staged cpu_solver deprecation."""
+    """Keep runtime help() aligned with the public solver API."""
     doc = PenalizedGeneralizedLinearModel.__doc__
     if not doc:
         return
@@ -121,7 +121,22 @@ def _install_base_docstring_contract():
         "solver instead."
     )
     if old in doc:
-        PenalizedGeneralizedLinearModel.__doc__ = doc.replace(old, new)
+        doc = doc.replace(old, new)
+
+    old_solver = (
+        "    solver : str, default='auto'\n"
+        "        Solver: 'auto', 'fista', 'fista_bb', 'irls', 'newton', 'lbfgs', 'exact'."
+    )
+    new_solver = (
+        "    solver : str, default='auto'\n"
+        "        Solver: 'auto', 'fista', 'fista_bb', 'admm', 'irls', 'newton', "
+        "'lbfgs', or 'exact'. Support depends on the loss and penalty; "
+        "unsupported explicit combinations raise an error."
+    )
+    if old_solver in doc:
+        doc = doc.replace(old_solver, new_solver)
+
+    PenalizedGeneralizedLinearModel.__doc__ = doc
 
 
 def _install_constructor_warning(cls):

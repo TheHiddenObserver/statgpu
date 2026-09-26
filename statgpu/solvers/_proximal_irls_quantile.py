@@ -22,12 +22,76 @@ References:
 - Hunter & Li (2005): MM algorithms for nonconvex penalized estimation
 """
 
-__all__ = ["proximal_irls_quantile_solver"]
-
 import copy
+from contextvars import ContextVar
+import inspect
+import warnings
+
 import numpy as np
 
+from ._convergence import ConvergenceWarning
+
+__all__ = ["proximal_irls_quantile_solver"]
+
+_STRICT_CV_TARGET = ContextVar(
+    "statgpu_quantile_scalar_strict_cv_target",
+    default=False,
+)
+
 from statgpu.backends import _resolve_backend, _to_numpy
+from statgpu.backends._array_ops import _xp_asarray
+
+
+def _external_warning_stacklevel() -> int:
+    frame = inspect.currentframe()
+    if frame is None:
+        return 2
+    frame = frame.f_back
+    level = 1
+    try:
+        while frame is not None:
+            module_name = str(frame.f_globals.get("__name__", ""))
+            is_internal = module_name == "statgpu" or module_name.startswith("statgpu.")
+            if not is_internal:
+                return level
+            frame = frame.f_back
+            level += 1
+    finally:
+        del frame
+    return 2
+
+
+def _flat_irls_boundary_converged(
+    loss,
+    X_work,
+    y_work,
+    beta,
+    *,
+    tol,
+    eps,
+    sample_weight,
+    fit_intercept,
+    xp,
+) -> bool:
+    # This one-step call is a diagnostic fixed-point probe. Its expected
+    # budget-exhaustion warning is not a user-facing solver failure: the
+    # returned step size below is the signal that classifies the target.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ConvergenceWarning)
+        probe, _ = loss.irls(
+            X_work,
+            y_work,
+            penalty=None,
+            max_iter=1,
+            tol=float(tol),
+            init_coef=beta,
+            eps=eps,
+            sample_weight=sample_weight,
+            fit_intercept=fit_intercept,
+        )
+    delta_dev = xp.linalg.norm(probe - beta)
+    delta = float(_to_numpy(delta_dev))
+    return bool(np.isfinite(delta) and delta < float(tol))
 
 
 def proximal_irls_quantile_solver(
@@ -84,7 +148,6 @@ def proximal_irls_quantile_solver(
         Total number of IRLS iterations.
     """
     backend = _resolve_backend("auto", X)
-    n, p = X.shape
     tau = loss._tau
     eps = 1e-8
 
@@ -96,16 +159,17 @@ def proximal_irls_quantile_solver(
     else:
         xp = np
 
-    # Ensure float64 for numerical stability
-    X_dev = xp.asarray(X, dtype=xp.float64)
-    y_dev = xp.asarray(y, dtype=xp.float64)
+    # Ensure float64 for numerical stability while preserving the concrete
+    # device that owns the public design. Read dimensions only after this
+    # normalization so maintained Python array-like inputs do not require a
+    # pre-existing .shape attribute.
+    X_dev = _xp_asarray(X, xp.float64, X)
+    y_dev = _xp_asarray(y, xp.float64, X_dev)
+    n, p = int(X_dev.shape[0]), int(X_dev.shape[1])
 
     # Handle sample_weight
     if sample_weight is not None:
-        sw = xp.asarray(sample_weight, dtype=xp.float64)
-        # Ensure sw is on the same device as X_dev (for torch CUDA)
-        if hasattr(X_dev, 'device') and hasattr(sw, 'to'):
-            sw = sw.to(device=X_dev.device)
+        sw = _xp_asarray(sample_weight, xp.float64, X_dev)
         sw_sum = float(_to_numpy(xp.sum(sw)))
         # Normalize so sum(sw) = n (keeps penalty scale consistent)
         sw = sw * (n / sw_sum)
@@ -117,10 +181,11 @@ def proximal_irls_quantile_solver(
     # Treat it as one additional, unpenalized coordinate. This matches the
     # non-quadratic intercept contract used by the maintained FISTA-LLA path.
     if fit_intercept:
-        if backend == "torch":
-            ones = xp.ones((n, 1), dtype=X_dev.dtype, device=X_dev.device)
-        else:
-            ones = xp.ones((n, 1), dtype=X_dev.dtype)
+        ones = _xp_asarray(
+            np.ones((n, 1), dtype=np.float64),
+            X_dev.dtype,
+            X_dev,
+        )
         X_work = xp.concatenate([X_dev, ones], axis=1)
         y_work = y_dev
         n_work_features = p + 1
@@ -143,10 +208,14 @@ def proximal_irls_quantile_solver(
     # Precompute X^2 for weighted Hessian diagonal (reused each IRLS step)
     X_sq = X_work * X_work
 
+    n_continuation = int(len(alpha_path))
     for cont_i, cont_alpha in enumerate(alpha_path):
         pen_step = copy.copy(penalty)
         pen_step.alpha = float(cont_alpha)
         _mi = max_iter[cont_i] if isinstance(max_iter, (list, tuple)) else max_iter
+        is_final_continuation = cont_i == n_continuation - 1
+        lla_converged = False
+        target_irls_exhausted = False
 
         for lla_i in range(max_lla_per_step):
             # LLA weights = P'(|beta_j|) for feature coefficients only.
@@ -155,9 +224,11 @@ def proximal_irls_quantile_solver(
             if fit_intercept:
                 # The final augmented coordinate is the intercept and must not
                 # receive SCAD/MCP shrinkage.
-                intercept_thresh = xp.zeros(1, dtype=feature_thresh.dtype)
-                if backend == "torch":
-                    intercept_thresh = intercept_thresh.to(device=feature_thresh.device)
+                intercept_thresh = _xp_asarray(
+                    np.zeros(1, dtype=np.float64),
+                    feature_thresh.dtype,
+                    feature_thresh,
+                )
                 thresh = xp.concatenate([feature_thresh, intercept_thresh])
             else:
                 thresh = feature_thresh
@@ -172,19 +243,60 @@ def proximal_irls_quantile_solver(
             # penalized LLA steps remain on the Proximal IRLS-CD inner loop.
             zero_penalty = bool(_to_numpy(xp.all(lla_w == 0)))
             if zero_penalty:
-                beta, used_iter = loss.irls(
-                    X_work,
-                    y_work,
-                    penalty=None,
-                    max_iter=_mi,
-                    tol=min(tol, 1e-8),
-                    init_coef=beta,
-                    eps=eps,
-                    sample_weight=sw,
-                    fit_intercept=fit_intercept,
-                )
+                flat_tol = min(tol, 1e-8)
+                with warnings.catch_warnings(record=True) as irls_warnings:
+                    warnings.simplefilter("always")
+                    beta, used_iter = loss.irls(
+                        X_work,
+                        y_work,
+                        penalty=None,
+                        max_iter=_mi,
+                        tol=flat_tol,
+                        init_coef=beta,
+                        eps=eps,
+                        sample_weight=sw,
+                        fit_intercept=fit_intercept,
+                    )
+                # The Proximal IRLS-CD solver owns target-level convergence
+                # reporting. Suppress the inner IRLS ConvergenceWarning so
+                # warnings-as-error callers cannot bypass the boundary probe
+                # or strict-CV fail-closed decision. Preserve unrelated warnings.
+                for item in irls_warnings:
+                    if not issubclass(item.category, ConvergenceWarning):
+                        warnings.warn(
+                            item.message,
+                            item.category,
+                            stacklevel=_external_warning_stacklevel(),
+                        )
                 total_iter += used_iter
+                if is_final_continuation and int(used_iter) >= int(_mi):
+                    target_irls_exhausted = not _flat_irls_boundary_converged(
+                        loss,
+                        X_work,
+                        y_work,
+                        beta,
+                        tol=flat_tol,
+                        eps=eps,
+                        sample_weight=sw,
+                        fit_intercept=fit_intercept,
+                        xp=xp,
+                    )
+                else:
+                    target_irls_exhausted = False
+
+                # A flat derivative that remains flat after the loss solve is
+                # already an LLA fixed point even when the coefficient move
+                # itself was larger than lla_tol. Match the maintained Group
+                # route and do not reject that target solely on outer delta.
+                refreshed = _compute_lla_weights(
+                    pen_step, beta, n_features, xp, backend
+                )
+                if bool(_to_numpy(xp.all(refreshed == 0))):
+                    lla_converged = True
+                    break
             else:
+                target_irls_exhausted = False
+                irls_converged = False
                 # IRLS-CD inner loop
                 for irls_iter in range(_mi):
                     beta_old = _copy(beta)
@@ -203,11 +315,11 @@ def proximal_irls_quantile_solver(
                     if sw is not None:
                         w = w * sw
 
-                    # Clamp IRLS weights to prevent numerical overflow
-                    w_max = 100.0 / eps
-                    w = xp.minimum(w, _scalar_like(w_max, w, xp, backend))
-
-                    # Parallel diagonal majorization step (Jacobi-style)
+                    # Parallel diagonal majorization step (Jacobi-style).
+                    # Keep the same IRLS/MM observation weights as
+                    # QuantileLoss.irls(); do not apply an undocumented
+                    # per-observation cap that changes the surrogate under
+                    # concentrated but valid analytic weights.
                     beta = _parallel_majorization_step(
                         X_work, X_sq, y_work, w, beta, thresh,
                         n_work_features, eps, xp, backend)
@@ -223,10 +335,15 @@ def proximal_irls_quantile_solver(
                             xp.max(delta_dev)
                             < _scalar_like(tol, delta_dev, xp, backend)
                         )):
+                            irls_converged = True
                             break
                     else:
                         if float(_to_numpy(xp.max(delta_dev))) < tol:
+                            irls_converged = True
                             break
+
+                if is_final_continuation and not irls_converged:
+                    target_irls_exhausted = True
 
             # LLA convergence check — GPU comparison stays on device
             lla_delta_dev = xp.abs(beta - beta_before_lla)
@@ -235,10 +352,40 @@ def proximal_irls_quantile_solver(
                     xp.max(lla_delta_dev)
                     < _scalar_like(lla_tol, lla_delta_dev, xp, backend)
                 )):
+                    lla_converged = True
                     break
             else:
                 if float(_to_numpy(xp.max(lla_delta_dev))) < lla_tol:
+                    lla_converged = True
                     break
+
+        if is_final_continuation:
+            if target_irls_exhausted:
+                message = (
+                    "Quantile Proximal IRLS-CD target reached "
+                    f"max_iter={int(_mi)} before IRLS convergence at "
+                    f"alpha={float(cont_alpha):.12g}"
+                )
+            elif not lla_converged:
+                message = (
+                    "Quantile Proximal IRLS-CD target reached "
+                    f"max_lla_per_step={int(max_lla_per_step)} before LLA "
+                    f"convergence at alpha={float(cont_alpha):.12g}"
+                )
+            else:
+                message = None
+
+            if message is not None:
+                if _STRICT_CV_TARGET.get():
+                    raise FloatingPointError(
+                        message
+                        + "; the CV candidate was not scored because target convergence was not established."
+                    )
+                warnings.warn(
+                    message + "; returning the final iterate.",
+                    ConvergenceWarning,
+                    stacklevel=_external_warning_stacklevel(),
+                )
 
     beta_np = _to_numpy(beta).astype(np.float64)
     if fit_intercept:
@@ -300,9 +447,7 @@ def _copy(arr):
 
 def _scalar_like(value, ref, xp, backend):
     """Create a scalar on the same dtype/device as a backend-native array."""
-    if backend == "torch":
-        return xp.tensor(value, dtype=ref.dtype, device=ref.device)
-    return xp.asarray(value, dtype=ref.dtype)
+    return _xp_asarray(value, ref.dtype, ref)
 
 
 def _compute_lla_weights(penalty, coef, p, xp, backend):

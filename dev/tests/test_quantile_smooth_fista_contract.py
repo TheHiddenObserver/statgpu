@@ -1,0 +1,753 @@
+"""Contracts for truthful explicit Quantile FISTA on L2/no-penalty objectives."""
+
+from __future__ import annotations
+
+import inspect
+import warnings
+
+import numpy as np
+import pytest
+
+from statgpu.linear_model import PenalizedGLM_CV
+from statgpu.linear_model.penalized import (
+    PenalizedGeneralizedLinearModel,
+    PenalizedQuantileRegression,
+    SelectivePenalty,
+)
+from statgpu.glm_core._squared import SquaredErrorLoss
+from statgpu.losses import QuantileLoss
+from statgpu.penalties import L1Penalty, L2Penalty
+from statgpu.solvers import fista_solver
+from statgpu.solvers._convergence import ConvergenceWarning
+
+
+def _data(seed=16681, n=72, p=2):
+    rng = np.random.default_rng(seed)
+    X = rng.normal(size=(n, p)).astype(np.float64)
+    beta = np.array([0.8, -0.35], dtype=np.float64)[:p]
+    y = (0.3 + X @ beta + rng.laplace(scale=0.22, size=n)).astype(np.float64)
+    weights = np.linspace(0.6, 1.8, n, dtype=np.float64)
+    return X, y, weights
+
+
+def _objective(model, X, y, weights, quantile, alpha):
+    pred = X @ np.asarray(model.coef_, dtype=np.float64) + float(model.intercept_)
+    u = y - pred
+    loss = np.where(u >= 0.0, quantile * u, (quantile - 1.0) * u)
+    data_fit = float(np.average(loss, weights=weights))
+    penalty = 0.5 * float(alpha) * float(np.dot(model.coef_, model.coef_))
+    return data_fit + penalty
+
+
+@pytest.mark.parametrize("penalty,alpha", [("l2", 0.025), ("none", 0.0)])
+@pytest.mark.parametrize("typed", [False, True])
+def test_explicit_smooth_quantile_fista_is_true_fista_and_weighted(
+    monkeypatch, penalty, alpha, typed
+):
+    X, y, weights = _data()
+
+    def forbidden_irls(*args, **kwargs):
+        raise AssertionError("explicit Quantile FISTA must not call QuantileLoss.irls")
+
+    monkeypatch.setattr(QuantileLoss, "irls", forbidden_irls)
+    if typed:
+        model = PenalizedQuantileRegression(
+            quantile=0.35,
+            penalty=penalty,
+            alpha=alpha,
+            solver="fista",
+            device="cpu",
+            max_iter=3000,
+            tol=1e-7,
+        )
+    else:
+        model = PenalizedGeneralizedLinearModel(
+            loss="quantile",
+            loss_kwargs={"quantile": 0.35},
+            penalty=penalty,
+            alpha=alpha,
+            solver="fista",
+            device="cpu",
+            max_iter=3000,
+            tol=1e-7,
+        )
+
+    model.fit(X, y, sample_weight=weights)
+    assert model._selected_solver == "fista"
+    assert model._selected_backend_name == "numpy"
+    assert np.all(np.isfinite(model.coef_))
+    assert np.isfinite(model.intercept_)
+    assert model.n_iter_ >= 1
+
+
+def test_direct_public_solver_replacement_from_auto_to_fista_is_authoritative(monkeypatch):
+    X, y, weights = _data(seed=16685, n=64)
+
+    def forbidden_irls(*args, **kwargs):
+        raise AssertionError("public solver='fista' replacement must not execute IRLS")
+
+    monkeypatch.setattr(QuantileLoss, "irls", forbidden_irls)
+    model = PenalizedQuantileRegression(
+        quantile=0.35,
+        penalty="l2",
+        alpha=0.02,
+        solver="auto",
+        device="cpu",
+        max_iter=2500,
+        tol=1e-7,
+    )
+    model.solver = "fista"
+    model.fit(X, y, sample_weight=weights)
+
+    assert model._solver == "fista"
+    assert model._selected_solver == "fista"
+
+
+def test_cv_public_solver_replacement_from_auto_to_fista_is_authoritative(monkeypatch):
+    X, y, weights = _data(seed=16686, n=60)
+
+    def forbidden_irls(*args, **kwargs):
+        raise AssertionError("CV public solver='fista' replacement must not execute IRLS")
+
+    monkeypatch.setattr(QuantileLoss, "irls", forbidden_irls)
+    cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.4},
+        penalty="l2",
+        alpha_grid=np.array([0.03], dtype=np.float64),
+        cv=2,
+        random_state=166,
+        solver="auto",
+        device="cpu",
+        max_iter=2500,
+        tol=1e-7,
+    )
+    cv.solver = "fista"
+    cv.fit(X, y, sample_weight=weights)
+
+    assert cv._solver == "fista"
+    assert cv._solver_for_cv("cpu", X=X) == "fista"
+    assert cv.estimator_._selected_solver == "fista"
+
+
+def test_quantile_fista_nonconvergence_warning_recommends_supported_routes():
+    X, y, _ = _data(seed=16687, n=48)
+
+    with pytest.warns(ConvergenceWarning) as caught:
+        fista_solver(
+            QuantileLoss(quantile=0.35),
+            L2Penalty(alpha=0.02),
+            X,
+            y,
+            max_iter=1,
+            tol=1e-30,
+        )
+
+    messages = [str(item.message) for item in caught]
+    message = next(
+        text for text in messages if "did not converge within 1 iterations" in text
+    )
+    assert "IRLS is also supported" in message
+    assert "newton" not in message.lower()
+    assert "lbfgs" not in message.lower()
+
+
+def test_quantile_cv_fold_candidates_mark_async_route(monkeypatch):
+    import statgpu.linear_model.penalized._penalized_cv as cv_mod
+
+    X, y, weights = _data(seed=16710, n=48)
+    seen = []
+    monkeypatch.setattr(
+        cv_mod,
+        "_to_backend_float64",
+        lambda values, backend: np.asarray(values, dtype=np.float64),
+    )
+
+    def fake_fit(self, X_arg, y_arg, sample_weight=None):
+        seen.append(
+            bool(getattr(self, "_quantile_cv_async_fista", False))
+        )
+        self.coef_ = np.zeros(X_arg.shape[1], dtype=np.float64)
+        self.intercept_ = 0.0
+        self.n_iter_ = 1
+        return self
+
+    monkeypatch.setattr(
+        PenalizedGeneralizedLinearModel,
+        "fit",
+        fake_fit,
+    )
+
+    cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.35},
+        penalty="l1",
+        alpha_grid=np.asarray([0.03, 0.02], dtype=np.float64),
+        cv=2,
+        solver="fista",
+        device="cpu",
+        max_iter=100,
+        tol=1e-5,
+    )
+    cv_device = "torch"
+    cv_solver = "fista"
+    all_scores = np.full((1, 2), np.nan, dtype=np.float64)
+    train_idx = np.arange(0, 24)
+    val_idx = np.arange(24, 48)
+
+    cv._cv_fold_general(
+        all_scores,
+        0,
+        np.asarray([0, 1], dtype=np.int64),
+        np.asarray([0.03, 0.02], dtype=np.float64),
+        "quantile",
+        cv_device,
+        cv_solver,
+        True,
+        X[train_idx],
+        y[train_idx],
+        X[val_idx],
+        y[val_idx],
+        weights[train_idx],
+        weights[val_idx],
+        100,
+        1e-5,
+    )
+
+    assert seen == [True, True]
+
+
+def test_quantile_cv_final_refit_marks_async_route_without_leaking(monkeypatch):
+    X, y, weights = _data(seed=16711, n=48)
+    seen = {}
+
+    def fake_fit(self, X_arg, y_arg, sample_weight=None):
+        seen["async_marker"] = bool(
+            getattr(self, "_quantile_cv_async_fista", False)
+        )
+        self.coef_ = np.zeros(X_arg.shape[1], dtype=np.float64)
+        self.intercept_ = 0.0
+        self.n_iter_ = 1
+        self._selected_solver = "fista"
+        self._selected_backend_name = "torch"
+        self._selected_backend_device = "cpu"
+        return self
+
+    monkeypatch.setattr(
+        PenalizedGeneralizedLinearModel,
+        "fit",
+        fake_fit,
+    )
+
+    cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.35},
+        penalty="l1",
+        alpha_grid=np.asarray([0.02], dtype=np.float64),
+        cv=2,
+        solver="fista",
+        device="cpu",
+        max_iter=100,
+        tol=1e-5,
+    )
+    # Exercise the accelerator-only final-refit branch without requiring CUDA
+    # in hosted CI; numerical execution itself is stubbed above.
+    cv._device = "torch"
+    monkeypatch.setattr(cv, "_solver_for_cv", lambda *args, **kwargs: "fista")
+
+    model = cv._refit_best(
+        X,
+        y,
+        0.02,
+        sample_weight=weights,
+    )
+
+    assert seen["async_marker"] is True
+    assert not hasattr(model, "_quantile_cv_async_fista")
+
+
+def test_quantile_fit_backend_passes_async_flag_only_for_marked_refit(monkeypatch):
+    import statgpu.solvers as solver_module
+
+    X, y, weights = _data(seed=16712, n=40)
+    observed = []
+
+    def fake_fista(
+        loss,
+        penalty,
+        X_arg,
+        y_arg,
+        *,
+        max_iter,
+        tol,
+        init_coef=None,
+        sample_weight=None,
+        lipschitz_L=None,
+        cv_mode=False,
+    ):
+        observed.append(bool(cv_mode))
+        return np.zeros(X_arg.shape[1], dtype=np.float64), 1
+
+    monkeypatch.setattr(solver_module, "fista_solver", fake_fista)
+
+    marked = PenalizedGeneralizedLinearModel(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.35},
+        penalty="l1",
+        alpha=0.02,
+        solver="fista",
+        device="cpu",
+        fit_intercept=False,
+        max_iter=100,
+        tol=1e-5,
+    )
+    marked._quantile_cv_async_fista = True
+    marked.fit(X, y, sample_weight=weights)
+
+    direct = PenalizedGeneralizedLinearModel(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.35},
+        penalty="l1",
+        alpha=0.02,
+        solver="fista",
+        device="cpu",
+        fit_intercept=False,
+        max_iter=100,
+        tol=1e-5,
+    )
+    direct.fit(X, y, sample_weight=weights)
+
+    assert observed == [True, False]
+
+
+def test_async_quantile_selective_l1_tracking_stays_batched(monkeypatch):
+    torch = pytest.importorskip("torch")
+
+    X = torch.eye(2, dtype=torch.float64)
+    y = torch.zeros(2, dtype=torch.float64)
+    loss = QuantileLoss(quantile=0.35)
+    penalty = SelectivePenalty()
+    penalty.configure(L1Penalty(alpha=0.2), p=1, backend="torch")
+
+    objective = torch.as_tensor(1.0, dtype=torch.float64)
+    grad_template = torch.full((2,), 1e-3, dtype=torch.float64)
+
+    def constant_fused_value_and_gradient(X_arg, y_arg, coef, sample_weight=None):
+        return objective.to(device=coef.device), grad_template.to(device=coef.device)
+
+    def constant_value(X_arg, y_arg, coef, sample_weight=None):
+        return objective.to(device=coef.device)
+
+    def forbidden_penalty_value(_coef):
+        raise AssertionError(
+            "SelectivePenalty.value must not add an async Quantile-L1 host sync"
+        )
+
+    monkeypatch.setattr(
+        loss,
+        "fused_value_and_gradient",
+        constant_fused_value_and_gradient,
+    )
+    monkeypatch.setattr(loss, "value", constant_value)
+    monkeypatch.setattr(penalty, "value", forbidden_penalty_value)
+
+    with pytest.warns(ConvergenceWarning):
+        fista_solver(
+            loss,
+            penalty,
+            X,
+            y,
+            max_iter=3,
+            tol=1e-30,
+            lipschitz_L=1.0,
+            cv_mode=True,
+        )
+
+
+def test_feature_penalty_width_mirrors_tracking_penalty_value():
+    import statgpu.solvers._fista as fista_mod
+
+    class _NFeaturesPenalty:
+        n_features = 2
+
+        def __init__(self):
+            self.inner = L1Penalty(alpha=0.3)
+
+        @property
+        def name(self):
+            return "l1"
+
+        @property
+        def alpha(self):
+            return self.inner.alpha
+
+        def value(self, coef):
+            return self.inner.value(coef[: self.n_features])
+
+    class _PWidthPenalty:
+        _p = 3
+        _alpha = 0.3
+
+        def __init__(self):
+            self.inner = L1Penalty(alpha=0.3)
+
+        @property
+        def name(self):
+            return "l1"
+
+        def value(self, coef):
+            return self.inner.value(coef[: self._p])
+
+    coef = np.arange(1.0, 6.0, dtype=np.float64)
+    cases = (
+        (_NFeaturesPenalty(), 2),
+        (_PWidthPenalty(), 3),
+        (L1Penalty(alpha=0.3), int(coef.size)),
+    )
+    for penalty, expected_width in cases:
+        width = fista_mod._feature_penalty_width(penalty, coef.size)
+        assert width == expected_width
+        alpha = float(
+            getattr(penalty, "_alpha", getattr(penalty, "alpha", 0.0))
+        )
+        batched = alpha * float(np.sum(np.abs(coef[:width])))
+        tracked = fista_mod._tracking_penalty_value(penalty, coef)
+        assert batched == pytest.approx(tracked, rel=0.0, abs=1e-12)
+
+
+def test_async_quantile_l1_stall_contracts_step_without_extra_penalty_sync(monkeypatch):
+    torch = pytest.importorskip("torch")
+    import statgpu.solvers._fista as fista_mod
+
+    X = torch.eye(2, dtype=torch.float64)
+    y = torch.zeros(2, dtype=torch.float64)
+    loss = QuantileLoss(quantile=0.35)
+    penalty = L1Penalty(alpha=0.0)
+
+    objective = torch.as_tensor(1.0, dtype=torch.float64)
+    grad_template = torch.full((2,), 1e-3, dtype=torch.float64)
+    steps = []
+
+    def constant_fused_value_and_gradient(X_arg, y_arg, coef, sample_weight=None):
+        return objective.to(device=coef.device), grad_template.to(device=coef.device)
+
+    def constant_value(X_arg, y_arg, coef, sample_weight=None):
+        return objective.to(device=coef.device)
+
+    original_proximal = penalty.proximal
+
+    def recording_proximal(w, step, backend="numpy"):
+        steps.append(float(step))
+        return original_proximal(w, step, backend=backend)
+
+    def forbidden_penalty_value(_coef):
+        raise AssertionError(
+            "async Quantile-L1 tracking must use the batched device reduction"
+        )
+
+    monkeypatch.setattr(
+        loss,
+        "fused_value_and_gradient",
+        constant_fused_value_and_gradient,
+    )
+    monkeypatch.setattr(loss, "value", constant_value)
+    monkeypatch.setattr(penalty, "proximal", recording_proximal)
+    monkeypatch.setattr(penalty, "value", forbidden_penalty_value)
+
+    with pytest.warns(ConvergenceWarning) as caught:
+        _, n_iter = fista_mod.fista_solver(
+            loss,
+            penalty,
+            X,
+            y,
+            max_iter=55,
+            tol=1e-30,
+            lipschitz_L=1.0,
+            cv_mode=True,
+        )
+
+    assert n_iter == 55
+    assert steps[0] == pytest.approx(1.0)
+    assert min(steps) == pytest.approx(0.5)
+    message = str(caught[-1].message)
+    assert "Async diagnostics:" in message
+    assert "step_contractions=1" in message
+    assert "last_step=0.5" in message
+
+
+def test_async_quantile_l1_caps_nesterov_momentum_without_affecting_smooth_path(monkeypatch):
+    torch = pytest.importorskip("torch")
+    import statgpu.solvers._fista as fista_mod
+
+    X_np = np.asarray(
+        [[1.0, 0.0], [-1.0, 0.0], [0.0, 1.0], [0.0, -1.0]],
+        dtype=np.float64,
+    )
+    y_np = np.zeros(X_np.shape[0], dtype=np.float64)
+    X = torch.as_tensor(X_np, dtype=torch.float64)
+    y = torch.as_tensor(y_np, dtype=torch.float64)
+
+    original_update = fista_mod._nesterov_update
+    observed_caps = []
+
+    def recording_update(coef, coef_old, t_k, beta_cap=None):
+        observed_caps.append(beta_cap)
+        return original_update(coef, coef_old, t_k, beta_cap=beta_cap)
+
+    monkeypatch.setattr(fista_mod, "_nesterov_update", recording_update)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        fista_mod.fista_solver(
+            QuantileLoss(quantile=0.35),
+            L1Penalty(alpha=0.02),
+            X,
+            y,
+            max_iter=20,
+            tol=1e-5,
+            cv_mode=True,
+        )
+
+    assert observed_caps
+    assert all(cap == pytest.approx(0.5) for cap in observed_caps)
+
+    observed_caps.clear()
+    y_smooth = torch.as_tensor(
+        [1.0, -0.4, 0.7, -1.2],
+        dtype=torch.float64,
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ConvergenceWarning)
+        fista_mod.fista_solver(
+            QuantileLoss(quantile=0.35),
+            L2Penalty(alpha=0.0),
+            X,
+            y_smooth,
+            max_iter=2,
+            tol=1e-30,
+            cv_mode=False,
+        )
+
+    assert observed_caps
+    assert all(cap is None for cap in observed_caps)
+
+
+def test_smooth_quantile_torch_batches_armijo_and_convergence_sync(monkeypatch):
+    torch = pytest.importorskip("torch")
+    import statgpu.solvers._fista as fista_mod
+
+    X_np = np.asarray(
+        [
+            [1.0, 0.0],
+            [-1.0, 0.0],
+            [0.0, 1.0],
+            [0.0, -1.0],
+        ],
+        dtype=np.float64,
+    )
+    y_np = np.zeros(X_np.shape[0], dtype=np.float64)
+    X = torch.as_tensor(X_np, dtype=torch.float64)
+    y = torch.as_tensor(y_np, dtype=torch.float64)
+
+    calls = {"sync": 0, "to_float": 0}
+    original_sync = fista_mod._sync_scalars
+    original_to_float = fista_mod._to_float_scalar
+    penalty = L2Penalty(alpha=0.1)
+
+    def recording_sync(*args, **kwargs):
+        calls["sync"] += 1
+        return original_sync(*args, **kwargs)
+
+    def recording_to_float(*args, **kwargs):
+        calls["to_float"] += 1
+        return original_to_float(*args, **kwargs)
+
+    def forbidden_penalty_value(_coef):
+        raise AssertionError(
+            "smooth Quantile GPU tracking must use the Armijo-batched L2 value"
+        )
+
+    monkeypatch.setattr(fista_mod, "_sync_scalars", recording_sync)
+    monkeypatch.setattr(fista_mod, "_to_float_scalar", recording_to_float)
+    monkeypatch.setattr(penalty, "value", forbidden_penalty_value)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        coef, n_iter = fista_mod.fista_solver(
+            QuantileLoss(quantile=0.5),
+            penalty,
+            X,
+            y,
+            max_iter=10,
+            tol=1e-8,
+        )
+
+    assert n_iter == 1
+    torch.testing.assert_close(coef, torch.zeros_like(coef), rtol=0.0, atol=0.0)
+    # The accepted Armijo trial and convergence decision share one batched
+    # synchronization; there is no separate host scalar conversion.
+    assert calls == {"sync": 1, "to_float": 0}
+
+
+def test_smooth_quantile_fista_numpy_torch_point_parity_matches_public_fixture():
+    torch = pytest.importorskip("torch")
+
+    rng = np.random.default_rng(16692 + 31)
+    X = rng.normal(size=(80, 1)).astype(np.float64)
+    y = (
+        0.35
+        + 0.75 * X[:, 0]
+        + rng.laplace(scale=0.22, size=80)
+    ).astype(np.float64)
+    X_aug = np.column_stack([X, np.ones(X.shape[0], dtype=np.float64)])
+    loss = QuantileLoss(quantile=0.20)
+    penalty = L2Penalty(alpha=0.0)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        cpu_params, cpu_n_iter = fista_solver(
+            loss,
+            penalty,
+            X_aug,
+            y,
+            max_iter=1600,
+            tol=1e-7,
+        )
+        torch_params, torch_n_iter = fista_solver(
+            QuantileLoss(quantile=0.20),
+            L2Penalty(alpha=0.0),
+            torch.as_tensor(X_aug, dtype=torch.float64),
+            torch.as_tensor(y, dtype=torch.float64),
+            max_iter=1600,
+            tol=1e-7,
+        )
+
+    torch_params_np = torch_params.detach().cpu().numpy()
+    np.testing.assert_allclose(
+        torch_params_np,
+        np.asarray(cpu_params, dtype=np.float64),
+        rtol=0.0,
+        atol=2e-5,
+    )
+    assert 1 <= cpu_n_iter <= 1600
+    assert 1 <= torch_n_iter <= 1600
+
+
+def test_fista_last_allowed_iteration_convergence_is_not_false_exhaustion():
+    X = np.eye(2, dtype=np.float64)
+    y = np.zeros(2, dtype=np.float64)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        coef, n_iter = fista_solver(
+            SquaredErrorLoss(),
+            L2Penalty(alpha=0.1),
+            X,
+            y,
+            max_iter=1,
+            tol=1e-12,
+        )
+
+    assert n_iter == 1
+    np.testing.assert_array_equal(coef, np.zeros(2, dtype=np.float64))
+
+
+def test_explicit_l2_quantile_fista_matches_irls_objective():
+    X, y, weights = _data(seed=16682, n=96)
+    common = dict(
+        quantile=0.4,
+        penalty="l2",
+        alpha=0.02,
+        device="cpu",
+        max_iter=5000,
+        tol=1e-8,
+    )
+    fista = PenalizedQuantileRegression(solver="fista", **common).fit(
+        X, y, sample_weight=weights
+    )
+    irls = PenalizedQuantileRegression(solver="irls", **common).fit(
+        X, y, sample_weight=weights
+    )
+
+    fista_obj = _objective(fista, X, y, weights, 0.4, 0.02)
+    irls_obj = _objective(irls, X, y, weights, 0.4, 0.02)
+    assert abs(fista_obj - irls_obj) <= 5e-4
+
+
+def test_explicit_no_penalty_quantile_fista_matches_sklearn_objective():
+    sklearn_linear = pytest.importorskip("sklearn.linear_model")
+    X, y, _ = _data(seed=16683, n=64)
+    q = 0.3
+
+    model = PenalizedQuantileRegression(
+        quantile=q,
+        penalty="none",
+        alpha=0.0,
+        solver="fista",
+        device="cpu",
+        max_iter=5000,
+        tol=1e-8,
+    ).fit(X, y)
+    reference = sklearn_linear.QuantileRegressor(
+        quantile=q,
+        alpha=0.0,
+        fit_intercept=True,
+        solver="highs",
+    ).fit(X, y)
+
+    pred = X @ model.coef_ + model.intercept_
+    pred_ref = X @ reference.coef_ + reference.intercept_
+    u = y - pred
+    u_ref = y - pred_ref
+    obj = float(np.mean(np.where(u >= 0.0, q * u, (q - 1.0) * u)))
+    obj_ref = float(
+        np.mean(np.where(u_ref >= 0.0, q * u_ref, (q - 1.0) * u_ref))
+    )
+    assert obj - obj_ref <= 5e-4
+
+
+def test_quantile_cv_explicit_l2_fista_uses_fista_for_children_and_refit(monkeypatch):
+    X, y, weights = _data(seed=16684, n=60)
+
+    def forbidden_irls(*args, **kwargs):
+        raise AssertionError("explicit Quantile FISTA CV must not call QuantileLoss.irls")
+
+    monkeypatch.setattr(QuantileLoss, "irls", forbidden_irls)
+    cv = PenalizedGLM_CV(
+        loss="quantile",
+        loss_kwargs={"quantile": 0.45},
+        penalty="l2",
+        alpha_grid=np.array([0.03], dtype=np.float64),
+        cv=2,
+        random_state=166,
+        solver="fista",
+        device="cpu",
+        max_iter=2500,
+        tol=1e-7,
+        cv_strategy="strict",
+    ).fit(X, y, sample_weight=weights)
+
+    assert cv._solver_for_cv("cpu", X=X) == "fista"
+    assert cv.estimator_._selected_solver == "fista"
+    assert cv.alpha_ == pytest.approx(0.03)
+    assert np.all(np.isfinite(cv.coef_))
+
+
+def test_smooth_quantile_fista_installer_is_idempotent_and_signature_safe():
+    from statgpu.linear_model.penalized import _fit_mixin
+    from statgpu.linear_model.penalized import _quantile_solver_contract
+    from statgpu.linear_model.penalized import _quantile_smooth_fista_contract as contract
+
+    before_fit = _fit_mixin._PenalizedFitMixin._fit_loss_backend
+    before_validate = _quantile_solver_contract._validate_quantile_solver_request
+    fit_signature = inspect.signature(before_fit)
+    validate_signature = inspect.signature(before_validate)
+
+    contract.install_quantile_smooth_fista_contract()
+
+    assert _fit_mixin._PenalizedFitMixin._fit_loss_backend is before_fit
+    assert _quantile_solver_contract._validate_quantile_solver_request is before_validate
+    assert inspect.signature(before_fit) == fit_signature
+    assert inspect.signature(before_validate) == validate_signature
+    assert hasattr(before_fit, "__wrapped__")
+    assert hasattr(before_validate, "__wrapped__")

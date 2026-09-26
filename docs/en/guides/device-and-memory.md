@@ -1,71 +1,82 @@
 # Device and GPU Memory
 
 > Language: English  
-> Last updated: 2026-06-01
-> This page: Guide  
+> Last updated: 2026-09-17  
+> This page: device selection and user-visible GPU memory controls  
 > Switch: [Chinese](../../cn/guides/device-and-memory.md)
 
-Language switch: [Chinese](../../cn/guides/device-and-memory.md)
+## Device selection
 
-## Device Selection
+For estimators that expose a `device` parameter, statgpu uses the following meanings:
 
-Every estimator supports:
-- `device="cpu"`
-- `device="cuda"`
-- `device="torch"`
-- `device="auto"` (default)
+- `device="cpu"` — request NumPy CPU computation;
+- `device="cuda"` — request CuPy CUDA computation;
+- `device="torch"` — request Torch CUDA computation;
+- `device="auto"` — allow statgpu to choose among supported available backends.
 
-Device purity rules:
-- `device="cpu"` keeps core fit/predict/score computation on NumPy.
-- `device="cuda"` uses CuPy for core computation. If CuPy/CUDA is unavailable, statgpu raises an error instead of falling back to CPU.
-- `device="torch"` uses Torch CUDA for core computation. If Torch CUDA is unavailable, statgpu raises an error instead of using Torch CPU.
-- `device="auto"` is the only mode allowed to choose another available backend automatically.
-- Formula/DataFrame parsing can run on CPU as preprocessing, but model computation is converted to the selected backend.
+An explicit accelerator request is authoritative. If the requested CuPy/Torch CUDA backend is unavailable, statgpu raises an error rather than silently replacing the fit with a CPU calculation.
 
-## CPU/GPU Transfer Optimizations
+Model-specific backend coverage can be narrower than the generic device vocabulary. Check the relevant model page or [Implemented Methods](implemented-methods.md) when a particular backend is required.
 
-statgpu now keeps common GPU-to-GPU conversions off the host when possible:
+## Input conversion and preprocessing
 
-- CuPy -> Torch CUDA conversions prefer DLPack zero-copy sharing.
-- Torch CUDA -> CuPy conversions prefer DLPack zero-copy sharing.
-- NumPy -> Torch CUDA transfers use pinned host memory with `non_blocking=True` when PyTorch accepts it.
-- If a DLPack or pinned-memory path is unavailable in the current environment, statgpu falls back to the existing safe conversion path.
+Formula/DataFrame parsing and other metadata preparation may occur on CPU before numerical model computation. This does not change the selected numerical backend: arrays used by the model are converted to the requested backend before the supported numerical path runs.
 
-These optimizations are implementation details and do not change device purity:
-explicit `device="cuda"` still requires CuPy/CUDA, and explicit `device="torch"`
-still requires Torch CUDA.
+Transfers between NumPy, CuPy, and Torch may use optimized mechanisms internally. Applications should rely on the resulting device semantics, not on a particular transfer implementation such as DLPack or pinned memory.
 
-Solver coverage for GLM-style estimators:
+## Automatic device selection
 
-| Solver | NumPy | CuPy | Torch |
-|---|---|---|---|
-| `exact` | yes | yes | yes |
-| `fista` | yes | yes | yes |
-| `irls` | yes | yes | yes |
-| `newton` | smooth objectives | smooth objectives | smooth objectives |
-| `lbfgs` | smooth objectives | smooth objectives | smooth objectives |
+`device="auto"` may choose a backend from availability, input/workload characteristics, and estimator-specific performance heuristics. Those size thresholds are implementation details and may change as kernels and benchmarks improve.
 
-Non-smooth penalties such as L1 and ElasticNet use FISTA. Newton/L-BFGS with non-smooth penalties raises `ValueError`.
+If reproducible hardware placement matters, use an explicit device rather than depending on an internal `auto` threshold.
 
-## GPU Memory Cleanup: `gpu_memory_cleanup`
+## Solver compatibility is documented separately
 
-Supported by all current models:
-- `LinearRegression`
-- `Ridge`
-- `Lasso`
-- `LogisticRegression`
-- `CoxPH`
-- `CoxPHCV`
+Device support and solver compatibility are different questions. A backend can be available while a particular loss × penalty × solver combination is unsupported.
 
-Behavior:
-- `gpu_memory_cleanup=False` (default): better repeated-fit throughput due to CuPy pool reuse.
-- `gpu_memory_cleanup=True`: frees CuPy pool blocks and asks Torch CUDA to release cached blocks after public GPU work, usually lowering steady VRAM usage.
+Use:
+
+- [Solver × Penalty Matrix](solver-penalty-matrix.md) for compatibility;
+- [Solver Algorithms](solver-algorithms.md) for algorithm definitions;
+- the relevant model page for model-specific restrictions.
+
+This page does not duplicate those matrices.
+
+## GPU memory cleanup
+
+Some GPU-capable estimators expose `gpu_memory_cleanup`.
+
+- `gpu_memory_cleanup=False` (default where exposed) favors repeated-fit throughput by allowing backend memory pools/caches to retain reusable allocations.
+- `gpu_memory_cleanup=True` asks the estimator to release reclaimable cached GPU memory at its documented cleanup points, which can reduce steady GPU-memory usage at the cost of some reuse.
 
 Example:
 
 ```python
 from statgpu.linear_model import Ridge
 
-model = Ridge(alpha=1.0, device="cuda", gpu_memory_cleanup=True)
+model = Ridge(
+    alpha=1.0,
+    device="cuda",
+    gpu_memory_cleanup=True,
+)
 model.fit(X, y)
 ```
+
+The option does not mean that fitted state needed for `predict()`, `score()`, or supported inference is discarded. Estimators only expose cleanup behavior at points compatible with their fitted-state contract.
+
+## When to enable cleanup
+
+`gpu_memory_cleanup=True` is useful when:
+
+- several models share a GPU;
+- memory pressure matters more than repeated-fit latency;
+- a long-running process should return reclaimable pool memory between fits.
+
+Leaving it disabled is often preferable when repeatedly fitting the same kind of model and maximum throughput matters.
+
+## Related documentation
+
+- [Implemented Methods](implemented-methods.md) — model/backend inventory
+- [Cross-Validation](cross-validation.md) — device behavior during selection and refit
+- [Solver × Penalty Matrix](solver-penalty-matrix.md) — solver compatibility
+- [PyTorch Backend](pytorch-backend.md) — PyTorch-specific usage

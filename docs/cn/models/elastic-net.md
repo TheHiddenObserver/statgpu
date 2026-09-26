@@ -1,9 +1,9 @@
 # Elastic Net 弹性网络
 
-> Language: Chinese (中文)  
-> Last updated: 2026-09-10<br>
-> This page: 模型文档  
-> Language switch: [English](../../en/models/elastic-net.md)
+> 语言：中文  
+> 最后更新：2026-09-23<br>
+> 页面定位：模型文档  
+> 切换：[English](../../en/models/elastic-net.md)
 
 ## 概述
 
@@ -40,7 +40,7 @@ $$
 
 ## 估计算法
 
-默认路径使用 **FISTA**（快速迭代收缩阈值算法），即带 Nesterov 加速的近端梯度法。其他求解器是否可用取决于公开 solver compatibility contract。
+默认路径使用 **FISTA**（快速迭代收缩阈值算法），即带 Nesterov 加速的近端梯度法。其他求解器是否可用取决于公开的求解器兼容契约。
 
 ### 关键优化洞察
 
@@ -162,23 +162,23 @@ $$
 
 `post_selection_ols` 是与硬件无关的规范活跃集诊断。统一 wrapper 中历史 `cpu_ols` 与 `gpu_ols` 同时进入弃用期，一个兼容周期内仍接受并发出 `FutureWarning`，随后映射到 `post_selection_ols`；它们不负责选择设备。
 
-`post_selection_ols` 会先使用 penalized model 的 fitted coefficients 确定活跃集，再在成功拟合所记录的后端上，只对该活跃集做无惩罚 OLS；传入 `sample_weight` 时做 WLS。原始 penalized `coef_` 保持不变并继续用于预测，活跃集重拟合通过 `_params` / `_inference_result` 等字段参与推断与报告。
+`post_selection_ols` 会先使用惩罚模型的已拟合系数确定活跃集，再在成功拟合所记录的后端上，只对该活跃集做无惩罚 OLS；传入 `sample_weight` 时做 WLS。原始惩罚 `coef_` 保持不变并继续用于预测，活跃集重拟合通过 `_params` / `_inference_result` 等字段参与推断与报告。
 
-选择后 OLS 仍是启发式诊断，不提供一般选择性推断覆盖保证。推断条件于已选择的正则化参数，并不会改变 penalized coefficients。
+选择后 OLS 仍是启发式诊断，不提供一般选择性推断覆盖保证。推断条件于已选择的正则化参数，并不会改变惩罚系数。
 
-设备选择与统计方法正交：显式 `cpu` / `cuda` / `torch` 始终具有权威性；只有真正的 `device="auto"` 才允许 backend-native CuPy 或 Torch-CUDA 输入参与自动路由。`post_selection_ols` 复用 fit-resolved backend；维护中的 CuPy/Torch `debiased` 路径也会把数值推断留在实际执行的 GPU backend，包括 normal-reference 的 scalar critical value。残差 `bootstrap` 当前仍是 CPU-native residual-refit 路径；显式 GPU `device` 会控制 penalized fit，但不会让 bootstrap 变成 GPU-native。
+设备选择与统计方法正交：显式 `cpu` / `cuda` / `torch` 始终具有权威性；只有真正的 `device="auto"` 才允许后端原生的 CuPy 或 Torch-CUDA 输入参与自动路由。`post_selection_ols` 复用拟合解析出的后端；维护中的 CuPy/Torch `debiased` 路径也会把数值推断留在实际执行的 GPU 后端，包括正态参考分布的标量临界值。残差 `bootstrap` 当前仍是 CPU 原生的残差重拟合路径；显式 GPU `device` 会控制惩罚拟合，但不会让 bootstrap 变成 GPU 原生。
 
-对于带截距的 `debiased` inference，公开 `coef_`/`intercept_` 继续属于 **penalized prediction fit**。推断/reporting 使用 debiased slopes `_params[1:]`，以及与它们配套的原始坐标系截距 `_params[0] = ybar_w - xbar_w @ _params[1:]`；因此第一行 SE/z/p-value/CI 描述的是该 debiased reporting intercept，而不是 prediction `intercept_`。result metadata 会记录 `intercept_estimator="centered_debiased"` 与 `intercept_influence="centered_nodewise"`。分析权重在 NumPy/CuPy/Torch 上使用同一个加权中心化平均损失问题，因此整体乘以正常数不会改变这套推断。
+对于带截距的 `debiased` 推断，公开 `coef_`/`intercept_` 继续属于 **惩罚预测拟合**。推断/报告使用 debiased 斜率 `_params[1:]`，以及与它们配套的原始坐标系截距 `_params[0] = ybar_w - xbar_w @ _params[1:]`；因此第一行 SE/z/p-value/CI 描述的是该 debiased 报告截距，而不是预测 `intercept_`。结果元数据会记录 `intercept_estimator="centered_debiased"` 与 `intercept_influence="centered_nodewise"`。分析权重在 NumPy/CuPy/Torch 上使用同一个加权中心化平均损失问题，因此整体乘以正常数不会改变这套推断。
 
-对于 `ElasticNetCV`，`compute_inference=True` 仅作用于 alpha 与 `l1_ratio` 选定后的最终全数据重拟合；各折模型仍仅用于估计和评分。`nodewise_alpha` 也只属于最终重拟合的推断配置，不进入候选网格或折内评分；推断成功时，外层 `nodewise_alpha_` 与最终 `estimator_` 一致。当前 `ElasticNetCV` 仍固定最终推断方法为 `debiased`，这是既有的 inference-selector 限制，与本次逐节点调参修复分开处理。
+对于 `ElasticNetCV`，`compute_inference=True` 仅作用于 alpha 与 `l1_ratio` 选定后的最终全数据重拟合；各折模型仍仅用于估计和评分。`nodewise_alpha` 也只属于最终重拟合的推断配置，不进入候选网格或折内评分；推断成功时，外层 `nodewise_alpha_` 与最终 `estimator_` 一致。当前 `ElasticNetCV` 仍固定最终推断方法为 `debiased`，这是既有的推断方法选择限制，与本次逐节点调参修复分开处理。
 
 ## 求解器与推断语义
 
-对于直接 `ElasticNet.fit`，**CPU 与 GPU 都使用 `solver`**。`device` 决定执行后端，`solver` 决定优化算法。`cpu_solver` 是早期 hardware-split API 的弃用兼容参数，新代码不应继续使用。
+对于直接 `ElasticNet.fit`，**CPU 与 GPU 都使用 `solver`**。`device` 决定执行后端，`solver` 决定优化算法。`cpu_solver` 是早期按硬件拆分 API 的弃用兼容参数，新代码不应继续使用。
 
 同样，需要活跃集 OLS/WLS 诊断时应使用 `inference_method="post_selection_ols"`，而不是根据硬件去选 `cpu_ols` 或 `gpu_ols`；后两者只是同一个统计方法的弃用别名。
 
-`compute_inference=False` 只返回 penalized estimate；开启推断后保留同一拟合系数，再运行所选 post-fit inference method。
+`compute_inference=False` 只返回惩罚估计；开启推断后保留同一拟合系数，再运行所选拟合后推断方法。
 
 ## 输出属性
 
@@ -186,20 +186,20 @@ $$
 
 | 属性 | 说明 |
 |------|------|
-| `coef_` | 用于预测的 penalized coefficients |
-| `intercept_` | 用于预测的 penalized fitted intercept |
+| `coef_` | 用于预测的惩罚系数 |
+| `intercept_` | 用于预测的惩罚拟合截距 |
 | `n_iter_` | 收敛所需迭代次数 |
 | `nodewise_alpha_` | 多特征 `debiased` 推断成功后解析出的逐节点调参值；其他情况为 `None` |
-| `_params` | 推断成功时的 reporting 参数向量；`debiased` 下包含 coherent debiased intercept 与 debiased slopes；`post_selection_ols` 下是嵌入完整参数布局的 active-set OLS/WLS 重拟合 |
-| `_inference_result` | structured inference result，以及数值后端与逐节点调参 metadata |
-| `aic` | 可用时的兼容性 plug-in 拟合诊断；不是 penalty-aware 有效自由度准则 |
-| `bic` | 可用时的兼容性 plug-in 拟合诊断；不是 penalty-aware 有效自由度准则 |
+| `_params` | 推断成功时的报告参数向量；`debiased` 下包含一致的 debiased 截距与 debiased 斜率；`post_selection_ols` 下是嵌入完整参数布局的活跃集 OLS/WLS 重拟合 |
+| `_inference_result` | 结构化推断结果，以及数值后端与逐节点调参元数据 |
+| `aic` | 可用时的兼容性 plug-in 拟合诊断；不是感知惩罚的有效自由度准则 |
+| `bic` | 可用时的兼容性 plug-in 拟合诊断；不是感知惩罚的有效自由度准则 |
 
 方法：`fit(X, y)`, `predict(X)`, `score(X, y)`, `summary()`
 
 ## 数值验证
 
-维护中的回归测试会按 dtype 与 solver path 检查支持后端之间及与参考实现的数值一致性。solver API 迁移行为由 `dev/tests/test_penalized_solver_api_cleanup.py` 覆盖；逐节点调参契约由 `dev/tests/test_nodewise_alpha_inference_contract.py` 覆盖；post-selection OLS API 迁移与 active-set OLS/WLS 行为由 `dev/tests/test_post_selection_ols_inference_api.py` 覆盖。
+维护中的回归测试会按 dtype 与求解器路径检查支持后端之间及与参考实现的数值一致性。求解器 API 迁移行为由 `dev/tests/test_penalized_solver_api_cleanup.py` 覆盖；逐节点调参契约由 `dev/tests/test_nodewise_alpha_inference_contract.py` 覆盖；post-selection OLS API 迁移与活跃集 OLS/WLS 行为由 `dev/tests/test_post_selection_ols_inference_api.py` 覆盖。
 
 ## 参考文献
 

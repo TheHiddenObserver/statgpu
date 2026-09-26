@@ -1,135 +1,153 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-09-16<br>
+> 最后更新：2026-09-23<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
-## 未发布 — Quantile solver provenance 对齐（PR #164 / Issue #163，目标 0.2.6）
+## 未发布 — Quantile 求解器与推断更新（PR #166，目标 0.2.6）
 
 ### 修复
 
-- Penalized Quantile 的 solver identity 现在与实际执行算法一致。L2/无惩罚的 `solver="auto"` 解析为普通 Quantile IRLS，L1/ElasticNet 继续使用维护中的 FISTA family，SCAD/MCP 解析为专用 Proximal IRLS-CD。`proximal_irls_cd` 仍然只是内部 resolved/executed provenance label，不成为公开可显式请求的 `solver=` keyword。
-- 不兼容的显式 Quantile solver 请求现在会在 numerical dispatch 或 CV grid work 之前 fail closed，不再静默执行另一种算法。direct fit、CV candidate/fold 与 selected full-data refit 的 requested/resolved/executed solver identity 因而保持一致。
-- 非中位数 Quantile CV 评分会保留调用者配置的 quantile level，包括 analytic validation weights；typed `PenalizedQuantileRegression(quantile=q)` 也会在 clone-safe construction、adaptive-L1 initialization 与 `score()` 中保留同一个 `q`。
-- SCAD/MCP Quantile 的 intercept 现在作为 pinball objective 中不受惩罚的 coordinate 直接优化。若 LLA surrogate 完全变平，则通过维护中的完整 `QuantileLoss.irls()` kernel 闭合，而不是继续使用 diagonal approximation。
-- Torch Quantile execution 现在会让 L2 penalty diagonal、IRLS warm start、Proximal IRLS-CD 的 epsilon/threshold/tolerance scalar 以及 fallback weights 始终跟随当前 tensor 的 dtype/device；warm start 使用 Torch-native clone，而不是 NumPy/CuPy 的 `.copy()` 路径。
+- **公开 Quantile 求解器边界**：直接拟合、交叉验证和公开底层接口现在采用一致的响应/设计矩阵形状、停止条件、延续路径、样本权重和求解器兼容性规则。普通 FISTA，以及底层普通 L-BFGS 在未传权重或均匀权重下的历史兼容行为继续保留；FISTA-BB、共享 ADMM、Newton、Proximal Newton 和 L-BFGS-B 会在数值迭代前明确拒绝 Quantile。历史 `quantile_cd_solver` 会忽略 `sample_weight`，且不能可靠表示不受惩罚的截距，因此仅保留名称的导入兼容性，调用时直接报错；标量 SCAD/MCP 使用 Proximal IRLS-CD。
+- **直接拟合与交叉验证的输入对齐**：Quantile 的响应变量校验保持在当前数值后端上执行，并统一覆盖通用/类型化直接拟合与 `PenalizedGLM_CV`；公开底层 Quantile 路径也会在开始数值计算前拒绝含 NaN/Inf 的 `X/y`。非法的自定义交叉验证折和权重总质量为 0 的折，会在自动构造 `alpha` 网格之前报错；延续路径尺度、自适应/分组惩罚的归属关系与实际拟合目标保持一致。预测和评分会拒绝非法形状，不再允许 NumPy 广播产生外形正常但语义错误的结果。
+- **独立 `QuantileRegression` 的推断正确性**：进行残差重抽样前，先按目标分位数的经验分位点对拟合残差做中心化，使重抽样误差分布的经验 τ 分位数为 0；随后每个重拟合样本都使用后端原生的批量 Quantile IRLS/MM，求解调用者请求的 Quantile 目标。多特征、非中位数的 bootstrap 重拟合目标已与独立 Quantile 线性规划解对齐，替代此前可能在 pinball 最优点之上提前停止的批量次梯度/FISTA 路径。真正非均匀解析权重下的独立模型推断会明确报错，因为当前尚未实现相应的加权核方法/bootstrap 推断；均匀权重继续对应等价的未加权推断目标。这里的 bootstrap 是基于可交换中心化残差的 i.i.d. 残差 bootstrap，不将其描述为对一般异方差稳健的 wild/multiplier bootstrap。
+- **独立模型的推断生命周期与参数校验**：bootstrap 至少需要 2 次重抽样；非法的推断方法、核函数、带宽、停止条件、布尔参数或分位数设置会在进入后端数值计算前报错。Hall-Sheather、Bofinger 和 Chamberlain 规则在 `q ± h` 离开 `(0,1)`、最终带宽不是有限正数，或零点残差密度估计不是有限正数时，都会在发布协方差前报错。`score()` 按文档返回负 pinball loss，并支持可选解析权重。失败拟合不会保留半成品推断结果；`gpu_memory_cleanup=True` 也会正确识别执行记录中的 CuPy 后端，并覆盖成功与失败路径。
+- **运行时帮助与 API 文档**：Quantile 次梯度的运行时帮助与实际导数保持一致；通用带惩罚模型的运行时帮助明确列出公开的 Quantile 损失接口。求解器封装在重新加载和不同导入顺序下保持安全，同时保留历史公开模块的导入身份。
+- **光滑 Quantile FISTA 的后端一致性**：NumPy、CuPy 与 Torch 的 L2/无惩罚 Quantile 回溯路径采用与 CPU 一致的逐迭代“已接受点 + 目标稳定性”收敛语义。GPU 路径把已接受候选点的目标值、系数变化和 L2 跟踪量合并到该次 Armijo 检查原本就需要的同步中，避免额外的收敛检查或惩罚跟踪主机同步。
+- **异步稀疏 Quantile FISTA**：异步非光滑 Quantile 交叉验证继续采用延迟检查，将 Nesterov 动量上限设为 `0.5`；只有在预热阶段之后连续两次目标检查都没有达到容差尺度的改善时，才把固定步长减半并重启动量。自适应控制复用已有的延迟同步，并把 L1 惩罚跟踪合并到同一次检查中，因此不会增加主机同步。GPU 上的 Quantile 稀疏交叉验证会对每个折中的 L1/ElasticNet/Adaptive-L1 候选模型以及最终全数据重拟合统一使用维护中的异步/自适应 FISTA；此前这些内部 `model.fit()` 调用可能回落到通用 pinball 回溯，并在非光滑折点处触发 Armijo 失败。普通直接 Quantile FISTA 的公开行为不变。
+- **独立线性规划验证基准**：物理验收中的异步加权 L1 用例改用 SciPy/HiGHS 的线性规划最优值作为独立参考。在这组确定性数据上，CPU 通用 FISTA 的诊断目标值比真实凸最优值高约 `8.939e-4`，因此不再把“接近 CPU FISTA”作为正确性标准；原有 `5e-4` 阈值没有放宽，而是直接针对线性规划最优目标。schema v23 还把 L1 交叉验证的逐折/逐 `alpha` 验证得分、最终选择的 `alpha` 和最终全数据惩罚目标全部改为使用独立 HiGHS 线性规划参考。固定用例上 CPU 交叉验证得分相对线性规划的最大偏差达到 `3.1335e-3`，因此 CPU 结果只保留作诊断参考；GPU 得分和最终重拟合目标的容差均未放宽。
 
 ### 验证
 
-- 精确干净的 numerical source `2de971402004efc703dc98f510942db3980988e4` 已在 Tesla P100-SXM2-16GB 上通过冻结的 schema-v1 physical gate，环境为 CuPy 13.6.0、Torch 2.0.0+cu117、NumPy 1.24.2、Python 3.9.16。CuPy/Torch CUDA 的 direct/CV 共 **12/12** case 全部通过，并记录具体 `cuda:0` provenance 与预期的 IRLS/FISTA/`proximal_irls_cd` solver identity。
-- 冻结 tolerance 没有放宽：L2 coefficient/intercept 最大误差为 `6.938893903907228e-15`（阈值 `2e-5`），L2 CV-score 最大误差为 `7.965850201685498e-15`（阈值 `2e-5`），SCAD penalized-objective 最大误差为 `1.4085439563257807e-06`（阈值 `2e-4`）。
-- canonical exact-source artifact 为 `dev/reviews/pr164_quantile_solver_provenance_gpu.json`。commit `230eaebbd4dfaf090e84011fe0eb190339389411` 直接位于已验证 numerical source 之上，并且只新增该 artifact。后续 release/changelog 收尾严格属于 documentation-only，并显式复用这一 immutable numerical-source acceptance；任何 numerical、validator、solver、backend 或 tolerance 变化都会重新要求 physical rerun。
+- 新增有针对性的回归测试，覆盖 Python 版本下的测试收集安全性、公开求解器别名与重新加载幂等性、底层形状/路径/权重拒绝、直接拟合与交叉验证的响应校验、预测/评分的广播保护、Torch 响应后端保持、独立模型的失败事务/参数控制/内存清理、核方法带宽定义域失败，以及一个 `tau=0.2` 的集成批量 bootstrap 检查，用于区分调用者请求的分位数与错误的互补分位数方向。
+- 扩展 CUDA 回归覆盖，加入非均匀加权 L1 FISTA、独立模型 bootstrap、自动 Group SCAD/MCP 直接拟合/交叉验证、加权标量底层 FISTA-LLA 刷新、平坦 IRLS 行为，以及 Group LLA 导数在 CuPy/Torch 上的设备驻留检查。
+
+## 未发布 — Quantile 求解器来源对齐（PR #164 / Issue #163，目标 0.2.6）
+
+### 修复
+
+- Penalized Quantile 的求解器身份现在与实际执行算法一致。L2/无惩罚的 `solver="auto"` 解析为普通 Quantile IRLS，L1/ElasticNet 继续使用维护中的 FISTA 系列，SCAD/MCP 解析为专用 Proximal IRLS-CD。`proximal_irls_cd` 仍然只是内部记录解析结果与实际执行的标签，不成为公开可显式请求的 `solver=` 关键字。
+- 不兼容的显式 Quantile 求解器请求现在会在进入数值调度或 CV 网格计算之前直接报错，不再静默执行另一种算法。直接拟合、CV 候选与折、以及选定的全数据重拟合的请求/解析/实际执行求解器身份因而保持一致。
+- 非中位数 Quantile CV 评分会保留调用者配置的分位数水平，包括使用解析验证权重时；类型化 `PenalizedQuantileRegression(quantile=q)` 也会在克隆安全的构造、自适应 L1 初始化与 `score()` 中保留同一个 `q`。
+- SCAD/MCP Quantile 的截距现在作为 pinball 目标中不受惩罚的坐标直接优化。若 LLA 替代目标完全变平，则通过维护中的完整 `QuantileLoss.irls()` 内核闭合，而不是继续使用对角近似。
+- Torch 上的 Quantile 执行现在会让 L2 惩罚对角项、IRLS 热启动、Proximal IRLS-CD 的 epsilon/threshold/tolerance 标量以及回退权重始终跟随当前张量的 dtype/device；热启动使用 Torch 原生克隆，而不是 NumPy/CuPy 的 `.copy()` 路径。
+
+### 验证
+
+- 精确干净的数值源码 `2de971402004efc703dc98f510942db3980988e4` 已在 Tesla P100-SXM2-16GB 上通过冻结的 schema-v1 物理验收，环境为 CuPy 13.6.0、Torch 2.0.0+cu117、NumPy 1.24.2、Python 3.9.16。CuPy/Torch CUDA 的直接拟合/交叉验证共 **12/12** 用例全部通过，并记录具体 `cuda:0` 设备来源与预期的 IRLS/FISTA/`proximal_irls_cd` 求解器身份。
+- 冻结容差没有放宽：L2 系数/截距最大误差为 `6.938893903907228e-15`（阈值 `2e-5`），L2 CV 得分最大误差为 `7.965850201685498e-15`（阈值 `2e-5`），SCAD 惩罚目标最大误差为 `1.4085439563257807e-06`（阈值 `2e-4`）。
+- 规范的确切源码 artifact 为 `dev/reviews/pr164_quantile_solver_provenance_gpu.json`。commit `230eaebbd4dfaf090e84011fe0eb190339389411` 直接位于已验证的数值源码之上，并且只新增该 artifact。后续 release/changelog 收尾严格属于仅文档变更，并显式复用这一不可变的数值源码验收；任何数值、validator、求解器、后端或容差变化都会重新要求物理复跑。
 
 ## 未发布 — Quantile IRLS 惩罚契约修复（PR #162 / Issue #161，目标 0.2.6）
 
 ### 修复
 
-- 底层 `QuantileLoss.irls()` 现在只接受无惩罚或 L2。ElasticNet、L1、SCAD/MCP、group/adaptive penalty 以及未知 penalty object 会在数值迭代前 fail closed，不再允许 IRLS 只处理声明目标中的光滑 L2 部分而忽略非光滑项。
-- 公开 estimator 契约保持不变：显式 Quantile `solver="irls"` 仍然只属于 L2/无惩罚维护路径；非光滑惩罚继续通过 FISTA family 或 Quantile 专用的非凸求解算法处理。
-- IRLS docstring 与可执行低层契约现在一致；不支持的直接底层调用会得到明确错误，而不是返回看似合理但只优化了部分惩罚的结果。
+- 底层 `QuantileLoss.irls()` 现在只接受无惩罚或 L2。ElasticNet、L1、SCAD/MCP、group/adaptive penalty 以及未知 penalty 对象会在数值迭代前直接报错，不再允许 IRLS 只处理声明目标中的光滑 L2 部分而忽略非光滑项。
+- 公开估计器契约保持不变：显式 Quantile `solver="irls"` 仍然只属于 L2/无惩罚维护路径；非光滑惩罚继续通过 FISTA 系列或 Quantile 专用的非凸求解算法处理。
+- IRLS 文档字符串与可执行的低层契约现在一致；不支持的直接底层调用会得到明确错误，而不是返回看似合理但只优化了部分惩罚的结果。
 
 ### 验证
 
-- 增加 focused regressions，覆盖 direct ElasticNet/L1/SCAD/未知 penalty 在 linear solve 前拒绝、保留无惩罚/L2 执行、解析权重整体正比例缩放不变性、既有 estimator-level fail-closed boundary，以及 Torch CPU 的 L2 backend 保持。
-- 本修复删除的是不受支持的路径，并未改变维护中的 None/L2 IRLS 数值算法，因此本身不新增 physical CUDA acceptance 要求。
+- 增加针对性回归测试，覆盖直接拟合下 ElasticNet/L1/SCAD/未知 penalty 在线性求解前被拒绝、无惩罚/L2 路径保留、解析权重整体正比例缩放不变性、既有估计器级失败边界，以及 Torch CPU 上的 L2 后端保持。
+- 本修复删除的是不受支持的路径，并未改变维护中的 None/L2 IRLS 数值算法，因此本身不新增物理 CUDA 验收要求。
 
 ## 未发布 — GLM 显式 Newton/L-BFGS 的解析权重支持（PR #151 / Issue #150，目标 0.2.6）
 
 ### 变更
 
 - 普通 `GeneralizedLinearModel` 在受支持的 GLM 分布族和链接函数上，显式 `solver="newton"` 与 `solver="lbfgs"` 现在可以接受真正的非均匀解析 `sample_weight`，不会因为权重存在而静默替换成 IRLS/FISTA，也不会改变显式的 NumPy/CuPy/Torch 执行请求。
-- 维护中的 GLM 光滑求解器在完整求解过程中统一使用同一个归一化解析权重目标。review/fix 让 effectively-uniform 分类对整体正比例缩放与排列保持不变，在 execution-dtype cast 前先归一化，整数设计仍保留分数权重，float32 原始求和溢出不会在稳定归一化之前误拒绝，并保留 ordinary post-fit diagnostics/inference 实际求解时使用的 solver-prepared 权重身份。在 Newton/L-BFGS 的 M-estimation 路径上，同一权重身份会在 covariance 计算前等价缩放为 mean-one 表示，因此整体正比例缩放 analytic weights 不会在数值求解容差之外改变系数及 nonrobust/HC0/HC1 inference，同时不会静默重定义无关的 IRLS/FISTA weighting semantics。`ParameterInferenceResult` 在构造方遗漏标准字段时也会公开实际的 M-estimation `cov_type`。L-BFGS 保留可见的线搜索失败，只在“所要求的目标下降”和“实际参数位移”都已低于维护中的数值分辨率时允许受限的浮点 Armijo 接受。
-- `GammaRegression(link="inverse_power")` 的显式 Newton/L-BFGS 现在使用由 Gamma 损失函数拥有的光滑训练域契约，而不再对无截距情况作一刀切拒绝。domain-capped 的很小 L-BFGS 步长本身不构成收敛；若定义域内的拟牛顿 Armijo 搜索耗尽，会用重新计算定义域上界的最速下降方向再尝试一次，若梯度尚未收敛且恢复仍失败则明确 fail closed。可行的无截距设计可以正常拟合；零权重观测不约束域可行性；真正不可行、数值上无法认证或被定义域边界钉住的拟合会显式失败。
-- 同一 inverse-Gamma 域契约已经闭合到带惩罚 L2 Newton/L-BFGS 和 `PenalizedGLM_CV`：框架 warm start 只有在域内时才复用；CV 评分使用声明的 `inverse_power` 目标，不再错误使用 log-link evaluator；最终全数据重拟合保留链接。`PenalizedGammaRegression` 同时保持历史 `loss_kwargs["link"]` 优先级，并通过 sklearn clone/get_params 契约。
-- 既有 `solver="auto"`、IRLS/FISTA、显式 smooth-solver `C`、Ordered GLM、standalone LogisticRegression、非 inverse Gamma 链接，以及成功拟合后的 solver/backend/device provenance 语义保持不变，除非上文明确说明属于本次修复范围。
-- ordinary 显式 Newton/L-BFGS refit 现在对 validation、optimization、inference 与 provenance publication 实施原子事务。失败 refit 会完整恢复上一次成功 estimator state，而不会暴露“旧系数 + 新 attempt metadata”的混合对象；第一次 fit 失败仍保持 unfitted。此前成功执行的 solver/backend/device provenance 会保留，但失败 attempt 不会被发布成新的执行证据。
+- 维护中的 GLM 光滑求解器在完整求解过程中统一使用同一个归一化解析权重目标。review/fix 使近似均匀权重分类在整体正比例缩放与排列下保持不变，并在执行 dtype 转换前先归一化，整数设计仍保留分数权重，float32 原始求和溢出不会在稳定归一化之前误拒绝，并保留普通拟合后诊断/推断实际求解时使用的求解器准备好的权重身份。在 Newton/L-BFGS 的 M-estimation 路径上，同一权重身份会在协方差计算前等价缩放为均值为 1 的表示，因此整体正比例缩放解析权重不会在数值求解容差之外改变系数及 nonrobust/HC0/HC1 推断，同时不会静默重定义无关的 IRLS/FISTA 加权语义。`ParameterInferenceResult` 在构造方遗漏标准字段时也会公开实际的 M-estimation `cov_type`。L-BFGS 保留可见的线搜索失败，只在“所要求的目标下降”和“实际参数位移”都已低于维护中的数值分辨率时允许受限的浮点 Armijo 接受。
+- `GammaRegression(link="inverse_power")` 的显式 Newton/L-BFGS 现在使用由 Gamma 损失函数拥有的光滑训练域契约，而不再对无截距情况作一刀切拒绝。被定义域截断的极小 L-BFGS 步长本身不构成收敛；若定义域内的拟牛顿 Armijo 搜索耗尽，会用重新计算定义域上界的最速下降方向再尝试一次，若梯度尚未收敛且恢复仍失败则明确报错。可行的无截距设计可以正常拟合；零权重观测不约束域可行性；真正不可行、数值上无法认证或被定义域边界钉住的拟合会显式失败。
+- 同一 inverse-Gamma 域契约已经闭合到带惩罚 L2 Newton/L-BFGS 和 `PenalizedGLM_CV`：框架热启动只有在域内时才复用；CV 评分使用声明的 `inverse_power` 目标，不再错误使用 log 链接评估器；最终全数据重拟合保留链接。`PenalizedGammaRegression` 同时保持历史 `loss_kwargs["link"]` 优先级，并通过 sklearn clone/get_params 契约。
+- 既有 `solver="auto"`、IRLS/FISTA、显式 smooth-solver `C`、Ordered GLM、standalone LogisticRegression、非 inverse Gamma 链接，以及成功拟合后的求解器/后端/设备来源语义保持不变，除非上文明确说明属于本次修复范围。
+- 普通显式 Newton/L-BFGS 重拟合现在对校验、优化、推断与来源信息发布实施原子事务。失败的重拟合会完整恢复上一次成功的估计器状态，而不会暴露“旧系数 + 新尝试元数据”的混合对象；第一次拟合失败仍保持未拟合状态。此前成功执行的求解器/后端/设备来源会保留，但失败的尝试不会被发布成新的执行证据。
 
 ### 验证
 
-- 历史 hosted/physical evidence 继续只对各自精确源码有效。数值/validator 源 `9eb39cee2c0e691160f528ab687b7379d26f3e42` 曾通过全部 7 个 hosted PR workflow 和 Tesla P100 schema-v5 gate；该源码的完整 CPU suite 为 **3395 passed / 831 skipped / 0 failed**。后续 fresh review 已修改 production inference/result provenance，因此这些 hosted 结果和 schema v5 都不能作为后续源码的验收。
-- Tesla P100 schema-v3 artifact 对应 `c6781cb6a2e1fe500f325e832d23cdc80a99b564`，schema-v4 inverse-Gamma artifact 对应 `9ef5b34ffc8abf133bc6262e98a855d5efe37d3c`，schema-v5 artifact 对应 `9eb39cee2c0e691160f528ab687b7379d26f3e42`；三者现在都只作为各自源码的不可变**历史 exact-source 证据**保留。对应文件为 `dev/reviews/pr151_glm_weighted_explicit_solvers_gpu.json`、`dev/reviews/pr151_inverse_gamma_domain_gpu_v4.json` 与 `dev/reviews/pr151_final_gpu_v5.json`。
-- schema v6 是不可变的**历史失败 validator**，不再是当前验收 gate。其 float32 overflow inference fixture 除了预期的 float32 analytic weights 外，还意外把 `X/y` 一起转成 float32，从而额外引入了无关的 float32-design CuPy L-BFGS cross-backend parity 要求。这个独立精度问题由 Issue #160 跟踪；PR151 不会为了让该错误 fixture 通过而放宽冻结 tolerance 或扩大 generic L-BFGS 的修改范围。
-- 修正后的 schema v7 已成为最终接受的 physical CUDA gate。精确干净的 numerical/validator source `0302262ef8242b31f2f17b7835b6c08aeda89904` 已在 Tesla P100-SXM2-16GB（CuPy 13.6.0、Torch 2.0.0+cu117、NumPy 1.24.2、Python 3.9.16）上通过完整 v3→v4→v5→v7 链，记录 `status: success` 与 `source_clean: true`。当前 canonical artifact 为 `dev/reviews/pr151_final_gpu_v7.json`；较早通过的 `e1cbf3756d269a6073461de8331da11c6235fb4e` schema-v7 artifact 作为历史 exact-source 证据保留在 `dev/reviews/pr151_final_gpu_v7_e1cbf375.json`。与旧运行的数值结果保持一致，最大 review-closure error 仍为 `9.719913152128612e-09`，位置仍是同一个 penalized/Newton/Torch p-value comparison。commit `29b8e8056fb9bdfb34e2b76982d433c0be3d844f` 直接位于已验证 numerical source 之上并记录最终 evidence；之后的 changelog 收尾仅属于 documentation-only，不重新打开 physical acceptance。PR #151 现已 **merge-ready**；Issue #160 继续作为非阻塞 follow-up，Issue #152 保持已完成。
+- 历史 hosted/physical evidence 继续只对各自精确源码有效。数值/validator 源码 `9eb39cee2c0e691160f528ab687b7379d26f3e42` 曾通过全部 7 个 hosted PR workflow 和 Tesla P100 schema-v5 验收；该源码的完整 CPU 测试套件为 **3395 passed / 831 skipped / 0 failed**。后续新一轮 review 已修改生产推断与结果来源信息，因此这些 hosted 结果和 schema v5 都不能作为后续源码的验收。
+- Tesla P100 schema-v3 artifact 对应 `c6781cb6a2e1fe500f325e832d23cdc80a99b564`，schema-v4 inverse-Gamma artifact 对应 `9ef5b34ffc8abf133bc6262e98a855d5efe37d3c`，schema-v5 artifact 对应 `9eb39cee2c0e691160f528ab687b7379d26f3e42`；三者现在都只作为各自源码的不可变**历史确切源码证据**保留。对应文件为 `dev/reviews/pr151_glm_weighted_explicit_solvers_gpu.json`、`dev/reviews/pr151_inverse_gamma_domain_gpu_v4.json` 与 `dev/reviews/pr151_final_gpu_v5.json`。
+- schema v6 是不可变的**历史失败 validator**，不再是当前验收门禁。其 float32 溢出推断用例除了预期的 float32 解析权重外，还意外把 `X/y` 一起转成 float32，从而额外引入了无关的 float32 设计 CuPy L-BFGS 跨后端一致性要求。这个独立精度问题由 Issue #160 跟踪；PR151 不会为了让该错误用例通过而放宽冻结容差或扩大通用 L-BFGS 的修改范围。
+- 修正后的 schema v7 已成为最终接受的物理 CUDA 验收。精确干净的数值/validator 源码 `0302262ef8242b31f2f17b7835b6c08aeda89904` 已在 Tesla P100-SXM2-16GB（CuPy 13.6.0、Torch 2.0.0+cu117、NumPy 1.24.2、Python 3.9.16）上通过完整 v3→v4→v5→v7 链，记录 `status: success` 与 `source_clean: true`。当前规范 artifact 为 `dev/reviews/pr151_final_gpu_v7.json`；较早通过的 `e1cbf3756d269a6073461de8331da11c6235fb4e` schema-v7 artifact 作为历史确切源码证据保留在 `dev/reviews/pr151_final_gpu_v7_e1cbf375.json`。与旧运行的数值结果保持一致，最大 review 收尾误差仍为 `9.719913152128612e-09`，位置仍是同一个 penalized/Newton/Torch p 值比较。commit `29b8e8056fb9bdfb34e2b76982d433c0be3d844f` 直接位于已验证数值源码之上并记录最终证据；之后的 changelog 收尾仅属于仅文档变更，不重新打开物理验收。PR #151 现已 **merge-ready**；Issue #160 继续作为非阻塞后续事项，Issue #152 保持已完成。
 
 ## 未发布 — 后端原生 Gaussian residual bootstrap（PR #147 / Issue #145，目标 0.2.6）
 
 ### 变更
 
-- 将既有 unweighted Gaussian `residual_bootstrap` 从仅 NumPy 执行扩展到 fit-recorded NumPy/CuPy/Torch backend 与具体 device；三个 backend 共享同一个确定性的 backend-neutral residual-index schedule，backend/device provenance 一旦漂移即 fail closed，不回退 CPU。
-- child refit 保留已拟合 penalty family、tuning、intercept、solver/stopping、Lipschitz 与 SCAD/MCP LLA controls，并保持 child inference 关闭。`PenalizedGLM_CV` 仍只在 selected full-data final refit 上执行一次 bootstrap，并明确报告对 CV-selected penalty 条件化、未校正 selection uncertainty。
-- weighted、robust/HC、HAC/block、non-Gaussian 与 Cox bootstrap 语义仍不支持并 fail closed。大规模 design/response/residual/bootstrap-response 数组与 child optimization 保持在记录的 numerical backend/device 上；最终 reporting 仍采用 NumPy boundary，仅允许小型 control/parameter snapshot 跨越该边界。
+- 将既有 unweighted Gaussian `residual_bootstrap` 从仅 NumPy 执行扩展到拟合记录在案的 NumPy/CuPy/Torch 后端与具体设备；三个后端共享同一个确定性的后端无关残差索引调度，后端/设备来源一旦漂移即直接报错，不回退 CPU。
+- 子样本重拟合保留已拟合的惩罚家族、调参、截距、求解器/停止条件、Lipschitz 与 SCAD/MCP LLA 控制，并保持子样本推断关闭。`PenalizedGLM_CV` 仍只在选定的全数据最终重拟合上执行一次 bootstrap，并明确报告对 CV 选中惩罚的条件化、未校正选择不确定性。
+- 加权、robust/HC、HAC/block、非 Gaussian 与 Cox bootstrap 语义仍不支持并直接报错。大规模设计/响应/残差/bootstrap 响应数组与子样本优化保持在记录的数值后端/设备上；最终报告仍采用 NumPy 边界，仅允许小型控制/参数快照跨越该边界。
 
 ### 验证
 
-- 增加确定性 hosted coverage，覆盖 NumPy preservation、L1/ElasticNet/SCAD/MCP、formula 与 public-wrapper consumer、exact-device child context、failure transaction、installer idempotence、CV final-refit-only 语义和 unsupported rows。
-- `dev/benchmarks/validate_gaussian_residual_bootstrap_gpu.py` schema v1 是冻结的 exact-source CuPy/Torch CUDA acceptance gate。PR #147 转 Ready 或合并前仍必须完成 physical CUDA acceptance；hosted CI 不能替代该 gate。
+- 增加确定性的 hosted 覆盖，覆盖 NumPy 路径保留、L1/ElasticNet/SCAD/MCP、formula 与公开包装器消费方、精确设备子样本上下文、失败事务、安装器幂等性、CV 仅最终重拟合语义与不支持的行。
+- `dev/benchmarks/validate_gaussian_residual_bootstrap_gpu.py` schema v1 是冻结的确切源码 CuPy/Torch CUDA 验收门禁。PR #147 转 Ready 或合并前仍必须完成物理 CUDA 验收；hosted CI 不能替代该门禁。
 
-## 未发布 — Penalized GLM 推断 contract 修复（PR #142，目标 0.2.6）
+## 未发布 — Penalized GLM 推断契约修复（PR #142，目标 0.2.6）
 
 ### 变更
 
-- generic 与 typed penalized-GLM estimator 统一以 `inference_method="auto"` 作为 public reconciliation boundary；specialized sparse-Gaussian wrapper 保留既有显式默认。成功拟合会区分 requested/resolved/reported method，并记录 inferential target 与 tuning/selection conditioning。
-- 受支持的 smooth non-Gaussian L2 / no-penalty 推断解析为 fixed-penalty `m_estimation`，当前支持 nonrobust/HC0/HC1 covariance；non-Gaussian L1/ElasticNet coefficient inference 改为 fail closed，不再发布历史上只含 L2 curvature 的 full-vector partial sandwich。
-- residual `bootstrap` 明确限定为 `cov_type="nonrobust"` 的 unweighted CPU Gaussian residual bootstrap；refit 保留真实 penalty/tuning/intercept contract，至少需要 2 次 resample，且 CuPy/Torch 已执行拟合不会静默切到 CPU 做 resampling。
-- non-Gaussian M-estimation 以 fit-recorded NumPy/CuPy/Torch backend 与 concrete device 为准，并覆盖 Torch↔CuPy 异构 input container 对齐。维护中的 Newton solver 现在支持真正的 non-uniform analytic weights，并让 objective value、gradient、Hessian 与 Armijo trial 使用同一个归一化 weighted objective，因此 weighted smooth L2/no-penalty 的 public `solver="auto"` 不再需要 PR #142 临时的 FISTA override。direct fit 与 `PenalizedGLM_CV` selection/final refit 重新服从 canonical dispatch；适用的 logistic/Poisson L2 行执行 backend-native Newton，同时 public request 仍保持 `auto`，并保留历史 floating uniform-weight `allclose` 语义。
-- `PenalizedGLM_CV` 新增 inference controls，并且 coefficient inference 只在 selected full-data final refit 上执行一次；结果条件于 CV-selected penalty，并明确报告 `penalty_selection_adjusted_=False`。
+- 通用与类型化 penalized-GLM 估计器统一以 `inference_method="auto"` 作为公开对账边界；专用稀疏 Gaussian 包装器保留既有显式默认。成功拟合会区分请求/解析/报告的方法，并记录推断目标与调参/选择条件。
+- 受支持的光滑非 Gaussian L2 / 无惩罚推断解析为固定惩罚的 `m_estimation`，当前支持 nonrobust/HC0/HC1 协方差；非 Gaussian L1/ElasticNet 系数推断改为直接报错，不再发布历史上只含 L2 curvature 的全向量部分 sandwich。
+- 残差 `bootstrap` 明确限定为 `cov_type="nonrobust"` 的无权重 CPU Gaussian 残差 bootstrap；重拟合保留真实惩罚/调参/截距契约，至少需要 2 次重抽样，且 CuPy/Torch 已执行拟合不会静默切到 CPU 做重抽样。
+- 非 Gaussian M-estimation 以拟合记录在案的 NumPy/CuPy/Torch 后端与具体设备为准，并覆盖 Torch↔CuPy 异构输入容器对齐。维护中的 Newton 求解器现在支持真正的非均匀解析权重，并让目标值、梯度、Hessian 与 Armijo 试探使用同一个归一化加权目标，因此加权光滑 L2/无惩罚的公开 `solver="auto"` 不再需要 PR #142 临时的 FISTA 覆盖。直接拟合与 `PenalizedGLM_CV` 的选择/最终重拟合重新服从规范调度；适用的 logistic/Poisson L2 行执行后端原生 Newton，同时公开请求仍保持 `auto`，并保留历史浮点均匀权重 `allclose` 语义。
+- `PenalizedGLM_CV` 新增推断控制，并且系数推断只在选定的全数据最终重拟合上执行一次；结果条件于 CV 选中的惩罚，并明确报告 `penalty_selection_adjusted_=False`。
 
 ### 验证
 
-- 增加 targeted contract、formula、clone/compatibility、failure transaction、no-penalty、weighted-CV、installer idempotence、weighted-Newton objective/compatibility 与 cross-backend alignment 回归，并同步中英文 model/CV/inference 文档。
-- `dev/benchmarks/validate_penalized_glm_inference_gpu.py` schema v4 是 maintained physical CUDA gate。精确干净的 numerical source `db448d718f523eacf97bcb3c419e376c9812362d` 已在 Tesla P100（CuPy 13.6.0、Torch 2.0.0+cu117、NumPy 1.24.2）通过：Logistic unweighted 保留 explicit FISTA 覆盖，Logistic weighted 与 Poisson weighted/unweighted 按 canonical `solver="auto"` → Newton 执行；CuPy、Torch、Torch→CuPy 与 CuPy→Torch 四条 route 均通过未放宽的 coefficient/intercept（`2e-6`）与 inference（`1e-5`）阈值，并记录具体 `cuda:0` provenance。保留的 artifact 为 `results/pr142_penalized_glm_inference_gpu/pr142_penalized_glm_inference_gpu.json`。后续仅修正 changelog/evidence prose 的 docs-only commit，经用户明确批准可复用这一 immutable numerical-source artifact；任何 numerical、validator、solver、backend、inference 或 tolerance 变化都会重新打开 physical validation。
+- 增加针对性契约、formula、clone/兼容性、失败事务、无惩罚、加权 CV、安装器幂等性、加权 Newton 目标/兼容性与跨后端一致性回归，并同步中英文模型/CV/推断文档。
+- `dev/benchmarks/validate_penalized_glm_inference_gpu.py` schema v4 是维护中的物理 CUDA 验收门禁。精确干净的数值源码 `db448d718f523eacf97bcb3c419e376c9812362d` 已在 Tesla P100（CuPy 13.6.0、Torch 2.0.0+cu117、NumPy 1.24.2）通过：Logistic 无权重保留显式 FISTA 覆盖，Logistic 加权与 Poisson 加权/无权重按规范 `solver="auto"` → Newton 执行；CuPy、Torch、Torch→CuPy 与 CuPy→Torch 四条路径均通过未放宽的系数/截距（`2e-6`）与推断（`1e-5`）阈值，并记录具体 `cuda:0` 来源信息。保留的 artifact 为 `results/pr142_penalized_glm_inference_gpu/pr142_penalized_glm_inference_gpu.json`。后续仅修正 changelog/证据散文的仅文档提交，经用户明确批准可复用这一不可变的数值源码 artifact；任何数值、validator、求解器、后端、推断或容差变化都会重新打开物理验收。
 
 ## 未发布 — Post-selection OLS 推断 API 清理（PR #138 / Issue #137）
 
 ### 变更
 
-- 为稀疏 Gaussian `Lasso`、`ElasticNet` 以及公开 generic `PenalizedGeneralizedLinearModel(loss="squared_error", penalty="l1" | "elasticnet")` surface 增加与硬件无关的 canonical `inference_method="post_selection_ols"`。旧 `cpu_ols` / `gpu_ols` 作为一个兼容周期的 `FutureWarning` alias 保留；`LassoCV` 在 CV compatibility boundary 继续接受更早的 `cpu_ols_inference` / `gpu_ols_inference` 拼法。
-- “统计方法是什么”与“在哪个硬件执行”严格正交。显式 `device="cpu"`、`"cuda"` 或 `"torch"` 即使面对异构 input container 仍具有权威性；只有真正的 AUTO policy 才允许保留 native CuPy/Torch-CUDA 输入。LassoCV 现在让 CV 与 selected-alpha final refit 固定在同一 resolved backend，并把 CuPy response/weight 对齐到 design 的具体 CUDA ordinal。
-- `post_selection_ols` 在 fit-recorded NumPy/CuPy/Torch backend 上执行无惩罚 active-set OLS/WLS refit，同时保留 penalized `coef_` 用于预测。nonrobust 继续使用 Student-t 与历史 inactive-coordinate placeholder。rank-deficient active design 使用 effective rank 计算 residual df，并通过 design-level Moore-Penrose/SVD 完成系数 refit 与 covariance bread；robust/HAC 以及 empty-active no-intercept case 保留调用者请求的 covariance/reference family。
-- active-refit diagnostic state 与 penalized-fit 的 R-squared/F/log-likelihood/AIC/BIC ownership 分离。`summary()` 分开报告 penalized-fit 与 post-selection residual DoF；formula 路径保持 categorical/missing-row/sample-weight 对齐；失败 refit fail closed，不保留上一轮成功 fit 或当前半成品 inference state。
-- 统一 sparse-Gaussian analytic-weight 语义：NumPy/CuPy/Torch direct fit 与 weighted LassoCV 都先在原始 observation 上 weighted-center，再使用等价的 `sqrt(w * n / sum(w))` row transform。默认 CV alpha grid、fold objective、weighted validation MSE 与 final refit 使用同一约定；所有权重为同一正常数时精确等价于 unweighted CV。weighted 非 Gaussian sparse GLM 继续保留各自 loss-specific、sample-weight-aware objective。
-- NumPy/CuPy/Torch `debiased` 统一到同一个 centered average-loss working problem，使 omitted weights、all-one weights 与全局等比例缩放 analytic weights 的结果一致。intercept-inclusive simultaneous max-|Z| inference 现在让原始坐标系 intercept influence 真正进入 bootstrap maximum；成功 refit 会先清除 stale simultaneous/precision state 再发布新结果。
-- 字符串与公开 `Penalty` 对象形式共享同一个 sparse-Gaussian migration 与 AUTO-routing contract。clone/get-params/set-params、warning call site、LassoCV final-refit ownership、backend/device provenance、formula routing 与 failure transaction 都有 maintained regression 覆盖。
+- 为稀疏 Gaussian `Lasso`、`ElasticNet` 以及公开通用 `PenalizedGeneralizedLinearModel(loss="squared_error", penalty="l1" | "elasticnet")` 接口增加与硬件无关的规范 `inference_method="post_selection_ols"`。旧 `cpu_ols` / `gpu_ols` 作为一个兼容周期的 `FutureWarning` 别名保留；`LassoCV` 在 CV 兼容边界继续接受更早的 `cpu_ols_inference` / `gpu_ols_inference` 拼法。
+- “统计方法是什么”与“在哪个硬件执行”严格正交。显式 `device="cpu"`、`"cuda"` 或 `"torch"` 即使面对异构输入容器仍具有权威性；只有真正的 AUTO 策略才允许保留原生 CuPy/Torch-CUDA 输入。LassoCV 现在让 CV 与选中 alpha 的最终重拟合固定在同一解析后端，并把 CuPy 响应/权重对齐到设计矩阵的具体 CUDA 序号。
+- `post_selection_ols` 在拟合记录在案的 NumPy/CuPy/Torch 后端上执行无惩罚活跃集 OLS/WLS 重拟合，同时保留惩罚 `coef_` 用于预测。nonrobust 继续使用 Student-t 与历史非活跃坐标占位。秩亏的活跃设计使用有效秩计算残差自由度，并通过设计级 Moore-Penrose/SVD 完成系数重拟合与协方差 bread；robust/HAC 以及空活跃集无截距情形保留调用者请求的协方差/参考分布族。
+- 活跃集重拟合的诊断状态与惩罚拟合的 R-squared/F/对数似然/AIC/BIC 归属分离。`summary()` 分开报告惩罚拟合与选择后残差自由度；formula 路径保持 categorical/缺失行/样本权重对齐；失败的重拟合直接报错，不保留上一轮成功拟合或当前半成品推断状态。
+- 统一稀疏 Gaussian 解析权重语义：NumPy/CuPy/Torch 直接拟合与加权 LassoCV 都先在原始观测上按权重中心化，再使用等价的 `sqrt(w * n / sum(w))` 行变换。默认 CV alpha 网格、折目标、加权验证 MSE 与最终重拟合使用同一约定；所有权重为同一正常数时精确等价于无权重 CV。加权非 Gaussian 稀疏 GLM 继续保留各自损失专属、感知样本权重的目标。
+- NumPy/CuPy/Torch 的 `debiased` 统一到同一个中心化平均损失工作问题，使省略权重、全 1 权重与全局等比例缩放解析权重的结果一致。含截距的 simultaneous max-|Z| 推断现在让原始坐标系下的截距影响真正进入 bootstrap 最大值；成功重拟合会先清除过期的 simultaneous/精度状态再发布新结果。
+- 字符串与公开 `Penalty` 对象形式共享同一个稀疏 Gaussian 迁移与 AUTO 路由契约。clone/get-params/set-params、警告调用点、LassoCV 最终重拟合归属、后端/设备来源、formula 路由与失败事务都有维护中的回归覆盖。
 
 ### 验证
 
-- hosted validation 覆盖 Python 3.9/3.12、Torch 2.0 CPU、完整 CPU suite、scikit-learn 1.2.2/1.3.2/current maintenance compatibility、static/ruff、documentation、release package 与 benchmark-frontend contract。
-- `dev/benchmarks/validate_post_selection_ols_gpu.py` 是最终 physical-CUDA gate，目前为 **schema v7 / 22 cases**：保留原始 4 个 direct-Lasso case，并增加 18 个 CuPy/Torch closure case，覆盖 ElasticNet/generic sparse Gaussian、weighted/unweighted debiased、真实 weighted multi-alpha LassoCV selection+final refit、rank-deficient SVD refit、Penalty-object AUTO routing、empty-active HC3 与 intercept-inclusive simultaneous max-|Z|。既有 post-selection 数值 tolerance 没有放宽。
-- 之前 Tesla P100 artifact 只继续作为各自历史 exact SHA 的不可变证据。后续 review/fix loop 已修改有效 production numerical path，因此当前 source 的 physical acceptance 仍然 **等待 final exact clean-head schema-v7 22/22 CuPy/Torch CUDA rerun**。hosted checks 不替代该 gate，本变更也不做 GPU 性能声明。
+- hosted 验证覆盖 Python 3.9/3.12、Torch 2.0 CPU、完整 CPU 测试套件、scikit-learn 1.2.2/1.3.2/current 维护兼容性、static/ruff、文档、发布包与 benchmark 前端契约。
+- `dev/benchmarks/validate_post_selection_ols_gpu.py` 是最终物理 CUDA 验收门禁，目前为 **schema v7 / 22 个用例**：保留原始 4 个直接 Lasso 用例，并增加 18 个 CuPy/Torch 收尾用例，覆盖 ElasticNet/通用稀疏 Gaussian、加权/无权重 debiased、真实加权多 alpha LassoCV 选择+最终重拟合、秩亏 SVD 重拟合、Penalty 对象 AUTO 路由、空活跃集 HC3 与含截距 simultaneous max-|Z|。既有 post-selection 数值容差没有放宽。
+- 之前 Tesla P100 artifact 只继续作为各自历史确切提交的不可变证据。后续 review/fix 循环已修改有效的生产数值路径，因此当前源码的物理验收仍然 **等待最终确切干净提交上的 schema-v7 22/22 CuPy/Torch CUDA 复跑**。hosted 检查不替代该门禁，本变更也不做 GPU 性能声明。
 
 ## 未发布 — Penalized solver API 清理（PR #135）
 
 ### 变更
 
-- 公开 direct penalized estimator 统一以与后端无关的 `solver` 作为 direct-fit 的权威算法选择器。旧 `cpu_solver` 暂时保留一个兼容周期，调用者显式使用时产生 `FutureWarning`，但不会被静默映射成 `solver`，从而保持当前 unified-engine 的实际数值行为。
-- `LassoCV` 将 `solver`（最终全数据 refit）与 `cv_solver`（CV folds/path）分开；`cv_solver="auto"` 在 CPU 上解析为 coordinate descent，在 CUDA/Torch 上解析为 FISTA，拟合后的 `cv_solver_` 记录实际执行算法。
-- 已弃用的 `LassoCV(cpu_solver=...)` 保留历史阶段语义：CPU 上继续作为旧 CV-solver alias；CUDA/Torch 上会 warning，但保持非权威，因此不会替换维护中的 GPU FISTA 路径。
+- 公开直接拟合的惩罚估计器统一以与后端无关的 `solver` 作为直接拟合的权威算法选择器。旧 `cpu_solver` 暂时保留一个兼容周期，调用者显式使用时产生 `FutureWarning`，但不会被静默映射成 `solver`，从而保持当前统一引擎的实际数值行为。
+- `LassoCV` 将 `solver`（最终全数据重拟合）与 `cv_solver`（CV 折/路径）分开；`cv_solver="auto"` 在 CPU 上解析为坐标下降，在 CUDA/Torch 上解析为 FISTA，拟合后的 `cv_solver_` 记录实际执行算法。
+- 已弃用的 `LassoCV(cpu_solver=...)` 保留历史阶段语义：CPU 上继续作为旧 CV 求解器别名；CUDA/Torch 上会 warning，但保持非权威，因此不会替换维护中的 GPU FISTA 路径。
 
 ### 兼容性
 
-- 省略 direct `cpu_solver` 与框架内部 reconstruction 不会产生弃用噪声，包括 scikit-learn 1.2 的 `get_params() -> constructor` clone 路径和较新版本的 `__sklearn_clone__` 路径。
-- 显式 `set_params(cpu_solver=...)` 以及 legacy `LassoCV(..., cpu_solver=...).fit(...)` 的 warning 会指向调用者，而不是 statgpu 内部 reconstruction/validation frame。
+- 省略直接拟合的 `cpu_solver` 与框架内部重建不会产生弃用噪声，包括 scikit-learn 1.2 的 `get_params() -> constructor` clone 路径和较新版本的 `__sklearn_clone__` 路径。
+- 显式 `set_params(cpu_solver=...)` 以及旧式 `LassoCV(..., cpu_solver=...).fit(...)` 的 warning 会指向调用者，而不是 statgpu 内部重建/校验调用栈。
 - 迁移指南明确区分“删除已经非权威的 direct `cpu_solver` 以保持当前实际行为”和“把旧算法意图显式搬到 `solver`、主动改变实际 solver”两种操作。
 
 ### 验证
 
-- 增加 focused solver/deprecation regression coverage，覆盖 direct solver authority、参数省略与显式旧值、sklearn clone/reconstruction、内部 helper warning suppression、`set_params`、LassoCV CPU/GPU alias、`cv_solver_` 与 warning call site。
-- Maintenance compatibility workflow 会在 scikit-learn 1.2.2、1.3.2 与 current 上运行该 focused suite；最终 exact-head hosted 结果在 PR #135 的最终 source head 完成 CI 后记录。
+- 增加针对性求解器/弃用回归覆盖，覆盖直接拟合求解器权威性、参数省略与显式旧值、sklearn clone/重建、内部 helper 警告抑制、`set_params`、LassoCV CPU/GPU 别名、`cv_solver_` 与警告调用点。
+- 维护兼容性 workflow 会在 scikit-learn 1.2.2、1.3.2 与 current 上运行该针对性测试集；最终确切提交的 hosted 结果在 PR #135 的最终源码提交完成 CI 后记录。
 
 ## 未发布 — Gaussian 后端原生推断（PR #129 / Issue #127）
 
 ### 变更
 
-- 维护中的 Gaussian 线性模型现在把协方差、标准误、统计量、p-value 与置信区间的**数值计算**保留在实际执行的 NumPy/CuPy/Torch 后端；数值推断完成后，既有 reporting attributes/results 仍可生成最终 NumPy snapshot。
-- Normal/Student-t 推断统一路由到维护中的 reference-distribution 层，并覆盖稳定的 df=1/df=2 极端尾部；若 executed-backend provenance 缺失或非法，则 fail closed，而不是静默选择 NumPy。
-- Ridge/L2 推断保持既有 average-loss 约定与正规方程中的 `n_eff * alpha` 映射，包括 weighted fit 与 `RidgeCV` final-refit inference。
+- 维护中的 Gaussian 线性模型现在把协方差、标准误、统计量、p 值与置信区间的**数值计算**保留在实际执行的 NumPy/CuPy/Torch 后端；数值推断完成后，既有报告属性/结果仍可生成最终 NumPy 快照。
+- Normal/Student-t 推断统一路由到维护中的参考分布层，并覆盖稳定的 df=1/df=2 极端尾部；若实际执行后端来源缺失或非法，则直接报错，而不是静默选择 NumPy。
+- Ridge/L2 推断保持既有平均损失约定与正规方程中的 `n_eff * alpha` 映射，包括加权拟合与 `RidgeCV` 最终重拟合推断。
 
 ### 验证
 
-- 增加 public `LinearRegression`、formula、weighted/robust、rank-deficient、multi-target、float32、statsmodels 对齐、no-host-transfer、non-L2 delegation 以及 Ridge/RidgeCV regression coverage，并增加 focused hosted CI workflow。
-- 增加 maintained exact-SHA physical CUDA validator，覆盖 CuPy/Torch 的 clean-tree 证明、requested/executed backend 与具体 device provenance、covariance/BSE/statistic/p-value/CI 误差、weighted/rank/multi-target/small-df，以及 `RidgeCV` final-refit inference。
-- reviewed implementation head 的 hosted gates 与 fresh complete-diff review 已全部通过；最终 acceptance 仍要求在 final source SHA 上执行 exact clean-head CuPy/Torch CUDA validation。PR #129 当前保持 open/unmerged，#127 尚不能标记为 `COMPLETE`。本变更不做 GPU speedup 声明。
+- 增加公开 `LinearRegression`、formula、加权/robust、秩亏、多目标、float32、statsmodels 对齐、无主机传输、非 L2 委托以及 Ridge/RidgeCV 回归覆盖，并增加针对性的 hosted CI workflow。
+- 增加维护中的确切提交物理 CUDA validator，覆盖 CuPy/Torch 的干净工作树证明、请求/实际执行后端与具体设备来源、协方差/BSE/统计量/p 值/置信区间误差、加权/秩亏/多目标/小自由度，以及 `RidgeCV` 最终重拟合推断。
+- 已审查的实现提交上的 hosted 门禁与新一轮完整 diff review 已全部通过；最终验收仍要求在最终源码 SHA 上执行确切干净提交的 CuPy/Torch CUDA 验证。PR #129 当前保持 open/unmerged，#127 尚不能标记为 `COMPLETE`。本变更不做 GPU 加速声明。
 
 ## 0.2.5 — 2026-08-26（已发布）
 

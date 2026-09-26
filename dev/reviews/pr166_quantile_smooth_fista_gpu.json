@@ -1,0 +1,536 @@
+{
+  "async_weighted_l1_reference": {
+    "coef": [
+      0.2181184033801002,
+      0.0,
+      0.3859468260779818
+    ],
+    "cpu_fista_excess_vs_reference": 0.0008939268995468014,
+    "cpu_fista_n_iter": 26,
+    "cpu_fista_objective": 0.11096312711454397,
+    "method": "scipy_highs_lp",
+    "objective": 0.11006920021499716
+  },
+  "cases": [
+    {
+      "backend": "cupy",
+      "complementary_quantile_error": 4.665276649586545,
+      "device": "cuda:0",
+      "median_estimate": -0.05063288951741735,
+      "n_bootstrap": 12,
+      "name": "cupy/standalone/bootstrap/q0.20",
+      "quantile": 0.2,
+      "residual_centering": "empirical_tau_quantile",
+      "solver": "batched_quantile_irls",
+      "solver_n_iter": 51,
+      "target_error": 0.026706472776324514
+    },
+    {
+      "backend": "cupy",
+      "cpu_solver_n_iter": 238,
+      "device": "cuda:0",
+      "fit_intercept": true,
+      "n_bootstrap": 8,
+      "name": "cupy/standalone/bootstrap-multifeature/q0.30",
+      "objective_error_vs_cpu": 8.326672684688674e-17,
+      "quantile": 0.3,
+      "resampling_schedule_sha256": "01fc53f495762b72fc689bff4d435433b05838ea59f0933d6f535b423b92551d",
+      "solver": "batched_quantile_irls",
+      "solver_n_iter": 238,
+      "tolerance": 2e-06
+    },
+    {
+      "backend": "cupy",
+      "bootstrap_solver": "batched_quantile_irls",
+      "bootstrap_solver_n_iter": 71,
+      "device": "cuda:0",
+      "fit_intercept": false,
+      "inference_errors_vs_cpu": {
+        "bse": 1.734723475976807e-16,
+        "coef": 1.1102230246251565e-16,
+        "conf_int": 3.3306690738754696e-16,
+        "intercept": 0.0,
+        "pvalues": 0.0
+      },
+      "inference_method": "bootstrap",
+      "inference_tolerance": 2e-05,
+      "max_inference_error_vs_cpu": 3.3306690738754696e-16,
+      "name": "cupy/standalone/public-bootstrap/no-intercept/q0.20",
+      "point_n_iter": 26,
+      "point_solver": "fista",
+      "quantile": 0.2,
+      "resampling_schedule_sha256": "f73b9e614fc955d6e18b7d37a244734ea447fd1a93a389eb4a97473ccd7ebf2b",
+      "residual_centering": "empirical_tau_quantile"
+    },
+    {
+      "backend": "cupy",
+      "bootstrap_solver": "batched_quantile_irls",
+      "bootstrap_solver_n_iter": 442,
+      "device": "cuda:0",
+      "fit_intercept": true,
+      "inference_errors_vs_cpu": {
+        "bse": 1.3850032232198828e-14,
+        "coef": 2.7755575615628914e-15,
+        "conf_int": 6.80566714095221e-14,
+        "intercept": 8.881784197001252e-16,
+        "pvalues": 0.0
+      },
+      "inference_method": "bootstrap",
+      "inference_tolerance": 2e-05,
+      "max_inference_error_vs_cpu": 6.80566714095221e-14,
+      "name": "cupy/standalone/public-bootstrap/intercept/q0.20",
+      "point_n_iter": 55,
+      "point_solver": "fista",
+      "quantile": 0.2,
+      "resampling_schedule_sha256": "f73b9e614fc955d6e18b7d37a244734ea447fd1a93a389eb4a97473ccd7ebf2b",
+      "residual_centering": "empirical_tau_quantile"
+    },
+    {
+      "alpha": 0.02,
+      "backend": "cupy",
+      "coef": [
+        0.21810443161365894,
+        0.0,
+        0.38595995936154126
+      ],
+      "cpu_fista_n_iter": 26,
+      "cpu_fista_objective": 0.11096312711454397,
+      "cv_mode": true,
+      "device": "cuda:0",
+      "momentum_beta_cap": 0.5,
+      "n_iter": 651,
+      "name": "cupy/async-weighted-l1/cv-mode",
+      "objective": 0.1100692658336329,
+      "objective_error": 6.561863573339988e-08,
+      "objective_tolerance": 0.0005,
+      "parity_ok": true,
+      "reference": "scipy_highs_lp",
+      "reference_objective": 0.11006920021499716,
+      "solver": "fista",
+      "stall_checks": 2,
+      "step_contraction_factor": 2.0,
+      "weighted_gram_spectral_to_maxdiag_ratio": 2.28267614726054
+    },
+    {
+      "cpu_objective": 0.09728243457974776,
+      "name": "cupy/direct/l2",
+      "objective": 0.09728243457974776,
+      "objective_error": 0.0,
+      "provenance": {
+        "backend": "cupy",
+        "device": "cuda:0",
+        "solver": "fista"
+      }
+    },
+    {
+      "cpu_objective": 0.0886370369574094,
+      "name": "cupy/direct/none",
+      "objective": 0.08863703695740945,
+      "objective_error": 4.163336342344337e-17,
+      "provenance": {
+        "backend": "cupy",
+        "device": "cuda:0",
+        "solver": "fista"
+      }
+    },
+    {
+      "name": "cupy/cv/l2",
+      "provenance": {
+        "backend": "cupy",
+        "device": "cuda:0",
+        "solver": "fista"
+      },
+      "reference": "cpu_fista",
+      "reference_scores": [
+        [
+          0.0974004874380904,
+          0.09742168217668416
+        ],
+        [
+          0.0897776795434397,
+          0.08978542482081184
+        ]
+      ],
+      "reference_selected_alpha": 0.03,
+      "score_error": 1.8043274025020262e-06,
+      "scores": [
+        [
+          0.0974004874380904,
+          0.09741987784928166
+        ],
+        [
+          0.0897776795434397,
+          0.0897852501369954
+        ]
+      ],
+      "selected_alpha": 0.03,
+      "tolerance": 2e-05
+    },
+    {
+      "cpu_diagnostic_scores": [
+        [
+          0.10004940452505552,
+          0.09811044743374454
+        ],
+        [
+          0.09055311963133512,
+          0.09055472159137697
+        ]
+      ],
+      "cpu_diagnostic_selected_alpha": 0.015,
+      "final_refit_objective": 0.12945746489056073,
+      "final_refit_objective_error": 4.6016146951211034e-07,
+      "final_refit_objective_tolerance": 0.0005,
+      "name": "cupy/cv/l1",
+      "provenance": {
+        "backend": "cupy",
+        "device": "cuda:0",
+        "solver": "fista"
+      },
+      "reference": "scipy_highs_lp",
+      "reference_final_refit_objective": 0.12945700472909122,
+      "reference_scores": [
+        [
+          0.09691586034083205,
+          0.09772935080604422
+        ],
+        [
+          0.09174970076183522,
+          0.09159401962418379
+        ]
+      ],
+      "reference_selected_alpha": 0.03,
+      "score_error": 2.886004020902222e-06,
+      "scores": [
+        [
+          0.09691874634485295,
+          0.09772885320387523
+        ],
+        [
+          0.09174953279733616,
+          0.09159144155927751
+        ]
+      ],
+      "selected_alpha": 0.03,
+      "tolerance": 0.0002
+    },
+    {
+      "backend": "torch",
+      "complementary_quantile_error": 4.665276649586545,
+      "device": "cuda:0",
+      "median_estimate": -0.05063288951741735,
+      "n_bootstrap": 12,
+      "name": "torch/standalone/bootstrap/q0.20",
+      "quantile": 0.2,
+      "residual_centering": "empirical_tau_quantile",
+      "solver": "batched_quantile_irls",
+      "solver_n_iter": 51,
+      "target_error": 0.026706472776324514
+    },
+    {
+      "backend": "torch",
+      "cpu_solver_n_iter": 238,
+      "device": "cuda:0",
+      "fit_intercept": true,
+      "n_bootstrap": 8,
+      "name": "torch/standalone/bootstrap-multifeature/q0.30",
+      "objective_error_vs_cpu": 2.7755575615628914e-17,
+      "quantile": 0.3,
+      "resampling_schedule_sha256": "01fc53f495762b72fc689bff4d435433b05838ea59f0933d6f535b423b92551d",
+      "solver": "batched_quantile_irls",
+      "solver_n_iter": 238,
+      "tolerance": 2e-06
+    },
+    {
+      "backend": "torch",
+      "bootstrap_solver": "batched_quantile_irls",
+      "bootstrap_solver_n_iter": 71,
+      "device": "cuda:0",
+      "fit_intercept": false,
+      "inference_errors_vs_cpu": {
+        "bse": 7.7021722333370235e-16,
+        "coef": 5.551115123125783e-16,
+        "conf_int": 2.1094237467877974e-15,
+        "intercept": 0.0,
+        "pvalues": 0.0
+      },
+      "inference_method": "bootstrap",
+      "inference_tolerance": 2e-05,
+      "max_inference_error_vs_cpu": 2.1094237467877974e-15,
+      "name": "torch/standalone/public-bootstrap/no-intercept/q0.20",
+      "point_n_iter": 26,
+      "point_solver": "fista",
+      "quantile": 0.2,
+      "resampling_schedule_sha256": "f73b9e614fc955d6e18b7d37a244734ea447fd1a93a389eb4a97473ccd7ebf2b",
+      "residual_centering": "empirical_tau_quantile"
+    },
+    {
+      "backend": "torch",
+      "bootstrap_solver": "batched_quantile_irls",
+      "bootstrap_solver_n_iter": 442,
+      "device": "cuda:0",
+      "fit_intercept": true,
+      "inference_errors_vs_cpu": {
+        "bse": 3.8441472227646045e-15,
+        "coef": 2.7755575615628914e-15,
+        "conf_int": 1.3100631690576847e-14,
+        "intercept": 8.881784197001252e-16,
+        "pvalues": 0.0
+      },
+      "inference_method": "bootstrap",
+      "inference_tolerance": 2e-05,
+      "max_inference_error_vs_cpu": 1.3100631690576847e-14,
+      "name": "torch/standalone/public-bootstrap/intercept/q0.20",
+      "point_n_iter": 55,
+      "point_solver": "fista",
+      "quantile": 0.2,
+      "resampling_schedule_sha256": "f73b9e614fc955d6e18b7d37a244734ea447fd1a93a389eb4a97473ccd7ebf2b",
+      "residual_centering": "empirical_tau_quantile"
+    },
+    {
+      "alpha": 0.02,
+      "backend": "torch",
+      "coef": [
+        0.21810443161365828,
+        0.0,
+        0.38595995936154115
+      ],
+      "cpu_fista_n_iter": 26,
+      "cpu_fista_objective": 0.11096312711454397,
+      "cv_mode": true,
+      "device": "cuda:0",
+      "momentum_beta_cap": 0.5,
+      "n_iter": 651,
+      "name": "torch/async-weighted-l1/cv-mode",
+      "objective": 0.11006926583363294,
+      "objective_error": 6.561863577503324e-08,
+      "objective_tolerance": 0.0005,
+      "parity_ok": true,
+      "reference": "scipy_highs_lp",
+      "reference_objective": 0.11006920021499716,
+      "solver": "fista",
+      "stall_checks": 2,
+      "step_contraction_factor": 2.0,
+      "weighted_gram_spectral_to_maxdiag_ratio": 2.28267614726054
+    },
+    {
+      "cpu_objective": 0.09728243457974776,
+      "name": "torch/direct/l2",
+      "objective": 0.09728243457974776,
+      "objective_error": 0.0,
+      "provenance": {
+        "backend": "torch",
+        "device": "cuda:0",
+        "solver": "fista"
+      }
+    },
+    {
+      "cpu_objective": 0.0886370369574094,
+      "name": "torch/direct/none",
+      "objective": 0.08863703695740942,
+      "objective_error": 1.3877787807814457e-17,
+      "provenance": {
+        "backend": "torch",
+        "device": "cuda:0",
+        "solver": "fista"
+      }
+    },
+    {
+      "name": "torch/cv/l2",
+      "provenance": {
+        "backend": "torch",
+        "device": "cuda:0",
+        "solver": "fista"
+      },
+      "reference": "cpu_fista",
+      "reference_scores": [
+        [
+          0.0974004874380904,
+          0.09742168217668416
+        ],
+        [
+          0.0897776795434397,
+          0.08978542482081184
+        ]
+      ],
+      "reference_selected_alpha": 0.03,
+      "score_error": 1.8043274025020262e-06,
+      "scores": [
+        [
+          0.0974004874380904,
+          0.09741987784928166
+        ],
+        [
+          0.0897776795434397,
+          0.0897852501369954
+        ]
+      ],
+      "selected_alpha": 0.03,
+      "tolerance": 2e-05
+    },
+    {
+      "cpu_diagnostic_scores": [
+        [
+          0.10004940452505552,
+          0.09811044743374454
+        ],
+        [
+          0.09055311963133512,
+          0.09055472159137697
+        ]
+      ],
+      "cpu_diagnostic_selected_alpha": 0.015,
+      "final_refit_objective": 0.12945746489056079,
+      "final_refit_objective_error": 4.601614695676215e-07,
+      "final_refit_objective_tolerance": 0.0005,
+      "name": "torch/cv/l1",
+      "provenance": {
+        "backend": "torch",
+        "device": "cuda:0",
+        "solver": "fista"
+      },
+      "reference": "scipy_highs_lp",
+      "reference_final_refit_objective": 0.12945700472909122,
+      "reference_scores": [
+        [
+          0.09691586034083205,
+          0.09772935080604422
+        ],
+        [
+          0.09174970076183522,
+          0.09159401962418379
+        ]
+      ],
+      "reference_selected_alpha": 0.03,
+      "score_error": 2.886004020902222e-06,
+      "scores": [
+        [
+          0.09691874634485295,
+          0.09772885320387523
+        ],
+        [
+          0.09174953279733616,
+          0.09159144155927751
+        ]
+      ],
+      "selected_alpha": 0.03,
+      "tolerance": 0.0002
+    }
+  ],
+  "cv_l1_reference": {
+    "cpu_diagnostic_scores": [
+      [
+        0.10004940452505552,
+        0.09811044743374454
+      ],
+      [
+        0.09055311963133512,
+        0.09055472159137697
+      ]
+    ],
+    "cpu_diagnostic_selected_alpha": 0.015,
+    "full_coef": [
+      0.774441873671625,
+      -0.3519032799766513,
+      0.18864323775093902
+    ],
+    "full_intercept": 0.14484357658604563,
+    "full_objective": 0.12945700472909122,
+    "mean_scores": [
+      0.09433278055133364,
+      0.094661685215114
+    ],
+    "method": "scipy_highs_lp",
+    "scores": [
+      [
+        0.09691586034083205,
+        0.09772935080604422
+      ],
+      [
+        0.09174970076183522,
+        0.09159401962418379
+      ]
+    ],
+    "selected_alpha": 0.03
+  },
+  "environment": {
+    "cupy": "13.6.0",
+    "cupy_device_name": "Tesla P100-SXM2-16GB",
+    "device_ordinal": 0,
+    "numpy": "1.24.2",
+    "platform": "Linux-3.10.0-1062.el7.x86_64-x86_64-with-glibc2.31",
+    "python": "3.9.16",
+    "torch": "2.0.0+cu117",
+    "torch_cuda": "11.7",
+    "torch_device_name": "Tesla P100-SXM2-16GB"
+  },
+  "evidence_wrapper": "dev/benchmarks/run_quantile_smooth_fista_gpu_gate.py",
+  "max_errors": {
+    "cv_score": 2.886004020902222e-06,
+    "direct_objective": 4.163336342344337e-17
+  },
+  "quantile": 0.35,
+  "schema_version": 23,
+  "solver_controls": {
+    "async_weighted_l1": {
+      "alpha": 0.02,
+      "max_iter": 6000,
+      "momentum_beta_cap": 0.5,
+      "reference": "scipy_highs_lp",
+      "stall_checks": 2,
+      "step_contraction_factor": 2.0,
+      "tol": 1e-05
+    },
+    "bootstrap_direction": {
+      "max_iter": 400,
+      "n": 80,
+      "n_bootstrap": 12,
+      "quantile": 0.2,
+      "seed": 16692,
+      "tol": 1e-07
+    },
+    "bootstrap_public": {
+      "fit_intercept_cases": [
+        false,
+        true
+      ],
+      "max_iter": 1600,
+      "n": 80,
+      "n_bootstrap": 12,
+      "quantile": 0.2,
+      "seed": 16692,
+      "tol": 1e-07
+    },
+    "cv": {
+      "alpha_grid": [
+        0.03,
+        0.015
+      ],
+      "l1_internal_async_fista": true,
+      "l1_reference": "scipy_highs_lp",
+      "l1_tol": 1e-05,
+      "l2_tol": 1e-07,
+      "max_iter": 6000
+    },
+    "direct": {
+      "max_iter": 5000,
+      "tol": 1e-08
+    }
+  },
+  "source_clean": true,
+  "source_clean_after_execution": true,
+  "source_clean_before": true,
+  "source_sha": "97acd26ca6a0f680975b5c8b4d1509f76243503b",
+  "source_sha_after_execution": "97acd26ca6a0f680975b5c8b4d1509f76243503b",
+  "source_sha_before": "97acd26ca6a0f680975b5c8b4d1509f76243503b",
+  "status": "success",
+  "tolerances": {
+    "async_weighted_l1_objective": 0.0005,
+    "bootstrap_inference_vs_cpu": 2e-05,
+    "bootstrap_objective_vs_cpu": 2e-06,
+    "cv_l1_final_refit_objective": 0.0005,
+    "cv_l1_score": 0.0002,
+    "cv_score": 2e-05,
+    "direct_objective": 2e-05
+  }
+}

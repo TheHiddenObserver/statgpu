@@ -58,9 +58,11 @@ def admm_solver(
         z^{k+1} = prox_{p/rho}(w^{k+1} + u^k)
         u^{k+1} = u^k + w^{k+1} - z^{k+1}
 
-    The w-update is a smooth, strongly convex problem solved via conjugate
-    gradient. The z-update reuses penalty.proximal(). Both are GPU-friendly:
-    w-update uses dense matmuls (cuBLAS), z-update is element-wise.
+    The w-update uses a direct Cholesky solve for constant-Hessian squared-error
+    problems when available. Otherwise it uses Nesterov-accelerated gradient
+    descent on the smooth w-subproblem. The z-update reuses
+    ``penalty.proximal()``. Both paths are GPU-friendly: the iterative w-update
+    uses dense matmuls, while the z-update is element-wise.
 
     Supports numpy / cupy / torch backends via auto-detection of X.
 
@@ -78,9 +80,11 @@ def admm_solver(
     adaptive_rho : bool
         Adapt rho based on primal/dual residual balance.
     cg_max_iter : int
-        Maximum CG iterations for w-update subproblem.
+        Maximum inner Nesterov iterations for the w-update subproblem. The
+        historical parameter name is retained for API compatibility.
     cg_tol : float
-        CG convergence tolerance.
+        Inner Nesterov coefficient-change tolerance. The historical parameter
+        name is retained for API compatibility.
     init_coef : array, optional
         Initial coefficients.
     sample_weight : array, optional
@@ -128,8 +132,12 @@ def admm_solver(
                     _L = np.linalg.cholesky(_A_mat)
                 elif backend == "cupy":
                     import cupy as cp
-                    _A_mat = _hess_const + rho * cp.eye(n_features, dtype=_hess_const.dtype)
-                    _L = cp.linalg.cholesky(_A_mat)
+                    with cp.cuda.Device(int(_hess_const.device.id)):
+                        _A_mat = (
+                            _hess_const
+                            + rho * cp.eye(n_features, dtype=_hess_const.dtype)
+                        )
+                        _L = cp.linalg.cholesky(_A_mat)
                 else:
                     import torch
                     _A_mat = _hess_const + rho * torch.eye(n_features, dtype=_hess_const.dtype, device=_hess_const.device)
@@ -164,6 +172,7 @@ def admm_solver(
             L_f = 1.0
         lr_sub = 1.0 / (L_f + rho + 1e-8)
     iteration = -1  # default if max_iter=0
+    converged = False
 
     for iteration in range(max_iter):
         z_old = _copy_arr(z)
@@ -233,12 +242,13 @@ def admm_solver(
             lr_sub = 1.0 / (L_f + rho + 1e-8)
 
         if rp < tol and r_dual < tol:
+            converged = True
             break
 
     # Return z (penalized/feasible variable), not w (unconstrained).
     # At convergence w ≈ z, but z always satisfies the penalty structure.
     n_iter = iteration + 1
-    if n_iter >= max_iter:
+    if not converged:
         warnings.warn(
             f"admm_solver did not converge within {max_iter} iterations "
             f"(loss={getattr(loss, 'name', '?')}, penalty={getattr(penalty, 'name', '?')}).",

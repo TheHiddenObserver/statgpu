@@ -58,11 +58,42 @@ from . import (
     as _final_finite_validation_cleanup_contract,
 )
 
-# Quantile smooth fits historically reported FISTA while the FISTA branch
+# Quantile L2/no-penalty fits historically reported FISTA while the FISTA branch
 # internally substituted IRLS. Reconcile the runtime policy after the generic
 # estimator/CV classes are fully defined so direct and CV consumers share the
 # same truthful solver identity.
 from . import _quantile_solver_contract as _quantile_solver_contract
+
+# Generic FISTA-BB and shared ADMM require smooth-gradient structure that
+# Quantile/check loss does not provide. Install the narrow additional boundary
+# after the main Quantile contract so existing, more-specific rejection
+# semantics remain authoritative and only previously-open rows are closed.
+from . import (
+    _quantile_unsupported_solver_guard_contract
+    as _quantile_unsupported_solver_guard_contract,
+)
+
+# The provenance repair above intentionally failed explicit smooth-Quantile
+# FISTA closed because the historical FISTA branch actually executed IRLS.
+# Complete that public capability after unsupported FISTA-BB/ADMM boundaries
+# are installed: auto still prefers IRLS, while an explicit ordinary FISTA
+# request now reaches the generic FISTA engine without silent substitution.
+from . import (
+    _quantile_smooth_fista_contract as _quantile_smooth_fista_contract,
+)
+
+# The non-convex Quantile solver receives an automatically generated
+# continuation path. Mark that internal path after the solver-support contracts
+# are installed so the public Proximal IRLS-CD boundary can align its start with
+# non-uniform analytic weights without rewriting user-supplied low-level paths.
+from . import (
+    _quantile_continuation_contract as _quantile_continuation_contract,
+)
+
+# Group SCAD/MCP use the canonical group-aware LLA surrogate. Install this last
+# so it sees the fully composed Quantile solver/weight contracts and can restore
+# the documented Quantile Group FISTA-LLA route without perturbing other losses.
+from . import _quantile_group_lla_contract as _quantile_group_lla_contract
 
 __all__ = [
     "PenalizedGeneralizedLinearModel",

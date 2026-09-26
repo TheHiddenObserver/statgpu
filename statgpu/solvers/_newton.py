@@ -284,7 +284,7 @@ def newton_solver(
             if rejected_by_domain and not evaluated_domain_trial:
                 raise _LossDomainError(
                     "newton_solver could not evaluate a numerically interior "
-                    "trial step for the maintained loss domain."
+                    "trial step for the declared loss domain."
                 )
             # Never accept an unverified trial step. A tiny rejected step
             # would also make a parameter-difference test report false

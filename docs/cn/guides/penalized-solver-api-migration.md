@@ -1,12 +1,10 @@
-# Penalized 求解器 API 迁移
+# 惩罚模型求解器 API 迁移
 
-statgpu 当前的 penalized solver engine 对单次模型拟合使用统一、与后端无关的
-`solver` 参数。旧的 `cpu_solver` 来自更早的实现，当时 CPU 与 GPU 分别暴露了
-不同求解器控制。这个硬件维度的双接口现在进入弃用流程。
+statgpu 的惩罚模型求解器接口，在直接拟合估计器时统一使用与后端无关的 `solver` 参数。旧的 `cpu_solver` 来自更早的接口，当时 CPU 与 GPU 分别暴露不同的求解器控制；该参数现在已经弃用。
 
-## 直接 penalized estimator
+## 直接拟合惩罚估计器
 
-无论设备是什么，都使用 `solver`：
+无论使用什么设备，都通过 `solver` 选择算法：
 
 ```python
 from statgpu.linear_model import Lasso
@@ -15,56 +13,53 @@ cpu_model = Lasso(alpha=0.1, device="cpu", solver="coordinate_descent")
 gpu_model = Lasso(alpha=0.1, device="cuda", solver="fista")
 ```
 
-`cpu_solver` 暂时保留一个兼容周期，但在统一引擎中它**不会**选择 direct-fit
-算法。调用者自己显式使用旧参数时会产生 `FutureWarning`；框架重建以及 statgpu
-内部 helper estimator 的构造不会把原本省略的默认值误报成用户弃用 warning。
-新代码请迁移到统一的 `solver` 接口。
+在弃用过渡期内，`cpu_solver` 仍然可以传入，但在统一接口中它**不会**选择直接拟合所使用的算法。调用者显式提供旧参数时会收到 `FutureWarning`；估计器在内部重建时省略该参数，或只使用默认兼容值，则不会产生用户可见警告。
 
-如果目标是**保持当前实际数值行为不变**，应删除 `cpu_solver`，同时保持 estimator
-现有的 `solver` 值不变。不要机械地把 direct estimator 的旧 `cpu_solver` 值复制到
-`solver`：在当前统一引擎里 `cpu_solver` 已经不是权威的 direct-fit 控制，直接复制
-可能会有意或无意地切换实际算法。如果旧值恰好表达了你现在确实想显式选择的算法，
-可以把它迁到 `solver`，但应把这视为一次主动的 solver 选择变更，并验证拟合结果。
+如果目标是**保持当前实际数值行为不变**，应删除 `cpu_solver`，并保持估计器现有的 `solver` 值不变。不要机械地把直接估计器中旧的 `cpu_solver` 值复制到 `solver`：历史参数并不是直接拟合阶段的权威控制项，复制它反而可能主动或意外切换实际算法。
 
-这适用于公开的 penalized estimator 家族，包括 `Ridge`、`Lasso`、
-`ElasticNet`、typed `Penalized*Regression`、penalized robust/quantile 以及
-penalized Cox。
+如果旧值正是现在希望显式使用的算法，可以通过 `solver` 明确指定，并把这视为一次主动的算法选择变更。
 
-## LassoCV
+这一规则适用于公开的惩罚估计器族，包括 `Ridge`、`Lasso`、`ElasticNet`、各类 `Penalized*Regression`、惩罚稳健回归、惩罚分位数回归以及惩罚 Cox 模型。
 
-`LassoCV` 确实存在两个不同优化阶段，因此新 API 按**阶段**命名，而不是按硬件：
+## LassoCV 包含两个求解阶段
+
+`LassoCV` 的交叉验证评分与最终全数据重拟合属于两个独立的优化阶段，因此 API 按**阶段**命名，而不是按硬件命名：
 
 ```python
 from statgpu.linear_model import LassoCV
 
 model = LassoCV(
-    solver="fista",            # 最终 full-data refit
-    cv_solver="auto",          # CV folds/path
+    solver="fista",            # 最终全数据重拟合
+    cv_solver="auto",          # 交叉验证阶段
 )
 ```
 
-`cv_solver="auto"` 在 CPU 上解析为 coordinate descent，在 CUDA/Torch 上解析为
-FISTA。显式的新接口 `cv_solver="coordinate_descent"` 仅支持 CPU。
-`method="glmnet"` 只在 CPU CV path 上固定使用 coordinate descent；CUDA/Torch
-仍保留维护中的 backend-native FISTA 路径，拟合后的 `cv_solver_` 记录实际执行的
-算法。
+当前行为是：
 
-旧的 `LassoCV(cpu_solver=...)` 已弃用。在 CPU 上，它作为旧版 `cv_solver` alias
-保留原行为；在 CUDA/Torch 上，它会 warning 但仍保持**非权威**，从而保留旧版本
-中“CPU-only 控制不改变 GPU FISTA CV 路径”的行为。在 CPU 上同时提供冲突的新旧
-控制会抛出 `ValueError`。
+- `solver` 控制最终全数据 `Lasso` 重拟合；
+- `cv_solver` 控制交叉验证各数据折和参数路径上的拟合；
+- `cv_solver="auto"` 在 CPU 上选择坐标下降，在 CUDA/Torch 上选择 FISTA；
+- 显式 `cv_solver="coordinate_descent"` 只支持 CPU；
+- `method="glmnet"` 在 CPU 的 CV 阶段使用坐标下降，而 CUDA/Torch 的 CV 阶段继续使用 FISTA；
+- 拟合完成后，`cv_solver_` 记录 CV 阶段实际执行的算法。
 
-最终 refit 不再接收 `cpu_solver`；这个阶段只由 `solver` 控制。
+旧的 `LassoCV(cpu_solver=...)` 已弃用。在 CPU 上，如果新的控制项没有指定冲突算法，它会作为 `cv_solver` 的历史兼容别名；在 CUDA/Torch 上会产生警告，但不会替换 GPU 上的 FISTA 交叉验证路径。
+
+最终重拟合阶段不再接收 `cpu_solver`；这一阶段由 `solver` 控制。
 
 ## 迁移示例
 
 | 旧调用 | 保持当前行为的迁移 | 可选的显式算法选择 |
 |---|---|---|
-| `Lasso(device="cpu", cpu_solver="coordinate_descent")` | `Lasso(device="cpu")`（保持当前默认 direct solver，即 FISTA） | 只有确实希望把实际 direct solver 切到 coordinate descent 时，才改为 `Lasso(device="cpu", solver="coordinate_descent")` |
-| `ElasticNet(device="cpu", cpu_solver="fista")` | `ElasticNet(device="cpu")`（保持现有 `solver` 值） | 若希望显式写出算法，可用 `ElasticNet(device="cpu", solver="fista")` |
-| `PenalizedLinearRegression(device="cpu", cpu_solver="fista")` | `PenalizedLinearRegression(device="cpu")`（保持 `solver="auto"`） | 只有希望主动固定为 FISTA 而不是 auto dispatch 时，才用 `solver="fista"` |
-| `LassoCV(device="cpu", cpu_solver="fista")` | `LassoCV(device="cpu", cv_solver="fista")` | 相同；这里旧参数确实控制 CPU CV 算法 |
-| `LassoCV(device="cuda", cpu_solver="coordinate_descent")` | `LassoCV(device="cuda", cv_solver="auto")`（或直接省略两个控制参数） | 可用 `cv_solver="fista"` 显式写出维护中的 GPU CV 算法 |
-| `LassoCV(solver="fista", cpu_solver="coordinate_descent", device="cpu")` | `LassoCV(solver="fista", cv_solver="coordinate_descent", device="cpu")` | 相同；`solver` 继续控制最终 refit，`cv_solver` 接管 CPU CV |
+| `Lasso(device="cpu", cpu_solver="coordinate_descent")` | `Lasso(device="cpu")` | 只有确实希望使用坐标下降时才写 `Lasso(device="cpu", solver="coordinate_descent")` |
+| `ElasticNet(device="cpu", cpu_solver="fista")` | `ElasticNet(device="cpu")` | 若希望显式写出算法，可用 `ElasticNet(device="cpu", solver="fista")` |
+| `PenalizedLinearRegression(device="cpu", cpu_solver="fista")` | `PenalizedLinearRegression(device="cpu")` | 只有希望主动固定为 FISTA 而不是自动分发时才设置 `solver="fista"` |
+| `LassoCV(device="cpu", cpu_solver="fista")` | `LassoCV(device="cpu", cv_solver="fista")` | 相同；这里旧参数控制的是 CPU 上的 CV 阶段 |
+| `LassoCV(device="cuda", cpu_solver="coordinate_descent")` | `LassoCV(device="cuda", cv_solver="auto")`，或省略两个 CV 控制项 | `cv_solver="fista"` 可显式写出 GPU 上的 CV 算法 |
+| `LassoCV(solver="fista", cpu_solver="coordinate_descent", device="cpu")` | `LassoCV(solver="fista", cv_solver="coordinate_descent", device="cpu")` | 相同；`solver` 仍控制最终重拟合 |
 
-在本次 deprecation 周期之后，`cpu_solver` 计划在未来 breaking release 中删除。
+## 删除时间线
+
+`cpu_solver` 已弃用，并计划在未来的不兼容版本中删除。新代码应使用 `solver` 控制直接拟合或最终重拟合的优化算法，并使用 `cv_solver` 控制 `LassoCV` 的选择阶段。
+
+一般的“选择—最终重拟合”区分见 [交叉验证](cross-validation.md)，显式求解器兼容性见 [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md)。

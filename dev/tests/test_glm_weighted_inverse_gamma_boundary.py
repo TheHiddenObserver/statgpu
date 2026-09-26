@@ -84,8 +84,11 @@ def test_inverse_gamma_optimum_beyond_maintained_domain_fails_closed(solver):
         max_iter=100,
         tol=1e-8,
     )
-    with pytest.raises(RuntimeError, match="pinned to the maintained smooth-domain boundary"):
+    with pytest.raises(
+        RuntimeError, match="pinned to the smooth-domain boundary"
+    ) as exc_info:
         model.fit(X, y)
+    assert "maintained" not in str(exc_info.value).lower()
 
 
 @pytest.mark.parametrize("solver", ["newton", "lbfgs"])
@@ -165,8 +168,11 @@ def test_inverse_gamma_active_contradiction_fails_without_false_infeasibility_cl
         link="inverse_power", fit_intercept=False, solver=solver,
         device="cpu", max_iter=100, tol=1e-8,
     )
-    with pytest.raises(RuntimeError, match="numerically certified smooth-domain start"):
+    with pytest.raises(
+        RuntimeError, match="numerically certified smooth-domain start"
+    ) as exc_info:
         model.fit(X, y)
+    assert "maintained" not in str(exc_info.value).lower()
 
 
 @pytest.mark.parametrize("solver", ["newton", "lbfgs"])

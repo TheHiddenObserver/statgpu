@@ -1,28 +1,25 @@
 # RandomEffects
 
 > 语言：中文  
-> 最后更新：2026-08-19  
+> 最后更新：2026-09-17  
+> 页面定位：面板模型文档  
 > 切换：[English](../../en/panel/random-effects.md)
 
-## Overview
+## 概览
 
-`RandomEffects` 使用 Swamy-Arora 方法估计单向 random-intercept panel model 的 variance components，再通过 feasible GLS 得到 coefficient。与 fixed effects 不同，它把 entity-specific effect 建模为随机成分，而不是为每个 entity 设置一个 unrestricted fixed parameter。
+`RandomEffects` 使用 Swamy–Arora 方法估计单向随机截距面板模型的方差分量，再通过可行 GLS 得到系数。与固定效应模型不同，它把个体专属效应建模为随机成分，而不是为每个个体设置一个不受约束的固定参数。
 
-`cov_type` 只改变 GLS 拟合之后报告的 standard error 和检验，不会改变 Swamy-Arora variance components，也不会改变 coefficient estimate。
+`cov_type` 只改变 GLS 拟合之后报告的标准误和检验，不会改变 Swamy–Arora 方差分量，也不会改变系数估计。
 
-## Path
+## 统计模型与识别
 
-实现：`statgpu/panel/_random_effects.py`。
-
-## Statistical Model and Identification
-
-标准的 one-way random-effects model 可以写成
+标准的单向随机效应模型可以写成
 
 $$
 y_{it}=x_{it}^{\top}\beta+a_i+\varepsilon_{it},
 $$
 
-其中 $x_{it}$ 可以包含常数项。这里的 entity effect $a_i$ 是随机变量，而不是 fixed nuisance parameter。经典 error-components interpretation 使用
+其中 $x_{it}$ 可以包含常数项。个体效应 $a_i$ 是随机变量，而不是固定的干扰参数。经典误差分量解释通常假设
 
 $$
 E(a_i)=0,
@@ -32,7 +29,7 @@ E(a_i)=0,
 \operatorname{Var}(\varepsilon_{it})=\sigma_e^2.
 $$
 
-与 fixed effects 最关键的区别，是 random effect 需要满足与 regressors 的正交条件。一个常见的充分条件是
+随机效应与固定效应最关键的区别在于：随机效应模型要求 $a_i$ 与解释变量正交。一个常见的充分条件是
 
 $$
 E(a_i\mid X_i)=0,
@@ -40,41 +37,59 @@ E(a_i\mid X_i)=0,
 E(\varepsilon_{it}\mid X_i,a_i)=0,
 $$
 
-其中 $X_i=(x_{i1},\ldots,x_{iT_i})$。经典 one-way error-components covariance structure 还把同一 entity 内不同时间的 idiosyncratic errors 看作 serially uncorrelated，例如
+其中 $X_i=(x_{i1},\ldots,x_{iT_i})$。
+
+经典单向误差分量结构还通常假设同一个体内不同时间的特质误差不相关，例如
 
 $$
 \operatorname{Cov}(\varepsilon_{it},\varepsilon_{is}\mid X_i)=0,
 \qquad t\ne s,
 $$
 
-并要求 random effect 与 idiosyncratic error 正交。这些条件给出了标准 random-intercept covariance structure，也是 Swamy-Arora variance-component transformation 的经典出发点。
+并要求随机效应与特质误差正交。
 
-在这个统计模型下，within-entity 和 between-entity variation 都可以用于估计同一个公共 slope $\beta$。如果 $a_i$ 与 regressor history 存在系统性关系，random-effects GLS 在数值上仍然可以计算，但其 coefficient 一般不再保证识别与 fixed-effects estimator 相同的 structural $\beta$。这也是 classical FE-versus-RE Hausman comparison 背后的实质区别。
+在这些条件下，个体内和个体间变异都可以用来估计同一个公共斜率 $\beta$。如果 $a_i$ 与解释变量历史存在系统性关系，随机效应 GLS 在数值上仍然可以计算，但其系数一般不再保证识别与固定效应估计量相同的结构参数。这也是经典 Hausman 比较背后的核心区别。
 
-## Estimator
+## Swamy–Arora 估计
 
-Swamy-Arora 先估计
+Swamy–Arora 首先估计
 
 $$
-\widehat\sigma_e^2=\frac{RSS_W}{df_W},
+\widehat\sigma_e^2
+=
+\frac{RSS_W}{df_W},
 \qquad
-\bar T_H=\frac{N}{\sum_{i=1}^N T_i^{-1}},
+\bar T_H
+=
+\frac{N}{\sum_{i=1}^N T_i^{-1}},
 $$
 
 再计算
 
 $$
-\widehat\sigma_a^2=
-\max\left\{0,\frac{RSS_B/df_B-\widehat\sigma_e^2}{\bar T_H}\right\}.
+\widehat\sigma_a^2
+=
+\max\left\{
+0,
+\frac{RSS_B/df_B-\widehat\sigma_e^2}{\bar T_H}
+\right\}.
 $$
 
-其中 $df_W=n-r_W-r_E$。level design 有显式常数列时 $r_E=N$，否则 $r_E=N-1$；同时 $df_B=N-r_B$。如果辅助回归中存在重复或线性依赖的列，自由度按实际 numerical rank 计算，避免把同一个有效方向重复计数。
+其中 $df_W=n-r_W-r_E$。当水平设计矩阵中有显式常数列时 $r_E=N$，否则 $r_E=N-1$；同时 $df_B=N-r_B$。如果辅助回归中存在重复或线性依赖的列，自由度按实际数值秩计算，避免把同一个有效方向重复计数。
 
-对 entity $i$，
+对个体 $i$，定义
 
 $$
-\theta_i=1-\sqrt{\frac{\widehat\sigma_e^2}{\widehat\sigma_e^2+T_i\widehat\sigma_a^2}},
+\theta_i
+=
+1-
+\sqrt{
+\frac{\widehat\sigma_e^2}
+{\widehat\sigma_e^2+T_i\widehat\sigma_a^2}
+},
 $$
+
+并进行准去均值变换：
 
 $$
 y_{it}^*=y_{it}-\theta_i\bar y_i,
@@ -82,50 +97,67 @@ y_{it}^*=y_{it}-\theta_i\bar y_i,
 x_{it}^*=x_{it}-\theta_i\bar x_i.
 $$
 
-这个 quasi-demeaning 会从每个观测中减去一部分 entity mean；减去多少由估计得到的 within/between variance components 以及该 entity 的观测数共同决定。
-
-随后在 $(y^*,X^*)$ 上做 feasible GLS：
+随后在 $(y^*,X^*)$ 上进行可行 GLS：
 
 $$
 \widehat\beta_{\mathrm{RE}}
-=\arg\min_\beta\|y^*-X^*\beta\|_2^2
-=(X^{*\top}X^*)^+X^{*\top}y^*.
+=
+\arg\min_\beta\|y^*-X^*\beta\|_2^2
+=
+(X^{*\top}X^*)^+X^{*\top}y^*.
 $$
 
-## Covariance and Inference
+准去均值会从每个观测中减去一部分个体均值，减去多少由估计得到的个体内/个体间方差分量以及该个体的观测数共同决定。
 
-standard error 基于实际用于 GLS 的 quasi-demeaned data $(y^*,X^*)$ 计算。特别地，
+## 协方差与推断
+
+标准误基于真正用于 GLS 的准去均值数据 $(y^*,X^*)$ 计算。经典协方差为
 
 $$
 \widehat V_{\mathrm{nonrobust}}
-=\widehat\sigma_*^2(X^{*\top}X^*)^+,
+=
+\widehat\sigma_*^2
+(X^{*\top}X^*)^+,
 \qquad
-\widehat\sigma_*^2=\frac{e^{*\top}e^*}{n-\operatorname{rank}(X^*)},
+\widehat\sigma_*^2
+=
+\frac{e^{*\top}e^*}
+{n-\operatorname{rank}(X^*)},
 $$
 
-其中 $e^*=y^*-X^*\widehat\beta_{\mathrm{RE}}$。HC0/1/2/3、clustered 与 Driscoll-Kraay 也都在同一个 transformed regression 上计算；见 [面板 covariance](covariance.md)。
+其中
 
-robust covariance 可以放宽**完成 GLS transformation 以后所报告 covariance** 的部分假设，但不会改变 Swamy-Arora transformation 本身，也不能消除 usual random-effects interpretation 对 $E(a_i\mid X_i)=0$ 的要求。如果该 mean-model orthogonality 失效，换用 robust standard error 并不会自动解决 coefficient 的识别问题。
+$$
+e^*=y^*-X^*\widehat\beta_{\mathrm{RE}}.
+$$
 
-## Parameters
+HC0–HC3、聚类稳健以及 Driscoll–Kraay 协方差也都基于同一个变换后回归计算；完整公式见 [面板模型协方差](covariance.md)。
+
+稳健协方差可以放宽**GLS 变换完成后不确定性估计**的部分假设，但不会改变 Swamy–Arora 变换本身，也不能消除随机效应解释对 $E(a_i\mid X_i)=0$ 的要求。如果这一条件均值正交性失效，仅仅换用稳健标准误并不会自动修复系数识别问题。
+
+## 参数
 
 | 参数 | 默认值 | 可选值 / 约束 | 含义 |
 |---|---:|---|---|
-| `cov_type` | `"nonrobust"` | `nonrobust`、`robust`/`hc1`、`hc0`、`hc2`、`hc3`、`clustered`、`driscoll-kraay`/`dk`/`kernel` | random-effects GLS transformation 完成后如何计算 standard error。 |
-| `alpha` | `0.05` | 有限且严格位于 0 与 1 之间 | 置信区间显著性水平；`0.05` 对应 95% 区间。 |
-| `device` | `"auto"` | `auto`、`cpu`、`cuda`、`torch` | 数值计算运行在哪个 backend/device。 |
-| `n_jobs` | `None` | integer 或 `None` | 共享并行参数。 |
-| `bandwidth` | `None` | `None` 或非负整数；仅 DK 使用 | Driscoll-Kraay smoothing bandwidth。 |
-| `kernel` | `"bartlett"` | Bartlett/Newey-West、Parzen/Gallant、QS/Quadratic-Spectral/Andrews aliases | Driscoll-Kraay kernel。 |
-| `group_debias` | `False` | boolean；仅 clustered covariance 使用 | 是否应用 small-number-of-clusters correction。 |
+| `cov_type` | `"nonrobust"` | `nonrobust`、`robust`/`hc1`、`hc0`、`hc2`、`hc3`、`clustered`、`driscoll-kraay`/`dk`/`kernel` | GLS 变换完成后如何计算标准误 |
+| `alpha` | `0.05` | 有限且严格位于 `(0,1)` | 置信区间显著性水平；`0.05` 对应 95% 区间 |
+| `device` | `"auto"` | `auto` / `cpu` / `cuda` / `torch` | 数值计算的执行后端与设备 |
+| `n_jobs` | `None` | 整数或 `None` | 共享并行参数 |
+| `bandwidth` | `None` | `None` 或非负整数；仅 DK 使用 | Driscoll–Kraay 平滑带宽 |
+| `kernel` | `"bartlett"` | Bartlett/Newey–West、Parzen/Gallant、QS/Quadratic-Spectral/Andrews 等别名 | Driscoll–Kraay 核函数 |
+| `group_debias` | `False` | 布尔值；仅聚类稳健协方差使用 | 是否应用小聚类数修正 |
+
+拟合接口：
 
 ```python
 model.fit(X, y, entity_ids=entity_ids, time_ids=None, cluster=None)
 ```
 
-`entity_ids` 必需，因为 variance-component estimation 与 quasi-demeaning 都按 entity 进行。Driscoll-Kraay 还需要 `time_ids`；clustered covariance 需要 `cluster`。
+- `entity_ids` 必需，因为方差分量估计和准去均值都按个体进行；
+- Driscoll–Kraay 还需要 `time_ids`；
+- 聚类稳健协方差需要 `cluster`。
 
-## CPU and GPU Example
+## CPU 与 GPU 示例
 
 ```python
 from statgpu.panel import RandomEffects
@@ -135,11 +167,11 @@ cuda = RandomEffects(device="cuda").fit(X, y, entity_ids=entity_ids)
 torch = RandomEffects(device="torch").fit(X, y, entity_ids=entity_ids)
 ```
 
-若显式指定的 GPU backend 不可用，`.fit()` 会直接报错，而不是切换到 CPU。
+如果显式请求的 GPU 后端不可用，`.fit()` 会直接报错，而不会切换到 CPU。
 
-## Formula Example
+## 公式接口
 
-假设 `df` 包含 `y`、`x1`、`x2` 与 `entity` 列。
+假设 `df` 包含 `y`、`x1`、`x2` 与 `entity`：
 
 ```python
 from statgpu.panel import RandomEffects
@@ -155,39 +187,60 @@ without_intercept = RandomEffects().fit(
 )
 ```
 
-pipe 的第一个变量表示 entity grouping column。只有在 `cov_type="driscoll-kraay"` 时才接受第二个 pipe 变量，并将其作为 `time_ids`；其他 covariance 下会明确报错，而不是静默忽略该变量。如果同时显式传入 `entity_ids`/`time_ids`，它们必须与 pipe 中命名的对应列一致。`RandomEffects` 会拒绝 fixed-effect magic tokens（`EntityEffects`、`TimeEffects`、`FixedEffects`）；grouping metadata 应使用 pipe syntax 提供。
+管道符（`|`）后的第一个变量表示个体分组列。只有当 `cov_type="driscoll-kraay"` 时才接受第二个管道变量，并把它作为 `time_ids`；其他协方差类型下会明确报错，而不是静默忽略该变量。
 
-## Outputs
+如果同时显式传入 `entity_ids` / `time_ids`，它们必须与公式中管道部分指定的对应列一致。`RandomEffects` 会拒绝固定效应专用标记 `EntityEffects`、`TimeEffects` 和 `FixedEffects`；分组元数据应通过管道语法提供。
 
-常用结果包括 `coef_`、`bse_`、`tvalues_`、`pvalues_`、`conf_int_`、`theta_`、`variance_components_`、`fit_statistics_`、`nobs` 与 `df_resid`。`variance_components_` 保存 $\widehat\sigma_e^2$ 与 $\widehat\sigma_a^2$；`theta_` 是拟合中各 entity quasi-demeaning factor 按 entity 数量加权后的平均值。
+## 输出
 
-## Numerical and Strict Behavior
+常用结果包括：
 
-改变 `cov_type` 不会重新拟合 random-effects model：variance components 与 coefficient 保持不变，只改变报告的不确定性。
+- `coef_`、`bse_`、`tvalues_`、`pvalues_`、`conf_int_`；
+- `theta_`；
+- `variance_components_`；
+- `fit_statistics_`；
+- `nobs`、`df_resid`。
 
-between/within auxiliary regression 与最终 GLS solve 在 response 存在极端 magnitude cancellation 时会使用共享 cancellation-sensitive SVD response projection；普通 response 仍保留历史 BLAS 路径以及相同的 SVD rank/minimum-norm policy。
+`variance_components_` 保存 $\widehat\sigma_e^2$ 与 $\widehat\sigma_a^2$；`theta_` 是拟合中各个体准去均值因子按个体数量加权后的平均值。
 
-当单一 float64 common residual scale 会把非零 within/between residual 归一化成 0，或归一化后的 residual 虽然非零、但平方在 RSS 累加前下溢为 0 时，Swamy-Arora variance-component arithmetic 会 fail closed。quasi-demeaning 还会与代数等价的 `within + (1-theta)*mean` decomposition 进行数值 certificate：如果乘法、加法或 materially different transformed result 会丢掉非零 component，`fit()` 会抛出 `FloatingPointError`，而不是返回有限但错误的 GLS coefficient。实现会在形成 `theta=1-complement` 前保留正的 square-root complement，因此即便减法把 `theta` 舍入成精确 1，certificate 仍能看见原本可表示的 complement。这些是 float64 representation boundary，不是另一套统计定义。
+## 数值行为与失败语义
 
-Swamy-Arora variance-component step 要求 within 与 between auxiliary regression 都具有正的 residual degrees of freedom。特别是当 entity 数不大于 between regression 的 identified rank 时，`fit()` 会直接报错，而不会人为构造 denominator 并返回不可靠的 random-effect variance。
+改变 `cov_type` 不会重新拟合随机效应模型：方差分量与系数保持不变，只改变报告的不确定性。
 
-如果 transformed design 精确 rank deficient，fitted values 仍可能得到，但 coefficient vector 不唯一。statgpu 会对该次拟合整体关闭 coefficient-level standard error、检验、p-value 与 confidence interval，而不是从任意一种 coefficient representation 中继续做推断。
+用户可以依赖以下公开行为：
 
-Classical Hausman comparison 只在 [面板 diagnostics](diagnostics.md) 说明的条件下可用。不合法的 covariance 输入或不可用的显式 GPU backend 会直接报错。
+- 个体内和个体间辅助回归都必须具有正的残差自由度；如果个体数量不足以支持个体间回归，`.fit()` 会报错，而不会人为构造不可靠的方差分量；
+- 极端尺度下，如果 float64 无法可靠表示个体内/个体间残差方差或准去均值结果，会抛出 `FloatingPointError`，而不会返回有限但错误的 GLS 系数；
+- 如果变换后的设计矩阵精确秩亏，拟合值仍可能有意义，但系数向量不唯一。此时不会继续发布依赖唯一系数表示的标准误、检验、p 值与置信区间；
+- 不合法的协方差输入或不可用的显式 GPU 后端会直接报错；
+- 每次新的拟合尝试都会先失效旧的已拟合/推断状态，失败后对象不会保留看起来像成功结果的部分状态。
 
-## FAQ
+这些边界描述的是用户可观察的数值行为，不要求应用代码依赖内部使用哪一种 SVD、缩放、归约或验证脚本。
 
-**`cov_type` 会改变 Swamy-Arora coefficient estimate 吗？**  不会；它只改变 GLS 拟合后的 standard error 与相关 inference。
+## Hausman 比较
 
-**为什么 $\widehat\sigma_a^2$ 可能等于 0？**  finite sample 下 raw Swamy-Arora estimate 可能为负；由于 variance 不能为负，statgpu 会将该估计截断为 0。
+经典 Hausman 比较只在 [面板诊断](diagnostics.md) 说明的条件下可用。它检验的核心正是随机效应模型中“个体效应与解释变量不相关”这一额外假设是否与固定效应估计结果相容。
 
-## External Validation
+## 常见问题
 
-我们**不宣称** RandomEffects coefficient 与其他 package 完全一致，因为 statgpu 使用自身的 Swamy-Arora variance-component construction。验证时先取 statgpu 得到的 quasi-demeaned $(X^*,y^*)$：robust 与 Driscoll-Kraay covariance 和 `linearmodels==7.0` 比较，HC2/HC3 covariance 和 `statsmodels==0.14.6` 比较。covariance comparison 使用 `rtol=5e-9, atol=5e-11`；见 [validation matrix](covariance.md#validation-matrix)。
+**`cov_type` 会改变 Swamy–Arora 系数估计吗？**  
+不会；它只改变 GLS 拟合后的标准误与相关推断。
 
-GPU 一致性单独验证：CuPy 与 Torch 输出分别和 NumPy 比较，默认容差为 `rtol=5e-6, atol=5e-7`；历史差异保存在 `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`。新增的 `dev/benchmarks/validate_panel_intercept_cancellation_gpu.py` gate 还会在显式 requested/executed CuPy 与 Torch backend 上验证 Pooled/Between cancellation-tail coefficient，以及 RandomEffects variance/quasi-demeaning fail-closed boundary。
+**为什么 $\widehat\sigma_a^2$ 可能等于 0？**  
+有限样本下未经截断的 Swamy–Arora 估计可能为负；由于方差不能为负，statgpu 会把该估计截断为 0。
 
-## 参考（References）
+**稳健标准误能解决随机效应模型的内生性吗？**  
+不能。稳健协方差只改变不确定性估计，无法替代 $E(a_i\mid X_i)=0$ 这样的识别条件。
+
+## 相关文档
+
+- [面板模型总览](../models/panel.md) — Panel 模型选择与解释
+- [PanelOLS](panel-ols.md) — 固定效应估计
+- [面板模型协方差](covariance.md) — HC、cluster 与 Driscoll–Kraay
+- [面板诊断](diagnostics.md) — Hausman 等检验
+- [设备与 GPU 内存](../guides/device-and-memory.md) — 后端与设备语义
+
+## 参考文献
 
 - Swamy, P. A. V. B., & Arora, S. S. (1972). The exact finite sample properties of the estimators of coefficients in the error components regression models. *Econometrica*, 40(2), 261-275. [https://doi.org/10.2307/1909405](https://doi.org/10.2307/1909405)
 - Wooldridge, J. M. (2010). *Econometric Analysis of Cross Section and Panel Data* (2nd ed.). The MIT Press.

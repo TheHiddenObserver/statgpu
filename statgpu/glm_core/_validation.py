@@ -25,6 +25,15 @@ def _as_native_array(value, *, name):
         raise ValueError(f"{name} must be a numeric array-like.") from exc
 
 
+def _is_boolean_array(values) -> bool:
+    """Return whether an already-normalized array uses a boolean dtype."""
+    module = type(values).__module__
+    if module.startswith("torch"):
+        import torch
+        return bool(getattr(values, "dtype", None) == torch.bool)
+    return getattr(getattr(values, "dtype", None), "kind", "") == "b"
+
+
 def _require_real_finite(values, *, name):
     module = type(values).__module__
     if module.startswith("torch"):
