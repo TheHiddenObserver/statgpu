@@ -34,6 +34,9 @@ from ._constants import (
     _GRAD_CLIP_COEF_FACTOR,
     _GRAD_CLIP_ABS_FLOOR,
     _GRAD_CLIP_MAX,
+    _QUANTILE_ASYNC_MOMENTUM_BETA_CAP,
+    _QUANTILE_ASYNC_STALL_CHECKS,
+    _QUANTILE_ASYNC_STEP_CONTRACTION_FACTOR,
 )
 from ._utils import (
     _validate_sample_weight,
@@ -69,6 +72,20 @@ def _sample_weight_dtype_for_design(X, backend):
     except (TypeError, ValueError):
         kind = "f"
     return dtype if kind in "fc" else np.float64
+
+
+def _feature_penalty_width(penalty, n_features):
+    """Feature-only penalty width mirroring ``_tracking_penalty_value``.
+
+    ``SelectivePenalty`` exposes ``_p`` (penalized feature count, excluding the
+    trailing intercept); ``_FeatureOnlySparsePenalty`` exposes ``n_features``;
+    plain penalties cover the whole coefficient vector. The batched tracking
+    reduction must slice the same coordinates as the synchronized fallback.
+    """
+    width = getattr(penalty, "n_features", None)
+    if width is None:
+        width = getattr(penalty, "_p", n_features)
+    return int(width)
 
 
 def fista_solver(
@@ -300,9 +317,7 @@ def fista_solver(
                     getattr(penalty, "alpha", 0.0),
                 )
             )
-            _quantile_gpu_l2_width = int(
-                getattr(penalty, "_p", n_features)
-            )
+            _quantile_gpu_l2_width = _feature_penalty_width(penalty, n_features)
 
     # Convert sample_weight to backend-native array (prevent CPU/CUDA mismatch)
     _sw_arr = None
@@ -341,9 +356,12 @@ def fista_solver(
     _effective_momentum_beta_cap = _momentum_beta_cap
     if _quantile_async_nonsmooth:
         _effective_momentum_beta_cap = (
-            0.5
+            _QUANTILE_ASYNC_MOMENTUM_BETA_CAP
             if _effective_momentum_beta_cap is None
-            else min(float(_effective_momentum_beta_cap), 0.5)
+            else min(
+                float(_effective_momentum_beta_cap),
+                _QUANTILE_ASYNC_MOMENTUM_BETA_CAP,
+            )
         )
 
     for iteration in range(max_iter):
@@ -402,8 +420,9 @@ def fista_solver(
                     else None
                 )
                 if _quantile_async_l1_alpha is not None:
-                    _quantile_async_l1_width = int(
-                        getattr(penalty, "_p", n_features)
+                    _quantile_async_l1_width = _feature_penalty_width(
+                        penalty,
+                        n_features,
                     )
                     _penalty_dev = (
                         _quantile_async_l1_alpha
@@ -483,8 +502,8 @@ def fista_solver(
                         _quantile_async_stall_checks = 0
                     else:
                         _quantile_async_stall_checks += 1
-                    if _quantile_async_stall_checks >= 2:
-                        L *= 2.0
+                    if _quantile_async_stall_checks >= _QUANTILE_ASYNC_STALL_CHECKS:
+                        L *= _QUANTILE_ASYNC_STEP_CONTRACTION_FACTOR
                         _quantile_async_step_contractions += 1
                         _quantile_async_last_step = float(1.0 / L)
                         _quantile_async_stall_checks = 0

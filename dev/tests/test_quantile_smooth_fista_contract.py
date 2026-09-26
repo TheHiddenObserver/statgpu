@@ -364,6 +364,57 @@ def test_async_quantile_selective_l1_tracking_stays_batched(monkeypatch):
         )
 
 
+def test_feature_penalty_width_mirrors_tracking_penalty_value():
+    import statgpu.solvers._fista as fista_mod
+
+    class _NFeaturesPenalty:
+        n_features = 2
+
+        def __init__(self):
+            self.inner = L1Penalty(alpha=0.3)
+
+        @property
+        def name(self):
+            return "l1"
+
+        @property
+        def alpha(self):
+            return self.inner.alpha
+
+        def value(self, coef):
+            return self.inner.value(coef[: self.n_features])
+
+    class _PWidthPenalty:
+        _p = 3
+        _alpha = 0.3
+
+        def __init__(self):
+            self.inner = L1Penalty(alpha=0.3)
+
+        @property
+        def name(self):
+            return "l1"
+
+        def value(self, coef):
+            return self.inner.value(coef[: self._p])
+
+    coef = np.arange(1.0, 6.0, dtype=np.float64)
+    cases = (
+        (_NFeaturesPenalty(), 2),
+        (_PWidthPenalty(), 3),
+        (L1Penalty(alpha=0.3), int(coef.size)),
+    )
+    for penalty, expected_width in cases:
+        width = fista_mod._feature_penalty_width(penalty, coef.size)
+        assert width == expected_width
+        alpha = float(
+            getattr(penalty, "_alpha", getattr(penalty, "alpha", 0.0))
+        )
+        batched = alpha * float(np.sum(np.abs(coef[:width])))
+        tracked = fista_mod._tracking_penalty_value(penalty, coef)
+        assert batched == pytest.approx(tracked, rel=0.0, abs=1e-12)
+
+
 def test_async_quantile_l1_stall_contracts_step_without_extra_penalty_sync(monkeypatch):
     torch = pytest.importorskip("torch")
     import statgpu.solvers._fista as fista_mod

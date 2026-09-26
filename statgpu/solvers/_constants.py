@@ -8,6 +8,12 @@ _BB_RESTART_DOT_TOL = 1e-14
 _LIPSCHITZ_FLOOR = 1e-30
 _LIPSCHITZ_SAFETY_LOGISTIC_CV = 2.0
 
+# Quantile async sparse-CV FISTA stability controls (see solvers/_fista.py).
+# The physical GPU gate records these values, so they must stay importable.
+_QUANTILE_ASYNC_MOMENTUM_BETA_CAP = 0.5
+_QUANTILE_ASYNC_STALL_CHECKS = 2
+_QUANTILE_ASYNC_STEP_CONTRACTION_FACTOR = 2.0
+
 # Gradient clipping thresholds (used by fista, fista_bb, fista_lla, _array_ops)
 # gmax = max(coef_norm * _GRAD_CLIP_COEF_FACTOR + _GRAD_CLIP_ABS_FLOOR, _GRAD_CLIP_MAX)
 _GRAD_CLIP_COEF_FACTOR = 10.0   # scales with coefficient magnitude

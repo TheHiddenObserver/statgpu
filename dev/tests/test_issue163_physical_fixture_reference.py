@@ -93,6 +93,24 @@ def test_pr166_smooth_bootstrap_physical_gate_schema_is_locked():
     assert controls["bootstrap_public"]["fit_intercept_cases"] == [False, True]
 
 
+def test_pr166_async_controls_mirror_maintained_solver_constants():
+    from statgpu.solvers._constants import (
+        _QUANTILE_ASYNC_MOMENTUM_BETA_CAP,
+        _QUANTILE_ASYNC_STALL_CHECKS,
+        _QUANTILE_ASYNC_STEP_CONTRACTION_FACTOR,
+    )
+
+    assert (
+        smooth_gate.ASYNC_MOMENTUM_BETA_CAP
+        == _QUANTILE_ASYNC_MOMENTUM_BETA_CAP
+    )
+    assert smooth_gate.ASYNC_STALL_CHECKS == _QUANTILE_ASYNC_STALL_CHECKS
+    assert (
+        smooth_gate.ASYNC_STEP_CONTRACTION_FACTOR
+        == _QUANTILE_ASYNC_STEP_CONTRACTION_FACTOR
+    )
+
+
 def test_pr166_scalar_lla_physical_gate_schema_is_locked():
     assert scalar_lla_gate.SCHEMA_VERSION == 2
     assert group_lla_wrapper.SCALAR_SCHEMA_VERSION == scalar_lla_gate.SCHEMA_VERSION

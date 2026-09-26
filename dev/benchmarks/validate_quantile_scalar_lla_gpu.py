@@ -113,6 +113,13 @@ def _native_inputs(backend, X, y, weights, cp, torch):
     )
 
 
+def _require_finite(values, label):
+    """Fail closed before any NaN-blind comparison can mask a bad result."""
+    array = np.asarray(values, dtype=np.float64)
+    if not np.all(np.isfinite(array)):
+        raise AssertionError(f"{label}: non-finite values {array!r}")
+
+
 def _run(X, y, weights):
     """Run the accepted numerical parity solve; warnings are gate failures."""
     loss = _RecordingQuantileLoss(Q)
@@ -140,9 +147,16 @@ def _run(X, y, weights):
         raise AssertionError(
             f"scalar Quantile LLA lost analytic weights: {loss.weight_locations!r}"
         )
+    coef_np = np.asarray(_to_numpy(coef), dtype=np.float64).reshape(-1)
+    intercept_f = float(intercept)
+    _require_finite(coef_np, "scalar Quantile LLA converged coefficients")
+    if not np.isfinite(intercept_f):
+        raise AssertionError(
+            "scalar Quantile LLA converged intercept is non-finite"
+        )
     return (
-        np.asarray(_to_numpy(coef), dtype=np.float64).reshape(-1),
-        float(intercept),
+        coef_np,
+        intercept_f,
         int(n_iter),
         list(loss.weight_locations),
     )
@@ -206,9 +220,19 @@ def _run_periodic_refresh_probe(X, y, weights):
             f"scalar Quantile LLA periodic refresh lost analytic weights: "
             f"{loss.weight_locations!r}"
         )
+    probe_coef_np = np.asarray(_to_numpy(coef), dtype=np.float64).reshape(-1)
+    probe_intercept_f = float(intercept)
+    _require_finite(
+        probe_coef_np,
+        "scalar Quantile LLA periodic-refresh probe coefficients",
+    )
+    if not np.isfinite(probe_intercept_f):
+        raise AssertionError(
+            "scalar Quantile LLA periodic-refresh probe intercept is non-finite"
+        )
     return (
-        np.asarray(_to_numpy(coef), dtype=np.float64).reshape(-1),
-        float(intercept),
+        probe_coef_np,
+        probe_intercept_f,
         int(n_iter),
         list(loss.weight_locations),
         convergence_warnings,
@@ -261,7 +285,7 @@ def main() -> int:
         probe_weights,
     )
 
-    if np.max(np.abs(cpu_coef)) > 1e-12 or abs(cpu_intercept) > 1e-12:
+    if np.max(np.abs(cpu_coef)) > 1e-12 or cpu_intercept != 0.0:
         raise AssertionError(
             "scalar Quantile LLA converged fixed-point CPU oracle drifted from zero"
         )
@@ -311,6 +335,16 @@ def main() -> int:
             probe_weights,
         )
         probe_objective_error = abs(probe_objective - cpu_probe_objective)
+        if not (
+            np.isfinite(objective)
+            and np.isfinite(cpu_objective)
+            and np.isfinite(probe_objective)
+            and np.isfinite(cpu_probe_objective)
+        ):
+            raise AssertionError(
+                f"{backend}: scalar LLA non-finite objective cannot be "
+                "compared"
+            )
         max_param_error = max(max_param_error, param_error)
         max_objective_error = max(max_objective_error, objective_error)
         max_probe_param_error = max(max_probe_param_error, probe_param_error)

@@ -33,6 +33,11 @@ from statgpu.linear_model.penalized import PenalizedQuantileRegression
 from statgpu.losses import QuantileLoss
 from statgpu.penalties import L1Penalty
 from statgpu.solvers import fista_solver
+from statgpu.solvers._constants import (
+    _QUANTILE_ASYNC_MOMENTUM_BETA_CAP,
+    _QUANTILE_ASYNC_STALL_CHECKS,
+    _QUANTILE_ASYNC_STEP_CONTRACTION_FACTOR,
+)
 from statgpu.solvers._convergence import ConvergenceWarning
 
 
@@ -61,9 +66,11 @@ ASYNC_MAX_ITER = 6000
 # L1 CV stopping contract. CPU/GPU objective parity remains a separate, tighter
 # acceptance condition below.
 ASYNC_TOL = 1e-5
-ASYNC_MOMENTUM_BETA_CAP = 0.5
-ASYNC_STALL_CHECKS = 2
-ASYNC_STEP_CONTRACTION_FACTOR = 2.0
+# These controls are imported from the maintained solver so the recorded
+# payload cannot drift from the implementation it claims to validate.
+ASYNC_MOMENTUM_BETA_CAP = _QUANTILE_ASYNC_MOMENTUM_BETA_CAP
+ASYNC_STALL_CHECKS = _QUANTILE_ASYNC_STALL_CHECKS
+ASYNC_STEP_CONTRACTION_FACTOR = _QUANTILE_ASYNC_STEP_CONTRACTION_FACTOR
 ASYNC_REFERENCE = "scipy_highs_lp"
 
 BOOTSTRAP_Q = 0.20
@@ -1115,6 +1122,11 @@ def main() -> int:
                 cpu_obj = _objective(
                     X, y, weights, cpu_coef, cpu_intercept, alpha
                 )
+                if not (np.isfinite(gpu_obj) and np.isfinite(cpu_obj)):
+                    raise AssertionError(
+                        f"{backend}/direct/{penalty}: non-finite objective "
+                        "cannot be compared"
+                    )
                 objective_error = abs(gpu_obj - cpu_obj)
                 max_objective_error = max(max_objective_error, objective_error)
                 if objective_error > ATOL_OBJECTIVE:
@@ -1168,6 +1180,14 @@ def main() -> int:
                         f"{reference_alpha!r}"
                     )
 
+                if not (
+                    np.all(np.isfinite(scores))
+                    and np.all(np.isfinite(reference_scores))
+                ):
+                    raise AssertionError(
+                        f"{backend}/cv/{cv_penalty}: non-finite CV scores "
+                        f"cannot be compared against {reference_name}"
+                    )
                 score_error = float(
                     np.max(
                         np.abs(scores - reference_scores)
@@ -1221,6 +1241,16 @@ def main() -> int:
                             float(cv.alpha_),
                         )
                     )
+                    if not (
+                        np.isfinite(final_refit_objective)
+                        and np.isfinite(
+                            float(cv_l1_reference["full_objective"])
+                        )
+                    ):
+                        raise AssertionError(
+                            f"{backend}/cv/l1: non-finite final refit "
+                            "objective cannot be compared"
+                        )
                     final_refit_error = abs(
                         final_refit_objective
                         - float(cv_l1_reference["full_objective"])
