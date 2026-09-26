@@ -199,7 +199,7 @@ $$
 
 ## 数值验证
 
-维护中的回归测试会按 dtype 与求解器路径检查支持后端之间及与参考实现的数值一致性。solver API 迁移行为由 `dev/tests/test_penalized_solver_api_cleanup.py` 覆盖；逐节点调参契约由 `dev/tests/test_nodewise_alpha_inference_contract.py` 覆盖；post-selection OLS API 迁移与活跃集 OLS/WLS 行为由 `dev/tests/test_post_selection_ols_inference_api.py` 覆盖。
+维护中的回归测试会按 dtype 与求解器路径检查支持后端之间及与参考实现的数值一致性。求解器 API 迁移行为由 `dev/tests/test_penalized_solver_api_cleanup.py` 覆盖；逐节点调参契约由 `dev/tests/test_nodewise_alpha_inference_contract.py` 覆盖；post-selection OLS API 迁移与活跃集 OLS/WLS 行为由 `dev/tests/test_post_selection_ols_inference_api.py` 覆盖。
 
 ## 参考文献
 

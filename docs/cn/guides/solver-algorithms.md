@@ -1477,7 +1477,7 @@ $$
 ├── logistic / poisson / NB + 稀疏惩罚    → FISTA-BB
 ├── tweedie + 稀疏惩罚                    → CPU FISTA-BB / GPU FISTA
 ├── 其他标量 SCAD/MCP                     → FISTA-LLA
-├── adaptive L1                           → 先初始化 adaptive weights，再按凸稀疏 FISTA/FISTA-BB 规则
+├── adaptive L1                           → 先初始化自适应权重，再按凸稀疏 FISTA/FISTA-BB 规则
 └── 其他分组惩罚                          → Group FISTA / FISTA-LLA
 ```
 
