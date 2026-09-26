@@ -267,6 +267,7 @@ _UNRELEASED_CHANGELOG_FRAGMENTS_TO_AVOID = (
     "result provenance",
     "closed-form",
     "checklist",
+    "夹具",
 )
 
 _PR166_SOLVER_PROSE_FRAGMENTS_TO_AVOID = (
