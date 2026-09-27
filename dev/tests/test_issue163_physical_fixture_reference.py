@@ -216,6 +216,35 @@ def test_pr166_scalar_lla_budget_probe_warns_once_on_cpu():
     assert warnings_count == 1
 
 
+def test_pr166_scalar_lla_validator_weights_match_scad_penalty():
+    from statgpu.penalties import SCADPenalty
+
+    alpha = scalar_lla_gate.ALPHA
+    scad_a = scalar_lla_gate.SCAD_A
+    beta = np.asarray(
+        [
+            -2.0,
+            -scad_a * alpha,
+            -1.0,
+            -alpha,
+            -0.49,
+            0.0,
+            0.49,
+            alpha,
+            1.0,
+            scad_a * alpha,
+            2.0,
+        ],
+        dtype=np.float64,
+    )
+    expected = np.asarray(
+        SCADPenalty(alpha=alpha, a=scad_a).lla_weights(beta),
+        dtype=np.float64,
+    )
+    actual = scalar_lla_gate._scad_lla_weights(beta)
+    np.testing.assert_allclose(actual, expected, rtol=0.0, atol=1e-15)
+
+
 def test_pr166_async_weighted_l1_lp_reference_exposes_cpu_fista_gap():
     X, y, weights, ratio = smooth_gate._async_weighted_data()
     assert ratio > 1.5

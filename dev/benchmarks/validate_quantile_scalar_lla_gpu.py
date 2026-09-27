@@ -13,9 +13,9 @@ Proximal IRLS-LLA engine. This validator certifies, on NumPy/CuPy/Torch:
 - budget exhaustion reports exactly one dedicated ``ConvergenceWarning``.
 
 The dedicated engine returns host NumPy by public contract, so execution
-provenance is asserted on the backend-native inputs it executes on; accelerator
-device binding for the dedicated route is additionally covered by the Quantile
-device-binding contracts and the direct-route physical gates.
+provenance is asserted on the backend-native inputs it executes on. Silent host
+fallback inside the engine is not detectable from this validator and remains a
+residual evidence limitation.
 """
 
 from __future__ import annotations
@@ -406,10 +406,10 @@ def main() -> int:
     _require_interior_fixed_point(cpu_coef, "cpu nontrivial fixture")
     _, cpu_lp_value = _lp_fixed_point_reference(X, y, weights, cpu_coef)
     cpu_gap = _fixed_point_gap(X, y, weights, cpu_coef, cpu_lp_value)
-    if cpu_gap > ATOL_FIXED_POINT:
+    if abs(cpu_gap) > ATOL_FIXED_POINT:
         raise AssertionError(
-            f"cpu nontrivial fixture fixed-point gap {cpu_gap:.3e} > "
-            f"{ATOL_FIXED_POINT:.3e}"
+            f"cpu nontrivial fixture fixed-point gap {cpu_gap:.3e} exceeds "
+            f"{ATOL_FIXED_POINT:.3e} in magnitude"
         )
     cpu_objective = _objective(cpu_coef, cpu_intercept, X, y, weights)
     cpu_probe_iter, cpu_probe_warnings = _run_exhaustion_probe(
@@ -487,10 +487,10 @@ def main() -> int:
                 f"{backend}: nontrivial objective error {objective_error:.3e} > "
                 f"{ATOL_OBJECTIVE:.3e}"
             )
-        if gap > ATOL_FIXED_POINT:
+        if abs(gap) > ATOL_FIXED_POINT:
             raise AssertionError(
-                f"{backend}: nontrivial fixed-point gap {gap:.3e} > "
-                f"{ATOL_FIXED_POINT:.3e}"
+                f"{backend}: nontrivial fixed-point gap {gap:.3e} exceeds "
+                f"{ATOL_FIXED_POINT:.3e} in magnitude"
             )
 
         probe_iter, probe_warnings = _run_exhaustion_probe(
@@ -500,7 +500,7 @@ def main() -> int:
         max_zero_param_error = max(max_zero_param_error, zero_param_error)
         max_param_error = max(max_param_error, param_error)
         max_objective_error = max(max_objective_error, objective_error)
-        max_fixed_point_gap = max(max_fixed_point_gap, gap)
+        max_fixed_point_gap = max(max_fixed_point_gap, abs(gap))
         cases.append(
             {
                 "backend": backend,
