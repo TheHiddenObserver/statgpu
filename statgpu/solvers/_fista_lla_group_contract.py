@@ -424,6 +424,7 @@ def fista_lla_path(
     if (
         loss_name == "quantile"
         and penalty_name not in _GROUP_NONCONVEX_NAMES
+        and lla_penalty_factory is None
         and init_coef is None
         and init_intercept is None
         and not return_path
