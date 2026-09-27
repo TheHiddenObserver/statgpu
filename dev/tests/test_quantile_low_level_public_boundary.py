@@ -464,24 +464,30 @@ def test_public_quantile_lbfgs_warning_points_to_caller():
     assert caught[0].filename == __file__
 
 
-def test_public_quantile_fista_lla_warning_points_to_caller():
-    X = np.eye(3, dtype=np.float64)
-    y = np.asarray([1.0, -2.0, 3.0], dtype=np.float64)
+def test_public_quantile_lla_warning_points_to_caller():
+    rng = np.random.default_rng(166500)
+    q_matrix, _ = np.linalg.qr(rng.normal(size=(48, 4)))
+    X = (q_matrix * np.sqrt(48)).astype(np.float64)
+    beta = np.asarray([0.9, -0.7, 0.0, 0.35], dtype=np.float64)
+    y = (X @ beta + rng.laplace(scale=0.2, size=48)).astype(np.float64)
+    weights = np.linspace(0.35, 1.95, 48, dtype=np.float64)
+    rng.shuffle(weights)
     with pytest.warns(
         ConvergenceWarning,
-        match="Quantile FISTA-LLA target alpha did not establish",
+        match="Quantile Proximal IRLS-CD target reached",
     ) as caught:
         solvers.fista_lla_path(
             QuantileLoss(0.35),
-            SCADPenalty(alpha=0.05),
+            SCADPenalty(alpha=0.04, a=3.7),
             X,
             y,
-            alpha_path=[0.05],
+            alpha_path=[0.04],
             max_lla_per_step=1,
             max_iter=1,
             tol=1e-12,
             lla_tol=1e-12,
             fit_intercept=False,
+            sample_weight=weights,
         )
     assert caught[0].filename == __file__
 

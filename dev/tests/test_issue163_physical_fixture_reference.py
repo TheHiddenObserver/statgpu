@@ -112,12 +112,25 @@ def test_pr166_async_controls_mirror_maintained_solver_constants():
 
 
 def test_pr166_scalar_lla_physical_gate_schema_is_locked():
-    assert scalar_lla_gate.SCHEMA_VERSION == 2
+    assert scalar_lla_gate.SCHEMA_VERSION == 3
     assert group_lla_wrapper.SCALAR_SCHEMA_VERSION == scalar_lla_gate.SCHEMA_VERSION
-    assert scalar_lla_gate.PROBE_TOL > 0.0
-    assert scalar_lla_gate.PROBE_LLA_TOL > 0.0
-    assert scalar_lla_gate.PARITY_TOL > 0.0
-    assert scalar_lla_gate.PARITY_LLA_TOL > 0.0
+    assert scalar_lla_gate.ATOL_PARAM > 0.0
+    assert scalar_lla_gate.ATOL_OBJECTIVE > 0.0
+    assert scalar_lla_gate.ATOL_FIXED_POINT > 0.0
+    assert scalar_lla_gate.TARGET_MAX_LLA_PER_STEP >= 1
+    assert scalar_lla_gate.TARGET_MAX_ITER >= 1
+    assert scalar_lla_gate.TARGET_TOL > 0.0
+    assert scalar_lla_gate.TARGET_LLA_TOL > 0.0
+    assert scalar_lla_gate.EXHAUSTION_MAX_LLA_PER_STEP >= 1
+    assert scalar_lla_gate.EXHAUSTION_MAX_ITER >= 1
+    assert scalar_lla_gate.EXHAUSTION_WARNING == (
+        "Quantile Proximal IRLS-CD target reached"
+    )
+    assert callable(scalar_lla_gate._run_zero)
+    assert callable(scalar_lla_gate._run_nontrivial)
+    assert callable(scalar_lla_gate._run_exhaustion_probe)
+    assert callable(scalar_lla_gate._lp_fixed_point_reference)
+    assert callable(scalar_lla_gate._fixed_point_gap)
 
 
 def test_pr166_weighted_l2_cv_physical_fixture_converges_on_cpu():
@@ -144,7 +157,7 @@ def test_pr166_weighted_l2_cv_physical_fixture_converges_on_cpu():
     assert smooth_gate.CV_L2_TOL < smooth_gate.CV_L1_TOL
 
 
-def test_pr166_scalar_lla_physical_fixture_converges_and_probes_refresh_on_cpu():
+def test_pr166_scalar_lla_zero_fixture_converges_on_cpu():
     X, y, weights = scalar_lla_gate._converged_data()
     gradient_at_zero = QuantileLoss(scalar_lla_gate.Q).gradient(
         X,
@@ -154,40 +167,53 @@ def test_pr166_scalar_lla_physical_fixture_converges_and_probes_refresh_on_cpu()
     )
     np.testing.assert_allclose(gradient_at_zero, 0.0, rtol=0.0, atol=1e-15)
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", ConvergenceWarning)
-        coef, intercept, n_iter, locations = scalar_lla_gate._run(X, y, weights)
+    coef, intercept, n_iter, provenance = scalar_lla_gate._run_zero(
+        X,
+        y,
+        weights,
+        "cpu zero fixture",
+    )
 
+    assert provenance == ("numpy", "cpu")
     assert np.all(np.isfinite(coef))
     assert np.isfinite(intercept)
     np.testing.assert_allclose(coef, 0.0, rtol=0.0, atol=1e-12)
     assert intercept == pytest.approx(0.0, rel=0.0, abs=1e-12)
     assert 1 <= n_iter
-    assert locations
-    assert all(tuple(location) == ("numpy", "cpu") for location in locations)
 
-    probe_X, probe_y, probe_weights = scalar_lla_gate._data()
-    (
-        probe_coef,
-        probe_intercept,
-        probe_iter,
-        probe_locations,
-        probe_warnings,
-    ) = scalar_lla_gate._run_periodic_refresh_probe(
-        probe_X,
-        probe_y,
-        probe_weights,
+
+def test_pr166_scalar_lla_nontrivial_fixture_reaches_lp_fixed_point_on_cpu():
+    pytest.importorskip("scipy.optimize")
+    X, y, weights = scalar_lla_gate._nontrivial_data()
+
+    coef, intercept, n_iter, provenance = scalar_lla_gate._run_nontrivial(
+        X,
+        y,
+        weights,
+        "cpu nontrivial fixture",
     )
-    assert np.all(np.isfinite(probe_coef))
-    assert np.isfinite(probe_intercept)
-    assert probe_iter >= 21
-    assert len(probe_locations) >= 2
-    assert all(
-        tuple(location) == ("numpy", "cpu")
-        for location in probe_locations
+
+    assert provenance == ("numpy", "cpu")
+    assert np.all(np.isfinite(coef))
+    assert np.isfinite(intercept)
+    assert 1 <= n_iter
+    _, lp_value = scalar_lla_gate._lp_fixed_point_reference(X, y, weights, coef)
+    gap = scalar_lla_gate._fixed_point_gap(X, y, weights, coef, lp_value)
+    assert 0.0 <= gap <= scalar_lla_gate.ATOL_FIXED_POINT
+
+
+def test_pr166_scalar_lla_budget_probe_warns_once_on_cpu():
+    X, y, weights = scalar_lla_gate._exhaustion_data()
+
+    n_iter, warnings_count = scalar_lla_gate._run_exhaustion_probe(
+        X,
+        y,
+        weights,
+        "cpu budget probe",
     )
-    assert len(probe_warnings) == 1
-    assert "Quantile FISTA-LLA target alpha did not establish" in probe_warnings[0]
+
+    assert 1 <= n_iter
+    assert warnings_count == 1
 
 
 def test_pr166_async_weighted_l1_lp_reference_exposes_cpu_fista_gap():

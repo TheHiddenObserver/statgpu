@@ -296,7 +296,7 @@ def test_quantile_fista_lla_integer_design_preserves_fractional_response_and_wei
     assert n_iter_int == n_iter_float
 
 
-def test_public_quantile_fista_lla_final_allowed_inner_iteration_can_converge(
+def test_fused_quantile_fista_lla_final_allowed_inner_iteration_can_converge(
     monkeypatch,
 ):
     X = np.asarray(
@@ -315,7 +315,7 @@ def test_public_quantile_fista_lla_final_allowed_inner_iteration_can_converge(
 
     with warnings.catch_warnings():
         warnings.simplefilter("error", ConvergenceWarning)
-        coef, intercept, n_iter = fista_lla_contract.fista_lla_path(
+        coef, intercept, n_iter = fista_lla_base.fista_lla_path(
             QuantileLoss(0.35),
             SCADPenalty(alpha=0.05),
             X,
@@ -334,7 +334,7 @@ def test_public_quantile_fista_lla_final_allowed_inner_iteration_can_converge(
     assert n_iter == 2
 
 
-def test_public_quantile_fista_lla_reports_target_budget_exhaustion():
+def test_fused_quantile_fista_lla_reports_target_budget_exhaustion():
     X = np.asarray(
         [[1.0, 0.2], [0.3, -0.5], [1.2, 0.7], [-0.4, 1.1]],
         dtype=np.float64,
@@ -345,7 +345,7 @@ def test_public_quantile_fista_lla_reports_target_budget_exhaustion():
         ConvergenceWarning,
         match="Quantile FISTA-LLA target alpha did not establish",
     ):
-        coef, intercept, n_iter = fista_lla_contract.fista_lla_path(
+        coef, intercept, n_iter = fista_lla_base.fista_lla_path(
             QuantileLoss(0.35),
             SCADPenalty(alpha=0.05),
             X,
