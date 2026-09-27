@@ -30,19 +30,19 @@ so the gate could report success while recording `score_error: NaN`.
 objectives. Fix: fail-closed `np.isfinite` guards before every comparison in both
 validators (commit `ee28f783`).
 
-### 2. MEDIUM — scalar LLA "converged" oracle is the trivial zero fixed point (recorded, deferred)
+### 2. MEDIUM — scalar LLA "converged" oracle was the trivial zero fixed point (closed via Issue #169)
 
 The accepted scalar-LLA case is built around an exact zero fixed point, so its CPU/GPU
-"converged" parity is essentially zero-versus-zero. A nontrivial LP oracle was
-prototyped and uncovered an accuracy floor of the fixed-step inner solve used by
-`fista_lla_path` for Quantile. Adding the strict oracle to this PR's gate would fail, so
-the finding is recorded instead of silently weakening the claim:
-
-- `dev/tests/test_pr166_quantile_lla_accuracy_floor.py` pins the current floor with an
-  upper-bound regression contract and a `xfail(strict=True)` target-accuracy contract.
-- Follow-up (separate task/PR): upgrade the non-smooth LLA inner solver (backtracking or
-  an equivalent safe step strategy), then promote the LP oracle into
-  `validate_quantile_scalar_lla_gpu.py`.
+"converged" parity was essentially zero-versus-zero. The prototype nontrivial LP oracle
+uncovered an accuracy floor of the fixed-step inner solve used by `fista_lla_path` for
+Quantile. This PR closes it by delegating the public scalar Quantile SCAD/MCP low-level
+route to the maintained dedicated Proximal IRLS-LLA engine (the same engine used by
+direct and CV Quantile SCAD/MCP fits). Group penalties and warm-started/path-reporting
+calls keep the fused FISTA-LLA engine. The recorded floor contract was replaced by
+`dev/tests/test_issue169_quantile_lla_accuracy.py`, which pins the delegation boundary,
+the fused-engine fallbacks, and the independent HiGHS LP fixed-point contract (observed
+gap about `1.5e-11` against a `1e-8` tolerance). The scalar physical gate schema v3 now
+records the nontrivial LP oracle plus a dedicated budget-exhaustion warning case.
 
 Reproduction (p=1 convex weighted-L1; LP validated against a 5e5-point grid):
 
@@ -87,12 +87,15 @@ the synchronized fallback; hosted tests cover all three wrapper shapes.
 
 ## Residual evidence
 
-- Finding 2's solver upgrade is explicitly outside this PR's scope; no production numerics
-  were changed for it.
+- The Issue #169 delegation is a low-level route change: direct/CV/group Quantile
+  non-convex fits already used the dedicated engines and are numerically unchanged.
 - No performance measurement was part of this review.
 
 ## Review verdict
 
 Findings 1, 3, 4, and 5 are closed on the fixed source and the physical artifacts were
-re-signed for that source. Finding 2 is recorded with a bounded regression contract and a
-deferred follow-up. No other actionable finding remains for the reviewed range.
+re-signed for that source. Finding 2 is closed via Issue #169: the public scalar Quantile
+SCAD/MCP low-level route delegates to the dedicated Proximal IRLS-LLA engine, the hosted
+contract suite pins the delegation boundary and the LP fixed point, and the scalar
+physical gate records the nontrivial LP oracle. No other actionable finding remains for
+the reviewed range.

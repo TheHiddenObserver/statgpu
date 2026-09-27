@@ -42,7 +42,7 @@
 ### 如何阅读这张表
 
 - 单元格表示**实际的自动分发路径**，不代表全部可用的显式求解器选择。
-- FISTA-LLA 表示标量 SCAD/MCP 使用的非凸延续路径；对于具有合适光滑/一阶结构的其他损失，分组 FISTA-LLA 是对应的分组路径。
+- FISTA-LLA 表示标量 SCAD/MCP 使用的非凸延续路径；对于具有合适光滑/一阶结构的其他损失，分组 FISTA-LLA 是对应的分组路径。标量 Quantile SCAD/MCP 改用专用 Proximal IRLS-LLA 路径，公开底层 `fista_lla_path` 调用同样如此。
 - Quantile 的 Group SCAD/MCP 改用分组 Proximal IRLS-LLA：先用 Quantile IRLS 对 pinball 目标构造二次上界，再在所选后端求解相应的凸 Adaptive Group Lasso 加权最小二乘子问题。
 - Proximal IRLS-CD 与分组 Proximal IRLS-LLA 都是内部解析后的实际路径，不是公开的显式 `solver=` 关键字。
 - Group Lasso 和 Adaptive Group Lasso 仍使用分组 FISTA。

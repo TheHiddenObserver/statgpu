@@ -42,7 +42,7 @@ General conventions:
 ### Reading the table
 
 - The cells show the **effective automatic route**, not every explicit solver that may be valid.
-- FISTA-LLA denotes the non-convex continuation route used for scalar SCAD/MCP objectives; Group FISTA-LLA is the corresponding group route for losses whose smooth/first-order structure supports it.
+- FISTA-LLA denotes the non-convex continuation route used for scalar SCAD/MCP objectives; Group FISTA-LLA is the corresponding group route for losses whose smooth/first-order structure supports it. Scalar Quantile SCAD/MCP resolves to the dedicated Proximal IRLS-LLA route instead, including the public low-level `fista_lla_path` call.
 - Quantile Group SCAD/MCP instead uses Group Proximal IRLS-LLA: the pinball objective is majorized by Quantile IRLS, and each convex Adaptive-Group-Lasso weighted least-squares surrogate is solved on the selected backend.
 - Proximal IRLS-CD and Group Proximal IRLS-LLA are specialized resolved routes rather than public explicit solver keywords.
 - Group Lasso and Adaptive Group Lasso use the group-aware FISTA path.

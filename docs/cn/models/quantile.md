@@ -93,7 +93,7 @@ IRLS 仍是自动选择，因为 pinball loss 本身非光滑；这里的 Quanti
 | group_lasso / adaptive group | 分组 FISTA | 面向分组的近端路径 |
 | group_scad / group_mcp | 分组 Proximal IRLS-LLA | 分组 LLA + Quantile IRLS/MM；每个凸 Adaptive Group Lasso 加权最小二乘代理问题都在所选后端求解 |
 
-上表描述的是自动路径。若对 Group SCAD/MCP 显式指定 `solver="fista"`，该请求仍然保持为显式近端 FISTA，不会被静默改写成自动的分组 Proximal IRLS-LLA。公开底层 `fista_lla_path(...)` 也继续表示真正的 FISTA-LLA，而不是该自动估计器路径的别名。
+上表描述的是自动路径。若对 Group SCAD/MCP 显式指定 `solver="fista"`，该请求仍然保持为显式近端 FISTA，不会被静默改写成自动的分组 Proximal IRLS-LLA。公开底层 `fista_lla_path(...)` 的标量 Quantile SCAD/MCP 现在执行同一套专用 Proximal IRLS-LLA 求解；分组惩罚以及带热启动或返回路径的底层调用继续使用融合式 FISTA-LLA 引擎。
 
 ## `sample_weight` 语义
 
@@ -249,7 +249,7 @@ $$
 
 该凸子问题使用后端原生的变量分裂求解：二次更新对应加权最小二乘线性系统，近端更新则使用精确的 Adaptive Group Lasso 分组收缩。截距包含在二次模型中，但不参与惩罚。如果所有 $D_g^{(k)}$ 都为 0，则当前 LLA 目标恰好退化为无惩罚 Quantile 回归，此时直接使用普通带权 Quantile IRLS 求解。
 
-这条自动路径与显式 FISTA 控制相互独立：`solver="fista"` 以及底层 `fista_lla_path(...)` 都继续表示基于 FISTA 的算法。
+这条自动路径与显式 FISTA 控制相互独立：`solver="fista"` 仍然表示显式 FISTA 请求，而底层 `fista_lla_path(...)` 的标量 Quantile SCAD/MCP 执行同一套专用 Proximal IRLS-LLA 求解（分组惩罚以及带热启动或返回路径的调用继续使用融合式 FISTA-LLA 引擎）。
 
 ### IRLS（L2/无惩罚）
 

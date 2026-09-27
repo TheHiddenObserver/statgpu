@@ -91,7 +91,7 @@ For L2/no-penalty Quantile objectives, `PenalizedQuantileRegression(..., solver=
 | group_lasso / adaptive group | Group FISTA | Group-aware proximal route |
 | group_scad / group_mcp | Group Proximal IRLS-LLA | Group LLA with Quantile IRLS/MM; each convex Adaptive-Group-Lasso weighted least-squares surrogate is solved on the selected backend |
 
-The table describes the automatic route. An explicit Group SCAD/MCP `solver="fista"` request remains an explicit proximal-FISTA request; it is not silently rewritten into Group Proximal IRLS-LLA. Likewise, the public low-level `fista_lla_path` retains its FISTA-LLA meaning rather than aliasing this automatic estimator route.
+The table describes the automatic route. An explicit Group SCAD/MCP `solver="fista"` request remains an explicit proximal-FISTA request; it is not silently rewritten into Group Proximal IRLS-LLA. The public low-level `fista_lla_path` performs the same dedicated Proximal IRLS-LLA solve for scalar Quantile SCAD/MCP; group penalties and warm-started/path-reporting low-level calls keep the fused FISTA-LLA engine.
 
 ## `sample_weight` semantics
 
@@ -247,7 +247,7 @@ $$
 
 The convex subproblem is solved with a backend-native splitting method whose quadratic update uses the weighted least-squares system and whose proximal update is the exact Adaptive Group Lasso block shrinkage. The intercept is part of the quadratic model but remains unpenalized. If all $D_g^{(k)}$ are zero, the LLA target is exactly unpenalized Quantile regression, so it is solved directly with ordinary weighted Quantile IRLS.
 
-This automatic route is separate from explicit FISTA control: `solver="fista"` and direct low-level `fista_lla_path(...)` continue to mean FISTA-based algorithms.
+This automatic route is separate from explicit FISTA control: `solver="fista"` remains an explicit FISTA request, and direct low-level `fista_lla_path(...)` performs the same dedicated Proximal IRLS-LLA solve for scalar Quantile SCAD/MCP (group penalties and warm-started/path-reporting calls keep the fused FISTA-LLA engine).
 
 ### IRLS (L2/none)
 
