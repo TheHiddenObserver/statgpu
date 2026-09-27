@@ -5,7 +5,7 @@
 - target_kind: range (`A..B`, two-dot)
 - base_sha: `5dec9fbc658046ace4d6cb159a5f6629923f9275`
 - head_sha: `f039610090e074004382e7b133ddd64d222ab71b`
-- Issue #169 fix range: `8a3ba5a7..76cea795` (review-fix commits `b5f4b2b4`, `30eed06c`, `76cea795`); physical evidence commit `0e4a70421fa4cbdbae2f7e93715cd536df900b4a` at source `76cea79575fc3b0d2172352a9bd729ae0558f66c`
+- Issue #169 fix range: `8a3ba5a7..84a77a58`; final physical evidence commit `17966e925a4fad65e42ad68208d023d7ea159aa5` at source `84a77a5836f034dce4350c5229977c09178b7c3d` (earlier re-signs: source `76ab2115` / evidence `fe1f426a`, source `76cea795` / evidence `0e4a7042`)
 - path_filter: `statgpu/solvers/_fista.py`, `statgpu/solvers/_constants.py`,
   `statgpu/linear_model/penalized/{_fit_mixin,_penalized_cv,_quantile_solver_contract}.py`,
   `dev/benchmarks/{run_quantile_smooth_fista_gpu_gate.py, run_quantile_group_lla_gpu_gate.py,
