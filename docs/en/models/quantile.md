@@ -91,7 +91,7 @@ For L2/no-penalty Quantile objectives, `PenalizedQuantileRegression(..., solver=
 | group_lasso / adaptive group | Group FISTA | Group-aware proximal route |
 | group_scad / group_mcp | Group Proximal IRLS-LLA | Group LLA with Quantile IRLS/MM; each convex Adaptive-Group-Lasso weighted least-squares surrogate is solved on the selected backend |
 
-The table describes the automatic route. An explicit Group SCAD/MCP `solver="fista"` request remains an explicit proximal-FISTA request; it is not silently rewritten into Group Proximal IRLS-LLA. The public low-level `fista_lla_path` performs the same dedicated Proximal IRLS-LLA solve for scalar Quantile SCAD/MCP; group penalties and warm-started/path-reporting low-level calls keep the fused FISTA-LLA engine.
+The table describes the automatic route. An explicit Group SCAD/MCP `solver="fista"` request remains an explicit proximal-FISTA request; it is not silently rewritten into Group Proximal IRLS-LLA. The public low-level `fista_lla_path` performs the same dedicated Proximal IRLS-LLA solve for scalar Quantile SCAD/MCP; group penalties and warm-started/path-reporting low-level calls keep the fused FISTA-LLA engine. The delegated route counts IRLS iterations in `n_iter` and reports its own budget-exhaustion warning.
 
 ## `sample_weight` semantics
 

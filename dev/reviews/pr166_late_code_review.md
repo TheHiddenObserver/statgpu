@@ -41,7 +41,7 @@ direct and CV Quantile SCAD/MCP fits). Group penalties and warm-started/path-rep
 calls keep the fused FISTA-LLA engine. The recorded floor contract was replaced by
 `dev/tests/test_issue169_quantile_lla_accuracy.py`, which pins the delegation boundary,
 the fused-engine fallbacks, and the independent HiGHS LP fixed-point contract (observed
-gap about `1.5e-11` against a `1e-8` tolerance). The scalar physical gate schema v3 now
+gap about `4.6e-11` against a `1e-8` tolerance). The scalar physical gate schema v3 now
 records the nontrivial LP oracle plus a dedicated budget-exhaustion warning case.
 
 Reproduction (p=1 convex weighted-L1; LP validated against a 5e5-point grid):

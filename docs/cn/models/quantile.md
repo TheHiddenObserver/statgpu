@@ -93,7 +93,7 @@ IRLS 仍是自动选择，因为 pinball loss 本身非光滑；这里的 Quanti
 | group_lasso / adaptive group | 分组 FISTA | 面向分组的近端路径 |
 | group_scad / group_mcp | 分组 Proximal IRLS-LLA | 分组 LLA + Quantile IRLS/MM；每个凸 Adaptive Group Lasso 加权最小二乘代理问题都在所选后端求解 |
 
-上表描述的是自动路径。若对 Group SCAD/MCP 显式指定 `solver="fista"`，该请求仍然保持为显式近端 FISTA，不会被静默改写成自动的分组 Proximal IRLS-LLA。公开底层 `fista_lla_path(...)` 的标量 Quantile SCAD/MCP 现在执行同一套专用 Proximal IRLS-LLA 求解；分组惩罚以及带热启动或返回路径的底层调用继续使用融合式 FISTA-LLA 引擎。
+上表描述的是自动路径。若对 Group SCAD/MCP 显式指定 `solver="fista"`，该请求仍然保持为显式近端 FISTA，不会被静默改写成自动的分组 Proximal IRLS-LLA。公开底层 `fista_lla_path(...)` 的标量 Quantile SCAD/MCP 现在执行同一套专用 Proximal IRLS-LLA 求解；分组惩罚以及带热启动或返回路径的底层调用继续使用融合式 FISTA-LLA 引擎。该委托路径的 `n_iter` 记录 IRLS 迭代次数，并给出自身的预算耗尽告警。
 
 ## `sample_weight` 语义
 
