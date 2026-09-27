@@ -243,7 +243,12 @@ def fista_lla_path(
     init_intercept=None,
     return_path=False,
 ):
-    """Run the fused LLA path with exact Group MCP/SCAD surrogate scaling."""
+    """Run the fused LLA path with exact Group MCP/SCAD surrogate scaling.
+
+    Scalar Quantile SCAD/MCP calls delegate to the dedicated Proximal IRLS-LLA
+    engine; group calls and warm-started/path-reporting calls use the fused
+    FISTA-LLA engine documented here.
+    """
     if not isinstance(fit_intercept, (bool, np.bool_)):
         raise ValueError("fit_intercept must be boolean")
     fit_intercept = bool(fit_intercept)
@@ -408,6 +413,38 @@ def fista_lla_path(
                 raise ValueError(
                     "MCP penalty gamma must be a finite real number greater than 1"
                 )
+
+    # Scalar Quantile SCAD/MCP delegates to the maintained dedicated Proximal
+    # IRLS-LLA engine. The fused fixed-step FISTA inner solve can stall above
+    # the convex weighted-L1 optimum for the non-smooth pinball loss, while the
+    # dedicated engine is already the maintained algorithm for direct and CV
+    # Quantile SCAD/MCP fits. Warm-started or path-reporting low-level calls
+    # keep the historical fused engine because the dedicated solver does not
+    # expose those controls.
+    if (
+        loss_name == "quantile"
+        and penalty_name not in _GROUP_NONCONVEX_NAMES
+        and init_coef is None
+        and init_intercept is None
+        and not return_path
+    ):
+        from ._quantile_proximal_public_contract import (
+            proximal_irls_quantile_solver as _quantile_proximal_solver,
+        )
+
+        return _quantile_proximal_solver(
+            loss,
+            scad_penalty,
+            X,
+            y,
+            alpha_path,
+            max_lla_per_step=max_lla_per_step,
+            lla_tol=lla_tol,
+            max_iter=max_iter,
+            tol=tol,
+            fit_intercept=fit_intercept,
+            sample_weight=sample_weight,
+        )
 
     # Quantile's weighted step scale must remain objective-consistent for both
     # scalar and group penalties, including direct public low-level calls.
