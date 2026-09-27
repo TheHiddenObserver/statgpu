@@ -100,10 +100,10 @@ were addressed as follows: fixed-point gap sign, SCAD weight-formula cross-check
 and evidence-limitation wording in `76cea795`; this target header in the present
 record commit. The physical artifacts were regenerated at source `76cea795` in
 evidence commit `0e4a7042`. A focused re-review of the LOW fixes found the range
-clean; the only residual item is a cosmetic validator-reporting nit (the
-`max_fixed_point_gap` accumulator is seeded with the signed CPU gap instead of
-its magnitude, which does not affect assertions or the committed artifact value)
-and is deferred rather than triggering another physical re-sign.
+clean. A further review pass fixed the remaining cosmetic items: the
+`max_fixed_point_gap` accumulator is now magnitude-seeded and the hosted
+fixed-point gap assertion checks magnitude; the physical artifacts were
+regenerated at that source.
 
 ## Review verdict
 
