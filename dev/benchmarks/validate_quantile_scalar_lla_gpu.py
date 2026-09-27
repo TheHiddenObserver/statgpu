@@ -4,12 +4,18 @@
 The public scalar Quantile SCAD/MCP low-level route delegates to the dedicated
 Proximal IRLS-LLA engine. This validator certifies, on NumPy/CuPy/Torch:
 
-- a nontrivial converged fixture reaches an independent HiGHS LP fixed-point
-  oracle within ``ATOL_FIXED_POINT``;
+- a nontrivial converged fixture with an active SCAD interior fixed point
+  reaches an independent HiGHS LP fixed-point oracle within
+  ``ATOL_FIXED_POINT``;
 - CPU/GPU parameter and objective parity stay within ``ATOL_PARAM`` /
   ``ATOL_OBJECTIVE``;
 - the exact zero fixed point still converges cleanly;
 - budget exhaustion reports exactly one dedicated ``ConvergenceWarning``.
+
+The dedicated engine returns host NumPy by public contract, so execution
+provenance is asserted on the backend-native inputs it executes on; accelerator
+device binding for the dedicated route is additionally covered by the Quantile
+device-binding contracts and the direct-route physical gates.
 """
 
 from __future__ import annotations
@@ -32,7 +38,7 @@ from statgpu.solvers._convergence import ConvergenceWarning
 
 SCHEMA_VERSION = 3
 Q = 0.35
-ALPHA = 0.04
+ALPHA = 0.5
 SCAD_A = 3.7
 ATOL_PARAM = 1e-4
 ATOL_OBJECTIVE = 8e-5
@@ -143,7 +149,15 @@ def _solve(
     lla_tol,
     label,
 ):
-    """Solve through the public low-level route; warnings are gate failures."""
+    """Solve through the public low-level route; warnings are gate failures.
+
+    The dedicated engine returns host NumPy by contract, so provenance is
+    recorded from the backend-native inputs it executes on.
+    """
+    input_provenance = (
+        _backend_and_device(X),
+        _backend_and_device(weights),
+    )
     with warnings.catch_warnings():
         warnings.simplefilter("error", ConvergenceWarning)
         coef, intercept, n_iter = fista_lla_path(
@@ -159,7 +173,6 @@ def _solve(
             fit_intercept=False,
             sample_weight=weights,
         )
-    backend_name, device = _backend_and_device(coef)
     coef_np = np.asarray(_to_numpy(coef), dtype=np.float64).reshape(-1)
     intercept_f = float(intercept)
     _require_finite(coef_np, f"{label} coefficients")
@@ -167,7 +180,7 @@ def _solve(
         raise AssertionError(f"{label} intercept is non-finite")
     if int(n_iter) < 1:
         raise AssertionError(f"{label} reported invalid n_iter={n_iter}")
-    return coef_np, intercept_f, int(n_iter), (backend_name, device)
+    return coef_np, intercept_f, int(n_iter), input_provenance
 
 
 def _run_nontrivial(X, y, weights, label):
@@ -279,6 +292,10 @@ def _lp_fixed_point_reference(X, y, weights, beta):
     y = np.asarray(y, dtype=np.float64).reshape(-1)
     weights = np.asarray(weights, dtype=np.float64).reshape(-1)
     l1_coeffs = _scad_lla_weights(np.asarray(beta, dtype=np.float64))
+    if not np.any(l1_coeffs > 0.0):
+        raise AssertionError(
+            "nontrivial fixture did not activate the SCAD LLA surrogate"
+        )
     n, p = X.shape
     up, um = 2 * p, 2 * p + n
     objective = np.zeros(2 * p + 2 * n, dtype=np.float64)
@@ -314,6 +331,17 @@ def _lp_fixed_point_reference(X, y, weights, beta):
             f"{reconstructed:.16g} vs solver {float(result.fun):.16g}"
         )
     return beta_lp, float(result.fun)
+
+
+def _require_interior_fixed_point(beta, label):
+    """Fail closed unless the SCAD surrogate has an active interior optimum."""
+    abs_beta = np.abs(np.asarray(beta, dtype=np.float64))
+    interior = (abs_beta > ALPHA) & (abs_beta <= SCAD_A * ALPHA)
+    if not np.any(interior):
+        raise AssertionError(
+            f"{label}: fixed point {abs_beta!r} does not activate the SCAD "
+            "curvature interior"
+        )
 
 
 def _fixed_point_gap(X, y, weights, beta, expected_lp_value):
@@ -356,9 +384,9 @@ def main() -> int:
         cpu_zero_iter,
         cpu_zero_provenance,
     ) = _run_zero(zero_X, zero_y, zero_weights, "cpu zero fixture")
-    if cpu_zero_provenance != ("numpy", "cpu"):
+    if cpu_zero_provenance != (("numpy", "cpu"), ("numpy", "cpu")):
         raise AssertionError(
-            f"cpu zero fixture ran on unexpected backend {cpu_zero_provenance!r}"
+            f"cpu zero fixture ran on unexpected inputs {cpu_zero_provenance!r}"
         )
     if np.max(np.abs(cpu_zero_coef)) > 1e-12 or cpu_zero_intercept != 0.0:
         raise AssertionError(
@@ -371,10 +399,11 @@ def main() -> int:
         cpu_iter,
         cpu_provenance,
     ) = _run_nontrivial(X, y, weights, "cpu nontrivial fixture")
-    if cpu_provenance != ("numpy", "cpu"):
+    if cpu_provenance != (("numpy", "cpu"), ("numpy", "cpu")):
         raise AssertionError(
-            f"cpu nontrivial fixture ran on unexpected backend {cpu_provenance!r}"
+            f"cpu nontrivial fixture ran on unexpected inputs {cpu_provenance!r}"
         )
+    _require_interior_fixed_point(cpu_coef, "cpu nontrivial fixture")
     _, cpu_lp_value = _lp_fixed_point_reference(X, y, weights, cpu_coef)
     cpu_gap = _fixed_point_gap(X, y, weights, cpu_coef, cpu_lp_value)
     if cpu_gap > ATOL_FIXED_POINT:
@@ -404,10 +433,13 @@ def main() -> int:
         zero_coef, zero_intercept, zero_iter, zero_provenance = _run_zero(
             zero_Xb, zero_yb, zero_wb, f"{backend} zero fixture"
         )
-        expected_provenance = (backend, "cuda:0")
+        expected_provenance = (
+            (backend, "cuda:0"),
+            (backend, "cuda:0"),
+        )
         if zero_provenance != expected_provenance:
             raise AssertionError(
-                f"{backend}: zero fixture ran on unexpected backend "
+                f"{backend}: zero fixture ran on unexpected inputs "
                 f"{zero_provenance!r}"
             )
         zero_param_error = max(
@@ -425,9 +457,10 @@ def main() -> int:
         )
         if provenance != expected_provenance:
             raise AssertionError(
-                f"{backend}: nontrivial fixture ran on unexpected backend "
+                f"{backend}: nontrivial fixture ran on unexpected inputs "
                 f"{provenance!r}"
             )
+        _require_interior_fixed_point(coef, f"{backend} nontrivial fixture")
         param_error = max(
             float(np.max(np.abs(coef - cpu_coef))),
             abs(intercept - cpu_intercept),
@@ -494,7 +527,7 @@ def main() -> int:
         "alpha": ALPHA,
         "fixtures": {
             "zero_fixed_point": "paired_sign_symmetric_orthogonal",
-            "nontrivial_fixed_point": "weighted_single_feature_scad",
+            "nontrivial_fixed_point": "weighted_single_feature_scad_interior",
             "budget_exhaustion": "weighted_orthogonal_scad",
         },
         "cpu": {
@@ -503,6 +536,9 @@ def main() -> int:
             "nontrivial_n_iter": cpu_iter,
             "nontrivial_objective": cpu_objective,
             "nontrivial_fixed_point_gap": cpu_gap,
+            "nontrivial_fixed_point_l1_weight_max": float(
+                np.max(_scad_lla_weights(cpu_coef))
+            ),
             "exhaustion_n_iter": cpu_probe_iter,
             "exhaustion_warning_count": cpu_probe_warnings,
         },

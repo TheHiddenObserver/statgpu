@@ -21,7 +21,7 @@ from statgpu.solvers._convergence import ConvergenceWarning
 
 
 Q = 0.35
-ALPHA = 0.04
+ALPHA = 0.5
 SCAD_A = 3.7
 TARGET_GAP = 1e-8
 TARGET_MAX_ITER = 20000
@@ -191,6 +191,47 @@ def test_scalar_quantile_warm_start_and_path_keep_fused_engine(monkeypatch):
     assert np.all(np.isfinite(np.asarray(path_result[0])))
 
 
+def test_scalar_quantile_custom_factory_keeps_fused_engine(monkeypatch):
+    import statgpu.solvers._fista_lla_group_contract as contract
+    import statgpu.solvers._quantile_proximal_public_contract as public_mod
+
+    def forbidden_solver(*args, **kwargs):
+        raise AssertionError(
+            "dedicated solver must not run when a custom factory is supplied"
+        )
+
+    monkeypatch.setattr(
+        public_mod, "proximal_irls_quantile_solver", forbidden_solver
+    )
+
+    captured = {}
+
+    def fake_base(loss, penalty, X, y, alpha_path, **kwargs):
+        captured["factory"] = kwargs.get("lla_penalty_factory")
+        return np.zeros(int(np.asarray(X).shape[1])), 0.0, 1
+
+    monkeypatch.setattr(contract, "_base_fista_lla_path", fake_base)
+
+    x, y, _ = _fixture()
+    factory = lambda derivatives: None
+    result = fista_lla_path(
+        QuantileLoss(Q),
+        SCADPenalty(alpha=ALPHA, a=SCAD_A),
+        x,
+        y,
+        alpha_path=[ALPHA],
+        max_lla_per_step=1,
+        max_iter=5,
+        tol=0.5,
+        lla_tol=0.5,
+        fit_intercept=False,
+        lla_penalty_factory=factory,
+    )
+
+    assert result[2] == 1
+    assert captured["factory"] is factory
+
+
 def test_scalar_quantile_lla_reaches_lp_fixed_point():
     pytest.importorskip("scipy.optimize")
     x, y, weights = _fixture()
@@ -212,6 +253,9 @@ def test_scalar_quantile_lla_reaches_lp_fixed_point():
 
     beta = np.asarray(coef, dtype=np.float64).reshape(-1)
     l1_coeffs = _scad_lla_weights(beta)
+    assert np.any(l1_coeffs > 0.0)
+    abs_beta = np.abs(beta)
+    assert np.any((abs_beta > ALPHA) & (abs_beta <= SCAD_A * ALPHA))
     beta_lp, lp_value = _weighted_quantile_l1_lp_reference(
         x, y, weights, l1_coeffs
     )

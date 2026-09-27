@@ -174,7 +174,7 @@ def test_pr166_scalar_lla_zero_fixture_converges_on_cpu():
         "cpu zero fixture",
     )
 
-    assert provenance == ("numpy", "cpu")
+    assert provenance == (("numpy", "cpu"), ("numpy", "cpu"))
     assert np.all(np.isfinite(coef))
     assert np.isfinite(intercept)
     np.testing.assert_allclose(coef, 0.0, rtol=0.0, atol=1e-12)
@@ -193,7 +193,7 @@ def test_pr166_scalar_lla_nontrivial_fixture_reaches_lp_fixed_point_on_cpu():
         "cpu nontrivial fixture",
     )
 
-    assert provenance == ("numpy", "cpu")
+    assert provenance == (("numpy", "cpu"), ("numpy", "cpu"))
     assert np.all(np.isfinite(coef))
     assert np.isfinite(intercept)
     assert 1 <= n_iter

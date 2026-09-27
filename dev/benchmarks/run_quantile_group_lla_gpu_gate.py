@@ -108,7 +108,7 @@ def main() -> int:
     _validate_inner(
         scalar_payload,
         source_sha=source_before,
-        label="Quantile low-level FISTA-LLA inner runner",
+        label="Quantile low-level LLA inner runner",
         schema_version=SCALAR_SCHEMA_VERSION,
     )
     _validate_inner(
