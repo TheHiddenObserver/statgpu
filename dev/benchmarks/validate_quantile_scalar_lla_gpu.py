@@ -420,7 +420,7 @@ def main() -> int:
     max_zero_param_error = 0.0
     max_param_error = 0.0
     max_objective_error = 0.0
-    max_fixed_point_gap = cpu_gap
+    max_fixed_point_gap = abs(cpu_gap)
     for backend in ("cupy", "torch"):
         zero_Xb, zero_yb, zero_wb = _native_inputs(
             backend, zero_X, zero_y, zero_weights, cp, torch

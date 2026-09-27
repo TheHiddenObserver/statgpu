@@ -263,7 +263,7 @@ def test_scalar_quantile_lla_reaches_lp_fixed_point():
         _weighted_quantile_objective(x, y, weights, beta, l1_coeffs)
         - lp_value
     )
-    assert gap <= TARGET_GAP, gap
+    assert abs(gap) <= TARGET_GAP, gap
     assert np.max(np.abs(beta - beta_lp)) <= 1e-6
     assert np.isfinite(float(intercept))
     assert int(n_iter) >= 1
