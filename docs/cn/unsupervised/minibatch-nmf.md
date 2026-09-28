@@ -1,12 +1,12 @@
 # MiniBatchNMF
 
 > 语言：中文
-> 最后更新：2026-05-07
-> English: [English](../../en/unsupervised/minibatch-nmf.md)
+> 最后更新：2026-09-28
+> 切换：[English](../../en/unsupervised/minibatch-nmf.md)
 
 ## 概览
 
-`MiniBatchNMF` 从 dense mini-batches 中拟合非负低秩分解。Phase 3C 支持 Frobenius loss 和 MU-style mini-batch update，覆盖 CPU、CuPy/CUDA 和 Torch CUDA。
+`MiniBatchNMF` 在稠密的小批量（mini-batch）数据上拟合非负低秩分解。Phase 3C 支持 Frobenius 损失和乘性更新（MU-style update）的小批量算法，覆盖 CPU、CuPy/CUDA 与 Torch CUDA。
 
 ## 导入路径
 
@@ -16,7 +16,7 @@ from statgpu.unsupervised import MiniBatchNMF
 
 ## 目标函数 / 损失函数
 
-在非负约束下，模型最小化 Frobenius reconstruction loss 的 mini-batch 近似：
+在非负约束下，模型最小化 Frobenius 重构损失的逐批近似：
 
 $$
 \min_{W \ge 0,\; H \ge 0}
@@ -25,7 +25,7 @@ $$
 
 ## 估计方程
 
-每个 batch 中，`MiniBatchNMF` 先固定当前 `H` 更新 batch activations `W_batch`，再用乘法更新公式更新 `H`：
+每一批中，`MiniBatchNMF` 先固定当前的 `H` 更新该批的激活 `W_batch`，再用乘性更新公式更新 `H`：
 
 $$
 W \leftarrow W \odot \frac{XH^\top}{WHH^\top + \epsilon},
@@ -35,7 +35,7 @@ $$
 
 ## 参数
 
-- `n_components`：分解秩；`None` 使用 `min(n_samples, n_features)`。
+- `n_components`：分解的秩；为 `None` 时使用 `min(n_samples, n_features)`。
 - `init`：v1 支持 `"random"`。
 - `batch_size`、`max_iter`、`tol`、`random_state`。
 - `device`：`"auto"`、`"cpu"`、`"cuda"` 或 `"torch"`。
@@ -52,7 +52,7 @@ X_hat = nmf.inverse_transform(W)
 
 ## strict/approx 差异
 
-MiniBatchNMF 是非凸且依赖 batch order 的近似分解方法，目标是可扩展 factorization，不提供 strict statistical inference。
+`MiniBatchNMF` 是非凸的近似分解方法，结果依赖批次顺序；它面向可扩展的矩阵分解，不提供严格的统计推断。
 
 ## 输出字段
 
@@ -64,18 +64,18 @@ MiniBatchNMF 是非凸且依赖 batch order 的近似分解方法，目标是可
 
 ## FAQ
 
-**v1 支持负数或 sparse input 吗？**
-不支持。输入必须是 dense 且非负。
+**v1 支持负数或稀疏输入吗？**
+不支持。输入必须是稠密且非负的。
 
-**v1 支持 CD solver 或其他 beta loss 吗？**
-不支持。Phase 3C 仅支持 MU-style update 和 Frobenius loss。
+**v1 支持坐标下降（CD）求解器或其他 beta 损失吗？**
+不支持。Phase 3C 仅支持乘性更新（MU-style update）和 Frobenius 损失。
 
 ## 外部验证
 
-- 测试：`dev/tests/test_unsupervised_minibatch_nmf.py`。
-- Benchmark：`dev/benchmarks/benchmark_unsupervised_phase3c.py`。
-- 最新远程 artifact：`results/unsupervised_phase3c_opt7_20260507_185500.json`。
-- Baseline：sklearn `MiniBatchNMF`，对齐 rank、batch size、初始化和迭代次数。
+- 测试脚本：`dev/tests/test_unsupervised_minibatch_nmf.py`。
+- 基准测试：`dev/benchmarks/benchmark_unsupervised_phase3c.py`。
+- 最新远程验证产物：`results/unsupervised_phase3c_opt7_20260507_185500.json`。
+- 对齐基线：sklearn 的 `MiniBatchNMF`，对齐分解秩、批次大小、初始化与迭代次数。
 
 ## References
 

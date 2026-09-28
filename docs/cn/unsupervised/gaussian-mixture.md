@@ -1,7 +1,7 @@
 # GaussianMixture
 
 > 语言：中文
-> 最后更新：2026-05-07
+> 最后更新：2026-09-28
 > English: [English](../../en/unsupervised/gaussian-mixture.md)
 
 ## 概览
@@ -175,7 +175,7 @@ GMM 提供 likelihood 分数，但没有 strict inference covariance 或 p-value
 
 - 测试：`dev/tests/test_unsupervised_gmm.py`。
 - Benchmark：`dev/benchmarks/benchmark_unsupervised_phase3b.py`。
-- 最新远程 artifact：`results/unsupervised_phase3b_verify_20260507_003957.json`。
+- 最新远程验证产物：`results/unsupervised_phase3b_verify_20260507_003957.json`。
 - Baseline：sklearn `GaussianMixture`，对齐 `covariance_type`、初始化和收敛参数。
 - Phase 3B 验证目标：`"diag"`、`"spherical"`、`"tied"`、`"full"` 在 CPU/CuPy/Torch 三端的 score 一致性，以及与 sklearn 的 log likelihood、AIC/BIC、responsibility 对齐。
 
