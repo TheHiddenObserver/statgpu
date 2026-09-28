@@ -101,9 +101,9 @@ and evidence-limitation wording in `76cea795`; this target header in the present
 record commit. The physical artifacts were regenerated at source `76cea795` in
 evidence commit `0e4a7042`. A focused re-review of the LOW fixes found the range
 clean. A further review pass fixed the remaining cosmetic items: the
-`max_fixed_point_gap` accumulator is now magnitude-seeded and the hosted
-fixed-point gap assertion checks magnitude; the physical artifacts were
-regenerated at that source.
+`max_fixed_point_gap` accumulator is now magnitude-seeded; the hosted
+fixed-point gap assertions were aligned to magnitude in the omission pass
+(`35cb0bb2`). The physical artifacts were regenerated at that source.
 
 ## Omission pass
 
