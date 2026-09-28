@@ -81,3 +81,19 @@ def test_integer_numpy_inputs_compute_float64_weighted_score():
     assert observed.dtype == np.float64
     assert np.all(np.isfinite(observed))
     assert observed[-1] == pytest.approx(0.02, rel=0.0, abs=0.0)
+
+
+def test_single_step_marked_path_solves_the_target_alpha():
+    X, y, w, _ = _fixture()
+    path = continuation.mark_auto_quantile_continuation_path(
+        np.asarray([0.03], dtype=np.float64)
+    )
+    resolved = continuation.resolve_auto_quantile_continuation_path(
+        QuantileLoss(quantile=0.27),
+        X,
+        y,
+        path,
+        sample_weight=w,
+        fit_intercept=True,
+    )
+    assert resolved.tolist() == [0.03]

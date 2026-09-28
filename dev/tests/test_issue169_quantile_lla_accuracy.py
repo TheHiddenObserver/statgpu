@@ -348,3 +348,26 @@ def test_fused_fallback_inner_solver_accuracy_floor_is_bounded():
         - lp_value
     )
     assert abs(gap) <= FUSED_FLOOR_CEILING, gap
+
+
+def test_fused_fallback_zero_budget_does_not_crash():
+    import statgpu.solvers._fista_lla as fista_lla_base
+
+    x, y, weights = _fixture()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ConvergenceWarning)
+        coef, intercept, _ = fista_lla_base.fista_lla_path(
+            QuantileLoss(Q),
+            _ConstantWeightSCAD(CONSTANT_L1_COEFFS),
+            x,
+            y,
+            alpha_path=[ALPHA],
+            max_lla_per_step=1,
+            max_iter=0,
+            lla_tol=1e-10,
+            tol=1e-10,
+            fit_intercept=False,
+            sample_weight=weights,
+        )
+    assert np.all(np.isfinite(np.asarray(coef)))
+    assert np.isfinite(float(intercept))
