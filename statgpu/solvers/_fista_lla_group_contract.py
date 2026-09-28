@@ -246,8 +246,9 @@ def fista_lla_path(
     """Run the fused LLA path with exact Group MCP/SCAD surrogate scaling.
 
     Scalar Quantile SCAD/MCP calls delegate to the dedicated Proximal IRLS-LLA
-    engine; group calls and warm-started/path-reporting calls use the fused
-    FISTA-LLA engine documented here.
+    engine. Group calls, calls with a custom ``lla_penalty_factory``, and
+    warm-started/path-reporting calls use the fused FISTA-LLA engine documented
+    here.
     """
     if not isinstance(fit_intercept, (bool, np.bool_)):
         raise ValueError("fit_intercept must be boolean")

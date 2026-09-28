@@ -105,6 +105,21 @@ clean. A further review pass fixed the remaining cosmetic items: the
 fixed-point gap assertion checks magnitude; the physical artifacts were
 regenerated at that source.
 
+## Omission pass
+
+An omission-focused pass over the full Issue #169 delta additionally verified
+consumer coverage, API/compat surface, and claim hygiene, and recorded these
+dispositions:
+
+- The Quantile Group gate keeps the historical nested payload key
+  `low_level_scalar_fista_lla`; its content now describes the delegated scalar
+  LLA route. The key is retained as a stable historical evidence name rather
+  than renamed in a schema-only churn.
+- The deleted floor file's fused-fallback bound and LP-versus-backtracking
+  control contracts were restored in `dev/tests/test_issue169_quantile_lla_accuracy.py`.
+- The hosted physical fixture gap assertion now checks magnitude, matching the
+  validator.
+
 ## Review verdict
 
 Findings 1, 3, 4, and 5 are closed on the fixed source and the physical artifacts were
