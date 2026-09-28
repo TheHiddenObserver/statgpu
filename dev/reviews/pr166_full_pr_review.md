@@ -28,8 +28,10 @@ All actionable findings were fixed in `08e8fdc0..33d6cbc1`:
 
 - MEDIUM: complex `AdaptiveL1Penalty` controls/weights and adaptive-group weights were
   silently truncated instead of rejected (`08e8fdc0`).
-- MEDIUM: the PR-added torch/numpy bandwidth-parity test used a reduction-order-fragile
-  tolerance (fixed in `d58b0d32`).
+- MEDIUM: the PR-added torch/numpy bandwidth-parity test exposed a pre-existing Torch
+  kernel-inference precision defect (sandwich weights built with `torch.where` defaulted
+  to float32). The production root cause was fixed in `wrappers/_quantile.py` and the
+  test tolerance was restored to its original bound.
 - LOW: zero-feature `QuantileLoss.irls()` designs were accepted (`08e8fdc0`).
 - LOW: `fista_lla_path` generic inner loop could raise `UnboundLocalError` with a
   zero internal iteration budget (`74dc5759`).
@@ -43,6 +45,8 @@ All actionable findings were fixed in `08e8fdc0..33d6cbc1`:
   `AdaptiveL1Penalty.proximal`; duplicated `_external_warning_stacklevel` helpers;
   inaccurate guard docstring; float32-unsafe intermediate weights in the unweighted
   adaptive-group path (`74dc5759`).
+- LOW: complex object-dtype adaptive-group weights still truncated after the first
+  pass; the object-array guard was completed with the production dtype fix.
 
 No CRITICAL/HIGH finding remains. Covered by new tests: complex-control rejection,
 zero-feature rejection, single-step marked path, zero-budget fused fallback.
