@@ -235,6 +235,10 @@ def _normalize_weights_parameter(weights, n_groups):
                 raise TypeError(
                     "group weights must be a one-dimensional numeric array"
                 )
+            if np.iscomplexobj(value):
+                raise TypeError(
+                    "group weights must be a one-dimensional numeric array"
+                )
     try:
         values = np.asarray(raw, dtype=np.float64)
     except (TypeError, ValueError) as exc:
