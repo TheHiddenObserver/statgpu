@@ -1,12 +1,12 @@
 # PCA
 
 > 语言：中文
-> 最后更新：2026-05-02
-> English: [English](../../en/unsupervised/pca.md)
+> 最后更新：2026-09-28
+> 切换：[English](../../en/unsupervised/pca.md)
 
 ## 概览
 
-`PCA` 为 centered dense data 估计一组正交低维基，捕捉最大方差方向。它支持 CPU、CuPy/CUDA 和 Torch CUDA。
+`PCA` 对已中心化的稠密数据估计一组正交低维基，使其捕捉方差最大的方向。支持 CPU、CuPy/CUDA 与 Torch CUDA。
 
 ## 导入路径
 
@@ -27,7 +27,7 @@ $$
 \end{aligned}
 $$
 
-保留 `k` 个 components 时，也等价于在正交投影中最小化 rank-`k` 平方重构误差：
+保留 `k` 个主成分时，也等价于在正交投影约束下最小化秩为 `k` 的平方重构误差：
 
 $$
 \begin{aligned}
@@ -42,7 +42,7 @@ $$
 
 ## 估计方程
 
-- `svd_solver="covariance"` 计算
+- `svd_solver="covariance"` 先计算
   $$
   \Sigma = \frac{X_c^\top X_c}{n - 1}
   $$
@@ -54,21 +54,21 @@ $$
   $$
   X_c = U S V^\top
   $$
-  使用 `V.T` 的行作为 components。
-- `svd_solver="auto"` 在 `n_samples >= n_features` 时使用 covariance/eigh，否则使用 full SVD。
-- `svd_solver="randomized"` 使用随机投影、power iteration 和小矩阵 SVD 近似 leading right singular vectors。
-- explained variance 计算为
+  并把 `V.T` 的各行作为主成分。
+- `svd_solver="auto"` 在 `n_samples >= n_features` 时使用协方差矩阵配合 `eigh`，否则使用完整 SVD。
+- `svd_solver="randomized"` 通过随机投影、幂迭代（power iteration）和一个小矩阵的 SVD 近似前若干个右奇异向量。
+- 解释方差（explained variance）计算为
   $$
   \operatorname{explained\_variance}_j = \frac{s_j^2}{n - 1}.
   $$
-- `explained_variance_ratio_` 是 retained variance 除以 centered total variance。
+- `explained_variance_ratio_` 是保留方差除以中心化后的总方差。
 
 ## 参数
 
-- `n_components`：保留的 components 数量；`None` 保留所有可行 components。
+- `n_components`：保留的主成分个数；为 `None` 时保留所有可行的主成分。
 - `svd_solver`：`"auto"`、`"full"`、`"covariance"` 或 `"randomized"`。
-- `whiten`：为 `True` 时，transform 后的 scores 会除以 `sqrt(explained_variance_)`。
-- `random_state`、`n_oversamples`、`iterated_power`：randomized solver 控制参数。
+- `whiten`：为 `True` 时，`transform` 后的得分会除以 `sqrt(explained_variance_)`。
+- `random_state`、`n_oversamples`、`iterated_power`：控制随机化 SVD 的参数。
 - `device`：`"auto"`、`"cpu"`、`"cuda"` 或 `"torch"`。
 
 ## CPU+GPU 示例
@@ -88,11 +88,11 @@ Z_gpu = pca_gpu.fit_transform(X)
 
 ## strict/approx 差异
 
-PCA 没有统计推断意义上的 strict inference 模式。这里的 exact/approx 指分解算法：
+`PCA` 没有统计推断意义上的严格推断模式；这里的“精确/近似”指的是分解算法：
 
-- `full` 和 `covariance` 是 dense 输入上的 exact solver，误差来自浮点计算。
-- `randomized` 是 approximate truncated SVD，由 `random_state`、`n_oversamples` 和 `iterated_power` 控制。
-- component 符号不可识别，`v` 和 `-v` 表示同一主成分。
+- `full` 和 `covariance` 在稠密输入上是精确求解器，误差仅来自浮点运算。
+- `randomized` 是近似的截断 SVD，由 `random_state`、`n_oversamples` 和 `iterated_power` 控制。
+- 主成分的符号不可识别：`v` 与 `-v` 表示同一个主成分。
 
 ## 输出字段
 
@@ -106,17 +106,17 @@ PCA 没有统计推断意义上的 strict inference 模式。这里的 exact/app
 
 ## FAQ
 
-**为什么 components 和 sklearn 差一个符号？**
-Eigenvector 和 singular vector 的符号不唯一。验证时应使用 sign-aware comparison 或比较子空间。
+**为什么主成分和 sklearn 差一个符号？**
+特征向量与奇异向量的符号并不唯一；验证时应使用符号感知的比较，或直接比较子空间。
 
-**whitening 做了什么？**
-它把 transformed scores 按 `1 / sqrt(explained_variance_)` 缩放，使拟合模型下的 component scores 近似单位方差。
+**白化（whitening）做了什么？**
+它把变换后的得分按 `1 / sqrt(explained_variance_)` 缩放，使拟合模型下的主成分得分近似具有单位方差。
 
 ## 外部验证
 
-- 测试：`dev/tests/test_unsupervised_pca.py`。
-- Benchmark：`dev/benchmarks/benchmark_unsupervised.py`。
-- Baseline：sklearn PCA，以及早期 unsupervised matrix 中可用的 statsmodels/R PCA 对比。
+- 测试脚本：`dev/tests/test_unsupervised_pca.py`。
+- 基准测试：`dev/benchmarks/benchmark_unsupervised.py`。
+- 对齐基线：sklearn 的 PCA，以及早期无监督方法矩阵中可用的 statsmodels/R PCA 对比。
 - 最新 Phase 2 摘要：`results/unsupervised_phase2_verify_summary_20260502_210000.md`。
 
 ## References

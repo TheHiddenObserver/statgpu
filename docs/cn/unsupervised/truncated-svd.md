@@ -1,12 +1,12 @@
 # TruncatedSVD
 
 > 语言：中文
-> 最后更新：2026-05-09
+> 最后更新：2026-09-28
 > 路径：`statgpu.unsupervised.TruncatedSVD`
 
 ## 概览
 
-`TruncatedSVD` 在不中心化输入矩阵的情况下计算低秩投影，因此不同于 `PCA`，也更适合 dense LSA 类流程。
+`TruncatedSVD` 在不对输入矩阵做中心化的前提下计算低秩投影；这一点与 `PCA` 不同，也更适合稠密的 LSA 类流程。
 
 ## 导入路径
 
@@ -18,7 +18,7 @@ from statgpu.unsupervised import TruncatedSVD
 
 ## 目标函数
 
-给定 rank `k`，Truncated SVD 求解：
+给定秩 `k`，Truncated SVD 求解：
 
 $$
 \min_{\operatorname{rank}(Z) \le k} \|X - Z\|_F^2.
@@ -26,13 +26,13 @@ $$
 
 ## 估计方程
 
-exact 路径计算：
+精确路径计算：
 
 $$
 X = U \Sigma V^\top.
 $$
 
-randomized 路径先把 `X` 投影到随机低维子空间，每轮 power iteration 后重新正交化，并使用确定性的 component sign convention，再对小矩阵做 SVD。
+随机化路径先把 `X` 投影到随机的低维子空间，每轮幂迭代后重新正交化，并使用确定性的主成分符号约定，最后对一个小矩阵做 SVD。
 
 ## 参数
 
@@ -47,9 +47,9 @@ Z = TruncatedSVD(n_components=10, device="cpu").fit_transform(X)
 Z_gpu = TruncatedSVD(n_components=10, device="cuda").fit_transform(X_gpu)
 ```
 
-## Strict/Approx Difference
+## 严格与近似模式的差别
 
-`algorithm="full"` 是 dense exact SVD；`algorithm="randomized"` 是近似算法，比较时应使用 sign/subspace invariant 指标。
+`algorithm="full"` 是稠密数据上的精确 SVD；`algorithm="randomized"` 是近似算法，比较时应使用对符号和子空间不变的指标。
 
 ## 输出
 
@@ -57,13 +57,13 @@ Z_gpu = TruncatedSVD(n_components=10, device="cuda").fit_transform(X_gpu)
 
 ## FAQ
 
-Phase 3A 不支持 sparse input 和 ARPACK。
+Phase 3A 不支持稀疏输入和 ARPACK。
 
 ## 外部验证
 
-测试：`dev/tests/test_unsupervised_truncated_svd.py`。
-Benchmark：`dev/benchmarks/benchmark_unsupervised_phase3.py`。
-Baseline：sklearn `TruncatedSVD`、statsmodels PCA-style SVD、可用时 R `svd`。
+测试脚本：`dev/tests/test_unsupervised_truncated_svd.py`。
+基准测试：`dev/benchmarks/benchmark_unsupervised_phase3.py`。
+对齐基线：sklearn 的 `TruncatedSVD`、statsmodels 的 PCA 式 SVD，以及可用时的 R `svd`。
 
 ## References
 

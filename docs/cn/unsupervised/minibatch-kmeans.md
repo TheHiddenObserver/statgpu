@@ -1,7 +1,7 @@
 # MiniBatchKMeans
 
 > 语言：中文
-> 最后更新：2026-05-09
+> 最后更新：2026-09-28
 > 路径：`statgpu.unsupervised.MiniBatchKMeans`
 
 ## 概览
@@ -18,7 +18,7 @@ from statgpu.unsupervised import MiniBatchKMeans
 
 ## 目标函数
 
-目标仍是 KMeans inertia：
+目标仍是 KMeans 的惯性：
 
 $$
 \sum_i \min_j \|x_i - c_j\|_2^2.
@@ -26,7 +26,7 @@ $$
 
 ## 估计方程
 
-对 batch 中被分到 cluster `j` 的样本，中心更新为：
+对每一批中被分配到簇 `j` 的样本，中心更新为：
 
 $$
 c_j \leftarrow c_j + \eta_j(\bar{x}_{B_j} - c_j),
@@ -34,7 +34,7 @@ c_j \leftarrow c_j + \eta_j(\bar{x}_{B_j} - c_j),
 \eta_j = \frac{|B_j|}{n_j + |B_j|}.
 $$
 
-`fit` 在 mini-batch 更新结束后，会对完整 dense 数据做少量 exact Lloyd polishing。这样主体仍是 mini-batch 训练，但最终 inertia 会更接近完整数据标签分配下的中心。
+`fit` 在小批量更新结束后，会对完整的稠密数据再做少量精确的 Lloyd 打磨；主体训练仍是小批量方式，但最终惯性会更接近按全量数据分配标签时的中心。
 
 ## 参数
 
@@ -49,9 +49,9 @@ labels = MiniBatchKMeans(n_clusters=20, batch_size=4096, device="cpu").fit_predi
 labels_gpu = MiniBatchKMeans(n_clusters=20, batch_size=4096, device="torch").fit_predict(X_torch)
 ```
 
-## Strict/Approx Difference
+## 严格与近似模式的差别
 
-该方法是随机近似优化。公平比较时应固定相同初始中心、batch 顺序、收敛阈值和迭代预算。
+该方法属于随机近似优化；公平比较时应固定相同的初始中心、批次顺序、收敛阈值与迭代预算。
 
 ## 输出
 
@@ -59,13 +59,13 @@ labels_gpu = MiniBatchKMeans(n_clusters=20, batch_size=4096, device="torch").fit
 
 ## FAQ
 
-Phase 3A 仅支持 dense Euclidean 输入；不支持 sparse、sample_weight 和 callable init。
+Phase 3A 仅支持稠密的欧氏输入；不支持稀疏输入、`sample_weight` 和可调用的 `init`。
 
 ## 外部验证
 
-测试：`dev/tests/test_unsupervised_minibatch_kmeans.py`。
-Benchmark：`dev/benchmarks/benchmark_unsupervised_phase3.py`。
-Baseline：sklearn `MiniBatchKMeans`。
+测试脚本：`dev/tests/test_unsupervised_minibatch_kmeans.py`。
+基准测试：`dev/benchmarks/benchmark_unsupervised_phase3.py`。
+对齐基线：sklearn 的 `MiniBatchKMeans`。
 
 ## References
 
