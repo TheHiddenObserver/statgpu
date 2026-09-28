@@ -154,6 +154,12 @@ _PROSE_FRAGMENTS_TO_AVOID = (
     "用户的请求就保持权威",
     "进入同一个归一化 pinball 次梯度",
     "无权评分",
+    "保持权威",
+    "具有权威性",
+    "物化为可复用",
+    "权威控制项",
+    "权威结果",
+    "权威算法选择器",
 )
 
 _QUANTILE_PROSE_FRAGMENTS_TO_AVOID = (
