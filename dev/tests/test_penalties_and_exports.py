@@ -379,3 +379,12 @@ def test_adaptive_l1_rejects_complex_controls_and_weights():
             alpha=0.1,
             weights=np.asarray([1.0 + 1.0j, 2.0 + 0.0j]),
         )
+    with pytest.raises(TypeError, match="one-dimensional numeric array"):
+        AdaptiveGroupLassoPenalty(
+            groups=[[0], [1]],
+            alpha=0.1,
+            weights=np.asarray(
+                [np.complex128(1.0 + 1.0j), np.complex128(2.0 + 0.0j)],
+                dtype=object,
+            ),
+        )
