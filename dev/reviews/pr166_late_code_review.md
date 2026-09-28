@@ -103,7 +103,8 @@ evidence commit `0e4a7042`. A focused re-review of the LOW fixes found the range
 clean. A further review pass fixed the remaining cosmetic items: the
 `max_fixed_point_gap` accumulator is now magnitude-seeded; the hosted
 fixed-point gap assertions were aligned to magnitude in the omission pass
-(`35cb0bb2`). The physical artifacts were regenerated at that source.
+(`35cb0bb2`). The physical artifacts were regenerated at source `84a77a58`
+(evidence `17966e92`).
 
 ## Omission pass
 
