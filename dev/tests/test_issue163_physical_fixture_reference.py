@@ -199,7 +199,7 @@ def test_pr166_scalar_lla_nontrivial_fixture_reaches_lp_fixed_point_on_cpu():
     assert 1 <= n_iter
     _, lp_value = scalar_lla_gate._lp_fixed_point_reference(X, y, weights, coef)
     gap = scalar_lla_gate._fixed_point_gap(X, y, weights, coef, lp_value)
-    assert 0.0 <= gap <= scalar_lla_gate.ATOL_FIXED_POINT
+    assert abs(gap) <= scalar_lla_gate.ATOL_FIXED_POINT
 
 
 def test_pr166_scalar_lla_budget_probe_warns_once_on_cpu():

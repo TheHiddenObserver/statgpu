@@ -16,7 +16,8 @@ import pytest
 
 from statgpu.losses import QuantileLoss
 from statgpu.penalties import SCADPenalty
-from statgpu.solvers import fista_lla_path
+from statgpu.penalties._adaptive_l1 import AdaptiveL1Penalty
+from statgpu.solvers import fista_lla_path, fista_solver
 from statgpu.solvers._convergence import ConvergenceWarning
 
 
@@ -27,6 +28,9 @@ TARGET_GAP = 1e-8
 TARGET_MAX_ITER = 20000
 TARGET_MAX_LLA = 8
 TARGET_TOL = 1e-10
+CONSTANT_L1_COEFFS = np.asarray([0.05], dtype=np.float64)
+CONTROL_GAP = 1e-10
+FUSED_FLOOR_CEILING = 5e-3
 
 
 def _fixture():
@@ -267,3 +271,81 @@ def test_scalar_quantile_lla_reaches_lp_fixed_point():
     assert np.max(np.abs(beta - beta_lp)) <= 1e-6
     assert np.isfinite(float(intercept))
     assert int(n_iter) >= 1
+
+
+class _ConstantWeightSCAD(SCADPenalty):
+    """Fused-engine stand-in whose LLA weights do not move with the iterate."""
+
+    def __init__(self, coeffs):
+        super().__init__(alpha=ALPHA, a=SCAD_A)
+        self._fixed = np.asarray(coeffs, dtype=np.float64)
+
+    def lla_weights(self, coef):
+        return self._fixed.copy()
+
+
+def test_weighted_quantile_l1_oracle_and_backtracking_control_are_exact():
+    pytest.importorskip("scipy.optimize")
+    x, y, weights = _fixture()
+    _, lp_value = _weighted_quantile_l1_lp_reference(
+        x, y, weights, CONSTANT_L1_COEFFS
+    )
+    penalty = AdaptiveL1Penalty(
+        alpha=1.0,
+        normalize=False,
+        weights=tuple(float(value) for value in CONSTANT_L1_COEFFS),
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ConvergenceWarning)
+        coef, _ = fista_solver(
+            QuantileLoss(Q),
+            penalty,
+            x,
+            y,
+            max_iter=20000,
+            tol=1e-10,
+            sample_weight=weights,
+        )
+    beta = np.asarray(coef, dtype=np.float64).reshape(-1)
+    gap = (
+        _weighted_quantile_objective(x, y, weights, beta, CONSTANT_L1_COEFFS)
+        - lp_value
+    )
+    assert abs(gap) <= CONTROL_GAP, gap
+
+
+def test_fused_fallback_inner_solver_accuracy_floor_is_bounded():
+    """The retained fused engine keeps its documented bounded floor.
+
+    Warm-started, path-reporting, and custom-factory low-level calls still run
+    the fused FISTA-LLA engine; this pins the known accuracy floor for that
+    fallback so it cannot silently worsen.
+    """
+    pytest.importorskip("scipy.optimize")
+    import statgpu.solvers._fista_lla as fista_lla_base
+
+    x, y, weights = _fixture()
+    _, lp_value = _weighted_quantile_l1_lp_reference(
+        x, y, weights, CONSTANT_L1_COEFFS
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ConvergenceWarning)
+        coef, _, _ = fista_lla_base.fista_lla_path(
+            QuantileLoss(Q),
+            _ConstantWeightSCAD(CONSTANT_L1_COEFFS),
+            x,
+            y,
+            alpha_path=[ALPHA],
+            max_lla_per_step=3,
+            max_iter=5000,
+            lla_tol=1e-10,
+            tol=1e-10,
+            fit_intercept=False,
+            sample_weight=weights,
+        )
+    beta = np.asarray(coef, dtype=np.float64).reshape(-1)
+    gap = (
+        _weighted_quantile_objective(x, y, weights, beta, CONSTANT_L1_COEFFS)
+        - lp_value
+    )
+    assert abs(gap) <= FUSED_FLOOR_CEILING, gap
