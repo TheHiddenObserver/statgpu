@@ -33,7 +33,7 @@ PR #79 已完成全仓库正确性审查、精确提交上的 CI 验证与维护
 
 维护中的真实 GPU 验收计数为 **33/33 passed**。另外执行的旧诊断脚本未纳入维护 pytest Gate，由 Issue #83 跟踪。
 
-旧的硬编码 `results/pr79/final/final_accuracy_report.*` 文件不符合当前报告渲染器的 schema，不能作为权威结果。只有在精确目标提交上重新执行完整原始矩阵，并通过 `aggregate_results.py` 与 `emit_final_report.py` 后，才可以重新提交完整的正式报告。
+旧的硬编码 `results/pr79/final/final_accuracy_report.*` 文件不符合当前报告渲染器的 schema，不能作为可信的结果依据。只有在精确目标提交上重新执行完整原始矩阵，并通过 `aggregate_results.py` 与 `emit_final_report.py` 后，才可以重新提交完整的正式报告。
 
 ## 后续工作
 

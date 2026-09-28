@@ -1,7 +1,7 @@
 # 分位数回归
 
 > 语言：中文  
-> 最后更新：2026-09-21  
+> 最后更新：2026-09-28  
 > 页面定位：模型文档  
 > 切换：[英文版](../../en/models/quantile.md)
 
@@ -308,7 +308,7 @@ Quantile/check loss 本身非光滑，因此这里不应解释为满足经典光
 - 严格 Quantile 交叉验证对所有惩罚家族都要求完整且有限的逐折证据。只有当对应求解器路径明确把某一折标记为目标 α 的收敛失败时，该折才不会计分；只有所有折都有有限得分的 α 才有候选资格。如果任一折拟合失败或携带这种明确的目标 α 收敛失败信号，则该 α 整列都视为无效，不能只对剩余有限折求均值。通用求解器单独发出 `ConvergenceWarning` 并不会自动抹去一个已经得到的有限候选结果。两阶段策略的第一阶段筛选仍有意采用较宽松的准则；完整证据规则在后续的严格精炼与严格选择阶段执行。选中 α 后的全数据最终重拟合沿用直接估计器的收敛报告语义，并可按该语义发出 `ConvergenceWarning`，而不是作为 CV 候选失败处理。
 - Quantile 非凸延续路径会拒绝停止控制的隐式类型转换。`max_iter` 必须是正整数，`tol` 必须是有限正实数；直接标量 SCAD/MCP 与自动 Group SCAD/MCP 还要求布尔型 `lla=True`、整数 `max_lla_iters` 和有限正数 `lla_tol`。当前自动 Quantile 延续路径包含 3 个 α 步骤，因此 `max_lla_iters` 至少为 3，才能保证每一步至少执行一次 LLA 更新。中间延续步骤使用缩减后的 IRLS 预算，但不会超过公开的 `max_iter`；目标步骤最多使用完整预算。显式 Group SCAD/MCP `solver="fista"` 不进入 LLA 延续路径，因此 `lla`、`max_lla_iters` 与 `lla_tol` 不控制这条显式算法。
 - 公开底层 Quantile 求解器调用——包括普通 `fista_solver`、保留兼容边界的直接 `lbfgs_solver`、`QuantileLoss.irls()`、`proximal_irls_quantile_solver()` 与 Quantile `fista_lla_path()`——都会在数值计算前拒绝非法的监督输入形状：`X` 必须为二维、`y` 必须为一维，且二者行数一致，并且二者都必须只包含有限实数。IRLS/延续路径专用边界还会拒绝非法的截距、停止、路径和权重控制，不依赖广播或隐式类型转换；直接延续路径调用的 `alpha_path` 还必须是一维非空、元素均为有限正数、并从起点到目标值保持非递增的序列。
-- 显式普通 L2/无惩罚 Quantile FISTA 受支持并保持权威；Group SCAD/MCP 的显式 FISTA 同样不会被改写成自动的分组 Proximal IRLS-LLA。
+- 显式请求的普通 L2/无惩罚 Quantile FISTA 受支持并按请求执行；Group SCAD/MCP 的显式 FISTA 同样不会被改写成自动的分组 Proximal IRLS-LLA。
 - FISTA-BB、公开直接 ADMM、Newton、Proximal Newton 与 L-BFGS-B 都不支持 Quantile，并会在进入数值迭代前报错。普通估计器/CV 层的 L-BFGS 同样不支持 Quantile；只有底层 `lbfgs_solver` 的未加权/均匀权重历史兼容边界继续保留。历史 `quantile_cd_solver` 名称仅作为导入兼容符号保留，并在调用时立即报错：旧实现会忽略 `sample_weight`，且无法可靠表示不受惩罚的截距，因此标量 SCAD/MCP 拟合改用 Proximal IRLS-CD。
 - 受支持的 GPU 路径不会静默回退到 CPU。
 

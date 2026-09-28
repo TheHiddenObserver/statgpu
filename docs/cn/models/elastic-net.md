@@ -1,7 +1,7 @@
 # Elastic Net 弹性网络
 
 > 语言：中文  
-> 最后更新：2026-09-23<br>
+> 最后更新：2026-09-28<br>
 > 页面定位：模型文档  
 > 切换：[English](../../en/models/elastic-net.md)
 
@@ -36,7 +36,7 @@ $$
 \frac{1}{n} X^\top (X\hat{\beta} - y) + \alpha(1-\lambda)\hat{\beta} + \alpha\lambda \cdot \partial\|\hat{\beta}\|_1 = 0.
 $$
 
-对**直接单次拟合**，`solver` 是所有后端上的权威算法选择器。`device` 单独控制 CPU/CuPy/Torch 执行位置。历史 `cpu_solver` 参数已进入弃用流程，在统一引擎中不再代表第二套 CPU direct-fit solver。参见 [penalized solver API 迁移指南](../guides/penalized-solver-api-migration.md)。
+对**直接单次拟合**，`solver` 在所有后端上都决定实际使用的算法。`device` 单独控制 CPU/CuPy/Torch 执行位置。历史 `cpu_solver` 参数已进入弃用流程，在统一引擎中不再代表第二套 CPU direct-fit solver。参见 [penalized solver API 迁移指南](../guides/penalized-solver-api-migration.md)。
 
 ## 估计算法
 
@@ -166,7 +166,7 @@ $$
 
 选择后 OLS 仍是启发式诊断，不提供一般选择性推断覆盖保证。推断条件于已选择的正则化参数，并不会改变惩罚系数。
 
-设备选择与统计方法正交：显式 `cpu` / `cuda` / `torch` 始终具有权威性；只有真正的 `device="auto"` 才允许后端原生的 CuPy 或 Torch-CUDA 输入参与自动路由。`post_selection_ols` 复用拟合解析出的后端；维护中的 CuPy/Torch `debiased` 路径也会把数值推断留在实际执行的 GPU 后端，包括正态参考分布的标量临界值。残差 `bootstrap` 当前仍是 CPU 原生的残差重拟合路径；显式 GPU `device` 会控制惩罚拟合，但不会让 bootstrap 变成 GPU 原生。
+设备选择与统计方法正交：显式 `cpu` / `cuda` / `torch` 始终以用户请求为准；只有真正的 `device="auto"` 才允许后端原生的 CuPy 或 Torch-CUDA 输入参与自动路由。`post_selection_ols` 复用拟合解析出的后端；维护中的 CuPy/Torch `debiased` 路径也会把数值推断留在实际执行的 GPU 后端，包括正态参考分布的标量临界值。残差 `bootstrap` 当前仍是 CPU 原生的残差重拟合路径；显式 GPU `device` 会控制惩罚拟合，但不会让 bootstrap 变成 GPU 原生。
 
 对于带截距的 `debiased` 推断，公开 `coef_`/`intercept_` 继续属于 **惩罚预测拟合**。推断/报告使用 debiased 斜率 `_params[1:]`，以及与它们配套的原始坐标系截距 `_params[0] = ybar_w - xbar_w @ _params[1:]`；因此第一行 SE/z/p-value/CI 描述的是该 debiased 报告截距，而不是预测 `intercept_`。结果元数据会记录 `intercept_estimator="centered_debiased"` 与 `intercept_influence="centered_nodewise"`。分析权重在 NumPy/CuPy/Torch 上使用同一个加权中心化平均损失问题，因此整体乘以正常数不会改变这套推断。
 
