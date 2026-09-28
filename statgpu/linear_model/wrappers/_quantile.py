@@ -960,8 +960,25 @@ class QuantileRegression(BaseEstimator):
         )
         sparsity = 1.0 / fhat
 
-        # Sandwich covariance
-        D = xp.where(resid > 0, (tau / fhat) ** 2, ((1.0 - tau) / fhat) ** 2)
+        # Sandwich covariance. Torch's ``where`` with Python scalar branches
+        # infers the default float dtype (float32), which would silently round
+        # the covariance weights; keep them in the working design dtype.
+        _D_pos = (tau / fhat) ** 2
+        _D_neg = ((1.0 - tau) / fhat) ** 2
+        if is_torch:
+            import torch
+            _D_dtype = (
+                X_design.dtype
+                if X_design.is_floating_point()
+                else torch.float64
+            )
+            D = torch.where(
+                resid > 0,
+                torch.as_tensor(_D_pos, dtype=_D_dtype, device=resid.device),
+                torch.as_tensor(_D_neg, dtype=_D_dtype, device=resid.device),
+            )
+        else:
+            D = xp.where(resid > 0, _D_pos, _D_neg)
         XtX = X_design.T @ X_design
         try:
             XtX_inv = xp.linalg.solve(
