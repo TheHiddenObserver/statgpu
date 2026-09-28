@@ -399,25 +399,13 @@ def _install_scalar_cv_penalty_object_contract() -> None:
         ):
             return penalty
 
-        marked_cv_source = bool(
-            getattr(penalty, _SCALAR_CV_ALPHA_MARKER, False)
-        )
-        direct_public_object = (
-            penalty is getattr(self, "penalty", None)
-            and not isinstance(getattr(self, "penalty", None), str)
-            and _penalty_name(penalty) in ("adaptive_l1", "adaptive_lasso")
-        )
-        if not marked_cv_source and not direct_public_object:
+        if not bool(getattr(penalty, _SCALAR_CV_ALPHA_MARKER, False)):
             return penalty
 
-        resolved = _clone_scalar_penalty(
-            penalty,
-            alpha=float(self.alpha) if marked_cv_source else None,
-        )
-        if marked_cv_source:
-            # Internal CV children own this clone, so their public penalty
-            # reports the same alpha as the numerical penalty that actually fits.
-            self.penalty = resolved
+        # Internal CV children own this clone, so their public penalty reports
+        # the same alpha as the numerical penalty that actually fits.
+        resolved = _clone_scalar_penalty(penalty, alpha=float(self.alpha))
+        self.penalty = resolved
         return resolved
 
     setattr(

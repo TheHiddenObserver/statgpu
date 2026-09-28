@@ -665,6 +665,7 @@ def fista_lla_path(
                         if isinstance(_w_dev, np.ndarray):
                             _w_dev = _xp_asarray(_w_dev, coef.dtype, coef)
 
+                    iteration = -1
                     for iteration in range(_mi):
                         coef_old = _copy_arr(coef)
 
@@ -838,11 +839,7 @@ def fista_lla_path(
             + " and ".join(missing)
             + "; returning the final accepted iterate.",
             ConvergenceWarning,
-            stacklevel=(
-                _external_warning_stacklevel()
-                if str(getattr(loss, "name", "") or "").lower() == "quantile"
-                else 2
-            ),
+            stacklevel=_external_warning_stacklevel(),
         )
 
     # Extract coef and intercept

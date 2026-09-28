@@ -199,6 +199,8 @@ def _continuation_path_from_start(lambda_start, target_alpha, n_cont):
         or target_alpha <= 0.0
     ):
         return np.linspace(max(lambda_start, 0.0), target_alpha, n_cont)
+    if n_cont <= 1:
+        return np.asarray([target_alpha], dtype=np.float64)
     return np.geomspace(alpha_start, target_alpha, n_cont)
 
 
@@ -277,7 +279,8 @@ def resolve_auto_quantile_continuation_path(
 
     penalty_name = str(getattr(penalty, "name", "") or "").lower().strip()
     group_scaled = penalty_name in {
-        "group_lasso", "gl", "group_scad", "gscad", "group_mcp", "gmcp"
+        "group_lasso", "gl", "adaptive_group_lasso",
+        "group_scad", "gscad", "group_mcp", "gmcp"
     }
 
     # Preserve the exact historical scalar path when the objective is

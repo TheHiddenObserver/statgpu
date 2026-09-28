@@ -11,9 +11,10 @@ while L2/no-penalty Quantile defaults to IRLS and SCAD/MCP use Proximal IRLS-CD.
 
 Low-level ``lbfgs_solver(QuantileLoss, ...)`` retains its historical
 unweighted/uniform numerical compatibility behavior. The public wrapper below
-only validates supervised input shape before delegating to that unchanged
-kernel. Estimator-level explicit Quantile L-BFGS remains unsupported, and
-non-uniform direct weights are still rejected by the L-BFGS weight check.
+validates supervised input shape, stopping controls, and the warm start, and
+normalizes the design/response dtype and device before delegating to that
+unchanged kernel. Estimator-level explicit Quantile L-BFGS remains unsupported,
+and non-uniform direct weights are still rejected by the L-BFGS weight check.
 """
 
 from __future__ import annotations

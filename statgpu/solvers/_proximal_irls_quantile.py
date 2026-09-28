@@ -24,7 +24,6 @@ References:
 
 import copy
 from contextvars import ContextVar
-import inspect
 import warnings
 
 import numpy as np
@@ -40,25 +39,7 @@ _STRICT_CV_TARGET = ContextVar(
 
 from statgpu.backends import _resolve_backend, _to_numpy
 from statgpu.backends._array_ops import _xp_asarray
-
-
-def _external_warning_stacklevel() -> int:
-    frame = inspect.currentframe()
-    if frame is None:
-        return 2
-    frame = frame.f_back
-    level = 1
-    try:
-        while frame is not None:
-            module_name = str(frame.f_globals.get("__name__", ""))
-            is_internal = module_name == "statgpu" or module_name.startswith("statgpu.")
-            if not is_internal:
-                return level
-            frame = frame.f_back
-            level += 1
-    finally:
-        del frame
-    return 2
+from ._utils import _external_warning_stacklevel
 
 
 def _flat_irls_boundary_converged(

@@ -384,6 +384,6 @@ class QuantileLoss(LossBase):
             "QuantileLoss.irls() did not converge within "
             f"{max_iter} iterations; returning the final iterate.",
             ConvergenceWarning,
-            stacklevel=2,
+            stacklevel=3,
         )
         return beta, max_iter

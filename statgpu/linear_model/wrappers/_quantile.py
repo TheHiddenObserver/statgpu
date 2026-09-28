@@ -264,6 +264,7 @@ from statgpu._config import Device
 from statgpu.losses._quantile import QuantileLoss
 from statgpu.solvers import fista_solver
 from statgpu.solvers._convergence import ConvergenceWarning
+from statgpu.solvers._utils import _external_warning_stacklevel
 
 
 class QuantileRegression(BaseEstimator):
@@ -673,7 +674,7 @@ class QuantileRegression(BaseEstimator):
             warnings.warn(
                 item.message,
                 item.category,
-                stacklevel=3,
+                stacklevel=_external_warning_stacklevel(),
             )
 
         if not convergence_warnings:
@@ -689,7 +690,7 @@ class QuantileRegression(BaseEstimator):
             warnings.warn(
                 item.message,
                 item.category,
-                stacklevel=3,
+                stacklevel=_external_warning_stacklevel(),
             )
 
     def _compute_inference(self, X, y, loss, backend_name="numpy"):

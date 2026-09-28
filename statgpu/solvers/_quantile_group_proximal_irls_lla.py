@@ -15,12 +15,12 @@ does not change the public low-level ``fista_lla_path`` contract, and explicit
 from __future__ import annotations
 
 import copy
-import inspect
 import warnings
 
 import numpy as np
 
 from statgpu.backends import _resolve_backend, _to_numpy
+from ._utils import _external_warning_stacklevel
 from statgpu.backends._array_ops import (
     _abs_sum_dev,
     _copy_arr,
@@ -38,26 +38,6 @@ from ._utils import _validate_sample_weight
 _GROUP_NONCONVEX_NAMES = frozenset(
     {"group_mcp", "gmcp", "group_scad", "gscad"}
 )
-
-
-def _external_warning_stacklevel() -> int:
-    """Return a warning stacklevel pointing past internal statgpu wrappers."""
-    frame = inspect.currentframe()
-    if frame is None:
-        return 2
-    frame = frame.f_back
-    level = 1
-    try:
-        while frame is not None:
-            module_name = str(frame.f_globals.get("__name__", ""))
-            is_internal = module_name == "statgpu" or module_name.startswith("statgpu.")
-            if not is_internal:
-                return level
-            frame = frame.f_back
-            level += 1
-    finally:
-        del frame
-    return 2
 
 
 def _backend_array(value, *, ref, xp, backend):
@@ -294,6 +274,8 @@ def quantile_group_proximal_irls_lla_solver(
                             item.category,
                             stacklevel=_external_warning_stacklevel(),
                         )
+                # ``total_iter`` mixes inner iteration kinds on purpose: flat
+                # targets contribute IRLS sweeps, penalized targets ADMM steps.
                 total_iter += int(used_iter)
 
                 at_budget_boundary = (
