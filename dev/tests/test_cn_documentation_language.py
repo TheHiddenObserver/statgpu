@@ -150,6 +150,10 @@ _PROSE_FRAGMENTS_TO_AVOID = (
     "estimator state",
     "failure transaction",
     "installer idempotence",
+    "私下将其物化",
+    "用户的请求就保持权威",
+    "进入同一个归一化 pinball 次梯度",
+    "无权评分",
 )
 
 _QUANTILE_PROSE_FRAGMENTS_TO_AVOID = (
