@@ -322,15 +322,13 @@ def test_fused_fallback_inner_solver_accuracy_floor_is_bounded():
     fallback so it cannot silently worsen.
     """
     pytest.importorskip("scipy.optimize")
-    import statgpu.solvers._fista_lla as fista_lla_base
-
     x, y, weights = _fixture()
     _, lp_value = _weighted_quantile_l1_lp_reference(
         x, y, weights, CONSTANT_L1_COEFFS
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", ConvergenceWarning)
-        coef, _, _ = fista_lla_base.fista_lla_path(
+        coef, _, _ = fista_lla_path(
             QuantileLoss(Q),
             _ConstantWeightSCAD(CONSTANT_L1_COEFFS),
             x,
@@ -342,6 +340,7 @@ def test_fused_fallback_inner_solver_accuracy_floor_is_bounded():
             tol=1e-10,
             fit_intercept=False,
             sample_weight=weights,
+            init_coef=np.zeros(1, dtype=np.float64),
         )
     beta = np.asarray(coef, dtype=np.float64).reshape(-1)
     gap = (
