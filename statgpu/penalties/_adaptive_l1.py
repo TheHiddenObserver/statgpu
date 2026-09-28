@@ -41,6 +41,8 @@ def _normalize_adaptive_controls(alpha, nu, eps, init_method, normalize):
             value, (Real, np.number)
         ):
             raise TypeError(f"{name} must be a finite numeric scalar")
+        if np.iscomplexobj(value):
+            raise TypeError(f"{name} must be a finite real numeric scalar")
         result = float(value)
         if not np.isfinite(result) or (result < 0.0 if allow_zero else result <= 0.0):
             qualifier = "non-negative" if allow_zero else "positive"
@@ -80,7 +82,7 @@ def _normalize_external_weights(weights):
         raw = np.asarray(weights)
     if raw.ndim != 1 or raw.size == 0:
         raise ValueError("weights must be a non-empty one-dimensional array")
-    if raw.dtype.kind in ("b", "S", "U"):
+    if raw.dtype.kind in ("b", "S", "U", "c"):
         raise TypeError("weights must contain real numeric values")
     if raw.dtype.kind == "O":
         from numbers import Real
@@ -88,6 +90,8 @@ def _normalize_external_weights(weights):
             if isinstance(value, (bool, np.bool_)) or not isinstance(
                 value, (Real, np.number)
             ):
+                raise TypeError("weights must contain real numeric values")
+            if np.iscomplexobj(value):
                 raise TypeError("weights must contain real numeric values")
     try:
         values = np.asarray(raw, dtype=np.float64)
@@ -422,10 +426,6 @@ class AdaptiveL1Penalty(Penalty):
     ):
         """Per-coordinate soft-threshold with per-coordinate thresholds."""
         self._require_weights(w)
-
-        # Check if _weights is already a device tensor (from lla_weights on GPU)
-        _w_mod = type(self._weights).__module__
-        _is_device = _w_mod.startswith("torch") or _w_mod.startswith("cupy")
 
         if backend == "cupy":
             import cupy as cp

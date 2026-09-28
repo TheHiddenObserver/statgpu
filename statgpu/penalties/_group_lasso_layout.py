@@ -225,7 +225,7 @@ def _normalize_weights_parameter(weights, n_groups):
     if weights is None:
         return None
     raw = np.asarray(_weights_to_numpy(weights))
-    if raw.dtype.kind in ("b", "S", "U"):
+    if raw.dtype.kind in ("b", "S", "U", "c"):
         raise TypeError("group weights must be a one-dimensional numeric array")
     if raw.dtype.kind == "O":
         for value in raw.ravel():
@@ -377,7 +377,7 @@ class AdaptiveGroupLassoPenalty(
         sqrt_pg = self._get_sqrt_pg(xp, coef)
         weights = self._get_group_weights(xp, coef)
         if weights is None:
-            weights = xp.ones_like(sqrt_pg)
+            weights = xp.ones_like(sqrt_pg, dtype=coef_feat.dtype)
         return xp, coef_feat, norms, sqrt_pg, weights
 
     def value(self, coef) -> float:
