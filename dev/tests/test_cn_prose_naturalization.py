@@ -24,6 +24,8 @@ PAGES = (
     "docs/cn/unsupervised/truncated-svd.md",
     "docs/cn/unsupervised/tsne.md",
     "docs/cn/models/unsupervised.md",
+    "docs/cn/models/splines.md",
+    "docs/cn/models/kernel-methods.md",
 )
 
 FRAGMENTS_TO_AVOID = (
@@ -88,6 +90,10 @@ FRAGMENTS_TO_AVOID = (
     "dense input",
     "dense 数据",
     "dense 输入",
+    "strict/approx 模式",
+    "strict/approximate inference",
+    "CUDA parity",
+    "静默 fallback",
 )
 
 
