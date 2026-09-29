@@ -179,6 +179,13 @@ _PROSE_FRAGMENTS_TO_AVOID = (
     "explained variance",
     "vs `sklearn",
     "warmup/repeats",
+    "逐系数稳健 SE",
+    "第二套 CPU direct-fit solver",
+    "penalized-linear inference engine",
+    "external reference",
+    "runner-reported",
+    "penalized-logistic",
+    "penalized-linear bootstrap",
 )
 
 _QUANTILE_PROSE_FRAGMENTS_TO_AVOID = (
