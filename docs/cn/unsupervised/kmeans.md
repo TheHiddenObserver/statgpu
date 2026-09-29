@@ -1,7 +1,7 @@
 # KMeans
 
 > 语言：中文
-> 最后更新：2026-09-28
+> 最后更新：2026-09-29
 > 切换：[English](../../en/unsupervised/kmeans.md)
 
 ## 概览
@@ -37,7 +37,7 @@ $$
   $$
   c_j = \frac{1}{|\{i: z_i = j\}|}\sum_{i:z_i=j} x_i .
   $$
-- 空簇用距离其原属中心最远的样本重置。
+- 空簇用距离当前所属中心最远的样本重置。
 - 当中心位移的平方不超过 `tol` 或达到 `max_iter` 时停止。
 - 运行 `n_init` 次初始化，保留惯性最低的结果。
 
@@ -62,7 +62,7 @@ labels = km.fit_predict(X)
 distances = km.transform(X)
 ```
 
-## strict/approx 差异
+## 严格与近似模式的差别
 
 `KMeans` 是非凸迭代优化器，不提供严格的统计推断；不同初始化可能得到不同的局部最优，可复现性取决于 `random_state`、`init`、`n_init`、`max_iter` 和 `tol`。
 

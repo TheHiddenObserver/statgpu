@@ -1,7 +1,7 @@
 # MiniBatchNMF
 
 > 语言：中文
-> 最后更新：2026-09-28
+> 最后更新：2026-09-29
 > 切换：[English](../../en/unsupervised/minibatch-nmf.md)
 
 ## 概览
@@ -50,7 +50,7 @@ W = nmf.fit_transform(X)
 X_hat = nmf.inverse_transform(W)
 ```
 
-## strict/approx 差异
+## 严格与近似模式的差别
 
 `MiniBatchNMF` 是非凸的近似分解方法，结果依赖批次顺序；它面向可扩展的矩阵分解，不提供严格的统计推断。
 

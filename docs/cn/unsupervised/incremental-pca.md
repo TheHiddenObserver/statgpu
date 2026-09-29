@@ -1,12 +1,12 @@
 # IncrementalPCA
 
 > 语言：中文
-> 最后更新：2026-09-28
+> 最后更新：2026-09-29
 > 切换：[English](../../en/unsupervised/incremental-pca.md)
 
 ## 概览
 
-`IncrementalPCA` 在稠密的小批量（mini-batch）数据上拟合主成分，同时维护滑动均值、方差、样本数以及截断 SVD 基。当前支持 CPU、CuPy/CUDA 与 Torch CUDA。
+`IncrementalPCA` 在稠密的小批量（mini-batch）数据上拟合主成分，同时维护累计均值、方差、样本数以及截断 SVD 基。当前支持 CPU、CuPy/CUDA 与 Torch CUDA。
 
 ## 导入路径
 
@@ -46,7 +46,7 @@ Z = ipca.transform(X)
 X_hat = ipca.inverse_transform(Z)
 ```
 
-## strict/approx 差异
+## 严格与近似模式的差别
 
 `IncrementalPCA` 是批次/流式近似估计器，结果会受批次顺序和批次大小影响；在相同的批次设置下，CPU/CuPy/Torch 的结果应保持一致。
 

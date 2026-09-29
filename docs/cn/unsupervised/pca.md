@@ -1,7 +1,7 @@
 # PCA
 
 > 语言：中文
-> 最后更新：2026-09-28
+> 最后更新：2026-09-29
 > 切换：[English](../../en/unsupervised/pca.md)
 
 ## 概览
@@ -86,7 +86,7 @@ pca_gpu = PCA(n_components=10, svd_solver="covariance", device="cuda")
 Z_gpu = pca_gpu.fit_transform(X)
 ```
 
-## strict/approx 差异
+## 严格与近似模式的差别
 
 `PCA` 没有统计推断意义上的严格推断模式；这里的“精确/近似”指的是分解算法：
 

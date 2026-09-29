@@ -1,7 +1,7 @@
 # 无监督学习
 
 > 语言：中文
-> 最后更新：2026-09-28
+> 最后更新：2026-09-29
 > 本页：无监督模型总览
 > 切换：[English](../../en/models/unsupervised.md)
 
@@ -17,7 +17,7 @@
 | [KMeans](../unsupervised/kmeans.md) | 原型聚类 | 最小化平方欧氏惯性 |
 | [DBSCAN](../unsupervised/dbscan.md) | 带噪声的密度聚类 | 密度可达性与连通分量 |
 | [GaussianMixture](../unsupervised/gaussian-mixture.md) | 概率软聚类 | 用 EM 最大化 Gaussian mixture 的对数似然 |
-| [NMF](../unsupervised/nmf.md) | 基于局部的非负分解 | 在非负约束下最小化 Frobenius 重构误差 |
+| [NMF](../unsupervised/nmf.md) | 基于部件的非负分解 | 在非负约束下最小化 Frobenius 重构误差 |
 | [AgglomerativeClustering](../unsupervised/agglomerative-clustering.md) | 层次聚类 | 贪心连接合并 |
 | [TruncatedSVD](../unsupervised/truncated-svd.md) | 不中心化低秩投影 | 最小化秩 k 稠密重构误差 |
 | [MiniBatchKMeans](../unsupervised/minibatch-kmeans.md) | 较大规模原型聚类 | 用小批量更新近似最小化惯性 |

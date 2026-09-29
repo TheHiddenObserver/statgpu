@@ -1,7 +1,7 @@
 # TruncatedSVD
 
 > 语言：中文
-> 最后更新：2026-09-28
+> 最后更新：2026-09-29
 > 路径：`statgpu.unsupervised.TruncatedSVD`
 
 ## 概览

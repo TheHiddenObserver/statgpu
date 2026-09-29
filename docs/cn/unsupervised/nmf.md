@@ -1,7 +1,7 @@
 # NMF
 
 > 语言：中文
-> 最后更新：2026-09-28
+> 最后更新：2026-09-29
 > 切换：[English](../../en/unsupervised/nmf.md)
 
 ## 概览
@@ -63,7 +63,7 @@ W = nmf.fit_transform(X)
 X_hat = nmf.inverse_transform(W)
 ```
 
-## strict/approx 差异
+## 严格与近似模式的差别
 
 `NMF` 没有严格推断模式；目标函数非凸，乘性更新会收敛到依赖初始化与停止准则的局部解。
 

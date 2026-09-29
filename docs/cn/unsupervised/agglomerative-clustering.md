@@ -1,7 +1,7 @@
 # AgglomerativeClustering
 
 > 语言：中文
-> 最后更新：2026-09-28
+> 最后更新：2026-09-29
 > 切换：[English](../../en/unsupervised/agglomerative-clustering.md)
 
 ## 概览
@@ -91,9 +91,9 @@ labels_gpu = model_gpu.fit_predict(X)  # NumPy 输入会被转到 CUDA 后端
 # labels_gpu = model_gpu.fit_predict(X_gpu)
 ```
 
-## strict/approx 差异
+## 严格与近似模式的差别
 
-`AgglomerativeClustering` 没有严格/近似之分：对稠密欧氏输入，CPU、CuPy 与 Torch 路径都给出精确计算。GPU 执行会分配稠密距离矩阵；一旦超过第一版实现设定的显存保护阈值，会明确抛出 `MemoryError`。
+`AgglomerativeClustering` 没有统计推断意义上的严格模式：对稠密欧氏输入，CPU、CuPy 与 Torch 路径都给出精确计算。GPU 执行会分配稠密距离矩阵；一旦超过第一版实现设定的显存保护阈值，会明确抛出 `MemoryError`。
 
 ## 输出字段
 
