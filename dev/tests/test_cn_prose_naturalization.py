@@ -109,3 +109,11 @@ def test_naturalized_pages_avoid_literal_translation_fragments(page):
     text = (ROOT / page).read_text(encoding="utf-8")
     present = [fragment for fragment in FRAGMENTS_TO_AVOID if fragment in text]
     assert not present, f"{page}: literal-translation fragments {present!r}"
+
+
+def test_no_legacy_strict_approx_heading_remains_in_chinese_docs():
+    offenders = []
+    for path in sorted((ROOT / "docs/cn").rglob("*.md")):
+        if "## strict/approx 差异" in path.read_text(encoding="utf-8"):
+            offenders.append(path.relative_to(ROOT).as_posix())
+    assert not offenders, f"legacy strict/approx headings remain: {offenders!r}"
