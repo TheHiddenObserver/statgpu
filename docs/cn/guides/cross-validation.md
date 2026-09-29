@@ -1,7 +1,7 @@
 # 交叉验证
 
 > 语言：中文  
-> 最后更新：2026-09-28  
+> 最后更新：2026-09-29  
 > 页面定位：CV 选择与最终重拟合的用户指南  
 > 切换：[English](../../en/guides/cross-validation.md)
 
@@ -131,7 +131,7 @@ Cox CV 还需要满足事件信息和风险集相关的要求。对于 `Penalize
 
 对于 `PenalizedGLM_CV` 的分位数回归路径，自动网格要先确定一个与问题尺度匹配的 `alpha` 起点。它不会用平方残差近似，而是在调用者要求的分位数上、以“仅含截距”的基准模型计算 check 损失（pinball 损失）的次梯度；传入解析权重 `sample_weight` 时，同一个归一化加权次梯度会一致地用于这一步。
 
-分组 SCAD/MCP 的起点会进一步换算到公开的分组惩罚 `alpha` 尺度：先由 `max_g ||score_g||_2 / sqrt(p_g)` 得到特征分数，再与惩罚项的组阈值 `alpha * sqrt(p_g)` 对齐。若 Adaptive L1 的权重是用户给定的固定正值，则先用各坐标的有效自适应权重缩放次梯度，再取最大值；固定正权重的 Adaptive Group Lasso 同理，使用 `max_g ||score_g||_2 / (w_g sqrt(p_g))`。当自适应权重尚未固定、需要由初始化拟合产生时，自动网格仍只是初始化前的启发式起点，并不代表精确的全零 KKT 阈值。
+分组 SCAD/MCP 的起点会进一步换算到公开的分组惩罚 `alpha` 尺度：先由 `max_g ||score_g||_2 / sqrt(p_g)` 得到特征分数，再与惩罚项的组阈值 `alpha * sqrt(p_g)` 对齐。若 Adaptive L1 的权重是用户给定的固定正值，则先按各坐标的有效自适应权重对次梯度做逐坐标除法，再取最大值；固定正权重的 Adaptive Group Lasso 同理，使用 `max_g ||score_g||_2 / (w_g sqrt(p_g))`。当自适应权重尚未固定、需要由初始化拟合产生时，自动网格仍只是初始化前的启发式起点，并不代表精确的全零 KKT 阈值。
 
 ```python
 import numpy as np

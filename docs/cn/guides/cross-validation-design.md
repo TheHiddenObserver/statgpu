@@ -1,7 +1,7 @@
 # statgpu 的交叉验证如何工作
 
 > 语言：中文  
-> 最后更新：2026-09-28  
+> 最后更新：2026-09-29  
 > 页面定位：交叉验证的公开设计与执行模型  
 > 切换：[English](../../en/guides/cross-validation-design.md)
 

@@ -1,7 +1,7 @@
 # Elastic Net 弹性网络
 
 > 语言：中文  
-> 最后更新：2026-09-28<br>
+> 最后更新：2026-09-29<br>
 > 页面定位：模型文档  
 > 切换：[English](../../en/models/elastic-net.md)
 

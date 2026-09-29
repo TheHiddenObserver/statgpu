@@ -1,7 +1,7 @@
 # 基准脚本索引
 
 > 语言：中文  
-> 最后更新：2026-09-28  
+> 最后更新：2026-09-29  
 > 页面定位：基准脚本索引  
 > 切换：[English](../en/benchmarks.md)
 
@@ -216,7 +216,7 @@ python dev/benchmarks/benchmark_external_frameworks.py \
   - 关键发现：
     - statgpu CPU 在 6 组对比中胜出 4 组
     - 系数范数差异源于正则化缩放约定不同
-    - 两种实现的 Elastic Net 目标都正确
+    - 两种实现都是正确的 Elastic Net 实现
 
 ### 大规模性能测试（n ≥ 10,000）
 

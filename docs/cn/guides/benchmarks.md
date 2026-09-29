@@ -1,7 +1,7 @@
 # 基准脚本索引
 
 > 语言：中文  
-> 最后更新：2026-09-28
+> 最后更新：2026-09-29
 > 页面定位：基准脚本索引  
 > 切换：[English](../../en/guides/benchmarks.md)
 
@@ -20,7 +20,7 @@
 
 已覆盖的主要模块包括：惩罚 GLM、GLM、近期线性模型、稳健/分位数回归、生存分析、无监督学习、有序模型、非参数方法、面板模型、协方差估计和 ANOVA。Feature Selection 分类已经预留，但在出现 2026-06 或之后的结构化 benchmark 前保持为空。
 
-2026 年 4 月的 ElasticNet、LassoCV 结果，以及 comprehensive validation、Cox package comparison 与 knockoff 面板，都不会接入当前面板。已有的 6 月 distribution Markdown 汇总也不会直接转换成实测记录；需要保留原始重复计时和精度元数据的结构化 JSON，或重新运行。
+2026 年 4 月的 ElasticNet、LassoCV 结果，以及 comprehensive validation、Cox package comparison 与 knockoff 数据，都不会接入当前面板。已有的 6 月 distribution Markdown 汇总也不会直接转换成实测记录；需要保留原始重复计时和精度元数据的结构化 JSON，或重新运行。
 
 当前功能包括：
 
