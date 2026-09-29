@@ -102,6 +102,7 @@ FRAGMENTS_TO_AVOID = (
     "log likelihood",
     "## strict/approx 差异",
     "Calculation 在 Arbitrary",
+    "Calculation in Arbitrary",
     "responsibility 对齐",
     "step-down procedure",
     "step-up procedure",
