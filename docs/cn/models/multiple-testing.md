@@ -144,5 +144,5 @@ A: FDR = 错误拒绝的期望比例。FWER = 至少一次错误拒绝的概率�
 2. Benjamini, Y. & Yekutieli, D. (2001). "The Control of the False Discovery Rate in Multiple Testing under Dependency." *Annals of Statistics*, 29(4), 1165-1188.
 3. Holm, S. (1979). "A Simple Sequentially Rejective Multiple Test Procedure." *Scandinavian Journal of Statistics*, 6(2), 65-70.
 4. Fisher, R.A. (1925). *Statistical Methods for Research Workers*. Oliver and Boyd.
-5. Liu, Y. & Xie, J. (2020). "Cauchy Combination Test: A Powerful Test With Analytic p-Value Calculation in Arbitrary Dependency Structures." *Journal of the American Statistical Association*, 115(529), 393-402.
+5. Liu, Y. & Xie, J. (2020). "Cauchy Combination Test: A Powerful Test With Analytic p-Value Calculation Under Arbitrary Dependency Structures." *Journal of the American Statistical Association*, 115(529), 393-402.
 6. Stouffer, S.A. et al. (1949). *The American Soldier*. Princeton University Press.
