@@ -1,7 +1,7 @@
 # 基准脚本索引
 
 > 语言：中文  
-> 最后更新：2026-09-23
+> 最后更新：2026-09-28
 > 页面定位：基准脚本索引  
 > 切换：[English](../../en/guides/benchmarks.md)
 
@@ -20,7 +20,7 @@
 
 已覆盖的主要模块包括：惩罚 GLM、GLM、近期线性模型、稳健/分位数回归、生存分析、无监督学习、有序模型、非参数方法、面板模型、协方差估计和 ANOVA。Feature Selection 分类已经预留，但在出现 2026-06 或之后的结构化 benchmark 前保持为空。
 
-2026 年 4 月的 ElasticNet、LassoCV、comprehensive validation、Cox package comparison 和 knockoff 结果不会接入当前面板。已有的 6 月 distribution Markdown 汇总也不会直接转换成实测记录；需要保留原始重复计时和精度元数据的结构化 JSON，或重新运行。
+2026 年 4 月的 ElasticNet、LassoCV 结果，以及 comprehensive validation、Cox package comparison 与 knockoff 面板，都不会接入当前面板。已有的 6 月 distribution Markdown 汇总也不会直接转换成实测记录；需要保留原始重复计时和精度元数据的结构化 JSON，或重新运行。
 
 当前功能包括：
 
@@ -28,9 +28,9 @@
 - Metric scope：Fit、CV、Inference、Prediction、Selection；
 - Model → Variant → Penalty → Solver → Scale 的渐进式筛选；
 - NumPy、CuPy、Torch 后端筛选；
-- 根据当前上下文显示 scikit-learn、SciPy、statsmodels、linearmodels、pyGAM 等 external reference；
+- 根据当前上下文显示 scikit-learn、SciPy、statsmodels、linearmodels、pyGAM 等外部参考实现；
 - Focused 与 Full matrix 两种图表模式；
-- Timing 与 Speedup 图，并区分 computed 和 runner-reported speedup；
+- Timing 与 Speedup 图，并区分由数据计算得到的加速比与由 runner 报告的加速比；
 - 带 Scope 列的可排序、可分页明细表；
 - Validation、Accuracy、Inference、Prediction、Convergence、Selection 指标面板；
 - 数据源来源信息、解析报告与数据源清单。
@@ -68,7 +68,7 @@ npm run test:e2e:production
   - 输出惩罚系数、活跃集重拟合参数、标准误/统计量/p 值/置信区间、活跃集一致性，以及推断后端与具体设备来源的 CPU/CuPy 对照结果；
   - 这不是仅推断阶段的加速基准：硬件由 `device` 选择，而不是由 `inference_method` 选择。
 
-当前面板中已接入的推断结果还包括 Ordered Logit/Probit、Quantile 核方法与 bootstrap、penalized-logistic HC0/oracle 和 penalized-linear bootstrap。CV 前端契约已经实现，但在新的合格 CV 数据源接入前显示为 `CV (0)`。
+当前面板中已接入的推断结果还包括 Ordered Logit/Probit、Quantile 的核方法与 bootstrap、带惩罚 logistic 的 HC0/oracle 结果，以及带惩罚线性模型的 bootstrap。CV 前端契约已经实现，但在新的合格 CV 数据源接入前显示为 `CV (0)`。
 
 ## 非参数方法
 

@@ -1,7 +1,7 @@
 # CoxPH
 
 > 语言：中文<br>
-> 最后更新：2026-09-23<br>
+> 最后更新：2026-09-28<br>
 > 页面定位：模型文档<br>
 > 切换：[English](../../en/models/coxph.md)
 
@@ -117,7 +117,7 @@ $$
 Q_\lambda(\beta)=\ell(\beta)-\lambda\lVert\beta\rVert_2^2.
 $$
 
-记 `U(beta)` 为未惩罚 partial-likelihood score，拟合系数满足
+记 `U(beta)` 为未惩罚的偏似然得分（partial-likelihood score），拟合系数满足
 
 $$
 U_\lambda(\beta)=U(\beta)-2\lambda\beta=0.
@@ -233,16 +233,14 @@ A^-1 J A^-1
 抽样协方差发布。带惩罚的稳健推断同样使用惩罚 bread，而 meat 仍来自未加
 惩罚的聚合 score 外积。
 
-因此 SE/z/p/CI 与惩罚 Wald 检验都以给定 penalty 为条件，目标是惩罚
-估计方程；它们不是无惩罚系数的 debiased 推断，也不校正收缩
-偏差或交叉验证选择 penalty 带来的不确定性。`CoxPHCV` 从最终重拟合复制相同契约，
+因此标准误、z 统计量、p 值与置信区间（SE/z/p/CI）以及惩罚 Wald 检验都以给定 `penalty` 为条件，目标是惩罚估计方程；它们不是无惩罚系数的去偏（debiased）推断，也不校正收缩偏差或交叉验证选择 `penalty` 带来的不确定性。`CoxPHCV` 从最终重拟合复制相同契约，
 并明确报告 `penalty_selection_adjusted_=False`。沿用 `PenalizedGLM` 的结果命名，
 正 penalty 拟合的 `inference_method_` 使用简洁的 `"m_estimation"`；bread、meat、
 协方差口径、推断目标和条件化方式仍分别保留在推断元数据中。
 
 带惩罚拟合会关闭经典似然比、score 检验与 AIC/BIC，不会把惩罚估计
 当作无约束最大似然结果报告。该契约与 `PenalizedCoxPHModel` 分开；后者的
-L1/elastic-net/SCAD/MCP 接口仍是仅估计。
+L1/ElasticNet/SCAD/MCP 接口仍只做估计。
 
 ## 协方差与推断
 
@@ -269,7 +267,7 @@ Breslow 与 Efron 的严格稳健推断使用 statgpu 内部的精确计数过�
 
 边际方差为正并不保证稳健协方差在完整参数空间有效。StatGPU 会先用尺度感知容忍度
 分类对称化后的协方差谱：正定矩阵同时支持边际推断和联合 Wald；半正定
-但秩亏的矩阵仍保留逐系数稳健 SE/z/p/CI，同时设置
+但秩亏的矩阵仍保留逐系数的稳健标准误/z 值/p 值/置信区间，同时设置
 `wald_test_available_=False` 并记录 `wald_test_failure_reason_`，summary 显示
 `Robust Wald test unavailable`，不会使用不稳定逆矩阵或打印裸 `nan`。若存在实质性
 负特征值，该矩阵已不是合法协方差估计器；严格推断会抛出
@@ -305,7 +303,7 @@ Exact ties 当前只支持模型协方差（`cov_type="nonrobust"`）。若在
 将至少一个完整的设备端训练组件移到主机端；这包括排序后的目标，以及需要
 保留的进入、分层或受试者向量，即使设计矩阵仍留在 GPU 也会如实标记。
 `orchestration_device_` 记录 CV 编排设备。
-普通 GPU Breslow/Efron 预处理在选定后端完成排序，再把完整的已排序时间与
+常规的 GPU Breslow/Efron 预处理在选定后端完成排序，再把完整的已排序时间与
 事件向量复制到主机端以构建失败组元数据，因此会报告
 `full_host_transfer_performed_=True`。
 
