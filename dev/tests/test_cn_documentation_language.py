@@ -178,6 +178,7 @@ _PROSE_FRAGMENTS_TO_AVOID = (
     "embedding 质量指标",
     "explained variance",
     "vs `sklearn",
+    "warmup/repeats",
 )
 
 _QUANTILE_PROSE_FRAGMENTS_TO_AVOID = (

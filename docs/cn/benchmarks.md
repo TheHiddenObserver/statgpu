@@ -99,9 +99,9 @@ Phase 3C 补充：
 - `dev/benchmarks/benchmark_inference_backends.py`
   - 含 `combine_pvalues` 的 `fisher/cauchy/acat` 耗时基准
   - 含一致性检查：
-    - Fisher vs `scipy.stats.combine_pvalues`
-    - Cauchy vs 独立 NumPy 参考实现
-    - statgpu NumPy vs CuPy
+    - Fisher 与 `scipy.stats.combine_pvalues` 的对照
+    - Cauchy 与独立 NumPy 参考实现的对照
+    - statgpu 的 NumPy 与 CuPy 对照
   - 统一输出结构化 JSON 到 `results/`
 
 远端补充产物：
@@ -123,7 +123,7 @@ Phase 3C 补充：
 
 - `dev/benchmarks/benchmark_all_methods_large_scale.py`
   - 覆盖：`LinearRegression / Ridge / Lasso / LogisticRegression / CoxPH`
-  - 支持 CPU/GPU 双设备、warmup/repeats、可选 inference 计时
+  - 支持 CPU/GPU 双设备、预热与重复运行，以及可选的推断计时
   - 关键点：数据构造与 host->device 迁移在计时外，默认只统计 `fit()`
 
 推荐运行命令：
@@ -211,7 +211,7 @@ python dev/benchmarks/benchmark_external_frameworks.py \
 - `dev/benchmarks/benchmark_glmnet_full.R`（R 脚本）
 - `dev/benchmarks/benchmark_statgpu_full.py`（Python 脚本）
 - `dev/benchmarks/run_full_benchmark.py`（统一运行器）
-  - 对比 `statgpu CPU` vs `R glmnet::glmnet()`
+  - 对比 `statgpu CPU` 与 `R glmnet::glmnet()`
   - 测试 6 个数据集：small/medium/large/high_dim/sparse_coef/high_noise
   - 关键发现：
     - statgpu CPU 在 6 组对比中胜出 4 组
