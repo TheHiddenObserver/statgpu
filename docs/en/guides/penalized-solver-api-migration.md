@@ -1,9 +1,6 @@
-# Penalized solver API migration
+# Penalized Solver API Migration
 
-statgpu's current penalized solver engine uses one backend-neutral `solver`
-parameter for a direct estimator fit. The older `cpu_solver` argument came from
-the previous implementation, where CPU and GPU paths exposed different solver
-controls. That split is now deprecated.
+statgpu's penalized solver interface uses a backend-neutral `solver` parameter for direct estimator fits. The older `cpu_solver` argument came from an earlier interface in which CPU and GPU paths exposed different solver controls; that argument is now deprecated.
 
 ## Direct penalized estimators
 
@@ -16,28 +13,17 @@ cpu_model = Lasso(alpha=0.1, device="cpu", solver="coordinate_descent")
 gpu_model = Lasso(alpha=0.1, device="cuda", solver="fista")
 ```
 
-`cpu_solver` remains accepted for one compatibility cycle, but it does **not**
-select the direct-fit algorithm in the unified engine. Caller-owned legacy use
-emits `FutureWarning`; framework reconstruction and statgpu's own helper-model
-construction do not turn an omitted/default value into a user-facing warning.
-Migrate new code to the backend-neutral `solver` interface.
+`cpu_solver` remains accepted during the deprecation period, but it does **not** select the direct-fit algorithm in the unified interface. Caller-supplied legacy use emits `FutureWarning`; omitted/default compatibility values used during estimator reconstruction do not create a user-facing warning.
 
-For a **behavior-preserving migration**, remove `cpu_solver` and leave the
-estimator's existing `solver` value unchanged. Do not mechanically copy a direct
-estimator's old `cpu_solver` value into `solver`: in the unified engine
-`cpu_solver` is already non-authoritative, so copying it can intentionally or
-accidentally select a different algorithm. If the old value represents the
-algorithm you now want to request explicitly, move it to `solver` as a conscious
-solver change and validate the resulting fit.
+For a **behavior-preserving migration**, remove `cpu_solver` and leave the estimator's existing `solver` value unchanged. Do not mechanically copy a direct estimator's old `cpu_solver` value into `solver`: the legacy argument is not authoritative for direct fitting, so copying it can select a different algorithm.
 
-This applies to the public penalized estimator family, including `Ridge`,
-`Lasso`, `ElasticNet`, the typed `Penalized*Regression` estimators, penalized
-robust/quantile models, and penalized Cox.
+If the old value is the algorithm you now intentionally want, set that value through `solver` explicitly and treat the change as an algorithm-selection change.
 
-## LassoCV
+This applies to the public penalized estimator family, including `Ridge`, `Lasso`, `ElasticNet`, typed `Penalized*Regression` estimators, penalized robust/quantile models, and penalized Cox.
 
-`LassoCV` has two genuinely different optimization stages, so the API names the
-stages instead of the hardware:
+## LassoCV has two solver stages
+
+`LassoCV` has separate optimization stages for CV scoring and the final full-data refit. The API therefore names the stage rather than the hardware:
 
 ```python
 from statgpu.linear_model import LassoCV
@@ -48,31 +34,32 @@ model = LassoCV(
 )
 ```
 
-`cv_solver="auto"` resolves to coordinate descent on CPU and FISTA on CUDA or
-Torch. An explicitly new `cv_solver="coordinate_descent"` request is CPU-only.
-`method="glmnet"` forces coordinate descent on the CPU CV path; CUDA/Torch CV
-retains the maintained backend-native FISTA path, and `cv_solver_` records the
-algorithm that actually executes.
+Current behavior is:
 
-The old `LassoCV(cpu_solver=...)` argument is deprecated. On CPU it acts as the
-legacy alias for `cv_solver`. On CUDA/Torch it warns but remains
-non-authoritative, preserving the historical behavior in which this CPU-only
-control did not replace the GPU FISTA CV path. Conflicting new/legacy controls
-are rejected on CPU, where both would otherwise select the same CV stage.
+- `solver` controls the final full-data `Lasso` refit;
+- `cv_solver` controls the CV folds/path;
+- `cv_solver="auto"` selects coordinate descent on CPU and FISTA on CUDA/Torch;
+- explicit `cv_solver="coordinate_descent"` is CPU-only;
+- `method="glmnet"` selects coordinate descent for the CPU CV path, while CUDA/Torch CV continues to use FISTA;
+- after fitting, `cv_solver_` records the CV algorithm that actually executed.
 
-The final refit no longer receives `cpu_solver`; only `solver` controls that
-stage.
+The old `LassoCV(cpu_solver=...)` argument is deprecated. On CPU it acts as the legacy alias for `cv_solver` when the new control has not already selected a conflicting algorithm. On CUDA/Torch it warns but does not replace the GPU FISTA CV path.
+
+The final refit no longer receives `cpu_solver`; that stage is controlled by `solver`.
 
 ## Migration examples
 
 | Legacy call | Behavior-preserving replacement | Optional explicit algorithm choice |
 |---|---|---|
-| `Lasso(device="cpu", cpu_solver="coordinate_descent")` | `Lasso(device="cpu")` (keeps the current default direct solver, FISTA) | `Lasso(device="cpu", solver="coordinate_descent")` only if you intentionally want to switch the actual direct solver to coordinate descent |
-| `ElasticNet(device="cpu", cpu_solver="fista")` | `ElasticNet(device="cpu")` (keeps its current `solver` value) | `ElasticNet(device="cpu", solver="fista")` if you want the solver choice explicit |
-| `PenalizedLinearRegression(device="cpu", cpu_solver="fista")` | `PenalizedLinearRegression(device="cpu")` (keeps `solver="auto"`) | `PenalizedLinearRegression(device="cpu", solver="fista")` only if you intentionally want to pin FISTA instead of auto dispatch |
-| `LassoCV(device="cpu", cpu_solver="fista")` | `LassoCV(device="cpu", cv_solver="fista")` | same; here the legacy control genuinely selected the CPU CV algorithm |
-| `LassoCV(device="cuda", cpu_solver="coordinate_descent")` | `LassoCV(device="cuda", cv_solver="auto")` (or omit both controls) | `LassoCV(device="cuda", cv_solver="fista")` to make the maintained GPU CV algorithm explicit |
-| `LassoCV(solver="fista", cpu_solver="coordinate_descent", device="cpu")` | `LassoCV(solver="fista", cv_solver="coordinate_descent", device="cpu")` | same; `solver` remains final-refit control and `cv_solver` becomes the CPU CV control |
+| `Lasso(device="cpu", cpu_solver="coordinate_descent")` | `Lasso(device="cpu")` | `Lasso(device="cpu", solver="coordinate_descent")` only if you intentionally want coordinate descent |
+| `ElasticNet(device="cpu", cpu_solver="fista")` | `ElasticNet(device="cpu")` | `ElasticNet(device="cpu", solver="fista")` if you want the choice explicit |
+| `PenalizedLinearRegression(device="cpu", cpu_solver="fista")` | `PenalizedLinearRegression(device="cpu")` | `solver="fista"` only if you intentionally want to pin FISTA instead of automatic dispatch |
+| `LassoCV(device="cpu", cpu_solver="fista")` | `LassoCV(device="cpu", cv_solver="fista")` | same; here the legacy control selected the CPU CV stage |
+| `LassoCV(device="cuda", cpu_solver="coordinate_descent")` | `LassoCV(device="cuda", cv_solver="auto")` or omit both CV controls | `cv_solver="fista"` to state the GPU CV algorithm explicitly |
+| `LassoCV(solver="fista", cpu_solver="coordinate_descent", device="cpu")` | `LassoCV(solver="fista", cv_solver="coordinate_descent", device="cpu")` | same; `solver` remains the final-refit control |
 
-`cpu_solver` is scheduled for removal in a future breaking release after this
-deprecation cycle.
+## Removal timeline
+
+`cpu_solver` is deprecated and is intended for removal in a future breaking release. New code should use `solver` for direct/final-refit optimization and `cv_solver` for the `LassoCV` selection stage.
+
+See [Cross-Validation](cross-validation.md) for the general selection/refit distinction and [Solver × Penalty Matrix](solver-penalty-matrix.md) for explicit solver compatibility.

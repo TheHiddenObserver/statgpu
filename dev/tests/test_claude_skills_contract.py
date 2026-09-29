@@ -401,11 +401,12 @@ def test_current_authority_docs_use_current_claude_namespaces_and_version_semant
     assert "Dynamic Workflow" in roadmap
 
 
-def test_vitepress_usage_pages_use_external_repo_links_for_non_docs_files():
+def test_vitepress_usage_pages_keep_developer_workflows_out_of_user_portal():
     for path in (ROOT / "docs" / "en" / "usage.md", ROOT / "docs" / "cn" / "usage.md"):
         text = _read(path)
-        assert "https://github.com/TheHiddenObserver/statgpu/blob/master/.claude/skills/" in text
-        assert "https://github.com/TheHiddenObserver/statgpu/blob/master/dev/AGENTS.md" in text
+        assert ".claude/skills/" not in text
+        assert "dev/AGENTS.md" not in text
+        assert "CONTRIBUTING.md" in text
         assert "](../../.claude/skills/" not in text
         assert "](../../dev/AGENTS.md)" not in text
 

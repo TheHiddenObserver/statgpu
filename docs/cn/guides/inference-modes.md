@@ -1,117 +1,188 @@
-# 推断配置
+# 推断模式
 
-> 语言: 中文  
-> 最后更新: 2026-09-11  
-> 页面定位: 指南文档  
-> 切换: [English](../../en/guides/inference-modes.md)
+> 语言：中文  
+> 最后更新：2026-09-17  
+> 页面定位：选择并解释系数推断方法  
+> 切换：[English](../../en/guides/inference-modes.md)
 
-语言切换：[English](../../en/guides/inference-modes.md)
+## 本页解决什么问题
+
+statgpu 提供多种推断方法，是因为经典低维回归、固定惩罚 GLM，以及经过 L1 正则化选择得到的稀疏模型，面对的是不同的统计问题。
+
+本页主要回答两个问题：
+
+1. **当前已拟合模型应该使用哪一种推断方法？**
+2. **报告出的区间究竟对应原始拟合参数、偏差修正后的参数，还是另一次重拟合的参数？**
+
+具体后端内核、内部结果存储方式以及验证证据不属于本用户指南。
+
+## 方法总览
+
+| 已拟合模型 / 场景 | 推断方法 | 解释 |
+|---|---|---|
+| Gaussian 线性模型 / Ridge | 经典或稳健协方差 | 对已拟合线性模型的系数做推断 |
+| 光滑的非 Gaussian L2 / 无惩罚 GLM | `m_estimation` | 固定惩罚强度下的估计方程推断 |
+| Gaussian Lasso / ElasticNet | `debiased` | 去偏 / 去稀疏化系数推断 |
+| Gaussian Lasso / ElasticNet | `post_selection_ols` | 在已选择的活跃集上做 OLS/WLS 诊断性重拟合 |
+| 受支持的 Gaussian 惩罚模型 | `bootstrap` | 调参配置固定时的残差自助法分布 |
+| 受支持的 SCAD/MCP | 显式请求 `oracle` | 以已选择的活跃集为条件进行推断 |
+| 不支持的损失函数 / 惩罚项 / 方法组合 | — | 直接报错，而不是静默换成另一种推断目标 |
+
+完整支持矩阵见 [惩罚 GLM 推断](penalized-glm-inference.md) 与对应模型页。
 
 ## Gaussian 线性模型推断
 
-对于 squared-error L2/Ridge 使用的共享 Gaussian 推断路径，数值协方差与参考分布推断在实际完成模型拟合的 backend 上执行，即 NumPy、CuPy 或 Torch。数值阶段包括 bread/协方差计算、标准误、检验统计量、p 值以及置信区间临界值。
+普通 Gaussian 线性模型以及共享的平方误差 L2/Ridge 路径通过 `cov_type` 选择协方差估计方式和参考分布。
 
-既有公开 reporting 契约保持不变：所有数值推断完成后，推断结果以及 estimator 的 reporting 属性（`_params`、`_bse`、`_tvalues`、`_pvalues`、`_conf_int`）才进行一次最终 NumPy snapshot。这个转换是 reporting boundary，而不是 CPU inference fallback。共享路径会在 `_inference_result.metadata` 中记录 `numerical_backend`、`numerical_device`、`reporting_backend="numpy"` 和 `reporting_boundary="post_numerical_inference"`。
-
-对于上述 squared-error L2/Ridge 共享路径，显式 `device="cuda"` 或 `device="torch"` 时不会把该推断静默降级到 NumPy。若缺失或出现非法的实际执行 backend provenance，则直接 fail closed。只有 `device="auto"` 允许自动选择可用 backend。这个保证只覆盖本文明确说明为 backend-native 的路径；method-specific 的统计边界会在对应位置单独说明。
-
-Gaussian 路径支持：
+常用选项包括：
 
 - `nonrobust`：经典协方差，使用 Student-t 参考分布；
-- `hc0`、`hc1`、`hc2`、`hc3`：异方差稳健 sandwich 协方差，使用正态参考分布；
-- `hac`：Bartlett kernel HAC 协方差，使用正态参考分布。
+- `hc0`、`hc1`、`hc2`、`hc3`：异方差稳健协方差，使用正态参考分布；
+- `hac`：使用 Bartlett 核的 HAC 协方差，参考分布为正态分布。
 
-backend-native reference helper 同时保留残差自由度为 1 和 2 时的稳定 Student-t 恒等式，避免极端但仍可表示的尾概率因减法消去或不必要的 `t**2` overflow 被错误压成 0。
+数值推断在已拟合模型支持的后端上完成。数值阶段结束后，小型结果数组可以转换为 NumPy；这种用于结果整理的转换，并不表示显式 CUDA/Torch 拟合被静默搬回 CPU 重新计算。
 
-## Penalized GLM 固定惩罚推断
+模型专属的协方差选择见对应模型页。
 
-通用 `PenalizedGeneralizedLinearModel`、`PenalizedLinearRegression` 与 typed non-Gaussian penalized wrapper 使用 `inference_method="auto"` 作为 generic public request。request 与最终报告的统计方法是不同 provenance：成功拟合会公开 `inference_requested_method_`、`inference_resolved_method_`、`inference_method_`、`inference_target_`，以及 tuning/selection conditioning。
+## 惩罚 GLM 的固定惩罚 M-估计
 
-对受支持的 smooth non-Gaussian L2 / no-penalty 模型，`auto` 解析为 `m_estimation`。当前 fixed-penalty covariance 只支持 `nonrobust`、`hc0`、`hc1`；HC2/HC3/HAC 在该 penalized-GLM 路径上明确不支持并 fail closed。正 L2 penalty 的 target 是 penalized estimating equation；`none/null/""` 会先 canonicalize 成强度为 0 的 L2，因此 target 是普通 unpenalized parameter。
+对于受支持的光滑非 Gaussian L2 / 无惩罚模型，
 
-M-estimation 数值计算跟随真正执行拟合的 backend 与 concrete device，而不是根据原始输入 container 猜测。若主拟合实际运行在 CuPy 或 Torch，post-fit inference 会先通过仓库维护的 cross-backend conversion helper 把 `X/y/sample_weight` 对齐到记录下来的 backend/device，再进行 bread/meat/reference-distribution 计算。显式 CUDA/Torch 不允许静默换成 CPU sandwich。
+```python
+inference_method="auto"
+```
 
-该 L2/no-penalty contract 支持 analytic weights。维护中的 Newton solver 会把真正的 non-uniform weights 一致地贯穿同一个归一化 average-loss objective：objective value、gradient、Hessian（或 fused curvature）以及每一次 Armijo trial 都使用同一权重约定。对于浮点权重，满足历史 uniform-weight `allclose` 规则的向量继续走既有 unweighted-equivalent 路径。public `solver="auto"` 时，direct penalized fit 与 `PenalizedGLM_CV` 的 candidate/final refit 都服从 canonical solver dispatch；适用的 smooth-L2 logistic/Poisson 行因此执行 backend-native Newton，同时 public request 仍保持 `"auto"`。coefficient inference 仍只在 tuning 完成后对 selected final refit 执行一次。CV inference 明确发布 `penalty_conditioning_="cv_selected_penalty"` 与 `penalty_selection_adjusted_=False`。
+会解析为 `m_estimation`。
 
-non-Gaussian L1/ElasticNet coefficient inference 不属于本 contract 的有效能力：它会 fail closed，而不是继续发布历史上只含 L2 curvature 的 partial sandwich。Penalized Cox 与维护中的 group-penalty 行仍为 estimation-only。完整 support matrix 与统计解释见 [Penalized GLM inference](penalized-glm-inference.md)。
+当 L2 惩罚强度为正时，推断目标是**给定惩罚强度下的惩罚估计方程**；无惩罚拟合对应普通的无惩罚参数。当前非 Gaussian 固定惩罚协方差支持 `nonrobust`、`hc0`、`hc1`；在不支持的路径上请求 HC2、HC3 或 HAC 会直接报错。
 
-## 稀疏 penalized-linear 推断
+### 解析权重
 
-对于 `Lasso`、`ElasticNet`，以及公开 generic
-`PenalizedGeneralizedLinearModel(loss="squared_error", penalty="l1" | "elasticnet")`
-入口，**统计方法是什么**与**在哪个设备上执行**是两个独立控制维度。当前维护的推断方法包括：
+当所选光滑求解器支持解析 `sample_weight` 时，拟合与对应的 M-估计使用同一个归一化带权目标：
 
-- `debiased`：去偏 / de-sparsified 系数推断；
-- `post_selection_ols`：在 penalized fit 选出的 active set 上做启发式 OLS/WLS 重拟合；
-- `bootstrap`：针对 penalized coefficient distribution 的无权重 Gaussian residual bootstrap；保持拟合时的 tuning/refit 配置，并要求至少 2 次 resample。
+$$
+L_w(\beta)
+=
+\frac{\sum_i w_i\,\ell_i(\beta)}{\sum_i w_i}.
+$$
 
-`post_selection_ols` 是新的、与硬件无关的 canonical 拼法。统一 wrapper 中的 `cpu_ols` 与 `gpu_ols` **同时进入弃用期**：一个兼容周期内仍接受，但会发出 `FutureWarning`，并统一归一化为 `post_selection_ols`。`LassoCV` 还会在其兼容边界接受更早的 `cpu_ols_inference` / `gpu_ols_inference` 拼法，并同样归一化到该方法。
+因此，把所有正的解析权重同时乘上一个常数不会改变统计推断目标。如果某个损失函数并没有定义相应的带权拟合，例如某些不支持带权的 Cox 路径，statgpu 会拒绝请求，而不是静默丢弃权重。
 
-`inference_method` 不负责选择设备。设备/后端遵循 estimator 的统一契约：
+协方差公式和精确的损失函数/惩罚项支持范围见 [惩罚 GLM 推断](penalized-glm-inference.md)。
 
-- 显式 `device="cpu"`：NumPy CPU；
-- 显式 `device="cuda"`：只允许 CuPy CUDA，不可用时 fail closed；
-- 显式 `device="torch"`：只允许 Torch CUDA，不可用时 fail closed；
-- 只有 estimator 与全局配置都处于真正的 `device="auto"` 时，已经是 CuPy 或 Torch-CUDA 的输入才可以作为自动路由的一部分保留 native backend。
+## 稀疏 Gaussian 推断
 
-稀疏 Gaussian penalty 无论使用字符串还是公开 `Penalty` 对象，都遵循同一套 inference 与 backend-routing 规则。
+对于 Gaussian `Lasso`、`ElasticNet` 以及等价的平方误差 L1/ElasticNet 惩罚模型，三个公开模式对应不同的推断目标。
 
-backend 复用保证是**按推断方法区分**的：`post_selection_ols` 始终复用成功拟合记录的 `_selected_backend_name` / `_selected_backend_device`。维护中的 CuPy/Torch **marginal `debiased`** 路径会把系数推断留在实际执行的 GPU backend；这里也包括 normal-reference 的标量临界值，因为 debiased GPU inference 内部的 scalar distribution call 会固定到实际执行的 CuPy/Torch backend（Torch 同时固定 concrete device），不会因为输入只是 Python scalar 而重新 AUTO 解析到 NumPy。
+### `debiased`
 
-对于 `fit_intercept=True` 的 centered debiased inference，simultaneous multiplier-bootstrap 阶段也会留在同一个 concrete CuPy/Torch device 上。marginal result 此时已经按既有 reporting contract 形成 O(p) 的 NumPy `params`/SE snapshot；只有这些很小的 marginal 数组会重新映射回执行 device。随后 B×n multiplier draws、feature/intercept score、max-|Z| reduction、quantile calibration 以及 joint CI 数值计算都保持 backend-native，最后再对 joint result 做 NumPy reporting snapshot。structured result 会记录 `simultaneous_numerical_backend`、`simultaneous_numerical_device`、`simultaneous_reporting_backend="numpy"` 与 `simultaneous_reporting_boundary="post_numerical_inference"`。`fit_intercept=False` 的 simultaneous 路径使用 generic reporting-stage helper，不属于 GPU-native simultaneous 路径。
+去偏（de-biased / de-sparsified）推断通过估计设计矩阵精度矩阵的近似逆，并进行一步修正，来减小惩罚估计量的一阶正则化偏差。
 
-residual `bootstrap` 使用 fixed-design residual-refit procedure。每次 draw 都会对 residual 做有放回抽样，在 `y_hat` 周围构造新的 Gaussian response，然后用相同的 penalized model 重新拟合。`bootstrap_random_state` 控制可复现性，`n_bootstrap` 控制重拟合次数。
+当目标是高维模型中的边际系数推断，并且相关理论假设对应用场景合理时，可以使用这一模式。逐节点精度矩阵估计的调参与主模型惩罚参数分开控制；见 [逐节点 Lasso 推断调参迁移](nodewise-alpha-migration.md)。
 
-这些 refit 会跟随成功父拟合使用的 backend 与 concrete device：CPU fit 使用 NumPy；GPU fit 则继续使用同一个 CuPy/Torch CUDA device。这只是**执行位置**的区别，不会改变 bootstrap 的统计定义。最终 inference arrays 仍遵循统一的 NumPy reporting boundary。
+支持解析权重时，去偏推断与稀疏 Gaussian 拟合使用同一个带权中心化统计问题，因此统一缩放全部正权重不会改变其统计推断目标。
 
-Residual bootstrap 的范围有意保持很窄：要求 `sample_weight=None` 且 `cov_type="nonrobust"`。weighted residual bootstrap、robust/HC 或 HAC/block bootstrap、non-Gaussian bootstrap 与 Cox bootstrap 都不支持并 fail closed；它也不会自动校正变量选择不确定性。更完整的步骤与解释见 [Penalized GLM inference](penalized-glm-inference.md#residual-bootstrap-的范围)。
+如果开启同时推断，statgpu 使用 max-|Z| 校准，而不是把普通边际区间直接当作同时置信区间。相关控制见 Lasso/ElasticNet 模型文档。
 
-对于 analytic `sample_weight`，维护中的 NumPy/CuPy/Torch `debiased` 路径使用同一个 weighted-centered average-loss 工作问题。因此把所有权重同时乘以任意正的常数，不会改变 penalized fit 或 debiased inference。
+### `post_selection_ols`
 
-当模型包含截距时，debiased inference 还明确区分 prediction 与 inference 的参数 ownership。公开 `coef_` 与 `intercept_` 始终属于 **penalized prediction fit**；推断/reporting 使用 debiased slope `theta_db = _params[1:]`，以及与它属于同一个原始坐标系参数化的截距 `_params[0] = ybar_w - xbar_w @ theta_db`。因此 `_bse[0]`、第一个 z-statistic/p-value 以及 `_conf_int[0]` 对应的是这个 debiased reporting intercept，而不是 prediction `intercept_`。这使特征平移保持一致：若设计矩阵每列平移常数向量 `c`，debiased slope 不变，而 inference intercept 按 `-c @ theta_db` 平移。metadata 会记录 `intercept_estimator="centered_debiased"` 与 `intercept_influence="centered_nodewise"`。
+`post_selection_ols` 先取得惩罚模型选出的活跃集，然后在**完全相同的活跃集上重新拟合无惩罚 OLS 或 WLS**。
 
-加权 `LassoCV` 也使用同一 analytic-weight 约定：默认 alpha grid、每个 training fold 的目标函数、加权 validation MSE 与最终 selected-alpha refit 保持在同一尺度。所有权重都等于同一个正常数时，会直接视为与 unweighted 完全相同的统计问题，避免额外浮点漂移。AUTO 一旦为 CV 解析出具体 CPU/CuPy/Torch backend，最终 `Lasso` refit 也保持在同一 backend；显式 CPU 会在进入 dedicated CV selector 前把异构 GPU 输入统一转换为 NumPy。若最终 refit 产生 inference，外层 `LassoCV` 会暴露与 final `estimator_` 相同的 structured `_inference_result` 以及匹配的 `_params`/SE/statistic/p-value/CI reporting surface；其公开 `coef_`/`intercept_` 仍属于 penalized prediction refit，因此同样遵循上述 ownership 区分。
+因此必须区分：
 
-对于 debiased simultaneous inference，普通 `_conf_int` 仍然是 marginal interval。`enable_simultaneous_inference=True` 使用 multiplier-bootstrap max-|Z| 校准；`simultaneous_alpha` 必须严格位于 `(0, 1)`，`simultaneous_n_bootstrap` 必须为正，这两个条件会在 NumPy/CuPy/Torch backend dispatch 之前统一验证。当 `simultaneous_include_intercept=True` 时，与 marginal SE 相同的 centered-nodewise 原始坐标系截距 influence **真正参与 bootstrap maximum**，而不只是额外出现在最终区间的输出行中。对于 CuPy/Torch 且 `fit_intercept=True` 的 centered 路径，这个 simultaneous 计算会按上文在 backend-native device 上执行。成功 refit 会先清除上一轮的 simultaneous critical value、target mask、联合区间以及 precision/influence state，再计算新结果。
+- 预测仍使用原来的惩罚 `coef_` / `intercept_`；
+- 这一推断模式的系数表属于活跃集上的 OLS/WLS 重拟合；
+- 在同一份数据上先选择变量，再计算普通 OLS/WLS 区间，**并不会自动得到一般意义上的选择后推断置信区间**。
 
-### `post_selection_ols` 实际计算什么？
-
-penalized model 先确定 active set；随后 statgpu 在**同一个 fit-resolved backend** 上，仅使用该 active set 对数据做无惩罚 OLS，存在 sample weights 时做 WLS，再计算对应 covariance 与参考分布推断。
-
-原始 penalized `coef_` 仍然是预测时使用的系数；active-set OLS/WLS 重拟合用于推断与报告，保存在 `_params` / `_inference_result` 等 reporting surface 中。
-
-两次拟合的 diagnostic ownership 也不同。在 `summary()` 中，系数表和 `Post-selection Refit DoF` 属于 active-set refit；R-squared、adjusted R-squared、F statistic、log-likelihood、AIC、BIC 以及 `Penalized-fit Residual DoF` 仍描述 penalized prediction fit。summary 会明确分开标注，避免把 refit 的残差自由度误当成 penalized-fit diagnostics 使用的自由度。若 active design 秩亏，refit residual DoF 使用 `n - effective_rank`，而不是 `n - active_column_count`；系数重拟合与 covariance bread 都使用 design-level Moore-Penrose/SVD 计算，避免通过 normal equations 把条件数平方。metadata 会记录 `refit_rank`、`refit_parameter_count` 与 `refit_rank_deficient`。
-
-在 `cov_type="nonrobust"` 下，这条路径保留既有的经典 **Student-t** 报告语义。estimator 已公开的 robust covariance 选项则复用共享 Gaussian robust-covariance layer，并使用对应的 normal-reference 报告语义。若模型不含截距且 active set 为空，所有参数坐标都只是 inactive compatibility placeholder；result 仍保留调用者请求的 covariance/reference family（`nonrobust` -> Student-t，robust/HAC -> normal），不会把 robust 请求静默改写成 nonrobust。
-
-完整 reporting array 还保留旧 `cpu_ols` surface 的一个兼容细节：**未被 active set 选中的坐标**会以 `SE=0`、统计量 `0`、`p=1`、置信区间 `[0, 0]` 作为占位。这些值**不表示该系数被“精确证明为 0”或方差真的为 0**。应使用 `_inference_result.metadata["selected_feature_indices"]` 判断哪些坐标实际执行了 active-set OLS/WLS 推断。
-
-它仍然只是 post-selection diagnostic：同一数据先做变量选择、再套普通 OLS/WLS 区间，并不能自动得到一般意义上的 selective-inference coverage。
+因此，更合适的理解是“选择后的诊断性重拟合”或“条件重拟合”，而不是自动校正了变量选择不确定性的推断方法。
 
 ```python
 from statgpu.linear_model import Lasso
 
 model = Lasso(
     alpha=0.1,
-    device="cuda",
     solver="fista",
     compute_inference=True,
     inference_method="post_selection_ols",
 )
 model.fit(X, y)
 
-# 预测仍使用 penalized fit。
-penalized_coef = model.coef_
-
-# 推断/reporting 使用 active-set OLS/WLS 重拟合。
-post_selection_params = model._params
+# 预测参数仍属于原惩罚拟合
+prediction_coef = model.coef_
 ```
 
-如果目标是高维场景下更正式的逐系数推断，而不是工程型 post-selection diagnostic，应优先考虑 `inference_method="debiased"`，并检查对应理论假设。Lasso 的 simultaneous max-|Z| 路径与普通 marginal interval、p-value adjustment 也应区分理解。
+历史上的 `cpu_ols` 与 `gpu_ols` 只是 `post_selection_ols` 的弃用兼容别名，并不负责选择计算设备。
 
-## 相关模型的稳健协方差
+### `bootstrap`
 
-- `LinearRegression(cov_type="nonrobust" | "hc0" | "hc1" | "hc2" | "hc3" | "hac")`
-- `Ridge(cov_type="nonrobust" | "hc0" | "hc1" | "hc2" | "hc3" | "hac")`
-- 稀疏 Gaussian `post_selection_ols` 会在 estimator 已公开的 covariance choice 下复用同一 Gaussian covariance layer；
-- `LogisticRegression(cov_type="nonrobust" | "hc0" | "hc1" | "hc2" | "hc3" | "hac")`
+Gaussian 残差自助法会保持拟合设计矩阵与调参配置不变。每次重抽样依次执行：
+
+1. 根据已拟合值计算残差；
+2. 对残差进行有放回抽样；
+3. 构造新的自助法响应变量；
+4. 使用相同的调参配置重新拟合同一个惩罚模型；
+5. 汇总自助法样本得到的系数分布。
+
+它并不是适用于所有 GLM 分布族的通用自助法。当前支持的残差自助法要求 `sample_weight=None` 且 `cov_type="nonrobust"`；带权残差自助法、稳健/HAC 分块自助法、非 Gaussian 自助法和 Cox 自助法不由这一模式提供。
+
+因此，该结果描述的是固定设计、固定调参配置下的残差自助法不确定性，并不会自动调整调参或变量选择带来的额外不确定性。
+
+## SCAD/MCP 活跃集推断
+
+在支持 `inference_method="oracle"` 的模型上，statgpu 以非凸惩罚拟合所选择的活跃集为条件进行推断。`auto` 不会静默选择这种解释，因为“以已选择的变量集合为条件”本身就是一个实质性的推断假设。
+
+请求 `oracle` 前，请查看 [惩罚 GLM 推断](penalized-glm-inference.md) 中当前模型和后端的支持范围。
+
+## 交叉验证后的推断
+
+CV 选择与系数推断分成两个阶段：
+
+```text
+在各数据折上拟合候选模型
+    -> 选择调参值
+    -> 在全部观测上重拟合所选模型
+    -> 只对最终重拟合执行一次推断
+```
+
+因此，除非某种方法明确说明做了额外修正，否则报告的不确定性都应解释为**以 CV 已经选定的调参配置为条件**，不会自动调整调参选择带来的额外不确定性。
+
+选择与最终重拟合的语义见 [交叉验证](cross-validation.md)。
+
+## 推断方法不负责选择硬件
+
+`inference_method` 选择统计推断程序，`device` 决定该程序在支持范围内使用的计算硬件。
+
+- `device="cpu"` 请求 NumPy CPU；
+- `device="cuda"` 要求使用 CuPy CUDA 路径；
+- `device="torch"` 要求使用 Torch CUDA 路径；
+- `device="auto"` 可以在可用后端之间自动选择。
+
+不支持的显式后端/推断方法组合会报错，而不会把 CPU 结果伪装成用户请求的加速器结果。某些推断方法支持的后端范围可能比其基础估计器更窄；如果计算设备很重要，应查看对应方法的专属文档。
+
+## 如何理解拟合参数与推断参数
+
+在普通无惩罚模型中，两者通常指向同一个估计量；惩罚模型中的拟合后推断方法则可能不同：
+
+- `post_selection_ols` 报告活跃集上的无惩罚重拟合结果，但预测仍使用原惩罚拟合；
+- `debiased` 报告偏差修正后的推断参数，但预测仍使用原惩罚拟合；
+- `bootstrap` 描述固定调参配置下重复惩罚重拟合所形成的分布。
+
+不要只根据系数表的形状猜测推断目标。需要区分时，应查看 `inference_method_`、`inference_target_` 与相应模型页。
+
+## 如何选择方法
+
+可以按以下顺序判断：
+
+1. **普通低维 Gaussian 模型**：使用模型本身的经典或稳健协方差。
+2. **光滑非 Gaussian L2 / 无惩罚 GLM**：优先从 `inference_method="auto"` 开始；受支持时会解析为固定惩罚 M-估计。
+3. **稀疏 Gaussian L1/ElasticNet**：若高维系数推断的假设合理，使用 `debiased`；只有当目标本来就是活跃集诊断/重拟合时才使用 `post_selection_ols`。
+4. **需要 Gaussian 固定调参配置下的重抽样视角**：只在公开支持范围内使用 `bootstrap`。
+5. **SCAD/MCP 活跃集解释**：只有在确实需要这一条件推断目标且模型支持时，才显式请求 `oracle`。
+
+## 相关文档
+
+- [惩罚 GLM 推断](penalized-glm-inference.md) — 公式、支持矩阵与详细统计推断目标
+- [交叉验证](cross-validation.md) — 调参选择与最终重拟合
+- [逐节点 Lasso 推断调参迁移](nodewise-alpha-migration.md) — `nodewise_alpha`
+- [设备与 GPU 内存](device-and-memory.md) — 后端/设备语义
+- [Lasso](../models/lasso.md) 与 [ElasticNet](../models/elastic-net.md) — 稀疏推断的模型专属说明

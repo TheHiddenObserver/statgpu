@@ -63,9 +63,11 @@ class SelectivePenalty:
         result_feat = self._pen.proximal(w_feat, step, backend=b)
         if b == "cupy":
             import cupy as cp
-            result = cp.empty(w.shape[0], dtype=w.dtype)
+            result = cp.empty_like(w)
             result[:self._p] = result_feat
-            result[-1] = cp.clip(w[-1], -_INTERCEPT_CLIP_BOUND, _INTERCEPT_CLIP_BOUND)
+            result[-1] = cp.clip(
+                w[-1], -_INTERCEPT_CLIP_BOUND, _INTERCEPT_CLIP_BOUND
+            )
         elif b == "torch":
             import torch
             result = torch.empty(w.shape[0], dtype=w.dtype, device=w.device)
@@ -118,7 +120,7 @@ class SelectivePenalty:
         sa = self._smooth_alpha()
         if self._backend == "cupy":
             import cupy as cp
-            diag = cp.zeros(coef.shape[0], dtype=coef.dtype)
+            diag = cp.zeros_like(coef)
             diag[:self._p] = sa
             return cp.diag(diag)
         if self._backend == "torch":
@@ -146,8 +148,10 @@ class PenalizedGeneralizedLinearModel(
     Parameters
     ----------
     loss : str, default='squared_error'
-        Loss function: 'squared_error', 'logistic', 'poisson', 'gamma',
-        'negative_binomial', 'tweedie', 'inverse_gaussian'.
+        Loss function, including 'squared_error', 'logistic', 'poisson',
+        'gamma', 'negative_binomial', 'tweedie', 'inverse_gaussian', and
+        'quantile'. Solver and inference support remain combination-specific;
+        consult the compatibility matrix for the selected loss and penalty.
     penalty : str or Penalty
         Penalty type: 'l1', 'l2', 'elasticnet', 'scad', 'mcp', 'adaptive_l1',
         'group_lasso', 'group_scad', 'group_mcp', or a Penalty instance.
@@ -477,6 +481,28 @@ class PenalizedGeneralizedLinearModel(
         from statgpu.penalties import get_penalty, Penalty
 
         if isinstance(self.penalty, Penalty):
+            # Penalties with learned initialization state (currently
+            # Adaptive-L1) must be fit-local. Reusing the caller's object would
+            # leak learned weights/caches from one dataset or refit into the
+            # next. Stateless/fixed penalties retain their historical identity.
+            if bool(getattr(self.penalty, "requires_init", False)):
+                import copy
+                cloned = copy.deepcopy(self.penalty)
+                # Adaptive-L1 distinguishes constructor-owned fixed weights
+                # (weights=...) from fit-learned _weights. A caller may reuse a
+                # template after it has previously learned weights; those
+                # learned values are not constructor state and must not seed a
+                # new fit on different data.
+                if (
+                    str(getattr(cloned, "name", "")).lower() == "adaptive_l1"
+                    and getattr(cloned, "weights", None) is None
+                ):
+                    cloned._weights = None
+                    cloned._norm_factor = 1.0
+                    for key in tuple(vars(cloned)):
+                        if key.startswith("_alpha_w_"):
+                            delattr(cloned, key)
+                return cloned
             return self.penalty
 
         # Map "none"/"null" to l2 with alpha=0 (no regularization)
@@ -680,7 +706,8 @@ class PenalizedGeneralizedLinearModel(
     def _ones(self, n, backend_name, ref):
         if backend_name == "cupy":
             import cupy as cp
-            return cp.ones(n, dtype=ref.dtype)
+            with cp.cuda.Device(int(ref.device.id)):
+                return cp.ones(n, dtype=ref.dtype)
         if backend_name == "torch":
             import torch
             return torch.ones(n, dtype=ref.dtype, device=ref.device)
