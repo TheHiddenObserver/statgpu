@@ -101,6 +101,7 @@ FRAGMENTS_TO_AVOID = (
     "tied covariance",
     "log likelihood",
     "## strict/approx 差异",
+    "Calculation 在 Arbitrary",
     "responsibility 对齐",
     "step-down procedure",
     "step-up procedure",
