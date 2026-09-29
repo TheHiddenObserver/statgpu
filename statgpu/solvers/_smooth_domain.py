@@ -163,7 +163,7 @@ def _initial_smooth_params(
         params = _as_backend_vector(init_coef, backend, X)
         if not _domain_feasible(loss, X, params, sample_weight=sample_weight):
             raise ValueError(
-                f"Explicit init_coef is outside the maintained optimization "
+                f"Explicit init_coef is outside the supported optimization "
                 f"domain for loss='{getattr(loss, 'name', '?')}'."
             )
         return params
@@ -221,7 +221,7 @@ def _domain_max_step(loss, X, coef, delta, sample_weight=None):
         )
     if cap <= _domain_step_floor(X):
         raise _LossDomainError(
-            f"loss='{getattr(loss, 'name', '?')}' is pinned to the maintained "
+            f"loss='{getattr(loss, 'name', '?')}' is pinned to the "
             "smooth-domain boundary before gradient convergence."
         )
     return cap

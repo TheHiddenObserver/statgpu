@@ -1,20 +1,21 @@
-# Penalized GLM inference
+# Penalized GLM Inference
 
 > Language: English  
-> Status: targeted for 0.2.6; the currently published release remains 0.2.5.  
+> Last updated: 2026-09-17  
+> This page: statistical targets and supported coefficient-inference behavior  
 > Switch: [Chinese](../../cn/guides/penalized-glm-inference.md)
 
 ## What this interface means
 
-`PenalizedGeneralizedLinearModel` and the typed penalized GLM wrappers expose coefficient inference through `compute_inference`, `inference_method`, and `cov_type`. The interface distinguishes the **method requested by the caller**, the **method resolved by statgpu**, and the **method actually reported by the result**.
+`PenalizedGeneralizedLinearModel` and typed penalized GLM wrappers expose coefficient inference through `compute_inference`, `inference_method`, and `cov_type`.
 
-For the generic and typed penalized-GLM surfaces, the recommended default is:
+For the generic interface, the usual starting point is:
 
 ```python
 inference_method="auto"
 ```
 
-A successful inference-enabled fit publishes:
+A successful inference-enabled fit distinguishes the method requested by the caller from the method resolved for the fitted model. Relevant fitted attributes include:
 
 - `inference_requested_method_`;
 - `inference_resolved_method_`;
@@ -23,65 +24,65 @@ A successful inference-enabled fit publishes:
 - `penalty_conditioning_`;
 - `penalty_selection_adjusted_`.
 
-The same provenance is recorded in `_inference_result.metadata` together with the numerical backend/device where applicable.
+These fields help identify what parameter the reported uncertainty refers to, especially after penalization or CV selection.
 
-## Supported methods
+## Support overview
 
-| Loss / penalty | Supported inference | `auto` resolution |
+| Loss / penalty | Supported inference | `auto` behavior |
 |---|---|---|
-| squared error + L2/no penalty | existing Gaussian classical/robust covariance | `classical` for `cov_type="nonrobust"`, otherwise the maintained Gaussian sandwich path |
-| squared error + L1/ElasticNet | debiased inference; existing `post_selection_ols` contract | `debiased` |
+| squared error + L2/no penalty | Gaussian classical/robust covariance | classical or Gaussian robust covariance according to `cov_type` |
+| squared error + L1/ElasticNet | de-biased inference; `post_selection_ols` when explicitly selected | `debiased` |
 | smooth non-Gaussian GLM + L2/no penalty | fixed-penalty M-estimation | `m_estimation` |
-| Gaussian L1/ElasticNet/SCAD/MCP | unweighted residual bootstrap on NumPy/CuPy/Torch when explicitly requested | not selected automatically |
-| SCAD/MCP scalar GLM families | active-set oracle refit when explicitly requested | not selected automatically |
-| non-Gaussian L1/ElasticNet | not implemented | fails closed |
-| group penalties | estimation-only | fails closed |
-| `PenalizedCoxPHModel` / Cox branch of `PenalizedGLM_CV` | estimation-only | fails closed |
+| supported Gaussian penalized models | residual bootstrap when explicitly requested | not selected automatically |
+| supported SCAD/MCP scalar GLM models | active-set oracle refit when explicitly requested | not selected automatically |
+| non-Gaussian L1/ElasticNet | coefficient inference not implemented | unsupported request raises |
+| group penalties | estimation only | inference request raises |
+| `PenalizedCoxPHModel` / Cox branch of `PenalizedGLM_CV` | estimation only | inference request raises |
 
-The historical `cpu_ols` and `gpu_ols` spellings keep the existing one-cycle migration to `post_selection_ols` for sparse Gaussian models. They do not select execution hardware.
-
-For L2/no-penalty models, explicit `inference_method="debiased"` is accepted temporarily as a deprecated compatibility spelling. It warns and resolves to the method that was actually used for that model; L2 inference is not debiased-Lasso inference.
+For sparse Gaussian methods such as `debiased` and `post_selection_ols`, see [Inference Modes](inference-modes.md) for interpretation and method choice.
 
 ## Fixed-penalty M-estimation
 
-For a supported non-Gaussian smooth L2/no-penalty fit, statgpu treats the fitted coefficient as the solution of a penalized estimating equation. For positive L2 penalty the inferential target is therefore reported as:
+For a supported smooth non-Gaussian L2/no-penalty fit, statgpu treats the fitted coefficient as the solution of an estimating equation at the chosen penalty strength.
+
+For positive L2 penalty the target is reported as:
 
 ```text
 inference_target_ = "penalized_estimating_equation"
 penalty_conditioning_ = "fixed_penalty"
 ```
 
-For an unpenalized (`alpha=0`) fit, the target is the ordinary unpenalized population coefficient.
+For an unpenalized fit (`alpha=0` or the corresponding no-penalty configuration), the target is the ordinary unpenalized population coefficient.
 
-The numerical engine uses average-loss scaling. With score contribution `psi_i`, average Hessian `H`, and L2 curvature `P''`, HC0/HC1 covariance can be written on an original-observation average scale as
+With score contribution $\psi_i$, average Hessian $H$, L2 curvature $P''$, and average score outer product $J$, the HC0/HC1 covariance has the form
 
 $$
 \widehat{\mathrm{Var}}(\hat\beta)
 =
-(H+P'')^{-1} J (H+P'')^{-1}/n,
+(H+P'')^{-1}J(H+P'')^{-1}/n.
 $$
 
-where `J` is the average score outer product under the corresponding weight convention and `n` is the original observation count. `cov_type="nonrobust"` uses model-based penalized-information covariance. The weighted Newton/L-BFGS routes described below explicitly place analytic weights on this original-observation scale before covariance evaluation; other solver routes retain their existing solver-specific weighting contract.
+`cov_type="nonrobust"` uses model-based penalized-information covariance.
 
-Supported covariance choices for this non-Gaussian path are:
+The supported covariance choices for this non-Gaussian fixed-penalty path are:
 
 - `nonrobust`;
 - `hc0`;
 - `hc1`.
 
-HC2, HC3, and HAC are not implemented for penalized non-Gaussian M-estimation and fail visibly.
+HC2, HC3, and HAC are not available for this path and raise when requested.
 
 ## Analytic weights
 
-Analytic weights are supported by the non-Gaussian L2 M-estimation covariance path. The numerical inference follows the backend/device that actually executed the fit.
-
-For explicit `solver="newton"` or `solver="lbfgs"`—and for public `solver="auto"` rows that resolve to one of those solvers—the maintained smooth GLM path applies non-uniform analytic weights to the **same normalized average-loss objective throughout the solve**. Objective value, gradient, Hessian where applicable, line-search trial evaluation, and accepted-point derivatives all use
+Where the selected smooth GLM solver supports analytic `sample_weight`, the fit uses the same normalized weighted objective throughout optimization:
 
 $$
+L_w(\beta)
+=
 \frac{\sum_i w_i\,\ell_i(\beta)}{\sum_i w_i}.
 $$
 
-On these Newton/L-BFGS routes, analytic weights describe **relative observation importance**, not replicated frequency counts. The successful solve retains the actual prepared relative-weight vector used by the numerical objective. Before M-estimation covariance is computed, the same vector is rescaled to an equivalent mean-one representation,
+The corresponding M-estimation calculation uses the same relative-weight interpretation. For covariance calculations the weights can be represented on an equivalent mean-one scale,
 
 $$
 \widetilde w_i
@@ -91,72 +92,82 @@ $$
 \sum_i \widetilde w_i=n.
 $$
 
-This common rescaling does not change the weighted Hessian. For HC0/HC1, `J` uses the same prepared analytic-weight identity; for `nonrobust`, model-based information and dispersion use the mean-one representation. Consequently, on the maintained weighted Newton/L-BFGS M-estimation path, multiplying every analytic weight by any positive constant leaves the fitted parameters, standard errors, test statistics, p-values, and confidence intervals unchanged up to numerical solver tolerance. Positive constant weights reduce to the same inference problem as omitted weights. This is intentionally different from a frequency-weight interpretation in which multiplying all counts would assert a larger replicated sample.
+Therefore multiplying every positive analytic weight by the same constant leaves the statistical objective and inferential target unchanged, up to numerical solver tolerance.
 
-Floating-point vectors that satisfy the historical effectively-uniform rule retain the established unweighted-equivalent Newton/L-BFGS path. Solver routes outside this explicit smooth contract keep their existing weighting semantics rather than being silently reinterpreted here.
+These are **analytic/relative-importance weights**, not frequency weights. Multiplying all weights by a common factor does not claim that the sample size has increased through replication.
 
-With public `solver="auto"`, weighted smooth non-Gaussian L2/no-penalty fits use the same canonical solver-dispatch table as their unweighted counterparts. Applicable logistic/Poisson rows resolve to backend-native Newton while the public solver request remains `auto`.
+Losses that do not define the requested weighted fit reject genuine non-uniform weights rather than silently dropping them.
 
-Explicit solver requests remain authoritative and are never silently replaced. Losses whose statistical contract does not define weighting (for example Cox) continue to reject genuine non-uniform weights rather than silently dropping them.
+## Solver selection and weights
 
-## Backend and device provenance
+An explicit supported solver request remains authoritative. For smooth non-Gaussian L2/no-penalty rows, Newton and L-BFGS use the weighted objective above where analytic weights are supported.
 
-Supported non-Gaussian M-estimation performs covariance/statistic/p-value/CI work on the backend selected by the fit:
+With `solver="auto"`, statgpu follows the model's normal solver dispatch. The public request remains `auto`; inference describes the model that actually completed the supported fit rather than selecting an unrelated solver solely for inference.
 
-- NumPy on CPU;
-- CuPy on the concrete CUDA device selected by the fit;
-- Torch on the concrete selected Torch device.
+Solver compatibility itself is documented in the [Solver × Penalty Matrix](solver-penalty-matrix.md).
 
-An explicit `device="cuda"` or `device="torch"` request never silently substitutes NumPy inference. Small reporting arrays may be copied to NumPy only after numerical inference is complete. Result metadata records `numerical_backend`, `numerical_device`, `reporting_backend`, and the reporting boundary.
+## Backend and device behavior
+
+Supported non-Gaussian M-estimation follows the backend/device used by the successful fit for its numerical covariance/statistic/p-value/CI work.
+
+An explicit `device="cuda"` or `device="torch"` request is not silently replaced by NumPy inference. Small reporting arrays may be converted to NumPy after numerical inference is complete; that reporting boundary does not change where the numerical procedure ran.
+
+Some inference methods have narrower backend support than the parent estimator. For example, the current SCAD/MCP oracle refit is CPU-only; requesting that method after a GPU fit raises instead of presenting the result as backend-native oracle inference.
 
 ## Residual bootstrap scope
 
-`inference_method="bootstrap"` is deliberately **not** a universal GLM bootstrap. It is available for supported Gaussian penalized models and keeps the fitted design and tuning configuration fixed.
+`inference_method="bootstrap"` is a Gaussian penalized-model residual bootstrap, not a universal GLM bootstrap.
 
-For each bootstrap draw, statgpu:
+For each draw, statgpu:
 
 1. computes fitted values and residuals from the fitted Gaussian model;
-2. resamples the residuals with replacement;
-3. forms a bootstrap response `y_star = y_hat + residual_star`;
-4. refits the same penalized model with the same `alpha`, penalty family, ElasticNet mixing/penalty options, intercept convention, solver/stopping controls, and SCAD/MCP LLA controls; and
-5. summarizes the resulting coefficient distribution with bootstrap standard errors, sign-based two-sided p-values, and percentile confidence intervals.
+2. resamples residuals with replacement;
+3. forms a bootstrap response;
+4. refits the same penalized model with the same tuning configuration; and
+5. summarizes the bootstrap coefficient distribution.
 
-Set `bootstrap_random_state` when you need reproducible resamples. `n_bootstrap` controls the number of refits and must be at least 2.
+Set `bootstrap_random_state` for reproducible resamples. `n_bootstrap` controls the number of refits and must be at least 2.
 
-The bootstrap refits follow the backend and concrete device of the successful parent fit. A CPU fit refits on NumPy; a CuPy or Torch CUDA fit keeps the bootstrap responses and numerical refits on the same GPU device. GPU execution changes **where** the refits run, not the statistical procedure. Final reporting arrays use the standard NumPy result boundary.
+The supported residual-bootstrap path requires:
 
-This method requires `sample_weight=None` and `cov_type="nonrobust"`. Weighted residual bootstrap, robust/HC or HAC/block bootstrap, non-Gaussian bootstrap, and Cox bootstrap are not defined by this interface and fail closed instead of guessing a resampling scheme.
+- `sample_weight=None`;
+- `cov_type="nonrobust"`.
 
-The resulting intervals describe the sampling variation of the penalized estimator under this fixed-design, fixed-tuning residual-bootstrap procedure. They are not general selective-inference confidence intervals and do not correct for variable-selection uncertainty.
+Weighted residual bootstrap, robust/HC or HAC/block bootstrap, non-Gaussian bootstrap, and Cox bootstrap are not supplied by this interface.
 
-## SCAD/MCP oracle boundary
+The resulting intervals describe a fixed-design, fixed-tuning residual-bootstrap procedure. They are not general selective-inference intervals and do not automatically account for tuning or variable-selection uncertainty.
 
-`inference_method="oracle"` is explicit because it conditions on the selected active set. `auto` never silently selects it. The current oracle implementation uses a CPU active-set refit, so an inference-enabled fit that actually executed on CuPy/Torch fails visibly instead of masquerading as backend-native oracle inference.
+## SCAD/MCP oracle inference
+
+`inference_method="oracle"` is explicit because it conditions on the active set selected by the penalized fit. `auto` does not silently choose that interpretation.
+
+Where supported, the procedure refits the selected active set without the original non-convex penalty and reports uncertainty for that conditional refit. Check the model/backend support before requesting it.
 
 ## Cross-validation
 
-`PenalizedGLM_CV` adds these controls:
+`PenalizedGLM_CV` separates tuning from coefficient inference:
 
-```python
-PenalizedGLM_CV(
-    ...,
-    compute_inference=False,
-    inference_method="auto",
-    cov_type="nonrobust",
-    hac_maxlags=None,
-)
+```text
+fold/path/grid fits
+    -> select alpha
+    -> refit selected model on all observations
+    -> run inference once on the final refit
 ```
 
-Fold/path/grid fits remain estimation-only. If inference is requested, statgpu first selects `alpha`, then performs inference exactly once on the full-data selected-penalty refit. Successful CV inference reports:
+A successful inference-enabled CV fit reports selection conditioning such as:
 
 ```text
 penalty_conditioning_ = "cv_selected_penalty"
 penalty_selection_adjusted_ = False
 ```
 
-Therefore the reported standard errors, p-values, and confidence intervals are **conditional on the CV-selected penalty**. They do not adjust for tuning-selection uncertainty. For residual bootstrap, resampling begins only after CV has selected `alpha`; folds and candidate fits are not bootstrapped.
+The reported standard errors, p-values, and confidence intervals are therefore conditional on the CV-selected penalty. They do not automatically adjust for tuning-selection uncertainty.
+
+For residual bootstrap, resampling starts only after CV has selected the tuning parameter; the candidate-selection process itself is not bootstrapped.
 
 The Cox branch remains estimation-only.
+
+See [Cross-Validation](cross-validation.md) for the general selection/refit contract.
 
 ## Example
 
@@ -175,13 +186,18 @@ model.fit(X, y, sample_weight=w)
 
 print(model.inference_requested_method_)  # auto
 print(model.inference_resolved_method_)   # m_estimation
-print(model.inference_method_)            # m_estimation
 print(model.inference_target_)            # penalized_estimating_equation
-print(model._bse)
-print(model._pvalues)
+print(model.summary())
 ```
 
-For sparse non-Gaussian L1/ElasticNet fits, coefficient inference is not currently provided; use `compute_inference=False` rather than expecting a Gaussian debiasing or bootstrap rule to be applied to a different family.
+For sparse non-Gaussian L1/ElasticNet fits, coefficient inference is not currently provided; use `compute_inference=False` rather than assuming that a Gaussian debiasing/bootstrap procedure applies to a different family.
+
+## Related documentation
+
+- [Inference Modes](inference-modes.md) — method selection and interpretation
+- [Cross-Validation](cross-validation.md) — tuning and final refit
+- [Solver × Penalty Matrix](solver-penalty-matrix.md) — solver compatibility
+- [Device and GPU Memory](device-and-memory.md) — device semantics
 
 ## References
 

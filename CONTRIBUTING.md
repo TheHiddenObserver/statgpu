@@ -157,6 +157,8 @@ Depending on scope, update:
 - `CHANGELOG.md` for a concise pull-request-level summary;
 - `docs/en/changelog.md` and `docs/cn/changelog.md` for release-level details.
 
+Follow [`dev/DOCUMENTATION_STYLE.md`](dev/DOCUMENTATION_STYLE.md) for documentation language and placement. In particular, internal engineering documents may describe capability/status, but user-facing documentation should describe observable behavior/support: what is supported, what is not, what the default does, what error is raised, and the user-relevant reason or alternative. Do not expose review/acceptance vocabulary such as `maintained route`, `fail closed`, exact-head/CI status, or PR/Issue tracking language in ordinary user pages unless that lifecycle/status is itself part of the public contract.
+
 Performance claims must include hardware, workload dimensions, numerical-accuracy evidence, and an auditable benchmark/result path.
 
 ## Pull request workflow
@@ -174,6 +176,7 @@ A pull request that changes a statistical method is generally not complete until
 ## Pull request checklist
 
 - [ ] The public API and statistical behavior are documented.
+- [ ] User-facing docs describe observable support/behavior rather than internal review or maintenance status.
 - [ ] NumPy, CuPy, and Torch behavior is implemented or an explicit limitation is justified.
 - [ ] Explicit GPU devices do not silently fall back to CPU.
 - [ ] Focused tests pass.

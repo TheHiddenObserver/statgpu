@@ -34,7 +34,7 @@ def test_inverse_gamma_lbfgs_armijo_exhaustion_is_not_published(monkeypatch):
 
     with pytest.raises(
         RuntimeError,
-        match="Armijo line search failed inside the maintained loss domain",
+        match="Armijo line search failed inside the declared loss domain",
     ):
         lbfgs_solver(
             loss,

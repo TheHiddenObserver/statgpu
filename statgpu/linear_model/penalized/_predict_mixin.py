@@ -15,6 +15,23 @@ _ETA_CLIP = 500.0
 
 class _PenalizedPredictMixin:
 
+    def _validate_quantile_predict_X(self, X):
+        """Validate Quantile prediction shape without host-copying GPU arrays."""
+        x_ndim = getattr(X, "ndim", None)
+        x_shape = getattr(X, "shape", None)
+        if x_ndim is None or x_shape is None:
+            X_host = np.asarray(X)
+            x_ndim = X_host.ndim
+            x_shape = X_host.shape
+        if int(x_ndim) != 2:
+            raise ValueError("X must be two-dimensional for Quantile prediction")
+        expected_features = int(np.asarray(self.coef_).reshape(-1).shape[0])
+        if int(x_shape[1]) != expected_features:
+            raise ValueError(
+                "X must have the same number of features as the fitted Quantile model"
+            )
+        return X
+
     def _prepare_predict_X(self, X):
         """Apply stored formula design metadata to DataFrame inputs."""
         if self._design_info is not None:
@@ -68,6 +85,70 @@ class _PenalizedPredictMixin:
             )
         return "numpy"
 
+    def _quantile_cupy_linear_prediction(self, X):
+        """Evaluate the Quantile linear predictor on the recorded fit device."""
+        import cupy as cp
+        from statgpu.backends._utils import _cupy_asarray_on_device
+
+        selected = str(
+            getattr(self, "_selected_backend_device", "") or ""
+        ).lower()
+        if selected.startswith("cuda:"):
+            device_id = int(selected.split(":", 1)[1])
+            with cp.cuda.Device(device_id):
+                X_converted = self._to_array(X, Device.CUDA)
+                Xb = _cupy_asarray_on_device(X_converted, device_id)
+                coef = _cupy_asarray_on_device(self.coef_, device_id)
+                raw = Xb @ coef
+                if self._effective_intercept:
+                    raw = raw + _cupy_asarray_on_device(
+                        self.intercept_,
+                        device_id,
+                        dtype=raw.dtype,
+                    )
+                return raw
+
+        # Compatibility fallback for fitted states created before concrete
+        # device provenance was recorded. Preserve the historical backend
+        # choice, then bind coefficient/intercept placement to Xb.device.
+        Xb = cp.asarray(self._to_array(X, Device.CUDA))
+        device_id = int(Xb.device.id)
+        coef = _cupy_asarray_on_device(self.coef_, device_id)
+        raw = Xb @ coef
+        if self._effective_intercept:
+            raw = raw + _cupy_asarray_on_device(
+                self.intercept_,
+                device_id,
+                dtype=raw.dtype,
+            )
+        return raw
+
+    def _quantile_torch_linear_prediction(self, X):
+        """Evaluate the Quantile linear predictor on the recorded Torch device."""
+        import torch
+
+        selected = str(
+            getattr(self, "_selected_backend_device", "") or ""
+        ).lower()
+        target = selected if selected.startswith("cuda:") else "cuda"
+        Xb = self._to_torch(X, device=target).to(
+            device=target,
+            dtype=torch.float64,
+        )
+        coef = torch.as_tensor(
+            self.coef_,
+            dtype=Xb.dtype,
+            device=Xb.device,
+        )
+        raw = Xb @ coef
+        if self._effective_intercept:
+            raw = raw + torch.as_tensor(
+                self.intercept_,
+                dtype=raw.dtype,
+                device=raw.device,
+            )
+        return raw
+
     def predict(self, X, return_cpu=True):
         """
         Predict using fitted model.
@@ -97,14 +178,22 @@ class _PenalizedPredictMixin:
             raise RuntimeError("Model has not been fitted yet.")
 
         X = self._prepare_predict_X(X)
+        is_quantile = (
+            str(getattr(self, "loss", "")).lower().strip() == "quantile"
+        )
+        if is_quantile:
+            self._validate_quantile_predict_X(X)
         backend_name = self._prediction_backend_name()
         if backend_name == "cupy":
             import cupy as cp
-            Xb = cp.asarray(self._to_array(X, Device.CUDA))
-            coef = cp.asarray(self.coef_)
-            raw = Xb @ coef
-            if self._effective_intercept:
-                raw += cp.asarray(self.intercept_, dtype=raw.dtype)
+            if is_quantile:
+                raw = self._quantile_cupy_linear_prediction(X)
+            else:
+                Xb = cp.asarray(self._to_array(X, Device.CUDA))
+                coef = cp.asarray(self.coef_)
+                raw = Xb @ coef
+                if self._effective_intercept:
+                    raw += cp.asarray(self.intercept_, dtype=raw.dtype)
             if self.loss == "logistic":
                 p = 1.0 / (1.0 + cp.exp(-cp.clip(raw, -_ETA_CLIP, _ETA_CLIP)))
                 result = (p > 0.5).astype(float)
@@ -117,13 +206,20 @@ class _PenalizedPredictMixin:
             return _to_numpy(result) if return_cpu else result
         if backend_name == "torch":
             import torch
-            Xb = self._to_array(X, Device.TORCH, backend="torch").to(torch.float64)
-            coef = torch.as_tensor(self.coef_, dtype=Xb.dtype, device=Xb.device)
-            raw = Xb @ coef
-            if self._effective_intercept:
-                raw = raw + torch.as_tensor(
-                    self.intercept_, dtype=raw.dtype, device=raw.device
+            if is_quantile:
+                raw = self._quantile_torch_linear_prediction(X)
+            else:
+                Xb = self._to_array(
+                    X, Device.TORCH, backend="torch"
+                ).to(torch.float64)
+                coef = torch.as_tensor(
+                    self.coef_, dtype=Xb.dtype, device=Xb.device
                 )
+                raw = Xb @ coef
+                if self._effective_intercept:
+                    raw = raw + torch.as_tensor(
+                        self.intercept_, dtype=raw.dtype, device=raw.device
+                    )
             if self.loss == "logistic":
                 p = 1.0 / (1.0 + torch.exp(-torch.clamp(raw, -_ETA_CLIP, _ETA_CLIP)))
                 result = (p > 0.5).to(raw.dtype)
@@ -172,10 +268,35 @@ class _PenalizedPredictMixin:
         score : float
             R² or pseudo-R² score.
         """
+        is_quantile = (
+            str(getattr(self, "loss", "")).lower().strip() == "quantile"
+        )
+        # Quantile GPU fits accept backend-native response arrays. Its public
+        # score is reported on CPU, so use the explicit reporting conversion
+        # rather than NumPy's implicit array protocol. Leave all other loss
+        # families on their historical score conversion path.
+        y = np.asarray(_to_numpy(y) if is_quantile else y)
+        if is_quantile and y.ndim != 1:
+            raise ValueError("y must be one-dimensional for Quantile score")
+        if is_quantile and y.dtype.kind not in "biuf":
+            raise ValueError("y must contain real numeric values for Quantile score")
+        if is_quantile and sample_weight is not None:
+            from statgpu.glm_core._validation import validate_glm_sample_weight
+
+            sample_weight = validate_glm_sample_weight(
+                sample_weight,
+                y.shape[0],
+            )
+            sample_weight = _to_numpy(sample_weight)
+
         # Use predict(return_cpu=True) to avoid device mismatch between
-        # predict() and score() backend resolution logic.
+        # predict() and score() backend resolution logic. Quantile weight
+        # validation above intentionally runs before any prediction work.
         y_pred_np = np.asarray(_to_numpy(self.predict(X, return_cpu=True)))
-        y = np.asarray(y)
+        if is_quantile and y.shape[0] != y_pred_np.shape[0]:
+            raise ValueError(
+                "y must have the same number of observations as X for Quantile score"
+            )
         sw = np.asarray(sample_weight, dtype=np.float64).ravel() if sample_weight is not None else None
         resid_sq = (y - y_pred_np) ** 2
         if sw is not None:

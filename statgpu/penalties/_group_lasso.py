@@ -44,7 +44,7 @@ def _vector_norm(x, xp, dim=None):
 
 
 def _to_backend_array(arr, xp, ref_arr=None):
-    """Convert numpy array to backend array type."""
+    """Convert an array to the requested backend and reference device."""
     if xp.__name__ == "torch":
         import torch
         arr_np = np.asarray(arr)
@@ -56,17 +56,26 @@ def _to_backend_array(arr, xp, ref_arr=None):
         if ref_arr is not None:
             t = t.to(device=ref_arr.device)
         return t
+    if xp.__name__ == "cupy" and ref_arr is not None:
+        from statgpu.backends._utils import _cupy_asarray_on_device
+        return _cupy_asarray_on_device(
+            arr,
+            int(ref_arr.device.id),
+        )
     return xp.asarray(arr)
 
 
 def _backend_zeros(shape, xp, dtype=None, ref_arr=None):
-    """Create zeros array on the correct backend."""
+    """Create zeros on the requested backend and reference device."""
     if xp.__name__ == "torch":
         import torch
         t = torch.zeros(shape, dtype=dtype if dtype is not None else torch.float64)
         if ref_arr is not None:
             t = t.to(device=ref_arr.device)
         return t
+    if xp.__name__ == "cupy" and ref_arr is not None:
+        with xp.cuda.Device(int(ref_arr.device.id)):
+            return xp.zeros(shape, dtype=dtype)
     return xp.zeros(shape, dtype=dtype)
 
 
@@ -279,7 +288,7 @@ class GroupLassoPenalty(Penalty):
             if self._is_contiguous:
                 w_mat = coef_feat.reshape(self._n_groups, gs)
             else:
-                w_mat = coef_feat[self._flat_indices].reshape(self._n_groups, gs)
+                w_mat = coef_feat[self._get_flat_indices(xp, coef)].reshape(self._n_groups, gs)
             norms = _vector_norm(w_mat, xp, dim=1)
         else:
             norms = self._batched_group_norms_vec(coef_feat, xp, coef)
@@ -315,7 +324,7 @@ class GroupLassoPenalty(Penalty):
             if self._is_contiguous:
                 w_mat = coef_feat.reshape(G, gs)
             else:
-                w_mat = coef_feat[self._flat_indices].reshape(G, gs)
+                w_mat = coef_feat[self._get_flat_indices(xp, coef)].reshape(G, gs)
 
             norms = _vector_norm(w_mat, xp, dim=1)
             sqrt_pg = self._get_sqrt_pg(xp, coef)
@@ -333,7 +342,7 @@ class GroupLassoPenalty(Penalty):
             if self._is_contiguous:
                 grad[:p_total] = grad_mat.reshape(-1)
             else:
-                grad[self._flat_indices] = grad_mat.reshape(-1)
+                grad[self._get_flat_indices(xp, grad)] = grad_mat.reshape(-1)
             return grad
 
         # Unequal groups: vectorized scale + scatter via _group_feat_idx
@@ -408,14 +417,14 @@ class GroupLassoPenalty(Penalty):
             raise ValueError("_gather requires equal-size groups; use _proximal_padded instead")
         if self._is_contiguous:
             return w.reshape(self._n_groups, self._group_size_uniform)
-        return w[self._flat_indices].reshape(self._n_groups, self._group_size_uniform)
+        return w[self._get_flat_indices(xp, w)].reshape(self._n_groups, self._group_size_uniform)
 
     def _scatter(self, w_mat_flat, result, xp):
         """Scatter vectorized result back. No-op if already contiguous."""
         if self._is_contiguous:
             result[:] = w_mat_flat
         else:
-            result[self._flat_indices] = w_mat_flat
+            result[self._get_flat_indices(xp, result)] = w_mat_flat
         return result
 
     def _get_sqrt_pg(self, xp, w):
@@ -425,9 +434,17 @@ class GroupLassoPenalty(Penalty):
                 self._sqrt_pg_torch = _to_backend_array(self._sqrt_pg, xp, w)
             return self._sqrt_pg_torch
         elif xp.__name__ == "cupy":
-            if self._sqrt_pg_cupy is None:
-                self._sqrt_pg_cupy = _to_backend_array(self._sqrt_pg, xp, w)
-            return self._sqrt_pg_cupy
+            cached = self._sqrt_pg_cupy
+            same_device = (
+                cached is not None
+                and getattr(cached, "device", None) is not None
+                and getattr(w, "device", None) is not None
+                and int(cached.device.id) == int(w.device.id)
+            )
+            if not same_device:
+                cached = _to_backend_array(self._sqrt_pg, xp, w)
+                self._sqrt_pg_cupy = cached
+            return cached
         else:
             # numpy: return raw numpy array (no caching needed)
             return self._sqrt_pg
@@ -442,7 +459,19 @@ class GroupLassoPenalty(Penalty):
         if cached is None:
             cached = _to_backend_array(getattr(self, attr_name), xp, w)
             setattr(self, cache_attr, cached)
-        elif xp.__name__ == "torch" and hasattr(cached, 'device') and cached.device != w.device:
+        elif (
+            xp.__name__ == "torch"
+            and hasattr(cached, "device")
+            and cached.device != w.device
+        ):
+            cached = _to_backend_array(getattr(self, attr_name), xp, w)
+            setattr(self, cache_attr, cached)
+        elif (
+            xp.__name__ == "cupy"
+            and getattr(cached, "device", None) is not None
+            and getattr(w, "device", None) is not None
+            and int(cached.device.id) != int(w.device.id)
+        ):
             cached = _to_backend_array(getattr(self, attr_name), xp, w)
             setattr(self, cache_attr, cached)
         return cached
@@ -482,7 +511,7 @@ class GroupLassoPenalty(Penalty):
         if self._is_contiguous:
             w_mat = w_feat.reshape(G, gs)
         else:
-            w_mat = w_feat[self._flat_indices].reshape(G, gs)
+            w_mat = w_feat[self._get_flat_indices(xp, w)].reshape(G, gs)
 
         sqrt_pg_arr = self._get_sqrt_pg(xp, w)
 
@@ -495,7 +524,7 @@ class GroupLassoPenalty(Penalty):
                 if self._is_contiguous:
                     result[:p_total] = scaled_flat
                 else:
-                    result[self._flat_indices] = scaled_flat
+                    result[self._get_flat_indices(xp, result)] = scaled_flat
                 return result
 
         # Generic vectorized path
@@ -508,7 +537,7 @@ class GroupLassoPenalty(Penalty):
         if self._is_contiguous:
             result[:p_total] = scaled_flat
         else:
-            result[self._flat_indices] = scaled_flat
+            result[self._get_flat_indices(xp, result)] = scaled_flat
         return result
 
     def _proximal_padded(self, w, step, xp, G, max_sz):
@@ -614,7 +643,7 @@ class AdaptiveGroupLassoPenalty(GroupLassoPenalty):
         if self._is_contiguous:
             w_mat = w_feat.reshape(G, gs)
         else:
-            w_mat = w_feat[self._flat_indices].reshape(G, gs)
+            w_mat = w_feat[self._get_flat_indices(xp, w)].reshape(G, gs)
 
         sqrt_pg_arr = self._get_sqrt_pg(xp, w)
         weights_arr = self._get_group_weights(xp, w)
@@ -625,14 +654,21 @@ class AdaptiveGroupLassoPenalty(GroupLassoPenalty):
 
         norms = _vector_norm(w_mat, xp, dim=1)
         thresh = self.alpha * weights_arr * sqrt_pg_arr * step
-        scale = xp.clamp(1.0 - thresh / (norms + 1e-12), 0.0, None) if xp.__name__ == "torch" else xp.clip(1.0 - thresh / (norms + 1e-12), 0.0, None)
+        # Preserve the exact group-prox formula for every nonzero norm.  Only
+        # zero-norm groups need a safe denominator, and their scaled vector is
+        # identically zero regardless of the temporary scale value.
+        safe_norms = xp.where(norms > 0.0, norms, xp.ones_like(norms))
+        if xp.__name__ == "torch":
+            scale = xp.clamp(1.0 - thresh / safe_norms, min=0.0)
+        else:
+            scale = xp.clip(1.0 - thresh / safe_norms, 0.0, None)
         scaled_flat = (w_mat * scale[:, None]).reshape(-1)
 
         result = w.clone() if hasattr(w, 'clone') else w.copy()
         if self._is_contiguous:
             result[:p_total] = scaled_flat
         else:
-            result[self._flat_indices] = scaled_flat
+            result[self._get_flat_indices(xp, result)] = scaled_flat
         return result
 
     def _proximal_padded(self, w, step, xp, G, max_sz):
@@ -658,10 +694,11 @@ class AdaptiveGroupLassoPenalty(GroupLassoPenalty):
                 weights_arr = weights_arr.to(device=w.device)
 
         thresh = self.alpha * weights_arr * sqrt_pg_arr * step
+        safe_norms = xp.where(norms > 0.0, norms, xp.ones_like(norms))
         if xp.__name__ == "torch":
-            scale = xp.clamp(1.0 - thresh / (norms + 1e-12), min=0.0)
+            scale = xp.clamp(1.0 - thresh / safe_norms, min=0.0)
         else:
-            scale = xp.clip(1.0 - thresh / (norms + 1e-12), 0.0, None)
+            scale = xp.clip(1.0 - thresh / safe_norms, 0.0, None)
         padded_scaled = padded * scale[:, None]
 
         result = w.copy() if hasattr(w, 'copy') else w.clone()

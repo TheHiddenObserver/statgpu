@@ -1,11 +1,9 @@
 # Implemented Methods
 
-> Last updated: 2026-09-15  
+> Last updated: 2026-09-17  
 > Switch: [Chinese](../../cn/guides/implemented-methods.md)
 
-This page is the maintained inventory of public models, functions, and major solver
-families in statgpu. Detailed mathematical and backend contracts live on the linked
-model and guide pages.
+This page is the public inventory of models, functions, and major solver families available in statgpu. Detailed mathematics, inference scope, and compatibility rules live on the linked model and guide pages.
 
 ## Regression and Generalized Linear Models
 
@@ -27,10 +25,7 @@ model and guide pages.
 
 ## Penalized Models
 
-The penalty registry includes L1, L2, Elastic Net, SCAD, MCP, adaptive L1,
-group Lasso, adaptive group Lasso, group MCP, and group SCAD implementations.
-Aliases are accepted for selected penalties; the registry and compatibility matrix are
-the source of truth rather than a hard-coded count.
+The penalty registry includes L1, L2, Elastic Net, SCAD, MCP, adaptive L1, group Lasso, adaptive group Lasso, group MCP, and group SCAD implementations. Aliases are accepted for selected penalties; use the registry/compatibility references rather than assuming every penalty supports every solver.
 
 | Class | Loss or model family | Backends |
 |---|---|---|
@@ -38,21 +33,17 @@ the source of truth rather than a hard-coded count.
 | `PenalizedLinearRegression` | Penalized Gaussian regression | NumPy, CuPy, Torch |
 | `PenalizedLogisticRegression` | Penalized binary regression | NumPy, CuPy, Torch |
 | `PenalizedPoissonRegression` | Penalized Poisson regression | NumPy, CuPy, Torch |
-| `PenalizedQuantileRegression` | Quantile loss with proximal/FISTA paths | NumPy, CuPy, Torch |
+| `PenalizedQuantileRegression` | Quantile loss with supported proximal/FISTA/IRLS routes | NumPy, CuPy, Torch |
 | `PenalizedRobustRegression` | Huber, bisquare, and fair losses where supported | NumPy, CuPy, Torch |
 | `PenalizedCoxPHModel` | Penalized Cox partial likelihood | NumPy, CuPy, Torch |
 
-Solver availability depends on the selected loss and penalty. Consult the
-[Loss × Penalty × Solver Framework](loss-penalty-solver-framework.md) and
-[Solver × Penalty Matrix](solver-penalty-matrix.md) before choosing an explicit
-solver.
+Solver availability depends on the selected loss and penalty. Consult the [Loss × Penalty × Solver Framework](loss-penalty-solver-framework.md) and [Solver × Penalty Matrix](solver-penalty-matrix.md) before choosing an explicit solver.
 
 ### Example
 
 ```python
 from statgpu.linear_model import PenalizedGeneralizedLinearModel
 
-# L1 is non-smooth, so use FISTA or solver="auto".
 model = PenalizedGeneralizedLinearModel(
     loss="poisson",
     penalty="l1",
@@ -67,11 +58,13 @@ model.fit(X, y)
 | Class | Description | Backends |
 |---|---|---|
 | `RidgeCV` | Ridge alpha selection | NumPy, CuPy, Torch |
-| `LassoCV` | Warm-start Lasso path | NumPy, CuPy, Torch |
+| `LassoCV` | Lasso alpha-path selection and full-data refit | NumPy, CuPy, Torch |
 | `ElasticNetCV` | Joint `l1_ratio` and alpha search | NumPy, CuPy, Torch |
 | `LogisticRegressionCV` | Logistic-regression CV | NumPy, CuPy, Torch |
 | `PenalizedGLM_CV` | Unified penalized-GLM CV | NumPy, CuPy, Torch |
 | `CoxPHCV` | Cox penalty search and final refit | NumPy, CuPy, Torch |
+
+See [Cross-Validation](cross-validation.md) for fold, selection, refit, weight, and inference-after-selection semantics.
 
 ## ANOVA
 
@@ -83,8 +76,7 @@ model.fit(X, y)
 - `cohens_f`
 - `partial_eta_squared`
 
-See [ANOVA](../models/anova.md) for design restrictions and scalar distribution
-boundaries.
+See [ANOVA](../models/anova.md) for design restrictions and scalar distribution boundaries.
 
 ## Covariance Estimation
 
@@ -107,8 +99,7 @@ See [Covariance Estimation](../models/covariance.md).
 - `FirstDifferenceOLS`
 - `FamaMacBeth`
 
-See [Panel Data Models](../models/panel.md) for covariance, rank-deficiency, and
-backend-preserving prediction contracts.
+See [Panel Data Models](../models/panel.md) for model choice, covariance, rank-deficiency, and prediction behavior.
 
 ## Nonparametric and Semiparametric Methods
 
@@ -132,14 +123,11 @@ backend-preserving prediction contracts.
 
 | Class | Description | Backends |
 |---|---|---|
-| `CoxPH` | Breslow/Efron/Exact ties, delayed entry, `(start, stop]` rows, strata, robust/cluster inference, backend-native prediction | NumPy, CuPy, Torch |
+| `CoxPH` | Breslow/Efron/Exact ties, delayed entry, `(start, stop]` rows, strata, robust/cluster inference, backend-aware prediction | NumPy, CuPy, Torch |
 | `CoxPHCV` | L2 grid selection with the same risk-set semantics and subject-preserving folds | NumPy, CuPy, Torch |
 | `PenalizedCoxPHModel` | Standard right-censored Cox partial likelihood with convex/non-convex penalties where supported | NumPy, CuPy, Torch |
 
-The base installation contains the maintained Cox implementation. The optional
-`statgpu[survival]` extra installs statsmodels for external validation and comparison;
-it is not required for delayed entry or strict Breslow/Efron robust inference. See
-[Cox Proportional Hazards](../models/coxph.md) for the precise support matrix.
+The base installation contains Cox fitting. The optional `statgpu[survival]` extra installs statsmodels for external comparison; it is not required for statgpu's Cox estimator itself. See [Cox Proportional Hazards](../models/coxph.md) for the precise support matrix.
 
 ## Feature Selection and Diagnostics
 
@@ -154,8 +142,4 @@ it is not required for delayed entry or strict Breslow/Efron robust inference. S
 - `permutation_test`
 - bootstrap utilities exposed by the inference API
 
-## Validation Scope
-
-Backend support in this inventory means the public execution path exists. Numerical,
-performance, and physical-GPU claims remain scoped to the exact model, backend,
-hardware, and commit recorded by the corresponding tests or validation artifact.
+For detailed semantics, continue to the relevant model/reference page rather than inferring solver, inference, or device support from this inventory alone.
