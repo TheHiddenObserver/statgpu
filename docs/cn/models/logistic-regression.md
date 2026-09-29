@@ -1,7 +1,7 @@
 # LogisticRegression
 
 > 语言: 中文  
-> 最后更新: 2026-08-06
+> 最后更新: 2026-09-29
 > 页面定位: 模型文档  
 > 切换: [English](../../en/models/logistic-regression.md)
 
@@ -77,7 +77,7 @@ m_gpu = LogisticRegression(
 m_gpu.fit(X_gpu, y_gpu)
 ```
 
-## strict/approx 差异（strict/approx difference）
+## 严格与近似模式的差别
 
 当前接口未暴露独立 `strict/approx` 开关。默认路径用于高一致性推断；GPU 与 CPU 在极小数值误差范围内可能存在差异。
 

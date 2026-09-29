@@ -1,7 +1,7 @@
 # Lasso
 
 > 语言: 中文  
-> 最后更新: 2026-09-11  
+> 最后更新: 2026-09-29  
 > 页面定位: 模型文档  
 > 切换: [English](../../en/models/lasso.md)
 
@@ -202,7 +202,7 @@ ci_marginal = m_sim._conf_int
 ci_simul = m_sim._conf_int_simultaneous
 ```
 
-## strict/approx 差异（strict/approx difference）
+## 严格与近似模式的差别
 
 `debiased` 是高维逐系数推断的主路径；`post_selection_ols` 是更轻量的 active-set OLS/WLS diagnostic；`bootstrap` 是计算成本更高的重采样路径。三者的统计主张不同，不能互换解释。
 
