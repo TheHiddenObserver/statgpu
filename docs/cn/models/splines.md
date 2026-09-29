@@ -1,7 +1,7 @@
 # 样条基函数
 
 > 语言: 中文
-> 最后更新: 2026-07-14
+> 最后更新: 2026-09-29
 > 页面定位: 模型文档
 > 切换: [English](../../en/models/splines.md)
 
@@ -76,7 +76,7 @@ SplineTransformer 的节点学习和四种外推均使用 NumPy/CuPy/Torch 共�
 
 ## strict / approx 区别
 
-样条基计算没有 strict/approx 模式。NumPy、CuPy 与 Torch 使用同一递推；已验证 NumPy/Torch-CPU 紧容差一致性，但真实 CUDA parity 与性能仍待验证。
+样条基计算没有严格/近似模式。NumPy、CuPy 与 Torch 使用同一递推；已验证 NumPy 与 Torch-CPU 的紧容差一致性，但真实的 CUDA 一致性（parity）与性能仍待验证。
 
 ## 参数（Parameters）
 

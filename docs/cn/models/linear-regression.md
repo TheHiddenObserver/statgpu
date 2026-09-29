@@ -1,7 +1,7 @@
 # LinearRegression
 
 > 语言: 中文  
-> 最后更新: 2026-04-17  
+> 最后更新: 2026-09-29  
 > 页面定位: 模型文档  
 > 切换: [English](../../en/models/linear-regression.md)
 
@@ -71,7 +71,7 @@ m_gpu = LinearRegression(
 m_gpu.fit(X, y)
 ```
 
-## strict/approx 差异（strict/approx difference）
+## 严格与近似模式的差别
 
 当前文档对应默认 strict 推断路径。`LinearRegression` 未提供独立 `approx` 开关；若出现 CPU/GPU 微小差异，主要来源于浮点与线性代数实现差异。
 

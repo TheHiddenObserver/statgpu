@@ -1,16 +1,16 @@
 # UMAP
 
 > 语言：中文
-> 最后更新：2026-07-23
+> 最后更新：2026-09-29
 > 路径：`statgpu.unsupervised.UMAP`
 
 ## 概览
 
-`UMAP` 在输入空间构造 fuzzy neighbor graph，并优化低维 embedding。它支持 dense exact Euclidean 邻居，以及内部 NNDescent 邻居搜索选项。
+`UMAP` 在输入空间构造模糊近邻图（fuzzy neighbor graph），并优化低维嵌入（embedding）。它既支持稠密、精确的欧氏近邻，也支持内置的 NNDescent 近似近邻搜索。
 
 ## 后端与主机边界
 
-距离计算、邻居搜索、membership 权重、embedding 优化和负采样均在所选 NumPy、CuPy 或 Torch 后端执行。当前 fuzzy-union graph assembly 是明确披露的主机边界：O(n*k) 的 edge indices 和 weights 会复制到主机内存，通过 SciPy sparse COO/CSR 完成组装，再复制回所选后端。这不是 optimization 的静默 CPU fallback，但尚不是 device-native sparse graph path。exact neighbor 还需要 O(n^2) dense distance 内存；当可接受 approximate-neighbor 取舍时，可使用 `nn_method='nndescent'` 避免该 distance matrix。
+距离计算、近邻搜索、隶属度权重、嵌入优化和负采样都在所选的 NumPy、CuPy 或 Torch 后端上完成。目前明确披露的主机边界是模糊并集图（fuzzy-union graph）的组装：O(n*k) 的边索引和边权重会复制到主机内存，由 SciPy 的稀疏 COO/CSR 结构完成组装，再复制回所选后端。这不是优化过程的静默 CPU 回退，但也不是完全后端原生的稀疏图流水线。精确近邻还需要 O(n²) 的稠密距离矩阵内存；如果可以接受近似近邻的取舍，可用 `nn_method='nndescent'` 避开这个矩阵。
 
 ## 导入路径
 
@@ -22,7 +22,7 @@ from statgpu.unsupervised import UMAP
 
 ## 目标函数
 
-UMAP 优化高维图权重 `w_ij` 与低维 affinity `q_ij` 之间的 fuzzy-set cross-entropy：
+UMAP 最小化高维图权重 `w_ij` 与低维亲和度 `q_ij` 之间的模糊集交叉熵：
 
 $$
 \sum_{i,j} w_{ij}\log\frac{w_{ij}}{q_{ij}}
@@ -31,7 +31,7 @@ $$
 
 ## 估计方程
 
-默认通过 dense exact search 选择 `n_neighbors` 个邻居（`nn_method='auto'` 会解析为 `exact`）；也可显式请求内部 NNDescent。随后构造对称 fuzzy membership graph，并对 embedding 做梯度更新。
+默认用稠密、精确的搜索选出 `n_neighbors` 个近邻（`nn_method='auto'` 解析为 `exact`）；也可以显式请求内置的 NNDescent。随后构造对称的模糊隶属度图，并对嵌入做梯度更新。
 
 ## 参数
 
@@ -46,9 +46,9 @@ embedding = UMAP(n_neighbors=15, device="cpu").fit_transform(X)
 embedding_gpu = UMAP(n_neighbors=15, device="cuda").fit_transform(X_gpu)
 ```
 
-## Strict/Approx Difference
+## 严格与近似模式的差别
 
-`nn_method='exact'` 对 dense Euclidean neighbor search 是 exact。`nn_method='nndescent'` 是 approximate 且 backend-aware。两种模式均使用上述 SciPy host-side fuzzy-union boundary；完整 device-native sparse graph pipeline 尚未实现。
+`nn_method='exact'` 对稠密欧氏近邻搜索给出精确结果；`nn_method='nndescent'` 是近似搜索，并按所选后端执行。两种模式都要经过上述基于 SciPy 的主机侧模糊并集组装；完全后端原生的稀疏图流水线尚未实现。
 
 ## 输出
 
@@ -56,13 +56,13 @@ embedding_gpu = UMAP(n_neighbors=15, device="cuda").fit_transform(X_gpu)
 
 ## FAQ
 
-不支持 sparse、非 Euclidean metric 和新样本 `transform`。通过 `nn_method='nndescent'` 支持 approximate neighbor；graph assembly 仍需要 SciPy 与 host memory。
+不支持稀疏输入、非欧氏 `metric`，也不支持对新样本调用 `transform`。近似近邻可以通过 `nn_method='nndescent'` 启用；图的组装仍然需要 SciPy 和主机内存。
 
 ## 外部验证
 
-测试：`dev/tests/test_unsupervised_umap.py`。
-Benchmark：`dev/benchmarks/benchmark_unsupervised_phase3.py`。
-Baseline：`umap-learn`，以及远程可用时的 cuML UMAP。
+测试脚本：`dev/tests/test_unsupervised_umap.py`。
+基准测试：`dev/benchmarks/benchmark_unsupervised_phase3.py`。
+对齐基线：`umap-learn`，以及远程环境可用时的 cuML UMAP。
 
 ## References
 

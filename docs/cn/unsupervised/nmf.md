@@ -1,12 +1,12 @@
 # NMF
 
 > 语言：中文
-> 最后更新：2026-05-02
-> English: [English](../../en/unsupervised/nmf.md)
+> 最后更新：2026-09-29
+> 切换：[English](../../en/unsupervised/nmf.md)
 
 ## 概览
 
-`NMF` 把非负 dense data 分解为非负 factors `W` 和 `H`。Phase 2 支持 Frobenius loss 下的 multiplicative updates，并支持 CPU、CuPy/CUDA 和 Torch CUDA。
+`NMF` 把非负的稠密数据分解为两个非负因子 `W` 与 `H`。Phase 2 支持 Frobenius 损失下的乘性更新（multiplicative updates），并支持 CPU、CuPy/CUDA 与 Torch CUDA。
 
 ## 导入路径
 
@@ -16,7 +16,7 @@ from statgpu.unsupervised import NMF
 
 ## 目标函数 / 损失函数
 
-拟合 factors 需要求解非凸约束问题：
+拟合因子需要求解一个带约束的非凸问题：
 
 $$
 \min_{W \ge 0,\; H \ge 0}
@@ -27,7 +27,7 @@ $$
 
 ## 估计方程
 
-实现使用 multiplicative updates：
+实现采用乘性更新：
 
 $$
 W \leftarrow W \odot
@@ -39,11 +39,11 @@ H \leftarrow H \odot
 \frac{W^\top X}{W^\top W H + \varepsilon}
 $$
 
-Factors 使用按 `X` 均值缩放的正随机值初始化。重构误差每 10 次迭代和最后一次迭代检查。`transform(X)` 会固定已经拟合的 `H`，为新数据更新新的 `W`。
+两个因子用按 `X` 均值缩放的正随机值初始化；重构误差每 10 次迭代以及最后一次迭代检查。`transform(X)` 会固定已拟合的 `H`，为新数据求解新的 `W`。
 
 ## 参数
 
-- `n_components`：latent dimension；`None` 使用 `min(n_samples, n_features)`。
+- `n_components`：隐变量维度；为 `None` 时使用 `min(n_samples, n_features)`。
 - `init`：仅支持 `"random"`。
 - `solver`：仅支持 `"mu"`。
 - `beta_loss`：仅支持 `"frobenius"`。
@@ -63,9 +63,9 @@ W = nmf.fit_transform(X)
 X_hat = nmf.inverse_transform(W)
 ```
 
-## strict/approx 差异
+## 严格与近似模式的差别
 
-NMF 没有 strict inference 模式。目标函数是非凸的，multiplicative updates 收敛到依赖初始化和停止准则的局部解。
+`NMF` 没有严格推断模式；目标函数非凸，乘性更新会收敛到依赖初始化与停止准则的局部解。
 
 ## 输出字段
 
@@ -80,15 +80,15 @@ NMF 没有 strict inference 模式。目标函数是非凸的，multiplicative u
 **输入可以有负数吗？**
 不可以。`X` 包含负数时 NMF 会报错。
 
-**支持 coordinate descent 吗？**
-不支持。Phase 2 仅支持 Frobenius loss 下的 MU。
+**支持坐标下降（coordinate descent）吗？**
+不支持。Phase 2 仅支持 Frobenius 损失下的乘性更新（MU）。
 
 ## 外部验证
 
-- 测试：`dev/tests/test_unsupervised_nmf.py`。
-- Benchmark：`dev/benchmarks/benchmark_unsupervised_phase2.py`。
-- Baseline：sklearn `NMF(solver="mu", beta_loss="frobenius")`。
-- 最新远程矩阵：CPU/CuPy/Torch reconstruction differences 处于浮点噪声量级；sklearn reconstruction error 与 statgpu CPU 同尺度。
+- 测试脚本：`dev/tests/test_unsupervised_nmf.py`。
+- 基准测试：`dev/benchmarks/benchmark_unsupervised_phase2.py`。
+- 对齐基线：sklearn 的 `NMF(solver="mu", beta_loss="frobenius")`。
+- 最新远程矩阵：CPU/CuPy/Torch 之间的重构差异处于浮点噪声量级；sklearn 的重构误差与 statgpu CPU 处于同一尺度。
 
 ## References
 

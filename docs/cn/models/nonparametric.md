@@ -1,7 +1,7 @@
 # 非参数方法
 
 > 语言: 中文  
-> 最后更新: 2026-04-17  
+> 最后更新: 2026-09-29  
 > 页面定位: 非参数方法总览  
 > 切换: [English](../../en/models/nonparametric.md)
 
@@ -84,7 +84,7 @@ pred_gpu = kernel_regression_predict(
 )
 ```
 
-## strict/approx 差异（strict/approx difference）
+## 严格与近似模式的差别
 
 模块未定义统一 `strict/approx` 开关。精度与性能权衡主要通过带宽规则、`kernel_metric`（`full`/`diagonal`）以及后端选择（CPU/GPU）实现。
 

@@ -1,7 +1,7 @@
 # Knockoff 特征选择
 
 > 语言: 中文  
-> 最后更新: 2026-07-12  
+> 最后更新: 2026-09-29  
 > 页面定位: 方法文档  
 > 切换: [English](../../en/models/knockoff.md)
 
@@ -127,7 +127,7 @@ res_torch_mx = knockoff_filter(
 )
 ```
 
-## strict/approx 差异（strict/approx difference）
+## 严格与近似模式的差别
 
 本模块不使用 `strict/approx` 推断口径开关。性能与精度权衡主要体现在 `fixed_x`/`model_x` 选择、`modelx_draws`（必须为正整数）次数和后端（`numpy`/`cupy`）选择上。
 

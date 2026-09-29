@@ -1,7 +1,7 @@
 # GAM（广义可加模型）
 
 > 语言: 中文
-> 最后更新: 2026-05-28
+> 最后更新: 2026-09-29
 > 页面定位: 模型文档
 > 切换: [English](../../en/models/semiparametric.md)
 
@@ -95,7 +95,7 @@ gam_gpu.fit(X, y)
 y_pred_gpu = gam_gpu.predict(X)
 ```
 
-## strict/approx 差异（strict/approx difference）
+## 严格与近似模式的差别
 
 - 当 `lam=None`（默认）时，GAM 在对数间隔网格（1e-10 到 1e10，100 个点）上使用 GCV 选择平滑参数。这是近似路径；网格较粗糙，可能在狭窄谷底遗漏最优 lambda。
 - 当手动指定 `lam` 时，对该单一值计算精确的惩罚最小二乘解。这是精确路径。
