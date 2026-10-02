@@ -186,6 +186,8 @@ jobs:
             dev/tests/test_panel_stage_b_torch_cpu.py \
             dev/tests/test_issue161_quantile_irls_contract.py \
             dev/tests/test_issue163_quantile_torch_device_binding.py \
+            dev/tests/test_quantile_continuation_backend_contract.py \
+            dev/tests/test_quantile_smooth_fista_contract.py \
             -q --tb=short
 
   panel-stage-b-linearmodels:
@@ -251,6 +253,8 @@ jobs:
             statgpu/linear_model/penalized/_penalized_cox.py \
             statgpu/linear_model/penalized/_penalized_cv.py \
             statgpu/linear_model/penalized/_penalized_linear.py \
+            statgpu/linear_model/penalized/_quantile_continuation_contract.py \
+            statgpu/linear_model/penalized/_quantile_smooth_fista_contract.py \
             statgpu/linear_model/wrappers/_linear.py \
             statgpu/linear_model/wrappers/_ridge.py \
             statgpu/losses/_cox_ph.py \
@@ -263,6 +267,8 @@ jobs:
             statgpu/penalties/_base.py \
             statgpu/semiparametric \
             statgpu/solvers/_fista_lla.py \
+            statgpu/solvers/_quantile_continuation.py \
+            statgpu/solvers/_quantile_proximal_public_contract.py \
             statgpu/survival/_concordance.py \
             statgpu/survival/_cox.py \
             statgpu/survival/_cox_errors.py \

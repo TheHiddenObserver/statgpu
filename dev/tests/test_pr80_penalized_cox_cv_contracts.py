@@ -163,6 +163,49 @@ def test_penalized_cox_cv_preserves_two_column_target(backend_name, monkeypatch)
     assert all(shape[0] <= X.shape[0] for shape in observed_shapes)
 
 
+def test_penalized_cox_cv_reuses_one_shot_custom_splits_across_refits():
+    X, y = _survival_sample(seed=8138, n=24)
+    idx = np.arange(X.shape[0])
+    folds = [
+        (np.concatenate([idx[:start], idx[stop:]]), idx[start:stop])
+        for start, stop in ((0, 12), (12, 24))
+    ]
+    iterations = []
+
+    def one_shot():
+        iterations.append(1)
+        if len(iterations) > 1:
+            raise AssertionError("custom Cox fold generator was consumed twice")
+        yield from folds
+
+    generator = one_shot()
+    model = PenalizedGLM_CV(
+        loss="cox_ph",
+        penalty="l2",
+        alpha_grid=[0.1],
+        cv=2,
+        cv_splits=generator,
+        device="cpu",
+        max_iter=200,
+        tol=1e-7,
+        loss_kwargs={"ties": "efron"},
+    )
+
+    model.fit(X, y)
+    first_coef = np.asarray(model.coef_, dtype=np.float64).copy()
+    first_alpha = float(model.alpha_)
+    first_score = float(model.best_score_)
+
+    model.fit(X, y)
+
+    assert iterations == [1]
+    assert model.cv_splits is generator
+    np.testing.assert_allclose(model.coef_, first_coef, rtol=0.0, atol=1e-11)
+    assert model.alpha_ == pytest.approx(first_alpha, rel=0.0, abs=0.0)
+    assert model.best_score_ == pytest.approx(first_score, rel=0.0, abs=1e-12)
+    assert model.cv_results_["required_valid_score_count"] == len(folds)
+
+
 def test_penalized_cox_cv_accepts_array_like_two_column_target():
     X, y = _survival_sample(seed=8114, n=18)
     model = PenalizedGLM_CV(

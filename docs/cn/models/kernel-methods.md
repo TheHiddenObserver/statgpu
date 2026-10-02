@@ -1,7 +1,7 @@
 # 核方法
 
 > 语言：中文  
-> 最后更新：2026-07-24  
+> 最后更新：2026-09-29  
 > 切换：[English](../../en/models/kernel-methods.md)
 
 ## 概览
@@ -229,8 +229,8 @@ model = KernelRidgeCV(kernel="rbf", cv=5, device="torch").fit(X, y)
 核方法当前不提供系数级标准误、假设检验或置信区间。模型质量通过预测分数、
 交叉验证损失、嵌入性质、重构或近似诊断以及应用相关验证进行评估。
 
-该模块没有 strict/approximate inference 模式。Nystroem 是显式低秩核近似，
-不是精确核估计器的静默 fallback。
+该模块没有严格/近似推断模式；Nystroem 是显式的低秩核近似，
+而不是精确核估计器的静默回退。
 
 ## 复杂度与性能说明
 

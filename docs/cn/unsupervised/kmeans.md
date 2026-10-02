@@ -1,12 +1,12 @@
 # KMeans
 
 > 语言：中文
-> 最后更新：2026-05-02
-> English: [English](../../en/unsupervised/kmeans.md)
+> 最后更新：2026-09-29
+> 切换：[English](../../en/unsupervised/kmeans.md)
 
 ## 概览
 
-`KMeans` 通过最小化平方 Euclidean 簇内误差，把 dense observations 分成 `n_clusters` 个簇。它支持 CPU、CuPy/CUDA 和 Torch CUDA。
+`KMeans` 通过最小化平方欧氏簇内误差，把稠密观测分成 `n_clusters` 个簇。支持 CPU、CuPy/CUDA 与 Torch CUDA。
 
 ## 导入路径
 
@@ -16,35 +16,35 @@ from statgpu.unsupervised import KMeans
 
 ## 目标函数 / 损失函数
 
-KMeans 最小化 inertia：
+`KMeans` 最小化惯性（inertia）：
 
 $$
 \min_{C, z} \sum_{i=1}^{n} \left\|x_i - c_{z_i}\right\|_2^2 .
 $$
 
-其中 `C` 是 cluster centers，`z_i` 是样本 `i` 的簇标签。
+其中 `C` 是聚类中心，`z_i` 是样本 `i` 的簇标签。
 
 ## 估计方程
 
-实现使用 Lloyd 迭代：
+实现采用 Lloyd 迭代：
 
-- 使用 `random` 或 greedy `k-means++` 初始化 centers。
+- 用 `random` 或贪心的 `k-means++` 初始化聚类中心。
 - 用下式计算平方距离，把每个样本分配到最近中心：
   $$
   d_{ij}^2 = \left\|x_i\right\|_2^2 + \left\|c_j\right\|_2^2 - 2 x_i^\top c_j .
   $$
-- 把每个 center 更新为该簇样本均值。
+- 把每个聚类中心更新为该簇样本的均值。
   $$
   c_j = \frac{1}{|\{i: z_i = j\}|}\sum_{i:z_i=j} x_i .
   $$
-- 空簇用当前距离 assigned center 最远的样本重置。
-- 当 squared center movement 不超过 `tol` 或达到 `max_iter` 时停止。
-- 运行 `n_init` 次初始化，保留 inertia 最低的结果。
+- 空簇用距离当前所属中心最远的样本重置。
+- 当中心位移的平方不超过 `tol` 或达到 `max_iter` 时停止。
+- 运行 `n_init` 次初始化，保留惯性最低的结果。
 
 ## 参数
 
 - `n_clusters`：簇数量。
-- `init`：`"k-means++"` 或 `"random"`；不支持 callable init。
+- `init`：`"k-means++"` 或 `"random"`；不支持可调用（callable）的 `init`。
 - `n_init`：`"auto"` 对 k-means++ 使用 `1`，对 random 使用 `10`。
 - `max_iter`、`tol`、`random_state`。
 - `device`：`"auto"`、`"cpu"`、`"cuda"` 或 `"torch"`。
@@ -62,9 +62,9 @@ labels = km.fit_predict(X)
 distances = km.transform(X)
 ```
 
-## strict/approx 差异
+## 严格与近似模式的差别
 
-KMeans 是非凸迭代优化器，不是 strict inference estimator。不同初始化可能得到不同局部最优；可复现性取决于 `random_state`、`init`、`n_init`、`max_iter` 和 `tol`。
+`KMeans` 是非凸迭代优化器，不提供严格的统计推断；不同初始化可能得到不同的局部最优，可复现性取决于 `random_state`、`init`、`n_init`、`max_iter` 和 `tol`。
 
 ## 输出字段
 
@@ -77,16 +77,16 @@ KMeans 是非凸迭代优化器，不是 strict inference estimator。不同初�
 ## FAQ
 
 **为什么标签 ID 和 sklearn 不同但聚类看起来一样？**
-Cluster ID 本身任意。验证应使用 inertia、center matching 或 permutation-invariant label metrics。
+簇编号本身是任意的；验证应使用惯性、中心匹配或对标签置换不变的指标。
 
-**支持 sparse input 或 `sample_weight` 吗？**
-不支持。Phase 2 dense KMeans 对 sparse input 和 `sample_weight` 明确报错。
+**支持稀疏输入或 `sample_weight` 吗？**
+不支持。Phase 2 的稠密 KMeans 会对稀疏输入和 `sample_weight` 明确报错。
 
 ## 外部验证
 
-- 测试：`dev/tests/test_unsupervised_kmeans.py`。
-- Benchmark：`dev/benchmarks/benchmark_unsupervised.py`。
-- Baseline：sklearn KMeans，对齐 `n_clusters`、初始化、`n_init`、`max_iter`、`tol` 和 seed。
+- 测试脚本：`dev/tests/test_unsupervised_kmeans.py`。
+- 基准测试：`dev/benchmarks/benchmark_unsupervised.py`。
+- 对齐基线：sklearn 的 KMeans，对齐 `n_clusters`、初始化方式、`n_init`、`max_iter`、`tol` 与随机种子。
 
 ## References
 

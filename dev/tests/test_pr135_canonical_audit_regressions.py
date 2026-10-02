@@ -155,7 +155,7 @@ def test_lasso_bilingual_docs_cover_complete_constructor_inventory():
         assert missing == [], f"{path} missing public Lasso parameters: {missing}"
 
 
-def test_lassocv_bilingual_cache_docs_match_current_key_contract():
+def test_lassocv_cache_contract_lives_in_internal_cv_architecture():
     from pathlib import Path
 
     stale_fragments = (
@@ -168,17 +168,24 @@ def test_lassocv_bilingual_cache_docs_match_current_key_contract():
         "memory address changes",
         "内存地址变化",
     )
-    required_fragments = (
+    internal_fragments = (
         "_array_identity_token",
         "_make_lasso_cv_auto_cache_key",
         "gpu_cv_mixed_precision",
         "STATGPU_LASSO_CV_CACHE_SIZE",
         "64",
     )
+
+    # Public CV guides own observable selection/refit behavior, not cache-key
+    # implementation details.
     for path in (
         Path("docs/en/guides/cross-validation.md"),
         Path("docs/cn/guides/cross-validation.md"),
     ):
         text = path.read_text(encoding="utf-8")
         assert all(fragment not in text for fragment in stale_fragments)
-        assert all(fragment in text for fragment in required_fragments)
+        assert all(fragment not in text for fragment in internal_fragments)
+
+    internal = Path("dev/design/CROSS_VALIDATION.md").read_text(encoding="utf-8")
+    assert all(fragment not in internal for fragment in stale_fragments)
+    assert all(fragment in internal for fragment in internal_fragments)

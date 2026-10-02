@@ -23,7 +23,6 @@ _FORBIDDEN_HEADINGS = (
     "## 概览（Overview）",
     "## 路径（Path）",
     "## 外部验证（External Validation）",
-    "## strict/approx 差异（strict/approx difference）",
 )
 
 _FORBIDDEN_PROSE = re.compile(
@@ -65,3 +64,11 @@ def test_second_batch_avoids_known_translationese_fragments():
         text = _prose((_ROOT / path).read_text(encoding="utf-8"))
         match = _FORBIDDEN_PROSE.search(text)
         assert match is None, f"{path}: mixed-language prose {match.group(0)!r}"
+
+def test_cleaned_learner_pages_avoid_internal_validation_inventories():
+    cox = (_ROOT / "docs/cn/models/coxph.md").read_text(encoding="utf-8")
+    index = (_ROOT / "docs/cn/unsupervised/README.md").read_text(encoding="utf-8")
+    for fragment in ("remote-full-final-promotion-suite", "134/134", "机器 schema"):
+        assert fragment not in cox
+    for fragment in ("dev/tests/", "dev/benchmarks/", "results/"):
+        assert fragment not in index

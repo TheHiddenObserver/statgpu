@@ -1,6 +1,6 @@
 # statgpu Documentation Portal
 
-Choose a maintained documentation entry point:
+Choose a documentation entry point:
 
 - [English documentation](en/usage.md)
 - [中文文档](cn/usage.md)
@@ -10,6 +10,4 @@ Choose a maintained documentation entry point:
 - [Release guide](../RELEASING.md)
 - [Changelog](en/changelog.md)
 
-The language-specific portals and method inventory are the source of truth for current
-public capabilities. Historical benchmark results, pull-request validation records, and
-development plans remain under `results/` and `dev/` and are not duplicated here.
+The language-specific portals and method inventory describe the current public capabilities. Development architecture, validation evidence, and historical engineering records are kept in their repository-specific locations rather than duplicated in the user portal.

@@ -1,31 +1,34 @@
 # statgpu Documentation Portal (English)
 
 > Language: English  
-> Last updated: 2026-07-24  
+> Last updated: 2026-09-17  
 > Switch: [Chinese](../cn/usage.md)
 
-This portal links to maintained capability inventories instead of duplicating
-version-sensitive support tables.
+Use this page to enter the user documentation. Detailed support matrices live on the relevant model and reference pages so the portal stays short and stable.
 
-## Getting Started
+## Getting started
 
-- [Quickstart](getting-started/quickstart.md)
-- [Implemented Methods](guides/implemented-methods.md)
-- [Device and GPU Memory](guides/device-and-memory.md)
-- [PyTorch Backend](guides/pytorch-backend.md)
-- [Cross-Validation](guides/cross-validation.md)
-- [Inference API](guides/inference-api.md)
-- [Changelog](changelog.md)
+- [Quickstart](getting-started/quickstart.md) — installation, first fit, prediction, and device selection
+- [Implemented Methods](guides/implemented-methods.md) — public estimator and method inventory
+- [Device and GPU Memory](guides/device-and-memory.md) — CPU/CUDA/Torch behavior and memory controls
+- [Cross-Validation](guides/cross-validation.md) — folds, tuning grids, selection, and final refit
+- [How statgpu Cross-Validation Works](guides/cross-validation-design.md) — public CV execution model and acceleration semantics
+- [Inference Modes](guides/inference-modes.md) — choose and interpret coefficient-inference methods
+- [Inference API](guides/inference-api.md) — distributions, multiple testing, permutation tests, and bootstrap utilities
+- [Changelog](changelog.md) — release history
 
-Use `pip install statgpu[gpu11]` or `statgpu[gpu12]` for the matching CuPy
-CUDA major version and `statgpu[torch]` for the PyTorch backend. The maintained
-Cox implementation is included in the base install; `statgpu[survival]` adds
-statsmodels for optional external validation and comparison.
+For CuPy, install `statgpu[gpu11]` or `statgpu[gpu12]` for the matching CUDA major version. Use `statgpu[torch]` for the PyTorch backend. The base installation contains the Cox implementation; `statgpu[survival]` adds optional external comparison dependencies.
 
-## Model Families
+## Model families
 
 - [Models Overview](models/README.md)
+- [Linear Regression](models/linear-regression.md)
+- [Ridge](models/ridge.md)
+- [Lasso](models/lasso.md)
+- [ElasticNet](models/elastic-net.md)
 - [Generalized Linear Models](models/generalized-linear-model.md)
+- [Quantile Regression](models/quantile.md)
+- [Robust Regression](models/robust.md)
 - [Cox Proportional Hazards](models/coxph.md)
 - [Panel Models](models/panel.md)
 - [ANOVA](models/anova.md)
@@ -35,24 +38,19 @@ statsmodels for optional external validation and comparison.
 - [Feature Selection](models/feature-selection.md)
 - [Regression Diagnostics](guides/regression-diagnostics.md)
 
-The CV classes `RidgeCV`, `LassoCV`, `ElasticNetCV`,
-`LogisticRegressionCV`, `PenalizedGLM_CV`, and `CoxPHCV` are implemented.
-Exact loss, penalty, inference, and backend coverage is listed in
-[Implemented Methods](guides/implemented-methods.md) and the relevant model page.
+## Optimization and compatibility references
 
-## Validation and Evidence
+- [Loss Functions](models/losses.md) — low-level loss definitions and numerical properties
+- [Loss × Penalty × Solver Framework](guides/loss-penalty-solver-framework.md) — how the pieces compose
+- [Solver × Penalty Matrix](guides/solver-penalty-matrix.md) — supported and unsupported combinations
+- [Solver Algorithms](guides/solver-algorithms.md) — algorithm definitions
+- [Penalized Solver API Migration](guides/penalized-solver-api-migration.md) — migration from legacy solver controls
 
-Validation claims are scoped to the model, backend, hardware, and commit tested.
-Hosted CI, physical-GPU campaigns, historical benchmarks, and release evidence are
-recorded in their corresponding workflow, model, changelog, `results/`, or `dev/`
-artifacts. A skipped GPU test is not treated as physical-GPU evidence.
+## Statistical utilities
 
-## Contributor Checklist
+- [Distribution API](guides/distribution-api.md)
+- [Multiple Testing](guides/multiple-testing-combine-pvalues.md)
+- [ANOVA](models/anova.md)
+- [Covariance Estimation](models/covariance.md)
 
-Follow the repository's [development guide](https://github.com/TheHiddenObserver/statgpu/blob/master/dev/AGENTS.md)
-and canonical Claude Code [`new-module-dev` skill](https://github.com/TheHiddenObserver/statgpu/blob/master/.claude/skills/new-module-dev/SKILL.md).
-Use the [`code-review` skill](https://github.com/TheHiddenObserver/statgpu/blob/master/.claude/skills/code-review/SKILL.md)
-for independent review passes and the [`benchmark` skill](https://github.com/TheHiddenObserver/statgpu/blob/master/.claude/skills/benchmark/SKILL.md)
-when performance/evidence work is active. These are external repository-source links rather than VitePress routes.
-Classify impact first, preserve explicit device semantics, verify objective normalization before external comparisons,
-add tests for the active/default contracts, and synchronize affected English/Chinese public claims.
+For development, contribution, testing, and repository-internal architecture, use the repository's `CONTRIBUTING.md` and `dev/` documentation rather than the user guide.

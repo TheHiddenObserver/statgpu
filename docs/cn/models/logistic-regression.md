@@ -1,7 +1,7 @@
 # LogisticRegression
 
 > 语言: 中文  
-> 最后更新: 2026-09-21
+> 最后更新: 2026-10-02
 > 页面定位: 模型文档  
 > 切换: [English](../../en/models/logistic-regression.md)
 
@@ -75,7 +75,7 @@ m_gpu = LogisticRegression(
 m_gpu.fit(X_gpu, y_gpu)
 ```
 
-## 严格计算与近似计算
+## 严格与近似模式的差别
 
 该估计器没有单独的严格/近似计算开关。CPU 与 GPU 使用相同的统计定义，但由于浮点运算和底层线性代数实现不同，结果可能存在机器精度量级的差异。
 

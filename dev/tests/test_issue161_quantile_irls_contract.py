@@ -156,3 +156,10 @@ def test_direct_l2_quantile_irls_preserves_torch_cpu_backend_when_available(
     assert coef.dtype == torch.float64
     assert bool(torch.all(torch.isfinite(coef)).item())
     assert 1 <= n_iter <= 120
+
+
+def test_direct_quantile_irls_rejects_zero_feature_design():
+    X = np.ones((5, 0), dtype=np.float64)
+    y = np.ones(5, dtype=np.float64)
+    with pytest.raises(ValueError, match="at least one feature"):
+        QuantileLoss(quantile=0.5).irls(X, y)

@@ -1,7 +1,7 @@
 # 非参数方法
 
 > 语言: 中文  
-> 最后更新: 2026-09-21  
+> 最后更新: 2026-10-02  
 > 页面定位: 非参数方法总览  
 > 切换: [English](../../en/models/nonparametric.md)
 
@@ -82,7 +82,7 @@ pred_gpu = kernel_regression_predict(
 )
 ```
 
-## 精度与近似
+## 严格与近似模式的差别
 
 该模块没有统一的严格/近似计算开关。数值精度与计算成本主要由带宽规则、`kernel_metric`（`full`/`diagonal`）以及 CPU/GPU 后端选择共同决定。
 

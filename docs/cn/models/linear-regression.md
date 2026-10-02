@@ -1,7 +1,7 @@
 # LinearRegression
 
 > 语言: 中文  
-> 最后更新: 2026-09-21  
+> 最后更新: 2026-10-02  
 > 页面定位: 模型文档  
 > 切换: [English](../../en/models/linear-regression.md)
 
@@ -69,7 +69,7 @@ m_gpu = LinearRegression(
 m_gpu.fit(X, y)
 ```
 
-## 严格计算与近似计算
+## 严格与近似模式的差别
 
 `LinearRegression` 默认使用同一套推断定义，并未提供单独的近似计算开关。CPU 与 GPU 之间若出现微小数值差异，通常来自浮点运算和底层线性代数实现。
 

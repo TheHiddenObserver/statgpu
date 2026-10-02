@@ -275,7 +275,7 @@ class GammaLoss(GLMLoss):
         raise _LossDomainError(
             "Gamma inverse_power has no numerically certified smooth-domain "
             "start for the active design; the geometry may be infeasible or "
-            "too ill-conditioned for the maintained certification procedure."
+            "too ill-conditioned for numerical certification."
         )
 
     def _loss_domain_is_feasible(self, X, coef, sample_weight=None):
@@ -305,7 +305,7 @@ class GammaLoss(GLMLoss):
             X, coef, sample_weight=sample_weight
         ):
             raise ValueError(
-                "Gamma inverse_power current iterate is outside the maintained "
+                "Gamma inverse_power current iterate is outside the "
                 "smooth training domain."
             )
 

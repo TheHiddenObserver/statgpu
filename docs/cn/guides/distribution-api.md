@@ -1,7 +1,7 @@
 # Distribution API 使用指南
 
 > 语言: 中文
-> 最后更新: 2026-09-21
+> 最后更新: 2026-10-02
 > 页面定位: 指南文档
 > 切换: [English](../../en/guides/distribution-api.md)
 

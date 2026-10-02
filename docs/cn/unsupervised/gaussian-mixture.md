@@ -1,8 +1,8 @@
 # GaussianMixture
 
 > 语言：中文
-> 最后更新：2026-05-07
-> English: [English](../../en/unsupervised/gaussian-mixture.md)
+> 最后更新：2026-09-29
+> 切换：[English](../../en/unsupervised/gaussian-mixture.md)
 
 ## 概览
 
@@ -29,14 +29,14 @@ $$
 \right].
 $$
 
-`covariance_type` 决定 `\Sigma_k` 的形状：每个成分一组对角协方差、每个成分一个球形方差、所有成分共享一个完整协方差，或每个成分各自拥有完整协方差。`reg_covar` 会向协方差估计加入一个很小的对角 ridge，提高数值稳定性。
+`covariance_type` 决定 `\Sigma_k` 的形状：每个成分一组对角协方差、每个成分一个球形方差、所有成分共享一个完整协方差，或每个成分各自拥有完整协方差。`reg_covar` 会向协方差估计加入一个很小的对角岭项（ridge），提高数值稳定性。
 
 ## 估计方程
 
-实现使用 log-domain EM：
+实现采用对数域（log-domain）EM：
 
 - 初始化：使用 KMeans 或随机样本初始化均值。
-- E-step：计算加权成分 log probability：
+- E 步：计算加权的成分对数概率：
 
   $$
   a_{ik}
@@ -54,7 +54,7 @@ $$
   \operatorname{logsumexp}_{k=1}^{K}\left(a_{ik}\right).
   $$
 
-  responsibility 为：
+  责任度（responsibility）为：
 
   $$
   r_{ik}
@@ -67,7 +67,7 @@ $$
   }.
   $$
 
-- M-step：更新有效样本数、权重、均值和协方差：
+- M 步：更新有效样本数、权重、均值和协方差：
 
   $$
   n_k = \sum_{i=1}^{n} r_{ik},
@@ -77,7 +77,7 @@ $$
   \mu_k = \frac{1}{n_k}\sum_{i=1}^{n} r_{ik}x_i.
   $$
 
-  full covariance：
+  完全协方差（full）：
 
   $$
   \Sigma_k
@@ -88,7 +88,7 @@ $$
   \text{reg\_covar}\,I.
   $$
 
-  tied covariance：
+  共享协方差（tied）：
 
   $$
   \Sigma
@@ -99,7 +99,7 @@ $$
   \text{reg\_covar}\,I.
   $$
 
-  diagonal 和 spherical 协方差使用同一责任加权方差的对角或特征平均：
+  对角（diagonal）和球形（spherical）协方差使用同一套责任度加权方差，分别取对角元素或特征平均：
 
   $$
   \sigma_{kj}^{2}
@@ -114,7 +114,7 @@ $$
   \sigma_k^2 = \frac{1}{p}\sum_{j=1}^{p}\sigma_{kj}^{2}.
   $$
 
-- 监控的 lower bound 为：
+- 监控的下界（lower bound）为：
 
   $$
   \mathcal{L}
@@ -122,7 +122,7 @@ $$
   \frac{1}{n}\sum_{i=1}^{n}\log p(x_i).
   $$
 
-  当 lower bound 的提升小于 `tol` 或达到 `max_iter` 时停止。`n_init` 会运行多组初始化，并保留 lower bound 最高的一组。
+  当下界的提升小于 `tol` 或达到 `max_iter` 时停止；`n_init` 会运行多组初始化，并保留下界最高的一组。
 
 ## 参数
 
@@ -148,9 +148,9 @@ proba = gmm.predict_proba(X)
 ll = gmm.score(X)
 ```
 
-## strict/approx 差异
+## 严格与近似模式的差别
 
-GMM 提供 likelihood 分数，但没有 strict inference covariance 或 p-value 模式。EM 优化的是非凸似然，可能收敛到局部最优；结果可复现性取决于初始化、`random_state`、`n_init`、`tol` 和 `max_iter`。
+`GaussianMixture` 提供似然分数，但没有严格推断的协方差或 p 值模式。EM 优化的似然是非凸的，可能收敛到局部最优；结果的可复现性取决于初始化、`random_state`、`n_init`、`tol` 和 `max_iter`。
 
 ## 输出字段
 
@@ -165,19 +165,19 @@ GMM 提供 likelihood 分数，但没有 strict inference covariance 或 p-value
 
 ## FAQ
 
-**应该选择哪种 covariance type？**
+**应该选择哪种协方差类型？**
 `"diag"` 和 `"spherical"` 计算更便宜，适合成分内特征相关性较弱的场景；`"tied"` 在所有成分之间共享一个完整协方差；`"full"` 最灵活，但参数最多，也需要更多样本支撑。
 
 **`score`、`score_samples`、`aic`、`bic` 分别是什么？**
-`score_samples` 返回逐样本 log likelihood，`score` 返回平均 log likelihood，`aic`/`bic` 按对应 covariance type 的参数量计算。
+`score_samples` 返回逐样本对数似然，`score` 返回平均对数似然，`aic`/`bic` 按对应协方差类型的参数量计算。
 
 ## 外部验证
 
 - 测试：`dev/tests/test_unsupervised_gmm.py`。
-- Benchmark：`dev/benchmarks/benchmark_unsupervised_phase3b.py`。
-- 最新远程 artifact：`results/unsupervised_phase3b_verify_20260507_003957.json`。
-- Baseline：sklearn `GaussianMixture`，对齐 `covariance_type`、初始化和收敛参数。
-- Phase 3B 验证目标：`"diag"`、`"spherical"`、`"tied"`、`"full"` 在 CPU/CuPy/Torch 三端的 score 一致性，以及与 sklearn 的 log likelihood、AIC/BIC、responsibility 对齐。
+- 基准测试：`dev/benchmarks/benchmark_unsupervised_phase3b.py`。
+- 最新远程验证产物：`results/unsupervised_phase3b_verify_20260507_003957.json`。
+- 对齐基线：sklearn 的 `GaussianMixture`，对齐 `covariance_type`、初始化和收敛参数。
+- Phase 3B 验证目标：`"diag"`、`"spherical"`、`"tied"`、`"full"` 在 CPU/CuPy/Torch 三端的 score 一致性，以及与 sklearn 的对数似然、AIC/BIC、责任度（responsibility）对齐。
 
 ## References
 

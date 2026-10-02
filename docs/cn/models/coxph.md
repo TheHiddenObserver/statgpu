@@ -1,14 +1,14 @@
 # CoxPH
 
 > 语言：中文<br>
-> 最后更新：2026-09-21<br>
+> 最后更新：2026-10-02<br>
 > 页面定位：模型文档<br>
 > 切换：[English](../../en/models/coxph.md)
 
 ## 概览
 
 `CoxPH` 在 NumPy、CuPy CUDA 与 Torch CUDA 后端实现比例风险回归，支持
-Breslow、Efron 与 Exact 三种并列事件处理方式，同时覆盖普通右删失、延迟进入（delayed entry）、
+Breslow、Efron 与 Exact 三种并列事件处理方式，同时覆盖普通右删失、延迟进入、
 计数过程 `(start, stop]` 行、独立分层（`strata`）、时变协变量、稳健/聚类协方差，以及
 通过 `CoxPHCV` 选择 L2 惩罚。
 
@@ -115,7 +115,7 @@ $$
 Q_\lambda(\beta)=\ell(\beta)-\lambda\lVert\beta\rVert_2^2.
 $$
 
-记 `U(beta)` 为未加惩罚的部分似然得分，拟合系数满足
+记 `U(beta)` 为未加惩罚的偏似然得分，拟合系数满足
 
 $$
 U_\lambda(\beta)=U(\beta)-2\lambda\beta=0.
@@ -126,7 +126,7 @@ $$
 
 ## 风险集与并列事件处理
 
-`ties="breslow"` 和 `ties="efron"` 使用对应的并列事件部分似然；
+`ties="breslow"` 和 `ties="efron"` 使用对应的并列事件偏似然；
 `ties="exact"` 通过基本对称多项式（elementary-symmetric）动态规划计算 Exact 分母。
 延迟进入、分层、Exact 并列事件、L2 惩罚拟合与 GPU 稳健推断共用同一套
 计数过程风险集计算，因此三个后端遵循一致的 `(start, stop]` 约定。
@@ -189,7 +189,7 @@ CoxPH().fit(
 
 ## 优化与收敛
 
-Newton 迭代使用线搜索（line search），并在最终参数处执行 KKT 检查。线搜索失败时不会更新系数，也不会报告收敛。公开拟合状态包括：
+Newton 迭代使用线搜索，并在最终参数处执行 KKT 检查。线搜索失败时不会更新系数，也不会报告收敛。公开拟合状态包括：
 
 - `converged_`；
 - `termination_reason_`；
@@ -206,7 +206,7 @@ Newton 迭代使用线搜索（line search），并在最终参数处执行 KKT 
 
 ## 惩罚强度缩放与推断
 
-`penalty` 就是上述总和尺度的部分似然目标中的 `lambda`，不会除以样本数或
+`penalty` 就是上述总和尺度的偏似然目标中的 `lambda`，不会除以样本数或
 事件数；CoxPH 也没有需要惩罚的截距。因此，复制全部观测会使似然与得分贡献加倍，却不会自动加倍用户提供的 `penalty`，从而改变有效正则强度。跨数据集或
 样本规模比较时，应在目标抽样尺度下用 `CoxPHCV` 调参；复现采用平均损失的外部软件时，需要显式换算其 `penalty` 的尺度定义，不能假设数值直接相同。
 
@@ -251,8 +251,8 @@ Breslow 与 Efron 的严格稳健推断使用 statgpu 内部的精确计数过�
 方差同样会令严格推断失败，而不会发布零标准误与误导性的显著性结果。
 
 边际方差为正并不保证稳健协方差在完整参数空间有效。StatGPU 会先用尺度感知容忍度
-分类对称化后的协方差矩阵谱：正定矩阵同时支持边际推断和联合 Wald；PSD
-但秩亏的矩阵仍保留逐系数稳健 SE/z/p/CI，同时设置
+分类对称化后的协方差矩阵谱：正定矩阵同时支持边际推断和联合 Wald；半正定
+但秩亏的矩阵仍保留逐系数的稳健标准误/z 值/p 值/置信区间，同时设置
 `wald_test_available_=False` 并记录 `wald_test_failure_reason_`，`summary()` 会显示 `Robust Wald test unavailable`，不会使用不稳定逆矩阵或打印裸 `nan`。若存在实质性
 负特征值，该矩阵已不是合法的协方差估计量；严格推断会抛出
 `RuntimeError` 并清空本次拟合状态，而不会仅凭正对角线发布边际推断。即使逐系数与
@@ -307,7 +307,7 @@ Exact 并列事件当前只支持模型协方差（`cov_type="nonrobust"`）。�
 | `tol` | `1e-9` | Newton/KKT 收敛阈值 |
 | `max_iter` | `100` | 最大迭代次数 |
 | `device` | `"auto"` | `"cpu"`、`"cuda"`、`"torch"` 或 `"auto"` |
-| `compute_inference` | `True` | 计算协方差、检验与 baseline hazard |
+| `compute_inference` | `True` | 计算协方差、检验与基线风险 |
 | `compute_cindex` | `True` | 计算训练集 concordance |
 | `cov_type` | `"nonrobust"` | `"nonrobust"`、`"hc0"`、`"hc1"` 或 `"cluster"` |
 | `penalty` | `0.0` | 非负 L2 惩罚 |
@@ -380,7 +380,7 @@ penalized_cv = PenalizedGLM_CV(
 ).fit(X, survival_y)
 ```
 
-该分支始终保留二维 `(time, event)` 响应，禁止截距，使用留出数据上的未惩罚部分似然评分，并要求每个可评估的交叉验证折都提供有限证据。若不存在满足
+该分支始终保留二维 `(time, event)` 响应，禁止截距，使用留出数据上的未惩罚偏似然评分，并要求每个可评估的交叉验证折都提供有限证据。若不存在满足
 契约的 `alpha`，拟合会抛错，并且不会发布已选 `alpha` 或已拟合估计器。最终重拟合使用
 `PenalizedCoxPHModel(compute_inference=False)`；不支持选择后系数推断、`two_stage`、样本权重或字典形式响应。无惩罚别名不可调，因此该 CV
 路径会拒绝，需改为直接拟合模型。
@@ -455,7 +455,7 @@ HC1 使用 3,000 个独立单元，聚类稳健协方差使用 120 个聚类单�
 
 CuPy 与 Torch CUDA 路径会在物理 GPU 上检查数值一致性、设备归属和错误边界。此类验证用于确认实现是否遵守公开的统计与设备语义，但不构成对所有 GPU 型号、软件版本或数据规模的统一性能保证。
 
-为便于复核，当前页面保留一份已发布验证记录的稳定引用：Gist `ebbb7f2401f45b124069a30d3510c139`，对应产物 SHA-256 为 `e01ad0bfec238d06167caeef9955e92b6cf84eea4ccc69a3056eb794ded6eccb`。它只证明该记录所对应的源码和运行环境；后续提交不会自动继承这一验证结论。更细的运行器、CI 和源码锁定信息仍属于开发验证材料。
+为便于复核，当前页面保留一份已发布验证记录的稳定引用：[已发布验证记录](https://gist.github.com/TheHiddenObserver/ebbb7f2401f45b124069a30d3510c139)，对应产物 SHA-256 为 `e01ad0bfec238d06167caeef9955e92b6cf84eea4ccc69a3056eb794ded6eccb`。它只证明该记录所对应的源码和运行环境；后续提交不会自动继承这一验证结论。运行环境与源码来源的详细记录见[开发验证材料](../../../dev/reviews/pr80_review_fix.md)。
 
 ## FAQ 与常见失败模式
 

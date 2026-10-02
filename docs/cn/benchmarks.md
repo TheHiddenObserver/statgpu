@@ -1,18 +1,16 @@
 # 基准脚本索引
 
-> 语言: 中文  
-> 最后更新: 2026-09-08
-> 页面定位: 基准脚本索引  
-> 切换: [English](../en/benchmarks.md)
-
-语言切换：[English](../en/benchmarks.md)
+> 语言：中文  
+> 最后更新：2026-09-29  
+> 页面定位：基准脚本索引  
+> 切换：[English](../en/benchmarks.md)
 
 ## 推断相关
 
 - `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`
-  - 使用 canonical `inference_method="post_selection_ols"`，对 NumPy CPU 与 CuPy CUDA 的完整 fit + inference transaction 做基准和数值对照；
-  - 输出 penalized coefficients、active-refit parameters、SE/statistic/p-value/CI、active-set identity 以及 inference backend/device provenance 的 CPU/CuPy parity；
-  - 这不是 inference-only 加速基准：硬件由 `device` 选择，而不是由 `inference_method` 选择。
+  - 使用规范 `inference_method="post_selection_ols"`，对 NumPy CPU 与 CuPy CUDA 的完整拟合与推断事务做基准和数值对照；
+  - 输出惩罚系数、活跃集重拟合参数、标准误/统计量/p 值/置信区间、活跃集一致性，以及推断后端与具体设备来源的 CPU/CuPy 对照结果；
+  - 这不是仅推断阶段的加速基准：硬件由 `device` 选择，而不是由 `inference_method` 选择。
 
 ## 非参数方法
 
@@ -40,14 +38,14 @@
   - 对比 `PCA` 与 `KMeans` 在 `statgpu` CPU/CuPy/Torch 和 sklearn（可用时）下的时间与数值差异。
   - 支持输出 JSON 结果。
 
-Phase 2 supplement:
+Phase 2 补充：
 - `dev/benchmarks/benchmark_unsupervised_phase2.py`
-  - Compares `DBSCAN`, `GaussianMixture`, `NMF`, and `AgglomerativeClustering` against available sklearn/SciPy/R baselines.
-  - Records `umap-learn` and `openTSNE` smoke/runtime baselines for future comparison-only work.
+  - 对比 `DBSCAN`、`GaussianMixture`、`NMF` 和 `AgglomerativeClustering`，对齐 sklearn/SciPy/R 等可用基线。
+  - 记录 `umap-learn` 与 `openTSNE` 的冒烟与运行时基线，供后续仅作比较的工作参考。
 - `dev/benchmarks/benchmark_unsupervised_dbscan_cython.py`
-  - Validates the optional statgpu-owned DBSCAN Cython CPU fast path against fallback, sklearn CPU, CuPy, and Torch.
+  - 验证可选的 statgpu 自有 DBSCAN Cython CPU 快速路径，并对照纯 Python 回退、sklearn CPU、CuPy 与 Torch。
 
-Remote Phase 2 artifacts:
+远程 Phase 2 产物：
 - `results/unsupervised_phase2_dbscan_cython_final_20260502_160719.json`
 - `results/unsupervised_phase2_final_20260502_160719.json`
 - `results/unsupervised_phase2_final_summary_20260502_160719.md`
@@ -55,17 +53,17 @@ Remote Phase 2 artifacts:
 - `results/unsupervised_phase2_verify_20260502_210000.json`
 - `results/unsupervised_phase2_verify_summary_20260502_210000.md`
 
-DBSCAN CPU Cython note:
-- The optional `_dbscan_cpu` extension is statgpu-owned and is not a sklearn wrapper.
-- Compact dense CPU cases can use the extension when it is built and selected; variable-density, sparse/all-noise, or no-compiler environments use fallback.
+DBSCAN CPU Cython 说明：
+- 可选的 `_dbscan_cpu` 扩展由 statgpu 自有实现，并不是 sklearn 的封装。
+- 紧凑的稠密 CPU 场景可以在扩展已编译并被选用时使用它；变密度、稀疏/全噪声或无编译器的环境会退回纯 Python 实现。
 
-Phase 3 supplement:
+Phase 3 补充：
 - `dev/benchmarks/benchmark_unsupervised_phase3.py`
-  - 对比 `TruncatedSVD`、`MiniBatchKMeans`、`UMAP` 和 `TSNE` 的 statgpu CPU/CuPy/Torch 路径，以及可用的 sklearn、statsmodels、R、umap-learn、openTSNE、cuML baseline。
-  - 记录 warmup/repeat 用时、精度或 embedding 质量指标，以及不可用外部框架的 skipped 原因。
+  - 对比 `TruncatedSVD`、`MiniBatchKMeans`、`UMAP` 和 `TSNE` 的 statgpu CPU/CuPy/Torch 路径，以及可用的 sklearn、statsmodels、R、umap-learn、openTSNE、cuML 对齐基线。
+  - 记录预热与重复运行的用时、精度或嵌入质量指标，以及外部框架不可用时的跳过原因。
   - GPU 主计时路径使用已在目标 backend 上的输入数组，避免把 NumPy 到 GPU 的搬运混入主结论。
 
-Remote Phase 3 artifacts:
+远程 Phase 3 产物：
 - `results/unsupervised_phase3_remote_finalopt_20260505_084444.json`
 - `results/unsupervised_phase3_remote_finalopt_20260505_084444.md`
 - `results/unsupervised_phase3_remote_perfopt_mediumlarge_20260505_131617.json`
@@ -73,22 +71,22 @@ Remote Phase 3 artifacts:
 - `results/unsupervised_phase3_remote_perfopt2_large_tabular_20260505_132223.json`
 - `results/unsupervised_phase3_remote_perfopt2_large_tabular_bs4096_20260505_132359.json`
 
-Phase 3B supplement:
+Phase 3B 补充：
 - `dev/benchmarks/benchmark_unsupervised_phase3b.py`
-  - 对比 `GaussianMixture` 的 `diag/spherical/tied/full` covariance variants。
-  - 对比 `AgglomerativeClustering` 的 `single/complete/average/ward` linkage variants。
+  - 对比 `GaussianMixture` 的 `diag/spherical/tied/full` 协方差形式。
+  - 对比 `AgglomerativeClustering` 的 `single/complete/average/ward` 连接方式。
   - 覆盖 statgpu CPU/CuPy/Torch（适用时）、sklearn、SciPy，以及可用时的 R `cluster::agnes`。
 
-Remote Phase 3B artifacts:
+远程 Phase 3B 产物：
 - `results/unsupervised_phase3b_verify_20260507_003957.json`
 - `results/unsupervised_phase3b_verify_summary_20260507_003957.md`
 
-Phase 3C supplement:
+Phase 3C 补充：
 - `dev/benchmarks/benchmark_unsupervised_phase3c.py`
   - 对比 `IncrementalPCA` 和 `MiniBatchNMF` 的 statgpu CPU/CuPy/Torch 路径，以及可用时的 sklearn baseline。
-  - 记录重构质量、explained variance、warmup/repeat 用时和 skipped optional frameworks。
+  - 记录重构质量、解释方差、预热与重复运行用时，以及被跳过的可选外部框架。
 
-Remote Phase 3C artifacts:
+远程 Phase 3C 产物：
 - `results/unsupervised_phase3c_opt7_20260507_185500.json`
 - `results/unsupervised_phase3c_opt7_summary_20260507_185500.md`
 - `results/unsupervised_phase3c_opt7_large_bs4096_20260507_185500.json`
@@ -101,9 +99,9 @@ Remote Phase 3C artifacts:
 - `dev/benchmarks/benchmark_inference_backends.py`
   - 含 `combine_pvalues` 的 `fisher/cauchy/acat` 耗时基准
   - 含一致性检查：
-    - Fisher vs `scipy.stats.combine_pvalues`
-    - Cauchy vs 独立 NumPy 参考实现
-    - statgpu NumPy vs CuPy
+    - Fisher 与 `scipy.stats.combine_pvalues` 的对照
+    - Cauchy 与独立 NumPy 参考实现的对照
+    - statgpu 的 NumPy 与 CuPy 对照
   - 统一输出结构化 JSON 到 `results/`
 
 远端补充产物：
@@ -114,7 +112,7 @@ Remote Phase 3C artifacts:
 
 - `dev/benchmarks/benchmark_gpu_memory_cleanup.py`
   - 对比 `gpu_memory_cleanup=False/True`
-  - 输出 `fit_ms` 与 CuPy memory pool 指标
+  - 输出 `fit_ms` 与 CuPy 内存池指标
 
 ## 训练性能 / 停止准则
 
@@ -125,7 +123,7 @@ Remote Phase 3C artifacts:
 
 - `dev/benchmarks/benchmark_all_methods_large_scale.py`
   - 覆盖：`LinearRegression / Ridge / Lasso / LogisticRegression / CoxPH`
-  - 支持 CPU/GPU 双设备、warmup/repeats、可选 inference 计时
+  - 支持 CPU/GPU 双设备、预热与重复运行，以及可选的推断计时
   - 关键点：数据构造与 host->device 迁移在计时外，默认只统计 `fit()`
 
 推荐运行命令：
@@ -203,33 +201,33 @@ python dev/benchmarks/benchmark_external_frameworks.py \
 ### sklearn 对比
 
 - `dev/benchmarks/benchmark_elasticnet_sklearn.py`
-  - 对比 `statgpu` (CPU/CuPy/Torch) vs `sklearn.linear_model.ElasticNet`
+  - 对比 `statgpu`（CPU/CuPy/Torch）与 `sklearn.linear_model.ElasticNet`
   - 测试 6 个数据集：n=200~5,000, p=20~100
   - 输出：系数差异、R²、拟合时间 (ms)
-  - 关键发现：所有后端与 sklearn 最大系数差异 < 3e-8
+  - 关键发现：所有后端相对 sklearn 的最大系数差异 < 3e-8
 
 ### R glmnet 对比
 
-- `dev/benchmarks/benchmark_glmnet_full.R` (R 脚本)
-- `dev/benchmarks/benchmark_statgpu_full.py` (Python script)
-- `dev/benchmarks/run_full_benchmark.py` (统一运行器)
-  - 对比 `statgpu CPU` vs `R glmnet::glmnet()`
+- `dev/benchmarks/benchmark_glmnet_full.R`（R 脚本）
+- `dev/benchmarks/benchmark_statgpu_full.py`（Python 脚本）
+- `dev/benchmarks/run_full_benchmark.py`（统一运行器）
+  - 对比 `statgpu CPU` 与 `R glmnet::glmnet()`
   - 测试 6 个数据集：small/medium/large/high_dim/sparse_coef/high_noise
   - 关键发现：
-    - statgpu CPU 赢得 4/6 对比
+    - statgpu CPU 在 6 组对比中胜出 4 组
     - 系数范数差异源于正则化缩放约定不同
-    - 两种实现都是正确的 Elastic Net
+    - 两种实现都是正确的 Elastic Net 实现
 
-### 大规模性能测试 (n ≥ 10,000)
+### 大规模性能测试（n ≥ 10,000）
 
 - `dev/benchmarks/benchmark_large_scale.py`
-- `dev/benchmarks/run_large_scale.py` (远端运行器)
-  - 测试 6 种配置：n=10k~100k, p=100~500
-  - 对比 sklearn vs statgpu (CPU/CuPy/Torch)
+- `dev/benchmarks/run_large_scale.py`（远端运行器）
+  - 测试 6 种配置：n=10k~100k，p=100~500
+  - 对比 sklearn 与 statgpu（CPU/CuPy/Torch）
   - 关键发现：
-    - statgpu Torch 在 5/6 测试中最快 (83%)
-    - 最大加速比：**4.36x** vs sklearn (n=100k, p=500)
-    - GPU 优势在 n ≥ 10,000 时显现
+    - statgpu Torch 在 6 组测试中的 5 组最快（83%）
+    - 最大加速比：相对 sklearn 达到 **4.36x**（n=100k，p=500）
+    - 数据量达到 n ≥ 10,000 后 GPU 优势开始显现
 
 ### 后端选择建议
 

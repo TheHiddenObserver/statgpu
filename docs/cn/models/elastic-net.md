@@ -1,9 +1,9 @@
 # Elastic Net 弹性网络
 
 > 语言：中文  
-> 最后更新： 2026-09-21<br>
-> 页面定位： 模型文档  
-> 切换： [English](../../en/models/elastic-net.md)
+> 最后更新：2026-10-02<br>
+> 页面定位：模型文档  
+> 切换：[English](../../en/models/elastic-net.md)
 
 ## 概述
 
@@ -36,7 +36,7 @@ $$
 \frac{1}{n} X^\top (X\hat{\beta} - y) + \alpha(1-\lambda)\hat{\beta} + \alpha\lambda \cdot \partial\|\hat{\beta}\|_1 = 0.
 $$
 
-对**直接单次拟合**，`solver` 是所有后端上的权威算法选择器。`device` 单独控制 CPU/CuPy/Torch 执行位置。历史 `cpu_solver` 参数已进入弃用流程，在统一引擎中不再代表另一套 CPU 直接拟合求解器。参见 [penalized solver API 迁移指南](../guides/penalized-solver-api-migration.md)。
+对**直接单次拟合**，`solver` 在所有后端上都决定实际使用的算法。`device` 单独控制 CPU/CuPy/Torch 执行位置。历史 `cpu_solver` 参数已进入弃用流程，在统一引擎中不再代表第二套 CPU 直接拟合求解器。参见 [penalized solver API 迁移指南](../guides/penalized-solver-api-migration.md)。
 
 ## 估计算法
 
@@ -160,17 +160,17 @@ $$
 
 无分析权重时 $n_{\mathrm{nw}}=n$；非均匀分析权重下使用 Kish 型有效样本量。该规则不依赖响应变量尺度，因此只改变 `y` 的计量单位不会改变设计侧精度矩阵问题。成功的多特征纠偏推断通过 `nodewise_alpha_` 暴露解析出的实际值，并在 `_inference_result.metadata` 中记录调参来源、有效样本量和 KKT 证据。单特征问题直接使用解析精度矩阵，不需要逐节点惩罚参数。
 
-`post_selection_ols` 是与硬件无关的活跃集诊断方法。历史名称 `cpu_ols` 与 `gpu_ols` 目前仍作为弃用别名接受，并会发出 `FutureWarning`，随后统一映射到 `post_selection_ols`；这些名称不再决定计算设备。
+`post_selection_ols` 是与硬件无关的规范活跃集诊断。统一封装类中历史 `cpu_ols` 与 `gpu_ols` 同时进入弃用期，一个兼容周期内仍接受并发出 `FutureWarning`，随后映射到 `post_selection_ols`；它们不负责选择设备。
 
 `post_selection_ols` 先根据惩罚模型拟合得到的系数确定活跃集，再在本次拟合实际使用的后端上，只对该活跃集执行无惩罚 OLS；传入 `sample_weight` 时则执行 WLS。原始 `coef_` 不变，仍用于预测；活跃集重拟合结果通过 `_params`、`_inference_result` 等字段用于推断和报告。
 
 选择后 OLS 仍属于启发式诊断，不提供一般意义上的选择性推断覆盖保证。其推断以已经选定的正则化参数为条件，也不会改变原始惩罚拟合系数。
 
-设备选择与统计方法彼此独立：显式指定 `cpu`、`cuda` 或 `torch` 时，以用户选择为准；只有 `device="auto"` 才会根据输入和可用设备自动选择后端。`post_selection_ols` 沿用主模型拟合时实际使用的后端；CuPy/Torch 的 `debiased` 推断也保留在相应 GPU 后端上。残差 `bootstrap` 目前仍在 CPU 上执行重拟合，因此即使主模型使用 GPU，bootstrap 也不会自动迁移到 GPU。
+设备选择与统计方法正交：显式 `cpu` / `cuda` / `torch` 始终以用户请求为准；只有真正的 `device="auto"` 才允许后端原生的 CuPy 或 Torch-CUDA 输入参与自动路由。`post_selection_ols` 复用拟合解析出的后端；CuPy/Torch 的 `debiased` 推断也会把数值推断留在实际执行的 GPU 后端，包括正态参考分布的标量临界值。残差 `bootstrap` 当前仍是 CPU 原生的残差重拟合路径；显式 GPU `device` 会控制惩罚拟合，但不会让 bootstrap 变成 GPU 原生。
 
-对于带截距的 `debiased` 推断，公开的 `coef_` 和 `intercept_` 仍属于**用于预测的惩罚拟合结果**。推断报告使用纠偏后的斜率 `_params[1:]`，以及与之配套的原始坐标系截距 `_params[0] = ybar_w - xbar_w @ _params[1:]`；因此第一行 SE/z/p 值/CI 对应的是推断报告中的纠偏截距，而不是用于预测的 `intercept_`。结果元数据会记录 `intercept_estimator="centered_debiased"` 与 `intercept_influence="centered_nodewise"`。分析权重在 NumPy/CuPy/Torch 上使用同一个加权中心化平均损失问题，因此整体乘以正常数不会改变这套推断。
+对于带截距的 `debiased` 推断，公开 `coef_`/`intercept_` 继续属于 **惩罚预测拟合**。推断/报告使用去偏（debiased）斜率 `_params[1:]`，以及与它们配套的原始坐标系截距 `_params[0] = ybar_w - xbar_w @ _params[1:]`；因此第一行标准误/z 值/p 值/置信区间（SE/z/p-value/CI）描述的是该去偏报告截距，而不是预测 `intercept_`。结果元数据会记录 `intercept_estimator="centered_debiased"` 与 `intercept_influence="centered_nodewise"`。分析权重在 NumPy/CuPy/Torch 上使用同一个加权中心化平均损失问题，因此整体乘以正常数不会改变这套推断。
 
-对于 `ElasticNetCV`，`compute_inference=True` 仅作用于 alpha 与 `l1_ratio` 选定后的最终全数据重拟合；各折模型仍仅用于估计和评分。`nodewise_alpha` 也只属于最终重拟合的推断配置，不进入候选网格或折内评分；推断成功时，外层 `nodewise_alpha_` 与最终 `estimator_` 一致。当前 `ElasticNetCV` 仍固定最终推断方法为 `debiased`，这是当前推断选择器的限制，与本次逐节点调参修复分开处理。
+对于 `ElasticNetCV`，`compute_inference=True` 仅作用于 alpha 与 `l1_ratio` 选定后的最终全数据重拟合；各折模型仍仅用于估计和评分。`nodewise_alpha` 也只属于最终重拟合的推断配置，不进入候选网格或折内评分；推断成功时，外层 `nodewise_alpha_` 与最终 `estimator_` 一致。当前 `ElasticNetCV` 仍固定最终推断方法为 `debiased`，这是当前推断方法选择的限制。
 
 ## 求解器与推断语义
 

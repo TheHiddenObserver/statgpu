@@ -1,0 +1,1013 @@
+{
+  "cases": [
+    {
+      "derivative_locations": [
+        [
+          "cupy",
+          "cuda:0"
+        ]
+      ],
+      "max_host_values_per_factory_transfer": 5,
+      "name": "cupy/low-level/group-fista-lla-transfer",
+      "reporting_transfer_sizes": [
+        5
+      ]
+    },
+    {
+      "coef_error": 2.7755575615628914e-15,
+      "cpu_flat_reference": {
+        "coef_error": 1.6989828821589725e-08,
+        "data_fit_error": 7.373164578883262e-11,
+        "group_norms": [
+          0.9335196611659403,
+          0.34103894845082733
+        ],
+        "intercept_error": 2.093324402707708e-10,
+        "parameter_error": 1.6989828821589725e-08,
+        "reference_group_norms": [
+          0.9335196569660597,
+          0.34103896056619093
+        ],
+        "threshold": 0.2093036072312181
+      },
+      "cpu_objective": 0.07040542721496051,
+      "group_solver_calls": 1,
+      "group_solver_input_locations": [
+        [
+          "cupy",
+          "cuda:0",
+          "cupy",
+          "cuda:0"
+        ]
+      ],
+      "intercept_error": 6.938893903907228e-16,
+      "name": "cupy/direct/group_scad",
+      "objective": 0.07040542721496049,
+      "objective_error": 2.7755575615628914e-17,
+      "parameter_error": 2.7755575615628914e-15,
+      "provenance": {
+        "backend": "cupy",
+        "device": "cuda:0",
+        "solver": "group_proximal_irls_lla"
+      }
+    },
+    {
+      "cpu_selected_alpha": 0.05,
+      "final_refit_coef_error": 2.7755575615628914e-15,
+      "final_refit_intercept_error": 6.938893903907228e-16,
+      "final_refit_parameter_error": 2.7755575615628914e-15,
+      "group_solver_calls": 5,
+      "group_solver_input_locations": [
+        [
+          "cupy",
+          "cuda:0",
+          "cupy",
+          "cuda:0"
+        ]
+      ],
+      "name": "cupy/cv/group_scad",
+      "provenance": {
+        "backend": "cupy",
+        "device": "cuda:0",
+        "solver": "group_proximal_irls_lla"
+      },
+      "score_error": 5.329070518200751e-15,
+      "selected_alpha": 0.05
+    },
+    {
+      "coef_error": 2.7755575615628914e-15,
+      "cpu_flat_reference": {
+        "coef_error": 1.6989828821589725e-08,
+        "data_fit_error": 7.373164578883262e-11,
+        "group_norms": [
+          0.9335196611659403,
+          0.34103894845082733
+        ],
+        "intercept_error": 2.093324402707708e-10,
+        "parameter_error": 1.6989828821589725e-08,
+        "reference_group_norms": [
+          0.9335196569660597,
+          0.34103896056619093
+        ],
+        "threshold": 0.16970562748477142
+      },
+      "cpu_objective": 0.06496542721496051,
+      "group_solver_calls": 1,
+      "group_solver_input_locations": [
+        [
+          "cupy",
+          "cuda:0",
+          "cupy",
+          "cuda:0"
+        ]
+      ],
+      "intercept_error": 6.938893903907228e-16,
+      "name": "cupy/direct/group_mcp",
+      "objective": 0.06496542721496049,
+      "objective_error": 2.7755575615628914e-17,
+      "parameter_error": 2.7755575615628914e-15,
+      "provenance": {
+        "backend": "cupy",
+        "device": "cuda:0",
+        "solver": "group_proximal_irls_lla"
+      }
+    },
+    {
+      "cpu_selected_alpha": 0.05,
+      "final_refit_coef_error": 2.7755575615628914e-15,
+      "final_refit_intercept_error": 6.938893903907228e-16,
+      "final_refit_parameter_error": 2.7755575615628914e-15,
+      "group_solver_calls": 5,
+      "group_solver_input_locations": [
+        [
+          "cupy",
+          "cuda:0",
+          "cupy",
+          "cuda:0"
+        ]
+      ],
+      "name": "cupy/cv/group_mcp",
+      "provenance": {
+        "backend": "cupy",
+        "device": "cuda:0",
+        "solver": "group_proximal_irls_lla"
+      },
+      "score_error": 5.329070518200751e-15,
+      "selected_alpha": 0.05
+    },
+    {
+      "derivative_locations": [
+        [
+          "torch",
+          "cuda:0"
+        ]
+      ],
+      "max_host_values_per_factory_transfer": 5,
+      "name": "torch/low-level/group-fista-lla-transfer",
+      "reporting_transfer_sizes": [
+        5
+      ]
+    },
+    {
+      "coef_error": 3.2751579226442118e-15,
+      "cpu_flat_reference": {
+        "coef_error": 1.6989828821589725e-08,
+        "data_fit_error": 7.373164578883262e-11,
+        "group_norms": [
+          0.9335196611659403,
+          0.34103894845082733
+        ],
+        "intercept_error": 2.093324402707708e-10,
+        "parameter_error": 1.6989828821589725e-08,
+        "reference_group_norms": [
+          0.9335196569660597,
+          0.34103896056619093
+        ],
+        "threshold": 0.2093036072312181
+      },
+      "cpu_objective": 0.07040542721496051,
+      "group_solver_calls": 1,
+      "group_solver_input_locations": [
+        [
+          "torch",
+          "cuda:0",
+          "torch",
+          "cuda:0"
+        ]
+      ],
+      "intercept_error": 9.992007221626409e-16,
+      "name": "torch/direct/group_scad",
+      "objective": 0.07040542721496049,
+      "objective_error": 2.7755575615628914e-17,
+      "parameter_error": 3.2751579226442118e-15,
+      "provenance": {
+        "backend": "torch",
+        "device": "cuda:0",
+        "solver": "group_proximal_irls_lla"
+      }
+    },
+    {
+      "cpu_selected_alpha": 0.05,
+      "final_refit_coef_error": 3.2751579226442118e-15,
+      "final_refit_intercept_error": 9.992007221626409e-16,
+      "final_refit_parameter_error": 3.2751579226442118e-15,
+      "group_solver_calls": 5,
+      "group_solver_input_locations": [
+        [
+          "torch",
+          "cuda:0",
+          "torch",
+          "cuda:0"
+        ]
+      ],
+      "name": "torch/cv/group_scad",
+      "provenance": {
+        "backend": "torch",
+        "device": "cuda:0",
+        "solver": "group_proximal_irls_lla"
+      },
+      "score_error": 1.0373646386341306e-14,
+      "selected_alpha": 0.05
+    },
+    {
+      "coef_error": 3.2751579226442118e-15,
+      "cpu_flat_reference": {
+        "coef_error": 1.6989828821589725e-08,
+        "data_fit_error": 7.373164578883262e-11,
+        "group_norms": [
+          0.9335196611659403,
+          0.34103894845082733
+        ],
+        "intercept_error": 2.093324402707708e-10,
+        "parameter_error": 1.6989828821589725e-08,
+        "reference_group_norms": [
+          0.9335196569660597,
+          0.34103896056619093
+        ],
+        "threshold": 0.16970562748477142
+      },
+      "cpu_objective": 0.06496542721496051,
+      "group_solver_calls": 1,
+      "group_solver_input_locations": [
+        [
+          "torch",
+          "cuda:0",
+          "torch",
+          "cuda:0"
+        ]
+      ],
+      "intercept_error": 9.992007221626409e-16,
+      "name": "torch/direct/group_mcp",
+      "objective": 0.06496542721496049,
+      "objective_error": 2.7755575615628914e-17,
+      "parameter_error": 3.2751579226442118e-15,
+      "provenance": {
+        "backend": "torch",
+        "device": "cuda:0",
+        "solver": "group_proximal_irls_lla"
+      }
+    },
+    {
+      "cpu_selected_alpha": 0.05,
+      "final_refit_coef_error": 3.2751579226442118e-15,
+      "final_refit_intercept_error": 9.992007221626409e-16,
+      "final_refit_parameter_error": 3.2751579226442118e-15,
+      "group_solver_calls": 5,
+      "group_solver_input_locations": [
+        [
+          "torch",
+          "cuda:0",
+          "torch",
+          "cuda:0"
+        ]
+      ],
+      "name": "torch/cv/group_mcp",
+      "provenance": {
+        "backend": "torch",
+        "device": "cuda:0",
+        "solver": "group_proximal_irls_lla"
+      },
+      "score_error": 1.0373646386341306e-14,
+      "selected_alpha": 0.05
+    }
+  ],
+  "derivative_transfer_contract": {
+    "evidence": [
+      {
+        "backend": "numpy",
+        "derivative_locations": [
+          [
+            "numpy",
+            "cpu"
+          ]
+        ],
+        "group_factory_calls": 9,
+        "reporting_transfer_sizes": [],
+        "solver_calls": 1
+      },
+      {
+        "backend": "numpy",
+        "derivative_locations": [
+          [
+            "numpy",
+            "cpu"
+          ]
+        ],
+        "group_factory_calls": 77,
+        "reporting_transfer_sizes": [],
+        "solver_calls": 5
+      },
+      {
+        "backend": "numpy",
+        "derivative_locations": [
+          [
+            "numpy",
+            "cpu"
+          ]
+        ],
+        "group_factory_calls": 9,
+        "reporting_transfer_sizes": [],
+        "solver_calls": 1
+      },
+      {
+        "backend": "numpy",
+        "derivative_locations": [
+          [
+            "numpy",
+            "cpu"
+          ]
+        ],
+        "group_factory_calls": 72,
+        "reporting_transfer_sizes": [],
+        "solver_calls": 5
+      },
+      {
+        "backend": "cupy",
+        "derivative_locations": [
+          [
+            "cupy",
+            "cuda:0"
+          ]
+        ],
+        "group_factory_calls": 9,
+        "reporting_transfer_sizes": [
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5
+        ],
+        "solver_calls": 1
+      },
+      {
+        "backend": "cupy",
+        "derivative_locations": [
+          [
+            "cupy",
+            "cuda:0"
+          ]
+        ],
+        "group_factory_calls": 77,
+        "reporting_transfer_sizes": [
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5
+        ],
+        "solver_calls": 5
+      },
+      {
+        "backend": "cupy",
+        "derivative_locations": [
+          [
+            "cupy",
+            "cuda:0"
+          ]
+        ],
+        "group_factory_calls": 9,
+        "reporting_transfer_sizes": [
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5
+        ],
+        "solver_calls": 1
+      },
+      {
+        "backend": "cupy",
+        "derivative_locations": [
+          [
+            "cupy",
+            "cuda:0"
+          ]
+        ],
+        "group_factory_calls": 72,
+        "reporting_transfer_sizes": [
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5
+        ],
+        "solver_calls": 5
+      },
+      {
+        "backend": "torch",
+        "derivative_locations": [
+          [
+            "torch",
+            "cuda:0"
+          ]
+        ],
+        "group_factory_calls": 9,
+        "reporting_transfer_sizes": [
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5
+        ],
+        "solver_calls": 1
+      },
+      {
+        "backend": "torch",
+        "derivative_locations": [
+          [
+            "torch",
+            "cuda:0"
+          ]
+        ],
+        "group_factory_calls": 77,
+        "reporting_transfer_sizes": [
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5
+        ],
+        "solver_calls": 5
+      },
+      {
+        "backend": "torch",
+        "derivative_locations": [
+          [
+            "torch",
+            "cuda:0"
+          ]
+        ],
+        "group_factory_calls": 9,
+        "reporting_transfer_sizes": [
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5
+        ],
+        "solver_calls": 1
+      },
+      {
+        "backend": "torch",
+        "derivative_locations": [
+          [
+            "torch",
+            "cuda:0"
+          ]
+        ],
+        "group_factory_calls": 72,
+        "reporting_transfer_sizes": [
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5
+        ],
+        "solver_calls": 5
+      }
+    ],
+    "max_host_values_per_factory_transfer": 5
+  },
+  "environment": {
+    "cupy": "13.6.0",
+    "cupy_device_name": "Tesla P100-SXM2-16GB",
+    "device_ordinal": 0,
+    "numpy": "1.24.2",
+    "platform": "Linux-3.10.0-1062.el7.x86_64-x86_64-with-glibc2.31",
+    "python": "3.9.16",
+    "torch": "2.0.0+cu117",
+    "torch_cuda": "11.7",
+    "torch_device_name": "Tesla P100-SXM2-16GB"
+  },
+  "evidence_wrapper": "dev/benchmarks/run_quantile_group_lla_gpu_gate.py",
+  "executed_solver": "group_proximal_irls_lla",
+  "flat_irls_boundary_probe": {
+    "cases": [
+      {
+        "backend": "numpy",
+        "device": "cpu",
+        "irls_calls": [
+          {
+            "X": [
+              "numpy",
+              "cpu"
+            ],
+            "init_coef": null,
+            "max_iter": 2,
+            "sample_weight": [
+              "numpy",
+              "cpu"
+            ]
+          },
+          {
+            "X": [
+              "numpy",
+              "cpu"
+            ],
+            "init_coef": [
+              "numpy",
+              "cpu"
+            ],
+            "max_iter": 1,
+            "sample_weight": [
+              "numpy",
+              "cpu"
+            ]
+          }
+        ],
+        "n_iter": 2,
+        "parameter_error": 0.0
+      },
+      {
+        "backend": "cupy",
+        "device": "cuda:0",
+        "irls_calls": [
+          {
+            "X": [
+              "cupy",
+              "cuda:0"
+            ],
+            "init_coef": null,
+            "max_iter": 2,
+            "sample_weight": [
+              "cupy",
+              "cuda:0"
+            ]
+          },
+          {
+            "X": [
+              "cupy",
+              "cuda:0"
+            ],
+            "init_coef": [
+              "cupy",
+              "cuda:0"
+            ],
+            "max_iter": 1,
+            "sample_weight": [
+              "cupy",
+              "cuda:0"
+            ]
+          }
+        ],
+        "n_iter": 2,
+        "parameter_error": 0.0
+      },
+      {
+        "backend": "torch",
+        "device": "cuda:0",
+        "irls_calls": [
+          {
+            "X": [
+              "torch",
+              "cuda:0"
+            ],
+            "init_coef": null,
+            "max_iter": 2,
+            "sample_weight": [
+              "torch",
+              "cuda:0"
+            ]
+          },
+          {
+            "X": [
+              "torch",
+              "cuda:0"
+            ],
+            "init_coef": [
+              "torch",
+              "cuda:0"
+            ],
+            "max_iter": 1,
+            "sample_weight": [
+              "torch",
+              "cuda:0"
+            ]
+          }
+        ],
+        "n_iter": 2,
+        "parameter_error": 0.0
+      }
+    ],
+    "environment": {
+      "cupy": "13.6.0",
+      "cupy_device_name": "Tesla P100-SXM2-16GB",
+      "numpy": "1.24.2",
+      "torch": "2.0.0+cu117",
+      "torch_cuda": "11.7",
+      "torch_device_name": "Tesla P100-SXM2-16GB"
+    },
+    "schema_version": 1,
+    "source_clean": true,
+    "source_sha": "39f1375b2c7d2c980b4659f1c5005903fa61acb7",
+    "status": "success"
+  },
+  "groups": [
+    [
+      0,
+      1
+    ],
+    [
+      2,
+      3
+    ]
+  ],
+  "low_level_scalar_fista_lla": {
+    "alpha": 0.5,
+    "cases": [
+      {
+        "backend": "cupy",
+        "coef_error": 2.220446049250313e-16,
+        "exhaustion_n_iter": 1,
+        "exhaustion_warning_count": 1,
+        "fixed_point_gap": 4.586397928107999e-11,
+        "intercept_error": 0.0,
+        "n_iter": 146,
+        "objective": 0.7218706995721581,
+        "objective_error": 0.0,
+        "parameter_error": 2.220446049250313e-16,
+        "zero_n_iter": 1,
+        "zero_parameter_error": 0.0
+      },
+      {
+        "backend": "torch",
+        "coef_error": 0.0,
+        "exhaustion_n_iter": 1,
+        "exhaustion_warning_count": 1,
+        "fixed_point_gap": 4.586397928107999e-11,
+        "intercept_error": 0.0,
+        "n_iter": 146,
+        "objective": 0.7218706995721581,
+        "objective_error": 0.0,
+        "parameter_error": 0.0,
+        "zero_n_iter": 1,
+        "zero_parameter_error": 0.0
+      }
+    ],
+    "cpu": {
+      "exhaustion_n_iter": 1,
+      "exhaustion_warning_count": 1,
+      "nontrivial_fixed_point_gap": 4.586397928107999e-11,
+      "nontrivial_fixed_point_l1_weight_max": 0.12297216405176538,
+      "nontrivial_n_iter": 146,
+      "nontrivial_objective": 0.7218706995721581,
+      "zero_coef_abs_max": 0.0,
+      "zero_n_iter": 1
+    },
+    "environment": {
+      "cupy": "13.6.0",
+      "cupy_device_name": "Tesla P100-SXM2-16GB",
+      "numpy": "1.24.2",
+      "python": "3.9.16",
+      "torch": "2.0.0+cu117",
+      "torch_cuda": "11.7",
+      "torch_device_name": "Tesla P100-SXM2-16GB"
+    },
+    "fixtures": {
+      "budget_exhaustion": "weighted_orthogonal_scad",
+      "nontrivial_fixed_point": "weighted_single_feature_scad_interior",
+      "zero_fixed_point": "paired_sign_symmetric_orthogonal"
+    },
+    "max_errors": {
+      "nontrivial_fixed_point_gap": 4.586397928107999e-11,
+      "nontrivial_objective": 0.0,
+      "nontrivial_parameter": 2.220446049250313e-16,
+      "zero_parameter": 0.0
+    },
+    "quantile": 0.35,
+    "schema_version": 3,
+    "solver_controls": {
+      "exhaustion_lla_tol": 1e-12,
+      "exhaustion_max_iter": 1,
+      "exhaustion_max_lla_per_step": 1,
+      "exhaustion_tol": 1e-12,
+      "exhaustion_warning": "Quantile Proximal IRLS-CD target reached",
+      "target_lla_tol": 1e-10,
+      "target_max_iter": 20000,
+      "target_max_lla_per_step": 8,
+      "target_tol": 1e-10
+    },
+    "source_clean": true,
+    "source_sha": "39f1375b2c7d2c980b4659f1c5005903fa61acb7",
+    "status": "success",
+    "tolerances": {
+      "fixed_point_gap": 1e-08,
+      "objective": 8e-05,
+      "parameter": 0.0001
+    }
+  },
+  "max_errors": {
+    "cv_final_refit_parameter": 3.2751579226442118e-15,
+    "cv_score": 1.0373646386341306e-14,
+    "direct_objective": 2.7755575615628914e-17,
+    "direct_parameter": 3.2751579226442118e-15
+  },
+  "quantile": 0.35,
+  "schema_version": 3,
+  "source_clean": true,
+  "source_clean_after_execution": true,
+  "source_clean_before": true,
+  "source_sha": "39f1375b2c7d2c980b4659f1c5005903fa61acb7",
+  "source_sha_after_execution": "39f1375b2c7d2c980b4659f1c5005903fa61acb7",
+  "source_sha_before": "39f1375b2c7d2c980b4659f1c5005903fa61acb7",
+  "status": "success",
+  "tolerances": {
+    "cv_score": 0.0001,
+    "direct_objective": 8e-05,
+    "parameter": 0.0001
+  }
+}
