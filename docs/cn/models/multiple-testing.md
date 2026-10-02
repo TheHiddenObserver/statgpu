@@ -18,7 +18,7 @@
 **Bonferroni 校正**（FWER 控制）：
 $$\tilde{p}_i = \min(m \cdot p_i, 1)$$
 
-**Holm step-down 过程**（FWER 控制，比 Bonferroni 一致地更有功效）：
+**Holm step-down 过程**（FWER 控制，检验功效不低于 Bonferroni）：
 1. 将 P 值排序： $p_{(1)} \leq p_{(2)} \leq \ldots \leq p_{(m)}$
 2. 若 $p_{(i)} < \alpha / (m - i + 1)$，则拒绝 $H_{(i)}$
 3. 校正后：$\tilde{p}_{(i)} = \max_{j \leq i} \min((m-j+1) \cdot p_{(j)}, 1)$
