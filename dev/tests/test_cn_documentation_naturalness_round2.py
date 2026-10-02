@@ -72,3 +72,19 @@ def test_cleaned_learner_pages_avoid_internal_validation_inventories():
         assert fragment not in cox
     for fragment in ("dev/tests/", "dev/benchmarks/", "results/"):
         assert fragment not in index
+
+
+def test_logistic_documentation_matches_public_irls_constructor():
+    from inspect import signature
+
+    from statgpu.linear_model import LogisticRegression
+
+    assert "solver" not in signature(LogisticRegression).parameters
+    for language in ("en", "cn"):
+        text = (_ROOT / f"docs/{language}/models/logistic-regression.md").read_text(
+            encoding="utf-8"
+        )
+        assert "IRLS" in text
+        assert "max_iter" in text
+        assert "tol" in text
+        assert "lbfgs" not in text.lower().replace("-", "")

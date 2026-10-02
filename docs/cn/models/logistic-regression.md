@@ -19,7 +19,7 @@
 
 ## 估计方程
 
-采用 IRLS、Newton 或 L-BFGS 求解，并由 `max_iter` 与 `tol` 控制迭代；`fit_intercept=True` 时同时估计截距。当前 `solver="lbfgs"` 在支持的各后端上都能处理 L2 惩罚。
+采用迭代重加权最小二乘（IRLS）求解，并由 `max_iter` 与 `tol` 控制迭代；`fit_intercept=True` 时同时估计截距。该估计器不提供 `solver` 选择参数。
 
 ## 协方差与推断
 
