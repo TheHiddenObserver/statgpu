@@ -333,8 +333,8 @@ Exact 并列事件当前只支持模型协方差（`cov_type="nonrobust"`）。�
 
 `CoxPHCV` 使用相同的 `ties`、`start`/`entry`、`strata` 与后端语义评估 L2 惩罚
 网格，再以最佳 `penalty` 重拟合 `CoxPH`。传入 `subject_id` 后，同一受试者的
-全部行会被保留在同一自动生成的交叉验证折中；若用户提供的 `cv_splits` 把同一
-受试者同时出现在训练集和验证集中时会被拒绝。`inference_mode` 与
+全部行会被保留在同一自动生成的交叉验证折中；若用户提供的 `cv_splits` 使同一
+受试者同时出现在训练集和验证集中，则会被拒绝。`inference_mode` 与
 `compute_inference` 会转发到最终重拟合。
 
 ```python
@@ -437,7 +437,7 @@ penalized_cv = PenalizedGLM_CV(
 `cv_results_` 会区分选择来源字段（`scoring_device`、
 `selection_origin_device`、`candidate_preparation_origin_device` 与总准备次数）和本次调用字段（`selection_cache_hit`、
 `requested_fit_device`、`effective_device` 与 `*_this_call` 次数）。缓存命中时，本次调用不会重复准备交叉验证折，也不会再次传输响应向量；同时不会改写原先记录的选择来源设备。
-若有限输入的候选返回非有限系数或 likelihood，`CoxPH` 会抛出
+若有限输入的候选返回非有限系数或似然，`CoxPH` 会抛出
 `CoxFitNumericalError`（`FloatingPointError` 子类）；`CoxPHCV` 只排除这类
 候选，输入错误、内存分配器错误、CUDA 错误以及其他非预期运行时错误仍会原样传播。
 
