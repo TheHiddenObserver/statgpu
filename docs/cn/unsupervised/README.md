@@ -1,7 +1,7 @@
 # 无监督学习
 
 > 语言：中文
-> 最后更新：2026-09-29
+> 最后更新：2026-10-02
 > 本页：无监督学习索引
 > 切换：[English](../../en/unsupervised/README.md)
 
@@ -43,50 +43,8 @@
 
 显式 `device="cuda"` 和 `device="torch"` 不会静默回退到 CPU；依赖不可用或模型不支持时会明确报错。
 
-## 共享验证
+## 验证说明
 
-单元测试：
+这些无监督估计器均有对应的单元测试，并在适用时与 scikit-learn、cuML、umap-learn 或 openTSNE 等外部实现进行数值对照。GPU 路径还会检查设备语义和 CPU/GPU 结果一致性。性能会明显依赖数据规模、维数、硬件和数据驻留位置，因此外部基准只应作为参考，实际使用时建议针对自己的工作负载重新测量。
 
-- `dev/tests/test_unsupervised_pca.py`
-- `dev/tests/test_unsupervised_kmeans.py`
-- `dev/tests/test_unsupervised_dbscan.py`
-- `dev/tests/test_unsupervised_gmm.py`
-- `dev/tests/test_unsupervised_nmf.py`
-- `dev/tests/test_unsupervised_agglomerative.py`
-- `dev/tests/test_unsupervised_truncated_svd.py`
-- `dev/tests/test_unsupervised_minibatch_kmeans.py`
-- `dev/tests/test_unsupervised_incremental_pca.py`
-- `dev/tests/test_unsupervised_minibatch_nmf.py`
-- `dev/tests/test_unsupervised_umap.py`
-- `dev/tests/test_unsupervised_tsne.py`
-
-基准测试：
-
-- `dev/benchmarks/benchmark_unsupervised.py`
-- `dev/benchmarks/benchmark_unsupervised_phase2.py`
-- `dev/benchmarks/benchmark_unsupervised_dbscan_cython.py`
-- `dev/benchmarks/benchmark_unsupervised_phase3.py`
-- `dev/benchmarks/benchmark_unsupervised_phase3b.py`
-- `dev/benchmarks/benchmark_unsupervised_phase3c.py`
-
-远程验证产物：
-
-- `results/unsupervised_phase2_dbscan_cython_verify_20260502_210000.json`
-- `results/unsupervised_phase2_verify_20260502_210000.json`
-- `results/unsupervised_phase2_verify_summary_20260502_210000.md`
-- `results/unsupervised_phase3_remote_finalopt_20260505_084444.json`
-- `results/unsupervised_phase3_remote_finalopt_20260505_084444.md`
-- `results/unsupervised_phase3_remote_perfopt_mediumlarge_20260505_131617.json`
-- `results/unsupervised_phase3_remote_perfopt_mediumlarge_20260505_131617.md`
-- `results/unsupervised_phase3_remote_perfopt2_large_tabular_20260505_132223.json`
-- `results/unsupervised_phase3_remote_perfopt2_large_tabular_bs4096_20260505_132359.json`
-- `results/unsupervised_phase3b_verify_20260507_003957.json`
-- `results/unsupervised_phase3b_verify_summary_20260507_003957.md`
-- `results/unsupervised_phase3c_opt7_20260507_185500.json`
-- `results/unsupervised_phase3c_opt7_summary_20260507_185500.md`
-- `results/unsupervised_phase3c_opt7_large_bs4096_20260507_185500.json`
-- `results/unsupervised_phase3c_opt7_large_bs4096_summary_20260507_185500.md`
-- `results/unsupervised_phase3c_opt7_xlarge_20260507_185500.json`
-- `results/unsupervised_phase3c_opt7_xlarge_summary_20260507_185500.md`
-
-`umap-learn`、`openTSNE`、sklearn、statsmodels、R 和 cuML 等外部包仅作为验证或基准测试的对齐基线；生产代码保持 statgpu 自有实现。
+这些外部软件包仅作为验证或基准测试的对照；生产代码保持 statgpu 自有实现。

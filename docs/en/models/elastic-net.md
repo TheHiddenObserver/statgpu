@@ -1,13 +1,57 @@
 # Elastic Net
 
 > Language: English  
-> Last updated: 2026-09-10<br>
+> Last updated: 2026-10-03<br>
 > This page: Model documentation  
 > Language switch: [Chinese](../../cn/models/elastic-net.md)
 
 ## Overview
 
 `ElasticNet` combines L1 and L2 regularization for linear regression, balancing sparse feature selection (Lasso) and coefficient shrinkage (Ridge). It supports CPU, CuPy GPU, and PyTorch GPU execution. Direct fitting uses one backend-neutral `solver` interface; `device` controls where the computation runs.
+
+## When is Elastic Net useful?
+
+Use Elastic Net when you want some coefficients to be exactly zero, but correlated predictors make a pure Lasso fit unstable. Ridge is a simpler choice when shrinkage matters more than sparsity; ordinary [linear regression](linear-regression.md) is useful for a prespecified low-dimensional model without a shrinkage penalty. A selected variable is not automatically a causal effect.
+
+## A complete CPU example
+
+The example uses correlated predictors, standardizes them using training rows only, and evaluates predictions on held-out rows. The chosen tuning values illustrate the API; select them on validation data for a real application.
+
+```python
+import numpy as np
+from statgpu.linear_model import ElasticNet
+
+rng = np.random.default_rng(7)
+X_raw = rng.normal(size=(400, 8))
+X_raw[:, 1] = 0.8 * X_raw[:, 0] + 0.2 * rng.normal(size=400)
+y = 0.4 + X_raw @ np.array([1.2, 0.8, -0.7, 0, 0, 0, 0, 0])
+y += rng.normal(scale=0.5, size=400)
+
+mean = X_raw[:300].mean(axis=0)
+scale = X_raw[:300].std(axis=0)
+X = (X_raw - mean) / scale
+model = ElasticNet(
+    alpha=0.08, l1_ratio=0.5, solver="fista", device="cpu",
+    max_iter=5000, tol=1e-8, compute_inference=False,
+).fit(X[:300], y[:300])
+
+print("coef:", np.round(model.coef_, 3))
+print("selected columns:", np.flatnonzero(np.abs(model.coef_) > 1e-8))
+print("predictions:", np.round(model.predict(X[300:303]), 3))
+print("held-out R2:", round(float(model.score(X[300:], y[300:])), 3))
+```
+
+### Reading the results and choosing parameters
+
+- `coef_` has one coefficient per input column. In this example a unit increase means one training-set standard deviation because `X` was standardized. `intercept_` and `coef_` describe the prediction fit.
+- Positive `l1_ratio` permits exact zeros. The displayed selected-column indices are a numerical summary of the penalized fit, not discoveries with guaranteed error control.
+- `predict(X_new)` returns a one-dimensional response prediction; `score(X_new, y_new)` returns R². R² can be negative on new data, and training R² is not evidence of generalization.
+- Larger `alpha` gives stronger total regularization. `l1_ratio` near 1 favors sparsity; closer to 0 gives more L2 shrinkage. For predictive tuning, use validation data or `ElasticNetCV` to choose both, keeping a final test set separate.
+- Fit preprocessing only on each training split. Remove or otherwise handle zero-variance columns before dividing by their standard deviation. Do not center/scale the whole dataset before cross-validation.
+
+## Input and prediction requirements
+
+Use finite numeric `X` with shape `(n_samples, n_features)` and a one-dimensional response `y`. Prediction columns must match the training order and preprocessing. The fitting interface is `fit(X=None, y=None, sample_weight=None, initial_coef=None, **kwargs)`; optional nonnegative analytic weights enter the normalized weighted loss. `initial_coef` supplies a one-fit starting coefficient vector; it is not a persistent `warm_start` constructor flag. The shared optional formula interface accepts `formula=` and `data=` via fit keywords.
 
 ## Path
 
@@ -46,7 +90,7 @@ The normal default is **FISTA** (Fast Iterative Shrinkage-Thresholding Algorithm
 
 The L1 and L2 parts are handled by the Elastic Net proximal operator:
 
-```python
+```text
 # Gradient of the average squared-error term
 grad = (X.T @ X @ w - X.T @ y) / n
 
@@ -91,7 +135,9 @@ Numerical convergence only establishes that the declared optimization problem ha
 
 The public wrapper does not accept separate `backend`, `warm_start`, or `random_state` constructor parameters. Backend selection is controlled by `device`; a one-fit warm start can be supplied through `fit(initial_coef=...)`.
 
-## CPU/GPU Examples
+## Additional CPU/GPU examples
+
+Run the data preparation above first. These examples reuse `X` and `y`; the inference example is separate from predictive tuning.
 
 ```python
 from statgpu.linear_model import ElasticNet
@@ -197,6 +243,16 @@ After fitting, the following attributes are available:
 
 Methods: `fit(X, y)`, `predict(X)`, `score(X, y)`, `summary()`
 
+## Common pitfalls and complete API
+
+- `summary()` requires successful inference; with the default `compute_inference=False`, use prediction/score and coefficient outputs instead.
+- Post-selection OLS is a diagnostic on the selected variables, not a general correction for having searched for them. Debiased reporting coefficients can differ from prediction coefficients; see the inference section above.
+- Hitting `max_iter` can indicate insufficient numerical accuracy. Inspect warnings and iteration count, check feature scaling, and compare results under tighter tolerance/larger iteration budget before interpretation.
+- Explicit `device="cuda"` or `device="torch"` requires a usable corresponding GPU backend and does not silently switch to CPU. See [device and memory](../guides/device-and-memory.md).
+- Check the [solver–penalty matrix](../guides/solver-penalty-matrix.md) before requesting a different solver; `device` does not replace `solver`.
+
+The constructor table above is complete for `ElasticNet`. Full public class/method signatures and docstrings are available in the [ElasticNet API source](../../../statgpu/linear_model/wrappers/_elasticnet.py), or through `help(ElasticNet)` for the installed version. Inherited `get_params` / `set_params` expose estimator configuration. For cross-validation use the separate [ElasticNetCV API source](../../../statgpu/linear_model/cv/_elasticnet_cv.py), rather than assuming its parameters equal those of direct `ElasticNet`.
+
 ## Numerical Validation
 
 The maintained regression suite checks agreement across supported backends and reference implementations at tolerances appropriate to each dtype and solver path. Solver API migration behavior is covered by `dev/tests/test_penalized_solver_api_cleanup.py`; node-wise tuning is covered by `dev/tests/test_nodewise_alpha_inference_contract.py`; the post-selection OLS migration and active-set OLS/WLS behavior are covered by `dev/tests/test_post_selection_ols_inference_api.py`.
@@ -206,3 +262,4 @@ The maintained regression suite checks agreement across supported backends and r
 - Zou, H., & Hastie, T. (2005). Regularization and variable selection via the elastic net. *Journal of the Royal Statistical Society: Series B*, 67(2), 301-320.
 - Beck, A., & Teboulle, M. (2009). A fast iterative shrinkage-thresholding algorithm for linear inverse problems. *SIAM Journal on Imaging Sciences*, 2(1), 183-202.
 - van de Geer, S., Buhlmann, P., Ritov, Y., & Dezeure, R. (2014). On asymptotically optimal confidence regions and tests for high-dimensional models. *Annals of Statistics*, 42(3), 1166-1202.
+
