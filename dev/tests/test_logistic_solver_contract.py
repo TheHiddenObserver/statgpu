@@ -1077,6 +1077,113 @@ def test_formula_helper_design_and_weights_preserve_lbfgs_array_semantics(
     transformed = parser.transform(new_frame)
     np.testing.assert_array_equal(transformed, design[:12])
     np.testing.assert_allclose(
-        parsed.predict_proba(transformed[:, 1:]), manual.predict_proba(manual_X[:12]),
-        rtol=2e-7, atol=2e-8,
+        parsed.predict_proba(transformed[:, 1:]),
+        manual.predict_proba(manual_X[:12]),
+        rtol=2e-7,
+        atol=2e-8,
     )
+
+
+def _mixed_scale_problem(scale):
+    rng = np.random.default_rng(1)
+    base = rng.normal(size=(500, 2))
+    y = rng.binomial(1, expit(1.0 + base @ [0.5, 0.9])).astype(float)
+    X = base.copy()
+    X[:, 0] *= scale
+    return X, y
+
+
+@pytest.mark.parametrize("scale", [1000.0, 10000.0])
+@pytest.mark.parametrize(
+    "backend_name", ["numpy", "torch_cpu", "cupy_cuda", "torch_cuda"]
+)
+def test_lbfgs_mixed_scale_success_requires_gradient_stationarity(
+    request, scale, backend_name
+):
+    X, y = _mixed_scale_problem(scale)
+    reference = LogisticRegression(
+        solver="irls",
+        device="cpu",
+        C=1.0,
+        tol=1e-9,
+        max_iter=500,
+        compute_inference=False,
+    ).fit(X, y)
+    expected = reference.predict_proba(X)
+    native = lambda a: a
+    device = "cpu"
+    if backend_name == "torch_cpu":
+        _, backend = request.getfixturevalue("torch_cpu_logistic_backend")
+        native, device = backend.asarray, "torch"
+    elif backend_name == "cupy_cuda":
+        request.getfixturevalue("cupy_available")
+        import cupy as cp
+
+        native, device = cp.asarray, "cuda"
+    elif backend_name == "torch_cuda":
+        request.getfixturevalue("torch_cuda_available")
+        import torch
+
+        native = lambda a: torch.as_tensor(a, dtype=torch.float64, device="cuda")
+        device = "torch"
+    model = LogisticRegression(
+        solver="lbfgs",
+        device=device,
+        C=1.0,
+        tol=1e-4,
+        max_iter=500,
+        compute_inference=False,
+    ).fit(native(X), native(y))
+    _, gradient, _ = _objective_functions(X, y, None, 1.0, True)
+    assert model.converged_
+    assert np.linalg.norm(gradient(_parameters(model))) / len(y) < model.tol
+    np.testing.assert_allclose(
+        _numpy(model.predict_proba(native(X))), expected, rtol=5e-4, atol=2e-4
+    )
+
+
+def test_shared_lbfgs_keeps_legacy_step_stop_unless_loss_requires_gradient():
+    from statgpu.linear_model.wrappers._logistic_solver import _LogisticObjective
+    from statgpu.solvers import lbfgs_solver
+
+    X, y = _mixed_scale_problem(1000.0)
+    design = np.column_stack([np.ones(len(y)), X])
+    legacy = _LogisticObjective(None, 1.0, True, normalizer=len(y))
+    legacy._require_gradient_convergence = False
+    strict = _LogisticObjective(None, 1.0, True, normalizer=len(y))
+    legacy_params, legacy_iterations = lbfgs_solver(
+        legacy, None, design, y, tol=1e-4, max_iter=500
+    )
+    strict_params, strict_iterations = lbfgs_solver(
+        strict, None, design, y, tol=1e-4, max_iter=500
+    )
+    assert legacy_iterations < strict_iterations
+    assert (
+        np.linalg.norm(legacy.fused_value_and_gradient(design, y, legacy_params)[1])
+        > 1e-2
+    )
+    assert (
+        np.linalg.norm(strict.fused_value_and_gradient(design, y, strict_params)[1])
+        < 1e-4
+    )
+
+
+def test_lbfgs_early_nonstationary_return_is_not_converged(
+    logistic_problem, monkeypatch
+):
+    from statgpu.linear_model.wrappers import _logistic_solver as adapter
+
+    X, y, weight = logistic_problem
+    monkeypatch.setattr(
+        adapter,
+        "lbfgs_solver",
+        lambda loss, penalty, design, response, **kwargs: (
+            np.zeros(design.shape[1]),
+            1,
+        ),
+    )
+    with pytest.warns(ConvergenceWarning, match="LBFGS"):
+        model = LogisticRegression(
+            solver="lbfgs", device="cpu", max_iter=100, compute_inference=False
+        ).fit(X, y, sample_weight=weight)
+    assert not model.converged_

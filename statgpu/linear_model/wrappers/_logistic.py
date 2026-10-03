@@ -90,7 +90,7 @@ class LogisticRegression(BaseEstimator):
         Maximum number of iterations for the selected solver.
     tol : float, default=1e-4
         Tolerance for stopping criteria. IRLS checks parameter-step norm.
-        L-BFGS checks gradient or accepted-step norm after dividing the entire
+        L-BFGS checks the gradient norm after dividing the entire
         penalized objective by the sample count (or total sample weight).
     device : str or Device, default='auto'
         Computation device: 'cpu', 'cuda' (CuPy), 'torch' (Torch CUDA), or 'auto'.
@@ -100,8 +100,8 @@ class LogisticRegression(BaseEstimator):
         Optimization algorithm. 'auto' retains the IRLS route. Both explicit
         solvers minimize the summed (optionally weighted) Bernoulli negative
         log-likelihood plus ``||coef||**2 / (2*C)`` for positive C. The
-        intercept is unpenalized; C=0 disables the penalty. L-BFGS stops on
-        the gradient norm or the norm of an accepted parameter step.
+        intercept is unpenalized; C=0 disables the penalty. L-BFGS stops when
+        the gradient norm meets the tolerance.
     
     Attributes
     ----------

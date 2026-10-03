@@ -5,7 +5,7 @@
 Baseline: master `3fba9af81db8624ab6e882cb153e7ede7ead7f63`.
 This additive feature reconciles standalone logistic wrappers with an existing
 backend-native L-BFGS implementation; it does not delegate to unpenalized GLM
-fitting or change the shared solver. The existing docs-only PRs are independent.
+fitting or change default shared-solver behavior. The existing docs-only PRs are independent.
 Package metadata stays at 0.2.5; this feature is unreleased.
 
 ## Reconnaissance and design decisions
@@ -40,10 +40,12 @@ Existing inference runs at the selected penalized estimate and retains its
 ridge curvature, covariance modes, likelihood diagnostics, and reporting
 transfers. It does not correct shrinkage or CV-selection uncertainty.
 
-Shared L-BFGS has gradient/accepted-step stopping and no returned status. The
-adapter checks finite final value/gradient, preserves line-search warnings,
-and publishes one estimator convergence warning. An exhausted budget requires
-final gradient convergence; a failed line search is never marked converged.
+Shared L-BFGS retains its default gradient/accepted-step stopping for existing
+callers. The classifier opts into the private loss-owned gradient-convergence control and requires
+finite final value/gradient plus gradient stationarity. Independent review
+found that accepted-step stopping alone can claim success for inaccurate
+mixed-scale fits. The adapter preserves line-search warnings and publishes
+one estimator convergence warning; a failed line search is never converged.
 
 ## Validation and completion boundary
 

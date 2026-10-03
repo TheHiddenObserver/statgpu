@@ -34,7 +34,7 @@ L-BFGS 在优化时将**整个目标函数（包括惩罚项）**除以样本数
 
 - `solver="auto"` 解析为 `"irls"`，保持默认拟合行为。
 - `solver="irls"` 使用迭代加权最小二乘法，`tol` 用于判断参数步长范数。
-- `solver="lbfgs"` 使用有限内存 BFGS，`tol` 用于判断缩放后目标函数的梯度范数，或已接受参数步长的范数。
+- `solver="lbfgs"` 使用有限内存 BFGS，`tol` 用于判断缩放后目标函数的梯度范数；参数步长很小本身不能判定为收敛。
 - `max_iter` 限制所选求解器的迭代次数。请检查 `converged_` 和 `n_iter_`；未达到停止准则时会发出 `ConvergenceWarning`。
 - `get_params()["solver"]` 保留用户指定值，拟合后的 `solver_` 记录实际解析值。`summary()` 显示两者及收敛状态，但要求 `compute_inference=True`。
 

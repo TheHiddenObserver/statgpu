@@ -20,6 +20,7 @@ class _LogisticObjective:
     """
 
     name = "logistic_l2_sum"
+    _require_gradient_convergence = True
 
     def __init__(self, sample_weight, C, fit_intercept, normalizer=1.0):
         self.normalizer = normalizer
@@ -52,7 +53,7 @@ class _LogisticObjective:
 def _fit_logistic_lbfgs(
     X_design, y, sample_weight, C, fit_intercept, max_iter, tol
 ):
-    """Fit on the input backend, retaining generic L-BFGS stopping semantics."""
+    """Fit on the input backend and require final gradient stationarity."""
     # Scale the complete objective, including ridge, for stable line searches.
     # Scaling only the likelihood would change the meaning of C.
     normalizer = (
@@ -86,10 +87,7 @@ def _fit_logistic_lbfgs(
     gradient_norm = float(_norm2_dev(gradient))
     if not finite or not np.isfinite(gradient_norm):
         raise FloatingPointError("LogisticRegression L-BFGS produced non-finite results")
-    # The shared solver can stop on gradient norm or accepted parameter-step
-    # norm. Its return value alone cannot distinguish budget exhaustion from
-    # a small final step, so the boundary case requires gradient confirmation.
-    converged = not line_search_failed and (
-        gradient_norm < tol or n_iter < max_iter
-    )
+    # A small accepted step alone can be arbitrarily misleading when feature
+    # scales differ. Only the final scaled-objective gradient certifies success.
+    converged = not line_search_failed and gradient_norm < tol
     return params, n_iter, converged

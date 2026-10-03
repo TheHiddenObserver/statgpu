@@ -34,7 +34,7 @@ L-BFGS divides the **whole objective, including the penalty**, by the sample cou
 
 - `solver="auto"` resolves to `"irls"`, preserving the default fitting behavior.
 - `solver="irls"` uses iteratively reweighted least squares. `tol` applies to the parameter-step norm.
-- `solver="lbfgs"` uses limited-memory BFGS. `tol` applies to the gradient norm of the scaled objective or the norm of an accepted parameter step.
+- `solver="lbfgs"` uses limited-memory BFGS. `tol` applies to the gradient norm of the scaled objective. A small parameter step alone is not treated as convergence.
 - `max_iter` limits iterations for the selected solver. Check `converged_` and `n_iter_`; a fit that fails to meet its stopping rule emits `ConvergenceWarning`.
 - `get_params()["solver"]` retains the requested value, while `solver_` records the resolved solver after fitting. `summary()` shows both values and the convergence status; it requires `compute_inference=True`.
 
