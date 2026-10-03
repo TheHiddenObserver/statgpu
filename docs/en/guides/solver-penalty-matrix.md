@@ -26,6 +26,10 @@ General conventions:
 
 `AdaptiveGroupLassoPenalty` is available as a public penalty object but has no string-registry alias because callers must supply explicit group weights.
 
+## Standalone logistic classifiers
+
+`LogisticRegression` and `LogisticRegressionCV` accept `solver="auto"`, `"irls"`, and `"lbfgs"`. `auto` resolves to IRLS. Both explicit solvers use the same summed weighted Bernoulli loss plus L2 penalty controlled by `C`; the intercept is unpenalized and `C=0` disables regularization. CV honors the selected solver for candidates and final refit on NumPy, CuPy, and Torch. These wrappers do not expose the generic GLM solver inventory. See [LogisticRegression](../models/logistic-regression.md) for the objective, stopping rules, and GPU CV behavior.
+
 ## 1. Direct-fit `solver="auto"`
 
 | Loss | l2 / none | l1 | elasticnet | scad | mcp | adaptive_l1 | group_lasso | group_scad | group_mcp |

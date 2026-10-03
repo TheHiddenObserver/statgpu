@@ -87,6 +87,7 @@ jobs:
             dev/tests/test_refactor_post_phase.py \
             dev/tests/test_linear.py \
             dev/tests/test_logistic.py \
+            dev/tests/test_logistic_solver_contract.py \
             dev/tests/test_cox.py \
             dev/tests/test_cox_cv.py \
             dev/tests/test_cox_core_completion.py \
@@ -182,6 +183,7 @@ jobs:
         run: |
           python -m pytest \
             dev/tests/test_logistic_cv_torch_dtype.py \
+            dev/tests/test_logistic_solver_contract.py \
             dev/tests/test_panel_stage_a_torch_cpu.py \
             dev/tests/test_panel_stage_b_torch_cpu.py \
             dev/tests/test_issue161_quantile_irls_contract.py \

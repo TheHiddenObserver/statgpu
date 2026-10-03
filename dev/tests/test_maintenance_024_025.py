@@ -4111,6 +4111,8 @@ def test_public_cv_auto_refit_uses_cv_selected_backend(
             self.coef_ = np.zeros(2)
             self.intercept_ = 0.0
             self.n_iter_ = 1
+            requested_solver = kwargs.get("solver", "auto")
+            self.solver_ = "irls" if requested_solver == "auto" else requested_solver
 
         def fit(self, X, y, sample_weight=None):
             return self

@@ -7,6 +7,23 @@
 
 This page records user-visible changes for current and recent statgpu releases.
 
+## Unreleased — Logistic classifier solver selection (2026-10-03)
+
+### Added
+
+- `LogisticRegression` and `LogisticRegressionCV` now accept `solver="auto"`, `"irls"`, and `"lbfgs"`; `auto` preserves the existing IRLS route. This is unreleased branch behavior, not a claim about the published 0.2.5 package.
+- L-BFGS retains the summed weighted Bernoulli objective plus `||coef||**2/(2*C)`, excludes the intercept from ridge, and preserves the legacy unpenalized `C=0` direct fit. Its implementation scales the entire objective by sample count or total weight, leaving the meaning of `C` unchanged.
+- NumPy, CuPy, and Torch use backend-native fitting. GPU CV keeps batched IRLS for `auto`/`irls`; explicit L-BFGS uses float64 candidate fits on the selected backend and the same solver for the final refit. `gpu_cv_mixed_precision` affects only batched IRLS.
+- Fitted `solver_`, requested/resolved summary output, transactional validation, and solver-specific convergence reporting make the executed route visible. Existing covariance inference is retained without correcting shrinkage or CV tuning uncertainty.
+- Changed implementation: `statgpu/linear_model/wrappers/_logistic.py`, new `_logistic_solver.py`, `statgpu/linear_model/cv/_logistic_cv.py`, and the opt-in gradient-convergence hook in `statgpu/solvers/_lbfgs.py`. Regression coverage: `dev/tests/test_logistic_solver_contract.py`. Physical CuPy/Torch CUDA validation is pending; CPU tests and Torch-CPU harness checks are not physical GPU evidence.
+
+```python
+from statgpu.linear_model import LogisticRegressionCV
+model = LogisticRegressionCV(Cs=[0.1, 1.0, 10.0], solver="lbfgs", device="cpu")
+model.fit(X, y)
+print(model.C_, model.solver_)
+```
+
 ## Unreleased — Quantile solver and inference updates (PR #166, targeted for 0.2.6)
 
 ### Fixed

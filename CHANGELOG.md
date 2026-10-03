@@ -2,6 +2,13 @@
 
 All notable changes to statgpu are documented here, organized by release and date.
 
+## Unreleased — 2026-10-03
+
+### PR #172 — Logistic classifier solver selection
+- Added `solver="auto"|"irls"|"lbfgs"` to `LogisticRegression` and `LogisticRegressionCV`, preserving default IRLS and the weighted summed-loss inverse-C L2 objective.
+- Propagated solver selection through CV candidates and final refits; retained backend-native GPU fitting and added fitted `solver_`/summary reporting.
+- Added objective, inference, API, CV, and backend regression tests with synchronized English/Chinese documentation. Physical CUDA validation remains pending.
+
 ## Unreleased — 2026-09-20
 
 ### PR #166 — Quantile solver and inference updates (targeted for 0.2.6)
