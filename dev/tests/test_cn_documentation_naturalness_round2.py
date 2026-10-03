@@ -1,7 +1,10 @@
 """Regression checks for natural Chinese prose in the second cleanup batch."""
 
 import re
+from inspect import signature
 from pathlib import Path
+
+import pytest
 
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -65,6 +68,7 @@ def test_second_batch_avoids_known_translationese_fragments():
         match = _FORBIDDEN_PROSE.search(text)
         assert match is None, f"{path}: mixed-language prose {match.group(0)!r}"
 
+
 def test_cleaned_learner_pages_avoid_internal_validation_inventories():
     cox = (_ROOT / "docs/cn/models/coxph.md").read_text(encoding="utf-8")
     index = (_ROOT / "docs/cn/unsupervised/README.md").read_text(encoding="utf-8")
@@ -74,17 +78,78 @@ def test_cleaned_learner_pages_avoid_internal_validation_inventories():
         assert fragment not in index
 
 
-def test_logistic_documentation_matches_public_irls_constructor():
-    from inspect import signature
+# The standalone solver capability may evolve (issue #131 / PR #172).
+# Guard agreement with the public API, rather than permanently forbidding it.
+_NO_SOLVER_STATEMENTS = {
+    "en": "This estimator does not expose a `solver` selection parameter.",
+    "cn": "该估计器不提供 `solver` 选择参数。",
+}
 
+
+def _check_logistic_solver_documentation(estimator, text, language):
+    constructor = signature(estimator)
+    has_solver = "solver" in constructor.parameters
+    limitation = _NO_SOLVER_STATEMENTS[language]
+    assert (limitation in text) == (not has_solver), (
+        f"{language}: solver limitation disagrees with the public constructor"
+    )
+    for control in ("IRLS", "max_iter", "tol"):
+        assert control in text, f"{language}: missing fitting control {control}"
+
+    documented_solvers = set(re.findall(r"""\bsolver\s*=\s*["']([^"']+)["']""", text))
+    if has_solver:
+        assert documented_solvers, f"{language}: document concrete solver choices"
+        for solver in documented_solvers:
+            # Check keyword acceptance and constructor validation, without
+            # fitting data or requiring an optional numerical backend.
+            constructor.bind_partial(solver=solver)
+            estimator(solver=solver)
+    else:
+        assert not documented_solvers, f"{language}: unsupported solver keyword"
+        assert "lbfgs" not in text.lower().replace("-", ""), (
+            f"{language}: unsupported L-BFGS capability"
+        )
+
+
+def test_logistic_documentation_matches_public_solver_capability():
     from statgpu.linear_model import LogisticRegression
 
-    assert "solver" not in signature(LogisticRegression).parameters
     for language in ("en", "cn"):
         text = (_ROOT / f"docs/{language}/models/logistic-regression.md").read_text(
             encoding="utf-8"
         )
-        assert "IRLS" in text
-        assert "max_iter" in text
-        assert "tol" in text
-        assert "lbfgs" not in text.lower().replace("-", "")
+        _check_logistic_solver_documentation(LogisticRegression, text, language)
+
+
+@pytest.mark.parametrize("language", ("en", "cn"))
+def test_solver_documentation_guard_accepts_current_and_extended_apis(language):
+    def irls_only():
+        pass
+
+    def selectable(*, solver="auto"):
+        if solver not in ("auto", "irls", "lbfgs"):
+            raise ValueError("unsupported solver")
+
+    controls = "IRLS max_iter tol"
+    limitation = controls + " " + _NO_SOLVER_STATEMENTS[language]
+    selection = controls + ' solver="auto" solver="irls" solver="lbfgs"'
+
+    _check_logistic_solver_documentation(irls_only, limitation, language)
+    _check_logistic_solver_documentation(selectable, selection, language)
+
+    # Neither retaining stale prose after capability expansion nor advertising
+    # future support before it exists is a passing documentation state.
+    with pytest.raises(AssertionError):
+        _check_logistic_solver_documentation(selectable, limitation, language)
+    with pytest.raises(AssertionError):
+        _check_logistic_solver_documentation(irls_only, selection, language)
+    with pytest.raises(AssertionError):
+        _check_logistic_solver_documentation(selectable, controls, language)
+    with pytest.raises(AssertionError):
+        _check_logistic_solver_documentation(
+            irls_only, limitation + ' solver="lbfgs"', language
+        )
+    with pytest.raises(ValueError, match="unsupported solver"):
+        _check_logistic_solver_documentation(
+            selectable, controls + ' solver="unknown"', language
+        )
