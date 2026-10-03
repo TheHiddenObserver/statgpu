@@ -1,6 +1,6 @@
 """
 Logistic regression with full statistical inference and GPU support.
-Uses IRLS (Iteratively Reweighted Least Squares) algorithm.
+Uses IRLS or L-BFGS with the same optional L2 regularization.
 """
 
 __all__ = ["LogisticRegression"]
@@ -66,12 +66,18 @@ def _require_cupy(context: str):
 
 
 
+def _resolve_logistic_solver(solver):
+    """Validate the public selector and preserve the historical auto route."""
+    if not isinstance(solver, str) or solver not in ("auto", "irls", "lbfgs"):
+        raise ValueError("solver must be one of: 'auto', 'irls', 'lbfgs'")
+    return "irls" if solver == "auto" else solver
+
+
 class LogisticRegression(BaseEstimator):
     """
     Logistic regression with GPU acceleration and full statistical inference.
     
-    Uses IRLS (Iteratively Reweighted Least Squares) algorithm with
-    optional L2 regularization.
+    Uses IRLS or L-BFGS with optional L2 regularization.
     
     Parameters
     ----------
@@ -81,13 +87,21 @@ class LogisticRegression(BaseEstimator):
         Inverse of regularization strength. Positive values use L2
         regularization; ``C=0`` preserves the legacy unregularized path.
     max_iter : int, default=100
-        Maximum number of iterations for IRLS.
+        Maximum number of iterations for the selected solver.
     tol : float, default=1e-4
-        Tolerance for stopping criteria.
+        Tolerance for stopping criteria. IRLS checks parameter-step norm.
+        L-BFGS checks gradient or accepted-step norm after dividing the entire
+        penalized objective by the sample count (or total sample weight).
     device : str or Device, default='auto'
-        Computation device: 'cpu', 'cuda', or 'auto'.
+        Computation device: 'cpu', 'cuda' (CuPy), 'torch' (Torch CUDA), or 'auto'.
     n_jobs : int, optional
         Number of parallel jobs for CPU computation.
+    solver : {'auto', 'irls', 'lbfgs'}, default='auto'
+        Optimization algorithm. 'auto' retains the IRLS route. Both explicit
+        solvers minimize the summed (optionally weighted) Bernoulli negative
+        log-likelihood plus ``||coef||**2 / (2*C)`` for positive C. The
+        intercept is unpenalized; C=0 disables the penalty. L-BFGS stops on
+        the gradient norm or the norm of an accepted parameter step.
     
     Attributes
     ----------
@@ -97,6 +111,10 @@ class LogisticRegression(BaseEstimator):
         Independent term.
     n_iter_ : int
         Number of iterations run.
+    solver_ : str
+        Resolved solver used by the last successful fit.
+    converged_ : bool
+        Whether the selected solver satisfied its stopping criterion.
     """
     
     def __init__(
@@ -111,8 +129,12 @@ class LogisticRegression(BaseEstimator):
         cov_type: str = "nonrobust",
         gpu_memory_cleanup: bool = False,
         hac_maxlags: Optional[int] = None,
+        solver: str = "auto",
     ):
         super().__init__(device=device, n_jobs=n_jobs)
+        _resolve_logistic_solver(solver)
+        self.solver = solver
+        self.solver_ = None
         self.fit_intercept = fit_intercept
         self.C = C
         self._C = (
@@ -189,6 +211,8 @@ class LogisticRegression(BaseEstimator):
             "_accuracy_gpu",
             "_accuracy",
             "converged_",
+            "solver_",
+            "_solver_requested",
         ):
             setattr(self, name, None)
 
@@ -232,6 +256,9 @@ class LogisticRegression(BaseEstimator):
         ):
             raise ValueError("hac_maxlags must be a non-negative integer or None")
 
+        resolved_solver = _resolve_logistic_solver(self.solver)
+        self._solver_requested = self.solver
+        self._solver = resolved_solver
         self._fit_intercept = bool(self.fit_intercept)
         self._C = C
         self._max_iter = int(self.max_iter)
@@ -247,7 +274,7 @@ class LogisticRegression(BaseEstimator):
         self.converged_ = bool(converged)
         if not self.converged_:
             warnings.warn(
-                f"LogisticRegression IRLS did not converge within "
+                f"LogisticRegression {self._solver.upper()} did not converge within "
                 f"{self._max_iter} iterations.",
                 ConvergenceWarning,
                 stacklevel=3,
@@ -385,6 +412,7 @@ class LogisticRegression(BaseEstimator):
 
             if self._compute_inference_enabled and device == Device.CPU:
                 self._compute_inference()
+            self.solver_ = self._solver
             self._fitted = True
             return self
     
@@ -412,51 +440,59 @@ class LogisticRegression(BaseEstimator):
         # Regularization parameter (lambda = 1 / (2*C))
         alpha = 1.0 / self._C if self._C > 0 else 0.0
         
-        # IRLS iteration
-        iteration = 0
-        converged = False
-        for iteration in range(self._max_iter):
-            params_old = params.copy()
-            
-            # Predicted probabilities
-            eta = self._X_design @ params
-            p = self._sigmoid(eta)
-            
-            # The IRLS working response uses only the Bernoulli variance.
-            # Analytic sample weights belong in the WLS weights, not in the
-            # working-response denominator.
-            W_base = np.clip(p * (1 - p), 1e-8, 1 - 1e-8)
-            z = eta + (y - p) / W_base
-            W = (
-                W_base
-                if sample_weight is None
-                else W_base * np.asarray(sample_weight, dtype=np.float64)
+        if self._solver == "lbfgs":
+            from ._logistic_solver import _fit_logistic_lbfgs
+
+            params, self.n_iter_, converged = _fit_logistic_lbfgs(
+                self._X_design, y, sample_weight, self._C, self._fit_intercept,
+                self._max_iter, self._tol,
             )
+        else:
+            # IRLS iteration
+            iteration = 0
+            converged = False
+            for iteration in range(self._max_iter):
+                params_old = params.copy()
             
-            # Weighted least squares
-            # (X'WX + alpha*I) * params = X'Wz
-            XtWX = self._X_design.T @ (self._X_design * W[:, np.newaxis])
+                # Predicted probabilities
+                eta = self._X_design @ params
+                p = self._sigmoid(eta)
             
-            # Add L2 regularization (don't regularize intercept)
-            if alpha > 0:
-                reg_diag = np.full(XtWX.shape[0], alpha)
-                if self._fit_intercept:
-                    reg_diag[0] = 0.0  # Don't regularize intercept
-                XtWX += np.diag(reg_diag)
+                # The IRLS working response uses only the Bernoulli variance.
+                # Analytic sample weights belong in the WLS weights, not in the
+                # working-response denominator.
+                W_base = np.clip(p * (1 - p), 1e-8, 1 - 1e-8)
+                z = eta + (y - p) / W_base
+                W = (
+                    W_base
+                    if sample_weight is None
+                    else W_base * np.asarray(sample_weight, dtype=np.float64)
+                )
             
-            Xtz = self._X_design.T @ (W * z)
+                # Weighted least squares
+                # (X'WX + alpha*I) * params = X'Wz
+                XtWX = self._X_design.T @ (self._X_design * W[:, np.newaxis])
             
-            try:
-                params = np.linalg.solve(XtWX, Xtz)
-            except np.linalg.LinAlgError:
-                params = np.linalg.lstsq(XtWX, Xtz, rcond=None)[0]
+                # Add L2 regularization (don't regularize intercept)
+                if alpha > 0:
+                    reg_diag = np.full(XtWX.shape[0], alpha)
+                    if self._fit_intercept:
+                        reg_diag[0] = 0.0  # Don't regularize intercept
+                    XtWX += np.diag(reg_diag)
             
-            # Check convergence
-            if np.linalg.norm(params - params_old) < self._tol:
-                converged = True
-                break
+                Xtz = self._X_design.T @ (W * z)
+            
+                try:
+                    params = np.linalg.solve(XtWX, Xtz)
+                except np.linalg.LinAlgError:
+                    params = np.linalg.lstsq(XtWX, Xtz, rcond=None)[0]
+            
+                # Check convergence
+                if np.linalg.norm(params - params_old) < self._tol:
+                    converged = True
+                    break
         
-        self.n_iter_ = iteration + 1
+            self.n_iter_ = iteration + 1
         self._publish_convergence(converged)
         self._params = params
         
@@ -517,45 +553,53 @@ class LogisticRegression(BaseEstimator):
             else cp.asarray(sample_weight, dtype=cp.float64).reshape(-1)
         )
 
-        # IRLS iteration
-        iteration = 0
-        converged = False
-        for iteration in range(self._max_iter):
-            params_old = params.copy()
+        if self._solver == "lbfgs":
+            from ._logistic_solver import _fit_logistic_lbfgs
+
+            params, self.n_iter_, converged = _fit_logistic_lbfgs(
+                X_design, y, sw_work, self._C, self._fit_intercept,
+                self._max_iter, self._tol,
+            )
+        else:
+            # IRLS iteration
+            iteration = 0
+            converged = False
+            for iteration in range(self._max_iter):
+                params_old = params.copy()
             
-            # Predicted probabilities
-            eta = X_design @ params
-            p = 1 / (1 + cp.exp(-cp.clip(eta, -500, 500)))
+                # Predicted probabilities
+                eta = X_design @ params
+                p = 1 / (1 + cp.exp(-cp.clip(eta, -500, 500)))
             
-            W_base = cp.clip(p * (1 - p), 1e-8, 1 - 1e-8)
-            z = eta + (y - p) / W_base
-            W = W_base if sw_work is None else W_base * sw_work
+                W_base = cp.clip(p * (1 - p), 1e-8, 1 - 1e-8)
+                z = eta + (y - p) / W_base
+                W = W_base if sw_work is None else W_base * sw_work
             
-            # Weighted least squares
-            XtWX = X_design.T @ (X_design * W[:, cp.newaxis])
+                # Weighted least squares
+                XtWX = X_design.T @ (X_design * W[:, cp.newaxis])
             
-            # Add L2 regularization
-            if alpha > 0:
-                reg_diag = cp.full(XtWX.shape[0], alpha)
-                if self._fit_intercept:
-                    reg_diag[0] = 0.0
-                XtWX += cp.diag(reg_diag)
+                # Add L2 regularization
+                if alpha > 0:
+                    reg_diag = cp.full(XtWX.shape[0], alpha)
+                    if self._fit_intercept:
+                        reg_diag[0] = 0.0
+                    XtWX += cp.diag(reg_diag)
             
-            Xtz = X_design.T @ (W * z)
+                Xtz = X_design.T @ (W * z)
             
-            try:
-                params = cp.linalg.solve(XtWX, Xtz)
-            except Exception as exc:
-                if not _linalg_exception_is_rank_failure(exc):
-                    raise
-                params = cp.linalg.lstsq(XtWX, Xtz)[0]
+                try:
+                    params = cp.linalg.solve(XtWX, Xtz)
+                except Exception as exc:
+                    if not _linalg_exception_is_rank_failure(exc):
+                        raise
+                    params = cp.linalg.lstsq(XtWX, Xtz)[0]
             
-            # Check convergence
-            if bool((cp.linalg.norm(params - params_old) < self._tol).item()):
-                converged = True
-                break
+                # Check convergence
+                if bool((cp.linalg.norm(params - params_old) < self._tol).item()):
+                    converged = True
+                    break
         
-        self.n_iter_ = iteration + 1
+            self.n_iter_ = iteration + 1
         self._publish_convergence(converged)
         
         # Reuse the registered stable Bernoulli objective on CuPy.
@@ -753,45 +797,53 @@ class LogisticRegression(BaseEstimator):
             ).reshape(-1)
         )
 
-        # IRLS iteration
-        iteration = 0
-        converged = False
-        for iteration in range(self._max_iter):
-            params_old = params.clone()
+        if self._solver == "lbfgs":
+            from ._logistic_solver import _fit_logistic_lbfgs
 
-            # Predicted probabilities
-            eta = X_design @ params
-            p = 1 / (1 + torch.exp(-torch.clamp(eta, -500, 500)))
+            params, self.n_iter_, converged = _fit_logistic_lbfgs(
+                X_design, y, sw_work, self._C, self._fit_intercept,
+                self._max_iter, self._tol,
+            )
+        else:
+            # IRLS iteration
+            iteration = 0
+            converged = False
+            for iteration in range(self._max_iter):
+                params_old = params.clone()
 
-            W_base = torch.clamp(p * (1 - p), 1e-8, 1 - 1e-8)
-            z = eta + (y - p) / W_base
-            W = W_base if sw_work is None else W_base * sw_work
+                # Predicted probabilities
+                eta = X_design @ params
+                p = 1 / (1 + torch.exp(-torch.clamp(eta, -500, 500)))
 
-            # Weighted least squares
-            XtWX = X_design.T @ (X_design * W[:, None])
+                W_base = torch.clamp(p * (1 - p), 1e-8, 1 - 1e-8)
+                z = eta + (y - p) / W_base
+                W = W_base if sw_work is None else W_base * sw_work
 
-            # Add L2 regularization
-            if alpha > 0:
-                reg_diag = torch.full((XtWX.shape[0],), alpha, dtype=torch.float64, device=torch_device)
-                if self._fit_intercept:
-                    reg_diag[0] = 0.0
-                XtWX += torch.diag(reg_diag)
+                # Weighted least squares
+                XtWX = X_design.T @ (X_design * W[:, None])
 
-            Xtz = X_design.T @ (W * z)
+                # Add L2 regularization
+                if alpha > 0:
+                    reg_diag = torch.full((XtWX.shape[0],), alpha, dtype=torch.float64, device=torch_device)
+                    if self._fit_intercept:
+                        reg_diag[0] = 0.0
+                    XtWX += torch.diag(reg_diag)
 
-            try:
-                params = torch.linalg.solve(XtWX, Xtz)
-            except Exception as exc:
-                if not _linalg_exception_is_rank_failure(exc):
-                    raise
-                params = torch.linalg.lstsq(XtWX, Xtz)[0]
+                Xtz = X_design.T @ (W * z)
 
-            # Check convergence
-            if bool((torch.linalg.norm(params - params_old) < self._tol).item()):
-                converged = True
-                break
+                try:
+                    params = torch.linalg.solve(XtWX, Xtz)
+                except Exception as exc:
+                    if not _linalg_exception_is_rank_failure(exc):
+                        raise
+                    params = torch.linalg.lstsq(XtWX, Xtz)[0]
 
-        self.n_iter_ = iteration + 1
+                # Check convergence
+                if bool((torch.linalg.norm(params - params_old) < self._tol).item()):
+                    converged = True
+                    break
+
+            self.n_iter_ = iteration + 1
         self._publish_convergence(converged)
 
         # Reuse the registered stable Bernoulli objective on Torch.
@@ -1625,6 +1677,9 @@ class LogisticRegression(BaseEstimator):
         print(f"No. Observations:           {self._nobs:>15}")
         print(f"Degrees of Freedom:         {self._df_resid:>15}")
         print(f"Iterations:                 {self.n_iter_:>15}")
+        print(f"Solver (requested):         {self._solver_requested:>15}")
+        print(f"Solver (resolved):          {self.solver_:>15}")
+        print(f"Converged:                  {str(self.converged_):>15}")
         print(f"Covariance Type:            {self._cov_type:>15}")
         print(f"Log-Likelihood:             {self.loglikelihood:>15.4f}")
         print(f"Log-Likelihood (Null):      {self.loglikelihood_null:>15.4f}")

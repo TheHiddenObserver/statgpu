@@ -26,6 +26,10 @@
 
 `AdaptiveGroupLassoPenalty` 可以作为公开惩罚对象使用，但调用者必须显式提供组权重，因此没有字符串注册别名。
 
+## 独立的逻辑回归分类器
+
+`LogisticRegression` 与 `LogisticRegressionCV` 接受 `solver="auto"`、`"irls"` 和 `"lbfgs"`，其中 `auto` 选择 IRLS。两种显式求解器采用相同的带权 Bernoulli 损失之和与 `C` 控制的 L2 惩罚；截距不受惩罚，`C=0` 关闭正则化。在 NumPy、CuPy、Torch 上，交叉验证候选拟合与最终重拟合均遵循所选求解器。这两个分类器不提供通用 GLM 的完整求解器集合。目标函数、停止条件与 GPU 交叉验证行为见 [LogisticRegression](../models/logistic-regression.md)。
+
 ## 1. 直接拟合的 `solver="auto"`
 
 | 损失 | l2 / none | l1 | elasticnet | scad | mcp | adaptive_l1 | group_lasso | group_scad | group_mcp |

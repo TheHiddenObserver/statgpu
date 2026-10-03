@@ -5,6 +5,23 @@
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
+## 未发布 — 逻辑回归分类器求解器选择（2026-10-03）
+
+### 新增
+
+- `LogisticRegression` 与 `LogisticRegressionCV` 现在接受 `solver="auto"`、`"irls"` 和 `"lbfgs"`；`auto` 保持原有 IRLS 行为。这是尚未发布的分支功能，不代表已发布的 0.2.5 包已经提供该接口。
+- L-BFGS 保留带权 Bernoulli 损失之和与 `||coef||**2/(2*C)` 的目标函数，截距不受惩罚，直接拟合的 `C=0` 仍表示无正则化。实现时将整个目标函数除以样本数或权重总和，因此不会改变 `C` 的含义。
+- NumPy、CuPy、Torch 均在所选后端拟合。GPU 交叉验证的 `auto`/`irls` 保留批处理 IRLS；显式 L-BFGS 在所选后端以 float64 逐项拟合候选，并在最终重拟合中使用同一求解器。`gpu_cv_mixed_precision` 仅影响批处理 IRLS。
+- 新增已拟合属性 `solver_`、汇总中的请求/实际求解器、事务式校验与分求解器的收敛状态。原有协方差推断保持不变，不校正收缩偏差或交叉验证选参的不确定性。
+- 实现文件：`statgpu/linear_model/wrappers/_logistic.py`、新增 `_logistic_solver.py`、`statgpu/linear_model/cv/_logistic_cv.py`。回归测试：`dev/tests/test_logistic_solver_contract.py`。实际 CuPy/Torch CUDA 验证仍待执行；CPU 测试与 Torch-CPU 模拟检查不等同于实体 GPU 验证。
+
+```python
+from statgpu.linear_model import LogisticRegressionCV
+model = LogisticRegressionCV(Cs=[0.1, 1.0, 10.0], solver="lbfgs", device="cpu")
+model.fit(X, y)
+print(model.C_, model.solver_)
+```
+
 ## 未发布 — Quantile 求解器与推断更新（PR #166，目标 0.2.6）
 
 ### 修复

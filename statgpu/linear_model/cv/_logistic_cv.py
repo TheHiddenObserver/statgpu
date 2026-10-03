@@ -13,7 +13,10 @@ from statgpu._config import Device
 from statgpu.cross_validation._base import CVEstimatorBase
 from statgpu.backends import get_backend, _torch_dev
 from statgpu.backends._array_ops import _linalg_exception_is_rank_failure
-from statgpu.linear_model.wrappers._logistic import LogisticRegression
+from statgpu.linear_model.wrappers._logistic import (
+    LogisticRegression,
+    _resolve_logistic_solver,
+)
 from ._device import (
     cv_refit_device,
     resolve_cv_backend,
@@ -64,7 +67,7 @@ def _logistic_cv_cache_put(key, value):
 from statgpu.cross_validation._base import hash_cv_data as _hash_logistic_data
 
 
-def _make_logistic_cv_auto_cache_key(X, y, Cs, folds, fit_intercept, max_iter, tol, use_gpu, sample_weight=None):
+def _make_logistic_cv_auto_cache_key(X, y, Cs, folds, fit_intercept, max_iter, tol, use_gpu, sample_weight=None, solver="auto"):
     """Generate automatic cache key for LogisticRegression CV."""
     h = hashlib.blake2b(digest_size=32)
     h.update(np.asarray(X.shape, dtype=np.int64).tobytes())
@@ -74,6 +77,7 @@ def _make_logistic_cv_auto_cache_key(X, y, Cs, folds, fit_intercept, max_iter, t
     h.update(str(max_iter).encode("utf-8"))
     h.update(str(tol).encode("utf-8"))
     h.update(str(use_gpu).encode("utf-8"))
+    h.update(_resolve_logistic_solver(solver).encode("utf-8"))
     # Hash data content to avoid cross-dataset collisions
     h.update(_hash_logistic_data(X, y, sample_weight))
     # Hash fold indices (sample evenly to keep hash fast for large folds)
@@ -357,6 +361,42 @@ def _solve_logistic_path_gpu_from_batch(X_batch, y_batch, n_train_vec, Cs, backe
 # Main CV selection function
 # =============================================================================
 
+def _logistic_cv_estimator_loss_path(
+    X, y, sample_weight, Cs, folds, backend, device, *,
+    fit_intercept, max_iter, tol, solver,
+):
+    """Fit and score each candidate without moving its data off the backend."""
+    X_full = backend.asarray(X, dtype=backend.float64)
+    y_full = backend.asarray(y, dtype=backend.float64).reshape(-1)
+    sw_full = (
+        None if sample_weight is None
+        else backend.asarray(sample_weight, dtype=backend.float64).reshape(-1)
+    )
+    loss_path = np.empty((len(Cs), len(folds)), dtype=np.float64)
+    for fold_idx, (train_idx, val_idx) in enumerate(folds):
+        train_idx = backend.asarray(train_idx)
+        val_idx = backend.asarray(val_idx)
+        X_train, y_train = X_full[train_idx], y_full[train_idx]
+        X_val, y_val = X_full[val_idx], y_full[val_idx]
+        sw_train = None if sw_full is None else sw_full[train_idx]
+        sw_val = None if sw_full is None else sw_full[val_idx]
+        for c_idx, C in enumerate(Cs):
+            model = LogisticRegression(
+                C=float(C),
+                fit_intercept=fit_intercept,
+                max_iter=max_iter,
+                tol=tol,
+                device=device,
+                compute_inference=False,
+                solver=solver,
+            )
+            model.fit(X_train, y_train, sample_weight=sw_train)
+            probabilities = model.predict_proba(X_val)[:, 1].reshape(1, -1)
+            loss = _batch_log_loss_backend(y_val, probabilities, backend, sw_val)
+            loss_path[c_idx, fold_idx] = float(loss[0])
+    return loss_path
+
+
 def _select_logistic_c_cv(
     X,
     y,
@@ -375,6 +415,7 @@ def _select_logistic_c_cv(
     return_details: bool = False,
     cache_key: Optional[Tuple[Any, ...]] = None,
     gpu_cv_mixed_precision: bool = True,
+    solver: str = "auto",
 ):
     """
     Select C for Logistic regression via K-fold cross-validation.
@@ -402,17 +443,20 @@ def _select_logistic_c_cv(
     fit_intercept : bool
         Whether to fit intercept.
     max_iter : int
-        Maximum IRLS iterations.
+        Maximum solver iterations.
     tol : float
         Convergence tolerance.
     device : str or Device
-        Device to use ('cpu' or 'cuda').
+        Device to use ('cpu', 'cuda', 'torch', or 'auto').
     return_details : bool
         Whether to return full CV details.
     cache_key : tuple or None
         Cache key for CV results.
     gpu_cv_mixed_precision : bool
-        Whether to use mixed precision on GPU.
+        Whether to use mixed precision for batched GPU IRLS.
+    solver : {"auto", "irls", "lbfgs"}, default="auto"
+        Solver used for every candidate. "auto" resolves to "irls".
+        L-BFGS fits each fold and C separately in float64 on the selected backend.
 
     Returns
     -------
@@ -421,6 +465,7 @@ def _select_logistic_c_cv(
     details : dict (if return_details=True)
         Full CV results including C grid, loss path, etc.
     """
+    resolved_solver = _resolve_logistic_solver(solver)
     (
         device_name,
         backend_name,
@@ -528,7 +573,13 @@ def _select_logistic_c_cv(
 
     # Cache handling
     # Auto-cache disabled by default to prevent stale results across datasets.
-    cache_key_eff = cache_key
+    cache_key_eff = (
+        None if cache_key is None
+        else (
+            "logistic-cv-solver-v1", cache_key, solver, resolved_solver,
+            backend_name, bool(gpu_cv_mixed_precision),
+        )
+    )
 
     cached_details = _logistic_cv_cache_get(cache_key_eff)
     if cached_details is not None:
@@ -539,8 +590,27 @@ def _select_logistic_c_cv(
     # Initialize loss path
     loss_path = np.full((n_C, n_folds), np.nan, dtype=np.float64)
 
-    # GPU path
-    if use_gpu:
+    # L-BFGS candidates use the same native estimator route as the final refit.
+    # Keep the existing batched GPU implementation for auto/IRLS.
+    if use_gpu and resolved_solver == "lbfgs":
+        try:
+            loss_path = _logistic_cv_estimator_loss_path(
+                X, y, validated_weight, C_grid, folds, backend,
+                cv_refit_device(device_name, backend_name),
+                fit_intercept=fit_intercept,
+                max_iter=max_iter,
+                tol=tol,
+                solver=solver,
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"GPU L-BFGS path failed in _select_logistic_c_cv "
+                f"with backend={backend_name!r}; "
+                "CPU fallback is disabled for strict CUDA execution."
+            ) from exc
+
+    # Batched GPU IRLS path
+    elif use_gpu:
         try:
             # Get backend - supports both CuPy and Torch
             # backend was selected strictly by resolve_cv_backend above
@@ -665,6 +735,7 @@ def _select_logistic_c_cv(
                     tol=tol,
                     device='cpu',
                     compute_inference=False,
+                    solver=solver,
                 )
                 model.fit(X_train, y_train, sample_weight=sample_weight_np[train_idx] if sample_weight_np is not None else None)
 
@@ -728,11 +799,11 @@ class LogisticRegressionCV(CVEstimatorBase):
     fit_intercept : bool
         Whether to fit intercepts. Default is True.
     max_iter : int
-        Maximum number of IRLS iterations. Default is 100.
+        Maximum number of solver iterations. Default is 100.
     tol : float
         Convergence tolerance. Default is 1e-4.
     device : str or Device
-        Computation device: 'cpu', 'cuda', or 'auto'.
+        Computation device: 'cpu', 'cuda', 'torch', or 'auto'.
     compute_inference : bool
         Whether to compute standard errors, z-stats, p-values and CI.
     cov_type : str
@@ -743,7 +814,11 @@ class LogisticRegressionCV(CVEstimatorBase):
     random_state : int or None
         Random seed for CV splits.
     gpu_cv_mixed_precision : bool
-        Whether to use mixed precision on GPU.
+        Whether to use mixed precision for batched GPU IRLS. L-BFGS uses float64.
+    solver : {"auto", "irls", "lbfgs"}, default="auto"
+        Solver used for CV candidates and the final refit. "auto" resolves to
+        "irls" and retains the batched GPU path. "lbfgs" fits candidates
+        separately on the selected backend.
 
     Attributes
     ----------
@@ -761,6 +836,8 @@ class LogisticRegressionCV(CVEstimatorBase):
         Intercept of the final model.
     estimator_ : LogisticRegression
         The fitted LogisticRegression with selected C.
+    solver_ : str
+        Resolved solver used for CV and the successful final refit.
 
     Examples
     --------
@@ -791,7 +868,9 @@ class LogisticRegressionCV(CVEstimatorBase):
         gpu_memory_cleanup: bool = False,
         random_state: Optional[int] = None,
         gpu_cv_mixed_precision: bool = True,
+        solver: str = "auto",
     ):
+        _resolve_logistic_solver(solver)
         super().__init__(
             cv=cv,
             random_state=random_state,
@@ -810,6 +889,7 @@ class LogisticRegressionCV(CVEstimatorBase):
         self.cov_type = str(cov_type)
         self.gpu_memory_cleanup = bool(gpu_memory_cleanup)
         self.gpu_cv_mixed_precision = bool(gpu_cv_mixed_precision)
+        self.solver = solver
 
         self.C_ = None
         self.Cs_ = None
@@ -821,6 +901,7 @@ class LogisticRegressionCV(CVEstimatorBase):
         self.n_iter_ = None
         self.estimator_ = None
         self.cv_selected_device_ = None
+        self.solver_ = None
 
     def _reset_cv_fit_state(self):
         """Clear all fitted outputs before a new CV attempt."""
@@ -835,6 +916,7 @@ class LogisticRegressionCV(CVEstimatorBase):
         self.n_iter_ = None
         self.estimator_ = None
         self.cv_selected_device_ = None
+        self.solver_ = None
 
     def fit(self, X, y, sample_weight=None):
         """
@@ -855,6 +937,8 @@ class LogisticRegressionCV(CVEstimatorBase):
             Fitted estimator.
         """
         self._reset_cv_fit_state()
+        requested_solver = self.solver
+        resolved_solver = _resolve_logistic_solver(requested_solver)
         # Preserve response residency; only a scalar validity decision syncs.
         _validate_binary_cv_response(y)
 
@@ -880,6 +964,7 @@ class LogisticRegressionCV(CVEstimatorBase):
             device=device_name,
             gpu_cv_mixed_precision=self._gpu_cv_mixed_precision,
             return_details=True,
+            solver=requested_solver,
         )
 
         # Keep candidate results local until the final refit succeeds.
@@ -904,9 +989,17 @@ class LogisticRegressionCV(CVEstimatorBase):
             compute_inference=self._compute_inference_enabled,
             cov_type=self._cov_type,
             gpu_memory_cleanup=self._gpu_memory_cleanup,
+            solver=requested_solver,
         )
 
         estimator.fit(X, y, sample_weight=sample_weight)
+        # Complete conversions before publishing any fitted attributes.
+        coef = np.asarray(estimator.coef_)
+        intercept = estimator.intercept_
+        n_iter = getattr(estimator, "n_iter_", None)
+        fitted_solver = estimator.solver_
+        if fitted_solver != resolved_solver:
+            raise RuntimeError("CV and final refit must use the same logistic solver")
 
         self.C_ = selected_C
         self.Cs_ = selected_Cs
@@ -914,10 +1007,11 @@ class LogisticRegressionCV(CVEstimatorBase):
         self.mean_loss_ = mean_loss
         self.best_score_ = best_score
         self.estimator_ = estimator
-        self.coef_ = np.asarray(estimator.coef_)
-        self.intercept_ = estimator.intercept_
-        self.n_iter_ = getattr(estimator, 'n_iter_', None)
+        self.coef_ = coef
+        self.intercept_ = intercept
+        self.n_iter_ = n_iter
         self.cv_selected_device_ = refit_device
+        self.solver_ = fitted_solver
         self._fitted = True
         return self
 
