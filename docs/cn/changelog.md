@@ -13,7 +13,7 @@
 - L-BFGS 保留带权 Bernoulli 损失之和与 `||coef||**2/(2*C)` 的目标函数，截距不受惩罚，直接拟合的 `C=0` 仍表示无正则化。实现时将整个目标函数除以样本数或权重总和，因此不会改变 `C` 的含义。
 - NumPy、CuPy、Torch 均在所选后端拟合。GPU 交叉验证的 `auto`/`irls` 保留批处理 IRLS；显式 L-BFGS 在所选后端以 float64 逐项拟合候选，并在最终重拟合中使用同一求解器。`gpu_cv_mixed_precision` 仅影响批处理 IRLS。
 - 新增已拟合属性 `solver_`、汇总中的请求/实际求解器、事务式校验与分求解器的收敛状态。原有协方差推断保持不变，不校正收缩偏差或交叉验证选参的不确定性。
-- 实现文件：`statgpu/linear_model/wrappers/_logistic.py`、新增 `_logistic_solver.py`、`statgpu/linear_model/cv/_logistic_cv.py`。回归测试：`dev/tests/test_logistic_solver_contract.py`。实际 CuPy/Torch CUDA 验证仍待执行；CPU 测试与 Torch-CPU 模拟检查不等同于实体 GPU 验证。
+- 实现文件：`statgpu/linear_model/wrappers/_logistic.py`、新增 `_logistic_solver.py`、`statgpu/linear_model/cv/_logistic_cv.py`，以及 `statgpu/solvers/_lbfgs.py` 中按需启用的梯度收敛判断。回归测试：`dev/tests/test_logistic_solver_contract.py`。实际 CuPy/Torch CUDA 验证仍待执行；CPU 测试与 Torch-CPU 模拟检查不等同于实体 GPU 验证。
 
 ```python
 from statgpu.linear_model import LogisticRegressionCV
