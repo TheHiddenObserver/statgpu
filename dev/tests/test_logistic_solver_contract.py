@@ -1069,10 +1069,14 @@ def test_formula_helper_design_and_weights_preserve_lbfgs_array_semantics(
     manual = LogisticRegression(**controls).fit(
         manual_X, y[rows], sample_weight=weight[rows]
     )
-    np.testing.assert_array_equal(parsed._params, manual._params)
+    # Different BLAS array layouts can take slightly different line searches;
+    # compare converged numerical solutions rather than bitwise histories.
+    assert parsed.converged_ and manual.converged_
+    np.testing.assert_allclose(parsed._params, manual._params, rtol=2e-7, atol=2e-8)
     new_frame = retained.iloc[:12][["group", "z", "x", "y"]]
     transformed = parser.transform(new_frame)
     np.testing.assert_array_equal(transformed, design[:12])
-    np.testing.assert_array_equal(
-        parsed.predict_proba(transformed[:, 1:]), manual.predict_proba(manual_X[:12])
+    np.testing.assert_allclose(
+        parsed.predict_proba(transformed[:, 1:]), manual.predict_proba(manual_X[:12]),
+        rtol=2e-7, atol=2e-8,
     )
