@@ -26,6 +26,7 @@ PAGES = (
     "docs/cn/models/unsupervised.md",
     "docs/cn/models/splines.md",
     "docs/cn/models/kernel-methods.md",
+    "docs/cn/models/multiple-testing.md",
 )
 
 FRAGMENTS_TO_AVOID = (
@@ -100,7 +101,32 @@ FRAGMENTS_TO_AVOID = (
     "tied covariance",
     "log likelihood",
     "## strict/approx 差异",
+    "Calculation 在 Arbitrary",
+    "Calculation in Arbitrary",
     "responsibility 对齐",
+    "step-down procedure",
+    "step-up procedure",
+    "chi-squared combination",
+    "Parameter | Type | Default | Description",
+    "Raw p-values",
+    "Significance level",
+    "Axis for batch processing",
+    "GPU acceleration",
+    "What's the difference between FDR and FWER",
+    "Non-negative weights",
+    "Boolean rejection array",
+    "Test statistic + global p-value",
+    "Order p-values",
+    "Start from largest p-value",
+    "Same as BH but",
+    "More conservative than BH",
+    "Approximately distributed as Cauchy",
+    "No assumption on dependence structure",
+    "Most powerful when effects",
+    "Powerful when a small subset",
+    "Find largest $k$ such that",
+    "Reject $H_{(i)}$ if",
+    "Accept $H_{(i)}$ if",
 )
 
 
