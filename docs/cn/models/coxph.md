@@ -1,11 +1,30 @@
 # CoxPH
 
 > 语言：中文<br>
-> 最后更新：2026-10-02<br>
+> 最后更新：2026-10-04<br>
 > 页面定位：模型文档<br>
 > 切换：[English](../../en/models/coxph.md)
 
 ## 概览
+
+当问题是**哪些因素与事件发生前的等待时间有关**，且观察可能在事件发生之前结束时，
+可以使用 Cox 回归，例如分析机器发生故障的时间。只对已发生故障的样本做时间回归，
+会丢失尚未发生故障的随访信息；只把结果分成“发生/未发生”，又会忽略观察时长。
+
+对于普通右删失数据，每行包含特征 `X`、正的观察时长 `time` 和事件指示 `event`：
+
+- `event=1`：事件在 `time` 时刻发生；
+- `event=0`：观察在 `time` 时刻结束，尚未观察到事件。真实事件时间晚于该随访时间，
+  不能把它当作零，也不能认为事件永远不会发生。
+
+应保留删失行。通常的统计解释要求：给定模型中的协变量与研究设计后，删失过程与事件过程独立。
+
+模型为 $h(t\mid x)=h_0(t)\exp(x^\top\beta)$：基线风险描述瞬时事件风险如何随时间变化，
+协变量则以乘法方式改变风险。同一分层内，对于固定的协变量，**比例风险（PH）假设**要求
+两种特征组合之间的风险比不随时间变化。其他特征保持不变时，第 `j` 个特征增加一个单位，
+瞬时风险乘以 `exp(coef_[j])`。风险比不是事件概率、生存时间，也不自动具有因果含义。
+应结合研究设计检查 PH 假设是否合理；优化器收敛并不意味着这些假设成立。
+时变协变量允许 `x(t)` 变化，但拟合的回归系数仍不随时间变化。
 
 `CoxPH` 在 NumPy、CuPy CUDA 与 Torch CUDA 后端实现比例风险回归，支持
 Breslow、Efron 与 Exact 三种并列事件处理方式，同时覆盖普通右删失、延迟进入、
@@ -21,16 +40,299 @@ Breslow、Efron 与 Exact 三种并列事件处理方式，同时覆盖普通右
 - `subject_id=` 标识同一受试者的重复行，用于 concordance、sandwich 聚合，并确保同一受试者的记录不会被拆到不同的交叉验证折中；
 - `compute_inference=False` 仅执行估计，推断字段和基线风险字段保持未设置。
 
-## 导入
+## 第一个 CPU 完整示例
+
+这个完整示例只需要 NumPy 与 StatGPU，无需 GPU 或外部数据。它模拟独立受试者的右删失数据，
+三个特征已处于可比尺度，并在拟合前留出最后 100 位受试者。真实数据应按受试者、群组或时间
+选择合适的划分方式；缩放等预处理只能使用训练部分来学习。
+
+<!-- example: coxph-cpu-walkthrough -->
+```python
+import numpy as np
+from statgpu.survival import CoxPH, CoxPHCV
+
+rng = np.random.default_rng(42)
+X = rng.normal(size=(400, 3))
+true_coef = np.array([0.8, -0.5, 0.3])
+event_time = rng.exponential(scale=np.exp(-(X @ true_coef)))
+censor_time = rng.exponential(scale=2.0, size=len(X))
+time = np.minimum(event_time, censor_time)
+event = (event_time <= censor_time).astype(np.int64)
+
+X_train, X_test = X[:300], X[300:]
+time_train, time_test = time[:300], time[300:]
+event_train, event_test = event[:300], event[300:]
+
+model = CoxPH(
+    ties="efron", device="cpu", compute_inference=True,
+).fit(X_train, time_train, event_train)
+if not model.converged_:
+    raise RuntimeError(
+        f"{model.optimization_stop_reason_}: "
+        f"normalized KKT={model.final_kkt_normalized_}"
+    )
+print("Coefficients:", model.coef_)
+print("Per-feature hazard ratios:", model.hazard_ratios_)
+print("Convergence:", model.termination_reason_, model.n_iter_)
+print(model.summary())
+
+log_risk = model.predict_risk_score(X_test[:2])
+relative_hazard = model.predict(X_test[:2])
+requested_times = np.array([0.0, 0.5, 1.0, 2.0])
+curves, curve_times = model.predict_survival(
+    X_test[:2], times=requested_times,
+)
+held_out_cindex = model.score(X_test, time_test, event_test)
+print("Log-risk:", log_risk)
+print("Relative hazard:", relative_hazard)
+print("Survival shape and times:", curves.shape, curve_times)
+print("Held-out C-index:", held_out_cindex)
+```
+<!-- /example: coxph-cpu-walkthrough -->
+
+这个随机种子下，系数约为 `[0.852, -0.457, 0.312]`，对应的风险比约为
+`[2.345, 0.633, 1.367]`。例如，其他特征保持不变时，第一个特征增加一个单位，估计的
+瞬时风险约变为原来的 2.35 倍；第二个特征与更低的风险相关。这些是模拟数据中的关联，
+不应作为实际干预建议。
+
+`predict_risk_score(X)` 返回 `X @ coef_`；`predict(X)` 和
+`predict_hazard_ratio(X)` 返回 `exp(X @ coef_)`，其参照是同一分层内协变量全为零的样本。
+比较两种特征组合时，应对两者的对数风险之差取指数。`hazard_ratios_` 则是每个**特征**的风险比。
+
+`predict_survival` 返回 **`(curves, times)` 元组**，并非单独一个矩阵：
+`curves` 的形状为 `(n_new, n_times)`，`times` 的形状为 `(n_times,)`；
+本例分别是 `(2, 4)` 与 `(4,)`。每行估计该样本在各时刻之后仍未发生事件的概率，
+取值在 `[0, 1]` 内，并在递增时间网格上单调不增。`times=None` 使用拟合基线的事件时间网格
+（有分层时取各层的并集）；显式传入时间时保留请求顺序。基线为阶梯函数，在最后一个事件时间
+之后保持不变，因此延长预测网格不意味着获得了可靠的长期外推。
+对于计数过程数据，每个预测行表示固定的协变量组合，不会自动沿未来协变量轨迹积分。
+
+留出集 C-index 约为 `0.766`：在可比较的样本对中，模型倾向于给更早发生事件的样本更高风险。
+它衡量排序区分能力，不是概率校准指标或 R-squared。接近 `0.5` 表示中性排序，
+`1.0` 表示可比较样本对上的完美排序，低于 `0.5` 提示排序可能相反。
+没有可比较样本对时也返回 `0.5`；此时是评估证据不足，不能据此认定模型表现等同于随机。
+不要把训练集 concordance 当作留出评估。
+
+## 输入形状与 fit API
+
+矩阵接口为 `CoxPH(...).fit(X, time, event, ...)` 或
+`CoxPHCV(...).fit(X, time, event, ...)`；两者均返回拟合后的估计器。
+
+| 输入 | 形状与约定 |
+|---|---|
+| `X` | 有限实数矩阵 `(n_samples, n_features)`，不要添加截距/常量列；预测时保持特征顺序。`CoxPH` 也接受一维单特征输入；`CoxPHCV` 应使用矩阵。 |
+| `time` | 有限正数向量 `(n_samples,)`，统一时间单位；表示事件或删失时间，也可表示区间终止时间。 |
+| `event` | 仅含 `0` 或 `1` 的向量 `(n_samples,)`；拟合至少需要一个已观察事件。 |
+| `entry` / `start` | 可选向量 `(n_samples,)`，满足 `0 <= start < time`；二者为互斥别名，不能同时提供。省略时从零时刻进入。 |
+| `strata` | 可选标签 `(n_samples,)`，各层具有独立风险集和基线风险，但共享系数。 |
+| `subject_id` | 可选标签 `(n_samples,)`，标识同一受试者的重复记录，用于 concordance、稳健协方差聚合及 CV 划分。 |
+| `cluster` | 可选标签 `(n_samples,)`；`cov_type="cluster"` 时必须提供。仅提供 cluster 不会使 CV 自动按聚类分组；应使用合适的 `subject_id` 或显式 `cv_splits`。 |
+| `init_coef` | `CoxPH` 可选的有限初始系数向量 `(n_features,)`；不是 `CoxPHCV.fit` 参数。 |
+| `formula`, `data` | `CoxPH.fit` 的公式接口，见后文；`CoxPHCV.fit` 不接受这两个参数。 |
+
+两者也支持省略 `event` 的 `fit(X, y)`：`y` 可以是列为 `[time, event]` 的
+`(n_samples, 2)` 数组，或列为 `[start, stop, event]` 的 `(n_samples, 3)` 数组。
+三列形式不能再单独提供 `entry`/`start`。`score` 也接受这些组合响应；
+其区间参数叫 `start`，不是 `entry`。矩阵拟合前应先处理数值缺失，非有限数组会被拒绝，
+不会静默删除对应行。
+
+完整构造参数见[参数](#参数)与 [CoxPHCV 参数](#coxphcv-参数)。规范的方法签名与实现契约见
+[`CoxPH`](../../../statgpu/survival/_cox.py) 和
+[`CoxPHCV`](../../../statgpu/survival/_cox_cv.py)。
+
+## 参数
+
+| 参数 | 默认值 | 说明 |
+|---|---:|---|
+| `ties` | `"breslow"` | `"breslow"`、`"efron"` 或 `"exact"` |
+| `tol` | `1e-9` | Newton/KKT 收敛阈值 |
+| `max_iter` | `100` | 最大迭代次数 |
+| `device` | `"auto"` | `"cpu"`、`"cuda"`、`"torch"` 或 `"auto"` |
+| `n_jobs` | `None` | 接受共享的 CPU 作业数设置；当前 Cox 拟合/CV 循环不通过它并行处理各折。 |
+| `compute_inference` | `True` | 计算协方差、检验与基线风险 |
+| `compute_cindex` | `True` | 计算训练集 concordance |
+| `cov_type` | `"nonrobust"` | `"nonrobust"`、`"hc0"`、`"hc1"` 或 `"cluster"` |
+| `penalty` | `0.0` | 非负 L2 惩罚 |
+| `inference_mode` | `"strict"` | `"strict"` 或兼容别名 `"approx"`；两者均执行精确推断 |
+| `gpu_memory_cleanup` | `False` | 尝试释放 CuPy/Torch 缓存 |
+
+## 交叉验证
+
+`CoxPHCV` 使用相同的 `ties`、`start`/`entry`、`strata` 与后端语义评估 L2 惩罚
+网格，再以最佳 `penalty` 重拟合 `CoxPH`。传入 `subject_id` 后，同一受试者的
+全部行会被保留在同一自动生成的交叉验证折中；若用户提供的 `cv_splits` 使同一
+受试者同时出现在训练集和验证集中，则会被拒绝。`inference_mode` 与
+`compute_inference` 会转发到最终重拟合。
+
+在[第一个 CPU 完整示例](#第一个-cpu-完整示例)之后运行以下代码。只用其中 300 位训练受试者
+选择惩罚，再在同一份未参与选择的 100 人测试集上评估最终重拟合模型。
+L2 会收缩系数，因此特征尺度会影响惩罚；真实数据的预处理应在每个训练折内拟合，不能使用验证集或测试集信息。
+
+<!-- example: coxph-cpu-cv -->
+```python
+cv_model = CoxPHCV(
+    penalties=[0.0, 0.1, 1.0, 10.0],
+    cv=3,
+    random_state=42,
+    ties="efron",
+    device="cpu",
+    compute_inference=False,
+).fit(X_train, time_train, event_train)
+if not cv_model.converged_:
+    raise RuntimeError(cv_model.optimization_stop_reason_)
+
+cv_mean_pl = cv_model.cv_results_["mean_pl"]
+cv_fold_counts = cv_model.cv_results_["effective_fold_counts"]
+cv_test_cindex = cv_model.score(X_test, time_test, event_test)
+print("Penalty grid:", cv_model.penalties_)
+print("Mean held-out partial log-likelihood:", cv_mean_pl)
+print("Effective fold counts:", cv_fold_counts)
+print("Selected penalty:", cv_model.penalty_)
+print("Test C-index:", cv_test_cindex)
+```
+<!-- /example: coxph-cpu-cv -->
+
+本例选择 `penalty_=1.0`，测试 C-index 约为 `0.766`；CV 并不保证提高这个指标。
+`best_score_` 是最大的**平均留出部分对数似然**，不是 `score()` 返回的 C-index，
+只适合在相同数据、划分和评分约定下比较。`cv_results_["pl_path"]` 形状为
+`(n_penalties, n_folds)`；`mean_pl` 与 `effective_fold_counts` 的形状均为 `(n_penalties,)`。
+无法评估候选时，可检查 `converged_path`、`failure_path` 和 `fold_valid`。
+可被选中的候选必须在同一组全部有效折上收敛且分数有限；每个有效折的训练和验证部分都必须有事件。
+没有合格候选时，拟合会报错，不会发布选择结果。
+
+`estimator_` 是使用所选 `penalty_`，在全部传入训练行上重拟合的 `CoxPH`。
+`compute_inference=False` 时仍能预测对数风险和风险比，但没有生存曲线及推断结果。
+启用最终重拟合推断也不会校正调参不确定性或收缩偏差，详见[惩罚强度缩放与推断](#惩罚强度缩放与推断)。
+
+### CoxPHCV 参数
+
+| 参数 | 默认值 | 说明 |
+|---|---:|---|
+| `penalties` | `None` | 非空、有限、非负的一维 L2 惩罚网格；`None` 自动生成。 |
+| `n_penalties` | `100` | 自动网格的候选数量。 |
+| `penalty_min_ratio` | `1e-3` | 自动网格最小值/最大值的比值，范围 `(0, 1]`。 |
+| `cv` | `5` | 自动生成的折数，至少为二。 |
+| `cv_splits` | `None` | 显式 `(train_indices, validation_indices)` 对，覆盖自动划分；每组索引应非空、一维、互不重叠，且为范围内的整数。 |
+| `ties` | `"breslow"` | 候选及重拟合使用 `"breslow"`、`"efron"` 或 `"exact"`。 |
+| `tol` | `1e-9` | 候选及重拟合的收敛容差。 |
+| `max_iter` | `100` | 候选及重拟合的最大迭代次数。 |
+| `device` | `"auto"` | `"cpu"`、`"cuda"`、`"torch"` 或 `"auto"`。 |
+| `n_jobs` | `None` | 共享 CPU 作业数选项，传给最终重拟合；当前 CV 循环不通过它并行化。 |
+| `compute_inference` | `True` | 仅在最终重拟合计算推断和基线风险。 |
+| `cov_type` | `"nonrobust"` | 最终重拟合的协方差约定。 |
+| `inference_mode` | `"strict"` | `"strict"` 或兼容别名 `"approx"`，两者均执行已支持的精确推断。 |
+| `gpu_memory_cleanup` | `False` | 在公共计算边界尽力清理 GPU 缓存。 |
+| `random_state` | `None` | 自动生成 CV 划分的随机种子。 |
+
+与 `CoxPH` 不同，`CoxPHCV` 构造器没有 `penalty` 或 `compute_cindex`；
+应使用 `penalties` 并显式调用 `score`。完整源代码参考见
+[`CoxPHCV`](../../../statgpu/survival/_cox_cv.py)。
+
+
+同样的惩罚搜索也可使用 CuPy 或 Torch CUDA 数组。先运行 [CPU 与 GPU 示例](#cpu-与-gpu-示例)中的相应准备代码：
 
 ```python
-from statgpu.survival import CoxPH, CoxPHCV
+cupy_cv = CoxPHCV(
+    penalties=[0.0, 0.01, 0.1], cv=5, device="cuda",
+    compute_inference=False,
+).fit(X_cp, time_cp, event_cp)
+
+torch_cv = CoxPHCV(
+    penalties=[0.0, 0.01, 0.1], cv=5, device="torch",
+    compute_inference=False,
+).fit(X_t, time_t, event_t)
 ```
+
+### L1/L2/ElasticNet/SCAD/MCP 模型族交叉验证
+
+上面的 `CoxPHCV` 是标准的 L2 Cox 选择器，并可按配置执行最终重拟合推断。
+公开的带惩罚模型族则使用 `PenalizedGLM_CV` 的独立生存感知分支：
+
+以下补充示例使用本页任一数据准备示例中的 `X`、`time` 与 `event`。
+
+<!-- example: coxph-penalized-family-cv -->
+```python
+from statgpu.linear_model import PenalizedGLM_CV
+
+survival_y = np.column_stack([time, event])
+penalized_cv = PenalizedGLM_CV(
+    loss="cox_ph",
+    penalty="mcp",               # l1、l2、elasticnet、scad 或 mcp
+    alpha_grid=[0.1, 0.03, 0.01],
+    cv=5,
+    cv_strategy="strict",
+    loss_kwargs={"ties": "efron"},
+    device="cpu",                # 也可用 "cuda" / "torch"
+).fit(X, survival_y)
+```
+<!-- /example: coxph-penalized-family-cv -->
+
+该分支始终保留二维 `(time, event)` 响应，禁止截距，使用留出数据上的未惩罚偏似然评分，并要求每个可评估的交叉验证折都提供有限证据。若不存在满足
+契约的 `alpha`，拟合会抛错，并且不会发布已选 `alpha` 或已拟合估计器。最终重拟合使用
+`PenalizedCoxPHModel(compute_inference=False)`；不支持选择后系数推断、`two_stage`、样本权重或字典形式响应。无惩罚别名不可调，因此该 CV
+路径会拒绝，需改为直接拟合模型。
+
+自定义交叉验证折可以采用一般的非空、训练集与验证集互不重叠的划分，包括前向
+`TimeSeriesSplit` 或重复留出；无需互为补集，也无需让每行恰好进入一次验证集。索引会在任何候选模型拟合前校验，必须是一维、精确且位于范围内的
+整数。自动网格中，ElasticNet 在 `l1_ratio > 0` 时采用零模型 KKT 边界
+`alpha_max = ||gradient L(0)||_inf / l1_ratio`，惩罚对象使用自身的混合比例参数。
+纯 L2（`l1_ratio=0`）不存在有限的全零 KKT 阈值，因此把零模型得分的原始
+无穷范数作为已文档化的网格启发式规则。
+
+大规模 `device="auto"` 搜索只在 Torch 或 CuPy 的 CUDA 后端确认设备实际可用
+后选择 GPU。回退路径的规模估计只统计训练集和验证集都含事件的可评估折；其他规范化后的折仍记录在 `failure_path` 中，但不会夸大 GPU 工作量。CuPy
+可导入但无法运行时会回退 CPU；显式 `device="cuda"` 仍严格抛错，不会静默回退。
+
+## 预测与评分
+
+对数组输入，`predict`、`predict_risk_score`、`predict_hazard_ratio`、
+`predict_survival` 与 `score` 都在拟合后端执行。使用 `device="auto"` 拟合后，模型会固定实际的
+`effective_device_`；后续修改全局设备设置不会迁移既有模型的预测或评分后端。分层生存预测要求每个预测行
+提供一个训练时已知的分层标签；即使拟合时只有一个显式分层，也不能省略
+标签，缺失或未知标签会抛出 `ValueError`。生存曲线在对数域中累计基线风险，
+以提高数值稳定性。使用公式接口拟合的模型会在预测前应用已保存的设计矩阵转换。
+
+`score()` 复用同一行标签编码器：传入的 `strata` 必须具有 `(n_samples,)` 形状；
+显式分层模型只接受训练时已知标签，多分层拟合在评分时必须提供标签。
+标量、二维、长度错误或未知标签都会在后端计算 concordance 前统一抛出
+`ValueError`。
+
+若某个已拟合分层没有观察到任何事件，其空的基线风险状态是合法状态。
+该分层在任意时间的累计基线风险均为零，因此 `predict_survival()` 精确返回
+1。显式 `times`、自动 `times`、混合分层预测行和 `CoxPHCV` 委托路径都遵守此契约；
+存储的时间/风险数组形状不匹配仍属于非法状态。
+
+`predict_risk_score()` 返回未取指数的对数风险。标准 CoxPH、CV 与带惩罚 Cox 的风险比预测 API 共享严格的 float64 指数边界；标准 CoxPH/CV 拟合后
+`hazard_ratios_` 采用相同边界。会溢出为无穷或下溢为零的值，在标准 CoxPH/CV 拟合时抛出 `CoxFitNumericalError`，在预测时抛出 `FloatingPointError`，不会按估计器专属阈值静默截断。`PenalizedCoxPHModel` 也提供 `predict_risk_score()`，因此
+极端但有限的对数风险仍可直接读取。
+
+## 输出
+
+- 参数：`coef_`、`hazard_ratios_`；
+- 推断：启用时的 `_bse`、`_zvalues`、`_pvalues`、`_conf_int`；
+- 诊断：定义时的 `log_likelihood`、`aic`、`bic`、`concordance_index`；
+- 收敛：`converged_`、`termination_reason_`、`optimization_stop_reason_`、`n_iter_`、
+  `final_kkt_inf_`、`final_kkt_normalized_`；
+- 推断来源与执行信息：`inference_method_`、`inference_backend_`、
+  `inference_approximate_`、`inference_fallback_reason_`、
+  `inference_target_`、`penalty_conditioning_`、`penalty_selection_adjusted_`、
+  `full_host_transfer_performed_`。
+
+`CoxPHCV` 还会公开 `cv_full_host_transfer_performed_`、
+`final_refit_full_host_transfer_performed_` 与 `orchestration_device_`，避免数据移动审计
+将主机端的 CV 选择与最终重拟合混淆。
+`cv_results_` 会区分选择来源字段（`scoring_device`、
+`selection_origin_device`、`candidate_preparation_origin_device` 与总准备次数）和本次调用字段（`selection_cache_hit`、
+`requested_fit_device`、`effective_device` 与 `*_this_call` 次数）。缓存命中时，本次调用不会重复准备交叉验证折，也不会再次传输响应向量；同时不会改写原先记录的选择来源设备。
+若有限输入的候选返回非有限系数或似然，`CoxPH` 会抛出
+`CoxFitNumericalError`（`FloatingPointError` 子类）；`CoxPHCV` 只排除这类
+候选，输入错误、内存分配器错误、CUDA 错误以及其他非预期运行时错误仍会原样传播。
 
 ## CPU 与 GPU 示例
 
-三个后端使用相同的统计输入，并在拟合后端返回预测数组。先运行一次以下确定性数据准备：
+三个后端使用相同的统计输入，并在拟合后端返回预测数组。以下可选后端示例与前面的留出评估示例独立。先运行一次以下确定性数据准备：
 
+<!-- example: coxph-backend-data -->
 ```python
 import numpy as np
 
@@ -45,9 +347,11 @@ censor_time = rng.exponential(scale=1.8, size=n)
 time = np.minimum(event_time, censor_time)
 event = (event_time <= censor_time).astype(np.float64)
 ```
+<!-- /example: coxph-backend-data -->
 
 NumPy / CPU：
 
+<!-- example: coxph-backend-cpu -->
 ```python
 cpu_model = CoxPH(
     ties="efron",
@@ -56,6 +360,7 @@ cpu_model = CoxPH(
 ).fit(X, time, event)
 cpu_log_risk = cpu_model.predict_risk_score(X[:3])
 ```
+<!-- /example: coxph-backend-cpu -->
 
 CuPy / CUDA：
 
@@ -171,7 +476,7 @@ StatGPU 现在在每个分层内按终止时间 `stop` 降序排列，并通过�
 
 ## 公式接口
 
-支持两种生存响应：
+以下为接口示意，并非独立示例：需要包含对应列的 pandas DataFrame `df` 和可选 pandas/Patsy 公式依赖。支持两种生存响应：
 
 ```python
 CoxPH().fit(formula="Surv(time, event) ~ age + C(group)", data=df)
@@ -299,21 +604,6 @@ Exact 并列事件当前只支持模型协方差（`cov_type="nonrobust"`）。�
 `selection_origin_device`、`candidate_preparation_origin_device` 和
 `scoring_device` 记录选择结果的来源；`effective_device` 记录本次请求以及最终重拟合使用的设备。一次响应准备表示一整套 `time`/`event` 元数据准备；向量传输计数记录实际发生的两条向量复制。
 
-## 参数
-
-| 参数 | 默认值 | 说明 |
-|---|---:|---|
-| `ties` | `"breslow"` | `"breslow"`、`"efron"` 或 `"exact"` |
-| `tol` | `1e-9` | Newton/KKT 收敛阈值 |
-| `max_iter` | `100` | 最大迭代次数 |
-| `device` | `"auto"` | `"cpu"`、`"cuda"`、`"torch"` 或 `"auto"` |
-| `compute_inference` | `True` | 计算协方差、检验与基线风险 |
-| `compute_cindex` | `True` | 计算训练集 concordance |
-| `cov_type` | `"nonrobust"` | `"nonrobust"`、`"hc0"`、`"hc1"` 或 `"cluster"` |
-| `penalty` | `0.0` | 非负 L2 惩罚 |
-| `inference_mode` | `"strict"` | `"strict"` 或兼容别名 `"approx"`；两者均执行精确推断 |
-| `gpu_memory_cleanup` | `False` | 尝试释放 CuPy/Torch 缓存 |
-
 ## 支持矩阵
 
 | 能力 | Breslow | Efron | Exact | NumPy | CuPy | Torch |
@@ -329,118 +619,6 @@ Exact 并列事件当前只支持模型协方差（`cov_type="nonrobust"`）。�
 `predict_survival` 需要已拟合的基线风险，因此需要生存曲线时应保留
 `compute_inference=True`。风险得分与风险比预测不依赖基线风险。
 
-## 交叉验证
-
-`CoxPHCV` 使用相同的 `ties`、`start`/`entry`、`strata` 与后端语义评估 L2 惩罚
-网格，再以最佳 `penalty` 重拟合 `CoxPH`。传入 `subject_id` 后，同一受试者的
-全部行会被保留在同一自动生成的交叉验证折中；若用户提供的 `cv_splits` 使同一
-受试者同时出现在训练集和验证集中，则会被拒绝。`inference_mode` 与
-`compute_inference` 会转发到最终重拟合。
-
-```python
-cpu_cv = CoxPHCV(
-    penalties=[0.0, 0.01, 0.1],
-    cv=5,
-    device="cpu",
-    compute_inference=False,
-).fit(X, time, event)
-```
-
-同一组 `penalty` 搜索也可以直接使用前述 CuPy 或 Torch CUDA 数组：
-
-```python
-cupy_cv = CoxPHCV(
-    penalties=[0.0, 0.01, 0.1], cv=5, device="cuda",
-    compute_inference=False,
-).fit(X_cp, time_cp, event_cp)
-
-torch_cv = CoxPHCV(
-    penalties=[0.0, 0.01, 0.1], cv=5, device="torch",
-    compute_inference=False,
-).fit(X_t, time_t, event_t)
-```
-
-### L1/L2/ElasticNet/SCAD/MCP 模型族交叉验证
-
-上面的 `CoxPHCV` 是标准的 L2 Cox 选择器，并可按配置执行最终重拟合推断。
-公开的带惩罚模型族则使用 `PenalizedGLM_CV` 的独立生存感知分支：
-
-```python
-from statgpu.linear_model import PenalizedGLM_CV
-
-survival_y = np.column_stack([time, event])
-penalized_cv = PenalizedGLM_CV(
-    loss="cox_ph",
-    penalty="mcp",               # l1、l2、elasticnet、scad 或 mcp
-    alpha_grid=[0.1, 0.03, 0.01],
-    cv=5,
-    cv_strategy="strict",
-    loss_kwargs={"ties": "efron"},
-    device="cpu",                # 也可用 "cuda" / "torch"
-).fit(X, survival_y)
-```
-
-该分支始终保留二维 `(time, event)` 响应，禁止截距，使用留出数据上的未惩罚偏似然评分，并要求每个可评估的交叉验证折都提供有限证据。若不存在满足
-契约的 `alpha`，拟合会抛错，并且不会发布已选 `alpha` 或已拟合估计器。最终重拟合使用
-`PenalizedCoxPHModel(compute_inference=False)`；不支持选择后系数推断、`two_stage`、样本权重或字典形式响应。无惩罚别名不可调，因此该 CV
-路径会拒绝，需改为直接拟合模型。
-
-自定义交叉验证折可以采用一般的非空、训练集与验证集互不重叠的划分，包括前向
-`TimeSeriesSplit` 或重复留出；无需互为补集，也无需让每行恰好进入一次验证集。索引会在任何候选模型拟合前校验，必须是一维、精确且位于范围内的
-整数。自动网格中，ElasticNet 在 `l1_ratio > 0` 时采用零模型 KKT 边界
-`alpha_max = ||gradient L(0)||_inf / l1_ratio`，惩罚对象使用自身的混合比例参数。
-纯 L2（`l1_ratio=0`）不存在有限的全零 KKT 阈值，因此把零模型得分的原始
-无穷范数作为已文档化的网格启发式规则。
-
-大规模 `device="auto"` 搜索只在 Torch 或 CuPy 的 CUDA 后端确认设备实际可用
-后选择 GPU。回退路径的规模估计只统计训练集和验证集都含事件的可评估折；其他规范化后的折仍记录在 `failure_path` 中，但不会夸大 GPU 工作量。CuPy
-可导入但无法运行时会回退 CPU；显式 `device="cuda"` 仍严格抛错，不会静默回退。
-
-## 预测与评分
-
-对数组输入，`predict`、`predict_risk_score`、`predict_hazard_ratio`、
-`predict_survival` 与 `score` 都在拟合后端执行。使用 `device="auto"` 拟合后，模型会固定实际的
-`effective_device_`；后续修改全局设备设置不会迁移既有模型的预测或评分后端。分层生存预测要求每个预测行
-提供一个训练时已知的分层标签；即使拟合时只有一个显式分层，也不能省略
-标签，缺失或未知标签会抛出 `ValueError`。生存曲线在对数域中累计基线风险，
-以提高数值稳定性。使用公式接口拟合的模型会在预测前应用已保存的设计矩阵转换。
-
-`score()` 复用同一行标签编码器：传入的 `strata` 必须具有 `(n_samples,)` 形状；
-显式分层模型只接受训练时已知标签，多分层拟合在评分时必须提供标签。
-标量、二维、长度错误或未知标签都会在后端计算 concordance 前统一抛出
-`ValueError`。
-
-若某个已拟合分层没有观察到任何事件，其空的基线风险状态是合法状态。
-该分层在任意时间的累计基线风险均为零，因此 `predict_survival()` 精确返回
-1。显式 `times`、自动 `times`、混合分层预测行和 `CoxPHCV` 委托路径都遵守此契约；
-存储的时间/风险数组形状不匹配仍属于非法状态。
-
-`predict_risk_score()` 返回未取指数的对数风险。标准 CoxPH、CV 与带惩罚 Cox 的风险比预测 API 共享严格的 float64 指数边界；标准 CoxPH/CV 拟合后
-`hazard_ratios_` 采用相同边界。会溢出为无穷或下溢为零的值，在标准 CoxPH/CV 拟合时抛出 `CoxFitNumericalError`，在预测时抛出 `FloatingPointError`，不会按估计器专属阈值静默截断。`PenalizedCoxPHModel` 也提供 `predict_risk_score()`，因此
-极端但有限的对数风险仍可直接读取。
-
-## 输出
-
-- 参数：`coef_`、`hazard_ratios_`；
-- 推断：启用时的 `_bse`、`_zvalues`、`_pvalues`、`_conf_int`；
-- 诊断：定义时的 `log_likelihood`、`aic`、`bic`、`concordance_index`；
-- 收敛：`converged_`、`termination_reason_`、`optimization_stop_reason_`、`n_iter_`、
-  `final_kkt_inf_`、`final_kkt_normalized_`；
-- 推断来源与执行信息：`inference_method_`、`inference_backend_`、
-  `inference_approximate_`、`inference_fallback_reason_`、
-  `inference_target_`、`penalty_conditioning_`、`penalty_selection_adjusted_`、
-  `full_host_transfer_performed_`。
-
-`CoxPHCV` 还会公开 `cv_full_host_transfer_performed_`、
-`final_refit_full_host_transfer_performed_` 与 `orchestration_device_`，避免数据移动审计
-将主机端的 CV 选择与最终重拟合混淆。
-`cv_results_` 会区分选择来源字段（`scoring_device`、
-`selection_origin_device`、`candidate_preparation_origin_device` 与总准备次数）和本次调用字段（`selection_cache_hit`、
-`requested_fit_device`、`effective_device` 与 `*_this_call` 次数）。缓存命中时，本次调用不会重复准备交叉验证折，也不会再次传输响应向量；同时不会改写原先记录的选择来源设备。
-若有限输入的候选返回非有限系数或似然，`CoxPH` 会抛出
-`CoxFitNumericalError`（`FloatingPointError` 子类）；`CoxPHCV` 只排除这类
-候选，输入错误、内存分配器错误、CUDA 错误以及其他非预期运行时错误仍会原样传播。
-
 ## 外部验证与可复现性
 
 维护的 R 基线使用 R 4.4.1 与 `survival` 3.8.9，并对齐并列事件处理方式、Newton
@@ -451,11 +629,19 @@ HC1 使用 3,000 个独立单元，聚类稳健协方差使用 120 个聚类单�
 
 这些结果对应特定的数据规模和验证设置，不应解释为对所有数据与硬件都成立的统一精度或性能保证。Exact 并列事件和性能表现还会随问题规模与硬件而变化。具体的机器可读验证记录保留在开发验证材料中。
 
-### GPU 数值验证
+### 已发布的物理 GPU 验证
 
-CuPy 与 Torch CUDA 路径会在物理 GPU 上检查数值一致性、设备归属和错误边界。此类验证用于确认实现是否遵守公开的统计与设备语义，但不构成对所有 GPU 型号、软件版本或数据规模的统一性能保证。
+CuPy 与 Torch CUDA 验证检查数值一致性、设备归属和错误边界。稳定的
+[已发布 GPU 验证记录](https://gist.github.com/TheHiddenObserver/ebbb7f2401f45b124069a30d3510c139)
+（[原始 JSON](https://gist.githubusercontent.com/TheHiddenObserver/ebbb7f2401f45b124069a30d3510c139/raw/pr80_final_gpu_suite_schema3.json)）
+绑定到源码提交 `a726937a39eb0ed5a370dd03362884b63a9e9818`，产物 SHA-256 为
+`e01ad0bfec238d06167caeef9955e92b6cf84eea4ccc69a3056eb794ded6eccb`。
+它只证明记录中的源码和运行环境；后续提交不会自动继承这一验证结论。
+源码哈希、导入路径、硬件和验证来源保留在产物及
+[开发验证材料](../../../dev/reviews/pr80_review_fix.md)中。
 
-为便于复核，当前页面保留一份已发布验证记录的稳定引用：[已发布验证记录](https://gist.github.com/TheHiddenObserver/ebbb7f2401f45b124069a30d3510c139)，对应产物 SHA-256 为 `e01ad0bfec238d06167caeef9955e92b6cf84eea4ccc69a3056eb794ded6eccb`。它只证明该记录所对应的源码和运行环境；后续提交不会自动继承这一验证结论。运行环境与源码来源的详细记录见[开发验证材料](../../../dev/reviews/pr80_review_fix.md)。
+这份记录不是新的性能交叉点 benchmark，也不是新的 R 对齐运行，更不是对所有数据规模、
+后端版本或 GPU 都成立的统一精度和性能保证；这些比较仍须以各自的专用产物为准。
 
 ## FAQ 与常见失败模式
 
@@ -472,7 +658,7 @@ CuPy 与 Torch CUDA 路径会在物理 GPU 上检查数值一致性、设备归�
 | 风险比预测抛出 `FloatingPointError` | `exp(X @ coef_)` 超出有限 float64 范围。检查 `predict_risk_score()`、缩放特征并检查外推。 |
 | `converged_` 为 `False` | 检查 `optimization_stop_reason_`、`final_kkt_inf_` 与 `final_kkt_normalized_`；单纯增加 `max_iter` 不能修复线搜索失败或病态设计。 |
 | Exact 并列事件很慢或触发工作区内存限制 | Exact 似然对最大并列事件组具有组合复杂度；科学上允许时使用 Breslow/Efron，或减小最大 Exact 并列事件组。 |
-| `score()` 返回 `0.5` | 数据中不存在可用于 concordance 计算的样本对；`0.5` 是文档化的中性返回值。 |
+| `score()` 返回 `0.5` | 可能是风险排序没有区分度，也可能没有可用于 concordance 计算的样本对；后一种情况同样返回中性值 `0.5`。应检查数据是否包含可比较的样本对。 |
 
 ## 限制
 

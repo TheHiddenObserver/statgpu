@@ -1,11 +1,37 @@
 # CoxPH
 
 > Language: English<br>
-> Last updated: 2026-08-04<br>
+> Last updated: 2026-10-04<br>
 > This page: Model documentation<br>
 > Switch: [Chinese](../../cn/models/coxph.md)
 
 ## Overview
+
+Use Cox regression when the question is **how predictors relate to the time until
+an event**, such as a machine failure, and observation can end before the event
+occurs. Regressing only observed failure times discards useful follow-up from
+units that have not failed; classifying event/no-event ignores how long each unit
+was observed.
+
+For ordinary right-censored data, each row contains predictors `X`, a positive
+observed follow-up `time`, and an `event` indicator:
+
+- `event=1`: the event occurred at `time`;
+- `event=0`: observation ended at `time` without observing the event. Its true
+  event time is later than that follow-up, not zero or known never to occur.
+
+Keep censored rows. The usual interpretation assumes censoring is independent of
+the event process conditional on the modeled covariates and study design.
+
+The model is $h(t\mid x)=h_0(t)\exp(x^\top\beta)$: the baseline hazard describes
+how instantaneous event risk changes over time, and the predictors multiply it.
+For fixed covariates within the same stratum, the **proportional-hazards (PH)
+assumption** says that this hazard ratio stays constant over time. A one-unit
+increase in feature `j`, holding the others fixed, multiplies the hazard by
+`exp(coef_[j])`. A hazard ratio is not an event probability, a survival time, or
+by itself a causal effect. Check whether PH and the study design are reasonable;
+optimizer convergence alone does not validate these assumptions. Time-varying
+covariates can change `x(t)`, but their fitted coefficient remains constant.
 
 `CoxPH` implements proportional-hazards regression with Breslow, Efron, or Exact
 tie handling on NumPy, CuPy CUDA, and Torch CUDA. It supports ordinary
@@ -24,17 +50,348 @@ Important behavior:
 - `compute_inference=False` performs estimation only and leaves inference and
   baseline-hazard fields unset.
 
-## Import
+## First CPU Walkthrough
+
+This complete example needs NumPy and StatGPU, with no GPU or external dataset.
+It simulates independent right-censored subjects with three already-comparable
+feature scales. The last 100 subjects are held out before fitting. For real
+data, choose the split to respect subjects, groups, or time; learn any scaling
+or other preprocessing from the training partition only.
+
+<!-- example: coxph-cpu-walkthrough -->
+```python
+import numpy as np
+from statgpu.survival import CoxPH, CoxPHCV
+
+rng = np.random.default_rng(42)
+X = rng.normal(size=(400, 3))
+true_coef = np.array([0.8, -0.5, 0.3])
+event_time = rng.exponential(scale=np.exp(-(X @ true_coef)))
+censor_time = rng.exponential(scale=2.0, size=len(X))
+time = np.minimum(event_time, censor_time)
+event = (event_time <= censor_time).astype(np.int64)
+
+X_train, X_test = X[:300], X[300:]
+time_train, time_test = time[:300], time[300:]
+event_train, event_test = event[:300], event[300:]
+
+model = CoxPH(
+    ties="efron", device="cpu", compute_inference=True,
+).fit(X_train, time_train, event_train)
+if not model.converged_:
+    raise RuntimeError(
+        f"{model.optimization_stop_reason_}: "
+        f"normalized KKT={model.final_kkt_normalized_}"
+    )
+print("Coefficients:", model.coef_)
+print("Per-feature hazard ratios:", model.hazard_ratios_)
+print("Convergence:", model.termination_reason_, model.n_iter_)
+print(model.summary())
+
+log_risk = model.predict_risk_score(X_test[:2])
+relative_hazard = model.predict(X_test[:2])
+requested_times = np.array([0.0, 0.5, 1.0, 2.0])
+curves, curve_times = model.predict_survival(
+    X_test[:2], times=requested_times,
+)
+held_out_cindex = model.score(X_test, time_test, event_test)
+print("Log-risk:", log_risk)
+print("Relative hazard:", relative_hazard)
+print("Survival shape and times:", curves.shape, curve_times)
+print("Held-out C-index:", held_out_cindex)
+```
+<!-- /example: coxph-cpu-walkthrough -->
+
+For this seed, the coefficients are approximately `[0.852, -0.457, 0.312]`
+and their hazard ratios are `[2.345, 0.633, 1.367]`. For example, increasing the
+first feature by one unit multiplies the estimated instantaneous hazard by
+about 2.35, holding the others fixed. The second feature is associated with a
+lower hazard. These are associations in simulated data, not practical treatment
+recommendations.
+
+`predict_risk_score(X)` is `X @ coef_`; `predict(X)` and
+`predict_hazard_ratio(X)` are `exp(X @ coef_)`, relative to the same-stratum
+zero-covariate profile. To compare two profiles, exponentiate their log-risk
+difference. `hazard_ratios_` instead has one value per **feature**.
+
+`predict_survival` returns the tuple **`(curves, times)`**, not just a matrix:
+`curves` has shape `(n_new, n_times)` and `times` has shape `(n_times,)`.
+Here these are `(2, 4)` and `(4,)`; each row estimates the probability of
+remaining event-free beyond the corresponding time. Curves lie in `[0, 1]` and
+are non-increasing on an increasing time grid. `times=None` uses the fitted
+baseline's event-time grid (the union for strata); explicit times retain the
+requested order. The baseline is stepwise and flat beyond its last event time,
+so extending the grid does not establish reliable long-term extrapolation.
+For counting-process data, a supplied prediction row describes a fixed
+covariate profile, not automatic integration over a future covariate trajectory.
+
+The held-out C-index is about `0.766`: larger predicted hazard tends to rank
+subjects with earlier observed events ahead of comparable longer-surviving
+subjects. This is discrimination, not probability calibration or R-squared.
+A value near `0.5` is neutral ranking, `1.0` is perfect ranking on permissible
+pairs, and a value below `0.5` suggests reversed ranking. No permissible pairs
+also return `0.5`; that is insufficient evaluation evidence, not proof of a
+random-quality model. Do not use training concordance as a held-out estimate.
+
+## Input Shapes and Fit API
+
+The matrix API is `CoxPH(...).fit(X, time, event, ...)` or
+`CoxPHCV(...).fit(X, time, event, ...)`; both return the fitted estimator.
+
+| Input | Shape / contract |
+|---|---|
+| `X` | Finite real matrix `(n_samples, n_features)`; no intercept/constant column. Preserve feature order at prediction. `CoxPH` also accepts a one-dimensional single feature; use a matrix for `CoxPHCV`. |
+| `time` | Finite positive vector `(n_samples,)`, in one consistent time unit; event or censoring time, or interval stop time. |
+| `event` | Vector `(n_samples,)` containing only `0` or `1`; at least one observed event is needed for fitting. |
+| `entry` / `start` | Optional vector `(n_samples,)` with `0 <= start < time`; aliases, never pass both. Omitted means entry at zero. |
+| `strata` | Optional labels `(n_samples,)` for independent risk sets and separate baseline hazards with shared coefficients. |
+| `subject_id` | Optional labels `(n_samples,)` identifying repeated rows; use for subject-aware concordance, robust aggregation, and CV splitting. |
+| `cluster` | Optional labels `(n_samples,)`; required by `cov_type="cluster"`. Cluster labels alone do not make CV folds group-preserving; use suitable `subject_id` or explicit `cv_splits`. |
+| `init_coef` | Optional finite vector `(n_features,)` for a `CoxPH` initial estimate; not a `CoxPHCV.fit` argument. |
+| `formula`, `data` | Alternative `CoxPH.fit` interface described below; not accepted by `CoxPHCV.fit`. |
+
+Both estimators also accept `fit(X, y)` with `event` omitted: `y` is either
+`(n_samples, 2)` with columns `[time, event]`, or `(n_samples, 3)` with columns
+`[start, stop, event]`. Do not pass a separate `entry`/`start` with the
+three-column form. The same packed targets work in `score`; its interval
+argument is `start`, not `entry`. Prepare missing numeric values before matrix
+fitting; non-finite arrays are rejected rather than silently dropped.
+
+Complete constructor options are in [Parameters](#parameters) and
+[CoxPHCV Parameters](#coxphcv-parameters). Canonical signatures and method
+contracts are maintained in [`CoxPH`](../../../statgpu/survival/_cox.py) and
+[`CoxPHCV`](../../../statgpu/survival/_cox_cv.py).
+
+## Parameters
+
+| Parameter | Default | Description |
+|---|---:|---|
+| `ties` | `"breslow"` | `"breslow"`, `"efron"`, or `"exact"` |
+| `tol` | `1e-9` | Newton/KKT convergence tolerance |
+| `max_iter` | `100` | Maximum iterations |
+| `device` | `"auto"` | `"cpu"`, `"cuda"`, `"torch"`, or `"auto"` |
+| `n_jobs` | `None` | Accepted shared CPU-job setting; the current Cox fit/CV loop does not use it to parallelize folds. |
+| `compute_inference` | `True` | Compute covariance, tests, and baseline hazards |
+| `compute_cindex` | `True` | Compute training concordance |
+| `cov_type` | `"nonrobust"` | `"nonrobust"`, `"hc0"`, `"hc1"`, or `"cluster"` |
+| `penalty` | `0.0` | Non-negative L2 penalty |
+| `inference_mode` | `"strict"` | `"strict"` or compatibility alias `"approx"`; both are exact |
+| `gpu_memory_cleanup` | `False` | Best-effort CuPy/Torch cache cleanup |
+
+## Cross-Validation
+
+`CoxPHCV` evaluates an L2 penalty grid using the same tie method, start/entry,
+strata, and backend semantics, then refits a `CoxPH` estimator at the selected
+penalty. When `subject_id` is supplied, every row from a subject remains wholly
+inside one automatically generated fold. User-provided `cv_splits` are rejected
+if they leak a subject between train and validation. `inference_mode` and
+`compute_inference` are forwarded to the final refit.
+
+Run this after the [CPU walkthrough](#first-cpu-walkthrough). Search only its
+300 training subjects, then evaluate the selected/refitted model on the same
+untouched 100-subject test partition. L2 shrinks coefficients; because it acts on
+coefficient magnitudes, comparable feature scales matter. For real data, fit
+preprocessing within each training fold rather than using validation/test data.
+
+<!-- example: coxph-cpu-cv -->
+```python
+cv_model = CoxPHCV(
+    penalties=[0.0, 0.1, 1.0, 10.0],
+    cv=3,
+    random_state=42,
+    ties="efron",
+    device="cpu",
+    compute_inference=False,
+).fit(X_train, time_train, event_train)
+if not cv_model.converged_:
+    raise RuntimeError(cv_model.optimization_stop_reason_)
+
+cv_mean_pl = cv_model.cv_results_["mean_pl"]
+cv_fold_counts = cv_model.cv_results_["effective_fold_counts"]
+cv_test_cindex = cv_model.score(X_test, time_test, event_test)
+print("Penalty grid:", cv_model.penalties_)
+print("Mean held-out partial log-likelihood:", cv_mean_pl)
+print("Effective fold counts:", cv_fold_counts)
+print("Selected penalty:", cv_model.penalty_)
+print("Test C-index:", cv_test_cindex)
+```
+<!-- /example: coxph-cpu-cv -->
+
+This example selects `penalty_=1.0` and obtains a test C-index of approximately
+`0.766`; CV is not guaranteed to improve that score. `best_score_` is the
+maximum **mean held-out partial log-likelihood**, not the C-index returned by
+`score()`, and should only be compared for the same dataset/folds and scoring
+convention. `cv_results_["pl_path"]` has shape `(n_penalties, n_folds)`;
+`mean_pl` and `effective_fold_counts` each have shape `(n_penalties,)`.
+Inspect `converged_path`, `failure_path`, and `fold_valid` when candidates cannot
+be evaluated. A selectable candidate needs finite scores and convergence on
+all the same effective folds; a fold requires events in both partitions. If
+none qualifies, fitting raises rather than publishing a selection.
+
+`estimator_` is the final `CoxPH` refitted on all supplied training rows using
+`penalty_`. With `compute_inference=False`, risk and hazard-ratio predictions
+remain available but survival curves and inference do not. Enabling final-refit
+inference does not correct for tuning uncertainty or shrinkage bias; see
+[Penalty Scaling and Penalized Inference](#penalty-scaling-and-penalized-inference).
+
+### CoxPHCV Parameters
+
+| Parameter | Default | Description |
+|---|---:|---|
+| `penalties` | `None` | Non-empty finite non-negative one-dimensional L2 grid; `None` requests an automatic grid. |
+| `n_penalties` | `100` | Number of values in the automatic grid. |
+| `penalty_min_ratio` | `1e-3` | Minimum/maximum ratio for the automatic grid; in `(0, 1]`. |
+| `cv` | `5` | Number of automatically generated folds, at least two. |
+| `cv_splits` | `None` | Explicit `(train_indices, validation_indices)` pairs, overriding generated folds; non-empty disjoint one-dimensional integer indices in range. |
+| `ties` | `"breslow"` | `"breslow"`, `"efron"`, or `"exact"` for candidates and refit. |
+| `tol` | `1e-9` | Candidate/refit convergence tolerance. |
+| `max_iter` | `100` | Candidate/refit maximum iterations. |
+| `device` | `"auto"` | `"cpu"`, `"cuda"`, `"torch"`, or `"auto"`. |
+| `n_jobs` | `None` | Shared CPU-job option, forwarded to the refit; the current CV loop is not parallelized by this option. |
+| `compute_inference` | `True` | Compute inference and baseline hazards only in the final refit. |
+| `cov_type` | `"nonrobust"` | Covariance contract for the final refit. |
+| `inference_mode` | `"strict"` | `"strict"` or compatibility alias `"approx"`; both use exact supported inference. |
+| `gpu_memory_cleanup` | `False` | Best-effort GPU cache cleanup at public work boundaries. |
+| `random_state` | `None` | Seed for automatically generated CV folds. |
+
+Unlike `CoxPH`, `CoxPHCV` has no constructor `penalty` or `compute_cindex`;
+use `penalties` and call `score` explicitly. The complete source reference is
+[`CoxPHCV`](../../../statgpu/survival/_cox_cv.py).
+
+
+The same penalty search runs on CuPy or Torch CUDA arrays. First run the
+matching setup in [CPU and GPU Examples](#cpu-and-gpu-examples):
 
 ```python
-from statgpu.survival import CoxPH, CoxPHCV
+cupy_cv = CoxPHCV(
+    penalties=[0.0, 0.01, 0.1], cv=5, device="cuda",
+    compute_inference=False,
+).fit(X_cp, time_cp, event_cp)
+
+torch_cv = CoxPHCV(
+    penalties=[0.0, 0.01, 0.1], cv=5, device="torch",
+    compute_inference=False,
+).fit(X_t, time_t, event_t)
 ```
+
+### L1/L2/ElasticNet/SCAD/MCP model-family CV
+
+`CoxPHCV` above is the canonical L2 Cox selector and may run the configured
+final-refit inference. The public penalized-model family uses the separate
+survival-aware branch of `PenalizedGLM_CV`. This additional example uses `X`,
+`time`, and `event` from either data setup on this page:
+
+<!-- example: coxph-penalized-family-cv -->
+```python
+from statgpu.linear_model import PenalizedGLM_CV
+
+survival_y = np.column_stack([time, event])
+penalized_cv = PenalizedGLM_CV(
+    loss="cox_ph",
+    penalty="mcp",               # l1, l2, elasticnet, scad, or mcp
+    alpha_grid=[0.1, 0.03, 0.01],
+    cv=5,
+    cv_strategy="strict",
+    loss_kwargs={"ties": "efron"},
+    device="cpu",                # or "cuda" / "torch"
+).fit(X, survival_y)
+```
+<!-- /example: coxph-penalized-family-cv -->
+
+This branch keeps the `(time, event)` target two-dimensional, forbids an
+intercept, evaluates unpenalized held-out partial likelihood, and requires
+finite evidence from every evaluable fold. If no alpha satisfies that contract,
+fit raises and publishes no selected alpha or fitted estimator. The final refit
+is `PenalizedCoxPHModel(compute_inference=False)`; post-selection coefficient
+inference, `two_stage`, sample weights, and dictionary targets are unsupported.
+No-penalty aliases are non-tunable and are rejected by this CV path; use a
+direct model fit instead.
+
+Custom folds may be general non-empty disjoint train/validation splits, including
+forward `TimeSeriesSplit` or repeated holdout; they need not be complementary or
+cover each row exactly once. Fold indices are validated before any candidate fit
+and must be one-dimensional exact integers in range. With an automatic grid,
+ElasticNet uses the zero-model KKT boundary
+`alpha_max = ||gradient L(0)||_inf / l1_ratio` when `l1_ratio > 0`; a penalty
+object supplies its own ratio. Pure L2 (`l1_ratio=0`) has no finite all-zero KKT
+threshold and uses the raw zero-score norm as a documented grid heuristic.
+
+For large `device="auto"` searches, Torch and CuPy are selected only after their
+CUDA backend reports an operational device. Generic fallback sizing uses only
+evaluable folds whose training and validation partitions both contain events;
+other normalized folds remain visible in `failure_path` but do not inflate GPU
+work. An importable but unusable CuPy installation therefore falls back to
+CPU; explicit `device="cuda"` remains strict and raises instead of falling
+back.
+
+## Prediction and Scoring
+
+`predict`, `predict_risk_score`, `predict_hazard_ratio`, `predict_survival`, and
+`score` execute on the fitted backend for array inputs. A model fitted with
+`device="auto"` pins its actual `effective_device_`; later global device changes do
+not migrate its prediction or scoring backend. Stratified survival
+prediction requires one known stratum label per prediction row, including when
+the fit contained only one explicit stratum. Missing or unseen labels raise
+`ValueError`.
+
+`score()` uses the same row-label encoder: supplied strata must have shape
+`(n_samples,)`, labels must be known when the model was explicitly stratified,
+and a multi-stratum fitted model requires scoring labels. Malformed scalar,
+two-dimensional, wrong-length, or unseen labels consistently raise
+`ValueError` before backend concordance work. Survival curves use log-domain
+baseline accumulation for numerical stability. Formula-fitted models apply
+their saved design transformation before prediction.
+
+A fitted stratum with no observed failures has a valid empty baseline-hazard
+state. Its cumulative baseline hazard is zero at every time, so
+`predict_survival()` returns exactly one for that stratum. This applies to
+explicit times, automatically selected times, mixed-stratum prediction rows,
+and the delegated `CoxPHCV` path; a mismatched stored time/hazard shape remains
+an invalid state.
+
+`predict_risk_score()` returns the unexponentiated log-risk. Hazard-ratio
+prediction APIs use one strict float64 exponential boundary across canonical,
+CV, and penalized Cox models; canonical/CV fitted `hazard_ratios_` use the same
+boundary. A value that would overflow to infinity or underflow to zero raises
+`CoxFitNumericalError` during canonical/CV fit or `FloatingPointError` during
+prediction; values are never silently clipped to an estimator-specific
+threshold. `PenalizedCoxPHModel` also exposes
+`predict_risk_score()` so extreme finite log-risk remains directly available.
+
+## Outputs
+
+- parameters: `coef_`, `hazard_ratios_`;
+- inference: `_bse`, `_zvalues`, `_pvalues`, `_conf_int` when enabled;
+- diagnostics: `log_likelihood`, `aic`, `bic`, `concordance_index` where defined;
+- convergence: `converged_`, `termination_reason_`,
+  `optimization_stop_reason_`, `n_iter_`,
+  `final_kkt_inf_`, `final_kkt_normalized_`;
+- provenance: `inference_method_`, `inference_backend_`,
+  `inference_approximate_`, `inference_fallback_reason_`,
+  `inference_target_`, `penalty_conditioning_`, `penalty_selection_adjusted_`,
+  `full_host_transfer_performed_`.
+
+`CoxPHCV` additionally exposes `cv_full_host_transfer_performed_`,
+`final_refit_full_host_transfer_performed_`, and `orchestration_device_` so
+data-movement audits do not confuse host CV selection with the final refit.
+Its `cv_results_` separates selection-origin fields (`scoring_device`,
+`selection_origin_device`,
+`candidate_preparation_origin_device`, and total preparation counts) from
+invocation fields (`selection_cache_hit`, `requested_fit_device`,
+`effective_device`, and `*_this_call` counts). A cache hit reports zero fold preparation and target
+transfer work for that invocation without rewriting the origin device.
+If a finite-input candidate returns non-finite fitted coefficients or
+likelihood, `CoxPH` raises `CoxFitNumericalError` (a
+`FloatingPointError` subclass); `CoxPHCV` excludes only that candidate while
+letting input, allocator, CUDA, and unexpected runtime errors propagate.
 
 ## CPU and GPU Examples
 
 The three backends use the same statistical inputs and return prediction arrays
-on the fitted backend. Run this deterministic data setup once:
+on the fitted backend. The optional backend examples below are separate from the held-out walkthrough.
+Run this deterministic data setup once:
 
+<!-- example: coxph-backend-data -->
 ```python
 import numpy as np
 
@@ -49,9 +406,11 @@ censor_time = rng.exponential(scale=1.8, size=n)
 time = np.minimum(event_time, censor_time)
 event = (event_time <= censor_time).astype(np.float64)
 ```
+<!-- /example: coxph-backend-data -->
 
 NumPy / CPU:
 
+<!-- example: coxph-backend-cpu -->
 ```python
 cpu_model = CoxPH(
     ties="efron",
@@ -60,6 +419,7 @@ cpu_model = CoxPH(
 ).fit(X, time, event)
 cpu_log_risk = cpu_model.predict_risk_score(X[:3])
 ```
+<!-- /example: coxph-backend-cpu -->
 
 CuPy / CUDA:
 
@@ -198,7 +558,9 @@ failure-group-by-sample risk-mask scan from the common right-censored path.
 
 ## Formula Interface
 
-Both survival response forms are accepted:
+These are interface sketches, not standalone examples: provide a pandas
+DataFrame `df` containing the named columns and install the optional pandas/Patsy
+formula dependencies. Both survival response forms are accepted:
 
 ```python
 CoxPH().fit(formula="Surv(time, event) ~ age + C(group)", data=df)
@@ -371,21 +733,6 @@ selection-origin fields such as `selection_origin_device`,
 preparation count represents one complete time/event metadata preparation;
 the vector-transfer count records its two actual vector copies.
 
-## Parameters
-
-| Parameter | Default | Description |
-|---|---:|---|
-| `ties` | `"breslow"` | `"breslow"`, `"efron"`, or `"exact"` |
-| `tol` | `1e-9` | Newton/KKT convergence tolerance |
-| `max_iter` | `100` | Maximum iterations |
-| `device` | `"auto"` | `"cpu"`, `"cuda"`, `"torch"`, or `"auto"` |
-| `compute_inference` | `True` | Compute covariance, tests, and baseline hazards |
-| `compute_cindex` | `True` | Compute training concordance |
-| `cov_type` | `"nonrobust"` | `"nonrobust"`, `"hc0"`, `"hc1"`, or `"cluster"` |
-| `penalty` | `0.0` | Non-negative L2 penalty |
-| `inference_mode` | `"strict"` | `"strict"` or compatibility alias `"approx"`; both are exact |
-| `gpu_memory_cleanup` | `False` | Best-effort CuPy/Torch cache cleanup |
-
 ## Support Matrix
 
 | Capability | Breslow | Efron | Exact | NumPy | CuPy | Torch |
@@ -401,146 +748,6 @@ the vector-transfer count records its two actual vector copies.
 `predict_survival` requires fitted baseline hazards, so leave
 `compute_inference=True` when survival curves are needed. Risk-score and hazard-
 ratio prediction do not require a baseline.
-
-## Cross-Validation
-
-`CoxPHCV` evaluates an L2 penalty grid using the same tie method, start/entry,
-strata, and backend semantics, then refits a `CoxPH` estimator at the selected
-penalty. When `subject_id` is supplied, every row from a subject remains wholly
-inside one automatically generated fold. User-provided `cv_splits` are rejected
-if they leak a subject between train and validation. `inference_mode` and
-`compute_inference` are forwarded to the final refit.
-
-```python
-cpu_cv = CoxPHCV(
-    penalties=[0.0, 0.01, 0.1],
-    cv=5,
-    device="cpu",
-    compute_inference=False,
-).fit(X, time, event)
-```
-
-The same penalty search runs on CuPy or Torch CUDA arrays prepared above:
-
-```python
-cupy_cv = CoxPHCV(
-    penalties=[0.0, 0.01, 0.1], cv=5, device="cuda",
-    compute_inference=False,
-).fit(X_cp, time_cp, event_cp)
-
-torch_cv = CoxPHCV(
-    penalties=[0.0, 0.01, 0.1], cv=5, device="torch",
-    compute_inference=False,
-).fit(X_t, time_t, event_t)
-```
-
-### L1/L2/ElasticNet/SCAD/MCP model-family CV
-
-`CoxPHCV` above is the canonical L2 Cox selector and may run the configured
-final-refit inference. The public penalized-model family uses the separate
-survival-aware branch of `PenalizedGLM_CV`:
-
-```python
-from statgpu.linear_model import PenalizedGLM_CV
-
-survival_y = np.column_stack([time, event])
-penalized_cv = PenalizedGLM_CV(
-    loss="cox_ph",
-    penalty="mcp",               # l1, l2, elasticnet, scad, or mcp
-    alpha_grid=[0.1, 0.03, 0.01],
-    cv=5,
-    cv_strategy="strict",
-    loss_kwargs={"ties": "efron"},
-    device="cpu",                # or "cuda" / "torch"
-).fit(X, survival_y)
-```
-
-This branch keeps the `(time, event)` target two-dimensional, forbids an
-intercept, evaluates unpenalized held-out partial likelihood, and requires
-finite evidence from every evaluable fold. If no alpha satisfies that contract,
-fit raises and publishes no selected alpha or fitted estimator. The final refit
-is `PenalizedCoxPHModel(compute_inference=False)`; post-selection coefficient
-inference, `two_stage`, sample weights, and dictionary targets are unsupported.
-No-penalty aliases are non-tunable and are rejected by this CV path; use a
-direct model fit instead.
-
-Custom folds may be general non-empty disjoint train/validation splits, including
-forward `TimeSeriesSplit` or repeated holdout; they need not be complementary or
-cover each row exactly once. Fold indices are validated before any candidate fit
-and must be one-dimensional exact integers in range. With an automatic grid,
-ElasticNet uses the zero-model KKT boundary
-`alpha_max = ||gradient L(0)||_inf / l1_ratio` when `l1_ratio > 0`; a penalty
-object supplies its own ratio. Pure L2 (`l1_ratio=0`) has no finite all-zero KKT
-threshold and uses the raw zero-score norm as a documented grid heuristic.
-
-For large `device="auto"` searches, Torch and CuPy are selected only after their
-CUDA backend reports an operational device. Generic fallback sizing uses only
-evaluable folds whose training and validation partitions both contain events;
-other normalized folds remain visible in `failure_path` but do not inflate GPU
-work. An importable but unusable CuPy installation therefore falls back to
-CPU; explicit `device="cuda"` remains strict and raises instead of falling
-back.
-
-## Prediction and Scoring
-
-`predict`, `predict_risk_score`, `predict_hazard_ratio`, `predict_survival`, and
-`score` execute on the fitted backend for array inputs. A model fitted with
-`device="auto"` pins its actual `effective_device_`; later global device changes do
-not migrate its prediction or scoring backend. Stratified survival
-prediction requires one known stratum label per prediction row, including when
-the fit contained only one explicit stratum. Missing or unseen labels raise
-`ValueError`.
-
-`score()` uses the same row-label encoder: supplied strata must have shape
-`(n_samples,)`, labels must be known when the model was explicitly stratified,
-and a multi-stratum fitted model requires scoring labels. Malformed scalar,
-two-dimensional, wrong-length, or unseen labels consistently raise
-`ValueError` before backend concordance work. Survival curves use log-domain
-baseline accumulation for numerical stability. Formula-fitted models apply
-their saved design transformation before prediction.
-
-A fitted stratum with no observed failures has a valid empty baseline-hazard
-state. Its cumulative baseline hazard is zero at every time, so
-`predict_survival()` returns exactly one for that stratum. This applies to
-explicit times, automatically selected times, mixed-stratum prediction rows,
-and the delegated `CoxPHCV` path; a mismatched stored time/hazard shape remains
-an invalid state.
-
-`predict_risk_score()` returns the unexponentiated log-risk. Hazard-ratio
-prediction APIs use one strict float64 exponential boundary across canonical,
-CV, and penalized Cox models; canonical/CV fitted `hazard_ratios_` use the same
-boundary. A value that would overflow to infinity or underflow to zero raises
-`CoxFitNumericalError` during canonical/CV fit or `FloatingPointError` during
-prediction; values are never silently clipped to an estimator-specific
-threshold. `PenalizedCoxPHModel` also exposes
-`predict_risk_score()` so extreme finite log-risk remains directly available.
-
-## Outputs
-
-- parameters: `coef_`, `hazard_ratios_`;
-- inference: `_bse`, `_zvalues`, `_pvalues`, `_conf_int` when enabled;
-- diagnostics: `log_likelihood`, `aic`, `bic`, `concordance_index` where defined;
-- convergence: `converged_`, `termination_reason_`,
-  `optimization_stop_reason_`, `n_iter_`,
-  `final_kkt_inf_`, `final_kkt_normalized_`;
-- provenance: `inference_method_`, `inference_backend_`,
-  `inference_approximate_`, `inference_fallback_reason_`,
-  `inference_target_`, `penalty_conditioning_`, `penalty_selection_adjusted_`,
-  `full_host_transfer_performed_`.
-
-`CoxPHCV` additionally exposes `cv_full_host_transfer_performed_`,
-`final_refit_full_host_transfer_performed_`, and `orchestration_device_` so
-data-movement audits do not confuse host CV selection with the final refit.
-Its `cv_results_` separates selection-origin fields (`scoring_device`,
-`selection_origin_device`,
-`candidate_preparation_origin_device`, and total preparation counts) from
-invocation fields (`selection_cache_hit`, `requested_fit_device`,
-`effective_device`, and `*_this_call` counts). A cache hit reports zero fold preparation and target
-transfer work for that invocation without rewriting the origin device.
-If a finite-input candidate returns non-finite fitted coefficients or
-likelihood, `CoxPH` raises `CoxFitNumericalError` (a
-`FloatingPointError` subclass); `CoxPHCV` excludes only that candidate while
-letting input, allocator, CUDA, and unexpected runtime errors propagate.
 
 ## External Validation and Reproducibility
 
@@ -562,42 +769,21 @@ These are fixed-source, shape-specific comparisons, not a universal accuracy or
 performance guarantee. Exact-ties and performance conclusions remain bound to
 their dedicated artifacts listed in `dev/reviews/pr80_review_fix.md`.
 
-### Published Exact-Source Physical-GPU Evidence
+### Published Physical-GPU Validation
 
-Physical-GPU evidence is pinned to one exact source commit. The durable artifact
-below certifies runtime commit `a726937...`; later documentation or schema
-commits do not automatically inherit that claim.
+CuPy and Torch CUDA validation checks numerical agreement, device ownership,
+and error boundaries. A stable [published GPU validation record](https://gist.github.com/TheHiddenObserver/ebbb7f2401f45b124069a30d3510c139)
+([raw JSON](https://gist.githubusercontent.com/TheHiddenObserver/ebbb7f2401f45b124069a30d3510c139/raw/pr80_final_gpu_suite_schema3.json))
+is pinned to source commit `a726937a39eb0ed5a370dd03362884b63a9e9818`, with artifact
+SHA-256 `e01ad0bfec238d06167caeef9955e92b6cf84eea4ccc69a3056eb794ded6eccb`.
+It certifies only the recorded source and runtime environment; later commits do
+not automatically inherit that evidence. Source hashes, imported paths, hardware,
+and validation provenance are recorded in the artifact and
+[developer validation reference](../../../dev/reviews/pr80_review_fix.md).
 
-| Field | Published reference evidence |
-|---|---|
-| Source commit | `a726937a39eb0ed5a370dd03362884b63a9e9818` |
-| Artifact | [Gist](https://gist.github.com/TheHiddenObserver/ebbb7f2401f45b124069a30d3510c139) |
-| Raw JSON | [pr80_final_gpu_suite_schema3.json](https://gist.githubusercontent.com/TheHiddenObserver/ebbb7f2401f45b124069a30d3510c139/raw/pr80_final_gpu_suite_schema3.json) |
-| Artifact SHA-256 | `e01ad0bfec238d06167caeef9955e92b6cf84eea4ccc69a3056eb794ded6eccb` |
-| Size | 86,315 bytes |
-| Campaign filename / machine schema | `schema3` / historical outer schema `2` |
-| Validation tier | `remote-full-final-promotion-suite` |
-| Aggregate checks | 134/134 passed |
-| Runtime provenance | nine provenance payloads; imported paths and hashes under `/root/statgpu` |
-| Group suite | CuPy 24/24; Torch CUDA 24/24 |
-| Gate failures | all outer, child, and nested arrays `[]` |
-
-The artifact contains the complete outer report, all three child reports, the
-five Group sub-runners, the Cox order/cache inner runner, and the staged-safety
-inner runner. It records identical commits, clean source before and after, zero
-return codes, all-candidate full-precision masks, no screened candidates, and
-one fold preparation per effective fold.
-
-The final aggregation runner now emits machine schema 3 and has a hosted
-structural contract. Because that runner and this documentation were changed
-after the published artifact, the PR's final head requires a refreshed clean
-physical run before final approval. The published artifact remains valid and
-auditable evidence for `a726937...`; it is not relabeled as evidence for later
-commits.
-
-This is not a new performance-crossover benchmark or a new R external-alignment
-run; those claims remain tied to their dedicated artifacts and detailed history
-in `dev/reviews/pr80_review_fix.md`.
+This record is not a new performance-crossover benchmark or an R-alignment run,
+and is not a universal accuracy or performance guarantee for every dataset,
+backend version, or GPU. Those comparisons remain tied to their own artifacts.
 
 ## FAQ and Common Failure Modes
 
@@ -614,7 +800,7 @@ in `dev/reviews/pr80_review_fix.md`.
 | Hazard-ratio prediction raises `FloatingPointError` | `exp(X @ coef_)` is outside finite float64 range. Inspect `predict_risk_score()`, rescale features, and check extrapolation. |
 | `converged_` is false | Inspect `optimization_stop_reason_`, `final_kkt_inf_`, and `final_kkt_normalized_`; increasing `max_iter` alone does not repair a failed line search or ill-conditioned design. |
 | Exact ties are slow or hit a workspace gate | Exact likelihood is combinatorial in tied-event group size. Prefer Breslow/Efron when scientifically acceptable, or reduce the largest exact tie block. |
-| `score()` returns `0.5` | There were no permissible concordance pairs; `0.5` is the documented neutral value. |
+| `score()` returns `0.5` | This can reflect neutral/tied ranking, or no permissible concordance pairs; the latter also returns the documented neutral value `0.5`. Check whether the data contain evaluable pairs. |
 
 ## Limitations
 

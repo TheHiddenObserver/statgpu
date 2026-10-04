@@ -41,6 +41,8 @@ print("predictions:", np.round(model.predict(X[300:303]), 3))
 print("held-out R2:", round(float(model.score(X[300:], y[300:])), 3))
 ```
 
+For this seed, the CPU output is approximately: coefficients `[0.938, 0.834, -0.552, 0, 0, 0, 0, 0]`, selected columns `[0, 1, 2]`, predictions `[-1.575, 1.710, 1.476]`, and held-out R² `0.936`. Both correlated columns 0 and 1 remain in this fit, while the five noise columns are zero. The high test R² describes prediction on these simulated held-out rows; it does not turn selected variables into validated scientific discoveries. Small floating-point differences are expected.
+
 ### Reading the results and choosing parameters
 
 - `coef_` has one coefficient per input column. In this example a unit increase means one training-set standard deviation because `X` was standardized. `intercept_` and `coef_` describe the prediction fit.

@@ -18,7 +18,7 @@ def test_first_learner_example_is_self_contained_cpu(language, page):
     blocks = re.findall(r"```python\n(.*?)```", text, flags=re.DOTALL)
     assert blocks, f"{page}: missing runnable Python example"
     namespace = {}
-    exec(compile(blocks[0], f"{language}/{page}.md", "exec"), namespace)
+    exec(compile(blocks[0], f"{language}/{page}.md", "exec"), namespace)  # noqa: S102
     if page == "logistic-regression":
         model, X, y = (namespace[name] for name in ("model", "X", "y"))
         assert model.C == 0
@@ -42,6 +42,12 @@ def test_first_learner_example_is_self_contained_cpu(language, page):
     elif page == "elastic-net":
         model, X, y = (namespace[name] for name in ("model", "X", "y"))
         assert model.coef_.shape == (8,)
+        np.testing.assert_allclose(
+            model.coef_, [0.938, 0.834, -0.552, 0, 0, 0, 0, 0], atol=1e-3
+        )
+        np.testing.assert_array_equal(np.flatnonzero(np.abs(model.coef_) > 1e-8), [0, 1, 2])
+        np.testing.assert_allclose(model.predict(X[300:303]), [-1.575, 1.710, 1.476], atol=1e-3)
+        assert model.score(X[300:], y[300:]) == pytest.approx(0.936, abs=1e-3)
         assert np.all(np.isfinite(model.predict(X[300:])))
         assert model.score(X[300:], y[300:]) > 0.8
 

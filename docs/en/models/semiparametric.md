@@ -1,133 +1,147 @@
 # GAM (Generalized Additive Model)
 
 > Language: English  
-> Last updated: 2026-05-28  
+> Last updated: 2026-10-04  
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/semiparametric.md)
 
-Language switch: [Chinese](../../cn/models/semiparametric.md)
+## When a straight line is too restrictive
 
-## Overview
-
-`GAM` fits a Generalized Additive Model using penalized B-splines with automatic smoothing parameter selection via Generalized Cross-Validation (GCV). The model is:
+Suppose a continuous response rises, levels off, or curves with a predictor. A linear regression gives that predictor one slope; `GAM` learns a smooth curve for each feature and adds those curves:
 
 $$
-y = \alpha + \sum_j f_j(x_j) + \epsilon
+y = \alpha + \sum_j f_j(x_j) + \epsilon.
 $$
 
-where each $f_j$ is represented as a penalized B-spline. GAM is a semiparametric model: it has a parametric intercept and nonparametric smooth functions for each feature.
+Use it when the effects are plausibly **smooth and additive** and you want more flexibility than a linear model. This implementation fits **penalized least squares for a continuous response**. Despite the general class name, it has no `family` or `link` API for binary/count responses, and it does not construct interactions automatically. See [GLMs](generalized-linear-model.md) for response-family models, [kernel regression](nonparametric.md) for local smoothing, and [spline bases](splines.md) for building your own terms.
 
-For the underlying B-spline basis utilities, see [Spline Basis Functions](splines.md).
+## Intuition and objective
 
-## Path
-
-`statgpu.semiparametric.GAM`
-
-## Objective Function
-
-GAM fits a penalized least-squares model:
+Each curve is a weighted combination of B-spline basis functions. More basis functions allow finer detail; the smoothness penalty discourages unnecessary wiggles. After centering the basis columns on the training data, the intercept describes the overall response level.
 
 $$
-\min_{\beta} \|y - B\beta\|_2^2 + \lambda \, \beta^\top S \, \beta
+\min_\beta \|y-B\beta\|_2^2 + \lambda\beta^\top S\beta,
+\qquad (B^\top B+\lambda S)\hat\beta=B^\top y.
 $$
 
-where $B$ is the column-wise concatenation of spline basis matrices for each feature (plus an intercept column), $S$ is a block-diagonal difference penalty matrix, and $\lambda$ is the smoothing parameter. The default penalty order is 2 (second differences), which penalizes curvature.
+Here $B$ concatenates an intercept and the centered basis for every feature. $S$ is block diagonal with $D^\top D$ for each curve and zero penalty on the intercept. The loss is a **sum**, not an average. The implementation uses a stabilized Cholesky solve with general-solve/least-squares fallbacks; numerical stabilization also enters its reported EDF.
 
-## Estimating Equation
+`degree=3` means piecewise **cubic** basis functions. `penalty_order=2` penalizes second differences of adjacent **basis coefficients**. These settings do different jobs: changing the penalty to order 1 does not turn cubic splines into piecewise-linear splines. Use `degree=1` if piecewise-linear basis functions are intended.
 
-The first-order condition of the penalized objective yields the system
+## A complete CPU workflow
 
-$$
-(B^\top B + \lambda S) \, \hat\beta = B^\top y
-$$
+Fit and choose smoothing on the training sample only. The held-out sample below stays inside the training range, where the smooths have support.
 
-solved via Cholesky factorization.
-
-**GCV for lambda selection** (when `lam=None`):
-
-$$
-\text{GCV} = \frac{n \cdot \text{RSS}}{(n - \text{edf})^2}
-$$
-
-where the effective degrees of freedom is
-
-$$
-\text{edf} = \text{tr}\!\left((B^\top B + \lambda S)^{-1} B^\top B\right)
-$$
-
-Lambda is selected by minimizing GCV over a log-spaced grid.
-
-## Covariance/Inference
-
-- `edf_`: effective degrees of freedom of the fitted model.
-- `gcv_score_`: GCV score (available when lambda is auto-selected).
-- `lam_`: smoothing parameter used for the final fit.
-- No coefficient-level standard errors or p-values are produced; the GAM is a smoother, not a parametric inference tool.
-
-## Parameters
-
-| Parameter | Default | Description |
-|---|---:|---|
-| `n_splines` | `20` | Number of spline basis functions per feature |
-| `degree` | `3` | Spline degree |
-| `lam` | `None` | Smoothing parameter; auto-selected via GCV if `None` |
-| `penalty_order` | `2` | Order of the difference penalty matrix |
-| `device` | `"auto"` | `cpu` / `cuda` / `auto` |
-
-## CPU+GPU Examples
-
+<!-- example: gam-cpu -->
 ```python
-from statgpu.semiparametric import GAM
 import numpy as np
+from statgpu.semiparametric import GAM
 
-X = np.random.randn(500, 3)
-y = np.sin(X[:, 0] * 3) + 0.1 * np.random.randn(500)
+rng = np.random.default_rng(42)
+X_train = rng.uniform(-2, 2, size=(240, 2))
+y_train = (np.sin(2 * X_train[:, 0]) + 0.4 * X_train[:, 1] ** 2
+           + rng.normal(0, 0.15, 240))
+X_test = rng.uniform(-1.9, 1.9, size=(80, 2))
+y_test = (np.sin(2 * X_test[:, 0]) + 0.4 * X_test[:, 1] ** 2
+          + rng.normal(0, 0.15, 80))
 
-# GAM (CPU)
-gam = GAM(n_splines=20, device='cpu')
-gam.fit(X, y)
-print(f"EDF: {gam.edf_:.1f}, GCV: {gam.gcv_score_:.6f}")
-y_pred = gam.predict(X)
+gam = GAM(n_splines=12, lam=None, device="cpu").fit(X_train, y_train)
+prediction = gam.predict(X_test)
+mse = np.mean((prediction - y_test) ** 2)
+baseline_mse = np.mean((y_train.mean() - y_test) ** 2)
+print(prediction.shape)
+print(f"Test MSE: {mse:.4f}; mean baseline: {baseline_mse:.4f}")
+print(f"lambda: {gam.lam_:.4f}; EDF: {gam.edf_:.2f}; GCV: {gam.gcv_score_:.4f}")
 
-# GAM (GPU)
-gam_gpu = GAM(n_splines=20, device='cuda')
-gam_gpu.fit(X, y)
-y_pred_gpu = gam_gpu.predict(X)
+fixed = GAM(n_splines=12, lam=gam.lam_, device="cpu").fit(X_train, y_train)
+print(fixed.gcv_score_)  # None: a fixed-lambda fit does not run GCV
 ```
 
-## strict/approx difference
+Typical output (rounded):
 
-- When `lam=None` (default), GAM uses GCV over a log-spaced grid (1e-10 to 1e10, 100 points) to select the smoothing parameter. This is the approximate path; the grid is coarse and may miss the optimal lambda in narrow valleys.
-- When `lam` is specified manually, the exact penalized least-squares solution is computed for that single value. This is the exact path.
-- For fine-tuning beyond the default grid, pass a custom `lam` value obtained from a narrower search or domain knowledge.
+```text
+(80,)
+Test MSE: 0.0214; mean baseline: 0.6278
+lambda: 0.1963; EDF: 17.78; GCV: 0.0269
+None
+```
 
-## Outputs
+### Read the result
 
-**GAM fitted attributes**:
+- Test MSE is in squared response units. Beating the training-mean baseline on unseen observations is more informative than an excellent training fit. Check residuals and performance across the predictor ranges, not just one score.
+- `edf_` measures effective model flexibility after smoothing. It need not be an integer and is not the raw number of coefficients.
+- `gcv_score_` is an in-training smoothing-selection criterion, not the held-out MSE or a p-value. Lower is better when comparing candidates on the same data and with the same `gamma`.
+- `coef_` contains an intercept and spline-basis coefficients. These are **not raw-feature slopes**; inspect predictions while varying a feature to understand a fitted curve. `intercept_` is approximately the training response mean because the smooth bases are centered.
+- The fixed-lambda refit uses the same selected value, so its predictions agree with `gam`, but `fixed.gcv_score_` is `None`. This does not signal a failed fit.
 
-| Attribute | Type | Description |
+## Choose the amount of smoothing
+
+With `lam=None`, the model searches 100 log-spaced values from $10^{-10}$ to $10^{10}$ and minimizes
+
+$$
+\operatorname{GCV}(\lambda)=\frac{n\operatorname{RSS}}{(n-\gamma\operatorname{edf})^2},
+\qquad
+\operatorname{edf}=\operatorname{clip}\!\left(\operatorname{tr}\!\left((A+\delta I)^{-1}B^\top B\right),0,m\right).
+$$
+
+Here $A=B^\top B+\lambda S$, $m$ is the number of basis coefficients including the intercept, and $\delta=10^{-10}\operatorname{tr}(A)/m$. This is the reported EDF on the usual stabilized Cholesky path. Centering complete spline blocks can leave $A$ singular, so an ordinary inverse of the unstabilized matrix must not be assumed. If the numerical EDF solve fails, the implementation reports $m$; inspect diagnostics rather than interpreting that fallback as an independently validated model complexity. Standard GCV has `gamma=1`. Larger `gamma` penalizes effective complexity more strongly. Candidates with a nonpositive/nearly zero adjusted denominator are assigned infinite GCV; check that the selected score is finite.
+
+Start with cubic splines and order-2 penalty. Increase `n_splines` only if the fitted shape appears too restricted, then reassess held-out error. Increasing `lam` usually smooths more strongly. Quantile knots put more resolution where data are dense; uniform knots spread it across the observed range. Use a validation split or CV to choose these design settings, keeping a final test set untouched.
+
+There is no strict/approx inference mode. GCV is a discrete parameter search and may miss an optimum between grid points; a fixed `lam` skips selection but still uses the same numerical solver. `GAM` has no constructor option for a custom lambda grid. For a finer search, fit candidate fixed values using training/validation data, then refit the chosen setting.
+
+## Inputs, boundaries, and limitations
+
+- `fit(X, y)` takes finite numeric `X` of shape `(n_samples, n_features)` and one continuous target per row, normally `(n_samples,)`. A 1D `X` is treated as one feature; `y` is flattened, so a single-column target also works. Empty data, mismatched lengths, nonfinite values, and constant feature columns raise `ValueError`. Do not add your own all-ones intercept column.
+- Use numeric continuous predictors. Quantile knots may coincide for heavily tied/discrete features; duplicates are removed, and knots at the training boundary can cause a `ValueError`. Do not assume a large basis makes categorical data suitable for smoothing.
+- `predict(X)` requires the same feature count and order. Prefer an explicit `(n_query, n_features)` array. For one fitted feature a 1D vector means several queries; for several fitted features a length-`n_features_` vector means one query. Predictions are a **NumPy array** of shape `(n_query,)`, including after GPU fitting.
+- The training knots and boundaries are reused at prediction time. Outside a feature's training range its B-spline basis is zero before centering; this is not a reliable linear or smooth extrapolation rule. Restrict interpretation to supported ranges.
+- The additive model can miss interactions. Highly correlated predictors can make separate smooth effects hard to interpret even when predictions are useful.
+- No coefficient standard errors, p-values, confidence bands, `cov_type`, sample-weight fit, or family/link likelihood is implemented here. EDF and GCV do not supply uncertainty intervals.
+
+## Complete constructor and output reference
+
+Import: `from statgpu.semiparametric import GAM`.
+
+| Parameter | Default | Meaning |
+|---|---:|---|
+| `n_splines` | `20` | Requested basis count per feature; integer greater than `degree + 1`. Duplicate knots can reduce the actual count. |
+| `degree` | `3` | Nonnegative integer spline degree. |
+| `lam` | `None` | GCV selection, or a finite nonnegative fixed penalty strength. |
+| `penalty_order` | `2` | Positive integer difference order, smaller than each feature's actual basis count. |
+| `knot_method` | `"quantile"` | `"quantile"` or `"uniform"`; use these lowercase spellings. |
+| `gamma` | `1.0` | Positive finite EDF multiplier in GCV; does not change a fixed-lambda objective. |
+| `device` | `"auto"` | `"cpu"`, `"cuda"`, `"torch"`, or `"auto"`; see device guidance below. |
+| `n_jobs` | `None` | Common estimator compatibility parameter; this GAM implementation has no job-parallel fitting loop. |
+
+| Output | Shape/type | Interpretation |
 |---|---|---|
-| `coef_` | array, shape `(1 + sum(n_basis_j),)` | Concatenated spline coefficients (including intercept) |
-| `intercept_` | float | Intercept term |
-| `edf_` | float | Effective degrees of freedom |
-| `gcv_score_` | float | GCV score at the selected lambda |
-| `lam_` | float | Smoothing parameter used |
-| `knots_` | list of arrays | Knot locations per feature |
-| `n_features_` | int | Number of input features |
+| `coef_` | Backend array, `(1 + sum(n_basis_j),)` | Intercept followed by coefficients for each feature's centered basis. |
+| `intercept_` | `float` | Intercept coefficient. |
+| `edf_` | `float` | Total effective degrees of freedom. |
+| `gcv_score_` | `float` or `None` | Best searched GCV, or `None` for fixed `lam`. |
+| `lam_` | Scalar | Smoothing parameter used by the fitted model. |
+| `knots_` | List of backend arrays | Interior knots for each feature. |
+| `n_features_` | `int` | Training feature count. |
 
-**Methods**: `fit(X, y)`, `predict(X)`, `summary()`.
+Methods: `fit(X, y)` returns `self`; `predict(X)` returns predictions; `summary()` prints diagnostics and returns a dictionary (the `gcv_score` key is omitted for fixed `lam`); `get_params(deep=True)` / `set_params(**params)` provide estimator parameter access. Refit after changing parameters. There is no GAM-specific `score()` method; compute a held-out metric as above.
 
-## FAQ
+Complete API and algorithm sources: [GAM](../../../statgpu/semiparametric/_gam.py), [penalized least squares and GCV](../../../statgpu/nonparametric/splines/_penalized.py), [basis construction](../../../statgpu/nonparametric/splines/_bspline_basis.py), and [shared estimator methods](../../../statgpu/_base.py).
 
-- **How many knots should I use?** `n_splines=20` is a good default. More knots give more flexibility but increase effective degrees of freedom and risk overfitting.
-- **What penalty order should I use?** `penalty_order=2` (second differences) is standard for smooth functions. Use `penalty_order=1` for piecewise-linear fits.
-- **GPU speedup?** The GAM solve is dominated by the Cholesky factorization, which benefits from GPU acceleration for large basis dimensions.
+## Optional GPU execution
 
-## External Validation
+After running the CPU example, this separate snippet requires a working CuPy/CUDA installation. `device="torch"` selects the Torch CUDA route; neither explicit GPU request silently falls back to CPU. `device="auto"` permits automatic selection. See [device and memory](../guides/device-and-memory.md). GPU benefit depends on basis size, transfers, and hardware; measure your workload rather than assuming a speedup.
 
-- GAM predictions validated against pyGAM on standard test datasets.
+<!-- example: gam-gpu -->
+```python
+# Optional: reuses X_train, y_train, X_test from the CPU example.
+gam_gpu = GAM(n_splines=12, device="cuda").fit(X_train, y_train)
+prediction_gpu = gam_gpu.predict(X_test)  # NumPy output
+```
 
-## References
+## External comparisons and references
+
+For comparisons with pyGAM or another smoother, align knots, basis degree, difference penalty, loss normalization, lambda, and GCV `gamma`; similar class names alone do not imply identical fits or inference. A test of one CPU example is not a GPU/performance benchmark.
 
 - Hastie, T., & Tibshirani, R. (1990). *Generalized Additive Models*. Chapman & Hall.
 - Wood, S. N. (2017). *Generalized Additive Models: An Introduction with R* (2nd ed.). Chapman & Hall/CRC.

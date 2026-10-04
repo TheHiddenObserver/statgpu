@@ -2,6 +2,11 @@
 
 All notable changes to statgpu are documented here, organized by release and date.
 
+## Unreleased — 2026-10-04
+
+### PR #168 — Completed learner documentation across nine topics
+- Improved bilingual model guides, distribution API examples and unsupervised model-selection navigation; corrected documented contracts and added executable CPU example regressions without changing numerical implementations.
+
 ## Unreleased — 2026-09-20
 
 ### PR #166 — Quantile solver and inference updates (targeted for 0.2.6)
