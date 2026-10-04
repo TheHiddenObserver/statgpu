@@ -37,6 +37,8 @@ Local-linear regression instead minimizes a weighted local squared-error objecti
 
 All CPU examples are standalone, seeded, and explicitly select NumPy. Reuse a fitted object for repeated evaluation; the one-shot helper is convenient but fits again on every call.
 
+Here `bandwidth=0.35` is a dimensionless **bandwidth factor**, not the absolute bandwidth $h$ in the formula above. For one-dimensional equally weighted data, $h$ is approximately `0.35` times the training sample standard deviation; see “Bandwidth, kernels, and tuning boundaries” below for details.
+
 <!-- example: kde-cpu -->
 ```python
 import numpy as np
@@ -130,7 +132,7 @@ Columns are estimate, lower bound, upper bound. These are **pointwise percentile
 
 Important scope details:
 
-- The NumPy 1D Gaussian bootstrap fast path holds the originally selected factor fixed even when `bandwidth` is a string. Other paths refit the selector on each resample. Use a fixed numeric factor, as above, when you want clearly stated conditioning; do not assume identical selector uncertainty across backends.
+- The NumPy 1D Gaussian bootstrap fast path holds the originally selected factor fixed even when `bandwidth` is a string. Other paths refit the selector on each resample. To use the same bandwidth factor in every resample, specify a numeric factor as above. The sample covariance is still recomputed, so the absolute bandwidth can change; do not assume identical selector uncertainty across backends.
 - With nonuniform `weights`, the implementation both samples in proportion to the weights and re-applies the sampled weights. This is not interchangeable with every frequency/survey/importance-weight bootstrap. The example and interpretation here are limited to equal weights; establish the resampling scheme for your design before using weighted intervals.
 - The wrapper accepts only `method="percentile"`. The related `kde_confidence_interval` has `method="normal"` (default, asymptotic and only 1D Gaussian) or `"bootstrap"`; neither is a bias-corrected or simultaneous method.
 

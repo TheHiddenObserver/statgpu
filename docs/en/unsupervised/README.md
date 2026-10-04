@@ -15,7 +15,7 @@
 |---|---|---|
 | Can I summarize variation with fewer numeric features? | [PCA](pca.md); [TruncatedSVD](truncated-svd.md) when centering is not wanted | Component loadings, explained variation and reconstruction, not just the first two coordinates |
 | Can I describe non-negative data as additive parts? | [NMF](nmf.md) | Non-negative factors and reconstruction error; mean-centering can violate the required non-negativity |
-| Can I group observations into a chosen number of compact groups? | [KMeans](kmeans.md) | Centers, labels and inertia; labels are arbitrary identifiers, not ordered outcomes |
+| Can I group observations into a chosen number of compact groups? | [KMeans](kmeans.md) | Centers, labels and within-cluster sum of squares (inertia); labels are arbitrary identifiers, not ordered outcomes |
 | Do I need probabilistic membership in overlapping groups? | [GaussianMixture](gaussian-mixture.md) | Membership probabilities and the fitted covariance structure; compare component counts under the same data and scoring setup |
 | Do I want density-connected groups and possible noise points? | [DBSCAN](dbscan.md) | Neighborhood scale, minimum density and noise assignments; feature units affect Euclidean distances |
 | Do I need a hierarchy rather than one fixed partition? | [AgglomerativeClustering](agglomerative-clustering.md) | Merge structure and the selected linkage; inspect how the cut changes the groups |
@@ -77,13 +77,13 @@ The shapes are `(90, 2)` and `(30, 2)`. The retained variance fraction is close 
 | Estimator | CPU | CuPy/CUDA | Torch CUDA | Main objective or criterion |
 |---|---|---|---|---|
 | `PCA` | yes | yes | yes | Maximum variance / rank-k reconstruction loss |
-| `KMeans` | yes | yes | yes | Squared Euclidean inertia |
+| `KMeans` | yes | yes | yes | Within-cluster sum of squared Euclidean distances |
 | `DBSCAN` | yes | yes | yes | Density reachability and connected components |
 | `GaussianMixture` | yes | yes | yes | Gaussian mixture log likelihood |
 | `NMF` | yes | yes | yes | Frobenius reconstruction loss under non-negativity |
 | `AgglomerativeClustering` | yes | yes | yes | Hierarchical linkage merge criterion |
 | `TruncatedSVD` | yes | yes | yes | Uncentered low-rank reconstruction |
-| `MiniBatchKMeans` | yes | yes | yes | Mini-batch squared Euclidean inertia |
+| `MiniBatchKMeans` | yes | yes | yes | Within-cluster sum of squares for mini-batch clustering |
 | `IncrementalPCA` | yes | yes | yes | Batch-wise centered low-rank reconstruction |
 | `MiniBatchNMF` | yes | yes | yes | Mini-batch Frobenius reconstruction loss |
 | `UMAP` | yes | yes, host SciPy graph assembly | yes, host SciPy graph assembly | Fuzzy graph cross-entropy |

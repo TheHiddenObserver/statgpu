@@ -6,6 +6,7 @@ All notable changes to statgpu are documented here, organized by release and dat
 
 ### PR #168 — Completed learner documentation across nine topics
 - Improved bilingual model guides, distribution API examples and unsupervised model-selection navigation; corrected documented contracts and added executable CPU example regressions without changing numerical implementations.
+- Refined Chinese statistical explanations, distinguished Cox score-residual calculations from asymptotic inference, corrected Exact dynamic-programming cost wording, and moved implementation history and source-bound validation details to a developer reference.
 
 ## Unreleased — 2026-09-20
 

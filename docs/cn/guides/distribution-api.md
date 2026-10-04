@@ -54,13 +54,13 @@ Central probability: 0.950004
 |---|---|---|
 | `cdf(x, ...)` | $P(X\le x)$ | 输入观测界值，返回累积概率。 |
 | `sf(x, ...)` | $P(X>x)$ | 严格右尾概率。整数计数满足 $P(X\ge k)=\operatorname{sf}(k-1)$。 |
-| `ppf(q, ...)` | 下侧分位数 | `q` 为 `[0, 1]` 内的概率；对于离散分布及 `0 < q < 1`，返回使 CDF 达到 `q` 的最小支持整数。 |
+| `ppf(q, ...)` | 下侧分位数 | `q` 为 `[0, 1]` 内的概率；对于离散分布及 `0 < q < 1`，返回支持集中使 CDF 不小于 `q` 的最小整数。 |
 | `isf(q, ...)` | 上侧分位数 | 输入右尾概率，对应 `ppf(1-q)`；离散分布遵循离散分位数约定。 |
 | `pdf(x, ...)` | 连续概率密度 | 连续分布提供此方法；结果不是单点概率。 |
 | `pmf(k, ...)` | $P(X=k)$ | Poisson 和二项计数提供此方法；非整数计数的概率质量为零。 |
 | `rvs(..., size=...)` | 随机观测值 | `size` 可为整数、维度元组或 `None`；`None` 返回标量形状的结果。样本是观测值，不是概率。 |
 
-分位数端点可能是无穷大。Poisson 和二项分布的 `ppf(0)` 采用“支持集下界减一”的约定，`loc=0` 时为 `-1`；它不是可能抽到的观测值。验证反函数时优先使用内部概率。无效参数常会产生 `nan`，不支持的参数则可能直接报错，因此应主动检查输入，不能假设所有错误都有相同的处理方式。
+分位数端点可能是无穷大。Poisson 和二项分布的 `ppf(0)` 采用“支持集下界减一”的约定，`loc=0` 时为 `-1`；它不是可能抽到的观测值。验证分位数函数与 CDF 的对应关系时，优先选用严格介于 0 和 1 之间的概率。无效参数常会产生 `nan`，不支持的参数则可能直接报错，因此应主动检查输入，不能假设所有错误都有相同的处理方式。
 
 ## 计数：概率质量、累积概率与上界
 
@@ -114,7 +114,7 @@ print("95% mean interval:", np.round(interval, 6))
 print("Reject at 5%:", bool(pvalue < alpha))
 ```
 
-预期均值为 `2.445455`，标准误为 `0.086722`，统计量为 `5.136596`，p 值为 `0.000440`，正侧临界值为 `2.228139`，区间为 `[2.252226, 2.638683]`，拒绝判断为 `True`。原假设中的均值 2 位于区间之外。
+预期均值为 `2.445455`，标准误为 `0.086722`，统计量为 `5.136596`，p 值为 `0.000440`，右侧临界值为 `2.228139`，区间为 `[2.252226, 2.638683]`。`pvalue < alpha` 的结果为 `True`，因此在 5% 显著性水平下拒绝原假设；原假设中的均值 2 也位于区间之外。
 
 p 值是原假设成立时的尾概率，不是原假设为真的概率。这里得到的是总体均值的置信区间，不是下一次观测值的预测区间。
 
@@ -124,7 +124,7 @@ p 值是原假设成立时的尾概率，不是原假设为真的概率。这里
 
 优先使用 `sf`，不要自行计算 `1-cdf`，正态分布的右尾尤其如此。不过，当前部分分布的 `sf` 内部仍通过减法实现，原生 `isf` 也会先计算 `1-q`。极小的 `q` 可能因舍入丢失，导致临界值为无穷大或不准确；`use_lut=False` 不能消除这种消减误差。
 
-极端尾部、密度奇异端点和特殊参数范围都需要针对具体方法核对参考结果。如果需要专门的尾部算法，可以直接在 CPU 上使用 SciPy 对应的 `sf`、`logsf` 或 `isf`；这些原生对象不提供 `logcdf` 或 `logsf`。此外，若干正支持分布及 beta 分布的密度实现，在支持集端点处返回零，而非解析端点极限。核对它们的 PDF 时，应在支持集内部取值。
+极端尾部、密度奇异端点和特殊参数范围都需要针对具体方法核对参考结果。如果需要专门的尾部算法，可以直接在 CPU 上使用 SciPy 对应的 `sf`、`logsf` 或 `isf`；这些原生对象不提供 `logcdf` 或 `logsf`。此外，部分取值范围为非负数的分布及 beta 分布的密度实现，在支持集端点处返回零，而非解析端点极限。核对它们的 PDF 时，应在支持集内部取值。
 
 ## 原生分布与参数选择
 
@@ -250,7 +250,7 @@ print("Quantiles:", np.round(reference_values, 6))
 
 ## 为额外分布显式启用 SciPy 回退
 
-`get_distribution` 只接受上表中的原生名字，即使指定 `backend="numpy"` 也不例外；`get_distribution("gumbel_r", backend="numpy")` 会抛出 `ValueError`。兼容工厂 `get_distribution_gpu` 可以通过 `allow_fallback=True` 显式包装额外的 SciPy 分布：
+`get_distribution` 只接受上表中的原生分布名称，即使指定 `backend="numpy"` 也不例外；`get_distribution("gumbel_r", backend="numpy")` 会抛出 `ValueError`。兼容工厂 `get_distribution_gpu` 可以通过 `allow_fallback=True` 显式包装额外的 SciPy 分布：
 
 ```python
 # Example: explicit_scipy_fallback
@@ -274,7 +274,7 @@ print("Gumbel CDF:", np.round(out, 6))
 
 预期 CDF 为 `[0.367879, 0.692201, 0.873423]`。实际计算始终在 CPU 上的 SciPy 中进行：GPU 输入会复制到 CPU，输出则可能被转换到全局自动选择的 GPU 后端，即使输入原本是 NumPy 数组也是如此。这个包装器不支持逐次指定 `backend`。如果必须返回 NumPy 结果且不希望发生 GPU 转换，直接调用 `scipy.stats.gumbel_r.cdf(x)`。
 
-`allow_fallback=False` 会拒绝非原生的 SciPy 分布，未知名称也会报错。对于原生名字，`get_distribution_gpu` 仍使用原生工厂的自动后端选择。
+`allow_fallback=False` 会拒绝非原生的 SciPy 分布，未知名称也会报错。对于原生分布名称，`get_distribution_gpu` 仍使用原生工厂的自动后端选择。
 
 ## 兼容接口与迁移
 
@@ -306,7 +306,7 @@ np.testing.assert_allclose(qt_gpu(0.975, df=10), t.ppf(0.975, df=10, backend="nu
 print("Poisson mass:", round(float(mass_new), 6))
 ```
 
-预期概率质量为 `0.195367`。与上表不同，以下**非 R 历史名称会发出 `DeprecationWarning`**，应迁移到对象方法：
+预期概率质量为 `0.195367`。与上表不同，以下**不采用 R 风格命名的旧接口会发出 `DeprecationWarning`**，应迁移到对象方法：
 
 - `norm_cdf_gpu`、`norm_sf_gpu`、`norm_ppf_gpu`、`norm_isf_gpu` → 对应的 `norm.cdf`、`norm.sf`、`norm.ppf`、`norm.isf`。
 - `norm_two_sided_pvalue_gpu`、`norm_two_sided_critical_value_gpu` → `norm.two_sided_pvalue`、`norm.two_sided_critical_value`。
@@ -316,7 +316,7 @@ print("Poisson mass:", round(float(mass_new), 6))
 ## 完整 API 与参考资料
 
 - 工厂签名：`get_distribution(name, backend="auto", device=None, *, use_lut=True)`。分布名称不区分大小写，`list_available_distributions()` 返回原生名称列表。
-- 代理方法接收一个位置界值或概率参数、上表中的分布参数，以及逐次控制项 `backend`、`device`、`use_lut`；`rvs` 仅接收关键字参数。固定对象只接受其原生方法参数。`t.ppf`、`t.isf`、`t.two_sided_critical_value` 还接受 `max_bisect_steps=60`，用于二分法备用路径，它不是精度容差。所有原生 `rvs` 签名均包含 `size=None` 和 `dtype=None`，但应注意前述 dtype 限制。
+- 除 `rvs` 外，代理方法通过第一个位置参数接收界值或概率，并接受上表中的分布参数，以及每次调用可设置的控制项 `backend`、`device`、`use_lut`；`rvs` 仅接收关键字参数。固定对象只接受其原生方法参数。`t.ppf`、`t.isf`、`t.two_sided_critical_value` 还接受 `max_bisect_steps=60`，用于二分法备用路径，它不是精度容差。所有原生 `rvs` 签名均包含 `size=None` 和 `dtype=None`，但应注意前述 dtype 限制。
 - 兼容工厂：`get_distribution_gpu(name, *, allow_fallback=False)` 和 `list_available_distributions_gpu(include_scipy=True)`。
 - 完整签名及方法实现：[分布对象、代理、后端与工厂](../../../statgpu/inference/_distributions_backend.py)。公开导入入口：[`statgpu.inference`](../../../statgpu/inference/__init__.py)。兼容签名及警告：[函数式包装器](../../../statgpu/linear_model/legacy/_distributions_legacy_gpu.py)。Student t 在 `df=1`、`df=2` 下的双侧运行时处理：[低自由度参考实现](../../../statgpu/inference/_low_df_reference_contract.py)。
 - 概率术语及外部比较参考：[SciPy 统计分布](https://docs.scipy.org/doc/scipy/reference/stats.html)、[正态分布](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.norm.html)、[Student t 分布](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.t.html)、[Poisson 分布](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.poisson.html)。

@@ -1,9 +1,9 @@
 # LogisticRegression
 
-> 语言: 中文  
-> 最后更新: 2026-10-03
-> 页面定位: 模型文档  
-> 切换: [English](../../en/models/logistic-regression.md)
+> 语言： 中文  
+> 最后更新： 2026-10-04
+> 页面定位： 模型文档  
+> 切换： [English](../../en/models/logistic-regression.md)
 
 ## 什么时候使用这个模型？
 
@@ -61,7 +61,7 @@ held-out accuracy: 0.65
 导入方式为 `from statgpu.linear_model import LogisticRegression`。
 `fit(X, y, sample_weight=None)` 返回已拟合估计器。`X` 应为有限数值组成的 `(n_samples, n_features)` 矩阵，`y` 为形状 `(n_samples,)` 的 0/1 响应。预测时应保持特征列及其顺序一致。数组拟合前先编码分类变量并处理缺失值。
 
-可选的 `sample_weight` 是长度为 n 的有限非负解析权重，权重总和必须为正。未传权重时，下式中各权重均为 1。这个独立估计器最小化**求和尺度**的加权负对数似然与斜率惩罚：
+可选的 `sample_weight` 是长度为 n 的有限非负分析权重（analytic weights），权重总和必须为正。未传权重时，下式中各权重均为 1。这个独立估计器最小化**求和尺度**的加权负对数似然与斜率惩罚：
 
 $$
 \eta_i=b+x_i^\top\beta,\qquad p_i=\frac{1}{1+\exp(-\eta_i)},
@@ -92,7 +92,7 @@ $$
 推断默认使用大样本正态近似（z 统计口径），支持：
 
 - `cov_type="nonrobust"`：`C=0` 时为信息矩阵的逆；`C>0` 时为带惩罚曲率矩阵的逆
-- `cov_type="hc0"`：White（sandwich）稳健
+- `cov_type="hc0"`：White 三明治（sandwich）稳健协方差
 - `cov_type="hc1"`：HC0 + 自由度修正 `n/(n-k)`
 - `cov_type="hc2"`：基于杠杆值（leverage）修正
 - `cov_type="hc3"`：更保守的 jackknife（留一法）风格修正
@@ -101,7 +101,7 @@ $$
 
 似然、AIC、BIC、伪 R² 与 `converged_` 在 `compute_inference=False` 时仍可用；协方差相关字段不可用。
 
-正 `C` 下的推断围绕带惩罚拟合计算，不是针对无惩罚总体系数的纠偏推断。稳健协方差使用带惩罚曲率矩阵的逆作为 sandwich 的 bread。这些结果不修正收缩偏差，也不计入选择 `C` 的不确定性。若需要普通无惩罚 Logit 推断，使用 `C=0`，检查可识别性与收敛，并根据数据选择合理的协方差假设。`summary()` 要求 `compute_inference=True`。
+正 `C` 下的推断围绕带惩罚拟合计算，不是针对无惩罚总体系数的纠偏推断。稳健协方差使用带惩罚曲率矩阵的逆作为三明治协方差估计两侧的矩阵（bread）。这些结果不修正收缩偏差，也不计入选择 `C` 的不确定性。若需要普通无惩罚 Logit 推断，使用 `C=0`，检查可识别性与收敛，并根据数据选择合理的协方差假设。`summary()` 要求 `compute_inference=True`。
 
 ## 参数
 

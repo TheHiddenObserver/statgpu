@@ -37,6 +37,8 @@ $$
 
 以下 CPU 示例均可单独运行，固定随机种子并显式选择 NumPy。反复查询时应复用已拟合对象；一次性函数方便，但每次调用都会重新拟合。
 
+注意：下面的 `bandwidth=0.35` 是无量纲的**带宽因子**，不是上式的绝对带宽 $h$。对于一维等权数据，$h$ 约为 `0.35` 乘以训练样本标准差；详细规则见后文“带宽、核与调参边界”。
+
 <!-- example: kde-cpu -->
 ```python
 import numpy as np
@@ -130,7 +132,7 @@ print(np.column_stack([ci.estimate, ci.lower, ci.upper]).round(3))
 
 需要注意：
 
-- NumPy 一维高斯 bootstrap 快速路径会固定最初选出的因子，即使 `bandwidth` 是字符串；其他路径会在每次重采样时重新运行选择器。若希望明确条件化的对象，可像示例一样使用固定数值因子；不要假定各后端都以相同方式计入选择器的不确定性。
+- NumPy 一维高斯 bootstrap 快速路径会固定最初选出的因子，即使 `bandwidth` 是字符串；其他路径会在每次重采样时重新运行选择器。如果希望每次重采样都使用相同的带宽因子，可像示例一样直接指定数值因子。样本协方差仍会重新计算，因此绝对带宽仍可能变化；不要假定各后端都以相同方式计入选择器的不确定性。
 - 非均匀 `weights` 会同时用于抽样概率及抽样后的再次加权。这并不等价于所有频数权重、调查权重或重要性权重 bootstrap。本示例及解释限定于等权观测；加权区间必须先确认重采样方式适合研究设计。
 - 该包装函数仅接受 `method="percentile"`。相关的 `kde_confidence_interval` 提供默认的 `method="normal"`（仅一维高斯核的渐近近似）或 `"bootstrap"`；都不是偏差校正区间或同时置信带。
 
@@ -173,10 +175,10 @@ print(np.column_stack([ci.estimate, ci.lower, ci.upper]).round(3))
 
 ## 完整 API 与诊断参考
 
-以上是教学精选参数。下列**规范源码签名及实现**提供完整构造参数、函数参数、方法和结果字段：
+以上是入门时常用的参数。以下源码列出了完整的构造参数、函数参数、方法和结果字段：
 
 - [KDE 与区间](../../../statgpu/nonparametric/kernel_smoothing/_kde.py)：`KernelDensityEstimator`、`KDE`、`fit_kde`、`kde_pdf`、`kde_confidence_interval`、`kde_bootstrap_confidence_interval`、`KDEBootstrapResult`。估计器还接受 `weights=None`、`backend="auto"`、`device="auto"`、`n_jobs=None`、`gpu_memory_cleanup=False`。区间控制包括 `n_resamples=200`、`confidence_level=0.95`、`random_state=None`、`return_bootstrap_samples=False`、`batch_size=1024`；通用区间函数的 `bootstrap_method="percentile"`。
-- [核回归](../../../statgpu/nonparametric/kernel_smoothing/_kernel_regression.py)：`KernelRegression`、`KernelRegressionRegressor`、两个函数式接口、全部拟合/预测控制及 `to_numpy_metadata()`。构造函数还包含相同的 device/jobs/cleanup 参数，以及 `batch_size` / `min_effective_weight`；`predict` 可覆盖后两项。一次性函数选择 `backend`，不接受 `device` 参数。
+- [核回归](../../../statgpu/nonparametric/kernel_smoothing/_kernel_regression.py)：`KernelRegression`、`KernelRegressionRegressor`、两个函数式接口、全部拟合/预测控制及 `to_numpy_metadata()`。构造函数还包含相同的设备选择（`device`）、并行任务数（`n_jobs`）和 GPU 内存清理（`gpu_memory_cleanup`）参数，以及 `batch_size` / `min_effective_weight`；`predict` 可覆盖后两项。一次性函数选择 `backend`，不接受 `device` 参数。
 - [带宽选择](../../../statgpu/nonparametric/kernel_smoothing/_bandwidth_selection.py)：`select_bandwidth` 返回带诊断的 `BandwidthSelectionResult`；`select_bandwidth_factor` 返回标量。这些底层函数需要样本、协方差、权重和后端等输入，通常直接通过估计器选择即可。
 - [共享校验与核定义](../../../statgpu/nonparametric/kernel_smoothing/_kernel_common.py)、[共享估计器参数](../../../statgpu/_base.py)、[非参数模块完整导出清单](../../../statgpu/nonparametric/__init__.py)。
 

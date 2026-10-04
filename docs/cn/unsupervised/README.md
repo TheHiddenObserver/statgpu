@@ -15,7 +15,7 @@
 |---|---|---|
 | 能否用更少的数值特征概括数据变化？ | [PCA](pca.md)；不希望中心化时看 [TruncatedSVD](truncated-svd.md) | 成分载荷、解释的变异与重构效果，不要只看前两个坐标 |
 | 能否把非负数据分解成可相加的组成部分？ | [NMF](nmf.md) | 非负因子与重构误差；均值中心化可能破坏非负输入要求 |
-| 能否把观测分成指定数量的紧凑组？ | [KMeans](kmeans.md) | 聚类中心、标签与惯性；标签只是任意编号，不代表大小或等级 |
+| 能否把观测分成指定数量的紧凑组？ | [KMeans](kmeans.md) | 聚类中心、标签与簇内平方和（inertia）；标签只是任意编号，不代表大小或等级 |
 | 是否需要为重叠的组给出成员概率？ | [GaussianMixture](gaussian-mixture.md) | 成员概率与拟合的协方差结构；比较成分数时保持数据和评分方式一致 |
 | 是否需要按局部密度形成组，并标出可能的噪声点？ | [DBSCAN](dbscan.md) | 邻域尺度、最低密度与噪声标记；特征单位会影响欧氏距离 |
 | 是否需要层次结构，而不只是一次固定分组？ | [AgglomerativeClustering](agglomerative-clustering.md) | 合并结构和连接方式，以及不同切分层级如何改变分组 |
@@ -62,11 +62,11 @@ print("held-out reconstruction MSE:", round(float(np.mean((X_test - X_reconstruc
 - [PCA](pca.md)：精确或随机化（randomized）主成分分析。
 - [KMeans](kmeans.md)：Lloyd 迭代聚类，支持 random 与贪心 k-means++ 初始化。
 - [DBSCAN](dbscan.md)：稠密欧氏距离的密度聚类，支持可选的 statgpu 自有 Cython CPU 快速路径。
-- [GaussianMixture](gaussian-mixture.md)：支持 diagonal、spherical、tied、full 四种协方差结构的 Gaussian mixture，用 EM 拟合。
+- [GaussianMixture](gaussian-mixture.md)：支持 `diagonal`、`spherical`、`tied`、`full` 四种协方差结构的高斯混合模型，用 EM 算法拟合。
 - [NMF](nmf.md)：在 Frobenius 损失下用乘性更新求解的非负矩阵分解。
 - [AgglomerativeClustering](agglomerative-clustering.md)：稠密数据的精确层次聚类，支持 single、complete、average、ward 连接。
 - [TruncatedSVD](truncated-svd.md)：不对输入做中心化的稠密截断 SVD。
-- [MiniBatchKMeans](minibatch-kmeans.md)：面向较大规模稠密数据的 mini-batch KMeans。
+- [MiniBatchKMeans](minibatch-kmeans.md)：面向较大规模稠密数据的小批量 KMeans。
 - [IncrementalPCA](incremental-pca.md)：按批次处理的稠密主成分分析。
 - [MiniBatchNMF](minibatch-nmf.md)：按小批量处理的稠密非负矩阵分解。
 - [UMAP](umap.md)：基于稠密欧氏数据的 UMAP，支持精确或近似近邻搜索，图组装在主机端使用 SciPy。
@@ -77,13 +77,13 @@ print("held-out reconstruction MSE:", round(float(np.mean((X_test - X_reconstruc
 | 估计器 | CPU | CuPy/CUDA | Torch CUDA | 主要目标或准则 |
 |---|---|---|---|---|
 | `PCA` | 支持 | 支持 | 支持 | 最大方差 / 秩 k 重构损失 |
-| `KMeans` | 支持 | 支持 | 支持 | 平方欧氏惯性（inertia） |
+| `KMeans` | 支持 | 支持 | 支持 | 簇内平方和：各样本到所属聚类中心的平方欧氏距离之和 |
 | `DBSCAN` | 支持 | 支持 | 支持 | 密度可达性与连通分量 |
-| `GaussianMixture` | 支持 | 支持 | 支持 | Gaussian mixture 对数似然 |
+| `GaussianMixture` | 支持 | 支持 | 支持 | 高斯混合模型的对数似然 |
 | `NMF` | 支持 | 支持 | 支持 | 非负约束下的 Frobenius 重构损失 |
 | `AgglomerativeClustering` | 支持 | 支持 | 支持 | 层次聚类的连接合并准则 |
 | `TruncatedSVD` | 支持 | 支持 | 支持 | 不中心化低秩重构 |
-| `MiniBatchKMeans` | 支持 | 支持 | 支持 | 小批量平方欧氏惯性 |
+| `MiniBatchKMeans` | 支持 | 支持 | 支持 | 小批量聚类的簇内平方和 |
 | `IncrementalPCA` | 支持 | 支持 | 支持 | 分批中心化低秩重构 |
 | `MiniBatchNMF` | 支持 | 支持 | 支持 | 小批量 Frobenius 重构损失 |
 | `UMAP` | 支持 | 支持（图的组装在主机侧用 SciPy 完成） | 支持（图的组装在主机侧用 SciPy 完成） | 模糊图交叉熵 |

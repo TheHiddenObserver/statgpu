@@ -67,7 +67,7 @@ probability is the area over an interval.
 |---|---|---|
 | `cdf(x, ...)` | $P(X\le x)$ | Observation threshold; returns a probability. |
 | `sf(x, ...)` | $P(X>x)$ | Strict upper tail. For integer counts, $P(X\ge k)=\operatorname{sf}(k-1)$. |
-| `ppf(q, ...)` | Lower-tail quantile | Probability `q` in `[0, 1]`; for discrete distributions and `0 < q < 1`, the smallest supported integer whose CDF reaches `q`. |
+| `ppf(q, ...)` | Lower-tail quantile | Probability `q` in `[0, 1]`; for discrete distributions and `0 < q < 1`, the smallest integer in the support whose CDF is at least `q`. |
 | `isf(q, ...)` | Upper-tail quantile | Uses the upper-tail probability; corresponds to `ppf(1-q)`, with discrete quantile conventions. |
 | `pdf(x, ...)` | Continuous density | Available for continuous families; not a point probability. |
 | `pmf(k, ...)` | $P(X=k)$ | Available for Poisson/binomial counts; noninteger counts have mass zero. |
@@ -75,7 +75,7 @@ probability is the area over an interval.
 
 Quantile endpoints can be infinite. Poisson/binomial `ppf(0)` uses the
 lower-support-minus-one convention (`-1` when `loc=0`); it is not a possible
-draw. Prefer interior probabilities for numerical inverse checks. Invalid
+draw. For numerical inverse checks, prefer probabilities strictly between 0 and 1. Invalid
 parameters often produce `nan`, while unsupported arguments can raise; validate
 inputs rather than relying on one uniform error behavior.
 

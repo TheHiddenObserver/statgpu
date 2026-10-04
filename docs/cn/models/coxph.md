@@ -153,7 +153,7 @@ print("Held-out C-index:", held_out_cindex)
 | `compute_cindex` | `True` | 计算训练集 concordance |
 | `cov_type` | `"nonrobust"` | `"nonrobust"`、`"hc0"`、`"hc1"` 或 `"cluster"` |
 | `penalty` | `0.0` | 非负 L2 惩罚 |
-| `inference_mode` | `"strict"` | `"strict"` 或兼容别名 `"approx"`；两者均执行精确推断 |
+| `inference_mode` | `"strict"` | `"approx"` 仅为兼容别名；两种设置使用相同的稳健协方差计算方法，见[协方差与推断](#协方差与推断)。 |
 | `gpu_memory_cleanup` | `False` | 尝试释放 CuPy/Torch 缓存 |
 
 ## 交叉验证
@@ -220,7 +220,7 @@ print("Test C-index:", cv_test_cindex)
 | `n_jobs` | `None` | 共享 CPU 作业数选项，传给最终重拟合；当前 CV 循环不通过它并行化。 |
 | `compute_inference` | `True` | 仅在最终重拟合计算推断和基线风险。 |
 | `cov_type` | `"nonrobust"` | 最终重拟合的协方差约定。 |
-| `inference_mode` | `"strict"` | `"strict"` 或兼容别名 `"approx"`，两者均执行已支持的精确推断。 |
+| `inference_mode` | `"strict"` | `"approx"` 仅为兼容别名；两种设置使用相同的稳健协方差计算方法，见[协方差与推断](#协方差与推断)。 |
 | `gpu_memory_cleanup` | `False` | 在公共计算边界尽力清理 GPU 缓存。 |
 | `random_state` | `None` | 自动生成 CV 划分的随机种子。 |
 
@@ -267,7 +267,7 @@ penalized_cv = PenalizedGLM_CV(
 ```
 <!-- /example: coxph-penalized-family-cv -->
 
-该分支始终保留二维 `(time, event)` 响应，禁止截距，使用留出数据上的未惩罚偏似然评分，并要求每个可评估的交叉验证折都提供有限证据。若不存在满足
+该分支始终保留二维 `(time, event)` 响应，禁止截距，使用留出数据上的未惩罚偏似然评分，并要求每个可评估的交叉验证折都得到有限的偏似然评分。若不存在满足
 契约的 `alpha`，拟合会抛错，并且不会发布已选 `alpha` 或已拟合估计器。最终重拟合使用
 `PenalizedCoxPHModel(compute_inference=False)`；不支持选择后系数推断、`two_stage`、样本权重或字典形式响应。无惩罚别名不可调，因此该 CV
 路径会拒绝，需改为直接拟合模型。
@@ -277,7 +277,7 @@ penalized_cv = PenalizedGLM_CV(
 整数。自动网格中，ElasticNet 在 `l1_ratio > 0` 时采用零模型 KKT 边界
 `alpha_max = ||gradient L(0)||_inf / l1_ratio`，惩罚对象使用自身的混合比例参数。
 纯 L2（`l1_ratio=0`）不存在有限的全零 KKT 阈值，因此把零模型得分的原始
-无穷范数作为已文档化的网格启发式规则。
+无穷范数用于启发式地确定网格上限。
 
 大规模 `device="auto"` 搜索只在 Torch 或 CuPy 的 CUDA 后端确认设备实际可用
 后选择 GPU。回退路径的规模估计只统计训练集和验证集都含事件的可评估折；其他规范化后的折仍记录在 `failure_path` 中，但不会夸大 GPU 工作量。CuPy
@@ -435,44 +435,16 @@ $$
 `ties="exact"` 通过基本对称多项式（elementary-symmetric）动态规划计算 Exact 分母。
 延迟进入、分层、Exact 并列事件、L2 惩罚拟合与 GPU 稳健推断共用同一套
 计数过程风险集计算，因此三个后端遵循一致的 `(start, stop]` 约定。
-公开的 `CoxPH` 与 `CoxPHCV` 估计器会对一维标签进行编码：主机端字符串/对象以及
-有限的 CuPy/Torch 数值标签都会在内部转换为连续的 int64 编码。底层计数过程函数
-不再重复执行这一编码，因此传入的数值编码必须有限、为整数，并且能够由有符号 int64 表示。
+`CoxPH` 与 `CoxPHCV` 接受一维分层、受试者和聚类标签，并在内部统一编码。
+Exact 使用动态规划避免逐一枚举事件组合，但计算量和内存需求仍随数据规模、
+并列事件组大小及特征维数增加。普通右删失数据可利用嵌套风险集复用计算；
+延迟进入数据使用适合其风险集结构的计算方式。
 
-对于普通右删失的 Exact 拟合，风险集在各分层内部具有嵌套结构。
-StatGPU 先按分层、再按终止时间 `stop` 降序排列样本，并在 NumPy、CuPy、Torch 上让
-所有事件组复用同一个分段基本对称多项式前缀动态规划，不再通过 Python
-逐分层循环，也避免随事件组数量重复扫描风险集。
-事件组分子改用后端原生的分组归约，不再构造 `事件组 × 样本` 的稠密掩码。
-前缀工作区默认上限为 512 MiB，由 `STATGPU_EXACT_NESTED_MAX_BYTES` 控制，且在
-分配前完成检查。
-
-在 Torch CUDA 上，PyTorch 2.0 对长轴执行多维 `cumsum(dim=0)` 时，可能成为这条
-线性前缀 DP 的主要耗时。当样本数至少为 2,048、尾部矩通道数不超过 64 时，
-StatGPU 会将每个通道连续布局，分别执行高效的一维 CUDA 扫描，再在设备上拼回原
-形状。`STATGPU_TORCH_EXACT_SCAN_MIN_ROWS` 与
-`STATGPU_TORCH_EXACT_SCAN_MAX_CHANNELS` 可配置这两个保守门禁。CPU、小样本和宽
-张量保留 Torch 原生多维扫描。`STATGPU_TORCH_EXACT_SCAN_STRATEGY` 可设为 `auto`、
-`native` 或 `channelwise`；`auto` 仅在已有实测证据的 Torch 2.0 + Pascal/P100
-组合启用分通道扫描，未经验证的 Torch/GPU 组合使用原生扫描。额外的转置与输出
-工作区也计入嵌套路径的内存检查：
-若基础 DP 所需内存可容纳、但分通道扫描的额外空间不足，则继续使用嵌套算法的原生 Torch 扫描，不会回退到开销更高的通用 Exact 路径。
-
-延迟进入不满足嵌套前缀条件。当分层数量至少为 8 时，GPU 后端会先通过一次后端原生批处理处理所有合格的事件组；分层更少时，GPU 与 NumPy 都按分层逐批处理，以避免计算跨分层的空掩码。独立的 512 MiB 上限由
-`STATGPU_EXACT_BATCH_MAX_BYTES` 控制。全局批处理工作区超限时先按分层重试，
-再使用逐组内存受限路径；构造得分残差或触发保守的数值范围检查时，也保留归一化实现。这些都是显式算法回退，不会隐式回退到 CPU。
-
-对于 Breslow/Efron 的延迟进入目标函数，
-`STATGPU_COX_GROUP_MAX_BYTES` 控制稠密事件组工作区，默认
-512 MiB。如果单个事件组已经超过上限，所选 GPU 后端会改用
-数值稳定的多遍逐行流式矩计算，从而避免即使最小批量大小为 1 时仍分配不受限制的 `O(n)` 掩码。
-
-完整拟合的推断阶段还需要构造 Breslow 基线风险。对于普通右删失行，
-StatGPU 现在在每个分层内按终止时间 `stop` 降序排列，并通过一次对数风险前缀
-得到所有风险分母：NumPy 使用 `logaddexp.accumulate`，Torch 使用
-`logcumsumexp`，CuPy 在线性预测量处于保守数值范围内时使用平移后的指数累积和。
-极端 CuPy 线性预测量与延迟进入数据继续使用数值稳定的后端原生逐事件组实现。
-这移除了普通右删失常用路径中原先的 `事件组 × 样本` 风险掩码扫描。
+临时工作区超出配置上限时，会在所选后端采用内存需求更低的算法，不会静默转到 CPU。
+`STATGPU_EXACT_NESTED_MAX_BYTES`、`STATGPU_EXACT_BATCH_MAX_BYTES` 和
+`STATGPU_COX_GROUP_MAX_BYTES` 分别控制对应工作区，默认均为 512 MiB；
+它们不是整个拟合过程的总内存上限。详细配置、算法实现及适用条件见
+[开发参考](../../../dev/references/coxph-implementation-and-evidence.md#implementation-snapshot)。
 
 ## 公式接口
 
@@ -507,13 +479,13 @@ Newton 迭代使用线搜索，并在最终参数处执行 KKT 检查。线搜�
 `termination_reason_` 是解释后的用户级分类，只会是 `kkt_converged`、
 `line_search_failed` 或 `stalled_with_large_kkt`。`optimization_stop_reason_`
 保留底层求解器的原始退出原因（包括 `max_iter`），警告信息也会报告该原始值；
-因此预算耗尽可以审计，但不会被误当作独立的收敛证书。
+因此可以判断是否已达到最大迭代次数；达到迭代上限并不表示模型已经收敛。
 
 ## 惩罚强度缩放与推断
 
 `penalty` 就是上述总和尺度的偏似然目标中的 `lambda`，不会除以样本数或
-事件数；CoxPH 也没有需要惩罚的截距。因此，复制全部观测会使似然与得分贡献加倍，却不会自动加倍用户提供的 `penalty`，从而改变有效正则强度。跨数据集或
-样本规模比较时，应在目标抽样尺度下用 `CoxPHCV` 调参；复现采用平均损失的外部软件时，需要显式换算其 `penalty` 的尺度定义，不能假设数值直接相同。
+事件数；CoxPH 也没有需要惩罚的截距。相同的 `penalty` 数值不保证在不同数据规模下
+具有相同的有效正则强度。跨数据集或样本规模比较时，应在目标抽样尺度下用 `CoxPHCV` 调参；复现采用平均损失的外部软件时，需要显式换算其 `penalty` 的尺度定义，不能假设数值直接相同。
 
 正 L2 惩罚下，记 `J` 为拟合系数处未加惩罚的 Cox 观测信息，
 `A = J + 2 * penalty * I_p`，则固定惩罚强度的频率学派代入式协方差为：
@@ -523,7 +495,7 @@ A^-1 J A^-1
 ```
 
 而不是 `A^-1`；后者更接近惩罚曲率或 Laplace 近似下的量，不能直接作为频率学派
-抽样协方差发布。带惩罚的稳健推断同样使用带惩罚的 bread 矩阵，而 meat 矩阵仍由未加惩罚的聚合得分外积构成。
+抽样协方差发布。带惩罚的稳健推断同样使用带惩罚的逆曲率矩阵作为两侧矩阵（bread），中间矩阵（meat）仍由未加惩罚的聚合得分外积构成。
 
 因此 SE/z/p/CI 与带惩罚 Wald 检验都以给定 `penalty` 为条件，目标是带惩罚的估计方程；它们不是针对无惩罚系数的纠偏推断，也不校正系数收缩偏差，或交叉验证选择 `penalty` 带来的额外不确定性。`CoxPHCV` 从最终重拟合复制相同契约，
 并明确报告 `penalty_selection_adjusted_=False`。沿用 `PenalizedGLM` 的结果命名，
@@ -539,7 +511,7 @@ L1/Elastic Net/SCAD/MCP 接口仍仅支持估计。
 |---|---|
 | `"nonrobust"` | 模型协方差；无惩罚时为信息矩阵的逆，有惩罚时为固定惩罚强度下的 sandwich 协方差 |
 | `"hc0"` | 基于得分的 sandwich 协方差 |
-| `"hc1"` | 带有限独立单元修正的基于得分的 sandwich 协方差 |
+| `"hc1"` | 基于得分的三明治协方差，并按独立单元数进行有限样本修正 |
 | `"cluster"` | 聚类稳健协方差；在 `fit` 时传入 `cluster=` |
 
 无惩罚拟合的 `nonrobust` 协方差仍是通常的观测信息逆；正 `penalty` 协方差遵循
@@ -555,10 +527,10 @@ Breslow 与 Efron 的严格稳健推断使用 statgpu 内部的精确计数过�
 不会把非正自由度分母替换为任意有限值。实质性负协方差对角线或非正稳健边际
 方差同样会令严格推断失败，而不会发布零标准误与误导性的显著性结果。
 
-边际方差为正并不保证稳健协方差在完整参数空间有效。StatGPU 会先用尺度感知容忍度
-分类对称化后的协方差矩阵谱：正定矩阵同时支持边际推断和联合 Wald；半正定
+边际方差为正并不保证稳健协方差在完整参数空间有效。StatGPU 会先对协方差矩阵进行对称化，再根据特征值判断其正定性；
+数值容差会随矩阵尺度调整：正定矩阵同时支持边际推断和联合 Wald；半正定
 但秩亏的矩阵仍保留逐系数的稳健标准误/z 值/p 值/置信区间，同时设置
-`wald_test_available_=False` 并记录 `wald_test_failure_reason_`，`summary()` 会显示 `Robust Wald test unavailable`，不会使用不稳定逆矩阵或打印裸 `nan`。若存在实质性
+`wald_test_available_=False` 并记录 `wald_test_failure_reason_`，`summary()` 会显示 `Robust Wald test unavailable`，不会使用不稳定的逆矩阵或仅显示 `nan`。若存在实质性
 负特征值，该矩阵已不是合法的协方差估计量；严格推断会抛出
 `RuntimeError` 并清空本次拟合状态，而不会仅凭正对角线发布边际推断。即使逐系数与
 Wald 推断使用稳健协方差，似然比检验与得分检验仍是经典的基于模型检验；`summary()` 会明确标注这一差异。
@@ -567,6 +539,8 @@ Wald 推断使用稳健协方差，似然比检验与得分检验仍是经典的
 `inference_mode="approx"`，但统一拟合路径会把它作为仅用于兼容的别名，
 继续计算精确的计数过程得分 sandwich 协方差。因此成功拟合会报告
 `inference_approximate_=False`，且不会记录近似回退原因。
+这里的“精确”指计数过程得分残差的计算，不表示有限样本精确检验。
+系数的 z 检验和置信区间仍采用大样本正态近似；`ties="exact"` 也不会改变这一点。
 
 Exact 并列事件当前只支持模型协方差（`cov_type="nonrobust"`）。若在
 `ties="exact"` 下请求 HC0、HC1 或 cluster 推断，会抛出
@@ -619,29 +593,11 @@ Exact 并列事件当前只支持模型协方差（`cov_type="nonrobust"`）。�
 `predict_survival` 需要已拟合的基线风险，因此需要生存曲线时应保留
 `compute_inference=True`。风险得分与风险比预测不依赖基线风险。
 
-## 外部验证与可复现性
+## 外部对照与实现参考
 
-维护的 R 基线使用 R 4.4.1 与 `survival` 3.8.9，并对齐并列事件处理方式、Newton
-`max_iter=80` 和 `tol=1e-8`。在 `n=3000`、`p=10` 的 Breslow/Efron 比较中，
-HC1 使用 3,000 个独立单元，聚类稳健协方差使用 120 个聚类单元。StatGPU 相对 R 的最大
-系数/SE/p 值差异：HC1 为 `5.55e-16`/`1.39e-16`/`8.00e-19`，聚类稳健协方差为
-`5.55e-16`/`1.32e-16`/`2.22e-16`。statsmodels 不支持的协方差模式会明确记录为不支持，不会换名后充当外部证据。
-
-这些结果对应特定的数据规模和验证设置，不应解释为对所有数据与硬件都成立的统一精度或性能保证。Exact 并列事件和性能表现还会随问题规模与硬件而变化。具体的机器可读验证记录保留在开发验证材料中。
-
-### 已发布的物理 GPU 验证
-
-CuPy 与 Torch CUDA 验证检查数值一致性、设备归属和错误边界。稳定的
-[已发布 GPU 验证记录](https://gist.github.com/TheHiddenObserver/ebbb7f2401f45b124069a30d3510c139)
-（[原始 JSON](https://gist.githubusercontent.com/TheHiddenObserver/ebbb7f2401f45b124069a30d3510c139/raw/pr80_final_gpu_suite_schema3.json)）
-绑定到源码提交 `a726937a39eb0ed5a370dd03362884b63a9e9818`，产物 SHA-256 为
-`e01ad0bfec238d06167caeef9955e92b6cf84eea4ccc69a3056eb794ded6eccb`。
-它只证明记录中的源码和运行环境；后续提交不会自动继承这一验证结论。
-源码哈希、导入路径、硬件和验证来源保留在产物及
-[开发验证材料](../../../dev/reviews/pr80_review_fix.md)中。
-
-这份记录不是新的性能交叉点 benchmark，也不是新的 R 对齐运行，更不是对所有数据规模、
-后端版本或 GPU 都成立的统一精度和性能保证；这些比较仍须以各自的专用产物为准。
+与其他软件比较时，应对齐设计矩阵、并列事件处理方式、惩罚尺度、协方差类型和收敛设置。
+[外部对照与 GPU 验证记录](../../../dev/references/coxph-implementation-and-evidence.md#historical-external-validation)
+列出了对应的源码和运行环境；这些历史结果不是对当前版本或所有数据、硬件的统一保证。
 
 ## FAQ 与常见失败模式
 
@@ -654,16 +610,16 @@ CuPy 与 Torch CUDA 验证检查数值一致性、设备归属和错误边界。
 | 已知分层的生存率恒为 1 | 该分层在拟合数据中没有观察到事件，因此累计基线风险恒为零；这是合法的拟合状态，并不表示基线风险数据缺失。 |
 | `HC1 covariance requires n_units > n_features` | 增加独立受试者/聚类单元，或减少特征，或采用研究设计能够支持的协方差契约。 |
 | 稳健协方差要求至少两个独立单元 | 只有一个受试者/聚类单元时无法估计单元间变异；可用 `compute_inference=False` 仅执行估计。 |
-| 观测信息矩阵奇异 | 检查共线性、常量列、分离（separation）或饱和（saturation）以及事件支持；减少设计或使用有明确依据的 L2 惩罚。 |
+| 观测信息矩阵奇异 | 检查共线性、常量列、分离（separation）或饱和（saturation）以及事件支持；减少冗余特征，或使用有明确依据的 L2 惩罚。 |
 | 风险比预测抛出 `FloatingPointError` | `exp(X @ coef_)` 超出有限 float64 范围。检查 `predict_risk_score()`、缩放特征并检查外推。 |
 | `converged_` 为 `False` | 检查 `optimization_stop_reason_`、`final_kkt_inf_` 与 `final_kkt_normalized_`；单纯增加 `max_iter` 不能修复线搜索失败或病态设计。 |
-| Exact 并列事件很慢或触发工作区内存限制 | Exact 似然对最大并列事件组具有组合复杂度；科学上允许时使用 Breslow/Efron，或减小最大 Exact 并列事件组。 |
+| Exact 并列事件很慢或触发工作区内存限制 | Exact 使用动态规划避免逐一枚举组合，但计算量和内存需求仍随风险集、并列事件组及特征维数增加。应根据数据规模评估成本；研究设计允许时，可考虑 Breslow 或 Efron。 |
 | `score()` 返回 `0.5` | 可能是风险排序没有区分度，也可能没有可用于 concordance 计算的样本对；后一种情况同样返回中性值 `0.5`。应检查数据是否包含可比较的样本对。 |
 
 ## 限制
 
 - Exact 并列事件尚不支持稳健/聚类协方差；
-- Exact 并列事件使用组合动态规划，适合规模适中的并列事件组，不适合无限制的大型并列事件组；
+- Exact 并列事件使用动态规划；大型风险集或并列事件组仍可能需要较多计算和内存，应结合特征维数评估资源需求；
 - 尚未实现 frailty（共享脆弱性）/随机效应项；
 - 可选 `torch.compile` 加速要求兼容 Triton 的硬件，不属于跨平台正确性保证。
 

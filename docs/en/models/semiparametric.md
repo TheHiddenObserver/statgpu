@@ -24,7 +24,7 @@ $$
 \qquad (B^\top B+\lambda S)\hat\beta=B^\top y.
 $$
 
-Here $B$ concatenates an intercept and the centered basis for every feature. $S$ is block diagonal with $D^\top D$ for each curve and zero penalty on the intercept. The loss is a **sum**, not an average. The implementation uses a stabilized Cholesky solve with general-solve/least-squares fallbacks; numerical stabilization also enters its reported EDF.
+Here $B$ concatenates an intercept and the centered basis for every feature. $S$ is block diagonal with $D^\top D$ for each curve and zero penalty on the intercept. $D$ is the difference matrix, with its order set by `penalty_order`. The loss is a **sum**, not an average. The implementation uses a stabilized Cholesky solve with general-solve/least-squares fallbacks; numerical stabilization also enters its reported effective degrees of freedom (EDF).
 
 `degree=3` means piecewise **cubic** basis functions. `penalty_order=2` penalizes second differences of adjacent **basis coefficients**. These settings do different jobs: changing the penalty to order 1 does not turn cubic splines into piecewise-linear splines. Use `degree=1` if piecewise-linear basis functions are intended.
 
@@ -70,7 +70,7 @@ None
 
 - Test MSE is in squared response units. Beating the training-mean baseline on unseen observations is more informative than an excellent training fit. Check residuals and performance across the predictor ranges, not just one score.
 - `edf_` measures effective model flexibility after smoothing. It need not be an integer and is not the raw number of coefficients.
-- `gcv_score_` is an in-training smoothing-selection criterion, not the held-out MSE or a p-value. Lower is better when comparing candidates on the same data and with the same `gamma`.
+- `gcv_score_` is the generalized cross-validation (GCV) score used to select smoothing within the training data, not the held-out MSE or a p-value. Lower is better when comparing candidates on the same data and with the same `gamma`.
 - `coef_` contains an intercept and spline-basis coefficients. These are **not raw-feature slopes**; inspect predictions while varying a feature to understand a fitted curve. `intercept_` is approximately the training response mean because the smooth bases are centered.
 - The fixed-lambda refit uses the same selected value, so its predictions agree with `gam`, but `fixed.gcv_score_` is `None`. This does not signal a failed fit.
 
@@ -84,11 +84,11 @@ $$
 \operatorname{edf}=\operatorname{clip}\!\left(\operatorname{tr}\!\left((A+\delta I)^{-1}B^\top B\right),0,m\right).
 $$
 
-Here $A=B^\top B+\lambda S$, $m$ is the number of basis coefficients including the intercept, and $\delta=10^{-10}\operatorname{tr}(A)/m$. This is the reported EDF on the usual stabilized Cholesky path. Centering complete spline blocks can leave $A$ singular, so an ordinary inverse of the unstabilized matrix must not be assumed. If the numerical EDF solve fails, the implementation reports $m$; inspect diagnostics rather than interpreting that fallback as an independently validated model complexity. Standard GCV has `gamma=1`. Larger `gamma` penalizes effective complexity more strongly. Candidates with a nonpositive/nearly zero adjusted denominator are assigned infinite GCV; check that the selected score is finite.
+Here $A=B^\top B+\lambda S$, $m$ is the number of basis coefficients including the intercept, and $\delta=10^{-10}\operatorname{tr}(A)/m$. This is the reported EDF on the usual stabilized Cholesky path. Centering complete spline blocks can leave $A$ singular, so an ordinary inverse of the unstabilized matrix must not be assumed. If the numerical EDF solve fails, the implementation reports $m$; inspect diagnostics rather than interpreting that fallback as an independently validated model complexity. Standard GCV has `gamma=1`. Larger `gamma` penalizes effective complexity more strongly. When the correction term $1-\gamma\operatorname{edf}/n$, before squaring, is nonpositive or too close to zero, the candidate is assigned infinite GCV; check that the selected score is finite.
 
-Start with cubic splines and order-2 penalty. Increase `n_splines` only if the fitted shape appears too restricted, then reassess held-out error. Increasing `lam` usually smooths more strongly. Quantile knots put more resolution where data are dense; uniform knots spread it across the observed range. Use a validation split or CV to choose these design settings, keeping a final test set untouched.
+Start with cubic splines and order-2 penalty. Increase `n_splines` only if the fitted shape appears too restricted, then reassess held-out error. Increasing `lam` usually smooths more strongly. Quantile knots place more knots where data are dense; uniform knots are equally spaced across the observed range. Use a validation split or CV to choose these design settings, keeping a final test set untouched.
 
-There is no strict/approx inference mode. GCV is a discrete parameter search and may miss an optimum between grid points; a fixed `lam` skips selection but still uses the same numerical solver. `GAM` has no constructor option for a custom lambda grid. For a finer search, fit candidate fixed values using training/validation data, then refit the chosen setting.
+GCV is a discrete parameter search and may miss an optimum between grid points; a fixed `lam` skips selection but still uses the same numerical solver. `GAM` has no constructor option for a custom lambda grid. For a finer search, fit candidate fixed values using training/validation data, then refit the chosen setting.
 
 ## Inputs, boundaries, and limitations
 
@@ -112,7 +112,7 @@ Import: `from statgpu.semiparametric import GAM`.
 | `knot_method` | `"quantile"` | `"quantile"` or `"uniform"`; use these lowercase spellings. |
 | `gamma` | `1.0` | Positive finite EDF multiplier in GCV; does not change a fixed-lambda objective. |
 | `device` | `"auto"` | `"cpu"`, `"cuda"`, `"torch"`, or `"auto"`; see device guidance below. |
-| `n_jobs` | `None` | Common estimator compatibility parameter; this GAM implementation has no job-parallel fitting loop. |
+| `n_jobs` | `None` | Provided for compatibility with the common estimator interface; the current GAM fit does not use it for parallel computation. |
 
 | Output | Shape/type | Interpretation |
 |---|---|---|

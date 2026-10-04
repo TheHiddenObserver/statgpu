@@ -1,7 +1,7 @@
 # Elastic Net 弹性网络
 
 > 语言：中文  
-> 最后更新：2026-10-03<br>
+> 最后更新：2026-10-04<br>
 > 页面定位：模型文档  
 > 切换：[English](../../en/models/elastic-net.md)
 
@@ -53,7 +53,7 @@ print("held-out R2:", round(float(model.score(X[300:], y[300:])), 3))
 
 ## 输入与预测要求
 
-`X` 应为有限数值组成的 `(n_samples, n_features)` 矩阵，`y` 为一维响应。预测时必须保持训练时的列顺序与预处理方式。拟合接口为 `fit(X=None, y=None, sample_weight=None, initial_coef=None, **kwargs)`；可选的非负解析权重进入归一化加权损失。`initial_coef` 只为一次拟合提供初始系数，不是持久的 `warm_start` 构造参数。共享的可选公式接口通过拟合关键字接受 `formula=` 与 `data=`。
+`X` 应为有限数值组成的 `(n_samples, n_features)` 矩阵，`y` 为一维响应。预测时必须保持训练时的列顺序与预处理方式。拟合接口为 `fit(X=None, y=None, sample_weight=None, initial_coef=None, **kwargs)`；可选的非负分析权重（analytic weights）进入归一化加权损失。`initial_coef` 只为一次拟合提供初始系数，不是持久的 `warm_start` 构造参数。共享的可选公式接口通过拟合关键字接受 `formula=` 与 `data=`。
 
 ## 路径
 
@@ -88,7 +88,7 @@ $$
 
 默认使用 **FISTA**（快速迭代收缩阈值算法），也就是带 Nesterov 加速的近端梯度法。其他求解器能否使用，以公开的求解器兼容性约束为准。
 
-### 关键优化洞察
+### 近端更新
 
 Elastic Net 的 L1/L2 部分由近端算子共同处理：
 
@@ -109,7 +109,7 @@ w = soft_threshold(w_tilde, alpha * l1_ratio * step) / (
 | 模式 | 说明 |
 |------|------|
 | `coef_delta` | 系数变化低于 `tol` 时停止 |
-| `kkt` | KKT 次梯度违反低于配置阈值时停止 |
+| `kkt` | KKT 条件的违反程度低于设定阈值时停止 |
 
 数值收敛只表示声明的优化问题被求解到相应精度，并不构成另一种统计近似模型。
 
@@ -131,7 +131,7 @@ w = soft_threshold(w_tilde, alpha * l1_ratio * step) / (
 | `gpu_memory_cleanup` | `False` | 在支持的后端上于拟合后释放内存池 |
 | `compute_inference` | `False` | 计算拟合后系数推断 |
 | `inference_method` | `"debiased"` | `"debiased"`、`"post_selection_ols"` 或 `"bootstrap"`；`cpu_ols` / `gpu_ols` 暂时作为弃用别名接受 |
-| `nodewise_alpha` | `None` | 纠偏推断中逐节点 Lasso 的惩罚强度；显式正标量优先于标准化设计侧自动规则 |
+| `nodewise_alpha` | `None` | 纠偏推断中逐节点 Lasso 的惩罚强度；可显式指定正数；省略时，根据标准化后的设计矩阵自动确定 |
 | `cov_type` | `"nonrobust"` | 适用方法中的协方差约定 |
 | `hac_maxlags` | `None` | 支持 HAC 时使用的滞后阶数 |
 
@@ -195,18 +195,18 @@ model_gpu_torch.fit(X, y)
 |------|--------|------|
 | `compute_inference` | `False` | 启用拟合后系数推断 |
 | `inference_method` | `"debiased"` | `"debiased"`、`"post_selection_ols"` 或 `"bootstrap"` |
-| `nodewise_alpha` | `None` | `debiased` 的逐节点精度矩阵调参；可显式给正标量，或使用标准化设计侧自动规则 |
+| `nodewise_alpha` | `None` | `debiased` 的逐节点精度矩阵调参；可显式指定正数；省略时，根据标准化后的设计矩阵自动确定 |
 | `cov_type` | `"nonrobust"` | 在相应推断方法中使用的协方差约定 |
 | `hac_maxlags` | `None` | 所选方法支持 HAC 时使用的滞后阶数 |
 
-`nodewise_alpha` 与主模型 `alpha` 完全不同：它只影响纠偏推断中的近似精度矩阵，不改变惩罚预测拟合。省略时，statgpu 对已经完成中心化/加权处理的工作设计进行标准化，并采用
+`nodewise_alpha` 与主模型 `alpha` 完全不同：它只影响纠偏推断中的近似精度矩阵，不改变惩罚预测拟合。省略时，statgpu 对已经完成中心化/加权处理的工作设计矩阵进行标准化，并采用
 
 $$
 \lambda_{\mathrm{nw}}
 =\sqrt{\frac{2\log(\max(p,2))}{n_{\mathrm{nw}}}}.
 $$
 
-无分析权重时 $n_{\mathrm{nw}}=n$；非均匀分析权重下使用 Kish 型有效样本量。该规则不依赖响应变量尺度，因此只改变 `y` 的计量单位不会改变设计侧精度矩阵问题。成功的多特征纠偏推断通过 `nodewise_alpha_` 暴露解析出的实际值，并在 `_inference_result.metadata` 中记录调参来源、有效样本量和 KKT 证据。单特征问题直接使用解析精度矩阵，不需要逐节点惩罚参数。
+无分析权重时 $n_{\mathrm{nw}}=n$；非均匀分析权重下使用 Kish 型有效样本量。该规则不依赖响应变量尺度，因此只改变 `y` 的计量单位不会改变基于设计矩阵的精度矩阵估计。成功的多特征纠偏推断通过 `nodewise_alpha_` 暴露解析出的实际值，并在 `_inference_result.metadata` 中记录调参来源、有效样本量和 KKT 残差。单特征问题直接使用解析精度矩阵，不需要逐节点惩罚参数。
 
 `post_selection_ols` 是与硬件无关的规范活跃集诊断。统一封装类中历史 `cpu_ols` 与 `gpu_ols` 同时进入弃用期，一个兼容周期内仍接受并发出 `FutureWarning`，随后映射到 `post_selection_ols`；它们不负责选择设备。
 
@@ -216,7 +216,7 @@ $$
 
 设备选择与统计方法正交：显式 `cpu` / `cuda` / `torch` 始终以用户请求为准；只有真正的 `device="auto"` 才允许后端原生的 CuPy 或 Torch-CUDA 输入参与自动路由。`post_selection_ols` 复用拟合解析出的后端；CuPy/Torch 的 `debiased` 推断也会把数值推断留在实际执行的 GPU 后端，包括正态参考分布的标量临界值。残差 `bootstrap` 当前仍是 CPU 原生的残差重拟合路径；显式 GPU `device` 会控制惩罚拟合，但不会让 bootstrap 变成 GPU 原生。
 
-对于带截距的 `debiased` 推断，公开 `coef_`/`intercept_` 继续属于 **惩罚预测拟合**。推断/报告使用去偏（debiased）斜率 `_params[1:]`，以及与它们配套的原始坐标系截距 `_params[0] = ybar_w - xbar_w @ _params[1:]`；因此第一行标准误/z 值/p 值/置信区间（SE/z/p-value/CI）描述的是该去偏报告截距，而不是预测 `intercept_`。结果元数据会记录 `intercept_estimator="centered_debiased"` 与 `intercept_influence="centered_nodewise"`。分析权重在 NumPy/CuPy/Torch 上使用同一个加权中心化平均损失问题，因此整体乘以正常数不会改变这套推断。
+对于带截距的 `debiased` 推断，公开 `coef_`/`intercept_` 继续属于 **惩罚预测拟合**。推断/报告使用纠偏（debiased）斜率 `_params[1:]`，以及与它们配套的原始坐标系截距 `_params[0] = ybar_w - xbar_w @ _params[1:]`；因此第一行标准误/z 值/p 值/置信区间（SE/z/p-value/CI）描述的是该纠偏报告截距，而不是预测 `intercept_`。结果元数据会记录 `intercept_estimator="centered_debiased"` 与 `intercept_influence="centered_nodewise"`。分析权重在 NumPy/CuPy/Torch 上使用同一个加权中心化平均损失问题，因此整体乘以正常数不会改变这套推断。
 
 对于 `ElasticNetCV`，`compute_inference=True` 仅作用于 alpha 与 `l1_ratio` 选定后的最终全数据重拟合；各折模型仍仅用于估计和评分。`nodewise_alpha` 也只属于最终重拟合的推断配置，不进入候选网格或折内评分；推断成功时，外层 `nodewise_alpha_` 与最终 `estimator_` 一致。当前 `ElasticNetCV` 仍固定最终推断方法为 `debiased`，这是当前推断方法选择的限制。
 

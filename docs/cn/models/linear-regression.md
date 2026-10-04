@@ -1,7 +1,7 @@
 # LinearRegression
 
 > 语言：中文  
-> 最后更新：2026-10-03  
+> 最后更新：2026-10-04  
 > 页面定位：模型文档  
 > 切换：[English](../../en/models/linear-regression.md)
 
@@ -98,7 +98,7 @@ $R^2$ 也可能为负。
 |---|---|---|
 | `fit_intercept` | `True` | 通常保留；只有零截距有实际依据时才关闭。不要另加一列常数。公式拟合由公式语法决定截距。 |
 | `device` | `"auto"` | 示例使用 `"cpu"`；`"cuda"` 指 CuPy CUDA，`"torch"` 指 Torch CUDA。只有 `"auto"` 允许自动选择其他可用后端。 |
-| `n_jobs` | `None` | 共享估计器配置；此模型没有可通过它调节的子集并行搜索或求解器 worker 循环。 |
+| `n_jobs` | `None` | 此模型接受该共享参数，但当前拟合过程不使用它控制并行任务数。 |
 | `compute_inference` | `True` | 只需拟合和预测时可设为 `False`，此时 `summary()` 会报错。 |
 | `gpu_memory_cleanup` | `False` | 尽力清理 GPU 内存；详见[设备与内存指南](../guides/device-and-memory.md)。 |
 | `cov_type` | `"nonrobust"` | 根据误差结构选择，见下表。 |
@@ -107,7 +107,7 @@ $R^2$ 也可能为负。
 | `cov_type` | 含义 |
 |---|---|
 | `"nonrobust"` | 经典协方差，使用 t 参考分布；常规 OLS 不确定性计算依赖同方差、独立误差等假设。 |
-| `"hc0"` | White 异方差稳健 sandwich 协方差。 |
+| `"hc0"` | White 异方差稳健三明治（sandwich）协方差。 |
 | `"hc1"` | 在 HC0 基础上进行残差自由度修正。 |
 | `"hc2"` | 利用杠杆值调整残差平方。 |
 | `"hc3"` | 更强的杠杆值调整，适合关注高影响观测的场景。 |

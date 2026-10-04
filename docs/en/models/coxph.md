@@ -175,7 +175,7 @@ contracts are maintained in [`CoxPH`](../../../statgpu/survival/_cox.py) and
 | `compute_cindex` | `True` | Compute training concordance |
 | `cov_type` | `"nonrobust"` | `"nonrobust"`, `"hc0"`, `"hc1"`, or `"cluster"` |
 | `penalty` | `0.0` | Non-negative L2 penalty |
-| `inference_mode` | `"strict"` | `"strict"` or compatibility alias `"approx"`; both are exact |
+| `inference_mode` | `"strict"` | `"approx"` is a compatibility alias; both settings use the same robust covariance calculation. See [Covariance and Inference](#covariance-and-inference). |
 | `gpu_memory_cleanup` | `False` | Best-effort CuPy/Torch cache cleanup |
 
 ## Cross-Validation
@@ -250,7 +250,7 @@ inference does not correct for tuning uncertainty or shrinkage bias; see
 | `n_jobs` | `None` | Shared CPU-job option, forwarded to the refit; the current CV loop is not parallelized by this option. |
 | `compute_inference` | `True` | Compute inference and baseline hazards only in the final refit. |
 | `cov_type` | `"nonrobust"` | Covariance contract for the final refit. |
-| `inference_mode` | `"strict"` | `"strict"` or compatibility alias `"approx"`; both use exact supported inference. |
+| `inference_mode` | `"strict"` | `"approx"` is a compatibility alias; both settings use the same robust covariance calculation. See [Covariance and Inference](#covariance-and-inference). |
 | `gpu_memory_cleanup` | `False` | Best-effort GPU cache cleanup at public work boundaries. |
 | `random_state` | `None` | Seed for automatically generated CV folds. |
 
@@ -500,61 +500,20 @@ likelihoods. `ties="exact"` evaluates the exact tied-event denominator with an
 elementary-symmetric dynamic program. The same counting-process risk-set engine
 is used for delayed entry, strata, Exact ties, L2-penalized fits, and GPU robust
 inference, which keeps the `(start, stop]` convention consistent across backends.
-The public `CoxPH` and `CoxPHCV` estimators factorize one-dimensional labels:
-host strings/objects and finite numeric CuPy/Torch labels are encoded internally
-as consecutive int64 codes. Low-level counting-process primitives do not
-factorize labels and therefore require finite integer-valued numeric codes
-representable as signed int64.
+`CoxPH` and `CoxPHCV` accept one-dimensional stratum, subject, and cluster
+labels and encode them internally. Exact dynamic programming avoids enumerating
+all event subsets, but its computation and memory needs still increase with data
+size, tied-event group size, and feature count. Ordinary right-censored data can
+reuse calculations across nested risk sets; delayed-entry data use a calculation
+suited to their risk-set structure.
 
-For ordinary right-censored Exact fits, the risk sets are nested within each
-stratum. StatGPU sorts rows by stratum and decreasing stop time, then reuses one
-segmented elementary-symmetric prefix dynamic program across every failure group
-on NumPy, CuPy, and Torch without a Python loop over strata.
-This removes the repeated risk-set scan that made work grow with both sample
-count and failure-group count. Failure numerators use backend-native grouped
-reductions instead of a dense failure-group-by-sample mask. The prefix workspace
-defaults to a 512 MiB ceiling
-controlled by `STATGPU_EXACT_NESTED_MAX_BYTES` and is checked before allocation.
-
-On Torch CUDA, long multidimensional `cumsum(dim=0)` calls in PyTorch 2.0 can
-dominate this otherwise linear prefix DP. For at least 2,048 rows and at most 64
-trailing moment channels, StatGPU therefore lays out each channel contiguously,
-runs the efficient one-dimensional CUDA scan per channel, and stacks the results
-back on device. `STATGPU_TORCH_EXACT_SCAN_MIN_ROWS` and
-`STATGPU_TORCH_EXACT_SCAN_MAX_CHANNELS` control these conservative gates, and
-`STATGPU_TORCH_EXACT_SCAN_STRATEGY` accepts `auto`, `native`, or `channelwise`.
-`auto` enables the split scan only for the benchmarked Torch 2.0 + Pascal/P100
-combination; unbenchmarked Torch/GPU combinations use the native scan. CPU,
-small, or wide inputs also keep Torch's native multidimensional scan. The additional
-transpose/output workspace is included in the existing nested-workspace check:
-if the base DP fits but the channel-scan workspace does not, the nested
-algorithm stays active and uses the native Torch scan rather than falling back
-to the more expensive general Exact path.
-
-Delayed entry prevents the nested-prefix shortcut. With at least eight strata,
-GPU backends first try all eligible failure groups in one backend-native batch;
-smaller GPU cases and NumPy use per-stratum batches to avoid empty cross-stratum
-mask work. The separate 512 MiB ceiling is controlled by
-`STATGPU_EXACT_BATCH_MAX_BYTES`. An oversized global batch is retried per
-stratum before the memory-bounded per-group path; score-residual requests and
-conservative numerical-range gates also retain the normalized implementation.
-These are explicit algorithmic fallbacks, never implicit CPU fallbacks.
-
-For Breslow/Efron delayed-entry objectives,
-`STATGPU_COX_GROUP_MAX_BYTES` controls the dense failure-group workspace
-(512 MiB by default). If even one failure group exceeds the ceiling,
-the selected GPU backend uses a stable multi-pass row-streaming moment
-calculation. This keeps an extreme single stratum/risk set bounded instead of
-letting the minimum batch size allocate an unbounded `O(n)` mask.
-
-Full-fit inference also constructs a Breslow baseline hazard. For ordinary
-right-censored rows, StatGPU now sorts each stratum by decreasing stop time and
-computes every risk denominator from one log-risk prefix. NumPy uses
-`logaddexp.accumulate`, Torch uses `logcumsumexp`, and CuPy uses a shifted
-exponential cumulative sum within a conservative predictor-range gate. Extreme
-CuPy predictors and delayed-entry rows retain the stable backend-native
-per-failure-group calculation. This removes the former
-failure-group-by-sample risk-mask scan from the common right-censored path.
+When a temporary workspace exceeds its configured limit, the selected backend
+uses a lower-memory algorithm rather than silently switching to CPU.
+`STATGPU_EXACT_NESTED_MAX_BYTES`, `STATGPU_EXACT_BATCH_MAX_BYTES`, and
+`STATGPU_COX_GROUP_MAX_BYTES` each default to 512 MiB and limit their respective
+workspaces, not the total memory used by a fit. See the
+[developer reference](../../../dev/references/coxph-implementation-and-evidence.md#implementation-snapshot)
+for configuration details, algorithms, and their applicability.
 
 ## Formula Interface
 
@@ -594,17 +553,17 @@ convergence state are evaluated from the final coefficient vector.
 `termination_reason_` is the interpreted user-level category and is one of
 `kkt_converged`, `line_search_failed`, or `stalled_with_large_kkt`.
 `optimization_stop_reason_` preserves the raw solver exit, including
-`max_iter`; warnings also report this raw reason. Thus budget exhaustion remains
-auditable without presenting it as a separate convergence certificate.
+`max_iter`; warnings also report this raw reason. This makes it possible to
+identify an iteration-limit exit; reaching the iteration limit does not itself
+establish convergence.
 
 ## Penalty Scaling and Penalized Inference
 
 `penalty` is the `lambda` in the total partial-likelihood objective above. It is
 not divided by the sample size or event count, and CoxPH has no intercept to
-penalize. Consequently, duplicating the observations doubles the likelihood
-and score contributions without doubling the supplied penalty, so it changes
-the effective regularization strength. For comparisons across data sets or
-sample sizes, tune `penalty` with `CoxPHCV` under the intended sampling scale;
+penalize. The same numeric `penalty` does not guarantee the same effective
+regularization strength at different data sizes. For comparisons across data
+sets or sample sizes, tune `penalty` with `CoxPHCV` under the intended sampling scale;
 when reproducing software that minimizes an average loss, explicitly convert
 that package's penalty convention rather than assuming the numeric values are
 identical.
@@ -683,6 +642,9 @@ accepted for backward compatibility, but the unified public fit path treats it
 as a compatibility-only alias and still computes the exact counting-process
 score sandwich. Consequently successful public fits report
 `inference_approximate_=False` and no approximation fallback reason.
+Here, exact refers to computing the counting-process score residuals, not to
+finite-sample exact tests. Coefficient z tests and confidence intervals still
+use a large-sample normal approximation, including with `ties="exact"`.
 
 Exact ties currently support model-based (`cov_type="nonrobust"`) inference only.
 Requesting HC0, HC1, or cluster inference with `ties="exact"` raises
@@ -749,41 +711,13 @@ the vector-transfer count records its two actual vector copies.
 `compute_inference=True` when survival curves are needed. Risk-score and hazard-
 ratio prediction do not require a baseline.
 
-## External Validation and Reproducibility
+## External Comparisons and Implementation Reference
 
-The maintained R baseline uses R 4.4.1 with `survival` 3.8.9 and aligns ties,
-Newton `max_iter=80`, and `tol=1e-8`. At `n=3000`, `p=10`, the Breslow and
-Efron comparisons use 3,000 independent HC1 units and 120 cluster units. The
-maximum StatGPU-versus-R coefficient/SE/p-value differences were
-`5.55e-16`/`1.39e-16`/`8.00e-19` for HC1 and
-`5.55e-16`/`1.32e-16`/`2.22e-16` for cluster covariance. Unsupported
-statsmodels covariance modes are recorded as unsupported rather than relabeled
-as external evidence.
-
-Machine-readable R comparison artifacts:
-
-- `results/benchmark_frontend_sources/coxph_robust_inference_breslow_pr80_20260729_schema11.json`;
-- `results/benchmark_frontend_sources/coxph_robust_inference_efron_pr80_20260729_schema11.json`.
-
-These are fixed-source, shape-specific comparisons, not a universal accuracy or
-performance guarantee. Exact-ties and performance conclusions remain bound to
-their dedicated artifacts listed in `dev/reviews/pr80_review_fix.md`.
-
-### Published Physical-GPU Validation
-
-CuPy and Torch CUDA validation checks numerical agreement, device ownership,
-and error boundaries. A stable [published GPU validation record](https://gist.github.com/TheHiddenObserver/ebbb7f2401f45b124069a30d3510c139)
-([raw JSON](https://gist.githubusercontent.com/TheHiddenObserver/ebbb7f2401f45b124069a30d3510c139/raw/pr80_final_gpu_suite_schema3.json))
-is pinned to source commit `a726937a39eb0ed5a370dd03362884b63a9e9818`, with artifact
-SHA-256 `e01ad0bfec238d06167caeef9955e92b6cf84eea4ccc69a3056eb794ded6eccb`.
-It certifies only the recorded source and runtime environment; later commits do
-not automatically inherit that evidence. Source hashes, imported paths, hardware,
-and validation provenance are recorded in the artifact and
-[developer validation reference](../../../dev/reviews/pr80_review_fix.md).
-
-This record is not a new performance-crossover benchmark or an R-alignment run,
-and is not a universal accuracy or performance guarantee for every dataset,
-backend version, or GPU. Those comparisons remain tied to their own artifacts.
+Align the design matrix, tie method, penalty scale, covariance convention, and
+convergence settings before comparing other software.
+[External comparisons and GPU validation records](../../../dev/references/coxph-implementation-and-evidence.md#historical-external-validation)
+identify the source and environment they tested. Historical results are not a
+blanket guarantee for the current version or every dataset and device.
 
 ## FAQ and Common Failure Modes
 
@@ -799,14 +733,13 @@ backend version, or GPU. Those comparisons remain tied to their own artifacts.
 | Observed information is singular | Check collinearity, invariant columns, separation/saturation, and event support; reduce the design or use an explicitly justified L2 penalty. |
 | Hazard-ratio prediction raises `FloatingPointError` | `exp(X @ coef_)` is outside finite float64 range. Inspect `predict_risk_score()`, rescale features, and check extrapolation. |
 | `converged_` is false | Inspect `optimization_stop_reason_`, `final_kkt_inf_`, and `final_kkt_normalized_`; increasing `max_iter` alone does not repair a failed line search or ill-conditioned design. |
-| Exact ties are slow or hit a workspace gate | Exact likelihood is combinatorial in tied-event group size. Prefer Breslow/Efron when scientifically acceptable, or reduce the largest exact tie block. |
+| Exact ties are slow or hit a workspace gate | Exact uses dynamic programming instead of enumerating all subsets, but computation and memory needs still increase with risk-set size, tied-event group size, and feature count. Assess the resource cost for your data; consider Breslow or Efron when scientifically appropriate. |
 | `score()` returns `0.5` | This can reflect neutral/tied ranking, or no permissible concordance pairs; the latter also returns the documented neutral value `0.5`. Check whether the data contain evaluable pairs. |
 
 ## Limitations
 
 - robust/cluster covariance for Exact ties is not implemented;
-- Exact ties use combinatorial dynamic programming and are intended for modest
-  tied-event groups rather than unrestricted large tie blocks;
+- Exact ties use dynamic programming; large risk sets or tied-event groups can still require substantial computation and memory, also depending on feature count.
 - frailty/random-effect terms are not implemented;
 - optional `torch.compile` acceleration requires compatible Triton-capable
   hardware and is not part of the portable correctness contract.
