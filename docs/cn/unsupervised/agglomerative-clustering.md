@@ -22,7 +22,7 @@ from statgpu.unsupervised import AgglomerativeClustering
 
 层次聚类是贪心合并过程，不是全局光滑优化问题。每一步都合并连接准则（linkage criterion）取值最小的一对簇。
 
-single linkage：
+单连接（`linkage="single"`）：
 
 $$
 d(A, B)
@@ -31,7 +31,7 @@ d(A, B)
 \left\|x - y\right\|_2 .
 $$
 
-complete linkage：
+完全连接（`linkage="complete"`）：
 
 $$
 d(A, B)
@@ -40,7 +40,7 @@ d(A, B)
 \left\|x - y\right\|_2 .
 $$
 
-average linkage：
+平均连接（`linkage="average"`）：
 
 $$
 d(A, B)
@@ -97,7 +97,7 @@ print(labels.shape, model.children_.shape, model.distances_[-3:])
 
 `AgglomerativeClustering` 没有统计推断意义上的严格模式：对稠密欧氏输入，CPU、CuPy 与 Torch 路径都给出精确计算。GPU 执行会分配稠密距离矩阵；一旦超过配置的距离矩阵内存上限，会明确抛出 `MemoryError`。
 
-GPU 路径通过展开平方范数计算成对距离。很大的共同特征偏移可能导致消减误差并改变层次结构；应在拟合前以 float64 减去由训练数据确定的偏移，这不会改变原本的欧氏几何关系。SciPy 的 CPU linkage 路径不使用这一共享 GPU 距离公式。
+GPU 路径通过展开平方范数计算成对距离。很大的共同特征偏移可能导致消减误差并改变层次结构；应在拟合前以 float64 减去由训练数据确定的偏移，这不会改变原本的欧氏几何关系。SciPy 的 CPU 层次聚类路径不使用这一共享 GPU 距离公式。
 
 `distances_` 中的 Ward 合并高度为 $\sqrt{2\Delta(A,B)}$，不是平方误差增加量 $\Delta(A,B)$ 本身。GPU 距离矩阵估计内存会与配置上限比较；默认上限为 1 GiB，可在导入模块前设置 `STATGPU_AGGLOMERATIVE_GPU_MAX_BYTES`。该值不是当前可用显存。
 

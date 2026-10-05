@@ -1,147 +1,83 @@
-# 多重检验校正
+# 多重检验与 P 值合并
 
-> **模块：** `statgpu.inference`  
-> **最后更新：** 2026-06-14  
-> **后端：** NumPy, CuPy, PyTorch
+> 语言：中文  
+> 最后更新：2026-10-05  
+> 切换：[English](../../en/models/multiple-testing.md)
 
-## 概述
+## 先分清两个问题
 
-当同时检验多个假设时，至少出现一次错误发现的概率会增加。 本模块提供 P 值校正和合并方法，用于控制族错误率（FWER）或错误发现率（FDR）。
+需要对一组假设逐项作出判断时，使用 `adjust_pvalues`；需要把多个检验的证据汇总为一个总体原假设的检验时，使用 `combine_pvalues`。合并后的 P 值显著，并不能确定具体哪些原假设不成立，也不等于控制了逐项发现的 FDR。
 
-## 数学原理
+设 V 为错误拒绝的个数，R 为全部拒绝的个数。族错误率 FWER 是 `P(V >= 1)`，错误发现率 FDR 是 `E[V / max(R, 1)]`。这些保证以单项 P 值有效、且满足所选方法的依赖条件为前提；增加检验数量不会修复无效的原始检验。
 
-### P 值校正 (adjust_pvalues)
+## 先选择要控制的错误率
 
-给定 $m$ 原始 P 值 $p_1, p_2, \ldots, p_m$, 校正后的 P 值 $\tilde{p}_i$ 控制指定的错误率。
+- **Holm 或 Bonferroni：** 在任意依赖关系下控制 FWER。对同一假设族，Holm 的检验功效不会低于 Bonferroni。
+- **BH：** 在相互独立或满足特定正依赖条件时控制 FDR，例如对真实原假设满足 PRDS 条件；不能对所有依赖结构作此保证。
+- **BY：** 通过额外的调和因子，在任意依赖关系下控制 FDR。
+- **Hochberg：** 在独立或能够保证 Simes 不等式成立的依赖条件下控制 FWER；仅知道两两相关系数非负，并不足以普遍保证适用。
 
-**Bonferroni correction** （FWER 控制）：
-$$\tilde{p}_i = \min(m \cdot p_i, 1)$$
+应在查看结果前确定假设族。对矩阵设置 `axis=1` 时，每行分别构成一个假设族，并不同时控制所有行的总体错误率。[R 的 p.adjust 文档](https://stat.ethz.ch/R-manual/R-devel/library/stats/html/p.adjust.html)介绍了这些方法及其依赖条件。
 
-**Holm step-down procedure** (FWER control, uniformly more powerful than Bonferroni):
-1. Order p-values: $p_{(1)} \leq p_{(2)} \leq \ldots \leq p_{(m)}$
-2. Reject $H_{(i)}$ if $p_{(i)} < \alpha / (m - i + 1)$
-3. Adjusted: $\tilde{p}_{(i)} = \max_{j \leq i} \min((m-j+1) \cdot p_{(j)}, 1)$
+## 校正公式
 
-**Benjamini-Hochberg (BH)** （FDR 控制）：
-1. Order p-values: $p_{(1)} \leq p_{(2)} \leq \ldots \leq p_{(m)}$
-2. Find largest $k$ such that $p_{(k)} \leq \frac{k}{m} \alpha$
-3. Reject $H_{(1)}, \ldots, H_{(k)}$
-4. Adjusted: $\tilde{p}_{(i)} = \min_{j \geq i} \min(\frac{m}{j} p_{(j)}, 1)$
+将 P 值排序为 $p_{(1)}\le\cdots\le p_{(m)}$，令 $c_m=\sum_{j=1}^m1/j$。下列计算完成后，再恢复输入顺序：
 
-**Benjamini-Yekutieli (BY)** (FDR control under arbitrary dependence):
-- Same as BH but with correction factor $\sum_{j=1}^{m} \frac{1}{j}$
-- More conservative than BH but valid under any dependence structure
+$$
+\begin{aligned}
+\tilde p^{\rm Bonf}_{(i)} &= \min(1,mp_{(i)}),\\
+\tilde p^{\rm Holm}_{(i)} &= \min\{1,\max_{j\le i}(m-j+1)p_{(j)}\},\\
+\tilde p^{\rm BH}_{(i)} &= \min\{1,\min_{j\ge i}(m/j)p_{(j)}\},\\
+\tilde p^{\rm BY}_{(i)} &= \min\{1,c_m\min_{j\ge i}(m/j)p_{(j)}\},\\
+\tilde p^{\rm Hochberg}_{(i)} &= \min\{1,\min_{j\ge i}(m-j+1)p_{(j)}\}.
+\end{aligned}
+$$
 
-**Hochberg step-up procedure** (FWER control, assumes non-negative correlation):
-1. Start from largest p-value
-2. Accept $H_{(i)}$ if $p_{(i)} > \alpha / (m - i + 1)$
-3. Adjusted: $\tilde{p}_{(i)} = \min_{j \geq i} \min((m-j+1) \cdot p_{(j)}, 1)$
+返回的拒绝规则是 `adjusted <= alpha`。Holm 逐步下降检验在第一次比较不通过时停止拒绝；未拒绝原假设不代表已经证明它成立。
 
-### P 值合并 (combine_pvalues)
+## 合并公式与适用条件
 
-**Fisher's method** (chi-squared combination):
-$$T = -2 \sum_{i=1}^{m} \ln(p_i) \sim \chi^2_{2m}$$
-- 在 $H_0$: $T \sim \chi^2_{2m}$
-- Powerful when a small subset of p-values is very small
+**Fisher：**
 
-**Cauchy Combination Test (ACAT)** (robust to arbitrary dependence):
-$$T = \sum_{i=1}^{m} w_i \tan\left((0.5 - p_i)\pi\right) \sim \text{Cauchy}(0, 1)$$
-- Approximately distributed as Cauchy under $H_0$
-- No assumption on dependence structure
-- Liu & Xie (2020)
+$$T_F=-2\sum_{i=1}^m\log p_i,\qquad p_{\rm global}=P(\chi^2_{2m}\ge T_F).$$
 
-**Stouffer's method** (z 分数合并):
-$$T = \frac{\sum_{i=1}^{m} w_i \Phi^{-1}(1-p_i)}{\sqrt{\sum_{i=1}^{m} w_i^2}} \sim N(0, 1)$$
-- 在 $H_0$: $T \sim N(0, 1)$
-- Most powerful when effects are in the same direction
+通常的卡方参考分布要求原假设下的 P 值相互独立、连续且服从均匀分布。此接口不估计依赖关系的修正。`weights` 必须为 `None`；提供权重会抛出 `ValueError`。
 
-## 参数
+**Stouffer：** 对非负且总和为正的权重，
 
-### adjust_pvalues
+$$T_Z=\frac{\sum_i w_i\Phi^{-1}(1-p_i)}{\sqrt{\sum_iw_i^2}},\qquad p_{\rm global}=1-\Phi(T_Z).$$
 
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `pvalues` | array-like | — | Raw p-values |
-| `method` | str | `'bh'` | `'bh'`, `'by'`, `'holm'`, `'bonferroni'`, `'hochberg'` |
-| `alpha` | float | `0.05` | Significance level |
-| `axis` | int or None | `None` | Axis for batch processing |
-| `backend` | str | `'auto'` | `'numpy'`, `'cupy'`, `'torch'`, `'auto'` |
+分母采用原假设下标准正态分数相互独立的假设。若分数相关，需要考虑协方差的校准，此接口并未实现。研究有方向的效应时，应使用方向一致的单侧 P 值；传入双侧 P 值不会自动恢复效应正负号。[SciPy 的合并检验文档](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.combine_pvalues.html)说明了独立检验的校准条件。
 
-### combine_pvalues
+**Cauchy/ACAT：** 实现先将权重归一化为 $a_i=w_i/\sum_jw_j$，未提供时等权，再计算
 
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `pvalues` | array-like | — | Raw p-values |
-| `method` | str | `'fisher'` | `'fisher'`, `'cauchy'`/`'acat'`, `'stouffer'` |
-| `weights` | array-like | `None` | Non-negative weights (cauchy/stouffer) |
-| `axis` | int or None | `None` | Axis for batch processing |
-| `backend` | str | `'auto'` | `'numpy'`, `'cupy'`, `'torch'`, `'auto'` |
+$$T_C=\sum_i a_i\tan\{\pi(1/2-p_i)\},\qquad p_{\rm global}=1/2-\arctan(T_C)/\pi.$$
 
-## CPU+GPU 示例
+存在依赖关系时，这是在一定正则条件下的尾部近似，并不意味着统计量精确服从 Cauchy 分布，也不对任意联合分布、任意显著性水平提供统一保证。理论范围见 [Liu–Xie 论文](https://arxiv.org/abs/1808.09011)。它用于汇总证据，不能代替逐项发现的多重检验校正。
 
+## 可直接运行的 CPU 示例
+
+这里使用示意性的 P 值；Fisher 结果的解释以相关检验满足适当的独立性假设为前提。
+
+<!-- api-example: multiple-testing-learner -->
 ```python
 import numpy as np
 from statgpu.inference import adjust_pvalues, combine_pvalues
 
-# Raw p-values from 5 hypothesis tests
-pvals = np.array([0.001, 0.01, 0.03, 0.05, 0.50])
-
-# Benjamini-Hochberg FDR control
-reject, pvals_adj = adjust_pvalues(pvals, method='bh', alpha=0.05)
-print(f"Rejected: {reject}")
-print(f"Adjusted p-values: {pvals_adj}")
-
-# Fisher combination
-stat, p_global = combine_pvalues(pvals, method='fisher')
-print(f"Fisher statistic: {stat:.4f}, global p-value: {p_global:.6f}")
-
-# Cauchy combination (robust to dependence)
-stat, p_global = combine_pvalues(pvals, method='cauchy')
-
-# Stouffer with weights
-weights = np.array([1.0, 1.0, 1.0, 0.5, 0.5])
-stat, p_global = combine_pvalues(pvals, method='stouffer', weights=weights)
+p = np.array([0.001, 0.01, 0.03, 0.05, 0.50])
+reject, adjusted = adjust_pvalues(p, method="holm", alpha=0.05, backend="numpy")
+print(reject.tolist())
+print(np.round(adjusted, 3))
+statistic, global_p = combine_pvalues(p, method="fisher", backend="numpy")
+print(round(float(statistic), 4), round(float(global_p), 6))
 ```
 
-**GPU acceleration:**
+第一行输出为 `[True, True, False, False, False]`，校正值为 `[0.005, 0.04, 0.09, 0.1, 0.5]`。应按预先确定的假设族和错误率解释拒绝掩码，而不是把校正 P 值当成“重要性”排名。
 
-```python
-import torch
-from statgpu.inference import adjust_pvalues, combine_pvalues
+## 实际使用限制
 
-pvals_gpu = torch.tensor([0.001, 0.01, 0.03, 0.05, 0.50], device='cuda')
-reject, pvals_adj = adjust_pvalues(pvals_gpu, method='bh', backend='torch')
-```
+输入应为 `[0,1]` 内的有限 P 值，`alpha` 应为严格介于 0 和 1 之间的有限数。当前 `alpha=NaN` 不会报错，而会返回全为假的拒绝掩码；若显著性水平由计算得到，应先检查其有效性。无效的 P 值会被拒绝。
 
-## 输出
+合并检验会截断端点概率，分布尾部计算也可能受到浮点相消影响；返回零不代表真实概率精确等于零。[完整 API 指南](../guides/multiple-testing-combine-pvalues.md)说明了签名、别名、权重、轴、后端和数值限制。估计器辅助方法返回字典，与模块函数的元组不同，见[共享估计器方法](../reference/estimator-api.md)。
 
-| Method | Returns | Description |
-|---|---|---|
-| `adjust_pvalues` | `(reject, pvals_adj)` | Boolean rejection array + adjusted p-values |
-| `combine_pvalues` | `(statistic, p_global)` | Test statistic + global p-value |
-
-## 常见问题
-
-**Q: 应该用哪种方法？**  
-A: FDR 控制用 **BH**（最常用）。严格 FWER 控制用 **Bonferroni/Holm**。P 值相关时用 **Cauchy**。
-
-**Q: 可以用于全基因组关联分析吗？**  
-A: 可以。BH 是 GWAS 的标准方法。对于相关检验，使用 Cauchy 合并。
-
-**Q: What's the difference between FDR and FWER?**  
-A: FDR = 错误拒绝的期望比例。FWER = 至少一次错误拒绝的概率。FDR 更宽松。
-
-## 外部验证
-
-- R: `p.adjust()` for adjustment, `pchisq()` for Fisher
-- statsmodels: `multipletests()` (BH, Holm, Bonferroni, BY, Hochberg)
-- scipy: `combine_pvalues()` (Fisher, Stouffer, Tippett)
-
-## 参考文献
-
-1. Benjamini, Y. & Hochberg, Y. (1995). "Controlling the False Discovery Rate: A Practical and Powerful Approach to Multiple Testing." *Journal of the Royal Statistical Society: Series B*, 57(1), 289-300.
-2. Benjamini, Y. & Yekutieli, D. (2001). "The Control of the False Discovery Rate in Multiple Testing under Dependency." *Annals of Statistics*, 29(4), 1165-1188.
-3. Holm, S. (1979). "A Simple Sequentially Rejective Multiple Test Procedure." *Scandinavian Journal of Statistics*, 6(2), 65-70.
-4. Fisher, R.A. (1925). *Statistical Methods for Research Workers*. Oliver and Boyd.
-5. Liu, Y. & Xie, J. (2020). "Cauchy Combination Test: A Powerful Test With Analytic p-Value Calculation 在 Arbitrary Dependency Structures." *Journal of the American Statistical Association*, 115(529), 393-402.
-6. Stouffer, S.A. et al. (1949). *The American Soldier*. Princeton University Press.
+分析大量相关检验前，应先明确是在检验总体假设还是识别个别发现，并确定依赖条件；“全基因组关联分析”等应用名称本身不能决定应该使用哪一种方法。

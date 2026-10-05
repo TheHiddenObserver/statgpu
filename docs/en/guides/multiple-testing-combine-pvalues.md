@@ -1,267 +1,86 @@
-# Multiple-testing: P-value Adjustment & Combination (BH/BY/Holm/Bonferroni/Hochberg + Fisher/Cauchy/Stouffer)
+# P-value adjustment and combination API
 
 > Language: English  
-> Last updated: 2026-04-26  
-> This page: Guide  
+> Last updated: 2026-10-05  
 > Switch: [Chinese](../../cn/guides/multiple-testing-combine-pvalues.md)
 
-Language switch: [Chinese](../../cn/guides/multiple-testing-combine-pvalues.md)
+Import these functions from `statgpu.inference` or `statgpu`. For choosing the hypothesis family, FWER versus FDR, formulas and dependence assumptions, start with [multiple testing](../models/multiple-testing.md).
 
-## API Summary
+## Complete signatures
 
-### P-value Adjustment (Multiple Hypothesis Testing)
-
-Use `statgpu.adjust_pvalues` for FDR/FWER correction:
-
-```python
-reject, pvals_adj = statgpu.adjust_pvalues(
-    pvalues,
-    method="bh",           # "bh" | "by" | "holm" | "bonferroni" | "hochberg"
-    alpha=0.05,              # FWER/FDR level
-    axis=None,               # None = flatten all values
-    backend="auto",         # "auto" | "numpy" | "cupy" | "torch"
-)
+```text
+adjust_pvalues(pvalues, method="bh", alpha=0.05, axis=None, backend="auto")
+multipletests(pvalues, alpha=0.05, method="bh", axis=None, backend="auto")
+combine_pvalues(pvalues, method="fisher", weights=None, axis=None, backend="auto")
 ```
 
-Equivalent: `statgpu.multipletests(...)` has identical parameters to `statgpu.adjust_pvalues(...)`.
+`multipletests` delegates to `adjust_pvalues`, but their second and third positional arguments are in different orders. Pass `method=` and `alpha=` by keyword. Unlike statsmodels, this alias returns only two values and has no `is_sorted` or `returnsorted` argument.
 
-### Global P-value Combination
+## Inputs and returns
 
-Use `statgpu.combine_pvalues` to combine many p-values into one global p-value:
+| Argument | Meaning and restrictions |
+|---|---|
+| `pvalues` | Numeric finite probabilities in `[0,1]`; preserve the hypothesis order. |
+| `method` | Adjustment or combination method listed below. Names ignore surrounding whitespace and case. |
+| `alpha=0.05` | Finite level in `(0,1)` for the rejection mask. Currently NaN is not rejected and returns all-false decisions; validate computed levels first. It does not affect adjusted values. |
+| `axis=None` | Treat all entries as one family/global test. An integer operates separately along that axis, including negative axis indices. |
+| `weights=None` | Combination only. Cauchy/Stouffer use equal weights by default. Supply a finite nonnegative vector matching the combination-axis length, with positive sum. One vector is reused across batches; weights are normalized internally. Fisher rejects supplied weights. |
+| `backend="auto"` | Infer `numpy`, `cupy`, or `torch` from p-value arrays; ordinary lists use NumPy. This is array-library selection, not estimator `device` selection. |
 
-```python
-statistic, pvalue = statgpu.combine_pvalues(
-    pvalues,
-    method="fisher",        # "fisher" | "cauchy" | "stouffer"
-    weights=None,            # used by cauchy/stouffer only
-    axis=None,               # None = flatten all values
-    backend="auto",         # "auto" | "numpy" | "cupy" | "torch"
-)
-```
+`adjust_pvalues` and `multipletests` return `(reject, adjusted)`, both with the input shape, including for `axis=None`. `reject` is boolean and `adjusted` is float64. A scalar accepts only `axis=None`. A flattened empty adjustment returns empty arrays; for batch processing use a nonempty family axis.
 
-## Method Semantics
+`combine_pvalues` returns `(statistic, pvalue)`: scalar/zero-dimensional outputs for `axis=None`, otherwise arrays with the chosen axis removed. Empty combination families raise. Outputs are float64 arrays/scalars of the selected backend. Explicit Torch library use may operate on Torch CPU or CUDA tensors; it is not the estimator-level strict-CUDA `device="torch"` request. No physical-GPU behavior is implied by a CPU example.
 
-### P-value Adjustment Methods
+Estimator methods with these names return dictionaries and use a different default adjustment axis; see [shared estimator helpers](../reference/estimator-api.md).
 
-1. **Bonferroni**: `p_i * m`, FWER control, most conservative.
-2. **Holm**: Step-down FWER, more powerful than Bonferroni.
-3. **BH** (Benjamini-Hochberg): Step-up FDR, alias `fdr_bh`.
-4. **BY** (Benjamini-Yekutieli): FDR control, robust to arbitrary dependence.
-5. **Hochberg**: Step-up FWER, alias `fdr_hochberg`/`step_up`/`stepup`.
+## Methods and aliases
 
-All adjusted p-values are clipped to [0, 1].
+| Canonical method | Accepted aliases |
+|---|---|
+| `bh` | `fdr_bh`, `benjamini-hochberg`, `benjamini_hochberg` |
+| `by` | `fdr_by`, `benjamini-yekutieli`, `benjamini_yekutieli` |
+| `holm` | `holm-bonferroni`, `holm_bonferroni` |
+| `bonferroni` | `bonf` |
+| `hochberg` | `fdr_hochberg`, `step_up`, `stepup` |
+| `fisher` | `fisher-combination`, `fisher_combination` |
+| `cauchy` | `cauchy-combination`, `cauchy_combination`, `acat` |
+| `stouffer` | `z-test`, `ztest`, `weighted_z` |
 
-### Global P-value Combination Methods
+Despite its legacy name, `fdr_hochberg` invokes **FWER Hochberg**, not FDR BH. There is no Tippett method in this implementation. Bonferroni/Holm allow arbitrary dependence, BH requires independence or suitable positive dependence, BY allows arbitrary dependence, and Hochberg requires independence or an applicable Simes dependence condition. All require valid marginal p-values.
 
-1. **Fisher**
-- Statistic: `-2 * sum(log(p_i))`
-- Reference distribution: chi-square with `2m` degrees of freedom.
-- Weight input is not used.
+Fisher uses the independent-uniform chi-square reference. Stouffer uses the independent-normal-score variance; it does not estimate covariance between tests. Cauchy/ACAT uses a normalized-weight tangent statistic and Cauchy tail approximation under regularity conditions. It does not give a universal finite-level guarantee for arbitrary p-value dependence. See the [formulas and references](../models/multiple-testing.md#combination-formulas-and-assumptions).
 
-2. **Cauchy** (ACAT alias)
-- Statistic: weighted tangent transform over p-values.
-- P-value: Cauchy tail transform.
-- Requires non-negative weights when `weights` is provided.
-- `method="acat"` is an alias of `method="cauchy"`.
+## A complete axis and weight example
 
-3. **Stouffer** (Weighted Z-test)
-- Statistic: `sum(w_i * Z_i) / sqrt(sum(w_i^2))`, where `Z_i = norm.ppf(1 - p_i)`.
-- P-value: `norm.sf(statistic)`.
-- Supports weights, consistent with the cauchy weight interface.
-- Aliases: `ztest`/`weighted_z`.
+The Stouffer calculation assumes independent, consistently oriented null scores. Each row here is a separate global test; this does not additionally adjust the two resulting global p-values.
 
-## Shape Rules
-
-- `axis=None`: flatten all values, return scalar statistic and scalar p-value.
-- `axis=k`: combine along axis `k`, return arrays with that axis reduced.
-- `weights` length must match the combine axis length.
-
-## Examples
-
-### P-value Adjustment
-
-#### 1) Vector adjustment
-
+<!-- api-example: multiple-testing-axis -->
 ```python
 import numpy as np
-from statgpu import adjust_pvalues
+from statgpu import adjust_pvalues, combine_pvalues, multipletests
 
-p = np.array([0.003, 0.02, 0.50, 0.10, 0.001])
-reject, pvals_adj = adjust_pvalues(p, method='bh', alpha=0.05)
+p = np.array([[0.01, 0.04, 0.6], [0.02, 0.2, 0.7]])
+alpha = 0.05
+if not np.isfinite(alpha) or not 0 < alpha < 1:
+    raise ValueError("alpha must be finite and in (0, 1)")
+reject, adjusted = adjust_pvalues(p, method="holm", alpha=alpha, axis=1, backend="numpy")
+reject_alias, adjusted_alias = multipletests(p, method="holm", alpha=alpha, axis=1, backend="numpy")
+np.testing.assert_array_equal(reject, reject_alias)
+np.testing.assert_allclose(adjusted, adjusted_alias)
+statistic, global_p = combine_pvalues(p, method="stouffer", weights=[1, 2, 1], axis=1, backend="numpy")
+assert adjusted.shape == p.shape
+assert statistic.shape == global_p.shape == (2,)
 ```
 
-#### 2) Hochberg step-up FWER
+## Numerical limits
 
-```python
-import numpy as np
-from statgpu import adjust_pvalues
+- Fisher clips probabilities below the smallest positive normal float64 value before taking logs. Exact zero therefore yields a finite statistic rather than infinity.
+- Cauchy and Stouffer clip probabilities to `[eps, 1-eps]`, where `eps` is float64 machine precision. Exact endpoints and more extreme probabilities are altered.
+- Fisher and Stouffer also use the [distribution functions](distribution-api.md), whose survival/quantile tails can suffer cancellation or saturation. Cauchy's direct tail subtraction can lose very small probabilities too.
+- A returned zero or one can be a numerical limit. Use a validated tail-stable method when extreme-tail resolution matters; converting the same values to GPU does not remove these limitations.
 
-p = np.array([0.003, 0.02, 0.50, 0.10, 0.001])
-reject, pvals_adj = adjust_pvalues(p, method='hochberg', alpha=0.05)
-# More powerful than Holm, controls FWER
-```
+Do not infer method calibration from finite outputs or agreement on a few examples. For individual tests use the adjustment's error criterion; for combination interpret one global null.
 
-#### 3) Row-wise adjustment (`axis=1`)
+## Historical timing records
 
-```python
-import numpy as np
-from statgpu import adjust_pvalues
-
-p_matrix = np.random.default_rng(0).uniform(0, 1, size=(100, 16))
-reject_row, adj_row = adjust_pvalues(p_matrix, method='bh', axis=1)
-```
-
-### Global P-value Combination
-
-#### 1) One global p-value from a vector
-
-```python
-import numpy as np
-from statgpu import combine_pvalues
-
-p = np.array([0.01, 0.07, 0.03, 0.40])
-stat, p_global = combine_pvalues(p, method="fisher", backend="numpy")
-```
-
-#### 2) Row-wise combination (`axis=1`)
-
-```python
-import numpy as np
-from statgpu import combine_pvalues
-
-p_matrix = np.random.default_rng(0).uniform(1e-8, 1 - 1e-8, size=(100, 16))
-stat_row, p_row = combine_pvalues(p_matrix, method="fisher", axis=1)
-```
-
-#### 3) Weighted Cauchy / ACAT
-
-```python
-import numpy as np
-from statgpu import combine_pvalues
-
-p = np.array([0.04, 0.15, 0.20, 0.01])
-w = np.array([1.0, 1.0, 0.5, 2.0])
-
-stat_c, p_c = combine_pvalues(p, method="cauchy", weights=w)
-stat_a, p_a = combine_pvalues(p, method="acat", weights=w)  # alias
-```
-
-#### 4) Weighted Stouffer Z-test
-
-```python
-import numpy as np
-from statgpu import combine_pvalues
-
-p = np.array([0.04, 0.15, 0.20, 0.01])
-w = np.array([1.0, 1.0, 0.5, 2.0])
-
-stat_s, p_s = combine_pvalues(p, method='stouffer', weights=w)
-stat_z, p_z = combine_pvalues(p, method='ztest', weights=w)  # alias
-```
-
-#### 5) GPU path with CuPy
-
-```python
-import cupy as cp
-from statgpu import combine_pvalues
-
-p_cp = cp.random.uniform(1e-8, 1 - 1e-8, size=(4000, 64), dtype=cp.float64)
-stat_cp, p_cp_out = combine_pvalues(p_cp, method="fisher", axis=1, backend="cupy")
-```
-
-#### 6) GPU path with Torch
-
-```python
-import torch
-from statgpu import combine_pvalues, adjust_pvalues
-
-p_torch = torch.rand(5000, 64, dtype=torch.float64, device='cuda')
-reject, adj = adjust_pvalues(p_torch, method='bh', backend='torch')
-stat, p_global = combine_pvalues(p_torch, method='stouffer', axis=1, backend='torch')
-```
-
-## Large-Scale Performance (p=50k-1M, Tesla P100)
-
-Benchmark script: `dev/benchmarks/_bench_inference_timing_large.py`
-
-### adjust_pvalues BH (sort + cummin, O(n log n))
-
-| p | NumPy | CuPy | Torch | CuPy vs CPU |
-|---|------:|-----:|------:|-----------:|
-| 50,000 | 33.3 ms | 1.75 ms | 114 ms | 19.0x |
-| 100,000 | 69.7 ms | 3.49 ms | 232 ms | 20.0x |
-| 500,000 | 374 ms | 28.5 ms | 1.01 s | 13.1x |
-| 1,000,000 | 799 ms | 76.7 ms | 1.96 s | **10.4x** |
-
-CuPy excels at sort-heavy operations (adjust family).
-
-### combine_pvalues Stouffer (norm.ppf + sum, O(n) compute-bound)
-
-| p | NumPy | CuPy | Torch | Torch vs CPU |
-|---|------:|-----:|------:|-----------:|
-| 50,000 | 2.01 ms | 1.47 ms | 0.51 ms | 3.9x |
-| 100,000 | 3.88 ms | 2.93 ms | 0.65 ms | 6.0x |
-| 500,000 | 17.8 ms | 17.6 ms | 1.67 ms | 10.7x |
-| 1,000,000 | 36.8 ms | 34.0 ms | 3.09 ms | **11.9x** |
-
-Torch excels at compute-bound operations (norm.ppf).
-
-### combine_pvalues Fisher (sum+log, O(n) bandwidth-bound)
-
-| p | NumPy | CuPy | Torch | Torch vs CPU |
-|---|------:|-----:|------:|-----------:|
-| 1,000,000 | 5.43 ms | 6.93 ms | 2.04 ms | **2.7x** |
-
-Bandwidth-bound operations (sum+log) see modest GPU speedup (~2-3x).
-
-### combine_pvalues Cauchy (tan + sum, O(n) compute-bound)
-
-| p | NumPy | CuPy | Torch | Torch vs CPU |
-|---|------:|-----:|------:|-----------:|
-| 1,000,000 | 49.5 ms | 42.6 ms | 11.2 ms | **4.4x** |
-
-### GPU Speedup Summary
-
-- **p < 10,000**: GPU kernel launch overhead (>300 us) dominates; CPU may be faster
-- **p > 50,000**: GPU advantage becomes clear
-- **Sort-heavy** (adjust BH): CuPy best at 10x+
-- **Compute-bound** (Stouffer norm.ppf): Torch best at 12x
-- **Bandwidth-bound** (Fisher sum+log): modest GPU speedup at 2-3x
-- **Mixed** (Cauchy tan+sum): moderate GPU speedup at 4-5x
-
-## Benchmark Interpretation Notes (old, p=4000x64)
-
-Remote supplement artifact:
-- JSON: `results/remote_fisher_cauchy_benchmark_2026-04-05.json`
-- Summary: `results/remote_fisher_cauchy_benchmark_2026-04-05.md`
-
-Workload used in that artifact:
-- `n_groups=4000`, `group_size=64`, `axis=1`, `warmup=1`, `repeats=5`
-
-Key runtime means:
-
-| Method | statgpu NumPy (ms) | statgpu CuPy (ms) | SciPy (ms) |
-|---|---:|---:|---:|
-| Fisher | 3.979 | 0.816 | 350.721 |
-| Cauchy | 4.052 | 0.874 | N/A |
-| ACAT alias | 3.971 | N/A | N/A |
-
-How to read these numbers:
-- Fisher: SciPy is much slower than statgpu NumPy on this workload (`~88.15x`).
-- NumPy to CuPy speedup in statgpu is about `~4.88x` (Fisher) and `~4.63x` (Cauchy).
-- Cauchy and ACAT alias are numerically identical in this benchmark (`max abs p-value diff = 0.0`).
-- NumPy/CuPy output differences are at floating-point noise level (about `1e-15` in p-values).
-
-## Reproducibility
-
-Primary local benchmark script:
-- `dev/benchmarks/benchmark_inference_backends.py`
-
-Example run:
-
-```bash
-python dev/benchmarks/benchmark_inference_backends.py --output-tag local_check
-```
-
-Generated output:
-- `results/inference_backend_benchmark_<date>_local_check.json`
+Earlier timing tables are retained in the [developer historical record](../../../dev/references/multiple-testing-historical-benchmarks.md). They do not establish a current speedup or a universal CPU/GPU crossover; measure the actual workload when performance matters.

@@ -163,6 +163,7 @@ No separate approx inference mode is exposed in this API. Robust covariance choi
 - If `converged_` is false, inspect scaling, separation and rank before increasing `max_iter` or loosening `tol`. Do not report p-values as reliable simply because attributes exist.
 - Use HC covariance for an appropriate heteroskedastic/score-robust analysis; HAC additionally depends on observation order and lag selection. Shuffling time-ordered observations changes the meaning of HAC.
 - If `summary()` reports inference unavailable, refit with `compute_inference=True`; prediction and likelihood diagnostics can still be used with inference disabled.
+- `roc_curve`, `roc_auc_score` and `evaluate_classification` require both classes in the evaluation labels. `include_curves=False` only omits curve arrays; the combined evaluator still computes ROC AUC and raises for a one-class subset. Use `classification_table` or `confusion_matrix` for threshold metrics on such a subset.
 - Binary labels must be 0/1; encode other class names first. Missing/nonfinite inputs and mismatched shapes must be corrected before fitting.
 
 ## API reference and validation

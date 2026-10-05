@@ -6,7 +6,7 @@
 
 ## 概览
 
-`MiniBatchNMF` 在稠密的小批量（mini-batch）数据上拟合非负低秩分解。支持 Frobenius 损失和乘性更新（MU-style update）的小批量算法，覆盖 CPU、CuPy/CUDA 与 Torch CUDA。
+`MiniBatchNMF` 在稠密的小批量（mini-batch）数据上拟合非负低秩分解。支持 Frobenius 损失和乘性更新（MU）的小批量算法，覆盖 CPU、CuPy/CUDA 与 Torch CUDA。
 
 ## 何时使用
 
@@ -65,6 +65,33 @@ print(W.shape, model.components_.shape, np.linalg.norm(X - X_hat))
 
 安装了相应 GPU 后端后，可新建估计器并指定 `device="cuda"`（CuPy）或 `device="torch"`（Torch CUDA）。数组通常留在该后端；输出所在设备及主机端步骤见 [API 参考](api-reference.md#minibatchnmf)。显式请求的 GPU 不可用时会报错。
 
+## 首批中全零特征的限制
+
+如果某个特征在首次 `partial_fit` 的整个批次中都为零，字典中对应的整列可能被更新为零。当前乘性更新无法用后续正值重新激活这一列。首批全部为零时，整个字典都可能锁定在零；增大 `max_iter` 或调整 `tol` 不能修复这种状态。
+
+初始化前应缓冲一批有代表性的数据，使预计会出现正值的每个特征都得到覆盖。如果后续批次出现了字典全零列无法表示的新特征，应新建估计器，用包含该特征的代表性保留数据重新拟合。不要为了绕过限制而随意给数据加正偏移，这会改变分解问题本身。
+
+下面先合并两个批次再初始化，可避开全零字典列的问题，但不保证已收敛或得到最优分解。
+
+<!-- learner-example: minibatch-nmf-warmup -->
+```python
+import numpy as np
+from statgpu.unsupervised import MiniBatchNMF
+
+first = np.array([[1., 0.], [2., 0.], [3., 0.]])
+second = np.array([[1., 1.], [2., 2.], [3., 3.]])
+warmup = np.vstack([first, second])
+if np.any(np.all(warmup == 0, axis=0)):
+    raise ValueError("Buffer more representative rows before initialization")
+model = MiniBatchNMF(n_components=1, random_state=0, device="cpu")
+model.partial_fit(warmup)
+reconstructed = model.inverse_transform(model.transform(second))
+print("active dictionary columns:", np.any(model.components_ > 0, axis=0))
+print("reconstructed second feature:", reconstructed[:, 1])
+```
+
+此时字典两列均有正值，第二个特征的重构也为正。若不缓冲，而是依次对 `first`、`second` 调用 `partial_fit`，第二个特征的重构会始终为零。数据流发生变化时，应逐特征检查重构效果。
+
 ## 近似与解释边界
 
 `MiniBatchNMF` 是非凸的近似分解方法；`partial_fit` 的结果依赖批次顺序，而普通 `fit` 会汇总一整轮数据的统计量后再更新成分。它面向可扩展的矩阵分解，不提供严格的统计推断。
@@ -83,7 +110,7 @@ print(W.shape, model.components_.shape, np.linalg.norm(X - X_hat))
 不支持。输入必须是稠密且非负的。
 
 **支持坐标下降（CD）求解器或其他 beta 损失吗？**
-不支持。仅支持乘性更新（MU-style update）和 Frobenius 损失。
+不支持。仅支持乘性更新（MU）和 Frobenius 损失。
 
 
 ## 完整 API 参考

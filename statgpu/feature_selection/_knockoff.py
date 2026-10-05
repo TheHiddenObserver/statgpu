@@ -271,7 +271,7 @@ def fixed_x_knockoff_filter(
     lasso_fast_profile: str = "off",
 ) -> KnockoffResult:
     """
-    Fixed-X knockoff selection skeleton.
+    Fixed-X knockoff feature selection.
 
     Parameters
     ----------
@@ -290,11 +290,32 @@ def fixed_x_knockoff_filter(
     backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
         Compute backend. ``'auto'`` infers from input arrays.
         Use ``'torch'`` for PyTorch GPU acceleration.
+    Xk : array-like of shape (n_samples, n_features), optional
+        Supplied knockoff matrix; bypasses construction. The caller must ensure
+        matched-design validity, not merely the same shape as X.
+    compat_mode : {'statgpu', 'knockpy'}, default='statgpu'
+        Construction/statistic conventions; does not certify package parity.
+    lasso_cv_impl : {'auto', 'statgpu', 'sklearn'}, default='auto'
+        Lasso-statistic implementation. Auto requests sklearn in knockpy mode
+        and statgpu otherwise. A sklearn import failure or Torch statistic
+        computation can switch to statgpu without updating the metadata label.
+    lasso_fast_profile : {'off', 'auto', 'moderate', 'aggressive'}, default='off'
+        Computational profile for the Lasso statistic.
 
     Returns
     -------
     KnockoffResult
         Selected feature indices and full knockoff diagnostics.
+
+    Notes
+    -----
+    Seeded ``lasso_coef_diff`` calls can reuse stale statistics if X, y, or Xk
+    changes in place or previous array memory is reused. A new selector does not
+    isolate this cache. Use a fresh Python process for each changed-data call,
+    or, with supplied float64 NumPy X/y/Xk, fresh copies while retaining every old
+    input unchanged. ``random_state=None`` disables seeded reuse but does not
+    provide seed-based repeatability. The feature-selection API reference gives
+    a complete safe-copy example and statistical limitations.
     """
     check_finite(X, name="X")
     check_finite(y, name="y")
@@ -399,6 +420,10 @@ def model_x_knockoff_filter(
 
     This implementation estimates a Gaussian feature model and builds
     equi-correlated knockoffs from the estimated covariance.
+
+    Seeded ``lasso_coef_diff`` has the same input-mutation/cache limitation as
+    ``fixed_x_knockoff_filter``. Isolate changed-data calls in fresh Python
+    processes; a new selector alone does not isolate cached statistics.
     """
     check_finite(X, name="X")
     check_finite(y, name="y")
@@ -713,7 +738,12 @@ def knockoff_filter(
     knockpy_sampler: Optional[str] = None,
     knockpy_sampler_method: Optional[str] = None,
 ) -> KnockoffResult:
-    """Unified knockoff entrypoint for fixed-X and model-X variants."""
+    """Unified knockoff entrypoint for fixed-X and model-X variants.
+
+    Seeded ``lasso_coef_diff`` can reuse stale statistics after input mutation
+    or memory reuse. See ``fixed_x_knockoff_filter`` and the feature-selection
+    API reference for process-isolation and retained-input-copy workarounds.
+    """
     kind = _normalize_knockoff_type(knockoff_type)
     if kind == "fixed_x":
         return fixed_x_knockoff_filter(
@@ -786,7 +816,13 @@ class _KnockoffSelectorContract:
 
 
 class KnockoffSelector(_KnockoffSelectorContract):
-    """Sklearn-like wrapper for unified knockoff feature selection."""
+    """Sklearn-like wrapper for unified knockoff feature selection.
+
+    ``fit`` returns self; inspect ``result_`` and ``selected_features_``.
+    Seeded ``lasso_coef_diff`` can reuse stale statistics across new instances
+    after input mutation or memory reuse. See ``fixed_x_knockoff_filter`` and
+    the feature-selection API reference for safe repeated-call workflows.
+    """
 
     def __init__(
         self,
@@ -933,7 +969,12 @@ class KnockoffSelector(_KnockoffSelectorContract):
 
 
 class FixedXKnockoffSelector(_KnockoffSelectorContract):
-    """Sklearn-like wrapper for fixed-X knockoff feature selection."""
+    """Sklearn-like wrapper for fixed-X knockoff feature selection.
+
+    ``fit`` returns self; inspect ``result_`` and ``selected_features_``.
+    A fresh selector does not prevent seeded ``lasso_coef_diff`` cache reuse
+    after input mutation. See ``fixed_x_knockoff_filter`` for safe repeated calls.
+    """
 
     def __init__(
         self,

@@ -59,7 +59,7 @@ model.bootstrap_statistic(
 | `*arrays` | One or more nonempty arrays with the same first-axis length. Pass `data`, not `(data,)`, for one array. If omitted, the method tries cached `_X_design` and `_y`; unavailable caches raise. A cached design can contain an intercept, formula columns, or square-root-weighted rows. Its response cache need not have the same weight transformation. Pass explicit arrays and weights when defining a weighted statistic; caches are not a guarantee of valid raw training pairs. |
 | `n_resamples=200` | Positive integer number of resamples. More draws reduce Monte Carlo variability, not model bias. |
 | `strategy="iid"` | `iid`: sample rows with replacement; `stratified`: resample within each stratum; `cluster`: resample whole clusters when all clusters have equal size (see limitation below); `block`: sample contiguous blocks. Aligned arrays use the same resampled row indices. |
-| `strata=None`, `clusters=None` | Length-n labels, required by `stratified` or `cluster`, respectively. |
+| `strata=None`, `clusters=None` | One nonmissing label per row, required by `stratified` or `cluster`, respectively. Validate labels before calling; NaN labels currently can leave incomplete resamples rather than raising clearly. |
 | `block_size=None` | Positive integer required by `block`; values above n are capped at n. Preserve meaningful row order. |
 | `confidence_level=0.95` | Level in `(0, 1)` for percentile intervals. |
 | `random_state=None` | Integer seed or no fixed seed. Reproducibility is scoped to the backend and procedure, not identical draws across all libraries. |
@@ -69,6 +69,8 @@ model.bootstrap_statistic(
 Returns `BootstrapResult`: `observed` (the original scalar), `samples` (length `n_resamples`, backend array), `confidence_interval` (lower/upper pair), `confidence_level`, `n_resamples`, `random_state`, `statistic_name`, `strategy`, and `metadata`. `to_dict()` converts samples to a list; `to_dataframe()` requires pandas and returns `sample_index`/`statistic` columns. The original statistic is named `observed`, not `statistic`.
 
 **Unequal-size cluster limitation.** The current `cluster` implementation stops after collecting at least n rows and truncates the final sampled cluster to n. It can split a cluster and does not implement a valid whole-cluster bootstrap for unequal group sizes. Do not use its intervals for that setting. Use a separately validated whole-cluster resampler that preserves complete groups, or use this helper only when the groups genuinely have equal size; discarding or padding observations just to equalize groups changes the problem.
+
+For a runnable numeric-label validator and the missing-label limitation, see [label validation](../guides/inference-api.md#validate-resampling-labels-before-calling). Do not put unrelated missing group identities into an artificial common group.
 
 The bootstrap interval is the empirical quantile pair at `(1-confidence_level)/2` and `(1+confidence_level)/2`. Exchangeability/resampling-unit assumptions remain the caller's responsibility. Callbacks may also be probed with a leading batch dimension before scalar fallback; avoid side effects and handle the intended axes explicitly if returning batched values. This generic helper is not the residual coefficient-bootstrap inference mode of ElasticNet.
 
@@ -82,9 +84,9 @@ model.permutation_test(
 )
 ```
 
-`statistic(X, y)` must return a finite scalar. `X` and one-dimensional `y` must have the same nonzero row count. `X` stays fixed and response labels are permuted: `iid` globally, `stratified` within length-n `strata`, or `grouped` within length-n `groups`. Grouped permutation is **within groups**, not exchange of entire groups. `n_resamples` is a positive integer; `alternative` is `"two-sided"`, `"greater"`, or `"less"`. Seed, reporting label, and backend follow the bootstrap conventions.
+`statistic(X, y)` must return a finite scalar. `X` and one-dimensional `y` must have the same nonzero row count. `X` stays fixed and response labels are permuted: `iid` globally, `stratified` within length-n `strata`, or `grouped` within length-n `groups`. Grouped permutation is **within groups**, not exchange of entire groups. `n_resamples` is a positive integer; `alternative` is `"two-sided"`, `"greater"`, or `"less"`. Seed, reporting label, backend, and nonmissing-label validation follow the bootstrap conventions.
 
-Returns `PermutationTestResult`: `observed`, backend `samples` of length `n_resamples`, `pvalue`, `n_resamples`, `random_state`, `statistic_name`, `strategy`, `alternative`, and `metadata`. `to_dict()` and `to_dataframe()` follow the bootstrap conventions. The Monte Carlo tail probability uses a plus-one correction; two-sided comparison uses absolute statistic values. Use a null hypothesis under which the requested response permutations are exchangeable.
+Returns `PermutationTestResult`: `observed`, backend `samples` of length `n_resamples`, `pvalue`, `n_resamples`, `random_state`, `statistic_name`, `strategy`, `alternative`, and `metadata`. `to_dict()` and `to_dataframe()` follow the bootstrap conventions. The Monte Carlo tail probability uses a plus-one correction; two-sided comparison uses absolute statistic values. Choose a statistic centered at the null reference point zero, with absolute value representing extremeness; this is not an automatically centered or equal-tail test. Use a null hypothesis under which the requested response permutations are exchangeable.
 
 ## Runnable helper example
 

@@ -1,22 +1,22 @@
 # 无监督学习
 
 > 语言：中文
-> 最后更新：2026-09-29
+> 最后更新：2026-10-05
 > 本页：无监督模型总览
 > 切换：[English](../../en/models/unsupervised.md)
 
 ## 概览
 
-`statgpu.unsupervised` 提供降维、聚类、密度聚类、混合模型、非负矩阵分解、流形嵌入（manifold embedding）和近似最近邻搜索等估计器。API 沿用 `fit`、`transform`、`predict`、`fit_predict` 和 `score` 风格。
+`statgpu.unsupervised` 提供降维、聚类、密度聚类、混合模型、非负矩阵分解、流形嵌入等估计器。UMAP 可在内部使用近似近邻搜索，但该搜索不是单独导出的估计器。各模型按其适用操作提供 `fit`、`transform`、`predict`、`fit_predict` 和 `score` 风格。
 
 ## 模型总览
 
 | 估计器 | 主要用途 | 核心准则 |
 |---|---|---|
 | [PCA](../unsupervised/pca.md) | 线性降维 | 最大化投影方差 / 最小化秩 k 重构误差 |
-| [KMeans](../unsupervised/kmeans.md) | 原型聚类 | 最小化平方欧氏惯性 |
+| [KMeans](../unsupervised/kmeans.md) | 原型聚类 | 最小化簇内平方欧氏距离之和（惯性） |
 | [DBSCAN](../unsupervised/dbscan.md) | 带噪声的密度聚类 | 密度可达性与连通分量 |
-| [GaussianMixture](../unsupervised/gaussian-mixture.md) | 概率软聚类 | 用 EM 最大化 Gaussian mixture 的对数似然 |
+| [GaussianMixture](../unsupervised/gaussian-mixture.md) | 概率软聚类 | 用 EM 最大化高斯混合模型的对数似然 |
 | [NMF](../unsupervised/nmf.md) | 基于部件的非负分解 | 在非负约束下最小化 Frobenius 重构误差 |
 | [AgglomerativeClustering](../unsupervised/agglomerative-clustering.md) | 层次聚类 | 贪心连接合并 |
 | [TruncatedSVD](../unsupervised/truncated-svd.md) | 不中心化低秩投影 | 最小化秩 k 稠密重构误差 |

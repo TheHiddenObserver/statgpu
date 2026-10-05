@@ -12,7 +12,13 @@ from statgpu.unsupervised._utils import backend_random_normal, check_2d_array, r
 
 
 class MiniBatchNMF(BaseEstimator):
-    """Dense mini-batch NMF with multiplicative updates and Frobenius loss."""
+    """Dense mini-batch NMF with multiplicative updates and Frobenius loss.
+
+    A feature that is zero throughout the first ``partial_fit`` batch can
+    permanently zero its dictionary column. Later positive batches cannot
+    revive that column. Buffer representative initialization rows, or restart
+    with representative retained data when previously absent features appear.
+    """
 
     def __init__(
         self,

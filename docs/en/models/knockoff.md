@@ -5,8 +5,6 @@
 > This page: Method documentation  
 > Switch: [Chinese](../../cn/models/knockoff.md)
 
-Language switch: [Chinese](../../cn/models/knockoff.md)
-
 ## Overview
 
 The knockoff module implements feature-selection procedures designed for FDR control under their construction/statistic assumptions, using feature-wise statistics \(W_j\) and data-adaptive thresholds. Two paths are provided: fixed-X knockoff (design treated as fixed) and model-X knockoff (Gaussian second-order construction). A unified `knockoff_filter` entry point switches between them.
@@ -14,6 +12,37 @@ The knockoff module implements feature-selection procedures designed for FDR con
 False discovery rate (FDR) is the expected fraction of selected features that are null, counting an empty selection as zero. It is not the probability that every selected feature is correct. Knockoffs act as matched negative controls: a feature must compete against an artificial counterpart with a similar dependence structure. Use this approach when selection error control is the goal and the construction assumptions are credible; for prediction-focused subset search, compare [stepwise selection](feature-selection.md) and validate on held-out data.
 
 Complete function/selector signatures, all parameters, result fields and a self-contained CPU example are in the [feature-selection API reference](../reference/feature-selection-api.md).
+
+## A complete CPU example
+
+This example uses 240 rows and 12 predictors, satisfying the sample-size
+requirement for generated fixed-X knockoffs. Only the first four predictors
+contribute to the response. Choose q before examining the selection.
+
+<!-- learner-example: knockoff-selection -->
+```python
+import numpy as np
+from statgpu import fixed_x_knockoff_filter
+
+rng = np.random.default_rng(42)
+X = rng.normal(size=(240, 12))
+y = X[:, :4] @ np.array([3.0, -2.5, 2.0, 1.5])
+y += rng.normal(scale=0.5, size=240)
+result = fixed_x_knockoff_filter(
+    X, y, q=0.25, method="corr_diff", random_state=7, backend="numpy",
+)
+print("Selected columns:", result.selected_features.tolist())
+print("Threshold:", round(result.threshold, 3))
+print("Threshold ratio:", round(result.estimated_fdr, 3))
+```
+
+For this seed, the output is `Selected columns: [0, 1, 2, 3]`, threshold
+`21.637`, and threshold ratio `0.25`. Selected indices refer to the original
+columns. Positive W means a feature outscored its knockoff; the threshold ratio
+is the rule's estimate, not the actual fraction of null features in this one
+sample. Other samples can miss signals or select noise. No coefficient or
+prediction model is fitted by this filter. If you subsequently assess prediction,
+perform selection using training rows only and keep evaluation rows untouched.
 
 ## Path
 
@@ -43,7 +72,10 @@ The decision rule follows knockoff thresholding:
 $$
 T = \min \left\{ t\in\{|W_j|:|W_j|>0\} : \frac{1+\#\{j:W_j\le -t\}}{\max(1,\#\{j:W_j\ge t\})}\le q \right\}
 $$
-for knockoff+ (`fdr_control="knockoff_plus"`), with the standard knockoff variant available via `fdr_control="knockoff"`.
+Here q is the requested rate, # counts features, and W is the original-minus-
+knockoff importance statistic. Select all j with W_j ≥ T; if the set defining T
+is empty, select none. For `fdr_control="knockoff"`, replace the numerator's 1
+with 0; its modified-FDR target differs from ordinary FDR.
 
 ### Tied-statistic limitation
 
@@ -139,6 +171,18 @@ res_torch_mx = knockoff_filter(
 - `fdr_control="knockoff"` uses offset 0 and has a different modified-FDR target under the relevant theory; it is not an approximate numerical version of knockoff+.
 - In model-X, additional `modelx_draws` average feature statistics at greater computational cost. Reduced Monte Carlo variation does not establish an FDR theorem for the averaged statistic; an estimated Gaussian feature model also does not guarantee exchangeability for arbitrary feature distributions.
 - `knockpy_sampler` dispatch options are currently guarded; explicitly setting unsupported targets can raise `NotImplementedError` instead of silently falling back.
+
+## Repeated Lasso-statistic calls
+
+With `method="lasso_coef_diff"` and an integer `random_state`, changing X, y,
+or Xk in place can silently reuse earlier statistics. A fresh selector object
+alone does not prevent this. The same risk exists when memory from earlier
+inputs is reused. For repeatable changed-data analyses, run each call in a fresh
+Python process. With supplied float64 NumPy X/y/Xk, another option is to pass
+fresh copies of all three arrays and keep every previous input alive and unchanged for
+the duration of the analysis. Setting `random_state=None` avoids the seeded
+reuse but gives up seed-based repeatability. See the [detailed limitation and
+safe copy example](../reference/feature-selection-api.md#repeated-lasso-statistic-calls).
 
 ## Performance Boundary
 

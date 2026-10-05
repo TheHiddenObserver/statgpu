@@ -805,7 +805,9 @@ class BaseEstimator(ABC):
             use its intervals for that setting. The caller must choose a valid
             resampling unit.
         strata, clusters : array-like, optional
-            Length-n labels required by the corresponding strategy.
+            One nonmissing label per row, required by the selected strategy.
+            Validate before calling: NaN labels can leave uninitialized batch
+            entries rather than raising clearly, producing invalid results.
         block_size : int, optional
             Positive block length; required for block bootstrap, capped at n.
         confidence_level : float, default=0.95
@@ -903,9 +905,13 @@ class BaseEstimator(ABC):
             Permute globally, within strata, or within groups. Grouped does
             not exchange whole groups. Null exchangeability is required.
         strata, groups : array-like, optional
-            Length-n labels required by the corresponding strategy.
+            One nonmissing label per row, required by the selected strategy.
+            Validate before calling: NaN labels can leave uninitialized batch
+            entries rather than raising clearly, producing invalid results.
         alternative : {'two-sided', 'greater', 'less'}, default='two-sided'
-            Tail comparison; two-sided compares absolute statistic values.
+            Tail comparison; two-sided compares absolute statistic values
+            relative to zero. It does not center the statistic or form an
+            equal-tail test for an asymmetric null distribution.
         random_state : int, optional
             Seed scoped to this backend and procedure.
         statistic_name : str, default='statistic'

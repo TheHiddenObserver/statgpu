@@ -162,3 +162,66 @@ def test_public_pca_inverse_transform_rejects_nonfinite_coordinates(nonfinite):
     scores = np.array([[0.0, nonfinite]])
     with pytest.raises(ValueError, match="finite"):
         model.inverse_transform(scores)
+
+
+def _centered_wide_umap_data():
+    data = np.array([[-3., -1.], [0., 2.], [4., -1.], [5., 4.]])
+    return (data - data.mean(axis=0)) * 1e13
+
+
+def _fit_small_exact_umap(data):
+    return unsupervised.UMAP(
+        n_neighbors=3, n_epochs=1, init="random", nn_method="exact",
+        random_state=4, device="cpu",
+    ).fit(data)
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="UMAP's finite diagonal mask admits self-neighbors at large distances",
+)
+def test_exact_umap_keeps_all_distinct_neighbors_at_large_scale():
+    # Four rows and k=3 require all three OTHER rows in every neighborhood.
+    # The current finite diagonal mask admits self-neighbors, which are then
+    # removed from the graph. This oracle must pass after a numerical repair.
+    model = _fit_small_exact_umap(_centered_wide_umap_data())
+    graph = _dense_graph(model)
+    assert np.isfinite(model.embedding_).all()
+    assert np.count_nonzero(graph) == 4 * 3
+
+
+def test_common_training_scale_preserves_umap_distinct_neighbor_graph():
+    data = _centered_wide_umap_data()
+    offset = data.mean(axis=0)
+    centered = data - offset
+    scale = np.max(np.abs(centered))
+    assert np.isfinite(scale) and scale > 0
+    prepared = centered / scale
+    model = _fit_small_exact_umap(prepared)
+    graph = _dense_graph(model)
+    assert np.count_nonzero(graph) == 4 * 3
+    assert np.isfinite(model.embedding_).all()
+    np.testing.assert_array_equal(np.diag(graph), np.zeros(4))
+    reference = _fit_small_exact_umap(centered / 1e13)
+    np.testing.assert_allclose(graph, _dense_graph(reference), rtol=1e-5, atol=1e-6)
+    original_distances = np.sum((data[:, None] - data[None, :]) ** 2, axis=2)
+    prepared_distances = np.sum((prepared[:, None] - prepared[None, :]) ** 2, axis=2)
+    np.testing.assert_allclose(prepared_distances, original_distances / scale ** 2)
+
+
+@pytest.mark.parametrize("language", ("en", "cn"))
+def test_umap_guidance_requires_common_scaling_beyond_centering(language):
+    directory = ROOT / f"docs/{language}/unsupervised"
+    guide = (directory / "umap.md").read_text()
+    reference = (directory / "api-reference.md").read_text()
+    if language == "en":
+        for text in (guide, reference):
+            assert "one common positive" in text
+            assert "neighbor ordering" in text
+        assert "Centering alone does not address this restriction" in guide
+    else:
+        for text in (guide, reference):
+            assert "同一个正尺度" in text
+            assert "欧氏近邻顺序" in text
+        assert "仅中心化不能解决这一限制" in guide
+    assert "self-neighbors" in unsupervised.UMAP.__doc__

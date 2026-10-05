@@ -1402,6 +1402,14 @@ class LogisticRegression(BaseEstimator):
             Probability threshold used for hard predictions.
         include_curves : bool, default=True
             Whether to include full ROC/PR curve arrays in the output.
+            Scalar ROC AUC is computed even when False, so y must contain
+            both classes. Use classification_table or confusion_matrix for
+            threshold metrics on a one-class subset.
+
+        Raises
+        ------
+        ValueError
+            If y has only one class; ROC AUC is undefined for that subset.
 
         Returns
         -------

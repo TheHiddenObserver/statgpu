@@ -1,7 +1,7 @@
 # Penalized GLM Inference
 
 > Language: English  
-> Last updated: 2026-09-17  
+> Last updated: 2026-10-05  
 > This page: statistical targets and supported coefficient-inference behavior  
 > Switch: [Chinese](../../cn/guides/penalized-glm-inference.md)
 
@@ -24,7 +24,7 @@ A successful inference-enabled fit distinguishes the method requested by the cal
 - `penalty_conditioning_`;
 - `penalty_selection_adjusted_`.
 
-These fields help identify what parameter the reported uncertainty refers to, especially after penalization or CV selection.
+Where populated, these fields help identify what parameter the reported uncertainty refers to, especially after penalization or CV selection. The current `post_selection_ols` path leaves these public provenance fields as `None`. Its executed method and selected-set refit details are instead available through `model._inference_result.method` and `model._inference_result.metadata`; `params` holds the refit estimates. Do not interpret the missing public fields as disabled inference. See the [post-selection example](inference-modes.md#post_selection_ols).
 
 ## Support overview
 
@@ -54,13 +54,15 @@ penalty_conditioning_ = "fixed_penalty"
 
 For an unpenalized fit (`alpha=0` or the corresponding no-penalty configuration), the target is the ordinary unpenalized population coefficient.
 
-With score contribution $\psi_i$, average Hessian $H$, L2 curvature $P''$, and average score outer product $J$, the HC0/HC1 covariance has the form
+With score contribution $\psi_i$, average Hessian $H$, L2 curvature $P''$, and average score outer product $J$, the HC0 covariance is
 
 $$
 \widehat{\mathrm{Var}}(\hat\beta)
 =
 (H+P'')^{-1}J(H+P'')^{-1}/n.
 $$
+
+For HC1, multiply this covariance by $n/(n-k)$ when $n>k$, where $n$ is the observation count and $k$ counts fitted parameters, including the intercept when present. This is a finite-sample multiplier, not a correction for penalty selection. The current implementation omits that multiplier when $n\le k$; do not interpret such a result as a valid HC1 degrees-of-freedom correction. With analytic weights, this multiplier still uses the row count rather than the sum of weights.
 
 `cov_type="nonrobust"` uses model-based penalized-information covariance.
 
@@ -170,6 +172,8 @@ The Cox branch remains estimation-only.
 See [Cross-Validation](cross-validation.md) for the general selection/refit contract.
 
 ## Example
+
+This interface sketch assumes a finite design matrix `X`, a matching vector of nonnegative integer counts `y`, and finite nonnegative analytic weights `w` with positive total weight.
 
 ```python
 from statgpu.linear_model import PenalizedPoissonRegression

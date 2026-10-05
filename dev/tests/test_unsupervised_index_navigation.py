@@ -117,3 +117,22 @@ def test_index_discloses_dbscan_runtime_neighbor_dependency(language, monkeypatc
     assert '`NearestNeighbors`' in text and 'scikit-learn' in text
     assert 'External packages serve as validation or benchmark references;' not in text
     assert '这些外部软件包仅作为验证或基准测试的对照' not in text
+
+
+@pytest.mark.parametrize('language', ('en', 'cn'))
+def test_model_overview_distinguishes_internal_neighbor_search_from_exports(language):
+    from statgpu import unsupervised
+
+    text = (_ROOT / f'docs/{language}/models/unsupervised.md').read_text(encoding='utf-8')
+    assert set(unsupervised.__all__) == set(_ESTIMATORS)
+    overview = text.split('## ')[1]
+    if language == 'en':
+        assert 'not a separately exported estimator' in overview
+        assert 'manifold embedding, and approximate nearest neighbor search' not in overview
+    else:
+        assert '不是单独导出的估计器' in overview
+        assert '和近似最近邻搜索等估计器' not in overview
+        assert 'Gaussian mixture' not in text
+        assert '簇内平方欧氏距离之和' in text
+    assert 'NNDescent' in text
+    assert '../unsupervised/api-reference.md' in text

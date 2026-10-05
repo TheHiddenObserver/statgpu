@@ -1,7 +1,7 @@
 # Inference Modes
 
 > Language: English  
-> Last updated: 2026-09-17  
+> Last updated: 2026-10-05  
 > This page: choosing and interpreting coefficient-inference methods  
 > Switch: [Chinese](../../cn/guides/inference-modes.md)
 
@@ -76,7 +76,7 @@ For Gaussian `Lasso`, `ElasticNet`, and equivalent squared-error L1/ElasticNet p
 
 ### `debiased`
 
-De-biased/de-sparsified inference corrects the first-order regularization bias by estimating an approximate inverse design precision matrix and applying a one-step correction.
+De-biased/de-sparsified inference corrects the first-order regularization bias by estimating an approximate inverse of the design Gram/covariance matrix, that is, a precision matrix, and applying a one-step correction.
 
 This is the appropriate coefficient-inference mode when you need high-dimensional marginal inference and its assumptions are reasonable for the application. Node-wise precision tuning is controlled separately from the main model penalty; see [Node-wise Lasso inference tuning migration](nodewise-alpha-migration.md).
 
@@ -96,20 +96,33 @@ This distinction is important:
 
 Use this mode as a post-selection diagnostic or conditional refit, not as an automatic correction for variable-selection uncertainty.
 
+<!-- inference-example: post-selection -->
 ```python
+import numpy as np
 from statgpu.linear_model import Lasso
 
+rng = np.random.default_rng(7)
+X = rng.standard_normal((80, 3))
+y = 1.0 + X @ np.array([1.5, 0.0, -0.8]) + rng.normal(scale=0.4, size=80)
 model = Lasso(
     alpha=0.1,
     solver="fista",
     compute_inference=True,
     inference_method="post_selection_ols",
+    device="cpu",
 )
 model.fit(X, y)
 
 # Prediction parameters remain the penalized fit.
 prediction_coef = model.coef_
+print(model._inference_result.method, prediction_coef.shape)
 ```
+
+This prints `post_selection_ols (3,)`. The inference result's `params` and
+`conf_int` include the intercept and active-set refit; prediction still uses
+`coef_` and `intercept_`. Inactive variables have placeholder zeros and p-values
+of one in that result, not zero-width intervals proving their population
+coefficients are zero.
 
 The historical `cpu_ols` and `gpu_ols` spellings are deprecated compatibility aliases for `post_selection_ols`; they do not choose the execution device.
 
@@ -167,7 +180,13 @@ For ordinary unpenalized models, fitted coefficients and inference coefficients 
 - `debiased` reports bias-corrected inferential parameters while prediction remains penalized;
 - `bootstrap` describes repeated penalized refits under the fixed tuning configuration.
 
-Do not infer the target solely from the shape of a coefficient table. Use `inference_method_`, `inference_target_`, and the relevant model documentation when the distinction matters.
+Do not infer the target solely from the shape of a coefficient table. Where
+populated, `inference_method_` and `inference_target_` describe the resolved
+procedure and target. The current `post_selection_ols` path leaves those fitted
+attributes as `None`; inspect `model._inference_result.method` and its metadata
+for the executed method, selected feature indices, and refit details. A missing
+public provenance field does not mean inference was disabled. Use the relevant
+model documentation to interpret the target.
 
 ## Choosing a method
 

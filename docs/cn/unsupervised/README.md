@@ -20,7 +20,7 @@
 | 是否需要按局部密度形成组，并标出可能的噪声点？ | [DBSCAN](dbscan.md) | 邻域尺度、最低密度与噪声标记；特征单位会影响欧氏距离 |
 | 是否需要层次结构，而不只是一次固定分组？ | [AgglomerativeClustering](agglomerative-clustering.md) | 合并结构和连接方式，以及不同切分层级如何改变分组 |
 | 是否主要想把邻域关系画在低维空间？ | [UMAP](umap.md) 或 [TSNE](tsne.md) | 不同随机种子和参数下的稳定性；图上分离本身不能证明总体存在不同类别 |
-| 是否需要分批处理数据？ | [IncrementalPCA](incremental-pca.md)、[MiniBatchKMeans](minibatch-kmeans.md) 或 [MiniBatchNMF](minibatch-nmf.md) | 对应模型的批量大小、初始化和 `partial_fit` 要求 |
+| 是否需要分批处理数据？ | [IncrementalPCA](incremental-pca.md)、[MiniBatchKMeans](minibatch-kmeans.md) 或 [MiniBatchNMF](minibatch-nmf.md) | 对应模型的批量大小、初始化和 `partial_fit` 要求，包括 MiniBatchNMF 首批全零特征的限制 |
 
 这些实现面向稠密输入。特别是，当前 TruncatedSVD 不是稀疏文本处理流程。UMAP 提供 `nn_method="exact"` 和 `"nndescent"`（近似）近邻搜索，`"auto"` 始终选择精确搜索，但图组装仍在主机端使用 SciPy。TSNE 使用精确的稠密距离计算。这两种可视化估计器均不支持对新数据调用 `transform`。用于大数据集前，先阅读对应模型的限制。
 

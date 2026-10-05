@@ -5,17 +5,43 @@
 > 页面定位: 方法文档  
 > 切换: [English](../../en/models/knockoff.md)
 
-语言切换：[English](../../en/models/knockoff.md)
+## 概览
 
-## 概览（Overview）
-
-Knockoff 方法以特征选择的 FDR 控制为目标，有效性依赖构造与统计量的假设，并受下文统计量并列问题限制。当前实现包含 `fixed_x` 与 `model_x` 两条路径，统一入口为 `knockoff_filter`。`fixed_x` 通常要求 `n >= 2p`；`model_x` 基于高斯二阶近似（协方差估计 + S-matrix），支持多次抽样聚合 W 统计量。
+Knockoff 方法以特征选择的 FDR 控制为目标，有效性依赖构造与统计量的假设，并受下文统计量并列问题限制。当前实现包含 `fixed_x` 与 `model_x` 两条路径，统一入口为 `knockoff_filter`。`fixed_x` 通常要求 `n >= 2p`；`model_x` 基于高斯二阶近似（协方差估计 + S 矩阵），支持多次抽样聚合 W 统计量。
 
 全部函数/选择器签名、参数、结果字段与独立可运行的 CPU 示例见[特征选择 API 参考](../reference/feature-selection-api.md)。
 
 错误发现率（FDR）是所选特征中实际无效特征比例的期望值，未选中任何特征时该比例按零计；它不是“所有所选特征都正确”的概率。Knockoff 可以理解为匹配的负对照：每个原特征都要与一个依赖结构相似的人造对应变量竞争。若目标是控制选择错误，且构造假设可信，可以考虑本方法；若主要关注预测，可比较[逐步选择](feature-selection.md)，并用留出数据评价。
 
-## 路径（Path）
+## 完整的 CPU 示例
+
+下面使用 240 行、12 个预测变量，满足生成 fixed-X knockoff 的样本量要求。
+只有前四列影响响应。应在查看选择结果之前确定 q。
+
+<!-- learner-example: knockoff-selection -->
+```python
+import numpy as np
+from statgpu import fixed_x_knockoff_filter
+
+rng = np.random.default_rng(42)
+X = rng.normal(size=(240, 12))
+y = X[:, :4] @ np.array([3.0, -2.5, 2.0, 1.5])
+y += rng.normal(scale=0.5, size=240)
+result = fixed_x_knockoff_filter(
+    X, y, q=0.25, method="corr_diff", random_state=7, backend="numpy",
+)
+print("Selected columns:", result.selected_features.tolist())
+print("Threshold:", round(result.threshold, 3))
+print("Threshold ratio:", round(result.estimated_fdr, 3))
+```
+
+该种子下，输出为 `Selected columns: [0, 1, 2, 3]`，阈值 `21.637`，
+阈值计数比 `0.25`。入选索引对应原始列；正 W 表示原特征的重要性超过其 knockoff。
+阈值计数比是规则给出的估计值，不是这一次样本中实际无效特征的比例。
+其他样本可能遗漏信号或选中噪声。过滤函数不拟合系数或预测模型；若随后评价预测，
+只能使用训练行进行选择，并将评价数据单独保留。
+
+## 路径
 
 主路径：
 - `statgpu.feature_selection.knockoff_filter`
@@ -31,11 +57,11 @@ Knockoff 方法以特征选择的 FDR 控制为目标，有效性依赖构造与
 - `statgpu.KnockoffSelector`
 - `statgpu.FixedXKnockoffSelector`
 
-## 目标函数（Objective Function）
+## 目标函数
 
 统计目标是在给定 FDR 水平 `q` 下，通过 knockoff 统计量 `W` 与阈值规则（`knockoff_plus` 或 `knockoff`）选择特征集合。达到该目标仍需满足相关假设，并避开下文说明的并列计数限制。
 
-## 估计方程（Estimating Equation）
+## 估计方程
 
 构造 knockoff 特征并计算反对称特征统计量 $W_j$ 后，knockoff+ 使用阈值
 
@@ -52,15 +78,15 @@ q 为目标 FDR，$\#\{\cdot\}$ 表示计数；没有合格阈值时选择为空
 
 上式是理论 knockoff+ 阈值规则。当前实现遇到绝对统计量并列时可能与该规则不一致：先评估并列组中的部分累计计数，再选择整个阈值组。W=[8,8,-8]、q=0.5 时，可能报告阈值 8、estimated_fdr=0.5，但完整阈值计数比为 (1+1)/2=1，理论规则应不选择任何特征。阈值出现并列时，不能把当前输出解释为满足名义 knockoff+ FDR 控制。偏移为 0 的 `knockoff` 也受同一计数限制影响。重新拟合系数、增加抽样次数或更换设备都不能修复它。
 
-## 协方差与推断（Covariance/Inference）
+## 协方差与推断
 
 Knockoff 为选择推断框架，不采用回归模型中的 `cov_type` 协方差配置。其统计保证依赖 knockoff 构造假设与阈值规则。
 
 `compat_mode` 支持：
 - `statgpu`：默认实现
-- `knockpy`：兼容路径（部分 sampler 分发入口仍为占位）。可选包缺失或 S 矩阵求解报错时，可能改用样本协方差或等相关 S 矩阵。应检查 `metadata["modelx_covariance_estimator"]` 与 `metadata["modelx_smatrix_source"]`，不能仅凭请求名称判断执行方法，详见[兼容模式参考](../reference/feature-selection-api.md)。
+- `knockpy`：兼容路径（部分采样器分发入口仍为占位）。可选包缺失或 S 矩阵求解报错时，可能改用样本协方差或等相关 S 矩阵。应检查 `metadata["modelx_covariance_estimator"]` 与 `metadata["modelx_smatrix_source"]`，不能仅凭请求名称判断执行方法，详见[兼容模式参考](../reference/feature-selection-api.md)。
 
-## 参数（Parameters）
+## 参数
 
 统一入口 `knockoff_filter` 关键参数如下：
 
@@ -75,7 +101,7 @@ Knockoff 为选择推断框架，不采用回归模型中的 `cov_type` 协方�
 | `Xk` | `None` | 外部提供 knockoff 设计矩阵，形状需与 `X` 相同 |
 | `compat_mode` | `statgpu` | `statgpu` 或 `knockpy` |
 | `lasso_cv_impl` | `auto` | `auto` / `statgpu` / `sklearn` |
-| `lasso_fast_profile` | `off` | lasso 快速配置开关 |
+| `lasso_fast_profile` | `off` | Lasso 快速配置 |
 | `modelx_covariance_shrinkage` | `0.20` | model-X 协方差收缩系数 |
 | `modelx_s_scale` | `0.999` | model-X `S` 缩放系数 |
 | `modelx_draws` | `None` | model-X 抽样次数 |
@@ -84,11 +110,20 @@ Knockoff 为选择推断框架，不采用回归模型中的 `cov_type` 协方�
 | `knockpy_sampler` | `None` | 可选分发入口 |
 | `knockpy_sampler_method` | `None` | `sampler=gaussian` 时子方法 |
 
+## 重复计算 Lasso 统计量
+
+使用 `method="lasso_coef_diff"` 且 `random_state` 为整数时，原地修改 X、y
+或 Xk 可能在没有提示的情况下复用旧统计量。仅新建选择器不能避免这个问题；
+旧输入占用的内存被再次使用时也有相同风险。需要对变化后的数据进行可重复分析时，
+每次调用应在新的 Python 进程中执行。若提供的 X/y/Xk 均为 float64 NumPy 数组，也可为三个输入都创建新副本，
+并在整个分析过程中保留所有旧输入数组且不修改它们。`random_state=None` 可避开
+这种按种子复用的行为，但不再具有固定种子的可重复性。详见[限制与安全复制示例](../reference/feature-selection-api.md#repeated-lasso-statistic-calls)。
+
 ## 性能与统计边界
 
 运行时间取决于样本量、特征数、统计量、抽样次数及数据传输。不存在对所有问题通用的 GPU 提速倍数。高斯二阶 model-X 的有效性依赖特征分布与构造假设，不能保证任意数据上的分布无关 FDR 控制。
 
-## CPU+GPU 示例（CPU+GPU Examples）
+## CPU/GPU 示例
 
 以下可选 GPU 示例使用[独立 CPU 示例](../reference/feature-selection-api.md#runnable-fixed-x-example)生成的 X/y；CuPy/Torch 需要已安装且可用的 GPU 后端。
 
@@ -140,7 +175,7 @@ res_torch_mx = knockoff_filter(
 
 ## 严格与近似模式的差别
 
-本模块不使用 `strict/approx` 推断口径开关。性能与精度权衡主要体现在 `fixed_x`/`model_x` 选择、`modelx_draws`（必须为正整数）次数和后端（`numpy`/`cupy`）选择上。
+本模块不使用 `strict/approx` 推断口径开关。`fixed_x` 与 `model_x` 采用不同的设计或特征分布假设，应根据统计问题选择，不能把两者当作速度或数值精度档位。`modelx_draws`（必须为正整数）影响计算量与蒙特卡洛波动；后端 `numpy`、`cupy`、`torch` 决定执行位置，均不替代构造假设或阈值规则。
 
 ## 输出（Outputs）
 

@@ -65,6 +65,33 @@ The factors are `(60, 2)` and `(2, 5)`. After `partial_fit`, `reconstruction_err
 
 For a supported GPU installation, construct a new estimator with `device="cuda"` (CuPy) or `device="torch"` (Torch CUDA). Arrays generally stay on that backend; see the [API reference](api-reference.md#minibatchnmf) for output ownership and host-side work. An unavailable explicit GPU raises an error.
 
+## Initial batches with zero features
+
+A feature that is zero throughout the first `partial_fit` batch can set its entire dictionary column to zero. Later positive values cannot revive that column under the current multiplicative updates. An all-zero first batch can lock the whole dictionary at zero; changing `max_iter` or `tol` does not repair this state.
+
+Start with a representative buffered batch containing positive observations for every feature you expect to become active. If a later batch contains positive values for a zero dictionary column, create a new estimator and refit representative retained data that include that feature. Do not add arbitrary positive offsets just to bypass this limitation: that changes the factorization problem.
+
+The following small example buffers two batches before initialization. This avoids the zero-column trap, but does not guarantee convergence or an optimal factorization.
+
+<!-- learner-example: minibatch-nmf-warmup -->
+```python
+import numpy as np
+from statgpu.unsupervised import MiniBatchNMF
+
+first = np.array([[1., 0.], [2., 0.], [3., 0.]])
+second = np.array([[1., 1.], [2., 2.], [3., 3.]])
+warmup = np.vstack([first, second])
+if np.any(np.all(warmup == 0, axis=0)):
+    raise ValueError("Buffer more representative rows before initialization")
+model = MiniBatchNMF(n_components=1, random_state=0, device="cpu")
+model.partial_fit(warmup)
+reconstructed = model.inverse_transform(model.transform(second))
+print("active dictionary columns:", np.any(model.components_ > 0, axis=0))
+print("reconstructed second feature:", reconstructed[:, 1])
+```
+
+Both dictionary columns are active, and the reconstructed second feature is positive. Without buffering, fitting `first` then `second` leaves that reconstructed feature identically zero. Always inspect reconstruction feature by feature when the data stream changes.
+
 ## Approximation and interpretation
 
 MiniBatchNMF is non-convex; incremental `partial_fit` updates depend on batch order. Ordinary `fit` aggregates statistics over an epoch before updating components. It is intended for scalable approximate factorization, not strict statistical inference.

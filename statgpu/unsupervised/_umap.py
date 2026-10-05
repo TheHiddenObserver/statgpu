@@ -36,6 +36,9 @@ class UMAP(BaseEstimator):
       seeded initialization matters.
     - Float32 neighbor distances can lose small separations at large common
       feature offsets; center in float64 before fitting.
+    - Very large distances can make exact search select self-neighbors that
+      are later removed. After centering, divide all features by one common
+      positive training-derived scale to obtain moderate coordinates.
     - NumPy 2 CPU NNDescent and CPU one-dimensional layouts currently fail;
       NumPy 2 CPU negative sampling can also use Torch CPU when installed.
     - Force updates approximate a layout, not the exact reference gradient.

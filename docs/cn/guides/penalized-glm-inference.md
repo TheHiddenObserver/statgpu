@@ -1,13 +1,13 @@
 # 惩罚 GLM 推断
 
 > 语言：中文  
-> 最后更新：2026-09-29  
+> 最后更新：2026-10-05  
 > 页面定位：系数推断的统计目标与公开支持行为  
 > 切换：[English](../../en/guides/penalized-glm-inference.md)
 
 ## 这个接口表达什么
 
-`PenalizedGeneralizedLinearModel` 与各类带类型的惩罚 GLM 封装器通过 `compute_inference`、`inference_method` 和 `cov_type` 提供系数推断。
+`PenalizedGeneralizedLinearModel` 与各类具体的惩罚 GLM 估计器通过 `compute_inference`、`inference_method` 和 `cov_type` 提供系数推断。
 
 对于通用接口，通常可以先从
 
@@ -26,7 +26,9 @@ inference_method="auto"
 - `penalty_conditioning_`；
 - `penalty_selection_adjusted_`。
 
-这些字段用于说明报告的不确定性究竟对应哪个统计参数，尤其适用于带惩罚拟合或经过 CV 选择之后的结果。
+这些字段在有值时用于说明报告的不确定性究竟对应哪个统计参数，尤其适用于带惩罚拟合或经过 CV 选择之后的结果。
+
+当前 `post_selection_ols` 会把上述公开推断信息字段保留为 `None`；实际方法和所选活跃集的重拟合信息应查看 `model._inference_result.method` 与 `model._inference_result.metadata`，`params` 保存重拟合估计值。公开字段为空并不表示未执行推断。可运行示例见[选择后 OLS](inference-modes.md#post_selection_ols)。
 
 ## 支持概览
 
@@ -56,13 +58,15 @@ penalty_conditioning_ = "fixed_penalty"
 
 无惩罚拟合（`alpha=0` 或对应的无惩罚配置）的推断目标是普通的无惩罚总体参数。
 
-记单个观测的得分贡献为 $\psi_i$，平均 Hessian 为 $H$，L2 曲率为 $P''$，平均得分外积为 $J$，则 HC0/HC1 协方差具有形式
+记单个观测的得分贡献为 $\psi_i$，平均 Hessian 为 $H$，L2 曲率为 $P''$，平均得分外积为 $J$，则 HC0 协方差为
 
 $$
 \widehat{\mathrm{Var}}(\hat\beta)
 =
 (H+P'')^{-1}J(H+P'')^{-1}/n.
 $$
+
+HC1 在 $n>k$ 时还要乘以 $n/(n-k)$，其中 $n$ 为观测行数，$k$ 为拟合参数个数（有截距时包括截距）。这是有限样本乘数，不校正惩罚选择的不确定性。当前实现会在 $n\le k$ 时省略该乘数，不能将这种结果解释为有效的 HC1 自由度修正。使用分析权重时，该乘数仍按行数计算，而不是按权重总和计算。
 
 `cov_type="nonrobust"` 使用基于模型的惩罚信息矩阵协方差。
 
@@ -74,7 +78,7 @@ $$
 
 HC2、HC3 与 HAC 在该路径上不可用，请求时会报错。
 
-## 解析权重
+## 分析权重
 
 当所选光滑 GLM 求解器支持解析 `sample_weight` 时，整个拟合使用同一个归一化带权目标：
 
@@ -94,15 +98,15 @@ $$
 \sum_i \widetilde w_i=n.
 $$
 
-因此，把所有正的解析权重同时乘上一个常数，不会改变统计目标和推断目标；数值结果只会受到求解器容差范围内有限精度误差的影响。
+因此，把所有正的分析权重同时乘上一个常数，不会改变统计目标和推断目标；数值结果只会受到求解器容差范围内有限精度误差的影响。
 
-这里的权重是**解析权重 / 相对重要性权重**，不是频数权重；把全部权重统一放大，并不等价于复制观测从而增大样本量。
+这里的权重是**分析权重 / 相对重要性权重**，不是频数权重；把全部权重统一放大，并不等价于复制观测从而增大样本量。
 
 如果某个损失函数没有定义所请求的带权拟合，真正的非均匀权重会被拒绝，而不是被静默丢弃。
 
 ## 求解器选择与权重
 
-受支持的显式求解器请求会被执行。对于光滑非 Gaussian L2 / 无惩罚路径，Newton 与 L-BFGS 在支持解析权重时使用上面的带权目标。
+受支持的显式求解器请求会被执行。对于光滑非 Gaussian L2 / 无惩罚路径，Newton 与 L-BFGS 在支持分析权重时使用上面的带权目标。
 
 `solver="auto"` 则继续遵循模型本身的正常求解器分发规则。用户的公开请求仍然是 `auto`；推断描述的是实际成功拟合出的模型，而不会为了推断单独换成无关的求解算法。
 
@@ -172,6 +176,8 @@ Cox 分支仍然只提供估计，不提供这一系数推断接口。
 一般的选择与最终重拟合约定见 [交叉验证](cross-validation.md)。
 
 ## 示例
+
+以下是接口示意：需先准备有限设计矩阵 `X`、行数匹配的非负整数计数向量 `y`，以及有限、非负且总和为正的分析权重 `w`。
 
 ```python
 from statgpu.linear_model import PenalizedPoissonRegression

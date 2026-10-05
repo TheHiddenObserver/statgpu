@@ -164,9 +164,10 @@ class _PenalizedPredictMixin:
         return_cpu : bool, default=True
             If True, always return a numpy ndarray (GPU→CPU transfer happens
             automatically when the model was fitted on GPU).  If False, return
-            the result in the same backend as the fitted coefficients (cupy/
-            torch when fitted on GPU, numpy when fitted on CPU).  Setting to
-            False avoids an unnecessary D→H transfer when chaining GPU
+            the result in the fitted model's numerical backend (CuPy/Torch
+            for GPU fitting, NumPy for CPU fitting). Public ``coef_`` storage
+            is NumPy even after GPU fitting and does not determine the output
+            backend. Setting to False avoids a D→H transfer when chaining GPU
             operations (e.g., ``model.predict(X_gpu) - y_gpu``).
 
         Returns

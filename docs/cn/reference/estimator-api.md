@@ -63,7 +63,7 @@ model.bootstrap_statistic(
 | `*arrays` | 一个或多个非空数组，第一轴长度一致。单数组传入 `data`，不要包装成 `(data,)`。省略时尝试使用缓存 `_X_design` 和 `_y`，没有缓存则报错。设计缓存可能含截距、公式列或乘以权重平方根的行，而响应缓存未必采用同样的权重转换。定义加权统计量时请显式传入数组与权重，不能把缓存当作保证有效的原始训练数据对。 |
 | `n_resamples=200` | 正整数，重采样次数。增加次数减少蒙特卡洛波动，不消除模型偏差。 |
 | `strategy="iid"` | `iid`：有放回抽行；`stratified`：各层内重采样；`cluster`：等大小群组的整群重采样（限制见下文）；`block`：抽取连续块。所有数组使用相同的行索引。 |
-| `strata=None`、`clusters=None` | 长度为 n 的标签；分别为分层或整群策略所必需。 |
+| `strata=None`、`clusters=None` | 每行一个非缺失标签；分别为分层或整群策略所必需。调用前请检查标签，当前 NaN 标签可能造成不完整重采样，而不是明确报错。 |
 | `block_size=None` | 分块策略必需的正整数；大于 n 时按 n 处理。应保留有意义的观测顺序。 |
 | `confidence_level=0.95` | `(0, 1)` 内的百分位区间置信水平。 |
 | `random_state=None` | 整数种子，或不固定种子。可复现性针对同一后端和过程，不保证不同数组库产生相同样本。 |
@@ -73,6 +73,8 @@ model.bootstrap_statistic(
 返回 `BootstrapResult`，包含 `observed`（原始标量）、`samples`（长度为 `n_resamples` 的后端数组）、`confidence_interval`（上下界二元组）、`confidence_level`、`n_resamples`、`random_state`、`statistic_name`、`strategy` 和 `metadata`。`to_dict()` 把样本转换为列表；`to_dataframe()` 需要 pandas，返回 `sample_index` 和 `statistic` 两列。原始统计量属性名为 `observed`，不是 `statistic`。
 
 **不等大小群组的限制。** 当前 `cluster` 实现会持续抽取群组，直到累计行数达到 n，再截断最后一个群组以保留 n 行。这可能拆开群组，不能作为不等大小群组的有效整群 bootstrap。此时不要使用它给出的区间，应改用经过验证、保留完整群组的重采样程序。本辅助方法仅适用于群组确实等大小的情形；为凑齐大小而删行或补行会改变统计问题。
+
+可运行的数值标签验证方法与缺失标签限制见[标签验证](../guides/inference-api.md#validate-resampling-labels-before-calling)。不要把身份不明且未必相关的观测归入一个人为群组。
 
 区间取重采样分布的 `(1-confidence_level)/2` 与 `(1+confidence_level)/2` 分位数。可交换性和重采样单位的选择由调用者负责。回调可能先收到带前导批次维度的数组，再退回逐次调用；应避免副作用，若返回批量结果则明确沿正确的轴计算。这一通用方法不是 ElasticNet 的残差系数 bootstrap 推断模式。
 
@@ -86,9 +88,9 @@ model.permutation_test(
 )
 ```
 
-`statistic(X, y)` 必须返回有限标量。`X` 与一维 `y` 的非零行数须一致。置换保持 `X` 不变，只重排响应：`iid` 在全体观测内，`stratified` 在长度为 n 的 `strata` 各层内，`grouped` 在长度为 n 的 `groups` 各组内。这里的 grouped 是**组内置换**，不是整组互换。`n_resamples` 为正整数；`alternative` 为 `"two-sided"`、`"greater"` 或 `"less"`。随机种子、报告标签和后端与 bootstrap 相同。
+`statistic(X, y)` 必须返回有限标量。`X` 与一维 `y` 的非零行数须一致。置换保持 `X` 不变，只重排响应：`iid` 在全体观测内，`stratified` 在长度为 n 的 `strata` 各层内，`grouped` 在长度为 n 的 `groups` 各组内。这里的 grouped 是**组内置换**，不是整组互换。`n_resamples` 为正整数；`alternative` 为 `"two-sided"`、`"greater"` 或 `"less"`。随机种子、报告标签、后端及非缺失标签检查与 bootstrap 相同。
 
-返回 `PermutationTestResult`：`observed`、长度为 `n_resamples` 的后端 `samples`、`pvalue`、`n_resamples`、`random_state`、`statistic_name`、`strategy`、`alternative` 和 `metadata`。`to_dict()`、`to_dataframe()` 的行为与 bootstrap 结果一致。蒙特卡洛尾概率使用加一修正；双侧比较使用统计量绝对值。只有在零假设下响应允许相应置换时，检验才有合理解释。
+返回 `PermutationTestResult`：`observed`、长度为 `n_resamples` 的后端 `samples`、`pvalue`、`n_resamples`、`random_state`、`statistic_name`、`strategy`、`alternative` 和 `metadata`。`to_dict()`、`to_dataframe()` 的行为与 bootstrap 结果一致。蒙特卡洛尾概率使用加一修正；双侧比较使用统计量绝对值，因此应选择以零为原假设参照点、绝对值能够衡量极端程度的统计量；工具不会自动中心化或构造等尾检验。只有在零假设下响应允许相应置换时，检验才有合理解释。
 
 ## 可运行的辅助方法示例
 

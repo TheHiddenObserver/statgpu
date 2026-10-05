@@ -37,6 +37,8 @@ CPU data with at most 12 features use SciPy tree search. Wider CPU data use scik
 
 GPU distances use float32, while stored core observations use float64. The Torch path performs graph/label operations on GPU but copies final labels and core indices to the host before publishing backend arrays. The CuPy path also transfers edge batches to the host and uses Python bookkeeping. GPU selection therefore does not promise zero host transfer. `batch_size` limits distance batches, not the total neighbor graph: dense neighborhoods can still require quadratic memory. Check label/noise stability near the `eps` boundary, where float32 comparisons can differ.
 
+Large common feature offsets can also erase separations during the GPU float32 conversion or expanded-distance calculation, even far from the `eps` boundary. Subtract one training-derived feature offset while the data are still float64, before fitting; translation preserves Euclidean distances and leaves `eps` unchanged. Keep that offset to interpret `components_` in original units. Finite labels alone do not establish that the neighbor graph is correct.
+
 ## Parameters
 
 - `eps`: neighborhood radius; must be positive and finite. Non-finite values are not reliably rejected, so validate this control before fitting.

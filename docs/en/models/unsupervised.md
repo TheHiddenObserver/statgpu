@@ -1,13 +1,13 @@
 # Unsupervised Learning
 
 > Language: English
-> Last updated: 2026-07-14
+> Last updated: 2026-10-05
 > This page: unsupervised model overview
 > Switch: [Chinese](../../cn/models/unsupervised.md)
 
 ## Overview
 
-`statgpu.unsupervised` contains estimators for dimensionality reduction, clustering, density-based grouping, mixture modeling, non-negative matrix factorization, manifold embedding, and approximate nearest neighbor search. The API follows the familiar `fit`, `transform`, `predict`, `fit_predict`, and `score` style where those operations make sense for the model.
+`statgpu.unsupervised` contains estimators for dimensionality reduction, clustering, density-based grouping, mixture modeling, non-negative matrix factorization, and manifold embedding. UMAP can use internal approximate nearest-neighbor search; that search is not a separately exported estimator. The API follows the familiar `fit`, `transform`, `predict`, `fit_predict`, and `score` style where those operations make sense for the model.
 
 ## Model Summary
 

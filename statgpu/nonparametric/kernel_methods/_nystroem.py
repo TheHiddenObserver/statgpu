@@ -21,11 +21,14 @@ class Nystroem(BaseEstimator):
     training data as landmarks.  Useful for scaling kernel methods
     to large datasets.
 
-    The approximation is:
-        Z = K_nm @ V @ diag(1/sqrt(lambda + epsilon))
+    The approximation is Z = K_nm @ normalization_, with
+    normalization_ = U @ diag(1/sqrt(max(s, 1e-12))) @ Vt from the
+    NumPy SVD K_mm = U @ diag(s) @ Vt. For a positive-semidefinite kernel,
+    this is the symmetric inverse-square-root feature orientation.
 
-    where K_nm is the kernel between all samples and the landmarks,
-    and (V, lambda) are the eigendecomposition of K_mm (landmark kernel).
+    Landmark kernel construction and SVD run on CPU even for GPU fitting;
+    query-to-landmark kernels and returned features use the selected backend.
+    A custom kernel must also accept NumPy landmark inputs.
 
     Parameters
     ----------
@@ -51,9 +54,9 @@ class Nystroem(BaseEstimator):
     component_indices_ : ndarray, shape (n_components,)
         Indices of selected landmarks in the training data.
     normalization_ : ndarray, shape (n_components, n_components)
-        Normalization matrix: V @ diag(1/sqrt(lambda)).
+        Host NumPy SVD inverse-square-root normalization matrix.
     eigenvalues_ : ndarray, shape (n_components,)
-        Eigenvalues of the landmark kernel matrix.
+        Host NumPy singular values, floored at 1e-12; not signed eigenvalues.
     n_features_in_ : int
         Number of input features.
     """
@@ -151,8 +154,8 @@ class Nystroem(BaseEstimator):
         Returns
         -------
         X_transformed : ndarray, shape (n_samples, n_components_out)
-            Approximate feature map.  n_components_out is the number of
-            positive eigenvalues found.
+            Approximate feature map with min(n_components, n_training_samples)
+            columns; small singular values are floored, not removed.
         """
         self._check_is_fitted()
         backend = self._get_backend(backend="auto")

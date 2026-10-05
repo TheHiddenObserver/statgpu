@@ -921,10 +921,11 @@ def bootstrap_statistic(
         clusters. With unequal sizes the last cluster is truncated to n rows;
         do not use those intervals as a whole-cluster bootstrap.
     strata : array-like, optional
-        Strata labels used by stratified bootstrap.
+        One nonmissing label per row for stratified bootstrap. Validate first:
+        NaN labels can omit rows and leave uninitialized batch entries.
     clusters : array-like, optional
-        Length-n labels used by cluster bootstrap; see the unequal-size
-        limitation under strategy.
+        One nonmissing label per row for cluster bootstrap. Validate labels
+        before calling; see the unequal-size limitation under strategy.
     block_size : int, optional
         Block size for block bootstrap.
     confidence_level : float, default=0.95
@@ -1270,11 +1271,15 @@ def permutation_test(
     strategy : {'iid', 'stratified', 'grouped'}, default='iid'
         Permutation strategy. 'grouped' permutes within groups.
     strata : array-like, optional
-        Strata labels used by strategy='stratified'.
+        One nonmissing label per row for strategy='stratified'. Validate first:
+        NaN labels can leave uninitialized responses and invalid finite results.
     groups : array-like, optional
-        Group labels used by strategy='grouped'.
+        One nonmissing label per row for strategy='grouped'. The same missing-
+        label limitation applies as for strata.
     alternative : {'two-sided', 'greater', 'less'}, default='two-sided'
-        Alternative hypothesis.
+        Alternative hypothesis. Two-sided compares absolute values relative
+        to zero; the statistic must encode null-centered extremeness. The
+        engine does not automatically center it or form an equal-tail test.
     random_state : int, optional
         Random seed.
     statistic_name : str, default='statistic'

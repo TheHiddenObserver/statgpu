@@ -1,7 +1,7 @@
 # 推断模式
 
 > 语言：中文  
-> 最后更新：2026-09-17  
+> 最后更新：2026-10-05  
 > 页面定位：选择并解释系数推断方法  
 > 切换：[English](../../en/guides/inference-modes.md)
 
@@ -76,7 +76,7 @@ $$
 
 ### `debiased`
 
-去偏（de-biased / de-sparsified）推断通过估计设计矩阵精度矩阵的近似逆，并进行一步修正，来减小惩罚估计量的一阶正则化偏差。
+去偏（de-biased / de-sparsified）推断先估计设计 Gram 矩阵或协方差矩阵的近似逆，即精度矩阵，再进行一步修正，以减小惩罚估计量的一阶正则化偏差。
 
 当目标是高维模型中的边际系数推断，并且相关理论假设对应用场景合理时，可以使用这一模式。逐节点精度矩阵估计的调参与主模型惩罚参数分开控制；见 [逐节点 Lasso 推断调参迁移](nodewise-alpha-migration.md)。
 
@@ -96,20 +96,29 @@ $$
 
 因此，更合适的理解是“选择后的诊断性重拟合”或“条件重拟合”，而不是自动校正了变量选择不确定性的推断方法。
 
+<!-- inference-example: post-selection -->
 ```python
+import numpy as np
 from statgpu.linear_model import Lasso
 
+rng = np.random.default_rng(7)
+X = rng.standard_normal((80, 3))
+y = 1.0 + X @ np.array([1.5, 0.0, -0.8]) + rng.normal(scale=0.4, size=80)
 model = Lasso(
     alpha=0.1,
     solver="fista",
     compute_inference=True,
     inference_method="post_selection_ols",
+    device="cpu",
 )
 model.fit(X, y)
 
 # 预测参数仍属于原惩罚拟合
 prediction_coef = model.coef_
+print(model._inference_result.method, prediction_coef.shape)
 ```
+
+输出为 `post_selection_ols (3,)`。推断结果的 `params` 和 `conf_int` 包含截距及活跃集重拟合结果；预测仍使用 `coef_` 和 `intercept_`。未选中变量在推断结果中以零和 p 值一占位，不能把其零宽区间理解为总体系数确实为零的证据。
 
 历史上的 `cpu_ols` 与 `gpu_ols` 只是 `post_selection_ols` 的弃用兼容别名，并不负责选择计算设备。
 
@@ -167,7 +176,7 @@ CV 选择与系数推断分成两个阶段：
 - `debiased` 报告偏差修正后的推断参数，但预测仍使用原惩罚拟合；
 - `bootstrap` 描述固定调参配置下重复惩罚重拟合所形成的分布。
 
-不要只根据系数表的形状猜测推断目标。需要区分时，应查看 `inference_method_`、`inference_target_` 与相应模型页。
+不要只根据系数表的形状猜测推断目标。`inference_method_` 和 `inference_target_` 在有值时记录实际方法与目标，但当前 `post_selection_ols` 会把这两项保留为 `None`。此时应查看 `model._inference_result.method` 及其元数据，了解实际方法、所选特征索引与重拟合信息。公开字段为空并不表示未执行推断；统计含义仍以相应模型页为准。
 
 ## 如何选择方法
 

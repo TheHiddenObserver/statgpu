@@ -20,7 +20,7 @@
 | Do I want density-connected groups and possible noise points? | [DBSCAN](dbscan.md) | Neighborhood scale, minimum density and noise assignments; feature units affect Euclidean distances |
 | Do I need a hierarchy rather than one fixed partition? | [AgglomerativeClustering](agglomerative-clustering.md) | Merge structure and the selected linkage; inspect how the cut changes the groups |
 | Do I want a low-dimensional visualization of neighborhoods? | [UMAP](umap.md) or [TSNE](tsne.md) | Stability across seeds and settings; visual separation alone is not evidence of distinct populations |
-| Must I process data in batches? | [IncrementalPCA](incremental-pca.md), [MiniBatchKMeans](minibatch-kmeans.md), or [MiniBatchNMF](minibatch-nmf.md) | The corresponding model's batch-size, initialization and `partial_fit` requirements |
+| Must I process data in batches? | [IncrementalPCA](incremental-pca.md), [MiniBatchKMeans](minibatch-kmeans.md), or [MiniBatchNMF](minibatch-nmf.md) | The corresponding model's batch-size, initialization and `partial_fit` requirements, including MiniBatchNMF's zero-column initialization limit |
 
 These implementations target dense inputs. In particular, the current TruncatedSVD is not a sparse-text pipeline. UMAP provides `nn_method="exact"` and `"nndescent"` (approximate) neighbor search, with `"auto"` choosing exact search; graph assembly still uses host-side SciPy. TSNE uses exact dense distances. Neither visualization estimator supports new-data `transform`. Read the selected model's limits before choosing it for a large dataset.
 

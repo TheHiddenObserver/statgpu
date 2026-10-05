@@ -68,6 +68,64 @@ With `compat_mode="knockpy"` and built-in model-X construction, covariance estim
 
 S-matrix construction attempts knockpy's requested method. A missing package **or any exception from that call** triggers an equicorrelated fallback; even an invalid method name can therefore produce a result rather than an error. `metadata["modelx_smatrix_method"]` is only the requested name. Inspect `modelx_covariance_estimator` and `modelx_smatrix_source` (`"knockpy"` or `"equicorrelated_fallback"`) before interpreting the result as execution of a particular covariance/S-matrix method or as knockpy parity. These fallback labels do not establish knockoff validity or FDR control.
 
+### Lasso implementation resolution
+
+`lasso_cv_impl="sklearn"` can silently switch to statgpu when sklearn cannot be
+imported, or when the statistic itself runs on Torch. The returned
+`metadata["lasso_cv_impl"]` records the requested/resolved-auto setting, not
+necessarily the implementation that executed. Explicit `lasso_cv_impl="statgpu"`
+avoids this ambiguity. The two implementations also differ in intercept and
+CV settings outside knockpy compatibility; do not infer numerical parity from
+the shared statistic name.
+
+<a id="repeated-lasso-statistic-calls"></a>
+
+### Repeated Lasso-statistic calls
+
+Seeded `method="lasso_coef_diff"` calls can return stale statistics after X, y,
+or Xk is modified in place: cached statistics and native Lasso tuning use input
+memory identity rather than current values. The reuse spans functions and
+selector instances. Recycled array memory can create the same risk; simply
+creating a fresh selector or deleting earlier arrays is not a reliable remedy.
+
+For deterministic changed-data analyses, use a fresh Python process per call.
+For **supplied float64 NumPy X/y/Xk**, fresh copies of all three inputs also avoid stale reuse when
+every earlier input remains alive and unchanged. The following small example
+keeps those copies explicitly; its orthogonal centered X/Xk pairs satisfy the
+fixed-X Gram constraints. This memory-retention workaround can be expensive for
+large analyses. With internally generated knockoffs, prefer process isolation
+because temporary construction arrays are not retained by the caller.
+
+<!-- api-example: knockoff-fresh-inputs -->
+```python
+import numpy as np
+from statgpu import fixed_x_knockoff_filter
+
+rng = np.random.default_rng(23)
+# Orthogonal, centered pairs satisfy the fixed-X Gram constraints here.
+n, p = 80, 4
+basis, _ = np.linalg.qr(np.column_stack([np.ones(n), rng.normal(size=(n, 2*p))]))
+X, Xk = basis[:, 1:p+1], basis[:, p+1:2*p+1]
+responses = [5 * X[:, 0], 5 * X[:, 1]]
+inputs_kept_alive = []
+results = []
+for response in responses:
+    snapshot = tuple(np.array(a, dtype=np.float64, copy=True) for a in (X, response, Xk))
+    inputs_kept_alive.append(snapshot)
+    x_fit, y_fit, xk_fit = snapshot
+    results.append(fixed_x_knockoff_filter(
+        x_fit, y_fit, Xk=xk_fit, method="lasso_coef_diff",
+        random_state=17, backend="numpy", lasso_cv_impl="statgpu",
+    ))
+assert np.argmax(results[0].W) == 0
+assert np.argmax(results[1].W) == 1
+```
+
+`random_state=None` disables these seeded reuse paths but does not preserve
+seed-based repeatability. `corr_diff` and `ols_coef_diff` do not use these Lasso
+caches. Changing the statistic changes the method, so choose it before examining
+which selection is more appealing.
+
 ## Selector methods
 
 Both `KnockoffSelector` and `FixedXKnockoffSelector` expose:

@@ -39,7 +39,7 @@ q_{ij} =
 {\sum_{a \ne b}(1+\|y_a-y_b\|_2^2)^{-1}}.
 $$
 
-嵌入使用 early exaggeration、动量和逐坐标自适应增益进行优化。
+嵌入通过早期亲和度放大（`early_exaggeration`）、动量和逐坐标自适应增益进行优化。
 
 ## 参数
 

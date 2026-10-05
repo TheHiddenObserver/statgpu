@@ -128,7 +128,7 @@ DBSCAN(eps=0.5, min_samples=5, metric='euclidean', algorithm='auto', batch_size=
 | `components_` | 核心观测 `(n_core,p)`，不是聚类中心。 |
 | `n_features_in_` | 训练输入列数 `p`。 |
 
-CPU 输入超过 12 个特征时使用 scikit-learn 的 `NearestNeighbors`，更低维时使用 SciPy 树搜索。GPU 距离采用 float32，核心样本采用 float64；两条 GPU 路径均包含主机传输或辅助处理。当前未编译扩展的 CPU 路径可能错误合并互不连通的孤立核心点，使用这类配置前请查看模型指南。不提供 `transform`、`score` 或 `partial_fit`。
+CPU 输入超过 12 个特征时使用 scikit-learn 的 `NearestNeighbors`，更低维时使用 SciPy 树搜索。GPU 距离采用 float32，核心样本采用 float64；两条 GPU 路径均包含主机传输或辅助处理。很大的共同偏移可能使 GPU float32 距离丢失样本间距；应先以 float64 减去训练数据确定的偏移，再拟合，保持 `eps` 不变。当前未编译扩展的 CPU 路径可能错误合并互不连通的孤立核心点，使用这类配置前请查看模型指南。不提供 `transform`、`score` 或 `partial_fit`。
 
 ## GaussianMixture
 
@@ -285,7 +285,7 @@ MiniBatchKMeans(n_clusters=8, init='k-means++', n_init='auto', batch_size=1024, 
 | `n_init` | `'auto'` | 正整数或 `"auto"`：k-means++ 或显式中心运行一次，random 运行三次。用于 `fit`，不用于反复重启 `partial_fit`。 |
 | `batch_size` | `1024` | `fit` 内每批的正整数上限；`partial_fit` 每次处理传入的整个批次。 |
 | `max_iter` | `100` | 正整数迭代预算；迭代和整轮数据遍历的区别见对应模型。 |
-| `max_no_improvement` | `10` | 连续未刷新最佳批次 inertia 的批次数上限，为非负整数；`None` 关闭该停止规则。 |
+| `max_no_improvement` | `10` | 连续未刷新最佳批次惯性的批次数上限，为非负整数；`None` 关闭该停止规则。 |
 | `tol` | `0.0` | 非负收敛阈值；各模型采用的准则见下文。 |
 | `random_state` | `None` | 整数随机种子或 `None`，控制随机初始化或近似算法；固定种子不保证不同后端或库版本逐位一致。 |
 | `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见本页公共设备说明。 |
@@ -377,7 +377,7 @@ MiniBatchNMF(n_components=None, init='random', batch_size=None, max_iter=200, to
 | `reconstruction_err_` | 拟合因子的残差 Frobenius 范数；`fit` 后对应全量数据，`partial_fit` 后对应最近批次。之后的 `transform` 可能进一步改善因子并产生不同误差。 |
 | `n_iter_`, `n_components_`, `n_features_in_` | 拟合的整轮遍历次数（或增量更新次数）、实际秩与固定输入列数。 |
 
-使用非负稠密数据，并保持特征列数与顺序。显式指定的正整数秩不要求小于首批行数；`None` 则由首批决定。`max_iter` 限制 `fit` 的整轮遍历次数，并影响固定成分后的转换求解；`tol` 检查拟合中成分的相对变化，而不是重构误差的相对变化。两者均不控制 `partial_fit` 内的收敛循环。不提供 `score` 或样本权重参数。
+使用非负稠密数据，并保持特征列数与顺序。显式指定的正整数秩不要求小于首批行数；`None` 则由首批决定。`max_iter` 限制 `fit` 的整轮遍历次数，并影响固定成分后的转换求解；`tol` 检查拟合中成分的相对变化，而不是重构误差的相对变化。两者均不控制 `partial_fit` 内的收敛循环。首批中全零的特征可能使字典对应列永久为零，即使后续批次出现正值也无法恢复。应缓冲有代表性的初始化数据；字典全零列对应的特征后来出现正值时，需用代表性保留数据重新拟合。详见[首批注意事项](minibatch-nmf.md#首批中全零特征的限制)。不提供 `score` 或样本权重参数。
 
 ## UMAP
 
@@ -417,7 +417,7 @@ UMAP(n_neighbors=15, n_components=2, metric='euclidean', min_dist=0.1, spread=1.
 | `graph_` | 元组 `(source_rows, target_rows, edge_weights, n_samples)`，不是 SciPy 邻接矩阵。前三项为长度相同的后端边数组。 |
 | `n_epochs_`, `n_features_in_` | 实际训练轮数与原始特征数。 |
 
-近邻距离在内部采用 float32，嵌入优化采用 float64。很大的共同特征偏移可能在转为 float32 或计算展开距离时丢失细小间距；应在数据仍为 float64 时，先减去由训练数据确定的偏移，再拟合。即使选择 GPU，图组装仍使用主机端 SciPy，spectral 初始化同样如此。带种子的随机初始化适合验证形状与接口，但图形质量仍需单独检查。当前力更新近似构造近邻布局，但不是标准 UMAP 交叉熵的精确梯度。在 NumPy 2 上，CPU 的 `nn_method="nndescent"` 当前会在后端分派时失败，可改用 `"exact"` 或 `"auto"`。稀疏谱初始化可能保留常量图特征向量，而漏掉一个有效方向；其特征求解器的起始向量也不受 `random_state` 控制。需要按种子初始化时，应使用 `init="random"`。不提供逆转换、评分或增量拟合。
+近邻距离在内部采用 float32，嵌入优化采用 float64。很大的共同特征偏移可能在转为 float32 或计算展开距离时丢失细小间距；应在数据仍为 float64 时，先减去由训练数据确定的偏移，再拟合。即使输入已中心化，极大的成对距离仍可能使精确搜索选中样本自身，之后删除自环便会丢失邻居。中心化后应把所有特征除以由训练数据确定的同一个正尺度，使坐标适中，并对需要比较的数据复用此处理。统一缩放保持欧氏近邻顺序，与逐特征分别缩放不同。即使选择 GPU，图组装仍使用主机端 SciPy，谱初始化同样如此。带种子的随机初始化适合验证形状与接口，但图形质量仍需单独检查。当前力更新近似构造近邻布局，但不是标准 UMAP 交叉熵的精确梯度。在 NumPy 2 上，CPU 的 `nn_method="nndescent"` 当前会在后端分派时失败，可改用 `"exact"` 或 `"auto"`。稀疏谱初始化可能保留常量图特征向量，而漏掉一个有效方向；其特征求解器的起始向量也不受 `random_state` 控制。需要按种子初始化时，应使用 `init="random"`。不提供逆转换、评分或增量拟合。
 
 ## TSNE
 

@@ -20,7 +20,7 @@ from statgpu.unsupervised import IncrementalPCA
 
 ## 目标函数 / 损失函数
 
-对 `k` 个主成分，`IncrementalPCA` 近似求解中心化的 rank-k PCA 目标：
+对 `k` 个主成分，`IncrementalPCA` 近似求解中心化、秩为 `k` 的 PCA 目标：
 
 $$
 \min_{V_k^\top V_k=I}

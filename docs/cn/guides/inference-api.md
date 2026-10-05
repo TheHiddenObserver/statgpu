@@ -162,3 +162,41 @@ print(result.observed, result.samples.shape)
 ```
 
 输出为 `5.5 (99,)`。每次重采样都有放回地抽取完整行，因此同一行的两个测量值始终成对保留。
+
+<a id="validate-resampling-labels-before-calling"></a>
+
+## 调用前验证重采样标签
+
+使用 `strata`、`clusters` 或 `groups` 时，每行都应有一个非缺失标签。当前实现并不总会拒绝 NaN 标签：按相等关系分组时，这些行会被遗漏，部分批次元素可能没有初始化。因此，调用可能返回数值有限却无效的统计量，也可能触发索引错误。p 值或区间有限，并不能证明标签有效。
+
+若使用数值编码，可以在重采样前显式验证标签：
+
+<!-- safety-example: validated-resampling-labels -->
+```python
+import numpy as np
+from statgpu.inference import permutation_test
+
+
+def validated_labels(labels, n):
+    labels = np.asarray(labels)
+    if labels.ndim != 1 or len(labels) != n:
+        raise ValueError("Provide one group label per observation")
+    if labels.dtype.kind not in "biuf" or not np.isfinite(labels).all():
+        raise ValueError("Group labels must be finite numeric codes")
+    return labels
+
+
+X = np.arange(6.0)
+y = np.array([0.2, 1.3, 0.7, 2.5, 3.0, 2.8])
+groups = validated_labels([0, 0, 0, 1, 1, 1], len(y))
+result = permutation_test(
+    lambda X_, y_: np.corrcoef(X_, y_)[0, 1], X, y,
+    strategy="grouped", groups=groups, n_resamples=99,
+    random_state=7, backend="numpy",
+)
+print(result.observed, result.pvalue)
+```
+
+相关系数约为 `0.903`，置换 p 值介于 0 和 1 之间。该检验要求零假设下响应在**指定的各组内部可交换**。辅助函数会拒绝 NaN、无穷编码和不正确的标签形状，但不会判断分组是否有统计意义。应从数据来源补齐缺失的组别，或明确采用合适的缺失数据处理方案，不要仅为运行计算而把所有未知身份归入一个人为群组。bootstrap 的分层和群组标签同样需要检查；不等大小群组的限制仍然适用。
+
+`alternative="two-sided"` 统计满足 `abs(resampled) >= abs(observed)` 的次数，并作加一修正。因此应选择以零为原假设参照点、绝对值能够衡量极端程度的统计量，例如检验零相关时的相关系数。工具不会自动把统计量中心化，也不会为不对称的零假设分布构造等尾检验。若事先指定了单向备择假设，应相应使用 `"greater"` 或 `"less"`。

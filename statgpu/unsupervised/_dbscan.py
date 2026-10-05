@@ -41,6 +41,10 @@ class DBSCAN(BaseEstimator):
 
     GPU strategy:
       - Batched distance computation → sparse neighbor graph → connected components
+
+    GPU float32 conversion and expanded distances can erase small separations
+    at large common feature offsets. Center in float64 before fitting and keep
+    the same ``eps``; translation preserves Euclidean neighborhoods.
     """
 
     def __init__(

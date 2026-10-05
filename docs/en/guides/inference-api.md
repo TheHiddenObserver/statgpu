@@ -163,3 +163,55 @@ print(result.observed, result.samples.shape)
 ```
 
 This prints `5.5 (99,)`. Each resample selects entire rows with replacement, preserving the two measurements in a row as a pair.
+
+## Validate resampling labels before calling
+
+Supply one nonmissing label for every row whenever using `strata`, `clusters`,
+or `groups`. Currently, NaN labels are not rejected consistently: equality-based
+grouping omits those rows and may leave uninitialized batch entries. A call can
+therefore return invalid finite statistics or fail with an indexing error.
+A finite p-value or interval is not proof that the labels were valid.
+
+For a numeric-code workflow, validate labels explicitly before resampling:
+
+<!-- safety-example: validated-resampling-labels -->
+```python
+import numpy as np
+from statgpu.inference import permutation_test
+
+
+def validated_labels(labels, n):
+    labels = np.asarray(labels)
+    if labels.ndim != 1 or len(labels) != n:
+        raise ValueError("Provide one group label per observation")
+    if labels.dtype.kind not in "biuf" or not np.isfinite(labels).all():
+        raise ValueError("Group labels must be finite numeric codes")
+    return labels
+
+
+X = np.arange(6.0)
+y = np.array([0.2, 1.3, 0.7, 2.5, 3.0, 2.8])
+groups = validated_labels([0, 0, 0, 1, 1, 1], len(y))
+result = permutation_test(
+    lambda X_, y_: np.corrcoef(X_, y_)[0, 1], X, y,
+    strategy="grouped", groups=groups, n_resamples=99,
+    random_state=7, backend="numpy",
+)
+print(result.observed, result.pvalue)
+```
+
+The correlation is about `0.903`, with a permutation p-value between 0 and 1.
+The test assumes responses are exchangeable **within each specified group**
+under the null. The helper rejects NaN/infinite codes and incorrect label
+shapes; it does not decide whether the groups make statistical sense. Resolve
+missing group identities from the data source or choose an explicit missing-data
+policy. Do not assign all unknown identities to one artificial group merely to
+make the computation run. The same validation applies to bootstrap strata and
+clusters; unequal-size cluster limitations still apply.
+
+For `alternative="two-sided"`, the engine counts `abs(resampled) >= abs(observed)`
+with the plus-one correction. Use a statistic whose null reference point is zero
+and whose absolute value represents extremeness, such as correlation under a
+zero-correlation null. The engine does not automatically center a statistic or
+construct an equal-tail test for an asymmetric null distribution. For a
+prespecified directional alternative, use `"greater"` or `"less"` as appropriate.

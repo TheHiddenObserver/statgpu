@@ -165,7 +165,7 @@ GMM has likelihood scores but no strict inference covariance or p-value mode. EM
 ## FAQ
 
 **Which covariance type should I use?**
-`"diag"` and `"spherical"` are cheaper and work well when features are weakly correlated within components. `"tied"` shares one full covariance across components. `"full"` is the most flexible but also the most expensive and needs more samples per component.
+`"diag"` models separate feature variances but no within-component correlations. `"spherical"` additionally forces all feature variances within each component to be equal, so feature units matter especially strongly. `"tied"` shares one full covariance across components; `"full"` allows a different full covariance per component and needs more data to estimate it reliably. Compare held-out log densities on the same validation rows, or compare AIC/BIC computed on the same training rows. Inspect whether the fitted shapes make sense.
 
 **What do `score`, `score_samples`, `aic`, and `bic` mean?**
 `score_samples` returns per-sample log likelihood, `score` returns its mean, and `aic`/`bic` use the covariance-type-specific parameter count.

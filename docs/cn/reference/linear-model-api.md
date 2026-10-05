@@ -68,7 +68,7 @@ LogisticRegression(fit_intercept=True, C=1.0, max_iter=100, tol=0.0001, device='
 | `score(X,y)` | Python 浮点数，不加权准确率；没有阈值或权重参数。 |
 | `confusion_matrix(X,y,threshold=0.5)` | `(2,2)` 数组 `[[tn,fp],[fn,tp]]`；行为真实标签，列为预测标签。 |
 | `classification_table(X,y,threshold=0.5)` | 字典：`tn`、`fp`、`fn`、`tp`、`accuracy`、`precision`、`recall`、`specificity`、`f1`、`support_negative`、`support_positive`。比例分母为零时返回 0。 |
-| `roc_curve(X,y)` | `(fpr,tpr,thresholds)` 元组，数组等长；阈值递减且首项为无穷大。有意义的 ROC 评价需要两类都出现。 |
+| `roc_curve(X,y)` | `(fpr,tpr,thresholds)` 元组，数组等长；阈值递减且首项为无穷大。评估标签必须同时包含两类，否则抛出 `ValueError`。 |
 | `roc_auc_score(X,y)` | 梯形积分 ROC 面积标量。 |
 | `precision_recall_curve(X,y)` | `(precision,recall,thresholds)` 元组；本实现三数组等长，阈值递减，首项无穷大对应 precision=1、recall=0。不要套用其他库的长度约定。 |
 | `average_precision_score(X,y)` | 按召回率增量积分的平均精确率标量。 |
@@ -79,7 +79,7 @@ LogisticRegression(fit_intercept=True, C=1.0, max_iter=100, tol=0.0001, device='
 
 评估数组/标量在 CPU 使用 NumPy，在 GPU 使用相应 CuPy/Torch 后端；`score` 返回 Python 浮点数。绘图把小型结果转为 NumPy。这些评估方法均不接受 `sample_weight`；加权拟合不代表评估也加权。
 
-`evaluate_classification` 始终返回 `threshold`、`confusion_matrix`、`classification_table`、`roc_auc`、`average_precision`。`include_curves=True` 时再加入 `roc_curve={fpr,tpr,thresholds}` 与 `precision_recall_curve={precision,recall,thresholds}`。对外部概率可调用 `statgpu.metrics.evaluate_binary_classification(y_true,y_score,threshold=0.5,include_curves=True,backend="auto")` 或顶层别名 `statgpu.evaluate_binary_classification`；传入一维类别 1 概率。
+`evaluate_classification` 始终返回 `threshold`、`confusion_matrix`、`classification_table`、`roc_auc`、`average_precision`。即使设置 `include_curves=False`，仍会计算标量 ROC AUC，因此评估 y 必须同时包含两类，否则抛出 `ValueError`。对单类别子集，可用 `classification_table` 或 `confusion_matrix` 计算阈值指标。`include_curves=True` 时再加入 `roc_curve={fpr,tpr,thresholds}` 与 `precision_recall_curve={precision,recall,thresholds}`。对外部概率可调用 `statgpu.metrics.evaluate_binary_classification(y_true,y_score,threshold=0.5,include_curves=True,backend="auto")` 或顶层别名 `statgpu.evaluate_binary_classification`；传入一维类别 1 概率。
 
 训练属性包括 `loglikelihood`、`loglikelihood_null`、`aic`、`bic`、`pseudo_rsquared`、`accuracy`、`precision`、`recall`、`f1`、`auc`、`average_precision`。`pseudo_rsquared` 是 McFadden 的 `1-loglikelihood/loglikelihood_null`，不是 R² 或准确率。推断数组 `_bse`、`_zvalues`、`_pvalues` 为 `(k,)`，`_conf_int` 为 `(k,2)`，截距在首位。C>0 时采用围绕惩罚拟合系数的正态参考推断；关闭推断时这些数组不可用。训练指标不衡量泛化表现。
 
@@ -117,7 +117,7 @@ ElasticNet(alpha=1.0, l1_ratio=0.5, fit_intercept=True, max_iter=1000, tol=0.000
 | `coef_`、`intercept_`、`n_iter_` | 惩罚预测斜率 `(p,)`、标量截距、迭代次数。达到迭代上限不代表已收敛。 |
 | `_params`、`_bse`、`_tvalues`、`_zvalues`、`_pvalues`、`_conf_int` | 报告参数及不确定性，不一定等于预测系数。通常为 `(k,)`，区间为 `(k,2)`，截距优先；具体可用项依推断方法而定。 |
 | `_inference_result`、`nodewise_alpha_` | 结构化结果（`params`、`bse`、`statistic`、`pvalues`、`conf_int`、`method`、`distribution`、`metadata`）与多特征时实际使用的逐节点调参值。 |
-| `inference_requested_method_`、`inference_resolved_method_`、`inference_method_`、`inference_target_`、`penalty_conditioning_`、`penalty_selection_adjusted_` | 成功推断记录请求/实际方法与条件化目标；属于报告属性，不是构造参数。 |
+| `inference_requested_method_`、`inference_resolved_method_`、`inference_method_`、`inference_target_`、`penalty_conditioning_`、`penalty_selection_adjusted_` | 去偏和 bootstrap 推断会记录公开的方法/目标字段。当前 `post_selection_ols` 即使推断成功，`inference_method_` 与 `inference_target_` 也可能仍为 `None`；应读取 `_inference_result.method` 和 `_inference_result.metadata`。这些属于报告属性，不是构造参数。 |
 | `rsquared`、`rsquared_adj`、`fvalue`、`f_pvalue`、`llf`、`aic`、`bic` | 可用的拟合诊断。AIC/BIC/F 为兼容性代入式汇总，不是通用的惩罚有效自由度或选择性推断准则；状态缺失可能返回 `None`/NaN。 |
 
 <a id="covariance-and-inference-behavior"></a>
@@ -184,7 +184,7 @@ LogisticRegressionCV(Cs=None, n_Cs=100, C_min_ratio=0.001, cv=5, cv_splits=None,
 ## 交叉验证方法与结果
 两类均提供 `fit(X,y,sample_weight=None) -> self`、`predict(X)`、`score(X,y)` 及继承的 `summary()`。fit 使用数组/设计矩阵，不接受 `formula`/`data`。`score` 分别为不加权留出 R² 与准确率，**不是**选择时的 CV 损失。ElasticNetCV.predict 通过最终模型的默认行为返回 NumPy；LogisticRegressionCV 另有 `predict_proba(X) -> (m,2)`，使用最终模型后端。其他分类评价方法从 `estimator_` 调用。
 
-自动划分为随机 K 折，不自动分层，也不识别分组/时间结构。此类数据请传入可复用的索引对列表。折内权重同时影响训练与验证损失，相关划分的权重总和须为正。预处理只能在每个训练折内学习；这些包装类不接收预处理流水线或评分函数。需要折内标准化时，用外部 CV 循环/流水线，不要先对全部数据标准化再执行内部 CV。
+自动划分为随机 K 折，不自动分层，也不识别分组/时间结构。此类数据请传入可复用的索引对列表。每组应使用一维整数索引，训练/验证集合均非空、互不重叠，且各自没有重复行。当前共享划分器会转成整数、展平数组并跳过空划分，但不会拒绝重叠或重复索引；无效划分可能把验证行泄漏进训练集。折内权重同时影响训练与验证损失，相关划分的权重总和须为正。预处理只能在每个训练折内学习；这些包装类不接收预处理流水线或评分函数。需要折内标准化时，用外部 CV 循环/流水线，不要先对全部数据标准化再执行内部 CV。
 
 根据平均验证损失最小值选择后，在全部传入训练行上重新拟合。推断只在最终 `estimator_` 上运行，以选定调参为条件，不修正调参不确定性。预测与外层 `coef_`/`intercept_` 属于最终拟合；`summary()` 转交给最终模型。
 

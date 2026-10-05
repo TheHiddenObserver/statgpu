@@ -66,6 +66,59 @@ fixed-X 函数/类只接受其签名中的共享参数子集。`modelx_*` 与采
 
 S 矩阵构造会尝试调用 knockpy 中请求的方法。包缺失或**该调用抛出任何异常**时，都会回退为等相关构造；因此，方法名无效也可能返回结果而不是报错。`metadata["modelx_smatrix_method"]` 仅记录请求名称。要判断实际执行的协方差/S 矩阵方法，或与 knockpy 作对照，应检查 `modelx_covariance_estimator` 和 `modelx_smatrix_source`（`"knockpy"` 或 `"equicorrelated_fallback"`）。这些回退标记本身不证明 knockoff 有效，也不保证 FDR 控制。
 
+### Lasso 实现的实际选择
+
+当 sklearn 导入失败，或统计量本身使用 Torch 计算时，`lasso_cv_impl="sklearn"`
+可能无提示地改用 statgpu。返回的 `metadata["lasso_cv_impl"]` 记录请求值或 auto
+初次解析后的值，不一定是实际执行的实现。显式指定 `lasso_cv_impl="statgpu"`
+可避免这种歧义。在 knockpy 兼容模式之外，两种实现的截距与交叉验证设置也不同，
+不能仅凭统计量名称相同就认为结果数值等价。
+
+<a id="repeated-lasso-statistic-calls"></a>
+
+### 重复计算 Lasso 统计量
+
+指定整数种子的 `method="lasso_coef_diff"` 调用，在原地修改 X、y 或 Xk 后可能
+返回旧统计量：统计量缓存及原生 Lasso 调参依据输入的内存标识复用结果，而不是
+当前数值。复用会跨越函数调用和选择器实例。数组内存被回收后再次使用也有相同
+风险；仅新建选择器或删除旧数组都不能可靠解决。
+
+需要对变化后的数据进行确定性分析时，应每次使用新的 Python 进程。对于**外部
+提供且均为 float64 NumPy 数组的 X/y/Xk**，也可为三个输入都创建新副本，
+同时保留全部旧输入且不修改它们。
+下面的小例子显式保存这些副本；中心化且相互正交的 X/Xk 满足 fixed-X 的 Gram
+矩阵约束。大规模分析时，保留旧数组可能消耗较多内存。内部生成 knockoff 时，
+调用者不保留临时构造数组，因此应优先采用独立进程。
+
+<!-- api-example: knockoff-fresh-inputs -->
+```python
+import numpy as np
+from statgpu import fixed_x_knockoff_filter
+
+rng = np.random.default_rng(23)
+# Orthogonal, centered pairs satisfy the fixed-X Gram constraints here.
+n, p = 80, 4
+basis, _ = np.linalg.qr(np.column_stack([np.ones(n), rng.normal(size=(n, 2*p))]))
+X, Xk = basis[:, 1:p+1], basis[:, p+1:2*p+1]
+responses = [5 * X[:, 0], 5 * X[:, 1]]
+inputs_kept_alive = []
+results = []
+for response in responses:
+    snapshot = tuple(np.array(a, dtype=np.float64, copy=True) for a in (X, response, Xk))
+    inputs_kept_alive.append(snapshot)
+    x_fit, y_fit, xk_fit = snapshot
+    results.append(fixed_x_knockoff_filter(
+        x_fit, y_fit, Xk=xk_fit, method="lasso_coef_diff",
+        random_state=17, backend="numpy", lasso_cv_impl="statgpu",
+    ))
+assert np.argmax(results[0].W) == 0
+assert np.argmax(results[1].W) == 1
+```
+
+`random_state=None` 会禁用这种按种子复用的行为，但不再保证固定种子的可重复性。
+`corr_diff` 和 `ols_coef_diff` 不使用这些 Lasso 缓存。更换统计量会改变方法，
+因此应事先选择，而不是看到选择结果后再挑选更合意的统计量。
+
 ## 选择器方法
 
 `KnockoffSelector` 与 `FixedXKnockoffSelector` 均提供：
