@@ -1,7 +1,7 @@
 # AgglomerativeClustering
 
 > Language: English
-> Last updated: 2026-05-09
+> Last updated: 2026-10-05
 > Switch: [Chinese](../../cn/unsupervised/agglomerative-clustering.md)
 
 ## Overview
@@ -124,3 +124,7 @@ No. Agglomerative clustering does not support `predict` for unseen samples in th
 - Murtagh, F. (1983). A survey of recent advances in hierarchical clustering algorithms. *The Computer Journal*, 26(4), 354-359. https://doi.org/10.1093/comjnl/26.4.354
 - Muellner, D. (2013). fastcluster: Fast hierarchical, agglomerative clustering routines for R and Python. *Journal of Statistical Software*, 53(9), 1-18. https://doi.org/10.18637/jss.v053.i09
 - SciPy Developers. `scipy.cluster.hierarchy`: Hierarchical clustering. SciPy documentation. https://docs.scipy.org/doc/scipy/reference/cluster.hierarchy.html
+
+## Complete API reference
+
+Constructor defaults, all public methods, output shapes, and restrictions are listed in the [AgglomerativeClustering API reference](api-reference.md#agglomerativeclustering).

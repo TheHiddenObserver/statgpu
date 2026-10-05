@@ -68,3 +68,7 @@ Phase 3A 不支持稀疏输入和 ARPACK。
 ## References
 
 - Halko, N., Martinsson, P. G., & Tropp, J. A. (2011). Finding structure with randomness: Probabilistic algorithms for constructing approximate matrix decompositions. *SIAM Review*, 53(2), 217-288.
+
+## 完整 API 参考
+
+构造默认值、全部公开方法、输出形状与限制见 [TruncatedSVD API 参考](api-reference.md#truncatedsvd)。

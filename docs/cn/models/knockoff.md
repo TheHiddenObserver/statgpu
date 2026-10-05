@@ -11,6 +11,8 @@
 
 Knockoff 方法用于控制特征选择中的 FDR。当前实现包含 `fixed_x` 与 `model_x` 两条路径，统一入口为 `knockoff_filter`。`fixed_x` 通常要求 `n >= 2p`；`model_x` 基于高斯二阶近似（协方差估计 + S-matrix），支持多次 draw 聚合 W 统计量。
 
+全部函数/选择器签名、参数、结果字段与独立可运行的 CPU 示例见[特征选择 API 参考](../reference/feature-selection-api.md)。
+
 ## 路径（Path）
 
 主路径：
@@ -33,12 +35,20 @@ Knockoff 方法用于控制特征选择中的 FDR。当前实现包含 `fixed_x`
 
 ## 估计方程（Estimating Equation）
 
-核心步骤：
-- 构造 knockoff 特征（`fixed_x` 或 `model_x`）
-- 计算特征统计量 `W`（`corr_diff` / `ols_coef_diff` / `lasso_coef_diff`）
-- 按 FDR 规则求阈值并输出入选特征
+构造 knockoff 特征并计算反对称特征统计量 $W_j$ 后，knockoff+ 使用阈值
+
+$$
+T=\min\left\{t\in\{|W_j|:|W_j|>0\}:\frac{1+\#\{j:W_j\le-t\}}{\max(1,\#\{j:W_j\ge t\})}\le q\right\},\qquad
+\widehat S=\{j:W_j\ge T\}.
+$$
+
+q 为目标 FDR，$\#\{\cdot\}$ 表示计数；没有合格阈值时选择为空。`fdr_control="knockoff"` 将分子中的 1 换为 0，其理论错误率目标与 knockoff+ 不同，不能仅把两者理解为数值精度模式。
 
 `model_x` 可通过 `modelx_draws` 进行多次采样并聚合统计量。
+
+### 统计量并列时的限制
+
+上式是理论 knockoff+ 阈值规则。当前实现遇到绝对统计量并列时可能与该规则不一致：先评估并列组中的部分累计计数，再选择整个阈值组。W=[8,8,-8]、q=0.5 时，可能报告阈值 8、estimated_fdr=0.5，但完整阈值计数比为 (1+1)/2=1，理论规则应不选择任何特征。阈值出现并列时，不能把当前输出解释为满足名义 knockoff+ FDR 控制。偏移为 0 的 `knockoff` 也受同一计数限制影响。重新拟合系数、增加抽样次数或更换设备都不能修复它。
 
 ## 协方差与推断（Covariance/Inference）
 
@@ -72,14 +82,13 @@ Knockoff 为选择推断框架，不采用回归模型中的 `cov_type` 协方�
 | `knockpy_sampler` | `None` | 可选分发入口 |
 | `knockpy_sampler_method` | `None` | `sampler=gaussian` 时子方法 |
 
-## Torch Backend 性能
+## 性能与统计边界
 
-**Torch 后端性能对比** (20 次实验基准):
-- **大型数据集 (n=1000, p=200)**: 相对 NumPy 约 1.14x 加速
-- **超大型数据集 (n=2000, p=500)**: 相对 NumPy 约 1.33x 加速
-- **小型数据集 (<500 样本)**: NumPy 可能更快（GPU 开销较大）
+运行时间取决于样本量、特征数、统计量、抽样次数及数据传输。不存在对所有问题通用的 GPU 提速倍数。高斯二阶 model-X 的有效性依赖特征分布与构造假设，不能保证任意数据上的分布无关 FDR 控制。
 
 ## CPU+GPU 示例（CPU+GPU Examples）
+
+以下可选 GPU 示例使用[独立 CPU 示例](../reference/feature-selection-api.md#runnable-fixed-x-example)生成的 X/y；CuPy/Torch 需要已安装且可用的 GPU 后端。
 
 ```python
 from statgpu import fixed_x_knockoff_filter, knockoff_filter
@@ -133,7 +142,7 @@ res_torch_mx = knockoff_filter(
 
 ## 输出（Outputs）
 
-核心返回对象为 `KnockoffResult`，常用字段：
+过滤函数返回 `KnockoffResult`；选择器 `fit` 返回 `self`，其结果读取 `result_`，所选索引读取 `selected_features_`。结果常用字段：
 
 - `selected_features`
 - `W`

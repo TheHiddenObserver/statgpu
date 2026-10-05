@@ -67,3 +67,7 @@ embedding_gpu = UMAP(n_neighbors=15, device="cuda").fit_transform(X_gpu)
 ## References
 
 - McInnes, L., Healy, J., & Melville, J. (2018). UMAP: Uniform Manifold Approximation and Projection for Dimension Reduction. *arXiv:1802.03426*.
+
+## 完整 API 参考
+
+构造默认值、全部公开方法、输出形状与限制见 [UMAP API 参考](api-reference.md#umap)。

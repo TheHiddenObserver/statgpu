@@ -103,6 +103,17 @@ $$
 
 正 `C` 下的推断围绕带惩罚拟合计算，不是针对无惩罚总体系数的纠偏推断。稳健协方差使用带惩罚曲率矩阵的逆作为三明治协方差估计两侧的矩阵（bread）。这些结果不修正收缩偏差，也不计入选择 `C` 的不确定性。若需要普通无惩罚 Logit 推断，使用 `C=0`，检查可识别性与收敛，并根据数据选择合理的协方差假设。`summary()` 要求 `compute_inference=True`。
 
+按上述求和损失约定，令 $d_i=(1,x_i^\top)^\top$，$D$ 由行 $d_i^\top$ 组成，$P=\operatorname{diag}(0,1,\ldots,1)$；不拟合截距时去掉对应元素。惩罚信息矩阵与 HC0 三明治协方差为
+
+$$
+H=D^\top\operatorname{diag}\{w_i p_i(1-p_i)\}D+\alpha_C P,
+\qquad
+\widehat V_{\mathrm{HC0}}=H^{-1}\left(\sum_i s_i s_i^\top\right)H^{-1},
+\quad s_i=w_i d_i(y_i-p_i).
+$$
+
+经典协方差为 $H^{-1}$；HC1–HC3 改变得分外积修正，HAC 加入滞后得分乘积。第 j 个系数的 $z_j=\hat\theta_j/\sqrt{\widehat V_{jj}}$，95% 边际区间使用正态 0.975 分位数。这一计算不会把正 C 下的推断变成无惩罚推断。
+
 ## 参数
 
 | 参数 | 默认值 | 说明 |
@@ -152,7 +163,7 @@ p_gpu = model_gpu.predict_proba(cp.asarray(X[600:603]))[:, 1]
 - `roc_curve`、`roc_auc_score`
 - `precision_recall_curve`、`average_precision_score`
 - `evaluate_classification`
-- `statgpu.evaluation.evaluate_binary_classification`
+- `statgpu.metrics.evaluate_binary_classification`
 - `plot_roc_curve`、`plot_precision_recall_curve`（依赖 `matplotlib`）
 
 ## 参数选择与常见问题
@@ -166,6 +177,8 @@ p_gpu = model_gpu.predict_proba(cp.asarray(X[600:603]))[:, 1]
 - 二分类标签必须编码为 0/1。先处理缺失值、非有限输入和形状不匹配，再调用拟合。
 
 ## API 参考与验证
+
+分类阈值范围、指标字典、曲线形状与绘图返回值见[完整 LogisticRegression 方法参考](../reference/linear-model-api.md#logisticregression)；[LogisticRegressionCV](../reference/linear-model-api.md#logisticregressioncv)另有构造参数与[选择/结果约定](../reference/linear-model-api.md#cv-methods-and-results)。继承方法见[估计器共享 API](../reference/estimator-api.md)。
 
 上表覆盖构造参数，拟合接口为 `fit(X, y, sample_weight=None)`；继承的 `get_params` / `set_params` 用于估计器配置。`score(X, y)` 返回准确率，`summary()` 显示推断报告。`accuracy`、`precision`、`recall`、`f1`、`auc` 和 `average_precision` 属性描述训练数据；评价泛化表现应在独立数据上调用评估方法。
 

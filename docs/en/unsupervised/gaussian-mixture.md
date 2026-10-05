@@ -1,7 +1,7 @@
 # GaussianMixture
 
 > Language: English
-> Last updated: 2026-05-07
+> Last updated: 2026-10-05
 > Switch: [Chinese](../../cn/unsupervised/gaussian-mixture.md)
 
 ## Overview
@@ -174,3 +174,7 @@ GMM has likelihood scores but no strict inference covariance or p-value mode. EM
 
 - Dempster, A. P., Laird, N. M., & Rubin, D. B. (1977). Maximum likelihood from incomplete data via the EM algorithm. *Journal of the Royal Statistical Society: Series B (Methodological)*, 39(1), 1-22. https://doi.org/10.1111/j.2517-6161.1977.tb01600.x
 - McLachlan, G. J., & Peel, D. (2000). *Finite Mixture Models*. Wiley Series in Probability and Statistics. Wiley.
+
+## Complete API reference
+
+Constructor defaults, all public methods, output shapes, and restrictions are listed in the [GaussianMixture API reference](api-reference.md#gaussianmixture).

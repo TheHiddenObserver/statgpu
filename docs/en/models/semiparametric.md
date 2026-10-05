@@ -1,7 +1,7 @@
 # GAM (Generalized Additive Model)
 
 > Language: English  
-> Last updated: 2026-10-04  
+> Last updated: 2026-10-05  
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/semiparametric.md)
 
@@ -126,7 +126,13 @@ Import: `from statgpu.semiparametric import GAM`.
 
 Methods: `fit(X, y)` returns `self`; `predict(X)` returns predictions; `summary()` prints diagnostics and returns a dictionary (the `gcv_score` key is omitted for fixed `lam`); `get_params(deep=True)` / `set_params(**params)` provide estimator parameter access. Refit after changing parameters. There is no GAM-specific `score()` method; compute a held-out metric as above.
 
-Complete API and algorithm sources: [GAM](../../../statgpu/semiparametric/_gam.py), [penalized least squares and GCV](../../../statgpu/nonparametric/splines/_penalized.py), [basis construction](../../../statgpu/nonparametric/splines/_bspline_basis.py), and [shared estimator methods](../../../statgpu/_base.py).
+The [complete method and output reference](../reference/survival-smoothing-api.md#gam)
+includes exact call signatures, summary dictionary keys, inherited-helper
+boundaries, and parameter-change behavior. Only `X` and `y` are used by `fit`;
+extra fit keywords currently do not enable additional capabilities and should
+be omitted. In particular, passing `sample_weight` does not produce a weighted fit.
+
+Algorithm sources: [GAM](../../../statgpu/semiparametric/_gam.py), [penalized least squares and GCV](../../../statgpu/nonparametric/splines/_penalized.py), [basis construction](../../../statgpu/nonparametric/splines/_bspline_basis.py), and [shared estimator methods](../../../statgpu/_base.py).
 
 ## Optional GPU execution
 

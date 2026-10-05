@@ -1,7 +1,7 @@
 # CoxPH
 
 > Language: English<br>
-> Last updated: 2026-10-04<br>
+> Last updated: 2026-10-05<br>
 > This page: Model documentation<br>
 > Switch: [Chinese](../../cn/models/coxph.md)
 
@@ -23,8 +23,15 @@ observed follow-up `time`, and an `event` indicator:
 Keep censored rows. The usual interpretation assumes censoring is independent of
 the event process conditional on the modeled covariates and study design.
 
-The model is $h(t\mid x)=h_0(t)\exp(x^\top\beta)$: the baseline hazard describes
-how instantaneous event risk changes over time, and the predictors multiply it.
+The model is
+
+$$
+h_s(t\mid x)=h_{0s}(t)\exp(x^\top\beta).
+$$
+
+Here $h_{0s}$ is the baseline hazard in stratum $s$, $x$ is a covariate vector,
+and $\beta$ is the shared coefficient vector. The baseline describes how the
+instantaneous event hazard changes over time, and predictors multiply it.
 For fixed covariates within the same stratum, the **proportional-hazards (PH)
 assumption** says that this hazard ratio stays constant over time. A one-unit
 increase in feature `j`, holding the others fixed, multiplies the hazard by
@@ -86,7 +93,7 @@ if not model.converged_:
 print("Coefficients:", model.coef_)
 print("Per-feature hazard ratios:", model.hazard_ratios_)
 print("Convergence:", model.termination_reason_, model.n_iter_)
-print(model.summary())
+model.summary()
 
 log_risk = model.predict_risk_score(X_test[:2])
 relative_hazard = model.predict(X_test[:2])
@@ -133,6 +140,31 @@ pairs, and a value below `0.5` suggests reversed ranking. No permissible pairs
 also return `0.5`; that is insufficient evaluation evidence, not proof of a
 random-quality model. Do not use training concordance as a held-out estimate.
 
+### From relative hazard to survival probability
+
+For a fixed covariate profile in stratum $s$,
+
+$$
+H_s(t\mid x)=H_{0s}(t)\exp(x^\top\beta),\qquad
+S_s(t\mid x)=\Pr(T>t\mid x,s)=\exp\{-H_s(t\mid x)\}.
+$$
+
+$H_{0s}(t)=\int_0^t h_{0s}(u)\,du$ is the cumulative baseline hazard. The
+implementation estimates it with Breslow increments at distinct event times:
+
+$$
+\widehat H_{0s}(t)=\sum_{t_k\le t}
+\frac{d_{sk}}{\sum_{j\in R_s(t_k)}\exp(x_j^\top\widehat\beta)}.
+$$
+
+Here $d_{sk}$ is the number of events in stratum $s$ at $t_k$, and $R_s(t_k)$
+contains its rows satisfying `start < t_k <= stop`. These baseline increments
+are used even when coefficients are fitted with `ties="efron"` or `"exact"`.
+This explains why a relative hazard alone is insufficient for a survival
+probability: the fitted baseline is also needed. The [API reference example](../reference/survival-smoothing-api.md#coefficients-inference-and-cv-results)
+reconstructs the returned curves and explains coefficient versus hazard-ratio
+confidence intervals.
+
 ## Input Shapes and Fit API
 
 The matrix API is `CoxPH(...).fit(X, time, event, ...)` or
@@ -157,7 +189,9 @@ three-column form. The same packed targets work in `score`; its interval
 argument is `start`, not `entry`. Prepare missing numeric values before matrix
 fitting; non-finite arrays are rejected rather than silently dropped.
 
-Complete constructor options are in [Parameters](#parameters) and
+The [complete reader-facing API reference](../reference/survival-smoothing-api.md#coxph-and-coxphcv)
+collects signatures, return shapes, method restrictions, and inference outputs.
+Constructor options are also in [Parameters](#parameters) and
 [CoxPHCV Parameters](#coxphcv-parameters). Canonical signatures and method
 contracts are maintained in [`CoxPH`](../../../statgpu/survival/_cox.py) and
 [`CoxPHCV`](../../../statgpu/survival/_cox_cv.py).
@@ -385,6 +419,17 @@ likelihood, `CoxPH` raises `CoxFitNumericalError` (a
 `FloatingPointError` subclass); `CoxPHCV` excludes only that candidate while
 letting input, allocator, CUDA, and unexpected runtime errors propagate.
 
+For coefficient inference, `_bse`, `_zvalues`, and `_pvalues` are `(p,)`
+NumPy arrays. `_conf_int` is `(p, 2)` and contains fixed **95% marginal
+coefficient-scale** intervals; `np.exp(model._conf_int)` gives hazard-ratio
+intervals, as printed by `summary()`. Inference-disabled fits leave these
+fields `None`. `summary()` prints and returns `None`.
+
+`log_likelihood`, `aic`, `bic`, and `concordance_index` are CoxPH properties.
+AIC/BIC access raises for positive penalties; unpenalized BIC uses the event
+count, not the row count. For a CV model, access these properties on
+`estimator_`. See the [output table and runnable verification](../reference/survival-smoothing-api.md#coefficients-inference-and-cv-results).
+
 ## CPU and GPU Examples
 
 The three backends use the same statistical inputs and return prediction arrays
@@ -572,9 +617,10 @@ For a positive L2 penalty, let `J` be the unpenalized observed Cox information
 at the fitted coefficient and `A = J + 2 * penalty * I_p`. The fixed-penalty
 frequentist plug-in covariance is
 
-```text
-A^-1 J A^-1
-```
+$$
+\widehat{\operatorname{Var}}(\widehat\beta)=A^{-1}JA^{-1},
+\qquad A=J+2\lambda I_p.
+$$
 
 rather than `A^-1`. The latter is a penalized curvature or Laplace-style
 quantity and is not published as a frequentist sampling covariance. Robust

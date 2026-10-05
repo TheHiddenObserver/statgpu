@@ -752,9 +752,9 @@ class LogisticRegressionCV(CVEstimatorBase):
     Cs_ : ndarray
         All C values tested.
     cv_results_ : dict
-        CV results including loss_path and mean_loss.
+        Dictionary containing loss_path; mean fold loss is stored in mean_loss_.
     best_score_ : float
-        Best (minimum) log-loss across CV folds.
+        Negative minimum mean validation log-loss (larger is better).
     coef_ : ndarray
         Coefficients of the final model.
     intercept_ : float

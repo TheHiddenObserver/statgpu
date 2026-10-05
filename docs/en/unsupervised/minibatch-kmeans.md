@@ -1,7 +1,7 @@
 # MiniBatchKMeans
 
 > Language: English
-> Last updated: 2026-05-09
+> Last updated: 2026-10-05
 > Path: `statgpu.unsupervised.MiniBatchKMeans`
 
 ## Overview
@@ -76,3 +76,7 @@ Baseline: sklearn `MiniBatchKMeans`.
 
 - Sculley, D. (2010). Web-scale k-means clustering. *Proceedings of the 19th International Conference on World Wide Web*, 1177-1178.
 - scikit-learn developers. `sklearn.cluster.MiniBatchKMeans` API documentation.
+
+## Complete API reference
+
+Constructor defaults, all public methods, output shapes, and restrictions are listed in the [MiniBatchKMeans API reference](api-reference.md#minibatchkmeans).

@@ -1,7 +1,7 @@
 # DBSCAN
 
 > Language: English
-> Last updated: 2026-06-26
+> Last updated: 2026-10-05
 > Switch: [Chinese](../../cn/unsupervised/dbscan.md)
 
 ## Overview
@@ -148,3 +148,7 @@ The GPU path keeps all intermediate data (distances, edges, labels) on-device. L
 
 - Ester, M., Kriegel, H.-P., Sander, J., & Xu, X. (1996). A density-based algorithm for discovering clusters in large spatial databases with noise. In *Proceedings of the Second International Conference on Knowledge Discovery and Data Mining (KDD-96)* (pp. 226-231). AAAI Press. https://aaai.org/papers/kdd96-037-a-density-based-algorithm-for-discovering-clusters-in-large-spatial-databases-with-noise/
 - Schubert, E., Sander, J., Ester, M., Kriegel, H.-P., & Xu, X. (2017). DBSCAN revisited, revisited: Why and how you should (still) use DBSCAN. *ACM Transactions on Database Systems*, 42(3), Article 19. https://doi.org/10.1145/3068335
+
+## Complete API reference
+
+Constructor defaults, all public methods, output shapes, and restrictions are listed in the [DBSCAN API reference](api-reference.md#dbscan).

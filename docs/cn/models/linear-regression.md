@@ -23,10 +23,21 @@ $$
 \min_{b,\beta}\sum_{i=1}^n (y_i-b-x_i^\top\beta)^2.
 $$
 
-正规方程为 $D^\top(y-D\hat\theta)=0$，其中 $D$ 在需要时包含截距列。
-矩阵求逆表达式只适用于满秩设计；使用估计器时不需要自己计算 $D^\top D$ 的逆。
-传入 `sample_weight=w` 后，目标变为加权残差平方和
-$\sum_i w_i(y_i-b-x_i^\top\beta)^2$。
+n 为观测数，$x_i$ 为 p 维预测变量，$b$ 为截距，$\beta$ 为 p 维斜率。带截距时记 $D=[\mathbf1,X]$、$\theta=(b,\beta^\top)^\top$，否则 $D=X$、$\theta=\beta$。令 $W=\operatorname{diag}(w_i)$，无权重时为单位矩阵，加权目标与正规方程为
+
+$$
+\min_\theta (y-D\theta)^\top W(y-D\theta),\qquad
+D^\top W(y-D\hat\theta)=0.
+$$
+
+满秩经典模型中，记 $r=\operatorname{rank}(D)$，有
+
+$$
+\hat\sigma^2=\frac{(y-D\hat\theta)^\top W(y-D\hat\theta)}{n-r},\qquad
+\widehat{\operatorname{Var}}(\hat\theta)=\hat\sigma^2(D^\top WD)^{-1}.
+$$
+
+第 j 个标准误是协方差矩阵第 j 个对角元的平方根。边际区间为 $\hat\theta_j\pm c\,\mathrm{SE}_j$，经典推断使用 t 临界值，HC/HAC 使用正态临界值。稳健选项改变协方差构造，不改变 OLS/WLS 拟合。上述逆矩阵表达式要求满秩且残差自由度为正；使用估计器时无需手工求逆。
 
 ## 可直接运行的 CPU 示例
 
@@ -154,6 +165,8 @@ HC/HAC 的系数 p 值与区间使用**正态参考分布**，尽管统计量的
   [特征选择](feature-selection.md)。
 
 ## API 清单与进阶参考
+
+面向用户的 [LinearRegression API 参考](../reference/linear-model-api.md#linearregression)列出全部构造/方法参数、默认值、形状与返回值。[估计器共享辅助方法](../reference/estimator-api.md#inference-helpers)单独说明继承的推断方法及其与模块函数的区别。
 
 可从 `statgpu` 或 `statgpu.linear_model` 导入。上表列出了全部构造参数。
 完整实现与方法说明见

@@ -96,12 +96,12 @@ data = rng.standard_normal(1000)
 
 result = bootstrap_statistic(
     np.mean,
-    (data,),
+    data,
     n_resamples=9999,
     random_state=42,
 )
 
-print(result.statistic)
+print(result.observed)
 print(result.confidence_interval)
 ```
 
@@ -116,3 +116,9 @@ Use the documentation according to the question you are trying to answer:
 - **How do I run a generic permutation or bootstrap calculation?** → this page
 - **Which inference method should a regression estimator use?** → [Inference Modes](inference-modes.md)
 - **What does penalized-GLM coefficient inference target?** → [Penalized GLM inference](penalized-glm-inference.md)
+
+
+
+## Estimator wrappers
+
+The [shared estimator API](../reference/estimator-api.md) documents every argument and return field for the inherited helper methods. It also explains differences from these free functions, including dictionary versus tuple p-value results and supplementary vectorization controls.

@@ -10,6 +10,8 @@ All notable changes to statgpu are documented here, organized by release and dat
 - Corrected ElasticNet bootstrap backend and retained-initialization documentation, aligned GaussianMixture covariance option names, clarified the CPU DBSCAN neighbor-search dependency, and added public-API documentation regressions.
 - Clarified that LinearRegression flattens a one-column response during fitting but requires a one-dimensional response for single-target scoring; added matching bilingual examples and regression coverage for the scoring workaround without changing production behavior.
 
+- Added bilingual runtime-checked API references, CV and shared-helper contracts, complete unsupervised method inventories, and defined statistical formulas; corrected CV score/result docstrings while preserving executable numerical code.
+
 ## Unreleased — 2026-09-20
 
 ### PR #166 — Quantile solver and inference updates (targeted for 0.2.6)

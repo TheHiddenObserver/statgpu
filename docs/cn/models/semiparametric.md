@@ -126,7 +126,11 @@ GCV 是离散网格搜索，可能错过两个候选值之间的最优值；固�
 
 方法：`fit(X, y)` 返回自身；`predict(X)` 返回预测；`summary()` 打印诊断并返回字典（固定 `lam` 时省略 `gcv_score` 键）；`get_params(deep=True)` / `set_params(**params)` 用于参数访问。改参后请重新拟合。本类没有专用的 `score()` 方法，可按示例自行计算留出指标。
 
-完整 API 与算法源码：[GAM](../../../statgpu/semiparametric/_gam.py)、[惩罚最小二乘与 GCV](../../../statgpu/nonparametric/splines/_penalized.py)、[基函数构造](../../../statgpu/nonparametric/splines/_bspline_basis.py)、[共享估计器方法](../../../statgpu/_base.py)。
+[完整方法与输出参考](../reference/survival-smoothing-api.md#gam)列出准确调用签名、
+摘要字典键、继承工具的适用边界以及改参行为。`fit` 只使用 `X` 和 `y`；
+额外拟合关键字目前不能启用其他能力，请勿传入。特别是 `sample_weight` 不会产生加权拟合。
+
+算法源码：[GAM](../../../statgpu/semiparametric/_gam.py)、[惩罚最小二乘与 GCV](../../../statgpu/nonparametric/splines/_penalized.py)、[基函数构造](../../../statgpu/nonparametric/splines/_bspline_basis.py)、[共享估计器方法](../../../statgpu/_base.py)。
 
 ## 可选 GPU 路径
 

@@ -11,6 +11,8 @@ Language switch: [Chinese](../../cn/models/knockoff.md)
 
 The knockoff module controls FDR for feature selection using feature-wise statistics \(W_j\) and data-adaptive thresholds. Two paths are provided: fixed-X knockoff (design treated as fixed) and model-X knockoff (Gaussian second-order construction). A unified `knockoff_filter` entry point switches between them.
 
+Complete function/selector signatures, all parameters, result fields and a self-contained CPU example are in the [feature-selection API reference](../reference/feature-selection-api.md).
+
 ## Path
 
 - `statgpu.feature_selection.knockoff_filter`
@@ -37,9 +39,13 @@ Control false discovery rate at target `q` while maximizing stable power:
 
 The decision rule follows knockoff thresholding:
 $$
-T = \min \left\{ t>0 : \frac{1+\#\{j:W_j\le -t\}}{\max(1,\#\{j:W_j\ge t\})}\le q \right\}
+T = \min \left\{ t\in\{|W_j|:|W_j|>0\} : \frac{1+\#\{j:W_j\le -t\}}{\max(1,\#\{j:W_j\ge t\})}\le q \right\}
 $$
 for knockoff+ (`fdr_control="knockoff_plus"`), with the standard knockoff variant available via `fdr_control="knockoff"`.
+
+### Tied-statistic limitation
+
+The displayed threshold is the theoretical knockoff+ rule. The current implementation can disagree when absolute statistics tie: it evaluates partially accumulated tied groups, then selects the whole threshold group. For W=[8,8,-8] and q=0.5, it can report threshold 8 and estimated_fdr=0.5, although the full threshold ratio is (1+1)/2=1 and the theoretical rule selects none. Do not interpret current output as nominal knockoff+ FDR control when threshold ties occur. The same counting limitation also affects offset-0 `knockoff`. No coefficient refit, extra Monte Carlo draws, or change of device repairs it.
 
 ## Covariance/Inference
 
@@ -72,6 +78,8 @@ Key `knockoff_filter` parameters:
 
 ## CPU+GPU Examples
 
+The following optional GPU variants assume `X`/`y` generated in the [self-contained example](../reference/feature-selection-api.md#runnable-fixed-x-example). CuPy/Torch require installed usable GPU backends.
+
 ```python
 from statgpu import knockoff_filter
 
@@ -84,6 +92,9 @@ res_cpu = knockoff_filter(
     method="ols_coef_diff",
     backend="numpy",
 )
+
+import cupy as cp
+X_gpu, y_gpu = cp.asarray(X), cp.asarray(y)
 
 # GPU model-X
 res_gpu = knockoff_filter(
@@ -123,19 +134,20 @@ res_torch_mx = knockoff_filter(
 ## strict/approx difference
 
 - `fdr_control="knockoff_plus"` is the stricter, more conservative option and default.
-- `fdr_control="knockoff"` is less conservative and may yield higher power.
+- `fdr_control="knockoff"` uses offset 0 and has a different modified-FDR target under the relevant theory; it is not an approximate numerical version of knockoff+.
 - In model-X, higher `modelx_draws` usually improves stability at higher runtime cost.
 - `knockpy_sampler` dispatch options are currently guarded; explicitly setting unsupported targets can raise `NotImplementedError` instead of silently falling back.
 
 ## Performance Boundary
 
 Knockoff runtime depends strongly on `n`, `p`, statistic choice, draw count, and
-backend launch/transfer costs. Historical benchmark scripts remain available, but no
-current speedup factor is claimed until the physical-CUDA benchmark matrix is rerun.
+backend launch/transfer costs. Benchmark the target workload; no universal GPU
+speedup follows from the algorithm name. Statistical error control depends on
+the knockoff construction and feature-statistic assumptions.
 
 ## Outputs
 
-`knockoff_filter` and selector wrappers return a `KnockoffResult`-style object with:
+Filter functions return `KnockoffResult`. Selector `fit` returns `self`; read its result through `result_` and selected indices through `selected_features_`. Result fields include:
 - `selected_features`
 - `W`
 - `threshold`
@@ -160,3 +172,4 @@ current speedup factor is claimed until the physical-CUDA benchmark matrix is re
 
 - Barber, R. F., & Candes, E. J. (2015). Controlling the false discovery rate via knockoffs. *Annals of Statistics*, 43(5), 2055-2085. [https://doi.org/10.1214/15-AOS1337](https://doi.org/10.1214/15-AOS1337)
 - Candes, E., Fan, Y., Janson, L., & Lv, J. (2018). Panning for gold: Model-X knockoffs for high-dimensional controlled variable selection. *Journal of the Royal Statistical Society: Series B*, 80(3), 551-577. [https://doi.org/10.1111/rssb.12265](https://doi.org/10.1111/rssb.12265)
+

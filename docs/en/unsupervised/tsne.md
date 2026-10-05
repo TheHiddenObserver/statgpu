@@ -1,7 +1,7 @@
 # TSNE
 
 > Language: English
-> Last updated: 2026-05-09
+> Last updated: 2026-10-05
 > Path: `statgpu.unsupervised.TSNE`
 
 ## Overview
@@ -72,3 +72,7 @@ Baselines: sklearn exact `TSNE`, `openTSNE`, and cuML TSNE if available remotely
 
 - van der Maaten, L., & Hinton, G. (2008). Visualizing data using t-SNE. *Journal of Machine Learning Research*, 9, 2579-2605.
 - Linderman, G. C., Rachh, M., Hoskins, J. G., Steinerberger, S., & Kluger, Y. (2019). Fast interpolation-based t-SNE for improved visualization of single-cell RNA-seq data. *Nature Methods*, 16, 243-245.
+
+## Complete API reference
+
+Constructor defaults, all public methods, output shapes, and restrictions are listed in the [TSNE API reference](api-reference.md#tsne).

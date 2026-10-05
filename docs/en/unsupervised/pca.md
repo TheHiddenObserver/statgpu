@@ -1,7 +1,7 @@
 # PCA
 
 > Language: English
-> Last updated: 2026-05-02
+> Last updated: 2026-10-05
 > Switch: [Chinese](../../cn/unsupervised/pca.md)
 
 ## Overview
@@ -125,3 +125,7 @@ It scales transformed scores by `1 / sqrt(explained_variance_)`, producing unit-
 - Pearson, K. (1901). On lines and planes of closest fit to systems of points in space. *The London, Edinburgh, and Dublin Philosophical Magazine and Journal of Science*, Series 6, 2(11), 559-572. https://doi.org/10.1080/14786440109462720
 - Jolliffe, I. T. (2002). *Principal Component Analysis* (2nd ed.). Springer Series in Statistics. Springer. https://doi.org/10.1007/b98835
 - Halko, N., Martinsson, P. G., & Tropp, J. A. (2011). Finding structure with randomness: Probabilistic algorithms for constructing approximate matrix decompositions. *SIAM Review*, 53(2), 217-288. https://doi.org/10.1137/090771806
+
+## Complete API reference
+
+Constructor defaults, all public methods, output shapes, and restrictions are listed in the [PCA API reference](api-reference.md#pca).

@@ -1,7 +1,7 @@
 # KMeans
 
 > Language: English
-> Last updated: 2026-05-02
+> Last updated: 2026-10-05
 > Switch: [Chinese](../../cn/unsupervised/kmeans.md)
 
 ## Overview
@@ -93,3 +93,7 @@ No. Phase 2 dense KMeans raises for sparse input and `sample_weight`.
 - MacQueen, J. (1967). Some methods for classification and analysis of multivariate observations. In *Proceedings of the Fifth Berkeley Symposium on Mathematical Statistics and Probability* (Vol. 1, pp. 281-297). University of California Press.
 - Lloyd, S. P. (1982). Least squares quantization in PCM. *IEEE Transactions on Information Theory*, 28(2), 129-137. https://doi.org/10.1109/TIT.1982.1056489
 - Arthur, D., & Vassilvitskii, S. (2007). k-means++: The advantages of careful seeding. In *Proceedings of the Eighteenth Annual ACM-SIAM Symposium on Discrete Algorithms (SODA 2007)* (pp. 1027-1035). Society for Industrial and Applied Mathematics.
+
+## Complete API reference
+
+Constructor defaults, all public methods, output shapes, and restrictions are listed in the [KMeans API reference](api-reference.md#kmeans).

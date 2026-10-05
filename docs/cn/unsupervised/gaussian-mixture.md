@@ -183,3 +183,7 @@ ll = gmm.score(X)
 
 - Dempster, A. P., Laird, N. M., & Rubin, D. B. (1977). Maximum likelihood from incomplete data via the EM algorithm. *Journal of the Royal Statistical Society: Series B (Methodological)*, 39(1), 1-22. https://doi.org/10.1111/j.2517-6161.1977.tb01600.x
 - McLachlan, G. J., & Peel, D. (2000). *Finite Mixture Models*. Wiley Series in Probability and Statistics. Wiley.
+
+## 完整 API 参考
+
+构造默认值、全部公开方法、输出形状与限制见 [GaussianMixture API 参考](api-reference.md#gaussianmixture)。

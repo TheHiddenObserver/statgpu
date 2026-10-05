@@ -64,8 +64,10 @@ print("held-out R2:", round(float(model.score(X[300:], y[300:])), 3))
 Elastic Net 优化问题为：
 
 $$
-\min_{\beta} \frac{1}{2n}\|y - X\beta\|_2^2 + \alpha \lambda \|\beta\|_1 + \frac{\alpha}{2}(1 - \lambda)\|\beta\|_2^2.
+\min_{b,\beta}\frac{\sum_{i=1}^n w_i(y_i-b-x_i^\top\beta)^2}{2\sum_{i=1}^n w_i}+\alpha\lambda\|\beta\|_1+\frac{\alpha(1-\lambda)}{2}\|\beta\|_2^2
 $$
+
+这里 n 为行数、p 为特征数，$x_i$ 是 p 维预测变量，$b$ 是不受惩罚的截距，$\beta$ 是斜率。无权重时 $w_i=1$；权重非负且总和为正。`fit_intercept=False` 时固定 b=0。
 
 其中：
 - `alpha` (α) 控制整体正则化强度；
@@ -75,6 +77,8 @@ $$
 **正则化缩放说明**：`ElasticNet` 与 `Ridge` 使用同一平均损失约定，因此 `l1_ratio=0` 时，相同公开 `alpha` 下目标函数退化为对应的 L2 目标。不过 `ElasticNet` 估计器仍保留自己的求解器和推断默认设置；若明确需要 Ridge 的估计器契约，应直接使用 `Ridge`。
 
 ## 估计方程
+
+下方 KKT 方程与优化伪代码使用无权重的中心化 X/y。有分析权重时，应使用后文纠偏部分定义的归一化平方根加权工作数组；只中心化不能消去非均匀权重。
 
 消去未惩罚截距（等价地，在中心化数据上）后，系数满足 KKT 条件：
 
@@ -220,6 +224,19 @@ $$
 
 对于 `ElasticNetCV`，`compute_inference=True` 仅作用于 alpha 与 `l1_ratio` 选定后的最终全数据重拟合；各折模型仍仅用于估计和评分。`nodewise_alpha` 也只属于最终重拟合的推断配置，不进入候选网格或折内评分；推断成功时，外层 `nodewise_alpha_` 与最终 `estimator_` 一致。当前 `ElasticNetCV` 仍固定最终推断方法为 `debiased`，这是当前推断方法选择的限制。
 
+### 纠偏报告公式
+
+记 $\widetilde X,\widetilde y$ 为中心化工作设计/响应；有分析权重时，第 i 行再乘以 $\sqrt{n w_i/\sum_j w_j}$。不拟合截距时不中心化。$M$ 为逐节点回归估计的近似 Gram 逆矩阵，$\widehat\Sigma=\widetilde X^\top\widetilde X/n$。报告斜率及模型式协方差为
+
+$$
+\hat\theta_{\mathrm{db}}=\hat\beta+
+\frac{M\widetilde X^\top(\widetilde y-\widetilde X\hat\beta)}{n},
+\qquad
+\widehat V_{\mathrm{db}}=\frac{\hat\sigma^2}{n}M\widehat\Sigma M^\top.
+$$
+
+实现以工作残差平方和除以 $\max(n-s,1)$ 估计 $\hat\sigma^2$，s 为非零惩罚斜率数。标准误为协方差对角元平方根，z 统计量与正态参考 95% 区间使用纠偏斜率。这是模型式构造：当前 `cov_type="hc0"` 至 `"hc3"` 或 `"hac"` 不会替换这套协方差，不能解释为稳健纠偏推断。[方法与协方差表](../reference/linear-model-api.md#covariance-and-inference-behavior)区分了 `debiased`、`post_selection_ols`、`bootstrap` 的行为。
+
 ## 求解器与推断语义
 
 对于直接 `ElasticNet.fit`，**CPU 与 GPU 都使用 `solver`**。`device` 决定执行后端，`solver` 决定优化算法。`cpu_solver` 是早期按硬件区分求解器 API 的弃用兼容参数，新代码不应继续使用。
@@ -253,7 +270,7 @@ $$
 - 显式 `device="cuda"` 或 `device="torch"` 要求对应的 GPU 后端可用，不会静默转到 CPU。详见[设备与内存](../guides/device-and-memory.md)。
 - 改用其他求解器前先核对[求解器与惩罚兼容矩阵](../guides/solver-penalty-matrix.md)，`device` 不能替代 `solver`。
 
-上面的构造参数表覆盖 `ElasticNet` 的完整构造接口。完整公开类、方法签名与说明见 [ElasticNet API 源码](../../../statgpu/linear_model/wrappers/_elasticnet.py)，也可通过 `help(ElasticNet)` 查看已安装版本。继承的 `get_params` / `set_params` 用于估计器配置。交叉验证请查阅独立的 [ElasticNetCV API 源码](../../../statgpu/linear_model/cv/_elasticnet_cv.py)，不要假定其参数与直接拟合相同。
+[完整 ElasticNet API 参考](../reference/linear-model-api.md#elasticnet)包含 `predict(X, return_cpu=True)`、加权 `score(X, y, sample_weight=None)`、公式输入、报告字段与推断限制。继承方法见[共享参考](../reference/estimator-api.md)。另请查阅 [ElasticNetCV 构造参数](../reference/linear-model-api.md#elasticnetcv)与含可运行示例的 [CV 流程/结果](../reference/linear-model-api.md#cv-methods-and-results)，直接拟合和 CV 参数不同。源码可辅助理解，不能代替这些接口约定。
 
 ## 数值验证
 

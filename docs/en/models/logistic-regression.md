@@ -100,6 +100,17 @@ $$
 
 At positive `C`, inference is computed around the penalized fit; it is not debiasing for the unpenalized population coefficient. Robust choices use the penalized inverse curvature as the sandwich bread. These quantities do not correct shrinkage bias or uncertainty from selecting `C`. For ordinary unpenalized Logit inference use `C=0`, check identification and convergence, and choose covariance assumptions appropriate to the data. `summary()` requires `compute_inference=True`.
 
+For the summed-loss convention above, let $d_i=(1,x_i^\top)^\top$, $D$ stack the rows $d_i^\top$, and $P=\operatorname{diag}(0,1,\ldots,1)$ (remove the intercept entry when absent). The penalized information and HC0 sandwich are
+
+$$
+H=D^\top\operatorname{diag}\{w_i p_i(1-p_i)\}D+\alpha_C P,
+\qquad
+\widehat V_{\mathrm{HC0}}=H^{-1}\left(\sum_i s_i s_i^\top\right)H^{-1},
+\quad s_i=w_i d_i(y_i-p_i).
+$$
+
+Nonrobust covariance is $H^{-1}$; HC1–HC3 alter the score-outer-product corrections and HAC adds lagged score products. For coefficient j, $z_j=\hat\theta_j/\sqrt{\widehat V_{jj}}$ and the 95% marginal interval uses the normal 0.975 quantile. This formula does not turn positive-C inference into unpenalized inference.
+
 ## Parameters
 
 | Parameter | Default | Description |
@@ -155,6 +166,8 @@ No separate approx inference mode is exposed in this API. Robust covariance choi
 - Binary labels must be 0/1; encode other class names first. Missing/nonfinite inputs and mismatched shapes must be corrected before fitting.
 
 ## API reference and validation
+
+Use the [complete LogisticRegression method reference](../reference/linear-model-api.md#logisticregression) for threshold limits, metric dictionaries, curve shapes and plotting returns; [LogisticRegressionCV](../reference/linear-model-api.md#logisticregressioncv) has its own constructor and [selection/result contract](../reference/linear-model-api.md#cv-methods-and-results). Shared inherited methods are in the [estimator API](../reference/estimator-api.md).
 
 The parameter table above covers the constructor. The fitting interface is `fit(X, y, sample_weight=None)`; inherited `get_params` / `set_params` support estimator configuration. `score(X, y)` returns accuracy. `summary()` displays the inference report. Training-data metric properties include `accuracy`, `precision`, `recall`, `f1`, `auc`, and `average_precision`; use the evaluation methods on separate data for generalization assessment.
 

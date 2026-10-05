@@ -1,7 +1,7 @@
 # NMF
 
 > Language: English
-> Last updated: 2026-05-02
+> Last updated: 2026-10-05
 > Switch: [Chinese](../../cn/unsupervised/nmf.md)
 
 ## Overview
@@ -94,3 +94,7 @@ No. Phase 2 supports only MU with Frobenius loss.
 
 - Lee, D. D., & Seung, H. S. (1999). Learning the parts of objects by non-negative matrix factorization. *Nature*, 401(6755), 788-791. https://doi.org/10.1038/44565
 - Lee, D. D., & Seung, H. S. (2001). Algorithms for non-negative matrix factorization. In T. K. Leen, T. G. Dietterich, & V. Tresp (Eds.), *Advances in Neural Information Processing Systems 13* (pp. 556-562). MIT Press.
+
+## Complete API reference
+
+Constructor defaults, all public methods, output shapes, and restrictions are listed in the [NMF API reference](api-reference.md#nmf).

@@ -1,7 +1,7 @@
 # UMAP
 
 > Language: English
-> Last updated: 2026-07-23
+> Last updated: 2026-10-05
 > Path: `statgpu.unsupervised.UMAP`
 
 ## Overview
@@ -68,3 +68,7 @@ Baseline: `umap-learn`, plus cuML UMAP if available remotely.
 
 - McInnes, L., Healy, J., & Melville, J. (2018). UMAP: Uniform Manifold Approximation and Projection for Dimension Reduction. *arXiv:1802.03426*.
 - umap-learn developers. UMAP API documentation.
+
+## Complete API reference
+
+Constructor defaults, all public methods, output shapes, and restrictions are listed in the [UMAP API reference](api-reference.md#umap).

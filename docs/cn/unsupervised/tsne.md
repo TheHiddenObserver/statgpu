@@ -72,3 +72,7 @@ Phase 3A 不支持稀疏输入、非欧氏 `metric`、Barnes-Hut、FFT/FIt-SNE�
 
 - van der Maaten, L., & Hinton, G. (2008). Visualizing data using t-SNE. *Journal of Machine Learning Research*, 9, 2579-2605.
 - Linderman, G. C., Rachh, M., Hoskins, J. G., Steinerberger, S., & Kluger, Y. (2019). Fast interpolation-based t-SNE for improved visualization of single-cell RNA-seq data. *Nature Methods*, 16, 243-245.
+
+## 完整 API 参考
+
+构造默认值、全部公开方法、输出形状与限制见 [TSNE API 参考](api-reference.md#tsne)。

@@ -96,12 +96,12 @@ data = rng.standard_normal(1000)
 
 result = bootstrap_statistic(
     np.mean,
-    (data,),
+    data,
     n_resamples=9999,
     random_state=42,
 )
 
-print(result.statistic)
+print(result.observed)
 print(result.confidence_interval)
 ```
 
@@ -116,3 +116,8 @@ print(result.confidence_interval)
 - **如何运行通用排列检验或自助法？** → 本页
 - **回归估计器应该选择哪种推断方法？** → [推断模式](inference-modes.md)
 - **惩罚 GLM 系数推断的统计目标是什么？** → [惩罚 GLM 推断](penalized-glm-inference.md)
+
+
+## 估计器包装方法
+
+[估计器共享 API](../reference/estimator-api.md)列出继承辅助方法的全部参数与返回字段，并说明它们与独立函数的差异，包括 p 值结果的字典/元组形式及额外向量化控制。

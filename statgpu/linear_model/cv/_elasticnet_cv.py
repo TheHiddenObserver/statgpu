@@ -606,7 +606,7 @@ class ElasticNetCV(CVEstimatorBase):
     cv_results_ : dict
         CV results including mse_path and mean_mse.
     best_score_ : float
-        Best (minimum) MSE across CV folds.
+        Negative minimum mean validation MSE across CV folds (larger is better).
 
     Examples
     --------

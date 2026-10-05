@@ -59,6 +59,8 @@ print("held-out reconstruction MSE:", round(float(np.mean((X_test - X_reconstruc
 
 ## 模型列表
 
+[完整无监督 API 参考](api-reference.md)列出十二个估计器的默认值、方法签名、输出形状与增量批次限制。
+
 - [PCA](pca.md)：精确或随机化（randomized）主成分分析。
 - [KMeans](kmeans.md)：Lloyd 迭代聚类，支持 random 与贪心 k-means++ 初始化。
 - [DBSCAN](dbscan.md)：稠密欧氏距离的密度聚类，支持可选的 statgpu 自有 Cython CPU 快速路径。

@@ -162,11 +162,11 @@ method docstrings are in [`_stepwise.py`](../../../statgpu/feature_selection/_st
 
 ## Related FDR APIs and references
 
+The [feature-selection API reference](../reference/feature-selection-api.md) documents every namespace export, full knockoff signatures/defaults, selector methods, `KnockoffResult` fields and a runnable example.
+
 The feature-selection namespace also exports `KnockoffResult`,
 `knockoff_filter`, `fixed_x_knockoff_filter`, `model_x_knockoff_filter`,
-`KnockoffSelector`, and `FixedXKnockoffSelector`. Their parameters, output
-contracts, fixed-X requirements, and Gaussian second-order model-X assumptions
-are documented on the [knockoff page](knockoff.md). They solve a different
+`KnockoffSelector`, and `FixedXKnockoffSelector`. Their parameter and output contracts are in the API reference; fixed-X requirements and Gaussian second-order model-X assumptions are explained on the [knockoff page](knockoff.md). They solve a different
 selection problem from greedy AIC/BIC search.
 
 - Akaike, H. (1974). A new look at the statistical model identification. *IEEE Transactions on Automatic Control*, 19(6), 716–723. [DOI](https://doi.org/10.1109/TAC.1974.1100705)

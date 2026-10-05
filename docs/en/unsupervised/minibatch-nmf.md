@@ -1,7 +1,7 @@
 # MiniBatchNMF
 
 > Language: English
-> Last updated: 2026-05-07
+> Last updated: 2026-10-05
 > Switch: [Chinese](../../cn/unsupervised/minibatch-nmf.md)
 
 ## Overview
@@ -82,3 +82,7 @@ No. Phase 3C supports MU-style updates and Frobenius loss only.
 - Lee, D. D., & Seung, H. S. (2001). Algorithms for non-negative matrix factorization. *Advances in Neural Information Processing Systems*, 13.
 - Cichocki, A., Zdunek, R., Phan, A. H., & Amari, S.-I. (2009). *Nonnegative Matrix and Tensor Factorizations: Applications to Exploratory Multi-way Data Analysis and Blind Source Separation*. Wiley.
 - scikit-learn Developers. `sklearn.decomposition.MiniBatchNMF`. scikit-learn documentation. https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.MiniBatchNMF.html
+
+## Complete API reference
+
+Constructor defaults, all public methods, output shapes, and restrictions are listed in the [MiniBatchNMF API reference](api-reference.md#minibatchnmf).

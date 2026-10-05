@@ -70,3 +70,7 @@ Phase 3A 仅支持稠密的欧氏输入；不支持稀疏输入、`sample_weight
 ## References
 
 - Sculley, D. (2010). Web-scale k-means clustering. *Proceedings of the 19th International Conference on World Wide Web*, 1177-1178.
+
+## 完整 API 参考
+
+构造默认值、全部公开方法、输出形状与限制见 [MiniBatchKMeans API 参考](api-reference.md#minibatchkmeans)。

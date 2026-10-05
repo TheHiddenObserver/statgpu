@@ -1,7 +1,7 @@
 # Nonparametric Methods
 
 > Language: English  
-> Last updated: 2026-10-04  
+> Last updated: 2026-10-05  
 > This page: Nonparametric overview  
 > Switch: [Chinese](../../cn/models/nonparametric.md)
 
@@ -31,7 +31,28 @@ $$
 \hat m(x)=\frac{\sum_i w_i K_H(x-X_i)y_i}{\sum_i w_i K_H(x-X_i)}.
 $$
 
-Local-linear regression instead minimizes a weighted local squared-error objective around each query and returns the local intercept. Neither regression method produces one global slope vector or coefficient p-values.
+Here $w_i\ge0$ are normalized observation weights, $\sum_i w_i=1$; $H$ is the
+positive-definite bandwidth matrix. Define the scaled kernel by
+
+$$
+K_H(u)=|H|^{-1/2}K(H^{-1/2}u),\qquad
+\widehat f(x)=\sum_i w_iK_H(x-X_i).
+$$
+
+For a $p$-dimensional Gaussian kernel,
+$K(v)=(2\pi)^{-p/2}\exp(-v^\top v/2)$. The weighted formula reduces to the
+one-dimensional expression above for equal weights and $H=h^2$.
+Local-linear regression chooses a local intercept $a$ and slope vector $b$:
+
+$$
+(\widehat a(x),\widehat b(x))=
+\arg\min_{a,b}\sum_i w_iK_H(x-X_i)
+\{y_i-a-b^\top(X_i-x)\}^2,\qquad \widehat m(x)=\widehat a(x).
+$$
+
+The fit is repeated at each query; neither regression method produces one global
+slope vector or coefficient p-values. Singular local systems can use the
+stabilization/NW fallback described below.
 
 ## CPU example 1: fit and evaluate a density
 
@@ -136,6 +157,29 @@ Important scope details:
 - With nonuniform `weights`, the implementation both samples in proportion to the weights and re-applies the sampled weights. This is not interchangeable with every frequency/survey/importance-weight bootstrap. The example and interpretation here are limited to equal weights; establish the resampling scheme for your design before using weighted intervals.
 - The wrapper accepts only `method="percentile"`. The related `kde_confidence_interval` has `method="normal"` (default, asymptotic and only 1D Gaussian) or `"bootstrap"`; neither is a bias-corrected or simultaneous method.
 
+For confidence level $1-\alpha$, percentile bootstrap bounds at each fixed query
+are the empirical quantiles of the $B$ replicate density estimates:
+
+$$
+[L(x),U(x)]=[Q_{\alpha/2}\{\widehat f_b^*(x)\}_{b=1}^B,
+Q_{1-\alpha/2}\{\widehat f_b^*(x)\}_{b=1}^B].
+$$
+
+The separate normal method uses the fitted absolute width $h$ and normalized
+weights to form $n_{\mathrm{eff}}=1/\sum_i w_i^2$. With the Gaussian kernel's
+$R(K)=\int K(u)^2du=1/(2\sqrt\pi)$,
+
+$$
+\widehat{\mathrm{SE}}(x)=\sqrt{\frac{\widehat f(x)R(K)}{n_{\mathrm{eff}}h}},
+\qquad
+[L(x),U(x)]=[\max\{0,\widehat f(x)-z_{1-\alpha/2}\widehat{\mathrm{SE}}(x)\},
+\widehat f(x)+z_{1-\alpha/2}\widehat{\mathrm{SE}}(x)].
+$$
+
+$z_{1-\alpha/2}$ is the standard-normal quantile. Both formulas are pointwise;
+the normal formula is an asymptotic variance approximation without bias
+correction. See the [normal-interval example and complete arguments](../reference/survival-smoothing-api.md#density-confidence-intervals).
+
 ## Shapes and API choices
 
 Import the following from `statgpu.nonparametric`:
@@ -155,6 +199,11 @@ Import the following from `statgpu.nonparametric`:
 - KDE output shape is `(n_query,)`; regression output is `(n_query,)` for a 1D target and `(n_query, n_targets)` for a 2D target, including `(n_query, 1)`. With NumPy the outputs are NumPy arrays; ordinary GPU predictions remain backend-native. Interval result arrays are converted to NumPy.
 - `weights`, when supplied for fitting, must be finite, nonnegative, length `n_samples`, and have a positive sum; they are normalized. Concentrating all weight on one observation fails covariance estimation. Invalid shapes, nonfinite inputs, nonpositive bandwidths, and unknown kernel names raise errors. Call `fit` before prediction.
 
+For large-offset coordinates, center training samples and queries with the same
+training-derived offset before evaluation. Current distance calculations can
+lose precision without centering, particularly log density and multivariate
+density/regression; see the [API numerical limitation](../reference/survival-smoothing-api.md#kernel-density-estimation).
+
 ## Bandwidth, kernels, and tuning boundaries
 
 | Control | Practical meaning |
@@ -167,6 +216,18 @@ Import the following from `statgpu.nonparametric`:
 | `kernel` | `gaussian`, `rectangular`, `triangular`, `epanechnikov`, `biweight`, `triweight`, `cosine`, `optcosine`; last two are 1D-only. |
 | `batch_size` | Positive query batch size, default `1024`; a NumPy 1D Gaussian density fast path may evaluate queries together. |
 
+For $p$ features and normalized weights, the default factor rules are
+
+$$
+n_{\mathrm{eff}}=\frac1{\sum_i w_i^2},\qquad
+b_{\mathrm{Scott}}=n_{\mathrm{eff}}^{-1/(p+4)},\qquad
+b_{\mathrm{Silverman}}=\left(\frac{n_{\mathrm{eff}}(p+2)}4\right)^{-1/(p+4)}.
+$$
+
+They set $H=b^2\widehat\Sigma$, with the weighted sample covariance
+$\widehat\Sigma$ (plus numerical stabilization). For equal weights,
+$n_{\mathrm{eff}}=n$; in one dimension $h=\sqrt{H_{11}}$.
+
 Other bandwidth names include `nrd0`, `nrd`, `ucv`, `bcv`, `sj`, `sj-ste`, and `sj-dpi`. They are not all prediction-loss optimizers. R-style selectors use Gaussian-reference rules, nonuniform weights may use quantile resampling, and multivariate extensions use a one-dimensional principal-axis projection. Inspect `bandwidth_info_` / `to_numpy_metadata()` for the selected factor and strategy; do not label these extensions exact multivariate R equivalents. Some data, including constant/sparse samples, can make a selector fail.
 
 Kernel regression additionally accepts `"cv"`, `"cv_ls"`, `"cv-nw"`, and `"cv-ll"` for a leave-one-out MSE search over a scalar factor. The selector uses full covariance, and local-linear CV correction is implemented only for one feature; in multiple dimensions its objective uses NW predictions even for `"cv-ll"`. For a multivariate local-linear or diagonal-metric model, explicitly validate candidate widths against the **actual intended model**, rather than assuming this selector optimizes that exact configuration. These CV names are not KDE bandwidth options.
@@ -175,7 +236,11 @@ No unified strict/approx switch exists. With compact-support kernels, a query ca
 
 ## Complete API and diagnostics reference
 
-This is a teaching selection of controls. The linked **canonical source signatures and implementations** give the complete constructors, function arguments, methods, and result fields:
+The [complete reader-facing API reference](../reference/survival-smoothing-api.md#kernel-density-estimation)
+collects constructors, function and method signatures, defaults, restrictions,
+return shapes, and selector/interval result fields. In particular, KDE
+`batch_size` is an evaluation argument, not a constructor parameter; regression
+can set it in either place. Implementation links for further reading follow:
 
 - [KDE and intervals](../../../statgpu/nonparametric/kernel_smoothing/_kde.py): `KernelDensityEstimator`, `KDE`, `fit_kde`, `kde_pdf`, `kde_confidence_interval`, `kde_bootstrap_confidence_interval`, `KDEBootstrapResult`. Estimator construction also accepts `weights=None`, `backend="auto"`, `device="auto"`, `n_jobs=None`, `gpu_memory_cleanup=False`. Interval controls include `n_resamples=200`, `confidence_level=0.95`, `random_state=None`, `return_bootstrap_samples=False`, and `batch_size=1024`; the general interval function uses `bootstrap_method="percentile"`.
 - [Kernel regression](../../../statgpu/nonparametric/kernel_smoothing/_kernel_regression.py): `KernelRegression`, `KernelRegressionRegressor`, both functional helpers, all fit/predict controls, and `to_numpy_metadata()`. The constructor includes the same device/jobs/cleanup controls and `batch_size` / `min_effective_weight`; `predict` can override the latter two. One-shot functions select `backend` and do not take a `device` argument.

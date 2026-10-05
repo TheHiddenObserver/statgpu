@@ -1,0 +1,111 @@
+# 估计器共享 API
+
+> 语言：中文  
+> 最后更新：2026-10-05  
+> 切换：[English](../../en/reference/estimator-api.md)
+
+本页说明继承自 `BaseEstimator` 的方法。类上有这些方法，不代表相应模型一定提供系数 p 值或缓存训练数组。模型覆盖的方法及其拟合结果以模型专属参考为准。这些辅助方法不会自动重拟合模型、判断重采样方案是否科学合理，也不会自动修正变量选择的不确定性。
+
+<a id="parameter-management"></a>
+
+## 参数管理
+
+| 方法 | 参数与默认值 | 返回值与行为 |
+|---|---|---|
+| `get_params(deep=True)` | `deep=True` 时，以 `name__parameter` 包含嵌套估计器配置 | 返回构造参数字典，包括运行时加入的公开参数；不包括拟合系数和任意附加属性。 |
+| `set_params(**params)` | 使用 `get_params` 中的构造参数名；嵌套配置使用 `__` | 返回 `self`。基类实现验证更新并重建未拟合状态；未知参数抛出 `ValueError`。空调用不改变对象。更新后应重新拟合；模型覆盖的方法可能不同，尤其是 GAM，复用前应查阅其限制。 |
+
+直接修改属性不等于保证执行 `set_params`/重新拟合的完整过程。`sample_weight` 等仅由 `fit` 接受的参数不是构造配置。`get_params` 也不是整个已拟合对象的序列化副本。
+
+<a id="inference-helpers"></a>
+
+## 推断辅助方法
+
+以下是通过 `model.method(...)` 调用的**估计器方法**。它们与 `statgpu.inference` 中同名函数的签名和返回形式存在区别。
+
+### adjust_pvalues
+
+```python
+model.adjust_pvalues(pvalues=None, method="bh", alpha=0.05, axis=0, backend="auto")
+```
+
+- `pvalues`：位于 `[0, 1]` 的有限 p 值；`None` 使用 `model._pvalues`。没有相应结果时，应显式传入 p 值，或使用受支持的推断方式重新拟合；否则抛出 `RuntimeError`。
+- `method`：`"bh"`、`"by"`、`"holm"`、`"bonferroni"` 或 `"hochberg"`；别名见[多重检验指南](../guides/multiple-testing-combine-pvalues.md)。
+- `alpha`：位于 `(0, 1)` 的显著性水平。
+- `axis=0`：沿第一个轴校正；`None` 将全部元素视为同一个检验族。多目标系数数组尤其需要明确检验族。
+- `backend`：`"auto"`、`"numpy"`、`"cupy"` 或 `"torch"`；`auto` 跟随估计器解析出的设备，不只是按传入 p 值数组推断后端。
+
+返回字典，键为 `method`、`alpha`、`axis`、`backend`、`pvalues`、`pvalues_adjusted` 和布尔数组 `reject`。校正值和拒绝决定保持输入形状；它不是模块函数返回的 `(reject, adjusted)` 元组。原始边际 p 值必须有效，并满足所选方法的依赖结构假设。
+
+### combine_pvalues
+
+```python
+model.combine_pvalues(pvalues=None, method="fisher", weights=None, axis=None, backend="auto")
+```
+
+`pvalues` 和 `backend` 含义同上。`method` 为 `"fisher"`、`"cauchy"` 或 `"stouffer"`，别名见多重检验指南。`weights=None` 使用方法的等权约定；加权方法的权重应为有限非负数、与归约轴对齐且总和为正。Fisher 必须使用 `weights=None`，传入权重会抛出 `ValueError`。`axis=None` 展平全部元素，整数则指定归约轴。
+
+返回字典：`method`、`axis`、`backend`、`pvalues`、`weights`、`statistic` 和 `pvalue`。展平时后两项为标量，否则具有归约后的形状。模块函数则返回 `(statistic, pvalue)`。Fisher/Stouffer 的校准仍有相应依赖结构假设；合并 p 值不能使无效检验变得有效。
+
+### bootstrap_statistic
+
+```python
+model.bootstrap_statistic(
+    statistic, *arrays, n_resamples=200, strategy="iid", strata=None,
+    clusters=None, block_size=None, confidence_level=0.95,
+    random_state=None, statistic_name="statistic", backend="auto",
+)
+```
+
+| 参数 | 含义与限制 |
+|---|---|
+| `statistic` | 接收对齐数组并返回有限标量的可调用对象；须支持所选数组后端。 |
+| `*arrays` | 一个或多个非空数组，第一轴长度一致。单数组传入 `data`，不要包装成 `(data,)`。省略时尝试使用缓存 `_X_design` 和 `_y`，没有缓存则报错。设计缓存可能含截距或转换后的列，通常显式传入数组更清楚。 |
+| `n_resamples=200` | 正整数，重采样次数。增加次数减少蒙特卡洛波动，不消除模型偏差。 |
+| `strategy="iid"` | `iid`：有放回抽行；`stratified`：各层内重采样；`cluster`：整群重采样；`block`：抽取连续块。所有数组使用相同的行索引。 |
+| `strata=None`、`clusters=None` | 长度为 n 的标签；分别为分层或整群策略所必需。 |
+| `block_size=None` | 分块策略必需的正整数；大于 n 时按 n 处理。应保留有意义的观测顺序。 |
+| `confidence_level=0.95` | `(0, 1)` 内的百分位区间置信水平。 |
+| `random_state=None` | 整数种子，或不固定种子。可复现性针对同一后端和过程，不保证不同数组库产生相同样本。 |
+| `statistic_name="statistic"` | 报告标签，不负责选择或改变统计量。 |
+| `backend="auto"` | 跟随估计器设备；也可显式指定 NumPy/CuPy/Torch。 |
+
+返回 `BootstrapResult`，包含 `observed`（原始标量）、`samples`（长度为 `n_resamples` 的后端数组）、`confidence_interval`（上下界二元组）、`confidence_level`、`n_resamples`、`random_state`、`statistic_name`、`strategy` 和 `metadata`。`to_dict()` 把样本转换为列表；`to_dataframe()` 需要 pandas，返回 `sample_index` 和 `statistic` 两列。原始统计量属性名为 `observed`，不是 `statistic`。
+
+区间取重采样分布的 `(1-confidence_level)/2` 与 `(1+confidence_level)/2` 分位数。可交换性和重采样单位的选择由调用者负责。这一通用方法不是 ElasticNet 的残差系数 bootstrap 推断模式。
+
+### permutation_test
+
+```python
+model.permutation_test(
+    statistic, X, y, n_resamples=1000, strategy="iid", strata=None,
+    groups=None, alternative="two-sided", random_state=None,
+    statistic_name="statistic", backend="auto",
+)
+```
+
+`statistic(X, y)` 必须返回有限标量。`X` 与一维 `y` 的非零行数须一致。置换保持 `X` 不变，只重排响应：`iid` 在全体观测内，`stratified` 在长度为 n 的 `strata` 各层内，`grouped` 在长度为 n 的 `groups` 各组内。这里的 grouped 是**组内置换**，不是整组互换。`n_resamples` 为正整数；`alternative` 为 `"two-sided"`、`"greater"` 或 `"less"`。随机种子、报告标签和后端与 bootstrap 相同。
+
+返回 `PermutationTestResult`：`observed`、长度为 `n_resamples` 的后端 `samples`、`pvalue`、`n_resamples`、`random_state`、`statistic_name`、`strategy`、`alternative` 和 `metadata`。`to_dict()`、`to_dataframe()` 的行为与 bootstrap 结果一致。蒙特卡洛尾概率使用加一修正；双侧比较使用统计量绝对值。只有在零假设下响应允许相应置换时，检验才有合理解释。
+
+## 可运行的辅助方法示例
+
+<!-- api-example: estimator-helpers -->
+```python
+import numpy as np
+from statgpu import LinearRegression
+
+model = LinearRegression(device="cpu", compute_inference=False)
+adjusted = model.adjust_pvalues([0.01, 0.04, 0.5], method="holm")
+print(adjusted["reject"].tolist())
+boot = model.bootstrap_statistic(
+    np.mean, np.arange(1.0, 11.0), n_resamples=99, random_state=7,
+)
+print(boot.observed, len(boot.samples))
+```
+
+输出为 `[True, False, False]` 和 `5.5 99`。显式传入 p 值与数据后，这些调用不要求模型已经拟合；该示例没有对模型系数作推断。
+
+## 与模块函数的区别
+
+独立的 `bootstrap_statistic` 与 `permutation_test` 函数还接受 `force_vectorized=False` 和 `statistic_hint=None`，估计器包装方法不接受这两项。`force_vectorized=True` 要求兼容的 IID 批量计算。支持的提示值为 `"mean"` 和 `"pearson_corr"`，应与实际统计量和过程一致，不要为无关函数设置提示。独立函数的 `backend="auto"` 根据数组推断，且数据必须显式提供。导入与示例见[模块指南](../guides/inference-api.md)。

@@ -31,7 +31,26 @@ $$
 \hat m(x)=\frac{\sum_i w_i K_H(x-X_i)y_i}{\sum_i w_i K_H(x-X_i)}.
 $$
 
-局部线性回归则在每个查询点周围最小化加权局部平方误差，返回局部截距。两种回归都不提供一组全局斜率或系数 p 值。
+其中 $w_i\ge0$ 是归一化观测权重，$\sum_i w_i=1$；$H$ 是正定带宽矩阵。
+缩放后的核及加权密度定义为
+
+$$
+K_H(u)=|H|^{-1/2}K(H^{-1/2}u),\qquad
+\widehat f(x)=\sum_i w_iK_H(x-X_i).
+$$
+
+$p$ 维高斯核为 $K(v)=(2\pi)^{-p/2}\exp(-v^\top v/2)$。
+等权且 $H=h^2$ 时，加权公式退化为上面的一维形式。
+局部线性回归在每个查询点选择局部截距 $a$ 和斜率向量 $b$：
+
+$$
+(\widehat a(x),\widehat b(x))=
+\arg\min_{a,b}\sum_i w_iK_H(x-X_i)
+\{y_i-a-b^\top(X_i-x)\}^2,\qquad \widehat m(x)=\widehat a(x).
+$$
+
+每个查询点都重新拟合；两种回归都不提供一组全局斜率或系数 p 值。
+局部系统奇异时可采用下文说明的稳定化或 NW 回退。
 
 ## CPU 示例一：拟合与评价密度
 
@@ -136,6 +155,27 @@ print(np.column_stack([ci.estimate, ci.lower, ci.upper]).round(3))
 - 非均匀 `weights` 会同时用于抽样概率及抽样后的再次加权。这并不等价于所有频数权重、调查权重或重要性权重 bootstrap。本示例及解释限定于等权观测；加权区间必须先确认重采样方式适合研究设计。
 - 该包装函数仅接受 `method="percentile"`。相关的 `kde_confidence_interval` 提供默认的 `method="normal"`（仅一维高斯核的渐近近似）或 `"bootstrap"`；都不是偏差校正区间或同时置信带。
 
+对于置信水平 $1-\alpha$，每个固定查询点的百分位区间取 $B$ 次密度估计的经验分位数：
+
+$$
+[L(x),U(x)]=[Q_{\alpha/2}\{\widehat f_b^*(x)\}_{b=1}^B,
+Q_{1-\alpha/2}\{\widehat f_b^*(x)\}_{b=1}^B].
+$$
+
+独立的正态方法使用拟合绝对宽度 $h$，以及由归一化权重定义的
+$n_{\mathrm{eff}}=1/\sum_i w_i^2$。高斯核满足
+$R(K)=\int K(u)^2du=1/(2\sqrt\pi)$，因此
+
+$$
+\widehat{\mathrm{SE}}(x)=\sqrt{\frac{\widehat f(x)R(K)}{n_{\mathrm{eff}}h}},
+\qquad
+[L(x),U(x)]=[\max\{0,\widehat f(x)-z_{1-\alpha/2}\widehat{\mathrm{SE}}(x)\},
+\widehat f(x)+z_{1-\alpha/2}\widehat{\mathrm{SE}}(x)].
+$$
+
+$z_{1-\alpha/2}$ 是标准正态分位数。两种区间都逐点构造；正态公式使用渐近方差近似，
+不校正偏差。见[正态区间示例与完整参数](../reference/survival-smoothing-api.md#密度置信区间)。
+
 ## 形状与接口选择
 
 以下接口均从 `statgpu.nonparametric` 导入：
@@ -155,6 +195,9 @@ print(np.column_stack([ci.estimate, ci.lower, ci.upper]).round(3))
 - KDE 输出为 `(n_query,)`；一维目标的回归输出为 `(n_query,)`，二维目标则为 `(n_query, n_targets)`，包括 `(n_query, 1)`。NumPy 路径输出 NumPy 数组，普通 GPU 预测保留后端数组类型；区间结果数组会转为 NumPy。
 - 拟合用 `weights` 须有限、非负、长度为 `n_samples` 且总和为正，内部会归一化。权重全部集中于单个观测时协方差估计失败。错误形状、非有限输入、非正带宽、未知核名会报错。必须先 `fit` 再预测。
 
+原始坐标偏移量很大时，应先用同一训练偏移量中心化样本与查询。当前距离计算
+可能在未中心化时损失精度，尤其是对数密度及多元密度/回归；见 [API 数值限制](../reference/survival-smoothing-api.md#核密度估计)。
+
 ## 带宽、核与调参边界
 
 | 控制项 | 实际含义 |
@@ -167,6 +210,17 @@ print(np.column_stack([ci.estimate, ci.lower, ci.upper]).round(3))
 | `kernel` | `gaussian`、`rectangular`、`triangular`、`epanechnikov`、`biweight`、`triweight`、`cosine`、`optcosine`；后两种仅一维。 |
 | `batch_size` | 正的查询批大小，默认 `1024`；NumPy 一维高斯密度快速路径可能一起评价查询点。 |
 
+对于 $p$ 个特征和归一化权重，默认因子规则为
+
+$$
+n_{\mathrm{eff}}=\frac1{\sum_i w_i^2},\qquad
+b_{\mathrm{Scott}}=n_{\mathrm{eff}}^{-1/(p+4)},\qquad
+b_{\mathrm{Silverman}}=\left(\frac{n_{\mathrm{eff}}(p+2)}4\right)^{-1/(p+4)}.
+$$
+
+它们设定 $H=b^2\widehat\Sigma$，其中 $\widehat\Sigma$ 是加权样本协方差，
+实现另加数值稳定项。等权时 $n_{\mathrm{eff}}=n$；一维时 $h=\sqrt{H_{11}}$。
+
 其他带宽名包括 `nrd0`、`nrd`、`ucv`、`bcv`、`sj`、`sj-ste`、`sj-dpi`，并非都以预测损失为目标。R 风格选择器使用高斯参考规则；非均匀权重可能用分位数重采样，多元扩展用一维主轴投影。通过 `bandwidth_info_` / `to_numpy_metadata()` 查看实际因子和策略，不应把这些扩展称为与多元 R 方法完全相同。常数或过于稀疏的数据等情形可能使选择器失败。
 
 核回归还接受 `"cv"`、`"cv_ls"`、`"cv-nw"`、`"cv-ll"`，以留一 MSE 搜索标量因子。选择器使用完整协方差，局部线性 CV 修正仅在一维实现；多维时即使使用 `"cv-ll"`，目标也采用 NW 预测。多元局部线性或对角度量模型应针对**实际打算使用的模型**显式验证候选宽度，不能假定该选择器优化的就是相同配置。这些 CV 名称不是 KDE 的带宽选项。
@@ -175,7 +229,10 @@ print(np.column_stack([ci.estimate, ci.lower, ci.upper]).round(3))
 
 ## 完整 API 与诊断参考
 
-以上是入门时常用的参数。以下源码列出了完整的构造参数、函数参数、方法和结果字段：
+[面向使用者的完整 API 参考](../reference/survival-smoothing-api.md#核密度估计)
+集中列出构造、函数和方法签名、默认值、限制、返回形状及选择器/区间结果字段。
+特别注意：KDE 的 `batch_size` 是评价参数，不是构造参数；回归则可以在两处设置。
+下面保留实现链接供深入查阅：
 
 - [KDE 与区间](../../../statgpu/nonparametric/kernel_smoothing/_kde.py)：`KernelDensityEstimator`、`KDE`、`fit_kde`、`kde_pdf`、`kde_confidence_interval`、`kde_bootstrap_confidence_interval`、`KDEBootstrapResult`。估计器还接受 `weights=None`、`backend="auto"`、`device="auto"`、`n_jobs=None`、`gpu_memory_cleanup=False`。区间控制包括 `n_resamples=200`、`confidence_level=0.95`、`random_state=None`、`return_bootstrap_samples=False`、`batch_size=1024`；通用区间函数的 `bootstrap_method="percentile"`。
 - [核回归](../../../statgpu/nonparametric/kernel_smoothing/_kernel_regression.py)：`KernelRegression`、`KernelRegressionRegressor`、两个函数式接口、全部拟合/预测控制及 `to_numpy_metadata()`。构造函数还包含相同的设备选择（`device`）、并行任务数（`n_jobs`）和 GPU 内存清理（`gpu_memory_cleanup`）参数，以及 `batch_size` / `min_effective_weight`；`predict` 可覆盖后两项。一次性函数选择 `backend`，不接受 `device` 参数。

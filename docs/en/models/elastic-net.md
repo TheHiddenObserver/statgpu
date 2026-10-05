@@ -64,8 +64,10 @@ Use finite numeric `X` with shape `(n_samples, n_features)` and a one-dimensiona
 The Elastic Net optimization problem is:
 
 $$
-\min_{\beta} \frac{1}{2n}\|y - X\beta\|_2^2 + \alpha \cdot \lambda \cdot \|\beta\|_1 + \frac{\alpha}{2} \cdot (1 - \lambda) \cdot \|\beta\|_2^2
+\min_{b,\beta}\frac{\sum_{i=1}^n w_i(y_i-b-x_i^\top\beta)^2}{2\sum_{i=1}^n w_i}+\alpha\lambda\|\beta\|_1+\frac{\alpha(1-\lambda)}{2}\|\beta\|_2^2
 $$
+
+Here n is the row count, p the feature count, $x_i$ the p-vector of predictors, $b$ the unpenalized intercept and $\beta$ the slopes. Set $w_i=1$ without weights; weights are nonnegative with positive sum. With `fit_intercept=False`, fix b=0.
 
 where:
 - `alpha` (α) controls overall regularization strength
@@ -75,6 +77,8 @@ where:
 **Note on regularization scaling**: `ElasticNet` and `Ridge` use the same average-loss convention. Therefore, with `l1_ratio=0`, the Elastic Net objective at a given public `alpha` reduces to the corresponding L2 objective. The `ElasticNet` wrapper still retains its own solver/inference defaults; use `Ridge` when you specifically want the Ridge estimator contract.
 
 ## Estimating Equation
+
+The KKT equation and optimization pseudocode below use unweighted centered X/y. For analytic weights, use the normalized square-root-weighted working arrays defined in the debiased section; centering alone does not remove unequal weights.
 
 After eliminating the unpenalized intercept (equivalently, on centered data), the coefficient KKT condition is
 
@@ -220,6 +224,19 @@ For `debiased` inference with an intercept, public `coef_`/`intercept_` remain t
 
 For `ElasticNetCV`, `compute_inference=True` applies debiased inference only to the final full-data refit after alpha and `l1_ratio` have been selected. Fold models remain estimation-only. `nodewise_alpha` is final-refit inference configuration only: it does not enter the candidate grid or fold scoring, and the outer `nodewise_alpha_` reflects the final estimator when inference succeeds. The current `ElasticNetCV` API still fixes this final inference method to `debiased`; that pre-existing inference-selector limitation is separate from node-wise tuning.
 
+### Debiased reporting formula
+
+Let $\widetilde X,\widetilde y$ denote the centered working design/response; analytic weights additionally multiply row i by $\sqrt{n w_i/\sum_j w_j}$. Omit centering without an intercept. Let $M$ be the approximate inverse Gram matrix estimated by node-wise regressions and $\widehat\Sigma=\widetilde X^\top\widetilde X/n$. The reported slopes and model-based covariance are
+
+$$
+\hat\theta_{\mathrm{db}}=\hat\beta+
+\frac{M\widetilde X^\top(\widetilde y-\widetilde X\hat\beta)}{n},
+\qquad
+\widehat V_{\mathrm{db}}=\frac{\hat\sigma^2}{n}M\widehat\Sigma M^\top.
+$$
+
+The implementation estimates $\hat\sigma^2$ from working residual squares divided by $\max(n-s,1)$, where s is the number of nonzero penalized slopes. SEs are square roots of the covariance diagonal; z statistics and normal-reference 95% intervals use the corrected slopes. This is a model-based construction: current `cov_type="hc0"` through `"hc3"` or `"hac"` requests do not replace its covariance and must not be interpreted as robust debiased inference. The [method–covariance table](../reference/linear-model-api.md#covariance-and-inference-behavior) distinguishes `debiased`, `post_selection_ols`, and `bootstrap`.
+
 ## Solver and Inference Semantics
 
 For a direct `ElasticNet.fit`, **use `solver` on both CPU and GPU**. `device` chooses the execution backend; `solver` chooses the optimization algorithm. `cpu_solver` is a deprecated compatibility argument from the earlier hardware-split API and should not be used for new code.
@@ -253,7 +270,7 @@ Methods: `fit(X, y)`, `predict(X)`, `score(X, y)`, `summary()`
 - Explicit `device="cuda"` or `device="torch"` requires a usable corresponding GPU backend and does not silently switch to CPU. See [device and memory](../guides/device-and-memory.md).
 - Check the [solver–penalty matrix](../guides/solver-penalty-matrix.md) before requesting a different solver; `device` does not replace `solver`.
 
-The constructor table above is complete for `ElasticNet`. Full public class/method signatures and docstrings are available in the [ElasticNet API source](../../../statgpu/linear_model/wrappers/_elasticnet.py), or through `help(ElasticNet)` for the installed version. Inherited `get_params` / `set_params` expose estimator configuration. For cross-validation use the separate [ElasticNetCV API source](../../../statgpu/linear_model/cv/_elasticnet_cv.py), rather than assuming its parameters equal those of direct `ElasticNet`.
+The [complete ElasticNet API reference](../reference/linear-model-api.md#elasticnet) includes `predict(X, return_cpu=True)`, weighted `score(X, y, sample_weight=None)`, formula input, reporting fields and inference restrictions. Inherited methods have a [shared reference](../reference/estimator-api.md). Use the separate [ElasticNetCV constructor](../reference/linear-model-api.md#elasticnetcv) and [CV workflow/results](../reference/linear-model-api.md#cv-methods-and-results), including a runnable example; direct and CV parameters differ. Source inspection is supplementary, not a substitute for these contracts.
 
 ## Numerical Validation
 

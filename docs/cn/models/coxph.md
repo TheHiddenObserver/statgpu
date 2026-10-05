@@ -1,7 +1,7 @@
 # CoxPH
 
 > 语言：中文<br>
-> 最后更新：2026-10-04<br>
+> 最后更新：2026-10-05<br>
 > 页面定位：模型文档<br>
 > 切换：[English](../../en/models/coxph.md)
 
@@ -19,8 +19,14 @@
 
 应保留删失行。通常的统计解释要求：给定模型中的协变量与研究设计后，删失过程与事件过程独立。
 
-模型为 $h(t\mid x)=h_0(t)\exp(x^\top\beta)$：基线风险描述瞬时事件风险如何随时间变化，
-协变量则以乘法方式改变风险。同一分层内，对于固定的协变量，**比例风险（PH）假设**要求
+模型为
+
+$$
+h_s(t\mid x)=h_{0s}(t)\exp(x^\top\beta).
+$$
+
+其中 $h_{0s}$ 为第 $s$ 层的基线风险率，$x$ 为协变量向量，$\beta$ 为各层共享的系数。
+基线描述瞬时事件风险率如何随时间变化，协变量以乘法方式改变它。同一分层内，对于固定的协变量，**比例风险（PH）假设**要求
 两种特征组合之间的风险比不随时间变化。其他特征保持不变时，第 `j` 个特征增加一个单位，
 瞬时风险乘以 `exp(coef_[j])`。风险比不是事件概率、生存时间，也不自动具有因果含义。
 应结合研究设计检查 PH 假设是否合理；优化器收敛并不意味着这些假设成立。
@@ -74,7 +80,7 @@ if not model.converged_:
 print("Coefficients:", model.coef_)
 print("Per-feature hazard ratios:", model.hazard_ratios_)
 print("Convergence:", model.termination_reason_, model.n_iter_)
-print(model.summary())
+model.summary()
 
 log_risk = model.predict_risk_score(X_test[:2])
 relative_hazard = model.predict(X_test[:2])
@@ -113,6 +119,29 @@ print("Held-out C-index:", held_out_cindex)
 没有可比较样本对时也返回 `0.5`；此时是评估证据不足，不能据此认定模型表现等同于随机。
 不要把训练集 concordance 当作留出评估。
 
+### 从相对风险到生存概率
+
+对于第 $s$ 层内固定的协变量组合，
+
+$$
+H_s(t\mid x)=H_{0s}(t)\exp(x^\top\beta),\qquad
+S_s(t\mid x)=\Pr(T>t\mid x,s)=\exp\{-H_s(t\mid x)\}.
+$$
+
+$H_{0s}(t)=\int_0^t h_{0s}(u)\,du$ 是累积基线风险。当前实现按不同事件时刻的
+Breslow 增量估计它：
+
+$$
+\widehat H_{0s}(t)=\sum_{t_k\le t}
+\frac{d_{sk}}{\sum_{j\in R_s(t_k)}\exp(x_j^\top\widehat\beta)}.
+$$
+
+$d_{sk}$ 为第 $s$ 层在 $t_k$ 的事件数；$R_s(t_k)$ 包含同层中满足
+`start < t_k <= stop` 的记录。即使系数拟合使用 `ties="efron"` 或 `"exact"`，
+基线仍使用这些增量。因此，仅有相对风险不能给出生存概率，还需要拟合基线。
+[API 参考示例](../reference/survival-smoothing-api.md#系数推断与-cv-结果)重建返回的曲线，
+并说明系数区间与风险比区间的区别。
+
 ## 输入形状与 fit API
 
 矩阵接口为 `CoxPH(...).fit(X, time, event, ...)` 或
@@ -136,7 +165,8 @@ print("Held-out C-index:", held_out_cindex)
 其区间参数叫 `start`，不是 `entry`。矩阵拟合前应先处理数值缺失，非有限数组会被拒绝，
 不会静默删除对应行。
 
-完整构造参数见[参数](#参数)与 [CoxPHCV 参数](#coxphcv-参数)。规范的方法签名与实现契约见
+完整调用签名、返回形状、方法限制和推断输出见[面向使用者的 API 参考](../reference/survival-smoothing-api.md#coxph-与-coxphcv)。
+构造参数也见[参数](#参数)与 [CoxPHCV 参数](#coxphcv-参数)。规范的方法签名与实现契约见
 [`CoxPH`](../../../statgpu/survival/_cox.py) 和
 [`CoxPHCV`](../../../statgpu/survival/_cox_cv.py)。
 
@@ -328,6 +358,15 @@ penalized_cv = PenalizedGLM_CV(
 `CoxFitNumericalError`（`FloatingPointError` 子类）；`CoxPHCV` 只排除这类
 候选，输入错误、内存分配器错误、CUDA 错误以及其他非预期运行时错误仍会原样传播。
 
+系数推断的 `_bse`、`_zvalues`、`_pvalues` 是 `(p,)` NumPy 数组；`_conf_int`
+是 `(p,2)` 的固定 **95% 逐系数、系数尺度**区间。`np.exp(model._conf_int)`
+才是 `summary()` 展示的风险比区间。关闭推断时这些字段为 `None`。
+`summary()` 直接打印并返回 `None`。
+
+`log_likelihood`、`aic`、`bic`、`concordance_index` 是 CoxPH 属性。
+正惩罚拟合后读取 AIC/BIC 会报错；无惩罚 BIC 使用事件数而不是行数。
+CV 模型应通过 `estimator_` 读取这些属性，见[输出表与可运行验证](../reference/survival-smoothing-api.md#系数推断与-cv-结果)。
+
 ## CPU 与 GPU 示例
 
 三个后端使用相同的统计输入，并在拟合后端返回预测数组。以下可选后端示例与前面的留出评估示例独立。先运行一次以下确定性数据准备：
@@ -490,9 +529,10 @@ Newton 迭代使用线搜索，并在最终参数处执行 KKT 检查。线搜�
 正 L2 惩罚下，记 `J` 为拟合系数处未加惩罚的 Cox 观测信息，
 `A = J + 2 * penalty * I_p`，则固定惩罚强度的频率学派代入式协方差为：
 
-```text
-A^-1 J A^-1
-```
+$$
+\widehat{\operatorname{Var}}(\widehat\beta)=A^{-1}JA^{-1},
+\qquad A=J+2\lambda I_p.
+$$
 
 而不是 `A^-1`；后者更接近惩罚曲率或 Laplace 近似下的量，不能直接作为频率学派
 抽样协方差发布。带惩罚的稳健推断同样使用带惩罚的逆曲率矩阵作为两侧矩阵（bread），中间矩阵（meat）仍由未加惩罚的聚合得分外积构成。

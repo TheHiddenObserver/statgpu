@@ -28,11 +28,21 @@ $$
 \min_{b,\beta}\sum_{i=1}^n (y_i-b-x_i^\top\beta)^2.
 $$
 
-The normal equations are $D^\top(y-D\hat\theta)=0$, where $D$ includes the
-intercept column when requested. A matrix inverse is only a mathematical
-expression for full-rank designs; do not manually invert $D^\top D$ to use this
-estimator. With `sample_weight=w`, the objective becomes the weighted sum
-$\sum_i w_i(y_i-b-x_i^\top\beta)^2$.
+Here n is the observation count, $x_i$ the p-vector of predictors, $b$ the intercept, and $\beta$ the p-vector of slopes. Let $D=[\mathbf1,X]$ and $\theta=(b,\beta^\top)^\top$ when fitting an intercept; otherwise $D=X$ and $\theta=\beta$. With $W=\operatorname{diag}(w_i)$ (identity without weights), the weighted objective and normal equations are
+
+$$
+\min_\theta (y-D\theta)^\top W(y-D\theta),\qquad
+D^\top W(y-D\hat\theta)=0.
+$$
+
+For a full-rank classical model, writing $r=\operatorname{rank}(D)$,
+
+$$
+\hat\sigma^2=\frac{(y-D\hat\theta)^\top W(y-D\hat\theta)}{n-r},\qquad
+\widehat{\operatorname{Var}}(\hat\theta)=\hat\sigma^2(D^\top WD)^{-1}.
+$$
+
+Standard error j is the square root of covariance diagonal j. A marginal interval is $\hat\theta_j\pm c\,\mathrm{SE}_j$, with a t critical value for classical inference and a normal critical value for HC/HAC. Robust choices replace the covariance construction, not the OLS/WLS fit. These inverse expressions require a full-rank design and positive residual degrees of freedom; users should not manually invert the Gram matrix to fit the estimator.
 
 ## A complete CPU example
 
@@ -174,6 +184,8 @@ is the residual-based F statistic, not a robust joint Wald test.
   the same responses. See [feature selection](feature-selection.md).
 
 ## API inventory and advanced reference
+
+The reader-facing [LinearRegression API reference](../reference/linear-model-api.md#linearregression) covers every constructor/method argument, default, shape and return. [Shared estimator helpers](../reference/estimator-api.md#inference-helpers) document inherited inference methods separately from module functions.
 
 Import from `statgpu` or `statgpu.linear_model`. All constructor parameters are
 listed above. The complete implementation/docstrings are in

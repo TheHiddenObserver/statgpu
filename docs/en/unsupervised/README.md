@@ -59,6 +59,8 @@ The shapes are `(90, 2)` and `(30, 2)`. The retained variance fraction is close 
 
 ## Estimators
 
+The [complete unsupervised API reference](api-reference.md) lists defaults, method signatures, output shapes and incremental-batch restrictions for all twelve estimators.
+
 - [PCA](pca.md): exact or randomized principal component analysis.
 - [KMeans](kmeans.md): Lloyd clustering with random or greedy k-means++ initialization.
 - [DBSCAN](dbscan.md): dense Euclidean density clustering with optional statgpu-owned Cython CPU acceleration.

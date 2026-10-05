@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-
 _ROOT = Path(__file__).resolve().parents[2]
 
 _PAGES = (
@@ -48,6 +47,8 @@ def _prose(text: str) -> str:
         if fenced:
             continue
         line = re.sub(r"`[^`]*`", "", line)
+        # Link destinations are identifiers/paths, not translated prose.
+        line = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", line)
         # The rule targets mixed Chinese/English explanatory prose, not
         # English-only bibliographic titles or paper names.
         if re.search(r"[\u3400-\u9fff]", line):
@@ -153,3 +154,8 @@ def test_solver_documentation_guard_accepts_current_and_extended_apis(language):
         _check_logistic_solver_documentation(
             selectable, controls + ' solver="unknown"', language
         )
+
+
+def test_prose_guard_ignores_link_paths_but_keeps_visible_labels():
+    assert _FORBIDDEN_PROSE.search(_prose("参见[共享方法](../reference/estimator-api.md)")) is None
+    assert _FORBIDDEN_PROSE.search(_prose("这个 estimator 需要重拟合")) is not None

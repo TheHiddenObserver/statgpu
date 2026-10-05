@@ -48,7 +48,7 @@ def test_index_relative_links_resolve_and_match_across_languages():
         for target in targets:
             assert (index.parent / target).resolve().is_file(), target
         routes.append({t for t in targets if not t.startswith('../')})
-    assert routes[0] == routes[1] == set(_ESTIMATORS.values())
+    assert routes[0] == routes[1] == set(_ESTIMATORS.values()) | {'api-reference.md'}
 
 
 @pytest.mark.parametrize('language', ('en', 'cn'))

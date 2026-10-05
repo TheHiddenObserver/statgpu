@@ -1,7 +1,7 @@
 # TruncatedSVD
 
 > Language: English
-> Last updated: 2026-05-09
+> Last updated: 2026-10-05
 > Path: `statgpu.unsupervised.TruncatedSVD`
 
 ## Overview
@@ -74,3 +74,7 @@ Baselines: sklearn `TruncatedSVD`, statsmodels PCA-style SVD, and R `svd` where 
 
 - Halko, N., Martinsson, P. G., & Tropp, J. A. (2011). Finding structure with randomness: Probabilistic algorithms for constructing approximate matrix decompositions. *SIAM Review*, 53(2), 217-288.
 - scikit-learn developers. `sklearn.decomposition.TruncatedSVD` API documentation.
+
+## Complete API reference
+
+Constructor defaults, all public methods, output shapes, and restrictions are listed in the [TruncatedSVD API reference](api-reference.md#truncatedsvd).

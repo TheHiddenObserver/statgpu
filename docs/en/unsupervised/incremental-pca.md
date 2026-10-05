@@ -1,7 +1,7 @@
 # IncrementalPCA
 
 > Language: English
-> Last updated: 2026-05-07
+> Last updated: 2026-10-05
 > Switch: [Chinese](../../cn/unsupervised/incremental-pca.md)
 
 ## Overview
@@ -78,3 +78,7 @@ No. Phase 3C supports dense 2D float arrays only.
 
 - Ross, D. A., Lim, J., Lin, R.-S., & Yang, M.-H. (2008). Incremental learning for robust visual tracking. *International Journal of Computer Vision*, 77, 125-141. https://doi.org/10.1007/s11263-007-0075-7
 - scikit-learn Developers. `sklearn.decomposition.IncrementalPCA`. scikit-learn documentation. https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.IncrementalPCA.html
+
+## Complete API reference
+
+Constructor defaults, all public methods, output shapes, and restrictions are listed in the [IncrementalPCA API reference](api-reference.md#incrementalpca).
