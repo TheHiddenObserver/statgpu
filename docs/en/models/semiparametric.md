@@ -46,6 +46,8 @@ y_test = (np.sin(2 * X_test[:, 0]) + 0.4 * X_test[:, 1] ** 2
           + rng.normal(0, 0.15, 80))
 
 gam = GAM(n_splines=12, lam=None, device="cpu").fit(X_train, y_train)
+if not np.isfinite(gam.gcv_score_):
+    raise RuntimeError("No finite GCV candidate; revise the model before prediction.")
 prediction = gam.predict(X_test)
 mse = np.mean((prediction - y_test) ** 2)
 baseline_mse = np.mean((y_train.mean() - y_test) ** 2)
@@ -84,7 +86,7 @@ $$
 \operatorname{edf}=\operatorname{clip}\!\left(\operatorname{tr}\!\left((A+\delta I)^{-1}B^\top B\right),0,m\right).
 $$
 
-Here $A=B^\top B+\lambda S$, $m$ is the number of basis coefficients including the intercept, and $\delta=10^{-10}\operatorname{tr}(A)/m$. This is the reported EDF on the usual stabilized Cholesky path. Centering complete spline blocks can leave $A$ singular, so an ordinary inverse of the unstabilized matrix must not be assumed. If the numerical EDF solve fails, the implementation reports $m$; inspect diagnostics rather than interpreting that fallback as an independently validated model complexity. Standard GCV has `gamma=1`. Larger `gamma` penalizes effective complexity more strongly. When the correction term $1-\gamma\operatorname{edf}/n$, before squaring, is nonpositive or too close to zero, the candidate is assigned infinite GCV; check that the selected score is finite.
+Here $A=B^\top B+\lambda S$, $m$ is the number of basis coefficients including the intercept, and $\delta=10^{-10}\operatorname{tr}(A)/m$. This is the reported EDF on the usual stabilized Cholesky path. Centering complete spline blocks can leave $A$ singular, so an ordinary inverse of the unstabilized matrix must not be assumed. If the numerical EDF solve fails, the implementation reports $m$; inspect diagnostics rather than interpreting that fallback as an independently validated model complexity. Standard GCV has `gamma=1`. Larger `gamma` penalizes effective complexity more strongly. When the correction term $1-\gamma\operatorname{edf}/n$, before squaring, is nonpositive or too close to zero, the candidate is assigned infinite GCV; check that the selected score is finite. If every candidate has infinite GCV, the current implementation still returns the first grid value and a fitted object. That is not a valid smoothing selection: treat a nonfinite `gcv_score_` as failure, inspect the sample size, basis design, and `gamma`, and use a scientifically justified revised design or externally validated fixed `lam` before interpreting predictions.
 
 Start with cubic splines and order-2 penalty. Increase `n_splines` only if the fitted shape appears too restricted, then reassess held-out error. Increasing `lam` usually smooths more strongly. Quantile knots place more knots where data are dense; uniform knots are equally spaced across the observed range. Use a validation split or CV to choose these design settings, keeping a final test set untouched.
 

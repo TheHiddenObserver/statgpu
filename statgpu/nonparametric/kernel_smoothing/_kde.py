@@ -78,7 +78,62 @@ def _kernel_norm_const(kernel_name: str, n_features: int) -> float:
 
 
 class KernelDensityEstimator(BaseEstimator):
-    """sklearn-style kernel density estimator with class-owned fit/predict API."""
+    """Weighted kernel density estimation for continuous observations.
+
+    Parameters
+    ----------
+    bandwidth : str or float, default='scott'
+        Positive finite dimensionless covariance factor b: H=b**2*Sigma.
+        A number is not an absolute width in input units. String selectors:
+        scott, silverman, nrd0, nrd, ucv, bcv, sj, sj-ste, sj-dpi.
+    weights : array-like, shape (n_samples,), optional
+        Finite nonnegative training weights with positive sum, normalized
+        internally. Covariance needs more than one effectively weighted row.
+        Supply weights here, not as a keyword to fit.
+    kernel : str, default='gaussian'
+        gaussian, rectangular, triangular, epanechnikov, biweight, triweight,
+        cosine, or optcosine. The last two require one-dimensional samples.
+    backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
+        Array library; auto follows estimator/global device settings. An
+        explicit Torch library alone does not guarantee CUDA placement.
+    device : {'auto', 'cpu', 'cuda', 'torch'}, default='auto'
+        Device used when resolving the automatic backend. Prefer matching
+        explicit device and backend settings.
+    n_jobs : int or None, default=None
+        Shared estimator option; does not create a parallel query pool.
+    gpu_memory_cleanup : bool, default=False
+        Best-effort GPU-cache cleanup, preserving arrays needed for prediction.
+
+    Attributes
+    ----------
+    samples_ : backend array, shape (n_samples, n_features)
+        Float64 training observations.
+    weights_ : backend array, shape (n_samples,)
+        Normalized training weights.
+    bandwidth_factor_ : float
+        Selected covariance factor.
+    bandwidth_info_ : BandwidthSelectionResult or None
+        Selector diagnostics; None for an explicit numeric factor.
+    covariance_, inv_covariance_ : backend arrays, shape (n_features, n_features)
+        Stabilized kernel covariance H and its inverse.
+    norm_const_, inv_norm_const_ : float
+        Kernel-volume normalization and its reciprocal.
+    n_samples_, n_features_ : int
+        Training dimensions.
+    kernel_, backend_ : str
+        Resolved kernel and array library.
+
+    Notes
+    -----
+    fit accepts finite real samples (n,) or (n,p), n >= 2; numeric calculations
+    use float64. pdf/predict/__call__ return backend-native (n_query,) density;
+    logpdf/score_samples return log density. score is mean log density, not R2.
+    For large coordinate offsets, center samples and queries by the same
+    training-derived offset. Remove zero-weight rows before fitting when
+    using Gaussian log density: zero-weight rows can currently destabilize
+    its log-sum-exp evaluation in the tails. Density interval helpers return
+    host NumPy arrays and have separate pointwise coverage restrictions.
+    """
 
     def __init__(
         self,
@@ -105,6 +160,13 @@ class KernelDensityEstimator(BaseEstimator):
         return _auto_backend_from_device(self._get_compute_device().value)
 
     def fit(self, X, y=None):
+        """Fit from finite real samples with shape (n,) or (n,p), n >= 2.
+
+        Returns self. Optional y is unused for density estimation, but is still
+        subject to shared finite-input validation. Training weights belong to the
+        constructor. Calls after a failed refit must not be mistaken for results
+        of that attempted fit; successfully refit before using the new data.
+        """
         backend_name = self._resolve_backend_name(X)
         xp = _get_xp(backend_name)
 
@@ -320,6 +382,13 @@ class KernelDensityEstimator(BaseEstimator):
         return xp.where(finite_rows, finite_result, float("-inf"))
 
     def pdf(self, points, *, batch_size: int = 1024):
+        """Evaluate density, returning a backend-native (n_query,) array.
+
+        points must be finite with shape (n_query,n_features). A vector means
+        many one-feature queries, or one multivariate query of matching length.
+        batch_size is a positive integer query-batch size (default 1024).
+        Compact-support kernels return zero where no sample contributes.
+        """
         self._require_fitted()
         xp = _get_xp(self.backend_)
         points_2d = _as_points_2d(points, self.n_features_, xp, ref_arr=self.samples_)
@@ -371,6 +440,12 @@ class KernelDensityEstimator(BaseEstimator):
         return out
 
     def logpdf(self, points, *, batch_size: int = 1024):
+        """Evaluate log density with the same query and batch contract as pdf.
+
+        Returns backend-native (n_query,). Compact-support kernels return -inf
+        where density is zero. Gaussian tails use log-domain evaluation; remove
+        zero-weight training rows first and center large-offset coordinates.
+        """
         self._require_fitted()
         xp = _get_xp(self.backend_)
         points_2d = _as_points_2d(points, self.n_features_, xp, ref_arr=self.samples_)
@@ -383,6 +458,10 @@ class KernelDensityEstimator(BaseEstimator):
         return self.pdf(points, batch_size=batch_size)
 
     def to_numpy_metadata(self):
+        """Return fitted bandwidth, covariance, weights, and dimension metadata.
+
+        Array values are transferred to host NumPy arrays. Requires fitting.
+        """
         self._require_fitted()
         bandwidth_selection = None
         if hasattr(self.bandwidth_info_, "to_dict"):
@@ -400,12 +479,21 @@ class KernelDensityEstimator(BaseEstimator):
         }
 
     def predict(self, X):
+        """Return density at X; alias for pdf using its default batch size.
+        """
         return self.pdf(X)
 
     def score_samples(self, X):
+        """Return log density at X using the default evaluation batch size.
+        """
         return self.logpdf(X)
 
     def score(self, X, y=None):
+        """Return the unweighted mean query log density as a Python float.
+
+        Higher values are better on the same held-out data and measurement scale.
+        Optional y is unused but remains subject to finite-input validation.
+        """
         vals = self.score_samples(X)
         return float(np.mean(_to_numpy(vals)))
 
@@ -465,9 +553,14 @@ def kde_pdf(
     return_log: bool = False,
     batch_size: int = 1024,
 ):
-    """One-shot Gaussian KDE evaluation.
+    """Fit a KDE and evaluate density or log density at points.
 
-    This helper fits a KDE model and evaluates it at `points`.
+    samples, bandwidth, weights, kernel, and backend have the fit_kde
+    meanings; all supported kernels are accepted. points follows the fitted
+    estimator query-shape contract. return_log=False returns density;
+    True returns log density. batch_size=1024 is a positive query-batch size.
+    The returned array is backend-native with shape (n_query,). Reuse fit_kde
+    for repeated queries rather than fitting again on each helper call.
     """
     model = fit_kde(
         samples,
@@ -544,10 +637,13 @@ def kde_bootstrap_confidence_interval(
     return_bootstrap_samples: bool = False,
     batch_size: int = 1024,
 ) -> KDEBootstrapResult:
-    """Backward-compatible bootstrap CI wrapper for KDE.
+    """Return pointwise percentile bootstrap intervals for a KDE.
 
-    This wrapper preserves the original API and delegates to
-    ``kde_confidence_interval(method='bootstrap')``.
+    Arguments have the kde_confidence_interval meanings, except this wrapper
+    accepts only method='percentile' and selects the general function's
+    method='bootstrap'. It returns KDEBootstrapResult with NumPy arrays.
+    The intervals are neither bias-corrected nor simultaneous. See the
+    selector-refitting and nonuniform-weight limitations in that function.
     """
     return kde_confidence_interval(
         samples,
@@ -582,11 +678,58 @@ def kde_confidence_interval(
     return_bootstrap_samples: bool = False,
     batch_size: int = 1024,
 ) -> KDEBootstrapResult:
-    """Estimate pointwise KDE confidence intervals.
+    """Estimate pointwise confidence intervals for a smoothed density.
 
-    Supported methods:
-    - ``normal``: asymptotic normal approximation (fast path, 1D Gaussian).
-    - ``bootstrap``: non-parametric bootstrap percentile intervals.
+    Parameters
+    ----------
+    samples : array-like, shape (n_samples,) or (n_samples, n_features)
+        Finite real observations, at least two.
+    points : array-like
+        Finite query points following KernelDensityEstimator.pdf shapes.
+    bandwidth : str or float, default='scott'
+        Selector or positive covariance factor, with the fit_kde meaning.
+    weights : array-like, shape (n_samples,), optional
+        Nonnegative normalized fitting weights. The bootstrap uses weights
+        both as sampling probabilities and again on sampled rows; establish
+        that this scheme fits the study design before using unequal weights.
+    kernel : str, default='gaussian'
+        KDE kernel. The normal method requires a one-dimensional Gaussian KDE.
+    backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
+        Fitting array library; result arrays are always host NumPy arrays.
+    n_resamples : int, default=200
+        Positive bootstrap replicate count, validated even for normal intervals.
+    confidence_level : float, default=0.95
+        Finite value strictly between zero and one; do not pass NaN.
+    random_state : int or None, default=None
+        Seed for bootstrap sampling; unused by the normal method.
+    method : {'normal', 'bootstrap'}, default='normal'
+        Asymptotic pointwise normal interval (lower bound clipped to zero),
+        or percentile bootstrap interval.
+    bootstrap_method : {'percentile'}, default='percentile'
+        Only supported bootstrap procedure, required even on the normal path.
+    return_bootstrap_samples : bool, default=False
+        Include the (n_resamples,n_query) replicate matrix for bootstrap.
+        Normal intervals always have bootstrap_samples=None and n_resamples=0.
+    batch_size : int, default=1024
+        Positive query batch size; a NumPy bootstrap fast path can evaluate
+        all queries together.
+
+    Returns
+    -------
+    result : KDEBootstrapResult
+        NumPy points, estimate, lower, upper, optional bootstrap_samples, and
+        method/bandwidth/backend metadata. Bounds are pointwise, not a
+        simultaneous band or a prediction interval for future observations.
+
+    Notes
+    -----
+    Neither method corrects smoothing bias or dependence. The NumPy 1D
+    Gaussian bootstrap fast path holds the original selected factor fixed;
+    other paths refit string selectors in each replicate. A numeric factor
+    is fixed on every path, but sample covariance and absolute width still
+    change with each resample. Equal-weight independent observations give
+    the introductory interpretation; do not assume all weighted bootstrap
+    designs or preceding tuning uncertainty are handled.
     """
     method_name = str(method).strip().lower()
     if method_name not in ("normal", "bootstrap"):

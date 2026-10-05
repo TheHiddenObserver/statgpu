@@ -17,6 +17,12 @@ stepwise_selection(X, y, model_class=LinearRegression, criterion='aic', directio
 
 `stepwise_selection` 返回已拟合选择器。关键字可包含 `max_features`、`n_jobs`、`verbose` 等选择器控制以及模型配置；选择器参数由 StepwiseSelector 消费，不会继续转交模型。`fit`/`score` 接受一维响应或会被展平的单列响应。StepwiseSelector 不提供 `fit_transform`、`get_support`、样本权重、公式输入或系数推断接口；转换使用 `fit(...).transform(...)`，索引读取 `selected_features_`。
 
+`get_params(deep=True)` 仍返回扁平字典。`set_params` 把选择器控制项以外的名称
+当作包装模型的构造关键字，未知模型参数可能直到 `fit` 才报错。返回选择器不代表
+评分全部有效：初始无穷大评分可能阻止接受有限的改进结果；后向搜索失败时，特征数
+可能超过 `max_features`。使用所选模型前，应检查准则历史全部有限且满足数量上限，
+详见[非有限评分限制](../models/feature-selection.md#nonfinite-score-limitations)。
+
 ## Knockoff 函数与构造函数
 
 ```python
@@ -49,10 +55,16 @@ fixed-X 函数/类只接受其签名中的共享参数子集。`modelx_*` 与采
 | `modelx_covariance_shrinkage` | `0.20` | 原生 model-X 协方差收缩比例，应在 `[0,1]` 内。 |
 | `modelx_s_scale` | `0.999` | 原生 model-X 的 S 矩阵缩放，通常在 `(0,1]` 内。 |
 | `modelx_draws` | `None` | 严格正整数或 None；OLS/Lasso 差默认 5 次，相关差默认 3 次。提供 Xk 时使用该矩阵，不重新抽取多个矩阵。 |
-| `modelx_shrinkage` | `"ledoitwolf"` | knockpy 兼容协方差策略，传给相应可选实现。 |
-| `modelx_smatrix_method` | `"mvr"` | knockpy 兼容 S 矩阵方法，传给相应实现。 |
+| `modelx_shrinkage` | `"ledoitwolf"` | 兼容协方差策略：`ledoitwolf`、`none`/`mle`、`graphicallasso`/`glasso`；实际选择及回退行为见下文。 |
+| `modelx_smatrix_method` | `"mvr"` | 请求的兼容 S 矩阵方法；有 knockpy 时传给它，但可能回退为等相关构造，详见下文。 |
 | `knockpy_sampler` | `None` | 可选 gaussian/fx/metro/artk 等分发名；当前分发实现为占位，可能抛出 NotImplementedError。使用已实现构造时保持 None。 |
 | `knockpy_sampler_method` | `None` | 高斯分发子方法，如 mvr/sdp/maxent/equi/ci；不能使未实现的采样器可用。 |
+
+### 兼容模式的实际方法与回退
+
+使用 `compat_mode="knockpy"` 的内置 model-X 构造时，协方差估计在本地 CPU 上执行。`none`/`mle` 使用样本协方差，但最小特征值低于内部阈值时会改用 Ledoit–Wolf。Ledoit–Wolf 和图形 Lasso 使用 sklearn；导入失败时改用样本协方差，`metadata["modelx_covariance_estimator"]` 会报告 `"mle_fallback_no_sklearn"`。
+
+S 矩阵构造会尝试调用 knockpy 中请求的方法。包缺失或**该调用抛出任何异常**时，都会回退为等相关构造；因此，方法名无效也可能返回结果而不是报错。`metadata["modelx_smatrix_method"]` 仅记录请求名称。要判断实际执行的协方差/S 矩阵方法，或与 knockpy 作对照，应检查 `modelx_covariance_estimator` 和 `modelx_smatrix_source`（`"knockpy"` 或 `"equicorrelated_fallback"`）。这些回退标记本身不证明 knockoff 有效，也不保证 FDR 控制。
 
 ## 选择器方法
 

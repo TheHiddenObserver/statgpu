@@ -66,7 +66,7 @@ $$
 - Store the merge tree as `children_` and merge distances as `distances_`.
 - Cut the tree to produce `n_clusters` labels.
 
-The CPU path delegates exact linkage computation to SciPy hierarchy routines. Explicit CuPy/Torch paths use statgpu-owned backend-resident dense distance matrices and Lance-Williams linkage updates.
+The CPU path delegates exact linkage computation to SciPy hierarchy routines. Explicit CuPy/Torch paths use statgpu-owned backend-resident dense distance matrices. Single linkage builds a minimum spanning tree and assembles the merge tree on CPU; complete, average, and Ward linkage use Lance–Williams updates.
 
 ## Parameters
 
@@ -96,6 +96,8 @@ For a supported GPU installation, construct a new estimator with `device="cuda"`
 ## Approximation and interpretation
 
 There is no strict inference mode. Supported linkages are exact for dense Euclidean inputs on CPU, CuPy, and Torch. GPU execution allocates a dense distance matrix and raises a clear `MemoryError` if the configured memory limit would be exceeded.
+
+The GPU paths evaluate pairwise distances through expanded squared norms. Large common feature offsets can cause cancellation and change the hierarchy; subtract a training-derived offset in float64 before fitting. This preserves the intended Euclidean geometry. The SciPy CPU linkage path does not use that shared GPU distance formula.
 
 Ward merge heights in `distances_` are $\sqrt{2\Delta(A,B)}$, not the raw increase $\Delta(A,B)$ itself. GPU distance-matrix estimates are checked against a configured 1 GiB default cap (`STATGPU_AGGLOMERATIVE_GPU_MAX_BYTES`, read when importing the module), not the available GPU memory.
 

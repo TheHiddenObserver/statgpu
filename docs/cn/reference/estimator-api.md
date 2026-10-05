@@ -62,7 +62,7 @@ model.bootstrap_statistic(
 | `statistic` | 接收对齐数组并返回有限标量的可调用对象；须支持所选数组后端。 |
 | `*arrays` | 一个或多个非空数组，第一轴长度一致。单数组传入 `data`，不要包装成 `(data,)`。省略时尝试使用缓存 `_X_design` 和 `_y`，没有缓存则报错。设计缓存可能含截距、公式列或乘以权重平方根的行，而响应缓存未必采用同样的权重转换。定义加权统计量时请显式传入数组与权重，不能把缓存当作保证有效的原始训练数据对。 |
 | `n_resamples=200` | 正整数，重采样次数。增加次数减少蒙特卡洛波动，不消除模型偏差。 |
-| `strategy="iid"` | `iid`：有放回抽行；`stratified`：各层内重采样；`cluster`：整群重采样；`block`：抽取连续块。所有数组使用相同的行索引。 |
+| `strategy="iid"` | `iid`：有放回抽行；`stratified`：各层内重采样；`cluster`：等大小群组的整群重采样（限制见下文）；`block`：抽取连续块。所有数组使用相同的行索引。 |
 | `strata=None`、`clusters=None` | 长度为 n 的标签；分别为分层或整群策略所必需。 |
 | `block_size=None` | 分块策略必需的正整数；大于 n 时按 n 处理。应保留有意义的观测顺序。 |
 | `confidence_level=0.95` | `(0, 1)` 内的百分位区间置信水平。 |
@@ -71,6 +71,8 @@ model.bootstrap_statistic(
 | `backend="auto"` | 遵循上文 GPU 与 CPU-auto 的区别；要求 NumPy 时显式指定 `numpy`。显式 CuPy/Torch 请求要求相应 GPU 后端可用。 |
 
 返回 `BootstrapResult`，包含 `observed`（原始标量）、`samples`（长度为 `n_resamples` 的后端数组）、`confidence_interval`（上下界二元组）、`confidence_level`、`n_resamples`、`random_state`、`statistic_name`、`strategy` 和 `metadata`。`to_dict()` 把样本转换为列表；`to_dataframe()` 需要 pandas，返回 `sample_index` 和 `statistic` 两列。原始统计量属性名为 `observed`，不是 `statistic`。
+
+**不等大小群组的限制。** 当前 `cluster` 实现会持续抽取群组，直到累计行数达到 n，再截断最后一个群组以保留 n 行。这可能拆开群组，不能作为不等大小群组的有效整群 bootstrap。此时不要使用它给出的区间，应改用经过验证、保留完整群组的重采样程序。本辅助方法仅适用于群组确实等大小的情形；为凑齐大小而删行或补行会改变统计问题。
 
 区间取重采样分布的 `(1-confidence_level)/2` 与 `(1+confidence_level)/2` 分位数。可交换性和重采样单位的选择由调用者负责。回调可能先收到带前导批次维度的数组，再退回逐次调用；应避免副作用，若返回批量结果则明确沿正确的轴计算。这一通用方法不是 ElasticNet 的残差系数 bootstrap 推断模式。
 
@@ -108,4 +110,4 @@ print(boot.observed, len(boot.samples))
 
 ## 与模块函数的区别
 
-独立的 `bootstrap_statistic` 与 `permutation_test` 函数还接受 `force_vectorized=False` 和 `statistic_hint=None`，估计器包装方法不接受这两项。IID、分层重采样、分块 bootstrap、等大小整群 bootstrap 和组内置换均有批量计算方式；这些方式下，`force_vectorized=True` 要求每个重采样批次行返回一个结果。不等大小整群 bootstrap 当前即使设置该标志也逐次调用，不能把它视为通用的向量化保证。bootstrap 均值可用 `statistic_hint="mean"`，置换相关系数可用 `"pearson_corr"`。提示会选择内置的重采样计算，不会检查原始统计量回调是否与之等价。独立函数的 `backend="auto"` 根据数组推断，且数据必须显式提供。导入与示例见[模块指南](../guides/inference-api.md)。
+独立的 `bootstrap_statistic` 与 `permutation_test` 函数还接受 `force_vectorized=False` 和 `statistic_hint=None`，估计器包装方法不接受这两项。IID、分层重采样、分块 bootstrap、等大小整群 bootstrap 和组内置换均有批量计算方式；这些方式下，`force_vectorized=True` 会拒绝不兼容的首次批量试调用，但后续批次不兼容时仍可能退回逐次调用，不能保证所有重采样都采用向量化执行。向量化回调应能处理任意批次大小，包括最后只有一行的批次，并为每行返回一个结果。不等大小整群 bootstrap 当前即使设置该标志也逐次调用，不能把它视为通用的向量化保证。`statistic_hint="mean"` 只适用于一维数组的 bootstrap 均值。矩阵数据请省略该提示并提供返回标量的统计量；当前均值快速计算只沿最后一轴求均值，可能触发广播错误。置换相关系数可用 `"pearson_corr"`，此时 X 须为 `(n,)` 或 `(n, 1)`。提示会选择内置的重采样计算，不会检查原始统计量回调是否与之等价。独立函数的 `backend="auto"` 根据数组推断，且数据必须显式提供。导入与示例见[模块指南](../guides/inference-api.md)。

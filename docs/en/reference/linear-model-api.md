@@ -112,7 +112,7 @@ ElasticNet(alpha=1.0, l1_ratio=0.5, fit_intercept=True, max_iter=1000, tol=0.000
 |---|---|
 | `fit(X=None,y=None,sample_weight=None,initial_coef=None,**kwargs)` | Returns `self`; `y` is one-dimensional. `kwargs` accepts `formula=None,data=None`. `initial_coef` is a length-p starting vector. Omission on a later fit currently retains a previously supplied vector; use a new estimator for default initialization, especially after changing p. |
 | `predict(X,return_cpu=True)` | `(m,)` predictions. Default returns NumPy even after GPU fitting; `False` preserves the fitted NumPy/CuPy/Torch backend. |
-| `score(X,y,sample_weight=None)` | Python float R²; optional evaluation weights define weighted mean and residual sums. They are not automatically inherited from training. Use flat y and NumPy/host evaluation y and weights; GPU-native response conversion is not supplied by this squared-error score path. |
+| `score(X,y,sample_weight=None)` | Python float R²; optional evaluation weights define weighted mean and residual sums. They are not automatically inherited from training. Check weights are finite, nonnegative, length m and have positive sum: this score path currently accepts negative weights and can return invalid R² above 1. Use flat y and NumPy/host evaluation y and weights; GPU-native response conversion is not supplied by this squared-error score path. |
 | `summary()` | Prints coefficient/inference reporting and returns `None`; requires successful enabled inference. |
 | `coef_`, `intercept_`, `n_iter_` | Penalized prediction slopes `(p,)`, scalar intercept, iteration count. Reaching the iteration limit does not establish convergence. |
 | `_params`, `_bse`, `_tvalues`, `_zvalues`, `_pvalues`, `_conf_int` | Reporting parameters/uncertainty, not necessarily prediction coefficients. Usually `(k,)` and `(k,2)` for CI, with intercept first; availability depends on the inference method. |
@@ -128,7 +128,7 @@ ElasticNet(alpha=1.0, l1_ratio=0.5, fit_intercept=True, max_iter=1000, tol=0.000
 | `post_selection_ols` | `nonrobust`, HC0–HC3 or HAC, with optional analytic weights | Refit OLS/WLS on active slopes; t reference for nonrobust, normal for HC/HAC. No general selection adjustment. |
 | `bootstrap` | Only `cov_type="nonrobust"`, no sample weights | Residual bootstrap of the same penalized model at fixed tuning; percentile intervals. |
 
-For reproducible residual bootstrap, set `model.bootstrap_random_state = seed` and `model.n_bootstrap = B` **before fit**, with B≥2 (default 200). These are supplementary attributes, not accepted constructor/get_params/set_params arguments. `random_state` is not an ElasticNet constructor parameter. The returned method is `residual_bootstrap`, with a `bootstrap_percentile` distribution. Bootstrap does not redo CV or selection. Generic `bootstrap_statistic` is a different operation.
+For reproducible residual bootstrap, set `model.bootstrap_random_state = seed` and `model.n_bootstrap = B` **before fit**, with B≥2 (default 200). These are supplementary attributes, not accepted constructor/get_params/set_params arguments. `random_state` is not an ElasticNet constructor parameter. The returned method is `residual_bootstrap`, with a `bootstrap_percentile` distribution. Bootstrap does not repeat CV or retune the penalty. Each resample refits the full penalized design, so its nonzero coefficient set can change. These are not generally selection-adjusted intervals. Generic `bootstrap_statistic` is a different operation.
 
 ## ElasticNetCV
 
@@ -137,8 +137,8 @@ ElasticNetCV(l1_ratio=0.5, *, alphas=None, n_alphas=100, alpha_min_ratio=0.001, 
 ```
 | Parameter | Default | Meaning and restrictions |
 |---|---|---|
-| `l1_ratio` | `0.5` | Scalar or candidate sequence in `[0,1]`; a scalar tunes alpha only. |
-| `alphas` | `None` | Positive finite candidate sequence; omitted: construct a separate automatic grid for each ratio. |
+| `l1_ratio` | `0.5` | Scalar or candidate sequence in `[0,1]`; a scalar tunes alpha only. Use explicit alphas for zero or near-zero ratios; see grid limitations below. |
+| `alphas` | `None` | Positive finite candidate sequence; omitted: construct a separate automatic grid for each ratio. The automatic rule is L1-based, not a Ridge-specific search. |
 | `n_alphas` | `100` | Positive integer grid size when `alphas=None`. |
 | `alpha_min_ratio` | `1e-3` | Positive minimum-to-maximum alpha ratio for the automatic log grid; normally in `(0,1]`. |
 | `cv` | `5` | Integer fold count ≥2; use enough observations in every training/validation split. |
@@ -187,6 +187,15 @@ Candidates are refitted on all provided training rows after selecting minimum me
 ### Grid and edge behavior
 
 Provide positive finite grid entries deliberately. Current CV code filters invalid/nonpositive alpha/C entries and replaces an empty surviving grid with an automatic grid. ElasticNetCV also filters l1_ratio values outside `[0,1]`, using 0.5 if none survive. Do not rely on these fallbacks to validate a scientific search. Direct LogisticRegression's special `C=0` is excluded from CV. Automatic ElasticNet alpha grids can differ by ratio; inspect the returned mapping.
+
+For ElasticNetCV, the automatic maximum is the largest absolute weighted-centered
+X/y cross-product divided by `sum(sample_weight) * max(l1_ratio, 1e-6)` (unit
+weights when omitted), with a lower floor of `1e-6`. At `l1_ratio=0`, this can
+produce only huge penalties and nearly constant predictions even when a useful
+Ridge fit exists. Supply explicit `alphas` for zero/near-zero ratios. The rule
+centers X/y regardless of `fit_intercept`; use an explicit grid for no-intercept
+fits too. A finite CV score only identifies the best candidate in the supplied
+range, not an adequate tuning range.
 
 Use at least four rows and enough rows per fold. The current ElasticNetCV path below four rows does not provide a usable result; increase the data or fit a direct estimator. LogisticRegressionCV with fewer than four rows or only one C candidate performs a final fit without an informative CV comparison: loss arrays and `best_score_` are NaN.
 

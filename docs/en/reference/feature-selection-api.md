@@ -17,6 +17,14 @@ Pass a callable/class as `model_class`; candidate fitting needs compatible `fit`
 
 `stepwise_selection` returns a fitted selector. Its keyword arguments can include selector controls such as `max_features`, `n_jobs`, `verbose` as well as wrapped-model settings; selector controls are consumed by StepwiseSelector rather than forwarded. `fit`/`score` accept a flat response or a single column, which is flattened. No `fit_transform`, `get_support`, sample weights, formula input, or coefficient-inference API is supplied by StepwiseSelector. Use `fit(...).transform(...)` and `selected_features_`.
 
+`get_params(deep=True)` remains flat. `set_params` treats names outside the
+selector controls as wrapped-model constructor keywords, so unknown model
+parameters can fail only at `fit`. A returned selector does not establish that
+all criterion scores were valid: an infinite initial score can block otherwise
+finite improvements, and a failed backward search can exceed `max_features`.
+Check finite criterion histories and the cap before using the selected model;
+see [nonfinite-score limitations](../models/feature-selection.md#nonfinite-score-limitations).
+
 ## Knockoff functions and constructors
 
 ```python
@@ -49,10 +57,16 @@ The fixed-X function/class accepts only the shared subset shown in its signature
 | `modelx_covariance_shrinkage` | `0.20` | Native model-X covariance shrinkage; choose within `[0,1]`. |
 | `modelx_s_scale` | `0.999` | Native model-X S-matrix scale, normally `(0,1]`. |
 | `modelx_draws` | `None` | Strict positive integer or None: defaults to 5 for OLS/Lasso differences and 3 for correlation differences. Supplied Xk gives one matrix rather than fresh draws. |
-| `modelx_shrinkage` | `"ledoitwolf"` | Knockpy-compatible covariance strategy; passed to that optional implementation. |
-| `modelx_smatrix_method` | `"mvr"` | Knockpy-compatible S-matrix method, passed to that implementation. |
+| `modelx_shrinkage` | `"ledoitwolf"` | Compatibility covariance strategy: `ledoitwolf`, `none`/`mle`, or `graphicallasso`/`glasso`. See resolution/fallback behavior below. |
+| `modelx_smatrix_method` | `"mvr"` | Requested compatibility S-matrix method, forwarded to knockpy when available; the request can fall back to equicorrelated construction. See below. |
 | `knockpy_sampler` | `None` | Optional dispatch name such as gaussian/fx/metro/artk. Current dispatched implementations are placeholders and can raise NotImplementedError; leave None for supported built-in construction. |
 | `knockpy_sampler_method` | `None` | Gaussian dispatch submethod, e.g. mvr/sdp/maxent/equi/ci; does not implement an unavailable sampler. |
+
+### Compatibility resolution and fallbacks
+
+With `compat_mode="knockpy"` and built-in model-X construction, covariance estimation runs locally on CPU. `none`/`mle` uses sample covariance but switches to Ledoit–Wolf when its minimum eigenvalue is below the internal threshold. Ledoit–Wolf and graphical lasso use sklearn; if that import fails, sample covariance is used and `metadata["modelx_covariance_estimator"]` reports `"mle_fallback_no_sklearn"`.
+
+S-matrix construction attempts knockpy's requested method. A missing package **or any exception from that call** triggers an equicorrelated fallback; even an invalid method name can therefore produce a result rather than an error. `metadata["modelx_smatrix_method"]` is only the requested name. Inspect `modelx_covariance_estimator` and `modelx_smatrix_source` (`"knockpy"` or `"equicorrelated_fallback"`) before interpreting the result as execution of a particular covariance/S-matrix method or as knockpy parity. These fallback labels do not establish knockoff validity or FDR control.
 
 ## Selector methods
 

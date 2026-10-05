@@ -10,7 +10,7 @@
 
 ## When to use it
 
-Use IncrementalPCA to learn a linear basis from successive batches. Truncation after each batch can lose directions that full PCA would retain, so compare a representative subset and keep preprocessing fixed. A small first batch limits the default rank permanently.
+Use IncrementalPCA to learn a linear basis from successive batches. Truncation after each batch can lose directions that full PCA would retain, so compare a representative subset and keep preprocessing fixed. A small first `partial_fit` batch limits the default rank for that incremental fit; a new `fit` resets it.
 
 ## Path
 
@@ -62,7 +62,7 @@ For a supported GPU installation, construct a new estimator with `device="cuda"`
 
 ## Approximation and interpretation
 
-IncrementalPCA is an approximate streaming/batch estimator. Its result can differ from full PCA depending on batch order and batch size, but CPU/CuPy/Torch should agree for the same batches.
+IncrementalPCA is an approximate streaming/batch estimator. Its result can differ from full PCA depending on batch order and batch size, and floating-point decomposition choices can differ across backends. Compare explained variance, reconstruction and retained subspaces within appropriate tolerances; component signs and bases within repeated-singular-value subspaces are not unique.
 
 ## Outputs
 

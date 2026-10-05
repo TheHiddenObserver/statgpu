@@ -89,7 +89,7 @@ KMeans is an iterative non-convex optimizer, not a strict inference estimator. D
 Cluster IDs are arbitrary. Validation should use inertia, center matching, or permutation-invariant label metrics.
 
 **Are sparse input and `sample_weight` supported?**
-No. dense KMeans raises for sparse input and `sample_weight`.
+No. Dense KMeans raises for sparse input and `sample_weight`.
 
 
 ## Numerical and lifecycle cautions

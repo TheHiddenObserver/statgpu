@@ -25,6 +25,7 @@ _EXAMPLE_NAMES = (
     "reproducible_sampling",
     "f_sampling_workaround",
     "compare_lut_paths",
+    "small_shape_quantiles",
     "explicit_scipy_fallback",
     "compatibility_migration",
 )
@@ -114,6 +115,11 @@ def test_every_distribution_example_is_independent_and_numerically_checked(langu
         reference = stats.t.ppf(namespace["q"], df=10)
         np.testing.assert_allclose(namespace["reference_values"], reference, atol=1e-9, rtol=1e-9)
         np.testing.assert_allclose(namespace["fast_values"], reference, atol=1e-8, rtol=1e-8)
+    elif example == "small_shape_quantiles":
+        # Student t with df=1 is exactly Cauchy, independently of beta inversion.
+        expected = np.tan(np.pi * (namespace["q"] - 0.5))
+        np.testing.assert_allclose(namespace["quantiles"], expected, atol=1e-12)
+        np.testing.assert_allclose(namespace["quantiles"], [-3.077684, 0.0, 3.077684], atol=5e-7)
     elif example == "explicit_scipy_fallback":
         np.testing.assert_allclose(namespace["out"], stats.gumbel_r.cdf(namespace["x"]))
         np.testing.assert_allclose(namespace["out"], [0.367879, 0.692201, 0.873423], atol=5e-7)
@@ -330,3 +336,98 @@ def test_distribution_factory_help_matches_observable_cpu_and_lut_contracts():
     np.testing.assert_allclose(fixed.cdf([0.0, 1.0]), stats.norm.cdf([0.0, 1.0]))
     with pytest.raises(TypeError):
         fixed.cdf(0.0, backend="numpy")
+
+
+@pytest.mark.parametrize("name, parameters, points", _FAMILIES, ids=[row[0] for row in _FAMILIES])
+@pytest.mark.parametrize("shape", [(), (0,), (2, 3)])
+def test_documented_scalar_empty_and_matrix_output_shapes(name, parameters, points, shape):
+    fixed = inference.get_distribution(name, backend="numpy", use_lut=False)
+    x = np.full(shape, points[1], dtype=np.float32)
+    q = np.full(shape, 0.3, dtype=np.float32)
+    for method, values in (("cdf", x), ("sf", x),
+                           ("pmf" if name in {"poisson", "binom"} else "pdf", x),
+                           ("ppf", q), ("isf", q)):
+        result = np.asarray(getattr(fixed, method)(values, **parameters))
+        assert result.shape == shape
+        assert result.dtype == np.float64
+
+
+def test_documented_scalar_parameter_boundary_and_method_keywords():
+    with pytest.raises((TypeError, ValueError)):
+        inference.norm.cdf([0.0, 1.0], loc=[0.0, 1.0], backend="numpy")
+    with pytest.raises((TypeError, ValueError)):
+        inference.t.cdf([0.0, 1.0], df=[5.0, 10.0], backend="numpy")
+    with pytest.raises(TypeError):
+        inference.poisson.cdf(k=2, mu=3, backend="numpy")
+    with pytest.raises(TypeError):
+        inference.t.cdf(1.0, 10, backend="numpy")
+    for name, parameters in (("poisson", {"mu": 3}), ("binom", {"n": 20, "p": 0.2})):
+        proxy = getattr(inference, name)
+        assert proxy.ppf(0, loc=2, backend="numpy", **parameters) == 1
+        assert proxy.isf(1, loc=2, backend="numpy", **parameters) == 1
+        np.testing.assert_allclose(
+            proxy.cdf([2.1, 2.9], loc=2, backend="numpy", **parameters),
+            getattr(stats, name).cdf([2.1, 2.9], loc=2, **parameters),
+        )
+
+
+def test_special_function_help_has_no_unqualified_speed_or_accuracy_promises():
+    for helper in (distributions.CuPySpecialFunctions, distributions.ScipySpecialFunctions,
+                   distributions._get_torch_betaincinv_lut, distributions._get_torch_betainc_lut,
+                   distributions.TorchSpecialFunctions._betainc_batch):
+        doc = helper.__doc__
+        assert not re.search(r"(?:~|<)\s*\d+(?:-\d+)?\s*(?:ms|x|1e-)", doc)
+    assert "ordinary quantiles" in inference.get_distribution.__doc__
+    assert "regardless of" in distributions.TorchSpecialFunctions._betainc_batch.__doc__
+
+
+# Numerical regressions for the disclosed singular incomplete-beta fallback.
+# These assert correct central probabilities/quantiles, not the current wrong
+# outputs. Native Torch special functions bypass the affected implementation.
+_TORCH_SMALL_SHAPE_BUG = pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="Torch incomplete-beta endpoint quadrature corrupts small-shape probabilities and quantiles",
+)
+_SMALL_SHAPE_FAMILIES = (
+    ("beta", {"a": 0.5, "b": 0.5}),
+    ("t", {"df": 1}),
+    ("f", {"dfn": 1, "dfd": 10}),
+)
+
+
+@pytest.mark.parametrize("name, parameters", _SMALL_SHAPE_FAMILIES)
+@_TORCH_SMALL_SHAPE_BUG
+def test_torch_small_shape_cdf_without_lut_matches_reference(name, parameters):
+    torch = pytest.importorskip("torch")
+    if hasattr(torch.special, "betainc"):
+        pytest.skip("Native Torch betainc bypasses the affected quadrature fallback")
+    fixed = inference.get_distribution(name, backend="torch", device="cpu", use_lut=False)
+    x = np.array([0.25, 0.5, 0.75])
+    actual = fixed.cdf(x, **parameters).detach().cpu().numpy()
+    np.testing.assert_allclose(actual, getattr(stats, name).cdf(x, **parameters), atol=1e-6, rtol=1e-6)
+
+
+@pytest.mark.parametrize("use_lut", (True, False))
+@pytest.mark.parametrize("name, parameters", _SMALL_SHAPE_FAMILIES)
+@_TORCH_SMALL_SHAPE_BUG
+def test_torch_small_shape_central_quantiles_match_reference(name, parameters, use_lut):
+    torch = pytest.importorskip("torch")
+    if hasattr(torch.special, "betaincinv"):
+        pytest.skip("Native Torch betaincinv bypasses the affected inverse fallback")
+    fixed = inference.get_distribution(name, backend="torch", device="cpu", use_lut=use_lut)
+    q = np.array([0.1, 0.5, 0.9])
+    actual = fixed.ppf(q, **parameters).detach().cpu().numpy()
+    np.testing.assert_allclose(actual, getattr(stats, name).ppf(q, **parameters), atol=1e-6, rtol=1e-6)
+
+
+@pytest.mark.parametrize("df", (1, 2))
+@pytest.mark.parametrize("use_lut", (True, False))
+def test_torch_low_df_two_sided_helpers_have_separate_stable_runtime_path(df, use_lut):
+    pytest.importorskip("torch")
+    fixed = inference.get_distribution("t", backend="torch", device="cpu", use_lut=use_lut)
+    x = np.array([0.5, 1.0, 2.0])
+    pvalues = fixed.two_sided_pvalue(x, df=df).detach().cpu().numpy()
+    critical = float(fixed.two_sided_critical_value(0.05, df=df))
+    np.testing.assert_allclose(pvalues, 2 * stats.t.sf(x, df=df), atol=1e-12, rtol=1e-12)
+    np.testing.assert_allclose(critical, stats.t.isf(0.025, df=df), atol=1e-9, rtol=1e-9)

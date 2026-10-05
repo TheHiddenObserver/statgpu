@@ -55,6 +55,12 @@ For this seed, the CPU output is approximately: coefficients `[0.938, 0.834, -0.
 
 Use finite numeric `X` with shape `(n_samples, n_features)` and a one-dimensional response `y`. Prediction columns must match the training order and preprocessing. The fitting interface is `fit(X=None, y=None, sample_weight=None, initial_coef=None, **kwargs)`; optional nonnegative analytic weights enter the normalized weighted loss. `initial_coef` supplies a starting coefficient vector through `fit`; there is no `warm_start` constructor flag. The current implementation retains this starting vector on the estimator: omitting `initial_coef` on a later fit does not clear it. Create a fresh estimator when you want the default initialization, especially when changing the feature count; a retained vector with the old width can cause a dimension error. The shared optional formula interface accepts `formula=` and `data=` via fit keywords.
 
+For weighted evaluation, pass a separate `score(X, y, sample_weight=weights)`
+vector with one finite nonnegative weight per row and positive total weight.
+The current squared-error `score` path does not reliably reject negative weights;
+it can return an invalid R² above 1. Check these conditions yourself before
+scoring. Training-weight validation does not validate a new evaluation vector.
+
 ## Path
 
 `statgpu.linear_model.ElasticNet`
@@ -218,11 +224,11 @@ For `post_selection_ols`, the penalized model first determines the active set. s
 
 Post-selection OLS remains heuristic and does not provide general selective-inference coverage. Inference is conditional on selected regularization parameters and does not alter the fitted penalized coefficients.
 
-Device selection is orthogonal to the statistical method: explicit `cpu`/`cuda`/`torch` is authoritative, while only genuine `device="auto"` may preserve backend-native CuPy or Torch-CUDA input during automatic routing. `post_selection_ols` reuses the fit-resolved backend, and maintained CuPy/Torch `debiased` routes keep numerical inference on the executed GPU backend, including scalar normal-reference critical values. Residual `bootstrap` also uses the fit-recorded NumPy/CuPy/Torch backend and concrete device for response construction and numerical child refits, preserving the fitted penalty and tuning configuration. NumPy generates the shared residual-index schedule and stores final reporting arrays; these boundaries do not make GPU numerical refits CPU-only. This path requires `sample_weight=None` and `cov_type="nonrobust"`; weighted or HC/HAC bootstrap requests fail explicitly. It describes the penalized coefficient distribution conditional on the chosen tuning, without selection adjustment.
+Device selection is orthogonal to the statistical method: explicit `cpu`/`cuda`/`torch` is authoritative, while only genuine `device="auto"` may preserve backend-native CuPy or Torch-CUDA input during automatic routing. `post_selection_ols` reuses the fit-resolved backend, and CuPy/Torch `debiased` routes keep numerical inference on the executed GPU backend, including scalar normal-reference critical values. Residual `bootstrap` also uses the fit-recorded NumPy/CuPy/Torch backend and concrete device for response construction and numerical child refits, preserving the fitted penalty and tuning configuration. NumPy generates the shared residual-index schedule and stores final reporting arrays; these boundaries do not make GPU numerical refits CPU-only. This path requires `sample_weight=None` and `cov_type="nonrobust"`; weighted or HC/HAC bootstrap requests fail explicitly. It describes the penalized coefficient distribution conditional on the chosen tuning, without selection adjustment.
 
 For `debiased` inference with an intercept, public `coef_`/`intercept_` remain the **penalized prediction fit**. Inference reporting uses debiased slopes `_params[1:]` and their matching original-coordinate intercept `_params[0] = ybar_w - xbar_w @ _params[1:]`; the first SE/z/p-value/CI row therefore belongs to this debiased reporting intercept rather than prediction `intercept_`. The result metadata records `intercept_estimator="centered_debiased"` and `intercept_influence="centered_nodewise"`. Analytic weights use the same weighted-centered average-loss problem across NumPy/CuPy/Torch, so global positive weight rescaling leaves this inference unchanged.
 
-For `ElasticNetCV`, `compute_inference=True` applies debiased inference only to the final full-data refit after alpha and `l1_ratio` have been selected. Fold models remain estimation-only. `nodewise_alpha` is final-refit inference configuration only: it does not enter the candidate grid or fold scoring, and the outer `nodewise_alpha_` reflects the final estimator when inference succeeds. The current `ElasticNetCV` API still fixes this final inference method to `debiased`; that pre-existing inference-selector limitation is separate from node-wise tuning.
+For `ElasticNetCV`, `compute_inference=True` applies debiased inference only to the final full-data refit after alpha and `l1_ratio` have been selected. Fold models remain estimation-only. `nodewise_alpha` is final-refit inference configuration only: it does not enter the candidate grid or fold scoring, and the outer `nodewise_alpha_` reflects the final estimator when inference succeeds. The current `ElasticNetCV` API still fixes this final inference method to `debiased`; other inference methods are not selectable through this CV wrapper.
 
 ### Debiased reporting formula
 
@@ -253,7 +259,7 @@ After fitting, the following attributes are available:
 |-----------|-------------|
 | `coef_` | Estimated penalized coefficients used for prediction |
 | `intercept_` | Penalized fitted intercept used for prediction |
-| `n_iter_` | Number of iterations until convergence |
+| `n_iter_` | Number of iterations performed; reaching the budget does not establish convergence |
 | `nodewise_alpha_` | Resolved node-wise tuning after successful multi-feature `debiased` inference; otherwise `None` |
 | `_params` | Inference/reporting parameter vector when inference succeeds; for `debiased`, contains the coherent debiased intercept plus debiased slopes; for `post_selection_ols`, contains the active-set OLS/WLS refit embedded in the full parameter layout |
 | `_inference_result` | Structured inference result and numerical-backend / node-wise tuning metadata |
@@ -272,6 +278,17 @@ Methods: `fit(X, y)`, `predict(X)`, `score(X, y)`, `summary()`
 
 The [complete ElasticNet API reference](../reference/linear-model-api.md#elasticnet) includes `predict(X, return_cpu=True)`, weighted `score(X, y, sample_weight=None)`, formula input, reporting fields and inference restrictions. Inherited methods have a [shared reference](../reference/estimator-api.md). Use the separate [ElasticNetCV constructor](../reference/linear-model-api.md#elasticnetcv) and [CV workflow/results](../reference/linear-model-api.md#cv-methods-and-results), including a runnable example; direct and CV parameters differ. Source inspection is supplementary, not a substitute for these contracts.
 
+### Tuning a Ridge-like mixture
+
+With `ElasticNetCV(l1_ratio=0)` or a very small positive ratio, supply an explicit
+positive `alphas` grid spanning the shrinkage strengths you want to compare.
+The automatic grid currently divides a weighted-average centered design-response cross-product
+by `max(l1_ratio, 1e-6)`. At zero it can therefore contain only extremely large
+penalties and miss useful Ridge fits. This is a grid-construction limitation;
+direct `ElasticNet(l1_ratio=0, alpha=...)` still fits the Ridge objective.
+The automatic rule also centers X/y even with `fit_intercept=False`; use an
+explicit grid for that case and inspect the candidate range and validation losses.
+
 ## Numerical Validation
 
 The maintained regression suite checks agreement across supported backends and reference implementations at tolerances appropriate to each dtype and solver path. Solver API migration behavior is covered by `dev/tests/test_penalized_solver_api_cleanup.py`; node-wise tuning is covered by `dev/tests/test_nodewise_alpha_inference_contract.py`; the post-selection OLS migration and active-set OLS/WLS behavior are covered by `dev/tests/test_post_selection_ols_inference_api.py`.
@@ -281,4 +298,3 @@ The maintained regression suite checks agreement across supported backends and r
 - Zou, H., & Hastie, T. (2005). Regularization and variable selection via the elastic net. *Journal of the Royal Statistical Society: Series B*, 67(2), 301-320.
 - Beck, A., & Teboulle, M. (2009). A fast iterative shrinkage-thresholding algorithm for linear inverse problems. *SIAM Journal on Imaging Sciences*, 2(1), 183-202.
 - van de Geer, S., Buhlmann, P., Ritov, Y., & Dezeure, R. (2014). On asymptotically optimal confidence regions and tests for high-dimensional models. *Annals of Statistics*, 42(3), 1166-1202.
-

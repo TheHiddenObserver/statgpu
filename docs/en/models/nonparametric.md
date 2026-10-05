@@ -200,6 +200,8 @@ Import the following from `statgpu.nonparametric`:
 - KDE output shape is `(n_query,)`; regression output is `(n_query,)` for a 1D target and `(n_query, n_targets)` for a 2D target, including `(n_query, 1)`. With NumPy the outputs are NumPy arrays; ordinary GPU predictions remain backend-native. Interval result arrays are converted to NumPy.
 - `weights`, when supplied for fitting, must be finite, nonnegative, length `n_samples`, and have a positive sum; they are normalized. Concentrating all weight on one observation fails covariance estimation. Invalid shapes, nonfinite inputs, nonpositive bandwidths, and unknown kernel names raise errors. Call `fit` before prediction.
 
+For weighted Gaussian KDE, remove zero-weight rows (and their weights) before fitting when using `logpdf`, `score_samples`, or `score`. Although they carry no statistical mass, these rows can currently make tail log-density evaluation return `-inf` incorrectly. Renormalization is automatic; removing zero-weight rows preserves the intended fit.
+
 For large-offset coordinates, center training samples and queries with the same
 training-derived offset before evaluation. Current distance calculations can
 lose precision without centering, particularly log density and multivariate

@@ -30,14 +30,14 @@ $$
 D^\top W(y-D\hat\theta)=0.
 $$
 
-满秩经典模型中，记 $r=\operatorname{rank}(D)$，有
+经典模型的加权设计矩阵满秩时，记 $r=\operatorname{rank}(W^{1/2}D)$，有
 
 $$
 \hat\sigma^2=\frac{(y-D\hat\theta)^\top W(y-D\hat\theta)}{n-r},\qquad
 \widehat{\operatorname{Var}}(\hat\theta)=\hat\sigma^2(D^\top WD)^{-1}.
 $$
 
-第 j 个标准误是协方差矩阵第 j 个对角元的平方根。边际区间为 $\hat\theta_j\pm c\,\mathrm{SE}_j$，经典推断使用 t 临界值，HC/HAC 使用正态临界值。稳健选项改变协方差构造，不改变 OLS/WLS 拟合。上述逆矩阵表达式要求满秩且残差自由度为正；使用估计器时无需手工求逆。
+第 j 个标准误是协方差矩阵第 j 个对角元的平方根。边际区间为 $\hat\theta_j\pm c\,\mathrm{SE}_j$，经典推断使用 t 临界值，HC/HAC 使用正态临界值。稳健选项改变协方差构造，不改变 OLS/WLS 拟合。无权重时，r 就是 D 的秩；零权重行可能降低加权设计矩阵的秩。上述逆矩阵表达式要求加权设计满秩且残差自由度为正；使用估计器时无需手工求逆。
 
 ## 可直接运行的 CPU 示例
 

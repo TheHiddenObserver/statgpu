@@ -1,7 +1,7 @@
 # Inference API Reference
 
 > Language: English  
-> Last updated: 2026-09-17  
+> Last updated: 2026-10-05  
 > Module: `statgpu.inference`  
 > Switch: [Chinese](../../cn/guides/inference-api.md)
 
@@ -62,6 +62,7 @@ Available adjustment/combination methods and their interpretation are described 
 
 `permutation_test` repeatedly permutes the supplied data according to its API and recomputes a user-provided statistic to form a permutation reference distribution.
 
+<!-- api-example: module-permutation -->
 ```python
 import numpy as np
 from statgpu.inference import permutation_test
@@ -87,6 +88,7 @@ Choose the statistic and permutation scheme to match the null hypothesis of the 
 
 `bootstrap_statistic` bootstraps a statistic supplied by the caller.
 
+<!-- api-example: module-bootstrap -->
 ```python
 import numpy as np
 from statgpu.inference import bootstrap_statistic
@@ -118,7 +120,46 @@ Use the documentation according to the question you are trying to answer:
 - **What does penalized-GLM coefficient inference target?** → [Penalized GLM inference](penalized-glm-inference.md)
 
 
-
 ## Estimator wrappers
 
 The [shared estimator API](../reference/estimator-api.md) documents every argument and return field for the inherited helper methods. It also explains differences from these free functions, including dictionary versus tuple p-value results and supplementary vectorization controls.
+
+## Resampling function signatures
+
+The free functions take explicit data and infer `backend="auto"` from those arrays. They return `BootstrapResult` or `PermutationTestResult`, not an estimator and not a tuple. The shared reference defines the [resampling arguments and result fields](../reference/estimator-api.md#bootstrap_statistic); the two extra controls below are available only on free functions.
+
+```python
+bootstrap_statistic(
+    statistic, *arrays, n_resamples=200, strategy="iid", strata=None,
+    clusters=None, block_size=None, confidence_level=0.95,
+    random_state=None, statistic_name="statistic", backend="auto",
+    force_vectorized=False, statistic_hint=None,
+)
+permutation_test(
+    statistic, X, y, n_resamples=1000, strategy="iid", strata=None,
+    groups=None, alternative="two-sided", random_state=None,
+    statistic_name="statistic", backend="auto", force_vectorized=False,
+    statistic_hint=None,
+)
+```
+
+- On batched paths, `force_vectorized=True` rejects an incompatible initial callback probe; later incompatible batches can still fall back to scalar calls. Handle every batch size, including a final one-row batch, and do not treat the flag as a no-fallback guarantee. Callbacks should have no side effects because they may be probed before scalar execution.
+- `statistic_hint="mean"` accelerates the bootstrap mean of one one-dimensional array. Omit the hint for matrix data. `"pearson_corr"` accelerates permutation correlation for X shaped `(n,)` or `(n, 1)`. The observed callback must compute the same statistic; hints do not verify equivalence.
+- Cluster bootstrap currently preserves whole groups only for equal-size groups. Unequal-size groups can be truncated, so do not use those intervals as whole-cluster inference. Grouped permutation instead permutes responses within groups and does not have that truncation behavior.
+- `observed` and every resampled statistic must be finite. Percentile intervals describe the supplied statistic under the chosen resampling scheme; increasing `n_resamples` does not validate that scheme or remove estimator bias.
+
+For example, keep matrix rows together while bootstrapping their overall mean by leaving the fast-path hint unset:
+
+<!-- api-example: module-matrix-mean -->
+```python
+import numpy as np
+from statgpu.inference import bootstrap_statistic
+
+rows = np.arange(12.0).reshape(6, 2)
+result = bootstrap_statistic(
+    np.mean, rows, n_resamples=99, random_state=7, backend="numpy",
+)
+print(result.observed, result.samples.shape)
+```
+
+This prints `5.5 (99,)`. Each resample selects entire rows with replacement, preserving the two measurements in a row as a pair.

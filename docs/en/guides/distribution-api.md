@@ -343,7 +343,7 @@ not use these LUTs.
 |---|---|
 | NumPy | Eligible inverse beta/gamma paths use LUT interpolation plus Newton refinement; `False` uses SciPy special-function inverses. |
 | CuPy | Eligible inverse beta/gamma paths also use LUTs. `False` uses `cupyx.scipy.special` inverses; the flag does affect CuPy. LUT creation uses host SciPy and transfers tables to the device. |
-| Torch | Selects eligible LUT paths versus numerical fallbacks; incomplete-beta forward evaluation also has LUT paths. Native special-function availability is checked at runtime, not guaranteed by a Torch version number. |
+| Torch | Controls eligible scalar LUT paths versus numerical fallbacks. Grouped incomplete-beta evaluation, used by binomial CDF/quantile methods, can still use LUTs with `False`. Native special-function availability is checked at runtime, not guaranteed by a Torch version number. |
 
 Torch LUT creation uses host SciPy. Without a native incomplete-beta function,
 non-scalar incomplete-beta evaluation can also fall back to SciPy on CPU and
@@ -373,6 +373,40 @@ This yields `[-2.228139, -1.372184, 1.372184, 2.228139]`. The assertions check
 only these moderate probabilities and `df=10`; they do not establish a global
 error bound, a GPU comparison, or a speedup. Repeated fixed-object calls retain
 instance-level caches; proxies construct distribution objects per call.
+
+### Torch small-shape fallback limitation
+
+When Torch lacks native incomplete-beta functions, its numerical fallback can
+be severely inaccurate even away from extreme tails. For example, with
+`use_lut=False`, `beta.cdf(0.5, a=0.5, b=0.5)` can return `1` rather than `0.5`.
+Inverse-beta refinement uses the same fallback with **either** LUT setting:
+`t.ppf(0.9, df=1)` can return about `100000` rather than `3.077684`.
+Beta quantiles with shapes below one and F quantiles with small numerator
+degrees of freedom are also affected. A finite result is not enough to check
+correctness, and simply enabling LUTs does not fix these inverse calls.
+
+Use explicit NumPy/SciPy computation for these regimes until you have checked
+the exact Torch method and parameters against a reliable reference:
+
+```python
+# Example: small_shape_quantiles
+import numpy as np
+from scipy import stats
+from statgpu.inference import get_distribution
+
+q = np.array([0.1, 0.5, 0.9])
+cpu_t = get_distribution("t", backend="numpy", use_lut=False)
+quantiles = cpu_t.ppf(q, df=1)
+np.testing.assert_allclose(quantiles, stats.cauchy.ppf(q), atol=1e-12)
+print("df=1 quantiles:", np.round(quantiles, 6))
+```
+
+Expected quantiles are `[-3.077684, 0.0, 3.077684]`; Student t with `df=1`
+is the standard Cauchy distribution. Selecting `backend="auto"` is not a CPU
+workaround because it can select Torch. The specialized `t.two_sided_pvalue`
+and `t.two_sided_critical_value` methods at exactly `df=1` or `df=2` use
+separate stable formulas; their behavior does not establish correctness of
+the general `cdf`, `sf`, `ppf`, or `isf` paths.
 
 ## Explicit SciPy fallback for additional families
 

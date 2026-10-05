@@ -66,7 +66,7 @@ $$
 - 将合并树保存为 `children_`，将合并距离保存为 `distances_`。
 - 按 `n_clusters` 切树并生成 `labels_`。
 
-CPU 路径调用 SciPy 的层次聚类子模块计算精确连接；显式 CuPy/Torch 路径使用 statgpu 自有的、常驻后端的稠密距离矩阵，并用 Lance-Williams 公式增量更新连接距离。
+CPU 路径调用 SciPy 的层次聚类子模块计算精确连接；显式 CuPy/Torch 路径使用 statgpu 自有的、常驻后端的稠密距离矩阵。单连接先构建最小生成树，再在 CPU 上组装合并树；完全连接、平均连接和 Ward 连接则使用 Lance–Williams 公式更新连接距离。
 
 ## 参数
 
@@ -96,6 +96,8 @@ print(labels.shape, model.children_.shape, model.distances_[-3:])
 ## 近似与解释边界
 
 `AgglomerativeClustering` 没有统计推断意义上的严格模式：对稠密欧氏输入，CPU、CuPy 与 Torch 路径都给出精确计算。GPU 执行会分配稠密距离矩阵；一旦超过配置的距离矩阵内存上限，会明确抛出 `MemoryError`。
+
+GPU 路径通过展开平方范数计算成对距离。很大的共同特征偏移可能导致消减误差并改变层次结构；应在拟合前以 float64 减去由训练数据确定的偏移，这不会改变原本的欧氏几何关系。SciPy 的 CPU linkage 路径不使用这一共享 GPU 距离公式。
 
 `distances_` 中的 Ward 合并高度为 $\sqrt{2\Delta(A,B)}$，不是平方误差增加量 $\Delta(A,B)$ 本身。GPU 距离矩阵估计内存会与配置上限比较；默认上限为 1 GiB，可在导入模块前设置 `STATGPU_AGGLOMERATIVE_GPU_MAX_BYTES`。该值不是当前可用显存。
 

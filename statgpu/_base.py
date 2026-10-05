@@ -799,8 +799,11 @@ class BaseEstimator(ABC):
         n_resamples : int, default=200
             Positive number of resamples.
         strategy : {'iid', 'stratified', 'cluster', 'block'}, default='iid'
-            Resample rows, rows within strata, whole clusters, or contiguous
-            blocks. The caller must choose a valid resampling unit.
+            Resample rows, rows within strata, equal-size whole clusters, or
+            contiguous blocks. Unequal-size cluster resampling currently
+            truncates the final group to n rows and can split clusters; do not
+            use its intervals for that setting. The caller must choose a valid
+            resampling unit.
         strata, clusters : array-like, optional
             Length-n labels required by the corresponding strategy.
         block_size : int, optional

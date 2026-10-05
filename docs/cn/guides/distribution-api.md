@@ -248,7 +248,7 @@ print("F sample:", np.round(sample, 6))
 |---|---|
 | NumPy | 合适的 beta/gamma 反函数使用查找表插值和 Newton 修正；设为 `False` 时使用 SciPy 特殊函数反函数。 |
 | CuPy | 合适的 beta/gamma 反函数同样使用查找表；设为 `False` 时使用 `cupyx.scipy.special` 反函数，因此该开关确实影响 CuPy。建表使用主机端 SciPy，再把表传到设备。 |
-| Torch | 控制符合条件的查找表路径与数值替代算法；不完全 beta 正向计算也有查找表路径。是否存在原生特殊函数要在运行时检查，不能仅凭 Torch 版本号保证。 |
+| Torch | 控制适用的标量 LUT 路径与数值备用路径。二项分布 CDF、分位数计算用到的分组不完全 beta 路径，即使设为 `False` 也可能使用 LUT。原生特殊函数是否存在由运行时检查，不能仅凭 Torch 版本号保证。 |
 
 Torch 建表也依赖主机端 SciPy。缺少原生不完全 beta 函数时，非标量参数的不完全 beta 计算还可能回退到 CPU 上的 SciPy，再把结果转回。因此，返回 GPU 数组或张量不意味着全部计算都留在 GPU。关闭查找表既不保证完全不用 CPU，也不保证所有 Torch 参数范围都更准确。应验证实际需要的方法、参数、尾部范围、后端和库版本。
 
@@ -270,6 +270,27 @@ print("Quantiles:", np.round(reference_values, 6))
 ```
 
 预期分位数为 `[-2.228139, -1.372184, 1.372184, 2.228139]`。断言只验证这几个适中概率以及 `df=10`，不能据此推断全局误差上界、GPU 一致性或加速倍数。重复调用同一个固定对象可保留实例级缓存，代理则会在每次调用时构造分布对象。
+
+### Torch 小形状参数的备用算法限制
+
+Torch 缺少原生不完全 beta 函数时，数值备用算法即使在普通概率范围内也可能严重失准。例如，`use_lut=False` 时，`beta.cdf(0.5, a=0.5, b=0.5)` 可能返回 `1`，而正确值为 `0.5`。逆不完全 beta 的修正步骤在**两种 LUT 设置下**都会调用同一个备用算法：`t.ppf(0.9, df=1)` 可能返回约 `100000`，而正确值约为 `3.077684`。形状参数小于 1 的 beta 分位数，以及分子自由度较小的 F 分位数，也会受影响。结果为有限数并不说明计算正确，开启 LUT 也无法修复这些逆函数调用。
+
+在逐项核对所需 Torch 方法和参数之前，这些情形应显式使用 NumPy 或 SciPy：
+
+```python
+# Example: small_shape_quantiles
+import numpy as np
+from scipy import stats
+from statgpu.inference import get_distribution
+
+q = np.array([0.1, 0.5, 0.9])
+cpu_t = get_distribution("t", backend="numpy", use_lut=False)
+quantiles = cpu_t.ppf(q, df=1)
+np.testing.assert_allclose(quantiles, stats.cauchy.ppf(q), atol=1e-12)
+print("df=1 quantiles:", np.round(quantiles, 6))
+```
+
+预期分位数为 `[-3.077684, 0.0, 3.077684]`；`df=1` 的 Student t 分布就是标准 Cauchy 分布。`backend="auto"` 仍可能选择 Torch，不能作为 CPU 备用方案。恰好在 `df=1` 或 `df=2` 时，专用的 `t.two_sided_pvalue` 和 `t.two_sided_critical_value` 采用另一组稳定公式；不能据此推断通用 `cdf`、`sf`、`ppf`、`isf` 路径也正确。
 
 ## 为额外分布显式启用 SciPy 回退
 

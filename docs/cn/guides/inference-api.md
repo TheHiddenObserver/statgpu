@@ -1,7 +1,7 @@
 # 推断 API 参考
 
 > 语言：中文  
-> 最后更新：2026-09-17  
+> 最后更新：2026-10-05  
 > 模块：`statgpu.inference`  
 > 切换：[English](../../en/guides/inference-api.md)
 
@@ -62,6 +62,7 @@ stat, p_global = combine_pvalues(pvals, method="fisher")
 
 `permutation_test` 按照接口定义对输入数据反复排列，并重新计算用户提供的统计量，从而构造排列参考分布。
 
+<!-- api-example: module-permutation -->
 ```python
 import numpy as np
 from statgpu.inference import permutation_test
@@ -87,6 +88,7 @@ print(result.pvalue)
 
 `bootstrap_statistic` 对调用者提供的统计量执行自助法重抽样。
 
+<!-- api-example: module-bootstrap -->
 ```python
 import numpy as np
 from statgpu.inference import bootstrap_statistic
@@ -117,7 +119,46 @@ print(result.confidence_interval)
 - **回归估计器应该选择哪种推断方法？** → [推断模式](inference-modes.md)
 - **惩罚 GLM 系数推断的统计目标是什么？** → [惩罚 GLM 推断](penalized-glm-inference.md)
 
-
 ## 估计器包装方法
 
 [估计器共享 API](../reference/estimator-api.md)列出继承辅助方法的全部参数与返回字段，并说明它们与独立函数的差异，包括 p 值结果的字典/元组形式及额外向量化控制。
+
+## 重采样函数签名
+
+独立函数要求显式传入数据，`backend="auto"` 根据这些数组选择后端，返回 `BootstrapResult` 或 `PermutationTestResult`，不是估计器或元组。[共享参考中的重采样部分](../reference/estimator-api.md#bootstrap_statistic)列出各项参数和结果字段；以下两个额外控制项只供独立函数使用。
+
+```python
+bootstrap_statistic(
+    statistic, *arrays, n_resamples=200, strategy="iid", strata=None,
+    clusters=None, block_size=None, confidence_level=0.95,
+    random_state=None, statistic_name="statistic", backend="auto",
+    force_vectorized=False, statistic_hint=None,
+)
+permutation_test(
+    statistic, X, y, n_resamples=1000, strategy="iid", strata=None,
+    groups=None, alternative="two-sided", random_state=None,
+    statistic_name="statistic", backend="auto", force_vectorized=False,
+    statistic_hint=None,
+)
+```
+
+- 在批量计算路径下，`force_vectorized=True` 会拒绝不兼容的首次试调用，但后续批次仍可能退回逐次调用。回调应处理所有批次大小，包括最后只有一行的批次；该标志不保证绝不回退。由于正式逐次计算前可能先作批量试调用，回调应避免副作用。
+- `statistic_hint="mean"` 加速一个一维数组的 bootstrap 均值。矩阵数据请省略该提示。`"pearson_corr"` 加速置换相关系数，此时 X 须为 `(n,)` 或 `(n, 1)`。原始样本回调必须计算同一统计量，提示不会自动核实两者是否等价。
+- 当前整群 bootstrap 仅在群组等大小时保留完整群组。不等大小群组可能被截断，因此不能把所得区间用于整群推断。组内置换则是在各组内重排响应，没有这种截断行为。
+- `observed` 和每个重采样统计量都必须有限。百分位区间的含义取决于所选统计量和重采样方案；增加 `n_resamples` 既不能证明方案有效，也不能消除估计偏差。
+
+例如，对矩阵的总体均值作 bootstrap 时，省略快速计算提示，就能按整行重采样：
+
+<!-- api-example: module-matrix-mean -->
+```python
+import numpy as np
+from statgpu.inference import bootstrap_statistic
+
+rows = np.arange(12.0).reshape(6, 2)
+result = bootstrap_statistic(
+    np.mean, rows, n_resamples=99, random_state=7, backend="numpy",
+)
+print(result.observed, result.samples.shape)
+```
+
+输出为 `5.5 (99,)`。每次重采样都有放回地抽取完整行，因此同一行的两个测量值始终成对保留。

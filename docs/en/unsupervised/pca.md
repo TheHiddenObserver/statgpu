@@ -125,7 +125,7 @@ It scales transformed scores by `1 / sqrt(explained_variance_)`, producing unit-
 
 ## Numerical and lifecycle cautions
 
-The covariance solver forms uncentered second moments and subtracts the squared mean. Large common offsets relative to variation can cause severe cancellation, including incorrect zero variance ratios. Use `svd_solver="full"` for such data, or subtract a training-derived offset before fitting and apply it to later rows. Whitening zero-variance components can return non-finite coordinates; reduce the rank or disable whitening. `inverse_transform` does not validate finiteness, so validate supplied coordinates yourself.
+The covariance solver forms uncentered second moments and subtracts the squared mean. Large common offsets relative to variation can cause severe cancellation, including incorrect zero variance ratios. Use `svd_solver="full"` for such data, or subtract a training-derived offset before fitting and apply it to later rows. Whitening zero-variance components can return non-finite coordinates; reduce the rank or disable whitening. The public `inverse_transform` method rejects NaN or infinite input coordinates with `ValueError`; supply finite component scores.
 
 ## Complete API reference
 

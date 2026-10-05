@@ -1,7 +1,7 @@
 # Feature Selection
 
 > Language: English  
-> Last updated: 2026-10-03  
+> Last updated: 2026-10-05  
 > Switch: [Chinese](../../cn/models/feature-selection.md)
 
 ## Which predictors should stay?
@@ -99,12 +99,12 @@ validate each selected variable as a discovery.
 | `model_class` | Required | Pass an estimator class/callable, such as `LinearRegression`, not a fitted instance. Each candidate is fitted afresh. |
 | `criterion` | `"aic"` | `"aic"` or `"bic"`; BIC favors smaller models more strongly for typical sample sizes. |
 | `direction` | `"both"` | `"forward"`, `"backward"`, or `"both"`; starting points and paths can lead to different subsets. |
-| `max_features` | `None` | Upper bound, not a requested exact count. An integer from 0 through the input width; `None` uses the full width as the cap. |
+| `max_features` | `None` | Intended upper bound, not a requested exact count. An integer from 0 through the input width; `None` uses the full width as the cap. Nonfinite-score failures can prevent a backward search from meeting it; see below. |
 | `n_jobs` | `None` | Candidate-scoring threads; `None`/`1` is sequential and `-1` follows joblib's all-worker convention. Start sequentially for a small example or constrained GPU memory. |
 | `verbose` | `False` | Print accepted search steps. |
 | `**model_kwargs` | — | Forwarded to the wrapped model constructor, e.g. `device="cpu"`, `compute_inference=False`. Backend and inference support follow that model. |
 
-For backward selection, the cap is enforced by removals before requiring
+For backward selection with finite candidate scores, the cap is enforced by removals before requiring
 criterion improvement; the criterion can temporarily worsen while meeting
 that cap. An intercept-only/null model may win in any direction. Setting
 `max_features=0` is permitted.
@@ -123,7 +123,7 @@ categorical values. The selector's `fit` has no `sample_weight`, `formula`, or
 | `transform(X)` | Returns retained columns, in sorted original-column order; can have shape `(n, 0)`. Use `fit(...).transform(...)` to fit and transform. |
 | `predict(X)` | Selects columns internally and delegates to the final model. Supply the original feature layout. |
 | `score(X, y)` | Delegates to the final model; for `LinearRegression`, this is $R^2$. |
-| `summary()` | Prints criterion, direction, selected indices, and final AIC/BIC. |
+| `summary()` | Prints criterion, direction, selected indices, and final AIC/BIC; returns `None`. |
 | `get_params(deep=True)`, `set_params(**params)` | Read/update selector and forwarded model settings; successful nonempty `set_params` clears fitted selection state. |
 | `selected_features_` | Sorted list of retained zero-based column indices. |
 | `best_model_` | Final estimator refitted on those columns; its coefficients follow the same order. |
@@ -136,6 +136,12 @@ Import `StepwiseSelector` and `stepwise_selection` from `statgpu` or
 returns a **fitted selector**, not a feature list; additional selector controls
 such as `max_features` may be passed as keywords. The complete constructor and
 method docstrings are in [`_stepwise.py`](../../../statgpu/feature_selection/_stepwise.py).
+
+`get_params(deep=True)` returns a flat dictionary; `deep` does not expand nested
+model settings. In `set_params`, names other than the selector's own controls
+become wrapped-model constructor keywords. Their validity is checked only when
+the model is constructed during `fit`; a misspelled model parameter is not
+necessarily rejected by `set_params` itself.
 
 ## Pitfalls and statistical limits
 
@@ -156,9 +162,23 @@ method docstrings are in [`_stepwise.py`](../../../statgpu/feature_selection/_st
   `n * log(max(1 - R2, tiny)) + 2*k` (AIC), or the corresponding `k*log(n)`
   penalty (BIC), with `k = selected columns + fitted-intercept flag`. This
   fallback is not a general likelihood criterion for arbitrary model families.
-  Unsupported or nonfinite candidate scores cannot establish a reliable best
-  model; inspect the model and histories rather than treating a returned subset
-  as evidence of a successful statistical search.
+  Both AIC and BIC must be finite to use either supplied criterion; otherwise
+  the fallback is attempted even when the requested criterion alone is finite.
+
+### Nonfinite-score limitations
+
+The current search can return a selection even when criteria are unavailable. An initial
+infinite criterion prevents forward/bidirectional search from accepting even a
+finite-scoring candidate. If no proposed removal has a finite criterion,
+backward search can return more than `max_features`. The final model may still
+fit successfully, so receiving a selector is not proof that selection succeeded.
+
+Before interpreting results, check that every value in the chosen criterion
+history is finite and that the selected count meets the requested cap. Otherwise
+discard the search result and use a model that supplies comparable finite scores
+for the starting subset and candidates. Recognized numerical candidate-fit failures are
+assigned infinite scores; unrelated errors propagate. The final refit itself
+can also raise.
 
 ## Related FDR APIs and references
 

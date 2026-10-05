@@ -13,10 +13,12 @@ Import any class with `from statgpu.unsupervised import ClassName`. Here `n` is 
 
 - `device="cpu"` uses NumPy; `"cuda"` requests CuPy CUDA; `"torch"` requests Torch CUDA. An explicit unavailable GPU raises instead of silently choosing CPU. `"auto"` follows global device configuration and available backends for most classes; AgglomerativeClustering instead keeps its CPU path even when global configuration selects a GPU. Use `"cpu"` for reproducible CPU examples. See [device and memory](../guides/device-and-memory.md).
 - Numeric calculations generally use float64; UMAP neighbor search and DBSCAN GPU distance calculations use float32 internally. Fitted numeric arrays and method arrays normally remain on the selected backend. AgglomerativeClustering publishes NumPy labels/tree arrays even after GPU fitting; UMAP publishes a graph tuple. Integer labels are identifiers, not continuous predictions.
-- Use `np.asarray(a)` for NumPy arrays, `cupy.asnumpy(a)` for CuPy, or `a.detach().cpu().numpy()` for Torch when a CPU reporting copy is needed. Conversion can transfer/synchronize GPU data. Scores and scalar fit diagnostics are host numbers. Numeric hyperparameters must also be finite; range checks do not reliably reject every NaN/Inf setting.
-- `fit(...)` and supported `partial_fit(...)` return the estimator itself. Post-fit transforms, predictions and scores require a successful fit. Ordinary `fit` starts a new model; only the three documented `partial_fit` APIs accumulate batches. After changing settings with `set_params(...)`, fit again before using results. A failed refit is not a successful replacement: older attributes may remain on the instance. Use a fresh estimator and validate the new result after an error.
+- Use `np.asarray(a)` for NumPy arrays, `cupy.asnumpy(a)` for CuPy, or `a.detach().cpu().numpy()` for Torch to obtain a CPU reporting array. These conversions do not always make an independent copy: NumPy arrays and CPU Torch tensors can share storage with the result. Add `.copy()` to the resulting NumPy array before editing it independently. GPU conversion can transfer/synchronize data. Scores and scalar fit diagnostics are host numbers. Numeric hyperparameters must also be finite; range checks do not reliably reject every NaN/Inf setting.
+- `fit(...)` and supported `partial_fit(...)` return the estimator itself. Post-fit transforms, predictions and scores require a successful fit. Ordinary `fit` starts a new model; only the three documented `partial_fit` APIs accumulate batches. After changing settings with `set_params(...)`, fit again before using results. A failed refit is not a successful replacement: old or partially updated attributes may remain on the instance. Use a fresh estimator and validate the new result after an error.
 - Shared `get_params(deep=True)` returns a configuration dictionary; `set_params(**params)` returns `self`, validates parameter names, and resets fitted state for these classes. The complete inherited signatures, inference-helper restrictions and examples are in [parameter management](../reference/estimator-api.md#parameter-management) and [generic inference helpers](../reference/estimator-api.md#inference-helpers). The inherited `adjust_pvalues`, `combine_pvalues`, `bootstrap_statistic`, and `permutation_test` helpers do not by themselves supply valid cluster/component inference. None of these twelve classes provides a model-specific `summary()` or coefficient standard errors.
 - `n_jobs=None` appears in every constructor. It is retained as common estimator configuration; the unsupervised implementations currently do not use it to set kernel/thread parallelism. Do not interpret `n_jobs=-1` as a measured speedup or enforced thread count here.
+
+Array-returning methods do not universally make defensive copies. `KMeans`, `MiniBatchKMeans`, `DBSCAN`, and `AgglomerativeClustering` return their `labels_` object from `fit_predict`; UMAP and TSNE return their `embedding_` object from `fit_transform`. NMF returns its stored joint-fit factors from `fit_transform`. Treat these arrays and fitted attributes as read-only, or copy them before modifying them (`a.copy()` for NumPy/CuPy, `a.clone()` for Torch).
 
 ## Method availability
 
@@ -39,7 +41,7 @@ PCA(n_components=None, svd_solver='auto', whiten=False, copy=True, random_state=
 | `random_state` | `None` | Integer seed or `None`; controls randomized initialization/approximation. A fixed seed does not promise identical results across backends or library versions. |
 | `n_oversamples` | `10` | Nonnegative integer giving extra random projection directions. |
 | `iterated_power` | `2` | Nonnegative number of randomized power iterations. |
-| `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see common device rules below. |
+| `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see the shared device rules. |
 | `n_jobs` | `None` | Accepted common CPU-job configuration; these implementations do not use it to control their numerical kernels or guarantee a thread count. |
 
 | Method signature | Return and restrictions |
@@ -75,7 +77,7 @@ KMeans(n_clusters=8, init='k-means++', n_init='auto', max_iter=300, tol=0.0001, 
 | `max_iter` | `300` | Positive integer iteration budget; see each model for iterations versus epochs. |
 | `tol` | `0.0001` | Nonnegative convergence threshold; the model-specific criterion is described below. |
 | `random_state` | `None` | Integer seed or `None`; controls randomized initialization/approximation. A fixed seed does not promise identical results across backends or library versions. |
-| `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see common device rules below. |
+| `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see the shared device rules. |
 | `n_jobs` | `None` | Accepted common CPU-job configuration; these implementations do not use it to control their numerical kernels or guarantee a thread count. |
 
 | Method signature | Return and restrictions |
@@ -110,7 +112,7 @@ DBSCAN(eps=0.5, min_samples=5, metric='euclidean', algorithm='auto', batch_size=
 | `metric` | `'euclidean'` | Only `"euclidean"` is supported; other metrics, including precomputed distances, are unsupported. |
 | `algorithm` | `'auto'` | `"auto"`, `"brute"`, `"ball_tree"`, or `"kd_tree"`; used by high-dimensional CPU scikit-learn neighbor search, not every backend. |
 | `batch_size` | `None` | Positive integer or `None`; bounds GPU distance batches where that path uses batching. `None` chooses an automatic batch size. |
-| `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see common device rules below. |
+| `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see the shared device rules. |
 | `n_jobs` | `None` | Accepted common CPU-job configuration; these implementations do not use it to control their numerical kernels or guarantee a thread count. |
 
 | Method signature | Return and restrictions |
@@ -146,7 +148,7 @@ GaussianMixture(n_components=1, covariance_type='diag', tol=0.001, reg_covar=1e-
 | `n_init` | `1` | Positive number of EM restarts; retain the best fitted lower bound. |
 | `init_params` | `'kmeans'` | `"kmeans"` or `"random"` mean initialization. |
 | `random_state` | `None` | Integer seed or `None`; controls randomized initialization/approximation. A fixed seed does not promise identical results across backends or library versions. |
-| `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see common device rules below. |
+| `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see the shared device rules. |
 | `n_jobs` | `None` | Accepted common CPU-job configuration; these implementations do not use it to control their numerical kernels or guarantee a thread count. |
 
 | Method signature | Return and restrictions |
@@ -163,7 +165,7 @@ GaussianMixture(n_components=1, covariance_type='diag', tol=0.001, reg_covar=1e-
 | Fitted output | Meaning and shape |
 |---|---|
 | `weights_`, `means_` | Mixing weights `(k,)` and means `(k,p)`. |
-| `covariances_`, `precisions_cholesky_` | Covariances and precision factors: `(k,p)` for diag, `(k,)` for spherical, `(p,p)` for tied, `(k,p,p)` for full. |
+| `covariances_`, `precisions_cholesky_` | Covariances and precision factors: `(k,p)` for diag, `(k,)` for spherical, `(p,p)` for tied, `(k,p,p)` for full. Diag/spherical factors are inverse standard deviations; full/tied factors are lower triangular `L` with `L @ L.T = inv(covariance)`. |
 | `converged_`, `n_iter_`, `lower_bound_`, `n_features_in_` | Convergence flag, EM iterations, last monitored mean log likelihood before the final M-step, and feature count. Check convergence before interpreting scores. |
 
 `tol` controls absolute change in mean log likelihood, and `max_iter` limits each restart. For total log likelihood $L=m\,\mathrm{score}(X)$ and free-parameter count $d$, $\mathrm{AIC}=2d-2L$ and $\mathrm{BIC}=d\log m-2L$. Here $d=kp+(k-1)+d_{\mathrm{cov}}$, where the covariance parameter count is $kp$ (diag), $k$ (spherical), $p(p+1)/2$ (tied), or $kp(p+1)/2$ (full). Compare candidates on the same data. No `transform`, `partial_fit`, or coefficient-inference API is exposed.
@@ -185,7 +187,7 @@ NMF(n_components=None, init='random', solver='mu', beta_loss='frobenius', max_it
 | `max_iter` | `200` | Positive integer iteration budget; see each model for iterations versus epochs. |
 | `tol` | `0.0001` | Nonnegative convergence threshold; the model-specific criterion is described below. |
 | `random_state` | `None` | Integer seed or `None`; controls randomized initialization/approximation. A fixed seed does not promise identical results across backends or library versions. |
-| `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see common device rules below. |
+| `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see the shared device rules. |
 | `n_jobs` | `None` | Accepted common CPU-job configuration; these implementations do not use it to control their numerical kernels or guarantee a thread count. |
 
 | Method signature | Return and restrictions |
@@ -217,7 +219,7 @@ AgglomerativeClustering(n_clusters=2, linkage='single', metric='euclidean', devi
 | `n_clusters` | `2` | Positive requested cluster count at most `n`; tied merge heights on the CPU maxclust cut can yield fewer groups. |
 | `linkage` | `'single'` | `"single"`, `"complete"`, `"average"`, or `"ward"`. |
 | `metric` | `'euclidean'` | Only `"euclidean"` is supported; other metrics, including precomputed distances, are unsupported. |
-| `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see common device rules below. |
+| `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see the shared device rules. |
 | `n_jobs` | `None` | Accepted common CPU-job configuration; these implementations do not use it to control their numerical kernels or guarantee a thread count. |
 
 | Method signature | Return and restrictions |
@@ -232,7 +234,7 @@ AgglomerativeClustering(n_clusters=2, linkage='single', metric='euclidean', devi
 | `children_`, `distances_` | NumPy merge pairs `(n-1,2)` and merge distances `(n-1,)`; leaf ids are `0..n-1`, merge row `i` has id `n+i`. |
 | `n_features_in_` | Training input width. |
 
-One observation with `n_clusters=1` has an empty merge tree. GPU paths use dense pairwise distances and reject estimates exceeding `STATGPU_AGGLOMERATIVE_GPU_MAX_BYTES` (default 1 GiB); this is a configured cap, not a measurement of available memory. No sparse connectivity constraint, `transform`, `score`, or `partial_fit` is exposed.
+One observation with `n_clusters=1` has an empty merge tree. GPU paths use dense pairwise distances and reject estimates exceeding `STATGPU_AGGLOMERATIVE_GPU_MAX_BYTES` (default 1 GiB); this is a configured cap, not a measurement of available memory. The GPU expanded-distance formula can lose small separations when inputs have large common offsets; center in float64 before fitting. No sparse connectivity constraint, `transform`, `score`, or `partial_fit` is exposed.
 
 ## TruncatedSVD
 
@@ -249,7 +251,7 @@ TruncatedSVD(n_components=2, algorithm='randomized', n_iter=5, n_oversamples=10,
 | `n_iter` | `5` | Nonnegative power-iteration count for the randomized method. |
 | `n_oversamples` | `10` | Nonnegative integer giving extra random projection directions. |
 | `random_state` | `None` | Integer seed or `None`; controls randomized initialization/approximation. A fixed seed does not promise identical results across backends or library versions. |
-| `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see common device rules below. |
+| `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see the shared device rules. |
 | `n_jobs` | `None` | Accepted common CPU-job configuration; these implementations do not use it to control their numerical kernels or guarantee a thread count. |
 
 | Method signature | Return and restrictions |
@@ -286,7 +288,7 @@ MiniBatchKMeans(n_clusters=8, init='k-means++', n_init='auto', batch_size=1024, 
 | `max_no_improvement` | `10` | Nonnegative integer budget of batches without a new best batch inertia, or `None` to disable this stop rule. |
 | `tol` | `0.0` | Nonnegative convergence threshold; the model-specific criterion is described below. |
 | `random_state` | `None` | Integer seed or `None`; controls randomized initialization/approximation. A fixed seed does not promise identical results across backends or library versions. |
-| `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see common device rules below. |
+| `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see the shared device rules. |
 | `n_jobs` | `None` | Accepted common CPU-job configuration; these implementations do not use it to control their numerical kernels or guarantee a thread count. |
 
 | Method signature | Return and restrictions |
@@ -302,7 +304,7 @@ MiniBatchKMeans(n_clusters=8, init='k-means++', n_init='auto', batch_size=1024, 
 |---|---|
 | `cluster_centers_`, `counts_` | Centers `(k,p)` and per-center counts `(k,)`; `fit` publishes final full-data assignment counts, while `partial_fit` accumulates batch assignments. |
 | `labels_`, `inertia_` | For `fit`, whole-training labels/inertia; after `partial_fit`, only the latest batch. Labels have the latest input row count. |
-| `n_iter_`, `n_steps_`, `n_features_in_` | For `fit`: epochs, batch updates, and feature count. Each `partial_fit` increments both counters once. |
+| `n_iter_`, `n_steps_`, `n_features_in_` | For `fit`: epochs entered (the last can stop partway through), batch updates, and feature count. Each `partial_fit` increments both counters once. |
 
 With a string initializer, the first `partial_fit` batch needs at least `n_clusters` rows. Explicit centers allow a smaller first batch. Later batches may have fewer rows but must retain feature width and order. `max_iter`, `tol` (squared center movement), and `max_no_improvement` govern `fit`; they do not turn one `partial_fit` call into an epoch loop. Unlike `fit`, `partial_fit` does not run a full-data polishing pass. Its `labels_` and `inertia_` record the batch assignment used before moving the centers; use `predict(batch)` and `-score(batch)` to evaluate the updated centers.
 
@@ -320,7 +322,7 @@ IncrementalPCA(n_components=None, batch_size=None, whiten=False, copy=True, devi
 | `batch_size` | `None` | Positive integer or `None`; `fit` uses all rows at once by default and expands a too-small first batch to fit the resolved rank. Does not split a `partial_fit` argument. |
 | `whiten` | `False` | Whether transformed PCA coordinates are rescaled by the fitted component standard deviations. |
 | `copy` | `True` | Compatibility option; input data are not modified, including when `False`. |
-| `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see common device rules below. |
+| `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see the shared device rules. |
 | `n_jobs` | `None` | Accepted common CPU-job configuration; these implementations do not use it to control their numerical kernels or guarantee a thread count. |
 
 | Method signature | Return and restrictions |
@@ -357,7 +359,7 @@ MiniBatchNMF(n_components=None, init='random', batch_size=None, max_iter=200, to
 | `max_iter` | `200` | Positive integer iteration budget; see each model for iterations versus epochs. |
 | `tol` | `0.0001` | Nonnegative convergence threshold; the model-specific criterion is described below. |
 | `random_state` | `None` | Integer seed or `None`; controls randomized initialization/approximation. A fixed seed does not promise identical results across backends or library versions. |
-| `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see common device rules below. |
+| `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see the shared device rules. |
 | `n_jobs` | `None` | Accepted common CPU-job configuration; these implementations do not use it to control their numerical kernels or guarantee a thread count. |
 
 | Method signature | Return and restrictions |
@@ -375,7 +377,7 @@ MiniBatchNMF(n_components=None, init='random', batch_size=None, max_iter=200, to
 | `reconstruction_err_` | Frobenius residual norm from the fitting factors; whole-data after `fit`, latest-batch after `partial_fit`. A later `transform` may refine factors and give a different error. |
 | `n_iter_`, `n_components_`, `n_features_in_` | Fit epochs (or number of partial updates), chosen rank, and fixed input width. |
 
-Use nonnegative dense data and keep feature width/order fixed. An explicitly positive rank need not be smaller than the first batch; with `None`, the first batch determines it. `max_iter` limits `fit` epochs and influences the fixed-component transform solve; `tol` checks relative component change during fitting. Neither controls a convergence loop in `partial_fit`. No `score` or sample-weight argument is exposed.
+Use nonnegative dense data and keep feature width/order fixed. An explicitly positive rank need not be smaller than the first batch; with `None`, the first batch determines it. `max_iter` limits `fit` epochs and influences the fixed-component transform solve; `tol` checks relative component change during fitting, not relative reconstruction-error change. Neither controls a convergence loop in `partial_fit`. No `score` or sample-weight argument is exposed.
 
 ## UMAP
 
@@ -394,12 +396,12 @@ UMAP(n_neighbors=15, n_components=2, metric='euclidean', min_dist=0.1, spread=1.
 | `spread` | `1.0` | Positive scale of the low-dimensional attraction curve. |
 | `n_epochs` | `None` | Positive integer or `None`; current automatic schedule is 500 for `n<=2000`, 200 for `n<=10000`, otherwise 100. Actual value is `n_epochs_`. |
 | `learning_rate` | `1.0` | Positive initial optimization step size. |
-| `init` | `'spectral'` | `"spectral"` (host SciPy eigensolver) or `"random"`. |
+| `init` | `'spectral'` | `"spectral"` (host SciPy eigensolver) or `"random"`; use random initialization to avoid the current sparse spectral-initialization limitation described below. |
 | `negative_sample_rate` | `5` | Positive integer; each epoch samples `n * negative_sample_rate` independent source/target pairs, not that many pairs per attractive edge. |
 | `repulsion_strength` | `1.0` | Positive repulsive-force multiplier. |
 | `random_state` | `None` | Integer seed or `None`; controls randomized initialization/approximation. A fixed seed does not promise identical results across backends or library versions. |
 | `nn_method` | `'auto'` | `"auto"`, `"exact"`, or `"nndescent"`; exact search uses dense distances, NNDescent is approximate, and auto currently always chooses exact search. |
-| `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see common device rules below. |
+| `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see the shared device rules. |
 | `n_jobs` | `None` | Accepted common CPU-job configuration; these implementations do not use it to control their numerical kernels or guarantee a thread count. |
 
 | Method signature | Return and restrictions |
@@ -415,7 +417,7 @@ UMAP(n_neighbors=15, n_components=2, metric='euclidean', min_dist=0.1, spread=1.
 | `graph_` | A tuple `(source_rows, target_rows, edge_weights, n_samples)`, not a SciPy adjacency matrix. The first three entries are backend arrays of equal edge count. |
 | `n_epochs_`, `n_features_in_` | Executed epoch count and original feature count. |
 
-Neighbor distances use float32 internally; embedding optimization uses float64. Graph assembly uses host SciPy even on GPU, and spectral initialization also uses host SciPy. Seeded random initialization is useful when testing shape/API behavior; visualization quality needs separate checks. The current force updates approximate a neighborhood layout but are not the exact gradient of standard UMAP cross-entropy. With NumPy 2, CPU `nn_method="nndescent"` currently fails during backend dispatch; use `"exact"` or `"auto"`. No inverse transform, score, or incremental fit is provided.
+Neighbor distances use float32 internally; embedding optimization uses float64. Large common feature offsets can collapse distinct observations during float32 conversion or corrupt expanded squared distances; subtract a training-derived offset before fitting, while the data are still float64. Graph assembly uses host SciPy even on GPU, and spectral initialization also uses host SciPy. Seeded random initialization is useful when testing shape/API behavior; visualization quality needs separate checks. The current force updates approximate a neighborhood layout but are not the exact gradient of standard UMAP cross-entropy. With NumPy 2, CPU `nn_method="nndescent"` currently fails during backend dispatch; use `"exact"` or `"auto"`. The sparse spectral initializer can retain the constant graph eigenvector in place of a nontrivial direction; its eigensolver start is also not controlled by `random_state`. Use `init="random"` for seeded initialization. No inverse transform, score, or incremental fit is provided.
 
 ## TSNE
 
@@ -435,7 +437,7 @@ TSNE(n_components=2, perplexity=30.0, early_exaggeration=12.0, learning_rate='au
 | `init` | `'pca'` | `"pca"` or `"random"`; no user-supplied embedding option. |
 | `random_state` | `None` | Integer seed or `None`; controls randomized initialization/approximation. A fixed seed does not promise identical results across backends or library versions. |
 | `metric` | `'euclidean'` | Only `"euclidean"` is supported; other metrics, including precomputed distances, are unsupported. |
-| `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see common device rules below. |
+| `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see the shared device rules. |
 | `n_jobs` | `None` | Accepted common CPU-job configuration; these implementations do not use it to control their numerical kernels or guarantee a thread count. |
 
 | Method signature | Return and restrictions |
@@ -451,7 +453,7 @@ TSNE(n_components=2, perplexity=30.0, early_exaggeration=12.0, learning_rate='au
 | `kl_divergence_` | Final high-/low-dimensional affinity KL objective, a Python float; not a general held-out score. |
 | `n_iter_`, `n_features_in_` | Executed iterations (the configured budget) and original input width. |
 
-This implementation allocates dense pairwise arrays, so memory grows quadratically with sample count. It has no Barnes–Hut/FFT method selector, sparse/precomputed-distance support, inverse transform, score, or incremental fit. Do not transfer learning-rate or perplexity defaults from another library without checking its convention. The current affinity bandwidth search can fail for extremely large or tiny feature scales, and can return an invalid negative KL value. Rescale to moderate magnitudes and check finite embeddings and nonnegative KL; see the [TSNE numerical cautions](tsne.md#numerical-and-lifecycle-cautions).
+This implementation allocates dense pairwise arrays, so memory grows quadratically with sample count. It has no Barnes–Hut/FFT method selector, sparse/precomputed-distance support, inverse transform, score, or incremental fit. Do not transfer learning-rate or perplexity defaults from another library without checking its convention. The current affinity bandwidth search can fail for extremely large or tiny feature scales, and can return an invalid negative KL value. Subtract a training-derived offset before rescaling to moderate magnitudes: the expanded distance calculation can corrupt affinities at large offsets even when KL remains finite and nonnegative. These checks are necessary but not sufficient for valid affinities; see the [TSNE numerical cautions](tsne.md#numerical-and-lifecycle-cautions).
 
 ## Incremental example
 

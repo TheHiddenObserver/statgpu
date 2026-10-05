@@ -1,7 +1,7 @@
 # Knockoff Feature Selection
 
 > Language: English  
-> Last updated: 2026-07-12  
+> Last updated: 2026-10-05  
 > This page: Method documentation  
 > Switch: [Chinese](../../cn/models/knockoff.md)
 
@@ -10,6 +10,8 @@ Language switch: [Chinese](../../cn/models/knockoff.md)
 ## Overview
 
 The knockoff module implements feature-selection procedures designed for FDR control under their construction/statistic assumptions, using feature-wise statistics \(W_j\) and data-adaptive thresholds. Two paths are provided: fixed-X knockoff (design treated as fixed) and model-X knockoff (Gaussian second-order construction). A unified `knockoff_filter` entry point switches between them.
+
+False discovery rate (FDR) is the expected fraction of selected features that are null, counting an empty selection as zero. It is not the probability that every selected feature is correct. Knockoffs act as matched negative controls: a feature must compete against an artificial counterpart with a similar dependence structure. Use this approach when selection error control is the goal and the construction assumptions are credible; for prediction-focused subset search, compare [stepwise selection](feature-selection.md) and validate on held-out data.
 
 Complete function/selector signatures, all parameters, result fields and a self-contained CPU example are in the [feature-selection API reference](../reference/feature-selection-api.md).
 
@@ -52,7 +54,7 @@ The displayed threshold is the theoretical knockoff+ rule. The current implement
 This method does not report coefficient covariance tables. Its inferential target is selection-based FDR control, subject to the stated assumptions and limitations:
 - fixed-X path requires fixed-design assumptions and usually `n >= 2p`.
 - model-X path uses covariance estimation plus S-matrix construction; optional multi-draw averaging is supported.
-- `compat_mode="knockpy"` exposes compatibility controls for covariance/S-matrix behavior.
+- `compat_mode="knockpy"` exposes covariance/S-matrix controls, but missing optional packages or S-matrix solver errors can substitute sample covariance or an equicorrelated S matrix. Inspect `metadata["modelx_covariance_estimator"]` and `metadata["modelx_smatrix_source"]`; the requested method name does not establish what ran. See [compatibility resolution](../reference/feature-selection-api.md#compatibility-resolution-and-fallbacks).
 
 ## Parameters
 
@@ -154,6 +156,8 @@ Filter functions return `KnockoffResult`. Selector `fit` returns `self`; read it
 - `estimated_fdr`
 - `q_trajectory`
 - `metadata` (for example draw count, compatibility mode, and knockoff source)
+
+An empty `selected_features` array is a valid outcome. `estimated_fdr` is the threshold-rule estimate, not an observed error fraction or a per-feature p-value. Inspect `W` and `threshold` together, check the tied-statistic restriction above, and evaluate any downstream prediction model on data not used for selection.
 
 ## FAQ
 

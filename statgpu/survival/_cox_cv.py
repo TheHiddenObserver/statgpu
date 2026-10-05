@@ -2081,7 +2081,9 @@ class CoxPHCV(CVEstimatorBase):
         Returns
         -------
         c_index : float
-            C-index (0.5 = random, 1.0 = perfect).
+            Harrell-style concordance on comparable pairs (1.0 = perfect
+            ranking). A value of 0.5 can indicate neutral/tied ranking or
+            no comparable pairs; the latter is not validation evidence.
         """
         try:
             if self.estimator_ is None:

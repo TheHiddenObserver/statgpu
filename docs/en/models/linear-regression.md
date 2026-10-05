@@ -35,14 +35,15 @@ $$
 D^\top W(y-D\hat\theta)=0.
 $$
 
-For a full-rank classical model, writing $r=\operatorname{rank}(D)$,
+For a classical model with full-rank weighted design, writing
+$r=\operatorname{rank}(W^{1/2}D)$,
 
 $$
 \hat\sigma^2=\frac{(y-D\hat\theta)^\top W(y-D\hat\theta)}{n-r},\qquad
 \widehat{\operatorname{Var}}(\hat\theta)=\hat\sigma^2(D^\top WD)^{-1}.
 $$
 
-Standard error j is the square root of covariance diagonal j. A marginal interval is $\hat\theta_j\pm c\,\mathrm{SE}_j$, with a t critical value for classical inference and a normal critical value for HC/HAC. Robust choices replace the covariance construction, not the OLS/WLS fit. These inverse expressions require a full-rank design and positive residual degrees of freedom; users should not manually invert the Gram matrix to fit the estimator.
+Standard error j is the square root of covariance diagonal j. A marginal interval is $\hat\theta_j\pm c\,\mathrm{SE}_j$, with a t critical value for classical inference and a normal critical value for HC/HAC. Robust choices replace the covariance construction, not the OLS/WLS fit. The rank reduces to that of D without weights; zero-weight rows can reduce the weighted design rank. These inverse expressions require a full-rank weighted design and positive residual degrees of freedom; users should not manually invert the Gram matrix to fit the estimator.
 
 ## A complete CPU example
 

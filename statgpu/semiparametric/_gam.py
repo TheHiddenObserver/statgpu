@@ -83,6 +83,8 @@ class GAM(BaseEstimator):
     family/link, weighted-fit objective, coefficient inference, or confidence
     bands. Inputs and basis calculations use float64; predict returns a host
     NumPy array even after GPU fitting. Refit after changing parameters.
+    Automatic smoothing selection can return a nonfinite gcv_score_ when
+    no grid candidate is valid; treat that as a failed selection.
     Some parameter changes or failed refits can leave stale/mixed fitted
     arrays; create a fresh instance after a failed basis construction.
 

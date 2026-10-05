@@ -203,6 +203,8 @@ GAM.summary()
 - `lam=None` 搜索内置 100 点网格；没有 GAM 自定义网格或专用 CV 估计器接口。其他设置可用外部验证选择。没有专用 `score`、样本加权目标、family/link、系数推断或置信带方法；继承的通用工具不会自动补齐这些能力。
 - `set_params` 后始终重新拟合。部分 GAM 改参当前保留旧拟合数组，未重拟合便预测可能使用不一致状态。改变基函数设计时，创建新 GAM 实例最稳妥。重拟合若在构造基函数时失败，还可能把旧系数与新节点或特征数混在一起；此时应丢弃该实例，在新实例上成功拟合后再预测或解释 `summary()`。
 
+自动选择平滑参数后，请检查 `gcv_score_` 是否有限。若全部候选的 GCV 都是无穷大，当前实现仍返回第一个网格值；仅仅返回已拟合对象不能证明选择成功。此时应重新检查设计，或采用经过外部验证的固定 `lam`。
+
 ## 核密度估计
 
 以下名称均从 `statgpu.nonparametric` 导入。`KDE` 是 `KernelDensityEstimator` 的别名子类，构造参数和方法相同；构造参数须按名称传入。
@@ -280,6 +282,8 @@ kde_pdf(samples, points, *, bandwidth='scott', weights=None, kernel='gaussian', 
 拟合属性：`samples_` `(n,p)`、归一化 `weights_` `(n,)`、标量 `bandwidth_factor_`、`bandwidth_info_`（选择结果；数值带宽时为 `None`）、`covariance_` 和 `inv_covariance_` `(p,p)`、标量 `norm_const_` 和 `inv_norm_const_`、`kernel_`、`backend_`、`n_samples_`、`n_features_`。`to_numpy_metadata()` 返回含 `bandwidth_factor`、`bandwidth_selection`、`n_samples`、`n_features`、`backend`、`kernel`、`covariance`、`inv_covariance`、`weights` 的字典，数组为主机 NumPy 数组。
 
 `fit` 与 `score` 不使用可选 `y` 估计密度或计算分数，但传入非有限 `y` 仍会被通用输入校验拒绝；建议省略该参数。
+
+使用加权高斯 KDE 的对数密度接口前，请删除零权重观测及对应权重。这些观测不贡献概率质量，但当前的数值稳定化可能受其影响，将尾部对数密度错误地算成 `-inf`；删除零权重行不会改变预期估计量。
 
 ## 核回归
 
@@ -413,12 +417,12 @@ BandwidthSelectionResult.to_dict()
 | `bandwidth` | 所选估计器支持的名称/标量因子；回归 CV 名称需要 `estimator="kernel_regression"`。 |
 | `n_eff`、`n_features` | 正的有效样本量和特征数 `p`；归一化权重对应 `n_eff=1/sum(weights_1d**2)`。 |
 | `samples_2d`、`weights_1d`、`data_cov`、`xp` | `(n,p)` 后端样本、归一化 `(n,)` 权重、未按带宽缩放的 `(p,p)` 加权协方差，以及匹配的 NumPy/CuPy/Torch 数组模块。使用有限、兼容输入；传入模块不会自动把数组迁移到 GPU。 |
-| `enable_r_selectors=True` | 启用 `nrd0`、`ucv`、`sj` 等 R 风格名称；`False` 会拒绝这些名称。算法不会启动 R 进程。 |
+| `enable_r_selectors=True` | 控制 `ucv`、`bcv`、`sj`、`sj-ste`、`sj-dpi`；设为 `False` 时会拒绝这些选择器。正态参考规则 `nrd` 和 `nrd0` 不受此开关限制。算法不会启动 R 进程。 |
 | `weighted_r_selector_strategy` | 非均匀权重下 R 风格选择支持 `"quantile_resample"` 策略。 |
 | `multivariate_selector_strategy` | R 风格选择的多元扩展支持 `"projection_pca_1d"`；不等同于精确多元 R 方法。 |
 | `estimator`、`targets`、`regression`、`kernel` | 默认 `"kde"`；回归 CV 选择使用 `"kernel_regression"` 和匹配目标。`regression` 为 `"nw"` 或 `"local_linear"`，`kernel` 选择回归核；默认值见签名。 |
 
-`select_bandwidth` 返回 `BandwidthSelectionResult`；`select_bandwidth_factor` 返回其中的标量 `factor`。结果字段为 `factor`、`method`、`n_features`、`n_eff`、`used_r_selector`、`weighted`、`weighted_strategy`、`multivariate_strategy`、`selector_dimension`、`details`；`to_dict()` 返回相同名称。`details` 随方法变化，不应假定所有选择器都有相同键。`used_r_selector` 表示采用 R 风格数值方法，不代表调用了外部 R 进程；部分常数/稀疏样本会使选择失败。
+`select_bandwidth` 返回 `BandwidthSelectionResult`；`select_bandwidth_factor` 返回其中的标量 `factor`。结果字段为 `factor`、`method`、`n_features`、`n_eff`、`used_r_selector`、`weighted`、`weighted_strategy`、`multivariate_strategy`、`selector_dimension`、`details`；`to_dict()` 返回相同名称。`details` 随方法变化，不应假定所有选择器都有相同键。`used_r_selector=True` 表示使用 `ucv`、`bcv` 或 `sj` 系列方法；`nrd`/`nrd0` 对应 `False`，该字段不代表调用了外部 R 进程；部分常数/稀疏样本会使选择失败。
 
 <!-- example: bandwidth-selector-reference-cpu -->
 ```python

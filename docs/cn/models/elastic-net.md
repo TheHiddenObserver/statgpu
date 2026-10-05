@@ -55,6 +55,11 @@ print("held-out R2:", round(float(model.score(X[300:], y[300:])), 3))
 
 `X` 应为有限数值组成的 `(n_samples, n_features)` 矩阵，`y` 为一维响应。预测时必须保持训练时的列顺序与预处理方式。拟合接口为 `fit(X=None, y=None, sample_weight=None, initial_coef=None, **kwargs)`；可选的非负分析权重（analytic weights）进入归一化加权损失。`initial_coef` 通过 `fit` 提供初始系数，构造函数没有 `warm_start` 参数。当前实现仍会保留该初值；后续拟合省略 `initial_coef` 并不会将它清除。若要恢复默认初始化，应新建估计器，尤其是在改变特征数量时；旧初值的长度与新输入不一致会导致维度错误。共享的可选公式接口通过拟合关键字接受 `formula=` 与 `data=`。
 
+加权评价需通过 `score(X, y, sample_weight=weights)` 单独传入权重：每行对应一个
+有限非负值，且总和为正。当前平方损失 `score` 路径不能可靠地拒绝负权重，甚至可能
+返回大于 1 的无效 R²，因此评分前应自行检查这些条件。训练时的权重验证不覆盖新的
+评价权重向量。
+
 ## 路径
 
 `statgpu.linear_model.ElasticNet`
@@ -253,7 +258,7 @@ $$
 |------|------|
 | `coef_` | 用于预测的惩罚拟合系数 |
 | `intercept_` | 用于预测的惩罚拟合截距 |
-| `n_iter_` | 收敛所需迭代次数 |
+| `n_iter_` | 实际执行的迭代次数；达到预算上限不代表已收敛 |
 | `nodewise_alpha_` | 多特征 `debiased` 推断成功后解析出的逐节点调参值；其他情况为 `None` |
 | `_params` | 推断成功时用于报告的参数向量；`debiased` 下包含相互一致的纠偏截距与纠偏斜率；`post_selection_ols` 下保存按完整参数布局嵌入的活跃集 OLS/WLS 重拟合结果 |
 | `_inference_result` | 结构化推断结果，以及数值后端和逐节点调参的元数据 |
@@ -272,6 +277,15 @@ $$
 
 [完整 ElasticNet API 参考](../reference/linear-model-api.md#elasticnet)包含 `predict(X, return_cpu=True)`、加权 `score(X, y, sample_weight=None)`、公式输入、报告字段与推断限制。继承方法见[共享参考](../reference/estimator-api.md)。另请查阅 [ElasticNetCV 构造参数](../reference/linear-model-api.md#elasticnetcv)与含可运行示例的 [CV 流程/结果](../reference/linear-model-api.md#cv-methods-and-results)，直接拟合和 CV 参数不同。源码可辅助理解，不能代替这些接口约定。
 
+### 调整接近 Ridge 的混合比例
+
+使用 `ElasticNetCV(l1_ratio=0)` 或很小的正混合比例时，请显式提供正数 `alphas`
+网格，覆盖希望比较的收缩强度。当前自动网格把中心化设计与响应的加权平均交叉乘积除以
+`max(l1_ratio, 1e-6)`；比例为零时，候选惩罚可能全部过大，从而错过有用的 Ridge
+拟合。这是网格生成的限制；直接调用 `ElasticNet(l1_ratio=0, alpha=...)` 仍然拟合
+Ridge 目标。自动规则即使在 `fit_intercept=False` 时也会中心化 X/y；这种情况同样
+宜显式提供网格，并检查候选范围及验证损失。
+
 ## 数值验证
 
 支持的后端会在相同模型设定下检查数值一致性，并与参考实现进行对照。求解器参数迁移、逐节点调参以及选择后 OLS/WLS 的行为也都有回归测试覆盖。
@@ -281,4 +295,3 @@ $$
 - Zou, H., & Hastie, T. (2005). Regularization and variable selection via the Elastic Net. *Journal of the Royal Statistical Society: Series B*, 67(2), 301-320.
 - Beck, A., & Teboulle, M. (2009). A fast iterative shrinkage-thresholding algorithm for linear inverse problems. *SIAM Journal on Imaging Sciences*, 2(1), 183-202.
 - van de Geer, S., Buhlmann, P., Ritov, Y., & Dezeure, R. (2014). On asymptotically optimal confidence regions and tests for high-dimensional models. *Annals of Statistics*, 42(3), 1166-1202.
-

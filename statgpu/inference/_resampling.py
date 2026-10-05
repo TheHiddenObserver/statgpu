@@ -906,19 +906,25 @@ def bootstrap_statistic(
     ----------
     statistic : callable
         A function receiving resampled arrays and returning a scalar.
-        On CuPy IID paths, a vectorized callable is also supported:
-        if called with batched samples and it returns a vector of length
-        ``batch_size``, that vectorized output is used directly.
+        NumPy, CuPy and Torch batched paths may first call it with a
+        leading resample dimension. One finite value per batch row enables
+        vectorized execution; otherwise scalar calls are used. Avoid side
+        effects and make the reduced axes explicit.
     *arrays : array-like
         One or more arrays with aligned first dimension.
     n_resamples : int, default=200
         Number of bootstrap resamples.
     strategy : {'iid', 'stratified', 'cluster', 'block'}, default='iid'
-        Resampling strategy.
+        Aligned arrays share row indices. IID samples rows with replacement;
+        stratified samples within strata; block samples contiguous blocks.
+        Whole-cluster semantics are currently reliable only for equal-size
+        clusters. With unequal sizes the last cluster is truncated to n rows;
+        do not use those intervals as a whole-cluster bootstrap.
     strata : array-like, optional
         Strata labels used by stratified bootstrap.
     clusters : array-like, optional
-        Cluster labels used by cluster bootstrap.
+        Length-n labels used by cluster bootstrap; see the unequal-size
+        limitation under strategy.
     block_size : int, optional
         Block size for block bootstrap.
     confidence_level : float, default=0.95
@@ -927,14 +933,20 @@ def bootstrap_statistic(
         Seed for reproducibility.
     statistic_name : str, default='statistic'
         Name to attach to the result object.
-    backend : {'auto', 'numpy', 'cupy'}, default='auto'
-        Backend selection. 'auto' infers from input arrays.
+    backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
+        Backend selection. 'auto' infers from input arrays. Explicit Torch
+        uses the configured Torch backend; the callback must accept its arrays.
     force_vectorized : bool, default=False
-        If True, require the statistic callable (or fastpath) to produce
-        vectorized batch output on IID path; raises if unavailable.
+        Reject an incompatible initial batch probe on IID, stratified, block
+        and equal-size cluster paths. After an accepted probe, a later
+        incompatible batch can still fall back to scalar calls, even when True.
+        Callbacks should handle every batch size, including a final single row.
+        Unequal-size cluster paths always use scalar calls.
     statistic_hint : {'mean', 'pearson_corr'} or None, default=None
-        Optional built-in fastpath hint. For bootstrap, ``'mean'`` enables
-        direct batch mean computation on IID path.
+        For bootstrap, ``'mean'`` replaces resample callbacks with built-in
+        means and requires one one-dimensional input array. Omit the hint for
+        matrices. The observed callback must compute the same mean; equivalence
+        is not checked. ``'pearson_corr'`` does not accelerate bootstrap.
 
     Returns
     -------
@@ -1246,8 +1258,9 @@ def permutation_test(
     ----------
     statistic : callable
         Function receiving ``(X, y)`` and returning a scalar.
-        On CuPy IID paths, vectorized output is supported when ``y`` is a
-        batch matrix and the callable returns a vector with one value per row.
+        NumPy, CuPy and Torch may probe it with fixed X and a batch of
+        permuted responses shaped (batch_size, n). Return one finite value
+        per batch row, or use a scalar-only callback without side effects.
     X : array-like
         Feature matrix.
     y : array-like
@@ -1266,14 +1279,19 @@ def permutation_test(
         Random seed.
     statistic_name : str, default='statistic'
         Name to attach to the result object.
-    backend : {'auto', 'numpy', 'cupy'}, default='auto'
-        Backend selection. 'auto' infers from input arrays.
+    backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
+        Backend selection. 'auto' infers from input arrays. Explicit Torch
+        uses the configured Torch backend; the callback must accept its arrays.
     force_vectorized : bool, default=False
-        If True, require vectorized batch output on IID path; raises if
-        statistic is not vectorized-compatible.
+        Reject an incompatible initial batch probe on IID, stratified and
+        grouped paths. After an accepted probe, a later incompatible batch can
+        still fall back to scalar calls, even when True. Callbacks should handle
+        every batch size, including a final single row.
     statistic_hint : {'mean', 'pearson_corr'} or None, default=None
-        Optional built-in fastpath hint. For permutation, ``'pearson_corr'``
-        computes Pearson correlation in vectorized batches for IID path.
+        For permutation, ``'pearson_corr'`` replaces resample callbacks with
+        built-in correlations on all strategies and requires X shaped (n,)
+        or (n, 1). The observed callback must compute that same correlation;
+        equivalence is not checked. ``'mean'`` does not accelerate permutation.
 
     Returns
     -------

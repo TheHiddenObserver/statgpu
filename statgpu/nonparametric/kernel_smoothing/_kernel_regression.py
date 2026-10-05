@@ -37,7 +37,77 @@ from statgpu.nonparametric.kernel_smoothing._kernel_common import (
 
 
 class KernelRegression(BaseEstimator):
-    """sklearn-style kernel regression model (Nadaraya-Watson or local-linear)."""
+    """Local weighted regression with Nadaraya-Watson or local-linear fits.
+
+    Parameters
+    ----------
+    bandwidth : str or float, default='scott'
+        Positive finite covariance factor or a KDE selector name. Regression
+        additionally accepts cv, cv_ls, cv-nw, cv-ll for leave-one-out MSE.
+        These CV selectors use full covariance; multivariate local-linear
+        selection evaluates NW predictions. Validate the intended model.
+    weights : array-like, shape (n_samples,), optional
+        Finite nonnegative training weights with positive sum; normalized
+        internally. Covariance needs more than one effectively weighted row.
+    kernel : str, default='gaussian'
+        gaussian, rectangular, triangular, epanechnikov, biweight, triweight,
+        cosine, or optcosine. The last two are one-dimensional only.
+    regression : {'nw', 'local_linear'}, default='nw'
+        Local weighted mean, or local linear least-squares intercept.
+    kernel_metric : {'full', 'diagonal'}, default='full'
+        Full weighted covariance, or its diagonal, for the kernel metric.
+    bandwidth_per_feature : positive scalar or array-like, optional
+        Absolute widths in feature units. Requires kernel_metric='diagonal',
+        accepts one width per feature (or broadcasts a scalar), and bypasses
+        the bandwidth selector.
+    backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
+        Array library. auto follows estimator/global device settings; explicit
+        Torch library selection alone is not proof of CUDA placement.
+    device : {'auto', 'cpu', 'cuda', 'torch'}, default='auto'
+        Device for automatic backend resolution; prefer matching settings.
+    n_jobs : int or None, default=None
+        Shared estimator option; does not create a parallel query pool.
+    batch_size : int, default=1024
+        Positive default query batch size, overridable in predict.
+    min_effective_weight : float, default=1e-12
+        Positive finite local-weight threshold. Low-weight queries fall back
+        to the weighted training-target mean; overridable in predict.
+    gpu_memory_cleanup : bool, default=False
+        Best-effort GPU-cache cleanup preserving fitted arrays.
+
+    Attributes
+    ----------
+    samples_ : backend array, shape (n_samples, n_features)
+        Float64 training observations.
+    targets_ : backend array, shape (n_samples, n_targets)
+        Float64 response columns, including for an originally 1D response.
+    weights_ : backend array, shape (n_samples,)
+        Normalized observation weights.
+    covariance_, inv_covariance_ : backend arrays, shape (n_features, n_features)
+        Stabilized kernel covariance and its inverse.
+    bandwidth_factor_ : float
+        Selected scalar factor; with absolute widths, a diagnostic mean of
+        widths relative to marginal training standard deviations.
+    bandwidth_info_ : BandwidthSelectionResult or None
+        Selector diagnostics, None for numeric factors or explicit widths.
+    bandwidth_per_feature_ : backend array or None
+        Explicit widths, or None when fitting with a scalar factor.
+    target_mean_ : backend array, shape (n_targets,)
+        Weighted training mean used for low-weight fallback.
+    n_samples_, n_features_, n_targets_ : int
+        Training dimensions.
+    target_was_1d_ : bool
+        Whether prediction should return a vector rather than a target matrix.
+    kernel_, regression_, kernel_metric_, backend_ : str
+        Resolved fitting choices.
+
+    Notes
+    -----
+    No global coefficient vector or coefficient inference is produced.
+    Local-linear instability may use stabilization or an NW fallback. Center
+    large-offset coordinates with a shared training-derived offset. Neither
+    fallback is evidence of reliable extrapolation.
+    """
 
     def __init__(
         self,
@@ -74,7 +144,13 @@ class KernelRegression(BaseEstimator):
         return _auto_backend_from_device(self._get_compute_device().value)
 
     def fit(self, X, y):
-        """Fit kernel regression and cache model state on this instance."""
+        """Fit finite real samples X and matching targets y; return self.
+
+        X has shape (n,) or (n,p), n >= 2. y has shape (n,) or (n,r).
+        Numeric arrays are converted to float64. Supply fitting weights through
+        the constructor. Prediction preserves the original target dimensionality,
+        including a one-column target matrix.
+        """
         backend_name = self._resolve_backend_name(X, y)
         xp = _get_xp(backend_name)
 
@@ -529,6 +605,15 @@ class KernelRegression(BaseEstimator):
         batch_size: Optional[int] = None,
         min_effective_weight: Optional[float] = None,
     ):
+        """Return backend-native local-mean predictions at finite points.
+
+        points is (n_query,n_features). A vector means many one-feature queries
+        or one multivariate query of matching length. The output is (n_query,)
+        for an originally 1D target and (n_query,n_targets) for a target matrix.
+        batch_size and min_effective_weight default to their constructor values;
+        explicit positive values override them for this call only. The weight
+        threshold must be finite. Too little local weight returns target_mean_.
+        """
         self._require_fitted()
         if batch_size is None:
             batch_size = int(self._batch_size)
@@ -572,6 +657,11 @@ class KernelRegression(BaseEstimator):
         )
 
     def score(self, X, y):
+        """Return a Python-float R2 after flattening all response columns.
+
+        This is a pooled score, not the mean of per-target R2 values. Constant
+        targets return 0.0. Use per-target metrics when scales differ.
+        """
         pred = _to_numpy(self.predict(X)).reshape(-1)
         target = _to_numpy(y).reshape(-1)
         if pred.shape[0] != target.shape[0]:
@@ -585,6 +675,10 @@ class KernelRegression(BaseEstimator):
         return 1.0 - (ss_res / ss_tot)
 
     def to_numpy_metadata(self):
+        """Return fitted controls, dimensions, covariance, weights, and target mean.
+
+        Array values are host NumPy arrays. Requires a successful fit.
+        """
         self._require_fitted()
         bandwidth_selection = None
         if hasattr(self.bandwidth_info_, "to_dict"):
@@ -627,7 +721,14 @@ def fit_kernel_regression(
     bandwidth_per_feature=None,
     backend: str = "auto",
 ) -> KernelRegression:
-    """Fit a kernel regressor (Nadaraya-Watson or local-linear)."""
+    """Fit and return a KernelRegression model.
+
+    samples and targets follow KernelRegression.fit shapes. All keyword
+    controls have the constructor meanings: bandwidth is a covariance factor,
+    while bandwidth_per_feature supplies absolute widths with a diagonal
+    metric. The helper exposes backend, not estimator-only device/jobs/
+    cleanup controls; use the estimator when those controls are needed.
+    """
     model = KernelRegression(
         bandwidth=bandwidth,
         weights=weights,
@@ -655,7 +756,14 @@ def kernel_regression_predict(
     batch_size: int = 1024,
     min_effective_weight: float = 1e-12,
 ):
-    """One-shot kernel regression prediction."""
+    """Fit kernel regression and return one-shot predictions at points.
+
+    Fitting inputs and options have the fit_kernel_regression meanings.
+    points follows KernelRegression.predict; batch_size and
+    min_effective_weight are positive evaluation overrides with defaults
+    1024 and 1e-12. Output preserves target dimensionality and the fitted
+    array library. For repeated queries, reuse a fitted model instead.
+    """
     model = fit_kernel_regression(
         samples,
         targets,

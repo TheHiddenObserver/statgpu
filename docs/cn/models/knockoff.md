@@ -1,7 +1,7 @@
 # Knockoff 特征选择
 
 > 语言: 中文  
-> 最后更新: 2026-09-29  
+> 最后更新: 2026-10-05  
 > 页面定位: 方法文档  
 > 切换: [English](../../en/models/knockoff.md)
 
@@ -12,6 +12,8 @@
 Knockoff 方法以特征选择的 FDR 控制为目标，有效性依赖构造与统计量的假设，并受下文统计量并列问题限制。当前实现包含 `fixed_x` 与 `model_x` 两条路径，统一入口为 `knockoff_filter`。`fixed_x` 通常要求 `n >= 2p`；`model_x` 基于高斯二阶近似（协方差估计 + S-matrix），支持多次抽样聚合 W 统计量。
 
 全部函数/选择器签名、参数、结果字段与独立可运行的 CPU 示例见[特征选择 API 参考](../reference/feature-selection-api.md)。
+
+错误发现率（FDR）是所选特征中实际无效特征比例的期望值，未选中任何特征时该比例按零计；它不是“所有所选特征都正确”的概率。Knockoff 可以理解为匹配的负对照：每个原特征都要与一个依赖结构相似的人造对应变量竞争。若目标是控制选择错误，且构造假设可信，可以考虑本方法；若主要关注预测，可比较[逐步选择](feature-selection.md)，并用留出数据评价。
 
 ## 路径（Path）
 
@@ -56,7 +58,7 @@ Knockoff 为选择推断框架，不采用回归模型中的 `cov_type` 协方�
 
 `compat_mode` 支持：
 - `statgpu`：默认实现
-- `knockpy`：兼容路径（部分 sampler 分发入口仍为占位）
+- `knockpy`：兼容路径（部分 sampler 分发入口仍为占位）。可选包缺失或 S 矩阵求解报错时，可能改用样本协方差或等相关 S 矩阵。应检查 `metadata["modelx_covariance_estimator"]` 与 `metadata["modelx_smatrix_source"]`，不能仅凭请求名称判断执行方法，详见[兼容模式参考](../reference/feature-selection-api.md)。
 
 ## 参数（Parameters）
 
@@ -150,6 +152,8 @@ res_torch_mx = knockoff_filter(
 - `estimated_fdr`
 - `q_trajectory`
 - `metadata`（例如抽样次数、兼容模式、`Xk` 来源）
+
+`selected_features` 为空是有效结果。`estimated_fdr` 是阈值规则给出的估计，不是实际观测到的错误比例，也不是每个特征的 p 值。应结合 `W` 与 `threshold` 检查上文的并列限制，并在未参与选择的数据上评价后续预测模型。
 
 ## 常见问题（FAQ）
 

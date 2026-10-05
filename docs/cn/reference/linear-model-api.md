@@ -112,7 +112,7 @@ ElasticNet(alpha=1.0, l1_ratio=0.5, fit_intercept=True, max_iter=1000, tol=0.000
 |---|---|
 | `fit(X=None,y=None,sample_weight=None,initial_coef=None,**kwargs)` | 返回 `self`；`y` 为一维。`kwargs` 接受 `formula=None,data=None`。`initial_coef` 是长度 p 的起始向量；后续拟合省略它时，当前实现仍保留旧向量。需要默认初始化，尤其改变 p 后，请新建估计器。 |
 | `predict(X,return_cpu=True)` | `(m,)` 预测；即使 GPU 拟合，默认也返回 NumPy。`False` 保留拟合所用 NumPy/CuPy/Torch 后端。 |
-| `score(X,y,sample_weight=None)` | Python 浮点 R²；可选评价权重用于加权均值与残差和，不自动沿用训练权重。使用展平的 y，并把评价 y/权重放在 NumPy/主机上；此平方损失评分路径不提供 GPU 原生响应转换。 |
+| `score(X,y,sample_weight=None)` | Python 浮点 R²；可选评价权重用于加权均值与残差和，不自动沿用训练权重。须自行检查权重有限、非负、长度为 m 且总和为正：当前路径接受负权重，可能返回大于 1 的无效 R²。使用展平的 y，并把评价 y/权重放在 NumPy/主机上；此平方损失评分路径不提供 GPU 原生响应转换。 |
 | `summary()` | 打印系数/推断报告并返回 `None`；要求开启且成功完成推断。 |
 | `coef_`、`intercept_`、`n_iter_` | 惩罚预测斜率 `(p,)`、标量截距、迭代次数。达到迭代上限不代表已收敛。 |
 | `_params`、`_bse`、`_tvalues`、`_zvalues`、`_pvalues`、`_conf_int` | 报告参数及不确定性，不一定等于预测系数。通常为 `(k,)`，区间为 `(k,2)`，截距优先；具体可用项依推断方法而定。 |
@@ -130,7 +130,7 @@ ElasticNet(alpha=1.0, l1_ratio=0.5, fit_intercept=True, max_iter=1000, tol=0.000
 | `post_selection_ols` | `nonrobust`、HC0–HC3 或 HAC，可带分析权重 | 在活跃斜率上重拟合 OLS/WLS；经典协方差使用 t 参考，HC/HAC 使用正态参考。不作一般选择调整。 |
 | `bootstrap` | 只支持 `cov_type="nonrobust"`，不接受样本权重 | 固定调参，对相同惩罚模型执行残差 bootstrap，返回百分位区间。 |
 
-若需可复现的残差 bootstrap，在 fit **之前**设置 `model.bootstrap_random_state = seed`、`model.n_bootstrap = B`，B≥2，默认 200。这些是额外属性，不是构造/get_params/set_params 参数。ElasticNet 构造函数也不接受 `random_state`。报告方法为 `residual_bootstrap`，参考分布标记为 `bootstrap_percentile`；不会重新选择 CV 调参或变量。通用 `bootstrap_statistic` 是另一种操作。
+若需可复现的残差 bootstrap，在 fit **之前**设置 `model.bootstrap_random_state = seed`、`model.n_bootstrap = B`，B≥2，默认 200。这些是额外属性，不是构造/get_params/set_params 参数。ElasticNet 构造函数也不接受 `random_state`。报告方法为 `residual_bootstrap`，参考分布标记为 `bootstrap_percentile`；不会重新运行 CV 或调整惩罚参数。每次重采样都会在完整设计矩阵上重新拟合惩罚模型，因此非零系数集合可能变化；所得区间不代表一般意义上的选择后调整区间。通用 `bootstrap_statistic` 是另一种操作。
 
 ## ElasticNetCV
 
@@ -139,8 +139,8 @@ ElasticNetCV(l1_ratio=0.5, *, alphas=None, n_alphas=100, alpha_min_ratio=0.001, 
 ```
 | 参数 | 默认值 | 含义与限制 |
 |---|---|---|
-| `l1_ratio` | `0.5` | `[0,1]` 内标量或候选序列；标量时只选择 alpha。 |
-| `alphas` | `None` | 有限正数候选序列；省略时为每个混合比例生成自动网格。 |
+| `l1_ratio` | `0.5` | `[0,1]` 内标量或候选序列；标量时只选择 alpha。比例为零或接近零时应显式提供 alphas，详见下文网格限制。 |
+| `alphas` | `None` | 有限正数候选序列；省略时为每个混合比例生成自动网格。自动规则基于 L1，并非专门的 Ridge 搜索。 |
 | `n_alphas` | `100` | `alphas=None` 时自动网格的正整数长度。 |
 | `alpha_min_ratio` | `1e-3` | 自动对数网格最小/最大 alpha 的正比例，通常在 `(0,1]` 内。 |
 | `cv` | `5` | ≥2 的整数折数；每个训练/验证划分都应有足够观测。 |
@@ -191,6 +191,13 @@ LogisticRegressionCV(Cs=None, n_Cs=100, C_min_ratio=0.001, cv=5, cv_splits=None,
 ### 网格与边界行为
 
 请主动提供有限正数网格。当前 CV 会过滤无效/非正 alpha/C；过滤后为空则重新生成自动网格。ElasticNetCV 也会过滤 `[0,1]` 外的 l1_ratio，全部无效时使用 0.5。不要把这些回退当作科学调参方案的验证。直接 LogisticRegression 的特殊 `C=0` 不参与 CV。ElasticNet 自动 alpha 网格可随混合比例变化，应检查返回的映射。
+
+ElasticNetCV 自动网格的最大值取加权中心化 X/y 交叉乘积的最大绝对值，除以
+`sum(sample_weight) * max(l1_ratio, 1e-6)`（未传权重时均取 1），并设 `1e-6`
+的下限。`l1_ratio=0` 时，这可能产生全部过大的惩罚；即使有用的 Ridge 拟合存在，
+预测仍可能几乎为常数。比例为零或接近零时，请显式提供 `alphas`。自动规则还会忽略
+`fit_intercept` 设置、始终中心化 X/y，因此无截距拟合也宜使用显式网格。
+有限的 CV 评分仅说明在候选范围中选出了较好的值，不证明该范围足够合理。
 
 至少使用四行数据，并保证各折有足够观测。当前 ElasticNetCV 少于四行时不能产生可用结果，应增加数据或使用直接估计器。LogisticRegressionCV 少于四行或只有一个 C 候选时，只完成最终拟合，没有有效 CV 比较；损失数组与 `best_score_` 为 NaN。
 

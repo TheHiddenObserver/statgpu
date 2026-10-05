@@ -78,7 +78,7 @@ Sparse input, non-Euclidean metrics, Barnes-Hut, FFT/FIt-SNE, and new-data `tran
 
 ## Numerical and lifecycle cautions
 
-All numeric controls must be finite; non-finite values such as `learning_rate=np.nan` are not reliably rejected and can produce non-finite embeddings. Very large or tiny feature scales can also defeat the current affinity bandwidth search. Rescale to moderate magnitudes before fitting and reject non-finite embeddings or negative `kl_divergence_`; a negative KL is invalid, not an unusually good fit.
+All numeric controls must be finite; non-finite values such as `learning_rate=np.nan` are not reliably rejected and can produce non-finite embeddings. Very large or tiny feature scales can also defeat the current affinity bandwidth search. First subtract a training-derived feature offset in float64, then rescale to moderate magnitudes before fitting. Large common offsets can corrupt the expanded distance formula even when the affinity matrix remains normalized and KL is nonnegative. Reject non-finite embeddings or negative `kl_divergence_`; a negative KL is invalid, not an unusually good fit, and nonnegative KL alone is not a correctness check.
 
 ## Complete API reference
 

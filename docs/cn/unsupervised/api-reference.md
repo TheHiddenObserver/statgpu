@@ -13,10 +13,12 @@
 
 - `device="cpu"` 使用 NumPy；`"cuda"` 请求 CuPy CUDA；`"torch"` 请求 Torch CUDA。显式请求的 GPU 不可用时会报错，不会悄悄改用 CPU。`"auto"` 通常结合全局设备配置及可用后端选择；AgglomerativeClustering 是例外，它即使在全局配置选择 GPU 时也保持 CPU 路径。要固定 CPU 示例请指定 `"cpu"`。参见[设备与内存](../guides/device-and-memory.md)。
 - 数值计算通常采用 float64；UMAP 近邻搜索和 DBSCAN 的 GPU 距离计算在内部采用 float32。拟合数组与方法返回的数组通常留在所选后端。AgglomerativeClustering 即使在 GPU 上拟合，也发布 NumPy 标签与树数组；UMAP 的图输出为元组。整数标签是标识，不是连续预测值。
-- 需要 CPU 报告副本时，NumPy 数组用 `np.asarray(a)`，CuPy 用 `cupy.asnumpy(a)`，Torch 用 `a.detach().cpu().numpy()`。转换可能引起 GPU 数据传输及同步。评分与标量拟合诊断是主机端数值。数值超参数也必须有限；范围检查不一定能拒绝所有 NaN/Inf 设置。
-- `fit(...)` 和支持的 `partial_fit(...)` 返回估计器自身。转换、预测和评分需在成功拟合后调用。普通 `fit` 从头拟合；只有下文说明的三个 `partial_fit` API 会累积批次。调用 `set_params(...)` 修改设置后，应重新拟合再使用结果。重新拟合失败不代表旧结果已被成功替换，实例中可能仍保留旧属性；报错后应使用新估计器，并验证新的结果。
+- 需要用于报告的 CPU 数组时，NumPy 数组用 `np.asarray(a)`，CuPy 用 `cupy.asnumpy(a)`，Torch 用 `a.detach().cpu().numpy()`。这些转换不一定创建独立副本：NumPy 数组及 CPU Torch 张量可能与结果共享存储。若需独立修改，应再对得到的 NumPy 数组调用 `.copy()`。GPU 转换可能引起数据传输及同步。评分与标量拟合诊断是主机端数值。数值超参数也必须有限；范围检查不一定能拒绝所有 NaN/Inf 设置。
+- `fit(...)` 和支持的 `partial_fit(...)` 返回估计器自身。转换、预测和评分需在成功拟合后调用。普通 `fit` 从头拟合；只有下文说明的三个 `partial_fit` API 会累积批次。调用 `set_params(...)` 修改设置后，应重新拟合再使用结果。重新拟合失败不代表旧结果已被成功替换，实例中可能保留旧属性或只更新了一部分的属性；报错后应使用新估计器，并验证新的结果。
 - 公共 `get_params(deep=True)` 返回配置字典；这些类的 `set_params(**params)` 返回 `self`，检查参数名并重置已拟合状态。完整继承签名、推断辅助方法限制及示例见[参数管理](../reference/estimator-api.md#parameter-management)和[通用推断辅助方法](../reference/estimator-api.md#inference-helpers)。继承的 `adjust_pvalues`、`combine_pvalues`、`bootstrap_statistic`、`permutation_test` 本身不能保证簇或成分推断有效。这十二个类均不提供模型专属 `summary()` 或系数标准误。
 - 所有构造函数都接受 `n_jobs=None`。它保留为公共估计器配置，但当前无监督实现不会用它设置数值内核或线程并行度。因此这里的 `n_jobs=-1` 不意味着强制使用全部线程，也不构成加速保证。
+
+返回数组的方法并不统一提供独立副本。`KMeans`、`MiniBatchKMeans`、`DBSCAN` 和 `AgglomerativeClustering` 的 `fit_predict` 直接返回其 `labels_` 对象；UMAP 与 TSNE 的 `fit_transform` 直接返回其 `embedding_` 对象；NMF 的 `fit_transform` 返回内部保存的联合拟合因子。应将这些数组及拟合属性视为只读；需要修改时，NumPy/CuPy 使用 `a.copy()`，Torch 使用 `a.clone()`。
 
 ## 方法范围
 
@@ -39,7 +41,7 @@ PCA(n_components=None, svd_solver='auto', whiten=False, copy=True, random_state=
 | `random_state` | `None` | 整数随机种子或 `None`，控制随机初始化或近似算法；固定种子不保证不同后端或库版本逐位一致。 |
 | `n_oversamples` | `10` | 非负整数，表示随机投影时额外使用的方向数。 |
 | `iterated_power` | `2` | 随机化求解器的非负幂迭代次数。 |
-| `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见下方公共设备说明。 |
+| `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见本页公共设备说明。 |
 | `n_jobs` | `None` | 公共 CPU 并行配置参数；这些实现目前不通过它控制数值计算内核，也不保证指定的线程数。 |
 
 | 方法签名 | 返回值与限制 |
@@ -75,7 +77,7 @@ KMeans(n_clusters=8, init='k-means++', n_init='auto', max_iter=300, tol=0.0001, 
 | `max_iter` | `300` | 正整数迭代预算；迭代和整轮数据遍历的区别见对应模型。 |
 | `tol` | `0.0001` | 非负收敛阈值；各模型采用的准则见下文。 |
 | `random_state` | `None` | 整数随机种子或 `None`，控制随机初始化或近似算法；固定种子不保证不同后端或库版本逐位一致。 |
-| `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见下方公共设备说明。 |
+| `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见本页公共设备说明。 |
 | `n_jobs` | `None` | 公共 CPU 并行配置参数；这些实现目前不通过它控制数值计算内核，也不保证指定的线程数。 |
 
 | 方法签名 | 返回值与限制 |
@@ -110,7 +112,7 @@ DBSCAN(eps=0.5, min_samples=5, metric='euclidean', algorithm='auto', batch_size=
 | `metric` | `'euclidean'` | 仅支持 `"euclidean"`；不支持其他距离及预先计算的距离矩阵。 |
 | `algorithm` | `'auto'` | `"auto"`、`"brute"`、`"ball_tree"` 或 `"kd_tree"`；用于高维 CPU 的 scikit-learn 近邻搜索，并非控制所有后端。 |
 | `batch_size` | `None` | 正整数或 `None`；在使用分批距离计算的 GPU 路径上控制批量大小。`None` 自动选择。 |
-| `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见下方公共设备说明。 |
+| `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见本页公共设备说明。 |
 | `n_jobs` | `None` | 公共 CPU 并行配置参数；这些实现目前不通过它控制数值计算内核，也不保证指定的线程数。 |
 
 | 方法签名 | 返回值与限制 |
@@ -146,7 +148,7 @@ GaussianMixture(n_components=1, covariance_type='diag', tol=0.001, reg_covar=1e-
 | `n_init` | `1` | EM 重启的正整数次数；保留拟合下界最大的结果。 |
 | `init_params` | `'kmeans'` | 均值初始化采用 `"kmeans"` 或 `"random"`。 |
 | `random_state` | `None` | 整数随机种子或 `None`，控制随机初始化或近似算法；固定种子不保证不同后端或库版本逐位一致。 |
-| `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见下方公共设备说明。 |
+| `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见本页公共设备说明。 |
 | `n_jobs` | `None` | 公共 CPU 并行配置参数；这些实现目前不通过它控制数值计算内核，也不保证指定的线程数。 |
 
 | 方法签名 | 返回值与限制 |
@@ -163,7 +165,7 @@ GaussianMixture(n_components=1, covariance_type='diag', tol=0.001, reg_covar=1e-
 | 拟合输出 | 含义与形状 |
 |---|---|
 | `weights_`, `means_` | 混合权重 `(k,)` 与均值 `(k,p)`。 |
-| `covariances_`, `precisions_cholesky_` | 协方差及精度因子：diag 为 `(k,p)`，spherical 为 `(k,)`，tied 为 `(p,p)`，full 为 `(k,p,p)`。 |
+| `covariances_`, `precisions_cholesky_` | 协方差及精度因子：diag 为 `(k,p)`，spherical 为 `(k,)`，tied 为 `(p,p)`，full 为 `(k,p,p)`。diag/spherical 的精度因子是标准差的倒数；full/tied 的精度因子为下三角矩阵 `L`，满足 `L @ L.T = inv(covariance)`。 |
 | `converged_`, `n_iter_`, `lower_bound_`, `n_features_in_` | 收敛标志、EM 迭代数、最后一次 M 步之前监测到的平均对数似然及特征数。解释评分前先检查收敛情况。 |
 
 `tol` 控制平均对数似然变化的绝对值，`max_iter` 限制每次重启。令总对数似然 $L=m\,\mathrm{score}(X)$，自由参数数目为 $d$，则 $\mathrm{AIC}=2d-2L$，$\mathrm{BIC}=d\log m-2L$。其中 $d=kp+(k-1)+d_{\mathrm{cov}}$，协方差参数数目分别为 $kp$（diag）、$k$（spherical）、$p(p+1)/2$（tied）或 $kp(p+1)/2$（full）。不同候选项应使用相同数据比较。不提供 `transform`、`partial_fit` 或系数推断 API。
@@ -185,7 +187,7 @@ NMF(n_components=None, init='random', solver='mu', beta_loss='frobenius', max_it
 | `max_iter` | `200` | 正整数迭代预算；迭代和整轮数据遍历的区别见对应模型。 |
 | `tol` | `0.0001` | 非负收敛阈值；各模型采用的准则见下文。 |
 | `random_state` | `None` | 整数随机种子或 `None`，控制随机初始化或近似算法；固定种子不保证不同后端或库版本逐位一致。 |
-| `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见下方公共设备说明。 |
+| `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见本页公共设备说明。 |
 | `n_jobs` | `None` | 公共 CPU 并行配置参数；这些实现目前不通过它控制数值计算内核，也不保证指定的线程数。 |
 
 | 方法签名 | 返回值与限制 |
@@ -217,7 +219,7 @@ AgglomerativeClustering(n_clusters=2, linkage='single', metric='euclidean', devi
 | `n_clusters` | `2` | 请求的簇数，为不超过 `n` 的正整数；CPU 按 maxclust 切分时，合并高度并列可能产生更少的组。 |
 | `linkage` | `'single'` | `"single"`、`"complete"`、`"average"` 或 `"ward"`。 |
 | `metric` | `'euclidean'` | 仅支持 `"euclidean"`；不支持其他距离及预先计算的距离矩阵。 |
-| `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见下方公共设备说明。 |
+| `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见本页公共设备说明。 |
 | `n_jobs` | `None` | 公共 CPU 并行配置参数；这些实现目前不通过它控制数值计算内核，也不保证指定的线程数。 |
 
 | 方法签名 | 返回值与限制 |
@@ -232,7 +234,7 @@ AgglomerativeClustering(n_clusters=2, linkage='single', metric='euclidean', devi
 | `children_`, `distances_` | NumPy 合并节点对 `(n-1,2)` 与合并距离 `(n-1,)`；叶节点编号为 `0..n-1`，第 `i` 行合并节点编号为 `n+i`。 |
 | `n_features_in_` | 训练输入列数。 |
 
-单个观测且 `n_clusters=1` 时合并树为空。GPU 路径使用稠密成对距离，估计距离矩阵超过 `STATGPU_AGGLOMERATIVE_GPU_MAX_BYTES`（默认 1 GiB）时会报错；该值是配置上限，不是对可用显存的测量。不提供稀疏连通约束、`transform`、`score` 或 `partial_fit`。
+单个观测且 `n_clusters=1` 时合并树为空。GPU 路径使用稠密成对距离，估计距离矩阵超过 `STATGPU_AGGLOMERATIVE_GPU_MAX_BYTES`（默认 1 GiB）时会报错；该值是配置上限，不是对可用显存的测量。GPU 路径的展开距离公式在共同偏移很大时可能丢失较小的样本间距；应先以 float64 中心化，再拟合。不提供稀疏连通约束、`transform`、`score` 或 `partial_fit`。
 
 ## TruncatedSVD
 
@@ -249,7 +251,7 @@ TruncatedSVD(n_components=2, algorithm='randomized', n_iter=5, n_oversamples=10,
 | `n_iter` | `5` | 随机化方法的非负幂迭代次数。 |
 | `n_oversamples` | `10` | 非负整数，表示随机投影时额外使用的方向数。 |
 | `random_state` | `None` | 整数随机种子或 `None`，控制随机初始化或近似算法；固定种子不保证不同后端或库版本逐位一致。 |
-| `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见下方公共设备说明。 |
+| `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见本页公共设备说明。 |
 | `n_jobs` | `None` | 公共 CPU 并行配置参数；这些实现目前不通过它控制数值计算内核，也不保证指定的线程数。 |
 
 | 方法签名 | 返回值与限制 |
@@ -286,7 +288,7 @@ MiniBatchKMeans(n_clusters=8, init='k-means++', n_init='auto', batch_size=1024, 
 | `max_no_improvement` | `10` | 连续未刷新最佳批次 inertia 的批次数上限，为非负整数；`None` 关闭该停止规则。 |
 | `tol` | `0.0` | 非负收敛阈值；各模型采用的准则见下文。 |
 | `random_state` | `None` | 整数随机种子或 `None`，控制随机初始化或近似算法；固定种子不保证不同后端或库版本逐位一致。 |
-| `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见下方公共设备说明。 |
+| `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见本页公共设备说明。 |
 | `n_jobs` | `None` | 公共 CPU 并行配置参数；这些实现目前不通过它控制数值计算内核，也不保证指定的线程数。 |
 
 | 方法签名 | 返回值与限制 |
@@ -302,7 +304,7 @@ MiniBatchKMeans(n_clusters=8, init='k-means++', n_init='auto', batch_size=1024, 
 |---|---|
 | `cluster_centers_`, `counts_` | 中心 `(k,p)` 与各中心计数 `(k,)`；`fit` 返回最终全量分配计数，`partial_fit` 累积批次分配计数。 |
 | `labels_`, `inertia_` | `fit` 后对应全部训练数据；`partial_fit` 后只对应最近一个批次。标签长度等于最近一次输入的行数。 |
-| `n_iter_`, `n_steps_`, `n_features_in_` | `fit` 后为整轮遍历次数、批次更新次数及特征数；每次 `partial_fit` 将前两个计数各加一。 |
+| `n_iter_`, `n_steps_`, `n_features_in_` | `fit` 后为已进入的整轮数（最后一轮可能提前中止）、批次更新次数及特征数；每次 `partial_fit` 将前两个计数各加一。 |
 
 使用字符串初始化方式时，首次 `partial_fit` 至少需要 `n_clusters` 行；提供显式中心则可使用更小的首批。后续批次可以更小，但特征列数及顺序必须一致。`max_iter`、`tol`（中心移动平方和）和 `max_no_improvement` 控制 `fit`，不会让单次 `partial_fit` 变成整轮迭代。`partial_fit` 不会执行全量数据的改善步骤。它的 `labels_` 与 `inertia_` 记录移动中心之前用于更新的批次分配；要评价更新后的中心，应重新调用 `predict(batch)` 和 `-score(batch)`。
 
@@ -320,7 +322,7 @@ IncrementalPCA(n_components=None, batch_size=None, whiten=False, copy=True, devi
 | `batch_size` | `None` | 正整数或 `None`；默认 `fit` 一次处理全部行，会扩充不足以容纳实际采用秩的首批。不会切分传给 `partial_fit` 的数组。 |
 | `whiten` | `False` | 是否用已拟合成分的标准差缩放 PCA 坐标。 |
 | `copy` | `True` | 兼容参数；即使为 `False`，实现也不会修改输入数据。 |
-| `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见下方公共设备说明。 |
+| `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见本页公共设备说明。 |
 | `n_jobs` | `None` | 公共 CPU 并行配置参数；这些实现目前不通过它控制数值计算内核，也不保证指定的线程数。 |
 
 | 方法签名 | 返回值与限制 |
@@ -357,7 +359,7 @@ MiniBatchNMF(n_components=None, init='random', batch_size=None, max_iter=200, to
 | `max_iter` | `200` | 正整数迭代预算；迭代和整轮数据遍历的区别见对应模型。 |
 | `tol` | `0.0001` | 非负收敛阈值；各模型采用的准则见下文。 |
 | `random_state` | `None` | 整数随机种子或 `None`，控制随机初始化或近似算法；固定种子不保证不同后端或库版本逐位一致。 |
-| `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见下方公共设备说明。 |
+| `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见本页公共设备说明。 |
 | `n_jobs` | `None` | 公共 CPU 并行配置参数；这些实现目前不通过它控制数值计算内核，也不保证指定的线程数。 |
 
 | 方法签名 | 返回值与限制 |
@@ -375,7 +377,7 @@ MiniBatchNMF(n_components=None, init='random', batch_size=None, max_iter=200, to
 | `reconstruction_err_` | 拟合因子的残差 Frobenius 范数；`fit` 后对应全量数据，`partial_fit` 后对应最近批次。之后的 `transform` 可能进一步改善因子并产生不同误差。 |
 | `n_iter_`, `n_components_`, `n_features_in_` | 拟合的整轮遍历次数（或增量更新次数）、实际秩与固定输入列数。 |
 
-使用非负稠密数据，并保持特征列数与顺序。显式指定的正整数秩不要求小于首批行数；`None` 则由首批决定。`max_iter` 限制 `fit` 的整轮遍历次数，并影响固定成分后的转换求解；`tol` 检查拟合中成分的相对变化。两者均不控制 `partial_fit` 内的收敛循环。不提供 `score` 或样本权重参数。
+使用非负稠密数据，并保持特征列数与顺序。显式指定的正整数秩不要求小于首批行数；`None` 则由首批决定。`max_iter` 限制 `fit` 的整轮遍历次数，并影响固定成分后的转换求解；`tol` 检查拟合中成分的相对变化，而不是重构误差的相对变化。两者均不控制 `partial_fit` 内的收敛循环。不提供 `score` 或样本权重参数。
 
 ## UMAP
 
@@ -394,12 +396,12 @@ UMAP(n_neighbors=15, n_components=2, metric='euclidean', min_dist=0.1, spread=1.
 | `spread` | `1.0` | 低维吸引曲线的正尺度。 |
 | `n_epochs` | `None` | 正整数或 `None`；当前自动规则为 `n<=2000` 时 500，`n<=10000` 时 200，否则 100。实际值见 `n_epochs_`。 |
 | `learning_rate` | `1.0` | 优化的正初始步长。 |
-| `init` | `'spectral'` | `"spectral"`（主机端 SciPy 特征求解）或 `"random"`。 |
+| `init` | `'spectral'` | `"spectral"`（主机端 SciPy 特征求解）或 `"random"`；随机初始化可避开下文说明的稀疏谱初始化限制。 |
 | `negative_sample_rate` | `5` | 正整数；每轮独立抽取 `n * negative_sample_rate` 对源点与目标点，并非每条吸引边抽取这么多对。 |
 | `repulsion_strength` | `1.0` | 正的排斥力系数。 |
 | `random_state` | `None` | 整数随机种子或 `None`，控制随机初始化或近似算法；固定种子不保证不同后端或库版本逐位一致。 |
 | `nn_method` | `'auto'` | `"auto"`、`"exact"` 或 `"nndescent"`；精确搜索使用稠密距离，NNDescent 为近似搜索，auto 当前始终选择精确搜索。 |
-| `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见下方公共设备说明。 |
+| `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见本页公共设备说明。 |
 | `n_jobs` | `None` | 公共 CPU 并行配置参数；这些实现目前不通过它控制数值计算内核，也不保证指定的线程数。 |
 
 | 方法签名 | 返回值与限制 |
@@ -415,7 +417,7 @@ UMAP(n_neighbors=15, n_components=2, metric='euclidean', min_dist=0.1, spread=1.
 | `graph_` | 元组 `(source_rows, target_rows, edge_weights, n_samples)`，不是 SciPy 邻接矩阵。前三项为长度相同的后端边数组。 |
 | `n_epochs_`, `n_features_in_` | 实际训练轮数与原始特征数。 |
 
-近邻距离在内部采用 float32，嵌入优化采用 float64。即使选择 GPU，图组装仍使用主机端 SciPy，spectral 初始化同样如此。带种子的随机初始化适合验证形状与接口，但图形质量仍需单独检查。当前力更新近似构造近邻布局，但不是标准 UMAP 交叉熵的精确梯度。在 NumPy 2 上，CPU 的 `nn_method="nndescent"` 当前会在后端分派时失败，可改用 `"exact"` 或 `"auto"`。不提供逆转换、评分或增量拟合。
+近邻距离在内部采用 float32，嵌入优化采用 float64。很大的共同特征偏移可能在转为 float32 或计算展开距离时丢失细小间距；应在数据仍为 float64 时，先减去由训练数据确定的偏移，再拟合。即使选择 GPU，图组装仍使用主机端 SciPy，spectral 初始化同样如此。带种子的随机初始化适合验证形状与接口，但图形质量仍需单独检查。当前力更新近似构造近邻布局，但不是标准 UMAP 交叉熵的精确梯度。在 NumPy 2 上，CPU 的 `nn_method="nndescent"` 当前会在后端分派时失败，可改用 `"exact"` 或 `"auto"`。稀疏谱初始化可能保留常量图特征向量，而漏掉一个有效方向；其特征求解器的起始向量也不受 `random_state` 控制。需要按种子初始化时，应使用 `init="random"`。不提供逆转换、评分或增量拟合。
 
 ## TSNE
 
@@ -435,7 +437,7 @@ TSNE(n_components=2, perplexity=30.0, early_exaggeration=12.0, learning_rate='au
 | `init` | `'pca'` | `"pca"` 或 `"random"`；不接受用户提供的初始嵌入数组。 |
 | `random_state` | `None` | 整数随机种子或 `None`，控制随机初始化或近似算法；固定种子不保证不同后端或库版本逐位一致。 |
 | `metric` | `'euclidean'` | 仅支持 `"euclidean"`；不支持其他距离及预先计算的距离矩阵。 |
-| `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见下方公共设备说明。 |
+| `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见本页公共设备说明。 |
 | `n_jobs` | `None` | 公共 CPU 并行配置参数；这些实现目前不通过它控制数值计算内核，也不保证指定的线程数。 |
 
 | 方法签名 | 返回值与限制 |
@@ -451,7 +453,7 @@ TSNE(n_components=2, perplexity=30.0, early_exaggeration=12.0, learning_rate='au
 | `kl_divergence_` | 最终高低维亲和度的 KL 目标值，为 Python 浮点数；不是通用留出集评分。 |
 | `n_iter_`, `n_features_in_` | 实际迭代次数（配置的预算）与原始输入列数。 |
 
-该实现分配稠密成对数组，内存随样本数平方增长。不提供 Barnes–Hut/FFT 求解器选项、稀疏或预计算距离支持、逆转换、评分或增量拟合。不要未经核对就照搬其他库的学习率或困惑度设置。当前亲和度带宽搜索在特征尺度极大或极小时可能失败，甚至返回无效的负 KL 值。应先缩放到适中的数值范围，并检查嵌入有限性及 KL 非负性；详见 [TSNE 数值注意事项](tsne.md)。
+该实现分配稠密成对数组，内存随样本数平方增长。不提供 Barnes–Hut/FFT 求解器选项、稀疏或预计算距离支持、逆转换、评分或增量拟合。不要未经核对就照搬其他库的学习率或困惑度设置。当前亲和度带宽搜索在特征尺度极大或极小时可能失败，甚至返回无效的负 KL 值。应先减去由训练数据确定的偏移，再缩放到适中的数值范围：共同偏移很大时，展开距离公式可能破坏亲和度，即使 KL 仍有限且非负。有限性与 KL 非负性是必要而不充分的检查；详见 [TSNE 数值注意事项](tsne.md)。
 
 ## 增量示例
 

@@ -563,15 +563,23 @@ class ElasticNetCV(CVEstimatorBase):
 
         minimize (1/(2n)) * ||y - Xw||²₂ + α * l1_ratio * ||w||₁ + 0.5 * α * (1 - l1_ratio) * ||w||²₂
 
-    This class uses K-fold cross-validation to select the optimal alpha and l1_ratio.
+    This class selects alpha and l1_ratio by minimum mean validation MSE over
+    the candidate grid, then refits on all supplied training rows. The displayed
+    objective omits the optional unpenalized intercept; analytic weights replace
+    the average squared loss with sum(w * residual**2) / (2 * sum(w)).
 
     Parameters
     ----------
     l1_ratio : float or array-like, default=0.5
         L1 regularization ratio. 0.0 = Ridge, 1.0 = Lasso.
-        If array-like, CV is performed over all values.
+        If array-like, CV is performed over all valid values. Supply explicit
+        alphas for zero or near-zero ratios; the automatic L1-based grid can
+        otherwise contain only excessively large Ridge penalties.
     alphas : array-like or None
-        Alpha values to try. If None, generates n_alphas values.
+        Positive finite alpha values to try. If None, generates n_alphas values
+        separately for each ratio. The automatic rule divides a weighted-average centered X/y
+        cross-product by max(l1_ratio, 1e-6), and centers even when
+        fit_intercept=False. Use an explicit grid for no-intercept fits too.
     n_alphas : int, default=100
         Number of alpha values (if alphas is None).
     alpha_min_ratio : float, default=1e-3

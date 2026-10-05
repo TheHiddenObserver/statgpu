@@ -1,7 +1,7 @@
 # GAM（广义可加模型）
 
 > 语言: 中文  
-> 最后更新: 2026-10-04  
+> 最后更新: 2026-10-05  
 > 页面定位: 模型文档  
 > 切换: [English](../../en/models/semiparametric.md)
 
@@ -46,6 +46,8 @@ y_test = (np.sin(2 * X_test[:, 0]) + 0.4 * X_test[:, 1] ** 2
           + rng.normal(0, 0.15, 80))
 
 gam = GAM(n_splines=12, lam=None, device="cpu").fit(X_train, y_train)
+if not np.isfinite(gam.gcv_score_):
+    raise RuntimeError("No finite GCV candidate; revise the model before prediction.")
 prediction = gam.predict(X_test)
 mse = np.mean((prediction - y_test) ** 2)
 baseline_mse = np.mean((y_train.mean() - y_test) ** 2)
@@ -84,7 +86,7 @@ $$
 \operatorname{edf}=\operatorname{clip}\!\left(\operatorname{tr}\!\left((A+\delta I)^{-1}B^\top B\right),0,m\right).
 $$
 
-其中 $A=B^\top B+\lambda S$，$m$ 是包含截距的基系数数量，$\delta=10^{-10}\operatorname{tr}(A)/m$。这是通常的稳定化 Cholesky 路径所报告的 EDF。完整样条基中心化后，$A$ 可能仍然奇异，因此不能假定未加稳定项的矩阵存在普通逆。如果 EDF 的数值求解失败，实现会报告 $m$；应检查拟合情况，不要把这个回退值当作经过独立验证的模型复杂度。标准 GCV 使用 `gamma=1`，更大的 `gamma` 对有效复杂度施加更强惩罚。当平方前的修正项 $1-\gamma\operatorname{edf}/n$ 非正或过于接近零时，该候选值的 GCV 得分会被设为无穷大；应确认最终选择的分数有限。
+其中 $A=B^\top B+\lambda S$，$m$ 是包含截距的基系数数量，$\delta=10^{-10}\operatorname{tr}(A)/m$。这是通常的稳定化 Cholesky 路径所报告的 EDF。完整样条基中心化后，$A$ 可能仍然奇异，因此不能假定未加稳定项的矩阵存在普通逆。如果 EDF 的数值求解失败，实现会报告 $m$；应检查拟合情况，不要把这个回退值当作经过独立验证的模型复杂度。标准 GCV 使用 `gamma=1`，更大的 `gamma` 对有效复杂度施加更强惩罚。当平方前的修正项 $1-\gamma\operatorname{edf}/n$ 非正或过于接近零时，该候选值的 GCV 得分会被设为无穷大；应确认最终选择的分数有限。若所有候选的 GCV 都是无穷大，当前实现仍会返回第一个网格值和已拟合对象，但这不能视为有效的平滑参数选择。遇到非有限的 `gcv_score_` 时，应将选择视为失败，检查样本量、基函数设计和 `gamma`；在采用有分析依据的新设计或经过外部验证的固定 `lam` 后，才能解释预测。
 
 可以从三次基和二阶差分惩罚开始。仅在曲线明显受限时增加 `n_splines`，并重新检查留出误差。增大 `lam` 通常使曲线更平滑。按分位数设置节点时，数据较密集的区间会布置更多节点；均匀节点则在观测范围内等距排列。用验证集或交叉验证选择这些设置，最后保留一个未参与调参的测试集。
 

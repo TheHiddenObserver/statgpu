@@ -261,12 +261,15 @@ class _PenalizedPredictMixin:
         y : array-like of shape (n_samples,)
             True values.
         sample_weight : array-like of shape (n_samples,), optional
-            Sample weights. When provided, returns weighted R².
+            Finite nonnegative evaluation weights with positive total weight.
+            These are independent of training weights. The squared-error path
+            currently does not reliably reject negative weights and can return
+            invalid R² above 1; validate the vector before calling this method.
 
         Returns
         -------
         score : float
-            R² or pseudo-R² score.
+            Response-scale R², not deviance-based pseudo-R².
         """
         is_quantile = (
             str(getattr(self, "loss", "")).lower().strip() == "quantile"
