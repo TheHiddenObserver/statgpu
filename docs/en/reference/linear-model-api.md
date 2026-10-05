@@ -8,6 +8,8 @@ All classes here import from `statgpu` or `statgpu.linear_model`. `X` is finite 
 
 Every class here inherits [get_params/set_params and four inference helpers](estimator-api.md). The generic helpers accept supplied data/p-values; their presence does not guarantee that a CV wrapper publishes coefficient inference arrays on itself. For CV, read inference from `estimator_`.
 
+The public `coef_` arrays and successful coefficient-inference arrays of these direct estimators are stored as NumPy arrays, including after GPU fitting; scalar intercepts are Python numbers. This storage convention differs from backend-native prediction/evaluation arrays. There is no constructor `dtype` control or blanket promise to preserve the input floating dtype; use the actual returned array dtype when integrating with other libraries.
+
 ## LinearRegression
 
 ```text
@@ -23,17 +25,17 @@ LinearRegression(fit_intercept=True, device='auto', n_jobs=None, compute_inferen
 | `cov_type` | `"nonrobust"` | `nonrobust`, `hc0`, `hc1`, `hc2`, `hc3`, `hac`; see each model’s inference contract. |
 | `hac_maxlags` | `None` | Nonnegative integer HAC lag; automatic `floor(4*(n/100)**(2/9))`, capped at n−1, for Linear/Logistic. |
 
-`fit(X=None, y=None, sample_weight=None, formula=None, data=None)` returns `self`. Use arrays or `formula` plus `data`; do not supply conflicting representations. A single column response is flattened by fit; genuine multi-output `y` has shape `(n,t)`.
+`fit(X=None, y=None, sample_weight=None, formula=None, data=None)` returns `self`. Use arrays or `formula` plus `data`; do not supply both. Currently, a formula fit silently takes its X/y from `data` even if array X/y are also supplied; it does not reject the conflict. A single column response is flattened by fit; genuine multi-output `y` has shape `(n,t)`.
 
 | Method/result | Contract |
 |---|---|
-| `predict(X)` | `(m,)` for one target or `(m,t)` for multiple targets; NumPy on CPU, native supported GPU array on GPU. Formula-fitted models also accept a prediction DataFrame. |
+| `predict(X)` | `(m,)` for one target or `(m,t)` for multiple targets; NumPy on CPU, native supported GPU array on GPU. Formula-fitted models also accept a prediction DataFrame. The device is resolved again at prediction; use an explicit device if later global-device changes must not change output placement. |
 | `score(X,y)` | Unweighted R²; averages individual target R² in multi-output. No `sample_weight` argument. Pass one-dimensional single-target `y`: a column-shaped response currently broadcasts incorrectly. Constant targets receive 0 rather than a meaningful explained-variance interpretation. |
 | `summary()` | Prints a single-output table; returns `None`. Requires successful inference and positive residual degrees of freedom. |
 | `coef_`, `intercept_`, `rank_` | Shapes `(p,)`/scalar, or `(t,p)`/`(t,)`; `rank_` is fitted design rank. |
 | `rsquared`, `rsquared_adj` | Training R² (using fitted weights; pooled for multi-output) and residual-DoF adjustment. These are distinct from held-out `score`. |
-| `fvalue`, `f_pvalue` | Residual-based overall F diagnostic, not an HC/HAC joint Wald test. |
-| `llf`, `aic`, `bic` | Gaussian likelihood and information-criterion diagnostics; multi-output AIC/BIC are `None`. Unavailable diagnostics can be `None`/NaN; rank and degrees of freedom matter. |
+| `fvalue`, `f_pvalue` | Single-target residual-based F diagnostic, not an HC/HAC joint Wald test. Weighted multi-output access currently raises `TypeError`; unweighted pooled output is not a joint multivariate test. |
+| `llf`, `aic`, `bic` | Unweighted single-target Gaussian likelihood/information criteria. Weighted values omit the WLS log-weight normalization and depend on weight scale. Multi-output AIC/BIC are `None`, and pooled `llf` is not a joint multivariate likelihood. See [diagnostic limits](../models/linear-regression.md#diagnostic-limitations-with-weights-or-multiple-targets). |
 | `_bse`, `_tvalues`, `_pvalues`, `_conf_int` | Intercept first when fitted. For k parameters: `(k,)` and CI `(k,2)`; CPU multi-output uses `(k,t)` and `(k,t,2)`. Inference-disabled/unavailable arrays are `None`. |
 
 Classical covariance uses t-reference inference; HC/HAC uses normal-reference inference despite the `_tvalues` name. CPU multi-output inference is supported; GPU multi-output fitting requires `compute_inference=False`. See the [learner page](../models/linear-regression.md) for interpretation and assumptions.
@@ -45,7 +47,7 @@ LogisticRegression(fit_intercept=True, C=1.0, max_iter=100, tol=0.0001, device='
 ```
 | Parameter | Default | Meaning and restrictions |
 |---|---|---|
-| `fit_intercept` | `True` | Fit an intercept; formula syntax overrides the array-fit choice. |
+| `fit_intercept` | `True` | Fit an unpenalized intercept; this class has no formula interface. |
 | `device` | `"auto"` | `cpu`/`cuda` (CuPy)/`torch` (Torch CUDA)/`auto`; explicit GPU requests require a usable backend. |
 | `n_jobs` | `None` | Shared CPU worker setting; it does not select a solver or promise parallel fitting in these wrappers. |
 | `compute_inference` | `True` | Enable supported post-fit uncertainty; `summary()` needs successful inference. |
@@ -237,7 +239,7 @@ assert np.isclose(logit.best_score_, -np.nanmin(logit.mean_loss_))
 The printed score is evaluated on the untouched final 40 rows. The assertions explain the sign/schema rather than promising a particular selected model for every dataset. These simulated features already share a common scale; no full-data learned preprocessing is applied.
 
 ## Formula inputs
-Only LinearRegression and direct ElasticNet here support formulas. Install optional pandas/patsy. `formula="y ~ x + C(group)"` supplies numeric/categorical terms; `~ 0 + ...` removes the intercept regardless of the constructor. Interactions/transforms follow Patsy syntax. Formula fitting can drop rows with missing terms. Weights may describe all original data rows or exactly the retained rows; matching is positional, not by arbitrary Series labels.
+Only LinearRegression and direct ElasticNet here support formulas. For both, supply only `formula`/`data`, not simultaneous array X/y; current formula parsing replaces those arrays without a conflict error. Install optional pandas/patsy. `formula="y ~ x + C(group)"` supplies numeric/categorical terms; `~ 0 + ...` removes the intercept regardless of the constructor. Interactions/transforms follow Patsy syntax. Formula fitting can drop rows with missing terms. Weights may describe all original data rows or exactly the retained rows; matching is positional, not by arbitrary Series labels.
 
 Prediction DataFrames rebuild the stored design and categorical levels. Unknown levels or missing values that would drop prediction rows raise; array prediction must supply the already encoded non-intercept columns in training order. Keep transformations and level definitions consistent. LogisticRegression and both CV wrappers have no formula argument; construct a suitable design first, avoiding preprocessing leakage.
 

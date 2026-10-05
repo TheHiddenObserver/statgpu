@@ -9,8 +9,7 @@ All notable changes to statgpu are documented here, organized by release and dat
 - Refined Chinese statistical explanations, distinguished Cox score-residual calculations from asymptotic inference, corrected Exact dynamic-programming cost wording, and moved implementation history and source-bound validation details to a developer reference.
 - Corrected ElasticNet bootstrap backend and retained-initialization documentation, aligned GaussianMixture covariance option names, clarified the CPU DBSCAN neighbor-search dependency, and added public-API documentation regressions.
 - Clarified that LinearRegression flattens a one-column response during fitting but requires a one-dimensional response for single-target scoring; added matching bilingual examples and regression coverage for the scoring workaround without changing production behavior.
-
-- Added bilingual runtime-checked API references, CV and shared-helper contracts, complete unsupervised method inventories, and defined statistical formulas; corrected CV score/result docstrings while preserving executable numerical code.
+- Added bilingual runtime-checked API references and self-contained workflows, corrected CV/shared-helper/output/lifecycle and statistical contracts, completed public help, and documented independently reproduced implementation limits with tested workarounds while preserving executable numerical code.
 
 ## Unreleased — 2026-09-20
 

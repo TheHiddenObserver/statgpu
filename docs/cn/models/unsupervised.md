@@ -23,8 +23,7 @@
 | [MiniBatchKMeans](../unsupervised/minibatch-kmeans.md) | 较大规模原型聚类 | 用小批量更新近似最小化惯性 |
 | [IncrementalPCA](../unsupervised/incremental-pca.md) | 分批线性降维 | 近似中心化的秩 k 重构 |
 | [MiniBatchNMF](../unsupervised/minibatch-nmf.md) | 较大规模非负矩阵分解 | 小批量 Frobenius 重构损失 |
-| [UMAP](../unsupervised/umap.md) | 流形嵌入 | 模糊图交叉熵 |
-| [NNDescent](../unsupervised/umap.md) | 近似最近邻搜索 | 迭代地优化近邻候选 |
+| [UMAP](../unsupervised/umap.md) | 流形嵌入 | 近似近邻布局力更新 |
 | [TSNE](../unsupervised/tsne.md) | 流形可视化 | 亲和度分布之间的 KL 散度 |
 
 ## 设备行为
@@ -38,3 +37,5 @@
 ## 说明
 
 无监督估计器通常不提供标准误、p 值、置信区间、AIC 或 BIC 等统计推断字段，除非模型本身自然定义了这些量。因此本文档重点说明算法目标、精确与迭代行为的区别、设备支持和输出语义。
+
+十二个公开估计器及完整构造和方法约定见[无监督学习索引](../unsupervised/README.md)与 [API 参考](../unsupervised/api-reference.md)。NNDescent 是 UMAP 使用的内部近邻搜索实现，并不是 `statgpu.unsupervised` 额外导出的估计器。

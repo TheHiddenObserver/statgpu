@@ -4,7 +4,7 @@
 > Last updated: 2026-10-05  
 > Switch: [Chinese](../../cn/reference/survival-smoothing-api.md)
 
-Use this page to look up a call after the [CoxPH](../models/coxph.md), [GAM](../models/semiparametric.md), or [nonparametric](../models/nonparametric.md) walkthrough. Signatures below include public arguments and defaults; `*` starts keyword-only arguments. Shape notation: `n` training rows, `p` features, `q` query rows, `r` response columns. Fitted methods require a successful fit. Generic [parameter management](estimator-api.md#parameter-management) and [inference helpers](estimator-api.md#inference-helpers) are documented separately. Generic resampling helpers do not automatically supply model-valid survival inference or GAM confidence bands.
+Use this page to look up a call after the [CoxPH](../models/coxph.md), [GAM](../models/semiparametric.md), or [nonparametric](../models/nonparametric.md) walkthrough. Signatures below include public arguments and defaults; `*` starts keyword-only arguments. Shape notation: `n` training rows, `p` features, `q` query rows, `r` response columns. Fitted methods require a successful fit. Generic [parameter management](estimator-api.md#parameter-management) and [inference helpers](estimator-api.md#inference-helpers) are documented separately. Generic resampling helpers do not automatically supply model-valid survival inference or GAM confidence bands. Floating-point model calculations on this page use float64 rather than preserving a float32 input dtype; backend-native numeric predictions still have the fitted array-library type.
 
 ## CoxPH and CoxPHCV
 
@@ -40,7 +40,8 @@ CoxPHCV.fit(X, time, event=None, entry=None, cluster=None, *, start=None, strata
 - `init_coef`: CoxPH-only finite `(p,)` initialization. `formula` and `data`: CoxPH-only alternative using a pandas DataFrame and optional pandas/Patsy dependencies; use `Surv(time,event)` or `Surv(start,stop,event)`. Formula missing-row removal is applied to aligned auxiliary labels. Prediction reuses the saved design transformation and rejects silently dropped rows.
 - Both `fit` methods return `self`. Unsupported Exact-tie robust inference raises `NotImplementedError`; estimation-only Exact fitting is supported. Fit/input failures must not be interpreted as usable fitted results.
 - CV `penalties` is a nonempty finite nonnegative vector. With `None`, `n_penalties` and `penalty_min_ratio` control the automatic grid; comparable feature scaling matters. `cv_splits` overrides generated folds and supplies nonempty disjoint integer train/validation indices. Subject overlap is rejected when `subject_id` is supplied. `random_state` controls generated splits.
-- Selection maximizes mean unpenalized held-out partial log likelihood over the same evaluable folds; it does not optimize the C-index. A candidate must have finite scores and convergence on every effective fold. No qualifying candidate raises an error. The selected penalty is then refitted on all supplied training rows. Inference runs only in the final refit and does not correct tuning uncertainty.
+- Selection compares mean unpenalized held-out partial log likelihood over the same evaluable folds; each fold contributes its summed log likelihood, without division by rows or events. It does not optimize the C-index. A candidate must have finite scores and convergence on every effective fold. No qualifying candidate raises an error. The selected penalty is then refitted on all supplied training rows. Inference runs only in the final refit and does not correct tuning uncertainty. For custom grids, numerical near-ties prefer the stronger penalty, so `best_score_` can be slightly below the largest candidate mean.
+- A custom `penalties` grid rejects boolean, string/bytes, and complex entries. Candidates are evaluated from stronger to weaker penalties, but `penalties_` and candidate-axis results retain the supplied order. A one-shot `cv_splits` iterator is consumed once on first fit, `get_params`, clone, or serialization and reused thereafter; `get_params` returns a reusable equivalent. Do not separately consume that iterator.
 
 ### Prediction, scoring, and summaries
 
@@ -125,7 +126,7 @@ CoxPHCV.summary()
 | `aic`, `bic` | CoxPH scalar properties for unpenalized fits. With `k=p` and event count `d`, AIC is `-2*log_likelihood+2*k`; BIC is `-2*log_likelihood+log(d)*k`. Access after positive-penalty fitting raises `RuntimeError`. |
 | `concordance_index` | CoxPH training C-index property; `None` when `compute_cindex=False`. |
 | `converged_`, `n_iter_` | Boolean and integer; also inspect `termination_reason_`, `optimization_stop_reason_`, `final_kkt_inf_`, and `final_kkt_normalized_`. |
-| `penalties_`, `penalty_`, `best_score_` | CoxPHCV searched penalty vector, selected scalar, and best mean held-out partial log likelihood. |
+| `penalties_`, `penalty_`, `best_score_` | CoxPHCV searched penalty vector in input order, selected scalar, and the selected mean held-out partial log likelihood (subject to the numerical near-tie rule). |
 | `estimator_` | CoxPHCV final fitted CoxPH. Access its CoxPH properties, e.g. `cv.estimator_.log_likelihood`; they are not all delegated as CV properties. |
 | `cv_results_` | Dictionary: `pl_path`, `converged_path`, `failure_path` have penalty-by-fold structure; `mean_pl` and `effective_fold_counts` are per-penalty vectors; `fold_valid` identifies effective folds. Additional backend/cache diagnostics are described in the [Cox guide](../models/coxph.md#outputs). |
 
@@ -198,7 +199,7 @@ GAM.summary()
 - `summary`: prints and returns a dictionary with `n_features`, `n_splines_per_feature`, `spline_degree`, `penalty_order`, `smoothing_parameter`, `effective_df`, `intercept`, and, only after automatic selection, `gcv_score`.
 - Fitted fields: backend-native `coef_` of length `1+sum(n_basis_j)` and per-feature `knots_`; scalar `intercept_`, `edf_`, `lam_`; `gcv_score_` is a float for automatic selection and `None` for fixed lambda; `n_features_` is an integer. Coefficients describe centered basis functions, not raw-feature slopes.
 - `lam=None` searches the built-in 100-value grid; there is no GAM custom-grid/CV-estimator API. Choose other settings with external validation. No GAM-specific `score`, sample-weight objective, family/link, coefficient inference, or confidence-band method is provided. Generic inherited helpers do not create these capabilities.
-- Always refit after `set_params`. Some GAM parameter updates currently retain the previous fitted arrays; continued prediction before refitting can use inconsistent state. A fresh GAM instance is the safest way to change the basis design.
+- Always refit after `set_params`. Some GAM parameter updates currently retain the previous fitted arrays; continued prediction before refitting can use inconsistent state. A fresh GAM instance is the safest way to change the basis design. A failed refit during basis construction can also leave old coefficients alongside new knots or feature counts. After such a failure, discard the instance and fit a fresh one before predicting or interpreting `summary()`.
 
 ## Kernel density estimation
 
@@ -270,7 +271,7 @@ kde_pdf(samples, points, *, bandwidth='scott', weights=None, kernel='gaussian', 
 | `batch_size` | Positive query-batch size for `pdf`, `logpdf`, `__call__`, and `kde_pdf`; not a KDE constructor or `predict`/`score_samples`/`score` argument. Some NumPy fast paths evaluate a small workload together. |
 | `return_log` | `kde_pdf` only; `False` returns density, `True` log density. |
 
-`fit(X,y=None)` ignores `y` and returns `self`; `fit_kde` returns a fitted `KDE`. Samples are finite `(n,)` or `(n,p)`, with `n>=2`. Queries are finite `(q,p)`; a vector means multiple queries for one feature or one query for a multivariate fit. `pdf`, `predict`, and `__call__` return backend-native `(q,)` density; `logpdf` and `score_samples` return log density. `score` returns Python `float`, the unweighted mean query log density, and ignores `y`. Compact-support kernels can return density 0 and log density `-inf`.
+`fit(X,y=None)` does not use `y` to estimate density and returns `self`; `fit_kde` returns a fitted `KDE`. Samples are finite real `(n,)` or `(n,p)`, with `n>=2` and `p>=1`; they are converted to float64. Queries are finite `(q,p)`; a vector means multiple queries for one feature or one query for a multivariate fit. `pdf`, `predict`, and `__call__` return backend-native `(q,)` density; `logpdf` and `score_samples` return log density. `score` returns Python `float`, the unweighted mean query log density, and does not use `y` in the score. Supplying nonfinite `y` to either `fit` or `score` still raises under shared input validation; omit this optional argument. Compact-support kernels can return density 0 and log density `-inf`.
 
 For large-offset coordinates, subtract a training-derived offset from both samples and queries before fitting/evaluation. Current quadratic-distance calculations can lose precision without this centering, including KDE log-density and multivariate density/regression. This translation does not change the intended statistical estimator. Explicit `backend="torch"` alone does not guarantee CUDA placement; see [device guidance](../guides/device-and-memory.md).
 
@@ -323,7 +324,7 @@ kernel_regression_predict(samples, targets, points, *, bandwidth='scott', weight
 
 - `regression="nw"` is Nadaraya–Watson; `"local_linear"` fits an intercept and local slopes per query. There is no global coefficient vector or coefficient inference.
 - `kernel_metric="full"` uses the weighted covariance; `"diagonal"` removes off-diagonal terms. `bandwidth_per_feature=None` selects a scalar factor. Positive absolute per-feature widths (a scalar can broadcast) require the diagonal metric and bypass the `bandwidth` selector.
-- `fit(X,y)` returns `self`; `fit_kernel_regression(samples,targets,...)` returns fitted `KernelRegression`. Samples follow the KDE contract; targets are finite `(n,)` or `(n,r)`. Predictions preserve target dimensionality: `(q,)` or `(q,r)`, including `(q,1)` for a one-column target.
+- `fit(X,y)` returns `self`; `fit_kernel_regression(samples,targets,...)` returns fitted `KernelRegression`. Samples follow the KDE contract; targets are finite real `(n,)` or `(n,r)` and are converted to float64. Predictions preserve target dimensionality: `(q,)` or `(q,r)`, including `(q,1)` for a one-column target.
 - Constructor `batch_size=1024` and `min_effective_weight=1e-12` become prediction defaults. Method values `None` inherit them; explicit positive values override them for that call. When local total weight is too small, prediction returns the weighted training-target mean. Local-linear instability may use numerical stabilization or NW fallback.
 - `kernel_regression_predict` fits and predicts once, with the listed evaluation overrides. Functional helpers expose `backend`, not estimator-only device/jobs/cleanup settings.
 - `score` returns a host scalar R-squared after flattening all target columns together, not the average of per-target scores; constant targets return `0.0`. Use separate target metrics when scales differ.
@@ -349,7 +350,7 @@ KDEBootstrapResult.to_dict()
 ```
 
 
-Shared `samples`, `points`, `bandwidth`, `weights`, `kernel`, and `backend` have the KDE meanings. Use a finite `confidence_level` strictly between 0 and 1; do not pass NaN. `n_resamples` is a positive integer; it is validated even on the normal path. `random_state` seeds bootstrap sampling. `batch_size` controls density evaluation; a NumPy bootstrap fast path may evaluate all queries together.
+Shared `samples`, `points`, `bandwidth`, `weights`, `kernel`, and `backend` have the KDE meanings. Use a finite `confidence_level` strictly between 0 and 1; do not pass NaN. `n_resamples` is a positive integer; it is validated even on the normal path. `random_state` seeds bootstrap sampling. `bootstrap_method="percentile"` is required even when `method="normal"`, although no bootstrap is run then. `batch_size` controls density evaluation; a NumPy bootstrap fast path may evaluate all queries together.
 
 - `kde_confidence_interval(method="normal")`: only 1D Gaussian KDE; the fitted covariance determines the absolute width. It returns an asymptotic, pointwise, zero-lower-clipped normal interval. The result has `n_resamples=0` and `bootstrap_samples=None`, even if `return_bootstrap_samples=True`.
 - `kde_confidence_interval(method="bootstrap", bootstrap_method="percentile")`: percentile resampling; no other bootstrap method is supported.

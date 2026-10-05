@@ -435,9 +435,10 @@ def fit_kde(
     kernel : {'gaussian', 'rectangular', 'triangular', 'epanechnikov',
               'biweight', 'triweight', 'cosine', 'optcosine'}, default='gaussian'
         Kernel function used for density estimation.
-    backend : {'auto', 'numpy', 'cupy'}, default='auto'
+    backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
         Compute backend. 'auto' selects from the estimator's configured
-        device/backend rather than inferring from input array types.
+        device/backend rather than inferring from input array types. An
+        explicit Torch backend selects the library, not necessarily CUDA.
 
     Returns
     -------

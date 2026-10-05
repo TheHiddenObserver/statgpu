@@ -1,12 +1,16 @@
 # GaussianMixture
 
 > 语言：中文
-> 最后更新：2026-09-29
+> 最后更新：2026-10-05
 > 切换：[English](../../en/unsupervised/gaussian-mixture.md)
 
 ## 概览
 
 `GaussianMixture` 使用 EM 算法拟合高斯混合模型。当前支持 `"diag"`、`"spherical"`、`"tied"` 和 `"full"` 四种协方差类型，并覆盖 CPU、CuPy/CUDA 和 Torch CUDA 三端。
+
+## 何时使用
+
+当组之间有重叠，且需要软归属概率时，可使用高斯混合模型。可先从较少成分和简单协方差结构开始，检查责任度、收敛状态及留出数据的对数密度。拟合出的一个成分不一定对应真实人群或类别。
 
 ## 导入路径
 
@@ -29,7 +33,7 @@ $$
 \right].
 $$
 
-`covariance_type` 决定 `\Sigma_k` 的形状：每个成分一组对角协方差、每个成分一个球形方差、所有成分共享一个完整协方差，或每个成分各自拥有完整协方差。`reg_covar` 会向协方差估计加入一个很小的对角岭项（ridge），提高数值稳定性。
+`covariance_type` 决定 `\Sigma_k` 的形状：每个成分一组对角协方差、每个成分一个球形方差、所有成分共享一个完整协方差，或每个成分各自拥有完整协方差。`reg_covar` 在对角和球形协方差的 M 步中充当方差下限；完整和共享协方差则在对角线上加上该值。不同结构采用的约定不同，相同数值也未必与其他库等价。
 
 ## 估计方程
 
@@ -122,7 +126,7 @@ $$
   \frac{1}{n}\sum_{i=1}^{n}\log p(x_i).
   $$
 
-  当下界的提升小于 `tol` 或达到 `max_iter` 时停止；`n_init` 会运行多组初始化，并保留下界最高的一组。
+  当相邻监测值的绝对差小于 `tol` 或达到 `max_iter` 时停止。`lower_bound_` 保存最后一次参数更新之前的 E 步值，最终模型的平均对数密度应调用 `score(X)`；`n_init` 会运行多组初始化，并保留下界最高的一组。
 
 ## 参数
 
@@ -133,22 +137,26 @@ $$
 - `random_state`。
 - `device`：`"auto"`、`"cpu"`、`"cuda"` 或 `"torch"`。
 
-## CPU+GPU 示例
+## 一个可独立运行的 CPU 示例
 
+<!-- learner-example: gaussian-mixture -->
 ```python
 import numpy as np
 from statgpu.unsupervised import GaussianMixture
 
-X = np.random.default_rng(0).normal(size=(4000, 16))
-
-gmm = GaussianMixture(n_components=4, covariance_type="full", random_state=0, device="torch")
-gmm.fit(X)
-labels = gmm.predict(X)
-proba = gmm.predict_proba(X)
-ll = gmm.score(X)
+rng = np.random.default_rng(0)
+X = np.vstack([rng.normal(-2, 0.4, (40, 2)), rng.normal(2, 0.4, (40, 2))])
+model = GaussianMixture(n_components=2, covariance_type="full", n_init=2, random_state=0, device="cpu")
+model.fit(X)
+proba = model.predict_proba(X)
+print(proba.shape, model.converged_, model.score(X), model.bic(X))
 ```
 
-## 严格与近似模式的差别
+责任度形状为 `(80, 2)`，每行和为 1。它表示当前拟合模型下的条件归属概率，不是置信水平。AIC/BIC 应在相同观测上比较，也不能弥补拟合失败。
+
+安装了相应 GPU 后端后，可新建估计器并指定 `device="cuda"`（CuPy）或 `device="torch"`（Torch CUDA）。数组通常留在该后端；输出所在设备及主机端步骤见 [API 参考](api-reference.md#gaussianmixture)。显式请求的 GPU 不可用时会报错。
+
+## 近似与解释边界
 
 `GaussianMixture` 提供似然分数，但没有严格推断的协方差或 p 值模式。EM 优化的似然是非凸的，可能收敛到局部最优；结果的可复现性取决于初始化、`random_state`、`n_init`、`tol` 和 `max_iter`。
 
@@ -171,19 +179,16 @@ ll = gmm.score(X)
 **`score`、`score_samples`、`aic`、`bic` 分别是什么？**
 `score_samples` 返回逐样本对数似然，`score` 返回平均对数似然，`aic`/`bic` 按对应协方差类型的参数量计算。
 
-## 外部验证
 
-- 测试：`dev/tests/test_unsupervised_gmm.py`。
-- 基准测试：`dev/benchmarks/benchmark_unsupervised_phase3b.py`。
-- 最新远程验证产物：`results/unsupervised_phase3b_verify_20260507_003957.json`。
-- 对齐基线：sklearn 的 `GaussianMixture`，对齐 `covariance_type`、初始化和收敛参数。
-- Phase 3B 验证目标：`"diag"`、`"spherical"`、`"tied"`、`"full"` 在 CPU/CuPy/Torch 三端的 score 一致性，以及与 sklearn 的对数似然、AIC/BIC、责任度（responsibility）对齐。
+## 数值与使用注意事项
+
+对角和球形协方差更新使用原始二阶矩，对角密度公式也会对较大的二次项相减。当偏移远大于簇内变化时，即使 `converged_` 为真，协方差和似然也可能错误。应先减去由训练数据确定的偏移，并在后续评分时复用；平移不会改变目标混合密度。增大 `reg_covar` 不能修复这种消减误差。
+
+## 完整 API 参考
+
+构造默认值、全部公开方法、输出形状与限制见 [GaussianMixture API 参考](api-reference.md#gaussianmixture)。
 
 ## References
 
 - Dempster, A. P., Laird, N. M., & Rubin, D. B. (1977). Maximum likelihood from incomplete data via the EM algorithm. *Journal of the Royal Statistical Society: Series B (Methodological)*, 39(1), 1-22. https://doi.org/10.1111/j.2517-6161.1977.tb01600.x
 - McLachlan, G. J., & Peel, D. (2000). *Finite Mixture Models*. Wiley Series in Probability and Statistics. Wiley.
-
-## 完整 API 参考
-
-构造默认值、全部公开方法、输出形状与限制见 [GaussianMixture API 参考](api-reference.md#gaussianmixture)。

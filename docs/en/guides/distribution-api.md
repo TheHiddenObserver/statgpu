@@ -1,7 +1,7 @@
 # Distribution API Guide
 
 > Language: English
-> Last updated: 2026-10-04
+> Last updated: 2026-10-05
 > This page: Guide
 > Switch: [Chinese](../../cn/guides/distribution-api.md)
 
@@ -169,6 +169,36 @@ method-specific reference check. Use SciPy's corresponding `sf`, `logsf`, or
 several positive-support/beta density kernels return zero exactly at the
 support boundary rather than the analytic boundary limit. Evaluate their PDF
 in the interior when checking against a reference.
+
+## Check missing observations before density evaluation
+
+Validate observations separately from distribution parameters. Currently,
+`uniform`, `expon`, `chi2`, `gamma`, `beta`, `f`, `weibull_min`, and `lognorm`
+PDFs, and Poisson/binomial PMFs, can return `0.0` for a NaN observation.
+That zero is not a valid missing-data result and can corrupt a likelihood or
+aggregate density. Reject or deliberately handle missing observations before
+calling these methods; do not replace NaN with an arbitrary numeric value.
+
+```python
+# Example: validate_density_inputs
+import numpy as np
+from statgpu.inference import gamma
+
+
+def finite_gamma_density(values):
+    values = np.asarray(values, dtype=np.float64)
+    if not np.isfinite(values).all():
+        raise ValueError("Density observations must be finite")
+    return gamma.pdf(values, a=2.0, backend="numpy")
+
+
+density = finite_gamma_density([0.5, 1.0, 2.0])
+print("Gamma density:", np.round(density, 6))
+```
+
+This prints `[0.303265, 0.367879, 0.270671]`. Passing NaN or infinity to this
+example's helper raises before evaluating the PDF. It is a finite-observation
+workflow, not a definition of the distribution's mathematical infinite limits.
 
 ## Native families and parameter choices
 

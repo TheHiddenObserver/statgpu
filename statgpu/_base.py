@@ -646,20 +646,24 @@ class BaseEstimator(ABC):
         pvalues : array-like, optional
             Raw p-values. If omitted, uses this estimator's ``_pvalues``.
         method : str, default='bh'
-            Adjustment method: ``bh``, ``by``, ``holm``, ``bonferroni``
-            (aliases accepted).
+            Adjustment method: ``bh``, ``by``, ``holm``, ``bonferroni``, or
+            ``hochberg`` (aliases accepted).
         alpha : float, default=0.05
             Rejection threshold in (0, 1).
         axis : int or None, default=0
             Axis along which to adjust. ``None`` flattens all entries.
         backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
-            Compute backend. ``'auto'`` follows the estimator's resolved device.
+            ``'auto'`` selects the estimator's resolved CuPy/Torch GPU backend.
+            For a resolved CPU estimator, it currently infers from input arrays;
+            use ``'numpy'`` to require NumPy. Explicit ``'torch'`` requires CUDA.
 
         Returns
         -------
         dict
             Contains ``pvalues``, ``pvalues_adjusted``, ``reject``,
-            ``method``, ``alpha``, and ``axis``.
+            ``method``, ``alpha``, ``axis``, and ``backend``. The backend label
+            can remain ``'auto'``; adjusted arrays retain the input shape.
+            Unlike the module function, this method does not return a tuple.
         """
         from statgpu.inference import adjust_pvalues as _adjust_pvalues
 
@@ -709,19 +713,24 @@ class BaseEstimator(ABC):
         pvalues : array-like, optional
             Raw p-values. If omitted, uses this estimator's ``_pvalues``.
         method : str, default='fisher'
-            Combination method: ``fisher`` or ``cauchy`` (aliases accepted).
+            Combination method: ``fisher``, ``cauchy``, or ``stouffer``
+            (aliases accepted).
         weights : array-like, optional
-            Optional non-negative weights for cauchy combination.
+            Finite nonnegative weights with positive total for Cauchy or
+            Stouffer, aligned with the reduction axis. Fisher rejects weights.
         axis : int or None, default=None
             Axis along which to combine p-values. ``None`` flattens input.
         backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
-            Compute backend. ``'auto'`` follows the estimator's resolved device.
+            ``'auto'`` selects the estimator's resolved CuPy/Torch GPU backend.
+            For a resolved CPU estimator, it currently infers from input arrays;
+            use ``'numpy'`` to require NumPy. Explicit ``'torch'`` requires CUDA.
 
         Returns
         -------
         dict
-            Contains ``pvalues``, ``statistic``, ``pvalue``,
-            ``method``, ``axis``, and ``backend``.
+            Contains ``pvalues``, ``weights``, ``statistic``, ``pvalue``,
+            ``method``, ``axis``, and ``backend``. The backend label may remain
+            ``'auto'``. Unlike the module function, this is not a tuple.
         """
         from statgpu.inference import combine_pvalues as _combine_pvalues
 
@@ -775,9 +784,49 @@ class BaseEstimator(ABC):
         backend: str = "auto",
     ):
         """
-        Run unified bootstrap engine from model context.
+        Bootstrap a scalar statistic on aligned rows.
 
-        This is a thin wrapper over ``statgpu.inference.bootstrap_statistic``.
+        Parameters
+        ----------
+        statistic : callable
+            Receives the aligned arrays and returns a finite scalar. Batched
+            calls may be probed before scalar fallback; avoid side effects.
+        *arrays : array-like
+            Nonempty arrays with the same first-axis length. If omitted, uses
+            cached ``_X_design`` and ``_y`` or raises RuntimeError. These caches
+            can include formula/weight transformations and need not be raw
+            matched training pairs; explicit arrays are safer for refitting.
+        n_resamples : int, default=200
+            Positive number of resamples.
+        strategy : {'iid', 'stratified', 'cluster', 'block'}, default='iid'
+            Resample rows, rows within strata, whole clusters, or contiguous
+            blocks. The caller must choose a valid resampling unit.
+        strata, clusters : array-like, optional
+            Length-n labels required by the corresponding strategy.
+        block_size : int, optional
+            Positive block length; required for block bootstrap, capped at n.
+        confidence_level : float, default=0.95
+            Percentile interval level in (0, 1).
+        random_state : int, optional
+            Seed scoped to this backend and procedure.
+        statistic_name : str, default='statistic'
+            Result label; does not change the calculation.
+        backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
+            Auto selects the resolved estimator GPU backend, but leaves array
+            inference enabled on CPU. Use 'numpy' to require NumPy. Explicit
+            CuPy/Torch requests require the corresponding GPU backend.
+
+        Returns
+        -------
+        BootstrapResult
+            ``observed``, backend ``samples``, ``confidence_interval``, level,
+            resample count, seed, statistic name, strategy, and metadata.
+            This does not automatically refit or perform coefficient inference.
+
+        Notes
+        -----
+        Unlike the module function, this method does not accept
+        ``force_vectorized`` or ``statistic_hint``.
         """
         from statgpu.inference import bootstrap_statistic as _bootstrap_statistic
 
@@ -836,9 +885,44 @@ class BaseEstimator(ABC):
         backend: str = "auto",
     ):
         """
-        Run unified permutation test engine from model context.
+        Test a scalar statistic by permuting response labels with X fixed.
 
-        This is a thin wrapper over ``statgpu.inference.permutation_test``.
+        Parameters
+        ----------
+        statistic : callable
+            ``statistic(X, y)`` returns a finite scalar. Batched calls may be
+            probed; avoid side effects and define batch axes deliberately.
+        X, y : array-like
+            Nonempty aligned observations; use a one-dimensional response.
+        n_resamples : int, default=1000
+            Positive number of permutations.
+        strategy : {'iid', 'stratified', 'grouped'}, default='iid'
+            Permute globally, within strata, or within groups. Grouped does
+            not exchange whole groups. Null exchangeability is required.
+        strata, groups : array-like, optional
+            Length-n labels required by the corresponding strategy.
+        alternative : {'two-sided', 'greater', 'less'}, default='two-sided'
+            Tail comparison; two-sided compares absolute statistic values.
+        random_state : int, optional
+            Seed scoped to this backend and procedure.
+        statistic_name : str, default='statistic'
+            Reporting label only.
+        backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
+            Auto selects the resolved estimator GPU backend, but leaves array
+            inference enabled on CPU. Use 'numpy' to require NumPy. Explicit
+            CuPy/Torch requests require the corresponding GPU backend.
+
+        Returns
+        -------
+        PermutationTestResult
+            ``observed``, backend ``samples``, plus-one corrected ``pvalue``,
+            resample count, seed, statistic name, strategy, alternative, metadata.
+            ``to_dict()`` serializes arrays; ``to_dataframe()`` needs pandas.
+
+        Notes
+        -----
+        Unlike the module function, this method does not accept
+        ``force_vectorized`` or ``statistic_hint``.
         """
         from statgpu.inference import permutation_test as _permutation_test
 

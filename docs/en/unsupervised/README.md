@@ -22,7 +22,7 @@
 | Do I want a low-dimensional visualization of neighborhoods? | [UMAP](umap.md) or [TSNE](tsne.md) | Stability across seeds and settings; visual separation alone is not evidence of distinct populations |
 | Must I process data in batches? | [IncrementalPCA](incremental-pca.md), [MiniBatchKMeans](minibatch-kmeans.md), or [MiniBatchNMF](minibatch-nmf.md) | The corresponding model's batch-size, initialization and `partial_fit` requirements |
 
-These implementations target dense inputs. In particular, the current TruncatedSVD is not a sparse-text pipeline. UMAP provides `nn_method="exact"` and `"nndescent"` (approximate) neighbor search, with `"auto"` choosing a path; graph assembly still uses host-side SciPy. TSNE uses exact dense distances. Neither visualization estimator supports new-data `transform`. Read the selected model's limits before choosing it for a large dataset.
+These implementations target dense inputs. In particular, the current TruncatedSVD is not a sparse-text pipeline. UMAP provides `nn_method="exact"` and `"nndescent"` (approximate) neighbor search, with `"auto"` choosing exact search; graph assembly still uses host-side SciPy. TSNE uses exact dense distances. Neither visualization estimator supports new-data `transform`. Read the selected model's limits before choosing it for a large dataset.
 
 ## A practical first pass
 
@@ -31,7 +31,7 @@ These implementations target dense inputs. In particular, the current TruncatedS
 3. Inspect the result in the third column above and compare reasonable parameter settings. When evaluating on held-out observations, fit any preprocessing and model selection on the training portion only. Do not compare unrelated models by assuming their `score()` values mean the same thing.
 4. Move to batches or a supported GPU backend only after the small workflow is understood. Check the model's memory limits and measure the complete workload, including required transfers; a GPU does not guarantee a faster small fit.
 
-The pages below contain model-specific examples, parameters, output contracts and failure modes. This index helps choose the next page rather than replacing those guides.
+The pages below contain model-specific examples, parameters, output contracts and failure modes. In particular, read the [UMAP restrictions](umap.md#current-restrictions) and [DBSCAN interpretation limits](dbscan.md#approximation-and-interpretation); basic CPU support does not mean every parameter/data combination is reliable. This index helps choose the next page rather than replacing those guides.
 
 ## Try a small CPU workflow
 
@@ -72,7 +72,7 @@ The [complete unsupervised API reference](api-reference.md) lists defaults, meth
 - [IncrementalPCA](incremental-pca.md): dense batch-wise principal component analysis.
 - [MiniBatchNMF](minibatch-nmf.md): dense mini-batch non-negative matrix factorization.
 - [UMAP](umap.md): dense Euclidean UMAP with exact or approximate neighbor search and host-side SciPy graph assembly.
-- [TSNE](tsne.md): dense exact Euclidean t-SNE v1.
+- [TSNE](tsne.md): dense exact Euclidean t-SNE .
 
 ## Support Matrix
 
@@ -88,13 +88,13 @@ The [complete unsupervised API reference](api-reference.md) lists defaults, meth
 | `MiniBatchKMeans` | yes | yes | yes | Within-cluster sum of squares for mini-batch clustering |
 | `IncrementalPCA` | yes | yes | yes | Batch-wise centered low-rank reconstruction |
 | `MiniBatchNMF` | yes | yes | yes | Mini-batch Frobenius reconstruction loss |
-| `UMAP` | yes | yes, host SciPy graph assembly | yes, host SciPy graph assembly | Fuzzy graph cross-entropy |
+| `UMAP` | exact search, at least two dimensions | yes, host SciPy graph assembly | yes, host SciPy graph assembly | Approximate neighborhood-layout forces |
 | `TSNE` | yes | yes | yes | KL divergence between high- and low-dimensional affinities |
 
 Explicit `device="cuda"` and `device="torch"` do not silently fall back to CPU. Unsupported GPU paths raise clear errors.
 
 ## Validation and interpretation limits
 
-These estimators have unit tests and, where applicable, numerical comparisons with scikit-learn, cuML, umap-learn or openTSNE. GPU checks also cover device behavior and CPU/GPU consistency. Such comparisons apply to the recorded settings; they do not guarantee the same accuracy or speed for every dataset, version or device. Use the model pages for relevant assumptions and validation context, and benchmark your own workload when performance matters.
+Algorithm agreement depends on matching objectives, initialization, tolerance and preprocessing. Model-specific limitations and numerical precautions are described in the linked guides. Check output finiteness and convergence where available, and benchmark your own workload when performance matters.
 
 External comparisons do not imply that every production path is independent of those packages. For example, CPU `DBSCAN` with more than 12 features uses scikit-learn's `NearestNeighbors` for neighbor search; statgpu performs the clustering and label assignment. See the [DBSCAN guide](dbscan.md) for its dependency and execution boundaries.

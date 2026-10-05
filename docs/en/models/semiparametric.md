@@ -92,12 +92,13 @@ GCV is a discrete parameter search and may miss an optimum between grid points; 
 
 ## Inputs, boundaries, and limitations
 
-- `fit(X, y)` takes finite numeric `X` of shape `(n_samples, n_features)` and one continuous target per row, normally `(n_samples,)`. A 1D `X` is treated as one feature; `y` is flattened, so a single-column target also works. Empty data, mismatched lengths, nonfinite values, and constant feature columns raise `ValueError`. Do not add your own all-ones intercept column.
+- `fit(X, y)` converts real numeric inputs to float64 and takes finite `X` of shape `(n_samples, n_features)` and one continuous target per row, normally `(n_samples,)`. A 1D `X` is treated as one feature; `y` is flattened, so a single-column target also works. Empty data, mismatched lengths, nonfinite values, and constant feature columns raise `ValueError`. Do not add your own all-ones intercept column.
 - Use numeric continuous predictors. Quantile knots may coincide for heavily tied/discrete features; duplicates are removed, and knots at the training boundary can cause a `ValueError`. Do not assume a large basis makes categorical data suitable for smoothing.
 - `predict(X)` requires the same feature count and order. Prefer an explicit `(n_query, n_features)` array. For one fitted feature a 1D vector means several queries; for several fitted features a length-`n_features_` vector means one query. Predictions are a **NumPy array** of shape `(n_query,)`, including after GPU fitting.
 - The training knots and boundaries are reused at prediction time. Outside a feature's training range its B-spline basis is zero before centering; this is not a reliable linear or smooth extrapolation rule. Restrict interpretation to supported ranges.
 - The additive model can miss interactions. Highly correlated predictors can make separate smooth effects hard to interpret even when predictions are useful.
 - No coefficient standard errors, p-values, confidence bands, `cov_type`, sample-weight fit, or family/link likelihood is implemented here. EDF and GCV do not supply uncertainty intervals.
+- If a refit fails while constructing the basis, the instance can retain old coefficients alongside partially replaced knots and feature metadata. Discard that instance and fit a fresh model before predicting or reading its summary.
 
 ## Complete constructor and output reference
 

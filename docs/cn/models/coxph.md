@@ -223,9 +223,11 @@ print("Test C-index:", cv_test_cindex)
 <!-- /example: coxph-cpu-cv -->
 
 本例选择 `penalty_=1.0`，测试 C-index 约为 `0.766`；CV 并不保证提高这个指标。
-`best_score_` 是最大的**平均留出部分对数似然**，不是 `score()` 返回的 C-index，
+`best_score_` 是所选的**平均留出部分对数似然**，不是 `score()` 返回的 C-index，
 只适合在相同数据、划分和评分约定下比较。`cv_results_["pl_path"]` 形状为
 `(n_penalties, n_folds)`；`mean_pl` 与 `effective_fold_counts` 的形状均为 `(n_penalties,)`。
+各折贡献偏对数似然总和，不除以行数或事件数。自定义网格中，数值上近似并列时优先较强惩罚，
+因此所选分数可能略小于平均分数最大值。自定义网格按惩罚从强到弱评价，但结果保留输入顺序。
 无法评估候选时，可检查 `converged_path`、`failure_path` 和 `fold_valid`。
 可被选中的候选必须在同一组全部有效折上收敛且分数有限；每个有效折的训练和验证部分都必须有事件。
 没有合格候选时，拟合会报错，不会发布选择结果。
@@ -242,7 +244,7 @@ print("Test C-index:", cv_test_cindex)
 | `n_penalties` | `100` | 自动网格的候选数量。 |
 | `penalty_min_ratio` | `1e-3` | 自动网格最小值/最大值的比值，范围 `(0, 1]`。 |
 | `cv` | `5` | 自动生成的折数，至少为二。 |
-| `cv_splits` | `None` | 显式 `(train_indices, validation_indices)` 对，覆盖自动划分；每组索引应非空、一维、互不重叠，且为范围内的整数。 |
+| `cv_splits` | `None` | 显式 `(train_indices, validation_indices)` 对，覆盖自动划分；每组索引应非空、一维、互不重叠，且为范围内的整数。一次性迭代器只读取一次并复用，参数检查或克隆也可能触发首次读取。 |
 | `ties` | `"breslow"` | 候选及重拟合使用 `"breslow"`、`"efron"` 或 `"exact"`。 |
 | `tol` | `1e-9` | 候选及重拟合的收敛容差。 |
 | `max_iter` | `100` | 候选及重拟合的最大迭代次数。 |

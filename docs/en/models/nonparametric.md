@@ -194,7 +194,8 @@ Import the following from `statgpu.nonparametric`:
 | Estimator-style regression | `KernelRegressionRegressor(...).fit(X, y)` | Alias subclass of `KernelRegression`; use `predict`, `score`, `__call__`. |
 | One-shot regression | `kernel_regression_predict(samples, targets, points, ...)` | Predicted response array. |
 
-- Training samples: finite numeric `(n_samples,)` or `(n_samples, n_features)`, at least two observations. Regression targets: finite `(n_samples,)` or `(n_samples, n_targets)` with matching rows.
+- Training samples: finite real numeric `(n_samples,)` or `(n_samples, n_features)`, at least two observations. Regression targets: finite `(n_samples,)` or `(n_samples, n_targets)` with matching rows.
+- Fitting and evaluation convert numeric inputs to float64; float32 inputs do not preserve their dtype in fitted arrays or predictions.
 - Queries: `(n_query, n_features)`. A 1D query vector means many points for a single-feature fit, or one point if its length matches a multivariate fit's feature count. Feature count and ordering must agree with training.
 - KDE output shape is `(n_query,)`; regression output is `(n_query,)` for a 1D target and `(n_query, n_targets)` for a 2D target, including `(n_query, 1)`. With NumPy the outputs are NumPy arrays; ordinary GPU predictions remain backend-native. Interval result arrays are converted to NumPy.
 - `weights`, when supplied for fitting, must be finite, nonnegative, length `n_samples`, and have a positive sum; they are normalized. Concentrating all weight on one observation fails covariance estimation. Invalid shapes, nonfinite inputs, nonpositive bandwidths, and unknown kernel names raise errors. Call `fit` before prediction.

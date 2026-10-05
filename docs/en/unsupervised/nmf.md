@@ -6,7 +6,11 @@
 
 ## Overview
 
-`NMF` factorizes non-negative dense data into non-negative factors `W` and `H`. Phase 2 supports multiplicative updates with Frobenius loss on CPU, CuPy/CUDA, and Torch CUDA.
+`NMF` factorizes non-negative dense data into non-negative factors `W` and `H`. The current implementation supports multiplicative updates with Frobenius loss on CPU, CuPy/CUDA, and Torch CUDA.
+
+## When to use it
+
+Use NMF when nonnegative features have an additive interpretation, such as intensities or counts. It does not mean-center inputs. Choose rank using useful factor patterns and reconstruction; factors have scale and permutation ambiguities and are not unique scientific mechanisms.
 
 ## Path
 
@@ -39,7 +43,7 @@ H \leftarrow H \odot
 \frac{W^\top X}{W^\top W H + \varepsilon}
 $$
 
-Factors are initialized from positive random values scaled by the mean of `X`. Reconstruction error is checked every 10 iterations and at the final iteration. `transform(X)` keeps fitted `H` fixed and updates a new `W` for the new data.
+With `init="random"`, the seed controls data-row sampling for the initial dictionary when there are at least as many rows as components; otherwise it uses positive mean-scaled random entries. Initial activations are derived from the data and dictionary. Reconstruction error is checked periodically and at the final iteration; the check cadence depends on the backend. `transform(X)` keeps fitted `H` fixed and updates a new `W` for the new data.
 
 ## Parameters
 
@@ -50,22 +54,28 @@ Factors are initialized from positive random values scaled by the mean of `X`. R
 - `max_iter`, `tol`, `random_state`.
 - `device`: `"auto"`, `"cpu"`, `"cuda"`, or `"torch"`.
 
-## CPU+GPU Examples
+## A small CPU example
 
+<!-- learner-example: nmf -->
 ```python
 import numpy as np
 from statgpu.unsupervised import NMF
 
-X = np.abs(np.random.default_rng(0).normal(size=(1000, 32)))
-
-nmf = NMF(n_components=8, random_state=0, device="cuda")
-W = nmf.fit_transform(X)
-X_hat = nmf.inverse_transform(W)
+rng = np.random.default_rng(0)
+X = rng.uniform(0.1, 1.0, (60, 2)) @ rng.uniform(0.1, 1.0, (2, 5))
+model = NMF(n_components=2, max_iter=100, random_state=0, device="cpu")
+W = model.fit_transform(X)
+X_hat = model.inverse_transform(W)
+print(W.shape, model.components_.shape, np.linalg.norm(X - X_hat))
 ```
 
-## Strict/Approx Difference
+The factors are `W` `(60, 2)` and `components_` `(2, 5)`. `reconstruction_err_` is a Frobenius norm, not its square or a normalized per-row error. A later `transform` solves new activations with the dictionary held fixed.
 
-NMF has no strict inference mode. The objective is non-convex, and multiplicative updates converge to a local solution that depends on initialization and stopping criteria.
+For a supported GPU installation, construct a new estimator with `device="cuda"` (CuPy) or `device="torch"` (Torch CUDA). Arrays generally stay on that backend; see the [API reference](api-reference.md#nmf) for output ownership and host-side work. An unavailable explicit GPU raises an error.
+
+## Approximation and interpretation
+
+NMF has no strict inference mode. The objective is non-convex, and multiplicative updates seek a local solution whose quality depends on initialization and stopping criteria; exhausting the iteration budget is not proof of convergence.
 
 ## Outputs
 
@@ -81,20 +91,14 @@ NMF has no strict inference mode. The objective is non-convex, and multiplicativ
 No. NMF raises when `X` contains negative values.
 
 **Is coordinate descent supported?**
-No. Phase 2 supports only MU with Frobenius loss.
+No. The current implementation supports only MU with Frobenius loss.
 
-## External Validation
 
-- Tests: `dev/tests/test_unsupervised_nmf.py`.
-- Benchmark: `dev/benchmarks/benchmark_unsupervised_phase2.py`.
-- Baseline: sklearn `NMF(solver="mu", beta_loss="frobenius")`.
-- Latest remote matrix: CPU/CuPy/Torch reconstruction differences are at floating-point noise scale; sklearn reconstruction error matches the statgpu CPU scale.
+## Complete API reference
+
+Constructor defaults, all public methods, output shapes, and restrictions are listed in the [NMF API reference](api-reference.md#nmf).
 
 ## References
 
 - Lee, D. D., & Seung, H. S. (1999). Learning the parts of objects by non-negative matrix factorization. *Nature*, 401(6755), 788-791. https://doi.org/10.1038/44565
 - Lee, D. D., & Seung, H. S. (2001). Algorithms for non-negative matrix factorization. In T. K. Leen, T. G. Dietterich, & V. Tresp (Eds.), *Advances in Neural Information Processing Systems 13* (pp. 556-562). MIT Press.
-
-## Complete API reference
-
-Constructor defaults, all public methods, output shapes, and restrictions are listed in the [NMF API reference](api-reference.md#nmf).

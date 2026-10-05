@@ -1,12 +1,16 @@
 # AgglomerativeClustering
 
 > 语言：中文
-> 最后更新：2026-09-29
+> 最后更新：2026-10-05
 > 切换：[English](../../en/unsupervised/agglomerative-clustering.md)
 
 ## 概览
 
-`AgglomerativeClustering` 为稠密欧氏（Euclidean）数据构建精确的层次聚类树。CPU、CuPy/CUDA 与 Torch CUDA 路径都支持 `"single"`、`"complete"`、`"average"` 和 `"ward"` 四种连接准则。GPU 路径是稠密、精确的第一版实现，面向中小规模数据；显式请求 GPU 时不会静默回退到 CPU。
+`AgglomerativeClustering` 为稠密欧氏（Euclidean）数据构建精确的层次聚类树。CPU、CuPy/CUDA 与 Torch CUDA 路径都支持 `"single"`、`"complete"`、`"average"` 和 `"ward"` 四种连接准则。GPU 路径是稠密、精确的实现，面向中小规模数据；显式请求 GPU 时不会静默回退到 CPU。
+
+## 何时使用
+
+需要查看逐层合并结构时，可使用层次聚类。单连接可能通过少数桥接点把组串起来；完全连接关注最大组间距离，平均连接使用成对距离的均值，Ward 倾向紧凑的组。特征尺度会改变层次结构。
 
 ## 导入路径
 
@@ -71,29 +75,29 @@ CPU 路径调用 SciPy 的层次聚类子模块计算精确连接；显式 CuPy/
 - `metric`：仅支持 `"euclidean"`。
 - `device`：`"cpu"`、`"cuda"`、`"torch"` 或 `"auto"`。该估计器的 `device="auto"` 仍默认选择 CPU；显式请求 GPU 时会执行稠密、精确的后端实现。
 
-## CPU+GPU 示例
+## 一个可独立运行的 CPU 示例
 
+<!-- learner-example: agglomerative-clustering -->
 ```python
 import numpy as np
 from statgpu.unsupervised import AgglomerativeClustering
 
-X = np.random.default_rng(0).normal(size=(300, 6))
-
-model = AgglomerativeClustering(n_clusters=4, linkage="ward", device="cpu")
+rng = np.random.default_rng(0)
+X = np.vstack([rng.normal(-2, 0.3, (15, 2)), rng.normal(2, 0.3, (15, 2))])
+model = AgglomerativeClustering(n_clusters=2, linkage="ward", device="cpu")
 labels = model.fit_predict(X)
-
-model_gpu = AgglomerativeClustering(n_clusters=4, linkage="ward", device="cuda")
-labels_gpu = model_gpu.fit_predict(X)  # NumPy 输入会被转到 CUDA 后端
-
-# 若希望全程保持 CuPy 数组，可先显式转换再传入。
-# import cupy as cp
-# X_gpu = cp.asarray(X)
-# labels_gpu = model_gpu.fit_predict(X_gpu)
+print(labels.shape, model.children_.shape, model.distances_[-3:])
 ```
 
-## 严格与近似模式的差别
+30 个样本对应 `(29, 2)` 的合并对。除了最终分组，还应查看合并高度；CPU 的 maxclust 切分在高度相同时可能得到少于请求数量的簇。不提供新样本预测。
 
-`AgglomerativeClustering` 没有统计推断意义上的严格模式：对稠密欧氏输入，CPU、CuPy 与 Torch 路径都给出精确计算。GPU 执行会分配稠密距离矩阵；一旦超过第一版实现设定的显存保护阈值，会明确抛出 `MemoryError`。
+安装了相应 GPU 后端后，可新建估计器并指定 `device="cuda"`（CuPy）或 `device="torch"`（Torch CUDA）。标签、合并对与合并高度始终返回 NumPy 数组，即使在 GPU 上拟合也如此；输出及主机端步骤见 [API 参考](api-reference.md#agglomerativeclustering)。显式请求的 GPU 不可用时会报错。
+
+## 近似与解释边界
+
+`AgglomerativeClustering` 没有统计推断意义上的严格模式：对稠密欧氏输入，CPU、CuPy 与 Torch 路径都给出精确计算。GPU 执行会分配稠密距离矩阵；一旦超过配置的距离矩阵内存上限，会明确抛出 `MemoryError`。
+
+`distances_` 中的 Ward 合并高度为 $\sqrt{2\Delta(A,B)}$，不是平方误差增加量 $\Delta(A,B)$ 本身。GPU 距离矩阵估计内存会与配置上限比较；默认上限为 1 GiB，可在导入模块前设置 `STATGPU_AGGLOMERATIVE_GPU_MAX_BYTES`。该值不是当前可用显存。
 
 ## 输出字段
 
@@ -110,13 +114,10 @@ labels_gpu = model_gpu.fit_predict(X)  # NumPy 输入会被转到 CUDA 后端
 **能对新样本 predict 吗？**
 不能。当前实现不支持对未见样本调用 `predict`。
 
-## 外部验证
 
-- 测试脚本：`dev/tests/test_unsupervised_agglomerative.py`。
-- 基准测试：`dev/benchmarks/benchmark_unsupervised_phase3b.py`。
-- 最新远程验证产物：`results/unsupervised_agglomerative_gpu_verify_20260509_agglo_gpu.json` 和 `results/unsupervised_agglomerative_gpu_verify_summary_20260509_agglo_gpu.md`。
-- 对齐基线：sklearn 的 `AgglomerativeClustering`、SciPy 的 `linkage`，以及参数可以对齐时的 R `cluster::agnes`。
-- Phase 3B 的验证目标：四种连接准则在标签置换下的一致性、调整兰德指数（ARI），以及可比场景下的连接距离。
+## 完整 API 参考
+
+构造默认值、全部公开方法、输出形状与限制见 [AgglomerativeClustering API 参考](api-reference.md#agglomerativeclustering)。
 
 ## References
 
@@ -124,7 +125,3 @@ labels_gpu = model_gpu.fit_predict(X)  # NumPy 输入会被转到 CUDA 后端
 - Murtagh, F. (1983). A survey of recent advances in hierarchical clustering algorithms. *The Computer Journal*, 26(4), 354-359. https://doi.org/10.1093/comjnl/26.4.354
 - Muellner, D. (2013). fastcluster: Fast hierarchical, agglomerative clustering routines for R and Python. *Journal of Statistical Software*, 53(9), 1-18. https://doi.org/10.18637/jss.v053.i09
 - SciPy Developers. `scipy.cluster.hierarchy`: Hierarchical clustering. SciPy documentation. https://docs.scipy.org/doc/scipy/reference/cluster.hierarchy.html
-
-## 完整 API 参考
-
-构造默认值、全部公开方法、输出形状与限制见 [AgglomerativeClustering API 参考](api-reference.md#agglomerativeclustering)。

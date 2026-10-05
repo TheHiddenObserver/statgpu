@@ -578,6 +578,9 @@ class ElasticNetCV(CVEstimatorBase):
         Minimum alpha as a ratio of max alpha.
     cv : int, default=5
         Number of CV folds.
+    cv_splits : iterable of index pairs or None, default=None
+        Explicit (training, validation) row indices override shuffled K-fold.
+        Use a reusable list and construct grouped/time-aware splits explicitly.
     fit_intercept : bool, default=True
         Whether to fit intercept.
     max_iter : int, default=1000
@@ -585,9 +588,13 @@ class ElasticNetCV(CVEstimatorBase):
     tol : float, default=1e-4
         Convergence tolerance.
     device : str or Device, default=Device.AUTO
-        Computation device: 'cpu', 'cuda', or 'auto'.
+        Computation device: 'cpu', 'cuda' (CuPy), 'torch' (Torch CUDA), or 'auto'.
     compute_inference : bool, default=False
-        Whether to compute inference statistics.
+        Compute debiased inference on the final full-data ``estimator_`` only,
+        conditional on selected tuning; no inference-method selector is exposed.
+    nodewise_alpha : float or None, keyword-only, default=None
+        Positive node-wise precision tuning for final debiased inference;
+        does not change the CV grid, losses, or prediction coefficients.
     random_state : int or None
         Random seed for CV splits.
     n_jobs : int or None

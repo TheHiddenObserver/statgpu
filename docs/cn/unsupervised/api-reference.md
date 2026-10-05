@@ -11,10 +11,10 @@
 
 各类都可通过 `from statgpu.unsupervised import ClassName` 导入。下面用 `n` 表示训练行数，`p` 表示输入特征数，`m` 表示后续调用的行数，`k` 表示请求或实际采用的成分数、簇数。`X` 是非空、有限的稠密数值矩阵，形状为 `(n,p)` 或 `(m,p)`。这些估计器不提供公式或 dataframe 设计矩阵接口；分类编码和缺失值处理应在调用前完成。后续输入必须保持特征顺序与列数。`y=None` 是未参与拟合的 sklearn 兼容参数，不是监督目标。
 
-- `device="cpu"` 使用 NumPy；`"cuda"` 请求 CuPy CUDA；`"torch"` 请求 Torch CUDA。显式请求的 GPU 不可用时会报错，不会悄悄改用 CPU。`"auto"` 结合全局设备配置及可用后端选择；要固定 CPU 示例请指定 `"cpu"`。参见[设备与内存](../guides/device-and-memory.md)。
-- 数值计算通常采用 float64；UMAP 的 float32 近邻搜索阶段在下方单独说明。拟合数组与方法返回的数组通常留在所选后端。AgglomerativeClustering 即使在 GPU 上拟合，也发布 NumPy 标签与树数组；UMAP 的图输出为元组。整数标签是标识，不是连续预测值。
-- 需要 CPU 报告副本时，NumPy 数组用 `np.asarray(a)`，CuPy 用 `cupy.asnumpy(a)`，Torch 用 `a.detach().cpu().numpy()`。转换可能引起 GPU 数据传输及同步。评分与标量拟合诊断是主机端数值。
-- `fit(...)` 和支持的 `partial_fit(...)` 返回估计器自身。转换、预测和评分需在成功拟合后调用。普通 `fit` 从头拟合；只有下文说明的三个 `partial_fit` API 会累积批次。调用 `set_params(...)` 修改设置后，应重新拟合再使用结果。
+- `device="cpu"` 使用 NumPy；`"cuda"` 请求 CuPy CUDA；`"torch"` 请求 Torch CUDA。显式请求的 GPU 不可用时会报错，不会悄悄改用 CPU。`"auto"` 通常结合全局设备配置及可用后端选择；AgglomerativeClustering 是例外，它即使在全局配置选择 GPU 时也保持 CPU 路径。要固定 CPU 示例请指定 `"cpu"`。参见[设备与内存](../guides/device-and-memory.md)。
+- 数值计算通常采用 float64；UMAP 近邻搜索和 DBSCAN 的 GPU 距离计算在内部采用 float32。拟合数组与方法返回的数组通常留在所选后端。AgglomerativeClustering 即使在 GPU 上拟合，也发布 NumPy 标签与树数组；UMAP 的图输出为元组。整数标签是标识，不是连续预测值。
+- 需要 CPU 报告副本时，NumPy 数组用 `np.asarray(a)`，CuPy 用 `cupy.asnumpy(a)`，Torch 用 `a.detach().cpu().numpy()`。转换可能引起 GPU 数据传输及同步。评分与标量拟合诊断是主机端数值。数值超参数也必须有限；范围检查不一定能拒绝所有 NaN/Inf 设置。
+- `fit(...)` 和支持的 `partial_fit(...)` 返回估计器自身。转换、预测和评分需在成功拟合后调用。普通 `fit` 从头拟合；只有下文说明的三个 `partial_fit` API 会累积批次。调用 `set_params(...)` 修改设置后，应重新拟合再使用结果。重新拟合失败不代表旧结果已被成功替换，实例中可能仍保留旧属性；报错后应使用新估计器，并验证新的结果。
 - 公共 `get_params(deep=True)` 返回配置字典；这些类的 `set_params(**params)` 返回 `self`，检查参数名并重置已拟合状态。完整继承签名、推断辅助方法限制及示例见[参数管理](../reference/estimator-api.md#parameter-management)和[通用推断辅助方法](../reference/estimator-api.md#inference-helpers)。继承的 `adjust_pvalues`、`combine_pvalues`、`bootstrap_statistic`、`permutation_test` 本身不能保证簇或成分推断有效。这十二个类均不提供模型专属 `summary()` 或系数标准误。
 - 所有构造函数都接受 `n_jobs=None`。它保留为公共估计器配置，但当前无监督实现不会用它设置数值内核或线程并行度。因此这里的 `n_jobs=-1` 不意味着强制使用全部线程，也不构成加速保证。
 
@@ -105,7 +105,7 @@ DBSCAN(eps=0.5, min_samples=5, metric='euclidean', algorithm='auto', batch_size=
 
 | 参数 | 默认值 | 含义与可接受值 |
 |---|---|---|
-| `eps` | `0.5` | 正的欧氏邻域半径。 |
+| `eps` | `0.5` | 正且有限的欧氏邻域半径；非有限值当前不一定会被拒绝。 |
 | `min_samples` | `5` | 正整数，最低邻居数包含观测本身。 |
 | `metric` | `'euclidean'` | 仅支持 `"euclidean"`；不支持其他距离及预先计算的距离矩阵。 |
 | `algorithm` | `'auto'` | `"auto"`、`"brute"`、`"ball_tree"` 或 `"kd_tree"`；用于高维 CPU 的 scikit-learn 近邻搜索，并非控制所有后端。 |
@@ -126,7 +126,7 @@ DBSCAN(eps=0.5, min_samples=5, metric='euclidean', algorithm='auto', batch_size=
 | `components_` | 核心观测 `(n_core,p)`，不是聚类中心。 |
 | `n_features_in_` | 训练输入列数 `p`。 |
 
-CPU 输入超过 12 个特征时使用 scikit-learn 的 `NearestNeighbors`，更低维时使用 SciPy 树搜索。显式 GPU 计算仍可能包含主机端辅助处理和同步。不提供 `transform`、`score` 或 `partial_fit`。
+CPU 输入超过 12 个特征时使用 scikit-learn 的 `NearestNeighbors`，更低维时使用 SciPy 树搜索。GPU 距离采用 float32，核心样本采用 float64；两条 GPU 路径均包含主机传输或辅助处理。当前未编译扩展的 CPU 路径可能错误合并互不连通的孤立核心点，使用这类配置前请查看模型指南。不提供 `transform`、`score` 或 `partial_fit`。
 
 ## GaussianMixture
 
@@ -164,7 +164,7 @@ GaussianMixture(n_components=1, covariance_type='diag', tol=0.001, reg_covar=1e-
 |---|---|
 | `weights_`, `means_` | 混合权重 `(k,)` 与均值 `(k,p)`。 |
 | `covariances_`, `precisions_cholesky_` | 协方差及精度因子：diag 为 `(k,p)`，spherical 为 `(k,)`，tied 为 `(p,p)`，full 为 `(k,p,p)`。 |
-| `converged_`, `n_iter_`, `lower_bound_`, `n_features_in_` | 收敛标志、EM 迭代数、拟合的平均对数似然下界及特征数。解释评分前先检查收敛情况。 |
+| `converged_`, `n_iter_`, `lower_bound_`, `n_features_in_` | 收敛标志、EM 迭代数、最后一次 M 步之前监测到的平均对数似然及特征数。解释评分前先检查收敛情况。 |
 
 `tol` 控制平均对数似然变化的绝对值，`max_iter` 限制每次重启。令总对数似然 $L=m\,\mathrm{score}(X)$，自由参数数目为 $d$，则 $\mathrm{AIC}=2d-2L$，$\mathrm{BIC}=d\log m-2L$。其中 $d=kp+(k-1)+d_{\mathrm{cov}}$，协方差参数数目分别为 $kp$（diag）、$k$（spherical）、$p(p+1)/2$（tied）或 $kp(p+1)/2$（full）。不同候选项应使用相同数据比较。不提供 `transform`、`partial_fit` 或系数推断 API。
 
@@ -232,7 +232,7 @@ AgglomerativeClustering(n_clusters=2, linkage='single', metric='euclidean', devi
 | `children_`, `distances_` | NumPy 合并节点对 `(n-1,2)` 与合并距离 `(n-1,)`；叶节点编号为 `0..n-1`，第 `i` 行合并节点编号为 `n+i`。 |
 | `n_features_in_` | 训练输入列数。 |
 
-单个观测且 `n_clusters=1` 时合并树为空。GPU 路径使用稠密成对距离，所需内存超过可用 GPU 内存时可能拒绝计算。不提供稀疏连通约束、`transform`、`score` 或 `partial_fit`。
+单个观测且 `n_clusters=1` 时合并树为空。GPU 路径使用稠密成对距离，估计距离矩阵超过 `STATGPU_AGGLOMERATIVE_GPU_MAX_BYTES`（默认 1 GiB）时会报错；该值是配置上限，不是对可用显存的测量。不提供稀疏连通约束、`transform`、`score` 或 `partial_fit`。
 
 ## TruncatedSVD
 
@@ -388,17 +388,17 @@ UMAP(n_neighbors=15, n_components=2, metric='euclidean', min_dist=0.1, spread=1.
 | 参数 | 默认值 | 含义与可接受值 |
 |---|---|---|
 | `n_neighbors` | `15` | `[2,n-1]` 内的整数，局部邻域大小。 |
-| `n_components` | `2` | 小于 `n` 的正整数嵌入维数。 |
+| `n_components` | `2` | 小于 `n` 的正整数嵌入维数；当前 CPU 一维嵌入会失败，因此 CPU 请至少使用两个维度。 |
 | `metric` | `'euclidean'` | 仅支持 `"euclidean"`；不支持其他距离及预先计算的距离矩阵。 |
 | `min_dist` | `0.1` | 非负低维紧凑程度参数，应结合 `spread` 理解。 |
 | `spread` | `1.0` | 低维吸引曲线的正尺度。 |
 | `n_epochs` | `None` | 正整数或 `None`；当前自动规则为 `n<=2000` 时 500，`n<=10000` 时 200，否则 100。实际值见 `n_epochs_`。 |
 | `learning_rate` | `1.0` | 优化的正初始步长。 |
 | `init` | `'spectral'` | `"spectral"`（主机端 SciPy 特征求解）或 `"random"`。 |
-| `negative_sample_rate` | `5` | 每次吸引边更新的负采样数，为正整数。 |
+| `negative_sample_rate` | `5` | 正整数；每轮独立抽取 `n * negative_sample_rate` 对源点与目标点，并非每条吸引边抽取这么多对。 |
 | `repulsion_strength` | `1.0` | 正的排斥力系数。 |
 | `random_state` | `None` | 整数随机种子或 `None`，控制随机初始化或近似算法；固定种子不保证不同后端或库版本逐位一致。 |
-| `nn_method` | `'auto'` | `"auto"`、`"exact"` 或 `"nndescent"`；精确搜索使用稠密距离，NNDescent 为近似搜索，auto 根据数据及后端选择。 |
+| `nn_method` | `'auto'` | `"auto"`、`"exact"` 或 `"nndescent"`；精确搜索使用稠密距离，NNDescent 为近似搜索，auto 当前始终选择精确搜索。 |
 | `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见下方公共设备说明。 |
 | `n_jobs` | `None` | 公共 CPU 并行配置参数；这些实现目前不通过它控制数值计算内核，也不保证指定的线程数。 |
 
@@ -415,7 +415,7 @@ UMAP(n_neighbors=15, n_components=2, metric='euclidean', min_dist=0.1, spread=1.
 | `graph_` | 元组 `(source_rows, target_rows, edge_weights, n_samples)`，不是 SciPy 邻接矩阵。前三项为长度相同的后端边数组。 |
 | `n_epochs_`, `n_features_in_` | 实际训练轮数与原始特征数。 |
 
-近邻距离在内部采用 float32，嵌入优化采用 float64。即使选择 GPU，图组装仍使用主机端 SciPy，spectral 初始化同样如此。带种子的随机初始化适合验证形状与接口，但图形质量仍需单独检查。不提供逆转换、评分或增量拟合。
+近邻距离在内部采用 float32，嵌入优化采用 float64。即使选择 GPU，图组装仍使用主机端 SciPy，spectral 初始化同样如此。带种子的随机初始化适合验证形状与接口，但图形质量仍需单独检查。当前力更新近似构造近邻布局，但不是标准 UMAP 交叉熵的精确梯度。在 NumPy 2 上，CPU 的 `nn_method="nndescent"` 当前会在后端分派时失败，可改用 `"exact"` 或 `"auto"`。不提供逆转换、评分或增量拟合。
 
 ## TSNE
 
@@ -451,7 +451,7 @@ TSNE(n_components=2, perplexity=30.0, early_exaggeration=12.0, learning_rate='au
 | `kl_divergence_` | 最终高低维亲和度的 KL 目标值，为 Python 浮点数；不是通用留出集评分。 |
 | `n_iter_`, `n_features_in_` | 实际迭代次数（配置的预算）与原始输入列数。 |
 
-该实现分配稠密成对数组，内存随样本数平方增长。不提供 Barnes–Hut/FFT 求解器选项、稀疏或预计算距离支持、逆转换、评分或增量拟合。不要未经核对就照搬其他库的学习率或困惑度设置。
+该实现分配稠密成对数组，内存随样本数平方增长。不提供 Barnes–Hut/FFT 求解器选项、稀疏或预计算距离支持、逆转换、评分或增量拟合。不要未经核对就照搬其他库的学习率或困惑度设置。当前亲和度带宽搜索在特征尺度极大或极小时可能失败，甚至返回无效的负 KL 值。应先缩放到适中的数值范围，并检查嵌入有限性及 KL 非负性；详见 [TSNE 数值注意事项](tsne.md)。
 
 ## 增量示例
 

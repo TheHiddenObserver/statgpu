@@ -8,6 +8,10 @@
 
 `GaussianMixture` fits a Gaussian mixture model with expectation-maximization. It supports `"diag"`, `"spherical"`, `"tied"`, and `"full"` covariance types on CPU, CuPy/CUDA, and Torch CUDA backends.
 
+## When to use it
+
+Use a Gaussian mixture for overlapping groups when soft membership is useful. Start with a small component count and a simple covariance structure; inspect responsibilities, convergence and held-out log density. A fitted component need not correspond to a real population.
+
 ## Path
 
 ```python
@@ -28,7 +32,7 @@ $$
 \right].
 $$
 
-`covariance_type` controls the shape of `\Sigma_k`: diagonal per component, spherical per component, one tied full covariance, or one full covariance per component. `reg_covar` adds a small diagonal ridge to covariance estimates for numerical stability.
+`covariance_type` controls the shape of `\Sigma_k`: diagonal per component, spherical per component, one tied full covariance, or one full covariance per component. `reg_covar` is a variance floor for diagonal/spherical M-step updates; full/tied updates add it to the covariance diagonal. These conventions differ, so equal values need not match another library.
 
 ## Estimating Equation
 
@@ -112,7 +116,7 @@ The implementation uses log-domain EM:
   =
   \frac{1}{n}\sum_{i=1}^{n}\log p(x_i).
   $$
-  Stop when its improvement is below `tol` or `max_iter` is reached.
+  Stop when the absolute change between monitored values is below `tol`, or `max_iter` is reached. `lower_bound_` records the E-step value before the final parameter update; use `score(X)` for the final fitted mean log density.
 - Run `n_init` initializations and keep the highest lower bound.
 
 ## Parameters
@@ -124,22 +128,26 @@ The implementation uses log-domain EM:
 - `random_state`.
 - `device`: `"auto"`, `"cpu"`, `"cuda"`, or `"torch"`.
 
-## CPU+GPU Examples
+## A small CPU example
 
+<!-- learner-example: gaussian-mixture -->
 ```python
 import numpy as np
 from statgpu.unsupervised import GaussianMixture
 
-X = np.random.default_rng(0).normal(size=(4000, 16))
-
-gmm = GaussianMixture(n_components=4, covariance_type="full", random_state=0, device="torch")
-gmm.fit(X)
-labels = gmm.predict(X)
-proba = gmm.predict_proba(X)
-ll = gmm.score(X)
+rng = np.random.default_rng(0)
+X = np.vstack([rng.normal(-2, 0.4, (40, 2)), rng.normal(2, 0.4, (40, 2))])
+model = GaussianMixture(n_components=2, covariance_type="full", n_init=2, random_state=0, device="cpu")
+model.fit(X)
+proba = model.predict_proba(X)
+print(proba.shape, model.converged_, model.score(X), model.bic(X))
 ```
 
-## Strict/Approx Difference
+Responsibilities have shape `(80, 2)` and each row sums to one. They are conditional membership probabilities under this fitted model, not confidence levels. Compare AIC/BIC on the same observations; neither corrects a failed fit.
+
+For a supported GPU installation, construct a new estimator with `device="cuda"` (CuPy) or `device="torch"` (Torch CUDA). Arrays generally stay on that backend; see the [API reference](api-reference.md#gaussianmixture) for output ownership and host-side work. An unavailable explicit GPU raises an error.
+
+## Approximation and interpretation
 
 GMM has likelihood scores but no strict inference covariance or p-value mode. EM optimizes a non-convex likelihood and can converge to local optima. Reproducibility depends on initialization, `random_state`, `n_init`, `tol`, and `max_iter`.
 
@@ -162,19 +170,16 @@ GMM has likelihood scores but no strict inference covariance or p-value mode. EM
 **What do `score`, `score_samples`, `aic`, and `bic` mean?**
 `score_samples` returns per-sample log likelihood, `score` returns its mean, and `aic`/`bic` use the covariance-type-specific parameter count.
 
-## External Validation
 
-- Tests: `dev/tests/test_unsupervised_gmm.py`.
-- Benchmark: `dev/benchmarks/benchmark_unsupervised_phase3b.py`.
-- Latest remote artifact: `results/unsupervised_phase3b_verify_20260507_003957.json`.
-- Baseline: sklearn `GaussianMixture` with aligned `covariance_type`, initialization, and convergence controls.
-- Phase 3B validation target: CPU/CuPy/Torch score consistency and sklearn parity for `"diag"`, `"spherical"`, `"tied"`, and `"full"`.
+## Numerical and lifecycle cautions
+
+Diagonal and spherical covariance updates use raw second moments; the diagonal density formula also subtracts large quadratic terms. Large offsets relative to within-cluster spread can therefore produce wrong covariance and likelihood values even when `converged_` is true. Center features using a training-derived offset and reuse it for later scoring; translation preserves the intended mixture densities. `reg_covar` cannot repair this cancellation.
+
+## Complete API reference
+
+Constructor defaults, all public methods, output shapes, and restrictions are listed in the [GaussianMixture API reference](api-reference.md#gaussianmixture).
 
 ## References
 
 - Dempster, A. P., Laird, N. M., & Rubin, D. B. (1977). Maximum likelihood from incomplete data via the EM algorithm. *Journal of the Royal Statistical Society: Series B (Methodological)*, 39(1), 1-22. https://doi.org/10.1111/j.2517-6161.1977.tb01600.x
 - McLachlan, G. J., & Peel, D. (2000). *Finite Mixture Models*. Wiley Series in Probability and Statistics. Wiley.
-
-## Complete API reference
-
-Constructor defaults, all public methods, output shapes, and restrictions are listed in the [GaussianMixture API reference](api-reference.md#gaussianmixture).

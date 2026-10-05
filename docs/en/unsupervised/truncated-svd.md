@@ -8,6 +8,10 @@
 
 `TruncatedSVD` computes a low-rank projection without centering the input matrix. This makes it different from `PCA` and suitable for dense LSA-style workflows.
 
+## When to use it
+
+Use TruncatedSVD when the origin has meaning and centering would change the question. Unlike PCA, a large feature mean can dominate its leading direction. This implementation requires dense input; it is not a sparse text-matrix solver.
+
 ## Path
 
 Import from `statgpu.unsupervised`:
@@ -40,19 +44,26 @@ The randomized path projects `X` to a lower-dimensional random subspace, re-orth
 
 `n_components`, `algorithm`, `n_iter`, `n_oversamples`, `random_state`, and `device` control the decomposition and backend.
 
-## CPU+GPU Examples
+## A small CPU example
 
+<!-- learner-example: truncated-svd -->
 ```python
+import numpy as np
 from statgpu.unsupervised import TruncatedSVD
 
-svd = TruncatedSVD(n_components=10, device="cpu")
-Z = svd.fit_transform(X)
-
-svd_gpu = TruncatedSVD(n_components=10, device="cuda")
-Z_gpu = svd_gpu.fit_transform(X_gpu)
+rng = np.random.default_rng(0)
+X = rng.normal(size=(60, 5)) + 2.0
+model = TruncatedSVD(n_components=2, algorithm="full", device="cpu")
+Z = model.fit_transform(X)
+X_hat = model.inverse_transform(Z)
+print(Z.shape, X_hat.shape, model.explained_variance_ratio_.sum())
 ```
 
-## Strict/Approx Difference
+Coordinates have shape `(60, 2)`. The reconstruction does not add a mean. Explained variance is the centered variance of projected coordinates (divisor `n`), although fitting itself is uncentered; it is not simply the retained squared singular values divided by total squared norm.
+
+For a supported GPU installation, construct a new estimator with `device="cuda"` (CuPy) or `device="torch"` (Torch CUDA). Arrays generally stay on that backend; see the [API reference](api-reference.md#truncatedsvd) for output ownership and host-side work. An unavailable explicit GPU raises an error.
+
+## Approximation and interpretation
 
 `algorithm="full"` is exact dense SVD. `algorithm="randomized"` is approximate and should be compared with sign- or subspace-invariant metrics.
 
@@ -62,19 +73,14 @@ Z_gpu = svd_gpu.fit_transform(X_gpu)
 
 ## FAQ
 
-Sparse input and ARPACK are not supported in Phase 3A.
+Sparse input and ARPACK are not supported.
 
-## External Validation
 
-Tests: `dev/tests/test_unsupervised_truncated_svd.py`.
-Benchmark: `dev/benchmarks/benchmark_unsupervised_phase3.py`.
-Baselines: sklearn `TruncatedSVD`, statsmodels PCA-style SVD, and R `svd` where available.
+## Complete API reference
+
+Constructor defaults, all public methods, output shapes, and restrictions are listed in the [TruncatedSVD API reference](api-reference.md#truncatedsvd).
 
 ## References
 
 - Halko, N., Martinsson, P. G., & Tropp, J. A. (2011). Finding structure with randomness: Probabilistic algorithms for constructing approximate matrix decompositions. *SIAM Review*, 53(2), 217-288.
 - scikit-learn developers. `sklearn.decomposition.TruncatedSVD` API documentation.
-
-## Complete API reference
-
-Constructor defaults, all public methods, output shapes, and restrictions are listed in the [TruncatedSVD API reference](api-reference.md#truncatedsvd).

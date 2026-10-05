@@ -725,6 +725,9 @@ class LogisticRegressionCV(CVEstimatorBase):
         Minimum C as a ratio of max C.
     cv : int
         Number of CV folds. Default is 5.
+    cv_splits : iterable of index pairs or None, default=None
+        Explicit (training, validation) row indices override shuffled K-fold.
+        Use a reusable list and construct grouped/time-aware splits explicitly.
     fit_intercept : bool
         Whether to fit intercepts. Default is True.
     max_iter : int
@@ -732,9 +735,12 @@ class LogisticRegressionCV(CVEstimatorBase):
     tol : float
         Convergence tolerance. Default is 1e-4.
     device : str or Device
-        Computation device: 'cpu', 'cuda', or 'auto'.
+        Computation device: 'cpu', 'cuda' (CuPy), 'torch' (Torch CUDA), or 'auto'.
+    n_jobs : int or None, default=None
+        Shared configuration; does not promise candidate parallelism.
     compute_inference : bool
-        Whether to compute standard errors, z-stats, p-values and CI.
+        Compute inference on the final full-data estimator only. The reported
+        uncertainty conditions on selected C; inspect ``estimator_``.
     cov_type : str
         Covariance estimator for inference. One of:
         'nonrobust', 'hc0', 'hc1', 'hc2', 'hc3', 'hac'.

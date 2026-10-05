@@ -11,10 +11,10 @@ This reference lists the constructor defaults, public model methods, return valu
 
 Import any class with `from statgpu.unsupervised import ClassName`. Here `n` is the number of training rows, `p` the number of input features, `m` the number of rows in a later call, and `k` the requested/selected number of components or clusters. `X` is a nonempty finite dense numeric matrix `(n,p)` or `(m,p)`. These estimators do not provide a formula/dataframe-design interface; encode categories and handle missing values before calling them. Subsequent inputs must preserve the feature order and width. `y=None` is an unused sklearn-compatible argument, not a supervised target.
 
-- `device="cpu"` uses NumPy; `"cuda"` requests CuPy CUDA; `"torch"` requests Torch CUDA. An explicit unavailable GPU raises instead of silently choosing CPU. `"auto"` follows global device configuration and available backends; use `"cpu"` for reproducible CPU examples. See [device and memory](../guides/device-and-memory.md).
-- Numeric calculations generally use float64; UMAP has an explicitly described float32 neighbor-search stage. Fitted numeric arrays and method arrays normally remain on the selected backend. AgglomerativeClustering publishes NumPy labels/tree arrays even after GPU fitting; UMAP publishes a graph tuple. Integer labels are identifiers, not continuous predictions.
-- Use `np.asarray(a)` for NumPy arrays, `cupy.asnumpy(a)` for CuPy, or `a.detach().cpu().numpy()` for Torch when a CPU reporting copy is needed. Conversion can transfer/synchronize GPU data. Scores and scalar fit diagnostics are host numbers.
-- `fit(...)` and supported `partial_fit(...)` return the estimator itself. Post-fit transforms, predictions and scores require a successful fit. Ordinary `fit` starts a new model; only the three documented `partial_fit` APIs accumulate batches. After changing settings with `set_params(...)`, fit again before using results.
+- `device="cpu"` uses NumPy; `"cuda"` requests CuPy CUDA; `"torch"` requests Torch CUDA. An explicit unavailable GPU raises instead of silently choosing CPU. `"auto"` follows global device configuration and available backends for most classes; AgglomerativeClustering instead keeps its CPU path even when global configuration selects a GPU. Use `"cpu"` for reproducible CPU examples. See [device and memory](../guides/device-and-memory.md).
+- Numeric calculations generally use float64; UMAP neighbor search and DBSCAN GPU distance calculations use float32 internally. Fitted numeric arrays and method arrays normally remain on the selected backend. AgglomerativeClustering publishes NumPy labels/tree arrays even after GPU fitting; UMAP publishes a graph tuple. Integer labels are identifiers, not continuous predictions.
+- Use `np.asarray(a)` for NumPy arrays, `cupy.asnumpy(a)` for CuPy, or `a.detach().cpu().numpy()` for Torch when a CPU reporting copy is needed. Conversion can transfer/synchronize GPU data. Scores and scalar fit diagnostics are host numbers. Numeric hyperparameters must also be finite; range checks do not reliably reject every NaN/Inf setting.
+- `fit(...)` and supported `partial_fit(...)` return the estimator itself. Post-fit transforms, predictions and scores require a successful fit. Ordinary `fit` starts a new model; only the three documented `partial_fit` APIs accumulate batches. After changing settings with `set_params(...)`, fit again before using results. A failed refit is not a successful replacement: older attributes may remain on the instance. Use a fresh estimator and validate the new result after an error.
 - Shared `get_params(deep=True)` returns a configuration dictionary; `set_params(**params)` returns `self`, validates parameter names, and resets fitted state for these classes. The complete inherited signatures, inference-helper restrictions and examples are in [parameter management](../reference/estimator-api.md#parameter-management) and [generic inference helpers](../reference/estimator-api.md#inference-helpers). The inherited `adjust_pvalues`, `combine_pvalues`, `bootstrap_statistic`, and `permutation_test` helpers do not by themselves supply valid cluster/component inference. None of these twelve classes provides a model-specific `summary()` or coefficient standard errors.
 - `n_jobs=None` appears in every constructor. It is retained as common estimator configuration; the unsupervised implementations currently do not use it to set kernel/thread parallelism. Do not interpret `n_jobs=-1` as a measured speedup or enforced thread count here.
 
@@ -105,7 +105,7 @@ DBSCAN(eps=0.5, min_samples=5, metric='euclidean', algorithm='auto', batch_size=
 
 | Parameter | Default | Meaning / accepted values |
 |---|---|---|
-| `eps` | `0.5` | Positive Euclidean neighborhood radius. |
+| `eps` | `0.5` | Positive finite Euclidean neighborhood radius; non-finite values are not reliably rejected. |
 | `min_samples` | `5` | Positive integer neighbor count including the observation itself. |
 | `metric` | `'euclidean'` | Only `"euclidean"` is supported; other metrics, including precomputed distances, are unsupported. |
 | `algorithm` | `'auto'` | `"auto"`, `"brute"`, `"ball_tree"`, or `"kd_tree"`; used by high-dimensional CPU scikit-learn neighbor search, not every backend. |
@@ -126,7 +126,7 @@ DBSCAN(eps=0.5, min_samples=5, metric='euclidean', algorithm='auto', batch_size=
 | `components_` | Core observations `(n_core,p)`, not cluster centers. |
 | `n_features_in_` | Training input width `p`. |
 
-CPU input with more than 12 features uses scikit-learn `NearestNeighbors`; lower-dimensional CPU data use SciPy tree search. Explicit GPU selection still permits host bookkeeping/synchronization. No `transform`, `score`, or `partial_fit` is provided.
+CPU input with more than 12 features uses scikit-learn `NearestNeighbors`; lower-dimensional CPU data use SciPy tree search. GPU distances use float32; core observations use float64. Both GPU paths include host transfers/bookkeeping. The uncompiled CPU path can currently merge disconnected isolated cores incorrectly; see the model guide before using sparse-core configurations. No `transform`, `score`, or `partial_fit` is provided.
 
 ## GaussianMixture
 
@@ -138,7 +138,7 @@ GaussianMixture(n_components=1, covariance_type='diag', tol=0.001, reg_covar=1e-
 
 | Parameter | Default | Meaning / accepted values |
 |---|---|---|
-| `n_components` | `1` | Positive mixture-component count at most `n`. |
+| `n_components` | `1` | Positive integer mixture-component count at most `n`. |
 | `covariance_type` | `'diag'` | `"diag"`, `"spherical"`, `"tied"`, or `"full"`; determines covariance shape below. |
 | `tol` | `0.001` | Nonnegative convergence threshold; the model-specific criterion is described below. |
 | `reg_covar` | `1e-06` | Nonnegative covariance regularization; see the model guide for diagonal floors versus full-matrix ridge updates. |
@@ -164,7 +164,7 @@ GaussianMixture(n_components=1, covariance_type='diag', tol=0.001, reg_covar=1e-
 |---|---|
 | `weights_`, `means_` | Mixing weights `(k,)` and means `(k,p)`. |
 | `covariances_`, `precisions_cholesky_` | Covariances and precision factors: `(k,p)` for diag, `(k,)` for spherical, `(p,p)` for tied, `(k,p,p)` for full. |
-| `converged_`, `n_iter_`, `lower_bound_`, `n_features_in_` | Convergence flag, EM iterations, fitted mean-log-likelihood bound, and feature count. Check convergence before interpreting scores. |
+| `converged_`, `n_iter_`, `lower_bound_`, `n_features_in_` | Convergence flag, EM iterations, last monitored mean log likelihood before the final M-step, and feature count. Check convergence before interpreting scores. |
 
 `tol` controls absolute change in mean log likelihood, and `max_iter` limits each restart. For total log likelihood $L=m\,\mathrm{score}(X)$ and free-parameter count $d$, $\mathrm{AIC}=2d-2L$ and $\mathrm{BIC}=d\log m-2L$. Here $d=kp+(k-1)+d_{\mathrm{cov}}$, where the covariance parameter count is $kp$ (diag), $k$ (spherical), $p(p+1)/2$ (tied), or $kp(p+1)/2$ (full). Compare candidates on the same data. No `transform`, `partial_fit`, or coefficient-inference API is exposed.
 
@@ -232,7 +232,7 @@ AgglomerativeClustering(n_clusters=2, linkage='single', metric='euclidean', devi
 | `children_`, `distances_` | NumPy merge pairs `(n-1,2)` and merge distances `(n-1,)`; leaf ids are `0..n-1`, merge row `i` has id `n+i`. |
 | `n_features_in_` | Training input width. |
 
-One observation with `n_clusters=1` has an empty merge tree. GPU paths use dense pairwise distances and can reject data exceeding available GPU memory. No sparse connectivity constraint, `transform`, `score`, or `partial_fit` is exposed.
+One observation with `n_clusters=1` has an empty merge tree. GPU paths use dense pairwise distances and reject estimates exceeding `STATGPU_AGGLOMERATIVE_GPU_MAX_BYTES` (default 1 GiB); this is a configured cap, not a measurement of available memory. No sparse connectivity constraint, `transform`, `score`, or `partial_fit` is exposed.
 
 ## TruncatedSVD
 
@@ -388,17 +388,17 @@ UMAP(n_neighbors=15, n_components=2, metric='euclidean', min_dist=0.1, spread=1.
 | Parameter | Default | Meaning / accepted values |
 |---|---|---|
 | `n_neighbors` | `15` | Integer in `[2,n-1]`; size of local neighborhoods. |
-| `n_components` | `2` | Positive embedding width less than `n`. |
+| `n_components` | `2` | Positive integer embedding width less than `n`; the CPU one-dimensional path currently fails, so use at least two components on CPU. |
 | `metric` | `'euclidean'` | Only `"euclidean"` is supported; other metrics, including precomputed distances, are unsupported. |
 | `min_dist` | `0.1` | Nonnegative low-dimensional compactness setting; interpret jointly with `spread`. |
 | `spread` | `1.0` | Positive scale of the low-dimensional attraction curve. |
 | `n_epochs` | `None` | Positive integer or `None`; current automatic schedule is 500 for `n<=2000`, 200 for `n<=10000`, otherwise 100. Actual value is `n_epochs_`. |
 | `learning_rate` | `1.0` | Positive initial optimization step size. |
 | `init` | `'spectral'` | `"spectral"` (host SciPy eigensolver) or `"random"`. |
-| `negative_sample_rate` | `5` | Positive integer number of negative samples per attractive edge update. |
+| `negative_sample_rate` | `5` | Positive integer; each epoch samples `n * negative_sample_rate` independent source/target pairs, not that many pairs per attractive edge. |
 | `repulsion_strength` | `1.0` | Positive repulsive-force multiplier. |
 | `random_state` | `None` | Integer seed or `None`; controls randomized initialization/approximation. A fixed seed does not promise identical results across backends or library versions. |
-| `nn_method` | `'auto'` | `"auto"`, `"exact"`, or `"nndescent"`; exact search uses dense distances, NNDescent is approximate, and auto chooses by data/backend. |
+| `nn_method` | `'auto'` | `"auto"`, `"exact"`, or `"nndescent"`; exact search uses dense distances, NNDescent is approximate, and auto currently always chooses exact search. |
 | `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see common device rules below. |
 | `n_jobs` | `None` | Accepted common CPU-job configuration; these implementations do not use it to control their numerical kernels or guarantee a thread count. |
 
@@ -415,7 +415,7 @@ UMAP(n_neighbors=15, n_components=2, metric='euclidean', min_dist=0.1, spread=1.
 | `graph_` | A tuple `(source_rows, target_rows, edge_weights, n_samples)`, not a SciPy adjacency matrix. The first three entries are backend arrays of equal edge count. |
 | `n_epochs_`, `n_features_in_` | Executed epoch count and original feature count. |
 
-Neighbor distances use float32 internally; embedding optimization uses float64. Graph assembly uses host SciPy even on GPU, and spectral initialization also uses host SciPy. Seeded random initialization is useful when testing shape/API behavior; visualization quality needs separate checks. No inverse transform, score, or incremental fit is provided.
+Neighbor distances use float32 internally; embedding optimization uses float64. Graph assembly uses host SciPy even on GPU, and spectral initialization also uses host SciPy. Seeded random initialization is useful when testing shape/API behavior; visualization quality needs separate checks. The current force updates approximate a neighborhood layout but are not the exact gradient of standard UMAP cross-entropy. With NumPy 2, CPU `nn_method="nndescent"` currently fails during backend dispatch; use `"exact"` or `"auto"`. No inverse transform, score, or incremental fit is provided.
 
 ## TSNE
 
@@ -451,7 +451,7 @@ TSNE(n_components=2, perplexity=30.0, early_exaggeration=12.0, learning_rate='au
 | `kl_divergence_` | Final high-/low-dimensional affinity KL objective, a Python float; not a general held-out score. |
 | `n_iter_`, `n_features_in_` | Executed iterations (the configured budget) and original input width. |
 
-This implementation allocates dense pairwise arrays, so memory grows quadratically with sample count. It has no Barnes–Hut/FFT method selector, sparse/precomputed-distance support, inverse transform, score, or incremental fit. Do not transfer learning-rate or perplexity defaults from another library without checking its convention.
+This implementation allocates dense pairwise arrays, so memory grows quadratically with sample count. It has no Barnes–Hut/FFT method selector, sparse/precomputed-distance support, inverse transform, score, or incremental fit. Do not transfer learning-rate or perplexity defaults from another library without checking its convention. The current affinity bandwidth search can fail for extremely large or tiny feature scales, and can return an invalid negative KL value. Rescale to moderate magnitudes and check finite embeddings and nonnegative KL; see the [TSNE numerical cautions](tsne.md#numerical-and-lifecycle-cautions).
 
 ## Incremental example
 

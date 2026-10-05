@@ -33,9 +33,9 @@ model.adjust_pvalues(pvalues=None, method="bh", alpha=0.05, axis=0, backend="aut
 - `method`：`"bh"`、`"by"`、`"holm"`、`"bonferroni"` 或 `"hochberg"`；别名见[多重检验指南](../guides/multiple-testing-combine-pvalues.md)。
 - `alpha`：位于 `(0, 1)` 的显著性水平。
 - `axis=0`：沿第一个轴校正；`None` 将全部元素视为同一个检验族。多目标系数数组尤其需要明确检验族。
-- `backend`：`"auto"`、`"numpy"`、`"cupy"` 或 `"torch"`；`auto` 跟随估计器解析出的设备，不只是按传入 p 值数组推断后端。
+- `backend`：`"auto"`、`"numpy"`、`"cupy"` 或 `"torch"`；估计器解析为 GPU 设备时，`auto` 显式选择对应 CuPy/Torch；解析为 CPU 时，当前仍由传入数组决定后端。若必须返回 NumPy，请设 `backend="numpy"`。估计器辅助方法中显式指定 `backend="torch"` 要求 Torch CUDA，即使估计器配置为 CPU 也是如此。
 
-返回字典，键为 `method`、`alpha`、`axis`、`backend`、`pvalues`、`pvalues_adjusted` 和布尔数组 `reject`。校正值和拒绝决定保持输入形状；它不是模块函数返回的 `(reject, adjusted)` 元组。原始边际 p 值必须有效，并满足所选方法的依赖结构假设。
+返回字典，键为 `method`、`alpha`、`axis`、`backend`、`pvalues`、`pvalues_adjusted` 和布尔数组 `reject`。校正值和拒绝决定保持输入形状。`backend` 字段记录辅助方法传下去的选项，可能仍为 `"auto"`，不一定是最终数组库名。没有显式转换时，`pvalues` 可能保留原列表或数组类型；它不是模块函数返回的 `(reject, adjusted)` 元组。原始边际 p 值必须有效，并满足所选方法的依赖结构假设。
 
 ### combine_pvalues
 
@@ -60,7 +60,7 @@ model.bootstrap_statistic(
 | 参数 | 含义与限制 |
 |---|---|
 | `statistic` | 接收对齐数组并返回有限标量的可调用对象；须支持所选数组后端。 |
-| `*arrays` | 一个或多个非空数组，第一轴长度一致。单数组传入 `data`，不要包装成 `(data,)`。省略时尝试使用缓存 `_X_design` 和 `_y`，没有缓存则报错。设计缓存可能含截距或转换后的列，通常显式传入数组更清楚。 |
+| `*arrays` | 一个或多个非空数组，第一轴长度一致。单数组传入 `data`，不要包装成 `(data,)`。省略时尝试使用缓存 `_X_design` 和 `_y`，没有缓存则报错。设计缓存可能含截距、公式列或乘以权重平方根的行，而响应缓存未必采用同样的权重转换。定义加权统计量时请显式传入数组与权重，不能把缓存当作保证有效的原始训练数据对。 |
 | `n_resamples=200` | 正整数，重采样次数。增加次数减少蒙特卡洛波动，不消除模型偏差。 |
 | `strategy="iid"` | `iid`：有放回抽行；`stratified`：各层内重采样；`cluster`：整群重采样；`block`：抽取连续块。所有数组使用相同的行索引。 |
 | `strata=None`、`clusters=None` | 长度为 n 的标签；分别为分层或整群策略所必需。 |
@@ -68,11 +68,11 @@ model.bootstrap_statistic(
 | `confidence_level=0.95` | `(0, 1)` 内的百分位区间置信水平。 |
 | `random_state=None` | 整数种子，或不固定种子。可复现性针对同一后端和过程，不保证不同数组库产生相同样本。 |
 | `statistic_name="statistic"` | 报告标签，不负责选择或改变统计量。 |
-| `backend="auto"` | 跟随估计器设备；也可显式指定 NumPy/CuPy/Torch。 |
+| `backend="auto"` | 遵循上文 GPU 与 CPU-auto 的区别；要求 NumPy 时显式指定 `numpy`。显式 CuPy/Torch 请求要求相应 GPU 后端可用。 |
 
 返回 `BootstrapResult`，包含 `observed`（原始标量）、`samples`（长度为 `n_resamples` 的后端数组）、`confidence_interval`（上下界二元组）、`confidence_level`、`n_resamples`、`random_state`、`statistic_name`、`strategy` 和 `metadata`。`to_dict()` 把样本转换为列表；`to_dataframe()` 需要 pandas，返回 `sample_index` 和 `statistic` 两列。原始统计量属性名为 `observed`，不是 `statistic`。
 
-区间取重采样分布的 `(1-confidence_level)/2` 与 `(1+confidence_level)/2` 分位数。可交换性和重采样单位的选择由调用者负责。这一通用方法不是 ElasticNet 的残差系数 bootstrap 推断模式。
+区间取重采样分布的 `(1-confidence_level)/2` 与 `(1+confidence_level)/2` 分位数。可交换性和重采样单位的选择由调用者负责。回调可能先收到带前导批次维度的数组，再退回逐次调用；应避免副作用，若返回批量结果则明确沿正确的轴计算。这一通用方法不是 ElasticNet 的残差系数 bootstrap 推断模式。
 
 ### permutation_test
 
@@ -108,4 +108,4 @@ print(boot.observed, len(boot.samples))
 
 ## 与模块函数的区别
 
-独立的 `bootstrap_statistic` 与 `permutation_test` 函数还接受 `force_vectorized=False` 和 `statistic_hint=None`，估计器包装方法不接受这两项。`force_vectorized=True` 要求兼容的 IID 批量计算。支持的提示值为 `"mean"` 和 `"pearson_corr"`，应与实际统计量和过程一致，不要为无关函数设置提示。独立函数的 `backend="auto"` 根据数组推断，且数据必须显式提供。导入与示例见[模块指南](../guides/inference-api.md)。
+独立的 `bootstrap_statistic` 与 `permutation_test` 函数还接受 `force_vectorized=False` 和 `statistic_hint=None`，估计器包装方法不接受这两项。IID、分层重采样、分块 bootstrap、等大小整群 bootstrap 和组内置换均有批量计算方式；这些方式下，`force_vectorized=True` 要求每个重采样批次行返回一个结果。不等大小整群 bootstrap 当前即使设置该标志也逐次调用，不能把它视为通用的向量化保证。bootstrap 均值可用 `statistic_hint="mean"`，置换相关系数可用 `"pearson_corr"`。提示会选择内置的重采样计算，不会检查原始统计量回调是否与之等价。独立函数的 `backend="auto"` 根据数组推断，且数据必须显式提供。导入与示例见[模块指南](../guides/inference-api.md)。

@@ -183,6 +183,12 @@ is the residual-based F statistic, not a robust joint Wald test.
 - Ordinary coefficient intervals do not account for selecting predictors using
   the same responses. See [feature selection](feature-selection.md).
 
+### Diagnostic limitations with weights or multiple targets
+
+For a single weighted target, `llf` currently uses only the weighted residual sum of squares in an ordinary Gaussian expression. It omits the `0.5 * sum(log(sample_weight))` normalization required for the likelihood of independent Gaussian observations with variance proportional to `1 / sample_weight` (strictly positive weights). Consequently, multiplying every weight by a constant changes `llf`, `aic`, and `bic`, even though the fitted coefficients and classical standard errors are unchanged. Do not compare these values across weight normalizations or treat them as the normalized WLS likelihood. Comparisons among models using exactly the same rows and weights share the omitted constant.
+
+Multi-output `fvalue`, `f_pvalue`, and `llf` are not joint multivariate tests or likelihoods. With weights, accessing `fvalue` or `f_pvalue` currently raises `TypeError`; without weights, their pooled calculation is not an individual-target F test. Fit each target separately for its diagnostics. The training `rsquared` uses centered total variation even without an intercept, so it is not the uncentered R² used by some no-intercept references.
+
 ## API inventory and advanced reference
 
 The reader-facing [LinearRegression API reference](../reference/linear-model-api.md#linearregression) covers every constructor/method argument, default, shape and return. [Shared estimator helpers](../reference/estimator-api.md#inference-helpers) document inherited inference methods separately from module functions.

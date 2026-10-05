@@ -9,7 +9,7 @@ Language switch: [Chinese](../../cn/models/knockoff.md)
 
 ## Overview
 
-The knockoff module controls FDR for feature selection using feature-wise statistics \(W_j\) and data-adaptive thresholds. Two paths are provided: fixed-X knockoff (design treated as fixed) and model-X knockoff (Gaussian second-order construction). A unified `knockoff_filter` entry point switches between them.
+The knockoff module implements feature-selection procedures designed for FDR control under their construction/statistic assumptions, using feature-wise statistics \(W_j\) and data-adaptive thresholds. Two paths are provided: fixed-X knockoff (design treated as fixed) and model-X knockoff (Gaussian second-order construction). A unified `knockoff_filter` entry point switches between them.
 
 Complete function/selector signatures, all parameters, result fields and a self-contained CPU example are in the [feature-selection API reference](../reference/feature-selection-api.md).
 
@@ -30,7 +30,7 @@ Top-level aliases:
 
 ## Objective Function
 
-Control false discovery rate at target `q` while maximizing stable power:
+The statistical goal is false discovery rate control at target `q`, subject to the assumptions and current tied-statistic limitation below:
 - Build knockoff variables \(\tilde X\) that mirror dependence structure.
 - Compute antisymmetric statistics \(W_j\) (for example correlation or coefficient differences).
 - Select features with \(W_j\) above knockoff threshold.
@@ -49,7 +49,7 @@ The displayed threshold is the theoretical knockoff+ rule. The current implement
 
 ## Covariance/Inference
 
-This method does not report coefficient covariance tables. Inference is selection-based FDR control:
+This method does not report coefficient covariance tables. Its inferential target is selection-based FDR control, subject to the stated assumptions and limitations:
 - fixed-X path requires fixed-design assumptions and usually `n >= 2p`.
 - model-X path uses covariance estimation plus S-matrix construction; optional multi-draw averaging is supported.
 - `compat_mode="knockpy"` exposes compatibility controls for covariance/S-matrix behavior.
@@ -131,11 +131,11 @@ res_torch_mx = knockoff_filter(
 )
 ```
 
-## strict/approx difference
+## Threshold rules and construction assumptions
 
 - `fdr_control="knockoff_plus"` is the stricter, more conservative option and default.
 - `fdr_control="knockoff"` uses offset 0 and has a different modified-FDR target under the relevant theory; it is not an approximate numerical version of knockoff+.
-- In model-X, higher `modelx_draws` usually improves stability at higher runtime cost.
+- In model-X, additional `modelx_draws` average feature statistics at greater computational cost. Reduced Monte Carlo variation does not establish an FDR theorem for the averaged statistic; an estimated Gaussian feature model also does not guarantee exchangeability for arbitrary feature distributions.
 - `knockpy_sampler` dispatch options are currently guarded; explicitly setting unsupported targets can raise `NotImplementedError` instead of silently falling back.
 
 ## Performance Boundary

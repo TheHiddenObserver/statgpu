@@ -22,7 +22,7 @@
 | 是否主要想把邻域关系画在低维空间？ | [UMAP](umap.md) 或 [TSNE](tsne.md) | 不同随机种子和参数下的稳定性；图上分离本身不能证明总体存在不同类别 |
 | 是否需要分批处理数据？ | [IncrementalPCA](incremental-pca.md)、[MiniBatchKMeans](minibatch-kmeans.md) 或 [MiniBatchNMF](minibatch-nmf.md) | 对应模型的批量大小、初始化和 `partial_fit` 要求 |
 
-这些实现面向稠密输入。特别是，当前 TruncatedSVD 不是稀疏文本处理流程。UMAP 提供 `nn_method="exact"` 和 `"nndescent"`（近似）近邻搜索，`"auto"` 会选择路径，但图组装仍在主机端使用 SciPy。TSNE 使用精确的稠密距离计算。这两种可视化估计器均不支持对新数据调用 `transform`。用于大数据集前，先阅读对应模型的限制。
+这些实现面向稠密输入。特别是，当前 TruncatedSVD 不是稀疏文本处理流程。UMAP 提供 `nn_method="exact"` 和 `"nndescent"`（近似）近邻搜索，`"auto"` 始终选择精确搜索，但图组装仍在主机端使用 SciPy。TSNE 使用精确的稠密距离计算。这两种可视化估计器均不支持对新数据调用 `transform`。用于大数据集前，先阅读对应模型的限制。
 
 ## 第一次使用的顺序
 
@@ -72,7 +72,7 @@ print("held-out reconstruction MSE:", round(float(np.mean((X_test - X_reconstruc
 - [IncrementalPCA](incremental-pca.md)：按批次处理的稠密主成分分析。
 - [MiniBatchNMF](minibatch-nmf.md)：按小批量处理的稠密非负矩阵分解。
 - [UMAP](umap.md)：基于稠密欧氏数据的 UMAP，支持精确或近似近邻搜索，图组装在主机端使用 SciPy。
-- [TSNE](tsne.md)：稠密欧氏距离的精确 t-SNE 第一版。
+- [TSNE](tsne.md)：稠密欧氏距离的精确 t-SNE。
 
 ## 支持矩阵
 
@@ -88,13 +88,15 @@ print("held-out reconstruction MSE:", round(float(np.mean((X_test - X_reconstruc
 | `MiniBatchKMeans` | 支持 | 支持 | 支持 | 小批量聚类的簇内平方和 |
 | `IncrementalPCA` | 支持 | 支持 | 支持 | 分批中心化低秩重构 |
 | `MiniBatchNMF` | 支持 | 支持 | 支持 | 小批量 Frobenius 重构损失 |
-| `UMAP` | 支持 | 支持（图的组装在主机侧用 SciPy 完成） | 支持（图的组装在主机侧用 SciPy 完成） | 模糊图交叉熵 |
+| `UMAP` | 精确搜索，至少二维 | 支持（图的组装在主机侧用 SciPy 完成） | 支持（图的组装在主机侧用 SciPy 完成） | 近似近邻布局力更新 |
 | `TSNE` | 支持 | 支持 | 支持 | 高低维亲和度之间的 KL 散度 |
 
 显式 `device="cuda"` 和 `device="torch"` 不会静默回退到 CPU；依赖不可用或模型不支持时会明确报错。
 
 ## 验证说明
 
-这些无监督估计器均有对应的单元测试，并在适用时与 scikit-learn、cuML、umap-learn 或 openTSNE 等外部实现进行数值对照。GPU 路径还会检查设备语义和 CPU/GPU 结果一致性。性能会明显依赖数据规模、维数、硬件和数据驻留位置，因此外部基准只应作为参考，实际使用时建议针对自己的工作负载重新测量。
+比较不同实现时，应对齐目标函数、初始化、容差和预处理。具体限制及数值注意事项见各模型指南；应检查输出有限性，以及模型提供的收敛状态。性能应针对自己的完整工作负载重新测量。
 
 外部数值对照不代表所有生产路径都不依赖这些软件包。例如，CPU `DBSCAN` 在特征数大于 12 时，会调用 scikit-learn 的 `NearestNeighbors` 搜索邻居；聚类与标签分配由 statgpu 完成。具体依赖与执行边界见 [DBSCAN 指南](dbscan.md)。
+
+当前具体限制见 [UMAP](umap.md) 和 [DBSCAN](dbscan.md)；支持 CPU 不代表每种参数与数据组合都可靠。

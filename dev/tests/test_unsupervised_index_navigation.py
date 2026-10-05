@@ -46,8 +46,8 @@ def test_index_relative_links_resolve_and_match_across_languages():
         index = _ROOT / f'docs/{language}/unsupervised/README.md'
         targets = re.findall(r'\]\(([^)]+)\)', index.read_text(encoding='utf-8'))
         for target in targets:
-            assert (index.parent / target).resolve().is_file(), target
-        routes.append({t for t in targets if not t.startswith('../')})
+            assert (index.parent / target.split("#", 1)[0]).resolve().is_file(), target
+        routes.append({t.split("#", 1)[0] for t in targets if not t.startswith('../')})
     assert routes[0] == routes[1] == set(_ESTIMATORS.values()) | {'api-reference.md'}
 
 

@@ -253,10 +253,14 @@ print("Test C-index:", cv_test_cindex)
 
 This example selects `penalty_=1.0` and obtains a test C-index of approximately
 `0.766`; CV is not guaranteed to improve that score. `best_score_` is the
-maximum **mean held-out partial log-likelihood**, not the C-index returned by
+selected **mean held-out partial log-likelihood**, not the C-index returned by
 `score()`, and should only be compared for the same dataset/folds and scoring
 convention. `cv_results_["pl_path"]` has shape `(n_penalties, n_folds)`;
 `mean_pl` and `effective_fold_counts` each have shape `(n_penalties,)`.
+Each fold contributes its summed partial log likelihood, without normalization
+by rows or events. For custom grids, numerical near-ties prefer stronger penalties, so the selected
+score can be slightly below the largest mean. Custom-grid results retain the
+input penalty order even though evaluation proceeds from stronger to weaker penalties.
 Inspect `converged_path`, `failure_path`, and `fold_valid` when candidates cannot
 be evaluated. A selectable candidate needs finite scores and convergence on
 all the same effective folds; a fold requires events in both partitions. If
@@ -276,7 +280,7 @@ inference does not correct for tuning uncertainty or shrinkage bias; see
 | `n_penalties` | `100` | Number of values in the automatic grid. |
 | `penalty_min_ratio` | `1e-3` | Minimum/maximum ratio for the automatic grid; in `(0, 1]`. |
 | `cv` | `5` | Number of automatically generated folds, at least two. |
-| `cv_splits` | `None` | Explicit `(train_indices, validation_indices)` pairs, overriding generated folds; non-empty disjoint one-dimensional integer indices in range. |
+| `cv_splits` | `None` | Explicit `(train_indices, validation_indices)` pairs, overriding generated folds; non-empty disjoint one-dimensional integer indices in range. One-shot iterators are materialized once and reused, including during parameter inspection/cloning. |
 | `ties` | `"breslow"` | `"breslow"`, `"efron"`, or `"exact"` for candidates and refit. |
 | `tol` | `1e-9` | Candidate/refit convergence tolerance. |
 | `max_iter` | `100` | Candidate/refit maximum iterations. |

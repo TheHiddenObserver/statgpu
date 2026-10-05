@@ -1,7 +1,7 @@
 # Distribution API 使用指南
 
 > 语言：中文
-> 最后更新：2026-10-04
+> 最后更新：2026-10-05
 > 页面定位：使用指南
 > 切换：[English](../../en/guides/distribution-api.md)
 
@@ -125,6 +125,29 @@ p 值是原假设成立时的尾概率，不是原假设为真的概率。这里
 优先使用 `sf`，不要自行计算 `1-cdf`，正态分布的右尾尤其如此。不过，当前部分分布的 `sf` 内部仍通过减法实现，原生 `isf` 也会先计算 `1-q`。极小的 `q` 可能因舍入丢失，导致临界值为无穷大或不准确；`use_lut=False` 不能消除这种消减误差。
 
 极端尾部、密度奇异端点和特殊参数范围都需要针对具体方法核对参考结果。如果需要专门的尾部算法，可以直接在 CPU 上使用 SciPy 对应的 `sf`、`logsf` 或 `isf`；这些原生对象不提供 `logcdf` 或 `logsf`。此外，部分取值范围为非负数的分布及 beta 分布的密度实现，在支持集端点处返回零，而非解析端点极限。核对它们的 PDF 时，应在支持集内部取值。
+
+## 计算密度前先检查缺失观测
+
+分布参数和观测值需要分别检查。目前，`uniform`、`expon`、`chi2`、`gamma`、`beta`、`f`、`weibull_min`、`lognorm` 的 PDF，以及 Poisson 和二项分布的 PMF，可能把 NaN 观测值的结果变成 `0.0`。零不能代表缺失值，这种结果会干扰似然或密度汇总。调用前应拒绝缺失观测，或采用有依据的缺失数据处理方法，不要随意用一个数值替换 NaN。
+
+```python
+# Example: validate_density_inputs
+import numpy as np
+from statgpu.inference import gamma
+
+
+def finite_gamma_density(values):
+    values = np.asarray(values, dtype=np.float64)
+    if not np.isfinite(values).all():
+        raise ValueError("Density observations must be finite")
+    return gamma.pdf(values, a=2.0, backend="numpy")
+
+
+density = finite_gamma_density([0.5, 1.0, 2.0])
+print("Gamma density:", np.round(density, 6))
+```
+
+输出为 `[0.303265, 0.367879, 0.270671]`。向示例中的辅助函数传入 NaN 或无穷大时，它会在计算 PDF 前报错。这里演示的是有限观测值的检查流程，并非定义分布在无穷远处的数学极限。
 
 ## 原生分布与参数选择
 

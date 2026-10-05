@@ -9,7 +9,7 @@
 
 ## 概览（Overview）
 
-Knockoff 方法用于控制特征选择中的 FDR。当前实现包含 `fixed_x` 与 `model_x` 两条路径，统一入口为 `knockoff_filter`。`fixed_x` 通常要求 `n >= 2p`；`model_x` 基于高斯二阶近似（协方差估计 + S-matrix），支持多次 draw 聚合 W 统计量。
+Knockoff 方法以特征选择的 FDR 控制为目标，有效性依赖构造与统计量的假设，并受下文统计量并列问题限制。当前实现包含 `fixed_x` 与 `model_x` 两条路径，统一入口为 `knockoff_filter`。`fixed_x` 通常要求 `n >= 2p`；`model_x` 基于高斯二阶近似（协方差估计 + S-matrix），支持多次抽样聚合 W 统计量。
 
 全部函数/选择器签名、参数、结果字段与独立可运行的 CPU 示例见[特征选择 API 参考](../reference/feature-selection-api.md)。
 
@@ -31,7 +31,7 @@ Knockoff 方法用于控制特征选择中的 FDR。当前实现包含 `fixed_x`
 
 ## 目标函数（Objective Function）
 
-目标是在给定目标 FDR 水平 `q` 下，通过 knockoff 统计量 `W` 与阈值规则（`knockoff_plus` 或 `knockoff`）选择特征集合，同时控制期望误发现率。
+统计目标是在给定 FDR 水平 `q` 下，通过 knockoff 统计量 `W` 与阈值规则（`knockoff_plus` 或 `knockoff`）选择特征集合。达到该目标仍需满足相关假设，并避开下文说明的并列计数限制。
 
 ## 估计方程（Estimating Equation）
 
@@ -44,7 +44,7 @@ $$
 
 q 为目标 FDR，$\#\{\cdot\}$ 表示计数；没有合格阈值时选择为空。`fdr_control="knockoff"` 将分子中的 1 换为 0，其理论错误率目标与 knockoff+ 不同，不能仅把两者理解为数值精度模式。
 
-`model_x` 可通过 `modelx_draws` 进行多次采样并聚合统计量。
+`model_x` 可通过 `modelx_draws` 进行多次采样并平均统计量。增加抽样有助于减小蒙特卡洛波动，但不自动为平均后的统计量建立 FDR 保证；估计的高斯特征模型也不能保证任意特征分布下的可交换性。
 
 ### 统计量并列时的限制
 
@@ -76,7 +76,7 @@ Knockoff 为选择推断框架，不采用回归模型中的 `cov_type` 协方�
 | `lasso_fast_profile` | `off` | lasso 快速配置开关 |
 | `modelx_covariance_shrinkage` | `0.20` | model-X 协方差收缩系数 |
 | `modelx_s_scale` | `0.999` | model-X `S` 缩放系数 |
-| `modelx_draws` | `None` | model-X draw 次数 |
+| `modelx_draws` | `None` | model-X 抽样次数 |
 | `modelx_shrinkage` | `ledoitwolf` | knockpy 兼容路径协方差估计策略 |
 | `modelx_smatrix_method` | `mvr` | knockpy 兼容路径 `S`-matrix 方法 |
 | `knockpy_sampler` | `None` | 可选分发入口 |
@@ -149,7 +149,7 @@ res_torch_mx = knockoff_filter(
 - `threshold`
 - `estimated_fdr`
 - `q_trajectory`
-- `metadata`（例如 draw 次数、兼容模式、`Xk` 来源）
+- `metadata`（例如抽样次数、兼容模式、`Xk` 来源）
 
 ## 常见问题（FAQ）
 

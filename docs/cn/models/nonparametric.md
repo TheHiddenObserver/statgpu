@@ -191,6 +191,7 @@ $z_{1-\alpha/2}$ 是标准正态分位数。两种区间都逐点构造；正态
 | 一次性回归 | `kernel_regression_predict(samples, targets, points, ...)` | 响应预测数组。 |
 
 - 训练样本：有限数值，形状 `(n_samples,)` 或 `(n_samples, n_features)`，至少两条观测。回归目标：有限数值，形状 `(n_samples,)` 或 `(n_samples, n_targets)`，行数须匹配。
+- 拟合与评价将数值输入转换为 float64；输入为 float32 时，拟合数组和预测不会保留该精度。
 - 查询：`(n_query, n_features)`。单特征模型的一维向量代表多个点；多特征模型的一维向量若长度等于特征数，则代表一个点。特征数和顺序须与训练一致。
 - KDE 输出为 `(n_query,)`；一维目标的回归输出为 `(n_query,)`，二维目标则为 `(n_query, n_targets)`，包括 `(n_query, 1)`。NumPy 路径输出 NumPy 数组，普通 GPU 预测保留后端数组类型；区间结果数组会转为 NumPy。
 - 拟合用 `weights` 须有限、非负、长度为 `n_samples` 且总和为正，内部会归一化。权重全部集中于单个观测时协方差估计失败。错误形状、非有限输入、非正带宽、未知核名会报错。必须先 `fit` 再预测。

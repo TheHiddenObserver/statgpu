@@ -158,6 +158,9 @@ class CoxPH(BaseEstimator):
         Maximum number of iterations.
     device : str or Device, default='auto'
         Computation device: 'cpu', 'cuda', 'torch', or 'auto'.
+    n_jobs : int or None, default=None
+        Shared CPU-job option; the current Cox fitting loop is not
+        parallelized by this setting.
     compute_inference : bool, default=True
         If True, compute standard errors, tests, and baseline hazards on the
         active backend. For a positive L2 penalty, coefficient inference uses
@@ -169,8 +172,14 @@ class CoxPH(BaseEstimator):
         significantly reduce fit time, especially on CUDA/Torch for moderate n.
     cov_type : {'nonrobust', 'hc0', 'hc1', 'cluster'}, default='nonrobust'
         Covariance estimator. Cluster covariance requires ``cluster`` in fit.
+        Exact ties support nonrobust inference only; use compute_inference=False
+        for estimation-only Exact fitting with an otherwise unsupported setting.
+    gpu_memory_cleanup : bool, default=False
+        Best-effort GPU-cache cleanup after prediction/scoring and on destruction.
+        Fitted arrays needed for later work are retained.
     penalty : float, default=0.0
-        Non-negative L2 penalty.
+        Finite non-negative L2 penalty on the summed negative partial
+        log likelihood, with penalty * ||coef||**2 / 2.
     inference_mode : {'strict', 'approx'}, default='strict'
         Robust-inference compatibility control. Both values currently use the
         exact counting-process score sandwich; ``'approx'`` remains accepted

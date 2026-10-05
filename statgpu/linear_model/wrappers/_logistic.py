@@ -85,9 +85,19 @@ class LogisticRegression(BaseEstimator):
     tol : float, default=1e-4
         Tolerance for stopping criteria.
     device : str or Device, default='auto'
-        Computation device: 'cpu', 'cuda', or 'auto'.
-    n_jobs : int, optional
-        Number of parallel jobs for CPU computation.
+        Computation device: 'cpu', 'cuda' (CuPy), 'torch' (Torch CUDA), or 'auto'.
+    n_jobs : int or None, default=None
+        Shared CPU worker setting; it does not choose an IRLS solver or promise
+        parallel fitting in this class.
+    compute_inference : bool, default=True
+        Compute normal-reference coefficient uncertainty after fitting.
+    cov_type : str, default='nonrobust'
+        Inverse information or robust HC0-HC3/HAC sandwich. With C>0 these
+        use penalized curvature and do not remove shrinkage/tuning uncertainty.
+    gpu_memory_cleanup : bool, default=False
+        Attempt GPU memory-pool cleanup after fitting.
+    hac_maxlags : int or None, default=None
+        Nonnegative HAC lag, or the sample-size rule when omitted.
     
     Attributes
     ----------
@@ -97,6 +107,16 @@ class LogisticRegression(BaseEstimator):
         Independent term.
     n_iter_ : int
         Number of iterations run.
+    converged_ : bool
+        Whether the numerical stopping criterion was reached.
+
+    Notes
+    -----
+    This is a binary 0/1 model; no formula or multiclass interface is provided.
+    The objective is summed weighted negative log-likelihood plus
+    ``||coef||**2 / (2*C)`` for C>0, with an unpenalized intercept. C=0 removes
+    the penalty. Public coefficient/inference arrays are NumPy arrays, including
+    after GPU fitting; prediction and evaluation arrays follow the backend.
     """
     
     def __init__(

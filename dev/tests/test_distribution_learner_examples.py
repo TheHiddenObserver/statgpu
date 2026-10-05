@@ -20,6 +20,7 @@ _EXAMPLE_NAMES = (
     "normal_probabilities",
     "count_probabilities",
     "student_t_inference",
+    "validate_density_inputs",
     "fixed_numpy_backend",
     "reproducible_sampling",
     "f_sampling_workaround",
@@ -81,6 +82,12 @@ def test_every_distribution_example_is_independent_and_numerically_checked(langu
         np.testing.assert_allclose(namespace["interval"], [2.25222645, 2.63868264], atol=5e-9)
         assert namespace["pvalue"] < namespace["alpha"]
         assert namespace["null_mean"] < namespace["interval"][0]
+    elif example == "validate_density_inputs":
+        helper = namespace["finite_gamma_density"]
+        np.testing.assert_allclose(namespace["density"], stats.gamma.pdf([0.5, 1.0, 2.0], a=2))
+        for invalid in ([0.5, np.nan], [np.inf], [-np.inf]):
+            with pytest.raises(ValueError, match="must be finite"):
+                helper(invalid)
     elif example == "fixed_numpy_backend":
         result = namespace["result"]
         assert isinstance(result, np.ndarray)
@@ -311,3 +318,15 @@ def test_non_r_migration_preserves_values_and_emits_deprecation(legacy, family, 
         old = getattr(inference, legacy)(value, **parameters)
     new = getattr(getattr(inference, family), method)(value, backend="numpy", **parameters)
     np.testing.assert_allclose(old, new)
+
+
+def test_distribution_factory_help_matches_observable_cpu_and_lut_contracts():
+    help_text = inference.get_distribution.__doc__
+    assert "Torch may use CPU" in help_text
+    assert "no universal speed or accuracy guarantee" in help_text
+    assert "10-500x" not in help_text
+    assert "dtype" in help_text and "NaN" in help_text
+    fixed = inference.get_distribution("norm", backend="numpy", use_lut=False)
+    np.testing.assert_allclose(fixed.cdf([0.0, 1.0]), stats.norm.cdf([0.0, 1.0]))
+    with pytest.raises(TypeError):
+        fixed.cdf(0.0, backend="numpy")

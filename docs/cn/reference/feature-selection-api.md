@@ -62,10 +62,12 @@ fixed-X 函数/类只接受其签名中的共享参数子集。`modelx_*` 与采
 |---|---|
 | `fit(X,y,Xk=None)` | 执行选择并返回 **self**，不是结果对象；设置 `result_` 与从零开始的 NumPy `selected_features_`。 |
 | `get_support()` | `(p,)` 布尔 NumPy 掩码；没有 `indices` 参数。 |
-| `transform(X)` | 要求原始 `(m,p)` 特征布局，返回 `(m,s)` 所选列并保留 NumPy/CuPy/Torch 输入后端；列宽不符报错，s 可以为零。 |
+| `transform(X)` | 要求原始 `(m,p)` 特征布局，返回 `(m,s)` 所选列并保留 NumPy/CuPy/Torch 输入后端和 dtype；列宽不符报错，s 可以为零。 |
 | `fit_transform(X,y,Xk=None)` | 在 X/y 上拟合后返回转换的 X，不是预测或留出评价。 |
 | `get_params(deep=True)` | 构造配置字典；这些包装类没有嵌套估计器展开。 |
 | `set_params(**params)` | 返回 self；有效非空更新清空拟合选择状态，未知参数报错。 |
+
+当前失败的 `fit` 会保留先前成功的选择结果。重新拟合报错后，不要把 `result_`、`get_support()` 或 `transform()` 视为新数据的结果；请新建选择器并完成一次成功拟合。
 
 这些选择器不拟合响应预测模型，没有 `predict`、`score` 或 `summary`。若要评价预测，应在选中训练列上拟合另一个估计器，再对留出数据使用相同列选择；每个训练折内必须重新选择。
 
@@ -75,8 +77,8 @@ fixed-X 函数/类只接受其签名中的共享参数子集。`modelx_*` 与采
 
 | 字段 | 含义 |
 |---|---|
-| `selected_features` | 从零开始的 NumPy 整数索引 `(s,)`，允许空选择。 |
-| `W` | `(p,)` NumPy 特征统计量，即使数值计算使用 GPU；较大正数更支持原始特征。 |
+| `selected_features` | 从零开始的 NumPy `int64` 索引 `(s,)`，允许空选择。 |
+| `W` | `(p,)` NumPy `float64` 特征统计量，即使数值计算使用 GPU；较大正数更支持原始特征。 |
 | `threshold` | 选择阈值；无合格阈值时可能为无穷大。 |
 | `q`、`estimated_fdr` | 请求目标和阈值规则估计量，不是无法直接得知的实际误发现比例。 |
 | `q_trajectory` | 按稳定排序后的每个秩记录字典，键为 `rank`、`threshold`、`fdr_hat`、`n_selected`。`fdr_hat` 上限截为 1，`n_selected` 为正统计量前缀计数且下限为 1；绝对统计量并列时，这些秩诊断不能证明最终整个选择集满足阈值规则。 |
@@ -92,7 +94,7 @@ fixed-X 函数/类只接受其签名中的共享参数子集。`modelx_*` 与采
 
 生成 fixed-X knockoff 要求构造所需的样本量/秩条件，通常 n≥2p，标准化后列满秩。外部 Xk 绕过构造，调用者必须保证其确为匹配且有效的 knockoff 设计。Model-X 使用估计的高斯二阶特征模型：仅匹配估计矩并不能对任意分布提供无条件保证，多次抽样平均也不自动形成独立的 FDR 定理。应结合 [knockoff 指南](../models/knockoff.md)的构造与统计量假设解释结果。
 
-存在原生 NumPy/CuPy/Torch 数值路径，但 `lasso_cv_impl="sklearn"` 或部分 `compat_mode="knockpy"` 构造涉及主机转换、CPU 或可选库。`backend` 不能保证兼容步骤全部留在 GPU。提供 Xk 并显式 `lasso_cv_impl="statgpu"` 的原生路径可避开通用 knockpy CPU 构造。不支持的采样分发会报错，不会自动实现另一个采样器。
+Knockoff 构造与统计量计算把输入转换为 float64；选择器 `transform` 仅选列，保留输入的原始 dtype。存在原生 NumPy/CuPy/Torch 数值路径，但 `lasso_cv_impl="sklearn"` 或部分 `compat_mode="knockpy"` 构造涉及主机转换、CPU 或可选库。`backend` 不能保证兼容步骤全部留在 GPU。提供 Xk 并显式 `lasso_cv_impl="statgpu"` 的原生路径可避开通用 knockpy CPU 构造。不支持的采样分发会报错，不会自动实现另一个采样器。
 
 <a id="runnable-fixed-x-example"></a>
 

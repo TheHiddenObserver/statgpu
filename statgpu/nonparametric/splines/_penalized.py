@@ -27,9 +27,9 @@ def difference_penalty(order, n_coef, xp=None):
     Parameters
     ----------
     order : int
-        Order of differences.  order=1 penalizes first differences
-        (piecewise linear), order=2 penalizes second differences
-        (piecewise quadratic, the default for smoothing).
+        Order of differences between adjacent basis coefficients. order=1
+        penalizes first differences and order=2 penalizes second differences.
+        This does not set the polynomial degree of the spline basis.
     n_coef : int
         Number of spline coefficients (basis functions).
     xp : module, optional

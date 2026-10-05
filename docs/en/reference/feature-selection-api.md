@@ -62,10 +62,12 @@ Both `KnockoffSelector` and `FixedXKnockoffSelector` expose:
 |---|---|
 | `fit(X,y,Xk=None)` | Fits selection and returns **self**, not the result object. Sets `result_` and zero-based NumPy `selected_features_`. |
 | `get_support()` | Boolean NumPy mask `(p,)`; no `indices` argument. |
-| `transform(X)` | Original feature layout `(m,p)` required; returns selected columns `(m,s)`, preserving NumPy/CuPy/Torch input backend. Width mismatch raises; s can be zero. |
+| `transform(X)` | Original feature layout `(m,p)` required; returns selected columns `(m,s)`, preserving NumPy/CuPy/Torch input backend and dtype. Width mismatch raises; s can be zero. |
 | `fit_transform(X,y,Xk=None)` | Fits on X/y and returns transformed X; not a prediction or held-out evaluation. |
 | `get_params(deep=True)` | Constructor configuration dictionary; these wrappers have no nested estimator expansion. |
 | `set_params(**params)` | Returns self; valid nonempty updates clear fitted selection state, unknown names raise. |
+
+A failed `fit` currently leaves a previous successful selection accessible. After any refit error, do not treat `result_`, `get_support()`, or `transform()` as a result for the new data; create a fresh selector and complete a successful fit.
 
 These selectors do not fit a response-prediction model and supply no `predict`, `score`, or `summary`. To evaluate prediction, fit a separate estimator on selected training columns and apply the same selection to held-out columns. Re-select within every training fold.
 
@@ -75,8 +77,8 @@ These selectors do not fit a response-prediction model and supply no `predict`, 
 
 | Field | Meaning |
 |---|---|
-| `selected_features` | NumPy integer indices `(s,)`, zero-based; empty selection is valid. |
-| `W` | NumPy feature statistics `(p,)`, even when numerical work used GPU. Larger positive values favor the original feature. |
+| `selected_features` | NumPy `int64` indices `(s,)`, zero-based; empty selection is valid. |
+| `W` | NumPy `float64` feature statistics `(p,)`, even when numerical work used GPU. Larger positive values favor the original feature. |
 | `threshold` | Selection threshold; infinity can represent no eligible threshold. |
 | `q`, `estimated_fdr` | Requested target and the threshold-rule estimate, not the unknowable realized false-discovery proportion. |
 | `q_trajectory` | Per stable-sorted rank dictionaries with `rank`, `threshold`, `fdr_hat`, `n_selected`. `fdr_hat` is clipped at 1; `n_selected` is the positive-prefix count floored at 1. These rank diagnostics do not certify the full selected set when absolute statistics tie. |
@@ -92,7 +94,7 @@ The theoretical knockoff+ threshold must count **all** features at each distinct
 
 Generated fixed-X knockoffs require the rank/sample conditions of their construction (typically n≥2p and full column rank after standardization). A user-supplied Xk bypasses construction; it must actually be a valid matched knockoff design. Model-X uses an estimated Gaussian second-order feature model: matching estimated moments is not a distribution-free guarantee for arbitrary features, and averaging multiple draws is not automatically an independent FDR theorem. Interpret results under the construction/statistic assumptions in the [knockoff guide](../models/knockoff.md).
 
-Native NumPy/CuPy/Torch numerical paths exist, but choosing `lasso_cv_impl="sklearn"` or certain `compat_mode="knockpy"` construction routes entails host conversion/CPU or optional-library work. `backend` is not a guarantee that every compatibility step stays on GPU. The native alternative with supplied Xk and explicit `lasso_cv_impl="statgpu"` avoids the general knockpy CPU construction route. Unsupported sampler dispatch raises; it does not automatically implement another sampler.
+Knockoff construction/statistic inputs are converted to float64; selector `transform` only selects columns and preserves the original input dtype. Native NumPy/CuPy/Torch numerical paths exist, but choosing `lasso_cv_impl="sklearn"` or certain `compat_mode="knockpy"` construction routes entails host conversion/CPU or optional-library work. `backend` is not a guarantee that every compatibility step stays on GPU. The native alternative with supplied Xk and explicit `lasso_cv_impl="statgpu"` avoids the general knockpy CPU construction route. Unsupported sampler dispatch raises; it does not automatically implement another sampler.
 
 ## Runnable fixed-X example
 

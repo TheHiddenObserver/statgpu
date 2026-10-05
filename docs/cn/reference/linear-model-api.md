@@ -8,6 +8,8 @@
 
 这些类均继承 [get_params/set_params 和四个推断辅助方法](estimator-api.md)。通用辅助方法可以接收显式数据/p 值；类上有这些方法，不代表 CV 包装对象本身一定保存系数推断数组。CV 的推断结果应从 `estimator_` 读取。
 
+这些直接估计器的公开 `coef_` 和成功计算的系数推断数组保存在 NumPy 中，包括 GPU 拟合后的结果；单目标截距为 Python 数值。这与后端原生预测/评估数组的存储方式不同。构造函数不提供 `dtype` 控制，也不保证始终保留输入浮点类型；与其他库配合时请查看实际返回数组的 dtype。
+
 ## LinearRegression
 
 ```text
@@ -23,17 +25,17 @@ LinearRegression(fit_intercept=True, device='auto', n_jobs=None, compute_inferen
 | `cov_type` | `"nonrobust"` | `nonrobust`、`hc0`、`hc1`、`hc2`、`hc3`、`hac`；适用性见各模型推断说明。 |
 | `hac_maxlags` | `None` | HAC 非负整数滞后阶；Linear/Logistic 自动值为 `floor(4*(n/100)**(2/9))`，上限 n−1。 |
 
-`fit(X=None, y=None, sample_weight=None, formula=None, data=None)` 返回 `self`。使用数组，或 `formula` 与 `data`，不要同时提供冲突表示。fit 会展平单列响应；真正多目标 `y` 的形状为 `(n,t)`。
+`fit(X=None, y=None, sample_weight=None, formula=None, data=None)` 返回 `self`。使用数组，或 `formula` 与 `data`，不要同时提供两种表示。当前公式拟合即使同时收到数组 X/y，也直接从 `data` 取设计与响应，不会拒绝冲突。fit 会展平单列响应；真正多目标 `y` 的形状为 `(n,t)`。
 
 | 方法/结果 | 约定 |
 |---|---|
-| `predict(X)` | 单目标 `(m,)`，多目标 `(m,t)`；CPU 返回 NumPy，GPU 返回受支持的原生后端数组。公式拟合后也可传预测 DataFrame。 |
+| `predict(X)` | 单目标 `(m,)`，多目标 `(m,t)`；CPU 返回 NumPy，GPU 返回受支持的原生后端数组。公式拟合后也可传预测 DataFrame。预测时会重新解析设备；如需避免后续全局设备设置改变输出位置，应显式指定设备。 |
 | `score(X,y)` | 不加权 R²；多目标取各目标 R² 的均值。不接受 `sample_weight`。单目标 `y` 必须展平；当前单列响应会触发错误广播。常数目标返回 0，不宜解释为通常的方差解释比例。 |
 | `summary()` | 打印单目标表格，返回 `None`。要求推断成功且残差自由度为正。 |
 | `coef_`、`intercept_`、`rank_` | 单目标形状 `(p,)`/标量，多目标 `(t,p)`/`(t,)`；`rank_` 是拟合设计矩阵的秩。 |
 | `rsquared`、`rsquared_adj` | 训练 R²（使用拟合权重；多目标为合并计算）及残差自由度修正。不同于留出数据的 `score`。 |
-| `fvalue`、`f_pvalue` | 基于残差的整体 F 诊断，不是 HC/HAC 联合 Wald 检验。 |
-| `llf`、`aic`、`bic` | 高斯似然及信息准则诊断；多目标 AIC/BIC 为 `None`。不可用诊断可能为 `None`/NaN，需结合秩与自由度。 |
+| `fvalue`、`f_pvalue` | 单目标的残差 F 诊断，不是 HC/HAC 联合 Wald 检验。加权多目标访问当前抛出 `TypeError`；无权重的合并输出不是联合多元检验。 |
+| `llf`、`aic`、`bic` | 无权重单目标的高斯似然和信息准则。加权数值缺少 WLS 对数权重归一化项，会随权重尺度改变。多目标 AIC/BIC 为 `None`，合并 `llf` 不是联合多元似然。详见[诊断限制](../models/linear-regression.md#加权或多目标诊断的限制)。 |
 | `_bse`、`_tvalues`、`_pvalues`、`_conf_int` | 拟合截距时置于首位。k 个参数时形状为 `(k,)`，区间为 `(k,2)`；CPU 多目标为 `(k,t)` 与 `(k,t,2)`。关闭或无法计算推断时为 `None`。 |
 
 经典协方差采用 t 参考分布；HC/HAC 采用正态参考分布，尽管属性名仍为 `_tvalues`。CPU 支持多目标推断；GPU 多目标拟合需设 `compute_inference=False`。解释和假设见[入门页](../models/linear-regression.md)。
@@ -45,7 +47,7 @@ LogisticRegression(fit_intercept=True, C=1.0, max_iter=100, tol=0.0001, device='
 ```
 | 参数 | 默认值 | 含义与限制 |
 |---|---|---|
-| `fit_intercept` | `True` | 拟合截距；公式语法决定公式拟合的截距。 |
+| `fit_intercept` | `True` | 拟合不受惩罚的截距；此类不提供公式接口。 |
 | `device` | `"auto"` | `cpu`/`cuda`（CuPy）/`torch`（Torch CUDA）/`auto`；显式 GPU 请求要求相应后端可用。 |
 | `n_jobs` | `None` | 共享 CPU 工作线程配置；不选择求解器，也不保证这些包装类会并行拟合。 |
 | `compute_inference` | `True` | 启用受支持的拟合后推断；`summary()` 要求推断成功。 |
@@ -242,7 +244,7 @@ assert np.isclose(logit.best_score_, -np.nanmin(logit.mean_loss_))
 <a id="formula-inputs"></a>
 
 ## 公式输入
-本页只有 LinearRegression 与直接 ElasticNet 支持公式。需要可选 pandas/patsy 依赖。`formula="y ~ x + C(group)"` 描述数值/分类项；`~ 0 + ...` 去掉截距，不受构造参数覆盖。交互项与转换遵循 Patsy 语法。公式拟合可能删除相关项缺失的行。权重可对应原始全部行或恰好保留的行，按位置对齐，不按任意 Series 标签对齐。
+本页只有 LinearRegression 与直接 ElasticNet 支持公式。两者均应只传 `formula`/`data`，不要同时传数组 X/y；当前公式解析会直接覆盖这些数组而不报告冲突。需要可选 pandas/patsy 依赖。`formula="y ~ x + C(group)"` 描述数值/分类项；`~ 0 + ...` 去掉截距，不受构造参数覆盖。交互项与转换遵循 Patsy 语法。公式拟合可能删除相关项缺失的行。权重可对应原始全部行或恰好保留的行，按位置对齐，不按任意 Series 标签对齐。
 
 预测 DataFrame 会重建设计矩阵与原有分类水平。未知水平或导致预测删行的缺失值会报错；数组预测则须传入按训练顺序编码好的非截距列。转换与水平定义须保持一致。LogisticRegression 及两个 CV 包装类没有公式参数，应先构建设计矩阵并防止预处理泄漏。
 

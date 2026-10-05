@@ -2282,21 +2282,31 @@ def get_distribution(name: str, backend: str = "auto", device: str | None = None
     name : str
         Distribution name (e.g. ``'norm'``, ``'t'``, ``'chi2'``).
     backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
-        Which backend to use.  ``'auto'`` picks the first available GPU
-        backend (cupy > torch) or falls back to numpy.
+        Backend for this fixed distribution object. ``'auto'`` tries CuPy,
+        then Torch, then NumPy. Torch may use CPU when CUDA is unavailable;
+        successful construction does not test every later operation. Module-
+        level proxies instead infer their backend from each call's inputs.
     device : str, optional
         Torch device string (e.g. ``'cuda'``, ``'cuda:0'``, ``'cpu'``).
         Only used when backend is ``'torch'``.
     use_lut : bool, default=True
-        Use LUT cache + 1-step Newton refinement for inverse special functions
-        (``betaincinv``, ``gammaincinv``).  When ``False``, falls back to the
-        full iterative solver (scipy for numpy, Newton-Raphson for torch).
-        ``True`` gives 10-500x speedup for ``t.ppf``/``f.ppf`` on GPU,
-        with negligible accuracy loss (LUT is built from scipy reference values).
+        Enable eligible incomplete-beta/gamma lookup-table paths and
+        refinement. With ``False``, NumPy uses SciPy inverses and CuPy uses
+        cupyx special-function inverses; Torch uses available native functions
+        or numerical fallbacks. Lookup-table construction can use host SciPy.
+        This flag provides no universal speed or accuracy guarantee and does
+        not remove cancellation in extreme survival/inverse-survival tails.
 
     Returns
     -------
-    Distribution object with methods: cdf, sf, ppf, isf, pdf, rvs, etc.
+    object
+        A fixed-backend native distribution with ``cdf``, ``sf``, ``ppf``,
+        ``isf``, ``pdf`` (continuous) or ``pmf`` (discrete), and ``rvs``.
+        Pass backend controls to this factory, not to the object's methods.
+        Native sampling runs on CPU before conversion, currently ignores
+        ``dtype``, and F sampling raises ``TypeError``. Use finite numeric
+        inputs: some density/mass methods currently turn NaN observations
+        into zero instead of preserving missingness.
     """
     if backend == "auto":
         if CuPySpecialFunctions is not None:  # always importable if cupy installed
@@ -2429,9 +2439,12 @@ BinomDistributionGPU = BinomDistributionBase
 
 
 def get_distribution_gpu(name: str, *, allow_fallback: bool = False):
-    """Backward-compatible wrapper: get GPU distribution by name.
+    """Get a native distribution or explicitly permit a SciPy fallback.
 
-    Delegates to the unified factory, defaulting to the best GPU backend.
+    Native names use ``get_distribution(..., backend="auto")`` and may select
+    CPU. Other SciPy names require ``allow_fallback=True``: computation then
+    runs on CPU, with output optionally converted to the automatic backend.
+    This wrapper does not guarantee GPU-only execution.
     """
     import scipy.stats as sps
 
@@ -2474,7 +2487,11 @@ def list_available_distributions_gpu(include_scipy: bool = True):
 
 
 class ScipyFallbackDistribution:
-    """Dynamic scipy.stats distribution wrapper returning GPU-backed outputs."""
+    """SciPy CPU distribution wrapper with optional backend conversion.
+
+    GPU inputs are copied to CPU for SciPy. Outputs may be NumPy or converted
+    to the automatically selected backend, independently of the input type.
+    """
 
     def __init__(self, name: str):
         self.name = str(name)

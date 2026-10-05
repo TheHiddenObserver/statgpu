@@ -1,16 +1,16 @@
 # UMAP
 
 > 语言：中文
-> 最后更新：2026-09-29
+> 最后更新：2026-10-05
 > 路径：`statgpu.unsupervised.UMAP`
 
 ## 概览
 
 `UMAP` 在输入空间构造模糊近邻图（fuzzy neighbor graph），并优化低维嵌入（embedding）。它既支持稠密、精确的欧氏近邻，也支持内置的 NNDescent 近似近邻搜索。
 
-## 后端与主机边界
+## 何时使用
 
-距离计算、近邻搜索、隶属度权重、嵌入优化和负采样都在所选的 NumPy、CuPy 或 Torch 后端上完成。目前明确披露的主机边界是模糊并集图（fuzzy-union graph）的组装：O(n*k) 的边索引和边权重会复制到主机内存，由 SciPy 的稀疏 COO/CSR 结构完成组装，再复制回所选后端。这不是优化过程的静默 CPU 回退，但也不是完全后端原生的稀疏图流水线。精确近邻还需要 O(n²) 的稠密距离矩阵内存；如果可以接受近似近邻的取舍，可用 `nn_method='nndescent'` 避开这个矩阵。
+UMAP 可用于观察局部近邻结构。应比较多个随机种子、邻居数与 `min_dist` 设置。图中不同岛状区域的距离、面积或大小，不能直接解释为人群间差异或占比。
 
 ## 导入路径
 
@@ -22,7 +22,7 @@ from statgpu.unsupervised import UMAP
 
 ## 目标函数
 
-UMAP 最小化高维图权重 `w_ij` 与低维亲和度 `q_ij` 之间的模糊集交叉熵：
+标准 UMAP 的参考目标是高维图权重 `w_ij` 与低维亲和度 `q_ij` 之间的模糊集交叉熵：
 
 $$
 \sum_{i,j} w_{ij}\log\frac{w_{ij}}{q_{ij}}
@@ -31,24 +31,37 @@ $$
 
 ## 估计方程
 
-默认用稠密、精确的搜索选出 `n_neighbors` 个近邻（`nn_method='auto'` 解析为 `exact`）；也可以显式请求内置的 NNDescent。随后构造对称的模糊隶属度图，并对嵌入做梯度更新。
+默认用稠密、精确的搜索选出 `n_neighbors` 个近邻（`nn_method='auto'` 解析为 `exact`）；也可以显式请求内置的 NNDescent。随后构造对称的模糊隶属度图，并执行吸引力及抽样排斥力更新。当前更新不是上式标准交叉熵的精确梯度，因此不能把本实现视为与 umap-learn 数值等价。
 
 ## 参数
 
 `n_neighbors`、`n_components`、`metric`、`min_dist`、`spread`、`n_epochs`、`learning_rate`、`init`、`negative_sample_rate`、`repulsion_strength`、`random_state`、`device`。
 
-## CPU+GPU 示例
+## 一个可独立运行的 CPU 示例
 
+<!-- learner-example: umap -->
 ```python
+import numpy as np
 from statgpu.unsupervised import UMAP
 
-embedding = UMAP(n_neighbors=15, device="cpu").fit_transform(X)
-embedding_gpu = UMAP(n_neighbors=15, device="cuda").fit_transform(X_gpu)
+rng = np.random.default_rng(0)
+X = np.vstack([rng.normal(-2, 0.4, (20, 3)), rng.normal(2, 0.4, (20, 3))])
+model = UMAP(n_neighbors=5, n_epochs=20, init="random", nn_method="exact", random_state=0, device="cpu")
+embedding = model.fit_transform(X)
+print(embedding.shape, model.n_epochs_)
 ```
 
-## 严格与近似模式的差别
+嵌入形状为 `(40, 2)`，只对应参与拟合的行。短迭代示例用于说明 API，不代表已获得理想可视化质量。不支持新数据 `transform`，应保留行标识以便追溯样本。
 
-`nn_method='exact'` 对稠密欧氏近邻搜索给出精确结果；`nn_method='nndescent'` 是近似搜索，并按所选后端执行。两种模式都要经过上述基于 SciPy 的主机侧模糊并集组装；完全后端原生的稀疏图流水线尚未实现。
+安装了相应 GPU 后端后，可新建估计器并指定 `device="cuda"`（CuPy）或 `device="torch"`（Torch CUDA）。数组通常留在该后端；输出所在设备及主机端步骤见 [API 参考](api-reference.md#umap)。显式请求的 GPU 不可用时会报错。
+
+## 后端与主机边界
+
+距离计算、图权重和嵌入数组使用所选的 NumPy、CuPy 或 Torch 后端。在 NumPy 2 上，数组分派存在限制：安装了 Torch 时，CPU 负采样还可能经由 Torch CPU 执行。目前明确披露的主机边界是模糊并集图（fuzzy-union graph）的组装：O(n*k) 的边索引和边权重会复制到主机内存，由 SciPy 的稀疏 COO/CSR 结构完成组装，再复制回所选后端。这不是优化过程的静默 CPU 回退，但也不是完全后端原生的稀疏图流水线。精确近邻还需要 O(n²) 的稠密距离矩阵内存；近似路径可用时，`nn_method='nndescent'` 能避开这个矩阵，但在 NumPy 2 的 CPU 路径上当前会失败。
+
+## 近似与解释边界
+
+`nn_method='exact'` 以 float32 距离运算穷举稠密欧氏近邻，舍入可能影响距离接近的情况；`nn_method='nndescent'` 是近似搜索，并按所选后端执行。两种模式都要经过上述基于 SciPy 的主机侧模糊并集组装；因此图组装仍需要主机内存。
 
 ## 输出
 
@@ -58,16 +71,20 @@ embedding_gpu = UMAP(n_neighbors=15, device="cuda").fit_transform(X_gpu)
 
 不支持稀疏输入、非欧氏 `metric`，也不支持对新样本调用 `transform`。近似近邻可以通过 `nn_method='nndescent'` 启用；图的组装仍然需要 SciPy 和主机内存。
 
-## 外部验证
 
-测试脚本：`dev/tests/test_unsupervised_umap.py`。
-基准测试：`dev/benchmarks/benchmark_unsupervised_phase3.py`。
-对齐基线：`umap-learn`，以及远程环境可用时的 cuML UMAP。
+## 当前限制
 
-## References
+- `nn_method="auto"` 始终选择精确搜索。NumPy 2 上的 CPU `nn_method="nndescent"` 当前会失败，应改用精确搜索。
+- CPU `n_components=1` 当前会在力累积时失败，请至少使用两个维度。
+- 每轮抽取 `n_samples * negative_sample_rate` 对均匀随机源点和目标点用于排斥，而不是对每条吸引边分别抽样。
+- 数值参数应全部有限；非有限学习率不一定被拒绝，却可能产生无效嵌入。
 
-- McInnes, L., Healy, J., & Melville, J. (2018). UMAP: Uniform Manifold Approximation and Projection for Dimension Reduction. *arXiv:1802.03426*.
+亲和度曲线为 $q_{ij}=(1+a\,r_{ij}^{b})^{-1}$，其中 $r_{ij}=\|y_i-y_j\|^2$。当前吸引项正比于 $w_{ij}q_{ij}(y_i-y_j)$，抽样排斥项正比于 $q_{ij}^2(y_i-y_j)$。标准交叉熵梯度还包含额外的距离相关因子。因此应把输出视为近似近邻布局，并直接检验其实际用途。
 
 ## 完整 API 参考
 
 构造默认值、全部公开方法、输出形状与限制见 [UMAP API 参考](api-reference.md#umap)。
+
+## References
+
+- McInnes, L., Healy, J., & Melville, J. (2018). UMAP: Uniform Manifold Approximation and Projection for Dimension Reduction. *arXiv:1802.03426*.

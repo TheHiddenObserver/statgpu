@@ -6,6 +6,8 @@
 
 本页用于在阅读 [CoxPH](../models/coxph.md)、[GAM](../models/semiparametric.md) 或[非参数方法](../models/nonparametric.md)示例后查找具体调用。签名列出公开参数与默认值；`*` 后的参数须按名称传入。形状记号：`n` 为训练行数，`p` 为特征数，`q` 为查询行数，`r` 为目标列数。预测等方法需要先成功拟合。通用[参数管理](estimator-api.md#parameter-management)和[推断辅助方法](estimator-api.md#inference-helpers)另有说明；通用重采样工具不会自动提供适合生存模型的推断或 GAM 置信带。
 
+本页模型的浮点计算使用 float64，不保留 float32 输入精度；后端原生数值预测仍使用拟合时的数组库类型。
+
 ## CoxPH 与 CoxPHCV
 
 从 `statgpu.survival` 导入。构造参数的含义、允许值和推断限制见 [CoxPH 参数表](../models/coxph.md#参数)及 [CoxPHCV 参数表](../models/coxph.md#coxphcv-参数)。
@@ -40,7 +42,8 @@ CoxPHCV.fit(X, time, event=None, entry=None, cluster=None, *, start=None, strata
 - `init_coef`：仅 CoxPH 接受的有限 `(p,)` 初值。`formula`、`data`：仅 CoxPH 接受的公式接口，使用 pandas DataFrame 和可选 pandas/Patsy 依赖；响应可为 `Surv(time,event)` 或 `Surv(start,stop,event)`。删除缺失行时会对齐辅助标签；预测复用已保存的设计转换，不允许静默删除行。
 - 两个 `fit` 均返回自身。Exact 并列事件与稳健推断组合抛出 `NotImplementedError`；Exact 仅估计拟合可用。输入或拟合失败不能被当作有效拟合结果。
 - CV `penalties` 是非空、有限、非负向量；为 `None` 时由 `n_penalties` 和 `penalty_min_ratio` 控制自动网格，特征量纲应具有可比性。`cv_splits` 用非空、不相交的整数训练/验证索引对覆盖自动划分。提供 `subject_id` 时会拒绝受试者泄漏。`random_state` 控制自动划分。
-- 选择目标是相同有效折上的平均未惩罚留出偏对数似然，不是 C-index。候选项须在每个有效折上得到有限分数并收敛；没有合格候选项时会报错。选定惩罚后在全部输入训练数据上重拟合；推断仅在最终重拟合进行，不校正调参不确定性。
+- 选择目标是相同有效折上的平均未惩罚留出偏对数似然；各折贡献其偏对数似然总和，不除以行数或事件数，也不是 C-index。候选项须在每个有效折上得到有限分数并收敛；没有合格候选项时会报错。选定惩罚后在全部输入训练数据上重拟合；推断仅在最终重拟合进行，不校正调参不确定性。自定义网格中，数值上近似并列时优先较强惩罚，因此 `best_score_` 可能略小于候选平均分数的最大值。
+- 自定义 `penalties` 拒绝布尔、字符串/字节和复数元素。候选按惩罚从强到弱评价，但 `penalties_` 及候选轴结果保留输入顺序。一次性 `cv_splits` 迭代器在首次拟合、`get_params`、克隆或序列化时被读取一次，之后复用；`get_params` 返回可重复使用的等价序列。不要另外消耗该迭代器。
 
 ### 预测、评分与摘要
 
@@ -125,7 +128,7 @@ CoxPHCV.summary()
 | `aic`、`bic` | 无惩罚 CoxPH 的标量属性。令 `k=p`、`d` 为事件数，AIC 为 `-2*log_likelihood+2*k`，BIC 为 `-2*log_likelihood+log(d)*k`；正惩罚拟合后读取会抛出 `RuntimeError`。 |
 | `concordance_index` | CoxPH 训练 C-index 属性；`compute_cindex=False` 时为 `None`。 |
 | `converged_`、`n_iter_` | 布尔值和整数；还应查看 `termination_reason_`、`optimization_stop_reason_`、`final_kkt_inf_`、`final_kkt_normalized_`。 |
-| `penalties_`、`penalty_`、`best_score_` | CoxPHCV 搜索的惩罚向量、选定标量，以及最优平均留出偏对数似然。 |
+| `penalties_`、`penalty_`、`best_score_` | CoxPHCV 搜索的惩罚向量（保留输入顺序）、选定标量及所选平均留出偏对数似然；适用上述数值近似并列规则。 |
 | `estimator_` | CoxPHCV 最终拟合的 CoxPH。通过它读取 CoxPH 属性，例如 `cv.estimator_.log_likelihood`；这些属性并非全部直接出现在 CV 对象上。 |
 | `cv_results_` | 字典：`pl_path`、`converged_path`、`failure_path` 按惩罚×折组织；`mean_pl`、`effective_fold_counts` 为逐惩罚向量；`fold_valid` 标识有效折。其他后端/缓存诊断见 [Cox 文档](../models/coxph.md#输出)。 |
 
@@ -198,7 +201,7 @@ GAM.summary()
 - `summary`：打印并返回字典，含 `n_features`、`n_splines_per_feature`、`spline_degree`、`penalty_order`、`smoothing_parameter`、`effective_df`、`intercept`，仅自动选择时另有 `gcv_score`。
 - 拟合属性：后端 `coef_`，长度为 `1+sum(n_basis_j)`；逐特征后端节点数组 `knots_`；标量 `intercept_`、`edf_`、`lam_`；自动选择时 `gcv_score_` 为浮点数，固定 lambda 时为 `None`；`n_features_` 为整数。系数对应中心化的基函数，不是原始特征斜率。
 - `lam=None` 搜索内置 100 点网格；没有 GAM 自定义网格或专用 CV 估计器接口。其他设置可用外部验证选择。没有专用 `score`、样本加权目标、family/link、系数推断或置信带方法；继承的通用工具不会自动补齐这些能力。
-- `set_params` 后始终重新拟合。部分 GAM 改参当前保留旧拟合数组，未重拟合便预测可能使用不一致状态。改变基函数设计时，创建新 GAM 实例最稳妥。
+- `set_params` 后始终重新拟合。部分 GAM 改参当前保留旧拟合数组，未重拟合便预测可能使用不一致状态。改变基函数设计时，创建新 GAM 实例最稳妥。重拟合若在构造基函数时失败，还可能把旧系数与新节点或特征数混在一起；此时应丢弃该实例，在新实例上成功拟合后再预测或解释 `summary()`。
 
 ## 核密度估计
 
@@ -276,6 +279,8 @@ kde_pdf(samples, points, *, bandwidth='scott', weights=None, kernel='gaussian', 
 
 拟合属性：`samples_` `(n,p)`、归一化 `weights_` `(n,)`、标量 `bandwidth_factor_`、`bandwidth_info_`（选择结果；数值带宽时为 `None`）、`covariance_` 和 `inv_covariance_` `(p,p)`、标量 `norm_const_` 和 `inv_norm_const_`、`kernel_`、`backend_`、`n_samples_`、`n_features_`。`to_numpy_metadata()` 返回含 `bandwidth_factor`、`bandwidth_selection`、`n_samples`、`n_features`、`backend`、`kernel`、`covariance`、`inv_covariance`、`weights` 的字典，数组为主机 NumPy 数组。
 
+`fit` 与 `score` 不使用可选 `y` 估计密度或计算分数，但传入非有限 `y` 仍会被通用输入校验拒绝；建议省略该参数。
+
 ## 核回归
 
 `KernelRegressionRegressor` 是 `KernelRegression` 的别名子类，构造参数和方法相同。共同的核、带宽、权重、后端、设备、任务数和清理参数沿用上节含义。
@@ -332,6 +337,8 @@ kernel_regression_predict(samples, targets, points, *, bandwidth='scott', weight
 除共同拟合字段（不含 KDE 归一化常数）外，回归还有 `targets_` `(n,r)`、`n_targets_`、`target_mean_` `(r,)`、`target_was_1d_`、`regression_`、`kernel_metric_`、`bandwidth_per_feature_`（后端向量或 `None`）。元数据含 `bandwidth_factor`、`bandwidth_selection`、`bandwidth_per_feature`、`n_samples`、`n_features`、`n_targets`、`backend`、`kernel`、`kernel_metric`、`regression`、`covariance`、`inv_covariance`、`weights`、`target_mean`。
 
 ## 密度置信区间
+
+即使 `method="normal"` 不进行自助抽样，`bootstrap_method` 也必须为 `"percentile"`。
 
 <!-- signature: kde_confidence_interval -->
 ```text

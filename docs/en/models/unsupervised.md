@@ -23,8 +23,7 @@
 | [MiniBatchKMeans](../unsupervised/minibatch-kmeans.md) | Larger-scale prototype clustering | Approximate inertia minimization with mini-batch updates |
 | [IncrementalPCA](../unsupervised/incremental-pca.md) | Batch-wise linear dimensionality reduction | Approximate centered rank-k reconstruction |
 | [MiniBatchNMF](../unsupervised/minibatch-nmf.md) | Larger-scale non-negative factorization | Mini-batch Frobenius reconstruction loss |
-| [UMAP](../unsupervised/umap.md) | Manifold embedding | Fuzzy graph cross-entropy |
-| [NNDescent](../unsupervised/umap.md) | Approximate nearest neighbor search | Iterative neighbor candidate refinement |
+| [UMAP](../unsupervised/umap.md) | Manifold embedding | Approximate neighborhood-layout forces |
 | [TSNE](../unsupervised/tsne.md) | Manifold visualization | KL divergence between affinity distributions |
 
 ## Device Behavior
@@ -42,3 +41,5 @@ so users receive a stable public error rather than estimator-specific low-level 
 Unsupervised estimators do not expose statistical inference fields such as standard errors, p-values, confidence intervals, AIC, or BIC unless the model naturally defines them. For these models, documentation focuses on algorithmic objective, exact versus iterative behavior, device support, and output semantics.
 
 For detailed API behavior and model-specific caveats, continue to the per-model pages linked above.
+
+The twelve public estimator classes and complete constructor/method contracts are listed in the [unsupervised index](../unsupervised/README.md) and [API reference](../unsupervised/api-reference.md). NNDescent is an internal neighbor-search implementation used by UMAP, not an additional export from `statgpu.unsupervised`.

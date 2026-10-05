@@ -6,7 +6,11 @@
 
 ## Overview
 
-`MiniBatchNMF` fits a non-negative low-rank factorization from dense mini-batches. Phase 3C supports Frobenius loss with multiplicative-update style mini-batch updates on CPU, CuPy/CUDA, and Torch CUDA.
+`MiniBatchNMF` fits a non-negative low-rank factorization from dense mini-batches. The current implementation supports Frobenius loss with multiplicative-update style mini-batch updates on CPU, CuPy/CUDA, and Torch CUDA.
+
+## When to use it
+
+Use MiniBatchNMF for nonnegative additive structure learned in batches. `fit` receives all rows; `partial_fit` accepts an external stream. Keep rank and feature meaning fixed, and inspect reconstruction with factors returned by `transform` rather than assuming its solve equals the fitting updates.
 
 ## Path
 
@@ -25,7 +29,7 @@ $$
 
 ## Estimating Equation
 
-For each batch, `MiniBatchNMF` initializes or updates batch activations `W_batch` with fixed `H`, then updates `H` using multiplicative updates:
+For each batch, `MiniBatchNMF` approximately solves activations `W_batch` with fixed `H`. In `fit`, it holds `H` fixed for a whole epoch, sums `A = sum(W_batch.T @ W_batch)` and `B = sum(W_batch.T @ X_batch)`, then updates `H`. In `partial_fit`, these statistics accumulate across calls. The elementary multiplicative updates have the form:
 
 $$
 W \leftarrow W \odot \frac{XH^\top}{WHH^\top + \epsilon},
@@ -36,23 +40,34 @@ $$
 ## Parameters
 
 - `n_components`: factorization rank; `None` uses `min(n_samples, n_features)`.
-- `init`: v1 supports `"random"`.
+- `init`: currently supports `"random"`.
 - `batch_size`, `max_iter`, `tol`, `random_state`.
 - `device`: `"auto"`, `"cpu"`, `"cuda"`, or `"torch"`.
 
-## CPU+GPU Examples
+## A small CPU example
 
+<!-- learner-example: minibatch-nmf -->
 ```python
+import numpy as np
 from statgpu.unsupervised import MiniBatchNMF
 
-nmf = MiniBatchNMF(n_components=8, batch_size=1024, max_iter=50, random_state=0, device="torch")
-W = nmf.fit_transform(X)
-X_hat = nmf.inverse_transform(W)
+rng = np.random.default_rng(0)
+X = rng.uniform(0.1, 1.0, (60, 2)) @ rng.uniform(0.1, 1.0, (2, 5))
+model = MiniBatchNMF(n_components=2, random_state=0, device="cpu")
+for start in range(0, len(X), 15):
+    model.partial_fit(X[start:start + 15])
+W = model.transform(X)
+X_hat = model.inverse_transform(W)
+print(W.shape, model.components_.shape, np.linalg.norm(X - X_hat))
 ```
 
-## Strict/Approx Difference
+The factors are `(60, 2)` and `(2, 5)`. After `partial_fit`, `reconstruction_err_` describes only that batch with the fitting factors; the independently computed full-data residual above answers a different question.
 
-MiniBatchNMF is non-convex and mini-batch order dependent. It is intended for scalable approximate factorization, not strict statistical inference.
+For a supported GPU installation, construct a new estimator with `device="cuda"` (CuPy) or `device="torch"` (Torch CUDA). Arrays generally stay on that backend; see the [API reference](api-reference.md#minibatchnmf) for output ownership and host-side work. An unavailable explicit GPU raises an error.
+
+## Approximation and interpretation
+
+MiniBatchNMF is non-convex; incremental `partial_fit` updates depend on batch order. Ordinary `fit` aggregates statistics over an epoch before updating components. It is intended for scalable approximate factorization, not strict statistical inference.
 
 ## Outputs
 
@@ -64,25 +79,19 @@ MiniBatchNMF is non-convex and mini-batch order dependent. It is intended for sc
 
 ## FAQ
 
-**Does v1 support negative or sparse input?**
+**Does it support negative or sparse input?**
 No. Inputs must be dense and non-negative.
 
-**Does v1 support CD solver or other beta losses?**
-No. Phase 3C supports MU-style updates and Frobenius loss only.
+**Does it support CD solver or other beta losses?**
+No. The current implementation supports MU-style updates and Frobenius loss only.
 
-## External Validation
 
-- Tests: `dev/tests/test_unsupervised_minibatch_nmf.py`.
-- Benchmark: `dev/benchmarks/benchmark_unsupervised_phase3c.py`.
-- Latest remote artifact: `results/unsupervised_phase3c_opt7_20260507_185500.json`.
-- Baseline: sklearn `MiniBatchNMF` with aligned rank, batch size, initialization, and iteration count.
+## Complete API reference
+
+Constructor defaults, all public methods, output shapes, and restrictions are listed in the [MiniBatchNMF API reference](api-reference.md#minibatchnmf).
 
 ## References
 
 - Lee, D. D., & Seung, H. S. (2001). Algorithms for non-negative matrix factorization. *Advances in Neural Information Processing Systems*, 13.
 - Cichocki, A., Zdunek, R., Phan, A. H., & Amari, S.-I. (2009). *Nonnegative Matrix and Tensor Factorizations: Applications to Exploratory Multi-way Data Analysis and Blind Source Separation*. Wiley.
 - scikit-learn Developers. `sklearn.decomposition.MiniBatchNMF`. scikit-learn documentation. https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.MiniBatchNMF.html
-
-## Complete API reference
-
-Constructor defaults, all public methods, output shapes, and restrictions are listed in the [MiniBatchNMF API reference](api-reference.md#minibatchnmf).

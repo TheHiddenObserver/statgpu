@@ -29,9 +29,9 @@ model.adjust_pvalues(pvalues=None, method="bh", alpha=0.05, axis=0, backend="aut
 - `method`: `"bh"`, `"by"`, `"holm"`, `"bonferroni"`, or `"hochberg"`; supported aliases are described in [multiple testing](../guides/multiple-testing-combine-pvalues.md).
 - `alpha`: significance level in `(0, 1)`.
 - `axis=0`: adjust along the first axis; `None` treats every entry as one family. Choose the family deliberately, especially for multi-output coefficient arrays.
-- `backend`: `"auto"`, `"numpy"`, `"cupy"`, or `"torch"`; `auto` follows the estimator's resolved device, rather than simply inferring from the supplied p-value array.
+- `backend`: `"auto"`, `"numpy"`, `"cupy"`, or `"torch"`; `auto` explicitly selects CuPy/Torch when the estimator resolves to that GPU device. When it resolves to CPU, the helper currently leaves backend selection to the supplied arrays; pass `backend="numpy"` to require NumPy output. Explicit `backend="torch"` on an estimator helper requires Torch CUDA, even for a CPU estimator.
 
-Returns a dictionary with `method`, `alpha`, `axis`, `backend`, `pvalues`, `pvalues_adjusted`, and boolean `reject`. Adjusted values and decisions have the input shape. This is not the `(reject, adjusted)` tuple returned by the module function. Valid marginal p-values and the selected procedure's dependence assumptions are still required.
+Returns a dictionary with `method`, `alpha`, `axis`, `backend`, `pvalues`, `pvalues_adjusted`, and boolean `reject`. Adjusted values and decisions have the input shape. The `backend` field records the helper's selection argument and can remain `"auto"`; it is not always the final array-library name. `pvalues` can retain the supplied list/array type when no explicit conversion occurs. This is not the `(reject, adjusted)` tuple returned by the module function. Valid marginal p-values and the selected procedure's dependence assumptions are still required.
 
 ### combine_pvalues
 
@@ -56,7 +56,7 @@ model.bootstrap_statistic(
 | Argument | Meaning and restrictions |
 |---|---|
 | `statistic` | Callable receiving the aligned arrays and returning a finite scalar; it must support the selected array backend. |
-| `*arrays` | One or more nonempty arrays with the same first-axis length. Pass `data`, not `(data,)`, for one array. If omitted, the method tries cached `_X_design` and `_y`; unavailable caches raise. A cached design can contain an intercept or transformed columns, so explicit arrays are usually clearer. |
+| `*arrays` | One or more nonempty arrays with the same first-axis length. Pass `data`, not `(data,)`, for one array. If omitted, the method tries cached `_X_design` and `_y`; unavailable caches raise. A cached design can contain an intercept, formula columns, or square-root-weighted rows. Its response cache need not have the same weight transformation. Pass explicit arrays and weights when defining a weighted statistic; caches are not a guarantee of valid raw training pairs. |
 | `n_resamples=200` | Positive integer number of resamples. More draws reduce Monte Carlo variability, not model bias. |
 | `strategy="iid"` | `iid`: sample rows with replacement; `stratified`: resample within each stratum; `cluster`: resample clusters together; `block`: sample contiguous blocks. Aligned arrays use the same resampled row indices. |
 | `strata=None`, `clusters=None` | Length-n labels, required by `stratified` or `cluster`, respectively. |
@@ -64,11 +64,11 @@ model.bootstrap_statistic(
 | `confidence_level=0.95` | Level in `(0, 1)` for percentile intervals. |
 | `random_state=None` | Integer seed or no fixed seed. Reproducibility is scoped to the backend and procedure, not identical draws across all libraries. |
 | `statistic_name="statistic"` | Reporting label; does not select the callable or change the statistic. |
-| `backend="auto"` | Same estimator-device selection as above; explicit NumPy/CuPy/Torch is also accepted. |
+| `backend="auto"` | Same GPU/CPU-auto distinction as above; pass `numpy` to require NumPy. Explicit CuPy/Torch requests require the respective GPU backend. |
 
 Returns `BootstrapResult`: `observed` (the original scalar), `samples` (length `n_resamples`, backend array), `confidence_interval` (lower/upper pair), `confidence_level`, `n_resamples`, `random_state`, `statistic_name`, `strategy`, and `metadata`. `to_dict()` converts samples to a list; `to_dataframe()` requires pandas and returns `sample_index`/`statistic` columns. The original statistic is named `observed`, not `statistic`.
 
-The bootstrap interval is the empirical quantile pair at `(1-confidence_level)/2` and `(1+confidence_level)/2`. Exchangeability/resampling-unit assumptions remain the caller's responsibility. This generic helper is not the residual coefficient-bootstrap inference mode of ElasticNet.
+The bootstrap interval is the empirical quantile pair at `(1-confidence_level)/2` and `(1+confidence_level)/2`. Exchangeability/resampling-unit assumptions remain the caller's responsibility. Callbacks may also be probed with a leading batch dimension before scalar fallback; avoid side effects and handle the intended axes explicitly if returning batched values. This generic helper is not the residual coefficient-bootstrap inference mode of ElasticNet.
 
 ### permutation_test
 
@@ -104,4 +104,4 @@ This prints `[True, False, False]` and `5.5 99`. Explicit p-values and data make
 
 ## Module-function differences
 
-The free `bootstrap_statistic` and `permutation_test` functions additionally accept `force_vectorized=False` and `statistic_hint=None`; these are not accepted by the estimator wrappers. `force_vectorized=True` requires a compatible IID batched computation. Supported hints are `"mean"` and `"pearson_corr"`, with their matching statistic/procedure; do not use a hint for an unrelated callable. Free functions infer `backend="auto"` from their arrays and require explicit data. See [the module guide](../guides/inference-api.md) for imports and examples.
+The free `bootstrap_statistic` and `permutation_test` functions additionally accept `force_vectorized=False` and `statistic_hint=None`; these are not accepted by the estimator wrappers. Batched computation is available for IID and stratified resampling, block bootstrap, equal-size cluster bootstrap, and grouped permutation. On these paths, `force_vectorized=True` requires one result per resample batch row. Unequal-size cluster bootstrap currently uses scalar calls even with that flag; do not treat it as a universal vectorization guarantee. Use `statistic_hint="mean"` for a matching bootstrap mean and `"pearson_corr"` for a matching permutation correlation. Hints choose built-in resample calculations and do not verify that the supplied observed-statistic callable is equivalent. Free functions infer `backend="auto"` from their arrays and require explicit data. See [the module guide](../guides/inference-api.md) for imports and examples.
