@@ -81,3 +81,73 @@ def test_documented_standalone_logistic_penalty_scale():
         alpha = 0 if C == 0 else 1 / C
         np.testing.assert_allclose(X.T @ residual - alpha * model.coef_, 0, atol=1e-7)
         np.testing.assert_allclose(residual.sum(), 0, atol=1e-7)
+
+
+@pytest.mark.parametrize("language", ("en", "cn"))
+def test_elasticnet_initialization_documentation_tracks_runtime(language):
+    from statgpu.linear_model import ElasticNet
+
+    rng = np.random.default_rng(82)
+    X = rng.normal(size=(80, 3))
+    y = X @ np.array([1.0, -0.5, 0.0]) + rng.normal(scale=0.2, size=80)
+    model = ElasticNet(alpha=0.03, device="cpu")
+    model.fit(X, y, initial_coef=np.array([1.0, 2.0, 3.0]))
+    model.fit(X, y)
+    retained = getattr(model, "_init_coef", None) is not None
+
+    text = (_ROOT / f"docs/{language}/models/elastic-net.md").read_text(encoding="utf-8")
+    retention_warning = {
+        "en": "retains this starting vector",
+        "cn": "仍会保留该初值",
+    }[language]
+    # Couple the warning to observed behavior, without requiring future
+    # implementations to retain the old initial vector or to raise an error.
+    assert (retention_warning in text) == retained
+    if retained:
+        fresh_advice = {"en": "Create a fresh estimator", "cn": "应新建估计器"}[language]
+        assert fresh_advice in text
+        assert "one-fit" not in text and "只为一次拟合" not in text
+
+    # The documented fresh-estimator route supports a changed feature count.
+    fresh = ElasticNet(alpha=0.03, device="cpu").fit(X[:, :2], y)
+    assert fresh.coef_.shape == (2,)
+    assert np.all(np.isfinite(fresh.predict(X[:, :2])))
+
+
+@pytest.mark.parametrize("language", ("en", "cn"))
+def test_elasticnet_bootstrap_documentation_matches_public_result(language):
+    from statgpu.linear_model import ElasticNet
+
+    rng = np.random.default_rng(82)
+    X = rng.normal(size=(80, 3))
+    y = X @ np.array([1.0, -0.5, 0.0]) + rng.normal(scale=0.2, size=80)
+    model = ElasticNet(
+        alpha=0.03, l1_ratio=0.4, device="cpu",
+        compute_inference=True, inference_method="bootstrap",
+    )
+    model.n_bootstrap = 4
+    model.bootstrap_random_state = 42
+    model.fit(X, y)
+    result = model._inference_result
+    assert result.method == "residual_bootstrap"
+    assert result.metadata["refit_penalty"] == "elasticnet"
+    assert result.metadata["numerical_backend"] == "numpy"
+    assert result.metadata["numerical_device"] == "cpu"
+    assert result.metadata["reporting_backend"] == "numpy"
+    assert result.metadata["penalty_conditioning"] == "fixed_penalty"
+    assert np.all(np.isfinite(result.conf_int))
+
+    text = (_ROOT / f"docs/{language}/models/elastic-net.md").read_text(encoding="utf-8")
+    for contract in ("NumPy/CuPy/Torch", "`sample_weight=None`", '`cov_type="nonrobust"`'):
+        assert contract in text
+    for stale in ("remains a CPU-native residual-refit path", "当前仍是 CPU 原生的残差重拟合路径"):
+        assert stale not in text
+
+    with pytest.raises(NotImplementedError, match="Weighted Gaussian residual-bootstrap"):
+        model.fit(X, y, sample_weight=np.ones(len(y)))
+    robust = ElasticNet(
+        device="cpu", compute_inference=True,
+        inference_method="bootstrap", cov_type="hc1",
+    )
+    with pytest.raises(NotImplementedError, match="nonrobust"):
+        robust.fit(X, y)

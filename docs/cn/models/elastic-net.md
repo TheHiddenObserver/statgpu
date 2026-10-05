@@ -1,7 +1,7 @@
 # Elastic Net 弹性网络
 
 > 语言：中文  
-> 最后更新：2026-10-04<br>
+> 最后更新：2026-10-05<br>
 > 页面定位：模型文档  
 > 切换：[English](../../en/models/elastic-net.md)
 
@@ -53,7 +53,7 @@ print("held-out R2:", round(float(model.score(X[300:], y[300:])), 3))
 
 ## 输入与预测要求
 
-`X` 应为有限数值组成的 `(n_samples, n_features)` 矩阵，`y` 为一维响应。预测时必须保持训练时的列顺序与预处理方式。拟合接口为 `fit(X=None, y=None, sample_weight=None, initial_coef=None, **kwargs)`；可选的非负分析权重（analytic weights）进入归一化加权损失。`initial_coef` 只为一次拟合提供初始系数，不是持久的 `warm_start` 构造参数。共享的可选公式接口通过拟合关键字接受 `formula=` 与 `data=`。
+`X` 应为有限数值组成的 `(n_samples, n_features)` 矩阵，`y` 为一维响应。预测时必须保持训练时的列顺序与预处理方式。拟合接口为 `fit(X=None, y=None, sample_weight=None, initial_coef=None, **kwargs)`；可选的非负分析权重（analytic weights）进入归一化加权损失。`initial_coef` 通过 `fit` 提供初始系数，构造函数没有 `warm_start` 参数。当前实现仍会保留该初值；后续拟合省略 `initial_coef` 并不会将它清除。若要恢复默认初始化，应新建估计器，尤其是在改变特征数量时；旧初值的长度与新输入不一致会导致维度错误。共享的可选公式接口通过拟合关键字接受 `formula=` 与 `data=`。
 
 ## 路径
 
@@ -135,7 +135,7 @@ w = soft_threshold(w_tilde, alpha * l1_ratio * step) / (
 | `cov_type` | `"nonrobust"` | 适用方法中的协方差约定 |
 | `hac_maxlags` | `None` | 支持 HAC 时使用的滞后阶数 |
 
-公开接口不单独提供 `backend`、`warm_start` 或 `random_state` 构造参数。计算后端由 `device` 控制；如需为一次拟合提供热启动，可使用 `fit(initial_coef=...)`。
+公开接口不单独提供 `backend`、`warm_start` 或 `random_state` 构造参数。计算后端由 `device` 控制；可通过 `fit(initial_coef=...)` 提供初始系数，但需注意前面说明的重复拟合限制。
 
 ## 补充 CPU/GPU 示例
 
@@ -214,7 +214,7 @@ $$
 
 选择后 OLS 仍属于启发式诊断，不提供一般意义上的选择性推断覆盖保证。其推断以已经选定的正则化参数为条件，也不会改变原始惩罚拟合系数。
 
-设备选择与统计方法正交：显式 `cpu` / `cuda` / `torch` 始终以用户请求为准；只有真正的 `device="auto"` 才允许后端原生的 CuPy 或 Torch-CUDA 输入参与自动路由。`post_selection_ols` 复用拟合解析出的后端；CuPy/Torch 的 `debiased` 推断也会把数值推断留在实际执行的 GPU 后端，包括正态参考分布的标量临界值。残差 `bootstrap` 当前仍是 CPU 原生的残差重拟合路径；显式 GPU `device` 会控制惩罚拟合，但不会让 bootstrap 变成 GPU 原生。
+设备选择与统计方法正交：显式 `cpu` / `cuda` / `torch` 始终以用户请求为准；只有真正的 `device="auto"` 才允许后端原生的 CuPy 或 Torch-CUDA 输入参与自动路由。`post_selection_ols` 复用拟合解析出的后端；CuPy/Torch 的 `debiased` 推断也会把数值推断留在实际执行的 GPU 后端，包括正态参考分布的标量临界值。残差 `bootstrap` 同样使用拟合时记录的 NumPy/CuPy/Torch 后端和具体设备构造重采样响应、执行子模型的数值重拟合，并保留原拟合的惩罚与调参配置。NumPy 负责生成共用的残差索引序列并保存最终报告数组；这些环节不代表 GPU 上的数值重拟合转到了 CPU。该路径要求 `sample_weight=None` 且 `cov_type="nonrobust"`，加权或 HC/HAC bootstrap 请求会明确报错。它描述给定调参值时惩罚系数的分布，不修正选择带来的不确定性。
 
 对于带截距的 `debiased` 推断，公开 `coef_`/`intercept_` 继续属于 **惩罚预测拟合**。推断/报告使用纠偏（debiased）斜率 `_params[1:]`，以及与它们配套的原始坐标系截距 `_params[0] = ybar_w - xbar_w @ _params[1:]`；因此第一行标准误/z 值/p 值/置信区间（SE/z/p-value/CI）描述的是该纠偏报告截距，而不是预测 `intercept_`。结果元数据会记录 `intercept_estimator="centered_debiased"` 与 `intercept_influence="centered_nodewise"`。分析权重在 NumPy/CuPy/Torch 上使用同一个加权中心化平均损失问题，因此整体乘以正常数不会改变这套推断。
 

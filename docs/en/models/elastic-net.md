@@ -1,7 +1,7 @@
 # Elastic Net
 
 > Language: English  
-> Last updated: 2026-10-03<br>
+> Last updated: 2026-10-05<br>
 > This page: Model documentation  
 > Language switch: [Chinese](../../cn/models/elastic-net.md)
 
@@ -53,7 +53,7 @@ For this seed, the CPU output is approximately: coefficients `[0.938, 0.834, -0.
 
 ## Input and prediction requirements
 
-Use finite numeric `X` with shape `(n_samples, n_features)` and a one-dimensional response `y`. Prediction columns must match the training order and preprocessing. The fitting interface is `fit(X=None, y=None, sample_weight=None, initial_coef=None, **kwargs)`; optional nonnegative analytic weights enter the normalized weighted loss. `initial_coef` supplies a one-fit starting coefficient vector; it is not a persistent `warm_start` constructor flag. The shared optional formula interface accepts `formula=` and `data=` via fit keywords.
+Use finite numeric `X` with shape `(n_samples, n_features)` and a one-dimensional response `y`. Prediction columns must match the training order and preprocessing. The fitting interface is `fit(X=None, y=None, sample_weight=None, initial_coef=None, **kwargs)`; optional nonnegative analytic weights enter the normalized weighted loss. `initial_coef` supplies a starting coefficient vector through `fit`; there is no `warm_start` constructor flag. The current implementation retains this starting vector on the estimator: omitting `initial_coef` on a later fit does not clear it. Create a fresh estimator when you want the default initialization, especially when changing the feature count; a retained vector with the old width can cause a dimension error. The shared optional formula interface accepts `formula=` and `data=` via fit keywords.
 
 ## Path
 
@@ -135,7 +135,7 @@ Numerical convergence only establishes that the declared optimization problem ha
 | `cov_type` | `"nonrobust"` | Covariance convention where applicable |
 | `hac_maxlags` | `None` | HAC lag count where supported |
 
-The public wrapper does not accept separate `backend`, `warm_start`, or `random_state` constructor parameters. Backend selection is controlled by `device`; a one-fit warm start can be supplied through `fit(initial_coef=...)`.
+The public wrapper does not accept separate `backend`, `warm_start`, or `random_state` constructor parameters. Backend selection is controlled by `device`; starting coefficients can be supplied through `fit(initial_coef=...)`, subject to the reuse limitation described above.
 
 ## Additional CPU/GPU examples
 
@@ -214,7 +214,7 @@ For `post_selection_ols`, the penalized model first determines the active set. s
 
 Post-selection OLS remains heuristic and does not provide general selective-inference coverage. Inference is conditional on selected regularization parameters and does not alter the fitted penalized coefficients.
 
-Device selection is orthogonal to the statistical method: explicit `cpu`/`cuda`/`torch` is authoritative, while only genuine `device="auto"` may preserve backend-native CuPy or Torch-CUDA input during automatic routing. `post_selection_ols` reuses the fit-resolved backend, and maintained CuPy/Torch `debiased` routes keep numerical inference on the executed GPU backend, including scalar normal-reference critical values. Residual `bootstrap` remains a CPU-native residual-refit path; an explicit GPU `device` controls the penalized fit but does not make bootstrap GPU-native.
+Device selection is orthogonal to the statistical method: explicit `cpu`/`cuda`/`torch` is authoritative, while only genuine `device="auto"` may preserve backend-native CuPy or Torch-CUDA input during automatic routing. `post_selection_ols` reuses the fit-resolved backend, and maintained CuPy/Torch `debiased` routes keep numerical inference on the executed GPU backend, including scalar normal-reference critical values. Residual `bootstrap` also uses the fit-recorded NumPy/CuPy/Torch backend and concrete device for response construction and numerical child refits, preserving the fitted penalty and tuning configuration. NumPy generates the shared residual-index schedule and stores final reporting arrays; these boundaries do not make GPU numerical refits CPU-only. This path requires `sample_weight=None` and `cov_type="nonrobust"`; weighted or HC/HAC bootstrap requests fail explicitly. It describes the penalized coefficient distribution conditional on the chosen tuning, without selection adjustment.
 
 For `debiased` inference with an intercept, public `coef_`/`intercept_` remain the **penalized prediction fit**. Inference reporting uses debiased slopes `_params[1:]` and their matching original-coordinate intercept `_params[0] = ybar_w - xbar_w @ _params[1:]`; the first SE/z/p-value/CI row therefore belongs to this debiased reporting intercept rather than prediction `intercept_`. The result metadata records `intercept_estimator="centered_debiased"` and `intercept_influence="centered_nodewise"`. Analytic weights use the same weighted-centered average-loss problem across NumPy/CuPy/Torch, so global positive weight rescaling leaves this inference unchanged.
 

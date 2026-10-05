@@ -72,3 +72,48 @@ def test_index_cpu_workflow_reconstructs_held_out_rows(language):
     np.testing.assert_allclose(model.components_ @ model.components_.T, np.eye(2), atol=1e-12)
     assert model.explained_variance_ratio_.sum() > 0.99
     assert np.mean((namespace['X_test'] - namespace['X_reconstructed']) ** 2) < 0.002
+
+
+@pytest.mark.parametrize('language', ('en', 'cn'))
+def test_index_gmm_covariance_literals_are_accepted_by_public_api(language):
+    import numpy as np
+
+    from statgpu.unsupervised import GaussianMixture
+
+    text = (_ROOT / f'docs/{language}/unsupervised/README.md').read_text(encoding='utf-8')
+    row = next(line for line in text.splitlines() if line.startswith('- [GaussianMixture]'))
+    documented = re.findall(r'`([^`]+)`', row)
+    assert set(documented) == {'diag', 'spherical', 'tied', 'full'}
+    rng = np.random.default_rng(17)
+    X = np.vstack([rng.normal(-2, 0.3, (30, 2)), rng.normal(2, 0.3, (30, 2))])
+    for covariance_type in documented:
+        model = GaussianMixture(
+            n_components=2, covariance_type=covariance_type,
+            device='cpu', random_state=17,
+        ).fit(X)
+        assert np.all(np.isfinite(model.predict_proba(X)))
+
+
+@pytest.mark.parametrize('language', ('en', 'cn'))
+def test_index_discloses_dbscan_runtime_neighbor_dependency(language, monkeypatch):
+    import numpy as np
+
+    from statgpu.unsupervised import DBSCAN
+
+    neighbors = pytest.importorskip('sklearn.neighbors')
+    original = neighbors.NearestNeighbors
+    calls = []
+
+    def track_neighbors(*args, **kwargs):
+        calls.append(kwargs)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(neighbors, 'NearestNeighbors', track_neighbors)
+    X = np.random.default_rng(17).normal(size=(20, 13))
+    model = DBSCAN(eps=2.0, min_samples=2, device='cpu').fit(X)
+    assert calls and calls[0]['metric'] == 'euclidean'
+    assert model.labels_.shape == (20,)
+    text = (_ROOT / f'docs/{language}/unsupervised/README.md').read_text(encoding='utf-8')
+    assert '`NearestNeighbors`' in text and 'scikit-learn' in text
+    assert 'External packages serve as validation or benchmark references;' not in text
+    assert '这些外部软件包仅作为验证或基准测试的对照' not in text

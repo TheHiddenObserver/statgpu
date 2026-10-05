@@ -1,7 +1,7 @@
 # 无监督学习
 
 > 语言：中文
-> 最后更新：2026-10-04
+> 最后更新：2026-10-05
 > 本页：无监督学习索引
 > 切换：[English](../../en/unsupervised/README.md)
 
@@ -62,7 +62,7 @@ print("held-out reconstruction MSE:", round(float(np.mean((X_test - X_reconstruc
 - [PCA](pca.md)：精确或随机化（randomized）主成分分析。
 - [KMeans](kmeans.md)：Lloyd 迭代聚类，支持 random 与贪心 k-means++ 初始化。
 - [DBSCAN](dbscan.md)：稠密欧氏距离的密度聚类，支持可选的 statgpu 自有 Cython CPU 快速路径。
-- [GaussianMixture](gaussian-mixture.md)：支持 `diagonal`、`spherical`、`tied`、`full` 四种协方差结构的高斯混合模型，用 EM 算法拟合。
+- [GaussianMixture](gaussian-mixture.md)：支持 `diag`（对角协方差）、`spherical`、`tied`、`full` 四种协方差结构的高斯混合模型，用 EM 算法拟合。
 - [NMF](nmf.md)：在 Frobenius 损失下用乘性更新求解的非负矩阵分解。
 - [AgglomerativeClustering](agglomerative-clustering.md)：稠密数据的精确层次聚类，支持 single、complete、average、ward 连接。
 - [TruncatedSVD](truncated-svd.md)：不对输入做中心化的稠密截断 SVD。
@@ -95,4 +95,4 @@ print("held-out reconstruction MSE:", round(float(np.mean((X_test - X_reconstruc
 
 这些无监督估计器均有对应的单元测试，并在适用时与 scikit-learn、cuML、umap-learn 或 openTSNE 等外部实现进行数值对照。GPU 路径还会检查设备语义和 CPU/GPU 结果一致性。性能会明显依赖数据规模、维数、硬件和数据驻留位置，因此外部基准只应作为参考，实际使用时建议针对自己的工作负载重新测量。
 
-这些外部软件包仅作为验证或基准测试的对照；生产代码保持 statgpu 自有实现。
+外部数值对照不代表所有生产路径都不依赖这些软件包。例如，CPU `DBSCAN` 在特征数大于 12 时，会调用 scikit-learn 的 `NearestNeighbors` 搜索邻居；聚类与标签分配由 statgpu 完成。具体依赖与执行边界见 [DBSCAN 指南](dbscan.md)。

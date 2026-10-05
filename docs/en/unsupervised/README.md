@@ -1,7 +1,7 @@
 # Unsupervised Learning
 
 > Language: English
-> Last updated: 2026-10-04
+> Last updated: 2026-10-05
 > This page: Unsupervised learning index
 > Switch: [Chinese](../../cn/unsupervised/README.md)
 
@@ -62,7 +62,7 @@ The shapes are `(90, 2)` and `(30, 2)`. The retained variance fraction is close 
 - [PCA](pca.md): exact or randomized principal component analysis.
 - [KMeans](kmeans.md): Lloyd clustering with random or greedy k-means++ initialization.
 - [DBSCAN](dbscan.md): dense Euclidean density clustering with optional statgpu-owned Cython CPU acceleration.
-- [GaussianMixture](gaussian-mixture.md): Gaussian mixture fitted by EM with diagonal, spherical, tied, or full covariance.
+- [GaussianMixture](gaussian-mixture.md): Gaussian mixture fitted by EM with `diag` (diagonal), `spherical`, `tied`, or `full` covariance.
 - [NMF](nmf.md): non-negative matrix factorization with multiplicative updates and Frobenius loss.
 - [AgglomerativeClustering](agglomerative-clustering.md): exact dense single, complete, average, or ward linkage clustering.
 - [TruncatedSVD](truncated-svd.md): dense uncentered truncated SVD for low-rank projection.
@@ -95,4 +95,4 @@ Explicit `device="cuda"` and `device="torch"` do not silently fall back to CPU. 
 
 These estimators have unit tests and, where applicable, numerical comparisons with scikit-learn, cuML, umap-learn or openTSNE. GPU checks also cover device behavior and CPU/GPU consistency. Such comparisons apply to the recorded settings; they do not guarantee the same accuracy or speed for every dataset, version or device. Use the model pages for relevant assumptions and validation context, and benchmark your own workload when performance matters.
 
-External packages serve as validation or benchmark references; production estimator code remains statgpu-owned.
+External comparisons do not imply that every production path is independent of those packages. For example, CPU `DBSCAN` with more than 12 features uses scikit-learn's `NearestNeighbors` for neighbor search; statgpu performs the clustering and label assignment. See the [DBSCAN guide](dbscan.md) for its dependency and execution boundaries.
