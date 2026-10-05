@@ -1,7 +1,7 @@
 # LinearRegression
 
 > Language: English  
-> Last updated: 2026-10-03  
+> Last updated: 2026-10-05  
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/linear-regression.md)
 
@@ -88,9 +88,9 @@ coefficient intervals, not prediction intervals for new observations.
 
 ## Inputs and outputs
 
-- Array input: finite numeric `X` with shape `(n_samples, n_features)` and `y`
-  with shape `(n_samples,)` or `(n_samples, n_targets)`. A one-column `y` is
-  treated as single-output. Keep prediction columns in the training order.
+- Fitting array input: finite numeric `X` with shape `(n_samples, n_features)`
+  and `y` with shape `(n_samples,)` or `(n_samples, n_targets)`. `fit` flattens
+  a one-column `y` to single-output. Keep prediction columns in the training order.
 - `fit(X, y, sample_weight=None)` returns the fitted estimator. Weights must be
   finite, nonnegative, have length `n_samples`, and have positive sum; they
   change the fitting objective, not just the reported errors.
@@ -103,6 +103,26 @@ coefficient intervals, not prediction intervals for new observations.
 - Multi-output `coef_` is `(n_targets, n_features)`, `intercept_` is
   `(n_targets,)`, and predictions are `(n_new, n_targets)`. `score` returns the
   mean per-target $R^2$, not an array of scores.
+
+For a single target, pass a one-dimensional response to `score(X, y)`.
+Unlike `fit`, `score` currently does not flatten `(n_samples, 1)` responses;
+subtracting the one-dimensional predictions then broadcasts into a matrix and
+can silently produce an incorrect $R^2$. Flatten only a single-target response
+before scoring; do not flatten a genuine multi-target array.
+
+<!-- learner-example: linear-column-target -->
+```python
+import numpy as np
+from statgpu.linear_model import LinearRegression
+
+X = np.arange(6.0)[:, None]
+y_column = 2.0 + 3.0 * X
+model = LinearRegression(device="cpu", compute_inference=False).fit(X, y_column)
+r2 = model.score(X, y_column.ravel())
+print("R2:", round(float(r2), 3))
+```
+
+This prints `R2: 1.0`: the line fits these noiseless observations exactly.
 
 ## Choosing parameters and covariance
 

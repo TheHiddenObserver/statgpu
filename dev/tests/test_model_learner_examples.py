@@ -53,6 +53,30 @@ def test_first_learner_example_is_self_contained_cpu(language, page):
 
 
 @pytest.mark.parametrize("language", ("en", "cn"))
+def test_linear_column_target_example_scores_a_flattened_response(language):
+    from statgpu.linear_model import LinearRegression
+
+    page = _ROOT / f"docs/{language}/models/linear-regression.md"
+    text = page.read_text(encoding="utf-8")
+    match = re.search(
+        r"<!-- learner-example: linear-column-target -->\s*```python\n(.*?)```",
+        text, flags=re.DOTALL,
+    )
+    assert match is not None, f"{page}: missing single-column scoring example"
+    namespace = {}
+    exec(compile(match.group(1), str(page), "exec"), namespace)  # noqa: S102
+    model, X, y_column = (namespace[name] for name in ("model", "X", "y_column"))
+    assert y_column.shape == (len(X), 1)
+    assert model.predict(X).shape == (len(X),)
+    # Exercise the safe public call without requiring the underlying shape bug
+    # to persist after a future production fix.
+    expected = LinearRegression(device="cpu", compute_inference=False).fit(X, y_column.ravel())
+    np.testing.assert_allclose(model.predict(X), expected.predict(X))
+    assert namespace["r2"] == pytest.approx(expected.score(X, y_column.ravel()))
+    assert namespace["r2"] == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize("language", ("en", "cn"))
 def test_logistic_documentation_distinguishes_penalized_score(language):
     from statgpu.linear_model import LogisticRegression
 

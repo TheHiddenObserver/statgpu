@@ -1,7 +1,7 @@
 # LinearRegression
 
 > 语言：中文  
-> 最后更新：2026-10-04  
+> 最后更新：2026-10-05  
 > 页面定位：模型文档  
 > 切换：[English](../../en/models/linear-regression.md)
 
@@ -78,8 +78,8 @@ $R^2$ 也可能为负。
 
 ## 输入与输出
 
-- 数组输入：`X` 为有限数值矩阵，形状为 `(n_samples, n_features)`；`y` 为
-  `(n_samples,)` 或 `(n_samples, n_targets)`。单列 `y` 按单目标处理。
+- 拟合时的数组输入：`X` 为有限数值矩阵，形状为 `(n_samples, n_features)`；`y` 为
+  `(n_samples,)` 或 `(n_samples, n_targets)`。`fit` 会将单列 `y` 展平后按单目标处理。
   预测时必须保持训练时的列顺序。
 - `fit(X, y, sample_weight=None)` 返回拟合后的估计器。权重必须有限、非负，
   长度为 `n_samples` 且总和大于零。权重改变拟合目标，而不只是标准误。
@@ -91,6 +91,25 @@ $R^2$ 也可能为负。
 - 多目标：`coef_` 为 `(n_targets, n_features)`，`intercept_` 为
   `(n_targets,)`，预测值为 `(n_new, n_targets)`。`score` 返回各目标
   $R^2$ 的平均值，而不是分目标的评分数组。
+
+单目标评分时，应向 `score(X, y)` 传入一维响应。与 `fit` 不同，当前 `score`
+不会自动展平 `(n_samples, 1)` 响应；它与一维预测值相减时会广播成矩阵，
+可能在不报错的情况下给出错误的 $R^2$。因此，评分前应展平单目标响应，
+但不要展平真正的多目标数组。
+
+<!-- learner-example: linear-column-target -->
+```python
+import numpy as np
+from statgpu.linear_model import LinearRegression
+
+X = np.arange(6.0)[:, None]
+y_column = 2.0 + 3.0 * X
+model = LinearRegression(device="cpu", compute_inference=False).fit(X, y_column)
+r2 = model.score(X, y_column.ravel())
+print("R2:", round(float(r2), 3))
+```
+
+输出为 `R2: 1.0`，因为这条直线恰好拟合了全部无噪声观测。
 
 ## 如何选择参数与协方差
 
