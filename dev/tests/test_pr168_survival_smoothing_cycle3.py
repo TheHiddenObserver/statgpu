@@ -136,6 +136,13 @@ def test_kernel_ridge_zero_weight_should_equal_excluding_that_observation():
     assert actual.shape == expected.shape
     assert np.isfinite(actual).all() and np.isfinite(expected).all()
     if not np.allclose(actual, expected, rtol=1e-10, atol=1e-10):
+        # Only ignoring the weights is the reproduced defect. An arbitrary
+        # finite coefficient/prediction regression must not become an xfail.
+        K = np.exp(-(X - X.T) ** 2)
+        unweighted_dual = np.linalg.solve(K + 0.7 * np.eye(len(X)), y)
+        assert weighted.dual_coef_.shape == (len(X), 1)
+        assert_allclose(weighted.dual_coef_[:, 0], unweighted_dual, atol=1e-12)
+        assert_allclose(actual, K @ unweighted_dual, atol=1e-12)
         raise _IgnoredKernelRidgeWeights("Zero-weight prediction differs from deleting that row")
 
 
@@ -156,6 +163,20 @@ def test_kernel_ridge_cv_should_not_select_nan_candidate():
             return
         raise
     if model.alpha_ == 0.0 and not np.isfinite(model.best_score_):
+        # The known division by zero affects only the zero-alpha row. Check
+        # the valid row and the final numerical result before classifying it.
+        results = model.cv_results_
+        assert results['mse_table'].shape == results['r2_table'].shape == (2, 2, 1)
+        assert np.isnan(results['mse_table'][0]).all()
+        assert np.isnan(results['r2_table'][0]).all()
+        assert_allclose(results['mse_table'][1, :, 0], [22.5, 12.5])
+        assert_allclose(results['r2_table'][1, :, 0], [1 - 22.5 / 6.5, 1 - 12.5 / 3.5])
+        assert_allclose(results['mean_mse'][1], [17.5])
+        assert np.isnan(results['mean_mse'][0]).all()
+        assert np.isnan(model.best_score_)
+        assert model.dual_coef_.shape == (8, 1)
+        assert np.isfinite(model.dual_coef_).all()
+        assert_allclose(model.predict(np.zeros((8, 1))), np.zeros(8))
         raise _NonfiniteKernelRidgeCVSelection("Selected zero alpha with nonfinite CV evidence")
     assert model.alpha_ == 1.0
     assert np.isfinite(model.best_score_)

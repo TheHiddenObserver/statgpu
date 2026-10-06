@@ -435,6 +435,32 @@ _SMALL_SHAPE_FAMILIES = (
 )
 
 
+# These fingerprints identify the endpoint-quadrature/clipped-Newton failure
+# on the fixed three-point fixtures below. They are an xfail gate, never the
+# desired result: a correct reference result returns first and becomes XPASS.
+_SMALL_SHAPE_BAD_QUANTILES = {
+    ("beta", False): [1e-10, 0.3844459093332461, 0.9161292824887509],
+    ("beta", True): [1e-10, 1e-10, 0.9269879811408208],
+    ("t", False): [-99999.999995, 0.0003556923139616064, 99999.999995],
+    ("t", True): [-99999.999995, 0.000010000000414201846, 99999.999995],
+    ("f", False): [1.0000000001e-9, 0.20527631797555754, 1.9446628902603664],
+    ("f", True): [1.0000000001e-9, 1.0000000001e-9, 1.3816107506318904],
+}
+
+
+def _assert_small_shape_reference_or_known_failure(actual, expected, signature):
+    actual = np.asarray(actual)
+    assert actual.shape == expected.shape
+    assert np.isfinite(actual).all(), "Nonfinite output is not the clipped small-shape failure"
+    if np.allclose(actual, expected, atol=1e-6, rtol=1e-6):
+        return
+    np.testing.assert_allclose(
+        actual, signature, atol=1e-12, rtol=1e-8,
+        err_msg="A different finite corruption must not be classified as issue #201",
+    )
+    raise _TorchSmallShapeMismatch('Known endpoint-quadrature/clipped-Newton output')
+
+
 @pytest.mark.parametrize("name, parameters", _SMALL_SHAPE_FAMILIES)
 @_TORCH_SMALL_SHAPE_BUG
 def test_torch_small_shape_cdf_without_lut_matches_reference(name, parameters):
@@ -445,9 +471,10 @@ def test_torch_small_shape_cdf_without_lut_matches_reference(name, parameters):
     x = np.array([0.25, 0.5, 0.75])
     actual = fixed.cdf(x, **parameters).detach().cpu().numpy()
     expected = getattr(stats, name).cdf(x, **parameters)
-    assert actual.shape == expected.shape
-    if not np.allclose(actual, expected, atol=1e-6, rtol=1e-6):
-        raise _TorchSmallShapeMismatch('Small-shape CDF disagrees with SciPy')
+    # Singular endpoint integration clips the incomplete beta to one; t then
+    # maps that value to 0.5. Arbitrary NaN/constant outputs are different defects.
+    signature = np.full(3, 0.5 if name == "t" else 1.0)
+    _assert_small_shape_reference_or_known_failure(actual, expected, signature)
 
 
 @pytest.mark.parametrize("use_lut", (True, False))
@@ -461,9 +488,23 @@ def test_torch_small_shape_central_quantiles_match_reference(name, parameters, u
     q = np.array([0.1, 0.5, 0.9])
     actual = fixed.ppf(q, **parameters).detach().cpu().numpy()
     expected = getattr(stats, name).ppf(q, **parameters)
-    assert actual.shape == expected.shape
-    if not np.allclose(actual, expected, atol=1e-6, rtol=1e-6):
-        raise _TorchSmallShapeMismatch('Small-shape quantiles disagree with SciPy')
+    _assert_small_shape_reference_or_known_failure(
+        actual, expected, _SMALL_SHAPE_BAD_QUANTILES[name, use_lut],
+    )
+
+
+@pytest.mark.parametrize("name, parameters", _SMALL_SHAPE_FAMILIES)
+@pytest.mark.parametrize("use_lut", (True, False))
+def test_small_shape_guard_accepts_repair_and_rejects_unrelated_corruption(name, parameters, use_lut):
+    expected = getattr(stats, name).ppf([0.1, 0.5, 0.9], **parameters)
+    signature = _SMALL_SHAPE_BAD_QUANTILES[name, use_lut]
+    _assert_small_shape_reference_or_known_failure(expected, expected, signature)
+    for corrupted in (np.full(3, np.nan), np.full(3, 0.42), expected[:2]):
+        with pytest.raises(AssertionError) as caught:
+            _assert_small_shape_reference_or_known_failure(corrupted, expected, signature)
+        assert not isinstance(caught.value, _TorchSmallShapeMismatch)
+    with pytest.raises(_TorchSmallShapeMismatch):
+        _assert_small_shape_reference_or_known_failure(signature, expected, signature)
 
 
 @pytest.mark.parametrize("df", (1, 2))

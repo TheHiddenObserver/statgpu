@@ -1,7 +1,7 @@
 # TSNE
 
 > Language: English
-> Last updated: 2026-10-05
+> Last updated: 2026-10-06
 > Switch: [Chinese](../../cn/unsupervised/tsne.md)
 > Path: `statgpu.unsupervised.TSNE`
 
@@ -32,7 +32,22 @@ $$
 
 ## Estimating Equation
 
-The high-dimensional conditional probabilities are calibrated by binary search to seek the target perplexity for each row. The low-dimensional affinities use:
+For each observation, Gaussian conditional probabilities assign more weight to nearby observations. For $j\ne i$,
+
+$$
+p_{j\mid i}=\frac{\exp(-\beta_i\|x_i-x_j\|_2^2)}
+{\sum_{\ell\ne i}\exp(-\beta_i\|x_i-x_\ell\|_2^2)},
+\qquad p_{i\mid i}=0,
+\qquad \beta_i=\frac{1}{2\sigma_i^2}.
+$$
+
+$$
+\operatorname{Perp}_i=\exp\left(-\sum_{j\ne i}p_{j\mid i}\log p_{j\mid i}\right),
+\qquad p_{ij}=\frac{p_{j\mid i}+p_{i\mid j}}{2n},
+\qquad p_{ii}=0.
+$$
+
+Here $n$ is the number of observations and $\sigma_i$ is a row-specific bandwidth. Binary search adjusts $\beta_i$ to seek the requested `perplexity`; symmetrization produces the joint affinities $P$ used in the objective. The low-dimensional affinities for distinct pairs use:
 
 $$
 q_{ij} =
@@ -40,7 +55,9 @@ q_{ij} =
 {\sum_{a \ne b}(1+\|y_a-y_b\|_2^2)^{-1}}.
 $$
 
-The embedding is optimized with early exaggeration, momentum, and adaptive per-coordinate gains.
+Set $q_{ii}=0$. Both joint affinity matrices sum to one across distinct ordered pairs when the bandwidth search succeeds. The embedding is optimized with early exaggeration, momentum, and adaptive per-coordinate gains.
+
+Perplexity is an effective neighborhood size, not a literal number of selected neighbors. A distribution over `n-1` other observations has perplexity between 1 and `n-1`; tied nearest neighbors can impose a larger lower limit. The API range check only requires `0 < perplexity < n`, so an accepted setting need not be attainable. Prefer a value comfortably inside the feasible range and below the sample count; duplicate observations and failed numerical calibration can prevent the target from being reached. Compare settings within the same dataset rather than comparing KL values computed from different target affinities.
 
 ## Parameters
 

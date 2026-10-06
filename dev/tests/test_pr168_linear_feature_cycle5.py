@@ -118,15 +118,23 @@ def _snapshot(model, X):
     return (model.predict(X).copy(), model.loglikelihood, model.aic, model.bic)
 
 
-def _assert_atomic_failure(model, X, before):
+def _assert_atomic_failure(model, X, before, known_bad=None):
     if not model._fitted:
         with pytest.raises(RuntimeError):
             model.predict(X)
         return  # Explicitly invalidating a rejected fit is an acceptable policy.
     after = _snapshot(model, X)
-    if not all(np.allclose(actual, expected, rtol=1e-12, atol=1e-12)
-               for actual, expected in zip(after, before)):
-        raise _MixedFailedRefit('failed fit left mixed predictions or likelihood diagnostics')
+    for actual, expected in zip(after, before):
+        assert np.shape(actual) == np.shape(expected)
+        assert np.isfinite(actual).all()
+    if all(np.allclose(actual, expected, rtol=1e-12, atol=1e-12)
+           for actual, expected in zip(after, before)):
+        return
+    assert known_bad is not None, 'A new failed-refit behavior is not the known mixed-state defect'
+    for actual, expected in zip(after, known_bad):
+        np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-12,
+                                   err_msg='Only the documented metadata mixture is issue #237')
+    raise _MixedFailedRefit('failed fit left the verified prediction/row-count mixture')
 
 
 @pytest.mark.xfail(strict=True, raises=_MixedFailedRefit, reason='Issue #237: ordinary non-smooth-wrapper refits retain mixed state')
@@ -137,16 +145,25 @@ def test_failed_ordinary_glm_refit_should_preserve_or_invalidate_complete_state(
     X, y, weights = _problem()
     model = _model(cls, solver).fit(X, y, sample_weight=weights)
     before = _snapshot(model, X)
+    previous_intercept = model.intercept_
+    previous_params = model._params.copy()
     if failure == 'formula':
         pd = pytest.importorskip('pandas')
         pytest.importorskip('patsy')
         frame = pd.DataFrame({'y': np.r_[-1., y[1:]], 'x1': X[:, 0], 'x2': X[:, 1]})
         with pytest.raises(ValueError, match='poisson response requires'):
             model.fit(formula='y ~ 0 + x1 + x2', data=frame)
+        known_bad = (before[0] * np.exp(-previous_intercept), *before[1:])
     else:
         with pytest.raises(ValueError, match='Response length must match'):
             model.fit(X[:5], y[:4])
-    _assert_atomic_failure(model, X, before)
+        mixed_ll = before[1] * 5 / len(y)
+        k = len(previous_params)
+        known_bad = (before[0], mixed_ll, -2*mixed_ll + 2*k,
+                     -2*mixed_ll + k*np.log(5))
+    if model._fitted:
+        np.testing.assert_array_equal(model._params, previous_params)
+    _assert_atomic_failure(model, X, before, known_bad)
 
 
 @pytest.mark.parametrize('cls', [GeneralizedLinearModel, PoissonRegression])

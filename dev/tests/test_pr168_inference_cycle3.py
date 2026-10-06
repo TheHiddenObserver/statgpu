@@ -161,12 +161,22 @@ def test_post_selection_publishes_the_same_method_and_target_as_result(cls):
     published_method = model.inference_method_
     result_method = model._inference_result.method
     published_target = model.inference_target_
-    if published_method != result_method:
-        raise _MissingPostSelectionProvenance(
-            f'published method {published_method!r} differs from result {result_method!r}'
-        )
-    if published_target != 'active_set_refit_coefficient':
-        raise _MissingPostSelectionProvenance(f'incorrect post-selection target: {published_target!r}')
+    assert result_method == 'post_selection_ols'
+    result = model._inference_result
+    assert np.isfinite(result.params).all()
+    assert np.isfinite(result.conf_int).all()
+    active = np.flatnonzero(np.abs(model.coef_) > 1e-10)
+    design = np.column_stack([np.ones(len(y)), x[:, active]])
+    expected = np.zeros(1 + x.shape[1])
+    expected[np.r_[0, active + 1]] = np.linalg.lstsq(design, y, rcond=None)[0]
+    np.testing.assert_allclose(result.params, expected, atol=1e-9)
+    if published_method == result_method and published_target == 'active_set_refit_coefficient':
+        return
+    assert published_method is None and published_target is None, (
+        'Only absent provenance fields belong to issue #215, not a wrong populated label'
+    )
+    raise _MissingPostSelectionProvenance('Successful post-selection result omitted shared provenance')
+
 
 
 @pytest.mark.parametrize('weighted', [False, True])

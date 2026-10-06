@@ -214,8 +214,20 @@ def test_sparse_training_r2_should_match_original_weighted_observations(estimato
                             max_iter=5000, tol=1e-8).fit(X, y, sample_weight=weights)
     expected = _weighted_r2(y, model.predict(X), weights)
     observed = model.rsquared
-    if observed != pytest.approx(expected, abs=1e-10):
-        raise _WorkingResponseR2(f'training R-squared {observed!r} differs from {expected!r}')
+    assert np.isfinite(observed)
+    assert np.isfinite(expected)
+    if observed == pytest.approx(expected, abs=1e-10):
+        return
+    # Identify the exact second-centering error from raw data, rather than
+    # accepting arbitrary R² mismatches (including finite garbage) as #229.
+    row_scale = np.sqrt(weights / weights.mean())
+    working_y = row_scale * (y - np.average(y, weights=weights))
+    working_residual = row_scale * (y - model.predict(X))
+    np.testing.assert_allclose(model._y, working_y, atol=1e-12)
+    np.testing.assert_allclose(model._resid, working_residual, atol=1e-12)
+    known_bad = 1 - np.sum(working_residual**2) / np.sum((working_y-working_y.mean())**2)
+    assert observed == pytest.approx(known_bad, abs=1e-10)
+    raise _WorkingResponseR2(f'training R-squared uses re-centered working response: {observed!r}')
 
 
 @pytest.mark.xfail(strict=True, raises=_MissingSmallCVDetails, reason="Issue #230: small ElasticNetCV result omits required details")

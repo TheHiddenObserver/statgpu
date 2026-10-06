@@ -67,6 +67,10 @@ If you are here for weighted GLMs, the main rules are:
 
 For penalized coefficient inference, see [Penalized GLM inference](../guides/penalized-glm-inference.md). For the complete solver table, see [Solver × Penalty Compatibility Matrix](../guides/solver-penalty-matrix.md).
 
+Complete [typed GLM constructors and methods](../reference/linear-model-api.md#typed-glm-constructors)
+cover family-specific link/dispersion/power controls and the different penalized
+wrapper defaults. Shared names do not make constructor controls interchangeable.
+
 ## Public paths
 
 - `statgpu.linear_model.GeneralizedLinearModel`
@@ -237,6 +241,10 @@ assert prediction.shape == (5,)
 ```
 
 Formula parsing runs on CPU. Pass formula/data without simultaneous array X/y. Weights may cover original rows or exactly the rows retained after formula/missing-data processing; alignment is positional. Prediction reconstructs the training columns and categorical levels. For large data, explicit arrays avoid formula parsing overhead.
+
+Ordinary formula prediction currently drops rows with missing predictors and
+returns a shorter unlabelled array. Resolve missing values and check output
+length before aligning predictions; see the [missing-row limitation](../reference/linear-model-api.md#missing-prediction-rows-in-ordinary-glms).
 
 ### Failed-refit limitation
 

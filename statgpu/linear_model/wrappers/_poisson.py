@@ -52,7 +52,10 @@ class PoissonRegression(GeneralizedLinearModel):
     from GeneralizedLinearModel. Positive-C IRLS inference includes penalty
     curvature; it does not remove shrinkage bias or account for selecting C.
     Failed auto/IRLS/FISTA refits can mix old estimates with new metadata;
-    use a fresh estimator after such a failure.
+    use a fresh estimator after such a failure. Formula prediction currently
+    drops rows with missing predictors and returns a shorter unlabelled array;
+    resolve missing data and check output length before associating predictions
+    with the original observations.
     """
 
     def __init__(

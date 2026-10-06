@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from scipy import stats
+from scipy.interpolate import BSpline
 
 from statgpu import (
     GAM,
@@ -20,7 +21,7 @@ from statgpu.survival import CoxPHCV
 ROOT = Path(__file__).resolve().parents[2]
 
 
-class _NullspaceShrinkage(AssertionError):
+class _NullspaceShrinkage(Exception):
     """A finite solve does not preserve its intended unpenalized direction."""
 
 
@@ -91,8 +92,25 @@ def test_large_gam_penalty_should_preserve_constant_response(lam):
     prediction = model.predict(x)
     assert prediction.shape == y.shape
     assert np.isfinite(prediction).all()
-    # Only this verified wrong-target comparison becomes the known xfail.
+    # Recognize the trace-scaled stabilization specifically, not any finite
+    # prediction error. Reconstruct the design independently with SciPy.
     if not np.allclose(prediction, y, atol=1e-8, rtol=1e-8):
+        knots = np.r_[np.full(4, -1.), np.linspace(-1., 1., 6)[1:-1], np.full(4, 1.)]
+        raw_basis = BSpline(knots, np.eye(8), 3)(x[:, 0])
+        basis = np.column_stack([np.ones(len(x)), raw_basis - raw_basis.mean(axis=0)])
+        difference = np.diff(np.eye(8), n=2, axis=0)
+        penalty = np.zeros((9, 9))
+        penalty[1:, 1:] = difference.T @ difference
+        unjittered = basis.T @ basis + lam * penalty
+        delta = 1e-10 * np.trace(unjittered) / 9
+        used = unjittered + delta * np.eye(9)
+        expected = np.linalg.solve(used, basis.T @ y)
+        assert model.coef_.shape == (9,) and np.isfinite(model.coef_).all()
+        np.testing.assert_allclose(model.coef_, expected, rtol=1e-10, atol=1e-12)
+        np.testing.assert_allclose(prediction, basis @ expected, rtol=1e-10, atol=1e-12)
+        assert model.intercept_ == pytest.approx(5 * len(x) / (len(x) + delta), rel=1e-12)
+        assert model.edf_ == pytest.approx(np.trace(np.linalg.solve(used, basis.T @ basis)), rel=1e-9)
+        assert model.lam_ == lam and model.gcv_score_ is None
         raise _NullspaceShrinkage("constant response should be an exact zero-objective solution")
 
 
@@ -102,6 +120,10 @@ def test_penalized_ls_should_preserve_unpenalized_coordinate():
     beta, edf = penalized_ls(np.eye(2), np.ones(2), np.diag([0., 1.]), 1e12)
     assert beta.shape == (2,) and np.isfinite(beta).all() and np.isfinite(edf)
     if not np.allclose(beta, [1., 1 / (1 + 1e12)], atol=1e-10, rtol=1e-8):
+        delta = 1e-10 * (2 + 1e12) / 2
+        stabilized = 1 / (np.array([1., 1 + 1e12]) + delta)
+        np.testing.assert_allclose(beta, stabilized, rtol=1e-12, atol=0)
+        assert edf == pytest.approx(stabilized.sum(), rel=1e-12)
         raise _NullspaceShrinkage("the zero-penalty coordinate must remain unshrunk")
 
 

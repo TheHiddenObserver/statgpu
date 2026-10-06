@@ -31,8 +31,8 @@
 - [Ridge](models/ridge.md) — Ridge 回归 + RidgeCV
 - [Lasso](models/lasso.md) — Lasso + LassoCV + 去偏推断
 - [ElasticNet](models/elastic-net.md) — ElasticNet + ElasticNetCV
-- [SCAD](models/scad.md) — 非凸惩罚与 oracle 性质
-- [MCP](models/mcp.md) — 非凸惩罚与 oracle 性质
+- [SCAD](models/scad.md) — 非凸稀疏回归，减轻大系数的收缩
+- [MCP](models/mcp.md) — 非凸稀疏回归，减轻大系数的收缩
 - [AdaptiveLasso](models/adaptive-lasso.md) — 自适应 L1 惩罚
 
 ### 损失函数
@@ -42,9 +42,9 @@
 
 ### 广义线性模型
 - [GeneralizedLinearModel](models/generalized-linear-model.md) — GLM + PenalizedGLM 基类
-- [LogisticRegression](models/logistic-regression.md) — logistic 分类
+- [LogisticRegression](models/logistic-regression.md) — 逻辑回归分类
 - [PoissonRegression](models/poisson-regression.md) — 计数回归
-- [有序模型](models/ordered.md) — ordered logit/probit
+- [有序模型](models/ordered.md) — 有序 logit/probit
 
 ### 生存分析
 - [CoxPH](models/coxph.md) — Breslow/Efron/Exact、延迟进入/起止时间数据、分层、稳健协方差与 NumPy/CuPy/Torch 路径
@@ -55,7 +55,7 @@
 - [无监督概览](models/unsupervised.md) — PCA、聚类、混合模型、流形学习与矩阵分解方法
 
 ### 面板数据
-- [Panel](models/panel.md) — 六类面板估计器，包括 pooled、between、first-difference 与 Fama–MacBeth
+- [Panel](models/panel.md) — 六类面板估计器，包括混合回归、组间回归、一阶差分与 Fama–MacBeth
 
 ### 非参数
 - [非参数概述](models/nonparametric.md) — 核方法与样条

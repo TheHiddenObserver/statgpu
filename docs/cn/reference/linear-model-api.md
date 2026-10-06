@@ -131,6 +131,8 @@ Lasso(alpha=1.0, fit_intercept=True, max_iter=1000, tol=0.0001, stopping='coef_d
 | `get_params(deep=True)`、`set_params(**params)` | 前者返回构造配置字典，后者更新并返回自身；非空合法更新会重置拟合状态，预测前须重新拟合。详见[参数管理](estimator-api.md)。 |
 | `adjust_pvalues`、`combine_pvalues`、`bootstrap_statistic`、`permutation_test` | 继承的辅助方法接收显式/缓存 p 值或显式数据。完整签名、参数、返回值与限制见[共享估计器参考](estimator-api.md)。这些方法不会自动重复 Lasso 调参或校正选择不确定性。 |
 
+<a id="lasso-fitted-results"></a>
+
 ### Lasso 已拟合结果
 
 拟合截距时 k=p+1，否则 k=p；公式中的截距语法优先于构造设置。
@@ -334,7 +336,7 @@ assert np.isclose(logit.best_score_, -np.nanmin(logit.mean_loss_))
 ## 公式输入
 本页 LinearRegression、直接 Lasso、ElasticNet、Ridge、SCADRegression 与 MCPRegression 支持公式。这些类均应只传 `formula`/`data`，不要同时传数组 X/y；当前公式解析会直接覆盖这些数组而不报告冲突。需要可选 pandas/patsy 依赖。`formula="y ~ x + C(group)"` 描述数值/分类项；`~ 0 + ...` 去掉截距，不受构造参数覆盖。交互项与转换遵循 Patsy 语法。公式拟合可能删除相关项缺失的行。权重可对应原始全部行或恰好保留的行，按位置对齐，不按任意 Series 标签对齐。
 
-预测 DataFrame 会重建设计矩阵与原有分类水平。未知水平或导致预测删行的缺失值会报错；数组预测则须传入按训练顺序编码好的非截距列。转换与水平定义须保持一致。LogisticRegression、ElasticNetCV、LogisticRegressionCV、RidgeCV 与 LassoCV 没有公式参数，应先构建设计矩阵并防止预处理泄漏。
+预测 DataFrame 会重建设计矩阵与原有分类水平。未知水平会报错。Lasso/ElasticNet/Ridge/SCAD/MCP 还会拒绝预测缺失值；普通 LinearRegression 和普通 GLM 却可能静默删除预测行，需遵守[缺失行警告](#missing-prediction-rows-in-ordinary-glms)。数组预测则须传入按训练顺序编码好的非截距列。转换与水平定义须保持一致。LogisticRegression、ElasticNetCV、LogisticRegressionCV、RidgeCV 与 LassoCV 没有公式参数，应先构建设计矩阵并防止预处理泄漏。
 
 <!-- api-example: formula-models -->
 ```python
@@ -392,6 +394,22 @@ GeneralizedLinearModel(family='gaussian', fit_intercept=True, max_iter=100, tol=
 
 当前 auto/IRLS/FISTA 重拟合报错后，对象可能仍标记为已拟合，却混用旧系数和新的观测数、公式或截距设置。因此，即使新拟合已经报错，预测以及似然/AIC/BIC 仍可能发生变化。不要继续使用该对象的输出；应新建估计器并完成一次成功拟合。共享普通 GLM 实现的专用模型也有此限制。显式 newton/lbfgs 目前会在失败后恢复原拟合状态，但恢复旧状态并不代表新数据拟合成功。
 
+
+<a id="missing-prediction-rows-in-ordinary-glms"></a>
+
+### 普通线性模型和 GLM 预测时的缺失行
+
+公式拟合的 `LinearRegression`、`GeneralizedLinearModel`、`PoissonRegression`、`GammaRegression`、
+`InverseGaussianRegression`、`NegativeBinomialRegression` 和 `TweedieRegression`
+目前会删除预测 DataFrame 中公式预测变量缺失的行，并返回较短且不带行标签的
+数组。例如五行查询有一行预测变量缺失时，可能只返回四个预测值，不附保留行
+索引。不要将这些值按位置配给原始行。应先处理预测变量和变换产生的缺失，
+并在关联结果前检查 `len(prediction) == len(query)`。如果有意筛行，应保留
+筛选后 DataFrame 的索引，并明确对该 DataFrame 预测。
+训练时允许的行过滤及其权重对齐是另一回事。`LinearRegression.score` 还可能
+把唯一保留的预测值广播给多个评价响应，返回无效但有限的 R²。展平单列 y
+不能解决此问题，评分前应核对公式预测行数。Lasso、ElasticNet、Ridge、
+SCADRegression、MCPRegression 和已经测试的惩罚 GLM 专用类会拒绝预测缺失值。
 
 ## PenalizedGeneralizedLinearModel
 
@@ -709,3 +727,124 @@ for cls in (LassoCV, RidgeCV):
 
 该数据下两者均选择 alpha=0.03；LassoCV 的留出集 R² 约为 0.965，
 RidgeCV 约为 0.966。没有从留出行学习预处理。
+
+<a id="typed-glm-constructors"></a>
+
+## GLM 专用类构造参数
+
+以下七个专用估计器也可从 `statgpu` 导入。下列运行时签名列出各类接受的全部
+构造参数。同名共享参数的完整含义见所链接的通用参数表，专用差异逐项说明。
+不要把仅属于通用类的参数直接传给专用类。
+
+下列三个固定损失的惩罚类，`loss_kwargs` 仅接受 None 或空字典；通用参数表的
+链接、离散参数和幂次示例不适用于 squared_error、logistic 或 Poisson 损失构造器。
+
+四个普通专用类共享 `fit(X=None,y=None,sample_weight=None,formula=None,data=None)`、
+`predict(X)`、`summary()`、`family_to_loss()`，以及
+[GeneralizedLinearModel](#generalizedlinearmodel) 的配置和推断辅助方法。
+该节还定义全部拟合字段、响应均值预测形状、NumPy 报告数组、正态参考推断及
+重拟合失败限制。这四个类都没有 `score` 或 `predict_proba`。`family` 由类固定，
+不是构造参数；formula/data 属于 fit 参数，沿用相同的训练行对齐规则。
+预测时需遵守[普通 GLM 缺失行限制](#missing-prediction-rows-in-ordinary-glms)。
+
+## GammaRegression
+
+```text
+GammaRegression(fit_intercept=True, max_iter=100, tol=0.0001, C=1.0, device='auto', n_jobs=None, link='log', solver='auto', compute_inference=False, cov_type='nonrobust', gpu_memory_cleanup=False)
+```
+
+除 `link` 外，全部参数及默认值沿用[普通 GLM 参数表](#generalizedlinearmodel)。
+`link="log"` 对应均值 `exp(eta)`；`"inverse_power"` 对应 `1/eta`，要求线性
+预测子为正。响应必须严格为正。后一链接的显式 Newton/L-BFGS 定义域行为见
+[带权 GLM 说明](../models/generalized-linear-model.md)。该构造函数不提供形状、
+离散参数或通用 `family` 参数。
+
+## InverseGaussianRegression
+
+```text
+InverseGaussianRegression(fit_intercept=True, max_iter=100, tol=0.0001, C=1.0, device='auto', n_jobs=None, solver='auto', compute_inference=False, cov_type='nonrobust', gpu_memory_cleanup=False)
+```
+
+全部参数及默认值沿用[普通 GLM 参数表](#generalizedlinearmodel)，但不接受
+`family`。该类固定 Inverse Gaussian 分布族和对数链接，响应必须严格为正。
+没有公开 `link` 或形状参数；选择 Inverse Gaussian 并不意味着使用其规范的
+逆平方链接。
+
+## NegativeBinomialRegression
+
+```text
+NegativeBinomialRegression(alpha=1.0, fit_intercept=True, max_iter=100, tol=0.0001, C=1.0, device='auto', n_jobs=None, solver='auto', compute_inference=False, cov_type='nonrobust', gpu_memory_cleanup=False)
+```
+
+共享参数及默认值沿用[普通 GLM 参数表](#generalizedlinearmodel)。额外的
+`alpha=1.0` 是**固定、有限且为正的离散参数**，满足
+`Var(Y | X) = mu + alpha*mu**2`。它不是正则化强度，也不会被自动估计。
+均值采用对数链接，响应非负。`C` 单独控制普通 IRLS 岭惩罚；构造函数不接受
+`family` 或 `link`。
+
+## TweedieRegression
+
+```text
+TweedieRegression(power=1.5, fit_intercept=True, max_iter=100, tol=0.0001, C=1.0, device='auto', n_jobs=None, solver='auto', compute_inference=False, cov_type='nonrobust', gpu_memory_cleanup=False)
+```
+
+共享参数及默认值沿用[普通 GLM 参数表](#generalizedlinearmodel)。额外的
+`power=1.5` 必须严格位于 1 和 2 之间，固定复合 Poisson–Gamma 方差幂次，
+即 `Var(Y | X) = phi*mu**power`，不会自动调参。响应可以为零或正值，均值
+采用对数链接。构造函数不提供 `family`、`link` 或自由的 phi 参数。
+该封装不接受某些其他库支持的全部幂次范围。
+
+## PenalizedLinearRegression
+
+```text
+PenalizedLinearRegression(penalty='l1', alpha=1.0, l1_ratio=0.5, penalty_kwargs=None, fit_intercept=True, max_iter=1000, tol=0.0001, device='auto', n_jobs=None, cpu_solver='fista', solver='auto', lipschitz_L=None, gpu_memory_cleanup=False, compute_inference=False, inference_method='auto', cov_type='nonrobust', hac_maxlags=None, stopping='coef_delta', lla=True, max_lla_iters=50, lla_tol=1e-06, loss_kwargs=None, *, nodewise_alpha=None)
+```
+
+该类固定 `loss="squared_error"`，不接受 `loss` 参数。全部已列参数的含义
+和默认值见[通用惩罚 GLM 参数表](#penalizedgeneralizedlinearmodel)，包括默认
+`penalty="l1"` 和仅限关键字的 `nodewise_alpha=None`。响应为单变量高斯模型，
+支持公式及分析权重。
+
+它共享 `fit`、`predict(X,return_cpu=True)`、`score(X,y,sample_weight=None)`、
+`get_params`、`set_params`、四个继承推断辅助方法及通用系数/结果布局。
+额外的 `summary()` 在成功启用推断后打印系数表并返回 None；还提供
+`rsquared`、`rsquared_adj`、`fvalue`、`f_pvalue`、`llf`、`aic`、`bic` 诊断属性。
+未做推断时这些诊断可能不可用。需遵守[高斯诊断限制](#lasso-fitted-results)，
+包括带权纠偏 R² 的问题，以及信息准则不使用一般惩罚有效自由度的限制。
+该类没有 `predict_proba`。
+
+## PenalizedLogisticRegression
+
+```text
+PenalizedLogisticRegression(penalty='l2', alpha=1.0, l1_ratio=0.5, penalty_kwargs=None, fit_intercept=True, max_iter=1000, tol=0.0001, device='auto', n_jobs=None, cpu_solver='fista', solver='auto', lipschitz_L=None, gpu_memory_cleanup=False, compute_inference=False, inference_method='auto', cov_type='nonrobust', hac_maxlags=None, stopping='coef_delta', lla=True, max_lla_iters=50, lla_tol=1e-06, loss_kwargs=None)
+```
+
+该类固定 `loss="logistic"`，默认 `penalty="l2"`，与通用类的 L1 默认值不同。
+全部已列控制项的含义见[通用惩罚 GLM 参数表](#penalizedgeneralizedlinearmodel)，
+但不接受 `loss` 或 `nodewise_alpha`。没有 C 参数；alpha 使用平均损失尺度，
+不同于独立 LogisticRegression 的求和损失 C 尺度。响应仅支持二元 0/1。
+
+它继承通用惩罚类的 `fit`、`predict(X,return_cpu=True)`、
+`score(X,y,sample_weight=None)`、配置/推断辅助方法及拟合结果字段。
+`predict` 返回标签，概率严格大于 0.5 才取类别 1。额外方法
+`predict_proba(X)` 返回 `(m,2)` 的 0/1 类别概率，使用已拟合的 NumPy/CuPy/Torch
+后端，不接受 `return_cpu`。公式拟合后可用 DataFrame 预测。`score` 是标签的
+响应尺度 R²，**不是准确率**。该类没有 `summary`、阈值控制、分类指标集合或
+绘图接口；受支持的系数推断通过 `_inference_result` 读取。
+
+## PenalizedPoissonRegression
+
+```text
+PenalizedPoissonRegression(penalty='l2', alpha=1.0, l1_ratio=0.5, penalty_kwargs=None, fit_intercept=True, max_iter=1000, tol=0.0001, device='auto', n_jobs=None, cpu_solver='fista', solver='auto', lipschitz_L=None, gpu_memory_cleanup=False, compute_inference=False, inference_method='auto', cov_type='nonrobust', hac_maxlags=None, stopping='coef_delta', lla=True, max_lla_iters=50, lla_tol=1e-06, loss_kwargs=None)
+```
+
+该类固定 `loss="poisson"`，默认 `penalty="l2"`。全部已列参数的含义见
+[通用惩罚 GLM 参数表](#penalizedgeneralizedlinearmodel)，不接受 `loss`、
+`nodewise_alpha` 或 C。alpha 是平均损失尺度的惩罚强度，响应非负，均值使用
+对数链接。fit 不提供 offset/exposure 参数。
+
+方法与拟合字段完全沿用通用惩罚类：`fit`、`predict(X,return_cpu=True)`、
+`score(X,y,sample_weight=None)`、配置方法、四个继承推断辅助方法及系数/推断
+结果布局。`predict` 返回响应均值；`score` 是响应尺度 R²，不是偏差或 Poisson
+对数损失。没有 `summary` 或 `predict_proba` 方法。公式/data 和可选分析权重
+遵循通用 fit 约定。

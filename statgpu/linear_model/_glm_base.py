@@ -117,7 +117,7 @@ class GeneralizedLinearModel(BaseEstimator):
         Return self after array or formula fitting; analytic weights are normalized
         by their sum. Pass arrays or formula/data, not both.
     predict(X)
-        Response means, shape (n_samples,); binomial returns mean probabilities.
+        Response means for complete rows; binomial returns mean probabilities.
     summary()
         Return a string, without printing. Works without coefficient inference.
     family_to_loss()
@@ -158,6 +158,10 @@ class GeneralizedLinearModel(BaseEstimator):
     The ordinary typed wrappers inherit this limitation. Explicit newton/lbfgs
     currently restore the previous fit after failure; that is not a successful
     fit to the new data.
+
+    Formula prediction currently drops rows with missing predictors and returns
+    a shorter unlabelled array. Resolve missing values and check output length
+    against the query before associating predictions with original observations.
     """
 
     def __init__(

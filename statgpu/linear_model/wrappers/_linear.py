@@ -76,6 +76,11 @@ class LinearRegression(BaseEstimator):
     device-setting changes. Weighted likelihood diagnostics currently omit the Gaussian log-weight normalization. Weighted
     multi-output F diagnostics raise TypeError; pooled multi-output diagnostics
     are not joint multivariate inference. See the model/API documentation.
+    Formula prediction currently drops rows with missing predictors and returns
+    a shorter unlabelled array. Resolve missing values and verify output length
+    before aligning results. score() can broadcast one retained prediction over
+    several responses and return an invalid finite R-squared for such a query;
+    flattening y does not fix this separate row-alignment problem.
     """
     
     def __init__(

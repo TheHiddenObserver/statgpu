@@ -68,6 +68,7 @@ The fitted values are expected event counts, about `[1.458758, 1.547328, 0.77567
 | `LogisticRegressionCV` | Logistic-regression CV | NumPy, CuPy, Torch |
 | `PenalizedGLM_CV` | Unified penalized-GLM CV | NumPy, CuPy, Torch |
 | `CoxPHCV` | Cox penalty search and final refit | NumPy, CuPy, Torch |
+| `KernelRidgeCV` | Fixed-kernel alpha selection; integer folds, no sample weights | NumPy, CuPy, Torch |
 
 See [Cross-Validation](cross-validation.md) for fold, selection, refit, weight, and inference-after-selection semantics.
 

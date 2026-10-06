@@ -26,7 +26,8 @@ class UMAP(BaseEstimator):
 
     Supports exact NN (dense distance) and approximate NNDescent.
     Stored graph edges use O(n*k) memory, but exact neighbor search allocates
-    dense O(n**2) pairwise distances. Graph assembly uses host SciPy.
+    dense O(n**2) pairwise distances. Graph assembly, spectral initialization,
+    and attraction-curve fitting use host SciPy.
     Graph bandwidth is the mean neighbor distance above the closest distance,
     with a 1e-12 floor; it does not solve the reference local membership-sum
     calibration. ``min_dist`` and ``spread`` affect the embedding attraction

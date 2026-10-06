@@ -39,7 +39,7 @@ $$
 X = U \Sigma V^\top.
 $$
 
-The randomized path projects `X` to a lower-dimensional random subspace, re-orthogonalizes each power iteration, applies a deterministic component sign convention, and computes a small SVD of the projected matrix.
+The randomized path projects `X` to a lower-dimensional random subspace, re-orthogonalizes each power iteration, computes a small SVD of the projected matrix, then applies a deterministic component sign convention.
 
 ## Parameters
 

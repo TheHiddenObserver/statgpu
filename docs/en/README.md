@@ -33,8 +33,8 @@
 - [Ridge](models/ridge.md) — Ridge regression + RidgeCV
 - [Lasso](models/lasso.md) — Lasso + LassoCV + debiased inference
 - [ElasticNet](models/elastic-net.md) — ElasticNet + ElasticNetCV
-- [SCAD](models/scad.md) — non-convex penalty with oracle property
-- [MCP](models/mcp.md) — non-convex penalty with oracle property
+- [SCAD](models/scad.md) — non-convex sparse regression with reduced large-coefficient shrinkage
+- [MCP](models/mcp.md) — non-convex sparse regression with reduced large-coefficient shrinkage
 - [AdaptiveLasso](models/adaptive-lasso.md) — adaptive L1 penalty
 
 ### Loss Functions
@@ -46,7 +46,7 @@
 - [GeneralizedLinearModel](models/generalized-linear-model.md) — GLM + PenalizedGLM base
 - [LogisticRegression](models/logistic-regression.md) — logistic classification
 - [PoissonRegression](models/poisson-regression.md) — count regression
-- [Ordered Models](models/ordered.md) — ordered logit/probit
+- [Ordered Models](models/ordered.md) — 有序 logit/probit
 
 ### Survival
 - [CoxPH](models/coxph.md) — Breslow/Efron/Exact Cox models with delayed-entry/start-stop data, strata, robust covariance, and NumPy/CuPy/Torch paths

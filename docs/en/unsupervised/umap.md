@@ -26,9 +26,13 @@ from statgpu.unsupervised import UMAP
 The standard UMAP reference objective is fuzzy-set cross-entropy between high-dimensional graph weights `w_ij` and low-dimensional affinities `q_ij`:
 
 $$
-\sum_{i,j} w_{ij}\log\frac{w_{ij}}{q_{ij}}
-+ (1-w_{ij})\log\frac{1-w_{ij}}{1-q_{ij}}.
+\sum_{i<j}\left[
+w_{ij}\log\frac{w_{ij}}{q_{ij}}
++ (1-w_{ij})\log\frac{1-w_{ij}}{1-q_{ij}}
+\right].
 $$
+
+The sum is over distinct unordered observation pairs; self-pairs are excluded. Terms with zero numerator weight contribute zero by continuity. Here $q_{ij}=(1+a\|y_i-y_j\|^{2b})^{-1}$ with positive curve parameters $a,b$ determined from `min_dist` and `spread`. This is a reference objective, not a claim that the current force updates minimize it exactly.
 
 ## Estimating Equation
 
@@ -73,7 +77,7 @@ For a supported GPU installation, construct a new estimator with `device="cuda"`
 
 ## Backend and Host Boundary
 
-Distance evaluation, graph weights and embedding arrays use the selected NumPy, CuPy or Torch backend. On NumPy 2, an array-dispatch limitation can additionally route CPU negative sampling through Torch CPU when Torch is installed. The current fuzzy-union graph assembly is intentionally a documented host boundary: its O(n*k) edge indices and weights are copied to host memory, assembled with SciPy sparse COO/CSR operations, and copied back to the selected backend. This is not a silent CPU fallback for optimization, but it is not yet a device-native sparse-graph path. Exact neighbors also require O(n^2) dense distance memory; `nn_method='nndescent'` avoids that distance matrix where its approximate-neighbor path works, but currently fails on CPU with NumPy 2.
+Distance evaluation, graph weights and embedding arrays use the selected NumPy, CuPy or Torch backend. On NumPy 2, an array-dispatch limitation can additionally route CPU negative sampling through Torch CPU when Torch is installed. Fuzzy-union graph assembly copies O(n*k) edge indices and weights to host memory, assembles them with SciPy sparse COO/CSR operations, and copies the result back to the selected backend. Spectral initialization and attraction-curve fitting also use host SciPy. GPU fitting therefore still requires CPU computation and host memory. Exact neighbors also require O(n^2) dense distance memory; `nn_method='nndescent'` avoids that distance matrix where its approximate-neighbor path works, but currently fails on CPU with NumPy 2.
 
 ## Approximation and interpretation
 

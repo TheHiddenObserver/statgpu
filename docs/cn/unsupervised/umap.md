@@ -26,9 +26,13 @@ from statgpu.unsupervised import UMAP
 标准 UMAP 的参考目标是高维图权重 `w_ij` 与低维亲和度 `q_ij` 之间的模糊集交叉熵：
 
 $$
-\sum_{i,j} w_{ij}\log\frac{w_{ij}}{q_{ij}}
-+ (1-w_{ij})\log\frac{1-w_{ij}}{1-q_{ij}}.
+\sum_{i<j}\left[
+w_{ij}\log\frac{w_{ij}}{q_{ij}}
++ (1-w_{ij})\log\frac{1-w_{ij}}{1-q_{ij}}
+\right].
 $$
+
+求和只包含不同观测构成的无序点对，不包含自环。分子权重为零的项按连续延拓记为零。其中 $q_{ij}=(1+a\|y_i-y_j\|^{2b})^{-1}$，正的曲线参数 $a,b$ 由 `min_dist` 与 `spread` 确定。这是参考目标，不表示当前的力更新会精确最小化它。
 
 ## 估计方程
 
@@ -73,7 +77,7 @@ print(embedding.shape, model.n_epochs_)
 
 ## 后端与主机边界
 
-距离计算、图权重和嵌入数组使用所选的 NumPy、CuPy 或 Torch 后端。在 NumPy 2 上，数组分派存在限制：安装了 Torch 时，CPU 负采样还可能经由 Torch CPU 执行。目前明确披露的主机边界是模糊并集图（fuzzy-union graph）的组装：O(n*k) 的边索引和边权重会复制到主机内存，由 SciPy 的稀疏 COO/CSR 结构完成组装，再复制回所选后端。这不是优化过程的静默 CPU 回退，但也不是完全后端原生的稀疏图流水线。精确近邻还需要 O(n²) 的稠密距离矩阵内存；近似路径可用时，`nn_method='nndescent'` 能避开这个矩阵，但在 NumPy 2 的 CPU 路径上当前会失败。
+距离计算、图权重和嵌入数组使用所选的 NumPy、CuPy 或 Torch 后端。在 NumPy 2 上，数组分派存在限制：安装了 Torch 时，CPU 负采样还可能经由 Torch CPU 执行。模糊并集图的组装会把 O(n*k) 的边索引和边权重复制到主机内存，由 SciPy 的稀疏 COO/CSR 结构完成组装，再复制回所选后端。谱初始化和吸引曲线拟合也使用主机端 SciPy，因此 GPU 拟合仍需要 CPU 运算和主机内存。精确近邻还需要 O(n²) 的稠密距离矩阵内存；近似路径可用时，`nn_method='nndescent'` 能避开这个矩阵，但在 NumPy 2 的 CPU 路径上当前会失败。
 
 ## 近似与解释边界
 

@@ -324,9 +324,11 @@ KernelRidge/CV kernel construction and solves use the selected backend. KernelPC
 
 KernelPCA and Nystroem still reject `device="torch"` when Torch CUDA is unavailable. Passing that check does not guarantee CUDA execution: NumPy or Torch CPU input can remain on CPU during fitting and transformation because the requested-device conversion is not consistently applied. Inspect the actual `fit_transform`, `transform`, and `predict` outputs with Torch `.device`/`.is_cuda` (or CuPy `.device`), rather than relying on the configured device or selected backend/library. Their public fitted arrays are deliberately NumPy and cannot prove numerical-device placement. This also affects Nystroem's query kernel and output, separately from its intentional CPU landmark SVD. If CUDA placement is required, reject CPU outputs before using them. For a predictable CPU alternative, pass NumPy input with `device="cpu"`. See the [device guide](../guides/device-and-memory.md#current-smoothing-and-spline-exceptions).
 
-`KernelPCA` and `Nystroem` reject NaN/Inf during fitting and transformation on
-the public validation paths. Kernel-specific domain checks, such as non-negative
-inputs for the chi-squared kernel, fail explicitly.
+`KernelPCA` and `Nystroem` reject NaN/Inf in the supplied input arrays during
+fitting and transformation. This input check does not guarantee finite computed
+kernels or learned arrays; see [finite-result checks](#check-for-nonfinite-kernel-fits).
+Kernel-specific domain checks, such as non-negative inputs for the chi-squared
+kernel, fail explicitly.
 
 ## Inference Semantics
 

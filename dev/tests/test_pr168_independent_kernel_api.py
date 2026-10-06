@@ -109,6 +109,56 @@ def test_chi2_gamma_dictionary_workaround_matches_analytic_system(metric):
     assert_allclose(model.dual_coef_.ravel(), np.linalg.solve(K + np.eye(4), y))
 
 
+def _chi2_reference(X, y, gamma, cv):
+    """Independent full/fold solves, without either estimator's kernel dispatch."""
+    distances = np.sum((X[:, None] - X[None, :]) ** 2 / (X[:, None] + X[None, :]), axis=2)
+    K = np.exp(-gamma * distances)
+    if cv:
+        alphas = np.array([0.1, 1.0, 10.0])
+        indices = np.random.RandomState(0).permutation(len(X))
+        folds = np.array_split(indices, 2)
+        mse = np.empty((3, 2, 1))
+        r2 = np.empty_like(mse)
+        for ai, alpha in enumerate(alphas):
+            for fi, test in enumerate(folds):
+                train = np.setdiff1d(indices, test)
+                prediction = K[np.ix_(test, train)] @ np.linalg.solve(
+                    K[np.ix_(train, train)] + alpha * np.eye(len(train)), y[train],
+                )
+                mse[ai, fi, 0] = np.mean((prediction - y[test]) ** 2)
+                r2[ai, fi, 0] = 1 - mse[ai, fi, 0] / np.var(y[test])
+        mean_mse = mse.mean(axis=1)
+        selected = int(np.argmin(mean_mse[:, 0]))
+        alpha = alphas[selected]
+        expected = {
+            'mse_table': mse, 'mean_mse': mean_mse,
+            'r2_table': r2, 'mean_r2': r2.mean(axis=1),
+            'best_score': r2[selected].mean(), 'best_alpha': alpha,
+        }
+    else:
+        alpha, expected = 1.0, {}
+    dual = np.linalg.solve(K + alpha * np.eye(len(X)), y)
+    return K @ dual, dual[:, None], expected
+
+
+def _check_chi2_result(model, prediction, reference):
+    expected_prediction, expected_dual, expected_cv = reference
+    assert prediction.shape == expected_prediction.shape
+    assert np.isfinite(prediction).all()
+    assert model.dual_coef_.shape == expected_dual.shape
+    assert np.isfinite(model.dual_coef_).all()
+    assert_allclose(prediction, expected_prediction, rtol=1e-10, atol=1e-12)
+    assert_allclose(model.dual_coef_, expected_dual, rtol=1e-10, atol=1e-12)
+    for name, expected in expected_cv.items():
+        actual = model.cv_results_[name]
+        assert np.shape(actual) == np.shape(expected)
+        assert np.isfinite(actual).all()
+        assert_allclose(actual, expected, rtol=1e-10, atol=1e-12)
+    if expected_cv:
+        assert model.alpha_ == expected_cv['best_alpha']
+        assert_allclose(model.best_score_, expected_cv['best_score'], rtol=1e-10)
+
+
 @pytest.mark.xfail(strict=True, raises=_Chi2ConstructorGammaMismatch,
                    reason='KernelRidge/CV omit constructor gamma for chi-squared kernels')
 @pytest.mark.parametrize('cls', [kernels.KernelRidge, kernels.KernelRidgeCV])
@@ -121,18 +171,18 @@ def test_chi2_constructor_gamma_should_match_dictionary(cls, metric):
         options.update(alphas=[0.1, 1.0, 10.0], cv=2, random_state=0)
     requested = cls(gamma=7.0, **options).fit(X, y)
     reference = cls(kernel_params={'gamma': 7.0}, **options).fit(X, y)
-    # Evaluate both runtime paths before recognizing only the known mismatch.
+    # Verify the working route independently before recognizing only the
+    # reproduced omission, not arbitrary prediction/selection corruption.
     actual_prediction = requested.predict(X)
     expected_prediction = reference.predict(X)
-    assert actual_prediction.shape == expected_prediction.shape
-    if cls is kernels.KernelRidgeCV:
-        actual_mse = requested.cv_results_['mean_mse']
-        expected_mse = reference.cv_results_['mean_mse']
-        assert actual_mse.shape == expected_mse.shape
-        if not np.allclose(actual_mse, expected_mse, rtol=1e-7, atol=0):
-            raise _Chi2ConstructorGammaMismatch('Constructor gamma changes CV MSE')
-    if not np.allclose(actual_prediction, expected_prediction, rtol=1e-7, atol=0):
-        raise _Chi2ConstructorGammaMismatch('Constructor gamma changes predictions')
+    intended = _chi2_reference(X, y, 7.0, cv=cls is kernels.KernelRidgeCV)
+    _check_chi2_result(reference, expected_prediction, intended)
+    if np.allclose(actual_prediction, expected_prediction, rtol=1e-10, atol=1e-12):
+        _check_chi2_result(requested, actual_prediction, intended)
+        return
+    omitted = _chi2_reference(X, y, 1.0, cv=cls is kernels.KernelRidgeCV)
+    _check_chi2_result(requested, actual_prediction, omitted)
+    raise _Chi2ConstructorGammaMismatch('Constructor gamma was omitted; predictions and CV use gamma=1')
 
 
 def test_rbf_centering_workaround_preserves_pairwise_model():
@@ -148,9 +198,14 @@ def test_rbf_centering_workaround_preserves_pairwise_model():
 def test_rbf_kernel_should_be_translation_invariant():
     X = np.arange(6.0)[:, None]
     expected = np.exp(-0.5 * np.sum((X[:, None] - X[None, :]) ** 2, axis=2))
+    assert_allclose(kernels.rbf_kernel(X, gamma=0.5), expected, rtol=1e-12, atol=1e-15)
     actual = kernels.rbf_kernel(X + 1e9, gamma=0.5)
     assert actual.shape == expected.shape
+    assert np.isfinite(actual).all()
     if not np.allclose(actual, expected, rtol=1e-7, atol=1e-12):
+        # On this exactly represented fixture, norm/dot cancellation erases
+        # every squared distance. Other finite or nonfinite errors must fail.
+        assert_allclose(actual, np.ones_like(expected), rtol=0, atol=1e-15)
         raise _RBFTranslationMismatch('RBF values changed after translating both inputs')
 
 
@@ -186,5 +241,8 @@ def test_torch_cpu_chi2_should_preserve_small_positive_denominators():
     values = actual.numpy()
     expected = np.array([[np.exp(-1.0)]])
     assert values.shape == expected.shape
+    assert np.isfinite(values).all()
     if not np.allclose(values, expected, rtol=1e-12, atol=1e-12):
+        floored = np.array([[np.exp(-1e12 * (1e-12 ** 2) / 1e-10)]])
+        assert_allclose(values, floored, rtol=1e-12, atol=1e-12)
         raise _Chi2SmallDenominatorMismatch('Small positive denominator changed chi-squared value')

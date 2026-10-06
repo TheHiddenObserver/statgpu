@@ -29,7 +29,7 @@ LinearRegression(fit_intercept=True, device='auto', n_jobs=None, compute_inferen
 
 | Method/result | Contract |
 |---|---|
-| `predict(X)` | `(m,)` for one target or `(m,t)` for multiple targets; NumPy on CPU, native supported GPU array on GPU. Formula-fitted models also accept a prediction DataFrame. The device is resolved again at prediction; use an explicit device if later global-device changes must not change output placement. |
+| `predict(X)` | `(m,)` for one target or `(m,t)` for multiple targets; NumPy on CPU, native supported GPU array on GPU. Formula-fitted models also accept a prediction DataFrame, but missing predictors can silently shorten the output; see the missing-row warning below. The device is resolved again at prediction; use an explicit device if later global-device changes must not change output placement. |
 | `score(X,y)` | Unweighted R²; averages individual target R² in multi-output. No `sample_weight` argument. Pass one-dimensional single-target `y`: a column-shaped response currently broadcasts incorrectly. Constant targets receive 0 rather than a meaningful explained-variance interpretation. |
 | `summary()` | Prints a single-output table; returns `None`. Requires successful inference and positive residual degrees of freedom. |
 | `coef_`, `intercept_`, `rank_` | Shapes `(p,)`/scalar, or `(t,p)`/`(t,)`; `rank_` is fitted design rank. |
@@ -337,7 +337,9 @@ The printed score is evaluated on the untouched final 40 rows. The assertions ex
 ## Formula inputs
 LinearRegression, direct Lasso, ElasticNet, Ridge, SCADRegression and MCPRegression here support formulas. For these classes, supply only `formula`/`data`, not simultaneous array X/y; current formula parsing replaces those arrays without a conflict error. Install optional pandas/patsy. `formula="y ~ x + C(group)"` supplies numeric/categorical terms; `~ 0 + ...` removes the intercept regardless of the constructor. Interactions/transforms follow Patsy syntax. Formula fitting can drop rows with missing terms. Weights may describe all original data rows or exactly the retained rows; matching is positional, not by arbitrary Series labels.
 
-Prediction DataFrames rebuild the stored design and categorical levels. Unknown levels or missing values that would drop prediction rows raise; array prediction must supply the already encoded non-intercept columns in training order. Keep transformations and level definitions consistent. LogisticRegression, ElasticNetCV, LogisticRegressionCV, RidgeCV and LassoCV have no formula argument; construct a suitable design first, avoiding preprocessing leakage.
+Prediction DataFrames rebuild the stored design and categorical levels. Unknown levels raise. Lasso/ElasticNet/Ridge/SCAD/MCP also reject missing prediction values;
+ordinary LinearRegression and ordinary GLMs can silently drop prediction rows,
+so follow the [missing-row warning](#missing-prediction-rows-in-ordinary-glms); array prediction must supply the already encoded non-intercept columns in training order. Keep transformations and level definitions consistent. LogisticRegression, ElasticNetCV, LogisticRegressionCV, RidgeCV and LassoCV have no formula argument; construct a suitable design first, avoiding preprocessing leakage.
 
 <!-- api-example: formula-models -->
 ```python
@@ -378,7 +380,7 @@ GeneralizedLinearModel(family='gaussian', fit_intercept=True, max_iter=100, tol=
 
 | Method/result | Contract |
 |---|---|
-| `predict(X)` | Response mean `(m,)` on the currently resolved device. Binomial returns probabilities, not labels or a two-column matrix. Formula DataFrames rebuild the fitted design. |
+| `predict(X)` | Response mean `(m,)` on the currently resolved device. Binomial returns probabilities, not labels or a two-column matrix. Formula DataFrames rebuild the fitted design; missing formula rows can shorten the returned array, as described below. |
 | `summary()` | Returns a string; does not print it. Use `print(model.summary())`. With inference disabled it still reports coefficients/diagnostics; before fit it returns a not-fitted string. |
 | `family_to_loss()` | Returns the internal loss-name string, e.g. gaussian → squared_error and binomial → logistic. |
 | `coef_`, `intercept_`, `n_iter_` | NumPy slopes `(p,)`, scalar intercept, iteration count. Iteration count alone does not certify convergence. |
@@ -393,6 +395,26 @@ There is no `score` or `predict_proba` method on this generic ordinary class. `g
 
 Current auto/IRLS/FISTA refit errors can leave an object marked fitted while mixing earlier coefficients with new row counts or formula/intercept settings. Predictions and likelihood/AIC/BIC can change even though the new fit raised. Do not reuse that object's outputs after a failed refit; construct a fresh estimator and complete a successful fit. The shared ordinary typed wrappers inherit this limitation. Explicit newton/lbfgs currently restore their earlier fitted state after a failed attempt; this preservation does not mean the new data were fitted.
 
+
+<a id="missing-prediction-rows-in-ordinary-glms"></a>
+
+### Missing prediction rows in ordinary linear and GLM models
+
+Formula-fitted `LinearRegression`, `GeneralizedLinearModel`, `PoissonRegression`, `GammaRegression`,
+`InverseGaussianRegression`, `NegativeBinomialRegression` and `TweedieRegression`
+currently drop prediction DataFrame rows with missing formula predictors and
+return a shorter unlabelled array. A five-row query with one missing predictor
+can therefore return four predictions, without the retained-row index. Do not
+align those values to the original rows by position. Resolve missing predictors
+and transformations first, and verify `len(prediction) == len(query)` before
+associating outputs with observations. If filtering deliberately, retain the
+filtered DataFrame's index and predict on that filtered frame explicitly.
+Training-time row filtering and its weight alignment are separate behavior.
+`LinearRegression.score` can also broadcast a single retained prediction over
+several evaluation responses, returning an invalid finite R². The flattening
+advice for single-column y does not fix this row-dropping issue; check formula
+prediction rows before scoring. Lasso, ElasticNet, Ridge, SCADRegression,
+MCPRegression and the tested penalized typed GLMs reject missing prediction values.
 
 ## PenalizedGeneralizedLinearModel
 
@@ -732,3 +754,137 @@ for cls in (LassoCV, RidgeCV):
 
 Both select alpha 0.03 on these data; held-out R² rounds to 0.965 for LassoCV
 and 0.966 for RidgeCV. No learned preprocessing uses the held-out rows.
+
+## Typed GLM constructors
+
+These seven typed estimators are also exported by `statgpu`. The exact runtime
+constructors below define their complete accepted keyword sets. For every
+shared argument, use the linked generic parameter table; the typed differences
+are listed explicitly. Do not pass generic-only controls to a typed constructor.
+
+For the three fixed penalized losses below, `loss_kwargs` accepts only None or
+an empty dictionary; the generic table's link/dispersion/power examples do not
+apply to squared_error, logistic or Poisson loss constructors.
+
+The four ordinary typed classes share `fit(X=None,y=None,sample_weight=None,formula=None,data=None)`,
+`predict(X)`, `summary()`, `family_to_loss()` and all configuration/inference
+helpers in [GeneralizedLinearModel](#generalizedlinearmodel). That section also
+defines all fitted fields, response-mean prediction shapes and NumPy reporting,
+normal-reference inference and failed-refit restrictions. They have no `score`
+or `predict_proba`. `family` is fixed by the class, not a constructor argument;
+formula/data are fit arguments, with the same training row-alignment rules.
+For prediction, observe the [ordinary GLM missing-row restriction](#missing-prediction-rows-in-ordinary-glms).
+
+## GammaRegression
+
+```text
+GammaRegression(fit_intercept=True, max_iter=100, tol=0.0001, C=1.0, device='auto', n_jobs=None, link='log', solver='auto', compute_inference=False, cov_type='nonrobust', gpu_memory_cleanup=False)
+```
+
+All arguments except `link` use the [ordinary GLM parameter table](#generalizedlinearmodel),
+with the same defaults. `link="log"` gives mean `exp(eta)`; `"inverse_power"`
+gives mean `1/eta` and requires a positive linear predictor. Responses must be
+strictly positive. The latter link's explicit Newton/L-BFGS domain behavior is
+described in the [weighted GLM guide](../models/generalized-linear-model.md).
+The constructor has no shape/dispersion or generic `family` parameter.
+
+## InverseGaussianRegression
+
+```text
+InverseGaussianRegression(fit_intercept=True, max_iter=100, tol=0.0001, C=1.0, device='auto', n_jobs=None, solver='auto', compute_inference=False, cov_type='nonrobust', gpu_memory_cleanup=False)
+```
+
+All arguments and defaults use the [ordinary GLM parameter table](#generalizedlinearmodel),
+except that there is no `family` control. The class fixes an Inverse Gaussian
+family with log link and strictly positive responses. It has no public `link`
+or shape-parameter control; it does not use the canonical inverse-squared link
+merely because the distribution is Inverse Gaussian.
+
+## NegativeBinomialRegression
+
+```text
+NegativeBinomialRegression(alpha=1.0, fit_intercept=True, max_iter=100, tol=0.0001, C=1.0, device='auto', n_jobs=None, solver='auto', compute_inference=False, cov_type='nonrobust', gpu_memory_cleanup=False)
+```
+
+All shared arguments/defaults use the [ordinary GLM parameter table](#generalizedlinearmodel).
+The additional `alpha=1.0` is a **fixed, finite positive dispersion parameter**:
+`Var(Y | X) = mu + alpha*mu**2`. It is not a regularization strength and is not
+estimated automatically. The mean uses a log link and the response is nonnegative.
+`C` independently controls ordinary IRLS ridge regularization; `family` and
+`link` are not constructor arguments.
+
+## TweedieRegression
+
+```text
+TweedieRegression(power=1.5, fit_intercept=True, max_iter=100, tol=0.0001, C=1.0, device='auto', n_jobs=None, solver='auto', compute_inference=False, cov_type='nonrobust', gpu_memory_cleanup=False)
+```
+
+All shared arguments/defaults use the [ordinary GLM parameter table](#generalizedlinearmodel).
+The additional `power=1.5` must be strictly between 1 and 2. It fixes the
+compound Poisson–Gamma variance power, `Var(Y | X) = phi*mu**power`, and is
+not tuned automatically. Responses may be zero or positive; the mean uses a
+log link. The constructor exposes neither `family`, `link`, nor a free phi
+parameter. This wrapper does not accept the full range of powers offered by
+some other libraries.
+
+## PenalizedLinearRegression
+
+```text
+PenalizedLinearRegression(penalty='l1', alpha=1.0, l1_ratio=0.5, penalty_kwargs=None, fit_intercept=True, max_iter=1000, tol=0.0001, device='auto', n_jobs=None, cpu_solver='fista', solver='auto', lipschitz_L=None, gpu_memory_cleanup=False, compute_inference=False, inference_method='auto', cov_type='nonrobust', hac_maxlags=None, stopping='coef_delta', lla=True, max_lla_iters=50, lla_tol=1e-06, loss_kwargs=None, *, nodewise_alpha=None)
+```
+
+This fixes `loss="squared_error"`; `loss` is not accepted. Every listed
+parameter has the meaning/default in the [generic penalized GLM table](#penalizedgeneralizedlinearmodel),
+including default `penalty="l1"` and keyword-only `nodewise_alpha=None`.
+It is a scalar Gaussian response model; formulas and analytic weights are supported.
+
+It shares `fit`, `predict(X,return_cpu=True)`, `score(X,y,sample_weight=None)`,
+`get_params`, `set_params`, the four inherited inference helpers and the generic
+coefficient/result layout. It additionally has `summary()`, which prints the
+coefficient/inference table and returns None after successful enabled inference,
+and the diagnostic properties `rsquared`, `rsquared_adj`, `fvalue`, `f_pvalue`,
+`llf`, `aic`, `bic`. These can be unavailable without inference. Read their
+[Gaussian diagnostic limitations](#lasso-fitted-results), including weighted
+debiased R² and non-effective-DoF information criteria. There is no `predict_proba`.
+
+## PenalizedLogisticRegression
+
+```text
+PenalizedLogisticRegression(penalty='l2', alpha=1.0, l1_ratio=0.5, penalty_kwargs=None, fit_intercept=True, max_iter=1000, tol=0.0001, device='auto', n_jobs=None, cpu_solver='fista', solver='auto', lipschitz_L=None, gpu_memory_cleanup=False, compute_inference=False, inference_method='auto', cov_type='nonrobust', hac_maxlags=None, stopping='coef_delta', lla=True, max_lla_iters=50, lla_tol=1e-06, loss_kwargs=None)
+```
+
+This fixes `loss="logistic"` and defaults to `penalty="l2"`, unlike the
+generic class's L1 default. All listed controls have the meanings in the
+[generic penalized GLM table](#penalizedgeneralizedlinearmodel), but neither
+`loss` nor `nodewise_alpha` is accepted. There is no C parameter: alpha uses
+average-loss scaling, not standalone LogisticRegression's summed-loss C scale.
+Only binary 0/1 responses are supported.
+
+It inherits `fit`, `predict(X,return_cpu=True)`, `score(X,y,sample_weight=None)`,
+configuration/inference helpers and fitted-result fields from the generic
+penalized class. `predict` returns labels, with class 1 only when probability
+is strictly above 0.5. Its additional `predict_proba(X)` returns `(m,2)`
+probabilities for 0/1 on the fitted NumPy/CuPy/Torch backend; it has no
+`return_cpu` option. Formula prediction DataFrames are accepted after formula
+fitting. `score` is response-scale R² on labels, **not accuracy**. There is no
+`summary`, threshold control, classification-metric suite or plotting interface
+on this typed class; use `_inference_result` for supported coefficient inference.
+
+## PenalizedPoissonRegression
+
+```text
+PenalizedPoissonRegression(penalty='l2', alpha=1.0, l1_ratio=0.5, penalty_kwargs=None, fit_intercept=True, max_iter=1000, tol=0.0001, device='auto', n_jobs=None, cpu_solver='fista', solver='auto', lipschitz_L=None, gpu_memory_cleanup=False, compute_inference=False, inference_method='auto', cov_type='nonrobust', hac_maxlags=None, stopping='coef_delta', lla=True, max_lla_iters=50, lla_tol=1e-06, loss_kwargs=None)
+```
+
+This fixes `loss="poisson"` and defaults to `penalty="l2"`. Every listed
+control has the meaning in the [generic penalized GLM table](#penalizedgeneralizedlinearmodel);
+`loss`, `nodewise_alpha` and C are not constructor arguments. Alpha is the
+average-loss penalty strength. Responses are nonnegative and the mean uses a
+log link. There is no offset/exposure fit argument.
+
+Methods and fitted fields are exactly those of the generic penalized class:
+`fit`, `predict(X,return_cpu=True)`, `score(X,y,sample_weight=None)`, configuration
+methods, four inherited inference helpers, and the coefficient/inference result
+layout. `predict` gives response means; `score` is response-scale R², not deviance
+or Poisson log-loss. There is no `summary` or `predict_proba` method. Formula/data
+and optional analytic weights follow the generic fit contract.

@@ -8,6 +8,7 @@ from __future__ import annotations
 import inspect
 import re
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -167,16 +168,44 @@ def test_bootstrap_reporting_matches_draws_and_not_normal_tail(monkeypatch):
 @pytest.mark.parametrize('method', ['cauchy', 'stouffer'])
 @pytest.mark.parametrize('axis', [None, 1])
 def test_combination_is_invariant_to_large_common_weight_scale(method, axis):
+    from statgpu.inference import _multiple_testing as implementation
+
     p = np.array([.01, .1]) if axis is None else np.array([[.01, .1], [.04, .2]])
-    with np.errstate(over='ignore', invalid='ignore'):
+    normalized = []
+    original = implementation._validate_weights
+
+    def record(weights, m, backend):
+        result = original(weights, m, backend)
+        normalized.append((np.asarray(weights).copy(), np.asarray(result).copy()))
+        return result
+
+    with patch.object(implementation, '_validate_weights', side_effect=record), np.errstate(over='ignore', invalid='ignore'):
         actual = combine_pvalues(p, method=method, weights=[1e308, 1e308], axis=axis)
-    expected = combine_pvalues(p, method=method, weights=[1, 1], axis=axis)
-    for observed, reference in zip(actual, expected):
-        assert np.shape(observed) == np.shape(reference)
-        if not np.allclose(observed, reference, rtol=1e-12, atol=1e-14, equal_nan=True):
-            raise _WeightScaleChangedCombination(
-                f'{method} result {observed!r} differs from unit-weight result {reference!r}'
-            )
+    if method == 'cauchy':
+        statistic = np.mean(np.tan(np.pi * (.5 - p)), axis=axis)
+        expected = (statistic, .5 - np.arctan(statistic) / np.pi)
+    else:
+        statistic = np.sum(stats.norm.isf(p), axis=axis) / np.sqrt(2)
+        expected = (statistic, stats.norm.sf(statistic))
+    assert all(np.isfinite(value).all() for value in expected)
+    assert all(np.shape(observed) == np.shape(reference)
+               for observed, reference in zip(actual, expected))
+    if all(np.allclose(observed, reference, rtol=1e-12, atol=1e-14)
+           for observed, reference in zip(actual, expected)):
+        return
+
+    # NaN Stouffer output alone is not enough: the known mechanism must have
+    # executed, with finite huge inputs normalized to exactly zero weights.
+    assert len(normalized) == 1
+    for supplied, resolved in normalized:
+        np.testing.assert_array_equal(supplied, [1e308, 1e308])
+        np.testing.assert_array_equal(resolved, [0., 0.])
+    signature = (0., .5) if method == 'cauchy' else (np.nan, np.nan)
+    for observed, value in zip(actual, signature):
+        np.testing.assert_array_equal(observed, np.full(np.shape(observed), value))
+    raise _WeightScaleChangedCombination(
+        f'{method} followed the verified overflowing-sum normalization path'
+    )
 
 
 @pytest.mark.xfail(strict=True, raises=_PenalizedOracleRefit,
@@ -195,8 +224,14 @@ def test_logistic_oracle_targets_unpenalized_active_set(penalty):
     observed = model._inference_result.params[np.r_[0, active + 1]]
     expected = np.r_[reference.intercept_, reference.coef_]
     assert np.shape(observed) == np.shape(expected)
-    if not np.allclose(observed, expected, rtol=1e-6, atol=1e-7, equal_nan=True):
-        raise _PenalizedOracleRefit(f'logistic oracle {observed!r} differs from {expected!r}')
+    assert np.isfinite(observed).all()
+    if np.allclose(observed, expected, rtol=1e-6, atol=1e-7):
+        return
+    default_child = LogisticRegression(C=1, device='cpu').fit(x[:, active], y)
+    known_bad = np.r_[default_child.intercept_, default_child.coef_]
+    np.testing.assert_allclose(observed, known_bad, rtol=1e-6, atol=1e-7,
+                               err_msg='A different oracle corruption is not issue #227')
+    raise _PenalizedOracleRefit('logistic oracle exactly retained the default C=1 child')
 
 
 @pytest.mark.xfail(strict=True, raises=_PenalizedOracleRefit,
@@ -214,8 +249,14 @@ def test_poisson_oracle_targets_unpenalized_active_set(penalty):
     observed = model._inference_result.params
     expected = np.r_[reference.intercept_, reference.coef_]
     assert np.shape(observed) == np.shape(expected)
-    if not np.allclose(observed, expected, rtol=1e-6, atol=1e-7, equal_nan=True):
-        raise _PenalizedOracleRefit(f'Poisson oracle {observed!r} differs from {expected!r}')
+    assert np.isfinite(observed).all()
+    if np.allclose(observed, expected, rtol=1e-6, atol=1e-7):
+        return
+    default_child = PoissonRegression(C=1, solver='auto', device='cpu').fit(x, y)
+    known_bad = np.r_[default_child.intercept_, default_child.coef_]
+    np.testing.assert_allclose(observed, known_bad, rtol=1e-6, atol=1e-7,
+                               err_msg='A different oracle corruption is not issue #227')
+    raise _PenalizedOracleRefit('Poisson oracle exactly used default positive-C IRLS')
 
 
 @pytest.mark.xfail(strict=True, raises=_LostOracleFamilyParameter,
@@ -253,4 +294,6 @@ def test_oracle_refit_preserves_family_parameters(monkeypatch, penalty, loss, cl
     observed = seen[0][parameter]
     expected = settings[parameter]
     if observed != expected:
+        default = inspect.signature(cls).parameters[parameter].default
+        assert observed == default, 'An arbitrary family setting is not the default-reset bug'
         raise _LostOracleFamilyParameter(f'oracle {parameter}={observed!r}, requested {expected!r}')

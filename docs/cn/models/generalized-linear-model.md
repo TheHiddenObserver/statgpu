@@ -66,6 +66,10 @@ Interval shape: (3, 2)
 
 带惩罚 GLM 的系数推断见 [带惩罚 GLM 推断](../guides/penalized-glm-inference.md)；完整求解器表见 [求解器 × 惩罚项兼容性矩阵](../guides/solver-penalty-matrix.md)。
 
+[GLM 专用类完整构造参数与方法](../reference/linear-model-api.md#typed-glm-constructors)
+列出分布族的链接、离散参数、幂次，以及不同惩罚封装的默认值。
+名称相近不代表可以互换构造参数。
+
 ## 公开入口
 
 - `statgpu.linear_model.GeneralizedLinearModel`
@@ -234,6 +238,9 @@ assert prediction.shape == (5,)
 ```
 
 公式在 CPU 上解析。应单独传入 formula/data，不要同时传入数组 X/y。权重可以对应原始全部行，也可以对应公式及缺失值处理后保留的行，按位置对齐。预测会重建训练时的列和类别水平。大数据可直接使用数组以避免公式解析开销。
+
+普通 GLM 公式预测目前会删除预测变量缺失的行，并返回较短且无行标签的数组。
+应处理缺失并核对输出长度，再将预测配给观测；详见[缺失行限制](../reference/linear-model-api.md#missing-prediction-rows-in-ordinary-glms)。
 
 ### 重拟合失败后的限制
 

@@ -8,6 +8,9 @@
 
 本页模型的浮点计算使用 float64，不保留 float32 输入精度；后端原生数值预测仍使用拟合时的数组库类型。
 
+相关完整 API 位于各模型页：[KernelRidge、KernelRidgeCV、KernelPCA 与 Nystroem](../models/kernel-methods.md#完整估计器-api)、
+[成对核函数](../models/kernel-methods.md#完整成对核函数-api)，以及[样条基与 SplineTransformer](../models/splines.md#完整的模型专属调用)。
+
 ## CoxPH 与 CoxPHCV
 
 从 `statgpu.survival` 导入。构造参数的含义、允许值和推断限制见 [CoxPH 参数表](../models/coxph.md#参数)及 [CoxPHCV 参数表](../models/coxph.md#coxphcv-参数)。

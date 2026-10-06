@@ -68,6 +68,7 @@ print(np.round(model.predict(X[:3]), 6))
 | `LogisticRegressionCV` | Logistic 回归交叉验证 | NumPy, CuPy, Torch |
 | `PenalizedGLM_CV` | 统一惩罚 GLM 交叉验证 | NumPy, CuPy, Torch |
 | `CoxPHCV` | 搜索 Cox 惩罚强度并进行最终重拟合 | NumPy, CuPy, Torch |
+| `KernelRidgeCV` | 固定核函数的 alpha 选择；整数数据折，不接受样本权重 | NumPy, CuPy, Torch |
 
 数据折、参数选择、最终重拟合、权重以及选择后推断的语义见 [交叉验证](cross-validation.md)。
 

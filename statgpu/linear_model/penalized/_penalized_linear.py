@@ -15,11 +15,104 @@ if TYPE_CHECKING:
 
 
 class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
-    """Gaussian penalized regression.
+    """PenalizedLinearRegression with fixed squared_error loss.
 
-    This typed estimator replaces the old ``PenalizedLinearRegression(loss=...)``
-    entry point.  Use ``PenalizedLogisticRegression`` or
-    ``PenalizedPoissonRegression`` for non-gaussian GLMs.
+    Parameters
+    ----------
+    penalty : str or Penalty, default='l1'
+        none, l1, l2, elasticnet, scad, mcp, adaptive_l1, supported group penalties, or a Penalty object.
+    alpha : float, default=1.0
+        Penalty strength on the average-loss scale. A supplied Penalty object owns its own configuration.
+    l1_ratio : float, default=0.5
+        L1 fraction for elasticnet.
+    penalty_kwargs : dict or None, default=None
+        Additional penalty constructor settings, e.g. groups or shape controls.
+    fit_intercept : bool, default=True
+        Unpenalized intercept; formula syntax takes precedence.
+    max_iter : int, default=1000
+        Per-solve iteration budget.
+    tol : float, default=0.0001
+        Numerical tolerance.
+    device : str or Device, default='auto'
+        cpu, cuda, torch, auto; see the backend guide.
+    n_jobs : int or None, default=None
+        Shared CPU-worker setting where used.
+    cpu_solver : str, deprecated
+        Historical compatibility parameter, default='fista'. It no longer selects the direct-fit algorithm;
+        use solver instead. Explicit non-None user-supplied values emit FutureWarning,
+        including the historical default; omitted defaults and internal clone
+        replay do not. See the solver migration guide.
+    solver : str, default='auto'
+        Choices include 'auto', 'fista', 'fista_bb', 'admm', 'irls', 'newton',
+        'lbfgs', and 'exact'. Support depends on the loss and penalty;
+        unsupported explicit combinations raise an error.
+    lipschitz_L : float or None, default=None
+        Optional Lipschitz bound for compatible proximal paths.
+    gpu_memory_cleanup : bool, default=False
+        Best-effort GPU memory-pool cleanup.
+    compute_inference : bool, default=False
+        Run supported post-fit inference only when True.
+    inference_method : str, default='auto'
+        Resolve a supported method from loss/penalty; consult the inference matrix.
+    cov_type : str, default='nonrobust'
+        Method-specific covariance; non-Gaussian smooth inference supports nonrobust/hc0/hc1.
+    hac_maxlags : int or None, default=None
+        HAC lag control only on paths supporting HAC.
+    stopping : str, default='coef_delta'
+        Stored convergence request; direct sparse Gaussian fits currently ignore the kkt choice.
+    lla : bool, default=True
+        Enable local linear approximation for supported nonconvex penalties.
+    max_lla_iters : int, default=50
+        Maximum outer LLA iterations.
+    lla_tol : float, default=1e-06
+        Outer LLA convergence tolerance.
+    loss_kwargs : dict or None, default=None
+        Use None or an empty dictionary for this fixed loss. It exposes no
+        extra loss-constructor options; other GLM families' link/dispersion/
+        power arguments do not apply.
+    nodewise_alpha : float or None, default=None
+        Keyword-only tuning for supported debiased precision estimation; not the fit penalty.
+
+    Methods
+    -------
+    fit(X=None, y=None, sample_weight=None, formula=None, data=None)
+        Return self; numeric X has shape (n, p), scalar-response y has shape (n,).
+    predict(X, return_cpu=True)
+        Return (m,) predictions; default NumPy, native fitted backend when False.
+        Squared-error predictions are linear response means.
+    score(X, y, sample_weight=None)
+        Response-scale R-squared, not deviance pseudo-R-squared.
+        Pass one-dimensional y and validate finite,
+        nonnegative weights with positive sum; shared score checks are incomplete.
+    get_params(deep=True), set_params(**params)
+        Shared estimator configuration methods.
+    adjust_pvalues, combine_pvalues, bootstrap_statistic, permutation_test
+        Shared statistical helpers, not automatic GLM resampling/refitting.
+
+    summary()
+        Print the coefficient/inference table and return None after successful
+        enabled inference. Prediction alone does not make this report available.
+
+    Notes
+    -----
+    This typed class fixes loss="squared_error"; loss is not a constructor argument.
+    Alpha multiplies the slope penalty on the average-loss scale, with an
+    unpenalized intercept. Formula input and analytic weights follow the shared
+    fit interface. Read supported inference through _inference_result (params,
+    bse, statistic, pvalues, conf_int, method, distribution and metadata).
+    Prediction coef_ is a NumPy (p,) array and intercept_ is scalar. Inference
+    vectors are (k,) and intervals (k, 2), with an intercept first when present;
+    reporting parameters may differ from penalized prediction coefficients.
+    get_params/set_params expose only this typed constructor's accepted controls.
+
+    Default penalty is L1; keyword-only nodewise_alpha controls supported debiased
+    inference. The inherited rsquared, rsquared_adj, fvalue, f_pvalue, llf, aic and
+    bic diagnostics may be unavailable without inference. Weighted debiased R²
+    currently re-centers a working response; use score on original observations
+    with validated weights. Information criteria/F diagnostics do not generally
+    use penalty-effective degrees of freedom or correct tuning/selection.
+    There is no predict_proba. See the linear-model API reference for diagnostics.
+
     """
 
     def __init__(

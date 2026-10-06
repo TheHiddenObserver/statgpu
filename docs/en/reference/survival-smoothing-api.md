@@ -6,6 +6,11 @@
 
 Use this page to look up a call after the [CoxPH](../models/coxph.md), [GAM](../models/semiparametric.md), or [nonparametric](../models/nonparametric.md) walkthrough. Signatures below include public arguments and defaults; `*` starts keyword-only arguments. Shape notation: `n` training rows, `p` features, `q` query rows, `r` response columns. Fitted methods require a successful fit. Generic [parameter management](estimator-api.md#parameter-management) and [inference helpers](estimator-api.md#inference-helpers) are documented separately. Generic resampling helpers do not automatically supply model-valid survival inference or GAM confidence bands. Floating-point model calculations on this page use float64 rather than preserving a float32 input dtype; backend-native numeric predictions still have the fitted array-library type.
 
+Related complete APIs are on the model pages: [KernelRidge, KernelRidgeCV,
+KernelPCA, and Nystroem](../models/kernel-methods.md#complete-estimator-api),
+[pairwise kernel functions](../models/kernel-methods.md#complete-pairwise-function-api),
+and [spline bases and SplineTransformer](../models/splines.md#complete-model-specific-calls).
+
 ## CoxPH and CoxPHCV
 
 Import both from `statgpu.survival`. Constructor meanings, allowed values, and inference restrictions are in the [CoxPH parameter tables](../models/coxph.md#parameters) and [CoxPHCV table](../models/coxph.md#coxphcv-parameters).

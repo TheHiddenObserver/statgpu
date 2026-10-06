@@ -255,7 +255,17 @@ def test_requested_direct_kkt_stopping_should_certify_objective_residual(cls, ra
                      str(error), re.IGNORECASE):
             return
         raise
+    assert np.asarray(model.coef_).shape == (2,)
+    assert np.isfinite(model.coef_).all()
     residual = _kkt_residual(X, y, model.coef_, 0., .1, ratio)
+    assert np.isfinite(residual), "Nonfinite KKT evaluation is a different failure"
+    assert residual >= 0
+    diagonal = np.diag(X)**2 / len(y) + .1*(1-ratio)
+    smooth_gradient = diagonal*model.coef_ - np.diag(X)*y/len(y)
+    independent = np.maximum(np.abs(smooth_gradient)-.1*ratio, 0.)
+    active = np.asarray(model.coef_) != 0
+    independent[active] = np.abs(smooth_gradient[active] + .1*ratio*np.sign(model.coef_[active]))
+    assert residual == pytest.approx(float(independent.max()), abs=1e-10)
     if residual <= model.tol:
         return  # Convergence is valid even on the final allowed iteration.
     reported_failure = getattr(model, 'converged_', None) is False or any(
@@ -265,6 +275,18 @@ def test_requested_direct_kkt_stopping_should_certify_objective_residual(cls, ra
     )
     if model.n_iter_ >= model.max_iter and reported_failure:
         return  # An honestly exhausted finite budget is not false convergence.
+    # The reported early exit must be the specific two-step coefficient-delta
+    # result on this separable diagonal fixture. Do not xfail arbitrary solver
+    # corruption merely because its KKT residual is large.
+    curvature = np.diag(X.T @ X) / len(y) + .1 * (1-ratio)
+    linear_score = X.T @ y / len(y) - .1 * ratio
+    step = 1 / curvature.max()
+    first = step * linear_score
+    second = first + step * (linear_score - curvature * first)
+    np.testing.assert_allclose(model.coef_, second, atol=1e-12, rtol=1e-10)
+    assert model.n_iter_ == 2
+    analytic_residual = np.max(np.abs(curvature * model.coef_ - linear_score))
+    assert residual == pytest.approx(analytic_residual, abs=1e-12)
     raise _UncertifiedKKT(f'KKT residual {residual} exceeds tolerance {model.tol}')
 
 
@@ -327,6 +349,7 @@ def test_lasso_admm_rho_should_reach_direct_and_cv_final_solver(monkeypatch, req
         assert model.admm_rho == requested
     assert calls, 'actual ADMM solver was not reached'
     if calls[-1] != requested:
+        assert calls[-1] == 1.0, 'Only the hardcoded initial rho belongs to issue #234'
         raise _IgnoredADMMRho(f'final solver received rho={calls[-1]!r}, requested {requested!r}')
 
 

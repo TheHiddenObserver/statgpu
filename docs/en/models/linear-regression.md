@@ -97,6 +97,16 @@ sample; checking many coefficients adds a multiple-testing concern. HC3 changes
 the covariance estimate, not the fitted OLS coefficients. These are marginal
 coefficient intervals, not prediction intervals for new observations.
 
+### Missing formula-prediction rows
+
+Formula prediction currently drops rows with missing predictors and returns a
+shorter unlabelled array. Resolve missing values and verify prediction length
+before aligning results to the original observations. `score` is also unsafe
+on such a query: one retained prediction can broadcast across several responses
+and produce a finite but wrong R². Flattening y does not repair this separate
+row-alignment problem. Filter deliberately with a retained row index, or reject
+the query; see the [complete missing-row warning](../reference/linear-model-api.md#missing-prediction-rows-in-ordinary-glms).
+
 ## Inputs and outputs
 
 - Fitting array input: finite numeric `X` with shape `(n_samples, n_features)`
