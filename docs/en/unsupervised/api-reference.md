@@ -20,6 +20,12 @@ Import any class with `from statgpu.unsupervised import ClassName`. Here `n` is 
 
 Array-returning methods do not universally make defensive copies. `KMeans`, `MiniBatchKMeans`, `DBSCAN`, and `AgglomerativeClustering` return their `labels_` object from `fit_predict`; UMAP and TSNE return their `embedding_` object from `fit_transform`. NMF returns its stored joint-fit factors from `fit_transform`. Treat these arrays and fitted attributes as read-only, or copy them before modifying them (`a.copy()` for NumPy/CuPy, `a.clone()` for Torch).
 
+## Randomness
+
+An integer seed restarts a stochastic fit from that seed; a NumPy `Generator` or `RandomState` is stateful and fitting can advance it. Reusing the same object is different from supplying the same integer again. `None` requests fresh randomness rather than a fixed seed. Fixed seeds do not promise identical results across backends or library versions. PCA's full/covariance solvers and TruncatedSVD's full solver ignore random initialization.
+
+PCA's randomized solver, NMF, MiniBatchNMF, randomized TruncatedSVD, UMAP, and random-initialized TSNE accept NumPy `Generator` and `RandomState` objects and use portable unsigned 32-bit integer seeds. KMeans, MiniBatchKMeans and GaussianMixture instead follow the seed forms accepted by the installed [`numpy.random.default_rng`](https://numpy.org/doc/stable/reference/random/generator.html#numpy.random.default_rng); for example, legacy `RandomState` coercion is available in NumPy 2.3 but is absent in some older versions. Use an integer or `Generator` for portability across those versions. These seed rules do not remove UMAP's separately documented spectral-initialization limitation.
+
 ## Method availability
 
 A method not listed in a model's table is not an additional model capability. In particular, the `predict`/`transform` stubs for clustering or visualization models below are listed explicitly as unsupported. No class in this module exposes a dedicated CV estimator. Select preprocessing, rank, cluster count and other settings using criteria suitable for the scientific question; arbitrary `score` values are not comparable across models.
@@ -38,7 +44,7 @@ PCA(n_components=None, svd_solver='auto', whiten=False, copy=True, random_state=
 | `svd_solver` | `'auto'` | `"auto"`, `"full"`, `"covariance"`, or `"randomized"`; `auto` uses covariance/eigh for `n >= p`, otherwise full SVD. |
 | `whiten` | `False` | Whether transformed PCA coordinates are rescaled by the fitted component standard deviations. |
 | `copy` | `True` | Compatibility option; input data are not modified, including when `False`. |
-| `random_state` | `None` | Integer seed or `None`; controls randomized initialization/approximation. A fixed seed does not promise identical results across backends or library versions. |
+| `random_state` | `None` | Integer seed in `[0, 2**32-1]`, `None`, NumPy `Generator`, or NumPy `RandomState`; used by stochastic paths. See [randomness](#randomness). |
 | `n_oversamples` | `10` | Nonnegative integer giving extra random projection directions. |
 | `iterated_power` | `2` | Nonnegative number of randomized power iterations. |
 | `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see the shared device rules. |
@@ -76,7 +82,7 @@ KMeans(n_clusters=8, init='k-means++', n_init='auto', max_iter=300, tol=0.0001, 
 | `n_init` | `'auto'` | Positive integer or `"auto"`: one run for k-means++, ten for random initialization. |
 | `max_iter` | `300` | Positive integer iteration budget; see each model for iterations versus epochs. |
 | `tol` | `0.0001` | Nonnegative convergence threshold; the model-specific criterion is described below. |
-| `random_state` | `None` | Integer seed or `None`; controls randomized initialization/approximation. A fixed seed does not promise identical results across backends or library versions. |
+| `random_state` | `None` | Integer seed, `None`, NumPy `Generator`, or another seed accepted by the installed NumPy `default_rng`; see [randomness](#randomness) for version-dependent legacy forms. |
 | `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see the shared device rules. |
 | `n_jobs` | `None` | Accepted common CPU-job configuration; these implementations do not use it to control their numerical kernels or guarantee a thread count. |
 
@@ -147,7 +153,7 @@ GaussianMixture(n_components=1, covariance_type='diag', tol=0.001, reg_covar=1e-
 | `max_iter` | `100` | Positive integer iteration budget; see each model for iterations versus epochs. |
 | `n_init` | `1` | Positive number of EM restarts; retain the best fitted lower bound. |
 | `init_params` | `'kmeans'` | `"kmeans"` or `"random"` mean initialization. |
-| `random_state` | `None` | Integer seed or `None`; controls randomized initialization/approximation. A fixed seed does not promise identical results across backends or library versions. |
+| `random_state` | `None` | Integer seed, `None`, NumPy `Generator`, or another seed accepted by the installed NumPy `default_rng`; see [randomness](#randomness) for version-dependent legacy forms. |
 | `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see the shared device rules. |
 | `n_jobs` | `None` | Accepted common CPU-job configuration; these implementations do not use it to control their numerical kernels or guarantee a thread count. |
 
@@ -186,7 +192,7 @@ NMF(n_components=None, init='random', solver='mu', beta_loss='frobenius', max_it
 | `beta_loss` | `'frobenius'` | Only `"frobenius"` is supported. |
 | `max_iter` | `200` | Positive integer iteration budget; see each model for iterations versus epochs. |
 | `tol` | `0.0001` | Nonnegative convergence threshold; the model-specific criterion is described below. |
-| `random_state` | `None` | Integer seed or `None`; controls randomized initialization/approximation. A fixed seed does not promise identical results across backends or library versions. |
+| `random_state` | `None` | Integer seed in `[0, 2**32-1]`, `None`, NumPy `Generator`, or NumPy `RandomState`; used by stochastic paths. See [randomness](#randomness). |
 | `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see the shared device rules. |
 | `n_jobs` | `None` | Accepted common CPU-job configuration; these implementations do not use it to control their numerical kernels or guarantee a thread count. |
 
@@ -205,6 +211,8 @@ NMF(n_components=None, init='random', solver='mu', beta_loss='frobenius', max_it
 | `n_iter_`, `n_components_`, `n_features_in_` | Fitting iterations, rank, and input width. |
 
 All fitted/transformed data must be nonnegative. `tol` tests relative change in reconstruction error at periodic checks during `fit`. `transform` always runs `max_iter` updates with the components fixed, without early stopping by `tol`. `fit_transform` returns the joint-fit `W`; a later `transform(X)` resolves `W` with `H` fixed and need not be identical. No `score` or `partial_fit` is provided.
+
+Very small positive input units can collapse the factors because fixed absolute stabilizers dominate the updates, including with `tol=0`. Use one fixed positive training-derived scale for all features, batches and later transforms, then rescale reconstructions to original units; see [small-unit precautions](nmf.md#very-small-input-units). Inspect relative reconstruction error as well as the absolute diagnostic.
 
 ## AgglomerativeClustering
 
@@ -250,7 +258,7 @@ TruncatedSVD(n_components=2, algorithm='randomized', n_iter=5, n_oversamples=10,
 | `algorithm` | `'randomized'` | `"randomized"` or `"full"`. |
 | `n_iter` | `5` | Nonnegative power-iteration count for the randomized method. |
 | `n_oversamples` | `10` | Nonnegative integer giving extra random projection directions. |
-| `random_state` | `None` | Integer seed or `None`; controls randomized initialization/approximation. A fixed seed does not promise identical results across backends or library versions. |
+| `random_state` | `None` | Integer seed in `[0, 2**32-1]`, `None`, NumPy `Generator`, or NumPy `RandomState`; used by stochastic paths. See [randomness](#randomness). |
 | `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see the shared device rules. |
 | `n_jobs` | `None` | Accepted common CPU-job configuration; these implementations do not use it to control their numerical kernels or guarantee a thread count. |
 
@@ -287,7 +295,7 @@ MiniBatchKMeans(n_clusters=8, init='k-means++', n_init='auto', batch_size=1024, 
 | `max_iter` | `100` | Positive integer iteration budget; see each model for iterations versus epochs. |
 | `max_no_improvement` | `10` | Nonnegative integer budget of batches without a new best batch inertia, or `None` to disable this stop rule. |
 | `tol` | `0.0` | Nonnegative convergence threshold; the model-specific criterion is described below. |
-| `random_state` | `None` | Integer seed or `None`; controls randomized initialization/approximation. A fixed seed does not promise identical results across backends or library versions. |
+| `random_state` | `None` | Integer seed, `None`, NumPy `Generator`, or another seed accepted by the installed NumPy `default_rng`; see [randomness](#randomness) for version-dependent legacy forms. |
 | `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see the shared device rules. |
 | `n_jobs` | `None` | Accepted common CPU-job configuration; these implementations do not use it to control their numerical kernels or guarantee a thread count. |
 
@@ -358,7 +366,7 @@ MiniBatchNMF(n_components=None, init='random', batch_size=None, max_iter=200, to
 | `batch_size` | `None` | Positive integer or `None`; controls batches inside `fit`. `None` chooses a data-size-dependent batch, possibly the full dataset. `partial_fit` consumes the supplied batch. |
 | `max_iter` | `200` | Positive integer iteration budget; see each model for iterations versus epochs. |
 | `tol` | `0.0001` | Nonnegative convergence threshold; the model-specific criterion is described below. |
-| `random_state` | `None` | Integer seed or `None`; controls randomized initialization/approximation. A fixed seed does not promise identical results across backends or library versions. |
+| `random_state` | `None` | Integer seed in `[0, 2**32-1]`, `None`, NumPy `Generator`, or NumPy `RandomState`; used by stochastic paths. See [randomness](#randomness). |
 | `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see the shared device rules. |
 | `n_jobs` | `None` | Accepted common CPU-job configuration; these implementations do not use it to control their numerical kernels or guarantee a thread count. |
 
@@ -378,6 +386,8 @@ MiniBatchNMF(n_components=None, init='random', batch_size=None, max_iter=200, to
 | `n_iter_`, `n_components_`, `n_features_in_` | Fit epochs (or number of partial updates), chosen rank, and fixed input width. |
 
 Use nonnegative dense data and keep feature width/order fixed. An explicitly positive rank need not be smaller than the first batch; with `None`, the first batch determines it. `max_iter` limits `fit` epochs and influences the fixed-component transform solve; `tol` checks relative component change during fitting, not relative reconstruction-error change. Neither controls a convergence loop in `partial_fit`. A feature that is zero throughout the first batch can become permanently zero in the dictionary, even if later batches contain positive values. Buffer representative initialization rows or restart with representative retained data when later data contain positive values for a zero dictionary column; see the [initial-batch precautions](minibatch-nmf.md#initial-batches-with-zero-features). No `score` or sample-weight argument is exposed.
+
+Very small positive input units can collapse the factors because fixed absolute stabilizers dominate the updates, including with `tol=0`. Use one fixed positive training-derived scale for all features, batches and later transforms, then rescale reconstructions to original units; see [small-unit precautions](minibatch-nmf.md#very-small-input-units). Inspect relative reconstruction error as well as the absolute diagnostic.
 
 ## UMAP
 
@@ -399,7 +409,7 @@ UMAP(n_neighbors=15, n_components=2, metric='euclidean', min_dist=0.1, spread=1.
 | `init` | `'spectral'` | `"spectral"` (host SciPy eigensolver) or `"random"`; use random initialization to avoid the current sparse spectral-initialization limitation described below. |
 | `negative_sample_rate` | `5` | Positive integer; each epoch samples `n * negative_sample_rate` independent source/target pairs, not that many pairs per attractive edge. |
 | `repulsion_strength` | `1.0` | Positive repulsive-force multiplier. |
-| `random_state` | `None` | Integer seed or `None`; controls randomized initialization/approximation. A fixed seed does not promise identical results across backends or library versions. |
+| `random_state` | `None` | Integer seed in `[0, 2**32-1]`, `None`, NumPy `Generator`, or NumPy `RandomState`; used by stochastic paths. See [randomness](#randomness). |
 | `nn_method` | `'auto'` | `"auto"`, `"exact"`, or `"nndescent"`; exact search uses dense distances, NNDescent is approximate, and auto currently always chooses exact search. |
 | `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see the shared device rules. |
 | `n_jobs` | `None` | Accepted common CPU-job configuration; these implementations do not use it to control their numerical kernels or guarantee a thread count. |
@@ -435,7 +445,7 @@ TSNE(n_components=2, perplexity=30.0, early_exaggeration=12.0, learning_rate='au
 | `learning_rate` | `'auto'` | Positive number or `"auto"`; auto is `max(n / early_exaggeration / 4, 10)`, which need not match another library. |
 | `max_iter` | `1000` | Integer at least 250; total optimization iterations. |
 | `init` | `'pca'` | `"pca"` or `"random"`; no user-supplied embedding option. |
-| `random_state` | `None` | Integer seed or `None`; controls randomized initialization/approximation. A fixed seed does not promise identical results across backends or library versions. |
+| `random_state` | `None` | Integer seed in `[0, 2**32-1]`, `None`, NumPy `Generator`, or NumPy `RandomState`; used by stochastic paths. See [randomness](#randomness). |
 | `metric` | `'euclidean'` | Only `"euclidean"` is supported; other metrics, including precomputed distances, are unsupported. |
 | `device` | `'auto'` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` (Torch CUDA); see the shared device rules. |
 | `n_jobs` | `None` | Accepted common CPU-job configuration; these implementations do not use it to control their numerical kernels or guarantee a thread count. |

@@ -117,6 +117,14 @@ class KernelRegression(BaseEstimator):
     Local-linear instability may use stabilization or an NW fallback. Center
     large-offset coordinates with a shared training-derived offset. Neither
     fallback is evidence of reliable extrapolation.
+    With very small feature variances, absolute covariance stabilization can
+    dominate scalar-factor bandwidths and change predictions under a mere
+    change of units. Centering alone does not fix this. Scale samples and
+    queries consistently before fitting, keep numeric bandwidth factors
+    unchanged, and divide absolute bandwidth_per_feature widths by the matching
+    positive feature scales. Response predictions need no density Jacobian.
+    This mitigates the demonstrated scale problem; validate the intended
+    covariance and predictions independently rather than relying on finiteness.
     Torch currently raises TypeError for explicit weights and for scalar or
     vector bandwidth_per_feature. Use backend='numpy' with CPU arrays for
     those settings; omitting the weights or widths changes the requested fit.

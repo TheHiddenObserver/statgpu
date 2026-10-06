@@ -1,7 +1,7 @@
 # Nonparametric Methods
 
 > Language: English  
-> Last updated: 2026-10-05  
+> Last updated: 2026-10-06  
 > This page: Nonparametric overview  
 > Switch: [Chinese](../../cn/models/nonparametric.md)
 
@@ -251,6 +251,37 @@ Other bandwidth names include `nrd0`, `nrd`, `ucv`, `bcv`, `sj`, `sj-ste`, and `
 Kernel regression additionally accepts `"cv"`, `"cv_ls"`, `"cv-nw"`, and `"cv-ll"` for a leave-one-out MSE search over a scalar factor. The selector uses full covariance, and local-linear CV correction is implemented only for one feature; in multiple dimensions its objective uses NW predictions even for `"cv-ll"`. For a multivariate local-linear or diagonal-metric model, explicitly validate candidate widths against the **actual intended model**, rather than assuming this selector optimizes that exact configuration. These CV names are not KDE bandwidth options.
 
 No unified strict/approx switch exists. With compact-support kernels, a query can have no supported observations: KDE returns zero density (`logpdf=-inf`), while regression falls back to its weighted training target mean when local effective weight is too small (`min_effective_weight=1e-12` by default). A failed/unstable local-linear solve can use stabilization or NW fallback. Treat distant-query predictions cautiously; they are not evidence of reliable extrapolation. Even Gaussian regression can reach the low-weight fallback far from the data.
+
+### Small coordinate scales
+
+The absolute covariance stabilization can dominate very small training
+variances. With numeric bandwidth factors, Scott, or Silverman rules, changing
+only measurement units can materially change KDE and kernel-regression results. For example,
+with 41 equally spaced samples from -2 to 2 and `bandwidth=0.4`, KDE at zero
+is about 0.243898. Multiplying samples and queries by `1e-9` gives about
+0.000997 after mapping the density back to the original units, rather than
+0.243898. The outputs are finite, so a finiteness check does not detect this.
+
+Before fitting, choose positive feature scales from the training data and
+apply the same transformation to queries. In coordinates
+`z = (x - location) / scale`, typical training variation near one reduces this
+demonstrated problem; centering alone does not. For KDE, convert back with
+`density_x = density_z / np.prod(scale)` and
+`log_density_x = log_density_z - np.log(scale).sum()`. Density has units, so
+returning the standardized density unchanged would be incorrect. Kernel
+regression response predictions require no density Jacobian. Keep a numeric
+bandwidth factor unchanged under this coordinate conversion; divide any
+absolute `bandwidth_per_feature` widths by the matching feature scales.
+Learn preprocessing within training folds when tuning.
+
+Bandwidth paths are not all affected identically: one-dimensional `nrd`/`nrd0`
+convert an absolute width to a factor and can compensate for the covariance
+increment in this example. Explicit `bandwidth_per_feature` also does not use
+that stabilized sample covariance directly. Switching selectors changes the
+smoothing rule rather than repairing the same statistical model. Scaling
+mitigates the demonstrated problem but does not guarantee accuracy for singular,
+ill-conditioned, or otherwise unstable fits; validate the intended covariance
+and predictions independently.
 
 ## Complete API and diagnostics reference
 

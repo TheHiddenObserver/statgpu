@@ -11,7 +11,9 @@ from statgpu.linear_model.penalized._penalized_linear import PenalizedLinearRegr
 class SCADRegression(PenalizedLinearRegression):
     """SCAD-penalized regression.
 
-    Non-convex penalty with oracle property. Uses LLA+FISTA for optimization.
+    Non-convex penalty with an oracle property under asymptotic regularity
+    and tuning conditions. This is not a finite-sample unbiasedness guarantee.
+    Uses LLA+FISTA for optimization.
 
     Parameters
     ----------
@@ -28,7 +30,16 @@ class SCADRegression(PenalizedLinearRegression):
     device : str or Device, default='auto'
         Computation device.
     compute_inference : bool, default=False
-        Whether to compute post-fit inference (SCAD does not support debiased).
+        Keep False on this specialized wrapper: it does not expose
+        inference_method, and fitting with inference enabled raises. For an explicit
+        oracle or bootstrap request, use PenalizedLinearRegression with
+        penalty="scad" and the desired inference_method. Ordinary active-set
+        intervals do not correct selection uncertainty.
+    solver : str, default='auto'
+        Optimization algorithm for this non-convex penalty; consult the solver
+        compatibility guide for supported choices.
+    gpu_memory_cleanup : bool, default=False
+        Request best-effort release of reclaimable GPU cache memory.
     """
 
     def __init__(

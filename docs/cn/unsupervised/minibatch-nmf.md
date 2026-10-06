@@ -92,6 +92,33 @@ print("reconstructed second feature:", reconstructed[:, 1])
 
 此时字典两列均有正值，第二个特征的重构也为正。若不缓冲，而是依次对 `first`、`second` 调用 `partial_fit`，第二个特征的重构会始终为零。数据流发生变化时，应逐特征检查重构效果。
 
+## 极小数值单位
+
+固定绝对稳定项也可能在 `fit` 和 `partial_fit` 中淹没数值极小的正观测。按 `1e-12` 尺度表示的精确秩一矩阵，即使每批的所有特征均为正，也可能重构成几乎全零。这与上面的全零特征初始化限制不同；仅缓冲正值行还不够。增加 `max_iter` 或设置 `tol=0` 也不能解决。
+
+应从有代表性的缓冲训练行中选定一个有限正尺度，所有批次及后续 `transform` 都复用它。把每个特征除以同一个尺度，再将 `inverse_transform` 输出乘回该尺度以恢复原始单位。统一缩放保持非负性，只给 Frobenius 目标乘上同一个常数；逐特征缩放会改变目标中各特征的权重。不要添加偏移。字典的单位解释见 [NMF 的输入单位说明](nmf.md#极小数值单位)。
+
+<!-- learner-example: minibatch-nmf-units -->
+```python
+import numpy as np
+from statgpu.unsupervised import MiniBatchNMF
+
+first = 1e-12 * np.array([[1., 2.], [2., 4.]])
+second = 1e-12 * np.array([[3., 6.], [4., 8.]])
+scale = float(first.max())
+if not np.isfinite(scale) or scale <= 0:
+    raise ValueError("Choose a finite positive training scale")
+model = MiniBatchNMF(n_components=1, random_state=5, device="cpu")
+for batch in (first, second):
+    model.partial_fit(batch / scale)
+X = np.vstack([first, second])
+W = model.transform(X / scale)
+X_hat = model.inverse_transform(W) * scale
+print("相对重构误差：", np.linalg.norm(X - X_hat) / np.linalg.norm(X))
+```
+
+这两个正值成比例的批次可得到接近零的相对误差。此处固定尺度有效，是因为两批数值量级相近；它不能保证任意数据流或动态范围都可靠。应检查相对误差和逐特征误差，不要只依赖绝对 `reconstruction_err_` 很小。
+
 ## 近似与解释边界
 
 `MiniBatchNMF` 是非凸的近似分解方法；`partial_fit` 的结果依赖批次顺序，而普通 `fit` 会汇总一整轮数据的统计量后再更新成分。它面向可扩展的矩阵分解，不提供严格的统计推断。

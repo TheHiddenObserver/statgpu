@@ -20,6 +20,12 @@
 
 返回数组的方法并不统一提供独立副本。`KMeans`、`MiniBatchKMeans`、`DBSCAN` 和 `AgglomerativeClustering` 的 `fit_predict` 直接返回其 `labels_` 对象；UMAP 与 TSNE 的 `fit_transform` 直接返回其 `embedding_` 对象；NMF 的 `fit_transform` 返回内部保存的联合拟合因子。应将这些数组及拟合属性视为只读；需要修改时，NumPy/CuPy 使用 `a.copy()`，Torch 使用 `a.clone()`。
 
+## 随机性
+
+整数种子会让随机拟合从该种子重新开始；NumPy `Generator` 和 `RandomState` 则持有可变状态，拟合可能推进它们的状态。重复使用同一个对象，不等于每次传入同一个整数。`None` 请求新的随机性，不代表固定种子。固定种子不保证不同后端或软件版本的结果完全相同。PCA 的 full/covariance 求解器与 TruncatedSVD 的 full 求解器不使用随机初始化。
+
+PCA 的随机化求解器、NMF、MiniBatchNMF、随机化 TruncatedSVD、UMAP，以及采用随机初始化的 TSNE，都接受 NumPy `Generator` 和 `RandomState` 对象，并使用可跨后端传递的 32 位无符号整数种子。KMeans、MiniBatchKMeans 和 GaussianMixture 接受的种子形式则取决于当前版本的 [`numpy.random.default_rng`](https://numpy.org/doc/stable/reference/random/generator.html#numpy.random.default_rng)；例如，NumPy 2.3 可以转换旧式 `RandomState`，部分更早版本则不支持。需要兼容这些版本时，使用整数或 `Generator`。这些种子规则不会消除另行说明的 UMAP 谱初始化限制。
+
 ## 方法范围
 
 某模型的方法表中未列出的操作，不属于它额外提供的模型能力。下方明确列出聚类或可视化模型中不支持的 `predict` / `transform` 占位方法。该模块没有专属 CV 估计器。应根据实际问题选择预处理、秩、簇数等设置，不应跨模型直接比较含义不同的 `score` 数值。
@@ -38,7 +44,7 @@ PCA(n_components=None, svd_solver='auto', whiten=False, copy=True, random_state=
 | `svd_solver` | `'auto'` | `"auto"`、`"full"`、`"covariance"` 或 `"randomized"`；`auto` 在 `n >= p` 时使用协方差特征分解，否则使用完整 SVD。 |
 | `whiten` | `False` | 是否用已拟合成分的标准差缩放 PCA 坐标。 |
 | `copy` | `True` | 兼容参数；即使为 `False`，实现也不会修改输入数据。 |
-| `random_state` | `None` | 整数随机种子或 `None`，控制随机初始化或近似算法；固定种子不保证不同后端或库版本逐位一致。 |
+| `random_state` | `None` | `[0, 2**32-1]` 内的整数种子、`None`、NumPy `Generator` 或 NumPy `RandomState`；随机计算路径会使用它。见[随机性](#随机性)。 |
 | `n_oversamples` | `10` | 非负整数，表示随机投影时额外使用的方向数。 |
 | `iterated_power` | `2` | 随机化求解器的非负幂迭代次数。 |
 | `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见本页公共设备说明。 |
@@ -76,7 +82,7 @@ KMeans(n_clusters=8, init='k-means++', n_init='auto', max_iter=300, tol=0.0001, 
 | `n_init` | `'auto'` | 正整数或 `"auto"`：k-means++ 运行一次，random 运行十次。 |
 | `max_iter` | `300` | 正整数迭代预算；迭代和整轮数据遍历的区别见对应模型。 |
 | `tol` | `0.0001` | 非负收敛阈值；各模型采用的准则见下文。 |
-| `random_state` | `None` | 整数随机种子或 `None`，控制随机初始化或近似算法；固定种子不保证不同后端或库版本逐位一致。 |
+| `random_state` | `None` | 整数种子、`None`、NumPy `Generator`，或当前 NumPy 版本的 `default_rng` 接受的其他种子；旧式输入随版本变化的说明见[随机性](#随机性)。 |
 | `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见本页公共设备说明。 |
 | `n_jobs` | `None` | 公共 CPU 并行配置参数；这些实现目前不通过它控制数值计算内核，也不保证指定的线程数。 |
 
@@ -147,7 +153,7 @@ GaussianMixture(n_components=1, covariance_type='diag', tol=0.001, reg_covar=1e-
 | `max_iter` | `100` | 正整数迭代预算；迭代和整轮数据遍历的区别见对应模型。 |
 | `n_init` | `1` | EM 重启的正整数次数；保留拟合下界最大的结果。 |
 | `init_params` | `'kmeans'` | 均值初始化采用 `"kmeans"` 或 `"random"`。 |
-| `random_state` | `None` | 整数随机种子或 `None`，控制随机初始化或近似算法；固定种子不保证不同后端或库版本逐位一致。 |
+| `random_state` | `None` | 整数种子、`None`、NumPy `Generator`，或当前 NumPy 版本的 `default_rng` 接受的其他种子；旧式输入随版本变化的说明见[随机性](#随机性)。 |
 | `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见本页公共设备说明。 |
 | `n_jobs` | `None` | 公共 CPU 并行配置参数；这些实现目前不通过它控制数值计算内核，也不保证指定的线程数。 |
 
@@ -186,7 +192,7 @@ NMF(n_components=None, init='random', solver='mu', beta_loss='frobenius', max_it
 | `beta_loss` | `'frobenius'` | 仅支持 `"frobenius"`。 |
 | `max_iter` | `200` | 正整数迭代预算；迭代和整轮数据遍历的区别见对应模型。 |
 | `tol` | `0.0001` | 非负收敛阈值；各模型采用的准则见下文。 |
-| `random_state` | `None` | 整数随机种子或 `None`，控制随机初始化或近似算法；固定种子不保证不同后端或库版本逐位一致。 |
+| `random_state` | `None` | `[0, 2**32-1]` 内的整数种子、`None`、NumPy `Generator` 或 NumPy `RandomState`；随机计算路径会使用它。见[随机性](#随机性)。 |
 | `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见本页公共设备说明。 |
 | `n_jobs` | `None` | 公共 CPU 并行配置参数；这些实现目前不通过它控制数值计算内核，也不保证指定的线程数。 |
 
@@ -205,6 +211,8 @@ NMF(n_components=None, init='random', solver='mu', beta_loss='frobenius', max_it
 | `n_iter_`, `n_components_`, `n_features_in_` | 拟合迭代次数、秩与输入列数。 |
 
 拟合和转换的数据必须非负。`tol` 在 `fit` 的定期检查中比较重构误差的相对变化；`transform` 固定成分执行 `max_iter` 次更新，不会按 `tol` 提前停止。`fit_transform` 返回联合拟合的 `W`；之后的 `transform(X)` 固定 `H` 重新求解 `W`，两者不保证相同。不提供 `score` 或 `partial_fit`。
+
+输入采用极小的正数单位时，固定绝对稳定项可能主导更新并使因子塌缩，`tol=0` 也不能避免。应使用由训练数据确定的同一个正尺度处理所有特征、批次及后续转换，再把重构转回原始单位；见[极小单位的注意事项](nmf.md#极小数值单位)。除了绝对误差诊断，还应检查相对重构误差。
 
 ## AgglomerativeClustering
 
@@ -250,7 +258,7 @@ TruncatedSVD(n_components=2, algorithm='randomized', n_iter=5, n_oversamples=10,
 | `algorithm` | `'randomized'` | `"randomized"` 或 `"full"`。 |
 | `n_iter` | `5` | 随机化方法的非负幂迭代次数。 |
 | `n_oversamples` | `10` | 非负整数，表示随机投影时额外使用的方向数。 |
-| `random_state` | `None` | 整数随机种子或 `None`，控制随机初始化或近似算法；固定种子不保证不同后端或库版本逐位一致。 |
+| `random_state` | `None` | `[0, 2**32-1]` 内的整数种子、`None`、NumPy `Generator` 或 NumPy `RandomState`；随机计算路径会使用它。见[随机性](#随机性)。 |
 | `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见本页公共设备说明。 |
 | `n_jobs` | `None` | 公共 CPU 并行配置参数；这些实现目前不通过它控制数值计算内核，也不保证指定的线程数。 |
 
@@ -287,7 +295,7 @@ MiniBatchKMeans(n_clusters=8, init='k-means++', n_init='auto', batch_size=1024, 
 | `max_iter` | `100` | 正整数迭代预算；迭代和整轮数据遍历的区别见对应模型。 |
 | `max_no_improvement` | `10` | 连续未刷新最佳批次惯性的批次数上限，为非负整数；`None` 关闭该停止规则。 |
 | `tol` | `0.0` | 非负收敛阈值；各模型采用的准则见下文。 |
-| `random_state` | `None` | 整数随机种子或 `None`，控制随机初始化或近似算法；固定种子不保证不同后端或库版本逐位一致。 |
+| `random_state` | `None` | 整数种子、`None`、NumPy `Generator`，或当前 NumPy 版本的 `default_rng` 接受的其他种子；旧式输入随版本变化的说明见[随机性](#随机性)。 |
 | `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见本页公共设备说明。 |
 | `n_jobs` | `None` | 公共 CPU 并行配置参数；这些实现目前不通过它控制数值计算内核，也不保证指定的线程数。 |
 
@@ -358,7 +366,7 @@ MiniBatchNMF(n_components=None, init='random', batch_size=None, max_iter=200, to
 | `batch_size` | `None` | 正整数或 `None`；控制 `fit` 内的批次。`None` 根据数据量选择，可能一次处理全部数据。`partial_fit` 处理所传入的批次。 |
 | `max_iter` | `200` | 正整数迭代预算；迭代和整轮数据遍历的区别见对应模型。 |
 | `tol` | `0.0001` | 非负收敛阈值；各模型采用的准则见下文。 |
-| `random_state` | `None` | 整数随机种子或 `None`，控制随机初始化或近似算法；固定种子不保证不同后端或库版本逐位一致。 |
+| `random_state` | `None` | `[0, 2**32-1]` 内的整数种子、`None`、NumPy `Generator` 或 NumPy `RandomState`；随机计算路径会使用它。见[随机性](#随机性)。 |
 | `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见本页公共设备说明。 |
 | `n_jobs` | `None` | 公共 CPU 并行配置参数；这些实现目前不通过它控制数值计算内核，也不保证指定的线程数。 |
 
@@ -378,6 +386,8 @@ MiniBatchNMF(n_components=None, init='random', batch_size=None, max_iter=200, to
 | `n_iter_`, `n_components_`, `n_features_in_` | 拟合的整轮遍历次数（或增量更新次数）、实际秩与固定输入列数。 |
 
 使用非负稠密数据，并保持特征列数与顺序。显式指定的正整数秩不要求小于首批行数；`None` 则由首批决定。`max_iter` 限制 `fit` 的整轮遍历次数，并影响固定成分后的转换求解；`tol` 检查拟合中成分的相对变化，而不是重构误差的相对变化。两者均不控制 `partial_fit` 内的收敛循环。首批中全零的特征可能使字典对应列永久为零，即使后续批次出现正值也无法恢复。应缓冲有代表性的初始化数据；字典全零列对应的特征后来出现正值时，需用代表性保留数据重新拟合。详见[首批注意事项](minibatch-nmf.md#首批中全零特征的限制)。不提供 `score` 或样本权重参数。
+
+输入采用极小的正数单位时，固定绝对稳定项可能主导更新并使因子塌缩，`tol=0` 也不能避免。应使用由训练数据确定的同一个正尺度处理所有特征、批次及后续转换，再把重构转回原始单位；见[极小单位的注意事项](minibatch-nmf.md#极小数值单位)。除了绝对误差诊断，还应检查相对重构误差。
 
 ## UMAP
 
@@ -399,7 +409,7 @@ UMAP(n_neighbors=15, n_components=2, metric='euclidean', min_dist=0.1, spread=1.
 | `init` | `'spectral'` | `"spectral"`（主机端 SciPy 特征求解）或 `"random"`；随机初始化可避开下文说明的稀疏谱初始化限制。 |
 | `negative_sample_rate` | `5` | 正整数；每轮独立抽取 `n * negative_sample_rate` 对源点与目标点，并非每条吸引边抽取这么多对。 |
 | `repulsion_strength` | `1.0` | 正的排斥力系数。 |
-| `random_state` | `None` | 整数随机种子或 `None`，控制随机初始化或近似算法；固定种子不保证不同后端或库版本逐位一致。 |
+| `random_state` | `None` | `[0, 2**32-1]` 内的整数种子、`None`、NumPy `Generator` 或 NumPy `RandomState`；随机计算路径会使用它。见[随机性](#随机性)。 |
 | `nn_method` | `'auto'` | `"auto"`、`"exact"` 或 `"nndescent"`；精确搜索使用稠密距离，NNDescent 为近似搜索，auto 当前始终选择精确搜索。 |
 | `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见本页公共设备说明。 |
 | `n_jobs` | `None` | 公共 CPU 并行配置参数；这些实现目前不通过它控制数值计算内核，也不保证指定的线程数。 |
@@ -435,7 +445,7 @@ TSNE(n_components=2, perplexity=30.0, early_exaggeration=12.0, learning_rate='au
 | `learning_rate` | `'auto'` | 正数或 `"auto"`；自动值为 `max(n / early_exaggeration / 4, 10)`，不保证与其他库相同。 |
 | `max_iter` | `1000` | 至少 250 的整数，表示优化总迭代数。 |
 | `init` | `'pca'` | `"pca"` 或 `"random"`；不接受用户提供的初始嵌入数组。 |
-| `random_state` | `None` | 整数随机种子或 `None`，控制随机初始化或近似算法；固定种子不保证不同后端或库版本逐位一致。 |
+| `random_state` | `None` | `[0, 2**32-1]` 内的整数种子、`None`、NumPy `Generator` 或 NumPy `RandomState`；随机计算路径会使用它。见[随机性](#随机性)。 |
 | `metric` | `'euclidean'` | 仅支持 `"euclidean"`；不支持其他距离及预先计算的距离矩阵。 |
 | `device` | `'auto'` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"`（Torch CUDA）；见本页公共设备说明。 |
 | `n_jobs` | `None` | 公共 CPU 并行配置参数；这些实现目前不通过它控制数值计算内核，也不保证指定的线程数。 |

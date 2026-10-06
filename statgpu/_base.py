@@ -412,7 +412,11 @@ class BaseEstimator(ABC):
         Parameters
         ----------
         device : str or Device, default='auto'
-            Computation device: 'cpu', 'cuda', or 'auto'.
+            Requested device: 'cpu' (NumPy), 'cuda' (CuPy CUDA), 'torch'
+            (Torch CUDA), or 'auto'. Inherited base routing uses the global
+            device setting for 'auto'; an explicit non-auto value overrides
+            that global setting. Model-specific routing can differ; consult
+            the estimator's device documentation.
         n_jobs : int, optional
             Number of parallel jobs for CPU computation.
             -1 means using all processors.

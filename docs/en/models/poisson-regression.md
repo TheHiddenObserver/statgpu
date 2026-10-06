@@ -1,7 +1,7 @@
 # PoissonRegression
 
 > Language: English  
-> Last updated: 2026-05-20  
+> Last updated: 2026-10-06  
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/poisson-regression.md)
 
@@ -9,9 +9,9 @@ Language switch: [Chinese](../../cn/models/poisson-regression.md)
 
 ## Overview
 
-`PoissonRegression` implements Poisson GLM estimation for count data through the shared `GeneralizedLinearModel` stack. It is the ordinary, non-penalized Poisson entry point. For penalized Poisson models, use `PenalizedPoissonRegression`.
+`PoissonRegression` implements Poisson GLM estimation for count data through the shared `GeneralizedLinearModel` stack. It is the ordinary Poisson entry point, but its default `C=1` and `solver="auto"` apply ridge regularization. Use `C=0` for an explicitly unpenalized IRLS fit. For the general alpha-based penalty interface, use `PenalizedPoissonRegression`.
 
-Supports M-estimation sandwich inference: standard errors, z-statistics, p-values, and 95% confidence intervals via ``compute_inference=True``.  Uses expected Fisher information for model-based covariance (``cov_type='nonrobust'``, matching ``statsmodels.GLM``) and observed Hessian sandwich for robust covariance (``cov_type='hc0'``, ``'hc1'``).  Supports all three backends (NumPy, CuPy, Torch) via the backend-agnostic sandwich engine.
+Supports M-estimation sandwich inference: standard errors, z-statistics, p-values, and 95% confidence intervals via ``compute_inference=True``.  Uses expected Fisher information for model-based covariance (``cov_type='nonrobust'``; compare with ``statsmodels.GLM`` only after aligning the objective) and observed Hessian sandwich for robust covariance (``cov_type='hc0'``, ``'hc1'``).  Supports all three backends (NumPy, CuPy, Torch) via the backend-agnostic sandwich engine.
 
 ## Path
 
@@ -37,7 +37,14 @@ $$
 \min_\beta \frac{1}{n}\sum_i \left[\mu_i - y_i \log(\mu_i)\right]
 $$
 
-When `C` is finite, the shared IRLS path can include an L2-style ridge term controlled through the inherited GLM machinery.
+With an intercept, replace $x_i^\top\beta$ by $b+x_i^\top\beta$.
+With analytic `sample_weight=w`, replace the average by a weighted sum divided
+by `sum(w)`. For positive C, ordinary auto/IRLS adds
+$\|\beta\|_2^2/(4C)$, excluding the intercept. `C=0` removes that term;
+ordinary explicit `newton`, `lbfgs`, and `fista` ignore C and optimize the
+unpenalized loss. Changing solvers with positive C can therefore change the
+statistical model. This differs from standalone LogisticRegression's C scale.
+See the [ordinary GLM objective](generalized-linear-model.md).
 
 ## Estimating Equation
 
@@ -47,33 +54,38 @@ $$
 \sum_i x_i(y_i - \mu_i)=0
 $$
 
-`PoissonRegression` defaults to `solver="auto"`, which currently dispatches to IRLS. Explicit `solver="newton"` and `solver="lbfgs"` are also available for smooth Poisson GLM objectives and run on the selected backend. As of v23c, `solver="lbfgs"` correctly handles L2 penalties. The model inherits the GLM formula interface, so formula intercept semantics follow patsy/R conventions.
+For positive C on auto/IRLS, the average-loss slope equation additionally contains the ridge gradient `beta/(2*C)`.
+
+`PoissonRegression` defaults to `solver="auto"`, which currently dispatches to IRLS. Explicit `solver="newton"` and `solver="lbfgs"` are also available for smooth Poisson GLM objectives and run on the selected backend. The model inherits the GLM formula interface, so formula intercept semantics follow patsy/R conventions.
 
 ## Covariance/Inference
 
-Set ``compute_inference=True`` to obtain post-fit inference:
+Set `compute_inference=True` to obtain post-fit inference. This complete CPU
+example explicitly fits an unpenalized model:
 
+<!-- learner-example: poisson-unpenalized -->
 ```python
-from statgpu import PoissonRegression
 import numpy as np
+from statgpu import PoissonRegression
 
-X = np.random.randn(200, 5)
-y = np.random.poisson(np.exp(0.3 + X @ [0.5, -0.3, 0.0, 0.8, 0.0]))
-
-# Model-based (Fisher) SEs — matches statsmodels summary.glm()
-m = PoissonRegression(solver='newton', compute_inference=True, cov_type='nonrobust')
-m.fit(X, y)
-print(m._bse)       # standard errors
-print(m._pvalues)   # two-sided p-values (normal)
-print(m._conf_int)  # 95% CI
-
-# Robust sandwich SEs — HC0/HC1
-m2 = PoissonRegression(solver='newton', compute_inference=True, cov_type='hc0')
-m2.fit(X, y)
+rng = np.random.default_rng(8)
+X = rng.normal(size=(200, 2))
+y = rng.poisson(np.exp(0.3 + X @ np.array([0.4, -0.2])))
+model = PoissonRegression(
+    C=0, solver="newton", device="cpu", compute_inference=True,
+    cov_type="nonrobust", max_iter=200, tol=1e-9,
+).fit(X, y)
+print(np.round(model.coef_, 3))
+print(model._conf_int.shape)
 ```
 
+The slopes are approximately `[0.377, -0.154]` and interval shape is `(3, 2)`.
+The first interval row is the intercept, followed by the two input columns.
+Use `cov_type="hc0"` or `"hc1"` when those score-robust covariance assumptions
+fit the application; they do not change the coefficient estimates.
+
 **Covariance types**:
-- ``'nonrobust'`` (default): model-based, φ·I(β)⁻¹ using expected Fisher information.  Matches ``statsmodels.GLM(..., family=Poisson()).fit()``.
+- ``'nonrobust'`` (default): model-based, φ·I(β)⁻¹ using expected Fisher information in the unpenalized case; positive-C IRLS adds penalty curvature.
 - ``'hc0'``: sandwich H⁻¹·J·H⁻¹ with observed Hessian.
 - ``'hc1'``: HC0 × n/(n−k) degrees-of-freedom correction.
 - ``'hc2'``, ``'hc3'``, ``'hac'``: not yet implemented for Poisson (raises ``NotImplementedError``).
@@ -81,7 +93,12 @@ m2.fit(X, y)
 **Distribution**: z-statistics (asymptotic normal).  P-values are two-sided.
 **Dispersion**: φ = 1.0 (Poisson variance = mean).  Pearson dispersion available via metadata.
 
-**Strict inference**: model-based nonrobust Poisson matches statsmodels to machine precision (|bse diff| < 1e-9 for n≥200).
+These are marginal, asymptotic normal-reference intervals. With positive C on
+IRLS, the covariance includes penalty curvature and describes the penalized fit;
+it does not remove shrinkage bias or account for choosing C. For comparisons
+with an unpenalized `statsmodels.GLM`, align C/solver, design, weights, covariance
+and convergence settings. A comparison on one dataset is not a universal
+precision guarantee.
 **GPU**: fully supported (CuPy, Torch) — backend-agnostic sandwich engine runs on the same device as fitting.  No silent CPU fallback.
 
 ## Parameters
@@ -91,13 +108,22 @@ m2.fit(X, y)
 | `fit_intercept` | `True` | Whether to fit an intercept |
 | `max_iter` | `100` | Maximum IRLS iterations |
 | `tol` | `1e-4` | Convergence tolerance |
-| `C` | `1.0` | Inverse regularization strength used by the inherited GLM IRLS path |
+| `C` | `1.0` | Positive C: auto/IRLS adds slope penalty `sum(beta**2)/(4*C)`; zero removes it. Explicit Newton/L-BFGS/FISTA ignore C. |
 | `device` | `"auto"` | `cpu` / `cuda` / `torch` / `auto` |
 | `solver` | `"auto"` | `auto` / `irls` / `fista` / `newton` / `lbfgs` |
 | `n_jobs` | `None` | Number of parallel jobs |
 | `gpu_memory_cleanup` | `False` | Best-effort CuPy memory pool cleanup after fit |
-| `formula` | `None` | Optional patsy-style formula passed to `fit` |
-| `data` | `None` | DataFrame used with `formula` |
+| `compute_inference` | `False` | Compute supported coefficient uncertainty after fitting |
+| `cov_type` | `"nonrobust"` | `nonrobust`, `hc0`, or `hc1` |
+
+`formula` and `data` are arguments to
+`fit(X=None, y=None, sample_weight=None, formula=None, data=None)`, not constructor
+parameters. This class fixes the Poisson family and otherwise inherits the
+[ordinary GLM methods and fitted fields](../reference/linear-model-api.md#generalizedlinearmodel),
+including `predict`, `summary`, likelihood diagnostics and shared inference
+helpers. It has no `score` or `predict_proba` method. `summary()` returns a string;
+use `print(model.summary())`. On current auto/IRLS/FISTA paths, create a fresh
+estimator after a failed refit, as explained in the [failed-refit warning](../reference/linear-model-api.md#failed-ordinary-glm-refits).
 
 ## CPU+GPU Examples
 
@@ -105,12 +131,12 @@ m2.fit(X, y)
 from statgpu.linear_model import PoissonRegression
 
 # CPU count model
-m_cpu = PoissonRegression(device="cpu", max_iter=100, tol=1e-6)
+m_cpu = PoissonRegression(C=0, device="cpu", max_iter=100, tol=1e-6)
 m_cpu.fit(X, y_count)
 mu_cpu = m_cpu.predict(X)
 
 # GPU count model when CUDA backend is available
-m_gpu = PoissonRegression(device="cuda", max_iter=100, tol=1e-6)
+m_gpu = PoissonRegression(C=0, device="cuda", max_iter=100, tol=1e-6)
 m_gpu.fit(X_gpu, y_count_gpu)
 mu_gpu = m_gpu.predict(X_gpu)
 ```
@@ -120,16 +146,19 @@ Formula usage:
 ```python
 from statgpu.linear_model import PoissonRegression
 
-model = PoissonRegression()
+model = PoissonRegression(C=0, device="cpu")
 model.fit(formula="count ~ exposure + x1 + C(group)", data=df)
 pred = model.predict(df_new)
 ```
 
-For large GPU workloads, prefer explicit `X, y` arrays because formula parsing is CPU-side convenience.
+The `exposure` term above estimates an ordinary regression coefficient; it is
+not an offset with its coefficient fixed at one. This API has no offset/exposure
+argument. For large GPU workloads, prefer explicit `X, y` arrays because formula
+parsing is CPU-side convenience.
 
 ## strict/approx difference
 
-There is no public strict/approx inference switch for `PoissonRegression`. The release validation focus is coefficient, prediction, objective, and runtime consistency across available backends and external frameworks.
+There is no public strict/approx inference switch for `PoissonRegression`. Supported inference follows the chosen covariance convention; changing a solver can change the penalty as described above.
 
 ## Outputs
 
@@ -144,7 +173,7 @@ There is no public strict/approx inference switch for `PoissonRegression`. The r
 
 - When should I use `PoissonRegression` instead of `GeneralizedLinearModel(family="poisson")`? Use `PoissonRegression` when you want the explicit model class and clearer public API. Both share the GLM implementation.
 - When should I use `PenalizedPoissonRegression`? Use it when you need L1, L2, ElasticNet, group, or adaptive penalty support.
-- Does `PoissonRegression` provide standard errors and p-values? Yes — set ``compute_inference=True``.  Supports model-based (``cov_type='nonrobust'``) and sandwich (``hc0``, ``hc1``) covariance.  Validated against statsmodels to |bse diff| < 1e-9.
+- Does `PoissonRegression` provide standard errors and p-values? Yes — set ``compute_inference=True``.  Supports model-based (``cov_type='nonrobust'``) and sandwich (``hc0``, ``hc1``) covariance.  For unpenalized comparisons, explicitly align the objective and covariance settings.
 - Does `device="cuda"` always guarantee GPU execution? For supported Poisson GLM solver paths, yes: core computation stays on CuPy or raises a clear error. `device="torch"` similarly requires Torch CUDA.
 
 ## External Validation
@@ -156,12 +185,7 @@ Poisson GLM validation should include:
 - Comparison against statsmodels GLM Poisson for ordinary GLM estimation.
 - Runtime benchmarks with warm-up and GPU synchronization on remote CUDA hardware.
 
-Current remote GLM validation entry points:
-
-```bash
-python dev/tests/run_remote_v10_accuracy.py
-python dev/benchmarks/run_remote_v10_benchmark.py
-```
+See the [GLM comparison guidance](generalized-linear-model.md) for aligned objective and covariance settings.
 
 ## References
 

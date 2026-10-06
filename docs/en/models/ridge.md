@@ -1,7 +1,7 @@
 # Ridge
 
 > Language: English  
-> Last updated: 2026-08-28  
+> Last updated: 2026-10-06  
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/ridge.md)
 
@@ -9,7 +9,7 @@ Language switch: [Chinese](../../cn/models/ridge.md)
 
 ## Overview
 
-`Ridge` provides L2-regularized linear regression with the same inference surface as `LinearRegression` (including robust covariance options). It is used when multicollinearity or shrinkage is required while keeping interpretable coefficient inference in aligned settings.
+`Ridge` provides L2-regularized linear regression with the same inference surface as `LinearRegression` (including robust covariance options). It is used to stabilize prediction or coefficient estimates under multicollinearity. With positive alpha, coefficient intervals describe the penalized fit and do not automatically remove shrinkage bias or adjust for choosing alpha.
 
 ## Path
 
@@ -48,7 +48,7 @@ $$
 
 where $W=I$ and $s_w=n$ without sample weights, while $W=\operatorname{diag}(w)$ and $s_w=\sum_iw_i$ for weighted fitting.
 
-`Ridge` defaults to `solver="exact"`. The same objective scale is used by the exact and FISTA paths, by `PenalizedLinearRegression(loss="squared_error", penalty="l2")`, and by `RidgeCV`.
+`Ridge` defaults to `solver="exact"`. The same objective scale is used by the exact and FISTA paths, by `PenalizedLinearRegression(penalty="l2")`, and by `RidgeCV`.
 
 scikit-learn uses an unnormalized residual sum of squares. For coefficient comparisons, use
 
@@ -56,6 +56,54 @@ scikit-learn uses an unnormalized residual sum of squares. For coefficient compa
 - weighted: `sklearn_alpha = sample_weight.sum() * statgpu_alpha`.
 
 Comparing the two libraries with the same numerical `alpha` compares different objectives.
+
+<a id="large-feature-offsets"></a>
+
+## Large feature offsets
+
+The optimized CPU `solver="exact"` path with an intercept computes centered
+cross-products by subtracting large raw moments. When feature means are much
+larger than their variation, cancellation can give badly wrong coefficients
+and predictions, despite finite output and a completed fit. Weighted and
+unweighted fits are affected; enabling inference does not repair the fit.
+For example, translating otherwise ordinary predictors by `1e8` can change
+an estimated positive slope near 0.91 into a negative one near −0.40.
+
+Subtract an origin learned from training rows before fitting and reuse that
+same origin for every prediction. Do not independently center the test set.
+The following example retains the fitted intercept, so this translation leaves
+the Ridge statistical objective unchanged:
+
+<!-- learner-example: ridge-training-origin -->
+```python
+import numpy as np
+from statgpu.linear_model import Ridge
+
+rng = np.random.default_rng(113)
+variation = rng.normal(size=(80, 3))
+X = variation + 1e8
+y = 0.4 + variation @ np.array([1.0, -0.5, 0.3]) + rng.normal(scale=0.1, size=80)
+X_train, X_test = X[:60], X[60:]
+y_train, y_test = y[:60], y[60:]
+origin = X_train.mean(axis=0)
+model = Ridge(alpha=0.1, device="cpu", compute_inference=True).fit(
+    X_train - origin, y_train,
+)
+prediction = model.predict(X_test - origin)
+original_intercept = model.intercept_ - origin @ model.coef_
+print(np.round(model.coef_, 3))
+print(round(float(np.mean((prediction - y_test)**2)), 3))
+```
+
+The coefficients are approximately `[0.919, -0.430, 0.256]`; held-out MSE is
+about `0.033`. `original_intercept` maps the fitted equation back to the original
+feature coordinates, but evaluate predictions through the centered model to
+avoid subtracting large terms. With training weights, a weighted training mean
+is a suitable origin. Keep the weights and alpha unchanged. Inference for the
+intercept now refers to the response at this origin; its interval is not an
+interval for `original_intercept`. The unmodified FISTA fit also avoids this
+particular raw-moment coefficient calculation, but still requires convergence
+checks and does not make all large-offset numerical calculations safe.
 
 ## Covariance/Inference
 
@@ -67,9 +115,13 @@ Comparing the two libraries with the same numerical `alpha` compares different o
 
 The inference normal equations use the same average-loss penalty mapping as fitting: the numerical ridge term is `n * alpha` without weights and `sample_weight.sum() * alpha` with analytic weights. The intercept remains unpenalized.
 
-For the migrated shared Gaussian path, covariance, standard errors, test statistics, reference-distribution p-values, and confidence-interval critical values remain on the executed NumPy/CuPy/Torch backend. Only after this numerical work is complete are the established reporting arrays snapshotted to NumPy. `_inference_result.metadata` records the numerical backend/device and the `post_numerical_inference` reporting boundary. Explicit CUDA/Torch fits fail closed rather than silently substituting NumPy inference when executed-backend provenance is unavailable.
-
-The low-degree Student-t reference path uses the maintained stable df=1 and df=2 identities, so representable extreme tails are not rounded to zero merely because a naive `1-CDF` subtraction or `t**2` intermediate is ill-conditioned.
+Numerical covariance, standard errors, reference-distribution p-values and
+intervals run on the fitted NumPy/CuPy/Torch backend. Reporting arrays are
+converted to NumPy afterwards; this does not indicate CPU numerical fallback.
+Nonrobust intervals use a Student-t reference; HC/HAC intervals use a normal
+reference despite the `_tvalues` field name. There is no general guarantee that
+these plug-in intervals cover an unpenalized population coefficient after
+shrinkage or tuning on the same data.
 
 ## Parameters
 
@@ -84,6 +136,10 @@ The low-degree Student-t reference path uses the maintained stable df=1 and df=2
 | `hac_maxlags` | `None` | Max lag for `cov_type="hac"`; default follows a Newey-West-style heuristic |
 | `gpu_memory_cleanup` | `False` | Best-effort GPU memory cleanup after each fit |
 | `solver` | `"exact"` | Exact L2 solution by default; `fista` uses the same objective |
+| `max_iter` | `1000` | Iteration budget for iterative solvers; exact fitting needs one solve |
+| `tol` | `1e-4` | Iterative convergence tolerance |
+| `cpu_solver` | `"fista"` | Deprecated compatibility argument; use `solver` to select the algorithm |
+| `lipschitz_L` | `None` | Optional smooth-gradient Lipschitz bound for compatible iterative solvers |
 
 ## CPU+GPU Examples
 
@@ -107,7 +163,10 @@ m_gpu.fit(X, y, sample_weight=w)
 
 ## strict/approx difference
 
-No separate public approximate mode is exposed. Hosted tests cover exact/FISTA, weighted/unweighted, formula, covariance/inference, RidgeCV final-refit inference, backend provenance, and the numerical/reporting transfer boundary. Physical CuPy/Torch CUDA acceptance remains a separate exact-source remote gate and must be rerun whenever the maintained validator contract changes.
+No separate public approximate mode is exposed. Exact and FISTA fits optimize
+the same objective; their difference is numerical rather than a different
+statistical model. Use an explicit device when execution placement matters;
+see [device and memory](../guides/device-and-memory.md).
 
 ## Outputs
 
@@ -129,7 +188,7 @@ No separate public approximate mode is exposed. Hosted tests cover exact/FISTA, 
 - Internal consistency is tested against the average-loss closed form and the generic penalized-linear estimator.
 - sklearn comparisons use the explicit unweighted or weighted alpha mapping.
 - Weighted exact/FISTA, formula-row alignment, inference, and RidgeCV weight-rescaling invariance are covered in `dev/tests/test_ridge_weighted_consistency.py`.
-- Issue #127 backend-native inference regressions and the physical CUDA acceptance contract live in `dev/tests/test_gaussian_inference_*.py` and `dev/benchmarks/validate_gaussian_inference_backend_native_gpu.py`.
+- Numerical covariance and reference-distribution comparisons must align the ridge penalty, weights, degrees of freedom and covariance choice. CPU checks do not establish GPU precision or performance.
 
 ## References
 

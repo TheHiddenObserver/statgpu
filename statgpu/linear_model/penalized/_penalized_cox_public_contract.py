@@ -28,15 +28,22 @@ _cv_module._validate_alpha_grid = _validate_alpha_grid_strict
 if not PenalizedCoxPHModel.__doc__:
     PenalizedCoxPHModel.__doc__ = """Penalized Cox proportional hazards model.
 
-    The estimator minimizes the negative right-censored Cox partial likelihood
-    plus a validated L1, L2/Ridge, ElasticNet, SCAD, MCP, or null penalty. The
+    The estimator minimizes -ell(coef) / n plus a validated L1, L2/Ridge,
+    ElasticNet, SCAD, MCP, or null penalty. Here ell is the summed
+    right-censored Cox partial log likelihood and n counts all training rows,
+    including censored observations, rather than just events. With the built-in
+    string penalty='l2', the penalty is alpha * ||coef||**2 / 2. On the same
+    data and tie method, its objective matches CoxPH(penalty=n * alpha / 2).
+    This direct-fit conversion does not equate the two CV searches, whose
+    training sizes and held-out score normalizations differ. The
     Cox partial likelihood has no identifiable intercept, so
     ``fit_intercept=True`` is rejected. Breslow and Efron ties are supported on
     NumPy, CuPy, and Torch CUDA backends.
 
     Penalized Cox inference is currently estimation-only:
     ``compute_inference=True`` raises ``NotImplementedError``. Use
-    :class:`statgpu.survival.CoxPH` for unpenalized Cox inference.
+    :class:`statgpu.survival.CoxPH` for unpenalized or fixed-L2 Cox inference,
+    aligning its penalty normalization with the desired objective.
     """
 
 

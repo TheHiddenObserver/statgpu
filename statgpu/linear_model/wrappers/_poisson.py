@@ -22,9 +22,14 @@ class PoissonRegression(GeneralizedLinearModel):
     tol : float, default=1e-4
         Convergence tolerance.
     C : float, default=1.0
-        Inverse regularization strength (for IRLS path only).
+        On auto/IRLS, positive C adds sum(beta**2)/(4*C) to the average
+        loss, excluding the intercept; C=0 removes that term. Explicit
+        Newton/L-BFGS/FISTA ignore C. Changing solvers at positive C can
+        therefore change the statistical target.
     device : str or Device, default='auto'
         Compute device. Inference supports all three backends.
+    n_jobs : int or None, default=None
+        Shared CPU-worker configuration; no parallel-fit guarantee.
     solver : str, default='auto'
         Solver: 'auto', 'irls', 'newton', 'lbfgs', 'fista'.
         For unpenalized inference validation against statsmodels,
@@ -35,7 +40,19 @@ class PoissonRegression(GeneralizedLinearModel):
     cov_type : str, default='nonrobust'
         Covariance type: 'nonrobust', 'hc0', or 'hc1'.
     gpu_memory_cleanup : bool, default=False
-        Free GPU memory after fitting.
+        Request best-effort release of reclaimable GPU cache memory.
+
+    Notes
+    -----
+    fit(X=None, y=None, sample_weight=None, formula=None, data=None) returns
+    self; formula and data are fit arguments, not constructor parameters.
+    predict(X) returns the Poisson conditional mean. summary() returns a
+    string; use print(model.summary()). There is no score or predict_proba
+    method. Likelihood diagnostics and shared inference helpers are inherited
+    from GeneralizedLinearModel. Positive-C IRLS inference includes penalty
+    curvature; it does not remove shrinkage bias or account for selecting C.
+    Failed auto/IRLS/FISTA refits can mix old estimates with new metadata;
+    use a fresh estimator after such a failure.
     """
 
     def __init__(

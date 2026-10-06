@@ -1,7 +1,7 @@
 # MCP
 
 > Language: English  
-> Last updated: 2026-06-14  
+> Last updated: 2026-10-06  
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/mcp.md)
 
@@ -9,7 +9,7 @@ Language switch: [Chinese](../../cn/models/mcp.md)
 
 ## Overview
 
-`MCPRegression` provides MCP-penalized (Minimax Concave Penalty) linear regression (Zhang, 2010). MCP is a non-convex penalty that achieves the **oracle property** with a continuous penalty function — addressing both the bias of Lasso and the discontinuity of hard thresholding.
+`MCPRegression` provides MCP-penalized (Minimax Concave Penalty) linear regression (Zhang, 2010). MCP is a continuous non-convex penalty that reduces shrinkage of large coefficients. Its **oracle property** requires asymptotic regularity and tuning conditions; it is not a guarantee for every finite-sample fit.
 
 ## Path
 
@@ -37,7 +37,7 @@ with concavity parameter $\gamma > 1$ (default 3.0, per Zhang's recommendation).
 MCP uses the same **LLA + FISTA** algorithm as SCAD:
 
 1. **Continuation path**: Decrease $\lambda$ from $\lambda_{max}$ along a geometric grid.
-2. **LLA inner loop** (1-6 iterations per $\lambda$):
+2. **LLA inner loop**:
    - Compute LLA weights: $w_j = p'_{\lambda,\gamma}(|\beta_j|) = \max(\lambda - |\beta_j|/\gamma, 0)$
    - Solve weighted L1 problem via FISTA
 3. **Warm-start**: Previous $\lambda$'s solution as initial point.
@@ -48,13 +48,26 @@ Under regularity conditions (Zhang 2010, Theorem 1):
 - **Selection consistency**: $\Pr(\hat{S} = S_0) \to 1$
 - **Asymptotic normality**: $\sqrt{n}(\hat{\beta}_{\hat{S}} - \beta_{0,S_0}) \xrightarrow{d} N(0, \Sigma_0)$
 
-MCP produces **nearly unbiased** estimates, with bias decreasing as $\gamma$ increases.
+For coefficient magnitudes above $\gamma\lambda$, the MCP penalty derivative is zero. Increasing $\gamma$ at fixed $\lambda$ makes the penalty less concave and more Lasso-like; it does not generally reduce shrinkage bias. Zero penalty derivative does not guarantee unbiased finite-sample estimates or selection-adjusted intervals.
 
 ## Covariance/Inference
 
-- `compute_inference=False` by default (MCP does not support debiased inference)
-- For inference on selected variables, use the oracle approach: refit OLS on the selected support set
-- Future: oracle inference and BIC-based hyperparameter selection (see TO_DO.md)
+`MCPRegression` defaults to `compute_inference=False`. Its constructor does not
+accept `inference_method`; fitting with inference enabled raises because the
+inherited automatic request does not choose a selection-conditional method.
+For an explicit Gaussian `oracle` or `bootstrap` request, use
+`PenalizedLinearRegression(penalty="mcp", penalty_kwargs={"gamma": 3.0}, ...)`
+with the desired `inference_method` and `compute_inference=True`.
+
+`oracle` reports an unpenalized refit on the selected active set, while prediction
+remains penalized. Those ordinary intervals do not correct for choosing variables
+on the same responses. The oracle interface rejects GPU parent fits, but its child
+currently defaults to `device="auto"`; a CPU parent alone does not guarantee a CPU
+child. Residual `bootstrap` is restricted to unweighted Gaussian fits with
+`cov_type="nonrobust"`, holds tuning fixed, and supports the fitted numerical
+backend. It does not automatically correct tuning or selection uncertainty.
+See [inference modes](../guides/inference-modes.md#scadmcp-active-set-inference)
+for a complete generic-estimator example and the method-specific limitations.
 
 ## Parameters
 
@@ -65,7 +78,8 @@ MCP produces **nearly unbiased** estimates, with bias decreasing as $\gamma$ inc
 | `fit_intercept` | `True` | Whether to fit an intercept |
 | `max_iter` | `1000` | Maximum FISTA iterations per LLA step |
 | `tol` | `1e-4` | Convergence tolerance |
-| `device` | `"auto"` | `cpu` / `cuda` / `torch` |
+| `device` | `"auto"` | `cpu` / `cuda` / `torch` / `auto`; explicit GPU requests require a usable CUDA backend |
+| `compute_inference` | `False` | Keep disabled on this wrapper; use the generic estimator above for an explicit inference method |
 | `solver` | `"auto"` | Solver selection |
 | `gpu_memory_cleanup` | `False` | CuPy pool cleanup after fit |
 
@@ -93,7 +107,7 @@ model_aggressive = MCPRegression(alpha=0.1, gamma=1.5)  # more aggressive thresh
 | Property | Lasso | SCAD | MCP |
 |---|---|---|---|
 | Convexity | Convex | Non-convex | Non-convex |
-| Oracle property | No | Yes | Yes |
+| Oracle property | Not in general | Under regularity/tuning conditions | Under regularity/tuning conditions |
 | Bias for large $\beta_j$ | Shrinks toward zero | Nearly unbiased | Nearly unbiased |
 | Penalty continuity | Continuous | Continuous | Continuous |
 | Penalty concavity | Linear (convex) | Piecewise linear-quadratic | Piecewise linear-quadratic |
@@ -103,7 +117,7 @@ model_aggressive = MCPRegression(alpha=0.1, gamma=1.5)  # more aggressive thresh
 
 - Coefficients: `intercept_`, `coef_`
 - Methods: `fit`, `predict`, `score`
-- Note: `compute_inference=True` is not supported for MCP
+- Coefficient inference: use the explicit generic-estimator interface described above; `MCPRegression` does not expose `inference_method`.
 
 ## References
 

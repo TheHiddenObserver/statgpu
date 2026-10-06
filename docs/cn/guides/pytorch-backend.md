@@ -1,7 +1,7 @@
 # PyTorch 后端指南
 
 > 语言：中文  
-> 最后更新：2026-10-05  
+> 最后更新：2026-10-06  
 > 切换：[English](../../en/guides/pytorch-backend.md)
 
 ## 概览
@@ -97,7 +97,10 @@ import statgpu as sg
 sg.set_device("torch")
 ```
 
-如果估计器提供 `device=` 参数，估计器级设置优先。只有明确需要自动选择时才使用 `"auto"`。
+按通用设备分派规则，估计器显式指定非 `auto` 设备时会覆盖全局设置；
+`device="auto"` 则继承全局策略，因此上述调用之后它仍会请求 Torch。
+使用 `sg.set_device("auto")` 恢复自动选择，或用 `device="cpu"` 明确要求 CPU。
+另见[全局设置与估计器设置](device-and-memory.md#全局设置与估计器设置)及模型专属例外。
 
 ## 统计推断
 

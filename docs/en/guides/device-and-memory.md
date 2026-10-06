@@ -1,7 +1,7 @@
 # Device and GPU Memory
 
 > Language: English  
-> Last updated: 2026-10-05  
+> Last updated: 2026-10-06  
 > This page: device selection and user-visible GPU memory controls  
 > Switch: [Chinese](../../cn/guides/device-and-memory.md)
 
@@ -36,6 +36,17 @@ Model-specific backend coverage can be narrower than the generic device vocabula
 Formula/DataFrame parsing and other metadata preparation may occur on CPU before numerical model computation. Under the intended device convention, arrays are then converted to the requested numerical backend. The smoothing/kernel-feature/spline exceptions above do not consistently enforce that conversion; inspect their actual array placement.
 
 Transfers between NumPy, CuPy, and Torch may use optimized mechanisms internally. Applications should rely on the resulting device semantics, not on a particular transfer implementation such as DLPack or pinned memory.
+
+### Global settings and estimator settings
+
+For estimators using the shared device routing, an explicit `device="cpu"`,
+`"cuda"`, or `"torch"` overrides the global setting from `statgpu.set_device`.
+An estimator's `device="auto"` instead inherits that global setting. Thus,
+after `set_device("torch")`, passing `device="auto"` does not restore automatic
+CPU fallback. Reset the global policy with `set_device("auto")`, or pass
+`device="cpu"` when CPU execution is intended. This setting is process-wide;
+restore it after a temporary change. The estimator-specific exceptions above
+still apply.
 
 ## Automatic device selection
 

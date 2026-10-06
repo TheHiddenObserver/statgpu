@@ -32,8 +32,10 @@ class PCA(BaseEstimator):
         New-data covariance is not forced to be the identity.
     copy : bool, default=True
         Kept for sklearn-style API compatibility. Inputs are not modified.
-    random_state : int or None, default=None
+    random_state : int, numpy.random.Generator, numpy.random.RandomState or None, default=None
         Seed for the randomized solver; ignored by deterministic solvers.
+        Integer seeds are in [0, 2**32-1]. Generator objects are stateful and
+        fitting can advance them; reuse an integer to restart from that seed.
     n_oversamples : int, default=10
         Nonnegative extra projection directions for the randomized solver.
     iterated_power : int, default=2

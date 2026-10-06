@@ -22,7 +22,18 @@ from statgpu.linear_model.penalized._penalized_linear import PenalizedLinearRegr
 
 
 class Ridge(_PenalizedLinearRegression):
-    """Thin sklearn-style wrapper over ``PenalizedLinearRegression`` with L2 penalty."""
+    """L2 regression under an average weighted squared-loss objective.
+
+    With positive alpha, inference does not automatically correct shrinkage
+    bias or tuning uncertainty. Nonrobust inference uses a Student-t reference;
+    HC/HAC uses a normal reference despite the historical _tvalues name.
+
+    The optimized CPU exact fit with an intercept can suffer severe cancellation
+    when feature means dwarf their variation, for weighted and unweighted data.
+    Subtract a training-derived origin before fit and reuse it for prediction;
+    keep fit_intercept=True and do not center test rows independently. Fitting
+    success or finite reporting arrays alone do not establish a correct fit.
+    """
 
     def __init__(
         self,
@@ -63,8 +74,11 @@ class Ridge(_PenalizedLinearRegression):
     def fit(self, X=None, y=None, sample_weight=None, formula=None, data=None):
         """Fit Ridge regression model with optimized memory-efficient path.
 
-        Uses centering formulas to avoid allocating the full centered design matrix,
-        and skips expensive inference computations when ``compute_inference=False``.
+        The optimized CPU exact path avoids a centered-design allocation using
+        raw moments; large feature offsets can make that subtraction inaccurate.
+        Center using a training-derived origin when means dwarf variation and
+        apply the same origin at prediction. Disabling inference skips its work
+        but does not change that coefficient-fitting limitation.
         """
         if (formula is not None
                 or self._get_compute_device() != Device.CPU

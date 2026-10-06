@@ -73,6 +73,33 @@ print(W.shape, model.components_.shape, np.linalg.norm(X - X_hat))
 
 安装了相应 GPU 后端后，可新建估计器并指定 `device="cuda"`（CuPy）或 `device="torch"`（Torch CUDA）。数组通常留在该后端；输出所在设备及主机端步骤见 [API 参考](api-reference.md#nmf)。显式请求的 GPU 不可用时会报错。
 
+## 极小数值单位
+
+乘性更新中的固定绝对稳定项可能淹没数值极小的正观测。例如，严格正且精确为秩一的矩阵，按 `1e-12` 的尺度表示时，可能得到全零重构，即使 `tol=0` 也如此。仅增加迭代次数不能修复这种塌缩状态。观测本身极小时，绝对 `reconstruction_err_` 很小也可能误导判断；还应检查相对误差和逐特征重构误差。
+
+从有代表性的训练数据中选择一个有限正尺度，拟合前把所有特征除以同一个尺度。后续调用 `transform` 时继续使用它，重构结果再乘回该尺度以恢复原始单位。这保持非负性，只给 Frobenius 目标乘上统一的正常数；逐特征分别缩放则会改变各特征的权重。不要通过均值中心化或添加正偏移来处理这个限制。
+
+<!-- learner-example: nmf-units -->
+```python
+import numpy as np
+from statgpu.unsupervised import NMF
+
+X = 1e-12 * np.array([[1., 2.], [2., 4.], [3., 6.], [4., 8.]])
+scale = float(X.max())
+if not np.isfinite(scale) or scale <= 0:
+    raise ValueError("Choose a finite positive training scale")
+model = NMF(n_components=1, random_state=5, device="cpu")
+W = model.fit_transform(X / scale)
+X_hat = model.inverse_transform(W) * scale
+new_rows = 1e-12 * np.array([[5., 10.]])
+W_new = model.transform(new_rows / scale)
+new_hat = model.inverse_transform(W_new) * scale
+print("相对重构误差：", np.linalg.norm(X - X_hat) / np.linalg.norm(X))
+print("新观测按原始单位重构：", new_hat)
+```
+
+这个简单秩一示例的相对误差接近零，`new_hat` 接近 `[[5e-12, 1e-11]]`。缩放是数值防护措施，不保证任意数据都能收敛。拟合字典采用缩放后的单位；`W @ (model.components_ * scale)` 可在不修改估计器的情况下得到相同的原始单位重构。后续还需调用 `transform` 时，应保持已拟合字典不变。
+
 ## 近似与解释边界
 
 `NMF` 没有严格推断模式；目标函数非凸。乘性更新尝试寻找局部解；结果质量取决于初始化和停止准则，耗尽迭代次数不代表已经收敛。

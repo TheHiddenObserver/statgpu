@@ -73,6 +73,33 @@ The factors are `W` `(60, 2)` and `components_` `(2, 5)`. `reconstruction_err_` 
 
 For a supported GPU installation, construct a new estimator with `device="cuda"` (CuPy) or `device="torch"` (Torch CUDA). Arrays generally stay on that backend; see the [API reference](api-reference.md#nmf) for output ownership and host-side work. An unavailable explicit GPU raises an error.
 
+## Very small input units
+
+The fixed absolute stabilizers in the multiplicative updates can dominate very small positive observations. For example, an exactly rank-one positive matrix expressed at a scale of `1e-12` can produce an all-zero reconstruction, even with `tol=0`. More iterations alone do not repair that collapsed state. A small absolute `reconstruction_err_` can be misleading when the observations themselves are tiny; also inspect relative and feature-wise reconstruction errors.
+
+Choose one finite positive scale from representative training data and divide every feature by that same scale before fitting. Use the same scale for later `transform` calls, and multiply reconstructed observations by it to recover the original units. This preserves nonnegativity and changes the Frobenius objective by a common positive multiplier; separate per-feature scaling changes feature weighting. Do not mean-center or add a positive offset to address this limitation.
+
+<!-- learner-example: nmf-units -->
+```python
+import numpy as np
+from statgpu.unsupervised import NMF
+
+X = 1e-12 * np.array([[1., 2.], [2., 4.], [3., 6.], [4., 8.]])
+scale = float(X.max())
+if not np.isfinite(scale) or scale <= 0:
+    raise ValueError("Choose a finite positive training scale")
+model = NMF(n_components=1, random_state=5, device="cpu")
+W = model.fit_transform(X / scale)
+X_hat = model.inverse_transform(W) * scale
+new_rows = 1e-12 * np.array([[5., 10.]])
+W_new = model.transform(new_rows / scale)
+new_hat = model.inverse_transform(W_new) * scale
+print("relative reconstruction error:", np.linalg.norm(X - X_hat) / np.linalg.norm(X))
+print("new reconstruction in original units:", new_hat)
+```
+
+The relative error is close to zero for this simple rank-one example, and `new_hat` is close to `[[5e-12, 1e-11]]`. Scaling is a numerical precaution, not a guarantee of convergence on arbitrary data. The fitted dictionary is in scaled units: `W @ (model.components_ * scale)` reports the same original-unit reconstruction without modifying the estimator. Keep the fitted dictionary unchanged for subsequent `transform` calls.
+
 ## Approximation and interpretation
 
 NMF has no strict inference mode. The objective is non-convex, and multiplicative updates seek a local solution whose quality depends on initialization and stopping criteria; exhausting the iteration budget is not proof of convergence.

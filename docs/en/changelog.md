@@ -1,11 +1,21 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-09-20  
+> Last updated: 2026-10-06  
 > This page: Release history  
 > Switch: [Chinese](../cn/changelog.md)
 
 This page records user-visible changes for current and recent statgpu releases.
+
+## Unreleased — Learner guides and API references (PR #168)
+
+### Improved (2026-10-06)
+
+- Expanded bilingual explanations, mathematical definitions and runnable examples for linear models, inference, feature selection, survival, smoothing and twelve unsupervised estimators. The [complete API index](README.md#complete-api-references) links constructor options, methods and fitted-result references.
+- Clarified statistical inference targets, selection/tuning conditioning, weighting, resampling assumptions and available reporting methods. Connected Ridge, SCAD, MCP and Poisson explanations now distinguish their actual defaults and supported interfaces. Cox-family documentation identifies the difference between summed and row-averaged partial likelihood.
+- Documented current limitations and practical checks for failed refits, nonfinite outputs, data geometry and device placement. The new [coordinate-scaling guidance](models/nonparametric.md) and [NMF guide](unsupervised/nmf.md) explain how very small measurement units can change current results, how to prepare and reuse a consistent scale, and how to map predictions or densities back. The [Ridge guide](models/ridge.md) also shows training-derived centering for large coordinate offsets.
+- Clarified that a shared estimator's `device="auto"` inherits the global device policy, and completed public constructor help. Retained benchmark reports are identified as historical measurements of their recorded source and hardware.
+- These changes update documentation, docstrings and regression coverage. They do not change production numerical algorithms or repair the separately tracked implementation limitations. CPU examples and routing inspections do not establish physical-GPU execution or performance.
 
 ## Unreleased — Quantile solver and inference updates (PR #166, targeted for 0.2.6)
 

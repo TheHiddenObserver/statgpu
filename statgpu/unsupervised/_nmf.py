@@ -23,6 +23,12 @@ class NMF(BaseEstimator):
     ``tol`` controls periodic reconstruction-error checks during ``fit``.
     With fitted components fixed, ``transform`` always runs ``max_iter``
     updates and does not stop early by ``tol``.
+
+    Fixed absolute stabilizers can collapse factors for very small positive
+    input units, even with ``tol=0``. Use one fixed positive training-derived
+    scale for all features and later transforms, then multiply reconstructions
+    by that scale to restore original units. Inspect relative reconstruction
+    error; a tiny absolute residual does not establish a useful factorization.
     """
 
     def __init__(

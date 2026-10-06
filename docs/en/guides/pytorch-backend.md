@@ -1,7 +1,7 @@
 # PyTorch Backend Guide
 
 > Language: English  
-> Last updated: 2026-10-05  
+> Last updated: 2026-10-06  
 > Switch: [Chinese](../../cn/guides/pytorch-backend.md)
 
 ## Overview
@@ -106,8 +106,10 @@ import statgpu as sg
 sg.set_device("torch")
 ```
 
-A per-estimator `device=` argument takes precedence where the estimator exposes it.
-Use `"auto"` only when automatic backend selection is intended.
+An explicit non-`auto` estimator device overrides the global setting under shared
+routing. `device="auto"` inherits the global policy, so it still requests Torch
+after the call above. Use `sg.set_device("auto")` to restore automatic selection,
+or `device="cpu"` for an explicit CPU fit. See [global and estimator settings](device-and-memory.md#global-settings-and-estimator-settings) and the model-specific exceptions.
 
 ## Statistical Inference
 

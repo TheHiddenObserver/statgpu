@@ -138,7 +138,15 @@ class KernelDensityEstimator(BaseEstimator):
     use float64. pdf/predict/__call__ return backend-native (n_query,) density;
     logpdf/score_samples return log density. score is mean log density, not R2.
     For large coordinate offsets, center samples and queries by the same
-    training-derived offset. Remove zero-weight rows before fitting when
+    training-derived offset. With very small feature variances, absolute
+    covariance stabilization can dominate the intended bandwidth and change
+    density materially under a mere change of units. Centering alone does not
+    fix this: scale samples and queries consistently before fitting and
+    independently validate the result. For z=(x-location)/scale with positive
+    per-feature scales, map density back by dividing by prod(scale), or subtract
+    sum(log(scale)) from log density. Keep numeric bandwidth factors unchanged;
+    rescaling mitigates the demonstrated problem, not every numerical failure.
+    Remove zero-weight rows before fitting when
     using Gaussian log density: zero-weight rows can currently destabilize
     its log-sum-exp evaluation in the tails. Rerunning a string bandwidth
     selector after deletion can change its chosen factor. Choose new smoothing

@@ -101,14 +101,14 @@ def test_inverse_gamma_no_intercept_uniform_weights_equal_unweighted_objective(
     if almost_uniform:
         weights[-1] += 1e-8
 
-    kwargs = dict(
-        link="inverse_power",
-        fit_intercept=False,
-        solver=solver,
-        device="cpu",
-        max_iter=500,
-        tol=1e-9,
-    )
+    kwargs = {
+        "link": "inverse_power",
+        "fit_intercept": False,
+        "solver": solver,
+        "device": "cpu",
+        "max_iter": 500,
+        "tol": 1e-9,
+    }
     base = GammaRegression(**kwargs).fit(X, y)
     weighted = GammaRegression(**kwargs).fit(X, y, sample_weight=weights)
 
@@ -185,7 +185,7 @@ def test_inverse_gamma_no_intercept_uses_torch_promoted_working_dtype(solver):
     )
     y = torch.tensor([0.9, 1.0, 1.1, 1.2], dtype=torch.float64)
     weights = torch.tensor([1.0, 1.0004, 1.0, 1.0], dtype=torch.float64)
-    assert bool(torch.all(X.new_tensor(weights, dtype=torch.float16) == 1.0))
+    assert bool(torch.all(weights.to(device=X.device, dtype=torch.float16) == 1.0))
     assert not bool(torch.allclose(weights, weights[0]))
 
     model = GammaRegression(
@@ -196,5 +196,16 @@ def test_inverse_gamma_no_intercept_uses_torch_promoted_working_dtype(solver):
         max_iter=200,
         tol=1e-8,
     )
+    # Public fit establishes the row count before calling this private solver.
+    # This CPU-hosted Torch probe bypasses that preparation to inspect mixed
+    # input dtypes without requesting the public strict-CUDA estimator path.
+    model._nobs = int(X.shape[0])
     model._fit_smooth_solver(X, y, weights, solver, "torch")
     assert np.all(np.isfinite(model.coef_))
+    assert model.coef_.dtype == np.float64
+    assert model._df_resid == X.shape[0] - X.shape[1]
+    assert model._statgpu_smooth_effective_unweighted is False
+    prepared = model._statgpu_smooth_prepared_weight
+    assert prepared.dtype == torch.float64
+    assert prepared.device.type == "cpu"
+    torch.testing.assert_close(prepared, weights / weights.max(), rtol=0, atol=0)

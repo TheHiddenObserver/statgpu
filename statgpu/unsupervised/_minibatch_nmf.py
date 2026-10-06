@@ -18,6 +18,12 @@ class MiniBatchNMF(BaseEstimator):
     permanently zero its dictionary column. Later positive batches cannot
     revive that column. Buffer representative initialization rows, or restart
     with representative retained data when previously absent features appear.
+
+    Even strictly positive batches can collapse at very small input units
+    because fixed absolute stabilizers dominate the updates. Use one fixed
+    positive training-derived scale across all features, batches and later
+    transforms; multiply reconstructions by that scale to restore original
+    units. Check relative error as well as the absolute reconstruction error.
     """
 
     def __init__(

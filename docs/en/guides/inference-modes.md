@@ -143,7 +143,35 @@ This is not a universal bootstrap for every GLM family. The supported residual-b
 
 The resulting uncertainty describes the fixed-design, fixed-tuning bootstrap procedure. It does not automatically account for tuning or variable-selection uncertainty.
 
+<a id="scadmcp-active-set-inference"></a>
+
 ## SCAD/MCP active-set inference
+
+The specialized `SCADRegression` and `MCPRegression` constructors do not accept
+`inference_method`; fitting with `compute_inference=True` alone raises. Use
+`PenalizedLinearRegression` to choose an explicit method, for example:
+
+<!-- inference-example: gaussian-nonconvex-oracle -->
+```python
+import numpy as np
+from statgpu.linear_model import PenalizedLinearRegression
+
+rng = np.random.default_rng(31)
+X = rng.normal(size=(80, 2))
+y = 0.5 + X @ np.array([1.5, -0.8]) + rng.normal(scale=0.4, size=80)
+model = PenalizedLinearRegression(
+    penalty="scad", penalty_kwargs={"a": 3.7}, alpha=0.1,
+    device="cpu", solver="fista", compute_inference=True,
+    inference_method="oracle",
+).fit(X, y)
+print(model._inference_result.method)
+print(np.round(model._inference_result.params, 3))
+```
+
+This prints `oracle` and approximately `[0.522, 1.497, -0.759]`, with the
+intercept first. For MCP, use `penalty="mcp", penalty_kwargs={"gamma": 3.0}`.
+The example uses Gaussian responses; it does not remove the selection and
+child-device limitations below.
 
 Where `inference_method="oracle"` is supported, statgpu performs inference conditional on the active set selected by the non-convex penalized fit. `auto` does not silently choose this interpretation because conditioning on a selected support is a substantive inferential assumption.
 

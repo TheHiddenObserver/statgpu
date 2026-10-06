@@ -114,16 +114,26 @@ def test_lassocv_glmnet_alias_reports_coordinate_descent_for_auto(method_alias):
 
 def test_lasso_cv_selector_validates_torch_inputs_on_torch_backend(monkeypatch):
     torch = pytest.importorskip("torch")
-    calls = []
+    from statgpu.backends import get_backend
+    from statgpu.linear_model.cv import _device as cv_device
 
-    class FakeBackend:
-        def asarray(self, value, dtype=None):
-            return value
+    calls = []
+    resolver_calls = []
+    cpu_torch_backend = get_backend(backend="torch", device="cpu")
 
     def fake_get_backend(*, backend="auto", device="auto"):
         calls.append((backend, device))
-        return FakeBackend()
+        return cpu_torch_backend
 
+    def fake_resolver_get_backend(*, backend="auto", device="auto"):
+        resolver_calls.append((backend, device))
+        return cpu_torch_backend
+
+    # The uniform-weight identity wrapper now resolves the same explicit
+    # backend before delegating to the original selector. Replace physical
+    # conversion at both lookup sites, retaining real Torch validation and
+    # checking that neither request silently changes its library/device.
+    monkeypatch.setattr(cv_device, "get_backend", fake_resolver_get_backend)
     monkeypatch.setattr(lasso_impl, "get_backend", fake_get_backend)
     details = lasso_impl._select_lasso_alpha_cv(
         torch.ones((3, 2)),
@@ -137,6 +147,7 @@ def test_lasso_cv_selector_validates_torch_inputs_on_torch_backend(monkeypatch):
 
     assert details["alpha"] == pytest.approx(0.1)
     assert calls == [("torch", "cuda")]
+    assert resolver_calls == [("torch", "cuda")]
 
 
 def test_lasso_bilingual_docs_cover_complete_constructor_inventory():

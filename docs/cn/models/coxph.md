@@ -1,7 +1,7 @@
 # CoxPH
 
 > 语言：中文<br>
-> 最后更新：2026-10-05<br>
+> 最后更新：2026-10-06<br>
 > 页面定位：模型文档<br>
 > 切换：[English](../../en/models/coxph.md)
 
@@ -303,6 +303,29 @@ penalized_cv = PenalizedGLM_CV(
 契约的 `alpha`，拟合会抛错，并且不会发布已选 `alpha` 或已拟合估计器。最终重拟合使用
 `PenalizedCoxPHModel(compute_inference=False)`；不支持选择后系数推断、`two_stage`、样本权重或字典形式响应。无惩罚别名不可调，因此该 CV
 路径会拒绝，需改为直接拟合模型。
+
+两种 Cox API 的损失尺度不同。`PenalizedCoxPHModel` 最小化
+
+$$
+-\ell(\beta)/n + P_\alpha(\beta),
+\qquad P_\alpha(\beta)=\frac{\alpha}{2}\lVert\beta\rVert_2^2
+\quad\text{对于内置 L2 惩罚}.
+$$
+
+这里 `n` 是实际参与拟合的行数，包含删失观测；公式删除缺失行后按保留行计数，
+并非事件数。在训练行、特征和并列事件
+处理方法相同的情况下，内置 `penalty="l2", alpha=a` 的目标等价于
+`CoxPH(penalty=n*a/2)`，不能直接交换 `alpha` 与 `penalty` 的数值。
+带惩罚模型族默认 `alpha=1.0`，属于正则化拟合；`CoxPH` 默认 `penalty=0.0`。
+若传入惩罚对象，则使用对象自身的惩罚强度。
+
+带惩罚模型族的 CV 分支先计算每折的 `-ell_validation / n_validation`，
+再最小化跨折均值；其 `best_score_` 是所选均值的相反数，即按验证行数
+归一化后再跨折平均的留出对数偏似然。数值上近似并列时优先选择更大的 alpha。
+这与 `CoxPHCV` 对各折总和尺度对数
+偏似然取均值不同。此外，每个训练折和最终重拟合各有自己的行数，因此用
+单个 `n` 换算直接拟合的惩罚值，不能让两种 CV 搜索等价。分析中应始终沿用
+所选 API 的参数选择和最终重拟合规则。
 
 自定义交叉验证折可以采用一般的非空、训练集与验证集互不重叠的划分，包括前向
 `TimeSeriesSplit` 或重复留出；无需互为补集，也无需让每行恰好进入一次验证集。索引会在任何候选模型拟合前校验，必须是一维、精确且位于范围内的

@@ -1,12 +1,14 @@
 # statgpu Documentation Portal (English)
 
 > Language: English  
-> Last updated: 2026-09-17  
+> Last updated: 2026-10-06  
 > Switch: [Chinese](../cn/usage.md)
 
 Use this page to enter the user documentation. Detailed support matrices live on the relevant model and reference pages so the portal stays short and stable.
 
 ## Getting started
+
+- [Complete API references](README.md#complete-api-references) — constructors, methods, parameters, and result attributes
 
 - [Quickstart](getting-started/quickstart.md) — installation, first fit, prediction, and device selection
 - [Implemented Methods](guides/implemented-methods.md) — public estimator and method inventory

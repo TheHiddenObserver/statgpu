@@ -92,6 +92,33 @@ print("reconstructed second feature:", reconstructed[:, 1])
 
 Both dictionary columns are active, and the reconstructed second feature is positive. Without buffering, fitting `first` then `second` leaves that reconstructed feature identically zero. Always inspect reconstruction feature by feature when the data stream changes.
 
+## Very small input units
+
+Fixed absolute stabilizers can also overwhelm very small positive observations in both `fit` and `partial_fit`. An exactly rank-one matrix expressed at a scale of `1e-12` can reconstruct as essentially zero even when every feature in every batch is positive. This differs from the zero-feature initialization limit above; buffering positive rows alone does not resolve it. Increasing `max_iter` or setting `tol=0` is not sufficient.
+
+Choose a finite positive common scale from representative buffered training rows and retain it for all batches and later `transform` calls. Divide every feature by that same scale, then multiply `inverse_transform` output by it to return to original units. A common scale preserves nonnegativity and changes the Frobenius objective by only a common multiplier; per-feature rescaling changes the objective's feature weighting. Do not add offsets. See [NMF input units](nmf.md#very-small-input-units) for the dictionary interpretation.
+
+<!-- learner-example: minibatch-nmf-units -->
+```python
+import numpy as np
+from statgpu.unsupervised import MiniBatchNMF
+
+first = 1e-12 * np.array([[1., 2.], [2., 4.]])
+second = 1e-12 * np.array([[3., 6.], [4., 8.]])
+scale = float(first.max())
+if not np.isfinite(scale) or scale <= 0:
+    raise ValueError("Choose a finite positive training scale")
+model = MiniBatchNMF(n_components=1, random_state=5, device="cpu")
+for batch in (first, second):
+    model.partial_fit(batch / scale)
+X = np.vstack([first, second])
+W = model.transform(X / scale)
+X_hat = model.inverse_transform(W) * scale
+print("relative reconstruction error:", np.linalg.norm(X - X_hat) / np.linalg.norm(X))
+```
+
+The relative error is close to zero for these proportional positive batches. The fixed scale works here because both batches have comparable magnitudes; it is not a guarantee for arbitrary streams or dynamic ranges. Inspect relative and feature-wise errors rather than relying only on a small absolute `reconstruction_err_`.
+
 ## Approximation and interpretation
 
 MiniBatchNMF is non-convex; incremental `partial_fit` updates depend on batch order. Ordinary `fit` aggregates statistics over an epoch before updating components. It is intended for scalable approximate factorization, not strict statistical inference.

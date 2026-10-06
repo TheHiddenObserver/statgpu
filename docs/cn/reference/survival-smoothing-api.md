@@ -287,6 +287,12 @@ kde_pdf(samples, points, *, bandwidth='scott', weights=None, kernel='gaussian', 
 
 原始坐标带有很大偏移量时，请先减去训练数据确定的偏移量，并对查询使用同一偏移量，再拟合/评价。当前二次距离计算可能在未中心化时损失精度，涉及 KDE 对数密度及多元密度/回归；这种共同平移不会改变目标统计估计量。
 
+特征方差很小时还有另一项限制：协方差的绝对稳定化增量可能主导目标协方差，
+使 KDE 和采用数值带宽因子、Scott 或 Silverman 规则的核回归仅因计量单位变化
+就产生显著不同的结果。仅中心化不能解决这个问题。拟合前应一致地缩放训练特征
+和查询；KDE 换回原始单位时还需要密度的雅可比修正。具体变换、反例、不同带宽
+路径的边界以及验证限制见[坐标尺度过小](../models/nonparametric.md#坐标尺度过小)。
+
 KDE 与核回归当前存在显式设备请求的例外。NumPy 或 Torch CPU 输入即使搭配 `device="torch"` 与 `backend="auto"` 或 `"torch"`，仍可能在 Torch CPU 上拟合和预测。显式 `backend="torch"` 搭配 `device="cuda"` 也可能在 CPU 上执行；`backend="numpy"` 会覆盖这两种加速器请求。应检查 `samples_` 与密度/预测数组的实际位置：Torch 查看 `.device`/`.is_cuda`，CuPy 查看 `.device`，NumPy 数组位于 CPU。仅查看配置的 `device` 与 `backend_` 不够。需要明确的 CPU 路径时，请用 NumPy 输入并设置 `device="cpu", backend="numpy"`。以上是严格设备约定的当前例外，并非设备参数的新含义，见[设备说明](../guides/device-and-memory.md)。
 
 拟合属性：`samples_` `(n,p)`、归一化 `weights_` `(n,)`、标量 `bandwidth_factor_`、`bandwidth_info_`（选择结果；数值带宽时为 `None`）、`covariance_` 和 `inv_covariance_` `(p,p)`、标量 `norm_const_` 和 `inv_norm_const_`、`kernel_`、`backend_`、`n_samples_`、`n_features_`。`to_numpy_metadata()` 返回含 `bandwidth_factor`、`bandwidth_selection`、`n_samples`、`n_features`、`backend`、`kernel`、`covariance`、`inv_covariance`、`weights` 的字典，数组为主机 NumPy 数组。

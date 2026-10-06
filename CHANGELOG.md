@@ -7,9 +7,9 @@ All notable changes to statgpu are documented here, organized by release and dat
 ### PR #168 — Completed learner documentation across nine topics
 - Improved bilingual learner guides, distribution workflows and navigation across linear models, feature selection, survival, smoothing and twelve unsupervised methods.
 - Added runtime-checked API references, complete argument/output guidance, mathematical definitions and self-contained examples with CPU regressions.
-- Corrected inference targets, covariance and resampling interpretation, weighted diagnostics, tuning/state boundaries and installed help; clarified current oracle-refit, direct solver-control, fixed-X centering, device-routing, spline, p-value-weight and singular-fit, kernel-overflow and failed-GLM-refit limitations with tested alternatives.
+- Corrected inference targets, covariance and resampling interpretation, weighted diagnostics, tuning/state boundaries and installed help; clarified current oracle-refit, direct solver-control, fixed-X centering, device-routing, spline, p-value-weight and singular-fit, kernel-overflow, failed-GLM-refit and small-unit smoothing/NMF and large-offset Ridge limitations with tested alternatives.
 - Refined natural Chinese explanations and cross-page consistency, corrected the README Poisson sampling workflow and result-reporting examples, completed installed API help, and documented safe prediction, scoring, refit, initialization and geometry workflows.
-- Moved historical implementation/validation details to developer references, registered distinct underlying defects separately, and preserved all executable production code and dependency metadata.
+- Moved historical implementation/validation details to developer references, registered distinct underlying defects separately, and preserved production numerical/dispatch/state logic and dependency metadata.
 
 ## Unreleased — 2026-09-20
 

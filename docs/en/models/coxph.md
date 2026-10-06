@@ -1,7 +1,7 @@
 # CoxPH
 
 > Language: English<br>
-> Last updated: 2026-10-05<br>
+> Last updated: 2026-10-06<br>
 > This page: Model documentation<br>
 > Switch: [Chinese](../../cn/models/coxph.md)
 
@@ -344,6 +344,31 @@ is `PenalizedCoxPHModel(compute_inference=False)`; post-selection coefficient
 inference, `two_stage`, sample weights, and dictionary targets are unsupported.
 No-penalty aliases are non-tunable and are rejected by this CV path; use a
 direct model fit instead.
+
+The two Cox APIs use different loss scales. `PenalizedCoxPHModel` minimizes
+
+$$
+-\ell(\beta)/n + P_\alpha(\beta),
+\qquad P_\alpha(\beta)=\frac{\alpha}{2}\lVert\beta\rVert_2^2
+\quad\text{for the built-in L2 penalty}.
+$$
+
+Here `n` is the number of rows actually fitted, including censored observations
+and after any formula missing-row removal, not the number of events. With the
+same rows, features, and tie method, built-in
+`penalty="l2", alpha=a` therefore matches the objective of
+`CoxPH(penalty=n*a/2)`; `alpha` and `penalty` are not interchangeable values.
+The default family `alpha=1.0` is positive regularization, whereas `CoxPH`
+defaults to `penalty=0.0`. A supplied penalty object uses its own strength.
+
+The penalized-family CV branch minimizes the mean over folds of each fold's
+`-ell_validation / n_validation`; its `best_score_` is the negative of the
+selected mean, hence a mean row-normalized held-out log likelihood. Numerical
+near-ties prefer the stronger alpha. This differs
+from `CoxPHCV`'s mean of summed fold log likelihoods. In addition, each training
+fold and the final refit have their own row count. A direct-fit conversion
+using one `n` therefore does not make the two CV searches equivalent. Use the
+appropriate API's selection and final-refit convention throughout an analysis.
 
 Custom folds may be general non-empty disjoint train/validation splits, including
 forward `TimeSeriesSplit` or repeated holdout; they need not be complementary or

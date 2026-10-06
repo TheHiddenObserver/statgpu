@@ -139,7 +139,34 @@ Gaussian 残差自助法会保持拟合设计矩阵与调参配置不变。每�
 
 因此，该结果描述的是固定设计、固定调参配置下的残差自助法不确定性，并不会自动调整调参或变量选择带来的额外不确定性。
 
+<a id="scadmcp-active-set-inference"></a>
+
 ## SCAD/MCP 活跃集推断
+
+专用的 `SCADRegression` 与 `MCPRegression` 构造函数不接受
+`inference_method`；仅设置 `compute_inference=True` 后拟合会报错。请通过
+`PenalizedLinearRegression` 显式选择方法，例如：
+
+<!-- inference-example: gaussian-nonconvex-oracle -->
+```python
+import numpy as np
+from statgpu.linear_model import PenalizedLinearRegression
+
+rng = np.random.default_rng(31)
+X = rng.normal(size=(80, 2))
+y = 0.5 + X @ np.array([1.5, -0.8]) + rng.normal(scale=0.4, size=80)
+model = PenalizedLinearRegression(
+    penalty="scad", penalty_kwargs={"a": 3.7}, alpha=0.1,
+    device="cpu", solver="fista", compute_inference=True,
+    inference_method="oracle",
+).fit(X, y)
+print(model._inference_result.method)
+print(np.round(model._inference_result.params, 3))
+```
+
+输出为 `oracle` 和约 `[0.522, 1.497, -0.759]`，首项为截距。MCP 可改用
+`penalty="mcp", penalty_kwargs={"gamma": 3.0}`。示例使用高斯响应，
+并未消除下文的变量选择和子模型设备限制。
 
 在支持 `inference_method="oracle"` 的模型上，statgpu 以非凸惩罚拟合所选择的活跃集为条件进行推断。`auto` 不会静默选择这种解释，因为“以已选择的变量集合为条件”本身就是一个实质性的推断假设。
 
