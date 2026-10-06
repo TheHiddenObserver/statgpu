@@ -28,6 +28,10 @@ from statgpu.nonparametric.splines import SplineTransformer
 ROOT = Path(__file__).resolve().parents[2]
 
 
+class _ExplicitAcceleratorPlacementError(Exception):
+    """Only the known explicit-accelerator output-placement contract failed."""
+
+
 def _example(language, name):
     path = ROOT / f"docs/{language}/models/kernel-methods.md"
     blocks = re.findall(
@@ -224,18 +228,17 @@ def test_safe_numpy_cpu_spline_checks_knots_and_output_placement_against_scipy()
 
 def _assert_accelerator_arrays(arrays, device, torch):
     if device == "torch":
-        assert all(isinstance(array, torch.Tensor) and array.is_cuda for array in arrays), (
-            "Explicit device='torch' must use Torch CUDA or raise; observed "
-            + repr([(type(array).__module__, str(getattr(array, "device", "cpu"))) for array in arrays])
-        )
+        correctly_placed = all(isinstance(array, torch.Tensor) and array.is_cuda for array in arrays)
     else:
-        assert all(type(array).__module__.split(".")[0] == "cupy" for array in arrays), (
-            "Explicit device='cuda' must use CuPy CUDA or raise; observed "
-            + repr([(type(array).__module__, str(getattr(array, "device", "cpu"))) for array in arrays])
+        correctly_placed = all(type(array).__module__.split(".")[0] == "cupy" for array in arrays)
+    if not correctly_placed:
+        observed = [(type(array).__module__, str(getattr(array, "device", "cpu"))) for array in arrays]
+        raise _ExplicitAcceleratorPlacementError(
+            f"Explicit device={device!r} must use its CUDA backend or raise; observed {observed!r}"
         )
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError,
+@pytest.mark.xfail(strict=True, raises=_ExplicitAcceleratorPlacementError,
                    reason="Issue #231: explicit accelerators can silently execute on CPU")
 @pytest.mark.parametrize("kind", ["kde", "regression"])
 @pytest.mark.parametrize("input_kind", ["numpy", "torch_cpu"])
@@ -264,7 +267,7 @@ def test_smoothers_should_honor_explicit_accelerator_or_raise(kind, input_kind, 
     _assert_accelerator_arrays([model.samples_, output], device, torch)
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError,
+@pytest.mark.xfail(strict=True, raises=_ExplicitAcceleratorPlacementError,
                    reason="Issue #231: Torch CPU spline input overrides explicit device")
 @pytest.mark.parametrize("device", ["torch", "cuda"])
 def test_spline_should_honor_explicit_accelerator_with_torch_cpu_input_or_raise(device):
@@ -390,7 +393,7 @@ def test_kernel_feature_real_unavailable_torch_cuda_request_raises(
                      re.IGNORECASE)
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError,
+@pytest.mark.xfail(strict=True, raises=_ExplicitAcceleratorPlacementError,
                    reason="Issue #231: availability-only mock exposes missing Torch device conversion; no physical CUDA claim")
 @pytest.mark.parametrize("cls_name", ["KernelPCA", "Nystroem"])
 @pytest.mark.parametrize("input_kind", ["numpy", "torch_cpu"])
@@ -402,8 +405,10 @@ def test_kernel_feature_availability_only_mock_should_place_outputs_on_cuda_or_r
     if "rejected" in record:
         return  # A clear corrected rejection prompts strict XPASS and marker removal.
     assert set(record["outputs"]) == {"fit_transform", "transform", "predict"}
-    assert all(value["torch_tensor"] and value["is_cuda"]
-               for value in record["outputs"].values()), record
+    correctly_placed = all(value["torch_tensor"] and value["is_cuda"]
+                           for value in record["outputs"].values())
+    if not correctly_placed:
+        raise _ExplicitAcceleratorPlacementError(record)
 
 
 @pytest.mark.parametrize("cls", [KernelPCA, Nystroem])

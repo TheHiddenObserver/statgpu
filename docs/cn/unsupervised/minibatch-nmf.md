@@ -1,7 +1,7 @@
 # MiniBatchNMF
 
 > 语言：中文
-> 最后更新：2026-10-05
+> 最后更新：2026-10-06
 > 切换：[English](../../en/unsupervised/minibatch-nmf.md)
 
 ## 概览
@@ -107,7 +107,7 @@ print("reconstructed second feature:", reconstructed[:, 1])
 ## FAQ
 
 **支持负数或稀疏输入吗？**
-不支持。输入必须是稠密且非负的。
+不支持稀疏输入。`fit`、`partial_fit`、`fit_transform`、`transform` 和 `predict` 要求观测值非负。`inverse_transform` 只将传入坐标乘以 `components_`，允许负坐标，也可能返回负值；需要非负重构时，应传入非负因子。
 
 **支持坐标下降（CD）求解器或其他 beta 损失吗？**
 不支持。仅支持乘性更新（MU）和 Frobenius 损失。

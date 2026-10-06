@@ -1,7 +1,7 @@
 # Shared estimator API
 
 > Language: English  
-> Last updated: 2026-10-05  
+> Last updated: 2026-10-06  
 > Switch: [Chinese](../../cn/reference/estimator-api.md)
 
 This reference describes inherited `BaseEstimator` methods. A method appearing on an estimator does not imply that the model supplies coefficient p-values or cached training arrays. See the model's reference for overrides and available fitted results. These helpers do not refit a model, choose a scientifically valid resampling scheme, or correct variable-selection uncertainty automatically.
@@ -71,6 +71,16 @@ Returns `BootstrapResult`: `observed` (the original scalar), `samples` (length `
 **Unequal-size cluster limitation.** The current `cluster` implementation stops after collecting at least n rows and truncates the final sampled cluster to n. It can split a cluster and does not implement a valid whole-cluster bootstrap for unequal group sizes. Do not use its intervals for that setting. Use a separately validated whole-cluster resampler that preserves complete groups, or use this helper only when the groups genuinely have equal size; discarding or padding observations just to equalize groups changes the problem.
 
 For a runnable numeric-label validator and the missing-label limitation, see [label validation](../guides/inference-api.md#validate-resampling-labels-before-calling). Do not put unrelated missing group identities into an artificial common group.
+
+**Moving-block definition.** `strategy="block"` draws `ceil(n / b)` starting
+positions independently with replacement from `0, ..., n-b`, where
+`b=min(block_size, n)`. It concatenates the corresponding length-b contiguous
+blocks in sampled order, then keeps the first n rows. Blocks do not wrap from
+the end to the beginning. This is a moving-block bootstrap, not a circular or
+stationary bootstrap; choose block length and stationarity assumptions for the
+application. If `block_size >= n`, every resample is the original array and a
+deterministic statistic has a zero-width interval. That is no evidence of zero
+sampling uncertainty.
 
 The bootstrap interval is the empirical quantile pair at `(1-confidence_level)/2` and `(1+confidence_level)/2`. Exchangeability/resampling-unit assumptions remain the caller's responsibility. Callbacks may also be probed with a leading batch dimension before scalar fallback; avoid side effects and handle the intended axes explicitly if returning batched values. This generic helper is not the residual coefficient-bootstrap inference mode of ElasticNet.
 

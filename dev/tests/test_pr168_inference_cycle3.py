@@ -20,6 +20,10 @@ from statgpu.linear_model import ElasticNet, Lasso, PenalizedLinearRegression
 ROOT = Path(__file__).resolve().parents[2]
 
 
+class _MissingPostSelectionProvenance(AssertionError):
+    """Post-selection inference did not publish its method and target."""
+
+
 def _run_example(language, guide, marker):
     text = (ROOT / 'docs' / language / 'guides' / guide).read_text()
     match = re.search(r'<!-- ' + re.escape(marker) + r' -->\s*```python\n(.*?)```',
@@ -144,7 +148,7 @@ def test_public_resampling_help_warns_about_missing_labels(function):
 
 # Intended public provenance contract; do not enshrine today's None fields as a
 # passing assertion. The specialized post-selection path skips the publisher.
-@pytest.mark.xfail(strict=True, raises=AssertionError,
+@pytest.mark.xfail(strict=True, raises=_MissingPostSelectionProvenance,
                    reason='post_selection_ols skips shared public provenance publication')
 @pytest.mark.parametrize('cls', [Lasso, ElasticNet, PenalizedLinearRegression])
 def test_post_selection_publishes_the_same_method_and_target_as_result(cls):
@@ -154,8 +158,15 @@ def test_post_selection_publishes_the_same_method_and_target_as_result(cls):
     options = {'penalty': 'l1'} if cls is PenalizedLinearRegression else {}
     model = cls(alpha=0.1, solver='fista', compute_inference=True,
                 inference_method='post_selection_ols', device='cpu', **options).fit(x, y)
-    assert model.inference_method_ == model._inference_result.method
-    assert model.inference_target_ == 'active_set_refit_coefficient'
+    published_method = model.inference_method_
+    result_method = model._inference_result.method
+    published_target = model.inference_target_
+    if published_method != result_method:
+        raise _MissingPostSelectionProvenance(
+            f'published method {published_method!r} differs from result {result_method!r}'
+        )
+    if published_target != 'active_set_refit_coefficient':
+        raise _MissingPostSelectionProvenance(f'incorrect post-selection target: {published_target!r}')
 
 
 @pytest.mark.parametrize('weighted', [False, True])

@@ -55,6 +55,15 @@ class KernelRidge(BaseEstimator):
         Dual coefficients in the kernel space; a vector response has one column.
     X_fit_ : ndarray of shape (n_samples, n_features)
         Training data stored for prediction.
+
+    Notes
+    -----
+    Finite input does not guarantee a finite computed kernel. Polynomial
+    kernels can overflow; nonfinite kernel/decomposition values can currently
+    produce a fitted object with NaN learned arrays and predictions. Use finite
+    applicable kernel controls, check learned arrays and outputs for finiteness,
+    and discard a nonfinite fit. Increasing regularization does not repair an
+    already nonfinite kernel; revise feature scaling/kernel settings and refit.
     """
 
     def __init__(

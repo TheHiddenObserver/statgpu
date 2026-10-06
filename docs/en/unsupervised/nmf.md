@@ -1,7 +1,7 @@
 # NMF
 
 > Language: English
-> Last updated: 2026-10-05
+> Last updated: 2026-10-06
 > Switch: [Chinese](../../cn/unsupervised/nmf.md)
 
 ## Overview
@@ -88,7 +88,7 @@ NMF has no strict inference mode. The objective is non-convex, and multiplicativ
 ## FAQ
 
 **Can input contain negative values?**
-No. NMF raises when `X` contains negative values.
+`fit`, `fit_transform`, `transform`, and `predict` reject negative observations. `inverse_transform` only multiplies supplied coordinates by `components_`; it accepts negative coordinates and can return negative values. Pass nonnegative factors when a nonnegative reconstruction is required.
 
 **Is coordinate descent supported?**
 No. The current implementation supports only MU with Frobenius loss.

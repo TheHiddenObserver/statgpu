@@ -31,6 +31,14 @@ from statgpu.feature_selection._knockoff_utils import (
 ROOT = Path(__file__).resolve().parents[2]
 
 
+class _IgnoredADMMRho(AssertionError):
+    """The final ADMM solver did not receive the requested initial rho."""
+
+
+class _UncenteredFixedXGram(AssertionError):
+    """Generated knockoffs fail the response-projected Gram identity."""
+
+
 class _UncertifiedKKT(AssertionError):
     """A returned fit neither meets KKT tolerance nor reports exhausted work."""
 
@@ -293,7 +301,7 @@ def test_kkt_regression_does_not_swallow_unrelated_errors():
         test_requested_direct_kkt_stopping_should_certify_objective_residual(BrokenEstimator, 1.)
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError,
+@pytest.mark.xfail(strict=True, raises=_IgnoredADMMRho,
                    reason='Issue #234: unified ADMM hardcodes initial rho=1.0')
 @pytest.mark.parametrize('requested', [.1, 10.])
 @pytest.mark.parametrize('use_cv', [False, True])
@@ -318,10 +326,11 @@ def test_lasso_admm_rho_should_reach_direct_and_cv_final_solver(monkeypatch, req
         model = Lasso(alpha=.1, **options).fit(X, y)
         assert model.admm_rho == requested
     assert calls, 'actual ADMM solver was not reached'
-    assert calls[-1] == requested
+    if calls[-1] != requested:
+        raise _IgnoredADMMRho(f'final solver received rho={calls[-1]!r}, requested {requested!r}')
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError,
+@pytest.mark.xfail(strict=True, raises=_UncenteredFixedXGram,
                    reason='Issue #232: generated fixed-X Xk is not centered')
 @pytest.mark.parametrize('n,p', [(2, 1), (30, 6)])
 def test_generated_fixedx_should_preserve_gram_after_response_projection(n, p):
@@ -331,7 +340,11 @@ def test_generated_fixedx_should_preserve_gram_after_response_projection(n, p):
     np.testing.assert_allclose(X.T @ X, Xk.T @ Xk, atol=1e-12)
     P = np.eye(n) - np.ones((n, n))/n
     # This is a covariance identity, not a measured population-FDR assertion.
-    np.testing.assert_allclose(X.T @ P @ X, Xk.T @ P @ Xk, atol=1e-12)
+    expected = X.T @ P @ X
+    observed = Xk.T @ P @ Xk
+    assert observed.shape == expected.shape
+    if not np.allclose(expected, observed, rtol=1e-7, atol=1e-12, equal_nan=True):
+        raise _UncenteredFixedXGram(f'projected knockoff Gram {observed!r} differs from {expected!r}')
 
 
 @pytest.mark.parametrize('language', ['en', 'cn'])

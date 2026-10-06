@@ -4,6 +4,7 @@ Only NumPy CPU behavior is exercised. Strict xfails express the desired runtime
 rejection of independently reproduced gaps; they do not bless invalid output.
 """
 
+import re
 from pathlib import Path
 
 import numpy as np
@@ -12,6 +13,14 @@ import pytest
 from statgpu.unsupervised import NMF, GaussianMixture, MiniBatchKMeans
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+class _SingularGMMNotRejected(Exception):
+    """The unregularized singular GMM fit returned instead of rejecting it."""
+
+
+class _NonfiniteInitialCentersNotRejected(Exception):
+    """The MiniBatchKMeans call accepted nonfinite initial centers."""
 
 
 @pytest.mark.parametrize("covariance_type", ("diag", "spherical", "tied", "full"))
@@ -38,7 +47,7 @@ def test_positive_gmm_regularization_keeps_constant_data_outputs_finite(covarian
 @pytest.mark.parametrize("covariance_type", ("diag", "spherical"))
 @pytest.mark.xfail(
     strict=True,
-    raises=pytest.fail.Exception,
+    raises=_SingularGMMNotRejected,
     reason="Issue #225: Unregularized singular GMM currently publishes NaN fitted outputs",
 )
 def test_singular_gmm_rejects_fit_before_publishing_invalid_results(covariance_type):
@@ -46,8 +55,14 @@ def test_singular_gmm_rejects_fit_before_publishing_invalid_results(covariance_t
         n_components=1, covariance_type=covariance_type,
         reg_covar=0, random_state=0, device="cpu",
     )
-    with np.errstate(divide="ignore", invalid="ignore"), pytest.raises((ValueError, np.linalg.LinAlgError), match="covariance|singular|positive|Singular"):
-        model.fit(np.ones((4, 2)))
+    X = np.ones((4, 2))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        try:
+            model.fit(X)
+        except (ValueError, np.linalg.LinAlgError) as error:
+            assert re.search("covariance|singular|positive|Singular", str(error))
+        else:
+            raise _SingularGMMNotRejected("Singular GMM fit did not reject its covariance")
     assert not model._fitted
 
 
@@ -55,18 +70,23 @@ def test_singular_gmm_rejects_fit_before_publishing_invalid_results(covariance_t
 @pytest.mark.parametrize("nonfinite", (np.nan, np.inf, -np.inf))
 @pytest.mark.xfail(
     strict=True,
-    raises=pytest.fail.Exception,
+    raises=_NonfiniteInitialCentersNotRejected,
     reason="Issue #226: Constructor initial-center arrays bypass public finite-input checks",
 )
 def test_minibatch_kmeans_rejects_nonfinite_initial_centers(method, nonfinite):
     X = np.array([[0., 0.], [1., 1.], [2., 2.]])
     centers = np.array([[nonfinite, 0.], [2., 2.]])
     model = None
-    with np.errstate(divide="ignore", invalid="ignore"), pytest.raises(ValueError, match="finite"):
-        model = MiniBatchKMeans(
-            n_clusters=2, init=centers, random_state=0, device="cpu",
-        )
-        getattr(model, method)(X)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        try:
+            model = MiniBatchKMeans(
+                n_clusters=2, init=centers, random_state=0, device="cpu",
+            )
+            getattr(model, method)(X)
+        except ValueError as error:
+            assert re.search("finite", str(error))
+        else:
+            raise _NonfiniteInitialCentersNotRejected("Nonfinite initial centers were accepted")
     if model is not None:  # Constructor-time rejection is also valid.
         assert not model._fitted
 

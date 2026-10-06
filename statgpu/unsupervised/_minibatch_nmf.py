@@ -264,6 +264,12 @@ class MiniBatchNMF(BaseEstimator):
         return W
 
     def inverse_transform(self, X):
+        """Multiply finite coordinates by the fitted nonnegative dictionary.
+
+        Unlike observation fitting/encoding, this linear reconstruction does
+        not reject negative coordinates. Use nonnegative input factors for a
+        nonnegative reconstruction; signed coordinates can yield signed output.
+        """
         self._check_is_fitted()
         backend = self._get_backend()
         X_arr = backend.asarray(X, dtype=backend.float64)

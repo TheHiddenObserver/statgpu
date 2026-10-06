@@ -1,6 +1,6 @@
 # 已实现方法
 
-> 最后更新：2026-10-05  
+> 最后更新：2026-10-06  
 > 切换：[English](../../en/guides/implemented-methods.md)
 
 本页汇总 statgpu 当前公开的模型、函数与主要求解器族。详细的数学定义、推断范围与兼容性规则，请以对应模型页和指南为准。
@@ -41,17 +41,22 @@
 
 ### 示例
 
+<!-- api-example: inventory-poisson -->
 ```python
+import numpy as np
 from statgpu.linear_model import PenalizedGeneralizedLinearModel
 
+rng = np.random.default_rng(42)
+X = rng.normal(size=(80, 2))
+y = rng.poisson(np.exp(0.3 + X @ np.array([0.5, -0.2])))
 model = PenalizedGeneralizedLinearModel(
-    loss="poisson",
-    penalty="l1",
-    alpha=0.05,
-    solver="fista",
-)
-model.fit(X, y)
+    loss="poisson", penalty="l1", alpha=0.05, solver="fista",
+    device="cpu", compute_inference=False, max_iter=2000, tol=1e-8,
+).fit(X, y)
+print(np.round(model.predict(X[:3]), 6))
 ```
+
+预测值是事件次数的条件均值，约为 `[1.458758, 1.547328, 0.775672]`。此 L1-Poisson 示例只做参数估计；非高斯 L1/ElasticNet 模型尚不提供系数推断。处理实际数据时，应另用验证过程选择惩罚强度。
 
 ## 交叉验证
 

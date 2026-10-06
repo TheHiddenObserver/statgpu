@@ -1,7 +1,7 @@
 # Survival and smoothing API reference
 
 > Language: English  
-> Last updated: 2026-10-05  
+> Last updated: 2026-10-06  
 > Switch: [Chinese](../../cn/reference/survival-smoothing-api.md)
 
 Use this page to look up a call after the [CoxPH](../models/coxph.md), [GAM](../models/semiparametric.md), or [nonparametric](../models/nonparametric.md) walkthrough. Signatures below include public arguments and defaults; `*` starts keyword-only arguments. Shape notation: `n` training rows, `p` features, `q` query rows, `r` response columns. Fitted methods require a successful fit. Generic [parameter management](estimator-api.md#parameter-management) and [inference helpers](estimator-api.md#inference-helpers) are documented separately. Generic resampling helpers do not automatically supply model-valid survival inference or GAM confidence bands. Floating-point model calculations on this page use float64 rather than preserving a float32 input dtype; backend-native numeric predictions still have the fitted array-library type.
@@ -42,6 +42,15 @@ CoxPHCV.fit(X, time, event=None, entry=None, cluster=None, *, start=None, strata
 - CV `penalties` is a nonempty finite nonnegative vector. With `None`, `n_penalties` and `penalty_min_ratio` control the automatic grid; comparable feature scaling matters. `cv_splits` overrides generated folds and supplies nonempty disjoint integer train/validation indices. Subject overlap is rejected when `subject_id` is supplied. `random_state` controls generated splits.
 - Selection compares mean unpenalized held-out partial log likelihood over the same evaluable folds; each fold contributes its summed log likelihood, without division by rows or events. It does not optimize the C-index. A candidate must have finite scores and convergence on every effective fold. No qualifying candidate raises an error. The selected penalty is then refitted on all supplied training rows. Inference runs only in the final refit and does not correct tuning uncertainty. For custom grids, numerical near-ties prefer the stronger penalty, so `best_score_` can be slightly below the largest candidate mean.
 - A custom `penalties` grid rejects boolean, string/bytes, and complex entries. Candidates are evaluated from stronger to weaker penalties, but `penalties_` and candidate-axis results retain the supplied order. A one-shot `cv_splits` iterator is consumed once on first fit, `get_params`, clone, or serialization and reused thereafter; `get_params` returns a reusable equivalent. Do not separately consume that iterator.
+
+`CoxFitNumericalError` is also exported from `statgpu.survival` and subclasses
+`FloatingPointError`. A finite-input fit raises it if public coefficients,
+partial likelihood or coefficient hazard ratios cannot be represented. CV may
+exclude such a numerical candidate; input, programming, allocation and backend
+failures retain their own errors and must not be hidden by broad exception
+handling. See [fit failure semantics](../models/coxph.md#outputs). A nonconverged
+returned fit is a separate condition: inspect `converged_` and its stopping
+diagnostics before interpretation.
 
 ### Prediction, scoring, and summaries
 
@@ -199,6 +208,7 @@ GAM.summary()
 - For multi-feature Torch GAM prediction, use explicit `(q,p)` queries, including `(1,p)` for one point; the current vector shape check raises `TypeError`.
 - `summary`: prints and returns a dictionary with `n_features`, `n_splines_per_feature`, `spline_degree`, `penalty_order`, `smoothing_parameter`, `effective_df`, `intercept`, and, only after automatic selection, `gcv_score`.
 - Fitted fields: backend-native `coef_` of length `1+sum(n_basis_j)` and per-feature `knots_`; scalar `intercept_`, `edf_`, `lam_`; `gcv_score_` is a float for automatic selection and `None` for fixed lambda; `n_features_` is an integer. Coefficients describe centered basis functions, not raw-feature slopes.
+- Large finite lambda can make trace-scaled stabilization shrink the intended unpenalized intercept and other penalty-nullspace directions. Check training-mean preservation and validate the original objective; finite GCV/predictions are insufficient. See the [large-lambda limitation](../models/semiparametric.md#large-smoothing-penalties-and-the-intercept).
 - `lam=None` searches the built-in 100-value grid; check that `gcv_score_` is finite before interpreting the result. When all candidates have infinite GCV, the current implementation still returns the first grid value, so a returned object alone does not prove successful selection; there is no GAM custom-grid/CV-estimator API. Choose other settings with external validation. No GAM-specific `score`, sample-weight objective, family/link, coefficient inference, or confidence-band method is provided. Generic inherited helpers do not create these capabilities.
 - Always refit after `set_params`. Some GAM parameter updates currently retain the previous fitted arrays; continued prediction before refitting can use inconsistent state. A fresh GAM instance is the safest way to change the basis design. A failed refit during basis construction can also leave old coefficients alongside new knots or feature counts. After such a failure, discard the instance and fit a fresh one before predicting or interpreting `summary()`.
 
@@ -432,6 +442,12 @@ BandwidthSelectionResult.to_dict()
 | `estimator`, `targets`, `regression`, `kernel` | Default `"kde"`; choose `"kernel_regression"` with compatible targets for regression-CV selection. `regression` is `"nw"` or `"local_linear"`; `kernel` selects the regression kernel. Defaults are in the signatures. |
 
 `select_bandwidth` returns `BandwidthSelectionResult`; `select_bandwidth_factor` returns its scalar `factor`. Result fields: `factor`, `method`, `n_features`, `n_eff`, `used_r_selector`, `weighted`, `weighted_strategy`, `multivariate_strategy`, `selector_dimension`, and `details`. `to_dict()` returns those same names. `details` is method-specific diagnostic information; do not assume all selectors have the same keys. `used_r_selector=True` identifies `ucv`, `bcv`, and the `sj` variants; it is `False` for `nrd`/`nrd0` and does not indicate an external R process. Some constant/sparse samples cause selectors to fail.
+
+`weighted` flags a normalized-weight range above `1e-12`.
+`weighted_strategy` records `"uniform"` or the configured nonuniform strategy;
+it can say `"quantile_resample"` for Scott/Silverman or numeric factors even
+though those paths did not resample. Interpret it together with `method`,
+`used_r_selector`, and `details`, rather than as execution provenance on its own.
 
 <!-- example: bandwidth-selector-reference-cpu -->
 ```python

@@ -28,6 +28,18 @@ from statgpu.nonparametric.splines import (
 ROOT = Path(__file__).resolve().parents[2]
 
 
+class _IgnoredKernelRidgeWeights(Exception):
+    """Zero-weight observations still change the kernel-ridge prediction."""
+
+
+class _NonfiniteKernelRidgeCVSelection(Exception):
+    """The singular zero-alpha candidate was selected with a nonfinite score."""
+
+
+class _NonperiodicCyclicBasis(Exception):
+    """The cyclic basis has unequal one-sided boundary values or derivatives."""
+
+
 def test_kernel_ridge_matches_rkhs_objective_not_coefficient_ridge():
     X = np.array([[-1.0], [0.0], [1.0], [2.0]])
     y = np.array([0.0, 1.0, 8.0, 3.0])
@@ -102,7 +114,7 @@ def test_thin_plate_polynomial_block_is_linear_even_for_order_three():
     assert_allclose(B[:, -3:], np.column_stack([np.ones(3), x]))
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="KernelRidge.fit currently ignores sample_weight")
+@pytest.mark.xfail(strict=True, raises=_IgnoredKernelRidgeWeights, reason="KernelRidge.fit currently ignores sample_weight")
 def test_kernel_ridge_zero_weight_should_equal_excluding_that_observation():
     X = np.array([[-1.0], [0.0], [1.0], [2.0]])
     y = np.array([0.0, 1.0, 8.0, 3.0])
@@ -119,10 +131,15 @@ def test_kernel_ridge_zero_weight_should_equal_excluding_that_observation():
             return  # Strict XPASS prompts removal of the resolved-defect marker.
         raise
     omitted = KernelRidge(alpha=0.7, device="cpu").fit(X[weights > 0], y[weights > 0])
-    assert_allclose(weighted.predict(X), omitted.predict(X), rtol=1e-10, atol=1e-10)
+    actual = weighted.predict(X)
+    expected = omitted.predict(X)
+    assert actual.shape == expected.shape
+    assert np.isfinite(actual).all() and np.isfinite(expected).all()
+    if not np.allclose(actual, expected, rtol=1e-10, atol=1e-10):
+        raise _IgnoredKernelRidgeWeights("Zero-weight prediction differs from deleting that row")
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="KernelRidgeCV may select zero alpha with nonfinite CV evidence")
+@pytest.mark.xfail(strict=True, raises=_NonfiniteKernelRidgeCVSelection, reason="KernelRidgeCV may select zero alpha with nonfinite CV evidence")
 def test_kernel_ridge_cv_should_not_select_nan_candidate():
     try:
         with np.errstate(divide="ignore", invalid="ignore"):
@@ -138,11 +155,13 @@ def test_kernel_ridge_cv_should_not_select_nan_candidate():
         ):
             return
         raise
+    if model.alpha_ == 0.0 and not np.isfinite(model.best_score_):
+        raise _NonfiniteKernelRidgeCVSelection("Selected zero alpha with nonfinite CV evidence")
     assert model.alpha_ == 1.0
     assert np.isfinite(model.best_score_)
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="Cyclic projection does not enforce true one-sided boundary derivatives")
+@pytest.mark.xfail(strict=True, raises=_NonperiodicCyclicBasis, reason="Cyclic projection does not enforce true one-sided boundary derivatives")
 def test_cyclic_basis_should_satisfy_analytic_periodicity():
     x = np.linspace(0.0, 1.0, 500)
     knots = np.linspace(0.1, 0.9, 10)
@@ -154,4 +173,7 @@ def test_cyclic_basis_should_satisfy_analytic_periodicity():
     spline = BSpline(augmented, projection, 3)
     for order in (0, 1, 2):
         derivative = spline.derivative(order)
-        assert_allclose(derivative(0.0), derivative(1.0), rtol=1e-8, atol=1e-8)
+        left, right = derivative(0.0), derivative(1.0)
+        assert np.isfinite(left).all() and np.isfinite(right).all()
+        if not np.allclose(left, right, rtol=1e-8, atol=1e-8):
+            raise _NonperiodicCyclicBasis(f"Boundary derivative order {order} is not periodic")

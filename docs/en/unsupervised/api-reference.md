@@ -1,7 +1,7 @@
 # Unsupervised estimator API reference
 
 > Language: English
-> Last updated: 2026-10-05
+> Last updated: 2026-10-06
 > This page: Complete API reference
 > Switch: [Chinese](../../cn/unsupervised/api-reference.md)
 
@@ -195,7 +195,7 @@ NMF(n_components=None, init='random', solver='mu', beta_loss='frobenius', max_it
 | `fit(X, y=None)` | Fit nonnegative factors; return `self`. |
 | `fit_transform(X, y=None)` | Return fitted training factors `W`, shape `(n,k)`. |
 | `transform(X)` | With the learned components fixed, solve nonnegative factors for new data; return `(m,k)`. |
-| `inverse_transform(X)` | Multiply input factors `(m,k)` by components `(k,p)`; return reconstruction `(m,p)`. |
+| `inverse_transform(X)` | Multiply input factors `(m,k)` by components `(k,p)`; return reconstruction `(m,p)`. Negative coordinates are accepted and can give negative reconstructions. |
 | `predict(X)` | Alias for `transform(X)`. |
 
 | Fitted output | Meaning and shape |
@@ -368,7 +368,7 @@ MiniBatchNMF(n_components=None, init='random', batch_size=None, max_iter=200, to
 | `partial_fit(X, y=None)` | Accumulate batch factor statistics and update components; return `self`. |
 | `fit_transform(X, y=None)` | Fit components, then solve training factors `(n,k)` with those components fixed. |
 | `transform(X)` | Return nonnegative factors `(m,k)` with learned components fixed. |
-| `inverse_transform(X)` | Multiply factors `(m,k)` by components; return `(m,p)`. |
+| `inverse_transform(X)` | Multiply factors `(m,k)` by components; return `(m,p)`. Negative coordinates are accepted and can give negative reconstructions. |
 | `predict(X)` | Alias for `transform(X)`. |
 
 | Fitted output | Meaning and shape |
@@ -414,7 +414,7 @@ UMAP(n_neighbors=15, n_components=2, metric='euclidean', min_dist=0.1, spread=1.
 | Fitted output | Meaning and shape |
 |---|---|
 | `embedding_` | Training coordinates `(n,k)` on the selected backend. |
-| `graph_` | A tuple `(source_rows, target_rows, edge_weights, n_samples)`, not a SciPy adjacency matrix. The first three entries are backend arrays of equal edge count. |
+| `graph_` | A tuple `(source_rows, target_rows, edge_weights, n_samples)`, not a SciPy adjacency matrix. The first three entries are backend arrays of equal edge count. Weights use the mean-excess-distance bandwidth and fuzzy union described in [graph weights](umap.md#graph-weights), not umap-learn's local membership-sum calibration. |
 | `n_epochs_`, `n_features_in_` | Executed epoch count and original feature count. |
 
 Neighbor distances use float32 internally; embedding optimization uses float64. Large common feature offsets can collapse distinct observations during float32 conversion or corrupt expanded squared distances; subtract a training-derived offset before fitting, while the data are still float64. Very large pairwise distances can make exact search select self-neighbors that are later removed, even for centered input. After centering, divide all features by one common positive training-derived scale to obtain moderate coordinates; reuse this preparation for comparable data. This preserves Euclidean neighbor ordering and differs from per-feature rescaling. Graph assembly uses host SciPy even on GPU, and spectral initialization also uses host SciPy. Seeded random initialization is useful when testing shape/API behavior; visualization quality needs separate checks. The current force updates approximate a neighborhood layout but are not the exact gradient of standard UMAP cross-entropy. With NumPy 2, CPU `nn_method="nndescent"` currently fails during backend dispatch; use `"exact"` or `"auto"`. The sparse spectral initializer can retain the constant graph eigenvector in place of a nontrivial direction; its eigensolver start is also not controlled by `random_state`. Use `init="random"` for seeded initialization. No inverse transform, score, or incremental fit is provided.

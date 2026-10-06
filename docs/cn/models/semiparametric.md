@@ -1,7 +1,7 @@
 # GAM（广义可加模型）
 
 > 语言: 中文  
-> 最后更新: 2026-10-05  
+> 最后更新: 2026-10-06  
 > 页面定位: 模型文档  
 > 切换: [English](../../en/models/semiparametric.md)
 
@@ -24,7 +24,7 @@ $$
 \qquad (B^\top B+\lambda S)\hat\beta=B^\top y.
 $$
 
-$B$ 拼接截距列和每个特征的中心化样条基；$S$ 是各平滑项 $D^\top D$ 的块对角矩阵，截距不受惩罚。$D$ 是差分矩阵，其阶数由 `penalty_order` 指定。损失是残差平方**和**，不是均值。实现优先使用带数值稳定项的 Cholesky 求解，必要时改用一般线性求解或最小二乘；稳定项也影响报告的有效自由度（EDF）。
+$B$ 拼接截距列和每个特征的中心化样条基；$S$ 是各平滑项 $D^\top D$ 的块对角矩阵，模型设计不对截距施加惩罚。$D$ 是差分矩阵，其阶数由 `penalty_order` 指定。损失是残差平方**和**，不是均值。实现优先使用带数值稳定项的 Cholesky 求解，必要时改用一般线性求解或最小二乘；稳定项也影响报告的有效自由度（EDF）。
 
 `degree=3` 决定分段**三次**基函数；`penalty_order=2` 惩罚相邻**基系数**的二阶差分。两者作用不同：将惩罚改为一阶不会把三次样条变为分段线性样条。若需要分段线性基，应选择 `degree=1`。
 
@@ -48,6 +48,11 @@ y_test = (np.sin(2 * X_test[:, 0]) + 0.4 * X_test[:, 1] ** 2
 gam = GAM(n_splines=12, lam=None, device="cpu").fit(X_train, y_train)
 if not np.isfinite(gam.gcv_score_):
     raise RuntimeError("No finite GCV candidate; revise the model before prediction.")
+training_prediction = gam.predict(X_train)
+if not np.isfinite(training_prediction).all() or not np.isclose(
+    training_prediction.mean(), y_train.mean(), rtol=1e-8, atol=1e-10,
+):
+    raise RuntimeError("Stabilization changed the unpenalized mean; validate the solver.")
 prediction = gam.predict(X_test)
 mse = np.mean((prediction - y_test) ** 2)
 baseline_mse = np.mean((y_train.mean() - y_test) ** 2)
@@ -73,7 +78,7 @@ None
 - 测试 MSE 的单位是响应单位的平方。在未参与拟合的样本上优于训练均值基线，比训练误差很小更有说服力。还应检查残差及不同特征区间的表现。
 - `edf_` 表示平滑后的有效模型复杂度，可以不是整数，也不等于原始系数数量。
 - `gcv_score_` 是广义交叉验证（GCV）得分，用于在训练数据内选择平滑强度，不是测试 MSE 或 p 值。比较同一数据、相同 `gamma` 的候选模型时，越低越好。
-- `coef_` 包含截距和样条基系数，**不能当作原始特征的斜率**。可以改变某个特征并观察预测来理解曲线。由于基列已中心化，`intercept_` 近似等于训练响应均值。
+- `coef_` 包含截距和样条基系数，**不能当作原始特征的斜率**。可以改变某个特征并观察预测来理解曲线。基列中心化后，模型设计要求不受惩罚的 `intercept_` 等于训练响应均值；但大 lambda 下的稳定项会明显破坏这一性质，详见[稳定项限制](#large-smoothing-penalties-and-the-intercept)。
 - 固定 lambda 重拟合沿用选中的数值，预测应与 `gam` 一致；但 `fixed.gcv_score_` 为 `None`，因为没有重新搜索，不代表拟合失败。
 
 ## 如何选择平滑强度
@@ -91,6 +96,24 @@ $$
 可以从三次基和二阶差分惩罚开始。仅在曲线明显受限时增加 `n_splines`，并重新检查留出误差。增大 `lam` 通常使曲线更平滑。按分位数设置节点时，数据较密集的区间会布置更多节点；均匀节点则在观测范围内等距排列。用验证集或交叉验证选择这些设置，最后保留一个未参与调参的测试集。
 
 GCV 是离散网格搜索，可能错过两个候选值之间的最优值；固定 `lam` 只是跳过选择，仍使用同一数值求解器。`GAM` 构造函数不接受自定义 lambda 网格。需要细搜时，可在训练/验证数据上比较若干固定值，再按选定设置重拟合。
+
+<a id="large-smoothing-penalties-and-the-intercept"></a>
+
+## 平滑惩罚较大时的截距偏移
+
+上述对角稳定项随 `lam` 增长，当前会作用于所有系数，包括模型惩罚本应
+保留的方向。因此，它可能改变拟合目标，而不仅是减轻舍入误差。
+对 50 个等距点、恒为 5 的响应和 `n_splines=8`，`lam=1e10` 的预测约为
+4.630，`lam=1e12` 时约为 0.556。按照原定不惩罚截距的目标，任何非负
+lambda 的最优预测都应精确等于 5。第一个 lambda 已在内置 GCV 搜索范围内；
+这个固定参数反例不代表 GCV 一定会选中它。
+
+应像 CPU 示例那样，检查训练预测的均值是否保留响应均值。明显的均值偏移
+表示没有求得预期目标的解，不能解读为有效的平滑。这只是必要检查，并不
+充分证明系数或曲线正确，因为惩罚零空间中的其他方向也可能受影响。
+有限预测或有限 GCV 都不足以保证正确。需要使用这类大惩罚时，应另用经过
+验证、能够保留惩罚零空间的求解器；改变 `lam` 会改变统计问题，并不能修复
+当前求解器。
 
 ## 输入、边界与限制
 

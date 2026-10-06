@@ -15,6 +15,18 @@ from statgpu.nonparametric.splines import SplineTransformer, bspline_basis
 ROOT = Path(__file__).resolve().parents[2]
 
 
+class _Chi2ConstructorGammaMismatch(Exception):
+    """Constructor gamma disagrees with the working kernel dictionary."""
+
+
+class _RBFTranslationMismatch(Exception):
+    """A common translation changes the RBF values."""
+
+
+class _Chi2SmallDenominatorMismatch(Exception):
+    """A small positive chi-squared denominator is incorrectly floored."""
+
+
 def _signature(obj):
     signature = inspect.signature(obj)
     parameters = []
@@ -97,7 +109,7 @@ def test_chi2_gamma_dictionary_workaround_matches_analytic_system(metric):
     assert_allclose(model.dual_coef_.ravel(), np.linalg.solve(K + np.eye(4), y))
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError,
+@pytest.mark.xfail(strict=True, raises=_Chi2ConstructorGammaMismatch,
                    reason='KernelRidge/CV omit constructor gamma for chi-squared kernels')
 @pytest.mark.parametrize('cls', [kernels.KernelRidge, kernels.KernelRidgeCV])
 @pytest.mark.parametrize('metric', ['chi2', 'chi-squared'])
@@ -109,10 +121,18 @@ def test_chi2_constructor_gamma_should_match_dictionary(cls, metric):
         options.update(alphas=[0.1, 1.0, 10.0], cv=2, random_state=0)
     requested = cls(gamma=7.0, **options).fit(X, y)
     reference = cls(kernel_params={'gamma': 7.0}, **options).fit(X, y)
+    # Evaluate both runtime paths before recognizing only the known mismatch.
+    actual_prediction = requested.predict(X)
+    expected_prediction = reference.predict(X)
+    assert actual_prediction.shape == expected_prediction.shape
     if cls is kernels.KernelRidgeCV:
-        assert_allclose(requested.cv_results_['mean_mse'],
-                        reference.cv_results_['mean_mse'])
-    assert_allclose(requested.predict(X), reference.predict(X))
+        actual_mse = requested.cv_results_['mean_mse']
+        expected_mse = reference.cv_results_['mean_mse']
+        assert actual_mse.shape == expected_mse.shape
+        if not np.allclose(actual_mse, expected_mse, rtol=1e-7, atol=0):
+            raise _Chi2ConstructorGammaMismatch('Constructor gamma changes CV MSE')
+    if not np.allclose(actual_prediction, expected_prediction, rtol=1e-7, atol=0):
+        raise _Chi2ConstructorGammaMismatch('Constructor gamma changes predictions')
 
 
 def test_rbf_centering_workaround_preserves_pairwise_model():
@@ -123,12 +143,15 @@ def test_rbf_centering_workaround_preserves_pairwise_model():
     assert_allclose(kernels.rbf_kernel(queries - center, X - center, gamma=0.5), expected)
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError,
+@pytest.mark.xfail(strict=True, raises=_RBFTranslationMismatch,
                    reason='RBF norm/dot-product distances lose common-translation invariance')
 def test_rbf_kernel_should_be_translation_invariant():
     X = np.arange(6.0)[:, None]
     expected = np.exp(-0.5 * np.sum((X[:, None] - X[None, :]) ** 2, axis=2))
-    assert_allclose(kernels.rbf_kernel(X + 1e9, gamma=0.5), expected, atol=1e-12)
+    actual = kernels.rbf_kernel(X + 1e9, gamma=0.5)
+    assert actual.shape == expected.shape
+    if not np.allclose(actual, expected, rtol=1e-7, atol=1e-12):
+        raise _RBFTranslationMismatch('RBF values changed after translating both inputs')
 
 
 @pytest.mark.parametrize('degree', [0, 1, 2, 3, 5])
@@ -153,11 +176,15 @@ def test_spline_complete_methods_and_zero_denominator_convention(language):
         assert '`' + name + _signature(getattr(SplineTransformer, name)) + '`' in text
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError,
+@pytest.mark.xfail(strict=True, raises=_Chi2SmallDenominatorMismatch,
                    reason='Torch chi-squared kernel floors valid small positive denominators')
 def test_torch_cpu_chi2_should_preserve_small_positive_denominators():
     torch = pytest.importorskip('torch')
     X = torch.tensor([[1e-12]], dtype=torch.float64)
     Y = torch.zeros((1, 1), dtype=torch.float64)
     actual = kernels.chi2_kernel(X, Y, gamma=1e12, xp=torch)
-    assert_allclose(actual.numpy(), [[np.exp(-1.0)]], rtol=1e-12, atol=1e-12)
+    values = actual.numpy()
+    expected = np.array([[np.exp(-1.0)]])
+    assert values.shape == expected.shape
+    if not np.allclose(values, expected, rtol=1e-12, atol=1e-12):
+        raise _Chi2SmallDenominatorMismatch('Small positive denominator changed chi-squared value')

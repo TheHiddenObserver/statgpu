@@ -1,7 +1,7 @@
 # Linear-model API reference
 
 > Language: English  
-> Last updated: 2026-10-05  
+> Last updated: 2026-10-06  
 > Switch: [Chinese](../../cn/reference/linear-model-api.md)
 
 All classes here import from `statgpu` or `statgpu.linear_model`. `X` is finite numeric `(n,p)` data; prediction uses the fitted feature order. Analytic weights are a finite nonnegative `(n,)` vector with positive sum. For weights after formula row filtering, see [formula inputs](#formula-inputs). Explicit GPU use requires the corresponding installed CUDA backend; see [device and memory](../guides/device-and-memory.md).
@@ -352,3 +352,126 @@ for cls in (LinearRegression, ElasticNet, Lasso):
     model.fit(formula="y ~ x + C(group)", data=df)
     assert model.predict(df.iloc[:3]).shape == (3,)
 ```
+
+## GeneralizedLinearModel
+
+```text
+GeneralizedLinearModel(family='gaussian', fit_intercept=True, max_iter=100, tol=0.0001, C=1.0, device='auto', n_jobs=None, solver='auto', gpu_memory_cleanup=False, compute_inference=False, cov_type='nonrobust')
+```
+
+| Parameter | Default | Meaning and restrictions |
+|---|---|---|
+| `family` | `'gaussian'` | gaussian, binomial, poisson, gamma, inverse_gaussian, negative_binomial, or tweedie. Family-specific link/dispersion controls belong to typed wrappers. |
+| `fit_intercept` | `True` | Fit an unpenalized intercept; formula syntax overrides this choice. |
+| `max_iter` | `100` | Solver iteration budget. |
+| `tol` | `0.0001` | Numerical convergence tolerance. |
+| `C` | `1.0` | Ordinary IRLS adds ||beta||²/(4C) for positive C; C=0 removes it. Explicit newton/lbfgs/fista ignore C. |
+| `device` | `'auto'` | cpu, cuda (CuPy), torch (Torch CUDA), or auto. Explicit GPU requests require the corresponding CUDA backend. |
+| `n_jobs` | `None` | Shared CPU-worker configuration; no parallel-fit guarantee. |
+| `solver` | `'auto'` | auto, irls, fista, newton, lbfgs; ordinary auto selects IRLS. Solver changes can change the C-penalized objective. |
+| `gpu_memory_cleanup` | `False` | Best-effort GPU memory-pool cleanup. |
+| `compute_inference` | `False` | Enable supported M-estimation coefficient inference. |
+| `cov_type` | `'nonrobust'` | nonrobust, hc0, hc1 for ordinary GLM inference; no hac_maxlags constructor argument. |
+
+
+`fit(X=None,y=None,sample_weight=None,formula=None,data=None)` returns self. Use finite numeric X `(n,p)` and scalar-response y `(n,)`; a single response column is flattened. Supply arrays or formula/data, not both: formula currently replaces simultaneous array arguments without rejecting the conflict. Default links are identity for Gaussian, logit for binomial, and log for the other listed families. Binomial requires 0/1 labels, Poisson/Negative Binomial nonnegative responses, and Gamma/Inverse Gaussian strictly positive responses. The default Tweedie power is 1.5 and permits zero. Family/link settings can impose further restrictions.
+
+| Method/result | Contract |
+|---|---|
+| `predict(X)` | Response mean `(m,)` on the currently resolved device. Binomial returns probabilities, not labels or a two-column matrix. Formula DataFrames rebuild the fitted design. |
+| `summary()` | Returns a string; does not print it. Use `print(model.summary())`. With inference disabled it still reports coefficients/diagnostics; before fit it returns a not-fitted string. |
+| `family_to_loss()` | Returns the internal loss-name string, e.g. gaussian → squared_error and binomial → logistic. |
+| `coef_`, `intercept_`, `n_iter_` | NumPy slopes `(p,)`, scalar intercept, iteration count. Iteration count alone does not certify convergence. |
+| `_bse`, `_zvalues`, `_pvalues`, `_conf_int` | Successful inference arrays `(k,)`, `(k,2)` with the intercept first if fitted; k=p+1 or p. |
+| `loglikelihood`, `llf`, `aic`, `bic` | Pseudo-likelihood diagnostics omit parameter-independent constants. Weighted loglikelihood is −n times the weighted-average per-row loss. Do not compare absolute values across packages or incompatible outcomes/rows/weights. |
+
+Ordinary GLM coefficient inference uses a normal/z reference for all supported families, including Gaussian. It differs from nonrobust `LinearRegression` and the shared squared-error L2/Ridge Student-t path. Check `model._inference_result.distribution`; the `_zvalues` name reflects this normal-reference calculation.
+
+There is no `score` or `predict_proba` method on this generic ordinary class. `get_params(deep=True)`, `set_params(**params)`, `adjust_pvalues`, `combine_pvalues`, `bootstrap_statistic`, and `permutation_test` follow the [shared API](estimator-api.md); those resampling helpers do not automatically refit a GLM.
+
+### Failed ordinary-GLM refits
+
+Current auto/IRLS/FISTA refit errors can leave an object marked fitted while mixing earlier coefficients with new row counts or formula/intercept settings. Predictions and likelihood/AIC/BIC can change even though the new fit raised. Do not reuse that object's outputs after a failed refit; construct a fresh estimator and complete a successful fit. The shared ordinary typed wrappers inherit this limitation. Explicit newton/lbfgs currently restore their earlier fitted state after a failed attempt; this preservation does not mean the new data were fitted.
+
+
+## PenalizedGeneralizedLinearModel
+
+```text
+PenalizedGeneralizedLinearModel(loss='squared_error', penalty='l1', alpha=1.0, l1_ratio=0.5, penalty_kwargs=None, fit_intercept=True, max_iter=1000, tol=0.0001, device='auto', n_jobs=None, cpu_solver='fista', solver='auto', lipschitz_L=None, gpu_memory_cleanup=False, compute_inference=False, inference_method='auto', cov_type='nonrobust', hac_maxlags=None, stopping='coef_delta', lla=True, max_lla_iters=50, lla_tol=1e-06, loss_kwargs=None, *, nodewise_alpha=None)
+```
+
+| Parameter | Default | Meaning and restrictions |
+|---|---|---|
+| `loss` | `'squared_error'` | GLM loss name, e.g. squared_error, logistic, poisson, gamma, inverse_gaussian, negative_binomial, tweedie; other loss families have separate compatibility limits. |
+| `penalty` | `'l1'` | none, l1, l2, elasticnet, scad, mcp, adaptive_l1, supported group penalties, or a Penalty object. |
+| `alpha` | `1.0` | Penalty strength on the average-loss scale. A supplied Penalty object owns its own configuration. |
+| `l1_ratio` | `0.5` | L1 fraction for elasticnet. |
+| `penalty_kwargs` | `None` | Additional penalty constructor settings, e.g. groups or shape controls. |
+| `fit_intercept` | `True` | Unpenalized intercept; formula syntax takes precedence. |
+| `max_iter` | `1000` | Per-solve iteration budget. |
+| `tol` | `0.0001` | Numerical tolerance. |
+| `device` | `'auto'` | cpu, cuda, torch, auto; see the backend guide. |
+| `n_jobs` | `None` | Shared CPU-worker setting where used. |
+| `cpu_solver` | `'fista'` | Deprecated compatibility control; use solver. See the solver migration guide. |
+| `solver` | `'auto'` | Backend-neutral solver request; supported choices depend on loss and penalty. |
+| `lipschitz_L` | `None` | Optional Lipschitz bound for compatible proximal paths. |
+| `gpu_memory_cleanup` | `False` | Best-effort GPU memory-pool cleanup. |
+| `compute_inference` | `False` | Run supported post-fit inference only when True. |
+| `inference_method` | `'auto'` | Resolve a supported method from loss/penalty; consult the inference matrix. |
+| `cov_type` | `'nonrobust'` | Method-specific covariance; non-Gaussian smooth inference supports nonrobust/hc0/hc1. |
+| `hac_maxlags` | `None` | HAC lag control only on paths supporting HAC. |
+| `stopping` | `'coef_delta'` | Stored convergence request; direct sparse Gaussian fits currently ignore the kkt choice. |
+| `lla` | `True` | Enable local linear approximation for supported nonconvex penalties. |
+| `max_lla_iters` | `50` | Maximum outer LLA iterations. |
+| `lla_tol` | `1e-06` | Outer LLA convergence tolerance. |
+| `loss_kwargs` | `None` | Loss-specific controls, e.g. link, Negative Binomial dispersion alpha, or Tweedie power. |
+| `nodewise_alpha` | `None` | Keyword-only tuning for supported debiased precision estimation; not the fit penalty. |
+
+
+`fit(X=None,y=None,sample_weight=None,formula=None,data=None)` returns self; scalar-response shapes and formula rules match the ordinary GLM above. There is no generic `initial_coef`, `n_bootstrap`, or `bootstrap_random_state` constructor parameter; wrapper-specific controls are not interchangeable.
+
+`predict(X,return_cpu=True)` returns `(m,)`, with NumPy output by default and the fitted native backend when False. Squared error returns the linear fit; GLM families return response means, except logistic returns 0/1 labels (class 1 only above probability 0.5). This generic class has no `predict_proba` or `summary`; use a suitable typed wrapper for its additional methods. `score(X,y,sample_weight=None)` is response-scale R², including on logistic labels, not classification accuracy or deviance pseudo-R². Use one-dimensional y and validate finite nonnegative evaluation weights with positive sum; shared score validation is incomplete.
+
+Fitted `coef_` `(p,)` and scalar `intercept_` describe prediction. Read supported inference through `_inference_result` and method-specific arrays, not by assuming prediction slopes equal corrected/refitted inferential parameters. `_inference_result.to_dict()` returns a reporting dictionary; `to_dataframe()` requires pandas. The [inference guide](../guides/penalized-glm-inference.md) defines methods, estimands and limitations. The six shared configuration/p-value/resampling methods listed above also apply.
+
+
+## PenalizedGLM_CV
+
+```text
+PenalizedGLM_CV(loss='squared_error', penalty='l2', alpha_grid=None, n_alphas=100, l1_ratio=0.5, cv=5, cv_splits=None, random_state=0, device='auto', max_iter=1000, tol=0.0001, solver='auto', cv_strategy='strict', acknowledge_approx=False, refine_top_k=3, loss_kwargs=None, penalty_kwargs=None, *, compute_inference=False, inference_method='auto', cov_type='nonrobust', hac_maxlags=None)
+```
+
+| Parameter | Default | Meaning and restrictions |
+|---|---|---|
+| `loss` | `'squared_error'` | Scalar-response loss; cox_ph uses a separate survival contract. |
+| `penalty` | `'l2'` | Tunable supported penalty; none is rejected as non-tunable. |
+| `alpha_grid` | `None` | Explicit finite grid; ordinary tunable penalties require positive values. An omitted grid is generated for the selected loss/penalty. |
+| `n_alphas` | `100` | Requested automatic grid size. |
+| `l1_ratio` | `0.5` | Fixed Elastic Net mixture, not a sequence searched by this class. |
+| `cv` | `5` | Generated shuffled K-fold count. |
+| `cv_splits` | `None` | Explicit disjoint nonempty integer train/validation indices; one-shot iterators are materialized and reused. |
+| `random_state` | `0` | Seed for generated folds. |
+| `device` | `'auto'` | Explicit cpu/cuda/torch or size-aware automatic CV routing; inspect cv_selected_device_. |
+| `max_iter` | `1000` | Strict fold/refit iteration budget. |
+| `tol` | `0.0001` | Strict fold/refit tolerance. |
+| `solver` | `'auto'` | Requested compatible solver; inference does not choose a different tuning grid. |
+| `cv_strategy` | `'strict'` | strict or two_stage; two_stage screens approximately before strict refinement. |
+| `acknowledge_approx` | `False` | Acknowledge two-stage approximation and suppress its warning. |
+| `refine_top_k` | `3` | Number of promising candidates to refine, subject to refinement safeguards. |
+| `loss_kwargs` | `None` | Family/link settings forwarded to fits and validation loss. |
+| `penalty_kwargs` | `None` | Penalty-specific configuration. |
+| `compute_inference` | `False` | Keyword-only; supported final-refit inference, not fold inference. |
+| `inference_method` | `'auto'` | Keyword-only final-refit inference request. |
+| `cov_type` | `'nonrobust'` | Keyword-only final-refit covariance. |
+| `hac_maxlags` | `None` | Keyword-only; retained only where the final inference method supports HAC. |
+
+
+Invalid/nonpositive scalar alpha entries are filtered with a warning; an empty surviving grid triggers automatic generation, also with a warning. Validate the intended search range yourself instead of relying on this fallback.
+
+This generic CV class is distinct from ElasticNetCV and LogisticRegressionCV. `fit(X,y,sample_weight=None)` returns self and has no formula interface. Scalar-response CV always fits an intercept; no public `fit_intercept` option is exposed here. Use an external CV loop with a suitable direct estimator for no-intercept scalar fits. The `cox_ph` branch instead requires the [survival target and no-intercept contract](../models/coxph.md).
+
+`predict(X)` and `score(X,y,sample_weight=None)` delegate to `estimator_`; scalar-response score is R², including for logistic labels. `alpha_` is selected by minimum mean held-out loss, and `best_score_` is its negative. It is not the held-out R² returned by score. Final inference conditions on selected alpha and does not adjust for tuning uncertainty.
+
+For a candidate count a and fold count f, `alpha_grid_` and `cv_results_["alpha"]` have shape `(a,)`; `mean_score` has `(a,)`, and `all_scores` has `(f,a)`. These score arrays hold losses (smaller is better). Other keys are `device_sizing_fold_count`, `cv_strategy_`, `cv_selected_device_`, `mean_score_stage1`, `all_scores_stage1`, and `refined_mask`. Stage-one arrays are None in strict mode; the boolean refinement mask has `(a,)`. `coef_`, `intercept_`, and `estimator_` describe the final full-data fit. `cv_strategy_` and `cv_selected_device_` are also attributes.
+
+`summary(*args,**kwargs)` currently raises AttributeError after successful generic final-refit inference because it delegates to a final estimator without a summary method. Without inference it raises RuntimeError instead. Read `estimator_._inference_result.to_dict()` (or `to_dataframe()` with pandas) for supported inference; the failure to render a summary does not itself change the fitted coefficients. See the runnable result example on the [GLM page](../models/generalized-linear-model.md#reading-cv-inference-results). Shared configuration/p-value/resampling methods apply; `get_params` materializes a one-shot custom splitter for reuse.

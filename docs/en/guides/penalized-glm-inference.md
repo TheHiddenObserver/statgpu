@@ -1,7 +1,7 @@
 # Penalized GLM Inference
 
 > Language: English  
-> Last updated: 2026-10-05  
+> Last updated: 2026-10-06  
 > This page: statistical targets and supported coefficient-inference behavior  
 > Switch: [Chinese](../../cn/guides/penalized-glm-inference.md)
 
@@ -230,6 +230,11 @@ penalty_selection_adjusted_ = False
 The reported standard errors, p-values, and confidence intervals are therefore conditional on the CV-selected penalty. They do not automatically adjust for tuning-selection uncertainty.
 
 For residual bootstrap, resampling starts only after CV has selected the tuning parameter; the candidate-selection process itself is not bootstrapped.
+
+`PenalizedGLM_CV.summary()` currently delegates to a generic final estimator
+that has no `summary()` method and can raise `AttributeError` even after
+successful coefficient inference. Read `model.estimator_._inference_result`
+and its `to_dict()` output instead; see the [complete CV reporting example](../models/generalized-linear-model.md#reading-cv-inference-results).
 
 The Cox branch remains estimation-only.
 

@@ -1,7 +1,7 @@
 # 推断模式
 
 > 语言：中文  
-> 最后更新：2026-10-05  
+> 最后更新：2026-10-06  
 > 页面定位：选择并解释系数推断方法  
 > 切换：[English](../../en/guides/inference-modes.md)
 
@@ -20,7 +20,8 @@ statgpu 提供多种推断方法，是因为经典低维回归、固定惩罚 GL
 
 | 已拟合模型 / 场景 | 推断方法 | 解释 |
 |---|---|---|
-| Gaussian 线性模型 / Ridge | 经典或稳健协方差 | 对已拟合线性模型的系数做推断 |
+| `LinearRegression` / 共享平方误差 L2/Ridge | 经典或稳健协方差 | nonrobust 使用 t 参考分布，受支持的稳健协方差使用正态参考分布 |
+| 普通 `GeneralizedLinearModel`，包括 Gaussian | `m_estimation` | 受支持的系数推断使用正态（z）参考分布 |
 | 光滑的非 Gaussian L2 / 无惩罚 GLM | `m_estimation` | 固定惩罚强度下的估计方程推断 |
 | Gaussian Lasso / ElasticNet | `debiased` | 去偏 / 去稀疏化系数推断 |
 | Gaussian Lasso / ElasticNet | `post_selection_ols` | 在已选择的活跃集上做 OLS/WLS 诊断性重拟合 |
@@ -32,7 +33,7 @@ statgpu 提供多种推断方法，是因为经典低维回归、固定惩罚 GL
 
 ## Gaussian 线性模型推断
 
-普通 Gaussian 线性模型以及共享的平方误差 L2/Ridge 路径通过 `cov_type` 选择协方差估计方式和参考分布。
+`LinearRegression` 以及共享的惩罚平方误差 L2/Ridge 路径通过 `cov_type` 选择协方差估计方式和参考分布。
 
 常用选项包括：
 
@@ -41,6 +42,8 @@ statgpu 提供多种推断方法，是因为经典低维回归、固定惩罚 GL
 - `hac`：使用 Bartlett 核的 HAC 协方差，参考分布为正态分布。
 
 数值推断在已拟合模型支持的后端上完成。数值阶段结束后，小型结果数组可以转换为 NumPy；这种用于结果整理的转换，并不表示显式 CUDA/Torch 拟合被静默搬回 CPU 重新计算。
+
+普通 `GeneralizedLinearModel` 使用另一条推断路径：受支持的系数推断采用 `m_estimation` 和正态（z）参考分布，**即使设置 `family="gaussian"` 且 `C=0` 也是如此**。因此，即使 Gaussian 模型的系数和标准误相同，其 p 值和区间也可能与 nonrobust `LinearRegression` 不同，小样本时尤其明显。请检查 `model._inference_result.distribution` 及模型专属的协方差约定；选择 Gaussian 分布族并不等于请求 Student-t 推断。
 
 模型专属的协方差选择见对应模型页。
 

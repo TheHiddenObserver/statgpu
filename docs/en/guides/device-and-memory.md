@@ -62,17 +62,23 @@ Some GPU-capable estimators expose `gpu_memory_cleanup`.
 - `gpu_memory_cleanup=False` (default where exposed) favors repeated-fit throughput by allowing backend memory pools/caches to retain reusable allocations.
 - `gpu_memory_cleanup=True` asks the estimator to release reclaimable cached GPU memory at its documented cleanup points, which can reduce steady GPU-memory usage at the cost of some reuse.
 
-Example:
+This standalone example requires a working CuPy/CUDA installation:
 
+<!-- api-example: cuda-cleanup -->
 ```python
+import numpy as np
 from statgpu.linear_model import Ridge
 
+rng = np.random.default_rng(42)
+X = rng.normal(size=(200, 5))
+y = 1.0 + X @ np.arange(1.0, 6.0) + rng.normal(size=200)
 model = Ridge(
     alpha=1.0,
     device="cuda",
     gpu_memory_cleanup=True,
 )
 model.fit(X, y)
+print(model.score(X, y))
 ```
 
 The option does not mean that fitted state needed for `predict()`, `score()`, or supported inference is discarded. Estimators only expose cleanup behavior at points compatible with their fitted-state contract.

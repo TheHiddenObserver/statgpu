@@ -144,6 +144,8 @@ silent fallback.
 Statistical inference commonly benefits from `float64`:
 
 ```python
+import torch
+
 X = torch.randn(2000, 50, device="cuda", dtype=torch.float64)
 ```
 

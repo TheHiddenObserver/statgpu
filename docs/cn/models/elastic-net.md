@@ -1,7 +1,7 @@
 # Elastic Net 弹性网络
 
 > 语言：中文  
-> 最后更新：2026-10-05<br>
+> 最后更新：2026-10-06<br>
 > 页面定位：模型文档  
 > 切换：[English](../../en/models/elastic-net.md)
 
@@ -78,7 +78,9 @@ rng = np.random.default_rng(25)
 X = rng.normal(size=(20, 2))
 y = np.arange(20.0) + 2 * X[:, 0]
 weights = np.r_[np.ones(19), 1000.0]
-model = ElasticNet(alpha=0.3, device="cpu", max_iter=5000, tol=1e-8).fit(
+model = ElasticNet(
+    alpha=0.3, device="cpu", max_iter=5000, tol=1e-8, compute_inference=True,
+).fit(
     X, y, sample_weight=weights,
 )
 weighted_r2 = model.score(X, y, sample_weight=weights)

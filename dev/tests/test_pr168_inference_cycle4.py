@@ -29,6 +29,18 @@ from statgpu.linear_model import (
 ROOT = Path(__file__).resolve().parents[2]
 
 
+class _WeightScaleChangedCombination(AssertionError):
+    """A common finite weight scale changed the combination result."""
+
+
+class _PenalizedOracleRefit(AssertionError):
+    """Oracle inference differs from the unpenalized active-set reference."""
+
+
+class _LostOracleFamilyParameter(AssertionError):
+    """Oracle reconstruction replaced a requested family-specific setting."""
+
+
 def _example(language, page, marker):
     text = (ROOT / f'docs/{language}/guides/{page}.md').read_text()
     match = re.search(r'<!-- ' + re.escape(marker) + r' -->\s*```python\n(.*?)```',
@@ -150,7 +162,7 @@ def test_bootstrap_reporting_matches_draws_and_not_normal_tail(monkeypatch):
     np.testing.assert_allclose(result.statistic, model._params / (result.bse + 1e-30))
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError,
+@pytest.mark.xfail(strict=True, raises=_WeightScaleChangedCombination,
                    reason='Issue #228: finite combination weights overflow their normalization sum')
 @pytest.mark.parametrize('method', ['cauchy', 'stouffer'])
 @pytest.mark.parametrize('axis', [None, 1])
@@ -160,10 +172,14 @@ def test_combination_is_invariant_to_large_common_weight_scale(method, axis):
         actual = combine_pvalues(p, method=method, weights=[1e308, 1e308], axis=axis)
     expected = combine_pvalues(p, method=method, weights=[1, 1], axis=axis)
     for observed, reference in zip(actual, expected):
-        np.testing.assert_allclose(observed, reference, rtol=1e-12, atol=1e-14)
+        assert np.shape(observed) == np.shape(reference)
+        if not np.allclose(observed, reference, rtol=1e-12, atol=1e-14, equal_nan=True):
+            raise _WeightScaleChangedCombination(
+                f'{method} result {observed!r} differs from unit-weight result {reference!r}'
+            )
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError,
+@pytest.mark.xfail(strict=True, raises=_PenalizedOracleRefit,
                    reason='Issue #227: oracle reconstruction retains LogisticRegression default C=1')
 @pytest.mark.parametrize('penalty', ['scad', 'mcp'])
 def test_logistic_oracle_targets_unpenalized_active_set(penalty):
@@ -176,11 +192,14 @@ def test_logistic_oracle_targets_unpenalized_active_set(penalty):
     ).fit(x, y)
     active = np.flatnonzero(np.asarray(model._inference_result.metadata['active_set']))
     reference = LogisticRegression(C=0, device='cpu', max_iter=10000, tol=1e-10).fit(x[:, active], y)
-    np.testing.assert_allclose(model._inference_result.params[np.r_[0, active + 1]],
-                               np.r_[reference.intercept_, reference.coef_], rtol=1e-6, atol=1e-7)
+    observed = model._inference_result.params[np.r_[0, active + 1]]
+    expected = np.r_[reference.intercept_, reference.coef_]
+    assert np.shape(observed) == np.shape(expected)
+    if not np.allclose(observed, expected, rtol=1e-6, atol=1e-7, equal_nan=True):
+        raise _PenalizedOracleRefit(f'logistic oracle {observed!r} differs from {expected!r}')
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError,
+@pytest.mark.xfail(strict=True, raises=_PenalizedOracleRefit,
                    reason='Issue #227: oracle reconstruction drops explicit Newton and runs penalized IRLS')
 @pytest.mark.parametrize('penalty', ['scad', 'mcp'])
 def test_poisson_oracle_targets_unpenalized_active_set(penalty):
@@ -192,11 +211,14 @@ def test_poisson_oracle_targets_unpenalized_active_set(penalty):
         compute_inference=True, inference_method='oracle', max_iter=10000, tol=1e-10,
     ).fit(x, y)
     reference = PoissonRegression(solver='newton', device='cpu', max_iter=1000, tol=1e-8).fit(x, y)
-    np.testing.assert_allclose(model._inference_result.params,
-                               np.r_[reference.intercept_, reference.coef_], rtol=1e-6, atol=1e-7)
+    observed = model._inference_result.params
+    expected = np.r_[reference.intercept_, reference.coef_]
+    assert np.shape(observed) == np.shape(expected)
+    if not np.allclose(observed, expected, rtol=1e-6, atol=1e-7, equal_nan=True):
+        raise _PenalizedOracleRefit(f'Poisson oracle {observed!r} differs from {expected!r}')
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError,
+@pytest.mark.xfail(strict=True, raises=_LostOracleFamilyParameter,
                    reason='Issue #227: oracle constructor introspection loses family-specific settings')
 @pytest.mark.parametrize('penalty', ['scad', 'mcp'])
 @pytest.mark.parametrize('loss,cls,settings,parameter', [
@@ -228,4 +250,7 @@ def test_oracle_refit_preserves_family_parameters(monkeypatch, penalty, loss, cl
         device='cpu', solver='fista', max_iter=3000, tol=1e-8,
     ).fit(x, y)
     assert len(seen) == 1
-    assert seen[0][parameter] == settings[parameter]
+    observed = seen[0][parameter]
+    expected = settings[parameter]
+    if observed != expected:
+        raise _LostOracleFamilyParameter(f'oracle {parameter}={observed!r}, requested {expected!r}')

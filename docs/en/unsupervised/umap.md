@@ -1,7 +1,7 @@
 # UMAP
 
 > Language: English
-> Last updated: 2026-10-05
+> Last updated: 2026-10-06
 > Switch: [Chinese](../../cn/unsupervised/umap.md)
 > Path: `statgpu.unsupervised.UMAP`
 
@@ -33,6 +33,21 @@ $$
 ## Estimating Equation
 
 The implementation selects `n_neighbors` with dense exact search by default (`nn_method='auto'` resolves to `exact`) or internal NNDescent when requested, symmetrizes fuzzy memberships, then applies attractive and sampled repulsive force updates. These updates are not the exact gradient of the standard cross-entropy above, so do not interpret this implementation as numerically equivalent to umap-learn.
+
+### Graph weights
+
+For the sorted distances $d_{i1},\ldots,d_{ik}$ to the selected neighbors, this implementation uses
+
+$$
+\rho_i=d_{i1},\qquad
+\sigma_i=\max\left(\frac{1}{k}\sum_{j=1}^{k}\max(d_{ij}-\rho_i,0),10^{-12}\right),
+\qquad
+v_{ij}=\exp\left(-\frac{\max(d_{ij}-\rho_i,0)}{\sigma_i}\right).
+$$
+
+Unselected directed edges have weight zero. The symmetric graph uses the fuzzy union $w_{ij}=v_{ij}+v_{ji}-v_{ij}v_{ji}$ and removes self-edges. A duplicate neighbor can make $\rho_i=0$.
+
+This is a mean-excess-distance bandwidth rule. It does not solve the local membership-sum calibration used by umap-learn's `smooth_knn_dist`, so graph weights can differ even with the same neighbors and before optimization begins. `min_dist` and `spread` control the low-dimensional attraction curve; they do not change this high-dimensional graph calculation. Changing them is not a way to repair a poor neighbor graph.
 
 ## Parameters
 
@@ -93,3 +108,5 @@ Constructor defaults, all public methods, output shapes, and restrictions are li
 
 - McInnes, L., Healy, J., & Melville, J. (2018). UMAP: Uniform Manifold Approximation and Projection for Dimension Reduction. *arXiv:1802.03426*.
 - umap-learn developers. UMAP API documentation.
+
+- umap-learn developers. [`smooth_knn_dist` source reference](https://umap-learn.readthedocs.io/en/latest/_modules/umap/umap_.html#smooth_knn_dist).

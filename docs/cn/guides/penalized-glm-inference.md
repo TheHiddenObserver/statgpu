@@ -1,7 +1,7 @@
 # 惩罚 GLM 推断
 
 > 语言：中文  
-> 最后更新：2026-10-05  
+> 最后更新：2026-10-06  
 > 页面定位：系数推断的统计目标与公开支持行为  
 > 切换：[English](../../en/guides/penalized-glm-inference.md)
 
@@ -206,6 +206,11 @@ penalty_selection_adjusted_ = False
 因此，标准误、p 值和置信区间都是**以 CV 已经选择的惩罚强度为条件**的，并不会自动调整调参选择带来的额外不确定性。
 
 对于残差自助法，只有 CV 选定调参值后才开始重抽样；候选项选择过程本身不会进行自助法重抽样。
+
+`PenalizedGLM_CV.summary()` 当前会调用最终通用估计器并不存在的
+`summary()` 方法，因此即使系数推断成功，也可能抛出 `AttributeError`。
+请改读 `model.estimator_._inference_result` 或其 `to_dict()` 输出；
+完整用法见 [CV 推断结果示例](../models/generalized-linear-model.md#reading-cv-inference-results)。
 
 Cox 分支仍然只提供估计，不提供这一系数推断接口。
 

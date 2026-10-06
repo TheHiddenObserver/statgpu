@@ -927,7 +927,11 @@ def bootstrap_statistic(
         One nonmissing label per row for cluster bootstrap. Validate labels
         before calling; see the unequal-size limitation under strategy.
     block_size : int, optional
-        Block size for block bootstrap.
+        Positive moving-block length b, capped at n. Draw ceil(n/b) starts
+        independently from 0 through n-b with replacement, concatenate blocks
+        without circular wrapping, and keep the first n rows. If b equals n,
+        every resample is the original data: a deterministic statistic then
+        has a zero-width interval, not evidence of zero sampling uncertainty.
     confidence_level : float, default=0.95
         Confidence level for percentile CI.
     random_state : int, optional

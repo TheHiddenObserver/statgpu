@@ -1,7 +1,7 @@
 # 样条基函数
 
 > 语言: 中文
-> 最后更新: 2026-10-05
+> 最后更新: 2026-10-06
 > 页面定位: 模型文档
 > 切换: [English](../../en/models/splines.md)
 
@@ -14,6 +14,49 @@
 
 只在训练行上拟合变换器，再对验证或测试行调用 `transform`。交叉验证时，应在
 每个训练折内学习节点，避免分位数节点提前使用留出观测的信息。
+
+## 拟合一次，再复用同一组特征
+
+下面的 CPU 示例先学习样条特征，再用普通最小二乘拟合响应，并把训练节点复用于
+新观测。`include_bias=False` 每个特征块去掉一列，使后续模型可以显式添加截距。
+示例曲线没有噪声，只演示两步流程，不能把结果当作泛化性能验证。
+
+<!-- example: spline-transformer-reuse-cpu -->
+```python
+import numpy as np
+from statgpu.nonparametric.splines import SplineTransformer
+
+X_train = np.linspace(-2.0, 2.0, 41)[:, None]
+y_train = np.sin(1.5 * X_train[:, 0])
+transformer = SplineTransformer(
+    n_knots=6, degree=3, include_bias=False,
+    extrapolation="constant", device="cpu",
+)
+B_train = transformer.fit_transform(X_train)
+train_design = np.column_stack([np.ones(len(X_train)), B_train])
+coefficients = np.linalg.lstsq(train_design, y_train, rcond=None)[0]
+
+X_query = np.array([[-1.5], [0.0], [1.5]])
+B_query = transformer.transform(X_query)
+query_design = np.column_stack([np.ones(len(X_query)), B_query])
+prediction = query_design @ coefficients
+names = transformer.get_feature_names_out(["time"])
+print(B_train.shape, B_query.shape)
+print(prediction.round(3))
+assert len(names) == B_query.shape[1]
+assert np.allclose(transformer.predict(X_query), B_query)
+assert np.allclose(transformer.transform([[2.5]]), transformer.transform([[2.0]]))
+```
+
+输出形状为 `(41, 7)` 和 `(3, 7)`，随后约为 `[-0.778, 0.000, 0.778]`。
+七列来自 `6 + 3 - 2`，表示基函数特征，并非七个独立观测的原始变量。
+`transformer.predict` 返回的仍是这些特征；只有将后续回归的设计矩阵乘以拟合系数，
+才得到响应预测。
+
+最后一个断言说明常数外推的含义：2.5 处采用训练上边界 2.0 处的特征值。
+这只是边界规则，不能证明真实响应在数据范围外保持不变。`linear` 和 `continue`
+采用不同外推假设，结果可能迅速增大。对于含噪声数据，应在训练折内选择节点数和
+后续模型的正则化参数，再用独立测试集评估预测。
 
 ## 概览（Overview）
 
@@ -108,6 +151,32 @@ float64。拟合时，一维向量表示单特征；变换时，一维向量可�
 ## strict / approx 区别
 
 样条基计算没有严格/近似模式。显式选择后端不会消除自然样条和周期样条边界投影的数值限制。
+
+## 完整的模型专属调用
+
+以下名称从 `statgpu.nonparametric.splines` 导入。调用签名与本页的参数和输出说明配合使用。
+[共享估计器辅助方法](../reference/estimator-api.md) 不会使这个特征变换器自动具备响应拟合或系数推断能力。
+
+```text
+bspline_basis(x, knots, degree=3, xp=None, boundary_lo=None, boundary_hi=None)
+natural_cubic_spline_basis(x, knots, xp=None)
+cyclic_cubic_spline_basis(x, knots, xp=None)
+thin_plate_spline_basis(x, knots, penalty_order=2, xp=None)
+SplineTransformer(n_knots=5, degree=3, knots='uniform', include_bias=True, extrapolation='constant', device='auto', n_jobs=None)
+SplineTransformer.fit(X, y=None, sample_weight=None)
+SplineTransformer.transform(X)
+SplineTransformer.fit_transform(X, y=None, sample_weight=None)
+SplineTransformer.predict(X)
+SplineTransformer.get_feature_names_out(input_features=None)
+SplineTransformer.get_params(deep=True)
+SplineTransformer.set_params(**params)
+```
+
+直接调用 B 样条函数时，至少需要一个内部节点。对新查询批次，仅复用内部节点还
+不够，还须传入训练时的 `boundary_lo`、`boundary_hi`，或改用已拟合的变换器。
+原始基函数在显式边界外为零；变换器的外推策略是另一套 API。自定义变换器节点
+包含两端边界，不必覆盖全部训练行。因此在 `extrapolation="error"` 下，`fit`
+可能成功，而 `fit_transform` 会在随后变换越界训练行时抛出错误。
 
 ## 参数（Parameters）
 

@@ -1963,10 +1963,13 @@ class CoxPHCV(CVEstimatorBase):
         ----------
         X : array-like of shape (n_samples, n_features)
             Covariate matrix.
-        time : array-like of shape (n_samples,)
-            Time to event or censoring.
-        event : array-like of shape (n_samples,)
-            Event indicator (1 = event, 0 = censored).
+        time : array-like of shape (n_samples,), (n_samples, 2), or (n_samples, 3)
+            Time to event/censoring, or a packed target when event is None:
+            two columns [time, event] or three [start, stop, event]. A
+            three-column target cannot be combined with separate entry/start.
+        event : array-like of shape (n_samples,), optional
+            Event indicator (1 = event, 0 = censored). Omit only when time
+            contains one of the supported packed target formats.
         entry : array-like, optional
             Entry time for delayed entry.
         cluster : array-like, optional

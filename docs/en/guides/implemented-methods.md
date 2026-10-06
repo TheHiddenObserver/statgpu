@@ -1,6 +1,6 @@
 # Implemented Methods
 
-> Last updated: 2026-10-05  
+> Last updated: 2026-10-06  
 > Switch: [Chinese](../../cn/guides/implemented-methods.md)
 
 This page is the public inventory of models, functions, and major solver families available in statgpu. Detailed mathematics, inference scope, and compatibility rules live on the linked model and guide pages.
@@ -41,17 +41,22 @@ Solver availability depends on the selected loss and penalty. Consult the [Loss 
 
 ### Example
 
+<!-- api-example: inventory-poisson -->
 ```python
+import numpy as np
 from statgpu.linear_model import PenalizedGeneralizedLinearModel
 
+rng = np.random.default_rng(42)
+X = rng.normal(size=(80, 2))
+y = rng.poisson(np.exp(0.3 + X @ np.array([0.5, -0.2])))
 model = PenalizedGeneralizedLinearModel(
-    loss="poisson",
-    penalty="l1",
-    alpha=0.05,
-    solver="fista",
-)
-model.fit(X, y)
+    loss="poisson", penalty="l1", alpha=0.05, solver="fista",
+    device="cpu", compute_inference=False, max_iter=2000, tol=1e-8,
+).fit(X, y)
+print(np.round(model.predict(X[:3]), 6))
 ```
+
+The fitted values are expected event counts, about `[1.458758, 1.547328, 0.775672]`. This L1-Poisson example is estimation-only; coefficient inference for non-Gaussian L1/ElasticNet fits is not implemented. Choose the penalty by a separate validation procedure for real data.
 
 ## Cross-Validation
 

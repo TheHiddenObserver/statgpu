@@ -1,7 +1,7 @@
 # UMAP
 
 > 语言：中文
-> 最后更新：2026-10-05
+> 最后更新：2026-10-06
 > 切换：[English](../../en/unsupervised/umap.md)
 > 路径：`statgpu.unsupervised.UMAP`
 
@@ -33,6 +33,21 @@ $$
 ## 估计方程
 
 默认用稠密、精确的搜索选出 `n_neighbors` 个近邻（`nn_method='auto'` 解析为 `exact`）；也可以显式请求内置的 NNDescent。随后构造对称的模糊隶属度图，并执行吸引力及抽样排斥力更新。当前更新不是上式标准交叉熵的精确梯度，因此不能把本实现视为与 umap-learn 数值等价。
+
+### 图权重
+
+设选中近邻的有序距离为 $d_{i1},\ldots,d_{ik}$，当前实现采用
+
+$$
+\rho_i=d_{i1},\qquad
+\sigma_i=\max\left(\frac{1}{k}\sum_{j=1}^{k}\max(d_{ij}-\rho_i,0),10^{-12}\right),
+\qquad
+v_{ij}=\exp\left(-\frac{\max(d_{ij}-\rho_i,0)}{\sigma_i}\right).
+$$
+
+未选中的有向边权重为零。对称图采用模糊并集 $w_{ij}=v_{ij}+v_{ji}-v_{ij}v_{ji}$，并删除自环。如果近邻中存在重复观测，$\rho_i$ 可以为零。
+
+这里按近邻距离超出 $\rho_i$ 的平均量确定带宽，并未像 umap-learn 的 `smooth_knn_dist` 那样求解局部隶属度总和的校准条件。因此，即使近邻相同，优化开始前的图权重也可能不同。`min_dist` 和 `spread` 控制低维吸引曲线，不参与这个高维图计算；调节它们不能修复不可靠的近邻图。
 
 ## 参数
 
@@ -94,3 +109,5 @@ print(embedding.shape, model.n_epochs_)
 ## 参考文献
 
 - McInnes, L., Healy, J., & Melville, J. (2018). UMAP: Uniform Manifold Approximation and Projection for Dimension Reduction. *arXiv:1802.03426*.
+
+- umap-learn 开发者。[`smooth_knn_dist` 源码参考](https://umap-learn.readthedocs.io/en/latest/_modules/umap/umap_.html#smooth_knn_dist)。

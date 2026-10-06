@@ -128,6 +128,8 @@ sg.set_device("torch")
 统计推断通常更适合使用 `float64`：
 
 ```python
+import torch
+
 X = torch.randn(2000, 50, device="cuda", dtype=torch.float64)
 ```
 

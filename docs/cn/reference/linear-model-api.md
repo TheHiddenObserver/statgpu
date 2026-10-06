@@ -1,7 +1,7 @@
 # 线性模型 API 参考
 
 > 语言：中文  
-> 最后更新：2026-10-05  
+> 最后更新：2026-10-06  
 > 切换：[English](../../en/reference/linear-model-api.md)
 
 本页各类可从 `statgpu` 或 `statgpu.linear_model` 导入。`X` 为有限数值 `(n,p)` 矩阵，预测列顺序与训练一致。分析权重为有限非负 `(n,)` 向量，总和须为正。公式删行后的权重对齐见[公式输入](#formula-inputs)。显式 GPU 请求要求对应 CUDA 后端可用，详见[设备与内存](../guides/device-and-memory.md)。
@@ -349,3 +349,128 @@ for cls in (LinearRegression, ElasticNet, Lasso):
     model.fit(formula="y ~ x + C(group)", data=df)
     assert model.predict(df.iloc[:3]).shape == (3,)
 ```
+
+## GeneralizedLinearModel
+
+```text
+GeneralizedLinearModel(family='gaussian', fit_intercept=True, max_iter=100, tol=0.0001, C=1.0, device='auto', n_jobs=None, solver='auto', gpu_memory_cleanup=False, compute_inference=False, cov_type='nonrobust')
+```
+
+| 参数 | 默认值 | 含义与限制 |
+|---|---|---|
+| `family` | `'gaussian'` | 支持 gaussian、binomial、poisson、gamma、inverse_gaussian、negative_binomial、tweedie；特定链接或离散度参数由相应专用模型提供。 |
+| `fit_intercept` | `True` | 拟合不受惩罚的截距；公式语法优先。 |
+| `max_iter` | `100` | 求解器迭代预算。 |
+| `tol` | `0.0001` | 数值收敛容差。 |
+| `C` | `1.0` | 普通 IRLS 在 C>0 时加入 ||beta||²/(4C)；C=0 取消惩罚。显式 newton/lbfgs/fista 不使用 C。 |
+| `device` | `'auto'` | cpu、cuda（CuPy）、torch（Torch CUDA）或 auto；显式 GPU 请求要求对应 CUDA 后端可用。 |
+| `n_jobs` | `None` | 共享 CPU 工作线程设置，不保证拟合并行执行。 |
+| `solver` | `'auto'` | auto、irls、fista、newton、lbfgs；普通 auto 选择 IRLS，更换求解器可能改变 C 对应的惩罚目标。 |
+| `gpu_memory_cleanup` | `False` | 尽力清理 GPU 内存池。 |
+| `compute_inference` | `False` | 启用受支持的 M-估计系数推断。 |
+| `cov_type` | `'nonrobust'` | 普通 GLM 推断支持 nonrobust、hc0、hc1；构造器没有 hac_maxlags 参数。 |
+
+
+`fit(X=None,y=None,sample_weight=None,formula=None,data=None)` 返回 self。X 为有限数值矩阵 `(n,p)`，y 为标量响应 `(n,)`；单列响应会被展平。数组与 formula/data 应二选一：目前同时传入时，公式会直接覆盖数组而不报冲突。Gaussian 默认 identity 链接，binomial 默认 logit，其余上述分布族默认 log 链接。Binomial 要求 0/1 标签，Poisson/负二项响应须非负，Gamma/逆高斯响应须严格为正；Tweedie 默认 power=1.5，允许零值。特定分布族和链接还可能有其他限制。
+
+| 方法/结果 | 约定 |
+|---|---|
+| `predict(X)` | 返回 `(m,)` 响应均值，设备在预测时解析。Binomial 返回概率，不是类别标签或两列矩阵。公式模式下的 DataFrame 会重建训练设计。 |
+| `summary()` | 返回字符串，不主动打印；使用 `print(model.summary())`。未开启推断时仍报告系数与诊断，未拟合时返回提示字符串。 |
+| `family_to_loss()` | 返回内部损失名，例如 gaussian → squared_error、binomial → logistic。 |
+| `coef_`、`intercept_`、`n_iter_` | NumPy 斜率 `(p,)`、标量截距与迭代次数；迭代次数本身不能证明收敛。 |
+| `_bse`、`_zvalues`、`_pvalues`、`_conf_int` | 推断成功后为 `(k,)` 与 `(k,2)`；有截距时排在首位，k=p+1，否则 k=p。 |
+| `loglikelihood`、`llf`、`aic`、`bic` | 省略了与参数无关常数的伪似然诊断；加权 loglikelihood 为逐行损失加权平均的 −n 倍。不要跨软件直接比较绝对值，也不要混用响应、观测行或权重不一致的结果。 |
+
+普通 GLM 对受支持的分布族统一使用正态（z）系数推断，包括 Gaussian。它不同于 nonrobust `LinearRegression` 和共享平方误差 L2/Ridge 的 Student-t 路径。可以检查 `model._inference_result.distribution`；`_zvalues` 对应这里的正态参考计算。
+
+这个通用普通模型没有 `score` 或 `predict_proba` 方法。`get_params(deep=True)`、`set_params(**params)`、`adjust_pvalues`、`combine_pvalues`、`bootstrap_statistic`、`permutation_test` 遵循[共享 API](estimator-api.md)；其中重采样辅助方法不会自动重拟合 GLM。
+
+<a id="failed-ordinary-glm-refits"></a>
+
+### 普通 GLM 重拟合失败后的限制
+
+当前 auto/IRLS/FISTA 重拟合报错后，对象可能仍标记为已拟合，却混用旧系数和新的观测数、公式或截距设置。因此，即使新拟合已经报错，预测以及似然/AIC/BIC 仍可能发生变化。不要继续使用该对象的输出；应新建估计器并完成一次成功拟合。共享普通 GLM 实现的专用模型也有此限制。显式 newton/lbfgs 目前会在失败后恢复原拟合状态，但恢复旧状态并不代表新数据拟合成功。
+
+
+## PenalizedGeneralizedLinearModel
+
+```text
+PenalizedGeneralizedLinearModel(loss='squared_error', penalty='l1', alpha=1.0, l1_ratio=0.5, penalty_kwargs=None, fit_intercept=True, max_iter=1000, tol=0.0001, device='auto', n_jobs=None, cpu_solver='fista', solver='auto', lipschitz_L=None, gpu_memory_cleanup=False, compute_inference=False, inference_method='auto', cov_type='nonrobust', hac_maxlags=None, stopping='coef_delta', lla=True, max_lla_iters=50, lla_tol=1e-06, loss_kwargs=None, *, nodewise_alpha=None)
+```
+
+| 参数 | 默认值 | 含义与限制 |
+|---|---|---|
+| `loss` | `'squared_error'` | GLM 损失名，如 squared_error、logistic、poisson、gamma、inverse_gaussian、negative_binomial、tweedie；其他损失族需遵循各自兼容性限制。 |
+| `penalty` | `'l1'` | none、l1、l2、elasticnet、scad、mcp、adaptive_l1、受支持的分组惩罚，或 Penalty 对象。 |
+| `alpha` | `1.0` | 平均损失尺度上的惩罚强度；传入 Penalty 对象时使用该对象自身配置。 |
+| `l1_ratio` | `0.5` | elasticnet 中 L1 部分的比例。 |
+| `penalty_kwargs` | `None` | 惩罚项的其他构造参数，如分组或形状设置。 |
+| `fit_intercept` | `True` | 不受惩罚的截距；公式语法优先。 |
+| `max_iter` | `1000` | 单次求解的迭代预算。 |
+| `tol` | `0.0001` | 数值容差。 |
+| `device` | `'auto'` | cpu、cuda、torch、auto；详见设备指南。 |
+| `n_jobs` | `None` | 支持时使用的共享 CPU 工作线程设置。 |
+| `cpu_solver` | `'fista'` | 已弃用的兼容参数；改用 solver，详见求解器迁移指南。 |
+| `solver` | `'auto'` | 与后端无关的求解器请求；可用值取决于损失与惩罚组合。 |
+| `lipschitz_L` | `None` | 兼容近端路径的可选 Lipschitz 上界。 |
+| `gpu_memory_cleanup` | `False` | 尽力清理 GPU 内存池。 |
+| `compute_inference` | `False` | 为 True 时执行受支持的拟合后推断。 |
+| `inference_method` | `'auto'` | 按损失与惩罚解析受支持的方法，详见推断矩阵。 |
+| `cov_type` | `'nonrobust'` | 协方差选择取决于推断方法；非高斯光滑路径支持 nonrobust/hc0/hc1。 |
+| `hac_maxlags` | `None` | 仅在支持 HAC 的路径中控制最大滞后阶数。 |
+| `stopping` | `'coef_delta'` | 停止条件请求；当前直接稀疏高斯拟合忽略 kkt 选项。 |
+| `lla` | `True` | 为受支持的非凸惩罚启用局部线性近似。 |
+| `max_lla_iters` | `50` | LLA 外层最大迭代次数。 |
+| `lla_tol` | `1e-06` | LLA 外层收敛容差。 |
+| `loss_kwargs` | `None` | 损失特定参数，如 link、负二项离散度 alpha 或 Tweedie power。 |
+| `nodewise_alpha` | `None` | 仅限关键字；控制受支持的去偏精度估计，不是拟合惩罚强度。 |
+
+
+`fit(X=None,y=None,sample_weight=None,formula=None,data=None)` 返回 self；标量响应形状及公式使用规则与上面的普通 GLM 相同。通用构造器没有 `initial_coef`、`n_bootstrap` 或 `bootstrap_random_state` 参数，不应照搬专用封装的控制参数。
+
+`predict(X,return_cpu=True)` 返回 `(m,)`；默认返回 NumPy，False 则保留拟合时的原生后端。平方误差返回线性预测，其他 GLM 返回响应均值，但 logistic 返回 0/1 标签（仅当概率严格大于 0.5 时为 1）。此通用类没有 `predict_proba` 或 `summary`；需要这些附加方法时，应选用适当的专用封装。`score(X,y,sample_weight=None)` 返回响应尺度 R²，logistic 也对预测标签计算 R²，不是准确率或偏差伪 R²。y 应为一维；评估权重须有限、非负且总和为正，当前共享评分路径未完整检查这些条件。
+
+拟合后的 `coef_` `(p,)` 和标量 `intercept_` 用于预测。受支持的推断结果应从 `_inference_result` 及对应数组读取，不要把预测斜率直接视为纠偏或重拟合后的推断参数。`_inference_result.to_dict()` 返回报告字典；`to_dataframe()` 需要 pandas。[推断指南](../guides/penalized-glm-inference.md) 说明各方法、推断目标及限制。上文列出的六个共享配置、p 值和重采样方法同样适用。
+
+
+## PenalizedGLM_CV
+
+```text
+PenalizedGLM_CV(loss='squared_error', penalty='l2', alpha_grid=None, n_alphas=100, l1_ratio=0.5, cv=5, cv_splits=None, random_state=0, device='auto', max_iter=1000, tol=0.0001, solver='auto', cv_strategy='strict', acknowledge_approx=False, refine_top_k=3, loss_kwargs=None, penalty_kwargs=None, *, compute_inference=False, inference_method='auto', cov_type='nonrobust', hac_maxlags=None)
+```
+
+| 参数 | 默认值 | 含义与限制 |
+|---|---|---|
+| `loss` | `'squared_error'` | 标量响应损失；cox_ph 使用独立的生存分析接口。 |
+| `penalty` | `'l2'` | 受支持的可调惩罚；none 无需调参，因此会被拒绝。 |
+| `alpha_grid` | `None` | 显式有限候选网格；常规可调惩罚要求正值。省略时按损失与惩罚生成。 |
+| `n_alphas` | `100` | 自动网格的目标候选数。 |
+| `l1_ratio` | `0.5` | 固定的 Elastic Net 混合比例，此类不搜索比例序列。 |
+| `cv` | `5` | 自动生成的随机打乱 K 折数量。 |
+| `cv_splits` | `None` | 显式、互不重叠、非空的整数训练/验证行索引；一次性迭代器会被保存为可重复使用的划分。 |
+| `random_state` | `0` | 自动生成划分的随机种子。 |
+| `device` | `'auto'` | 显式 cpu/cuda/torch，或按任务规模自动选择；查看 cv_selected_device_。 |
+| `max_iter` | `1000` | 严格折内拟合及最终重拟合的迭代预算。 |
+| `tol` | `0.0001` | 严格折内拟合及最终重拟合的容差。 |
+| `solver` | `'auto'` | 兼容的求解器请求；开启推断不会更换调参网格。 |
+| `cv_strategy` | `'strict'` | strict 或 two_stage；后者先近似筛选，再严格细化。 |
+| `acknowledge_approx` | `False` | 确认接受两阶段近似并关闭对应警告。 |
+| `refine_top_k` | `3` | 严格细化的优先候选数量；必要时会扩大细化范围。 |
+| `loss_kwargs` | `None` | 传入拟合及验证损失的分布族/链接设置。 |
+| `penalty_kwargs` | `None` | 惩罚项专用设置。 |
+| `compute_inference` | `False` | 仅限关键字；对最终重拟合执行受支持的推断，不对各折执行。 |
+| `inference_method` | `'auto'` | 仅限关键字；最终重拟合的推断方法请求。 |
+| `cov_type` | `'nonrobust'` | 仅限关键字；最终重拟合的协方差选择。 |
+| `hac_maxlags` | `None` | 仅限关键字；仅在最终推断方法支持 HAC 时适用。 |
+
+
+标量 alpha 网格中的非法值或非正值会被过滤并发出警告；若没有候选值剩下，则警告后自动生成网格。应自行检查搜索范围，不要依赖这一替代行为。
+
+此通用交叉验证类与 ElasticNetCV、LogisticRegressionCV 不同。`fit(X,y,sample_weight=None)` 返回 self，没有公式接口。标量响应 CV 始终拟合截距，此处不提供公开的 `fit_intercept` 选项；若要无截距拟合，应对合适的直接估计器自行建立交叉验证循环。`cox_ph` 分支则遵循[生存分析目标与无截距约定](../models/coxph.md)。
+
+`predict(X)` 与 `score(X,y,sample_weight=None)` 委托给 `estimator_`；标量响应评分是 R²，logistic 也对预测标签计算。`alpha_` 按最小平均验证损失选择，`best_score_` 是该损失的负值，不是 score 返回的留出集 R²。最终推断以所选 alpha 为条件，不校正调参不确定性。
+
+设候选数为 a、折数为 f：`alpha_grid_` 与 `cv_results_["alpha"]` 为 `(a,)`，`mean_score` 为 `(a,)`，`all_scores` 为 `(f,a)`。这些 score 数组存储损失，越小越好。其他键为 `device_sizing_fold_count`、`cv_strategy_`、`cv_selected_device_`、`mean_score_stage1`、`all_scores_stage1`、`refined_mask`。严格模式的第一阶段数组为 None；布尔细化掩码为 `(a,)`。`coef_`、`intercept_` 与 `estimator_` 对应最终全数据拟合。`cv_strategy_` 和 `cv_selected_device_` 也作为属性提供。
+
+当前 `summary(*args,**kwargs)` 在通用最终重拟合推断成功后仍会抛出 AttributeError，因为它委托的估计器没有 summary 方法；未启用推断时则抛出 RuntimeError。可用 `estimator_._inference_result.to_dict()`，或安装 pandas 后用 `to_dataframe()` 读取受支持的推断。报告渲染失败本身不会改变拟合系数。可运行的结果示例见 [GLM 页面](../models/generalized-linear-model.md#reading-cv-inference-results)。共享配置、p 值及重采样方法同样适用；`get_params` 会将一次性自定义划分保存为可复用形式。

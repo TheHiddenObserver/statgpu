@@ -667,6 +667,7 @@ class KernelRegression(BaseEstimator):
         batch_size: Optional[int] = None,
         min_effective_weight: Optional[float] = None,
     ):
+        """Alias for predict with the same query shapes and per-call overrides."""
         return self.predict(
             points,
             batch_size=batch_size,

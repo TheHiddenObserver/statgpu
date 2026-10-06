@@ -1,7 +1,7 @@
 # 生存分析与平滑方法 API 参考
 
 > 语言：中文  
-> 最后更新：2026-10-05  
+> 最后更新：2026-10-06  
 > 切换：[English](../../en/reference/survival-smoothing-api.md)
 
 本页用于在阅读 [CoxPH](../models/coxph.md)、[GAM](../models/semiparametric.md) 或[非参数方法](../models/nonparametric.md)示例后查找具体调用。签名列出公开参数与默认值；`*` 后的参数须按名称传入。形状记号：`n` 为训练行数，`p` 为特征数，`q` 为查询行数，`r` 为目标列数。预测等方法需要先成功拟合。通用[参数管理](estimator-api.md#parameter-management)和[推断辅助方法](estimator-api.md#inference-helpers)另有说明；通用重采样工具不会自动提供适合生存模型的推断或 GAM 置信带。
@@ -44,6 +44,12 @@ CoxPHCV.fit(X, time, event=None, entry=None, cluster=None, *, start=None, strata
 - CV `penalties` 是非空、有限、非负向量；为 `None` 时由 `n_penalties` 和 `penalty_min_ratio` 控制自动网格，特征量纲应具有可比性。`cv_splits` 用非空、不相交的整数训练/验证索引对覆盖自动划分。提供 `subject_id` 时会拒绝受试者泄漏。`random_state` 控制自动划分。
 - 选择目标是相同有效折上的平均未惩罚留出偏对数似然；各折贡献其偏对数似然总和，不除以行数或事件数，也不是 C-index。候选项须在每个有效折上得到有限分数并收敛；没有合格候选项时会报错。选定惩罚后在全部输入训练数据上重拟合；推断仅在最终重拟合进行，不校正调参不确定性。自定义网格中，数值上近似并列时优先较强惩罚，因此 `best_score_` 可能略小于候选平均分数的最大值。
 - 自定义 `penalties` 拒绝布尔、字符串/字节和复数元素。候选按惩罚从强到弱评价，但 `penalties_` 及候选轴结果保留输入顺序。一次性 `cv_splits` 迭代器在首次拟合、`get_params`、克隆或序列化时被读取一次，之后复用；`get_params` 返回可重复使用的等价序列。不要另外消耗该迭代器。
+
+`statgpu.survival` 还导出 `CoxFitNumericalError`，它是 `FloatingPointError`
+的子类。输入有限、但公开系数、偏对数似然或系数风险比无法表示时，拟合会抛出
+此异常。CV 可以排除这类数值候选；输入、编程、内存分配与后端故障仍保留各自的
+异常，不能用宽泛的异常捕获将它们掩盖。参见[拟合失败语义](../models/coxph.md#输出)。
+返回一个未收敛的拟合属于另一种情况：解释结果前应检查 `converged_` 和停止诊断。
 
 ### 预测、评分与摘要
 
@@ -201,6 +207,7 @@ GAM.summary()
 - 多特征 Torch GAM 预测请显式使用 `(q,p)`，单个点为 `(1,p)`；当前一维向量的形状检查会抛出 `TypeError`。
 - `summary`：打印并返回字典，含 `n_features`、`n_splines_per_feature`、`spline_degree`、`penalty_order`、`smoothing_parameter`、`effective_df`、`intercept`，仅自动选择时另有 `gcv_score`。
 - 拟合属性：后端 `coef_`，长度为 `1+sum(n_basis_j)`；逐特征后端节点数组 `knots_`；标量 `intercept_`、`edf_`、`lam_`；自动选择时 `gcv_score_` 为浮点数，固定 lambda 时为 `None`；`n_features_` 为整数。系数对应中心化的基函数，不是原始特征斜率。
+- 较大的有限 lambda 会使随矩阵迹缩放的稳定项收缩本不应受罚的截距及其他惩罚零空间方向。请检查训练均值是否保持，并验证原目标；有限 GCV 或预测不足以证明正确。详见[大 lambda 限制](../models/semiparametric.md#large-smoothing-penalties-and-the-intercept)。
 - `lam=None` 搜索内置 100 点网格；没有 GAM 自定义网格或专用 CV 估计器接口。其他设置可用外部验证选择。没有专用 `score`、样本加权目标、family/link、系数推断或置信带方法；继承的通用工具不会自动补齐这些能力。
 - `set_params` 后始终重新拟合。部分 GAM 改参当前保留旧拟合数组，未重拟合便预测可能使用不一致状态。改变基函数设计时，创建新 GAM 实例最稳妥。重拟合若在构造基函数时失败，还可能把旧系数与新节点或特征数混在一起；此时应丢弃该实例，在新实例上成功拟合后再预测或解释 `summary()`。
 
@@ -437,6 +444,11 @@ BandwidthSelectionResult.to_dict()
 | `estimator`、`targets`、`regression`、`kernel` | 默认 `"kde"`；回归 CV 选择使用 `"kernel_regression"` 和匹配目标。`regression` 为 `"nw"` 或 `"local_linear"`，`kernel` 选择回归核；默认值见签名。 |
 
 `select_bandwidth` 返回 `BandwidthSelectionResult`；`select_bandwidth_factor` 返回其中的标量 `factor`。结果字段为 `factor`、`method`、`n_features`、`n_eff`、`used_r_selector`、`weighted`、`weighted_strategy`、`multivariate_strategy`、`selector_dimension`、`details`；`to_dict()` 返回相同名称。`details` 随方法变化，不应假定所有选择器都有相同键。`used_r_selector=True` 表示使用 `ucv`、`bcv` 或 `sj` 系列方法；`nrd`/`nrd0` 对应 `False`，该字段不代表调用了外部 R 进程；部分常数/稀疏样本会使选择失败。
+
+`weighted` 表示归一化权重的极差是否超过 `1e-12`。
+`weighted_strategy` 记录 `"uniform"` 或配置的非均匀权重策略；Scott/Silverman
+及数值因子路径即使没有重采样，也可能记录 `"quantile_resample"`。应结合
+`method`、`used_r_selector` 和 `details` 解释，不能单凭这个字段判断执行过哪种操作。
 
 <!-- example: bandwidth-selector-reference-cpu -->
 ```python

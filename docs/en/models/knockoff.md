@@ -271,7 +271,7 @@ An empty `selected_features` array is a valid outcome. `estimated_fdr` is the th
 
 - Why do I get an error for fixed-X? Check constraints (finite `q` in `(0,1)`, `X` is 2D, `Xk` shape matches `X`, and fixed-X rank/sample requirements are met). Validate q yourself: NaN currently produces an invalid empty selection instead of an error.
 - When should I use model-X? Use it when a credible feature-distribution construction is available, including settings where fixed-X is infeasible. Its feature assumptions differ from fixed-X response assumptions; choosing it alone does not validate an estimated feature model.
-- Is CuPy required for GPU? Yes, `backend="cupy"` requires CuPy in the environment.
+- Is CuPy required for GPU? `backend="cupy"` requires CuPy. Alternatively, `backend="torch"` accepts Torch CUDA tensors for GPU execution; install the matching backend and supply arrays on the intended device.
 
 ## External Validation
 

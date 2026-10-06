@@ -481,6 +481,7 @@ class KernelDensityEstimator(BaseEstimator):
         return result
 
     def __call__(self, points, *, batch_size: int = 1024):
+        """Alias for pdf(points, batch_size=batch_size), returning density."""
         return self.pdf(points, batch_size=batch_size)
 
     def to_numpy_metadata(self):
@@ -602,7 +603,33 @@ def kde_pdf(
 
 @dataclass
 class KDEBootstrapResult:
-    """NumPy results for pointwise normal or bootstrap KDE intervals."""
+    """NumPy results for pointwise normal or bootstrap KDE intervals.
+
+    Attributes
+    ----------
+    points : numpy.ndarray, shape (n_query,) or (n_query,n_features)
+        Evaluation points; a one-feature result uses a vector.
+    estimate, lower, upper : numpy.ndarray, shape (n_query,)
+        Original density estimate and pointwise confidence bounds. These are
+        density units, not probabilities or simultaneous confidence bands.
+    confidence_level : float
+        Requested marginal confidence level.
+    n_resamples : int
+        Actual bootstrap count, or 0 for a normal-method interval.
+    random_state : int or None
+        Supplied bootstrap seed; unused by the normal method.
+    kernel : str
+        Resolved KDE kernel name.
+    backend : str
+        Fitted array-library label, not result-array placement; all result
+        arrays are NumPy even when the fit used a GPU library.
+    metadata : dict
+        Method, bandwidth, batch size and feature count, with method-specific
+        diagnostics such as normal-method n_eff or bootstrap_method.
+    bootstrap_samples : numpy.ndarray or None, default=None
+        Shape (n_resamples,n_query) when requested for bootstrap. Always None
+        for normal intervals, even if return_bootstrap_samples=True.
+    """
 
     points: np.ndarray
     estimate: np.ndarray
@@ -617,6 +644,10 @@ class KDEBootstrapResult:
     bootstrap_samples: Optional[np.ndarray] = None
 
     def to_dict(self) -> Dict[str, Any]:
+        """Convert result arrays to lists; omit absent bootstrap_samples.
+
+        Other result fields are retained, including the metadata dictionary.
+        """
         payload = {
             "points": np.asarray(self.points).tolist(),
             "estimate": np.asarray(self.estimate).tolist(),

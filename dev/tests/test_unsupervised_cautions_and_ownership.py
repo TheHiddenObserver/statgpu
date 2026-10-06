@@ -16,6 +16,10 @@ from statgpu.unsupervised._utils import squared_euclidean_distances
 ROOT = Path(__file__).resolve().parents[2]
 
 
+class _MissingUMAPNeighbors(Exception):
+    """The finite diagonal mask removed required distinct-neighbor edges."""
+
+
 def _data():
     return np.random.default_rng(31).normal(size=(20, 3))
 
@@ -178,7 +182,7 @@ def _fit_small_exact_umap(data):
 
 @pytest.mark.xfail(
     strict=True,
-    raises=AssertionError,
+    raises=_MissingUMAPNeighbors,
     reason="UMAP's finite diagonal mask admits self-neighbors at large distances",
 )
 def test_exact_umap_keeps_all_distinct_neighbors_at_large_scale():
@@ -188,7 +192,10 @@ def test_exact_umap_keeps_all_distinct_neighbors_at_large_scale():
     model = _fit_small_exact_umap(_centered_wide_umap_data())
     graph = _dense_graph(model)
     assert np.isfinite(model.embedding_).all()
-    assert np.count_nonzero(graph) == 4 * 3
+    neighbor_count = np.count_nonzero(graph)
+    if neighbor_count < 4 * 3:
+        raise _MissingUMAPNeighbors(f"Expected all 12 distinct-neighbor edges, observed {neighbor_count}")
+    assert neighbor_count == 4 * 3
 
 
 def test_common_training_scale_preserves_umap_distinct_neighbor_graph():

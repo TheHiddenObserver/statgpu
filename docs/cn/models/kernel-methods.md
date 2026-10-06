@@ -1,7 +1,7 @@
 # 核方法
 
 > 语言：中文  
-> 最后更新：2026-10-05  
+> 最后更新：2026-10-06  
 > 切换：[English](../../en/models/kernel-methods.md)
 
 ## 先按分析问题选择工具
@@ -78,7 +78,7 @@ relative_kernel_error = approximation_error / np.linalg.norm(K_test)
 print("Held-out relative kernel approximation error:", relative_kernel_error)
 ```
 
-R 方以留出响应的均值预测为比较基准：1 表示完全准确，0 表示与该常数预测相当，
+R²（决定系数）以留出响应的均值预测为比较基准：1 表示完全准确，0 表示与该常数预测相当，
 负值则更差。MSE 是预测误差平方的均值，单位是响应单位的平方，越低越好。
 `best_score_` 汇总训练数据上的交叉验证折，不是留出集结果。这里展示两种拟合的
 留出集得分是为了说明评估方法，不应用这些测试行继续调参。
@@ -121,7 +121,7 @@ $$
 重新拟合。后端特定实现可能复用核矩阵特征分解，或向量化全部 alpha，而不是为每个
 候选值独立求解线性系统。
 
-选择标准是验证 MSE，对各折和各响应列等权平均。`alpha_` 是选中的值；`best_score_` 是该值对应的平均折内 R 方，不是用于选择的 MSE。`cv_results_` 包含 `alphas`、`mean_mse`、`mse_table`、`mean_r2`、`r2_table`、`best_alpha` 和 `best_score`。表格数组形状为 `(n_alphas, n_folds, n_targets)`，均值数组为 `(n_alphas, n_targets)`。
+选择标准是验证 MSE，对各折和各响应列等权平均。`alpha_` 是选中的值；`best_score_` 是该值对应的平均折内 R²，不是用于选择的 MSE。`cv_results_` 包含 `alphas`、`mean_mse`、`mse_table`、`mean_r2`、`r2_table`、`best_alpha` 和 `best_score`。表格数组形状为 `(n_alphas, n_folds, n_targets)`，均值数组为 `(n_alphas, n_targets)`。
 
 训练折核矩阵奇异时，显式的零 alpha 可能产生非有限 CV 得分，却仍被选中。请使用严格为正的候选值，并在解释选择结果前检查 `mean_mse` 和 `best_score_` 是否有限。返回估计器不代表搜索有效。自动网格使用正值。
 
@@ -207,7 +207,7 @@ Nystroem(kernel='rbf', n_components=100, gamma=None, degree=3, coef0=1, random_s
 | KernelRidgeCV | `fit(X, y)`、`predict(X)`、`score(X, y)` | 响应与预测形状同上；`fit` 返回 `self`。没有样本权重参数。预测和评分委托给 `estimator_`。 |
 | KernelPCA、Nystroem | `fit(X, y=None)`、`transform(X)`、`fit_transform(X, y=None)`、`predict(X)` | `fit` 返回 `self`；不使用 `y`。其他方法返回特征数组（Torch 设备例外见下文）：KernelPCA 为 `(q,k)`，Nystroem 为 `(q,m)`；`predict` 是变换别名，不预测响应。 |
 
-岭回归 `score` 返回 Python 浮点数：先按响应列计算 R 方，再等权平均。常数响应在预测近乎完全一致时取 1，否则取 0。KernelPCA/Nystroem 没有模型专属的 `score` 或逆变换方法。四个类还提供 `get_params(deep=True)`、`set_params(**params)` 及[共享推断工具](../reference/estimator-api.md)。修改参数后必须重拟合；KernelPCA/Nystroem 可能一直保留旧拟合数组到下次拟合，不能依赖自动失效处理。这些工具不会自动提供核系数推断。
+岭回归 `score` 返回 Python 浮点数：先按响应列计算 R²，再等权平均。常数响应在预测近乎完全一致时取 1，否则取 0。KernelPCA/Nystroem 没有模型专属的 `score` 或逆变换方法。四个类还提供 `get_params(deep=True)`、`set_params(**params)` 及[共享推断工具](../reference/estimator-api.md)。修改参数后必须重拟合；KernelPCA/Nystroem 可能一直保留旧拟合数组到下次拟合，不能依赖自动失效处理。这些工具不会自动提供核系数推断。
 
 ### 拟合属性与输出
 
@@ -311,6 +311,24 @@ Torch CUDA 不可用时，KernelPCA 与 Nystroem 仍会拒绝 `device="torch"`�
 - GPU 收益依赖样本量、dtype、核、同步和可用显存；小问题可能 CPU 更快。
 
 ## 限制与失败行为
+
+### 检查核拟合结果是否有限
+
+即使训练数据都是有限值，多项式核的计算仍可能溢出。当前 `KernelRidge` 和
+`Nystroem` 可能正常返回拟合对象，但学习到的数组以及预测或特征均包含 NaN；
+NaN `gamma` 等无效核参数也可能产生这种结果。线性代数警告或没有抛出异常，都
+不能可靠证明拟合成功。
+
+应使用有限且适用于所选核的参数，并在使用前检查学习数组和查询输出。
+对于 NumPy CPU 拟合，KernelRidge 检查 `np.isfinite(model.dual_coef_).all()`；
+Nystroem 检查 `np.isfinite(model.normalization_).all()` 和
+`np.isfinite(model.eigenvalues_).all()`。预测或变换特征也要检查；设备数组使用
+对应后端的有限值检查。出现非有限结果时，应丢弃该拟合，检查特征单位、尺度与
+核参数，然后用新实例重新拟合。核已经溢出时，增大 `alpha` 无法修复问题。
+缩放会改变多项式相似度，因此预处理的选择和验证应在训练折内完成。数值有限只是
+必要条件，不能单独证明模型条件良好或适合分析目的。
+
+
 
 RBF 核遇到很大的共同坐标偏移时，请用训练数据确定一个偏移量，并同时从训练和查询特征中减去它。当前平方距离计算可能丢失相近点的差异：`1e9` 附近的坐标可能生成几乎全为 1 的核矩阵，显著改变预测。中心化保持预期的 RBF 核不变，但并非所有核的通用预处理规则，尤其不能直接套用于卡方核。
 

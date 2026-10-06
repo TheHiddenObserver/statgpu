@@ -1,9 +1,13 @@
 """
 Pairwise kernel functions with backend-agnostic (xp) interface.
 
-All functions accept an ``xp`` argument that should be a NumPy-compatible
-array module (numpy, cupy, or torch).  When *xp* is ``None`` the functions
-fall back to ``numpy``.
+Built-in kernels accept an ``xp`` array module (numpy, cupy, or torch),
+with NumPy selected when xp is None. Prepare compatible two-dimensional
+backend arrays before calling; this interface does not generally convert
+nested lists or move arrays between devices. The NumPy chi-squared helper
+also accepts two-dimensional array-like inputs. For a callable metric,
+pairwise_kernels forwards inputs and an accepted xp argument unchanged,
+including xp=None; the callable defines its own conversion/default behavior.
 """
 
 from __future__ import annotations
@@ -28,8 +32,11 @@ def rbf_kernel(X, Y=None, gamma=None, xp=None):
 
     Parameters
     ----------
-    X : array-like of shape (n_samples_X, n_features)
-    Y : array-like of shape (n_samples_Y, n_features), optional
+    X : backend array of shape (n_samples_X, n_features)
+        Compatible two-dimensional array; convert lists before calling,
+        for example with numpy.asarray for xp=numpy.
+    Y : backend array of shape (n_samples_Y, n_features), optional
+        Compatible array with the same feature count; None uses X.
     gamma : float, optional
         Kernel coefficient.  Defaults to ``1 / n_features``.
     xp : module, optional
@@ -141,8 +148,11 @@ def polynomial_kernel(X, Y=None, degree=3, gamma=None, coef0=1, xp=None):
 
     Parameters
     ----------
-    X : array-like of shape (n_samples_X, n_features)
-    Y : array-like of shape (n_samples_Y, n_features), optional
+    X : backend array of shape (n_samples_X, n_features)
+        Compatible two-dimensional array; convert lists before calling,
+        for example with numpy.asarray for xp=numpy.
+    Y : backend array of shape (n_samples_Y, n_features), optional
+        Compatible array with the same feature count; None uses X.
     degree : int, default=3
     gamma : float, optional
         Defaults to ``1 / n_features``.
@@ -171,8 +181,11 @@ def linear_kernel(X, Y=None, xp=None):
 
     Parameters
     ----------
-    X : array-like of shape (n_samples_X, n_features)
-    Y : array-like of shape (n_samples_Y, n_features), optional
+    X : backend array of shape (n_samples_X, n_features)
+        Compatible two-dimensional array; convert lists before calling,
+        for example with numpy.asarray for xp=numpy.
+    Y : backend array of shape (n_samples_Y, n_features), optional
+        Compatible array with the same feature count; None uses X.
     xp : module, optional
 
     Returns
@@ -194,8 +207,11 @@ def laplacian_kernel(X, Y=None, gamma=None, xp=None):
 
     Parameters
     ----------
-    X : array-like of shape (n_samples_X, n_features)
-    Y : array-like of shape (n_samples_Y, n_features), optional
+    X : backend array of shape (n_samples_X, n_features)
+        Compatible two-dimensional array; convert lists before calling,
+        for example with numpy.asarray for xp=numpy.
+    Y : backend array of shape (n_samples_Y, n_features), optional
+        Compatible array with the same feature count; None uses X.
     gamma : float, optional
         Defaults to ``1 / n_features``.
     xp : module, optional
@@ -229,8 +245,11 @@ def sigmoid_kernel(X, Y=None, gamma=None, coef0=1, xp=None):
 
     Parameters
     ----------
-    X : array-like of shape (n_samples_X, n_features)
-    Y : array-like of shape (n_samples_Y, n_features), optional
+    X : backend array of shape (n_samples_X, n_features)
+        Compatible two-dimensional array; convert lists before calling,
+        for example with numpy.asarray for xp=numpy.
+    Y : backend array of shape (n_samples_Y, n_features), optional
+        Compatible array with the same feature count; None uses X.
     gamma : float, optional
         Defaults to ``1 / n_features``.
     coef0 : float, default=1
@@ -254,12 +273,18 @@ def cosine_kernel(X, Y=None, xp=None):
     r"""Cosine similarity kernel.
 
     .. math::
-        K(x, y) = \frac{x^\top y}{\|x\| \, \|y\|}
+        K(x, y) = \frac{x^\top y}{\|x\| \, \|y\| + 10^{-10}}
+
+    The fixed denominator addition makes zero-vector pairs zero and changes
+    exact cosine normalization for tiny-norm inputs.
 
     Parameters
     ----------
-    X : array-like of shape (n_samples_X, n_features)
-    Y : array-like of shape (n_samples_Y, n_features), optional
+    X : backend array of shape (n_samples_X, n_features)
+        Compatible two-dimensional array; convert lists before calling,
+        for example with numpy.asarray for xp=numpy.
+    Y : backend array of shape (n_samples_Y, n_features), optional
+        Compatible array with the same feature count; None uses X.
     xp : module, optional
 
     Returns
@@ -316,9 +341,11 @@ def chi2_kernel(X, Y=None, gamma=1.0, xp=None):
     Parameters
     ----------
     X : array-like of shape (n_samples_X, n_features)
-        Must be non-negative.
+        Must be non-negative. NumPy converts two-dimensional array-like input;
+        CuPy/Torch require compatible two-dimensional backend arrays.
     Y : array-like of shape (n_samples_Y, n_features), optional
-        Must be non-negative.
+        Non-negative comparison data with the same conversion/backend contract;
+        None uses X.
     gamma : float, default=1.0
         Kernel coefficient.
     xp : module, optional
@@ -391,8 +418,14 @@ def pairwise_kernels(X, Y=None, metric="rbf", xp=None, **params):
 
     Parameters
     ----------
-    X : array-like of shape (n_samples_X, n_features)
-    Y : array-like of shape (n_samples_Y, n_features), optional
+    X : 2D backend array, or callable-specific input
+        Built-in kernels require compatible arrays of shape
+        (n_samples_X, n_features); convert lists before calling. The NumPy
+        chi2 path also accepts two-dimensional array-like inputs. A callable
+        receives the original object unchanged and defines its own contract.
+    Y : 2D backend array or None, or callable-specific input
+        Built-in comparison data of shape (n_samples_Y, n_features);
+        None uses X. Callable dispatch forwards Y unchanged, including None.
     metric : str or callable, default='rbf'
         Kernel metric name or a callable returning the complete pairwise
         matrix. A callable receives X and Y unchanged, including Y=None.

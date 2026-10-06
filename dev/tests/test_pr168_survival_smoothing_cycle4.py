@@ -3,6 +3,8 @@
 CPU Torch evidence is explicit. Strict xfails describe unresolved production
 defects rather than endorsing their present behavior as an API contract.
 """
+import linecache
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -19,6 +21,7 @@ from statgpu.nonparametric import (
     kde_confidence_interval,
 )
 from statgpu.nonparametric.kernel_methods import KernelPCA, Nystroem
+from statgpu.nonparametric.kernel_smoothing import _kernel_common, _kernel_regression
 from statgpu.nonparametric.splines import (
     SplineTransformer,
     bspline_basis,
@@ -29,6 +32,39 @@ ROOT = Path(__file__).resolve().parents[2]
 X = np.array([[-1., 0.], [0., 2.], [1., -1.], [2., 1.]])
 Y = np.arange(4.)
 WEIGHTS = np.array([1., 2., 3., 4.])
+
+
+class _TorchSizeMethodError(Exception):
+    """A known helper tries to convert Tensor.size itself into an integer."""
+
+
+class _NaturalConstantMismatch(Exception):
+    """The rescaled natural basis cannot represent the constant function."""
+
+
+class _NaturalCurvatureMismatch(Exception):
+    """Rescaled endpoint curvature violates the natural boundary condition."""
+
+
+@contextmanager
+def _known_torch_size_failure(helper, size_check):
+    try:
+        yield
+    except TypeError as error:
+        traceback = error.__traceback__
+        while traceback.tb_next is not None:
+            traceback = traceback.tb_next
+        # Pin both the message and the precise failing helper/size expression.
+        # Other errors in the public call (including signature errors) propagate.
+        if (
+            str(error) == "int() argument must be a string, a bytes-like object or a real number, "
+            "not 'builtin_function_or_method'"
+            and traceback.tb_frame.f_code is helper.__code__
+            and linecache.getline(traceback.tb_frame.f_code.co_filename, traceback.tb_lineno).strip()
+            == size_check
+        ):
+            raise _TorchSizeMethodError(str(error)) from error
+        raise
 
 
 @pytest.mark.parametrize("language", ["en", "cn"])
@@ -118,27 +154,34 @@ def test_unweighted_torch_normal_and_numpy_bootstrap_remain_distinct():
     assert np.isfinite(bootstrap.lower).all()
 
 
-@pytest.mark.xfail(strict=True, raises=TypeError, reason="Issue #223: Torch Tensor.size is treated as an integer while normalizing weights")
+@pytest.mark.xfail(strict=True, raises=_TorchSizeMethodError, reason="Issue #223: Torch Tensor.size is treated as an integer while normalizing weights")
 @pytest.mark.parametrize("kind", ["kde", "regression"])
 def test_weighted_torch_fit_should_accept_valid_weights(kind):
     pytest.importorskip("torch")
-    if kind == "kde":
-        model = fit_kde(X, weights=WEIGHTS, backend="torch")
-    else:
-        model = fit_kernel_regression(X, Y, weights=WEIGHTS, backend="torch")
+    with _known_torch_size_failure(
+        _kernel_common._normalize_weights, "if int(w.size) != int(n_samples):"
+    ):
+        if kind == "kde":
+            model = fit_kde(X, weights=WEIGHTS, backend="torch")
+        else:
+            model = fit_kernel_regression(X, Y, weights=WEIGHTS, backend="torch")
     assert_allclose(model.weights_.numpy(), WEIGHTS / WEIGHTS.sum())
 
 
-@pytest.mark.xfail(strict=True, raises=TypeError, reason="Issue #223: Torch Tensor.size breaks both scalar and vector absolute bandwidths")
+@pytest.mark.xfail(strict=True, raises=_TorchSizeMethodError, reason="Issue #223: Torch Tensor.size breaks both scalar and vector absolute bandwidths")
 @pytest.mark.parametrize("widths", [.5, [.5, .5]])
 def test_torch_absolute_widths_should_accept_scalar_or_vector(widths):
     pytest.importorskip("torch")
-    model = fit_kernel_regression(X, Y, bandwidth_per_feature=widths,
-                                  kernel_metric="diagonal", backend="torch")
+    with _known_torch_size_failure(
+        _kernel_regression._as_bandwidth_per_feature,
+        "if int(bw.size) == 1 and int(n_features) > 1:",
+    ):
+        model = fit_kernel_regression(X, Y, bandwidth_per_feature=widths,
+                                      kernel_metric="diagonal", backend="torch")
     assert_allclose(model.covariance_.numpy(), .25 * np.eye(2))
 
 
-@pytest.mark.xfail(strict=True, raises=TypeError, reason="Issue #223: Torch multivariate vector shape checks use Tensor.size as an integer")
+@pytest.mark.xfail(strict=True, raises=_TorchSizeMethodError, reason="Issue #223: Torch multivariate vector shape checks use Tensor.size as an integer")
 @pytest.mark.parametrize("kind", ["kde", "regression", "transformer"])
 def test_torch_multivariate_vector_should_match_matrix_query(kind):
     torch = pytest.importorskip("torch")
@@ -148,15 +191,26 @@ def test_torch_multivariate_vector_should_match_matrix_query(kind):
         model = fit_kernel_regression(X, Y, backend="torch")
     else:
         model = SplineTransformer(device="cpu").fit(torch.tensor(X))
-    assert_allclose(model.predict(torch.tensor(X[0])).numpy(),
-                    model.predict(torch.tensor(X[:1])).numpy())
+    # Establish the working control and prepare inputs outside the known failure.
+    expected = model.predict(torch.tensor(X[:1])).numpy()
+    query = torch.tensor(X[0])
+    helper = (SplineTransformer._prepare_X if kind == "transformer"
+              else _kernel_common._as_points_2d)
+    size_check = ("elif int(X_arr.size) == expected_features:" if kind == "transformer"
+                  else "elif int(arr.size) == n_features:")
+    with _known_torch_size_failure(helper, size_check):
+        prediction = model.predict(query)
+    assert_allclose(prediction.numpy(), expected)
 
 
-@pytest.mark.xfail(strict=True, raises=TypeError, reason="Issue #223: Unweighted Torch bootstrap internally supplies weights to a failing size check")
+@pytest.mark.xfail(strict=True, raises=_TorchSizeMethodError, reason="Issue #223: Unweighted Torch bootstrap internally supplies weights to a failing size check")
 def test_torch_bootstrap_should_accept_equal_weight_samples():
     pytest.importorskip("torch")
-    result = kde_bootstrap_confidence_interval(X[:, 0], [0.], backend="torch",
-                                               n_resamples=2, random_state=0)
+    with _known_torch_size_failure(
+        _kernel_common._normalize_weights, "if int(w.size) != int(n_samples):"
+    ):
+        result = kde_bootstrap_confidence_interval(X[:, 0], [0.], backend="torch",
+                                                   n_resamples=2, random_state=0)
     assert result.n_resamples == 2
     assert np.isfinite(result.lower).all()
 
@@ -180,15 +234,20 @@ def test_unit_range_mitigates_but_does_not_exactly_repair_natural_curvature():
     assert np.max(np.abs(spline.derivative(2)([0., 1.]))) < .01
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="Issue #224: Absolute-step natural constraints can exclude constant functions after rescaling")
+@pytest.mark.xfail(strict=True, raises=_NaturalConstantMismatch, reason="Issue #224: Absolute-step natural constraints can exclude constant functions after rescaling")
 def test_natural_basis_should_represent_constants_independent_of_units():
     x, natural, _ = _natural_projection(1e6)
     constant = natural @ np.linalg.lstsq(natural, np.ones(len(x)), rcond=None)[0]
-    assert_allclose(constant, 1., atol=1e-6)
+    assert constant.shape == x.shape
+    if not np.allclose(constant, 1., rtol=1e-7, atol=1e-6):
+        raise _NaturalConstantMismatch('Rescaled natural basis excludes constant functions')
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="Issue #224: Absolute-step natural constraints differentiate a different basis on very small ranges")
+@pytest.mark.xfail(strict=True, raises=_NaturalCurvatureMismatch, reason="Issue #224: Absolute-step natural constraints differentiate a different basis on very small ranges")
 def test_natural_endpoint_curvature_should_remain_small_after_unit_change():
     scale = 1e-8
     _, _, spline = _natural_projection(scale)
-    assert_allclose(spline.derivative(2)([0., scale]) * scale**2, 0., atol=.01)
+    curvature = spline.derivative(2)([0., scale]) * scale**2
+    assert curvature.shape == (2, spline.c.shape[1])
+    if not np.allclose(curvature, 0., rtol=1e-7, atol=.01):
+        raise _NaturalCurvatureMismatch('Rescaled natural endpoint curvature is nonzero')

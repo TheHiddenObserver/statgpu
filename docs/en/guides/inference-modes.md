@@ -1,7 +1,7 @@
 # Inference Modes
 
 > Language: English  
-> Last updated: 2026-10-05  
+> Last updated: 2026-10-06  
 > This page: choosing and interpreting coefficient-inference methods  
 > Switch: [Chinese](../../cn/guides/inference-modes.md)
 
@@ -20,7 +20,8 @@ Detailed implementation, backend kernels, internal result storage, and validatio
 
 | Fitted model / situation | Inference method | Interpretation |
 |---|---|---|
-| Gaussian linear/Ridge model | classical or robust covariance | inference for the fitted linear-model coefficients |
+| `LinearRegression` / shared squared-error L2/Ridge | classical or robust covariance | t reference for nonrobust covariance; normal reference for supported robust covariance |
+| ordinary `GeneralizedLinearModel`, including Gaussian | `m_estimation` | normal/z reference for supported coefficient inference |
 | smooth non-Gaussian L2/no-penalty penalized GLM | `m_estimation` | fixed-penalty estimating-equation inference |
 | Gaussian Lasso/ElasticNet | `debiased` | de-biased/de-sparsified coefficient inference |
 | Gaussian Lasso/ElasticNet | `post_selection_ols` | OLS/WLS diagnostic refit on the selected active set |
@@ -32,7 +33,7 @@ The exact support matrix is documented in [Penalized GLM inference](penalized-gl
 
 ## Gaussian linear-model inference
 
-For ordinary Gaussian linear models and the shared squared-error L2/Ridge path, `cov_type` determines the covariance estimator and reference distribution.
+For `LinearRegression` and the shared penalized squared-error L2/Ridge path, `cov_type` determines the covariance estimator and reference distribution.
 
 Common choices are:
 
@@ -41,6 +42,8 @@ Common choices are:
 - `hac` — Bartlett-kernel HAC covariance with normal reference inference.
 
 The numerical inference follows the fitted model's supported backend. Small reporting arrays may be returned as NumPy after numerical inference is complete; this reporting conversion does not mean that an explicit CUDA/Torch fit was silently re-run on CPU.
+
+Ordinary `GeneralizedLinearModel` uses a different inference path: supported coefficient inference is `m_estimation` with a normal/z reference, **including `family="gaussian"` with `C=0`**. Matching Gaussian coefficients and standard errors therefore need not give the same p-values or intervals as nonrobust `LinearRegression`, especially in small samples. Inspect `model._inference_result.distribution` and the model-specific covariance contract; choosing a Gaussian family alone does not request Student-t inference.
 
 For model-specific covariance choices, see the corresponding model page.
 

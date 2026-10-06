@@ -3,6 +3,7 @@
 Known runtime limitations are observed conditionally, not required to persist.
 Correctness assertions cover the documented safe workflows and public results.
 """
+import linecache
 import re
 from pathlib import Path
 
@@ -25,6 +26,14 @@ from statgpu.feature_selection import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+class _WorkingResponseR2(AssertionError):
+    """Sparse training R-squared differs from original weighted observations."""
+
+
+class _MissingSmallCVDetails(AssertionError):
+    """The small-sample CV selector omitted std_mse at result publication."""
 
 
 def _page(language, directory, name):
@@ -197,23 +206,37 @@ def test_shared_pvalue_helpers_reference_validated_controls(language):
     assert 'validate-and-rescale-combination-weights' in text
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="Issue #229: sparse weighted diagnostic totals use working y")
+@pytest.mark.xfail(strict=True, raises=_WorkingResponseR2, reason="Issue #229: sparse weighted diagnostic totals use working y")
 @pytest.mark.parametrize("estimator_class", [ElasticNet, Lasso, PenalizedLinearRegression])
 def test_sparse_training_r2_should_match_original_weighted_observations(estimator_class):
     X, y, weights = _weighted_problem()
     model = estimator_class(alpha=.3, device="cpu", compute_inference=True,
                             max_iter=5000, tol=1e-8).fit(X, y, sample_weight=weights)
     expected = _weighted_r2(y, model.predict(X), weights)
-    assert model.rsquared == pytest.approx(expected, abs=1e-10)
+    observed = model.rsquared
+    if observed != pytest.approx(expected, abs=1e-10):
+        raise _WorkingResponseR2(f'training R-squared {observed!r} differs from {expected!r}')
 
 
-@pytest.mark.xfail(strict=True, raises=KeyError, reason="Issue #230: small ElasticNetCV result omits required details")
+@pytest.mark.xfail(strict=True, raises=_MissingSmallCVDetails, reason="Issue #230: small ElasticNetCV result omits required details")
 @pytest.mark.parametrize("n", [2, 3])
 def test_small_elasticnet_cv_should_reject_clearly_or_return_coherent_result(n):
     X, y, _ = _weighted_problem()
+    model = ElasticNetCV(alphas=[.1], cv=2, device="cpu")
+    X_small, y_small = X[:n], y[:n]
     try:
-        model = ElasticNetCV(alphas=[.1], cv=2, device="cpu").fit(X[:n], y[:n])
+        model.fit(X_small, y_small)
+    except KeyError as error:
+        origin = error.__traceback__
+        while origin.tb_next is not None:
+            origin = origin.tb_next
+        source = linecache.getline(origin.tb_frame.f_code.co_filename, origin.tb_lineno).strip()
+        if (error.args == ("std_mse",)
+                and origin.tb_frame.f_code is ElasticNetCV._fit_cv.__code__
+                and source == '"std_mse": details["std_mse"],'):
+            raise _MissingSmallCVDetails('small-sample CV result omitted std_mse') from error
+        raise  # Fixture, solver, and other KeyErrors must remain real failures.
     except ValueError:
         return  # Explicit domain rejection is an acceptable small-sample policy.
-    assert np.isfinite(model.predict(X[:n])).all()
+    assert np.isfinite(model.predict(X_small)).all()
     assert "std_mse" in model.cv_results_

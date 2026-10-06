@@ -721,8 +721,8 @@ class BaseEstimator(ABC):
             Finite nonnegative weights with positive total for Cauchy or
             Stouffer, aligned with the reduction axis. Fisher rejects weights.
             Divide large weights by their positive maximum before calling:
-            current Cauchy sums or Stouffer squared norms can overflow even
-            when every supplied weight is finite.
+            the shared raw-weight normalization sum can overflow for either
+            method even when every supplied weight is finite.
         axis : int or None, default=None
             Axis along which to combine p-values. ``None`` flattens input.
         backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
@@ -814,7 +814,12 @@ class BaseEstimator(ABC):
             Validate before calling: NaN labels can leave uninitialized batch
             entries rather than raising clearly, producing invalid results.
         block_size : int, optional
-            Positive block length; required for block bootstrap, capped at n.
+            Positive moving-block length, capped at n. Sample ceil(n/b)
+            starts from 0 through n-b with replacement, concatenate contiguous
+            blocks without circular wrapping, and truncate to n rows. A length
+            at least n returns the original data in every resample and yields a
+            zero-width interval for a deterministic statistic, not zero true
+            sampling uncertainty.
         confidence_level : float, default=0.95
             Percentile interval level in (0, 1).
         random_state : int, optional
@@ -1055,8 +1060,18 @@ class BaseEstimator(ABC):
     def get_params(self, deep=True):
         """Get constructor parameters for this estimator.
 
-        Nested estimator parameters are exposed as ``name__param`` when
-        ``deep=True``, matching the scikit-learn estimator contract.
+        Parameters
+        ----------
+        deep : bool, default=True
+            Include nested estimator settings as ``name__param`` when True.
+            False returns only this estimator's constructor parameters.
+
+        Returns
+        -------
+        dict
+            Constructor configuration, including runtime-added public controls,
+            but not fitted attributes or a serialized copy of the model.
+            Values can share mutable objects with the supplied configuration.
         """
         import inspect
 
@@ -1089,7 +1104,27 @@ class BaseEstimator(ABC):
 
 
     def set_params(self, **params):
-        """Set parameters transactionally and refresh normalized state."""
+        """Set constructor parameters and reset this estimator for refitting.
+
+        Parameters
+        ----------
+        **params : dict
+            Constructor names from ``get_params``. Use ``name__param`` for
+            nested estimators. Unknown names raise ``ValueError``. Model-specific
+            deferred controls may be validated only by the next ``fit`` call.
+
+        Returns
+        -------
+        self
+            The same estimator with updated configuration and unfitted state.
+            An empty call is a no-op. Refit before predicting after an update.
+
+        Notes
+        -----
+        The base implementation constructs replacement state before committing
+        it. Subclasses may override this method; check their lifecycle contract.
+        Direct attribute assignment does not perform this reconstruction.
+        """
         if not params:
             return self
 

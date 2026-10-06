@@ -1,7 +1,7 @@
 # GAM (Generalized Additive Model)
 
 > Language: English  
-> Last updated: 2026-10-05  
+> Last updated: 2026-10-06  
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/semiparametric.md)
 
@@ -24,7 +24,7 @@ $$
 \qquad (B^\top B+\lambda S)\hat\beta=B^\top y.
 $$
 
-Here $B$ concatenates an intercept and the centered basis for every feature. $S$ is block diagonal with $D^\top D$ for each curve and zero penalty on the intercept. $D$ is the difference matrix, with its order set by `penalty_order`. The loss is a **sum**, not an average. The implementation uses a stabilized Cholesky solve with general-solve/least-squares fallbacks; numerical stabilization also enters its reported effective degrees of freedom (EDF).
+Here $B$ concatenates an intercept and the centered basis for every feature. $S$ is block diagonal with $D^\top D$ for each curve and zero intended penalty on the intercept. $D$ is the difference matrix, with its order set by `penalty_order`. The loss is a **sum**, not an average. The implementation uses a stabilized Cholesky solve with general-solve/least-squares fallbacks; numerical stabilization also enters its reported effective degrees of freedom (EDF).
 
 `degree=3` means piecewise **cubic** basis functions. `penalty_order=2` penalizes second differences of adjacent **basis coefficients**. These settings do different jobs: changing the penalty to order 1 does not turn cubic splines into piecewise-linear splines. Use `degree=1` if piecewise-linear basis functions are intended.
 
@@ -48,6 +48,11 @@ y_test = (np.sin(2 * X_test[:, 0]) + 0.4 * X_test[:, 1] ** 2
 gam = GAM(n_splines=12, lam=None, device="cpu").fit(X_train, y_train)
 if not np.isfinite(gam.gcv_score_):
     raise RuntimeError("No finite GCV candidate; revise the model before prediction.")
+training_prediction = gam.predict(X_train)
+if not np.isfinite(training_prediction).all() or not np.isclose(
+    training_prediction.mean(), y_train.mean(), rtol=1e-8, atol=1e-10,
+):
+    raise RuntimeError("Stabilization changed the unpenalized mean; validate the solver.")
 prediction = gam.predict(X_test)
 mse = np.mean((prediction - y_test) ** 2)
 baseline_mse = np.mean((y_train.mean() - y_test) ** 2)
@@ -73,7 +78,7 @@ None
 - Test MSE is in squared response units. Beating the training-mean baseline on unseen observations is more informative than an excellent training fit. Check residuals and performance across the predictor ranges, not just one score.
 - `edf_` measures effective model flexibility after smoothing. It need not be an integer and is not the raw number of coefficients.
 - `gcv_score_` is the generalized cross-validation (GCV) score used to select smoothing within the training data, not the held-out MSE or a p-value. Lower is better when comparing candidates on the same data and with the same `gamma`.
-- `coef_` contains an intercept and spline-basis coefficients. These are **not raw-feature slopes**; inspect predictions while varying a feature to understand a fitted curve. `intercept_` is approximately the training response mean because the smooth bases are centered.
+- `coef_` contains an intercept and spline-basis coefficients. These are **not raw-feature slopes**; inspect predictions while varying a feature to understand a fitted curve. The intended unpenalized `intercept_` equals the training response mean because the smooth bases are centered, but large-lambda stabilization can substantially violate that property; see the [stabilization limitation](#large-smoothing-penalties-and-the-intercept).
 - The fixed-lambda refit uses the same selected value, so its predictions agree with `gam`, but `fixed.gcv_score_` is `None`. This does not signal a failed fit.
 
 ## Choose the amount of smoothing
@@ -91,6 +96,25 @@ Here $A=B^\top B+\lambda S$, $m$ is the number of basis coefficients including t
 Start with cubic splines and order-2 penalty. Increase `n_splines` only if the fitted shape appears too restricted, then reassess held-out error. Increasing `lam` usually smooths more strongly. Quantile knots place more knots where data are dense; uniform knots are equally spaced across the observed range. Use a validation split or CV to choose these design settings, keeping a final test set untouched.
 
 GCV is a discrete parameter search and may miss an optimum between grid points; a fixed `lam` skips selection but still uses the same numerical solver. `GAM` has no constructor option for a custom lambda grid. For a finer search, fit candidate fixed values using training/validation data, then refit the chosen setting.
+
+## Large smoothing penalties and the intercept
+
+The diagonal stabilization term above grows with `lam` and currently acts on
+all coefficients, including directions that the model penalty leaves alone.
+It can therefore change the fitted target rather than just prevent roundoff.
+For 50 equally spaced points, a constant response of 5 and `n_splines=8`,
+`lam=1e10` predicts about 4.630 and `lam=1e12` about 0.556. The intended
+unpenalized-intercept optimum is exactly 5 for every nonnegative lambda.
+The first value is within the built-in GCV search range; this fixed-lambda
+counterexample does not mean GCV necessarily selects it.
+
+Check that fitted training predictions preserve the response mean, as in the
+CPU workflow. A material mean shift is a failure of the intended objective,
+not evidence of useful smoothing. This check is necessary, not a full proof
+of coefficient or curve accuracy: other penalty-nullspace directions can also
+be affected. Finite predictions or finite GCV are insufficient. Use an
+independently validated, nullspace-preserving solver when such penalties are
+needed; changing `lam` changes the statistical problem and is not a repair.
 
 ## Inputs, boundaries, and limitations
 

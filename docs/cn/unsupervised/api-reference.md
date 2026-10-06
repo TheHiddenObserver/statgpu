@@ -1,7 +1,7 @@
 # 无监督估计器 API 参考
 
 > 语言：中文
-> 最后更新：2026-10-05
+> 最后更新：2026-10-06
 > 页面定位：完整 API 参考
 > 切换：[English](../../en/unsupervised/api-reference.md)
 
@@ -195,7 +195,7 @@ NMF(n_components=None, init='random', solver='mu', beta_loss='frobenius', max_it
 | `fit(X, y=None)` | 拟合非负因子，返回 `self`。 |
 | `fit_transform(X, y=None)` | 返回训练因子 `W`，形状 `(n,k)`。 |
 | `transform(X)` | 固定已学到的成分，为新数据求非负因子，返回 `(m,k)`。 |
-| `inverse_transform(X)` | 将输入因子 `(m,k)` 乘以成分 `(k,p)`，返回重构 `(m,p)`。 |
+| `inverse_transform(X)` | 将输入因子 `(m,k)` 乘以成分 `(k,p)`，返回重构 `(m,p)`。允许负坐标，也可能产生负的重构值。 |
 | `predict(X)` | 等同于 `transform(X)`。 |
 
 | 拟合输出 | 含义与形状 |
@@ -368,7 +368,7 @@ MiniBatchNMF(n_components=None, init='random', batch_size=None, max_iter=200, to
 | `partial_fit(X, y=None)` | 累积本批次的因子统计量并更新成分，返回 `self`。 |
 | `fit_transform(X, y=None)` | 拟合成分，再固定成分求训练因子 `(n,k)`。 |
 | `transform(X)` | 固定已学成分，返回非负因子 `(m,k)`。 |
-| `inverse_transform(X)` | 将因子 `(m,k)` 乘以成分，返回 `(m,p)`。 |
+| `inverse_transform(X)` | 将因子 `(m,k)` 乘以成分，返回 `(m,p)`。允许负坐标，也可能产生负的重构值。 |
 | `predict(X)` | 等同于 `transform(X)`。 |
 
 | 拟合输出 | 含义与形状 |
@@ -414,7 +414,7 @@ UMAP(n_neighbors=15, n_components=2, metric='euclidean', min_dist=0.1, spread=1.
 | 拟合输出 | 含义与形状 |
 |---|---|
 | `embedding_` | 所选后端上的训练坐标 `(n,k)`。 |
-| `graph_` | 元组 `(source_rows, target_rows, edge_weights, n_samples)`，不是 SciPy 邻接矩阵。前三项为长度相同的后端边数组。 |
+| `graph_` | 元组 `(source_rows, target_rows, edge_weights, n_samples)`，不是 SciPy 邻接矩阵。前三项为长度相同的后端边数组。权重采用[图权重](umap.md#图权重)中说明的平均超出距离带宽与模糊并集，并非 umap-learn 的局部隶属度总和校准。 |
 | `n_epochs_`, `n_features_in_` | 实际训练轮数与原始特征数。 |
 
 近邻距离在内部采用 float32，嵌入优化采用 float64。很大的共同特征偏移可能在转为 float32 或计算展开距离时丢失细小间距；应在数据仍为 float64 时，先减去由训练数据确定的偏移，再拟合。即使输入已中心化，极大的成对距离仍可能使精确搜索选中样本自身，之后删除自环便会丢失邻居。中心化后应把所有特征除以由训练数据确定的同一个正尺度，使坐标适中，并对需要比较的数据复用此处理。统一缩放保持欧氏近邻顺序，与逐特征分别缩放不同。即使选择 GPU，图组装仍使用主机端 SciPy，谱初始化同样如此。带种子的随机初始化适合验证形状与接口，但图形质量仍需单独检查。当前力更新近似构造近邻布局，但不是标准 UMAP 交叉熵的精确梯度。在 NumPy 2 上，CPU 的 `nn_method="nndescent"` 当前会在后端分派时失败，可改用 `"exact"` 或 `"auto"`。稀疏谱初始化可能保留常量图特征向量，而漏掉一个有效方向；其特征求解器的起始向量也不受 `random_state` 控制。需要按种子初始化时，应使用 `init="random"`。不提供逆转换、评分或增量拟合。

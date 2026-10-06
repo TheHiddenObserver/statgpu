@@ -62,17 +62,23 @@ NumPy、CuPy 与 Torch 之间的数据传输可以在内部采用优化机制。
 - `gpu_memory_cleanup=False`（提供该参数时的默认值）更偏向重复拟合时的吞吐量，允许后端的内存池或缓存保留可复用的内存分配；
 - `gpu_memory_cleanup=True` 会在估计器公开约定的清理时点请求释放可回收的 GPU 缓存内存，从而降低常驻显存，但也可能减少后续重复使用已有分配所带来的速度收益。
 
-示例：
+以下自包含示例需要可用的 CuPy/CUDA 环境：
 
+<!-- api-example: cuda-cleanup -->
 ```python
+import numpy as np
 from statgpu.linear_model import Ridge
 
+rng = np.random.default_rng(42)
+X = rng.normal(size=(200, 5))
+y = 1.0 + X @ np.arange(1.0, 6.0) + rng.normal(size=200)
 model = Ridge(
     alpha=1.0,
     device="cuda",
     gpu_memory_cleanup=True,
 )
 model.fit(X, y)
+print(model.score(X, y))
 ```
 
 这一参数不会丢弃 `predict()`、`score()` 或受支持推断所需要的已拟合状态；估计器只会在不破坏已拟合模型状态的位置执行内存清理。

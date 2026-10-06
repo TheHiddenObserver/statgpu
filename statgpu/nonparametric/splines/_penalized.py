@@ -69,7 +69,13 @@ def penalized_ls(B, y, penalty_matrix, lambda_, xp=None):
     """
     Solve penalized least squares problem.
 
-    Minimizes: ||y - B @ beta||^2 + lambda_ * beta^T @ S @ beta
+    Intended objective: ||y - B @ beta||^2 + lambda_ * beta^T @ S @ beta.
+    The usual Cholesky solve instead uses A + delta I, where
+    A = B.T @ B + lambda_ * S and delta = 1e-10 * trace(A) / p.
+    At large lambda_ this can materially shrink the intended unpenalized
+    nullspace, including GAM's intercept; finite output is not proof that
+    the stated objective was solved. Validate original-objective stationarity
+    or use an independently validated nullspace-preserving solver.
 
     Parameters
     ----------
@@ -88,8 +94,14 @@ def penalized_ls(B, y, penalty_matrix, lambda_, xp=None):
     -------
     beta : array, shape (p,) or (p, 1)
         Fitted coefficients.
-    edf : float
-        Effective degrees of freedom: trace(B @ (B^T @ B + lambda_ * S)^{-1} @ B^T).
+    edf : backend scalar or float
+        The implementation solves A_used @ M = B.T @ B and returns
+        trace(M) clipped to [0, p]. On the usual Cholesky path A_used is
+        A + delta I, not the unstabilized A. General-solve/least-squares
+        coefficient fallbacks use A but can leave the tracked A_used
+        stabilized, so their EDF need not describe the exact coefficient
+        operator. If the EDF solve raises a linear-algebra error, p is
+        returned. Do not assume an ordinary inverse exists for singular A.
     """
     xp = _get_xp(xp)
 
@@ -171,7 +183,7 @@ def generalized_cross_validation(B, y, penalty_matrix, lambda_, xp=None, gamma=1
 
     Returns
     -------
-    gcv : float
+    gcv : backend scalar or float
         GCV score (lower is better).
     """
     xp = _get_xp(xp)
@@ -283,7 +295,7 @@ def fit_penalized_spline(x, y, knots, degree=3, penalty_order=2,
     -------
     beta : array, shape (n_basis,)
         Fitted spline coefficients.
-    edf : float
+    edf : backend scalar or float
         Effective degrees of freedom.
     B : array, shape (n, n_basis)
         Basis matrix.

@@ -1,7 +1,7 @@
 # Spline Basis Functions
 
 > Language: English  
-> Last updated: 2026-10-05  
+> Last updated: 2026-10-06  
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/splines.md)
 
@@ -18,6 +18,54 @@ themselves control overfitting.
 Fit the transformer only on training rows, then call `transform` on validation
 or test rows. In a cross-validation pipeline, learn knots inside each training
 fold. Otherwise quantile knots can use information from held-out observations.
+
+## Fit once, then reuse the same features
+
+This small CPU example fits an ordinary least-squares response model on learned
+spline features. It separates the feature transform from the response fit and
+reuses the training knots at new points. Dropping one basis column with
+`include_bias=False` leaves room for the explicit intercept in the later model.
+The synthetic curve is noiseless; this demonstration is not a validation score.
+
+<!-- example: spline-transformer-reuse-cpu -->
+```python
+import numpy as np
+from statgpu.nonparametric.splines import SplineTransformer
+
+X_train = np.linspace(-2.0, 2.0, 41)[:, None]
+y_train = np.sin(1.5 * X_train[:, 0])
+transformer = SplineTransformer(
+    n_knots=6, degree=3, include_bias=False,
+    extrapolation="constant", device="cpu",
+)
+B_train = transformer.fit_transform(X_train)
+train_design = np.column_stack([np.ones(len(X_train)), B_train])
+coefficients = np.linalg.lstsq(train_design, y_train, rcond=None)[0]
+
+X_query = np.array([[-1.5], [0.0], [1.5]])
+B_query = transformer.transform(X_query)
+query_design = np.column_stack([np.ones(len(X_query)), B_query])
+prediction = query_design @ coefficients
+names = transformer.get_feature_names_out(["time"])
+print(B_train.shape, B_query.shape)
+print(prediction.round(3))
+assert len(names) == B_query.shape[1]
+assert np.allclose(transformer.predict(X_query), B_query)
+assert np.allclose(transformer.transform([[2.5]]), transformer.transform([[2.0]]))
+```
+
+The output shapes are `(41, 7)` and `(3, 7)`, followed by approximately
+`[-0.778, 0.000, 0.778]`. Seven columns come from `6 + 3 - 2`; they are basis
+features, not seven separately observed predictors. `transformer.predict`
+returns those same features. Only multiplying the later regression design by
+its fitted coefficients produces response predictions.
+
+The last assertion demonstrates the chosen constant extrapolation: a query at
+2.5 gets the feature values at the upper training boundary 2.0. This is a
+boundary rule, not evidence that the response is actually constant outside the
+data. `linear` and `continue` make different assumptions and can grow quickly.
+For noisy data, tune knot count and downstream regularization within training
+folds and keep a separate test set for evaluating predictions.
 
 ## Overview
 
@@ -126,6 +174,37 @@ feature, custom knots may also be a length-`n_knots` vector.
 ## strict / approx Difference
 
 Spline basis computation has no strict/approx mode. Explicit backend selection does not change the documented numerical limitations of the natural/cyclic boundary projections.
+
+## Complete model-specific calls
+
+Import these names from `statgpu.nonparametric.splines`. The call signatures
+below complement the parameter and output descriptions on this page. The
+[shared estimator helpers](../reference/estimator-api.md) do not turn this
+feature transform into a fitted response or coefficient-inference model.
+
+```text
+bspline_basis(x, knots, degree=3, xp=None, boundary_lo=None, boundary_hi=None)
+natural_cubic_spline_basis(x, knots, xp=None)
+cyclic_cubic_spline_basis(x, knots, xp=None)
+thin_plate_spline_basis(x, knots, penalty_order=2, xp=None)
+SplineTransformer(n_knots=5, degree=3, knots='uniform', include_bias=True, extrapolation='constant', device='auto', n_jobs=None)
+SplineTransformer.fit(X, y=None, sample_weight=None)
+SplineTransformer.transform(X)
+SplineTransformer.fit_transform(X, y=None, sample_weight=None)
+SplineTransformer.predict(X)
+SplineTransformer.get_feature_names_out(input_features=None)
+SplineTransformer.get_params(deep=True)
+SplineTransformer.set_params(**params)
+```
+
+A raw B-spline call requires at least one interior knot. Reusing only interior
+knots is insufficient for new query batches: also pass the original
+`boundary_lo` and `boundary_hi`, or use the fitted transformer. Raw basis values
+outside explicit boundaries are zero; the transformer's extrapolation policy is
+a separate API. Custom transformer knots include their boundary knots and need
+not span every training row. With `extrapolation="error"`, `fit` can therefore
+succeed while `fit_transform` rejects out-of-range training rows during its
+transformation step.
 
 ## Parameters
 

@@ -1,7 +1,7 @@
 # Kernel Methods
 
 > Language: English  
-> Last updated: 2026-10-05  
+> Last updated: 2026-10-06  
 > Switch: [Chinese](../../cn/models/kernel-methods.md)
 
 ## Choose a tool for your question
@@ -337,6 +337,27 @@ an exact kernel estimator.
   memory; small problems may be faster on CPU.
 
 ## Limitations and Failure Modes
+
+### Check for nonfinite kernel fits
+
+Finite training data can still overflow a computed polynomial kernel. Current
+`KernelRidge` and `Nystroem` fits can then return successfully with NaN learned
+arrays and predictions/features; invalid kernel controls such as NaN `gamma`
+can also produce this result. A linear-algebra warning or the absence of an
+exception is not a reliable fit-status check.
+
+Use finite applicable kernel controls and check learned arrays and query
+outputs before use. For NumPy CPU fits, check `np.isfinite(model.dual_coef_).all()`
+for KernelRidge, and `np.isfinite(model.normalization_).all()` plus
+`np.isfinite(model.eigenvalues_).all()` for Nystroem. Also check predictions or
+transformed features; use equivalent backend-native checks on device arrays.
+Discard nonfinite fits. Review feature units/scales and kernel settings, then
+fit a fresh model. Increasing `alpha` cannot repair a kernel that has already
+overflowed. Scaling changes polynomial similarity, so choose and validate that
+preprocessing within training folds. Finiteness is necessary, not sufficient,
+for a well-conditioned or scientifically useful model.
+
+
 
 For RBF kernels, subtract the same training-derived offset from training and query features when coordinates have a large common offset. Current squared-distance arithmetic can otherwise lose the differences between nearby points: coordinates near `1e9` can produce an almost all-ones kernel and badly changed predictions. Centering preserves the intended RBF kernel; it is not a general preprocessing rule for every kernel, especially chi-squared.
 

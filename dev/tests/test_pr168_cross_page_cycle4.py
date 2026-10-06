@@ -151,11 +151,17 @@ def test_missing_rejection_xfails_cannot_swallow_unrelated_exceptions():
     spec = importlib.util.spec_from_file_location("pr168_known_gap_guards", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    for name in (
-        "test_singular_gmm_rejects_fit_before_publishing_invalid_results",
-        "test_minibatch_kmeans_rejects_nonfinite_initial_centers",
+    for name, expected_exception in (
+        ("test_singular_gmm_rejects_fit_before_publishing_invalid_results",
+         module._SingularGMMNotRejected),
+        ("test_minibatch_kmeans_rejects_nonfinite_initial_centers",
+         module._NonfiniteInitialCentersNotRejected),
     ):
         test = getattr(module, name)
         marker = next(mark for mark in test.pytestmark if mark.name == "xfail")
         assert marker.kwargs["strict"] is True
-        assert marker.kwargs["raises"] is pytest.fail.Exception
+        assert marker.kwargs["raises"] is expected_exception
+        # Neither runtime assertion failures nor pytest's own failures describe
+        # the precise missing-rejection symptom recognized by these markers.
+        for unrelated in (AssertionError, TypeError, KeyError, pytest.fail.Exception):
+            assert not issubclass(unrelated, expected_exception)

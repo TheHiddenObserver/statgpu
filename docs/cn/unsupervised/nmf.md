@@ -1,7 +1,7 @@
 # NMF
 
 > 语言：中文
-> 最后更新：2026-10-05
+> 最后更新：2026-10-06
 > 切换：[English](../../en/unsupervised/nmf.md)
 
 ## 概览
@@ -88,7 +88,7 @@ print(W.shape, model.components_.shape, np.linalg.norm(X - X_hat))
 ## FAQ
 
 **输入可以有负数吗？**
-不可以。`X` 包含负数时 NMF 会报错。
+`fit`、`fit_transform`、`transform` 和 `predict` 会拒绝负的观测值。`inverse_transform` 只将传入坐标乘以 `components_`，允许负坐标，也可能返回负值；需要非负重构时，应传入非负因子。
 
 **支持坐标下降（coordinate descent）吗？**
 不支持。仅支持 Frobenius 损失下的乘性更新（MU）。

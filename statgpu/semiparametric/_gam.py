@@ -65,7 +65,8 @@ class GAM(BaseEstimator):
         Float64 intercept and centered spline-basis coefficients. The actual
         basis count n_basis_j can be smaller than n_splines for tied features.
     intercept_ : float
-        Intercept term.
+        Intercept term; large-lambda stabilization can shrink it below the
+        response mean despite the intended unpenalized-intercept objective.
     edf_ : float
         Total effective degrees of freedom.
     gcv_score_ : float or None
@@ -85,6 +86,12 @@ class GAM(BaseEstimator):
     NumPy array even after GPU fitting. Refit after changing parameters.
     Automatic smoothing selection can return a nonfinite gcv_score_ when
     no grid candidate is valid; treat that as a failed selection.
+    Trace-scaled diagonal stabilization also penalizes intended nullspace
+    directions. At large finite lam it can materially shrink the intercept
+    and change the stated objective, even with finite predictions/GCV.
+    Check training-mean preservation and original-objective stationarity;
+    independently validate fits in that regime. Changing lam changes the
+    statistical model, rather than repairing the solver.
     Some parameter changes or failed refits can leave stale/mixed fitted
     arrays; create a fresh instance after a failed basis construction.
 

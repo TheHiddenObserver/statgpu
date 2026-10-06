@@ -1,7 +1,7 @@
 # MiniBatchNMF
 
 > Language: English
-> Last updated: 2026-10-05
+> Last updated: 2026-10-06
 > Switch: [Chinese](../../cn/unsupervised/minibatch-nmf.md)
 
 ## Overview
@@ -107,7 +107,7 @@ MiniBatchNMF is non-convex; incremental `partial_fit` updates depend on batch or
 ## FAQ
 
 **Does it support negative or sparse input?**
-No. Inputs must be dense and non-negative.
+Sparse input is unsupported. `fit`, `partial_fit`, `fit_transform`, `transform`, and `predict` require nonnegative observations. `inverse_transform` only multiplies supplied coordinates by `components_`; it accepts negative coordinates and can return negative values. Pass nonnegative factors when a nonnegative reconstruction is required.
 
 **Does it support CD solver or other beta losses?**
 No. The current implementation supports MU-style updates and Frobenius loss only.
