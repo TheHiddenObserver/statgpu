@@ -198,6 +198,7 @@ GAM.summary()
 
 - `fit`：有限数值 `(n,p)` 或单特征 `(n,)` 的 `X`；每行一个有限响应，单列 `y` 会展平。`y=None` 不代表可省略目标拟合。返回自身。当前只使用 `X` 和 `y`；额外 `fit_params`（包括 `sample_weight`）会被忽略，不能启用加权拟合，请勿传入。
 - `predict`：接受 `(q,p)`，或按拟合特征数解释的向量；即使 GPU 拟合也返回 NumPy `(q,)`。复用节点、边界和中心化，不提供可靠外推。
+- 多特征 Torch GAM 预测请显式使用 `(q,p)`，单个点为 `(1,p)`；当前一维向量的形状检查会抛出 `TypeError`。
 - `summary`：打印并返回字典，含 `n_features`、`n_splines_per_feature`、`spline_degree`、`penalty_order`、`smoothing_parameter`、`effective_df`、`intercept`，仅自动选择时另有 `gcv_score`。
 - 拟合属性：后端 `coef_`，长度为 `1+sum(n_basis_j)`；逐特征后端节点数组 `knots_`；标量 `intercept_`、`edf_`、`lam_`；自动选择时 `gcv_score_` 为浮点数，固定 lambda 时为 `None`；`n_features_` 为整数。系数对应中心化的基函数，不是原始特征斜率。
 - `lam=None` 搜索内置 100 点网格；没有 GAM 自定义网格或专用 CV 估计器接口。其他设置可用外部验证选择。没有专用 `score`、样本加权目标、family/link、系数推断或置信带方法；继承的通用工具不会自动补齐这些能力。
@@ -207,7 +208,7 @@ GAM.summary()
 
 ## 核密度估计
 
-以下名称均从 `statgpu.nonparametric` 导入。`KDE` 是 `KernelDensityEstimator` 的别名子类，构造参数和方法相同；构造参数须按名称传入。
+以下名称均从 `statgpu.nonparametric` 导入。`KDE` 是 `KernelDensityEstimator` 的别名子类，构造参数和方法相同；构造参数须按名称传入。 使用 Torch 时，请先查看[Torch 参数限制](#torch-参数限制)。
 
 <!-- signature: KernelDensityEstimator -->
 ```text
@@ -270,20 +271,22 @@ kde_pdf(samples, points, *, bandwidth='scott', weights=None, kernel='gaussian', 
 | `bandwidth` | 正且有限的标量因子，或 `scott`、`silverman`、`nrd0`、`nrd`、`ucv`、`bcv`、`sj`、`sj-ste`、`sj-dpi`。数值是协方差因子，不是原始单位下的宽度。 |
 | `weights` | 构造/函数式拟合参数，不是 `fit` 关键字：有限、非负、长度 `n`，总和为正，内部归一化；`None` 为等权。协方差需要不止一个有有效权重的观测。 |
 | `kernel` | 默认 `gaussian`，另有 `rectangular`、`triangular`、`epanechnikov`、`biweight`、`triweight`、`cosine`、`optcosine`；最后两种仅一维。 |
-| `backend` | `auto`、`numpy`、`cupy`、`torch`，选择数组库；`auto` 遵循设备/全局配置。 |
+| `backend` | `auto`、`numpy`、`cupy`、`torch`，选择数组库；`auto` 参考设备/全局配置；显式设备请求的例外见下文。 |
 | `device`、`n_jobs`、`gpu_memory_cleanup` | 仅估计器接受的设备控制、通用任务数选项和尽力执行的 GPU 缓存清理。核评价不会使用 `n_jobs` 建立并行查询池；函数式接口不接受这些参数。 |
 | `batch_size` | `pdf`、`logpdf`、`__call__`、`kde_pdf` 的正查询批大小；不是 KDE 构造参数，也不是 `predict` / `score_samples` / `score` 参数。部分 NumPy 快速路径会一起评价较小任务。 |
 | `return_log` | 仅 `kde_pdf`：`False` 返回密度，`True` 返回对数密度。 |
 
 `fit(X,y=None)` 忽略 `y` 并返回自身；`fit_kde` 返回已拟合 `KDE`。样本为有限 `(n,)` 或 `(n,p)`，`n>=2`；查询为有限 `(q,p)`。向量对单特征表示多个点，对多特征可表示一个点。`pdf`、`predict`、`__call__` 返回后端 `(q,)` 密度；`logpdf`、`score_samples` 返回对数密度。`score` 返回 Python `float`，即未加权的查询平均对数密度，并忽略 `y`。紧支撑核可返回密度 0、对数密度 `-inf`。
 
-原始坐标带有很大偏移量时，请先减去训练数据确定的偏移量，并对查询使用同一偏移量，再拟合/评价。当前二次距离计算可能在未中心化时损失精度，涉及 KDE 对数密度及多元密度/回归；这种共同平移不会改变目标统计估计量。仅指定 `backend="torch"` 不能保证 CUDA 执行，见[设备说明](../guides/device-and-memory.md)。
+原始坐标带有很大偏移量时，请先减去训练数据确定的偏移量，并对查询使用同一偏移量，再拟合/评价。当前二次距离计算可能在未中心化时损失精度，涉及 KDE 对数密度及多元密度/回归；这种共同平移不会改变目标统计估计量。
+
+KDE 与核回归当前存在显式设备请求的例外。NumPy 或 Torch CPU 输入即使搭配 `device="torch"` 与 `backend="auto"` 或 `"torch"`，仍可能在 Torch CPU 上拟合和预测。显式 `backend="torch"` 搭配 `device="cuda"` 也可能在 CPU 上执行；`backend="numpy"` 会覆盖这两种加速器请求。应检查 `samples_` 与密度/预测数组的实际位置：Torch 查看 `.device`/`.is_cuda`，CuPy 查看 `.device`，NumPy 数组位于 CPU。仅查看配置的 `device` 与 `backend_` 不够。需要明确的 CPU 路径时，请用 NumPy 输入并设置 `device="cpu", backend="numpy"`。以上是严格设备约定的当前例外，并非设备参数的新含义，见[设备说明](../guides/device-and-memory.md)。
 
 拟合属性：`samples_` `(n,p)`、归一化 `weights_` `(n,)`、标量 `bandwidth_factor_`、`bandwidth_info_`（选择结果；数值带宽时为 `None`）、`covariance_` 和 `inv_covariance_` `(p,p)`、标量 `norm_const_` 和 `inv_norm_const_`、`kernel_`、`backend_`、`n_samples_`、`n_features_`。`to_numpy_metadata()` 返回含 `bandwidth_factor`、`bandwidth_selection`、`n_samples`、`n_features`、`backend`、`kernel`、`covariance`、`inv_covariance`、`weights` 的字典，数组为主机 NumPy 数组。
 
 `fit` 与 `score` 不使用可选 `y` 估计密度或计算分数，但传入非有限 `y` 仍会被通用输入校验拒绝；建议省略该参数。
 
-使用加权高斯 KDE 的对数密度接口前，请删除零权重观测及对应权重。这些观测不贡献概率质量，但当前的数值稳定化可能受其影响，将尾部对数密度错误地算成 `-inf`；删除零权重行不会改变预期估计量。
+使用加权高斯 KDE 的 `logpdf`、`score_samples` 或 `score` 时，请先删除零权重观测及其对应权重。虽然这些观测不贡献概率质量，但当前实现可能因它们的存在而将尾部对数密度错误地算成 `-inf`。删除后会自动重新归一化权重。如果分析希望根据正权重观测选择新带宽，应先筛选再选择。重新运行字符串选择器可能改变所选因子：`nrd`/`nrd0` 使用原始样本的尺度统计量，`ucv`、`bcv`、`sj-ste` 与 `sj-dpi` 则可能在删除后改变加权/重采样路径。若需保留已经选定的平滑因子，请保存 `original.bandwidth_factor_`，再用数值参数 `bandwidth=original.bandwidth_factor_`、正权重观测及其保留权重重新拟合。这会保留指定的核协方差与密度，但不代表受零权重行影响而选出的因子适合原本的科学问题。
 
 ## 核回归
 
@@ -391,6 +394,17 @@ assert np.allclose(ci.upper, normal_upper)
 
 
 输出为 `(3,) 0 None`；这验证了计算公式，不代表验证了所有数据上的实际覆盖率。
+
+### Torch 参数限制
+
+在 Torch 上，向 KDE 或核回归传入 `weights` 当前会抛出 `TypeError`。
+回归的 `bandwidth_per_feature` 无论为标量还是向量也会失败。即使用户没有提供权重，
+Torch bootstrap 区间仍会失败，因为重采样拟合内部会显式传入权重。
+这些需求请改用 CPU 数组与 `backend="numpy"`；改变权重或带宽并不是等价替代。
+不加权的一维高斯 Torch KDE 仍可使用正态区间。
+
+Torch 多元密度与回归的查询应为 `(q,p)`，单个查询也须为 `(1,p)`。
+长度为 `p` 的一维向量当前会抛出 `TypeError`；`X[:1]` 可以保留所需行维度。
 
 ## 底层带宽选择接口
 

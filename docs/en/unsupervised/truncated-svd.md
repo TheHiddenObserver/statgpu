@@ -2,6 +2,7 @@
 
 > Language: English
 > Last updated: 2026-10-05
+> Switch: [Chinese](../../cn/unsupervised/truncated-svd.md)
 > Path: `statgpu.unsupervised.TruncatedSVD`
 
 ## Overview

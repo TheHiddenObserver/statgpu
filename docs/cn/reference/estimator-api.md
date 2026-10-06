@@ -31,7 +31,7 @@ model.adjust_pvalues(pvalues=None, method="bh", alpha=0.05, axis=0, backend="aut
 
 - `pvalues`：位于 `[0, 1]` 的有限 p 值；`None` 使用 `model._pvalues`。没有相应结果时，应显式传入 p 值，或使用受支持的推断方式重新拟合；否则抛出 `RuntimeError`。
 - `method`：`"bh"`、`"by"`、`"holm"`、`"bonferroni"` 或 `"hochberg"`；别名见[多重检验指南](../guides/multiple-testing-combine-pvalues.md)。
-- `alpha`：位于 `(0, 1)` 的显著性水平。
+- `alpha`：位于 `(0, 1)` 的有限显著性水平。调用前应自行验证；当前实现可能接受 NaN 并返回全部为假的拒绝决定。参见[有限显著性水平示例](../guides/multiple-testing-combine-pvalues.md#a-complete-axis-and-weight-example)。
 - `axis=0`：沿第一个轴校正；`None` 将全部元素视为同一个检验族。多目标系数数组尤其需要明确检验族。
 - `backend`：`"auto"`、`"numpy"`、`"cupy"` 或 `"torch"`；估计器解析为 GPU 设备时，`auto` 显式选择对应 CuPy/Torch；解析为 CPU 时，当前仍由传入数组决定后端。若必须返回 NumPy，请设 `backend="numpy"`。估计器辅助方法中显式指定 `backend="torch"` 要求 Torch CUDA，即使估计器配置为 CPU 也是如此。
 
@@ -43,7 +43,7 @@ model.adjust_pvalues(pvalues=None, method="bh", alpha=0.05, axis=0, backend="aut
 model.combine_pvalues(pvalues=None, method="fisher", weights=None, axis=None, backend="auto")
 ```
 
-`pvalues` 和 `backend` 含义同上。`method` 为 `"fisher"`、`"cauchy"` 或 `"stouffer"`，别名见多重检验指南。`weights=None` 使用方法的等权约定；加权方法的权重应为有限非负数、与归约轴对齐且总和为正。Fisher 必须使用 `weights=None`，传入权重会抛出 `ValueError`。`axis=None` 展平全部元素，整数则指定归约轴。
+`pvalues` 和 `backend` 含义同上。`method` 为 `"fisher"`、`"cauchy"` 或 `"stouffer"`，别名见多重检验指南。`weights=None` 使用方法的等权约定；加权方法的权重应为有限非负数、与归约轴对齐且总和为正。Fisher 必须使用 `weights=None`，传入权重会抛出 `ValueError`。过大的有限权重可能使 Cauchy 和 Stouffer 共用的原始权重归一化求和溢出；调用前应除以权重的正最大值，详见[安全缩放权重](../guides/multiple-testing-combine-pvalues.md#validate-and-rescale-combination-weights)。`axis=None` 展平全部元素，整数则指定归约轴。
 
 返回字典：`method`、`axis`、`backend`、`pvalues`、`weights`、`statistic` 和 `pvalue`。展平时后两项为标量，否则具有归约后的形状。模块函数则返回 `(statistic, pvalue)`。Fisher/Stouffer 的校准仍有相应依赖结构假设；合并 p 值不能使无效检验变得有效。
 

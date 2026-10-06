@@ -18,7 +18,12 @@ from statgpu.unsupervised._utils import (
 
 
 class NMF(BaseEstimator):
-    """NMF with multiplicative updates and Frobenius loss."""
+    """NMF with multiplicative updates and Frobenius loss.
+
+    ``tol`` controls periodic reconstruction-error checks during ``fit``.
+    With fitted components fixed, ``transform`` always runs ``max_iter``
+    updates and does not stop early by ``tol``.
+    """
 
     def __init__(
         self,

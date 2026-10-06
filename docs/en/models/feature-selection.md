@@ -130,6 +130,13 @@ categorical values. The selector's `fit` has no `sample_weight`, `formula`, or
 | `aic_history_`, `bic_history_` | Initial state and accepted-state criterion values. |
 | `selection_history_` | Dictionaries with `action`, `feature`, `features`, `aic`, and `bic`; the initial entry has `action="initial"` and `feature=None`. |
 
+Keep the original training width and column order for `transform`, `predict`
+and `score`. These methods currently do not verify the original width; a wider
+matrix, or a narrower one that still contains every selected positional index,
+can be accepted silently. Do not pass an already selected matrix back to the
+selector. You can pass it directly to `best_model_` when its columns match the
+selected training order.
+
 Import `StepwiseSelector` and `stepwise_selection` from `statgpu` or
 `statgpu.feature_selection`. The convenience function
 `stepwise_selection(X, y, model_class=LinearRegression, criterion="aic", direction="both", **model_kwargs)`

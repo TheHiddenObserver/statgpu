@@ -45,15 +45,15 @@ The fixed-X function/class accepts only the shared subset shown in its signature
 |---|---|---|
 | `X, y` | `required` | Finite numeric X `(n,p)` and y `(n,)`, same n. |
 | `knockoff_type` | `"fixed_x"` | Unified function/selector only: `fixed_x` or `model_x`. |
-| `q` | `0.1` | Target rate in `(0,1)`; not a confidence level for coefficients. |
+| `q` | `0.1` | Finite target rate in `(0,1)`; validate before calling because NaN currently passes the internal check. Not a confidence level for coefficients. |
 | `method` | `"corr_diff"` | `corr_diff`, `ols_coef_diff`, `lasso_coef_diff`; original-minus-knockoff importance statistic. |
 | `fdr_control` | `"knockoff_plus"` | `knockoff_plus` uses offset 1, `knockoff` offset 0. The latter has a different modified-FDR guarantee under the applicable theory. |
 | `random_state` | `None` | Integer seed for construction/statistic fitting where stochastic. |
-| `backend` | `"auto"` | `numpy`, `cupy`, `torch`, or auto inferred from arrays. Not the estimator `device` keyword. |
+| `backend` | `"auto"` | `numpy`, `cupy`, `torch`, or auto inferred from arrays. `torch` selects the library: NumPy or Torch CPU inputs run on CPU; supply CUDA tensors for GPU execution. This is distinct from estimator `device="torch"`, which requests CUDA. |
 | `Xk` | `None` | Optional external knockoff matrix `(n,p)`; supplied to functions or selector.fit, never selector constructor. Validity is the caller’s responsibility; shape alone does not establish exchangeability. |
 | `compat_mode` | `"statgpu"` | `statgpu` or `knockpy`; compatibility controls change construction/statistic conventions and can require optional packages/CPU work. |
 | `lasso_cv_impl` | `"auto"` | `statgpu` or `sklearn`; auto chooses sklearn for knockpy compatibility and statgpu otherwise. Applies to the Lasso statistic. |
-| `lasso_fast_profile` | `"off"` | `off`, `auto`, `moderate`, `aggressive`; Lasso computational profile. Start with off for comparisons. |
+| `lasso_fast_profile` | `"off"` | `off`, `auto`, `moderate`, `aggressive`; may change CV folds, candidate penalties, iteration budget and tolerance. W and selected features can change; this is not an output-preserving speed switch. Start with off for comparisons. |
 | `modelx_covariance_shrinkage` | `0.20` | Native model-X covariance shrinkage; choose within `[0,1]`. |
 | `modelx_s_scale` | `0.999` | Native model-X S-matrix scale, normally `(0,1]`. |
 | `modelx_draws` | `None` | Strict positive integer or None: defaults to 5 for OLS/Lasso differences and 3 for correlation differences. Supplied Xk gives one matrix rather than fresh draws. |
@@ -61,6 +61,16 @@ The fixed-X function/class accepts only the shared subset shown in its signature
 | `modelx_smatrix_method` | `"mvr"` | Requested compatibility S-matrix method, forwarded to knockpy when available; the request can fall back to equicorrelated construction. See below. |
 | `knockpy_sampler` | `None` | Optional dispatch name such as gaussian/fx/metro/artk. Current dispatched implementations are placeholders and can raise NotImplementedError; leave None for supported built-in construction. |
 | `knockpy_sampler_method` | `None` | Gaussian dispatch submethod, e.g. mvr/sdp/maxent/equi/ci; does not implement an unavailable sampler. |
+
+### Validate q before selection
+
+Before calling `fixed_x_knockoff_filter`, `model_x_knockoff_filter`, or
+`knockoff_filter`, or fitting either selector, check
+`np.isfinite(q) and 0 < q < 1`. Under either threshold rule, the current
+implementation can accept `q=np.nan` and return an invalid empty selection
+with `threshold=inf`, `estimated_fdr=0.0`, and an all-false selector mask.
+Do not interpret this as a valid no-discoveries result. The runnable example
+below includes a caller-side check; the statistical assumptions still apply.
 
 ### Compatibility resolution and fallbacks
 
@@ -92,7 +102,10 @@ For deterministic changed-data analyses, use a fresh Python process per call.
 For **supplied float64 NumPy X/y/Xk**, fresh copies of all three inputs also avoid stale reuse when
 every earlier input remains alive and unchanged. The following small example
 keeps those copies explicitly; its orthogonal centered X/Xk pairs satisfy the
-fixed-X Gram constraints. This memory-retention workaround can be expensive for
+fixed-X Gram constraints after centering. This special full-rank QR design
+requires n≥2p+1 and is not a general solution for arbitrary X. It avoids the
+automatic construction’s centering defect, while the response, statistic and
+threshold assumptions still apply. This memory-retention workaround can be expensive for
 large analyses. With internally generated knockoffs, prefer process isolation
 because temporary construction arrays are not retained by the caller.
 
@@ -164,7 +177,25 @@ The theoretical knockoff+ threshold must count **all** features at each distinct
 
 
 
-Generated fixed-X knockoffs require the rank/sample conditions of their construction (typically n≥2p and full column rank after standardization). A user-supplied Xk bypasses construction; it must actually be a valid matched knockoff design. Model-X uses an estimated Gaussian second-order feature model: matching estimated moments is not a distribution-free guarantee for arbitrary features, and averaging multiple draws is not automatically an independent FDR theorem. Interpret results under the construction/statistic assumptions in the [knockoff guide](../models/knockoff.md).
+Generated fixed-X construction usually requires n≥2p and full column rank,
+but centers X without ensuring centered Xk. Its response-centered statistics
+can therefore have unequal projected Gram matrices and lose the usual null
+score-pair exchangeability, even without threshold ties or when n>2p. Increasing
+n alone does not repair this. Do not infer nominal FDR control from valid raw
+Grams or absence of ties. See the [centering explanation](../models/knockoff.md#generated-fixed-x-centering-limitation).
+
+A supplied Xk bypasses construction. Check the complete matched-pair conditions
+after the intercept/nuisance projection as well as shape and rank. The centered
+QR example above avoids this geometry defect for its special orthogonal design
+with n≥2p+1; it is not a general arbitrary-X repair. Other statistical, threshold
+and cache limitations remain.
+
+The fixed-X finite-sample interpretation uses a Gaussian linear response with
+independent homoskedastic normal errors. Model-X instead assumes valid
+feature-pair exchangeability and conditional independence from y given X, while
+allowing arbitrary response relationships. Here estimated Gaussian moments and
+multi-draw averaging do not guarantee FDR control for arbitrary feature laws.
+See [response-model assumptions and sources](../models/knockoff.md#response-model-assumptions).
 
 Knockoff construction/statistic inputs are converted to float64; selector `transform` only selects columns and preserves the original input dtype. Native NumPy/CuPy/Torch numerical paths exist, but choosing `lasso_cv_impl="sklearn"` or certain `compat_mode="knockpy"` construction routes entails host conversion/CPU or optional-library work. `backend` is not a guarantee that every compatibility step stays on GPU. The native alternative with supplied Xk and explicit `lasso_cv_impl="statgpu"` avoids the general knockpy CPU construction route. Unsupported sampler dispatch raises; it does not automatically implement another sampler.
 
@@ -176,10 +207,15 @@ import numpy as np
 from statgpu.feature_selection import FixedXKnockoffSelector
 
 rng = np.random.default_rng(12)
-X = rng.normal(size=(120, 5))
-y = 3 * X[:, 0] + rng.normal(size=120)
-selector = FixedXKnockoffSelector(backend="numpy", random_state=7)
-assert selector.fit(X, y) is selector
+n, p = 120, 5
+Q, _ = np.linalg.qr(np.column_stack([np.ones(n), rng.normal(size=(n, 2*p))]))
+X, Xk = Q[:, 1:p+1], Q[:, p+1:2*p+1]
+y = 3 * X[:, 0] + rng.normal(size=n)
+q = 0.1
+if not (np.isfinite(q) and 0 < q < 1):
+    raise ValueError("q must be finite and strictly between 0 and 1")
+selector = FixedXKnockoffSelector(q=q, backend="numpy", random_state=7)
+assert selector.fit(X, y, Xk=Xk) is selector
 selected = selector.transform(X[:10])
 assert selected.shape == (10, int(selector.get_support().sum()))
 assert selector.result_.W.shape == (5,)

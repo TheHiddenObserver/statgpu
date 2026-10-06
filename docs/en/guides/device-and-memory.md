@@ -1,26 +1,39 @@
 # Device and GPU Memory
 
 > Language: English  
-> Last updated: 2026-09-17  
+> Last updated: 2026-10-05  
 > This page: device selection and user-visible GPU memory controls  
 > Switch: [Chinese](../../cn/guides/device-and-memory.md)
 
 ## Device selection
 
-For estimators that expose a `device` parameter, statgpu uses the following meanings:
+The intended convention for estimators with a `device` parameter is:
 
 - `device="cpu"` — request NumPy CPU computation;
 - `device="cuda"` — request CuPy CUDA computation;
 - `device="torch"` — request Torch CUDA computation;
 - `device="auto"` — allow statgpu to choose among supported available backends.
 
-An explicit accelerator request is authoritative. If the requested CuPy/Torch CUDA backend is unavailable, statgpu raises an error rather than silently replacing the fit with a CPU calculation.
+Under this convention, an explicit accelerator request should be authoritative: an unavailable CuPy/Torch CUDA backend should raise rather than silently run on CPU. The following estimators currently have exceptions, so their `device` setting alone is not proof of hardware placement.
+
+<a id="current-smoothing-and-spline-exceptions"></a>
+
+### Current smoothing, kernel-feature, and spline exceptions
+
+- `KernelDensityEstimator` (including `KDE`) and `KernelRegression` (including `KernelRegressionRegressor`) can fit NumPy or Torch CPU input on Torch CPU even with `device="torch"` and `backend="auto"` or `"torch"`. Explicit `backend="torch"` can also run on CPU with `device="cuda"`; explicit `backend="numpy"` overrides either accelerator request and returns NumPy CPU arrays.
+- `SplineTransformer` gives a supplied Torch tensor priority over `device`. Torch CPU inputs can therefore leave fitted knots and transformed features on CPU even with `device="torch"` or `"cuda"`. The same request with NumPy input can instead raise when the requested accelerator is unavailable.
+
+- `KernelPCA` and `Nystroem` reject `device="torch"` when Torch CUDA is unavailable. After the availability check succeeds, however, NumPy or Torch CPU input can still produce Torch CPU features because these paths do not consistently move inputs to the requested device. Selecting the Torch library or resolving a CUDA backend does not establish tensor placement.
+
+For these estimators, inspect actual arrays after fitting and prediction/transform. Check `samples_` and the returned density/prediction for KDE/regression; check each array in `knots_` and the transformed basis for `SplineTransformer`; check the returned `fit_transform`, `transform`, or `predict` features for `KernelPCA`/`Nystroem`. Their public fitted arrays are deliberately NumPy and cannot establish numerical-device placement. For Torch tensors, inspect `.device` and `.is_cuda`; for CuPy arrays, inspect `.device`; NumPy arrays are on CPU. Neither `model.device` nor a library name such as `backend_="torch"` confirms CUDA execution. If accelerator placement is required, reject a CPU result before using it. To choose a predictable CPU path, pass NumPy inputs with `device="cpu"` and, for KDE/regression, `backend="numpy"`.
+
+These are current routing limitations, not alternative meanings of `device="torch"` or `device="cuda"`. See [kernel smoothing](../models/nonparametric.md#optional-gpu-execution-and-external-comparisons), [kernel features](../models/kernel-methods.md#backend-and-execution-boundaries), and [splines](../models/splines.md#backend-execution-and-extrapolation-boundary) for their other restrictions.
 
 Model-specific backend coverage can be narrower than the generic device vocabulary. Check the relevant model page or [Implemented Methods](implemented-methods.md) when a particular backend is required.
 
 ## Input conversion and preprocessing
 
-Formula/DataFrame parsing and other metadata preparation may occur on CPU before numerical model computation. This does not change the selected numerical backend: arrays used by the model are converted to the requested backend before the supported numerical path runs.
+Formula/DataFrame parsing and other metadata preparation may occur on CPU before numerical model computation. Under the intended device convention, arrays are then converted to the requested numerical backend. The smoothing/kernel-feature/spline exceptions above do not consistently enforce that conversion; inspect their actual array placement.
 
 Transfers between NumPy, CuPy, and Torch may use optimized mechanisms internally. Applications should rely on the resulting device semantics, not on a particular transfer implementation such as DLPack or pinned memory.
 
@@ -28,7 +41,7 @@ Transfers between NumPy, CuPy, and Torch may use optimized mechanisms internally
 
 `device="auto"` may choose a backend from availability, input/workload characteristics, and estimator-specific performance heuristics. Those size thresholds are implementation details and may change as kernels and benchmarks improve.
 
-If reproducible hardware placement matters, use an explicit device rather than depending on an internal `auto` threshold.
+If reproducible hardware placement matters, use an explicit device rather than depending on an internal `auto` threshold, and check actual fitted/output arrays for the smoothing/kernel-feature/spline exceptions above.
 
 ## Solver compatibility is documented separately
 

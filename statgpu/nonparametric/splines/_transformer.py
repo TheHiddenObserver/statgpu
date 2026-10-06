@@ -44,7 +44,25 @@ def _concatenate(values, xp, axis=0):
 
 
 class SplineTransformer(BaseEstimator):
-    """B-spline feature transformer with native NumPy/CuPy/Torch evaluation."""
+    """B-spline feature transformer with native NumPy/CuPy/Torch evaluation.
+
+    Fit knots on training data, then reuse them with transform. Inputs are
+    finite real arrays and basis calculations use float64. This transformer
+    constructs features, not a response model or coefficient inference.
+
+    Current routing gives supplied Torch tensors priority over device.
+    Torch CPU input can keep knots_ and transformed features on CPU even
+    with explicit device='torch' or 'cuda'. With NumPy inputs, an unavailable
+    accelerator can instead raise. Inspect each knots_ array and returned
+    basis: Torch .device/.is_cuda, CuPy .device, or NumPy CPU ownership.
+    The configured device alone is insufficient. For a predictable CPU
+    path, use NumPy inputs with device='cpu'. These are current exceptions
+    to the intended convention that explicit accelerators are required.
+
+    On Torch, a multivariate single-query vector currently raises TypeError.
+    Preserve its row dimension, for example X[:1] rather than X[0]. Explicit
+    two-dimensional queries return (n_query,n_features_out_) basis arrays.
+    """
 
     def __init__(
         self,

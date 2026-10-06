@@ -80,4 +80,6 @@ Supply finite probabilities in `[0,1]`, and a finite `alpha` strictly between 0 
 
 Combination formulas use endpoint clipping, and distribution-tail cancellation can limit tiny returned probabilities. Do not interpret a reported zero as an exact probability of zero. See the [complete API guide](../guides/multiple-testing-combine-pvalues.md) for signatures, aliases, weights, axes, backend behavior and numerical limits. Estimator helpers return dictionaries instead of these module-function tuples; see [shared estimator methods](../reference/estimator-api.md).
 
+For Cauchy/Stouffer, also [validate and rescale large weights](../guides/multiple-testing-combine-pvalues.md#validate-and-rescale-combination-weights) before calling: their current normalization can overflow even when each weight is finite, producing a wrong finite result or NaN.
+
 For a large correlated analysis, define the global versus individual hypothesis question and the dependence assumptions first; a domain name such as GWAS does not determine the correct procedure.

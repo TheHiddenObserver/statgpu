@@ -1,7 +1,7 @@
 # PyTorch 后端指南
 
 > 语言：中文  
-> 最后更新：2026-09-17  
+> 最后更新：2026-10-05  
 > 切换：[English](../../en/guides/pytorch-backend.md)
 
 ## 概览
@@ -15,7 +15,7 @@ StatGPU 支持三个主要执行后端：
 | `"torch"` | PyTorch | NVIDIA CUDA |
 | `"auto"` | 自动选择 | 根据可用性与工作负载选择 CuPy、Torch CUDA 或 NumPy |
 
-`device="torch"` 是显式的 PyTorch 请求；`device="cuda"` 选择 CuPy，并不是 Torch 的别名。显式请求在对应后端不可用时会报错，不会静默切换到其他后端。
+`device="torch"` 是显式的 PyTorch 请求；`device="cuda"` 选择 CuPy，并不是 Torch 的别名。按设备约定，不可用的显式加速器请求应报错，而不应静默切换。[当前核方法与样条的设备选择例外](device-and-memory.md#current-smoothing-and-spline-exceptions)目前并不始终执行这一约定，使用这些估计器时须检查实际输出数组。
 
 不同模型、求解器、交叉验证和推断方法的后端覆盖范围可能不同。请查看 [已实现方法](implemented-methods.md)、[设备与 GPU 内存](device-and-memory.md) 和对应模型页，而不要假定每个公开估计器都有完全相同的 Torch 路径。
 
@@ -181,7 +181,7 @@ print(torch.cuda.is_available())
 
 ### 显式 Torch 执行报错
 
-当 Torch CUDA 或必要的 Torch 运算不可用时，显式请求报错是预期行为。只有在符合应用意图时才改用 `device="cpu"` 或 `device="auto"`；不能期待 `device="torch"` 静默切换到其他后端。
+当 Torch CUDA 或必要的 Torch 运算不可用时，显式请求报错是预期行为。只有在符合应用意图时才改用 `device="cpu"` 或 `device="auto"`；[当前核方法与样条的设备选择例外](device-and-memory.md#current-smoothing-and-spline-exceptions)可能返回 CPU 张量，因此调用成功本身并不证明执行了 CUDA 计算。
 
 ### 显存不足
 

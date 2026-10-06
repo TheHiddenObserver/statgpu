@@ -70,8 +70,8 @@ LogisticRegression(fit_intercept=True, C=1.0, max_iter=100, tol=0.0001, device='
 | `classification_table(X,y,threshold=0.5)` | 字典：`tn`、`fp`、`fn`、`tp`、`accuracy`、`precision`、`recall`、`specificity`、`f1`、`support_negative`、`support_positive`。比例分母为零时返回 0。 |
 | `roc_curve(X,y)` | `(fpr,tpr,thresholds)` 元组，数组等长；阈值递减且首项为无穷大。评估标签必须同时包含两类，否则抛出 `ValueError`。 |
 | `roc_auc_score(X,y)` | 梯形积分 ROC 面积标量。 |
-| `precision_recall_curve(X,y)` | `(precision,recall,thresholds)` 元组；本实现三数组等长，阈值递减，首项无穷大对应 precision=1、recall=0。不要套用其他库的长度约定。 |
-| `average_precision_score(X,y)` | 按召回率增量积分的平均精确率标量。 |
+| `precision_recall_curve(X,y)` | `(precision,recall,thresholds)` 元组；本实现三数组等长，阈值递减，首项无穷大对应 precision=1、recall=0。不要套用其他库的长度约定。至少需要一个正标签；全零评价 y 抛出 `ValueError`，全一 y 则可以计算。 |
+| `average_precision_score(X,y)` | 按召回率增量积分的平均精确率标量；与精确率—召回率曲线一样，至少需要一个正标签。 |
 | `evaluate_classification(X,y,threshold=0.5,include_curves=True)` | 一次概率计算返回下述指标字典。 |
 | `plot_roc_curve(X,y,ax=None,label=None)` | 需要 matplotlib；新建或使用传入 Axes 并返回它。默认标签含 AUC。 |
 | `plot_precision_recall_curve(X,y,ax=None,label=None)` | 同样返回 Axes，默认标签含平均精确率。 |
@@ -82,6 +82,87 @@ LogisticRegression(fit_intercept=True, C=1.0, max_iter=100, tol=0.0001, device='
 `evaluate_classification` 始终返回 `threshold`、`confusion_matrix`、`classification_table`、`roc_auc`、`average_precision`。即使设置 `include_curves=False`，仍会计算标量 ROC AUC，因此评估 y 必须同时包含两类，否则抛出 `ValueError`。对单类别子集，可用 `classification_table` 或 `confusion_matrix` 计算阈值指标。`include_curves=True` 时再加入 `roc_curve={fpr,tpr,thresholds}` 与 `precision_recall_curve={precision,recall,thresholds}`。对外部概率可调用 `statgpu.metrics.evaluate_binary_classification(y_true,y_score,threshold=0.5,include_curves=True,backend="auto")` 或顶层别名 `statgpu.evaluate_binary_classification`；传入一维类别 1 概率。
 
 训练属性包括 `loglikelihood`、`loglikelihood_null`、`aic`、`bic`、`pseudo_rsquared`、`accuracy`、`precision`、`recall`、`f1`、`auc`、`average_precision`。`pseudo_rsquared` 是 McFadden 的 `1-loglikelihood/loglikelihood_null`，不是 R² 或准确率。推断数组 `_bse`、`_zvalues`、`_pvalues` 为 `(k,)`，`_conf_int` 为 `(k,2)`，截距在首位。C>0 时采用围绕惩罚拟合系数的正态参考推断；关闭推断时这些数组不可用。训练指标不衡量泛化表现。
+
+## Lasso
+
+```text
+Lasso(alpha=1.0, fit_intercept=True, max_iter=1000, tol=0.0001, stopping='coef_delta', inference_method='debiased', n_bootstrap=200, bootstrap_random_state=None, enable_simultaneous_inference=False, simultaneous_method='maxz_bootstrap', simultaneous_alpha=0.05, simultaneous_n_bootstrap=1000, simultaneous_random_state=None, simultaneous_include_intercept=False, device='auto', n_jobs=None, compute_inference=True, solver='fista', cpu_solver='coordinate_descent', lipschitz_L=None, admm_rho=1.0, gpu_memory_cleanup=False, *, nodewise_alpha=None)
+```
+
+| 参数 | 默认值 | 说明 |
+|---|---:|---|
+| `alpha` | `1.0` | 平均平方损失下的非负 L1 正则化强度 |
+| `fit_intercept` | `True` | 是否拟合截距 |
+| `max_iter` | `1000` | 优化最大迭代次数 |
+| `tol` | `1e-4` | 收敛容差 |
+| `stopping` | `"coef_delta"` | 保存 `coef_delta` / `kkt` 请求，但当前直接拟合忽略此选项，见下文直接拟合限制 |
+| `inference_method` | `"debiased"` | `post_selection_ols` / `debiased` / `bootstrap`；普通 `auto` 解析为 `debiased`。设置 `enable_simultaneous_inference=True` 时应显式使用 `debiased`，构造函数当前拒绝 `auto`。`cpu_ols` 和 `gpu_ols` 暂时作为弃用别名接受 |
+| `nodewise_alpha` | `None` | 去偏推断中逐节点 Lasso 的惩罚强度 |
+| `n_bootstrap` | `200` | 残差自助法重拟合次数，至少为 2 |
+| `bootstrap_random_state` | `None` | 残差自助法随机种子 |
+| `enable_simultaneous_inference` | `False` | 是否启用同时推断（仅 `debiased`） |
+| `simultaneous_method` | `"maxz_bootstrap"` | 同时推断方法；当前为 `maxz_bootstrap` |
+| `simultaneous_alpha` | `0.05` | 同时推断的族错误率水平，必须严格位于 `(0,1)` |
+| `simultaneous_n_bootstrap` | `1000` | max-\|Z\| 乘子自助法的抽样次数，必须为正整数 |
+| `simultaneous_random_state` | `None` | 同时推断随机种子 |
+| `simultaneous_include_intercept` | `False` | 是否把去偏截距纳入同时推断目标集合 |
+| `device` | `"auto"` | `auto` / `cpu` / `cuda`（CuPy）/ `torch`（Torch CUDA） |
+| `n_jobs` | `None` | 共享 CPU 工作线程设置，不选择求解器，也不保证并行拟合 |
+| `compute_inference` | `True` | 是否计算拟合后推断 |
+| `solver` | `"fista"` | 与后端无关的直接拟合求解器；CPU 坐标下降使用 `coordinate_descent` |
+| `cpu_solver` | `"coordinate_descent"` | **弃用兼容参数**；不再决定直接拟合算法，请改用 `solver` |
+| `lipschitz_L` | `None` | 兼容迭代求解器可使用的显式 Lipschitz 常数 |
+| `admm_rho` | `1.0` | 当前仅被保存，统一 ADMM 忽略此值，以 rho=1.0 启动。是否自适应调整取决于求解方式；直接 Cholesky 求解保持 rho 不变 |
+| `gpu_memory_cleanup` | `False` | 在支持的路径上，拟合后是否请求释放可回收的 GPU 缓存内存 |
+
+`nodewise_alpha` 只能按关键字传入。Lasso 是仅含 L1 惩罚的包装类，
+不能照搬 ElasticNet 的完整构造参数：`l1_ratio`、`cov_type`、`hac_maxlags`、
+`initial_coef` 都不是 Lasso 的构造/拟合控制参数。它采用默认非稳健推断配置。
+目标函数、调参建议与统计解释见[入门页](../models/lasso.md)。
+
+### Lasso 方法与形状
+
+| 方法 | 输入与返回约定 |
+|---|---|
+| `fit(X=None,y=None,sample_weight=None,formula=None,data=None)` | 返回 `self`。数组输入为有限数值 X `(n,p)`、一维 y `(n,)`；可选分析权重 `(n,)` 须有限、非负且总和为正。也可用 formula/data，详见[公式输入](#formula-inputs)。不要混用两种输入；当前公式解析会覆盖数组而不报告冲突。 |
+| `predict(X,return_cpu=True)` | X 为按训练特征顺序排列的 `(m,p)`，公式拟合后也可传预测 DataFrame。返回 `(m,)`；默认返回 NumPy，包括 GPU 拟合后的预测。`return_cpu=False` 保留拟合所用 NumPy/CuPy/Torch 数值后端。 |
+| `score(X,y,sample_weight=None)` | 评价数据上的 R²，返回 Python 浮点数。y 应为一维 `(m,)`，响应与权重使用 NumPy/主机数据。评价权重不会自动继承训练权重；请自行验证长度 m、有限、非负且总和为正。当前评分可能接受负权重并返回无效 R²。 |
+| `summary()` | 打印系数/推断表并返回 `None`；需要成功计算推断，仅完成预测拟合还不够。 |
+| `get_params(deep=True)`、`set_params(**params)` | 前者返回构造配置字典，后者更新并返回自身；非空合法更新会重置拟合状态，预测前须重新拟合。详见[参数管理](estimator-api.md)。 |
+| `adjust_pvalues`、`combine_pvalues`、`bootstrap_statistic`、`permutation_test` | 继承的辅助方法接收显式/缓存 p 值或显式数据。完整签名、参数、返回值与限制见[共享估计器参考](estimator-api.md)。这些方法不会自动重复 Lasso 调参或校正选择不确定性。 |
+
+### Lasso 已拟合结果
+
+拟合截距时 k=p+1，否则 k=p；公式中的截距语法优先于构造设置。
+`coef_` 及下列系数报告数组均为 NumPy，包括 GPU 拟合后的结果。
+
+| 结果 | 形状与含义 |
+|---|---|
+| `coef_`、`intercept_`、`n_iter_` | 惩罚预测斜率 `(p,)`、标量截距（无截距时为零）、迭代次数；均不能证明 KKT 最优性。 |
+| `_params`、`_bse`、`_tvalues` / `_zvalues`、`_pvalues`、`_conf_int` | 推断成功后向量为 `(k,)`，区间为 `(k,2)`。有截距时第 0 行是报告截距，其后为斜率；无截距时每行均按特征顺序对应斜率。未计算推断时可能为 `None`。`_params` 可能是去偏或活跃集重拟合参数，不是惩罚预测参数。 |
+| `_inference_result` | 包含 `params`、`bse`、`statistic`、`pvalues`、`conf_int`、`method`、`distribution`、`metadata`；据此判断实际程序与目标。 |
+| `nodewise_alpha_` | 多特征去偏推断成功后解析出的逐节点惩罚；单特征或其他推断路径为 `None`。 |
+| `_conf_int_simultaneous` | 启用去偏同时推断后的联合区间，采用 `(k,2)` 报告布局。有截距但未纳入目标集合时，该行仍为边际区间；纳入时截距参与 max-\|Z\| 校准。普通 `_conf_int` 始终为边际区间。 |
+| `inference_requested_method_`、`inference_resolved_method_`、`inference_method_`、`inference_target_`、`penalty_conditioning_`、`penalty_selection_adjusted_` | 支持的报告路径所记录的方法/目标属性。`post_selection_ols` 成功后部分值仍可能为 `None`，此时读取 `_inference_result.method` 与元数据。 |
+| `rsquared`、`rsquared_adj`、`fvalue`、`f_pvalue`、`llf`、`aic`、`bic` | 可用时提供训练诊断。加权去偏推断再次中心化工作响应，可能使 R²/F 总离差不准确；优先用原始数据和已验证权重调用 `score`。似然/AIC/BIC/F 不能普遍解释为考虑惩罚有效自由度或选择后的推断标准；状态缺失时可能返回 `None`/NaN。 |
+
+三种推断方法都保留惩罚预测系数。`post_selection_ols` 在已选列上重拟合作诊断；
+`debiased` 修正系数并给出正态参考的边际推断；`bootstrap` 在固定 alpha 下
+重采样经验残差、重新拟合完整惩罚设计。均不会自动校正调参/选择不确定性。
+自助法仅支持无权重、非稳健的高斯模型推断，构造参数包括 `n_bootstrap` 与
+`bootstrap_random_state`。
+
+`fit_intercept=True` 时，同时去偏推断复用拟合所用 NumPy/CuPy/Torch 后端。
+结果元数据可包含 `simultaneous_numerical_backend`、`simultaneous_numerical_device`、
+`simultaneous_reporting_backend`、`simultaneous_reporting_boundary`。
+`fit_intercept=False` 时，同时计算改用 NumPy 主机辅助程序，
+即使边际推断在 GPU 上完成也如此。
+
+当前直接拟合的 `stopping` 选项不生效：高斯 CPU FISTA/坐标下降与 GPU FISTA
+检查系数变化，ADMM 检查原始/对偶残差。单独的 Lasso CV/路径辅助算法
+不能为直接拟合或最终重拟合提供 KKT 认证。`admm_rho` 被保存但被统一 ADMM
+忽略，实际以 rho=1.0 启动。是否自适应调整取决于求解方式；平方误差的直接
+Cholesky 求解保持 rho 不变，详见 [Lasso 求解限制](../models/lasso.md)。
 
 ## ElasticNet
 
@@ -95,7 +176,7 @@ ElasticNet(alpha=1.0, l1_ratio=0.5, fit_intercept=True, max_iter=1000, tol=0.000
 | `fit_intercept` | `True` | 不惩罚截距；公式拟合由公式语法控制。 |
 | `max_iter` | `1000` | 求解器正整数迭代预算。 |
 | `tol` | `1e-4` | 正数收敛容差。 |
-| `stopping` | `"coef_delta"` | `coef_delta` 或 `kkt`；按系数变化或 KKT 条件停止。 |
+| `stopping` | `"coef_delta"` | 保存 `coef_delta` / `kkt` 请求；当前直接高斯拟合忽略此选项，FISTA/坐标下降检查系数变化，ADMM 检查原始/对偶残差。 |
 | `device` | `"auto"` | `cpu`/`cuda`（CuPy）/`torch`（Torch CUDA）/`auto`；显式 GPU 请求要求相应后端可用。 |
 | `n_jobs` | `None` | 共享 CPU 工作线程配置；不选择求解器，也不保证这些包装类会并行拟合。 |
 | `solver` | `"fista"` | 与后端独立的求解器；其他取值依组合而定，见求解器与惩罚兼容矩阵。 |
@@ -118,7 +199,7 @@ ElasticNet(alpha=1.0, l1_ratio=0.5, fit_intercept=True, max_iter=1000, tol=0.000
 | `_params`、`_bse`、`_tvalues`、`_zvalues`、`_pvalues`、`_conf_int` | 报告参数及不确定性，不一定等于预测系数。通常为 `(k,)`，区间为 `(k,2)`，截距优先；具体可用项依推断方法而定。 |
 | `_inference_result`、`nodewise_alpha_` | 结构化结果（`params`、`bse`、`statistic`、`pvalues`、`conf_int`、`method`、`distribution`、`metadata`）与多特征时实际使用的逐节点调参值。 |
 | `inference_requested_method_`、`inference_resolved_method_`、`inference_method_`、`inference_target_`、`penalty_conditioning_`、`penalty_selection_adjusted_` | 去偏和 bootstrap 推断会记录公开的方法/目标字段。当前 `post_selection_ols` 即使推断成功，`inference_method_` 与 `inference_target_` 也可能仍为 `None`；应读取 `_inference_result.method` 和 `_inference_result.metadata`。这些属于报告属性，不是构造参数。 |
-| `rsquared`、`rsquared_adj`、`fvalue`、`f_pvalue`、`llf`、`aic`、`bic` | 可用的拟合诊断。AIC/BIC/F 为兼容性代入式汇总，不是通用的惩罚有效自由度或选择性推断准则；状态缺失可能返回 `None`/NaN。 |
+| `rsquared`、`rsquared_adj`、`fvalue`、`f_pvalue`、`llf`、`aic`、`bic` | 可用的拟合诊断。加权纠偏推断后的 `rsquared`/`rsquared_adj` 使用再次中心化的工作响应，不一定等于原始加权 R²；应验证权重后调用 `score(X,y,sample_weight=weights)`，见[加权诊断](../models/elastic-net.md#加权训练诊断)。AIC/BIC/F 为兼容性代入式汇总，不是通用的惩罚有效自由度或选择性推断准则；状态缺失可能返回 `None`/NaN。 |
 
 <a id="covariance-and-inference-behavior"></a>
 
@@ -251,7 +332,7 @@ assert np.isclose(logit.best_score_, -np.nanmin(logit.mean_loss_))
 <a id="formula-inputs"></a>
 
 ## 公式输入
-本页只有 LinearRegression 与直接 ElasticNet 支持公式。两者均应只传 `formula`/`data`，不要同时传数组 X/y；当前公式解析会直接覆盖这些数组而不报告冲突。需要可选 pandas/patsy 依赖。`formula="y ~ x + C(group)"` 描述数值/分类项；`~ 0 + ...` 去掉截距，不受构造参数覆盖。交互项与转换遵循 Patsy 语法。公式拟合可能删除相关项缺失的行。权重可对应原始全部行或恰好保留的行，按位置对齐，不按任意 Series 标签对齐。
+本页 LinearRegression、直接 Lasso 与直接 ElasticNet 支持公式。三者均应只传 `formula`/`data`，不要同时传数组 X/y；当前公式解析会直接覆盖这些数组而不报告冲突。需要可选 pandas/patsy 依赖。`formula="y ~ x + C(group)"` 描述数值/分类项；`~ 0 + ...` 去掉截距，不受构造参数覆盖。交互项与转换遵循 Patsy 语法。公式拟合可能删除相关项缺失的行。权重可对应原始全部行或恰好保留的行，按位置对齐，不按任意 Series 标签对齐。
 
 预测 DataFrame 会重建设计矩阵与原有分类水平。未知水平或导致预测删行的缺失值会报错；数组预测则须传入按训练顺序编码好的非截距列。转换与水平定义须保持一致。LogisticRegression 及两个 CV 包装类没有公式参数，应先构建设计矩阵并防止预处理泄漏。
 
@@ -259,11 +340,11 @@ assert np.isclose(logit.best_score_, -np.nanmin(logit.mean_loss_))
 ```python
 import numpy as np
 import pandas as pd
-from statgpu import LinearRegression, ElasticNet
+from statgpu import LinearRegression, ElasticNet, Lasso
 
 df = pd.DataFrame({"x": np.arange(12.0), "group": ["a", "b"] * 6})
 df["y"] = 1.0 + 2.0 * df["x"] + (df["group"] == "b").astype(float)
-for cls in (LinearRegression, ElasticNet):
+for cls in (LinearRegression, ElasticNet, Lasso):
     model = cls(device="cpu", compute_inference=False)
     model.fit(formula="y ~ x + C(group)", data=df)
     assert model.predict(df.iloc[:3]).shape == (3,)

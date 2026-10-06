@@ -2,6 +2,7 @@
 
 > Language: English
 > Last updated: 2026-10-05
+> Switch: [Chinese](../../cn/unsupervised/minibatch-kmeans.md)
 > Path: `statgpu.unsupervised.MiniBatchKMeans`
 
 ## Overview
@@ -81,6 +82,8 @@ The current implementation supports dense Euclidean data only. Sparse input, sam
 
 
 ## Numerical and lifecycle cautions
+
+Explicit initial centers must be finite. The current implementation checks their shape but does not reliably reject NaN or infinity: `partial_fit` can return non-finite centers and inertia. For NumPy initial centers, check `np.isfinite(initial_centers).all()` before construction; reject or correct invalid values before fitting. Ordinary `fit` may hide the invalid initialization through its final polishing steps, so a finite result is not a substitute for this input check.
 
 Squared distances are evaluated through expanded norms. A large shared offset can cause cancellation, changing distances, inertia and potentially labels. Subtract a training-derived feature offset before fitting and use that same offset for prediction; this preserves Euclidean geometry. Centers can be reported in original units by adding the offset back.
 

@@ -182,13 +182,17 @@ print(proba.shape, model.converged_, model.score(X), model.bic(X))
 
 ## 数值与使用注意事项
 
+`reg_covar=0` 会取消协方差保护，只适用于初始化及后续更新的协方差始终正定的情况。全常量数据、对角模型中的常量特征或塌缩的混合成分都可能破坏这一条件。当前对角和球形路径可能从 `fit` 正常返回，但协方差、密度和责任概率为 NaN；完整和共享协方差路径则可能抛出线性代数错误。对此类数据应保留正的 `reg_covar`，并在使用结果前检查协方差、`score_samples(X)` 和 `predict_proba(X)` 是否全部有限。仅仅返回了估计器，并不代表拟合结果可用。
+
 对角和球形协方差更新使用原始二阶矩，对角密度公式也会对较大的二次项相减。当偏移远大于簇内变化时，即使 `converged_` 为真，协方差和似然也可能错误。应先减去由训练数据确定的偏移，并在后续评分时复用；平移不会改变目标混合密度。增大 `reg_covar` 不能修复这种消减误差。
 
 ## 完整 API 参考
 
 构造默认值、全部公开方法、输出形状与限制见 [GaussianMixture API 参考](api-reference.md#gaussianmixture)。
 
-## References
+<a id="references"></a>
+
+## 参考文献
 
 - Dempster, A. P., Laird, N. M., & Rubin, D. B. (1977). Maximum likelihood from incomplete data via the EM algorithm. *Journal of the Royal Statistical Society: Series B (Methodological)*, 39(1), 1-22. https://doi.org/10.1111/j.2517-6161.1977.tb01600.x
 - McLachlan, G. J., & Peel, D. (2000). *Finite Mixture Models*. Wiley Series in Probability and Statistics. Wiley.

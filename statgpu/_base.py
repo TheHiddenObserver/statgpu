@@ -649,7 +649,9 @@ class BaseEstimator(ABC):
             Adjustment method: ``bh``, ``by``, ``holm``, ``bonferroni``, or
             ``hochberg`` (aliases accepted).
         alpha : float, default=0.05
-            Rejection threshold in (0, 1).
+            Finite rejection threshold in (0, 1). Validate before calling:
+            the current implementation can accept NaN and return all-false
+            rejection decisions.
         axis : int or None, default=0
             Axis along which to adjust. ``None`` flattens all entries.
         backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
@@ -718,6 +720,9 @@ class BaseEstimator(ABC):
         weights : array-like, optional
             Finite nonnegative weights with positive total for Cauchy or
             Stouffer, aligned with the reduction axis. Fisher rejects weights.
+            Divide large weights by their positive maximum before calling:
+            current Cauchy sums or Stouffer squared norms can overflow even
+            when every supplied weight is finite.
         axis : int or None, default=None
             Axis along which to combine p-values. ``None`` flattens input.
         backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'

@@ -61,10 +61,12 @@ class KernelRegression(BaseEstimator):
         accepts one width per feature (or broadcasts a scalar), and bypasses
         the bandwidth selector.
     backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
-        Array library. auto follows estimator/global device settings; explicit
-        Torch library selection alone is not proof of CUDA placement.
+        Array library. auto consults estimator/global device settings, but an
+        explicit library can override device. See current exceptions below.
     device : {'auto', 'cpu', 'cuda', 'torch'}, default='auto'
-        Device for automatic backend resolution; prefer matching settings.
+        Requested computation device. The intended convention requires an
+        explicit accelerator or an error; current routing does not always
+        enforce it, even with matching backend and device settings.
     n_jobs : int or None, default=None
         Shared estimator option; does not create a parallel query pool.
     batch_size : int, default=1024
@@ -103,10 +105,23 @@ class KernelRegression(BaseEstimator):
 
     Notes
     -----
+    With NumPy or Torch CPU inputs, device='torch' and backend='auto' or
+    'torch' can fit and predict on Torch CPU. Explicit backend='torch' can
+    also run on CPU with device='cuda'; backend='numpy' overrides either
+    accelerator request. Inspect samples_ and prediction arrays, using
+    Torch .device/.is_cuda or CuPy .device; NumPy arrays are on CPU. Neither
+    the configured device nor backend_ proves CUDA placement. For a
+    predictable CPU path, use NumPy inputs with device='cpu', backend='numpy'.
+
     No global coefficient vector or coefficient inference is produced.
     Local-linear instability may use stabilization or an NW fallback. Center
     large-offset coordinates with a shared training-derived offset. Neither
     fallback is evidence of reliable extrapolation.
+    Torch currently raises TypeError for explicit weights and for scalar or
+    vector bandwidth_per_feature. Use backend='numpy' with CPU arrays for
+    those settings; omitting the weights or widths changes the requested fit.
+    Multivariate Torch queries must have shape (n_query,p), including (1,p)
+    for one query, because the one-dimensional vector check raises TypeError.
     """
 
     def __init__(
@@ -608,7 +623,9 @@ class KernelRegression(BaseEstimator):
         """Return backend-native local-mean predictions at finite points.
 
         points is (n_query,n_features). A vector means many one-feature queries
-        or one multivariate query of matching length. The output is (n_query,)
+        or one multivariate query of matching length. For Torch, use an explicit
+        (n_query,p) matrix instead of a multivariate vector, whose current
+        shape check raises TypeError. The output is (n_query,)
         for an originally 1D target and (n_query,n_targets) for a target matrix.
         batch_size and min_effective_weight default to their constructor values;
         explicit positive values override them for this call only. The weight

@@ -27,7 +27,7 @@ model.adjust_pvalues(pvalues=None, method="bh", alpha=0.05, axis=0, backend="aut
 
 - `pvalues`: finite probabilities in `[0, 1]`; `None` uses `model._pvalues`. If unavailable, pass values explicitly or fit with supported inference enabled; otherwise `RuntimeError`.
 - `method`: `"bh"`, `"by"`, `"holm"`, `"bonferroni"`, or `"hochberg"`; supported aliases are described in [multiple testing](../guides/multiple-testing-combine-pvalues.md).
-- `alpha`: significance level in `(0, 1)`.
+- `alpha`: finite significance level in `(0, 1)`. Validate it before calling: the current implementation can accept NaN and return all-false rejection decisions. See the [finite-alpha example](../guides/multiple-testing-combine-pvalues.md#a-complete-axis-and-weight-example).
 - `axis=0`: adjust along the first axis; `None` treats every entry as one family. Choose the family deliberately, especially for multi-output coefficient arrays.
 - `backend`: `"auto"`, `"numpy"`, `"cupy"`, or `"torch"`; `auto` explicitly selects CuPy/Torch when the estimator resolves to that GPU device. When it resolves to CPU, the helper currently leaves backend selection to the supplied arrays; pass `backend="numpy"` to require NumPy output. Explicit `backend="torch"` on an estimator helper requires Torch CUDA, even for a CPU estimator.
 
@@ -39,7 +39,7 @@ Returns a dictionary with `method`, `alpha`, `axis`, `backend`, `pvalues`, `pval
 model.combine_pvalues(pvalues=None, method="fisher", weights=None, axis=None, backend="auto")
 ```
 
-`pvalues` and `backend` have the meaning above. `method` is `"fisher"`, `"cauchy"`, or `"stouffer"` (aliases in the multiple-testing guide). `weights=None` uses the method's equal-weight convention; supplied finite nonnegative weights must align with the reduction axis and have positive total weight for weighted methods. Fisher requires `weights=None`; supplying weights raises `ValueError`. `axis=None` flattens; an integer reduces that axis.
+`pvalues` and `backend` have the meaning above. `method` is `"fisher"`, `"cauchy"`, or `"stouffer"` (aliases in the multiple-testing guide). `weights=None` uses the method's equal-weight convention; supplied finite nonnegative weights must align with the reduction axis and have positive total weight for weighted methods. Fisher requires `weights=None`; supplying weights raises `ValueError`. Very large finite weights can overflow the raw normalization sum used by both Cauchy and Stouffer; rescale them by their positive maximum before calling, as shown in [safe weight scaling](../guides/multiple-testing-combine-pvalues.md#validate-and-rescale-combination-weights). `axis=None` flattens; an integer reduces that axis.
 
 Returns a dictionary with `method`, `axis`, `backend`, `pvalues`, `weights`, `statistic`, and `pvalue`; the last two are scalars when flattening and otherwise have the reduced shape. The module function instead returns `(statistic, pvalue)`. Fisher/Stouffer calibration requires appropriate dependence assumptions; combining p-values does not repair invalid underlying tests.
 

@@ -5,11 +5,11 @@ All notable changes to statgpu are documented here, organized by release and dat
 ## Unreleased — 2026-10-05
 
 ### PR #168 — Completed learner documentation across nine topics
-- Improved bilingual model guides, distribution API examples and unsupervised model-selection navigation; corrected documented contracts and added executable CPU example regressions without changing numerical implementations.
-- Refined Chinese statistical explanations, distinguished Cox score-residual calculations from asymptotic inference, corrected Exact dynamic-programming cost wording, and moved implementation history and source-bound validation details to a developer reference.
-- Corrected ElasticNet bootstrap backend and retained-initialization documentation, aligned GaussianMixture covariance option names, clarified the CPU DBSCAN neighbor-search dependency, and added public-API documentation regressions.
-- Clarified that LinearRegression flattens a one-column response during fitting but requires a one-dimensional response for single-target scoring; added matching bilingual examples and regression coverage for the scoring workaround without changing production behavior.
-- Added bilingual runtime-checked API references and self-contained workflows, completed public help, and corrected CV/shared-helper/output/lifecycle and statistical contracts. Further review clarified Cox penalty scaling, generic resampling units, Torch distribution fallbacks, invalid tuning results, weighted density/scoring, and unsupervised initialization/distance limits with tested safe workflows while preserving executable numerical code. A further cross-page pass corrected multiple-testing calibration, kernel/spline formulas and public inference provenance, and documented seeded-cache, streaming, grouping-label and tuning limitations.
+- Improved bilingual learner guides, distribution workflows and navigation across linear models, feature selection, survival, smoothing and twelve unsupervised methods.
+- Added runtime-checked API references, complete argument/output guidance, mathematical definitions and self-contained examples with CPU regressions.
+- Corrected inference targets, covariance and resampling interpretation, weighted diagnostics, tuning/state boundaries and installed help; clarified current oracle-refit, direct solver-control, fixed-X centering, device-routing, spline, p-value-weight and singular-fit limitations with tested alternatives.
+- Refined natural Chinese explanations and cross-page consistency, corrected the Poisson result-reporting example, and documented safe prediction, scoring, initialization and geometry workflows.
+- Moved historical implementation/validation details to developer references, registered distinct underlying defects separately, and preserved all executable production code and dependency metadata.
 
 ## Unreleased — 2026-09-20
 

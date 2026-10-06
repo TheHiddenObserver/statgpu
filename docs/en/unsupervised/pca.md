@@ -120,7 +120,7 @@ PCA has no statistical strict inference mode. Exactness refers to the decomposit
 Eigenvectors and singular vectors are sign-indeterminate. Validation must compare subspaces or use sign-aware comparisons.
 
 **What does whitening do?**
-It scales transformed scores by `1 / sqrt(explained_variance_)`, producing unit-variance component scores under the fitted model.
+It divides transformed scores by `sqrt(explained_variance_)`. For accurately resolved positive directions from an exact decomposition, training scores have unit sample variance. With the randomized solver this is approximate; oversampling and power iterations affect the approximation. Whitening does not force the covariance of new observations to be the identity.
 
 
 ## Numerical and lifecycle cautions

@@ -1,26 +1,39 @@
 # 设备与 GPU 内存
 
 > 语言：中文  
-> 最后更新：2026-09-17  
+> 最后更新：2026-10-05  
 > 页面定位：设备选择与用户可见的 GPU 内存控制  
 > 切换：[English](../../en/guides/device-and-memory.md)
 
 ## 设备选择
 
-对于提供 `device` 参数的估计器，statgpu 统一采用以下含义：
+对于提供 `device` 参数的估计器，statgpu 的预期设备约定如下：
 
 - `device="cpu"`：请求使用 NumPy 在 CPU 上计算；
 - `device="cuda"`：请求使用 CuPy 在 CUDA GPU 上计算；
 - `device="torch"`：请求使用 Torch CUDA 计算；
 - `device="auto"`：允许 statgpu 在该估计器支持且当前可用的后端中自动选择。
 
-用户显式指定的加速器请求具有优先权。如果请求的 CuPy/Torch CUDA 后端不可用，statgpu 会报错，而不是静默改为 CPU 拟合。
+按此约定，显式加速器请求应具有优先权：请求的 CuPy/Torch CUDA 后端不可用时应报错，不能静默改为 CPU 计算。但以下估计器目前存在例外，仅查看 `device` 设置不能确定实际使用的硬件。
+
+<a id="current-smoothing-and-spline-exceptions"></a>
+
+### 核平滑、核特征与样条的当前例外
+
+- `KernelDensityEstimator`（含 `KDE`）和 `KernelRegression`（含 `KernelRegressionRegressor`）处理 NumPy 或 Torch CPU 输入时，即使设置 `device="torch"` 且 `backend="auto"` 或 `"torch"`，仍可能在 Torch CPU 上拟合。`device="cuda"` 搭配显式 `backend="torch"` 也可能在 CPU 上执行；显式 `backend="numpy"` 会覆盖这两种加速器请求，返回 NumPy CPU 数组。
+- `SplineTransformer` 优先遵循传入的 Torch 张量。因此，Torch CPU 输入即使搭配 `device="torch"` 或 `"cuda"`，拟合节点与变换特征仍可能留在 CPU 上。相同设备请求改用 NumPy 输入时，如果加速器不可用，则可能直接报错。
+
+- `KernelPCA` 与 `Nystroem` 在 Torch CUDA 不可用时会拒绝 `device="torch"`。但通过可用性检查后，NumPy 或 Torch CPU 输入仍可能得到 Torch CPU 特征，因为这些路径未始终将输入移到请求的设备。选中 Torch 库或解析到 CUDA 后端，都不能证明张量实际位于 GPU。
+
+这些估计器需要在拟合和预测/变换后检查实际数组。KDE/核回归应检查 `samples_` 以及返回的密度/预测；`SplineTransformer` 应检查 `knots_` 中的各数组和变换后的基矩阵；`KernelPCA`/`Nystroem` 应检查 `fit_transform`、`transform` 或 `predict` 返回的特征。后两者的公开拟合数组按设计保留为 NumPy，不能用来判断数值计算所在设备。Torch 张量查看 `.device` 与 `.is_cuda`，CuPy 数组查看 `.device`，NumPy 数组位于 CPU。`model.device` 或 `backend_="torch"` 这样的库名称都不能证明 CUDA 执行。若分析必须使用加速器，应在使用结果前拒绝 CPU 输出。需要明确的 CPU 路径时，请传入 NumPy 数组并设 `device="cpu"`；KDE/核回归还应设置 `backend="numpy"`。
+
+以上是当前的设备分派限制，不是 `device="torch"` 或 `device="cuda"` 的新含义。其他限制见[核平滑](../models/nonparametric.md#可选-gpu-路径与外部对照)、[核特征](../models/kernel-methods.md#后端与执行边界)与[样条](../models/splines.md#后端执行与验证边界)。
 
 具体模型支持的后端范围可能比通用的 `device` 取值更窄；如果应用必须使用某个后端，请查看对应模型页或 [已实现方法](implemented-methods.md)。
 
 ## 输入转换与预处理
 
-公式（Formula）/DataFrame 解析和其他元数据准备可以先在 CPU 上完成。这并不改变模型数值计算所使用的后端：进入受支持的数值路径之前，模型数组会按照请求转换到相应后端。
+公式（Formula）/DataFrame 解析和其他元数据准备可以先在 CPU 上完成。按预期设备约定，模型数组随后应转换到请求的数值后端；上述核平滑/核特征/样条例外并未始终执行这一转换，须检查实际数组所在设备。
 
 NumPy、CuPy 与 Torch 之间的数据传输可以在内部采用优化机制。应用代码应依赖最终的设备语义，而不要依赖某一种具体传输实现，例如 DLPack 或固定页内存（pinned memory）。
 
@@ -28,7 +41,7 @@ NumPy、CuPy 与 Torch 之间的数据传输可以在内部采用优化机制。
 
 `device="auto"` 可以根据后端可用性、输入规模、工作量特征以及估计器专属的性能规则自动选择执行后端。具体的规模阈值属于实现细节，可能随着数值内核和基准测试结果的改进而变化。
 
-如果应用需要可复现的硬件放置，应显式指定 `device`，而不是依赖内部的自动切换阈值。
+如果应用需要可复现的硬件放置，应显式指定 `device`，而不是依赖内部的自动切换阈值；对上述核平滑/核特征/样条例外，还须检查已拟合数组与输出数组的实际设备。
 
 ## 求解器兼容性另见专门文档
 

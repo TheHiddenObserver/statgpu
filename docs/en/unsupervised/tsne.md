@@ -2,6 +2,7 @@
 
 > Language: English
 > Last updated: 2026-10-05
+> Switch: [Chinese](../../cn/unsupervised/tsne.md)
 > Path: `statgpu.unsupervised.TSNE`
 
 ## Overview

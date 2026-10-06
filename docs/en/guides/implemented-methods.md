@@ -1,6 +1,6 @@
 # Implemented Methods
 
-> Last updated: 2026-09-17  
+> Last updated: 2026-10-05  
 > Switch: [Chinese](../../cn/guides/implemented-methods.md)
 
 This page is the public inventory of models, functions, and major solver families available in statgpu. Detailed mathematics, inference scope, and compatibility rules live on the linked model and guide pages.
@@ -103,7 +103,8 @@ See [Panel Data Models](../models/panel.md) for model choice, covariance, rank-d
 
 ## Nonparametric and Semiparametric Methods
 
-- `KernelDensity` and kernel regression
+- `KernelDensityEstimator` / `KDE`
+- `KernelRegression` / `KernelRegressionRegressor`
 - `KernelRidge` and `KernelRidgeCV`
 - `KernelPCA`
 - `Nystroem`
@@ -117,7 +118,9 @@ See [Panel Data Models](../models/panel.md) for model choice, covariance, rank-d
 - `NMF`, `MiniBatchNMF`
 - `KMeans`, `MiniBatchKMeans`, `DBSCAN`
 - `GaussianMixture`, `AgglomerativeClustering`
-- `UMAP`, `TSNE`, `NNDescent`
+- `UMAP`, `TSNE`
+
+UMAP can use an internal approximate NNDescent search through `nn_method="nndescent"`. NNDescent is not a separate public estimator export; see the [UMAP support limits](../unsupervised/umap.md).
 
 ## Survival Analysis
 

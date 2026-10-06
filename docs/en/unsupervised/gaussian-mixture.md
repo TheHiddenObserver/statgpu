@@ -173,6 +173,8 @@ GMM has likelihood scores but no strict inference covariance or p-value mode. EM
 
 ## Numerical and lifecycle cautions
 
+`reg_covar=0` removes covariance protection and is suitable only when the initial and updated covariances remain positive definite. Constant data, constant features in a diagonal model, or collapsed components can violate that requirement. The current diagonal/spherical paths can then return from `fit` with NaN covariance, density and responsibility values; full/tied paths can raise a linear-algebra error. Keep a positive `reg_covar` for such data, and check that fitted covariances, `score_samples(X)` and `predict_proba(X)` are finite before using the result. A returned estimator alone is not evidence of a usable fit.
+
 Diagonal and spherical covariance updates use raw second moments; the diagonal density formula also subtracts large quadratic terms. Large offsets relative to within-cluster spread can therefore produce wrong covariance and likelihood values even when `converged_` is true. Center features using a training-derived offset and reuse it for later scoring; translation preserves the intended mixture densities. `reg_covar` cannot repair this cancellation.
 
 ## Complete API reference

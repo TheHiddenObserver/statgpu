@@ -320,6 +320,11 @@ def combine_pvalues(
         Finite nonnegative weights with positive sum for method='cauchy'
         or 'stouffer', matching the combination-axis length. They are
         normalized internally. Fisher rejects supplied weights.
+        Validate a nonempty one-dimensional vector, then divide by its
+        largest positive entry before calling: the current normalization
+        can overflow for individually finite large weights and return a
+        wrong Cauchy p-value or NaN Stouffer result. Positive common scaling
+        preserves the intended relative-weight calculation.
     axis : int or None, default=None
         Axis along which to combine p-values. If None, flattens all values.
     backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'

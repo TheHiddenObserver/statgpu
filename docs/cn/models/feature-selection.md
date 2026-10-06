@@ -117,6 +117,11 @@ BIC 下降解释了为什么搜索接受这两次加入。本次模拟恢复了�
 | `aic_history_`、`bic_history_` | 初始状态及每次接受后的信息准则值。 |
 | `selection_history_` | 字典列表，包含 `action`、`feature`、`features`、`aic`、`bic`；初始记录为 `action="initial"`、`feature=None`。 |
 
+调用 `transform`、`predict`、`score` 时，应保留训练时的原始列数与列顺序。
+这些方法当前不检查原始列数；更宽的矩阵，或仍包含全部所选位置索引的更窄矩阵，
+都可能被直接接受。不要把已经选过列的矩阵再次传给选择器。若列顺序与所选训练列
+一致，可以把它直接传给 `best_model_`。
+
 `StepwiseSelector` 和 `stepwise_selection` 可从 `statgpu` 或
 `statgpu.feature_selection` 导入。便捷函数
 `stepwise_selection(X, y, model_class=LinearRegression, criterion="aic", direction="both", **model_kwargs)`

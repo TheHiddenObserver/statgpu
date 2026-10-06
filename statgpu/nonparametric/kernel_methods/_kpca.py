@@ -23,7 +23,8 @@ class KernelPCA(BaseEstimator):
     Parameters
     ----------
     n_components : int, default=2
-        Number of components to extract.
+        Maximum number of positive directions to retain; the output can
+        have fewer columns when eigenvalues are below the numerical cutoff.
     kernel : str or callable, default='rbf'
         Kernel function name or callable.
     gamma : float, optional
@@ -33,21 +34,34 @@ class KernelPCA(BaseEstimator):
     coef0 : float, default=1
         Independent term (for poly and sigmoid kernels).
     alpha : float, default=1.0
-        Regularization parameter.  Adds ``alpha * I`` to the kernel
-        matrix before eigendecomposition for numerical stability.
+        Nonnegative diagonal shift added before eigendecomposition for
+        numerical stability, then removed from reported eigenvalues.
+        This is not inverse-transform regularization.
     eigen_solver : str, default='auto'
         Eigensolver to use: ``'auto'`` or ``'dense'``.
     device : str or Device, default='auto'
-        Computation device.
+        Requested device: 'cpu' (NumPy), 'cuda' (CuPy CUDA), 'torch'
+        (Torch CUDA), or 'auto'. Unavailable explicit backends raise.
+        After the Torch CUDA availability check succeeds, NumPy or Torch
+        CPU input can still stay on CPU. Inspect returned features with
+        .device/.is_cuda; the selected backend does not prove placement.
+        Public fitted arrays are deliberately NumPy, so inspect outputs
+        instead. For a predictable CPU path use NumPy input, device='cpu'.
+    n_jobs : int or None, default=None
+        Shared estimator option; does not parallelize fitting.
 
     Attributes
     ----------
-    lambdas_ : ndarray, shape (n_components,)
-        Eigenvalues of the centered kernel matrix.
-    alphas_ : ndarray, shape (n_samples, n_components)
-        Eigenvectors of the centered kernel matrix (normalized).
-    X_fit_ : ndarray, shape (n_samples, n_features)
-        Training data (stored for transform).
+    lambdas_ : numpy.ndarray, shape (k,)
+        Retained positive centered-kernel eigenvalues on the host. Here k is
+        the retained count, k <= min(n_components, n_samples); only values
+        above 1e-12 are kept. No positive directions raises ValueError.
+    alphas_ : numpy.ndarray, shape (n_samples, k)
+        Host projection coefficients V / sqrt(lambda), where V contains
+        unit-norm eigenvectors and lambda the retained eigenvalues. These
+        scaled columns are not generally unit-norm eigenvectors.
+    X_fit_ : numpy.ndarray, shape (n_samples, n_features)
+        Host training data stored for transform, even for GPU fitting.
     n_samples_ : int
         Number of training samples.
     n_features_in_ : int
@@ -182,7 +196,13 @@ class KernelPCA(BaseEstimator):
 
         Returns
         -------
-        X_transformed : ndarray, shape (n_samples, n_components)
+        X_transformed : backend array, shape (n_samples, k)
+            Coordinates with k retained positive directions,
+            k <= min(n_components, n_training_samples). The selected backend
+            does not guarantee placement: device='torch' rejects unavailable
+            CUDA, but after that check CPU input can still yield CPU tensors.
+            Inspect output .device/.is_cuda. Fitted lambdas_, alphas_, and
+            X_fit_ remain host NumPy arrays regardless of numerical device.
         """
         self._check_is_fitted()
         backend = self._get_backend(backend="auto")

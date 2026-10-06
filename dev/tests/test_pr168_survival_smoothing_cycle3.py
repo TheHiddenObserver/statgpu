@@ -3,6 +3,7 @@
 The strict xfails identify separately tracked numerical work; this documentation
 change deliberately leaves all executable production code unchanged.
 """
+import re
 from pathlib import Path
 
 import numpy as np
@@ -101,27 +102,47 @@ def test_thin_plate_polynomial_block_is_linear_even_for_order_three():
     assert_allclose(B[:, -3:], np.column_stack([np.ones(3), x]))
 
 
-@pytest.mark.xfail(strict=True, reason="KernelRidge.fit currently ignores sample_weight")
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason="KernelRidge.fit currently ignores sample_weight")
 def test_kernel_ridge_zero_weight_should_equal_excluding_that_observation():
     X = np.array([[-1.0], [0.0], [1.0], [2.0]])
     y = np.array([0.0, 1.0, 8.0, 3.0])
     weights = np.array([1.0, 1.0, 0.0, 1.0])
-    weighted = KernelRidge(alpha=0.7, device="cpu").fit(X, y, sample_weight=weights)
+    try:
+        weighted = KernelRidge(alpha=0.7, device="cpu").fit(X, y, sample_weight=weights)
+    except (ValueError, NotImplementedError) as error:
+        # The linked weight issue accepts an explicit unsupported request.
+        # An unrelated error must fail rather than count as the known defect.
+        message = str(error)
+        if "sample_weight" in message and re.search(
+            r"unsupported|not supported|not implemented", message, re.IGNORECASE,
+        ):
+            return  # Strict XPASS prompts removal of the resolved-defect marker.
+        raise
     omitted = KernelRidge(alpha=0.7, device="cpu").fit(X[weights > 0], y[weights > 0])
     assert_allclose(weighted.predict(X), omitted.predict(X), rtol=1e-10, atol=1e-10)
 
 
-@pytest.mark.xfail(strict=True, reason="KernelRidgeCV may select zero alpha with nonfinite CV evidence")
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason="KernelRidgeCV may select zero alpha with nonfinite CV evidence")
 def test_kernel_ridge_cv_should_not_select_nan_candidate():
-    with np.errstate(divide="ignore", invalid="ignore"):
-        model = KernelRidgeCV(
-            alphas=[0.0, 1.0], cv=2, kernel="linear", random_state=0, device="cpu",
-        ).fit(np.zeros((8, 1)), np.arange(8.0))
+    try:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            model = KernelRidgeCV(
+                alphas=[0.0, 1.0], cv=2, kernel="linear", random_state=0, device="cpu",
+            ).fit(np.zeros((8, 1)), np.arange(8.0))
+    except (ValueError, NotImplementedError) as error:
+        # Rejecting the zero-alpha request is an accepted singular-solve policy.
+        message = str(error)
+        if re.search(r"alphas?", message, re.IGNORECASE) and re.search(
+            r"strictly positive|greater than (?:zero|0)|zero.*(?:unsupported|not supported)|"
+            r"(?:unsupported|not supported).*zero", message, re.IGNORECASE,
+        ):
+            return
+        raise
     assert model.alpha_ == 1.0
     assert np.isfinite(model.best_score_)
 
 
-@pytest.mark.xfail(strict=True, reason="Cyclic projection does not enforce true one-sided boundary derivatives")
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason="Cyclic projection does not enforce true one-sided boundary derivatives")
 def test_cyclic_basis_should_satisfy_analytic_periodicity():
     x = np.linspace(0.0, 1.0, 500)
     knots = np.linspace(0.1, 0.9, 10)

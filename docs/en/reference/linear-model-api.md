@@ -70,8 +70,8 @@ LogisticRegression(fit_intercept=True, C=1.0, max_iter=100, tol=0.0001, device='
 | `classification_table(X,y,threshold=0.5)` | Dictionary: `tn`, `fp`, `fn`, `tp`, `accuracy`, `precision`, `recall`, `specificity`, `f1`, `support_negative`, `support_positive`. Undefined ratio denominators are represented by 0. |
 | `roc_curve(X,y)` | Tuple `(fpr,tpr,thresholds)`; equal-length arrays, decreasing thresholds beginning at infinity. Raises `ValueError` if the evaluation labels do not contain both classes. |
 | `roc_auc_score(X,y)` | Scalar trapezoidal ROC area. |
-| `precision_recall_curve(X,y)` | Tuple `(precision,recall,thresholds)`; equal-length arrays here, decreasing thresholds beginning at infinity with precision=1, recall=0. Do not assume another library's array-length convention. |
-| `average_precision_score(X,y)` | Scalar precision integrated over recall increments. |
+| `precision_recall_curve(X,y)` | Tuple `(precision,recall,thresholds)`; equal-length arrays here, decreasing thresholds beginning at infinity with precision=1, recall=0. Do not assume another library's array-length convention. Requires at least one positive label; all-zero evaluation y raises `ValueError`, while all-one y is accepted. |
+| `average_precision_score(X,y)` | Scalar precision integrated over recall increments; same positive-label requirement as the precision–recall curve. |
 | `evaluate_classification(X,y,threshold=0.5,include_curves=True)` | One probability evaluation; dictionary described below. |
 | `plot_roc_curve(X,y,ax=None,label=None)` | Requires matplotlib; creates or draws on supplied Axes, returns Axes. `label=None` includes computed AUC. |
 | `plot_precision_recall_curve(X,y,ax=None,label=None)` | Same plot contract, with average precision in the default label. |
@@ -82,6 +82,93 @@ Evaluation arrays/scalars use NumPy on CPU and the supported CuPy/Torch backend 
 `evaluate_classification` always returns `threshold`, `confusion_matrix`, `classification_table`, `roc_auc`, `average_precision`. It requires both classes in evaluation y even with `include_curves=False`, because scalar ROC AUC is still computed; otherwise it raises `ValueError`. For a one-class subset use `classification_table` or `confusion_matrix` for threshold metrics. With `include_curves=True`, it adds `roc_curve={fpr,tpr,thresholds}` and `precision_recall_curve={precision,recall,thresholds}`. For external probabilities, use `statgpu.metrics.evaluate_binary_classification(y_true,y_score,threshold=0.5,include_curves=True,backend="auto")` or the top-level alias `statgpu.evaluate_binary_classification`; supply one-dimensional class-1 scores.
 
 Training properties are `loglikelihood`, `loglikelihood_null`, `aic`, `bic`, `pseudo_rsquared`, `accuracy`, `precision`, `recall`, `f1`, `auc`, `average_precision`. `pseudo_rsquared` is McFadden's `1-loglikelihood/loglikelihood_null`, not R² or accuracy. Inference arrays `_bse`, `_zvalues`, `_pvalues` have `(k,)` and `_conf_int` has `(k,2)`, intercept first. They use normal-reference inference around the fitted penalized coefficients when C>0 and remain unavailable when inference is disabled. Training metrics do not measure generalization.
+
+## Lasso
+
+```text
+Lasso(alpha=1.0, fit_intercept=True, max_iter=1000, tol=0.0001, stopping='coef_delta', inference_method='debiased', n_bootstrap=200, bootstrap_random_state=None, enable_simultaneous_inference=False, simultaneous_method='maxz_bootstrap', simultaneous_alpha=0.05, simultaneous_n_bootstrap=1000, simultaneous_random_state=None, simultaneous_include_intercept=False, device='auto', n_jobs=None, compute_inference=True, solver='fista', cpu_solver='coordinate_descent', lipschitz_L=None, admm_rho=1.0, gpu_memory_cleanup=False, *, nodewise_alpha=None)
+```
+
+| Parameter | Default | Description |
+|---|---:|---|
+| `alpha` | `1.0` | Nonnegative L1 regularization strength under average squared loss. |
+| `fit_intercept` | `True` | Whether to fit an intercept. |
+| `max_iter` | `1000` | Maximum optimization iterations. |
+| `tol` | `1e-4` | Convergence tolerance. |
+| `stopping` | `"coef_delta"` | Stored `coef_delta` / `kkt` request; currently ignored by direct-fit stopping checks. See the direct-control note below. |
+| `inference_method` | `"debiased"` | `post_selection_ols` / `debiased` / `bootstrap`; ordinary `auto` resolves to `debiased`. With `enable_simultaneous_inference=True`, explicitly use `debiased`: the constructor currently rejects `auto`. Deprecated `cpu_ols` and `gpu_ols` aliases remain temporarily accepted. |
+| `nodewise_alpha` | `None` | Node-wise Lasso penalty for `debiased` inference. Explicit positive values override the standardized design-side automatic rule. |
+| `n_bootstrap` | `200` | Residual-bootstrap refit count; use at least 2 draws. |
+| `bootstrap_random_state` | `None` | RNG seed for residual-bootstrap inference. |
+| `enable_simultaneous_inference` | `False` | Enable simultaneous inference (debiased only). |
+| `simultaneous_method` | `"maxz_bootstrap"` | Simultaneous-inference method; currently `maxz_bootstrap`. |
+| `simultaneous_alpha` | `0.05` | Simultaneous family-wise error level; must be strictly in `(0, 1)` when simultaneous inference is enabled. |
+| `simultaneous_n_bootstrap` | `1000` | Positive integer multiplier-bootstrap draw count for max-\|Z\| calibration when simultaneous inference is enabled. |
+| `simultaneous_random_state` | `None` | RNG seed for simultaneous bootstrap. |
+| `simultaneous_include_intercept` | `False` | Whether the debiased intercept is included in both the simultaneous target set and max-\|Z\| calibration family. |
+| `device` | `"auto"` | Execution device: `auto`, `cpu`, `cuda` (CuPy), or `torch` (Torch CUDA). |
+| `n_jobs` | `None` | Shared CPU worker setting; not a solver selector or parallel-fit guarantee. |
+| `compute_inference` | `True` | Whether to compute post-fit inference. |
+| `solver` | `"fista"` | Backend-neutral direct-fit solver; use `coordinate_descent` for the CPU CD path or another supported solver as appropriate. |
+| `cpu_solver` | `"coordinate_descent"` | **Deprecated compatibility parameter.** It does not select the current direct-fit algorithm; use `solver` instead. |
+| `lipschitz_L` | `None` | Optional user-supplied Lipschitz constant for compatible iterative solvers. |
+| `admm_rho` | `1.0` | Stored request; unified ADMM currently ignores it and starts with rho=1.0. Adaptation depends on the solver path; the direct Cholesky solve keeps rho fixed. |
+| `gpu_memory_cleanup` | `False` | Best-effort GPU memory cleanup after fit where supported. |
+
+`nodewise_alpha` is keyword-only. This is the L1-only wrapper, not an alias
+for the full ElasticNet constructor: `l1_ratio`, `cov_type`, `hac_maxlags`, and
+`initial_coef` are not Lasso constructor/fit controls. It uses the default
+nonrobust inference configuration. See the [learner page](../models/lasso.md)
+for the objective, tuning guidance and statistical interpretation.
+
+### Lasso methods and shapes
+
+| Method | Input and return contract |
+|---|---|
+| `fit(X=None,y=None,sample_weight=None,formula=None,data=None)` | Returns `self`. Array inputs: finite numeric X `(n,p)` and one-dimensional y `(n,)`; optional analytic weights `(n,)`, finite, nonnegative and with positive sum. Alternatively use formula/data, as described under [formula inputs](#formula-inputs). Do not supply both routes: formula parsing currently replaces array inputs rather than rejecting the conflict. |
+| `predict(X,return_cpu=True)` | X `(m,p)` in the fitted feature order, or a prediction DataFrame after formula fitting. Returns predictions `(m,)`; default is NumPy, including after GPU fitting. `return_cpu=False` preserves the fitted NumPy/CuPy/Torch numerical backend. |
+| `score(X,y,sample_weight=None)` | Python float R² on evaluation data. Use flat `(m,)` y and NumPy/host response and weights. Evaluation weights are separate from training weights. Validate finite, nonnegative length-m weights of positive sum yourself: the current score method can accept negative weights and return invalid R². |
+| `summary()` | Prints a coefficient/inference table and returns `None`; needs successful inference, not merely a prediction fit. |
+| `get_params(deep=True)`, `set_params(**params)` | Constructor configuration dictionary and updates returning self; nonempty valid updates reset fitted state. Refit before predicting. See [parameter management](estimator-api.md#parameter-management). |
+| `adjust_pvalues`, `combine_pvalues`, `bootstrap_statistic`, `permutation_test` | Inherited helpers for supplied/cached p-values or supplied data. Complete signatures, arguments, returns and restrictions are in the [shared estimator reference](estimator-api.md#inference-helpers). They do not repeat Lasso tuning or correct selection uncertainty automatically. |
+
+### Lasso fitted results
+
+Let k=p+1 when an intercept is fitted and k=p otherwise. Formula intercept
+syntax takes precedence over the constructor. `coef_` and all coefficient
+reporting arrays below are NumPy arrays, even after GPU fitting.
+
+| Result | Shape and meaning |
+|---|---|
+| `coef_`, `intercept_`, `n_iter_` | Penalized prediction slopes `(p,)`, scalar intercept (zero without an intercept), and iteration count. None of these certifies KKT optimality. |
+| `_params`, `_bse`, `_tvalues` / `_zvalues`, `_pvalues`, `_conf_int` | Successful inference: vectors `(k,)`, CI `(k,2)`. With an intercept, row 0 is its reporting estimate and remaining rows are slopes. Without an intercept, every row is a slope in feature order. Fields can remain `None` without inference. `_params` may be debiased or active-set-refit parameters, not the penalized prediction fit. |
+| `_inference_result` | Structured `params`, `bse`, `statistic`, `pvalues`, `conf_int`, `method`, `distribution`, `metadata`. Use these fields to identify the actual procedure and target. |
+| `nodewise_alpha_` | Resolved node-wise penalty after successful multi-feature debiased inference; `None` for one-feature or other inference paths. |
+| `_conf_int_simultaneous` | Joint intervals in the `(k,2)` reporting layout after enabled debiased simultaneous inference. With an intercept excluded from the family, its row remains the marginal interval; inclusion makes it part of max-\|Z\| calibration. Ordinary `_conf_int` always remains marginal. |
+| `inference_requested_method_`, `inference_resolved_method_`, `inference_method_`, `inference_target_`, `penalty_conditioning_`, `penalty_selection_adjusted_` | Procedure/target attributes for supported reporting paths. Some may remain `None` for successful `post_selection_ols`; inspect `_inference_result.method` and metadata instead. |
+| `rsquared`, `rsquared_adj`, `fvalue`, `f_pvalue`, `llf`, `aic`, `bic` | Training diagnostics when available. Weighted debiased inference can misstate R²/F totals by re-centering a working response; prefer `score` on original data with validated weights. Likelihood/AIC/BIC/F summaries are not generally penalty-effective-DoF or selective-inference criteria; missing state can yield `None`/NaN. |
+
+Prediction coefficients remain penalized under all three inference methods.
+`post_selection_ols` refits the selected columns for diagnostic inference;
+`debiased` corrects coefficients for marginal normal-reference inference;
+`bootstrap` resamples empirical residuals and refits the full penalized design
+at fixed alpha. None automatically adjusts for tuning/selection uncertainty.
+Bootstrap accepts only unweighted nonrobust Gaussian-model inference and has
+public constructor controls `n_bootstrap` and `bootstrap_random_state`.
+
+For `fit_intercept=True`, simultaneous debiased inference reuses the fitted
+NumPy/CuPy/Torch backend. Result metadata can include
+`simultaneous_numerical_backend`, `simultaneous_numerical_device`,
+`simultaneous_reporting_backend` and `simultaneous_reporting_boundary`.
+`fit_intercept=False` instead uses the NumPy host helper for simultaneous
+calculations, even when marginal inference ran on GPU.
+
+The direct `stopping` setting is currently ineffective: Gaussian CPU FISTA/CD
+and GPU FISTA check coefficient movement; ADMM checks primal/dual residuals.
+The separate Lasso CV/path helper does not establish direct/final-refit KKT
+certification. `admm_rho` is stored but ignored by unified ADMM, which starts at
+rho=1.0. Adaptation depends on the solver path; the direct squared-error Cholesky
+solve keeps rho fixed. See [control limitations](../models/lasso.md#solvers-and-current-control-limitations).
 
 ## ElasticNet
 
@@ -95,7 +182,7 @@ ElasticNet(alpha=1.0, l1_ratio=0.5, fit_intercept=True, max_iter=1000, tol=0.000
 | `fit_intercept` | `True` | Unpenalized intercept; formula syntax controls formula fits. |
 | `max_iter` | `1000` | Positive solver iteration budget. |
 | `tol` | `1e-4` | Positive convergence tolerance. |
-| `stopping` | `"coef_delta"` | `coef_delta` or `kkt`; coefficient movement or KKT-based stopping. |
+| `stopping` | `"coef_delta"` | Stored `coef_delta` / `kkt` request; currently ignored by direct Gaussian stopping checks. FISTA/CD use coefficient movement; ADMM uses primal/dual residuals. |
 | `device` | `"auto"` | `cpu`/`cuda` (CuPy)/`torch` (Torch CUDA)/`auto`; explicit GPU requests require a usable backend. |
 | `n_jobs` | `None` | Shared CPU worker setting; it does not select a solver or promise parallel fitting in these wrappers. |
 | `solver` | `"fista"` | Backend-neutral solver. Other values are combination-specific; see the solver–penalty matrix. |
@@ -118,7 +205,7 @@ ElasticNet(alpha=1.0, l1_ratio=0.5, fit_intercept=True, max_iter=1000, tol=0.000
 | `_params`, `_bse`, `_tvalues`, `_zvalues`, `_pvalues`, `_conf_int` | Reporting parameters/uncertainty, not necessarily prediction coefficients. Usually `(k,)` and `(k,2)` for CI, with intercept first; availability depends on the inference method. |
 | `_inference_result`, `nodewise_alpha_` | Structured result (`params`, `bse`, `statistic`, `pvalues`, `conf_int`, `method`, `distribution`, `metadata`) and resolved multi-feature node-wise tuning. |
 | `inference_requested_method_`, `inference_resolved_method_`, `inference_method_`, `inference_target_`, `penalty_conditioning_`, `penalty_selection_adjusted_` | Debiased/bootstrap inference records public procedure/target fields. The current `post_selection_ols` path can leave `inference_method_` and `inference_target_` as `None` despite successful inference; read `_inference_result.method` and `_inference_result.metadata` for that path. These are reporting attributes, not extra constructor parameters. |
-| `rsquared`, `rsquared_adj`, `fvalue`, `f_pvalue`, `llf`, `aic`, `bic` | Available fit diagnostics. AIC/BIC/F are compatibility plug-in summaries, not general penalty-aware effective-DoF or selective-inference criteria; missing state can yield `None`/NaN. |
+| `rsquared`, `rsquared_adj`, `fvalue`, `f_pvalue`, `llf`, `aic`, `bic` | Available fit diagnostics. After weighted debiased inference, `rsquared`/`rsquared_adj` use a re-centered working response and need not equal raw weighted R²; use validated `score(X,y,sample_weight=weights)` instead, as shown in [weighted diagnostics](../models/elastic-net.md#weighted-training-diagnostics). AIC/BIC/F are compatibility plug-in summaries, not general penalty-aware effective-DoF or selective-inference criteria; missing state can yield `None`/NaN. |
 
 ### Covariance and inference behavior
 
@@ -248,7 +335,7 @@ assert np.isclose(logit.best_score_, -np.nanmin(logit.mean_loss_))
 The printed score is evaluated on the untouched final 40 rows. The assertions explain the sign/schema rather than promising a particular selected model for every dataset. These simulated features already share a common scale; no full-data learned preprocessing is applied.
 
 ## Formula inputs
-Only LinearRegression and direct ElasticNet here support formulas. For both, supply only `formula`/`data`, not simultaneous array X/y; current formula parsing replaces those arrays without a conflict error. Install optional pandas/patsy. `formula="y ~ x + C(group)"` supplies numeric/categorical terms; `~ 0 + ...` removes the intercept regardless of the constructor. Interactions/transforms follow Patsy syntax. Formula fitting can drop rows with missing terms. Weights may describe all original data rows or exactly the retained rows; matching is positional, not by arbitrary Series labels.
+LinearRegression, direct Lasso and direct ElasticNet here support formulas. For all three, supply only `formula`/`data`, not simultaneous array X/y; current formula parsing replaces those arrays without a conflict error. Install optional pandas/patsy. `formula="y ~ x + C(group)"` supplies numeric/categorical terms; `~ 0 + ...` removes the intercept regardless of the constructor. Interactions/transforms follow Patsy syntax. Formula fitting can drop rows with missing terms. Weights may describe all original data rows or exactly the retained rows; matching is positional, not by arbitrary Series labels.
 
 Prediction DataFrames rebuild the stored design and categorical levels. Unknown levels or missing values that would drop prediction rows raise; array prediction must supply the already encoded non-intercept columns in training order. Keep transformations and level definitions consistent. LogisticRegression and both CV wrappers have no formula argument; construct a suitable design first, avoiding preprocessing leakage.
 
@@ -256,11 +343,11 @@ Prediction DataFrames rebuild the stored design and categorical levels. Unknown 
 ```python
 import numpy as np
 import pandas as pd
-from statgpu import LinearRegression, ElasticNet
+from statgpu import LinearRegression, ElasticNet, Lasso
 
 df = pd.DataFrame({"x": np.arange(12.0), "group": ["a", "b"] * 6})
 df["y"] = 1.0 + 2.0 * df["x"] + (df["group"] == "b").astype(float)
-for cls in (LinearRegression, ElasticNet):
+for cls in (LinearRegression, ElasticNet, Lasso):
     model = cls(device="cpu", compute_inference=False)
     model.fit(formula="y ~ x + C(group)", data=df)
     assert model.predict(df.iloc[:3]).shape == (3,)

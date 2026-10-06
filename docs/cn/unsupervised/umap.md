@@ -2,6 +2,7 @@
 
 > 语言：中文
 > 最后更新：2026-10-05
+> 切换：[English](../../en/unsupervised/umap.md)
 > 路径：`statgpu.unsupervised.UMAP`
 
 ## 概览
@@ -88,6 +89,8 @@ print(embedding.shape, model.n_epochs_)
 
 构造默认值、全部公开方法、输出形状与限制见 [UMAP API 参考](api-reference.md#umap)。
 
-## References
+<a id="references"></a>
+
+## 参考文献
 
 - McInnes, L., Healy, J., & Melville, J. (2018). UMAP: Uniform Manifold Approximation and Projection for Dimension Reduction. *arXiv:1802.03426*.

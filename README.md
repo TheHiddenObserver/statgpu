@@ -11,7 +11,7 @@ GPU-accelerated statistical methods with an sklearn-style API.
 ## Core Features
 
 - 🚀 **Three backends**: NumPy (CPU), CuPy (CUDA), and PyTorch (CUDA), with automatic device selection
-- 🧭 **Explicit backend semantics**: core numerical arrays remain on the selected backend where supported; explicit device requests do not silently switch backend, and model-specific metadata, control-flow, and scalar boundaries are documented per method
+- 🧭 **Explicit backend semantics**: core numerical arrays remain on the selected backend where supported; the device convention requires explicit requests to be respected, with [current kernel/spline routing exceptions](docs/en/guides/device-and-memory.md#current-smoothing-and-spline-exceptions) requiring actual array-placement checks; model-specific metadata, control-flow, and scalar boundaries are documented per method
 - 🔧 **sklearn-style estimators**: familiar `fit`/`predict`/`score` methods and parameter conventions
 - 📊 **GLM + robust + quantile + Cox**: Gaussian and non-Gaussian regression, robust losses, quantile regression, and survival analysis
 - 🔥 **Penalty framework**: L1, L2, Elastic Net, SCAD, MCP, adaptive, and grouped penalties

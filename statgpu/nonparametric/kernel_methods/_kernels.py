@@ -394,9 +394,13 @@ def pairwise_kernels(X, Y=None, metric="rbf", xp=None, **params):
     X : array-like of shape (n_samples_X, n_features)
     Y : array-like of shape (n_samples_Y, n_features), optional
     metric : str or callable, default='rbf'
-        Kernel metric name or a callable.
+        Kernel metric name or a callable returning the complete pairwise
+        matrix. A callable receives X and Y unchanged, including Y=None.
     xp : module, optional
-        Array module.
+        Array module; None means NumPy for built-in kernels. Callable
+        dispatch forwards the supplied xp unchanged, including None, when
+        its signature accepts xp. A callable must choose its own default
+        or be called with an explicit module such as xp=numpy.
     **params
         Additional keyword arguments forwarded to the kernel function.
 

@@ -43,7 +43,7 @@ Breslow、Efron 与 Exact 三种并列事件处理方式，同时覆盖普通右
 - `entry=` 与 `start=` 是互斥的别名；
 - 某行在时刻 `t` 进入风险集，当且仅当 `start < t <= stop`，且其分层标签
   与事件所属分层相同；
-- `subject_id=` 标识同一受试者的重复行，用于 concordance、sandwich 聚合，并确保同一受试者的记录不会被拆到不同的交叉验证折中；
+- `subject_id=` 标识同一受试者的重复行，用于一致性指数、三明治协方差聚合，并确保同一受试者的记录不会被拆到不同的交叉验证折中；
 - `compute_inference=False` 仅执行估计，推断字段和基线风险字段保持未设置。
 
 ## 第一个 CPU 完整示例
@@ -114,10 +114,10 @@ print("Held-out C-index:", held_out_cindex)
 对于计数过程数据，每个预测行表示固定的协变量组合，不会自动沿未来协变量轨迹积分。
 
 留出集 C-index 约为 `0.766`：在可比较的样本对中，模型倾向于给更早发生事件的样本更高风险。
-它衡量排序区分能力，不是概率校准指标或 R-squared。接近 `0.5` 表示中性排序，
+它衡量排序区分能力，不是概率校准指标或 $R^2$。接近 `0.5` 表示中性排序，
 `1.0` 表示可比较样本对上的完美排序，低于 `0.5` 提示排序可能相反。
 没有可比较样本对时也返回 `0.5`；此时是评估证据不足，不能据此认定模型表现等同于随机。
-不要把训练集 concordance 当作留出评估。
+不要把训练集一致性指数当作留出评估。
 
 ### 从相对风险到生存概率
 
@@ -154,7 +154,7 @@ $d_{sk}$ 为第 $s$ 层在 $t_k$ 的事件数；$R_s(t_k)$ 包含同层中满足
 | `event` | 仅含 `0` 或 `1` 的向量 `(n_samples,)`；拟合至少需要一个已观察事件。 |
 | `entry` / `start` | 可选向量 `(n_samples,)`，满足 `0 <= start < time`；二者为互斥别名，不能同时提供。省略时从零时刻进入。 |
 | `strata` | 可选标签 `(n_samples,)`，各层具有独立风险集和基线风险，但共享系数。 |
-| `subject_id` | 可选标签 `(n_samples,)`，标识同一受试者的重复记录，用于 concordance、稳健协方差聚合及 CV 划分。 |
+| `subject_id` | 可选标签 `(n_samples,)`，标识同一受试者的重复记录，用于一致性指数、稳健协方差聚合及 CV 划分。 |
 | `cluster` | 可选标签 `(n_samples,)`；`cov_type="cluster"` 时必须提供。仅提供 cluster 不会使 CV 自动按聚类分组；应使用合适的 `subject_id` 或显式 `cv_splits`。 |
 | `init_coef` | `CoxPH` 可选的有限初始系数向量 `(n_features,)`；不是 `CoxPHCV.fit` 参数。 |
 | `formula`, `data` | `CoxPH.fit` 的公式接口，见后文；`CoxPHCV.fit` 不接受这两个参数。 |
@@ -180,7 +180,7 @@ $d_{sk}$ 为第 $s$ 层在 $t_k$ 的事件数；$R_s(t_k)$ 包含同层中满足
 | `device` | `"auto"` | `"cpu"`、`"cuda"`、`"torch"` 或 `"auto"` |
 | `n_jobs` | `None` | 接受共享的 CPU 作业数设置；当前 Cox 拟合/CV 循环不通过它并行处理各折。 |
 | `compute_inference` | `True` | 计算协方差、检验与基线风险 |
-| `compute_cindex` | `True` | 计算训练集 concordance |
+| `compute_cindex` | `True` | 计算训练集一致性指数 |
 | `cov_type` | `"nonrobust"` | `"nonrobust"`、`"hc0"`、`"hc1"` 或 `"cluster"` |
 | `penalty` | `0.0` | 非负 L2 惩罚 |
 | `inference_mode` | `"strict"` | `"approx"` 仅为兼容别名；两种设置使用相同的稳健协方差计算方法，见[协方差与推断](#协方差与推断)。 |
@@ -223,7 +223,7 @@ print("Test C-index:", cv_test_cindex)
 <!-- /example: coxph-cpu-cv -->
 
 本例选择 `penalty_=1.0`，测试 C-index 约为 `0.766`；CV 并不保证提高这个指标。
-`best_score_` 是所选的**平均留出部分对数似然**，不是 `score()` 返回的 C-index，
+`best_score_` 是所选的**平均留出偏对数似然**，不是 `score()` 返回的 C-index，
 只适合在相同数据、划分和评分约定下比较。`cv_results_["pl_path"]` 形状为
 `(n_penalties, n_folds)`；`mean_pl` 与 `effective_fold_counts` 的形状均为 `(n_penalties,)`。
 各折贡献偏对数似然总和，不除以行数或事件数。自定义网格中，数值上近似并列时优先较强惩罚，
@@ -278,7 +278,7 @@ torch_cv = CoxPHCV(
 ### L1/L2/ElasticNet/SCAD/MCP 模型族交叉验证
 
 上面的 `CoxPHCV` 是标准的 L2 Cox 选择器，并可按配置执行最终重拟合推断。
-公开的带惩罚模型族则使用 `PenalizedGLM_CV` 的独立生存感知分支：
+公开的带惩罚模型族则使用 `PenalizedGLM_CV` 的独立生存分析专用分支：
 
 以下补充示例使用本页任一数据准备示例中的 `X`、`time` 与 `event`。
 
@@ -326,7 +326,7 @@ penalized_cv = PenalizedGLM_CV(
 
 `score()` 复用同一行标签编码器：传入的 `strata` 必须具有 `(n_samples,)` 形状；
 显式分层模型只接受训练时已知标签，多分层拟合在评分时必须提供标签。
-标量、二维、长度错误或未知标签都会在后端计算 concordance 前统一抛出
+标量、二维、长度错误或未知标签都会在后端计算一致性指数前统一抛出
 `ValueError`。
 
 若某个已拟合分层没有观察到任何事件，其空的基线风险状态是合法状态。
@@ -446,7 +446,7 @@ $$
 R_s(t)=\{i : a_i < t \le b_i,\ s_i=s\}.
 $$
 
-无并列失败时，分层 Cox 部分对数似然为
+无并列失败时，分层 Cox 偏对数似然为
 
 $$
 \ell(\beta)=\sum_s\sum_{i:\delta_i=1,\ s_i=s}
@@ -539,9 +539,9 @@ $$
 而不是 `A^-1`；后者更接近惩罚曲率或 Laplace 近似下的量，不能直接作为频率学派
 抽样协方差发布。带惩罚的稳健推断同样使用带惩罚的逆曲率矩阵作为两侧矩阵（bread），中间矩阵（meat）仍由未加惩罚的聚合得分外积构成。
 
-因此 SE/z/p/CI 与带惩罚 Wald 检验都以给定 `penalty` 为条件，目标是带惩罚的估计方程；它们不是针对无惩罚系数的纠偏推断，也不校正系数收缩偏差，或交叉验证选择 `penalty` 带来的额外不确定性。`CoxPHCV` 从最终重拟合复制相同契约，
+因此，标准误、z 统计量、p 值、置信区间与带惩罚 Wald 检验都以给定 `penalty` 为条件，目标是带惩罚的估计方程；它们不是针对无惩罚系数的纠偏推断，也不校正系数收缩偏差，或交叉验证选择 `penalty` 带来的额外不确定性。`CoxPHCV` 从最终重拟合复制相同契约，
 并明确报告 `penalty_selection_adjusted_=False`。沿用 `PenalizedGLM` 的结果命名，
-正 `penalty` 拟合的 `inference_method_` 使用简洁的 `"m_estimation"`；bread、meat、协方差定义、推断目标和条件化方式仍分别保留在推断结果的元数据中。
+正 `penalty` 拟合的 `inference_method_` 使用简洁的 `"m_estimation"`；两侧矩阵、中间矩阵、协方差定义、推断目标和条件化方式仍分别保留在推断结果的元数据中。
 
 带惩罚拟合会关闭经典似然比检验、得分检验以及 AIC/BIC，不会把惩罚估计
 当作无约束最大似然结果报告。该契约与 `PenalizedCoxPHModel` 分开；后者的
@@ -551,8 +551,8 @@ L1/Elastic Net/SCAD/MCP 接口仍仅支持估计。
 
 | `cov_type` | 含义 |
 |---|---|
-| `"nonrobust"` | 模型协方差；无惩罚时为信息矩阵的逆，有惩罚时为固定惩罚强度下的 sandwich 协方差 |
-| `"hc0"` | 基于得分的 sandwich 协方差 |
+| `"nonrobust"` | 模型协方差；无惩罚时为信息矩阵的逆，有惩罚时为固定惩罚强度下的三明治协方差 |
+| `"hc0"` | 基于得分的三明治协方差 |
 | `"hc1"` | 基于得分的三明治协方差，并按独立单元数进行有限样本修正 |
 | `"cluster"` | 聚类稳健协方差；在 `fit` 时传入 `cluster=` |
 
@@ -560,7 +560,7 @@ L1/Elastic Net/SCAD/MCP 接口仍仅支持估计。
 上一节的专门契约。
 
 Breslow 与 Efron 的严格稳健推断使用 statgpu 内部的精确计数过程得分残差，不依赖 `statsmodels`。同一受试者的重复行会先按 `subject_id` 汇总再
-形成 HC0/HC1 的 meat 矩阵；聚类稳健协方差按 `cluster` 汇总。
+形成 HC0/HC1 的中间矩阵；聚类稳健协方差按 `cluster` 汇总。
 
 稳健推断必须具有可识别的独立单元变异。按受试者或聚类单元汇总后，HC0 与
 聚类稳健协方差至少需要两个独立单元；HC1 还要求
@@ -579,7 +579,7 @@ Wald 推断使用稳健协方差，似然比检验与得分检验仍是经典的
 
 `inference_mode="strict"` 是默认值。为保持向后兼容，公开 API 仍接受
 `inference_mode="approx"`，但统一拟合路径会把它作为仅用于兼容的别名，
-继续计算精确的计数过程得分 sandwich 协方差。因此成功拟合会报告
+继续计算精确的计数过程得分三明治协方差。因此成功拟合会报告
 `inference_approximate_=False`，且不会记录近似回退原因。
 这里的“精确”指计数过程得分残差的计算，不表示有限样本精确检验。
 系数的 z 检验和置信区间仍采用大样本正态近似；`ties="exact"` 也不会改变这一点。
@@ -656,7 +656,7 @@ Exact 并列事件当前只支持模型协方差（`cov_type="nonrobust"`）。�
 | 风险比预测抛出 `FloatingPointError` | `exp(X @ coef_)` 超出有限 float64 范围。检查 `predict_risk_score()`、缩放特征并检查外推。 |
 | `converged_` 为 `False` | 检查 `optimization_stop_reason_`、`final_kkt_inf_` 与 `final_kkt_normalized_`；单纯增加 `max_iter` 不能修复线搜索失败或病态设计。 |
 | Exact 并列事件很慢或触发工作区内存限制 | Exact 使用动态规划避免逐一枚举组合，但计算量和内存需求仍随风险集、并列事件组及特征维数增加。应根据数据规模评估成本；研究设计允许时，可考虑 Breslow 或 Efron。 |
-| `score()` 返回 `0.5` | 可能是风险排序没有区分度，也可能没有可用于 concordance 计算的样本对；后一种情况同样返回中性值 `0.5`。应检查数据是否包含可比较的样本对。 |
+| `score()` 返回 `0.5` | 可能是风险排序没有区分度，也可能没有可用于一致性指数计算的样本对；后一种情况同样返回中性值 `0.5`。应检查数据是否包含可比较的样本对。 |
 
 ## 限制
 

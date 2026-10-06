@@ -43,7 +43,7 @@ H \leftarrow H \odot
 \frac{W^\top X}{W^\top W H + \varepsilon}
 $$
 
-With `init="random"`, the seed controls data-row sampling for the initial dictionary when there are at least as many rows as components; otherwise it uses positive mean-scaled random entries. Initial activations are derived from the data and dictionary. Reconstruction error is checked periodically and at the final iteration; the check cadence depends on the backend. `transform(X)` keeps fitted `H` fixed and updates a new `W` for the new data.
+With `init="random"`, the seed controls data-row sampling for the initial dictionary when there are at least as many rows as components; otherwise it uses positive mean-scaled random entries. Initial activations are derived from the data and dictionary. Reconstruction error is checked periodically and at the final iteration; the check cadence depends on the backend. `transform(X)` keeps fitted `H` fixed and updates a new `W` for the new data. It always runs `max_iter` multiplicative updates; `tol` controls stopping during `fit` only and does not stop the transform solve early.
 
 ## Parameters
 

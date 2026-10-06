@@ -199,7 +199,19 @@ $z_{1-\alpha/2}$ 是标准正态分位数。两种区间都逐点构造；正态
 原始坐标偏移量很大时，应先用同一训练偏移量中心化样本与查询。当前距离计算
 可能在未中心化时损失精度，尤其是对数密度及多元密度/回归；见 [API 数值限制](../reference/survival-smoothing-api.md#核密度估计)。
 
-使用加权高斯 KDE 的 `logpdf`、`score_samples` 或 `score` 时，请先删除零权重观测及其对应权重。虽然这些观测不贡献概率质量，但当前实现可能因它们的存在而将尾部对数密度错误地算成 `-inf`。删除后会自动重新归一化权重，不改变原本要拟合的估计量。
+使用加权高斯 KDE 的 `logpdf`、`score_samples` 或 `score` 时，请先删除零权重观测及其对应权重。虽然这些观测不贡献概率质量，但当前实现可能因它们的存在而将尾部对数密度错误地算成 `-inf`。删除后会自动重新归一化权重。如果分析希望根据正权重观测选择新带宽，应先筛选再选择。重新运行字符串选择器可能改变所选因子：`nrd`/`nrd0` 使用原始样本的尺度统计量，`ucv`、`bcv`、`sj-ste` 与 `sj-dpi` 则可能在删除后改变加权/重采样路径。若需保留已经选定的平滑因子，请保存 `original.bandwidth_factor_`，再用数值参数 `bandwidth=original.bandwidth_factor_`、正权重观测及其保留权重重新拟合。这会保留指定的核协方差与密度，但不代表受零权重行影响而选出的因子适合原本的科学问题。
+
+### 当前 Torch 限制
+
+多特征 Torch 模型的查询请显式传入二维数组，即使只有一个点也应使用 `X[:1]`，
+而不是 `X[0]`。当前一维向量的形状检查会抛出 `TypeError`；增加行维度可避开这一问题。
+
+Torch 拟合目前还会在传入 `weights` 或回归的 `bandwidth_per_feature` 时抛出
+`TypeError`，后者无论传标量还是向量都会失败。Torch KDE 的 bootstrap 区间即使使用
+`weights=None` 也会失败，因为每次重采样都会显式传入权重。需要加权拟合、逐特征
+绝对带宽或 bootstrap 区间时，请使用 CPU 数组和 `backend="numpy"`。不要为了让程序
+运行而省略权重或替换带宽，这会改变分析含义。不加权 Torch KDE、标量因子回归以及
+一维高斯核的正态区间使用不同的计算路径。
 
 ## 带宽、核与调参边界
 
@@ -246,7 +258,9 @@ $$
 
 ## 可选 GPU 路径与外部对照
 
-`backend` 接受 `"numpy"`、`"cupy"`、`"torch"` 或 `"auto"`。显式 backend 选择数组库；`"auto"` 根据估计器/全局设备配置选择，而不是仅看输入数组类型。`device` 是估计器构造参数。建议使用一致的 device/backend 设置并检查返回数组所在设备；仅选择 Torch 库不能证明在 CUDA 上执行。见[设备与内存](../guides/device-and-memory.md)。
+`backend` 接受 `"numpy"`、`"cupy"`、`"torch"` 或 `"auto"`。显式设置选择数组库；`"auto"` 会参考估计器/全局设备配置。`device` 是估计器构造参数，但 KDE 与核回归目前未始终执行显式加速器请求：NumPy 或 Torch CPU 输入搭配 `device="torch"` 和 `backend="auto"` 或 `"torch"`，仍可能在 Torch CPU 上计算。显式 `backend="torch"` 搭配 `device="cuda"` 也可能在 CPU 上运行；`backend="numpy"` 则会覆盖这两种加速器请求并返回 CPU 数组。
+
+因此，仅让设备与后端字符串一致仍不够。应同时检查 `samples_` 与密度/预测数组：Torch 的 `.device`、`.is_cuda` 显示张量位置，CuPy 的 `.device` 显示 GPU，NumPy 数组位于 CPU。不能根据 `model.device` 或 `backend_` 认定 CUDA 执行。明确选择 CPU 时，请用 NumPy 输入并设置 `device="cpu", backend="numpy"`。这些当前例外并未改变[设备与内存](../guides/device-and-memory.md)说明的严格设备约定。
 
 下面的片段与 CPU 流程分开，需要可工作的 CuPy/CUDA，不能在仅 CPU 安装上运行；显式指定但缺失的后端不会静默替换为 NumPy。
 

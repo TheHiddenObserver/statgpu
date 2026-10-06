@@ -196,6 +196,7 @@ GAM.summary()
 
 - `fit`: finite numeric `(n,p)` or single-feature `(n,)` `X`; one finite response per row. A one-column `y` is flattened. `y=None` is not a usable missing-target fit. Returns `self`. Only `X` and `y` are used: additional `fit_params`, including `sample_weight`, are currently ignored and do not enable weighted fitting. Do not pass them.
 - `predict`: `(q,p)`, or a vector interpreted according to fitted feature count; returns a NumPy `(q,)` even after GPU fitting. Reuses knots, boundaries, and centering. It does not offer reliable extrapolation.
+- For multi-feature Torch GAM prediction, use explicit `(q,p)` queries, including `(1,p)` for one point; the current vector shape check raises `TypeError`.
 - `summary`: prints and returns a dictionary with `n_features`, `n_splines_per_feature`, `spline_degree`, `penalty_order`, `smoothing_parameter`, `effective_df`, `intercept`, and, only after automatic selection, `gcv_score`.
 - Fitted fields: backend-native `coef_` of length `1+sum(n_basis_j)` and per-feature `knots_`; scalar `intercept_`, `edf_`, `lam_`; `gcv_score_` is a float for automatic selection and `None` for fixed lambda; `n_features_` is an integer. Coefficients describe centered basis functions, not raw-feature slopes.
 - `lam=None` searches the built-in 100-value grid; check that `gcv_score_` is finite before interpreting the result. When all candidates have infinite GCV, the current implementation still returns the first grid value, so a returned object alone does not prove successful selection; there is no GAM custom-grid/CV-estimator API. Choose other settings with external validation. No GAM-specific `score`, sample-weight objective, family/link, coefficient inference, or confidence-band method is provided. Generic inherited helpers do not create these capabilities.
@@ -203,7 +204,7 @@ GAM.summary()
 
 ## Kernel density estimation
 
-Import all following names from `statgpu.nonparametric`. `KDE` is an alias subclass of `KernelDensityEstimator` with the same constructor and methods. Constructor arguments are keyword-only.
+Import all following names from `statgpu.nonparametric`. `KDE` is an alias subclass of `KernelDensityEstimator` with the same constructor and methods. Constructor arguments are keyword-only. For Torch inputs, first check the [Torch restrictions](#torch-argument-restrictions).
 
 <!-- signature: KernelDensityEstimator -->
 ```text
@@ -264,18 +265,20 @@ kde_pdf(samples, points, *, bandwidth='scott', weights=None, kernel='gaussian', 
 | Argument | Meaning and restrictions |
 |---|---|
 | `bandwidth` | Positive finite scalar factor, or `scott`, `silverman`, `nrd0`, `nrd`, `ucv`, `bcv`, `sj`, `sj-ste`, `sj-dpi`. Numeric values are covariance factors, not widths in input units. |
-| `weights` | Constructor/functional-fit input, not a `fit` keyword: nonnegative finite length `n`, positive sum; normalized internally. Default `None` means equal weights. Covariance needs more than one effectively weighted observation. |
+| `weights` | Constructor/functional-fit input, not a `fit` keyword: nonnegative finite length `n`, positive sum; normalized internally. Default `None` means equal weights. Covariance needs more than one effectively weighted observation. See [Torch restrictions](#torch-argument-restrictions). |
 | `kernel` | Default `gaussian`; also `rectangular`, `triangular`, `epanechnikov`, `biweight`, `triweight`, `cosine`, `optcosine`; the last two are 1D-only. |
-| `backend` | `auto`, `numpy`, `cupy`, `torch`; selects the array library. `auto` follows device/global configuration. |
+| `backend` | `auto`, `numpy`, `cupy`, `torch`; selects the array library. `auto` consults device/global configuration; explicit-device exceptions are described below. |
 | `device`, `n_jobs`, `gpu_memory_cleanup` | Estimator-only device control, shared job option, and best-effort GPU-cache cleanup. The kernel evaluators do not use `n_jobs` for a parallel query pool. Functional helpers do not expose these arguments. |
 | `batch_size` | Positive query-batch size for `pdf`, `logpdf`, `__call__`, and `kde_pdf`; not a KDE constructor or `predict`/`score_samples`/`score` argument. Some NumPy fast paths evaluate a small workload together. |
 | `return_log` | `kde_pdf` only; `False` returns density, `True` log density. |
 
 `fit(X,y=None)` does not use `y` to estimate density and returns `self`; `fit_kde` returns a fitted `KDE`. Samples are finite real `(n,)` or `(n,p)`, with `n>=2` and `p>=1`; they are converted to float64. Queries are finite `(q,p)`; a vector means multiple queries for one feature or one query for a multivariate fit. `pdf`, `predict`, and `__call__` return backend-native `(q,)` density; `logpdf` and `score_samples` return log density. `score` returns Python `float`, the unweighted mean query log density, and does not use `y` in the score. Supplying nonfinite `y` to either `fit` or `score` still raises under shared input validation; omit this optional argument. Compact-support kernels can return density 0 and log density `-inf`.
 
-Before fitting weighted Gaussian KDE for log-density scoring, remove zero-weight observations and their weights. A zero-weight row can otherwise cause an incorrect `-inf` tail log density by interfering with numerical stabilization.
+For weighted Gaussian KDE, remove zero-weight rows (and their weights) before fitting when using `logpdf`, `score_samples`, or `score`. Although they carry no statistical mass, these rows can currently make tail log-density evaluation return `-inf` incorrectly. Renormalization is automatic. Choose a new bandwidth after filtering if the positive-weight population is the intended input to selection. Rerunning a string selector can change the selected factor: `nrd`/`nrd0` use raw-sample scale summaries, while `ucv`, `bcv`, `sj-ste` and `sj-dpi` can change their weighting/resampling path after deletion. To preserve an already-chosen smoothing factor, save `original.bandwidth_factor_` and refit the positive-weight rows with numeric `bandwidth=original.bandwidth_factor_` and their retained weights. This preserves the specified kernel covariance and density; it does not establish that a factor selected with zero-mass rows was an appropriate scientific choice.
 
-For large-offset coordinates, subtract a training-derived offset from both samples and queries before fitting/evaluation. Current quadratic-distance calculations can lose precision without this centering, including KDE log-density and multivariate density/regression. This translation does not change the intended statistical estimator. Explicit `backend="torch"` alone does not guarantee CUDA placement; see [device guidance](../guides/device-and-memory.md).
+For large-offset coordinates, subtract a training-derived offset from both samples and queries before fitting/evaluation. Current quadratic-distance calculations can lose precision without this centering, including KDE log-density and multivariate density/regression. This translation does not change the intended statistical estimator. 
+
+KDE and kernel regression currently have explicit-device exceptions. With NumPy or Torch CPU inputs, `device="torch"` plus `backend="auto"` or `"torch"` can still fit and predict on Torch CPU. Explicit `backend="torch"` can likewise run on CPU with `device="cuda"`; `backend="numpy"` overrides either accelerator request. Inspect `samples_` and density/prediction array placement, using Torch `.device`/`.is_cuda` or CuPy `.device`; NumPy arrays are on CPU. The configured `device` and `backend_` alone are insufficient. For a predictable CPU path, use NumPy inputs with `device="cpu", backend="numpy"`. These are exceptions to the intended strict device convention, not new device meanings; see [device guidance](../guides/device-and-memory.md).
 
 Fitted attributes: `samples_` `(n,p)`, normalized `weights_` `(n,)`, scalar `bandwidth_factor_`, `bandwidth_info_` (selection result or `None` for numeric bandwidth), `covariance_` and `inv_covariance_` `(p,p)`, scalar `norm_const_` and `inv_norm_const_`, `kernel_`, `backend_`, `n_samples_`, and `n_features_`. `to_numpy_metadata()` returns a dictionary with `bandwidth_factor`, `bandwidth_selection`, `n_samples`, `n_features`, `backend`, `kernel`, `covariance`, `inv_covariance`, and `weights`; arrays are host NumPy arrays.
 
@@ -383,6 +386,20 @@ assert np.allclose(ci.upper, normal_upper)
 
 
 The printed result is `(3,) 0 None`. This checks the formula, not actual coverage for every dataset.
+
+### Torch argument restrictions
+
+On Torch, supplying `weights` to KDE or kernel regression currently raises
+`TypeError`. Regression `bandwidth_per_feature` also raises for both scalar and
+vector widths. Bootstrap intervals fail on Torch even without user-supplied
+weights, because resampled fits pass weights internally. Use CPU arrays and
+`backend="numpy"` for those requests; changing the requested weights or widths
+is not an equivalent workaround. Unweighted Torch normal intervals remain
+available for one-dimensional Gaussian KDE.
+
+For multivariate Torch density/regression evaluation, supply `(q,p)` queries,
+including `(1,p)` for one query. A length-`p` vector currently raises `TypeError`;
+`X[:1]` preserves the required row dimension.
 
 ## Lower-level bandwidth selectors
 

@@ -43,7 +43,7 @@ H \leftarrow H \odot
 \frac{W^\top X}{W^\top W H + \varepsilon}
 $$
 
-`init="random"` 时，如果行数不少于成分数，就按随机种子抽取数据行作为初始字典；否则使用按数据均值缩放的正随机元素。初始激活由数据与字典计算。重构误差会定期检查，并在最后一次迭代检查；检查间隔取决于后端。`transform(X)` 会固定已拟合的 `H`，为新数据求解新的 `W`。
+`init="random"` 时，如果行数不少于成分数，就按随机种子抽取数据行作为初始字典；否则使用按数据均值缩放的正随机元素。初始激活由数据与字典计算。重构误差会定期检查，并在最后一次迭代检查；检查间隔取决于后端。`transform(X)` 会固定已拟合的 `H`，为新数据求解新的 `W`，并执行 `max_iter` 次乘性更新；`tol` 只控制 `fit` 的停止条件，不会让转换求解提前结束。
 
 ## 参数
 
@@ -98,7 +98,9 @@ print(W.shape, model.components_.shape, np.linalg.norm(X - X_hat))
 
 构造默认值、全部公开方法、输出形状与限制见 [NMF API 参考](api-reference.md#nmf)。
 
-## References
+<a id="references"></a>
+
+## 参考文献
 
 - Lee, D. D., & Seung, H. S. (1999). Learning the parts of objects by non-negative matrix factorization. *Nature*, 401(6755), 788-791. https://doi.org/10.1038/44565
 - Lee, D. D., & Seung, H. S. (2001). Algorithms for non-negative matrix factorization. In T. K. Leen, T. G. Dietterich, & V. Tresp (Eds.), *Advances in Neural Information Processing Systems 13* (pp. 556-562). MIT Press.

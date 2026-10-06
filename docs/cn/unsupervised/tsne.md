@@ -2,6 +2,7 @@
 
 > 语言：中文
 > 最后更新：2026-10-05
+> 切换：[English](../../en/unsupervised/tsne.md)
 > 路径：`statgpu.unsupervised.TSNE`
 
 ## 概览
@@ -84,7 +85,9 @@ print(embedding.shape, model.n_iter_, model.kl_divergence_)
 
 构造默认值、全部公开方法、输出形状与限制见 [TSNE API 参考](api-reference.md#tsne)。
 
-## References
+<a id="references"></a>
+
+## 参考文献
 
 - van der Maaten, L., & Hinton, G. (2008). Visualizing data using t-SNE. *Journal of Machine Learning Research*, 9, 2579-2605.
 - Linderman, G. C., Rachh, M., Hoskins, J. G., Steinerberger, S., & Kluger, Y. (2019). Fast interpolation-based t-SNE for improved visualization of single-cell RNA-seq data. *Nature Methods*, 16, 243-245.

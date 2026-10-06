@@ -25,7 +25,7 @@ statgpu 提供多种推断方法，是因为经典低维回归、固定惩罚 GL
 | Gaussian Lasso / ElasticNet | `debiased` | 去偏 / 去稀疏化系数推断 |
 | Gaussian Lasso / ElasticNet | `post_selection_ols` | 在已选择的活跃集上做 OLS/WLS 诊断性重拟合 |
 | 受支持的 Gaussian 惩罚模型 | `bootstrap` | 调参配置固定时的残差自助法分布 |
-| 受支持的 SCAD/MCP | 显式请求 `oracle` | 以已选择的活跃集为条件进行推断 |
+| Gaussian SCAD/MCP；非 Gaussian 重拟合存在下文所述限制 | 显式请求 `oracle` | 活跃集重拟合；普通区间不校正变量选择 |
 | 不支持的损失函数 / 惩罚项 / 方法组合 | — | 直接报错，而不是静默换成另一种推断目标 |
 
 完整支持矩阵见 [惩罚 GLM 推断](penalized-glm-inference.md) 与对应模型页。
@@ -56,9 +56,9 @@ inference_method="auto"
 
 当 L2 惩罚强度为正时，推断目标是**给定惩罚强度下的惩罚估计方程**；无惩罚拟合对应普通的无惩罚参数。当前非 Gaussian 固定惩罚协方差支持 `nonrobust`、`hc0`、`hc1`；在不支持的路径上请求 HC2、HC3 或 HAC 会直接报错。
 
-### 解析权重
+### 分析权重
 
-当所选光滑求解器支持解析 `sample_weight` 时，拟合与对应的 M-估计使用同一个归一化带权目标：
+当所选光滑求解器支持分析权重 `sample_weight` 时，拟合与对应的 M-估计使用同一个归一化带权目标：
 
 $$
 L_w(\beta)
@@ -66,7 +66,7 @@ L_w(\beta)
 \frac{\sum_i w_i\,\ell_i(\beta)}{\sum_i w_i}.
 $$
 
-因此，把所有正的解析权重同时乘上一个常数不会改变统计推断目标。如果某个损失函数并没有定义相应的带权拟合，例如某些不支持带权的 Cox 路径，statgpu 会拒绝请求，而不是静默丢弃权重。
+因此，把所有正的分析权重同时乘上一个常数不会改变统计推断目标。如果某个损失函数并没有定义相应的带权拟合，例如某些不支持带权的 Cox 路径，statgpu 会拒绝请求，而不是静默丢弃权重。
 
 协方差公式和精确的损失函数/惩罚项支持范围见 [惩罚 GLM 推断](penalized-glm-inference.md)。
 
@@ -80,7 +80,7 @@ $$
 
 当目标是高维模型中的边际系数推断，并且相关理论假设对应用场景合理时，可以使用这一模式。逐节点精度矩阵估计的调参与主模型惩罚参数分开控制；见 [逐节点 Lasso 推断调参迁移](nodewise-alpha-migration.md)。
 
-支持解析权重时，去偏推断与稀疏 Gaussian 拟合使用同一个带权中心化统计问题，因此统一缩放全部正权重不会改变其统计推断目标。
+支持分析权重时，去偏推断与稀疏 Gaussian 拟合使用同一个带权中心化统计问题，因此统一缩放全部正权重不会改变其统计推断目标。
 
 如果开启同时推断，statgpu 使用 max-|Z| 校准，而不是把普通边际区间直接当作同时置信区间。相关控制见 Lasso/ElasticNet 模型文档。
 
@@ -140,7 +140,7 @@ Gaussian 残差自助法会保持拟合设计矩阵与调参配置不变。每�
 
 在支持 `inference_method="oracle"` 的模型上，statgpu 以非凸惩罚拟合所选择的活跃集为条件进行推断。`auto` 不会静默选择这种解释，因为“以已选择的变量集合为条件”本身就是一个实质性的推断假设。
 
-请求 `oracle` 前，请查看 [惩罚 GLM 推断](penalized-glm-inference.md) 中当前模型和后端的支持范围。
+当前非 Gaussian oracle 重拟合可能重置原分布族参数，或保留默认正则化，因此成功返回的 `oracle` 结果不一定对应预期模型。不要使用这些结果表进行推断。[oracle 限制与显式重拟合示例](penalized-glm-inference.md#current-non-gaussian-oracle-limitation)说明了如何按指定配置创建独立的诊断模型；它仍不会校正在同一数据上选择变量的影响。oracle 接口会拒绝 GPU 父模型，但子模型默认使用 `device="auto"`；自行重拟合时应显式指定设备。
 
 ## 交叉验证后的推断
 

@@ -5,7 +5,15 @@
 > 页面定位: 模型文档
 > 切换: [English](../../en/models/splines.md)
 
-语言切换：[English](../../en/models/splines.md)
+## 把弯曲的特征效应变成可复用输入
+
+样条基把一个数值特征展开成若干局部重叠的曲线，后续回归再组合这些列来学习
+非线性关系；构造基函数本身并没有拟合响应。训练和新观测需要使用相同节点及特征
+定义时，应选择 `SplineTransformer`。若还需要可加最小二乘模型和自动平滑参数
+选择，可使用 [GAM](semiparametric.md)。增加节点能表达更多细节，但本身不会控制过拟合。
+
+只在训练行上拟合变换器，再对验证或测试行调用 `transform`。交叉验证时，应在
+每个训练折内学习节点，避免分位数节点提前使用留出观测的信息。
 
 ## 概览（Overview）
 
@@ -59,7 +67,7 @@ $\phi(r)=r^2\log r$。径向部分的一般形式为：偶数维使用 $r^{2m-d}
 
 ## 估计方程（Estimating Equation）
 
-评估采用直接递推，无需求解回归系统。SplineTransformer 不再将完整数组交给 SciPy，而是在所选后端构造完整基矩阵。
+评估采用直接递推，无需求解回归系统。SplineTransformer 使用后端原生递推构造完整基矩阵；实际设备放置受下文所述限制。
 
 ## 协方差 / 推断（Covariance / Inference）
 
@@ -67,11 +75,35 @@ $\phi(r)=r^2\log r$。径向部分的一般形式为：偶数维使用 $r^{2m-d}
 
 ## 后端执行与验证边界
 
-SplineTransformer 的节点学习和四种外推均使用 NumPy/CuPy/Torch 共享递推。
-在已拟合对象切换输入后端时，仅转移节点元数据，不转移完整训练设计。
+SplineTransformer 的节点学习和四种外推均使用 NumPy/CuPy/Torch 递推。
+输入切换后端时，会按需转移已拟合的节点元数据，不转移完整训练设计。
+
+当前设备选择存在例外：传入的 Torch 张量优先于 `device`。Torch CPU 输入即使
+搭配显式 `device="torch"` 或 `device="cuda"`，拟合节点与变换特征仍可能留在 CPU 上；
+改用 NumPy 输入时，相同的不可用加速器请求则可能报错。应检查 `knots_` 中的各数组
+与返回的基矩阵，不能只看 `model.device`：Torch 查看 `.device`、`.is_cuda`，
+CuPy 查看 `.device`，NumPy 数组位于 CPU。需要明确的 CPU 路径时，请传入 NumPy
+数组并设置 `device="cpu"`。这一限制没有改变预期的严格[设备约定](../guides/device-and-memory.md)。
 选择后端本身不能证明分析所需的精度或速度；请针对实际数据验证基函数和边界行为。
 
-`thin_plate_spline_basis` 使用与设备匹配的数组分配和可处理标量的径向运算，并在构造前验证输入、节点和惩罚阶数。自然样条的 QR 回退会在约束矩阵所在设备创建单位矩阵。
+`thin_plate_spline_basis` 在构造前验证评估点、节点和惩罚阶数，并返回所传 `xp` 后端上的数组。
+
+### 自然样条基对计量尺度的敏感性
+
+`natural_cubic_spline_basis` 使用固定绝对步长近似边界导数。改变计量单位可能明显
+改变所表示的函数空间：范围长度为 `1e6` 时，返回的基甚至可能无法表示常数；范围
+很小时，端点曲率也可能明显不为零。结果有限、列数正确，都不能证明自然边界条件
+成立。将评估点及节点一起中心化并缩放到单位区间，可以减小这些已知误差，但不能
+让约束变得精确。若分析必须满足自然端点条件，应使用经过独立验证的自然样条构造，
+并检查解析边界导数。
+
+### 变换器的输入与输出形状
+
+`SplineTransformer` 接受非空、有限实数的 `(n,p)` 设计矩阵，基函数计算使用
+float64。拟合时，一维向量表示单特征；变换时，一维向量可表示单特征的多个点，
+或多特征的一个点。但后一种形式当前会在 Torch 上抛出 `TypeError`，因此请始终
+显式传入 `(q,p)` 矩阵，单个点也保留 `(1,p)` 形状。输出为 `(q,n_features_out_)`，
+须保持特征顺序并沿用拟合节点。单特征的自定义节点也可以是长度为 `n_knots` 的向量。
 
 ## strict / approx 区别
 
@@ -101,7 +133,7 @@ SplineTransformer 的节点学习和四种外推均使用 NumPy/CuPy/Torch 共�
 
 **thin_plate_spline_basis**：`thin_plate_spline_basis(x, knots, penalty_order=2, xp=None)`；输入为 `(n,)` 或 `(n,d)`，节点为 `(k,)` 或 `(k,d)`，特征数必须一致。惩罚阶数须为正整数且满足 `2 * penalty_order > d`。
 
-**SplineTransformer**：`n_knots=5`、`degree=3`、`knots='uniform'`、`include_bias=True`、`extrapolation='constant'`、`device='auto'`、`n_jobs=None`。`n_knots` 是包含边界的节点数，须为不小于 3 的整数；分位数节点须各不相同。`degree` 为非负整数，`knots` 也可传入 `(n_knots,n_features)` 数组。`n_jobs` 不用于并行构造。每个特征输出 `n_knots + degree - 1` 列；`include_bias=False` 时少一列。
+**SplineTransformer**：`n_knots=5`、`degree=3`、`knots='uniform'`、`include_bias=True`、`extrapolation='constant'`、`device='auto'`、`n_jobs=None`。`n_knots` 是包含边界的节点数，须为不小于 3 的整数；分位数节点须各不相同。`degree` 为非负整数，`knots` 也可传入 `(n_knots,n_features)` 数组。`n_jobs` 不用于并行构造。`device` 表示请求的设备，但 Torch 张量输入可能覆盖该请求，见上文设备例外。每个特征输出 `n_knots + degree - 1` 列；`include_bias=False` 时少一列。
 
 ## CPU+GPU 示例（CPU+GPU Examples）
 
@@ -158,7 +190,7 @@ print(f"Torch 基矩阵形状: {B_t.shape}")  # (500, 14)
 
 **thin_plate_spline_basis**：返回 `(n, n_knots + d + 1)`，依次为径向基、截距和线性列。
 
-**SplineTransformer**：`fit()` 后提供 `knots_`、`boundary_lo_`、`boundary_hi_`、`n_features_in_` 和 `n_features_out_`；`transform()` 返回与输入/所选后端一致的数组。
+**SplineTransformer**：`fit()` 后提供 `knots_`、`boundary_lo_`、`boundary_hi_`、`n_features_in_` 和 `n_features_out_`；`transform()` 返回实际解析出的后端数组；受上文设备例外影响，须检查实际位置。
 
 `fit(X, y=None, sample_weight=None)` 返回 `self`；`fit_transform(X, y=None, sample_weight=None)` 拟合并返回基矩阵。两者都不使用 `y` 或 `sample_weight`，权重不会改变分位数节点。`transform(X)` 与别名 `predict(X)` 返回 `(n_query,n_features_out_)` 基特征，不预测响应。`get_feature_names_out(input_features=None)` 返回字符串列表；可选输入名称数须等于 `n_features_in_`。`get_params(deep=True)` 和 `set_params(**params)` 用于参数管理；修改参数后须重拟合。
 

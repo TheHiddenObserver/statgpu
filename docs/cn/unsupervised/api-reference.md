@@ -143,7 +143,7 @@ GaussianMixture(n_components=1, covariance_type='diag', tol=0.001, reg_covar=1e-
 | `n_components` | `1` | 不超过 `n` 的正整数混合成分数。 |
 | `covariance_type` | `'diag'` | `"diag"`、`"spherical"`、`"tied"` 或 `"full"`；决定下方协方差数组的形状。 |
 | `tol` | `0.001` | 非负收敛阈值；各模型采用的准则见下文。 |
-| `reg_covar` | `1e-06` | 非负协方差正则化量；对角下限与完整矩阵加岭项的区别见模型指南。 |
+| `reg_covar` | `1e-06` | 非负协方差正则化量；为零时可能出现奇异协方差错误或 NaN 拟合结果，退化数据应保留正值。对角下限与完整矩阵加岭项的区别见模型指南。 |
 | `max_iter` | `100` | 正整数迭代预算；迭代和整轮数据遍历的区别见对应模型。 |
 | `n_init` | `1` | EM 重启的正整数次数；保留拟合下界最大的结果。 |
 | `init_params` | `'kmeans'` | 均值初始化采用 `"kmeans"` 或 `"random"`。 |
@@ -204,7 +204,7 @@ NMF(n_components=None, init='random', solver='mu', beta_loss='frobenius', max_it
 | `reconstruction_err_` | 训练残差 `X-WH` 的 Frobenius 范数，为浮点数（不是平方损失）。 |
 | `n_iter_`, `n_components_`, `n_features_in_` | 拟合迭代次数、秩与输入列数。 |
 
-拟合和转换的数据必须非负。`tol` 在定期检查时比较重构误差的相对变化。`fit_transform` 返回联合拟合的 `W`；之后的 `transform(X)` 固定 `H` 重新求解 `W`，两者不保证相同。不提供 `score` 或 `partial_fit`。
+拟合和转换的数据必须非负。`tol` 在 `fit` 的定期检查中比较重构误差的相对变化；`transform` 固定成分执行 `max_iter` 次更新，不会按 `tol` 提前停止。`fit_transform` 返回联合拟合的 `W`；之后的 `transform(X)` 固定 `H` 重新求解 `W`，两者不保证相同。不提供 `score` 或 `partial_fit`。
 
 ## AgglomerativeClustering
 
@@ -281,7 +281,7 @@ MiniBatchKMeans(n_clusters=8, init='k-means++', n_init='auto', batch_size=1024, 
 | 参数 | 默认值 | 含义与可接受值 |
 |---|---|---|
 | `n_clusters` | `8` | 正整数；普通 `fit` 至少需要这么多行。 |
-| `init` | `'k-means++'` | `"k-means++"`、`"random"` 或显式中心数组 `(k,p)`；不支持可调用初始化器。 |
+| `init` | `'k-means++'` | `"k-means++"`、`"random"` 或全部有限的显式中心数组 `(k,p)`；不支持可调用初始化器。应自行检查数组有限性，无效中心可能使 `partial_fit` 结果错误而不报错。 |
 | `n_init` | `'auto'` | 正整数或 `"auto"`：k-means++ 或显式中心运行一次，random 运行三次。用于 `fit`，不用于反复重启 `partial_fit`。 |
 | `batch_size` | `1024` | `fit` 内每批的正整数上限；`partial_fit` 每次处理传入的整个批次。 |
 | `max_iter` | `100` | 正整数迭代预算；迭代和整轮数据遍历的区别见对应模型。 |

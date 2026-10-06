@@ -143,7 +143,7 @@ GaussianMixture(n_components=1, covariance_type='diag', tol=0.001, reg_covar=1e-
 | `n_components` | `1` | Positive integer mixture-component count at most `n`. |
 | `covariance_type` | `'diag'` | `"diag"`, `"spherical"`, `"tied"`, or `"full"`; determines covariance shape below. |
 | `tol` | `0.001` | Nonnegative convergence threshold; the model-specific criterion is described below. |
-| `reg_covar` | `1e-06` | Nonnegative covariance regularization; see the model guide for diagonal floors versus full-matrix ridge updates. |
+| `reg_covar` | `1e-06` | Nonnegative covariance regularization. Zero can cause singular covariance errors or NaN fitted results; keep a positive value for degenerate data. See the model guide for diagonal floors versus full-matrix ridge updates. |
 | `max_iter` | `100` | Positive integer iteration budget; see each model for iterations versus epochs. |
 | `n_init` | `1` | Positive number of EM restarts; retain the best fitted lower bound. |
 | `init_params` | `'kmeans'` | `"kmeans"` or `"random"` mean initialization. |
@@ -204,7 +204,7 @@ NMF(n_components=None, init='random', solver='mu', beta_loss='frobenius', max_it
 | `reconstruction_err_` | Frobenius norm of the training residual `X-WH`, a float (not squared loss). |
 | `n_iter_`, `n_components_`, `n_features_in_` | Fitting iterations, rank, and input width. |
 
-All fitted/transformed data must be nonnegative. `tol` tests relative change in reconstruction error at periodic checks. `fit_transform` returns the joint-fit `W`; a later `transform(X)` resolves `W` with `H` fixed and need not be identical. No `score` or `partial_fit` is provided.
+All fitted/transformed data must be nonnegative. `tol` tests relative change in reconstruction error at periodic checks during `fit`. `transform` always runs `max_iter` updates with the components fixed, without early stopping by `tol`. `fit_transform` returns the joint-fit `W`; a later `transform(X)` resolves `W` with `H` fixed and need not be identical. No `score` or `partial_fit` is provided.
 
 ## AgglomerativeClustering
 
@@ -281,7 +281,7 @@ MiniBatchKMeans(n_clusters=8, init='k-means++', n_init='auto', batch_size=1024, 
 | Parameter | Default | Meaning / accepted values |
 |---|---|---|
 | `n_clusters` | `8` | Positive integer; ordinary `fit` requires at least that many rows. |
-| `init` | `'k-means++'` | `"k-means++"`, `"random"`, or an explicit center array `(k,p)`; callable initialization is unsupported. |
+| `init` | `'k-means++'` | `"k-means++"`, `"random"`, or a finite explicit center array `(k,p)`; callable initialization is unsupported. Check array finiteness yourself: invalid centers can corrupt `partial_fit` without an error. |
 | `n_init` | `'auto'` | Positive integer or `"auto"`: one run for k-means++/explicit centers, three for random. Used by `fit`, not repeated `partial_fit`. |
 | `batch_size` | `1024` | Positive maximum batch size within `fit`; each `partial_fit` consumes its entire supplied batch. |
 | `max_iter` | `100` | Positive integer iteration budget; see each model for iterations versus epochs. |

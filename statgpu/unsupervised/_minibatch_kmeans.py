@@ -14,7 +14,12 @@ from statgpu.unsupervised._utils import check_2d_array, scalar_to_float
 
 
 class MiniBatchKMeans(BaseEstimator):
-    """Mini-batch Lloyd K-Means with NumPy, CuPy, or Torch backends."""
+    """Mini-batch Lloyd K-Means with NumPy, CuPy, or Torch backends.
+
+    Explicit initial-center arrays must be finite. The current shape check
+    does not reject every NaN/Inf center, and ``partial_fit`` can publish
+    non-finite centers and inertia. Validate initial centers before fitting.
+    """
 
     def __init__(
         self,

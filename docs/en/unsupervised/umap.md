@@ -2,6 +2,7 @@
 
 > Language: English
 > Last updated: 2026-10-05
+> Switch: [Chinese](../../cn/unsupervised/umap.md)
 > Path: `statgpu.unsupervised.UMAP`
 
 ## Overview

@@ -94,7 +94,7 @@ $R^2$ 也可能为负。
   预测时必须保持训练时的列顺序。
 - `fit(X, y, sample_weight=None)` 返回拟合后的估计器。权重必须有限、非负，
   长度为 `n_samples` 且总和大于零。权重改变拟合目标，而不只是标准误。
-- Formula 输入：也可用 `fit(formula="y ~ x1 + x2", data=df)`，需要可选的
+- 公式输入：也可用 `fit(formula="y ~ x1 + x2", data=df)`，需要可选的
   pandas/patsy 依赖。公式语法决定截距（`~ 0 + ...` 去掉截距）；传入 DataFrame
   预测时会重建保存的设计矩阵。使用公式时需注意解析过程中删除的缺失数据行。
 - 单目标：`coef_` 为 `(n_features,)`，`intercept_` 为标量，

@@ -25,7 +25,11 @@ class PCA(BaseEstimator):
         computes an approximate truncated SVD and is useful when only a small
         number of components is needed.
     whiten : bool, default=False
-        When True, scale transformed components to unit variance.
+        When True, divide scores by the fitted component standard deviations.
+        Training scores have unit sample variance for positive retained variances
+        and an accurate exact decomposition; randomized decomposition only approximates
+        this scaling.
+        New-data covariance is not forced to be the identity.
     copy : bool, default=True
         Kept for sklearn-style API compatibility. Inputs are not modified.
     random_state : int or None, default=None

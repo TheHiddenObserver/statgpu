@@ -117,7 +117,9 @@ print("reconstructed second feature:", reconstructed[:, 1])
 
 构造默认值、全部公开方法、输出形状与限制见 [MiniBatchNMF API 参考](api-reference.md#minibatchnmf)。
 
-## References
+<a id="references"></a>
+
+## 参考文献
 
 - Lee, D. D., & Seung, H. S. (2001). Algorithms for non-negative matrix factorization. *Advances in Neural Information Processing Systems*, 13.
 - Cichocki, A., Zdunek, R., Phan, A. H., & Amari, S.-I. (2009). *Nonnegative Matrix and Tensor Factorizations: Applications to Exploratory Multi-way Data Analysis and Blind Source Separation*. Wiley.

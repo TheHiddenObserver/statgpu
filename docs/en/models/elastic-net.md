@@ -61,6 +61,37 @@ The current squared-error `score` path does not reliably reject negative weights
 it can return an invalid R² above 1. Check these conditions yourself before
 scoring. Training-weight validation does not validate a new evaluation vector.
 
+### Weighted training diagnostics
+
+After weighted `debiased` inference, `rsquared` currently uses the transformed
+working response and centers it again. It can disagree substantially with R²
+computed on the original weighted observations; `rsquared_adj` inherits that
+problem. The residual-based `fvalue`/`f_pvalue` diagnostics also use that incorrect
+total variation. Use `score(X, y, sample_weight=weights)` on the original response and
+predictions, after validating the evaluation weights as described above. This
+limitation does not change the fitted prediction coefficients. With inference
+disabled, training diagnostic properties can instead be `None`.
+
+<!-- learner-example: elasticnet-weighted-score -->
+```python
+import numpy as np
+from statgpu import ElasticNet
+
+rng = np.random.default_rng(25)
+X = rng.normal(size=(20, 2))
+y = np.arange(20.0) + 2 * X[:, 0]
+weights = np.r_[np.ones(19), 1000.0]
+model = ElasticNet(alpha=0.3, device="cpu", max_iter=5000, tol=1e-8).fit(
+    X, y, sample_weight=weights,
+)
+weighted_r2 = model.score(X, y, sample_weight=weights)
+print("Weighted training R2:", round(weighted_r2, 3))
+```
+
+This prints `Weighted training R2: 0.180`. It describes training fit, not
+held-out performance. Enabling debiased inference does not change this score;
+the current `rsquared` property would instead report about −2.262 on these data.
+
 ## Path
 
 `statgpu.linear_model.ElasticNet`
@@ -112,16 +143,17 @@ w = soft_threshold(w_tilde, alpha * l1_ratio * step) / (
 )
 ```
 
-### Convergence Criteria
+### Convergence checks and the stopping limitation
 
-Two stopping modes are available through `stopping`:
-
-| Mode | Description |
-|------|-------------|
-| `coef_delta` | Stop when coefficient movement is below `tol` |
-| `kkt` | Stop when the KKT subgradient violation is below the configured tolerance |
-
-Numerical convergence only establishes that the declared optimization problem has been solved to the requested criterion; it is not a separate statistical approximation.
+The current direct Gaussian fit stores `stopping="coef_delta"` or `"kkt"` but
+ignores that choice. CPU FISTA and coordinate descent, and GPU FISTA, check
+coefficient movement; ADMM uses primal/dual residuals. Setting `stopping="kkt"`
+does not request an effective KKT check or certify optimality. Ill-scaled
+features can stop moving while the KKT residual is still large. Scale features
+using training data, compare tighter tolerances/budgets, and independently check
+the objective or KKT residual when numerical accuracy matters. The separate
+Lasso CV/path helper's stopping logic does not establish direct/final-refit
+certification. Numerical optimality is separate from statistical validity.
 
 ## Parameters
 
@@ -132,7 +164,7 @@ Numerical convergence only establishes that the declared optimization problem ha
 | `fit_intercept` | `True` | Fit an unpenalized intercept |
 | `max_iter` | `1000` | Maximum solver iterations |
 | `tol` | `1e-4` | Convergence tolerance |
-| `stopping` | `"coef_delta"` | `"coef_delta"` or `"kkt"` stopping rule |
+| `stopping` | `"coef_delta"` | Stored `coef_delta` / `kkt` request; currently ignored by direct Gaussian stopping checks (see above). |
 | `device` | `"auto"` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` |
 | `n_jobs` | `None` | CPU parallelism where supported |
 | `solver` | `"fista"` | Backend-neutral direct-fit optimization method |

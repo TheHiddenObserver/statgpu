@@ -4,30 +4,90 @@
 > 最后更新：2026-10-05  
 > 切换：[English](../../en/models/kernel-methods.md)
 
-## 概览
+## 先按分析问题选择工具
 
-核方法模块提供：
+核函数衡量观测之间的相似程度。模型借助这些相似度学习弯曲的响应关系或新的数据
+表示，不必预先把每一种非线性交互都写成输入列。
 
-- `KernelRidge`
-- `KernelRidgeCV`
-- `KernelPCA`
-- `Nystroem`
-- `pairwise_kernels`
-- RBF、多项式、线性、Laplacian、sigmoid、cosine 和 chi-squared 核
+- **预测数值响应**：使用 `KernelRidge`。`KernelRidgeCV` 在训练折内选择正则化
+  强度，再用传入的全部训练数据重新拟合。若相近观测应有相近响应，但难以指定曲线
+  形式，RBF 核是可考虑的选择。
+- **没有响应变量，想提取非线性坐标**：使用 `KernelPCA`。输出可用于可视化或后续
+  模型，是数据表示，不是响应预测。
+- **需要较小且可复用的核特征矩阵**：使用 `Nystroem`。它选取部分训练观测作为
+  代表节点，近似完整核；当精确训练核太大时，可把这些特征交给下游模型。
 
-公共实现会在所选估计器和核支持的范围内提供 NumPy、CuPy 和 Torch 执行路径。
+若直线关系已足够，或希望解释原始特征的斜率，应先考虑[线性模型](linear-regression.md)。
+若非线性主要来自各特征独立作用的相加，[GAM](semiparametric.md) 通常更易解释。
+精确核方法能更灵活地表示交互，但训练核的存储量随样本数平方增长。RBF 相似度
+依赖距离，须合理选择特征单位与尺度；需要从数据学习的预处理必须在每个训练折内
+拟合，不能提前使用验证观测。
 
-## 路径
+## 训练集与留出集的 CPU 流程
 
-```text
-statgpu.nonparametric.kernel_methods.KernelRidge
-statgpu.nonparametric.kernel_methods.KernelRidgeCV
-statgpu.nonparametric.kernel_methods.KernelPCA
-statgpu.nonparametric.kernel_methods.Nystroem
-statgpu.nonparametric.kernel_methods.pairwise_kernels
+下面用固定随机种子生成非线性响应，先保留测试行，再固定 RBF 尺度 `gamma`，只用
+训练数据选择 `alpha`。若还要选择 `gamma`，或为预测任务选择特征映射，也应将这些
+步骤和预处理限制在训练过程中，不要反复根据留出集得分调整设置。
+
+<!-- example: kernel-methods-cpu -->
+```python
+import numpy as np
+from statgpu.nonparametric.kernel_methods import (
+    KernelRidge, KernelRidgeCV, KernelPCA, Nystroem, pairwise_kernels,
+)
+
+rng = np.random.default_rng(42)
+X = rng.uniform(-2, 2, size=(240, 2))
+y = np.sin(1.7 * X[:, 0]) + 0.4 * X[:, 1] ** 2 + rng.normal(0, 0.1, 240)
+indices = rng.permutation(len(X))
+train, test = indices[:180], indices[180:]
+X_train, X_test = X[train], X[test]
+y_train, y_test = y[train], y[test]
+
+# 固定核尺度，只在训练行内选择 alpha。
+kr = KernelRidge(alpha=1.0, gamma=0.7, device="cpu").fit(X_train, y_train)
+kr_cv = KernelRidgeCV(
+    alphas=[0.01, 0.1, 1.0, 10.0], gamma=0.7,
+    cv=5, random_state=42, device="cpu",
+).fit(X_train, y_train)
+assert np.isfinite(kr_cv.cv_results_["mean_mse"]).all()
+assert np.isfinite(kr_cv.best_score_)
+prediction = kr_cv.predict(X_test)
+held_out_r2 = kr_cv.score(X_test, y_test)
+held_out_mse = np.mean((y_test - prediction) ** 2)
+print("Fixed-alpha held-out R2:", kr.score(X_test, y_test))
+print("Selected alpha:", kr_cv.alpha_)
+print("CV model held-out R2 / MSE:", held_out_r2, held_out_mse)
+
+# 用训练行学习特征映射，再用于留出行。
+kpca = KernelPCA(n_components=3, gamma=0.7, device="cpu")
+train_coordinates = kpca.fit_transform(X_train)
+test_coordinates = kpca.transform(X_test)
+nystroem = Nystroem(
+    n_components=40, gamma=0.7, random_state=42, device="cpu",
+)
+train_features = nystroem.fit_transform(X_train)
+test_features = nystroem.transform(X_test)
+print("Held-out coordinate / feature shapes:",
+      test_coordinates.shape, test_features.shape)
+
+# 仅适用于小规模诊断：这些特征能多好地近似核矩阵？
+K_test = pairwise_kernels(X_test, metric="rbf", gamma=0.7, xp=np)
+approximation_error = np.linalg.norm(test_features @ test_features.T - K_test)
+relative_kernel_error = approximation_error / np.linalg.norm(K_test)
+print("Held-out relative kernel approximation error:", relative_kernel_error)
 ```
 
-各个核函数也可以从 `statgpu.nonparametric.kernel_methods` 直接导入。
+R 方以留出响应的均值预测为比较基准：1 表示完全准确，0 表示与该常数预测相当，
+负值则更差。MSE 是预测误差平方的均值，单位是响应单位的平方，越低越好。
+`best_score_` 汇总训练数据上的交叉验证折，不是留出集结果。这里展示两种拟合的
+留出集得分是为了说明评估方法，不应用这些测试行继续调参。
+
+KernelPCA 的 `(60, 3)` 输出是坐标，Nystroem 的 `(60, 40)` 输出是近似核特征，
+二者本身都不预测 `y`。相对核误差将 `Z @ Z.T` 与精确的留出 RBF 核比较；数值越小，
+说明这些行上的核近似越接近，不代表响应预测一定更好。该稠密诊断只适用于小数据，
+不能在完整核本身就无法容纳时照搬。若特征映射用于下游预测，应在每个训练折内
+单独拟合映射。
 
 ## 核岭回归
 
@@ -134,18 +194,18 @@ Nystroem(kernel='rbf', n_components=100, gamma=None, degree=3, coef0=1, random_s
 | `n_components` | 正整数。KernelPCA 最多保留该数量的正特征值方向，实际输出可能更少；Nystroem 不放回选取 `min(n_components, n_training_rows)` 个代表节点。 |
 | `eigen_solver` | KernelPCA：`"auto"` 或 `"dense"`；当前都使用稠密对称特征分解。 |
 | `random_state` | CV 打乱行顺序或 Nystroem 选择代表节点所用的整数种子，也可为 `None`。 |
-| `device` | `"cpu"`、`"cuda"`（CuPy）、`"torch"`（Torch CUDA）或 `"auto"`；详见后端边界。 |
+| `device` | `"cpu"`、`"cuda"`（CuPy）、`"torch"`（Torch CUDA）或 `"auto"`；KernelPCA/Nystroem 通过可用性检查后仍存在 Torch CPU 放置例外，详见后端边界。 |
 | `n_jobs` | 共享估计器设置；这些估计器不通过此参数并行拟合。 |
 
 ### 方法与形状
 
-`X` 应为有限数值矩阵 `(n,p)`，预测时须保持特征顺序。一维 `X` 表示单个特征的多行观测，不表示一个多维查询点。估计器将数值输入转为 float64。记查询行数为 `q`，响应列数为 `r`。
+`X` 应为有限数值矩阵 `(n,p)`，预测时须保持特征顺序。一维 `X` 表示单个特征的多行观测，不表示一个多维查询点。估计器将数值输入转为 float64。记查询行数为 `q`，响应列数为 `r`；KernelPCA 保留 `k <= min(n_components,n)` 个正方向，Nystroem 使用 `m=min(n_components,n)` 个代表节点。
 
 | 类 | 完整模型专属方法调用 | 返回值与限制 |
 |---|---|---|
 | KernelRidge | `fit(X, y, sample_weight=None)`、`predict(X)`、`score(X, y)` | `fit` 返回 `self`；`y` 为 `(n,)` 或 `(n,r)`。当前忽略权重。单个响应的预测为 `(q,)`，包括训练时传单列矩阵的情况；多响应为 `(q,r)`。 |
 | KernelRidgeCV | `fit(X, y)`、`predict(X)`、`score(X, y)` | 响应与预测形状同上；`fit` 返回 `self`。没有样本权重参数。预测和评分委托给 `estimator_`。 |
-| KernelPCA、Nystroem | `fit(X, y=None)`、`transform(X)`、`fit_transform(X, y=None)`、`predict(X)` | `fit` 返回 `self`；不使用 `y`。其他方法返回所选后端上的 `(q,k)` 特征；`predict` 是变换别名，不预测响应。 |
+| KernelPCA、Nystroem | `fit(X, y=None)`、`transform(X)`、`fit_transform(X, y=None)`、`predict(X)` | `fit` 返回 `self`；不使用 `y`。其他方法返回特征数组（Torch 设备例外见下文）：KernelPCA 为 `(q,k)`，Nystroem 为 `(q,m)`；`predict` 是变换别名，不预测响应。 |
 
 岭回归 `score` 返回 Python 浮点数：先按响应列计算 R 方，再等权平均。常数响应在预测近乎完全一致时取 1，否则取 0。KernelPCA/Nystroem 没有模型专属的 `score` 或逆变换方法。四个类还提供 `get_params(deep=True)`、`set_params(**params)` 及[共享推断工具](../reference/estimator-api.md)。修改参数后必须重拟合；KernelPCA/Nystroem 可能一直保留旧拟合数组到下次拟合，不能依赖自动失效处理。这些工具不会自动提供核系数推断。
 
@@ -173,43 +233,34 @@ cosine_kernel(X, Y=None, xp=None)
 chi2_kernel(X, Y=None, gamma=1.0, xp=None)
 ```
 
-`X`、`Y` 应为兼容的有限后端数组，形状分别为 `(n,p)`、`(q,p)`；`Y=None` 表示 `Y=X`。返回成对矩阵 `(n,q)`，省略 `Y` 时为 `(n,n)`。`xp=None` 使用 NumPy，不自动识别输入后端。应将 `xp` 设为对应的 NumPy/CuPy/Torch 模块；仅传模块不会把输入移到 GPU。这些底层函数没有统一的数据类型转换和输入验证规则，请自行准备有效数组。卡方核要求非负输入以及有限非负 `gamma`。
+`X`、`Y` 应为兼容的有限后端数组，形状分别为 `(n,p)`、`(q,p)`；`Y=None` 表示 `Y=X`。返回成对矩阵 `(n,q)`，省略 `Y` 时为 `(n,n)`。对内置核，`xp=None` 使用 NumPy，不自动识别输入后端。应将 `xp` 设为对应的 NumPy/CuPy/Torch 模块；仅传模块不会把输入移到 GPU。这些底层函数没有统一的数据类型转换和输入验证规则，请自行准备有效数组。卡方核要求非负输入以及有限非负 `gamma`。
 
-`pairwise_kernels` 会统一名称的大小写并去除两端空格；别名为 `gaussian` 对应 `rbf`、`poly` 对应 `polynomial`、`chi-squared` 对应 `chi2`。自定义函数接收完整 `X, Y` 数组和额外的 `params`，若签名允许，还会收到 `xp` 关键字。按该形式调用时，函数须处理 `Y=None`，返回完整成对矩阵，而非每次只计算一对样本的标量。未知核名称抛出 `ValueError`。
+`pairwise_kernels` 会统一名称的大小写并去除两端空格；别名为 `gaussian` 对应 `rbf`、`poly` 对应 `polynomial`、`chi-squared` 对应 `chi2`。自定义函数接收完整 `X, Y` 数组和额外的 `params`，若签名允许，还会收到 `xp` 关键字。分派时会原样传入 `xp`，包括 `None`；自定义函数须自行确定默认模块，或由调用方显式传入 `xp=np`。按该形式调用时，还须处理 `Y=None`，返回完整成对矩阵，而非每次只计算一对样本的标量。未知核名称抛出 `ValueError`。
+
+以下自定义核自行将省略的模块设为 NumPy，同时支持显式模块：
+
+<!-- example: kernel-callable-cpu -->
+```python
+import numpy as np
+from statgpu.nonparametric.kernel_methods import pairwise_kernels
+
+def custom_linear(X, Y=None, xp=None):
+    xp = np if xp is None else xp
+    Y = X if Y is None else Y
+    return xp.asarray(X) @ xp.asarray(Y).T
+
+X = np.array([[-1.0], [0.5], [2.0]])
+implicit = pairwise_kernels(X, metric=custom_linear)
+explicit = pairwise_kernels(X, metric=custom_linear, xp=np)
+np.testing.assert_allclose(implicit, X @ X.T)
+np.testing.assert_allclose(explicit, implicit)
+```
 
 余弦实现会在范数乘积的分母上加 `1e-10`，因此涉及零向量的结果为零，极小范数输入也不同于精确归一化。卡方核在 NumPy 上将零除零项视为零；CuPy/Torch 使用 `1e-10` 的分母下限，极小的非负特征可能因此产生不同结果。
 
 实现参考：[KernelRidge](../../../statgpu/nonparametric/kernel_methods/_krr.py)、[KernelRidgeCV](../../../statgpu/nonparametric/kernel_methods/_krr_cv.py)、[KernelPCA](../../../statgpu/nonparametric/kernel_methods/_kpca.py)、[Nystroem](../../../statgpu/nonparametric/kernel_methods/_nystroem.py) 和[成对核函数](../../../statgpu/nonparametric/kernel_methods/_kernels.py)。
 
-## CPU 与 GPU 示例
-
-### NumPy
-
-```python
-import numpy as np
-from statgpu.nonparametric.kernel_methods import (
-    KernelRidge,
-    KernelRidgeCV,
-    KernelPCA,
-    Nystroem,
-)
-
-rng = np.random.default_rng(42)
-X = rng.normal(size=(500, 10))
-y = X[:, 0] - 0.5 * X[:, 1] + rng.normal(scale=0.1, size=500)
-
-kr = KernelRidge(alpha=1.0, kernel="rbf", device="cpu").fit(X, y)
-print(kr.score(X, y))
-
-kr_cv = KernelRidgeCV(kernel="rbf", cv=5, device="cpu").fit(X, y)
-print(kr_cv.alpha_)
-
-kpca = KernelPCA(n_components=3, kernel="rbf", device="cpu")
-X_kpca = kpca.fit_transform(X)
-
-nystroem = Nystroem(kernel="rbf", n_components=50, random_state=42, device="cpu")
-X_features = nystroem.fit_transform(X)
-```
+## 可选 GPU 示例
 
 ### CuPy
 
@@ -233,11 +284,13 @@ y = X[:, 0] - 0.5 * X[:, 1]
 model = KernelRidgeCV(kernel="rbf", cv=5, device="torch").fit(X, y)
 ```
 
-`device="cuda"` 选择 CuPy，`device="torch"` 选择 Torch。
+`device="cuda"` 请求 CuPy CUDA，`device="torch"` 请求 Torch CUDA。对于 KernelPCA/Nystroem，后端选择成功并不能确定输出所在设备，见下文。
 
 ## 后端与执行边界
 
-KernelRidge/CV 的核矩阵与求解使用所选后端。KernelPCA 通常在所选后端分解，但发生线性代数异常时，会转到 NumPy CPU 特征分解，且没有单独的回退标记。其保存的训练数据和投影系数也为 NumPy 数组，不能假定拟合始终驻留在设备上。Nystroem 混合使用 CPU 和所选后端：它将选定节点复制到 NumPy，在 CPU 上构造节点核矩阵并完成 SVD，再于所选后端构造查询到节点的核矩阵并返回特征。自定义 Nystroem 核也必须支持 NumPy 节点输入。节点索引、归一化矩阵和奇异值保留为主机数组；不能把 GPU Nystroem 拟合理解为全程在设备端分解。显式请求不可用设备会报错。
+KernelRidge/CV 的核矩阵与求解使用所选后端。KernelPCA 通常在所选后端分解，但发生线性代数异常时，会转到 NumPy CPU 特征分解，且没有单独的回退标记。其保存的训练数据和投影系数也为 NumPy 数组，不能假定拟合始终驻留在设备上。Nystroem 混合使用 CPU 和所选后端：它将选定节点复制到 NumPy，在 CPU 上构造节点核矩阵并完成 SVD，随后使用所选数组库构造查询到节点的核矩阵并返回特征，但实际设备受下述限制。自定义 Nystroem 核也必须支持 NumPy 节点输入。节点索引、归一化矩阵和奇异值保留为主机数组；不能把 GPU Nystroem 拟合理解为全程在设备端分解。显式请求不可用设备会报错。
+
+Torch CUDA 不可用时，KernelPCA 与 Nystroem 仍会拒绝 `device="torch"`。通过该检查并不保证 CUDA 执行：这些路径未始终将输入移到请求设备，因此 NumPy 或 Torch CPU 输入在拟合和变换时仍可能留在 CPU。请检查 `fit_transform`、`transform` 和 `predict` 实际返回的特征：Torch 查看 `.device`/`.is_cuda`，CuPy 查看 `.device`，不能仅依赖设备配置或选中的后端/数组库。两者的公开拟合数组按设计保留为 NumPy，不能证明数值计算所在设备。此限制还影响 Nystroem 的查询核与输出，须与有意安排在 CPU 的节点 SVD 区分。必须使用 CUDA 时，应在使用结果前拒绝 CPU 输出。需要明确的 CPU 路径时，请传入 NumPy 数组并设 `device="cpu"`。详见[设备说明](../guides/device-and-memory.md#current-smoothing-and-spline-exceptions)。
 
 `KernelPCA` 和 `Nystroem` 在拟合和变换时拒绝 NaN/Inf。卡方核的输入必须非负。
 
@@ -254,7 +307,7 @@ KernelRidge/CV 的核矩阵与求解使用所选后端。KernelPCA 通常在所�
 - 精确核方法构造 $n\times n$ 训练核矩阵，内存复杂度为二次量级。
 - 直接核岭求解和稠密特征分解对训练样本数具有三次最坏计算复杂度。
 - `KernelRidgeCV` 可以在 alpha 间复用分解，但 CV 仍会增加各折的计算量。
-- `Nystroem` 将核存储降低到 $O(nm)$，另加 代表节点 线性代数。
+- `Nystroem` 将核存储降低到 $O(nm)$，另加代表节点上的线性代数运算。
 - GPU 收益依赖样本量、dtype、核、同步和可用显存；小问题可能 CPU 更快。
 
 ## 限制与失败行为
@@ -263,7 +316,7 @@ RBF 核遇到很大的共同坐标偏移时，请用训练数据确定一个偏�
 
 - 核矩阵可能病态；必要时增大 `alpha` 或调整核尺度。
 - RBF 等核对 `gamma` 敏感。
-- Chi-squared 核要求非负输入。
+- 卡方核要求非负输入。
 - 大规模稠密精确核方法可能耗尽设备内存。
 - 用户自定义核负责满足所选估计器要求的后端、数据类型、形状和对称性要求。
 - 较多折数和较大的 alpha 网格会使 `KernelRidgeCV` 成本很高。
@@ -281,12 +334,12 @@ RBF 核遇到很大的共同坐标偏移时，请用训练数据确定一个偏�
 
 ### 为什么 GPU 核方法可能比 CPU 慢？
 
-核构造和线性代数需要足够大，才能摊薄设备 launch、同步和内存传输成本。
+核构造和线性代数需要足够大，才能摊薄设备任务启动、同步和内存传输成本。
 
 ### `device="auto"` 会覆盖显式请求吗？
 
 不会。`"auto"` 本身表示自动选择；显式 `"cuda"` 或 `"torch"` 在对应后端不可用时
-会报错。
+会报错。但 KernelPCA/Nystroem 通过检查后仍可能让 CPU 输入留在 CPU，须按上文检查实际返回的特征。
 
 ### 不同拟合的 KernelPCA 成分是否可直接比较？
 

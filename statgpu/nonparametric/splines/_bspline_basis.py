@@ -174,6 +174,14 @@ def natural_cubic_spline_basis(x, knots, xp=None):
     constraints reduce the basis dimension by 2; in general, the reduction equals
     their numerical rank.
 
+    The fixed absolute finite-difference step is sensitive to measurement
+    units. Very small or large coordinate ranges can yield substantial
+    nonzero endpoint curvature or even exclude constant functions. Finite
+    output does not establish natural boundary conditions. Scaling points
+    and knots together to a unit range reduces these demonstrated errors
+    but does not make the constraints exact; verify boundary derivatives
+    independently if natural conditions are essential.
+
     Parameters
     ----------
     x : array-like, shape (n,)

@@ -86,7 +86,9 @@ print(Z.shape, model.n_samples_seen_, X_hat.shape)
 
 构造默认值、全部公开方法、输出形状与限制见 [IncrementalPCA API 参考](api-reference.md#incrementalpca)。
 
-## References
+<a id="references"></a>
+
+## 参考文献
 
 - Ross, D. A., Lim, J., Lin, R.-S., & Yang, M.-H. (2008). Incremental learning for robust visual tracking. *International Journal of Computer Vision*, 77, 125-141. https://doi.org/10.1007/s11263-007-0075-7
 - scikit-learn Developers. `sklearn.decomposition.IncrementalPCA`. scikit-learn documentation. https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.IncrementalPCA.html

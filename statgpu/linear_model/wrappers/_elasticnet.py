@@ -37,7 +37,9 @@ class ElasticNet(_PenalizedLinearRegression):
     tol : float, default=1e-4
         Positive convergence tolerance.
     stopping : {'coef_delta', 'kkt'}, default='coef_delta'
-        Coefficient-movement or KKT stopping criterion.
+        Stored request; currently ignored by direct Gaussian stopping checks.
+        FISTA/coordinate descent use coefficient movement and ADMM uses
+        primal/dual residuals. Selecting kkt does not certify optimality.
     device : str or Device, default='auto'
         'cpu', 'cuda' (CuPy), 'torch' (Torch CUDA), or automatic selection.
     n_jobs : int or None, default=None
@@ -74,6 +76,10 @@ class ElasticNet(_PenalizedLinearRegression):
     arrays can describe corrected or selected-model reporting parameters.
     Fitted coefficient/inference arrays are NumPy; ``predict`` returns NumPy by
     default even after GPU fitting. Use ``return_cpu=False`` for native output.
+    After weighted debiased inference, ``rsquared`` and ``rsquared_adj`` use a
+    re-centered working response and can misstate raw weighted training R².
+    Evaluate ``score(X, y, sample_weight=weights)`` on original observations
+    after validating finite nonnegative evaluation weights with positive sum.
     """
 
     def __init__(

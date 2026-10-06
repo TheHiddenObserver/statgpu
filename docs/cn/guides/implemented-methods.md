@@ -1,6 +1,6 @@
 # 已实现方法
 
-> 最后更新：2026-09-17  
+> 最后更新：2026-10-05  
 > 切换：[English](../../en/guides/implemented-methods.md)
 
 本页汇总 statgpu 当前公开的模型、函数与主要求解器族。详细的数学定义、推断范围与兼容性规则，请以对应模型页和指南为准。
@@ -20,8 +20,8 @@
 | `NegativeBinomialRegression` | 负二项 GLM | NumPy, CuPy, Torch |
 | `TweedieRegression` | Tweedie GLM | NumPy, CuPy, Torch |
 | `QuantileRegression` | 分位数回归，支持核方法和自助法推断 | NumPy, CuPy, Torch |
-| `OrderedLogitRegression` | Ordered logit 与解析 Hessian 推断 | NumPy, CuPy, Torch |
-| `OrderedProbitRegression` | Ordered probit 与解析 Hessian 推断 | NumPy, CuPy, Torch |
+| `OrderedLogitRegression` | 有序 logit 回归 与解析 Hessian 推断 | NumPy, CuPy, Torch |
+| `OrderedProbitRegression` | 有序 probit 回归 与解析 Hessian 推断 | NumPy, CuPy, Torch |
 
 ## 惩罚模型
 
@@ -103,7 +103,8 @@ model.fit(X, y)
 
 ## 非参数与半参数方法
 
-- `KernelDensity` 与核回归
+- `KernelDensityEstimator` / `KDE`
+- `KernelRegression` / `KernelRegressionRegressor`
 - `KernelRidge` 与 `KernelRidgeCV`
 - `KernelPCA`
 - `Nystroem`
@@ -117,7 +118,9 @@ model.fit(X, y)
 - `NMF`、`MiniBatchNMF`
 - `KMeans`、`MiniBatchKMeans`、`DBSCAN`
 - `GaussianMixture`、`AgglomerativeClustering`
-- `UMAP`、`TSNE`、`NNDescent`
+- `UMAP`、`TSNE`
+
+UMAP 可通过 `nn_method="nndescent"` 使用内部的 NNDescent 近似近邻搜索。NNDescent 不是单独公开导出的估计器，使用前请查阅 [UMAP 的支持限制](../unsupervised/umap.md)。
 
 ## 生存分析
 
@@ -132,7 +135,7 @@ model.fit(X, y)
 ## 特征选择与诊断
 
 - `StepwiseSelector` 与 `stepwise_selection`
-- fixed-X / model-X knockoff filter 与选择器封装
+- fixed-X / model-X knockoff 筛选及选择器封装
 - `RegressionDiagnostics` 与 `diagnose_model`
 
 ## 多重检验与重抽样

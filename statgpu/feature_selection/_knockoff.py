@@ -280,7 +280,10 @@ def fixed_x_knockoff_filter(
     y : array-like of shape (n_samples,)
         Response vector.
     q : float, default=0.1
-        Target FDR level in (0, 1).
+        Finite target FDR level in (0, 1). Check
+        ``np.isfinite(q) and 0 < q < 1`` before calling. Current validation
+        misses NaN and can return an invalid empty selection with
+        threshold=inf and estimated_fdr=0.0 under either threshold rule.
     method : {'corr_diff', 'ols_coef_diff', 'lasso_coef_diff'}, default='corr_diff'
         Feature-importance statistic for W construction.
     fdr_control : {'knockoff_plus', 'knockoff'}, default='knockoff_plus'
@@ -289,10 +292,15 @@ def fixed_x_knockoff_filter(
         Random seed for knockoff construction.
     backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
         Compute backend. ``'auto'`` infers from input arrays.
-        Use ``'torch'`` for PyTorch GPU acceleration.
+        ``'torch'`` selects the Torch library, not CUDA placement: NumPy and
+        Torch CPU inputs run on CPU. Supply CUDA tensors (including Xk when
+        provided) on the same device for GPU execution. This differs from
+        estimator ``device='torch'``, which requests CUDA.
     Xk : array-like of shape (n_samples, n_features), optional
         Supplied knockoff matrix; bypasses construction. The caller must ensure
-        matched-design validity, not merely the same shape as X.
+        matched-design validity after any intercept/nuisance projection, not
+        merely the same shape or raw Gram matrix as X. Centered valid pairs
+        avoid the automatic construction centering issue below.
     compat_mode : {'statgpu', 'knockpy'}, default='statgpu'
         Construction/statistic conventions; does not certify package parity.
     lasso_cv_impl : {'auto', 'statgpu', 'sklearn'}, default='auto'
@@ -300,7 +308,9 @@ def fixed_x_knockoff_filter(
         and statgpu otherwise. A sklearn import failure or Torch statistic
         computation can switch to statgpu without updating the metadata label.
     lasso_fast_profile : {'off', 'auto', 'moderate', 'aggressive'}, default='off'
-        Computational profile for the Lasso statistic.
+        Lasso profile that can change CV folds, candidate penalties, iteration
+        budget and tolerance, hence W and selected features. It is not an
+        output-preserving speed switch.
 
     Returns
     -------
@@ -309,6 +319,24 @@ def fixed_x_knockoff_filter(
 
     Notes
     -----
+    Fixed-X finite-sample interpretation assumes a Gaussian linear response
+    with independent homoskedastic normal errors, plus valid matched-design
+    geometry and statistics. It is not guaranteed for arbitrary finite y.
+
+    Automatic construction centers X but can generate noncentered Xk. The
+    correlation, OLS and native non-knockpy Lasso statistics center y, so equal
+    raw Grams can become unequal after the intercept projection. The usual
+    null score-pair exchangeability can fail even without threshold ties and
+    with n>2p. Increasing n alone does not fix this. A valid centered supplied
+    pair avoids this geometry defect; the documented orthogonal QR example
+    needs n>=2p+1 and is not a general repair for arbitrary X. Separately, tied
+    absolute statistics can give incorrect threshold counts. Do not infer
+    nominal FDR control merely from valid dimensions or absence of ties.
+
+    Model-X instead relies on feature-pair exchangeability and conditional
+    independence from y given X, allowing arbitrary response relationships;
+    the estimated feature-model and multi-draw limitations still apply.
+
     Seeded ``lasso_coef_diff`` calls can reuse stale statistics if X, y, or Xk
     changes in place or previous array memory is reused. A new selector does not
     isolate this cache. Use a fresh Python process for each changed-data call,
@@ -417,6 +445,11 @@ def model_x_knockoff_filter(
 ) -> KnockoffResult:
     """
     Model-X knockoff selection (Gaussian second-order approximation).
+
+    Check ``np.isfinite(q) and 0 < q < 1`` before calling or fitting. Current
+    validation misses NaN under both threshold rules and can return an invalid
+    empty selection with threshold=inf and estimated_fdr=0.0 (an all-false
+    selector support mask). This is not a valid no-discoveries result.
 
     This implementation estimates a Gaussian feature model and builds
     equi-correlated knockoffs from the estimated covariance.
@@ -740,6 +773,11 @@ def knockoff_filter(
 ) -> KnockoffResult:
     """Unified knockoff entrypoint for fixed-X and model-X variants.
 
+    Check ``np.isfinite(q) and 0 < q < 1`` before calling or fitting. Current
+    validation misses NaN under both threshold rules and can return an invalid
+    empty selection with threshold=inf and estimated_fdr=0.0 (an all-false
+    selector support mask). This is not a valid no-discoveries result.
+
     Seeded ``lasso_coef_diff`` can reuse stale statistics after input mutation
     or memory reuse. See ``fixed_x_knockoff_filter`` and the feature-selection
     API reference for process-isolation and retained-input-copy workarounds.
@@ -817,6 +855,11 @@ class _KnockoffSelectorContract:
 
 class KnockoffSelector(_KnockoffSelectorContract):
     """Sklearn-like wrapper for unified knockoff feature selection.
+
+    Check ``np.isfinite(q) and 0 < q < 1`` before calling or fitting. Current
+    validation misses NaN under both threshold rules and can return an invalid
+    empty selection with threshold=inf and estimated_fdr=0.0 (an all-false
+    selector support mask). This is not a valid no-discoveries result.
 
     ``fit`` returns self; inspect ``result_`` and ``selected_features_``.
     Seeded ``lasso_coef_diff`` can reuse stale statistics across new instances
@@ -970,6 +1013,11 @@ class KnockoffSelector(_KnockoffSelectorContract):
 
 class FixedXKnockoffSelector(_KnockoffSelectorContract):
     """Sklearn-like wrapper for fixed-X knockoff feature selection.
+
+    Check ``np.isfinite(q) and 0 < q < 1`` before calling or fitting. Current
+    validation misses NaN under both threshold rules and can return an invalid
+    empty selection with threshold=inf and estimated_fdr=0.0 (an all-false
+    selector support mask). This is not a valid no-discoveries result.
 
     ``fit`` returns self; inspect ``result_`` and ``selected_features_``.
     A fresh selector does not prevent seeded ``lasso_coef_diff`` cache reuse

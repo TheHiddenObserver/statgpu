@@ -60,6 +60,34 @@ print("held-out R2:", round(float(model.score(X[300:], y[300:])), 3))
 返回大于 1 的无效 R²，因此评分前应自行检查这些条件。训练时的权重验证不覆盖新的
 评价权重向量。
 
+### 加权训练诊断
+
+完成加权 `debiased` 推断后，当前 `rsquared` 使用变换后的工作响应，并再次进行
+中心化，因此可能与原始观测上的加权 R² 相差很大；`rsquared_adj` 也受此影响。
+基于残差的 `fvalue`/`f_pvalue` 诊断同样使用这一错误的总离差。
+请按前面的要求验证评价权重，再用原始响应与预测调用
+`score(X, y, sample_weight=weights)`。该限制不改变拟合得到的预测系数。
+关闭推断时，训练诊断属性则可能为 `None`。
+
+<!-- learner-example: elasticnet-weighted-score -->
+```python
+import numpy as np
+from statgpu import ElasticNet
+
+rng = np.random.default_rng(25)
+X = rng.normal(size=(20, 2))
+y = np.arange(20.0) + 2 * X[:, 0]
+weights = np.r_[np.ones(19), 1000.0]
+model = ElasticNet(alpha=0.3, device="cpu", max_iter=5000, tol=1e-8).fit(
+    X, y, sample_weight=weights,
+)
+weighted_r2 = model.score(X, y, sample_weight=weights)
+print("Weighted training R2:", round(weighted_r2, 3))
+```
+
+输出为 `Weighted training R2: 0.180`，描述训练拟合程度，不是留出表现。
+开启纠偏推断不会改变这个评分，但当前 `rsquared` 属性在同一数据上会报告约 −2.262。
+
 ## 路径
 
 `statgpu.linear_model.ElasticNet`
@@ -91,7 +119,7 @@ $$
 \frac{1}{n} X^\top (X\hat{\beta} - y) + \alpha(1-\lambda)\hat{\beta} + \alpha\lambda \cdot \partial\|\hat{\beta}\|_1 = 0.
 $$
 
-对**直接单次拟合**，`solver` 在所有后端上都决定实际使用的算法。`device` 单独控制 CPU/CuPy/Torch 执行位置。历史 `cpu_solver` 参数已进入弃用流程，在统一引擎中不再代表第二套 CPU 直接拟合求解器。参见 [penalized solver API 迁移指南](../guides/penalized-solver-api-migration.md)。
+对**直接单次拟合**，`solver` 在所有后端上都决定实际使用的算法。`device` 单独控制 CPU/CuPy/Torch 执行位置。历史 `cpu_solver` 参数已进入弃用流程，在统一引擎中不再代表第二套 CPU 直接拟合求解器。参见 [惩罚模型求解器 API 迁移指南](../guides/penalized-solver-api-migration.md)。
 
 ## 估计算法
 
@@ -111,16 +139,15 @@ w = soft_threshold(w_tilde, alpha * l1_ratio * step) / (
 )
 ```
 
-### 收敛判据
+### 收敛检查与停止选项限制
 
-`stopping` 提供两种停止模式：
-
-| 模式 | 说明 |
-|------|------|
-| `coef_delta` | 系数变化低于 `tol` 时停止 |
-| `kkt` | KKT 条件的违反程度低于设定阈值时停止 |
-
-数值收敛只表示声明的优化问题被求解到相应精度，并不构成另一种统计近似模型。
+当前直接高斯拟合会保存 `stopping="coef_delta"` 或 `"kkt"`，但忽略这一选择。
+CPU FISTA/坐标下降和 GPU FISTA 检查系数变化，ADMM 检查原始/对偶残差。
+设置 `stopping="kkt"` 并不能启用有效 KKT 检查，也不能证明最优性。
+特征尺度悬殊时，系数变化很小仍可能伴随较大的 KKT 残差。
+应使用训练数据缩放特征，比较更严格容差与更大迭代预算，精度重要时独立检查
+目标函数或 KKT 残差。单独的 Lasso CV/路径辅助算法有自己的停止逻辑，
+不能据此认证直接拟合或最终重拟合。数值最优性与统计有效性是不同问题。
 
 ## 参数
 
@@ -131,7 +158,7 @@ w = soft_threshold(w_tilde, alpha * l1_ratio * step) / (
 | `fit_intercept` | `True` | 拟合不受惩罚的截距 |
 | `max_iter` | `1000` | 最大求解迭代次数 |
 | `tol` | `1e-4` | 收敛容差 |
-| `stopping` | `"coef_delta"` | `"coef_delta"` 或 `"kkt"` 停止准则 |
+| `stopping` | `"coef_delta"` | 保存 `coef_delta` / `kkt` 请求，当前直接高斯拟合忽略此选项，见前述限制 |
 | `device` | `"auto"` | `"auto"`、`"cpu"`、`"cuda"`（CuPy）或 `"torch"` |
 | `n_jobs` | `None` | 适用 CPU 路径的并行度 |
 | `solver` | `"fista"` | 与后端无关的直接拟合优化方法 |

@@ -80,4 +80,6 @@ print(round(float(statistic), 4), round(float(global_p), 6))
 
 合并检验会截断端点概率，分布尾部计算也可能受到浮点相消影响；返回零不代表真实概率精确等于零。[完整 API 指南](../guides/multiple-testing-combine-pvalues.md)说明了签名、别名、权重、轴、后端和数值限制。估计器辅助方法返回字典，与模块函数的元组不同，见[共享估计器方法](../reference/estimator-api.md)。
 
+使用 Cauchy/Stouffer 时，还应在调用前[验证并缩放较大的权重](../guides/multiple-testing-combine-pvalues.md#validate-and-rescale-combination-weights)：即使每个权重都有限，当前归一化求和仍可能溢出，产生错误的有限结果或 NaN。
+
 分析大量相关检验前，应先明确是在检验总体假设还是识别个别发现，并确定依赖条件；“全基因组关联分析”等应用名称本身不能决定应该使用哪一种方法。

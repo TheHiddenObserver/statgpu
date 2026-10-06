@@ -94,11 +94,12 @@ class KernelDensityEstimator(BaseEstimator):
         gaussian, rectangular, triangular, epanechnikov, biweight, triweight,
         cosine, or optcosine. The last two require one-dimensional samples.
     backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
-        Array library; auto follows estimator/global device settings. An
-        explicit Torch library alone does not guarantee CUDA placement.
+        Array library. auto consults estimator/global device settings, but an
+        explicit library can override device. See current exceptions below.
     device : {'auto', 'cpu', 'cuda', 'torch'}, default='auto'
-        Device used when resolving the automatic backend. Prefer matching
-        explicit device and backend settings.
+        Requested computation device. The intended convention requires an
+        explicit accelerator or an error; current routing does not always
+        enforce it, even with matching backend and device settings.
     n_jobs : int or None, default=None
         Shared estimator option; does not create a parallel query pool.
     gpu_memory_cleanup : bool, default=False
@@ -125,14 +126,32 @@ class KernelDensityEstimator(BaseEstimator):
 
     Notes
     -----
+    With NumPy or Torch CPU inputs, device='torch' and backend='auto' or
+    'torch' can fit and predict on Torch CPU. Explicit backend='torch' can
+    also run on CPU with device='cuda'; backend='numpy' overrides either
+    accelerator request. Inspect samples_ and prediction arrays, using
+    Torch .device/.is_cuda or CuPy .device; NumPy arrays are on CPU. Neither
+    the configured device nor backend_ proves CUDA placement. For a
+    predictable CPU path, use NumPy inputs with device='cpu', backend='numpy'.
+
     fit accepts finite real samples (n,) or (n,p), n >= 2; numeric calculations
     use float64. pdf/predict/__call__ return backend-native (n_query,) density;
     logpdf/score_samples return log density. score is mean log density, not R2.
     For large coordinate offsets, center samples and queries by the same
     training-derived offset. Remove zero-weight rows before fitting when
     using Gaussian log density: zero-weight rows can currently destabilize
-    its log-sum-exp evaluation in the tails. Density interval helpers return
+    its log-sum-exp evaluation in the tails. Rerunning a string bandwidth
+    selector after deletion can change its chosen factor. Choose new smoothing
+    on the positive-weight rows, or preserve a previously chosen factor by
+    refitting them and their retained weights with numeric
+    bandwidth=original.bandwidth_factor_. This preserves the specified kernel
+    covariance and density, not the scientific suitability of the original
+    selector choice. Density interval helpers return
     host NumPy arrays and have separate pointwise coverage restrictions.
+    Torch currently rejects explicit weights with TypeError, including weights
+    supplied internally by bootstrap intervals. Use backend='numpy' and CPU
+    arrays for weighted fitting or bootstrap. Multivariate Torch queries must
+    be two-dimensional, including (1,p) for one point; the vector check fails.
     """
 
     def __init__(
@@ -386,6 +405,8 @@ class KernelDensityEstimator(BaseEstimator):
 
         points must be finite with shape (n_query,n_features). A vector means
         many one-feature queries, or one multivariate query of matching length.
+        Multivariate Torch queries must instead use an explicit (n_query,p)
+        matrix; the vector shape check currently raises TypeError.
         batch_size is a positive integer query-batch size (default 1024).
         Compact-support kernels return zero where no sample contributes.
         """
@@ -445,6 +466,11 @@ class KernelDensityEstimator(BaseEstimator):
         Returns backend-native (n_query,). Compact-support kernels return -inf
         where density is zero. Gaussian tails use log-domain evaluation; remove
         zero-weight training rows first and center large-offset coordinates.
+        Rerunning a string selector after deletion can change the bandwidth.
+        To preserve existing smoothing, refit positive-weight rows and their
+        weights with numeric bandwidth=original.bandwidth_factor_; otherwise
+        choose a new bandwidth on the filtered data. Preserving the factor
+        does not validate the original selector choice.
         """
         self._require_fitted()
         xp = _get_xp(self.backend_)
@@ -576,7 +602,7 @@ def kde_pdf(
 
 @dataclass
 class KDEBootstrapResult:
-    """Pointwise bootstrap confidence intervals for KDE estimates."""
+    """NumPy results for pointwise normal or bootstrap KDE intervals."""
 
     points: np.ndarray
     estimate: np.ndarray
@@ -730,6 +756,10 @@ def kde_confidence_interval(
     change with each resample. Equal-weight independent observations give
     the introductory interpretation; do not assume all weighted bootstrap
     designs or preceding tuning uncertainty are handled.
+    Bootstrap currently raises TypeError on Torch even when weights=None,
+    because each resampled fit supplies explicit weights. Use backend='numpy'
+    with CPU arrays for bootstrap. Unweighted one-dimensional Gaussian normal
+    intervals are a separate supported Torch path.
     """
     method_name = str(method).strip().lower()
     if method_name not in ("normal", "bootstrap"):

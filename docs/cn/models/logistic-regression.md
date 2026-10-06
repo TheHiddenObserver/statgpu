@@ -175,6 +175,7 @@ p_gpu = model_gpu.predict_proba(cp.asarray(X[600:603]))[:, 1]
 - HC 协方差用于相应的稳健分析；HAC 还依赖观测顺序与滞后阶数。打乱时间顺序会改变 HAC 的含义。
 - `summary()` 提示推断不可用时，应以 `compute_inference=True` 重新拟合。关闭推断后仍可使用预测与似然诊断。
 - `roc_curve`、`roc_auc_score` 和 `evaluate_classification` 要求评估标签同时包含两类。`include_curves=False` 仅省略曲线数组，组合评估仍会计算 ROC AUC，因而对单类别子集报错；此时可用 `classification_table` 或 `confusion_matrix` 计算阈值指标。
+- `precision_recall_curve` 与 `average_precision_score` 至少需要一个正标签；对全零评价子集会抛出 `ValueError`。全一子集可以计算，但此时完美的精确率/AP 不能说明区分两类的能力。相应绘图方法与训练 `average_precision` 属性遵循同一限制。
 - 二分类标签必须编码为 0/1。先处理缺失值、非有限输入和形状不匹配，再调用拟合。
 
 ## API 参考与验证

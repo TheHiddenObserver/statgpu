@@ -5,8 +5,6 @@
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/logistic-regression.md)
 
-Language switch: [Chinese](../../cn/models/logistic-regression.md)
-
 ## When to use this model
 
 `LogisticRegression` models the probability of a binary outcome, such as whether an event occurs. It combines a linear predictor with the logistic function, so predicted probabilities stay between 0 and 1. Use it for binary prediction or for interpreting associations on the log-odds scale. Association alone does not establish causality.
@@ -164,6 +162,7 @@ No separate approx inference mode is exposed in this API. Robust covariance choi
 - Use HC covariance for an appropriate heteroskedastic/score-robust analysis; HAC additionally depends on observation order and lag selection. Shuffling time-ordered observations changes the meaning of HAC.
 - If `summary()` reports inference unavailable, refit with `compute_inference=True`; prediction and likelihood diagnostics can still be used with inference disabled.
 - `roc_curve`, `roc_auc_score` and `evaluate_classification` require both classes in the evaluation labels. `include_curves=False` only omits curve arrays; the combined evaluator still computes ROC AUC and raises for a one-class subset. Use `classification_table` or `confusion_matrix` for threshold metrics on such a subset.
+- `precision_recall_curve` and `average_precision_score` need at least one positive label; they raise `ValueError` on an all-zero evaluation subset. All-one subsets are accepted, but their perfect precision/AP does not measure the ability to distinguish the two classes. The corresponding plot and training `average_precision` property follow the same restriction.
 - Binary labels must be 0/1; encode other class names first. Missing/nonfinite inputs and mismatched shapes must be corrected before fitting.
 
 ## API reference and validation

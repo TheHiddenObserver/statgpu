@@ -81,6 +81,47 @@ assert statistic.shape == global_p.shape == (2,)
 
 Do not infer method calibration from finite outputs or agreement on a few examples. For individual tests use the adjustment's error criterion; for combination interpret one global null.
 
+## Validate and rescale combination weights
+
+Cauchy and Stouffer depend on relative weights, so multiplying every weight by
+the same positive constant should leave the result unchanged. Currently, the
+sum of individually finite weights can overflow: with `p=[0.01, 0.1]` and
+`weights=[1e308, 1e308]`, Cauchy returns `0.5` instead of about `0.018222`,
+and Stouffer returns NaN. Validate weights and divide them by their largest
+value before calling. This preserves their ratios while avoiding that overflow;
+it does not fix extreme probability tails or change dependence assumptions.
+
+<!-- safety-example: scaled-combination-weights -->
+```python
+import numpy as np
+from statgpu.inference import combine_pvalues
+
+
+def relative_weights(weights):
+    weights = np.asarray(weights, dtype=np.float64)
+    if weights.ndim != 1 or weights.size == 0:
+        raise ValueError("weights must be a nonempty vector")
+    if not np.isfinite(weights).all() or np.any(weights < 0):
+        raise ValueError("weights must be finite and nonnegative")
+    largest = weights.max()
+    if largest <= 0:
+        raise ValueError("at least one weight must be positive")
+    return weights / largest
+
+
+p = np.array([0.01, 0.1])
+weights = relative_weights([1e308, 1e308])
+for method in ("cauchy", "stouffer"):
+    statistic, combined = combine_pvalues(
+        p, method=method, weights=weights, backend="numpy",
+    )
+    print(method, round(float(statistic), 6), round(float(combined), 6))
+```
+
+This prints `cauchy 17.4491 0.018222` and `stouffer 2.55117 0.005368`,
+the same results as equal unit weights. Keep the weight vector aligned with
+the p-values; the API checks its length against the combination axis.
+
 ## Historical timing records
 
 Earlier timing tables are retained in the [developer historical record](../../../dev/references/multiple-testing-historical-benchmarks.md). They do not establish a current speedup or a universal CPU/GPU crossover; measure the actual workload when performance matters.

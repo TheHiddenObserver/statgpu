@@ -37,8 +37,9 @@ inference_method="auto"
 | 平方误差 + L2/无惩罚 | Gaussian 经典/稳健协方差 | 按 `cov_type` 使用经典或 Gaussian 稳健协方差 |
 | 平方误差 + L1/ElasticNet | 去偏推断；显式请求时可用 `post_selection_ols` | `debiased` |
 | 光滑非 Gaussian GLM + L2/无惩罚 | 固定惩罚 M-估计 | `m_estimation` |
-| 受支持的 Gaussian 惩罚模型 | 显式请求残差自助法 | 不自动选择 |
-| 受支持的 SCAD/MCP 标量 GLM | 显式请求活跃集上的 oracle 重拟合 | 不自动选择 |
+| 平方误差 + L1/ElasticNet/SCAD/MCP | 显式请求残差自助法；不适用于 L2 | 不自动选择 |
+| 平方误差 + SCAD/MCP | CPU 父模型可显式请求活跃集 oracle 重拟合；注意下文子模型设备限制 | 不自动选择 |
+| 非 Gaussian SCAD/MCP | `oracle` 接受标量 GLM 分布族，但当前重拟合可能改变模型；详见下文限制 | 不自动选择 |
 | 非 Gaussian L1/ElasticNet | 未实现系数推断 | 请求会报错 |
 | 分组惩罚 | 仅估计 | 请求推断会报错 |
 | `PenalizedCoxPHModel` / `PenalizedGLM_CV` 的 Cox 分支 | 仅估计 | 请求推断会报错 |
@@ -80,7 +81,7 @@ HC2、HC3 与 HAC 在该路径上不可用，请求时会报错。
 
 ## 分析权重
 
-当所选光滑 GLM 求解器支持解析 `sample_weight` 时，整个拟合使用同一个归一化带权目标：
+当所选光滑 GLM 求解器支持分析权重 `sample_weight` 时，整个拟合使用同一个归一化带权目标：
 
 $$
 L_w(\beta)
@@ -118,7 +119,7 @@ $$
 
 显式 `device="cuda"` 或 `device="torch"` 请求不会被静默替换成 NumPy 推断。数值推断完成后，小型结果数组可以转换为 NumPy；这个用于结果整理的边界不会改变数值程序实际运行的位置。
 
-部分推断方法支持的后端范围比基础估计器更窄。例如，当前 SCAD/MCP 的 oracle 重拟合只支持 CPU；GPU 拟合后请求这一方法会报错，而不会把 CPU 计算结果描述成原生 GPU 推断。
+部分推断方法支持的后端范围比基础估计器更窄。例如，SCAD/MCP 的 oracle 接口会拒绝已经执行 GPU 拟合的父模型。但重拟合子模型目前默认使用 `device="auto"`，因此在有 GPU 的系统上，CPU 父模型并不能保证子模型也在 CPU 上运行。详见下文的 oracle 限制；显式创建单独的重拟合模型，才能同时指定设备与统计模型。
 
 ## 残差自助法的范围
 
@@ -143,11 +144,46 @@ $$
 
 这些区间描述的是固定设计、固定调参配置下的残差自助法过程；它们不是一般意义上的选择后推断区间，也不会自动校正调参或变量选择带来的额外不确定性。
 
+报告的区间是重拟合系数的第 2.5 和第 97.5 百分位数，`bse` 是这些系数的样本标准差（`ddof=1`）。`pvalues` 的计算方式是：分别统计系数不大于零、不小于零的比例，取较小者的两倍，并将上限截为一。这个数可以恰好为零，不采用加一修正。显示的 `z` 是原拟合系数除以自助法标准误，但 p 值并非由这个统计量的正态尾概率计算。这些符号比例不来自强制原假设成立的重采样检验，对有偏惩罚估计量也没有一般的有限样本校准保证。增加抽样次数能降低模拟误差，但不能消除收缩偏差或证明假设检验有效。
+
 ## SCAD/MCP oracle 推断
 
 `inference_method="oracle"` 必须显式请求，因为它以惩罚拟合已经选出的活跃集为条件。`auto` 不会静默采用这种解释。
 
-在支持范围内，该程序会在所选活跃集上进行不含原非凸惩罚的重拟合，并对这一条件重拟合报告不确定性。请求前应检查相应模型和后端的支持范围。
+这一程序的预期目标是在所选活跃集上去掉原非凸惩罚后重新拟合。即使无惩罚重拟合本身正确，普通区间也不会自动校正在同一数据上选择变量的影响。未选中系数的不确定性不可用，以 `NaN` 表示；如果没有任何特征被选中，所有参数（包括截距）的不确定性均不可用。
+
+<a id="current-non-gaussian-oracle-limitation"></a>
+
+### 当前非 Gaussian oracle 的限制
+
+接口接受 SCAD/MCP 与 `squared_error`、`logistic`、`poisson`、`gamma`、`inverse_gaussian`、`negative_binomial`、`tweedie` 的组合。但当前非 Gaussian 重拟合可能静默使用构造函数默认值，未保留原模型配置：logistic 使用 `C=1`，并非无惩罚拟合；负二项离散参数可能重置为 `alpha=1`，Gamma 链接重置为 `"log"`，Tweedie 幂参数重置为 `1.5`。子模型的求解器与设备也默认是 `"auto"`；例如 Poisson 会采用默认带 Ridge 惩罚的 IRLS 拟合，而非预期的无惩罚 Newton 重拟合。因此，返回标记为 `oracle` 的成功结果，并不能证明原推断目标得到保留。不要使用这些非 Gaussian oracle 系数表进行推断。
+
+如果需要诊断性重拟合，应先以 `compute_inference=False` 拟合选择模型，再明确指定所选列、分布族、链接、离散或幂参数、无惩罚配置及设备，单独拟合一个模型。对 logistic 回归，独立包装类的 `C=0` 表示不使用正则化：
+
+<!-- inference-example: explicit-logistic-diagnostic -->
+```python
+import numpy as np
+from statgpu.linear_model import PenalizedLogisticRegression, LogisticRegression
+
+rng = np.random.default_rng(48)
+X = rng.normal(size=(200, 2))
+probability = 1 / (1 + np.exp(-(0.6 + X @ np.array([2.0, -1.0]))))
+y = rng.binomial(1, probability)
+selection = PenalizedLogisticRegression(
+    penalty="scad", alpha=0.01, solver="fista", device="cpu",
+    compute_inference=False, max_iter=10000, tol=1e-10,
+).fit(X, y)
+active = np.flatnonzero(np.abs(selection.coef_) > 1e-10)
+if active.size == 0:
+    raise ValueError("No feature was selected; specify a model with only an intercept")
+refit = LogisticRegression(
+    C=0, device="cpu", compute_inference=True, max_iter=10000, tol=1e-10,
+).fit(X[:, active], y)
+print(active.tolist())
+print(np.round(np.r_[refit.intercept_, refit.coef_], 6))
+```
+
+示例选中 `[0, 1]`，系数输出为 `[0.626286, 2.295259, -1.037398]`。`selection` 仍按原惩罚模型预测，`refit` 是独立的诊断模型。它的普通区间仍未考虑数据驱动的变量选择。若要进行验证性推断，应使用相互独立的数据分别选择变量和检验，或在适用假设下采用明确处理选择不确定性的方法；不能把手工重拟合当作选择后推断的修复。
 
 ## 交叉验证
 
@@ -177,17 +213,24 @@ Cox 分支仍然只提供估计，不提供这一系数推断接口。
 
 ## 示例
 
-以下是接口示意：需先准备有限设计矩阵 `X`、行数匹配的非负整数计数向量 `y`，以及有限、非负且总和为正的分析权重 `w`。
+以下完整 CPU 示例生成有限设计矩阵、非负整数计数和有限正分析权重。
 
+<!-- inference-example: weighted-poisson-m-estimation -->
 ```python
+import numpy as np
 from statgpu.linear_model import PenalizedPoissonRegression
 
+rng = np.random.default_rng(72)
+X = rng.normal(size=(100, 2))
+y = rng.poisson(np.exp(0.2 + X @ np.array([0.3, -0.2])))
+w = np.linspace(0.5, 1.5, len(y))
 model = PenalizedPoissonRegression(
     penalty="l2",
     alpha=0.03,
     compute_inference=True,
     inference_method="auto",
     cov_type="hc0",
+    solver="lbfgs",
     device="cpu",
 )
 model.fit(X, y, sample_weight=w)
@@ -195,8 +238,14 @@ model.fit(X, y, sample_weight=w)
 print(model.inference_requested_method_)  # auto
 print(model.inference_resolved_method_)   # m_estimation
 print(model.inference_target_)            # penalized_estimating_equation
-print(model.summary())
+inference = model._inference_result.to_dict()
+print(inference["params"])
+print(inference["conf_int"])
 ```
+
+输出方法为 `m_estimation`；由于 L2 惩罚强度为正，推断目标为 `penalized_estimating_equation`。HC0 不会消除拟合的收缩偏差，也不会提供经过选择校正的区间。
+
+通用惩罚 GLM 和具体的非 Gaussian 包装类目前没有 `summary()`。可以读取结果的 `params`、`bse`、`pvalues`、`conf_int`，或如上调用 `to_dict()`；`to_dataframe()` 还需要安装 pandas。
 
 对于稀疏的非 Gaussian L1/ElasticNet，目前没有提供系数推断；应使用 `compute_inference=False`，而不要假定 Gaussian 模型的去偏或自助法程序会自动适用于其他分布族。
 

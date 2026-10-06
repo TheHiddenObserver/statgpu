@@ -2,6 +2,7 @@
 
 > 语言：中文
 > 最后更新：2026-10-05
+> 切换：[English](../../en/unsupervised/minibatch-kmeans.md)
 > 路径：`statgpu.unsupervised.MiniBatchKMeans`
 
 ## 概览
@@ -80,12 +81,16 @@ print(labels.shape, model.labels_.shape, model.n_steps_)
 
 ## 数值与使用注意事项
 
+显式提供的初始中心必须全部有限。当前实现会检查形状，但不一定拒绝 NaN 或无穷值；`partial_fit` 可能返回非有限的中心和惯性。对于 NumPy 初始中心，应在构造前检查 `np.isfinite(initial_centers).all()`，先拒绝或修正无效值，再拟合。普通 `fit` 的最终修正步骤可能掩盖无效初始化，因此输出有限也不能替代这一输入检查。
+
 平方距离通过展开范数计算。很大的共同偏移可能引起消减误差，影响距离、惯性乃至标签。可先减去由训练数据确定的特征偏移，再拟合，并在预测时减去相同偏移；平移不会改变欧氏几何关系。报告中心时可加回偏移，恢复原始单位。
 
 ## 完整 API 参考
 
 构造默认值、全部公开方法、输出形状与限制见 [MiniBatchKMeans API 参考](api-reference.md#minibatchkmeans)。
 
-## References
+<a id="references"></a>
+
+## 参考文献
 
 - Sculley, D. (2010). Web-scale k-means clustering. *Proceedings of the 19th International Conference on World Wide Web*, 1177-1178.

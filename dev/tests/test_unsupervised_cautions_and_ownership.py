@@ -178,6 +178,7 @@ def _fit_small_exact_umap(data):
 
 @pytest.mark.xfail(
     strict=True,
+    raises=AssertionError,
     reason="UMAP's finite diagonal mask admits self-neighbors at large distances",
 )
 def test_exact_umap_keeps_all_distinct_neighbors_at_large_scale():

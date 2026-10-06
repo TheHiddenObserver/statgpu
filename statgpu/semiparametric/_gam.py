@@ -360,7 +360,9 @@ class GAM(BaseEstimator):
         y_pred : numpy.ndarray, shape (n_samples,)
             Host float64 predictions, including after GPU fitting. Training
             knots, boundaries, and basis centering are reused; extrapolation
-            outside a training feature range is not reliable.
+            outside a training feature range is not reliable. For multi-feature
+            Torch models, pass an explicit (n_samples,n_features) query matrix,
+            even for one row; the vector shape check currently raises TypeError.
         """
         self._check_is_fitted()
 

@@ -2054,7 +2054,149 @@ from statgpu.linear_model.penalized._penalized_linear import PenalizedLinearRegr
 
 
 class Lasso(_PenalizedLinearRegression):
-    """Thin sklearn-style wrapper over ``PenalizedLinearRegression`` with L1 penalty."""
+    """Sparse linear regression with an L1 penalty and optional inference.
+
+    Minimize sum((y - b - X @ beta)**2)/(2*n) + alpha*sum(abs(beta)).
+    The intercept b is unpenalized, or fixed to zero when fit_intercept=False.
+    Analytic weights replace the average by a weighted sum divided by the
+    total weight. Larger alpha means stronger shrinkage. Scale features using
+    training data only and choose alpha without using held-out test responses.
+    For a prediction-only fit, explicitly set compute_inference=False.
+
+    Parameters
+    ----------
+    alpha : float, default=1.0
+        Nonnegative L1 penalty under the average squared-loss convention.
+    fit_intercept : bool, default=True
+        Fit an unpenalized intercept. Formula syntax controls formula fits.
+    max_iter : int, default=1000
+        Solver iteration budget; reaching it does not establish convergence.
+    tol : float, default=1e-4
+        Solver-specific convergence tolerance.
+    stopping : {'coef_delta', 'kkt'}, default='coef_delta'
+        Stored request, currently ignored by direct Gaussian stopping checks.
+        CPU FISTA/coordinate descent and GPU FISTA check coefficient movement;
+        ADMM checks primal/dual residuals. kkt does not certify optimality.
+        The separate CV/path helper does not certify the final direct refit.
+    inference_method : str, default='debiased'
+        'debiased', 'post_selection_ols', or 'bootstrap'; ordinary 'auto'
+        resolves to 'debiased'. With enable_simultaneous_inference=True, use
+        explicit 'debiased': the constructor currently rejects 'auto'.
+        Deprecated cpu_ols and gpu_ols aliases both mean post_selection_ols,
+        not device choices.
+    n_bootstrap : int, default=200
+        Residual-bootstrap refit count; use at least two draws.
+    bootstrap_random_state : int or None, default=None
+        Seed for resampling empirical residuals, not fresh Gaussian errors.
+    enable_simultaneous_inference : bool, default=False
+        Enable joint max-|Z| intervals; requires enabled debiased inference.
+    simultaneous_method : str, default='maxz_bootstrap'
+        Simultaneous method; currently only maxz_bootstrap is supported.
+    simultaneous_alpha : float, default=0.05
+        Family-wise level strictly between zero and one when enabled.
+    simultaneous_n_bootstrap : int, default=1000
+        Positive number of multiplier-bootstrap draws when enabled.
+    simultaneous_random_state : int or None, default=None
+        Seed for the simultaneous multiplier bootstrap.
+    simultaneous_include_intercept : bool, default=False
+        Include a fitted debiased intercept in the calibration/target family.
+    device : str or Device, default='auto'
+        'cpu', 'cuda' (CuPy), 'torch' (Torch CUDA), or automatic selection.
+        Unavailable explicit GPU requests raise an error.
+    n_jobs : int or None, default=None
+        Shared CPU worker setting; not a solver or parallel-fit guarantee.
+    compute_inference : bool, default=True
+        Compute supported post-fit uncertainty as well as prediction estimates.
+    solver : str, default='fista'
+        Direct-fit algorithm, independent of device. CPU coordinate descent
+        uses 'coordinate_descent'; see the solver-penalty compatibility guide.
+    cpu_solver : str, default='coordinate_descent'
+        Deprecated compatibility argument; use solver for direct fitting.
+    lipschitz_L : float or None, default=None
+        Optional gradient Lipschitz bound for compatible iterative solvers.
+    admm_rho : float, default=1.0
+        Stored but currently ignored by unified ADMM, which starts with
+        rho=1.0. Adaptation depends on the solver path; the direct squared-error
+        Cholesky solve keeps rho fixed. Not an effective tuning control.
+    gpu_memory_cleanup : bool, default=False
+        Request best-effort cleanup of reclaimable GPU memory after fitting.
+    nodewise_alpha : float or None, keyword-only, default=None
+        Positive design-side penalty for multi-feature debiased inference,
+        or an automatic rule. Does not tune the main prediction model.
+
+    Attributes
+    ----------
+    coef_ : numpy.ndarray of shape (n_features,)
+        Penalized slopes used by predict, even when inference is requested.
+    intercept_ : float
+        Penalized prediction intercept, or zero without an intercept.
+    n_iter_ : int
+        Number of optimization iterations, not a KKT certificate.
+    nodewise_alpha_ : float or None
+        Resolved multi-feature node-wise tuning; None for a one-feature fit
+        or another inference method.
+    _params, _bse, _pvalues : numpy.ndarray or None
+        Reporting estimates, standard errors and p-values of shape (k,),
+        with k=p+1 for an intercept and k=p otherwise. _tvalues/_zvalues
+        contain the applicable statistics. All rows are slopes without an
+        intercept; otherwise row zero is the reporting intercept.
+    _conf_int, _conf_int_simultaneous : numpy.ndarray or None
+        Marginal and optional simultaneous intervals in the (k, 2) layout.
+        An intercept excluded from the simultaneous family retains its
+        marginal interval in _conf_int_simultaneous.
+    _inference_result : InferenceResult or None
+        Structured parameters, uncertainty, method, distribution and metadata.
+        Reporting estimates can differ from penalized prediction estimates.
+
+    Methods
+    -------
+    fit(X=None, y=None, sample_weight=None, formula=None, data=None)
+        Return self. Supply finite X (n,p) and flat y (n,), or formula/data.
+        Analytic sample_weight has shape (n,), is finite and nonnegative,
+        and has positive total. Do not combine array and formula routes:
+        formula parsing currently replaces supplied arrays without an error.
+    predict(X, return_cpu=True)
+        Predict on (m,p) features in training order; formula fits also accept
+        a DataFrame. Return shape (m,). Default output is NumPy; False keeps
+        the fitted NumPy/CuPy/Torch backend.
+    score(X, y, sample_weight=None)
+        Return Python float R-squared on evaluation data. Use flat host y
+        and optional host weights. Validate weights yourself: this method
+        currently accepts some invalid negative weights. Training weights
+        are not automatically reused for evaluation.
+    summary()
+        Print inference output and return None; requires successful inference.
+    get_params(deep=True), set_params(**params)
+        Read constructor configuration or update it and return self. Valid
+        nonempty updates reset fitted state; refit before prediction.
+    adjust_pvalues, combine_pvalues, bootstrap_statistic, permutation_test
+        Inherited generic helpers; see each method's help for its full
+        signature and result. They do not automatically retune Lasso.
+
+    Notes
+    -----
+    Lasso has no l1_ratio, cov_type, hac_maxlags or initial_coef constructor/
+    fit controls. The default nonrobust covariance configuration applies.
+    post_selection_ols is an active-set OLS/WLS diagnostic, not general
+    selective inference. Debiased ordinary intervals are marginal; joint
+    intervals require simultaneous inference. Residual bootstrap refits the
+    full penalized design at fixed alpha and requires sample_weight=None.
+    None of these procedures automatically adjusts for tuning/selection.
+
+    Marginal debiased and post-selection inference reuse the fitted backend.
+    Simultaneous debiased calculations are GPU-native with an intercept;
+    fit_intercept=False instead uses a NumPy host helper. Coefficient and
+    inference reporting arrays are NumPy even after GPU fitting.
+
+    Training rsquared/rsquared_adj and F diagnostics can misstate totals
+    after weighted debiased inference; use score on original data with
+    validated evaluation weights. llf/aic/bic are compatibility summaries,
+    not generally penalty-aware or selection-adjusted criteria.
+
+    See docs/en/models/lasso.md for complete CPU examples and
+    docs/en/reference/linear-model-api.md for method/result details, formula
+    behavior and inherited helper links.
+    """
 
     def __init__(
         self,

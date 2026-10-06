@@ -32,9 +32,7 @@ Most unsupervised estimators expose `device="auto"`, `"cpu"`, `"cuda"`, and `"to
 
 ## Input validation
 
-Dense unsupervised estimators share one backend-aware finite-input check. NaN/Inf is
-rejected before SVD, eigendecomposition, distance computation, or iterative updates,
-so users receive a stable public error rather than estimator-specific low-level failures.
+Observation matrices are checked for NaN/Inf before SVD, eigendecomposition, distance computation, or iterative updates and raise a public validation error. This does not cover every constructor setting: numeric controls and explicit MiniBatchKMeans initial centers also need to be finite, but are not all checked reliably. See the [shared input rules](../unsupervised/api-reference.md#shared-inputs-devices-and-state) and [initial-center precautions](../unsupervised/minibatch-kmeans.md#numerical-and-lifecycle-cautions).
 
 ## Notes
 

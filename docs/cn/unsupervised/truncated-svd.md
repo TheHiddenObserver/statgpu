@@ -2,6 +2,7 @@
 
 > 语言：中文
 > 最后更新：2026-10-05
+> 切换：[English](../../en/unsupervised/truncated-svd.md)
 > 路径：`statgpu.unsupervised.TruncatedSVD`
 
 ## 概览
@@ -78,6 +79,8 @@ print(Z.shape, X_hat.shape, model.explained_variance_ratio_.sum())
 
 构造默认值、全部公开方法、输出形状与限制见 [TruncatedSVD API 参考](api-reference.md#truncatedsvd)。
 
-## References
+<a id="references"></a>
+
+## 参考文献
 
 - Halko, N., Martinsson, P. G., & Tropp, J. A. (2011). Finding structure with randomness: Probabilistic algorithms for constructing approximate matrix decompositions. *SIAM Review*, 53(2), 217-288.

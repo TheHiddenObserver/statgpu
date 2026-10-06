@@ -50,6 +50,8 @@ combine_pvalues(pvalues, method="fisher", weights=None, axis=None, backend="auto
 
 Fisher 使用独立均匀 P 值对应的卡方参考分布；Stouffer 使用独立正态分数的方差，不估计检验之间的协方差。Cauchy/ACAT 对归一化权重的正切统计量使用一定正则条件下的 Cauchy 尾部近似，并不对任意依赖结构和任意有限显著性水平作统一保证。详见[合并公式及参考文献](../models/multiple-testing.md#合并公式与适用条件)。
 
+<a id="a-complete-axis-and-weight-example"></a>
+
 ## 可直接运行的轴与权重示例
 
 Stouffer 计算要求原假设下的分数独立且方向一致。这里每行对应一个总体检验；代码不会再对所得的两个总体 P 值进行多重校正。
@@ -80,6 +82,41 @@ assert statistic.shape == global_p.shape == (2,)
 - 返回零或一可能只是数值极限。极端尾部精度重要时，应使用已验证的稳定尾部方法；仅把相同数据转到 GPU 不能消除这些限制。
 
 结果有限、或少量例子与其他库一致，都不能证明方法满足统计校准。逐项检验应按所选错误率解释；合并检验则针对一个总体原假设。
+
+<a id="validate-and-rescale-combination-weights"></a>
+
+## 验证并缩放合并权重
+
+Cauchy 和 Stouffer 只取决于相对权重，因此把全部权重乘以同一个正常数，结果应保持不变。目前，即使每个权重都有限，求和仍可能溢出：当 `p=[0.01, 0.1]`、`weights=[1e308, 1e308]` 时，Cauchy 会返回 `0.5`，而正确结果约为 `0.018222`；Stouffer 则返回 NaN。调用前应先检查权重，再除以最大权重。这样可以保留比例并避免该溢出，但不会修复极端概率尾部的精度，也不会改变方法的依赖假设。
+
+<!-- safety-example: scaled-combination-weights -->
+```python
+import numpy as np
+from statgpu.inference import combine_pvalues
+
+
+def relative_weights(weights):
+    weights = np.asarray(weights, dtype=np.float64)
+    if weights.ndim != 1 or weights.size == 0:
+        raise ValueError("weights must be a nonempty vector")
+    if not np.isfinite(weights).all() or np.any(weights < 0):
+        raise ValueError("weights must be finite and nonnegative")
+    largest = weights.max()
+    if largest <= 0:
+        raise ValueError("at least one weight must be positive")
+    return weights / largest
+
+
+p = np.array([0.01, 0.1])
+weights = relative_weights([1e308, 1e308])
+for method in ("cauchy", "stouffer"):
+    statistic, combined = combine_pvalues(
+        p, method=method, weights=weights, backend="numpy",
+    )
+    print(method, round(float(statistic), 6), round(float(combined), 6))
+```
+
+输出为 `cauchy 17.4491 0.018222` 和 `stouffer 2.55117 0.005368`，与单位等权的结果一致。权重顺序须与 P 值一致；API 会检查权重个数是否等于合并轴长度。
 
 ## 历史计时记录
 

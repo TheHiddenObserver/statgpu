@@ -1,7 +1,7 @@
 # 广义线性模型与带惩罚 GLM
 
 > 语言：中文  
-> 最后更新：2026-09-15  
+> 最后更新：2026-10-05  
 > 页面定位：模型文档  
 > 切换：[英文版](../../en/models/generalized-linear-model.md)
 
@@ -13,7 +13,7 @@
 
 如果主要关心**带权重的 GLM**，先记住四点即可：
 
-- `sample_weight` 在受支持的 GLM 路径中表示**目标函数中的解析权重**；
+- `sample_weight` 在受支持的 GLM 路径中表示**目标函数中的分析权重**；
 - 加权损失按 `sum(sample_weight)` 归一化，因此把全部权重同时乘以同一个正数不会改变最优解；
 - `sample_weight` 不会改变显式指定的 `solver`；如果组合不受支持，则直接报错；
 - 显式 `device="cuda"` 与 `device="torch"` 在受支持的路径中分别使用 CuPy CUDA 与 Torch CUDA。
@@ -40,44 +40,40 @@
 
 ## 目标函数与 `sample_weight`
 
-普通无权重 GLM 最小化对应分布族的平均负对数似然：
+设 n 为观测数，$x_i$ 为特征向量，$\beta$ 为斜率向量，b 为不受惩罚的截距。记 $\eta_i=b+x_i^\top\beta$；`fit_intercept=False` 时令 b=0。**无惩罚**的数据拟合目标为相应分布族的平均负对数似然，采用该分布族的离散度约定：
 
 $$
-\min_\beta \frac{1}{n}\sum_{i=1}^n \ell(y_i, x_i^\top\beta).
+L(b,\beta)=\frac{1}{n}\sum_{i=1}^n\ell(y_i,\eta_i).
 $$
 
-在受支持的加权路径中，`sample_weight=w` 会把数据拟合项改为归一化加权平均：
+受支持的分析权重 `sample_weight=w` 将其改为
 
 $$
-\min_\beta
-\frac{\sum_i w_i\,\ell(y_i, x_i^\top\beta)}{\sum_i w_i}.
+L_w(b,\beta)=\frac{\sum_i w_i\ell(y_i,\eta_i)}{\sum_i w_i}.
 $$
 
-这个定义有三个直接结果：
+权重必须有限、非负且总和为正。零权重观测不贡献数据拟合损失；所有权重同乘一个正常数，不改变该目标。
 
-1. 所有权重同时乘以同一个正数，不会改变最优解；
-2. 权重为 0 的观测不参与数据拟合项；
-3. 权重必须是有限的非负数，并且总和必须严格大于 0。
-
-带惩罚 GLM 在数据拟合项上再加入惩罚：
+**普通 GLM 不等于自动采用无惩罚拟合。** 对本页列出的普通分布族，默认 `solver="auto"` 使用 IRLS。普通 IRLS 在 C 为正时加入斜率的岭惩罚：
 
 $$
-\min_\beta \frac{1}{n}\sum_{i=1}^n \ell(y_i, x_i^\top\beta) + \alpha P(\beta),
+\min_{b,\beta} L_w(b,\beta)+\frac{1}{4C}\lVert\beta\rVert_2^2.
 $$
 
-使用解析权重时则为
+无权重时以 L 代替 L_w。岭惩罚的梯度为 $\beta/(2C)$，不包含截距；默认 `C=1` 因而会收缩斜率。当前普通 IRLS 对非正 C 不施加此项，建议以 `C=0` 明确请求无惩罚 IRLS。普通 GLM 显式选择 `newton`、`lbfgs` 或 `fista` 时使用无惩罚损失，不使用 C。因此，若原来使用了正 C，更换普通 GLM 求解器可能改变统计问题。这里 C 的含义不同于独立的 LogisticRegression，也不同于下文的 alpha 接口。
+
+**带惩罚 GLM** 则使用所声明的惩罚项：
 
 $$
-\min_\beta
-\frac{\sum_i w_i\,\ell(y_i, x_i^\top\beta)}{\sum_i w_i}
-+ \alpha P(\beta).
+\min_{b,\beta}L(b,\beta)+\alpha P(\beta),\qquad
+\text{或}\quad\min_{b,\beta}L_w(b,\beta)+\alpha P(\beta).
 $$
 
-截距项不参与惩罚。`statgpu.glm_core` 有意只处理 GLM 目标；Cox、稳健回归、分位数回归等非 GLM 目标保留各自独立的统计定义和文档。
+截距仍不受惩罚。`statgpu.glm_core` 专门处理 GLM；Cox 偏似然、稳健损失和分位数损失保留各自的统计定义与文档。
 
 ## 求解器选择
 
-对大多数用户，推荐先使用 `solver="auto"`。当前直接拟合中的主要调度规则如下：
+对大多数用户，推荐先使用 `solver="auto"`。当前直接拟合的稀疏 Gaussian 模型中，`stopping="kkt"` 并不会切换停止条件，详见[直接拟合的控制参数限制](../reference/linear-model-api.md#elasticnet)。下表仅描述统一的**带惩罚估计器**调度；普通 GLM 默认使用上文说明的 IRLS，不会因为 C 加入岭惩罚就自动采用下表。
 
 | 设置 | `solver="auto"` 行为 |
 |---|---|
@@ -92,7 +88,7 @@ $$
 
 ### 显式 Newton / L-BFGS 的加权支持
 
-在受支持的普通 GLM 路径中，只要对应分布族和链接函数支持该求解器，显式 `solver="newton"` 和 `solver="lbfgs"` 都可以接受**非均匀解析权重**。
+在受支持的普通 GLM 路径中，只要对应分布族和链接函数支持该求解器，显式 `solver="newton"` 和 `solver="lbfgs"` 都可以接受**非均匀分析权重**。
 
 两个求解器都优化前面给出的归一化加权目标，并且同一组权重贯穿整个优化过程：
 
@@ -108,7 +104,7 @@ $$
 `GammaRegression(link="inverse_power")` 使用逆链接，因此拟合时要求线性预测子满足
 
 $$
-\eta_i=x_i^\top\beta>0.
+\eta_i=b+x_i^\top\beta>0.
 $$
 
 显式 Newton/L-BFGS 会在第一次目标函数评估前构造满足这一条件的内点初值。有截距时，截距列天然提供一个可行方向；无截距时，statgpu 会在实际参与拟合的正权重观测上寻找满足 $X d>0$ 的方向并将其缩放到合法内点。若无法数值认证这样的初值，则在优化开始前明确报错。后续迭代通过求解器内部的可行性检查和步长上界保持在逆链接合法域；这些约束属于数值保护机制，不是 Gamma 模型额外增加的统计假设。
@@ -117,17 +113,17 @@ $$
 
 非均匀权重下的 L-BFGS 支持目前是 **GLM 损失函数明确声明的能力**，并不自动扩展到非 GLM 的底层 `LossBase`。其他模型族保留各自的权重和求解器语义，应以对应模型文档和兼容性矩阵为准。有序 GLM 也保留独立的权重规则。
 
-带惩罚的光滑 GLM 使用同一套解析权重定义，但求解器仍由直接拟合或交叉验证的既有调度规则决定。是否提供权重不会单独决定一个 L2 模型使用 Newton 还是 L-BFGS。
+带惩罚的光滑 GLM 使用同一套分析权重定义，但求解器仍由直接拟合或交叉验证的既有调度规则决定。是否提供权重不会单独决定一个 L2 模型使用 Newton 还是 L-BFGS。
 
 ## 协方差与推断
 
-对于通用的 `PenalizedGeneralizedLinearModel` 以及各类专用的带惩罚 GLM 封装，推荐使用 `inference_method="auto"`。在支持推断的拟合成功后，模型会记录用户请求的方法、实际采用的方法、报告的方法、推断目标，以及调参与模型选择所依赖的条件信息。
+对于通用的 `PenalizedGeneralizedLinearModel` 及各类专用的带惩罚 GLM 封装，推荐使用 `inference_method="auto"`。受支持的 M-估计、去偏与残差自助法结果会记录推断方法、目标及调参或选择条件。当前 `post_selection_ols` 即使返回了推断结果，`inference_method_` 和 `inference_target_` 仍可能为空；请读取 `_inference_result.method` 及其元数据，详见[选择后结果报告](../guides/inference-modes.md#post_selection_ols)。
 
 对于受支持的光滑非高斯 L2/无惩罚模型，`auto` 解析为固定惩罚的 `m_estimation`。正 L2 惩罚对应带惩罚的估计方程；无惩罚别名会规范为惩罚强度为 0 的 L2，对应无惩罚总体参数。当前协方差支持 `nonrobust`、`hc0`、`hc1`；HC2/HC3/HAC 在这一路径中不可用，并会明确报错。
 
-受支持的推断路径可以使用解析权重，数值计算跟随实际执行拟合的计算后端和具体设备。普通 GLM 的推断与拟合使用同一套权重定义。非高斯 L1/ElasticNet 的系数推断目前尚未产品化；SCAD/MCP 的 Oracle 型推断需要显式请求；分组惩罚目前只提供估计。
+受支持的 M-估计与高斯残差自助法复用拟合的后端和设备；普通 GLM 的推断与拟合使用同一套分析权重定义，但是否支持权重仍取决于推断方法。非高斯 L1/ElasticNet 系数推断不受支持。SCAD/MCP `oracle` 需要显式请求，但当前非高斯子模型重建会把分布族设置和正则化重置为默认值，并自动选择子模型设备。不要把这些结果解释为预期的无惩罚活跃集推断，详见 [oracle 限制及诊断性重拟合替代方案](../guides/penalized-glm-inference.md#current-non-gaussian-oracle-limitation)。分组惩罚目前只提供估计。
 
-对于受支持的高斯稀疏惩罚，`inference_method="bootstrap"` 表示 `cov_type="nonrobust"` 下的**无权重残差自助法**。设计矩阵和拟合后的调参配置保持固定：每次从残差中有放回抽样，在拟合值周围构造新的高斯响应，再用同一个带惩罚模型重新拟合。`n_bootstrap` 控制重拟合次数，`bootstrap_random_state` 控制随机数可复现性。
+对于受支持的高斯稀疏惩罚，`inference_method="bootstrap"` 表示 `cov_type="nonrobust"` 下的**无权重残差自助法**。设计矩阵和拟合后的调参配置保持固定：每次从残差中有放回抽样，把抽到的残差加到拟合值上，构造新的自助响应，再用同一个带惩罚模型重新拟合。`n_bootstrap` 控制重拟合次数，`bootstrap_random_state` 控制随机数可复现性。
 
 CPU 拟合使用 NumPy；CuPy/Torch CUDA 拟合会把自助法重拟合留在同一个 GPU 设备。最终推断数组统一返回 NumPy。带权残差自助法、稳健/HC 协方差对应的自助法、HAC/分块自助法与非高斯自助法当前都不支持。
 
@@ -140,7 +136,8 @@ CPU 拟合使用 NumPy；CuPy/Torch CUDA 拟合会把自助法重拟合留在同
 | `family` | 模型相关 | GLM 分布族，例如 `"gaussian"`、`"binomial"`、`"poisson"` |
 | `penalty` | `"l2"` 或模型默认 | `none`、`l1`、`l2`、`elasticnet` 以及结构化惩罚 |
 | `alpha` | `1.0` 或模型默认 | statgpu 目标函数尺度下的惩罚强度 |
-| `l1_ratio` | `None` | ElasticNet 的 L1/L2 混合比例 |
+| `C` | 普通 GLM 为 `1.0` | 正 C 对应普通 IRLS 的斜率惩罚 `sum(beta**2)/(4*C)`；C=0 取消此项。普通显式 Newton/L-BFGS/FISTA 不使用 C。它不是带惩罚 GLM 的 alpha 参数。 |
+| `l1_ratio` | 接受该参数的类为 `0.5` | 通用及专用带惩罚 GLM 的 ElasticNet 混合参数；部分专用封装不暴露此参数。 |
 | `fit_intercept` | `True` | 是否拟合截距 |
 | `solver` | `"auto"` | 求解器；见上文“求解器选择” |
 | `device` | `"auto"` | 根据模型支持情况使用 `cpu`、`cuda`、`torch` 或 `auto` |
@@ -250,7 +247,6 @@ fast_cv = PenalizedGLM_CV(
 - `score`（对应模型实现时）
 - `cv_results_`（`PenalizedGLM_CV`），包括 `cv_strategy_`、`cv_selected_device_`、`refined_mask`，以及两阶段筛选启用时的第一阶段分数
 
-统一的 `FitResult` 属于未来预留接口，不是本页当前公开接口的一部分。
 
 ## 相关文档
 
@@ -260,25 +256,17 @@ fast_cv = PenalizedGLM_CV(
 
 ## 常见问题
 
-- **这里的 `sample_weight` 表示什么？** 在受支持的普通或带惩罚 GLM 路径中，它表示目标函数中的解析权重，并按 `sum(weights)` 归一化。它不是调查抽样权重，也不是用于自助法抽样的权重；同时不会自动启用带权残差自助法。
+- **这里的 `sample_weight` 表示什么？** 在受支持的普通或带惩罚 GLM 路径中，它表示目标函数中的分析权重，并按 `sum(weights)` 归一化。它不是调查抽样权重，也不是用于自助法抽样的权重；同时不会自动启用带权残差自助法。
 - **加入 `sample_weight` 会改变求解器吗？** 不会。显式指定的 `solver` 保持不变；`solver="auto"` 继续按照对应模型的自动调度规则选择求解器。
 - **`device="cuda"` 是否保证 GLM 求解器在 GPU 上运行？** 对受支持的路径，是的：数值计算使用 CuPy；若组合不受支持或设备不可用，则报错。
 - **大规模 GPU 任务是否建议使用 `formula`？** 通常不建议。公式接口主要用于便利建模，大规模任务更适合显式数组。
 - **`Ridge`、`Lasso`、`ElasticNet` 是别名吗？** 不是。它们是保留 sklearn 风格构造器语义的薄封装类。
 
-## 外部验证
+## 与其他实现比较
 
-本地与托管测试覆盖导入、求解器/目标函数不变量、CPU 参考结果与回归矩阵。GPU 数值一致性和具体设备行为在发布能力声明前由物理 CUDA 验证程序单独检查。
+比较系数或不确定性时，应对齐响应分布族与链接、截距、特征列、分析权重、惩罚定义、求解器和收敛设置。若比较无惩罚的普通 Poisson 模型，可用 `C=0` 的 IRLS 或显式无惩罚求解器；普通 GLM 默认的 `C=1` IRLS 对应另一统计目标。带惩罚拟合还需对齐平均损失与总损失以及惩罚尺度，不能仅凭参数同名就认为目标一致。
 
-验证范围包括：
-
-- CPU/CuPy/Torch 的系数与截距一致性；
-- 解析权重的全局缩放、均匀权重与零权重观测恒等性；
-- 带惩罚路径的目标函数差异与 KKT 残差；
-- 在目标函数定义可对齐时与 sklearn/statsmodels 进行比较；
-- 性能测试需要时使用预热与 GPU 同步。
-
-这些验证用于确认上文公开能力的数值一致性；开发环境、凭据和具体运行基础设施不属于本模型文档的用户接口。
+除系数外，还应比较留出数据预测及目标函数或最优性诊断。推断比较须使用同一协方差约定，并区分是否以既定调参值或已选择变量为条件。某一后端上的数值对照不能证明另一设备上的结果。
 
 ## 参考文献
 

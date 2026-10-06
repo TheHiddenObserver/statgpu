@@ -5,6 +5,20 @@
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/splines.md)
 
+## Turn a curved predictor effect into reusable features
+
+A spline basis expands one numeric predictor into several overlapping, local
+curves. A later regression combines these columns to learn a nonlinear effect;
+the basis itself does not fit a response. Use `SplineTransformer` when training
+and new observations must share the same knots and feature definition. Use
+[GAM](semiparametric.md) when you also want an additive least-squares model and
+automatic smoothing selection. More knots allow more detail, but do not by
+themselves control overfitting.
+
+Fit the transformer only on training rows, then call `transform` on validation
+or test rows. In a cross-validation pipeline, learn knots inside each training
+fold. Otherwise quantile knots can use information from held-out observations.
+
 ## Overview
 
 The splines module provides spline basis construction utilities. `bspline_basis` evaluates B-spline basis matrices using De Boor's recursive algorithm. `natural_cubic_spline_basis` projects a cubic basis using numerical constraints that approximate zero endpoint curvature. `cyclic_cubic_spline_basis` attempts a periodic projection, but its current boundary approximation is unreliable; see the limitation below before using it. `thin_plate_spline_basis` constructs multi-dimensional radial basis functions using the thin plate spline kernel. `SplineTransformer` wraps B-spline basis generation in an sklearn-compatible `fit`/`transform` API for use in pipelines. The functions accept NumPy, CuPy, or Torch through an explicit `xp`; `xp=None` uses NumPy, rather than inferring the input backend.
@@ -68,18 +82,46 @@ Spline basis functions are deterministic computational utilities. They do not pr
 
 ## Backend execution and extrapolation boundary
 
-`SplineTransformer.fit()` learns knots on the selected backend and `transform()`
-constructs the full basis there; it no longer transfers the complete input to SciPy.
-`error`, `constant`, `linear`, and polynomial `continue` modes share the same
-NumPy/CuPy/Torch recurrence. Moving a fitted transformer to another backend transfers
-only knot metadata.
+`SplineTransformer.fit()` learns knots and `transform()` constructs the basis
+using NumPy/CuPy/Torch recurrence for `error`, `constant`, `linear`, and polynomial
+`continue` modes. When inputs change backend, fitted knot metadata is transferred
+as needed; the full training design is not transferred.
+
+Current device selection has an exception: a supplied Torch tensor takes priority
+over `device`. Torch CPU inputs can leave both fitted knots and transformed features
+on CPU even with explicit `device="torch"` or `device="cuda"`. With NumPy inputs, an
+unavailable explicit accelerator can instead raise. Inspect each array in `knots_`
+and the returned basis, not just `model.device`: Torch `.device` and `.is_cuda`
+show placement, CuPy `.device` identifies the GPU, and NumPy arrays are on CPU.
+For a predictable CPU path, use NumPy inputs with `device="cpu"`. This limitation
+does not redefine the intended strict [device convention](../guides/device-and-memory.md).
 
 Backend choice does not itself establish numerical accuracy or speed on your workload; validate the basis and boundary behavior required by your analysis.
 
-`thin_plate_spline_basis` also uses device-aware allocation and scalar-safe radial
-operations across NumPy/CuPy/Torch; x, knots, and penalty order are validated before
-basis construction. The QR fallback for natural splines allocates its identity matrix
-on the same device as the constraint matrix.
+`thin_plate_spline_basis` validates evaluation points, knots, and penalty order
+before basis construction and returns an array on the supplied `xp` backend.
+
+### Natural-basis scale sensitivity
+
+`natural_cubic_spline_basis` uses an absolute finite-difference step for its
+boundary constraints. Changing measurement units can substantially change the
+represented function space: on a range of length `1e6`, the returned basis can
+fail to represent even a constant, while very small ranges can have large
+nonzero endpoint curvature. Finite output and the expected column count do not
+prove natural boundary conditions. Centering and scaling points and knots to a
+unit range reduces these demonstrated errors but does not make the constraints
+exact. If natural endpoint conditions are essential, use an independently
+verified natural-spline construction and check analytic boundary derivatives.
+
+### Transformer input and output shapes
+
+`SplineTransformer` takes a nonempty finite real `(n,p)` design and calculates
+float64 basis values. A vector at fit time means one feature. At transformation,
+a vector means many points for a single feature or one multivariate point;
+for Torch, the latter currently raises `TypeError`, so always pass an explicit
+`(q,p)` matrix, including `(1,p)` for one point. Outputs have shape
+`(q,n_features_out_)`. Preserve feature order and use the fitted knots. For one
+feature, custom knots may also be a length-`n_knots` vector.
 
 ## strict / approx Difference
 
@@ -131,7 +173,7 @@ Spline basis computation has no strict/approx mode. Explicit backend selection d
 | `knots` | `'uniform'` | Knot placement: `'uniform'`, `'quantile'`, or an array of shape `(n_knots, n_features)` |
 | `include_bias` | `True` | If `True`, include all basis functions (including the redundant one from partition-of-unity) |
 | `extrapolation` | `'constant'` | `'error'`, `'constant'` (clamp), `'linear'` (boundary tangent), or `'continue'` (continue the boundary polynomial piece) |
-| `device` | `'auto'` | Computation device |
+| `device` | `'auto'` | Requested device; Torch tensor input can override it, as described above. |
 | `n_jobs` | `None` | Shared estimator option; does not parallelize basis construction. |
 
 ## CPU+GPU Examples
@@ -170,7 +212,7 @@ B_tp2 = thin_plate_spline_basis(xy, knots_2d, penalty_order=2, xp=np)
 print(f"Thin plate 2D basis shape: {B_tp2.shape}")  # (200, 8)
 
 # CPU: SplineTransformer (sklearn-compatible API)
-X = np.random.randn(500, 3)
+X = np.random.default_rng(42).normal(size=(500, 3))
 st = SplineTransformer(n_knots=10, degree=3, knots='quantile', device='cpu')
 X_spline = st.fit_transform(X)
 print(f"Transformed shape: {X_spline.shape}")  # (500, 36): 3 * (10 + 3 - 1)
@@ -234,7 +276,7 @@ print(f"Torch thin plate basis shape: {B_tp_t.shape}")  # (500, 12)
 | Method | Description |
 |---|---|
 | `fit(X, y=None, sample_weight=None)` | Learn knot positions from training data. Returns `self`. `y` and `sample_weight` are unused; weights do not change quantile knots. |
-| `transform(X)` | Transform data to B-spline basis features. |
+| `transform(X)` | Return `(n_query,n_features_out_)` basis features on the resolved backend. Check actual placement under the device exception above. |
 | `fit_transform(X, y=None, sample_weight=None)` | Fit and transform in one step, with the same unused arguments. |
 | `predict(X)` | Alias for `transform(X)`; no response is predicted. |
 | `get_feature_names_out(input_features=None)` | Return a list of `n_features_out_` strings. Optional input names must match `n_features_in_`. |

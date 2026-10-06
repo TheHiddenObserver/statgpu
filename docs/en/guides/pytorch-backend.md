@@ -1,7 +1,7 @@
 # PyTorch Backend Guide
 
 > Language: English  
-> Last updated: 2026-07-24  
+> Last updated: 2026-10-05  
 > Switch: [Chinese](../../cn/guides/pytorch-backend.md)
 
 ## Overview
@@ -16,8 +16,9 @@ StatGPU supports three execution backends:
 | `"auto"` | Automatically selected | CuPy, Torch CUDA, or NumPy according to availability and input |
 
 `device="torch"` is the explicit PyTorch request. `device="cuda"` selects CuPy;
-it is not an alias for Torch. Explicit requests fail when the requested backend is
-unavailable and do not silently execute on another backend.
+it is not an alias for Torch. Under the intended device convention, unavailable
+explicit accelerator requests should raise rather than execute elsewhere. The
+[current kernel/spline routing exceptions](device-and-memory.md#current-smoothing-and-spline-exceptions) do not consistently enforce this convention; inspect actual returned arrays for those estimators.
 
 Model, solver, cross-validation, and inference coverage can differ. Use the
 [Implemented Methods](implemented-methods.md) inventory and the relevant model page
@@ -217,8 +218,8 @@ system CUDA toolkit version does not by itself determine which Torch wheel is us
 ### Explicit Torch execution raises
 
 This is expected when Torch CUDA or a required Torch operation is unavailable. Use
-`device="cpu"` or `device="auto"` only when that behavior matches the intended contract;
-do not expect `device="torch"` to fall back silently.
+`device="cpu"` or `device="auto"` only when that behavior matches the intended contract.
+The [current kernel/spline routing exceptions](device-and-memory.md#current-smoothing-and-spline-exceptions) can instead return CPU tensors, so a successful call alone is not proof of CUDA execution.
 
 ### Out of memory
 

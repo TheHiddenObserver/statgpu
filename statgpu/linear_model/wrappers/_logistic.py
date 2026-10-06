@@ -1349,7 +1349,12 @@ class LogisticRegression(BaseEstimator):
         return binary_roc_auc_score(y_true, y_score, backend="numpy")
 
     def precision_recall_curve(self, X, y) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Compute precision-recall arrays (precision, recall, thresholds)."""
+        """Return equal-length precision, recall and threshold arrays.
+
+        Thresholds decrease from infinity, whose precision/recall are 1/0.
+        Requires at least one positive evaluation label; all-zero y raises
+        ValueError. All-one y is accepted, unlike ROC's two-class requirement.
+        """
         if self._get_compute_device() == Device.CUDA:
             cp = _require_cupy("precision_recall_curve")
 
@@ -1366,7 +1371,11 @@ class LogisticRegression(BaseEstimator):
         return binary_precision_recall_curve(y_true, y_score, backend="numpy")
 
     def average_precision_score(self, X, y) -> float:
-        """Compute average precision on a dataset."""
+        """Compute precision integrated over recall increments.
+
+        Requires at least one positive evaluation label; all-zero y raises
+        ValueError. All-one y returns 1 but cannot assess class discrimination.
+        """
         if self._get_compute_device() == Device.CUDA:
             cp = _require_cupy("average_precision_score")
 

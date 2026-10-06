@@ -72,7 +72,7 @@ The [complete unsupervised API reference](api-reference.md) lists defaults, meth
 - [IncrementalPCA](incremental-pca.md): dense batch-wise principal component analysis.
 - [MiniBatchNMF](minibatch-nmf.md): dense mini-batch non-negative matrix factorization.
 - [UMAP](umap.md): dense Euclidean UMAP with exact or approximate neighbor search and host-side SciPy graph assembly.
-- [TSNE](tsne.md): dense exact Euclidean t-SNE .
+- [TSNE](tsne.md): dense exact Euclidean t-SNE.
 
 ## Support Matrix
 

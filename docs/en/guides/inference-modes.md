@@ -25,7 +25,7 @@ Detailed implementation, backend kernels, internal result storage, and validatio
 | Gaussian Lasso/ElasticNet | `debiased` | de-biased/de-sparsified coefficient inference |
 | Gaussian Lasso/ElasticNet | `post_selection_ols` | OLS/WLS diagnostic refit on the selected active set |
 | supported Gaussian penalized models | `bootstrap` | residual-bootstrap distribution with tuning held fixed |
-| supported SCAD/MCP models | `oracle` when explicitly requested | inference conditional on the selected active set |
+| Gaussian SCAD/MCP; non-Gaussian refits have a limitation below | `oracle` when explicitly requested | active-set refit; ordinary intervals do not adjust for selection |
 | unsupported loss/penalty/method combination | — | raises an error instead of substituting another inferential target |
 
 The exact support matrix is documented in [Penalized GLM inference](penalized-glm-inference.md) and the relevant model page.
@@ -144,7 +144,14 @@ The resulting uncertainty describes the fixed-design, fixed-tuning bootstrap pro
 
 Where `inference_method="oracle"` is supported, statgpu performs inference conditional on the active set selected by the non-convex penalized fit. `auto` does not silently choose this interpretation because conditioning on a selected support is a substantive inferential assumption.
 
-Check [Penalized GLM inference](penalized-glm-inference.md) for the current model/backend restrictions before requesting `oracle`.
+Current non-Gaussian oracle refits can reset the original family parameters or
+retain default regularization, so a successful `oracle` result need not
+describe the intended model. Do not use those tables for inference. The
+[oracle limitation and explicit-refit example](penalized-glm-inference.md#current-non-gaussian-oracle-limitation)
+show how to construct a separate diagnostic refit with the desired settings.
+That refit still does not adjust for variable selection on the same data.
+The oracle interface rejects GPU parent fits, but its child defaults to
+`device="auto"`; choose an explicit device when constructing your own refit.
 
 ## Inference after cross-validation
 

@@ -116,10 +116,10 @@ print(Z.shape, np.mean((X - X_hat) ** 2))
 ## FAQ
 
 **为什么主成分和 sklearn 差一个符号？**
-特征向量与奇异向量的符号并不唯一；验证时应使用符号感知的比较，或直接比较子空间。
+特征向量与奇异向量的符号并不唯一；验证时应使用对齐符号后的比较，或直接比较子空间。
 
 **白化（whitening）做了什么？**
-它把变换后的得分按 `1 / sqrt(explained_variance_)` 缩放，使拟合模型下的主成分得分近似具有单位方差。
+白化将投影坐标除以 `sqrt(explained_variance_)`。在正方差方向得到准确的精确分解时，训练数据的主成分得分具有单位样本方差；随机化求解只能近似达到这一效果，过采样与幂迭代会影响近似质量。白化不保证新观测的协方差为单位矩阵。
 
 
 ## 数值与使用注意事项
@@ -130,7 +130,9 @@ print(Z.shape, np.mean((X - X_hat) ** 2))
 
 构造默认值、全部公开方法、输出形状与限制见 [PCA API 参考](api-reference.md#pca)。
 
-## References
+<a id="references"></a>
+
+## 参考文献
 
 - Pearson, K. (1901). On lines and planes of closest fit to systems of points in space. *The London, Edinburgh, and Dublin Philosophical Magazine and Journal of Science*, Series 6, 2(11), 559-572. https://doi.org/10.1080/14786440109462720
 - Jolliffe, I. T. (2002). *Principal Component Analysis* (2nd ed.). Springer Series in Statistics. Springer. https://doi.org/10.1007/b98835
