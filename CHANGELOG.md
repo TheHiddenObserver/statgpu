@@ -4,12 +4,12 @@ All notable changes to statgpu are documented here, organized by release and dat
 
 ## Unreleased — 2026-10-06
 
-### PR #168 — Completed learner documentation across nine topics
+### PR #168 — Completed learner docs and fixed Torch model-X draws
 - Improved bilingual learner guides, distribution workflows and navigation across linear models, feature selection, survival, smoothing and twelve unsupervised methods.
 - Added runtime-checked complete constructor/method/result references, including typed GLM and CV wrappers, plus standalone CPU prediction, formula and ordered-fold examples.
 - Corrected objective normalization, unpenalized intercepts, UMAP pair scope, TSNE probability/perplexity definitions, inference targets and weighted/resampling interpretation; documented current limitations and tested alternatives.
-- Refined natural Chinese explanations and installed help, linked complete kernel/spline APIs, and separated historical implementation/validation material from user guidance.
-- Tightened expected-failure regressions to expose unrelated corruption, registered formula prediction-row loss in #244 and supplemented existing #194 without duplication, and preserved production numerical/dispatch/state logic and dependency metadata.
+- Fixed native Torch model-X generation to bind its random generator and noise to the input device and honor its local seed; synchronized bilingual documentation and installed help.
+- Tightened expected-failure regressions, including the exact UMAP missing-neighbor signature, to expose unrelated corruption; retained independently tracked runtime limitations and preserved unrelated production logic and dependency metadata.
 
 ## Unreleased — 2026-09-20
 

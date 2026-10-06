@@ -46,8 +46,8 @@ fixed-X 函数/类只接受其签名中的共享参数子集。`modelx_*` 与采
 | `q` | `0.1` | `(0,1)` 内有限目标错误率；当前内部检查会漏过 NaN，调用前请自行验证。不是系数置信水平。 |
 | `method` | `"corr_diff"` | `corr_diff`、`ols_coef_diff`、`lasso_coef_diff`，比较原变量与 knockoff 变量重要性。 |
 | `fdr_control` | `"knockoff_plus"` | `knockoff_plus` 偏移为 1，`knockoff` 为 0；后者在相应理论下针对不同的修正 FDR 保证。 |
-| `random_state` | `None` | 构造或随机统计量拟合的整数种子；原生 Torch model-X 自动构造当前不会使用它，见下文种子限制。 |
-| `backend` | `"auto"` | `numpy`、`cupy`、`torch` 或按数组推断的 auto。`torch` 选择计算库：NumPy 或 Torch CPU 输入在 CPU 上执行，GPU 计算需传入 CUDA 张量。这不同于估计器要求 CUDA 的 `device="torch"`。 |
+| `random_state` | `None` | 构造或随机统计量拟合的整数种子。原生 Torch model-X 使用局部随机数生成器；可重复性范围与 `None` 的行为见下文。 |
+| `backend` | `"auto"` | `numpy`、`cupy`、`torch` 或按数组推断的 auto。`torch` 选择计算库；原生 fixed-X 与 model-X 构造遵循 X 的设备，详见 [Torch 设备放置](#torch-device-placement)。这不同于估计器要求 CUDA 的 `device="torch"`。 |
 | `Xk` | `None` | 可选外部 `(n,p)` knockoff 矩阵；传给函数或 selector.fit，不传给选择器构造函数。有效性由调用者负责，形状正确不代表可交换性成立。 |
 | `compat_mode` | `"statgpu"` | `statgpu` 或 `knockpy`；兼容设置影响构造/统计量约定，可能需要可选包或 CPU 计算。 |
 | `lasso_cv_impl` | `"auto"` | `statgpu` 或 `sklearn`；auto 在 knockpy 兼容时选 sklearn，否则选 statgpu。用于 Lasso 统计量。 |
@@ -82,14 +82,55 @@ S 矩阵构造会尝试调用 knockpy 中请求的方法。包缺失或**该调�
 可避免这种歧义。在 knockpy 兼容模式之外，两种实现的截距与交叉验证设置也不同，
 不能仅凭统计量名称相同就认为结果数值等价。
 
-### Torch model-X 构造的种子限制
+<a id="torch-device-placement"></a>
 
-当 `compat_mode="statgpu"` 且未提供 `Xk` 时，当前 Torch model-X 自动构造
-使用全局随机数状态，而不是 `random_state`。重复相同种子的调用仍可能改变
-W 与入选特征，`knockoff_filter` 和 `KnockoffSelector` 也受影响。
-NumPy 构造会使用指定种子；有效外部 `Xk` 可以跳过构造，但仍应单独检查
-统计量的可重复性，尤其是下文的 Lasso 缓存限制。Fixed-X 不存在这一特定的
-构造种子问题。详见[可重复性说明](../models/knockoff.md#reproducibility-of-generated-torch-model-x)。
+### Torch 设备放置
+
+`backend="torch"` 选择 Torch 计算库，本身不请求 CUDA。原生 fixed-X 构造与
+model-X 自动构造（`compat_mode="statgpu"`、`Xk=None`）都遵循 X.device。
+model-X 的局部随机数生成器和随机矩阵均建立在该设备上。Torch CPU 输入在
+CUDA 可用时仍留在 CPU；CUDA 输入保留其 GPU 编号，不会改用另一默认设备。
+原生统计量计算应让 X/y/Xk 位于同一设备。该行为适用于
+`model_x_knockoff_filter`、`knockoff_filter(knockoff_type="model_x")` 及
+`KnockoffSelector(knockoff_type="model_x")`，也包括自动推断出的 Torch 后端。
+
+需要原生 Torch CPU 构造时，请传入 Torch CPU 张量并设 `backend="torch"`；
+NumPy CPU 构造则使用 NumPy X/y 与 `backend="numpy"`。提供经过外部验证的
+model-X Xk 可跳过随机构造。必须验证特征对的交换性以及给定 X 后与 y 的
+条件独立性，不能只检查形状或设备兼容。使用 `compat_mode="statgpu"`；
+Lasso 统计量还应显式设 `lasso_cv_impl="statgpu"`，避免请求兼容模式的 CPU
+路径。统计、阈值与 Lasso 缓存限制仍然适用；fixed-X 另有匹配设计假设。
+
+<a id="torch-lasso-device-routing"></a>
+
+### Torch Lasso 的设备选择
+
+上面的输入设备行为描述的是 knockoff 构造。Torch 的 `method="lasso_coef_diff"`
+使用原生 Lasso 调参与拟合时会请求 CUDA，不保留输入设备。因此 Torch CPU
+输入在 CUDA 不可用时可能失败；传入非默认 GPU 的张量，也不能保证 Lasso
+拟合使用该 GPU。这一限制同样适用于提供 Xk 的调用及 fixed-X。
+显式指定 `lasso_cv_impl="statgpu"` 不会消除该限制；原生 Torch 统计量即使
+请求 `"sklearn"` 也会切换为 statgpu。
+
+若所选统计量适合分析问题，原生 Torch CPU 计算可使用 `corr_diff` 或
+`ols_coef_diff`。CPU Lasso 则应使用 NumPy X/y 及外部 Xk（如有），并设置
+`backend="numpy"`。这一统计量的设备限制与下文的 Lasso 缓存限制不同，
+也不改变构造阶段的设备与种子行为。
+
+### Torch model-X 构造的种子与可重复性
+
+当 `compat_mode="statgpu"` 且 `Xk=None` 时，整数 `random_state` 为每次
+构造抽样的局部 Torch 随机数生成器设定种子，不推进全局 Torch 随机数状态。
+在输入、设置以及后端、dtype、设备和软件环境相同的条件下，重复构造可得到
+相同结果。这不保证跨后端或跨 GPU 的数值相同，也不保证实际 FDR 控制。
+`knockoff_filter` 和 `KnockoffSelector` 具有相同的构造行为。
+
+原生 Torch/CuPy 构造在 `random_state=None` 时每次抽样使用种子 0，因而
+多次抽样使用相同的构造噪声；若要可重复且分别设定种子的多次抽样，应指定
+整数种子。NumPy 构造在 `None` 时
+仍不固定种子。有效外部 `Xk` 可跳过构造，但统计量的可重复性仍需单独检查，
+尤其是下文的 Lasso 缓存限制。
+详见[可重复性说明](../models/knockoff.md#reproducibility-of-generated-torch-model-x)。
 
 <a id="repeated-lasso-statistic-calls"></a>
 

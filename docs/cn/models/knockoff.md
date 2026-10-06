@@ -159,16 +159,19 @@ Knockoff 为选择推断框架，不采用回归模型中的 `cov_type` 协方�
 
 ## Torch 自动 model-X 构造的可重复性
 
-当 `knockoff_type="model_x"`、`compat_mode="statgpu"` 且未提供 `Xk` 时，
-当前 Torch 构造使用全局 Torch 随机数状态，而不是请求的 `random_state`。
-重复相同种子的调用仍可能改变 W 和入选特征；仅改变 `random_state` 也不能
-控制这些构造抽样。相同设置下的 `KnockoffSelector` 也受影响，且这与下文
-Lasso 缓存问题不同。Fixed-X 构造不受这一特定种子问题影响。
+当 `knockoff_type="model_x"`、`compat_mode="statgpu"` 且 `Xk=None` 时，
+整数 `random_state` 为每次构造抽样的局部 Torch 随机数生成器设定种子，
+不推进全局 Torch 随机数状态。在输入、设置以及后端、dtype、设备和软件环境
+相同的条件下，重复构造可得到相同结果。`KnockoffSelector` 具有相同行为。
+这不保证跨后端或跨 GPU 的数值相同，也不保证实际 FDR 控制，且与下文的
+Lasso 缓存限制不同。
 
-需要可重复的原生 model-X 构造时，可使用 `backend="numpy"`；也可提供有效的
-外部 `Xk`，并另行验证所选统计量的可重复性。提供矩阵只会跳过构造，不能免除
-统计假设、阈值及 Lasso 缓存限制。结果中记录了 `random_state`，不代表构造
-实际使用了该种子。
+原生 Torch/CuPy 构造在 `random_state=None` 时每次抽样使用种子 0，因而
+多次抽样使用相同的构造噪声；若要可重复且分别设定种子的多次抽样，应指定
+整数种子。NumPy 构造在 `None` 时
+仍不固定种子。有效外部 `Xk` 可跳过构造，但仍应单独检查所选统计量的可重复性。
+提供矩阵不能免除统计假设、阈值及 Lasso 缓存限制。Fixed-X 仍有独立的构造
+要求与统计假设。
 
 ## 重复计算 Lasso 统计量
 
@@ -242,7 +245,17 @@ res_torch_mx = knockoff_filter(
 
 ## 严格与近似模式的差别
 
-本模块不使用 `strict/approx` 推断口径开关。`fixed_x` 与 `model_x` 采用不同的设计或特征分布假设，应根据统计问题选择，不能把两者当作速度或数值精度档位。`modelx_draws`（必须为正整数）影响计算量与蒙特卡洛波动；后端选择均不替代构造假设或阈值规则。这里 `backend="torch"` 选择 Torch 计算库：NumPy 或 Torch CPU 输入在 CPU 上执行；GPU 计算需传入 CUDA 张量，外部 Xk 也应位于同一设备。这不同于估计器要求 CUDA 的 `device="torch"`。
+本模块不使用 `strict/approx` 推断口径开关。`fixed_x` 与 `model_x` 采用不同的设计或特征分布假设，应根据统计问题选择，不能把两者当作速度或数值精度档位。`modelx_draws`（必须为正整数）影响计算量与蒙特卡洛波动；后端选择均不替代构造假设或阈值规则。
+
+这里 `backend="torch"` 选择 Torch 计算库，不同于估计器要求 CUDA 的 `device="torch"`。原生 fixed-X 与 model-X 自动构造遵循 X 的设备。Torch CPU 输入在 CUDA 可用时仍留在 CPU；CUDA 输入保留其 GPU 编号。model-X 的局部随机数生成器和随机矩阵均使用该设备，详见 [Torch 设备放置](../reference/feature-selection-api.md#torch-device-placement)。
+
+以上设备保持行为适用于构造阶段。原生 Torch 的 `method="lasso_coef_diff"`
+调参与拟合仍请求 CUDA，CPU 输入、提供 Xk 及 fixed-X 也有这一限制，且不能
+保证使用输入所在的非默认 GPU。若适合分析问题，Torch CPU 统计量可选择
+`corr_diff` 或 `ols_coef_diff`；CPU Lasso 应使用 NumPy 输入与 `backend="numpy"`。
+详见 [Torch Lasso 的设备选择](../reference/feature-selection-api.md#torch-lasso-device-routing)。
+
+需要 CPU model-X 构造时，可用 Torch CPU 张量并设 `backend="torch"`，或使用 NumPy X/y 与 `backend="numpy"`。应让 X/y/Xk 位于同一目标设备。经过外部验证的 model-X Xk 可跳过构造，但形状和设备一致不能证明特征对交换性或给定 X 后与 y 的条件独立性。这些原生构造规则适用于 `compat_mode="statgpu"` 且 `Xk=None` 的路径，包括 `KnockoffSelector`；fixed-X 的构造与统计假设另有要求。
 
 ## 输出（Outputs）
 

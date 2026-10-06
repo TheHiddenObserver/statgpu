@@ -9,7 +9,13 @@ This page records user-visible changes for current and recent statgpu releases.
 
 ## Unreleased — Learner guides and API references (PR #168)
 
+### Fixed (2026-10-06)
+
+- Fixed native generated Torch model-X device and seed handling: its local random generator and noise use the exact input tensor device, including CPU when CUDA is also available, and construction honors `random_state` without consuming the global Torch RNG. With the existing `None`-to-zero fallback, multiple Torch construction draws repeat the same noise; use an explicit integer seed for distinct, reproducible per-draw seeds. This does not imply cross-backend/device bitwise parity or repair the separate Lasso cache/device-routing limitations.
+
 ### Improved (2026-10-06)
+
+- Tightened the UMAP missing-neighbor xfail to the exact finite graph signature; malformed graphs fail normally, and a correct UMAP repair reaches strict XPASS.
 
 - Documented silent missing-row removal in ordinary formula-based LinearRegression/GLM prediction, including invalid finite LinearRegression scores after broadcasting. Added explicit complete-query/index-preserving checks and distinguished the penalized wrappers, which already reject missing prediction rows. The underlying implementation remains separate follow-up work.
 
@@ -17,12 +23,12 @@ This page records user-visible changes for current and recent statgpu releases.
 - Corrected UMAP's reference cross-entropy to exclude self-pairs, defined TSNE's conditional/joint probabilities and feasible perplexity limits, and explained the host work involved in UMAP attraction-curve fitting. A finite TSNE embedding does not establish that an impossible perplexity target was met.
 - Linked the complete kernel and spline API inventories directly from the shared reference. Strengthened known-defect regressions with independent numerical signatures and mutation checks so unrelated NaNs, finite corruption and runtime failures are not mislabeled as expected failures.
 
-- Completed the Ridge, SCAD and MCP learner journeys with standalone CPU examples, explicit unpenalized intercepts, model-specific method/formula/weight references and runtime help. Clarified generated Torch model-X seed reproducibility and sampler-option dispatch, and warned that a rejected KernelPCA refit can leave mixed state. Also documented the unweighted RidgeCV limitation for custom training subsets and how an explicit validation loop preserves the requested rows. These documentation changes do not repair the underlying implementations.
+- Completed the Ridge, SCAD and MCP learner journeys with standalone CPU examples, explicit unpenalized intercepts, model-specific method/formula/weight references and runtime help. Clarified generated Torch model-X seed semantics and sampler-option dispatch, and warned that a rejected KernelPCA refit can leave mixed state. Also documented the unweighted RidgeCV limitation for custom training subsets and how an explicit validation loop preserves the requested rows. The other documented RidgeCV and KernelPCA limitations remain separate implementation work.
 - Expanded bilingual explanations, mathematical definitions and runnable examples for linear models, inference, feature selection, survival, smoothing and twelve unsupervised estimators. The [complete API index](README.md#complete-api-references) links constructor options, methods and fitted-result references.
 - Clarified statistical inference targets, selection/tuning conditioning, weighting, resampling assumptions and available reporting methods. Connected Ridge, SCAD, MCP and Poisson explanations now distinguish their actual defaults and supported interfaces. Cox-family documentation identifies the difference between summed and row-averaged partial likelihood.
 - Documented current limitations and practical checks for failed refits, nonfinite outputs, data geometry and device placement. The new [coordinate-scaling guidance](models/nonparametric.md) and [NMF guide](unsupervised/nmf.md) explain how very small measurement units can change current results, how to prepare and reuse a consistent scale, and how to map predictions or densities back. The [Ridge guide](models/ridge.md) also shows training-derived centering for large coordinate offsets.
 - Clarified that a shared estimator's `device="auto"` inherits the global device policy, and completed public constructor help. Retained benchmark reports are identified as historical measurements of their recorded source and hardware.
-- These changes update documentation, docstrings and regression coverage. They do not change production numerical algorithms or repair the separately tracked implementation limitations. CPU examples and routing inspections do not establish physical-GPU execution or performance.
+- In addition to documentation, docstrings and regression coverage, this PR now fixes native Torch model-X random allocation and local-generator use. Other separately tracked numerical/state limitations remain unresolved; UMAP production code is unchanged. CPU examples and routing inspections do not establish physical-GPU execution or performance.
 
 ## Unreleased — Quantile solver and inference updates (PR #166, targeted for 0.2.6)
 

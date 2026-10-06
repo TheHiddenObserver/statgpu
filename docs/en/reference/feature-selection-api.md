@@ -48,8 +48,8 @@ The fixed-X function/class accepts only the shared subset shown in its signature
 | `q` | `0.1` | Finite target rate in `(0,1)`; validate before calling because NaN currently passes the internal check. Not a confidence level for coefficients. |
 | `method` | `"corr_diff"` | `corr_diff`, `ols_coef_diff`, `lasso_coef_diff`; original-minus-knockoff importance statistic. |
 | `fdr_control` | `"knockoff_plus"` | `knockoff_plus` uses offset 1, `knockoff` offset 0. The latter has a different modified-FDR guarantee under the applicable theory. |
-| `random_state` | `None` | Integer seed for construction/statistic fitting where stochastic; generated native Torch model-X currently ignores it for construction. See the seed limitation below. |
-| `backend` | `"auto"` | `numpy`, `cupy`, `torch`, or auto inferred from arrays. `torch` selects the library: NumPy or Torch CPU inputs run on CPU; supply CUDA tensors for GPU execution. This is distinct from estimator `device="torch"`, which requests CUDA. |
+| `random_state` | `None` | Integer seed for construction/statistic fitting where stochastic. Native Torch model-X uses a local seeded generator; see construction repeatability and `None` behavior below. |
+| `backend` | `"auto"` | `numpy`, `cupy`, `torch`, or auto inferred from arrays. `torch` selects the library; native fixed-X and model-X construction follow X's device. See [Torch device placement](#torch-device-placement). This differs from estimator `device="torch"`, which requests CUDA. |
 | `Xk` | `None` | Optional external knockoff matrix `(n,p)`; supplied to functions or selector.fit, never selector constructor. Validity is the caller’s responsibility; shape alone does not establish exchangeability. |
 | `compat_mode` | `"statgpu"` | `statgpu` or `knockpy`; compatibility controls change construction/statistic conventions and can require optional packages/CPU work. |
 | `lasso_cv_impl` | `"auto"` | `statgpu` or `sklearn`; auto chooses sklearn for knockpy compatibility and statgpu otherwise. Applies to the Lasso statistic. |
@@ -88,15 +88,58 @@ avoids this ambiguity. The two implementations also differ in intercept and
 CV settings outside knockpy compatibility; do not infer numerical parity from
 the shared statistic name.
 
+### Torch device placement
+
+`backend="torch"` selects the Torch library; it does not itself request CUDA.
+Native fixed-X construction and generated model-X construction
+(`compat_mode="statgpu"`, `Xk=None`) follow X.device. For model-X, both the local
+random generator and the random matrix are created on that device. Torch CPU
+input remains on CPU even when CUDA is available; CUDA input retains its GPU
+index rather than using a different default device. Keep X/y/Xk on the same
+device for native statistics. This applies to `model_x_knockoff_filter`,
+`knockoff_filter(knockoff_type="model_x")`, and
+`KnockoffSelector(knockoff_type="model_x")`, including inferred Torch backends.
+
+Use Torch CPU tensors with `backend="torch"` for native Torch CPU construction,
+or NumPy X/y with `backend="numpy"` for NumPy CPU construction. A supplied,
+externally validated model-X Xk bypasses random construction. Validate
+feature-pair exchangeability and conditional independence from y given X, not
+just shape or device compatibility. Use `compat_mode="statgpu"` and, for a
+Lasso statistic, explicit `lasso_cv_impl="statgpu"` to avoid requesting a
+compatibility CPU route. Statistical, threshold and Lasso-cache limitations
+still apply; fixed-X has its separate matched-design assumptions.
+
+### Torch Lasso device routing
+
+The input-device behavior above describes knockoff construction. With
+`method="lasso_coef_diff"` on Torch, native Lasso tuning and fitting request
+CUDA rather than preserving the input device. Torch CPU input can therefore
+fail when CUDA is unavailable; a nondefault input GPU does not guarantee that
+Lasso fitting uses that GPU. This restriction also applies with supplied Xk
+and to fixed-X. Explicit `lasso_cv_impl="statgpu"` does not remove it; requesting
+`"sklearn"` on a native Torch statistic also switches to statgpu.
+
+For native Torch CPU statistics, use `corr_diff` or `ols_coef_diff` when that
+statistic is appropriate. For CPU Lasso, use NumPy X/y and any supplied Xk with
+`backend="numpy"`. This statistic-routing restriction is separate from the
+Lasso cache limitation below and from construction's device/seed behavior.
+
 ### Seeded Torch model-X construction
 
-With `compat_mode="statgpu"` and no supplied `Xk`, generated model-X knockoffs
-on Torch currently use the global RNG rather than `random_state`. Repeating
-identically seeded calls can change W and selection, including through
-`knockoff_filter` and `KnockoffSelector`. NumPy construction honors its seed;
-a valid supplied `Xk` bypasses construction. Check statistic repeatability
-separately, especially for the Lasso cache limitation below. Fixed-X does not
-have this particular construction-seed defect. See the
+With `compat_mode="statgpu"` and `Xk=None`, an integer `random_state` seeds a
+local Torch generator for each construction draw without advancing the global
+Torch RNG. Repeated construction with the same inputs and settings is
+repeatable within the same backend, dtype, device and software environment.
+This is not a cross-backend or cross-GPU equality guarantee, or a guarantee of
+empirical FDR control. The behavior also applies through `knockoff_filter`
+and `KnockoffSelector`.
+
+For native Torch/CuPy construction, `random_state=None` uses seed 0 for each
+draw, so repeated draws use the same construction noise; use an integer
+for repeatable, separately seeded draws. NumPy
+construction with `None` remains unseeded. A valid supplied `Xk` bypasses
+construction. Check statistic repeatability separately, especially for the
+Lasso cache limitation below. See the
 [reproducibility guidance](../models/knockoff.md#reproducibility-of-generated-torch-model-x).
 
 <a id="repeated-lasso-statistic-calls"></a>

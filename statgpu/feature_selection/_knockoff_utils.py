@@ -598,10 +598,17 @@ def _build_model_x_knockoffs(
         except (AttributeError, TypeError):
             # Torch API: use manual_seed and randn
             import torch
-            if isinstance(xp, type(torch)):
-                gen = torch.Generator(device=_get_torch_device_str())
+            if xp is torch:
+                torch_device = X_std.device
+                gen = torch.Generator(device=torch_device)
                 gen.manual_seed(seed)
-                Z = torch.randn(n, p, dtype=torch.float64, device=_get_torch_device_str())
+                Z = torch.randn(
+                    n,
+                    p,
+                    dtype=torch.float64,
+                    device=torch_device,
+                    generator=gen,
+                )
             else:
                 # Fallback
                 rng = xp.random.Generator(xp.random.PCG64(seed))

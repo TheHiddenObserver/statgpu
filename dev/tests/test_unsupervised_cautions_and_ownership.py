@@ -5,6 +5,7 @@ passing them does not establish that the uncentered or spectral defects are fixe
 """
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -180,6 +181,66 @@ def _fit_small_exact_umap(data):
     ).fit(data)
 
 
+def _wide_umap_graph_reference(*, known_defect):
+    # Independent fixture oracle: direct Euclidean distances, the documented
+    # mean-neighbor bandwidth, and fuzzy union W + W.T - W * W.T. The known
+    # #221 signature includes the 1e12 self-distance among the three neighbors;
+    # the desired graph excludes self-neighbors before selecting all three.
+    # Values are float64; comparisons allow float32 distance-rounding error.
+    if known_defect:
+        return np.array([
+            [0., 0.4954061864004681, 0.1534237434116619, 0.],
+            [0.4954061864004681, 0., 0.3787177409249087, 0.2140093164654535],
+            [0.1534237434116619, 0.3787177409249087, 0., 0.4013110442350855],
+            [0., 0.2140093164654535, 0.4013110442350855, 0.],
+        ])
+    return np.array([
+        [0., 1., 0.3903104109802376, 0.1924548875860259],
+        [1., 0., 1., 0.8583781169394378],
+        [0.3903104109802376, 1., 0., 1.],
+        [0.1924548875860259, 0.8583781169394378, 1., 0.],
+    ])
+
+
+def _assert_wide_umap_graph(model):
+    source, target, weight, n = model.graph_
+    source, target, weight = map(np.asarray, (source, target, weight))
+    assert n == 4
+    assert source.ndim == target.ndim == weight.ndim == 1
+    assert source.shape == target.shape == weight.shape
+    for indices in (source, target):
+        assert np.issubdtype(indices.dtype, np.integer)
+        assert np.all((indices >= 0) & (indices < n))
+    assert np.all(source != target)
+    assert np.unique(source * n + target).size == weight.size
+    assert np.isfinite(weight).all()
+    assert np.all((weight > 0.) & (weight <= 1.))
+    assert model.embedding_.shape == (4, 2)
+    assert np.isfinite(model.embedding_).all()
+    graph = _dense_graph(model)
+    assert graph.shape == (4, 4)
+    np.testing.assert_array_equal(np.diag(graph), np.zeros(4))
+    np.testing.assert_allclose(graph, graph.T, rtol=0., atol=1e-12)
+
+    # Check the desired behavior first: a numerical repair must reach strict
+    # XPASS rather than fail a defect-only assertion about ten edges.
+    if weight.size == 12:
+        np.testing.assert_allclose(
+            graph, _wide_umap_graph_reference(known_defect=False),
+            rtol=1e-6, atol=1e-8,
+        )
+        return
+
+    # Only this finite, symmetric ten-edge graph is the known #221 defect.
+    # Other topology or weight corruption must raise an ordinary assertion,
+    # which the xfail marker's narrow raises= clause will not swallow.
+    expected = _wide_umap_graph_reference(known_defect=True)
+    assert weight.size == 10
+    np.testing.assert_array_equal(graph != 0., expected != 0.)
+    np.testing.assert_allclose(graph, expected, rtol=1e-6, atol=1e-8)
+    raise _MissingUMAPNeighbors("Known #221 signature: missing edges (0, 3) and (3, 0)")
+
+
 @pytest.mark.xfail(
     strict=True,
     raises=_MissingUMAPNeighbors,
@@ -190,12 +251,98 @@ def test_exact_umap_keeps_all_distinct_neighbors_at_large_scale():
     # The current finite diagonal mask admits self-neighbors, which are then
     # removed from the graph. This oracle must pass after a numerical repair.
     model = _fit_small_exact_umap(_centered_wide_umap_data())
-    graph = _dense_graph(model)
-    assert np.isfinite(model.embedding_).all()
-    neighbor_count = np.count_nonzero(graph)
-    if neighbor_count < 4 * 3:
-        raise _MissingUMAPNeighbors(f"Expected all 12 distinct-neighbor edges, observed {neighbor_count}")
-    assert neighbor_count == 4 * 3
+    _assert_wide_umap_graph(model)
+
+
+def _wide_umap_model_fixture(*, known_defect=True):
+    graph = _wide_umap_graph_reference(known_defect=known_defect)
+    source, target = np.nonzero(graph)
+    return SimpleNamespace(
+        graph_=(source, target, graph[source, target], 4),
+        embedding_=np.zeros((4, 2)),
+    )
+
+
+def test_exact_umap_xfail_recognizes_only_known_signature():
+    with pytest.raises(_MissingUMAPNeighbors, match="Known #221 signature"):
+        _assert_wide_umap_graph(_wide_umap_model_fixture())
+
+
+@pytest.mark.parametrize("corruption", [
+    "nan_weights", "infinite_weights", "negative_weights", "above_one_weights",
+    "zero_weights", "empty_graph", "wrong_finite_weights", "asymmetry", "wrong_topology",
+    "missing_edge", "duplicate_edge", "wrong_shape", "wrong_vector_shape",
+    "self_edge", "out_of_bounds", "noninteger_indices", "nonfinite_embedding", "wrong_embedding_shape",
+])
+@pytest.mark.parametrize("known_defect", [True, False], ids=["ten_edges", "twelve_edges"])
+def test_exact_umap_xfail_rejects_unrelated_graph_corruption(corruption, known_defect):
+    model = _wide_umap_model_fixture(known_defect=known_defect)
+    source, target, weight, n = model.graph_
+    if corruption == "nan_weights":
+        weight[:] = np.nan
+    elif corruption == "infinite_weights":
+        weight[:] = np.inf
+    elif corruption == "negative_weights":
+        weight[:] = -999.
+    elif corruption == "above_one_weights":
+        weight[:] = 1.1
+    elif corruption == "zero_weights":
+        weight[:] = 0.
+    elif corruption == "empty_graph":
+        source, target, weight = source[:0], target[:0], weight[:0]
+    elif corruption == "wrong_finite_weights":
+        weight[:] = 0.5
+    elif corruption == "asymmetry":
+        weight[0] *= 0.5
+    elif corruption == "wrong_topology":
+        # Move the symmetric (0, 2) pair into the known missing (0, 3) pair.
+        target[(source == 0) & (target == 2)] = 3
+        source[(source == 2) & (target == 0)] = 3
+    elif corruption == "missing_edge":
+        keep = ~(((source == 0) & (target == 1)) | ((source == 1) & (target == 0)))
+        source, target, weight = source[keep], target[keep], weight[keep]
+    elif corruption == "duplicate_edge":
+        source, target, weight = (np.append(values, values[0]) for values in (source, target, weight))
+    elif corruption == "wrong_shape":
+        n = 5
+    elif corruption == "wrong_vector_shape":
+        source = source[None, :]
+    elif corruption == "self_edge":
+        source[0] = target[0]
+    elif corruption == "out_of_bounds":
+        source[0] = n
+    elif corruption == "noninteger_indices":
+        source = source.astype(float)
+    elif corruption == "nonfinite_embedding":
+        model.embedding_[0, 0] = np.nan
+    elif corruption == "wrong_embedding_shape":
+        model.embedding_ = np.zeros((4, 1))
+    else:
+        raise AssertionError(f"Unknown corruption: {corruption}")
+    model.graph_ = source, target, weight, n
+    with pytest.raises(AssertionError):
+        _assert_wide_umap_graph(model)
+
+
+def test_exact_umap_xfail_accepts_repaired_graph():
+    _assert_wide_umap_graph(_wide_umap_model_fixture(known_defect=False))
+
+
+def test_exact_umap_diagonal_mask_repair_reaches_desired_graph(monkeypatch):
+    from statgpu.unsupervised import _umap
+
+    original_topk = _umap.topk_smallest
+
+    def exclude_self_before_topk(backend, distances, k):
+        distances = distances.copy()
+        np.fill_diagonal(distances, np.inf)
+        return original_topk(backend, distances, k)
+
+    # A test-only correction of the cause, rather than a canned graph return,
+    # proves that fixing neighbor selection can pass the desired contract.
+    monkeypatch.setattr(_umap, "topk_smallest", exclude_self_before_topk)
+    model = _fit_small_exact_umap(_centered_wide_umap_data())
+    _assert_wide_umap_graph(model)
 
 
 def test_common_training_scale_preserves_umap_distinct_neighbor_graph():

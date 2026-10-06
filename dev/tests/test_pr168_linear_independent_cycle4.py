@@ -597,7 +597,9 @@ def test_knockoff_torch_placement_and_two_row_normalization_are_explicit(languag
     assert (work.T @ work).item() == pytest.approx(1.)
     doc = inspect.getdoc(fixed_x_knockoff_filter)
     assert 'Torch library, not CUDA placement' in doc
-    assert 'Torch CPU inputs run on CPU' in doc
+    assert "Fixed-X construction follows X's device, including CPU" in ' '.join(doc.split())
+    assert "Native model-X construction also follows X's device" in ' '.join(doc.split())
+    assert 'model-X has a different device limitation' not in doc
 
 
 def test_logistic_learner_has_one_language_switch():

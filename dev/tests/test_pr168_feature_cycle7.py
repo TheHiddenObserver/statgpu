@@ -1,7 +1,7 @@
 """Seventh-review feature-selection RNG and sampler documentation boundaries.
 
-Torch checks run on CPU and do not provide physical CUDA evidence. A narrow
-strict xfail records the intended construction RNG contract until repaired.
+Torch checks run on CPU and do not provide physical CUDA evidence. Native
+construction must use the local seeded generator without advancing global RNG.
 """
 from __future__ import annotations
 
@@ -19,10 +19,6 @@ from statgpu.feature_selection import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-
-
-class _IgnoredModelXTorchSeed(AssertionError):
-    """The seeded model-X construction draws from the global Torch RNG."""
 
 
 def _problem():
@@ -55,16 +51,14 @@ def test_documented_numpy_modelx_seed_option_is_repeatable(entrypoint):
 @pytest.fixture
 def torch_cpu(monkeypatch):
     torch = pytest.importorskip("torch")
-    from statgpu.feature_selection import _knockoff_utils
-
-    # Select CPU allocation only. The RNG source/seed/draw implementation is
-    # unmodified; the same test can run on a host that also has CUDA available.
-    monkeypatch.setattr(_knockoff_utils, "_get_torch_device_str", lambda: "cpu")
+    # Allocation is real CPU allocation even when CUDA availability is reported.
+    # Do not redirect generators, random draws, or the production device helper.
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
     with torch.random.fork_rng(devices=[]):
         yield torch
 
 
-def _reference_modelx_w(torch, draws, *, global_generator=None, seed=None):
+def _reference_modelx_w(torch, draws, *, seed):
     """Independent NumPy construction algebra with explicitly chosen Torch draws."""
     X, y = _problem()
     X = (X - X.mean(axis=0)) / X.std(axis=0, ddof=1)
@@ -83,9 +77,8 @@ def _reference_modelx_w(torch, draws, *, global_generator=None, seed=None):
     original_score = np.abs(X.T @ response)
     values = []
     for draw in range(draws):
-        generator = global_generator
-        if generator is None:
-            generator = torch.Generator(device="cpu").manual_seed(seed + 104729 * draw)
+        draw_seed = 0 if seed is None else seed + 104729 * draw
+        generator = torch.Generator(device="cpu").manual_seed(draw_seed)
         Z = torch.randn(n, p, dtype=torch.float64, device="cpu", generator=generator).numpy()
         Xk = X - X @ inverse_sigma_S + Z @ C
         values.append(original_score - np.abs(Xk.T @ response))
@@ -109,14 +102,20 @@ def _assert_untied_selection(result):
     assert result.estimated_fdr == pytest.approx(ratio)
 
 
-def _assert_torch_modelx_local_seed(torch, entrypoint, draws):
+def _assert_torch_modelx_local_seed(torch, entrypoint, draws, backend="torch"):
     X, y = (torch.as_tensor(a) for a in _problem())
-    opts = {"backend": "torch", "modelx_draws": draws, "method": "corr_diff", "q": .4}
+    opts = {"backend": backend, "method": "corr_diff", "q": .4}
+    if draws is not None:
+        opts["modelx_draws"] = draws
+    expected_draws = 3 if draws is None else draws
     torch.random.default_generator.manual_seed(888)
     global_before = torch.get_rng_state().clone()
     first = _modelx_result(entrypoint, X, y, random_state=123, **opts)
     global_after = torch.get_rng_state().clone()
+    torch.random.default_generator.manual_seed(999)
+    second_global_before = torch.get_rng_state().clone()
     second = _modelx_result(entrypoint, X, y, random_state=123, **opts)
+    assert torch.equal(second_global_before, torch.get_rng_state())
     torch.random.default_generator.manual_seed(888)
     changed = _modelx_result(entrypoint, X, y, random_state=456, **opts)
     assert first.W.shape == second.W.shape == changed.W.shape == (5,)
@@ -124,47 +123,47 @@ def _assert_torch_modelx_local_seed(torch, entrypoint, draws):
     for result in (first, second, changed):
         _assert_untied_selection(result)
 
-    known_joint_symptom = (
-        not np.array_equal(first.W, second.W)
-        and np.array_equal(first.W, changed.W)
-        and not torch.equal(global_before, global_after)
-    )
-    if known_joint_symptom:
-        generator = torch.Generator(device="cpu").manual_seed(888)
-        expected_first = _reference_modelx_w(torch, draws, global_generator=generator)
-        expected_state = generator.get_state().clone()
-        expected_second = _reference_modelx_w(torch, draws, global_generator=generator)
-        # A different finite-output corruption, draw shape/count, or matrix
-        # computation must fail normally before the narrowly identified xfail.
-        np.testing.assert_allclose(first.W, expected_first, atol=1e-10, rtol=1e-12)
-        np.testing.assert_allclose(second.W, expected_second, atol=1e-10, rtol=1e-12)
-        np.testing.assert_allclose(changed.W, expected_first, atol=1e-10, rtol=1e-12)
-        assert torch.equal(global_after, expected_state)
-        raise _IgnoredModelXTorchSeed("construction exactly followed the global RNG instead of random_state")
-
     np.testing.assert_array_equal(first.W, second.W)
     np.testing.assert_array_equal(first.selected_features, second.selected_features)
     assert not np.array_equal(first.W, changed.W)
     assert torch.equal(global_before, global_after)
-    np.testing.assert_allclose(first.W, _reference_modelx_w(torch, draws, seed=123),
+    assert torch.equal(global_before, torch.get_rng_state())
+    assert all(result.metadata["n_modelx_draws"] == expected_draws
+               for result in (first, second, changed))
+    np.testing.assert_allclose(first.W, _reference_modelx_w(torch, expected_draws, seed=123),
                                atol=1e-10, rtol=1e-12)
-    np.testing.assert_allclose(changed.W, _reference_modelx_w(torch, draws, seed=456),
+    np.testing.assert_allclose(changed.W, _reference_modelx_w(torch, expected_draws, seed=456),
                                atol=1e-10, rtol=1e-12)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=_IgnoredModelXTorchSeed,
-    reason="Issue #242: native Torch model-X construction ignores random_state",
-)
+@pytest.mark.parametrize("backend", ["torch", "auto"])
 @pytest.mark.parametrize("entrypoint", ["function", "unified", "selector"])
-@pytest.mark.parametrize("draws", [1, 3])
-def test_torch_modelx_construction_should_use_its_local_seed(torch_cpu, entrypoint, draws):
-    _assert_torch_modelx_local_seed(torch_cpu, entrypoint, draws)
+@pytest.mark.parametrize("draws", [1, 3, None], ids=["one", "three", "default"])
+def test_torch_modelx_construction_uses_its_local_seed(torch_cpu, entrypoint, draws, backend):
+    _assert_torch_modelx_local_seed(torch_cpu, entrypoint, draws, backend)
+
+
+@pytest.mark.parametrize("entrypoint", ["function", "unified", "selector"])
+@pytest.mark.parametrize("draws", [1, 3, None], ids=["one", "three", "default"])
+def test_torch_modelx_preserves_none_seed_zero_policy(torch_cpu, entrypoint, draws):
+    torch = torch_cpu
+    X, y = (torch.as_tensor(a) for a in _problem())
+    opts = {"backend": "torch", "random_state": None, "method": "corr_diff"}
+    if draws is not None:
+        opts["modelx_draws"] = draws
+    before = torch.get_rng_state().clone()
+    first = _modelx_result(entrypoint, X, y, **opts)
+    second = _modelx_result(entrypoint, X, y, **opts)
+    one_draw = _modelx_result(entrypoint, X, y, **{**opts, "modelx_draws": 1})
+    np.testing.assert_array_equal(first.W, second.W)
+    np.testing.assert_allclose(first.W, one_draw.W, atol=1e-12, rtol=1e-12)
+    assert torch.equal(before, torch.get_rng_state())
+    expected = _reference_modelx_w(torch, 3 if draws is None else draws, seed=None)
+    np.testing.assert_allclose(first.W, expected, atol=1e-10, rtol=1e-12)
 
 
 @pytest.mark.parametrize("fault", ["runtime_error", "finite_W_corruption", "wrong_selection"])
-def test_seed_probe_does_not_classify_unrelated_failures_as_known_bug(torch_cpu, monkeypatch, fault):
+def test_seed_contract_detects_runtime_output_and_selection_failures(torch_cpu, monkeypatch, fault):
     import sys
 
     original = _modelx_result
@@ -181,12 +180,11 @@ def test_seed_probe_does_not_classify_unrelated_failures_as_known_bug(torch_cpu,
 
     monkeypatch.setattr(sys.modules[__name__], "_modelx_result", broken)
     expected_exception = RuntimeError if fault == "runtime_error" else AssertionError
-    with pytest.raises(expected_exception) as error:
+    with pytest.raises(expected_exception):
         _assert_torch_modelx_local_seed(torch_cpu, "function", 1)
-    assert not isinstance(error.value, _IgnoredModelXTorchSeed)
 
 
-def test_torch_fixedx_and_supplied_modelx_do_not_use_the_faulty_construction(torch_cpu):
+def test_torch_fixedx_and_supplied_modelx_remain_repeatable(torch_cpu):
     torch = torch_cpu
     X, y = (torch.as_tensor(a) for a in _problem())
     opts = {"backend": "torch", "random_state": 123, "method": "corr_diff"}
@@ -206,18 +204,26 @@ def test_torch_fixedx_and_supplied_modelx_do_not_use_the_faulty_construction(tor
 
 
 @pytest.mark.parametrize("language", ["en", "cn"])
-def test_seed_warning_names_affected_route_and_reproducible_alternative(language):
+def test_seed_contract_scopes_repeatability_and_preserves_other_limitations(language):
     model = (ROOT / f"docs/{language}/models/knockoff.md").read_text()
     reference = (ROOT / f"docs/{language}/reference/feature-selection-api.md").read_text()
     for text in (model, reference):
-        assert 'compat_mode="statgpu"' in text
-        assert "random_state" in text and "Xk" in text
-        assert ("global" in text if language == "en" else "全局" in text)
-        assert "NumPy" in text and "Fixed-X" in text
+        text = " ".join(text.split())
+        assert 'compat_mode="statgpu"' in text and "Xk=None" in text
+        assert "random_state" in text and "dtype" in text
+        assert ("global Torch RNG" in text if language == "en" else "全局 Torch" in text)
+        assert ("cross-GPU" in text if language == "en" else "跨 GPU" in text)
+        assert ("seed 0" in text if language == "en" else "种子 0" in text)
+        assert ("same construction noise" in text if language == "en" else "相同的构造噪声" in text)
+        assert ("Lasso cache limitation" in text if language == "en" else "Lasso 缓存限制" in text)
+        assert "NumPy" in text and "fixed-x" in text.lower()
     assert "reproducibility-of-generated-torch-model-x" in reference
     for consumer in (model_x_knockoff_filter, knockoff_filter, KnockoffSelector):
-        doc = inspect.getdoc(consumer)
-        assert "global Torch RNG" in doc and "random_state" in doc
+        doc = " ".join(inspect.getdoc(consumer).split())
+        assert "local random generator" in doc and "random_state" in doc
+        assert "without advancing the global Torch RNG" in doc
+        assert "cross-GPU" in doc and "empirical FDR" in doc
+        assert "currently ignores" not in doc
 
 
 def test_sampler_dispatch_boundaries_match_the_bilingual_reference():

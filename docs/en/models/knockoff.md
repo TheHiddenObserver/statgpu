@@ -168,7 +168,16 @@ Key `knockoff_filter` parameters:
 
 ## CPU+GPU Examples
 
-The following optional GPU variants assume `X`/`y` generated in the [self-contained example](../reference/feature-selection-api.md#runnable-fixed-x-example). They require installed usable CUDA backends. Here `backend="torch"` selects the Torch library: NumPy or Torch CPU inputs stay on CPU. Supply CUDA tensors, including any supplied Xk on the same device, for GPU execution. This differs from estimator `device="torch"`, which explicitly requests CUDA.
+The following optional GPU variants assume `X`/`y` generated in the [self-contained example](../reference/feature-selection-api.md#runnable-fixed-x-example). They require installed usable CUDA backends. Here `backend="torch"` selects the Torch library, unlike estimator `device="torch"`, which requests CUDA. Native fixed-X and generated model-X construction follow X's device. Torch CPU input remains on CPU even when CUDA is available; CUDA input retains its GPU index. For model-X, the local random generator and random matrix both use that device. See [Torch device placement](../reference/feature-selection-api.md#torch-device-placement).
+
+This device preservation applies to construction. Native Torch
+`method="lasso_coef_diff"` tuning/fitting still requests CUDA, including for
+CPU inputs, supplied Xk and fixed-X; it does not guarantee use of an input's
+nondefault GPU. For Torch CPU statistics, choose `corr_diff` or `ols_coef_diff`
+when appropriate; for CPU Lasso, use NumPy inputs with `backend="numpy"`.
+See [Torch Lasso device routing](../reference/feature-selection-api.md#torch-lasso-device-routing).
+
+For CPU model-X construction, use Torch CPU tensors with `backend="torch"`, or NumPy X/y with `backend="numpy"`. Keep X/y/Xk on the same intended device. A supplied, externally validated model-X Xk bypasses construction. Shape and device agreement do not establish exchangeability or conditional independence from y given X. These native construction rules apply to `compat_mode="statgpu"` with `Xk=None`, including `KnockoffSelector`; fixed-X has different construction and statistical assumptions.
 
 ```python
 from statgpu import knockoff_filter
@@ -230,19 +239,21 @@ res_torch_mx = knockoff_filter(
 
 ## Reproducibility of generated Torch model-X
 
-For `knockoff_type="model_x"`, `compat_mode="statgpu"`, and no supplied `Xk`,
-Torch construction currently draws from the global Torch RNG rather than the
-requested `random_state`. Repeating a seeded call can therefore change W and
-selection; changing only `random_state` does not control those construction
-draws. This also affects `KnockoffSelector` with those settings and is separate
-from the Lasso cache limitation below. Fixed-X construction is not affected by
-this particular seed problem.
+For `knockoff_type="model_x"`, `compat_mode="statgpu"`, and `Xk=None`, an integer
+`random_state` seeds a local Torch generator for each construction draw without
+advancing the global Torch RNG. Repeating construction with the same inputs,
+settings, backend, dtype, device and software environment is repeatable.
+This also applies to `KnockoffSelector`. It does not guarantee cross-backend
+or cross-GPU equality or empirical FDR control, and is separate from the
+Lasso cache limitation below.
 
-Use `backend="numpy"` when repeatable native model-X construction is required,
-or provide a valid externally generated `Xk` and validate the chosen statistic's
-repeatability separately. A supplied matrix bypasses construction but does not
-remove the statistical, threshold, or Lasso-cache limitations. A recorded
-`random_state` in the result is not proof that the construction used that seed.
+Native Torch/CuPy construction with `random_state=None` uses seed 0 for each
+draw, so repeated draws use the same construction noise; use an integer
+for repeatable, separately seeded draws. NumPy
+construction with `None` remains unseeded. A valid externally generated `Xk`
+bypasses construction; check the chosen statistic's repeatability separately.
+A supplied matrix does not remove the statistical, threshold or Lasso-cache
+limitations. Fixed-X keeps its own construction and statistical assumptions.
 
 ## Repeated Lasso-statistic calls
 
@@ -287,7 +298,7 @@ An empty `selected_features` array is a valid outcome. `estimated_fdr` is the th
 
 - Why do I get an error for fixed-X? Check constraints (finite `q` in `(0,1)`, `X` is 2D, `Xk` shape matches `X`, and fixed-X rank/sample requirements are met). Validate q yourself: NaN currently produces an invalid empty selection instead of an error.
 - When should I use model-X? Use it when a credible feature-distribution construction is available, including settings where fixed-X is infeasible. Its feature assumptions differ from fixed-X response assumptions; choosing it alone does not validate an estimated feature model.
-- Is CuPy required for GPU? `backend="cupy"` requires CuPy. Alternatively, `backend="torch"` accepts Torch CUDA tensors for GPU execution; install the matching backend and supply arrays on the intended device.
+- Is CuPy required for GPU? `backend="cupy"` requires CuPy. Alternatively, `backend="torch"` accepts Torch CUDA tensors; keep inputs on the same device and follow the [Torch device-placement guidance](../reference/feature-selection-api.md#torch-device-placement). Installing Torch alone does not guarantee CUDA execution.
 
 ## External Validation
 
