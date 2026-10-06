@@ -46,7 +46,7 @@ fixed-X 函数/类只接受其签名中的共享参数子集。`modelx_*` 与采
 | `q` | `0.1` | `(0,1)` 内有限目标错误率；当前内部检查会漏过 NaN，调用前请自行验证。不是系数置信水平。 |
 | `method` | `"corr_diff"` | `corr_diff`、`ols_coef_diff`、`lasso_coef_diff`，比较原变量与 knockoff 变量重要性。 |
 | `fdr_control` | `"knockoff_plus"` | `knockoff_plus` 偏移为 1，`knockoff` 为 0；后者在相应理论下针对不同的修正 FDR 保证。 |
-| `random_state` | `None` | 构造或随机统计量拟合的整数种子。 |
+| `random_state` | `None` | 构造或随机统计量拟合的整数种子；原生 Torch model-X 自动构造当前不会使用它，见下文种子限制。 |
 | `backend` | `"auto"` | `numpy`、`cupy`、`torch` 或按数组推断的 auto。`torch` 选择计算库：NumPy 或 Torch CPU 输入在 CPU 上执行，GPU 计算需传入 CUDA 张量。这不同于估计器要求 CUDA 的 `device="torch"`。 |
 | `Xk` | `None` | 可选外部 `(n,p)` knockoff 矩阵；传给函数或 selector.fit，不传给选择器构造函数。有效性由调用者负责，形状正确不代表可交换性成立。 |
 | `compat_mode` | `"statgpu"` | `statgpu` 或 `knockpy`；兼容设置影响构造/统计量约定，可能需要可选包或 CPU 计算。 |
@@ -57,7 +57,7 @@ fixed-X 函数/类只接受其签名中的共享参数子集。`modelx_*` 与采
 | `modelx_draws` | `None` | 严格正整数或 None；OLS/Lasso 差默认 5 次，相关差默认 3 次。提供 Xk 时使用该矩阵，不重新抽取多个矩阵。 |
 | `modelx_shrinkage` | `"ledoitwolf"` | 兼容协方差策略：`ledoitwolf`、`none`/`mle`、`graphicallasso`/`glasso`；实际选择及回退行为见下文。 |
 | `modelx_smatrix_method` | `"mvr"` | 请求的兼容 S 矩阵方法；有 knockpy 时传给它，但可能回退为等相关构造，详见下文。 |
-| `knockpy_sampler` | `None` | 可选 gaussian/fx/metro/artk 等分发名；当前分发实现为占位，可能抛出 NotImplementedError。使用已实现构造时保持 None。 |
+| `knockpy_sampler` | `None` | 可选 gaussian/fx/metro/artk 等分发名；仅用于 `compat_mode="knockpy"` 且未提供 `Xk` 的 model-X 构造，其他路径忽略它。当前这些采样器未实现，会抛出 `NotImplementedError`；内置构造请保持 None。 |
 | `knockpy_sampler_method` | `None` | 高斯分发子方法，如 mvr/sdp/maxent/equi/ci；不能使未实现的采样器可用。 |
 
 ### 选择前验证 q
@@ -81,6 +81,15 @@ S 矩阵构造会尝试调用 knockpy 中请求的方法。包缺失或**该调�
 初次解析后的值，不一定是实际执行的实现。显式指定 `lasso_cv_impl="statgpu"`
 可避免这种歧义。在 knockpy 兼容模式之外，两种实现的截距与交叉验证设置也不同，
 不能仅凭统计量名称相同就认为结果数值等价。
+
+### Torch model-X 构造的种子限制
+
+当 `compat_mode="statgpu"` 且未提供 `Xk` 时，当前 Torch model-X 自动构造
+使用全局随机数状态，而不是 `random_state`。重复相同种子的调用仍可能改变
+W 与入选特征，`knockoff_filter` 和 `KnockoffSelector` 也受影响。
+NumPy 构造会使用指定种子；有效外部 `Xk` 可以跳过构造，但仍应单独检查
+统计量的可重复性，尤其是下文的 Lasso 缓存限制。Fixed-X 不存在这一特定的
+构造种子问题。详见[可重复性说明](../models/knockoff.md#reproducibility-of-generated-torch-model-x)。
 
 <a id="repeated-lasso-statistic-calls"></a>
 

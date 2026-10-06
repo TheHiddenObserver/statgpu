@@ -1,7 +1,7 @@
 # Knockoff Feature Selection
 
 > Language: English  
-> Last updated: 2026-10-05  
+> Last updated: 2026-10-06
 > This page: Method documentation  
 > Switch: [Chinese](../../cn/models/knockoff.md)
 
@@ -227,6 +227,22 @@ res_torch_mx = knockoff_filter(
 - `fdr_control="knockoff"` uses offset 0 and has a different modified-FDR target under the relevant theory; it is not an approximate numerical version of knockoff+.
 - In model-X, additional `modelx_draws` average feature statistics at greater computational cost. Reduced Monte Carlo variation does not establish an FDR theorem for the averaged statistic; an estimated Gaussian feature model also does not guarantee exchangeability for arbitrary feature distributions.
 - `knockpy_sampler` dispatch options are currently guarded; explicitly setting unsupported targets can raise `NotImplementedError` instead of silently falling back.
+
+## Reproducibility of generated Torch model-X
+
+For `knockoff_type="model_x"`, `compat_mode="statgpu"`, and no supplied `Xk`,
+Torch construction currently draws from the global Torch RNG rather than the
+requested `random_state`. Repeating a seeded call can therefore change W and
+selection; changing only `random_state` does not control those construction
+draws. This also affects `KnockoffSelector` with those settings and is separate
+from the Lasso cache limitation below. Fixed-X construction is not affected by
+this particular seed problem.
+
+Use `backend="numpy"` when repeatable native model-X construction is required,
+or provide a valid externally generated `Xk` and validate the chosen statistic's
+repeatability separately. A supplied matrix bypasses construction but does not
+remove the statistical, threshold, or Lasso-cache limitations. A recorded
+`random_state` in the result is not proof that the construction used that seed.
 
 ## Repeated Lasso-statistic calls
 

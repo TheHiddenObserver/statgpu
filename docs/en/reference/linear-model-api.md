@@ -4,7 +4,7 @@
 > Last updated: 2026-10-06  
 > Switch: [Chinese](../../cn/reference/linear-model-api.md)
 
-All classes here import from `statgpu` or `statgpu.linear_model`. `X` is finite numeric `(n,p)` data; prediction uses the fitted feature order. Analytic weights are a finite nonnegative `(n,)` vector with positive sum. For weights after formula row filtering, see [formula inputs](#formula-inputs). Explicit GPU use requires the corresponding installed CUDA backend; see [device and memory](../guides/device-and-memory.md).
+Classes here import from `statgpu` or `statgpu.linear_model`, except `SCADRegression` and `MCPRegression`, which are exported only by `statgpu.linear_model`. `X` is finite numeric `(n,p)` data; prediction uses the fitted feature order. Analytic weights are a finite nonnegative `(n,)` vector with positive sum. For weights after formula row filtering, see [formula inputs](#formula-inputs). Explicit GPU use requires the corresponding installed CUDA backend; see [device and memory](../guides/device-and-memory.md).
 
 Every class here inherits [get_params/set_params and four inference helpers](estimator-api.md). The generic helpers accept supplied data/p-values; their presence does not guarantee that a CV wrapper publishes coefficient inference arrays on itself. For CV, read inference from `estimator_`.
 
@@ -265,7 +265,7 @@ LogisticRegressionCV(Cs=None, n_Cs=100, C_min_ratio=0.001, cv=5, cv_splits=None,
 
 
 ## CV methods and results
-Both classes use `fit(X,y,sample_weight=None) -> self`, `predict(X)`, `score(X,y)`, and inherited `summary()`. Fit requires array/design-matrix input, not `formula`/`data`. `score` is unweighted held-out R² for ElasticNetCV and accuracy for LogisticRegressionCV, **not** the CV selection loss. ElasticNetCV.predict returns NumPy through the final estimator's default; LogisticRegressionCV also exposes `predict_proba(X) -> (m,2)` on the final model's backend. Other classification methods are on `estimator_`.
+`ElasticNetCV` and `LogisticRegressionCV` use `fit(X,y,sample_weight=None) -> self`, `predict(X)`, `score(X,y)`, and inherited `summary()`. Fit requires array/design-matrix input, not `formula`/`data`. `score` is unweighted held-out R² for ElasticNetCV and accuracy for LogisticRegressionCV, **not** the CV selection loss. ElasticNetCV.predict returns NumPy through the final estimator's default; LogisticRegressionCV also exposes `predict_proba(X) -> (m,2)` on the final model's backend. Other classification methods are on `estimator_`.
 
 Generated folds are shuffled K-fold, not automatically stratified/grouped/time-aware. Supply explicit reusable index-pair lists for those designs. Validate each pair as one-dimensional integer indices with nonempty, disjoint training/validation sets and no repeated rows. The current shared splitter casts to integers, flattens arrays and skips empty pairs; it does not reject overlap or duplicates. Invalid splits can leak validation rows into training. Fold weights affect both training and validation loss; every relevant split needs positive weight mass. Fit preprocessing only within each training fold. These wrappers do not accept a preprocessing pipeline or a scoring callable. For fold-local learned scaling, use an external CV loop/pipeline rather than scaling all rows before internal CV.
 
@@ -335,9 +335,9 @@ assert np.isclose(logit.best_score_, -np.nanmin(logit.mean_loss_))
 The printed score is evaluated on the untouched final 40 rows. The assertions explain the sign/schema rather than promising a particular selected model for every dataset. These simulated features already share a common scale; no full-data learned preprocessing is applied.
 
 ## Formula inputs
-LinearRegression, direct Lasso and direct ElasticNet here support formulas. For all three, supply only `formula`/`data`, not simultaneous array X/y; current formula parsing replaces those arrays without a conflict error. Install optional pandas/patsy. `formula="y ~ x + C(group)"` supplies numeric/categorical terms; `~ 0 + ...` removes the intercept regardless of the constructor. Interactions/transforms follow Patsy syntax. Formula fitting can drop rows with missing terms. Weights may describe all original data rows or exactly the retained rows; matching is positional, not by arbitrary Series labels.
+LinearRegression, direct Lasso, ElasticNet, Ridge, SCADRegression and MCPRegression here support formulas. For these classes, supply only `formula`/`data`, not simultaneous array X/y; current formula parsing replaces those arrays without a conflict error. Install optional pandas/patsy. `formula="y ~ x + C(group)"` supplies numeric/categorical terms; `~ 0 + ...` removes the intercept regardless of the constructor. Interactions/transforms follow Patsy syntax. Formula fitting can drop rows with missing terms. Weights may describe all original data rows or exactly the retained rows; matching is positional, not by arbitrary Series labels.
 
-Prediction DataFrames rebuild the stored design and categorical levels. Unknown levels or missing values that would drop prediction rows raise; array prediction must supply the already encoded non-intercept columns in training order. Keep transformations and level definitions consistent. LogisticRegression and both CV wrappers have no formula argument; construct a suitable design first, avoiding preprocessing leakage.
+Prediction DataFrames rebuild the stored design and categorical levels. Unknown levels or missing values that would drop prediction rows raise; array prediction must supply the already encoded non-intercept columns in training order. Keep transformations and level definitions consistent. LogisticRegression, ElasticNetCV, LogisticRegressionCV, RidgeCV and LassoCV have no formula argument; construct a suitable design first, avoiding preprocessing leakage.
 
 <!-- api-example: formula-models -->
 ```python
@@ -475,3 +475,260 @@ This generic CV class is distinct from ElasticNetCV and LogisticRegressionCV. `f
 For a candidate count a and fold count f, `alpha_grid_` and `cv_results_["alpha"]` have shape `(a,)`; `mean_score` has `(a,)`, and `all_scores` has `(f,a)`. These score arrays hold losses (smaller is better). Other keys are `device_sizing_fold_count`, `cv_strategy_`, `cv_selected_device_`, `mean_score_stage1`, `all_scores_stage1`, and `refined_mask`. Stage-one arrays are None in strict mode; the boolean refinement mask has `(a,)`. `coef_`, `intercept_`, and `estimator_` describe the final full-data fit. `cv_strategy_` and `cv_selected_device_` are also attributes.
 
 `summary(*args,**kwargs)` currently raises AttributeError after successful generic final-refit inference because it delegates to a final estimator without a summary method. Without inference it raises RuntimeError instead. Read `estimator_._inference_result.to_dict()` (or `to_dataframe()` with pandas) for supported inference; the failure to render a summary does not itself change the fitted coefficients. See the runnable result example on the [GLM page](../models/generalized-linear-model.md#reading-cv-inference-results). Shared configuration/p-value/resampling methods apply; `get_params` materializes a one-shot custom splitter for reuse.
+
+
+## Ridge
+
+```text
+Ridge(alpha=1.0, fit_intercept=True, device='auto', n_jobs=None, gpu_memory_cleanup=False, compute_inference=True, cov_type='nonrobust', hac_maxlags=None, max_iter=1000, tol=0.0001, solver='exact', cpu_solver='fista', lipschitz_L=None)
+```
+
+Every constructor parameter and its meaning is listed in the
+[complete Ridge parameter table](../models/ridge.md#parameters).
+This wrapper accepts only a scalar response. Default `solver="exact"` fits L2
+regression; `compute_inference=True` enables the supported Gaussian covariance
+path. The optimized CPU exact path has the documented
+[large-offset limitation](../models/ridge.md#large-feature-offsets).
+
+| Method | Arguments, defaults and return |
+|---|---|
+| `fit(X=None,y=None,sample_weight=None,formula=None,data=None)` | Returns self. Use finite X `(n,p)` and one-dimensional y `(n,)`, or formula/data. Optional analytic weights `(n,)` must be finite, nonnegative and have positive total. Formula syntax owns the intercept. Do not pass both arrays and formula/data: formula input currently replaces arrays without a conflict error. See [formula inputs](#formula-inputs) for row alignment and prediction DataFrames. |
+| `predict(X,return_cpu=True)` | Prediction `(m,)` for X `(m,p)` or a formula prediction DataFrame. NumPy by default, including after GPU fits; False retains the fitted numerical backend. |
+| `score(X,y,sample_weight=None)` | Python float R². Use one-dimensional response and host/NumPy response/weights. Evaluation weights are independent of training weights; validate finite nonnegative length-m weights with positive total yourself because current shared validation is incomplete. |
+| `summary()` | Prints a coefficient/inference table, returns None; raises RuntimeError when inference is disabled or unavailable. |
+| `get_params(deep=True)`, `set_params(**params)` | Configuration dictionary and updates returning self. A nonempty valid update clears fitted state; refit before using results. |
+| `adjust_pvalues`, `combine_pvalues`, `bootstrap_statistic`, `permutation_test` | Full argument/default/return contracts are in the [shared estimator reference](estimator-api.md#inference-helpers). They do not automatically refit this model or repeat selection/tuning. |
+
+`coef_` is a NumPy `(p,)` array, `intercept_` a scalar (zero without an intercept),
+and `n_iter_` an iteration count, not a global-optimality certificate.
+With successful inference, `_params`, `_bse`, `_tvalues`, `_pvalues` have `(k,)`
+and `_conf_int` has `(k,2)`, where k=p+1 with an intercept and p otherwise.
+The intercept comes first. `_inference_result` records the method/distribution
+and reporting metadata. Nonrobust inference uses Student-t; HC/HAC uses a normal
+reference. The diagnostic properties `rsquared`, `rsquared_adj`, `fvalue`,
+`f_pvalue`, `llf`, `aic`, `bic` can be None without the necessary fitted inference
+state. These plug-in diagnostics are not general effective-degrees-of-freedom
+or tuning-adjusted criteria; robust covariance does not make F a robust Wald test.
+
+
+## SCADRegression
+
+```text
+SCADRegression(alpha=1.0, a=3.7, fit_intercept=True, max_iter=1000, tol=0.0001, device='auto', compute_inference=False, solver='auto', gpu_memory_cleanup=False)
+```
+
+Every constructor parameter and its meaning is listed in the
+[complete SCADRegression parameter table](../models/scad.md#parameters).
+Import with `from statgpu.linear_model import SCADRegression`; the top-level
+`statgpu` module does not export it. `alpha` must be finite and positive, and
+`a` must be finite and greater than 2.
+Keep `compute_inference=False`: the wrapper does not expose `inference_method`,
+and enabling inference raises. Use the generic penalized-linear interface from
+the [model page](../models/scad.md#covarianceinference) for explicit inference.
+
+| Method | Arguments, defaults and return |
+|---|---|
+| `fit(X=None,y=None,sample_weight=None,formula=None,data=None)` | Returns self. Use finite X `(n,p)` and one-dimensional y `(n,)`, or formula/data. Optional analytic weights `(n,)` must be finite, nonnegative and have positive total. Formula syntax owns the intercept. Do not pass both arrays and formula/data: formula input currently replaces arrays without a conflict error. See [formula inputs](#formula-inputs) for row alignment and prediction DataFrames. |
+| `predict(X,return_cpu=True)` | Prediction `(m,)` for X `(m,p)` or a formula prediction DataFrame. NumPy by default, including after GPU fits; False retains the fitted numerical backend. |
+| `score(X,y,sample_weight=None)` | Python float R². Use one-dimensional response and host/NumPy response/weights. Evaluation weights are independent of training weights; validate finite nonnegative length-m weights with positive total yourself because current shared validation is incomplete. |
+| `summary()` | Prints a coefficient/inference table, returns None; raises RuntimeError when inference is disabled or unavailable. |
+| `get_params(deep=True)`, `set_params(**params)` | Configuration dictionary and updates returning self. A nonempty valid update clears fitted state; refit before using results. |
+| `adjust_pvalues`, `combine_pvalues`, `bootstrap_statistic`, `permutation_test` | Full argument/default/return contracts are in the [shared estimator reference](estimator-api.md#inference-helpers). They do not automatically refit this model or repeat selection/tuning. |
+
+`coef_` is a NumPy `(p,)` array, `intercept_` a scalar (zero without an intercept),
+and `n_iter_` an iteration count, not a global-optimality certificate.
+With inference disabled, `_bse`, `_tvalues`, `_pvalues`, `_conf_int` and the
+inherited diagnostic properties `rsquared`, `rsquared_adj`, `fvalue`, `f_pvalue`,
+`llf`, `aic`, `bic` are unavailable (normally None). Use `score` or explicit
+held-out prediction loss for evaluation. Do not enable inference merely to make
+`summary()` work: the specialized constructor cannot select a supported method.
+
+
+## MCPRegression
+
+```text
+MCPRegression(alpha=1.0, gamma=3.0, fit_intercept=True, max_iter=1000, tol=0.0001, device='auto', compute_inference=False, solver='auto', gpu_memory_cleanup=False)
+```
+
+Every constructor parameter and its meaning is listed in the
+[complete MCPRegression parameter table](../models/mcp.md#parameters).
+Import with `from statgpu.linear_model import MCPRegression`; the top-level
+`statgpu` module does not export it. `alpha` must be finite and positive, and
+`gamma` must be finite and greater than 1.
+Keep `compute_inference=False`: the wrapper does not expose `inference_method`,
+and enabling inference raises. Use the generic penalized-linear interface from
+the [model page](../models/mcp.md#covarianceinference) for explicit inference.
+
+| Method | Arguments, defaults and return |
+|---|---|
+| `fit(X=None,y=None,sample_weight=None,formula=None,data=None)` | Returns self. Use finite X `(n,p)` and one-dimensional y `(n,)`, or formula/data. Optional analytic weights `(n,)` must be finite, nonnegative and have positive total. Formula syntax owns the intercept. Do not pass both arrays and formula/data: formula input currently replaces arrays without a conflict error. See [formula inputs](#formula-inputs) for row alignment and prediction DataFrames. |
+| `predict(X,return_cpu=True)` | Prediction `(m,)` for X `(m,p)` or a formula prediction DataFrame. NumPy by default, including after GPU fits; False retains the fitted numerical backend. |
+| `score(X,y,sample_weight=None)` | Python float R². Use one-dimensional response and host/NumPy response/weights. Evaluation weights are independent of training weights; validate finite nonnegative length-m weights with positive total yourself because current shared validation is incomplete. |
+| `summary()` | Prints a coefficient/inference table, returns None; raises RuntimeError when inference is disabled or unavailable. |
+| `get_params(deep=True)`, `set_params(**params)` | Configuration dictionary and updates returning self. A nonempty valid update clears fitted state; refit before using results. |
+| `adjust_pvalues`, `combine_pvalues`, `bootstrap_statistic`, `permutation_test` | Full argument/default/return contracts are in the [shared estimator reference](estimator-api.md#inference-helpers). They do not automatically refit this model or repeat selection/tuning. |
+
+`coef_` is a NumPy `(p,)` array, `intercept_` a scalar (zero without an intercept),
+and `n_iter_` an iteration count, not a global-optimality certificate.
+With inference disabled, `_bse`, `_tvalues`, `_pvalues`, `_conf_int` and the
+inherited diagnostic properties `rsquared`, `rsquared_adj`, `fvalue`, `f_pvalue`,
+`llf`, `aic`, `bic` are unavailable (normally None). Use `score` or explicit
+held-out prediction loss for evaluation. Do not enable inference merely to make
+`summary()` work: the specialized constructor cannot select a supported method.
+
+
+## RidgeCV
+
+```text
+RidgeCV(alphas=None, n_alphas=100, alpha_min_ratio=0.001, cv=5, cv_splits=None, fit_intercept=True, device='auto', n_jobs=None, compute_inference=True, cov_type='nonrobust', gpu_memory_cleanup=False, random_state=None, gpu_cv_mixed_precision=True)
+```
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `alphas` | `None` | Explicit positive finite candidates; omitted: generate a data-dependent grid. Invalid/nonpositive entries are filtered; an empty surviving grid falls back to automatic generation. |
+| `n_alphas` | `100` | Automatic grid size when alphas is omitted. |
+| `alpha_min_ratio` | `0.001` | Minimum/maximum ratio for the automatic grid; choose a positive value normally no greater than 1. |
+| `cv` | `5` | Generated shuffled K-fold count, at least 2. |
+| `cv_splits` | `None` | Explicit reusable list of (train_indices, validation_indices); validate nonempty disjoint integer subsets yourself. RidgeCV has the custom-training-subset restriction below. |
+| `fit_intercept` | `True` | Fit an intercept in CV and final refit. |
+| `device` | `'auto'` | cpu, cuda (CuPy), torch (Torch CUDA), auto; explicit unavailable GPU requests raise. |
+| `n_jobs` | `None` | Shared worker configuration; no candidate-parallelism guarantee. |
+| `compute_inference` | `True` | Compute supported inference only on the final full-data refit, conditional on selected alpha. |
+| `cov_type` | `'nonrobust'` | Final Ridge covariance: nonrobust, hc0, hc1, hc2, hc3, hac. There is no hac_maxlags constructor control; HAC uses the automatic rule. |
+| `gpu_memory_cleanup` | `False` | Request best-effort GPU cache cleanup for final fitting. |
+| `random_state` | `None` | Seed for generated folds; not residual-bootstrap randomness. |
+| `gpu_cv_mixed_precision` | `True` | Enable mixed precision during GPU CV; final-refit inference has its own numerical path. |
+
+`fit(X,y,sample_weight=None)` returns self, accepting finite X `(n,p)`,
+one-dimensional y `(n,)`, and optional analytic weights `(n,)`. There is no
+formula interface. `predict(X)` returns NumPy `(m,)` through the final estimator.
+`score(X,y)` returns unweighted R² and has no weight argument; for separately
+validated evaluation weights use `estimator_.score(X,y,sample_weight=...)`.
+`summary()` prints the final estimator's report and returns None, requiring
+successful final inference. Shared `get_params(deep=True)`, `set_params(**params)`,
+`adjust_pvalues`, `combine_pvalues`, `bootstrap_statistic`, and `permutation_test`
+follow the [estimator reference](estimator-api.md).
+
+`alpha_` is selected by minimum mean validation MSE; `best_score_` is its
+**negative**, not the positive loss or final-model R². For a alphas and f folds,
+`alphas_`/`mean_mse_` are `(a,)`, and `cv_results_` contains only `mse_path` `(a,f)`.
+There is no `cv_results_["mean_mse"]` key. `coef_` `(p,)`, scalar `intercept_`,
+`n_iter_` and `estimator_` describe the full-data refit. Inference belongs to
+`estimator_` and conditions on alpha; it does not account for tuning uncertainty.
+`cv_selected_device_` records the final device. There is no public solver,
+max_iter or tol control on RidgeCV; the final estimator uses Ridge's exact path.
+The [large-offset caution](../models/ridge.md#large-feature-offsets) also matters
+when interpreting this final Ridge fit.
+
+Generated folds are shuffled K-fold, not grouped, stratified or time-aware.
+Use reusable explicit index-pair lists for a chosen design and validate them
+before fitting; caller-side validation is necessary, not implied by acceptance.
+Each relevant weighted fold needs positive weight mass. Fit learned preprocessing
+inside each training fold, using an external CV loop when needed. Use at least
+four observations, two candidates and two folds for an actual tuning comparison;
+small/single-candidate paths can simply refit and report NaN losses/best_score_.
+A chosen grid can still miss the useful penalty range.
+
+### Custom RidgeCV training subsets
+
+With no sample weights, when validation sets partition every row once,
+RidgeCV currently substitutes each validation set's full complement for the
+supplied training indices. A deliberately smaller training subset is therefore
+not honored, even if it is valid and disjoint. Validation losses and alpha
+selection can change. Do not use this path for custom excluded/embargoed rows.
+For those designs use an external loop that fits Ridge on each exact training
+subset and evaluates its designated validation rows. Ordinary complete K-folds
+already use complementary training sets and are not affected by this substitution.
+
+
+## LassoCV
+
+```text
+LassoCV(alphas=None, n_alphas=12, alpha_min_ratio=0.001, cv=5, cv_splits=None, fit_intercept=True, device='auto', n_jobs=None, compute_inference=False, max_iter=3000, tol=0.0001, stopping='coef_delta', solver='fista', cpu_solver=None, method='standard', cd_kkt_check_every=None, inference_method='post_selection_ols', lipschitz_L=None, admm_rho=1.0, gpu_memory_cleanup=False, random_state=None, gpu_cv_mixed_precision=True, cv_solver='auto', *, nodewise_alpha=None)
+```
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `alphas` | `None` | Explicit positive finite candidates; omitted: generate a data-dependent grid. Invalid/nonpositive entries are filtered; an empty surviving grid falls back to automatic generation. |
+| `n_alphas` | `12` | Automatic grid size when alphas is omitted. |
+| `alpha_min_ratio` | `0.001` | Minimum/maximum ratio for the automatic grid; choose a positive value normally no greater than 1. |
+| `cv` | `5` | Generated shuffled K-fold count, at least 2. |
+| `cv_splits` | `None` | Explicit reusable list of (train_indices, validation_indices); validate nonempty disjoint integer subsets yourself. |
+| `fit_intercept` | `True` | Fit an intercept in CV and final refit. |
+| `device` | `'auto'` | cpu, cuda (CuPy), torch (Torch CUDA), auto; explicit unavailable GPU requests raise. |
+| `n_jobs` | `None` | Shared worker configuration; no candidate-parallelism guarantee. |
+| `compute_inference` | `False` | Compute supported inference only on the final full-data refit, conditional on selected alpha. |
+| `max_iter` | `3000` | Iteration budget for CV solves and the final direct fit. |
+| `tol` | `0.0001` | Convergence tolerance for CV solves and final fitting. |
+| `stopping` | `'coef_delta'` | Final-refit request only; current direct Gaussian stopping does not honor the kkt setting. It does not select the CV path stopping check. |
+| `solver` | `'fista'` | Final full-data Lasso solver; does not choose the CV solver. |
+| `cpu_solver` | `None` | Deprecated CPU CV alias; use cv_solver. Conflicting explicit CPU requests raise. On GPU it warns but does not replace FISTA. |
+| `method` | `'standard'` | standard or glmnet CV path mode. On CPU, glmnet requires coordinate descent; GPU CV remains FISTA. Not an inference method. |
+| `cd_kkt_check_every` | `None` | Positive integer CPU CV coordinate-descent KKT-check interval. None resolves to 1 for standard or 4 for glmnet. Not a final-refit certificate. |
+| `inference_method` | `'post_selection_ols'` | Final-refit post_selection_ols, debiased, bootstrap or supported auto request; see Lasso inference restrictions. Deprecated aliases normalize at the compatibility boundary. |
+| `lipschitz_L` | `None` | Optional compatible final-refit Lipschitz bound; not a CV-path control. |
+| `admm_rho` | `1.0` | Forwarded to final Lasso; currently ignored by unified ADMM, which starts at rho=1.0. |
+| `gpu_memory_cleanup` | `False` | Request best-effort GPU cache cleanup for final fitting. |
+| `random_state` | `None` | Seed for generated folds; not residual-bootstrap randomness. |
+| `gpu_cv_mixed_precision` | `True` | Enable mixed precision during GPU CV; final-refit inference has its own numerical path. |
+| `cv_solver` | `'auto'` | auto, coordinate_descent or fista for CV. auto selects CPU CD or GPU FISTA; explicit coordinate_descent is CPU-only. |
+| `nodewise_alpha` | `None` | Keyword-only final-refit debiased precision tuning; does not change the grid, fold losses or selected alpha. |
+
+`fit(X,y,sample_weight=None)` returns self, accepting finite X `(n,p)`,
+one-dimensional y `(n,)`, and optional analytic weights `(n,)`. There is no
+formula interface. `predict(X)` returns NumPy `(m,)` through the final estimator.
+`score(X,y)` returns unweighted R² and has no weight argument; for separately
+validated evaluation weights use `estimator_.score(X,y,sample_weight=...)`.
+`summary()` prints the final estimator's report and returns None, requiring
+successful final inference. Shared `get_params(deep=True)`, `set_params(**params)`,
+`adjust_pvalues`, `combine_pvalues`, `bootstrap_statistic`, and `permutation_test`
+follow the [estimator reference](estimator-api.md).
+
+`alpha_` is selected by minimum mean validation MSE; `best_score_` is its
+**negative**, not the positive loss or final-model R². For a alphas and f folds,
+`alphas_`/`mean_mse_` are `(a,)`, and `cv_results_` contains only `mse_path` `(a,f)`.
+There is no `cv_results_["mean_mse"]` key. `coef_` `(p,)`, scalar `intercept_`,
+`n_iter_` and `estimator_` describe the full-data refit. Inference belongs to
+`estimator_` and conditions on alpha; it does not account for tuning uncertainty.
+`mse_path_` also exposes the `(a,f)` loss array. `cv_solver_` records the resolved
+CV algorithm, while `solver` controls the final Lasso only. `nodewise_alpha_`
+exposes final-refit precision tuning where applicable. Source-static signatures
+can omit the installed keyword-only `nodewise_alpha`; the constructor above is
+the runtime public API. LassoCV does not expose the direct Lasso simultaneous or
+residual-bootstrap draw/seed constructor controls.
+
+Generated folds are shuffled K-fold, not grouped, stratified or time-aware.
+Use reusable explicit index-pair lists for a chosen design and validate them
+before fitting; caller-side validation is necessary, not implied by acceptance.
+Each relevant weighted fold needs positive weight mass. Fit learned preprocessing
+inside each training fold, using an external CV loop when needed. Use at least
+four observations, two candidates and two folds for an actual tuning comparison;
+small/single-candidate paths can simply refit and report NaN losses/best_score_.
+A chosen grid can still miss the useful penalty range.
+
+
+## RidgeCV and LassoCV CPU example
+
+<!-- api-example: ridge-lasso-cv -->
+```python
+import numpy as np
+from statgpu import LassoCV, RidgeCV
+
+rng = np.random.default_rng(64)
+X = rng.normal(size=(160, 5))
+y = 1.5 + 2 * X[:, 0] - X[:, 1] + rng.normal(scale=0.4, size=160)
+models = {}
+for cls in (LassoCV, RidgeCV):
+    model = cls(
+        alphas=[0.03, 0.1, 0.3], cv=3, random_state=7,
+        device="cpu", compute_inference=False,
+    ).fit(X[:120], y[:120])
+    models[cls.__name__] = model
+    assert set(model.cv_results_) == {"mse_path"}
+    assert model.cv_results_["mse_path"].shape == (3, 3)
+    assert np.isclose(model.best_score_, -np.min(model.mean_mse_))
+    print(cls.__name__, model.alpha_, round(model.score(X[120:], y[120:]), 3))
+```
+
+Both select alpha 0.03 on these data; held-out R² rounds to 0.965 for LassoCV
+and 0.966 for RidgeCV. No learned preprocessing uses the held-out rows.

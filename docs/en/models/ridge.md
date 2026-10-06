@@ -5,11 +5,49 @@
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/ridge.md)
 
-Language switch: [Chinese](../../cn/models/ridge.md)
-
 ## Overview
 
-`Ridge` provides L2-regularized linear regression with the same inference surface as `LinearRegression` (including robust covariance options). It is used to stabilize prediction or coefficient estimates under multicollinearity. With positive alpha, coefficient intervals describe the penalized fit and do not automatically remove shrinkage bias or adjust for choosing alpha.
+`Ridge` provides L2-regularized linear regression for a single continuous response, with coefficient inference and robust covariance options. It is used to stabilize prediction or coefficient estimates under multicollinearity. With positive alpha, coefficient intervals describe the penalized fit and do not automatically remove shrinkage bias or adjust for choosing alpha.
+
+Unlike [Lasso](lasso.md), Ridge does not aim to make slopes exactly zero. Use it
+when many weak or correlated predictors may help prediction; start with
+[LinearRegression](linear-regression.md) when an unpenalized low-dimensional
+model is appropriate. Neither shrinkage nor a small p-value establishes causality.
+
+## A complete CPU example
+
+This example uses comparable-scale predictors, an illustrative fixed alpha, and
+analytic training weights. The last 40 rows are held out before fitting.
+
+<!-- learner-example: ridge-weighted-prediction -->
+```python
+import numpy as np
+from statgpu.linear_model import Ridge
+
+rng = np.random.default_rng(64)
+X = rng.normal(size=(160, 5))
+y = 1.5 + 2 * X[:, 0] - X[:, 1] + rng.normal(scale=0.4, size=160)
+weights = np.linspace(0.5, 2.0, 120)
+model = Ridge(
+    alpha=0.1, device="cpu", cov_type="hc3", compute_inference=True,
+).fit(X[:120], y[:120], sample_weight=weights)
+prediction = model.predict(X[120:])
+print("Slopes:", np.round(model.coef_, 3))
+print("Test R2:", round(model.score(X[120:], y[120:]), 3))
+print("Interval shape:", model._conf_int.shape)
+```
+
+The slopes are approximately `[1.821, -0.916, 0.017, -0.010, -0.020]` and
+held-out R² is about `0.957`. Prediction has shape `(40,)`; the six interval rows
+are the intercept followed by five slopes. HC3 changes covariance, not the Ridge
+prediction fit. Intervals refer to coefficients, not future responses, and do not
+correct shrinkage or tuning uncertainty. Training weights do not automatically
+weight the test score; this example evaluates ordinary unweighted R².
+
+Choose alpha using training-only validation, keeping the final test set separate.
+Learn feature scaling inside each training fold, since Ridge penalizes coefficients
+in their chosen units. The explicit alpha here avoids suggesting that a single
+value is suitable for every problem.
 
 ## Path
 
@@ -39,14 +77,14 @@ The intercept is not penalized. Multiplying every sample weight by the same posi
 
 ## Estimating Equation
 
-After centering the data using the corresponding ordinary or weighted means, the first-order condition is
+With an intercept, center the data using the corresponding ordinary or weighted means. The first-order condition is
 
 $$
 \left(X_c^\top W X_c + \alpha\,s_w I\right)\hat\beta
 = X_c^\top W y_c,
 $$
 
-where $W=I$ and $s_w=n$ without sample weights, while $W=\operatorname{diag}(w)$ and $s_w=\sum_iw_i$ for weighted fitting.
+Here $W=I$ and $s_w=n$ without sample weights, while $W=\operatorname{diag}(w)$ and $s_w=\sum_iw_i$ for weighted fitting. `fit_intercept=False` instead uses the original X and y in this equation and fixes b=0.
 
 `Ridge` defaults to `solver="exact"`. The same objective scale is used by the exact and FISTA paths, by `PenalizedLinearRegression(penalty="l2")`, and by `RidgeCV`.
 
@@ -130,7 +168,7 @@ shrinkage or tuning on the same data.
 | `alpha` | `1.0` | L2 regularization strength on the average-loss scale |
 | `fit_intercept` | `True` | Whether to fit an intercept |
 | `device` | `"auto"` | `cpu` / `cuda` / `torch` / `auto` |
-| `n_jobs` | `None` | Number of parallel jobs |
+| `n_jobs` | `None` | Shared worker configuration; this wrapper does not promise parallel fitting |
 | `compute_inference` | `True` | Whether to compute inference stats (SE/t/p/CI) |
 | `cov_type` | `"nonrobust"` | `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac` |
 | `hac_maxlags` | `None` | Max lag for `cov_type="hac"`; default follows a Newey-West-style heuristic |
@@ -141,25 +179,21 @@ shrinkage or tuning on the same data.
 | `cpu_solver` | `"fista"` | Deprecated compatibility argument; use `solver` to select the algorithm |
 | `lipschitz_L` | `None` | Optional smooth-gradient Lipschitz bound for compatible iterative solvers |
 
-## CPU+GPU Examples
+## Optional GPU use
 
-```python
-from statgpu.linear_model import Ridge
+Use `device="cuda"` for CuPy CUDA or `device="torch"` for Torch CUDA in the
+complete CPU example once that backend is installed and usable. An unavailable
+explicit backend raises; only `auto` may choose another available backend.
+See [device and memory](../guides/device-and-memory.md).
 
-# CPU
-m_cpu = Ridge(alpha=1.0, device="cpu", cov_type="hc3", compute_inference=True)
-m_cpu.fit(X, y, sample_weight=w)
+## API reference
 
-# CuPy CUDA
-m_gpu = Ridge(
-    alpha=1.0,
-    device="cuda",
-    cov_type="hc3",
-    compute_inference=True,
-    gpu_memory_cleanup=True,
-)
-m_gpu.fit(X, y, sample_weight=w)
-```
+The [complete Ridge method reference](../reference/linear-model-api.md#ridge)
+includes fit arguments, formulas, output placement, weighted scoring, diagnostics,
+and inherited helpers. The parameter table above covers every constructor control.
+Ridge accepts only a single response; it does not share LinearRegression's
+multi-output API. Its prediction defaults to a NumPy array even after GPU fitting;
+use `predict(X, return_cpu=False)` for backend-native output.
 
 ## strict/approx difference
 
@@ -182,6 +216,14 @@ see [device and memory](../guides/device-and-memory.md).
 - Does rescaling all sample weights change the model? No. The weighted loss is divided by `sum(sample_weight)`.
 - When should I set `hac_maxlags`? When using `cov_type="hac"` with time dependence; otherwise leave the default.
 - Are GPU inference arrays exposed as CuPy/Torch objects? No. Numerical inference stays backend-native, but the established public reporting attributes remain NumPy snapshots after numerical inference completes.
+
+Complete [RidgeCV controls and result schema](../reference/linear-model-api.md#ridgecv)
+and a [standalone CPU tuning example](../reference/linear-model-api.md#ridgecv-and-lassocv-cpu-example)
+are available in the API reference. Direct and CV constructor controls differ.
+
+For non-complement custom training subsets, read the
+[RidgeCV restriction](../reference/linear-model-api.md#custom-ridgecv-training-subsets)
+and use an external CV loop.
 
 ## External Validation
 

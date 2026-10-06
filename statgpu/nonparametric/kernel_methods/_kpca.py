@@ -20,6 +20,14 @@ class KernelPCA(BaseEstimator):
     Performs nonlinear dimensionality reduction by computing the
     eigendecomposition of a kernel matrix in feature space.
 
+    A failed refit can retain previous eigenvectors and the fitted flag while
+    replacing training centering information. Even finite constant data can
+    trigger this after the centered kernel is rejected for having no positive
+    directions. Later transform/predict calls may return finite but incorrect
+    coordinates. If fit or fit_transform raises, discard the instance and fit
+    suitable data successfully on a fresh KernelPCA before transforming queries.
+    Merely checking output finiteness does not detect this mixed state.
+
     Parameters
     ----------
     n_components : int, default=2
@@ -91,6 +99,10 @@ class KernelPCA(BaseEstimator):
 
     def fit(self, X, y=None):
         """Fit the Kernel PCA model.
+
+        If fitting raises, discard this instance: a failed refit may mix old
+        projection coefficients with new centering information. Fit suitable
+        data on a fresh instance before calling transform or predict.
 
         Parameters
         ----------

@@ -336,6 +336,10 @@ described above still applies.
 - Are ordinary `debiased` intervals simultaneous/joint confidence regions? No. Ordinary `_conf_int` values are marginal. Enable the dedicated simultaneous path when family-wise intervals are required.
 - How do I include the intercept in simultaneous coverage? Set `simultaneous_include_intercept=True`; the debiased intercept then participates in the bootstrap max-|Z| calibration as well as the reported joint interval set.
 
+Complete [LassoCV controls and result schema](../reference/linear-model-api.md#lassocv)
+and a [standalone CPU tuning example](../reference/linear-model-api.md#ridgecv-and-lassocv-cpu-example)
+are available in the API reference. Direct and CV constructor controls differ.
+
 ## External Validation
 
 - `dev/benchmarks/validate_post_selection_ols_gpu.py`

@@ -29,7 +29,7 @@ combine_pvalues(pvalues, method="fisher", weights=None, axis=None, backend="auto
 
 `adjust_pvalues` 和 `multipletests` 返回 `(reject, adjusted)`，两项都保留输入形状，`axis=None` 时也如此。`reject` 为布尔数组，`adjusted` 为 float64。标量只接受 `axis=None`。展平后的空输入可返回空校正数组；批处理时应使用非空的假设轴。
 
-`combine_pvalues` 返回 `(statistic, pvalue)`：`axis=None` 时为标量或零维结果，否则返回去掉指定轴的数组。空合并组会报错。结果使用所选后端的 float64 数组或标量。显式选择 Torch 数组库时可以处理 Torch CPU 或 CUDA 张量，这不同于估计器要求 CUDA 的 `device="torch"`。CPU 示例不代表已经验证物理 GPU。
+`combine_pvalues` 返回 `(statistic, pvalue)`：`axis=None` 时为标量或零维结果，否则返回去掉指定轴的数组。空合并组会报错。结果使用所选后端的 float64 数组或标量。显式选择 Torch 数组库时可以处理 Torch CPU 或 CUDA 张量，这不同于估计器要求 CUDA 的 `device="torch"`。
 
 估计器的同名方法返回字典，且校正轴的默认值不同，见[共享估计器辅助方法](../reference/estimator-api.md)。
 

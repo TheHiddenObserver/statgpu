@@ -5,11 +5,15 @@
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/mcp.md)
 
-Language switch: [Chinese](../../cn/models/mcp.md)
-
 ## Overview
 
 `MCPRegression` provides MCP-penalized (Minimax Concave Penalty) linear regression (Zhang, 2010). MCP is a continuous non-convex penalty that reduces shrinkage of large coefficients. Its **oracle property** requires asymptotic regularity and tuning conditions; it is not a guarantee for every finite-sample fit.
+
+Use this model for a continuous response when sparse prediction is useful and
+Lasso's shrinkage of large slopes is a concern. Begin with [Lasso](lasso.md) or
+[Elastic Net](elastic-net.md) when you want a convex objective and simpler tuning.
+Non-convex fitting can converge to different local solutions; a selected feature
+is not automatically significant or causal.
 
 ## Path
 
@@ -18,7 +22,7 @@ Language switch: [Chinese](../../cn/models/mcp.md)
 ## Objective Function
 
 $$
-\min_{\beta} \frac{1}{2n}\|y - X\beta\|_2^2 + \sum_{j=1}^p p_{\lambda,\gamma}(|\beta_j|)
+\min_{b,\beta} \frac{1}{2n}\|y - b\mathbf{1} - X\beta\|_2^2 + \sum_{j=1}^p p_{\lambda,\gamma}(|\beta_j|)
 $$
 
 where the MCP penalty is defined as:
@@ -31,6 +35,54 @@ p_{\lambda,\gamma}(\theta) = \begin{cases}
 $$
 
 with concavity parameter $\gamma > 1$ (default 3.0, per Zhang's recommendation).
+
+Here n is the observation count, X has p feature columns, b is the unpenalized
+intercept, and `alpha` is $\lambda$. The scalar penalty argument is
+$\theta=|\beta_j|\geq0$. `fit_intercept=False` fixes b=0. With finite,
+nonnegative analytic weights of positive total, replace the data-fit term by
+$\sum_i w_i(y_i-b-x_i^\top\beta)^2/(2\sum_i w_i)$; multiplying all weights
+by the same positive constant leaves the objective unchanged. Features are not
+automatically standardized. Learn any scaling on training rows only.
+
+## A complete CPU example
+
+The predictors below already have comparable scales. Reserve the final 40 rows
+before fitting; only the first two features generate the signal.
+
+<!-- learner-example: mcp-prediction -->
+```python
+import numpy as np
+from statgpu.linear_model import MCPRegression
+
+rng = np.random.default_rng(64)
+X = rng.normal(size=(160, 5))
+y = 1.5 + 2 * X[:, 0] - X[:, 1] + rng.normal(scale=0.4, size=160)
+model = MCPRegression(
+    alpha=0.1, gamma=3.0, device="cpu", compute_inference=False,
+    max_iter=5000, tol=1e-8,
+).fit(X[:120], y[:120])
+prediction = model.predict(X[120:])
+print("Slopes:", np.round(model.coef_, 3))
+print("Intercept:", round(model.intercept_, 3))
+print("Test R2:", round(model.score(X[120:], y[120:]), 3))
+```
+
+For this seed, slopes are approximately `[1.987, -0.982, 0, 0, 0]`, the
+intercept is `1.430`, and held-out R² is `0.967`. Predictions have shape `(40,)`.
+These are penalized prediction coefficients, not active-set refits or significance
+results. Another sample can select noise or miss a real signal.
+
+## Choosing parameters and checking results
+
+- Choose `alpha` using training-only validation. The example's 0.1 is not a
+  universal default, and the internal continuation path does not perform CV.
+- `gamma=3.0` is a conventional starting point. Changing concavity changes
+  the penalty and optimization difficulty; compare prediction and selected-set
+  stability rather than interpreting greater sparsity as automatically better.
+- Increase `max_iter` and tighten `tol` to assess numerical stability. `n_iter_`
+  alone does not prove global optimality. Local minima remain possible.
+- Keep the test set separate from tuning, and repeat learned preprocessing
+  inside each training fold. These wrappers have no built-in CV method.
 
 ## Algorithm
 
@@ -73,8 +125,8 @@ for a complete generic-estimator example and the method-specific limitations.
 
 | Parameter | Default | Description |
 |---|---:|---|
-| `alpha` | `1.0` | Regularization strength ($\lambda$) |
-| `gamma` | `3.0` | Concavity parameter ($\gamma > 1$, Zhang recommends 3.0) |
+| `alpha` | `1.0` | Finite positive regularization strength ($\lambda$) |
+| `gamma` | `3.0` | Finite concavity parameter, greater than 1 (conventional value 3.0) |
 | `fit_intercept` | `True` | Whether to fit an intercept |
 | `max_iter` | `1000` | Maximum FISTA iterations per LLA step |
 | `tol` | `1e-4` | Convergence tolerance |
@@ -83,24 +135,21 @@ for a complete generic-estimator example and the method-specific limitations.
 | `solver` | `"auto"` | Solver selection |
 | `gpu_memory_cleanup` | `False` | CuPy pool cleanup after fit |
 
-## CPU+GPU Examples
+## Optional GPU use
 
-```python
-from statgpu.linear_model import MCPRegression
+After preparing the data in the CPU example, use `device="cuda"` for CuPy CUDA
+or `device="torch"` for Torch CUDA in the same constructor. An unavailable
+explicit backend raises; only `auto` can select another available backend.
+See [device and memory](../guides/device-and-memory.md). No GPU is needed for
+the CPU example.
 
-# Basic usage
-model = MCPRegression(alpha=0.1, gamma=3.0)
-model.fit(X, y)
-print(model.coef_)        # sparse coefficients
-print(model.score(X, y))  # R-squared
+## API and output shapes
 
-# GPU acceleration
-model_gpu = MCPRegression(alpha=0.1, device="cuda")
-model_gpu.fit(X, y)
-
-# Tuning gamma (concavity)
-model_aggressive = MCPRegression(alpha=0.1, gamma=1.5)  # more aggressive thresholding
-```
+The [complete MCPRegression method reference](../reference/linear-model-api.md#mcpregression)
+includes fitting, formula/weight rules, prediction placement, score, inherited
+helpers and diagnostic restrictions. The table above lists every constructor
+parameter. Import this class from `statgpu.linear_model`; it is not exported
+from top-level `statgpu`.
 
 ## MCP vs SCAD vs Lasso
 
@@ -108,7 +157,7 @@ model_aggressive = MCPRegression(alpha=0.1, gamma=1.5)  # more aggressive thresh
 |---|---|---|---|
 | Convexity | Convex | Non-convex | Non-convex |
 | Oracle property | Not in general | Under regularity/tuning conditions | Under regularity/tuning conditions |
-| Bias for large $\beta_j$ | Shrinks toward zero | Nearly unbiased | Nearly unbiased |
+| Bias for large $\beta_j$ | Shrinks toward zero | Zero derivative above the threshold; no finite-sample guarantee | Zero derivative above the threshold; no finite-sample guarantee |
 | Penalty continuity | Continuous | Continuous | Continuous |
 | Penalty concavity | Linear (convex) | Piecewise linear-quadratic | Piecewise linear-quadratic |
 | Default concavity param | — | $a = 3.7$ | $\gamma = 3.0$ |

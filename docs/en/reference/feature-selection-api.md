@@ -1,7 +1,7 @@
 # Feature-selection API reference
 
 > Language: English  
-> Last updated: 2026-10-05  
+> Last updated: 2026-10-06
 > Switch: [Chinese](../../cn/reference/feature-selection-api.md)
 
 This page covers all eight exports of `statgpu.feature_selection`: `StepwiseSelector`, `stepwise_selection`, `KnockoffResult`, `knockoff_filter`, `fixed_x_knockoff_filter`, `model_x_knockoff_filter`, `KnockoffSelector`, and `FixedXKnockoffSelector`. All except `KnockoffResult` also have top-level `statgpu` aliases. These classes do not inherit BaseEstimator's p-value/bootstrap helpers.
@@ -48,7 +48,7 @@ The fixed-X function/class accepts only the shared subset shown in its signature
 | `q` | `0.1` | Finite target rate in `(0,1)`; validate before calling because NaN currently passes the internal check. Not a confidence level for coefficients. |
 | `method` | `"corr_diff"` | `corr_diff`, `ols_coef_diff`, `lasso_coef_diff`; original-minus-knockoff importance statistic. |
 | `fdr_control` | `"knockoff_plus"` | `knockoff_plus` uses offset 1, `knockoff` offset 0. The latter has a different modified-FDR guarantee under the applicable theory. |
-| `random_state` | `None` | Integer seed for construction/statistic fitting where stochastic. |
+| `random_state` | `None` | Integer seed for construction/statistic fitting where stochastic; generated native Torch model-X currently ignores it for construction. See the seed limitation below. |
 | `backend` | `"auto"` | `numpy`, `cupy`, `torch`, or auto inferred from arrays. `torch` selects the library: NumPy or Torch CPU inputs run on CPU; supply CUDA tensors for GPU execution. This is distinct from estimator `device="torch"`, which requests CUDA. |
 | `Xk` | `None` | Optional external knockoff matrix `(n,p)`; supplied to functions or selector.fit, never selector constructor. Validity is the caller’s responsibility; shape alone does not establish exchangeability. |
 | `compat_mode` | `"statgpu"` | `statgpu` or `knockpy`; compatibility controls change construction/statistic conventions and can require optional packages/CPU work. |
@@ -59,7 +59,7 @@ The fixed-X function/class accepts only the shared subset shown in its signature
 | `modelx_draws` | `None` | Strict positive integer or None: defaults to 5 for OLS/Lasso differences and 3 for correlation differences. Supplied Xk gives one matrix rather than fresh draws. |
 | `modelx_shrinkage` | `"ledoitwolf"` | Compatibility covariance strategy: `ledoitwolf`, `none`/`mle`, or `graphicallasso`/`glasso`. See resolution/fallback behavior below. |
 | `modelx_smatrix_method` | `"mvr"` | Requested compatibility S-matrix method, forwarded to knockpy when available; the request can fall back to equicorrelated construction. See below. |
-| `knockpy_sampler` | `None` | Optional dispatch name such as gaussian/fx/metro/artk. Current dispatched implementations are placeholders and can raise NotImplementedError; leave None for supported built-in construction. |
+| `knockpy_sampler` | `None` | Optional dispatch name such as gaussian/fx/metro/artk. Used only for model-X with `compat_mode="knockpy"` and no supplied `Xk`; ignored otherwise. These dispatched samplers currently raise `NotImplementedError`; leave None for built-in construction. |
 | `knockpy_sampler_method` | `None` | Gaussian dispatch submethod, e.g. mvr/sdp/maxent/equi/ci; does not implement an unavailable sampler. |
 
 ### Validate q before selection
@@ -87,6 +87,17 @@ necessarily the implementation that executed. Explicit `lasso_cv_impl="statgpu"`
 avoids this ambiguity. The two implementations also differ in intercept and
 CV settings outside knockpy compatibility; do not infer numerical parity from
 the shared statistic name.
+
+### Seeded Torch model-X construction
+
+With `compat_mode="statgpu"` and no supplied `Xk`, generated model-X knockoffs
+on Torch currently use the global RNG rather than `random_state`. Repeating
+identically seeded calls can change W and selection, including through
+`knockoff_filter` and `KnockoffSelector`. NumPy construction honors its seed;
+a valid supplied `Xk` bypasses construction. Check statistic repeatability
+separately, especially for the Lasso cache limitation below. Fixed-X does not
+have this particular construction-seed defect. See the
+[reproducibility guidance](../models/knockoff.md#reproducibility-of-generated-torch-model-x).
 
 <a id="repeated-lasso-statistic-calls"></a>
 

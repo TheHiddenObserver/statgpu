@@ -1,7 +1,7 @@
 # Knockoff 特征选择
 
 > 语言: 中文  
-> 最后更新: 2026-10-05  
+> 最后更新: 2026-10-06
 > 页面定位: 方法文档  
 > 切换: [English](../../en/models/knockoff.md)
 
@@ -155,6 +155,21 @@ Knockoff 为选择推断框架，不采用回归模型中的 `cov_type` 协方�
 | `knockpy_sampler` | `None` | 可选分发入口 |
 | `knockpy_sampler_method` | `None` | `sampler=gaussian` 时子方法 |
 
+<a id="reproducibility-of-generated-torch-model-x"></a>
+
+## Torch 自动 model-X 构造的可重复性
+
+当 `knockoff_type="model_x"`、`compat_mode="statgpu"` 且未提供 `Xk` 时，
+当前 Torch 构造使用全局 Torch 随机数状态，而不是请求的 `random_state`。
+重复相同种子的调用仍可能改变 W 和入选特征；仅改变 `random_state` 也不能
+控制这些构造抽样。相同设置下的 `KnockoffSelector` 也受影响，且这与下文
+Lasso 缓存问题不同。Fixed-X 构造不受这一特定种子问题影响。
+
+需要可重复的原生 model-X 构造时，可使用 `backend="numpy"`；也可提供有效的
+外部 `Xk`，并另行验证所选统计量的可重复性。提供矩阵只会跳过构造，不能免除
+统计假设、阈值及 Lasso 缓存限制。结果中记录了 `random_state`，不代表构造
+实际使用了该种子。
+
 ## 重复计算 Lasso 统计量
 
 使用 `method="lasso_coef_diff"` 且 `random_state` 为整数时，原地修改 X、y
@@ -247,7 +262,7 @@ res_torch_mx = knockoff_filter(
 - **哪些输入会直接报错？**  
   `q <= 0` 或 `q >= 1`、`X` 非二维、`y` 长度与 `X` 不一致、`Xk` 形状不匹配会报错。但当前 `q=np.nan` 会漏过检查并产生无效空选择；调用前必须自行检查 q 有限且在 `(0,1)` 内。
 - **`knockpy_sampler` 可以直接用吗？**  
-  当前显式传入会触发 `NotImplementedError`（占位保护）；不传时走稳定路径。
+  只有 `compat_mode="knockpy"` 的 model-X 自动构造会使用该参数；目前的采样器尚未实现，会抛出 `NotImplementedError`。默认 `statgpu` 模式、fixed-X 或已经提供 `Xk` 时忽略该参数，并不执行请求的采样器。
 - **`fixed_x` 的主要约束是什么？**  
   通常要求样本规模与矩阵秩满足构造条件（常见约束为 `n >= 2p`）。这些条件不能保证中心化配对几何有效，也不能替代高斯线性响应假设。
 

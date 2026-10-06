@@ -4,7 +4,7 @@
 > 最后更新：2026-10-06  
 > 切换：[English](../../en/reference/linear-model-api.md)
 
-本页各类可从 `statgpu` 或 `statgpu.linear_model` 导入。`X` 为有限数值 `(n,p)` 矩阵，预测列顺序与训练一致。分析权重为有限非负 `(n,)` 向量，总和须为正。公式删行后的权重对齐见[公式输入](#formula-inputs)。显式 GPU 请求要求对应 CUDA 后端可用，详见[设备与内存](../guides/device-and-memory.md)。
+本页各类可从 `statgpu` 或 `statgpu.linear_model` 导入，但 `SCADRegression` 和 `MCPRegression` 仅由 `statgpu.linear_model` 导出。`X` 为有限数值 `(n,p)` 矩阵，预测列顺序与训练一致。分析权重为有限非负 `(n,)` 向量，总和须为正。公式删行后的权重对齐见[公式输入](#formula-inputs)。显式 GPU 请求要求对应 CUDA 后端可用，详见[设备与内存](../guides/device-and-memory.md)。
 
 这些类均继承 [get_params/set_params 和四个推断辅助方法](estimator-api.md)。通用辅助方法可以接收显式数据/p 值；类上有这些方法，不代表 CV 包装对象本身一定保存系数推断数组。CV 的推断结果应从 `estimator_` 读取。
 
@@ -263,7 +263,7 @@ LogisticRegressionCV(Cs=None, n_Cs=100, C_min_ratio=0.001, cv=5, cv_splits=None,
 <a id="cv-methods-and-results"></a>
 
 ## 交叉验证方法与结果
-两类均提供 `fit(X,y,sample_weight=None) -> self`、`predict(X)`、`score(X,y)` 及继承的 `summary()`。fit 使用数组/设计矩阵，不接受 `formula`/`data`。`score` 分别为不加权留出 R² 与准确率，**不是**选择时的 CV 损失。ElasticNetCV.predict 通过最终模型的默认行为返回 NumPy；LogisticRegressionCV 另有 `predict_proba(X) -> (m,2)`，使用最终模型后端。其他分类评价方法从 `estimator_` 调用。
+`ElasticNetCV` 与 `LogisticRegressionCV` 均提供 `fit(X,y,sample_weight=None) -> self`、`predict(X)`、`score(X,y)` 及继承的 `summary()`。fit 使用数组/设计矩阵，不接受 `formula`/`data`。`score` 分别为不加权留出 R² 与准确率，**不是**选择时的 CV 损失。ElasticNetCV.predict 通过最终模型的默认行为返回 NumPy；LogisticRegressionCV 另有 `predict_proba(X) -> (m,2)`，使用最终模型后端。其他分类评价方法从 `estimator_` 调用。
 
 自动划分为随机 K 折，不自动分层，也不识别分组/时间结构。此类数据请传入可复用的索引对列表。每组应使用一维整数索引，训练/验证集合均非空、互不重叠，且各自没有重复行。当前共享划分器会转成整数、展平数组并跳过空划分，但不会拒绝重叠或重复索引；无效划分可能把验证行泄漏进训练集。折内权重同时影响训练与验证损失，相关划分的权重总和须为正。预处理只能在每个训练折内学习；这些包装类不接收预处理流水线或评分函数。需要折内标准化时，用外部 CV 循环/流水线，不要先对全部数据标准化再执行内部 CV。
 
@@ -332,9 +332,9 @@ assert np.isclose(logit.best_score_, -np.nanmin(logit.mean_loss_))
 <a id="formula-inputs"></a>
 
 ## 公式输入
-本页 LinearRegression、直接 Lasso 与直接 ElasticNet 支持公式。三者均应只传 `formula`/`data`，不要同时传数组 X/y；当前公式解析会直接覆盖这些数组而不报告冲突。需要可选 pandas/patsy 依赖。`formula="y ~ x + C(group)"` 描述数值/分类项；`~ 0 + ...` 去掉截距，不受构造参数覆盖。交互项与转换遵循 Patsy 语法。公式拟合可能删除相关项缺失的行。权重可对应原始全部行或恰好保留的行，按位置对齐，不按任意 Series 标签对齐。
+本页 LinearRegression、直接 Lasso、ElasticNet、Ridge、SCADRegression 与 MCPRegression 支持公式。这些类均应只传 `formula`/`data`，不要同时传数组 X/y；当前公式解析会直接覆盖这些数组而不报告冲突。需要可选 pandas/patsy 依赖。`formula="y ~ x + C(group)"` 描述数值/分类项；`~ 0 + ...` 去掉截距，不受构造参数覆盖。交互项与转换遵循 Patsy 语法。公式拟合可能删除相关项缺失的行。权重可对应原始全部行或恰好保留的行，按位置对齐，不按任意 Series 标签对齐。
 
-预测 DataFrame 会重建设计矩阵与原有分类水平。未知水平或导致预测删行的缺失值会报错；数组预测则须传入按训练顺序编码好的非截距列。转换与水平定义须保持一致。LogisticRegression 及两个 CV 包装类没有公式参数，应先构建设计矩阵并防止预处理泄漏。
+预测 DataFrame 会重建设计矩阵与原有分类水平。未知水平或导致预测删行的缺失值会报错；数组预测则须传入按训练顺序编码好的非截距列。转换与水平定义须保持一致。LogisticRegression、ElasticNetCV、LogisticRegressionCV、RidgeCV 与 LassoCV 没有公式参数，应先构建设计矩阵并防止预处理泄漏。
 
 <!-- api-example: formula-models -->
 ```python
@@ -474,3 +474,238 @@ PenalizedGLM_CV(loss='squared_error', penalty='l2', alpha_grid=None, n_alphas=10
 设候选数为 a、折数为 f：`alpha_grid_` 与 `cv_results_["alpha"]` 为 `(a,)`，`mean_score` 为 `(a,)`，`all_scores` 为 `(f,a)`。这些 score 数组存储损失，越小越好。其他键为 `device_sizing_fold_count`、`cv_strategy_`、`cv_selected_device_`、`mean_score_stage1`、`all_scores_stage1`、`refined_mask`。严格模式的第一阶段数组为 None；布尔细化掩码为 `(a,)`。`coef_`、`intercept_` 与 `estimator_` 对应最终全数据拟合。`cv_strategy_` 和 `cv_selected_device_` 也作为属性提供。
 
 当前 `summary(*args,**kwargs)` 在通用最终重拟合推断成功后仍会抛出 AttributeError，因为它委托的估计器没有 summary 方法；未启用推断时则抛出 RuntimeError。可用 `estimator_._inference_result.to_dict()`，或安装 pandas 后用 `to_dataframe()` 读取受支持的推断。报告渲染失败本身不会改变拟合系数。可运行的结果示例见 [GLM 页面](../models/generalized-linear-model.md#reading-cv-inference-results)。共享配置、p 值及重采样方法同样适用；`get_params` 会将一次性自定义划分保存为可复用形式。
+
+
+## Ridge
+
+```text
+Ridge(alpha=1.0, fit_intercept=True, device='auto', n_jobs=None, gpu_memory_cleanup=False, compute_inference=True, cov_type='nonrobust', hac_maxlags=None, max_iter=1000, tol=0.0001, solver='exact', cpu_solver='fista', lipschitz_L=None)
+```
+
+每个构造参数及含义均列于[完整 Ridge 参数表](../models/ridge.md#参数)。
+此封装类只接受单一响应。默认 `solver="exact"` 拟合 L2 回归；
+`compute_inference=True` 启用受支持的高斯协方差推断。
+CPU 闭式优化路径存在已说明的[大偏移限制](../models/ridge.md#large-feature-offsets)。
+
+| 方法 | 参数、默认值与返回值 |
+|---|---|
+| `fit(X=None,y=None,sample_weight=None,formula=None,data=None)` | 返回 self。使用有限 X `(n,p)` 和一维 y `(n,)`，或 formula/data。可选分析权重 `(n,)` 须有限、非负且总和为正。公式语法决定截距。不要同时提供数组与公式：当前公式会直接替换数组，不会拒绝冲突。删行对齐及预测 DataFrame 见[公式输入](#formula-inputs)。 |
+| `predict(X,return_cpu=True)` | 对 X `(m,p)` 或公式预测 DataFrame 返回 `(m,)`。默认返回 NumPy，包括 GPU 拟合后；False 保留拟合使用的数值后端。 |
+| `score(X,y,sample_weight=None)` | 返回 Python 浮点 R²。响应应为一维；响应和权重使用主机/NumPy 数组。评估权重独立于训练权重；当前共享校验不完整，应自行确认权重有限、非负、长度为 m 且总和为正。 |
+| `summary()` | 打印系数/推断表并返回 None；关闭或无法计算推断时抛出 RuntimeError。 |
+| `get_params(deep=True)`、`set_params(**params)` | 返回配置字典，或更新配置并返回 self。非空有效更新会清除已拟合状态，之后须重新拟合。 |
+| `adjust_pvalues`、`combine_pvalues`、`bootstrap_statistic`、`permutation_test` | 全部参数、默认值与返回值见[共享估计器参考](estimator-api.md#inference-helpers)。这些方法不会自动重拟合本模型或重复选择、调参。 |
+
+`coef_` 是 NumPy `(p,)` 数组，`intercept_` 为标量（不拟合截距时为零），
+`n_iter_` 是迭代次数，不证明全局最优。
+成功推断时，`_params`、`_bse`、`_tvalues`、`_pvalues` 形状为 `(k,)`，
+`_conf_int` 为 `(k,2)`；拟合截距时 k=p+1，否则 k=p。截距位于首位。
+`_inference_result` 记录方法、参考分布与结果元数据。非稳健推断使用 Student-t，
+HC/HAC 使用正态参考。缺少所需推断状态时，诊断属性 `rsquared`、`rsquared_adj`、
+`fvalue`、`f_pvalue`、`llf`、`aic`、`bic` 可以为 None。这些代入式诊断不是通用的
+有效自由度或调参校正准则；稳健协方差也不会把 F 变为稳健 Wald 检验。
+
+
+## SCADRegression
+
+```text
+SCADRegression(alpha=1.0, a=3.7, fit_intercept=True, max_iter=1000, tol=0.0001, device='auto', compute_inference=False, solver='auto', gpu_memory_cleanup=False)
+```
+
+每个构造参数及含义均列于[完整 SCADRegression 参数表](../models/scad.md#参数)。
+应使用 `from statgpu.linear_model import SCADRegression`；顶层 `statgpu`
+不导出该类。`alpha` 必须为有限正数，`a`
+必须有限且大于 2。请保持 `compute_inference=False`：
+此封装类不暴露 `inference_method`，开启推断后拟合会报错。
+显式推断应使用[模型页](../models/scad.md#推断)介绍的通用带惩罚线性接口。
+
+| 方法 | 参数、默认值与返回值 |
+|---|---|
+| `fit(X=None,y=None,sample_weight=None,formula=None,data=None)` | 返回 self。使用有限 X `(n,p)` 和一维 y `(n,)`，或 formula/data。可选分析权重 `(n,)` 须有限、非负且总和为正。公式语法决定截距。不要同时提供数组与公式：当前公式会直接替换数组，不会拒绝冲突。删行对齐及预测 DataFrame 见[公式输入](#formula-inputs)。 |
+| `predict(X,return_cpu=True)` | 对 X `(m,p)` 或公式预测 DataFrame 返回 `(m,)`。默认返回 NumPy，包括 GPU 拟合后；False 保留拟合使用的数值后端。 |
+| `score(X,y,sample_weight=None)` | 返回 Python 浮点 R²。响应应为一维；响应和权重使用主机/NumPy 数组。评估权重独立于训练权重；当前共享校验不完整，应自行确认权重有限、非负、长度为 m 且总和为正。 |
+| `summary()` | 打印系数/推断表并返回 None；关闭或无法计算推断时抛出 RuntimeError。 |
+| `get_params(deep=True)`、`set_params(**params)` | 返回配置字典，或更新配置并返回 self。非空有效更新会清除已拟合状态，之后须重新拟合。 |
+| `adjust_pvalues`、`combine_pvalues`、`bootstrap_statistic`、`permutation_test` | 全部参数、默认值与返回值见[共享估计器参考](estimator-api.md#inference-helpers)。这些方法不会自动重拟合本模型或重复选择、调参。 |
+
+`coef_` 是 NumPy `(p,)` 数组，`intercept_` 为标量（不拟合截距时为零），
+`n_iter_` 是迭代次数，不证明全局最优。
+关闭推断时，`_bse`、`_tvalues`、`_pvalues`、`_conf_int` 与继承的诊断属性
+`rsquared`、`rsquared_adj`、`fvalue`、`f_pvalue`、`llf`、`aic`、`bic`
+不可用，通常为 None。请用 `score` 或显式留出预测损失评估模型。
+不要仅为使用 `summary()` 而开启推断：专用构造函数无法选择受支持的推断方法。
+
+
+## MCPRegression
+
+```text
+MCPRegression(alpha=1.0, gamma=3.0, fit_intercept=True, max_iter=1000, tol=0.0001, device='auto', compute_inference=False, solver='auto', gpu_memory_cleanup=False)
+```
+
+每个构造参数及含义均列于[完整 MCPRegression 参数表](../models/mcp.md#参数)。
+应使用 `from statgpu.linear_model import MCPRegression`；顶层 `statgpu`
+不导出该类。`alpha` 必须为有限正数，`gamma`
+必须有限且大于 1。请保持 `compute_inference=False`：
+此封装类不暴露 `inference_method`，开启推断后拟合会报错。
+显式推断应使用[模型页](../models/mcp.md#推断)介绍的通用带惩罚线性接口。
+
+| 方法 | 参数、默认值与返回值 |
+|---|---|
+| `fit(X=None,y=None,sample_weight=None,formula=None,data=None)` | 返回 self。使用有限 X `(n,p)` 和一维 y `(n,)`，或 formula/data。可选分析权重 `(n,)` 须有限、非负且总和为正。公式语法决定截距。不要同时提供数组与公式：当前公式会直接替换数组，不会拒绝冲突。删行对齐及预测 DataFrame 见[公式输入](#formula-inputs)。 |
+| `predict(X,return_cpu=True)` | 对 X `(m,p)` 或公式预测 DataFrame 返回 `(m,)`。默认返回 NumPy，包括 GPU 拟合后；False 保留拟合使用的数值后端。 |
+| `score(X,y,sample_weight=None)` | 返回 Python 浮点 R²。响应应为一维；响应和权重使用主机/NumPy 数组。评估权重独立于训练权重；当前共享校验不完整，应自行确认权重有限、非负、长度为 m 且总和为正。 |
+| `summary()` | 打印系数/推断表并返回 None；关闭或无法计算推断时抛出 RuntimeError。 |
+| `get_params(deep=True)`、`set_params(**params)` | 返回配置字典，或更新配置并返回 self。非空有效更新会清除已拟合状态，之后须重新拟合。 |
+| `adjust_pvalues`、`combine_pvalues`、`bootstrap_statistic`、`permutation_test` | 全部参数、默认值与返回值见[共享估计器参考](estimator-api.md#inference-helpers)。这些方法不会自动重拟合本模型或重复选择、调参。 |
+
+`coef_` 是 NumPy `(p,)` 数组，`intercept_` 为标量（不拟合截距时为零），
+`n_iter_` 是迭代次数，不证明全局最优。
+关闭推断时，`_bse`、`_tvalues`、`_pvalues`、`_conf_int` 与继承的诊断属性
+`rsquared`、`rsquared_adj`、`fvalue`、`f_pvalue`、`llf`、`aic`、`bic`
+不可用，通常为 None。请用 `score` 或显式留出预测损失评估模型。
+不要仅为使用 `summary()` 而开启推断：专用构造函数无法选择受支持的推断方法。
+
+
+## RidgeCV
+
+```text
+RidgeCV(alphas=None, n_alphas=100, alpha_min_ratio=0.001, cv=5, cv_splits=None, fit_intercept=True, device='auto', n_jobs=None, compute_inference=True, cov_type='nonrobust', gpu_memory_cleanup=False, random_state=None, gpu_cv_mixed_precision=True)
+```
+
+| 参数 | 默认值 | 含义 |
+|---|---|---|
+| `alphas` | `None` | 显式有限正数候选项；省略时生成数据相关网格。非法或非正项会被过滤；没有剩余候选项时自动生成网格。 |
+| `n_alphas` | `100` | 省略 alphas 时的自动网格大小。 |
+| `alpha_min_ratio` | `0.001` | 自动网格最小/最大值比例；应选正数，通常不大于 1。 |
+| `cv` | `5` | 自动生成的随机打乱 K 折数量，至少为 2。 |
+| `cv_splits` | `None` | 显式、可重复使用的训练/验证索引对列表；应自行确认索引为非空、不相交的整数子集。RidgeCV 另有下文所述的自定义训练子集限制。 |
+| `fit_intercept` | `True` | 在验证折和最终重拟合中拟合截距。 |
+| `device` | `'auto'` | cpu、cuda（CuPy）、torch（Torch CUDA）、auto；显式 GPU 请求不可用时会报错。 |
+| `n_jobs` | `None` | 共享工作线程配置；不保证候选项并行拟合。 |
+| `compute_inference` | `True` | 只在最终全数据重拟合中计算受支持的推断，以已选 alpha 为条件。 |
+| `cov_type` | `'nonrobust'` | 最终 Ridge 的协方差：nonrobust、hc0、hc1、hc2、hc3、hac。不接受 hac_maxlags 构造参数；HAC 使用自动规则。 |
+| `gpu_memory_cleanup` | `False` | 请求在最终拟合后尽力清理可回收 GPU 缓存。 |
+| `random_state` | `None` | 生成验证折的随机种子，不控制残差自助法。 |
+| `gpu_cv_mixed_precision` | `True` | 在 GPU 交叉验证中启用混合精度；最终推断使用其自身数值路径。 |
+
+`fit(X,y,sample_weight=None)` 返回 self，接受有限 X `(n,p)`、一维 y `(n,)`
+和可选分析权重 `(n,)`，不提供公式接口。`predict(X)` 经最终估计器返回
+NumPy `(m,)`。`score(X,y)` 返回不加权 R²，不接受权重参数；如需独立校验后的
+评估权重，请用 `estimator_.score(X,y,sample_weight=...)`。
+`summary()` 打印最终估计器的报告并返回 None，要求最终推断成功。
+共享的 `get_params(deep=True)`、`set_params(**params)`、`adjust_pvalues`、
+`combine_pvalues`、`bootstrap_statistic` 和 `permutation_test` 见[估计器参考](estimator-api.md)。
+
+`alpha_` 按平均验证 MSE 的最小值选择，`best_score_` 是该值的**相反数**，
+不是正损失或最终模型 R²。a 个 alpha、f 折时，`alphas_`/`mean_mse_` 为 `(a,)`，
+`cv_results_` 只含 `(a,f)` 的 `mse_path`，没有 `cv_results_["mean_mse"]`。
+`coef_` `(p,)`、标量 `intercept_`、`n_iter_` 和 `estimator_` 描述全数据重拟合。
+推断应从 `estimator_` 读取，以已选 alpha 为条件，不校正调参不确定性。
+`cv_selected_device_` 记录最终设备。RidgeCV 不公开 solver、max_iter 或 tol 控制；
+最终估计器采用 Ridge 的闭式路径。解释最终拟合时也应注意
+[大偏移限制](../models/ridge.md#large-feature-offsets)。
+
+自动生成的验证折是随机打乱的 K 折，不自动按组、分层或时间设计。
+指定设计应使用可重复的索引对列表，并在拟合前自行校验；请求被接受不代表
+完整校验。各相关加权折都需要正的权重总量。学习式预处理应在各训练折内拟合，
+必要时使用外部交叉验证循环。实际调参比较应至少有四行、两个候选项和两个折；
+小样本或单候选路径可能只重拟合，损失和 best_score_ 为 NaN。
+所选网格仍可能遗漏有用的惩罚范围。
+
+<a id="custom-ridgecv-training-subsets"></a>
+
+### RidgeCV 自定义训练子集限制
+
+未提供样本权重且各验证集恰好覆盖每一行一次时，RidgeCV 当前会用每个验证集
+的完整补集替换所给训练索引。因此，即使较小的训练子集合法且与验证集不相交，
+也不会被忠实采用；验证损失和 alpha 选择可能改变。不要在此路径中使用刻意
+排除或设置间隔的训练行。应改用外部循环，精确地在每个训练子集上拟合 Ridge，
+再在对应验证行上评估。普通完整 K 折本来就使用互补训练集，不受这种替换影响。
+
+
+## LassoCV
+
+```text
+LassoCV(alphas=None, n_alphas=12, alpha_min_ratio=0.001, cv=5, cv_splits=None, fit_intercept=True, device='auto', n_jobs=None, compute_inference=False, max_iter=3000, tol=0.0001, stopping='coef_delta', solver='fista', cpu_solver=None, method='standard', cd_kkt_check_every=None, inference_method='post_selection_ols', lipschitz_L=None, admm_rho=1.0, gpu_memory_cleanup=False, random_state=None, gpu_cv_mixed_precision=True, cv_solver='auto', *, nodewise_alpha=None)
+```
+
+| 参数 | 默认值 | 含义 |
+|---|---|---|
+| `alphas` | `None` | 显式有限正数候选项；省略时生成数据相关网格。非法或非正项会被过滤；没有剩余候选项时自动生成网格。 |
+| `n_alphas` | `12` | 省略 alphas 时的自动网格大小。 |
+| `alpha_min_ratio` | `0.001` | 自动网格最小/最大值比例；应选正数，通常不大于 1。 |
+| `cv` | `5` | 自动生成的随机打乱 K 折数量，至少为 2。 |
+| `cv_splits` | `None` | 显式、可重复使用的训练/验证索引对列表；应自行确认索引为非空、不相交的整数子集。 |
+| `fit_intercept` | `True` | 在验证折和最终重拟合中拟合截距。 |
+| `device` | `'auto'` | cpu、cuda（CuPy）、torch（Torch CUDA）、auto；显式 GPU 请求不可用时会报错。 |
+| `n_jobs` | `None` | 共享工作线程配置；不保证候选项并行拟合。 |
+| `compute_inference` | `False` | 只在最终全数据重拟合中计算受支持的推断，以已选 alpha 为条件。 |
+| `max_iter` | `3000` | 验证折求解和最终直接拟合的迭代预算。 |
+| `tol` | `0.0001` | 验证折求解与最终拟合的收敛容差。 |
+| `stopping` | `'coef_delta'` | 只传给最终重拟合；当前直接 Gaussian 拟合不采用 kkt 请求，也不借此选择验证路径的停止条件。 |
+| `solver` | `'fista'` | 最终全数据 Lasso 的求解器，不选择验证折求解器。 |
+| `cpu_solver` | `None` | 已弃用的 CPU 验证求解器别名，请用 cv_solver；CPU 显式冲突会报错。GPU 上发出警告但不替换 FISTA。 |
+| `method` | `'standard'` | standard 或 glmnet 验证路径模式。CPU 上 glmnet 要求坐标下降；GPU 验证仍使用 FISTA。它不是推断方法。 |
+| `cd_kkt_check_every` | `None` | CPU 验证坐标下降的 KKT 检查间隔，须为正整数。None 在 standard 下为 1，在 glmnet 下为 4；不证明最终重拟合满足 KKT。 |
+| `inference_method` | `'post_selection_ols'` | 最终重拟合的 post_selection_ols、debiased、bootstrap 或受支持的 auto 请求；适用性见 Lasso 推断说明。弃用别名会被规范化。 |
+| `lipschitz_L` | `None` | 适用最终重拟合的可选 Lipschitz 上界，不控制验证路径。 |
+| `admm_rho` | `1.0` | 传给最终 Lasso；当前统一 ADMM 忽略此项，并从 rho=1.0 开始。 |
+| `gpu_memory_cleanup` | `False` | 请求在最终拟合后尽力清理可回收 GPU 缓存。 |
+| `random_state` | `None` | 生成验证折的随机种子，不控制残差自助法。 |
+| `gpu_cv_mixed_precision` | `True` | 在 GPU 交叉验证中启用混合精度；最终推断使用其自身数值路径。 |
+| `cv_solver` | `'auto'` | 验证阶段使用 auto、coordinate_descent 或 fista。auto 在 CPU 使用坐标下降，在 GPU 使用 FISTA；显式坐标下降仅支持 CPU。 |
+| `nodewise_alpha` | `None` | 仅限关键字的最终去偏精度矩阵调参；不改变网格、验证损失或所选 alpha。 |
+
+`fit(X,y,sample_weight=None)` 返回 self，接受有限 X `(n,p)`、一维 y `(n,)`
+和可选分析权重 `(n,)`，不提供公式接口。`predict(X)` 经最终估计器返回
+NumPy `(m,)`。`score(X,y)` 返回不加权 R²，不接受权重参数；如需独立校验后的
+评估权重，请用 `estimator_.score(X,y,sample_weight=...)`。
+`summary()` 打印最终估计器的报告并返回 None，要求最终推断成功。
+共享的 `get_params(deep=True)`、`set_params(**params)`、`adjust_pvalues`、
+`combine_pvalues`、`bootstrap_statistic` 和 `permutation_test` 见[估计器参考](estimator-api.md)。
+
+`alpha_` 按平均验证 MSE 的最小值选择，`best_score_` 是该值的**相反数**，
+不是正损失或最终模型 R²。a 个 alpha、f 折时，`alphas_`/`mean_mse_` 为 `(a,)`，
+`cv_results_` 只含 `(a,f)` 的 `mse_path`，没有 `cv_results_["mean_mse"]`。
+`coef_` `(p,)`、标量 `intercept_`、`n_iter_` 和 `estimator_` 描述全数据重拟合。
+推断应从 `estimator_` 读取，以已选 alpha 为条件，不校正调参不确定性。
+`mse_path_` 也暴露 `(a,f)` 损失数组；`cv_solver_` 记录实际验证算法，
+`solver` 只控制最终 Lasso。`nodewise_alpha_` 在适用时暴露最终精度矩阵调参。
+源码静态签名可能不含安装后的关键字参数 `nodewise_alpha`；上面的构造器反映
+实际公开 API。LassoCV 不暴露直接 Lasso 的同时推断或残差自助法次数/种子构造参数。
+
+自动生成的验证折是随机打乱的 K 折，不自动按组、分层或时间设计。
+指定设计应使用可重复的索引对列表，并在拟合前自行校验；请求被接受不代表
+完整校验。各相关加权折都需要正的权重总量。学习式预处理应在各训练折内拟合，
+必要时使用外部交叉验证循环。实际调参比较应至少有四行、两个候选项和两个折；
+小样本或单候选路径可能只重拟合，损失和 best_score_ 为 NaN。
+所选网格仍可能遗漏有用的惩罚范围。
+
+
+<a id="ridgecv-and-lassocv-cpu-example"></a>
+
+## RidgeCV 与 LassoCV 的 CPU 示例
+
+<!-- api-example: ridge-lasso-cv -->
+```python
+import numpy as np
+from statgpu import LassoCV, RidgeCV
+
+rng = np.random.default_rng(64)
+X = rng.normal(size=(160, 5))
+y = 1.5 + 2 * X[:, 0] - X[:, 1] + rng.normal(scale=0.4, size=160)
+models = {}
+for cls in (LassoCV, RidgeCV):
+    model = cls(
+        alphas=[0.03, 0.1, 0.3], cv=3, random_state=7,
+        device="cpu", compute_inference=False,
+    ).fit(X[:120], y[:120])
+    models[cls.__name__] = model
+    assert set(model.cv_results_) == {"mse_path"}
+    assert model.cv_results_["mse_path"].shape == (3, 3)
+    assert np.isclose(model.best_score_, -np.min(model.mean_mse_))
+    print(cls.__name__, model.alpha_, round(model.score(X[120:], y[120:]), 3))
+```
+
+该数据下两者均选择 alpha=0.03；LassoCV 的留出集 R² 约为 0.965，
+RidgeCV 约为 0.966。没有从留出行学习预处理。

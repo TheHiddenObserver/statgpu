@@ -7,11 +7,45 @@
 
 ## 概览
 
-`Ridge` 在普通最小二乘基础上加入 L2 正则化，用于缓解多重共线性、稳定系数估计，并保留与 `LinearRegression` 对齐的推断接口，包括 `nonrobust`、`hc0`、`hc1`、`hc2`、`hc3` 和 `hac` 协方差选项。
+`Ridge` 在普通最小二乘基础上加入 L2 正则化，用于缓解多重共线性、稳定系数估计，用于单一连续响应。它提供系数推断，包括 `nonrobust`、`hc0`、`hc1`、`hc2`、`hc3` 和 `hac` 协方差选项。
 
 正 alpha 下的区间围绕惩罚拟合计算，不会自动消除收缩偏差，也不校正选择 alpha 的不确定性。
 
 公开路径：`statgpu.linear_model.Ridge`
+
+Ridge 不以产生精确的零斜率为目标；需要稀疏性时可考虑 [Lasso](lasso.md)。
+当较多弱信号或相关特征可能有助于预测时，Ridge 很实用；若低维问题适合
+无惩罚模型，可先使用[线性回归](linear-regression.md)。收缩和小 p 值都不证明因果关系。
+
+## 完整 CPU 示例
+
+示例使用尺度相近的特征、示意性的固定 alpha 和分析权重；拟合前留出最后 40 行。
+
+<!-- learner-example: ridge-weighted-prediction -->
+```python
+import numpy as np
+from statgpu.linear_model import Ridge
+
+rng = np.random.default_rng(64)
+X = rng.normal(size=(160, 5))
+y = 1.5 + 2 * X[:, 0] - X[:, 1] + rng.normal(scale=0.4, size=160)
+weights = np.linspace(0.5, 2.0, 120)
+model = Ridge(
+    alpha=0.1, device="cpu", cov_type="hc3", compute_inference=True,
+).fit(X[:120], y[:120], sample_weight=weights)
+prediction = model.predict(X[120:])
+print("Slopes:", np.round(model.coef_, 3))
+print("Test R2:", round(model.score(X[120:], y[120:]), 3))
+print("Interval shape:", model._conf_int.shape)
+```
+
+斜率约为 `[1.821, -0.916, 0.017, -0.010, -0.020]`，留出集 R² 约为 `0.957`。
+预测形状为 `(40,)`；六行区间依次对应截距和五个斜率。HC3 改变协方差，不改变
+Ridge 预测拟合。这里是系数区间，不是未来响应区间，也未校正收缩或调参不确定性。
+训练权重不会自动用于测试评分；该示例计算普通、不加权的 R²。
+
+应在训练数据内验证 alpha，并保留独立测试集。Ridge 按所用单位惩罚系数，
+所以特征缩放应在各训练折内学习。示例的显式 alpha 并不适用于所有问题。
 
 ## 目标函数
 
@@ -37,12 +71,14 @@ $$
 
 ## 估计方程
 
-使用普通均值或加权均值对数据中心化后，一阶条件为：
+拟合截距时，使用普通均值或加权均值对数据中心化后，一阶条件为：
 
 $$
 \left(X_c^\top W X_c + \alpha\,s_w I\right)\hat\beta
 = X_c^\top W y_c,
 $$
+
+`fit_intercept=False` 时，方程直接使用原始 X 和 y，并固定 b=0。
 
 其中，无权重时 $W=I$、$s_w=n$；加权时 $W=\operatorname{diag}(w)$、$s_w=\sum_iw_i$。
 
@@ -98,10 +134,10 @@ alpha 保持不变。此时截距推断描述该原点处的响应，其区间�
 ## 协方差与推断
 
 - `cov_type="nonrobust"`：经典 Ridge 协方差；
-- `cov_type="hc0"|"hc1"|"hc2"|"hc3"`：sandwich 形式的稳健协方差；
+- `cov_type="hc0"|"hc1"|"hc2"|"hc3"`：夹心形式的稳健协方差；
 - `cov_type="hac"`：Newey–West Bartlett 核协方差，`hac_maxlags` 控制最大滞后阶；
 - `compute_inference=True` 时返回 `_bse`、`_tvalues`、`_pvalues`、`_conf_int`；
-- 加权推断使用加权设计矩阵 `[sqrt(w), sqrt(w) * X]`，因此截距列、残差以及协方差的 bread/meat 与估计阶段采用同一权重约定。
+- 加权推断使用加权设计矩阵 `[sqrt(w), sqrt(w) * X]`，因此截距列、残差以及夹心协方差的外层逆矩阵与中间矩阵 与估计阶段采用同一权重约定。
 
 推断中的 Ridge 正规方程与拟合阶段使用同一个平均损失惩罚尺度：无权重时数值 Ridge 项为 `n * alpha`，加权时为 `sample_weight.sum() * alpha`；截距始终不受惩罚。
 
@@ -116,7 +152,7 @@ alpha 保持不变。此时截距推断描述该原点处的响应，其区间�
 | `alpha` | `1.0` | 平均损失尺度下的 L2 正则化强度 |
 | `fit_intercept` | `True` | 是否拟合截距 |
 | `device` | `"auto"` | `cpu` / `cuda` / `torch` / `auto` |
-| `n_jobs` | `None` | 并行任务数 |
+| `n_jobs` | `None` | 共享工作线程配置；此封装类不保证并行拟合 |
 | `compute_inference` | `True` | 是否计算标准误、t 值、p 值和置信区间 |
 | `cov_type` | `"nonrobust"` | `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac` |
 | `hac_maxlags` | `None` | `cov_type="hac"` 时的最大滞后阶 |
@@ -127,25 +163,19 @@ alpha 保持不变。此时截距推断描述该原点处的响应，其区间�
 | `cpu_solver` | `"fista"` | 已弃用的兼容参数；请用 `solver` 选择算法 |
 | `lipschitz_L` | `None` | 适用迭代求解器的可选光滑梯度 Lipschitz 上界 |
 
-## CPU 与 GPU 示例
+## 可选 GPU 使用
 
-```python
-from statgpu.linear_model import Ridge
+相应后端安装且可用后，可在完整 CPU 示例中改用 `device="cuda"` 请求 CuPy CUDA，
+或 `device="torch"` 请求 Torch CUDA。显式后端不可用时会报错；只有 `auto`
+可以选择其他可用后端。详见[设备与内存](../guides/device-and-memory.md)。
 
-# CPU
-m_cpu = Ridge(alpha=1.0, device="cpu", cov_type="hc3", compute_inference=True)
-m_cpu.fit(X, y, sample_weight=w)
+## API 参考
 
-# CuPy CUDA
-m_gpu = Ridge(
-    alpha=1.0,
-    device="cuda",
-    cov_type="hc3",
-    compute_inference=True,
-    gpu_memory_cleanup=True,
-)
-m_gpu.fit(X, y, sample_weight=w)
-```
+[完整 Ridge 方法参考](../reference/linear-model-api.md#ridge)包括 fit 参数、公式、
+输出位置、加权评分、诊断与继承的辅助方法。上表涵盖全部构造参数。
+Ridge 只接受单一响应，不提供 LinearRegression 的多目标接口。
+即使在 GPU 上拟合，预测也默认返回 NumPy；如需后端原生输出，可使用
+`predict(X, return_cpu=False)`。
 
 ## 精确与近似计算
 
@@ -174,6 +204,13 @@ m_gpu.fit(X, y, sample_weight=w)
 - [设备与 GPU 内存](../guides/device-and-memory.md) — 后端与设备行为
 - [推断模式](../guides/inference-modes.md) — 系数推断方法的解释
 - [求解器算法](../guides/solver-algorithms.md) — exact/FISTA 等数值算法
+
+[RidgeCV 的完整控制参数与结果结构](../reference/linear-model-api.md#ridgecv)
+及[可独立运行的 CPU 调参示例](../reference/linear-model-api.md#ridgecv-and-lassocv-cpu-example)
+见 API 参考。直接模型与交叉验证的构造参数并不相同。
+
+自定义非互补训练子集应先阅读 [RidgeCV 限制](../reference/linear-model-api.md#custom-ridgecv-training-subsets)，
+并使用外部交叉验证循环。
 
 ## 参考文献
 

@@ -318,6 +318,10 @@ print(ci_marginal.shape, ci_simul.shape)
 - [惩罚模型求解器 API 迁移](../guides/penalized-solver-api-migration.md) — `solver` / `cpu_solver` 迁移
 - [设备与 GPU 内存](../guides/device-and-memory.md) — 后端与设备语义
 
+[LassoCV 的完整控制参数与结果结构](../reference/linear-model-api.md#lassocv)
+及[可独立运行的 CPU 调参示例](../reference/linear-model-api.md#ridgecv-and-lassocv-cpu-example)
+见 API 参考。直接模型与交叉验证的构造参数并不相同。
+
 ## 参考文献
 
 - Tibshirani, R. (1996). Regression shrinkage and selection via the lasso. *Journal of the Royal Statistical Society: Series B*, 58(1), 267-288. [https://doi.org/10.1111/j.2517-6161.1996.tb02080.x](https://doi.org/10.1111/j.2517-6161.1996.tb02080.x)

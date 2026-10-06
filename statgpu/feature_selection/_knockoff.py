@@ -451,8 +451,16 @@ def model_x_knockoff_filter(
     empty selection with threshold=inf and estimated_fdr=0.0 (an all-false
     selector support mask). This is not a valid no-discoveries result.
 
-    This implementation estimates a Gaussian feature model and builds
+    The default native path estimates a Gaussian feature model and builds
     equi-correlated knockoffs from the estimated covariance.
+
+    With compat_mode='statgpu' and no supplied Xk, Torch construction currently
+    uses the global Torch RNG rather than random_state. Repeated seeded calls
+    can change W and selection. Use NumPy construction for repeatable draws, or
+    provide valid external Xk and check statistic repeatability separately.
+    This construction-seed limitation does not affect fixed-X. Sampler dispatch
+    is used only with compat_mode='knockpy' and no Xk; elsewhere the sampler
+    controls are ignored, not executed.
 
     Seeded ``lasso_coef_diff`` has the same input-mutation/cache limitation as
     ``fixed_x_knockoff_filter``. Isolate changed-data calls in fresh Python
@@ -781,6 +789,10 @@ def knockoff_filter(
     Seeded ``lasso_coef_diff`` can reuse stale statistics after input mutation
     or memory reuse. See ``fixed_x_knockoff_filter`` and the feature-selection
     API reference for process-isolation and retained-input-copy workarounds.
+
+    Native model-X construction on Torch currently ignores random_state when
+    Xk is omitted and uses the global Torch RNG; repeated seeded calls can
+    differ. See model_x_knockoff_filter for reproducible construction options.
     """
     kind = _normalize_knockoff_type(knockoff_type)
     if kind == "fixed_x":
@@ -865,6 +877,10 @@ class KnockoffSelector(_KnockoffSelectorContract):
     Seeded ``lasso_coef_diff`` can reuse stale statistics across new instances
     after input mutation or memory reuse. See ``fixed_x_knockoff_filter`` and
     the feature-selection API reference for safe repeated-call workflows.
+
+    For native model-X with no supplied Xk, Torch construction currently ignores
+    random_state and uses the global Torch RNG. See model_x_knockoff_filter;
+    this limitation is distinct from seeded Lasso cache reuse.
     """
 
     def __init__(

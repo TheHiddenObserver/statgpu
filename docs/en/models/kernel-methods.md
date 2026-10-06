@@ -149,6 +149,21 @@ The leading eigenvectors define nonlinear components. Transforming new data
 requires computing the test-to-training kernel, applying the training centering
 quantities, and projecting onto the retained components.
 
+### After a failed refit
+
+A rejected KernelPCA refit can overwrite the training centering information
+while keeping the previous eigenvectors and fitted flag. This can happen with
+finite constant data when the centered kernel has no positive directions.
+Subsequent `transform` or `predict` calls can then return finite but incorrect
+coordinates, even for the original training data. Checking output finiteness
+alone does not detect this mixed state.
+
+If `fit` or `fit_transform` raises, discard that instance. Create a new
+KernelPCA and fit suitable data successfully before transforming queries;
+do not continue with its apparently retained earlier fit. A fresh instance
+also rejects the same degenerate data, so recreating the object is not a way
+to make an unsupported zero-rank embedding valid.
+
 ## Nystroem Approximation
 
 Nystroem selects $m$ landmark observations and forms an explicit approximate

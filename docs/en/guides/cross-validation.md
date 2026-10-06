@@ -1,7 +1,7 @@
 # Cross-Validation
 
 > Language: English  
-> Last updated: 2026-09-17  
+> Last updated: 2026-10-06
 > This page: user guide for CV selection and refit behavior  
 > Switch: [Chinese](../../cn/guides/cross-validation.md)
 
@@ -113,7 +113,18 @@ model = PenalizedGLM_CV(
 model.fit(X, y)
 ```
 
-Use custom splits when ordinary randomly shuffled folds are statistically inappropriate, for example with ordered or grouped data. The split itself is part of the statistical design; statgpu does not infer whether a user-supplied split is scientifically appropriate for the application.
+Use custom splits when ordinary shuffled folds do not match the data, such as ordered or grouped observations. Validate each pair as nonempty, disjoint, one-dimensional integer indices without repeated rows. Validation varies by estimator; the shared splitter can cast or flatten indices and skip empty pairs, so acceptance alone does not establish a valid split. Scientific suitability remains the caller's responsibility.
+
+**Current RidgeCV limitation.** Without `sample_weight`, when validation sets
+cover every observation exactly once, RidgeCV can replace a supplied training
+subset with the full complement of its validation set. Deliberately excluded
+rows can re-enter training and change validation scores or the selected alpha.
+Ordinary complete K-fold splits already use those complements; arbitrary custom
+subsets do not. For excluded, gapped or embargoed training rows, use an explicit
+external CV loop that fits only the intended rows, as described in the
+[RidgeCV custom-training reference](../reference/linear-model-api.md#custom-ridgecv-training-subsets).
+A successful fit or finite score does not verify that the intended rows were used.
+
 
 For `PenalizedGLM_CV`, `cv_splits` may also be a one-shot iterator such as a generator. statgpu materializes that iterator privately once and reuses the snapshot for repeated `fit()` calls, scikit-learn cloning, and pickle serialization, while leaving the public `cv_splits` attribute unchanged. Reusable lists and tuples continue to be read directly.
 

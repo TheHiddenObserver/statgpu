@@ -927,67 +927,95 @@ def _compute_intercepts_batch(coefs_batch, X_mean_batch, y_mean_batch, backend, 
 # =============================================================================
 
 class RidgeCV(CVEstimatorBase):
-    """
-    Cross-validated Ridge regression with GPU support.
+    """Cross-validated Ridge regression for one continuous response.
 
-    This class implements K-fold cross-validation to select the optimal
-    regularization parameter alpha for Ridge regression.
+    Select alpha by mean held-out MSE, then refit all supplied training rows.
+    Final inference conditions on selected alpha and does not adjust tuning
+    uncertainty. Generated folds are shuffled K-fold, not time/group-aware.
 
     Parameters
     ----------
-    alphas : array-like or None
-        Alpha values to try. If None, generates n_alphas values.
-    n_alphas : int
-        Number of alpha values (if alphas is None). Default is 100.
-    alpha_min_ratio : float
-        Minimum alpha as a ratio of max alpha.
-    cv : int
-        Number of CV folds. Default is 5.
-    fit_intercept : bool
-        Whether to fit intercept. Default is True.
-    device : str or Device
-        Computation device: 'cpu', 'cuda', or 'auto'.
-    n_jobs : int or None
-        Number of parallel jobs (not yet implemented).
-    compute_inference : bool
-        Whether to compute standard errors, t-stats, p-values and CI.
-    cov_type : str
-        Covariance estimator for inference. One of:
-        'nonrobust', 'hc0', 'hc1', 'hc2', 'hc3', 'hac'.
-    gpu_memory_cleanup : bool
-        Whether to free CuPy memory pool after fitting.
-    random_state : int or None
-        Random seed for CV splits.
-    gpu_cv_mixed_precision : bool
-        Whether to use mixed precision on GPU.
+    alphas : array-like or None, default=None
+        Explicit positive finite candidates; omitted: generate a data-
+        dependent grid. Invalid/nonpositive entries are filtered; an empty
+        surviving grid falls back to automatic generation.
+    n_alphas : int, default=100
+        Automatic grid size when alphas is omitted.
+    alpha_min_ratio : float, default=0.001
+        Minimum/maximum ratio for the automatic grid; choose a positive
+        value normally no greater than 1.
+    cv : int, default=5
+        Generated shuffled K-fold count, at least 2.
+    cv_splits : list or None, default=None
+        Explicit reusable list of (train_indices, validation_indices);
+        validate nonempty disjoint integer subsets yourself. RidgeCV has the
+        custom-training-subset restriction below.
+    fit_intercept : bool, default=True
+        Fit an intercept in CV and final refit.
+    device : str, default='auto'
+        cpu, cuda (CuPy), torch (Torch CUDA), auto; explicit unavailable GPU
+        requests raise.
+    n_jobs : int or None, default=None
+        Shared worker configuration; no candidate-parallelism guarantee.
+    compute_inference : bool, default=True
+        Compute supported inference only on the final full-data refit,
+        conditional on selected alpha.
+    cov_type : str, default='nonrobust'
+        Final Ridge covariance: nonrobust, hc0, hc1, hc2, hc3, hac. There is
+        no hac_maxlags constructor control; HAC uses the automatic rule.
+    gpu_memory_cleanup : bool, default=False
+        Request best-effort GPU cache cleanup for final fitting.
+    random_state : int or None, default=None
+        Seed for generated folds; not residual-bootstrap randomness.
+    gpu_cv_mixed_precision : bool, default=True
+        Enable mixed precision during GPU CV; final-refit inference has its
+        own numerical path.
+
+    Methods
+    -------
+    fit(X, y, sample_weight=None)
+        Fit finite X (n, p), one-dimensional y (n,), optional analytic weights;
+        return self. There is no formula interface.
+    predict(X)
+        Return NumPy predictions of shape (m,) through the final estimator.
+    score(X, y)
+        Return unweighted evaluation R-squared; no sample_weight argument.
+    summary()
+        Print final inference and return None; requires successful inference.
+    get_params(deep=True), set_params(**params)
+        Read/update constructor configuration; valid updates require refitting.
+    adjust_pvalues, combine_pvalues, bootstrap_statistic, permutation_test
+        Inherited helpers; they do not automatically repeat CV or model refits.
 
     Attributes
     ----------
     alpha_ : float
-        Selected alpha value.
-    alphas_ : ndarray
-        All alpha values tested.
+        Selected penalty, minimizing mean validation MSE.
+    alphas_, mean_mse_ : numpy.ndarray of shape (n_alphas,)
+        Actual candidates and their mean validation losses.
     cv_results_ : dict
-        CV results including mse_path and mean_mse.
+        Only mse_path, of shape (n_alphas, n_folds); no mean_mse dictionary key.
     best_score_ : float
-        Best (minimum) MSE across CV folds.
-    coef_ : ndarray
-        Coefficients of the final model.
+        Negative selected mean MSE (larger is better), not final-model R-squared.
+    coef_ : numpy.ndarray of shape (n_features,)
+        Final full-data prediction slopes.
     intercept_ : float
-        Intercept of the final model.
-    estimator_ : Ridge
-        The fitted Ridge estimator with selected alpha.
+        Final intercept, or zero when omitted.
+    n_iter_ : int
+        Final estimator iteration count.
+    estimator_ : object
+        Fitted direct estimator; read its supported inference outputs here.
+    cv_selected_device_ : Device or str
+        Resolved final device.
 
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from statgpu.linear_model import RidgeCV
-    >>> X = np.random.randn(1000, 20)
-    >>> y = X @ np.random.randn(20) + 0.1 * np.random.randn(1000)
-    >>> model = RidgeCV(cv=5, device='cuda')
-    >>> model.fit(X, y)
-    >>> print(f"Selected alpha: {model.alpha_:.4f}")
-    >>> print(f"Best CV score: {model.best_score_:.4f}")
+    Notes
+    -----
+    Without sample weights, if validation sets partition every row once, the
+    current CV fast path replaces supplied training subsets with the validation
+    complements. Use ordinary complementary K-folds or an external CV loop for
+    deliberately reduced training subsets; otherwise losses and alpha selection
+    can be wrong even for valid disjoint index pairs. This constructor does not
+    expose solver/max_iter/tol; the final Ridge fit uses its exact path.
     """
 
     def __init__(

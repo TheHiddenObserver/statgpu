@@ -18,9 +18,9 @@ class SCADRegression(PenalizedLinearRegression):
     Parameters
     ----------
     alpha : float, default=1.0
-        Regularization strength.
+        Finite positive regularization strength for average squared loss.
     a : float, default=3.7
-        Concavity parameter (Fan & Li recommend 3.7).
+        Finite concavity parameter greater than 2 (conventional value 3.7).
     fit_intercept : bool, default=True
         Whether to calculate the intercept.
     max_iter : int, default=1000
@@ -40,6 +40,45 @@ class SCADRegression(PenalizedLinearRegression):
         compatibility guide for supported choices.
     gpu_memory_cleanup : bool, default=False
         Request best-effort release of reclaimable GPU cache memory.
+
+    Methods
+    -------
+    fit(X=None, y=None, sample_weight=None, formula=None, data=None)
+        Fit one response and return self. Analytic weights are finite,
+        nonnegative, have positive total and normalize the average squared loss.
+        Formula syntax controls the unpenalized intercept; supply formula/data
+        instead of simultaneous array arguments.
+    predict(X, return_cpu=True)
+        Return (n_samples,) predictions; NumPy by default even after GPU fits.
+    score(X, y, sample_weight=None)
+        Return evaluation R-squared. Use a flat host response and independently
+        validated evaluation weights; shared weight validation is incomplete.
+    summary()
+        Requires inference and raises for the supported prediction-only wrapper.
+        Use a generic penalized-linear model for an explicit inference request.
+    get_params(deep=True), set_params(**params)
+        Read/update constructor configuration; valid updates require refitting.
+    adjust_pvalues, combine_pvalues, bootstrap_statistic, permutation_test
+        Inherited helpers; they do not automatically repeat fitting or tuning.
+
+    Attributes
+    ----------
+    coef_ : numpy.ndarray of shape (n_features,)
+        Penalized prediction slopes.
+    intercept_ : float
+        Unpenalized intercept, or zero when omitted.
+    n_iter_ : int
+        Iteration count, not a certificate of global optimality.
+
+    Notes
+    -----
+    Import from statgpu.linear_model; top-level statgpu does not export this
+    class. With compute_inference=False, coefficient inference and inherited
+    rsquared, rsquared_adj, fvalue, f_pvalue, llf, aic and bic are unavailable
+    (normally None). Evaluate held-out predictions with score or a chosen loss.
+    The continuation path serves optimization, not cross-validation. Non-convex
+    fitting can return different local solutions; selecting a variable does not
+    establish a causal effect or selection-adjusted significance.
     """
 
     def __init__(

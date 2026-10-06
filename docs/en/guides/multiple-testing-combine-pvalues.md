@@ -29,7 +29,7 @@ combine_pvalues(pvalues, method="fisher", weights=None, axis=None, backend="auto
 
 `adjust_pvalues` and `multipletests` return `(reject, adjusted)`, both with the input shape, including for `axis=None`. `reject` is boolean and `adjusted` is float64. A scalar accepts only `axis=None`. A flattened empty adjustment returns empty arrays; for batch processing use a nonempty family axis.
 
-`combine_pvalues` returns `(statistic, pvalue)`: scalar/zero-dimensional outputs for `axis=None`, otherwise arrays with the chosen axis removed. Empty combination families raise. Outputs are float64 arrays/scalars of the selected backend. Explicit Torch library use may operate on Torch CPU or CUDA tensors; it is not the estimator-level strict-CUDA `device="torch"` request. No physical-GPU behavior is implied by a CPU example.
+`combine_pvalues` returns `(statistic, pvalue)`: scalar/zero-dimensional outputs for `axis=None`, otherwise arrays with the chosen axis removed. Empty combination families raise. Outputs are float64 arrays/scalars of the selected backend. Explicit Torch library use may operate on Torch CPU or CUDA tensors; it is not the estimator-level strict-CUDA `device="torch"` request.
 
 Estimator methods with these names return dictionaries and use a different default adjustment axis; see [shared estimator helpers](../reference/estimator-api.md).
 
