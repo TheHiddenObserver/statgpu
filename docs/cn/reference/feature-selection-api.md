@@ -100,6 +100,9 @@ S 矩阵构造会尝试调用 knockpy 中请求的方法。包缺失或**该调�
 大规模分析时，保留旧数组可能消耗较多内存。内部生成 knockoff 时，
 调用者不保留临时构造数组，因此应优先采用独立进程。
 
+请在新的 Python 进程中开始执行下面的代码块。在旧 notebook 会话中重新运行
+代码，并不会自动保留之前每次运行的输入引用；若旧数组已释放，应先重启进程。
+
 <!-- api-example: knockoff-fresh-inputs -->
 ```python
 import numpy as np

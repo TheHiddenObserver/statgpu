@@ -135,6 +135,29 @@ All other previously registered numerical/API limitations remain outstanding.
 No new runtime issue was established for signed NMF inverse reconstruction or
 the explicitly documented UMAP graph-weight variant.
 
+## Hosted compatibility follow-up
+
+The first published fifth-cycle head `af31040a18e155fed2e7cf92f6876360cf2e44a1`
+exposed two installed-help regressions in the hosted complete suite: the generic
+penalized class no longer retained the precise deprecated cpu_solver semantics
+and its Quantile/ADMM compatibility wording. The runtime installer had relied on
+matching the former source wording. The correction states the actual public
+contract directly in the source docstring, preserving warning/replay behavior
+and solver boundaries without changing the installer or any executable code.
+The bilingual API rows are reconciled. The two existing hosted regression files
+are now materialized and run locally unchanged; their assertions are not relaxed.
+That initial head's failed CI is historical and cannot certify the follow-up.
+
+A changed-order domain run also exposed one intermittent failure while executing
+a seeded knockoff example. The harness used throwaway EN/CN namespaces with
+persistent pointer caches, violating the example's documented requirement to
+retain prior inputs or start a new process. The individual allocator collision
+was not captured in a subsequent instrumented rerun. The test now isolates both
+caches per example, matching the pre-existing third-review fixture; all numeric
+assertions remain active. Bilingual intros explicitly require a fresh process
+when prior input lifetimes are unknown. This is test isolation and clarification
+under existing #211, not a numerical cache fix or a new implementation issue.
+
 ## Validation boundaries
 
 Local runtime checks use Python 3.12.14, NumPy 2.3.5 and SciPy 1.17.0 on CPU.

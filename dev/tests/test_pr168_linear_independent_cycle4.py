@@ -349,7 +349,17 @@ def test_generated_fixedx_should_preserve_gram_after_response_projection(n, p):
 
 @pytest.mark.parametrize('language', ['en', 'cn'])
 @pytest.mark.parametrize('marker', ['api-example: knockoff-fresh-inputs', 'api-example: knockoff-selector'])
-def test_documented_supplied_pairs_have_valid_projected_geometry(language, marker):
+def test_documented_supplied_pairs_have_valid_projected_geometry(language, marker, monkeypatch):
+    from collections import OrderedDict
+
+    from statgpu.feature_selection import _knockoff_utils as utilities
+    from statgpu.linear_model.wrappers import _lasso
+
+    # Each independently executed example starts with the documented fresh-process
+    # precondition. Throwaway EN/CN namespaces must not reuse another example's
+    # pointer-keyed cache after its input references have been released (#211).
+    monkeypatch.setattr(utilities, '_LASSO_DIFF_CACHE', OrderedDict())
+    monkeypatch.setattr(_lasso, '_LASSO_CV_ALPHA_CACHE', OrderedDict())
     ns = _marked(_page(language, 'reference', 'feature-selection-api'), marker)
     X, Xk = ns['X'], ns['Xk']
     n, p = X.shape

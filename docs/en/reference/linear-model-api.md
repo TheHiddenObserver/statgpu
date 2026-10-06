@@ -402,7 +402,7 @@ PenalizedGeneralizedLinearModel(loss='squared_error', penalty='l1', alpha=1.0, l
 
 | Parameter | Default | Meaning and restrictions |
 |---|---|---|
-| `loss` | `'squared_error'` | GLM loss name, e.g. squared_error, logistic, poisson, gamma, inverse_gaussian, negative_binomial, tweedie; other loss families have separate compatibility limits. |
+| `loss` | `'squared_error'` | Loss names include squared_error, logistic, poisson, gamma, inverse_gaussian, negative_binomial, tweedie and quantile. Consult the [loss reference](../models/losses.md) for other families and their restrictions. |
 | `penalty` | `'l1'` | none, l1, l2, elasticnet, scad, mcp, adaptive_l1, supported group penalties, or a Penalty object. |
 | `alpha` | `1.0` | Penalty strength on the average-loss scale. A supplied Penalty object owns its own configuration. |
 | `l1_ratio` | `0.5` | L1 fraction for elasticnet. |
@@ -412,8 +412,8 @@ PenalizedGeneralizedLinearModel(loss='squared_error', penalty='l1', alpha=1.0, l
 | `tol` | `0.0001` | Numerical tolerance. |
 | `device` | `'auto'` | cpu, cuda, torch, auto; see the backend guide. |
 | `n_jobs` | `None` | Shared CPU-worker setting where used. |
-| `cpu_solver` | `'fista'` | Deprecated compatibility control; use solver. See the solver migration guide. |
-| `solver` | `'auto'` | Backend-neutral solver request; supported choices depend on loss and penalty. |
+| `cpu_solver` | `'fista'` | Deprecated compatibility control; it no longer selects the direct-fit algorithm. Explicit non-None values, including the historical default, emit FutureWarning; omitted/default clone replay does not. Use `solver`; see the [migration guide](../guides/penalized-solver-api-migration.md). |
+| `solver` | `'auto'` | Choices include auto, fista, fista_bb, admm, irls, newton, lbfgs and exact; support depends on the loss and penalty, and unsupported explicit combinations raise. Shared ADMM does not support Quantile; see the [compatibility matrix](../guides/solver-penalty-matrix.md). |
 | `lipschitz_L` | `None` | Optional Lipschitz bound for compatible proximal paths. |
 | `gpu_memory_cleanup` | `False` | Best-effort GPU memory-pool cleanup. |
 | `compute_inference` | `False` | Run supported post-fit inference only when True. |

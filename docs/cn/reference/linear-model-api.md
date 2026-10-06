@@ -401,7 +401,7 @@ PenalizedGeneralizedLinearModel(loss='squared_error', penalty='l1', alpha=1.0, l
 
 | 参数 | 默认值 | 含义与限制 |
 |---|---|---|
-| `loss` | `'squared_error'` | GLM 损失名，如 squared_error、logistic、poisson、gamma、inverse_gaussian、negative_binomial、tweedie；其他损失族需遵循各自兼容性限制。 |
+| `loss` | `'squared_error'` | 损失名包括 squared_error、logistic、poisson、gamma、inverse_gaussian、negative_binomial、tweedie 和 quantile。其他分布族及限制见[损失参考](../models/losses.md)。 |
 | `penalty` | `'l1'` | none、l1、l2、elasticnet、scad、mcp、adaptive_l1、受支持的分组惩罚，或 Penalty 对象。 |
 | `alpha` | `1.0` | 平均损失尺度上的惩罚强度；传入 Penalty 对象时使用该对象自身配置。 |
 | `l1_ratio` | `0.5` | elasticnet 中 L1 部分的比例。 |
@@ -411,8 +411,8 @@ PenalizedGeneralizedLinearModel(loss='squared_error', penalty='l1', alpha=1.0, l
 | `tol` | `0.0001` | 数值容差。 |
 | `device` | `'auto'` | cpu、cuda、torch、auto；详见设备指南。 |
 | `n_jobs` | `None` | 支持时使用的共享 CPU 工作线程设置。 |
-| `cpu_solver` | `'fista'` | 已弃用的兼容参数；改用 solver，详见求解器迁移指南。 |
-| `solver` | `'auto'` | 与后端无关的求解器请求；可用值取决于损失与惩罚组合。 |
+| `cpu_solver` | `'fista'` | 已弃用的兼容参数，不再选择直接拟合算法。显式传入非 None 值（包括历史默认值）会发出 FutureWarning；省略默认值或内部克隆重放不会。应改用 `solver`，详见[迁移指南](../guides/penalized-solver-api-migration.md)。 |
+| `solver` | `'auto'` | 候选值包括 auto、fista、fista_bb、admm、irls、newton、lbfgs 和 exact；支持范围取决于损失与惩罚，不支持的显式组合会报错。共享 ADMM 不支持 Quantile，详见[兼容性矩阵](../guides/solver-penalty-matrix.md)。 |
 | `lipschitz_L` | `None` | 兼容近端路径的可选 Lipschitz 上界。 |
 | `gpu_memory_cleanup` | `False` | 尽力清理 GPU 内存池。 |
 | `compute_inference` | `False` | 为 True 时执行受支持的拟合后推断。 |

@@ -109,6 +109,10 @@ threshold assumptions still apply. This memory-retention workaround can be expen
 large analyses. With internally generated knockoffs, prefer process isolation
 because temporary construction arrays are not retained by the caller.
 
+Start the following block in a fresh Python process. Re-running it in an old
+notebook namespace does not keep references from earlier runs alive; restart
+the process if those arrays have already been released.
+
 <!-- api-example: knockoff-fresh-inputs -->
 ```python
 import numpy as np

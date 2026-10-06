@@ -149,7 +149,10 @@ class PenalizedGeneralizedLinearModel(
     Parameters
     ----------
     loss : str, default='squared_error'
-        GLM loss name, e.g. squared_error, logistic, poisson, gamma, inverse_gaussian, negative_binomial, tweedie; other loss families have separate compatibility limits.
+        Loss names include 'squared_error', 'logistic', 'poisson', 'gamma',
+        'inverse_gaussian', 'negative_binomial', 'tweedie', and 'quantile'.
+        Other loss families and Quantile have separate solver/inference
+        restrictions; consult the loss and solver-penalty references.
     penalty : str or Penalty, default='l1'
         none, l1, l2, elasticnet, scad, mcp, adaptive_l1, supported group penalties, or a Penalty object.
     alpha : float, default=1.0
@@ -168,10 +171,16 @@ class PenalizedGeneralizedLinearModel(
         cpu, cuda, torch, auto; see the backend guide.
     n_jobs : int or None, default=None
         Shared CPU-worker setting where used.
-    cpu_solver : str, default='fista'
-        Deprecated compatibility control; use solver. See the solver migration guide.
+    cpu_solver : str, deprecated
+        Historical compatibility parameter, default='fista'. It no longer selects the direct-fit algorithm;
+        use solver instead. Explicit non-None user-supplied values emit FutureWarning,
+        including the historical default; omitted defaults and internal clone
+        replay do not. See the solver migration guide.
     solver : str, default='auto'
-        Backend-neutral solver request; supported choices depend on loss and penalty.
+        Choices include 'auto', 'fista', 'fista_bb', 'admm', 'irls', 'newton',
+        'lbfgs', and 'exact'. Support depends on the loss and penalty;
+        unsupported explicit combinations raise an error. In particular,
+        the shared ADMM route does not support Quantile loss.
     lipschitz_L : float or None, default=None
         Optional Lipschitz bound for compatible proximal paths.
     gpu_memory_cleanup : bool, default=False
