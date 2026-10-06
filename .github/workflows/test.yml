@@ -189,6 +189,12 @@ jobs:
             dev/tests/test_quantile_continuation_backend_contract.py \
             dev/tests/test_quantile_smooth_fista_contract.py \
             -q --tb=short
+      - name: Run native Torch model-X device and RNG regressions
+        run: |
+          python -m pytest \
+            dev/tests/test_knockoff_torch_device_contract.py \
+            dev/tests/test_pr168_feature_cycle7.py \
+            -q --tb=short
 
   panel-stage-b-linearmodels:
     runs-on: ubuntu-latest
