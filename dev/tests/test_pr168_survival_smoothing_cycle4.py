@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 from scipy.interpolate import BSpline
+from scipy.linalg import null_space
 
 from statgpu.nonparametric import (
     KernelDensityEstimator,
@@ -24,7 +25,6 @@ from statgpu.nonparametric.kernel_methods import KernelPCA, Nystroem
 from statgpu.nonparametric.kernel_smoothing import _kernel_common, _kernel_regression
 from statgpu.nonparametric.splines import (
     SplineTransformer,
-    bspline_basis,
     natural_cubic_spline_basis,
 )
 
@@ -215,19 +215,80 @@ def test_torch_bootstrap_should_accept_equal_weight_samples():
     assert np.isfinite(result.lower).all()
 
 
-def _natural_projection(scale):
-    x = np.linspace(0., scale, 101)
-    knots = np.linspace(.1 * scale, .9 * scale, 5)
-    ordinary = bspline_basis(x, knots, xp=np)
-    natural = natural_cubic_spline_basis(x, knots, xp=np)
+def _natural_projection(scale, dtype=np.float64):
+    x = np.linspace(0., scale, 101, dtype=dtype)
+    knots = np.linspace(.1 * scale, .9 * scale, 5, dtype=dtype)
+    natural = np.asarray(natural_cubic_spline_basis(x, knots, xp=np))
+    # These are ordinary failures, never a reason to forgive issue #224.
+    assert natural.shape == (len(x), len(knots) + 2)
+    assert np.isfinite(natural).all()
+    assert np.linalg.matrix_rank(natural) == natural.shape[1]
+
+    # Use an independent cubic evaluator: a shared production basis regression
+    # must not validate itself through a second call to bspline_basis.
+    augmented = np.r_[np.full(4, x[0]), knots, np.full(4, x[-1])]
+    ordinary = BSpline(augmented, np.eye(len(knots) + 4), 3)(x)
     projection = np.linalg.lstsq(ordinary, natural, rcond=None)[0]
-    assert_allclose(ordinary @ projection, natural, atol=1e-12)
-    augmented = np.r_[np.zeros(4), knots, np.full(4, scale)]
-    return x, natural, BSpline(augmented, projection, 3)
+    assert_allclose(ordinary @ projection, natural, rtol=1e-10,
+                    atol=1e-12 * np.max(np.abs(natural)))
+    # Normalize coefficients so curvature checks cannot be defeated merely by
+    # shrinking the columns; column signs/rotations are not part of the API.
+    orthogonal, _ = np.linalg.qr(projection)
+    return x, natural, BSpline(augmented, orthogonal, 3)
 
 
-def test_unit_range_mitigates_but_does_not_exactly_repair_natural_curvature():
-    x, natural, spline = _natural_projection(1.)
+def _assert_known_natural_subspace(spline, defect):
+    """Recognize the defect signatures of these fixed regression fixtures."""
+    n_basis = len(spline.t) - 4
+    if defect == "constant":
+        # At range 1e6 the absolute 1e-6 stencil suffers cancellation. Its
+        # leftmost coefficient disappears, leaving the -4:1 interior ratio;
+        # the right constraint collapses to the last adjacent difference.
+        # These limiting rows identify the observed defect without repeating
+        # production's floating-point recursion (SciPy rounds it differently).
+        constraints = np.zeros((2, n_basis))
+        constraints[0, 1:3] = [-4., 1.]
+        constraints[1, -2:] = [-1., 1.]
+        # The retained right interior term perturbs its projector by 1.3e-6.
+        # This dimensionless tolerance admits that cancellation residue, not a
+        # different spline space; sign/rotation changes cancel in the projector.
+        atol = 5e-6
+    else:
+        assert defect == "curvature"
+        # On these tiny ranges the stencil is wider than the data and erroneously
+        # rebuilds the basis on [hi - 2h, lo + 2h]. Independently evaluate that
+        # wrong basis with SciPy; do not call either production spline helper.
+        lo, hi = spline.t[0], spline.t[-1]
+        h = 1e-6
+        points = np.array([lo, lo + h, lo + 2*h, hi, hi - h, hi - 2*h])
+        expanded = np.r_[np.full(4, points.min()), spline.t[4:-4],
+                         np.full(4, points.max())]
+        values = BSpline(expanded, np.eye(n_basis), 3)(points)
+        constraints = np.vstack([values[2] - 2*values[1] + values[0],
+                                 values[5] - 2*values[4] + values[3]])
+        atol = 1e-10
+    expected = null_space(constraints)
+    assert expected.shape == spline.c.shape
+    assert_allclose(spline.c @ spline.c.T, expected @ expected.T,
+                    rtol=0., atol=atol,
+                    err_msg="Unexpected natural-spline constraint subspace")
+
+
+def _assert_analytic_natural_subspace(spline):
+    # Restoring constants alone can leave one boundary broken. A successful
+    # return must describe a genuine natural space, not just a partial repair.
+    ordinary = BSpline(spline.t, np.eye(len(spline.t) - 4), 3)
+    lo, hi = spline.t[0], spline.t[-1]
+    constraints = ordinary.derivative(2)([lo, hi]) * (hi - lo)**2
+    expected = null_space(constraints)
+    assert_allclose(spline.c @ spline.c.T, expected @ expected.T,
+                    rtol=0., atol=1e-8,
+                    err_msg="Incomplete natural-boundary repair")
+
+
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+def test_unit_range_mitigates_but_does_not_exactly_repair_natural_curvature(dtype):
+    x, natural, spline = _natural_projection(1., dtype)
     constant = natural @ np.linalg.lstsq(natural, np.ones(len(x)), rcond=None)[0]
     assert_allclose(constant, 1., atol=1e-6)
     # This loose bound verifies the documented mitigation, not exact conditions.
@@ -235,19 +296,26 @@ def test_unit_range_mitigates_but_does_not_exactly_repair_natural_curvature():
 
 
 @pytest.mark.xfail(strict=True, raises=_NaturalConstantMismatch, reason="Issue #224: Absolute-step natural constraints can exclude constant functions after rescaling")
-def test_natural_basis_should_represent_constants_independent_of_units():
-    x, natural, _ = _natural_projection(1e6)
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+def test_natural_basis_should_represent_constants_independent_of_units(dtype):
+    x, natural, spline = _natural_projection(1e6, dtype)
     constant = natural @ np.linalg.lstsq(natural, np.ones(len(x)), rcond=None)[0]
     assert constant.shape == x.shape
     if not np.allclose(constant, 1., rtol=1e-7, atol=1e-6):
+        _assert_known_natural_subspace(spline, "constant")
         raise _NaturalConstantMismatch('Rescaled natural basis excludes constant functions')
+    _assert_analytic_natural_subspace(spline)
 
 
 @pytest.mark.xfail(strict=True, raises=_NaturalCurvatureMismatch, reason="Issue #224: Absolute-step natural constraints differentiate a different basis on very small ranges")
-def test_natural_endpoint_curvature_should_remain_small_after_unit_change():
-    scale = 1e-8
-    _, _, spline = _natural_projection(scale)
-    curvature = spline.derivative(2)([0., scale]) * scale**2
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize("scale", [1e-8, 1e-7])
+def test_natural_endpoint_curvature_should_remain_small_after_unit_change(dtype, scale):
+    x, _, spline = _natural_projection(scale, dtype)
+    curvature = spline.derivative(2)([x[0], x[-1]]) * float(x[-1] - x[0])**2
     assert curvature.shape == (2, spline.c.shape[1])
+    assert np.isfinite(curvature).all()
     if not np.allclose(curvature, 0., rtol=1e-7, atol=.01):
+        _assert_known_natural_subspace(spline, "curvature")
         raise _NaturalCurvatureMismatch('Rescaled natural endpoint curvature is nonzero')
+    _assert_analytic_natural_subspace(spline)

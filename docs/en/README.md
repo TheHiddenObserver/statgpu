@@ -46,7 +46,7 @@
 - [GeneralizedLinearModel](models/generalized-linear-model.md) — GLM + PenalizedGLM base
 - [LogisticRegression](models/logistic-regression.md) — logistic classification
 - [PoissonRegression](models/poisson-regression.md) — count regression
-- [Ordered Models](models/ordered.md) — 有序 logit/probit
+- [Ordered Models](models/ordered.md) — ordered logit/probit
 
 ### Survival
 - [CoxPH](models/coxph.md) — Breslow/Efron/Exact Cox models with delayed-entry/start-stop data, strata, robust covariance, and NumPy/CuPy/Torch paths
