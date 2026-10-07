@@ -3,6 +3,8 @@
 All replacement bases are built independently with SciPy. These tests exercise
 the actual marked test bodies without requiring the production defect to remain.
 They are NumPy CPU checks, not GPU evidence or a production spline repair.
+Float32/64 parameters describe x/knots inputs; the SciPy replacements return
+float64 basis values, as does the production NumPy path for these fixtures.
 """
 
 import numpy as np
@@ -56,10 +58,14 @@ def _transform(coefficients, kind):
         rotation, _ = np.linalg.qr(np.random.default_rng(224).normal(
             size=(n_columns, n_columns)))
         return coefficients @ rotation
-    if kind == "mixed":
+    if kind in {"mixed", "mixed_disparate_scale"}:
         change = np.diag(np.linspace(.5, 2., n_columns))
         change += .1 * np.triu(np.ones((n_columns, n_columns)), 1)
-        return coefficients @ change
+        coefficients = coefficients @ change
+        if kind == "mixed":
+            return coefficients
+    if kind in {"disparate_scale", "mixed_disparate_scale"}:
+        return coefficients * np.geomspace(1e-150, 1e150, n_columns)
     assert kind == "tiny_scale"
     return coefficients * 1e-14
 
@@ -73,8 +79,8 @@ def _run_guard(scale, dtype):
 
 @pytest.mark.parametrize("scale", SCALES)
 @pytest.mark.parametrize("dtype", DTYPES)
-@pytest.mark.parametrize("fault", ["zero", "rows", "columns", "nan", "inf",
-                                  "rank", "ordinary", "wrong_subspace", "off_spline",
+@pytest.mark.parametrize("fault", ["zero", "zero_column", "rows", "columns", "nan", "inf",
+                                  "rank", "scaled_rank", "ordinary", "wrong_subspace", "off_spline",
                                   "tiny_off_spline"])
 def test_natural_guards_reject_unrelated_basis_corruption(monkeypatch, scale, dtype, fault):
     def corrupted(x, knots, xp=None):
@@ -83,6 +89,9 @@ def test_natural_guards_reject_unrelated_basis_corruption(monkeypatch, scale, dt
         good = values @ null_space(_analytic_constraints(basis))
         if fault == "zero":
             return np.zeros_like(good)
+        if fault == "zero_column":
+            good[:, -1] = 0.
+            return good
         if fault == "rows":
             return good[:-1]
         if fault == "columns":
@@ -90,9 +99,9 @@ def test_natural_guards_reject_unrelated_basis_corruption(monkeypatch, scale, dt
         if fault in {"nan", "inf"}:
             good[0, 0] = np.nan if fault == "nan" else np.inf
             return good
-        if fault == "rank":
+        if fault in {"rank", "scaled_rank"}:
             good[:, -1] = good[:, 0]
-            return good
+            return _transform(good, "disparate_scale") if fault == "scaled_rank" else good
         if fault == "ordinary":
             # The exact original small-range counterexample remains finite,
             # full-rank and representable by ordinary cubics.
@@ -122,6 +131,53 @@ def test_natural_guards_reject_unrelated_basis_corruption(monkeypatch, scale, dt
 
 @pytest.mark.parametrize("scale", SCALES)
 @pytest.mark.parametrize("dtype", DTYPES)
+@pytest.mark.parametrize("space", ["known_defect", "analytic"])
+@pytest.mark.parametrize("scaling", ["large_neighbor", "small_corrupt_column",
+                                    "mixed_extreme"])
+def test_natural_guards_reject_columnwise_off_spline_corruption(
+        monkeypatch, scale, dtype, space, scaling):
+    x = np.linspace(0., scale, 101, dtype=dtype)
+    knots = np.linspace(.1 * scale, .9 * scale, 5, dtype=dtype)
+    basis = _ordinary(x, knots)
+    values = basis(x)
+    constraints = (_defective_constraints(x, knots) if space == "known_defect"
+                   else _analytic_constraints(basis))
+    good = values @ null_space(constraints)
+    if scaling == "mixed_extreme":
+        good = _transform(good, "mixed")
+    noise = np.sin(20 * np.asarray(x, dtype=float) / x[-1])
+    noise -= values @ np.linalg.lstsq(values, noise, rcond=None)[0]
+    # A 20% non-cubic residual in this column must fail independently of
+    # any neighboring column's size or the projected constraint subspace.
+    noise *= .2 * np.linalg.norm(good[:, 1]) / np.linalg.norm(noise)
+    assert_allclose(values.T @ noise, 0., atol=1e-12)
+    assert_allclose(np.linalg.norm(noise) / np.linalg.norm(good[:, 1]), .2)
+    corrupted = good.copy()
+    corrupted[:, 1] += noise
+    if scaling == "large_neighbor":
+        corrupted[:, 0] *= 1e12
+    elif scaling == "small_corrupt_column":
+        corrupted[:, 1] *= 1e-12
+    else:
+        corrupted = _transform(corrupted, "disparate_scale")
+    legacy_projection = values @ np.linalg.lstsq(values, corrupted, rcond=None)[0]
+    # Establish that the previous global tolerance would mask this corruption.
+    # Fixture assertions stay outside raises, so they cannot satisfy the test.
+    assert_allclose(legacy_projection, corrupted, rtol=1e-10,
+                    atol=1e-12 * np.max(np.abs(corrupted)))
+    balanced = corrupted / np.max(np.abs(corrupted), axis=0)
+    assert np.linalg.matrix_rank(balanced) == corrupted.shape[1]
+
+    monkeypatch.setattr(contracts, "natural_cubic_spline_basis",
+                        lambda x, knots, xp=None: corrupted)
+    # Neither a known-defect sentinel nor successful analytic-repair return is
+    # allowed to swallow a separate reconstruction failure.
+    with pytest.raises(AssertionError, match="Natural basis contains off-spline values"):
+        _run_guard(scale, dtype)
+
+
+@pytest.mark.parametrize("scale", SCALES)
+@pytest.mark.parametrize("dtype", DTYPES)
 def test_natural_guards_propagate_unrelated_exceptions(monkeypatch, scale, dtype):
     def broken(*args, **kwargs):
         raise RuntimeError("unrelated spline failure")
@@ -134,7 +190,8 @@ def test_natural_guards_propagate_unrelated_exceptions(monkeypatch, scale, dtype
 @pytest.mark.parametrize("scale", SCALES)
 @pytest.mark.parametrize("dtype", DTYPES)
 @pytest.mark.parametrize("transform", ["identity", "signed_permutation", "orthogonal",
-                                      "mixed", "tiny_scale"])
+                                      "mixed", "tiny_scale", "disparate_scale",
+                                      "mixed_disparate_scale"])
 def test_known_defect_classification_is_basis_invariant(monkeypatch, scale, dtype, transform):
     def known_defect(x, knots, xp=None):
         coefficients = null_space(_defective_constraints(x, knots))
@@ -170,17 +227,20 @@ def test_natural_guards_reject_one_boundary_repairs(monkeypatch, scale, dtype, b
 @pytest.mark.parametrize("scale", SCALES)
 @pytest.mark.parametrize("dtype", DTYPES)
 @pytest.mark.parametrize("transform", ["identity", "signed_permutation", "orthogonal",
-                                      "mixed", "tiny_scale"])
+                                      "mixed", "tiny_scale", "disparate_scale",
+                                      "mixed_disparate_scale"])
 def test_analytic_repair_succeeds_in_actual_strict_xfail_body(monkeypatch, scale, dtype, transform):
     def analytic_repair(x, knots, xp=None):
         basis = _ordinary(x, knots)
         constraints = _analytic_constraints(basis)
-        coefficients = _transform(null_space(constraints), transform)
+        coefficients = null_space(constraints)
         values = basis(x) @ coefficients
         assert_allclose(constraints @ coefficients, 0., atol=1e-10)
         assert_allclose(values @ np.linalg.lstsq(values, np.ones(len(x)), rcond=None)[0],
                         1., atol=1e-12)
-        return values
+        # Validate the independent repair before applying a change of basis;
+        # raw least squares is itself unstable under extreme column scaling.
+        return _transform(values, transform)
 
     monkeypatch.setattr(contracts, "natural_cubic_spline_basis", analytic_repair)
     # Ordinary return becomes strict XPASS when pytest runs the marked test.

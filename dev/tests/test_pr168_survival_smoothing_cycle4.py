@@ -222,6 +222,13 @@ def _natural_projection(scale, dtype=np.float64):
     # These are ordinary failures, never a reason to forgive issue #224.
     assert natural.shape == (len(x), len(knots) + 2)
     assert np.isfinite(natural).all()
+    # Balance columns before rank, reconstruction, and constant fitting. A large
+    # neighbor must not hide another column's off-spline residual, and valid
+    # rescaling must not make a small independent column look rank deficient.
+    # Max norms avoid overflow/underflow from squaring extreme column scales.
+    column_scales = np.max(np.abs(natural), axis=0)
+    assert np.all(column_scales > 0.), "Natural basis contains a zero column"
+    natural = natural / column_scales
     assert np.linalg.matrix_rank(natural) == natural.shape[1]
 
     # Use an independent cubic evaluator: a shared production basis regression
@@ -229,8 +236,8 @@ def _natural_projection(scale, dtype=np.float64):
     augmented = np.r_[np.full(4, x[0]), knots, np.full(4, x[-1])]
     ordinary = BSpline(augmented, np.eye(len(knots) + 4), 3)(x)
     projection = np.linalg.lstsq(ordinary, natural, rcond=None)[0]
-    assert_allclose(ordinary @ projection, natural, rtol=1e-10,
-                    atol=1e-12 * np.max(np.abs(natural)))
+    assert_allclose(ordinary @ projection, natural, rtol=1e-10, atol=1e-12,
+                    err_msg="Natural basis contains off-spline values")
     # Normalize coefficients so curvature checks cannot be defeated merely by
     # shrinking the columns; column signs/rotations are not part of the API.
     orthogonal, _ = np.linalg.qr(projection)
