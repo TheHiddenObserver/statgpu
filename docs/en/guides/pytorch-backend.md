@@ -1,7 +1,7 @@
 # PyTorch Backend Guide
 
 > Language: English  
-> Last updated: 2026-10-06  
+> Last updated: 2026-10-07  
 > Switch: [Chinese](../../cn/guides/pytorch-backend.md)
 
 ## Overview
@@ -188,24 +188,22 @@ torch.cuda.empty_cache()
 Some estimators expose `gpu_memory_cleanup=True`. This controls cache cleanup and does
 not change the statistical objective or permit a CPU fallback.
 
-## Performance and Validation Evidence
+<a id="performance-and-validation-evidence"></a>
+
+## Understanding Performance
 
 GPU performance depends on sample size, feature dimension, dtype, kernel or solver,
 hardware, synchronization, and memory pressure. Small workloads may be faster on CPU.
 Do not interpret a benchmark from one model or GPU as a universal speed guarantee.
 
-Maintained evidence should record:
+Explicit device requests, model objectives, and result interpretation define the
+user-facing behavior. Batching strategies, automatic switching thresholds, and
+individual hardware measurements can change as implementations are optimized.
+When comparing timings, use the same workload and dtype, include the transfers
+that your application needs, and synchronize the GPU that performed the work.
 
-- exact commit SHA;
-- Python, Torch, CUDA, and driver versions;
-- GPU model;
-- synchronized timing methodology;
-- accuracy or statistical parity metrics;
-- passed, failed, and skipped tests.
-
-Current and historical benchmark artifacts live under `results/` and `dev/benchmarks/`.
-The retained [Torch backend report](../../../dev/docs/torch_backend_final_report.md) is a
-dated evidence snapshot, not a current support matrix.
+Contributors recording test or benchmark results can use the optional
+[Torch validation reference](../../../dev/references/model-validation.md#torch-backend).
 
 ## Troubleshooting
 
@@ -258,4 +256,3 @@ loss while StatGPU optimizes a mean loss.
 ## References
 
 - [PyTorch documentation](https://pytorch.org/docs/)
-- [StatGPU Torch backend evidence snapshot](../../../dev/docs/torch_backend_final_report.md)

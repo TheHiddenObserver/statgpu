@@ -82,3 +82,21 @@ Align KDE data orientation, weights and covariance bandwidth factor. For kernel
 regression, align kernel, regression mode, metric and absolute per-feature
 bandwidths. The public scalar bandwidth factor is not interchangeable with a
 vector of absolute widths. Record which selectors and host/device paths ran.
+
+## Torch backend
+
+Torch test and benchmark evidence should record:
+
+- exact commit SHA and, for uncommitted changes, a content fingerprint;
+- Python, Torch, CUDA, and driver versions;
+- GPU model and the concrete device used;
+- synchronized timing methodology, including warmup, repeats, and transfer scope;
+- accuracy or statistical parity metrics with aligned objectives and parameters;
+- passed, failed, and skipped tests, with physical CUDA runs distinguished from
+  CPU runs and skips.
+
+Current and historical benchmark artifacts live under `results/` and
+`dev/benchmarks/`. The retained
+[Torch backend report](../docs/torch_backend_final_report.md) is a dated evidence
+snapshot, not a current support matrix. Its results do not establish support or
+performance for a later source revision or a different environment.
