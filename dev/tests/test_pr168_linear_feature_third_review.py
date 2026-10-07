@@ -51,9 +51,12 @@ def test_knockoff_learner_example_is_complete_and_interprets_selection(language)
     text = _page(language, 'models', 'knockoff')
     namespace = _execute_marked_example(text, 'learner-example: knockoff-selection')
     result = namespace['result']
-    np.testing.assert_array_equal(result.selected_features, [0, 1, 2, 3])
-    assert result.threshold == pytest.approx(21.636530999655285)
-    assert result.estimated_fdr == pytest.approx(.25)
+    np.testing.assert_array_equal(result.selected_features, [0, 1, 2, 3, 4, 5, 15])
+    assert result.threshold == pytest.approx(1.019324242097392)
+    assert result.estimated_fdr == pytest.approx(1 / 7)
+    assert result.metadata['xk_source'] == 'provided'
+    assert namespace['q'] == .20
+    assert np.count_nonzero(namespace['beta']) == 6
     assert ('not the actual fraction' in text if language == 'en' else '不是这一次样本' in text)
 
 

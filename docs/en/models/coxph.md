@@ -738,37 +738,24 @@ Inference provenance is exposed through:
 - `wald_test_available_` and `wald_test_failure_reason_`;
 - `full_host_transfer_performed_`.
 
-For `CoxPHCV`, `full_host_transfer_performed_` describes the complete fit,
-including host-orchestrated fold construction and selection. The more specific
-`cv_full_host_transfer_performed_` and
-`final_refit_full_host_transfer_performed_` attributes identify which phase
-moved at least one complete device-resident training component to the host;
-this includes sorted targets and retained entry, strata, or subject vectors,
-even when the design matrix remains on the GPU. `orchestration_device_` records
-where CV orchestration ran. Ordinary GPU Breslow/Efron preprocessing sorts on
-the selected backend, then copies the complete sorted time and event vectors to
-the host to build failure-group metadata, so it reports
-`full_host_transfer_performed_=True`.
+## Device transfers and CV screening
 
-When either `STATGPU_COXPHCV_TWO_STAGE` or
-`STATGPU_COXPHCV_SUCCESSIVE_HALVING` is requested, experimental screening is
-currently disabled for correctness on NumPy, CuPy, and Torch. CoxPHCV emits a
-`RuntimeWarning` and executes one ordinary exhaustive full-precision pass over
-all candidates. Public diagnostics report
-`staged_safety_strategy="single_pass_exhaustive"`, both requested/effective
-mode pairs, an all-true `full_precision_candidate_mask`, and an all-false
-`screened_out_candidate_mask`. Each effective fold is prepared once for that
-single pass; no retained staged cache or repeated stage preparation is used.
-Preparation and target-transfer counts remain exposed in `cv_results_`.
-The invocation fields
-`selection_cache_hit`, `requested_fit_device`,
-`fold_backend_preparation_count_this_call`, and
-`candidate_target_host_transfer_count_this_call` remain separate from the
-selection-origin fields such as `selection_origin_device`,
-`candidate_preparation_origin_device`, and `scoring_device`.
-`effective_device` records the current requested/final-refit device. A target
-preparation count represents one complete time/event metadata preparation;
-the vector-transfer count records its two actual vector copies.
+GPU fitting still uses host memory for some preprocessing. Ordinary GPU
+Breslow/Efron fits copy the complete sorted time and event vectors to the host
+for event-group metadata, so `full_host_transfer_performed_=True` even when the
+design matrix stays on the GPU. For `CoxPHCV`, this flag covers both CV and the
+final refit. The [device and CV diagnostics reference](../reference/coxph-diagnostics.md)
+explains the phase-specific transfer flags and how to distinguish this call's
+device from the origin of reused selection results.
+
+Requesting `STATGPU_COXPHCV_TWO_STAGE` or
+`STATGPU_COXPHCV_SUCCESSIVE_HALVING` currently emits a `RuntimeWarning` and uses
+one exhaustive full-precision pass over all candidates on NumPy, CuPy, and
+Torch. These controls do not currently reduce the candidate set or enable
+approximate screening. `cv_results_` reports
+`staged_safety_strategy="single_pass_exhaustive"`; the
+[screening-control guide](../guides/cox-cv-staged-safety.md) lists the requested
+and effective modes and candidate masks.
 
 ## Support Matrix
 

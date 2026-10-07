@@ -322,6 +322,15 @@ print(ci_marginal.shape, ci_simul.shape)
 及[可独立运行的 CPU 调参示例](../reference/linear-model-api.md#ridgecv-and-lassocv-cpu-example)
 见 API 参考。直接模型与交叉验证的构造参数并不相同。
 
+## 与外部实现的对照
+
+与其他 Lasso 实现比较时，应对齐平均损失目标、特征尺度、截距处理、样本权重、
+`alpha` 和求解器容差。预测系数与纠偏或选择后报告估计的目标不同，应分别比较。
+比较区间时，还需对齐推断方法及协方差假设；数值一致并不会修正变量选择或 alpha
+调参带来的不确定性。
+
+贡献者可查阅[验证参考](../../../dev/references/model-validation.md#lasso-and-elastic-net)。
+
 ## 参考文献
 
 - Tibshirani, R. (1996). Regression shrinkage and selection via the lasso. *Journal of the Royal Statistical Society: Series B*, 58(1), 267-288. [https://doi.org/10.1111/j.2517-6161.1996.tb02080.x](https://doi.org/10.1111/j.2517-6161.1996.tb02080.x)

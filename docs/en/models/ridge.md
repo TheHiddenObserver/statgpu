@@ -227,10 +227,14 @@ and use an external CV loop.
 
 ## External Validation
 
-- Internal consistency is tested against the average-loss closed form and the generic penalized-linear estimator.
-- sklearn comparisons use the explicit unweighted or weighted alpha mapping.
-- Weighted exact/FISTA, formula-row alignment, inference, and RidgeCV weight-rescaling invariance are covered in `dev/tests/test_ridge_weighted_consistency.py`.
-- Numerical covariance and reference-distribution comparisons must align the ridge penalty, weights, degrees of freedom and covariance choice. CPU checks do not establish GPU precision or performance.
+When comparing with sklearn, apply the unweighted or weighted alpha mapping
+above rather than using the same numerical alpha. Keep feature scaling,
+intercept treatment and weights identical. Covariance and interval comparisons
+also require the same ridge penalty, degrees of freedom, covariance choice and
+reference distribution. Agreement for one solver, dtype or device does not
+establish the accuracy or speed of another.
+
+Contributors can consult the [validation reference](../../../dev/references/model-validation.md#ridge).
 
 ## References
 

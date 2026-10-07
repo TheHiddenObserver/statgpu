@@ -226,14 +226,14 @@ post-selection corrections.
 
 ### External validation
 
-[`dev/tests/test_external_consistency.py`](../../../dev/tests/test_external_consistency.py)
-contains OLS estimation/inference, robust covariance, GPU robust covariance,
-and HAC comparisons with `statsmodels.OLS` (including
-`test_linear_estimation_and_inference_match_statsmodels`,
-`test_linear_robust_covariance_matches_statsmodels`,
-`test_linear_robust_covariance_gpu_matches_statsmodels`, and
-`test_linear_hac_covariance_matches_statsmodels`). Comparisons require the same
-design/intercept, covariance type, lag settings, and reference distribution.
+When comparing with `statsmodels.OLS`, use the same observation rows, design
+matrix and intercept convention. For HC/HAC inference, also align the covariance
+type, small-sample correction, lag settings and normal-versus-t reference
+distribution; matching coefficient estimates alone does not establish matching
+standard errors or intervals. Weighted fits should be compared with the
+corresponding WLS model using the same weights.
+
+Contributors can consult the [validation reference](../../../dev/references/model-validation.md#linear-regression).
 
 ## References
 

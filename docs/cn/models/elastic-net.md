@@ -317,7 +317,12 @@ Ridge 目标。自动规则即使在 `fit_intercept=False` 时也会中心化 X/
 
 ## 数值验证
 
-支持的后端会在相同模型设定下检查数值一致性，并与参考实现进行对照。求解器参数迁移、逐节点调参以及选择后 OLS/WLS 的行为也都有回归测试覆盖。
+比较 Elastic Net 拟合时，应对齐平均损失目标、`alpha`、`l1_ratio`、特征尺度、
+截距处理、权重和收敛精度。`l1_ratio=0` 时，若参考实现使用求和损失目标，应按
+Ridge 的约定换算 alpha。预测系数与拟合后推断估计应分别比较，并对齐推断方法
+及协方差假设。
+
+贡献者可查阅[验证参考](../../../dev/references/model-validation.md#lasso-and-elastic-net)。
 
 ## 参考文献
 

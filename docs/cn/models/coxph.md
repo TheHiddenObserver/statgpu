@@ -624,24 +624,20 @@ Exact 并列事件当前只支持模型协方差（`cov_type="nonrobust"`）。�
 - `wald_test_available_` 与 `wald_test_failure_reason_`；
 - `full_host_transfer_performed_`。
 
-对于 `CoxPHCV`，`full_host_transfer_performed_` 描述整个拟合过程，包括在主机端组织的交叉验证折构造与 `penalty` 选择。`cv_full_host_transfer_performed_` 与
-`final_refit_full_host_transfer_performed_` 分别标记 CV 与最终重拟合阶段是否
-将至少一个完整的设备端训练组件移到主机端；这包括排序后的响应向量，以及需要
-保留的 `entry`、`strata` 或 `subject_id` 向量，即使设计矩阵仍留在 GPU 也会如实标记。
-`orchestration_device_` 记录 CV 编排设备。
-普通 GPU Breslow/Efron 预处理在选定后端完成排序，再把完整的已排序 `time` 与 `event` 向量复制到主机端以构建事件组元数据，因此会报告
-`full_host_transfer_performed_=True`。
+## 设备传输与交叉验证筛选
 
-当请求 `STATGPU_COXPHCV_TWO_STAGE` 或
-`STATGPU_COXPHCV_SUCCESSIVE_HALVING` 时，为保证正确性，NumPy、CuPy 与 Torch
-当前都会禁用实验性筛选。CoxPHCV 会发出 `RuntimeWarning`，并对全部候选惩罚强度只执行一次完整精度的穷举评估。公开诊断记录
-`staged_safety_strategy="single_pass_exhaustive"`、请求值与实际值两组状态、全为 `True` 的 `full_precision_candidate_mask`，以及全为 `False` 的
-`screened_out_candidate_mask`。每个实际使用的交叉验证折在这次评估中只准备一次；不会启用分阶段保留缓存，也不会跨阶段重复准备。准备次数与响应向量传输次数仍保存在 `cv_results_` 中。
-`selection_cache_hit`、
-`requested_fit_device`、`fold_backend_preparation_count_this_call` 与
-`candidate_target_host_transfer_count_this_call` 描述本次调用；
-`selection_origin_device`、`candidate_preparation_origin_device` 和
-`scoring_device` 记录选择结果的来源；`effective_device` 记录本次请求以及最终重拟合使用的设备。一次响应准备表示一整套 `time`/`event` 元数据准备；向量传输计数记录实际发生的两条向量复制。
+GPU 拟合的部分预处理仍需要主机内存。普通 GPU Breslow/Efron 拟合会把完整的
+已排序 `time` 和 `event` 向量复制到主机端以构建事件组元数据；即使设计矩阵
+留在 GPU，也会报告 `full_host_transfer_performed_=True`。对于 `CoxPHCV`，
+该标记涵盖 CV 与最终重拟合两个阶段。分阶段传输标记，以及如何区分本次调用
+的设备和复用选择结果的来源，见[设备与 CV 诊断参考](../reference/coxph-diagnostics.md)。
+
+请求 `STATGPU_COXPHCV_TWO_STAGE` 或
+`STATGPU_COXPHCV_SUCCESSIVE_HALVING` 时，当前会发出 `RuntimeWarning`，
+并在 NumPy、CuPy 与 Torch 上对全部候选项执行一次完整精度的穷举评估。
+这些控制目前不会减少候选集合，也不会启用近似筛选。`cv_results_` 报告
+`staged_safety_strategy="single_pass_exhaustive"`；请求状态、实际状态和候选项
+掩码的完整说明见[筛选控制指南](../guides/cox-cv-staged-safety.md)。
 
 ## 支持矩阵
 

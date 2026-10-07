@@ -171,7 +171,9 @@ for Torch, the latter currently raises `TypeError`, so always pass an explicit
 `(q,n_features_out_)`. Preserve feature order and use the fitted knots. For one
 feature, custom knots may also be a length-`n_knots` vector.
 
-## strict / approx Difference
+<a id="strict--approx-difference"></a>
+
+## Numerical accuracy and boundary conditions
 
 Spline basis computation has no strict/approx mode. Explicit backend selection does not change the documented numerical limitations of the natural/cyclic boundary projections.
 

@@ -319,7 +319,7 @@ density_gpu = kde_gpu.pdf(points_gpu)  # CuPy output
 
 Some bandwidth selection and interval work uses host arrays; do not assume an entirely GPU-resident pipeline or a speedup for small fits. Runtime depends on sample/query counts, dimension, batching, selector, and transfer costs.
 
-For a SciPy `gaussian_kde` comparison, align data orientation, weights, and covariance bandwidth factor. For statsmodels kernel regression, align kernel, regression mode, diagonal metric, and **absolute per-feature widths**; the scalar factor here is not the same parameter. Dedicated comparison scripts are [SciPy KDE](../../../dev/benchmarks/benchmark_kde_vs_scipy.py), [statsmodels regression](../../../dev/benchmarks/benchmark_kernel_regression_vs_statsmodels.py), [R methods](../../../dev/benchmarks/benchmark_nonparametric_vs_r.py), and the [combined suite](../../../dev/benchmarks/benchmark_nonparametric_comparison_suite.py). Their existence alone does not prove every setting or backend.
+For a SciPy `gaussian_kde` comparison, align data orientation, weights, and covariance bandwidth factor. For statsmodels kernel regression, align kernel, regression mode, diagonal metric, and **absolute per-feature widths**; the scalar factor here is not the same parameter. Contributors can consult the [validation reference](../../../dev/references/model-validation.md#nonparametric-models).
 
 ## References
 

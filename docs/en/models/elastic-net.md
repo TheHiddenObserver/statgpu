@@ -325,7 +325,14 @@ explicit grid for that case and inspect the candidate range and validation losse
 
 ## Numerical Validation
 
-The maintained regression suite checks agreement across supported backends and reference implementations at tolerances appropriate to each dtype and solver path. Solver API migration behavior is covered by `dev/tests/test_penalized_solver_api_cleanup.py`; node-wise tuning is covered by `dev/tests/test_nodewise_alpha_inference_contract.py`; the post-selection OLS migration and active-set OLS/WLS behavior are covered by `dev/tests/test_post_selection_ols_inference_api.py`.
+Compare Elastic Net fits using the same average-loss objective, `alpha`,
+`l1_ratio`, feature scaling, intercept treatment, weights and convergence
+accuracy. At `l1_ratio=0`, use the Ridge alpha mapping when the reference package
+uses a summed-loss objective. Prediction coefficients and post-fit inference
+estimates need separate comparisons, with the same inference method and
+covariance assumptions.
+
+Contributors can consult the [validation reference](../../../dev/references/model-validation.md#lasso-and-elastic-net).
 
 ## References
 

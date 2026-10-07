@@ -141,16 +141,13 @@ The same principle applies to devices. Explicit `device="cuda"` uses CuPy CUDA a
 
 ### Explicit Newton and L-BFGS with analytic weights
 
-For supported ordinary GLM combinations, explicit `solver="newton"` and `solver="lbfgs"` accept non-uniform analytic weights when that family/link combination supports the solver.
-
-Both solvers optimize the normalized weighted objective shown above. The same weight vector is used consistently throughout the optimization:
-
-- Newton uses it in objective, gradient, Hessian, and Armijo line-search evaluations;
-- L-BFGS uses it in the initial gradient, current objective, every line-search candidate, and the accepted-point gradient.
-
-This consistency is important: a weighted search direction is never paired with an unweighted line-search objective.
-
-Adding `sample_weight` does **not** replace an explicit Newton/L-BFGS request with IRLS or FISTA. Likewise, an explicit CUDA/Torch request does not fall back to CPU. Uniform and historically effectively-uniform weights retain the historical unweighted objective.
+For supported ordinary GLM family/link combinations, explicit `solver="newton"`
+and `solver="lbfgs"` accept non-uniform analytic weights and optimize the
+normalized weighted objective above. Adding `sample_weight` does not switch the
+requested solver or explicit CUDA/Torch device. Unsupported combinations raise.
+Uniform and numerically effectively-uniform weights use the unweighted objective.
+See [Solver Algorithms](../guides/solver-algorithms.md) for weighted update and
+line-search equations.
 
 #### Initializing `inverse_power` Gamma
 
@@ -160,13 +157,23 @@ $$
 \eta_i=b+x_i^\top\beta>0.
 $$
 
-Before the first objective evaluation, explicit Newton/L-BFGS constructs an interior starting point that satisfies this condition. With an intercept, the intercept column provides an immediate feasible direction. Without an intercept, statgpu searches the positive-weight training rows for a direction $d$ with $Xd>0$ and scales that direction to a valid interior point. If such a start cannot be numerically certified, fitting fails before optimization begins. Subsequent updates are kept inside the valid inverse-link domain by solver-owned feasibility checks and step caps; these are numerical safeguards rather than additional statistical assumptions on the Gamma model.
+Explicit Newton/L-BFGS requires a valid starting point in this domain. If a
+numerically valid start cannot be found, fitting raises before optimization.
+Without an intercept, the design on positive-weight training rows must admit a
+coefficient vector with positive linear predictors. Check the design and link
+choice if initialization fails; increasing `max_iter` cannot repair a missing
+feasible start. Later steps must also stay in the inverse-link domain.
 
 #### Scope of weighted L-BFGS support
 
-Weighted L-BFGS is a **GLM loss capability**, not a blanket promise for non-GLM `LossBase` implementations. Other model families retain their own weight and solver semantics; consult their model pages and the compatibility matrix. Ordered GLMs also retain their separate weight policy.
+This weighted-solver support applies to the supported GLM combinations, not to
+every model that offers L-BFGS. Ordered GLMs and non-GLM families have separate
+weight and solver rules; consult their pages and the
+[compatibility matrix](../guides/solver-penalty-matrix.md).
 
-Weighted penalized smooth GLMs use the same analytic-weight convention. Their existing direct-fit/CV dispatch remains authoritative: a supported L2 row may use Newton or L-BFGS according to that policy, not merely because weights are present.
+Weighted penalized smooth GLMs use the same analytic-weight convention. Their
+direct-fit/CV dispatch still determines whether a supported L2 fit uses Newton
+or L-BFGS; weights alone do not select the solver.
 
 ## Covariance and inference
 

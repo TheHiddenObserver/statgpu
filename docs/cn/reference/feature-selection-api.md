@@ -150,6 +150,10 @@ Lasso 统计量还应显式设 `lasso_cv_impl="statgpu"`，避免请求兼容模
 大规模分析时，保留旧数组可能消耗较多内存。内部生成 knockoff 时，
 调用者不保留临时构造数组，因此应优先采用独立进程。
 
+这个缓存示例检查最大的 W 对应哪一列，不用于说明发现保证：无噪声响应用于
+展示输入变化，而且 p=4、默认 q=0.1 时 knockoff+ 不可能有发现。
+具有高斯响应的完整选择流程见[中心化配对入门示例](../models/knockoff.md#centered-pair-example)。
+
 请在新的 Python 进程中开始执行下面的代码块。在旧 notebook 会话中重新运行
 代码，并不会自动保留之前每次运行的输入引用；若旧数组已释放，应先重启进程。
 
@@ -227,7 +231,7 @@ assert np.argmax(results[1].W) == 1
 [中心化限制](../models/knockoff.md#自动-fixed-x-构造的中心化限制)。
 
 外部 Xk 绕过构造，必须检查截距/干扰变量投影后的完整配对约束，不能只检查形状和秩。
-上面的中心化 QR 示例以 n≥2p+1 构造特殊正交设计，可避开这一几何问题，
+[中心化配对入门示例](../models/knockoff.md#centered-pair-example)以 n≥2p+1 构造特殊正交设计，可避开这一几何问题，
 但不是任意 X 的通用修复。其他统计、阈值和缓存限制仍然适用。
 
 fixed-X 有限样本解释要求高斯线性响应及独立同方差正态误差；Model-X 则要求
@@ -240,6 +244,17 @@ Knockoff 构造与统计量计算把输入转换为 float64；选择器 `transfo
 <a id="runnable-fixed-x-example"></a>
 
 ## 可运行的 fixed-X 示例
+
+完整分析流程及可能得到非空结果的例子，见[中心化配对入门示例](../models/knockoff.md#centered-pair-example)。
+下面的选择器示例则预先设定一个必然为空的结果：p=5、q=0.1 时，knockoff+
+最小可能计数比为 1/p=0.2>q。因此，无论统计量取何值，即使所有原特征都胜过
+其 knockoff，也不会选择任何特征。这是阈值分辨率的限制，不只是某次抽样
+不走运或信号较弱。
+
+下面的 QR 设计已中心化，截距投影后仍满足 XᵀX=XkᵀXk=I、XᵀXk=0，
+y 服从高斯线性模型。与入门示例相同，该特殊构造要求 n≥2p+1，
+不是任意 X 的通用修复。
+
 <!-- api-example: knockoff-selector -->
 ```python
 import numpy as np
@@ -247,18 +262,26 @@ from statgpu.feature_selection import FixedXKnockoffSelector
 
 rng = np.random.default_rng(12)
 n, p = 120, 5
+q = 0.1  # Prespecified: 1/p > q, so knockoff+ must be empty.
 Q, _ = np.linalg.qr(np.column_stack([np.ones(n), rng.normal(size=(n, 2*p))]))
 X, Xk = Q[:, 1:p+1], Q[:, p+1:2*p+1]
 y = 3 * X[:, 0] + rng.normal(size=n)
-q = 0.1
 if not (np.isfinite(q) and 0 < q < 1):
     raise ValueError("q must be finite and strictly between 0 and 1")
-selector = FixedXKnockoffSelector(q=q, backend="numpy", random_state=7)
+selector = FixedXKnockoffSelector(
+    q=q, fdr_control="knockoff_plus", backend="numpy", random_state=7,
+)
 assert selector.fit(X, y, Xk=Xk) is selector
 selected = selector.transform(X[:10])
 assert selected.shape == (10, int(selector.get_support().sum()))
-assert selector.result_.W.shape == (5,)
+assert selector.result_.W.shape == (p,)
+assert selector.selected_features_.size == 0
+assert np.isinf(selector.result_.threshold)
 print(selector.selected_features_.tolist())
 ```
 
-小问题可能不选择任何特征，特别是 knockoff+ 配合严格 q 时。这是有效结果，不应在看过结果后只为得到发现而放宽阈值。
+输出为 `[]`，`selected.shape` 为 `(10, 0)`，选择掩码全为 False。
+`threshold` 为无穷大，`estimated_fdr=0.0`；后者是空结果的报告约定，
+不证明这五个特征都无效。不要在看过数据后只为得到发现而提高 q，也不要添加
+无关特征来绕开分辨率限制。应在选择前确定检验的特征集合和可接受的错误率；
+若这些要求与 knockoff+ 不匹配，应考虑其他研究设计或方法。

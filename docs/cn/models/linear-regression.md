@@ -201,13 +201,12 @@ HC/HAC 的系数 p 值与区间使用**正态参考分布**，尽管统计量的
 
 ### 与外部实现的对照
 
-[`dev/tests/test_external_consistency.py`](../../../dev/tests/test_external_consistency.py)
-包含与 `statsmodels.OLS` 的估计、推断、稳健协方差、GPU 稳健协方差及 HAC 对照，
-包括 `test_linear_estimation_and_inference_match_statsmodels`、
-`test_linear_robust_covariance_matches_statsmodels`、
-`test_linear_robust_covariance_gpu_matches_statsmodels` 和
-`test_linear_hac_covariance_matches_statsmodels`。
-比较时须对齐设计矩阵/截距、协方差类型、滞后阶和参考分布。
+与 `statsmodels.OLS` 比较时，应使用相同的观测行、设计矩阵和截距约定。
+比较 HC/HAC 推断时，还需对齐协方差类型、小样本校正、滞后阶以及正态或 t
+参考分布；系数一致并不意味着标准误和区间也一致。带权拟合应与使用相同权重的
+WLS 模型比较。
+
+贡献者可查阅[验证参考](../../../dev/references/model-validation.md#linear-regression)。
 
 ## 参考文献
 

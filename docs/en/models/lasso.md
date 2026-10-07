@@ -342,17 +342,14 @@ are available in the API reference. Direct and CV constructor controls differ.
 
 ## External Validation
 
-- `dev/benchmarks/validate_post_selection_ols_gpu.py`
-- `dev/benchmarks/validate_gaussian_residual_bootstrap_gpu.py` — Gaussian residual-bootstrap GPU comparisons.
-- `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py` — canonical `post_selection_ols` CPU/CuPy end-to-end parity and complete fit+inference timing benchmark.
-- `dev/benchmarks/benchmark_lasso_cpu_gpu_tol.py`
-- `dev/comparisons/compare_lasso_kkt_stopping.py`
-- `dev/tests/test_lasso_debiased_inference.py`
-- `dev/tests/test_nodewise_alpha_inference_contract.py`
-- `dev/tests/test_post_selection_ols_inference_api.py`
-- `dev/tests/test_penalized_solver_api_cleanup.py`
+For a comparison with another Lasso implementation, align the average-loss
+objective, feature scaling, intercept treatment, sample weights, `alpha` and
+solver tolerance. Compare prediction coefficients separately from debiased or
+post-selection reporting estimates: they target different quantities. For
+intervals, also match the inference method and covariance assumptions; numerical
+agreement does not correct uncertainty from selecting variables or tuning alpha.
 
-These supplementary developer examples and tests are separate from the public inference API.
+Contributors can consult the [validation reference](../../../dev/references/model-validation.md#lasso-and-elastic-net).
 
 ## References
 

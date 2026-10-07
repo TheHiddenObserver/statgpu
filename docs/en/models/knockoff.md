@@ -1,19 +1,45 @@
 # Knockoff Feature Selection
 
 > Language: English  
-> Last updated: 2026-10-06
+> Last updated: 2026-10-07
 > This page: Method documentation  
 > Switch: [Chinese](../../cn/models/knockoff.md)
 
-## Overview
+<a id="overview"></a>
 
-The knockoff module implements feature-selection procedures designed for FDR control under their construction/statistic assumptions, with current automatic fixed-X centering and threshold-tie limitations described below, using feature-wise statistics \(W_j\) and data-adaptive thresholds. Two paths are provided: fixed-X knockoff (design treated as fixed) and model-X knockoff (Gaussian second-order construction). A unified `knockoff_filter` entry point switches between them.
+## What problem does knockoff selection solve?
 
-False discovery rate (FDR) is the expected fraction of selected features that are null, counting an empty selection as zero. It is not the probability that every selected feature is correct. Knockoffs act as matched negative controls: a feature must compete against an artificial counterpart with a similar dependence structure. Use this approach when selection error control is the goal and the construction assumptions are credible; for prediction-focused subset search, compare [stepwise selection](feature-selection.md) and validate on held-out data.
+Suppose you want to identify which predictors contribute to a response while
+limiting false discoveries. False discovery rate (FDR) is the expected fraction
+of selected features that are null, counting an empty selection as zero. It is
+not the probability that every selected feature is correct.
 
-Complete function/selector signatures, all parameters, result fields and a self-contained CPU example are in the [feature-selection API reference](../reference/feature-selection-api.md).
+Knockoffs act as matched negative controls: each feature competes against an
+artificial counterpart with a similar dependence structure. A large positive
+statistic W means the original feature outscored its knockoff. Comparing positive
+and negative statistics supplies a threshold for selecting original columns.
 
-## Validate the target rate
+Use fixed-X when a valid matched design and a Gaussian linear response model
+with independent, equal-variance normal errors are credible. Model-X instead
+requires a credible feature-distribution construction and permits arbitrary
+response relationships. The current automatic constructions and threshold ties
+have important [limitations](#tied-statistic-limitation); choosing an API path
+does not verify its assumptions. For prediction-focused subset search, compare
+[stepwise selection](feature-selection.md) and validate on held-out data.
+
+Complete function/selector signatures, all parameters and result fields are in
+the [feature-selection API reference](../reference/feature-selection-api.md).
+
+<a id="validate-the-target-rate"></a>
+
+## Plan the target rate before selection
+
+Choose q and the statistic before looking at discoveries. For knockoff+, even
+the most favorable threshold ratio cannot be smaller than 1/p. A target of
+q=0.20 therefore requires at least five positive discoveries at an eligible
+threshold; having 20 predictors makes this possible, but does not promise a
+nonempty result. Choose q for the acceptable error rate, not to obtain a desired
+number of features.
 
 Before any filter call or selector fit, check `np.isfinite(q) and 0 < q < 1`.
 This applies to all three filter functions, both selector classes, and both
@@ -23,66 +49,102 @@ selector mask. That output is invalid, not evidence of no discoveries at a
 meaningful target rate. Reject nonfinite q yourself; do not replace it with a
 new target after inspecting results.
 
-## A complete CPU example
+<a id="centered-pair-example"></a>
 
-This example uses 240 rows and 12 predictors, satisfying the sample-size
-requirement for generated fixed-X knockoffs. It demonstrates the API, but the
-[generated-design centering limitation](#generated-fixed-x-centering-limitation)
-prevents a nominal FDR claim for this automatic construction. A centered
-supplied-pair example is linked below. Only the first four predictors contribute
-to the response. Choose q before examining the selection.
+<a id="a-complete-cpu-example"></a>
+
+## A complete CPU example with a valid supplied pair
+
+This controlled simulation creates X and Xk together, before generating y.
+QR orthogonalization reserves its first column for the intercept; the remaining
+columns form two centered, mutually orthogonal groups. Thus XᵀX=XkᵀXk=I and
+XᵀXk=0, satisfying the fixed-X matched-pair conditions with S=I even after the
+intercept projection. The construction needs n≥2p+1.
+
+This is a special simulation design, not a way to repair arbitrary observed X.
+For your own data, obtain and validate a matched X/Xk pair for that design,
+including after any intercept/nuisance projection. Do not replace measured
+predictors with this QR design or simply center an automatically generated Xk;
+that can change the question or destroy the required Gram constraints. Passing
+`Xk` bypasses automatic construction, which currently has a
+[centering limitation](#generated-fixed-x-centering-limitation).
+
+Here p=20, q=0.20, six nonzero coefficients, and `corr_diff` are chosen in
+advance. The response has an intercept and independent Gaussian noise with
+standard deviation 0.5, matching the fixed-X response assumptions.
 
 <!-- learner-example: knockoff-selection -->
 ```python
 import numpy as np
 from statgpu import fixed_x_knockoff_filter
 
-rng = np.random.default_rng(42)
-X = rng.normal(size=(240, 12))
-y = X[:, :4] @ np.array([3.0, -2.5, 2.0, 1.5])
-y += rng.normal(scale=0.5, size=240)
-q = 0.25
+# Prespecify the design, target rate, and statistic before seeing results.
+n, p = 240, 20
+q = 0.20
 if not (np.isfinite(q) and 0 < q < 1):
     raise ValueError("q must be finite and strictly between 0 and 1")
+rng = np.random.default_rng(42)
+Q, _ = np.linalg.qr(np.column_stack([np.ones(n), rng.normal(size=(n, 2*p))]))
+X, Xk = Q[:, 1:p+1], Q[:, p+1:2*p+1]
+np.testing.assert_allclose(X.mean(axis=0), 0, atol=1e-14)
+np.testing.assert_allclose(Xk.mean(axis=0), 0, atol=1e-14)
+np.testing.assert_allclose(X.T @ X, np.eye(p), atol=1e-14)
+np.testing.assert_allclose(Xk.T @ Xk, np.eye(p), atol=1e-14)
+np.testing.assert_allclose(X.T @ Xk, 0, atol=1e-14)
+
+beta = np.zeros(p)
+beta[:6] = [8, -7, 6, -5, 4, -3]
+y = 2.0 + X @ beta + rng.normal(scale=0.5, size=n)
 result = fixed_x_knockoff_filter(
-    X, y, q=q, method="corr_diff", random_state=7, backend="numpy",
+    X, y, Xk=Xk, q=q, method="corr_diff",
+    fdr_control="knockoff_plus", backend="numpy",
 )
 print("Selected columns:", result.selected_features.tolist())
 print("Threshold:", round(result.threshold, 3))
 print("Threshold ratio:", round(result.estimated_fdr, 3))
 ```
 
-For this seed, the output is `Selected columns: [0, 1, 2, 3]`, threshold
-`21.637`, and threshold ratio `0.25`. Selected indices refer to the original
-columns. Positive W means a feature outscored its knockoff; the threshold ratio
-is the rule's estimate, not the actual fraction of null features in this one
-sample. Other samples can miss signals or select noise. No coefficient or
-prediction model is fitted by this filter. If you subsequently assess prediction,
-perform selection using training rows only and keep evaluation rows untouched.
+## Read the selection and its uncertainty
 
-## Path
+For this seed, the output is `Selected columns: [0, 1, 2, 3, 4, 5, 15]`,
+threshold `1.019`, and threshold ratio `0.143`. Indices are zero-based original
+columns. We know the simulated truth: columns 0–5 are signals and column 15
+is a false discovery. A target q does not promise that every selection is correct
+or bound the false-discovery fraction in each individual sample.
 
-- `statgpu.feature_selection.knockoff_filter`
-- `statgpu.feature_selection.fixed_x_knockoff_filter`
-- `statgpu.feature_selection.model_x_knockoff_filter`
-- `statgpu.feature_selection.KnockoffSelector`
-- `statgpu.feature_selection.FixedXKnockoffSelector`
+For `corr_diff`, W_j=|X_jᵀ(y−ȳ)|−|Xk_jᵀ(y−ȳ)|. For example,
+`result.W[0]` is about 6.386, favoring the original signal, whereas
+`result.W[11]` is about −0.921, favoring its knockoff. This run has no tied
+absolute statistics. At the selected threshold, seven W values are positive
+and large enough, with none as negative as −T; the knockoff+ ratio is
+(1+0)/7. `estimated_fdr` reports that rule's estimate, not the actual fraction
+of null features in this sample or a per-feature p-value. Other samples can miss
+signals or select more noise; one simulated result does not demonstrate FDR
+control empirically.
 
-Top-level aliases:
-- `statgpu.knockoff_filter`
-- `statgpu.fixed_x_knockoff_filter`
-- `statgpu.model_x_knockoff_filter`
-- `statgpu.KnockoffSelector`
-- `statgpu.FixedXKnockoffSelector`
+An empty selection is also a valid outcome for valid inputs: no threshold met
+the rule, so `threshold` is infinity and the implementation reports
+`estimated_fdr=0.0`. That does not establish that all predictors are null.
+Keep the prespecified q and investigate assumptions and power rather than
+loosening q after seeing the result. The API reference gives a
+[small example where emptiness is inevitable](../reference/feature-selection-api.md#runnable-fixed-x-example).
 
-## Objective Function
+This filter does not fit a coefficient or prediction model. For prediction,
+perform selection within each training fold, fit a separate model on its
+selected columns, and keep evaluation rows untouched.
+
+<a id="objective-function"></a>
+
+## How the threshold works
 
 The statistical goal is false discovery rate control at target `q`, subject to the response/construction assumptions and both the centering and tied-statistic limitations below:
 - Build knockoff variables \(\tilde X\) that mirror dependence structure.
 - Compute antisymmetric statistics \(W_j\) (for example correlation or coefficient differences).
 - Select features with \(W_j\) above knockoff threshold.
 
-## Estimating Equation
+<a id="estimating-equation"></a>
+
+### The knockoff+ rule
 
 The decision rule follows knockoff thresholding:
 $$
@@ -118,7 +180,7 @@ symmetry, not a measured FDR exceedance: one-feature knockoff+ selects nothing.
 A genuinely centered, valid externally supplied matched X/Xk pair can avoid
 this geometry defect. Check the full matched-pair Gram conditions after any
 intercept/nuisance projection, not just equal shapes or marginal norms. The
-[centered orthogonal QR example](../reference/feature-selection-api.md#repeated-lasso-statistic-calls)
+[centered matched-pair example](#centered-pair-example)
 constructs a special design with n≥2p+1. It is not a repair for arbitrary X;
 centering a generated Xk afterward can itself destroy its Gram constraints.
 Response assumptions, statistic validity, threshold ties and cache limitations
@@ -168,7 +230,13 @@ Key `knockoff_filter` parameters:
 
 ## CPU+GPU Examples
 
-The following optional GPU variants assume `X`/`y` generated in the [self-contained example](../reference/feature-selection-api.md#runnable-fixed-x-example). They require installed usable CUDA backends. Here `backend="torch"` selects the Torch library, unlike estimator `device="torch"`, which requests CUDA. Native fixed-X and generated model-X construction follow X's device. Torch CPU input remains on CPU even when CUDA is available; CUDA input retains its GPU index. For model-X, the local random generator and random matrix both use that device. See [Torch device placement](../reference/feature-selection-api.md#torch-device-placement).
+The following optional GPU variants reuse X, y, Xk and q from the
+[centered-pair CPU example](#centered-pair-example). They keep its supplied
+fixed-X pair, statistic and target unchanged and require usable CUDA backends.
+The QR pair is a fixed-X example, not an exchangeability construction for model-X.
+For model-X, choose a construction appropriate to the feature distribution.
+
+Here `backend="torch"` selects the Torch library, unlike estimator `device="torch"`, which requests CUDA. Native fixed-X and generated model-X construction follow X's device. Torch CPU input remains on CPU even when CUDA is available; CUDA input retains its GPU index. For model-X, the local random generator and random matrix both use that device. See [Torch device placement](../reference/feature-selection-api.md#torch-device-placement).
 
 This device preservation applies to construction. Native Torch
 `method="lasso_coef_diff"` tuning/fitting still requests CUDA, including for
@@ -180,53 +248,21 @@ See [Torch Lasso device routing](../reference/feature-selection-api.md#torch-las
 For CPU model-X construction, use Torch CPU tensors with `backend="torch"`, or NumPy X/y with `backend="numpy"`. Keep X/y/Xk on the same intended device. A supplied, externally validated model-X Xk bypasses construction. Shape and device agreement do not establish exchangeability or conditional independence from y given X. These native construction rules apply to `compat_mode="statgpu"` with `Xk=None`, including `KnockoffSelector`; fixed-X has different construction and statistical assumptions.
 
 ```python
-from statgpu import knockoff_filter
-
-# CPU fixed-X
-res_cpu = knockoff_filter(
-    X,
-    y,
-    knockoff_type="fixed_x",
-    q=0.1,
-    method="ols_coef_diff",
-    backend="numpy",
-)
-
+from statgpu import fixed_x_knockoff_filter
 import cupy as cp
-X_gpu, y_gpu = cp.asarray(X), cp.asarray(y)
 
-# GPU model-X
-res_gpu = knockoff_filter(
-    X_gpu,
-    y_gpu,
-    knockoff_type="model_x",
-    q=0.1,
-    method="lasso_coef_diff",
-    backend="cupy",
-    modelx_draws=3,
+X_gpu, y_gpu, Xk_gpu = cp.asarray(X), cp.asarray(y), cp.asarray(Xk)
+res_gpu = fixed_x_knockoff_filter(
+    X_gpu, y_gpu, Xk=Xk_gpu, q=q, method="corr_diff",
+    fdr_control="knockoff_plus", backend="cupy",
 )
 
-# GPU Torch fixed-X
 import torch
-X_torch = torch.from_numpy(X).to('cuda')
-y_torch = torch.from_numpy(y).to('cuda')
 
-res_torch = knockoff_filter(
-    X_torch, y_torch,
-    knockoff_type="fixed_x",
-    q=0.1,
-    method="lasso_coef_diff",
-    backend="torch",
-)
-
-# GPU Torch model-X
-res_torch_mx = knockoff_filter(
-    X_torch, y_torch,
-    knockoff_type="model_x",
-    q=0.1,
-    method="lasso_coef_diff",
-    backend="torch",
-    modelx_draws=3,
+X_torch, y_torch, Xk_torch = [torch.from_numpy(a).to("cuda") for a in (X, y, Xk)]
+res_torch = fixed_x_knockoff_filter(
+    X_torch, y_torch, Xk=Xk_torch, q=q, method="corr_diff",
+    fdr_control="knockoff_plus", backend="torch",
 )
 ```
 
@@ -300,12 +336,29 @@ An empty `selected_features` array is a valid outcome. `estimated_fdr` is the th
 - When should I use model-X? Use it when a credible feature-distribution construction is available, including settings where fixed-X is infeasible. Its feature assumptions differ from fixed-X response assumptions; choosing it alone does not validate an estimated feature model.
 - Is CuPy required for GPU? `backend="cupy"` requires CuPy. Alternatively, `backend="torch"` accepts Torch CUDA tensors; keep inputs on the same device and follow the [Torch device-placement guidance](../reference/feature-selection-api.md#torch-device-placement). Installing Torch alone does not guarantee CUDA execution.
 
-## External Validation
+## Advanced reference
 
-- `dev/benchmarks/benchmark_knockoff_fixedx.py`
-- `dev/benchmarks/benchmark_knockoff_vs_baselines.py`
-- `dev/benchmarks/benchmark_knockoff_same_xk_parity.py`
-- Result artifacts are stored under `results/benchmark_knockoff_*.json`.
+<a id="path"></a>
+
+### Import paths
+
+- `statgpu.feature_selection.knockoff_filter`
+- `statgpu.feature_selection.fixed_x_knockoff_filter`
+- `statgpu.feature_selection.model_x_knockoff_filter`
+- `statgpu.feature_selection.KnockoffSelector`
+- `statgpu.feature_selection.FixedXKnockoffSelector`
+
+Top-level aliases:
+- `statgpu.knockoff_filter`
+- `statgpu.fixed_x_knockoff_filter`
+- `statgpu.model_x_knockoff_filter`
+- `statgpu.KnockoffSelector`
+- `statgpu.FixedXKnockoffSelector`
+
+<a id="external-validation"></a>
+
+For contributors reproducing implementation comparisons, see the optional
+[Knockoff validation guide](../../../dev/references/model-validation.md#knockoff).
 
 ## References
 

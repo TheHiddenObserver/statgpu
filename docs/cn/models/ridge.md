@@ -212,6 +212,15 @@ Ridge 只接受单一响应，不提供 LinearRegression 的多目标接口。
 自定义非互补训练子集应先阅读 [RidgeCV 限制](../reference/linear-model-api.md#custom-ridgecv-training-subsets)，
 并使用外部交叉验证循环。
 
+## 与外部实现的对照
+
+与 sklearn 比较时，应使用前面的无权重或带权 alpha 映射，而非相同的 alpha
+数值，并保持特征尺度、截距处理和权重一致。比较协方差与区间时，还需对齐 Ridge
+惩罚、自由度、协方差类型和参考分布。某个求解器、数据类型或设备上的一致结果，
+不能证明另一个配置的精度或速度。
+
+贡献者可查阅[验证参考](../../../dev/references/model-validation.md#ridge)。
+
 ## 参考文献
 
 - Hoerl, A. E., & Kennard, R. W. (1970). Ridge regression: Biased estimation for nonorthogonal problems. *Technometrics*, 12(1), 55-67. [https://doi.org/10.1080/00401706.1970.10488634](https://doi.org/10.1080/00401706.1970.10488634)

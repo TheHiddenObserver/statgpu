@@ -299,7 +299,7 @@ density_gpu = kde_gpu.pdf(points_gpu)  # CuPy 输出
 
 部分带宽选择及区间步骤使用主机数组，不能假定整个流程常驻 GPU 或小数据也会加速。耗时取决于样本数、查询数、维度、分批、选择器及传输成本。
 
-与 SciPy `gaussian_kde` 对照时，对齐数据方向、权重和协方差带宽因子；与 statsmodels 核回归对照时，对齐核、回归模式、对角度量及**绝对逐特征宽度**，这里的标量因子并不是相同参数。专用对照脚本：[SciPy KDE](../../../dev/benchmarks/benchmark_kde_vs_scipy.py)、[statsmodels 回归](../../../dev/benchmarks/benchmark_kernel_regression_vs_statsmodels.py)、[R 方法](../../../dev/benchmarks/benchmark_nonparametric_vs_r.py)、[组合套件](../../../dev/benchmarks/benchmark_nonparametric_comparison_suite.py)。脚本存在本身不能证明所有设置或后端均已验证。
+与 SciPy `gaussian_kde` 对照时，对齐数据方向、权重和协方差带宽因子；与 statsmodels 核回归对照时，对齐核、回归模式、对角度量及**绝对逐特征宽度**，这里的标量因子并不是相同参数。贡献者可查阅[验证参考](../../../dev/references/model-validation.md#nonparametric-models)。
 
 ## 参考文献
 

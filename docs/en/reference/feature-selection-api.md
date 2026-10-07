@@ -1,7 +1,7 @@
 # Feature-selection API reference
 
 > Language: English  
-> Last updated: 2026-10-06
+> Last updated: 2026-10-07
 > Switch: [Chinese](../../cn/reference/feature-selection-api.md)
 
 This page covers all eight exports of `statgpu.feature_selection`: `StepwiseSelector`, `stepwise_selection`, `KnockoffResult`, `knockoff_filter`, `fixed_x_knockoff_filter`, `model_x_knockoff_filter`, `KnockoffSelector`, and `FixedXKnockoffSelector`. All except `KnockoffResult` also have top-level `statgpu` aliases. These classes do not inherit BaseEstimator's p-value/bootstrap helpers.
@@ -163,6 +163,11 @@ threshold assumptions still apply. This memory-retention workaround can be expen
 large analyses. With internally generated knockoffs, prefer process isolation
 because temporary construction arrays are not retained by the caller.
 
+This small cache example checks which W is largest, not a discovery guarantee:
+its noiseless responses illustrate input changes, and p=4 at the default q=0.1
+cannot yield a knockoff+ discovery. For a Gaussian-response selection workflow,
+use the [centered-pair tutorial](../models/knockoff.md#centered-pair-example).
+
 Start the following block in a fresh Python process. Re-running it in an old
 notebook namespace does not keep references from earlier runs alive; restart
 the process if those arrays have already been released.
@@ -244,7 +249,7 @@ Grams or absence of ties. See the [centering explanation](../models/knockoff.md#
 
 A supplied Xk bypasses construction. Check the complete matched-pair conditions
 after the intercept/nuisance projection as well as shape and rank. The centered
-QR example above avoids this geometry defect for its special orthogonal design
+[matched-pair tutorial](../models/knockoff.md#centered-pair-example) avoids this geometry defect for its special orthogonal design
 with n≥2p+1; it is not a general arbitrary-X repair. Other statistical, threshold
 and cache limitations remain.
 
@@ -259,6 +264,18 @@ Knockoff construction/statistic inputs are converted to float64; selector `trans
 
 ## Runnable fixed-X example
 
+For the full workflow and a possible nonempty selection, start with the
+[centered matched-pair tutorial](../models/knockoff.md#centered-pair-example).
+The selector example below instead illustrates a deliberately prespecified
+empty result: with p=5 and q=0.1, the smallest possible knockoff+ ratio is
+1/p=0.2>q. It therefore selects nothing for **any** feature statistics, even
+if every original feature beats its knockoff. This is a threshold-resolution
+constraint, not merely an unlucky draw or weak signal.
+
+The QR design below is centered and satisfies XᵀX=XkᵀXk=I, XᵀXk=0 after
+intercept projection; y follows a Gaussian linear model. As in the tutorial,
+this special construction requires n≥2p+1 and is not an arbitrary-X repair.
+
 <!-- api-example: knockoff-selector -->
 ```python
 import numpy as np
@@ -266,18 +283,28 @@ from statgpu.feature_selection import FixedXKnockoffSelector
 
 rng = np.random.default_rng(12)
 n, p = 120, 5
+q = 0.1  # Prespecified: 1/p > q, so knockoff+ must be empty.
 Q, _ = np.linalg.qr(np.column_stack([np.ones(n), rng.normal(size=(n, 2*p))]))
 X, Xk = Q[:, 1:p+1], Q[:, p+1:2*p+1]
 y = 3 * X[:, 0] + rng.normal(size=n)
-q = 0.1
 if not (np.isfinite(q) and 0 < q < 1):
     raise ValueError("q must be finite and strictly between 0 and 1")
-selector = FixedXKnockoffSelector(q=q, backend="numpy", random_state=7)
+selector = FixedXKnockoffSelector(
+    q=q, fdr_control="knockoff_plus", backend="numpy", random_state=7,
+)
 assert selector.fit(X, y, Xk=Xk) is selector
 selected = selector.transform(X[:10])
 assert selected.shape == (10, int(selector.get_support().sum()))
-assert selector.result_.W.shape == (5,)
+assert selector.result_.W.shape == (p,)
+assert selector.selected_features_.size == 0
+assert np.isinf(selector.result_.threshold)
 print(selector.selected_features_.tolist())
 ```
 
-A small problem can return no features, particularly with knockoff+ at a stringent q. That is an admissible selection outcome; do not loosen the threshold after inspecting results merely to force discoveries.
+The output is `[]`, `selected.shape` is `(10, 0)`, and the support mask is
+all False. `threshold` is infinity and `estimated_fdr=0.0`; the latter is the
+empty-result convention, not proof that all five features are null. Do not
+increase q after inspecting the data merely to get discoveries, or add unrelated
+features to evade the resolution constraint. Choose the hypothesis family and
+tolerable error rate before selection; use a different study design or method
+when those requirements do not fit knockoff+.

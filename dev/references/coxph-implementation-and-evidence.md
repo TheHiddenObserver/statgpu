@@ -76,6 +76,32 @@ CuPy predictors and delayed-entry rows retain the stable backend-native
 per-failure-group calculation. This removes the former
 failure-group-by-sample risk-mask scan from the common right-censored path.
 
+## CV preparation and transfer implementation snapshot
+
+The following detail was moved from the model guides at source snapshot
+`94758a78f3acc741ac0ba2a8c85076763117e7b0`; it describes that implementation,
+not a permanent operation-count guarantee or a new performance measurement.
+Public field meanings are in the
+[device and CV diagnostics reference](../../docs/en/reference/coxph-diagnostics.md).
+
+The staged-safety adapter in
+`statgpu/survival/_cox_cv_staged_safety_contract.py` turns either experimental
+screening request into one exhaustive full-precision selector call. Each
+effective fold is prepared once for that pass. No retained staged cache or
+repeated stage preparation is used. This is distinct from reusing an already
+computed complete selection result through the selection cache.
+
+In `statgpu/survival/_cox_cv.py`, a target-preparation count represents one
+complete time/event metadata preparation. Each such preparation copies two
+actual target vectors, so the current
+`candidate_target_host_vector_transfer_count` is exactly twice
+`candidate_target_host_transfer_count`. The corresponding `_this_call`
+fields are reset to zero on a selection-cache hit, together with current-call
+fold/backend and right-censored preparation counts; selection-origin fields
+are retained while current request/final-refit device fields are updated.
+Neither those zero counters nor cache reuse rules out input host transfer or
+work in the final refit.
+
 ## Historical external validation
 
 The maintained R baseline uses R 4.4.1 with `survival` 3.8.9 and aligns ties,

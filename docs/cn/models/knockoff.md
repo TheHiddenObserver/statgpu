@@ -1,19 +1,38 @@
 # Knockoff 特征选择
 
 > 语言: 中文  
-> 最后更新: 2026-10-06
+> 最后更新: 2026-10-07
 > 页面定位: 方法文档  
 > 切换: [English](../../en/models/knockoff.md)
 
-## 概览
+<a id="概览"></a>
 
-Knockoff 方法以特征选择的 FDR 控制为目标，有效性依赖构造与统计量的假设，并受下文自动构造中心化与统计量并列问题限制。当前实现包含 `fixed_x` 与 `model_x` 两条路径，统一入口为 `knockoff_filter`。`fixed_x` 通常要求 `n >= 2p`；`model_x` 基于高斯二阶近似（协方差估计 + S 矩阵），支持多次抽样聚合 W 统计量。
+## Knockoff 选择要解决什么问题？
 
-全部函数/选择器签名、参数、结果字段与独立可运行的 CPU 示例见[特征选择 API 参考](../reference/feature-selection-api.md)。
+当你希望找出影响响应的预测变量，同时限制错误发现时，可以考虑 Knockoff。
+错误发现率（FDR）是所选特征中实际无效特征比例的期望值，未选中任何特征时
+该比例按零计；它不是“所有所选特征都正确”的概率。
 
-错误发现率（FDR）是所选特征中实际无效特征比例的期望值，未选中任何特征时该比例按零计；它不是“所有所选特征都正确”的概率。Knockoff 可以理解为匹配的负对照：每个原特征都要与一个依赖结构相似的人造对应变量竞争。若目标是控制选择错误，且构造假设可信，可以考虑本方法；若主要关注预测，可比较[逐步选择](feature-selection.md)，并用留出数据评价。
+Knockoff 可以理解为匹配的负对照：每个原特征都与一个依赖结构相似的人造
+对应变量竞争。较大的正统计量 W 表示原特征比其 knockoff 更重要；比较正、
+负统计量，可以确定选择原始列的阈值。
 
-## 先验证目标错误率
+使用 fixed-X，需要可信的匹配设计，以及具有独立同方差正态误差的高斯线性
+响应模型。Model-X 则需要可信的特征分布构造，响应关系可以是任意形式。
+当前自动构造和阈值并列存在重要[限制](#统计量并列时的限制)，选择一个 API
+分支不代表假设自动成立。若主要关注预测，可比较[逐步选择](feature-selection.md)，
+并用留出数据评价。
+
+全部函数/选择器签名、参数和结果字段见[特征选择 API 参考](../reference/feature-selection-api.md)。
+
+<a id="先验证目标错误率"></a>
+
+## 在选择前确定目标错误率
+
+应在查看发现结果前确定 q 和统计量。Knockoff+ 即使在最有利的情况下，阈值
+计数比也不会低于 1/p。因此 q=0.20 要求合格阈值至少对应五个正向发现；
+20 个预测变量使非空选择成为可能，但不保证一定有发现。应根据可接受的
+错误率选择 q，而不是用它调出期望的特征数量。
 
 调用过滤函数或拟合选择器前，应检查 `np.isfinite(q) and 0 < q < 1`。
 这适用于三个过滤函数、两个选择器类及两种阈值规则。当前验证会漏过 `q=np.nan`，
@@ -21,59 +40,89 @@ Knockoff 方法以特征选择的 FDR 控制为目标，有效性依赖构造与
 此时结果无效，不能解释为在合理目标错误率下未发现特征。请自行拒绝非有限 q，
 也不要在查看结果后改换目标错误率。
 
-## 完整的 CPU 示例
+<a id="centered-pair-example"></a>
 
-下面使用 240 行、12 个预测变量，满足生成 fixed-X knockoff 的样本量要求。
-这个示例演示 API；由于下文自动构造的中心化限制，不能据此声称名义 FDR 控制。
-后文另有中心化外部配对示例链接。只有前四列影响响应，应在查看结果之前确定 q。
+<a id="完整的-cpu-示例"></a>
+
+## 使用有效外部配对的完整 CPU 示例
+
+下面的受控模拟在生成 y 之前一起构造 X 与 Xk。QR 正交化的第一列留给截距，
+其余列分成两组中心化且相互正交的变量，因此 XᵀX=XkᵀXk=I、XᵀXk=0。
+它们满足 S=I 时 fixed-X 的匹配 Gram 条件，截距投影后仍然成立。
+这一构造需要 n≥2p+1。
+
+这是特殊的模拟设计，不是修复任意观测 X 的方法。分析自己的数据时，需要为
+原设计取得并验证匹配 X/Xk，包括截距或干扰变量投影后的配对条件。不要用
+这段 QR 代码替换已经观测到的预测变量，也不要只对自动生成的 Xk 再做中心化；
+前者会改变分析问题，后者可能破坏 Gram 约束。提供 `Xk` 可跳过目前存在
+[中心化限制](#自动-fixed-x-构造的中心化限制)的自动构造。
+
+这里预先设定 p=20、q=0.20、六个非零系数和 `corr_diff` 统计量。
+响应包含截距与标准差为 0.5 的独立高斯噪声，符合 fixed-X 响应模型假设。
 
 <!-- learner-example: knockoff-selection -->
 ```python
 import numpy as np
 from statgpu import fixed_x_knockoff_filter
 
-rng = np.random.default_rng(42)
-X = rng.normal(size=(240, 12))
-y = X[:, :4] @ np.array([3.0, -2.5, 2.0, 1.5])
-y += rng.normal(scale=0.5, size=240)
-q = 0.25
+# Prespecify the design, target rate, and statistic before seeing results.
+n, p = 240, 20
+q = 0.20
 if not (np.isfinite(q) and 0 < q < 1):
     raise ValueError("q must be finite and strictly between 0 and 1")
+rng = np.random.default_rng(42)
+Q, _ = np.linalg.qr(np.column_stack([np.ones(n), rng.normal(size=(n, 2*p))]))
+X, Xk = Q[:, 1:p+1], Q[:, p+1:2*p+1]
+np.testing.assert_allclose(X.mean(axis=0), 0, atol=1e-14)
+np.testing.assert_allclose(Xk.mean(axis=0), 0, atol=1e-14)
+np.testing.assert_allclose(X.T @ X, np.eye(p), atol=1e-14)
+np.testing.assert_allclose(Xk.T @ Xk, np.eye(p), atol=1e-14)
+np.testing.assert_allclose(X.T @ Xk, 0, atol=1e-14)
+
+beta = np.zeros(p)
+beta[:6] = [8, -7, 6, -5, 4, -3]
+y = 2.0 + X @ beta + rng.normal(scale=0.5, size=n)
 result = fixed_x_knockoff_filter(
-    X, y, q=q, method="corr_diff", random_state=7, backend="numpy",
+    X, y, Xk=Xk, q=q, method="corr_diff",
+    fdr_control="knockoff_plus", backend="numpy",
 )
 print("Selected columns:", result.selected_features.tolist())
 print("Threshold:", round(result.threshold, 3))
 print("Threshold ratio:", round(result.estimated_fdr, 3))
 ```
 
-该种子下，输出为 `Selected columns: [0, 1, 2, 3]`，阈值 `21.637`，
-阈值计数比 `0.25`。入选索引对应原始列；正 W 表示原特征的重要性超过其 knockoff。
-阈值计数比是规则给出的估计值，不是这一次样本中实际无效特征的比例。
-其他样本可能遗漏信号或选中噪声。过滤函数不拟合系数或预测模型；若随后评价预测，
-只能使用训练行进行选择，并将评价数据单独保留。
+## 如何理解选择结果及其不确定性
 
-## 路径
+该种子下，输出为 `Selected columns: [0, 1, 2, 3, 4, 5, 15]`，阈值 `1.019`，
+阈值计数比 `0.143`。索引从零开始，对应原始列。由于模拟真值已知，
+我们知道第 0–5 列是真信号，第 15 列是一次错误发现。目标 q 不保证每个
+入选特征都正确，也不约束每一次样本的实际错误发现比例。
 
-主路径：
-- `statgpu.feature_selection.knockoff_filter`
-- `statgpu.feature_selection.fixed_x_knockoff_filter`
-- `statgpu.feature_selection.model_x_knockoff_filter`
-- `statgpu.feature_selection.KnockoffSelector`
-- `statgpu.feature_selection.FixedXKnockoffSelector`
+`corr_diff` 使用 W_j=|X_jᵀ(y−ȳ)|−|Xk_jᵀ(y−ȳ)|。例如，
+`result.W[0]` 约为 6.386，支持原始信号；`result.W[11]` 约为 −0.921，
+更支持其 knockoff。本次运行没有绝对统计量并列。在所选阈值处，有七个 W
+达到正阈值，没有 W 小于等于 −T，因此 knockoff+ 计数比为 (1+0)/7。
+`estimated_fdr` 是规则给出的估计值，不是这一次样本中实际无效特征的比例，
+也不是逐特征 p 值。
+其他样本可能遗漏信号或选中更多噪声，一次模拟结果也不能实证证明 FDR 控制。
 
-顶层别名：
-- `statgpu.knockoff_filter`
-- `statgpu.fixed_x_knockoff_filter`
-- `statgpu.model_x_knockoff_filter`
-- `statgpu.KnockoffSelector`
-- `statgpu.FixedXKnockoffSelector`
+输入有效时，空选择也是有效结果：没有阈值满足规则，`threshold` 为无穷大，
+实现报告 `estimated_fdr=0.0`，但这不证明所有预测变量都无效。应保留预设 q，
+检查假设和检验效能，而不是看到结果后再放宽 q。API 参考提供了一个
+[必然返回空选择的小例子](../reference/feature-selection-api.md#runnable-fixed-x-example)。
 
-## 目标函数
+过滤函数不拟合系数或预测模型。如果还要评价预测，应在每个训练折内重新选择，
+再用选中列拟合独立模型，并将评价行单独保留。
+
+<a id="目标函数"></a>
+
+## 阈值如何工作
 
 统计目标是在给定 FDR 水平 `q` 下，通过 knockoff 统计量 `W` 与阈值规则（`knockoff_plus` 或 `knockoff`）选择特征集合。达到该目标仍需满足相关假设，并考虑下文说明的自动构造中心化与并列计数限制。
 
-## 估计方程
+<a id="估计方程"></a>
+
+### Knockoff+ 规则
 
 构造 knockoff 特征并计算反对称特征统计量 $W_j$ 后，knockoff+ 使用阈值
 
@@ -107,7 +156,7 @@ XᵀPX 与 XkᵀPXk 可能不同。即使列满秩且 n>2p，也会破坏通常�
 
 真正中心化且满足完整配对约束的外部 X/Xk 可以避开这一几何问题。
 应检查截距/干扰变量投影后的完整匹配 Gram 条件，而不只是相同形状或边际范数。
-[中心化正交 QR 示例](../reference/feature-selection-api.md#repeated-lasso-statistic-calls)
+[中心化配对示例](#centered-pair-example)
 构造了一个要求 n≥2p+1 的特殊设计，不是任意 X 的通用修复；事后单独中心化
 自动生成的 Xk 也可能破坏 Gram 约束。外部配对几何有效时，响应假设、
 统计量有效性、阈值并列和缓存限制仍然需要检查。
@@ -195,55 +244,33 @@ Lasso 缓存限制不同。
 
 ## CPU/GPU 示例
 
-以下可选 GPU 示例使用[独立 CPU 示例](../reference/feature-selection-api.md#runnable-fixed-x-example)生成的 X/y；CuPy/Torch 需要已安装且可用的 GPU 后端。
+以下可选 GPU 示例复用[中心化配对 CPU 示例](#centered-pair-example)中的
+X、y、Xk 和 q，保留相同的外部 fixed-X 配对、统计量和目标错误率。
+CuPy/Torch 需要已安装且可用的 CUDA 后端。这一 QR 配对用于 fixed-X，
+不是 model-X 的可交换性构造；model-X 需要符合特征分布的构造方式。
 
 ```python
-from statgpu import fixed_x_knockoff_filter, knockoff_filter
+from statgpu import fixed_x_knockoff_filter
+import cupy as cp
 
-# CPU: fixed-X
-res_cpu = fixed_x_knockoff_filter(
-    X,
-    y,
-    q=0.1,
-    method="ols_coef_diff",
-    backend="numpy",
+X_gpu, y_gpu, Xk_gpu = cp.asarray(X), cp.asarray(y), cp.asarray(Xk)
+res_gpu = fixed_x_knockoff_filter(
+    X_gpu, y_gpu, Xk=Xk_gpu, q=q, method="corr_diff",
+    fdr_control="knockoff_plus", backend="cupy",
 )
 
-# GPU: model-X
-res_gpu = knockoff_filter(
-    X,
-    y,
-    knockoff_type="model_x",
-    q=0.1,
-    method="lasso_coef_diff",
-    backend="cupy",
-    modelx_draws=3,
-)
-
-# GPU Torch: fixed-X
 import torch
-X_torch = torch.from_numpy(X).to('cuda')
-y_torch = torch.from_numpy(y).to('cuda')
 
+X_torch, y_torch, Xk_torch = [torch.from_numpy(a).to("cuda") for a in (X, y, Xk)]
 res_torch = fixed_x_knockoff_filter(
-    X_torch, y_torch,
-    q=0.1,
-    method="lasso_coef_diff",
-    backend="torch",
-)
-
-# GPU Torch: model-X
-res_torch_mx = knockoff_filter(
-    X_torch, y_torch,
-    knockoff_type="model_x",
-    q=0.1,
-    method="lasso_coef_diff",
-    backend="torch",
-    modelx_draws=3,
+    X_torch, y_torch, Xk=Xk_torch, q=q, method="corr_diff",
+    fdr_control="knockoff_plus", backend="torch",
 )
 ```
 
-## 严格与近似模式的差别
+<a id="严格与近似模式的差别"></a>
+
+## 阈值规则与构造假设
 
 本模块不使用 `strict/approx` 推断口径开关。`fixed_x` 与 `model_x` 采用不同的设计或特征分布假设，应根据统计问题选择，不能把两者当作速度或数值精度档位。`modelx_draws`（必须为正整数）影响计算量与蒙特卡洛波动；后端选择均不替代构造假设或阈值规则。
 
@@ -279,13 +306,30 @@ res_torch_mx = knockoff_filter(
 - **`fixed_x` 的主要约束是什么？**  
   通常要求样本规模与矩阵秩满足构造条件（常见约束为 `n >= 2p`）。这些条件不能保证中心化配对几何有效，也不能替代高斯线性响应假设。
 
-## 外部验证（External Validation）
+## 进阶参考
 
-推荐验证脚本：
+<a id="路径"></a>
 
-- `dev/benchmarks/benchmark_knockoff_fixedx.py`
-- `dev/benchmarks/benchmark_knockoff_vs_baselines.py`
-- `dev/benchmarks/benchmark_knockoff_same_xk_parity.py`
+### 导入路径
+
+主路径：
+- `statgpu.feature_selection.knockoff_filter`
+- `statgpu.feature_selection.fixed_x_knockoff_filter`
+- `statgpu.feature_selection.model_x_knockoff_filter`
+- `statgpu.feature_selection.KnockoffSelector`
+- `statgpu.feature_selection.FixedXKnockoffSelector`
+
+顶层别名：
+- `statgpu.knockoff_filter`
+- `statgpu.fixed_x_knockoff_filter`
+- `statgpu.model_x_knockoff_filter`
+- `statgpu.KnockoffSelector`
+- `statgpu.FixedXKnockoffSelector`
+
+<a id="外部验证external-validation"></a>
+
+需要复现实现在不同基线下的比较时，贡献者可阅读可选的
+[Knockoff 验证指南](../../../dev/references/model-validation.md#knockoff)。
 
 ## 参考（References）
 
