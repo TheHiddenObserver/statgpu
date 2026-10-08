@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 from scipy.interpolate import BSpline
+from scipy.linalg import null_space
 
 from statgpu.nonparametric.kernel_methods import (
     KernelRidge,
@@ -19,7 +20,6 @@ from statgpu.nonparametric.kernel_methods import (
 )
 from statgpu.nonparametric.splines import (
     SplineTransformer,
-    bspline_basis,
     cyclic_cubic_spline_basis,
     natural_cubic_spline_basis,
     thin_plate_spline_basis,
@@ -186,15 +186,45 @@ def test_kernel_ridge_cv_should_not_select_nan_candidate():
 def test_cyclic_basis_should_satisfy_analytic_periodicity():
     x = np.linspace(0.0, 1.0, 500)
     knots = np.linspace(0.1, 0.9, 10)
-    ordinary = bspline_basis(x, knots, xp=np)
-    cyclic = cyclic_cubic_spline_basis(x, knots, xp=np)
-    projection = np.linalg.lstsq(ordinary, cyclic, rcond=None)[0]
-    assert_allclose(ordinary @ projection, cyclic, atol=1e-12)
+    cyclic = np.asarray(cyclic_cubic_spline_basis(x, knots, xp=np))
+    # The known stencil has rank two; an analytic repair has rank three.
+    # Neither permits missing rows, redundant columns, or nonfinite values.
+    assert cyclic.ndim == 2 and cyclic.shape[0] == len(x), "Invalid cyclic basis shape"
+    assert cyclic.shape[1] in (len(knots) + 1, len(knots) + 2), "Invalid cyclic basis width"
+    assert np.isfinite(cyclic).all(), "Cyclic basis contains nonfinite values"
+    column_scales = np.max(np.abs(cyclic), axis=0)
+    assert np.all(column_scales > 0.), "Cyclic basis contains a zero column"
+    # Balance every column before rank/reconstruction checks so rescaling
+    # cannot hide corruption or make an independent column appear redundant.
+    cyclic = cyclic / column_scales
+    assert np.linalg.matrix_rank(cyclic) == cyclic.shape[1], "Cyclic basis is rank deficient"
+
+    # Use an independent evaluator, not the production ordinary-basis helper.
     augmented = np.r_[np.zeros(4), knots, np.ones(4)]
-    spline = BSpline(augmented, projection, 3)
+    ordinary_spline = BSpline(augmented, np.eye(len(knots) + 4), 3)
+    ordinary = ordinary_spline(x)
+    projection = np.linalg.lstsq(ordinary, cyclic, rcond=None)[0]
+    assert_allclose(ordinary @ projection, cyclic, rtol=1e-10, atol=1e-12,
+                    err_msg="Cyclic basis contains off-spline values")
+    # Test the coefficient space, independently of column scale/orientation.
+    orthogonal, _ = np.linalg.qr(projection)
+    spline = BSpline(augmented, orthogonal, 3)
     for order in (0, 1, 2):
         derivative = spline.derivative(order)
         left, right = derivative(0.0), derivative(1.0)
         assert np.isfinite(left).all() and np.isfinite(right).all()
         if not np.allclose(left, right, rtol=1e-8, atol=1e-8):
+            # Recognize only the existing zero-exterior central-difference
+            # space. Other finite, full-rank nonperiodic spaces must fail.
+            h = 1e-6
+            a, ah, bl, b = ordinary_spline([0., h, 1. - h, 1.])
+            constraints = np.array([
+                a - b, (ah + bl) / (2*h), (ah - bl - 2*(a - b)) / h**2,
+            ])
+            expected = null_space(constraints)
+            assert orthogonal.shape == expected.shape, "Unexpected cyclic defect dimension"
+            assert_allclose(orthogonal @ orthogonal.T, expected @ expected.T,
+                            rtol=0., atol=1e-10,
+                            err_msg="Unexpected cyclic-spline constraint subspace")
             raise _NonperiodicCyclicBasis(f"Boundary derivative order {order} is not periodic")
+    assert cyclic.shape[1] == len(knots) + 1, "Incomplete periodic basis dimension"
