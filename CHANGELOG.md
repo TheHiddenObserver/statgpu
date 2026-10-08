@@ -7,7 +7,7 @@ All notable changes to statgpu are documented here, organized by release and dat
 ### PR #168 — Completed learner docs and fixed Torch model-X draws
 - Improved bilingual learner guides, distribution workflows and navigation across linear models, feature selection, survival, smoothing and twelve unsupervised methods.
 - Added runtime-checked complete constructor/method/result references, including typed GLM and CV wrappers, plus standalone CPU prediction, formula and ordered-fold examples.
-- Corrected objective normalization, unpenalized intercepts, UMAP pair scope, TSNE probability/perplexity definitions, inference targets and weighted/resampling interpretation; documented current limitations and tested alternatives.
+- Corrected objective normalization, unpenalized intercepts, UMAP pair scope, TSNE probability/perplexity definitions, inference targets and weighted/resampling interpretation; clarified the logit-only `LogisticRegression` inventory entry and separate `OrderedProbitRegression`; documented current limitations and tested alternatives.
 - Fixed native Torch model-X generation to bind its random generator and noise to the input device and honor its local seed; synchronized bilingual documentation and installed help.
 - Tightened expected-failure regressions, including the exact UMAP missing-neighbor signature, to expose unrelated corruption; retained independently tracked runtime limitations and preserved unrelated production logic and dependency metadata.
 

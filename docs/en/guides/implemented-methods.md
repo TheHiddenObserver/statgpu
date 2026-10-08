@@ -1,6 +1,6 @@
 # Implemented Methods
 
-> Last updated: 2026-10-06  
+> Last updated: 2026-10-08  
 > Switch: [Chinese](../../cn/guides/implemented-methods.md)
 
 This page is the public inventory of models, functions, and major solver families available in statgpu. Detailed mathematics, inference scope, and compatibility rules live on the linked model and guide pages.
@@ -13,7 +13,7 @@ This page is the public inventory of models, functions, and major solver familie
 | `Ridge` | L2-penalized linear regression | NumPy, CuPy, Torch |
 | `Lasso` | L1 regression with debiased/bootstrap inference paths | NumPy, CuPy, Torch |
 | `ElasticNet` | L1+L2 penalized regression | NumPy, CuPy, Torch |
-| `LogisticRegression` | Binary logistic/probit regression | NumPy, CuPy, Torch |
+| `LogisticRegression` | Binary logistic regression (logit link) | NumPy, CuPy, Torch |
 | `PoissonRegression` | Poisson GLM | NumPy, CuPy, Torch |
 | `GammaRegression` | Gamma GLM | NumPy, CuPy, Torch |
 | `InverseGaussianRegression` | Inverse Gaussian GLM | NumPy, CuPy, Torch |
@@ -22,6 +22,8 @@ This page is the public inventory of models, functions, and major solver familie
 | `QuantileRegression` | Quantile regression with kernel/bootstrap inference | NumPy, CuPy, Torch |
 | `OrderedLogitRegression` | Ordered logit with analytical-Hessian inference | NumPy, CuPy, Torch |
 | `OrderedProbitRegression` | Ordered probit with analytical-Hessian inference | NumPy, CuPy, Torch |
+
+[`LogisticRegression`](../models/logistic-regression.md) uses the logit link and has no probit link option. [`OrderedProbitRegression`](../models/ordered.md) provides the separate ordered-probit model; set `n_categories=2` for binary probit regression.
 
 ## Penalized Models
 

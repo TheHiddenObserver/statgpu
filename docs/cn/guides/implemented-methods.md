@@ -1,6 +1,6 @@
 # 已实现方法
 
-> 最后更新：2026-10-06  
+> 最后更新：2026-10-08  
 > 切换：[English](../../en/guides/implemented-methods.md)
 
 本页汇总 statgpu 当前公开的模型、函数与主要求解器族。详细的数学定义、推断范围与兼容性规则，请以对应模型页和指南为准。
@@ -13,7 +13,7 @@
 | `Ridge` | L2 惩罚线性回归 | NumPy, CuPy, Torch |
 | `Lasso` | L1 回归，含去偏推断和自助法推断路径 | NumPy, CuPy, Torch |
 | `ElasticNet` | L1+L2 惩罚回归 | NumPy, CuPy, Torch |
-| `LogisticRegression` | 二元 logistic/probit 回归 | NumPy, CuPy, Torch |
+| `LogisticRegression` | 二元逻辑回归（logit 连接函数） | NumPy, CuPy, Torch |
 | `PoissonRegression` | Poisson GLM | NumPy, CuPy, Torch |
 | `GammaRegression` | Gamma GLM | NumPy, CuPy, Torch |
 | `InverseGaussianRegression` | Inverse Gaussian GLM | NumPy, CuPy, Torch |
@@ -22,6 +22,8 @@
 | `QuantileRegression` | 分位数回归，支持核方法和自助法推断 | NumPy, CuPy, Torch |
 | `OrderedLogitRegression` | 有序 logit 回归 与解析 Hessian 推断 | NumPy, CuPy, Torch |
 | `OrderedProbitRegression` | 有序 probit 回归 与解析 Hessian 推断 | NumPy, CuPy, Torch |
+
+[`LogisticRegression`](../models/logistic-regression.md) 使用 logit 连接函数，不提供 probit 连接函数选项。有序 probit 模型由独立的 [`OrderedProbitRegression`](../models/ordered.md) 提供；设置 `n_categories=2` 即可拟合二元 probit 回归。
 
 ## 惩罚模型
 
