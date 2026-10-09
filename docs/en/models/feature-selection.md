@@ -1,7 +1,7 @@
 # Feature Selection
 
 > Language: English  
-> Last updated: 2026-10-05  
+> Last updated: 2026-10-09\
 > Switch: [Chinese](../../cn/models/feature-selection.md)
 
 ## Which predictors should stay?
@@ -42,19 +42,35 @@ search; it does not enumerate all subsets or guarantee the global minimum.
 ## A complete CPU example
 
 This example creates six candidate predictors, only two of which generate the
-outcome. Selection sees the training rows only; the test rows stay untouched
-until evaluation.
+outcome. Run the blocks in order, starting with the imports.
 
+<!-- example: feature-selection-basic -->
 ```python
 import numpy as np
 from statgpu import LinearRegression, StepwiseSelector
+```
 
+### Prepare predictors and reserve test rows
+
+`X` has shape `(240, 6)`: rows are observations and columns are candidate
+predictors. `y` has shape `(240,)` with one continuous response per row.
+The first 180 rows are training data; selection never sees the last 60 test rows.
+
+```python
 rng = np.random.default_rng(42)
 X = rng.normal(size=(240, 6))
 y = 1.5 + 3.0 * X[:, 0] - 2.0 * X[:, 2] + rng.normal(scale=0.5, size=240)
 X_train, X_test = X[:180], X[180:]
 y_train, y_test = y[:180], y[180:]
+```
 
+### Select on the training data
+
+Choose BIC for the search and allow up to three predictors. `LinearRegression`
+is the class used for each candidate fit. Turn off coefficient inference here
+because ordinary refit p-values do not account for variable selection.
+
+```python
 selector = StepwiseSelector(
     LinearRegression,
     criterion="bic",
@@ -63,15 +79,28 @@ selector = StepwiseSelector(
     device="cpu",
     compute_inference=False,
 ).fit(X_train, y_train)
+```
 
+### Evaluate and inspect the chosen model
+
+Keep all six original columns when calling the selector. `transform` exposes the
+retained columns; `predict` and `score` select them internally.
+
+```python
 X_selected = selector.transform(X_test)
-prediction = selector.predict(X_test)  # pass the original six columns
+prediction = selector.predict(X_test)
 print("Selected columns:", selector.selected_features_)
 print("Selected test shape:", X_selected.shape)
 print("Slopes:", np.round(selector.best_model_.coef_, 3))
 print("Test R2:", round(selector.score(X_test, y_test), 3))
+```
+
+Finally, inspect why the search accepted its steps by looking at the BIC history.
+
+```python
 print("BIC path:", np.round(selector.bic_history_, 3))
 ```
+<!-- example-end: feature-selection-basic -->
 
 Expected rounded output:
 

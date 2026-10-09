@@ -1,7 +1,7 @@
 # GeneralizedLinearModel and Penalized GLM
 
 > Language: English  
-> Last updated: 2026-10-06  
+> Last updated: 2026-10-09<br>
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/generalized-linear-model.md)
 
@@ -11,45 +11,74 @@ A GLM connects a linear predictor to the mean of an outcome through a link funct
 
 Poisson assumes conditional variance equals the mean. Strong count overdispersion can motivate a Negative Binomial model; strictly positive continuous outcomes can motivate Gamma or Inverse Gaussian. Choose the family from the response and scientific assumptions, not simply the lowest training error. These APIs do not expose an offset/exposure argument; adding exposure as an ordinary predictor estimates its coefficient rather than fixing it at one.
 
+<a id="cpu-example"></a>
+
 ## A complete CPU example
 
-This simulation fits an unpenalized log-link Poisson model on 180 rows with analytic weights. The final 60 rows are held out. `C=0` makes the unpenalized intent explicit; Newton does not use C. No GPU or optional formula package is needed.
+Run the steps in order: prepare counts, fit, predict, then optionally add coefficient inference. No GPU or formula dependencies are needed.
+
+### 1. Import
 
 <!-- learner-example: glm-poisson -->
 ```python
 import numpy as np
 from statgpu import GeneralizedLinearModel
+```
 
+### 2. Prepare inputs and held-out data
+
+`X` has shape `(240, 2)`: rows are observations and columns are two numeric features. `y` is a length-240 vector of nonnegative integer counts. The log link makes the conditional mean `exp(0.3 + X @ beta)` positive; this is not an event probability. Handle missing values in real data and retain the training feature order for prediction.
+
+```python
 rng = np.random.default_rng(59)
 X = rng.normal(size=(240, 2))
 y = rng.poisson(np.exp(0.3 + X @ np.array([0.4, -0.2])))
+```
+
+The first 180 rows are training data; hold out the final 60. This weighted example also assigns one finite nonnegative analytic weight per training row. Weights control contributions to the fitting objective, rather than row replication or resampling probabilities. Omit `sample_weight` for an unweighted fit.
+
+```python
 weights = np.linspace(0.5, 2.0, 180)
+```
+
+### 3. Fit an unpenalized model
+
+`C=0` makes the unpenalized intent explicit. This example requests Newton, which does not use C. The default auto/IRLS path with positive C instead applies ridge shrinkage; the objective section explains that distinction.
+
+```python
 model = GeneralizedLinearModel(
     family="poisson", C=0, solver="newton", device="cpu",
-    max_iter=1000, tol=1e-8, compute_inference=True, cov_type="hc1",
+    max_iter=1000, tol=1e-8, compute_inference=False,
 ).fit(X[:180], y[:180], sample_weight=weights)
-mean_prediction = model.predict(X[180:])
-heldout_loss = np.mean(mean_prediction - y[180:] * np.log(mean_prediction))
 print("Slopes:", np.round(model.coef_, 3))
 print("Mean multipliers:", np.round(np.exp(model.coef_), 3))
+```
+
+For this seed, slopes round to `[0.402, -0.327]` and mean multipliers to `[1.495, 0.721]`. Holding the other feature fixed, a unit increase in the first feature corresponds to about a 49.5% higher expected count; a unit increase in the second to about a 27.9% decrease. These are associations, not causal effects.
+
+### 4. Predict and evaluate held-out data
+
+```python
+mean_prediction = model.predict(X[180:])
+heldout_loss = np.mean(mean_prediction - y[180:] * np.log(mean_prediction))
 print("Predicted means:", np.round(mean_prediction[:3], 3))
 print("Held-out Poisson loss:", round(float(heldout_loss), 3))
+```
+
+Predictions have shape `(60,)`, are positive, and may be fractional even though observations are counts. The held-out loss is about `0.556` and omits the response-only log-factorial term. Lower is better only on the same held-out responses and weighting; it is neither accuracy nor ordinary R². This ordinary GLM class has no `score` or `predict_proba` method.
+
+### 5. Optional: coefficient intervals
+
+Reuse the training data from step 3 and refit with inference enabled. `cov_type="hc1"` uses HC1 score-robust covariance. Covariance choice does not change the fitted mean; assumptions and alternatives are explained in the inference section below.
+
+```python
+model.set_params(compute_inference=True, cov_type="hc1")
+model.fit(X[:180], y[:180], sample_weight=weights)
 print("Interval shape:", model._conf_int.shape)
 ```
 
-Rounded CPU output for this seed:
-
-```text
-Slopes: [ 0.402 -0.327]
-Mean multipliers: [1.495 0.721]
-Predicted means: [1.139 1.24  2.107]
-Held-out Poisson loss: 0.556
-Interval shape: (3, 2)
-```
-
-The coefficient multipliers describe changes in the conditional mean, holding the other feature fixed. The first slope corresponds to about a 49.5% higher conditional mean per unit increase in the first feature; the second corresponds to about a 27.9% decrease.  Predicted means may be fractional even when observations are integer counts. The held-out loss omits the response-only log-factorial constant; compare it only on the same held-out responses and weighting. Smaller is better. It is not a probability, accuracy or ordinary R².
-
-Inference arrays have three entries here: intercept first, then the two slopes; `_conf_int` has shape `(3,2)`. HC1 changes covariance, not the fitted mean. These are marginal coefficient intervals, not intervals for future counts. This generic ordinary class returns mean probabilities for binomial but has no `predict_proba` or `score`; choose evaluation appropriate to the family. `print(model.summary())` displays its returned summary string.
+The interval array has shape `(3, 2)`: intercept first, then the two slopes. These are asymptotic marginal coefficient intervals, not intervals for future counts. `summary()` returns a string; display it with `print(model.summary())`.
+<!-- example-end: glm-poisson -->
 
 ## Ordinary and penalized entry points
 
@@ -221,7 +250,7 @@ Alpha scaling is explicit. Do not compare same-named parameters across framework
 
 ## Optional GPU and formula inputs
 
-After the CPU data-generation example, the same ordinary weighted Poisson fit can request CuPy CUDA as follows. Use device="torch" for Torch CUDA; an unavailable explicit backend raises.
+Reuse the imports, `X`, `y`, and `weights` from the completed [CPU example](#cpu-example). Request the same ordinary weighted Poisson fit on CuPy CUDA as follows. Use device="torch" for Torch CUDA; an unavailable explicit backend raises.
 
 ```python
 model_gpu = GeneralizedLinearModel(
@@ -237,15 +266,26 @@ Formula input requires `pip install statgpu[formula]`. This example is independe
 import numpy as np
 import pandas as pd
 from statgpu import GeneralizedLinearModel
+```
 
+In this independent example, each row of `df` is an observation: `count` is the response, `x` is numeric, and `group` is categorical.
+
+```python
 rng = np.random.default_rng(18)
 df = pd.DataFrame({"x": rng.normal(size=80), "group": ["a", "b"] * 40})
 df["count"] = rng.poisson(np.exp(0.2 + 0.3 * df["x"]))
+```
+
+The formula constructs the intercept and categorical coding. For prediction, supply a DataFrame with the same column names and category levels.
+
+```python
 model = GeneralizedLinearModel(family="poisson", C=0, device="cpu")
 model.fit(formula="count ~ x + C(group)", data=df)
 prediction = model.predict(df.iloc[:5])
 assert prediction.shape == (5,)
 ```
+<!-- example-end: glm-formula -->
+
 
 Formula parsing runs on CPU. Pass formula/data without simultaneous array X/y. Weights may cover original rows or exactly the rows retained after formula/missing-data processing; alignment is positional. Prediction reconstructs the training columns and categorical levels. For large data, explicit arrays avoid formula parsing overhead.
 
@@ -267,27 +307,27 @@ Supported non-Gaussian L2/no-penalty combinations expose fixed-penalty M-estimat
 
 The optional `cv_strategy="two_stage"` mode first screens the alpha grid with relaxed CV solves, then strictly refines candidate alphas and performs a strict final refit. Because screening can change the ranking when CV curves are close, two-stage mode emits `ApproximateCVWarning` unless `acknowledge_approx=True` is passed.
 
+These snippets configure estimators without fitting. The next section runs a complete CPU cross-validation example using the existing training data.
+
 ```python
 from statgpu.linear_model import PenalizedGLM_CV
 
-# Default: strict CV.
 strict_cv = PenalizedGLM_CV(
-    loss="poisson",
-    penalty="elasticnet",
-    cv_strategy="strict",
-    device="cuda",
-)
-
-# Opt-in approximate screening; candidate refinement and final refit stay strict.
-fast_cv = PenalizedGLM_CV(
-    loss="poisson",
-    penalty="elasticnet",
-    cv_strategy="two_stage",
-    acknowledge_approx=True,
-    refine_top_k=3,
-    device="cuda",
+    loss="poisson", penalty="elasticnet",
+    cv_strategy="strict", device="cpu",
 )
 ```
+
+Keep the import from the preceding block. If the possible change in candidate ranking is acceptable, opt into two-stage screening:
+
+```python
+fast_cv = PenalizedGLM_CV(
+    loss="poisson", penalty="elasticnet",
+    cv_strategy="two_stage", acknowledge_approx=True,
+    refine_top_k=3, device="cpu",
+)
+```
+
 
 ## Reading CV inference results
 
@@ -295,25 +335,35 @@ The generic `PenalizedGLM_CV` tunes alpha at a fixed l1_ratio and refits on all 
 
 The current `summary()` method cannot render successful generic final-refit inference: it delegates to a final estimator without that method and raises AttributeError. Read the result container instead:
 
+Reuse the NumPy import, `X`, `y`, and `weights` from the completed [CPU example](#cpu-example), rather than generating another dataset.
+
+<!-- example-requires: glm-poisson -->
 <!-- learner-example: glm-cv-inference -->
 ```python
-import numpy as np
 from statgpu import PenalizedGLM_CV
+```
 
-rng = np.random.default_rng(9)
-X = rng.normal(size=(60, 2))
-y = rng.poisson(np.exp(0.2 + 0.3 * X[:, 0]))
+The grid compares two L2 strengths using two validation folds. Give CV only the first 180 rows from the original CPU example and keep the final 60 held out. Pass the same analytic weights for those 180 training rows; held-out rows remain outside tuning and refitting.
+
+```python
 model = PenalizedGLM_CV(
     loss="poisson", penalty="l2", alpha_grid=[0.05, 0.2],
     cv=2, device="cpu", compute_inference=True,
-).fit(X, y)
-report = model.estimator_._inference_result.to_dict()
+).fit(X[:180], y[:180], sample_weight=weights)
 print("Selected alpha:", model.alpha_)
+```
+
+After selection, coefficient inference comes from the full-training-data refit at the chosen alpha. Read its result container and distinguish validation loss from its negative, `best_score_`:
+
+```python
+report = model.estimator_._inference_result.to_dict()
 print("Method:", report["method"])
 print("Standard errors:", np.round(model.estimator_._bse, 3))
 assert model.cv_results_["all_scores"].shape == (2, 2)
 assert np.isclose(model.best_score_, -np.min(model.cv_results_["mean_score"]))
 ```
+<!-- example-end: glm-cv-inference -->
+
 
 This produces method `m_estimation` and three finite standard errors. Inference is conditional on the selected alpha and does not account for tuning uncertainty. The final generic estimator has no predict_proba or summary method. Its logistic prediction is a 0/1 label rather than a mean probability; use a suitable typed estimator when probability methods are needed. Shapes, default values and complete CV result keys are in the [API reference](../reference/linear-model-api.md#penalizedglm_cv).
 

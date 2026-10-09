@@ -1,7 +1,7 @@
 # Loss Functions (LossBase)
 
 > Language: English  
-> Last updated: 2026-09-17  
+> Last updated: 2026-10-09\
 > This page: Low-level loss reference  
 > Switch: [Chinese](../../cn/models/losses.md)
 
@@ -166,44 +166,122 @@ The partial likelihood is invariant to adding a common constant to all linear pr
 
 ## Direct loss-level examples
 
+These examples evaluate a loss at supplied coefficients; they do not fit a
+model. Run the blocks within each example in order.
+
+<a id="losses-huber"></a>
+
 ### Value and gradient
 
+First import the fixed-threshold Huber loss and NumPy.
+
+<!-- example: losses-huber -->
 ```python
 import numpy as np
 from statgpu.losses import HuberLoss
+```
 
+`X` has shape `(80, 3)`, with rows as observations and columns as predictors.
+`y` has shape `(80,)`, one continuous response per row. This low-level API uses
+`X @ coef` directly; no intercept column is added automatically.
+
+```python
+rng = np.random.default_rng(42)
+X = rng.normal(size=(80, 3))
+y = X @ np.array([2.0, -1.0, 0.5]) + rng.normal(scale=0.3, size=80)
+```
+
+Evaluate at the zero coefficient vector with Huber threshold `delta=1.5`.
+The coefficient vector has one entry per column of `X`.
+
+```python
 loss = HuberLoss(delta=1.5)
 coef = np.zeros(X.shape[1])
-
 value = loss.value(X, y, coef)
 gradient = loss.gradient(X, y, coef)
 ```
 
+Inspect the scalar objective and one derivative per coefficient.
+
+```python
+print(round(float(value), 3))
+print(np.round(gradient, 3))
+```
+<!-- example-end: losses-huber -->
+
+The value is about `1.483`, and the gradient is approximately
+`[-0.887, 0.352, -0.093]`. These derivatives describe local changes in the
+objective at zero coefficients; they are neither fitted slopes nor standard
+errors. A solver would use such evaluations to update the coefficients.
+
 ### Weighted first-order evaluation
 
+Reuse `X`, `y`, `coef` and `loss` from [the Huber example](#losses-huber).
+Here the first 50 observations receive five times the weight of each remaining
+row. Weights have shape `(80,)` and align with rows.
+
+<!-- example-requires: losses-huber -->
+<!-- example: losses-weighted -->
 ```python
 sample_weight = np.ones(X.shape[0])
 sample_weight[:50] = 5.0
-
-value = loss.value(X, y, coef, sample_weight=sample_weight)
-gradient = loss.gradient(X, y, coef, sample_weight=sample_weight)
+weighted_value = loss.value(X, y, coef, sample_weight=sample_weight)
+weighted_gradient = loss.gradient(X, y, coef, sample_weight=sample_weight)
+print(float(weighted_value), weighted_gradient.shape)
 ```
+<!-- example-end: losses-weighted -->
 
-This demonstrates the loss-layer weighted primitives only. Whether a complete estimator/solver route supports the same weights is documented separately.
+The weighted objective divides by the sum of weights, as defined above;
+changing all weights by the same positive factor does not change it. This
+demonstrates loss-layer first-order primitives only. Whether a complete
+estimator/solver supports the same weights is documented separately.
 
 ### Cox partial likelihood
 
+This separate example supplies its own small survival dataset. Import the Cox
+loss and NumPy; none of the preceding Huber variables are required.
+
+<!-- example: losses-cox -->
 ```python
+import numpy as np
 from statgpu.losses import CoxPartialLikelihoodLoss
-
-loss = CoxPartialLikelihoodLoss(ties="efron")
-y_surv = np.column_stack([time, event])
-coef = np.zeros(X.shape[1])
-
-value = loss.value(X, y_surv, coef)
-gradient = loss.gradient(X, y_surv, coef)
-hessian = loss.hessian(X, y_surv, coef)
 ```
+
+`X_surv` has shape `(6, 2)` with no intercept column. `time` is the observed
+follow-up time and `event` is 1 for an event or 0 for right censoring. Stack
+them in that order to form the `(6, 2)` response required by this interface.
+
+```python
+X_surv = np.array([[0., 1.], [1., 0.], [0.5, 1.],
+                   [-0.5, 0.], [1.5, 1.], [-1., 0.]])
+time = np.array([2., 3., 3., 5., 6., 8.])
+event = np.array([1, 1, 0, 1, 0, 1])
+y_surv = np.column_stack([time, event])
+```
+
+Evaluate the Efron loss, gradient and Hessian at zero slopes. This illustrates
+the numerical interface only, not a fitted survival analysis.
+
+```python
+cox_loss = CoxPartialLikelihoodLoss(ties="efron")
+coef_surv = np.zeros(X_surv.shape[1])
+cox_value = cox_loss.value(X_surv, y_surv, coef_surv)
+cox_gradient = cox_loss.gradient(X_surv, y_surv, coef_surv)
+cox_hessian = cox_loss.hessian(X_surv, y_surv, coef_surv)
+```
+
+Check the result dimensions.
+
+```python
+print(round(float(cox_value), 3))
+print(cox_gradient.shape, cox_hessian.shape)
+```
+<!-- example-end: losses-cox -->
+
+The scalar value is about `0.750`; the gradient and Hessian have shapes
+`(2,)` and `(2, 2)`. The Hessian describes objective curvature at the supplied
+coefficients, not a ready-made covariance estimate. Use [CoxPH](coxph.md) for
+fitting, survival prediction and the model-specific inference workflow.
 
 ## Backend behavior
 

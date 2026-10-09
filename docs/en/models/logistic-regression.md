@@ -1,7 +1,7 @@
 # LogisticRegression
 
 > Language: English  
-> Last updated: 2026-10-03
+> Last updated: 2026-10-09
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/logistic-regression.md)
 
@@ -11,50 +11,69 @@
 
 This standalone estimator uses IRLS and optional L2 regularization on CPU/GPU. It does not implement multiclass, L1, or Elastic Net fitting. For broader penalty choices, see [penalized GLM](generalized-linear-model.md); do not assume those estimators share this class's `C` or solver interface.
 
+<a id="cpu-example"></a>
+
 ## A complete CPU example
 
-The example generates nonseparable 0/1 data, fits on 600 rows, and evaluates the remaining 200. `C=0` requests this estimator's unregularized fit; the default `C=1.0` instead applies L2 regularization.
+Run these steps in order. Start with fitting and prediction; the last step optionally adds coefficient intervals. Only a CPU is needed.
 
+### 1. Import
+
+<!-- learner-example: logistic-unpenalized -->
 ```python
 import numpy as np
 from statgpu.linear_model import LogisticRegression
+```
 
+### 2. Prepare binary data
+
+`X` has shape `(800, 3)`: one observation per row and one numeric feature per column. `y` is a length-800 vector of 0/1 labels. The simulated probabilities generate the labels; fitting real data does not require knowing those probabilities. Use the first 600 rows for training and the remaining 200 for evaluation, retaining the same feature order.
+
+```python
 rng = np.random.default_rng(42)
 X = rng.normal(size=(800, 3))
 true_coef = np.array([0.8, -0.6, 0.3])
 p = 1.0 / (1.0 + np.exp(-(-0.2 + X @ true_coef)))
 y = rng.binomial(1, p)
+```
 
+### 3. Fit and check convergence
+
+`C=0` is this estimator's special value for removing the penalty exactly; the default `C=1.0` adds L2 shrinkage. Disable inference initially to focus on the fitted model.
+
+```python
 model = LogisticRegression(
-    C=0, device="cpu", cov_type="hc1",
-    compute_inference=True, max_iter=200, tol=1e-8,
+    C=0, device="cpu", compute_inference=False, max_iter=200, tol=1e-8,
 ).fit(X[:600], y[:600])
-
 print("converged:", model.converged_)
 print("coef:", np.round(model.coef_, 3))
 print("odds ratios:", np.round(np.exp(model.coef_), 3))
-print("P(y=1):", np.round(model.predict_proba(X[600:603])[:, 1], 3))
+```
+
+For this seed, coefficients round to `[0.849, -0.501, 0.138]` and odds ratios to `[2.338, 0.606, 1.148]`. Holding other features fixed, a unit increase in the first feature multiplies the odds by about 2.338; this is not a probability ratio. Check that `converged_` is true before interpreting the estimates.
+
+### 4. Predict on held-out rows
+
+```python
+probability = model.predict_proba(X[600:])
+print("P(y=1):", np.round(probability[:3, 1], 3))
 print("held-out accuracy:", round(float(model.score(X[600:], y[600:])), 3))
+```
+
+`predict_proba` generally returns shape `(n_samples, 2)`, here a `(200, 2)` array with class-0 and class-1 probabilities. The first three class-1 probabilities round to `[0.388, 0.306, 0.563]`, and accuracy to `0.65`. `predict` uses a 0.5 threshold; `predict_with_threshold` allows another threshold. For imbalanced outcomes, also examine precision/recall or the precision–recall curve.
+
+### 5. Optional: coefficient uncertainty
+
+Reuse the training data above and refit with inference enabled. Here HC1 requests a score-robust covariance estimate; its assumptions and the interpretation at positive C are discussed under Covariance/Inference below. Changing the covariance convention does not change these coefficients.
+
+```python
+model.set_params(compute_inference=True, cov_type="hc1")
+model.fit(X[:600], y[:600])
 print("95% coefficient intervals:", np.round(model._conf_int, 3))
 ```
 
-For this seed, rounded output starts as follows (small numerical differences across environments are expected):
-
-```text
-converged: True
-coef: [ 0.849 -0.501  0.138]
-odds ratios: [2.338 0.606 1.148]
-P(y=1): [0.388 0.306 0.563]
-held-out accuracy: 0.65
-```
-
-### Reading the results
-
-- `coef_[j]` is a change in log odds for a one-unit increase in feature j, holding other features fixed. `exp(coef_[j])` is an odds ratio, not a probability ratio or a direct probability change.
-- `predict_proba(X)` has shape `(n_samples, 2)`: columns are probabilities for classes 0 and 1. `predict(X)` uses a 0.5 threshold; `predict_with_threshold(X, threshold=...)` allows a threshold chosen for the application.
-- `score(X, y)` is classification accuracy. Evaluate it on held-out data; for imbalanced outcomes also examine precision/recall or the precision–recall curve.
-- `_conf_int` contains 95% coefficient intervals. With an intercept, its first row and the first entries of `_bse`, `_zvalues`, `_pvalues` refer to the intercept; subsequent rows follow the input feature order.
-- Check `converged_` before interpreting coefficients or inference. `n_iter_` records iteration count. A fitted object alone is not proof of convergence.
+`_conf_int` has shape `(4, 2)`: intercept first, then the three input columns. `_bse`, `_zvalues`, and `_pvalues` use that order too. These are marginal coefficient intervals, not intervals for an individual event probability.
+<!-- example-end: logistic-unpenalized -->
 
 ## Inputs and model definition
 
@@ -126,15 +145,16 @@ Nonrobust covariance is $H^{-1}$; HC1–HC3 alter the score-outer-product correc
 
 ## GPU use
 
-After running the data-generation part of the CPU example, the equivalent CuPy fit is:
+Reuse the imports and `X`, `y` from the completed [CPU example](#cpu-example). To request the same unpenalized prediction fit on CuPy CUDA:
 
 ```python
 import cupy as cp
-from statgpu.linear_model import LogisticRegression
 
 X_gpu = cp.asarray(X[:600])
 y_gpu = cp.asarray(y[:600])
-model_gpu = LogisticRegression(C=0, device="cuda", cov_type="hc1").fit(X_gpu, y_gpu)
+model_gpu = LogisticRegression(
+    C=0, device="cuda", compute_inference=False, max_iter=200, tol=1e-8,
+).fit(X_gpu, y_gpu)
 p_gpu = model_gpu.predict_proba(cp.asarray(X[600:603]))[:, 1]
 ```
 

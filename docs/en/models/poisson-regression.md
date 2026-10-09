@@ -1,7 +1,7 @@
 # PoissonRegression
 
 > Language: English  
-> Last updated: 2026-10-06  
+> Last updated: 2026-10-09<br>
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/poisson-regression.md)
 
@@ -25,52 +25,72 @@ solver as described below. Use `PenalizedPoissonRegression` for an alpha-based
 penalty interface. There is no offset/exposure argument: adding exposure as an
 ordinary predictor estimates its coefficient rather than fixing it at one.
 
+<a id="cpu-example"></a>
+
 ## A complete CPU example
 
-The example fits 200 observations and evaluates 50 separately generated rows.
-`C=0` makes the unpenalized intent explicit; Newton does not use C. The small
-simulation needs neither a GPU nor the optional formula dependencies.
+Run the steps in order: prepare counts, fit, predict, then optionally add coefficient inference. No GPU or formula dependencies are needed.
+
+### 1. Import
 
 <!-- learner-example: poisson-unpenalized -->
 ```python
 import numpy as np
 from statgpu import PoissonRegression
+```
 
+### 2. Prepare inputs and held-out data
+
+`X` has shape `(200, 2)`: rows are observations and columns are two numeric features. `y` is a length-200 vector of nonnegative integer counts. The log link makes the conditional mean `exp(0.3 + X @ beta)` positive; this is not an event probability. Handle missing values in real data and retain the training feature order for prediction.
+
+```python
 rng = np.random.default_rng(8)
 X = rng.normal(size=(200, 2))
 y = rng.poisson(np.exp(0.3 + X @ np.array([0.4, -0.2])))
-model = PoissonRegression(
-    C=0, solver="newton", device="cpu", compute_inference=True,
-    cov_type="nonrobust", max_iter=200, tol=1e-9,
-).fit(X, y)
-
-# New observations are generated separately and never used for fitting.
 X_test = rng.normal(size=(50, 2))
 y_test = rng.poisson(np.exp(0.3 + X_test @ np.array([0.4, -0.2])))
-mean_prediction = model.predict(X_test)
-heldout_loss = np.mean(mean_prediction - y_test * np.log(mean_prediction))
+```
+
+The separately generated 50 rows in `X_test`, `y_test` are never used for fitting.
+
+### 3. Fit an unpenalized model
+
+`C=0` makes the unpenalized intent explicit. This example requests Newton, which does not use C. The default auto/IRLS path with positive C instead applies ridge shrinkage; the objective section explains that distinction.
+
+```python
+model = PoissonRegression(
+    C=0, solver="newton", device="cpu",
+    max_iter=200, tol=1e-9, compute_inference=False,
+).fit(X, y)
 print("Slopes:", np.round(model.coef_, 3))
 print("Mean multipliers:", np.round(np.exp(model.coef_), 3))
+```
+
+For this seed, slopes round to `[0.377, -0.154]` and mean multipliers to `[1.459, 0.857]`. Holding the other feature fixed, a unit increase in the first feature corresponds to about a 45.9% higher expected count; a unit increase in the second to about a 14.3% decrease. These are associations, not causal effects.
+
+### 4. Predict and evaluate held-out data
+
+```python
+mean_prediction = model.predict(X_test)
+heldout_loss = np.mean(mean_prediction - y_test * np.log(mean_prediction))
 print("Predicted means:", np.round(mean_prediction[:3], 3))
 print("Held-out Poisson loss:", round(float(heldout_loss), 3))
+```
+
+Predictions have shape `(50,)`, are positive, and may be fractional even though observations are counts. The held-out loss is about `0.963` and omits the response-only log-factorial term. Lower is better only on the same held-out responses and weighting; it is neither accuracy nor ordinary R². This ordinary GLM class has no `score` or `predict_proba` method.
+
+### 5. Optional: coefficient intervals
+
+Reuse the training data from step 3 and refit with inference enabled. `cov_type="nonrobust"` uses the Poisson model's mean–variance assumption. Covariance choice does not change the fitted mean; assumptions and alternatives are explained in the inference section below.
+
+```python
+model.set_params(compute_inference=True, cov_type="nonrobust")
+model.fit(X, y)
 print("Interval shape:", model._conf_int.shape)
 ```
 
-The slopes round to `[0.377, -0.154]`; their mean multipliers round to
-`[1.459, 0.857]`. Holding the other predictor fixed, one unit of the first
-predictor is associated with about 45.9% higher expected count, and one unit
-of the second with about 14.3% lower expected count. Exponentiating a slope
-does not give an event probability.
-
-Predictions have shape `(50,)`, are positive, and may be fractional even though
-responses are counts. The held-out Poisson loss omits the response-only
-log-factorial term; lower is better only when comparing models on the same
-held-out responses and weighting. It is neither accuracy nor ordinary R².
-This class has no `score` method.
-
-The interval array has shape `(3, 2)`, with the intercept first and then the
-two slopes. These are marginal, asymptotic coefficient intervals, not intervals
-for future counts. `summary()` returns a string; use `print(model.summary())`.
+The interval array has shape `(3, 2)`: intercept first, then the two slopes. These are asymptotic marginal coefficient intervals, not intervals for future counts. `summary()` returns a string; display it with `print(model.summary())`.
+<!-- example-end: poisson-unpenalized -->
 
 ## Choosing settings and checking results
 
@@ -125,8 +145,7 @@ For positive C on auto/IRLS, the average-loss slope equation additionally contai
 
 ## Covariance/Inference
 
-Set `compute_inference=True` for coefficient uncertainty, as in the CPU
-example. Use `cov_type="hc0"` or `"hc1"` when the corresponding score-robust
+Set `compute_inference=True` for coefficient uncertainty, as in step 5 of the [CPU example](#cpu-example). Use `cov_type="hc0"` or `"hc1"` when the corresponding score-robust
 covariance assumptions fit the application; they do not change the estimates.
 
 **Covariance types**:
@@ -172,7 +191,7 @@ estimator after a failed refit, as explained in the [failed-refit warning](../re
 
 ## Optional GPU and formula inputs
 
-After the CPU example, the same unpenalized fit can request CuPy CUDA:
+Reuse the imports and data from the completed [CPU example](#cpu-example). The same unpenalized fit can request CuPy CUDA:
 
 ```python
 model_gpu = PoissonRegression(
@@ -194,15 +213,26 @@ The following formula example is independently runnable after installing
 import numpy as np
 import pandas as pd
 from statgpu import PoissonRegression
+```
 
+In this independent example, each row of `df` is an observation: `count` is the response, `x` is numeric, and `group` is categorical.
+
+```python
 rng = np.random.default_rng(18)
 df = pd.DataFrame({"x": rng.normal(size=80), "group": ["a", "b"] * 40})
 df["count"] = rng.poisson(np.exp(0.2 + 0.3 * df["x"]))
+```
+
+The formula constructs the intercept and categorical coding. For prediction, supply a DataFrame with the same column names and category levels.
+
+```python
 model = PoissonRegression(C=0, device="cpu")
 model.fit(formula="count ~ x + C(group)", data=df)
 prediction = model.predict(df.iloc[:5])
 assert prediction.shape == (5,)
 ```
+<!-- example-end: poisson-formula -->
+
 
 Pass formula/data without simultaneous array X/y. Prediction DataFrames rebuild
 the training columns and categorical levels; unseen levels raise. Missing

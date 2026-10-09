@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from doc_examples import parse_examples, run_example
 from scipy.interpolate import BSpline
 from scipy.stats import gaussian_kde
 
@@ -30,26 +31,25 @@ EXAMPLES = {
 
 def _blocks(language, page):
     text = (ROOT / f"docs/{language}/models/{page}.md").read_text(encoding="utf-8")
-    blocks = re.findall(
-        r"<!-- example: ([\w-]+) -->\s*```python\n(.*?)```", text, re.DOTALL,
-    )
-    assert len(blocks) == len(dict(blocks)), "duplicate example names"
-    assert {name for name, _ in blocks} == EXAMPLES[page]
-    assert len(blocks) == len(re.findall(r"```python\n", text)), "unnamed example"
-    return dict(blocks)
+    examples = parse_examples(text, f"{language}/{page}.md")
+    assert set(examples) == EXAMPLES[page]
+    assert sum(len(example.blocks) for example in examples.values()) == len(
+        re.findall(r"```python\n", text)
+    ), "unnamed example"
+    return examples
 
 
 @pytest.fixture(scope="module", params=("en", "cn"))
 def examples(request):
-    """Each CPU block runs without globals from a preceding example."""
+    """Run CPU tutorials with only their explicitly declared prerequisites."""
     namespaces = {}
     for page in EXAMPLES:
-        for name, code in _blocks(request.param, page).items():
-            compiled = compile(code, f"docs/{request.param}/models/{page}.md:{name}", "exec")
+        text = (ROOT / f"docs/{request.param}/models/{page}.md").read_text(encoding="utf-8")
+        for name, example in _blocks(request.param, page).items():
+            for block in example.blocks:
+                compile(block, f"docs/{request.param}/models/{page}.md:{name}", "exec")
             if name.endswith("-cpu"):
-                namespace = {}
-                exec(compiled, namespace)  # noqa: S102 - execute reviewed documentation examples
-                namespaces[name] = namespace
+                namespaces[name] = run_example(text, name, f"{request.param}/{page}.md")
     return namespaces
 
 

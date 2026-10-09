@@ -1,11 +1,11 @@
 """Execute the learner entry examples against the current public API."""
 
-import re
 from inspect import signature
 from pathlib import Path
 
 import numpy as np
 import pytest
+from doc_examples import run_example
 
 _ROOT = Path(__file__).resolve().parents[2]
 _MODELS = ("linear-regression", "logistic-regression", "elastic-net", "feature-selection")
@@ -15,10 +15,11 @@ _MODELS = ("linear-regression", "logistic-regression", "elastic-net", "feature-s
 @pytest.mark.parametrize("page", _MODELS)
 def test_first_learner_example_is_self_contained_cpu(language, page):
     text = (_ROOT / f"docs/{language}/models/{page}.md").read_text(encoding="utf-8")
-    blocks = re.findall(r"```python\n(.*?)```", text, flags=re.DOTALL)
-    assert blocks, f"{page}: missing runnable Python example"
-    namespace = {}
-    exec(compile(blocks[0], f"{language}/{page}.md", "exec"), namespace)  # noqa: S102
+    names = {"linear-regression": "linear-prediction",
+             "logistic-regression": "logistic-unpenalized",
+             "elastic-net": "elasticnet-prediction",
+             "feature-selection": "feature-selection-basic"}
+    namespace = run_example(text, names[page], f"{language}/{page}.md")
     if page == "logistic-regression":
         model, X, y = (namespace[name] for name in ("model", "X", "y"))
         assert model.C == 0
@@ -58,13 +59,7 @@ def test_linear_column_target_example_scores_a_flattened_response(language):
 
     page = _ROOT / f"docs/{language}/models/linear-regression.md"
     text = page.read_text(encoding="utf-8")
-    match = re.search(
-        r"<!-- learner-example: linear-column-target -->\s*```python\n(.*?)```",
-        text, flags=re.DOTALL,
-    )
-    assert match is not None, f"{page}: missing single-column scoring example"
-    namespace = {}
-    exec(compile(match.group(1), str(page), "exec"), namespace)  # noqa: S102
+    namespace = run_example(text, "linear-column-target", str(page))
     model, X, y_column = (namespace[name] for name in ("model", "X", "y_column"))
     assert y_column.shape == (len(X), 1)
     assert model.predict(X).shape == (len(X),)

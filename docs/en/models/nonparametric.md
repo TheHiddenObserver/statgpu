@@ -1,7 +1,7 @@
 # Nonparametric Methods
 
 > Language: English  
-> Last updated: 2026-10-06  
+> Last updated: 2026-10-09
 > This page: Nonparametric overview  
 > Switch: [Chinese](../../cn/models/nonparametric.md)
 
@@ -54,6 +54,8 @@ The fit is repeated at each query; neither regression method produces one global
 slope vector or coefficient p-values. Singular local systems can use the
 stabilization/NW fallback described below.
 
+<a id="density-cpu-workflow"></a>
+
 ## CPU example 1: fit and evaluate a density
 
 All CPU examples are standalone, seeded, and explicitly select NumPy. Reuse a fitted object for repeated evaluation; the one-shot helper is convenient but fits again on every call.
@@ -63,22 +65,54 @@ Here `bandwidth=0.35` is a dimensionless **bandwidth factor**, not the absolute 
 <!-- example: kde-cpu -->
 ```python
 import numpy as np
-from statgpu.nonparametric import fit_kde, kde_pdf
+from statgpu.nonparametric import fit_kde
+```
 
+### Prepare samples and a query grid
+
+`x_train` contains 300 observations of one continuous variable, shape `(300,)`; KDE needs no response. `x_test` holds 80 independent observations for density evaluation, and `grid` contains 201 query locations. Run the blocks in this section in order.
+
+```python
 rng = np.random.default_rng(42)
 x_train = rng.normal(size=300)
 x_test = rng.normal(size=80)
 grid = np.linspace(-4, 4, 201)
+```
 
+### Fit once, then evaluate the density
+
+`fit_kde` stores the samples and bandwidth; `pdf` returns one density value per query.
+
+```python
 kde = fit_kde(x_train, bandwidth=0.35, kernel="gaussian", backend="numpy")
+```
+
+Reuse the fitted `kde` to evaluate the query grid.
+
+```python
 density = kde.pdf(grid)
-log_density = kde.score_samples(grid)
-one_shot = kde_pdf(x_train, grid, bandwidth=0.35, backend="numpy")
-mass_on_grid = np.sum((density[1:] + density[:-1]) * np.diff(grid) / 2)
 print(density.shape)
+```
+
+### Interpret and check the density
+
+The shape is `(201,)`. Continue with this section's `kde`, `grid`, and `x_test` to approximate the probability mass covered by the grid and evaluate held-out observations.
+
+```python
+log_density = kde.score_samples(grid)
+mass_on_grid = np.sum((density[1:] + density[:-1]) * np.diff(grid) / 2)
 print(f"Mass on grid: {mass_on_grid:.4f}")
 print(f"Held-out mean log density: {kde.score(x_test):.4f}")
 ```
+
+For a single evaluation, the equivalent one-shot helper is convenient. It refits the same samples rather than updating `kde`; keep using the fitted object for repeated queries.
+
+```python
+from statgpu.nonparametric import kde_pdf
+
+one_shot = kde_pdf(x_train, grid, bandwidth=0.35, backend="numpy")
+```
+<!-- example-end: kde-cpu -->
 
 Rounded output is `(201,)`, grid mass `1.0000`, and held-out mean log density `-1.4740`. `density` and `one_shot` agree; `log_density` agrees with `np.log(density)` here. The integral is over a wide finite grid, not a guarantee of exact unit mass on every chosen interval. Gaussian kernels have tails outside the observed range.
 
@@ -91,31 +125,58 @@ This synthetic example has a known nonlinear mean. The test responses include fr
 <!-- example: kernel-regression-cpu -->
 ```python
 import numpy as np
-from statgpu.nonparametric import KernelRegressionRegressor, kernel_regression_predict
+from statgpu.nonparametric import KernelRegressionRegressor
+```
 
+### Prepare paired predictors and responses
+
+This example is independent of the density example: `x_train` and `y_train` are both `(160,)` vectors, with one feature value and continuous response per row. The 61 test points lie inside the training range; `mean_test` is known for this simulation but usually unknown in an analysis. Run this section's blocks in order.
+
+```python
 rng = np.random.default_rng(42)
 x_train = rng.uniform(-2, 2, 160)
 y_train = np.sin(2 * x_train) + rng.normal(0, 0.1, 160)
 x_test = np.linspace(-1.8, 1.8, 61)
 mean_test = np.sin(2 * x_test)
 y_test = mean_test + rng.normal(0, 0.1, x_test.size)
+```
 
+### Fit local-linear regression
+
+The diagonal metric allows an absolute width for each feature; here there is one feature, with width `0.18`.
+
+```python
 regressor = KernelRegressionRegressor(
     regression="local_linear", kernel="gaussian",
     kernel_metric="diagonal", bandwidth_per_feature=[0.18],
     backend="numpy", device="cpu",
 ).fit(x_train, y_train)
+```
+
+### Predict and evaluate
+
+Continue with the `regressor` fitted in this section. Each test point receives one response prediction; compare MSE with the baseline that always predicts the training response mean.
+
+```python
 prediction = regressor.predict(x_test)
-one_shot = kernel_regression_predict(
-    x_train, y_train, x_test, regression="local_linear",
-    kernel_metric="diagonal", bandwidth_per_feature=[0.18], backend="numpy",
-)
 mse = np.mean((prediction - y_test) ** 2)
 baseline_mse = np.mean((y_train.mean() - y_test) ** 2)
 print(prediction.shape)
 print(f"Test MSE: {mse:.4f}; mean baseline: {baseline_mse:.4f}")
 print(f"Test R2: {regressor.score(x_test, y_test):.4f}")
 ```
+
+If you only need one prediction call, use the same data and settings with the helper below. It refits on each call; `one_shot` should agree with `prediction` above.
+
+```python
+from statgpu.nonparametric import kernel_regression_predict
+
+one_shot = kernel_regression_predict(
+    x_train, y_train, x_test, regression="local_linear",
+    kernel_metric="diagonal", bandwidth_per_feature=[0.18], backend="numpy",
+)
+```
+<!-- example-end: kernel-regression-cpu -->
 
 Rounded output is `(61,)`, test MSE `0.0126` versus a mean baseline of `0.4690`, and test $R^2$ `0.9730`. The fitted object and one-shot predictions agree. Here $R^2$ describes held-out response prediction; it is unrelated to KDE's mean-log-density score. For multi-target regression, this implementation's `score` flattens all targets before computing one $R^2$; evaluate each target separately when their scales differ.
 
@@ -129,18 +190,33 @@ Use independent, equally weighted observations for this introductory bootstrap. 
 ```python
 import numpy as np
 from statgpu.nonparametric import kde_bootstrap_confidence_interval
+```
 
+This is a standalone small-sample interval example. `samples` contains 120 independent observations and `points` gives three fixed query locations; no response or earlier fitted object is needed.
+
+```python
 rng = np.random.default_rng(42)
 samples = rng.normal(size=120)
 points = np.array([-1.0, 0.0, 1.0])
+```
+
+The function resamples the observations and re-estimates density at the same three locations. Saving replicate estimates lets you inspect how the intervals were formed.
+
+```python
 ci = kde_bootstrap_confidence_interval(
     samples, points, bandwidth=0.4, kernel="gaussian", backend="numpy",
     n_resamples=100, confidence_level=0.95, random_state=17,
     method="percentile", return_bootstrap_samples=True,
 )
+```
+
+Check the output shapes, then read each query row as estimate, lower bound, and upper bound.
+
+```python
 print(ci.estimate.shape, ci.bootstrap_samples.shape)
 print(np.column_stack([ci.estimate, ci.lower, ci.upper]).round(3))
 ```
+<!-- example-end: kde-bootstrap-cpu -->
 
 ```text
 (3,) (100, 3)
@@ -304,18 +380,19 @@ Useful fitted state includes `samples_`, normalized `weights_`, `bandwidth_facto
 
 Matching device/backend strings are therefore insufficient. Inspect both `samples_` and the density/prediction arrays: Torch `.device` and `.is_cuda` reveal tensor placement, CuPy `.device` identifies its GPU, and NumPy arrays are on CPU. Do not rely on `model.device` or `backend_` as evidence of CUDA execution. For an explicit CPU workflow, use NumPy inputs with `device="cpu", backend="numpy"`. These current exceptions do not change the intended strict device convention described in [device and memory](../guides/device-and-memory.md).
 
-The following is separate from the CPU workflows and requires working CuPy/CUDA. It does not run on a CPU-only installation, and a missing explicit backend is not silently replaced with NumPy.
+First run all steps in “CPU example 1: fit and evaluate a density.” The snippet reuses that section's `kde.samples_`, `grid`, and `fit_kde`, changing the array backend without creating another dataset. It requires working CuPy/CUDA and cannot run on a CPU-only installation; a missing explicit backend is not silently replaced with NumPy.
 
+<!-- example-requires: kde-cpu -->
 <!-- example: kde-gpu -->
 ```python
 import cupy as cp
-from statgpu.nonparametric import fit_kde
 
-samples_gpu = cp.linspace(-2, 2, 100)
-points_gpu = cp.linspace(-3, 3, 41)
+samples_gpu = cp.asarray(kde.samples_)
+points_gpu = cp.asarray(grid)
 kde_gpu = fit_kde(samples_gpu, bandwidth=0.35, backend="cupy")
 density_gpu = kde_gpu.pdf(points_gpu)  # CuPy output
 ```
+<!-- example-end: kde-gpu -->
 
 Some bandwidth selection and interval work uses host arrays; do not assume an entirely GPU-resident pipeline or a speedup for small fits. Runtime depends on sample/query counts, dimension, batching, selector, and transfer costs.
 

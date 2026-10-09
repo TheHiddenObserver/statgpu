@@ -10,6 +10,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from doc_examples import run_example
 from numpy.testing import assert_allclose
 from scipy.interpolate import BSpline
 
@@ -33,10 +34,7 @@ class _NonfiniteKernelFittedState(Exception):
 def test_spline_training_query_example_is_self_contained_and_reuses_fit(language):
     path = ROOT / f"docs/{language}/models/splines.md"
     text = path.read_text()
-    examples = dict(re.findall(
-        r"<!-- example: ([\w-]+) -->\s*```python\n(.*?)```", text, re.DOTALL))
-    namespace = {}
-    exec(compile(examples["spline-transformer-reuse-cpu"], str(path), "exec"), namespace)  # noqa: S102
+    namespace = run_example(text, 'spline-transformer-reuse-cpu', str(path))
     model = namespace["transformer"]
     assert namespace["B_train"].shape == (41, 7)
     assert namespace["B_query"].shape == (3, 7)

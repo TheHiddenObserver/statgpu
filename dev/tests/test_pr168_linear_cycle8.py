@@ -15,6 +15,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from doc_examples import run_example
 
 from statgpu import linear_model as lm
 
@@ -94,10 +95,7 @@ def test_poisson_learner_examples_are_self_contained_and_interpretable(language,
         pytest.importorskip('pandas')
         pytest.importorskip('patsy')
     page = _page(language, 'models', 'poisson-regression')
-    block = re.search(r'<!-- learner-example: ' + label + r' -->\s*```python\n(.*?)```', page, re.DOTALL)
-    assert block is not None
-    scope = {}
-    exec(compile(block[1], f'{language}/{label}', 'exec'), scope)  # noqa: S102
+    scope = run_example(page, label, f'{language}/{label}')
     model = scope['model']
     if label == 'poisson-formula':
         assert scope['prediction'].shape == (5,)

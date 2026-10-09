@@ -1,7 +1,7 @@
 # Spline Basis Functions
 
 > Language: English  
-> Last updated: 2026-10-06  
+> Last updated: 2026-10-09
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/splines.md)
 
@@ -31,27 +31,49 @@ The synthetic curve is noiseless; this demonstration is not a validation score.
 ```python
 import numpy as np
 from statgpu.nonparametric.splines import SplineTransformer
+```
 
+### Prepare one feature and its response
+
+`X_train` is a `(41, 1)` array with one time point per row; `y_train` has shape `(41,)` and holds the noiseless response. `[:, None]` preserves the two-dimensional observations-by-features layout. Run this section's blocks in order.
+
+```python
 X_train = np.linspace(-2.0, 2.0, 41)[:, None]
 y_train = np.sin(1.5 * X_train[:, 0])
+```
+
+### Learn spline features
+
+`fit_transform` learns knots from training points and expands the feature into spline basis columns; this step does not use `y_train`.
+
+```python
 transformer = SplineTransformer(
     n_knots=6, degree=3, include_bias=False,
     extrapolation="constant", device="cpu",
 )
 B_train = transformer.fit_transform(X_train)
+```
+
+### Fit a response model on those features
+
+Add an intercept column to `B_train`, then estimate coefficients by least squares. Fitting the response is separate from constructing the features.
+
+```python
 train_design = np.column_stack([np.ones(len(X_train)), B_train])
 coefficients = np.linalg.lstsq(train_design, y_train, rcond=None)[0]
+```
 
+### Predict using the training knots
+
+`X_query` contains three new points, shape `(3, 1)`. Call `transform` on the fitted object rather than fitting again on these points.
+
+```python
 X_query = np.array([[-1.5], [0.0], [1.5]])
 B_query = transformer.transform(X_query)
 query_design = np.column_stack([np.ones(len(X_query)), B_query])
 prediction = query_design @ coefficients
-names = transformer.get_feature_names_out(["time"])
 print(B_train.shape, B_query.shape)
 print(prediction.round(3))
-assert len(names) == B_query.shape[1]
-assert np.allclose(transformer.predict(X_query), B_query)
-assert np.allclose(transformer.transform([[2.5]]), transformer.transform([[2.0]]))
 ```
 
 The output shapes are `(41, 7)` and `(3, 7)`, followed by approximately
@@ -59,6 +81,18 @@ The output shapes are `(41, 7)` and `(3, 7)`, followed by approximately
 features, not seven separately observed predictors. `transformer.predict`
 returns those same features. Only multiplying the later regression design by
 its fitted coefficients produces response predictions.
+
+### Inspect feature names and boundary behavior
+
+Continue with this section's `transformer`, `X_query`, and `B_query`. Names identify expanded basis columns; `predict` on this transformer is only an alias for `transform`.
+
+```python
+names = transformer.get_feature_names_out(["time"])
+assert len(names) == B_query.shape[1]
+assert np.allclose(transformer.predict(X_query), B_query)
+assert np.allclose(transformer.transform([[2.5]]), transformer.transform([[2.0]]))
+```
+<!-- example-end: spline-transformer-reuse-cpu -->
 
 The last assertion demonstrates the chosen constant extrapolation: a query at
 2.5 gets the feature values at the upper training boundary 2.0. This is a
@@ -257,80 +291,108 @@ transformation step.
 | `device` | `'auto'` | Requested device; Torch tensor input can override it, as described above. |
 | `n_jobs` | `None` | Shared estimator option; does not parallelize basis construction. |
 
-## CPU+GPU Examples
+## Advanced: construct basis matrices directly
+
+Use the low-level functions when you need explicit knots or want to compare basis families. This standalone computational grid has 500 one-dimensional evaluation points and 10 interior knots. It is separate from the response-model example: no target or model fit is involved. Run this section's blocks in order.
+
+<!-- example: spline-raw-bases-cpu -->
+```python
+import numpy as np
+from statgpu.nonparametric.splines import bspline_basis
+```
+
+<a id="raw-spline-setup"></a>
+
+### Fix the grid, knots, and boundaries
+
+```python
+x = np.linspace(0, 1, 500)
+knots = np.linspace(0.1, 0.9, 10)
+boundary_lo, boundary_hi = 0.0, 1.0
+```
+
+Cubic B-splines return 14 columns, from `10 + 3 + 1`. To evaluate the same basis at new points, reuse these knots and both boundaries.
+
+```python
+B = bspline_basis(
+    x, knots, degree=3, xp=np,
+    boundary_lo=boundary_lo, boundary_hi=boundary_hi,
+)
+print(B.shape)  # (500, 14)
+```
+
+### Compare boundary projections
+
+Reuse this section's `x` and `knots`. The natural basis approximates zero endpoint curvature; the cyclic basis does not reliably satisfy true one-sided derivative constraints. These calls illustrate returned matrices, not a validation of their boundary conditions.
 
 ```python
 from statgpu.nonparametric.splines import (
-    bspline_basis, natural_cubic_spline_basis,
-    cyclic_cubic_spline_basis, thin_plate_spline_basis,
-    SplineTransformer,
+    natural_cubic_spline_basis, cyclic_cubic_spline_basis,
 )
-import numpy as np
 
-x = np.linspace(0, 1, 500)
-knots = np.linspace(0.1, 0.9, 10)
-
-# CPU: B-spline basis
-B = bspline_basis(x, knots, degree=3, xp=np)
-print(f"Basis shape: {B.shape}")  # (500, 14)
-
-# CPU: Natural cubic spline basis
 B_nat = natural_cubic_spline_basis(x, knots, xp=np)
-print(f"Natural basis shape: {B_nat.shape}")  # (500, 12)
-
-# CPU: Projected cubic basis; periodic derivatives are not reliable
 B_cyc = cyclic_cubic_spline_basis(x, knots, xp=np)
-print(f"Cyclic basis shape: {B_cyc.shape}")  # (500, 12) on this grid; numerical constraint rank determines width
-
-# CPU: Thin plate spline basis (1-D)
-B_tp = thin_plate_spline_basis(x, knots, penalty_order=2, xp=np)
-print(f"Thin plate basis shape: {B_tp.shape}")  # (500, 12)
-
-# CPU: Thin plate spline basis (2-D)
-xy = np.column_stack([np.linspace(0, 1, 200), np.linspace(0, 1, 200)])
-knots_2d = np.column_stack([np.linspace(0.1, 0.9, 5), np.linspace(0.1, 0.9, 5)])
-B_tp2 = thin_plate_spline_basis(xy, knots_2d, penalty_order=2, xp=np)
-print(f"Thin plate 2D basis shape: {B_tp2.shape}")  # (200, 8)
-
-# CPU: SplineTransformer (sklearn-compatible API)
-X = np.random.default_rng(42).normal(size=(500, 3))
-st = SplineTransformer(n_knots=10, degree=3, knots='quantile', device='cpu')
-X_spline = st.fit_transform(X)
-print(f"Transformed shape: {X_spline.shape}")  # (500, 36): 3 * (10 + 3 - 1)
+print(B_nat.shape, B_cyc.shape)  # (500, 12), (500, 12) on this grid
 ```
 
-**CuPy (GPU)**:
+### Construct radial thin-plate features
 
+Continue with this section's one-dimensional `x` and `knots`. The order-2 thin-plate basis has 10 radial columns plus an intercept and a linear term, for 12 columns. It does not itself supply a smoothing penalty or response fit.
+
+```python
+from statgpu.nonparametric.splines import thin_plate_spline_basis
+
+B_tp = thin_plate_spline_basis(x, knots, penalty_order=2, xp=np)
+print(B_tp.shape)  # (500, 12)
+```
+
+For two-dimensional input, each row is a point in a plane and the knots must also have two columns. This small grid and five knots produce eight columns: five radial terms and `[1, x1, x2]`.
+
+```python
+u, v = np.meshgrid(np.linspace(0, 1, 20), np.linspace(0, 1, 10))
+xy = np.column_stack([u.ravel(), v.ravel()])
+knots_2d = np.array([[0.1, 0.1], [0.1, 0.9], [0.5, 0.5],
+                     [0.9, 0.1], [0.9, 0.9]])
+B_tp2 = thin_plate_spline_basis(xy, knots_2d, penalty_order=2, xp=np)
+print(B_tp2.shape)  # (200, 8)
+```
+<!-- example-end: spline-raw-bases-cpu -->
+
+### Optional: evaluate the same B-spline basis on GPU
+
+First complete [Fix the grid, knots, and boundaries](#raw-spline-setup) in this section, reusing `x`, `knots`, `boundary_lo`, `boundary_hi`, and `bspline_basis`. Choose one snippet for your installation, pass the array module as `xp`, and place both inputs on its GPU. The result is still a `(500, 14)` basis matrix, not response predictions.
+
+CuPy/CUDA:
+
+<!-- example-requires: spline-raw-bases-cpu -->
+<!-- example: spline-raw-cupy -->
 ```python
 import cupy as cp
 
-x_gpu = cp.asarray(x)
-knots_gpu = cp.asarray(knots)
-
-B_gpu = bspline_basis(x_gpu, knots_gpu, degree=3, xp=cp)
-print(f"GPU basis shape: {B_gpu.shape}")  # (500, 14)
-
-B_nat_gpu = natural_cubic_spline_basis(x_gpu, knots_gpu, xp=cp)
-print(f"GPU natural basis shape: {B_nat_gpu.shape}")  # (500, 12)
-
-B_tp_gpu = thin_plate_spline_basis(x_gpu, knots_gpu, penalty_order=2, xp=cp)
-print(f"GPU thin plate basis shape: {B_tp_gpu.shape}")  # (500, 12)
+B_gpu = bspline_basis(
+    cp.asarray(x), cp.asarray(knots), degree=3, xp=cp,
+    boundary_lo=boundary_lo, boundary_hi=boundary_hi,
+)
+print(B_gpu.shape)
 ```
+<!-- example-end: spline-raw-cupy -->
 
-**PyTorch (GPU)**:
+Torch CUDA:
 
+<!-- example-requires: spline-raw-bases-cpu -->
+<!-- example: spline-raw-torch -->
 ```python
 import torch
 
-x_t = torch.tensor(x, device='cuda')
-knots_t = torch.tensor(knots, device='cuda')
-
-B_t = bspline_basis(x_t, knots_t, degree=3, xp=torch)
-print(f"Torch basis shape: {B_t.shape}")  # (500, 14)
-
-B_tp_t = thin_plate_spline_basis(x_t, knots_t, penalty_order=2, xp=torch)
-print(f"Torch thin plate basis shape: {B_tp_t.shape}")  # (500, 12)
+B_t = bspline_basis(
+    torch.as_tensor(x, device="cuda"), torch.as_tensor(knots, device="cuda"),
+    degree=3, xp=torch, boundary_lo=boundary_lo, boundary_hi=boundary_hi,
+)
+print(B_t.shape)
 ```
+<!-- example-end: spline-raw-torch -->
+
+Other low-level functions follow the same backend-array and matching-`xp` convention. Backend selection does not remove the natural/cyclic boundary limitations above; measure GPU benefit at your actual scale. For multi-feature `SplineTransformer`, keep the opening fit/transform workflow: each input feature is expanded separately, with column counts given in the parameter and output reference.
 
 ## Outputs
 

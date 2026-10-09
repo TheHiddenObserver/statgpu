@@ -1,7 +1,7 @@
 # 非参数方法
 
 > 语言: 中文  
-> 最后更新: 2026-10-06  
+> 最后更新: 2026-10-09
 > 页面定位: 非参数方法总览  
 > 切换: [English](../../en/models/nonparametric.md)
 
@@ -52,6 +52,8 @@ $$
 每个查询点都重新拟合；两种回归都不提供一组全局斜率或系数 p 值。
 局部系统奇异时可采用下文说明的稳定化或 NW 回退。
 
+<a id="density-cpu-workflow"></a>
+
 ## CPU 示例一：拟合与评价密度
 
 以下 CPU 示例均可单独运行，固定随机种子并显式选择 NumPy。反复查询时应复用已拟合对象；一次性函数方便，但每次调用都会重新拟合。
@@ -61,22 +63,54 @@ $$
 <!-- example: kde-cpu -->
 ```python
 import numpy as np
-from statgpu.nonparametric import fit_kde, kde_pdf
+from statgpu.nonparametric import fit_kde
+```
 
+### 准备样本与查询网格
+
+`x_train` 是 300 个一维连续观测，形状为 `(300,)`；KDE 不需要响应变量。`x_test` 是用于评价密度的 80 个独立观测，`grid` 是要计算密度的 201 个位置。按顺序运行本节各段。
+
+```python
 rng = np.random.default_rng(42)
 x_train = rng.normal(size=300)
 x_test = rng.normal(size=80)
 grid = np.linspace(-4, 4, 201)
+```
 
+### 拟合一次，再评价密度
+
+`fit_kde` 保存样本与带宽；`pdf` 对每个查询位置返回一个密度值。
+
+```python
 kde = fit_kde(x_train, bandwidth=0.35, kernel="gaussian", backend="numpy")
+```
+
+复用刚拟合的 `kde`，计算查询网格上的密度。
+
+```python
 density = kde.pdf(grid)
-log_density = kde.score_samples(grid)
-one_shot = kde_pdf(x_train, grid, bandwidth=0.35, backend="numpy")
-mass_on_grid = np.sum((density[1:] + density[:-1]) * np.diff(grid) / 2)
 print(density.shape)
+```
+
+### 解释并检查密度
+
+返回形状为 `(201,)`。下面继续使用本节的 `kde`、`grid` 和 `x_test`，近似计算网格覆盖的概率质量，并评价留出观测。
+
+```python
+log_density = kde.score_samples(grid)
+mass_on_grid = np.sum((density[1:] + density[:-1]) * np.diff(grid) / 2)
 print(f"Mass on grid: {mass_on_grid:.4f}")
 print(f"Held-out mean log density: {kde.score(x_test):.4f}")
 ```
+
+只需要一次查询时，可用等价的一次性函数。它重新拟合相同样本，并不更新 `kde`；反复查询仍应使用上面的已拟合对象。
+
+```python
+from statgpu.nonparametric import kde_pdf
+
+one_shot = kde_pdf(x_train, grid, bandwidth=0.35, backend="numpy")
+```
+<!-- example-end: kde-cpu -->
 
 四舍五入后的输出为 `(201,)`、网格积分 `1.0000`、留出平均对数密度 `-1.4740`。`density` 与 `one_shot` 一致；这里 `log_density` 与 `np.log(density)` 一致。积分是在较宽的有限网格上计算，不能保证任意区间上的积分都为 1。高斯核在观测范围外仍有尾部。
 
@@ -89,31 +123,58 @@ print(f"Held-out mean log density: {kde.score(x_test):.4f}")
 <!-- example: kernel-regression-cpu -->
 ```python
 import numpy as np
-from statgpu.nonparametric import KernelRegressionRegressor, kernel_regression_predict
+from statgpu.nonparametric import KernelRegressionRegressor
+```
 
+### 准备成对的特征与响应
+
+本例独立于密度示例：`x_train` 和 `y_train` 都是 `(160,)` 向量，一行对应一个特征值及其连续响应。61 个测试点位于训练范围内；`mean_test` 是模拟时已知的均值，真实分析中通常未知。按顺序运行本节各段。
+
+```python
 rng = np.random.default_rng(42)
 x_train = rng.uniform(-2, 2, 160)
 y_train = np.sin(2 * x_train) + rng.normal(0, 0.1, 160)
 x_test = np.linspace(-1.8, 1.8, 61)
 mean_test = np.sin(2 * x_test)
 y_test = mean_test + rng.normal(0, 0.1, x_test.size)
+```
 
+### 拟合局部线性回归
+
+对角度量允许直接给出每个特征的绝对带宽；这里只有一个特征，宽度为 `0.18`。
+
+```python
 regressor = KernelRegressionRegressor(
     regression="local_linear", kernel="gaussian",
     kernel_metric="diagonal", bandwidth_per_feature=[0.18],
     backend="numpy", device="cpu",
 ).fit(x_train, y_train)
+```
+
+### 预测并评价
+
+继续使用本节拟合的 `regressor`。每个测试点返回一个响应预测；MSE 与只预测训练均值的基线比较。
+
+```python
 prediction = regressor.predict(x_test)
-one_shot = kernel_regression_predict(
-    x_train, y_train, x_test, regression="local_linear",
-    kernel_metric="diagonal", bandwidth_per_feature=[0.18], backend="numpy",
-)
 mse = np.mean((prediction - y_test) ** 2)
 baseline_mse = np.mean((y_train.mean() - y_test) ** 2)
 print(prediction.shape)
 print(f"Test MSE: {mse:.4f}; mean baseline: {baseline_mse:.4f}")
 print(f"Test R2: {regressor.score(x_test, y_test):.4f}")
 ```
+
+若只需一次预测，可用相同数据与参数调用下列函数。它每次都重新拟合；`one_shot` 应与上面的 `prediction` 一致。
+
+```python
+from statgpu.nonparametric import kernel_regression_predict
+
+one_shot = kernel_regression_predict(
+    x_train, y_train, x_test, regression="local_linear",
+    kernel_metric="diagonal", bandwidth_per_feature=[0.18], backend="numpy",
+)
+```
+<!-- example-end: kernel-regression-cpu -->
 
 四舍五入后输出为 `(61,)`、测试 MSE `0.0126`（均值基线 `0.4690`）、测试 $R^2$ `0.9730`。拟合对象与一次性函数的预测一致。这里 $R^2$ 评价留出响应预测，与 KDE 的平均对数密度得分含义不同。多目标回归的 `score` 会将全部目标展平后计算一个 $R^2$；目标尺度不同时应分别评价。
 
@@ -127,18 +188,33 @@ print(f"Test R2: {regressor.score(x_test, y_test):.4f}")
 ```python
 import numpy as np
 from statgpu.nonparametric import kde_bootstrap_confidence_interval
+```
 
+本节是可独立运行的小样本区间示例。`samples` 包含 120 个独立观测，`points` 给出三个固定查询位置；不需要响应变量或前面示例的拟合对象。
+
+```python
 rng = np.random.default_rng(42)
 samples = rng.normal(size=120)
 points = np.array([-1.0, 0.0, 1.0])
+```
+
+函数对样本重采样，在相同的三个位置重新估计密度。保存重复估计值便于检查区间的构造。
+
+```python
 ci = kde_bootstrap_confidence_interval(
     samples, points, bandwidth=0.4, kernel="gaussian", backend="numpy",
     n_resamples=100, confidence_level=0.95, random_state=17,
     method="percentile", return_bootstrap_samples=True,
 )
+```
+
+先检查结果形状，再按“估计、下限、上限”的顺序查看每个查询点。
+
+```python
 print(ci.estimate.shape, ci.bootstrap_samples.shape)
 print(np.column_stack([ci.estimate, ci.lower, ci.upper]).round(3))
 ```
+<!-- example-end: kde-bootstrap-cpu -->
 
 ```text
 (3,) (100, 3)
@@ -284,18 +360,19 @@ Scott 或 Silverman 规则时，仅改变计量单位就可能显著改变 KDE �
 
 因此，仅让设备与后端字符串一致仍不够。应同时检查 `samples_` 与密度/预测数组：Torch 的 `.device`、`.is_cuda` 显示张量位置，CuPy 的 `.device` 显示 GPU，NumPy 数组位于 CPU。不能根据 `model.device` 或 `backend_` 认定 CUDA 执行。明确选择 CPU 时，请用 NumPy 输入并设置 `device="cpu", backend="numpy"`。这些当前例外并未改变[设备与内存](../guides/device-and-memory.md)说明的严格设备约定。
 
-下面的片段与 CPU 流程分开，需要可工作的 CuPy/CUDA，不能在仅 CPU 安装上运行；显式指定但缺失的后端不会静默替换为 NumPy。
+先运行[CPU 示例一：拟合与评价密度](#density-cpu-workflow)中的所有步骤。下面复用该节的 `kde.samples_`、`grid` 和 `fit_kde`，只改变数组后端，不重新生成数据。它需要可工作的 CuPy/CUDA，不能在仅 CPU 安装上运行；显式指定但缺失的后端不会静默替换为 NumPy。
 
+<!-- example-requires: kde-cpu -->
 <!-- example: kde-gpu -->
 ```python
 import cupy as cp
-from statgpu.nonparametric import fit_kde
 
-samples_gpu = cp.linspace(-2, 2, 100)
-points_gpu = cp.linspace(-3, 3, 41)
+samples_gpu = cp.asarray(kde.samples_)
+points_gpu = cp.asarray(grid)
 kde_gpu = fit_kde(samples_gpu, bandwidth=0.35, backend="cupy")
 density_gpu = kde_gpu.pdf(points_gpu)  # CuPy 输出
 ```
+<!-- example-end: kde-gpu -->
 
 部分带宽选择及区间步骤使用主机数组，不能假定整个流程常驻 GPU 或小数据也会加速。耗时取决于样本数、查询数、维度、分批、选择器及传输成本。
 

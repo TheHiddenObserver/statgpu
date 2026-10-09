@@ -1,7 +1,7 @@
 # Knockoff Feature Selection
 
 > Language: English  
-> Last updated: 2026-10-07
+> Last updated: 2026-10-09\
 > This page: Method documentation  
 > Switch: [Chinese](../../cn/models/knockoff.md)
 
@@ -73,36 +73,78 @@ Here p=20, q=0.20, six nonzero coefficients, and `corr_diff` are chosen in
 advance. The response has an intercept and independent Gaussian noise with
 standard deviation 0.5, matching the fixed-X response assumptions.
 
+Run these blocks in order. `X` and its supplied knockoff `Xk` will each have
+shape `(240, 20)`; `y` will contain one response for each of the 240 rows.
+
 <!-- learner-example: knockoff-selection -->
 ```python
 import numpy as np
 from statgpu import fixed_x_knockoff_filter
+```
 
-# Prespecify the design, target rate, and statistic before seeing results.
+### Prespecify the design and target
+
+Set the dimensions and target rate before generating any responses. The call
+below will use the prespecified `corr_diff` statistic and knockoff+ rule.
+
+```python
 n, p = 240, 20
 q = 0.20
 if not (np.isfinite(q) and 0 < q < 1):
     raise ValueError("q must be finite and strictly between 0 and 1")
+```
+
+### Construct and verify the supplied pair
+
+Reserve the constant direction for the intercept, then take two groups of
+orthogonal columns. This is the special simulation design described above.
+
+```python
 rng = np.random.default_rng(42)
 Q, _ = np.linalg.qr(np.column_stack([np.ones(n), rng.normal(size=(n, 2*p))]))
 X, Xk = Q[:, 1:p+1], Q[:, p+1:2*p+1]
+```
+
+Check centering and the three Gram constraints before using the pair. These
+checks establish the design properties for this simulation, not for arbitrary data.
+
+```python
 np.testing.assert_allclose(X.mean(axis=0), 0, atol=1e-14)
 np.testing.assert_allclose(Xk.mean(axis=0), 0, atol=1e-14)
 np.testing.assert_allclose(X.T @ X, np.eye(p), atol=1e-14)
 np.testing.assert_allclose(Xk.T @ Xk, np.eye(p), atol=1e-14)
 np.testing.assert_allclose(X.T @ Xk, 0, atol=1e-14)
+```
 
+### Generate the response and select features
+
+Only the first six original columns affect the simulated response. Generate y
+after the pair, with independent, equal-variance Gaussian noise.
+
+```python
 beta = np.zeros(p)
 beta[:6] = [8, -7, 6, -5, 4, -3]
 y = 2.0 + X @ beta + rng.normal(scale=0.5, size=n)
+```
+
+Pass both matrices explicitly to bypass automatic construction.
+
+```python
 result = fixed_x_knockoff_filter(
     X, y, Xk=Xk, q=q, method="corr_diff",
     fdr_control="knockoff_plus", backend="numpy",
 )
+```
+
+Inspect the selected original-column indices and the threshold quantities; the
+next section explains what they do and do not imply.
+
+```python
 print("Selected columns:", result.selected_features.tolist())
 print("Threshold:", round(result.threshold, 3))
 print("Threshold ratio:", round(result.estimated_fdr, 3))
 ```
+<!-- example-end: knockoff-selection -->
 
 ## Read the selection and its uncertainty
 
@@ -247,8 +289,12 @@ See [Torch Lasso device routing](../reference/feature-selection-api.md#torch-las
 
 For CPU model-X construction, use Torch CPU tensors with `backend="torch"`, or NumPy X/y with `backend="numpy"`. Keep X/y/Xk on the same intended device. A supplied, externally validated model-X Xk bypasses construction. Shape and device agreement do not establish exchangeability or conditional independence from y given X. These native construction rules apply to `compat_mode="statgpu"` with `Xk=None`, including `KnockoffSelector`; fixed-X has different construction and statistical assumptions.
 
+Choose one backend below; both blocks also reuse `fixed_x_knockoff_filter`
+from the CPU example.
+
+### CuPy
+
 ```python
-from statgpu import fixed_x_knockoff_filter
 import cupy as cp
 
 X_gpu, y_gpu, Xk_gpu = cp.asarray(X), cp.asarray(y), cp.asarray(Xk)
@@ -256,7 +302,11 @@ res_gpu = fixed_x_knockoff_filter(
     X_gpu, y_gpu, Xk=Xk_gpu, q=q, method="corr_diff",
     fdr_control="knockoff_plus", backend="cupy",
 )
+```
 
+### Torch CUDA
+
+```python
 import torch
 
 X_torch, y_torch, Xk_torch = [torch.from_numpy(a).to("cuda") for a in (X, y, Xk)]

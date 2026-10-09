@@ -1,7 +1,7 @@
 # Lasso
 
 > 语言：中文  
-> 最后更新：2026-10-05  
+> 最后更新：2026-10-09<br>
 > 页面定位：模型文档  
 > 切换：[English](../../en/models/lasso.md)
 
@@ -42,24 +42,50 @@ $$
 
 模拟特征已有相近尺度。拟合前先留出最后 60 行；只有前两列生成响应中的信号。
 
+请在同一个 Python 会话中按顺序运行以下步骤，先导入所需的库。
+
 <!-- learner-example: lasso-prediction -->
 ```python
 import numpy as np
 from statgpu.linear_model import Lasso
+```
 
+<a id="cpu-data"></a>
+
+### 准备训练与测试数据
+
+`X` 的形状为 `(240, 6)`：每行是一条观测，每列是一个预测变量。`y` 是形状为 `(240,)` 的一维连续响应。最后 60 行不参与拟合或调参。
+
+```python
 rng = np.random.default_rng(42)
 X = rng.normal(size=(240, 6))
 y = 1 + 2 * X[:, 0] - X[:, 1] + rng.normal(scale=0.3, size=240)
 X_train, X_test = X[:180], X[180:]
 y_train, y_test = y[:180], y[180:]
+```
+
+### 拟合预测模型
+
+先用一个示意性的固定惩罚强度。关闭推断，让这一步只估计用于预测的系数。
+
+```python
 model = Lasso(
     alpha=0.1, device="cpu", solver="coordinate_descent",
     max_iter=5000, tol=1e-10, compute_inference=False,
-).fit(X_train, y_train)
+)
+model.fit(X_train, y_train)
+```
+
+### 预测并查看拟合结果
+
+按训练时的列顺序传入测试特征；`score` 用留出的响应计算 R²。
+
+```python
 prediction = model.predict(X_test)
 print("Slopes:", np.round(model.coef_, 3))
 print("Test R2:", round(model.score(X_test, y_test), 3))
 ```
+<!-- example-end: lasso-prediction -->
 
 该种子下，斜率约为 `[1.887, -0.880, 0, 0, 0, 0]`，留出 R² 约为 `0.980`。
 前两个斜率相对生成值 2 和 −1 有所收缩。`prediction` 形状为 `(60,)`，
@@ -243,28 +269,29 @@ $$
 
 ## 完整的同时推断示例
 
-这个独立 CPU 示例自行生成数据。区间是在固定 alpha 后计算的，
-没有校正同一响应上选择 alpha 所带来的不确定性。
+先按顺序运行前面的完整 [CPU 示例](#完整的-cpu-示例)，再继续本节。这里复用其中的 `X_train`、`y_train`，测试响应不参与推断。区间以固定 alpha 为条件，没有校正同一响应上选择 alpha 的不确定性。
 
+<!-- example-requires: lasso-prediction -->
 <!-- learner-example: lasso-simultaneous -->
 ```python
-import numpy as np
-from statgpu.linear_model import Lasso
-
-rng = np.random.default_rng(42)
-X = rng.normal(size=(180, 6))
-y = 1 + 2 * X[:, 0] - X[:, 1] + rng.normal(scale=0.3, size=180)
 m_sim = Lasso(
     alpha=0.1, device="cpu", solver="coordinate_descent",
     max_iter=5000, tol=1e-10, inference_method="debiased",
     enable_simultaneous_inference=True, simultaneous_alpha=0.05,
     simultaneous_n_bootstrap=200, simultaneous_random_state=7,
     simultaneous_include_intercept=True,
-).fit(X, y)
+)
+m_sim.fit(X_train, y_train)
+```
+
+普通区间仍然是边际区间。若要查看包含六个斜率与截距的整个参数集合的同时区间，应读取单独的数组：
+
+```python
 ci_marginal = m_sim._conf_int
 ci_simul = m_sim._conf_int_simultaneous
 print(ci_marginal.shape, ci_simul.shape)
 ```
+<!-- example-end: lasso-simultaneous -->
 
 这里两者形状都是 `(7,2)`，截距位于六个斜率之前。200 次抽样让示例保持轻量，
 更多抽样可提高蒙特卡洛精度。可选 GPU 执行需要可用的 CuPy/Torch CUDA 后端，

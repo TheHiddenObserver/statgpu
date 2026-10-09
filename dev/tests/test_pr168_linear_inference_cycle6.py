@@ -11,6 +11,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from doc_examples import run_example
 
 from statgpu.linear_model import (
     MCPRegression,
@@ -29,12 +30,8 @@ class _RidgeCenteredObjectiveMismatch(AssertionError):
 
 def _example(language, page, marker):
     text = (ROOT / 'docs' / language / page).read_text()
-    match = re.search(r'<!-- ' + re.escape(marker) + r' -->\s*```python\n(.*?)```',
-                      text, re.DOTALL)
-    assert match is not None
-    scope = {}
-    exec(compile(match[1], f'{language}/{page}:{marker}', 'exec'), scope)  # noqa: S102
-    return scope
+    return run_example(text, marker.split(': ', 1)[1], f'{language}/{page}',
+                       allow_legacy=not page.startswith('models/'))
 
 
 @pytest.mark.parametrize('language', ['en', 'cn'])

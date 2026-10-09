@@ -1,7 +1,7 @@
 # LinearRegression
 
 > 语言：中文  
-> 最后更新：2026-10-05  
+> 最后更新：2026-10-09<br>
 > 页面定位：模型文档  
 > 切换：[English](../../en/models/linear-regression.md)
 
@@ -23,45 +23,52 @@ $$
 \min_{b,\beta}\sum_{i=1}^n (y_i-b-x_i^\top\beta)^2.
 $$
 
-n 为观测数，$x_i$ 为 p 维预测变量，$b$ 为截距，$\beta$ 为 p 维斜率。带截距时记 $D=[\mathbf1,X]$、$\theta=(b,\beta^\top)^\top$，否则 $D=X$、$\theta=\beta$。令 $W=\operatorname{diag}(w_i)$，无权重时为单位矩阵，加权目标与正规方程为
-
-$$
-\min_\theta (y-D\theta)^\top W(y-D\theta),\qquad
-D^\top W(y-D\hat\theta)=0.
-$$
-
-经典模型的加权设计矩阵满秩时，记 $r=\operatorname{rank}(W^{1/2}D)$，有
-
-$$
-\hat\sigma^2=\frac{(y-D\hat\theta)^\top W(y-D\hat\theta)}{n-r},\qquad
-\widehat{\operatorname{Var}}(\hat\theta)=\hat\sigma^2(D^\top WD)^{-1}.
-$$
-
-第 j 个标准误是协方差矩阵第 j 个对角元的平方根。边际区间为 $\hat\theta_j\pm c\,\mathrm{SE}_j$，经典推断使用 t 临界值，HC/HAC 使用正态临界值。稳健选项改变协方差构造，不改变 OLS/WLS 拟合。无权重时，r 就是 D 的秩；零权重行可能降低加权设计矩阵的秩。上述逆矩阵表达式要求加权设计满秩且残差自由度为正；使用估计器时无需手工求逆。
+n 为观测数，$x_i$ 为 p 维预测变量，$b$ 为截距，$\beta$ 为 p 维斜率。截距不受惩罚；`fit_intercept=False` 将它固定为零。
 
 ## 可直接运行的 CPU 示例
 
 安装 statgpu 后，以下示例只需 NumPy 和本包。它生成三个预测变量，用前 180 行
 拟合，留出 60 行测试；真实系数是 `[2, -1, 0]`。
 
+<!-- learner-example: linear-prediction -->
 ```python
 import numpy as np
 from statgpu import LinearRegression
+```
 
+<a id="cpu-data"></a>
+
+### 准备观测数据
+
+以下代码块需在同一会话中依次运行。`X` 是 `(240, 3)` 矩阵，每行是一条观测，每列是一个预测变量；`y` 是形状为 `(240,)` 的连续响应。拟合前先划分训练和测试行。
+
+```python
 rng = np.random.default_rng(42)
 X = rng.normal(size=(240, 3))
 y = 1.5 + X @ np.array([2.0, -1.0, 0.0]) + rng.normal(scale=0.5, size=240)
 X_train, X_test = X[:180], X[180:]
 y_train, y_test = y[:180], y[180:]
+```
 
+### 拟合模型
+
+`fit` 从训练行估计截距与斜率。这里同时请求 HC3 系数推断，供后面的区间步骤使用。HC3 根据异方差和杠杆值调整协方差，不改变 OLS 系数。若只需预测，可设置 `compute_inference=False`。
+
+```python
 model = LinearRegression(device="cpu", cov_type="hc3", compute_inference=True)
 model.fit(X_train, y_train)
+```
+
+### 预测留出观测
+
+测试时保持训练时的三列特征及其顺序；60 条测试观测各得到一个预测响应。
+
+```python
 prediction = model.predict(X_test)
 print("Intercept:", round(model.intercept_, 3))
 print("Coefficients:", np.round(model.coef_, 3))
 print("Prediction shape:", prediction.shape)
 print("Test R2:", round(model.score(X_test, y_test), 3))
-print("95% coefficient intervals:\n", np.round(model._conf_int, 3))
 ```
 
 输出约为：
@@ -71,6 +78,22 @@ Intercept: 1.484
 Coefficients: [ 2.049 -0.966 -0.088]
 Prediction shape: (60,)
 Test R2: 0.934
+```
+
+前两个斜率分别恢复了正向和负向关联。测试集 $R^2\approx0.934$ 表示测试残差平方和
+约为测试响应相对其均值的离差平方和的 6.6%。它不是“模型正确的概率”；在新数据上，
+$R^2$ 也可能为负。
+
+### 查看系数不确定性
+
+预测准确度与系数不确定性回答不同的问题。前面开启的 HC3 计算给出逐个系数的 95% 边际区间：
+
+```python
+print("95% coefficient intervals:\n", np.round(model._conf_int, 3))
+```
+<!-- example-end: linear-prediction -->
+
+```text
 95% coefficient intervals:
  [[ 1.410  1.557]
   [ 1.971  2.128]
@@ -78,21 +101,10 @@ Test R2: 0.934
   [-0.167 -0.008]]
 ```
 
-前两个斜率分别恢复了正向和负向关联。测试集 $R^2\approx0.934$ 表示测试残差平方和
-约为测试响应相对其均值的离差平方和的 6.6%。它不是“模型正确的概率”；在新数据上，
-$R^2$ 也可能为负。
-
 区间的行顺序是**截距在先，随后按输入列顺序排列**。注意第三个斜率的真实值为零，
 但这次抽样得到的区间恰好没有覆盖零。名义 95% 区间并不保证每次抽样都覆盖真值；
 同时检查多个系数还会引入多重检验问题。HC3 改变的是协方差估计，不改变 OLS 拟合系数。
 这些是逐个系数的边际置信区间，不是新观测值的预测区间。
-
-### 公式预测中的缺失行
-
-公式预测目前会删除预测变量缺失的行，返回较短且无行标签的数组。应先处理
-缺失，并在把结果配给原始观测前核对预测长度。这类查询也不能直接用于 `score`：
-唯一保留的预测可能被广播给多个响应，得到有限但错误的 R²。展平 y 无法修复
-这一行对齐问题。若有意筛行，应保留筛选后索引；否则拒绝查询，详见[完整缺失行警告](../reference/linear-model-api.md#missing-prediction-rows-in-ordinary-glms)。
 
 ## 输入与输出
 
@@ -115,6 +127,8 @@ $R^2$ 也可能为负。
 可能在不报错的情况下给出错误的 $R^2$。因此，评分前应展平单目标响应，
 但不要展平真正的多目标数组。
 
+下面用独立的六行数据单独演示这一形状问题；响应没有噪声，便于核对正确评分。
+
 <!-- learner-example: linear-column-target -->
 ```python
 import numpy as np
@@ -126,8 +140,16 @@ model = LinearRegression(device="cpu", compute_inference=False).fit(X, y_column)
 r2 = model.score(X, y_column.ravel())
 print("R2:", round(float(r2), 3))
 ```
+<!-- example-end: linear-column-target -->
 
 输出为 `R2: 1.0`，因为这条直线恰好拟合了全部无噪声观测。
+
+### 公式预测中的缺失行
+
+公式预测目前会删除预测变量缺失的行，返回较短且无行标签的数组。应先处理
+缺失，并在把结果配给原始观测前核对预测长度。这类查询也不能直接用于 `score`：
+唯一保留的预测可能被广播给多个响应，得到有限但错误的 R²。展平 y 无法修复
+这一行对齐问题。若有意筛行，应保留筛选后索引；否则拒绝查询，详见[完整缺失行警告](../reference/linear-model-api.md#missing-prediction-rows-in-ordinary-glms)。
 
 ## 如何选择参数与协方差
 
@@ -155,6 +177,24 @@ HC/HAC 的系数 p 值与区间使用**正态参考分布**，尽管统计量的
 `floor(4 * (n / 100)**(2 / 9))`，并限制在 `[0, n - 1]` 内。
 稳健协方差不能消除遗漏变量、非线性设定错误，也不能自动覆盖协方差模型之外的相关性。
 总体诊断 `fvalue`/`f_pvalue` 是基于残差的 F 统计量，不是稳健联合 Wald 检验。
+
+### 协方差如何构造
+
+带截距时记 $D=[\mathbf1,X]$、$\theta=(b,\beta^\top)^\top$，否则 $D=X$、$\theta=\beta$。令 $W=\operatorname{diag}(w_i)$，无权重时为单位矩阵，加权目标与正规方程为
+
+$$
+\min_\theta (y-D\theta)^\top W(y-D\theta),\qquad
+D^\top W(y-D\hat\theta)=0.
+$$
+
+经典模型的加权设计矩阵满秩时，记 $r=\operatorname{rank}(W^{1/2}D)$，有
+
+$$
+\hat\sigma^2=\frac{(y-D\hat\theta)^\top W(y-D\hat\theta)}{n-r},\qquad
+\widehat{\operatorname{Var}}(\hat\theta)=\hat\sigma^2(D^\top WD)^{-1}.
+$$
+
+第 j 个标准误是协方差矩阵第 j 个对角元的平方根。边际区间为 $\hat\theta_j\pm c\,\mathrm{SE}_j$，经典推断使用 t 临界值，HC/HAC 使用正态临界值。稳健选项改变协方差构造，不改变 OLS/WLS 拟合。无权重时，r 就是 D 的秩；零权重行可能降低加权设计矩阵的秩。上述逆矩阵表达式要求加权设计满秩且残差自由度为正；使用估计器时无需手工求逆。
 
 ## 常见误区与支持边界
 

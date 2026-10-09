@@ -1,7 +1,7 @@
 # Kernel Methods
 
 > Language: English  
-> Last updated: 2026-10-06  
+> Last updated: 2026-10-09
 > Switch: [Chinese](../../cn/models/kernel-methods.md)
 
 ## Choose a tool for your question
@@ -27,21 +27,23 @@ can model interactions more flexibly, but store a quadratic-size training kernel
 Choose feature units/scales deliberately: RBF similarity depends on distance.
 Any learned preprocessing must be fitted within training folds during CV.
 
+<a id="kernel-cpu-workflow"></a>
+
 ## A training and held-out CPU workflow
 
-This seeded example creates a nonlinear response. It reserves held-out rows
-before fitting, fixes the RBF scale `gamma`, and selects `alpha` using only the
-training data. If you also tune `gamma` or a feature map for a prediction task,
-keep that selection and the fitted preprocessing inside the training procedure;
-do not repeatedly choose settings from the held-out scores.
+Start with fixed-setting kernel ridge regression to learn the fit-and-predict workflow. Later sections add cross-validation or feature maps. This seeded example separates training and held-out rows and fixes the RBF scale `gamma`. Choose `alpha`, `gamma`, or a feature map within the training procedure, including any learned preprocessing; do not repeatedly tune from held-out scores.
 
 <!-- example: kernel-methods-cpu -->
 ```python
 import numpy as np
-from statgpu.nonparametric.kernel_methods import (
-    KernelRidge, KernelRidgeCV, KernelPCA, Nystroem, pairwise_kernels,
-)
+from statgpu.nonparametric.kernel_methods import KernelRidge
+```
 
+### Prepare and split the data
+
+`X` has shape `(240, 2)`: each row is an observation and its two columns are continuous features. `y` has shape `(240,)`, with one continuous response per row. Random splitting reserves 180 training rows and 60 test rows. Later sections explicitly reuse these training and test arrays.
+
+```python
 rng = np.random.default_rng(42)
 X = rng.uniform(-2, 2, size=(240, 2))
 y = np.sin(1.7 * X[:, 0]) + 0.4 * X[:, 1] ** 2 + rng.normal(0, 0.1, 240)
@@ -49,55 +51,27 @@ indices = rng.permutation(len(X))
 train, test = indices[:180], indices[180:]
 X_train, X_test = X[train], X[test]
 y_train, y_test = y[train], y[test]
-
-# Fix the kernel scale, and tune alpha only within the training rows.
-kr = KernelRidge(alpha=1.0, gamma=0.7, device="cpu").fit(X_train, y_train)
-kr_cv = KernelRidgeCV(
-    alphas=[0.01, 0.1, 1.0, 10.0], gamma=0.7,
-    cv=5, random_state=42, device="cpu",
-).fit(X_train, y_train)
-assert np.isfinite(kr_cv.cv_results_["mean_mse"]).all()
-assert np.isfinite(kr_cv.best_score_)
-prediction = kr_cv.predict(X_test)
-held_out_r2 = kr_cv.score(X_test, y_test)
-held_out_mse = np.mean((y_test - prediction) ** 2)
-print("Fixed-alpha held-out R2:", kr.score(X_test, y_test))
-print("Selected alpha:", kr_cv.alpha_)
-print("CV model held-out R2 / MSE:", held_out_r2, held_out_mse)
-
-# Learn feature maps on training rows; reuse them for held-out rows.
-kpca = KernelPCA(n_components=3, gamma=0.7, device="cpu")
-train_coordinates = kpca.fit_transform(X_train)
-test_coordinates = kpca.transform(X_test)
-nystroem = Nystroem(
-    n_components=40, gamma=0.7, random_state=42, device="cpu",
-)
-train_features = nystroem.fit_transform(X_train)
-test_features = nystroem.transform(X_test)
-print("Held-out coordinate / feature shapes:",
-      test_coordinates.shape, test_features.shape)
-
-# Small diagnostic only: how well do these features approximate this kernel?
-K_test = pairwise_kernels(X_test, metric="rbf", gamma=0.7, xp=np)
-approximation_error = np.linalg.norm(test_features @ test_features.T - K_test)
-relative_kernel_error = approximation_error / np.linalg.norm(K_test)
-print("Held-out relative kernel approximation error:", relative_kernel_error)
 ```
 
-R-squared compares response predictions with the held-out response mean: 1 is
-perfect, 0 matches that constant predictor, and negative values are worse. MSE
-is mean squared prediction error in squared response units; lower is better.
-`best_score_` summarizes the training CV folds, so it is not the held-out result.
-The two held-out scores illustrate evaluation, not a reason to keep tuning on
-these same test rows.
+### Fit one kernel ridge model
 
-KernelPCA's `(60, 3)` output contains coordinates, while Nystroem's `(60, 40)`
-output contains approximate kernel features. Neither predicts `y` on its own.
-The relative kernel error compares `Z @ Z.T` with the exact held-out RBF kernel;
-smaller means a closer kernel approximation on these rows, not necessarily
-better response prediction. This small dense diagnostic is unsuitable when
-materializing that kernel would itself be too expensive. For a downstream
-predictor, fit the feature map separately within each training fold.
+`gamma` controls how quickly RBF similarity decays with distance, and `alpha` controls regularization. Fix both for this first fit; see “Kernel Ridge Cross-Validation” below for selecting `alpha`.
+
+```python
+kr = KernelRidge(alpha=1.0, gamma=0.7, device="cpu").fit(X_train, y_train)
+```
+
+### Predict and interpret
+
+Reuse the fitted `kr` to predict responses for test rows with the same feature order.
+
+```python
+fixed_prediction = kr.predict(X_test)
+print(fixed_prediction.shape)
+print("Fixed-alpha held-out R2:", kr.score(X_test, y_test))
+```
+
+The `(60,)` output contains one response prediction per held-out observation. R-squared compares predictions with the held-out response mean: 1 is perfect, 0 matches that constant predictor, and negative values are worse. Kernel coefficients are not raw-feature slopes.
 
 ## Kernel Ridge Regression
 
@@ -137,6 +111,35 @@ Selection minimizes mean validation MSE, averaged equally over folds and respons
 
 With a singular training-fold kernel, an explicit zero alpha can produce nonfinite CV scores and still be selected. Use strictly positive candidates and check that `mean_mse` and `best_score_` are finite before interpreting the selection. A returned estimator alone does not establish a valid search. The automatic grid uses positive values.
 
+<a id="kernel-cv-workflow"></a>
+
+### Select alpha within training folds
+
+First run “A training and held-out CPU workflow.” Reuse its `np`, `X_train`, `y_train`, `X_test`, and `y_test` below, keeping `gamma=0.7` fixed while selecting `alpha` only from training rows.
+
+```python
+from statgpu.nonparametric.kernel_methods import KernelRidgeCV
+
+kr_cv = KernelRidgeCV(
+    alphas=[0.01, 0.1, 1.0, 10.0], gamma=0.7,
+    cv=5, random_state=42, device="cpu",
+).fit(X_train, y_train)
+```
+
+Check that search scores are finite before using the result, then evaluate held-out responses. MSE is in squared response units; lower is better.
+
+```python
+assert np.isfinite(kr_cv.cv_results_["mean_mse"]).all()
+assert np.isfinite(kr_cv.best_score_)
+prediction = kr_cv.predict(X_test)
+held_out_r2 = kr_cv.score(X_test, y_test)
+held_out_mse = np.mean((y_test - prediction) ** 2)
+print("Selected alpha:", kr_cv.alpha_)
+print("CV model held-out R2 / MSE:", held_out_r2, held_out_mse)
+```
+
+`best_score_` summarizes training CV folds, not the held-out result. The two held-out scores illustrate evaluation, not a reason to keep tuning on these same test rows.
+
 ## Kernel PCA
 
 For the centered kernel matrix $\widetilde K$, Kernel PCA eigendecomposes
@@ -148,6 +151,26 @@ $$
 The leading eigenvectors define nonlinear components. Transforming new data
 requires computing the test-to-training kernel, applying the training centering
 quantities, and projecting onto the retained components.
+
+### Learn and reuse nonlinear coordinates
+
+Reuse `X_train` and `X_test` from “A training and held-out CPU workflow.” No `y` is used here: learn the coordinate system from training rows, then transform test rows.
+
+```python
+from statgpu.nonparametric.kernel_methods import KernelPCA
+
+kpca = KernelPCA(n_components=3, gamma=0.7, device="cpu")
+train_coordinates = kpca.fit_transform(X_train)
+```
+
+The same fitted object preserves training centering and projection for new rows.
+
+```python
+test_coordinates = kpca.transform(X_test)
+print(test_coordinates.shape)
+```
+
+`(60, 3)` means 60 rows with three nonlinear coordinates, not three response predictions.
 
 ### After a failed refit
 
@@ -183,6 +206,44 @@ This is the symmetric inverse-square-root feature orientation used for a positiv
 
 This replaces a full $n\times n$ kernel representation with an $n\times m$
 feature matrix when $m\ll n$.
+
+### Build a smaller kernel feature matrix
+
+Reuse `np`, `X_train`, and `X_test` from “A training and held-out CPU workflow.” The 40 landmarks are selected only from training rows; test rows use that same learned map.
+
+```python
+from statgpu.nonparametric.kernel_methods import Nystroem
+
+nystroem = Nystroem(
+    n_components=40, gamma=0.7, random_state=42, device="cpu",
+)
+train_features = nystroem.fit_transform(X_train)
+```
+
+Transform the test rows into features for a downstream model.
+
+```python
+test_features = nystroem.transform(X_test)
+print(test_features.shape)
+```
+
+The `(60, 40)` output contains approximate kernel features; it does not predict `y` on its own. For downstream prediction, fit the feature map separately within each training fold.
+
+### Optional: check the approximation on small data
+
+Continue with `test_features` above and compare it with the exact RBF kernel on the same test rows. This diagnostic explicitly forms a dense kernel and is only suitable for small data.
+
+```python
+from statgpu.nonparametric.kernel_methods import pairwise_kernels
+
+K_test = pairwise_kernels(X_test, metric="rbf", gamma=0.7, xp=np)
+approximation_error = np.linalg.norm(test_features @ test_features.T - K_test)
+relative_kernel_error = approximation_error / np.linalg.norm(K_test)
+print("Held-out relative kernel approximation error:", relative_kernel_error)
+```
+<!-- example-end: kernel-methods-cpu -->
+
+Smaller error means `Z @ Z.T` is closer to the exact kernel on these rows, not necessarily better response prediction. Do not use this diagnostic when the full kernel is itself too expensive to materialize.
 
 ## Built-In Kernels
 
@@ -287,6 +348,7 @@ explicit = pairwise_kernels(X, metric=custom_linear, xp=np)
 np.testing.assert_allclose(implicit, X @ X.T)
 np.testing.assert_allclose(explicit, implicit)
 ```
+<!-- example-end: kernel-callable-cpu -->
 
 The cosine implementation adds `1e-10` to its norm-product denominator, so zero-vector pairs return zero and tiny-norm inputs differ from exact cosine normalization. For chi-squared, zero/zero feature contributions are zero on NumPy; CuPy/Torch use a denominator floor of `1e-10`, which can change results for very small nonnegative features.
 
@@ -294,27 +356,29 @@ Implementation references: [KernelRidge](../../../statgpu/nonparametric/kernel_m
 
 ## Optional GPU examples
 
+First complete “Select alpha within training folds.” Reuse its `KernelRidgeCV`, `X_train`, `y_train`, `X_test`, and configured `kr_cv`, changing only the device. Choose one snippet for your installation; each requires a working CUDA backend.
+
 ### CuPy
 
+<!-- example-requires: kernel-methods-cpu -->
+<!-- example: kernel-methods-cupy -->
 ```python
-import cupy as cp
-from statgpu.nonparametric.kernel_methods import KernelRidgeCV
-
-X = cp.random.randn(500, 10, dtype=cp.float64)
-y = X[:, 0] - 0.5 * X[:, 1]
-model = KernelRidgeCV(kernel="rbf", cv=5, device="cuda").fit(X, y)
+gpu_options = {**kr_cv.get_params(), "device": "cuda"}
+kr_cupy = KernelRidgeCV(**gpu_options).fit(X_train, y_train)
+prediction_cupy = kr_cupy.predict(X_test)
 ```
+<!-- example-end: kernel-methods-cupy -->
 
 ### Torch CUDA
 
+<!-- example-requires: kernel-methods-cpu -->
+<!-- example: kernel-methods-torch -->
 ```python
-import torch
-from statgpu.nonparametric.kernel_methods import KernelRidgeCV
-
-X = torch.randn(500, 10, device="cuda", dtype=torch.float64)
-y = X[:, 0] - 0.5 * X[:, 1]
-model = KernelRidgeCV(kernel="rbf", cv=5, device="torch").fit(X, y)
+gpu_options = {**kr_cv.get_params(), "device": "torch"}
+kr_torch = KernelRidgeCV(**gpu_options).fit(X_train, y_train)
+prediction_torch = kr_torch.predict(X_test)
 ```
+<!-- example-end: kernel-methods-torch -->
 
 `device="cuda"` requests CuPy CUDA; `device="torch"` requests Torch CUDA. For KernelPCA/Nystroem, successful backend selection alone does not establish output placement; see below.
 

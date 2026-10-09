@@ -1,7 +1,7 @@
 # CoxPH
 
 > 语言：中文<br>
-> 最后更新：2026-10-06<br>
+> 最后更新：2026-10-09<br>
 > 页面定位：模型文档<br>
 > 切换：[English](../../en/models/coxph.md)
 
@@ -37,26 +37,28 @@ Breslow、Efron 与 Exact 三种并列事件处理方式，同时覆盖普通右
 计数过程 `(start, stop]` 行、独立分层（`strata`）、时变协变量、稳健/聚类协方差，以及
 通过 `CoxPHCV` 选择 L2 惩罚。
 
-重要行为：
+<!-- example: coxph-cpu-walkthrough -->
+## 导入
 
-- 显式 `device="cuda"` 与 `device="torch"` 不会静默回退 CPU；
-- `entry=` 与 `start=` 是互斥的别名；
-- 某行在时刻 `t` 进入风险集，当且仅当 `start < t <= stop`，且其分层标签
-  与事件所属分层相同；
-- `subject_id=` 标识同一受试者的重复行，用于一致性指数、三明治协方差聚合，并确保同一受试者的记录不会被拆到不同的交叉验证折中；
-- `compute_inference=False` 仅执行估计，推断字段和基线风险字段保持未设置。
+```python
+import numpy as np
+from statgpu.survival import CoxPH
+```
 
 ## 第一个 CPU 完整示例
 
-这个完整示例只需要 NumPy 与 StatGPU，无需 GPU 或外部数据。它模拟独立受试者的右删失数据，
-三个特征已处于可比尺度，并在拟合前留出最后 100 位受试者。真实数据应按受试者、群组或时间
-选择合适的划分方式；缩放等预处理只能使用训练部分来学习。
+下面各小节按顺序运行，只需 NumPy 与 StatGPU。先完成右删失数据的拟合和留出评估；
+后面的生存曲线、交叉验证与 GPU 示例会复用这里的数据，不必重新生成。
 
-<!-- example: coxph-cpu-walkthrough -->
+### 准备输入
+
+`X` 的每行对应一位受试者，每列对应一个特征，形状为 `(n_samples, n_features)`。
+`time` 与 `event` 都是一维向量，长度等于 `X` 的行数。`time` 是事件或删失发生的时间；
+`event=1` 表示观察到事件，`event=0` 表示右删失。不要给 `X` 添加常量/截距列。
+
+下面模拟 400 位独立受试者和三个尺度相近的特征。实际使用时，可将此块替换为自己的数据读取步骤。
+
 ```python
-import numpy as np
-from statgpu.survival import CoxPH, CoxPHCV
-
 rng = np.random.default_rng(42)
 X = rng.normal(size=(400, 3))
 true_coef = np.array([0.8, -0.5, 0.3])
@@ -64,11 +66,25 @@ event_time = rng.exponential(scale=np.exp(-(X @ true_coef)))
 censor_time = rng.exponential(scale=2.0, size=len(X))
 time = np.minimum(event_time, censor_time)
 event = (event_time <= censor_time).astype(np.int64)
+```
 
+### 留出评估数据
+
+拟合前留出最后 100 位受试者。真实数据应按受试者、群组或时间选择合适的划分方式；
+缩放等预处理只能使用训练部分来学习。
+
+```python
 X_train, X_test = X[:300], X[300:]
 time_train, time_test = time[:300], time[300:]
 event_train, event_test = event[:300], event[300:]
+```
 
+### 拟合并检查收敛
+
+先使用显式 CPU 后端和 Efron 并列事件处理。保留 `compute_inference=True`，
+这样后续可以读取系数不确定性与生存曲线所需的基线。它不会自动检验比例风险假设。
+
+```python
 model = CoxPH(
     ties="efron", device="cpu", compute_inference=True,
 ).fit(X_train, time_train, event_train)
@@ -77,33 +93,67 @@ if not model.converged_:
         f"{model.optimization_stop_reason_}: "
         f"normalized KKT={model.final_kkt_normalized_}"
     )
+```
+
+收敛后，先看各特征的方向和风险比：
+
+```python
 print("Coefficients:", model.coef_)
 print("Per-feature hazard ratios:", model.hazard_ratios_)
 print("Convergence:", model.termination_reason_, model.n_iter_)
-model.summary()
-
-log_risk = model.predict_risk_score(X_test[:2])
-relative_hazard = model.predict(X_test[:2])
-requested_times = np.array([0.0, 0.5, 1.0, 2.0])
-curves, curve_times = model.predict_survival(
-    X_test[:2], times=requested_times,
-)
-held_out_cindex = model.score(X_test, time_test, event_test)
-print("Log-risk:", log_risk)
-print("Relative hazard:", relative_hazard)
-print("Survival shape and times:", curves.shape, curve_times)
-print("Held-out C-index:", held_out_cindex)
 ```
-<!-- /example: coxph-cpu-walkthrough -->
 
 这个随机种子下，系数约为 `[0.852, -0.457, 0.312]`，对应的风险比约为
 `[2.345, 0.633, 1.367]`。例如，其他特征保持不变时，第一个特征增加一个单位，估计的
 瞬时风险约变为原来的 2.35 倍；第二个特征与更低的风险相关。这些是模拟数据中的关联，
 不应作为实际干预建议。
 
+### 预测相对风险
+
+先比较两个留出样本的风险，而不把风险比误读为概率。
+
+```python
+log_risk = model.predict_risk_score(X_test[:2])
+relative_hazard = model.predict(X_test[:2])
+print("Log-risk:", log_risk)
+print("Relative hazard:", relative_hazard)
+```
+
 `predict_risk_score(X)` 返回 `X @ coef_`；`predict(X)` 和
 `predict_hazard_ratio(X)` 返回 `exp(X @ coef_)`，其参照是同一分层内协变量全为零的样本。
 比较两种特征组合时，应对两者的对数风险之差取指数。`hazard_ratios_` 则是每个**特征**的风险比。
+
+### 评估留出集排序
+
+用全部 100 个留出样本及其时间、事件指示计算 C-index。
+
+```python
+held_out_cindex = model.score(X_test, time_test, event_test)
+print("Held-out C-index:", held_out_cindex)
+```
+<!-- example-end: coxph-cpu-walkthrough -->
+
+留出集 C-index 约为 `0.766`：在可比较的样本对中，模型倾向于给更早发生事件的样本更高风险。
+它衡量排序区分能力，不是概率校准指标或 $R^2$。接近 `0.5` 表示中性排序，
+`1.0` 表示可比较样本对上的完美排序，低于 `0.5` 提示排序可能相反。
+没有可比较样本对时也返回 `0.5`；此时是评估证据不足，不能据此认定模型表现等同于随机。
+不要把训练集一致性指数当作留出评估。
+
+## 预测生存曲线
+
+先运行[第一个 CPU 完整示例](#第一个-cpu-完整示例)，复用其 `model` 与 `X_test`。
+若问题是某个时刻仍未发生事件的概率，就需要在相对风险之外加入拟合基线。
+
+<!-- example-requires: coxph-cpu-walkthrough -->
+<!-- example: coxph-survival-prediction -->
+```python
+requested_times = np.array([0.0, 0.5, 1.0, 2.0])
+curves, curve_times = model.predict_survival(
+    X_test[:2], times=requested_times,
+)
+print("Survival shape and times:", curves.shape, curve_times)
+```
+<!-- example-end: coxph-survival-prediction -->
 
 `predict_survival` 返回 **`(curves, times)` 元组**，并非单独一个矩阵：
 `curves` 的形状为 `(n_new, n_times)`，`times` 的形状为 `(n_times,)`；
@@ -112,12 +162,6 @@ print("Held-out C-index:", held_out_cindex)
 （有分层时取各层的并集）；显式传入时间时保留请求顺序。基线为阶梯函数，在最后一个事件时间
 之后保持不变，因此延长预测网格不意味着获得了可靠的长期外推。
 对于计数过程数据，每个预测行表示固定的协变量组合，不会自动沿未来协变量轨迹积分。
-
-留出集 C-index 约为 `0.766`：在可比较的样本对中，模型倾向于给更早发生事件的样本更高风险。
-它衡量排序区分能力，不是概率校准指标或 $R^2$。接近 `0.5` 表示中性排序，
-`1.0` 表示可比较样本对上的完美排序，低于 `0.5` 提示排序可能相反。
-没有可比较样本对时也返回 `0.5`；此时是评估证据不足，不能据此认定模型表现等同于随机。
-不要把训练集一致性指数当作留出评估。
 
 ### 从相对风险到生存概率
 
@@ -170,6 +214,15 @@ $d_{sk}$ 为第 $s$ 层在 $t_k$ 的事件数；$R_s(t_k)$ 包含同层中满足
 [`CoxPH`](../../../statgpu/survival/_cox.py) 和
 [`CoxPHCV`](../../../statgpu/survival/_cox_cv.py)。
 
+重要行为：
+
+- 显式 `device="cuda"` 与 `device="torch"` 不会静默回退 CPU；
+- `entry=` 与 `start=` 是互斥的别名；
+- 某行在时刻 `t` 进入风险集，当且仅当 `start < t <= stop`，且其分层标签
+  与事件所属分层相同；
+- `subject_id=` 标识同一受试者的重复行，用于一致性指数、三明治协方差聚合，并确保同一受试者的记录不会被拆到不同的交叉验证折中；
+- `compute_inference=False` 仅执行估计，推断字段和基线风险字段保持未设置。
+
 ## 参数
 
 | 参数 | 默认值 | 说明 |
@@ -198,8 +251,11 @@ $d_{sk}$ 为第 $s$ 层在 $t_k$ 的事件数；$R_s(t_k)$ 包含同层中满足
 选择惩罚，再在同一份未参与选择的 100 人测试集上评估最终重拟合模型。
 L2 会收缩系数，因此特征尺度会影响惩罚；真实数据的预处理应在每个训练折内拟合，不能使用验证集或测试集信息。
 
+<!-- example-requires: coxph-cpu-walkthrough -->
 <!-- example: coxph-cpu-cv -->
 ```python
+from statgpu.survival import CoxPHCV
+
 cv_model = CoxPHCV(
     penalties=[0.0, 0.1, 1.0, 10.0],
     cv=3,
@@ -211,6 +267,11 @@ cv_model = CoxPHCV(
 if not cv_model.converged_:
     raise RuntimeError(cv_model.optimization_stop_reason_)
 
+```
+
+先看候选分数和有效折数，再在留出测试集评估最终模型：
+
+```python
 cv_mean_pl = cv_model.cv_results_["mean_pl"]
 cv_fold_counts = cv_model.cv_results_["effective_fold_counts"]
 cv_test_cindex = cv_model.score(X_test, time_test, event_test)
@@ -261,32 +322,20 @@ print("Test C-index:", cv_test_cindex)
 [`CoxPHCV`](../../../statgpu/survival/_cox_cv.py)。
 
 
-同样的惩罚搜索也可使用 CuPy 或 Torch CUDA 数组。先运行 [CPU 与 GPU 示例](#cpu-与-gpu-示例)中的相应准备代码：
-
-```python
-cupy_cv = CoxPHCV(
-    penalties=[0.0, 0.01, 0.1], cv=5, device="cuda",
-    compute_inference=False,
-).fit(X_cp, time_cp, event_cp)
-
-torch_cv = CoxPHCV(
-    penalties=[0.0, 0.01, 0.1], cv=5, device="torch",
-    compute_inference=False,
-).fit(X_t, time_t, event_t)
-```
-
 ### L1/L2/ElasticNet/SCAD/MCP 模型族交叉验证
 
 上面的 `CoxPHCV` 是标准的 L2 Cox 选择器，并可按配置执行最终重拟合推断。
 公开的带惩罚模型族则使用 `PenalizedGLM_CV` 的独立生存分析专用分支：
 
-以下补充示例使用本页任一数据准备示例中的 `X`、`time` 与 `event`。
+以下补充示例复用[CPU 示例](#第一个-cpu-完整示例)的 `X_train`、`time_train` 与
+`event_train`，测试样本不参与调参。
 
+<!-- example-requires: coxph-cpu-walkthrough -->
 <!-- example: coxph-penalized-family-cv -->
 ```python
 from statgpu.linear_model import PenalizedGLM_CV
 
-survival_y = np.column_stack([time, event])
+survival_y = np.column_stack([time_train, event_train])
 penalized_cv = PenalizedGLM_CV(
     loss="cox_ph",
     penalty="mcp",               # l1、l2、elasticnet、scad 或 mcp
@@ -295,7 +344,7 @@ penalized_cv = PenalizedGLM_CV(
     cv_strategy="strict",
     loss_kwargs={"ties": "efron"},
     device="cpu",                # 也可用 "cuda" / "torch"
-).fit(X, survival_y)
+).fit(X_train, survival_y)
 ```
 <!-- /example: coxph-penalized-family-cv -->
 
@@ -392,73 +441,93 @@ $$
 正惩罚拟合后读取 AIC/BIC 会报错；无惩罚 BIC 使用事件数而不是行数。
 CV 模型应通过 `estimator_` 读取这些属性，见[输出表与可运行验证](../reference/survival-smoothing-api.md#系数推断与-cv-结果)。
 
-## CPU 与 GPU 示例
+<a id="cpu-与-gpu-示例"></a>
+## 可选：在 GPU 上拟合
 
-三个后端使用相同的统计输入，并在拟合后端返回预测数组。以下可选后端示例与前面的留出评估示例独立。先运行一次以下确定性数据准备：
+先按顺序运行[第一个 CPU 完整示例](#第一个-cpu-完整示例)，再继续本节。
+下面只将同一训练集和三个留出样本移到所选 GPU，不重新生成数据或重复 CPU 拟合。
+分别选择 CuPy 或 Torch 示例运行；无需同时安装两个后端。
 
-<!-- example: coxph-backend-data -->
-```python
-import numpy as np
+### CuPy / CUDA
 
-from statgpu.survival import CoxPH, CoxPHCV
+将训练输入和预测输入转换为 CuPy 数组：
 
-rng = np.random.default_rng(20260730)
-n = 256
-X = rng.normal(size=(n, 3))
-log_risk = X @ np.array([0.45, -0.30, 0.20])
-event_time = rng.exponential(scale=np.exp(-log_risk))
-censor_time = rng.exponential(scale=1.8, size=n)
-time = np.minimum(event_time, censor_time)
-event = (event_time <= censor_time).astype(np.float64)
-```
-<!-- /example: coxph-backend-data -->
-
-NumPy / CPU：
-
-<!-- example: coxph-backend-cpu -->
-```python
-cpu_model = CoxPH(
-    ties="efron",
-    device="cpu",
-    compute_inference=False,
-).fit(X, time, event)
-cpu_log_risk = cpu_model.predict_risk_score(X[:3])
-```
-<!-- /example: coxph-backend-cpu -->
-
-CuPy / CUDA：
-
+<!-- example-requires: coxph-cpu-walkthrough -->
+<!-- example: coxph-cupy-fit -->
 ```python
 import cupy as cp
 
-X_cp = cp.asarray(X)
-time_cp = cp.asarray(time)
-event_cp = cp.asarray(event)
-cupy_model = CoxPH(
-    ties="efron",
-    device="cuda",
-    compute_inference=False,
-).fit(X_cp, time_cp, event_cp)
-cupy_log_risk = cupy_model.predict_risk_score(X_cp[:3])
+X_cp = cp.asarray(X_train)
+time_cp = cp.asarray(time_train)
+event_cp = cp.asarray(event_train)
+X_test_cp = cp.asarray(X_test[:3])
 ```
 
-Torch / CUDA：
+拟合后预测同一留出集中的三个样本；结果仍为 CuPy 数组。
 
+```python
+cupy_model = CoxPH(
+    ties="efron", device="cuda", compute_inference=False,
+).fit(X_cp, time_cp, event_cp)
+cupy_log_risk = cupy_model.predict_risk_score(X_test_cp)
+```
+<!-- example-end: coxph-cupy-fit -->
+
+若需要选择 L2 惩罚，复用以上 CuPy 训练数组：
+
+<!-- example-requires: coxph-cupy-fit -->
+<!-- example: coxph-cupy-cv -->
+```python
+from statgpu.survival import CoxPHCV
+
+cupy_cv = CoxPHCV(
+    penalties=[0.0, 0.1, 1.0, 10.0], cv=3, random_state=42,
+    ties="efron", device="cuda", compute_inference=False,
+).fit(X_cp, time_cp, event_cp)
+```
+<!-- example-end: coxph-cupy-cv -->
+
+### Torch / CUDA
+
+也可以从 CPU 示例的 NumPy 数组开始，独立运行下面的 Torch 版本：
+
+<!-- example-requires: coxph-cpu-walkthrough -->
+<!-- example: coxph-torch-fit -->
 ```python
 import torch
 
-X_t = torch.as_tensor(X, dtype=torch.float64, device="cuda")
-time_t = torch.as_tensor(time, dtype=torch.float64, device="cuda")
-event_t = torch.as_tensor(event, dtype=torch.float64, device="cuda")
-torch_model = CoxPH(
-    ties="efron",
-    device="torch",
-    compute_inference=False,
-).fit(X_t, time_t, event_t)
-torch_log_risk = torch_model.predict_risk_score(X_t[:3])
+X_t = torch.as_tensor(X_train, dtype=torch.float64, device="cuda")
+time_t = torch.as_tensor(time_train, dtype=torch.float64, device="cuda")
+event_t = torch.as_tensor(event_train, dtype=torch.float64, device="cuda")
+X_test_t = torch.as_tensor(X_test[:3], dtype=torch.float64, device="cuda")
 ```
 
-当相应软件包、CUDA 运行环境或设备不可用时，显式 CUDA 请求会报错，不会静默转到 CPU。需要协方差、检验或生存曲线时，设置 `compute_inference=True`。
+使用 `device="torch"` 拟合后，预测结果仍为 CUDA 张量。
+
+```python
+torch_model = CoxPH(
+    ties="efron", device="torch", compute_inference=False,
+).fit(X_t, time_t, event_t)
+torch_log_risk = torch_model.predict_risk_score(X_test_t)
+```
+<!-- example-end: coxph-torch-fit -->
+
+Torch 交叉验证同样复用上述训练数组：
+
+<!-- example-requires: coxph-torch-fit -->
+<!-- example: coxph-torch-cv -->
+```python
+from statgpu.survival import CoxPHCV
+
+torch_cv = CoxPHCV(
+    penalties=[0.0, 0.1, 1.0, 10.0], cv=3, random_state=42,
+    ties="efron", device="torch", compute_inference=False,
+).fit(X_t, time_t, event_t)
+```
+<!-- example-end: coxph-torch-cv -->
+
+当相应软件包、CUDA 运行环境或设备不可用时，显式 CUDA 请求会报错，不会静默转到 CPU。
+以上示例关闭了推断；需要协方差、检验或生存曲线时，设置 `compute_inference=True`。
 
 ## 目标函数与估计方程
 
@@ -571,6 +640,16 @@ $$
 L1/Elastic Net/SCAD/MCP 接口仍仅支持估计。
 
 ## 协方差与推断
+
+[CPU 示例](#第一个-cpu-完整示例)已启用推断；直接查看该模型的系数表，无需重新拟合。
+表中的标准误、z 检验和区间使用默认的模型协方差，具体含义与其他协方差选择见下文。
+
+<!-- example-requires: coxph-cpu-walkthrough -->
+<!-- example: coxph-summary -->
+```python
+model.summary()
+```
+<!-- example-end: coxph-summary -->
 
 | `cov_type` | 含义 |
 |---|---|

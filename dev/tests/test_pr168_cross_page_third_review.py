@@ -1,10 +1,10 @@
 """Executable cross-page examples and mathematical/public API contracts."""
 import inspect
-import re
 from pathlib import Path
 
 import numpy as np
 import pytest
+from doc_examples import run_example
 
 from statgpu import LinearRegression, LogisticRegression
 from statgpu.inference import adjust_pvalues, combine_pvalues, multipletests
@@ -19,9 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 ])
 def test_complete_multiple_testing_examples(lang, kind, slug, marker):
     text = (ROOT / 'docs' / lang / kind / f'{slug}.md').read_text()
-    code = re.search(r'<!-- api-example: ' + marker + r' -->\s*```python\n(.*?)```', text, re.DOTALL).group(1)
-    namespace = {}
-    exec(compile(code, f'{lang}/{slug}', 'exec'), namespace)  # noqa: S102 - repository-owned example
+    namespace = run_example(text, marker, f'{lang}/{slug}', allow_legacy=kind != 'models')
     assert np.all(np.isfinite(namespace['adjusted']))
     if kind == 'models':
         np.testing.assert_array_equal(namespace['reject'], [True, True, False, False, False])

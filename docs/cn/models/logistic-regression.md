@@ -1,7 +1,7 @@
 # LogisticRegression
 
 > 语言： 中文  
-> 最后更新： 2026-10-04
+> 最后更新： 2026-10-09
 > 页面定位： 模型文档  
 > 切换： [English](../../en/models/logistic-regression.md)
 
@@ -11,50 +11,69 @@
 
 这个独立估计器在 CPU/GPU 上采用 IRLS 求解，可加入 L2 正则化。不支持多分类、L1 或 Elastic Net 拟合。需要其他惩罚形式时，参见[带惩罚 GLM](generalized-linear-model.md)，但不要把不同估计器的 `C` 或求解器接口当作相同约定。
 
+<a id="cpu-example"></a>
+
 ## 完整的 CPU 示例
 
-下面生成不会完全分离的 0/1 数据，用前 600 行拟合，再评估其余 200 行。`C=0` 表示这个估计器的无惩罚拟合；默认 `C=1.0` 则加入 L2 正则化。
+按顺序运行以下小节。先拟合和预测，最后再选择是否计算系数区间。示例只需要 CPU。
 
+### 1. 导入
+
+<!-- learner-example: logistic-unpenalized -->
 ```python
 import numpy as np
 from statgpu.linear_model import LogisticRegression
+```
 
+### 2. 准备二分类数据
+
+`X` 的形状为 `(800, 3)`：每行是一条观测，每列是一个数值特征。`y` 为长度 800 的 0/1 标签。模拟中的概率用于生成响应，实际拟合时不需要已知真实概率。前 600 行用于训练，后 200 行留作评价；预测时保持相同列顺序。
+
+```python
 rng = np.random.default_rng(42)
 X = rng.normal(size=(800, 3))
 true_coef = np.array([0.8, -0.6, 0.3])
 p = 1.0 / (1.0 + np.exp(-(-0.2 + X @ true_coef)))
 y = rng.binomial(1, p)
+```
 
+### 3. 拟合并检查收敛
+
+`C=0` 是这个估计器完全取消惩罚的特殊值；默认 `C=1.0` 会加入 L2 惩罚。先关闭推断，只关注拟合结果。
+
+```python
 model = LogisticRegression(
-    C=0, device="cpu", cov_type="hc1",
-    compute_inference=True, max_iter=200, tol=1e-8,
+    C=0, device="cpu", compute_inference=False, max_iter=200, tol=1e-8,
 ).fit(X[:600], y[:600])
-
 print("converged:", model.converged_)
 print("coef:", np.round(model.coef_, 3))
 print("odds ratios:", np.round(np.exp(model.coef_), 3))
-print("P(y=1):", np.round(model.predict_proba(X[600:603])[:, 1], 3))
+```
+
+该种子下系数约为 `[0.849, -0.501, 0.138]`，优势比约为 `[2.338, 0.606, 1.148]`。其他特征不变时，第一个特征每增加一单位，优势约乘以 2.338；这不是概率比。先确认 `converged_` 为真，不能仅凭存在系数就认为拟合可靠。
+
+### 4. 在留出数据上预测
+
+```python
+probability = model.predict_proba(X[600:])
+print("P(y=1):", np.round(probability[:3, 1], 3))
 print("held-out accuracy:", round(float(model.score(X[600:], y[600:])), 3))
+```
+
+`predict_proba` 的一般形状为 `(n_samples, 2)`，本例返回 `(200, 2)` 数组，两列分别是类别 0 和 1 的概率。前三个正类概率约为 `[0.388, 0.306, 0.563]`，准确率约为 `0.65`。`predict` 使用 0.5 阈值，`predict_with_threshold` 可调整阈值。类别不平衡时还应检查精确率、召回率或精确率—召回率曲线。
+
+### 5. 可选：系数不确定性
+
+继续使用上述训练数据，开启推断后重新拟合。这里选择 HC1 得分稳健协方差；其适用假设及正 C 下的解释见后文“协方差与推断”。改变协方差约定不会改变本例的系数。
+
+```python
+model.set_params(compute_inference=True, cov_type="hc1")
+model.fit(X[:600], y[:600])
 print("95% coefficient intervals:", np.round(model._conf_int, 3))
 ```
 
-该随机种子下，四舍五入后的部分输出如下；不同运行环境可能有轻微数值差异：
-
-```text
-converged: True
-coef: [ 0.849 -0.501  0.138]
-odds ratios: [2.338 0.606 1.148]
-P(y=1): [0.388 0.306 0.563]
-held-out accuracy: 0.65
-```
-
-### 如何读取结果？
-
-- `coef_[j]` 表示其他特征不变时，第 j 个特征增加一个单位所对应的对数优势变化。`exp(coef_[j])` 是优势比，不是概率比，也不是概率的直接变化量。
-- `predict_proba(X)` 的形状为 `(n_samples, 2)`，两列依次是类别 0 和 1 的概率。`predict(X)` 使用 0.5 阈值；业务需要其他阈值时，可调用 `predict_with_threshold(X, threshold=...)`。
-- `score(X, y)` 返回分类准确率。应在留出数据上评估；类别不平衡时，还要查看精确率、召回率或精确率—召回率曲线。
-- `_conf_int` 保存 95% 系数置信区间。拟合截距时，第一行及 `_bse`、`_zvalues`、`_pvalues` 的第一个元素对应截距，其余行按输入特征顺序排列。
-- 解释系数与推断前先检查 `converged_`，迭代次数见 `n_iter_`。获得已拟合对象不等于已经收敛。
+`_conf_int` 的形状为 `(4, 2)`，首行为截距，其后按三个输入列的顺序排列；`_bse`、`_zvalues`、`_pvalues` 采用同一顺序。这些是系数的边际区间，不是个体发生事件的概率区间。
+<!-- example-end: logistic-unpenalized -->
 
 ## 输入与模型定义
 
@@ -131,15 +150,16 @@ $$
 
 ## GPU 使用
 
-先运行 CPU 示例的数据生成部分，再用 CuPy 执行相同拟合：
+先完成 [CPU 示例](#cpu-example)，再复用其中的导入与 `X`、`y`。下面用 CuPy CUDA 拟合同一个无惩罚预测模型：
 
 ```python
 import cupy as cp
-from statgpu.linear_model import LogisticRegression
 
 X_gpu = cp.asarray(X[:600])
 y_gpu = cp.asarray(y[:600])
-model_gpu = LogisticRegression(C=0, device="cuda", cov_type="hc1").fit(X_gpu, y_gpu)
+model_gpu = LogisticRegression(
+    C=0, device="cuda", compute_inference=False, max_iter=200, tol=1e-8,
+).fit(X_gpu, y_gpu)
 p_gpu = model_gpu.predict_proba(cp.asarray(X[600:603]))[:, 1]
 ```
 

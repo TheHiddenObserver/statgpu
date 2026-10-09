@@ -1,7 +1,7 @@
 # LinearRegression
 
 > Language: English  
-> Last updated: 2026-10-05  
+> Last updated: 2026-10-09<br>
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/linear-regression.md)
 
@@ -28,22 +28,7 @@ $$
 \min_{b,\beta}\sum_{i=1}^n (y_i-b-x_i^\top\beta)^2.
 $$
 
-Here n is the observation count, $x_i$ the p-vector of predictors, $b$ the intercept, and $\beta$ the p-vector of slopes. Let $D=[\mathbf1,X]$ and $\theta=(b,\beta^\top)^\top$ when fitting an intercept; otherwise $D=X$ and $\theta=\beta$. With $W=\operatorname{diag}(w_i)$ (identity without weights), the weighted objective and normal equations are
-
-$$
-\min_\theta (y-D\theta)^\top W(y-D\theta),\qquad
-D^\top W(y-D\hat\theta)=0.
-$$
-
-For a classical model with full-rank weighted design, writing
-$r=\operatorname{rank}(W^{1/2}D)$,
-
-$$
-\hat\sigma^2=\frac{(y-D\hat\theta)^\top W(y-D\hat\theta)}{n-r},\qquad
-\widehat{\operatorname{Var}}(\hat\theta)=\hat\sigma^2(D^\top WD)^{-1}.
-$$
-
-Standard error j is the square root of covariance diagonal j. A marginal interval is $\hat\theta_j\pm c\,\mathrm{SE}_j$, with a t critical value for classical inference and a normal critical value for HC/HAC. Robust choices replace the covariance construction, not the OLS/WLS fit. The rank reduces to that of D without weights; zero-weight rows can reduce the weighted design rank. These inverse expressions require a full-rank weighted design and positive residual degrees of freedom; users should not manually invert the Gram matrix to fit the estimator.
+Here n is the observation count, $x_i$ the p-vector of predictors, $b$ the intercept, and $\beta$ the p-vector of slopes. The intercept is unpenalized; `fit_intercept=False` fixes it to zero.
 
 ## A complete CPU example
 
@@ -51,24 +36,45 @@ After installing statgpu, this example needs only NumPy and the package. It
 creates three predictors, reserves 60 observations for evaluation, and fits on
 180 observations. The true coefficients are `[2, -1, 0]`.
 
+<!-- learner-example: linear-prediction -->
 ```python
 import numpy as np
 from statgpu import LinearRegression
+```
 
+<a id="cpu-data"></a>
+
+### Prepare the observations
+
+Run these blocks in order in one session. `X` is a `(240, 3)` matrix: one observation per row and one predictor per column. `y` is a `(240,)` continuous response. Split the rows before fitting.
+
+```python
 rng = np.random.default_rng(42)
 X = rng.normal(size=(240, 3))
 y = 1.5 + X @ np.array([2.0, -1.0, 0.0]) + rng.normal(scale=0.5, size=240)
 X_train, X_test = X[:180], X[180:]
 y_train, y_test = y[:180], y[180:]
+```
 
+### Fit the model
+
+`fit` learns the intercept and slopes from the training rows. We also request HC3 coefficient uncertainty for the later interval step. HC3 adjusts covariance for heteroskedasticity and leverage; it does not change the OLS coefficients. Use `compute_inference=False` if you only need predictions.
+
+```python
 model = LinearRegression(device="cpu", cov_type="hc3", compute_inference=True)
 model.fit(X_train, y_train)
+```
+
+### Predict on held-out rows
+
+Use the same three feature columns in the training order. There is one predicted response for each of the 60 test rows.
+
+```python
 prediction = model.predict(X_test)
 print("Intercept:", round(model.intercept_, 3))
 print("Coefficients:", np.round(model.coef_, 3))
 print("Prediction shape:", prediction.shape)
 print("Test R2:", round(model.score(X_test, y_test), 3))
-print("95% coefficient intervals:\n", np.round(model._conf_int, 3))
 ```
 
 Expected rounded output:
@@ -78,11 +84,6 @@ Intercept: 1.484
 Coefficients: [ 2.049 -0.966 -0.088]
 Prediction shape: (60,)
 Test R2: 0.934
-95% coefficient intervals:
- [[ 1.410  1.557]
-  [ 1.971  2.128]
-  [-1.038 -0.894]
-  [-0.167 -0.008]]
 ```
 
 The first two slopes recover the positive and negative associations. Test
@@ -90,22 +91,29 @@ $R^2\approx0.934$ means the test residual sum of squares is about 6.6% of the
 sum of squared deviations from the test outcome mean. It is not a probability
 that the model is correct, and $R^2$ can be negative on new data.
 
+### Read coefficient uncertainty
+
+Prediction accuracy and coefficient uncertainty answer different questions. The enabled HC3 calculation gives marginal 95% coefficient intervals:
+
+```python
+print("95% coefficient intervals:\n", np.round(model._conf_int, 3))
+```
+<!-- example-end: linear-prediction -->
+
+```text
+95% coefficient intervals:
+ [[ 1.410  1.557]
+  [ 1.971  2.128]
+  [-1.038 -0.894]
+  [-0.167 -0.008]]
+```
+
 The interval rows are **intercept first, then input columns in order**. Notice
 that the third interval happens to exclude zero even though its true slope is
 zero. A nominal 95% interval is not guaranteed to cover the truth in every
 sample; checking many coefficients adds a multiple-testing concern. HC3 changes
 the covariance estimate, not the fitted OLS coefficients. These are marginal
 coefficient intervals, not prediction intervals for new observations.
-
-### Missing formula-prediction rows
-
-Formula prediction currently drops rows with missing predictors and returns a
-shorter unlabelled array. Resolve missing values and verify prediction length
-before aligning results to the original observations. `score` is also unsafe
-on such a query: one retained prediction can broadcast across several responses
-and produce a finite but wrong R². Flattening y does not repair this separate
-row-alignment problem. Filter deliberately with a retained row index, or reject
-the query; see the [complete missing-row warning](../reference/linear-model-api.md#missing-prediction-rows-in-ordinary-glms).
 
 ## Inputs and outputs
 
@@ -131,6 +139,8 @@ subtracting the one-dimensional predictions then broadcasts into a matrix and
 can silently produce an incorrect $R^2$. Flatten only a single-target response
 before scoring; do not flatten a genuine multi-target array.
 
+The following independent six-row example isolates that shape issue; its noiseless response makes the correct score easy to check.
+
 <!-- learner-example: linear-column-target -->
 ```python
 import numpy as np
@@ -142,8 +152,19 @@ model = LinearRegression(device="cpu", compute_inference=False).fit(X, y_column)
 r2 = model.score(X, y_column.ravel())
 print("R2:", round(float(r2), 3))
 ```
+<!-- example-end: linear-column-target -->
 
 This prints `R2: 1.0`: the line fits these noiseless observations exactly.
+
+### Missing formula-prediction rows
+
+Formula prediction currently drops rows with missing predictors and returns a
+shorter unlabelled array. Resolve missing values and verify prediction length
+before aligning results to the original observations. `score` is also unsafe
+on such a query: one retained prediction can broadcast across several responses
+and produce a finite but wrong R². Flattening y does not repair this separate
+row-alignment problem. Filter deliberately with a retained row index, or reject
+the query; see the [complete missing-row warning](../reference/linear-model-api.md#missing-prediction-rows-in-ordinary-glms).
 
 ## Choosing parameters and covariance
 
@@ -172,6 +193,25 @@ is `floor(4 * (n / 100)**(2 / 9))`, bounded to `[0, n - 1]`. Robust covariance
 cannot repair omitted variables, nonlinear misspecification, or dependence
 outside the chosen covariance model. The overall `fvalue`/`f_pvalue` diagnostic
 is the residual-based F statistic, not a robust joint Wald test.
+
+### How the covariance is constructed
+
+Let $D=[\mathbf1,X]$ and $\theta=(b,\beta^\top)^\top$ when fitting an intercept; otherwise $D=X$ and $\theta=\beta$. With $W=\operatorname{diag}(w_i)$ (identity without weights), the weighted objective and normal equations are
+
+$$
+\min_\theta (y-D\theta)^\top W(y-D\theta),\qquad
+D^\top W(y-D\hat\theta)=0.
+$$
+
+For a classical model with full-rank weighted design, writing
+$r=\operatorname{rank}(W^{1/2}D)$,
+
+$$
+\hat\sigma^2=\frac{(y-D\hat\theta)^\top W(y-D\hat\theta)}{n-r},\qquad
+\widehat{\operatorname{Var}}(\hat\theta)=\hat\sigma^2(D^\top WD)^{-1}.
+$$
+
+Standard error j is the square root of covariance diagonal j. A marginal interval is $\hat\theta_j\pm c\,\mathrm{SE}_j$, with a t critical value for classical inference and a normal critical value for HC/HAC. Robust choices replace the covariance construction, not the OLS/WLS fit. The rank reduces to that of D without weights; zero-weight rows can reduce the weighted design rank. These inverse expressions require a full-rank weighted design and positive residual degrees of freedom; users should not manually invert the Gram matrix to fit the estimator.
 
 ## Pitfalls and support boundaries
 

@@ -1,7 +1,7 @@
 # SCAD
 
 > Language: English  
-> Last updated: 2026-10-06  
+> Last updated: 2026-10-09<br>
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/scad.md)
 
@@ -50,23 +50,51 @@ automatically standardized. Learn any scaling on training rows only.
 The predictors below already have comparable scales. Reserve the final 40 rows
 before fitting; only the first two features generate the signal.
 
+Run the following steps in order in one Python session. Start with the imports.
+
 <!-- learner-example: scad-prediction -->
 ```python
 import numpy as np
 from statgpu.linear_model import SCADRegression
+```
 
+<a id="cpu-data"></a>
+
+### Prepare training and test data
+
+`X` has shape `(160, 5)`: each row is one observation and each column is a predictor. `y` is a one-dimensional continuous response with shape `(160,)`. Keep the last 40 rows out of fitting and tuning.
+
+```python
 rng = np.random.default_rng(64)
 X = rng.normal(size=(160, 5))
 y = 1.5 + 2 * X[:, 0] - X[:, 1] + rng.normal(scale=0.4, size=160)
+X_train, X_test = X[:120], X[120:]
+y_train, y_test = y[:120], y[120:]
+```
+
+### Fit the prediction model
+
+Use a fixed illustrative penalty first. Inference is disabled so this step only estimates the coefficients used for prediction.
+
+```python
 model = SCADRegression(
     alpha=0.1, a=3.7, device="cpu", compute_inference=False,
     max_iter=5000, tol=1e-8,
-).fit(X[:120], y[:120])
-prediction = model.predict(X[120:])
+)
+model.fit(X_train, y_train)
+```
+
+### Predict and inspect the fit
+
+Pass the test features in the same column order. `score` evaluates R² against the held-out responses.
+
+```python
+prediction = model.predict(X_test)
 print("Slopes:", np.round(model.coef_, 3))
 print("Intercept:", round(model.intercept_, 3))
-print("Test R2:", round(model.score(X[120:], y[120:]), 3))
+print("Test R2:", round(model.score(X_test, y_test), 3))
 ```
+<!-- example-end: scad-prediction -->
 
 For this seed, slopes are approximately `[1.987, -0.982, 0, 0, 0]`, the
 intercept is `1.430`, and held-out R² is `0.967`. Predictions have shape `(40,)`.
@@ -139,7 +167,7 @@ for a complete generic-estimator example and the method-specific limitations.
 
 ## Optional GPU use
 
-After preparing the data in the CPU example, use `device="cuda"` for CuPy CUDA
+After the [CPU data setup](#cpu-data), use `device="cuda"` for CuPy CUDA
 or `device="torch"` for Torch CUDA in the same constructor. An unavailable
 explicit backend raises; only `auto` can select another available backend.
 See [device and memory](../guides/device-and-memory.md). No GPU is needed for

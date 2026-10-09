@@ -1,10 +1,10 @@
 """Keep the learner's first knockoff workflow statistically coherent."""
 
-import re
 from pathlib import Path
 
 import numpy as np
 import pytest
+from doc_examples import example_code, run_example
 
 from statgpu import fixed_x_knockoff_filter
 
@@ -14,14 +14,11 @@ ROOT = Path(__file__).resolve().parents[2]
 def _example(language, page, marker):
     path = ROOT / f"docs/{language}/{page}.md"
     text = path.read_text(encoding="utf-8")
-    match = re.search(
-        r"<!-- " + re.escape(marker) + r" -->\s*```python\n(.*?)```",
-        text, flags=re.DOTALL,
-    )
-    assert match is not None
-    namespace = {}
-    exec(compile(match.group(1), str(path), "exec"), namespace)  # noqa: S102
-    return text, match.group(1), namespace
+    name = marker.split(': ', 1)[1]
+    legacy = not page.startswith('models/')
+    code = example_code(text, name, str(path), allow_legacy=legacy)
+    namespace = run_example(text, name, str(path), allow_legacy=legacy)
+    return text, code, namespace
 
 
 @pytest.mark.parametrize("language", ["en", "cn"])

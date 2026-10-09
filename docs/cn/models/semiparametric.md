@@ -1,7 +1,7 @@
 # GAM（广义可加模型）
 
 > 语言: 中文  
-> 最后更新: 2026-10-06  
+> 最后更新: 2026-10-09
 > 页面定位: 模型文档  
 > 切换: [English](../../en/models/semiparametric.md)
 
@@ -28,6 +28,8 @@ $B$ 拼接截距列和每个特征的中心化样条基；$S$ 是各平滑项 $D
 
 `degree=3` 决定分段**三次**基函数；`penalty_order=2` 惩罚相邻**基系数**的二阶差分。两者作用不同：将惩罚改为一阶不会把三次样条变为分段线性样条。若需要分段线性基，应选择 `degree=1`。
 
+<a id="gam-cpu-workflow"></a>
+
 ## 完整 CPU 流程
 
 只用训练样本拟合并选择平滑强度。下面的留出样本位于训练范围内，便于在有数据支持的区间评价曲线。
@@ -36,7 +38,13 @@ $B$ 拼接截距列和每个特征的中心化样条基；$S$ 是各平滑项 $D
 ```python
 import numpy as np
 from statgpu.semiparametric import GAM
+```
 
+### 准备特征与连续响应
+
+每行是一条观测，两列是连续特征。`X_train` 为 `(240, 2)`，`y_train` 为 `(240,)`；80 行测试数据保留相同特征顺序。按顺序运行本节各段。
+
+```python
 rng = np.random.default_rng(42)
 X_train = rng.uniform(-2, 2, size=(240, 2))
 y_train = (np.sin(2 * X_train[:, 0]) + 0.4 * X_train[:, 1] ** 2
@@ -44,8 +52,21 @@ y_train = (np.sin(2 * X_train[:, 0]) + 0.4 * X_train[:, 1] ** 2
 X_test = rng.uniform(-1.9, 1.9, size=(80, 2))
 y_test = (np.sin(2 * X_test[:, 0]) + 0.4 * X_test[:, 1] ** 2
           + rng.normal(0, 0.15, 80))
+```
 
+### 拟合平滑曲线
+
+每个特征使用 12 个样条基函数。`lam=None` 用训练数据的广义交叉验证（GCV）选择平滑强度，不使用测试响应。
+
+```python
 gam = GAM(n_splines=12, lam=None, device="cpu").fit(X_train, y_train)
+```
+
+### 使用预测前先检查拟合
+
+当前实现可能在所有 GCV 候选都无效时仍返回对象；较大的惩罚还可能因数值稳定项而改变训练响应均值。下面是必要检查，不能充分证明曲线正确，原因见后文“平滑惩罚较大时的截距偏移”。
+
+```python
 if not np.isfinite(gam.gcv_score_):
     raise RuntimeError("No finite GCV candidate; revise the model before prediction.")
 training_prediction = gam.predict(X_train)
@@ -53,15 +74,19 @@ if not np.isfinite(training_prediction).all() or not np.isclose(
     training_prediction.mean(), y_train.mean(), rtol=1e-8, atol=1e-10,
 ):
     raise RuntimeError("Stabilization changed the unpenalized mean; validate the solver.")
+```
+
+### 预测留出响应
+
+继续使用本节的 `gam`、`X_test` 和 `y_test`。`predict` 对每行返回一个连续响应预测；均值基线只使用训练响应。
+
+```python
 prediction = gam.predict(X_test)
 mse = np.mean((prediction - y_test) ** 2)
 baseline_mse = np.mean((y_train.mean() - y_test) ** 2)
 print(prediction.shape)
 print(f"Test MSE: {mse:.4f}; mean baseline: {baseline_mse:.4f}")
 print(f"lambda: {gam.lam_:.4f}; EDF: {gam.edf_:.2f}; GCV: {gam.gcv_score_:.4f}")
-
-fixed = GAM(n_splines=12, lam=gam.lam_, device="cpu").fit(X_train, y_train)
-print(fixed.gcv_score_)  # None: a fixed-lambda fit does not run GCV
 ```
 
 典型输出（已四舍五入）：
@@ -70,7 +95,6 @@ print(fixed.gcv_score_)  # None: a fixed-lambda fit does not run GCV
 (80,)
 Test MSE: 0.0214; mean baseline: 0.6278
 lambda: 0.1963; EDF: 17.78; GCV: 0.0269
-None
 ```
 
 ### 如何解释结果
@@ -79,7 +103,6 @@ None
 - `edf_` 表示平滑后的有效模型复杂度，可以不是整数，也不等于原始系数数量。
 - `gcv_score_` 是广义交叉验证（GCV）得分，用于在训练数据内选择平滑强度，不是测试 MSE 或 p 值。比较同一数据、相同 `gamma` 的候选模型时，越低越好。
 - `coef_` 包含截距和样条基系数，**不能当作原始特征的斜率**。可以改变某个特征并观察预测来理解曲线。基列中心化后，模型设计要求不受惩罚的 `intercept_` 等于训练响应均值；但大 lambda 下的稳定项会明显破坏这一性质，详见[稳定项限制](#large-smoothing-penalties-and-the-intercept)。
-- 固定 lambda 重拟合沿用选中的数值，预测应与 `gam` 一致；但 `fixed.gcv_score_` 为 `None`，因为没有重新搜索，不代表拟合失败。
 
 ## 如何选择平滑强度
 
@@ -96,6 +119,18 @@ $$
 可以从三次基和二阶差分惩罚开始。仅在曲线明显受限时增加 `n_splines`，并重新检查留出误差。增大 `lam` 通常使曲线更平滑。按分位数设置节点时，数据较密集的区间会布置更多节点；均匀节点则在观测范围内等距排列。用验证集或交叉验证选择这些设置，最后保留一个未参与调参的测试集。
 
 GCV 是离散网格搜索，可能错过两个候选值之间的最优值；固定 `lam` 只是跳过选择，仍使用同一数值求解器。`GAM` 构造函数不接受自定义 lambda 网格。需要细搜时，可在训练/验证数据上比较若干固定值，再按选定设置重拟合。
+
+### 沿用选定的平滑强度
+
+完成[完整 CPU 流程](#gam-cpu-workflow)后，复用其中的 `GAM`、`X_train`、`y_train` 和 `gam.lam_`。显式传入该数值会跳过 GCV 搜索，并在同一训练数据上重新拟合：
+
+```python
+fixed = GAM(n_splines=12, lam=gam.lam_, device="cpu").fit(X_train, y_train)
+print(fixed.gcv_score_)
+```
+<!-- example-end: gam-cpu -->
+
+输出为 `None`，因为没有重新搜索，不代表拟合失败。沿用相同的选定值时，预测应与 `gam` 一致。
 
 <a id="large-smoothing-penalties-and-the-intercept"></a>
 
@@ -162,14 +197,16 @@ lambda 的最优预测都应精确等于 5。第一个 lambda 已在内置 GCV �
 
 ## 可选 GPU 路径
 
-先运行 CPU 示例，再运行下面的 GPU 片段；它需要可工作的 CuPy/CUDA 环境。`device="torch"` 选择 Torch CUDA 路径，显式请求 GPU 不会静默退回 CPU；`device="auto"` 允许自动选择。详见[设备与内存](../guides/device-and-memory.md)。GPU 收益取决于基维度、数据传输和硬件，应针对实际工作负载测量。
+先完成[完整 CPU 流程](#gam-cpu-workflow)，再复用其中的 `GAM`、`X_train`、`y_train` 和 `X_test` 运行下面的 GPU 片段；它需要可工作的 CuPy/CUDA 环境。`device="torch"` 选择 Torch CUDA 路径，显式请求 GPU 不会静默退回 CPU；`device="auto"` 允许自动选择。详见[设备与内存](../guides/device-and-memory.md)。GPU 收益取决于基维度、数据传输和硬件，应针对实际工作负载测量。
 
+<!-- example-requires: gam-cpu -->
 <!-- example: gam-gpu -->
 ```python
 # 可选：复用 CPU 示例中的 X_train、y_train、X_test。
 gam_gpu = GAM(n_splines=12, device="cuda").fit(X_train, y_train)
 prediction_gpu = gam_gpu.predict(X_test)  # NumPy 输出
 ```
+<!-- example-end: gam-gpu -->
 
 ## 外部对照与参考文献
 

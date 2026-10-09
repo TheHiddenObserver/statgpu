@@ -1,7 +1,7 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-10-06  
+> Last updated: 2026-10-09<br>
 > This page: Release history  
 > Switch: [Chinese](../cn/changelog.md)
 
@@ -12,6 +12,11 @@ This page records user-visible changes for current and recent statgpu releases.
 ### Fixed (2026-10-06)
 
 - Fixed native generated Torch model-X device and seed handling: its local random generator and noise use the exact input tensor device, including CPU when CUDA is also available, and construction honors `random_state` without consuming the global Torch RNG. With the existing `None`-to-zero fallback, multiple Torch construction draws repeat the same noise; use an explicit integer seed for distinct, reproducible per-draw seeds. This does not imply cross-backend/device bitwise parity or repair the separate Lasso cache/device-routing limitations.
+
+### Improved (2026-10-09)
+
+- Reorganized model tutorials into short, explained steps: imports and input meaning, data preparation, fitting, prediction, and result interpretation. Later inference, tuning, and GPU examples name and reuse their earlier setup where appropriate, instead of repeating whole datasets or CPU fits. English and Chinese pages follow the same progression while retaining model-specific formulas, assumptions, and limitations.
+- Added explicit data preparation to examples that previously relied on undeclared variables. Executable-example tests now follow the same ordered blocks and declared setup dependencies as readers, while preserving the checks on predictions, inference, and cross-validation results.
 
 ### Improved (2026-10-06)
 

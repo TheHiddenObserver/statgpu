@@ -1,7 +1,7 @@
 # 损失函数（LossBase）
 
 > 语言：中文  
-> 最后更新：2026-09-17  
+> 最后更新：2026-10-09\
 > 页面定位：底层损失函数参考  
 > 切换：[英文版](../../en/models/losses.md)
 
@@ -166,44 +166,113 @@ Cox 部分似然对所有线性预测子同时加上一个常数保持不变，�
 
 ## 直接调用损失函数层 API
 
+下面在给定系数处计算损失，不进行模型拟合。每个示例内的代码段应按顺序运行。
+
+<a id="losses-huber"></a>
+
 ### 函数值与梯度
 
+先导入固定阈值 Huber 损失与 NumPy。
+
+<!-- example: losses-huber -->
 ```python
 import numpy as np
 from statgpu.losses import HuberLoss
+```
 
+`X` 的形状为 `(80, 3)`，每行是观测，每列是预测变量。`y` 的形状为 `(80,)`，
+每行对应一个连续响应。底层接口直接使用 `X @ coef`，不会自动添加截距列。
+
+```python
+rng = np.random.default_rng(42)
+X = rng.normal(size=(80, 3))
+y = X @ np.array([2.0, -1.0, 0.5]) + rng.normal(scale=0.3, size=80)
+```
+
+设 Huber 阈值 `delta=1.5`，在零系数向量处计算。系数向量每项对应 `X` 的一列。
+
+```python
 loss = HuberLoss(delta=1.5)
 coef = np.zeros(X.shape[1])
-
 value = loss.value(X, y, coef)
 gradient = loss.gradient(X, y, coef)
 ```
 
+查看标量目标函数值与各系数对应的导数。
+
+```python
+print(round(float(value), 3))
+print(np.round(gradient, 3))
+```
+<!-- example-end: losses-huber -->
+
+函数值约为 `1.483`，梯度约为 `[-0.887, 0.352, -0.093]`。这些导数描述零系数处
+目标函数的局部变化，不是拟合斜率或标准误。求解器可以据此更新系数。
+
 ### 带权一阶计算
 
+复用[Huber 示例](#losses-huber)中的 `X`、`y`、`coef` 与 `loss`。
+这里让前 50 条观测的单行权重为其余观测的五倍。权重形状为 `(80,)`，与观测行一一对应。
+
+<!-- example-requires: losses-huber -->
+<!-- example: losses-weighted -->
 ```python
 sample_weight = np.ones(X.shape[0])
 sample_weight[:50] = 5.0
-
-value = loss.value(X, y, coef, sample_weight=sample_weight)
-gradient = loss.gradient(X, y, coef, sample_weight=sample_weight)
+weighted_value = loss.value(X, y, coef, sample_weight=sample_weight)
+weighted_gradient = loss.gradient(X, y, coef, sample_weight=sample_weight)
+print(float(weighted_value), weighted_gradient.shape)
 ```
+<!-- example-end: losses-weighted -->
 
-这里展示的只是损失函数层的一阶带权原语；完整的估计器/求解器路径是否支持相同权重，需要以对应模型与求解器文档为准。
+如上文公式所示，加权目标除以权重总和；将全部权重乘以同一个正数不会改变该目标。
+这里仅演示损失函数层的一阶原语，完整估计器或求解器是否支持相同权重，
+应以对应文档为准。
 
 ### Cox 部分似然
 
+这个独立示例提供自己的小型生存数据。导入 Cox 损失与 NumPy，不依赖前面的 Huber 变量。
+
+<!-- example: losses-cox -->
 ```python
+import numpy as np
 from statgpu.losses import CoxPartialLikelihoodLoss
-
-loss = CoxPartialLikelihoodLoss(ties="efron")
-y_surv = np.column_stack([time, event])
-coef = np.zeros(X.shape[1])
-
-value = loss.value(X, y_surv, coef)
-gradient = loss.gradient(X, y_surv, coef)
-hessian = loss.hessian(X, y_surv, coef)
 ```
+
+`X_surv` 的形状为 `(6, 2)`，不包含截距列。`time` 是实际观察到的随访时间，
+`event` 为 1 表示发生事件，为 0 表示右删失。按此顺序合并，得到接口需要的
+`(6, 2)` 响应矩阵。
+
+```python
+X_surv = np.array([[0., 1.], [1., 0.], [0.5, 1.],
+                   [-0.5, 0.], [1.5, 1.], [-1., 0.]])
+time = np.array([2., 3., 3., 5., 6., 8.])
+event = np.array([1, 1, 0, 1, 0, 1])
+y_surv = np.column_stack([time, event])
+```
+
+在零斜率处计算 Efron 损失、梯度与 Hessian。这里只展示数值接口，
+不构成一次已经拟合的生存分析。
+
+```python
+cox_loss = CoxPartialLikelihoodLoss(ties="efron")
+coef_surv = np.zeros(X_surv.shape[1])
+cox_value = cox_loss.value(X_surv, y_surv, coef_surv)
+cox_gradient = cox_loss.gradient(X_surv, y_surv, coef_surv)
+cox_hessian = cox_loss.hessian(X_surv, y_surv, coef_surv)
+```
+
+检查结果维度。
+
+```python
+print(round(float(cox_value), 3))
+print(cox_gradient.shape, cox_hessian.shape)
+```
+<!-- example-end: losses-cox -->
+
+标量函数值约为 `0.750`，梯度与 Hessian 的形状分别为 `(2,)` 和 `(2, 2)`。
+Hessian 描述给定系数处目标函数的曲率，并不是可以直接解读的协方差估计。
+模型拟合、生存预测与模型专属推断请使用 [CoxPH](coxph.md)。
 
 ## 后端行为
 

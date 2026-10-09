@@ -1,7 +1,7 @@
 # Multiple testing and p-value combination
 
 > Language: English  
-> Last updated: 2026-10-05  
+> Last updated: 2026-10-09\
 > Switch: [Chinese](../../cn/models/multiple-testing.md)
 
 ## Two different questions
@@ -18,6 +18,55 @@ Let V be the number of false rejections and R the total number of rejections. FW
 - **Hochberg:** FWER control under independence or dependence conditions that justify the Simes inequality. Pairwise nonnegative correlations alone are not a universal guarantee.
 
 Choose the family before looking at results. With a matrix, `axis=1` treats each row as a separate family; it does not control errors across all rows jointly. The [R p.adjust reference](https://stat.ethz.ch/R-manual/R-devel/library/stats/html/p.adjust.html) discusses these procedures and their dependence assumptions.
+
+## A complete CPU example
+
+The values below represent five illustrative tests in one prespecified family.
+Run the blocks in order; first import the adjustment and combination functions.
+
+<!-- api-example: multiple-testing-learner -->
+```python
+import numpy as np
+from statgpu.inference import adjust_pvalues, combine_pvalues
+```
+
+The one-dimensional `p` array has shape `(5,)`, with one valid p-value per test.
+Its order identifies the hypotheses and is preserved in the results.
+
+```python
+p = np.array([0.001, 0.01, 0.03, 0.05, 0.50])
+```
+
+### Make individual decisions with Holm
+
+Control family-wise error at a prespecified 5% level.
+
+```python
+reject, adjusted = adjust_pvalues(p, method="holm", alpha=0.05, backend="numpy")
+print(reject.tolist())
+print(np.round(adjusted, 3))
+```
+
+The mask is `[True, True, False, False, False]`; adjusted values are
+`[0.005, 0.04, 0.09, 0.1, 0.5]`. Reject the first two hypotheses at the stated
+family/error criterion. Adjusted p-values are not an importance ranking, and
+non-rejection does not establish that a null hypothesis is true.
+
+### Ask a global question with Fisher
+
+Now reuse the same `p` values for a different question: is the intersection null
+that all five hypotheses hold inconsistent with the combined evidence? This
+interpretation requires independent, continuous uniform null p-values.
+
+```python
+statistic, global_p = combine_pvalues(p, method="fisher", backend="numpy")
+print(round(float(statistic), 4), round(float(global_p), 6))
+```
+<!-- example-end: multiple-testing-learner -->
+
+The statistic is about `37.4167` and the global p-value is about `0.000048`.
+This provides evidence against the intersection null under the stated assumptions;
+it does not identify which component hypotheses are false.
 
 ## Adjustment formulas
 
@@ -54,25 +103,6 @@ This denominator assumes independent standard-normal null scores. Correlated sco
 $$T_C=\sum_i a_i\tan\{\pi(1/2-p_i)\},\qquad p_{\rm global}=1/2-\arctan(T_C)/\pi.$$
 
 Under dependence this is a tail approximation under regularity conditions, not an exact Cauchy distribution or a finite-level guarantee for every possible joint distribution. The [Liu–Xie paper](https://arxiv.org/abs/1808.09011) explains its theoretical scope. It combines evidence; it does not replace multiple-testing adjustment for individual discoveries.
-
-## A complete CPU example
-
-The values below are illustrative p-values; Fisher's interpretation assumes they came from suitably independent tests.
-
-<!-- api-example: multiple-testing-learner -->
-```python
-import numpy as np
-from statgpu.inference import adjust_pvalues, combine_pvalues
-
-p = np.array([0.001, 0.01, 0.03, 0.05, 0.50])
-reject, adjusted = adjust_pvalues(p, method="holm", alpha=0.05, backend="numpy")
-print(reject.tolist())
-print(np.round(adjusted, 3))
-statistic, global_p = combine_pvalues(p, method="fisher", backend="numpy")
-print(round(float(statistic), 4), round(float(global_p), 6))
-```
-
-The first output is `[True, True, False, False, False]`; adjusted values are `[0.005, 0.04, 0.09, 0.1, 0.5]`. Interpret the rejection mask at the stated family/error criterion, rather than ranking “importance” by adjusted p-values.
 
 ## Practical limits
 

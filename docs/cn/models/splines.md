@@ -1,7 +1,7 @@
 # 样条基函数
 
 > 语言: 中文
-> 最后更新: 2026-10-06
+> 最后更新: 2026-10-09
 > 页面定位: 模型文档
 > 切换: [English](../../en/models/splines.md)
 
@@ -25,33 +25,67 @@
 ```python
 import numpy as np
 from statgpu.nonparametric.splines import SplineTransformer
+```
 
+### 准备一列特征与响应
+
+`X_train` 是 `(41, 1)` 数组，每行一个时间点；`y_train` 为 `(41,)`，记录该点的无噪声响应。`[:, None]` 保留“观测 × 特征”的二维结构。按顺序运行本节各段。
+
+```python
 X_train = np.linspace(-2.0, 2.0, 41)[:, None]
 y_train = np.sin(1.5 * X_train[:, 0])
+```
+
+### 学习样条特征
+
+`fit_transform` 只从训练点学习节点，并将这一列特征展开为样条基列；此步骤不使用 `y_train`。
+
+```python
 transformer = SplineTransformer(
     n_knots=6, degree=3, include_bias=False,
     extrapolation="constant", device="cpu",
 )
 B_train = transformer.fit_transform(X_train)
+```
+
+### 用基特征拟合响应
+
+在刚生成的 `B_train` 前加一列截距，再用最小二乘估计系数。响应拟合与特征构造是两个不同步骤。
+
+```python
 train_design = np.column_stack([np.ones(len(X_train)), B_train])
 coefficients = np.linalg.lstsq(train_design, y_train, rcond=None)[0]
+```
 
+### 复用训练节点进行预测
+
+`X_query` 是三个新点，形状为 `(3, 1)`。调用已拟合对象的 `transform`，不要在这些点上重新 `fit`。
+
+```python
 X_query = np.array([[-1.5], [0.0], [1.5]])
 B_query = transformer.transform(X_query)
 query_design = np.column_stack([np.ones(len(X_query)), B_query])
 prediction = query_design @ coefficients
-names = transformer.get_feature_names_out(["time"])
 print(B_train.shape, B_query.shape)
 print(prediction.round(3))
-assert len(names) == B_query.shape[1]
-assert np.allclose(transformer.predict(X_query), B_query)
-assert np.allclose(transformer.transform([[2.5]]), transformer.transform([[2.0]]))
 ```
 
 输出形状为 `(41, 7)` 和 `(3, 7)`，随后约为 `[-0.778, 0.000, 0.778]`。
 七列来自 `6 + 3 - 2`，表示基函数特征，并非七个独立观测的原始变量。
 `transformer.predict` 返回的仍是这些特征；只有将后续回归的设计矩阵乘以拟合系数，
 才得到响应预测。
+
+### 查看特征名称与边界行为
+
+继续使用本节的 `transformer`、`X_query` 和 `B_query`。名称用于识别展开的基列；`predict` 在这个变换器中只是 `transform` 的别名。
+
+```python
+names = transformer.get_feature_names_out(["time"])
+assert len(names) == B_query.shape[1]
+assert np.allclose(transformer.predict(X_query), B_query)
+assert np.allclose(transformer.transform([[2.5]]), transformer.transform([[2.0]]))
+```
+<!-- example-end: spline-transformer-reuse-cpu -->
 
 最后一个断言说明常数外推的含义：2.5 处采用训练上边界 2.0 处的特征值。
 这只是边界规则，不能证明真实响应在数据范围外保持不变。`linear` 和 `continue`
@@ -206,50 +240,108 @@ SplineTransformer.set_params(**params)
 
 **SplineTransformer**：`n_knots=5`、`degree=3`、`knots='uniform'`、`include_bias=True`、`extrapolation='constant'`、`device='auto'`、`n_jobs=None`。`n_knots` 是包含边界的节点数，须为不小于 3 的整数；分位数节点须各不相同。`degree` 为非负整数，`knots` 也可传入 `(n_knots,n_features)` 数组。`n_jobs` 不用于并行构造。`device` 表示请求的设备，但 Torch 张量输入可能覆盖该请求，见上文设备例外。每个特征输出 `n_knots + degree - 1` 列；`include_bias=False` 时少一列。
 
-## CPU+GPU 示例（CPU+GPU Examples）
+## 进阶：直接构造基矩阵
 
+只有需要直接控制节点或比较基函数家族时，才使用底层函数。下面是独立于响应拟合示例的计算网格：500 个一维评估点和 10 个内部节点。这里没有响应变量，也不会拟合模型。按顺序运行本节各段。
+
+<!-- example: spline-raw-bases-cpu -->
 ```python
-from statgpu.nonparametric.splines import bspline_basis, natural_cubic_spline_basis
 import numpy as np
-
-x = np.linspace(0, 1, 500)
-knots = np.linspace(0.1, 0.9, 10)
-
-# CPU：B 样条基
-B = bspline_basis(x, knots, degree=3, xp=np)
-print(f"基矩阵形状: {B.shape}")  # (500, 14)
-
-# CPU：自然三次样条基
-B_nat = natural_cubic_spline_basis(x, knots, xp=np)
-print(f"自然样条基形状: {B_nat.shape}")  # (500, 12)
+from statgpu.nonparametric.splines import bspline_basis
 ```
 
-**CuPy（GPU）**：
+<a id="raw-spline-setup"></a>
 
+### 固定网格、节点与边界
+
+```python
+x = np.linspace(0, 1, 500)
+knots = np.linspace(0.1, 0.9, 10)
+boundary_lo, boundary_hi = 0.0, 1.0
+```
+
+三次 B 样条返回 14 列，来自 `10 + 3 + 1`。若以后在新点计算同一组基，必须沿用这里的节点与两个边界。
+
+```python
+B = bspline_basis(
+    x, knots, degree=3, xp=np,
+    boundary_lo=boundary_lo, boundary_hi=boundary_hi,
+)
+print(B.shape)  # (500, 14)
+```
+
+### 比较边界投影
+
+复用本节的 `x` 和 `knots`。自然基近似约束两端曲率为零；周期基的真实单侧导数约束并不可靠。下面只展示返回矩阵，不能用列数或有限值来证明边界条件成立。
+
+```python
+from statgpu.nonparametric.splines import (
+    natural_cubic_spline_basis, cyclic_cubic_spline_basis,
+)
+
+B_nat = natural_cubic_spline_basis(x, knots, xp=np)
+B_cyc = cyclic_cubic_spline_basis(x, knots, xp=np)
+print(B_nat.shape, B_cyc.shape)  # (500, 12), (500, 12) on this grid
+```
+
+### 构造径向薄板特征
+
+继续复用本节的一维 `x` 和 `knots`。二阶薄板基由 10 个径向列和截距、线性列组成，共 12 列；它本身不提供平滑惩罚或响应拟合。
+
+```python
+from statgpu.nonparametric.splines import thin_plate_spline_basis
+
+B_tp = thin_plate_spline_basis(x, knots, penalty_order=2, xp=np)
+print(B_tp.shape)  # (500, 12)
+```
+
+二维输入中，每行是一个平面点，节点也必须有两列。这里构造一个小网格和五个节点；输出八列，包括五个径向列与 `[1, x1, x2]`。
+
+```python
+u, v = np.meshgrid(np.linspace(0, 1, 20), np.linspace(0, 1, 10))
+xy = np.column_stack([u.ravel(), v.ravel()])
+knots_2d = np.array([[0.1, 0.1], [0.1, 0.9], [0.5, 0.5],
+                     [0.9, 0.1], [0.9, 0.9]])
+B_tp2 = thin_plate_spline_basis(xy, knots_2d, penalty_order=2, xp=np)
+print(B_tp2.shape)  # (200, 8)
+```
+<!-- example-end: spline-raw-bases-cpu -->
+
+### 可选：在 GPU 上评价同一组 B 样条
+
+先完成本节[固定网格、节点与边界](#raw-spline-setup)，复用 `x`、`knots`、`boundary_lo`、`boundary_hi` 和 `bspline_basis`。根据安装情况选择一个代码段；显式传入数组模块 `xp`，并将两个输入都放到相应 GPU 上。结果仍为 `(500, 14)` 基矩阵，不是响应预测。
+
+CuPy/CUDA：
+
+<!-- example-requires: spline-raw-bases-cpu -->
+<!-- example: spline-raw-cupy -->
 ```python
 import cupy as cp
 
-x_gpu = cp.asarray(x)
-knots_gpu = cp.asarray(knots)
-
-B_gpu = bspline_basis(x_gpu, knots_gpu, degree=3, xp=cp)
-print(f"GPU 基矩阵形状: {B_gpu.shape}")  # (500, 14)
-
-B_nat_gpu = natural_cubic_spline_basis(x_gpu, knots_gpu, xp=cp)
-print(f"GPU 自然样条基形状: {B_nat_gpu.shape}")  # (500, 12)
+B_gpu = bspline_basis(
+    cp.asarray(x), cp.asarray(knots), degree=3, xp=cp,
+    boundary_lo=boundary_lo, boundary_hi=boundary_hi,
+)
+print(B_gpu.shape)
 ```
+<!-- example-end: spline-raw-cupy -->
 
-**PyTorch（GPU）**：
+Torch CUDA：
 
+<!-- example-requires: spline-raw-bases-cpu -->
+<!-- example: spline-raw-torch -->
 ```python
 import torch
 
-x_t = torch.tensor(x, device='cuda')
-knots_t = torch.tensor(knots, device='cuda')
-
-B_t = bspline_basis(x_t, knots_t, degree=3, xp=torch)
-print(f"Torch 基矩阵形状: {B_t.shape}")  # (500, 14)
+B_t = bspline_basis(
+    torch.as_tensor(x, device="cuda"), torch.as_tensor(knots, device="cuda"),
+    degree=3, xp=torch, boundary_lo=boundary_lo, boundary_hi=boundary_hi,
+)
+print(B_t.shape)
 ```
+<!-- example-end: spline-raw-torch -->
+
+其他底层函数也按相同方式传入后端数组及匹配的 `xp`。后端不会消除上文说明的自然/周期边界限制，GPU 收益仍需针对实际规模测量。多特征的 `SplineTransformer` 沿用开头的拟合/变换流程，每个输入特征独立展开，列数见参数与输出参考。
 
 ## 输出（Outputs）
 

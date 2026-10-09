@@ -1,7 +1,7 @@
 # Ridge
 
 > 语言：中文  
-> 最后更新：2026-10-06  
+> 最后更新：2026-10-09<br>
 > 页面定位：模型文档  
 > 切换：[English](../../en/models/ridge.md)
 
@@ -16,36 +16,6 @@
 Ridge 不以产生精确的零斜率为目标；需要稀疏性时可考虑 [Lasso](lasso.md)。
 当较多弱信号或相关特征可能有助于预测时，Ridge 很实用；若低维问题适合
 无惩罚模型，可先使用[线性回归](linear-regression.md)。收缩和小 p 值都不证明因果关系。
-
-## 完整 CPU 示例
-
-示例使用尺度相近的特征、示意性的固定 alpha 和分析权重；拟合前留出最后 40 行。
-
-<!-- learner-example: ridge-weighted-prediction -->
-```python
-import numpy as np
-from statgpu.linear_model import Ridge
-
-rng = np.random.default_rng(64)
-X = rng.normal(size=(160, 5))
-y = 1.5 + 2 * X[:, 0] - X[:, 1] + rng.normal(scale=0.4, size=160)
-weights = np.linspace(0.5, 2.0, 120)
-model = Ridge(
-    alpha=0.1, device="cpu", cov_type="hc3", compute_inference=True,
-).fit(X[:120], y[:120], sample_weight=weights)
-prediction = model.predict(X[120:])
-print("Slopes:", np.round(model.coef_, 3))
-print("Test R2:", round(model.score(X[120:], y[120:]), 3))
-print("Interval shape:", model._conf_int.shape)
-```
-
-斜率约为 `[1.821, -0.916, 0.017, -0.010, -0.020]`，留出集 R² 约为 `0.957`。
-预测形状为 `(40,)`；六行区间依次对应截距和五个斜率。HC3 改变协方差，不改变
-Ridge 预测拟合。这里是系数区间，不是未来响应区间，也未校正收缩或调参不确定性。
-训练权重不会自动用于测试评分；该示例计算普通、不加权的 R²。
-
-应在训练数据内验证 alpha，并保留独立测试集。Ridge 按所用单位惩罚系数，
-所以特征缩放应在各训练折内学习。示例的显式 alpha 并不适用于所有问题。
 
 ## 目标函数
 
@@ -68,6 +38,68 @@ w_i\left(y_i-b-x_i^\top\beta\right)^2
 $$
 
 截距项不受 L2 惩罚。因此，把所有样本权重同时乘以任意正常数，不会改变拟合结果。
+
+## 完整 CPU 示例
+
+示例使用尺度相近的特征、示意性的固定 alpha 和分析权重；拟合前留出最后 40 行。
+
+<!-- learner-example: ridge-weighted-prediction -->
+```python
+import numpy as np
+from statgpu.linear_model import Ridge
+```
+
+<a id="cpu-data"></a>
+
+### 准备数据与训练权重
+
+在同一会话中按顺序运行各代码块。`X` 为 `(160, 5)` 矩阵，每行是观测、每列是预测变量；`y` 为形状 `(160,)` 的连续响应。120 条训练观测各有一个正分析权重，40 条测试观测单独留出。
+
+```python
+rng = np.random.default_rng(64)
+X = rng.normal(size=(160, 5))
+y = 1.5 + 2 * X[:, 0] - X[:, 1] + rng.normal(scale=0.4, size=160)
+X_train, X_test = X[:120], X[120:]
+y_train, y_test = y[:120], y[120:]
+weights = np.linspace(0.5, 2.0, 120)
+```
+
+### 拟合加权模型
+
+权重进入拟合损失，权重较大的观测对拟合影响更大。HC3 同时请求经杠杆值调整的异方差稳健协方差，供后面的区间步骤使用；它不改变 Ridge 拟合。
+
+```python
+model = Ridge(
+    alpha=0.1, device="cpu", cov_type="hc3", compute_inference=True,
+)
+model.fit(X_train, y_train, sample_weight=weights)
+```
+
+### 预测与评价
+
+这里计算不加权的测试评分，训练权重不会自动用于新的评价。
+
+```python
+prediction = model.predict(X_test)
+print("Slopes:", np.round(model.coef_, 3))
+print("Test R2:", round(model.score(X_test, y_test), 3))
+```
+
+斜率约为 `[1.821, -0.916, 0.017, -0.010, -0.020]`，留出集 R² 约为 `0.957`，`prediction` 的形状为 `(40,)`。这些是收缩后的预测系数，不代表每个特征都显著。
+
+### 查看系数区间
+
+启用的推断为每个拟合参数报告一个区间，截距排在第一行。这些区间描述系数，不是未来响应；它们不校正收缩偏差或调参不确定性。
+
+```python
+print("Interval shape:", model._conf_int.shape)
+```
+<!-- example-end: ridge-weighted-prediction -->
+
+输出为 `(6, 2)`：六个参数，每个参数有上下两个区间端点。
+
+应在训练数据内验证 alpha，并保留独立测试集。Ridge 按所用单位惩罚系数，
+所以特征缩放应在各训练折内学习。示例的显式 alpha 并不适用于所有问题。
 
 ## 估计方程
 
@@ -107,22 +139,36 @@ scikit-learn 使用未归一化的残差平方和。比较系数时应使用：
 ```python
 import numpy as np
 from statgpu.linear_model import Ridge
+```
 
+这一独立数据集有意给三个预测变量加上很大的原点偏移。`X` 为 `(80, 3)`，`y` 为 `(80,)`，最后 20 行用作测试。
+
+```python
 rng = np.random.default_rng(113)
 variation = rng.normal(size=(80, 3))
 X = variation + 1e8
 y = 0.4 + variation @ np.array([1.0, -0.5, 0.3]) + rng.normal(scale=0.1, size=80)
 X_train, X_test = X[:60], X[60:]
 y_train, y_test = y[:60], y[60:]
+```
+
+只用训练行计算原点，再用平移后的特征拟合，仍然估计截距。
+
+```python
 origin = X_train.mean(axis=0)
-model = Ridge(alpha=0.1, device="cpu", compute_inference=True).fit(
-    X_train - origin, y_train,
-)
+model = Ridge(alpha=0.1, device="cpu", compute_inference=True)
+model.fit(X_train - origin, y_train)
+```
+
+预测时使用相同的平移。下面额外换算原坐标系下的截距，仅用于表示原单位下的方程，预测无需使用这个换算值。
+
+```python
 prediction = model.predict(X_test - origin)
 original_intercept = model.intercept_ - origin @ model.coef_
 print(np.round(model.coef_, 3))
 print(round(float(np.mean((prediction - y_test)**2)), 3))
 ```
+<!-- example-end: ridge-training-origin -->
 
 系数约为 `[0.919, -0.430, 0.256]`，留出集 MSE 约为 `0.033`。
 `original_intercept` 将方程映射回原特征坐标；实际预测仍应通过中心化后的模型
@@ -165,7 +211,7 @@ alpha 保持不变。此时截距推断描述该原点处的响应，其区间�
 
 ## 可选 GPU 使用
 
-相应后端安装且可用后，可在完整 CPU 示例中改用 `device="cuda"` 请求 CuPy CUDA，
+相应后端安装且可用后，可在 [CPU 示例](#cpu-data)中改用 `device="cuda"` 请求 CuPy CUDA，
 或 `device="torch"` 请求 Torch CUDA。显式后端不可用时会报错；只有 `auto`
 可以选择其他可用后端。详见[设备与内存](../guides/device-and-memory.md)。
 

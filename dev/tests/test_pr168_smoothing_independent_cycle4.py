@@ -17,6 +17,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from doc_examples import run_example
 from numpy.testing import assert_allclose, assert_array_equal
 from scipy.interpolate import BSpline
 from scipy.special import logsumexp
@@ -34,14 +35,7 @@ class _ExplicitAcceleratorPlacementError(Exception):
 
 def _example(language, name):
     path = ROOT / f"docs/{language}/models/kernel-methods.md"
-    blocks = re.findall(
-        r"<!-- example: ([\w-]+) -->\s*```python\n(.*?)```",
-        path.read_text(), re.DOTALL,
-    )
-    assert len(blocks) == len(dict(blocks))
-    namespace = {}
-    exec(compile(dict(blocks)[name], str(path), "exec"), namespace)  # noqa: S102
-    return namespace
+    return run_example(path.read_text(), name, str(path))
 
 
 @pytest.mark.parametrize("language", ["en", "cn"])

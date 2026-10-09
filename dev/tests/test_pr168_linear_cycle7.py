@@ -12,6 +12,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from doc_examples import run_example
 
 from statgpu.linear_model import MCPRegression, Ridge, SCADRegression
 
@@ -25,12 +26,7 @@ def _page(language, directory, page):
 
 def _example(language, page, label):
     text = _page(language, "models", page)
-    match = re.search(r"<!-- learner-example: " + re.escape(label)
-                      + r" -->\s*```python\n(.*?)```", text, re.DOTALL)
-    assert match is not None
-    scope = {}
-    exec(compile(match[1], f"{language}/{page}/{label}", "exec"), scope)  # noqa: S102
-    return scope
+    return run_example(text, label, f'{language}/{page}')
 
 
 def _signature(cls):

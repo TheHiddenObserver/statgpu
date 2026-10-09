@@ -1,10 +1,17 @@
 # Covariance Estimation
 
 > Language: English  
-> Last updated: 2026-07-24  
+> Last updated: 2026-10-09\
 > Switch: [Chinese](../../cn/models/covariance.md)
 
 ## Overview
+
+Covariance describes how variables vary together; its inverse, the precision
+matrix, describes conditional relationships in a Gaussian model. Use empirical
+covariance for a well-sampled baseline, shrinkage for greater stability, robust
+covariance for multivariate outliers, or Graphical Lasso for a sparse precision
+matrix. The first example uses `LedoitWolf`, which chooses its shrinkage
+strength from the data.
 
 The `statgpu.covariance` module provides seven covariance and precision-matrix
 estimators:
@@ -20,20 +27,6 @@ estimators:
 The public estimators expose NumPy, CuPy, and Torch execution paths. Backend
 availability means that the public path exists; numerical and performance claims
 remain scoped to the exact estimator, backend, hardware, and commit tested.
-
-## Paths
-
-```python
-from statgpu.covariance import (
-    EmpiricalCovariance,
-    LedoitWolf,
-    OAS,
-    ShrunkCovariance,
-    MinCovDet,
-    GraphicalLasso,
-    GraphicalLassoCV,
-)
-```
 
 ## Objectives
 
@@ -82,6 +75,49 @@ $$
 
 The precision diagonal is not L1-penalized. `GraphicalLassoCV` evaluates an alpha
 grid by cross-validation and refits the selected model on the complete dataset.
+
+<a id="covariance-basic"></a>
+
+## Estimate a covariance matrix on CPU
+
+Run these blocks in order. There is no response vector: `X` has one observation
+per row and one measured variable per column. First import the estimator.
+
+<!-- example: covariance-basic -->
+```python
+import numpy as np
+from statgpu.covariance import LedoitWolf
+```
+
+Create 500 observations of 10 independent standard-normal variables, so `X` has
+shape `(500, 10)`. The population covariance in this simulation is the identity.
+
+```python
+rng = np.random.default_rng(42)
+X = rng.normal(size=(500, 10))
+```
+
+Fit the shrinkage estimate. The default estimates and subtracts column means;
+you do not need to center `X` manually.
+
+```python
+lw = LedoitWolf(device="cpu").fit(X)
+```
+
+Inspect matrix size, shrinkage strength and the Gaussian score on these rows.
+
+```python
+print(lw.covariance_.shape, lw.shrinkage_)
+print(lw.score(X))
+```
+<!-- example-end: covariance-basic -->
+
+The covariance has shape `(10, 10)`: diagonal entries estimate variances and
+off-diagonal entries estimate covariances. Here `shrinkage_` is `1.0`, so the
+estimate uses the scaled-identity target completely. This matches the simple
+simulation but is not a value to expect for every dataset. The score is about
+`-14.175`; it is a Gaussian log-likelihood score, not an accuracy percentage.
+Evaluate competing models on the same held-out rows when comparing generalization.
 
 ## Estimation Algorithms
 
@@ -141,35 +177,61 @@ Where exposed, `score(X)` evaluates the fitted Gaussian covariance model and
 `mahalanobis(X)` returns squared Mahalanobis distances under the fitted location
 and precision.
 
-## CPU and GPU Examples
+## Robust and sparse alternatives
 
-### NumPy
+These examples answer different questions from shrinkage estimation. Both
+reuse `X` from [the CPU example](#covariance-basic).
 
+### Robust support
+
+Use `MinCovDet` when outliers make ordinary covariance unreliable. The clean
+simulation is only an API illustration; no observation is known to be an outlier.
+
+<!-- example-requires: covariance-basic -->
+<!-- example: covariance-robust -->
 ```python
-import numpy as np
-from statgpu.covariance import LedoitWolf, MinCovDet, GraphicalLassoCV
-
-rng = np.random.default_rng(42)
-X = rng.normal(size=(500, 10))
-
-lw = LedoitWolf(device="cpu").fit(X)
-print(lw.covariance_.shape, lw.shrinkage_)
-print(lw.score(X))
+from statgpu.covariance import MinCovDet
 
 mcd = MinCovDet(random_state=42, device="cpu").fit(X)
 print(mcd.support_.sum())
+```
+<!-- example-end: covariance-robust -->
+
+`support_` is a Boolean mask over training rows. Its sum counts rows in the
+final robust support; exclusion is not proof that an observation is erroneous.
+
+### Sparse precision with cross-validation
+
+Use `GraphicalLassoCV` to choose an L1 penalty and refit a sparse precision model.
+In a Gaussian model, zero off-diagonal precision entries encode conditional
+independence, rather than zero marginal covariance or a causal relationship.
+
+<!-- example-requires: covariance-basic -->
+<!-- example: covariance-sparse -->
+```python
+from statgpu.covariance import GraphicalLassoCV
 
 glcv = GraphicalLassoCV(alphas=4, cv=5, device="cpu").fit(X)
 print(glcv.alpha_)
 ```
+<!-- example-end: covariance-sparse -->
+
+`alpha_` is the selected penalty, not a significance level. The fitted
+`covariance_` and `precision_` come from the final fit on all rows of `X`.
+
+<a id="cpu-and-gpu-examples"></a>
+
+## Optional GPU execution
+
+Reuse `X` and `LedoitWolf` from [the CPU example](#covariance-basic). Choose
+one of these blocks when its CUDA runtime is available.
 
 ### CuPy
 
 ```python
 import cupy as cp
-from statgpu.covariance import LedoitWolf
 
-X_cupy = cp.random.randn(500, 10, dtype=cp.float64)
+X_cupy = cp.asarray(X)
 model_cupy = LedoitWolf(device="cuda").fit(X_cupy)
 print(model_cupy.covariance_.shape)
 ```
@@ -178,9 +240,8 @@ print(model_cupy.covariance_.shape)
 
 ```python
 import torch
-from statgpu.covariance import LedoitWolf
 
-X_torch = torch.randn(500, 10, device="cuda", dtype=torch.float64)
+X_torch = torch.as_tensor(X, device="cuda", dtype=torch.float64)
 model_torch = LedoitWolf(device="torch").fit(X_torch)
 print(model_torch.covariance_.shape)
 ```
@@ -264,6 +325,20 @@ sparse precision matrix need not be sparse.
 
 No. `device="cuda"` denotes the CuPy backend. Use `device="torch"` for a Torch
 execution request.
+
+## Paths
+
+```python
+from statgpu.covariance import (
+    EmpiricalCovariance,
+    LedoitWolf,
+    OAS,
+    ShrunkCovariance,
+    MinCovDet,
+    GraphicalLasso,
+    GraphicalLassoCV,
+)
+```
 
 ## References
 

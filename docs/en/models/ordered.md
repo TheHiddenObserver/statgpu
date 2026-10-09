@@ -1,57 +1,80 @@
 # Ordered Generalized Linear Models (Logit/Probit)
 
 > Language: English  
-> Last updated: 2026-07-07  
+> Last updated: 2026-10-09<br>
 > Switch: [Chinese](../../cn/models/ordered.md)
 
-Ordered response models for ordinal categorical outcomes (e.g., "low/medium/high").
+## When to use an ordered model
 
-## Model Form
+`OrderedLogitRegression` and `OrderedProbitRegression` model categories with an order, such as low, medium, and high. They use the ordering without assuming equal distances between adjacent categories. Use an unordered classifier for categories without a natural order, and retain continuous information when the response is continuous.
 
-P(y <= j | X) = F(theta_j - X * beta)
+One set of slopes and several thresholds describe the cumulative probabilities. Logit uses the proportional-odds assumption; Probit uses the standard-normal cumulative distribution. Both share slopes across thresholds, which may be too restrictive for some applications.
 
-Where:
-- `j = 1, ..., K-1` are the category thresholds
-- `F` is the cumulative distribution function (Logit or Probit)
-- `theta_j` are threshold parameters (strictly increasing)
-- `beta` is the coefficient vector (proportional odds assumption: all categories share the same coefficients)
+## Model form
 
-## Implemented Estimators
+$$
+P(y \le j \mid X)=F(\theta_j-X\beta),\qquad j=0,\ldots,K-2.
+$$
 
-### OrderedLogitRegression
+Labels are coded `0, ..., K-1`, and `theta_j` are strictly increasing interior thresholds. A positive slope shifts probability toward higher categories. In Logit, `exp(beta)` is the higher-versus-lower cumulative odds ratio at each threshold; Probit coefficients do not have that odds-ratio interpretation. Thresholds supply the location parameters, so do not add a constant column to `X`.
 
-Proportional odds model with Logit link.
+<a id="cpu-example"></a>
 
+## A complete CPU example
+
+Run these steps in order to fit and predict three ordered categories with Logit.
+
+### 1. Import
+
+<!-- learner-example: ordered-basic -->
 ```python
+import numpy as np
 from statgpu.linear_model import OrderedLogitRegression
-
-model = OrderedLogitRegression(
-    n_categories=3,        # Number of categories
-    max_iter=100,          # Max Newton-Raphson iterations
-    tol=1e-4,              # Convergence tolerance (NLL change)
-    device='auto',         # 'auto' | 'cpu' | 'cuda' | 'torch'
-    compute_inference=True, # Compute SE, z-values, p-values, CI
-    cov_type='nonrobust',  # Covariance type (only nonrobust currently)
-)
-model.fit(X, y)
-print(model.coef_)          # Raw-scale coefficients (p,)
-print(model._thresh_est)    # Raw-scale thresholds (K-1,)
-print(model._bse)           # Standard errors [coef SEs, threshold SEs]
-print(model._pvalues)       # P-values
-print(model.summary())      # Full inference summary table
-print(model.aic, model.bic) # Information criteria
 ```
 
-### OrderedProbitRegression
+### 2. Prepare an ordinal response
 
-Ordered model with Probit link.
+`X` is a `(400, 2)` numeric matrix, one observation per row; `y` is a length-400 integer label vector. Two cut points turn a latent continuous response with logistic noise into categories 0, 1, and 2. Train on 300 rows and evaluate on 100. For real data, establish the category ordering, handle missing values, and keep prediction columns in the same order.
 
 ```python
-from statgpu.linear_model import OrderedProbitRegression
-
-model = OrderedProbitRegression(n_categories=3, compute_inference=True, device='cpu')
-model.fit(X, y)
+rng = np.random.default_rng(42)
+X = rng.normal(size=(400, 2))
+latent = X @ np.array([0.8, -0.5]) + rng.logistic(size=400)
+y = np.digitize(latent, [-0.7, 0.8])
 ```
+
+### 3. Fit and read the coefficients
+
+`n_categories=3` must match the encoding. Leave inference off initially and inspect slopes and interior thresholds on the original feature scale.
+
+```python
+model = OrderedLogitRegression(
+    n_categories=3, device="cpu", max_iter=200, tol=1e-8,
+).fit(X[:300], y[:300])
+print("Slopes:", np.round(model.coef_, 3))
+print("Thresholds:", np.round(model._thresh_est, 3))
+```
+
+The slopes round to `[0.773, -0.458]`, with directions matching the simulation. They are not slopes from a linear regression of the integer labels, and thresholds are not feature coefficients.
+
+### 4. Predict category probabilities
+
+```python
+probability = model.predict_proba(X[300:])
+prediction = model.predict(X[300:])
+print("First probabilities:", np.round(probability[:3], 3))
+print("Held-out accuracy:", round(float(model.score(X[300:], y[300:])), 3))
+```
+
+The probability array has shape `(100, 3)`, with columns for 0, 1, and 2 and rows summing to one. `predict` selects the most probable category and returns `(100,)` labels. Accuracy is about `0.54` for this seed; accuracy counts all mistakes equally and does not distinguish errors of one category from errors of two.
+<!-- example-end: ordered-basic -->
+
+## Choosing settings and checking results
+
+- Encode a meaningful order rather than assuming alphabetical order is ordinal. Sparse or empty categories can destabilize thresholds.
+- Check the shared-slope assumption, category probabilities, and held-out performance, rather than training accuracy alone.
+- `n_iter_` is an iteration count, not a convergence certificate. If numerical warnings occur, inspect collinearity, separation, and category counts before increasing `max_iter`.
+- Slopes describe conditional associations, not automatically causal effects.
 
 ## Objective Function
 
@@ -79,8 +102,7 @@ Newton-Raphson with trust-region regularization (all 3 backends):
 | cupy (GPU) | Newton-Raphson + vectorized analytical Hessian | CuPy native, scalar sync per iteration |
 | torch (GPU) | Newton-Raphson + vectorized analytical Hessian | Torch native, uses `torch.linalg.solve` |
 
-**Convergence**: 5–23 iterations for typical problems. Trust-region inner loop
-(up to 20 attempts per iteration) increases ridge penalty until NLL decreases.
+The iteration budget and tolerance control optimization. Numerical regularization stabilizes Newton steps; it is not the statistical slope penalty controlled by C in ordinary GLMs.
 
 **Standardization**: X is internally standardized to mean=0, std=1.
 Coefficients and thresholds are converted back to raw (unstandardized) scale
@@ -90,8 +112,7 @@ after convergence: `β_raw = β_fit / X_std`, `θ_raw = θ_fit + X_mean @ β_raw
 
 ### Hessian
 
-Analytical observed Hessian (vectorized, backend-agnostic). Matches R `MASS::polr`
-and `ordinal::clm` Hessian structure exactly.
+The analytical observed Hessian is computed from the total negative log-likelihood, even though optimization uses the average loss. This distinction supplies the correct sample-size scaling for covariance.
 
 The Hessian has a block structure:
 
@@ -139,78 +160,73 @@ Wald z-statistics: `z = θ / bse`, two-sided p-values via standard normal.
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `n_categories` | int | 3 | Number of ordinal categories (>= 2) |
-| `fit_intercept` | bool | True | Whether to fit intercept term |
+| `fit_intercept` | bool | True | Inherited control; ordered location is represented by thresholds, not a separate intercept |
 | `max_iter` | int | 100 | Max Newton-Raphson iterations |
 | `tol` | float | 1e-4 | Convergence tolerance (NLL absolute change) |
 | `C` | float | 1.0 | Inverse regularization strength (not used; inherited from GLM base) |
 | `device` | str | 'auto' | 'auto' \| 'cpu' \| 'cuda' \| 'torch' |
 | `compute_inference` | bool | False | Compute SE, z-values, p-values, CI after fit |
 | `cov_type` | str | 'nonrobust' | Covariance estimator type (only nonrobust currently) |
+| `n_jobs` | int or None | None | Shared configuration; not an ordered solver selector |
 | `gpu_memory_cleanup` | bool | False | Clean GPU memory after fit |
 
-## CPU+GPU Examples
+## Inference, Probit, and GPU
 
-### CPU with Inference
+### Optional: Logit coefficient inference
 
+Reuse the imports and training data from the completed [CPU example](#cpu-example). Refit with `compute_inference` enabled for model-based standard errors and marginal intervals. Only `cov_type="nonrobust"` is supported; these results rely on the model assumptions and large-sample approximation.
+
+<!-- example-requires: ordered-basic -->
+<!-- learner-example: ordered-inference -->
 ```python
-import numpy as np
-from statgpu.linear_model import OrderedLogitRegression
-
-np.random.seed(42)
-X = np.random.randn(5000, 10)
-beta = [0.5, -0.3, 0, 0.8, 0, -0.2, 0, 0.4, 0, 0]
-y = np.digitize(0.5 + X @ beta + 0.5 * np.random.randn(5000), [-0.5, 0.5])
-
-model = OrderedLogitRegression(n_categories=3, compute_inference=True, max_iter=50)
-model.fit(X, y)
-print(model.summary())
-# OrderedLogitRegression Summary
-# =====================
-# n_obs=5000  n_params=12  loglik=-2657.066  aic=5338.133  bic=5416.456
-# 
-#   Param     Coef    StdErr        z   P>|z|  [0.025   0.975]
-#   coef_0   1.705    0.294   5.806   0.000   1.130   2.281
-#   ...
-#   thresh_0 -3.300   0.751  -4.396   0.000  -4.771  -1.829
-#   thresh_1 -0.095   0.155  -0.612   0.541  -0.399   0.209
+inference_model = OrderedLogitRegression(
+    n_categories=3, device="cpu", max_iter=200, tol=1e-8,
+    compute_inference=True, cov_type="nonrobust",
+).fit(X[:300], y[:300])
+print("Slope SE:", inference_model._bse[:2])
+print("Threshold SE:", inference_model._bse[2:])
+print(inference_model.summary())
 ```
+<!-- example-end: ordered-inference -->
 
-### GPU Fit (no inference)
+The first two entries are slopes and the last two are thresholds; `_pvalues`, `_zvalues`, and `_conf_int` use the same ordering, rather than the ordinary-GLM intercept-first convention. `aic` and `bic` compare compatible likelihood models on the same response and observations.
 
-```python
-model = OrderedLogitRegression(n_categories=3, device='cuda', max_iter=50)
-model.fit(X, y)  # fits on GPU, results transferred to CPU
-print(model.coef_)
-```
+### Change to a Probit link
 
-### Probit with Inference
+Keep `X`, `y` from the completed [CPU example](#cpu-example) and change the link. This fit leaves inference off; enable it as in the preceding subsection when needed, using the same result ordering.
 
+<!-- example-requires: ordered-basic -->
+<!-- learner-example: ordered-probit -->
 ```python
 from statgpu.linear_model import OrderedProbitRegression
 
-model = OrderedProbitRegression(n_categories=3, compute_inference=True)
-model.fit(X, y)
-print(model._bse)
-print(model._pvalues)
+probit_model = OrderedProbitRegression(
+    n_categories=3, device="cpu", max_iter=200, tol=1e-8,
+).fit(X[:300], y[:300])
+probit_probability = probit_model.predict_proba(X[300:])
+```
+<!-- example-end: ordered-probit -->
+
+### Request a GPU
+
+Reuse the imports, `X`, and `y` from the completed [CPU example](#cpu-example). The following requests CuPy CUDA; use `device="torch"` for Torch CUDA. The corresponding backend and a usable CUDA device are required; unavailable explicit devices raise.
+
+```python
+gpu_model = OrderedLogitRegression(
+    n_categories=3, device="cuda", max_iter=200, tol=1e-8,
+).fit(X[:300], y[:300])
+gpu_probability = gpu_model.predict_proba(X[300:])
 ```
 
-## strict vs approximate
+Coefficients, inference reporting arrays, and `predict` / `predict_proba` outputs are NumPy arrays. See [device and memory](../guides/device-and-memory.md) for setup and device selection.
 
-- **strict**: The analytical Hessian at MLE is the exact observed Fisher information.
-  Standard errors match R `MASS::polr` and `ordinal::clm` within float64 tolerance
-  when using the same optimization objective (unpenalized NLL).
-- **approximate**: GPU paths (CuPy/Torch) produce slightly different coefficient
-  estimates due to different math libraries (`libm` vs NVIDIA `libdevice`).
-  After ~20 Newton iterations, accumulated BSE differences ~4.5e-04.
-  Inference uses the same backend as fitting (NumPy, CuPy, or Torch) via backend-agnostic computation.
+## Numerical differences and external comparison
 
-## External Validation
+This API has no separate strict/approximate mode switch. CPU, CuPy, and Torch use the same model and analytical Hessian, but floating-point arithmetic, tolerance, and conditioning can cause numerical differences. Inference computation uses the selected backend and converts reporting arrays to NumPy.
 
-| Reference | Method | Agreement |
-|-----------|--------|-----------|
-| R `ordinal::clm` | Newton-Raphson + analytical Hessian | Same Hessian structure. NLL differs by ~0.035 due to objective normalization: statgpu uses average NLL (1/n scale), R clm uses sum NLL. At the same coefficients, NLL ratio equals n. |
-| R `MASS::polr` | Fisher scoring | Same Hessian structure, coefficients match |
-| `statsmodels` `OrderedModel` | L-BFGS + numerical Hessian | NLL comparable (statgpu achieves lower NLL) |
+For comparison with R `MASS::polr`, `ordinal::clm`, or statsmodels `OrderedModel`, align category order, link, design, threshold convention, and convergence settings. statgpu optimizes average negative log-likelihood, while `loglikelihood` reports total log-likelihood. At the same parameters, multiply average negative log-likelihood by the observation count before comparing it with total negative log-likelihood. For standard errors, use the observed Hessian of the total negative log-likelihood and account for parameter order and raw-scale conversion.
+
+The table above covers constructor controls. `fit(X, y)` returns the fitted estimator, `predict_proba` returns category probabilities, `predict` returns labels, and `score` returns accuracy. Use `summary()`, `aic`, `bic`, and inference attributes as explained in the preceding sections. Further signatures are available in the [public implementation](../../../statgpu/linear_model/_glm_base.py) and installed `help(OrderedLogitRegression)` / `help(OrderedProbitRegression)`.
 
 ## References
 

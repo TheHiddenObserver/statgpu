@@ -1,7 +1,7 @@
 # Lasso
 
 > Language: English  
-> Last updated: 2026-10-05  
+> Last updated: 2026-10-09<br>
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/lasso.md)
 
@@ -48,24 +48,50 @@ held-out rows. Do not assume Lasso automatically standardizes prediction feature
 The simulated predictors already have comparable scales. The last 60 rows are
 held out before fitting; only the first two columns generate the signal.
 
+Run the following steps in order in one Python session. Start with the imports.
+
 <!-- learner-example: lasso-prediction -->
 ```python
 import numpy as np
 from statgpu.linear_model import Lasso
+```
 
+<a id="cpu-data"></a>
+
+### Prepare training and test data
+
+`X` has shape `(240, 6)`: each row is one observation and each column is a predictor. `y` is a one-dimensional continuous response with shape `(240,)`. Keep the last 60 rows out of fitting and tuning.
+
+```python
 rng = np.random.default_rng(42)
 X = rng.normal(size=(240, 6))
 y = 1 + 2 * X[:, 0] - X[:, 1] + rng.normal(scale=0.3, size=240)
 X_train, X_test = X[:180], X[180:]
 y_train, y_test = y[:180], y[180:]
+```
+
+### Fit the prediction model
+
+Use a fixed illustrative penalty first. Inference is disabled so this step only estimates the coefficients used for prediction.
+
+```python
 model = Lasso(
     alpha=0.1, device="cpu", solver="coordinate_descent",
     max_iter=5000, tol=1e-10, compute_inference=False,
-).fit(X_train, y_train)
+)
+model.fit(X_train, y_train)
+```
+
+### Predict and inspect the fit
+
+Pass the test features in the same column order. `score` evaluates R² against the held-out responses.
+
+```python
 prediction = model.predict(X_test)
 print("Slopes:", np.round(model.coef_, 3))
 print("Test R2:", round(model.score(X_test, y_test), 3))
 ```
+<!-- example-end: lasso-prediction -->
 
 For this seed, the slopes round to `[1.887, -0.880, 0, 0, 0, 0]` and held-out
 R² is about `0.980`. The first two slopes are shrunk relative to the generating
@@ -279,28 +305,29 @@ This table is the complete public constructor inventory for `statgpu.linear_mode
 
 ## A complete simultaneous-inference example
 
-This separate CPU example creates its own data. The intervals are computed after
-fixing alpha; they do not account for alpha selection on the same response.
+Continue after the complete [CPU example](#a-complete-cpu-example). This section reuses its `X_train` and `y_train`; no test responses enter inference. The intervals condition on fixed alpha and do not account for selecting alpha on the same responses.
 
+<!-- example-requires: lasso-prediction -->
 <!-- learner-example: lasso-simultaneous -->
 ```python
-import numpy as np
-from statgpu.linear_model import Lasso
-
-rng = np.random.default_rng(42)
-X = rng.normal(size=(180, 6))
-y = 1 + 2 * X[:, 0] - X[:, 1] + rng.normal(scale=0.3, size=180)
 m_sim = Lasso(
     alpha=0.1, device="cpu", solver="coordinate_descent",
     max_iter=5000, tol=1e-10, inference_method="debiased",
     enable_simultaneous_inference=True, simultaneous_alpha=0.05,
     simultaneous_n_bootstrap=200, simultaneous_random_state=7,
     simultaneous_include_intercept=True,
-).fit(X, y)
+)
+m_sim.fit(X_train, y_train)
+```
+
+The ordinary intervals remain marginal. Read the separate simultaneous array for the family that includes all six slopes and the intercept:
+
+```python
 ci_marginal = m_sim._conf_int
 ci_simul = m_sim._conf_int_simultaneous
 print(ci_marginal.shape, ci_simul.shape)
 ```
+<!-- example-end: lasso-simultaneous -->
 
 Both shapes are `(7,2)` here: the intercept precedes six slopes. The 200 draws
 keep this demonstration small; more draws improve Monte Carlo precision.

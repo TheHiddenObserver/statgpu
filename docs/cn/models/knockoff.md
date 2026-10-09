@@ -1,7 +1,7 @@
 # Knockoff 特征选择
 
 > 语言: 中文  
-> 最后更新: 2026-10-07
+> 最后更新：2026-10-09\
 > 页面定位: 方法文档  
 > 切换: [English](../../en/models/knockoff.md)
 
@@ -60,36 +60,76 @@ Knockoff 可以理解为匹配的负对照：每个原特征都与一个依赖�
 这里预先设定 p=20、q=0.20、六个非零系数和 `corr_diff` 统计量。
 响应包含截距与标准差为 0.5 的独立高斯噪声，符合 fixed-X 响应模型假设。
 
+按顺序运行以下代码。`X` 与外部 knockoff 矩阵 `Xk` 的形状均为 `(240, 20)`，
+`y` 为每条观测提供一个响应，共 240 个值。
+
 <!-- learner-example: knockoff-selection -->
 ```python
 import numpy as np
 from statgpu import fixed_x_knockoff_filter
+```
 
-# Prespecify the design, target rate, and statistic before seeing results.
+### 预先设定设计与目标错误率
+
+生成响应前先设定维度与目标错误率。下文调用将使用预先选定的 `corr_diff`
+统计量与 knockoff+ 规则。
+
+```python
 n, p = 240, 20
 q = 0.20
 if not (np.isfinite(q) and 0 < q < 1):
     raise ValueError("q must be finite and strictly between 0 and 1")
+```
+
+### 构造并检查外部配对
+
+把常数方向留给截距，再取两组正交列。这是上文说明的特殊模拟设计。
+
+```python
 rng = np.random.default_rng(42)
 Q, _ = np.linalg.qr(np.column_stack([np.ones(n), rng.normal(size=(n, 2*p))]))
 X, Xk = Q[:, 1:p+1], Q[:, p+1:2*p+1]
+```
+
+使用配对前，检查中心化与三项 Gram 约束。这些检查验证的是本次模拟设计，
+不能据此断言任意数据都满足条件。
+
+```python
 np.testing.assert_allclose(X.mean(axis=0), 0, atol=1e-14)
 np.testing.assert_allclose(Xk.mean(axis=0), 0, atol=1e-14)
 np.testing.assert_allclose(X.T @ X, np.eye(p), atol=1e-14)
 np.testing.assert_allclose(Xk.T @ Xk, np.eye(p), atol=1e-14)
 np.testing.assert_allclose(X.T @ Xk, 0, atol=1e-14)
+```
 
+### 生成响应并选择特征
+
+只有原始矩阵的前六列影响模拟响应。配对构造完成后，再以独立、等方差的高斯噪声
+生成 y。
+
+```python
 beta = np.zeros(p)
 beta[:6] = [8, -7, 6, -5, 4, -3]
 y = 2.0 + X @ beta + rng.normal(scale=0.5, size=n)
+```
+
+显式传入两个矩阵，跳过自动构造。
+
+```python
 result = fixed_x_knockoff_filter(
     X, y, Xk=Xk, q=q, method="corr_diff",
     fdr_control="knockoff_plus", backend="numpy",
 )
+```
+
+查看所选原始列的索引与阈值相关量；下一节解释它们能说明什么，以及不能说明什么。
+
+```python
 print("Selected columns:", result.selected_features.tolist())
 print("Threshold:", round(result.threshold, 3))
 print("Threshold ratio:", round(result.estimated_fdr, 3))
 ```
+<!-- example-end: knockoff-selection -->
 
 ## 如何理解选择结果及其不确定性
 
@@ -249,8 +289,11 @@ X、y、Xk 和 q，保留相同的外部 fixed-X 配对、统计量和目标错�
 CuPy/Torch 需要已安装且可用的 CUDA 后端。这一 QR 配对用于 fixed-X，
 不是 model-X 的可交换性构造；model-X 需要符合特征分布的构造方式。
 
+从下面选择一个后端；两段代码也复用 CPU 示例中导入的 `fixed_x_knockoff_filter`。
+
+### CuPy
+
 ```python
-from statgpu import fixed_x_knockoff_filter
 import cupy as cp
 
 X_gpu, y_gpu, Xk_gpu = cp.asarray(X), cp.asarray(y), cp.asarray(Xk)
@@ -258,7 +301,11 @@ res_gpu = fixed_x_knockoff_filter(
     X_gpu, y_gpu, Xk=Xk_gpu, q=q, method="corr_diff",
     fdr_control="knockoff_plus", backend="cupy",
 )
+```
 
+### Torch CUDA
+
+```python
 import torch
 
 X_torch, y_torch, Xk_torch = [torch.from_numpy(a).to("cuda") for a in (X, y, Xk)]

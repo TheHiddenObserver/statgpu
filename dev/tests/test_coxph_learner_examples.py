@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from doc_examples import example_code, parse_examples, run_example
 
 from statgpu.survival import CoxPH, CoxPHCV
 
@@ -14,8 +15,12 @@ ROOT = Path(__file__).resolve().parents[2]
 EXAMPLES = (
     "coxph-cpu-walkthrough",
     "coxph-cpu-cv",
-    "coxph-backend-data",
-    "coxph-backend-cpu",
+    "coxph-survival-prediction",
+    "coxph-summary",
+    "coxph-cupy-fit",
+    "coxph-cupy-cv",
+    "coxph-torch-fit",
+    "coxph-torch-cv",
     "coxph-penalized-family-cv",
 )
 
@@ -25,21 +30,12 @@ def _page(language):
 
 
 def _example(language, name):
-    """Select a stable named block, never a language-dependent fence index."""
-    pattern = (
-        rf"<!-- example: {re.escape(name)} -->\s*```python\n(.*?)```\s*"
-        rf"<!-- /example: {re.escape(name)} -->"
-    )
-    matches = re.findall(pattern, _page(language), flags=re.DOTALL)
-    assert len(matches) == 1, f"{language}: expected one example named {name}"
-    return matches[0]
+    """Select every declared step, never a language-dependent fence index."""
+    return example_code(_page(language), name, f"{language}/coxph.md")
 
 
-def _run(language, name, namespace=None):
-    if namespace is None:
-        namespace = {}
-    exec(compile(_example(language, name), f"{language}/coxph.md:{name}", "exec"), namespace)  # noqa: S102
-    return namespace
+def _run(language, name):
+    return run_example(_page(language), name, f"{language}/coxph.md")
 
 
 @pytest.fixture(params=("en", "cn"))
@@ -94,8 +90,9 @@ def test_walkthrough_fit_and_hazard_ratio_semantics(walkthrough):
     )
 
 
-def test_walkthrough_survival_tuple_and_held_out_score(walkthrough):
-    _, ns = walkthrough
+def test_survival_subsection_reuses_walkthrough_and_held_out_score(walkthrough):
+    language, _ = walkthrough
+    ns = _run(language, "coxph-survival-prediction")
     model, curves, times = (ns[name] for name in ("model", "curves", "curve_times"))
     assert curves.shape == (2, 4)
     assert times.shape == (4,)
@@ -123,8 +120,8 @@ def test_walkthrough_survival_tuple_and_held_out_score(walkthrough):
 
 
 def test_cv_example_selection_folds_scores_and_final_refit(walkthrough):
-    language, ns = walkthrough
-    _run(language, "coxph-cpu-cv", ns)
+    language, _ = walkthrough
+    ns = _run(language, "coxph-cpu-cv")
     cv_model = ns["cv_model"]
     results = cv_model.cv_results_
     assert results["pl_path"].shape == (4, 3)
@@ -166,6 +163,15 @@ def test_cv_example_selection_folds_scores_and_final_refit(walkthrough):
     assert cv_model.converged_
     assert cv_model.estimator_.penalty == cv_model.penalty_
     np.testing.assert_allclose(cv_model.coef_, refit.coef_, atol=1e-9)
+    # Preserve the direct CPU/inference-disabled contract formerly exercised
+    # by the now-removed duplicate backend-data/backend-cpu documentation.
+    assert refit.converged_ and refit.effective_device_ == "cpu"
+    risk = refit.predict_risk_score(ns["X_test"][:3])
+    assert risk.shape == (3,)
+    np.testing.assert_allclose(risk, ns["X_test"][:3] @ refit.coef_)
+    assert refit._bse is None
+    with pytest.raises(RuntimeError, match="compute_inference=True"):
+        refit.predict_survival(ns["X_test"][:3])
     np.testing.assert_allclose(cv_model.coef_, cv_model.estimator_.coef_)
     np.testing.assert_allclose(cv_model.hazard_ratios_, np.exp(cv_model.coef_))
     expected_cindex = _concordance(
@@ -178,19 +184,12 @@ def test_cv_example_selection_folds_scores_and_final_refit(walkthrough):
 
 
 @pytest.mark.parametrize("language", ("en", "cn"))
-def test_existing_cpu_backend_and_penalized_family_examples(language):
-    ns = _run(language, "coxph-backend-data")
-    _run(language, "coxph-backend-cpu", ns)
-    model = ns["cpu_model"]
-    assert model.converged_
-    assert ns["cpu_log_risk"].shape == (3,)
-    np.testing.assert_allclose(ns["cpu_log_risk"], ns["X"][:3] @ model.coef_)
-    assert model._bse is None
-    with pytest.raises(RuntimeError, match="compute_inference=True"):
-        model.predict_survival(ns["X"][:3])
-    _run(language, "coxph-penalized-family-cv", ns)
+def test_penalized_family_example_reuses_training_partition(language):
+    ns = _run(language, "coxph-penalized-family-cv")
     family = ns["penalized_cv"]
-    assert ns["survival_y"].shape == (256, 2)
+    assert ns["survival_y"].shape == (300, 2)
+    np.testing.assert_array_equal(ns["survival_y"][:, 0], ns["time_train"])
+    np.testing.assert_array_equal(ns["survival_y"][:, 1], ns["event_train"])
     assert family.coef_.shape == (3,)
     assert np.isfinite(family.coef_).all()
     assert family.alpha_ in (0.1, 0.03, 0.01)
@@ -200,6 +199,34 @@ def test_existing_cpu_backend_and_penalized_family_examples(language):
     assert results["valid_score_counts"][best] == results["required_valid_score_count"]
     assert results["n_effective_folds"] == 5
     assert results["final_refit_class"] == "PenalizedCoxPHModel"
+
+
+@pytest.mark.parametrize("language", ("en", "cn"))
+def test_summary_subsection_uses_the_fitted_walkthrough(language, capsys):
+    ns = _run(language, "coxph-summary")
+    assert ns["model"].compute_inference
+    assert ns["model"]._conf_int.shape == (3, 2)
+    assert "Cox" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("language", ("en", "cn"))
+def test_gpu_subsections_declare_backend_and_training_prerequisites(language):
+    examples = parse_examples(_page(language), f"{language}/coxph.md")
+    assert set(examples) == set(EXAMPLES)
+    for backend in ("cupy", "torch"):
+        fit = examples[f"coxph-{backend}-fit"]
+        cv = examples[f"coxph-{backend}-cv"]
+        assert fit.requires == ("coxph-cpu-walkthrough",)
+        assert cv.requires == (fit.name,)
+        # Static only: do not substitute CPU arrays for CUDA tensors.
+        for code in (fit.code, cv.code):
+            ast.parse(code)
+            assert "compute_inference=False" in code
+            assert f'device="{"cuda" if backend == "cupy" else "torch"}"' in code
+        for name in ("X_train", "time_train", "event_train", "X_test[:3]"):
+            assert name in fit.code
+        assert "random" not in fit.code
+        assert "CoxPHCV" in cv.code
 
 
 def test_translations_keep_executable_examples_aligned():

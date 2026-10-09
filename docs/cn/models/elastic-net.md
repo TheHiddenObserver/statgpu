@@ -1,7 +1,7 @@
 # Elastic Net 弹性网络
 
 > 语言：中文  
-> 最后更新：2026-10-06<br>
+> 最后更新：2026-10-09<br>
 > 页面定位：模型文档  
 > 切换：[English](../../en/models/elastic-net.md)
 
@@ -13,33 +13,83 @@
 
 如果希望部分系数精确为零，但相关预测变量又使纯 Lasso 的选择不够稳定，可以考虑 Elastic Net。只需要稳定收缩、不需要稀疏性时，Ridge 更简单；对于事先确定、维数不高且不需要收缩惩罚的模型，可使用[线性回归](linear-regression.md)。入选变量不自动代表因果效应。
 
+## 目标函数
+
+Elastic Net 优化问题为：
+
+$$
+\min_{b,\beta}\frac{\sum_{i=1}^n w_i(y_i-b-x_i^\top\beta)^2}{2\sum_{i=1}^n w_i}+\alpha\lambda\|\beta\|_1+\frac{\alpha(1-\lambda)}{2}\|\beta\|_2^2
+$$
+
+这里 n 为行数、p 为特征数，$x_i$ 是 p 维预测变量，$b$ 是不受惩罚的截距，$\beta$ 是斜率。无权重时 $w_i=1$；权重非负且总和为正。`fit_intercept=False` 时固定 b=0。
+
+其中：
+- `alpha` (α) 控制整体正则化强度；
+- `l1_ratio` (λ) 混合 L1 与 L2：λ=1 对应 Lasso 目标，λ=0 对应纯 L2 目标；
+- `1/(2n)` 表示公开 `alpha` 使用平均损失尺度。
+
+**正则化缩放说明**：`ElasticNet` 与 `Ridge` 使用同一平均损失约定，因此 `l1_ratio=0` 时，相同公开 `alpha` 下目标函数退化为对应的 L2 目标。不过 `ElasticNet` 估计器仍保留自己的求解器和推断默认设置；若明确需要 Ridge 的估计器契约，应直接使用 `Ridge`。
+
 ## 完整的 CPU 示例
 
 下面生成相关预测变量，只用训练行估计标准化参数，再在留出行上评估预测。示例中的调参值用于演示接口，实际应用应通过验证数据选择。
 
+<!-- learner-example: elasticnet-prediction -->
 ```python
 import numpy as np
 from statgpu.linear_model import ElasticNet
+```
 
+<a id="cpu-data"></a>
+
+### 准备相关预测变量
+
+在同一会话中依次运行以下代码块。`X_raw` 的形状为 `(400, 8)`，每行是一条观测，每列是一个预测变量；`y` 是形状为 `(400,)` 的连续响应。前两列相关，前三列产生信号。
+
+```python
 rng = np.random.default_rng(7)
 X_raw = rng.normal(size=(400, 8))
 X_raw[:, 1] = 0.8 * X_raw[:, 0] + 0.2 * rng.normal(size=400)
 y = 0.4 + X_raw @ np.array([1.2, 0.8, -0.7, 0, 0, 0, 0, 0])
 y += rng.normal(scale=0.5, size=400)
+```
 
+### 仅用训练行估计缩放参数
+
+留出最后 100 行。用前 300 行计算均值和标准差，再将同一变换应用于训练集与测试集。模拟数据各列方差均为正；处理自己的数据时，应先处理常量列。
+
+```python
 mean = X_raw[:300].mean(axis=0)
 scale = X_raw[:300].std(axis=0)
 X = (X_raw - mean) / scale
+X_train, X_test = X[:300], X[300:]
+y_train, y_test = y[:300], y[300:]
+```
+
+### 拟合预测模型
+
+先用固定的 `alpha` 与 L1/L2 混合比例演示接口。系数推断在本页后面的独立步骤介绍。
+
+```python
 model = ElasticNet(
     alpha=0.08, l1_ratio=0.5, solver="fista", device="cpu",
     max_iter=5000, tol=1e-8, compute_inference=False,
-).fit(X[:300], y[:300])
+)
+model.fit(X_train, y_train)
+```
 
+### 预测并查看入选列
+
+每条测试观测得到一个预测响应。应结合留出 R² 查看系数，不能只凭稀疏程度判断效果。
+
+```python
+prediction = model.predict(X_test)
 print("coef:", np.round(model.coef_, 3))
 print("selected columns:", np.flatnonzero(np.abs(model.coef_) > 1e-8))
-print("predictions:", np.round(model.predict(X[300:303]), 3))
-print("held-out R2:", round(float(model.score(X[300:], y[300:])), 3))
+print("predictions:", np.round(prediction[:3], 3))
+print("held-out R2:", round(float(model.score(X_test, y_test)), 3))
 ```
+<!-- example-end: elasticnet-prediction -->
 
 使用这个随机种子，CPU 输出约为：系数 `[0.938, 0.834, -0.552, 0, 0, 0, 0, 0]`，入选列 `[0, 1, 2]`，预测值 `[-1.575, 1.710, 1.476]`，留出 R² 为 `0.936`。本次拟合保留了相关的第 0、1 列，五个噪声列的系数为零。较高的测试 R² 说明在这组模拟留出数据上的预测效果，不代表入选变量已经成为经过检验的科学发现。不同数值环境可能产生小幅浮点差异。
 
@@ -60,56 +110,9 @@ print("held-out R2:", round(float(model.score(X[300:], y[300:])), 3))
 返回大于 1 的无效 R²，因此评分前应自行检查这些条件。训练时的权重验证不覆盖新的
 评价权重向量。
 
-### 加权训练诊断
-
-完成加权 `debiased` 推断后，当前 `rsquared` 使用变换后的工作响应，并再次进行
-中心化，因此可能与原始观测上的加权 R² 相差很大；`rsquared_adj` 也受此影响。
-基于残差的 `fvalue`/`f_pvalue` 诊断同样使用这一错误的总离差。
-请按前面的要求验证评价权重，再用原始响应与预测调用
-`score(X, y, sample_weight=weights)`。该限制不改变拟合得到的预测系数。
-关闭推断时，训练诊断属性则可能为 `None`。
-
-<!-- learner-example: elasticnet-weighted-score -->
-```python
-import numpy as np
-from statgpu import ElasticNet
-
-rng = np.random.default_rng(25)
-X = rng.normal(size=(20, 2))
-y = np.arange(20.0) + 2 * X[:, 0]
-weights = np.r_[np.ones(19), 1000.0]
-model = ElasticNet(
-    alpha=0.3, device="cpu", max_iter=5000, tol=1e-8, compute_inference=True,
-).fit(
-    X, y, sample_weight=weights,
-)
-weighted_r2 = model.score(X, y, sample_weight=weights)
-print("Weighted training R2:", round(weighted_r2, 3))
-```
-
-输出为 `Weighted training R2: 0.180`，描述训练拟合程度，不是留出表现。
-开启纠偏推断不会改变这个评分，但当前 `rsquared` 属性在同一数据上会报告约 −2.262。
-
 ## 路径
 
 `statgpu.linear_model.ElasticNet`
-
-## 目标函数
-
-Elastic Net 优化问题为：
-
-$$
-\min_{b,\beta}\frac{\sum_{i=1}^n w_i(y_i-b-x_i^\top\beta)^2}{2\sum_{i=1}^n w_i}+\alpha\lambda\|\beta\|_1+\frac{\alpha(1-\lambda)}{2}\|\beta\|_2^2
-$$
-
-这里 n 为行数、p 为特征数，$x_i$ 是 p 维预测变量，$b$ 是不受惩罚的截距，$\beta$ 是斜率。无权重时 $w_i=1$；权重非负且总和为正。`fit_intercept=False` 时固定 b=0。
-
-其中：
-- `alpha` (α) 控制整体正则化强度；
-- `l1_ratio` (λ) 混合 L1 与 L2：λ=1 对应 Lasso 目标，λ=0 对应纯 L2 目标；
-- `1/(2n)` 表示公开 `alpha` 使用平均损失尺度。
-
-**正则化缩放说明**：`ElasticNet` 与 `Ridge` 使用同一平均损失约定，因此 `l1_ratio=0` 时，相同公开 `alpha` 下目标函数退化为对应的 L2 目标。不过 `ElasticNet` 估计器仍保留自己的求解器和推断默认设置；若明确需要 Ridge 的估计器契约，应直接使用 `Ridge`。
 
 ## 估计方程
 
@@ -175,56 +178,6 @@ CPU FISTA/坐标下降和 GPU FISTA 检查系数变化，ADMM 检查原始/对�
 
 公开接口不单独提供 `backend`、`warm_start` 或 `random_state` 构造参数。计算后端由 `device` 控制；可通过 `fit(initial_coef=...)` 提供初始系数，但需注意前面说明的重复拟合限制。
 
-## 补充 CPU/GPU 示例
-
-先运行前面的数据准备；这里复用 `X` 与 `y`。推断示例与预测调参分开使用。
-
-```python
-from statgpu.linear_model import ElasticNet
-
-# CPU：solver 选择算法，device 选择执行后端。
-model_cpu = ElasticNet(
-    alpha=0.1,
-    l1_ratio=0.5,
-    device="cpu",
-    solver="fista",
-)
-model_cpu.fit(X, y)
-print(f"R²: {model_cpu.score(X, y):.4f}")
-
-# 显式逐节点调参只改变纠偏推断，不改变主 Elastic Net 拟合。
-model_db = ElasticNet(
-    alpha=0.1,
-    l1_ratio=0.7,
-    nodewise_alpha=0.08,
-    device="cpu",
-    compute_inference=True,
-    inference_method="debiased",
-)
-model_db.fit(X, y)
-print(model_db.nodewise_alpha_)
-
-# GPU 仍使用同一个 solver 接口
-model_gpu_cupy = ElasticNet(
-    alpha=0.1,
-    l1_ratio=0.5,
-    device="cuda",
-    solver="fista",
-    gpu_memory_cleanup=True,
-)
-model_gpu_cupy.fit(X, y)
-
-model_gpu_torch = ElasticNet(
-    alpha=0.1,
-    l1_ratio=0.5,
-    device="torch",
-    solver="fista",
-)
-model_gpu_torch.fit(X, y)
-```
-
-后端性能取决于样本量、特征维数、数据类型（dtype）、硬件、数据驻留位置与传输成本。应针对实际工作负载进行基准测试。
-
 ## 协方差/推断
 
 `ElasticNet` 默认仅进行估计。设置 `compute_inference=True` 后，通过共享的惩罚线性模型推断框架执行拟合后推断。默认 `inference_method="debiased"` 与稀疏高斯 Lasso 路径使用同一套标准化逐节点 Lasso 一步纠偏构造，用于构造近似精度矩阵，并计算纠偏系数、标准误、z 统计量、p 值和置信区间。其统计有效性仍依赖设计、稀疏性、正则化尺度和模型假设；纠偏 Lasso 文献提供主要理论背景，但不等于对任意 `l1_ratio` 都自动给出无条件保证。推断成功后可调用 `summary()`。
@@ -271,13 +224,78 @@ $$
 
 实现以工作残差平方和除以 $\max(n-s,1)$ 估计 $\hat\sigma^2$，s 为非零惩罚斜率数。标准误为协方差对角元平方根，z 统计量与正态参考 95% 区间使用纠偏斜率。这是模型式构造：当前 `cov_type="hc0"` 至 `"hc3"` 或 `"hac"` 不会替换这套协方差，不能解释为稳健纠偏推断。[方法与协方差表](../reference/linear-model-api.md#covariance-and-inference-behavior)区分了 `debiased`、`post_selection_ols`、`bootstrap` 的行为。
 
-## 求解器与推断语义
+### 尝试显式逐节点调参
 
-对于直接 `ElasticNet.fit`，**CPU 与 GPU 都使用 `solver`**。`device` 决定执行后端，`solver` 决定优化算法。`cpu_solver` 是早期按硬件区分求解器 API 的弃用兼容参数，新代码不应继续使用。
+先按顺序运行前面的完整 [CPU 示例](#完整的-cpu-示例)，再继续本节；复用 `X_train`、`y_train`，保持原来的预测配置。`nodewise_alpha` 只调整精度矩阵计算，不负责选择预测惩罚，也不使用测试响应。0.08 仅为示意值。
 
-同样，需要活跃集 OLS/WLS 诊断时应使用 `inference_method="post_selection_ols"`，而不是根据硬件去选 `cpu_ols` 或 `gpu_ols`；后两者只是同一个统计方法的弃用别名。
+<!-- example-requires: elasticnet-prediction -->
+<!-- learner-example: elasticnet-nodewise -->
+```python
+model_db = ElasticNet(
+    alpha=0.08, l1_ratio=0.5, solver="fista", device="cpu",
+    max_iter=5000, tol=1e-8, compute_inference=True,
+    inference_method="debiased", nodewise_alpha=0.08,
+)
+model_db.fit(X_train, y_train)
+```
 
-`compute_inference=False` 时只返回惩罚估计结果；开启推断后，主模型拟合系数保持不变，再执行所选的拟合后推断方法。
+推断成功后，查看实际采用的逐节点惩罚和区间维度。参数共有九行：截距与八个斜率。这些区间描述去偏报告估计，不是保持不变的惩罚预测系数。
+
+```python
+print("Node-wise alpha:", model_db.nodewise_alpha_)
+print("Interval shape:", model_db._conf_int.shape)
+```
+<!-- example-end: elasticnet-nodewise -->
+
+<a id="weighted-training-diagnostics"></a>
+
+### 加权训练诊断
+
+完成加权 `debiased` 推断后，当前 `rsquared` 使用变换后的工作响应，并再次进行
+中心化，因此可能与原始观测上的加权 R² 相差很大；`rsquared_adj` 也受此影响。
+基于残差的 `fvalue`/`f_pvalue` 诊断同样使用这一错误的总离差。
+请按前面的要求验证评价权重，再用原始响应与预测调用
+`score(X, y, sample_weight=weights)`。该限制不改变拟合得到的预测系数。
+关闭推断时，训练诊断属性则可能为 `None`。
+
+<!-- learner-example: elasticnet-weighted-score -->
+```python
+import numpy as np
+from statgpu import ElasticNet
+```
+
+这个独立的极端权重示例有 20 条观测、两个预测变量，最后一行权重很大。它有意使用与预测教程不同的数据，以便看清诊断差异。
+
+```python
+rng = np.random.default_rng(25)
+X = rng.normal(size=(20, 2))
+y = np.arange(20.0) + 2 * X[:, 0]
+weights = np.r_[np.ones(19), 1000.0]
+```
+
+开启去偏推断以重现前述情形，然后用原始观测和同一组有效权重评分。
+
+```python
+model = ElasticNet(
+    alpha=0.3, device="cpu", max_iter=5000, tol=1e-8, compute_inference=True,
+)
+model.fit(X, y, sample_weight=weights)
+```
+
+读取显式计算的评分，而非受影响的训练属性：
+
+```python
+weighted_r2 = model.score(X, y, sample_weight=weights)
+print("Weighted training R2:", round(weighted_r2, 3))
+```
+<!-- example-end: elasticnet-weighted-score -->
+
+输出为 `Weighted training R2: 0.180`，描述训练拟合程度，不是留出表现。
+开启纠偏推断不会改变这个评分，但当前 `rsquared` 属性在同一数据上会报告约 −2.262。
+
+## 可选 GPU 使用
+
+要在 GPU 上重复前面的[预测拟合](#cpu-data)，保持准备好的数据及 `solver="fista"`，仅将 `device` 改为 `"cuda"`（CuPy CUDA）或 `"torch"`（Torch CUDA）。相应后端必须已安装且可用，显式请求不会静默切换到 CPU。无需重新生成数据或另写一套拟合流程，详见[设备与内存](../guides/device-and-memory.md)。性能取决于数据维度、类型、硬件、数据位置与传输成本，应对实际工作负载进行测试。
 
 ## 输出属性
 

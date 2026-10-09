@@ -1,7 +1,7 @@
 # Elastic Net
 
 > Language: English  
-> Last updated: 2026-10-06<br>
+> Last updated: 2026-10-09<br>
 > This page: Model documentation  
 > Language switch: [Chinese](../../cn/models/elastic-net.md)
 
@@ -13,33 +13,83 @@
 
 Use Elastic Net when you want some coefficients to be exactly zero, but correlated predictors make a pure Lasso fit unstable. Ridge is a simpler choice when shrinkage matters more than sparsity; ordinary [linear regression](linear-regression.md) is useful for a prespecified low-dimensional model without a shrinkage penalty. A selected variable is not automatically a causal effect.
 
+## Objective Function
+
+The Elastic Net optimization problem is:
+
+$$
+\min_{b,\beta}\frac{\sum_{i=1}^n w_i(y_i-b-x_i^\top\beta)^2}{2\sum_{i=1}^n w_i}+\alpha\lambda\|\beta\|_1+\frac{\alpha(1-\lambda)}{2}\|\beta\|_2^2
+$$
+
+Here n is the row count, p the feature count, $x_i$ the p-vector of predictors, $b$ the unpenalized intercept and $\beta$ the slopes. Set $w_i=1$ without weights; weights are nonnegative with positive sum. With `fit_intercept=False`, fix b=0.
+
+where:
+- `alpha` (α) controls overall regularization strength
+- `l1_ratio` (λ) mixes L1 vs L2: λ=1 gives Lasso, λ=0 gives Ridge
+- loss scaling by `1/(2n)` makes the public `alpha` use an average-loss convention
+
+**Note on regularization scaling**: `ElasticNet` and `Ridge` use the same average-loss convention. Therefore, with `l1_ratio=0`, the Elastic Net objective at a given public `alpha` reduces to the corresponding L2 objective. The `ElasticNet` wrapper still retains its own solver/inference defaults; use `Ridge` when you specifically want the Ridge estimator contract.
+
 ## A complete CPU example
 
 The example uses correlated predictors, standardizes them using training rows only, and evaluates predictions on held-out rows. The chosen tuning values illustrate the API; select them on validation data for a real application.
 
+<!-- learner-example: elasticnet-prediction -->
 ```python
 import numpy as np
 from statgpu.linear_model import ElasticNet
+```
 
+<a id="cpu-data"></a>
+
+### Prepare correlated predictors
+
+Run the following blocks in order in one session. `X_raw` has shape `(400, 8)`, with one observation per row and one predictor per column. `y` has shape `(400,)` and is continuous. The first two columns are correlated; the first three generate the signal.
+
+```python
 rng = np.random.default_rng(7)
 X_raw = rng.normal(size=(400, 8))
 X_raw[:, 1] = 0.8 * X_raw[:, 0] + 0.2 * rng.normal(size=400)
 y = 0.4 + X_raw @ np.array([1.2, 0.8, -0.7, 0, 0, 0, 0, 0])
 y += rng.normal(scale=0.5, size=400)
+```
 
+### Scale using training rows only
+
+Reserve the last 100 rows. Learn the mean and standard deviation from the first 300 rows, then apply that same transformation to both sets. These simulated columns have positive variance; handle constant columns before scaling your own data.
+
+```python
 mean = X_raw[:300].mean(axis=0)
 scale = X_raw[:300].std(axis=0)
 X = (X_raw - mean) / scale
+X_train, X_test = X[:300], X[300:]
+y_train, y_test = y[:300], y[300:]
+```
+
+### Fit the prediction model
+
+Use a fixed `alpha` and L1/L2 mixture to illustrate the API. Coefficient inference is a separate step later in this page.
+
+```python
 model = ElasticNet(
     alpha=0.08, l1_ratio=0.5, solver="fista", device="cpu",
     max_iter=5000, tol=1e-8, compute_inference=False,
-).fit(X[:300], y[:300])
+)
+model.fit(X_train, y_train)
+```
 
+### Predict and inspect selected columns
+
+Each test row receives one predicted response. Inspect the coefficients alongside held-out R², rather than treating sparsity alone as success.
+
+```python
+prediction = model.predict(X_test)
 print("coef:", np.round(model.coef_, 3))
 print("selected columns:", np.flatnonzero(np.abs(model.coef_) > 1e-8))
-print("predictions:", np.round(model.predict(X[300:303]), 3))
-print("held-out R2:", round(float(model.score(X[300:], y[300:])), 3))
+print("predictions:", np.round(prediction[:3], 3))
+print("held-out R2:", round(float(model.score(X_test, y_test)), 3))
 ```
+<!-- example-end: elasticnet-prediction -->
 
 For this seed, the CPU output is approximately: coefficients `[0.938, 0.834, -0.552, 0, 0, 0, 0, 0]`, selected columns `[0, 1, 2]`, predictions `[-1.575, 1.710, 1.476]`, and held-out R² `0.936`. Both correlated columns 0 and 1 remain in this fit, while the five noise columns are zero. The high test R² describes prediction on these simulated held-out rows; it does not turn selected variables into validated scientific discoveries. Small floating-point differences are expected.
 
@@ -61,59 +111,9 @@ The current squared-error `score` path does not reliably reject negative weights
 it can return an invalid R² above 1. Check these conditions yourself before
 scoring. Training-weight validation does not validate a new evaluation vector.
 
-### Weighted training diagnostics
-
-After weighted `debiased` inference, `rsquared` currently uses the transformed
-working response and centers it again. It can disagree substantially with R²
-computed on the original weighted observations; `rsquared_adj` inherits that
-problem. The residual-based `fvalue`/`f_pvalue` diagnostics also use that incorrect
-total variation. Use `score(X, y, sample_weight=weights)` on the original response and
-predictions, after validating the evaluation weights as described above. This
-limitation does not change the fitted prediction coefficients. With inference
-disabled, training diagnostic properties can instead be `None`.
-
-<!-- learner-example: elasticnet-weighted-score -->
-```python
-import numpy as np
-from statgpu import ElasticNet
-
-rng = np.random.default_rng(25)
-X = rng.normal(size=(20, 2))
-y = np.arange(20.0) + 2 * X[:, 0]
-weights = np.r_[np.ones(19), 1000.0]
-model = ElasticNet(
-    alpha=0.3, device="cpu", max_iter=5000, tol=1e-8, compute_inference=True,
-).fit(
-    X, y, sample_weight=weights,
-)
-weighted_r2 = model.score(X, y, sample_weight=weights)
-print("Weighted training R2:", round(weighted_r2, 3))
-```
-
-This prints `Weighted training R2: 0.180`. It describes training fit, not
-held-out performance. Enabling debiased inference does not change this score;
-the current `rsquared` property would instead report about −2.262 on these data.
-
 ## Path
 
 `statgpu.linear_model.ElasticNet`
-
-## Objective Function
-
-The Elastic Net optimization problem is:
-
-$$
-\min_{b,\beta}\frac{\sum_{i=1}^n w_i(y_i-b-x_i^\top\beta)^2}{2\sum_{i=1}^n w_i}+\alpha\lambda\|\beta\|_1+\frac{\alpha(1-\lambda)}{2}\|\beta\|_2^2
-$$
-
-Here n is the row count, p the feature count, $x_i$ the p-vector of predictors, $b$ the unpenalized intercept and $\beta$ the slopes. Set $w_i=1$ without weights; weights are nonnegative with positive sum. With `fit_intercept=False`, fix b=0.
-
-where:
-- `alpha` (α) controls overall regularization strength
-- `l1_ratio` (λ) mixes L1 vs L2: λ=1 gives Lasso, λ=0 gives Ridge
-- loss scaling by `1/(2n)` makes the public `alpha` use an average-loss convention
-
-**Note on regularization scaling**: `ElasticNet` and `Ridge` use the same average-loss convention. Therefore, with `l1_ratio=0`, the Elastic Net objective at a given public `alpha` reduces to the corresponding L2 objective. The `ElasticNet` wrapper still retains its own solver/inference defaults; use `Ridge` when you specifically want the Ridge estimator contract.
 
 ## Estimating Equation
 
@@ -181,56 +181,6 @@ certification. Numerical optimality is separate from statistical validity.
 
 The public wrapper does not accept separate `backend`, `warm_start`, or `random_state` constructor parameters. Backend selection is controlled by `device`; starting coefficients can be supplied through `fit(initial_coef=...)`, subject to the reuse limitation described above.
 
-## Additional CPU/GPU examples
-
-Run the data preparation above first. These examples reuse `X` and `y`; the inference example is separate from predictive tuning.
-
-```python
-from statgpu.linear_model import ElasticNet
-
-# CPU: solver selects the algorithm; device selects the backend.
-model_cpu = ElasticNet(
-    alpha=0.1,
-    l1_ratio=0.5,
-    device="cpu",
-    solver="fista",
-)
-model_cpu.fit(X, y)
-print(f"R²: {model_cpu.score(X, y):.4f}")
-
-# Explicit node-wise tuning changes debiased inference only.
-model_db = ElasticNet(
-    alpha=0.1,
-    l1_ratio=0.7,
-    nodewise_alpha=0.08,
-    device="cpu",
-    compute_inference=True,
-    inference_method="debiased",
-)
-model_db.fit(X, y)
-print(model_db.nodewise_alpha_)
-
-# GPU with the same solver interface
-model_gpu_cupy = ElasticNet(
-    alpha=0.1,
-    l1_ratio=0.5,
-    device="cuda",
-    solver="fista",
-    gpu_memory_cleanup=True,
-)
-model_gpu_cupy.fit(X, y)
-
-model_gpu_torch = ElasticNet(
-    alpha=0.1,
-    l1_ratio=0.5,
-    device="torch",
-    solver="fista",
-)
-model_gpu_torch.fit(X, y)
-```
-
-Backend performance depends on sample size, feature dimension, dtype, hardware, data residency, and transfer costs. Benchmark the target workload before selecting a backend solely for speed.
-
 ## Covariance/Inference
 
 `ElasticNet` is estimation-only by default. Set `compute_inference=True` to run post-fit inference through the shared penalized-linear inference engine. The default `inference_method="debiased"` uses the same standardized node-wise Lasso one-step correction framework as the sparse Gaussian Lasso path to construct an approximate precision matrix, corrected coefficients, standard errors, z statistics, p-values, and confidence intervals. Its statistical validity depends on the usual design, sparsity, regularization, and model assumptions; the Lasso literature is background for the construction rather than a blanket guarantee for every `l1_ratio`. `summary()` is available after inference succeeds.
@@ -277,13 +227,79 @@ $$
 
 The implementation estimates $\hat\sigma^2$ from working residual squares divided by $\max(n-s,1)$, where s is the number of nonzero penalized slopes. SEs are square roots of the covariance diagonal; z statistics and normal-reference 95% intervals use the corrected slopes. This is a model-based construction: current `cov_type="hc0"` through `"hc3"` or `"hac"` requests do not replace its covariance and must not be interpreted as robust debiased inference. The [method–covariance table](../reference/linear-model-api.md#covariance-and-inference-behavior) distinguishes `debiased`, `post_selection_ols`, and `bootstrap`.
 
-## Solver and Inference Semantics
+### Try explicit node-wise tuning
 
-For a direct `ElasticNet.fit`, **use `solver` on both CPU and GPU**. `device` chooses the execution backend; `solver` chooses the optimization algorithm. `cpu_solver` is a deprecated compatibility argument from the earlier hardware-split API and should not be used for new code.
+Continue after the complete [CPU example](#a-complete-cpu-example). Reuse `X_train` and `y_train`, and keep the original prediction settings. Only `nodewise_alpha` tunes the precision calculation; it does not select the predictive penalty or use the test responses. The value 0.08 is illustrative.
 
-Likewise, use `inference_method="post_selection_ols"` when the active-set OLS/WLS diagnostic is wanted. Do not choose `cpu_ols` or `gpu_ols` based on hardware; both are deprecated aliases for the same statistical method.
+<!-- example-requires: elasticnet-prediction -->
+<!-- learner-example: elasticnet-nodewise -->
+```python
+model_db = ElasticNet(
+    alpha=0.08, l1_ratio=0.5, solver="fista", device="cpu",
+    max_iter=5000, tol=1e-8, compute_inference=True,
+    inference_method="debiased", nodewise_alpha=0.08,
+)
+model_db.fit(X_train, y_train)
+```
 
-`compute_inference=False` returns the penalized estimate only. With `compute_inference=True`, the same fitted coefficients are retained and the selected post-fit inference method runs afterward.
+After inference succeeds, inspect the resolved node-wise penalty and interval dimensions. There are nine parameter rows: the intercept and eight slopes. These intervals describe debiased reporting estimates, not the unchanged penalized prediction coefficients.
+
+```python
+print("Node-wise alpha:", model_db.nodewise_alpha_)
+print("Interval shape:", model_db._conf_int.shape)
+```
+<!-- example-end: elasticnet-nodewise -->
+
+### Weighted training diagnostics
+
+After weighted `debiased` inference, `rsquared` currently uses the transformed
+working response and centers it again. It can disagree substantially with R²
+computed on the original weighted observations; `rsquared_adj` inherits that
+problem. The residual-based `fvalue`/`f_pvalue` diagnostics also use that incorrect
+total variation. Use `score(X, y, sample_weight=weights)` on the original response and
+predictions, after validating the evaluation weights as described above. This
+limitation does not change the fitted prediction coefficients. With inference
+disabled, training diagnostic properties can instead be `None`.
+
+<!-- learner-example: elasticnet-weighted-score -->
+```python
+import numpy as np
+from statgpu import ElasticNet
+```
+
+This independent stress case uses 20 observations and two predictors, with a large weight on the final row. It is deliberately different from the prediction tutorial so the diagnostic discrepancy is visible.
+
+```python
+rng = np.random.default_rng(25)
+X = rng.normal(size=(20, 2))
+y = np.arange(20.0) + 2 * X[:, 0]
+weights = np.r_[np.ones(19), 1000.0]
+```
+
+Enable debiased inference to reproduce the situation described above, then score the original observations with the same valid weights.
+
+```python
+model = ElasticNet(
+    alpha=0.3, device="cpu", max_iter=5000, tol=1e-8, compute_inference=True,
+)
+model.fit(X, y, sample_weight=weights)
+```
+
+Read the explicit score instead of the affected training property:
+
+```python
+weighted_r2 = model.score(X, y, sample_weight=weights)
+print("Weighted training R2:", round(weighted_r2, 3))
+```
+<!-- example-end: elasticnet-weighted-score -->
+
+This prints `Weighted training R2: 0.180`. It describes training fit, not
+held-out performance. Enabling debiased inference does not change this score;
+the current `rsquared` property would instead report about −2.262 on these data.
+
+## Optional GPU use
+
+To repeat the [prediction fit](#cpu-data) on a GPU, keep the same prepared data and `solver="fista"`, and change only `device` to `"cuda"` for CuPy CUDA or `"torch"` for Torch CUDA. The requested backend must be installed and usable; explicit requests never silently switch to CPU. No second data-generation or fitting recipe is needed. See [device and memory](../guides/device-and-memory.md). Performance depends on dimensions, dtype, hardware, data residency and transfer costs; benchmark your own workload.
 
 ## Outputs
 

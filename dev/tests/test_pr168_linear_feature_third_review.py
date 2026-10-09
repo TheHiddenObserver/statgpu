@@ -4,7 +4,6 @@ The changed-input defect is observed conditionally rather than required to
 persist. Fresh-array/process routes assert correct current-data statistics.
 """
 import json
-import re
 import subprocess
 import sys
 from collections import OrderedDict
@@ -12,6 +11,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from doc_examples import run_example
 
 from statgpu.feature_selection import FixedXKnockoffSelector, fixed_x_knockoff_filter
 
@@ -39,11 +39,7 @@ def _page(language, directory, name):
 
 
 def _execute_marked_example(text, marker):
-    block = re.search(r'<!-- ' + marker + r' -->\s*```python\n(.*?)```', text, re.DOTALL)
-    assert block is not None
-    namespace = {}
-    exec(compile(block.group(1), marker, 'exec'), namespace)  # noqa: S102 - repository-owned example
-    return namespace
+    return run_example(text, marker.split(': ', 1)[1], marker, allow_legacy=True)
 
 
 @pytest.mark.parametrize('language', ['en', 'cn'])

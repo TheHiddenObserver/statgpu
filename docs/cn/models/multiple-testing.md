@@ -1,7 +1,7 @@
 # 多重检验与 P 值合并
 
 > 语言：中文  
-> 最后更新：2026-10-05  
+> 最后更新：2026-10-09\
 > 切换：[English](../../en/models/multiple-testing.md)
 
 ## 先分清两个问题
@@ -18,6 +18,52 @@
 - **Hochberg：** 在独立或能够保证 Simes 不等式成立的依赖条件下控制 FWER；仅知道两两相关系数非负，并不足以普遍保证适用。
 
 应在查看结果前确定假设族。对矩阵设置 `axis=1` 时，每行分别构成一个假设族，并不同时控制所有行的总体错误率。[R 的 p.adjust 文档](https://stat.ethz.ch/R-manual/R-devel/library/stats/html/p.adjust.html)介绍了这些方法及其依赖条件。
+
+## 可直接运行的 CPU 示例
+
+下面用五个示意性的检验组成一个预先确定的假设族。按顺序运行各段代码，
+先导入校正与合并函数。
+
+<!-- api-example: multiple-testing-learner -->
+```python
+import numpy as np
+from statgpu.inference import adjust_pvalues, combine_pvalues
+```
+
+一维数组 `p` 的形状为 `(5,)`，每个检验提供一个有效 P 值。
+输入顺序对应假设顺序，返回结果也保留这一顺序。
+
+```python
+p = np.array([0.001, 0.01, 0.03, 0.05, 0.50])
+```
+
+### 用 Holm 逐项作出判断
+
+在预先选定的 5% 水平下控制族错误率。
+
+```python
+reject, adjusted = adjust_pvalues(p, method="holm", alpha=0.05, backend="numpy")
+print(reject.tolist())
+print(np.round(adjusted, 3))
+```
+
+拒绝掩码为 `[True, True, False, False, False]`，校正值为
+`[0.005, 0.04, 0.09, 0.1, 0.5]`。按所设定的假设族与错误率，拒绝前两个原假设。
+校正 P 值不是重要性排名，未拒绝也不等于证明原假设成立。
+
+### 用 Fisher 回答总体问题
+
+现在复用同一组 `p` 值回答另一个问题：合并证据是否与五个原假设同时成立的
+交集原假设不相符？这种解释要求原假设下的 P 值相互独立、连续且服从均匀分布。
+
+```python
+statistic, global_p = combine_pvalues(p, method="fisher", backend="numpy")
+print(round(float(statistic), 4), round(float(global_p), 6))
+```
+<!-- example-end: multiple-testing-learner -->
+
+统计量约为 `37.4167`，总体 P 值约为 `0.000048`。在上述假设下，它提供了
+反对交集原假设的证据，但不能确定具体哪些分量原假设不成立。
 
 ## 校正公式
 
@@ -54,25 +100,6 @@ $$T_Z=\frac{\sum_i w_i\Phi^{-1}(1-p_i)}{\sqrt{\sum_iw_i^2}},\qquad p_{\rm global
 $$T_C=\sum_i a_i\tan\{\pi(1/2-p_i)\},\qquad p_{\rm global}=1/2-\arctan(T_C)/\pi.$$
 
 存在依赖关系时，这是在一定正则条件下的尾部近似，并不意味着统计量精确服从 Cauchy 分布，也不对任意联合分布、任意显著性水平提供统一保证。理论范围见 [Liu–Xie 论文](https://arxiv.org/abs/1808.09011)。它用于汇总证据，不能代替逐项发现的多重检验校正。
-
-## 可直接运行的 CPU 示例
-
-这里使用示意性的 P 值；Fisher 结果的解释以相关检验满足适当的独立性假设为前提。
-
-<!-- api-example: multiple-testing-learner -->
-```python
-import numpy as np
-from statgpu.inference import adjust_pvalues, combine_pvalues
-
-p = np.array([0.001, 0.01, 0.03, 0.05, 0.50])
-reject, adjusted = adjust_pvalues(p, method="holm", alpha=0.05, backend="numpy")
-print(reject.tolist())
-print(np.round(adjusted, 3))
-statistic, global_p = combine_pvalues(p, method="fisher", backend="numpy")
-print(round(float(statistic), 4), round(float(global_p), 6))
-```
-
-第一行输出为 `[True, True, False, False, False]`，校正值为 `[0.005, 0.04, 0.09, 0.1, 0.5]`。应按预先确定的假设族和错误率解释拒绝掩码，而不是把校正 P 值当成“重要性”排名。
 
 ## 实际使用限制
 

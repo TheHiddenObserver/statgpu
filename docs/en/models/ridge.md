@@ -1,7 +1,7 @@
 # Ridge
 
 > Language: English  
-> Last updated: 2026-10-06  
+> Last updated: 2026-10-09<br>
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/ridge.md)
 
@@ -13,45 +13,6 @@ Unlike [Lasso](lasso.md), Ridge does not aim to make slopes exactly zero. Use it
 when many weak or correlated predictors may help prediction; start with
 [LinearRegression](linear-regression.md) when an unpenalized low-dimensional
 model is appropriate. Neither shrinkage nor a small p-value establishes causality.
-
-## A complete CPU example
-
-This example uses comparable-scale predictors, an illustrative fixed alpha, and
-analytic training weights. The last 40 rows are held out before fitting.
-
-<!-- learner-example: ridge-weighted-prediction -->
-```python
-import numpy as np
-from statgpu.linear_model import Ridge
-
-rng = np.random.default_rng(64)
-X = rng.normal(size=(160, 5))
-y = 1.5 + 2 * X[:, 0] - X[:, 1] + rng.normal(scale=0.4, size=160)
-weights = np.linspace(0.5, 2.0, 120)
-model = Ridge(
-    alpha=0.1, device="cpu", cov_type="hc3", compute_inference=True,
-).fit(X[:120], y[:120], sample_weight=weights)
-prediction = model.predict(X[120:])
-print("Slopes:", np.round(model.coef_, 3))
-print("Test R2:", round(model.score(X[120:], y[120:]), 3))
-print("Interval shape:", model._conf_int.shape)
-```
-
-The slopes are approximately `[1.821, -0.916, 0.017, -0.010, -0.020]` and
-held-out R² is about `0.957`. Prediction has shape `(40,)`; the six interval rows
-are the intercept followed by five slopes. HC3 changes covariance, not the Ridge
-prediction fit. Intervals refer to coefficients, not future responses, and do not
-correct shrinkage or tuning uncertainty. Training weights do not automatically
-weight the test score; this example evaluates ordinary unweighted R².
-
-Choose alpha using training-only validation, keeping the final test set separate.
-Learn feature scaling inside each training fold, since Ridge penalizes coefficients
-in their chosen units. The explicit alpha here avoids suggesting that a single
-value is suitable for every problem.
-
-## Path
-
-`statgpu.linear_model.Ridge`
 
 ## Objective Function
 
@@ -74,6 +35,75 @@ w_i\left(y_i-b-x_i^\top\beta\right)^2
 $$
 
 The intercept is not penalized. Multiplying every sample weight by the same positive constant therefore leaves the fitted model unchanged.
+
+## A complete CPU example
+
+This example uses comparable-scale predictors, an illustrative fixed alpha, and
+analytic training weights. The last 40 rows are held out before fitting.
+
+<!-- learner-example: ridge-weighted-prediction -->
+```python
+import numpy as np
+from statgpu.linear_model import Ridge
+```
+
+<a id="cpu-data"></a>
+
+### Prepare data and training weights
+
+Run the blocks in order in one session. `X` has shape `(160, 5)`, with observations in rows and predictors in columns; `y` is a `(160,)` continuous response. Each of the 120 training rows has one positive analytic weight. The 40 test rows are kept separate.
+
+```python
+rng = np.random.default_rng(64)
+X = rng.normal(size=(160, 5))
+y = 1.5 + 2 * X[:, 0] - X[:, 1] + rng.normal(scale=0.4, size=160)
+X_train, X_test = X[:120], X[120:]
+y_train, y_test = y[:120], y[120:]
+weights = np.linspace(0.5, 2.0, 120)
+```
+
+### Fit the weighted model
+
+The weights enter the fitting loss; larger weights give observations more influence. HC3 also requests leverage-adjusted heteroskedasticity-robust covariance for the later interval step. It does not change the Ridge fit.
+
+```python
+model = Ridge(
+    alpha=0.1, device="cpu", cov_type="hc3", compute_inference=True,
+)
+model.fit(X_train, y_train, sample_weight=weights)
+```
+
+### Predict and evaluate
+
+The test score here is unweighted. Training weights are not automatically carried into a new evaluation.
+
+```python
+prediction = model.predict(X_test)
+print("Slopes:", np.round(model.coef_, 3))
+print("Test R2:", round(model.score(X_test, y_test), 3))
+```
+
+The slopes are approximately `[1.821, -0.916, 0.017, -0.010, -0.020]` and held-out R² is about `0.957`. `prediction` has shape `(40,)`. These are shrunken prediction coefficients, not evidence that each feature is significant.
+
+### Inspect coefficient intervals
+
+The enabled inference reports one interval per fitted parameter, with the intercept first. These intervals describe coefficients rather than future responses; they do not correct shrinkage bias or tuning uncertainty.
+
+```python
+print("Interval shape:", model._conf_int.shape)
+```
+<!-- example-end: ridge-weighted-prediction -->
+
+This prints `(6, 2)`: six parameters, each with a lower and upper bound.
+
+Choose alpha using training-only validation, keeping the final test set separate.
+Learn feature scaling inside each training fold, since Ridge penalizes coefficients
+in their chosen units. The explicit alpha here avoids suggesting that a single
+value is suitable for every problem.
+
+## Path
+
+`statgpu.linear_model.Ridge`
 
 ## Estimating Equation
 
@@ -116,22 +146,36 @@ the Ridge statistical objective unchanged:
 ```python
 import numpy as np
 from statgpu.linear_model import Ridge
+```
 
+This separate dataset deliberately adds a large origin to three predictors. `X` has shape `(80, 3)` and `y` has shape `(80,)`; the last 20 rows are held out.
+
+```python
 rng = np.random.default_rng(113)
 variation = rng.normal(size=(80, 3))
 X = variation + 1e8
 y = 0.4 + variation @ np.array([1.0, -0.5, 0.3]) + rng.normal(scale=0.1, size=80)
 X_train, X_test = X[:60], X[60:]
 y_train, y_test = y[:60], y[60:]
+```
+
+Learn the origin on training rows, then fit to the translated features. The intercept is still estimated.
+
+```python
 origin = X_train.mean(axis=0)
-model = Ridge(alpha=0.1, device="cpu", compute_inference=True).fit(
-    X_train - origin, y_train,
-)
+model = Ridge(alpha=0.1, device="cpu", compute_inference=True)
+model.fit(X_train - origin, y_train)
+```
+
+Apply the same translation when predicting. The optional algebraic intercept conversion below expresses the equation in the original units; it is not needed for prediction.
+
+```python
 prediction = model.predict(X_test - origin)
 original_intercept = model.intercept_ - origin @ model.coef_
 print(np.round(model.coef_, 3))
 print(round(float(np.mean((prediction - y_test)**2)), 3))
 ```
+<!-- example-end: ridge-training-origin -->
 
 The coefficients are approximately `[0.919, -0.430, 0.256]`; held-out MSE is
 about `0.033`. `original_intercept` maps the fitted equation back to the original

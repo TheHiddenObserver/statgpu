@@ -1,7 +1,7 @@
 # GAM (Generalized Additive Model)
 
 > Language: English  
-> Last updated: 2026-10-06  
+> Last updated: 2026-10-09
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/semiparametric.md)
 
@@ -28,6 +28,8 @@ Here $B$ concatenates an intercept and the centered basis for every feature. $S$
 
 `degree=3` means piecewise **cubic** basis functions. `penalty_order=2` penalizes second differences of adjacent **basis coefficients**. These settings do different jobs: changing the penalty to order 1 does not turn cubic splines into piecewise-linear splines. Use `degree=1` if piecewise-linear basis functions are intended.
 
+<a id="gam-cpu-workflow"></a>
+
 ## A complete CPU workflow
 
 Fit and choose smoothing on the training sample only. The held-out sample below stays inside the training range, where the smooths have support.
@@ -36,7 +38,13 @@ Fit and choose smoothing on the training sample only. The held-out sample below 
 ```python
 import numpy as np
 from statgpu.semiparametric import GAM
+```
 
+### Prepare features and a continuous response
+
+Each row is an observation and the two columns are continuous features. `X_train` has shape `(240, 2)` and `y_train` has shape `(240,)`; the 80 test rows keep the same feature order. Run the blocks in this section in order.
+
+```python
 rng = np.random.default_rng(42)
 X_train = rng.uniform(-2, 2, size=(240, 2))
 y_train = (np.sin(2 * X_train[:, 0]) + 0.4 * X_train[:, 1] ** 2
@@ -44,8 +52,21 @@ y_train = (np.sin(2 * X_train[:, 0]) + 0.4 * X_train[:, 1] ** 2
 X_test = rng.uniform(-1.9, 1.9, size=(80, 2))
 y_test = (np.sin(2 * X_test[:, 0]) + 0.4 * X_test[:, 1] ** 2
           + rng.normal(0, 0.15, 80))
+```
 
+### Fit the smooth curves
+
+Use 12 spline basis functions per feature. `lam=None` selects smoothing by generalized cross-validation (GCV) on training data without using the test responses.
+
+```python
 gam = GAM(n_splines=12, lam=None, device="cpu").fit(X_train, y_train)
+```
+
+### Check the fit before using predictions
+
+The current implementation can return an object even when no GCV candidate is valid, and stabilization at large penalties can alter the training response mean. These checks are necessary but do not prove curve accuracy; see “Large smoothing penalties and the intercept” below.
+
+```python
 if not np.isfinite(gam.gcv_score_):
     raise RuntimeError("No finite GCV candidate; revise the model before prediction.")
 training_prediction = gam.predict(X_train)
@@ -53,15 +74,19 @@ if not np.isfinite(training_prediction).all() or not np.isclose(
     training_prediction.mean(), y_train.mean(), rtol=1e-8, atol=1e-10,
 ):
     raise RuntimeError("Stabilization changed the unpenalized mean; validate the solver.")
+```
+
+### Predict held-out responses
+
+Continue with this section's `gam`, `X_test`, and `y_test`. `predict` returns one continuous-response prediction per row; the constant baseline uses only the training responses.
+
+```python
 prediction = gam.predict(X_test)
 mse = np.mean((prediction - y_test) ** 2)
 baseline_mse = np.mean((y_train.mean() - y_test) ** 2)
 print(prediction.shape)
 print(f"Test MSE: {mse:.4f}; mean baseline: {baseline_mse:.4f}")
 print(f"lambda: {gam.lam_:.4f}; EDF: {gam.edf_:.2f}; GCV: {gam.gcv_score_:.4f}")
-
-fixed = GAM(n_splines=12, lam=gam.lam_, device="cpu").fit(X_train, y_train)
-print(fixed.gcv_score_)  # None: a fixed-lambda fit does not run GCV
 ```
 
 Typical output (rounded):
@@ -70,7 +95,6 @@ Typical output (rounded):
 (80,)
 Test MSE: 0.0214; mean baseline: 0.6278
 lambda: 0.1963; EDF: 17.78; GCV: 0.0269
-None
 ```
 
 ### Read the result
@@ -79,7 +103,6 @@ None
 - `edf_` measures effective model flexibility after smoothing. It need not be an integer and is not the raw number of coefficients.
 - `gcv_score_` is the generalized cross-validation (GCV) score used to select smoothing within the training data, not the held-out MSE or a p-value. Lower is better when comparing candidates on the same data and with the same `gamma`.
 - `coef_` contains an intercept and spline-basis coefficients. These are **not raw-feature slopes**; inspect predictions while varying a feature to understand a fitted curve. The intended unpenalized `intercept_` equals the training response mean because the smooth bases are centered, but large-lambda stabilization can substantially violate that property; see the [stabilization limitation](#large-smoothing-penalties-and-the-intercept).
-- The fixed-lambda refit uses the same selected value, so its predictions agree with `gam`, but `fixed.gcv_score_` is `None`. This does not signal a failed fit.
 
 ## Choose the amount of smoothing
 
@@ -96,6 +119,18 @@ Here $A=B^\top B+\lambda S$, $m$ is the number of basis coefficients including t
 Start with cubic splines and order-2 penalty. Increase `n_splines` only if the fitted shape appears too restricted, then reassess held-out error. Increasing `lam` usually smooths more strongly. Quantile knots place more knots where data are dense; uniform knots are equally spaced across the observed range. Use a validation split or CV to choose these design settings, keeping a final test set untouched.
 
 GCV is a discrete parameter search and may miss an optimum between grid points; a fixed `lam` skips selection but still uses the same numerical solver. `GAM` has no constructor option for a custom lambda grid. For a finer search, fit candidate fixed values using training/validation data, then refit the chosen setting.
+
+### Reuse a selected smoothing value
+
+After “A complete CPU workflow,” reuse its `GAM`, `X_train`, `y_train`, and `gam.lam_`. Passing that value explicitly skips GCV selection and refits the same training data:
+
+```python
+fixed = GAM(n_splines=12, lam=gam.lam_, device="cpu").fit(X_train, y_train)
+print(fixed.gcv_score_)
+```
+<!-- example-end: gam-cpu -->
+
+The output is `None` because this fit did not search, not because fitting failed. Reusing the selected value gives the same predictions as `gam`.
 
 ## Large smoothing penalties and the intercept
 
@@ -164,14 +199,16 @@ Algorithm sources: [GAM](../../../statgpu/semiparametric/_gam.py), [penalized le
 
 ## Optional GPU execution
 
-After running the CPU example, this separate snippet requires a working CuPy/CUDA installation. `device="torch"` selects the Torch CUDA route; neither explicit GPU request silently falls back to CPU. `device="auto"` permits automatic selection. See [device and memory](../guides/device-and-memory.md). GPU benefit depends on basis size, transfers, and hardware; measure your workload rather than assuming a speedup.
+After running “A complete CPU workflow,” reuse its `GAM`, `X_train`, `y_train`, and `X_test` below. This snippet requires a working CuPy/CUDA installation. `device="torch"` selects the Torch CUDA route; neither explicit GPU request silently falls back to CPU. `device="auto"` permits automatic selection. See [device and memory](../guides/device-and-memory.md). GPU benefit depends on basis size, transfers, and hardware; measure your workload rather than assuming a speedup.
 
+<!-- example-requires: gam-cpu -->
 <!-- example: gam-gpu -->
 ```python
 # Optional: reuses X_train, y_train, X_test from the CPU example.
 gam_gpu = GAM(n_splines=12, device="cuda").fit(X_train, y_train)
 prediction_gpu = gam_gpu.predict(X_test)  # NumPy output
 ```
+<!-- example-end: gam-gpu -->
 
 ## External comparisons and references
 

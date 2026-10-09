@@ -1,7 +1,7 @@
 # PoissonRegression
 
 > 语言：中文  
-> 最后更新：2026-10-06  
+> 最后更新：2026-10-09<br>
 > 页面定位：模型文档  
 > 切换：[English](../../en/models/poisson-regression.md)
 
@@ -21,47 +21,72 @@ Poisson 模型假设条件方差等于条件均值。明显过度离散时，可
 此 API 没有 offset/exposure 参数：把暴露量放进普通预测变量，会估计它的系数，
 而不是将该系数固定为一。
 
+<a id="cpu-example"></a>
+
 ## 完整 CPU 示例
 
-下面用 200 行拟合，再在另外生成的 50 行上评价。`C=0` 明确表达无惩罚意图，
-Newton 本身不使用 C。示例不需要 GPU 或可选公式依赖。
+依次运行以下步骤：准备计数数据、拟合、预测，最后按需加入系数推断。示例不需要 GPU 或公式依赖。
+
+### 1. 导入
 
 <!-- learner-example: poisson-unpenalized -->
 ```python
 import numpy as np
 from statgpu import PoissonRegression
+```
 
+### 2. 准备输入和留出数据
+
+`X` 的形状为 `(200, 2)`：行对应观测，列对应两个数值特征。`y` 是长度 200 的非负整数计数。对数链接使条件均值 `exp(0.3 + X @ beta)` 为正；它不是事件概率。实际数据应先处理缺失值，预测时保持训练列顺序。
+
+```python
 rng = np.random.default_rng(8)
 X = rng.normal(size=(200, 2))
 y = rng.poisson(np.exp(0.3 + X @ np.array([0.4, -0.2])))
-model = PoissonRegression(
-    C=0, solver="newton", device="cpu", compute_inference=True,
-    cov_type="nonrobust", max_iter=200, tol=1e-9,
-).fit(X, y)
-
-# New observations are generated separately and never used for fitting.
 X_test = rng.normal(size=(50, 2))
 y_test = rng.poisson(np.exp(0.3 + X_test @ np.array([0.4, -0.2])))
-mean_prediction = model.predict(X_test)
-heldout_loss = np.mean(mean_prediction - y_test * np.log(mean_prediction))
+```
+
+另外生成的 50 行 `X_test`、`y_test` 不参与拟合。
+
+### 3. 拟合无惩罚模型
+
+`C=0` 明确表达无惩罚意图。这里显式选择 Newton；该求解器不使用 C。默认 auto/IRLS 配合正 C 则会加入岭惩罚，后文说明两种目标的区别。
+
+```python
+model = PoissonRegression(
+    C=0, solver="newton", device="cpu",
+    max_iter=200, tol=1e-9, compute_inference=False,
+).fit(X, y)
 print("Slopes:", np.round(model.coef_, 3))
 print("Mean multipliers:", np.round(np.exp(model.coef_), 3))
+```
+
+该种子下斜率约为 `[0.377, -0.154]`，均值倍数约为 `[1.459, 0.857]`。保持另一特征不变，第一个特征增加一单位对应期望计数约增加 45.9%，第二个特征增加一单位对应约降低 14.3%。这些是关联，不是因果效应。
+
+### 4. 预测并评价留出数据
+
+```python
+mean_prediction = model.predict(X_test)
+heldout_loss = np.mean(mean_prediction - y_test * np.log(mean_prediction))
 print("Predicted means:", np.round(mean_prediction[:3], 3))
 print("Held-out Poisson loss:", round(float(heldout_loss), 3))
+```
+
+预测数组为 `(50,)`，均值为正且可为小数；它不必像观测计数一样是整数。留出集损失约为 `0.963`，省略只与响应有关的对数阶乘项。只有在相同留出响应和权重下比较时，越小才越好；它不是准确率或普通 R²。该普通 GLM 类没有 `score` 或 `predict_proba` 方法。
+
+### 5. 可选：系数区间
+
+继续使用第 3 步的训练数据，开启推断后重新拟合。`cov_type="nonrobust"` 使用 Poisson 模型的均值—方差假设。协方差选择不改变拟合均值；适用条件与其他选项见后文推断一节。
+
+```python
+model.set_params(compute_inference=True, cov_type="nonrobust")
+model.fit(X, y)
 print("Interval shape:", model._conf_int.shape)
 ```
 
-斜率约为 `[0.377, -0.154]`，指数化后约为 `[1.459, 0.857]`。保持另一个
-预测变量不变，第一个变量每增加一单位，期望计数约增加 45.9%；第二个变量
-每增加一单位，期望计数约降低 14.3%。斜率的指数不是事件发生概率。
-
-预测数组形状为 `(50,)`，取值为正；观测是整数计数，预测均值仍可为小数。
-留出集 Poisson 损失省略仅与响应有关的对数阶乘项，只有在相同留出响应和
-权重上比较时，越小才表示越好。它不是准确率或普通 R²，该类也没有 `score` 方法。
-
-区间数组形状为 `(3, 2)`，首行是截距，其后对应两个输入列。这些是渐近、边际
-系数区间，不是未来计数的预测区间。`summary()` 返回字符串，使用
-`print(model.summary())` 显示。
+区间数组为 `(3, 2)`，先是截距，再是两列斜率。这些是渐近边际系数区间，不是未来计数的预测区间。`summary()` 返回字符串，可用 `print(model.summary())` 显示。
+<!-- example-end: poisson-unpenalized -->
 
 ## 参数选择与结果检查
 
@@ -109,7 +134,7 @@ $$
 
 ## 协方差与统计推断
 
-如 CPU 示例所示，设置 `compute_inference=True` 可获得系数不确定性。
+如 [CPU 示例](#cpu-example)第 5 步所示，设置 `compute_inference=True` 可获得系数不确定性。
 若研究问题适合相应的得分稳健协方差假设，可使用 `hc0` 或 `hc1`，这不会改变
 系数估计。
 
@@ -156,7 +181,7 @@ Poisson 推断使用渐近正态参考分布，因此报告 z 统计量和双侧
 
 ## 可选 GPU 与公式输入
 
-运行 CPU 示例后，可以用 CuPy CUDA 拟合同一个无惩罚模型：
+先完成 [CPU 示例](#cpu-example)，再复用其中的导入与数据，可以用 CuPy CUDA 拟合同一个无惩罚模型：
 
 ```python
 model_gpu = PoissonRegression(
@@ -177,15 +202,26 @@ CUDA 后端，不可用时会报错。预测返回已解析后端的原生数组
 import numpy as np
 import pandas as pd
 from statgpu import PoissonRegression
+```
 
+这个独立示例中，`df` 的每行是一条观测，`count` 为响应，`x` 为连续特征，`group` 为分类特征。
+
+```python
 rng = np.random.default_rng(18)
 df = pd.DataFrame({"x": rng.normal(size=80), "group": ["a", "b"] * 40})
 df["count"] = rng.poisson(np.exp(0.2 + 0.3 * df["x"]))
+```
+
+公式负责生成截距和分类编码；预测时传同样列名和类别水平的 DataFrame。
+
+```python
 model = PoissonRegression(C=0, device="cpu")
 model.fit(formula="count ~ x + C(group)", data=df)
 prediction = model.predict(df.iloc[:5])
 assert prediction.shape == (5,)
 ```
+<!-- example-end: poisson-formula -->
+
 
 使用 formula/data 时不要同时传数组 X/y。预测 DataFrame 会重建训练列及分类
 水平，未知水平会报错。预测变量缺失行目前会被删除，返回较短且无行标签的

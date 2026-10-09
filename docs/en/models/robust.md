@@ -1,21 +1,72 @@
 # Robust Regression
 
 > Language: English  
-> Last updated: 2026-09-14  
+> Last updated: 2026-10-09<br>
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/robust.md)
 
-## Overview
+## When to use robust regression
 
-statgpu provides robust regression through M-estimation with robust scale handling. `PenalizedRobustRegression` combines Huber, Bisquare, and Fair losses with multiple penalty families; smooth objectives use Newton by default, while sparse and non-convex penalties use FISTA / LLA routes.
+Consider robust regression when a few large response residuals could dominate a least-squares fit to a continuous outcome. Huber uses squared loss for small residuals and linear loss for large ones; Bisquare and Fair downweight differently. The target is the conditional location defined by the chosen loss, which need not equal the conditional mean.
 
-| Component | Path |
-|-----------|------|
-| Huber Loss | `statgpu.losses.HuberLoss` |
-| Bisquare Loss | `statgpu.losses.BisquareLoss` |
-| Fair Loss | `statgpu.losses.FairLoss` |
-| Penalized Model | `statgpu.linear_model.penalized.PenalizedRobustRegression` |
-| Related R method | `MASS::rlm()` |
+`PenalizedRobustRegression` combines these losses with regularization: the loss limits the influence of unusual response residuals, while the penalty shrinks coefficients. These choices address different problems. Robust loss does not automatically repair erroneous data, high-leverage predictor outliers, or omitted variables. For a particular conditional percentile, consider [quantile regression](quantile.md).
+
+<a id="cpu-example"></a>
+
+## A complete CPU example
+
+Run these steps in order. Start with Huber and a small L2 penalty; alternative losses, nonconvex penalties, and GPU use follow later.
+
+### 1. Import
+
+<!-- learner-example: robust-basic -->
+```python
+import numpy as np
+from statgpu.linear_model.penalized import PenalizedRobustRegression
+```
+
+### 2. Prepare data with response outliers
+
+`X` is a `(320, 2)` numeric matrix, one observation per row; `y` is a length-320 continuous response. Train on 240 rows and hold out 80. This simulation adds 12 unusually large responses only to the training rows, leaving the test set free of that added contamination. For real data, investigate outliers, handle missing values, and preserve feature order for prediction.
+
+```python
+rng = np.random.default_rng(27)
+X = rng.normal(size=(320, 2))
+y = 1.0 + X @ np.array([1.5, -0.7]) + rng.normal(scale=0.5, size=320)
+y[:12] += 12.0
+```
+
+### 3. Fit a Huber model
+
+`alpha=0.01` is an illustrative L2 strength. `solver="auto"` selects Newton for this smooth-penalty objective. By default, a residual scale is estimated before optimization and `epsilon × scale` sets the Huber threshold, as explained below.
+
+```python
+model = PenalizedRobustRegression(
+    loss="huber", penalty="l2", alpha=0.01, device="cpu",
+).fit(X[:240], y[:240])
+print("Slopes:", np.round(model.coef_, 3))
+```
+
+The slopes round to `[1.522, -0.723]`, near the simulated `[1.5, -0.7]`; this is not an accuracy guarantee under other contamination patterns. Each slope describes a unit change in fitted location while holding the other feature fixed.
+
+### 4. Predict and evaluate held-out rows
+
+```python
+prediction = model.predict(X[240:])
+mae = np.mean(np.abs(y[240:] - prediction))
+print("Predictions:", np.round(prediction[:3], 3))
+print("Held-out MAE:", round(float(mae), 3))
+```
+
+The prediction array has shape `(80,)`; its first three entries round to `[2.590, 1.341, 0.479]`. Mean absolute error (MAE) is about `0.437`, in response units, and lower is better on the same evaluation set. This example computes MAE directly; the class's `score` returns response-scale R², not Huber loss.
+<!-- example-end: robust-basic -->
+
+## Choosing settings and checking results
+
+- `epsilon` or a fixed threshold controls residual downweighting; `alpha` controls the penalty. Choose a held-out metric suited to the application.
+- Feature units affect the penalty. Learn scaling and tuning inside training folds, then apply them to held-out data. Smaller training loss does not establish better generalization.
+- Bisquare and SCAD/MCP involve nonconvex objectives; inspect initialization, numerical warnings, and stability.
+- A robust fit does not automatically supply robust standard errors or selection-adjusted p-values. Shared inference controls remain subject to the [supported inference-method conditions](../guides/penalized-glm-inference.md).
 
 ## Loss Functions
 
@@ -55,7 +106,11 @@ $$
 - `smooth_gradient=True`, `has_hessian=True`
 - downweights residuals more gradually than hard-redescending losses
 
-## Parameters
+## Loss parameters and estimator controls
+
+These tables describe loss objects, not the complete estimator constructor. `PenalizedRobustRegression` exposes `loss`, `penalty`, `alpha`, `epsilon`, `method`, solver/device controls, and shared penalized-model options. For all parameters and methods, see its [public implementation](../../../statgpu/linear_model/penalized/_penalized_robust.py), the [shared penalized API](../reference/linear-model-api.md#penalizedgeneralizedlinearmodel), or installed `help(PenalizedRobustRegression)`.
+
+The loss objects are imported from `statgpu.losses`: `HuberLoss`, `BisquareLoss`, and `FairLoss`.
 
 ### `HuberLoss`
 
@@ -85,7 +140,7 @@ $$
 
 ## Scale Estimation
 
-`RobustLossBase` provides MAD and Huber Proposal-2 scale estimation. The current `PenalizedRobustRegression` fit path calls `precompute_scale(...)` before entering the numerical solver, so ordinary `MAD` / `huber_prop2` coefficient optimization uses an already determined effective threshold during solver iterations.
+Automatic scale handling supports MAD and Huber Proposal-2. `PenalizedRobustRegression` estimates the scale before coefficient optimization, so ordinary `MAD` / `huber_prop2` fits use an already determined effective threshold during solver iterations.
 
 - **MAD**: $\hat\sigma=\operatorname{median}(|r_i|)/0.6745$
 - **Huber Proposal 2**: scale is estimated by a fixed-point iteration
@@ -93,6 +148,75 @@ $$
 - Bisquare and Fair use $c=\epsilon\hat\sigma$ internally through their effective `delta`
 
 Supplying `delta` selects fixed-threshold mode directly. `method="joint"` is Huber-only and defines a separate joint coefficient-scale optimization problem.
+
+## Change the loss, penalty, or device
+
+### Huber with SCAD
+
+Each CPU subsection below reuses the imports and `X`, `y` from the completed [CPU example](#cpu-example), training only on the first 240 rows. SCAD is a nonconvex penalty; automatic dispatch uses LLA and FISTA. The alpha value below is illustrative.
+
+<!-- example-requires: robust-basic -->
+<!-- learner-example: robust-scad -->
+```python
+scad_model = PenalizedRobustRegression(
+    loss="huber", penalty="scad", alpha=0.1, device="cpu",
+).fit(X[:240], y[:240])
+```
+<!-- example-end: robust-scad -->
+
+### Bisquare with MCP
+
+Bisquare gives residuals beyond its threshold zero gradient, while MCP changes the coefficient penalty. Both differ from the preceding configuration. Reuse the imports and training data from the completed [CPU example](#cpu-example) and evaluate choices on the same held-out rows.
+
+<!-- example-requires: robust-basic -->
+<!-- learner-example: robust-bisquare -->
+```python
+bisquare_model = PenalizedRobustRegression(
+    loss="bisquare", penalty="mcp", alpha=0.1, device="cpu",
+).fit(X[:240], y[:240])
+```
+<!-- example-end: robust-bisquare -->
+
+### Fair with L2
+
+Reuse the imports and training data from the completed [CPU example](#cpu-example). Fair downweights residuals gradually; this fit retains L2 regularization and `auto` uses Newton.
+
+<!-- example-requires: robust-basic -->
+<!-- learner-example: robust-fair -->
+```python
+fair_model = PenalizedRobustRegression(
+    loss="fair", penalty="l2", alpha=0.01, device="cpu",
+).fit(X[:240], y[:240])
+```
+<!-- example-end: robust-fair -->
+
+### GPU (Torch CUDA)
+
+Reuse the imports and `X`, `y` from the completed [CPU example](#cpu-example), requesting Torch CUDA explicitly. This requires an installed Torch package and usable CUDA device; an unavailable explicit device raises. See the notes below for the CPU boundary in scale estimation.
+
+```python
+gpu_model = PenalizedRobustRegression(
+    loss="huber", penalty="scad", alpha=0.1, device="torch",
+).fit(X[:240], y[:240])
+```
+
+### Direct solver API
+
+Reuse the training arrays from the completed [CPU example](#cpu-example). A low-level call requires a loss and penalty and does not add an intercept automatically. This deliberately fits a no-intercept objective with fixed Huber threshold 1, which differs from the automatic-scale estimator above. Prefer the estimator interface for ordinary modeling.
+
+<!-- example-requires: robust-basic -->
+<!-- learner-example: robust-direct-solver -->
+```python
+from statgpu.losses import HuberLoss
+from statgpu.penalties import SCADPenalty
+from statgpu.solvers import fista_solver
+
+loss = HuberLoss(delta=1.0)
+coef, n_iter = fista_solver(
+    loss, SCADPenalty(alpha=0.1), X[:240], y[:240],
+)
+```
+<!-- example-end: robust-direct-solver -->
 
 ## Solver Compatibility
 
@@ -118,49 +242,6 @@ The table below describes the current public model / low-level solver routes. `s
 | SCAD / MCP | FISTA + LLA | Local linear approximation forms a weighted convex surrogate |
 | Adaptive L1 | FISTA / LLA route | Adaptive weighted proximal form |
 | Group penalties | Group FISTA / Group FISTA-LLA | Corresponding group proximal operators |
-
-## Examples
-
-### CPU
-
-```python
-from statgpu.linear_model.penalized import PenalizedRobustRegression
-
-# Huber + SCAD
-model = PenalizedRobustRegression(loss="huber", penalty="scad", alpha=0.1)
-model.fit(X, y)
-
-# Bisquare + MCP
-model = PenalizedRobustRegression(loss="bisquare", penalty="mcp", alpha=0.1)
-model.fit(X, y)
-
-# Fair + L2: solver="auto" uses the smooth Newton route
-model = PenalizedRobustRegression(loss="fair", penalty="l2", alpha=0.01)
-model.fit(X, y)
-```
-
-### GPU (Torch CUDA)
-
-```python
-import torch
-
-X_t = torch.tensor(X, dtype=torch.float64).cuda()
-y_t = torch.tensor(y, dtype=torch.float64).cuda()
-
-model = PenalizedRobustRegression(loss="huber", penalty="scad", alpha=0.1)
-model.fit(X_t, y_t)
-```
-
-### Direct Solver API
-
-```python
-from statgpu.losses import HuberLoss
-from statgpu.penalties import SCADPenalty
-from statgpu.solvers import fista_solver
-
-loss = HuberLoss()
-coef, n_iter = fista_solver(loss, SCADPenalty(alpha=0.1), X, y)
-```
 
 ## Algorithm Notes
 
@@ -200,10 +281,10 @@ is directly related to the Huber first-order condition. This shows that Huber ad
 
 ## Notes
 
-- Scale computation currently uses NumPy host arrays; after scale precomputation, maintained numerical optimization continues on the selected NumPy/CuPy/Torch backend.
+- Scale computation currently uses NumPy host arrays; after scale precomputation, numerical optimization continues on the selected NumPy/CuPy/Torch backend.
 - `sample_weight` support depends on the loss, solver, and model route rather than being an automatic property of every robust solver.
 - All three losses provide Hessian primitives. That supports smooth Newton routes, but does not imply that arbitrary non-smooth penalties support Proximal Newton.
-- Huber IRLS is currently not exposed as a supported public solver route; explicitly selecting that combination follows the current fail-closed compatibility contract.
+- Huber IRLS is currently not exposed as a supported public solver route; explicitly selecting that combination raises an error.
 
 ## References
 

@@ -1,7 +1,7 @@
 # 特征选择
 
 > 语言：中文  
-> 最后更新：2026-10-05  
+> 最后更新：2026-10-09\
 > 切换：[English](../../en/models/feature-selection.md)
 
 ## 哪些预测变量应该保留？
@@ -34,19 +34,34 @@ $$
 
 ## 可直接运行的 CPU 示例
 
-下面生成六个候选变量，其中只有两个参与生成响应。选择过程只使用训练行，
-直到最终评价时才使用测试行。
+下面生成六个候选变量，其中只有两个参与生成响应。按顺序运行各段代码，先导入所需对象。
 
+<!-- example: feature-selection-basic -->
 ```python
 import numpy as np
 from statgpu import LinearRegression, StepwiseSelector
+```
 
+### 准备预测变量并保留测试行
+
+`X` 的形状为 `(240, 6)`，每行是一条观测，每列是一个候选变量。
+`y` 的形状为 `(240,)`，每行对应一个连续响应。前 180 行用于训练，
+最后 60 行保留到评价时才使用，不参与变量选择。
+
+```python
 rng = np.random.default_rng(42)
 X = rng.normal(size=(240, 6))
 y = 1.5 + 3.0 * X[:, 0] - 2.0 * X[:, 2] + rng.normal(scale=0.5, size=240)
 X_train, X_test = X[:180], X[180:]
 y_train, y_test = y[:180], y[180:]
+```
 
+### 在训练数据上选择变量
+
+用 BIC 评价候选模型，最多保留三个预测变量。`LinearRegression` 是每次候选拟合
+使用的模型类。这里关闭系数推断，因为普通重拟合的 P 值不包含变量选择的不确定性。
+
+```python
 selector = StepwiseSelector(
     LinearRegression,
     criterion="bic",
@@ -55,15 +70,28 @@ selector = StepwiseSelector(
     device="cpu",
     compute_inference=False,
 ).fit(X_train, y_train)
+```
 
+### 评价并检查选出的模型
+
+调用选择器时仍保留原始六列。`transform` 返回保留的列，`predict` 和 `score`
+会在内部选取这些列。
+
+```python
 X_selected = selector.transform(X_test)
-prediction = selector.predict(X_test)  # 仍传入原来的六列
+prediction = selector.predict(X_test)
 print("Selected columns:", selector.selected_features_)
 print("Selected test shape:", X_selected.shape)
 print("Slopes:", np.round(selector.best_model_.coef_, 3))
 print("Test R2:", round(selector.score(X_test, y_test), 3))
+```
+
+最后查看 BIC 历史，了解搜索为何接受这些步骤。
+
+```python
 print("BIC path:", np.round(selector.bic_history_, 3))
 ```
+<!-- example-end: feature-selection-basic -->
 
 输出约为：
 

@@ -1,7 +1,7 @@
 # CoxPH
 
 > Language: English<br>
-> Last updated: 2026-10-06<br>
+> Last updated: 2026-10-09<br>
 > This page: Model documentation<br>
 > Switch: [Chinese](../../cn/models/coxph.md)
 
@@ -46,30 +46,32 @@ right-censored observations, delayed entry, counting-process `(start, stop]`
 rows, independent strata, time-varying covariates, robust/cluster covariance,
 and L2-penalty selection through `CoxPHCV`.
 
-Important behavior:
+<!-- example: coxph-cpu-walkthrough -->
+## Imports
 
-- explicit `device="cuda"` and `device="torch"` requests never silently fall back to CPU;
-- `entry=` and `start=` are aliases and are mutually exclusive;
-- a row is in the risk set at time `t` exactly when `start < t <= stop` and its
-  stratum matches the event stratum;
-- `subject_id=` identifies repeated rows from one subject for concordance,
-  sandwich aggregation, and subject-preserving CV folds;
-- `compute_inference=False` performs estimation only and leaves inference and
-  baseline-hazard fields unset.
+```python
+import numpy as np
+from statgpu.survival import CoxPH
+```
 
 ## First CPU Walkthrough
 
-This complete example needs NumPy and StatGPU, with no GPU or external dataset.
-It simulates independent right-censored subjects with three already-comparable
-feature scales. The last 100 subjects are held out before fitting. For real
-data, choose the split to respect subjects, groups, or time; learn any scaling
-or other preprocessing from the training partition only.
+Run the following steps in order with NumPy and StatGPU. Start with a
+right-censored fit and held-out evaluation; the later survival, CV, and GPU
+examples reuse this data rather than generating another dataset.
 
-<!-- example: coxph-cpu-walkthrough -->
+### Prepare the inputs
+
+`X` has one row per subject and one column per feature, with shape
+`(n_samples, n_features)`. Both `time` and `event` are one-dimensional vectors
+with one entry per row. `time` is the event or censoring time; `event=1` means
+an observed event and `event=0` means right censoring. Do not add an intercept
+or constant column to `X`.
+
+Simulate 400 independent subjects with three comparable feature scales.
+For your own analysis, replace this block with your data-loading step.
+
 ```python
-import numpy as np
-from statgpu.survival import CoxPH, CoxPHCV
-
 rng = np.random.default_rng(42)
 X = rng.normal(size=(400, 3))
 true_coef = np.array([0.8, -0.5, 0.3])
@@ -77,11 +79,27 @@ event_time = rng.exponential(scale=np.exp(-(X @ true_coef)))
 censor_time = rng.exponential(scale=2.0, size=len(X))
 time = np.minimum(event_time, censor_time)
 event = (event_time <= censor_time).astype(np.int64)
+```
 
+### Hold out evaluation data
+
+Reserve the last 100 subjects before fitting. For real data, choose a split
+that respects subjects, groups, or time. Learn scaling and other preprocessing
+from the training partition only.
+
+```python
 X_train, X_test = X[:300], X[300:]
 time_train, time_test = time[:300], time[300:]
 event_train, event_test = event[:300], event[300:]
+```
 
+### Fit and check convergence
+
+Use the explicit CPU backend and Efron tie handling. Keep
+`compute_inference=True` so the later examples can use coefficient uncertainty
+and the baseline needed for survival curves. This does not test the PH assumption.
+
+```python
 model = CoxPH(
     ties="efron", device="cpu", compute_inference=True,
 ).fit(X_train, time_train, event_train)
@@ -90,24 +108,15 @@ if not model.converged_:
         f"{model.optimization_stop_reason_}: "
         f"normalized KKT={model.final_kkt_normalized_}"
     )
+```
+
+After convergence, inspect the direction and hazard ratio of each feature:
+
+```python
 print("Coefficients:", model.coef_)
 print("Per-feature hazard ratios:", model.hazard_ratios_)
 print("Convergence:", model.termination_reason_, model.n_iter_)
-model.summary()
-
-log_risk = model.predict_risk_score(X_test[:2])
-relative_hazard = model.predict(X_test[:2])
-requested_times = np.array([0.0, 0.5, 1.0, 2.0])
-curves, curve_times = model.predict_survival(
-    X_test[:2], times=requested_times,
-)
-held_out_cindex = model.score(X_test, time_test, event_test)
-print("Log-risk:", log_risk)
-print("Relative hazard:", relative_hazard)
-print("Survival shape and times:", curves.shape, curve_times)
-print("Held-out C-index:", held_out_cindex)
 ```
-<!-- /example: coxph-cpu-walkthrough -->
 
 For this seed, the coefficients are approximately `[0.852, -0.457, 0.312]`
 and their hazard ratios are `[2.345, 0.633, 1.367]`. For example, increasing the
@@ -116,10 +125,56 @@ about 2.35, holding the others fixed. The second feature is associated with a
 lower hazard. These are associations in simulated data, not practical treatment
 recommendations.
 
+### Predict relative risk
+
+First compare two held-out profiles without treating a hazard ratio as a probability.
+
+```python
+log_risk = model.predict_risk_score(X_test[:2])
+relative_hazard = model.predict(X_test[:2])
+print("Log-risk:", log_risk)
+print("Relative hazard:", relative_hazard)
+```
+
 `predict_risk_score(X)` is `X @ coef_`; `predict(X)` and
 `predict_hazard_ratio(X)` are `exp(X @ coef_)`, relative to the same-stratum
 zero-covariate profile. To compare two profiles, exponentiate their log-risk
 difference. `hazard_ratios_` instead has one value per **feature**.
+
+### Evaluate held-out ranking
+
+Use all 100 held-out subjects with their times and event indicators to compute the C-index.
+
+```python
+held_out_cindex = model.score(X_test, time_test, event_test)
+print("Held-out C-index:", held_out_cindex)
+```
+<!-- example-end: coxph-cpu-walkthrough -->
+
+The held-out C-index is about `0.766`: larger predicted hazard tends to rank
+subjects with earlier observed events ahead of comparable longer-surviving
+subjects. This is discrimination, not probability calibration or R-squared.
+A value near `0.5` is neutral ranking, `1.0` is perfect ranking on permissible
+pairs, and a value below `0.5` suggests reversed ranking. No permissible pairs
+also return `0.5`; that is insufficient evaluation evidence, not proof of a
+random-quality model. Do not use training concordance as a held-out estimate.
+
+## Predict survival curves
+
+Run the [CPU walkthrough](#first-cpu-walkthrough) first and reuse its `model`
+and `X_test`. Estimating the probability of remaining event-free at a given
+time requires the fitted baseline as well as relative risk.
+
+<!-- example-requires: coxph-cpu-walkthrough -->
+<!-- example: coxph-survival-prediction -->
+```python
+requested_times = np.array([0.0, 0.5, 1.0, 2.0])
+curves, curve_times = model.predict_survival(
+    X_test[:2], times=requested_times,
+)
+print("Survival shape and times:", curves.shape, curve_times)
+```
+<!-- example-end: coxph-survival-prediction -->
 
 `predict_survival` returns the tuple **`(curves, times)`**, not just a matrix:
 `curves` has shape `(n_new, n_times)` and `times` has shape `(n_times,)`.
@@ -131,14 +186,6 @@ requested order. The baseline is stepwise and flat beyond its last event time,
 so extending the grid does not establish reliable long-term extrapolation.
 For counting-process data, a supplied prediction row describes a fixed
 covariate profile, not automatic integration over a future covariate trajectory.
-
-The held-out C-index is about `0.766`: larger predicted hazard tends to rank
-subjects with earlier observed events ahead of comparable longer-surviving
-subjects. This is discrimination, not probability calibration or R-squared.
-A value near `0.5` is neutral ranking, `1.0` is perfect ranking on permissible
-pairs, and a value below `0.5` suggests reversed ranking. No permissible pairs
-also return `0.5`; that is insufficient evaluation evidence, not proof of a
-random-quality model. Do not use training concordance as a held-out estimate.
 
 ### From relative hazard to survival probability
 
@@ -196,6 +243,17 @@ Constructor options are also in [Parameters](#parameters) and
 contracts are maintained in [`CoxPH`](../../../statgpu/survival/_cox.py) and
 [`CoxPHCV`](../../../statgpu/survival/_cox_cv.py).
 
+Important behavior:
+
+- explicit `device="cuda"` and `device="torch"` requests never silently fall back to CPU;
+- `entry=` and `start=` are aliases and are mutually exclusive;
+- a row is in the risk set at time `t` exactly when `start < t <= stop` and its
+  stratum matches the event stratum;
+- `subject_id=` identifies repeated rows from one subject for concordance,
+  sandwich aggregation, and subject-preserving CV folds;
+- `compute_inference=False` performs estimation only and leaves inference and
+  baseline-hazard fields unset.
+
 ## Parameters
 
 | Parameter | Default | Description |
@@ -227,8 +285,11 @@ untouched 100-subject test partition. L2 shrinks coefficients; because it acts o
 coefficient magnitudes, comparable feature scales matter. For real data, fit
 preprocessing within each training fold rather than using validation/test data.
 
+<!-- example-requires: coxph-cpu-walkthrough -->
 <!-- example: coxph-cpu-cv -->
 ```python
+from statgpu.survival import CoxPHCV
+
 cv_model = CoxPHCV(
     penalties=[0.0, 0.1, 1.0, 10.0],
     cv=3,
@@ -240,6 +301,11 @@ cv_model = CoxPHCV(
 if not cv_model.converged_:
     raise RuntimeError(cv_model.optimization_stop_reason_)
 
+```
+
+Inspect candidate scores and valid-fold counts, then evaluate the final model on the held-out test set:
+
+```python
 cv_mean_pl = cv_model.cv_results_["mean_pl"]
 cv_fold_counts = cv_model.cv_results_["effective_fold_counts"]
 cv_test_cindex = cv_model.score(X_test, time_test, event_test)
@@ -297,33 +363,20 @@ use `penalties` and call `score` explicitly. The complete source reference is
 [`CoxPHCV`](../../../statgpu/survival/_cox_cv.py).
 
 
-The same penalty search runs on CuPy or Torch CUDA arrays. First run the
-matching setup in [CPU and GPU Examples](#cpu-and-gpu-examples):
-
-```python
-cupy_cv = CoxPHCV(
-    penalties=[0.0, 0.01, 0.1], cv=5, device="cuda",
-    compute_inference=False,
-).fit(X_cp, time_cp, event_cp)
-
-torch_cv = CoxPHCV(
-    penalties=[0.0, 0.01, 0.1], cv=5, device="torch",
-    compute_inference=False,
-).fit(X_t, time_t, event_t)
-```
-
 ### L1/L2/ElasticNet/SCAD/MCP model-family CV
 
 `CoxPHCV` above is the canonical L2 Cox selector and may run the configured
 final-refit inference. The public penalized-model family uses the separate
-survival-aware branch of `PenalizedGLM_CV`. This additional example uses `X`,
-`time`, and `event` from either data setup on this page:
+survival-aware branch of `PenalizedGLM_CV`. This additional example reuses `X_train`, `time_train`, and `event_train`
+from the [CPU walkthrough](#first-cpu-walkthrough), keeping the test subjects
+out of penalty selection:
 
+<!-- example-requires: coxph-cpu-walkthrough -->
 <!-- example: coxph-penalized-family-cv -->
 ```python
 from statgpu.linear_model import PenalizedGLM_CV
 
-survival_y = np.column_stack([time, event])
+survival_y = np.column_stack([time_train, event_train])
 penalized_cv = PenalizedGLM_CV(
     loss="cox_ph",
     penalty="mcp",               # l1, l2, elasticnet, scad, or mcp
@@ -332,7 +385,7 @@ penalized_cv = PenalizedGLM_CV(
     cv_strategy="strict",
     loss_kwargs={"ties": "efron"},
     device="cpu",                # or "cuda" / "torch"
-).fit(X, survival_y)
+).fit(X_train, survival_y)
 ```
 <!-- /example: coxph-penalized-family-cv -->
 
@@ -459,77 +512,95 @@ AIC/BIC access raises for positive penalties; unpenalized BIC uses the event
 count, not the row count. For a CV model, access these properties on
 `estimator_`. See the [output table and runnable verification](../reference/survival-smoothing-api.md#coefficients-inference-and-cv-results).
 
-## CPU and GPU Examples
+<a id="cpu-and-gpu-examples"></a>
+## Optional GPU execution
 
-The three backends use the same statistical inputs and return prediction arrays
-on the fitted backend. The optional backend examples below are separate from the held-out walkthrough.
-Run this deterministic data setup once:
+Continue after the complete [CPU walkthrough](#first-cpu-walkthrough).
+Transfer that same training partition and three held-out profiles to the chosen
+GPU; no second dataset or repeated CPU fit is needed. Choose the CuPy or Torch
+example independently; you do not need both backends installed.
 
-<!-- example: coxph-backend-data -->
-```python
-import numpy as np
+### CuPy / CUDA
 
-from statgpu.survival import CoxPH, CoxPHCV
+Convert the training and prediction inputs to CuPy arrays:
 
-rng = np.random.default_rng(20260730)
-n = 256
-X = rng.normal(size=(n, 3))
-log_risk = X @ np.array([0.45, -0.30, 0.20])
-event_time = rng.exponential(scale=np.exp(-log_risk))
-censor_time = rng.exponential(scale=1.8, size=n)
-time = np.minimum(event_time, censor_time)
-event = (event_time <= censor_time).astype(np.float64)
-```
-<!-- /example: coxph-backend-data -->
-
-NumPy / CPU:
-
-<!-- example: coxph-backend-cpu -->
-```python
-cpu_model = CoxPH(
-    ties="efron",
-    device="cpu",
-    compute_inference=False,
-).fit(X, time, event)
-cpu_log_risk = cpu_model.predict_risk_score(X[:3])
-```
-<!-- /example: coxph-backend-cpu -->
-
-CuPy / CUDA:
-
+<!-- example-requires: coxph-cpu-walkthrough -->
+<!-- example: coxph-cupy-fit -->
 ```python
 import cupy as cp
 
-X_cp = cp.asarray(X)
-time_cp = cp.asarray(time)
-event_cp = cp.asarray(event)
-cupy_model = CoxPH(
-    ties="efron",
-    device="cuda",
-    compute_inference=False,
-).fit(X_cp, time_cp, event_cp)
-cupy_log_risk = cupy_model.predict_risk_score(X_cp[:3])
+X_cp = cp.asarray(X_train)
+time_cp = cp.asarray(time_train)
+event_cp = cp.asarray(event_train)
+X_test_cp = cp.asarray(X_test[:3])
 ```
 
-Torch / CUDA:
+Fit and predict the three held-out profiles; the result remains a CuPy array.
 
+```python
+cupy_model = CoxPH(
+    ties="efron", device="cuda", compute_inference=False,
+).fit(X_cp, time_cp, event_cp)
+cupy_log_risk = cupy_model.predict_risk_score(X_test_cp)
+```
+<!-- example-end: coxph-cupy-fit -->
+
+To select an L2 penalty, reuse those CuPy training arrays:
+
+<!-- example-requires: coxph-cupy-fit -->
+<!-- example: coxph-cupy-cv -->
+```python
+from statgpu.survival import CoxPHCV
+
+cupy_cv = CoxPHCV(
+    penalties=[0.0, 0.1, 1.0, 10.0], cv=3, random_state=42,
+    ties="efron", device="cuda", compute_inference=False,
+).fit(X_cp, time_cp, event_cp)
+```
+<!-- example-end: coxph-cupy-cv -->
+
+### Torch / CUDA
+
+Alternatively, start from the CPU walkthrough’s NumPy arrays and run this Torch version independently:
+
+<!-- example-requires: coxph-cpu-walkthrough -->
+<!-- example: coxph-torch-fit -->
 ```python
 import torch
 
-X_t = torch.as_tensor(X, dtype=torch.float64, device="cuda")
-time_t = torch.as_tensor(time, dtype=torch.float64, device="cuda")
-event_t = torch.as_tensor(event, dtype=torch.float64, device="cuda")
-torch_model = CoxPH(
-    ties="efron",
-    device="torch",
-    compute_inference=False,
-).fit(X_t, time_t, event_t)
-torch_log_risk = torch_model.predict_risk_score(X_t[:3])
+X_t = torch.as_tensor(X_train, dtype=torch.float64, device="cuda")
+time_t = torch.as_tensor(time_train, dtype=torch.float64, device="cuda")
+event_t = torch.as_tensor(event_train, dtype=torch.float64, device="cuda")
+X_test_t = torch.as_tensor(X_test[:3], dtype=torch.float64, device="cuda")
 ```
 
-Explicit CUDA requests raise an error when that backend or a CUDA device is not
-available; they never silently run the model on CPU. Set
-`compute_inference=True` when covariance, tests, or survival curves are needed.
+Fit with `device="torch"`; prediction results remain CUDA tensors.
+
+```python
+torch_model = CoxPH(
+    ties="efron", device="torch", compute_inference=False,
+).fit(X_t, time_t, event_t)
+torch_log_risk = torch_model.predict_risk_score(X_test_t)
+```
+<!-- example-end: coxph-torch-fit -->
+
+Torch cross-validation likewise reuses the training arrays above:
+
+<!-- example-requires: coxph-torch-fit -->
+<!-- example: coxph-torch-cv -->
+```python
+from statgpu.survival import CoxPHCV
+
+torch_cv = CoxPHCV(
+    penalties=[0.0, 0.1, 1.0, 10.0], cv=3, random_state=42,
+    ties="efron", device="torch", compute_inference=False,
+).fit(X_t, time_t, event_t)
+```
+<!-- example-end: coxph-torch-cv -->
+
+Explicit CUDA requests raise an error when the package, CUDA runtime, or device
+is unavailable; they never silently run on CPU. These examples disable inference.
+Set `compute_inference=True` when covariance, tests, or survival curves are needed.
 
 ## Objective Function and Estimating Equation
 
@@ -673,6 +744,18 @@ maximum-likelihood estimate. This contract is separate from
 estimation-only.
 
 ## Covariance and Inference
+
+The [CPU walkthrough](#first-cpu-walkthrough) already enabled inference.
+Inspect its coefficient table without refitting. The standard errors, z tests,
+and intervals use the default model-based covariance; their interpretation
+and other covariance choices are explained below.
+
+<!-- example-requires: coxph-cpu-walkthrough -->
+<!-- example: coxph-summary -->
+```python
+model.summary()
+```
+<!-- example-end: coxph-summary -->
 
 | `cov_type` | Meaning |
 |---|---|

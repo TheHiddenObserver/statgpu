@@ -4,11 +4,11 @@ Known runtime limitations are observed conditionally, not required to persist.
 Correctness assertions cover the documented safe workflows and public results.
 """
 import linecache
-import re
 from pathlib import Path
 
 import numpy as np
 import pytest
+from doc_examples import run_example
 
 from statgpu import (
     ElasticNet,
@@ -55,10 +55,7 @@ def _weighted_r2(y, prediction, weights):
 @pytest.mark.parametrize('language', ['en', 'cn'])
 def test_weighted_training_example_matches_original_observation_definition(language):
     text = _page(language, 'models', 'elastic-net')
-    block = re.search(r'<!-- learner-example: elasticnet-weighted-score -->\s*```python\n(.*?)```', text, re.DOTALL)
-    assert block
-    namespace = {}
-    exec(compile(block.group(1), 'elasticnet-weighted-score', 'exec'), namespace)  # noqa: S102
+    namespace = run_example(text, 'elasticnet-weighted-score')
     m, X, y, w = [namespace[name] for name in ['model', 'X', 'y', 'weights']]
     expected = _weighted_r2(y, m.predict(X), w)
     assert namespace['weighted_r2'] == pytest.approx(expected, abs=1e-12)

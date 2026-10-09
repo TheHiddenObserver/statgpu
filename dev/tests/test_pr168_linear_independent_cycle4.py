@@ -14,6 +14,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from doc_examples import example_code, run_example
 
 from statgpu import ElasticNet, Lasso, LassoCV
 from statgpu.feature_selection import (
@@ -74,10 +75,7 @@ def _execute(code, label):
 
 
 def _marked(text, marker):
-    match = re.search(r'<!-- ' + re.escape(marker) + r' -->\s*```python\n(.*?)```',
-                      text, flags=re.DOTALL)
-    assert match is not None
-    return _execute(match.group(1), marker)
+    return run_example(text, marker.split(': ', 1)[1], marker, allow_legacy=True)
 
 
 def _problem():
@@ -101,8 +99,7 @@ def _kkt_residual(X, y, coef, intercept, alpha, ratio, weights=None):
 @pytest.mark.parametrize('language', ['en', 'cn'])
 def test_lasso_first_example_is_independent_prediction_workflow(language):
     text = _page(language, 'models', 'lasso')
-    blocks = re.findall(r'```python\n(.*?)```', text, flags=re.DOTALL)
-    ns = _execute(blocks[0], f'{language}/lasso-first')
+    ns = run_example(text, 'lasso-prediction', f'{language}/lasso-first')
     model = ns['model']
     assert model.compute_inference is False
     assert ns['X_train'].shape == (180, 6)
@@ -116,7 +113,7 @@ def test_lasso_first_example_is_independent_prediction_workflow(language):
 
 
 @pytest.mark.parametrize('language', ['en', 'cn'])
-def test_lasso_simultaneous_example_is_independently_executable(language):
+def test_lasso_simultaneous_example_executes_with_declared_setup(language):
     ns = _marked(_page(language, 'models', 'lasso'), 'learner-example: lasso-simultaneous')
     assert ns['ci_marginal'].shape == (7, 2)
     assert ns['ci_simul'].shape == (7, 2)
@@ -549,11 +546,10 @@ def test_knockoff_q_checks_are_executable_in_both_documented_workflows(language)
         assert result.q == q
         assert 'np.isfinite(q) and 0 < q < 1' in text
         assert 'q=np.nan' in text and 'estimated_fdr=0.0' in text
-        match = re.search(r'<!-- ' + re.escape(marker) + r' -->\s*```python\n(.*?)```',
-                          text, flags=re.DOTALL)
+        code = example_code(text, marker.split(': ', 1)[1], allow_legacy=directory != 'models')
         for invalid in ['np.nan', 'np.inf', '-np.inf', '0.', '1.']:
             invalid_code, count = re.subn(r'^q = [^\n]+$', f'q = {invalid}',
-                                          match.group(1), flags=re.MULTILINE)
+                                          code, flags=re.MULTILINE)
             assert count == 1
             with pytest.raises(ValueError, match='q must be finite and strictly between 0 and 1'):
                 _execute(invalid_code, marker + '-invalid-q')

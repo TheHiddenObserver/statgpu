@@ -12,6 +12,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from doc_examples import run_example
 
 from statgpu import (
     GeneralizedLinearModel,
@@ -75,15 +76,12 @@ def test_generic_glm_installed_help_covers_all_constructor_parameters(cls):
 
 @pytest.mark.parametrize('language', ['en', 'cn'])
 @pytest.mark.parametrize('label', ['glm-poisson', 'glm-formula', 'glm-cv-inference'])
-def test_glm_learner_examples_are_independently_executable(language, label):
+def test_glm_learner_examples_execute_with_declared_setup(language, label):
     if label == 'glm-formula':
         pytest.importorskip('pandas')
         pytest.importorskip('patsy')
     text = _page(language, 'models', 'generalized-linear-model')
-    match = re.search(r'<!-- learner-example: ' + label + r' -->\s*```python\n(.*?)```', text, re.DOTALL)
-    assert match
-    ns = {}
-    exec(compile(match.group(1), f'{language}/{label}', 'exec'), ns)  # noqa: S102
+    ns = run_example(text, label, f'{language}/{label}')
     model = ns['model']
     if label == 'glm-poisson':
         assert model._conf_int.shape == (3, 2)
@@ -236,9 +234,7 @@ def test_generic_glm_prediction_and_score_semantics_and_summary_return(capsys):
 @pytest.mark.parametrize('language', ['en', 'cn'])
 def test_elasticnet_diagnostic_example_enables_the_inference_it_interprets(language):
     text = _page(language, 'models', 'elastic-net')
-    match = re.search(r'<!-- learner-example: elasticnet-weighted-score -->\s*```python\n(.*?)```', text, re.DOTALL)
-    ns = {}
-    exec(compile(match.group(1), 'elasticnet-diagnostics', 'exec'), ns)  # noqa: S102
+    ns = run_example(text, 'elasticnet-weighted-score', 'elasticnet-diagnostics')
     assert ns['model'].compute_inference is True
     assert ns['model'].rsquared is not None
     assert ns['weighted_r2'] == pytest.approx(.1798437899836577, abs=1e-9)

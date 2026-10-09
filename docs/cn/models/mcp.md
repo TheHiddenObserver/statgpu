@@ -1,7 +1,7 @@
 # MCP
 
 > 语言：中文  
-> 最后更新：2026-10-06  
+> 最后更新：2026-10-09<br>
 > 页面定位：模型文档  
 > 切换：[English](../../en/models/mcp.md)
 
@@ -46,23 +46,51 @@ $\lambda$；标量惩罚的自变量为 $\theta=|\beta_j|\geq0$。
 
 下面的特征已具有相近尺度。拟合前留出最后 40 行；只有前两列特征产生信号。
 
+请在同一个 Python 会话中按顺序运行以下步骤，先导入所需的库。
+
 <!-- learner-example: mcp-prediction -->
 ```python
 import numpy as np
 from statgpu.linear_model import MCPRegression
+```
 
+<a id="cpu-data"></a>
+
+### 准备训练与测试数据
+
+`X` 的形状为 `(160, 5)`：每行是一条观测，每列是一个预测变量。`y` 是形状为 `(160,)` 的一维连续响应。最后 40 行不参与拟合或调参。
+
+```python
 rng = np.random.default_rng(64)
 X = rng.normal(size=(160, 5))
 y = 1.5 + 2 * X[:, 0] - X[:, 1] + rng.normal(scale=0.4, size=160)
+X_train, X_test = X[:120], X[120:]
+y_train, y_test = y[:120], y[120:]
+```
+
+### 拟合预测模型
+
+先用一个示意性的固定惩罚强度。关闭推断，让这一步只估计用于预测的系数。
+
+```python
 model = MCPRegression(
     alpha=0.1, gamma=3.0, device="cpu", compute_inference=False,
     max_iter=5000, tol=1e-8,
-).fit(X[:120], y[:120])
-prediction = model.predict(X[120:])
+)
+model.fit(X_train, y_train)
+```
+
+### 预测并查看拟合结果
+
+按训练时的列顺序传入测试特征；`score` 用留出的响应计算 R²。
+
+```python
+prediction = model.predict(X_test)
 print("Slopes:", np.round(model.coef_, 3))
 print("Intercept:", round(model.intercept_, 3))
-print("Test R2:", round(model.score(X[120:], y[120:]), 3))
+print("Test R2:", round(model.score(X_test, y_test), 3))
 ```
+<!-- example-end: mcp-prediction -->
 
 该随机种子下，斜率约为 `[1.987, -0.982, 0, 0, 0]`，截距约为 `1.430`，
 留出集 R² 约为 `0.967`；预测形状为 `(40,)`。这些是惩罚预测系数，并非活跃集
@@ -141,7 +169,7 @@ MCP 使用与 SCAD 相同的 **LLA + FISTA** 算法：
 
 ## 可选 GPU 使用
 
-准备好 CPU 示例中的数据后，在同一构造函数中设置 `device="cuda"` 可请求
+完成 [CPU 数据准备](#cpu-data)后，在同一构造函数中设置 `device="cuda"` 可请求
 CuPy CUDA，设置 `device="torch"` 可请求 Torch CUDA。显式后端不可用时会
 报错；只有 `auto` 可以选择其他可用后端。详见[设备与内存](../guides/device-and-memory.md)。
 上述 CPU 示例不需要 GPU。
