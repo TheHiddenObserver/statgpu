@@ -195,11 +195,14 @@ jobs:
             dev/tests/test_knockoff_torch_device_contract.py \
             dev/tests/test_pr168_feature_cycle7.py \
             -q --tb=short
-      - name: Run ANOVA finite-input and covariance device regressions
+      - name: Run ANOVA and ordered native covariance device regressions
         run: |
           python -m pytest \
             dev/tests/test_anova_finite_inputs.py \
             dev/tests/test_covariance_device_contract.py \
+            dev/tests/test_linear.py::TestLinearRegression::test_basic_fit_cpu \
+            dev/tests/test_three_backend_native_followup.py \
+            dev/tests/test_three_backend_native_isolation.py \
             -q --tb=short
 
   panel-stage-b-linearmodels:
