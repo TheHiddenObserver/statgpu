@@ -9,6 +9,12 @@ This page records user-visible changes for current and recent statgpu releases.
 
 ## Unreleased — Learner guides and API references (PR #168)
 
+### Fixed (2026-10-09)
+
+- ANOVA now rejects NaN and positive or negative infinity in observations passed to `f_oneway`, `cohens_f`, and `f_twoway`, consistently with the other maintained ANOVA procedures. This does not change the documented results for finite constant groups or insufficient residual degrees of freedom.
+- Covariance estimators now honor explicit computation devices even when the input is a Torch tensor or CuPy array: `cpu` uses NumPy, `cuda` requires CuPy CUDA, and `torch` requires Torch CUDA. Unavailable explicitly requested backends raise. When both the estimator and global policy are `auto`, native input-backend behavior is retained. Scoring, Mahalanobis distances, and cross-validation use the fitted computation backend.
+- Repaired the shared GLM `C` parameter tables in both languages so the rendered cells retain the complete penalty normalization, `C=0` behavior, and solver exceptions.
+
 ### Fixed (2026-10-06)
 
 - Fixed native generated Torch model-X device and seed handling: its local random generator and noise use the exact input tensor device, including CPU when CUDA is also available, and construction honors `random_state` without consuming the global Torch RNG. With the existing `None`-to-zero fallback, multiple Torch construction draws repeat the same noise; use an explicit integer seed for distinct, reproducible per-draw seeds. This does not imply cross-backend/device bitwise parity or repair the separate Lasso cache/device-routing limitations.
@@ -35,7 +41,7 @@ This page records user-visible changes for current and recent statgpu releases.
 - Clarified statistical inference targets, selection/tuning conditioning, weighting, resampling assumptions and available reporting methods. Connected Ridge, SCAD, MCP and Poisson explanations now distinguish their actual defaults and supported interfaces. Cox-family documentation identifies the difference between summed and row-averaged partial likelihood.
 - Documented current limitations and practical checks for failed refits, nonfinite outputs, data geometry and device placement. The new [coordinate-scaling guidance](models/nonparametric.md) and [NMF guide](unsupervised/nmf.md) explain how very small measurement units can change current results, how to prepare and reuse a consistent scale, and how to map predictions or densities back. The [Ridge guide](models/ridge.md) also shows training-derived centering for large coordinate offsets.
 - Clarified that a shared estimator's `device="auto"` inherits the global device policy, and completed public constructor help. Retained benchmark reports are identified as historical measurements of their recorded source and hardware.
-- In addition to documentation, docstrings and regression coverage, this PR now fixes native Torch model-X random allocation and local-generator use. Other separately tracked numerical/state limitations remain unresolved; UMAP production code is unchanged. CPU examples and routing inspections do not establish physical-GPU execution or performance.
+- In addition to documentation, docstrings and regression coverage, this PR fixes native Torch model-X random allocation and local-generator use, ANOVA nonfinite-input rejection, and covariance device selection. Other separately tracked numerical/state limitations remain unresolved; UMAP production code is unchanged. CPU examples and routing inspections do not establish physical-GPU execution or performance.
 
 ## Unreleased — Quantile solver and inference updates (PR #166, targeted for 0.2.6)
 

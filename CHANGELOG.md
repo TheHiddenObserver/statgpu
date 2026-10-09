@@ -4,12 +4,12 @@ All notable changes to statgpu are documented here, organized by release and dat
 
 ## Unreleased — 2026-10-09
 
-### PR #168 — Completed learner docs and fixed Torch model-X draws
+### PR #168 — Completed learner docs and repaired input/device handling
 - Improved bilingual learner guides, distribution workflows and navigation across linear models, feature selection, survival, smoothing and twelve unsupervised methods; restructured model tutorials into explained sequential data, fit and prediction steps with explicit reused setup.
 - Added runtime-checked complete constructor/method/result references, including typed GLM and CV wrappers, plus standalone CPU examples; separated developer validation/dashboard maintenance records, scoped historical benchmark claims and retained actionable known-issue warnings.
 - Corrected objective normalization, unpenalized intercepts, UMAP pair scope, TSNE probability/perplexity definitions, inference targets and weighted/resampling interpretation; clarified the logit-only `LogisticRegression` inventory entry and separate `OrderedProbitRegression`; documented current limitations and tested alternatives.
-- Fixed native Torch model-X generation to bind its random generator and noise to the input device and honor its local seed; synchronized bilingual documentation and installed help.
-- Tightened expected-failure regressions, including the exact UMAP missing-neighbor signature; retained independently tracked runtime limitations and preserved unrelated production logic and dependency metadata.
+- Fixed native Torch model-X generation to bind its random generator and noise to the input device and honor its local seed; rejected nonfinite observations in the remaining ANOVA paths and honored explicit computation devices across covariance estimators.
+- Tightened expected-failure regressions, including the exact UMAP missing-neighbor signature; repaired rendered GLM parameter tables and added rendered-content, ANOVA input and covariance device regressions while retaining independently tracked runtime limitations.
 
 ## Unreleased — 2026-09-20
 

@@ -9,11 +9,9 @@ from typing import Optional, Union
 import numpy as np
 
 from statgpu._config import Device
-from statgpu.backends import _get_xp, _to_float_scalar, xp_zeros, xp_eye
-
+from statgpu.backends import _to_float_scalar, xp_eye, xp_zeros
 from statgpu.covariance._empirical import (
     EmpiricalCovariance,
-    _detect_backend,
     _stable_inv,
     _validate_covariance_input,
 )
@@ -33,7 +31,12 @@ class LedoitWolf(EmpiricalCovariance):
     assume_centered : bool, default=False
         If True, data is assumed to be already centered.
     device : str or Device, default='auto'
-        Computation device: ``'cpu'``, ``'cuda'``, ``'torch'``, or ``'auto'``.
+        ``'cpu'`` selects NumPy, ``'cuda'`` selects CuPy CUDA, and
+        ``'torch'`` selects Torch CUDA, regardless of input array type.
+        An unavailable explicit GPU backend raises an error. ``'auto'`` uses
+        the global device policy; when that is also automatic, native input
+        arrays retain their backend (including Torch CPU). Other inputs use
+        the available CuPy CUDA, Torch CUDA, or NumPy backend, in that order.
     n_jobs : int or None, default=None
         Number of parallel jobs (reserved for future use).
 
@@ -66,20 +69,7 @@ class LedoitWolf(EmpiricalCovariance):
         -------
         self
         """
-        backend_name = _detect_backend(X, self._get_compute_device())
-        xp = _get_xp(backend_name)
-
-        # Ensure torch tensors land on CUDA
-        _ref = None
-        if backend_name == "torch":
-            import torch
-            _dev = self._get_compute_device()
-            _cuda_dev = "cuda" if _dev.value in ("torch", "cuda") else "cpu"
-            _ref = torch.empty(0, dtype=torch.float64, device=_cuda_dev)
-        if _ref is not None:
-            X_arr = xp.asarray(X, dtype=xp.float64, device=_ref.device)
-        else:
-            X_arr = xp.asarray(X, dtype=xp.float64)
+        backend_name, xp, X_arr = self._prepare_covariance_input(X)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
 
@@ -148,7 +138,12 @@ class OAS(EmpiricalCovariance):
     assume_centered : bool, default=False
         If True, data is assumed to be already centered.
     device : str or Device, default='auto'
-        Computation device: ``'cpu'``, ``'cuda'``, ``'torch'``, or ``'auto'``.
+        ``'cpu'`` selects NumPy, ``'cuda'`` selects CuPy CUDA, and
+        ``'torch'`` selects Torch CUDA, regardless of input array type.
+        An unavailable explicit GPU backend raises an error. ``'auto'`` uses
+        the global device policy; when that is also automatic, native input
+        arrays retain their backend (including Torch CPU). Other inputs use
+        the available CuPy CUDA, Torch CUDA, or NumPy backend, in that order.
     n_jobs : int or None, default=None
         Number of parallel jobs (reserved for future use).
 
@@ -181,20 +176,7 @@ class OAS(EmpiricalCovariance):
         -------
         self
         """
-        backend_name = _detect_backend(X, self._get_compute_device())
-        xp = _get_xp(backend_name)
-
-        # Ensure torch tensors land on CUDA
-        _ref = None
-        if backend_name == "torch":
-            import torch
-            _dev = self._get_compute_device()
-            _cuda_dev = "cuda" if _dev.value in ("torch", "cuda") else "cpu"
-            _ref = torch.empty(0, dtype=torch.float64, device=_cuda_dev)
-        if _ref is not None:
-            X_arr = xp.asarray(X, dtype=xp.float64, device=_ref.device)
-        else:
-            X_arr = xp.asarray(X, dtype=xp.float64)
+        backend_name, xp, X_arr = self._prepare_covariance_input(X)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
 
@@ -265,7 +247,12 @@ class ShrunkCovariance(EmpiricalCovariance):
     assume_centered : bool, default=False
         If True, data is assumed to be already centered.
     device : str or Device, default='auto'
-        Computation device: ``'cpu'``, ``'cuda'``, ``'torch'``, or ``'auto'``.
+        ``'cpu'`` selects NumPy, ``'cuda'`` selects CuPy CUDA, and
+        ``'torch'`` selects Torch CUDA, regardless of input array type.
+        An unavailable explicit GPU backend raises an error. ``'auto'`` uses
+        the global device policy; when that is also automatic, native input
+        arrays retain their backend (including Torch CPU). Other inputs use
+        the available CuPy CUDA, Torch CUDA, or NumPy backend, in that order.
     n_jobs : int or None, default=None
         Number of parallel jobs (reserved for future use).
 
@@ -300,16 +287,7 @@ class ShrunkCovariance(EmpiricalCovariance):
         if not np.isfinite(float(self.shrinkage)) or not 0 <= self.shrinkage <= 1:
             raise ValueError(f"shrinkage must be finite and in [0, 1], got {self.shrinkage}")
 
-        backend_name = _detect_backend(X, self._get_compute_device())
-        xp = _get_xp(backend_name)
-
-        _ref = None
-        if backend_name == "torch":
-            import torch
-            _dev = self._get_compute_device()
-            _cuda_dev = "cuda" if _dev.value in ("torch", "cuda") else "cpu"
-            _ref = torch.empty(0, dtype=torch.float64, device=_cuda_dev)
-        X_arr = xp.asarray(X, dtype=xp.float64, device=_ref.device) if _ref else xp.asarray(X, dtype=xp.float64)
+        backend_name, xp, X_arr = self._prepare_covariance_input(X)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
 

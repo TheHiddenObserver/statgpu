@@ -9,19 +9,19 @@ from typing import Optional, Union
 import numpy as np
 
 from statgpu._base import BaseEstimator
-from statgpu._config import Device
+from statgpu._config import Device, _get_configured_device
 from statgpu.backends import (
     _LINALG_ERRORS,
-    _get_xp,
     _is_cupy_array,
     _is_torch_array,
-    _resolve_backend,
     _to_float_scalar,
     _to_numpy,
-    _torch_dev,
-    xp_zeros,
+    get_backend,
     xp_asarray,
+    xp_eye,
+    xp_zeros,
 )
+from statgpu.backends._utils import _cupy_asarray_on_device
 
 
 def _detect_backend(X, device: Device) -> str:
@@ -85,7 +85,12 @@ class EmpiricalCovariance(BaseEstimator):
         If True, data is assumed to be already centered. If False, the
         mean is estimated and subtracted before computing the covariance.
     device : str or Device, default='auto'
-        Computation device: ``'cpu'``, ``'cuda'``, ``'torch'``, or ``'auto'``.
+        ``'cpu'`` selects NumPy, ``'cuda'`` selects CuPy CUDA, and
+        ``'torch'`` selects Torch CUDA, regardless of input array type.
+        An unavailable explicit GPU backend raises an error. ``'auto'`` uses
+        the global device policy; when that is also automatic, native input
+        arrays retain their backend (including Torch CPU). Other inputs use
+        the available CuPy CUDA, Torch CUDA, or NumPy backend, in that order.
     n_jobs : int or None, default=None
         Number of parallel jobs (reserved for future use).
 
@@ -112,6 +117,71 @@ class EmpiricalCovariance(BaseEstimator):
         super().__init__(device=device, n_jobs=n_jobs)
         self.assume_centered = assume_centered
 
+    def _prepare_covariance_input(self, X, *, fitted=False):
+        """Resolve estimator policy before converting input to numerical arrays."""
+        if fitted:
+            # Evaluation follows the fitted arrays, including their CUDA index,
+            # rather than reselecting from a test array or a changed global policy.
+            backend_name = self._backend_name
+            ref = self.covariance_
+            device = (
+                Device.CPU if backend_name == "numpy"
+                else Device.CUDA if backend_name == "cupy"
+                else Device.TORCH if ref.is_cuda else Device.CPU
+            )
+        else:
+            requested = self._device
+            if requested == Device.AUTO:
+                requested = _get_configured_device()
+            # Retain native-array selection only for genuinely automatic policy.
+            # In particular, an automatic Torch CPU input remains Torch CPU.
+            if requested == Device.AUTO and _is_torch_array(X):
+                backend_name = "torch"
+                device = Device.TORCH if X.is_cuda else Device.CPU
+            elif requested == Device.AUTO and _is_cupy_array(X):
+                backend_name, device = "cupy", Device.CUDA
+            else:
+                device = self._get_compute_device()
+                backend_name = {
+                    Device.CPU: "numpy", Device.CUDA: "cupy", Device.TORCH: "torch"
+                }[device]
+            ref = None
+
+        if backend_name == "torch" and device == Device.CPU:
+            backend = get_backend(backend="torch", device="cpu")
+        else:
+            # Resolve a concrete library: factory auto-selection must not
+            # substitute another backend for an explicit or global request.
+            backend = get_backend(
+                backend=backend_name,
+                device="cpu" if device == Device.CPU else "cuda",
+            )
+        if not backend.is_available():
+            label = "torch" if backend_name == "torch" else "cuda"
+            requirement = "PyTorch CUDA" if backend_name == "torch" else "CuPy CUDA"
+            raise RuntimeError(
+                f"device='{label}' requires a working {requirement} backend. "
+                "Use device='cpu' or reset the global device and use device='auto'."
+            )
+
+        xp = backend.xp
+        if fitted and backend_name == "cupy":
+            # Allocate CPU queries directly on the fitted GPU; an already-native
+            # query on another GPU needs an explicit device-to-device copy.
+            with ref.device:
+                X_arr = self._to_array(X, device=device, backend=backend_name)
+                X_arr = _cupy_asarray_on_device(X_arr, ref.device.id, dtype=xp.float64)
+        else:
+            if fitted and backend_name == "torch":
+                X_arr = self._to_torch(X, device=str(ref.device))
+            else:
+                X_arr = self._to_array(X, device=device, backend=backend_name)
+            X_arr = xp_asarray(
+                X_arr, dtype=xp.float64, xp=xp,
+                ref_arr=ref if fitted else X_arr,
+            )
+        return backend_name, xp, X_arr
+
     def fit(self, X, y=None):
         """Fit the covariance model to *X*.
 
@@ -126,18 +196,7 @@ class EmpiricalCovariance(BaseEstimator):
         -------
         self
         """
-        backend_name = _detect_backend(X, self._get_compute_device())
-        xp = _get_xp(backend_name)
-
-        # For torch backend, ensure arrays land on CUDA (not CPU)
-        _ref = None
-        if backend_name == "torch":
-            import torch
-            _dev = self._get_compute_device()
-            _cuda_dev = "cuda" if _dev.value in ("torch", "cuda") else "cpu"
-            _ref = torch.empty(0, dtype=torch.float64, device=_cuda_dev)
-
-        X_arr = xp_asarray(X, dtype=xp.float64, xp=xp, ref_arr=_ref)
+        backend_name, xp, X_arr = self._prepare_covariance_input(X)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
 
@@ -195,10 +254,7 @@ class EmpiricalCovariance(BaseEstimator):
             Average log-likelihood per observation.
         """
         self._check_is_fitted()
-        backend_name = _detect_backend(X, self._get_compute_device())
-        xp = _get_xp(backend_name)
-
-        X_arr = xp_asarray(X, dtype=xp.float64, xp=xp)
+        _backend_name, xp, X_arr = self._prepare_covariance_input(X, fitted=True)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
 
@@ -241,10 +297,7 @@ class EmpiricalCovariance(BaseEstimator):
             Squared Mahalanobis distances.
         """
         self._check_is_fitted()
-        backend_name = _detect_backend(X, self._get_compute_device())
-        xp = _get_xp(backend_name)
-
-        X_arr = xp_asarray(X, dtype=xp.float64, xp=xp)
+        _backend_name, xp, X_arr = self._prepare_covariance_input(X, fitted=True)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(1, -1)
         _n_samples, n_features = _validate_covariance_input(
@@ -296,20 +349,8 @@ def _stable_inv(S, xp, backend_name: str):
     trace_S = _to_float_scalar(xp.trace(S))
     base = max(abs(trace_S) / max(p, 1), 1.0) * 1e-10
 
-    torch_dev = None
-    if backend_name == "torch":
-        try:
-            import torch
-            if isinstance(S, torch.Tensor):
-                torch_dev = S.device
-        except (ImportError, AttributeError):
-            pass
-
-    # Pre-allocate identity matrix once
-    if torch_dev is not None:
-        eye = xp.eye(p, dtype=xp.float64, device=torch_dev)
-    else:
-        eye = xp.eye(p, dtype=xp.float64)
+    # Allocate on the covariance device, including non-default CUDA indices.
+    eye = xp_eye(p, xp.float64, xp, S)
 
     # Preserve the exact estimator whenever the covariance is invertible.
     # Jitter is a fallback, not part of the empirical covariance definition.

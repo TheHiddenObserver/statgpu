@@ -367,7 +367,7 @@ GeneralizedLinearModel(family='gaussian', fit_intercept=True, max_iter=100, tol=
 | `fit_intercept` | `True` | Fit an unpenalized intercept; formula syntax overrides this choice. |
 | `max_iter` | `100` | Solver iteration budget. |
 | `tol` | `0.0001` | Numerical convergence tolerance. |
-| `C` | `1.0` | Ordinary IRLS adds ||beta||²/(4C) for positive C; C=0 removes it. Explicit newton/lbfgs/fista ignore C. |
+| `C` | `1.0` | Ordinary IRLS adds ∥beta∥²/(4C) for positive C; C=0 removes it. Explicit newton/lbfgs/fista ignore C. |
 | `device` | `'auto'` | cpu, cuda (CuPy), torch (Torch CUDA), or auto. Explicit GPU requests require the corresponding CUDA backend. |
 | `n_jobs` | `None` | Shared CPU-worker configuration; no parallel-fit guarantee. |
 | `solver` | `'auto'` | auto, irls, fista, newton, lbfgs; ordinary auto selects IRLS. Solver changes can change the C-penalized objective. |

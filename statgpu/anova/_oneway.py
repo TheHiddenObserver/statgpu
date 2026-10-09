@@ -60,7 +60,7 @@ def f_oneway(
     ----------
     *groups : array-like
         Two or more sample arrays, one per group.  Each must be 1-D (or
-        flattenable to 1-D).
+        flattenable to 1-D) and contain only finite observations.
     backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
         Compute backend.  ``'auto'`` inspects the input arrays and picks the
         best match.
@@ -77,8 +77,9 @@ def f_oneway(
     Raises
     ------
     ValueError
-        If fewer than 2 groups are supplied or any group has fewer than 1
-        observation.
+        If fewer than 2 groups are supplied, any group is empty or contains
+        NaN or infinite values, or the total sample size does not exceed the
+        number of groups.
 
     Examples
     --------
@@ -126,6 +127,8 @@ def f_oneway(
 
     # Vectorized: concatenate all groups, build expanded means in one pass
     all_data = xp.concatenate(flat_groups)
+    if not bool(_to_float_scalar(xp.all(xp.isfinite(all_data)))):
+        raise ValueError("groups contain NaN or infinite values")
 
     # Group sums and means
     group_sums = xp.zeros(k, dtype=float_dtype)

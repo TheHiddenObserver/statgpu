@@ -134,7 +134,7 @@ print(lw.score(X))
 | `ShrunkCovariance` | `shrinkage` |
 | `MinCovDet` | `support_fraction`、`random_state` |
 | `GraphicalLasso` | `alpha`、`max_iter`、`tol` |
-| `GraphicalLassoCV` | `alphas`、`cv`、`max_iter`、`tol` |
+| `GraphicalLassoCV` | `alphas`、`cv`、`max_iter`、`tol`、`random_state` |
 
 具体接受的类型和范围以类 docstring 为准。
 
@@ -228,8 +228,26 @@ model_torch = LedoitWolf(device="torch").fit(X_torch)
 print(model_torch.covariance_.shape)
 ```
 
-`device="cuda"` 选择 CuPy。Torch 张量应使用 `device="torch"`；两个显式 GPU
-设备值不能互换。
+设备设置决定计算后端，不由输入数组类型覆盖：
+
+- `device="cpu"` 将 NumPy、CuPy 或 Torch 输入转换为 NumPy CPU 数组。
+- `device="cuda"` 将输入转换为 CuPy CUDA 数组。即使输入是 Torch 张量，也要求
+  可用的 CuPy CUDA 运行时。
+- `device="torch"` 将输入转换为 Torch CUDA 张量。Torch CPU 输入会移至 CUDA，
+  不能用 CPU 计算代替显式请求的 Torch GPU 计算。
+- `device="auto"` 继承 `statgpu.set_device(...)` 的全局设置。只有两者都为自动
+  选择时，原生 CuPy/Torch 输入才保留原后端和设备，包括 Torch CPU 输入。其他输入
+  按可用性依次选择 CuPy CUDA、Torch CUDA、NumPy。显式全局设置优先于原生输入
+  选择；显式估计器设置又优先于全局设置。
+
+七个估计器采用相同策略。`GraphicalLassoCV` 的各折拟合、评分和最终重拟合沿用
+开始拟合时选定的后端与设备。拟合数组保留在该后端。即使之后更改全局设置，
+`score`、`mahalanobis` 和 `predict` 仍将新输入转换到已拟合数组所在的后端和设备。
+`score` 返回 Python 浮点数；`mahalanobis` 和 `predict` 返回 NumPy 数组。
+
+估计器的设备参数不接受 `"cuda:1"` 等带序号的值。选择与原生 GPU 输入相同的后端
+时，会保留输入的 CUDA 设备序号；从 CPU 移至 GPU 的输入使用所选库当前的 CUDA
+设备。评分使用已拟合数组所在的设备序号。全局配置详见[设备指南](../guides/device-and-memory.md)。
 
 ## 协方差、精度矩阵与推断语义
 
@@ -294,7 +312,8 @@ L1 惩罚施加在精度矩阵非对角元素上；稀疏精度矩阵的逆不�
 
 ### Torch CUDA 张量能否使用 `device="cuda"`？
 
-不能。`device="cuda"` 表示 CuPy 后端；Torch 执行应使用 `device="torch"`。
+可以，前提是 CuPy CUDA 可用：张量会转换为 CuPy 数组，并由 CuPy 完成计算。
+若要使用 Torch CUDA 计算，请选择 `device="torch"`。输入类型不会覆盖显式后端请求。
 
 ## 路径
 

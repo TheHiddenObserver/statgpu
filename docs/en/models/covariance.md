@@ -147,7 +147,7 @@ Estimator-specific parameters include:
 | `ShrunkCovariance` | `shrinkage` |
 | `MinCovDet` | `support_fraction`, `random_state` |
 | `GraphicalLasso` | `alpha`, `max_iter`, `tol` |
-| `GraphicalLassoCV` | `alphas`, `cv`, `max_iter`, `tol` |
+| `GraphicalLassoCV` | `alphas`, `cv`, `max_iter`, `tol`, `random_state` |
 
 Consult class docstrings for the exact accepted type and range of each parameter.
 
@@ -244,8 +244,30 @@ model_torch = LedoitWolf(device="torch").fit(X_torch)
 print(model_torch.covariance_.shape)
 ```
 
-`device="cuda"` selects CuPy. Use `device="torch"` for Torch tensors; the two
-explicit GPU device values are not interchangeable.
+The device selects computation independently of the input array type:
+
+- `device="cpu"` converts NumPy, CuPy, or Torch inputs to NumPy CPU arrays.
+- `device="cuda"` converts inputs to CuPy CUDA arrays. It requires a working
+  CuPy CUDA runtime even when the input is a Torch tensor.
+- `device="torch"` converts inputs to Torch CUDA tensors. A Torch CPU input
+  is moved to CUDA; it never satisfies an explicit Torch GPU request by itself.
+- `device="auto"` inherits `statgpu.set_device(...)`. When both settings are
+  automatic, native CuPy/Torch input keeps its backend and device, including
+  Torch CPU input. Other input types use CuPy CUDA, then Torch CUDA, then NumPy
+  according to availability. An explicit global setting overrides this native
+  input selection; an explicit estimator setting overrides the global setting.
+
+The seven estimators share this policy. `GraphicalLassoCV` keeps its initial
+backend and device through all folds, scoring, and the final refit. Fitted arrays
+remain on that backend. `score`, `mahalanobis`, and `predict` convert new inputs
+to the fitted backend and device, even if the global policy subsequently changes.
+`score` returns a Python float; `mahalanobis` and `predict` return NumPy arrays.
+
+The estimator device values do not accept indices such as `"cuda:1"`. An
+already-native GPU input retains its CUDA index when that backend is selected;
+CPU inputs moved to a GPU use that library's current CUDA device. Scoring uses
+the fitted array's index. See the [device guide](../guides/device-and-memory.md)
+for global configuration.
 
 ## Covariance, Precision, and Inference Semantics
 
@@ -326,8 +348,9 @@ sparse precision matrix need not be sparse.
 
 ### Can I pass a Torch CUDA tensor with `device="cuda"`?
 
-No. `device="cuda"` denotes the CuPy backend. Use `device="torch"` for a Torch
-execution request.
+Yes, if CuPy CUDA is available: the tensor is converted to CuPy and computation
+uses CuPy. Use `device="torch"` to request Torch CUDA computation instead.
+Input type does not override an explicit backend request.
 
 ## Paths
 

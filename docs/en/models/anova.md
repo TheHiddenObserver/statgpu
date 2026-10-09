@@ -259,9 +259,16 @@ on CPU is an execution boundary, not an alternative ANOVA formula.
 
 ## Limitations and Failure Modes
 
-- One-way and Welch tests require at least two non-empty groups.
+- One-way ANOVA requires at least two non-empty groups and more observations
+  than groups. Welch ANOVA, Tukey HSD, and Bonferroni comparisons require at
+  least two observations per group.
 - Two-way ANOVA currently requires balanced cell sizes.
-- Non-finite observations are rejected.
+- All observation-based ANOVA functions, including `cohens_f`, raise
+  `ValueError` for `NaN`, positive infinity, or negative infinity; observations
+  are not silently omitted.
+- Finite constant groups can still produce undefined or infinite statistics:
+  `f_oneway` and `cohens_f` return `NaN` when all observations are identical,
+  and infinite statistics when constant groups have different means.
 - Tukey HSD relies on the studentized-range distribution and may use a CPU scalar
   distribution implementation.
 - Effect-size helpers reject invalid sums of squares rather than returning a

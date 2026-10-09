@@ -364,7 +364,7 @@ GeneralizedLinearModel(family='gaussian', fit_intercept=True, max_iter=100, tol=
 | `fit_intercept` | `True` | 拟合不受惩罚的截距；公式语法优先。 |
 | `max_iter` | `100` | 求解器迭代预算。 |
 | `tol` | `0.0001` | 数值收敛容差。 |
-| `C` | `1.0` | 普通 IRLS 在 C>0 时加入 ||beta||²/(4C)；C=0 取消惩罚。显式 newton/lbfgs/fista 不使用 C。 |
+| `C` | `1.0` | 普通 IRLS 在 C>0 时加入 ∥beta∥²/(4C)；C=0 取消惩罚。显式 newton/lbfgs/fista 不使用 C。 |
 | `device` | `'auto'` | cpu、cuda（CuPy）、torch（Torch CUDA）或 auto；显式 GPU 请求要求对应 CUDA 后端可用。 |
 | `n_jobs` | `None` | 共享 CPU 工作线程设置，不保证拟合并行执行。 |
 | `solver` | `'auto'` | auto、irls、fista、newton、lbfgs；普通 auto 选择 IRLS，更换求解器可能改变 C 对应的惩罚目标。 |
