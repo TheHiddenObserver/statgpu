@@ -1,18 +1,16 @@
 # Panel Fit Statistics
 
 > Language: English  
-> Last updated: 2026-08-15  
+> Last updated: 2026-10-09<br>
 > Switch: [Chinese](../../cn/panel/fit-statistics.md)
 
-## Overview and Path
+## Overview
 
 Panel estimators expose a common `fit_statistics_` object so that within-, between-, and overall goodness of fit can be interpreted consistently across models. These quantities answer different questions:
 
 - **overall $R^2$** measures fit to the observed outcome levels;
 - **between $R^2$** measures fit to differences in entity means;
 - **within $R^2$** measures fit to changes around each entity's own mean.
-
-The calculations are implemented by the panel diagnostic/statistics helpers under `statgpu/panel/`.
 
 ## Definitions
 
@@ -57,10 +55,6 @@ For backward compatibility, the legacy public fields `PanelOLS.df_resid` and `Pa
 When entity metadata are available, `fit_statistics_` provides standardized within, between, and overall $R^2$. OLS-style estimators also report adjusted $R^2$ and the classical model F statistic when those quantities are defined for the fitted regression.
 
 `FamaMacBeth` reports parameter-based within, between, and overall $R^2$, but it does not report the residual-OLS adjusted $R^2$ or model F because its estimator is an average of period-by-period regressions rather than one pooled residual regression.
-
-## Validation
-
-These statistics are covered by the full CPU regression suite and by estimator-level comparisons with external packages. In particular, tests verify that selecting a robust covariance estimator changes coefficient inference without silently changing the meaning of the classical model F statistic.
 
 ## References
 

@@ -244,11 +244,16 @@ CPU 标量分布调用只是执行边界，不是另一套近似 ANOVA 公式。
 - Tukey HSD 依赖 studentized-range 分布，可能使用 CPU 标量实现。
 - 效应量辅助函数对非法平方和显式报错，而不是返回误导性的有限结果。
 
-## 外部验证
+<a id="外部验证"></a>
 
-维护测试将 Welch ANOVA 与 `statsmodels.stats.oneway.anova_oneway` 对齐，并覆盖
-NumPy/Torch 一致性、自由度语义、平衡设计限制、效应量验证和后端执行边界。
-所有验证结论仅适用于记录中的具体函数、后端、环境和 commit。
+## 与其他实现比较
+
+与 `statsmodels.stats.oneway.anova_oneway` 比较 `f_welch` 时，使用相同观测值和
+分组，并在 statsmodels 中设置 `use_var="unequal"`、`welch_correction=True`。
+比较 F 统计量、P 值以及分子和分母自由度。不要把 Welch 结果直接与等方差 ANOVA
+结果比较：两者使用的方差假设与分母不同。
+
+贡献者可参阅[验证参考](../../../dev/reviews/pr168-model-validation-provenance.md#anova)。
 
 ## FAQ
 

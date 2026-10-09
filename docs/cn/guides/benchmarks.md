@@ -1,102 +1,32 @@
-# 基准脚本索引
+# 基准面板与结果解读
 
-> 语言：中文  
-> 最后更新：2026-09-29
-> 页面定位：基准脚本索引  
+> 语言：中文<br>
+> 最后更新：2026-10-09<br>
 > 切换：[English](../../en/guides/benchmarks.md)
 
-## 交互式基准面板
+## 查看结果
 
-- **打开面板**：[Benchmark Dashboard](../../assets/benchmarks/index.html)
-- **使用说明**：[筛选、图表、指标与复现](../../en/guides/statgpu_benchmark_dashboard.md)
+- [打开交互式基准面板](../../assets/benchmarks/index.html)
+- [了解筛选、图表、指标与数据来源](../../en/guides/statgpu_benchmark_dashboard.md)
+- [对齐工作负载并复现测量](../benchmarks.md)
 
-当前规范面板只注册日期不早于 **2026-06-01** 的基准数据源，共包含：
+先选择环境和模型类别，再按方法、求解器、规模及后端缩小范围。**Metric scope** 用于区分拟合（Fit）、交叉验证（CV）、推断（Inference）、预测（Prediction）和特征选择（Selection）。明细面板只显示所选记录中实际存在的指标组；缺少面板不表示结果为零，也不表示库不支持该功能。
 
-```text
-8 个已注册数据源
-1,774 条 normalized runs
-36 个 models
-```
+面板包含交叉验证记录。**Cross-validation** 面板显示可用的交叉验证评估、最终重拟合与总用时、选中的参数、评分、收敛信息，以及运行失败或不可用的原因。比较数值前，请先阅读状态和评分方向。
 
-已覆盖的主要模块包括：惩罚 GLM、GLM、近期线性模型、稳健/分位数回归、生存分析、无监督学习、有序模型、非参数方法、面板模型、协方差估计和 ANOVA。Feature Selection 分类已经预留，但在出现 2026-06 或之后的结构化 benchmark 前保持为空。
+## 覆盖范围与数据来源
 
-2026 年 4 月的 ElasticNet、LassoCV 结果，以及 comprehensive validation、Cox package comparison 与 knockoff 数据，都不会接入当前面板。已有的 6 月 distribution Markdown 汇总也不会直接转换成实测记录；需要保留原始重复计时和精度元数据的结构化 JSON，或重新运行。
+面板使用日期不早于 **2026-06-01** 的基准数据源。当前覆盖范围及数量以部署的[数据源清单](../../assets/benchmarks/data/source_inventory.json)、[解析报告](../../assets/benchmarks/data/parse_report.json)和[标准化结果](../../assets/benchmarks/data/benchmark_data.json)为准。数据源数、运行记录数和模型条目数是不同的统计量；筛选后显示的内容可能少于整个数据包。
 
-当前功能包括：
+已有记录涉及 GLM 与惩罚 GLM、线性模型、稳健与分位数回归、生存分析、无监督学习、有序模型、非参数方法、面板模型、协方差估计及 ANOVA。不同方法、指标、规模和后端的覆盖程度不同。当前数据包的 Feature Selection 类别尚无符合要求的结构化数据源。2026 年 4 月的 ElasticNet、LassoCV、综合验证、Cox 软件包比较和 knockoff 结果不在面板日期范围内。缺少原始计时及精度记录、只保留舍入汇总的分布报告也未纳入。
 
-- Environment 与多分类导航；
-- Metric scope：Fit、CV、Inference、Prediction、Selection；
-- Model → Variant → Penalty → Solver → Scale 的渐进式筛选；
-- NumPy、CuPy、Torch 后端筛选；
-- 根据当前上下文显示 scikit-learn、SciPy、statsmodels、linearmodels、pyGAM 等外部参考实现；
-- Focused 与 Full matrix 两种图表模式；
-- Timing 与 Speedup 图，并区分由数据计算得到的加速比与由 runner 报告的加速比；
-- 带 Scope 列的可排序、可分页明细表；
-- Validation、Accuracy、Inference、Prediction、Convergence、Selection 指标面板；
-- 数据源来源信息、解析报告与数据源清单。
+## 比较时注意
 
-生成并验证规范数据包：
+- 对齐环境、工作负载、目标函数、求解器、数值精度和计时范围。拟合加推断、完整交叉验证的用时不能直接当作仅拟合用时。
+- 加速比大于一表示快于指定参考对象，小于一表示更慢。实验脚本报告的比值和根据数据计算的比值具有不同来源。
+- 仅验证正确性的记录不提供时间或加速比，缺失值也不是零。
+- 历史测量只描述记录中的源码和环境，不能自动代表当前版本或自己的硬件。
 
-```bash
-python dev/benchmarks/generate_benchmark_data.py \
-  --out frontend/public/data/benchmark_data.json \
-  --report frontend/public/data/parse_report.json \
-  --inventory-out frontend/public/data/source_inventory.json \
-  --deterministic --strict-sources
+例如，[选择后 OLS 推断基准](../../../dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py)测量 NumPy CPU 与 CuPy CUDA 上的完整拟合加推断过程，并比较系数及推断结果。它不是仅推断阶段的加速测量；`device` 选择硬件，`inference_method="post_selection_ols"` 选择统计方法。
 
-python dev/benchmarks/generate_benchmark_data.py --check --strict-sources
-```
-
-构建并测试前端：
-
-```bash
-cd frontend
-npm ci
-npm run typecheck
-npm run build
-npx playwright install --with-deps chromium firefox webkit
-npm run test:e2e
-npm run test:e2e:production
-```
-
----
-
-## 推断相关
-
-- `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`
-  - 使用规范 `inference_method="post_selection_ols"`，对 NumPy CPU 与 CuPy CUDA 的完整拟合与推断事务做基准和数值对照；
-  - 输出惩罚系数、活跃集重拟合参数、标准误/统计量/p 值/置信区间、活跃集一致性，以及推断后端与具体设备来源的 CPU/CuPy 对照结果；
-  - 这不是仅推断阶段的加速基准：硬件由 `device` 选择，而不是由 `inference_method` 选择。
-
-当前面板中已接入的推断结果还包括 Ordered Logit/Probit、Quantile 的核方法与 bootstrap、带惩罚 logistic 的 HC0/oracle 结果，以及带惩罚线性模型的 bootstrap。CV 前端契约已经实现，但在新的合格 CV 数据源接入前显示为 `CV (0)`。
-
-## 非参数方法
-
-- `dev/benchmarks/benchmark_kernel_regression_vs_statsmodels.py`
-  - 对比 `statgpu` 与 `statsmodels.nonparametric.kernel_regression.KernelReg`
-  - 支持 `regression=nw/local_linear` 和多维设置
-  - 可通过 `--kernel-metric diagonal` 使用可比口径
-  - 输出 CPU/GPU、statsmodels 的精度和运行时间 JSON
-
-- `dev/benchmarks/benchmark_kde_vs_scipy.py`
-  - 对比 `statgpu` 与 `scipy.stats.gaussian_kde`
-  - 输出 CPU/GPU 与 SciPy 的精度和时间结果
-
-- `dev/benchmarks/benchmark_nonparametric_vs_r.py`
-  - 对比 `statgpu` 与 R `density()`、`ksmooth()`、`KernSmooth::locpoly()`
-  - 支持 `--statgpu-backend numpy/cupy`
-  - 支持 `--ci-method normal/bootstrap`
-
-## Multiple Testing 与全局 p-value 组合
-
-- `dev/benchmarks/benchmark_inference_backends.py`
-  - 覆盖 `combine_pvalues` 的 `fisher/cauchy/acat`
-  - 对齐 SciPy、独立 NumPy reference 和 statgpu NumPy/CuPy
-  - 输出结构化 JSON
-
-历史远程补充结果：
-
-- `results/remote_fisher_cauchy_benchmark_2026-04-05.json`
-- `results/remote_fisher_cauchy_benchmark_2026-04-05.md`
-
-这些历史文件不会自动成为当前规范数据源。
+面向贡献者的数据接入、构建和测试流程见[面板维护指南](../../../frontend/docs/benchmark-dashboard-maintenance.md)。

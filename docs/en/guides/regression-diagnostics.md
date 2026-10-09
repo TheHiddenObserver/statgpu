@@ -23,5 +23,4 @@ print(diag.vif())
 
 Diagnostics are intentionally reporting-side CPU utilities: fitted arrays are copied
 once to NumPy because SciPy distribution tests and human-readable summaries are used.
-This is an explicit boundary, not a model-training fallback. Reference tests compare
-influence quantities with `statsmodels.OLSInfluence`.
+This is an explicit boundary, not a model-training fallback.

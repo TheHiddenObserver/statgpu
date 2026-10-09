@@ -24,9 +24,7 @@ estimators:
 - `GraphicalLasso`
 - `GraphicalLassoCV`
 
-The public estimators expose NumPy, CuPy, and Torch execution paths. Backend
-availability means that the public path exists; numerical and performance claims
-remain scoped to the exact estimator, backend, hardware, and commit tested.
+The public estimators expose NumPy, CuPy, and Torch execution paths.
 
 ## Objectives
 
@@ -295,13 +293,18 @@ algorithm rather than silent backend fallbacks.
 - Explicit GPU requests fail when the requested runtime is unavailable; they do
   not silently execute on CPU.
 
-## External Validation
+<a id="external-validation"></a>
 
-Maintained tests cover finite-input validation, backend-preserving fitted arrays,
-reference comparisons with scientific Python covariance estimators, robust support
-semantics, sparse-precision convergence, and CV refit behavior. Hardware-specific
-accuracy and performance evidence belongs to the corresponding maintained test or
-benchmark artifact.
+## Comparing estimates
+
+Use the same observations, feature order, centering convention, and estimator
+when comparing covariance estimates. Match the covariance normalization
+(`1/n` for the empirical estimate above) and any fixed shrinkage or Graphical
+Lasso penalty. For iterative fits, also align convergence tolerances and
+iteration budgets. Compare Gaussian scores on the same held-out rows rather
+than treating training scores as generalization performance.
+
+For contributor details, see the [validation reference](../../../dev/reviews/pr168-model-validation-provenance.md#covariance).
 
 ## FAQ
 

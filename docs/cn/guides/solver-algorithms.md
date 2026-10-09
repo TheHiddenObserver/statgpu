@@ -1053,7 +1053,7 @@ $$
 
 **文件**：`statgpu/solvers/_lbfgs.py`、`statgpu/solvers/_lbfgs_b.py`
 
-**用途**：L-BFGS 的通用设计目标是光滑目标，以及其盒约束投影版本。底层直接调用 `lbfgs_solver(QuantileLoss, ...)` 时，未传权重或均匀权重下的历史兼容行为仍由回归测试保留；这并不表示模型/CV 层支持 Quantile `solver="lbfgs"`，也不会因此开放真正非均匀的 Quantile 权重。
+**用途**：L-BFGS 的通用设计目标是光滑目标，以及其盒约束投影版本。底层直接调用 `lbfgs_solver(QuantileLoss, ...)` 时，未传权重或均匀权重下仍保留兼容行为；这并不表示模型/CV 层支持 Quantile `solver="lbfgs"`，也不会因此开放真正非均匀的 Quantile 权重。
 
 ### L-BFGS 曲率历史
 

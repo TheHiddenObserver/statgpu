@@ -267,13 +267,17 @@ on CPU is an execution boundary, not an alternative ANOVA formula.
 - Effect-size helpers reject invalid sums of squares rather than returning a
   misleading finite value.
 
-## External Validation
+<a id="external-validation"></a>
 
-Maintained tests compare Welch ANOVA with `statsmodels.stats.oneway.anova_oneway`
-and exercise NumPy/Torch parity, degrees-of-freedom semantics, balanced-design
-restrictions, effect-size validation, and backend execution boundaries.
-Validation claims remain scoped to the exact function, backend, environment, and
-commit tested.
+## Comparing implementations
+
+To compare `f_welch` with `statsmodels.stats.oneway.anova_oneway`, pass the same
+observations in the same groups and select `use_var="unequal"` with
+`welch_correction=True` in statsmodels. Compare the F statistic, p-value, and
+both degrees of freedom. Do not compare Welch's result with an equal-variance
+ANOVA result: the tests use different variance assumptions and denominators.
+
+For contributor details, see the [validation reference](../../../dev/reviews/pr168-model-validation-provenance.md#anova).
 
 ## FAQ
 

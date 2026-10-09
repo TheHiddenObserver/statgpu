@@ -596,7 +596,7 @@ RidgeCV(alphas=None, n_alphas=100, alpha_min_ratio=0.001, cv=5, cv_splits=None, 
 | `n_alphas` | `100` | 省略 alphas 时的自动网格大小。 |
 | `alpha_min_ratio` | `0.001` | 自动网格最小/最大值比例；应选正数，通常不大于 1。 |
 | `cv` | `5` | 自动生成的随机打乱 K 折数量，至少为 2。 |
-| `cv_splits` | `None` | 显式、可重复使用的训练/验证索引对列表；应自行确认索引为非空、不相交的整数子集。RidgeCV 另有下文所述的自定义训练子集限制。 |
+| `cv_splits` | `None` | 显式、可重复使用的训练/验证索引对列表；应自行确认索引为非空、不相交的整数子集。请参阅下文自定义训练子集的已知问题。 |
 | `fit_intercept` | `True` | 在验证折和最终重拟合中拟合截距。 |
 | `device` | `'auto'` | cpu、cuda（CuPy）、torch（Torch CUDA）、auto；显式 GPU 请求不可用时会报错。 |
 | `n_jobs` | `None` | 共享工作线程配置；不保证候选项并行拟合。 |
@@ -632,9 +632,10 @@ NumPy `(m,)`。`score(X,y)` 返回不加权 R²，不接受权重参数；如需
 
 <a id="custom-ridgecv-training-subsets"></a>
 
-### RidgeCV 自定义训练子集限制
+### RidgeCV 自定义训练子集的已知问题
 
-未提供样本权重且各验证集恰好覆盖每一行一次时，RidgeCV 当前会用每个验证集
+这是已知的实现问题（[#243](https://github.com/TheHiddenObserver/statgpu/issues/243)）。
+未提供 `sample_weight` 且各验证集恰好覆盖每一行一次时，RidgeCV 当前会用每个验证集
 的完整补集替换所给训练索引。因此，即使较小的训练子集合法且与验证集不相交，
 也不会被忠实采用；验证损失和 alpha 选择可能改变。不要在此路径中使用刻意
 排除或设置间隔的训练行。应改用外部循环，精确地在每个训练子集上拟合 Ridge，

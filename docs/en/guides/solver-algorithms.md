@@ -1046,7 +1046,7 @@ Multiplying all active weights by one positive constant therefore leaves the opt
 
 **Files**: `statgpu/solvers/_lbfgs.py`, `statgpu/solvers/_lbfgs_b.py`
 
-**Use case**: Limited-memory quasi-Newton optimization is intended for smooth objectives, plus a projected box-constrained variant. A historical direct low-level `lbfgs_solver(QuantileLoss, ...)` compatibility surface is regression-covered and retained for omitted/uniform weights; this does not make estimator/CV `solver="lbfgs"` supported for Quantile and does not enable genuine non-uniform Quantile weights.
+**Use case**: Limited-memory quasi-Newton optimization is intended for smooth objectives, plus a projected box-constrained variant. The direct low-level `lbfgs_solver(QuantileLoss, ...)` call retains compatibility behavior for omitted or uniform weights; this does not make estimator/CV `solver="lbfgs"` supported for Quantile and does not enable genuine non-uniform Quantile weights.
 
 ### L-BFGS curvature history
 

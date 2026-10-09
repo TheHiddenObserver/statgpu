@@ -12,6 +12,8 @@ def test_shared_cv_guides_disclose_custom_ridge_training_rows(language, guide):
     text = (ROOT / f'docs/{language}/guides/{guide}.md').read_text()
     assert 'RidgeCV' in text and 'sample_weight' in text
     assert '../reference/linear-model-api.md#custom-ridgecv-training-subsets' in text
+    assert ('Known RidgeCV custom-split issue' in text if language == 'en'
+            else 'RidgeCV 自定义划分的已知问题' in text)
     if language == 'en':
         for term in ['cover every observation exactly once', 'full complement',
                      'external CV loop', 'disjoint', 'acceptance alone']:

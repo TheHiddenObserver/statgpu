@@ -198,7 +198,9 @@ p_gpu = model_gpu.predict_proba(cp.asarray(X[600:603]))[:, 1]
 - `precision_recall_curve` 与 `average_precision_score` 至少需要一个正标签；对全零评价子集会抛出 `ValueError`。全一子集可以计算，但此时完美的精确率/AP 不能说明区分两类的能力。相应绘图方法与训练 `average_precision` 属性遵循同一限制。
 - 二分类标签必须编码为 0/1。先处理缺失值、非有限输入和形状不匹配，再调用拟合。
 
-## API 参考与验证
+<a id="api-参考与验证"></a>
+
+## API 参考与结果比较
 
 分类阈值范围、指标字典、曲线形状与绘图返回值见[完整 LogisticRegression 方法参考](../reference/linear-model-api.md#logisticregression)；[LogisticRegressionCV](../reference/linear-model-api.md#logisticregressioncv)另有构造参数与[选择/结果约定](../reference/linear-model-api.md#cv-methods-and-results)。继承方法见[估计器共享 API](../reference/estimator-api.md)。
 
@@ -206,7 +208,7 @@ p_gpu = model_gpu.predict_proba(cp.asarray(X[600:603]))[:, 1]
 
 完整方法签名、返回值与估计器说明见[公开类的 API 源码](../../../statgpu/linear_model/wrappers/_logistic.py)，也可通过 `help(LogisticRegression)` 查看已安装版本的接口。该估计器只支持二分类，推断采用大样本 z 统计量；其 `fit` 不单独提供公式参数。
 
-CPU/GPU 的估计与协方差在对齐设定后与统计参考实现进行数值对照，包括近乎无惩罚时与 `statsmodels.Logit` 的比较。这些比较以相应数据与协方差假设为前提，不是对所有问题的统一精度保证。
+与 `statsmodels.Logit` 比较普通无权重、无惩罚拟合时，使用 `C=0`，并对齐响应行、编码后的设计矩阵与截距、协方差约定（包括有限样本修正）以及收敛设置。确认两边都已收敛。对于正 `C`，应先找到等价的带惩罚参考实现：对齐求和损失的归一化方式、仅施加于斜率的 L2 惩罚及其强度，再比较系数或协方差。数值设置一致并不意味着不同的协方差假设等价。
 
 ## 参考文献
 

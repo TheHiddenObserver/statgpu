@@ -1,7 +1,7 @@
 # BetweenOLS
 
 > Language: English  
-> Last updated: 2026-08-19  
+> Last updated: 2026-10-09<br>
 > Switch: [Chinese](../../cn/panel/between-ols.md)
 
 ## Overview
@@ -9,10 +9,6 @@
 `BetweenOLS` first averages each variable within entity, leaving one observation per entity, and then runs an OLS regression with an intercept. It is useful when the relationship of interest is driven by differences **between** entities rather than changes within the same entity over time.
 
 Because every retained entity contributes one averaged observation, the effective sample size is the number of retained entities, not the number of original panel rows.
-
-## Path
-
-Implementation: `statgpu/panel/_between.py`.
 
 ## Statistical Model and Identification
 
@@ -115,7 +111,7 @@ Public results include `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `rs
 
 ## Numerical and Strict Behavior
 
-The automatically added intercept uses the same cancellation-sensitive SVD response-projection guard as `PooledOLS`. Ordinary entity-mean responses keep the historical SVD/BLAS solve; magnitude/cancellation-sensitive responses retain the same SVD, rank cutoff, design scaling, and minimum-norm solution while replacing only the response projection reduction with the shared magnitude-tiered reducer. Legacy between $R^2$ centering also uses a range-safe working scale when physical `y-mean(y)` subtraction would overflow.
+Extreme response scales and cancellation receive numerical safeguards that preserve representable intercept contributions without changing the entity-mean regression target. The legacy `rsquared` calculation also uses range-safe centering when direct subtraction of the entity-mean response average would overflow. These calculations remain subject to float64 precision.
 
 If the entity-level regressors are exactly collinear, statgpu can still compute fitted values using a least-squares solution, but the coefficient vector is not unique. For that fit, coefficient-level standard errors, tests, p-values, and confidence intervals are disabled rather than being computed from an arbitrary coefficient representation.
 
@@ -127,11 +123,11 @@ Invalid covariance choices raise an error. Likewise, an explicitly requested GPU
 
 **Are entities with more time observations automatically weighted more heavily?**  No. Each retained entity contributes one mean observation to the final OLS regression.
 
-## External Validation
+<a id="external-validation"></a>
 
-We compare `BetweenOLS` with `statsmodels==0.14.6` after constructing the same entity-mean regression in both packages. The checks cover coefficients and HC0/HC2/HC3 standard errors/covariances: coefficients use `rtol=5e-10, atol=5e-12`, and covariance/BSE use `rtol=5e-9, atol=5e-11`. Shared covariance checks are summarized in the [validation matrix](covariance.md#validation-matrix).
+## Comparing with Other Packages
 
-GPU consistency is tested separately by comparing CuPy and Torch results with NumPy using the Stage-C physical validation tolerance `rtol=5e-6, atol=5e-7`. The dedicated `dev/benchmarks/validate_panel_intercept_cancellation_gpu.py` gate additionally verifies the cancellation-sensitive entity-mean intercept path on both physical GPU backends.
+To compare with an OLS package such as statsmodels, first construct the identical entity-mean sample and include the same intercept. Each entity contributes one observation to this regression. Align the HC0/HC2/HC3 choice and compute covariance and standard errors from this transformed sample, rather than the original panel rows. See [comparing covariance definitions](covariance.md#comparing-covariance-definitions).
 
 ## References
 

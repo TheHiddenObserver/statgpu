@@ -185,7 +185,9 @@ No separate approx inference mode is exposed in this API. Robust covariance choi
 - `precision_recall_curve` and `average_precision_score` need at least one positive label; they raise `ValueError` on an all-zero evaluation subset. All-one subsets are accepted, but their perfect precision/AP does not measure the ability to distinguish the two classes. The corresponding plot and training `average_precision` property follow the same restriction.
 - Binary labels must be 0/1; encode other class names first. Missing/nonfinite inputs and mismatched shapes must be corrected before fitting.
 
-## API reference and validation
+<a id="api-reference-and-validation"></a>
+
+## API reference and comparisons
 
 Use the [complete LogisticRegression method reference](../reference/linear-model-api.md#logisticregression) for threshold limits, metric dictionaries, curve shapes and plotting returns; [LogisticRegressionCV](../reference/linear-model-api.md#logisticregressioncv) has its own constructor and [selection/result contract](../reference/linear-model-api.md#cv-methods-and-results). Shared inherited methods are in the [estimator API](../reference/estimator-api.md).
 
@@ -193,7 +195,7 @@ The parameter table above covers the constructor. The fitting interface is `fit(
 
 Complete method signatures, returns, and estimator docstrings are available in the [public class API source](../../../statgpu/linear_model/wrappers/_logistic.py); `help(LogisticRegression)` also exposes that API in the installed version. The standalone distribution is binary; inference uses large-sample z statistics. This estimator has no dedicated formula argument in `fit`.
 
-CPU/GPU estimates and covariance calculations are compared with statistical reference implementations under aligned settings, including near-unregularized comparisons with `statsmodels.Logit`. Such comparisons are scoped to their data and covariance assumptions, not universal accuracy guarantees.
+For an ordinary unweighted, unpenalized comparison with `statsmodels.Logit`, use `C=0` and match the response rows, encoded design/intercept, covariance convention (including any finite-sample correction), and convergence settings. Check that both fits converge. For positive `C`, first establish an equivalent penalized reference: align the summed-loss normalization, slope-only L2 penalty, and penalty scale before comparing coefficients or covariance. Matching numerical settings does not make different covariance assumptions equivalent.
 
 ## References
 

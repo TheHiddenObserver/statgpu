@@ -1,189 +1,77 @@
 # statgpu Benchmark Dashboard
 
-The statgpu benchmark dashboard provides a common view of timing, speedup, numerical quality, inference, convergence, prediction, validation, and feature-selection metrics.
+[Open the dashboard](../../assets/benchmarks/index.html) to explore timing, speedup, numerical quality, inference, convergence, cross-validation, prediction, validation, and feature-selection metrics when those measurements are available.
 
-The browser is a presentation layer over a generated benchmark bundle. Raw result files are parsed and validated in Python before the frontend is built.
+## Coverage
 
-## Current coverage
+The dashboard displays a recorded benchmark bundle, not live measurements of the installed library. It uses sources dated **2026-06-01 or later**. Use the [source inventory](../../assets/benchmarks/data/source_inventory.json) for registered, available, and parsed source counts; the [parse report](../../assets/benchmarks/data/parse_report.json) for generated-run counts and issues; and the [normalized results](../../assets/benchmarks/data/benchmark_data.json) for model entries and individual runs. These quantities need not be equal, and filters further narrow what is visible.
 
-The canonical manifest is the source of truth for current benchmark inputs, and the deployed inventory is the source of truth for live counts. **Snapshot (2026-08-08):** 11 registered/available/parsed sources produce 1,852 normalized runs across 46 models. The current source set includes the post-repair PR #116 CV source and the PR #122 Panel Stage-B physical validation source:
+Coverage includes GLM and penalized GLM, linear models, robust and quantile regression, survival, unsupervised learning, ordered models, nonparametric methods, panel models, covariance estimation, ANOVA, and CV families. It is not a complete matrix of every method, backend, scale, or metric supported by statgpu:
 
-| Source | Frontend coverage |
-|---|---|
-| `p2_benchmark_20260617.json` | Empirical covariance, Nystroem, RBF kernel, and spline benchmarks |
-| `penalized_glm_perf_20260622.json` | Penalized GLM and recent squared-error NumPy/CuPy/Torch timings |
-| `coxph_efron_20260622.json` | CoxPH Efron variants and cross-backend timing |
-| `glm_solver_20260623.json` | GLM and squared-error solver speedups |
-| `loss_functions_20260623.json` | Robust/quantile timing, validation, sklearn comparison, and CoxPH Breslow rows |
-| `new_modules_full_20260624.json` | Panel, two complete fixed-lambda GAM comparison variants, and ANOVA benchmarks |
-| `unsupervised_20260627.json` | Complete source matrix for PCA, clustering, decomposition, mini-batch methods, UMAP, and t-SNE |
-| `ordered_inference_pr74.json` | Ordered, Quantile, sandwich, oracle, and bootstrap inference configurations |
-| `cv_benchmark_20260807.json` | RidgeCV, LassoCV, ElasticNetCV, LogisticRegressionCV, PenalizedGLM_CV, and CoxPHCV with explicit backend dispositions |
-| `results/pr116_p100/cv_benchmark_pr116_p100.json` | Exact-head P100 CV source after the PR #116 Torch LogisticRegressionCV repair |
-| `panel_stage_b_pr122_p100_20260808.json` | Validation-only P100 evidence for Panel Stage-B diagnostics, backend provenance, and Stage-A inference regression |
+- Some robust/quantile records describe CPU fits; they do not establish a robust-loss GPU performance comparison for every loss.
+- Ordered-model scales are too limited to establish a general GPU crossover. Covariance-estimator rows cover EmpiricalCovariance rather than every covariance estimator.
+- The Feature Selection category has no eligible structured source in this bundle. A category or metric panel can exist even when no matching measurement is available.
+- April 2026 ElasticNet, LassoCV, comprehensive-validation, Cox package-comparison, and knockoff sources are outside the dashboard's date range. Rounded distribution summaries without raw repeats and precision records are also excluded.
 
-These sources populate penalized GLM and GLM, recent linear models, robust/quantile regression, survival analysis, unsupervised learning, ordered models, nonparametric methods, panel models, covariance estimation, ANOVA, and current CV families.
-
-GAM coverage includes `1K×3`, `10K×5`, and `100K×10` for two distinct variants: the ordinary pyGAM comparison and the uniform-knot precision-aligned comparison. Each variant contains statgpu NumPy/CuPy/Torch rows and a pyGAM reference, together with runner-reported speedup and prediction-difference validation. The solver is represented as fixed `lambda=1.0`, matching the source runner rather than incorrectly labelling the work as GCV.
-
-Panel evidence is intentionally split by measurement purpose. The June 24 timing source includes aligned `10K×10` and `100K×20` PanelOLS and RandomEffects comparisons; each model/scale contains statgpu NumPy/CuPy/Torch rows and a linearmodels reference, together with runner-reported speedup and coefficient-relative-error metrics. PR #122 adds a separate canonical source at `results/benchmark_frontend_sources/panel_stage_b_pr122_p100_20260808.json` (SHA256 `882892c6e3077fe3b9f6084212647311da795fd05d1ed9f12ec53da1e05d0d4d`). It records the exact clean implementation head `636988751bcbfad3442d24d3073cdfcd2b3ac637` on Tesla P100 and contributes 34 validation-only CuPy/Torch rows covering PooledOLS, BetweenOLS, FirstDifferenceOLS, PanelOLS, RandomEffects, FamaMacBeth, Stage-B fit/specification diagnostics, backend provenance, and Stage-A coefficient-inference regression. The physical validator did **not** collect timing, so these runs intentionally omit `metrics.timing` and `metrics.speedup`; the frontend must not infer a performance claim from them.
-
-Unsupervised coverage retains all 131 source rows. PCA, KMeans, GaussianMixture, NMF, TruncatedSVD, IncrementalPCA, MiniBatchKMeans, and MiniBatchNMF expose every small/medium/large configuration. DBSCAN exposes both 10-dimensional and 50-dimensional variants at all three scales; AgglomerativeClustering, UMAP, and t-SNE expose every scale actually run. Large labels follow the arrays passed to fit, so estimators capped at 50 input features are correctly shown as `100K×50` instead of the uncapped `100K×100` runner template.
-
-The PR #74 source now exposes all of its methods. In addition to Ordered Logit/Probit and Quantile kernel/bootstrap inference, it includes penalized-logistic HC0 sandwich inference, penalized-logistic SCAD oracle inference, and penalized-linear bootstrap inference. These additional configurations are explicitly marked as fit-plus-inference timings.
-
-ANOVA coverage includes one-way ANOVA, two-way ANOVA, Welch ANOVA, Tukey HSD, and Bonferroni correction at three scales on NumPy, CuPy, and Torch. One-way ANOVA also contains aligned SciPy timing and F-statistic validation rows.
-
-The current bundle should not be interpreted as complete coverage of every implementation in the repository. In particular, the robust source contains CPU Huber and Quantile fit comparisons but no Bisquare, Fair, or robust-loss GPU fit matrix. Ordered scales remain too small to locate a GPU crossover; covariance currently contains only EmpiricalCovariance; Feature Selection has no eligible structured source; and ANOVA has too few synchronization-safe scale points for a precise crossover interval. Panel Stage C covariance completion and broader Panel timing remain tracked separately from the PR #122 correctness source.
-
-A June distribution benchmark also exists and reports 139/139 SciPy precision checks plus NumPy/CuPy/Torch timings for 15 distributions. It is not yet registered because only a rounded Markdown report is committed, without raw repeats, per-check errors, or a structured category/source contract. It is recorded as a P1 structured-conversion or rerun task rather than being ignored or represented with invented metadata.
-
-Coverage gaps and source-quality findings are recorded in:
-
-- `docs/benchmark-dashboard/domain-coverage-audit-plan.md`;
-- `docs/benchmark-dashboard/method-coverage-audit.md`;
-- `docs/benchmark-dashboard/remaining-module-audit.md`;
-- `docs/benchmark-dashboard/robust-loss-comparison-plan.md`;
-- `docs/benchmark-dashboard/penalized-robust-quantile-plan.md`.
-
-April 2026 ElasticNet, LassoCV, comprehensive-validation, Cox package-comparison, and knockoff sources are not registered. The feature-selection category remains part of Schema v1.1 but is intentionally empty until a June 2026-or-later structured benchmark is available.
-
-The source registry is `dev/benchmarks/frontend_sources.json`. It sets `minimum_source_date` to `2026-06-01`, and every registered source must provide an explicit `source_date` on or after that date. Generated files are committed in `frontend/public/data/` and `docs/assets/benchmarks/data/`.
+Do not merge distinct comparisons just because their model names match. For example, GAM has ordinary and uniform-knot precision-aligned pyGAM comparisons at fixed `lambda=1.0`; these are not GCV timings. Panel records include both timed comparisons and separate correctness-only measurements. Unsupervised scales describe the arrays actually fitted, which can be smaller than an experiment's nominal input template. Historical source status describes that experiment, not necessarily the current release.
 
 ## Filters
 
-```text
-Environment and category
-  → Model
-    → Variant
-      → Penalty
-        → Solver
-          → Scale
-            → Backend
-              → External framework
-```
+Choose an environment and one or more categories, then narrow the model, variant, penalty, solver, scale, and backend. Changing an upstream selection clears incompatible downstream selections. Scale chips allow multiple scales. Backend filters apply to statgpu rows; external frameworks are offered separately when relevant to the selected comparison and are hidden by default.
 
-Changing an upstream value clears incompatible downstream selections. External frameworks are hidden by default and offered only when relevant to the current context.
+Use **Metric scope** to distinguish Fit, CV, Inference, Prediction, and Selection. A row's scope describes the work measured, not simply the model's capabilities. Read the overview table's Scope column before comparing timings.
 
-External frameworks currently used by registered June-or-later sources are scikit-learn, SciPy, statsmodels, linearmodels, and pyGAM.
+External reference implementations available in the recorded bundle include scikit-learn, SciPy, statsmodels, linearmodels, and pyGAM. A missing reference in a filter context means no matching comparison is available there.
 
 ## Chart view modes
 
-The chart toolbar has two explicit modes:
+- **Focused** is the default compact view. Without an explicit scale selection, it selects a representative largest workload from the current context and prefers Auto/best solver groups when available. It can emphasize penalized rows in the Penalized GLM category and the default NumPy implementation in Survival. The chart subtitle explains the selection used.
+- **Full matrix** restores the broader filtered chart view, subject to chart display limits. Use the overview table and exact-value chart tables to inspect individual records.
 
-- **Focused** is the default. When no scale chip is selected, the timing chart chooses the largest workload in the current filter context. If canonical Auto/best dispatch groups are available, it keeps those groups while preserving aligned external reference rows. Focused timing is capped at 14 groups and focused speedup at 18 rows.
-- **Full matrix** shows all filtered chart groups up to the configured larger chart limits.
+These modes affect chart presentation only. They do not change the table's filtered rows, selected categories, model, scales, backend, or external-framework selections. A bar missing from Focused mode is not evidence that a run failed or a backend is unsupported.
 
-This distinction is presentation-only. Switching chart modes does not change the table, selected categories, model filters, scale chips, backend selection, or external-framework state. The chart subtitle states which representative scale and solver rule were applied.
+## Timing and speedup
 
-This approach is preferred over silently setting scale and solver filters because it keeps the table/filter contract exact while providing a readable first view. It is also preferred over globally truncating data because users can restore the complete matrix with one visible control.
+The timing chart displays the recorded duration in milliseconds. Comparable groups keep the environment, comparison, model, variant, method configuration, loss, penalty, solver, and scale distinct. Framework, backend, and implementation identify the series. A duration can cover fit plus inference or another labelled scope; do not assume every bar is fit-only.
 
-## Charts
+Correctness-only records without timing do not create timing bars. Missing times and missing uncertainty estimates are not zero.
 
-### Timing
+A speedup is a ratio against a specified reference. Above one means faster, below one slower, and the dashed **1×** line marks equal time.
 
-The timing chart uses `metrics.timing.fit_time_ms`. Group identity includes comparison, environment, model, case, method configuration, variant, loss, penalty, solver, and scale. Series identity includes framework, backend, and implementation.
+- **Computed**: reference time divided by current-run time, with a reference run recorded in the data.
+- **Runner-reported**: copied from the upstream benchmark and marked **Ⓡ**. Its reference and timing policy must be read in the source; it is not a new measurement performed by the dashboard.
 
-Focused labels omit repeated scale and Auto/best text. Full-matrix labels use two lines. Both modes use bounded label width and full tooltip text, avoiding a dense diagonal label wall.
+The global summary card uses the fastest runner-reported GPU speedup, rather than mixing reported and computed ratios. That maximum is a selected historical observation, not an expected speedup for every model or your own workload. Correctness-only sources do not participate in speedup summaries.
 
-Validation-only runs with no `metrics.timing`, including the PR #122 physical Panel source, do not create timing bars.
-
-### Speedup
-
-A value above one means faster than the reference; a value below one is a slowdown. A dashed gray line marks 1× parity, with a compact `1×` badge above the bar area. Horizontal tick labels include the `×` unit.
-
-- **Computed** speedups use `reference time / current time` and carry `reference_run_id`.
-- **Runner-reported** speedups are copied from an upstream benchmark and use `reported_semantics: "reported_by_runner"`. They are marked with `Ⓡ` and a subtle border rather than a patterned bar fill.
-
-Semantic validation checks computed references, positive timings, compatible identities, and numerical agreement with the timing ratio.
-
-The global summary card shows only the fastest runner-reported GPU speedup. Computed timing ratios remain available in the chart and raw data for auditing; the two reference semantics are not mixed into one headline. Validation-only sources without timing are excluded from speedup aggregation.
-
-## Visual theme
-
-The page uses a low-saturation blue-gray application background, white cards, soft borders and shallow shadows. Backend and framework colors are deliberately muted so that long benchmark sessions remain comfortable to scan. Selected categories use a light primary tint rather than a high-contrast block, and chart grid lines are lighter than the 1× parity marker.
-
-The responsive layout keeps paired charts on large screens and stacks them below 1080 px. Summary cards collapse from six to three columns below 1450 px. Charts also expose filter-synchronized exact-value tables with full labels, while primary filters, scale chips, sorting, and metric-panel disclosure support keyboard navigation with visible focus. The production QA suite serves the committed `docs/assets/benchmarks/` path and exercises Chromium, Firefox, and WebKit.
+Match objectives, precision, convergence settings, hardware, and transfer/timing boundaries before comparing ratios. See [benchmark interpretation and reproduction](../benchmarks.md) for a measurement checklist.
 
 ## Overview and metric panels
 
-The overview table supports stable keyed sorting, a default 200-row limit, “Show all,” source provenance, and framework-aware display.
+The overview table supports sorting, a default 200-row view, **Show all**, source provenance, and framework-aware labels. Charts also provide filter-synchronized exact-value tables with full labels. Filters, scale chips, sorting, and panel controls support keyboard navigation with visible focus; responsive layouts stack charts on narrower screens.
 
-Panels appear only when filtered rows contain the corresponding metric group:
+A panel appears only when the filtered records contain the corresponding metric group:
 
-- **Validation**: pass/warn/fail checks and tolerances.
-- **Cross-validation**: backend disposition, CV/final-refit/total timing, selected parameters, normalized scores, convergence/failure counts, and explicit non-success reasons.
-- **Accuracy**: coefficient and standard-error differences.
-- **Inference**: BSE, Wald statistic, p-value, backend, scale, and status.
-- **Prediction**: train/test MSE, noiseless MSE, selected alpha, and C-index.
+- **Validation**: pass/warn/fail checks and their tolerances.
+- **Cross-validation**: run status, CV evaluation, final-refit and total timing, selected parameters, scores and scoring direction, candidate/fold failures, refit convergence, and explicit non-success reasons.
+- **Accuracy**: coefficient and standard-error differences against a reference.
+- **Inference**: standard errors, Wald statistics, p-values, backend, scale, and status when recorded.
+- **Prediction**: training/test MSE, noiseless MSE, selected alpha, or C-index when recorded.
 - **Convergence**: iteration summaries and convergence rates.
-- **Selection**: precision, recall, FDP, F1, Jaccard, FDR, and selected-set size when a current source exists.
+- **Selection**: precision, recall, FDP, F1, Jaccard, FDR, or selected-set size when recorded.
 
-The Inference panel covers Ordered Logit/Probit, Quantile kernel/bootstrap inference, the restored sandwich/oracle/bootstrap configurations, and the PR #122 estimator rows' reported physical inference-pass status. ANOVA one-way rows expose SciPy-relative F-statistic validation in the Validation panel. PR #122 Hausman applicability rows remain validation-only because the generated validation datasets yielded `applicable=false`; the parser does not invent a test statistic.
+A missing panel means there are no matching metric records in the current view, not that a measured value is zero. An unavailable or unsuccessful CV row should be read together with its reason; do not treat it as a successful timing observation. Likewise, a statistical check reported as not applicable provides no test statistic. A reported inference-pass status alone is not a full set of coefficient-level inference results.
 
-## Metric provenance
+## Provenance and limitations
+
+Metric quality labels describe where values came from:
 
 - `measured`: directly observed;
 - `reported`: copied from an upstream report;
-- `computed`: deterministically derived by a parser;
-- `partial`: incomplete or partially comparable.
+- `computed`: deterministically derived from source data;
+- `partial`: incomplete or only partly comparable.
 
-Quality records provenance, not whether a method performed well.
+These labels do not grade how well a method performed. Check numerical errors, tolerances, and convergence separately. Inspect a row's source and environment before using it as evidence for your workload; a historical benchmark does not automatically validate a newer release or a different device.
 
-## Generated bundle
+The three linked JSON files share a `generation_id`, identifying the same generated bundle. They let you inspect the source inventory and individual records behind the charts without relying on counts copied into prose.
 
-The frontend loads:
-
-- `benchmark_data.json`: registries and normalized runs;
-- `parse_report.json`: source/run counts and structured issues;
-- `source_inventory.json`: catalog, registration, availability, and parsed counts.
-
-All three files share one `generation_id`. In canonical mode, inventory fields refer to the manifest-registered June-or-later sources. Read the generated inventory for current counts instead of copying those counts into downstream documentation.
-
-## Reproduce and test
-
-```bash
-python -m pip install -U pytest jsonschema
-pytest \
-  dev/tests/test_benchmark_frontend_data.py \
-  dev/tests/test_benchmark_catalog.py \
-  dev/tests/test_benchmark_inventory_v2.py \
-  dev/tests/test_frontend_contracts.py \
-  dev/tests/test_frontend_domain_coverage.py \
-  dev/tests/test_panel_stage_b_frontend_source.py -v
-
-python dev/benchmarks/generate_benchmark_data.py \
-  --out frontend/public/data/benchmark_data.json \
-  --report frontend/public/data/parse_report.json \
-  --inventory-out frontend/public/data/source_inventory.json \
-  --deterministic --strict-sources
-
-cd frontend
-npm ci
-npm run typecheck
-npm run build
-npx playwright install --with-deps chromium firefox webkit
-npm run test:e2e
-npm run test:e2e:production
-```
-
-## Adding a source
-
-1. Copy canonical JSON under `results/benchmark_frontend_sources/`.
-2. Register SHA256, environment, comparison, parser, allowed issue codes, and `source_date` in `frontend_sources.json`.
-3. Ensure `source_date` is on or after the manifest's `minimum_source_date`.
-4. Implement or reuse a parser and register it in `registry.py`.
-5. Return schema-compliant runs with canonical case/method identities. Validation-only sources are allowed, but missing timing/speedup must remain absent rather than inferred.
-6. Add parser, date-policy, domain-coverage, and interaction tests.
-7. Regenerate the bundle and rebuild deployed assets.
-
-Technical references:
-
-- `docs/benchmark-dashboard/schema-v1.1.md`
-- `docs/benchmark-dashboard/parser-contracts.md`
-- `docs/benchmark-dashboard/aggregation-contract.md`
-- `docs/benchmark-dashboard/domain-coverage-audit-plan.md`
-- `docs/benchmark-dashboard/method-coverage-audit.md`
-- `docs/benchmark-dashboard/remaining-module-audit.md`
-- `docs/benchmark-dashboard/robust-loss-comparison-plan.md`
-- `docs/benchmark-dashboard/penalized-robust-quantile-plan.md`
+For benchmark authors, source registration, data generation, tests, browser QA, and deployment-asset updates are documented in the [contributor maintenance guide](../../../frontend/docs/benchmark-dashboard-maintenance.md).

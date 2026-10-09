@@ -611,7 +611,7 @@ RidgeCV(alphas=None, n_alphas=100, alpha_min_ratio=0.001, cv=5, cv_splits=None, 
 | `n_alphas` | `100` | Automatic grid size when alphas is omitted. |
 | `alpha_min_ratio` | `0.001` | Minimum/maximum ratio for the automatic grid; choose a positive value normally no greater than 1. |
 | `cv` | `5` | Generated shuffled K-fold count, at least 2. |
-| `cv_splits` | `None` | Explicit reusable list of (train_indices, validation_indices); validate nonempty disjoint integer subsets yourself. RidgeCV has the custom-training-subset restriction below. |
+| `cv_splits` | `None` | Explicit reusable list of (train_indices, validation_indices); validate nonempty disjoint integer subsets yourself. See the known custom-training-subset issue below. |
 | `fit_intercept` | `True` | Fit an intercept in CV and final refit. |
 | `device` | `'auto'` | cpu, cuda (CuPy), torch (Torch CUDA), auto; explicit unavailable GPU requests raise. |
 | `n_jobs` | `None` | Shared worker configuration; no candidate-parallelism guarantee. |
@@ -653,7 +653,8 @@ A chosen grid can still miss the useful penalty range.
 
 ### Custom RidgeCV training subsets
 
-With no sample weights, when validation sets partition every row once,
+This is a known implementation issue ([#243](https://github.com/TheHiddenObserver/statgpu/issues/243)).
+With no `sample_weight`, when validation sets partition every row once,
 RidgeCV currently substitutes each validation set's full complement for the
 supplied training indices. A deliberately smaller training subset is therefore
 not honored, even if it is valid and disjoint. Validation losses and alpha

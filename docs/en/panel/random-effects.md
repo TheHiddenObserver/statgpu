@@ -1,7 +1,7 @@
 # RandomEffects
 
 > Language: English  
-> Last updated: 2026-08-19  
+> Last updated: 2026-10-09<br>
 > Switch: [Chinese](../../cn/panel/random-effects.md)
 
 ## Overview
@@ -9,10 +9,6 @@
 `RandomEffects` fits a one-way random-intercept panel model using the Swamy-Arora variance-component estimator followed by feasible GLS. Unlike fixed effects, the entity-specific effect is modeled as a random component rather than as one unrestricted fixed parameter per entity.
 
 The chosen `cov_type` changes the reported standard errors and tests after the GLS fit; it does not change the Swamy-Arora variance components or the coefficient estimate.
-
-## Path
-
-Implementation: `statgpu/panel/_random_effects.py`.
 
 ## Statistical Model and Identification
 
@@ -165,9 +161,9 @@ Public results include `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `th
 
 Changing `cov_type` does not refit the random-effects model: the variance components and coefficients stay the same, while the reported uncertainty changes.
 
-The auxiliary between/within regressions and final GLS solve use the shared cancellation-sensitive SVD response projection when the response has extreme magnitude cancellation; ordinary responses retain the historical BLAS path and the same SVD rank/minimum-norm policy.
+The auxiliary regressions and final GLS calculation use numerical safeguards for extreme response scales and cancellation. They retain the same Swamy-Arora and least-squares definitions.
 
-Swamy-Arora variance-component arithmetic fails closed when a single float64 common residual scale would erase a nonzero within/between residual, including the case where the normalized residual survives but its square underflows before RSS accumulation. Quasi-demeaning is also certified against the algebraically equivalent `within + (1-theta)*mean` decomposition. If multiplication, addition, or a materially different transformed result would discard a nonzero component, `fit()` raises `FloatingPointError` rather than returning a finite but incorrect GLS coefficient. The positive square-root complement is retained before forming `theta=1-complement`, so the certificate still sees a representable complement when that subtraction rounds `theta` to exactly one. These are float64 representation limits, not alternative statistical definitions.
+If float64 cannot reliably represent the within/between residual-variance contributions or the quasi-demeaned data, `fit()` raises `FloatingPointError` instead of returning an unreliable GLS coefficient. A finite input or a full-rank design does not remove these finite-precision limitations.
 
 The Swamy-Arora variance-component step requires positive residual degrees of freedom in both its within and between auxiliary regressions. In particular, if the number of entities is no larger than the identified rank of the between regression, `fit()` raises instead of inventing a denominator and returning an unreliable random-effect variance.
 
@@ -181,11 +177,11 @@ The classical Hausman comparison is available only under the conditions document
 
 **Why can $\widehat\sigma_a^2$ be zero?**  The raw Swamy-Arora estimate can be negative in finite samples; statgpu truncates that variance estimate at zero because a variance cannot be negative.
 
-## External Validation
+<a id="external-validation"></a>
 
-Random-effects coefficient estimates are **not** claimed to match another package exactly because statgpu uses its own Swamy-Arora variance-component construction. Instead, we take statgpu's quasi-demeaned $(X^*,y^*)$ regression and compare the resulting robust and Driscoll-Kraay covariance with `linearmodels==7.0`, and HC2/HC3 covariance with `statsmodels==0.14.6`. Covariance comparisons use `rtol=5e-9, atol=5e-11`; see the shared [validation matrix](covariance.md#validation-matrix).
+## Comparing with Other Packages
 
-GPU consistency is tested separately by comparing CuPy and Torch outputs with NumPy at default `rtol=5e-6, atol=5e-7`; observed differences are stored in `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`. The new `dev/benchmarks/validate_panel_intercept_cancellation_gpu.py` gate additionally checks Pooled/Between cancellation-tail coefficients and the RandomEffects variance/quasi-demeaning fail-closed boundaries with explicit requested/executed CuPy and Torch backend evidence.
+Random-effects coefficient estimates are **not** guaranteed to match another package because statgpu uses its own Swamy-Arora variance-component construction. A like-for-like covariance comparison uses statgpu's quasi-demeaned $(X^*,y^*)$ regression: robust and Driscoll-Kraay covariance can be compared with linearmodels, and HC2/HC3 with statsmodels, after aligning covariance settings and degrees of freedom. Such a comparison concerns uncertainty for that transformed regression; it does not establish coefficient equivalence between different random-effects implementations. See [comparing covariance definitions](covariance.md#comparing-covariance-definitions).
 
 ## References
 

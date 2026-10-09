@@ -142,7 +142,7 @@ This example selects `alpha_=0.05`. Each validation block follows its training b
 
 Use custom splits when ordinary shuffled folds do not match the data, such as ordered or grouped observations. Validate each pair as nonempty, disjoint, one-dimensional integer indices without repeated rows. Validation varies by estimator; the shared splitter can cast or flatten indices and skip empty pairs, so acceptance alone does not establish a valid split. Scientific suitability remains the caller's responsibility.
 
-**Current RidgeCV limitation.** Without `sample_weight`, when validation sets
+**Known RidgeCV custom-split issue.** Without `sample_weight`, when validation sets
 cover every observation exactly once, RidgeCV can replace a supplied training
 subset with the full complement of its validation set. Deliberately excluded
 rows can re-enter training and change validation scores or the selected alpha.

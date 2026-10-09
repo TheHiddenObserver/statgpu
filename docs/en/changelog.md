@@ -15,6 +15,8 @@ This page records user-visible changes for current and recent statgpu releases.
 
 ### Improved (2026-10-09)
 
+- Separated learner guidance from panel/model validation provenance and benchmark-dashboard maintenance instructions. Kept statistical assumptions, numerical warnings and comparison settings in the user pages; described the custom RidgeCV training-row defect as a known implementation issue with its external-CV workaround. Moved the historical PR78 dashboard plan to developer plans, replaced brittle current-data counts with generated-data links, and qualified older speed measurements by their actual workload and available provenance.
+
 - Reorganized model tutorials into short, explained steps: imports and input meaning, data preparation, fitting, prediction, and result interpretation. Later inference, tuning, and GPU examples name and reuse their earlier setup where appropriate, instead of repeating whole datasets or CPU fits. English and Chinese pages follow the same progression while retaining model-specific formulas, assumptions, and limitations.
 - Added explicit data preparation to examples that previously relied on undeclared variables. Executable-example tests now follow the same ordered blocks and declared setup dependencies as readers, while preserving the checks on predictions, inference, and cross-validation results.
 
