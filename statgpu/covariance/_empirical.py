@@ -164,6 +164,15 @@ class EmpiricalCovariance(BaseEstimator):
                 "Use device='cpu' or reset the global device and use device='auto'."
             )
 
+        # Only actual backend arrays need device transfer. Ordinary array-like
+        # objects can also expose methods such as pandas' keyed ``get``; those
+        # methods must not be mistaken for CuPy/Torch transfer operations.
+        # Apply the covariance float64 dtype before transfer as well: numeric
+        # pandas extension columns can expose an object-dtype NumPy array.
+        # Native arrays never pass through NumPy, preserving their ownership.
+        if not _is_cupy_array(X) and not _is_torch_array(X):
+            X = np.asarray(X, dtype=np.float64)
+
         xp = backend.xp
         if fitted and backend_name == "cupy":
             # Allocate CPU queries directly on the fitted GPU; an already-native

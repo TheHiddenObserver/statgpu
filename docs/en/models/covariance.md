@@ -1,7 +1,7 @@
 # Covariance Estimation
 
 > Language: English  
-> Last updated: 2026-10-09\
+> Last updated: 2026-10-10\
 > Switch: [Chinese](../../cn/models/covariance.md)
 
 ## Overview
@@ -116,6 +116,13 @@ estimate uses the scaled-identity target completely. This matches the simple
 simulation but is not a value to expect for every dataset. The score is about
 `-14.175`; it is a Gaussian log-likelihood score, not an accuracy percentage.
 Evaluate competing models on the same held-out rows when comparing generalization.
+
+Numeric pandas `DataFrame` inputs and ordinary array-like inputs, such as nested
+lists, can be used for fitting and for `score`, `predict`, and `mahalanobis`.
+A one-dimensional numeric input, including a pandas `Series`, is treated as one
+feature during fitting. Column labels do not align features automatically:
+keep evaluation columns in the same order as training columns. Missing and
+infinite values must be removed or handled before fitting or evaluation.
 
 ## Estimation Algorithms
 

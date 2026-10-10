@@ -1,13 +1,17 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-10-09<br>
+> Last updated: 2026-10-10<br>
 > This page: Release history  
 > Switch: [Chinese](../cn/changelog.md)
 
 This page records user-visible changes for current and recent statgpu releases.
 
 ## Unreleased — Learner guides and API references (PR #168)
+
+### Fixed (2026-10-10)
+
+- Restored numeric pandas `DataFrame` inputs for fitting, scoring, prediction, and Mahalanobis distances across all seven covariance estimators, plus single-feature `Series` fits. Device preparation had confused pandas' keyed `get` method with a CuPy transfer method. Ordinary array-like inputs are now normalized before device conversion, while actual CuPy and Torch arrays retain the existing device-policy handling. Regression coverage checks these inputs against NumPy results, validates malformed inputs, and exercises real Torch CPU queries; physical CUDA coverage is conditional on available hardware.
 
 ### Fixed (2026-10-09)
 
