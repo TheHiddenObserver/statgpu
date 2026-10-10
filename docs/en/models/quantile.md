@@ -1,21 +1,71 @@
 # Quantile Regression
 
 > Language: English  
-> Last updated: 2026-09-18  
+> Last updated: 2026-10-09<br>
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/quantile.md)
 
-## Overview
+## When to use quantile regression
 
-`QuantileLoss` implements the **check loss (also called pinball loss)** used in quantile regression. These are two names for the same asymmetric absolute-loss objective, not two different losses. `PenalizedQuantileRegression` adds penalized estimation, including ordinary IRLS for the automatic L2/no-penalty route, an explicitly selectable ordinary FISTA route for convex objectives, the specialized Proximal IRLS-CD route for scalar SCAD/MCP, and a Group Proximal IRLS-LLA automatic route for Group SCAD/MCP.
+Quantile regression models a location in the conditional response distribution: `quantile=0.5` estimates the conditional median, and `0.9` estimates its 90th percentile. Use it to study tails or asymmetric responses. If the scientific question concerns the conditional mean, consider a mean model such as ordinary linear regression.
 
-| Component | Path |
-|-----------|------|
-| Loss | `statgpu.losses.QuantileLoss` |
-| Standalone Model | `statgpu.linear_model.QuantileRegression` |
-| Penalized Model | `statgpu.linear_model.penalized.PenalizedQuantileRegression` |
-| Specialized Solver | `statgpu.solvers._proximal_irls_quantile.proximal_irls_quantile_solver` |
-| R equivalent | `quantreg::rq()` |
+`QuantileRegression` provides unpenalized fitting and inference under the conditions below; `PenalizedQuantileRegression` adds regularization. Both use the asymmetric absolute loss called check loss or pinball loss. Median regression penalizes large response residuals linearly rather than quadratically; that does not automatically protect against unusual predictor values.
+
+<a id="cpu-example"></a>
+
+## A complete CPU example
+
+Run these steps in order to fit a conditional median and evaluate it on rows not used for fitting.
+
+### 1. Import
+
+<!-- learner-example: quantile-basic -->
+```python
+import numpy as np
+from statgpu.linear_model import QuantileRegression
+```
+
+### 2. Prepare a continuous response
+
+`X` is a `(320, 2)` matrix, with observations in rows and numeric features in columns; `y` is a length-320 continuous response. The symmetric noise has conditional median zero, so the true conditional median is `1 + X @ [1.5, -0.7]`. Train on the first 240 rows and hold out 80. Handle nonfinite values in real data and preserve feature order for prediction.
+
+```python
+rng = np.random.default_rng(23)
+X = rng.normal(size=(320, 2))
+y = 1.0 + X @ np.array([1.5, -0.7]) + rng.normal(scale=0.6, size=320)
+```
+
+### 3. Fit the conditional median
+
+`quantile=0.5` selects the median. Leave inference off while learning the fitted coefficients and predictions.
+
+```python
+model = QuantileRegression(
+    quantile=0.5, device="cpu", max_iter=3000, tol=1e-6,
+).fit(X[:240], y[:240])
+print("Slopes:", np.round(model.coef_, 3))
+```
+
+Slopes round to `[1.476, -0.636]`. Holding the other feature fixed, a unit increase in the first feature increases the fitted conditional median by about 1.476 response units. This interpretation concerns the selected quantile, not automatically a causal or mean effect.
+
+### 4. Predict and evaluate
+
+```python
+prediction = model.predict(X[240:])
+pinball_loss = -model.score(X[240:], y[240:])
+print("Predicted medians:", np.round(prediction[:3], 3))
+print("Held-out pinball loss:", round(float(pinball_loss), 3))
+```
+
+Predictions have shape `(80,)`; the first three round to `[1.429, 1.455, 1.632]`. Held-out pinball loss is about `0.255`; lower is better on fixed evaluation data at the same target quantile. `score` returns its negative, not R². A quantile prediction is not a confidence interval for an individual future observation.
+<!-- example-end: quantile-basic -->
+
+## Choosing settings and checking results
+
+- Choose `quantile` from the question, rather than changing the target to whichever quantile has the lowest training loss. Extreme quantiles need more data.
+- Feature scale affects shrinkage in penalized fits. Learn scaling and `alpha` within training folds and keep a final test set separate.
+- Separately fitted quantiles can cross; this API does not automatically impose noncrossing constraints.
+- Inspect numerical warnings and iteration stability. `n_iter_` is not an accuracy guarantee, and a larger budget cannot fix an unidentified design.
 
 ## Objective function
 
@@ -56,11 +106,113 @@ $$
 
 with the usual subgradient interpretation at zero residual. The gradient is a step function, so `has_hessian=False` and `smooth_gradient=False`.
 
-## Parameters
+## Key parameter
+
+The table selects the target-quantile control only. Complete standalone parameters, inference controls, and methods are in the [QuantileRegression public implementation](../../../statgpu/linear_model/wrappers/_quantile.py) or `help(QuantileRegression)`. For the penalized class, see its [public implementation](../../../statgpu/linear_model/penalized/_penalized_quantile.py) and [shared penalized API](../reference/linear-model-api.md#penalizedgeneralizedlinearmodel).
 
 | Parameter | Default | Description |
 |---|---:|---|
 | `quantile` | `0.5` | Target quantile in `(0,1)`; `0.5` is median regression |
+
+## Advanced usage
+
+### Standalone coefficient inference
+
+Standalone kernel/bootstrap inference is defined only for omitted or uniform `sample_weight`; genuinely non-uniform analytic weights are estimation-only on this class and raise when `compute_inference=True`. The bootstrap implementation is an **i.i.d. residual bootstrap**: fitted residuals are first centered at their empirical target-quantile so the bootstrap error distribution has empirical τ-quantile zero, then the centered residuals are resampled as exchangeable draws and refitted with backend-native batched Quantile IRLS/MM. It is not a wild/multiplier bootstrap and does not claim heteroscedastic-robust coverage; heteroscedastic quantile-regression bootstrap inference requires a different resampling construction. Bootstrap inference also requires `n_bootstrap >= 2`. Kernel inference additionally requires the selected bandwidth rule to keep `q ± h` inside `(0, 1)` and to produce a finite positive residual-density estimate at zero; otherwise inference raises instead of publishing non-finite standard errors.
+
+Reuse the imports and training data from the completed [CPU example](#cpu-example). The kernel-density method below estimates coefficient uncertainty; its intervals are for coefficients, not future responses.
+
+<!-- example-requires: quantile-basic -->
+<!-- learner-example: quantile-inference -->
+```python
+inference_model = QuantileRegression(
+    quantile=0.5, device="cpu", max_iter=3000, tol=1e-6,
+    compute_inference=True, inference_method="kernel",
+    kernel="epa", bandwidth="hsheather",
+).fit(X[:240], y[:240])
+print("Standard errors:", inference_model._bse)
+print("Intervals:", inference_model._conf_int)
+```
+<!-- example-end: quantile-inference -->
+
+Here the interval array has shape `(3, 2)`: intercept first, then two slopes. `_bse` and `_pvalues` use the same order.
+
+### Add an L2 penalty
+
+Reuse `X`, `y` from the completed [CPU example](#cpu-example). `alpha` controls shrinkage; the example value is illustrative and should be selected using training-only validation. For L2/no penalty, `solver="auto"` selects IRLS.
+
+<!-- example-requires: quantile-basic -->
+<!-- learner-example: quantile-penalized -->
+```python
+from statgpu.linear_model.penalized import PenalizedQuantileRegression
+
+penalized_model = PenalizedQuantileRegression(
+    quantile=0.5, penalty="l2", alpha=0.1, device="cpu",
+).fit(X[:240], y[:240])
+penalized_prediction = penalized_model.predict(X[240:])
+```
+<!-- example-end: quantile-penalized -->
+
+### Optional: a SCAD penalty
+
+Complete the [CPU example](#cpu-example) and “Add an L2 penalty” first, then reuse their import and training data. Scalar SCAD/MCP uses specialized Proximal IRLS-CD continuation for nonconvex penalties; assess tuning and numerical stability separately.
+
+<!-- example-requires: quantile-penalized -->
+<!-- learner-example: quantile-scad -->
+```python
+scad_model = PenalizedQuantileRegression(
+    quantile=0.5, penalty="scad", alpha=0.1, device="cpu",
+).fit(X[:240], y[:240])
+```
+<!-- example-end: quantile-scad -->
+
+### Explicit IRLS or FISTA
+
+Complete the [CPU example](#cpu-example) and “Add an L2 penalty” first, then reuse their import and training data. Keep the target and penalty fixed while changing the algorithm. `auto` and explicit IRLS use the same route; explicit ordinary FISTA really runs FISTA, rather than redirecting to IRLS. Nonsmooth penalties such as ElasticNet already use ordinary FISTA.
+
+<!-- example-requires: quantile-penalized -->
+<!-- learner-example: quantile-explicit-solvers -->
+```python
+irls_model = PenalizedQuantileRegression(
+    quantile=0.5, penalty="l2", alpha=0.01, solver="irls", device="cpu",
+).fit(X[:240], y[:240])
+```
+
+Request FISTA for the same data and objective:
+
+```python
+fista_model = PenalizedQuantileRegression(
+    quantile=0.5, penalty="l2", alpha=0.01, solver="fista", device="cpu",
+).fit(X[:240], y[:240])
+```
+<!-- example-end: quantile-explicit-solvers -->
+
+### Weighted quantile regression
+
+Complete the [CPU example](#cpu-example) and “Add an L2 penalty” first, then reuse their import and training data. This length-240 finite nonnegative weight vector gives the first 50 training observations more influence in the fitting objective; the weight sum must be positive.
+
+<!-- example-requires: quantile-penalized -->
+<!-- learner-example: quantile-weighted -->
+```python
+sample_weight = np.ones(240)
+sample_weight[:50] = 5.0
+weighted_model = PenalizedQuantileRegression(
+    quantile=0.5, penalty="l2", alpha=0.01, device="cpu",
+).fit(X[:240], y[:240], sample_weight=sample_weight)
+```
+<!-- example-end: quantile-weighted -->
+
+This demonstrates an estimation path that supports analytic weights, not universal support across low-level solvers or inference methods.
+
+### GPU (Torch CUDA)
+
+Complete the [CPU example](#cpu-example) and “Add an L2 penalty” first, then reuse the `PenalizedQuantileRegression` import and `X`, `y`. Request Torch CUDA explicitly; an installed Torch package and usable CUDA device are required, and an unavailable explicit device raises.
+
+```python
+gpu_model = PenalizedQuantileRegression(
+    quantile=0.5, penalty="scad", alpha=0.1, device="torch",
+).fit(X[:240], y[:240])
+```
 
 ## Solver compatibility
 
@@ -113,106 +265,6 @@ But `sample_weight` is **not one universal solver capability**. In particular:
 - direct low-level Quantile L-BFGS retains omitted/uniform-weight compatibility, while genuine non-uniform weights raise an error; estimator/CV explicit L-BFGS remains unsupported.
 
 For weighted support across other losses and solver families, see the [Solver × Penalty Compatibility Matrix](../guides/solver-penalty-matrix.md) and [Solver Algorithms](../guides/solver-algorithms.md).
-
-## Examples
-
-### Standalone model with inference
-
-Standalone kernel/bootstrap inference is defined only for omitted or uniform `sample_weight`; genuinely non-uniform analytic weights are estimation-only on this class and raise when `compute_inference=True`. The bootstrap implementation is an **i.i.d. residual bootstrap**: fitted residuals are first centered at their empirical target-quantile so the bootstrap error distribution has empirical τ-quantile zero, then the centered residuals are resampled as exchangeable draws and refitted with backend-native batched Quantile IRLS/MM. It is not a wild/multiplier bootstrap and does not claim heteroscedastic-robust coverage; heteroscedastic quantile-regression bootstrap inference requires a different resampling construction. Bootstrap inference also requires `n_bootstrap >= 2`. Kernel inference additionally requires the selected bandwidth rule to keep `q ± h` inside `(0, 1)` and to produce a finite positive residual-density estimate at zero; otherwise inference raises instead of publishing non-finite standard errors.
-
-```python
-from statgpu.linear_model import QuantileRegression
-
-model = QuantileRegression(
-    quantile=0.5,
-    compute_inference=True,
-    inference_method="kernel",
-    kernel="epa",
-    bandwidth="hsheather",
-)
-model.fit(X, y)
-print(model.coef_)
-print(model._bse)
-print(model._pvalues)
-print(model._conf_int)
-```
-
-### Penalized quantile regression
-
-```python
-from statgpu.linear_model.penalized import PenalizedQuantileRegression
-
-# solver="auto" resolves to IRLS for this L2-penalized Quantile problem.
-model = PenalizedQuantileRegression(
-    quantile=0.5,
-    penalty="l2",
-    alpha=0.1,
-    solver="auto",
-)
-model.fit(X, y)
-
-# Scalar SCAD/MCP use the specialized Proximal IRLS-CD continuation path.
-scad_model = PenalizedQuantileRegression(
-    quantile=0.5,
-    penalty="scad",
-    alpha=0.1,
-)
-scad_model.fit(X, y)
-```
-
-### Explicit Quantile IRLS or FISTA
-
-```python
-irls_model = PenalizedQuantileRegression(
-    quantile=0.5,
-    penalty="l2",
-    alpha=0.01,
-    solver="irls",
-)
-irls_model.fit(X, y)
-
-fista_model = PenalizedQuantileRegression(
-    quantile=0.5,
-    penalty="l2",
-    alpha=0.01,
-    solver="fista",
-)
-fista_model.fit(X, y)
-```
-
-For L2/no penalty, `auto` and explicit IRLS use the same IRLS route. Explicit ordinary FISTA is an algorithm-control option and truly executes FISTA; it does not alias or fall back to IRLS. Non-smooth penalties such as ElasticNet already use ordinary FISTA rather than IRLS.
-
-### GPU (Torch CUDA)
-
-```python
-import torch
-
-X_t = torch.tensor(X, dtype=torch.float64).cuda()
-y_t = torch.tensor(y, dtype=torch.float64).cuda()
-
-model = PenalizedQuantileRegression(
-    quantile=0.5,
-    penalty="scad",
-    alpha=0.1,
-)
-model.fit(X_t, y_t)
-```
-
-### Weighted quantile
-
-```python
-sample_weight = np.ones(n)
-sample_weight[:50] = 5.0
-
-model = PenalizedQuantileRegression(
-    quantile=0.5,
-    penalty="l2",
-    alpha=0.01,
-)
-model.fit(X, y, sample_weight=sample_weight)
-```
-
-This example uses an estimator path that supports analytic weights. It does not imply that every explicitly selected low-level solver supports the same non-uniform weights.
 
 ## Algorithm details
 
@@ -301,15 +353,17 @@ Quantile/check loss is non-smooth, so this route should not be interpreted as sa
 
 ## Notes
 
-- `QuantileRegression.score()` and the typed `PenalizedQuantileRegression.score()` use check/pinball loss and return its negative to follow sklearn's “higher is better” convention. NumPy, CuPy, and Torch response/weight containers are accepted on supported routes; scoring takes only the final reporting snapshot needed to return a Python scalar. The generic `PenalizedGeneralizedLinearModel(loss="quantile")` keeps the shared scalar-response `score()` contract and therefore reports response-scale R²; `PenalizedGLM_CV.score()` delegates to that selected refit. For CV, `best_score_` is negative validation loss and is intentionally a different metric from the post-fit `score()`.
+- `QuantileRegression.score()` and the typed `PenalizedQuantileRegression.score()` use check/pinball loss and return its negative to follow sklearn's “higher is better” convention. NumPy, CuPy, and Torch response/weight containers are accepted on supported routes; scoring converts responses, weights, and predictions to NumPy and returns a Python scalar. The generic `PenalizedGeneralizedLinearModel(loss="quantile")` keeps the shared scalar-response `score()` contract and therefore reports response-scale R²; `PenalizedGLM_CV.score()` delegates to that selected refit. For CV, `best_score_` is negative validation loss and is intentionally a different metric from the post-fit `score()`.
 - `sample_weight` support is a **loss × solver × estimator** route capability, not an automatic property of every solver.
-- Strict Quantile cross-validation requires complete finite fold evidence for every penalty family. A fold that its solver route explicitly marks as a target-level convergence failure is not scored, and an alpha is eligible only when every fold has a finite score. If any fold fit fails or carries that explicit target-level failure signal, the whole candidate column is treated as missing rather than averaging the remaining folds. A generic solver `ConvergenceWarning` alone does not erase an otherwise finite candidate result. Two-stage screening remains intentionally relaxed; the complete-evidence rule applies to strict refinement/selection. The selected full-data refit follows direct-estimator convergence reporting and may emit `ConvergenceWarning` rather than being treated as a CV candidate failure.
+- Strict Quantile cross-validation requires finite validation scores from every fold for every penalty family. A fold that its solver route explicitly marks as a target-level convergence failure is not scored, and an alpha is eligible only when every fold has a finite score. If any fold fit fails or carries that explicit target-level failure signal, the whole candidate column is treated as missing rather than averaging the remaining folds. A generic solver `ConvergenceWarning` alone does not erase an otherwise finite candidate result. Two-stage screening remains intentionally relaxed; the all-fold score requirement applies to strict refinement/selection. The selected full-data refit follows direct-estimator convergence reporting and may emit `ConvergenceWarning` rather than being treated as a CV candidate failure.
 - Quantile non-convex continuation routes reject stopping-control coercion. `max_iter` must be a positive integer and `tol` a finite positive real number; direct scalar SCAD/MCP and automatic Group SCAD/MCP also require boolean `lla=True`, integer `max_lla_iters`, and finite-positive `lla_tol`. The current automatic Quantile continuation has three alpha steps, so `max_lla_iters` must be at least 3 to give every step one LLA update. Intermediate continuation steps use a reduced IRLS budget that never exceeds the public `max_iter`; the target step may use the full budget. Explicit Group SCAD/MCP `solver="fista"` does not enter an LLA continuation route, so `lla`, `max_lla_iters`, and `lla_tol` do not govern that explicit algorithm.
 - Public low-level Quantile solver calls—including ordinary `fista_solver`, the direct `lbfgs_solver` compatibility row, `QuantileLoss.irls()`, `proximal_irls_quantile_solver()`, and Quantile `fista_lla_path()`—reject malformed supervised shapes before numerical work: `X` must be two-dimensional, `y` one-dimensional, and their row counts must agree; both arrays must also contain real finite values. The specialized IRLS/continuation boundaries also reject invalid intercept, stopping, path, and weight controls instead of relying on broadcasting or implicit coercion. For direct continuation calls, `alpha_path` must be a non-empty one-dimensional sequence of finite positive values in non-increasing order from the continuation start to the target.
 - Explicit ordinary L2/no-penalty Quantile FISTA is supported and is authoritative: it executes FISTA rather than silently substituting IRLS. Explicit Group SCAD/MCP FISTA is likewise not rewritten into the automatic Group Proximal IRLS-LLA route.
-- Quantile FISTA-BB, direct ADMM, Newton, Proximal Newton, and L-BFGS-B are unsupported and raise before numerical iteration. Estimator/CV ordinary L-BFGS remains unsupported, while the existing low-level unweighted/uniform `lbfgs_solver` compatibility boundary is preserved. The historical `quantile_cd_solver` name remains import-compatible but raises immediately when called: its old implementation ignored `sample_weight` and could not represent an unpenalized intercept reliably, so scalar SCAD/MCP fitting uses Proximal IRLS-CD instead.
+- Quantile FISTA-BB, direct ADMM, Newton, Proximal Newton, and L-BFGS-B are unsupported and raise before numerical iteration. Estimator/CV ordinary L-BFGS remains unsupported, while the existing low-level unweighted/uniform `lbfgs_solver` compatibility boundary is preserved. `quantile_cd_solver` remains import-compatible but raises `NotImplementedError` when called. Use `proximal_irls_quantile_solver` for low-level scalar SCAD/MCP fitting.
 - Unsupported explicit weighted-solver combinations raise an error before numerical iteration rather than silently substituting another solver.
 - Supported GPU routes (`cuda`/`torch`) do not silently fall back to CPU.
+
+For a low-level loss object, import `QuantileLoss` from `statgpu.losses`. For an external unpenalized comparison with R `quantreg::rq()`, align the quantile, design, intercept, weights, and optimization accuracy; inference also needs compatible density or resampling assumptions.
 
 ## References
 

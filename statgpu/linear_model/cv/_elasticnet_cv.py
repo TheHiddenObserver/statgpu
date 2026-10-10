@@ -563,21 +563,32 @@ class ElasticNetCV(CVEstimatorBase):
 
         minimize (1/(2n)) * ||y - Xw||²₂ + α * l1_ratio * ||w||₁ + 0.5 * α * (1 - l1_ratio) * ||w||²₂
 
-    This class uses K-fold cross-validation to select the optimal alpha and l1_ratio.
+    This class selects alpha and l1_ratio by minimum mean validation MSE over
+    the candidate grid, then refits on all supplied training rows. The displayed
+    objective omits the optional unpenalized intercept; analytic weights replace
+    the average squared loss with sum(w * residual**2) / (2 * sum(w)).
 
     Parameters
     ----------
     l1_ratio : float or array-like, default=0.5
         L1 regularization ratio. 0.0 = Ridge, 1.0 = Lasso.
-        If array-like, CV is performed over all values.
-    alphas : array-like or None
-        Alpha values to try. If None, generates n_alphas values.
+        If array-like, CV is performed over all valid values. Supply explicit
+        alphas for zero or near-zero ratios; the automatic L1-based grid can
+        otherwise contain only excessively large Ridge penalties.
+    alphas : array-like or None, default=None
+        Positive finite alpha values to try. If None, generates n_alphas values
+        separately for each ratio. The automatic rule divides a weighted-average centered X/y
+        cross-product by max(l1_ratio, 1e-6), and centers even when
+        fit_intercept=False. Use an explicit grid for no-intercept fits too.
     n_alphas : int, default=100
         Number of alpha values (if alphas is None).
     alpha_min_ratio : float, default=1e-3
         Minimum alpha as a ratio of max alpha.
     cv : int, default=5
         Number of CV folds.
+    cv_splits : iterable of index pairs or None, default=None
+        Explicit (training, validation) row indices override shuffled K-fold.
+        Use a reusable list and construct grouped/time-aware splits explicitly.
     fit_intercept : bool, default=True
         Whether to fit intercept.
     max_iter : int, default=1000
@@ -585,12 +596,16 @@ class ElasticNetCV(CVEstimatorBase):
     tol : float, default=1e-4
         Convergence tolerance.
     device : str or Device, default=Device.AUTO
-        Computation device: 'cpu', 'cuda', or 'auto'.
+        Computation device: 'cpu', 'cuda' (CuPy), 'torch' (Torch CUDA), or 'auto'.
     compute_inference : bool, default=False
-        Whether to compute inference statistics.
-    random_state : int or None
+        Compute debiased inference on the final full-data ``estimator_`` only,
+        conditional on selected tuning; no inference-method selector is exposed.
+    nodewise_alpha : float or None, keyword-only, default=None
+        Positive node-wise precision tuning for final debiased inference;
+        does not change the CV grid, losses, or prediction coefficients.
+    random_state : int or None, default=None
         Random seed for CV splits.
-    n_jobs : int or None
+    n_jobs : int or None, default=None
         Number of parallel jobs (not yet implemented).
 
     Attributes
@@ -604,20 +619,70 @@ class ElasticNetCV(CVEstimatorBase):
     intercept_ : float
         Intercept of the final model.
     cv_results_ : dict
-        CV results including mse_path and mean_mse.
+        With r ratios, a maximum alpha count and f folds: mse_path (r, a, f),
+        mean_mse/std_mse (r, a), alphas mapping ratio indices to actual grids,
+        l1_ratios (r,), and scalar best_alpha/best_l1_ratio. Larger ratios can
+        have a different alpha grid; use the stored mapping to label results.
     best_score_ : float
-        Best (minimum) MSE across CV folds.
+        Negative minimum mean validation MSE across CV folds (larger is better).
+
+    estimator_ : ElasticNet
+        Final full-data estimator. Read enabled coefficient inference here.
+    n_iter_ : int
+        Final-fit iteration count, not a convergence certificate.
+    cv_selected_device_ : str or Device
+        Device selected for the final fit.
+    nodewise_alpha_ : float or None
+        Final estimator's resolved node-wise inference penalty, when available.
+
+    Methods
+    -------
+    fit(X, y, sample_weight=None)
+        Return self; finite X (n, p), one-dimensional y (n,), optional finite
+        nonnegative analytic weights (n,) with positive total. No formula API.
+    predict(X)
+        NumPy predictions (m,), through the final estimator's default behavior.
+    score(X, y)
+        Unweighted held-out R-squared, not the negative MSE used for selection.
+        No evaluation-weight argument; use estimator_.score for validated weights.
+    summary()
+        Print the final estimator's inference report and return None. Requires
+        successful enabled inference on the final refit.
+    get_params(deep=True), set_params(**params)
+        Read/update configuration; a nonempty valid update clears fitted state.
+    adjust_pvalues, combine_pvalues, bootstrap_statistic, permutation_test
+        Shared estimator helpers for supplied data/p-values; they do not rerun CV.
+
+    Notes
+    -----
+    Generated folds are shuffled K-fold, not stratified, grouped or time-aware.
+    For custom splits use a reusable list of nonempty, disjoint integer index
+    pairs without repeated rows. Validate them yourself: the shared splitter
+    currently casts/reshapes indices and accepts overlaps. Each weighted fold
+    needs positive weight mass. Learn preprocessing within each training fold,
+    using an external loop when necessary; no scoring callable is accepted here.
+    The current path below four rows does not return usable CV results.
+    Invalid grid entries are filtered, and an empty valid grid falls back to
+    automatic generation. Invalid ratios are filtered, defaulting to 0.5 if all
+    are removed; validate the intended scientific search yourself.
+    Inference conditions on selected alpha/l1_ratio and does not account for
+    tuning uncertainty. There is no solver, stopping, cov_type or inference_method
+    constructor control. Training weights do not automatically weight score().
 
     Examples
     --------
     >>> import numpy as np
     >>> from statgpu.linear_model import ElasticNetCV
-    >>> X = np.random.randn(1000, 50)
-    >>> y = X @ np.random.randn(50) + 0.1 * np.random.randn(1000)
-    >>> model = ElasticNetCV(l1_ratio=[0.2, 0.5, 0.8], cv=5, device='cuda')
-    >>> model.fit(X, y)
-    >>> print(f"Selected alpha: {model.alpha_:.4f}")
-    >>> print(f"Selected l1_ratio: {model.l1_ratio_:.4f}")
+    >>> rng = np.random.default_rng(19)
+    >>> X = rng.normal(size=(160, 3))
+    >>> y = 1 + X @ np.array([1.0, -0.5, 0.0]) + rng.normal(scale=0.4, size=160)
+    >>> model = ElasticNetCV(l1_ratio=[0.3, 0.7], alphas=[0.03, 0.1],
+    ...                      cv=3, random_state=7, device="cpu")
+    >>> _ = model.fit(X[:120], y[:120])
+    >>> model.predict(X[120:]).shape
+    (40,)
+    >>> bool(np.isclose(model.best_score_, -np.min(model.cv_results_["mean_mse"])))
+    True
     """
 
     def __init__(

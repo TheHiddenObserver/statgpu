@@ -44,7 +44,72 @@ def _concatenate(values, xp, axis=0):
 
 
 class SplineTransformer(BaseEstimator):
-    """B-spline feature transformer with native NumPy/CuPy/Torch evaluation."""
+    """B-spline feature transformer with native NumPy/CuPy/Torch evaluation.
+
+    Fit knots on training data, then reuse them with transform. Inputs are
+    finite real arrays and basis calculations use float64. This transformer
+    constructs features, not a response model or coefficient inference.
+
+    Current routing gives supplied Torch tensors priority over device.
+    Torch CPU input can keep knots_ and transformed features on CPU even
+    with explicit device='torch' or 'cuda'. With NumPy inputs, an unavailable
+    accelerator can instead raise. Inspect each knots_ array and returned
+    basis: Torch .device/.is_cuda, CuPy .device, or NumPy CPU ownership.
+    The configured device alone is insufficient. For a predictable CPU
+    path, use NumPy inputs with device='cpu'. These are current exceptions
+    to the intended convention that explicit accelerators are required.
+
+    On Torch, a multivariate single-query vector currently raises TypeError.
+    Preserve its row dimension, for example X[:1] rather than X[0]. Explicit
+    two-dimensional queries return (n_query,n_features_out_) basis arrays.
+
+    Parameters
+    ----------
+    n_knots : int, default=5
+        Number of knots per feature including the two boundaries, at least 3.
+        For custom knots, this must match the supplied row count.
+    degree : int, default=3
+        Nonnegative polynomial degree; 3 gives cubic B-splines.
+    knots : {'uniform', 'quantile'} or array-like, default='uniform'
+        Learn equally spaced or empirical-quantile knots from training rows.
+        Learned knots must be distinct; constant features and quantile ties
+        raise ValueError. Custom knots have shape (n_knots,n_features), must
+        be finite and strictly increasing in each column, and include the
+        boundaries. A one-feature custom knot vector is also accepted.
+    include_bias : bool, default=True
+        Keep all basis columns. They sum to one inside the knot range, so
+        each feature block can already represent a constant. False drops
+        the last column of each block; it does not remove constant or linear
+        structure from the represented model in general.
+    extrapolation : {'error', 'constant', 'linear', 'continue'}, default='constant'
+        Outside the fitted knot range, reject queries, clamp to the boundary,
+        extend its tangent, or continue its polynomial piece, respectively.
+        These rules extrapolate features, not a validated response relationship.
+    device : str or Device, default='auto'
+        Requested 'cpu', 'cuda', 'torch', or 'auto'; see the current Torch
+        input-priority limitation above and check actual array placement.
+    n_jobs : int or None, default=None
+        Shared estimator option; does not parallelize basis construction.
+
+    Attributes
+    ----------
+    knots_ : list of backend arrays
+        Per-feature knots, each shape (n_knots,), including the boundaries.
+    boundary_lo_, boundary_hi_ : backend arrays, shape (n_features_in_,)
+        Fitted lower and upper knot boundaries.
+    n_features_in_ : int
+        Number of fitted input features.
+    n_features_out_ : int
+        Input feature count times n_knots + degree - 1 when include_bias=True,
+        or times n_knots + degree - 2 when include_bias=False.
+
+    Notes
+    -----
+    Fit knots separately in each training fold when used in cross-validation.
+    fit accepts y and sample_weight but does not use them for knot placement;
+    sample_weight does not implement weighted quantiles. Refit after changing
+    constructor parameters: set_params can retain previous fitted arrays.
+    """
 
     def __init__(
         self,
@@ -160,6 +225,14 @@ class SplineTransformer(BaseEstimator):
         return result
 
     def fit(self, X, y=None, sample_weight=None):
+        """Learn knots from finite real X and return self.
+
+        X is a nonempty (n_samples,n_features) array; a vector is one feature.
+        Calculations use float64. y and sample_weight are accepted but unused,
+        including for quantile knots; shared finite-input guards still inspect
+        supplied values. Custom knots define their own boundaries, which need
+        not equal the training range. No response coefficients are fitted.
+        """
         self._validate_parameters()
         backend_name, xp, X_arr = self._prepare_X(X)
         self.n_features_in_ = int(X_arr.shape[1])
@@ -273,6 +346,15 @@ class SplineTransformer(BaseEstimator):
         return basis
 
     def transform(self, X):
+        """Return float64 spline features with shape (n_query,n_features_out_).
+
+        X must be finite and preserve fitted feature count/order. A vector is
+        multiple queries for one feature or one multivariate query. For Torch,
+        use an explicit matrix even for one multivariate row (X[:1]). Output
+        uses the resolved backend, subject to the class device-routing caveat.
+        Reuses fitted knots and the configured extrapolation rule. Columns
+        are grouped by input feature, then ordered by basis function.
+        """
         self._check_is_fitted()
         backend_name, xp, X_arr = self._prepare_X(X, self.n_features_in_)
         if backend_name != self._backend_name:
@@ -290,12 +372,25 @@ class SplineTransformer(BaseEstimator):
         return X_out
 
     def fit_transform(self, X, y=None, sample_weight=None):
+        """Fit knots and return transform(X); y and sample_weight are unused.
+
+        Output and extrapolation follow transform. Custom knot boundaries can
+        exclude training rows, so extrapolation='error' can reject this call
+        after knot fitting has completed.
+        """
         return self.fit(X, y, sample_weight).transform(X)
 
     def predict(self, X):
+        """Alias for transform(X); returns features, not response predictions."""
         return self.transform(X)
 
     def get_feature_names_out(self, input_features=None):
+        """Return a list of n_features_out_ feature names after fitting.
+
+        input_features is a sequence of n_features_in_ names, defaulting to
+        x0, x1, and so on. Names have the form '<feature>_bspline<index>' and
+        follow transform's feature-block and basis-column order.
+        """
         self._check_is_fitted()
         if input_features is None:
             input_features = [f"x{i}" for i in range(self.n_features_in_)]
@@ -307,6 +402,7 @@ class SplineTransformer(BaseEstimator):
         return [f"{name}_bspline{j}" for name in input_features for j in range(width)]
 
     def get_params(self, deep=True):
+        """Return constructor parameters in a dictionary for estimator tooling."""
         params = super().get_params(deep=deep)
         params.update(
             n_knots=self.n_knots,
@@ -318,6 +414,11 @@ class SplineTransformer(BaseEstimator):
         return params
 
     def set_params(self, **params):
+        """Update constructor controls and return self; refit before transform.
+
+        Some updates retain fitted arrays, so their presence does not establish
+        that the previous basis matches the new parameter values.
+        """
         for key in ["n_knots", "degree", "knots", "include_bias", "extrapolation"]:
             if key in params:
                 setattr(self, key, params.pop(key))

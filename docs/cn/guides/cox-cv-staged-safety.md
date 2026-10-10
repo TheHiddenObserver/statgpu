@@ -13,7 +13,7 @@
 
 无论是否设置这两个环境变量，当前 `CoxPHCV` 都会对**完整惩罚参数网格**执行全精度交叉验证，再选择惩罚强度并进行最终重拟合。
 
-因此，开启这些实验控制目前**不会减少实际评估的候选惩罚参数数量**。它们保留的是公开配置入口和诊断信息：用户可以明确知道自己请求了哪种实验性筛选方式，同时也能确认本次运行实际仍采用完整候选评估。
+因此，开启这些实验控制目前**不会减少实际评估的候选惩罚参数数量**。statgpu 会发出 `RuntimeWarning`，并在 `cv_results_` 中记录请求的模式与实际执行的完整候选评估。
 
 这意味着：
 
@@ -42,7 +42,7 @@ NumPy、CuPy 与 Torch 路径遵循相同的统计语义。显式选择 CuPy 或
 | `full_precision_candidate_mask` | 当前全部为 `True` |
 | `screened_out_candidate_mask` | 当前全部为 `False` |
 
-这些字段是用户可观察的诊断信息。它们描述当前行为，但不意味着调用者应该依赖内部候选循环、私有函数或具体执行顺序。
+检查 `*_enabled` 字段与候选掩码，即可确认本次是否实际执行了筛选；仅设置环境变量并不表示筛选已启用。
 
 ## 如何理解实验开关
 
@@ -69,17 +69,6 @@ assert model.cv_results_["staged_execution_mode"] == "exhaustive_safety_fallback
 assert model.cv_results_["staged_safety_strategy"] == "single_pass_exhaustive"
 assert model.cv_results_["full_precision_candidate_mask"].all()
 ```
-
-## 为什么保留这些控制项
-
-这些环境变量用于保留实验接口和可诊断性，使未来的候选筛选研究不必重新定义公开配置拼写。
-
-如果以后真正启用分阶段筛选，用户文档需要直接说明新的可观察语义，例如：
-
-- 哪些候选项会进入高精度阶段；
-- 各数据折如何分配计算预算；
-- 近似筛选是否可能改变最终候选集合；
-- 最终重拟合是否仍在全部数据上使用选定配置。
 
 ## 使用建议
 

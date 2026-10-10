@@ -20,7 +20,17 @@ from statgpu.unsupervised._utils import (
 
 
 class TSNE(BaseEstimator):
-    """Dense exact t-SNE with backend-native probability and gradient steps."""
+    """Dense exact t-SNE with backend-native probability and gradient steps.
+
+    Perplexity is an entropy-based effective neighborhood size. The API checks
+    only ``0 < perplexity < n_samples``, while a distribution over the other
+    observations has perplexity in ``[1, n_samples - 1]``. Tied nearest neighbors
+    can raise the attainable lower bound. Acceptance by the range check does
+    not establish that bandwidth calibration reaches the requested target.
+
+    The output is a training-only visualization. There is no new-data
+    ``transform`` or ``predict``; retain row identifiers with ``embedding_``.
+    """
 
     def __init__(
         self,

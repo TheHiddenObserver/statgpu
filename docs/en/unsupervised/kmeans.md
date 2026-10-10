@@ -1,12 +1,16 @@
 # KMeans
 
 > Language: English
-> Last updated: 2026-05-02
+> Last updated: 2026-10-05
 > Switch: [Chinese](../../cn/unsupervised/kmeans.md)
 
 ## Overview
 
 `KMeans` partitions dense observations into `n_clusters` groups by minimizing squared Euclidean within-cluster error. It supports CPU, CuPy/CUDA, and Torch CUDA backends.
+
+## When to use it
+
+Use KMeans for a chosen number of roughly compact Euclidean groups. Scale features deliberately and inspect centers and inertia across several seeds. It assigns every row to a cluster, including outliers; DBSCAN is an alternative when noise labels matter.
 
 ## Path
 
@@ -49,20 +53,25 @@ The implementation uses Lloyd iterations:
 - `max_iter`, `tol`, `random_state`.
 - `device`: `"auto"`, `"cpu"`, `"cuda"`, or `"torch"`.
 
-## CPU+GPU Examples
+## A small CPU example
 
+<!-- learner-example: kmeans -->
 ```python
 import numpy as np
 from statgpu.unsupervised import KMeans
 
-X = np.random.default_rng(0).normal(size=(10000, 32))
-
-km = KMeans(n_clusters=8, random_state=0, device="torch")
-labels = km.fit_predict(X)
-distances = km.transform(X)
+rng = np.random.default_rng(0)
+X = np.vstack([rng.normal(-2, 0.3, (30, 2)), rng.normal(2, 0.3, (30, 2))])
+model = KMeans(n_clusters=2, n_init=5, random_state=0, device="cpu")
+labels = model.fit_predict(X)
+print(labels.shape, model.cluster_centers_.shape, model.inertia_)
 ```
 
-## Strict/Approx Difference
+Labels have shape `(60,)` and centers `(2, 2)`. Label numbers are arbitrary. Inertia is a squared-distance sum, so compare it only on the same rows and units; lower inertia alone does not determine the right number of groups.
+
+For a supported GPU installation, construct a new estimator with `device="cuda"` (CuPy) or `device="torch"` (Torch CUDA). Arrays generally stay on that backend; see the [API reference](api-reference.md#kmeans) for output ownership and host-side work. An unavailable explicit GPU raises an error.
+
+## Approximation and interpretation
 
 KMeans is an iterative non-convex optimizer, not a strict inference estimator. Different initializations can reach different local optima. Reproducibility depends on `random_state`, `init`, `n_init`, `max_iter`, and `tol`.
 
@@ -80,13 +89,16 @@ KMeans is an iterative non-convex optimizer, not a strict inference estimator. D
 Cluster IDs are arbitrary. Validation should use inertia, center matching, or permutation-invariant label metrics.
 
 **Are sparse input and `sample_weight` supported?**
-No. Phase 2 dense KMeans raises for sparse input and `sample_weight`.
+No. Dense KMeans raises for sparse input and `sample_weight`.
 
-## External Validation
 
-- Tests: `dev/tests/test_unsupervised_kmeans.py`.
-- Benchmark: `dev/benchmarks/benchmark_unsupervised.py`.
-- Baseline: sklearn KMeans with aligned `n_clusters`, initialization, `n_init`, `max_iter`, `tol`, and seed.
+## Numerical and lifecycle cautions
+
+Squared distances are evaluated through expanded norms. A large shared offset can cause cancellation, changing distances, inertia and potentially labels. Subtract a training-derived feature offset before fitting and use that same offset for prediction; this preserves Euclidean geometry. Centers can be reported in original units by adding the offset back.
+
+## Complete API reference
+
+Constructor defaults, all public methods, output shapes, and restrictions are listed in the [KMeans API reference](api-reference.md#kmeans).
 
 ## References
 

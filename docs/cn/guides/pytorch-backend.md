@@ -1,7 +1,7 @@
 # PyTorch 后端指南
 
 > 语言：中文  
-> 最后更新：2026-09-17  
+> 最后更新：2026-10-07  
 > 切换：[English](../../en/guides/pytorch-backend.md)
 
 ## 概览
@@ -15,7 +15,7 @@ StatGPU 支持三个主要执行后端：
 | `"torch"` | PyTorch | NVIDIA CUDA |
 | `"auto"` | 自动选择 | 根据可用性与工作负载选择 CuPy、Torch CUDA 或 NumPy |
 
-`device="torch"` 是显式的 PyTorch 请求；`device="cuda"` 选择 CuPy，并不是 Torch 的别名。显式请求在对应后端不可用时会报错，不会静默切换到其他后端。
+`device="torch"` 是显式的 PyTorch 请求；`device="cuda"` 选择 CuPy，并不是 Torch 的别名。采用通用设备规则的估计器（包括下文的 `LinearRegression`）在请求的加速器不可用时会报错。[当前核方法与样条的设备选择例外](device-and-memory.md#current-smoothing-and-spline-exceptions)则可能返回 CPU 结果，使用这些估计器时须检查实际输出数组。
 
 不同模型、求解器、交叉验证和推断方法的后端覆盖范围可能不同。请查看 [已实现方法](implemented-methods.md)、[设备与 GPU 内存](device-and-memory.md) 和对应模型页，而不要假定每个公开估计器都有完全相同的 Torch 路径。
 
@@ -97,7 +97,11 @@ import statgpu as sg
 sg.set_device("torch")
 ```
 
-如果估计器提供 `device=` 参数，估计器级设置优先。只有明确需要自动选择时才使用 `"auto"`。
+采用通用设备规则的估计器在显式指定非 `auto` 设备时会覆盖全局设置，
+`device="auto"` 则继承全局策略。其他估计器使用 `auto` 时可能选择不同后端；
+执行位置重要时，请逐模型显式指定设备，并检查其限制。
+使用 `sg.set_device("auto")` 恢复自动选择，或用 `device="cpu"` 明确要求 CPU。
+另见[全局设置与估计器设置](device-and-memory.md#全局设置与估计器设置)。
 
 ## 统计推断
 
@@ -109,25 +113,26 @@ sg.set_device("torch")
 - 延迟进入、聚类、并列事件、秩亏或公式接口是否有限制；
 - 最终结果是 Torch 数组、NumPy 数组还是标量元数据。
 
-不支持的推断组合应明确报错，或在模型文档明确说明只提供参数估计；不应静默产生另一种近似推断结果。
+启用推断前，请检查模型支持的方法。如果估计器提供 `compute_inference` 参数，只做参数估计时应将它设为 `False`。只有模型文档明确提供近似方法并说明其限制时，才选择相应选项。
 
 ## 执行边界
 
-当某个方法支持 Torch 时，核心数值数组应保留在 Torch 后端。合理的 CPU 边界可能包括：
+使用 Torch 时仍可能有部分工作在 CPU 上完成，具体取决于方法，例如：
 
 - 公式、标签、特征名和小型索引元数据；
 - 数据折定义、收敛判定和标量控制逻辑；
 - Torch 中缺失的标量分布函数；
-- 有意表示为 NumPy 数组或 Python 标量的用户结果摘要；
-- 只接受 CPU 数组的外部比较库。
+- 有意表示为 NumPy 数组或 Python 标量的用户结果摘要。
 
-这些边界取决于具体模型。声称“所有中间量始终位于 GPU”并不准确；相反，完整设计矩阵被搬回 CPU 或数值后端被静默切换，也不应作为未经说明的替代路径出现。
+如果工作负载要求仅使用 GPU，除返回数组的设备外，还须检查模型的设备与推断限制。返回 GPU 张量本身，并不能证明计算的每一部分都在 GPU 上完成。
 
 ## 数据类型与数值精度
 
 统计推断通常更适合使用 `float64`：
 
 ```python
+import torch
+
 X = torch.randn(2000, 50, device="cuda", dtype=torch.float64)
 ```
 
@@ -166,7 +171,9 @@ torch.cuda.empty_cache()
 
 GPU 性能依赖样本量、特征维度、数据类型、数值内核或求解器、硬件、同步开销和显存压力。小型任务可能在 CPU 上更快，因此不应把某个模型或某一张 GPU 上的加速比当成所有工作负载的统一保证。
 
-对于用户而言，稳定的公开语义是显式设备请求、模型目标和结果解释；具体批处理方式、自动切换阈值和某次硬件测量属于会随实现优化而变化的性能细节。
+比较耗时时，应使用相同的工作负载和数据类型，计入实际应用需要的数据传输，并同步真正执行计算的 GPU。
+
+需要记录测试或性能测量结果的贡献者，可另阅 [Torch 验证参考](../../../dev/references/model-validation.md#torch-backend)。
 
 ## 故障排查
 
@@ -181,7 +188,7 @@ print(torch.cuda.is_available())
 
 ### 显式 Torch 执行报错
 
-当 Torch CUDA 或必要的 Torch 运算不可用时，显式请求报错是预期行为。只有在符合应用意图时才改用 `device="cpu"` 或 `device="auto"`；不能期待 `device="torch"` 静默切换到其他后端。
+当 Torch CUDA 或必要的 Torch 运算不可用时，显式请求报错是预期行为。只有在符合应用意图时才改用 `device="cpu"` 或 `device="auto"`；[当前核方法与样条的设备选择例外](device-and-memory.md#current-smoothing-and-spline-exceptions)可能返回 CPU 张量，因此调用成功本身并不证明执行了 CUDA 计算。
 
 ### 显存不足
 

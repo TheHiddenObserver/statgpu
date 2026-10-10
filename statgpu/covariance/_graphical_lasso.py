@@ -9,8 +9,12 @@ from typing import Optional, Union
 import numpy as np
 
 from statgpu._config import Device
-from statgpu.backends import _get_xp, _to_float_scalar, xp_asarray, xp_zeros
-from statgpu.covariance._empirical import EmpiricalCovariance, _detect_backend, _stable_inv
+from statgpu.backends import _to_float_scalar, xp_asarray, xp_zeros
+from statgpu.covariance._empirical import (
+    EmpiricalCovariance,
+    _stable_inv,
+    _validate_covariance_input,
+)
 
 
 def _copy_array(x):
@@ -36,6 +40,10 @@ class GraphicalLasso(EmpiricalCovariance):
 
     The block-coordinate descent is executed on the selected NumPy, CuPy, or
     Torch backend. Only scalar convergence diagnostics are synchronized.
+    ``device='cpu'`` selects NumPy, ``'cuda'`` selects CuPy CUDA, and
+    ``'torch'`` selects Torch CUDA; unavailable explicit GPU requests raise.
+    ``'auto'`` inherits global policy, preserving native input arrays (including
+    Torch CPU) only when the global policy is also automatic.
     """
 
     def __init__(
@@ -53,19 +61,7 @@ class GraphicalLasso(EmpiricalCovariance):
         self.tol = tol
 
     def _prepare_input(self, X):
-        backend_name = _detect_backend(X, self._get_compute_device())
-        xp = _get_xp(backend_name)
-        ref = None
-        if backend_name == "torch":
-            import torch
-
-            if isinstance(X, torch.Tensor):
-                ref = X
-            else:
-                dev = self._get_compute_device()
-                target = "cuda" if dev.value in ("torch", "cuda") else "cpu"
-                ref = torch.empty(0, dtype=torch.float64, device=target)
-        X_arr = xp_asarray(X, dtype=xp.float64, xp=xp, ref_arr=ref)
+        backend_name, xp, X_arr = self._prepare_covariance_input(X)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
         if X_arr.ndim != 2 or int(X_arr.shape[0]) < 2 or int(X_arr.shape[1]) < 1:
@@ -74,8 +70,7 @@ class GraphicalLasso(EmpiricalCovariance):
             raise ValueError("X contains NaN or infinite values")
         return backend_name, xp, X_arr
 
-    def fit(self, X, y=None):
-        """Fit graphical lasso by covariance block coordinate descent."""
+    def _validate_parameters(self):
         alpha = float(self.alpha)
         if not np.isfinite(alpha) or alpha < 0:
             raise ValueError("alpha must be finite and non-negative")
@@ -88,8 +83,15 @@ class GraphicalLasso(EmpiricalCovariance):
         if not np.isfinite(float(self._tol)) or float(self._tol) <= 0:
             raise ValueError("tol must be finite and positive")
 
-        backend_name, xp, X_arr = self._prepare_input(X)
-        n, p = int(X_arr.shape[0]), int(X_arr.shape[1])
+    def fit(self, X, y=None):
+        """Fit graphical lasso by covariance block coordinate descent."""
+        self._validate_parameters()
+        return self._fit_prepared(*self._prepare_input(X))
+
+    def _fit_prepared(self, backend_name, xp, X_arr):
+        """Fit validated arrays on the backend already selected for this fit."""
+        alpha = float(self.alpha)
+        n, p = _validate_covariance_input(X_arr, xp, min_samples=2)
         if self.assume_centered:
             location = xp_zeros(p, xp.float64, xp, X_arr)
             centered = X_arr
@@ -188,7 +190,12 @@ class GraphicalLasso(EmpiricalCovariance):
 
 
 class GraphicalLassoCV(EmpiricalCovariance):
-    """Graphical Lasso with backend-native cross-validation."""
+    """Graphical Lasso with backend-native cross-validation.
+
+    Device selection follows :class:`GraphicalLasso`. All folds, scoring, and
+    final refitting use the backend selected when fitting begins. Explicit
+    ``device='cuda'`` and ``device='torch'`` require the matching CUDA runtime.
+    """
 
     def __init__(
         self,
@@ -216,6 +223,7 @@ class GraphicalLassoCV(EmpiricalCovariance):
             assume_centered=self.assume_centered,
             device=self._device,
         )
+        probe._validate_parameters()
         backend_name, xp, X_arr = probe._prepare_input(X)
         n, p = int(X_arr.shape[0]), int(X_arr.shape[1])
 
@@ -260,7 +268,7 @@ class GraphicalLassoCV(EmpiricalCovariance):
                     tol=self._tol,
                     assume_centered=self.assume_centered,
                     device=self._device,
-                ).fit(X_train)
+                )._fit_prepared(backend_name, xp, X_train)
                 scores.append(float(model.score(X_test)))
 
             mean_score = float(np.mean(scores))
@@ -277,7 +285,7 @@ class GraphicalLassoCV(EmpiricalCovariance):
             tol=self._tol,
             assume_centered=self.assume_centered,
             device=self._device,
-        ).fit(X_arr)
+        )._fit_prepared(backend_name, xp, X_arr)
 
         self.covariance_ = final.covariance_
         self.precision_ = final.precision_

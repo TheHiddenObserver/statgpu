@@ -1,23 +1,103 @@
 # PoissonRegression
 
 > 语言：中文  
-> 最后更新：2026-09-17  
+> 最后更新：2026-10-09<br>
 > 页面定位：模型文档  
 > 切换：[English](../../en/models/poisson-regression.md)
 
-## 概述
+## 什么时候使用 Poisson 回归？
 
-`PoissonRegression` 是 statgpu 面向计数数据提供的普通 Poisson 广义线性模型入口，底层复用 `GeneralizedLinearModel` 的通用 GLM 基础设施。它表示非惩罚的 Poisson 回归；需要 L1、L2、ElasticNet、分组或自适应惩罚时，应使用 `PenalizedPoissonRegression`。
+`PoissonRegression` 通过对数链接建模非负计数的条件均值，适合观测暴露时长
+相当的事件计数。斜率反映期望计数的乘法关联，不代表因果效应。
 
-模型支持 NumPy、CuPy 与 Torch 三种数值后端。设置 `compute_inference=True` 后，可以计算标准误、z 统计量、p 值和置信区间；显式 GPU 请求若对应后端不可用会直接报错，不会静默改为 CPU。
+Poisson 模型假设条件方差等于条件均值。明显过度离散时，可以考虑
+`NegativeBinomialRegression`；零值过多或观测相关时，可能需要其他模型或
+协方差分析。严格为正的连续响应通常更适合 Gamma 等分布族，不能直接当作
+事件计数。选择依据见[广义线性模型](generalized-linear-model.md)。
 
-导入路径为：
+该专用类固定 Poisson 分布族，其余行为沿用普通 GLM。默认 `C=1` 配合
+`solver="auto"` 会施加岭惩罚；显式无惩罚 IRLS 应使用 `C=0`，也可按下文选择
+不使用 C 的显式求解器。需要 alpha 惩罚接口时，用 `PenalizedPoissonRegression`。
+此 API 没有 offset/exposure 参数：把暴露量放进普通预测变量，会估计它的系数，
+而不是将该系数固定为一。
 
+<a id="cpu-example"></a>
+
+## 完整 CPU 示例
+
+依次运行以下步骤：准备计数数据、拟合、预测，最后按需加入系数推断。示例不需要 GPU 或公式依赖。
+
+### 1. 导入
+
+<!-- learner-example: poisson-unpenalized -->
 ```python
-from statgpu.linear_model import PoissonRegression
-# 或
+import numpy as np
 from statgpu import PoissonRegression
 ```
+
+### 2. 准备输入和留出数据
+
+`X` 的形状为 `(200, 2)`：行对应观测，列对应两个数值特征。`y` 是长度 200 的非负整数计数。对数链接使条件均值 `exp(0.3 + X @ beta)` 为正；它不是事件概率。实际数据应先处理缺失值，预测时保持训练列顺序。
+
+```python
+rng = np.random.default_rng(8)
+X = rng.normal(size=(200, 2))
+y = rng.poisson(np.exp(0.3 + X @ np.array([0.4, -0.2])))
+X_test = rng.normal(size=(50, 2))
+y_test = rng.poisson(np.exp(0.3 + X_test @ np.array([0.4, -0.2])))
+```
+
+另外生成的 50 行 `X_test`、`y_test` 不参与拟合。
+
+### 3. 拟合无惩罚模型
+
+`C=0` 明确表达无惩罚意图。这里显式选择 Newton；该求解器不使用 C。默认 auto/IRLS 配合正 C 则会加入岭惩罚，后文说明两种目标的区别。
+
+```python
+model = PoissonRegression(
+    C=0, solver="newton", device="cpu",
+    max_iter=200, tol=1e-9, compute_inference=False,
+).fit(X, y)
+print("Slopes:", np.round(model.coef_, 3))
+print("Mean multipliers:", np.round(np.exp(model.coef_), 3))
+```
+
+该种子下斜率约为 `[0.377, -0.154]`，均值倍数约为 `[1.459, 0.857]`。保持另一特征不变，第一个特征增加一单位对应期望计数约增加 45.9%，第二个特征增加一单位对应约降低 14.3%。这些是关联，不是因果效应。
+
+### 4. 预测并评价留出数据
+
+```python
+mean_prediction = model.predict(X_test)
+heldout_loss = np.mean(mean_prediction - y_test * np.log(mean_prediction))
+print("Predicted means:", np.round(mean_prediction[:3], 3))
+print("Held-out Poisson loss:", round(float(heldout_loss), 3))
+```
+
+预测数组为 `(50,)`，均值为正且可为小数；它不必像观测计数一样是整数。留出集损失约为 `0.963`，省略只与响应有关的对数阶乘项。只有在相同留出响应和权重下比较时，越小才越好；它不是准确率或普通 R²。该普通 GLM 类没有 `score` 或 `predict_proba` 方法。
+
+### 5. 可选：系数区间
+
+继续使用第 3 步的训练数据，开启推断后重新拟合。`cov_type="nonrobust"` 使用 Poisson 模型的均值—方差假设。协方差选择不改变拟合均值；适用条件与其他选项见后文推断一节。
+
+```python
+model.set_params(compute_inference=True, cov_type="nonrobust")
+model.fit(X, y)
+print("Interval shape:", model._conf_int.shape)
+```
+
+区间数组为 `(3, 2)`，先是截距，再是两列斜率。这些是渐近边际系数区间，不是未来计数的预测区间。`summary()` 返回字符串，可用 `print(model.summary())` 显示。
+<!-- example-end: poisson-unpenalized -->
+
+## 参数选择与结果检查
+
+- 无惩罚拟合使用 `C=0`。若用正 C 的 IRLS 做预测，应在训练数据内通过验证
+  选择 C；正 C 越大，收缩越弱。零是完全取消惩罚的特殊值，不是更强的惩罚。
+- 每个训练折内学习缩放参数，并将相同变换用于评价数据；变量单位会影响岭
+  收缩。最终测试集应独立于全部调参过程。
+- 检查实际与预测计数、暴露量可比性和过度离散。有限结果或较低训练损失不能
+  证明 Poisson 方差假设成立。HC 协方差只改变不确定性，不改变均值模型或预测。
+- 可调整 `max_iter` 和 `tol` 检查数值稳定性。`n_iter_` 只是迭代次数，不是
+  收敛证明；增加预算未必能解决尺度不良或共线性问题。
 
 ## 统计模型与目标函数
 
@@ -35,7 +115,12 @@ $$
 \left[\mu_i-y_i\log(\mu_i)\right].
 $$
 
-当继承的 `C` 参数对应有限正则化强度时，共享 IRLS 路径可以加入 L2 风格的 Ridge 项。需要更一般的惩罚结构时，应使用专门的惩罚 Poisson 模型。
+有截距时，以 $b+x_i^\top\beta$ 替换线性预测子。传入分析权重
+`sample_weight=w` 时，数据损失改为按 `sum(w)` 归一化的加权平均。
+正 C 下，普通 auto/IRLS 路径增加 $\|\beta\|_2^2/(4C)$，截距不受惩罚。
+`C=0` 去掉该项；显式普通 `newton`、`lbfgs` 和 `fista` 路径忽略 C，优化无惩罚
+目标。因此，正 C 下改变求解器可能改变统计模型。该 C 尺度不同于独立的
+LogisticRegression，详见[普通 GLM 目标函数](generalized-linear-model.md)。
 
 非惩罚 Poisson GLM 的得分方程为
 
@@ -43,33 +128,27 @@ $$
 \sum_i x_i(y_i-\mu_i)=0.
 $$
 
+正 C 下，auto/IRLS 的平均损失斜率方程还包含岭惩罚梯度 `beta/(2*C)`。
+
 `solver="auto"` 当前选择 IRLS。对光滑的 Poisson GLM 目标，也可以显式使用 `solver="newton"` 或 `solver="lbfgs"`；这些求解器在受支持组合下运行于所选数值后端。
 
 ## 协方差与统计推断
 
-设置 `compute_inference=True` 即可获得拟合后推断：
-
-```python
-from statgpu import PoissonRegression
-
-model = PoissonRegression(
-    solver="newton",
-    compute_inference=True,
-    cov_type="nonrobust",
-)
-model.fit(X, y)
-
-print(model._bse)
-print(model._pvalues)
-print(model._conf_int)
-```
+如 [CPU 示例](#cpu-example)第 5 步所示，设置 `compute_inference=True` 可获得系数不确定性。
+若研究问题适合相应的得分稳健协方差假设，可使用 `hc0` 或 `hc1`，这不会改变
+系数估计。
 
 当前协方差选项包括：
 
-- `cov_type="nonrobust"`：基于期望 Fisher 信息的模型协方差；
+- `cov_type="nonrobust"`：无惩罚模型使用期望 Fisher 信息；正 C 的 IRLS 推断还包含惩罚曲率；
 - `cov_type="hc0"`：基于观测 Hessian 的夹心协方差；
 - `cov_type="hc1"`：在 HC0 基础上加入自由度修正；
 - `hc2`、`hc3` 与 `hac`：当前 Poisson 路径不支持，显式请求会报错。
+
+这些是边际、渐近正态参考区间。正 C 下的 IRLS 协方差围绕惩罚拟合计算，
+不会消除收缩偏差，也不校正选择 C 的不确定性。与无惩罚 `statsmodels.GLM`
+比较时，需对齐 C/求解器、设计矩阵、权重、协方差和收敛设置；单个数据集的
+比较不能保证所有情形下的数值精度。
 
 Poisson 推断使用渐近正态参考分布，因此报告 z 统计量和双侧 p 值。Poisson 离散参数固定为 1；相关拟合信息可通过模型元数据查看。
 
@@ -82,56 +161,74 @@ Poisson 推断使用渐近正态参考分布，因此报告 z 统计量和双侧
 | `fit_intercept` | `True` | 是否拟合截距 |
 | `max_iter` | `100` | 最大迭代次数 |
 | `tol` | `1e-4` | 收敛容差 |
-| `C` | `1.0` | 继承的 GLM IRLS 路径使用的逆正则化强度 |
+| `C` | `1.0` | 正 C 下 auto/IRLS 增加 `sum(beta**2)/(4*C)`；零取消惩罚。显式 Newton/L-BFGS/FISTA 忽略 C。 |
 | `device` | `"auto"` | `cpu` / `cuda` / `torch` / `auto` |
 | `solver` | `"auto"` | `auto` / `irls` / `fista` / `newton` / `lbfgs`；实际可用性取决于完整模型路径 |
-| `n_jobs` | `None` | 适用路径的并行任务数 |
+| `n_jobs` | `None` | 共享配置；该类不保证并行拟合 |
 | `gpu_memory_cleanup` | `False` | 拟合后尽可能释放可回收的 GPU 缓存 |
-| `formula` | `None` | `fit` 中可选的 patsy 风格公式 |
-| `data` | `None` | 公式模式使用的数据表 |
+| `compute_inference` | `False` | 是否计算受支持的系数推断 |
+| `cov_type` | `"nonrobust"` | `nonrobust`、`hc0` 或 `hc1` |
+
+`formula` 与 `data` 是
+`fit(X=None, y=None, sample_weight=None, formula=None, data=None)` 的参数，
+不是构造函数参数。该类固定 Poisson 分布族，其余方法与属性继承自
+[普通 GLM](../reference/linear-model-api.md#generalizedlinearmodel)，包括 `predict`、
+`summary`、似然诊断以及共享推断工具。它没有 `score` 或 `predict_proba` 方法。
+`summary()` 返回字符串，应使用 `print(model.summary())`。当前 auto/IRLS/FISTA
+路径在重拟合失败后应改用新估计器，详见[失败重拟合警告](../reference/linear-model-api.md#failed-ordinary-glm-refits)。
 
 求解器组合的完整支持范围见 [求解器 × 惩罚项兼容性矩阵](../guides/solver-penalty-matrix.md)。
 
-## 使用示例
+## 可选 GPU 与公式输入
 
-### CPU
-
-```python
-from statgpu.linear_model import PoissonRegression
-
-model = PoissonRegression(
-    device="cpu",
-    max_iter=100,
-    tol=1e-6,
-)
-model.fit(X, y_count)
-mu = model.predict(X)
-```
-
-### CuPy CUDA
+先完成 [CPU 示例](#cpu-example)，再复用其中的导入与数据，可以用 CuPy CUDA 拟合同一个无惩罚模型：
 
 ```python
-model = PoissonRegression(
-    device="cuda",
-    max_iter=100,
-    tol=1e-6,
-)
-model.fit(X_gpu, y_count_gpu)
-mu_gpu = model.predict(X_gpu)
+model_gpu = PoissonRegression(
+    C=0, solver="newton", device="cuda", max_iter=200, tol=1e-9,
+).fit(X, y)
+mean_prediction_gpu = model_gpu.predict(X_test)
 ```
 
-### 公式接口
+Torch CUDA 使用 `device="torch"`。显式 GPU 请求需要已经安装且可用的对应
+CUDA 后端，不可用时会报错。预测返回已解析后端的原生数组，系数报告数组
+则是 NumPy。公式解析本身在 CPU 上完成。
+
+安装 `statgpu[formula]` 后，下面的公式示例可以独立运行。公式语法决定截距
+和分类变量编码：
+
+<!-- learner-example: poisson-formula -->
+```python
+import numpy as np
+import pandas as pd
+from statgpu import PoissonRegression
+```
+
+这个独立示例中，`df` 的每行是一条观测，`count` 为响应，`x` 为连续特征，`group` 为分类特征。
 
 ```python
-model = PoissonRegression()
-model.fit(
-    formula="count ~ exposure + x1 + C(group)",
-    data=df,
-)
-pred = model.predict(df_new)
+rng = np.random.default_rng(18)
+df = pd.DataFrame({"x": rng.normal(size=80), "group": ["a", "b"] * 40})
+df["count"] = rng.poisson(np.exp(0.2 + 0.3 * df["x"]))
 ```
 
-公式解析属于 CPU 侧的数据准备步骤；对于大规模 GPU 工作负载，直接传入已经准备好的 `X, y` 数组通常可以减少额外的数据转换。
+公式负责生成截距和分类编码；预测时传同样列名和类别水平的 DataFrame。
+
+```python
+model = PoissonRegression(C=0, device="cpu")
+model.fit(formula="count ~ x + C(group)", data=df)
+prediction = model.predict(df.iloc[:5])
+assert prediction.shape == (5,)
+```
+<!-- example-end: poisson-formula -->
+
+
+使用 formula/data 时不要同时传数组 X/y。预测 DataFrame 会重建训练列及分类
+水平，未知水平会报错。预测变量缺失行目前会被删除，返回较短且无行标签的
+数组。应处理缺失并核对输出长度，再将预测配给观测；详见[普通 GLM 缺失行警告](../reference/linear-model-api.md#missing-prediction-rows-in-ordinary-glms)。
+权重可对应原始行或保留行，按位置
+匹配。详见[完整公式约定](../reference/linear-model-api.md#formula-inputs)。
+大规模 GPU 任务直接使用已准备好的数组可减少公式解析开销。
 
 ## 输出与解释
 
@@ -157,6 +254,16 @@ pred = model.predict(df_new)
 
 **为什么不支持 HC2、HC3 或 HAC？**  
 这些协方差形式目前没有在 Poisson 模型的公开推断路径中实现；应使用已支持的 `nonrobust`、`hc0` 或 `hc1`，或者根据研究问题选择其他模型/推断方案。
+
+## 与其他实现比较
+
+与无惩罚 `statsmodels.GLM` 比较时，对齐对数链接、截距和设计矩阵、响应、
+权重、协方差及收敛设置，并使用 C=0 的 IRLS 或显式无惩罚求解器。若将
+正 C 的 IRLS 与 sklearn `PoissonRegressor` 比较，平均损失惩罚应换算为
+`sklearn_alpha = 1 / (2*C)`；参数名称相同不代表目标函数相同。
+
+除系数外，还应比较预测均值和得分方程残差。单个数据集或 CPU 上的比较不能
+证明 GPU 精度，也不构成普适精度保证。更多说明见[GLM 对照比较](generalized-linear-model.md)。
 
 ## 相关文档
 

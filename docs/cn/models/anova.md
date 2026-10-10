@@ -1,10 +1,15 @@
 # ANOVA
 
 > 语言：中文  
-> 最后更新：2026-07-24  
+> 最后更新：2026-10-09\
 > 切换：[English](../../en/models/anova.md)
 
 ## 概览
+
+单因素 ANOVA 检验独立组的总体均值是否相同，通过比较组间均值差异与组内波动
+形成统计量。经典 F 检验要求观测相互独立、组内误差服从正态分布且各组总体方差相等；
+不适合等方差假设时，可使用 Welch ANOVA。两种总体检验本身都不能指出具体哪些组
+的均值不同。
 
 ANOVA 模块提供单因素 ANOVA、平衡双因素 ANOVA、Welch ANOVA、Tukey HSD、
 Bonferroni 校正的两两 Welch 检验以及效应量辅助函数。分组归约支持
@@ -70,10 +75,46 @@ $$
 | `df_within` | 分母自由度 |
 | `eta_squared` | 单因素效应量 |
 
+<a id="anova-basic"></a>
+
+## 在 CPU 上比较两组均值
+
+按顺序运行以下代码。每个输入都是一个组的测量值组成的一维数组，不要求各组长度相同。
+先导入检验函数与 NumPy。
+
+<!-- example: anova-basic -->
+```python
+import numpy as np
+from statgpu.anova import f_oneway
+```
+
+生成两个总体方差相同、总体均值不同的独立样本。两个数组的形状都是 `(100,)`。
+
+```python
+rng = np.random.default_rng(7)
+g1 = rng.normal(0.0, 1.0, 100)
+g2 = rng.normal(0.5, 1.0, 100)
+```
+
+计算 F 检验，再查看统计量、P 值与效应量。
+
+```python
+result = f_oneway(g1, g2, backend="numpy")
+print(round(result.statistic, 3), result.pvalue)
+print(round(result.eta_squared, 3))
+```
+<!-- example-end: anova-basic -->
+
+F 统计量约为 `22.079`，P 值约为 `4.89e-6`，eta-squared 约为 `0.100`。
+在预先选定的 5% 显著性水平下，拒绝两组均值相等的原假设。Eta-squared 表示
+样本变异中与分组差异相关的比例，不是原假设错误的概率，也不是因果效应。
+有两个以上的组时，显著的 F 检验只说明均值并非全部相等；若要定位差异，
+应使用预先规划或经过多重比较校正的比较。
+
 ## 双因素 ANOVA
 
 `f_twoway` 用于平衡双因素设计，可检验因子 A、因子 B 以及可选的交互项。
-在公共 API 明确 Type I、II 或 III 平方和约定之前，不平衡单元格会被拒绝。
+单元格不平衡时会报错；该 API 不提供 Type I、II 或 III 平方和约定选项。
 当 `interaction=False` 时，使用加性模型，剩余交互变异进入残差项。
 
 ### 参数
@@ -97,6 +138,23 @@ Welch-Satterthwaite 公式，通常为小数，因此返回的
 `AnovaResult.df_within` 是浮点数。普通合并方差 ANOVA 的 eta-squared 并非
 相应的 Welch 估计目标，所以 `eta_squared` 返回 `NaN`。
 
+复用[前面的 CPU 示例](#anova-basic)中的 `rng`、`g1` 与 `g2`。
+加入总体方差更大的第三组，再使用 Welch 检验。
+
+<!-- example-requires: anova-basic -->
+<!-- example: anova-welch -->
+```python
+from statgpu.anova import f_welch
+
+g3 = rng.normal(-0.2, 2.0, 80)
+welch = f_welch(g1, g2, g3, backend="numpy")
+print(welch.statistic, welch.pvalue, welch.df_within)
+```
+<!-- example-end: anova-welch -->
+
+该 P 值检验三个总体均值是否全部相同，但不合并各组方差。检验仍要求观测相互独立，
+也不会直接定位两两差异。
+
 ## 事后比较
 
 ### Tukey HSD
@@ -104,6 +162,24 @@ Welch-Satterthwaite 公式，通常为小数，因此返回的
 `tukey_hsd` 使用 studentized-range 分布进行全部均值两两比较，控制族错误率，
 并返回同时置信区间。`TukeyResult` 包含比较列表、显著性水平、组数、残差自由度
 和合并均方误差。每项比较包含组索引、均值差、校正 p 值、置信区间和拒绝结论。
+
+对[前面的 CPU 示例](#anova-basic)中等方差的 `g1` 与 `g2`，查看校正后的比较结果
+及同时置信区间。本例使用合并方差，不要加入方差不同的 `g3`。
+
+<!-- example-requires: anova-basic -->
+<!-- example: anova-tukey -->
+```python
+from statgpu.anova import tukey_hsd
+
+posthoc = tukey_hsd(g1, g2, alpha=0.05, backend="numpy")
+comparison = posthoc.comparisons[0]
+print(comparison.mean_diff, comparison.ci_lower, comparison.ci_upper)
+print(comparison.pvalue, comparison.reject)
+```
+<!-- example-end: anova-tukey -->
+
+均值差按第 0 组减第 1 组计算，约为 `-0.582`；区间约为 `[-0.826, -0.338]`。
+区间不包含零，与 `reject=True` 一致。组数更多时，Tukey 会对全部两两比较进行校正。
 
 ### Bonferroni 两两 Welch 检验
 
@@ -120,46 +196,30 @@ $$
 f = \sqrt{\frac{\eta^2}{1-\eta^2}}.
 $$
 
-## CPU 与 GPU 示例
+<a id="cpu-与-gpu-示例"></a>
 
-### NumPy
+## 可选的 GPU 执行
 
-```python
-import numpy as np
-from statgpu.anova import f_oneway, f_welch, tukey_hsd
-
-rng = np.random.default_rng(7)
-g1 = rng.normal(0.0, 1.0, 100)
-g2 = rng.normal(0.5, 1.0, 100)
-g3 = rng.normal(-0.2, 2.0, 80)
-
-result = f_oneway(g1, g2, backend="numpy")
-welch = f_welch(g1, g2, g3, backend="numpy")
-posthoc = tukey_hsd(g1, g2, alpha=0.05, backend="numpy")
-```
+先运行[前面的 CPU 示例](#anova-basic)，复用其中的 `g1`、`g2` 与 `f_oneway`。
+根据可用的 CUDA 运行环境选择以下一段；两段都使用原始数据，不重新生成样本或改变检验问题。
 
 ### CuPy
 
 ```python
 import cupy as cp
-from statgpu.anova import f_oneway
 
-rng = cp.random.RandomState(7)
-g1 = rng.standard_normal(100, dtype=cp.float64)
-g2 = rng.standard_normal(100, dtype=cp.float64) + 0.5
-result = f_oneway(g1, g2, backend="cupy")
+g1_gpu, g2_gpu = cp.asarray(g1), cp.asarray(g2)
+result_gpu = f_oneway(g1_gpu, g2_gpu, backend="cupy")
 ```
 
 ### Torch CUDA
 
 ```python
 import torch
-from statgpu.anova import f_oneway
 
-torch_device = torch.device("cuda")
-g1 = torch.randn(100, device=torch_device, dtype=torch.float64)
-g2 = torch.randn(100, device=torch_device, dtype=torch.float64) + 0.5
-result = f_oneway(g1, g2, backend="torch")
+g1_torch = torch.as_tensor(g1, device="cuda", dtype=torch.float64)
+g2_torch = torch.as_tensor(g2, device="cuda", dtype=torch.float64)
+result_torch = f_oneway(g1_torch, g2_torch, backend="torch")
 ```
 
 ## 后端与执行边界
@@ -178,24 +238,34 @@ CPU 标量分布调用只是执行边界，不是另一套近似 ANOVA 公式。
 
 ## 限制与失败行为
 
-- 单因素和 Welch 检验至少需要两个非空组。
+- 单因素 ANOVA 至少需要两个非空组，且观测总数必须大于组数。Welch ANOVA、
+  Tukey HSD 和 Bonferroni 比较要求每组至少有两个观测值。
 - 双因素 ANOVA 当前要求平衡单元格。
-- 维护中的公共验证路径会拒绝非有限观测值。
+- 所有使用观测数据的 ANOVA 函数（包括 `cohens_f`）遇到 `NaN`、正无穷或负无穷
+  都会抛出 `ValueError`，不会自动忽略这些观测值。
+- 输入值全部有限时，常数组仍可能产生未定义或无穷大的统计量：所有观测值相同
+  时，`f_oneway` 和 `cohens_f` 返回 `NaN`；各组内取值恒定但组均值不同时，
+  两者的统计量为正无穷。
 - Tukey HSD 依赖 studentized-range 分布，可能使用 CPU 标量实现。
 - 效应量辅助函数对非法平方和显式报错，而不是返回误导性的有限结果。
 
-## 外部验证
+<a id="外部验证"></a>
 
-维护测试将 Welch ANOVA 与 `statsmodels.stats.oneway.anova_oneway` 对齐，并覆盖
-NumPy/Torch 一致性、自由度语义、平衡设计限制、效应量验证和后端执行边界。
-所有验证结论仅适用于记录中的具体函数、后端、环境和 commit。
+## 与其他实现比较
+
+与 `statsmodels.stats.oneway.anova_oneway` 比较 `f_welch` 时，使用相同观测值和
+分组，并在 statsmodels 中设置 `use_var="unequal"`、`welch_correction=True`。
+比较 F 统计量、P 值以及分子和分母自由度。不要把 Welch 结果直接与等方差 ANOVA
+结果比较：两者使用的方差假设与分母不同。
+
+贡献者可参阅[验证参考](../../../dev/reviews/pr168-model-validation-provenance.md#anova)。
 
 ## FAQ
 
 ### Torch 输入是否必须指定 `backend="torch"`？
 
-显式 Torch 执行应使用 `backend="torch"`。`"auto"` 可以根据输入类型推断，
-但测试和 benchmark 中推荐显式指定。
+显式 Torch 执行应使用 `backend="torch"`。`"auto"` 可以根据输入类型推断；
+分析需要特定数组后端时，请显式指定。
 
 ### 为什么返回的 p 值可能是 Python 标量？
 

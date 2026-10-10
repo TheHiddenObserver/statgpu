@@ -7,7 +7,7 @@
 
 ## Scope
 
-This page explains how to interpret native float32 L-BFGS results across NumPy, CuPy, and Torch. It does not change the L-BFGS algorithm, the statistical objective, analytic-weight semantics, solver selection, or explicit device behavior.
+This page explains how to interpret native float32 L-BFGS results across NumPy, CuPy, and Torch.
 
 For the algorithm itself, see [Solver Algorithms](solver-algorithms.md).
 
@@ -66,7 +66,7 @@ If NumPy, CuPy, and Torch float32 L-BFGS runs produce slightly different coeffic
 - compare each backend with a float64 run when a tighter reference is needed;
 - use float64 if the application requires close coefficient agreement rather than merely an equivalent optimized objective.
 
-Do not loosen the statistical objective or change solver semantics merely to force bitwise-like float32 coefficient agreement across backends.
+Compare fits with the same objective, weights, penalty, and stopping controls; use float64 when tighter coefficient agreement matters.
 
 ## Related documentation
 

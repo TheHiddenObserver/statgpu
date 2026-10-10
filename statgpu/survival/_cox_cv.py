@@ -1466,7 +1466,11 @@ class CoxPHCV(CVEstimatorBase):
     penalty_min_ratio : float, default=1e-3
         Minimum penalty as ratio of max penalty.
     cv : int, default=5
-        Number of CV folds.
+        Number of generated CV folds, at least two.
+    cv_splits : iterable of (train_indices, validation_indices), default=None
+        Custom nonempty, disjoint integer index pairs, overriding generated
+        folds. One-shot iterators are materialized once and reused.
+        Supplying subject_id rejects subjects shared across a fold boundary.
     ties : str, default='breslow'
         Method for handling ties: 'breslow', 'efron', or 'exact'.
     tol : float, default=1e-9
@@ -1475,6 +1479,9 @@ class CoxPHCV(CVEstimatorBase):
         Maximum iterations.
     device : str or Device, default='auto'
         Computation device: 'cpu', 'cuda', 'torch', or 'auto'.
+    n_jobs : int or None, default=None
+        Shared CPU-job option forwarded to the final refit; it does not
+        parallelize the current CV loop.
     compute_inference : bool, default=True
         Whether to compute standard errors after fitting. For a selected
         positive penalty, inference is conditional on that fixed penalty and
@@ -1501,7 +1508,11 @@ class CoxPHCV(CVEstimatorBase):
         CV scores plus fold indices, convergence/failure diagnostics, effective
         fold counts, and the effective device.
     best_score_ : float
-        Best (maximum) partial likelihood across CV folds.
+        Selected mean unpenalized held-out partial log likelihood. Each fold
+        contributes its summed log likelihood, without event normalization.
+        For custom grids, numerical near-ties prefer the stronger penalty,
+        so this score can
+        be slightly below the largest candidate mean.
     coef_ : ndarray
         Coefficients of the final model.
     hazard_ratios_ : ndarray
@@ -1952,10 +1963,13 @@ class CoxPHCV(CVEstimatorBase):
         ----------
         X : array-like of shape (n_samples, n_features)
             Covariate matrix.
-        time : array-like of shape (n_samples,)
-            Time to event or censoring.
-        event : array-like of shape (n_samples,)
-            Event indicator (1 = event, 0 = censored).
+        time : array-like of shape (n_samples,), (n_samples, 2), or (n_samples, 3)
+            Time to event/censoring, or a packed target when event is None:
+            two columns [time, event] or three [start, stop, event]. A
+            three-column target cannot be combined with separate entry/start.
+        event : array-like of shape (n_samples,), optional
+            Event indicator (1 = event, 0 = censored). Omit only when time
+            contains one of the supported packed target formats.
         entry : array-like, optional
             Entry time for delayed entry.
         cluster : array-like, optional
@@ -2070,7 +2084,9 @@ class CoxPHCV(CVEstimatorBase):
         Returns
         -------
         c_index : float
-            C-index (0.5 = random, 1.0 = perfect).
+            Harrell-style concordance on comparable pairs (1.0 = perfect
+            ranking). A value of 0.5 can indicate neutral/tied ranking or
+            no comparable pairs; the latter is not validation evidence.
         """
         try:
             if self.estimator_ is None:
@@ -2088,7 +2104,7 @@ class CoxPHCV(CVEstimatorBase):
             self._cleanup_torch_memory()
 
     def summary(self):
-        """Return summary of the fitted model."""
+        """Print the final fitted CoxPH summary and return None."""
         if self.estimator_ is None:
             raise RuntimeError("No fitted estimator available.")
         if not hasattr(self.estimator_, "summary"):

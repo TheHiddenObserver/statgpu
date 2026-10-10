@@ -1,0 +1,112 @@
+{
+  "baseline_head": "98b03a560a7b1444055bfa15e9014cf34aa89105",
+  "comparison_base": "3fba9af81db8624ab6e882cb153e7ede7ead7f63",
+  "scope": "Repair runtime, validation, workflow, dependency and user-facing documentation files; excludes this manifest and the repair report. Not a full-tree fingerprint.",
+  "files": [
+    {
+      "path": ".github/workflows/test.yml",
+      "git_blob_sha": "e642f24d63e62fcd76f8ff66d901be13c67f5be3",
+      "sha256": "02112671fd4a4c44e4923ded0235b9d7e2638021c84c0df550c4d0cac680d39d"
+    },
+    {
+      "path": "CHANGELOG.md",
+      "git_blob_sha": "7743ef4de501b6b6c400288c3d92831aa0fea7a6",
+      "sha256": "99a22e7ebcf411cfef1795c7f6d0332334f311a58c2774fb721c91e349735045"
+    },
+    {
+      "path": "dev/tests/test_anova_finite_inputs.py",
+      "git_blob_sha": "c0bc6d00ea2d522e90f0f58e6dfd43a6f4ee6559",
+      "sha256": "a091599f9eeadc4a99afe769ee07456b4eec76c7a939b591b957034a9bac3082"
+    },
+    {
+      "path": "dev/tests/test_covariance_device_contract.py",
+      "git_blob_sha": "ee8445cef1ccb7e4c56bf2a37fb017d9dce3095b",
+      "sha256": "a91c9c1dd4ef88a7c5bafe037276886a243e10e7acb3d79aeefc3522c84156b6"
+    },
+    {
+      "path": "dev/tests/test_glm_parameter_table_rendering.py",
+      "git_blob_sha": "404bfdaf9f5bd94a093c25655b64f67f88f15cfc",
+      "sha256": "c760af10d51e1f84b2a76e61a0abff08446892ac78c12b91aa5a439f75387737"
+    },
+    {
+      "path": "docs/cn/changelog.md",
+      "git_blob_sha": "41d921445db306744300bb7f68820e5be964438b",
+      "sha256": "9eb9cdfa257f3c7d4c0a2eb954e00d58af28d82ee86341c285121681e4043729"
+    },
+    {
+      "path": "docs/cn/models/anova.md",
+      "git_blob_sha": "030dc727cc40e0e479e5b9cd8f2e253fe0572480",
+      "sha256": "03c1d600f06041a5cb2fba8ee1928784998a543404f1dbe5ab5014efe2ab6cf3"
+    },
+    {
+      "path": "docs/cn/models/covariance.md",
+      "git_blob_sha": "2dd9cad71c2ee8f1cf2b1b99582f5ccffc0ebdae",
+      "sha256": "456b88da9f3dd3614a836984cf3628d56c8031d27a9459afa26e84d389e7ae0a"
+    },
+    {
+      "path": "docs/cn/reference/linear-model-api.md",
+      "git_blob_sha": "db50508de19a90da8282d0c598ccba95cb27abdc",
+      "sha256": "92b52590cb096429e2344e049a49663607e7478acd231278ab861694d46667f5"
+    },
+    {
+      "path": "docs/en/changelog.md",
+      "git_blob_sha": "ed798ee3149ad2b4e46135c2db52dd6ff5596213",
+      "sha256": "953858c9190e279ca4d5255633bd88048c9678f2573b833e2dd1226396552ad5"
+    },
+    {
+      "path": "docs/en/models/anova.md",
+      "git_blob_sha": "0c4a12de898e820ccf4bfec0610760afd2139f13",
+      "sha256": "9a7db9f9d09ae15e5654871cf657c85ea33553216e37ff707808a71981591cbf"
+    },
+    {
+      "path": "docs/en/models/covariance.md",
+      "git_blob_sha": "f6efdd05a50686318b165e05292590922f59e500",
+      "sha256": "9044935e850e61db74a1b2a24922ee635994eaf281d37ece904effffd82bb792"
+    },
+    {
+      "path": "docs/en/reference/linear-model-api.md",
+      "git_blob_sha": "1ef11254cc89411438c38b926e6d989c5ac25d56",
+      "sha256": "3655993e67752d51933809292f4dfc8605f1f1a17ea728139f86a4e2b8a3a7c7"
+    },
+    {
+      "path": "pyproject.toml",
+      "git_blob_sha": "51b4dcb224d5ae7e426d0d1cb0cbf6a162dde359",
+      "sha256": "b8104fcd63da260d11dfd035538de68b811e2c3c79b0aa8225982af61e620a38"
+    },
+    {
+      "path": "statgpu/anova/_effect_size.py",
+      "git_blob_sha": "f6f7957ca7bffa41cddec32fca8d92f02d1fae0d",
+      "sha256": "d0de2bb2d16dc1cff023cbf2c982114f5bbd55d4c60ef7207e2f3bac63bcb3fd"
+    },
+    {
+      "path": "statgpu/anova/_oneway.py",
+      "git_blob_sha": "0f4c5617ed3f187dd8640fec27c35304062987d1",
+      "sha256": "2da5dddae9ecd9111ad765aaf074ccc975aee40780acdfc980be8b234778afe7"
+    },
+    {
+      "path": "statgpu/anova/_twoway.py",
+      "git_blob_sha": "c43b9dcb150670fc82dbe0b5c77f94742a56d40e",
+      "sha256": "6711166646e80dfdea7b7f51ce1d2d47132834af52b00b182a527d6702960160"
+    },
+    {
+      "path": "statgpu/covariance/_empirical.py",
+      "git_blob_sha": "d9b0df7a759486685cc861d3eb0e7bc1ecd2e698",
+      "sha256": "0023a4daa40d4d14f7ed46deb93d45957db78d534ffb301aabfc13f52490ee3b"
+    },
+    {
+      "path": "statgpu/covariance/_graphical_lasso.py",
+      "git_blob_sha": "54fbbe258a2f2b32ad2b1d1d82f7408de59f13c0",
+      "sha256": "d8526baaef3a55f56e5353066f9abe041303cbec6a2cf3c6d7e5694a3194cbea"
+    },
+    {
+      "path": "statgpu/covariance/_robust.py",
+      "git_blob_sha": "0be8c680b5ce4c7e02998ae556c800df251c9cef",
+      "sha256": "e08bd603b6809ec9d752cbe7d1cc007203a98cf1937c1b79a92a0432509c954e"
+    },
+    {
+      "path": "statgpu/covariance/_shrinkage.py",
+      "git_blob_sha": "a6b98fcb5a2620ba7f73353969a33115419dde48",
+      "sha256": "8600829df3ccd07fd2c96a9bd1019778d11b1303a6f605137567fc3728d5e816"
+    }
+  ]
+}

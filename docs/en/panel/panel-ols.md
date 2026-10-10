@@ -1,7 +1,7 @@
 # PanelOLS
 
 > Language: English  
-> Last updated: 2026-08-15  
+> Last updated: 2026-10-09<br>
 > Switch: [Chinese](../../cn/panel/panel-ols.md)
 
 ## Overview
@@ -9,10 +9,6 @@
 `PanelOLS` fits linear panel regressions with no fixed effects, one-way fixed effects, or two-way fixed effects. With fixed effects, the coefficient estimate is identified from variation left after removing the selected entity and/or time effects.
 
 The implementation performs these transformations directly rather than constructing a large dummy-variable matrix. This changes the numerical representation, not the statistical fixed-effects model.
-
-## Path
-
-Implementation: `statgpu/panel/_fixed_effects.py`.
 
 ## Statistical Model and Identification
 
@@ -148,11 +144,11 @@ Formula parsing also raises clear errors for unsupported requests: mixing pipe a
 
 **Does robust covariance change `fit_statistics_.f_statistic` into a robust Wald test?**  No. This field remains the classical joint test of the fitted slope regressors; see [fit statistics](fit-statistics.md).
 
-## External Validation
+<a id="external-validation"></a>
 
-We compare one- and two-way fixed-effect Driscoll-Kraay results with `linearmodels==7.0`: coefficients use `rtol=2e-10, atol=2e-11`, and covariance/BSE use `rtol=5e-9, atol=5e-11`. The no-fixed-effect OLS path is compared with `statsmodels==0.14.6`, and one-way fixed-effect coefficients are also checked against R `plm==2.6-7`. Shared covariance and R tolerances are summarized in the [validation matrix](covariance.md#validation-matrix).
+## Comparing with Other Packages
 
-GPU consistency is tested separately by comparing CuPy and Torch outputs with NumPy using default `rtol=5e-6, atol=5e-7`; observed maximum differences are stored in `results/pr126_p100_fresh/panel_stage_c_correctness_p100.json`.
+For one- or two-way fixed effects, align the sample, included effects, transformed design, and absorbed-effect degrees of freedom before comparing with linearmodels. The same alignment is needed for one-way comparisons with R plm. Driscoll-Kraay comparisons additionally require matching time order, kernel, and bandwidth. With no fixed effects, compare against an ordinary OLS regression such as statsmodels using the same intercept specification. See [comparing covariance definitions](covariance.md#comparing-covariance-definitions).
 
 ## References
 

@@ -79,25 +79,89 @@ def _add_intercept_column(X, backend_name):
 
 
 class GeneralizedLinearModel(BaseEstimator):
-    """GLM base class with shared IRLS + FISTA paths.
+    """Generalized linear model for scalar responses.
 
-    Subclasses override _get_family() and optionally the GLM loss mapping.
+    The family chooses a response model and link; predictions are conditional
+    means. Ordinary auto selects IRLS. Positive C adds ||beta||^2/(4*C) on the
+    average-loss scale; C=0 requests unpenalized IRLS. Explicit newton, lbfgs and
+    fista ignore C. Formula syntax determines the intercept for formula fits.
 
     Parameters
     ----------
     family : str, default='gaussian'
-        Distribution family: 'gaussian', 'binomial', 'poisson'.
+        gaussian, binomial, poisson, gamma, inverse_gaussian, negative_binomial, or tweedie. Family-specific link/dispersion controls belong to typed wrappers.
     fit_intercept : bool, default=True
-        Whether to calculate the intercept.
+        Fit an unpenalized intercept; formula syntax overrides this choice.
     max_iter : int, default=100
-        Maximum iterations.
-    tol : float, default=1e-4
-        Convergence tolerance.
+        Solver iteration budget.
+    tol : float, default=0.0001
+        Numerical convergence tolerance.
     C : float, default=1.0
-        Inverse regularization strength (for IRLS L2).
+        Ordinary IRLS adds ||beta||²/(4C) for positive C; C=0 removes it. Explicit newton/lbfgs/fista ignore C.
     device : str or Device, default='auto'
+        cpu, cuda (CuPy), torch (Torch CUDA), or auto. Explicit GPU requests require the corresponding CUDA backend.
+    n_jobs : int or None, default=None
+        Shared CPU-worker configuration; no parallel-fit guarantee.
     solver : str, default='auto'
-        'auto', 'irls', 'fista', 'newton', or 'lbfgs'.
+        auto, irls, fista, newton, lbfgs; ordinary auto selects IRLS. Solver changes can change the C-penalized objective.
+    gpu_memory_cleanup : bool, default=False
+        Best-effort GPU memory-pool cleanup.
+    compute_inference : bool, default=False
+        Enable supported M-estimation coefficient inference.
+    cov_type : str, default='nonrobust'
+        nonrobust, hc0, hc1 for ordinary GLM inference; no hac_maxlags constructor argument.
+
+    Methods
+    -------
+    fit(X=None, y=None, sample_weight=None, formula=None, data=None)
+        Return self after array or formula fitting; analytic weights are normalized
+        by their sum. Pass arrays or formula/data, not both.
+    predict(X)
+        Response means for complete rows; binomial returns mean probabilities.
+    summary()
+        Return a string, without printing. Works without coefficient inference.
+    family_to_loss()
+        Return the loss-name string for the selected family.
+    get_params(deep=True), set_params(**params)
+        Shared estimator configuration methods.
+    adjust_pvalues, combine_pvalues, bootstrap_statistic, permutation_test
+        Shared statistical helpers; resampling does not automatically refit GLMs.
+
+    Attributes
+    ----------
+    coef_ : numpy.ndarray of shape (n_features,)
+        Prediction slopes, including after GPU fitting.
+    intercept_ : float
+        Prediction intercept; zero when omitted.
+    n_iter_ : int
+        Solver iteration count; not a convergence certificate.
+    _bse, _zvalues, _pvalues, _conf_int : numpy.ndarray or None
+        Enabled supported inference; intercept first when fitted. Vector shape
+        (k,), confidence intervals (k, 2), where k includes any intercept.
+    loglikelihood, llf, aic, bic : float
+        Pseudo-likelihood diagnostics omit parameter-independent constants.
+        Weighted loglikelihood is -n times weighted-average per-row loss.
+
+    Notes
+    -----
+    There is no score or predict_proba method on this generic ordinary class.
+    Use print(model.summary()) to display its returned report.
+    Supported coefficient inference uses normal/z-reference M-estimation,
+    including family="gaussian" with C=0. It is not the nonrobust Student-t
+    path of LinearRegression; equal estimates/SEs need not give equal p-values
+    or intervals. Inspect _inference_result.distribution for the reference.
+
+    Failed auto/IRLS/FISTA refits can currently mix old coefficients with new row
+    counts or formula/intercept settings, while leaving the object marked fitted.
+    Predictions and likelihood diagnostics can change despite a raised fit error.
+    Create a fresh estimator after such a failure and complete a successful fit.
+    The ordinary typed wrappers inherit this limitation. Explicit newton/lbfgs
+    currently restore the previous fit after failure; that is not a successful
+    fit to the new data.
+
+    Formula prediction currently drops rows with missing predictors and returns
+    a shorter unlabelled array. Resolve missing values and check output length
+    against the query before associating predictions with original observations.
     """
 
     def __init__(
@@ -355,7 +419,7 @@ class GeneralizedLinearModel(BaseEstimator):
     # ------------------------------------------------------------------
 
     def summary(self):
-        """Print a summary table of inference results.
+        """Return a summary string without printing it.
 
         Returns
         -------

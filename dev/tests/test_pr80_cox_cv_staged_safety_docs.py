@@ -67,7 +67,15 @@ def test_primary_cox_model_pages_publish_single_pass_and_durable_evidence(
 ):
     text = Path(path).read_text(encoding="utf-8")
     assert 'staged_safety_strategy="single_pass_exhaustive"' in text
-    assert "ebbb7f2401f45b124069a30d3510c139" in text
-    assert "e01ad0bfec238d06167caeef9955e92b6cf84eea4ccc69a3056eb794ded6eccb" in text
+    # Keep the learner page linked to the durable record without requiring
+    # exact-source engineering provenance to be duplicated in the model prose.
+    reference = "../../../dev/references/coxph-implementation-and-evidence.md"
+    assert f"]({reference}#historical-external-validation)" in text
+    reference_path = (Path(path).parent / reference).resolve()
+    evidence = reference_path.read_text(encoding="utf-8")
+    assert "https://gist.github.com/TheHiddenObserver/ebbb7f2401f45b124069a30d3510c139" in evidence
+    assert "pr80_final_gpu_suite_schema3.json" in evidence
+    assert "a726937a39eb0ed5a370dd03362884b63a9e9818" in evidence
+    assert "e01ad0bfec238d06167caeef9955e92b6cf84eea4ccc69a3056eb794ded6eccb" in evidence
     for phrase in obsolete_phrases:
         assert phrase not in text

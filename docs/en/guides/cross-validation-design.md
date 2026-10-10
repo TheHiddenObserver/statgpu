@@ -1,15 +1,13 @@
 # How statgpu Cross-Validation Works
 
 > Language: English  
-> Last updated: 2026-09-17  
+> Last updated: 2026-10-06
 > This page: public design and execution model for cross-validation  
 > Switch: [Chinese](../../cn/guides/cross-validation-design.md)
 
 ## Why this page exists
 
 The [Cross-Validation guide](cross-validation.md) explains **how to configure and use** statgpu CV estimators. This page explains the design behind that interface: how selection and final refitting are separated, where pathwise and GPU acceleration can enter, what a selection cache is allowed to reuse, and which properties remain invariant when the implementation chooses a faster execution strategy.
-
-This is a public design document, not an implementation reference. Private helper names, cache-key fields, backend thresholds, benchmark-derived cutoffs, and validation artifacts belong in the repository's internal design and validation documentation.
 
 ## 1. The execution model
 
@@ -84,7 +82,18 @@ A CV result is meaningful only relative to the candidate set and folds that were
 
 When an estimator generates a tuning grid automatically, the grid is data/model dependent. When the user supplies a grid, that grid becomes the requested candidate set after public validation.
 
-Similarly, folds are not merely an implementation loop. They encode the resampling design. Time-ordered, grouped, clustered, or survival data may require custom splitting rules. statgpu validates the shape and estimator-specific requirements of supplied splits, but the scientific appropriateness of those splits remains the user's modeling decision.
+Use custom splits when ordinary shuffled folds do not match the data, such as ordered or grouped observations. Validate each pair as nonempty, disjoint, one-dimensional integer indices without repeated rows. Validation varies by estimator; the shared splitter can cast or flatten indices and skip empty pairs, so acceptance alone does not establish a valid split. Scientific suitability remains the caller's responsibility.
+
+**Known RidgeCV custom-split issue.** Without `sample_weight`, when validation sets
+cover every observation exactly once, RidgeCV can replace a supplied training
+subset with the full complement of its validation set. Deliberately excluded
+rows can re-enter training and change validation scores or the selected alpha.
+Ordinary complete K-fold splits already use those complements; arbitrary custom
+subsets do not. For excluded, gapped or embargoed training rows, use an explicit
+external CV loop that fits only the intended rows, as described in the
+[RidgeCV custom-training reference](../reference/linear-model-api.md#custom-ridgecv-training-subsets).
+A successful fit or finite score does not verify that the intended rows were used.
+
 
 Conceptually, once folds and candidates are established for one fit, later acceleration should operate on that same selection problem rather than repeatedly redefining it.
 
@@ -117,7 +126,7 @@ The public contract is not a particular batching layout. The invariant is that a
 - the same selection rule;
 - the same full-data final-refit interpretation.
 
-Consequently, a future version may change its batching strategy without requiring user code to change.
+Applications configure candidates and folds through the estimator interface; they do not need to choose a batching layout.
 
 ## 7. Selection caches
 
@@ -131,15 +140,13 @@ A selection cache may reuse previously computed selection evidence under that co
 - mutating one returned result must not corrupt later cached results;
 - using a cache must not change the statistical interpretation of the selected configuration.
 
-The exact cache identity, capacity, hashing strategy, and private helper functions are implementation details and are not public API guarantees.
-
 ## 8. Device selection during CV
 
 Explicit device requests and automatic device selection serve different purposes.
 
-With an explicit request (`device="cpu"`, `"cuda"`, or `"torch"`), the estimator follows the documented backend contract and reports an error when the requested accelerator path is unavailable or unsupported. CV acceleration does not have permission to silently move an explicit GPU request to a CPU fit merely because a CPU path would be easier to execute.
+Use `device="cpu"`, `"cuda"`, or `"torch"` to request a particular execution backend. Dedicated linear-model CV estimators reject unavailable explicit accelerator requests. Device behavior is estimator-specific; consult [Device and GPU Memory](device-and-memory.md), including its kernel/spline exceptions, before relying on placement.
 
-With `device="auto"`, statgpu may choose a backend using availability and workload characteristics. The exact crossover thresholds are performance tuning parameters, so they may change as kernels and hardware support improve.
+With `device="auto"`, backend choice can depend on availability and the workload. Use an explicit device setting when the application requires a particular backend, and check the estimator's documented device restrictions.
 
 The important design rule is that backend selection should change **where/how** an eligible CV problem is evaluated, not silently substitute another loss, penalty, candidate set, or validation criterion.
 
@@ -159,7 +166,7 @@ full-data weights
       `--> full-data weights -> selected final refit
 ```
 
-The exact normalization is defined by the corresponding estimator/loss contract. An acceleration path is valid only if it preserves that same convention. Unsupported weighted combinations should report that limitation rather than silently discarding weights.
+The exact normalization and supported weighted combinations depend on the estimator and loss. Check the model's weight support before fitting; for example, penalized Cox CV does not accept `sample_weight`.
 
 ## 10. Why Cox CV is structurally different
 
@@ -167,13 +174,11 @@ Cox cross-validation cannot always be treated as ordinary scalar-response regres
 
 As a result, Cox paths may need a different preparation order and additional fold validation before candidate scoring. The common selection/refit model still applies, but the survival-specific definition of valid folds and scores belongs to the [Cox Proportional Hazards](../models/coxph.md) documentation.
 
-This is an example of a broader design rule: shared CV infrastructure should not erase model-specific statistical structure merely to force every estimator through one identical implementation path.
-
 ## 11. Inference after tuning
 
 When coefficient inference is supported, statgpu performs it on the selected final refit after tuning is complete.
 
-That design avoids the meaningless alternative of publishing a separate coefficient-inference result for every temporary fold fit. It also means that ordinary intervals and p-values after CV are generally conditional on the selected tuning configuration unless a specific inference method explicitly adjusts for tuning/selection uncertainty.
+Ordinary intervals and p-values after CV are generally conditional on the selected tuning configuration unless a specific inference method explicitly adjusts for tuning/selection uncertainty.
 
 See [Inference Modes](inference-modes.md) and [Penalized GLM inference](penalized-glm-inference.md) for the inferential target and limitations.
 
@@ -200,5 +205,3 @@ Use the CV documentation according to the question:
 - **How does a solver itself work?** → [Solver Algorithms](solver-algorithms.md)
 - **What does inference after selection mean?** → [Inference Modes](inference-modes.md)
 - **What is special about survival CV?** → [Cox Proportional Hazards](../models/coxph.md)
-
-Repository-internal call graphs, private cache contracts, heuristic thresholds, and validation/evidence live under `dev/` and are intentionally not part of this public design page.

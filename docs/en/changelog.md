@@ -1,11 +1,57 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-09-20  
+> Last updated: 2026-10-10<br>
 > This page: Release history  
 > Switch: [Chinese](../cn/changelog.md)
 
 This page records user-visible changes for current and recent statgpu releases.
+
+## Unreleased — Learner guides and API references (PR #168)
+
+### Improved (2026-10-10)
+
+- Reused the covariance finite guard’s normalized working input within each public call. Supported NumPy-bound Torch `fit`, `score`, `predict`, and `mahalanobis` calls perform one Torch-to-NumPy normalization, including the nested prediction path; native Torch FP8 calls reuse their source-device widening. Validation still checks every supplied numerical argument, including ignored `y`, and no input cache is retained on the estimator. Numerical results, backend selection, input ownership, and exception behavior are unchanged. `dev/tests/test_covariance_normalization_reuse.py` checks conversion counts and preservation contracts; these counts do not establish a wall-clock speedup.
+
+### Fixed (2026-10-10)
+
+- **Covariance Torch conversion and FP8 validation**: all seven covariance estimators normalize supported real Torch inputs before public finite validation. NumPy-bound inputs move to CPU before conversion to `float64`, preserving `bfloat16`, `float8_e5m2`, lazy-negative views, and MPS-to-CPU conversion. Native Torch `float8_e5m2` validation widens a temporary on the original device rather than relying on a raw FP8 finite-check kernel. Previously Torch 2.5.1 CUDA rejected those FP8 inputs before the covariance conversion helper ran. NaN and positive/negative infinity still raise; fitted backend ownership, original input/storage, gradients, explicit unavailable-device errors, and existing CuPy/pandas handling are preserved. Coverage is in `dev/tests/test_covariance_torch_inputs.py` and `dev/tests/test_covariance_fp8_prevalidation.py`, including a missing-kernel ordering emulator. CPU results do not establish physical CUDA or MPS acceptance; hardware reruns remain required. Other float8 formats, complex, sparse, and quantized input support is unchanged.
+
+- Restored numeric pandas `DataFrame` inputs for fitting, scoring, prediction, and Mahalanobis distances across all seven covariance estimators, plus single-feature `Series` fits. Device preparation had confused pandas' keyed `get` method with a CuPy transfer method. Ordinary array-like inputs are now normalized before device conversion, while actual CuPy and Torch arrays retain the existing device-policy handling. Regression coverage checks these inputs against NumPy results, validates malformed inputs, and exercises real Torch CPU queries; physical CUDA coverage is conditional on available hardware.
+
+### Fixed (2026-10-09)
+
+- ANOVA now rejects NaN and positive or negative infinity in observations passed to `f_oneway`, `cohens_f`, and `f_twoway`, consistently with the other maintained ANOVA procedures. This does not change the documented results for finite constant groups or insufficient residual degrees of freedom.
+- Covariance estimators now honor explicit computation devices even when the input is a Torch tensor or CuPy array: `cpu` uses NumPy, `cuda` requires CuPy CUDA, and `torch` requires Torch CUDA. Unavailable explicitly requested backends raise. When both the estimator and global policy are `auto`, native input-backend behavior is retained. Scoring, Mahalanobis distances, and cross-validation use the fitted computation backend.
+- Repaired the shared GLM `C` parameter tables in both languages so the rendered cells retain the complete penalty normalization, `C=0` behavior, and solver exceptions.
+
+### Fixed (2026-10-06)
+
+- Fixed native generated Torch model-X device and seed handling: its local random generator and noise use the exact input tensor device, including CPU when CUDA is also available, and construction honors `random_state` without consuming the global Torch RNG. With the existing `None`-to-zero fallback, multiple Torch construction draws repeat the same noise; use an explicit integer seed for distinct, reproducible per-draw seeds. This does not imply cross-backend/device bitwise parity or repair the separate Lasso cache/device-routing limitations.
+
+### Improved (2026-10-09)
+
+- Separated learner guidance from panel/model validation provenance and benchmark-dashboard maintenance instructions. Kept statistical assumptions, numerical warnings and comparison settings in the user pages; described the custom RidgeCV training-row defect as a known implementation issue with its external-CV workaround. Moved the historical PR78 dashboard plan to developer plans, replaced brittle current-data counts with generated-data links, and qualified older speed measurements by their actual workload and available provenance.
+
+- Reorganized model tutorials into short, explained steps: imports and input meaning, data preparation, fitting, prediction, and result interpretation. Later inference, tuning, and GPU examples name and reuse their earlier setup where appropriate, instead of repeating whole datasets or CPU fits. English and Chinese pages follow the same progression while retaining model-specific formulas, assumptions, and limitations.
+- Added explicit data preparation to examples that previously relied on undeclared variables. Executable-example tests now follow the same ordered blocks and declared setup dependencies as readers, while preserving the checks on predictions, inference, and cross-validation results.
+
+### Improved (2026-10-06)
+
+- Tightened the UMAP missing-neighbor xfail to the exact finite graph signature; malformed graphs fail normally, and a correct UMAP repair reaches strict XPASS.
+
+- Documented silent missing-row removal in ordinary formula-based LinearRegression/GLM prediction, including invalid finite LinearRegression scores after broadcasting. Added explicit complete-query/index-preserving checks and distinguished the penalized wrappers, which already reject missing prediction rows. The underlying implementation remains separate follow-up work.
+
+- Rebuilt Poisson and shared CV learning examples as standalone seeded CPU workflows with held-out data, ordered/gapped folds and interpretation of expected counts, rate multipliers and uncertainty. Completed typed GLM constructor references and CV installed help, including family-specific controls and actual public methods.
+- Corrected UMAP's reference cross-entropy to exclude self-pairs, defined TSNE's conditional/joint probabilities and feasible perplexity limits, and explained the host work involved in UMAP attraction-curve fitting. A finite TSNE embedding does not establish that an impossible perplexity target was met.
+- Linked the complete kernel and spline API inventories directly from the shared reference. Strengthened known-defect regressions with independent numerical signatures and mutation checks so unrelated NaNs, finite corruption and runtime failures are not mislabeled as expected failures.
+
+- Completed the Ridge, SCAD and MCP learner journeys with standalone CPU examples, explicit unpenalized intercepts, model-specific method/formula/weight references and runtime help. Clarified generated Torch model-X seed semantics and sampler-option dispatch, and warned that a rejected KernelPCA refit can leave mixed state. Also documented the unweighted RidgeCV limitation for custom training subsets and how an explicit validation loop preserves the requested rows. The other documented RidgeCV and KernelPCA limitations remain separate implementation work.
+- Expanded bilingual explanations, mathematical definitions and runnable examples for linear models, inference, feature selection, survival, smoothing and twelve unsupervised estimators. The [complete API index](README.md#complete-api-references) links constructor options, methods and fitted-result references.
+- Clarified statistical inference targets, selection/tuning conditioning, weighting, resampling assumptions and available reporting methods. Connected Ridge, SCAD, MCP and Poisson explanations now distinguish their actual defaults and supported interfaces. Cox-family documentation identifies the difference between summed and row-averaged partial likelihood.
+- Documented current limitations and practical checks for failed refits, nonfinite outputs, data geometry and device placement. The new [coordinate-scaling guidance](models/nonparametric.md) and [NMF guide](unsupervised/nmf.md) explain how very small measurement units can change current results, how to prepare and reuse a consistent scale, and how to map predictions or densities back. The [Ridge guide](models/ridge.md) also shows training-derived centering for large coordinate offsets.
+- Clarified that a shared estimator's `device="auto"` inherits the global device policy, and completed public constructor help. Retained benchmark reports are identified as historical measurements of their recorded source and hardware.
+- In addition to documentation, docstrings and regression coverage, this PR fixes native Torch model-X random allocation and local-generator use, ANOVA nonfinite-input rejection, and covariance device selection. Other separately tracked numerical/state limitations remain unresolved; UMAP production code is unchanged. CPU examples and routing inspections do not establish physical-GPU execution or performance.
 
 ## Unreleased — Quantile solver and inference updates (PR #166, targeted for 0.2.6)
 

@@ -1,57 +1,80 @@
 # 有序广义线性模型 (Ordered Logit/Probit)
 
 > 语言: 中文  
-> 最后更新: 2026-07-07  
+> 最后更新: 2026-10-09<br>
 > 切换: [English](../../en/models/ordered.md)
 
-有序响应模型，适用于目标变量为序数类别（如"低/中/高"）的场景。
+## 什么时候使用有序模型？
+
+`OrderedLogitRegression` 与 `OrderedProbitRegression` 适合“低、中、高”等具有次序的类别。它们利用顺序，但不要求相邻类别之间等距。没有自然顺序的类别应使用无序分类模型；连续结果则应保留其连续信息。
+
+模型通过同一组斜率与多个阈值描述累积概率。Logit 采用比例优势假设，Probit 使用标准正态累积分布函数；两者都要求不同阈值共享斜率。这一假设不合适时，简单有序模型可能不够灵活。
 
 ## 模型形式
 
-P(y <= j | X) = F(theta_j - X * beta)
+$$
+P(y \le j \mid X)=F(\theta_j-X\beta),\qquad j=0,\ldots,K-2.
+$$
 
-其中：
-- `j = 1, ..., K-1` 为类别阈值
-- `F` 为累积分布函数（Logit 或 Probit）
-- `theta_j` 为阈值参数（严格递增）
-- `beta` 为系数向量（比例优势假设：所有类别共享同一系数）
+标签编码为 `0, ..., K-1`，`theta_j` 是严格递增的内部阈值。正斜率使结果更倾向于较高类别；Logit 中 `exp(beta)` 是跨每个阈值的“较高类别对较低类别”优势比，Probit 系数没有这一优势比解释。阈值承担位置参数的作用，不要向 `X` 添加常数列。
 
-## 当前实现
+<a id="cpu-example"></a>
 
-### OrderedLogitRegression
+## 完整 CPU 示例
 
-比例优势模型（proportional odds），使用 Logit 链接函数。
+按顺序运行以下小节，先学习三分类 Logit 的拟合和预测。
 
+### 1. 导入
+
+<!-- learner-example: ordered-basic -->
 ```python
+import numpy as np
 from statgpu.linear_model import OrderedLogitRegression
-
-model = OrderedLogitRegression(
-    n_categories=3,         # 类别数
-    max_iter=100,           # 最大 Newton-Raphson 迭代数
-    tol=1e-4,               # 收敛容差（NLL 绝对变化）
-    device='auto',          # 'auto' | 'cpu' | 'cuda' | 'torch'
-    compute_inference=True, # 计算标准误、z 值、p 值、置信区间
-    cov_type='nonrobust',   # 协方差类型（目前仅支持 nonrobust）
-)
-model.fit(X, y)
-print(model.coef_)          # 原始尺度系数 (p,)
-print(model._thresh_est)    # 原始尺度阈值 (K-1,)
-print(model._bse)           # 标准误 [coef SEs, threshold SEs]
-print(model._pvalues)       # p 值
-print(model.summary())      # 完整推断摘要
-print(model.aic, model.bic) # 信息准则
 ```
 
-### OrderedProbitRegression
+### 2. 准备有序响应
 
-使用 Probit 链接函数的有序模型。
+`X` 为 `(400, 2)` 数值矩阵，每行是一条观测；`y` 为长度 400 的整数标签。这里把含 Logistic 噪声的潜在连续响应按两个阈值分成 0、1、2 三类。前 300 行训练，后 100 行评价。真实数据应先明确类别顺序、处理缺失值，并保持预测列顺序一致。
 
 ```python
-from statgpu.linear_model import OrderedProbitRegression
-
-model = OrderedProbitRegression(n_categories=3, compute_inference=True, device='cpu')
-model.fit(X, y)
+rng = np.random.default_rng(42)
+X = rng.normal(size=(400, 2))
+latent = X @ np.array([0.8, -0.5]) + rng.logistic(size=400)
+y = np.digitize(latent, [-0.7, 0.8])
 ```
+
+### 3. 拟合并读取系数
+
+`n_categories=3` 必须与编码方案对应。暂不计算推断，先查看原始特征尺度的斜率和内部阈值。
+
+```python
+model = OrderedLogitRegression(
+    n_categories=3, device="cpu", max_iter=200, tol=1e-8,
+).fit(X[:300], y[:300])
+print("Slopes:", np.round(model.coef_, 3))
+print("Thresholds:", np.round(model._thresh_est, 3))
+```
+
+斜率约为 `[0.773, -0.458]`，方向与模拟设定一致。它们不是对整数标签求均值的线性回归系数；阈值也不是特征系数。
+
+### 4. 预测类别概率
+
+```python
+probability = model.predict_proba(X[300:])
+prediction = model.predict(X[300:])
+print("First probabilities:", np.round(probability[:3], 3))
+print("Held-out accuracy:", round(float(model.score(X[300:], y[300:])), 3))
+```
+
+概率数组为 `(100, 3)`，三列依次对应 0、1、2，每行之和为 1。`predict` 选择概率最大的类别，返回 `(100,)` 标签。该种子下准确率约为 `0.54`；准确率把所有误分类同等计数，不能反映错一个等级与错两个等级的不同代价。
+<!-- example-end: ordered-basic -->
+
+## 参数选择与常见问题
+
+- 用有实际意义的顺序编码类别；不要按字母顺序自动推定高低。稀少或空类别可能使阈值估计不稳定。
+- 检查共享斜率假设、各类别预测概率及留出表现，不能只看训练准确率。
+- `n_iter_` 记录迭代次数，不是单独的收敛证明。遇到数值警告时，检查共线性、分离与类别样本量，再考虑增加 `max_iter`。
+- 斜率反映条件关联，不自动具有因果解释。
 
 ## 目标函数
 
@@ -73,13 +96,13 @@ P(y=k | X) = F(θ_k - Xβ) - F(θ_{k-1} - Xβ)
 
 Newton-Raphson + 信赖域正则化（三端统一）：
 
-| 后端 | 算法 | 说明 |
+| 后端 | 算法 | 设备设置 |
 |------|------|------|
-| numpy (CPU) | Newton-Raphson + 向量化解析 Hessian | NumPy `linalg.solve` |
-| cupy (GPU) | Newton-Raphson + 向量化解析 Hessian | CuPy 原生，logit 下零 CPU 往返 |
-| torch (GPU) | Newton-Raphson + 向量化解析 Hessian | Torch 原生，使用 `torch.linalg.solve` |
+| numpy (CPU) | Newton-Raphson + 向量化解析 Hessian | `device="cpu"` |
+| cupy (GPU) | Newton-Raphson + 向量化解析 Hessian | `device="cuda"` |
+| torch (GPU) | Newton-Raphson + 向量化解析 Hessian | `device="torch"` |
 
-**收敛**：典型问题 5–23 次迭代。信赖域内层循环（每次迭代最多 20 次尝试）递增 ridge 惩罚直到 NLL 下降。
+迭代预算与容差控制数值优化。数值正则化用于稳定 Newton 步，并不是普通 GLM 中由 C 控制的统计斜率惩罚。
 
 **标准化**：X 内部标准化为均值=0，标准差=1。收敛后系数和阈值转换回原始（未标准化）尺度：
 `β_raw = β_fit / X_std`，`θ_raw = θ_fit + X_mean @ β_raw`。
@@ -88,7 +111,7 @@ Newton-Raphson + 信赖域正则化（三端统一）：
 
 ### Hessian 矩阵
 
-解析观测 Hessian（向量化，后端无关）。与 R `MASS::polr` 和 `ordinal::clm` 的 Hessian 结构完全一致。
+解析观测 Hessian 按总负对数似然计算，虽然优化目标使用平均损失。这一区别决定了协方差中正确的样本量尺度。
 
 Hessian 具有分块结构：
 
@@ -136,76 +159,73 @@ Wald z 统计量：`z = θ / bse`，双侧 p 值使用标准正态分布。
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `n_categories` | int | 3 | 序数类别数（>= 2） |
-| `fit_intercept` | bool | True | 是否拟合截距项 |
+| `fit_intercept` | bool | True | 继承的参数；有序模型由阈值表示位置，不另加截距 |
 | `max_iter` | int | 100 | Newton-Raphson 最大迭代数 |
 | `tol` | float | 1e-4 | 收敛容差（NLL 绝对变化） |
 | `C` | float | 1.0 | 逆正则化强度（未使用；继承自 GLM 基类） |
 | `device` | str | 'auto' | 'auto' \| 'cpu' \| 'cuda' \| 'torch' |
 | `compute_inference` | bool | False | 拟合后计算 SE、z 值、p 值、CI |
 | `cov_type` | str | 'nonrobust' | 协方差估计类型（目前仅 nonrobust） |
+| `n_jobs` | int 或 None | None | 共享配置，不用于选择有序求解器 |
 | `gpu_memory_cleanup` | bool | False | 拟合后清理 GPU 显存 |
 
-## CPU / GPU 示例
+## 推断、Probit 与 GPU
 
-### CPU 模式 + 推断
+### 可选：Logit 系数推断
 
+先完成 [CPU 示例](#cpu-example)，再复用其中的导入与训练数据。启用 `compute_inference` 后重新拟合，计算基于模型的标准误与边际区间。当前仅支持 `cov_type="nonrobust"`；这些结果依赖模型设定和大样本近似。
+
+<!-- example-requires: ordered-basic -->
+<!-- learner-example: ordered-inference -->
 ```python
-import numpy as np
-from statgpu.linear_model import OrderedLogitRegression
-
-np.random.seed(42)
-X = np.random.randn(5000, 10)
-beta = [0.5, -0.3, 0, 0.8, 0, -0.2, 0, 0.4, 0, 0]
-y = np.digitize(0.5 + X @ beta + 0.5 * np.random.randn(5000), [-0.5, 0.5])
-
-model = OrderedLogitRegression(n_categories=3, compute_inference=True, max_iter=50)
-model.fit(X, y)
-print(model.summary())
-# OrderedLogitRegression Summary
-# =====================
-# n_obs=5000  n_params=12  loglik=-2657.066  aic=5338.133  bic=5416.456
-# 
-#   Param     Coef    StdErr        z   P>|z|  [0.025   0.975]
-#   coef_0   1.705    0.294   5.806   0.000   1.130   2.281
-#   ...
-#   thresh_0 -3.300   0.751  -4.396   0.000  -4.771  -1.829
-#   thresh_1 -0.095   0.155  -0.612   0.541  -0.399   0.209
+inference_model = OrderedLogitRegression(
+    n_categories=3, device="cpu", max_iter=200, tol=1e-8,
+    compute_inference=True, cov_type="nonrobust",
+).fit(X[:300], y[:300])
+print("Slope SE:", inference_model._bse[:2])
+print("Threshold SE:", inference_model._bse[2:])
+print(inference_model.summary())
 ```
+<!-- example-end: ordered-inference -->
 
-### GPU 拟合（无推断）
+前两项对应斜率，后两项对应阈值；`_pvalues`、`_zvalues`、`_conf_int` 采用同一顺序，不能套用普通 GLM 的“截距在前”顺序。`aic` 与 `bic` 可用于相同响应、相同观测上的可比似然模型。
 
-```python
-model = OrderedLogitRegression(n_categories=3, device='cuda', max_iter=50)
-model.fit(X, y)  # GPU 上拟合，结果转回 CPU
-print(model.coef_)
-```
+### 更换为 Probit 链接
 
-### Probit + 推断
+先完成 [CPU 示例](#cpu-example)，再使用其中的 `X`、`y` 更换链接函数。下面不做推断；如需推断，按上一小节开启并使用同样的结果排列方式。
 
+<!-- example-requires: ordered-basic -->
+<!-- learner-example: ordered-probit -->
 ```python
 from statgpu.linear_model import OrderedProbitRegression
 
-model = OrderedProbitRegression(n_categories=3, compute_inference=True)
-model.fit(X, y)
-print(model._bse)
-print(model._pvalues)
+probit_model = OrderedProbitRegression(
+    n_categories=3, device="cpu", max_iter=200, tol=1e-8,
+).fit(X[:300], y[:300])
+probit_probability = probit_model.predict_proba(X[300:])
+```
+<!-- example-end: ordered-probit -->
+
+### 请求 GPU
+
+先完成 [CPU 示例](#cpu-example)，再复用其中的导入、`X` 与 `y`。下面请求 CuPy CUDA；Torch CUDA 使用 `device="torch"`。需要安装对应后端且有可用 CUDA 设备，显式请求不可用设备时会报错。
+
+```python
+gpu_model = OrderedLogitRegression(
+    n_categories=3, device="cuda", max_iter=200, tol=1e-8,
+).fit(X[:300], y[:300])
+gpu_probability = gpu_model.predict_proba(X[300:])
 ```
 
-## strict vs approximate
+系数、推断报告数组以及 `predict` / `predict_proba` 输出为 NumPy 数组。计算后端的安装与选择见[设备与内存](../guides/device-and-memory.md)。
 
-- **strict**：MLE 处的解析 Hessian 是精确的观测 Fisher 信息矩阵。在相同优化目标（无惩罚 NLL）下，
-  标准误与 R `MASS::polr` 和 `ordinal::clm` 在 float64 容差内一致。
-- **approximate**：GPU 路径（CuPy/Torch）因不同数学库（`libm` vs NVIDIA `libdevice`）
-  产生略有不同的系数估计。经过约 20 次 Newton 迭代后，累积 BSE 差异约 4.5e-04。
-  推断使用与拟合相同的后端（NumPy、CuPy 或 Torch），通过后端无关计算实现。
+## 数值差异与外部比较
 
-## 外部验证
+该 API 没有独立的严格/近似模式开关。CPU、CuPy 和 Torch 使用相同的模型与解析 Hessian，但浮点运算、容差及问题条件数可能造成数值差异。启用推断后，数值计算使用所选后端，报告数组转换为 NumPy。
 
-| 参考 | 方法 | 一致性 |
-|------|------|--------|
-| R `ordinal::clm` | Newton-Raphson + 解析 Hessian | NLL 匹配（benchmark 数据上 statgpu: -0.532, R: -0.497） |
-| R `MASS::polr` | Fisher scoring | 相同 Hessian 结构，系数匹配 |
-| `statsmodels` `OrderedModel` | L-BFGS + 数值 Hessian | NLL 相当（statgpu 获得更低 NLL） |
+与 R `MASS::polr`、`ordinal::clm` 或 statsmodels `OrderedModel` 比较时，应对齐类别顺序、链接、设计矩阵、阈值约定和收敛设置。statgpu 优化平均负对数似然，而 `loglikelihood` 报告总对数似然；在同一参数点，平均负对数似然乘以观测数才对应总负对数似然。比较标准误时使用总负对数似然的观测 Hessian，并注意参数排列和原始尺度转换。
+
+完整构造参数见上表；`fit(X, y)` 返回已拟合对象，`predict_proba` 返回类别概率，`predict` 返回标签，`score` 返回准确率。`summary()`、`aic`、`bic` 与推断属性按各节说明使用。更多签名见[公开实现](../../../statgpu/linear_model/_glm_base.py)与已安装版本的 `help(OrderedLogitRegression)`、`help(OrderedProbitRegression)`。
 
 ## 参考文献
 

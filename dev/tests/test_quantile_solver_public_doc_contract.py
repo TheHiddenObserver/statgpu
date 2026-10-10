@@ -4,12 +4,11 @@ import inspect
 from pathlib import Path
 
 from statgpu import glm_core, solvers
-from statgpu.losses import QuantileLoss
 from statgpu.linear_model.penalized import (
     PenalizedGeneralizedLinearModel,
     PenalizedQuantileRegression,
 )
-
+from statgpu.losses import QuantileLoss
 
 _ROOT = Path(__file__).resolve().parents[2]
 _PUBLIC_DOC_PAIRS = (
@@ -295,7 +294,6 @@ def test_loss_penalty_solver_framework_stays_at_composition_layer():
         "## 5. `sample_weight` and objective consistency",
         "## 6. Backend and device boundary",
         "## 7. CV and meta-estimator boundary",
-        "## 9. Documentation ownership",
     ):
         assert heading in en
 
@@ -307,9 +305,14 @@ def test_loss_penalty_solver_framework_stays_at_composition_layer():
         "## 5. `sample_weight` 与目标函数一致性",
         "## 6. 后端与设备边界",
         "## 7. CV 与元估计器边界",
-        "## 9. 文档职责分工",
     ):
         assert heading in cn
+
+    # Section 9 remains reader navigation; its editorial title is not an API.
+    for text in (en, cn):
+        navigation = text.split("## 9.", 1)[1]
+        for target in ("solver-penalty-matrix.md", "solver-algorithms.md"):
+            assert target in navigation
 
     for old_detail in (
         "### All Implemented Losses",

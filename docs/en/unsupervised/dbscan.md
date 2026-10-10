@@ -1,12 +1,16 @@
 # DBSCAN
 
 > Language: English
-> Last updated: 2026-06-26
+> Last updated: 2026-10-05
 > Switch: [Chinese](../../cn/unsupervised/dbscan.md)
 
 ## Overview
 
-`DBSCAN` finds density-connected components in dense Euclidean data. It supports CPU, CuPy/CUDA, and Torch CUDA paths. The CPU path uses a Cython-accelerated pipeline that is 3-4x faster than sklearn for low-dimensional data and matches sklearn for high-dimensional data. The GPU path (PyTorch CUDA) runs the entire pipeline on-device with zero GPU→CPU transfer, achieving 3-17x speedup over sklearn.
+`DBSCAN` finds density-connected components in dense Euclidean data. It supports CPU, CuPy/CUDA, and Torch CUDA paths. Execution and memory costs depend on data density, dimensionality and optional compiled extensions; GPU paths include host transfers.
+
+## When to use it
+
+Use DBSCAN when dense regions may have irregular shapes and some observations should remain unassigned. `eps` is measured in feature units; inspect several radii and `min_samples` values. Unequal cluster densities can make one global radius unsuitable.
 
 ## Path
 
@@ -27,97 +31,43 @@ DBSCAN is not a smooth optimization problem. It has no differentiable loss to mi
 - Non-core points reachable from a core component are border points.
 - Other points are noise with label `-1`.
 
-## CPU Strategy
+## Execution and memory
 
-The CPU path selects an algorithm based on dimensionality:
+CPU data with at most 12 features use SciPy tree search. Wider CPU data use scikit-learn `NearestNeighbors`; install scikit-learn for that path. Compiled statgpu Cython extensions can accelerate graph labeling; an uncompiled installation uses a Python implementation.
 
-| Dimensionality | Strategy | Details |
-|---|---|---|
-| p ≤ 12 | cKDTree `query_pairs` + Cython | Single tree traversal; `dbscan_labels_from_pairs` runs counting, Union-Find, and label assignment entirely in C. |
-| p > 12 | sklearn `radius_neighbors_graph` + Cython | Uses sklearn's optimized BLAS for distance computation; `dbscan_labels_from_csr` processes the CSR graph in C. |
+GPU distances use float32, while stored core observations use float64. Both GPU paths include host transfers, and the CuPy path also performs some graph processing in Python. Include those costs when timing the complete fit. `batch_size` limits distance batches, not the total neighbor graph: dense neighborhoods can still require quadratic memory. Check label/noise stability near the `eps` boundary, where float32 comparisons can differ.
 
-Both paths have a pure Python fallback when the Cython extension is not compiled.
-
-### Cython Module: `_dbscan_cy_fast.pyx`
-
-Two entry points, both running the full label pipeline in C (no Python object overhead):
-
-- `dbscan_labels_from_pairs(n_samples, min_samples, pairs)` — takes raw `(i, j)` pairs from `query_pairs`.
-- `dbscan_labels_from_csr(n_samples, min_samples, indptr, indices)` — takes CSR sparse graph arrays.
-
-Internally both use:
-- C-level neighbor counting
-- C-level Union-Find with path compression and union by rank
-- C-level border point assignment
-
-## GPU Strategy (PyTorch CUDA)
-
-The GPU path keeps all data on-device:
-
-1. **Distance computation**: batched `float32` matmul on GPU
-2. **Neighbor counting**: `mask.sum(dim=1)` on GPU
-3. **Sparse graph**: `torch.nonzero` on GPU, edges stored as GPU tensors
-4. **Connected components**: label propagation via `scatter_reduce_(amin)` on GPU
-5. **Border assignment**: batched distance + scatter on GPU
-
-Only the final labels (`n × int64`) are transferred to CPU. This eliminates per-batch GPU→CPU transfer overhead and avoids OOM from recomputing distances.
-
-### Label Propagation Algorithm
-
-```
-labels = arange(n_core)                          # each core point starts independent
-for _ in range(50):                              # typically converges in 2-5 iterations
-    min_labels = minimum(labels[src], labels[dst])  # parallel over all edges
-    labels.scatter_reduce_(amin)                     # parallel scatter
-    if converged: break
-```
-
-This is well-suited for GPU: each iteration is fully parallel over all edges, unlike CPU Union-Find which processes edges sequentially.
+Large common feature offsets can also erase separations during the GPU float32 conversion or expanded-distance calculation, even far from the `eps` boundary. Subtract one training-derived feature offset while the data are still float64, before fitting; translation preserves Euclidean distances and leaves `eps` unchanged. Keep that offset to interpret `components_` in original units. Finite labels alone do not establish that the neighbor graph is correct.
 
 ## Parameters
 
-- `eps`: neighborhood radius; must be positive.
+- `eps`: neighborhood radius; must be positive and finite. Non-finite values are not reliably rejected, so validate this control before fitting.
 - `min_samples`: minimum closed-neighborhood count for a core sample.
 - `metric`: only `"euclidean"` is supported.
-- `batch_size`: optional GPU neighbor-graph chunk size. Default targets ~2GB per batch.
+- `batch_size`: optional GPU distance-batch size; does not bound all stored graph edges.
 - `device`: `"auto"`, `"cpu"`, `"cuda"`, or `"torch"`.
 
-## CPU+GPU Examples
+## A small CPU example
 
+<!-- learner-example: dbscan -->
 ```python
 import numpy as np
 from statgpu.unsupervised import DBSCAN
 
-X = np.random.default_rng(0).normal(size=(5000, 8))
-
-# CPU (low-dim: Cython fast path)
-labels_cpu = DBSCAN(eps=1.0, min_samples=5, device="cpu").fit_predict(X)
-
-# GPU (PyTorch CUDA: fully on-device)
-labels_torch = DBSCAN(eps=1.0, min_samples=5, device="torch").fit_predict(X)
-
-# GPU (CuPy: distance on GPU, labels on CPU via Cython)
-labels_cuda = DBSCAN(eps=1.0, min_samples=5, device="cuda", batch_size=1024).fit_predict(X)
+rng = np.random.default_rng(0)
+X = np.vstack([rng.normal(-2, 0.1, (20, 2)), rng.normal(2, 0.1, (20, 2)), [[8., 8.]]])
+model = DBSCAN(eps=0.5, min_samples=3, device="cpu")
+labels = model.fit_predict(X)
+print(labels.shape, np.unique(labels), model.core_sample_indices_.shape)
 ```
 
-## Performance
+The last row is isolated and receives `-1`, the noise label. `components_` stores core observations, not cluster centers. There is no new-data prediction rule; refitting a combined dataset can change earlier assignments.
 
-Measured on Tesla P100-SXM2-16GB (GPU) and Intel Xeon (CPU), median of 3 runs:
+For a supported GPU installation, construct a new estimator with `device="cuda"` (CuPy) or `device="torch"` (Torch CUDA). Arrays generally stay on that backend; see the [API reference](api-reference.md#dbscan) for output ownership and host-side work. An unavailable explicit GPU raises an error.
 
-| n | p | sklearn CPU | statgpu CPU | statgpu GPU (torch) | GPU / sklearn |
-|---|---|---|---|---|---|
-| 10000 | 5 | 0.46s | 0.18s | 0.03s | **0.06x** |
-| 30000 | 5 | 3.32s | 1.35s | 0.24s | **0.07x** |
-| 50000 | 5 | 9.49s | 3.88s | 0.71s | **0.07x** |
-| 10000 | 50 | 0.05s | 0.06s | 0.01s | **0.28x** |
-| 30000 | 50 | 0.39s | 0.32s | 0.12s | **0.30x** |
-| 50000 | 50 | 1.08s | 0.89s | 0.32s | **0.30x** |
+## Approximation and interpretation
 
-All cases produce ARI = 1.0000 vs sklearn reference.
-
-## Strict/Approx Difference
-
-There is no strict inference mode. CPU fallback and Cython fast path are exact for supported dense Euclidean input. GPU paths compute the same dense neighbor relation subject to floating-point comparison at the `eps` boundary.
+The intended algorithm uses Euclidean neighborhoods rather than statistical inference. A current limitation in the uncompiled CPU path can incorrectly merge disconnected core points when no core-core edges exist. Validate such sparse-core configurations against an independent implementation before interpreting the labels; dense-cluster examples do not exercise this case.
 
 ## Outputs
 
@@ -128,21 +78,16 @@ There is no strict inference mode. CPU fallback and Cython fast path are exact f
 
 ## FAQ
 
-**Does production DBSCAN call sklearn?**
-For the CPU path with p > 12, sklearn's `NearestNeighbors` is used for optimized BLAS distance computation. The graph processing and label assignment are handled by statgpu's Cython code. For p ≤ 12, no sklearn dependency exists.
+**Can I predict a cluster for a new observation?**
+No. Only training-set `fit_predict` is available; `predict` raises `NotImplementedError`.
 
-**When is Cython used?**
-When the `_dbscan_cy_fast` extension is compiled (via `python setup.py build_ext --inplace`). Without Cython, a pure Python fallback is used. The Cython module must be compiled on the target machine.
+**Will GPU fitting be faster?**
+That depends on data size, density, transfers and available memory. Benchmark the complete workload; GPU support alone is not a speed guarantee.
 
-**Why is the GPU path faster?**
-The GPU path keeps all intermediate data (distances, edges, labels) on-device. Label propagation for connected components is fully parallel on GPU, unlike CPU Union-Find which processes edges sequentially. Only the final labels are transferred to CPU.
 
-## External Validation
+## Complete API reference
 
-- Tests: `dev/tests/test_unsupervised_dbscan.py`.
-- Benchmarks: `dev/benchmarks/benchmark_unsupervised_dbscan_cython.py`.
-- Baseline: sklearn DBSCAN with aligned `eps`, `min_samples`, and Euclidean metric.
-- Labels and noise masks are checked against the aligned reference (ARI = 1.0).
+Constructor defaults, all public methods, output shapes, and restrictions are listed in the [DBSCAN API reference](api-reference.md#dbscan).
 
 ## References
 

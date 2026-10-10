@@ -1,7 +1,7 @@
 # FirstDifferenceOLS
 
 > Language: English  
-> Last updated: 2026-08-19  
+> Last updated: 2026-10-09<br>
 > Switch: [Chinese](../../cn/panel/first-difference-ols.md)
 
 ## Overview
@@ -9,10 +9,6 @@
 `FirstDifferenceOLS` removes a time-invariant entity effect by subtracting each entity's previous **observed** value from its current observed value. It then regresses the differenced outcome on the differenced predictors without an intercept.
 
 This estimator can be applied to the same one-way fixed-parameter entity-effect model as a fixed-effects estimator; the difference is the transformation used to eliminate the entity effect.
-
-## Path
-
-Implementation: `statgpu/panel/_first_diff.py`.
 
 ## Statistical Model and Identification
 
@@ -116,9 +112,9 @@ Public results include `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `rs
 
 When `time_ids` is supplied, duplicate observations for the same entity and time raise an error because the chronological difference would be ambiguous. Calendar gaps are left as gaps: statgpu differences adjacent observed rows and does not insert missing periods or rescale by elapsed time.
 
-The differenced regression uses the shared certified panel least-squares policy. Cancellation-sensitive response projections use the magnitude-tiered reduction path; if a nonzero coefficient is below the numerically certifiable float64 projection resolution and the candidate materially violates least-squares stationarity, `.fit()` raises `FloatingPointError` instead of returning a finite but unreliable coefficient. This is distinct from exact collinearity. If the differenced predictors are exactly collinear, fitted values can still be computed but the coefficient vector is not unique, so coefficient-level standard errors, tests, p-values, and confidence intervals are disabled.
+If finite-precision arithmetic cannot reliably resolve a nonzero coefficient in the differenced regression, `.fit()` raises `FloatingPointError` rather than returning an unreliable coefficient. This is distinct from exact collinearity. If the differenced predictors are exactly collinear, fitted values can still be computed but the coefficient vector is not unique, so coefficient-level standard errors, tests, p-values, and confidence intervals are disabled.
 
-Legacy `rsquared` is also range-safe. When the physical subtraction $\Delta y-\overline{\Delta y}$ would overflow near the float64 boundary, the response and residual are placed on a common dimensionless centering scale before the scale-invariant $R^2$ ratio is formed. Ordinary-scale centering is unchanged. Invalid covariance choices or unavailable explicitly requested GPU backends raise clear errors.
+Legacy `rsquared` uses range-safe centering to avoid overflow when subtracting the mean of an extreme differenced response. This preserves the same scale-invariant $R^2$ definition. Invalid covariance choices or unavailable explicitly requested GPU backends raise clear errors.
 
 ## FAQ
 
@@ -126,11 +122,11 @@ Legacy `rsquared` is also range-safe. When the physical subtraction $\Delta y-\o
 
 **Is an intercept estimated after differencing?**  No.
 
-## External Validation
+<a id="external-validation"></a>
 
-We construct the identical differenced sample in `statsmodels==0.14.6` and compare coefficients plus HC0/HC2/HC3 covariance and standard errors. Coefficients use `rtol=5e-10, atol=5e-12`; covariance/BSE use `rtol=5e-9, atol=5e-11`. Shared covariance checks are listed in the [validation matrix](covariance.md#validation-matrix).
+## Comparing with Other Packages
 
-GPU consistency is tested separately by comparing CuPy and Torch results with NumPy at default `rtol=5e-6, atol=5e-7`. The current exact-head physical gate additionally exercises shared coefficient-resolution fail-closed behavior and an extreme differenced-response case whose physical centering would exceed float64 range.
+To compare with an OLS package such as statsmodels, construct the identical differenced sample after applying the same within-entity chronology. Fit without an intercept and align the HC0/HC2/HC3 choice. Calendar gaps remain gaps in both samples; do not replace adjacent-observation differences with differences divided by elapsed time. See [comparing covariance definitions](covariance.md#comparing-covariance-definitions).
 
 ## References
 

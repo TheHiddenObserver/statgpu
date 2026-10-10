@@ -21,18 +21,31 @@ class Nystroem(BaseEstimator):
     training data as landmarks.  Useful for scaling kernel methods
     to large datasets.
 
-    The approximation is:
-        Z = K_nm @ V @ diag(1/sqrt(lambda + epsilon))
+    The approximation is Z = K_nm @ normalization_, with
+    normalization_ = U @ diag(1/sqrt(max(s, 1e-12))) @ Vt from the
+    NumPy SVD K_mm = U @ diag(s) @ Vt. For a positive-semidefinite kernel,
+    this is the symmetric inverse-square-root feature orientation.
 
-    where K_nm is the kernel between all samples and the landmarks,
-    and (V, lambda) are the eigendecomposition of K_mm (landmark kernel).
+    Landmark kernel construction and SVD run on CPU even for GPU fitting;
+    query-to-landmark kernels and returned features use the selected array
+    library, but Torch CPU inputs are not consistently moved to CUDA.
+    This output-placement limitation is separate from the CPU landmark SVD.
+    A custom kernel must also accept NumPy landmark inputs.
+
+    Finite input does not guarantee a finite computed kernel. Polynomial
+    kernels can overflow; nonfinite kernel/decomposition values can currently
+    produce a fitted object with NaN learned arrays and predictions. Use finite
+    applicable kernel controls, check learned arrays and outputs for finiteness,
+    and discard a nonfinite fit. Increasing regularization does not repair an
+    already nonfinite kernel; revise feature scaling/kernel settings and refit.
 
     Parameters
     ----------
     kernel : str or callable, default='rbf'
         Kernel function name or callable.
     n_components : int, default=100
-        Number of landmark points.
+        Requested landmark count, capped at the number of training rows:
+        m = min(n_components, n_samples).
     gamma : float, optional
         Kernel coefficient (for rbf, poly, etc.).
     degree : int, default=3
@@ -42,18 +55,26 @@ class Nystroem(BaseEstimator):
     random_state : int or None, default=None
         Random seed for landmark selection.
     device : str or Device, default='auto'
-        Computation device.
+        Requested device: 'cpu' (NumPy), 'cuda' (CuPy CUDA), 'torch'
+        (Torch CUDA), or 'auto'. Unavailable explicit backends raise.
+        After the Torch CUDA availability check succeeds, NumPy or Torch
+        CPU input can still stay on CPU. Inspect returned features with
+        .device/.is_cuda; the selected backend does not prove placement.
+        Public fitted arrays are deliberately NumPy, so inspect outputs
+        instead. For a predictable CPU path use NumPy input, device='cpu'.
+    n_jobs : int or None, default=None
+        Shared estimator option; does not parallelize fitting.
 
     Attributes
     ----------
-    components_ : ndarray, shape (n_components, n_features)
-        Selected landmark points.
-    component_indices_ : ndarray, shape (n_components,)
-        Indices of selected landmarks in the training data.
-    normalization_ : ndarray, shape (n_components, n_components)
-        Normalization matrix: V @ diag(1/sqrt(lambda)).
-    eigenvalues_ : ndarray, shape (n_components,)
-        Eigenvalues of the landmark kernel matrix.
+    components_ : numpy.ndarray, shape (m, n_features)
+        Host selected landmarks, where m = min(n_components, n_samples).
+    component_indices_ : numpy.ndarray, shape (m,)
+        Host indices of selected landmarks in the training data.
+    normalization_ : numpy.ndarray, shape (m, m)
+        Host NumPy SVD inverse-square-root normalization matrix.
+    eigenvalues_ : numpy.ndarray, shape (m,)
+        Host NumPy singular values, floored at 1e-12; not signed eigenvalues.
     n_features_in_ : int
         Number of input features.
     """
@@ -150,9 +171,13 @@ class Nystroem(BaseEstimator):
 
         Returns
         -------
-        X_transformed : ndarray, shape (n_samples, n_components_out)
-            Approximate feature map.  n_components_out is the number of
-            positive eigenvalues found.
+        X_transformed : backend array, shape (n_samples, m)
+            Approximate features, where m = min(n_components, n_training_samples).
+            The selected backend does not guarantee placement: device='torch'
+            rejects unavailable CUDA, but after that check CPU input can still
+            yield CPU tensors. Inspect output .device/.is_cuda. Small singular
+            values are floored, not removed; fitted public arrays remain NumPy
+            regardless of numerical device.
         """
         self._check_is_fitted()
         backend = self._get_backend(backend="auto")

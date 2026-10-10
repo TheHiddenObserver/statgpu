@@ -15,7 +15,7 @@ Use this page to answer three questions:
 2. What numerical conditions constrain an explicit solver request?
 3. What does `PenalizedGLM_CV` select under `solver="auto"`?
 
-Detailed model behavior belongs on the model pages; update equations and algorithmic assumptions belong in [Solver Algorithms](solver-algorithms.md).
+For model-specific behavior, see the model pages. For update equations and algorithmic assumptions, see [Solver Algorithms](solver-algorithms.md).
 
 General conventions:
 
@@ -46,7 +46,6 @@ General conventions:
 - Quantile Group SCAD/MCP instead uses Group Proximal IRLS-LLA: the pinball objective is majorized by Quantile IRLS, and each convex Adaptive-Group-Lasso weighted least-squares surrogate is solved on the selected backend.
 - Proximal IRLS-CD and Group Proximal IRLS-LLA are specialized resolved routes rather than public explicit solver keywords.
 - Group Lasso and Adaptive Group Lasso use the group-aware FISTA path.
-- Model-specific reasons for a cell belong in the corresponding model page rather than in this matrix.
 
 For family/link domain restrictions, weighting semantics, or special initialization rules, see [GeneralizedLinearModel](../models/generalized-linear-model.md). For Quantile-specific solver choices and non-smooth behavior, see [Quantile Regression](../models/quantile.md).
 
@@ -106,8 +105,8 @@ Cross-validation may intentionally choose a different numerical route from direc
 - An explicit solver request remains authoritative when that loss × penalty × solver combination is supported; CV does not silently replace it simply because folds or weights are present.
 - Candidate fits and the selected full-data refit preserve the resolved loss, penalty, groups, and solver contract.
 - Quantile Group SCAD/MCP CV uses fold-local analytic weights inside the Group Proximal IRLS-LLA candidate fits and full-data weights in the selected final refit.
-- Group validation is performed before candidate fitting; detailed group-input rules are documented in [Loss × Penalty × Solver Framework](loss-penalty-solver-framework.md).
-- Strict/two-stage CV semantics and model-specific validation behavior are documented on the relevant model pages rather than duplicated here.
+- Group inputs are validated before candidate fitting.
+- For strict/two-stage CV options and model-specific validation behavior, see the relevant model page.
 
 ## 5. Penalty reference
 
@@ -118,17 +117,17 @@ Cross-validation may intentionally choose a different numerical route from direc
 | `elasticnet` | α[λ‖β‖₁ + ½(1-λ)‖β‖²] | soft threshold + L2 scaling | `alpha`, `l1_ratio` |
 | `scad` | SCAD(β; α, a) | SCAD thresholding / LLA | `alpha`, `a` |
 | `mcp` | MCP(β; α, γ) | MCP thresholding / LLA | `alpha`, `gamma` |
-| `adaptive_l1` | αΣ_j w_j|β_j| | weighted soft threshold | `alpha`, weights |
+| `adaptive_l1` | αΣ_j w_j\|β_j\| | weighted soft threshold | `alpha`, weights |
 | `group_lasso` | αΣ_g √p_g‖β_g‖₂ | block soft threshold | `alpha`, `groups` |
 | `AdaptiveGroupLassoPenalty` | αΣ_g w_g√p_g‖β_g‖₂ | weighted block soft threshold | `alpha`, `groups`, `weights`; object-only |
 | `group_scad` | Σ_g SCAD(‖β_g‖₂; α√p_g, a) | group LLA surrogate | `alpha`, `groups`, `a` |
 | `group_mcp` | Σ_g MCP(‖β_g‖₂; α√p_g, γ) | group LLA surrogate | `alpha`, `groups`, `gamma` |
 
-For Group SCAD/MCP, the convex LLA surrogate is represented through an adaptive group-lasso problem. Group metadata must match the final design width; exact validation rules are documented in [Loss × Penalty × Solver Framework](loss-penalty-solver-framework.md).
+For Group SCAD/MCP, the convex LLA surrogate is represented through an adaptive group-lasso problem. Group metadata must match the final design width.
 
 ## 6. Related references
 
-This page intentionally does not reproduce model-specific derivations, optimization safeguards, inference contracts, or validation procedures.
+The following references explain the algorithms, model-specific assumptions, and inference options behind these combinations.
 
 - [Solver Algorithms](solver-algorithms.md) — update equations, convergence/stopping behavior, and algorithmic assumptions
 - [Loss × Penalty × Solver Framework](loss-penalty-solver-framework.md) — computation architecture and dispatch concepts

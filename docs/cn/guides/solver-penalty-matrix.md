@@ -15,7 +15,7 @@
 2. 显式指定求解器时，需要满足哪些数值前提？
 3. `PenalizedGLM_CV` 在 `solver="auto"` 下会选择什么？
 
-模型专属行为放在对应模型页；更新公式和算法前提放在 [求解器算法](solver-algorithms.md)。
+模型专属行为见对应模型页；更新公式和算法前提见 [求解器算法](solver-algorithms.md)。
 
 通用约定：
 
@@ -105,8 +105,8 @@
 - 如果某个“损失函数 × 惩罚项 × 求解器”组合支持显式求解器，那么这个请求在 CV 中仍保持有效，不会仅因为数据折或权重存在而被静默替换。
 - 候选模型拟合与最终全数据重拟合会保留解析后的损失函数、惩罚项、分组与求解器约定。
 - Quantile Group SCAD/MCP 的候选拟合使用各训练折自己的解析权重，选定后的最终重拟合使用全数据权重，并进入同一个分组 Proximal IRLS-LLA 路径。
-- 分组输入会在候选模型拟合前验证；详细规则见 [损失函数 × 惩罚项 × 求解器框架](loss-penalty-solver-framework.md)。
-- 严格/两阶段 CV 语义和模型专属验证细节放在对应模型页，不在本页重复。
+- 分组输入会在候选模型拟合前验证。
+- 严格/两阶段 CV 选项与模型专属验证行为见对应模型页。
 
 ## 5. 惩罚项参考
 
@@ -117,17 +117,17 @@
 | `elasticnet` | α[λ‖β‖₁ + ½(1-λ)‖β‖²] | 软阈值 + L2 缩放 | `alpha`, `l1_ratio` |
 | `scad` | SCAD(β; α, a) | SCAD 阈值化 / LLA | `alpha`, `a` |
 | `mcp` | MCP(β; α, γ) | MCP 阈值化 / LLA | `alpha`, `gamma` |
-| `adaptive_l1` | αΣ_j w_j|β_j| | 带权软阈值 | `alpha`、weights |
+| `adaptive_l1` | αΣ_j w_j\|β_j\| | 带权软阈值 | `alpha`、weights |
 | `group_lasso` | αΣ_g √p_g‖β_g‖₂ | 分块软阈值 | `alpha`、`groups` |
 | `AdaptiveGroupLassoPenalty` | αΣ_g w_g√p_g‖β_g‖₂ | 带权分块软阈值 | `alpha`、`groups`、`weights`；仅对象形式 |
 | `group_scad` | Σ_g SCAD(‖β_g‖₂; α√p_g, a) | 分组 LLA 近似 | `alpha`、`groups`、`a` |
 | `group_mcp` | Σ_g MCP(‖β_g‖₂; α√p_g, γ) | 分组 LLA 近似 | `alpha`、`groups`、`gamma` |
 
-Group SCAD/MCP 的凸 LLA 近似通过 Adaptive Group Lasso 问题表示。分组元数据必须与最终设计矩阵宽度一致；精确验证规则见 [损失函数 × 惩罚项 × 求解器框架](loss-penalty-solver-framework.md)。
+Group SCAD/MCP 的凸 LLA 近似通过 Adaptive Group Lasso 问题表示。分组元数据必须与最终设计矩阵宽度一致。
 
 ## 6. 相关参考
 
-本页刻意不重复模型专属推导、优化保护措施、推断约定或验证流程。
+以下参考说明这些组合所用的算法、模型专属假设与推断选项。
 
 - [求解器算法](solver-algorithms.md) — 更新公式、收敛/停止行为与算法前提
 - [损失函数 × 惩罚项 × 求解器框架](loss-penalty-solver-framework.md) — 计算架构与分发概念

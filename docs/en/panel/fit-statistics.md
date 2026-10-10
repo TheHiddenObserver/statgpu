@@ -1,18 +1,16 @@
 # Panel Fit Statistics
 
 > Language: English  
-> Last updated: 2026-08-15  
+> Last updated: 2026-10-09<br>
 > Switch: [Chinese](../../cn/panel/fit-statistics.md)
 
-## Overview and Path
+## Overview
 
 Panel estimators expose a common `fit_statistics_` object so that within-, between-, and overall goodness of fit can be interpreted consistently across models. These quantities answer different questions:
 
 - **overall $R^2$** measures fit to the observed outcome levels;
 - **between $R^2$** measures fit to differences in entity means;
 - **within $R^2$** measures fit to changes around each entity's own mean.
-
-The calculations are implemented by the panel diagnostic/statistics helpers under `statgpu/panel/`.
 
 ## Definitions
 
@@ -50,7 +48,7 @@ $$
 
 where $r_F=N$ for entity effects, $T$ for time effects, and $N+T-C$ for two-way effects, with $C$ the number of connected components in the observed entity-time graph.
 
-For backward compatibility, the legacy public fields `PanelOLS.df_resid` and `PanelOLS.rsquared_within` keep their established meanings. The standardized values in `fit_statistics_` are provided separately rather than silently changing those older fields.
+`PanelOLS.df_resid` uses the residual degrees of freedom shown above. `PanelOLS.rsquared_within` measures fit in the regression after removing the selected fixed effects. When entity labels are supplied, `fit_statistics_.rsquared_within` instead uses entity-demeaned level data and the fitted coefficients. Check which definition you need before treating these two $R^2$ fields as interchangeable.
 
 ## Availability and Outputs
 
@@ -58,9 +56,7 @@ When entity metadata are available, `fit_statistics_` provides standardized with
 
 `FamaMacBeth` reports parameter-based within, between, and overall $R^2$, but it does not report the residual-OLS adjusted $R^2$ or model F because its estimator is an average of period-by-period regressions rather than one pooled residual regression.
 
-## Validation
-
-These statistics are covered by the full CPU regression suite and by estimator-level comparisons with external packages. In particular, tests verify that selecting a robust covariance estimator changes coefficient inference without silently changing the meaning of the classical model F statistic.
+`fit_statistics_.f_statistic` is `None` when there are no testable slope restrictions or the F ratio is undefined; a missing statistic is not acceptance of the null. At extreme scales, RSS metadata in original squared units can be `inf` while the corresponding dimensionless F statistic is finite.
 
 ## References
 

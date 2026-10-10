@@ -271,7 +271,7 @@ def fixed_x_knockoff_filter(
     lasso_fast_profile: str = "off",
 ) -> KnockoffResult:
     """
-    Fixed-X knockoff selection skeleton.
+    Fixed-X knockoff feature selection.
 
     Parameters
     ----------
@@ -280,7 +280,10 @@ def fixed_x_knockoff_filter(
     y : array-like of shape (n_samples,)
         Response vector.
     q : float, default=0.1
-        Target FDR level in (0, 1).
+        Finite target FDR level in (0, 1). Check
+        ``np.isfinite(q) and 0 < q < 1`` before calling. Current validation
+        misses NaN and can return an invalid empty selection with
+        threshold=inf and estimated_fdr=0.0 under either threshold rule.
     method : {'corr_diff', 'ols_coef_diff', 'lasso_coef_diff'}, default='corr_diff'
         Feature-importance statistic for W construction.
     fdr_control : {'knockoff_plus', 'knockoff'}, default='knockoff_plus'
@@ -289,12 +292,66 @@ def fixed_x_knockoff_filter(
         Random seed for knockoff construction.
     backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
         Compute backend. ``'auto'`` infers from input arrays.
-        Use ``'torch'`` for PyTorch GPU acceleration.
+        ``'torch'`` selects the Torch library, not CUDA placement. Fixed-X
+        construction follows X's device, including CPU. Keep X, y and any
+        supplied Xk on the same device for native statistics. Native model-X
+        construction also follows X's device; see ``model_x_knockoff_filter``
+        for its construction and seed behavior. This differs from estimator
+        ``device='torch'``, which requests CUDA.
+    Xk : array-like of shape (n_samples, n_features), optional
+        Supplied knockoff matrix; bypasses construction. The caller must ensure
+        matched-design validity after any intercept/nuisance projection, not
+        merely the same shape or raw Gram matrix as X. Centered valid pairs
+        avoid the automatic construction centering issue below.
+    compat_mode : {'statgpu', 'knockpy'}, default='statgpu'
+        Construction/statistic conventions; does not certify package parity.
+    lasso_cv_impl : {'auto', 'statgpu', 'sklearn'}, default='auto'
+        Lasso-statistic implementation. Auto requests sklearn in knockpy mode
+        and statgpu otherwise. A sklearn import failure or Torch statistic
+        computation can switch to statgpu without updating the metadata label.
+    lasso_fast_profile : {'off', 'auto', 'moderate', 'aggressive'}, default='off'
+        Lasso profile that can change CV folds, candidate penalties, iteration
+        budget and tolerance, hence W and selected features. It is not an
+        output-preserving speed switch.
 
     Returns
     -------
     KnockoffResult
         Selected feature indices and full knockoff diagnostics.
+
+    Notes
+    -----
+    Fixed-X finite-sample interpretation assumes a Gaussian linear response
+    with independent homoskedastic normal errors, plus valid matched-design
+    geometry and statistics. It is not guaranteed for arbitrary finite y.
+
+    Automatic construction centers X but can generate noncentered Xk. The
+    correlation, OLS and native non-knockpy Lasso statistics center y, so equal
+    raw Grams can become unequal after the intercept projection. The usual
+    null score-pair exchangeability can fail even without threshold ties and
+    with n>2p. Increasing n alone does not fix this. A valid centered supplied
+    pair avoids this geometry defect; the documented orthogonal QR example
+    needs n>=2p+1 and is not a general repair for arbitrary X. Separately, tied
+    absolute statistics can give incorrect threshold counts. Do not infer
+    nominal FDR control merely from valid dimensions or absence of ties.
+
+    Model-X instead relies on feature-pair exchangeability and conditional
+    independence from y given X, allowing arbitrary response relationships;
+    the estimated feature-model and multi-draw limitations still apply.
+
+    Construction's input-device behavior does not extend to Torch
+    ``method='lasso_coef_diff'``: native Lasso tuning/fitting requests CUDA,
+    including for CPU inputs or supplied Xk, and does not guarantee the input
+    GPU index. For Torch CPU statistics, use ``corr_diff`` or ``ols_coef_diff``
+    when appropriate; for CPU Lasso, use NumPy inputs with ``backend='numpy'``.
+
+    Seeded ``lasso_coef_diff`` calls can reuse stale statistics if X, y, or Xk
+    changes in place or previous array memory is reused. A new selector does not
+    isolate this cache. Use a fresh Python process for each changed-data call,
+    or, with supplied float64 NumPy X/y/Xk, fresh copies while retaining every old
+    input unchanged. ``random_state=None`` disables seeded reuse but does not
+    provide seed-based repeatability. The feature-selection API reference gives
+    a complete safe-copy example and statistical limitations.
     """
     check_finite(X, name="X")
     check_finite(y, name="y")
@@ -397,8 +454,45 @@ def model_x_knockoff_filter(
     """
     Model-X knockoff selection (Gaussian second-order approximation).
 
-    This implementation estimates a Gaussian feature model and builds
+    Check ``np.isfinite(q) and 0 < q < 1`` before calling or fitting. Current
+    validation misses NaN under both threshold rules and can return an invalid
+    empty selection with threshold=inf and estimated_fdr=0.0 (an all-false
+    selector support mask). This is not a valid no-discoveries result.
+
+    The default native path estimates a Gaussian feature model and builds
     equi-correlated knockoffs from the estimated covariance.
+
+    With compat_mode='statgpu' and Xk=None, native Torch construction uses
+    X.device for both its local random generator and random matrix. Torch CPU
+    input stays on CPU even when CUDA is available; CUDA input retains its
+    device, including its GPU index. As in fixed-X construction, backend='torch'
+    selects the array library rather than requesting CUDA. Keep X/y/Xk on the
+    same device for native statistics. Supplied, externally validated Xk
+    bypasses construction; shape/device agreement alone does not establish
+    feature-pair exchangeability or conditional independence from y given X.
+
+    An integer random_state seeds the local generator for each construction
+    draw without advancing the global Torch RNG. Repeated construction with
+    the same inputs and settings is repeatable within the same backend, dtype,
+    device and software environment; this is not a cross-backend or cross-GPU
+    equality guarantee, or a guarantee of empirical FDR control. In native
+    Torch/CuPy construction, random_state=None uses seed 0 for each draw,
+    repeating the construction noise. Use an integer for separately seeded
+    draws. NumPy construction with None remains unseeded. Check statistic repeatability
+    separately, especially for the Lasso cache limitation below.
+
+    Sampler dispatch is used only with compat_mode='knockpy' and no Xk;
+    elsewhere the sampler controls are ignored, not executed.
+
+    Construction's input-device behavior does not extend to Torch
+    method='lasso_coef_diff': native Lasso tuning/fitting requests CUDA,
+    including for CPU inputs or supplied Xk, and does not guarantee the input
+    GPU index. For Torch CPU statistics, use corr_diff or ols_coef_diff when
+    appropriate; for CPU Lasso, use NumPy inputs with backend='numpy'.
+
+    Seeded ``lasso_coef_diff`` has the same input-mutation/cache limitation as
+    ``fixed_x_knockoff_filter``. Isolate changed-data calls in fresh Python
+    processes; a new selector alone does not isolate cached statistics.
     """
     check_finite(X, name="X")
     check_finite(y, name="y")
@@ -713,7 +807,36 @@ def knockoff_filter(
     knockpy_sampler: Optional[str] = None,
     knockpy_sampler_method: Optional[str] = None,
 ) -> KnockoffResult:
-    """Unified knockoff entrypoint for fixed-X and model-X variants."""
+    """Unified knockoff entrypoint for fixed-X and model-X variants.
+
+    Check ``np.isfinite(q) and 0 < q < 1`` before calling or fitting. Current
+    validation misses NaN under both threshold rules and can return an invalid
+    empty selection with threshold=inf and estimated_fdr=0.0 (an all-false
+    selector support mask). This is not a valid no-discoveries result.
+
+    Seeded ``lasso_coef_diff`` can reuse stale statistics after input mutation
+    or memory reuse. See ``fixed_x_knockoff_filter`` and the feature-selection
+    API reference for process-isolation and retained-input-copy workarounds.
+
+    With compat_mode='statgpu' and Xk=None, native model-X construction uses
+    X.device for its local random generator and random matrix, as fixed-X
+    construction does. Torch CPU inputs remain on CPU even when CUDA is
+    available; CUDA inputs retain their GPU index. Keep X/y/Xk on the same
+    device; a supplied, externally validated Xk bypasses construction.
+    An integer random_state seeds construction without advancing the global
+    Torch RNG. Construction repeatability is scoped to the same backend,
+    dtype, device and software environment, not cross-backend or cross-GPU
+    equality or empirical FDR control. See model_x_knockoff_filter for
+    random_state=None behavior, statistical requirements and the separate
+    Lasso cache limitation.
+
+    This device preservation is for construction: Torch method='lasso_coef_diff'
+    tuning/fitting still requests CUDA, even for CPU inputs or supplied Xk,
+    and does not guarantee the input GPU index. For Torch CPU statistics use
+    corr_diff or ols_coef_diff when appropriate; for CPU Lasso use NumPy inputs
+    with backend='numpy'.
+
+    """
     kind = _normalize_knockoff_type(knockoff_type)
     if kind == "fixed_x":
         return fixed_x_knockoff_filter(
@@ -786,7 +909,37 @@ class _KnockoffSelectorContract:
 
 
 class KnockoffSelector(_KnockoffSelectorContract):
-    """Sklearn-like wrapper for unified knockoff feature selection."""
+    """Sklearn-like wrapper for unified knockoff feature selection.
+
+    Check ``np.isfinite(q) and 0 < q < 1`` before calling or fitting. Current
+    validation misses NaN under both threshold rules and can return an invalid
+    empty selection with threshold=inf and estimated_fdr=0.0 (an all-false
+    selector support mask). This is not a valid no-discoveries result.
+
+    ``fit`` returns self; inspect ``result_`` and ``selected_features_``.
+    Seeded ``lasso_coef_diff`` can reuse stale statistics across new instances
+    after input mutation or memory reuse. See ``fixed_x_knockoff_filter`` and
+    the feature-selection API reference for safe repeated-call workflows.
+
+    With compat_mode='statgpu' and Xk=None, native model-X construction uses
+    X.device for its local random generator and random matrix, as fixed-X
+    construction does. Torch CPU inputs remain on CPU even when CUDA is
+    available; CUDA inputs retain their GPU index. Keep X/y/Xk on the same
+    device; a supplied, externally validated Xk bypasses construction.
+    An integer random_state seeds construction without advancing the global
+    Torch RNG. Construction repeatability is scoped to the same backend,
+    dtype, device and software environment, not cross-backend or cross-GPU
+    equality or empirical FDR control. See model_x_knockoff_filter for
+    random_state=None behavior, statistical requirements and the separate
+    Lasso cache limitation.
+
+    This device preservation is for construction: Torch method='lasso_coef_diff'
+    tuning/fitting still requests CUDA, even for CPU inputs or supplied Xk,
+    and does not guarantee the input GPU index. For Torch CPU statistics use
+    corr_diff or ols_coef_diff when appropriate; for CPU Lasso use NumPy inputs
+    with backend='numpy'.
+
+    """
 
     def __init__(
         self,
@@ -933,7 +1086,22 @@ class KnockoffSelector(_KnockoffSelectorContract):
 
 
 class FixedXKnockoffSelector(_KnockoffSelectorContract):
-    """Sklearn-like wrapper for fixed-X knockoff feature selection."""
+    """Sklearn-like wrapper for fixed-X knockoff feature selection.
+
+    Check ``np.isfinite(q) and 0 < q < 1`` before calling or fitting. Current
+    validation misses NaN under both threshold rules and can return an invalid
+    empty selection with threshold=inf and estimated_fdr=0.0 (an all-false
+    selector support mask). This is not a valid no-discoveries result.
+
+    ``fit`` returns self; inspect ``result_`` and ``selected_features_``.
+    A fresh selector does not prevent seeded ``lasso_coef_diff`` cache reuse
+    after input mutation. See ``fixed_x_knockoff_filter`` for safe repeated calls.
+    Torch ``method='lasso_coef_diff'`` tuning/fitting requests CUDA even for CPU
+    inputs or supplied Xk; construction's input-device behavior does not extend
+    to that statistic. For Torch CPU statistics use ``corr_diff`` or
+    ``ols_coef_diff`` when appropriate; for CPU Lasso use NumPy inputs with
+    ``backend='numpy'``.
+    """
 
     def __init__(
         self,

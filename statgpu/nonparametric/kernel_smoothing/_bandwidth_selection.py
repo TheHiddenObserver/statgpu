@@ -26,7 +26,37 @@ _SQRT_2PI = math.sqrt(2.0 * math.pi)
 
 @dataclass(frozen=True)
 class BandwidthSelectionResult:
-    """Diagnostic result for automatic bandwidth selection."""
+    """Diagnostic result for a bandwidth selector, not a fitted estimator.
+
+    Attributes
+    ----------
+    factor : float
+        Dimensionless covariance multiplier: kernel covariance is the data
+        covariance times factor squared, subject to numerical stabilization.
+    method : str
+        Resolved selector name.
+    n_features : int
+        Number of original sample features.
+    n_eff : float
+        Effective sample size supplied to selection.
+    used_r_selector : bool
+        True for ucv, bcv, and sj variants; False for nrd/nrd0. This identifies
+        a selector family, not an external R process or exact R equivalence.
+    weighted : bool
+        Whether the range of normalized weights exceeds 1e-12.
+    weighted_strategy : str
+        'uniform' or the configured nonuniform-weight strategy. This field
+        alone does not prove quantile resampling ran; Scott/Silverman and
+        scalar-factor paths also retain it.
+    multivariate_strategy : str
+        Strategy used to extend a one-dimensional selector to multiple features.
+    selector_dimension : int
+        Dimension on which the selector actually operates; a principal-axis
+        projection has dimension 1 even for multivariate training samples.
+    details : dict
+        Method-specific diagnostics. Keys differ by selector; do not assume
+        one fixed details schema for every method.
+    """
 
     factor: float
     method: str
@@ -40,6 +70,7 @@ class BandwidthSelectionResult:
     details: Dict[str, Any]
 
     def to_dict(self) -> Dict[str, Any]:
+        """Return all result fields, with Python scalars and a shallow details copy."""
         return {
             "factor": float(self.factor),
             "method": str(self.method),
@@ -1000,7 +1031,55 @@ def select_bandwidth(
     regression: str = "nw",
     kernel: str = "gaussian",
 ) -> BandwidthSelectionResult:
-    """Select bandwidth factor and return diagnostic metadata."""
+    """Select a covariance bandwidth factor from prepared backend arrays.
+
+    Most callers should use an estimator's bandwidth option. This lower-level
+    interface expects mutually compatible samples, weights and covariance;
+    passing xp does not transfer inputs to the chosen device.
+
+    Parameters
+    ----------
+    bandwidth : str or float
+        Positive dimensionless factor, or scott, silverman, nrd, nrd0, ucv,
+        bcv, sj, sj-ste, sj-dpi. Kernel regression additionally accepts cv,
+        cv_ls, cv-nw and cv-ll for leave-one-out prediction loss.
+    n_eff : float
+        Positive finite effective sample size, usually 1/sum(weights_1d**2).
+    n_features : int
+        Positive number of sample features p.
+    samples_2d : backend array, shape (n,p)
+        Prepared finite training samples.
+    weights_1d : backend array, shape (n,)
+        Compatible normalized nonnegative weights with positive sum.
+    data_cov : backend array, shape (p,p)
+        Unscaled weighted sample covariance, before applying the factor.
+    xp : module
+        Matching NumPy, CuPy or Torch array module. Some selector calculations
+        and diagnostics use host NumPy arrays.
+    enable_r_selectors : bool, default=True
+        Allow ucv, bcv and sj variants. False rejects these choices but does
+        not disable nrd/nrd0. No external R process is launched.
+    weighted_r_selector_strategy : str, default='quantile_resample'
+        Supported nonuniform-weight extension for R-style selectors.
+    multivariate_selector_strategy : str, default='projection_pca_1d'
+        Extend one-dimensional selectors through a principal-axis projection;
+        this is not an exact multivariate R equivalent.
+    estimator : {'kde', 'kernel_regression'}, default='kde'
+        Select the estimator family and its allowed bandwidth names.
+    targets : backend array or None, default=None
+        Matching response vector or columns, required for regression CV names.
+    regression : {'nw', 'local_linear'}, default='nw'
+        Regression mode for CV. Multivariate local-linear CV currently uses
+        NW predictions; selection always uses the full covariance metric.
+    kernel : str, default='gaussian'
+        Regression kernel used by the CV objective.
+
+    Returns
+    -------
+    result : BandwidthSelectionResult
+        Selected scalar factor and method-specific diagnostics. A scalar
+        bandwidth returns diagnostics too, although no search is performed.
+    """
 
     estimator_name = _normalize_estimator_name(estimator)
     if estimator_name == "kde":
@@ -1053,7 +1132,12 @@ def select_bandwidth_factor(
     regression: str = "nw",
     kernel: str = "gaussian",
 ) -> float:
-    """Select bandwidth factor for kernel estimators."""
+    """Return only the Python-float factor from select_bandwidth.
+
+    Every argument and default has the select_bandwidth meaning. Use that
+    function when selector identity, weighting/projection strategy, effective
+    sample size or method-specific diagnostics are needed.
+    """
     result = select_bandwidth(
         bandwidth,
         n_eff=n_eff,

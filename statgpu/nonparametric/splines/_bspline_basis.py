@@ -165,12 +165,22 @@ def bspline_basis(x, knots, degree=3, xp=None, boundary_lo=None, boundary_hi=Non
 
 def natural_cubic_spline_basis(x, knots, xp=None):
     """
-    Natural cubic spline basis (linear beyond boundary knots).
+    Construct a cubic basis with numerical boundary-curvature constraints.
 
     Constructs a cubic B-spline basis and applies boundary constraints
-    to enforce linearity beyond the boundary knots. This reduces the
-    effective number of basis functions by 2 compared to a regular
-    cubic B-spline.
+    approximating zero second derivative at the evaluation-range endpoints.
+    This function has no saved training boundary or extrapolation API. It
+    recomputes the boundary and basis orientation for each call. Two independent
+    constraints reduce the basis dimension by 2; in general, the reduction equals
+    their numerical rank.
+
+    The fixed absolute finite-difference step is sensitive to measurement
+    units. Very small or large coordinate ranges can yield substantial
+    nonzero endpoint curvature or even exclude constant functions. Finite
+    output does not establish natural boundary conditions. Scaling points
+    and knots together to a unit range reduces these demonstrated errors
+    but does not make the constraints exact; verify boundary derivatives
+    independently if natural conditions are essential.
 
     Parameters
     ----------
@@ -183,10 +193,10 @@ def natural_cubic_spline_basis(x, knots, xp=None):
 
     Returns
     -------
-    B : array, shape (n, m + 1)
-        Natural cubic spline basis matrix. The first column is typically
-        the intercept (constant), and the remaining columns are the
-        natural spline basis functions.
+    B : array, shape (n, m + 2) for two independent constraints
+        Null-space-projected cubic basis. Columns have an arbitrary SVD
+        orientation; the first column is not a dedicated intercept. The
+        exact column count is m + 4 minus the numerical constraint rank.
     """
     xp = _get_xp(xp)
 

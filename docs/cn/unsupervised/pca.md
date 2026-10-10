@@ -1,12 +1,16 @@
 # PCA
 
 > 语言：中文
-> 最后更新：2026-09-29
+> 最后更新：2026-10-05
 > 切换：[English](../../en/unsupervised/pca.md)
 
 ## 概览
 
 `PCA` 对已中心化的稠密数据估计一组正交低维基，使其捕捉方差最大的方向。支持 CPU、CuPy/CUDA 与 Torch CUDA。
+
+## 何时使用
+
+当多个数值特征高度相关，且希望用少量线性方向概括它们时，可使用 PCA。模型会自动中心化，但不会自动统一量纲；应先选择合理的单位，并只用训练数据拟合预处理。可结合累计解释方差和留出数据的重构误差选择成分数，高方差本身不代表科学上的重要性。
 
 ## 导入路径
 
@@ -71,22 +75,27 @@ $$
 - `random_state`、`n_oversamples`、`iterated_power`：控制随机化 SVD 的参数。
 - `device`：`"auto"`、`"cpu"`、`"cuda"` 或 `"torch"`。
 
-## CPU+GPU 示例
+## 一个可独立运行的 CPU 示例
 
+<!-- learner-example: pca -->
 ```python
 import numpy as np
 from statgpu.unsupervised import PCA
 
-X = np.random.default_rng(0).normal(size=(2000, 50))
-
-pca_cpu = PCA(n_components=10, svd_solver="covariance", device="cpu")
-Z_cpu = pca_cpu.fit_transform(X)
-
-pca_gpu = PCA(n_components=10, svd_solver="covariance", device="cuda")
-Z_gpu = pca_gpu.fit_transform(X)
+rng = np.random.default_rng(0)
+X = rng.normal(size=(80, 4))
+X[:, 3] = X[:, 0] + 0.05 * rng.normal(size=80)
+model = PCA(n_components=3, svd_solver="full", device="cpu")
+Z = model.fit_transform(X)
+X_hat = model.inverse_transform(Z)
+print(Z.shape, np.mean((X - X_hat) ** 2))
 ```
 
-## 严格与近似模式的差别
+坐标形状为 `(80, 3)`，重构形状为 `(80, 4)`。`components_` 的每一行表示特征空间中的一个方向，不是类别；方向整体变号不改变含义。
+
+安装了相应 GPU 后端后，可新建估计器并指定 `device="cuda"`（CuPy）或 `device="torch"`（Torch CUDA）。数组通常留在该后端；输出所在设备及主机端步骤见 [API 参考](api-reference.md#pca)。显式请求的 GPU 不可用时会报错。
+
+## 近似与解释边界
 
 `PCA` 没有统计推断意义上的严格推断模式；这里的“精确/近似”指的是分解算法：
 
@@ -107,19 +116,23 @@ Z_gpu = pca_gpu.fit_transform(X)
 ## FAQ
 
 **为什么主成分和 sklearn 差一个符号？**
-特征向量与奇异向量的符号并不唯一；验证时应使用符号感知的比较，或直接比较子空间。
+特征向量与奇异向量的符号并不唯一；验证时应使用对齐符号后的比较，或直接比较子空间。
 
 **白化（whitening）做了什么？**
-它把变换后的得分按 `1 / sqrt(explained_variance_)` 缩放，使拟合模型下的主成分得分近似具有单位方差。
+白化将投影坐标除以 `sqrt(explained_variance_)`。在正方差方向得到准确的精确分解时，训练数据的主成分得分具有单位样本方差；随机化求解只能近似达到这一效果，过采样与幂迭代会影响近似质量。白化不保证新观测的协方差为单位矩阵。
 
-## 外部验证
 
-- 测试脚本：`dev/tests/test_unsupervised_pca.py`。
-- 基准测试：`dev/benchmarks/benchmark_unsupervised.py`。
-- 对齐基线：sklearn 的 PCA，以及早期无监督方法矩阵中可用的 statsmodels/R PCA 对比。
-- 最新 Phase 2 摘要：`results/unsupervised_phase2_verify_summary_20260502_210000.md`。
+## 数值与使用注意事项
 
-## References
+协方差求解器先计算未中心化的二阶矩，再减去均值乘积。当共同偏移远大于实际变化时，可能发生严重消减误差，甚至错误地返回全零解释方差比例。此时应使用 `svd_solver="full"`，或在拟合前减去由训练数据确定的偏移，并对后续数据做相同处理。对方差为零的成分进行白化可能返回非有限坐标，应减小秩或关闭白化。公开的 `inverse_transform` 方法会对含 NaN 或无穷值的输入坐标抛出 `ValueError`，因此应传入有限的主成分得分。
+
+## 完整 API 参考
+
+构造默认值、全部公开方法、输出形状与限制见 [PCA API 参考](api-reference.md#pca)。
+
+<a id="references"></a>
+
+## 参考文献
 
 - Pearson, K. (1901). On lines and planes of closest fit to systems of points in space. *The London, Edinburgh, and Dublin Philosophical Magazine and Journal of Science*, Series 6, 2(11), 559-572. https://doi.org/10.1080/14786440109462720
 - Jolliffe, I. T. (2002). *Principal Component Analysis* (2nd ed.). Springer Series in Statistics. Springer. https://doi.org/10.1007/b98835

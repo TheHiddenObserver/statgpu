@@ -2,7 +2,7 @@
 
 > Language: English
 >
-> Last updated: 2026-09-17
+> Last updated: 2026-10-06
 >
 > Switch: [Chinese](../cn/README.md)
 
@@ -19,7 +19,7 @@
 - [CoxPHCV Experimental Screening Safety](guides/cox-cv-staged-safety.md) — user-visible behavior of experimental screening controls
 - [Solver × Penalty Matrix](guides/solver-penalty-matrix.md) — loss × penalty × solver compatibility
 - [Device and GPU Memory](guides/device-and-memory.md) — device selection, memory cleanup
-- [PyTorch Backend](guides/pytorch-backend.md) — torch backend guide, torch.compile
+- [PyTorch Backend](guides/pytorch-backend.md) — PyTorch execution, inference boundaries, and troubleshooting
 - [Distribution API](guides/distribution-api.md) — statistical distribution functions
 - [Inference Modes](guides/inference-modes.md) — choosing and interpreting coefficient-inference methods
 - [Multiple Testing](guides/multiple-testing-combine-pvalues.md) — p-value adjustment and combination
@@ -33,8 +33,8 @@
 - [Ridge](models/ridge.md) — Ridge regression + RidgeCV
 - [Lasso](models/lasso.md) — Lasso + LassoCV + debiased inference
 - [ElasticNet](models/elastic-net.md) — ElasticNet + ElasticNetCV
-- [SCAD](models/scad.md) — non-convex penalty with oracle property
-- [MCP](models/mcp.md) — non-convex penalty with oracle property
+- [SCAD](models/scad.md) — non-convex sparse regression with reduced large-coefficient shrinkage
+- [MCP](models/mcp.md) — non-convex sparse regression with reduced large-coefficient shrinkage
 - [AdaptiveLasso](models/adaptive-lasso.md) — adaptive L1 penalty
 
 ### Loss Functions
@@ -61,7 +61,7 @@
 
 ### Nonparametric
 - [Nonparametric Overview](models/nonparametric.md) — kernel methods and splines
-- [Kernel Methods](models/kernel-methods.md) — KDE, kernel regression, KRR
+- [Kernel Methods](models/kernel-methods.md) — KernelRidge/CV, KernelPCA, and Nystroem
 - [Splines](models/splines.md) — B/natural/cyclic/thin-plate splines and SplineTransformer
 - [Semiparametric (GAM)](models/semiparametric.md) — generalized additive models
 
@@ -74,6 +74,18 @@
 - [Regression Diagnostics](guides/regression-diagnostics.md) — residuals, leverage, Cook’s distance, and VIF
 
 ## Reference
+
+### Complete API references
+
+- [Shared estimator API](reference/estimator-api.md) — parameter management and inherited inference helpers
+- [Linear-model API](reference/linear-model-api.md) — constructors, fit/predict methods, CV, and fitted results
+- [Feature-selection API](reference/feature-selection-api.md) — stepwise and knockoff interfaces
+- [Survival and smoothing API](reference/survival-smoothing-api.md) — Cox, kernels, splines, bandwidth selection, and GAM
+- [Unsupervised API](unsupervised/api-reference.md) — all twelve estimator interfaces and fitted attributes
+- [Distribution API](guides/distribution-api.md) — supported families, parameters, and array semantics
+- [Inference API](guides/inference-api.md) — result objects, resampling, and multiple-testing functions
+
+### Algorithms and release history
 
 - [Solver Algorithms](guides/solver-algorithms.md) — optimization algorithm details
 - [Loss × Penalty × Solver Framework](guides/loss-penalty-solver-framework.md) — component composition and dispatch

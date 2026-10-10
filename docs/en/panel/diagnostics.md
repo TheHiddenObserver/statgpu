@@ -1,14 +1,12 @@
 # Panel Diagnostics
 
 > Language: English  
-> Last updated: 2026-08-18<br>
+> Last updated: 2026-10-09<br>
 > Switch: [Chinese](../../cn/panel/diagnostics.md)
 
-## Overview and Path
+## Overview
 
 Panel diagnostics help answer model-selection questions such as whether fixed effects are needed or whether a random-effects specification is compatible with the fixed-effects estimate. Each test returns a `PanelTestResult` containing the statistic, p-value, reference distribution, and a readable statement of the null and alternative hypotheses.
-
-Implementation: `statgpu/panel/_diagnostics.py` plus the shared diagnostic-context helpers.
 
 ## Pooling F
 
@@ -64,11 +62,7 @@ result = re.hausman_test(fe)
 
 `PanelTestResult` reports `statistic`, `pvalue`, the reference distribution, degrees of freedom, null and alternative text, and an `applicable` flag. When a test cannot be computed under its documented definition, inspect `reason` to see why; statgpu does not return a different test under the same method name.
 
-For finite extreme-scale inputs, classical model F, pooling F, and Breusch-Pagan LM evaluate their scale-invariant quadratic reductions on backend-native normalized working values. Scalar and column centering use overflow-safe reduction-length scaling, while subnormal normalization avoids backend-specific division by a subnormal denominator. Public RSS metadata is restored to the original squared units when representable (and may be `inf` only when that squared quantity itself is outside float64); the test statistic is not allowed to become `0`, `NaN`, or `inf` merely because an avoidable intermediate overflowed or underflowed.
-
-## External Validation
-
-Where definitions overlap, the diagnostic and supporting covariance calculations are compared with pinned Python and R references: `linearmodels==7.0`, `statsmodels==0.14.6`, R `plm==2.6-7`, and `sandwich==3.1-3`. The corresponding checks live in the panel diagnostic tests and `dev/tests/test_panel_stage_c_r_external.py`.
+For finite extreme-scale inputs, classical model F, pooling F, and Breusch-Pagan LM use range-aware arithmetic without changing their statistical definitions. Public RSS metadata is expressed in the original squared units and may be `inf` when that squared quantity itself exceeds float64 range. This alone does not imply an infinite test statistic: the scale-invariant statistic is protected against avoidable intermediate overflow and underflow.
 
 ## References
 

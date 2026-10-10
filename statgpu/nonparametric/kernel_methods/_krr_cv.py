@@ -58,7 +58,9 @@ class KernelRidgeCV(BaseEstimator):
     kernel : str or callable, default='rbf'
         Kernel metric name or callable.
     gamma : float, optional
-        Kernel coefficient.  Defaults to ``1 / n_features``.
+        Kernel coefficient. Defaults to ``1 / n_features`` for applicable
+        kernels. For chi-squared kernels this constructor argument is
+        currently ignored; pass gamma through kernel_params instead.
     degree : int, default=3
         Degree for polynomial kernel.
     coef0 : float, default=1
@@ -77,7 +79,8 @@ class KernelRidgeCV(BaseEstimator):
     alpha_ : float
         Best regularization parameter found by cross-validation.
     best_score_ : float
-        Best mean R^2 score across folds.
+        Mean fold R^2 at the alpha selected by mean validation MSE. It is
+        not the metric minimized to select alpha.
     cv_results_ : dict
         Detailed cross-validation results.
     estimator_ : KernelRidge
@@ -86,6 +89,14 @@ class KernelRidgeCV(BaseEstimator):
         Dual coefficients of the fitted model (shortcut).
     X_fit_ : ndarray
         Training data (shortcut).
+
+    Notes
+    -----
+    Use strictly positive alpha candidates when fold kernels may be singular.
+    A zero alpha can produce nonfinite CV MSE and still be selected. Check
+    cv_results_["mean_mse"] and best_score_ for finiteness before interpreting
+    the selection; a returned fitted estimator is not sufficient evidence.
+
     """
 
     def __init__(

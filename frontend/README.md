@@ -4,19 +4,7 @@ Interactive benchmark dashboard for statgpu, built with Vite, TypeScript, and EC
 
 ## Current coverage
 
-The canonical dashboard is restricted to benchmark sources dated **2026-06-01 or later**. The manifest currently registers **11 sources**, producing **1,852 normalized runs across 46 models**:
-
-- `p2_benchmark_20260617.json`;
-- `penalized_glm_perf_20260622.json`;
-- `coxph_efron_20260622.json`;
-- `glm_solver_20260623.json`;
-- `loss_functions_20260623.json`;
-- `new_modules_full_20260624.json`;
-- `unsupervised_20260627.json`;
-- `ordered_inference_pr74.json`;
-- `cv_benchmark_20260807.json`;
-- `results/pr116_p100/cv_benchmark_pr116_p100.json`;
-- `panel_stage_b_pr122_p100_20260808.json`.
+The canonical dashboard is restricted to benchmark sources dated **2026-06-01 or later**. Current counts and registered inputs are available in the generated [source inventory](public/data/source_inventory.json), [parse report](public/data/parse_report.json), and [normalized data](public/data/benchmark_data.json). These distinguish sources, runs, and model-registry entries; do not copy fixed current counts into prose.
 
 Covered categories include penalized GLM and GLM, recent linear models, robust and quantile regression, survival analysis, unsupervised learning, ordered models, nonparametric methods, panel models, covariance estimation, ANOVA, and current cross-validation families.
 
@@ -172,7 +160,8 @@ All three generated JSON files share one `generation_id`, computed from the comp
 
 ## Documentation
 
-- Dashboard guide: `docs/en/guides/statgpu_benchmark_dashboard.md`
+- [Dashboard reader guide](../docs/en/guides/statgpu_benchmark_dashboard.md)
+- [Contributor maintenance: source registration, generation, tests, browser QA, and deployed assets](docs/benchmark-dashboard-maintenance.md)
 - Schema v1.1: `docs/benchmark-dashboard/schema-v1.1.md`
 - Parser contract: `docs/benchmark-dashboard/parser-contracts.md`
 - Aggregation contract: `docs/benchmark-dashboard/aggregation-contract.md`

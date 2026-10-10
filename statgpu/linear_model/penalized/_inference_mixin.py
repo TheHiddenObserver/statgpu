@@ -1105,9 +1105,13 @@ class _PenalizedInferenceMixin:
     def _compute_oracle_inference(self, X, y, sample_weight=None):
         """Oracle active-set inference for SCAD/MCP.
 
-        Refits unpenalized model on the active set and applies sandwich.
-        Backend-aware: works with NumPy, CuPy, and Torch arrays.
-        Valid due to the oracle property (Fan & Li 2001).
+        The intended target is an unpenalized active-set refit. Current
+        constructor introspection can drop family parameters and retain
+        default regularization in non-Gaussian child models, so those results
+        must not be treated as inference for the requested target. The public
+        interface rejects GPU parents, but child device selection is auto.
+        Explicit diagnostic refits must preserve family settings and device;
+        ordinary intervals still do not adjust for data-driven selection.
         """
         import numpy as np
         from statgpu.backends import _to_numpy, _resolve_backend

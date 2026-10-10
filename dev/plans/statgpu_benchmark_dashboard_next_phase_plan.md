@@ -1,6 +1,8 @@
-# statgpu Benchmark Dashboard — Remaining Work After PR #78
+# Historical benchmark dashboard plan after PR #78
 
-## Status
+> Historical developer record. This plan describes the state and proposed work after PR #78. References to “current,” source counts, integration readiness, browser coverage, and future enhancements below belong to that historical stage and must not be used as a current backlog or capability inventory. For present maintenance commands, see [dashboard maintenance](../../frontend/docs/benchmark-dashboard-maintenance.md); for reader-facing behavior, see the [dashboard guide](../../docs/en/guides/statgpu_benchmark_dashboard.md).
+
+## Historical status
 
 The benchmark dashboard data-pipeline expansion and frontend modularization are implemented in PR #78.
 

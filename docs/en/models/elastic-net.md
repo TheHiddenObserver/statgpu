@@ -1,7 +1,7 @@
 # Elastic Net
 
 > Language: English  
-> Last updated: 2026-09-10<br>
+> Last updated: 2026-10-09<br>
 > This page: Model documentation  
 > Language switch: [Chinese](../../cn/models/elastic-net.md)
 
@@ -9,17 +9,19 @@
 
 `ElasticNet` combines L1 and L2 regularization for linear regression, balancing sparse feature selection (Lasso) and coefficient shrinkage (Ridge). It supports CPU, CuPy GPU, and PyTorch GPU execution. Direct fitting uses one backend-neutral `solver` interface; `device` controls where the computation runs.
 
-## Path
+## When is Elastic Net useful?
 
-`statgpu.linear_model.ElasticNet`
+Use Elastic Net when you want some coefficients to be exactly zero, but correlated predictors make a pure Lasso fit unstable. Ridge is a simpler choice when shrinkage matters more than sparsity; ordinary [linear regression](linear-regression.md) is useful for a prespecified low-dimensional model without a shrinkage penalty. A selected variable is not automatically a causal effect.
 
 ## Objective Function
 
 The Elastic Net optimization problem is:
 
 $$
-\min_{\beta} \frac{1}{2n}\|y - X\beta\|_2^2 + \alpha \cdot \lambda \cdot \|\beta\|_1 + \frac{\alpha}{2} \cdot (1 - \lambda) \cdot \|\beta\|_2^2
+\min_{b,\beta}\frac{\sum_{i=1}^n w_i(y_i-b-x_i^\top\beta)^2}{2\sum_{i=1}^n w_i}+\alpha\lambda\|\beta\|_1+\frac{\alpha(1-\lambda)}{2}\|\beta\|_2^2
 $$
+
+Here n is the row count, p the feature count, $x_i$ the p-vector of predictors, $b$ the unpenalized intercept and $\beta$ the slopes. Set $w_i=1$ without weights; weights are nonnegative with positive sum. With `fit_intercept=False`, fix b=0.
 
 where:
 - `alpha` (α) controls overall regularization strength
@@ -28,7 +30,94 @@ where:
 
 **Note on regularization scaling**: `ElasticNet` and `Ridge` use the same average-loss convention. Therefore, with `l1_ratio=0`, the Elastic Net objective at a given public `alpha` reduces to the corresponding L2 objective. The `ElasticNet` wrapper still retains its own solver/inference defaults; use `Ridge` when you specifically want the Ridge estimator contract.
 
+## A complete CPU example
+
+The example uses correlated predictors, standardizes them using training rows only, and evaluates predictions on held-out rows. The chosen tuning values illustrate the API; select them on validation data for a real application.
+
+<!-- learner-example: elasticnet-prediction -->
+```python
+import numpy as np
+from statgpu.linear_model import ElasticNet
+```
+
+<a id="cpu-data"></a>
+
+### Prepare correlated predictors
+
+Run the following blocks in order in one session. `X_raw` has shape `(400, 8)`, with one observation per row and one predictor per column. `y` has shape `(400,)` and is continuous. The first two columns are correlated; the first three generate the signal.
+
+```python
+rng = np.random.default_rng(7)
+X_raw = rng.normal(size=(400, 8))
+X_raw[:, 1] = 0.8 * X_raw[:, 0] + 0.2 * rng.normal(size=400)
+y = 0.4 + X_raw @ np.array([1.2, 0.8, -0.7, 0, 0, 0, 0, 0])
+y += rng.normal(scale=0.5, size=400)
+```
+
+### Scale using training rows only
+
+Reserve the last 100 rows. Learn the mean and standard deviation from the first 300 rows, then apply that same transformation to both sets. These simulated columns have positive variance; handle constant columns before scaling your own data.
+
+```python
+mean = X_raw[:300].mean(axis=0)
+scale = X_raw[:300].std(axis=0)
+X = (X_raw - mean) / scale
+X_train, X_test = X[:300], X[300:]
+y_train, y_test = y[:300], y[300:]
+```
+
+### Fit the prediction model
+
+Use a fixed `alpha` and L1/L2 mixture to illustrate the API. Coefficient inference is a separate step later in this page.
+
+```python
+model = ElasticNet(
+    alpha=0.08, l1_ratio=0.5, solver="fista", device="cpu",
+    max_iter=5000, tol=1e-8, compute_inference=False,
+)
+model.fit(X_train, y_train)
+```
+
+### Predict and inspect selected columns
+
+Each test row receives one predicted response. Inspect the coefficients alongside held-out R², rather than treating sparsity alone as success.
+
+```python
+prediction = model.predict(X_test)
+print("coef:", np.round(model.coef_, 3))
+print("selected columns:", np.flatnonzero(np.abs(model.coef_) > 1e-8))
+print("predictions:", np.round(prediction[:3], 3))
+print("held-out R2:", round(float(model.score(X_test, y_test)), 3))
+```
+<!-- example-end: elasticnet-prediction -->
+
+For this seed, the CPU output is approximately: coefficients `[0.938, 0.834, -0.552, 0, 0, 0, 0, 0]`, selected columns `[0, 1, 2]`, predictions `[-1.575, 1.710, 1.476]`, and held-out R² `0.936`. Both correlated columns 0 and 1 remain in this fit, while the five noise columns are zero. The high test R² describes prediction on these simulated held-out rows; it does not turn selected variables into validated scientific discoveries. Small floating-point differences are expected.
+
+### Reading the results and choosing parameters
+
+- `coef_` has one coefficient per input column. In this example a unit increase means one training-set standard deviation because `X` was standardized. `intercept_` and `coef_` describe the prediction fit.
+- Positive `l1_ratio` permits exact zeros. The displayed selected-column indices are a numerical summary of the penalized fit, not discoveries with guaranteed error control.
+- `predict(X_new)` returns a one-dimensional response prediction; `score(X_new, y_new)` returns R². R² can be negative on new data, and training R² is not evidence of generalization.
+- Larger `alpha` gives stronger total regularization. `l1_ratio` near 1 favors sparsity; closer to 0 gives more L2 shrinkage. For predictive tuning, use validation data or `ElasticNetCV` to choose both, keeping a final test set separate.
+- Fit preprocessing only on each training split. Remove or otherwise handle zero-variance columns before dividing by their standard deviation. Do not center/scale the whole dataset before cross-validation.
+
+## Input and prediction requirements
+
+Use finite numeric `X` with shape `(n_samples, n_features)` and a one-dimensional response `y`. Prediction columns must match the training order and preprocessing. The fitting interface is `fit(X=None, y=None, sample_weight=None, initial_coef=None, **kwargs)`; optional nonnegative analytic weights enter the normalized weighted loss. `initial_coef` supplies a starting coefficient vector through `fit`; there is no `warm_start` constructor flag. The current implementation retains this starting vector on the estimator: omitting `initial_coef` on a later fit does not clear it. Create a fresh estimator when you want the default initialization, especially when changing the feature count; a retained vector with the old width can cause a dimension error. The shared optional formula interface accepts `formula=` and `data=` via fit keywords.
+
+For weighted evaluation, pass a separate `score(X, y, sample_weight=weights)`
+vector with one finite nonnegative weight per row and positive total weight.
+The current squared-error `score` path does not reliably reject negative weights;
+it can return an invalid R² above 1. Check these conditions yourself before
+scoring. Training-weight validation does not validate a new evaluation vector.
+
+## Path
+
+`statgpu.linear_model.ElasticNet`
+
 ## Estimating Equation
+
+The KKT equation and optimization pseudocode below use unweighted centered X/y. For analytic weights, use the normalized square-root-weighted working arrays defined in the debiased section; centering alone does not remove unequal weights.
 
 After eliminating the unpenalized intercept (equivalently, on centered data), the coefficient KKT condition is
 
@@ -46,7 +135,7 @@ The normal default is **FISTA** (Fast Iterative Shrinkage-Thresholding Algorithm
 
 The L1 and L2 parts are handled by the Elastic Net proximal operator:
 
-```python
+```text
 # Gradient of the average squared-error term
 grad = (X.T @ X @ w - X.T @ y) / n
 
@@ -56,16 +145,17 @@ w = soft_threshold(w_tilde, alpha * l1_ratio * step) / (
 )
 ```
 
-### Convergence Criteria
+### Convergence checks and the stopping limitation
 
-Two stopping modes are available through `stopping`:
-
-| Mode | Description |
-|------|-------------|
-| `coef_delta` | Stop when coefficient movement is below `tol` |
-| `kkt` | Stop when the KKT subgradient violation is below the configured tolerance |
-
-Numerical convergence only establishes that the declared optimization problem has been solved to the requested criterion; it is not a separate statistical approximation.
+The current direct Gaussian fit stores `stopping="coef_delta"` or `"kkt"` but
+ignores that choice. CPU FISTA and coordinate descent, and GPU FISTA, check
+coefficient movement; ADMM uses primal/dual residuals. Setting `stopping="kkt"`
+does not request an effective KKT check or certify optimality. Ill-scaled
+features can stop moving while the KKT residual is still large. Scale features
+using training data, compare tighter tolerances/budgets, and independently check
+the objective or KKT residual when numerical accuracy matters. The separate
+Lasso CV/path helper's stopping logic does not establish direct/final-refit
+certification. Numerical optimality is separate from statistical validity.
 
 ## Parameters
 
@@ -76,7 +166,7 @@ Numerical convergence only establishes that the declared optimization problem ha
 | `fit_intercept` | `True` | Fit an unpenalized intercept |
 | `max_iter` | `1000` | Maximum solver iterations |
 | `tol` | `1e-4` | Convergence tolerance |
-| `stopping` | `"coef_delta"` | `"coef_delta"` or `"kkt"` stopping rule |
+| `stopping` | `"coef_delta"` | Stored `coef_delta` / `kkt` request; currently ignored by direct Gaussian stopping checks (see above). |
 | `device` | `"auto"` | `"auto"`, `"cpu"`, `"cuda"` (CuPy), or `"torch"` |
 | `n_jobs` | `None` | CPU parallelism where supported |
 | `solver` | `"fista"` | Backend-neutral direct-fit optimization method |
@@ -89,55 +179,7 @@ Numerical convergence only establishes that the declared optimization problem ha
 | `cov_type` | `"nonrobust"` | Covariance convention where applicable |
 | `hac_maxlags` | `None` | HAC lag count where supported |
 
-The public wrapper does not accept separate `backend`, `warm_start`, or `random_state` constructor parameters. Backend selection is controlled by `device`; a one-fit warm start can be supplied through `fit(initial_coef=...)`.
-
-## CPU/GPU Examples
-
-```python
-from statgpu.linear_model import ElasticNet
-
-# CPU: solver selects the algorithm; device selects the backend.
-model_cpu = ElasticNet(
-    alpha=0.1,
-    l1_ratio=0.5,
-    device="cpu",
-    solver="fista",
-)
-model_cpu.fit(X, y)
-print(f"R²: {model_cpu.score(X, y):.4f}")
-
-# Explicit node-wise tuning changes debiased inference only.
-model_db = ElasticNet(
-    alpha=0.1,
-    l1_ratio=0.7,
-    nodewise_alpha=0.08,
-    device="cpu",
-    compute_inference=True,
-    inference_method="debiased",
-)
-model_db.fit(X, y)
-print(model_db.nodewise_alpha_)
-
-# GPU with the same solver interface
-model_gpu_cupy = ElasticNet(
-    alpha=0.1,
-    l1_ratio=0.5,
-    device="cuda",
-    solver="fista",
-    gpu_memory_cleanup=True,
-)
-model_gpu_cupy.fit(X, y)
-
-model_gpu_torch = ElasticNet(
-    alpha=0.1,
-    l1_ratio=0.5,
-    device="torch",
-    solver="fista",
-)
-model_gpu_torch.fit(X, y)
-```
-
-Backend performance depends on sample size, feature dimension, dtype, hardware, data residency, and transfer costs. Benchmark the target workload before selecting a backend solely for speed.
+The public wrapper does not accept separate `backend`, `warm_start`, or `random_state` constructor parameters. Backend selection is controlled by `device`; starting coefficients can be supplied through `fit(initial_coef=...)`, subject to the reuse limitation described above.
 
 ## Covariance/Inference
 
@@ -166,19 +208,98 @@ For `post_selection_ols`, the penalized model first determines the active set. s
 
 Post-selection OLS remains heuristic and does not provide general selective-inference coverage. Inference is conditional on selected regularization parameters and does not alter the fitted penalized coefficients.
 
-Device selection is orthogonal to the statistical method: explicit `cpu`/`cuda`/`torch` is authoritative, while only genuine `device="auto"` may preserve backend-native CuPy or Torch-CUDA input during automatic routing. `post_selection_ols` reuses the fit-resolved backend, and maintained CuPy/Torch `debiased` routes keep numerical inference on the executed GPU backend, including scalar normal-reference critical values. Residual `bootstrap` remains a CPU-native residual-refit path; an explicit GPU `device` controls the penalized fit but does not make bootstrap GPU-native.
+Device selection is orthogonal to the statistical method: explicit `cpu`/`cuda`/`torch` is authoritative, while only genuine `device="auto"` may preserve backend-native CuPy or Torch-CUDA input during automatic routing. `post_selection_ols` reuses the fit-resolved backend, and CuPy/Torch `debiased` routes keep numerical inference on the executed GPU backend, including scalar normal-reference critical values. Residual `bootstrap` also uses the fit-recorded NumPy/CuPy/Torch backend and concrete device for response construction and numerical child refits, preserving the fitted penalty and tuning configuration. Final reporting arrays are NumPy arrays. This path requires `sample_weight=None` and `cov_type="nonrobust"`; weighted or HC/HAC bootstrap requests fail explicitly. It describes the penalized coefficient distribution conditional on the chosen tuning, without selection adjustment.
 
 For `debiased` inference with an intercept, public `coef_`/`intercept_` remain the **penalized prediction fit**. Inference reporting uses debiased slopes `_params[1:]` and their matching original-coordinate intercept `_params[0] = ybar_w - xbar_w @ _params[1:]`; the first SE/z/p-value/CI row therefore belongs to this debiased reporting intercept rather than prediction `intercept_`. The result metadata records `intercept_estimator="centered_debiased"` and `intercept_influence="centered_nodewise"`. Analytic weights use the same weighted-centered average-loss problem across NumPy/CuPy/Torch, so global positive weight rescaling leaves this inference unchanged.
 
-For `ElasticNetCV`, `compute_inference=True` applies debiased inference only to the final full-data refit after alpha and `l1_ratio` have been selected. Fold models remain estimation-only. `nodewise_alpha` is final-refit inference configuration only: it does not enter the candidate grid or fold scoring, and the outer `nodewise_alpha_` reflects the final estimator when inference succeeds. The current `ElasticNetCV` API still fixes this final inference method to `debiased`; that pre-existing inference-selector limitation is separate from node-wise tuning.
+For `ElasticNetCV`, `compute_inference=True` applies debiased inference only to the final full-data refit after alpha and `l1_ratio` have been selected. Fold models remain estimation-only. `nodewise_alpha` is final-refit inference configuration only: it does not enter the candidate grid or fold scoring, and the outer `nodewise_alpha_` reflects the final estimator when inference succeeds. The current `ElasticNetCV` API still fixes this final inference method to `debiased`; other inference methods are not selectable through this CV wrapper.
 
-## Solver and Inference Semantics
+### Debiased reporting formula
 
-For a direct `ElasticNet.fit`, **use `solver` on both CPU and GPU**. `device` chooses the execution backend; `solver` chooses the optimization algorithm. `cpu_solver` is a deprecated compatibility argument from the earlier hardware-split API and should not be used for new code.
+Let $\widetilde X,\widetilde y$ denote the centered working design/response; analytic weights additionally multiply row i by $\sqrt{n w_i/\sum_j w_j}$. Omit centering without an intercept. Let $M$ be the approximate inverse Gram matrix estimated by node-wise regressions and $\widehat\Sigma=\widetilde X^\top\widetilde X/n$. The reported slopes and model-based covariance are
 
-Likewise, use `inference_method="post_selection_ols"` when the active-set OLS/WLS diagnostic is wanted. Do not choose `cpu_ols` or `gpu_ols` based on hardware; both are deprecated aliases for the same statistical method.
+$$
+\hat\theta_{\mathrm{db}}=\hat\beta+
+\frac{M\widetilde X^\top(\widetilde y-\widetilde X\hat\beta)}{n},
+\qquad
+\widehat V_{\mathrm{db}}=\frac{\hat\sigma^2}{n}M\widehat\Sigma M^\top.
+$$
 
-`compute_inference=False` returns the penalized estimate only. With `compute_inference=True`, the same fitted coefficients are retained and the selected post-fit inference method runs afterward.
+The implementation estimates $\hat\sigma^2$ from working residual squares divided by $\max(n-s,1)$, where s is the number of nonzero penalized slopes. SEs are square roots of the covariance diagonal; z statistics and normal-reference 95% intervals use the corrected slopes. This is a model-based construction: current `cov_type="hc0"` through `"hc3"` or `"hac"` requests do not replace its covariance and must not be interpreted as robust debiased inference. The [method–covariance table](../reference/linear-model-api.md#covariance-and-inference-behavior) distinguishes `debiased`, `post_selection_ols`, and `bootstrap`.
+
+### Try explicit node-wise tuning
+
+Continue after the complete [CPU example](#a-complete-cpu-example). Reuse `X_train` and `y_train`, and keep the original prediction settings. Only `nodewise_alpha` tunes the precision calculation; it does not select the predictive penalty or use the test responses. The value 0.08 is illustrative.
+
+<!-- example-requires: elasticnet-prediction -->
+<!-- learner-example: elasticnet-nodewise -->
+```python
+model_db = ElasticNet(
+    alpha=0.08, l1_ratio=0.5, solver="fista", device="cpu",
+    max_iter=5000, tol=1e-8, compute_inference=True,
+    inference_method="debiased", nodewise_alpha=0.08,
+)
+model_db.fit(X_train, y_train)
+```
+
+After inference succeeds, inspect the resolved node-wise penalty and interval dimensions. There are nine parameter rows: the intercept and eight slopes. These intervals describe debiased reporting estimates, not the unchanged penalized prediction coefficients.
+
+```python
+print("Node-wise alpha:", model_db.nodewise_alpha_)
+print("Interval shape:", model_db._conf_int.shape)
+```
+<!-- example-end: elasticnet-nodewise -->
+
+### Weighted training diagnostics
+
+After weighted `debiased` inference, `rsquared` currently uses the transformed
+working response and centers it again. It can disagree substantially with R²
+computed on the original weighted observations; `rsquared_adj` inherits that
+problem. The residual-based `fvalue`/`f_pvalue` diagnostics also use that incorrect
+total variation. Use `score(X, y, sample_weight=weights)` on the original response and
+predictions, after validating the evaluation weights as described above. This
+limitation does not change the fitted prediction coefficients. With inference
+disabled, training diagnostic properties can instead be `None`.
+
+<!-- learner-example: elasticnet-weighted-score -->
+```python
+import numpy as np
+from statgpu import ElasticNet
+```
+
+This independent stress case uses 20 observations and two predictors, with a large weight on the final row. It is deliberately different from the prediction tutorial so the diagnostic discrepancy is visible.
+
+```python
+rng = np.random.default_rng(25)
+X = rng.normal(size=(20, 2))
+y = np.arange(20.0) + 2 * X[:, 0]
+weights = np.r_[np.ones(19), 1000.0]
+```
+
+Enable debiased inference to reproduce the situation described above, then score the original observations with the same valid weights.
+
+```python
+model = ElasticNet(
+    alpha=0.3, device="cpu", max_iter=5000, tol=1e-8, compute_inference=True,
+)
+model.fit(X, y, sample_weight=weights)
+```
+
+Read the explicit score instead of the affected training property:
+
+```python
+weighted_r2 = model.score(X, y, sample_weight=weights)
+print("Weighted training R2:", round(weighted_r2, 3))
+```
+<!-- example-end: elasticnet-weighted-score -->
+
+This prints `Weighted training R2: 0.180`. It describes training fit, not
+held-out performance. Enabling debiased inference does not change this score;
+the current `rsquared` property would instead report about −2.262 on these data.
+
+## Optional GPU use
+
+To repeat the [prediction fit](#cpu-data) on a GPU, keep the same prepared data and `solver="fista"`, and change only `device` to `"cuda"` for CuPy CUDA or `"torch"` for Torch CUDA. The requested backend must be installed and usable; explicit requests never silently switch to CPU. See [device and memory](../guides/device-and-memory.md). Performance depends on dimensions, dtype, hardware, data residency and transfer costs; benchmark your own workload.
 
 ## Outputs
 
@@ -188,7 +309,7 @@ After fitting, the following attributes are available:
 |-----------|-------------|
 | `coef_` | Estimated penalized coefficients used for prediction |
 | `intercept_` | Penalized fitted intercept used for prediction |
-| `n_iter_` | Number of iterations until convergence |
+| `n_iter_` | Number of iterations performed; reaching the budget does not establish convergence |
 | `nodewise_alpha_` | Resolved node-wise tuning after successful multi-feature `debiased` inference; otherwise `None` |
 | `_params` | Inference/reporting parameter vector when inference succeeds; for `debiased`, contains the coherent debiased intercept plus debiased slopes; for `post_selection_ols`, contains the active-set OLS/WLS refit embedded in the full parameter layout |
 | `_inference_result` | Structured inference result and numerical-backend / node-wise tuning metadata |
@@ -197,9 +318,37 @@ After fitting, the following attributes are available:
 
 Methods: `fit(X, y)`, `predict(X)`, `score(X, y)`, `summary()`
 
+## Common pitfalls and complete API
+
+- `summary()` requires successful inference; with the default `compute_inference=False`, use prediction/score and coefficient outputs instead.
+- Post-selection OLS is a diagnostic on the selected variables, not a general correction for having searched for them. Debiased reporting coefficients can differ from prediction coefficients; see the inference section above.
+- Hitting `max_iter` can indicate insufficient numerical accuracy. Inspect warnings and iteration count, check feature scaling, and compare results under tighter tolerance/larger iteration budget before interpretation.
+- Explicit `device="cuda"` or `device="torch"` requires a usable corresponding GPU backend and does not silently switch to CPU. See [device and memory](../guides/device-and-memory.md).
+- Check the [solver–penalty matrix](../guides/solver-penalty-matrix.md) before requesting a different solver; `device` does not replace `solver`.
+
+The [complete ElasticNet API reference](../reference/linear-model-api.md#elasticnet) includes `predict(X, return_cpu=True)`, weighted `score(X, y, sample_weight=None)`, formula input, reporting fields and inference restrictions. Inherited methods have a [shared reference](../reference/estimator-api.md). Use the separate [ElasticNetCV constructor](../reference/linear-model-api.md#elasticnetcv) and [CV workflow/results](../reference/linear-model-api.md#cv-methods-and-results), including a runnable example; direct and CV parameters differ.
+
+### Tuning a Ridge-like mixture
+
+With `ElasticNetCV(l1_ratio=0)` or a very small positive ratio, supply an explicit
+positive `alphas` grid spanning the shrinkage strengths you want to compare.
+The automatic grid currently divides a weighted-average centered design-response cross-product
+by `max(l1_ratio, 1e-6)`. At zero it can therefore contain only extremely large
+penalties and miss useful Ridge fits. This is a grid-construction limitation;
+direct `ElasticNet(l1_ratio=0, alpha=...)` still fits the Ridge objective.
+The automatic rule also centers X/y even with `fit_intercept=False`; use an
+explicit grid for that case and inspect the candidate range and validation losses.
+
 ## Numerical Validation
 
-The maintained regression suite checks agreement across supported backends and reference implementations at tolerances appropriate to each dtype and solver path. Solver API migration behavior is covered by `dev/tests/test_penalized_solver_api_cleanup.py`; node-wise tuning is covered by `dev/tests/test_nodewise_alpha_inference_contract.py`; the post-selection OLS migration and active-set OLS/WLS behavior are covered by `dev/tests/test_post_selection_ols_inference_api.py`.
+Compare Elastic Net fits using the same average-loss objective, `alpha`,
+`l1_ratio`, feature scaling, intercept treatment, weights and convergence
+accuracy. At `l1_ratio=0`, use the Ridge alpha mapping when the reference package
+uses a summed-loss objective. Prediction coefficients and post-fit inference
+estimates need separate comparisons, with the same inference method and
+covariance assumptions.
+
+Contributors can consult the [validation reference](../../../dev/references/model-validation.md#lasso-and-elastic-net).
 
 ## References
 

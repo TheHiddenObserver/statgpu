@@ -1,13 +1,13 @@
 # Unsupervised Learning
 
 > Language: English
-> Last updated: 2026-07-14
+> Last updated: 2026-10-05
 > This page: unsupervised model overview
 > Switch: [Chinese](../../cn/models/unsupervised.md)
 
 ## Overview
 
-`statgpu.unsupervised` contains estimators for dimensionality reduction, clustering, density-based grouping, mixture modeling, non-negative matrix factorization, manifold embedding, and approximate nearest neighbor search. The API follows the familiar `fit`, `transform`, `predict`, `fit_predict`, and `score` style where those operations make sense for the model.
+`statgpu.unsupervised` contains estimators for dimensionality reduction, clustering, density-based grouping, mixture modeling, non-negative matrix factorization, and manifold embedding. UMAP can use internal approximate nearest-neighbor search; that search is not a separately exported estimator. The API follows the familiar `fit`, `transform`, `predict`, `fit_predict`, and `score` style where those operations make sense for the model.
 
 ## Model Summary
 
@@ -23,22 +23,21 @@
 | [MiniBatchKMeans](../unsupervised/minibatch-kmeans.md) | Larger-scale prototype clustering | Approximate inertia minimization with mini-batch updates |
 | [IncrementalPCA](../unsupervised/incremental-pca.md) | Batch-wise linear dimensionality reduction | Approximate centered rank-k reconstruction |
 | [MiniBatchNMF](../unsupervised/minibatch-nmf.md) | Larger-scale non-negative factorization | Mini-batch Frobenius reconstruction loss |
-| [UMAP](../unsupervised/umap.md) | Manifold embedding | Fuzzy graph cross-entropy |
-| [NNDescent](../unsupervised/umap.md) | Approximate nearest neighbor search | Iterative neighbor candidate refinement |
+| [UMAP](../unsupervised/umap.md) | Manifold embedding | Approximate neighborhood-layout forces |
 | [TSNE](../unsupervised/tsne.md) | Manifold visualization | KL divergence between affinity distributions |
 
 ## Device Behavior
 
-Most unsupervised estimators expose `device="auto"`, `"cpu"`, `"cuda"`, and `"torch"` following the project-wide device rules. Explicit GPU devices must either run on that backend or raise a clear error; they should not silently fall back to CPU. Some algorithms have narrower support, so check the per-model page before relying on a GPU path.
+Most unsupervised estimators expose `device="auto"`, `"cpu"`, `"cuda"`, and `"torch"`. If an explicitly requested GPU backend is unavailable, fitting raises an error. Some algorithms still perform CPU work or return NumPy arrays; check the per-model page for supported operations, output placement, and limitations before relying on a GPU path.
 
 ## Input validation
 
-Dense unsupervised estimators share one backend-aware finite-input check. NaN/Inf is
-rejected before SVD, eigendecomposition, distance computation, or iterative updates,
-so users receive a stable public error rather than estimator-specific low-level failures.
+Observation matrices are checked for NaN/Inf before SVD, eigendecomposition, distance computation, or iterative updates and raise a public validation error. This does not cover every constructor setting: numeric controls and explicit MiniBatchKMeans initial centers also need to be finite, but are not all checked reliably. See the [shared input rules](../unsupervised/api-reference.md#shared-inputs-devices-and-state) and [initial-center precautions](../unsupervised/minibatch-kmeans.md#numerical-and-lifecycle-cautions).
 
 ## Notes
 
-Unsupervised estimators do not expose statistical inference fields such as standard errors, p-values, confidence intervals, AIC, or BIC unless the model naturally defines them. For these models, documentation focuses on algorithmic objective, exact versus iterative behavior, device support, and output semantics.
+Unsupervised estimators do not expose statistical inference fields such as standard errors, p-values, confidence intervals, AIC, or BIC unless the model naturally defines them.
 
 For detailed API behavior and model-specific caveats, continue to the per-model pages linked above.
+
+The twelve public estimator classes and complete constructor/method contracts are listed in the [unsupervised index](../unsupervised/README.md) and [API reference](../unsupervised/api-reference.md). NNDescent is an internal neighbor-search implementation used by UMAP, not an additional export from `statgpu.unsupervised`.

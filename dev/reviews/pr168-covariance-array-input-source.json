@@ -1,0 +1,129 @@
+{
+  "original_head": "d3c3a92db52198db22b98e2c52a113bd2c226dbd",
+  "pr_base": "3fba9af81db8624ab6e882cb153e7ede7ead7f63",
+  "scope": "Changed production/test/CI/public-doc payload plus unchanged converter/consumer/validator context. This manifest and the repair report are excluded to avoid circular hashes. Final published commit/tree identity will be recorded in PR168 after publication.",
+  "changed_payload_count": 8,
+  "changed_payload_fingerprint": "0c3d7f50ccef7f8f516a30e6330ed449913f33c419d659da18fc03fb448d98ac",
+  "fingerprint_contract": "SHA256 of sorted changed-payload path + NUL + mode + NUL + Git blob SHA + newline records",
+  "files": [
+    {
+      "path": ".github/workflows/test.yml",
+      "role": "changed_payload",
+      "mode": "100644",
+      "git_blob_sha": "b8c120d43113fc9f06d9b479e21757c59647e319",
+      "sha256": "a233535d6564987e38e9d8450d237288645a3a8925f4f94d26f6b24984291f90"
+    },
+    {
+      "path": "CHANGELOG.md",
+      "role": "changed_payload",
+      "mode": "100644",
+      "git_blob_sha": "fca61c1bca23a3d4643f048002933e169a36bb21",
+      "sha256": "681d83dc26337b16b322a5844c2043a84f7973efd3d9af19e6c763f48c9bab6e"
+    },
+    {
+      "path": "dev/tests/test_covariance_array_inputs.py",
+      "role": "changed_payload",
+      "mode": "100644",
+      "git_blob_sha": "464b2921f051f1cd85846329d70d9f4c6f0edb78",
+      "sha256": "8123998bfa8946c17e02a31450ab53f55420ea64148dd419aa4de62cd003a2b1"
+    },
+    {
+      "path": "dev/tests/test_covariance_device_contract.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "ee8445cef1ccb7e4c56bf2a37fb017d9dce3095b",
+      "sha256": "a91c9c1dd4ef88a7c5bafe037276886a243e10e7acb3d79aeefc3522c84156b6"
+    },
+    {
+      "path": "dev/tests/test_three_backend_native_followup.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "1778f5dabcfbcfeac1845690e2038a07f22ced78",
+      "sha256": "7e477b3bc628c516a80e3b6db7b000de8ce343eb27a7d18a702a9b99bc1eb7e3"
+    },
+    {
+      "path": "dev/tests/test_three_backend_native_isolation.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "d32695d42a8162c5bcfd99ca923e18b066bf0c84",
+      "sha256": "3109464a2fd3e4c7f1988e4ebe42c2821b966847121576ba49efda0efb86ea39"
+    },
+    {
+      "path": "docs/cn/changelog.md",
+      "role": "changed_payload",
+      "mode": "100644",
+      "git_blob_sha": "8fa5c63079618dfd96be0da69f97e0bd4e259083",
+      "sha256": "9388f0fe1fcb37e54b77c8c17474cabd136c30ea1ef6b5669a09cbcec28b979c"
+    },
+    {
+      "path": "docs/cn/models/covariance.md",
+      "role": "changed_payload",
+      "mode": "100644",
+      "git_blob_sha": "d9187ef172c659756d978759274615a41ac6025a",
+      "sha256": "51a2b3e898f8384b2664bfaafa3f677515f50dc1406f958100ce9e8647db5ffb"
+    },
+    {
+      "path": "docs/en/changelog.md",
+      "role": "changed_payload",
+      "mode": "100644",
+      "git_blob_sha": "07f8707fb3f282d630dfd86c4ec78b04bb7410aa",
+      "sha256": "72112cd0578971a9425958babced0990f9785aae5af5ce33efb8c0131fe3e9dd"
+    },
+    {
+      "path": "docs/en/models/covariance.md",
+      "role": "changed_payload",
+      "mode": "100644",
+      "git_blob_sha": "235bfd5966c9d3fe70a55be75ff569d35c02c9ba",
+      "sha256": "9d7b2f1bdabfd16c50c4d2bb649d97b60bcdfcd136022c3bd3944a6655089198"
+    },
+    {
+      "path": "statgpu/_base.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "80dfb8ad73e2ecffcd9e1b25d177301c8f4155d9",
+      "sha256": "f7bbe2fe786a946e29427e13992c5830a647daf840485db70cea73c0c5dcecdf"
+    },
+    {
+      "path": "statgpu/backends/_base.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "0bbeb06f4bb455bcb975cc513c094c30116ce1b3",
+      "sha256": "5e0d2bc3b86657c17e3b72e7938b9635c38c291a300e8ca0a2f3bca8b83e8ee3"
+    },
+    {
+      "path": "statgpu/backends/_utils.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "08f6b15702f7c08844bd0816fa0a20dddc952c8a",
+      "sha256": "ae53a998179ffe775f67d8b89fdf0c50f6d28474df6d2b258d6a8af54ad5e859"
+    },
+    {
+      "path": "statgpu/covariance/_empirical.py",
+      "role": "changed_payload",
+      "mode": "100644",
+      "git_blob_sha": "e2a88fbbc272759485c5a96a82c077e5bb89af80",
+      "sha256": "d3f7719e083ee11478037abb78df5af70f8270e527ecbec6728d65df936779fa"
+    },
+    {
+      "path": "statgpu/covariance/_graphical_lasso.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "54fbbe258a2f2b32ad2b1d1d82f7408de59f13c0",
+      "sha256": "d8526baaef3a55f56e5353066f9abe041303cbec6a2cf3c6d7e5694a3194cbea"
+    },
+    {
+      "path": "statgpu/covariance/_robust.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "0be8c680b5ce4c7e02998ae556c800df251c9cef",
+      "sha256": "e08bd603b6809ec9d752cbe7d1cc007203a98cf1937c1b79a92a0432509c954e"
+    },
+    {
+      "path": "statgpu/covariance/_shrinkage.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "a6b98fcb5a2620ba7f73353969a33115419dde48",
+      "sha256": "8600829df3ccd07fd2c96a9bd1019778d11b1303a6f605137567fc3728d5e816"
+    }
+  ]
+}

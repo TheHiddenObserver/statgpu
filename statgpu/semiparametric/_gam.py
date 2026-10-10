@@ -39,34 +39,61 @@ class GAM(BaseEstimator):
     Parameters
     ----------
     n_splines : int, default=20
-        Number of basis functions per feature (before penalty reduction).
+        Requested basis count per feature, greater than degree + 1. Duplicate
+        interior knots can reduce the actual count.
     degree : int, default=3
         Degree of B-spline basis (3 = cubic).
     lam : float or None, default=None
         Smoothing parameter. If None, automatically selected via GCV.
     penalty_order : int, default=2
-        Order of difference penalty (2 = second differences).
+        Positive difference order, smaller than each actual basis count.
+        This penalizes adjacent basis coefficients, not the spline degree.
+    knot_method : {'quantile', 'uniform'}, default='quantile'
+        Interior-knot placement. Use these lowercase spellings.
+    gamma : float, default=1.0
+        Positive finite effective-degrees-of-freedom multiplier in GCV.
+        It does not change the objective when lam is fixed.
     device : str or Device, default='auto'
-        Computation device: 'cpu', 'cuda', or 'auto'.
+        Computation device: 'cpu', 'cuda', 'torch', or 'auto'. Explicit GPU
+        devices require their corresponding CUDA backend.
     n_jobs : int or None, default=None
-        Number of parallel jobs.
+        Shared estimator option; GAM does not use it to parallelize fitting.
 
     Attributes
     ----------
-    coef_ : array, shape (n_features * n_splines + 1,)
-        Fitted coefficients (intercept + spline coefficients for each feature).
+    coef_ : backend array, shape (1 + sum(n_basis_j),)
+        Float64 intercept and centered spline-basis coefficients. The actual
+        basis count n_basis_j can be smaller than n_splines for tied features.
     intercept_ : float
-        Intercept term.
+        Intercept term; large-lambda stabilization can shrink it below the
+        response mean despite the intended unpenalized-intercept objective.
     edf_ : float
         Total effective degrees of freedom.
-    gcv_score_ : float
-        GCV score (if lam was auto-selected).
+    gcv_score_ : float or None
+        Minimum searched GCV score, or None when lam was fixed.
     lam_ : float
         Smoothing parameter used (after auto-selection if applicable).
     knots_ : list of arrays
         Interior knots for each feature.
     n_features_ : int
         Number of features in training data.
+
+    Notes
+    -----
+    This is a continuous-response penalized least-squares model. It has no
+    family/link, weighted-fit objective, coefficient inference, or confidence
+    bands. Inputs and basis calculations use float64; predict returns a host
+    NumPy array even after GPU fitting. Refit after changing parameters.
+    Automatic smoothing selection can return a nonfinite gcv_score_ when
+    no grid candidate is valid; treat that as a failed selection.
+    Trace-scaled diagonal stabilization also penalizes intended nullspace
+    directions. At large finite lam it can materially shrink the intercept
+    and change the stated objective, even with finite predictions/GCV.
+    Check training-mean preservation and original-objective stationarity;
+    independently validate fits in that regime. Changing lam changes the
+    statistical model, rather than repairing the solver.
+    Some parameter changes or failed refits can leave stale/mixed fitted
+    arrays; create a fresh instance after a failed basis construction.
 
     Examples
     --------
@@ -226,10 +253,14 @@ class GAM(BaseEstimator):
 
         Parameters
         ----------
-        X : array-like, shape (n_samples, n_features)
-            Training data.
-        y : array-like, shape (n_samples,)
-            Target values.
+        X : array-like, shape (n_samples, n_features) or (n_samples,)
+            Finite real training data. A vector supplies one feature; constant
+            features cannot define a smooth term. Converted to float64.
+        y : array-like, shape (n_samples,) or (n_samples, 1)
+            Finite continuous response. A single column is flattened.
+        **fit_params : dict
+            Extra keywords are currently ignored, including sample_weight;
+            omit them. They do not enable weighted fitting or formula input.
 
         Returns
         -------
@@ -333,8 +364,12 @@ class GAM(BaseEstimator):
 
         Returns
         -------
-        y_pred : array, shape (n_samples,)
-            Predicted values.
+        y_pred : numpy.ndarray, shape (n_samples,)
+            Host float64 predictions, including after GPU fitting. Training
+            knots, boundaries, and basis centering are reused; extrapolation
+            outside a training feature range is not reliable. For multi-feature
+            Torch models, pass an explicit (n_samples,n_features) query matrix,
+            even for one row; the vector shape check currently raises TypeError.
         """
         self._check_is_fitted()
 

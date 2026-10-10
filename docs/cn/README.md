@@ -1,7 +1,7 @@
 # StatGPU 文档
 
 > 语言：中文  
-> 最后更新：2026-09-17  
+> 最后更新：2026-10-06  
 > 切换：[English](../en/README.md)
 
 ## 快速开始
@@ -31,8 +31,8 @@
 - [Ridge](models/ridge.md) — Ridge 回归 + RidgeCV
 - [Lasso](models/lasso.md) — Lasso + LassoCV + 去偏推断
 - [ElasticNet](models/elastic-net.md) — ElasticNet + ElasticNetCV
-- [SCAD](models/scad.md) — 非凸惩罚与 oracle 性质
-- [MCP](models/mcp.md) — 非凸惩罚与 oracle 性质
+- [SCAD](models/scad.md) — 非凸稀疏回归，减轻大系数的收缩
+- [MCP](models/mcp.md) — 非凸稀疏回归，减轻大系数的收缩
 - [AdaptiveLasso](models/adaptive-lasso.md) — 自适应 L1 惩罚
 
 ### 损失函数
@@ -42,9 +42,9 @@
 
 ### 广义线性模型
 - [GeneralizedLinearModel](models/generalized-linear-model.md) — GLM + PenalizedGLM 基类
-- [LogisticRegression](models/logistic-regression.md) — logistic 分类
+- [LogisticRegression](models/logistic-regression.md) — 逻辑回归分类
 - [PoissonRegression](models/poisson-regression.md) — 计数回归
-- [有序模型](models/ordered.md) — ordered logit/probit
+- [有序模型](models/ordered.md) — 有序 logit/probit
 
 ### 生存分析
 - [CoxPH](models/coxph.md) — Breslow/Efron/Exact、延迟进入/起止时间数据、分层、稳健协方差与 NumPy/CuPy/Torch 路径
@@ -55,11 +55,11 @@
 - [无监督概览](models/unsupervised.md) — PCA、聚类、混合模型、流形学习与矩阵分解方法
 
 ### 面板数据
-- [Panel](models/panel.md) — 六类面板估计器，包括 pooled、between、first-difference 与 Fama–MacBeth
+- [Panel](models/panel.md) — 六类面板估计器，包括混合回归、组间回归、一阶差分与 Fama–MacBeth
 
 ### 非参数
 - [非参数概述](models/nonparametric.md) — 核方法与样条
-- [核方法](models/kernel-methods.md) — KDE、核回归、KRR
+- [核方法](models/kernel-methods.md) — KernelRidge/CV、KernelPCA 与 Nystroem
 - [样条](models/splines.md) — B 样条、自然样条、周期样条、薄板样条与 `SplineTransformer`
 - [半参数（GAM）](models/semiparametric.md) — 广义可加模型
 
@@ -72,6 +72,18 @@
 - [回归诊断](guides/regression-diagnostics.md) — 残差、杠杆值、Cook 距离与 VIF
 
 ## 参考
+
+### 完整 API 参考
+
+- [估计器通用 API](reference/estimator-api.md) — 参数管理与继承的推断辅助方法
+- [线性模型 API](reference/linear-model-api.md) — 构造参数、拟合与预测方法、交叉验证及拟合结果
+- [特征选择 API](reference/feature-selection-api.md) — 逐步选择与 knockoff 接口
+- [生存分析与平滑 API](reference/survival-smoothing-api.md) — Cox、核方法、样条、带宽选择及 GAM
+- [无监督学习 API](unsupervised/api-reference.md) — 十二类估计器的接口与拟合属性
+- [分布 API](guides/distribution-api.md) — 支持的分布族、参数与数组语义
+- [推断 API](guides/inference-api.md) — 结果对象、重采样与多重检验函数
+
+### 算法与版本记录
 
 - [求解器算法](guides/solver-algorithms.md) — 优化算法详解
 - [损失函数 × 惩罚项 × 求解器框架](guides/loss-penalty-solver-framework.md) — 各组件如何组合与分发

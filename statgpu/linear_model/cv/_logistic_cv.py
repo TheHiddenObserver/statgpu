@@ -712,37 +712,45 @@ class LogisticRegressionCV(CVEstimatorBase):
     """
     Cross-validated Logistic regression with GPU support.
 
-    This class implements K-fold cross-validation to select the optimal
-    regularization parameter C for Logistic regression.
+    Select positive C by minimum mean validation log-loss, then refit on all
+    supplied training rows. This binary 0/1 model uses the standalone logistic
+    summed-loss L2 convention; C=0 is not an eligible tuning candidate.
 
     Parameters
     ----------
-    Cs : array-like or None
-        C values to try. If None, generates n_Cs values.
-    n_Cs : int
+    Cs : array-like or None, default=None
+        Positive finite C candidates; None generates a data-dependent log grid.
+        Invalid/nonpositive entries are filtered; an empty grid becomes automatic.
+    n_Cs : int, default=100
         Number of C values (if Cs is None). Default is 100.
-    C_min_ratio : float
-        Minimum C as a ratio of max C.
-    cv : int
+    C_min_ratio : float, default=0.001
+        Positive minimum/maximum ratio for the automatic grid, normally <=1.
+    cv : int, default=5
         Number of CV folds. Default is 5.
-    fit_intercept : bool
+    cv_splits : iterable of index pairs or None, default=None
+        Explicit (training, validation) row indices override shuffled K-fold.
+        Use a reusable list and construct grouped/time-aware splits explicitly.
+    fit_intercept : bool, default=True
         Whether to fit intercepts. Default is True.
-    max_iter : int
+    max_iter : int, default=100
         Maximum number of IRLS iterations. Default is 100.
-    tol : float
+    tol : float, default=1e-4
         Convergence tolerance. Default is 1e-4.
-    device : str or Device
-        Computation device: 'cpu', 'cuda', or 'auto'.
-    compute_inference : bool
-        Whether to compute standard errors, z-stats, p-values and CI.
-    cov_type : str
+    device : str or Device, default='auto'
+        Computation device: 'cpu', 'cuda' (CuPy), 'torch' (Torch CUDA), or 'auto'.
+    n_jobs : int or None, default=None
+        Shared configuration; does not promise candidate parallelism.
+    compute_inference : bool, default=True
+        Compute inference on the final full-data estimator only. The reported
+        uncertainty conditions on selected C; inspect ``estimator_``.
+    cov_type : str, default='nonrobust'
         Covariance estimator for inference. One of:
         'nonrobust', 'hc0', 'hc1', 'hc2', 'hc3', 'hac'.
-    gpu_memory_cleanup : bool
-        Whether to free CuPy memory pool after fitting.
-    random_state : int or None
+    gpu_memory_cleanup : bool, default=False
+        Request best-effort release of reclaimable GPU cache memory.
+    random_state : int or None, default=None
         Random seed for CV splits.
-    gpu_cv_mixed_precision : bool
+    gpu_cv_mixed_precision : bool, default=True
         Whether to use mixed precision on GPU.
 
     Attributes
@@ -752,9 +760,10 @@ class LogisticRegressionCV(CVEstimatorBase):
     Cs_ : ndarray
         All C values tested.
     cv_results_ : dict
-        CV results including loss_path and mean_loss.
+        Only loss_path (c, f) for c candidates and f folds; no mean_loss key.
+        Mean validation log-loss (c,) is stored separately in mean_loss_.
     best_score_ : float
-        Best (minimum) log-loss across CV folds.
+        Negative minimum mean validation log-loss (larger is better).
     coef_ : ndarray
         Coefficients of the final model.
     intercept_ : float
@@ -762,16 +771,62 @@ class LogisticRegressionCV(CVEstimatorBase):
     estimator_ : LogisticRegression
         The fitted LogisticRegression with selected C.
 
+    mean_loss_ : numpy.ndarray of shape (n_candidates,)
+        Mean validation log-loss; lower is better, unlike best_score_.
+    n_iter_ : int
+        Final-fit iteration count; read estimator_.converged_ for stopping status.
+    cv_selected_device_ : str or Device
+        Device selected for the final refit.
+
+    Methods
+    -------
+    fit(X, y, sample_weight=None)
+        Return self; finite X (n, p), binary y (n,), and optional finite nonnegative
+        weights (n,) with positive total. No formula/data interface.
+    predict(X)
+        Class labels (m,), class 1 at probability >=0.5, on the resolved backend.
+    predict_proba(X)
+        Probabilities (m, 2) for classes 0 and 1, on the resolved backend.
+    score(X, y)
+        Python float unweighted accuracy, not validation log-loss. No weights.
+    summary()
+        Print the final estimator's inference report and return None; requires
+        successful enabled final inference.
+    get_params(deep=True), set_params(**params)
+        Read/update configuration; a nonempty valid update clears fitted state.
+    adjust_pvalues, combine_pvalues, bootstrap_statistic, permutation_test
+        Shared estimator helpers; they do not rerun selection or final inference.
+
+    Notes
+    -----
+    Generated folds are shuffled K-fold, not stratified, grouped or time-aware.
+    Use reusable custom train/validation index lists for those designs. Validate
+    nonempty disjoint integer subsets with no duplicate rows yourself: the shared
+    splitter casts/reshapes indices and accepts overlap. Each weighted split needs
+    positive weight mass. Preprocessing must be learned inside each training fold;
+    use an external loop when needed. There is no scoring-callable interface.
+    With fewer than four rows or one C candidate, the model can perform only a
+    final fit, returning NaN loss arrays/best_score_ rather than a CV comparison.
+    Final inference conditions on selected C; it does not remove shrinkage bias
+    or adjust tuning uncertainty. There is no solver or hac_maxlags constructor
+    parameter; final HAC uses the automatic lag rule. Additional classification
+    metrics/curves are available on estimator_, not this wrapper.
+
     Examples
     --------
     >>> import numpy as np
     >>> from statgpu.linear_model import LogisticRegressionCV
-    >>> X = np.random.randn(1000, 20)
-    >>> y = (X @ np.random.randn(20) > 0).astype(int)
-    >>> model = LogisticRegressionCV(cv=5, device='cuda')
-    >>> model.fit(X, y)
-    >>> print(f"Selected C: {model.C_:.4f}")
-    >>> print(f"Best CV score: {model.best_score_:.4f}")
+    >>> rng = np.random.default_rng(19)
+    >>> X = rng.normal(size=(160, 3))
+    >>> probability = 1 / (1 + np.exp(-X[:, 0]))
+    >>> y = rng.binomial(1, probability)
+    >>> model = LogisticRegressionCV(Cs=[0.1, 1.0], cv=3, random_state=7,
+    ...                               device="cpu", compute_inference=False)
+    >>> _ = model.fit(X[:120], y[:120])
+    >>> model.predict_proba(X[120:]).shape
+    (40, 2)
+    >>> bool(np.isclose(model.best_score_, -np.min(model.mean_loss_)))
+    True
     """
 
     def __init__(

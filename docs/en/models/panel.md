@@ -19,7 +19,7 @@ A useful way to distinguish them is:
 
 ## Documentation map
 
-- [Panel Architecture](../panel/architecture.md) — `BasePanelModel`, estimator-specific data transformations and regression problems, shared numerical linear algebra, covariance/inference, diagnostics, and fit lifecycle.
+- [Panel Architecture](../panel/architecture.md) — data transformations, estimation, covariance/inference, diagnostics, and interpreting fit results.
 - [Covariance](../panel/covariance.md) — nonrobust, HC, cluster, HAC, and Driscoll-Kraay covariance definitions.
 - [Fit statistics](../panel/fit-statistics.md) — within/between/overall $R^2$, adjusted $R^2$, model F, and related statistics.
 - [Diagnostics](../panel/diagnostics.md) — Hausman, pooling F, Breusch-Pagan LM, and related model diagnostics.
@@ -28,4 +28,4 @@ Each model page explains both the **statistical model and identification assumpt
 
 All six model classes support NumPy CPU, CuPy CUDA, and Torch CUDA through the `device` parameter. Each model page includes CPU/GPU and formula examples; an explicit `device="cuda"` or `device="torch"` request uses the corresponding backend.
 
-For the shared implementation structure, data transformations, numerical components, and inference layer, see [Panel Architecture](../panel/architecture.md).
+For shared data transformations, estimation, and inference, see [Panel Architecture](../panel/architecture.md).

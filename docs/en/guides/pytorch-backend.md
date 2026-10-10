@@ -1,7 +1,7 @@
 # PyTorch Backend Guide
 
 > Language: English  
-> Last updated: 2026-07-24  
+> Last updated: 2026-10-07  
 > Switch: [Chinese](../../cn/guides/pytorch-backend.md)
 
 ## Overview
@@ -16,8 +16,9 @@ StatGPU supports three execution backends:
 | `"auto"` | Automatically selected | CuPy, Torch CUDA, or NumPy according to availability and input |
 
 `device="torch"` is the explicit PyTorch request. `device="cuda"` selects CuPy;
-it is not an alias for Torch. Explicit requests fail when the requested backend is
-unavailable and do not silently execute on another backend.
+it is not an alias for Torch. Estimators using the shared device rules, including
+`LinearRegression` below, raise when the requested accelerator is unavailable.
+The [current kernel/spline routing exceptions](device-and-memory.md#current-smoothing-and-spline-exceptions) can instead return CPU results; inspect actual returned arrays for those estimators.
 
 Model, solver, cross-validation, and inference coverage can differ. Use the
 [Implemented Methods](implemented-methods.md) inventory and the relevant model page
@@ -105,8 +106,12 @@ import statgpu as sg
 sg.set_device("torch")
 ```
 
-A per-estimator `device=` argument takes precedence where the estimator exposes it.
-Use `"auto"` only when automatic backend selection is intended.
+For estimators following the shared device rules, an explicit non-`auto` device
+overrides the global setting, while `device="auto"` inherits it. Other estimators
+can choose a different backend with `auto`; use an explicit per-model device when
+placement matters and check its documented restrictions. Use `sg.set_device("auto")`
+to restore automatic selection, or `device="cpu"` for an explicit CPU fit. See
+[global and estimator settings](device-and-memory.md#global-settings-and-estimator-settings).
 
 ## Statistical Inference
 
@@ -120,29 +125,30 @@ optional dependencies. For an inference-capable model, inspect its documentation
 - delayed-entry, clustering, ties, rank-deficiency, or formula restrictions;
 - whether final summaries are Torch arrays, NumPy arrays, or scalar metadata.
 
-Unsupported inference combinations should fail explicitly or operate in a documented
-estimation-only mode; they should not silently produce approximate results.
+Check the model's supported inference methods before enabling inference. If the
+estimator exposes `compute_inference`, set it to `False` for estimation-only fits.
+Use an approximate method only when the model documents that option and its limitations.
 
 ## Execution Boundaries
 
-Core numerical arrays should remain on the selected Torch backend where the method
-supports Torch execution. Legitimate CPU boundaries may include:
+Torch execution can still involve CPU work. Depending on the method, this includes:
 
 - formula, label, feature-name, and small index metadata;
 - fold definitions, convergence decisions, and scalar control flow;
 - scalar distribution functions unavailable in Torch;
-- user-facing summaries intentionally represented as NumPy or Python scalars;
-- external validation libraries that only accept CPU arrays.
+- user-facing summaries intentionally represented as NumPy or Python scalars.
 
-These boundaries are model-specific. A global claim that every intermediate remains on
-GPU would be incorrect. Full-design transfers or backend changes must not occur as a
-silent fallback.
+For a GPU-only workload, check the model's device and inference restrictions as well
+as the returned array's device. A GPU tensor alone does not establish that every
+part of the calculation ran on GPU.
 
 ## Dtype and Numerical Precision
 
 Statistical inference commonly benefits from `float64`:
 
 ```python
+import torch
+
 X = torch.randn(2000, 50, device="cuda", dtype=torch.float64)
 ```
 
@@ -183,24 +189,19 @@ torch.cuda.empty_cache()
 Some estimators expose `gpu_memory_cleanup=True`. This controls cache cleanup and does
 not change the statistical objective or permit a CPU fallback.
 
-## Performance and Validation Evidence
+<a id="performance-and-validation-evidence"></a>
+
+## Understanding Performance
 
 GPU performance depends on sample size, feature dimension, dtype, kernel or solver,
 hardware, synchronization, and memory pressure. Small workloads may be faster on CPU.
 Do not interpret a benchmark from one model or GPU as a universal speed guarantee.
 
-Maintained evidence should record:
+When comparing timings, use the same workload and dtype, include the transfers
+that your application needs, and synchronize the GPU that performed the work.
 
-- exact commit SHA;
-- Python, Torch, CUDA, and driver versions;
-- GPU model;
-- synchronized timing methodology;
-- accuracy or statistical parity metrics;
-- passed, failed, and skipped tests.
-
-Current and historical benchmark artifacts live under `results/` and `dev/benchmarks/`.
-The retained [Torch backend report](../../../dev/docs/torch_backend_final_report.md) is a
-dated evidence snapshot, not a current support matrix.
+Contributors recording test or benchmark results can use the optional
+[Torch validation reference](../../../dev/references/model-validation.md#torch-backend).
 
 ## Troubleshooting
 
@@ -217,8 +218,8 @@ system CUDA toolkit version does not by itself determine which Torch wheel is us
 ### Explicit Torch execution raises
 
 This is expected when Torch CUDA or a required Torch operation is unavailable. Use
-`device="cpu"` or `device="auto"` only when that behavior matches the intended contract;
-do not expect `device="torch"` to fall back silently.
+`device="cpu"` or `device="auto"` only when that behavior matches the intended contract.
+The [current kernel/spline routing exceptions](device-and-memory.md#current-smoothing-and-spline-exceptions) can instead return CPU tensors, so a successful call alone is not proof of CUDA execution.
 
 ### Out of memory
 
@@ -253,4 +254,3 @@ loss while StatGPU optimizes a mean loss.
 ## References
 
 - [PyTorch documentation](https://pytorch.org/docs/)
-- [StatGPU Torch backend evidence snapshot](../../../dev/docs/torch_backend_final_report.md)

@@ -1,21 +1,72 @@
 # 稳健回归
 
 > 语言：中文  
-> 最后更新：2026-09-14  
+> 最后更新：2026-10-09<br>
 > 页面定位：模型文档  
 > 切换：[English](../../en/models/robust.md)
 
-## 概述
+## 什么时候使用稳健回归？
 
-statgpu 通过 M-估计提供稳健回归，并支持稳健尺度估计。`PenalizedRobustRegression` 组合 Huber、Bisquare 和 Fair 损失与多类惩罚项；光滑目标默认使用 Newton，稀疏与非凸惩罚进入 FISTA / LLA 路径。
+当连续响应中少数很大的残差可能主导最小二乘拟合时，可以考虑稳健回归。Huber 对小残差采用平方损失，对大残差采用线性损失；Bisquare 与 Fair 使用不同的降权方式。得到的是所选损失定义的条件位置，不一定是条件均值。
 
-| 组件 | 路径 |
-|------|------|
-| Huber 损失 | `statgpu.losses.HuberLoss` |
-| Bisquare 损失 | `statgpu.losses.BisquareLoss` |
-| Fair 损失 | `statgpu.losses.FairLoss` |
-| 带惩罚模型 | `statgpu.linear_model.penalized.PenalizedRobustRegression` |
-| 相关 R 方法 | `MASS::rlm()` |
+`PenalizedRobustRegression` 将这些损失与正则化组合：损失限制异常响应残差的影响，惩罚控制系数收缩。这两种选择解决不同问题。稳健损失不能自动修复错误数据、异常特征值造成的高杠杆或遗漏变量；若关心某个条件分位数，可参见[分位数回归](quantile.md)。
+
+<a id="cpu-example"></a>
+
+## 完整 CPU 示例
+
+依次运行以下步骤。先使用 Huber 与较小的 L2 惩罚，之后再介绍其他损失、非凸惩罚和 GPU。
+
+### 1. 导入
+
+<!-- learner-example: robust-basic -->
+```python
+import numpy as np
+from statgpu.linear_model.penalized import PenalizedRobustRegression
+```
+
+### 2. 准备含异常响应的数据
+
+`X` 为 `(320, 2)` 数值矩阵，每行一条观测；`y` 为长度 320 的连续响应。前 240 行用于训练，后 80 行留作评价。下面仅在训练数据中加入 12 个偏大的响应值，留出集不加入这些人为异常值。实际使用时先核查异常值来源、处理缺失值，并保持预测列顺序。
+
+```python
+rng = np.random.default_rng(27)
+X = rng.normal(size=(320, 2))
+y = 1.0 + X @ np.array([1.5, -0.7]) + rng.normal(scale=0.5, size=320)
+y[:12] += 12.0
+```
+
+### 3. 拟合 Huber 模型
+
+`alpha=0.01` 是演示用的 L2 强度，`solver="auto"` 对这个光滑惩罚目标选择 Newton。默认先估计残差尺度，再由 `epsilon × scale` 确定 Huber 阈值；阈值的含义见后文。
+
+```python
+model = PenalizedRobustRegression(
+    loss="huber", penalty="l2", alpha=0.01, device="cpu",
+).fit(X[:240], y[:240])
+print("Slopes:", np.round(model.coef_, 3))
+```
+
+本例斜率约为 `[1.522, -0.723]`，接近模拟的 `[1.5, -0.7]`；这不是所有污染模式下的精度保证。斜率是拟合位置随某个特征增加一单位的变化，条件是其他特征固定。
+
+### 4. 预测并评价留出数据
+
+```python
+prediction = model.predict(X[240:])
+mae = np.mean(np.abs(y[240:] - prediction))
+print("Predictions:", np.round(prediction[:3], 3))
+print("Held-out MAE:", round(float(mae), 3))
+```
+
+预测数组为 `(80,)`，前三项约为 `[2.590, 1.341, 0.479]`。平均绝对误差（MAE）约为 `0.437`，单位与响应相同，同一评价集上越小越好。这里有意直接计算 MAE；该类的 `score` 返回响应尺度 R²，不是 Huber 损失。
+<!-- example-end: robust-basic -->
+
+## 参数选择与常见问题
+
+- `epsilon` 或固定阈值控制对残差的降权，`alpha` 控制惩罚强度；不要混淆二者。按应用需要选择留出评价指标。
+- 特征单位会影响惩罚，训练折内学习缩放与调参，再应用到留出数据。较小训练损失不等于更好的泛化。
+- Bisquare 与 SCAD/MCP 涉及非凸目标，应关注初始化、数值警告及结果稳定性。
+- 稳健拟合不会自动得到稳健标准误或选择调整后的 p 值。共享推断参数仍须满足[具体推断方法的支持条件](../guides/penalized-glm-inference.md)。
 
 ## 损失函数
 
@@ -55,7 +106,11 @@ $$
 - `smooth_gradient=True`、`has_hessian=True`
 - 对残差的降权比硬截断型损失更平缓
 
-## 参数
+## 损失参数与估计器控制
+
+下表描述损失对象，不是估计器的完整构造参数。`PenalizedRobustRegression` 提供 `loss`、`penalty`、`alpha`、`epsilon`、`method`、求解器/设备控制及共享惩罚模型选项。完整参数和方法见[公开实现](../../../statgpu/linear_model/penalized/_penalized_robust.py)、[共享惩罚 API](../reference/linear-model-api.md#penalizedgeneralizedlinearmodel)或已安装版本的 `help(PenalizedRobustRegression)`。
+
+损失对象均从 `statgpu.losses` 导入：`HuberLoss`、`BisquareLoss` 与 `FairLoss`。
 
 ### `HuberLoss`
 
@@ -85,7 +140,7 @@ $$
 
 ## 尺度估计
 
-`RobustLossBase` 提供 MAD 与 Huber Proposal 2 尺度计算。当前 `PenalizedRobustRegression` 拟合路径会在进入数值求解器前调用 `precompute_scale(...)`，因此普通 `MAD` / `huber_prop2` 系数优化在求解阶段使用已经确定的有效阈值。
+自动尺度处理支持 MAD 与 Huber Proposal 2。`PenalizedRobustRegression` 在系数优化前估计尺度，因此普通 `MAD` / `huber_prop2` 拟合在求解阶段使用已经确定的有效阈值。
 
 - **MAD**：$\hat\sigma=\operatorname{median}(|r_i|)/0.6745$
 - **Huber Proposal 2**：通过固定点迭代估计尺度
@@ -93,6 +148,75 @@ $$
 - Bisquare 与 Fair 都通过内部有效 `delta` 使用 $c=\epsilon\hat\sigma$
 
 显式给定 `delta` 时直接使用固定阈值。`method="joint"` 仅属于 Huber，并定义单独的系数—尺度联合优化问题。
+
+## 更换损失、惩罚或计算设备
+
+### Huber 与 SCAD
+
+先完成 [CPU 示例](#cpu-example)。以下 CPU 小节都复用其中的导入与 `X`、`y`，只使用前 240 行训练。SCAD 是非凸惩罚，自动调度使用 LLA 与 FISTA；下面的 alpha 仅为演示。
+
+<!-- example-requires: robust-basic -->
+<!-- learner-example: robust-scad -->
+```python
+scad_model = PenalizedRobustRegression(
+    loss="huber", penalty="scad", alpha=0.1, device="cpu",
+).fit(X[:240], y[:240])
+```
+<!-- example-end: robust-scad -->
+
+### Bisquare 与 MCP
+
+Bisquare 对超过阈值的残差给出零梯度，MCP 则改变系数的惩罚形式；两者都与上一种配置不同。先完成 [CPU 示例](#cpu-example)，再复用其中的导入和训练数据，在同一留出集上评价这类选择。
+
+<!-- example-requires: robust-basic -->
+<!-- learner-example: robust-bisquare -->
+```python
+bisquare_model = PenalizedRobustRegression(
+    loss="bisquare", penalty="mcp", alpha=0.1, device="cpu",
+).fit(X[:240], y[:240])
+```
+<!-- example-end: robust-bisquare -->
+
+### Fair 与 L2
+
+先完成 [CPU 示例](#cpu-example)，再复用其中的导入和训练数据。Fair 对残差的降权较平缓；本例保留 L2 惩罚，`auto` 使用 Newton。
+
+<!-- example-requires: robust-basic -->
+<!-- learner-example: robust-fair -->
+```python
+fair_model = PenalizedRobustRegression(
+    loss="fair", penalty="l2", alpha=0.01, device="cpu",
+).fit(X[:240], y[:240])
+```
+<!-- example-end: robust-fair -->
+
+### GPU（Torch CUDA）
+
+先完成 [CPU 示例](#cpu-example)，再复用其中的导入与 `X`、`y`，显式指定 Torch CUDA。需要安装 Torch 并有可用 CUDA 设备；显式设备不可用时会报错。尺度估计的 CPU 边界见后文说明。
+
+```python
+gpu_model = PenalizedRobustRegression(
+    loss="huber", penalty="scad", alpha=0.1, device="torch",
+).fit(X[:240], y[:240])
+```
+
+### 底层求解器接口
+
+先完成 [CPU 示例](#cpu-example)，再复用其中的训练数组。底层调用需要自行选择损失和惩罚，不会自动添加截距；下面有意拟合无截距、固定 Huber 阈值为 1 的目标，与前面的自动尺度模型不同。普通建模优先使用估计器接口。
+
+<!-- example-requires: robust-basic -->
+<!-- learner-example: robust-direct-solver -->
+```python
+from statgpu.losses import HuberLoss
+from statgpu.penalties import SCADPenalty
+from statgpu.solvers import fista_solver
+
+loss = HuberLoss(delta=1.0)
+coef, n_iter = fista_solver(
+    loss, SCADPenalty(alpha=0.1), X[:240], y[:240],
+)
+```
+<!-- example-end: robust-direct-solver -->
 
 ## 求解器兼容性
 
@@ -119,47 +243,6 @@ $$
 | 自适应 L1 | FISTA / LLA 路径 | 使用自适应加权近端形式 |
 | 分组惩罚 | Group FISTA / Group FISTA-LLA | 使用对应的分组近端算子 |
 
-## 示例
-
-```python
-from statgpu.linear_model.penalized import PenalizedRobustRegression
-
-# Huber + SCAD
-model = PenalizedRobustRegression(loss="huber", penalty="scad", alpha=0.1)
-model.fit(X, y)
-
-# Bisquare + MCP
-model = PenalizedRobustRegression(loss="bisquare", penalty="mcp", alpha=0.1)
-model.fit(X, y)
-
-# Fair + L2：solver="auto" 使用光滑 Newton 路径
-model = PenalizedRobustRegression(loss="fair", penalty="l2", alpha=0.01)
-model.fit(X, y)
-```
-
-### GPU（Torch CUDA）
-
-```python
-import torch
-
-X_t = torch.tensor(X, dtype=torch.float64).cuda()
-y_t = torch.tensor(y, dtype=torch.float64).cuda()
-
-model = PenalizedRobustRegression(loss="huber", penalty="scad", alpha=0.1)
-model.fit(X_t, y_t)
-```
-
-### 底层求解器接口
-
-```python
-from statgpu.losses import HuberLoss
-from statgpu.penalties import SCADPenalty
-from statgpu.solvers import fista_solver
-
-loss = HuberLoss()
-coef, n_iter = fista_solver(loss, SCADPenalty(alpha=0.1), X, y)
-```
-
 ## 算法说明
 
 ### 光滑 Huber / Bisquare / Fair
@@ -168,18 +251,18 @@ coef, n_iter = fista_solver(loss, SCADPenalty(alpha=0.1), X, y)
 
 ### SCAD / MCP
 
-非凸惩罚通过 LLA 转换成局部加权凸问题，再由 FISTA 系列内层求解。当前通用 Proximal Newton 不把欧氏近端近似当作 Hessian 度量近端子问题，因此非光滑请求不会静默走旧的 Proximal-Newton 快捷路径。
+非凸惩罚通过 LLA 转换成局部加权凸问题，再由 FISTA 系列内层求解。对于非光滑惩罚，底层 `proximal_newton_solver` 会发出 `RuntimeWarning` 并使用 FISTA，因为该求解器没有实现 Hessian 度量近端子问题。
 
 ### Huber IRLS 的当前状态
 
-`HuberLoss.irls()` 当前是明确拒绝的占位入口，且 `_supports_irls=False`，因此 `PenalizedRobustRegression(..., solver="irls")` 不会进入 Huber IRLS。固定阈值 Huber 的标准 IRLS 权重
+`HuberLoss.irls()` 会抛出 `NotImplementedError`。对 Huber 回归，`PenalizedRobustRegression(..., solver="irls")` 会抛出 `ValueError`。固定阈值 Huber 的标准 IRLS 权重
 
 $$
 w_i=\frac{\psi_\delta(r_i)}{r_i}
 =\min\left(1,\frac{\delta}{|r_i|}\right)
 $$
 
-与 Huber 一阶条件具有直接关系。这说明 Huber 可以自然地构造 IRLS 更新，但当前公开 API 并未把该路径声明为受支持能力；显式请求该组合时应明确拒绝，而不是静默切换到其他求解器。
+与 Huber 一阶条件具有直接关系。因此，Huber 可以自然地构造 IRLS 更新，但该 API 不支持这一算法。L2/无惩罚 Huber 拟合可用 Newton；受支持的近端惩罚可用 FISTA。
 
 ## 输出
 
@@ -198,7 +281,7 @@ $$
 
 ## 注意事项
 
-- 尺度计算目前会使用 NumPy 主机数组；完成尺度预计算后，维护中的数值优化路径继续使用所选 NumPy/CuPy/Torch 后端。
+- 尺度计算目前会使用 NumPy 主机数组；完成尺度预计算后，数值优化继续使用所选 NumPy/CuPy/Torch 后端。
 - `sample_weight` 是否可用取决于损失函数、求解器和具体模型路径，而不是“所有 robust solver 自动支持”。
 - 三种损失都提供 Hessian 数值原语；这支持光滑 Newton 路径，但不等价于“任意非光滑惩罚都支持 Proximal Newton”。
 - Huber IRLS 当前未作为公开求解路径开放；显式选择该组合会按照当前兼容性约定失败。

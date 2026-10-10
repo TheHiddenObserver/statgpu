@@ -35,7 +35,9 @@ class KernelRidge(BaseEstimator):
         ``'laplacian'``, ``'sigmoid'``, ``'cosine'``) or a callable.
     gamma : float, optional
         Kernel coefficient for rbf, polynomial, laplacian, sigmoid.
-        Defaults to ``1 / n_features``.
+        Defaults to ``1 / n_features``. For chi-squared kernels this
+        constructor argument is currently ignored; pass gamma through
+        kernel_params instead.
     degree : int, default=3
         Degree for the polynomial kernel.
     coef0 : float, default=1
@@ -49,10 +51,19 @@ class KernelRidge(BaseEstimator):
 
     Attributes
     ----------
-    dual_coef_ : ndarray of shape (n_samples,) or (n_samples, n_targets)
-        Dual coefficients in the kernel space.
+    dual_coef_ : ndarray of shape (n_samples, n_targets)
+        Dual coefficients in the kernel space; a vector response has one column.
     X_fit_ : ndarray of shape (n_samples, n_features)
         Training data stored for prediction.
+
+    Notes
+    -----
+    Finite input does not guarantee a finite computed kernel. Polynomial
+    kernels can overflow; nonfinite kernel/decomposition values can currently
+    produce a fitted object with NaN learned arrays and predictions. Use finite
+    applicable kernel controls, check learned arrays and outputs for finiteness,
+    and discard a nonfinite fit. Increasing regularization does not repair an
+    already nonfinite kernel; revise feature scaling/kernel settings and refit.
     """
 
     def __init__(
@@ -98,7 +109,13 @@ class KernelRidge(BaseEstimator):
         return params
 
     def fit(self, X, y, sample_weight=None):
-        """Fit Kernel Ridge Regression model."""
+        """Fit unweighted Kernel Ridge Regression and return self.
+
+        X is a finite (n_samples, n_features) design and y is a finite vector
+        or response matrix with matching rows. The accepted sample_weight
+        argument is currently ignored; omit it. This method does not implement
+        a weighted kernel-ridge objective.
+        """
         self._backend = self._get_backend()
         xp = self._backend.xp
         self._xp = xp

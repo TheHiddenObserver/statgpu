@@ -16,7 +16,7 @@ statgpu separates the public statistical API from the numerical components used 
 - a **Backend** supplies NumPy, CuPy, or Torch execution across the numerical layers;
 - a **CV/meta-estimator** repeatedly reconstructs and evaluates compatible fits before a final refit.
 
-This page documents how those pieces compose and where their responsibilities begin and end. It intentionally does **not** duplicate per-loss formulas, model-specific solver rules, solver update equations, or the full compatibility matrix.
+This page explains how those pieces combine to fit a model and how their compatibility affects solver choice.
 
 Use the following references for those details:
 
@@ -143,16 +143,16 @@ L_w(\beta)
 \frac{\sum_i w_i\,\ell_i(\beta)}{\sum_i w_i}.
 $$
 
-A complete weighted route must apply the same convention to every numerical quantity used by the algorithm. Depending on the solver, that may include the objective, gradient, Hessian or other curvature, line-search candidates, majorization weights, stopping quantities, and validation scoring.
+The denominator fixes the scale of the data-fit term relative to the penalty. Replacing this weighted mean with a weighted sum changes that balance unless the penalty is rescaled as well. The gradient and curvature of the displayed objective inherit the same normalization.
 
 Consequently:
 
 - accepting `sample_weight` in a shared method signature does not imply full weighted-estimator support;
 - an explicit solver request is not changed merely because weights are supplied;
-- unsupported weighted combinations should raise an error instead of changing the statistical or numerical problem invisibly;
+- weight restrictions also apply to low-level calls: for example, shared ADMM rejects non-uniform weights on its supported losses;
 - common rescaling of weights is invariant only on routes whose declared objective has that normalization.
 
-Model-specific weight semantics belong on the corresponding model page. Loss-level first-order semantics are documented in [Loss Functions](../models/losses.md).
+For the meaning and availability of weights in a particular model, see its model page. For loss-level weighting of first-order quantities, see [Loss Functions](../models/losses.md).
 
 ## 6. Backend and device boundary
 
@@ -168,26 +168,26 @@ Solver     ──────┤ iterative numerics   │
                 └──────────────────────┘
 ```
 
-On a supported route, numerical arrays and iterative operations remain on the resolved backend/device except for explicitly documented reporting metadata or small synchronization boundaries. An explicit GPU request is not a request for silent CPU substitution.
+In shared penalized GLM fitting, an explicit `device="cuda"` or `device="torch"` request requires the corresponding GPU backend and raises an error if that backend is unavailable. Use `device="auto"` to allow automatic backend selection on these paths. Other model families can have different device-selection rules; see [Device and Memory](device-and-memory.md) for model-specific choices and data-transfer considerations.
 
-Backend support is still route-specific: a solver being implemented for NumPy, CuPy, and Torch does not prove that every loss, estimator, or inference procedure supports all three. Model-specific preprocessing or device boundaries belong in the corresponding model documentation.
+Backend support is route-specific: a solver being implemented for NumPy, CuPy, and Torch does not imply that every loss, estimator, or inference procedure supports all three. Check the model documentation for preprocessing, output placement, and supported devices.
 
 ## 7. CV and meta-estimator boundary
 
 A CV/meta-estimator adds another orchestration layer around ordinary fits. Its responsibilities include:
 
 - constructing fold-local estimator state;
-- rebuilding mutable loss/penalty state rather than leaking it between candidates;
+- forming candidates with the chosen loss, penalty, and tuning parameters;
 - applying fold-local training data and weights;
 - evaluating the declared validation score;
 - selecting tuning parameters;
 - performing the selected full-data final refit with the intended route.
 
-The public loss/penalty/solver contract still applies inside each candidate. CV does not make an unsupported solver combination valid, and it should not silently reinterpret an explicit solver request.
+Loss, penalty, and solver compatibility still applies inside each candidate. In `PenalizedGLM_CV`, a supported explicit solver request applies to candidate fits and the selected full-data refit.
 
 The automatic route used by CV can differ from direct-fit `solver="auto"` for performance reasons. Those differences are part of the compatibility reference and are listed in the [CV matrix](solver-penalty-matrix.md#4-cv-solverauto-penalizedglm_cv).
 
-Statistical details such as strict versus approximate CV, loss-specific scoring, continuation-path construction, or model-specific final-refit behavior belong on the relevant model/CV documentation.
+For strict versus approximate CV, scoring, continuation paths, and final-refit options, see [Cross-Validation](cross-validation.md) and the relevant model page.
 
 ## 8. Public estimator APIs versus low-level APIs
 
@@ -202,9 +202,11 @@ Do not infer estimator support from any single low-level fact such as:
 
 Conversely, an estimator can combine several lower-level pieces behind one resolved route. Public support is defined by the complete estimator contract and the compatibility matrix, not by one component in isolation.
 
-## 9. Documentation ownership
+<a id="9-documentation-ownership"></a>
 
-To keep the documentation layers stable, use this ownership map:
+## 9. Find the right reference
+
+Use this table to find the reference that answers your question:
 
 | Question | Canonical documentation |
 |---|---|
@@ -215,7 +217,7 @@ To keep the documentation layers stable, use this ownership map:
 | What does a specific model support, and why? | the corresponding model page |
 | What inference procedure/estimand is available? | [Inference Modes](inference-modes.md) and model-specific inference docs |
 
-This separation is intentional: a model-specific exception can change without turning the framework page into a second compatibility matrix or a second model manual.
+When choosing a solver for a particular model, read its model page alongside the compatibility matrix; the model page explains any additional input restrictions or statistical assumptions.
 
 ## See also
 

@@ -96,7 +96,12 @@ class _CoxPreprocessedTarget:
 
 @register_loss("cox_ph")
 class CoxPartialLikelihoodLoss(LossBase):
-    """Negative Cox partial likelihood with Breslow or Efron ties.
+    """Row-averaged negative Cox partial log likelihood with Breslow or Efron ties.
+
+    value returns -ell(coef) / n, where ell is the summed partial log
+    likelihood and n includes both event and censored training rows. Gradient
+    and Hessian use the same row-count normalization, not the event count.
+    A separately supplied penalty is added at this averaged-loss scale.
 
     The response is either a ``{"time": ..., "event": ...}`` dictionary or an
     ``(n, 2)`` array.  ``sample_weight`` is intentionally unsupported because

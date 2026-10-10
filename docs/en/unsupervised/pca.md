@@ -1,12 +1,16 @@
 # PCA
 
 > Language: English
-> Last updated: 2026-05-02
+> Last updated: 2026-10-05
 > Switch: [Chinese](../../cn/unsupervised/pca.md)
 
 ## Overview
 
 `PCA` estimates an orthonormal low-dimensional basis that captures the largest variance directions of centered dense data. It supports CPU, CuPy/CUDA, and Torch CUDA backends.
+
+## When to use it
+
+Use PCA when correlated numeric features can be summarized by a smaller set of linear directions. Centering is automatic, but feature scaling is not: choose units before fitting, and fit preprocessing only on training data. Choose rank from retained variance and held-out reconstruction, rather than treating high variance as scientific importance.
 
 ## Path
 
@@ -72,22 +76,27 @@ The two objectives are equivalent because total variance is fixed after centerin
 - `random_state`, `n_oversamples`, `iterated_power`: randomized solver controls.
 - `device`: `"auto"`, `"cpu"`, `"cuda"`, or `"torch"`.
 
-## CPU+GPU Examples
+## A small CPU example
 
+<!-- learner-example: pca -->
 ```python
 import numpy as np
 from statgpu.unsupervised import PCA
 
-X = np.random.default_rng(0).normal(size=(2000, 50))
-
-pca_cpu = PCA(n_components=10, svd_solver="covariance", device="cpu")
-Z_cpu = pca_cpu.fit_transform(X)
-
-pca_gpu = PCA(n_components=10, svd_solver="covariance", device="cuda")
-Z_gpu = pca_gpu.fit_transform(X)
+rng = np.random.default_rng(0)
+X = rng.normal(size=(80, 4))
+X[:, 3] = X[:, 0] + 0.05 * rng.normal(size=80)
+model = PCA(n_components=3, svd_solver="full", device="cpu")
+Z = model.fit_transform(X)
+X_hat = model.inverse_transform(Z)
+print(Z.shape, np.mean((X - X_hat) ** 2))
 ```
 
-## Strict/Approx Difference
+The coordinate array has shape `(80, 3)`; reconstruction is `(80, 4)`. Rows of `components_` give feature directions, not labels. A component and its negative describe the same direction.
+
+For a supported GPU installation, construct a new estimator with `device="cuda"` (CuPy) or `device="torch"` (Torch CUDA). Arrays generally stay on that backend; see the [API reference](api-reference.md#pca) for output ownership and host-side work. An unavailable explicit GPU raises an error.
+
+## Approximation and interpretation
 
 PCA has no statistical strict inference mode. Exactness refers to the decomposition:
 
@@ -111,14 +120,16 @@ PCA has no statistical strict inference mode. Exactness refers to the decomposit
 Eigenvectors and singular vectors are sign-indeterminate. Validation must compare subspaces or use sign-aware comparisons.
 
 **What does whitening do?**
-It scales transformed scores by `1 / sqrt(explained_variance_)`, producing unit-variance component scores under the fitted model.
+It divides transformed scores by `sqrt(explained_variance_)`. For accurately resolved positive directions from an exact decomposition, training scores have unit sample variance. With the randomized solver this is approximate; oversampling and power iterations affect the approximation. Whitening does not force the covariance of new observations to be the identity.
 
-## External Validation
 
-- Tests: `dev/tests/test_unsupervised_pca.py`.
-- Benchmark: `dev/benchmarks/benchmark_unsupervised.py`.
-- Baselines: sklearn PCA, statsmodels/R PCA comparisons from the earlier unsupervised matrix where available.
-- Latest Phase 2 artifact summary: `results/unsupervised_phase2_verify_summary_20260502_210000.md`.
+## Numerical and lifecycle cautions
+
+The covariance solver forms uncentered second moments and subtracts the squared mean. Large common offsets relative to variation can cause severe cancellation, including incorrect zero variance ratios. Use `svd_solver="full"` for such data, or subtract a training-derived offset before fitting and apply it to later rows. Whitening zero-variance components can return non-finite coordinates; reduce the rank or disable whitening. The public `inverse_transform` method rejects NaN or infinite input coordinates with `ValueError`; supply finite component scores.
+
+## Complete API reference
+
+Constructor defaults, all public methods, output shapes, and restrictions are listed in the [PCA API reference](api-reference.md#pca).
 
 ## References
 

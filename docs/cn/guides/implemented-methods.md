@@ -1,6 +1,6 @@
 # 已实现方法
 
-> 最后更新：2026-09-17  
+> 最后更新：2026-10-08  
 > 切换：[English](../../en/guides/implemented-methods.md)
 
 本页汇总 statgpu 当前公开的模型、函数与主要求解器族。详细的数学定义、推断范围与兼容性规则，请以对应模型页和指南为准。
@@ -13,15 +13,17 @@
 | `Ridge` | L2 惩罚线性回归 | NumPy, CuPy, Torch |
 | `Lasso` | L1 回归，含去偏推断和自助法推断路径 | NumPy, CuPy, Torch |
 | `ElasticNet` | L1+L2 惩罚回归 | NumPy, CuPy, Torch |
-| `LogisticRegression` | 二元 logistic/probit 回归 | NumPy, CuPy, Torch |
+| `LogisticRegression` | 二元逻辑回归（logit 连接函数） | NumPy, CuPy, Torch |
 | `PoissonRegression` | Poisson GLM | NumPy, CuPy, Torch |
 | `GammaRegression` | Gamma GLM | NumPy, CuPy, Torch |
 | `InverseGaussianRegression` | Inverse Gaussian GLM | NumPy, CuPy, Torch |
 | `NegativeBinomialRegression` | 负二项 GLM | NumPy, CuPy, Torch |
 | `TweedieRegression` | Tweedie GLM | NumPy, CuPy, Torch |
 | `QuantileRegression` | 分位数回归，支持核方法和自助法推断 | NumPy, CuPy, Torch |
-| `OrderedLogitRegression` | Ordered logit 与解析 Hessian 推断 | NumPy, CuPy, Torch |
-| `OrderedProbitRegression` | Ordered probit 与解析 Hessian 推断 | NumPy, CuPy, Torch |
+| `OrderedLogitRegression` | 有序 logit 回归 与解析 Hessian 推断 | NumPy, CuPy, Torch |
+| `OrderedProbitRegression` | 有序 probit 回归 与解析 Hessian 推断 | NumPy, CuPy, Torch |
+
+[`LogisticRegression`](../models/logistic-regression.md) 使用 logit 连接函数，不提供 probit 连接函数选项。有序 probit 模型由独立的 [`OrderedProbitRegression`](../models/ordered.md) 提供；设置 `n_categories=2` 即可拟合二元 probit 回归。
 
 ## 惩罚模型
 
@@ -41,17 +43,22 @@
 
 ### 示例
 
+<!-- api-example: inventory-poisson -->
 ```python
+import numpy as np
 from statgpu.linear_model import PenalizedGeneralizedLinearModel
 
+rng = np.random.default_rng(42)
+X = rng.normal(size=(80, 2))
+y = rng.poisson(np.exp(0.3 + X @ np.array([0.5, -0.2])))
 model = PenalizedGeneralizedLinearModel(
-    loss="poisson",
-    penalty="l1",
-    alpha=0.05,
-    solver="fista",
-)
-model.fit(X, y)
+    loss="poisson", penalty="l1", alpha=0.05, solver="fista",
+    device="cpu", compute_inference=False, max_iter=2000, tol=1e-8,
+).fit(X, y)
+print(np.round(model.predict(X[:3]), 6))
 ```
+
+预测值是事件次数的条件均值，约为 `[1.458758, 1.547328, 0.775672]`。此 L1-Poisson 示例只做参数估计；非高斯 L1/ElasticNet 模型尚不提供系数推断。处理实际数据时，应另用验证过程选择惩罚强度。
 
 ## 交叉验证
 
@@ -63,6 +70,7 @@ model.fit(X, y)
 | `LogisticRegressionCV` | Logistic 回归交叉验证 | NumPy, CuPy, Torch |
 | `PenalizedGLM_CV` | 统一惩罚 GLM 交叉验证 | NumPy, CuPy, Torch |
 | `CoxPHCV` | 搜索 Cox 惩罚强度并进行最终重拟合 | NumPy, CuPy, Torch |
+| `KernelRidgeCV` | 固定核函数的 alpha 选择；整数数据折，不接受样本权重 | NumPy, CuPy, Torch |
 
 数据折、参数选择、最终重拟合、权重以及选择后推断的语义见 [交叉验证](cross-validation.md)。
 
@@ -103,7 +111,8 @@ model.fit(X, y)
 
 ## 非参数与半参数方法
 
-- `KernelDensity` 与核回归
+- `KernelDensityEstimator` / `KDE`
+- `KernelRegression` / `KernelRegressionRegressor`
 - `KernelRidge` 与 `KernelRidgeCV`
 - `KernelPCA`
 - `Nystroem`
@@ -117,7 +126,9 @@ model.fit(X, y)
 - `NMF`、`MiniBatchNMF`
 - `KMeans`、`MiniBatchKMeans`、`DBSCAN`
 - `GaussianMixture`、`AgglomerativeClustering`
-- `UMAP`、`TSNE`、`NNDescent`
+- `UMAP`、`TSNE`
+
+UMAP 可通过 `nn_method="nndescent"` 使用内部的 NNDescent 近似近邻搜索。NNDescent 不是单独公开导出的估计器，使用前请查阅 [UMAP 的支持限制](../unsupervised/umap.md)。
 
 ## 生存分析
 
@@ -132,7 +143,7 @@ model.fit(X, y)
 ## 特征选择与诊断
 
 - `StepwiseSelector` 与 `stepwise_selection`
-- fixed-X / model-X knockoff filter 与选择器封装
+- fixed-X / model-X knockoff 筛选及选择器封装
 - `RegressionDiagnostics` 与 `diagnose_model`
 
 ## 多重检验与重抽样

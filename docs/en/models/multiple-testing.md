@@ -1,147 +1,115 @@
-# Multiple Testing Correction
+# Multiple testing and p-value combination
 
-> **Module:** `statgpu.inference`  
-> **Last updated:** 2026-06-14  
-> **Backends:** NumPy, CuPy, PyTorch
+> Language: English  
+> Last updated: 2026-10-09\
+> Switch: [Chinese](../../cn/models/multiple-testing.md)
 
-## Overview
+## Two different questions
 
-When testing multiple hypotheses simultaneously, the probability of at least one false discovery increases. This module provides p-value adjustment and combination methods to control the family-wise error rate (FWER) or false discovery rate (FDR).
+Use `adjust_pvalues` when you need decisions for a family of individual hypotheses. Use `combine_pvalues` when several tests contribute to one global null hypothesis. A significant combined p-value does not identify which component hypotheses are false and does not provide individual FDR control.
 
-## Mathematical Foundation
+Let V be the number of false rejections and R the total number of rejections. FWER is `P(V >= 1)`; FDR is `E[V / max(R, 1)]`. These guarantees require valid individual p-values and the chosen method's dependence assumptions. Increasing the number of tests does not repair invalid inputs.
 
-### P-value Adjustment (adjust_pvalues)
+## Choose the error criterion first
 
-Given $m$ raw p-values $p_1, p_2, \ldots, p_m$, the adjusted p-values $\tilde{p}_i$ control the specified error rate.
+- **Holm or Bonferroni:** FWER control under arbitrary dependence. Holm is never less powerful than Bonferroni for the same family.
+- **BH:** FDR control under independence or suitable positive dependence, such as PRDS on true nulls. It is not guaranteed for every dependence structure.
+- **BY:** FDR control under arbitrary dependence, with an extra harmonic-factor correction.
+- **Hochberg:** FWER control under independence or dependence conditions that justify the Simes inequality. Pairwise nonnegative correlations alone are not a universal guarantee.
 
-**Bonferroni correction** (FWER control):
-$$\tilde{p}_i = \min(m \cdot p_i, 1)$$
+Choose the family before looking at results. With a matrix, `axis=1` treats each row as a separate family; it does not control errors across all rows jointly. The [R p.adjust reference](https://stat.ethz.ch/R-manual/R-devel/library/stats/html/p.adjust.html) discusses these procedures and their dependence assumptions.
 
-**Holm step-down procedure** (FWER control, uniformly more powerful than Bonferroni):
-1. Order p-values: $p_{(1)} \leq p_{(2)} \leq \ldots \leq p_{(m)}$
-2. Reject $H_{(i)}$ if $p_{(i)} < \alpha / (m - i + 1)$
-3. Adjusted: $\tilde{p}_{(i)} = \max_{j \leq i} \min((m-j+1) \cdot p_{(j)}, 1)$
+## A complete CPU example
 
-**Benjamini-Hochberg (BH)** (FDR control):
-1. Order p-values: $p_{(1)} \leq p_{(2)} \leq \ldots \leq p_{(m)}$
-2. Find largest $k$ such that $p_{(k)} \leq \frac{k}{m} \alpha$
-3. Reject $H_{(1)}, \ldots, H_{(k)}$
-4. Adjusted: $\tilde{p}_{(i)} = \min_{j \geq i} \min(\frac{m}{j} p_{(j)}, 1)$
+The values below represent five illustrative tests in one prespecified family.
+Run the blocks in order; first import the adjustment and combination functions.
 
-**Benjamini-Yekutieli (BY)** (FDR control under arbitrary dependence):
-- Same as BH but with correction factor $\sum_{j=1}^{m} \frac{1}{j}$
-- More conservative than BH but valid under any dependence structure
-
-**Hochberg step-up procedure** (FWER control, assumes non-negative correlation):
-1. Start from largest p-value
-2. Accept $H_{(i)}$ if $p_{(i)} > \alpha / (m - i + 1)$
-3. Adjusted: $\tilde{p}_{(i)} = \min_{j \geq i} \min((m-j+1) \cdot p_{(j)}, 1)$
-
-### P-value Combination (combine_pvalues)
-
-**Fisher's method** (chi-squared combination):
-$$T = -2 \sum_{i=1}^{m} \ln(p_i) \sim \chi^2_{2m}$$
-- Under $H_0$: $T \sim \chi^2_{2m}$
-- Powerful when a small subset of p-values is very small
-
-**Cauchy Combination Test (ACAT)** (robust to arbitrary dependence):
-$$T = \sum_{i=1}^{m} w_i \tan\left((0.5 - p_i)\pi\right) \sim \text{Cauchy}(0, 1)$$
-- Approximately distributed as Cauchy under $H_0$
-- No assumption on dependence structure
-- Liu & Xie (2020)
-
-**Stouffer's method** (z-score combination):
-$$T = \frac{\sum_{i=1}^{m} w_i \Phi^{-1}(1-p_i)}{\sqrt{\sum_{i=1}^{m} w_i^2}} \sim N(0, 1)$$
-- Under $H_0$: $T \sim N(0, 1)$
-- Most powerful when effects are in the same direction
-
-## Parameters
-
-### adjust_pvalues
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `pvalues` | array-like | — | Raw p-values |
-| `method` | str | `'bh'` | `'bh'`, `'by'`, `'holm'`, `'bonferroni'`, `'hochberg'` |
-| `alpha` | float | `0.05` | Significance level |
-| `axis` | int or None | `None` | Axis for batch processing |
-| `backend` | str | `'auto'` | `'numpy'`, `'cupy'`, `'torch'`, `'auto'` |
-
-### combine_pvalues
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `pvalues` | array-like | — | Raw p-values |
-| `method` | str | `'fisher'` | `'fisher'`, `'cauchy'`/`'acat'`, `'stouffer'` |
-| `weights` | array-like | `None` | Non-negative weights (cauchy/stouffer) |
-| `axis` | int or None | `None` | Axis for batch processing |
-| `backend` | str | `'auto'` | `'numpy'`, `'cupy'`, `'torch'`, `'auto'` |
-
-## CPU+GPU Examples
-
+<!-- api-example: multiple-testing-learner -->
 ```python
 import numpy as np
 from statgpu.inference import adjust_pvalues, combine_pvalues
-
-# Raw p-values from 5 hypothesis tests
-pvals = np.array([0.001, 0.01, 0.03, 0.05, 0.50])
-
-# Benjamini-Hochberg FDR control
-reject, pvals_adj = adjust_pvalues(pvals, method='bh', alpha=0.05)
-print(f"Rejected: {reject}")
-print(f"Adjusted p-values: {pvals_adj}")
-
-# Fisher combination
-stat, p_global = combine_pvalues(pvals, method='fisher')
-print(f"Fisher statistic: {stat:.4f}, global p-value: {p_global:.6f}")
-
-# Cauchy combination (robust to dependence)
-stat, p_global = combine_pvalues(pvals, method='cauchy')
-
-# Stouffer with weights
-weights = np.array([1.0, 1.0, 1.0, 0.5, 0.5])
-stat, p_global = combine_pvalues(pvals, method='stouffer', weights=weights)
 ```
 
-**GPU acceleration:**
+The one-dimensional `p` array has shape `(5,)`, with one valid p-value per test.
+Its order identifies the hypotheses and is preserved in the results.
 
 ```python
-import torch
-from statgpu.inference import adjust_pvalues, combine_pvalues
-
-pvals_gpu = torch.tensor([0.001, 0.01, 0.03, 0.05, 0.50], device='cuda')
-reject, pvals_adj = adjust_pvalues(pvals_gpu, method='bh', backend='torch')
+p = np.array([0.001, 0.01, 0.03, 0.05, 0.50])
 ```
 
-## Outputs
+### Make individual decisions with Holm
 
-| Method | Returns | Description |
-|---|---|---|
-| `adjust_pvalues` | `(reject, pvals_adj)` | Boolean rejection array + adjusted p-values |
-| `combine_pvalues` | `(statistic, p_global)` | Test statistic + global p-value |
+Control family-wise error at a prespecified 5% level.
 
-## FAQ
+```python
+reject, adjusted = adjust_pvalues(p, method="holm", alpha=0.05, backend="numpy")
+print(reject.tolist())
+print(np.round(adjusted, 3))
+```
 
-**Q: Which method should I use?**  
-A: Use **BH** for FDR control (most common). Use **Bonferroni/Holm** for strict FWER control. Use **Cauchy** when p-values are correlated.
+The mask is `[True, True, False, False, False]`; adjusted values are
+`[0.005, 0.04, 0.09, 0.1, 0.5]`. Reject the first two hypotheses at the stated
+family/error criterion. Adjusted p-values are not an importance ranking, and
+non-rejection does not establish that a null hypothesis is true.
 
-**Q: Can I use these for genome-wide association studies?**  
-A: Yes. BH is standard for GWAS. For correlated tests, use Cauchy combination.
+### Ask a global question with Fisher
 
-**Q: What's the difference between FDR and FWER?**  
-A: FDR = expected proportion of false rejections. FWER = probability of at least one false rejection. FDR is less conservative.
+Now reuse the same `p` values for a different question: is the intersection null
+that all five hypotheses hold inconsistent with the combined evidence? This
+interpretation requires independent, continuous uniform null p-values.
 
-## External Validation
+```python
+statistic, global_p = combine_pvalues(p, method="fisher", backend="numpy")
+print(round(float(statistic), 4), round(float(global_p), 6))
+```
+<!-- example-end: multiple-testing-learner -->
 
-- R: `p.adjust()` for adjustment, `pchisq()` for Fisher
-- statsmodels: `multipletests()` (BH, Holm, Bonferroni, BY, Hochberg)
-- scipy: `combine_pvalues()` (Fisher, Stouffer, Tippett)
+The statistic is about `37.4167` and the global p-value is about `0.000048`.
+This provides evidence against the intersection null under the stated assumptions;
+it does not identify which component hypotheses are false.
 
-## References
+## Adjustment formulas
 
-1. Benjamini, Y. & Hochberg, Y. (1995). "Controlling the False Discovery Rate: A Practical and Powerful Approach to Multiple Testing." *Journal of the Royal Statistical Society: Series B*, 57(1), 289-300.
-2. Benjamini, Y. & Yekutieli, D. (2001). "The Control of the False Discovery Rate in Multiple Testing under Dependency." *Annals of Statistics*, 29(4), 1165-1188.
-3. Holm, S. (1979). "A Simple Sequentially Rejective Multiple Test Procedure." *Scandinavian Journal of Statistics*, 6(2), 65-70.
-4. Fisher, R.A. (1925). *Statistical Methods for Research Workers*. Oliver and Boyd.
-5. Liu, Y. & Xie, J. (2020). "Cauchy Combination Test: A Powerful Test With Analytic p-Value Calculation Under Arbitrary Dependency Structures." *Journal of the American Statistical Association*, 115(529), 393-402.
-6. Stouffer, S.A. et al. (1949). *The American Soldier*. Princeton University Press.
+For ordered p-values $p_{(1)}\le\cdots\le p_{(m)}$, let $c_m=\sum_{j=1}^m1/j$. Restore the original input order after applying:
+
+$$
+\begin{aligned}
+\tilde p^{\rm Bonf}_{(i)} &= \min(1,mp_{(i)}),\\
+\tilde p^{\rm Holm}_{(i)} &= \min\{1,\max_{j\le i}(m-j+1)p_{(j)}\},\\
+\tilde p^{\rm BH}_{(i)} &= \min\{1,\min_{j\ge i}(m/j)p_{(j)}\},\\
+\tilde p^{\rm BY}_{(i)} &= \min\{1,c_m\min_{j\ge i}(m/j)p_{(j)}\},\\
+\tilde p^{\rm Hochberg}_{(i)} &= \min\{1,\min_{j\ge i}(m-j+1)p_{(j)}\}.
+\end{aligned}
+$$
+
+The returned decision is `adjusted <= alpha`. Holm stops rejecting at the first failed step-down comparison. Failing to reject is not evidence that a null hypothesis is true.
+
+## Combination formulas and assumptions
+
+**Fisher:**
+
+$$T_F=-2\sum_{i=1}^m\log p_i,\qquad p_{\rm global}=P(\chi^2_{2m}\ge T_F).$$
+
+The usual chi-square reference assumes independent continuous uniform null p-values. No dependence adjustment is estimated here. `weights` must be `None`; supplied weights raise `ValueError`.
+
+**Stouffer:** for nonnegative weights with positive total,
+
+$$T_Z=\frac{\sum_i w_i\Phi^{-1}(1-p_i)}{\sqrt{\sum_iw_i^2}},\qquad p_{\rm global}=1-\Phi(T_Z).$$
+
+This denominator assumes independent standard-normal null scores. Correlated scores need a covariance-aware calibration that this API does not implement. For directional evidence, use consistently oriented one-sided p-values; passing two-sided p-values does not recover effect signs. See the [SciPy combination reference](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.combine_pvalues.html) for independent-test calibration.
+
+**Cauchy/ACAT:** the implementation normalizes weights, $a_i=w_i/\sum_jw_j$ (equal weights when omitted), then computes
+
+$$T_C=\sum_i a_i\tan\{\pi(1/2-p_i)\},\qquad p_{\rm global}=1/2-\arctan(T_C)/\pi.$$
+
+Under dependence this is a tail approximation under regularity conditions, not an exact Cauchy distribution or a finite-level guarantee for every possible joint distribution. The [Liu–Xie paper](https://arxiv.org/abs/1808.09011) explains its theoretical scope. It combines evidence; it does not replace multiple-testing adjustment for individual discoveries.
+
+## Practical limits
+
+Supply finite probabilities in `[0,1]`, and a finite `alpha` strictly between 0 and 1. Currently `alpha=NaN` is not rejected and yields an all-false mask; validate a computed level before calling. Invalid p-values are rejected.
+
+Combination formulas use endpoint clipping, and distribution-tail cancellation can limit tiny returned probabilities. Do not interpret a reported zero as an exact probability of zero. See the [complete API guide](../guides/multiple-testing-combine-pvalues.md) for signatures, aliases, weights, axes, backend behavior and numerical limits. Estimator helpers return dictionaries instead of these module-function tuples; see [shared estimator methods](../reference/estimator-api.md).
+
+For Cauchy/Stouffer, also [validate and rescale large weights](../guides/multiple-testing-combine-pvalues.md#validate-and-rescale-combination-weights) before calling: their current normalization can overflow even when each weight is finite, producing a wrong finite result or NaN.
+
+For a large correlated analysis, define the global versus individual hypothesis question and the dependence assumptions first; a domain name such as GWAS does not determine the correct procedure.
