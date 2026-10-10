@@ -9,6 +9,10 @@ This page records user-visible changes for current and recent statgpu releases.
 
 ## Unreleased — Learner guides and API references (PR #168)
 
+### Improved (2026-10-10)
+
+- Reused the covariance finite guard’s normalized working input within each public call. Supported NumPy-bound Torch `fit`, `score`, `predict`, and `mahalanobis` calls perform one Torch-to-NumPy normalization, including the nested prediction path; native Torch FP8 calls reuse their source-device widening. Validation still checks every supplied numerical argument, including ignored `y`, and no input cache is retained on the estimator. Numerical results, backend selection, input ownership, and exception behavior are unchanged. `dev/tests/test_covariance_normalization_reuse.py` checks conversion counts and preservation contracts; these counts do not establish a wall-clock speedup.
+
 ### Fixed (2026-10-10)
 
 - **Covariance Torch conversion and FP8 validation**: all seven covariance estimators normalize supported real Torch inputs before public finite validation. NumPy-bound inputs move to CPU before conversion to `float64`, preserving `bfloat16`, `float8_e5m2`, lazy-negative views, and MPS-to-CPU conversion. Native Torch `float8_e5m2` validation widens a temporary on the original device rather than relying on a raw FP8 finite-check kernel. Previously Torch 2.5.1 CUDA rejected those FP8 inputs before the covariance conversion helper ran. NaN and positive/negative infinity still raise; fitted backend ownership, original input/storage, gradients, explicit unavailable-device errors, and existing CuPy/pandas handling are preserved. Coverage is in `dev/tests/test_covariance_torch_inputs.py` and `dev/tests/test_covariance_fp8_prevalidation.py`, including a missing-kernel ordering emulator. CPU results do not establish physical CUDA or MPS acceptance; hardware reruns remain required. Other float8 formats, complex, sparse, and quantized input support is unchanged.

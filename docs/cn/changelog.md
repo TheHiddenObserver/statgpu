@@ -7,6 +7,10 @@
 
 ## 未发布 — 入门指南与 API 参考（PR #168）
 
+### 改进（2026-10-10）
+
+- 在每次公开调用内复用协方差有限值检查已经规范化的工作输入。受支持的 Torch 输入走 NumPy 路径时，`fit`、`score`、`predict` 和 `mahalanobis` 只执行一次 Torch 到 NumPy 的规范化，包括预测中的嵌套调用；原生 Torch FP8 调用也复用在原设备上完成的升精度结果。所有传入的数值参数仍接受检查，包括统计计算中忽略的 `y`，估计器不会缓存输入。数值结果、后端选择、输入归属及异常行为保持不变。`dev/tests/test_covariance_normalization_reuse.py` 检查转换次数与这些保留契约；转换次数不代表实测运行时间加速。
+
 ### 修复（2026-10-10）
 
 - **协方差 Torch 转换与 FP8 验证**：全部七个协方差估计器在公共有限值检查之前规范化受支持的实数 Torch 输入。NumPy 路径先传至 CPU，再转为 `float64`，保留 `bfloat16`、`float8_e5m2`、惰性负值视图及 MPS 到 CPU 的转换。原生 Torch 的 `float8_e5m2` 检查先在原设备上转换临时数组，不再依赖原始 FP8 类型的有限值检查算子。此前 Torch 2.5.1 CUDA 会在进入协方差转换函数之前拒绝这些 FP8 输入。NaN、正无穷与负无穷仍会报错；拟合后端、原始输入与底层存储、梯度、显式设备不可用时报错以及已有 CuPy/pandas 处理保持不变。测试位于 `dev/tests/test_covariance_torch_inputs.py` 与 `dev/tests/test_covariance_fp8_prevalidation.py`，包含模拟缺失算子的执行顺序回归。CPU 结果不能代替真实 CUDA 或 MPS 验收，仍须在相应硬件上重跑。其他 float8 格式、复数、稀疏及量化输入的支持范围不变。

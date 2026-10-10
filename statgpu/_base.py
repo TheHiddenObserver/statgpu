@@ -324,7 +324,11 @@ class BaseEstimator(ABC):
         cls.__init__ = wrapped
 
     def _check_public_input_finite(self, value, *, name, method_name):
-        """Validate one public input; subclasses may normalize a temporary."""
+        """Validate one input; optionally return a normalized replacement.
+
+        Returning None preserves the original argument, including for existing
+        validation-only overrides. Replacements belong only to the current call.
+        """
         from statgpu.backends._validation import check_finite
 
         check_finite(value, name=name)
@@ -346,6 +350,7 @@ class BaseEstimator(ABC):
                 loss_value = getattr(self, "loss", "")
                 loss_name = str(getattr(loss_value, "name", loss_value)).lower()
                 formula_active = bound.arguments.get("formula") is not None
+                normalized = False
                 try:
                     for name, value in bound.arguments.items():
                         if name == "y" and loss_name in {"cox", "coxph", "cox_ph"}:
@@ -366,9 +371,12 @@ class BaseEstimator(ABC):
                         ):
                             continue
                         if name in self._FINITE_PARAMETER_NAMES and value is not None:
-                            self._check_public_input_finite(
+                            prepared = self._check_public_input_finite(
                                 value, name=name, method_name=method_name
                             )
+                            if prepared is not None and prepared is not value:
+                                bound.arguments[name] = prepared
+                                normalized = True
                 except Exception:
                     if method_name == "fit":
                         reset_fit_state = getattr(self, "_reset_fit_state", None)
@@ -381,6 +389,8 @@ class BaseEstimator(ABC):
                             if callable(reset_cv_state):
                                 reset_cv_state()
                     raise
+                if normalized:
+                    return original(*bound.args, **bound.kwargs)
                 return original(self, *args, **kwargs)
 
             guarded.__statgpu_finite_validation__ = True

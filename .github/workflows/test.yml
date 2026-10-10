@@ -128,6 +128,7 @@ jobs:
             dev/tests/test_covariance_array_inputs.py \
             dev/tests/test_covariance_torch_inputs.py \
             dev/tests/test_covariance_fp8_prevalidation.py \
+            dev/tests/test_covariance_normalization_reuse.py \
             dev/tests/test_module_review_smoothing_splines_gam_metrics.py \
             dev/tests/test_three_backend_native_followup.py \
             dev/tests/test_second_full_review.py \
@@ -208,6 +209,7 @@ jobs:
             dev/tests/test_covariance_array_inputs.py \
             dev/tests/test_covariance_torch_inputs.py \
             dev/tests/test_covariance_fp8_prevalidation.py \
+            dev/tests/test_covariance_normalization_reuse.py \
             dev/tests/test_linear.py::TestLinearRegression::test_basic_fit_cpu \
             dev/tests/test_three_backend_native_followup.py \
             dev/tests/test_three_backend_native_isolation.py \
@@ -245,6 +247,7 @@ jobs:
           python -m pytest \
             dev/tests/test_covariance_torch_inputs.py \
             dev/tests/test_covariance_fp8_prevalidation.py \
+            dev/tests/test_covariance_normalization_reuse.py \
             dev/tests/test_covariance_device_contract.py \
             dev/tests/test_covariance_array_inputs.py \
             -q --tb=short -rs

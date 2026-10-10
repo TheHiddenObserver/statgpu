@@ -199,12 +199,16 @@ class EmpiricalCovariance(BaseEstimator):
                 backend_name == "torch"
                 and value.dtype == getattr(torch, "float8_e5m2", None)
             ):
-                # Widen on the source device, preserving native CUDA ownership.
-                # The method still receives the original input for routing.
+                # Widen on the source device, preserving native CUDA ownership
+                # and the Torch input type used by automatic backend selection.
                 prepared = value.detach().to(dtype=torch.float64).resolve_neg()
             else:
                 prepared = value
             check_finite(prepared, name=name)
+            # Reuse this call-local normalization in the numerical method and
+            # nested predict -> mahalanobis guards. Never cache caller arrays
+            # on the estimator: a later call must validate its current values.
+            return prepared
         except Exception as exc:
             # CPU-bound validation must retain the original CUDA provenance,
             # including conversion errors before the finite reduction.
