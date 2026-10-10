@@ -126,6 +126,7 @@ jobs:
             dev/tests/test_module_review_anova_kernel.py \
             dev/tests/test_module_review_covariance_panel.py \
             dev/tests/test_covariance_array_inputs.py \
+            dev/tests/test_covariance_torch_inputs.py \
             dev/tests/test_module_review_smoothing_splines_gam_metrics.py \
             dev/tests/test_three_backend_native_followup.py \
             dev/tests/test_second_full_review.py \
@@ -204,10 +205,46 @@ jobs:
             dev/tests/test_anova_finite_inputs.py \
             dev/tests/test_covariance_device_contract.py \
             dev/tests/test_covariance_array_inputs.py \
+            dev/tests/test_covariance_torch_inputs.py \
             dev/tests/test_linear.py::TestLinearRegression::test_basic_fit_cpu \
             dev/tests/test_three_backend_native_followup.py \
             dev/tests/test_three_backend_native_isolation.py \
             -q --tb=short
+
+  torch-cpu-covariance-conversion:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned float8-capable Torch CPU environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[validation,formula]"
+          # Official CPU wheel: https://pytorch.org/get-started/previous-versions/#v251
+          python -m pip install "torch==2.5.1" --index-url https://download.pytorch.org/whl/cpu
+      - name: Confirm float8 coverage is available
+        run: |
+          python - <<'PY'
+          import torch
+          assert torch.__version__.split("+")[0] == "2.5.1"
+          assert not torch.cuda.is_available()
+          assert hasattr(torch, "float8_e5m2")
+          value = torch.tensor([1.25], dtype=torch.float64).to(torch.float8_e5m2)
+          assert torch.isfinite(value).all()
+          promoted = value.to(torch.float64)
+          assert torch.isfinite(promoted).all() and promoted.item() == 1.25
+          print("torch", torch.__version__, "device=cpu; float8 enabled")
+          PY
+      - name: Run Torch covariance conversion and ownership regressions
+        run: |
+          python -m pytest \
+            dev/tests/test_covariance_torch_inputs.py \
+            dev/tests/test_covariance_device_contract.py \
+            dev/tests/test_covariance_array_inputs.py \
+            -q --tb=short -rs
 
   panel-stage-b-linearmodels:
     runs-on: ubuntu-latest

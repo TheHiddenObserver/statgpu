@@ -244,6 +244,10 @@ print(model_torch.covariance_.shape)
   按可用性依次选择 CuPy CUDA、Torch CUDA、NumPy。显式全局设置优先于原生输入
   选择；显式估计器设置又优先于全局设置。
 
+选择 NumPy 计算时，受支持的实数 Torch 输入会脱离自动求导图，统一转换为
+`float64` 并传至 CPU，原始输入不会被修改。这包括 `bfloat16` 数值以及稠密、
+非量化张量的实数视图。这些估计器不保证兼容自动求导。
+
 七个估计器采用相同策略。`GraphicalLassoCV` 的各折拟合、评分和最终重拟合沿用
 开始拟合时选定的后端与设备。拟合数组保留在该后端。即使之后更改全局设置，
 `score`、`mahalanobis` 和 `predict` 仍将新输入转换到已拟合数组所在的后端和设备。

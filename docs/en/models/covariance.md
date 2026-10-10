@@ -264,6 +264,11 @@ The device selects computation independently of the input array type:
   according to availability. An explicit global setting overrides this native
   input selection; an explicit estimator setting overrides the global setting.
 
+When NumPy computation is selected, supported real Torch inputs are detached
+from autograd, normalized to `float64`, and transferred to CPU without modifying
+the original input. This includes `bfloat16` values and real-valued views of
+dense, non-quantized tensors. The estimators do not guarantee autograd compatibility.
+
 The seven estimators share this policy. `GraphicalLassoCV` keeps its initial
 backend and device through all folds, scoring, and the final refit. Fitted arrays
 remain on that backend. `score`, `mahalanobis`, and `predict` convert new inputs

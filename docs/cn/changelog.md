@@ -9,6 +9,8 @@
 
 ### 修复（2026-10-10）
 
+- **Torch 到 NumPy 的协方差输入转换**：全部七个协方差估计器现在先将实数 Torch 值转换为 `float64`、将惰性视图解析为实际数值，再传至 NumPy。此前直接传输会在协方差类型转换之前拒绝 `bfloat16`、`float8_e5m2` 以及惰性负值视图，影响 NumPy 拟合后的 `score`、`predict`、`mahalanobis` 和显式 CPU 拟合。转换会脱离自动求导图且不修改原始输入，查询方法继续使用拟合时的 NumPy 后端。原生 Torch/CuPy 处理、GPU 不可用时报错及 pandas 输入支持保持不变。回归测试位于 `dev/tests/test_covariance_torch_inputs.py`；`float8_e5m2` 用例要求 Torch 同时支持有限值检查与 `float64` 转换，CUDA 用例要求相应硬件可用。此修复不代表支持所有 float8 类型。
+
 - 恢复全部七个协方差估计器对数值型 pandas `DataFrame` 的拟合、评分、预测与 Mahalanobis 距离支持，以及单特征 `Series` 的拟合支持。此前设备转换误将 pandas 需要键参数的 `get` 方法当作 CuPy 传输方法。现在先规范化普通类数组输入，真正的 CuPy 数组和 Torch 张量仍按已有设备策略处理。回归测试对照 NumPy 结果、检查非法输入，并执行真实 Torch CPU 查询；物理 CUDA 测试仅在硬件可用时运行。
 
 ### 修复（2026-10-09）

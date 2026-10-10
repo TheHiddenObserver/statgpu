@@ -169,8 +169,16 @@ class EmpiricalCovariance(BaseEstimator):
         # methods must not be mistaken for CuPy/Torch transfer operations.
         # Apply the covariance float64 dtype before transfer as well: numeric
         # pandas extension columns can expose an object-dtype NumPy array.
-        # Native arrays never pass through NumPy, preserving their ownership.
-        if not _is_cupy_array(X) and not _is_torch_array(X):
+        # Native arrays retain their selected backend and device. A real Torch
+        # input targeting NumPy needs normalization before Tensor.numpy():
+        # NumPy cannot represent bfloat16/float8 dtypes or a lazy negative view.
+        # Detach without mutating the input. Cast on the requested CPU target:
+        # the source device need not support float64 (for example, Torch MPS).
+        if backend_name == "numpy" and _is_torch_array(X) and not X.is_complex():
+            import torch
+
+            X = X.detach().cpu().to(dtype=torch.float64).resolve_neg().numpy()
+        elif not _is_cupy_array(X) and not _is_torch_array(X):
             X = np.asarray(X, dtype=np.float64)
 
         xp = backend.xp

@@ -11,6 +11,8 @@ This page records user-visible changes for current and recent statgpu releases.
 
 ### Fixed (2026-10-10)
 
+- **Torch-to-NumPy covariance conversion**: all seven covariance estimators now normalize real Torch values to `float64` and materialize lazy view values before NumPy transfer. Direct transfer had rejected `bfloat16`, `float8_e5m2`, and lazy-negative views before covariance dtype normalization, affecting NumPy-fitted `score`, `predict`, and `mahalanobis` as well as explicit CPU fits. Conversion detaches gradients without modifying the input, and query methods retain the fitted NumPy backend. Existing native Torch/CuPy handling, unavailable-GPU errors, and pandas input support are unchanged. Regression coverage is in `dev/tests/test_covariance_torch_inputs.py`; `float8_e5m2` cases require Torch support for both finite-value checks and conversion to `float64`, and CUDA cases require available hardware. This repair does not establish general float8 support.
+
 - Restored numeric pandas `DataFrame` inputs for fitting, scoring, prediction, and Mahalanobis distances across all seven covariance estimators, plus single-feature `Series` fits. Device preparation had confused pandas' keyed `get` method with a CuPy transfer method. Ordinary array-like inputs are now normalized before device conversion, while actual CuPy and Torch arrays retain the existing device-policy handling. Regression coverage checks these inputs against NumPy results, validates malformed inputs, and exercises real Torch CPU queries; physical CUDA coverage is conditional on available hardware.
 
 ### Fixed (2026-10-09)
