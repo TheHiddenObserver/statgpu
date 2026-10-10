@@ -265,9 +265,18 @@ The device selects computation independently of the input array type:
   input selection; an explicit estimator setting overrides the global setting.
 
 When NumPy computation is selected, supported real Torch inputs are detached
-from autograd, normalized to `float64`, and transferred to CPU without modifying
-the original input. This includes `bfloat16` values and real-valued views of
-dense, non-quantized tensors. The estimators do not guarantee autograd compatibility.
+from autograd, transferred to CPU, and normalized to `float64` before checking
+for NaN or infinity. The original input is not modified. This includes
+`bfloat16`, `float8_e5m2`, and real-valued views of dense, non-quantized tensors.
+Transferring before conversion also allows CPU computation from MPS tensors,
+whose source device does not support `float64`.
+
+For Torch computation, dense `float8_e5m2` values are checked after widening to
+`float64` on their source device; native CUDA input stays on CUDA. This works
+without a raw float8 finite-check kernel, but still requires Torch support for
+conversion to `float64`. Other float8 formats, sparse or quantized tensors, and
+complex inputs do not gain support from this conversion. The estimators do not
+guarantee autograd compatibility.
 
 The seven estimators share this policy. `GraphicalLassoCV` keeps its initial
 backend and device through all folds, scoring, and the final refit. Fitted arrays

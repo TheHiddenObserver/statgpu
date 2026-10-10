@@ -323,10 +323,14 @@ class BaseEstimator(ABC):
         wrapped.__statgpu_constructor_capture__ = True
         cls.__init__ = wrapped
 
-    @classmethod
-    def _install_public_finite_validation(cls):
+    def _check_public_input_finite(self, value, *, name, method_name):
+        """Validate one public input; subclasses may normalize a temporary."""
         from statgpu.backends._validation import check_finite
 
+        check_finite(value, name=name)
+
+    @classmethod
+    def _install_public_finite_validation(cls):
         def wrap_method(original, method_name):
             try:
                 signature = inspect.signature(original)
@@ -362,7 +366,9 @@ class BaseEstimator(ABC):
                         ):
                             continue
                         if name in self._FINITE_PARAMETER_NAMES and value is not None:
-                            check_finite(value, name=name)
+                            self._check_public_input_finite(
+                                value, name=name, method_name=method_name
+                            )
                 except Exception:
                     if method_name == "fit":
                         reset_fit_state = getattr(self, "_reset_fit_state", None)

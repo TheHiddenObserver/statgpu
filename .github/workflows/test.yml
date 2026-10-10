@@ -127,6 +127,7 @@ jobs:
             dev/tests/test_module_review_covariance_panel.py \
             dev/tests/test_covariance_array_inputs.py \
             dev/tests/test_covariance_torch_inputs.py \
+            dev/tests/test_covariance_fp8_prevalidation.py \
             dev/tests/test_module_review_smoothing_splines_gam_metrics.py \
             dev/tests/test_three_backend_native_followup.py \
             dev/tests/test_second_full_review.py \
@@ -206,6 +207,7 @@ jobs:
             dev/tests/test_covariance_device_contract.py \
             dev/tests/test_covariance_array_inputs.py \
             dev/tests/test_covariance_torch_inputs.py \
+            dev/tests/test_covariance_fp8_prevalidation.py \
             dev/tests/test_linear.py::TestLinearRegression::test_basic_fit_cpu \
             dev/tests/test_three_backend_native_followup.py \
             dev/tests/test_three_backend_native_isolation.py \
@@ -233,7 +235,7 @@ jobs:
           assert not torch.cuda.is_available()
           assert hasattr(torch, "float8_e5m2")
           value = torch.tensor([1.25], dtype=torch.float64).to(torch.float8_e5m2)
-          assert torch.isfinite(value).all()
+          # Raw FP8 isfinite is not a requirement; validate the widened values.
           promoted = value.to(torch.float64)
           assert torch.isfinite(promoted).all() and promoted.item() == 1.25
           print("torch", torch.__version__, "device=cpu; float8 enabled")
@@ -242,9 +244,12 @@ jobs:
         run: |
           python -m pytest \
             dev/tests/test_covariance_torch_inputs.py \
+            dev/tests/test_covariance_fp8_prevalidation.py \
             dev/tests/test_covariance_device_contract.py \
             dev/tests/test_covariance_array_inputs.py \
             -q --tb=short -rs
+      - name: Run complete pinned Torch CPU test tree
+        run: python -m pytest dev/tests -q --tb=short
 
   panel-stage-b-linearmodels:
     runs-on: ubuntu-latest

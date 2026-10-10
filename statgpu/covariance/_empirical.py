@@ -22,6 +22,18 @@ from statgpu.backends import (
     xp_zeros,
 )
 from statgpu.backends._utils import _cupy_asarray_on_device
+from statgpu.backends._validation import (
+    _tag_finite_backend,
+    _torch_cuda_device_label,
+    check_finite,
+)
+
+
+def _torch_to_covariance_numpy(X):
+    """Promote real Torch values on the CPU destination before NumPy conversion."""
+    import torch
+
+    return X.detach().cpu().to(dtype=torch.float64).resolve_neg().numpy()
 
 
 def _detect_backend(X, device: Device) -> str:
@@ -117,8 +129,8 @@ class EmpiricalCovariance(BaseEstimator):
         super().__init__(device=device, n_jobs=n_jobs)
         self.assume_centered = assume_centered
 
-    def _prepare_covariance_input(self, X, *, fitted=False):
-        """Resolve estimator policy before converting input to numerical arrays."""
+    def _resolve_covariance_input_policy(self, X, *, fitted=False):
+        """Select the same backend for prevalidation and numerical preparation."""
         if fitted:
             # Evaluation follows the fitted arrays, including their CUDA index,
             # rather than reselecting from a test array or a changed global policy.
@@ -146,7 +158,67 @@ class EmpiricalCovariance(BaseEstimator):
                     Device.CPU: "numpy", Device.CUDA: "cupy", Device.TORCH: "torch"
                 }[device]
             ref = None
+        return backend_name, device, ref
 
+    def _check_public_input_finite(self, value, *, name, method_name):
+        # Keep shared validation and unsupported representations unchanged.
+        # Only covariance's X entrypoints need its float64 working dtype before
+        # the public guard: CUDA isfinite does not support float8_e5m2 on some
+        # supported Torch releases, even though float64 conversion is available.
+        if (
+            name != "X"
+            or method_name not in {"fit", "score", "predict", "mahalanobis"}
+            or not _is_torch_array(value)
+        ):
+            return super()._check_public_input_finite(
+                value, name=name, method_name=method_name
+            )
+        import torch
+
+        supported_dtypes = {
+            torch.bool, torch.uint8, torch.int8, torch.int16, torch.int32,
+            torch.int64, torch.float16, torch.bfloat16, torch.float32,
+            torch.float64, getattr(torch, "float8_e5m2", None),
+        }
+        if (
+            value.layout != torch.strided
+            or value.is_quantized
+            or value.dtype not in supported_dtypes
+        ):
+            return super()._check_public_input_finite(
+                value, name=name, method_name=method_name
+            )
+
+        try:
+            backend_name, _, _ = self._resolve_covariance_input_policy(
+                value, fitted=method_name != "fit" and self._fitted
+            )
+            if backend_name == "numpy":
+                prepared = _torch_to_covariance_numpy(value)
+            elif (
+                backend_name == "torch"
+                and value.dtype == getattr(torch, "float8_e5m2", None)
+            ):
+                # Widen on the source device, preserving native CUDA ownership.
+                # The method still receives the original input for routing.
+                prepared = value.detach().to(dtype=torch.float64).resolve_neg()
+            else:
+                prepared = value
+            check_finite(prepared, name=name)
+        except Exception as exc:
+            # CPU-bound validation must retain the original CUDA provenance,
+            # including conversion errors before the finite reduction.
+            if value.is_cuda:
+                _tag_finite_backend(
+                    exc, "torch", device=_torch_cuda_device_label(value.device)
+                )
+            raise
+
+    def _prepare_covariance_input(self, X, *, fitted=False):
+        """Resolve estimator policy before converting input to numerical arrays."""
+        backend_name, device, ref = self._resolve_covariance_input_policy(
+            X, fitted=fitted
+        )
         if backend_name == "torch" and device == Device.CPU:
             backend = get_backend(backend="torch", device="cpu")
         else:
@@ -175,9 +247,7 @@ class EmpiricalCovariance(BaseEstimator):
         # Detach without mutating the input. Cast on the requested CPU target:
         # the source device need not support float64 (for example, Torch MPS).
         if backend_name == "numpy" and _is_torch_array(X) and not X.is_complex():
-            import torch
-
-            X = X.detach().cpu().to(dtype=torch.float64).resolve_neg().numpy()
+            X = _torch_to_covariance_numpy(X)
         elif not _is_cupy_array(X) and not _is_torch_array(X):
             X = np.asarray(X, dtype=np.float64)
 
