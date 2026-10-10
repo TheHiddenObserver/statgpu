@@ -54,7 +54,7 @@ All constructor defaults and approximate-search controls are in the [API referen
 
 ## Backend and Host Boundary
 
-Distance evaluation, graph weights and embedding arrays use the selected NumPy, CuPy or Torch backend. On NumPy 2, an array-dispatch limitation can additionally route CPU negative sampling through Torch CPU when Torch is installed. Fuzzy-union graph assembly copies O(n*k) edge indices and weights to host memory, assembles them with SciPy sparse COO/CSR operations, and copies the result back to the selected backend. Spectral initialization and attraction-curve fitting also use host SciPy. GPU fitting therefore still requires CPU computation and host memory. Exact neighbors also require O(n^2) dense distance memory; `nn_method='nndescent'` avoids that distance matrix where its approximate-neighbor path works, but currently fails on CPU with NumPy 2.
+Distance evaluation, graph weights and embedding arrays use the selected NumPy, CuPy or Torch backend. On NumPy 2, an array-dispatch limitation can additionally route CPU negative sampling through Torch CPU when Torch is installed. Fuzzy-union graph assembly uses host SciPy. GPU fits transfer O(n*k) edge indices and weights between host memory and the selected backend. Spectral initialization and attraction-curve fitting also use host SciPy. GPU fitting therefore still requires CPU computation and host memory. Exact neighbors also require O(n^2) dense distance memory; `nn_method='nndescent'` avoids that distance matrix where its approximate-neighbor path works, but currently fails on CPU with NumPy 2.
 
 ## Approximation and interpretation
 

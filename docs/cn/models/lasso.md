@@ -164,7 +164,7 @@ $$
 =\sqrt{\frac{2\log(\max(p,2))}{n_{\mathrm{nw}}}}.
 $$
 
-无分析权重时 $n_{\mathrm{nw}}=n$；非均匀分析权重下使用 Kish 型有效样本量。成功的多特征去偏推断会通过 `nodewise_alpha_` 暴露实际采用的值。单特征问题不存在需要控制的其他特征，因此直接使用一维解析精度值，并令 `nodewise_alpha_` 保持为 `None`。
+无分析权重时 $n_{\mathrm{nw}}=n$；非均匀分析权重下使用 Kish 型有效样本量。逐节点解未通过 KKT 检查时，推断会抛出 `FloatingPointError`。成功的多特征去偏推断会通过 `nodewise_alpha_` 暴露实际采用的值。单特征问题不存在需要控制的其他特征，因此直接使用一维解析精度值，并令 `nodewise_alpha_` 保持为 `None`。
 
 对 `LassoCV` 而言，`nodewise_alpha` 只属于最终全数据重拟合的推断配置，不参与主模型 `alpha` 的候选网格、折内评分或参数选择。更完整的说明见 [逐节点 Lasso 推断调参迁移](../guides/nodewise-alpha-migration.md)。
 

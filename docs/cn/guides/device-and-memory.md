@@ -1,76 +1,93 @@
 # 设备与 GPU 内存
 
-> 语言：中文  
-> 最后更新：2026-10-06  
-> 页面定位：设备选择与用户可见的 GPU 内存控制  
+> 语言：中文\
+> 最后更新：2026-10-10\
+> 页面定位：设备选择与 GPU 内存控制\
 > 切换：[English](../../en/guides/device-and-memory.md)
 
-## 设备选择
+## 选择设备
 
-对于提供 `device` 参数的估计器，statgpu 的预期设备约定如下：
+对于采用通用设备处理方式的估计器（如 `Ridge`），可使用以下设置：
 
-- `device="cpu"`：请求使用 NumPy 在 CPU 上计算；
-- `device="cuda"`：请求使用 CuPy 在 CUDA GPU 上计算；
-- `device="torch"`：请求使用 Torch CUDA 计算；
-- `device="auto"`：允许 statgpu 在该估计器支持且当前可用的后端中自动选择。
+- `device="cpu"`：使用 NumPy 在 CPU 上计算。
+- `device="cuda"`：使用 CuPy 在 CUDA GPU 上计算。
+- `device="torch"`：使用 Torch 在 CUDA GPU 上计算。
+- `device="auto"`：由估计器结合全局设置选择后端。
 
-按此约定，显式加速器请求应具有优先权：请求的 CuPy/Torch CUDA 后端不可用时应报错，不能静默改为 CPU 计算。但以下估计器目前存在例外，仅查看 `device` 设置不能确定实际使用的硬件。
+这些估计器显式请求 `"cuda"` 或 `"torch"` 时，如果对应的 CUDA 后端不可用，会报错。需要 CPU 计算时请设置 `device="cpu"`；允许自动选择时可用 `device="auto"`。部分核方法与样条估计器对这些设置的处理有所不同；依赖 GPU 执行前，请先阅读[例外与设备检查方法](#current-smoothing-and-spline-exceptions)。
+
+以下示例在 CPU 上运行，无需安装 CuPy 或 Torch：
+
+<!-- api-example: device-cpu -->
+```python
+import numpy as np
+from statgpu.linear_model import Ridge
+
+rng = np.random.default_rng(42)
+X = rng.normal(size=(200, 5))
+y = 1.0 + X @ np.arange(1.0, 6.0) + rng.normal(size=200)
+model = Ridge(alpha=1.0, device="cpu", compute_inference=False).fit(X, y)
+predictions = model.predict(X[:3])
+print(predictions)
+```
+
+后端支持范围取决于模型和具体操作。为拟合、交叉验证或推断选择后端前，请查看对应模型页或[已实现方法](implemented-methods.md)。某个后端可用，并不代表任意损失函数、惩罚项和求解器组合都能使用；组合限制见[求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md)。
+
+### 估计器的 `device` 与函数的 `backend`
+
+采用通用设备处理方式的估计器用 `device="torch"` 请求 Torch CUDA。函数的 `backend="torch"` 则用于选择 Torch 库，可以支持 Torch CPU。例如，`get_backend(backend="torch", device="cpu")` 返回 Torch CPU 后端；`get_backend(backend="torch")` 在 Torch CUDA 可用时使用 CUDA，否则使用 Torch CPU。两种方式都需要安装 Torch。请查看具体函数的后端说明，不要将这两个参数视为相同的设置。
+
+## 全局设置与估计器设置
+
+`statgpu.set_device` 会修改整个进程的设备设置。对于采用通用设备处理方式的估计器：
+
+- 估计器显式指定的 `device="cpu"`、`"cuda"` 或 `"torch"` 优先于全局设置。
+- 估计器的 `device="auto"` 会读取全局设置，不会将全局设置重置为自动选择。
+
+例如，调用 `set_device("torch")` 后，即使估计器设置了 `device="auto"`，Torch CUDA 不可用时仍可能报错。需要恢复全局自动选择时请调用 `set_device("auto")`；如果只想让当前模型在 CPU 上拟合，请设置 `device="cpu"`。将全局设备设为不可用的 GPU 后端时会产生警告，并保留请求的设置。
+
+全局设置为自动选择时，`statgpu.get_device()` 依次检查 CuPy CUDA、Torch CUDA、CPU，返回可用的设备。这只是全局设置解析后的结果，并不表示每个模型都在该设备上运行。包括惩罚 GLM 在内的部分模型，只要自身的 `device` 为 `"auto"`，就可能针对某些工作量选择 CPU，即使全局设置为 GPU。需要固定硬件位置时，请在模型上显式指定设备，同时注意下文的例外。
+
+如果只有一次拟合需要更换设备，优先在模型上设置。如果临时修改全局设置，请在操作结束后恢复先前配置的策略，发生异常时也要恢复。请自行记录这一策略：`get_device()` 会把 `"auto"` 解析为具体设备，仅保存其返回值无法保留原先的 `"auto"` 策略。
 
 <a id="current-smoothing-and-spline-exceptions"></a>
 
-### 核平滑、核特征与样条的当前例外
+## 核方法与样条例外：检查数组所在设备
 
-- `KernelDensityEstimator`（含 `KDE`）和 `KernelRegression`（含 `KernelRegressionRegressor`）处理 NumPy 或 Torch CPU 输入时，即使设置 `device="torch"` 且 `backend="auto"` 或 `"torch"`，仍可能在 Torch CPU 上拟合。`device="cuda"` 搭配显式 `backend="torch"` 也可能在 CPU 上执行；显式 `backend="numpy"` 会覆盖这两种加速器请求，返回 NumPy CPU 数组。
-- `SplineTransformer` 优先遵循传入的 Torch 张量。因此，Torch CPU 输入即使搭配 `device="torch"` 或 `"cuda"`，拟合节点与变换特征仍可能留在 CPU 上。相同设备请求改用 NumPy 输入时，如果加速器不可用，则可能直接报错。
+以下估计器仅设置 GPU 参数，并不能保证实际使用 GPU：
 
-- `KernelPCA` 与 `Nystroem` 在 Torch CUDA 不可用时会拒绝 `device="torch"`。但通过可用性检查后，NumPy 或 Torch CPU 输入仍可能得到 Torch CPU 特征，因为这些路径未始终将输入移到请求的设备。选中 Torch 库或解析到 CUDA 后端，都不能证明张量实际位于 GPU。
+- `KernelDensityEstimator`（含 `KDE`）和 `KernelRegression`（含 `KernelRegressionRegressor`）处理 NumPy 或 Torch CPU 输入时，即使设置 `device="torch"` 且 `backend="auto"` 或 `"torch"`，仍可能在 Torch CPU 上拟合。显式 `backend="torch"` 搭配 `device="cuda"` 也可能在 CPU 上执行；显式 `backend="numpy"` 会覆盖这两种 GPU 请求。使用 `device="cuda", backend="auto"` 时，如果 CuPy 不可用而 Torch CUDA 可用，这些估计器可能选择 Torch，但 CPU 输入仍可能留在 CPU 上。
+- `SplineTransformer` 会保留传入 Torch 张量所在的设备。因此，Torch CPU 输入即使搭配 `device="torch"` 或 `"cuda"`，拟合节点与变换特征仍可能留在 CPU 上。相同设置改用 NumPy 输入时，如果请求的加速器不可用，则可能报错。
+- `KernelPCA` 与 `Nystroem` 在 Torch CUDA 不可用时会拒绝 `device="torch"`。但通过检查后，NumPy 或 Torch CPU 输入仍可能得到 Torch CPU 特征。通过可用性检查不代表张量已经位于 GPU。
 
-这些估计器需要在拟合和预测/变换后检查实际数组。KDE/核回归应检查 `samples_` 以及返回的密度/预测；`SplineTransformer` 应检查 `knots_` 中的各数组和变换后的基矩阵；`KernelPCA`/`Nystroem` 应检查 `fit_transform`、`transform` 或 `predict` 返回的特征。后两者的公开拟合数组按设计保留为 NumPy，不能用来判断数值计算所在设备。Torch 张量查看 `.device` 与 `.is_cuda`，CuPy 数组查看 `.device`，NumPy 数组位于 CPU。`model.device` 或 `backend_="torch"` 这样的库名称都不能证明 CUDA 执行。若分析必须使用加速器，应在使用结果前拒绝 CPU 输出。需要明确的 CPU 路径时，请传入 NumPy 数组并设 `device="cpu"`；KDE/核回归还应设置 `backend="numpy"`。
+请检查这些方法实际使用和返回的数组：
 
-以上是当前的设备分派限制，不是 `device="torch"` 或 `device="cuda"` 的新含义。其他限制见[核平滑](../models/nonparametric.md#可选-gpu-路径与外部对照)、[核特征](../models/kernel-methods.md#后端与执行边界)与[样条](../models/splines.md#后端执行与验证边界)。
+- KDE/核回归：`samples_` 及返回的密度或预测。
+- `SplineTransformer`：`knots_` 中的各个数组及变换后的基矩阵。
+- `KernelPCA`/`Nystroem`：`fit_transform`、`transform` 或 `predict` 返回的特征。两者的公开拟合数组即使在 GPU 计算后也以 NumPy 数组存储，不能用来判断计算所在设备。
 
-具体模型支持的后端范围可能比通用的 `device` 取值更窄；如果应用必须使用某个后端，请查看对应模型页或 [已实现方法](implemented-methods.md)。
+Torch 张量查看 `.device` 与 `.is_cuda`，CuPy 数组查看 `.device`。NumPy 数组位于 CPU。`model.device` 或 `backend_="torch"` 这样的库名称都不能证明 CUDA 执行。
 
-## 输入转换与预处理
+如果必须使用 GPU，请不要接受这些方法返回的 CPU 结果。请使用受支持的 GPU 输入与后端组合，并在使用结果前检查上述数组。需要明确的 CPU 替代方案时，请传入 NumPy 数组并设 `device="cpu"`；KDE/核回归还需设 `backend="numpy"`。
 
-公式（Formula）/DataFrame 解析和其他元数据准备可以先在 CPU 上完成。按预期设备约定，模型数组随后应转换到请求的数值后端；上述核平滑/核特征/样条例外并未始终执行这一转换，须检查实际数组所在设备。
+其他限制与受支持的组合见[核平滑](../models/nonparametric.md#可选-gpu-路径与外部对照)、[核特征](../models/kernel-methods.md#后端与执行边界)与[样条](../models/splines.md#后端执行与验证边界)。
 
-NumPy、CuPy 与 Torch 之间的数据传输可以在内部采用优化机制。应用代码应依赖最终的设备语义，而不要依赖某一种具体传输实现，例如 DLPack 或固定页内存（pinned memory）。
+## 输入转换与返回数组
 
-### 全局设置与估计器设置
+公式（Formula）/DataFrame 解析与列信息准备可以先在 CPU 上完成，再进行数值拟合。GPU 拟合也可能需要把输入数组从 CPU 复制到 GPU。比较端到端运行时间时，请计入这些传输；复用 GPU 数组前，也请检查模型接受的输入类型。
 
-对于采用通用设备分派的估计器，显式 `device="cpu"`、`"cuda"` 或 `"torch"`
-会覆盖 `statgpu.set_device` 设置的全局设备；估计器的 `device="auto"` 则继承
-全局设置。因此，调用 `set_device("torch")` 后，单独传入 `device="auto"`
-并不会恢复自动选择 CPU 的策略。需要恢复自动策略时请调用
-`set_device("auto")`；如果希望在 CPU 上执行，请传入 `device="cpu"`。
-全局设置影响同一进程中的其他调用，临时修改后应恢复原设置。上文列出的
-估计器专属例外仍然适用。
+输出类型由具体方法决定。例如，`Ridge.predict(X)` 默认返回 NumPy 数组，包括在 GPU 上拟合之后。`Ridge.predict(X, return_cpu=False)` 则在已拟合模型的数值后端上返回预测：CPU 拟合返回 NumPy 数组，GPU 拟合返回 CuPy 数组或 Torch 张量。后续还要在同一 GPU 后端上继续计算时，可使用这一选项。`Ridge.coef_` 始终是 NumPy 数组，不能据此判断拟合所在设备。
 
-## 自动设备选择
-
-`device="auto"` 可以根据后端可用性、输入规模、工作量特征以及估计器专属的性能规则自动选择执行后端。具体的规模阈值属于实现细节，可能随着数值内核和基准测试结果的改进而变化。
-
-如果应用需要可复现的硬件放置，应显式指定 `device`，而不是依赖内部的自动切换阈值；对上述核平滑/核特征/样条例外，还须检查已拟合数组与输出数组的实际设备。
-
-## 求解器兼容性另见专门文档
-
-设备支持与求解器兼容性是两个不同问题。某个后端本身可以正常使用，并不表示任意“损失函数 × 惩罚项 × 求解器”组合都受支持。
-
-请分别查看：
-
-- [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md)：组合兼容性；
-- [求解器算法](solver-algorithms.md)：算法定义；
-- 对应模型页：模型专属限制。
-
-本页不再重复求解器支持矩阵。
+方法明示的 NumPy 输出转换，与上述核方法/样条例外中的 CPU 执行是两种情况。请先查看返回值说明，再判断能否用输出类型识别计算位置。
 
 ## GPU 内存清理
 
-部分支持 GPU 的估计器提供 `gpu_memory_cleanup` 参数。
+部分支持 GPU 的估计器提供 `gpu_memory_cleanup` 参数。以 `Ridge` 为例：
 
-- `gpu_memory_cleanup=False`（提供该参数时的默认值）更偏向重复拟合时的吞吐量，允许后端的内存池或缓存保留可复用的内存分配；
-- `gpu_memory_cleanup=True` 会在估计器公开约定的清理时点请求释放可回收的 GPU 缓存内存，从而降低常驻显存，但也可能减少后续重复使用已有分配所带来的速度收益。
+- `gpu_memory_cleanup=False`（默认值）会保留后端可复用的内存分配，有利于重复拟合的吞吐量。
+- `gpu_memory_cleanup=True` 会在拟合的清理阶段请求释放 GPU 内存池中未使用的分配。这可以减少保留的显存，但后续操作可能需要重新分配内存。
+
+清理不会丢弃 `predict()`、`score()` 或受支持推断所需要的已拟合状态，也无法释放模型或用户代码中仍被引用的数组占用的显存。因此，该选项不保证归还全部显存，也不保证降低一次拟合所需的峰值显存。参数是否可用以及清理时机取决于具体估计器。
 
 以下自包含示例需要可用的 CuPy/CUDA 环境：
 
@@ -91,21 +108,12 @@ model.fit(X, y)
 print(model.score(X, y))
 ```
 
-这一参数不会丢弃 `predict()`、`score()` 或受支持推断所需要的已拟合状态；估计器只会在不破坏已拟合模型状态的位置执行内存清理。
-
-## 什么时候开启
-
-`gpu_memory_cleanup=True` 适合以下场景：
-
-- 多个模型共享同一块 GPU；
-- 显存压力比重复拟合的延迟更重要；
-- 长时间运行的进程希望在多次拟合之间归还可回收的内存池空间。
-
-如果持续重复拟合同类模型，并且优先追求吞吐量，通常保留默认的关闭状态更合适。
+多个模型共享 GPU，或归还未使用显存比重复拟合延迟更重要时，可开启清理。持续重复拟合、希望复用已有分配且显存足够时，可保持关闭。
 
 ## 相关文档
 
 - [已实现方法](implemented-methods.md) — 模型与后端清单
 - [交叉验证](cross-validation.md) — 选择与最终重拟合中的设备行为
 - [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md) — 求解器兼容性
+- [求解器算法](solver-algorithms.md) — 算法定义
 - [PyTorch 后端](pytorch-backend.md) — PyTorch 专属使用说明

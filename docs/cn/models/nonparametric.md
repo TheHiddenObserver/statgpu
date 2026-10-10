@@ -356,9 +356,9 @@ Scott 或 Silverman 规则时，仅改变计量单位就可能显著改变 KDE �
 
 ## 可选 GPU 路径与外部对照
 
-`backend` 接受 `"numpy"`、`"cupy"`、`"torch"` 或 `"auto"`。显式设置选择数组库；`"auto"` 会参考估计器/全局设备配置。`device` 是估计器构造参数，但 KDE 与核回归目前未始终执行显式加速器请求：NumPy 或 Torch CPU 输入搭配 `device="torch"` 和 `backend="auto"` 或 `"torch"`，仍可能在 Torch CPU 上计算。显式 `backend="torch"` 搭配 `device="cuda"` 也可能在 CPU 上运行；`backend="numpy"` 则会覆盖这两种加速器请求并返回 CPU 数组。
+`backend` 接受 `"numpy"`、`"cupy"`、`"torch"` 或 `"auto"`。显式设置选择数组库；`"auto"` 会参考估计器/全局设备配置。`device` 是估计器构造参数，但 KDE 与核回归目前未始终执行显式加速器请求：NumPy 或 Torch CPU 输入搭配 `device="torch"` 和 `backend="auto"` 或 `"torch"`，仍可能在 Torch CPU 上计算。在 `device="cuda", backend="auto"` 下，若 CuPy 不可用而 Torch CUDA 可用，也可能选中 Torch，但 NumPy 或 Torch CPU 输入仍可能留在 CPU 上。显式 `backend="torch"` 搭配 `device="cuda"` 同样可能在 CPU 上运行；`backend="numpy"` 则会覆盖这两种加速器请求并返回 CPU 数组。
 
-因此，仅让设备与后端字符串一致仍不够。应同时检查 `samples_` 与密度/预测数组：Torch 的 `.device`、`.is_cuda` 显示张量位置，CuPy 的 `.device` 显示 GPU，NumPy 数组位于 CPU。不能根据 `model.device` 或 `backend_` 认定 CUDA 执行。明确选择 CPU 时，请用 NumPy 输入并设置 `device="cpu", backend="numpy"`。这些当前例外并未改变[设备与内存](../guides/device-and-memory.md)说明的严格设备约定。
+因此，仅让设备与后端字符串一致仍不够。应同时检查 `samples_` 与密度/预测数组：Torch 的 `.device`、`.is_cuda` 显示张量位置，CuPy 的 `.device` 显示 GPU，NumPy 数组位于 CPU。不能根据 `model.device` 或 `backend_` 认定 CUDA 执行。明确选择 CPU 时，请用 NumPy 输入并设置 `device="cpu", backend="numpy"`。如果必须在 CUDA 上执行，请在使用结果前拒绝 CPU 输出。更多设备检查见[设备与内存](../guides/device-and-memory.md)。
 
 先运行[CPU 示例一：拟合与评价密度](#density-cpu-workflow)中的所有步骤。下面复用该节的 `kde.samples_`、`grid` 和 `fit_kde`，只改变数组后端，不重新生成数据。它需要可工作的 CuPy/CUDA，不能在仅 CPU 安装上运行；显式指定但缺失的后端不会静默替换为 NumPy。
 

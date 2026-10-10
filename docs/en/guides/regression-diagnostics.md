@@ -21,6 +21,6 @@ print(diag.cooks_distance)
 print(diag.vif())
 ```
 
-Diagnostics are intentionally reporting-side CPU utilities: fitted arrays are copied
-once to NumPy because SciPy distribution tests and human-readable summaries are used.
-This is an explicit boundary, not a model-training fallback.
+`RegressionDiagnostics` runs on CPU, including when the model was fitted on GPU.
+Creating it converts the required fitted arrays to NumPy, so allow for the CPU
+memory and data-transfer cost. This does not refit the model.

@@ -225,9 +225,9 @@ $$
 =\sqrt{\frac{2\log(\max(p,2))}{n_{\mathrm{nw}}}},
 $$
 
-where `n_nw=n` without analytic weights and a Kish-style effective sample size is used with non-uniform analytic weights. The `sqrt(log p / n)` order is theory-motivated; the exact constant and weighted effective-sample-size convention are statgpu defaults, not a unique theorem-mandated choice. In particular, changing only the units of `y` no longer changes the design-side precision construction.
+where `n_nw=n` without analytic weights and a Kish-style effective sample size is used with non-uniform analytic weights. The `sqrt(log p / n)` order is theory-motivated; the exact constant and weighted effective-sample-size convention are statgpu defaults, not a unique theorem-mandated choice. In particular, changing only the units of `y` does not change the design-side precision construction.
 
-The node-wise problems are solved on a standardized design and the resulting precision estimate is transformed back to the original working-feature scale. An independent KKT check is required before inference is published. `nodewise_alpha_` records the resolved value after successful multi-feature debiased inference, and `_inference_result.metadata` records the requested/resolved value, source, effective sample size, solver settings, and maximum KKT residual. For a one-feature problem there is no nuisance node-wise regression: statgpu uses the analytic univariate precision and leaves `nodewise_alpha_` as `None`.
+The node-wise problems are solved on a standardized design and the resulting precision estimate is transformed back to the original working-feature scale. If a node-wise solution fails the KKT check, inference raises `FloatingPointError`. `nodewise_alpha_` records the resolved value after successful multi-feature debiased inference, and `_inference_result.metadata` records the requested/resolved value, source, effective sample size, solver settings, and maximum KKT residual. For a one-feature problem there is no nuisance node-wise regression: statgpu uses the analytic univariate precision and leaves `nodewise_alpha_` as `None`.
 
 For `LassoCV`, `nodewise_alpha` is final-refit inference configuration only. It does not participate in the main `alpha` grid, fold scoring, or alpha selection.
 
@@ -269,9 +269,7 @@ nodewise original-coordinate intercept influence used by the marginal debiased
 SE is part of the bootstrap maximum itself. It is therefore not merely an extra
 output row receiving a feature-only critical value. On CuPy/Torch with
 `fit_intercept=True`, this centered simultaneous calculation is backend-native as
-described above. Every successful refit clears any previous simultaneous critical
-value, target mask, intervals, and precision/influence state before publishing
-the new result.
+described above.
 
 ## Parameters
 

@@ -98,8 +98,7 @@ This prints `(6, 2)`: six parameters, each with a lower and upper bound.
 
 Choose alpha using training-only validation, keeping the final test set separate.
 Learn feature scaling inside each training fold, since Ridge penalizes coefficients
-in their chosen units. The explicit alpha here avoids suggesting that a single
-value is suitable for every problem.
+in their chosen units. The alpha value is illustrative; choose it for your data.
 
 ## Path
 

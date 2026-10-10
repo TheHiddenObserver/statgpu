@@ -251,18 +251,18 @@ For L2/no-penalty objectives, the current automatic dispatch uses Newton. The lo
 
 ### SCAD / MCP
 
-Non-convex penalties are handled through LLA, producing a locally weighted convex problem solved by FISTA-family inner iterations. The current generic Proximal Newton implementation does not treat an ordinary Euclidean prox as a Hessian-metric proximal subproblem, so non-smooth requests do not silently take the historical Proximal-Newton shortcut.
+Non-convex penalties are handled through LLA, producing a locally weighted convex problem solved by FISTA-family inner iterations. For non-smooth penalties, the low-level `proximal_newton_solver` emits `RuntimeWarning` and uses FISTA because it does not implement a Hessian-metric proximal subproblem.
 
 ### Current Huber IRLS status
 
-`HuberLoss.irls()` is currently an explicit rejection stub and `_supports_irls=False`, so `PenalizedRobustRegression(..., solver="irls")` does not enter a Huber IRLS path. For fixed-threshold Huber, the standard IRLS weight
+`HuberLoss.irls()` raises `NotImplementedError`. For Huber regression, `PenalizedRobustRegression(..., solver="irls")` raises `ValueError`. For fixed-threshold Huber, the standard IRLS weight
 
 $$
 w_i=\frac{\psi_\delta(r_i)}{r_i}
 =\min\left(1,\frac{\delta}{|r_i|}\right)
 $$
 
-is directly related to the Huber first-order condition. This shows that Huber admits a natural IRLS construction, but the public API does not currently declare that route as supported; an explicit request for that combination should fail rather than silently switch algorithms.
+is directly related to the Huber first-order condition. Huber therefore admits a natural IRLS construction, but this API does not support it. Use Newton for L2/no-penalty Huber fits, or FISTA for supported proximal penalties.
 
 ## Outputs
 

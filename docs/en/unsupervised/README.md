@@ -7,7 +7,7 @@
 
 ## Overview
 
-`statgpu.unsupervised` contains sklearn-style unsupervised estimators with explicit CPU, CuPy/CUDA, and Torch CUDA device behavior. This directory documents each estimator separately so the loss function, estimating algorithm, backend behavior, and validation evidence are visible without compressing all models into one page.
+`statgpu.unsupervised` contains sklearn-style unsupervised estimators with explicit CPU, CuPy/CUDA, and Torch CUDA device behavior. Use the model guides below to compare objectives, choose parameters, interpret fitted outputs, and check device and input restrictions.
 
 ## Choose a starting point
 
@@ -63,7 +63,7 @@ The [complete unsupervised API reference](api-reference.md) lists defaults, meth
 
 - [PCA](pca.md): exact or randomized principal component analysis.
 - [KMeans](kmeans.md): Lloyd clustering with random or greedy k-means++ initialization.
-- [DBSCAN](dbscan.md): dense Euclidean density clustering with optional statgpu-owned Cython CPU acceleration.
+- [DBSCAN](dbscan.md): dense Euclidean density clustering with optional compiled CPU acceleration.
 - [GaussianMixture](gaussian-mixture.md): Gaussian mixture fitted by EM with `diag` (diagonal), `spherical`, `tied`, or `full` covariance.
 - [NMF](nmf.md): non-negative matrix factorization with multiplicative updates and Frobenius loss.
 - [AgglomerativeClustering](agglomerative-clustering.md): exact dense single, complete, average, or ward linkage clustering.
@@ -97,4 +97,4 @@ Explicit `device="cuda"` and `device="torch"` do not silently fall back to CPU. 
 
 Algorithm agreement depends on matching objectives, initialization, tolerance and preprocessing. Model-specific limitations and numerical precautions are described in the linked guides. Check output finiteness and convergence where available, and benchmark your own workload when performance matters.
 
-External comparisons do not imply that every production path is independent of those packages. For example, CPU `DBSCAN` with more than 12 features uses scikit-learn's `NearestNeighbors` for neighbor search; statgpu performs the clustering and label assignment. See the [DBSCAN guide](dbscan.md) for its dependency and execution boundaries.
+For CPU `DBSCAN` with more than 12 features, install scikit-learn: this configuration uses its `NearestNeighbors` for neighbor search. See the [DBSCAN guide](dbscan.md) for dependencies, memory requirements, and known limitations.

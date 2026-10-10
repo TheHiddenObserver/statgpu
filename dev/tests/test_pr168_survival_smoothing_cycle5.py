@@ -250,4 +250,12 @@ def test_cox_complete_reference_documents_public_numerical_exception(language):
     assert "CoxFitNumericalError" in text
     assert "FloatingPointError" in text
     assert "converged_" in text
-    assert "broad exception" in text if language == "en" else "宽泛的异常捕获" in text
+    # Preserve the observable failure distinction, not instructions about how
+    # developers should write exception handlers.
+    paragraph = text.split("CoxFitNumericalError", 1)[1].split("###", 1)[0]
+    if language == "en":
+        assert "exclude" in paragraph and "numerical candidate" in paragraph
+        assert "stop CV" in paragraph and "propagate" in paragraph
+    else:
+        assert "排除" in paragraph and "数值候选" in paragraph
+        assert "终止 CV" in paragraph and "抛出" in paragraph

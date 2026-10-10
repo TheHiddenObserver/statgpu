@@ -19,7 +19,7 @@ candidate grid
 
 This page documents the task-oriented public behavior: how to configure folds and tuning grids, how solver/device choices interact with CV, what happens during the final refit, and how inference after CV should be interpreted.
 
-For the public execution model behind these behaviors—including the selection/refit split, pathwise reuse, GPU batching, and selection-cache semantics—see [How statgpu Cross-Validation Works](cross-validation-design.md). Exact private fast paths, cache-key fields, helper names, and benchmark-derived routing thresholds remain implementation details.
+For the public execution model behind these behaviors—including the selection/refit split, pathwise reuse, GPU batching, and selection-cache semantics—see [How statgpu Cross-Validation Works](cross-validation-design.md).
 
 ## Available CV estimators
 
@@ -235,7 +235,7 @@ CV follows the same explicit-device rule as direct estimators:
 - `device="torch"` requests the Torch CUDA route and raises if it is unavailable;
 - `device="auto"` may choose among available backends according to the estimator and workload.
 
-Automatic routing is an implementation choice and may evolve with measured performance. Do not write application logic that depends on a particular internal size threshold. If a specific execution backend is required, request it explicitly.
+Automatic selection can vary with the estimator, input, and available backends. If a specific execution backend is required, request it explicitly and check the model-specific restrictions.
 
 The public design page explains why automatic backend choice and GPU batching are allowed to vary without changing the CV statistical problem: [How statgpu Cross-Validation Works](cross-validation-design.md). See [Device and GPU Memory](device-and-memory.md) for the device contract.
 

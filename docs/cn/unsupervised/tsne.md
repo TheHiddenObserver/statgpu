@@ -83,7 +83,7 @@ print(embedding.shape, model.n_iter_, model.kl_divergence_)
 
 ## 近似与解释边界
 
-这里实现的是稠密数据上的精确 t-SNE；Barnes-Hut、FFT/FIt-SNE 与 openTSNE 等加速路径只作为外部对齐基线。
+这里实现的是稠密数据上的精确 t-SNE，所需成对数组的内存随观测数平方增长。不支持 Barnes-Hut 和 FFT/FIt-SNE 加速。
 
 ## 输出
 

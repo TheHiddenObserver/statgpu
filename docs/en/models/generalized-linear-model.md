@@ -116,8 +116,6 @@ wrapper defaults. Shared names do not make constructor controls interchangeable.
 - `statgpu.linear_model.Lasso`
 - `statgpu.linear_model.ElasticNet`
 
-The internal GLM objective layer is `statgpu.glm_core`.
-
 ## Objective function and `sample_weight`
 
 Let n be the number of observations, x_i the predictor vector, beta the slope vector and b the unpenalized intercept. Write $\eta_i=b+x_i^\top\beta$; set b=0 when `fit_intercept=False`. The **unpenalized** data-fit objective uses the family's average negative log-likelihood (with the family's dispersion convention):
@@ -149,7 +147,7 @@ $$
 \text{or}\quad\min_{b,\beta}L_w(b,\beta)+\alpha P(\beta).
 $$
 
-The intercept remains unpenalized. `statgpu.glm_core` is GLM-specific; Cox partial likelihood, robust losses and quantile losses retain their own statistical definitions and documentation.
+The intercept remains unpenalized. For Cox partial likelihood, robust losses and quantile losses, see the statistical definitions on their respective model pages.
 
 ## Solver selection
 
@@ -303,7 +301,7 @@ Supported non-Gaussian L2/no-penalty combinations expose fixed-penalty M-estimat
 
 `solver="auto"` follows the model's direct-fit dispatch. Analytic weights do not rewrite a public solver request: explicit smooth solvers remain explicit, while `auto` continues to use the dispatch for the corresponding fit.
 
-`PenalizedGLM_CV` defaults to `cv_strategy="strict"`. In strict mode every fold/alpha is evaluated with the requested `max_iter` and `tol`, and GPU optimizations are limited to caching, fused kernels, and batched validation-score transfers.
+`PenalizedGLM_CV` defaults to `cv_strategy="strict"`. In strict mode every fold/alpha is evaluated with the requested `max_iter` and `tol`.
 
 The optional `cv_strategy="two_stage"` mode first screens the alpha grid with relaxed CV solves, then strictly refines candidate alphas and performs a strict final refit. Because screening can change the ranking when CV curves are close, two-stage mode emits `ApproximateCVWarning` unless `acknowledge_approx=True` is passed.
 

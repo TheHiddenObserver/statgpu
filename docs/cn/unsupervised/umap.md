@@ -54,7 +54,7 @@ print(embedding.shape, model.n_epochs_)
 
 ## 后端与主机边界
 
-距离计算、图权重和嵌入数组使用所选的 NumPy、CuPy 或 Torch 后端。在 NumPy 2 上，数组分派存在限制：安装了 Torch 时，CPU 负采样还可能经由 Torch CPU 执行。模糊并集图的组装会把 O(n*k) 的边索引和边权重复制到主机内存，由 SciPy 的稀疏 COO/CSR 结构完成组装，再复制回所选后端。谱初始化和吸引曲线拟合也使用主机端 SciPy，因此 GPU 拟合仍需要 CPU 运算和主机内存。精确近邻还需要 O(n²) 的稠密距离矩阵内存；近似路径可用时，`nn_method='nndescent'` 能避开这个矩阵，但在 NumPy 2 的 CPU 路径上当前会失败。
+距离计算、图权重和嵌入数组使用所选的 NumPy、CuPy 或 Torch 后端。在 NumPy 2 上，数组分派存在限制：安装了 Torch 时，CPU 负采样还可能经由 Torch CPU 执行。模糊并集图使用主机端 SciPy 组装。GPU 拟合会在主机内存与所选后端之间传输 O(n*k) 的边索引和权重。谱初始化和吸引曲线拟合也使用主机端 SciPy，因此 GPU 拟合仍需要 CPU 运算和主机内存。精确近邻还需要 O(n²) 的稠密距离矩阵内存；近似路径可用时，`nn_method='nndescent'` 能避开这个矩阵，但在 NumPy 2 的 CPU 路径上当前会失败。
 
 ## 近似与解释边界
 

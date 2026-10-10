@@ -19,7 +19,7 @@
 
 ## 文档导航
 
-- [面板模型架构](../panel/architecture.md) — `BasePanelModel`、各估计量的数据变换与回归问题、共享数值线性代数、协方差/推断、诊断以及拟合生命周期。
+- [面板模型架构](../panel/architecture.md) — 数据变换、估计方法、协方差/推断、诊断以及拟合结果解读。
 - [协方差](../panel/covariance.md) — 非稳健、HC、聚类、HAC 与 Driscoll–Kraay 等协方差估计的定义。
 - [拟合统计量](../panel/fit-statistics.md) — 组内、组间、总体 $R^2$，调整 $R^2$ 与模型 F 统计量等。
 - [模型诊断](../panel/diagnostics.md) — Hausman、pooling F、Breusch–Pagan LM 等诊断方法。
@@ -28,4 +28,4 @@
 
 这六类模型都可以通过 `device` 使用 NumPy CPU、CuPy CUDA 或 Torch CUDA。每个模型页面都给出了 CPU/GPU 和公式接口示例；显式指定 `device="cuda"` 或 `device="torch"` 时，模型会使用相应计算后端。
 
-面板模型之间共享的实现结构、数据变换、数值组件和推断层见 [面板模型架构](../panel/architecture.md)。
+面板模型之间共享的数据变换、估计方法和推断见 [面板模型架构](../panel/architecture.md)。

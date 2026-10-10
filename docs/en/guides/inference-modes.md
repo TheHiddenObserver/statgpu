@@ -14,8 +14,6 @@ Use this page to answer two questions:
 1. **Which inference method applies to my fitted model?**
 2. **What parameter or refit does the reported interval describe?**
 
-Detailed implementation, backend kernels, internal result storage, and validation evidence are intentionally outside this guide.
-
 ## Method overview
 
 | Fitted model / situation | Inference method | Interpretation |

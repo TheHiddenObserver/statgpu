@@ -4,7 +4,7 @@
 > 最后更新：2026-10-06  
 > 切换：[English](../en/usage.md)
 
-本页只作为用户文档入口。容易变化的支持矩阵放在对应模型页与参考页中，避免入口页重复维护一套实现状态。
+首次拟合可从快速入门开始；各模型的支持选项、默认值与限制见对应模型页和参考页。
 
 ## 快速开始
 
@@ -55,4 +55,4 @@ CuPy 请按 CUDA 主版本安装 `statgpu[gpu11]` 或 `statgpu[gpu12]`；PyTorch
 - [ANOVA](models/anova.md)
 - [协方差估计](models/covariance.md)
 
-开发、贡献、测试与仓库内部架构请查看根目录 `CONTRIBUTING.md` 与 `dev/` 文档，不再混入用户使用指南。
+如需贡献代码、文档或测试，请参阅[贡献指南](../../CONTRIBUTING.md)。

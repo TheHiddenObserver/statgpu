@@ -28,7 +28,7 @@
 
 ## Device Behavior
 
-Most unsupervised estimators expose `device="auto"`, `"cpu"`, `"cuda"`, and `"torch"` following the project-wide device rules. Explicit GPU devices must either run on that backend or raise a clear error; they should not silently fall back to CPU. Some algorithms have narrower support, so check the per-model page before relying on a GPU path.
+Most unsupervised estimators expose `device="auto"`, `"cpu"`, `"cuda"`, and `"torch"`. If an explicitly requested GPU backend is unavailable, fitting raises an error. Some algorithms still perform CPU work or return NumPy arrays; check the per-model page for supported operations, output placement, and limitations before relying on a GPU path.
 
 ## Input validation
 
@@ -36,7 +36,7 @@ Observation matrices are checked for NaN/Inf before SVD, eigendecomposition, dis
 
 ## Notes
 
-Unsupervised estimators do not expose statistical inference fields such as standard errors, p-values, confidence intervals, AIC, or BIC unless the model naturally defines them. For these models, documentation focuses on algorithmic objective, exact versus iterative behavior, device support, and output semantics.
+Unsupervised estimators do not expose statistical inference fields such as standard errors, p-values, confidence intervals, AIC, or BIC unless the model naturally defines them.
 
 For detailed API behavior and model-specific caveats, continue to the per-model pages linked above.
 

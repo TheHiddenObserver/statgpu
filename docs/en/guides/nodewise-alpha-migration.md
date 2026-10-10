@@ -58,7 +58,7 @@ For `p=1`, there is no nuisance node-wise regression. statgpu uses the analytic 
 
 ## Resolved value
 
-For multi-feature de-biased inference, `nodewise_alpha_` exposes the value actually used. This makes the automatic choice inspectable without turning the node-wise solver's internal stopping settings into additional public tuning parameters.
+For multi-feature de-biased inference, inspect `nodewise_alpha_` after fitting to see the value actually used, including when `nodewise_alpha=None` selected it automatically.
 
 ## Cross-validation
 

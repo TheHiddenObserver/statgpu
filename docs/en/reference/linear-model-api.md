@@ -715,9 +715,7 @@ There is no `cv_results_["mean_mse"]` key. `coef_` `(p,)`, scalar `intercept_`,
 `estimator_` and conditions on alpha; it does not account for tuning uncertainty.
 `mse_path_` also exposes the `(a,f)` loss array. `cv_solver_` records the resolved
 CV algorithm, while `solver` controls the final Lasso only. `nodewise_alpha_`
-exposes final-refit precision tuning where applicable. Source-static signatures
-can omit the installed keyword-only `nodewise_alpha`; the constructor above is
-the runtime public API. LassoCV does not expose the direct Lasso simultaneous or
+exposes final-refit precision tuning where applicable. Pass `nodewise_alpha` by keyword. LassoCV does not expose the direct Lasso simultaneous or
 residual-bootstrap draw/seed constructor controls.
 
 Generated folds are shuffled K-fold, not grouped, stratified or time-aware.

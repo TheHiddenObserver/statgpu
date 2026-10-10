@@ -50,8 +50,7 @@ $$
 
 ### 最小协方差行列式
 
-`MinCovDet` 搜索协方差行列式较小的集中子集，执行 FAST-MCD concentration
-steps，并根据稳健 Mahalanobis 距离重加权。该方法用于存在多元离群点时的稳健
+`MinCovDet` 搜索协方差行列式较小的集中子集，执行 FAST-MCD 集中迭代，并根据稳健 Mahalanobis 距离重加权。该方法用于存在多元离群点时的稳健
 协方差估计。
 
 ### Graphical Lasso
@@ -261,8 +260,8 @@ print(model_torch.covariance_.shape)
 ## 后端与执行边界
 
 中心化、协方差更新、矩阵乘法、线性代数、FAST-MCD 集中迭代 和
-Graphical Lasso 坐标更新在实现支持时保留在所选后端。小型整数索引元数据、随机
-子集记录、收敛标量和卡方分布标量计算可能跨到 CPU。
+Graphical Lasso 坐标更新在实现支持时保留在所选后端。部分流程控制和标量分布
+计算使用 CPU，因此不能假定整个流程常驻 GPU。
 
 空特征维度以及 NaN/Inf 的输入验证会在中心化或求逆之前执行，避免把非法数据
 误报为奇异协方差问题。

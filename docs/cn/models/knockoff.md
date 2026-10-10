@@ -249,8 +249,7 @@ Knockoff 为选择推断框架，不采用回归模型中的 `cov_type` 协方�
 ## Torch 自动 model-X 构造的可重复性
 
 当 `knockoff_type="model_x"`、`compat_mode="statgpu"` 且 `Xk=None` 时，
-整数 `random_state` 为每次构造抽样的局部 Torch 随机数生成器设定种子，
-不推进全局 Torch 随机数状态。在输入、设置以及后端、dtype、设备和软件环境
+整数 `random_state` 控制构造的随机性，不推进全局 Torch 随机数状态。在输入、设置以及后端、dtype、设备和软件环境
 相同的条件下，重复构造可得到相同结果。`KnockoffSelector` 具有相同行为。
 这不保证跨后端或跨 GPU 的数值相同，也不保证实际 FDR 控制，且与下文的
 Lasso 缓存限制不同。
@@ -321,7 +320,7 @@ res_torch = fixed_x_knockoff_filter(
 
 本模块不使用 `strict/approx` 推断口径开关。`fixed_x` 与 `model_x` 采用不同的设计或特征分布假设，应根据统计问题选择，不能把两者当作速度或数值精度档位。`modelx_draws`（必须为正整数）影响计算量与蒙特卡洛波动；后端选择均不替代构造假设或阈值规则。
 
-这里 `backend="torch"` 选择 Torch 计算库，不同于估计器要求 CUDA 的 `device="torch"`。原生 fixed-X 与 model-X 自动构造遵循 X 的设备。Torch CPU 输入在 CUDA 可用时仍留在 CPU；CUDA 输入保留其 GPU 编号。model-X 的局部随机数生成器和随机矩阵均使用该设备，详见 [Torch 设备放置](../reference/feature-selection-api.md#torch-device-placement)。
+这里 `backend="torch"` 选择 Torch 计算库，不同于估计器要求 CUDA 的 `device="torch"`。原生 fixed-X 与 model-X 自动构造遵循 X 的设备。Torch CPU 输入在 CUDA 可用时仍留在 CPU；CUDA 输入保留其 GPU 编号。详见 [Torch 设备放置](../reference/feature-selection-api.md#torch-device-placement)。
 
 以上设备保持行为适用于构造阶段。原生 Torch 的 `method="lasso_coef_diff"`
 调参与拟合仍请求 CUDA，CPU 输入、提供 Xk 及 fixed-X 也有这一限制，且不能

@@ -66,7 +66,7 @@ $$
 - 将合并树保存为 `children_`，将合并距离保存为 `distances_`。
 - 按 `n_clusters` 切树并生成 `labels_`。
 
-CPU 路径调用 SciPy 的层次聚类子模块计算精确连接；显式 CuPy/Torch 路径使用 statgpu 自有的、常驻后端的稠密距离矩阵。单连接先构建最小生成树，再在 CPU 上组装合并树；完全连接、平均连接和 Ward 连接则使用 Lance–Williams 公式更新连接距离。
+CPU 路径调用 SciPy 的层次聚类子模块计算精确连接；显式 CuPy/Torch 路径在所选 GPU 后端上使用稠密距离矩阵。单连接先构建最小生成树，再在 CPU 上组装合并树；完全连接、平均连接和 Ward 连接则使用 Lance–Williams 公式更新连接距离。
 
 ## 参数
 

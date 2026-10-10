@@ -96,11 +96,11 @@ with boundary conventions `θ_{-1} = -∞`, `θ_{K-1} = ∞`.
 
 Newton-Raphson with trust-region regularization (all 3 backends):
 
-| Backend | Algorithm | Notes |
+| Backend | Algorithm | Device setting |
 |---------|-----------|-------|
-| numpy (CPU) | Newton-Raphson + vectorized analytical Hessian | NumPy `linalg.solve` |
-| cupy (GPU) | Newton-Raphson + vectorized analytical Hessian | CuPy native, scalar sync per iteration |
-| torch (GPU) | Newton-Raphson + vectorized analytical Hessian | Torch native, uses `torch.linalg.solve` |
+| numpy (CPU) | Newton-Raphson + vectorized analytical Hessian | `device="cpu"` |
+| cupy (GPU) | Newton-Raphson + vectorized analytical Hessian | `device="cuda"` |
+| torch (GPU) | Newton-Raphson + vectorized analytical Hessian | `device="torch"` |
 
 The iteration budget and tolerance control optimization. Numerical regularization stabilizes Newton steps; it is not the statistical slope penalty controlled by C in ordinary GLMs.
 

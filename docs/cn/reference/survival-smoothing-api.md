@@ -50,8 +50,8 @@ CoxPHCV.fit(X, time, event=None, entry=None, cluster=None, *, start=None, strata
 
 `statgpu.survival` 还导出 `CoxFitNumericalError`，它是 `FloatingPointError`
 的子类。输入有限、但公开系数、偏对数似然或系数风险比无法表示时，拟合会抛出
-此异常。CV 可以排除这类数值候选；输入、编程、内存分配与后端故障仍保留各自的
-异常，不能用宽泛的异常捕获将它们掩盖。参见[拟合失败语义](../models/coxph.md#输出)。
+此异常。CV 可以排除这类数值候选；输入、编程、内存分配与后端故障会终止 CV，
+并向调用者抛出相应异常。参见[拟合失败语义](../models/coxph.md#输出)。
 返回一个未收敛的拟合属于另一种情况：解释结果前应检查 `converged_` 和停止诊断。
 
 ### 预测、评分与摘要
@@ -296,7 +296,7 @@ kde_pdf(samples, points, *, bandwidth='scott', weights=None, kernel='gaussian', 
 和查询；KDE 换回原始单位时还需要密度的雅可比修正。具体变换、反例、不同带宽
 路径的边界以及验证限制见[坐标尺度过小](../models/nonparametric.md#坐标尺度过小)。
 
-KDE 与核回归当前存在显式设备请求的例外。NumPy 或 Torch CPU 输入即使搭配 `device="torch"` 与 `backend="auto"` 或 `"torch"`，仍可能在 Torch CPU 上拟合和预测。显式 `backend="torch"` 搭配 `device="cuda"` 也可能在 CPU 上执行；`backend="numpy"` 会覆盖这两种加速器请求。应检查 `samples_` 与密度/预测数组的实际位置：Torch 查看 `.device`/`.is_cuda`，CuPy 查看 `.device`，NumPy 数组位于 CPU。仅查看配置的 `device` 与 `backend_` 不够。需要明确的 CPU 路径时，请用 NumPy 输入并设置 `device="cpu", backend="numpy"`。以上是严格设备约定的当前例外，并非设备参数的新含义，见[设备说明](../guides/device-and-memory.md)。
+KDE 与核回归当前存在显式设备请求的例外。NumPy 或 Torch CPU 输入即使搭配 `device="torch"` 与 `backend="auto"` 或 `"torch"`，仍可能在 Torch CPU 上拟合和预测。设置 `device="cuda", backend="auto"` 时，CuPy 不可用而 Torch CUDA 可用也可能选中 Torch，随后 NumPy 或 Torch CPU 输入仍留在 CPU。显式 `backend="torch"` 搭配 `device="cuda"` 也可能在 CPU 上执行；`backend="numpy"` 会覆盖这两种加速器请求。应检查 `samples_` 与密度/预测数组的实际位置：Torch 查看 `.device`/`.is_cuda`，CuPy 查看 `.device`，NumPy 数组位于 CPU。仅查看配置的 `device` 与 `backend_` 不够。需要明确的 CPU 路径时，请用 NumPy 输入并设置 `device="cpu", backend="numpy"`。如果流程必须使用 GPU，请拒绝 CPU 结果，不要继续使用它们；详见[设备说明](../guides/device-and-memory.md)。
 
 拟合属性：`samples_` `(n,p)`、归一化 `weights_` `(n,)`、标量 `bandwidth_factor_`、`bandwidth_info_`（选择结果；数值带宽时为 `None`）、`covariance_` 和 `inv_covariance_` `(p,p)`、标量 `norm_const_` 和 `inv_norm_const_`、`kernel_`、`backend_`、`n_samples_`、`n_features_`。`to_numpy_metadata()` 返回含 `bandwidth_factor`、`bandwidth_selection`、`n_samples`、`n_features`、`backend`、`kernel`、`covariance`、`inv_covariance`、`weights` 的字典，数组为主机 NumPy 数组。
 

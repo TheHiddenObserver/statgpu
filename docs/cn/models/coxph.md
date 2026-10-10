@@ -349,7 +349,7 @@ penalized_cv = PenalizedGLM_CV(
 <!-- /example: coxph-penalized-family-cv -->
 
 该分支始终保留二维 `(time, event)` 响应，禁止截距，使用留出数据上的未惩罚偏似然评分，并要求每个可评估的交叉验证折都得到有限的偏似然评分。若不存在满足
-契约的 `alpha`，拟合会抛错，并且不会发布已选 `alpha` 或已拟合估计器。最终重拟合使用
+这一要求的 `alpha`，拟合会抛错，并且不会发布已选 `alpha` 或已拟合估计器。最终重拟合使用
 `PenalizedCoxPHModel(compute_inference=False)`；不支持选择后系数推断、`two_stage`、样本权重或字典形式响应。无惩罚别名不可调，因此该 CV
 路径会拒绝，需改为直接拟合模型。
 
@@ -384,7 +384,7 @@ $$
 无穷范数用于启发式地确定网格上限。
 
 大规模 `device="auto"` 搜索只在 Torch 或 CuPy 的 CUDA 后端确认设备实际可用
-后选择 GPU。回退路径的规模估计只统计训练集和验证集都含事件的可评估折；其他规范化后的折仍记录在 `failure_path` 中，但不会夸大 GPU 工作量。CuPy
+后选择 GPU。无法评估的折仍记录在 `failure_path` 中。CuPy
 可导入但无法运行时会回退 CPU；显式 `device="cuda"` 仍严格抛错，不会静默回退。
 
 ## 预测与评分
@@ -396,15 +396,14 @@ $$
 标签，缺失或未知标签会抛出 `ValueError`。生存曲线在对数域中累计基线风险，
 以提高数值稳定性。使用公式接口拟合的模型会在预测前应用已保存的设计矩阵转换。
 
-`score()` 复用同一行标签编码器：传入的 `strata` 必须具有 `(n_samples,)` 形状；
+调用 `score()` 时，传入的 `strata` 必须具有 `(n_samples,)` 形状；
 显式分层模型只接受训练时已知标签，多分层拟合在评分时必须提供标签。
 标量、二维、长度错误或未知标签都会在后端计算一致性指数前统一抛出
 `ValueError`。
 
 若某个已拟合分层没有观察到任何事件，其空的基线风险状态是合法状态。
 该分层在任意时间的累计基线风险均为零，因此 `predict_survival()` 精确返回
-1。显式 `times`、自动 `times`、混合分层预测行和 `CoxPHCV` 委托路径都遵守此契约；
-存储的时间/风险数组形状不匹配仍属于非法状态。
+1。显式 `times`、自动 `times`、混合分层预测行和 `CoxPHCV` 预测均有这一行为。
 
 `predict_risk_score()` 返回未取指数的对数风险。标准 CoxPH、CV 与带惩罚 Cox 的风险比预测 API 共享严格的 float64 指数边界；标准 CoxPH/CV 拟合后
 `hazard_ratios_` 采用相同边界。会溢出为无穷或下溢为零的值，在标准 CoxPH/CV 拟合时抛出 `CoxFitNumericalError`，在预测时抛出 `FloatingPointError`，不会按估计器专属阈值静默截断。`PenalizedCoxPHModel` 也提供 `predict_risk_score()`，因此
@@ -568,10 +567,9 @@ $$
 `ties="exact"` 通过基本对称多项式（elementary-symmetric）动态规划计算 Exact 分母。
 延迟进入、分层、Exact 并列事件、L2 惩罚拟合与 GPU 稳健推断共用同一套
 计数过程风险集计算，因此三个后端遵循一致的 `(start, stop]` 约定。
-`CoxPH` 与 `CoxPHCV` 接受一维分层、受试者和聚类标签，并在内部统一编码。
+`CoxPH` 与 `CoxPHCV` 接受一维分层、受试者和聚类标签。
 Exact 使用动态规划避免逐一枚举事件组合，但计算量和内存需求仍随数据规模、
-并列事件组大小及特征维数增加。普通右删失数据可利用嵌套风险集复用计算；
-延迟进入数据使用适合其风险集结构的计算方式。
+并列事件组大小及特征维数增加。
 
 临时工作区超出配置上限时，会在所选后端采用内存需求更低的算法，不会静默转到 CPU。
 `STATGPU_EXACT_NESTED_MAX_BYTES`、`STATGPU_EXACT_BATCH_MAX_BYTES` 和
@@ -761,7 +759,7 @@ GPU 拟合的部分预处理仍需要主机内存。普通 GPU Breslow/Efron 拟
 - Exact 并列事件尚不支持稳健/聚类协方差；
 - Exact 并列事件使用动态规划；大型风险集或并列事件组仍可能需要较多计算和内存，应结合特征维数评估资源需求；
 - 尚未实现 frailty（共享脆弱性）/随机效应项；
-- 可选 `torch.compile` 加速要求兼容 Triton 的硬件，不属于跨平台正确性保证。
+- 可选 `torch.compile` 加速要求兼容 Triton 的硬件；拟合本身不要求开启此加速。
 
 ## 参考文献
 

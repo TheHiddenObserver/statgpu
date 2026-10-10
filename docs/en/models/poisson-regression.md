@@ -251,7 +251,6 @@ There is no public strict/approx inference switch for `PoissonRegression`. Suppo
 - Coefficients: `intercept_`, `coef_`
 - Iterations: `n_iter_`
 - Methods: `fit`, `predict`
-- Formula metadata is stored internally when fitting with `formula` and `data`
 
 `predict` returns the inverse-link mean response, so for Poisson it returns estimated counts/rates \(\hat\mu\), not the linear predictor.
 

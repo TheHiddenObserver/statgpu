@@ -98,8 +98,7 @@ $$
 ## 核岭交叉验证
 
 `KernelRidgeCV` 在交叉验证折上评估一组正则化参数，并在完整数据上使用选出的值
-重新拟合。后端特定实现可能复用核矩阵特征分解，或向量化全部 alpha，而不是为每个
-候选值独立求解线性系统。
+重新拟合。
 
 选择标准是验证 MSE，对各折和各响应列等权平均。`alpha_` 是选中的值；`best_score_` 是该值对应的平均折内 R²，不是用于选择的 MSE。`cv_results_` 包含 `alphas`、`mean_mse`、`mse_table`、`mean_r2`、`r2_table`、`best_alpha` 和 `best_score`。表格数组形状为 `(n_alphas, n_folds, n_targets)`，均值数组为 `(n_alphas, n_targets)`。
 

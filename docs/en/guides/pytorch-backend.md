@@ -16,9 +16,9 @@ StatGPU supports three execution backends:
 | `"auto"` | Automatically selected | CuPy, Torch CUDA, or NumPy according to availability and input |
 
 `device="torch"` is the explicit PyTorch request. `device="cuda"` selects CuPy;
-it is not an alias for Torch. Under the intended device convention, unavailable
-explicit accelerator requests should raise rather than execute elsewhere. The
-[current kernel/spline routing exceptions](device-and-memory.md#current-smoothing-and-spline-exceptions) do not consistently enforce this convention; inspect actual returned arrays for those estimators.
+it is not an alias for Torch. Estimators using the shared device rules, including
+`LinearRegression` below, raise when the requested accelerator is unavailable.
+The [current kernel/spline routing exceptions](device-and-memory.md#current-smoothing-and-spline-exceptions) can instead return CPU results; inspect actual returned arrays for those estimators.
 
 Model, solver, cross-validation, and inference coverage can differ. Use the
 [Implemented Methods](implemented-methods.md) inventory and the relevant model page
@@ -106,10 +106,12 @@ import statgpu as sg
 sg.set_device("torch")
 ```
 
-An explicit non-`auto` estimator device overrides the global setting under shared
-routing. `device="auto"` inherits the global policy, so it still requests Torch
-after the call above. Use `sg.set_device("auto")` to restore automatic selection,
-or `device="cpu"` for an explicit CPU fit. See [global and estimator settings](device-and-memory.md#global-settings-and-estimator-settings) and the model-specific exceptions.
+For estimators following the shared device rules, an explicit non-`auto` device
+overrides the global setting, while `device="auto"` inherits it. Other estimators
+can choose a different backend with `auto`; use an explicit per-model device when
+placement matters and check its documented restrictions. Use `sg.set_device("auto")`
+to restore automatic selection, or `device="cpu"` for an explicit CPU fit. See
+[global and estimator settings](device-and-memory.md#global-settings-and-estimator-settings).
 
 ## Statistical Inference
 
@@ -123,23 +125,22 @@ optional dependencies. For an inference-capable model, inspect its documentation
 - delayed-entry, clustering, ties, rank-deficiency, or formula restrictions;
 - whether final summaries are Torch arrays, NumPy arrays, or scalar metadata.
 
-Unsupported inference combinations should fail explicitly or operate in a documented
-estimation-only mode; they should not silently produce approximate results.
+Check the model's supported inference methods before enabling inference. If the
+estimator exposes `compute_inference`, set it to `False` for estimation-only fits.
+Use an approximate method only when the model documents that option and its limitations.
 
 ## Execution Boundaries
 
-Core numerical arrays should remain on the selected Torch backend where the method
-supports Torch execution. Legitimate CPU boundaries may include:
+Torch execution can still involve CPU work. Depending on the method, this includes:
 
 - formula, label, feature-name, and small index metadata;
 - fold definitions, convergence decisions, and scalar control flow;
 - scalar distribution functions unavailable in Torch;
-- user-facing summaries intentionally represented as NumPy or Python scalars;
-- external validation libraries that only accept CPU arrays.
+- user-facing summaries intentionally represented as NumPy or Python scalars.
 
-These boundaries are model-specific. A global claim that every intermediate remains on
-GPU would be incorrect. Full-design transfers or backend changes must not occur as a
-silent fallback.
+For a GPU-only workload, check the model's device and inference restrictions as well
+as the returned array's device. A GPU tensor alone does not establish that every
+part of the calculation ran on GPU.
 
 ## Dtype and Numerical Precision
 
@@ -196,9 +197,6 @@ GPU performance depends on sample size, feature dimension, dtype, kernel or solv
 hardware, synchronization, and memory pressure. Small workloads may be faster on CPU.
 Do not interpret a benchmark from one model or GPU as a universal speed guarantee.
 
-Explicit device requests, model objectives, and result interpretation define the
-user-facing behavior. Batching strategies, automatic switching thresholds, and
-individual hardware measurements can change as implementations are optimized.
 When comparing timings, use the same workload and dtype, include the transfers
 that your application needs, and synchronize the GPU that performed the work.
 

@@ -205,7 +205,7 @@ $$
 
 选择后 OLS 仍属于启发式诊断，不提供一般意义上的选择性推断覆盖保证。其推断以已经选定的正则化参数为条件，也不会改变原始惩罚拟合系数。
 
-设备选择与统计方法正交：显式 `cpu` / `cuda` / `torch` 始终以用户请求为准；只有真正的 `device="auto"` 才允许后端原生的 CuPy 或 Torch-CUDA 输入参与自动路由。`post_selection_ols` 复用拟合解析出的后端；CuPy/Torch 的 `debiased` 推断也会把数值推断留在实际执行的 GPU 后端，包括正态参考分布的标量临界值。残差 `bootstrap` 同样使用拟合时记录的 NumPy/CuPy/Torch 后端和具体设备构造重采样响应、执行子模型的数值重拟合，并保留原拟合的惩罚与调参配置。NumPy 负责生成共用的残差索引序列并保存最终报告数组；这些环节不代表 GPU 上的数值重拟合转到了 CPU。该路径要求 `sample_weight=None` 且 `cov_type="nonrobust"`，加权或 HC/HAC bootstrap 请求会明确报错。它描述给定调参值时惩罚系数的分布，不修正选择带来的不确定性。
+设备选择与统计方法正交：显式 `cpu` / `cuda` / `torch` 始终以用户请求为准；只有真正的 `device="auto"` 才允许后端原生的 CuPy 或 Torch-CUDA 输入参与自动路由。`post_selection_ols` 复用拟合解析出的后端；CuPy/Torch 的 `debiased` 推断也会把数值推断留在实际执行的 GPU 后端，包括正态参考分布的标量临界值。残差 `bootstrap` 同样使用拟合时记录的 NumPy/CuPy/Torch 后端和具体设备构造重采样响应、执行子模型的数值重拟合，并保留原拟合的惩罚与调参配置。最终报告数组为 NumPy 数组。该路径要求 `sample_weight=None` 且 `cov_type="nonrobust"`，加权或 HC/HAC bootstrap 请求会明确报错。它描述给定调参值时惩罚系数的分布，不修正选择带来的不确定性。
 
 对于带截距的 `debiased` 推断，公开 `coef_`/`intercept_` 继续属于 **惩罚预测拟合**。推断/报告使用纠偏（debiased）斜率 `_params[1:]`，以及与它们配套的原始坐标系截距 `_params[0] = ybar_w - xbar_w @ _params[1:]`；因此第一行标准误/z 值/p 值/置信区间（SE/z/p-value/CI）描述的是该纠偏报告截距，而不是预测 `intercept_`。结果元数据会记录 `intercept_estimator="centered_debiased"` 与 `intercept_influence="centered_nodewise"`。分析权重在 NumPy/CuPy/Torch 上使用同一个加权中心化平均损失问题，因此整体乘以正常数不会改变这套推断。
 
@@ -295,7 +295,7 @@ print("Weighted training R2:", round(weighted_r2, 3))
 
 ## 可选 GPU 使用
 
-要在 GPU 上重复前面的[预测拟合](#cpu-data)，保持准备好的数据及 `solver="fista"`，仅将 `device` 改为 `"cuda"`（CuPy CUDA）或 `"torch"`（Torch CUDA）。相应后端必须已安装且可用，显式请求不会静默切换到 CPU。无需重新生成数据或另写一套拟合流程，详见[设备与内存](../guides/device-and-memory.md)。性能取决于数据维度、类型、硬件、数据位置与传输成本，应对实际工作负载进行测试。
+要在 GPU 上重复前面的[预测拟合](#cpu-data)，保持准备好的数据及 `solver="fista"`，仅将 `device` 改为 `"cuda"`（CuPy CUDA）或 `"torch"`（Torch CUDA）。相应后端必须已安装且可用，显式请求不会静默切换到 CPU。详见[设备与内存](../guides/device-and-memory.md)。性能取决于数据维度、类型、硬件、数据位置与传输成本，应对实际工作负载进行测试。
 
 ## 输出属性
 
@@ -322,7 +322,7 @@ print("Weighted training R2:", round(weighted_r2, 3))
 - 显式 `device="cuda"` 或 `device="torch"` 要求对应的 GPU 后端可用，不会静默转到 CPU。详见[设备与内存](../guides/device-and-memory.md)。
 - 改用其他求解器前先核对[求解器与惩罚兼容矩阵](../guides/solver-penalty-matrix.md)，`device` 不能替代 `solver`。
 
-[完整 ElasticNet API 参考](../reference/linear-model-api.md#elasticnet)包含 `predict(X, return_cpu=True)`、加权 `score(X, y, sample_weight=None)`、公式输入、报告字段与推断限制。继承方法见[共享参考](../reference/estimator-api.md)。另请查阅 [ElasticNetCV 构造参数](../reference/linear-model-api.md#elasticnetcv)与含可运行示例的 [CV 流程/结果](../reference/linear-model-api.md#cv-methods-and-results)，直接拟合和 CV 参数不同。源码可辅助理解，不能代替这些接口约定。
+[完整 ElasticNet API 参考](../reference/linear-model-api.md#elasticnet)包含 `predict(X, return_cpu=True)`、加权 `score(X, y, sample_weight=None)`、公式输入、报告字段与推断限制。继承方法见[共享参考](../reference/estimator-api.md)。另请查阅 [ElasticNetCV 构造参数](../reference/linear-model-api.md#elasticnetcv)与含可运行示例的 [CV 流程/结果](../reference/linear-model-api.md#cv-methods-and-results)，直接拟合和 CV 参数不同。
 
 ### 调整接近 Ridge 的混合比例
 

@@ -48,7 +48,7 @@ The fixed-X function/class accepts only the shared subset shown in its signature
 | `q` | `0.1` | Finite target rate in `(0,1)`; validate before calling because NaN currently passes the internal check. Not a confidence level for coefficients. |
 | `method` | `"corr_diff"` | `corr_diff`, `ols_coef_diff`, `lasso_coef_diff`; original-minus-knockoff importance statistic. |
 | `fdr_control` | `"knockoff_plus"` | `knockoff_plus` uses offset 1, `knockoff` offset 0. The latter has a different modified-FDR guarantee under the applicable theory. |
-| `random_state` | `None` | Integer seed for construction/statistic fitting where stochastic. Native Torch model-X uses a local seeded generator; see construction repeatability and `None` behavior below. |
+| `random_state` | `None` | Integer seed for construction/statistic fitting where stochastic. For native Torch model-X repeatability and `None` behavior, see below. |
 | `backend` | `"auto"` | `numpy`, `cupy`, `torch`, or auto inferred from arrays. `torch` selects the library; native fixed-X and model-X construction follow X's device. See [Torch device placement](#torch-device-placement). This differs from estimator `device="torch"`, which requests CUDA. |
 | `Xk` | `None` | Optional external knockoff matrix `(n,p)`; supplied to functions or selector.fit, never selector constructor. Validity is the caller’s responsibility; shape alone does not establish exchangeability. |
 | `compat_mode` | `"statgpu"` | `statgpu` or `knockpy`; compatibility controls change construction/statistic conventions and can require optional packages/CPU work. |
@@ -92,8 +92,7 @@ the shared statistic name.
 
 `backend="torch"` selects the Torch library; it does not itself request CUDA.
 Native fixed-X construction and generated model-X construction
-(`compat_mode="statgpu"`, `Xk=None`) follow X.device. For model-X, both the local
-random generator and the random matrix are created on that device. Torch CPU
+(`compat_mode="statgpu"`, `Xk=None`) follow X.device. Torch CPU
 input remains on CPU even when CUDA is available; CUDA input retains its GPU
 index rather than using a different default device. Keep X/y/Xk on the same
 device for native statistics. This applies to `model_x_knockoff_filter`,
@@ -126,9 +125,8 @@ Lasso cache limitation below and from construction's device/seed behavior.
 
 ### Seeded Torch model-X construction
 
-With `compat_mode="statgpu"` and `Xk=None`, an integer `random_state` seeds a
-local Torch generator for each construction draw without advancing the global
-Torch RNG. Repeated construction with the same inputs and settings is
+With `compat_mode="statgpu"` and `Xk=None`, an integer `random_state` makes
+construction draws repeatable without advancing the global Torch RNG. Repeated construction with the same inputs and settings is
 repeatable within the same backend, dtype, device and software environment.
 This is not a cross-backend or cross-GPU equality guarantee, or a guarantee of
 empirical FDR control. The behavior also applies through `knockoff_filter`

@@ -391,7 +391,7 @@ penalized_cv = PenalizedGLM_CV(
 
 This branch keeps the `(time, event)` target two-dimensional, forbids an
 intercept, evaluates unpenalized held-out partial likelihood, and requires
-finite evidence from every evaluable fold. If no alpha satisfies that contract,
+finite validation scores from every evaluable fold. If no alpha meets this requirement,
 fit raises and publishes no selected alpha or fitted estimator. The final refit
 is `PenalizedCoxPHModel(compute_inference=False)`; post-selection coefficient
 inference, `two_stage`, sample weights, and dictionary targets are unsupported.
@@ -433,10 +433,8 @@ object supplies its own ratio. Pure L2 (`l1_ratio=0`) has no finite all-zero KKT
 threshold and uses the raw zero-score norm as a documented grid heuristic.
 
 For large `device="auto"` searches, Torch and CuPy are selected only after their
-CUDA backend reports an operational device. Generic fallback sizing uses only
-evaluable folds whose training and validation partitions both contain events;
-other normalized folds remain visible in `failure_path` but do not inflate GPU
-work. An importable but unusable CuPy installation therefore falls back to
+CUDA backend reports an operational device. Folds that cannot be evaluated
+remain recorded in `failure_path`. An importable but unusable CuPy installation falls back to
 CPU; explicit `device="cuda"` remains strict and raises instead of falling
 back.
 
@@ -450,7 +448,7 @@ prediction requires one known stratum label per prediction row, including when
 the fit contained only one explicit stratum. Missing or unseen labels raise
 `ValueError`.
 
-`score()` uses the same row-label encoder: supplied strata must have shape
+For `score()`, supplied strata must have shape
 `(n_samples,)`, labels must be known when the model was explicitly stratified,
 and a multi-stratum fitted model requires scoring labels. Malformed scalar,
 two-dimensional, wrong-length, or unseen labels consistently raise
@@ -462,8 +460,7 @@ A fitted stratum with no observed failures has a valid empty baseline-hazard
 state. Its cumulative baseline hazard is zero at every time, so
 `predict_survival()` returns exactly one for that stratum. This applies to
 explicit times, automatically selected times, mixed-stratum prediction rows,
-and the delegated `CoxPHCV` path; a mismatched stored time/hazard shape remains
-an invalid state.
+and `CoxPHCV` predictions.
 
 `predict_risk_score()` returns the unexponentiated log-risk. Hazard-ratio
 prediction APIs use one strict float64 exponential boundary across canonical,
@@ -646,11 +643,9 @@ elementary-symmetric dynamic program. The same counting-process risk-set engine
 is used for delayed entry, strata, Exact ties, L2-penalized fits, and GPU robust
 inference, which keeps the `(start, stop]` convention consistent across backends.
 `CoxPH` and `CoxPHCV` accept one-dimensional stratum, subject, and cluster
-labels and encode them internally. Exact dynamic programming avoids enumerating
+labels. Exact dynamic programming avoids enumerating
 all event subsets, but its computation and memory needs still increase with data
-size, tied-event group size, and feature count. Ordinary right-censored data can
-reuse calculations across nested risk sets; delayed-entry data use a calculation
-suited to their risk-set structure.
+size, tied-event group size, and feature count.
 
 When a temporary workspace exceeds its configured limit, the selected backend
 uses a lower-memory algorithm rather than silently switching to CPU.
@@ -887,7 +882,7 @@ blanket guarantee for the current version or every dataset and device.
 - Exact ties use dynamic programming; large risk sets or tied-event groups can still require substantial computation and memory, also depending on feature count.
 - frailty/random-effect terms are not implemented;
 - optional `torch.compile` acceleration requires compatible Triton-capable
-  hardware and is not part of the portable correctness contract.
+  hardware; it is not required for fitting.
 
 ## References
 

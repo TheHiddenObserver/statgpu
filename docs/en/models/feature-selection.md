@@ -148,7 +148,7 @@ categorical values. The selector's `fit` has no `sample_weight`, `formula`, or
 
 | API | Result |
 |---|---|
-| `fit(X, y)` | Returns `self`; repeated fitting clears histories and caches. |
+| `fit(X, y)` | Returns `self`; repeated fitting restarts the selection history. |
 | `transform(X)` | Returns retained columns, in sorted original-column order; can have shape `(n, 0)`. Use `fit(...).transform(...)` to fit and transform. |
 | `predict(X)` | Selects columns internally and delegates to the final model. Supply the original feature layout. |
 | `score(X, y)` | Delegates to the final model; for `LinearRegression`, this is $R^2$. |

@@ -10,4 +10,4 @@ Choose a documentation entry point:
 - [Release guide](../RELEASING.md)
 - [Changelog](en/changelog.md)
 
-The language-specific portals and method inventory describe the current public capabilities. Development architecture, validation evidence, and historical engineering records are kept in their repository-specific locations rather than duplicated in the user portal.
+Start with Quickstart for a first fit, or use the method inventory to find a model and its supported options.

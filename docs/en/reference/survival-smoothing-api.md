@@ -52,8 +52,7 @@ CoxPHCV.fit(X, time, event=None, entry=None, cluster=None, *, start=None, strata
 `FloatingPointError`. A finite-input fit raises it if public coefficients,
 partial likelihood or coefficient hazard ratios cannot be represented. CV may
 exclude such a numerical candidate; input, programming, allocation and backend
-failures retain their own errors and must not be hidden by broad exception
-handling. See [fit failure semantics](../models/coxph.md#outputs). A nonconverged
+failures stop CV and propagate their errors. See [fit failure semantics](../models/coxph.md#outputs). A nonconverged
 returned fit is a separate condition: inspect `converged_` and its stopping
 diagnostics before interpretation.
 
@@ -302,7 +301,7 @@ before fitting, and apply the density Jacobian when reporting KDE in the
 original units. See [small coordinate scales](../models/nonparametric.md#small-coordinate-scales)
 for the transformation, an observed counterexample, and validation limits.
 
-KDE and kernel regression currently have explicit-device exceptions. With NumPy or Torch CPU inputs, `device="torch"` plus `backend="auto"` or `"torch"` can still fit and predict on Torch CPU. Explicit `backend="torch"` can likewise run on CPU with `device="cuda"`; `backend="numpy"` overrides either accelerator request. Inspect `samples_` and density/prediction array placement, using Torch `.device`/`.is_cuda` or CuPy `.device`; NumPy arrays are on CPU. The configured `device` and `backend_` alone are insufficient. For a predictable CPU path, use NumPy inputs with `device="cpu", backend="numpy"`. These are exceptions to the intended strict device convention, not new device meanings; see [device guidance](../guides/device-and-memory.md).
+KDE and kernel regression currently have explicit-device exceptions. With NumPy or Torch CPU inputs, `device="torch"` plus `backend="auto"` or `"torch"` can still fit and predict on Torch CPU. With `device="cuda", backend="auto"`, an unavailable CuPy backend can select Torch when Torch CUDA is available; NumPy or Torch CPU input can then remain on CPU. Explicit `backend="torch"` can likewise run on CPU with `device="cuda"`; `backend="numpy"` overrides either accelerator request. Inspect `samples_` and density/prediction array placement, using Torch `.device`/`.is_cuda` or CuPy `.device`; NumPy arrays are on CPU. The configured `device` and `backend_` alone are insufficient. For a predictable CPU path, use NumPy inputs with `device="cpu", backend="numpy"`. If your workflow requires GPU execution, reject CPU-resident results rather than continuing with them; see [device guidance](../guides/device-and-memory.md).
 
 Fitted attributes: `samples_` `(n,p)`, normalized `weights_` `(n,)`, scalar `bandwidth_factor_`, `bandwidth_info_` (selection result or `None` for numeric bandwidth), `covariance_` and `inv_covariance_` `(p,p)`, scalar `norm_const_` and `inv_norm_const_`, `kernel_`, `backend_`, `n_samples_`, and `n_features_`. `to_numpy_metadata()` returns a dictionary with `bandwidth_factor`, `bandwidth_selection`, `n_samples`, `n_features`, `backend`, `kernel`, `covariance`, `inv_covariance`, and `weights`; arrays are host NumPy arrays.
 

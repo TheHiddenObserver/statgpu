@@ -13,7 +13,7 @@ the linked model pages.
 | Page | Content |
 |---|---|
 | [Loss Functions](losses.md) | Loss definitions and per-sample formulas |
-| [Solver Algorithms](../guides/solver-algorithms.md) | Public and internal solver implementations |
+| [Solver Algorithms](../guides/solver-algorithms.md) | Solver update formulas and applicability |
 | [Loss × Penalty × Solver Framework](../guides/loss-penalty-solver-framework.md) | Dispatch logic and compatibility |
 | [Solver × Penalty Matrix](../guides/solver-penalty-matrix.md) | Explicit solver routing and restrictions |
 | [Inference API](../guides/inference-api.md) | Covariance, resampling, and inference interfaces |
@@ -55,8 +55,7 @@ and estimation-only output is sufficient.
 The [Cox model page](coxph.md) is the authoritative user-facing source for
 Breslow/Efron/Exact ties, delayed-entry and `(start, stop]` data, strata,
 robust/cluster inference, subject-grouped CV, prediction boundaries, and the
-NumPy/CuPy/Torch support matrix. Internal module ownership and extension rules
-are documented in [`dev/design/ARCHITECTURE.md`](../../../dev/design/ARCHITECTURE.md#5-survival--cox-architecture).
+NumPy/CuPy/Torch support matrix.
 
 ## Specialized Statistical Modules
 
@@ -85,11 +84,9 @@ are documented in [`dev/design/ARCHITECTURE.md`](../../../dev/design/ARCHITECTUR
 
 ## Current Coverage Principles
 
-- NumPy, CuPy, and Torch are distinct execution backends; explicit device requests do
-  not silently select another backend.
+- NumPy, CuPy, and Torch are distinct array backends. Check the [device guide](../guides/device-and-memory.md) and model-specific limitations before relying on accelerator placement.
 - Backend support may differ by solver, penalty, inference method, and optional
   dependency. Consult the detailed compatibility matrix instead of relying on a single
   global count.
-- Validation claims are scoped to the exact model, backend, hardware, and commit tested.
-- Historical release and benchmark records are evidence snapshots, not current support
-  matrices.
+- Consult the model page for its statistical definition, input restrictions,
+  prediction, inference, and CV behavior.

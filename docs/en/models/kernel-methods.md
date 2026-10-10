@@ -103,9 +103,7 @@ $$
 ## Kernel Ridge Cross-Validation
 
 `KernelRidgeCV` evaluates a grid of regularization parameters across CV folds and
-refits the selected value on the complete dataset. Backend-specific
-implementations may reuse a kernel eigendecomposition or vectorize the alpha
-sweep rather than solving every system independently.
+refits the selected value on the complete dataset.
 
 Selection minimizes mean validation MSE, averaged equally over folds and response columns. `alpha_` is the chosen value; `best_score_` is the mean fold R-squared at that value, not the MSE used for selection. `cv_results_` contains `alphas`, `mean_mse`, `mse_table`, `mean_r2`, `r2_table`, `best_alpha`, and `best_score`. Tables have shape `(n_alphas, n_folds, n_targets)`; means have shape `(n_alphas, n_targets)`.
 

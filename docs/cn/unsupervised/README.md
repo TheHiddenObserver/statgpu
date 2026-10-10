@@ -7,7 +7,7 @@
 
 ## 概览
 
-`statgpu.unsupervised` 提供 sklearn 风格的无监督学习估计器，并遵循显式 CPU、CuPy/CUDA、Torch CUDA 设备语义。本目录按模型拆分，说明各自的目标函数、估计过程、后端行为、输出字段、限制与外部验证方式。
+`statgpu.unsupervised` 提供 sklearn 风格的无监督学习估计器，并遵循显式 CPU、CuPy/CUDA、Torch CUDA 设备语义。可以通过下方模型指南比较目标函数、选择参数、解释拟合输出，并检查设备与输入限制。
 
 ## 从你的问题选择模型
 
@@ -63,7 +63,7 @@ print("held-out reconstruction MSE:", round(float(np.mean((X_test - X_reconstruc
 
 - [PCA](pca.md)：精确或随机化（randomized）主成分分析。
 - [KMeans](kmeans.md)：Lloyd 迭代聚类，支持 random 与贪心 k-means++ 初始化。
-- [DBSCAN](dbscan.md)：稠密欧氏距离的密度聚类，支持可选的 statgpu 自有 Cython CPU 快速路径。
+- [DBSCAN](dbscan.md)：稠密欧氏距离的密度聚类，可使用编译扩展加速 CPU 计算。
 - [GaussianMixture](gaussian-mixture.md)：支持 `diag`（对角协方差）、`spherical`、`tied`、`full` 四种协方差结构的高斯混合模型，用 EM 算法拟合。
 - [NMF](nmf.md)：在 Frobenius 损失下用乘性更新求解的非负矩阵分解。
 - [AgglomerativeClustering](agglomerative-clustering.md)：稠密数据的精确层次聚类，支持 single、complete、average、ward 连接。
@@ -97,6 +97,6 @@ print("held-out reconstruction MSE:", round(float(np.mean((X_test - X_reconstruc
 
 比较不同实现时，应对齐目标函数、初始化、容差和预处理。具体限制及数值注意事项见各模型指南；应检查输出有限性，以及模型提供的收敛状态。性能应针对自己的完整工作负载重新测量。
 
-外部数值对照不代表所有生产路径都不依赖这些软件包。例如，CPU `DBSCAN` 在特征数大于 12 时，会调用 scikit-learn 的 `NearestNeighbors` 搜索邻居；聚类与标签分配由 statgpu 完成。具体依赖与执行边界见 [DBSCAN 指南](dbscan.md)。
+在 CPU 上用 `DBSCAN` 处理超过 12 个特征时，需安装 scikit-learn，因为该配置使用其 `NearestNeighbors` 搜索邻居。依赖、内存要求和已知限制见 [DBSCAN 指南](dbscan.md)。
 
 当前具体限制见 [UMAP](umap.md) 和 [DBSCAN](dbscan.md)；支持 CPU 不代表每种参数与数据组合都可靠。

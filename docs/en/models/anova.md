@@ -120,8 +120,8 @@ locate differences.
 ## Two-Way ANOVA
 
 `f_twoway` analyzes a balanced two-factor design. It tests factor A, factor B,
-and, when requested, the interaction. Unbalanced cell sizes are rejected until
-the public API exposes an explicit Type I, II, or III sums-of-squares convention.
+and, when requested, the interaction. Unbalanced cell sizes are rejected; the
+API does not offer a Type I, II, or III sums-of-squares choice.
 When `interaction=False`, the additive model uses the remaining interaction
 variation in the residual term.
 
@@ -291,8 +291,8 @@ For contributor details, see the [validation reference](../../../dev/reviews/pr1
 ### Does Torch input require `backend="torch"`?
 
 Use `backend="torch"` for an explicit Torch execution request. `"auto"` may infer
-the backend from input type, but explicit selection is preferable in tests and
-benchmarks.
+the backend from input type. Select it explicitly when your analysis requires
+a particular array backend.
 
 ### Why can the returned p-value be a Python scalar?
 

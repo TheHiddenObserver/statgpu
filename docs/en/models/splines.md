@@ -156,7 +156,7 @@ where $r = \|x - \xi_j\|$ is the Euclidean distance to knot $\xi_j$. For 1-D dat
 
 ## Estimating Equation
 
-Evaluation is a direct recursive computation; no linear system is solved. For `cyclic_cubic_spline_basis`, the null space of the periodicity constraint matrix is computed via SVD. For `thin_plate_spline_basis`, pairwise distances are computed via vectorized broadcasting. `SplineTransformer` evaluates each feature with its own backend-native Cox–de Boor recurrence and explicit extrapolation semantics.
+Evaluation is a direct recursive computation; no linear system is solved. For `cyclic_cubic_spline_basis`, the null space of the periodicity constraint matrix is computed via SVD. `SplineTransformer` evaluates each feature with its own backend-native Cox–de Boor recurrence and explicit extrapolation semantics.
 
 ## Covariance / Inference
 
@@ -166,8 +166,7 @@ Spline basis functions are deterministic computational utilities. They do not pr
 
 `SplineTransformer.fit()` learns knots and `transform()` constructs the basis
 using NumPy/CuPy/Torch recurrence for `error`, `constant`, `linear`, and polynomial
-`continue` modes. When inputs change backend, fitted knot metadata is transferred
-as needed; the full training design is not transferred.
+`continue` modes.
 
 Current device selection has an exception: a supplied Torch tensor takes priority
 over `device`. Torch CPU inputs can leave both fitted knots and transformed features
@@ -175,8 +174,9 @@ on CPU even with explicit `device="torch"` or `device="cuda"`. With NumPy inputs
 unavailable explicit accelerator can instead raise. Inspect each array in `knots_`
 and the returned basis, not just `model.device`: Torch `.device` and `.is_cuda`
 show placement, CuPy `.device` identifies the GPU, and NumPy arrays are on CPU.
-For a predictable CPU path, use NumPy inputs with `device="cpu"`. This limitation
-does not redefine the intended strict [device convention](../guides/device-and-memory.md).
+If CUDA execution is required, reject CPU outputs before using them. For a
+predictable CPU path, use NumPy inputs with `device="cpu"`. See the
+[device guide](../guides/device-and-memory.md) for further placement checks.
 
 Backend choice does not itself establish numerical accuracy or speed on your workload; validate the basis and boundary behavior required by your analysis.
 
@@ -431,7 +431,7 @@ Other low-level functions follow the same backend-array and matching-`xp` conven
 - **When to use cyclic cubic splines?** Periodic structure, such as day-of-year or angle, calls for a periodic model. The current function does not reliably enforce periodic derivatives; use a verified periodic basis instead.
 - **When to use thin plate splines?** Thin plate splines are designed for multi-dimensional smoothing. Unlike B-splines, which are inherently 1-D, thin plate splines naturally handle $d$-dimensional inputs using radial basis functions.
 - **SplineTransformer vs calling bspline_basis directly?** `SplineTransformer` provides an sklearn-compatible API that handles multiple features, automatic knot placement, and pipeline integration. Use it when building preprocessing pipelines or when you need `fit`/`transform` semantics.
-- **GPU speedup for splines?** The recurrence is vectorized over observations and remains on-device, but speedup depends on sample size, degree, knot count, and backend. Measure the workload rather than assuming a general speedup.
+- **GPU speedup for splines?** Speedup depends on sample size, degree, knot count, backend, and actual array placement. Check placement as described above and measure your workload.
 
 ## Validation guidance
 

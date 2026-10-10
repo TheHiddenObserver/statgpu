@@ -172,7 +172,7 @@ the query; see the [complete missing-row warning](../reference/linear-model-api.
 |---|---|---|
 | `fit_intercept` | `True` | Usually keep it; omit only when a zero intercept is justified. Do not add a second constant column. Formula syntax controls formula fits. |
 | `device` | `"auto"` | Use `"cpu"` for these examples; `"cuda"` requests CuPy CUDA and `"torch"` requests Torch CUDA. Only `"auto"` may select another available backend. |
-| `n_jobs` | `None` | Shared estimator configuration; this wrapper does not expose a parallel subset search or a solver-worker tuning loop. |
+| `n_jobs` | `None` | Accepted as shared estimator configuration; does not control parallel fitting in this class. |
 | `compute_inference` | `True` | Set `False` when only fitting/prediction is needed. `summary()` then raises. |
 | `gpu_memory_cleanup` | `False` | Best-effort GPU memory cleanup; see the [device and memory guide](../guides/device-and-memory.md). |
 | `cov_type` | `"nonrobust"` | Choose based on the error structure, using the table below. |

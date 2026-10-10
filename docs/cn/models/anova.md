@@ -114,7 +114,7 @@ F 统计量约为 `22.079`，P 值约为 `4.89e-6`，eta-squared 约为 `0.100`�
 ## 双因素 ANOVA
 
 `f_twoway` 用于平衡双因素设计，可检验因子 A、因子 B 以及可选的交互项。
-在公共 API 明确 Type I、II 或 III 平方和约定之前，不平衡单元格会被拒绝。
+单元格不平衡时会报错；该 API 不提供 Type I、II 或 III 平方和约定选项。
 当 `interaction=False` 时，使用加性模型，剩余交互变异进入残差项。
 
 ### 参数
@@ -264,8 +264,8 @@ CPU 标量分布调用只是执行边界，不是另一套近似 ANOVA 公式。
 
 ### Torch 输入是否必须指定 `backend="torch"`？
 
-显式 Torch 执行应使用 `backend="torch"`。`"auto"` 可以根据输入类型推断，
-但测试和 benchmark 中推荐显式指定。
+显式 Torch 执行应使用 `backend="torch"`。`"auto"` 可以根据输入类型推断；
+分析需要特定数组后端时，请显式指定。
 
 ### 为什么返回的 p 值可能是 Python 标量？
 

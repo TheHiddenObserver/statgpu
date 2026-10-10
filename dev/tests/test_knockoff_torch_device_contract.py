@@ -323,8 +323,10 @@ def test_bilingual_docs_describe_device_seed_scope_and_valid_external_pairs(lang
                          "X/y/Xk", "Torch CPU", "KnockoffSelector",
                          "torch-device-placement", "random_state=None", "dtype", "CPU Lasso"):
             assert required in text
+        # Protect observable device/seed behavior, not the private RNG machinery.
         if language == "en":
-            for required in ("local", "random generator", "random matrix", "GPU index",
+            assert "repeatab" in text and "without advancing" in text
+            for required in ("GPU index",
                              "externally validated", "exchangeability", "conditional independence",
                              "global Torch RNG", "cross-backend", "cross-GPU", "empirical FDR",
                              "seed 0", "same construction noise", "Lasso cache limitation"):
@@ -333,7 +335,8 @@ def test_bilingual_docs_describe_device_seed_scope_and_valid_external_pairs(lang
                              "currently draws from the global", "seed limitation below"):
                 assert obsolete not in text
         else:
-            for required in ("局部", "随机数生成器", "随机矩阵", "GPU 编号", "外部验证",
+            assert "可重复" in text and "不推进" in text
+            for required in ("GPU 编号", "外部验证",
                              "交换性", "条件独立性", "全局 Torch", "跨后端", "跨 GPU",
                              "实际 FDR", "种子 0", "相同的构造噪声", "Lasso 缓存限制"):
                 assert required in text

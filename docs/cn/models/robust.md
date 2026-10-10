@@ -251,18 +251,18 @@ coef, n_iter = fista_solver(
 
 ### SCAD / MCP
 
-非凸惩罚通过 LLA 转换成局部加权凸问题，再由 FISTA 系列内层求解。当前通用 Proximal Newton 不把欧氏近端近似当作 Hessian 度量近端子问题，因此非光滑请求不会静默走旧的 Proximal-Newton 快捷路径。
+非凸惩罚通过 LLA 转换成局部加权凸问题，再由 FISTA 系列内层求解。对于非光滑惩罚，底层 `proximal_newton_solver` 会发出 `RuntimeWarning` 并使用 FISTA，因为该求解器没有实现 Hessian 度量近端子问题。
 
 ### Huber IRLS 的当前状态
 
-`HuberLoss.irls()` 当前是明确拒绝的占位入口，且 `_supports_irls=False`，因此 `PenalizedRobustRegression(..., solver="irls")` 不会进入 Huber IRLS。固定阈值 Huber 的标准 IRLS 权重
+`HuberLoss.irls()` 会抛出 `NotImplementedError`。对 Huber 回归，`PenalizedRobustRegression(..., solver="irls")` 会抛出 `ValueError`。固定阈值 Huber 的标准 IRLS 权重
 
 $$
 w_i=\frac{\psi_\delta(r_i)}{r_i}
 =\min\left(1,\frac{\delta}{|r_i|}\right)
 $$
 
-与 Huber 一阶条件具有直接关系。这说明 Huber 可以自然地构造 IRLS 更新，但当前公开 API 并未把该路径声明为受支持能力；显式请求该组合时应明确拒绝，而不是静默切换到其他求解器。
+与 Huber 一阶条件具有直接关系。因此，Huber 可以自然地构造 IRLS 更新，但该 API 不支持这一算法。L2/无惩罚 Huber 拟合可用 Newton；受支持的近端惩罚可用 FISTA。
 
 ## 输出
 

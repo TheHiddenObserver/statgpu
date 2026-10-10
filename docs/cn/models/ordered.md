@@ -96,11 +96,11 @@ P(y=k | X) = F(θ_k - Xβ) - F(θ_{k-1} - Xβ)
 
 Newton-Raphson + 信赖域正则化（三端统一）：
 
-| 后端 | 算法 | 说明 |
+| 后端 | 算法 | 设备设置 |
 |------|------|------|
-| numpy (CPU) | Newton-Raphson + 向量化解析 Hessian | NumPy `linalg.solve` |
-| cupy (GPU) | Newton-Raphson + 向量化解析 Hessian | CuPy 数值计算，每次迭代有标量同步 |
-| torch (GPU) | Newton-Raphson + 向量化解析 Hessian | Torch 原生，使用 `torch.linalg.solve` |
+| numpy (CPU) | Newton-Raphson + 向量化解析 Hessian | `device="cpu"` |
+| cupy (GPU) | Newton-Raphson + 向量化解析 Hessian | `device="cuda"` |
+| torch (GPU) | Newton-Raphson + 向量化解析 Hessian | `device="torch"` |
 
 迭代预算与容差控制数值优化。数值正则化用于稳定 Newton 步，并不是普通 GLM 中由 C 控制的统计斜率惩罚。
 

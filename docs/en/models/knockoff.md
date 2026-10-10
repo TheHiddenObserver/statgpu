@@ -278,7 +278,7 @@ fixed-X pair, statistic and target unchanged and require usable CUDA backends.
 The QR pair is a fixed-X example, not an exchangeability construction for model-X.
 For model-X, choose a construction appropriate to the feature distribution.
 
-Here `backend="torch"` selects the Torch library, unlike estimator `device="torch"`, which requests CUDA. Native fixed-X and generated model-X construction follow X's device. Torch CPU input remains on CPU even when CUDA is available; CUDA input retains its GPU index. For model-X, the local random generator and random matrix both use that device. See [Torch device placement](../reference/feature-selection-api.md#torch-device-placement).
+Here `backend="torch"` selects the Torch library, unlike estimator `device="torch"`, which requests CUDA. Native fixed-X and generated model-X construction follow X's device. Torch CPU input remains on CPU even when CUDA is available; CUDA input retains its GPU index. See [Torch device placement](../reference/feature-selection-api.md#torch-device-placement).
 
 This device preservation applies to construction. Native Torch
 `method="lasso_coef_diff"` tuning/fitting still requests CUDA, including for
@@ -326,8 +326,8 @@ res_torch = fixed_x_knockoff_filter(
 ## Reproducibility of generated Torch model-X
 
 For `knockoff_type="model_x"`, `compat_mode="statgpu"`, and `Xk=None`, an integer
-`random_state` seeds a local Torch generator for each construction draw without
-advancing the global Torch RNG. Repeating construction with the same inputs,
+`random_state` controls construction randomness without advancing the global
+Torch RNG. Repeating construction with the same inputs,
 settings, backend, dtype, device and software environment is repeatable.
 This also applies to `KnockoffSelector`. It does not guarantee cross-backend
 or cross-GPU equality or empirical FDR control, and is separate from the

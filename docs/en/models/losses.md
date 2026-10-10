@@ -9,7 +9,7 @@
 
 `LossBase` is the low-level interface used by statgpu loss functions to expose the data-fit term of an optimization problem. Most users should start from a model class; this page is for readers who need the loss definition itself, its numerical primitives, parameters, or direct loss-level API.
 
-This page deliberately stops at the **loss layer**. Estimator solver selection, penalty-specific routing, CV behavior, inference, and model-level `sample_weight` support belong in the corresponding model and solver documentation.
+For estimator solver selection, penalty compatibility, CV, inference, and model-level `sample_weight` support, use the model and solver guides linked below.
 
 Related documentation:
 
@@ -287,7 +287,7 @@ fitting, survival prediction and the model-specific inference workflow.
 
 Loss evaluation follows the selected NumPy, CuPy, or Torch backend when the concrete loss supports that operation. Backend parity describes numerical execution; it does not by itself establish model-level solver, weighting, CV, or inference support.
 
-Cox preprocessing makes a one-time host copy of sorted `time` and `event` values to construct deterministic failure-group metadata. The resulting indices are cached on the selected device, while the design matrix, linear predictor, objective, gradient, and Hessian remain on the numerical backend during iterative computation.
+Cox preprocessing copies sorted `time` and `event` values to CPU. The design matrix, linear predictor, objective, gradient, and Hessian use the selected numerical backend during iteration.
 
 ## Where to go next
 

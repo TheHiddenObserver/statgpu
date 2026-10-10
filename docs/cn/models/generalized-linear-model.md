@@ -115,8 +115,6 @@ print("Interval shape:", model._conf_int.shape)
 - `statgpu.linear_model.Lasso`
 - `statgpu.linear_model.ElasticNet`
 
-内部 GLM 目标函数层为 `statgpu.glm_core`。
-
 ## 目标函数与 `sample_weight`
 
 设 n 为观测数，$x_i$ 为特征向量，$\beta$ 为斜率向量，b 为不受惩罚的截距。记 $\eta_i=b+x_i^\top\beta$；`fit_intercept=False` 时令 b=0。**无惩罚**的数据拟合目标为相应分布族的平均负对数似然，采用该分布族的离散度约定：
@@ -148,7 +146,7 @@ $$
 \text{或}\quad\min_{b,\beta}L_w(b,\beta)+\alpha P(\beta).
 $$
 
-截距仍不受惩罚。`statgpu.glm_core` 专门处理 GLM；Cox 偏似然、稳健损失和分位数损失保留各自的统计定义与文档。
+截距仍不受惩罚。Cox 偏似然、稳健损失和分位数损失的统计定义见各自模型页。
 
 ## 求解器选择
 
@@ -289,7 +287,7 @@ assert prediction.shape == (5,)
 
 ## 严格与近似交叉验证
 
-`PenalizedGLM_CV` 默认使用 `cv_strategy="strict"`。严格模式下，每个交叉验证折和每个 `alpha` 都使用用户给定的 `max_iter` 与 `tol`；GPU 优化只改变实现效率，不改变候选模型的求解标准。
+`PenalizedGLM_CV` 默认使用 `cv_strategy="strict"`。严格模式下，每个交叉验证折和每个 `alpha` 都使用用户给定的 `max_iter` 与 `tol`。
 
 可选的 `cv_strategy="two_stage"` 会先用较宽松的求解条件筛选 `alpha` 网格，再严格复核候选 `alpha`，并进行严格的最终重拟合。由于第一阶段可能在非常接近的交叉验证曲线上改变 `alpha` 排名，该模式默认发出 `ApproximateCVWarning`；如果用户明确接受这种近似，可以传入 `acknowledge_approx=True`。
 

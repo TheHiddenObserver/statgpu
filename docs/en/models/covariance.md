@@ -285,9 +285,8 @@ a rank-deficient covariance into fully identified information in every direction
 
 Centering, covariance updates, matrix products, linear algebra, FAST-MCD
 concentration steps, and Graphical Lasso coordinate updates remain on the
-selected numerical backend where implemented. Small integer index metadata,
-random-subset bookkeeping, convergence scalars, and scalar chi-squared
-distribution evaluations may cross to CPU.
+selected numerical backend where implemented. Some control and scalar
+distribution calculations use CPU, so do not assume the entire workflow is GPU-resident.
 
 Input validation for empty feature dimensions and NaN/Inf values occurs before
 centering or inversion so invalid data is not misreported as a singular covariance

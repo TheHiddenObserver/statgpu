@@ -66,7 +66,7 @@ $$
 - Store the merge tree as `children_` and merge distances as `distances_`.
 - Cut the tree to produce `n_clusters` labels.
 
-The CPU path delegates exact linkage computation to SciPy hierarchy routines. Explicit CuPy/Torch paths use statgpu-owned backend-resident dense distance matrices. Single linkage builds a minimum spanning tree and assembles the merge tree on CPU; complete, average, and Ward linkage use Lance–Williams updates.
+The CPU path delegates exact linkage computation to SciPy hierarchy routines. Explicit CuPy/Torch paths use dense distance matrices on the selected GPU backend. Single linkage builds a minimum spanning tree and assembles the merge tree on CPU; complete, average, and Ward linkage use Lance–Williams updates.
 
 ## Parameters
 

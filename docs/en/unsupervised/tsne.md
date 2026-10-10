@@ -83,7 +83,7 @@ For a supported GPU installation, construct a new estimator with `device="cuda"`
 
 ## Approximation and interpretation
 
-This is exact dense t-SNE. Barnes-Hut, FFT/FIt-SNE, and openTSNE acceleration are external baselines only.
+This is exact dense t-SNE and requires pairwise arrays whose memory grows quadratically with the number of observations. Barnes-Hut and FFT/FIt-SNE acceleration are not supported.
 
 ## Outputs
 

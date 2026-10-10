@@ -20,5 +20,6 @@ print(diag.cooks_distance)
 print(diag.vif())
 ```
 
-诊断属于报告侧 CPU 工具：拟合数组只复制一次到 NumPy，以调用 SciPy 分布检验并
-生成可读摘要。这是显式边界，不是训练路径的静默回退。
+`RegressionDiagnostics` 在 CPU 上运行，即使模型原先在 GPU 上拟合也是如此。
+创建诊断对象会把所需的已拟合数组转换为 NumPy，因此应预留 CPU 内存和数据传输开销。
+这一操作不会重新拟合模型。

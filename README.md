@@ -11,7 +11,7 @@ GPU-accelerated statistical methods with an sklearn-style API.
 ## Core Features
 
 - 🚀 **Three backends**: NumPy (CPU), CuPy (CUDA), and PyTorch (CUDA), with automatic device selection
-- 🧭 **Explicit backend semantics**: core numerical arrays remain on the selected backend where supported; the device convention requires explicit requests to be respected, with [current kernel/spline routing exceptions](docs/en/guides/device-and-memory.md#current-smoothing-and-spline-exceptions) requiring actual array-placement checks; model-specific metadata, control-flow, and scalar boundaries are documented per method
+- 🧭 **Explicit backend semantics**: choose CPU or GPU execution per model; [current kernel/spline routing exceptions](docs/en/guides/device-and-memory.md#current-smoothing-and-spline-exceptions) can return CPU results despite a GPU request, so check array placement when GPU execution is required. Input, output, and scalar conversions are documented per method
 - 🔧 **sklearn-style estimators**: familiar `fit`/`predict`/`score` methods and parameter conventions
 - 📊 **GLM + robust + quantile + Cox**: Gaussian and non-Gaussian regression, robust losses, quantile regression, and survival analysis
 - 🔥 **Penalty framework**: L1, L2, Elastic Net, SCAD, MCP, adaptive, and grouped penalties
@@ -153,8 +153,8 @@ Historical reports are available for [GLM solvers (2026-06-23)](results/glm_solv
 and [unsupervised methods (2026-06-27)](results/unsupervised_bench_2026-06-27.md).
 Both reports identify Tesla P100 hardware. They are dated snapshots, not
 measurements of the current source or guarantees for another GPU or workload.
-Earlier README tables had inconsistent hardware/report attribution and are
-retained in the [historical attribution record](dev/references/readme-historical-benchmarks.md).
+See the [historical attribution record](dev/references/readme-historical-benchmarks.md)
+for the limitations of older comparison tables.
 
 Check correctness and align the statistical objective before comparing speed.
 A useful benchmark records its source commit, hardware and package versions,
