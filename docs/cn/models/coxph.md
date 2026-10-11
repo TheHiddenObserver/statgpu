@@ -1,7 +1,7 @@
 # CoxPH
 
 > 语言：中文<br>
-> 最后更新：2026-10-09<br>
+> 最后更新：2026-10-11<br>
 > 页面定位：模型文档<br>
 > 切换：[English](../../en/models/coxph.md)
 
@@ -289,9 +289,13 @@ print("Test C-index:", cv_test_cindex)
 `(n_penalties, n_folds)`；`mean_pl` 与 `effective_fold_counts` 的形状均为 `(n_penalties,)`。
 各折贡献偏对数似然总和，不除以行数或事件数。自定义网格中，数值上近似并列时优先较强惩罚，
 因此所选分数可能略小于平均分数最大值。自定义网格按惩罚从强到弱评价，但结果保留输入顺序。
-无法评估候选时，可检查 `converged_path`、`failure_path` 和 `fold_valid`。
-可被选中的候选必须在同一组全部有效折上收敛且分数有限；每个有效折的训练和验证部分都必须有事件。
-没有合格候选时，拟合会报错，不会发布选择结果。
+每个有效折的训练部分和验证部分都必须至少有一个已观察事件。缺少事件的数据折会被排除；
+选择和重拟合仍可能成功，且不会因排除这些折而发出警告。因此，即使拟合成功，
+也应检查 `cv_results_` 中的 `fold_valid`、`failure_path` 和 `effective_fold_counts`。
+缺少事件的折会在 `failure_path` 中记录 `fold_has_no_train_or_test_events`。
+可被选中的候选必须在同一组全部有效折上收敛且分数有限；收敛失败可查看 `converged_path`。
+没有有效折或合格候选时，拟合会抛出 `RuntimeError`，不会发布选择结果；
+索引格式错误或训练/验证索引重叠会抛出 `ValueError`。
 
 `estimator_` 是使用所选 `penalty_`，在全部传入训练行上重拟合的 `CoxPH`。
 `compute_inference=False` 时仍能预测对数风险和风险比，但没有生存曲线及推断结果。
@@ -305,7 +309,7 @@ print("Test C-index:", cv_test_cindex)
 | `n_penalties` | `100` | 自动网格的候选数量。 |
 | `penalty_min_ratio` | `1e-3` | 自动网格最小值/最大值的比值，范围 `(0, 1]`。 |
 | `cv` | `5` | 自动生成的折数，至少为二。 |
-| `cv_splits` | `None` | 显式 `(train_indices, validation_indices)` 对，覆盖自动划分；每组索引应非空、一维、互不重叠，且为范围内的整数。一次性迭代器只读取一次并复用，参数检查或克隆也可能触发首次读取。 |
+| `cv_splits` | `None` | 显式 `(train_indices, validation_indices)` 对，覆盖自动划分；每组索引应非空、一维、互不重叠，且为范围内的整数。接受生成器；重复拟合和克隆都可复用其划分，详见[迭代器使用说明](../reference/survival-smoothing-api.md#拟合与选择)。 |
 | `ties` | `"breslow"` | 候选及重拟合使用 `"breslow"`、`"efron"` 或 `"exact"`。 |
 | `tol` | `1e-9` | 候选及重拟合的收敛容差。 |
 | `max_iter` | `100` | 候选及重拟合的最大迭代次数。 |
@@ -324,8 +328,9 @@ print("Test C-index:", cv_test_cindex)
 
 ### L1/L2/ElasticNet/SCAD/MCP 模型族交叉验证
 
-上面的 `CoxPHCV` 是标准的 L2 Cox 选择器，并可按配置执行最终重拟合推断。
-公开的带惩罚模型族则使用 `PenalizedGLM_CV` 的独立生存分析专用分支：
+需要 L2 Cox 参数选择及可选的最终重拟合推断时，使用 `CoxPHCV`。若需要选择
+L1、L2、ElasticNet、SCAD 或 MCP 惩罚，且不需要系数推断，使用
+`PenalizedGLM_CV(loss="cox_ph", ...)`。
 
 以下补充示例复用[CPU 示例](#第一个-cpu-完整示例)的 `X_train`、`time_train` 与
 `event_train`，测试样本不参与调参。
@@ -348,10 +353,19 @@ penalized_cv = PenalizedGLM_CV(
 ```
 <!-- /example: coxph-penalized-family-cv -->
 
-该分支始终保留二维 `(time, event)` 响应，禁止截距，使用留出数据上的未惩罚偏似然评分，并要求每个可评估的交叉验证折都得到有限的偏似然评分。若不存在满足
-这一要求的 `alpha`，拟合会抛错，并且不会发布已选 `alpha` 或已拟合估计器。最终重拟合使用
-`PenalizedCoxPHModel(compute_inference=False)`；不支持选择后系数推断、`two_stage`、样本权重或字典形式响应。无惩罚别名不可调，因此该 CV
-路径会拒绝，需改为直接拟合模型。
+请将 `y` 组织成 `(n_samples, 2)` 数组，两列依次为 `[time, event]`；Cox 模型不拟合截距。
+每个参与评估的数据折，其训练部分和验证部分都必须至少包含一个事件。缺少事件的折会
+被排除，其余折仍可能完成选择和重拟合，而且不会因排除这些折而发出警告。因此，
+不能只看 `fit()` 是否成功，还应检查 `cv_results_["fold_valid"]`、`failure_path` 和
+`n_effective_folds`。事件数由 `train_event_counts` 和 `validation_event_counts` 提供；
+缺少事件的折会在 `failure_path` 中记录 `missing_training_event` 或 `missing_validation_event`。
+
+选择使用留出数据上的未惩罚偏似然评分，并要求每个可评估折的验证分数都有限。
+没有可评估折，或没有满足要求的 alpha 时，拟合会抛出 `RuntimeError`，且不提供
+已选 alpha 或已拟合估计器；索引格式错误或训练/验证索引重叠会抛出 `ValueError`。
+最终重拟合使用 `PenalizedCoxPHModel(compute_inference=False)`。并列事件处理支持
+通过 `loss_kwargs` 指定 `"breslow"` 或 `"efron"`。不支持选择后系数推断、`two_stage`、
+样本权重或字典形式响应。无惩罚别名不可调，因此会被拒绝，需改为直接拟合模型。
 
 两种 Cox API 的损失尺度不同。`PenalizedCoxPHModel` 最小化
 
@@ -368,7 +382,7 @@ $$
 带惩罚模型族默认 `alpha=1.0`，属于正则化拟合；`CoxPH` 默认 `penalty=0.0`。
 若传入惩罚对象，则使用对象自身的惩罚强度。
 
-带惩罚模型族的 CV 分支先计算每折的 `-ell_validation / n_validation`，
+`PenalizedGLM_CV(loss="cox_ph", ...)` 先计算每折的 `-ell_validation / n_validation`，
 再最小化跨折均值；其 `best_score_` 是所选均值的相反数，即按验证行数
 归一化后再跨折平均的留出对数偏似然。数值上近似并列时优先选择更大的 alpha。
 这与 `CoxPHCV` 对各折总和尺度对数
@@ -629,9 +643,10 @@ $$
 而不是 `A^-1`；后者更接近惩罚曲率或 Laplace 近似下的量，不能直接作为频率学派
 抽样协方差发布。带惩罚的稳健推断同样使用带惩罚的逆曲率矩阵作为两侧矩阵（bread），中间矩阵（meat）仍由未加惩罚的聚合得分外积构成。
 
-因此，标准误、z 统计量、p 值、置信区间与带惩罚 Wald 检验都以给定 `penalty` 为条件，目标是带惩罚的估计方程；它们不是针对无惩罚系数的纠偏推断，也不校正系数收缩偏差，或交叉验证选择 `penalty` 带来的额外不确定性。`CoxPHCV` 从最终重拟合复制相同契约，
-并明确报告 `penalty_selection_adjusted_=False`。沿用 `PenalizedGLM` 的结果命名，
-正 `penalty` 拟合的 `inference_method_` 使用简洁的 `"m_estimation"`；两侧矩阵、中间矩阵、协方差定义、推断目标和条件化方式仍分别保留在推断结果的元数据中。
+因此，标准误、z 统计量、p 值、置信区间与带惩罚 Wald 检验都以给定 `penalty` 为条件，目标是带惩罚的估计方程；它们不是针对无惩罚系数的纠偏推断，也不校正系数收缩偏差，或交叉验证选择 `penalty` 带来的额外不确定性。`CoxPHCV` 最终重拟合的推断也应这样解释，
+并通过 `penalty_selection_adjusted_=False` 明确表示没有校正选择不确定性。
+正 `penalty` 拟合中的 `inference_method_="m_estimation"` 表示估计方程推断；
+两侧矩阵、中间矩阵、协方差定义、推断目标和条件化方式仍分别保留在推断元数据中。
 
 带惩罚拟合会关闭经典似然比检验、得分检验以及 AIC/BIC，不会把惩罚估计
 当作无约束最大似然结果报告。该契约与 `PenalizedCoxPHModel` 分开；后者的

@@ -408,8 +408,11 @@ GeneralizedLinearModel(family='gaussian', fit_intercept=True, max_iter=100, tol=
 筛选后 DataFrame 的索引，并明确对该 DataFrame 预测。
 训练时允许的行过滤及其权重对齐是另一回事。`LinearRegression.score` 还可能
 把唯一保留的预测值广播给多个评价响应，返回无效但有限的 R²。展平单列 y
-不能解决此问题，评分前应核对公式预测行数。Lasso、ElasticNet、Ridge、
-SCADRegression、MCPRegression 和已经测试的惩罚 GLM 专用类会拒绝预测缺失值。
+不能解决此问题，评分前应核对公式预测行数。通过公式拟合的 `Lasso`、`ElasticNet`、
+`Ridge`、`SCADRegression`、`MCPRegression`、`PenalizedLinearRegression`、
+`PenalizedLogisticRegression` 和 `PenalizedPoissonRegression` 则会在公式预测变量
+缺失将导致 DataFrame 预测行被删除时抛出 `ValueError`。这些类也要求数值预测数组
+只含有限值；NaN 或无穷值会触发 `ValueError`。
 
 ## PenalizedGeneralizedLinearModel
 
@@ -466,7 +469,7 @@ PenalizedGLM_CV(loss='squared_error', penalty='l2', alpha_grid=None, n_alphas=10
 | `n_alphas` | `100` | 自动网格的目标候选数。 |
 | `l1_ratio` | `0.5` | 固定的 Elastic Net 混合比例，此类不搜索比例序列。 |
 | `cv` | `5` | 自动生成的随机打乱 K 折数量。 |
-| `cv_splits` | `None` | 显式、互不重叠、非空的整数训练/验证行索引；一次性迭代器会被保存为可重复使用的划分。 |
+| `cv_splits` | `None` | 显式、互不重叠、非空的整数训练/验证行索引，可用列表、元组或一次性迭代器提供；复用规则见下文。 |
 | `random_state` | `0` | 自动生成划分的随机种子。 |
 | `device` | `'auto'` | 显式 cpu/cuda/torch，或按任务规模自动选择；查看 cv_selected_device_。 |
 | `max_iter` | `1000` | 严格折内拟合及最终重拟合的迭代预算。 |
@@ -491,7 +494,9 @@ PenalizedGLM_CV(loss='squared_error', penalty='l2', alpha_grid=None, n_alphas=10
 
 设候选数为 a、折数为 f：`alpha_grid_` 与 `cv_results_["alpha"]` 为 `(a,)`，`mean_score` 为 `(a,)`，`all_scores` 为 `(f,a)`。这些 score 数组存储损失，越小越好。其他键为 `device_sizing_fold_count`、`cv_strategy_`、`cv_selected_device_`、`mean_score_stage1`、`all_scores_stage1`、`refined_mask`。严格模式的第一阶段数组为 None；布尔细化掩码为 `(a,)`。`coef_`、`intercept_` 与 `estimator_` 对应最终全数据拟合。`cv_strategy_` 和 `cv_selected_device_` 也作为属性提供。
 
-当前 `summary(*args,**kwargs)` 在通用最终重拟合推断成功后仍会抛出 AttributeError，因为它委托的估计器没有 summary 方法；未启用推断时则抛出 RuntimeError。可用 `estimator_._inference_result.to_dict()`，或安装 pandas 后用 `to_dataframe()` 读取受支持的推断。报告渲染失败本身不会改变拟合系数。可运行的结果示例见 [GLM 页面](../models/generalized-linear-model.md#reading-cv-inference-results)。共享配置、p 值及重采样方法同样适用；`get_params` 会将一次性自定义划分保存为可复用形式。
+当前 `summary(*args,**kwargs)` 在通用最终重拟合推断成功后仍会抛出 AttributeError，因为它委托的估计器没有 summary 方法；未启用推断时则抛出 RuntimeError。可用 `estimator_._inference_result.to_dict()`，或安装 pandas 后用 `to_dataframe()` 读取受支持的推断。报告渲染失败本身不会改变拟合系数。可运行的结果示例见 [GLM 页面](../models/generalized-linear-model.md#reading-cv-inference-results)。共享配置、p 值及重采样方法同样适用。
+
+对 `PenalizedGLM_CV`，重复 `fit()`、scikit-learn 克隆，以及 pickle 序列化后恢复的估计器，都可以复用同一生成器提供的 `cv_splits`。传给估计器后，不要再单独读取该生成器；如果还需要自行检查各折索引，请先转换为列表。
 
 
 ## Ridge

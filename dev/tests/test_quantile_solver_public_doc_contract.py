@@ -1,6 +1,11 @@
 """Runtime-help and public-documentation placement contracts."""
 
 import inspect
+import re
+
+import pytest
+
+from dev.validation.check_docs_contracts import validate_cv_audience
 from pathlib import Path
 
 from statgpu import glm_core, solvers
@@ -342,18 +347,57 @@ def test_loss_penalty_solver_framework_stays_at_composition_layer():
     assert "[求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md)" in cn
 
 
+def _check_quantile_convergence_caution(text, language):
+    # Bounded semantic relationship: pinball FISTA must be distinguished from
+    # the smooth-gradient theorem. Neither a heading nor unrelated "not" counts.
+    paragraphs = [" ".join(p.split()) for p in re.split(r"\n\s*\n", text)]
+    pattern = (
+        r"(?:not (?:a (?:claim|guarantee)|imply).{0,100}(?:convergence|theory)|"
+        r"convergence assumptions do not apply)"
+        if language == "en" else
+        r"(?:并不意味着|不代表|不保证|不是声称|不满足).{0,90}(?:收敛|假设)"
+    )
+    assert any(
+        "FISTA" in paragraph and "pinball" in paragraph
+        and re.search(pattern, paragraph, re.IGNORECASE)
+        for paragraph in paragraphs
+    ), (language, "missing non-smooth Quantile convergence caution")
+
+
+@pytest.mark.parametrize("language", ("en", "cn"))
+def test_quantile_caution_guard_accepts_paraphrases_and_rejects_removed_warning(language):
+    # Independent fixtures exercise the helper without prescribing the current
+    # document's exact prose. The public-page test below checks the real pages.
+    variants = (
+        ("Quantile FISTA is not a claim that textbook smooth-gradient FISTA convergence theory applies to pinball loss.",
+         "Quantile FISTA is not a guarantee that standard smooth-gradient FISTA convergence theory applies to pinball loss.")
+        if language == "en" else
+        ("这并不意味着 pinball loss 满足教科书中光滑梯度 FISTA 的收敛假设。",
+         "这不保证 pinball loss 满足光滑梯度 FISTA 的收敛假设。")
+    )
+    for caution in variants:
+        _check_quantile_convergence_caution(caution, language)
+        _check_quantile_convergence_caution(caution.replace(" ", "\n"), language)
+    with pytest.raises(AssertionError):
+        _check_quantile_convergence_caution("Quantile input requirements.", language)
+    unsafe = ("pinball FISTA guarantees smooth-gradient convergence theory applies."
+              if language == "en" else "pinball loss 的 FISTA 满足光滑梯度收敛假设。")
+    with pytest.raises(AssertionError):
+        _check_quantile_convergence_caution(unsafe, language)
+
+
 def test_solver_algorithm_pages_preserve_explicit_quantile_fista_contract():
     en = (_ROOT / "docs/en/guides/solver-algorithms.md").read_text(encoding="utf-8")
     cn = (_ROOT / "docs/cn/guides/solver-algorithms.md").read_text(encoding="utf-8")
 
     assert "explicit `solver=\"fista\"` executes ordinary FISTA" in en
-    assert "not a claim that textbook smooth-gradient FISTA convergence theory applies" in en
+    _check_quantile_convergence_caution(en, "en")
     assert "only an explicit `solver=\"fista\"` request selects this ordinary-FISTA path" in en
     assert "an explicit `solver=\"fista\"` request remains authoritative for both CV child fits" in en
     assert "explicit `solver=\"fista\"` fails rather than being silently substituted by IRLS" not in en
 
     assert "显式 `solver=\"fista\"` 则真正执行普通 FISTA" in cn
-    assert "并不意味着 pinball loss 满足教科书中光滑梯度 FISTA 的收敛假设" in cn
+    _check_quantile_convergence_caution(cn, "cn")
     assert "只有显式 `solver=\"fista\"` 才选择这条普通 FISTA 路径" in cn
     assert "该请求对 CV 子拟合和最终全数据重拟合都保持有效并执行普通 FISTA" in cn
     assert "显式 `solver=\"fista\"` 会失败而不是被静默替换成 IRLS" not in cn
@@ -362,6 +406,9 @@ def test_solver_algorithm_pages_preserve_explicit_quantile_fista_contract():
 def test_cross_validation_guide_stays_at_user_selection_layer():
     en = (_ROOT / "docs/en/guides/cross-validation.md").read_text(encoding="utf-8")
     cn = (_ROOT / "docs/cn/guides/cross-validation.md").read_text(encoding="utf-8")
+
+    for language, text in (("en", en), ("cn", cn)):
+        assert not validate_cv_audience(_ROOT / f"docs/{language}/guides/cross-validation.md", text)
 
     assert "candidate" in en
     assert "final refit" in en

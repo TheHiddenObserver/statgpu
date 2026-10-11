@@ -1,13 +1,34 @@
 # CoxPH 设备与 CV 诊断
 
 > 语言：中文  
-> 最后更新：2026-10-07  
+> 最后更新：2026-10-11  
 > 本页：进阶 API 参考  
 > 切换：[English](../../en/reference/coxph-diagnostics.md)
 
 以下字段用于检查已完成的 `CoxPH` 或 `CoxPHCV` 拟合。模型选择、示例、推断和
 统计限制见 [Cox 模型指南](../models/coxph.md)。传输标记描述的是数据移动，
 不能仅凭它判断数值拟合是否在 CPU 上执行。
+
+## 实际参与选择的数据折
+
+`CoxPHCV.fit()` 成功并不保证所有请求的数据折都参与了选择。训练部分或验证部分
+没有已观察事件的数据折会被排除，且不会因排除而发出警告；选择与最终重拟合
+仍可能使用其余折成功完成。请检查 `cv_results_` 中的以下字段：
+
+| 键 | 含义 |
+|---|---|
+| `fold_valid` | 布尔向量，标识训练与验证部分都有事件的数据折。 |
+| `failure_path` | 按惩罚×折记录排除或评估失败原因；缺少事件的折记为 `fold_has_no_train_or_test_events`。 |
+| `effective_fold_counts` | 每个惩罚值对应的有限且已收敛折评分数量。 |
+| `converged_path` | 按惩罚×折记录收敛状态；可被选中的惩罚值必须在每个有效折上收敛且分数有限。 |
+
+没有可评估折或合格惩罚值时，拟合抛出 `RuntimeError`；索引格式错误或训练/验证
+索引重叠时抛出 `ValueError`。如果排除后剩余折数不足以支持有意义的比较，应重新
+检查数据划分设计。
+
+`PenalizedGLM_CV(loss="cox_ph", ...)` 的诊断结构不同，其中包括
+`n_effective_folds`、`train_event_counts` 和 `validation_event_counts`，详见
+[惩罚 Cox 交叉验证](../models/coxph.md#l1l2elasticnetscadmcp-模型族交叉验证)。
 
 ## 主机传输属性
 

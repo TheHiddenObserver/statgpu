@@ -112,13 +112,32 @@ def test_estimator_weight_help_explains_shared_raw_sum_overflow():
         np.testing.assert_allclose((result["statistic"], result["pvalue"]), expected)
 
 
-def test_readme_benchmark_claims_are_bound_to_the_cited_historical_reports():
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    archive = (ROOT / "dev/references/readme-historical-benchmarks.md").read_text(encoding="utf-8")
+def _check_readme_benchmark_provenance(text):
+    readme = " ".join(text.split())
     assert "Benchmark Results (RTX 4090)" not in readme
     assert "196.9x" not in readme and "97.9x" not in readme
     assert "Both reports identify Tesla P100" in readme
-    assert "not\nmeasurements of the current source" in readme
+    assert "not measurements of the current source" in readme
+    for path in ("results/glm_solver_benchmark_2026-06-23.md",
+                 "results/unsupervised_bench_2026-06-27.md"):
+        assert path in readme
+
+
+def test_readme_provenance_guard_accepts_reflow_and_rejects_lost_qualification():
+    text = (ROOT / "README.md").read_text(encoding="utf-8")
+    reflowed = " ".join(text.split())
+    _check_readme_benchmark_provenance(reflowed)
+    _check_readme_benchmark_provenance(reflowed.replace("not measurements", "not\nmeasurements"))
+    with pytest.raises(AssertionError):
+        _check_readme_benchmark_provenance(reflowed.replace("not measurements", "measurements"))
+    with pytest.raises(AssertionError):
+        _check_readme_benchmark_provenance(reflowed.replace("results/glm_solver_benchmark_2026-06-23.md", "missing-report.md"))
+
+
+def test_readme_benchmark_claims_are_bound_to_the_cited_historical_reports():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    _check_readme_benchmark_provenance(readme)
+    archive = (ROOT / "dev/references/readme-historical-benchmarks.md").read_text(encoding="utf-8")
     assert "678K-by-42" in archive and "NumPy/FISTA" in archive
     assert "196.9x" in archive and "97.9x" in archive
     assert "historical transcription" in archive

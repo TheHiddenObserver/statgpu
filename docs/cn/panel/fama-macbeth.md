@@ -156,7 +156,7 @@ torch = FamaMacBeth(device="torch").fit(X, y, time_ids=time_ids)
 
 如果显式请求的 CUDA/Torch 后端不可用，`.fit()` 会报错，而不会静默切换到其他后端。`device="auto"` 则允许 statgpu 根据输入和可用后端自动选择。
 
-在受支持的后端上，时期回归、系数平均、协方差和参考分布计算都在实际数值后端完成；统一结果容器所需要的小型 NumPy 结果只在数值推断结束后整理。
+时期回归、系数平均、协方差、p 值和置信区间都在所选拟合后端计算；Torch 使用实际的张量设备。公开数组 `coef_`、`bse_`、`tvalues_`、`pvalues_` 和 `conf_int_` 保持为该后端的数组或张量。
 
 ## 参数
 
@@ -202,8 +202,9 @@ model = FamaMacBeth().fit(
 - `bse_`、`tvalues_`、`pvalues_`、`conf_int_`：系数推断结果；
 - `cov_params_`：系数协方差矩阵；
 - `fit_statistics_`：拟合统计量；
-- `nobs`、`n_periods`、`df_resid`：样本量与自由度信息；
-- `_inference_result`：统一的结构化推断结果容器。
+- `nobs`、`n_periods`、`df_resid`：样本量与自由度信息。
+
+`bse_` 给出系数标准误，`pvalues_` 给出双侧 p 值，`conf_int_` 给出置信区间。`cov_type="newey-west"` 时，`tvalues_` 存放使用正态参考分布的 z 统计量；`cov_type="nonrobust"` 时，它存放使用自由度为 $T-1$ 的 Student-t 参考分布的 t 统计量。使用 `print(model.summary())` 可一起查看系数估计、不确定性、协方差选择和样本量。
 
 ## 数值行为与失败语义
 

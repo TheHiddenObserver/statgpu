@@ -101,7 +101,7 @@ and clips it to $0\le L\le T-1$. This Newey-West calculation is applied to the s
 
 The order of the retained coefficient series follows `time_ids`. Numeric and datetime labels use their natural order. Ordered pandas categoricals preserve the category order explicitly declared by the user. Plain string labels use lexical order; other non-categorical object labels follow their sorted comparable-value order and fail if they are not mutually comparable. Semantic strings such as `t1, t2, t10` should therefore be encoded as an ordered categorical (or numeric/datetime key) when lexical string order is not the intended chronology before Newey-West lag covariance is formed.
 
-Successful fits also publish the shared `ParameterInferenceResult` surface used by inference-capable statgpu estimators. The public `coef_`, `bse_`, `tvalues_`, `pvalues_`, and `conf_int_` arrays remain backend-native. P-values and confidence intervals are computed on the selected fit backend and, for Torch, the actual tensor device. `_inference_result` contains a NumPy snapshot for common reporting and downstream tooling after numerical inference is complete. `newey-west` uses `z`/normal inference, while `nonrobust` uses Student-t inference with $T-1$ degrees of freedom.
+After fitting, use `bse_` for coefficient standard errors, `tvalues_` for test statistics, `pvalues_` for two-sided p-values, and `conf_int_` for confidence intervals. These public arrays and `coef_` remain on the selected fit backend; for Torch, p-values and confidence intervals are computed on the actual tensor device. With `cov_type="newey-west"`, `tvalues_` contains z-statistics evaluated against the normal distribution. With `cov_type="nonrobust"`, it contains t-statistics evaluated against Student-t with $T-1$ degrees of freedom.
 
 ## Parameters
 
@@ -150,7 +150,7 @@ model = FamaMacBeth().fit(
 
 ## Outputs
 
-Public results include `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `betas_`, `cov_params_`, `fit_statistics_`, `nobs`, `n_periods`, and `df_resid`. `betas_` contains the retained period-by-period coefficient estimates, while `coef_` is their average. `_inference_result` provides the standardized inference container used by common statgpu reporting and downstream tooling.
+Public results include `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `betas_`, `cov_params_`, `fit_statistics_`, `nobs`, `n_periods`, and `df_resid`. `betas_` contains the retained period-by-period coefficient estimates, while `coef_` is their average. Use `print(model.summary())` to display the coefficient estimates, uncertainty, covariance choice, and sample size together.
 
 ## Numerical and Strict Behavior
 

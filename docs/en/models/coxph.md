@@ -1,7 +1,7 @@
 # CoxPH
 
 > Language: English<br>
-> Last updated: 2026-10-09<br>
+> Last updated: 2026-10-11<br>
 > This page: Model documentation<br>
 > Switch: [Chinese](../../cn/models/coxph.md)
 
@@ -327,10 +327,16 @@ Each fold contributes its summed partial log likelihood, without normalization
 by rows or events. For custom grids, numerical near-ties prefer stronger penalties, so the selected
 score can be slightly below the largest mean. Custom-grid results retain the
 input penalty order even though evaluation proceeds from stronger to weaker penalties.
-Inspect `converged_path`, `failure_path`, and `fold_valid` when candidates cannot
-be evaluated. A selectable candidate needs finite scores and convergence on
-all the same effective folds; a fold requires events in both partitions. If
-none qualifies, fitting raises rather than publishing a selection.
+A fold requires at least one observed event in each training and validation
+partition. Folds missing events are excluded; selection and refitting can
+succeed with fewer folds than requested, without a warning about the exclusion.
+Check `fold_valid`, `failure_path`, and `effective_fold_counts` in `cv_results_`
+even after a successful fit. `failure_path` records
+`fold_has_no_train_or_test_events` for event-free folds. A selectable candidate
+needs finite scores and convergence on all the same effective folds; inspect
+`converged_path` for convergence failures. If no effective fold or qualifying
+candidate remains, fitting raises `RuntimeError` rather than publishing a
+selection. Malformed or overlapping split indices raise `ValueError`.
 
 `estimator_` is the final `CoxPH` refitted on all supplied training rows using
 `penalty_`. With `compute_inference=False`, risk and hazard-ratio predictions
@@ -346,7 +352,7 @@ inference does not correct for tuning uncertainty or shrinkage bias; see
 | `n_penalties` | `100` | Number of values in the automatic grid. |
 | `penalty_min_ratio` | `1e-3` | Minimum/maximum ratio for the automatic grid; in `(0, 1]`. |
 | `cv` | `5` | Number of automatically generated folds, at least two. |
-| `cv_splits` | `None` | Explicit `(train_indices, validation_indices)` pairs, overriding generated folds; non-empty disjoint one-dimensional integer indices in range. One-shot iterators are materialized once and reused, including during parameter inspection/cloning. |
+| `cv_splits` | `None` | Explicit `(train_indices, validation_indices)` pairs, overriding generated folds; non-empty disjoint one-dimensional integer indices in range. Generators are accepted; repeated fits and clones can reuse their splits. See the [iterator usage notes](../reference/survival-smoothing-api.md#fitting-and-selection). |
 | `ties` | `"breslow"` | `"breslow"`, `"efron"`, or `"exact"` for candidates and refit. |
 | `tol` | `1e-9` | Candidate/refit convergence tolerance. |
 | `max_iter` | `100` | Candidate/refit maximum iterations. |
@@ -365,9 +371,9 @@ use `penalties` and call `score` explicitly. The complete source reference is
 
 ### L1/L2/ElasticNet/SCAD/MCP model-family CV
 
-`CoxPHCV` above is the canonical L2 Cox selector and may run the configured
-final-refit inference. The public penalized-model family uses the separate
-survival-aware branch of `PenalizedGLM_CV`. This additional example reuses `X_train`, `time_train`, and `event_train`
+Use `CoxPHCV` for L2 Cox selection with optional final-refit inference. Use
+`PenalizedGLM_CV(loss="cox_ph", ...)` to select an L1, L2, ElasticNet, SCAD, or MCP
+penalty without coefficient inference. This additional example reuses `X_train`, `time_train`, and `event_train`
 from the [CPU walkthrough](#first-cpu-walkthrough), keeping the test subjects
 out of penalty selection:
 
@@ -389,14 +395,25 @@ penalized_cv = PenalizedGLM_CV(
 ```
 <!-- /example: coxph-penalized-family-cv -->
 
-This branch keeps the `(time, event)` target two-dimensional, forbids an
-intercept, evaluates unpenalized held-out partial likelihood, and requires
-finite validation scores from every evaluable fold. If no alpha meets this requirement,
-fit raises and publishes no selected alpha or fitted estimator. The final refit
-is `PenalizedCoxPHModel(compute_inference=False)`; post-selection coefficient
-inference, `two_stage`, sample weights, and dictionary targets are unsupported.
-No-penalty aliases are non-tunable and are rejected by this CV path; use a
-direct model fit instead.
+Pass `y` with shape `(n_samples, 2)` and columns `[time, event]`; Cox models fit
+without an intercept. Each evaluated fold must contain at least one event in
+both its training and validation partitions. A fold without those events is
+excluded, and selection/refitting may still succeed using the remaining folds
+without an exclusion warning. Check `cv_results_["fold_valid"]`, `failure_path`,
+and `n_effective_folds`, not just whether `fit()` succeeded. The event counts are
+available as `train_event_counts` and `validation_event_counts`; excluded folds
+record `missing_training_event` or `missing_validation_event` in `failure_path`.
+
+Selection uses unpenalized held-out partial likelihood and requires finite
+validation scores from every evaluable fold. If no fold can be evaluated or no
+alpha meets this requirement, fitting raises `RuntimeError` and provides no
+selected alpha or fitted estimator. Malformed or overlapping split indices
+raise `ValueError`. The final refit is
+`PenalizedCoxPHModel(compute_inference=False)`. Supported tie methods are
+`"breslow"` and `"efron"`, supplied through `loss_kwargs`. Post-selection
+coefficient inference, `two_stage`, sample weights, and dictionary targets are
+unsupported. No-penalty aliases are non-tunable and rejected; use a direct
+model fit instead.
 
 The two Cox APIs use different loss scales. `PenalizedCoxPHModel` minimizes
 
@@ -414,7 +431,7 @@ same rows, features, and tie method, built-in
 The default family `alpha=1.0` is positive regularization, whereas `CoxPH`
 defaults to `penalty=0.0`. A supplied penalty object uses its own strength.
 
-The penalized-family CV branch minimizes the mean over folds of each fold's
+`PenalizedGLM_CV(loss="cox_ph", ...)` minimizes the mean over folds of each fold's
 `-ell_validation / n_validation`; its `best_score_` is the negative of the
 selected mean, hence a mean row-normalized held-out log likelihood. Numerical
 near-ties prefer the stronger alpha. This differs
@@ -725,11 +742,11 @@ outer product as meat.
 The resulting SE/z/p/CI and penalized Wald test are conditional on the supplied
 penalty. They target the penalized estimating equation; they are not debiased
 inference for the unpenalized coefficient and do not account for shrinkage bias
-or for selecting the penalty by cross-validation. `CoxPHCV` copies this same
-contract from its final refit and explicitly reports
-`penalty_selection_adjusted_=False`. Following `PenalizedGLM` result naming,
-`inference_method_` is the concise `"m_estimation"` for a positive-penalty fit;
-bread, meat, covariance convention, target, and conditioning details remain
+or for selecting the penalty by cross-validation. The same interpretation
+applies to inference from the final `CoxPHCV` refit, which reports
+`penalty_selection_adjusted_=False`. For a positive-penalty fit,
+`inference_method_="m_estimation"` identifies estimating-equation inference.
+Bread, meat, covariance convention, target, and conditioning details are
 separately available in inference metadata.
 
 Classical likelihood-ratio and score tests plus AIC/BIC are suppressed for a
@@ -784,8 +801,9 @@ rank-deficient matrix retains per-coefficient robust SE/z/p/CI while exposing
 `wald_test_available_=False` and `wald_test_failure_reason_`; the summary prints
 `Robust Wald test unavailable` rather than applying an unstable inverse or
 printing a bare `nan`. A materially negative eigenvalue means the matrix is not
-a valid covariance estimator, so strict inference raises `RuntimeError` and the
-fit transaction clears public fitted state instead of publishing its diagonal.
+a valid covariance estimator, so strict inference raises `RuntimeError`, the
+fit fails, and fitted results are cleared. Positive diagonal entries alone do
+not justify reporting marginal inference.
 Likelihood-ratio and score tests remain classical, model-based tests even when
 coefficient and Wald inference use a robust covariance; the summary labels this
 distinction explicitly.
@@ -873,7 +891,7 @@ blanket guarantee for the current version or every dataset and device.
 | Observed information is singular | Check collinearity, invariant columns, separation/saturation, and event support; reduce the design or use an explicitly justified L2 penalty. |
 | Hazard-ratio prediction raises `FloatingPointError` | `exp(X @ coef_)` is outside finite float64 range. Inspect `predict_risk_score()`, rescale features, and check extrapolation. |
 | `converged_` is false | Inspect `optimization_stop_reason_`, `final_kkt_inf_`, and `final_kkt_normalized_`; increasing `max_iter` alone does not repair a failed line search or ill-conditioned design. |
-| Exact ties are slow or hit a workspace gate | Exact uses dynamic programming instead of enumerating all subsets, but computation and memory needs still increase with risk-set size, tied-event group size, and feature count. Assess the resource cost for your data; consider Breslow or Efron when scientifically appropriate. |
+| Exact ties are slow or exceed a workspace memory limit | Exact uses dynamic programming instead of enumerating all subsets, but computation and memory needs still increase with risk-set size, tied-event group size, and feature count. Assess the resource cost for your data; consider Breslow or Efron when scientifically appropriate. |
 | `score()` returns `0.5` | This can reflect neutral/tied ranking, or no permissible concordance pairs; the latter also returns the documented neutral value `0.5`. Check whether the data contain evaluable pairs. |
 
 ## Limitations

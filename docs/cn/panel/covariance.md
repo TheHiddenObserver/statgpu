@@ -178,7 +178,7 @@ Driscoll–Kraay 则先按照面板时间索引聚合同一期观测的得分贡
 - `hac_covariance`
 - `driscoll_kraay_covariance`
 
-`ols_covariance` 是面板估计器内部复用的分发函数，不属于公开的 `statgpu.panel` 导出接口。
+若需要在模型拟合时计算协方差，请选择该估计器支持的 `cov_type`，拟合后读取 `cov_params_`。各模型支持的协方差选项见对应的模型说明。
 
 估计器的 `cov_type` 支持以下常用别名：
 

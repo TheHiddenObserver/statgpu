@@ -144,13 +144,15 @@ Use custom splits when ordinary shuffled folds do not match the data, such as or
 
 **RidgeCV custom splits:** arbitrary training subsets are not reliably supported. If your design excludes training rows beyond the validation set, use an external CV loop. Check the [RidgeCV support boundary and external-loop alternative](../reference/linear-model-api.md#custom-ridgecv-training-subsets) before fitting.
 
-For `PenalizedGLM_CV`, `cv_splits` may also be a one-shot iterator such as a generator. statgpu materializes that iterator privately once and reuses the snapshot for repeated `fit()` calls, scikit-learn cloning, and pickle serialization, while leaving the public `cv_splits` attribute unchanged. Reusable lists and tuples continue to be read directly.
+For `PenalizedGLM_CV`, `cv_splits` accepts a list, tuple, or one-shot iterator such as a generator. The same generator-defined splits can be reused by repeated `fit()` calls, scikit-learn clones, and pickle round trips. Do not separately consume the generator after passing it to the estimator; use a list if you also need to inspect the splits yourself.
 
 ### Cox data
 
-Cox CV has additional requirements because validation scores depend on event information and survival-risk sets. For `PenalizedGLM_CV(loss="cox_ph", ...)`, survival targets remain two-dimensional and every evaluated train/validation partition must contain the event information required by the Cox score. Invalid partitions raise before candidate selection.
+Cox validation scores depend on observed events and survival-risk sets. For `PenalizedGLM_CV(loss="cox_ph", ...)`, pass `y` with shape `(n_samples, 2)` and columns `[time, event]`. Each training and validation partition should contain at least one observed event.
 
-The penalized Cox CV branch does not support `sample_weight` or post-selection coefficient inference. For the complete survival-data contract, including `CoxPHCV`, see [Cox Proportional Hazards](../models/coxph.md).
+A fold whose training or validation partition has no observed events is excluded. Selection and the full-data refit can still succeed using the remaining folds, so a successful fit does not mean every requested fold contributed. Check `cv_results_["fold_valid"]`, `failure_path`, and `n_effective_folds`. If no fold can be evaluated, fitting raises `RuntimeError`; malformed split indices or overlapping training/validation indices raise `ValueError`.
+
+`PenalizedGLM_CV(loss="cox_ph", ...)` does not support `sample_weight` or post-selection coefficient inference. `CoxPHCV` also excludes event-free folds and reports per-candidate `effective_fold_counts`. For the complete survival-data requirements and scoring differences, see [Cox Proportional Hazards](../models/coxph.md).
 
 ## Tuning grids
 
@@ -158,7 +160,7 @@ Specialized estimators such as `RidgeCV`, `LassoCV`, `ElasticNetCV`, and `Kernel
 
 When a grid is omitted, the estimator constructs a data-dependent grid appropriate to its model. A user-supplied grid is treated as the requested candidate set after the estimator's public validation rules are applied.
 
-For Quantile rows in `PenalizedGLM_CV`, the automatic grid uses the intercept-only check-loss score at the requested quantile rather than a squared-residual surrogate. Analytic `sample_weight` enters the same normalized pinball subgradient. For Group SCAD/MCP, the feature score is mapped to the public group-penalty scale through `max_g ||score_g||_2 / sqrt(p_g)`, matching the penalty's `alpha * sqrt(p_g)` local threshold. With fixed positive Adaptive L1 weights, the same score is divided coordinatewise by the effective adaptive weights before taking the maximum; fixed positive Adaptive Group Lasso weights analogously use `max_g ||score_g||_2 / (w_g sqrt(p_g))`. When adaptive weights are not yet fixed and will be learned from an initialization fit, the generated grid remains a pre-initialization heuristic rather than an exact all-zero KKT threshold.
+For Quantile models, use a grid appropriate to the requested quantile and penalty. Check whether the selected alpha is at a grid endpoint and consider extending the grid if needed. Automatic-grid scaling for group and adaptive penalties is described in [Advanced: automatic Quantile grids](#advanced-automatic-quantile-grids); when adaptive weights are learned from an initialization fit, the initial grid is a heuristic.
 
 For the `X, y` from the Ridge quick start, an explicit-grid variation is:
 
@@ -180,8 +182,6 @@ Cox grids have survival-specific validation rules; see the Cox model page rather
 ## Sample weights
 
 Where a CV estimator supports `sample_weight`, the weights enter the training-fold objective and the corresponding weighted validation criterion, and the selected final model is refit with the full-data weights. For `PenalizedGLM_CV`, every evaluated training fold and validation fold must retain a finite positive total analytic weight. A fold with zero weight mass is undefined for the declared weighted objective and raises before candidate fitting; statgpu does not replace that fold by an unweighted score.
-
-For Quantile rows, strict selection also requires complete finite fold evidence for each alpha. A fold fit that fails and produces no finite score makes that alpha ineligible rather than allowing the remaining folds to determine its mean score. Automatic scalar/Group non-convex Quantile routes expose target-level convergence failure as such an unscoreable fold; an ordinary solver `ConvergenceWarning` by itself does not discard an otherwise finite result. With `cv_strategy="two_stage"`, the screening pass remains relaxed; the complete-evidence rule is enforced in strict refinement and ordinary strict CV.
 
 With the Ridge quick-start data, this uses illustrative positive training weights:
 
@@ -208,6 +208,12 @@ This distinction matters for interpretation:
 - inference, when supported, is computed from the selected full-data refit rather than separately inside every fold.
 
 For why this separation is part of the design rather than just an implementation detail, see [How statgpu Cross-Validation Works](cross-validation-design.md).
+
+### Selection failures
+
+For Quantile models with `cv_strategy="strict"`, an alpha is eligible only if every evaluated fold returns a finite validation score. If a fold fit fails without a finite score, that alpha is excluded; its mean is not calculated from only the remaining successful folds. For automatic scalar or group SCAD/MCP Quantile fits, failure to converge at the requested alpha counts as a failed fold. An ordinary solver `ConvergenceWarning` alone does not exclude an otherwise finite result.
+
+With `cv_strategy="two_stage"`, the initial screening pass may retain candidates with incomplete scores; every evaluated fold must return a finite score in the strict refinement stage. Cox models have separate event-based fold exclusions, described under [Cox data](#cox-data).
 
 ## Inference after CV
 
@@ -254,6 +260,10 @@ A practical sequence is:
 3. use the estimator's automatic grid unless there is a substantive reason to supply one;
 4. leave solver/device selection on `auto` unless reproducibility, hardware, or algorithm choice requires an explicit setting;
 5. interpret inference after tuning as inference conditional on the selected configuration unless a method explicitly states otherwise.
+
+## Advanced: automatic Quantile grids
+
+For Quantile rows in `PenalizedGLM_CV`, the automatic grid uses the intercept-only check-loss score at the requested quantile rather than a squared-residual surrogate. Analytic `sample_weight` enters the same normalized pinball subgradient. For Group SCAD/MCP, the feature score is mapped to the public group-penalty scale through `max_g ||score_g||_2 / sqrt(p_g)`, matching the penalty's `alpha * sqrt(p_g)` local threshold. With fixed positive Adaptive L1 weights, the same score is divided coordinatewise by the effective adaptive weights before taking the maximum; fixed positive Adaptive Group Lasso weights analogously use `max_g ||score_g||_2 / (w_g sqrt(p_g))`. When adaptive weights are not yet fixed and will be learned from an initialization fit, the generated grid remains a pre-initialization heuristic rather than an exact all-zero KKT threshold.
 
 ## Related documentation
 

@@ -446,7 +446,7 @@ L_k\leftarrow1.5L_k,
 \gamma_k\leftarrow\frac1{L_k},
 $$
 
-and the proximal step is recomputed, for at most 20 backtracking attempts. If no trial satisfies the safeguard, the solver discards the unverified trial, stops with a `ConvergenceWarning`, and returns an already accepted iterate (the tracked best accepted iterate when one is available). Supported asynchronous GPU non-smooth routes use a conservative fixed $L_k$ instead of synchronizing for every backtracking trial; the proximal update itself is unchanged.
+and the proximal step is recomputed, for at most 20 backtracking attempts. If no trial satisfies the safeguard, the solver discards the unverified trial, stops with a `ConvergenceWarning`, and returns an already accepted iterate (the tracked best accepted iterate when one is available). Some supported GPU non-smooth paths use conservative fixed-step proximal updates rather than this backtracking procedure. The weighted objective and solver compatibility restrictions remain the same.
 
 For the Quantile ordinary-FISTA path, this same check is used as a numerical step-size safeguard with the selected subgradient. It does not make the check loss smooth and does not supply the textbook smooth-FISTA convergence guarantee.
 
@@ -738,19 +738,15 @@ $$
 \|\beta_{k+1}-\beta_k\|_1<\texttt{tol}.
 $$
 
-For non-quadratic losses the implementation periodically recomputes the Lipschitz estimate. If the new estimate differs from the current one by roughly more than a factor of 1.5, it updates
+For non-quadratic losses, the step scale can be updated during optimization; each proximal step uses the current estimate through $\gamma_k=1/L_k$.
+
+For unweighted squared error, the gradient also has the algebraically equivalent form
 
 $$
-\gamma_k=\frac1{L_k}
+g_k=\frac{X^\top Xy_k-X^\top y}{n}.
 $$
 
-before continuing. The unweighted squared-error GPU fast path uses
-
-$$
-g_k=\frac{X^\top Xy_k-X^\top y}{n}
-$$
-
-to avoid redundant matrix products.
+Reusing the products $X^\top X$ and $X^\top y$ can reduce repeated work without changing that objective.
 
 ### LLA outer-loop convergence
 
@@ -1339,7 +1335,7 @@ $$
 
 ### $w$-subproblem: squared-error Cholesky path
 
-When the loss has a constant Hessian and the feature dimension is within the current Cholesky threshold, pre-factor
+For squared error, a direct solution can reuse a Cholesky factorization of
 
 $$
 A=\frac{X^\top X}{n}+\rho I,
@@ -1352,7 +1348,7 @@ Aw^{k+1}
 =\frac{X^\top y}{n}+\rho(z^k-u^k).
 $$
 
-This path pins $\rho$, because changing it would invalidate the precomputed Cholesky factor.
+The solver selects the direct or iterative strategy automatically. When it uses the direct factorization, $\rho$ stays fixed even if `adaptive_rho=True`.
 
 ### $w$-subproblem: Nesterov accelerated-gradient path
 
@@ -1467,13 +1463,45 @@ direct fit with solver="auto"
 └── other group penalties                → group-aware FISTA / FISTA-LLA
 ```
 
-For Quantile L2/no-penalty objectives, explicit `solver="irls"` selects the same algorithm as `auto`, while explicit `solver="fista"` executes ordinary FISTA and is never silently substituted by IRLS. Automatic Quantile Group SCAD/MCP uses the private Group Proximal IRLS-LLA estimator/CV route; an explicit Group SCAD/MCP `solver="fista"` remains ordinary group proximal FISTA and is not rewritten into that automatic route. The Group Proximal IRLS-LLA surrogate equations and weighting semantics are given in the [Quantile Regression model page](../models/quantile.md). Quantile FISTA-BB, estimator/CV L-BFGS, and ADMM requests are unsupported and raise an error before numerical iteration. Direct low-level L-BFGS accepts Quantile calls with omitted or uniform weights and rejects non-uniform weights. Sparse Quantile ordinary FISTA and SCAD/MCP Proximal IRLS-CD are separate estimator algorithms.
+For Quantile L2/no-penalty objectives, explicit `solver="irls"` selects the same algorithm as `auto`, while explicit `solver="fista"` executes ordinary FISTA and is never silently substituted by IRLS. Automatic Quantile Group SCAD/MCP uses Group Proximal IRLS-LLA for direct fitting and cross-validation; an explicit Group SCAD/MCP `solver="fista"` remains ordinary group proximal FISTA and is not rewritten into that automatic route. The Group Proximal IRLS-LLA surrogate equations and weighting semantics are given in the [Quantile Regression model page](../models/quantile.md). Quantile FISTA-BB, estimator/CV L-BFGS, and ADMM requests are unsupported and raise an error before numerical iteration. Direct low-level L-BFGS accepts Quantile calls with omitted or uniform weights and rejects non-uniform weights. Sparse Quantile ordinary FISTA and SCAD/MCP Proximal IRLS-CD are separate estimator algorithms.
 
 For the full family/backend/problem-size rules, including Poisson and Negative-Binomial sparse CV, see the [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md).
 
 `PenalizedGLM_CV` has a related but intentionally separate smooth-L2 policy. With `solver="auto"`, Quantile L2/no-penalty candidates and selected final refits use IRLS; an explicit `solver="fista"` request remains authoritative for both CV child fits and the selected full-data refit. Gamma, Inverse-Gaussian, and Negative-Binomial L2 CV/final-refit routes use L-BFGS, while logistic, Poisson, and Tweedie L2 rows use Newton. Consult the compatibility matrix rather than inferring CV behavior from the direct-fit tree.
 
 `sample_weight` does not change an explicitly requested solver. Unsupported weighted combinations raise instead of selecting a different solver.
+
+<a id="quantile-low-level-solvers"></a>
+
+## Quantile low-level solver calls
+
+This section is for callers of functions exported by `statgpu.solvers` and of `QuantileLoss.irls()`. For estimator selection, use the [Quantile model guide](../models/quantile.md) and the [compatibility matrix](solver-penalty-matrix.md).
+
+### Inputs and supported weights
+
+For Quantile calls to `fista_solver`, `lbfgs_solver`, `QuantileLoss.irls()`, `proximal_irls_quantile_solver`, and `fista_lla_path`, supply real finite `X` with shape `(n, p)` and one-dimensional `y` with shape `(n,)`, with matching row counts and at least one observation. Invalid shapes and non-finite values raise `ValueError` before numerical iteration. A one-column response matrix is not accepted in place of a vector.
+
+Supported analytic weights have shape `(n,)`, contain finite nonnegative values, and have a positive sum. They define the normalized weighted pinball objective, dividing the weighted loss by the sum of weights. Ordinary FISTA, Quantile IRLS, and the Quantile continuation solvers support these weights. Direct `lbfgs_solver` accepts only omitted or uniform weights for Quantile; non-uniform weights raise an error. This low-level compatibility does not make estimator/CV `solver="lbfgs"` available for Quantile.
+
+| Callable | Additional input controls |
+|---|---|
+| `fista_solver` | Positive integer `max_iter`; finite positive `tol`; boolean `cv_mode`; `lipschitz_L=None` or a finite positive value. Optional `init_coef` is a finite real vector of length `p`. |
+| `lbfgs_solver` | Positive integer `max_iter` and `history_size`; finite positive `tol`; optional finite real `init_coef` of length `p`. |
+| `QuantileLoss.irls()` | At least one feature; boolean `fit_intercept`; positive integer `max_iter`; finite positive `tol` and `eps`, with `eps` large enough for finite float64 weights. Optional `init_coef` matches the supplied design columns. |
+| `proximal_irls_quantile_solver` | Scalar SCAD/MCP; boolean `fit_intercept`; positive integer `max_lla_per_step`; finite positive `tol` and `lla_tol`. `max_iter=None` sets an IRLS iteration limit of 100 for each inner solve; otherwise use a positive integer or a list/tuple with one positive integer per path value. |
+| `fista_lla_path` | Scalar or group SCAD/MCP; boolean `fit_intercept` and `return_path`; positive integer `max_lla_per_step`; finite positive `tol` and `lla_tol`; positive integer `max_iter` or one positive integer per path value in a list/tuple. Optional `init_coef` is a finite real vector of length `p`, excluding the intercept; `init_intercept` is a finite real scalar. |
+
+For both continuation functions, `alpha_path` must be a non-empty one-dimensional sequence of finite positive values in non-increasing order from the continuation start to the target. SCAD requires finite `a > 2`; MCP requires finite `gamma > 1`. Boolean values are not accepted as iteration counts, tolerances, path values, or penalty shape parameters. Invalid controls raise `ValueError` rather than being silently coerced.
+
+### Return values and convergence warnings
+
+`proximal_irls_quantile_solver` returns `(coef, intercept, n_iter)`, with NumPy `coef` of shape `(p,)`, a scalar intercept, and the total number of completed IRLS updates across continuation and LLA steps. The intercept is zero when `fit_intercept=False`.
+
+`fista_lla_path` returns the same three-item layout by default. With `return_path=True`, it returns `(coef, intercept, n_iter, path)`. For `m` continuation values, `path` contains NumPy arrays `alpha` `(m,)`, `coef` `(m, p)`, `intercept` `(m,)`, and `n_iter` `(m,)`. The path's iteration counts are cumulative, not per-alpha increments.
+
+The numerical method and iteration-count units can differ between default scalar SCAD/MCP calls and group, warm-start, custom-surrogate, or path-reporting calls: the former count IRLS updates, while FISTA-LLA calls count proximal updates. Do not compare those counts as if they measured the same algorithm, or assume that requesting a path only adds reporting.
+
+For these Quantile continuation solvers, failure to satisfy the target-alpha inner or outer stopping criterion produces a `ConvergenceWarning` and returns the final iterate. FISTA-LLA returns its final accepted iterate. A returned coefficient vector or positive iteration count alone is not evidence of convergence. Review the warning before using the fit; changing a budget or initialization is a new solve, not proof that the previous result converged.
 
 ## References
 

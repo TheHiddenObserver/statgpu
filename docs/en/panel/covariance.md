@@ -114,7 +114,7 @@ Time order matters. Numeric and datetime labels use their natural order. Ordered
 
 ## Public API and Aliases
 
-The public covariance helpers exported by `statgpu.panel` are `clustered_covariance`, `two_way_clustered_covariance`, `hac_covariance`, and `driscoll_kraay_covariance`. `ols_covariance` is an internal shared dispatcher used by panel estimators; it is not part of the public `statgpu.panel` export surface.
+The public covariance helpers exported by `statgpu.panel` are `clustered_covariance`, `two_way_clustered_covariance`, `hac_covariance`, and `driscoll_kraay_covariance`. To obtain covariance as part of a model fit, choose a `cov_type` supported by that estimator and read its fitted `cov_params_`. Consult the individual model guide for its supported covariance options.
 
 For estimator `cov_type` values, `hc1` is an alias of `robust`; `dk` and `kernel` are aliases of `driscoll-kraay`. Driscoll-Kraay kernel aliases include Bartlett/Newey-West, Parzen/Gallant, and QS/Quadratic-Spectral/Andrews. `PooledOLS(cov_type="hac")` remains a separate ordered-sequence Bartlett/Newey-West calculation and should not be confused with Driscoll-Kraay; when `time_index` is supplied, PooledOLS sorts the sequence by that index before applying HAC.
 

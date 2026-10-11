@@ -1,6 +1,11 @@
-"""Cross-validation documentation ownership contracts."""
+"""Bounded CV content/placement guards; passing is not a semantic audit."""
 
 from pathlib import Path
+import re
+
+import pytest
+
+from dev.validation.check_docs_contracts import validate_cv_audience
 
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -14,8 +19,9 @@ def test_cv_public_guide_links_public_design_layer():
     en = _read("docs/en/guides/cross-validation.md")
     cn = _read("docs/cn/guides/cross-validation.md")
 
-    assert "[How statgpu Cross-Validation Works](cross-validation-design.md)" in en
-    assert "[statgpu 的交叉验证如何工作](cross-validation-design.md)" in cn
+    for language, text in (("en", en), ("cn", cn)):
+        assert re.search(r"\]\(cross-validation-design\.md(?:#[^)]*)?\)", text)
+        assert not validate_cv_audience(_ROOT / f"docs/{language}/guides/cross-validation.md", text)
 
     assert "cv_solver" in en
     assert "final refit" in en
@@ -29,42 +35,60 @@ def test_cv_public_guide_links_public_design_layer():
         assert "STATGPU_LASSO_CV_CACHE_SIZE" not in text
 
 
-def test_cv_public_design_explains_stable_execution_model():
-    en = _read("docs/en/guides/cross-validation-design.md")
-    cn = _read("docs/cn/guides/cross-validation-design.md")
-
-    required_en = (
-        "selection work",
-        "final refit",
-        "Statistical invariants versus execution freedom",
-        "Pathwise reuse and warm starts",
-        "GPU batching",
-        "Selection caches",
-        "Device selection during CV",
-        "Weights must remain consistent across the CV lifecycle",
-        "Why Cox CV is structurally different",
-        "Inference after tuning",
+def _check_design_concepts(text, language):
+    # Editorial heading text is not an API. Check body concepts and navigation,
+    # permitting reflow and alternate headings without accepting empty sections.
+    body = re.sub(r"^#{1,6} .*$", "", text, flags=re.MULTILINE)
+    body = " ".join(body.split()).lower()
+    concepts = (
+        (r"selection", r"final refit", r"candidate", r"validation criterion",
+         r"warm.start", r"batching across folds", r"selection cache",
+         r"sample_weight", r"device=\"auto\"", r"risk.set", r"p.values")
+        if language == "en" else
+        (r"选择", r"最终重拟合", r"候选", r"验证准则", r"热启动", r"批量处理",
+         r"选择缓存", r"sample_weight", r"device=\"auto\"", r"风险集", r"p 值")
     )
-    for fragment in required_en:
-        assert fragment in en
+    for concept in concepts:
+        assert re.search(concept, body), (language, concept)
+    for target in ("cross-validation.md", "inference-modes.md", "../models/coxph.md"):
+        assert re.search(r"\]\(" + re.escape(target) + r"(?:#[^)]*)?\)", text), target
 
-    required_cn = (
-        "选择阶段的计算",
-        "最终重拟合",
-        "统计不变量与执行自由度",
-        "沿路径复用计算与热启动",
-        "GPU 批处理",
-        "选择缓存",
-        "CV 中的设备选择",
-        "权重必须贯穿整个 CV 流程",
-        "为什么 Cox CV 在结构上不同",
-        "调参完成后的推断",
+
+@pytest.mark.parametrize("language", ("en", "cn"))
+def test_cv_public_design_explains_stable_execution_model(language):
+    _check_design_concepts(_read(f"docs/{language}/guides/cross-validation-design.md"), language)
+
+
+@pytest.mark.parametrize("language", ("en", "cn"))
+def test_design_guard_accepts_heading_edits_but_rejects_missing_concepts(language):
+    text = _read(f"docs/{language}/guides/cross-validation-design.md")
+    renamed = re.sub(r"^## .*", "## An editorial heading", text, flags=re.MULTILINE)
+    _check_design_concepts(renamed, language)
+    _check_design_concepts(re.sub(r"(?<!\n)\n(?!\n)", " ", text), language)
+    # Remove a real concept, not merely its heading or a particular sentence.
+    without_cache = re.sub(r"selection cache|选择缓存", "[removed]", text, flags=re.IGNORECASE)
+    with pytest.raises(AssertionError):
+        _check_design_concepts(without_cache, language)
+
+
+@pytest.mark.parametrize("language", ("en", "cn"))
+@pytest.mark.parametrize("page", ("cross-validation", "cross-validation-design"))
+def test_cv_audience_guard_rejects_workflows_and_allows_user_contracts(language, page):
+    path = _ROOT / f"docs/{language}/guides/{page}.md"
+    text = path.read_text(encoding="utf-8")
+    assert not validate_cv_audience(path, text)
+    instruction = (
+        "Maintainers should update internal test fixtures after every implementation "
+        "change before approving this module." if language == "en" else
+        "维护者必须在每次实现变更后更新内部测试夹具，并完成审批。"
     )
-    for fragment in required_cn:
-        assert fragment in cn
-
-    assert "[Cross-Validation](cross-validation.md)" in en
-    assert "[交叉验证](cross-validation.md)" in cn
+    assert validate_cv_audience(path, text + "\n\n" + instruction)
+    assert validate_cv_audience(path, text + "\n\nUse `_compute_cv_scores` directly.")
+    # Legitimate diagnostic/API vocabulary and mathematical boundaries remain
+    # acceptable. Code and examples are not maintainer prose.
+    allowed = "\n\nInspect `cv_results_`, `fold_valid` and `failure_path`; invalid folds cannot provide a validation score."
+    assert not validate_cv_audience(path, text + allowed)
+    assert not validate_cv_audience(path, text + "\n\n```text\n" + instruction + "\n```")
 
 
 def test_cv_public_design_does_not_publish_private_implementation_contracts():

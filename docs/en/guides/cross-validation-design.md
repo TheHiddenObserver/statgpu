@@ -161,7 +161,7 @@ The exact normalization and supported weighted combinations depend on the estima
 
 Cox cross-validation cannot always be treated as ordinary scalar-response regression with a different loss name. Held-out partial-likelihood evidence depends on survival targets, event support, and risk-set semantics.
 
-As a result, Cox paths may need a different preparation order and additional fold validation before candidate scoring. The common selection/refit model still applies, but the survival-specific definition of valid folds and scores belongs to the [Cox Proportional Hazards](../models/coxph.md) documentation.
+Each evaluated fold needs observed events in both its training and validation partitions. A fold without those events is excluded, so a successful fit may use fewer folds than requested. Check the effective-fold counts and failure diagnostics before interpreting the selected penalty. The common selection/refit model still applies; input formats and the distinct scoring scales of the two Cox CV APIs are explained in [Cox Proportional Hazards](../models/coxph.md).
 
 ## 11. Inference after tuning
 

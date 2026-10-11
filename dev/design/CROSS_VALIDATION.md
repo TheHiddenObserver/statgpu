@@ -47,6 +47,8 @@ PenalizedGLM_CV._fit_standard(X, y)
 
 Generated/custom folds are normalized to reusable arrays before scoring so one-shot generators are not consumed differently by device selection, scoring, or diagnostics.
 
+`PenalizedGLM_CV._materialize_cv_splits()` keeps a private snapshot for a one-shot iterator, identified by the original iterator object. Repeated fits reuse that snapshot without replacing the estimator's public `cv_splits` attribute; reusable lists and tuples are read directly. `get_params()` returns reusable folds for cloning, and `__getstate__()` serializes a reusable sequence for pickle round trips. The public guide should state those reuse guarantees and tell users not to consume the generator separately, rather than describe snapshot storage.
+
 The public design page may describe the stable idea that folds/candidates are first-class selection inputs, but this exact call order and helper ownership remain internal.
 
 ## 3. Penalized-Cox sequence
@@ -75,7 +77,7 @@ fit_penalized_cox_cv(estimator, X, (time, event))
 
 Do not collapse the scalar and Cox preparation orders into one implementation diagram unless the runtime is actually unified: automatic-grid construction occurs at different points.
 
-The public design layer should explain only the stable principle that survival CV preserves risk-set/event semantics and may therefore require a different preparation structure.
+The public design layer should explain the statistical consequence: each evaluated fold needs events in both partitions, event-free folds can be excluded, and a successful selection/refit can use fewer folds than requested. The exact preparation order remains an implementation detail owned here.
 
 ## 4. Scoring-path families
 

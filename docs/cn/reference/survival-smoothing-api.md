@@ -1,7 +1,7 @@
 # 生存分析与平滑方法 API 参考
 
 > 语言：中文  
-> 最后更新：2026-10-06  
+> 最后更新：2026-10-11  
 > 切换：[English](../../en/reference/survival-smoothing-api.md)
 
 本页用于在阅读 [CoxPH](../models/coxph.md)、[GAM](../models/semiparametric.md) 或[非参数方法](../models/nonparametric.md)示例后查找具体调用。签名列出公开参数与默认值；`*` 后的参数须按名称传入。形状记号：`n` 为训练行数，`p` 为特征数，`q` 为查询行数，`r` 为目标列数。预测等方法需要先成功拟合。通用[参数管理](estimator-api.md#parameter-management)和[推断辅助方法](estimator-api.md#inference-helpers)另有说明；通用重采样工具不会自动提供适合生存模型的推断或 GAM 置信带。
@@ -45,6 +45,7 @@ CoxPHCV.fit(X, time, event=None, entry=None, cluster=None, *, start=None, strata
 - `init_coef`：仅 CoxPH 接受的有限 `(p,)` 初值。`formula`、`data`：仅 CoxPH 接受的公式接口，使用 pandas DataFrame 和可选 pandas/Patsy 依赖；响应可为 `Surv(time,event)` 或 `Surv(start,stop,event)`。删除缺失行时会对齐辅助标签；预测复用已保存的设计转换，不允许静默删除行。
 - 两个 `fit` 均返回自身。Exact 并列事件与稳健推断组合抛出 `NotImplementedError`；Exact 仅估计拟合可用。输入或拟合失败不能被当作有效拟合结果。
 - CV `penalties` 是非空、有限、非负向量；为 `None` 时由 `n_penalties` 和 `penalty_min_ratio` 控制自动网格，特征量纲应具有可比性。`cv_splits` 用非空、不相交的整数训练/验证索引对覆盖自动划分。提供 `subject_id` 时会拒绝受试者泄漏。`random_state` 控制自动划分。
+- 每个实际评估的数据折，其训练部分和验证部分都需要至少有一个已观察事件。缺少事件的数据折会被排除，但不会因此发出警告；选择和重拟合仍可能使用较少的折成功完成。拟合后请检查 `cv_results_["fold_valid"]`、`failure_path` 和 `effective_fold_counts`。没有可评估折时抛出 `RuntimeError`；索引格式错误或训练/验证索引重叠时抛出 `ValueError`。
 - 选择目标是相同有效折上的平均未惩罚留出偏对数似然；各折贡献其偏对数似然总和，不除以行数或事件数，也不是 C-index。候选项须在每个有效折上得到有限分数并收敛；没有合格候选项时会报错。选定惩罚后在全部输入训练数据上重拟合；推断仅在最终重拟合进行，不校正调参不确定性。自定义网格中，数值上近似并列时优先较强惩罚，因此 `best_score_` 可能略小于候选平均分数的最大值。
 - 自定义 `penalties` 拒绝布尔、字符串/字节和复数元素。候选按惩罚从强到弱评价，但 `penalties_` 及候选轴结果保留输入顺序。一次性 `cv_splits` 迭代器在首次拟合、`get_params`、克隆或序列化时被读取一次，之后复用；`get_params` 返回可重复使用的等价序列。不要另外消耗该迭代器。
 
@@ -141,7 +142,7 @@ CoxPHCV.summary()
 | `estimator_` | CoxPHCV 最终拟合的 CoxPH。通过它读取 CoxPH 属性，例如 `cv.estimator_.log_likelihood`；这些属性并非全部直接出现在 CV 对象上。 |
 | `cv_results_` | 字典：`pl_path`、`converged_path`、`failure_path` 按惩罚×折组织；`mean_pl`、`effective_fold_counts` 为逐惩罚向量；`fold_valid` 标识有效折。其他后端/缓存诊断见 [Cox 文档](../models/coxph.md#输出)。 |
 
-CoxPHCV 从最终估计器复制系数及推断数组。`inference_method_`、`inference_target_`、`penalty_conditioning_`、`penalty_selection_adjusted_` 说明推断目标；`inference_backend_`、`inference_approximate_`、`inference_fallback_reason_` 和传输字段说明执行情况。联合检验可用性与逐系数区间分开报告。正惩罚推断以固定惩罚估计方程为目标，不是去偏或选择后校正推断；见[协方差与推断](../models/coxph.md#协方差与推断)。
+CoxPHCV 的系数与推断数组描述的是所选配置的全数据最终重拟合。`inference_method_`、`inference_target_`、`penalty_conditioning_`、`penalty_selection_adjusted_` 说明推断目标；`inference_backend_`、`inference_approximate_`、`inference_fallback_reason_` 和传输字段说明执行情况。联合检验可用性与逐系数区间分开报告。正惩罚推断以固定惩罚估计方程为目标，不是去偏或选择后校正推断；见[协方差与推断](../models/coxph.md#协方差与推断)。
 
 <!-- example: cox-output-reference-cpu -->
 ```python

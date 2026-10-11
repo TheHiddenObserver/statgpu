@@ -413,8 +413,12 @@ Training-time row filtering and its weight alignment are separate behavior.
 `LinearRegression.score` can also broadcast a single retained prediction over
 several evaluation responses, returning an invalid finite R². The flattening
 advice for single-column y does not fix this row-dropping issue; check formula
-prediction rows before scoring. Lasso, ElasticNet, Ridge, SCADRegression,
-MCPRegression and the tested penalized typed GLMs reject missing prediction values.
+prediction rows before scoring. In contrast, formula-fitted `Lasso`, `ElasticNet`,
+`Ridge`, `SCADRegression`, `MCPRegression`, `PenalizedLinearRegression`,
+`PenalizedLogisticRegression` and `PenalizedPoissonRegression` raise `ValueError`
+when missing formula predictors would drop prediction DataFrame rows. Their numeric
+prediction arrays must also contain only finite values; NaN or infinity raises
+`ValueError`.
 
 ## PenalizedGeneralizedLinearModel
 
@@ -471,7 +475,7 @@ PenalizedGLM_CV(loss='squared_error', penalty='l2', alpha_grid=None, n_alphas=10
 | `n_alphas` | `100` | Requested automatic grid size. |
 | `l1_ratio` | `0.5` | Fixed Elastic Net mixture, not a sequence searched by this class. |
 | `cv` | `5` | Generated shuffled K-fold count. |
-| `cv_splits` | `None` | Explicit disjoint nonempty integer train/validation indices; one-shot iterators are materialized and reused. |
+| `cv_splits` | `None` | Explicit disjoint nonempty integer train/validation indices, supplied as a list, tuple, or one-shot iterator; see the reuse guidance below. |
 | `random_state` | `0` | Seed for generated folds. |
 | `device` | `'auto'` | Explicit cpu/cuda/torch or size-aware automatic CV routing; inspect cv_selected_device_. |
 | `max_iter` | `1000` | Strict fold/refit iteration budget. |
@@ -496,7 +500,9 @@ This generic CV class is distinct from ElasticNetCV and LogisticRegressionCV. `f
 
 For a candidate count a and fold count f, `alpha_grid_` and `cv_results_["alpha"]` have shape `(a,)`; `mean_score` has `(a,)`, and `all_scores` has `(f,a)`. These score arrays hold losses (smaller is better). Other keys are `device_sizing_fold_count`, `cv_strategy_`, `cv_selected_device_`, `mean_score_stage1`, `all_scores_stage1`, and `refined_mask`. Stage-one arrays are None in strict mode; the boolean refinement mask has `(a,)`. `coef_`, `intercept_`, and `estimator_` describe the final full-data fit. `cv_strategy_` and `cv_selected_device_` are also attributes.
 
-`summary(*args,**kwargs)` currently raises AttributeError after successful generic final-refit inference because it delegates to a final estimator without a summary method. Without inference it raises RuntimeError instead. Read `estimator_._inference_result.to_dict()` (or `to_dataframe()` with pandas) for supported inference; the failure to render a summary does not itself change the fitted coefficients. See the runnable result example on the [GLM page](../models/generalized-linear-model.md#reading-cv-inference-results). Shared configuration/p-value/resampling methods apply; `get_params` materializes a one-shot custom splitter for reuse.
+`summary(*args,**kwargs)` currently raises AttributeError after successful generic final-refit inference because it delegates to a final estimator without a summary method. Without inference it raises RuntimeError instead. Read `estimator_._inference_result.to_dict()` (or `to_dataframe()` with pandas) for supported inference; the failure to render a summary does not itself change the fitted coefficients. See the runnable result example on the [GLM page](../models/generalized-linear-model.md#reading-cv-inference-results). Shared configuration/p-value/resampling methods apply.
+
+For `PenalizedGLM_CV`, the same generator-defined `cv_splits` can be reused by repeated `fit()` calls, scikit-learn clones, and pickle round trips. Do not separately consume the generator after passing it to the estimator; use a list if you also need to inspect the splits yourself.
 
 
 ## Ridge

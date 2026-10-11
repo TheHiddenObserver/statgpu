@@ -230,7 +230,7 @@ The table below describes the current public model / low-level solver routes. `s
 | FISTA-LLA | ✅ | ✅ | ✅ | LLA route for SCAD/MCP and related non-convex penalties |
 | IRLS | ❌ (currently unavailable) | ✅ (L2/no penalty) | ✅ (L2/no penalty) | Public dispatch does not currently select IRLS for Huber |
 | Newton | ✅ | ✅ | ✅ | Main `solver="auto"` route for smooth L2/no-penalty objectives |
-| L-BFGS | ✅ (smooth, unweighted/uniform weights) | ✅ (smooth, unweighted/uniform weights) | ✅ (smooth, unweighted/uniform weights) | Generic non-GLM `LossBase` does not currently declare direct non-uniform weighted L-BFGS |
+| L-BFGS | ✅ (smooth, unweighted/uniform weights) | ✅ (smooth, unweighted/uniform weights) | ✅ (smooth, unweighted/uniform weights) | For these robust losses, L-BFGS supports omitted or uniform `sample_weight` only; non-uniform weights raise an error. If non-uniform weights are required, choose a solver that supports them for the chosen loss and penalty |
 | ADMM | ✅ (supported forms) | ✅ (supported forms) | ✅ (supported forms) | Shared entry currently accepts omitted or uniform `sample_weight` only |
 
 ### Main `solver="auto"` dispatch

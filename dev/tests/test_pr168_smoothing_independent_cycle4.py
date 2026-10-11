@@ -176,7 +176,12 @@ def test_chinese_cox_prose_and_spline_public_layering():
     cox = (ROOT / "docs/cn/models/coxph.md").read_text()
     for old in ("训练集一致性指数 当作", "一致性指数 前", "因此 标准误", "生存感知分支"):
         assert old not in cox
-    assert "生存分析专用分支" in cox
+    # Protect the public input/diagnostic contract, not a preferred translation
+    # of private branch ownership.
+    for contract in ("PenalizedGLM_CV", "n_samples", "time", "event",
+                     "fold_valid", "n_effective_folds"):
+        assert contract in cox
+    assert "生存分析专用分支" not in cox
     for language in ("en", "cn"):
         splines = (ROOT / f"docs/{language}/models/splines.md").read_text()
         assert "QR fallback" not in splines and "QR 回退" not in splines

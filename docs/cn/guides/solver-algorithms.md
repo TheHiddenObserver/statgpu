@@ -452,7 +452,7 @@ L_k\leftarrow1.5L_k,
 \gamma_k\leftarrow\frac{1}{L_k}
 $$
 
-重新计算近端步，最多回溯 20 次。如果 20 次候选都不能通过这一保护条件，求解器会丢弃未经验证的候选点，发出 `ConvergenceWarning` 并停止；返回值来自已经接受的迭代点，并在已有历史最优记录时返回所跟踪的最佳已接受迭代点。受支持的异步 GPU 非光滑路径为了避免每次回溯都发生设备同步，会使用经过安全放大的固定 $L_k$；因此该路径的数学更新仍是同一个近端步，但不会逐次执行上述 CPU 式回溯。
+重新计算近端步，最多回溯 20 次。如果 20 次候选都不能通过这一保护条件，求解器会丢弃未经验证的候选点，发出 `ConvergenceWarning` 并停止；返回值来自已经接受的迭代点，并在已有历史最优记录时返回所跟踪的最佳已接受迭代点。部分受支持的 GPU 非光滑路径采用保守的固定步长近端更新，而不使用上述回溯过程；带权目标函数和求解器兼容性限制保持不变。
 
 对于 Quantile 的普通 FISTA 路径，同一个检查会与所选次梯度一起用于保护数值步长；它不会把 check loss 变成光滑目标，也不会因此获得光滑目标下 FISTA 的标准收敛保证。
 
@@ -745,19 +745,15 @@ $$
 \|\beta_{k+1}-\beta_k\|_1<\texttt{tol}.
 $$
 
-对非二次损失，当前实现会周期性重新估计 Lipschitz 常数。若新旧估计相差超过约 1.5 倍，则更新
+对非二次损失，优化过程中可以更新步长尺度；每次近端更新通过 $\gamma_k=1/L_k$ 使用当前估计。
+
+对于无权重平方误差，梯度也可以写成代数等价的形式
 
 $$
-\gamma_k=\frac1{L_k}
+g_k=\frac{X^\top Xy_k-X^\top y}{n}.
 $$
 
-后继续迭代。平方误差、无权重 GPU 快速路径直接使用
-
-$$
-g_k=\frac{X^\top Xy_k-X^\top y}{n}
-$$
-
-避免重复计算两次矩阵乘法。
+复用 $X^\top X$ 和 $X^\top y$ 可以减少重复计算，而不改变目标函数。
 
 ### LLA 外循环收敛
 
@@ -1348,7 +1344,7 @@ $$
 
 ### $w$ 子问题：平方误差闭式路径
 
-当损失具有常数 Hessian、特征数不超过当前 Cholesky 阈值时，预先分解
+对于平方误差，直接求解可以复用以下矩阵的 Cholesky 分解：
 
 $$
 A=\frac{X^\top X}{n}+\rho I,
@@ -1361,7 +1357,7 @@ Aw^{k+1}
 =\frac{X^\top y}{n}+\rho(z^k-u^k).
 $$
 
-当前实现对该路径固定 $\rho$，避免预计算的 Cholesky 分解在改变 $\rho$ 后失效。
+求解器自动选择直接或迭代求解方式。使用直接分解时，即使设置 `adaptive_rho=True`，$\rho$ 也保持固定。
 
 ### $w$ 子问题：Nesterov 加速梯度路径
 
@@ -1486,6 +1482,38 @@ $$
 `PenalizedGLM_CV` 的光滑 L2 分发与直接拟合相关但有意独立。使用 `solver="auto"` 时，Quantile L2/无惩罚候选拟合与最终重拟合使用 IRLS；若显式指定 `solver="fista"`，该请求对 CV 子拟合和最终全数据重拟合都保持有效并执行普通 FISTA。Gamma、Inverse-Gaussian、Negative-Binomial 的 L2 交叉验证/最终重拟合路径使用 L-BFGS，而 logistic、Poisson、Tweedie 的 L2 组合使用 Newton。不要从直接拟合的分发树推断交叉验证行为，应以兼容性矩阵为准。
 
 `sample_weight` 不会改变显式指定的 `solver`。不支持的带权组合会直接报错，而不是选择另一个求解器。
+
+<a id="quantile-low-level-solvers"></a>
+
+## 分位数回归的底层求解器调用
+
+本节面向直接调用 `statgpu.solvers` 导出函数或 `QuantileLoss.irls()` 的读者。选择估计器时，请参阅[分位数回归指南](../models/quantile.md)和[兼容性矩阵](solver-penalty-matrix.md)。
+
+### 输入与权重支持
+
+向 `fista_solver`、`lbfgs_solver`、`QuantileLoss.irls()`、`proximal_irls_quantile_solver` 或 `fista_lla_path` 传入 Quantile 损失时，`X` 必须是形状为 `(n, p)` 的有限实数矩阵，`y` 必须是形状为 `(n,)` 的一维有限实数向量，二者行数相同且至少有一个观测。形状错误或非有限值会在数值迭代前触发 `ValueError`；单列响应矩阵不能替代一维向量。
+
+受支持的分析权重形状为 `(n,)`，各元素有限、非负，总和为正。带权 pinball 目标用权重总和归一化。普通 FISTA、Quantile IRLS 和分位数延拓求解器支持这类权重。直接调用 `lbfgs_solver` 求解 Quantile 时，只能省略权重或使用均匀权重；非均匀权重会报错。这一底层兼容性不意味着分位数估计器或交叉验证支持 `solver="lbfgs"`。
+
+| 调用入口 | 其他输入要求 |
+|---|---|
+| `fista_solver` | `max_iter` 为正整数；`tol` 为有限正数；`cv_mode` 为布尔值；`lipschitz_L` 为 None 或有限正数。可选 `init_coef` 为长度为 `p` 的有限实数向量。 |
+| `lbfgs_solver` | `max_iter` 和 `history_size` 为正整数；`tol` 为有限正数；可选 `init_coef` 为长度为 `p` 的有限实数向量。 |
+| `QuantileLoss.irls()` | 至少一个特征；`fit_intercept` 为布尔值；`max_iter` 为正整数；`tol` 和 `eps` 为有限正数，且 `eps` 足够大，使 float64 权重保持有限。可选 `init_coef` 的长度与传入设计矩阵的列数一致。 |
+| `proximal_irls_quantile_solver` | 使用标量 SCAD/MCP；`fit_intercept` 为布尔值；`max_lla_per_step` 为正整数；`tol` 和 `lla_tol` 为有限正数。`max_iter=None` 表示每次内层求解最多进行 100 次 IRLS 迭代；也可传正整数，或与路径等长、各项均为正整数的列表/元组。 |
+| `fista_lla_path` | 使用标量或分组 SCAD/MCP；`fit_intercept` 和 `return_path` 为布尔值；`max_lla_per_step` 为正整数；`tol` 和 `lla_tol` 为有限正数；`max_iter` 为正整数，或与路径等长的正整数列表/元组。可选 `init_coef` 为长度为 `p`、不含截距的有限实数向量；`init_intercept` 为有限实数标量。 |
+
+两个延拓函数都要求 `alpha_path` 是非空的一维有限正数序列，并从延拓起点到目标值保持非递增。SCAD 要求有限的 `a > 2`；MCP 要求有限的 `gamma > 1`。迭代次数、容差、路径值和惩罚形状参数不接受布尔值；非法控制项会触发 `ValueError`，不会静默转换。
+
+### 返回值与收敛警告
+
+`proximal_irls_quantile_solver` 返回 `(coef, intercept, n_iter)`：`coef` 是形状为 `(p,)` 的 NumPy 数组，截距为标量，`n_iter` 是所有延拓和 LLA 阶段中已完成的 IRLS 更新总数。`fit_intercept=False` 时截距为零。
+
+`fista_lla_path` 默认也返回上述三项。设置 `return_path=True` 时，返回 `(coef, intercept, n_iter, path)`。若有 `m` 个延拓值，`path` 包含 NumPy 数组 `alpha` `(m,)`、`coef` `(m, p)`、`intercept` `(m,)` 和 `n_iter` `(m,)`；其中迭代次数为累计值，不是每个 alpha 单独的增量。
+
+默认的标量 SCAD/MCP 调用与分组、热启动、自定义近似惩罚或返回路径的调用，可能采用不同数值方法和迭代计数单位：前者记录 IRLS 更新，FISTA-LLA 调用记录近端更新。不能把这些次数当作同一种算法的工作量直接比较，也不要假定返回路径只会增加输出而不影响求解方法。
+
+这些分位数延拓求解器在目标 alpha 处未满足内层或外层停止条件时，会发出 `ConvergenceWarning` 并返回最后的迭代结果；FISTA-LLA 返回最后一个已接受的迭代点。仅有系数输出或正的迭代次数不能证明收敛。使用结果前应检查警告；改变迭代预算或初始化后重新求解，并不能证明上一次结果已经收敛。
 
 ## 参考文献
 

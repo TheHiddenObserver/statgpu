@@ -1,7 +1,7 @@
 # CoxPH device and CV diagnostics
 
 > Language: English  
-> Last updated: 2026-10-07  
+> Last updated: 2026-10-11  
 > This page: Advanced API reference  
 > Switch: [Chinese](../../cn/reference/coxph-diagnostics.md)
 
@@ -9,6 +9,29 @@ Use these fields to inspect a completed `CoxPH` or `CoxPHCV` fit. Start with the
 [Cox model guide](../models/coxph.md) for model choice, examples, inference, and
 statistical limitations. A transfer flag describes memory movement; it does
 not by itself imply that numerical fitting ran on CPU.
+
+## Effective CV folds
+
+A successful `CoxPHCV.fit()` does not guarantee that every requested fold was
+used. A fold with no observed event in its training or validation partition is
+excluded without an exclusion warning. Selection and the final refit can still
+succeed using the remaining folds. Check these `cv_results_` fields:
+
+| Key | Interpretation |
+|---|---|
+| `fold_valid` | Boolean vector identifying folds with events in both partitions. |
+| `failure_path` | Penalty-by-fold reasons for exclusion or failed evaluation; event-free folds report `fold_has_no_train_or_test_events`. |
+| `effective_fold_counts` | Per-penalty count of finite, converged fold scores. |
+| `converged_path` | Penalty-by-fold convergence indicators. A selectable penalty must converge and have finite scores on every effective fold. |
+
+If no fold can be evaluated or no penalty qualifies, fitting raises
+`RuntimeError`. Malformed split indices and overlapping training/validation
+indices raise `ValueError`. Review the split design when exclusions leave too
+few folds for a meaningful comparison.
+
+`PenalizedGLM_CV(loss="cox_ph", ...)` has a different diagnostic schema, including
+`n_effective_folds`, `train_event_counts`, and `validation_event_counts`; see
+[penalized Cox CV](../models/coxph.md#l1l2elasticnetscadmcp-model-family-cv).
 
 ## Host-transfer attributes
 
