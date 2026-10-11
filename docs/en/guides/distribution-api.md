@@ -477,16 +477,7 @@ np.testing.assert_allclose(qt_gpu(0.975, df=10), t.ppf(0.975, df=10, backend="nu
 print("Poisson mass:", round(float(mass_new), 6))
 ```
 
-Expected mass is `0.195367`. In contrast, the following **non-R historical
-names emit `DeprecationWarning`** and should be migrated:
-
-- `norm_cdf_gpu`, `norm_sf_gpu`, `norm_ppf_gpu`, `norm_isf_gpu` → corresponding
-  `norm.cdf`, `norm.sf`, `norm.ppf`, `norm.isf` methods.
-- `norm_two_sided_pvalue_gpu`, `norm_two_sided_critical_value_gpu` →
-  `norm.two_sided_pvalue`, `norm.two_sided_critical_value`.
-- `t_cdf_gpu`, `t_sf_gpu`, `t_ppf_gpu` → `t.cdf`, `t.sf`, `t.ppf`.
-- `t_two_sided_pvalue_gpu`, `t_two_sided_critical_value_gpu` →
-  `t.two_sided_pvalue`, `t.two_sided_critical_value`.
+Expected mass is `0.195367`.
 
 ## Complete API and references
 
@@ -504,7 +495,7 @@ names emit `DeprecationWarning`** and should be migrated:
 - Complete signatures and method implementations: [distribution objects, proxies,
   backends, and factories](../../../statgpu/inference/_distributions_backend.py).
   Public imports: [`statgpu.inference`](../../../statgpu/inference/__init__.py).
-  Compatibility signatures/warnings: [function-style wrappers](../../../statgpu/linear_model/legacy/_distributions_legacy_gpu.py).
+  Compatibility signatures: [function-style wrappers](../../../statgpu/linear_model/legacy/_distributions_legacy_gpu.py).
   Student t `df=1`/`df=2` two-sided runtime handling: [low-degree reference contract](../../../statgpu/inference/_low_df_reference_contract.py).
 - Probability terminology and aligned external reference: [SciPy statistical
   distributions](https://docs.scipy.org/doc/scipy/reference/stats.html),

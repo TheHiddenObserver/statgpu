@@ -42,7 +42,7 @@ p = norm.cdf(1.96)
 q = t.ppf(0.975, df=10)
 ```
 
-后端选择、可用分布、反函数精度、R 风格兼容别名以及历史名称，见 [分布 API](distribution-api.md)。
+后端选择、可用分布、反函数精度以及 R 风格兼容别名，见 [分布 API](distribution-api.md)。
 
 ## 多重检验与 p 值合并
 

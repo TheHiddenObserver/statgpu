@@ -350,17 +350,12 @@ np.testing.assert_allclose(qt_gpu(0.975, df=10), t.ppf(0.975, df=10, backend="nu
 print("Poisson mass:", round(float(mass_new), 6))
 ```
 
-预期概率质量为 `0.195367`。与上表不同，以下**不采用 R 风格命名的旧接口会发出 `DeprecationWarning`**，应迁移到对象方法：
-
-- `norm_cdf_gpu`、`norm_sf_gpu`、`norm_ppf_gpu`、`norm_isf_gpu` → 对应的 `norm.cdf`、`norm.sf`、`norm.ppf`、`norm.isf`。
-- `norm_two_sided_pvalue_gpu`、`norm_two_sided_critical_value_gpu` → `norm.two_sided_pvalue`、`norm.two_sided_critical_value`。
-- `t_cdf_gpu`、`t_sf_gpu`、`t_ppf_gpu` → `t.cdf`、`t.sf`、`t.ppf`。
-- `t_two_sided_pvalue_gpu`、`t_two_sided_critical_value_gpu` → `t.two_sided_pvalue`、`t.two_sided_critical_value`。
+预期概率质量为 `0.195367`。
 
 ## 完整 API 与参考资料
 
 - 工厂签名：`get_distribution(name, backend="auto", device=None, *, use_lut=True)`。分布名称不区分大小写，`list_available_distributions()` 返回原生名称列表。
 - 除 `rvs` 外，代理方法通过第一个位置参数接收界值或概率，并接受上表中的分布参数，以及每次调用可设置的控制项 `backend`、`device`、`use_lut`；`rvs` 仅接收关键字参数。固定对象只接受其原生方法参数。`t.ppf`、`t.isf`、`t.two_sided_critical_value` 还接受 `max_bisect_steps=60`，用于二分法备用路径，它不是精度容差。所有原生 `rvs` 签名均包含 `size=None` 和 `dtype=None`，但应注意前述 dtype 限制。
 - 兼容工厂：`get_distribution_gpu(name, *, allow_fallback=False)` 和 `list_available_distributions_gpu(include_scipy=True)`。
-- 完整签名及方法实现：[分布对象、代理、后端与工厂](../../../statgpu/inference/_distributions_backend.py)。公开导入入口：[`statgpu.inference`](../../../statgpu/inference/__init__.py)。兼容签名及警告：[函数式包装器](../../../statgpu/linear_model/legacy/_distributions_legacy_gpu.py)。Student t 在 `df=1`、`df=2` 下的双侧运行时处理：[低自由度参考实现](../../../statgpu/inference/_low_df_reference_contract.py)。
+- 完整签名及方法实现：[分布对象、代理、后端与工厂](../../../statgpu/inference/_distributions_backend.py)。公开导入入口：[`statgpu.inference`](../../../statgpu/inference/__init__.py)。兼容签名：[函数式包装器](../../../statgpu/linear_model/legacy/_distributions_legacy_gpu.py)。Student t 在 `df=1`、`df=2` 下的双侧运行时处理：[低自由度参考实现](../../../statgpu/inference/_low_df_reference_contract.py)。
 - 概率术语及外部比较参考：[SciPy 统计分布](https://docs.scipy.org/doc/scipy/reference/stats.html)、[正态分布](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.norm.html)、[Student t 分布](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.t.html)、[Poisson 分布](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.poisson.html)。

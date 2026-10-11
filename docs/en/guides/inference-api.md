@@ -42,7 +42,7 @@ p = norm.cdf(1.96)
 q = t.ppf(0.975, df=10)
 ```
 
-For backend selection, supported distributions, inverse-function precision, R-style compatibility aliases, and legacy names, see [Distribution API](distribution-api.md).
+For backend selection, supported distributions, inverse-function precision, and R-style compatibility aliases, see [Distribution API](distribution-api.md).
 
 ## Multiple testing and p-value combination
 
