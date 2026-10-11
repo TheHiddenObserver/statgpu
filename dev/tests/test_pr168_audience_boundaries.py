@@ -16,22 +16,27 @@ def read(path):
 
 
 @pytest.mark.parametrize("language", ["en", "cn"])
-def test_ridge_known_issue_reference_keeps_conditions_consequence_and_workaround(language):
+def test_ridge_reference_keeps_current_support_boundary_and_external_cv_alternative(language):
     text = read(f"docs/{language}/reference/linear-model-api.md")
     section = text.split("### Custom RidgeCV training subsets" if language == "en"
-                         else "### RidgeCV 自定义训练子集的已知问题", 1)[1]
+                         else "### RidgeCV 自定义训练子集", 1)[1]
     section = section.split("\n## LassoCV", 1)[0]
-    assert "https://github.com/TheHiddenObserver/statgpu/issues/243" in section
+    section = " ".join(section.split())
     assert "sample_weight" in section
     required = (
-        ("known implementation issue", "partition every row once", "full complement",
-         "supplied training indices", "Validation losses and alpha", "external loop",
-         "fits Ridge", "Ordinary complete K-folds") if language == "en" else
-        ("已知的实现问题", "恰好覆盖每一行一次", "完整补集", "所给训练索引",
-         "验证损失和 alpha", "外部循环", "拟合 Ridge", "普通完整 K 折")
+        ("is omitted", "cover every row exactly once", "full complement",
+         "not reliably honored", "incorrect validation scores or alpha selection", "without an error",
+         "external CV loop", "fit `Ridge`", "intended training subset",
+         "designated validation rows", "ordinary K-fold CV") if language == "en" else
+        ("未提供", "恰好覆盖每一行一次", "完整补集", "较小的训练子集", "得到可靠采用",
+         "即使未报错，验证评分或 alpha 选择也可能不正确", "外部交叉验证循环", "拟合 `Ridge`",
+         "指定训练子集", "验证行上评估", "普通 K 折交叉验证")
     )
     for term in required:
         assert term in section, term
+    for detail in ("/issues/243", "known implementation issue", "已知的实现问题",
+                   "currently substitutes", "替换所给训练索引", "folds_are_complete"):
+        assert detail not in section, detail
 
 
 @pytest.mark.parametrize("page", PANEL_PAGES)

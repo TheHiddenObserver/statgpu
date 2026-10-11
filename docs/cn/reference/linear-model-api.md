@@ -1,7 +1,7 @@
 # 线性模型 API 参考
 
 > 语言：中文  
-> 最后更新：2026-10-06  
+> 最后更新：2026-10-11  
 > 切换：[English](../../en/reference/linear-model-api.md)
 
 本页各类可从 `statgpu` 或 `statgpu.linear_model` 导入，但 `SCADRegression` 和 `MCPRegression` 仅由 `statgpu.linear_model` 导出。`X` 为有限数值 `(n,p)` 矩阵，预测列顺序与训练一致。分析权重为有限非负 `(n,)` 向量，总和须为正。公式删行后的权重对齐见[公式输入](#formula-inputs)。显式 GPU 请求要求对应 CUDA 后端可用，详见[设备与内存](../guides/device-and-memory.md)。
@@ -596,7 +596,7 @@ RidgeCV(alphas=None, n_alphas=100, alpha_min_ratio=0.001, cv=5, cv_splits=None, 
 | `n_alphas` | `100` | 省略 alphas 时的自动网格大小。 |
 | `alpha_min_ratio` | `0.001` | 自动网格最小/最大值比例；应选正数，通常不大于 1。 |
 | `cv` | `5` | 自动生成的随机打乱 K 折数量，至少为 2。 |
-| `cv_splits` | `None` | 显式、可重复使用的训练/验证索引对列表；应自行确认索引为非空、不相交的整数子集。请参阅下文自定义训练子集的已知问题。 |
+| `cv_splits` | `None` | 显式、可重复使用的训练/验证索引对列表；应自行确认索引为非空、不相交的整数子集。请参阅[自定义训练子集的使用边界](#custom-ridgecv-training-subsets)。 |
 | `fit_intercept` | `True` | 在验证折和最终重拟合中拟合截距。 |
 | `device` | `'auto'` | cpu、cuda（CuPy）、torch（Torch CUDA）、auto；显式 GPU 请求不可用时会报错。 |
 | `n_jobs` | `None` | 共享工作线程配置；不保证候选项并行拟合。 |
@@ -632,15 +632,13 @@ NumPy `(m,)`。`score(X,y)` 返回不加权 R²，不接受权重参数；如需
 
 <a id="custom-ridgecv-training-subsets"></a>
 
-### RidgeCV 自定义训练子集的已知问题
+### RidgeCV 自定义训练子集
 
-这是已知的实现问题（[#243](https://github.com/TheHiddenObserver/statgpu/issues/243)）。
-未提供 `sample_weight` 且各验证集恰好覆盖每一行一次时，RidgeCV 当前会用每个验证集
-的完整补集替换所给训练索引。因此，即使较小的训练子集合法且与验证集不相交，
-也不会被忠实采用；验证损失和 alpha 选择可能改变。不要在此路径中使用刻意
-排除或设置间隔的训练行。应改用外部循环，精确地在每个训练子集上拟合 Ridge，
-再在对应验证行上评估。普通完整 K 折本来就使用互补训练集，不受这种替换影响。
-
+未提供 `sample_weight` 且各验证集恰好覆盖每一行一次时，仅在各训练集都是对应
+验证集的完整补集时使用 `RidgeCV`，例如普通 K 折交叉验证。较小的训练子集不能
+得到可靠采用，即使未报错，验证评分或 alpha 选择也可能不正确。需要排除训练行、
+留空窗或设置隔离期时，请使用外部交叉验证循环：在每个指定训练子集上拟合
+`Ridge`，再仅在对应的验证行上评估。
 
 ## LassoCV
 

@@ -1,7 +1,7 @@
 # Linear-model API reference
 
 > Language: English  
-> Last updated: 2026-10-06  
+> Last updated: 2026-10-11  
 > Switch: [Chinese](../../cn/reference/linear-model-api.md)
 
 Classes here import from `statgpu` or `statgpu.linear_model`, except `SCADRegression` and `MCPRegression`, which are exported only by `statgpu.linear_model`. `X` is finite numeric `(n,p)` data; prediction uses the fitted feature order. Analytic weights are a finite nonnegative `(n,)` vector with positive sum. For weights after formula row filtering, see [formula inputs](#formula-inputs). Explicit GPU use requires the corresponding installed CUDA backend; see [device and memory](../guides/device-and-memory.md).
@@ -611,7 +611,7 @@ RidgeCV(alphas=None, n_alphas=100, alpha_min_ratio=0.001, cv=5, cv_splits=None, 
 | `n_alphas` | `100` | Automatic grid size when alphas is omitted. |
 | `alpha_min_ratio` | `0.001` | Minimum/maximum ratio for the automatic grid; choose a positive value normally no greater than 1. |
 | `cv` | `5` | Generated shuffled K-fold count, at least 2. |
-| `cv_splits` | `None` | Explicit reusable list of (train_indices, validation_indices); validate nonempty disjoint integer subsets yourself. See the known custom-training-subset issue below. |
+| `cv_splits` | `None` | Explicit reusable list of (train_indices, validation_indices); validate nonempty disjoint integer subsets yourself. See the [custom-training support boundary](#custom-ridgecv-training-subsets). |
 | `fit_intercept` | `True` | Fit an intercept in CV and final refit. |
 | `device` | `'auto'` | cpu, cuda (CuPy), torch (Torch CUDA), auto; explicit unavailable GPU requests raise. |
 | `n_jobs` | `None` | Shared worker configuration; no candidate-parallelism guarantee. |
@@ -653,16 +653,13 @@ A chosen grid can still miss the useful penalty range.
 
 ### Custom RidgeCV training subsets
 
-This is a known implementation issue ([#243](https://github.com/TheHiddenObserver/statgpu/issues/243)).
-With no `sample_weight`, when validation sets partition every row once,
-RidgeCV currently substitutes each validation set's full complement for the
-supplied training indices. A deliberately smaller training subset is therefore
-not honored, even if it is valid and disjoint. Validation losses and alpha
-selection can change. Do not use this path for custom excluded/embargoed rows.
-For those designs use an external loop that fits Ridge on each exact training
-subset and evaluates its designated validation rows. Ordinary complete K-folds
-already use complementary training sets and are not affected by this substitution.
-
+When `sample_weight` is omitted and validation sets cover every row exactly once,
+use `RidgeCV` only if each training set is the full complement of its validation
+set, as in ordinary K-fold CV. Smaller training subsets are not reliably honored
+and may produce incorrect validation scores or alpha selection without an error.
+For excluded, gapped or embargoed training rows, use an external CV loop: fit
+`Ridge` on each intended training subset, then evaluate only its designated
+validation rows.
 
 ## LassoCV
 

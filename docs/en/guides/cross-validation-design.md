@@ -1,7 +1,7 @@
 # How statgpu Cross-Validation Works
 
 > Language: English  
-> Last updated: 2026-10-06
+> Last updated: 2026-10-11
 > This page: public design and execution model for cross-validation  
 > Switch: [Chinese](../../cn/guides/cross-validation-design.md)
 
@@ -82,18 +82,7 @@ A CV result is meaningful only relative to the candidate set and folds that were
 
 When an estimator generates a tuning grid automatically, the grid is data/model dependent. When the user supplies a grid, that grid becomes the requested candidate set after public validation.
 
-Use custom splits when ordinary shuffled folds do not match the data, such as ordered or grouped observations. Validate each pair as nonempty, disjoint, one-dimensional integer indices without repeated rows. Validation varies by estimator; the shared splitter can cast or flatten indices and skip empty pairs, so acceptance alone does not establish a valid split. Scientific suitability remains the caller's responsibility.
-
-**Known RidgeCV custom-split issue.** Without `sample_weight`, when validation sets
-cover every observation exactly once, RidgeCV can replace a supplied training
-subset with the full complement of its validation set. Deliberately excluded
-rows can re-enter training and change validation scores or the selected alpha.
-Ordinary complete K-fold splits already use those complements; arbitrary custom
-subsets do not. For excluded, gapped or embargoed training rows, use an explicit
-external CV loop that fits only the intended rows, as described in the
-[RidgeCV custom-training reference](../reference/linear-model-api.md#custom-ridgecv-training-subsets).
-A successful fit or finite score does not verify that the intended rows were used.
-
+Use custom splits when ordinary shuffled folds do not match the data, such as ordered or grouped observations. Training and validation indices should be nonempty, disjoint, one-dimensional integer arrays without repeated rows. Custom-split support varies by estimator; consult the estimator's API reference, including [RidgeCV custom-split support](../reference/linear-model-api.md#custom-ridgecv-training-subsets) before fitting. Choosing a scientifically appropriate split remains the caller's responsibility.
 
 Conceptually, once folds and candidates are established for one fit, later acceleration should operate on that same selection problem rather than repeatedly redefining it.
 
