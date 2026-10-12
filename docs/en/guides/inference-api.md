@@ -7,7 +7,7 @@
 
 `statgpu.inference` collects reusable statistical utilities for probability distributions, multiple testing, p-value combination, permutation tests, and bootstrap calculations.
 
-This page is the **module entry point**. Detailed distribution behavior is documented once in [Distribution API](distribution-api.md), and model coefficient-inference choices are documented in [Inference Modes](inference-modes.md).
+This page provides module navigation, common examples, and resampling API details. Detailed distribution behavior is documented in [Distribution API](distribution-api.md), and model coefficient-inference choices are documented in [Inference Modes](inference-modes.md).
 
 ## Quick reference
 
@@ -109,18 +109,6 @@ print(result.confidence_interval)
 
 This generic utility is different from estimator-specific inference modes such as the penalized Gaussian residual bootstrap. For coefficient inference after a fitted model, start with [Inference Modes](inference-modes.md) instead of assuming the generic bootstrap reproduces a model-specific inferential procedure.
 
-## API map
-
-Use the documentation according to the question you are trying to answer:
-
-- **How do I evaluate a probability distribution on NumPy/CuPy/Torch?** → [Distribution API](distribution-api.md)
-- **Which multiple-testing or combination method fits my question?** → [Multiple Testing Principles](../models/multiple-testing.md)
-- **How do I call the adjustment and combination functions?** → [Adjustment and Combination API](multiple-testing-combine-pvalues.md)
-- **How do I run a generic permutation or bootstrap calculation?** → this page
-- **Which inference method should a regression estimator use?** → [Inference Modes](inference-modes.md)
-- **What does penalized-GLM coefficient inference target?** → [Penalized GLM inference](penalized-glm-inference.md)
-
-
 ## Estimator wrappers
 
 The [shared estimator API](../reference/estimator-api.md) documents every argument and return field for the inherited helper methods. It also explains differences from these free functions, including dictionary versus tuple p-value results and supplementary vectorization controls.
@@ -216,3 +204,14 @@ and whose absolute value represents extremeness, such as correlation under a
 zero-correlation null. The engine does not automatically center a statistic or
 construct an equal-tail test for an asymmetric null distribution. For a
 prespecified directional alternative, use `"greater"` or `"less"` as appropriate.
+
+## API map
+
+Use the documentation according to the question you are trying to answer:
+
+- **How do I evaluate a probability distribution on NumPy/CuPy/Torch?** → [Distribution API](distribution-api.md)
+- **Which multiple-testing or combination method fits my question?** → [Multiple Testing Principles](../models/multiple-testing.md)
+- **How do I call the adjustment and combination functions?** → [Adjustment and Combination API](multiple-testing-combine-pvalues.md)
+- **How do I run a generic permutation or bootstrap calculation?** → this page
+- **Which inference method should a regression estimator use?** → [Inference Modes](inference-modes.md)
+- **What does penalized-GLM coefficient inference target?** → [Penalized GLM inference](penalized-glm-inference.md)

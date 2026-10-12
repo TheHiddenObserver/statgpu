@@ -1,13 +1,13 @@
 # Elastic Net
 
 > Language: English  
-> Last updated: 2026-10-09<br>
+> Last updated: 2026-10-12<br>
 > This page: Model documentation  
 > Language switch: [Chinese](../../cn/models/elastic-net.md)
 
 ## Overview
 
-`ElasticNet` combines L1 and L2 regularization for linear regression, balancing sparse feature selection (Lasso) and coefficient shrinkage (Ridge). It supports CPU, CuPy GPU, and PyTorch GPU execution. Direct fitting uses one backend-neutral `solver` interface; `device` controls where the computation runs.
+`ElasticNet` fits a continuous response with linear regression, combining L1 and L2 regularization to balance sparse feature selection ([Lasso](lasso.md)) and coefficient shrinkage ([Ridge](ridge.md)).
 
 ## When is Elastic Net useful?
 
@@ -25,7 +25,7 @@ Here n is the row count, p the feature count, $x_i$ the p-vector of predictors, 
 
 where:
 - `alpha` (α) controls overall regularization strength
-- `l1_ratio` (λ) mixes L1 vs L2: λ=1 gives Lasso, λ=0 gives Ridge
+- `l1_ratio` (λ) mixes L1 vs L2: λ=1 gives the Lasso objective, λ=0 gives the pure L2 objective
 - loss scaling by `1/(2n)` makes the public `alpha` use an average-loss convention
 
 **Note on regularization scaling**: `ElasticNet` and `Ridge` use the same average-loss convention. Therefore, with `l1_ratio=0`, the Elastic Net objective at a given public `alpha` reduces to the corresponding L2 objective. The `ElasticNet` wrapper still retains its own solver/inference defaults; use `Ridge` when you specifically want the Ridge estimator contract.
@@ -125,13 +125,15 @@ $$
 \frac{1}{n} X^\top (X\hat{\beta} - y) + \alpha(1-\lambda)\hat{\beta} + \alpha\lambda \cdot \partial\|\hat{\beta}\|_1 = 0.
 $$
 
-`solver` is the authoritative direct-fit algorithm selector on every backend. Use `device` separately to select CPU/CuPy/Torch execution. The historical `cpu_solver` argument is deprecated and no longer selects a second CPU-specific direct-fit algorithm in the unified engine. See the [penalized solver API migration guide](../guides/penalized-solver-api-migration.md).
-
 ## Estimation Algorithm
+
+Direct fitting supports NumPy CPU, CuPy GPU, and PyTorch GPU execution. `solver` is the authoritative direct-fit algorithm selector on every backend. Use `device` separately to select CPU/CuPy/Torch execution. The historical `cpu_solver` argument is deprecated and no longer selects a second CPU-specific direct-fit algorithm in the unified engine. See the [penalized solver API migration guide](../guides/penalized-solver-api-migration.md).
 
 The normal default is **FISTA** (Fast Iterative Shrinkage-Thresholding Algorithm), a proximal-gradient method with Nesterov acceleration. Other solver values may be available according to the public solver compatibility contract.
 
-### Key Optimization Insight
+<a id="key-optimization-insight"></a>
+
+### Proximal update
 
 The L1 and L2 parts are handled by the Elastic Net proximal operator:
 

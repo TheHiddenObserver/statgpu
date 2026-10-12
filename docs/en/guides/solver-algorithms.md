@@ -1,7 +1,7 @@
 # Solver Algorithms
 
 > Language: English  
-> Last updated: 2026-09-18  
+> Last updated: 2026-10-12  
 > This page: Algorithm reference  
 > Switch: [Chinese](../../cn/guides/solver-algorithms.md)
 
@@ -34,7 +34,7 @@ For model-level dispatch, see [Solver × Penalty Compatibility Matrix](solver-pe
 | ADMM | separable/proximal formulations | NumPy, CuPy, Torch |
 | `exact` | squared error + L2 closed-form path | NumPy, CuPy, Torch |
 
-The backend column describes numerical implementation capability only. Estimator and loss compatibility can further narrow the valid combinations. Quantile/check loss is one such case: ordinary FISTA is available on supported sparse convex estimator paths and can also be requested explicitly for Quantile L2/no-penalty objectives; `solver="auto"` continues to prefer IRLS for those L2/no-penalty rows. This Quantile use is an explicitly supported first-order proximal/subgradient method, not a claim that textbook smooth-gradient FISTA convergence theory applies to pinball loss. FISTA-BB, shared ADMM, Newton, Proximal Newton, and L-BFGS-B do not support Quantile. Direct low-level ordinary L-BFGS accepts Quantile calls with omitted or uniform weights, whereas estimator/CV `solver="lbfgs"` is unsupported and genuine non-uniform Quantile L-BFGS weights raise an error.
+The backend column describes numerical implementation capability only; the model, loss, penalty, and weights can further narrow the valid combinations. For estimator selection, start with the [compatibility matrix](solver-penalty-matrix.md). The [Quantile solver scope](#quantile-solver-scope) explains its non-smooth loss and the differences between low-level calls and model interfaces.
 
 ---
 
@@ -151,6 +151,12 @@ For each continuation value of `alpha`:
 - `max_lla_per_step=2`;
 - `lla_tol=1e-6`;
 - `tol=1e-6`.
+
+### Backend implementation
+
+- NumPy: NumPy matrix operations;
+- CuPy: CuPy matrix operations and available GPU kernels;
+- Torch: device-native tensor operations.
 
 ---
 
@@ -493,7 +499,7 @@ Weighted objective tracking and the weighted Lipschitz estimate use the same ana
 
 **File**: `statgpu/solvers/_fista_bb.py`
 
-**Use case**: FISTA with local Barzilai-Borwein curvature estimates for step-size selection on supported sparse-penalty GLM routes. Quantile/check loss is excluded because its step-function subgradient does not provide the smooth gradient differences required by the BB curvature estimate.
+**Use case**: FISTA with local Barzilai-Borwein curvature estimates for step-size selection on supported sparse-penalty GLM routes. Quantile/check loss is excluded from both low-level and estimator FISTA-BB interfaces because its step-function subgradient does not provide the smooth gradient differences required by the BB curvature estimate.
 
 ### Lipschitz burn-in and BB curvature
 
@@ -583,7 +589,7 @@ $$
 \gamma_k\leftarrow\frac{\gamma_k}{2}
 $$
 
-and recomputes the same proximal step, up to 15 safeguard retries.
+and recomputes the same proximal step, up to 15 safeguard retries. This numerical safeguard does not change the proximal objective.
 
 ### Nesterov momentum and adaptive restart
 
@@ -1476,6 +1482,14 @@ For the full family/backend/problem-size rules, including Poisson and Negative-B
 ## Quantile low-level solver calls
 
 This section is for callers of functions exported by `statgpu.solvers` and of `QuantileLoss.irls()`. For estimator selection, use the [Quantile model guide](../models/quantile.md) and the [compatibility matrix](solver-penalty-matrix.md).
+
+<a id="quantile-solver-scope"></a>
+
+### Supported scope and model-interface differences
+
+Quantile/check (pinball) loss is non-smooth. Ordinary FISTA is available on supported sparse convex estimator paths and can also be requested explicitly for Quantile L2/no-penalty objectives; `solver="auto"` continues to prefer IRLS for those L2/no-penalty rows. This Quantile use is an explicitly supported first-order proximal/subgradient method, not a claim that textbook smooth-gradient FISTA convergence theory applies to pinball loss.
+
+FISTA-BB, shared ADMM, Newton, Proximal Newton, and L-BFGS-B do not support Quantile. Direct low-level ordinary L-BFGS accepts Quantile calls with omitted or uniform weights, whereas estimator/CV `solver="lbfgs"` is unsupported and genuine non-uniform Quantile L-BFGS weights raise an error.
 
 ### Inputs and supported weights
 

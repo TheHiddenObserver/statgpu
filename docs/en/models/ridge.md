@@ -1,18 +1,19 @@
 # Ridge
 
 > Language: English  
-> Last updated: 2026-10-09<br>
+> Last updated: 2026-10-12<br>
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/ridge.md)
 
 ## Overview
 
-`Ridge` provides L2-regularized linear regression for a single continuous response, with coefficient inference and robust covariance options. It is used to stabilize prediction or coefficient estimates under multicollinearity. With positive alpha, coefficient intervals describe the penalized fit and do not automatically remove shrinkage bias or adjust for choosing alpha.
+`Ridge` fits a single continuous response with linear regression and an L2 penalty. It can stabilize coefficient estimates under multicollinearity and improve prediction when many weak or correlated predictors may help. Ridge does not aim to make slopes exactly zero; consider [Lasso](lasso.md) when sparsity matters. Start with [linear regression](linear-regression.md) when an unpenalized low-dimensional model is appropriate.
 
-Unlike [Lasso](lasso.md), Ridge does not aim to make slopes exactly zero. Use it
-when many weak or correlated predictors may help prediction; start with
-[LinearRegression](linear-regression.md) when an unpenalized low-dimensional
-model is appropriate. Neither shrinkage nor a small p-value establishes causality.
+Besides fitting and prediction, Ridge provides coefficient inference with `nonrobust`, `hc0`, `hc1`, `hc2`, `hc3`, and `hac` covariance options. With positive alpha, coefficient intervals describe the penalized fit and do not automatically remove shrinkage bias or adjust for choosing alpha. Neither shrinkage nor a small p-value establishes causality.
+
+<a id="path"></a>
+
+Public path: `statgpu.linear_model.Ridge`. The objective below explains the regularization, followed by a CPU example covering fitting, prediction, and coefficient intervals.
 
 ## Objective Function
 
@@ -99,10 +100,6 @@ This prints `(6, 2)`: six parameters, each with a lower and upper bound.
 Choose alpha using training-only validation, keeping the final test set separate.
 Learn feature scaling inside each training fold, since Ridge penalizes coefficients
 in their chosen units. The alpha value is illustrative; choose it for your data.
-
-## Path
-
-`statgpu.linear_model.Ridge`
 
 ## Estimating Equation
 
@@ -225,7 +222,7 @@ shrinkage or tuning on the same data.
 ## Optional GPU use
 
 Use `device="cuda"` for CuPy CUDA or `device="torch"` for Torch CUDA in the
-complete CPU example once that backend is installed and usable. An unavailable
+[complete CPU example](#cpu-data) once that backend is installed and usable. An unavailable
 explicit backend raises; only `auto` may choose another available backend.
 See [device and memory](../guides/device-and-memory.md).
 
@@ -238,7 +235,9 @@ Ridge accepts only a single response; it does not share LinearRegression's
 multi-output API. Its prediction defaults to a NumPy array even after GPU fitting;
 use `predict(X, return_cpu=False)` for backend-native output.
 
-## strict/approx difference
+<a id="strictapprox-difference"></a>
+
+## Exact and approximate computation
 
 No separate public approximate mode is exposed. Exact and FISTA fits optimize
 the same objective; their difference is numerical rather than a different
@@ -259,6 +258,13 @@ see [device and memory](../guides/device-and-memory.md).
 - Does rescaling all sample weights change the model? No. The weighted loss is divided by `sum(sample_weight)`.
 - When should I set `hac_maxlags`? When using `cov_type="hac"` with time dependence; otherwise leave the default.
 - Are GPU inference arrays exposed as CuPy/Torch objects? No. Numerical inference stays backend-native, but the established public reporting attributes remain NumPy snapshots after numerical inference completes.
+
+## See also
+
+- [Cross-validation](../guides/cross-validation.md) — RidgeCV selection and final-refit behavior
+- [Device and memory](../guides/device-and-memory.md) — backend and device behavior
+- [Inference modes](../guides/inference-modes.md) — interpreting coefficient-inference methods
+- [Solver algorithms](../guides/solver-algorithms.md) — exact, FISTA, and other numerical algorithms
 
 Complete [RidgeCV controls and result schema](../reference/linear-model-api.md#ridgecv)
 and a [standalone CPU tuning example](../reference/linear-model-api.md#ridgecv-and-lassocv-cpu-example)

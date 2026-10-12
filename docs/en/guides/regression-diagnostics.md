@@ -1,14 +1,17 @@
 # Regression Diagnostics
 
 > Language: English  
-> Last updated: 2026-07-12  
+> Last updated: 2026-10-12  
 > Switch: [Chinese](../../cn/guides/regression-diagnostics.md)
 
-`RegressionDiagnostics(model)` consumes the fitted design, response, residuals, and
-scale from a compatible regression model. It reports raw/standardized/internal and
-external studentized residuals, leverage, Cook's distance, and VIF. Rank-deficient
-designs use a pseudoinverse-based hat diagonal; external studentization uses deleted
-residual variances.
+After fitting a regression model, inspect residuals, high-leverage or influential
+observations, and collinearity between features. `RegressionDiagnostics(model)`
+computes these diagnostics from a compatible fitted model. It reports raw and
+standardized residuals, internally and externally studentized residuals, leverage,
+Cook's distance, and VIF.
+
+With a design matrix `X` and response `y` prepared, fit a linear regression and
+read its diagnostics:
 
 ```python
 from statgpu import LinearRegression, RegressionDiagnostics
@@ -24,3 +27,7 @@ print(diag.vif())
 `RegressionDiagnostics` runs on CPU, including when the model was fitted on GPU.
 Creating it converts the required fitted arrays to NumPy, so allow for the CPU
 memory and data-transfer cost. This does not refit the model.
+
+The calculations use the model's saved design, response, residuals, and scale.
+Rank-deficient designs use a pseudoinverse-based hat diagonal; external
+studentization uses deleted residual variances.

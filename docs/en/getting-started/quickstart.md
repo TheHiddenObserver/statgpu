@@ -1,15 +1,14 @@
 # Quickstart
 
 > Language: English  
-> Last updated: 2026-10-07  
+> Last updated: 2026-10-12  
 > This page: Getting started  
 > Switch: [Chinese](../../cn/getting-started/quickstart.md)
 
-Language switch: [Chinese](../../cn/getting-started/quickstart.md)
-
 ## Installation
 
-With Python 3.9 or later, install from an existing repository checkout:
+Python 3.9 or later is required. After downloading or cloning the repository,
+enter its `statgpu` directory in a terminal and install:
 
 ```bash
 cd statgpu
@@ -21,6 +20,9 @@ needs neither a GPU nor CuPy or PyTorch. Optional GPU setup is described separat
 [below](#optional-gpu-execution).
 
 ## Minimal Example
+
+Fit a linear regression to simulated data, then make predictions and check the
+training fit:
 
 ```python
 import numpy as np
@@ -40,7 +42,11 @@ The first output contains predictions for three rows. The second is the training
 R-squared, close to 1 for this low-noise simulated example. It does not measure
 performance on new data; use held-out data or cross-validation for that purpose.
 
-## Device Control
+<a id="device-control"></a>
+
+## Choosing a compute device
+
+Alongside each estimator's `device` argument, you can set a global default:
 
 ```python
 import statgpu as sg
@@ -116,6 +122,7 @@ For more setup and supported-model details, see the
 ## Next Steps
 
 - [Device and GPU Memory](../guides/device-and-memory.md)
-- [Inference Modes (Lasso)](../guides/inference-modes.md)
+- [Choosing an inference method](../guides/inference-modes.md)
 - [Models Overview](../models/README.md)
-- [Benchmark Index](../guides/benchmarks.md)
+- [Benchmarks and interpreting results](../guides/benchmarks.md)
+- [Changelog](../changelog.md)

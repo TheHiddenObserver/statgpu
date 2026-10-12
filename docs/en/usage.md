@@ -8,9 +8,8 @@ Start with the Quickstart for a first fit. Use the model and reference pages to 
 
 ## Getting started
 
-- [Complete API references](README.md#complete-api-references) — constructors, methods, parameters, and result attributes
-
 - [Quickstart](getting-started/quickstart.md) — installation, first fit, prediction, and device selection
+- [Complete API references](README.md#complete-api-references) — constructors, methods, parameters, and result attributes
 - [Implemented Methods](guides/implemented-methods.md) — public estimator and method inventory
 - [Device and GPU Memory](guides/device-and-memory.md) — CPU/CUDA/Torch behavior and memory controls
 - [Cross-Validation](guides/cross-validation.md) — folds, tuning grids, selection, and final refit

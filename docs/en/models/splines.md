@@ -1,7 +1,7 @@
 # Spline Basis Functions
 
 > Language: English  
-> Last updated: 2026-10-09
+> Last updated: 2026-10-12
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/splines.md)
 
@@ -101,13 +101,24 @@ data. `linear` and `continue` make different assumptions and can grow quickly.
 For noisy data, tune knot count and downstream regularization within training
 folds and keep a separate test set for evaluating predictions.
 
-## Overview
+<a id="overview"></a>
 
-The splines module provides spline basis construction utilities. `bspline_basis` evaluates B-spline basis matrices using De Boor's recursive algorithm. `natural_cubic_spline_basis` projects a cubic basis using numerical constraints that approximate zero endpoint curvature. `cyclic_cubic_spline_basis` attempts a periodic projection, but its current boundary approximation is unreliable; see the limitation below before using it. `thin_plate_spline_basis` constructs multi-dimensional radial basis functions using the thin plate spline kernel. `SplineTransformer` wraps B-spline basis generation in an sklearn-compatible `fit`/`transform` API for use in pipelines. The functions accept NumPy, CuPy, or Torch through an explicit `xp`; `xp=None` uses NumPy, rather than inferring the input backend.
+## From the transformer to basis functions
+
+The example above uses the sklearn-style `SplineTransformer` to save and reuse training knots through its `fit`/`transform` API, including in pipelines. For direct control over basis construction, the splines module also provides:
+
+- `bspline_basis`, which evaluates B-spline basis matrices using De Boor's recursive algorithm.
+- `natural_cubic_spline_basis`, which projects a cubic basis using numerical constraints that approximate zero endpoint curvature.
+- `cyclic_cubic_spline_basis`, which attempts a periodic projection. Its current boundary approximation is unreliable; read the limitation below before using it.
+- `thin_plate_spline_basis`, which constructs multi-dimensional radial basis functions using the thin plate spline kernel.
+
+These functions accept NumPy, CuPy, or Torch through an explicit `xp`; `xp=None` uses NumPy, rather than inferring the input backend.
 
 For the Generalized Additive Model (GAM) which uses these basis functions, see [GAM](semiparametric.md).
 
-## Path
+<a id="path"></a>
+
+### Import paths
 
 ```
 statgpu.nonparametric.splines.bspline_basis
@@ -117,7 +128,9 @@ statgpu.nonparametric.splines.thin_plate_spline_basis
 statgpu.nonparametric.splines.SplineTransformer
 ```
 
-## Objective Function
+<a id="objective-function"></a>
+
+## How basis functions are constructed
 
 **B-spline basis** is computed via the De Boor recursion. The degree-0 basis functions are
 
@@ -152,11 +165,20 @@ $$
 
 where $r = \|x - \xi_j\|$ is the Euclidean distance to knot $\xi_j$. For 1-D data with $m=2$, this gives $\phi(r) = r^3$. For 2-D data with $m=2$, this gives $\phi(r) = r^2 \log(r)$. The basis always includes polynomial terms $[1, x_1, \ldots, x_d]$, regardless of `penalty_order`. This is the polynomial block for order 2; it is not the full order-specific block for other orders. The function creates features, not a fitted smoother, coefficient side constraints, or a penalty matrix. It requires `2 * penalty_order > d`.
 
-**SplineTransformer**: an sklearn-compatible transformer that generates B-spline basis features for each input feature. Knots are placed using either a `'uniform'` or `'quantile'` strategy. Output dimension per feature is `n_knots + degree - 1` (with bias) or `n_knots + degree - 2` (without bias).
+**SplineTransformer**: an sklearn-compatible transformer that generates B-spline basis features for each input feature. Knots can use a `'uniform'` or `'quantile'` strategy, or be supplied explicitly. Output dimension per feature is `n_knots + degree - 1` (with bias) or `n_knots + degree - 2` (without bias).
 
-## Estimating Equation
+The transformer supports four extrapolation rules:
 
-Evaluation is a direct recursive computation; no linear system is solved. For `cyclic_cubic_spline_basis`, the null space of the periodicity constraint matrix is computed via SVD. `SplineTransformer` evaluates each feature with its own backend-native Cox–de Boor recurrence and explicit extrapolation semantics.
+- `error`: raise outside the boundary.
+- `constant`: clamp features to their boundary values.
+- `linear`: continue along the boundary tangent.
+- `continue`: continue the boundary polynomial piece.
+
+<a id="estimating-equation"></a>
+
+### Basis computation versus response fitting
+
+These interfaces construct a basis matrix; they do not estimate response-model coefficients. B-spline evaluation is a direct recursive computation, with no regression system to solve. For `cyclic_cubic_spline_basis`, the null space of the periodicity constraint matrix is computed via SVD. `SplineTransformer` evaluates each feature with its own backend-native Cox–de Boor recurrence and explicit extrapolation semantics, subject to the device-placement limitation below. To predict responses, pass the basis matrix to a regression model as in the opening example.
 
 ## Covariance / Inference
 

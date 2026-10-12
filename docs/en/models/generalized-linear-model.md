@@ -1,21 +1,38 @@
 # GeneralizedLinearModel and Penalized GLM
 
 > Language: English  
-> Last updated: 2026-10-09<br>
+> Last updated: 2026-10-12<br>
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/generalized-linear-model.md)
 
+A generalized linear model (GLM) relates a response to its features and predicts the response's mean at a given feature combination. Examples include the expected number of events, the probability of a binary event, or a strictly positive continuous measurement. Different response types call for different distributional assumptions and links.
+
 ## Choosing a response model
 
-A GLM connects a linear predictor to the mean of an outcome through a link function. Use Gaussian/identity for continuous outcomes with a linear mean, binomial/logit for 0/1 outcomes, or Poisson/log for counts. The log link keeps a predicted mean positive; a coefficient then describes a multiplicative change in that mean after exponentiation. It is not a causal effect without additional assumptions.
+A GLM has two main ingredients. The **family** describes the response distribution and its mean–variance relationship. The **link function** connects the conditional mean, the average response at a given feature combination, to a linear predictor: an intercept plus the sum of each feature multiplied by its coefficient.
 
-Poisson assumes conditional variance equals the mean. Strong count overdispersion can motivate a Negative Binomial model; strictly positive continuous outcomes can motivate Gamma or Inverse Gaussian. Choose the family from the response and scientific assumptions, not simply the lowest training error. These APIs do not expose an offset/exposure argument; adding exposure as an ordinary predictor estimates its coefficient rather than fixing it at one.
+Start with the response type:
+
+- For a continuous response whose mean is approximately linear in the features, Gaussian/identity models that mean directly.
+- For a 0/1 response, binomial/logit models the event probability.
+- For nonnegative integer counts, Poisson/log models the expected count. Poisson assumes conditional variance equals the mean; strong count overdispersion can motivate a Negative Binomial model.
+- For strictly positive continuous responses, consider Gamma or Inverse Gaussian.
+
+Choose the family from the response and scientific assumptions, not simply the lowest training error. The log link keeps a predicted mean positive; holding other features fixed, exponentiating a coefficient gives the multiplicative mean change for a one-unit feature increase. This is not a causal effect without additional assumptions.
+
+## Ordinary and penalized entry points
+
+`GeneralizedLinearModel` is the common entry point for ordinary GLMs such as Gaussian, binomial, and Poisson models. Typed ordinary estimators such as `GammaRegression`, `InverseGaussianRegression`, `NegativeBinomialRegression`, and `TweedieRegression` select a response family and its supported link or family-specific controls through the shared GLM implementation.
+
+When you need coefficient shrinkage or variable selection, use `PenalizedGeneralizedLinearModel` or a typed wrapper such as `PenalizedLinearRegression`, `PenalizedLogisticRegression`, or `PenalizedPoissonRegression`. `Ridge`, `Lasso`, and `ElasticNet` are sklearn-style thin wrappers over penalized Gaussian regression.
+
+Here, “ordinary GLM” distinguishes the interfaces; it does not mean an unpenalized fit by default. Ordinary `solver="auto"` uses IRLS, and the default `C=1` shrinks slopes. Set `C=0` for unpenalized fitting; the objective section explains how each solver treats C. The CPU example below explicitly uses unpenalized Newton fitting.
 
 <a id="cpu-example"></a>
 
 ## A complete CPU example
 
-Run the steps in order: prepare counts, fit, predict, then optionally add coefficient inference. No GPU or formula dependencies are needed.
+This Poisson example learns how two features relate to the expected count. Run the steps in order: prepare counts, fit, evaluate held-out predictions, then optionally add coefficient inference. No GPU or formula dependencies are needed.
 
 ### 1. Import
 
@@ -43,7 +60,7 @@ weights = np.linspace(0.5, 2.0, 180)
 
 ### 3. Fit an unpenalized model
 
-`C=0` makes the unpenalized intent explicit. This example requests Newton, which does not use C. The default auto/IRLS path with positive C instead applies ridge shrinkage; the objective section explains that distinction.
+Newton performs an unpenalized fit and does not use C. The example still writes `C=0` so switching to IRLS would retain that unpenalized objective; the default auto/IRLS path with positive C instead applies ridge shrinkage.
 
 ```python
 model = GeneralizedLinearModel(
@@ -77,46 +94,12 @@ model.fit(X[:180], y[:180], sample_weight=weights)
 print("Interval shape:", model._conf_int.shape)
 ```
 
-The interval array has shape `(3, 2)`: intercept first, then the two slopes. These are asymptotic marginal coefficient intervals, not intervals for future counts. `summary()` returns a string; display it with `print(model.summary())`.
+The interval array has shape `(3, 2)`: intercept first, then the two slopes, with lower and upper bounds in the two columns. These are asymptotic marginal coefficient intervals, not intervals for future counts. `summary()` returns a string; display it with `print(model.summary())`.
 <!-- example-end: glm-poisson -->
 
-## Ordinary and penalized entry points
-
-`GeneralizedLinearModel` is the common entry point for core ordinary GLMs such as Gaussian, binomial, and Poisson models. Typed ordinary estimators such as `GammaRegression`, `InverseGaussianRegression`, `NegativeBinomialRegression`, and `TweedieRegression` use the same shared GLM implementation for their family-specific behavior.
-
-For regularized models, use `PenalizedGeneralizedLinearModel` or a typed wrapper such as `PenalizedLinearRegression`, `PenalizedLogisticRegression`, or `PenalizedPoissonRegression`. `Ridge`, `Lasso`, and `ElasticNet` are sklearn-style thin wrappers over penalized Gaussian regression.
-
-If you are here for weighted GLMs, the main rules are:
-
-- `sample_weight` is an **analytic objective weight** on supported GLM paths;
-- the weighted loss is normalized by `sum(sample_weight)`, so multiplying all weights by one positive constant does not change the fitted optimum;
-- explicit `solver="newton"` and `solver="lbfgs"` remain explicit—weights do not silently switch the solver;
-- explicit `device="cuda"` and `device="torch"` remain on the requested GPU backend when that route is supported;
-- unsupported combinations fail clearly instead of silently falling back to a different solver or CPU.
-
-For penalized coefficient inference, see [Penalized GLM inference](../guides/penalized-glm-inference.md). For the complete solver table, see [Solver × Penalty Compatibility Matrix](../guides/solver-penalty-matrix.md).
-
-Complete [typed GLM constructors and methods](../reference/linear-model-api.md#typed-glm-constructors)
-cover family-specific link/dispersion/power controls and the different penalized
-wrapper defaults. Shared names do not make constructor controls interchangeable.
-
-## Public paths
-
-- `statgpu.linear_model.GeneralizedLinearModel`
-- `statgpu.linear_model.PoissonRegression`
-- `statgpu.linear_model.GammaRegression`
-- `statgpu.linear_model.InverseGaussianRegression`
-- `statgpu.linear_model.NegativeBinomialRegression`
-- `statgpu.linear_model.TweedieRegression`
-- `statgpu.linear_model.PenalizedGeneralizedLinearModel`
-- `statgpu.linear_model.PenalizedLinearRegression`
-- `statgpu.linear_model.PenalizedLogisticRegression`
-- `statgpu.linear_model.PenalizedPoissonRegression`
-- `statgpu.linear_model.Ridge`
-- `statgpu.linear_model.Lasso`
-- `statgpu.linear_model.ElasticNet`
-
 ## Objective function and `sample_weight`
+
+First distinguish an unpenalized loss from an objective that adds regularization. Weights determine how much each observation contributes to the data-fit loss.
 
 Let n be the number of observations, x_i the predictor vector, beta the slope vector and b the unpenalized intercept. Write $\eta_i=b+x_i^\top\beta$; set b=0 when `fit_intercept=False`. The **unpenalized** data-fit objective uses the family's average negative log-likelihood (with the family's dispersion convention):
 
@@ -130,7 +113,7 @@ $$
 L_w(b,\beta)=\frac{\sum_i w_i\ell(y_i,\eta_i)}{\sum_i w_i}.
 $$
 
-Weights must be finite and nonnegative with positive sum. Zero-weight rows contribute no data-fit loss, and multiplying all weights by one positive constant does not change this objective.
+Weights must be finite and nonnegative with positive sum. Zero-weight rows contribute no data-fit loss, and multiplying all weights by one positive constant does not change this objective. These are analytic objective weights, not row-replication counts or resampling probabilities. Adding weights does not change an explicit solver request; unsupported combinations raise instead of silently substituting another solver or CPU execution.
 
 **Ordinary GLM is not automatically unpenalized.** Its default `solver="auto"` uses IRLS for the ordinary families listed here. Ordinary IRLS with positive `C` adds a slope ridge term:
 
@@ -147,7 +130,7 @@ $$
 \text{or}\quad\min_{b,\beta}L_w(b,\beta)+\alpha P(\beta).
 $$
 
-The intercept remains unpenalized. For Cox partial likelihood, robust losses and quantile losses, see the statistical definitions on their respective model pages.
+The intercept remains unpenalized. `penalty` selects the penalty and `alpha` controls its strength. For Cox partial likelihood, robust losses and quantile losses, see the statistical definitions on their respective model pages.
 
 ## Solver selection
 
@@ -204,11 +187,17 @@ or L-BFGS; weights alone do not select the solver.
 
 ## Covariance and inference
 
+Coefficient inference quantifies estimation uncertainty; it answers a different question from held-out predictive evaluation. For ordinary GLMs, enable supported coefficient inference with `compute_inference=True` and choose `nonrobust`, `hc0`, or `hc1` through `cov_type`. Ordinary inference uses the same fitted analytic-weight convention as estimation; weight support still depends on the chosen inference method. The CPU example shows how to read HC1 coefficient intervals.
+
+### Penalized-model inference
+
 Generic and typed penalized GLM estimators use `inference_method="auto"` as the recommended public request. Supported M-estimation, debiased and residual-bootstrap results report the procedure, target and tuning/selection conditions. The current `post_selection_ols` path can leave `inference_method_` and `inference_target_` unset despite returning inference; read `_inference_result.method` and its metadata as described in [post-selection reporting](../guides/inference-modes.md#post_selection_ols).
 
-For supported smooth non-Gaussian L2/no-penalty models, `auto` resolves to fixed-penalty `m_estimation`. Positive L2 fits target the penalized estimating equation; no-penalty aliases are canonicalized to zero-strength L2 and target the unpenalized population parameter. Current covariance support is `nonrobust`, `hc0`, and `hc1`; HC2/HC3/HAC are not available on this penalized non-Gaussian path and raise instead of being substituted silently.
+Unsupported loss × penalty × inference-method combinations raise. For supported smooth non-Gaussian L2/no-penalty models, `auto` resolves to fixed-penalty `m_estimation`. Positive L2 fits target the penalized estimating equation; no-penalty aliases are canonicalized to zero-strength L2 and target the unpenalized population parameter. Current covariance support is `nonrobust`, `hc0`, and `hc1`; HC2/HC3/HAC are not available on this penalized non-Gaussian path and raise instead of being substituted silently.
 
-Supported M-estimation and Gaussian residual-bootstrap calculations reuse the fitted backend and device. Ordinary GLM inference uses the same fitted analytic-weight convention as estimation; weight support still depends on the chosen inference method. Non-Gaussian L1/ElasticNet coefficient inference is unsupported. SCAD/MCP `oracle` is explicit, but its current non-Gaussian child reconstruction can silently reset family settings and regularization and use an automatic child device. Do not interpret those results as the intended unpenalized active-set inference; see the [oracle limitation and diagnostic-refit alternative](../guides/penalized-glm-inference.md#current-non-gaussian-oracle-limitation). Group-penalty paths remain estimation-only where noted.
+Supported M-estimation and Gaussian residual-bootstrap calculations reuse the fitted backend and device. Non-Gaussian L1/ElasticNet coefficient inference is unsupported. SCAD/MCP `oracle` is explicit, but its current non-Gaussian child reconstruction can silently reset family settings and regularization and use an automatic child device. Do not interpret those results as the intended unpenalized active-set inference; see the [oracle limitation and diagnostic-refit alternative](../guides/penalized-glm-inference.md#current-non-gaussian-oracle-limitation). Group-penalty paths remain estimation-only where noted.
+
+### Residual bootstrap for sparse Gaussian models
 
 For supported Gaussian sparse penalties, `inference_method="bootstrap"` selects an unweighted residual bootstrap with `cov_type="nonrobust"`. The design matrix and fitted tuning configuration remain fixed: each draw resamples residuals, constructs a bootstrap response by adding those residuals to the fitted values, and refits the same penalized model. `n_bootstrap` controls the number of refits and `bootstrap_random_state` controls reproducibility.
 
@@ -287,6 +276,8 @@ assert prediction.shape == (5,)
 
 Formula parsing runs on CPU. Pass formula/data without simultaneous array X/y. Weights may cover original rows or exactly the rows retained after formula/missing-data processing; alignment is positional. Prediction reconstructs the training columns and categorical levels. For large data, explicit arrays avoid formula parsing overhead.
 
+These GLM APIs do not expose an `offset`/`exposure` argument. If counts correspond to different exposures, adding exposure as an ordinary predictor estimates its coefficient instead of fixing it at one, so it does not replace an offset.
+
 Ordinary formula prediction currently drops rows with missing predictors and
 returns a shorter unlabelled array. Resolve missing values and check output
 length before aligning predictions; see the [missing-row limitation](../reference/linear-model-api.md#missing-prediction-rows-in-ordinary-glms).
@@ -297,9 +288,7 @@ On ordinary auto/IRLS/FISTA paths, a failed refit can mix old coefficients with 
 
 ## Strict and approximate CV
 
-Supported non-Gaussian L2/no-penalty combinations expose fixed-penalty M-estimation with nonrobust/HC0/HC1 covariance. Unsupported loss × penalty × method combinations raise. Residual bootstrap has the narrower scope described above; an accepted non-Gaussian SCAD/MCP oracle request still has the reconstruction limitation, so acceptance alone does not establish the intended target.
-
-`solver="auto"` follows the model's direct-fit dispatch. Analytic weights do not rewrite a public solver request: explicit smooth solvers remain explicit, while `auto` continues to use the dispatch for the corresponding fit.
+For penalized models, cross-validation selects the penalty strength `alpha` by comparing validation losses across candidates, rather than relying on training error alone.
 
 `PenalizedGLM_CV` defaults to `cv_strategy="strict"`. In strict mode every fold/alpha is evaluated with the requested `max_iter` and `tol`.
 
@@ -364,6 +353,30 @@ assert np.isclose(model.best_score_, -np.min(model.cv_results_["mean_score"]))
 
 
 This produces method `m_estimation` and three finite standard errors. Inference is conditional on the selected alpha and does not account for tuning uncertainty. The final generic estimator has no predict_proba or summary method. Its logistic prediction is a 0/1 label rather than a mean probability; use a suitable typed estimator when probability methods are needed. Shapes, default values and complete CV result keys are in the [API reference](../reference/linear-model-api.md#penalizedglm_cv).
+
+## Public paths
+
+The following names can be imported from `statgpu.linear_model`.
+
+For penalized coefficient inference, see [Penalized GLM inference](../guides/penalized-glm-inference.md). For the complete solver table, see [Solver × Penalty Compatibility Matrix](../guides/solver-penalty-matrix.md).
+
+Complete [typed GLM constructors and methods](../reference/linear-model-api.md#typed-glm-constructors)
+cover family-specific link/dispersion/power controls and the different penalized
+wrapper defaults. Shared names do not make constructor controls interchangeable.
+
+- `statgpu.linear_model.GeneralizedLinearModel`
+- `statgpu.linear_model.PoissonRegression`
+- `statgpu.linear_model.GammaRegression`
+- `statgpu.linear_model.InverseGaussianRegression`
+- `statgpu.linear_model.NegativeBinomialRegression`
+- `statgpu.linear_model.TweedieRegression`
+- `statgpu.linear_model.PenalizedGeneralizedLinearModel`
+- `statgpu.linear_model.PenalizedLinearRegression`
+- `statgpu.linear_model.PenalizedLogisticRegression`
+- `statgpu.linear_model.PenalizedPoissonRegression`
+- `statgpu.linear_model.Ridge`
+- `statgpu.linear_model.Lasso`
+- `statgpu.linear_model.ElasticNet`
 
 ## See also
 

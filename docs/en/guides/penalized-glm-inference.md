@@ -1,7 +1,7 @@
 # Penalized GLM Inference
 
 > Language: English  
-> Last updated: 2026-10-06  
+> Last updated: 2026-10-12  
 > This page: statistical targets and supported coefficient-inference behavior  
 > Switch: [Chinese](../../cn/guides/penalized-glm-inference.md)
 
@@ -9,22 +9,7 @@
 
 `PenalizedGeneralizedLinearModel` and typed penalized GLM wrappers expose coefficient inference through `compute_inference`, `inference_method`, and `cov_type`.
 
-For the generic interface, the usual starting point is:
-
-```python
-inference_method="auto"
-```
-
-A successful inference-enabled fit distinguishes the method requested by the caller from the method resolved for the fitted model. Relevant fitted attributes include:
-
-- `inference_requested_method_`;
-- `inference_resolved_method_`;
-- `inference_method_`;
-- `inference_target_`;
-- `penalty_conditioning_`;
-- `penalty_selection_adjusted_`.
-
-Where populated, these fields help identify what parameter the reported uncertainty refers to, especially after penalization or CV selection. The current `post_selection_ols` path leaves these public provenance fields as `None`. Its executed method and selected-set refit details are instead available through `model._inference_result.method` and `model._inference_result.metadata`; `params` holds the refit estimates. Do not interpret the missing public fields as disabled inference. See the [post-selection example](inference-modes.md#post_selection_ols).
+Check the supported loss and penalty combinations below before choosing an inference method.
 
 ## Support overview
 
@@ -39,6 +24,12 @@ Where populated, these fields help identify what parameter the reported uncertai
 | non-Gaussian L1/ElasticNet | coefficient inference not implemented | unsupported request raises |
 | group penalties | estimation only | inference request raises |
 | `PenalizedCoxPHModel` / Cox branch of `PenalizedGLM_CV` | estimation only | inference request raises |
+
+For combinations that support automatic method selection, start with:
+
+```python
+inference_method="auto"
+```
 
 For sparse Gaussian methods such as `debiased` and `post_selection_ols`, see [Inference Modes](inference-modes.md) for interpretation and method choice.
 
@@ -239,6 +230,19 @@ and its `to_dict()` output instead; see the [complete CV reporting example](../m
 The Cox branch remains estimation-only.
 
 See [Cross-Validation](cross-validation.md) for the general selection/refit contract.
+
+## Reading inference results
+
+A successful inference-enabled fit distinguishes the method requested by the caller from the method resolved for the fitted model. Relevant fitted attributes include:
+
+- `inference_requested_method_`;
+- `inference_resolved_method_`;
+- `inference_method_`;
+- `inference_target_`;
+- `penalty_conditioning_`;
+- `penalty_selection_adjusted_`.
+
+Where populated, these fields help identify what parameter the reported uncertainty refers to, especially after penalization or CV selection. The current `post_selection_ols` path leaves these public provenance fields as `None`. Its executed method and selected-set refit details are instead available through `model._inference_result.method` and `model._inference_result.metadata`; `params` holds the refit estimates. Do not interpret the missing public fields as disabled inference. See the [post-selection example](inference-modes.md#post_selection_ols).
 
 ## Example
 

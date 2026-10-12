@@ -32,6 +32,8 @@ $$
 Here $h_{0s}$ is the baseline hazard in stratum $s$, $x$ is a covariate vector,
 and $\beta$ is the shared coefficient vector. The baseline describes how the
 instantaneous event hazard changes over time, and predictors multiply it.
+Hazard describes how quickly an event occurs in the next small time interval
+among individuals who have remained event-free up to that time.
 For fixed covariates within the same stratum, the **proportional-hazards (PH)
 assumption** says that this hazard ratio stays constant over time. A one-unit
 increase in feature `j`, holding the others fixed, multiplies the hazard by
@@ -43,11 +45,19 @@ covariates can change `x(t)`, but their fitted coefficient remains constant.
 `CoxPH` implements proportional-hazards regression with Breslow, Efron, or Exact
 tie handling on NumPy, CuPy CUDA, and Torch CUDA. It supports ordinary
 right-censored observations, delayed entry, counting-process `(start, stop]`
-rows, independent strata, time-varying covariates, robust/cluster covariance,
-and L2-penalty selection through `CoxPHCV`.
+rows, stratification (`strata`), time-varying covariates, robust/cluster covariance,
+and L2-penalty selection through `CoxPHCV`. Each stratum has separately
+constructed risk sets and its own estimated baseline hazard, while the
+regression coefficients are shared.
+
+Start with the CPU walkthrough, then read the prediction and parameter sections.
+The later sections explain stratification, ties, and inference; the complete
+method inventory is in the [API reference](../reference/survival-smoothing-api.md#coxph-and-coxphcv).
 
 <!-- example: coxph-cpu-walkthrough -->
 ## Imports
+
+Import NumPy and the model class first; the following examples build on these imports.
 
 ```python
 import numpy as np
@@ -65,8 +75,9 @@ examples reuse this data rather than generating another dataset.
 `X` has one row per subject and one column per feature, with shape
 `(n_samples, n_features)`. Both `time` and `event` are one-dimensional vectors
 with one entry per row. `time` is the event or censoring time; `event=1` means
-an observed event and `event=0` means right censoring. Do not add an intercept
-or constant column to `X`.
+an observed event and `event=0` means right censoring. The Cox partial likelihood
+cannot separately identify an intercept, so do not add an intercept or constant
+column to `X`.
 
 Simulate 400 independent subjects with three comparable feature scales.
 For your own analysis, replace this block with your data-loading step.
@@ -223,7 +234,7 @@ The matrix API is `CoxPH(...).fit(X, time, event, ...)` or
 | `time` | Finite positive vector `(n_samples,)`, in one consistent time unit; event or censoring time, or interval stop time. |
 | `event` | Vector `(n_samples,)` containing only `0` or `1`; at least one observed event is needed for fitting. |
 | `entry` / `start` | Optional vector `(n_samples,)` with `0 <= start < time`; aliases, never pass both. Omitted means entry at zero. |
-| `strata` | Optional labels `(n_samples,)` for independent risk sets and separate baseline hazards with shared coefficients. |
+| `strata` | Optional labels `(n_samples,)`; each stratum constructs its own risk sets and estimates a separate baseline hazard, with shared coefficients. |
 | `subject_id` | Optional labels `(n_samples,)` identifying repeated rows; use for subject-aware concordance, robust aggregation, and CV splitting. |
 | `cluster` | Optional labels `(n_samples,)`; required by `cov_type="cluster"`. Cluster labels alone do not make CV folds group-preserving; use suitable `subject_id` or explicit `cv_splits`. |
 | `init_coef` | Optional finite vector `(n_features,)` for a `CoxPH` initial estimate; not a `CoxPHCV.fit` argument. |
@@ -477,7 +488,8 @@ A fitted stratum with no observed failures has a valid empty baseline-hazard
 state. Its cumulative baseline hazard is zero at every time, so
 `predict_survival()` returns exactly one for that stratum. This applies to
 explicit times, automatically selected times, mixed-stratum prediction rows,
-and `CoxPHCV` predictions.
+and `CoxPHCV` predictions. This fitted estimate does not mean that the population
+has zero true event risk or will remain event-free forever.
 
 `predict_risk_score()` returns the unexponentiated log-risk. Hazard-ratio
 prediction APIs use one strict float64 exponential boundary across canonical,
@@ -618,6 +630,10 @@ Set `compute_inference=True` when covariance, tests, or survival curves are need
 
 ## Objective Function and Estimating Equation
 
+Cox regression estimates covariate effects through partial likelihood without
+specifying a functional form for the baseline hazard. At each event time, it
+compares the event row with the records still in its risk set.
+
 For row `i`, start time `a_i`, stop time `b_i`, event indicator `delta_i`, and
 stratum `s_i`, the risk set for an event at `t` is
 
@@ -625,7 +641,9 @@ $$
 R_s(t)=\{i : a_i < t \le b_i,\ s_i=s\}.
 $$
 
-Without tied failures, the stratified Cox partial log likelihood is
+The risk set contains same-stratum records that have entered observation and
+have not left before the event time. Without tied failures, the stratified Cox
+partial log likelihood is
 
 $$
 \ell(\beta)=\sum_s\sum_{i:\delta_i=1,\ s_i=s}
@@ -633,6 +651,9 @@ $$
 \log\left\{\sum_{j\in R_s(b_i)}\exp(x_j^\top\beta)\right\}\right].
 $$
 
+Each event term compares its linear predictor with the log of the total
+relative hazard in its risk set. Censored records have no separate event term
+but can contribute to risk sets until observation ends, so they affect estimation.
 Breslow, Efron, and Exact ties replace the tied-event denominator according to
 their respective definitions but retain the same `(start, stop]` risk sets.
 With `penalty=lambda`, StatGPU maximizes the total, summed objective
@@ -641,7 +662,8 @@ $$
 Q_\lambda(\beta)=\ell(\beta)-\lambda\lVert\beta\rVert_2^2.
 $$
 
-Writing `U(beta)` for the unpenalized partial-likelihood score, the fitted
+Writing `U(beta)` for the unpenalized partial-likelihood score, the gradient of
+the partial log likelihood with respect to the coefficients, the fitted
 coefficient solves
 
 $$
@@ -650,15 +672,19 @@ $$
 
 If $J(\beta)=-\partial U(\beta)/\partial\beta$ is the unpenalized observed
 information, the derivative used by penalized Newton steps is
-$A(\beta)=J(\beta)+2\lambda I_p$.
+$A(\beta)=J(\beta)+2\lambda I_p$. Here $I_p$ is the identity matrix for the
+$p$ features; L2 adds the same curvature in every coefficient direction.
 
 ## Risk Sets and Tie Methods
 
+Ties occur when more than one event is observed at the same time.
 `ties="breslow"` and `ties="efron"` use their standard tied-event partial
 likelihoods. `ties="exact"` evaluates the exact tied-event denominator with an
 elementary-symmetric dynamic program. The same counting-process risk-set engine
 is used for delayed entry, strata, Exact ties, L2-penalized fits, and GPU robust
 inference, which keeps the `(start, stop]` convention consistent across backends.
+A row is excluded at its `start` and included at its `stop`; risk sets are
+constructed separately within each stratum.
 `CoxPH` and `CoxPHCV` accept one-dimensional stratum, subject, and cluster
 labels. Exact dynamic programming avoids enumerating
 all event subsets, but its computation and memory needs still increase with data
@@ -859,7 +885,7 @@ and effective modes and candidate masks.
 |---|---|---|---|---|---|---|
 | ordinary right censoring | supported | supported | supported | supported | supported | supported |
 | delayed entry / `(start, stop]` | supported | supported | supported | supported | supported | supported |
-| independent `strata` | supported | supported | supported | supported | supported | supported |
+| `strata` with separately estimated baselines | supported | supported | supported | supported | supported | supported |
 | non-negative L2 `penalty` | supported | supported | supported | supported | supported | supported |
 | nonrobust inference | supported | supported | supported | supported | supported | supported |
 | HC0 / HC1 / cluster inference | supported | supported | not implemented | supported | supported | supported |
@@ -885,7 +911,7 @@ blanket guarantee for the current version or every dataset and device.
 | `predict_survival()` says the baseline is unavailable | Refit with `compute_inference=True`; risk-score and hazard-ratio prediction do not need a baseline. |
 | Stratified survival prediction rejects labels | An explicitly stratified fit always requires one known training stratum per prediction row with shape `(n_samples,)`, even when training used one stratum. |
 | Stratified scoring rejects labels | A multi-stratum fit requires one known label per row. A single-stratum fit may omit labels; supplied labels must still have shape `(n_samples,)` and be known. |
-| Survival is exactly one for a known stratum | That fitted stratum had no observed failures, so its cumulative baseline hazard is identically zero. This is a valid fitted state, not missing baseline data. |
+| Survival is exactly one for a known stratum | That fitted stratum had no observed failures, so its cumulative baseline hazard is identically zero. This is a valid fitted state, not missing baseline data; it does not establish zero true event risk. |
 | `HC1 covariance requires n_units > n_features` | Increase independent subjects/clusters, reduce the feature count, or use a covariance contract justified for the study design. |
 | Robust covariance requires at least two units | A one-subject or one-cluster sandwich cannot estimate between-unit variation. Estimation-only fitting remains available with `compute_inference=False`. |
 | Observed information is singular | Check collinearity, invariant columns, separation/saturation, and event support; reduce the design or use an explicitly justified L2 penalty. |
@@ -898,7 +924,7 @@ blanket guarantee for the current version or every dataset and device.
 
 - robust/cluster covariance for Exact ties is not implemented;
 - Exact ties use dynamic programming; large risk sets or tied-event groups can still require substantial computation and memory, also depending on feature count.
-- frailty/random-effect terms are not implemented;
+- frailty/random-effect terms are not implemented; stratification is not a substitute for these models;
 - optional `torch.compile` acceleration requires compatible Triton-capable
   hardware; it is not required for fitting.
 

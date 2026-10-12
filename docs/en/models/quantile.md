@@ -1,7 +1,7 @@
 # Quantile Regression
 
 > Language: English  
-> Last updated: 2026-10-09<br>
+> Last updated: 2026-10-12<br>
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/quantile.md)
 
@@ -59,6 +59,19 @@ print("Held-out pinball loss:", round(float(pinball_loss), 3))
 
 Predictions have shape `(80,)`; the first three round to `[1.429, 1.455, 1.632]`. Held-out pinball loss is about `0.255`; lower is better on fixed evaluation data at the same target quantile. `score` returns its negative, not R². A quantile prediction is not a confidence interval for an individual future observation.
 <!-- example-end: quantile-basic -->
+
+<a id="outputs"></a>
+
+## Inputs and outputs
+
+Fit with a two-dimensional feature matrix `X` and a one-dimensional response `y` with matching row counts; the estimators also accept a single-column `(n_samples, 1)` response and flatten it. Both inputs must contain only real finite values. Other input shapes or invalid values raise an error. On supported weighted routes, `sample_weight` must be a one-dimensional finite nonnegative vector with one entry per observation and positive total weight. The [low-level Quantile solver reference](../guides/solver-algorithms.md#quantile-low-level-solvers) covers direct solver arguments, including continuation-path controls.
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `coef_` | `(p,)` float | Estimated coefficients |
+| `intercept_` | float | Estimated intercept |
+| `n_iter_` | int | Number of iterations |
+| `quantile` | float | Target quantile |
 
 ## Choosing settings and checking results
 
@@ -341,26 +354,23 @@ The L2 route adds the corresponding ridge diagonal term, excluding the intercept
 
 Quantile/check loss is non-smooth, so this route should not be interpreted as satisfying the classical smooth-gradient assumptions of FISTA. statgpu uses the registered Quantile subgradient together with the existing first-order step/Lipschitz policy and the requested penalty proximal operator. This option is available for explicit algorithm control and for the convex sparse Quantile paths; the automatic L2/no-penalty policy remains IRLS.
 
-## Outputs
-
-| Attribute | Type | Description |
-|-----------|------|-------------|
-| `coef_` | `(p,)` float | Estimated coefficients |
-| `intercept_` | float | Estimated intercept |
-| `n_iter_` | int | Number of iterations |
-| `quantile` | float | Target quantile |
-
 ## Notes
 
 - `QuantileRegression.score()` and the typed `PenalizedQuantileRegression.score()` use check/pinball loss and return its negative to follow sklearn's “higher is better” convention. NumPy, CuPy, and Torch response/weight containers are accepted on supported routes; scoring converts responses, weights, and predictions to NumPy and returns a Python scalar. The generic `PenalizedGeneralizedLinearModel(loss="quantile")` keeps the shared scalar-response `score()` contract and therefore reports response-scale R²; `PenalizedGLM_CV.score()` delegates to that selected refit. For CV, `best_score_` is negative validation loss and is intentionally a different metric from the post-fit `score()`.
 - `sample_weight` support is a **loss × solver × estimator** route capability, not an automatic property of every solver.
 - Strict Quantile cross-validation requires finite validation scores from every fold for every penalty family. A fold that its solver route explicitly marks as a target-level convergence failure is not scored, and an alpha is eligible only when every fold has a finite score. If any fold fit fails or carries that explicit target-level failure signal, the whole candidate column is treated as missing rather than averaging the remaining folds. A generic solver `ConvergenceWarning` alone does not erase an otherwise finite candidate result. Two-stage screening remains intentionally relaxed; the all-fold score requirement applies to strict refinement/selection. The selected full-data refit follows direct-estimator convergence reporting and may emit `ConvergenceWarning` rather than being treated as a CV candidate failure.
 - Quantile non-convex continuation routes reject stopping-control coercion. `max_iter` must be a positive integer and `tol` a finite positive real number; direct scalar SCAD/MCP and automatic Group SCAD/MCP also require boolean `lla=True`, integer `max_lla_iters`, and finite-positive `lla_tol`. The current automatic Quantile continuation has three alpha steps, so `max_lla_iters` must be at least 3 to give every step one LLA update. Intermediate continuation steps use a reduced IRLS budget that never exceeds the public `max_iter`; the target step may use the full budget. Explicit Group SCAD/MCP `solver="fista"` does not enter an LLA continuation route, so `lla`, `max_lla_iters`, and `lla_tol` do not govern that explicit algorithm.
-- Fit with a two-dimensional feature matrix `X` and a one-dimensional response `y` with matching row counts; the estimators also accept a single-column `(n_samples, 1)` response and flatten it. Both inputs must contain only real finite values. Other input shapes or invalid values raise an error. On supported weighted routes, `sample_weight` must be a one-dimensional finite nonnegative vector with one entry per observation and positive total weight. The [low-level Quantile solver reference](../guides/solver-algorithms.md#quantile-low-level-solvers) covers direct solver arguments, including continuation-path controls.
 - Explicit ordinary L2/no-penalty Quantile FISTA is supported and is authoritative: it executes FISTA rather than silently substituting IRLS. Explicit Group SCAD/MCP FISTA is likewise not rewritten into the automatic Group Proximal IRLS-LLA route.
 - Quantile FISTA-BB, direct ADMM, Newton, Proximal Newton, and L-BFGS-B are unsupported and raise before numerical iteration. Estimator/CV ordinary L-BFGS remains unsupported, while the existing low-level unweighted/uniform `lbfgs_solver` compatibility boundary is preserved. `quantile_cd_solver` remains import-compatible but raises `NotImplementedError` when called. Use `proximal_irls_quantile_solver` for low-level scalar SCAD/MCP fitting.
 - Unsupported explicit weighted-solver combinations raise an error before numerical iteration rather than silently substituting another solver.
 - Supported GPU routes (`cuda`/`torch`) do not silently fall back to CPU.
+
+## See also
+
+- [Loss functions](losses.md) — the low-level `QuantileLoss` definition
+- [Solver × Penalty Compatibility Matrix](../guides/solver-penalty-matrix.md) — supported combinations
+- [Solver algorithms](../guides/solver-algorithms.md) — IRLS, FISTA, and Proximal IRLS-CD numerical details
+- [Cross-validation](../guides/cross-validation.md) — selection and final refitting
 
 For a low-level loss object, import `QuantileLoss` from `statgpu.losses`. For an external unpenalized comparison with R `quantreg::rq()`, align the quantile, design, intercept, weights, and optimization accuracy; inference also needs compatible density or resampling assumptions.
 
