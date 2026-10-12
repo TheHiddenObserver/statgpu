@@ -810,7 +810,7 @@ StatGPU 会先将矩阵对称化，再用随矩阵尺度调整的数值容差检
 
 使用 GPU 不代表所有预处理都在 GPU 上完成。普通 Breslow/Efron GPU 拟合会将排序后的
 完整 `time`、`event` 向量复制到主机端，用于整理事件分组信息。因此，即使设计矩阵仍在 GPU 上，
-`full_host_transfer_performed_` 也会为 `True`。
+也会报告 `full_host_transfer_performed_=True`。
 对 `CoxPHCV` 而言，这个总标记涵盖交叉验证与最终重拟合两个阶段。若需分开检查，
 或区分本次调用设备与缓存结果的原始设备，请参阅[设备与 CV 诊断参考](../reference/coxph-diagnostics.md)。
 
