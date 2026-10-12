@@ -4,17 +4,17 @@
 > 最后更新：2026-10-12
 > 切换：[English](../../en/reference/covariance-api.md)
 
-本页完整列出协方差估计器的公开 API。选择方法时，可先阅读[协方差概览](../models/covariance.md)。下列七个类均可从 `statgpu.covariance` 或 `statgpu` 导入。
+本页完整列出协方差估计器的公开 API。选择方法时，可先阅读[协方差概览](../models/covariance.md)；查询某个类的专属参数和属性时，可点击下表中的类名。下列七个类均可从 `statgpu.covariance` 或 `statgpu` 导入。
 
 | 类 | 方法指南 | 专属构造参数 |
 |---|---|---|
-| `EmpiricalCovariance` | [经验协方差](../models/covariance-empirical.md) | 无 |
-| `LedoitWolf` | [Ledoit–Wolf 收缩](../models/covariance-ledoit-wolf.md) | 无 |
-| `OAS` | [Oracle Approximating Shrinkage](../models/covariance-oas.md) | 无 |
-| `ShrunkCovariance` | [固定强度收缩](../models/covariance-shrunk.md) | `shrinkage` |
-| `MinCovDet` | [最小协方差行列式](../models/covariance-min-cov-det.md) | `support_fraction`、`random_state` |
-| `GraphicalLasso` | [Graphical Lasso](../models/covariance-graphical-lasso.md) | `alpha`、`max_iter`、`tol` |
-| `GraphicalLassoCV` | [交叉验证 Graphical Lasso](../models/covariance-graphical-lasso-cv.md) | `alphas`、`cv`、`max_iter`、`tol`、`random_state` |
+| [`EmpiricalCovariance`](#empiricalcovariance) | [经验协方差](../models/covariance-empirical.md) | 无 |
+| [`LedoitWolf`](#ledoitwolf) | [Ledoit–Wolf 收缩](../models/covariance-ledoit-wolf.md) | 无 |
+| [`OAS`](#oas) | [Oracle Approximating Shrinkage](../models/covariance-oas.md) | 无 |
+| [`ShrunkCovariance`](#shrunkcovariance) | [固定强度收缩](../models/covariance-shrunk.md) | `shrinkage` |
+| [`MinCovDet`](#mincovdet) | [最小协方差行列式](../models/covariance-min-cov-det.md) | `support_fraction`、`random_state` |
+| [`GraphicalLasso`](#graphicallasso) | [Graphical Lasso](../models/covariance-graphical-lasso.md) | `alpha`、`max_iter`、`tol` |
+| [`GraphicalLassoCV`](#graphicallassocv) | [交叉验证 Graphical Lasso](../models/covariance-graphical-lasso-cv.md) | `alphas`、`cv`、`max_iter`、`tol`、`random_state` |
 
 <a id="constructors-and-common-parameters"></a>
 
@@ -74,7 +74,7 @@ NaN、无穷值和 pandas 缺失值会在估计前引发 `ValueError`。虽然 `
 
 ### fit、score、predict 和 mahalanobis
 
-七个类均提供以上准确签名对应的方法。`fit` 返回 `self`；其余三个方法要求对象已成功拟合，否则抛出 `RuntimeError`。如果输入和对象状态同时无效，公开输入检查可能先报错。
+七个类均提供这四个方法，调用签名见上表。`fit` 返回 `self`；其余三个方法要求对象已成功拟合，否则抛出 `RuntimeError`。如果输入和对象状态同时无效，公开输入检查可能先报错。
 
 | 方法 | 返回值 | 定义 |
 |---|---|---|
@@ -83,7 +83,7 @@ NaN、无穷值和 pandas 缺失值会在估计前引发 `ValueError`。虽然 `
 | `mahalanobis(X)` | NumPy `ndarray`，`float64`，形状 `(m,)` | 每行查询观测的马氏距离平方。 |
 | `predict(X)` | NumPy `ndarray`，`float64`，形状 `(m,)` | 与 `mahalanobis(X)` 完全相同，包括一维输入的解释方式；不输出标签，也不应用阈值。 |
 
-以 $\mu$ 表示拟合位置、P 表示精度矩阵，则
+以 $\mu$ 表示拟合得到的中心、$P$ 表示精度矩阵，则
 
 $$
 d_i^2=(x_i-\mu)^\top P(x_i-\mu),\qquad
@@ -108,7 +108,7 @@ $$
 
 ### 继承的统计辅助方法
 
-其余四个公开方法是继承的通用辅助方法。完整参数、默认值、返回字段、后端行为和统计限制见[估计器共享 API](estimator-api.md#inference-helpers)：
+此外，七个类还继承了四个通用统计辅助方法。完整参数、默认值、返回字段、后端行为和统计限制见[估计器共享 API](estimator-api.md#inference-helpers)：
 
 | 方法 | 完整签名与返回值参考 |
 |---|---|
@@ -186,7 +186,7 @@ $$
 
 | 专属属性 | 类型与形状 | 含义 |
 |---|---|---|
-| `support_` | 布尔后端数组，`(n,)` | 重加权后的最终训练行支持集掩码；若使用下述保留原始结果的情况，则为原始选中子集的掩码。 |
+| `support_` | 布尔后端数组，`(n,)` | 重加权后的最终训练行支持集掩码；下文所述的重加权样本不足时，保留原始选中子集的掩码。 |
 | `raw_location_` | `float64` 后端数组，`(p,)` | 修正和重加权前的选中子集位置；假定输入已中心化时为零。 |
 | `raw_covariance_` | `float64` 后端数组，`(p, p)` | 选中子集以 h 为分母的协方差，**尚未**进行一致性修正。 |
 | `dist_` | `float64` 后端数组，`(n,)` | 训练行在最终位置及协方差/精度计算结果下的马氏距离平方。 |
@@ -219,7 +219,7 @@ $$
 
 行顺序始终被随机打乱，再划分成大小近似相等的 `cv` 折。没有关闭打乱的选项，也不支持分层、分组或考虑时间顺序的切分。所有训练折至少需要两行，例如 `n=2, cv=2` 会通过折数检查，但在拟合某一折时失败。网格固定，不根据数据自适应生成或细化；显式候选项的顺序和重复值都会保留。
 
-每个候选惩罚都在各训练折上拟合，并用对应测试折的平均高斯对数似然评分。选择分数是各折分数的等权平均，即使各折大小不同也是如此。平均分最高者胜出，完全相同时保留最早的候选项。如果所有平均分都是 `-inf`，仍会选择第一个候选项；应先检查分数，再判断此次选择是否有意义。某一折拟合失败会直接报错，不会用 `error_score` 替代后继续。最后，用选中的惩罚在全部训练行上重新拟合。
+每个候选惩罚都在各训练折上拟合，并用对应验证折的平均高斯对数似然评分。用于选参的分数是各折分数的等权平均，即使各折大小不同也是如此。选取平均分最高的候选项；完全相同时保留最早的候选项。如果所有平均分都是 `-inf`，仍会选择第一个候选项；应先检查分数，再判断此次选择是否有意义。某一折拟合失败会直接报错，不会用 `error_score` 替代后继续。最后，用选中的惩罚在全部训练行上重新拟合。
 
 | 专属属性 | 类型与形状 | 含义 |
 |---|---|---|

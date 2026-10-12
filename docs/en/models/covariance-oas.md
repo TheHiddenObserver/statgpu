@@ -139,13 +139,16 @@ different covariance structure can make the OAS assumptions unattractive.
 A strength of `1` means the estimate uses $\mu I$ completely, not that the data
 prove independence. Positive shrinkage only guarantees positive eigenvalues
 when $\mu>0$; all-zero variation remains degenerate. The fit requires at least
-two finite rows and one feature. For robust or sparse alternatives and shared
-precision behavior, see the [overview](covariance.md).
+two finite rows and one feature. For robust or sparse alternatives, see the
+[overview](covariance.md); for shared precision behavior, see the
+[API method reference](../reference/covariance-api.md#fit-score-predict-and-mahalanobis).
 
 ## API and references
 
 The [complete covariance API](../reference/covariance-api.md) documents all
-parameters, attributes, methods, input requirements, and device behavior.
+parameters, attributes, methods, and input requirements; see its
+[device and dtype section](../reference/covariance-api.md#backend-device-and-dtype)
+for device selection.
 
 - Chen, Y., Wiesel, A., Eldar, Y. C., & Hero, A. O. (2010).
   [Shrinkage algorithms for MMSE covariance estimation](https://arxiv.org/abs/0907.4698).

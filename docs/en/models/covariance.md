@@ -241,7 +241,7 @@ print(model_torch.covariance_.shape)
 
 An explicit GPU request raises an error if that runtime is unavailable. Automatic
 selection and native-array device retention are described in the
-[device and dtype contract](../reference/covariance-api.md). Fitted queries use
+[device and dtype rules](../reference/covariance-api.md#backend-device-and-dtype). Fitted queries use
 the fitted backend/device even if global settings change later. Array outputs,
 Torch input normalization (including supported FP8), and CPU control operations
 are specified there rather than assumed to be fully GPU-resident.
@@ -257,65 +257,49 @@ and strength, or Graphical Lasso penalty and convergence controls, as applicable
 MCD implementations can differ in subset search and correction details; a common
 name does not guarantee identical results. See each tutorial's references.
 
-## Earlier section links
+<a id="earlier-section-links"></a>
 
-The former combined page's method and API sections now point to their detailed
-owners. The common concepts and worked matrix interpretation remain above.
+## Where to go next
 
-### Empirical covariance
+Choose a route for your current question; you do not need to read all seven
+tutorials in order.
 
-See [the empirical covariance derivation and example](covariance-empirical.md).
-
-### Shrinkage estimators
-
-See [fixed shrinkage](covariance-shrunk.md), [Ledoit–Wolf](covariance-ledoit-wolf.md)
-and [OAS](covariance-oas.md) for their distinct choices of shrinkage strength.
-
-### Minimum covariance determinant
-
-See [the robust MCD tutorial](covariance-min-cov-det.md).
-
-### Graphical Lasso
-
-See [the fixed-penalty tutorial](covariance-graphical-lasso.md) and
-[penalty selection with CV](covariance-graphical-lasso-cv.md).
-
+<a id="empirical-covariance"></a>
+<a id="shrinkage-estimators"></a>
 <a id="covariance-basic"></a>
+<a id="estimate-a-covariance-matrix-on-cpu"></a>
 
-### Estimate a covariance matrix on CPU
+- **Understand stability from a baseline**: start with [empirical covariance](covariance-empirical.md),
+  then inspect how [fixed shrinkage](covariance-shrunk.md) changes eigenvalues.
+  Compare [Ledoit–Wolf](covariance-ledoit-wolf.md) and [OAS](covariance-oas.md)
+  when you want an automatically chosen shrinkage strength.
 
-For a self-contained shrinkage workflow, see [LedoitWolf](covariance-ledoit-wolf.md).
-For matrix interpretation and distances, use [the shared example](#joint-distance).
-
+<a id="minimum-covariance-determinant"></a>
 <a id="covariance-robust"></a>
+<a id="robust-support"></a>
 
-### Robust support
+- **Assess contamination**: use the [MCD tutorial](covariance-min-cov-det.md) to
+  compare ordinary and robust estimates, and understand why exclusion from
+  `support_` is not proof of an erroneous observation.
 
-The [MCD example](covariance-min-cov-det.md) compares contaminated and clean rows.
-Exclusion from `support_` is not proof of an erroneous observation.
-
+<a id="graphical-lasso"></a>
 <a id="covariance-sparse"></a>
+<a id="sparse-precision-with-cross-validation"></a>
 
-### Sparse precision with cross-validation
-
-The [GraphicalLassoCV example](covariance-graphical-lasso-cv.md) constructs its own
-data, selects a penalty and evaluates held-out rows.
+- **Study sparse conditional relationships**: read the [Graphical Lasso](covariance-graphical-lasso.md)
+  objective and result interpretation, then use the [CV tutorial](covariance-graphical-lasso-cv.md)
+  for penalty selection and held-out evaluation.
 
 <a id="backend-and-execution-boundaries"></a>
-
 <a id="common-parameters"></a>
-
 <a id="estimation-algorithms"></a>
-
 <a id="fitted-attributes-and-outputs"></a>
-
 <a id="strict-and-approximate-behavior"></a>
+<a id="api-and-execution-details"></a>
 
-### API and execution details
-
-See the [complete API](../reference/covariance-api.md) for algorithms' controls,
-fitted attributes, device/dtype rules, exceptions and numerical limitations.
-There is no shared strict/approximate switch; each estimator has its own algorithm.
+Once you have chosen a method, use the [complete API](../reference/covariance-api.md)
+for parameters, fitted attributes and execution limits. There is no shared
+strict/approximate switch; each estimator has its own algorithm.
 
 ## FAQ
 

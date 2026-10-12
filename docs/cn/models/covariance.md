@@ -10,9 +10,10 @@
 可用于描述数据、构造多变量距离，或为其他模型提供协方差估计。这里没有单独的响应变量：
 数据矩阵的每一行是一次观测，每一列是一个测量变量。
 
-本页先介绍共同概念，再用两个变量说明怎样读矩阵和距离。各估计器都有独立教程；
-[完整协方差 API](../reference/covariance-api.md) 集中列出构造参数、方法、输出、
-输入限制和设备规则。
+本页介绍各方法共有的概念，帮助你读懂矩阵、理解距离并选择估计器。
+选定方法后，可直接阅读对应的独立教程；每篇都有完整的数据准备、拟合和结果解释。
+需要核对构造参数、方法、输出、输入限制或设备规则时，查阅
+[完整协方差 API](../reference/covariance-api.md)。
 
 <a id="covariance-correlation-precision"></a>
 
@@ -73,8 +74,8 @@ $-\Theta_{jk}/\sqrt{\Theta_{jj}\Theta_{kk}}$，精度矩阵的元素本身并不
 
 求逆会放大小特征值方向上的误差。因此，逐个元素看起来合理的协方差矩阵，
 未必能给出可靠的距离或精度估计。增加观测、减少冗余变量或采用合适的正则化都有帮助。
-数值求逆保护无法补回数据中不存在的信息；精度矩阵经过稳定化，也不保证保存的协方差
-已经非奇异，或高斯评分一定有限。
+求逆时的数值保护无法补回数据中不存在的信息。即使稳定化后得到了精度矩阵，
+保存的协方差矩阵仍可能奇异，高斯对数似然评分也可能不是有限值。
 
 <a id="choose-an-estimator"></a>
 
@@ -88,7 +89,7 @@ $-\Theta_{jk}/\sqrt{\Theta_{jj}\Theta_{kk}}$，精度矩阵的元素本身并不
 | 应该向等方差、零协方差的目标收缩多少？ | [ShrunkCovariance](covariance-shrunk.md) | 由用户选择偏差与稳定性的取舍 |
 | 能否根据数据解析地选择收缩强度？ | [LedoitWolf](covariance-ledoit-wolf.md) | 向缩放单位矩阵收缩 |
 | 高斯小样本下怎样选择解析收缩规则？ | [OAS](covariance-oas.md) | 以高斯假设下的协方差估计为出发点 |
-| 存在污染时，主要数据云的中心和离散程度是什么？ | [MinCovDet](covariance-min-cov-det.md) | 搜索稳健子集，要求观测数大于变量数 |
+| 少量观测受到污染时，大多数数据的中心和分散程度是什么？ | [MinCovDet](covariance-min-cov-det.md) | 搜索稳健子集，要求观测数大于变量数 |
 | 哪些条件关系适合用稀疏结构表示？ | [GraphicalLasso](covariance-graphical-lasso.md) | 对精度矩阵的非对角元素施加 L1 惩罚 |
 | 哪个 Graphical Lasso 惩罚值对留出数据评分更好？ | [GraphicalLassoCV](covariance-graphical-lasso-cv.md) | 为同一模型选参并重拟合，需要多次拟合 |
 
@@ -101,8 +102,8 @@ $-\Theta_{jk}/\sqrt{\Theta_{jj}\Theta_{kk}}$，精度矩阵的元素本身并不
 
 ## 共同示例：异常的是组合，而不只是数值大小
 
-下面两个待查询点到原点的欧氏距离相同。但第二个点违背了数据中的正相关方向，
-因此在拟合得到的协方差几何下，它应该离数据中心远得多。
+下面两个新观测到原点的欧氏距离相同，但第二个点偏离了数据中的正相关方向。
+把变量之间的关系纳入距离计算后，它应该显得更不典型。
 
 <!-- example: covariance-geometry -->
 ```python
@@ -159,7 +160,7 @@ $$
 返回的都是**平方距离**，不是普通距离、标签、概率或 p 值。选择阈值还需要额外的假设和校准；
 拟合协方差本身不会自动完成异常值检验。
 
-`score` 是在已拟合位置、协方差和精度下，每行观测的平均高斯对数似然。
+`score` 使用拟合得到的中心、协方差和精度矩阵，计算每行观测的平均高斯对数似然。
 这里的 `-2.28` 是训练评分，不是准确率。比较模型时，应使用相同单位下的同一组留出数据，
 评分越大越好。改变特征尺度会改变密度的单位，未经调整的评分不能直接比较。
 
@@ -214,7 +215,7 @@ print(model_torch.covariance_.shape)
 ```
 
 显式请求 GPU 时，若相应运行环境不可用则报错。
-自动选择、原生数组的设备保留规则见[设备与数据类型约定](../reference/covariance-api.md)。
+自动选择、原生数组的设备保留规则见[设备与数据类型约定](../reference/covariance-api.md#device-and-dtype)。
 即使全局设置后来变化，已拟合模型的查询仍使用拟合时的后端和设备。
 数组输出、Torch 输入转换（包括支持的 FP8）以及 CPU 控制计算也在那里说明，
 不应假定整个过程都驻留在 GPU 上。
@@ -227,68 +228,46 @@ print(model_torch.covariance_.shape)
 MCD 实现的子集搜索和校正细节可能不同，名称相同并不保证数值完全相同。
 各教程列出了相应统计来源。
 
-## 旧章节链接
+<a id="旧章节链接"></a>
 
-原综合页中的方法细节和 API 说明已分别移至下面的教程与参考页。
-共同概念和矩阵解读示例仍在本页。
+## 接下来怎么读
 
-### 经验协方差
+无需按顺序读完七篇教程；根据当前问题选择一条路线即可。
 
-见[经验协方差的推导与示例](covariance-empirical.md)。
-
-### 收缩估计
-
-[固定收缩](covariance-shrunk.md)、[Ledoit–Wolf](covariance-ledoit-wolf.md)
-和 [OAS](covariance-oas.md) 分别介绍不同的收缩强度选择规则。
-
-### 最小协方差行列式
-
-见[稳健 MCD 教程](covariance-min-cov-det.md)。
-
-### Graphical Lasso
-
-见[固定惩罚教程](covariance-graphical-lasso.md)和
-[交叉验证选参教程](covariance-graphical-lasso-cv.md)。
-
+<a id="经验协方差"></a>
+<a id="收缩估计"></a>
 <a id="covariance-basic"></a>
+<a id="在-cpu-上估计协方差矩阵"></a>
 
-### 在 CPU 上估计协方差矩阵
+- **从基线理解稳定性**：先运行[经验协方差](covariance-empirical.md)，再用
+  [固定收缩](covariance-shrunk.md) 观察特征值的变化；需要自动选择收缩强度时，
+  比较 [Ledoit–Wolf](covariance-ledoit-wolf.md) 和 [OAS](covariance-oas.md)。
 
-完整的收缩估计流程见 [LedoitWolf](covariance-ledoit-wolf.md)。
-矩阵与距离的含义见[共同示例](#joint-distance)。
-
+<a id="最小协方差行列式"></a>
 <a id="covariance-robust"></a>
+<a id="稳健支持子集"></a>
 
-### 稳健支持子集
+- **判断污染的影响**：用 [MCD 教程](covariance-min-cov-det.md) 比较普通估计与稳健估计，
+  并理解为什么未进入 `support_` 的观测不一定有误。
 
-[MCD 示例](covariance-min-cov-det.md) 比较了污染观测与干净观测。
-被排除在 `support_` 之外不代表观测一定有误。
-
+<a id="graphical-lasso"></a>
 <a id="covariance-sparse"></a>
+<a id="通过交叉验证选择稀疏精度矩阵"></a>
 
-### 通过交叉验证选择稀疏精度矩阵
-
-[GraphicalLassoCV 示例](covariance-graphical-lasso-cv.md) 独立构造数据，
-选择惩罚强度，再对留出数据评分。
+- **研究稀疏条件关系**：先读 [Graphical Lasso](covariance-graphical-lasso.md) 的目标函数
+  与结果解释，再用[交叉验证教程](covariance-graphical-lasso-cv.md) 学习选参和留出评估。
 
 <a id="cpu-与-gpu-示例"></a>
-
 <a id="strict-与-approximate"></a>
-
 <a id="估计算法"></a>
-
 <a id="公共参数"></a>
-
 <a id="后端与执行边界"></a>
-
 <a id="外部验证"></a>
-
 <a id="拟合属性与输出"></a>
+<a id="api-与执行细节"></a>
 
-### API 与执行细节
-
-算法控制、拟合属性、设备与数据类型、异常及数值限制见[完整 API](../reference/covariance-api.md)。
-这些估计器没有统一的严格／近似开关，各自使用对应的估计算法。
+已经选好方法时，可直接在[完整 API](../reference/covariance-api.md) 中查找参数、拟合属性
+和执行限制。这些估计器没有统一的严格／近似开关，各自使用对应的估计算法。
 
 ## FAQ
 

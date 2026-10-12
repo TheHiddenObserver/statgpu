@@ -12,12 +12,13 @@
 
 当多数行来自同一个近似椭圆分布的总体，而少数行可能受到污染时，它比较适用。
 它不是通用聚类方法：真实存在的第二个群体，也可能像记录错误一样被降低影响。
-通用数据和设备行为见[协方差指南](covariance.md)；全部参数、方法和已拟合属性
-见[完整 API 参考](../reference/covariance-api.md)。
+方法选择见[协方差概览](covariance.md)；输入要求、全部参数、方法和已拟合属性
+见[完整 API 参考](../reference/covariance-api.md)，设备设置见
+[设备与数据类型](../reference/covariance-api.md#device-and-dtype)。
 
 ## 最小体积子集的直觉
 
-对包含 $h$ 行的子集 $H$，定义
+设数据有 $n$ 行、$p$ 个特征。对包含 $h$ 行的子集 $H$，定义
 
 $$
 \overline x_H=\frac1h\sum_{i\in H}x_i,
@@ -34,12 +35,14 @@ $$
 
 行列式衡量多维分散程度。寻找较小的行列式，相当于寻找较集中的一组观测，
 避免让远处的数据点把估计拉长。穷举所有子集通常不可行；FAST-MCD 从多组初始
-子集出发，通过集中步骤逐步改进。这个搜索是近似的，不保证找到全局最小值。
+子集出发，通过集中步骤逐步改进：按当前估计的马氏距离选出最近的 $h$ 行，
+再重新估计中心和协方差。这个搜索是近似的，不保证找到全局最小值。
 统计背景见 [FAST-MCD 原论文](https://wis.kuleuven.be/stat/robust/papers/1999/rousseeuwvandriessen-fastalgorithmformcd-technomet.pdf)。
 
 实现先对原始子集协方差做一致性校正，再计算稳健距离平方，以自由度为 $p$ 的
-卡方分布 `0.975` 分位数作为重加权阈值。随后，用选出的支持集重新估计位置和
-校正后的协方差。如果保留的行数过少，则改用原始子集及其校正后的协方差。
+卡方分布 `0.975` 分位数作为重加权阈值。随后，用阈值选出的观测（支持集）
+重新估计位置和校正后的协方差。如果保留的行数过少，则改用原始子集及其
+校正后的协方差。
 设置 `assume_centered=True` 时，整个过程中都使用零作为中心。
 
 ## 在 CPU 上比较普通估计和稳健估计
@@ -107,9 +110,10 @@ median shifted squared distance: 238.589
 ```
 
 稳健中心仍接近模拟中干净总体的中心，稳健协方差也保留了正向关联。最终支持集
-包含 174 行，全部来自干净组；这意味着它同时排除了六行真正的干净数据。
+包含 174 行，全部来自干净组；这意味着它同时排除了六行来自干净总体的观测。
 因此，`support_ == False` 不能直接解释成“这一行有问题”。这个掩码描述的是
-哪些行参与了稳健拟合，不会从 `X` 中删除行，也不是具有校准错误率的异常分类器。
+哪些行参与了稳健拟合，不会从 `X` 中删除行，也不能当作具有已知误报率的
+异常分类结果。
 
 偏移组的距离平方中位数明显更大。`mahalanobis` 和 `predict` 都返回这种距离
 平方；`dist_` 保存训练行在最终估计下的距离平方。支持集是在最终重拟合之前，
@@ -155,5 +159,5 @@ MCD 的计算开销高于直接计算协方差。对逆矩阵做数值稳定化�
 - Rousseeuw, P. J., & Van Driessen, K. (1999).
   [A fast algorithm for the minimum covariance determinant estimator](https://wis.kuleuven.be/stat/robust/papers/1999/rousseeuwvandriessen-fastalgorithmformcd-technomet.pdf).
   *Technometrics*, 41(3), 212–223.
-- [协方差概览与通用行为](covariance.md)。
+- [协方差概览与方法选择](covariance.md)。
 - [完整协方差 API](../reference/covariance-api.md)。

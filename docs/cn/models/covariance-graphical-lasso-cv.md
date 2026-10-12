@@ -7,16 +7,19 @@
 ## 应该让关系图稀疏到什么程度？
 
 Graphical Lasso 的惩罚过小，可能保留噪声造成的关联；惩罚过大，又可能抹去
-有用的依赖关系。`GraphicalLassoCV` 在每次拟合未使用的行上比较候选惩罚，
-选出平均验证分数最高的值，再用全部输入数据重新拟合。它是同一个
+有用的依赖关系。`GraphicalLassoCV` 将输入数据随机分为若干折，轮流留出一折
+做验证、用其余折拟合，以此比较各候选惩罚的平均验证分数。选出分数最高的惩罚后，
+再用全部输入数据重新拟合。它是同一个
 [Graphical Lasso 模型](covariance-graphical-lasso.md)的参数选择过程，
 不是另一种协方差模型。
 
-当观测可以合理地随机分折、且调参目标是高斯预测拟合时，可使用此类。如果
-惩罚已经由研究方案或外部依据确定，直接使用 `GraphicalLasso` 即可。若只想
-稳定估计协方差而不需要稀疏图，可考虑 [LedoitWolf](covariance-ledoit-wolf.md)
-或 [OAS](covariance-oas.md)。输入和设备规则见[协方差指南](covariance.md)，
-完整接口见 [API 参考](../reference/covariance-api.md)。
+如果观测适合随机分折，且希望按留出数据的平均高斯对数似然选择惩罚，就可以
+使用这个估计器。如果惩罚已经由研究方案或外部依据确定，直接使用
+`GraphicalLasso` 即可。若只想稳定估计协方差而不需要稀疏图，可考虑
+[LedoitWolf](covariance-ledoit-wolf.md) 或 [OAS](covariance-oas.md)。
+方法选择见[协方差概览](covariance.md)，输入规则和完整接口见
+[API 参考](../reference/covariance-api.md)，设备设置见
+[设备与数据类型](../reference/covariance-api.md#device-and-dtype)。
 
 ## 交叉验证在最大化什么？
 
@@ -28,8 +31,9 @@ $$
 \qquad \Theta\succ0.
 $$
 
-对验证折 $V_k$，使用其余训练折得到的位置 $\widehat\mu_k$ 和协方差
-$\widehat\Sigma_k$，计算平均高斯对数似然：
+设有 $p$ 个特征、$K$ 个验证折。对验证折 $V_k$，使用其余折拟合得到的中心
+$\widehat\mu_k$、协方差 $\widehat\Sigma_k$ 和精度矩阵 $\widehat\Theta_k$，
+计算平均高斯对数似然：
 
 $$
 s_k(\alpha)=-\frac12\left[
@@ -110,7 +114,7 @@ test score: -8.782
 
 `0.03` 对应的平均分数最高，但与 `0.01` 几乎持平。因此，应查看各折的分数
 波动及结果对分折方式的敏感性，不宜把获选值当作精确确定的常数。最终模型使用
-全部 180 行训练数据；`-8.782` 是另外 60 行上的预测拟合分数，既不是准确率，
+全部 180 行训练数据；`-8.782` 是另外 60 行上的平均高斯对数似然，既不是准确率，
 也不能证明选出的图就是真实关系图。
 
 `cv_results_` 是字典列表，每个候选对应一个字典，包含 `alpha`、`mean_score`
@@ -130,21 +134,22 @@ test score: -8.782
 - 不接受自定义分折对象、分组折或时间序列折。对于重复测量、有关联的研究对象
   或时间相关数据，应自行构造适当的训练集和验证集，再逐次拟合 `GraphicalLasso`。
 - 若标准化、插补等变换需要从数据中估计参数，就应在每个训练折内分别估计。
-  `GraphicalLassoCV` 没有折内预处理接口；需要这种隔离时，应使用
-  `GraphicalLasso` 编写手动验证循环。
+  `GraphicalLassoCV` 没有折内预处理接口；需要在每折内完成这些变换时，应使用
+  `GraphicalLasso` 编写手动验证循环，避免验证数据参与预处理参数的估计。
 - `n_jobs` 为保留参数，增大它不会在这里启用并行交叉验证。候选和折数越多，
   需要的拟合次数越多，选择后还要再做一次最终重拟合。
 
 ## 限制与诊断
 
-该类继承直接拟合估计器的数值限制。惩罚较小、数据病态时，拟合可能较困难。
+该类与 `GraphicalLasso` 有相同的数值限制。惩罚较小、协方差病态时，拟合可能较困难。
 `max_iter` 和 `tol` 作用于每一折及最终拟合；达到迭代次数上限目前不会发出
 未收敛警告。`GraphicalLassoCV` **不提供 `n_iter_`**。若需要查看迭代次数，
 可以在相同数据和设置下单独拟合 `GraphicalLasso(alpha=model.alpha_, ...)`；
 这个检查只针对该次直接拟合，不能替代对之前各折的检查。
 
-依赖所选惩罚前，应检查所有候选的各折分数是否有限。完成参数选择并不保证数值
-有效性。报告调参后的性能时，应保留独立测试集，或采用合适的外层验证方案。
+采用所选惩罚前，应检查所有候选的各折分数是否有限。完成参数选择并不保证每次
+拟合的数值结果都可靠。报告调参后的性能时，应保留独立测试集，或采用合适的
+外层验证方案。
 `predict` 和 `mahalanobis` 仍返回距离平方，不会给出图标签或异常类别。
 
 ## 参考文献与后续阅读
@@ -153,5 +158,5 @@ test score: -8.782
   [Sparse inverse covariance estimation with the graphical lasso](https://hastie.su.domains/Papers/graph.pdf).
   *Biostatistics*, 9(3), 432–441.
 - [GraphicalLasso：解释精度矩阵与偏相关](covariance-graphical-lasso.md)。
-- [协方差概览与通用行为](covariance.md)。
+- [协方差概览与方法选择](covariance.md)。
 - [完整协方差 API](../reference/covariance-api.md)。

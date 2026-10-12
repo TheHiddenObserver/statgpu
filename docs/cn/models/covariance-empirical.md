@@ -20,7 +20,7 @@ $$
 S=\frac{1}{n}\sum_{i=1}^n(x_i-\bar x)(x_i-\bar x)^\top.
 $$
 
-分母是 **$n$，不是 $n-1$**。这是高斯模型的极大似然协方差估计，并非常见的无偏样本协方差。它与 `np.cov(X, rowvar=False, ddof=0)` 一致。计算协方差本身不要求数据服从高斯分布；若要把 `score` 解释为正确指定模型下的似然，则需要相应的分布假设。
+分母是 **$n$，不是 $n-1$**。这是高斯模型的极大似然协方差估计，并非常见的无偏样本协方差。它与 `np.cov(X, rowvar=False, ddof=0)` 一致。计算协方差本身不要求数据服从高斯分布；但 `score` 使用的是高斯模型的对数似然，解释结果时要考虑这一模型假设是否合理。
 
 `covariance_` 保存 $S$：对角线是各特征的方差，非对角线是特征之间的协方差。协方差的单位是两个特征单位的乘积，因此数值大于一并不意味着结果出错，它不是相关系数。`location_` 保存 $\bar x$。设置 `assume_centered=True` 时，估计器将中心固定为零，不再减去样本均值，而是直接计算 $X^\top X/n$。
 
@@ -77,7 +77,7 @@ matches divisor n: True
 squared distances: [0.002 7.522]
 ```
 
-估计均值和方差接近总体值，但有限样本不会准确恢复总体协方差。正的交叉协方差表示两个特征倾向于一起增大。
+估计均值和方差接近总体值，但有限样本得到的协方差仍有抽样误差。正的交叉协方差表示两个特征倾向于一起增大。
 
 `mahalanobis` 返回的是**平方**距离，
 $d^2(x)=(x-\bar x)^\top\texttt{precision\_}(x-\bar x)$。
@@ -89,10 +89,10 @@ $d^2(x)=(x-\bar x)^\top\texttt{precision\_}(x-\bar x)$。
 - 本方法没有收缩强度可调。在下游使用精度矩阵前，应检查条件数以及留出数据上的表现。
 - 估计均值后，协方差的秩最多为 $\min(p,n-1)$。因此 $p\ge n$ 时必然秩亏；即使观测数更多，共线性也可能导致秩亏。求逆时的数值稳定化只是计算保障，不会改变 `covariance_`，也不会凭空补充缺失的信息。
 - `score(X_test)` 是每个观测的平均高斯对数似然。在相同留出数据和特征尺度上，越大越好。奇异协方差可能得到 `-inf`；拟合成功不等于得到了可用的高斯密度模型。
-- 训练至少需要两个有限值观测和一个特征。拟合前处理缺失值，评估时保持列顺序一致。
+- 拟合至少需要两个观测、一个特征，且所有输入值都必须为有限数。拟合前处理缺失值，评估时保持列顺序一致。
 
 ## API 与参考资料
 
-[完整协方差 API](../reference/covariance-api.md) 列出全部参数、拟合属性、输入约定和方法。[协方差概览](covariance.md) 统一说明设备选择和精度矩阵的行为。
+[完整协方差 API](../reference/covariance-api.md) 列出全部参数、拟合属性、输入约定和方法。设备设置见[设备与数据类型](../reference/covariance-api.md#device-and-dtype)，得分、距离和精度矩阵的行为见[共同方法说明](../reference/covariance-api.md#fit-score-predict-and-mahalanobis)。
 
 - [scikit-learn：EmpiricalCovariance](https://scikit-learn.org/stable/modules/generated/sklearn.covariance.EmpiricalCovariance.html)，高斯极大似然协方差估计的参考实现。

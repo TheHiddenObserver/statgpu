@@ -17,8 +17,9 @@ Use it when observations can reasonably be split into random folds and your
 selection goal is Gaussian predictive fit. For a fixed, externally chosen
 penalty, use `GraphicalLasso` directly. For covariance stability without graph
 sparsity, consider [LedoitWolf](covariance-ledoit-wolf.md) or [OAS](covariance-oas.md).
-The [shared covariance guide](covariance.md) explains inputs and devices;
-the [API reference](../reference/covariance-api.md) contains the full interface.
+The [covariance overview](covariance.md) helps with method selection;
+the [API reference](../reference/covariance-api.md) explains inputs and the full
+interface, including [backend, device, and dtype rules](../reference/covariance-api.md#backend-device-and-dtype).
 
 ## What does cross-validation maximize?
 
@@ -170,5 +171,5 @@ distances; this class does not predict graph labels or outlier classes.
   [Sparse inverse covariance estimation with the graphical lasso](https://hastie.su.domains/Papers/graph.pdf).
   *Biostatistics*, 9(3), 432–441.
 - [GraphicalLasso: interpreting precision entries and partial correlations](covariance-graphical-lasso.md).
-- [Covariance overview and shared behavior](covariance.md).
+- [Covariance overview and method selection](covariance.md).
 - [Complete covariance API](../reference/covariance-api.md).

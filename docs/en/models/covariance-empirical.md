@@ -130,9 +130,11 @@ its first feature is high without a corresponding increase in the second.
 ## API and references
 
 See the [complete covariance API](../reference/covariance-api.md) for all
-parameters, fitted attributes, input conventions, and methods. Shared device
-selection and precision behavior are explained in the
-[covariance overview](covariance.md).
+parameters, fitted attributes, input conventions, and methods. See
+[device and dtype](../reference/covariance-api.md#backend-device-and-dtype)
+for device selection and
+[shared methods](../reference/covariance-api.md#fit-score-predict-and-mahalanobis)
+for score, distance, and precision behavior.
 
 - [scikit-learn: EmpiricalCovariance](https://scikit-learn.org/stable/modules/generated/sklearn.covariance.EmpiricalCovariance.html),
   a reference for Gaussian maximum-likelihood covariance estimation.

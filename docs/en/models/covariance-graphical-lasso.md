@@ -17,9 +17,11 @@ graph. For a multivariate Gaussian distribution, a zero precision entry means
 conditional independence. This is a model-based statement about the measured
 variables, not evidence of a causal direction.
 
-Start with the [covariance guide](covariance.md) for shared input, distance,
-score, and device conventions. The [complete API reference](../reference/covariance-api.md)
-lists every public parameter and fitted attribute.
+Start with the [covariance overview](covariance.md) for concepts and method
+selection. The [complete API reference](../reference/covariance-api.md) covers
+inputs, distances, scores, public parameters, and fitted attributes; its
+[backend, device, and dtype section](../reference/covariance-api.md#backend-device-and-dtype)
+explains device settings.
 
 ## When is sparsity the right assumption?
 
@@ -164,7 +166,8 @@ establish that any row is erroneous.
   `alpha` is not a blanket numerical guarantee for the current solver.
 
 Inversion may use numerical stabilization when an exact inverse fails; see the
-[shared numerical limitations](covariance.md). For scientific graph recovery,
+API reference's [inverse, distance, and score rules](../reference/covariance-api.md#fit-score-predict-and-mahalanobis).
+For scientific graph recovery,
 check sensitivity to the penalty and sampling variation. Predictive likelihood
 selection and reliable edge selection are different goals.
 
@@ -174,5 +177,5 @@ selection and reliable edge selection are different goals.
   [Sparse inverse covariance estimation with the graphical lasso](https://hastie.su.domains/Papers/graph.pdf).
   *Biostatistics*, 9(3), 432–441.
 - [Select a penalty with GraphicalLassoCV](covariance-graphical-lasso-cv.md).
-- [Covariance overview and shared behavior](covariance.md).
+- [Covariance overview and method selection](covariance.md).
 - [Complete covariance API](../reference/covariance-api.md).

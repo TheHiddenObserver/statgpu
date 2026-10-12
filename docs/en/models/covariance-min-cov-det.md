@@ -15,9 +15,11 @@ uses robust distances to reweight the observations.
 It is useful when most rows form one approximately elliptical population and
 a minority may be contaminated. It is not a general clustering method: a second
 legitimate population can be downweighted as readily as a recording error.
-The [covariance guide](covariance.md) covers common data and device behavior;
-the [complete API reference](../reference/covariance-api.md) lists all parameters,
-methods, and fitted attributes.
+The [covariance overview](covariance.md) helps with method selection;
+the [complete API reference](../reference/covariance-api.md) covers inputs,
+parameters, methods, and fitted attributes. See its
+[backend, device, and dtype section](../reference/covariance-api.md#backend-device-and-dtype)
+for device settings.
 
 ## The smallest-volume-subset intuition
 
@@ -173,5 +175,5 @@ in arbitrary real data.
 - Rousseeuw, P. J., & Van Driessen, K. (1999).
   [A fast algorithm for the minimum covariance determinant estimator](https://wis.kuleuven.be/stat/robust/papers/1999/rousseeuwvandriessen-fastalgorithmformcd-technomet.pdf).
   *Technometrics*, 41(3), 212–223.
-- [Covariance overview and shared behavior](covariance.md).
+- [Covariance overview and method selection](covariance.md).
 - [Complete covariance API](../reference/covariance-api.md).

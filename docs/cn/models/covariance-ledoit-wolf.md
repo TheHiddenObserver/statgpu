@@ -35,13 +35,13 @@ Frobenius 范数的平方是所有矩阵元素的平方和。$\delta$ 衡量矩�
 
 ## 哪些情况下应比较其他估计器？
 
-- 高斯假设合理，尤其是观测较少时，可比较 [OAS](covariance-oas.md)。应根据实际应用评估，两者都不是对所有有限样本最优。
+- 高斯假设合理，尤其是观测较少时，可比较 [OAS](covariance-oas.md)。应根据实际应用评估，不能预期某一种方法在所有样本中都更好。
 - 如果需要预先规定强度，或按下游任务指标选强度，使用 [ShrunkCovariance](covariance-shrunk.md)。
 - 数据充足时，保留 [EmpiricalCovariance](covariance-empirical.md) 作为基线。若关心污染数据或稀疏条件关系，参阅[概览](covariance.md) 中的稳健和稀疏选择。
 
 ## CPU 示例：在新观测上评估
 
-我们生成 20 个相关特征，列之间距离越远，相关性越低。拟合只使用 40 行，另用 300 行独立生成的数据评估高斯模型对新观测的描述能力。
+我们生成 20 个相关特征，列序号相差越大，相关性越低。拟合只使用 40 行，另用 300 行独立生成的数据评估高斯模型对新观测的描述能力。
 
 <!-- example: covariance-ledoit-wolf -->
 ```python
@@ -63,7 +63,7 @@ empirical = EmpiricalCovariance(device="cpu").fit(X_train)
 model = LedoitWolf(device="cpu").fit(X_train)
 ```
 
-查看学到的强度，并比较条件数与留出得分。
+查看估计得到的强度，并比较条件数与留出数据上的得分。
 
 ```python
 print(f"shrinkage: {model.shrinkage_:.3f}")
@@ -95,11 +95,11 @@ held-out scores: empirical=-38.391, Ledoit-Wolf=-26.268
 - 这是向缩放单位矩阵进行的线性收缩，并不能估计任意指定的结构目标。真实的相关性和不相等的方差也可能被削弱。
 - 它不依赖 OAS 特有的高斯推导，但不具备抗离群点能力。极端观测可能明显影响四阶矩计算。
 - 收缩不会主动把精度矩阵中的元素压到精确的零，也不提供系数的 p 值。较大的 `shrinkage_` 不是“总体协方差等于目标”的显著性检验。
-- 只有目标方差为正时，正收缩强度才给出正特征值。完全没有变异的数据仍然退化。训练至少需要两个有限值观测和一个特征。
+- 只有目标方差为正时，正收缩强度才给出正特征值。完全没有变异的数据仍然退化。拟合至少需要两个观测、一个特征，且所有输入值都必须为有限数。
 
 ## API 与参考资料
 
-[完整协方差 API](../reference/covariance-api.md) 列出参数、方法、属性及共同的输入规则。[协方差概览](covariance.md) 统一说明设备选择、得分与距离的含义。
+[完整协方差 API](../reference/covariance-api.md) 列出参数、方法、属性及共同的输入规则。设备设置见[设备与数据类型](../reference/covariance-api.md#device-and-dtype)，得分、距离和精度矩阵的行为见[共同方法说明](../reference/covariance-api.md#fit-score-predict-and-mahalanobis)。
 
 - Ledoit, O., & Wolf, M. (2004).
   [A well-conditioned estimator for large-dimensional covariance matrices](https://doi.org/10.1016/S0047-259X(03)00096-4).

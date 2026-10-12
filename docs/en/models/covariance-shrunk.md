@@ -132,7 +132,9 @@ estimate, robust outlier handling, or a sparse precision matrix.
 
 For those other goals, consult the [covariance overview](covariance.md). The
 [complete API reference](../reference/covariance-api.md) lists all parameters,
-methods, fitted attributes, and shared device behavior.
+methods, and fitted attributes; see its
+[device and dtype section](../reference/covariance-api.md#backend-device-and-dtype)
+for device selection.
 
 ## References
 

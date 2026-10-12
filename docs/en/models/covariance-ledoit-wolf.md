@@ -141,9 +141,11 @@ validation set and reserve other rows for final evaluation.
 ## API and references
 
 The [complete covariance API](../reference/covariance-api.md) lists parameters,
-methods, attributes, and shared input rules. Use the
-[covariance overview](covariance.md) for device selection and common score and
-distance semantics.
+methods, attributes, and shared input rules. See
+[device and dtype](../reference/covariance-api.md#backend-device-and-dtype)
+for device selection and
+[shared methods](../reference/covariance-api.md#fit-score-predict-and-mahalanobis)
+for score, distance, and precision behavior.
 
 - Ledoit, O., & Wolf, M. (2004).
   [A well-conditioned estimator for large-dimensional covariance matrices](https://doi.org/10.1016/S0047-259X(03)00096-4).
