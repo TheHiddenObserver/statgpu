@@ -1,281 +1,164 @@
-# ANOVA
+# ANOVA：比较组均值
 
-> 语言：中文  
-> 最后更新：2026-10-09\
+> 语言：中文\
+> 最后更新：2026-10-12\
 > 切换：[English](../../en/models/anova.md)
 
-## 概览
+<a id="anova"></a>
+<a id="概览"></a>
 
-单因素 ANOVA 检验独立组的总体均值是否相同，通过比较组间均值差异与组内波动
-形成统计量。经典 F 检验要求观测相互独立、组内误差服从正态分布且各组总体方差相等；
-不适合等方差假设时，可使用 Welch ANOVA。两种总体检验本身都不能指出具体哪些组
-的均值不同。
+## ANOVA 回答什么问题？
 
-ANOVA 模块提供单因素 ANOVA、平衡双因素 ANOVA、Welch ANOVA、Tukey HSD、
-Bonferroni 校正的两两 Welch 检验以及效应量辅助函数。分组归约支持
-NumPy、CuPy 和 Torch 后端。
+假设要比较几种处理下的连续测量结果。即使各组总体均值相同，抽到的样本均值也会
+有所不同。方差分析（ANOVA）考察的是：相对于组内观测值的自然波动，组间均值差异
+是否大到难以用随机误差解释。
 
-## 路径
-
-- `statgpu.anova.f_oneway`、`statgpu.anova.AnovaResult`
-- `statgpu.anova.f_twoway`、`statgpu.anova.TwoWayAnovaResult`
-- `statgpu.anova.f_welch`
-- `statgpu.anova.tukey_hsd`、`statgpu.anova.TukeyResult`
-- `statgpu.anova.bonferroni`、`statgpu.anova.PosthocResult`
-- `statgpu.anova.cohens_f`
-- `statgpu.anova.partial_eta_squared`
-
-## 单因素 ANOVA
-
-设第 $i$ 组样本量为 $n_i$、均值为 $\bar y_i$，总样本量
-$N=\sum_i n_i$，总体均值为
+对于有 $k$ 个水平的单因素设计，总体检验的原假设为
 
 $$
-\bar y = \frac{\sum_i n_i\bar y_i}{N}.
+H_0: \mu_1=\mu_2=\cdots=\mu_k.
 $$
 
-组间平方和与组内平方和分别为
+在模型假设成立时，较小的 P 值提供反对这个联合原假设的证据。它不能直接指出哪一对
+均值不同，不能衡量差异大小，也不能证明因果关系。不拒绝原假设同样不能证明均值相等：
+样本过少或测量噪声较大时，有实际意义的差异也可能难以检出。
 
-$$
-SSB = \sum_i n_i(\bar y_i-\bar y)^2,
-\qquad
-SSW = \sum_i\sum_j(y_{ij}-\bar y_i)^2.
-$$
+## 为什么比较方差能判断均值差异？
 
-检验统计量为
+经典模型把每个观测值写成组均值与随机误差之和。组内变异估计误差方差；组间变异
+既包含这种噪声，也可能包含总体均值不同带来的信号。两类平方和分别除以各自自由度，
+再取比值，就得到 F 统计量。原假设下，过大的比值不容易仅由噪声解释。
+[单因素教程](anova-oneway.md)给出具体分解，并说明如何结合效应量解释检验结果。
 
-$$
-F = \frac{SSB/(k-1)}{SSW/(N-k)}.
-$$
+假设针对的是采样设计与误差：观测相互独立，通常的 F 模型要求组内误差近似正态，
+经典 ANOVA 还要求各组总体方差相等。正态性并不是要求把所有组混在一起后呈现正态分布。
+Welch ANOVA 放宽等方差假设，但不能解决观测相关、重复测量、严重离群值或结果变量
+不适合该模型的问题。
 
-`f_oneway` 通过后端原生归约直接计算这些量，不需要迭代求解器。p 值来自
-F 分布生存函数。Eta-squared 为
+## 根据设计选择分析方法
 
-$$
-\eta^2 = \frac{SSB}{SSB+SSW}.
-$$
+| 问题与设计 | 从这里开始 | 重要边界 |
+|---|---|---|
+| 一个因素定义的独立组，在共同误差方差下是否均值相等？ | [经典单因素 ANOVA](anova-oneway.md#anova-basic)，`f_oneway` | 各组样本量可以不同；仍需独立性与总体等方差假设 |
+| 独立组方差不等时，是否均值相等？ | [Welch ANOVA](anova-oneway.md#anova-welch)，`f_welch` | 使用各组方差估计，分母自由度通常为小数 |
+| 两个交叉因素如何影响结果？一个因素的作用是否取决于另一个因素？ | [平衡双因素 ANOVA](anova-twoway.md)，`f_twoway` | 所有因素组合需要相同样本量；事先判断模型是否需要交互项 |
+| 共同方差模型下，具体哪些组均值不同？ | [Tukey HSD](anova-posthoc.md#anova-tukey)，`tukey_hsd` | 全部两两比较共用合并方差；样本量不等时采用 Tukey–Kramer 缩放 |
+| 不要求等方差时，具体哪些组均值不同？ | [Bonferroni 两两 Welch 检验](anova-posthoc.md#anova-bonferroni)，`bonferroni` | 全部两两检验组成一个比较族；返回的 P 值是原始值 |
+| 样本中的分组差异有多大？ | [效应量](anova-oneway.md#effect-sizes)，`cohens_f`、`partial_eta_squared` | 效应大小与统计显著性回答不同问题 |
 
-### 参数
+应根据研究问题与采样设计选择模型，不应尝试多个方法后只保留最小的 P 值。
+解释检验前，先查看组样本量、分布与方差差异。同一受试者出现在多个组中时，
+这些独立组函数不会建模其观测之间的相关性。
 
-| 参数 | 默认值 | 说明 |
-|---|---:|---|
-| `*groups` | 必填 | 至少两个一维样本 |
-| `backend` | `"auto"` | `"auto"`、`"numpy"`、`"cupy"` 或 `"torch"` |
-| `dtype` | `None` | 函数公开该参数时使用的计算 dtype |
+## 从总体检验走向有用结论
 
-### 输出
+1. 明确要比较的总体均值或因素效应，在查看结果前选定显著性水平。
+2. 检查设计与假设，再查看总体统计量、P 值与自由度。双因素模型中，应先考察交互作用，
+   再概括对另一个因素取平均后的主效应。
+3. 同时报告观测均值与合适的效应量。统计上可检出的差异，实际意义未必大。
+4. 需要作两两结论时，明确比较族并采用合适的同时推断方法。看过 P 值后只挑有希望的
+   几对，并不能消除多重比较问题。
 
-`AnovaResult` 包含：
+总体检验显著，并不意味着后续可以直接使用未校正的两两检验。反过来，预先规划的
+同时两两比较，也不必看成总体检验显著后才被允许进行的分析。
+[事后比较教程](anova-posthoc.md)解释比较目标与置信区间；
+[多重检验原理](multiple-testing.md)进一步解释族错误率与错误发现率。
 
-| 字段 | 说明 |
-|---|---|
-| `statistic` | F 统计量 |
-| `pvalue` | F 分布尾概率 |
-| `df_between` | 分子自由度 |
-| `df_within` | 分母自由度 |
-| `eta_squared` | 单因素效应量 |
+## 支持范围
 
+模块包含**七个公开函数**，不是七种 ANOVA：三个总体检验、两种两两比较程序和两个
+效应量辅助函数。[完整 API 参考](../reference/anova-api.md)列出全部七个函数与五种
+结果类型，包括 `PairwiseComparison`。
+
+支持的设计是独立组单因素 ANOVA、Welch 单因素 ANOVA 和平衡双因素 ANOVA。
+`f_twoway` 没有 Type I/II/III 平方和选择参数，单元格样本量不等时会报错。
+这些函数不提供重复测量 ANOVA、ANCOVA、MANOVA、任意对比或更多因素的 ANOVA。
+省略交互项会拟合加性模型，将省略的交互变异并入残差，并非仅仅隐藏输出。
+
+所有基于观测数据的函数都会拒绝 NaN 与无穷输入，而不会静默删除观测值。
+即使输入全部有限，常数数据仍可能产生未定义或无穷大的统计量。
+各函数的[输入与退化情形说明](../reference/anova-api.md)区分了非法输入与未定义统计量。
+
+<a id="后端与执行边界"></a>
+<a id="strict-与-approximate"></a>
+<a id="限制与失败行为"></a>
+<a id="torch-输入是否必须指定-backendtorch"></a>
+<a id="为什么返回的-p-值可能是-python-标量"></a>
+<a id="为什么拒绝不平衡双因素设计"></a>
+<a id="faq"></a>
+
+### 数组、设备与数值限制
+
+分组归约支持 NumPy、CuPy 和 Torch。结果由 Python 标量与比较记录组成，
+不是已拟合估计器。某些最终的标量分布计算在 CPU 上执行；Tukey 的学生化极差
+分布计算使用 SciPy。函数参数 `backend="torch"` 选择 Torch 后端，本身并不要求 CUDA。
+双因素嵌套单元格应显式选择后端，不要依赖输入类型推断。dtype、转换与设备限制见
+[API 参考](../reference/anova-api.md)；估计器所用的另一套 `device` 接口见
+[设备指南](../guides/device-and-memory.md)。
+
+ANOVA 没有供用户选择的 strict/approximate 统计模式。把标量计算移到 CPU 不会改变
+检验的方差假设，也不会把 Welch 推断变成经典 ANOVA。
+
+## 继续阅读完整示例
+
+本页原有的详细内容已按下列主题组织。旧章节链接仍可使用，并可从对应位置进入教程
+或完整参考。
+
+<a id="单因素-anova"></a>
+<a id="welch-anova"></a>
 <a id="anova-basic"></a>
+<a id="在-cpu-上比较两组均值"></a>
+<a id="效应量"></a>
 
-## 在 CPU 上比较两组均值
+### 单因素与效应量
 
-按顺序运行以下代码。每个输入都是一个组的测量值组成的一维数组，不要求各组长度相同。
-先导入检验函数与 NumPy。
+[单因素教程](anova-oneway.md)包括经典与 Welch 公式、自包含 CPU 示例、结果解释与
+效应量注意事项。
 
-<!-- example: anova-basic -->
-```python
-import numpy as np
-from statgpu.anova import f_oneway
-```
+<a id="双因素-anova"></a>
 
-生成两个总体方差相同、总体均值不同的独立样本。两个数组的形状都是 `(100,)`。
+### 两个交叉因素
 
-```python
-rng = np.random.default_rng(7)
-g1 = rng.normal(0.0, 1.0, 100)
-g2 = rng.normal(0.5, 1.0, 100)
-```
+[双因素教程](anova-twoway.md)解释平衡单元格、主效应、交互作用、平方和，并提供
+完整的析因设计示例。
 
-计算 F 检验，再查看统计量、P 值与效应量。
+<a id="事后比较"></a>
+<a id="tukey-hsd"></a>
+<a id="bonferroni-两两-welch-检验"></a>
 
-```python
-result = f_oneway(g1, g2, backend="numpy")
-print(round(result.statistic, 3), result.pvalue)
-print(round(result.eta_squared, 3))
-```
-<!-- example-end: anova-basic -->
+### 两两比较
 
-F 统计量约为 `22.079`，P 值约为 `4.89e-6`，eta-squared 约为 `0.100`。
-在预先选定的 5% 显著性水平下，拒绝两组均值相等的原假设。Eta-squared 表示
-样本变异中与分组差异相关的比例，不是原假设错误的概率，也不是因果效应。
-有两个以上的组时，显著的 F 检验只说明均值并非全部相等；若要定位差异，
-应使用预先规划或经过多重比较校正的比较。
+[事后比较教程](anova-posthoc.md)包括 Tukey 与 Bonferroni 示例、均值差方向、
+校正后的判定与同时置信区间。
 
-## 双因素 ANOVA
+<a id="路径"></a>
+<a id="参数"></a>
+<a id="参数-1"></a>
+<a id="输出"></a>
+<a id="输出-1"></a>
 
-`f_twoway` 用于平衡双因素设计，可检验因子 A、因子 B 以及可选的交互项。
-单元格不平衡时会报错；该 API 不提供 Type I、II 或 III 平方和约定选项。
-当 `interaction=False` 时，使用加性模型，剩余交互变异进入残差项。
+### 签名、字段与错误
 
-### 参数
-
-| 参数 | 默认值 | 说明 |
-|---|---:|---|
-| `data` | 必填 | 包含观测值的 `(a, b)` 嵌套单元格 |
-| `interaction` | `True` | 是否拟合和检验交互项 |
-| `backend` | `"auto"` | 数值后端 |
-| `dtype` | `None` | 计算 dtype |
-
-### 输出
-
-`TwoWayAnovaResult` 给出因子 A、因子 B 和可选交互项的统计量、p 值、自由度、
-eta-squared，以及残差自由度和残差平方和。
-
-## Welch ANOVA
-
-`f_welch` 是允许组间方差不等的单因素检验。分母自由度使用
-Welch-Satterthwaite 公式，通常为小数，因此返回的
-`AnovaResult.df_within` 是浮点数。普通合并方差 ANOVA 的 eta-squared 并非
-相应的 Welch 估计目标，所以 `eta_squared` 返回 `NaN`。
-
-复用[前面的 CPU 示例](#anova-basic)中的 `rng`、`g1` 与 `g2`。
-加入总体方差更大的第三组，再使用 Welch 检验。
-
-<!-- example-requires: anova-basic -->
-<!-- example: anova-welch -->
-```python
-from statgpu.anova import f_welch
-
-g3 = rng.normal(-0.2, 2.0, 80)
-welch = f_welch(g1, g2, g3, backend="numpy")
-print(welch.statistic, welch.pvalue, welch.df_within)
-```
-<!-- example-end: anova-welch -->
-
-该 P 值检验三个总体均值是否全部相同，但不合并各组方差。检验仍要求观测相互独立，
-也不会直接定位两两差异。
-
-## 事后比较
-
-### Tukey HSD
-
-`tukey_hsd` 使用 studentized-range 分布进行全部均值两两比较，控制族错误率，
-并返回同时置信区间。`TukeyResult` 包含比较列表、显著性水平、组数、残差自由度
-和合并均方误差。每项比较包含组索引、均值差、校正 p 值、置信区间和拒绝结论。
-
-对[前面的 CPU 示例](#anova-basic)中等方差的 `g1` 与 `g2`，查看校正后的比较结果
-及同时置信区间。本例使用合并方差，不要加入方差不同的 `g3`。
-
-<!-- example-requires: anova-basic -->
-<!-- example: anova-tukey -->
-```python
-from statgpu.anova import tukey_hsd
-
-posthoc = tukey_hsd(g1, g2, alpha=0.05, backend="numpy")
-comparison = posthoc.comparisons[0]
-print(comparison.mean_diff, comparison.ci_lower, comparison.ci_upper)
-print(comparison.pvalue, comparison.reject)
-```
-<!-- example-end: anova-tukey -->
-
-均值差按第 0 组减第 1 组计算，约为 `-0.582`；区间约为 `[-0.826, -0.338]`。
-区间不包含零，与 `reject=True` 一致。组数更多时，Tukey 会对全部两两比较进行校正。
-
-### Bonferroni 两两 Welch 检验
-
-`bonferroni` 对每一对组执行 Welch t 检验并进行 Bonferroni 校正，不要求等方差。
-`PosthocResult` 给出全部两两比较、族显著性水平和比较数量。
-
-## 效应量
-
-- `partial_eta_squared(ss_effect, ss_error)` 计算
-  $ss_{effect}/(ss_{effect}+ss_{error})$，并验证平方和有限且非负。
-- `cohens_f(*groups)` 根据 eta-squared 计算 Cohen's $f$：
-
-$$
-f = \sqrt{\frac{\eta^2}{1-\eta^2}}.
-$$
+[完整 API 参考](../reference/anova-api.md)列出所有函数、参数、默认值、结果字段、
+输入限制与后端边界。
 
 <a id="cpu-与-gpu-示例"></a>
+<a id="可选的-gpu-执行"></a>
+<a id="cupy"></a>
+<a id="torch-cuda"></a>
 
-## 可选的 GPU 执行
+### 可选 GPU 示例
 
-先运行[前面的 CPU 示例](#anova-basic)，复用其中的 `g1`、`g2` 与 `f_oneway`。
-根据可用的 CUDA 运行环境选择以下一段；两段都使用原始数据，不重新生成样本或改变检验问题。
-
-### CuPy
-
-```python
-import cupy as cp
-
-g1_gpu, g2_gpu = cp.asarray(g1), cp.asarray(g2)
-result_gpu = f_oneway(g1_gpu, g2_gpu, backend="cupy")
-```
-
-### Torch CUDA
-
-```python
-import torch
-
-g1_torch = torch.as_tensor(g1, device="cuda", dtype=torch.float64)
-g2_torch = torch.as_tensor(g2, device="cuda", dtype=torch.float64)
-result_torch = f_oneway(g1_torch, g2_torch, backend="torch")
-```
-
-## 后端与执行边界
-
-均值、方差、平方和和分组归约保留在所选后端。若 GPU 后端没有所需函数，
-F、t、正态或 studentized-range 分布的最终标量计算可能跨到 CPU。不会仅为了
-计算 p 值而把完整分组向量转移到 NumPy。
-
-`backend="cupy"` 选择 CuPy，`backend="torch"` 选择 Torch。显式后端请求不会
-静默切换到其他后端。
-
-## strict 与 approximate
-
-ANOVA 函数没有独立的 strict/approximate 统计模式，所有后端使用相同的检验定义。
-CPU 标量分布调用只是执行边界，不是另一套近似 ANOVA 公式。
-
-## 限制与失败行为
-
-- 单因素 ANOVA 至少需要两个非空组，且观测总数必须大于组数。Welch ANOVA、
-  Tukey HSD 和 Bonferroni 比较要求每组至少有两个观测值。
-- 双因素 ANOVA 当前要求平衡单元格。
-- 所有使用观测数据的 ANOVA 函数（包括 `cohens_f`）遇到 `NaN`、正无穷或负无穷
-  都会抛出 `ValueError`，不会自动忽略这些观测值。
-- 输入值全部有限时，常数组仍可能产生未定义或无穷大的统计量：所有观测值相同
-  时，`f_oneway` 和 `cohens_f` 返回 `NaN`；各组内取值恒定但组均值不同时，
-  两者的统计量为正无穷。
-- Tukey HSD 依赖 studentized-range 分布，可能使用 CPU 标量实现。
-- 效应量辅助函数对非法平方和显式报错，而不是返回误导性的有限结果。
+[单因素 GPU 示例](anova-oneway.md#gpu-execution)通过显式 CuPy 或 Torch CUDA 数组
+执行同一个统计问题。
 
 <a id="外部验证"></a>
+<a id="与其他实现比较"></a>
 
-## 与其他实现比较
+### 与其他实现对照
 
-与 `statsmodels.stats.oneway.anova_oneway` 比较 `f_welch` 时，使用相同观测值和
-分组，并在 statsmodels 中设置 `use_var="unequal"`、`welch_correction=True`。
-比较 F 统计量、P 值以及分子和分母自由度。不要把 Welch 结果直接与等方差 ANOVA
-结果比较：两者使用的方差假设与分母不同。
-
-贡献者可参阅[验证参考](../../../dev/reviews/pr168-model-validation-provenance.md#anova)。
-
-## FAQ
-
-### Torch 输入是否必须指定 `backend="torch"`？
-
-显式 Torch 执行应使用 `backend="torch"`。`"auto"` 可以根据输入类型推断；
-分析需要特定数组后端时，请显式指定。
-
-### 为什么返回的 p 值可能是 Python 标量？
-
-ANOVA 结果对象将统计摘要暴露为标量。用于获得这些摘要的充分统计量会一直保留
-在所选后端，直到最终标量分布边界。
-
-### 为什么拒绝不平衡双因素设计？
-
-不平衡设计中的不同平方和约定检验不同假设。实现选择显式失败，而不是静默采用
-某一种约定。
+[单因素教程](anova-oneway.md#comparing-implementations)说明需要对齐的方差假设与设置。
+贡献者材料见[验证参考](../../../dev/reviews/pr168-model-validation-provenance.md#anova)。
 
 ## 参考文献
 

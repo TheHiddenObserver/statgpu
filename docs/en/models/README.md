@@ -59,7 +59,8 @@ NumPy/CuPy/Torch support matrix.
 
 ## Specialized Statistical Modules
 
-- [ANOVA](anova.md)
+- [ANOVA overview](anova.md)
+  - [One-way / Welch](anova-oneway.md) · [Balanced two-way](anova-twoway.md) · [Post-hoc comparisons](anova-posthoc.md) · [Complete API](../reference/anova-api.md)
 - [Covariance Estimation](covariance.md)
 - [Panel Data](panel.md)
 - [Nonparametric Methods](nonparametric.md)

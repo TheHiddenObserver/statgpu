@@ -33,7 +33,7 @@ For CuPy, install `statgpu[gpu11]` or `statgpu[gpu12]` for the matching CUDA maj
 - [Robust Regression](models/robust.md)
 - [Cox Proportional Hazards](models/coxph.md)
 - [Panel Models](models/panel.md)
-- [ANOVA](models/anova.md)
+- [ANOVA overview](models/anova.md) — principles, method choice and supported designs
 - [Covariance Estimation](models/covariance.md)
 - [Nonparametric Methods](models/nonparametric.md)
 - [Unsupervised Learning](models/unsupervised.md)
@@ -53,7 +53,8 @@ For CuPy, install `statgpu[gpu11]` or `statgpu[gpu12]` for the matching CUDA maj
 - [Distribution API](guides/distribution-api.md)
 - [Multiple Testing Principles](models/multiple-testing.md) — error criteria, method choice and worked examples
 - [P-value Adjustment and Combination API](guides/multiple-testing-combine-pvalues.md) — signatures, axes, weights and backend behavior
-- [ANOVA](models/anova.md)
+- [ANOVA tutorials](models/anova.md) — [one-way / Welch](models/anova-oneway.md), [balanced two-way](models/anova-twoway.md), [post-hoc comparisons](models/anova-posthoc.md)
+- [ANOVA API](reference/anova-api.md) — all functions, result fields and input/backend limits
 - [Covariance Estimation](models/covariance.md)
 
 To contribute code, documentation, or tests, see the [Contributor Guide](../../CONTRIBUTING.md).

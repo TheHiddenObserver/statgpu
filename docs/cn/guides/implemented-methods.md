@@ -84,7 +84,11 @@ print(np.round(model.predict(X[:3]), 6))
 - `cohens_f`
 - `partial_eta_squared`
 
-设计限制与标量分布边界见 [ANOVA](../models/anova.md)。
+以上是七个函数：三个总体检验、两种两两比较程序和两个效应量辅助函数。支持的设计为
+独立组单因素、Welch 单因素和平衡双因素 ANOVA。方法选择见[概览](../models/anova.md)；
+完整分析示例见[单因素](../models/anova-oneway.md)、[双因素](../models/anova-twoway.md)
+与[事后比较](../models/anova-posthoc.md)教程；五种结果类型、默认值、输入限制与标量
+分布边界见[完整 ANOVA API](../reference/anova-api.md)。
 
 ## 协方差估计
 

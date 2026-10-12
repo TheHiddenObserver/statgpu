@@ -1,310 +1,190 @@
-# ANOVA
+# ANOVA: comparing group means
 
-> Language: English  
-> Last updated: 2026-10-09\
+> Language: English\
+> Last updated: 2026-10-12\
 > Switch: [Chinese](../../cn/models/anova.md)
 
-## Overview
+<a id="anova"></a>
+<a id="overview"></a>
 
-One-way ANOVA asks whether independent groups have the same population mean.
-It compares variation between group means with variation within groups. The
-classical F test assumes independent observations, normal errors within groups,
-and equal population variances; use Welch ANOVA when the equal-variance
-assumption is unsuitable. Neither test identifies which means differ by itself.
+## What question does ANOVA answer?
 
-The ANOVA module provides one-way ANOVA, balanced two-way ANOVA, Welch ANOVA,
-Tukey HSD, Bonferroni-adjusted pairwise Welch tests, and effect-size helpers.
-Group reductions support NumPy, CuPy, and Torch backends.
+Suppose you measure a continuous outcome under several treatments. Their sample
+means will differ even when their population means are equal. Analysis of
+variance (ANOVA) asks whether the between-group differences are large relative
+to the variation among observations within groups.
 
-## Paths
-
-- `statgpu.anova.f_oneway`, `statgpu.anova.AnovaResult`
-- `statgpu.anova.f_twoway`, `statgpu.anova.TwoWayAnovaResult`
-- `statgpu.anova.f_welch`
-- `statgpu.anova.tukey_hsd`, `statgpu.anova.TukeyResult`
-- `statgpu.anova.bonferroni`, `statgpu.anova.PosthocResult`
-- `statgpu.anova.cohens_f`
-- `statgpu.anova.partial_eta_squared`
-
-## One-Way ANOVA
-
-For groups with sizes $n_i$, means $\bar y_i$, and total size
-$N=\sum_i n_i$, the grand mean is
+For one factor with $k$ levels, the omnibus null hypothesis is
 
 $$
-\bar y = \frac{\sum_i n_i\bar y_i}{N}.
+H_0: \mu_1=\mu_2=\cdots=\mu_k.
 $$
 
-The between- and within-group sums of squares are
+A small p-value is evidence against that joint hypothesis under the model
+assumptions. It does not identify a differing pair, measure the size of a
+difference, or establish causality. Failure to reject also does not establish
+that the means are equal: small samples or noisy measurements can hide relevant
+differences.
 
-$$
-SSB = \sum_i n_i(\bar y_i-\bar y)^2,
-\qquad
-SSW = \sum_i\sum_j(y_{ij}-\bar y_i)^2.
-$$
+## Why compare variances to learn about means?
 
-The test statistic is
+The classical model writes each observation as a group mean plus random error.
+Within-group variation estimates the error variance. Between-group variation
+contains the same noise and, when the means differ, an additional signal. After
+dividing both sums of squares by their degrees of freedom, their ratio is an
+F statistic. A large ratio is difficult to explain by noise alone under the
+null. The [one-way tutorial](anova-oneway.md) develops the decomposition and
+shows how to interpret the test together with an effect size.
 
-$$
-F = \frac{SSB/(k-1)}{SSW/(N-k)}.
-$$
+The assumptions concern the data-generating design and errors: independent
+observations, approximately normal within-group errors for the usual F model,
+and equal population variances for classical ANOVA. Normality is not a demand
+that all groups pooled together look normal. Welch ANOVA relaxes equal
+variances; it does not repair dependence, repeated measurements, severe
+outliers, or an unsuitable outcome model.
 
-`f_oneway` computes these quantities directly with backend-native reductions; no
-iterative solver is used. The p-value is obtained from the F-distribution survival
-function. Eta-squared is
+## Choose the analysis from the design
 
-$$
-\eta^2 = \frac{SSB}{SSB+SSW}.
-$$
+| Your question and design | Start here | Important boundary |
+|---|---|---|
+| Do independent groups defined by one factor have equal means, with a common error variance? | [Classical one-way ANOVA](anova-oneway.md#anova-basic), `f_oneway` | Group sizes may differ; independence and equal population variances still matter |
+| Do independent groups have equal means when their variances differ? | [Welch ANOVA](anova-oneway.md#anova-welch), `f_welch` | Uses separate variance estimates and fractional denominator degrees of freedom |
+| How do two crossed factors affect the outcome, and does one factor's effect depend on the other? | [Balanced two-way ANOVA](anova-twoway.md), `f_twoway` | Every factor combination needs the same sample size; decide whether interaction belongs in the model |
+| Which pairs differ under a common-variance model? | [Tukey HSD](anova-posthoc.md#anova-tukey), `tukey_hsd` | All pairwise comparisons share a pooled variance; unequal group sizes use Tukey–Kramer scaling |
+| Which pairs differ when variances need not be equal? | [Bonferroni pairwise Welch tests](anova-posthoc.md#anova-bonferroni), `bonferroni` | All pairwise Welch tests form one comparison family; returned p-values are raw |
+| How large is the sample separation? | [Effect sizes](anova-oneway.md#effect-sizes), `cohens_f`, `partial_eta_squared` | Effect size and statistical significance answer different questions |
 
-### Parameters
+Choose the model from the scientific question and sampling design, rather than
+trying several methods and keeping the smallest p-value. Inspect group sizes,
+distributions and variance differences before interpreting a test. If the same
+participant appears in several groups, these independent-group functions do
+not model that correlation.
 
-| Parameter | Default | Description |
-|---|---:|---|
-| `*groups` | required | Two or more one-dimensional samples |
-| `backend` | `"auto"` | `"auto"`, `"numpy"`, `"cupy"`, or `"torch"` |
-| `dtype` | `None` | Computation dtype where exposed by the function |
+## From an omnibus result to useful conclusions
 
-### Output
+1. State the population means or factorial effects you want to compare, and
+   choose the significance level before inspecting results.
+2. Check the design and assumptions, then inspect the omnibus statistic,
+   p-value and degrees of freedom. In a two-factor model, examine interaction
+   before summarizing main effects averaged over the other factor.
+3. Report the observed means and a relevant effect size. An effect can be
+   statistically detectable yet too small to matter in practice.
+4. If pairwise claims are needed, define the comparison family and use an
+   appropriate simultaneous procedure. Selecting only promising pairs after
+   viewing their p-values does not remove the multiplicity problem.
 
-`AnovaResult` exposes:
+A significant omnibus test does not make unadjusted follow-up comparisons safe.
+Conversely, a prespecified simultaneous pairwise analysis need not be viewed as
+a reward unlocked by a significant omnibus test. The
+[post-hoc tutorial](anova-posthoc.md) explains the targets and confidence
+intervals; [multiple-testing principles](multiple-testing.md) explain family-wise
+error and false discovery rate more broadly.
 
-| Field | Description |
-|---|---|
-| `statistic` | F statistic |
-| `pvalue` | F-distribution tail probability |
-| `df_between` | Numerator degrees of freedom |
-| `df_within` | Denominator degrees of freedom |
-| `eta_squared` | One-way effect size |
+## Supported scope
 
+The module has **seven public functions**, not seven kinds of ANOVA: three
+omnibus tests, two pairwise-comparison procedures, and two effect-size helpers.
+The [complete API reference](../reference/anova-api.md) inventories all seven
+functions and all five result types, including `PairwiseComparison`.
+
+The available designs are independent-group one-way ANOVA, Welch one-way ANOVA,
+and balanced two-way ANOVA. `f_twoway` has no Type I/II/III sums-of-squares
+selector and rejects unequal cell sizes. Repeated-measures ANOVA, ANCOVA,
+MANOVA, arbitrary contrasts and higher-factor ANOVA are not provided by these
+functions. Omitting interaction fits an additive model and pools the omitted
+interaction variation into its residual; it is not merely a display option.
+
+All observation-based functions reject NaN and infinite input values rather
+than silently deleting observations. Finite constant data can still yield
+undefined or infinite statistics. Use the per-function
+[input and degeneracy rules](../reference/anova-api.md) to distinguish an invalid
+input from an undefined statistic.
+
+<a id="backend-and-execution-boundaries"></a>
+<a id="strict-and-approximate-modes"></a>
+<a id="limitations-and-failure-modes"></a>
+<a id="does-torch-input-require-backendtorch"></a>
+<a id="why-can-the-returned-p-value-be-a-python-scalar"></a>
+<a id="why-is-an-unbalanced-two-way-design-rejected"></a>
+<a id="faq"></a>
+
+### Arrays, devices and numerical limits
+
+Group reductions support NumPy, CuPy and Torch. Results contain Python scalars
+and comparison records, not fitted estimators. Some final scalar distribution
+calculations run on CPU; Tukey's studentized-range calculation uses SciPy.
+`backend="torch"` selects the functional Torch backend and does not by itself
+require CUDA. For two-way nested cells, select the backend explicitly rather
+than relying on input-type inference. See the
+[API reference](../reference/anova-api.md) for dtype, conversion and device
+restrictions, and the [device guide](../guides/device-and-memory.md) for the
+separate estimator `device` interface.
+
+There is no user-selectable strict/approximate ANOVA mode. Moving a scalar
+calculation to CPU does not change the test's variance assumptions or turn
+Welch inference into classical ANOVA.
+
+## Continue with a worked analysis
+
+The detailed material previously on this page is organized below. Existing
+section links remain usable and lead to the corresponding tutorial or reference.
+
+<a id="one-way-anova"></a>
+<a id="welch-anova"></a>
 <a id="anova-basic"></a>
+<a id="compare-two-groups-on-cpu"></a>
+<a id="effect-sizes"></a>
 
-## Compare two groups on CPU
+### One factor and effect sizes
 
-Run the following blocks in order. Each input is a one-dimensional array of
-measurements from one group; the arrays do not need to have the same length.
-First import the function and NumPy.
+Use the [one-way tutorial](anova-oneway.md) for classical and Welch formulas,
+self-contained CPU examples, result interpretation and effect-size caveats.
 
-<!-- example: anova-basic -->
-```python
-import numpy as np
-from statgpu.anova import f_oneway
-```
+<a id="two-way-anova"></a>
 
-Generate two independent samples with equal population variances and different
-population means. Both arrays have shape `(100,)`.
+### Two crossed factors
 
-```python
-rng = np.random.default_rng(7)
-g1 = rng.normal(0.0, 1.0, 100)
-g2 = rng.normal(0.5, 1.0, 100)
-```
+Use the [two-way tutorial](anova-twoway.md) for balanced cells, main effects,
+interaction, sums of squares and a complete factorial example.
 
-Compute the F test, then inspect its statistic, p-value and effect size.
+<a id="post-hoc-comparisons"></a>
+<a id="tukey-hsd"></a>
+<a id="bonferroni-pairwise-welch-tests"></a>
 
-```python
-result = f_oneway(g1, g2, backend="numpy")
-print(round(result.statistic, 3), result.pvalue)
-print(round(result.eta_squared, 3))
-```
-<!-- example-end: anova-basic -->
+### Pairwise comparisons
 
-The F statistic is about `22.079`, the p-value is about `4.89e-6`, and
-eta-squared is about `0.100`. At a prespecified 5% level, reject equal means for
-these groups. Eta-squared describes the share of sample variation associated
-with the group split; it is not the probability that the null is false or a
-causal effect. For more than two groups, a significant F test only says that
-not all means are equal; use planned or multiplicity-adjusted comparisons to
-locate differences.
+Use the [post-hoc tutorial](anova-posthoc.md) for Tukey and Bonferroni examples,
+comparison direction, adjusted decisions and simultaneous confidence intervals.
 
-## Two-Way ANOVA
+<a id="paths"></a>
+<a id="parameters"></a>
+<a id="parameters-1"></a>
+<a id="output"></a>
+<a id="output-1"></a>
 
-`f_twoway` analyzes a balanced two-factor design. It tests factor A, factor B,
-and, when requested, the interaction. Unbalanced cell sizes are rejected; the
-API does not offer a Type I, II, or III sums-of-squares choice.
-When `interaction=False`, the additive model uses the remaining interaction
-variation in the residual term.
+### Signatures, fields and errors
 
-### Parameters
-
-| Parameter | Default | Description |
-|---|---:|---|
-| `data` | required | Nested `(a, b)` cells containing observations |
-| `interaction` | `True` | Fit and test the interaction term |
-| `backend` | `"auto"` | Numerical backend |
-| `dtype` | `None` | Computation dtype |
-
-### Output
-
-`TwoWayAnovaResult` reports factor-A, factor-B, and optional interaction
-statistics, p-values, degrees of freedom, eta-squared values, residual degrees of
-freedom, and residual sum of squares.
-
-## Welch ANOVA
-
-`f_welch` is the unequal-variance alternative to one-way ANOVA. It uses the
-Welch-Satterthwaite denominator degrees of freedom, which are generally
-fractional. Its returned `AnovaResult.df_within` is therefore a floating-point
-value. `eta_squared` is reported as `NaN` because the ordinary pooled-variance
-one-way effect size is not the corresponding Welch estimand.
-
-Reuse `rng`, `g1` and `g2` from [the CPU example](#anova-basic).
-Add a third group with a larger population variance, then use Welch's test.
-
-<!-- example-requires: anova-basic -->
-<!-- example: anova-welch -->
-```python
-from statgpu.anova import f_welch
-
-g3 = rng.normal(-0.2, 2.0, 80)
-welch = f_welch(g1, g2, g3, backend="numpy")
-print(welch.statistic, welch.pvalue, welch.df_within)
-```
-<!-- example-end: anova-welch -->
-
-The p-value tests equality of all three means without pooling their variances.
-It still relies on independent observations and does not locate pairwise differences.
-
-## Post-Hoc Comparisons
-
-### Tukey HSD
-
-`tukey_hsd` performs all pairwise mean comparisons using the studentized-range
-distribution. It controls family-wise error and reports simultaneous confidence
-intervals. `TukeyResult` contains the comparison list, significance level,
-number of groups, residual degrees of freedom, and pooled mean square error.
-Each comparison reports group indices, mean difference, adjusted p-value,
-confidence interval, and rejection decision.
-
-For the equal-variance `g1` and `g2` from [the CPU example](#anova-basic),
-inspect the adjusted comparison and its simultaneous confidence interval.
-Do not include the unequal-variance `g3` in this pooled-variance example.
-
-<!-- example-requires: anova-basic -->
-<!-- example: anova-tukey -->
-```python
-from statgpu.anova import tukey_hsd
-
-posthoc = tukey_hsd(g1, g2, alpha=0.05, backend="numpy")
-comparison = posthoc.comparisons[0]
-print(comparison.mean_diff, comparison.ci_lower, comparison.ci_upper)
-print(comparison.pvalue, comparison.reject)
-```
-<!-- example-end: anova-tukey -->
-
-The difference is group 0 minus group 1, about `-0.582`; the interval is
-approximately `[-0.826, -0.338]`. Its exclusion of zero agrees with `reject=True`.
-With more groups, Tukey adjusts across all pairwise comparisons.
-
-### Bonferroni Pairwise Welch Tests
-
-`bonferroni` applies Welch's pairwise t-test and Bonferroni correction. It does
-not assume equal variances. `PosthocResult` reports all pairwise comparisons,
-the family-wise significance level, and the number of comparisons.
-
-## Effect Sizes
-
-- `partial_eta_squared(ss_effect, ss_error)` computes
-  $ss_{effect}/(ss_{effect}+ss_{error})$ and validates finite, non-negative sums
-  of squares.
-- `cohens_f(*groups)` derives Cohen's $f$ from eta-squared:
-
-$$
-f = \sqrt{\frac{\eta^2}{1-\eta^2}}.
-$$
+Use the [complete API reference](../reference/anova-api.md) for every function,
+parameter, default, result field, input restriction and backend boundary.
 
 <a id="cpu-and-gpu-examples"></a>
+<a id="optional-gpu-execution"></a>
+<a id="cupy"></a>
+<a id="torch-cuda"></a>
 
-## Optional GPU execution
+### Optional GPU examples
 
-After [the CPU example](#anova-basic), reuse its `g1`, `g2` and `f_oneway`.
-Choose one of the following blocks when its CUDA runtime is available; neither
-block regenerates data or changes the statistical question.
-
-### CuPy
-
-```python
-import cupy as cp
-
-g1_gpu, g2_gpu = cp.asarray(g1), cp.asarray(g2)
-result_gpu = f_oneway(g1_gpu, g2_gpu, backend="cupy")
-```
-
-### Torch CUDA
-
-```python
-import torch
-
-g1_torch = torch.as_tensor(g1, device="cuda", dtype=torch.float64)
-g2_torch = torch.as_tensor(g2, device="cuda", dtype=torch.float64)
-result_torch = f_oneway(g1_torch, g2_torch, backend="torch")
-```
-
-## Backend and Execution Boundaries
-
-Means, variances, sums of squares, and group reductions remain on the selected
-backend. Scalar F, t, normal, or studentized-range distribution evaluations may
-cross to CPU where the selected GPU backend does not provide the required
-function. Complete group vectors are not transferred solely to compute a
-p-value.
-
-`backend="cupy"` selects CuPy and `backend="torch"` selects Torch. Explicit
-backend requests do not silently select another backend.
-
-## Strict and Approximate Modes
-
-ANOVA functions do not expose separate strict and approximate statistical
-modes. All backends use the same test definitions. A scalar distribution call
-on CPU is an execution boundary, not an alternative ANOVA formula.
-
-## Limitations and Failure Modes
-
-- One-way ANOVA requires at least two non-empty groups and more observations
-  than groups. Welch ANOVA, Tukey HSD, and Bonferroni comparisons require at
-  least two observations per group.
-- Two-way ANOVA currently requires balanced cell sizes.
-- All observation-based ANOVA functions, including `cohens_f`, raise
-  `ValueError` for `NaN`, positive infinity, or negative infinity; observations
-  are not silently omitted.
-- Finite constant groups can still produce undefined or infinite statistics:
-  `f_oneway` and `cohens_f` return `NaN` when all observations are identical,
-  and infinite statistics when constant groups have different means.
-- Tukey HSD relies on the studentized-range distribution and may use a CPU scalar
-  distribution implementation.
-- Effect-size helpers reject invalid sums of squares rather than returning a
-  misleading finite value.
+The [one-way GPU examples](anova-oneway.md#gpu-execution) use the same statistical
+question with explicit CuPy or Torch CUDA arrays.
 
 <a id="external-validation"></a>
+<a id="comparing-implementations"></a>
 
-## Comparing implementations
+### Compare with another implementation
 
-To compare `f_welch` with `statsmodels.stats.oneway.anova_oneway`, pass the same
-observations in the same groups and select `use_var="unequal"` with
-`welch_correction=True` in statsmodels. Compare the F statistic, p-value, and
-both degrees of freedom. Do not compare Welch's result with an equal-variance
-ANOVA result: the tests use different variance assumptions and denominators.
-
-For contributor details, see the [validation reference](../../../dev/reviews/pr168-model-validation-provenance.md#anova).
-
-## FAQ
-
-### Does Torch input require `backend="torch"`?
-
-Use `backend="torch"` for an explicit Torch execution request. `"auto"` may infer
-the backend from input type. Select it explicitly when your analysis requires
-a particular array backend.
-
-### Why can the returned p-value be a Python scalar?
-
-ANOVA result objects expose statistical summaries as scalars. The sufficient
-statistics used to obtain them remain on the selected backend until the final
-scalar distribution boundary.
-
-### Why is an unbalanced two-way design rejected?
-
-Different sums-of-squares conventions answer different hypotheses in an
-unbalanced design. The implementation fails explicitly rather than silently
-choosing a convention.
+The [one-way tutorial](anova-oneway.md#comparing-implementations) explains which
+variance assumptions and settings to align. Contributor material is in the
+[validation reference](../../../dev/reviews/pr168-model-validation-provenance.md#anova).
 
 ## References
 

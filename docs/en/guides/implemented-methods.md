@@ -84,7 +84,13 @@ See [Cross-Validation](cross-validation.md) for fold, selection, refit, weight, 
 - `cohens_f`
 - `partial_eta_squared`
 
-See [ANOVA](../models/anova.md) for design restrictions and scalar distribution boundaries.
+These are seven functions: three omnibus tests, two pairwise-comparison procedures,
+and two effect-size helpers. The designs are independent-group one-way, Welch
+one-way, and balanced two-way ANOVA. See the [overview](../models/anova.md) for
+method choice; [one-way](../models/anova-oneway.md), [two-way](../models/anova-twoway.md)
+and [post-hoc](../models/anova-posthoc.md) tutorials for worked analyses; and the
+[complete ANOVA API](../reference/anova-api.md) for all five result types, defaults,
+input restrictions and scalar distribution boundaries.
 
 ## Covariance Estimation
 

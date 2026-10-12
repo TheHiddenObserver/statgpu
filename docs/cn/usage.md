@@ -33,7 +33,7 @@ CuPy 请按 CUDA 主版本安装 `statgpu[gpu11]` 或 `statgpu[gpu12]`；PyTorch
 - [稳健回归](models/robust.md)
 - [Cox 比例风险模型](models/coxph.md)
 - [面板模型](models/panel.md)
-- [ANOVA](models/anova.md)
+- [ANOVA 概览](models/anova.md) — 原理、方法选择与支持的设计
 - [协方差估计](models/covariance.md)
 - [非参数方法](models/nonparametric.md)
 - [无监督学习](models/unsupervised.md)
@@ -53,7 +53,8 @@ CuPy 请按 CUDA 主版本安装 `statgpu[gpu11]` 或 `statgpu[gpu12]`；PyTorch
 - [分布 API](guides/distribution-api.md)
 - [多重检验原理](models/multiple-testing.md) — 错误率标准、方法选择与逐步示例
 - [P 值校正与合并 API](guides/multiple-testing-combine-pvalues.md) — 函数签名、轴、权重与后端行为
-- [ANOVA](models/anova.md)
+- [ANOVA 教程](models/anova.md) — [单因素 / Welch](models/anova-oneway.md), [平衡双因素](models/anova-twoway.md), [事后比较](models/anova-posthoc.md)
+- [ANOVA API](reference/anova-api.md) — 所有函数、结果字段与输入及后端限制
 - [协方差估计](models/covariance.md)
 
 如需贡献代码、文档或测试，请参阅[贡献指南](../../CONTRIBUTING.md)。

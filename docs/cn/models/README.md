@@ -50,7 +50,8 @@
 
 ## 专业统计模块
 
-- [ANOVA](anova.md)
+- [ANOVA 概览](anova.md)
+  - [单因素 / Welch](anova-oneway.md) · [平衡双因素](anova-twoway.md) · [事后比较](anova-posthoc.md) · [完整 API](../reference/anova-api.md)
 - [协方差估计](covariance.md)
 - [面板数据](panel.md)
 - [非参数方法](nonparametric.md)

@@ -2,7 +2,7 @@
 
 > Language: English
 >
-> Last updated: 2026-10-06
+> Last updated: 2026-10-12
 >
 > Switch: [Chinese](../cn/README.md)
 
@@ -66,7 +66,8 @@
 - [Semiparametric (GAM)](models/semiparametric.md) — generalized additive models
 
 ### Inference
-- [ANOVA](models/anova.md) — one/two-way, Welch, post-hoc, and effect sizes
+- [ANOVA overview](models/anova.md) — principles, method choice and supported designs
+  - [One-way and Welch](models/anova-oneway.md) · [Balanced two-way](models/anova-twoway.md) · [Post-hoc comparisons](models/anova-posthoc.md)
 - [Covariance](models/covariance.md) — empirical/shrinkage, robust MCD, and sparse precision
 - [Multiple Testing](models/multiple-testing.md) — p-value adjustment and combination
 - [Knockoff](models/knockoff.md) — knockoff feature selection
@@ -77,6 +78,7 @@
 
 ### Complete API references
 
+- [ANOVA API](reference/anova-api.md) — seven functions, five result types, defaults and input/device limits
 - [Shared estimator API](reference/estimator-api.md) — parameter management and inherited inference helpers
 - [Linear-model API](reference/linear-model-api.md) — constructors, fit/predict methods, CV, and fitted results
 - [Feature-selection API](reference/feature-selection-api.md) — stepwise and knockoff interfaces

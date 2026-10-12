@@ -1,7 +1,7 @@
 # StatGPU 文档
 
 > 语言：中文  
-> 最后更新：2026-10-06  
+> 最后更新：2026-10-12\
 > 切换：[English](../en/README.md)
 
 ## 快速开始
@@ -64,7 +64,8 @@
 - [半参数（GAM）](models/semiparametric.md) — 广义可加模型
 
 ### 推断
-- [ANOVA](models/anova.md) — 单/双因素、Welch、事后检验与效应量
+- [ANOVA 概览](models/anova.md) — 原理、方法选择与支持的设计
+  - [单因素与 Welch](models/anova-oneway.md) · [平衡双因素](models/anova-twoway.md) · [事后比较](models/anova-posthoc.md)
 - [协方差](models/covariance.md) — 经验/收缩协方差、稳健 MCD 与稀疏精度矩阵
 - [多重检验](models/multiple-testing.md) — p 值校正与合并
 - [Knockoff](models/knockoff.md) — knockoff 特征选择
@@ -75,6 +76,7 @@
 
 ### 完整 API 参考
 
+- [ANOVA API](reference/anova-api.md) — 七个函数、五种结果类型、默认值与输入及设备限制
 - [估计器通用 API](reference/estimator-api.md) — 参数管理与继承的推断辅助方法
 - [线性模型 API](reference/linear-model-api.md) — 构造参数、拟合与预测方法、交叉验证及拟合结果
 - [特征选择 API](reference/feature-selection-api.md) — 逐步选择与 knockoff 接口

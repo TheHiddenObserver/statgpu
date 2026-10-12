@@ -15,7 +15,9 @@ from doc_examples import parse_examples, run_example
 ROOT = Path(__file__).resolve().parents[2]
 FIRST_EXAMPLES = {
     'adaptive-lasso': 'adaptive-lasso-prediction',
-    'anova': 'anova-basic',
+    'anova-oneway': 'anova-basic',
+    'anova-twoway': 'anova-twoway',
+    'anova-posthoc': 'anova-tukey',
     'covariance': 'covariance-basic',
     'coxph': 'coxph-cpu-walkthrough',
     'elastic-net': 'elasticnet-prediction',
@@ -45,10 +47,18 @@ EXPECTED_EXAMPLES = {
     'adaptive-lasso': {
         'adaptive-lasso-prediction': (),
     },
-    'anova': {
+    'anova-oneway': {
         'anova-basic': (),
-        'anova-welch': ('anova-basic',),
-        'anova-tukey': ('anova-basic',),
+        'anova-welch': (),
+        'anova-cupy': ('anova-basic',),
+        'anova-torch': ('anova-basic',),
+    },
+    'anova-twoway': {
+        'anova-twoway': (),
+    },
+    'anova-posthoc': {
+        'anova-tukey': (),
+        'anova-bonferroni': (),
     },
     'covariance': {
         'covariance-basic': (),
@@ -160,6 +170,7 @@ EXPECTED_EXAMPLES = {
 }
 
 GPU_EXAMPLES = {
+    'anova-cupy', 'anova-torch',
     'coxph-cupy-fit', 'coxph-cupy-cv', 'coxph-torch-fit', 'coxph-torch-cv',
     'kernel-methods-cupy', 'kernel-methods-torch', 'kde-gpu', 'gam-gpu',
     'spline-raw-cupy', 'spline-raw-torch',
@@ -310,7 +321,6 @@ def test_removing_later_tutorial_wrappers_cannot_silently_shrink_coverage(langua
 # Remaining unmarked fences are explicitly limited to these optional/sketch
 # surfaces. They are compiled and classified, never reported as CPU execution.
 UNMARKED_EXAMPLES = {
-    'anova': ('gpu', 'gpu'),
     'covariance': ('gpu', 'gpu', 'import-inventory'),
     'coxph': ('formula-sketch',),
     'generalized-linear-model': ('gpu', 'configuration', 'configuration'),
