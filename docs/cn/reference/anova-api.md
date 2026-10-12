@@ -5,15 +5,15 @@
 > 本页：API 参考\
 > 切换：[English](../../en/reference/anova-api.md)
 
-需要选择检验方法、运行完整示例并理解结果时，请先阅读 [ANOVA 指南](../models/anova.md)。
-本页集中列出全部公开函数和结果对象，以及输入要求和数值限制。
+选择方法或学习如何解释结果，请先阅读带完整示例的 [ANOVA 指南](../models/anova.md)。
+本页用于查阅全部公开函数的签名、参数、返回字段、输入要求和数值限制。
 
 <a id="public-api"></a>
 
 ## 公开 API
 
 以下七个函数均可从 `statgpu.anova` 或 `statgpu` 导入。
-五个结果数据类从 `statgpu.anova` 导出，不从顶层 `statgpu` 命名空间导出。
+五个结果数据类需要从 `statgpu.anova` 导入，不能从顶层 `statgpu` 导入。
 
 | 函数 | 用途 | 返回类型 |
 |---|---|---|
@@ -21,28 +21,30 @@
 | [`f_welch`](#f-welch) | 不等方差单因素 ANOVA | [`AnovaResult`](#anova-result) |
 | [`f_twoway`](#f-twoway) | 平衡双因素 ANOVA，可选交互项 | [`TwoWayAnovaResult`](#two-way-anova-result) |
 | [`tukey_hsd`](#tukey-hsd) | 使用合并方差的全部两两比较 | [`TukeyResult`](#tukey-result) |
-| [`bonferroni`](#bonferroni) | 全部两两 Welch 检验，校正拒绝阈值与区间 | [`PosthocResult`](#posthoc-result) |
+| [`bonferroni`](#bonferroni) | 全部两两 Welch 检验，对判定阈值与置信区间作 Bonferroni 校正 | [`PosthocResult`](#posthoc-result) |
 | [`cohens_f`](#cohens-f) | 根据分组观测值计算单因素 Cohen's f | `float` |
 | [`partial_eta_squared`](#partial-eta-squared) | 根据给定平方和计算偏 eta 平方 | `float` |
 
 `TukeyResult.comparisons` 和 `PosthocResult.comparisons` 的元素为
-[`PairwiseComparison`](#pairwise-comparison)。这是七个函数，并非七种 ANOVA 设计。
+[`PairwiseComparison`](#pairwise-comparison)，每个对象保存一对组的比较结果。
+上表中的七个函数包含检验、两两比较和效应量计算，并不代表七种 ANOVA 设计。
 
 <a id="common-inputs"></a>
 
 ## 通用输入与参数规则
 
-五个带 `*groups` 的函数都以一个数组参数表示一组。
-已有一组样本序列时，应调用 `function(*groups)`，不要将整个序列作为单个参数传入。
+五个带 `*groups` 的函数都要求每组分别作为一个参数传入。
+如果各组已经放在列表或元组 `groups` 中，应调用 `function(*groups)`，
+用 `*` 展开各组，而不是将整个列表作为单组传入。
 每组数据先转换为指定 dtype，再通过 `ravel()` 展平；各组长度可以不同。
-多维参数会被视为一个样本，不表示按列检验、批处理、多变量分析或重复测量分析。
+多维数组也只会被展平成一组观测，不会自动执行按列检验、批处理、多变量分析或重复测量分析。
 
 | 参数 | 默认值 | 含义与可用值 |
 |---|---|---|
-| `*groups` | 必填 | 至少两个独立样本，包含有限实数测量值。最小样本量见下表；组编号按输入参数顺序从零开始。 |
+| `*groups` | 必填 | 至少两组相互独立的样本，观测值为有限实数。最小样本量见下表；组编号按参数传入顺序从零开始。 |
 | `backend` | `"auto"` | `"auto"`、`"numpy"`、`"cupy"` 或 `"torch"`。兼容旧别名 `"cpu"` → `"numpy"`、`"cuda"`/`"gpu"` → `"cupy"`；名称不区分大小写，忽略首尾空白。详见[选择与设备](#backend-dtype-device)。 |
-| `dtype` | `None` | 计算 dtype；`None` 使用所选库的 `float64`，即使输入原本为 float32。建议使用对应后端的 `float32` 或 `float64` dtype 对象。 |
-| `alpha` | `0.05` | 仅用于 `tukey_hsd` 和 `bonferroni`：有限实数，严格位于 `(0, 1)` 内，表示族显著性水平；区间对应的族置信水平为 `1 - alpha`。 |
+| `dtype` | `None` | 计算时使用的数据类型。`None` 使用所选库的 `float64`，即使输入原本为 float32。建议使用对应后端的 `float32` 或 `float64` dtype 对象。 |
+| `alpha` | `0.05` | 仅用于 `tukey_hsd` 和 `bonferroni`：必须是严格位于 `(0, 1)` 内的有限实数，表示整个比较族的显著性水平；同时置信水平为 `1 - alpha`。 |
 
 在 `*groups` 函数中，`backend`、`dtype` 和 `alpha` 只能通过关键字传入。
 `f_twoway` 的参数可以按位置或关键字传入；`partial_eta_squared` 没有后端或 dtype 参数。
@@ -51,11 +53,12 @@
 |---|---|
 | `f_oneway`、`cohens_f` | 每组至少一个观测值，总观测数 `N` 必须大于组数 `k`。满足 `N > k` 时允许某些组只有一个观测值。 |
 | `f_welch`、`tukey_hsd`、`bonferroni` | 每组至少两个观测值。 |
-| `f_twoway` | 每个因子至少两个水平；各单元格非空且样本量相等；残差自由度必须为正。详见[单元格布局](#f-twoway)。 |
+| `f_twoway` | 每个因素至少两个水平；各单元格非空且样本量相等；残差自由度必须为正。详见[单元格布局](#f-twoway)。 |
 
-请使用实数数值观测。ANOVA 函数不会统一在类型转换前拒绝复数输入，也不会统一验证
-显式指定的 dtype 是否为浮点类型。转换可能丢失信息，也可能被数组库拒绝。
-整数或复数计算 dtype 不能替代本文所述的浮点计算。转换失败时，异常类型由底层数组库决定。
+请传入实数观测，并使用浮点 dtype 计算。不同函数对类型的检查并不完全一致：
+复数输入未必会在转换前被拒绝，显式指定的 dtype 也未必会被检查是否为浮点类型。
+类型转换可能丢失信息，也可能由数组库直接报错。不要用整数或复数 dtype
+替代本文所述的浮点计算。转换失败时，异常类型由底层数组库决定。
 
 <a id="backend-dtype-device"></a>
 
@@ -67,12 +70,12 @@
 - 对 `f_twoway`，`backend="auto"` 不检查嵌套单元格，直接选择 NumPy。
   使用 CuPy 或 Torch 单元格数组时，请显式指定相应后端。
 - `backend="torch"` 选择 Torch 库，不代表选择 CUDA 设备。可以使用 Torch CPU 张量。
-  若希望在 GPU 上进行分组归约，请提供 Torch CUDA 张量；普通列表或 NumPy 数组遵循
+  若希望在 GPU 上计算各组统计量，请提供 Torch CUDA 张量；普通列表或 NumPy 数组遵循
   Torch 创建数组时的默认设备，通常为 CPU。ANOVA 函数没有 `device` 参数，也不采用
   估计器 `device="torch"` 的设备选择约定。
-- 请将所有组或单元格放在同一后端、同一设备上。`f_oneway` 和 `f_twoway` 转换原生张量时
-  保留其设备，不会统一混合设备。Welch 和事后比较的数据准备会以原生输入为设备参照，
-  但任意混合数组库或设备都不是可移植的输入格式。
+- 请让所有组或单元格使用同一数组库，并位于同一设备上。`f_oneway` 和 `f_twoway`
+  转换原生张量时会保留其设备，不会自动将不同设备上的张量搬到一起。
+  Welch 和事后比较会参照原生输入的设备准备数据，但仍不应依赖混用数组库或设备的输入方式。
 - 显式指定后端不会静默切换到另一个数组库。缺少 CuPy/PyTorch 时抛出 `ImportError`；
   CUDA 运行环境不可用或设备组合不兼容时，可能抛出底层库的运行时异常。
   非法后端名称抛出 `ValueError`。
@@ -81,23 +84,25 @@
   `torch.float32`/`torch.float64`。不要假设所有 Torch 函数都接受 NumPy dtype 对象。
   使用 float32 可能改变平方和、P 值以及阈值附近的拒绝结论。
 
-分组均值、方差与平方和使用所选数组后端。最终统计摘要为 Python 标量；返回标量可能触发
-GPU 同步。不会仅为了分布计算而将完整观测向量转移到 CPU，但也不保证全部计算都在 GPU 上完成：
+各组均值、方差与平方和使用所选数组后端计算。最终的数值结果为 Python 标量，
+获取这些标量时可能触发 GPU 同步。分布计算不会单纯为了求一个概率而把完整观测向量
+搬到 CPU，但部分标量步骤仍可能在 CPU 上完成：
 
 | 计算 | 分布与标量计算位置 |
 |---|---|
 | `f_oneway`、`f_twoway` | F 分布计算使用所选分布后端。Torch 的此项标量计算采用默认设备：有 CUDA 时使用 CUDA，否则使用 CPU，不一定与输入张量的设备相同。 |
 | `f_welch` | F 分布计算使用所选后端；Torch 使用准备后的输入设备。 |
-| `tukey_hsd` | studentized-range 分布的生存概率与分位数由 CPU 上的 `scipy.stats.studentized_range` 计算；两两比较的标量运算也在 CPU 上进行。 |
+| `tukey_hsd` | 学生化极差分布的右尾概率与分位数由 CPU 上的 `scipy.stats.studentized_range` 计算；两两比较的标量运算也在 CPU 上进行。 |
 | `bonferroni` | 两两 Welch 标量运算和 NumPy/CPU t 分布计算在 CPU 上进行。 |
 | `cohens_f` | 调用 `f_oneway`，包括其 P 值计算，再将 eta 平方转换为标量效应量。 |
 | `partial_eta_squared` | Python/NumPy 标量计算，不使用分组数组后端。 |
 
-F 分布和 t 分布的实现可能使用查找表与数值回退；构建查找表时可能调用 CPU 上的 SciPy。
-极端尾部概率的相减会损失精度，极小概率可能舍入为零，临界值也可能不准确或为无穷大。
+F 分布和 t 分布计算可能使用查找表，也可能回退到其他数值算法；构建查找表时可能调用 CPU 上的 SciPy。
+用概率相减计算极端尾部时可能损失精度，极小概率可能舍入为零，临界值也可能不准确或为无穷大。
 详见分布指南的[尾部精度限制](../guides/distribution-api.md#尾部精度的限制)与
-[后端数值限制](../guides/distribution-api.md#查找表与各后端的数值限制)。ANOVA 不提供 `use_lut`、strict/approximate
-或尾部精度控制。各后端采用相同统计定义，但不保证数值完全相等或全程使用 GPU 原生运算。
+[后端数值限制](../guides/distribution-api.md#查找表与各后端的数值限制)。ANOVA 不提供 `use_lut` 参数，
+也没有严格模式、近似模式或尾部精度控制选项。各后端采用相同的统计定义，
+但不保证数值完全一致，也不保证全程在 GPU 上计算。
 
 <a id="finite-and-degenerate-inputs"></a>
 
@@ -105,7 +110,8 @@ F 分布和 t 分布的实现可能使用查找表与数值回退；构建查找
 
 所有基于观测数据的函数（包括 `cohens_f`）都会在数组转换后检查 `NaN`、正无穷和负无穷，
 并以 `ValueError` 拒绝这些值。它们不会自动删除缺失观测，也没有 `nan_policy` 参数。
-有限性检查不是统计假设检查；即使输入有限，中间运算仍可能溢出。解释检验前应检查非有限输出。
+通过这项检查不代表独立性、正态性等统计假设成立。即使输入都是有限值，
+中间运算仍可能溢出；若输出出现 `NaN` 或无穷值，应先核查原因，再解释结果。
 
 | 情形 | 结果或异常 |
 |---|---|
@@ -139,7 +145,7 @@ SSW=\sum_i\sum_j(y_{ij}-\bar y_i)^2,
 \qquad F=\frac{SSB/(k-1)}{SSW/(N-k)}.
 $$
 
-返回 [`AnovaResult`](#anova-result)，包含 F 分布上尾 P 值和
+返回 [`AnovaResult`](#anova-result)，包含 F 分布右尾 P 值和
 `eta_squared = SSB / (SSB + SSW)`。少于两组、任一组为空、`N <= k` 或观测非有限时，
 抛出 `ValueError`。`SSW=0` 时参见[退化情形](#finite-and-degenerate-inputs)。
 
@@ -151,7 +157,7 @@ $$
 f_welch(*groups: Any, backend: str = "auto", dtype: Any = None) -> AnovaResult
 ```
 
-检验独立组的均值是否相等，不要求等方差。使用分母为 $n_i-1$ 的样本方差 $s_i^2$，
+检验独立组的总体均值是否相等，不要求等方差。使用分母为 $n_i-1$ 的样本方差 $s_i^2$，
 并采用 Welch 校正。每组至少需要两个观测值，其他参数遵循[通用规则](#common-inputs)。
 
 令 $w_i=n_i/s_i^2$、$W=\sum_i w_i$、$\bar y_w=\sum_i w_i\bar y_i/W$，
@@ -165,7 +171,7 @@ $$
 
 返回 [`AnovaResult`](#anova-result)。通常 `df_within` 是浮点型
 Welch–Satterthwaite 自由度 `df_2`；计算得到的调整量 `A <= 0` 时为 `inf`。
-**`eta_squared` 始终为 `NaN`**，不会将普通单因素合并方差的比值作为 Welch 效应量返回。
+**`eta_squared` 始终为 `NaN`**；经典单因素 ANOVA 的效应量不能直接当作 Welch 效应量。
 `cohens_f` 也不提供 Welch 专用效应量。
 
 少于两组、任一组不足两个观测值、存在非有限数据，或零方差组与正方差组混合时，
@@ -187,19 +193,19 @@ f_twoway(
 ) -> TwoWayAnovaResult
 ```
 
-在平衡、独立观测、共同误差方差和正态误差的设计中，检验因子 A、因子 B，
-并可选地检验二者交互项。
+用于平衡双因素设计，检验因素 A、因素 B 的主效应，并可选择是否检验交互作用。
+推断要求观测独立、各单元格的误差服从正态分布，且总体方差相同。
 
 | 参数 | 默认值 | 含义与限制 |
 |---|---|---|
-| `data` | 必填 | 嵌套单元格，逻辑形状为 `(a, b, n)`：`data[i][j]` 包含 A 第 `i` 个水平、B 第 `j` 个水平的观测。每行必须是 Python 列表或元组；每个单元格转换后展平，所有单元格的长度必须为同一个正整数 `n`。 |
+| `data` | 必填 | 嵌套的单元格数据：A 有 `a` 个水平，B 有 `b` 个水平，每格有 `n` 个观测，逻辑形状为 `(a, b, n)`。`data[i][j]` 对应 A 第 `i` 个水平与 B 第 `j` 个水平的组合。每行必须是 Python 列表或元组；每格转换后展平，长度须为同一个正整数 `n`。 |
 | `interaction` | `True` | 布尔值，是否纳入并检验交互项。为 `False` 时使用加性模型，将交互变异及其自由度并入残差。 |
-| `backend` | `"auto"` | 通用后端值；**auto 不检查单元格，直接选择 NumPy**。 |
-| `dtype` | `None` | 通用计算 dtype；默认为 float64。 |
+| `backend` | `"auto"` | 可用值见通用参数表；**auto 不检查单元格，直接选择 NumPy**。 |
+| `dtype` | `None` | 计算时的数据类型；默认为 float64，取值规则见通用参数表。 |
 
 直接传入形状 `(a, b, n)` 的 NumPy/CuPy/Torch 数组时，不会按嵌套单元格布局解释；
 每个数组行会被当作一个单元格，随后因 B 的水平不足而报错。
-请将数组单元格放在 Python 行列表中：
+请按下面的方式用 Python 列表组织各行和单元格：
 
 ```python
 from statgpu.anova import f_twoway
@@ -211,7 +217,7 @@ cells = [
 result = f_twoway(cells, interaction=True, backend="numpy")
 ```
 
-两个因子都至少需要两个水平。平衡设计的分解为
+两个因素都至少需要两个水平。平衡设计的分解为
 $SS_{total}=SS_A+SS_B+SS_{AB}+SS_{within\ cells}$；
 每个被检验效应使用 $F=(SS_{effect}/df_{effect})/(SS_{error}/df_{error})$。
 
@@ -221,14 +227,14 @@ $SS_{total}=SS_A+SS_B+SS_{AB}+SS_{within\ cells}$；
 | `interaction=False` | $SS_{within\ cells}+SS_{AB}$ | $abn-a-b+1$；该值为正时允许 `n=1` |
 
 省略交互项会改变两个主效应 F 检验的分母，不只是隐藏交互项字段。
-每个单元格只有一个观测时，加性分析不能分别估计交互变异和单元格内部误差，
+每个单元格只有一个观测时，加性模型无法区分交互变异与单元格内部误差，
 应根据研究问题判断加性模型是否合理。
 
 返回 [`TwoWayAnovaResult`](#two-way-anova-result)。效应量字段是普通的
 $SS_{effect}/SS_{total}$，**不是偏 eta 平方**。
 当 `interaction=False` 时，四个交互项字段全部为 `None`。
 
-数据或单元格为空、行的列数不一致、任一因子不足两个水平、单元格大小不等、
+数据或单元格为空、行的列数不一致、任一因素不足两个水平、单元格样本量不等、
 观测非有限或残差自由度不为正时，抛出 `ValueError`。
 不支持不平衡设计，也没有 Type I、II 或 III 平方和选项。
 
@@ -245,7 +251,7 @@ tukey_hsd(
 ) -> TukeyResult
 ```
 
-在独立正态误差和共同方差假设下，计算全部 $m=k(k-1)/2$ 项两两均值比较。
+在误差独立、服从正态分布且各组总体方差相同的假设下，计算全部 $m=k(k-1)/2$ 项两两均值比较。
 每组至少两个观测值；`alpha`、`backend` 和 `dtype` 遵循[通用规则](#common-inputs)。
 样本量不等时使用 Tukey–Kramer 标准误。函数没有不等方差或 Games–Howell 选项。
 
@@ -256,16 +262,16 @@ SE_{q,ij}=\sqrt{\frac{MSE}{2}\left(\frac1{n_i}+\frac1{n_j}\right)},
 \qquad q_{ij}=\frac{|d_{ij}|}{SE_{q,ij}}.
 $$
 
-studentized-range 分布使用 `k` 个组与 `N-k` 个残差自由度。
+学生化极差分布使用组数 `k` 与残差自由度 `N-k`。
 每个 [`PairwiseComparison`](#pairwise-comparison) 包含：
 
-- `pvalue`：studentized-range 上尾概率，已针对全部两两比较进行多重比较校正；
+- `pvalue`：学生化极差分布的右尾概率，已针对全部两两比较进行校正；
 - `reject`：`pvalue < alpha`；
 - `ci_lower`、`ci_upper`：$d_{ij}\pm q_{1-\alpha;k,N-k}SE_{q,ij}$，即同时置信区间。
 
 返回 [`TukeyResult`](#tukey-result)。少于两组、`alpha` 非法、任一组样本量不足或观测非有限时，
 抛出 `ValueError`。要求 `scipy.stats.studentized_range` 可用，否则抛出 `ImportError`。
-MSE 为零时见[退化行为](#finite-and-degenerate-inputs)。返回的 P 值会截到 `[0, 1]`；
+MSE 为零时见[退化情形](#finite-and-degenerate-inputs)。返回的 P 值限制在 `[0, 1]` 内；
 若分布计算得到非有限值，当前实现会在 `q=0` 时替换为 `1.0`，其他情况替换为 `0.0`。
 因此，P 值有限本身并不能证明数值计算准确。
 
@@ -286,7 +292,7 @@ bonferroni(
 ) -> PosthocResult
 ```
 
-计算全部 $m=k(k-1)/2$ 项独立样本双侧 Welch t 检验，并对拒绝阈值与区间进行 Bonferroni 校正。
+计算全部 $m=k(k-1)/2$ 项独立样本双侧 Welch t 检验，并对判定阈值与置信区间进行 Bonferroni 校正。
 不要求等方差；每组至少两个观测值，其他参数遵循[通用规则](#common-inputs)。
 
 对每一对组，样本方差的分母为 `n_i - 1`，并使用
@@ -304,10 +310,10 @@ $$
   它不是 Bonferroni 校正后的 P 值。
 - `reject` 使用 `pvalue < alpha / m`，不是 `pvalue < alpha`。
 - 区间为 $d_{ij}\pm t_{1-\alpha/(2m),\nu_{ij}}SE_{ij}$。
-  它使用校正后的临界值，在各项 Welch 近似成立的条件下提供 Bonferroni 同时覆盖。
+  它使用校正后的临界值；同时覆盖率的保证仍以各项 Welch 近似适用为前提。
 
-需要报告校正 P 值时，可自行计算
-`min(1.0, comparison.pvalue * result.n_comparisons)`，但这不会改变已存储的字段。
+需要报告校正后的 P 值时，可另行计算
+`min(1.0, comparison.pvalue * result.n_comparisons)`，返回对象中保存的仍是原始 P 值。
 结果不保存各对的 t 统计量、标准误或自由度。
 
 少于两组、`alpha` 非法、任一组样本量不足或数据非有限时，抛出 `ValueError`。
@@ -328,9 +334,9 @@ $f=\sqrt{\eta^2/(1-\eta^2)}$。参数、最小样本量、异常、计算 dtype 
 输入是分组数据，不是 ANOVA 结果对象或预先计算的 eta 平方；
 该函数也不计算 Welch 专用效应量或偏效应量。
 
-普通有限结果为非负 Python `float`；eta 平方至少为 1 时返回 `inf`，
-eta 平方未定义时返回 `NaN`。常见的 0.10/0.25/0.40 描述只是依赖具体研究背景的经验划分，
-不是检验阈值。
+结果为有限值时，是非负的 Python `float`；eta 平方大于或等于 1 时返回 `inf`，
+eta 平方未定义时返回 `NaN`。常见的 0.10/0.25/0.40 效应大小划分只是经验约定，
+需要结合研究背景解释，不能用作显著性检验阈值。
 
 <a id="partial-eta-squared"></a>
 
@@ -351,7 +357,8 @@ partial_eta_squared(ss_effect: float, ss_error: float) -> float
 两项平方和均为零时返回 `NaN`。
 `ss_effect=0` 且误差为正时返回 0；效应平方和为正且 `ss_error=0` 时返回 1。
 
-没有后端、dtype、模型拟合或自由度参数。调用者必须保证两项平方和来自相容的模型。
+此函数只计算比值，没有后端、dtype、模型拟合或自由度参数。
+调用者应确保两项平方和对应同一个模型及所要衡量的效应。
 单因素设计中，该比值等于普通 eta 平方；多因素设计中，一般不等于
 `TwoWayAnovaResult` 返回的普通 eta 平方字段。
 
@@ -359,13 +366,13 @@ partial_eta_squared(ss_effect: float, ss_error: float) -> float
 
 ## 结果对象与可调用接口
 
-以下均为普通数据类，构造参数顺序与下面的签名一致，所有字段都必填且没有默认值。
-直接构造对象不会验证其中的统计内容。
-无论数组后端是什么，函数返回结果中的数值摘要为 Python `float`/`int`，
-拒绝结论为 `bool`，比较集合为 Python 列表。
+以下五种结果类型都是 Python 数据类。构造参数的顺序见各自签名，所有字段均为必填，
+没有默认值；直接构造对象也不会检查其中的统计内容是否合理。
+无论使用哪种数组后端，返回结果中的数值字段均为 Python `float`/`int`，
+拒绝判定为 `bool`，两两比较结果保存在 Python 列表中。
 
 **五个数据类均没有 `summary()` 或其他公开统计方法。**
-请直接读取字段、使用 `print(result)` 查看自动生成的表示，
+可以直接读取字段，使用 `print(result)` 查看对象内容，
 或使用 Python 的 `dataclasses.asdict(result)` 转换为字典。
 它们不是 SciPy 的命名元组结果，不支持元组解包，也没有 `confidence_interval()` 方法；
 事后比较区间已经保存在字段中。
@@ -384,15 +391,15 @@ AnovaResult(
 ) -> None
 ```
 
-签名末尾是自动生成的 `__init__` 的返回注解；调用该类会构造一个 `AnovaResult` 对象。
+签名末尾的 `-> None` 是 `__init__` 方法的返回注解；调用 `AnovaResult(...)` 仍会得到一个结果对象。
 `f_oneway` 和 `f_welch` 返回此类型。
 
 | 字段 | 运行时类型 | 含义 |
 |---|---|---|
 | `statistic` | `float` | 经典或 Welch F 统计量；退化情形下可能为 `NaN` 或 `inf`。 |
-| `pvalue` | `float` | F 分布上尾概率，可能为 `NaN`。不存储 alpha 或拒绝结论。 |
+| `pvalue` | `float` | F 分布右尾概率，可能为 `NaN`。结果对象不保存 alpha 或拒绝判定。 |
 | `df_between` | `int` | 分子自由度 `k - 1`。 |
-| `df_within` | `int` 或 `float` | `f_oneway` 返回整数 `N-k`；Welch 通常返回小数形式的分母自由度，全常数组例外见上文。该字段的数据类注解为 `float`。 |
+| `df_within` | `int` 或 `float` | `f_oneway` 返回整数 `N-k`；Welch 通常返回小数形式的分母自由度。所有组方差都为零时的例外见上文。该字段的数据类注解为 `float`。 |
 | `eta_squared` | `float` | `f_oneway` 中为 `SSB / (SSB + SSW)`；`f_welch` 中始终为 `NaN`。 |
 
 <a id="two-way-anova-result"></a>
@@ -422,16 +429,16 @@ TwoWayAnovaResult(
 
 | 字段 | 类型 | 含义 |
 |---|---|---|
-| `factor_a_statistic` | `float` | 因子 A 的 F 统计量，分母使用所选模型的残差均方。 |
-| `factor_a_pvalue` | `float` | 因子 A 的 F 分布上尾 P 值。 |
+| `factor_a_statistic` | `float` | 因素 A 的 F 统计量，分母使用所选模型的残差均方。 |
+| `factor_a_pvalue` | `float` | 因素 A 的 F 分布右尾 P 值。 |
 | `factor_a_df` | `int` | `a - 1`。 |
 | `factor_a_eta_squared` | `float` | `SS_A / SS_total`；总平方和为零时为 `NaN`。 |
-| `factor_b_statistic` | `float` | 因子 B 的 F 统计量，使用同一个残差均方。 |
-| `factor_b_pvalue` | `float` | 因子 B 的 F 分布上尾 P 值。 |
+| `factor_b_statistic` | `float` | 因素 B 的 F 统计量，使用同一个残差均方。 |
+| `factor_b_pvalue` | `float` | 因素 B 的 F 分布右尾 P 值。 |
 | `factor_b_df` | `int` | `b - 1`。 |
 | `factor_b_eta_squared` | `float` | `SS_B / SS_total`；总平方和为零时为 `NaN`。 |
 | `interaction_statistic` | `float` 或 `None` | 交互项 F 统计量；省略交互项时为 `None`。 |
-| `interaction_pvalue` | `float` 或 `None` | 交互项 F 分布上尾 P 值；省略时为 `None`。 |
+| `interaction_pvalue` | `float` 或 `None` | 交互项 F 分布右尾 P 值；省略时为 `None`。 |
 | `interaction_df` | `int` 或 `None` | `(a - 1) * (b - 1)`；省略时为 `None`。 |
 | `interaction_eta_squared` | `float` 或 `None` | `SS_AB / SS_total`；省略交互项**或总平方和为零**时为 `None`。 |
 | `df_within` | `int` | 残差自由度：含交互项为 `ab(n-1)`，不含交互项为 `abn-a-b+1`。 |
@@ -459,7 +466,7 @@ TukeyResult(
 | 字段 | 类型 | 含义 |
 |---|---|---|
 | `comparisons` | `list[PairwiseComparison]` | 全部 `k(k-1)/2` 个无序组对，满足 `i < j`，顺序为 `(0,1), (0,2), …, (1,2), …`。 |
-| `alpha` | `float` | 传给函数的族显著性水平。 |
+| `alpha` | `float` | 传给函数的整个比较族的显著性水平。 |
 | `n_groups` | `int` | 组数 `k`。 |
 | `df_within` | `int` | 合并残差自由度 `N-k`。 |
 | `mse` | `float` | 合并组内均方 `SSW / (N-k)`。 |
@@ -481,7 +488,7 @@ PosthocResult(
 | 字段 | 类型 | 含义 |
 |---|---|---|
 | `comparisons` | `list[PairwiseComparison]` | 全部无序组对，顺序与 `TukeyResult` 相同。 |
-| `alpha` | `float` | 原始族显著性水平，**不是**单项比较阈值。 |
+| `alpha` | `float` | 整个比较族的显著性水平，**不是**单项比较的阈值。 |
 | `n_comparisons` | `int` | `m = k(k-1)/2`；单项比较阈值为 `alpha / m`。 |
 
 <a id="pairwise-comparison"></a>
@@ -507,7 +514,7 @@ PairwiseComparison(
 | `group_i` | `int` | 第一组从零开始的输入索引。 |
 | `group_j` | `int` | 第二组从零开始的输入索引，大于 `group_i`。 |
 | `mean_diff` | `float` | 第 `i` 组均值减第 `j` 组均值。 |
-| `pvalue` | `float` | Tukey：已校正的 studentized-range P 值；Bonferroni：**原始**双侧 Welch P 值。 |
+| `pvalue` | `float` | Tukey：已校正的学生化极差分布 P 值；Bonferroni：**原始**双侧 Welch P 值。 |
 | `ci_lower` | `float` | `i - j` 均值差的区间下限，按相应方法进行校正。 |
 | `ci_upper` | `float` | 同一均值差的区间上限。 |
 | `reject` | `bool` | Tukey：`pvalue < alpha`；Bonferroni：`pvalue < alpha / m`。恰好等于阈值时不拒绝。 |
@@ -520,11 +527,11 @@ PairwiseComparison(
   也没有估计器式的 `fit`/`predict` 接口。
 - 双因素 ANOVA 要求平衡单元格，没有 Type I/II/III 选项。
   这些函数不实现重复测量 ANOVA、ANCOVA、MANOVA、随机或混合效应 ANOVA，以及更高阶析因设计。
-- Tukey 使用合并方差；Bonferroni 使用两两 Welch 检验，保留原始 P 值，校正拒绝阈值与区间。
+- Tukey 使用合并方差；Bonferroni 使用两两 Welch 检验，保留原始 P 值，对判定阈值与区间作校正。
   两者都不接收已拟合双因素模型的结果，也不计算基于该模型的边际均值或对比。
 - 模块不会替用户检验独立性、正态性或等方差假设。省略交互项、P 值很小或结果有限，
   都不能证明模型假设成立；总体检验本身也不能指出哪些组对存在差异。
-- 没有单独的 strict/approximate 模式或数值尾部策略；仍应注意
+- 没有单独的严格模式、近似模式或数值尾部策略；仍应注意
   [后端与分布计算限制](#backend-dtype-device)。
 
 <a id="references"></a>
