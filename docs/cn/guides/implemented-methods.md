@@ -93,15 +93,15 @@ print(np.round(model.predict(X[:3]), 6))
 
 ## 协方差估计
 
-- `EmpiricalCovariance`
-- `LedoitWolf`
-- `OAS`
-- `ShrunkCovariance`
-- `MinCovDet`
-- `GraphicalLasso`
-- `GraphicalLassoCV`
+- [EmpiricalCovariance](../models/covariance-empirical.md)
+- [LedoitWolf](../models/covariance-ledoit-wolf.md)
+- [OAS](../models/covariance-oas.md)
+- [ShrunkCovariance](../models/covariance-shrunk.md)
+- [MinCovDet](../models/covariance-min-cov-det.md)
+- [GraphicalLasso](../models/covariance-graphical-lasso.md)
+- [GraphicalLassoCV](../models/covariance-graphical-lasso-cv.md)
 
-详见 [协方差估计](../models/covariance.md)。
+详见 [协方差估计](../models/covariance.md)，参数、方法及输入限制见[完整协方差 API](../reference/covariance-api.md)。
 
 ## 面板数据
 

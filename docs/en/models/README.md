@@ -62,6 +62,8 @@ NumPy/CuPy/Torch support matrix.
 - [ANOVA overview](anova.md)
   - [Classical one-way](anova-oneway.md) · [Welch](anova-welch.md) · [Balanced two-way](anova-twoway.md) · [Post-hoc comparisons](anova-posthoc.md) · [Complete API](../reference/anova-api.md)
 - [Covariance Estimation](covariance.md)
+  - [EmpiricalCovariance](covariance-empirical.md) · [ShrunkCovariance](covariance-shrunk.md) · [LedoitWolf](covariance-ledoit-wolf.md) · [OAS](covariance-oas.md) · [MinCovDet](covariance-min-cov-det.md) · [GraphicalLasso](covariance-graphical-lasso.md) · [GraphicalLassoCV](covariance-graphical-lasso-cv.md)
+  - [Complete covariance API](../reference/covariance-api.md)
 - [Panel Data](panel.md)
 - [Nonparametric Methods](nonparametric.md)
 - [Kernel Methods](kernel-methods.md)

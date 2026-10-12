@@ -69,6 +69,8 @@
 - [ANOVA overview](models/anova.md) — principles, method choice and supported designs
   - [Classical one-way](models/anova-oneway.md) · [Welch](models/anova-welch.md) · [Balanced two-way](models/anova-twoway.md) · [Post-hoc comparisons](models/anova-posthoc.md)
 - [Covariance](models/covariance.md) — empirical/shrinkage, robust MCD, and sparse precision
+  - [EmpiricalCovariance](models/covariance-empirical.md) · [ShrunkCovariance](models/covariance-shrunk.md) · [LedoitWolf](models/covariance-ledoit-wolf.md) · [OAS](models/covariance-oas.md) · [MinCovDet](models/covariance-min-cov-det.md) · [GraphicalLasso](models/covariance-graphical-lasso.md) · [GraphicalLassoCV](models/covariance-graphical-lasso-cv.md)
+  - [Complete covariance API](reference/covariance-api.md)
 - [Multiple Testing](models/multiple-testing.md) — p-value adjustment and combination
 - [Knockoff](models/knockoff.md) — knockoff feature selection
 - [Feature Selection](models/feature-selection.md) — stepwise selection and knockoff overview

@@ -33,7 +33,7 @@ For the public execution model behind these behaviors—including the selection/
 | `CoxPHCV` | `CoxPH` | Cox penalty strength |
 | `KernelRidgeCV` | `KernelRidge` | `alpha` for a fixed kernel |
 
-`KernelRidgeCV` accepts an integer `cv`, not custom `cv_splits`, and does not accept fit-time `sample_weight`. Its selected mean MSE and reported `best_score_` (mean R²) are different quantities; see the [complete kernel CV reference](../models/kernel-methods.md#complete-estimator-api). Covariance selection is covered separately by [GraphicalLassoCV](../models/covariance.md).
+`KernelRidgeCV` accepts an integer `cv`, not custom `cv_splits`, and does not accept fit-time `sample_weight`. Its selected mean MSE and reported `best_score_` (mean R²) are different quantities; see the [complete kernel CV reference](../models/kernel-methods.md#complete-estimator-api). Covariance selection is covered separately by [GraphicalLassoCV](../models/covariance-graphical-lasso-cv.md).
 
 For exact loss × penalty × solver availability, use the [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md). Model-specific statistical restrictions belong to the corresponding model page.
 

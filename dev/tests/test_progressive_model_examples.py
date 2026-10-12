@@ -19,7 +19,14 @@ FIRST_EXAMPLES = {
     'anova-welch': 'anova-welch',
     'anova-twoway': 'anova-twoway',
     'anova-posthoc': 'anova-tukey',
-    'covariance': 'covariance-basic',
+    'covariance': 'covariance-geometry',
+    'covariance-empirical': 'covariance-empirical',
+    'covariance-shrunk': 'covariance-shrunk',
+    'covariance-ledoit-wolf': 'covariance-ledoit-wolf',
+    'covariance-oas': 'covariance-oas',
+    'covariance-min-cov-det': 'covariance-min-cov-det',
+    'covariance-graphical-lasso': 'covariance-graphical-lasso',
+    'covariance-graphical-lasso-cv': 'covariance-graphical-lasso-cv',
     'coxph': 'coxph-cpu-walkthrough',
     'elastic-net': 'elasticnet-prediction',
     'feature-selection': 'feature-selection-basic',
@@ -63,11 +70,14 @@ EXPECTED_EXAMPLES = {
         'anova-tukey': (),
         'anova-bonferroni': (),
     },
-    'covariance': {
-        'covariance-basic': (),
-        'covariance-robust': ('covariance-basic',),
-        'covariance-sparse': ('covariance-basic',),
-    },
+    'covariance': {'covariance-geometry': ()},
+    'covariance-empirical': {'covariance-empirical': ()},
+    'covariance-shrunk': {'covariance-shrunk': ()},
+    'covariance-ledoit-wolf': {'covariance-ledoit-wolf': ()},
+    'covariance-oas': {'covariance-oas': ()},
+    'covariance-min-cov-det': {'covariance-min-cov-det': ()},
+    'covariance-graphical-lasso': {'covariance-graphical-lasso': ()},
+    'covariance-graphical-lasso-cv': {'covariance-graphical-lasso-cv': ()},
     'coxph': {
         'coxph-cpu-walkthrough': (),
         'coxph-survival-prediction': ('coxph-cpu-walkthrough',),
@@ -262,9 +272,9 @@ def test_every_named_cpu_example_executes_all_steps_with_only_declared_setup(lan
             assert np.isfinite(namespace['prediction']).all()
             assert namespace['model'].compute_inference is False
             assert namespace['model'].score(namespace['X_test'], namespace['y_test']) > .9
-        elif name == 'covariance-basic':
-            covariance = namespace['lw'].covariance_
-            assert covariance.shape == (10, 10)
+        elif name == 'covariance-geometry':
+            covariance = namespace['model'].covariance_
+            assert covariance.shape == (2, 2)
             np.testing.assert_allclose(covariance, covariance.T)
             assert np.linalg.eigvalsh(covariance).min() > 0
         elif name == 'anova-basic':

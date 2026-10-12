@@ -1,224 +1,204 @@
 # 协方差估计
 
-> 语言：中文  
-> 最后更新：2026-10-10\
+> 语言：中文
+> 最后更新：2026-10-12
 > 切换：[English](../../en/models/covariance.md)
 
 ## 概览
 
-协方差描述变量如何共同变化；它的逆矩阵称为精度矩阵，在高斯模型中刻画条件关系。
-样本充分时可用经验协方差作为基准，需要更稳定的估计时可用收缩方法，存在多元离群点
-时可考虑稳健协方差，需要稀疏精度矩阵时可用 Graphical Lasso。第一个示例使用
-`LedoitWolf`，由数据确定收缩强度。
+多个测量值怎样一起变化？什么样的组合才算偏离常态？协方差矩阵概括变量的共同变化，
+可用于描述数据、构造多变量距离，或为其他模型提供协方差估计。这里没有单独的响应变量：
+数据矩阵的每一行是一次观测，每一列是一个测量变量。
 
-`statgpu.covariance` 提供七个协方差或精度矩阵估计器：
+本页先介绍共同概念，再用两个变量说明怎样读矩阵和距离。各估计器都有独立教程；
+[完整协方差 API](../reference/covariance-api.md) 集中列出构造参数、方法、输出、
+输入限制和设备规则。
 
-- `EmpiricalCovariance`
-- `LedoitWolf`
-- `OAS`
-- `ShrunkCovariance`
-- `MinCovDet`
-- `GraphicalLasso`
-- `GraphicalLassoCV`
+<a id="covariance-correlation-precision"></a>
 
-公共估计器提供 NumPy、CuPy 和 Torch 执行路径。
+<a id="目标函数"></a>
 
-## 目标函数
+## 三种矩阵，三种含义
 
-### 经验协方差
-
-对中心化观测矩阵 $X\in\mathbb R^{n\times p}$，
+设随机向量 $x$ 的均值为 $\mu$，总体协方差为
 
 $$
-\hat S = \frac{1}{n}X^\top X.
+\Sigma=\mathbb E[(x-\mu)(x-\mu)^\top].
 $$
 
-除非设置 `assume_centered=True`，拟合前会估计并减去列均值。
+对角线是各变量的方差。非对角元素为正，表示两个变量往往相对各自均值同向变化；
+为负则表示反向变化。协方差刻画线性共同变化，协方差为零并不排除非线性依赖。
 
-### 收缩估计
-
-`LedoitWolf`、`OAS` 和 `ShrunkCovariance` 使用
-
-$$
-\hat\Sigma=(1-\alpha)\hat S+\alpha\mu I,
-\qquad
-\mu=\frac{\operatorname{tr}(\hat S)}{p}.
-$$
-
-`LedoitWolf` 与 `OAS` 解析估计 $\alpha$；`ShrunkCovariance` 使用用户给定的
-`shrinkage`。
-
-### 最小协方差行列式
-
-`MinCovDet` 搜索协方差行列式较小的集中子集，执行 FAST-MCD 集中迭代，并根据稳健 Mahalanobis 距离重加权。该方法用于存在多元离群点时的稳健
-协方差估计。
-
-### Graphical Lasso
-
-`GraphicalLasso` 通过
+相关矩阵去除了各变量的边际尺度：
 
 $$
-\max_{\Theta\succ0}
-\left\{
-\log\det(\Theta)-\operatorname{tr}(S\Theta)
--\alpha\lVert\Theta\rVert_{1,\mathrm{off}}
-\right\}
+R_{jk}=\frac{\Sigma_{jk}}{\sqrt{\Sigma_{jj}\Sigma_{kk}}}.
 $$
 
-估计稀疏精度矩阵 $\Theta$。精度矩阵对角线不接受 L1 惩罚。
-`GraphicalLassoCV` 通过交叉验证选择 alpha，并在全数据上重新拟合最终模型。
+两变量的方差均为正时，相关系数无量纲，取值在 $-1$ 到 $1$ 之间。
+常量变量的相关系数没有定义。相比之下，不知道测量单位，就无法单凭“协方差为 10”
+判断关系有多强。
 
-<a id="covariance-basic"></a>
+当 $\Sigma$ 可逆时，精度矩阵为 $\Theta=\Sigma^{-1}$。在多元高斯模型中，
+$\Theta_{jk}=0$ 表示给定其余变量后，变量 $j$ 与 $k$ 条件独立，
+这与边际相关为零是不同的概念。偏相关系数是
+$-\Theta_{jk}/\sqrt{\Theta_{jj}\Theta_{kk}}$，精度矩阵的元素本身并不是相关系数。
+条件关联不能证明因果关系；上述条件独立解释也不能直接推广到任意非高斯分布。
 
-## 在 CPU 上估计协方差矩阵
+<a id="units-and-standardization"></a>
 
-按顺序运行以下代码。这里没有响应向量，`X` 的每行是一条观测，每列是一个测量变量。
-先导入估计器。
+## 单位与标准化会改变问题
 
-<!-- example: covariance-basic -->
+用米测量的变量，其方差单位是平方米；两个变量的协方差具有两种单位的乘积。
+把一列乘以 100，其方差就会乘以 10,000。因此，较大的矩阵元素可能只是测量单位不同，
+未必意味着关系更强。
+
+逐列标准化可以让变量具有可比较的边际尺度，适合某些稀疏图模型或向缩放单位矩阵收缩的分析。
+但标准化也改变了所估计的协方差。只在训练行上估计均值和尺度，再将同一变换用于留出数据；
+不要分别标准化训练集和测试集。常量列需要单独处理。若 $D$ 的对角线是训练数据的尺度，
+标准化后的协方差估计 $\widehat\Sigma_z$ 可用 $D\widehat\Sigma_zD$ 换回原单位。
+
+`assume_centered=True` 只是跳过均值估计，并不会标准化各列。
+只有当零确实是希望使用的已知中心时，才采用这个选项。
+
+<a id="sample-size-and-stability"></a>
+
+<a id="限制与失败行为"></a>
+
+## 为什么变量数会影响稳定性
+
+有 $n$ 次观测、$p$ 个变量时，协方差包含 $p(p+1)/2$ 个不同的待估计量。
+中心化后的经验协方差秩至多为 $\min(p,n-1)$：当 $p\ge n$ 时必然奇异；
+即使尚未达到这个比例，变量之间很强的相关性也可能使矩阵不稳定。
+
+求逆会放大小特征值方向上的误差。因此，逐个元素看起来合理的协方差矩阵，
+未必能给出可靠的距离或精度估计。增加观测、减少冗余变量或采用合适的正则化都有帮助。
+数值求逆保护无法补回数据中不存在的信息；精度矩阵经过稳定化，也不保证保存的协方差
+已经非奇异，或高斯评分一定有限。
+
+<a id="choose-an-estimator"></a>
+
+<a id="稳健与稀疏估计的替代方案"></a>
+
+## 先选问题，再选估计器
+
+| 想回答的问题 | 独立教程 | 主要取舍 |
+|---|---|---|
+| 数据直接呈现什么协方差？ | [EmpiricalCovariance](covariance-empirical.md) | 简单基准，容易受异常值和病态矩阵影响 |
+| 应该向等方差、零协方差的目标收缩多少？ | [ShrunkCovariance](covariance-shrunk.md) | 由用户选择偏差与稳定性的取舍 |
+| 能否根据数据解析地选择收缩强度？ | [LedoitWolf](covariance-ledoit-wolf.md) | 向缩放单位矩阵收缩 |
+| 高斯小样本下怎样选择解析收缩规则？ | [OAS](covariance-oas.md) | 以高斯假设下的协方差估计为出发点 |
+| 存在污染时，主要数据云的中心和离散程度是什么？ | [MinCovDet](covariance-min-cov-det.md) | 搜索稳健子集，要求观测数大于变量数 |
+| 哪些条件关系适合用稀疏结构表示？ | [GraphicalLasso](covariance-graphical-lasso.md) | 对精度矩阵的非对角元素施加 L1 惩罚 |
+| 哪个 Graphical Lasso 惩罚值对留出数据评分更好？ | [GraphicalLassoCV](covariance-graphical-lasso-cv.md) | 为同一模型选参并重拟合，需要多次拟合 |
+
+收缩、稳健性和稀疏性解决的是不同问题。收缩通过向目标矩阵靠拢来提高稳定性，
+并不能阻止极端异常值影响经验协方差。稳健估计限制污染的影响，
+但不能替代高维问题中的正则化。稀疏精度矩阵刻画条件依赖结构，
+并不意味着协方差矩阵也稀疏，更不等于检验某条边是否具有科学意义。
+
+<a id="joint-distance"></a>
+
+## 共同示例：异常的是组合，而不只是数值大小
+
+下面两个待查询点到原点的欧氏距离相同。但第二个点违背了数据中的正相关方向，
+因此在拟合得到的协方差几何下，它应该离数据中心远得多。
+
+<!-- example: covariance-geometry -->
 ```python
 import numpy as np
-from statgpu.covariance import LedoitWolf
-```
+from statgpu.covariance import EmpiricalCovariance
 
-生成 10 个独立标准正态变量的 500 条观测，`X` 的形状为 `(500, 10)`。
-该模拟的总体协方差为单位矩阵。
-
-```python
 rng = np.random.default_rng(42)
-X = rng.normal(size=(500, 10))
+z = rng.normal(size=(400, 2))
+X = np.column_stack((z[:, 0], 0.8 * z[:, 0] + 0.6 * z[:, 1]))
+model = EmpiricalCovariance(device="cpu").fit(X)
 ```
 
-拟合收缩估计。默认会估计并减去各列均值，不需要手动中心化 `X`。
+先查看协方差矩阵、转换后的相关矩阵和精度矩阵：
 
 ```python
-lw = LedoitWolf(device="cpu").fit(X)
+variances = np.diag(model.covariance_)
+correlation = model.covariance_ / np.sqrt(np.outer(variances, variances))
+print(np.round(model.covariance_, 3))
+print(np.round(correlation, 3))
+print(np.round(model.precision_, 3))
 ```
 
-查看矩阵大小、收缩强度以及这些观测上的高斯模型评分。
+```text
+[[1.007 0.898]
+ [0.898 1.126]]
+[[1.    0.843]
+ [0.843 1.   ]]
+[[ 3.434 -2.737]
+ [-2.737  3.069]]
+```
+
+再计算两个新观测的距离：
 
 ```python
-print(lw.covariance_.shape, lw.shrinkage_)
-print(lw.score(X))
+queries = np.array([[2.0, 2.0], [2.0, -2.0]])
+distance_squared = model.mahalanobis(queries)
+print(np.round(distance_squared, 3))
+print(round(model.score(X), 3))
 ```
-<!-- example-end: covariance-basic -->
 
-协方差矩阵的形状为 `(10, 10)`：对角元素估计方差，非对角元素估计协方差。
-本例 `shrinkage_` 为 `1.0`，即完全采用缩放后的单位矩阵目标；这与简单模拟相符，
-并不意味着所有数据都会得到该值。评分约为 `-14.175`，是高斯对数似然评分，
-不是准确率。比较泛化表现时，应在相同的留出观测上评价候选模型。
-
-拟合及 `score`、`predict`、`mahalanobis` 均可接收数值型 pandas `DataFrame`
-和嵌套列表等普通类数组输入。拟合时，一维数值输入（包括 pandas `Series`）
-按单个特征处理。列名不会自动对齐特征，评估时请保持与训练时相同的列顺序。
-拟合或评估前应先处理缺失值和无穷值。
-
-## 估计算法
-
-- `EmpiricalCovariance` 直接计算样本协方差，并通过求逆获得精度矩阵；只有当精确
-  求逆失败或产生非有限结果时才使用数值稳定化。
-- `LedoitWolf` 与 `OAS` 计算闭式收缩强度，再求收缩协方差的逆。
-- `ShrunkCovariance` 使用固定收缩强度执行相同的直接计算路径。
-- `MinCovDet` 使用多个初始子集、集中迭代（concentration steps）、一致性校正和重加权。
-- `GraphicalLasso` 使用分块坐标更新与软阈值内层回归。
-- `GraphicalLassoCV` 在各交叉验证折上拟合候选 alpha，再进行最终重拟合。
-
-## 公共参数
-
-| 参数 | 默认值 | 说明 |
-|---|---:|---|
-| `assume_centered` | `False` | 将输入视为已中心化 |
-| `device` | `"auto"` | `"cpu"`、`"cuda"`（CuPy）、`"torch"` 或 `"auto"` |
-| `n_jobs` | `None` | 未实现处保留为 API 兼容参数 |
-
-估计器特有参数包括：
-
-| 估计器 | 参数 |
-|---|---|
-| `ShrunkCovariance` | `shrinkage` |
-| `MinCovDet` | `support_fraction`、`random_state` |
-| `GraphicalLasso` | `alpha`、`max_iter`、`tol` |
-| `GraphicalLassoCV` | `alphas`、`cv`、`max_iter`、`tol`、`random_state` |
-
-具体接受的类型和范围以类 docstring 为准。
-
-## 拟合属性与输出
-
-公共拟合属性包括：
-
-| 属性 | 说明 |
-|---|---|
-| `covariance_` | 估计的协方差矩阵 |
-| `precision_` | 估计的逆协方差或稀疏精度矩阵 |
-| `location_` | 估计均值；假设已中心化时为零 |
-| `n_samples_` | 拟合样本数 |
-| `n_features_` | 特征数 |
-
-额外属性包括：
-
-- 收缩估计器的 `shrinkage_`；
-- `MinCovDet` 的 `support_`、`raw_location_`、`raw_covariance_` 和稳健距离；
-- 迭代稀疏估计器的 `n_iter_`；
-- `GraphicalLassoCV` 的 `alpha_`、交叉验证分数和最终重拟合状态。
-
-若类公开这些方法，`score(X)` 评估拟合的高斯协方差模型，
-`mahalanobis(X)` 返回拟合位置和精度矩阵下的平方 Mahalanobis 距离。
-
-## 稳健与稀疏估计的替代方案
-
-这两个示例解决的问题与收缩估计不同，都复用[前面的 CPU 示例](#covariance-basic)中的 `X`。
-
-### 稳健支持子集
-
-离群点使普通协方差不可靠时，可使用 `MinCovDet`。本例没有人为加入离群点，
-只演示 API 用法，并非已知哪些观测应该剔除。
-
-<!-- example-requires: covariance-basic -->
-<!-- example: covariance-robust -->
-```python
-from statgpu.covariance import MinCovDet
-
-mcd = MinCovDet(random_state=42, device="cpu").fit(X)
-print(mcd.support_.sum())
+```text
+[ 4.227 47.515]
+-2.28
 ```
-<!-- example-end: covariance-robust -->
+<!-- example-end: covariance-geometry -->
 
-`support_` 是与训练行对应的布尔掩码，求和得到最终稳健支持子集的行数。
-未进入子集不能证明该观测有误。
+平方 Mahalanobis 距离为
 
-### 通过交叉验证选择稀疏精度矩阵
+$$
+d^2(x)=(x-\widehat\mu)^\top\widehat\Theta(x-\widehat\mu).
+$$
 
-使用 `GraphicalLassoCV` 选择 L1 惩罚强度并重新拟合稀疏精度模型。
-在高斯模型中，精度矩阵的零非对角元素表示条件独立，不等于边际协方差为零，
-也不代表因果关系。
+`(2, -2)` 与观测到的正相关关系明显更不一致。`mahalanobis` 和 `predict`
+返回的都是**平方距离**，不是普通距离、标签、概率或 p 值。选择阈值还需要额外的假设和校准；
+拟合协方差本身不会自动完成异常值检验。
 
-<!-- example-requires: covariance-basic -->
-<!-- example: covariance-sparse -->
-```python
-from statgpu.covariance import GraphicalLassoCV
+`score` 是在已拟合位置、协方差和精度下，每行观测的平均高斯对数似然。
+这里的 `-2.28` 是训练评分，不是准确率。比较模型时，应使用相同单位下的同一组留出数据，
+评分越大越好。改变特征尺度会改变密度的单位，未经调整的评分不能直接比较。
 
-glcv = GraphicalLassoCV(alphas=4, cv=5, device="cpu").fit(X)
-print(glcv.alpha_)
-```
-<!-- example-end: covariance-sparse -->
+<a id="inference-boundaries"></a>
 
-`alpha_` 是选出的惩罚强度，不是显著性水平。`covariance_` 和 `precision_`
-来自在 `X` 全部观测上进行的最终拟合。
+<a id="协方差精度矩阵与推断语义"></a>
 
-<a id="cpu-与-gpu-示例"></a>
+## 拟合能说明什么，不能说明什么
 
-## 可选的 GPU 执行
+这些估计器描述观测变量之间的变异。它们的协方差矩阵不自动等于回归系数估计的协方差矩阵。
+如需回归标准误，应使用相应下游模型明确支持的推断方法；
+[回归推断](../guides/inference-api.md) 和[面板协方差](../panel/covariance.md)
+讨论的是不同的估计目标。
 
-复用[前面的 CPU 示例](#covariance-basic)中的 `X` 与 `LedoitWolf`。
-根据可用的 CUDA 运行环境选择以下一段。
+这里的拟合不会自动为协方差元素、稳健支持集成员或选中的图边给出置信区间、p 值或显著性检验。
+交叉验证选择预测评分较好的惩罚强度，而不是显著性水平。若自行做重抽样分析，
+需要明确抽样单位，以及是否在每次重抽样中重新进行中心化、标准化、调参和模型选择。
+只检查拟合矩阵并不能反映这些步骤带来的不确定性。
+
+<a id="可选的-gpu-执行"></a>
+
+<a id="cpu-and-gpu-examples"></a>
+
+## 输入与设备的实际选择
+
+可使用数值矩阵、嵌套列表或数值型 pandas 数据，但不会按 DataFrame 列名自动对齐特征。
+查询时保持训练列顺序，并事先处理缺失值和无穷值。一维拟合输入按单个特征处理；
+查询形状及全部限制见 [API 参考](../reference/covariance-api.md)。
+
+下面的可选代码复用上面的 `X`，分别要求对应的 CUDA 运行环境。
+它们是 CPU 拟合的替代选择，不是运行前面示例的前提。
 
 ### CuPy
 
 ```python
 import cupy as cp
+from statgpu.covariance import LedoitWolf
 
-X_cupy = cp.asarray(X)
-model_cupy = LedoitWolf(device="cuda").fit(X_cupy)
+model_cupy = LedoitWolf(device="cuda").fit(cp.asarray(X))
 print(model_cupy.covariance_.shape)
 ```
 
@@ -226,120 +206,118 @@ print(model_cupy.covariance_.shape)
 
 ```python
 import torch
+from statgpu.covariance import LedoitWolf
 
 X_torch = torch.as_tensor(X, device="cuda", dtype=torch.float64)
 model_torch = LedoitWolf(device="torch").fit(X_torch)
 print(model_torch.covariance_.shape)
 ```
 
-设备设置决定计算后端，不由输入数组类型覆盖：
-
-- `device="cpu"` 将 NumPy、CuPy 或 Torch 输入转换为 NumPy CPU 数组。
-- `device="cuda"` 将输入转换为 CuPy CUDA 数组。即使输入是 Torch 张量，也要求
-  可用的 CuPy CUDA 运行时。
-- `device="torch"` 将输入转换为 Torch CUDA 张量。Torch CPU 输入会移至 CUDA，
-  不能用 CPU 计算代替显式请求的 Torch GPU 计算。
-- `device="auto"` 继承 `statgpu.set_device(...)` 的全局设置。只有两者都为自动
-  选择时，原生 CuPy/Torch 输入才保留原后端和设备，包括 Torch CPU 输入。其他输入
-  按可用性依次选择 CuPy CUDA、Torch CUDA、NumPy。显式全局设置优先于原生输入
-  选择；显式估计器设置又优先于全局设置。
-
-选择 NumPy 计算时，受支持的实数 Torch 输入会脱离自动求导图，先传至 CPU，
-再转换为 `float64` 并检查 NaN 或无穷值，原始输入不会被修改。这包括
-`bfloat16`、`float8_e5m2` 以及稠密、非量化张量的实数视图。先传输再转换也允许
-将不支持 `float64` 的 MPS 张量用于 CPU 计算。
-
-选择 Torch 计算时，稠密 `float8_e5m2` 输入先在原设备上转换为 `float64`，再检查
-有限值；原生 CUDA 输入仍保留在 CUDA 上。因此不要求原始 float8 类型具有有限值
-检查算子，但要求 Torch 支持转换为 `float64`。这项转换不扩展到其他 float8 格式、
-稀疏或量化张量以及复数输入。这些估计器不保证兼容自动求导。
-
-七个估计器采用相同策略。`GraphicalLassoCV` 的各折拟合、评分和最终重拟合沿用
-开始拟合时选定的后端与设备。拟合数组保留在该后端。即使之后更改全局设置，
-`score`、`mahalanobis` 和 `predict` 仍将新输入转换到已拟合数组所在的后端和设备。
-`score` 返回 Python 浮点数；`mahalanobis` 和 `predict` 返回 NumPy 数组。
-
-估计器的设备参数不接受 `"cuda:1"` 等带序号的值。选择与原生 GPU 输入相同的后端
-时，会保留输入的 CUDA 设备序号；从 CPU 移至 GPU 的输入使用所选库当前的 CUDA
-设备。评分使用已拟合数组所在的设备序号。全局配置详见[设备指南](../guides/device-and-memory.md)。
-
-## 协方差、精度矩阵与推断语义
-
-这些类估计协方差或精度矩阵，通常不提供回归系数标准误或回归 p 值。协方差估计
-本身的不确定性应使用与估计器和应用相匹配的方法评估，例如重采样，或在推断方法
-与适用条件明确的下游模型中处理。
-
-奇异或近奇异经验协方差可能需要数值稳定化才能计算精度矩阵。稳定化是数值保护，
-并不意味着秩亏协方差在所有方向都变成完全可识别。
-
-## 后端与执行边界
-
-中心化、协方差更新、矩阵乘法、线性代数、FAST-MCD 集中迭代 和
-Graphical Lasso 坐标更新在实现支持时保留在所选后端。部分流程控制和标量分布
-计算使用 CPU，因此不能假定整个流程常驻 GPU。
-
-空特征维度以及 NaN/Inf 的输入验证会在中心化或求逆之前执行，避免把非法数据
-误报为奇异协方差问题。
-
-## strict 与 approximate
-
-协方差估计器没有共享的全局 strict/approximate 开关。每个估计器使用其文档化
-算法。求逆稳定化、稳健子集搜索和 CV 选择是对应算法的显式组成部分，不是静默
-后端回退。
-
-## 限制与失败行为
-
-- 当 $p$ 相对 $n$ 较大时，`EmpiricalCovariance` 可能条件数很差，收缩估计通常
-  更稳定。
-- `LedoitWolf` 和 `OAS` 收缩到尺度单位阵，不适合要求其他结构目标的场景。
-- `MinCovDet` 比直接协方差估计更昂贵，并要求足够样本构成有意义的支持子集。
-- `GraphicalLasso` 假定精度矩阵具有稀疏表示，不合适的 alpha 或容差可能导致
-  不收敛。
-- `GraphicalLassoCV` 的成本会乘以交叉验证折数和候选 alpha 数。
-- 显式 GPU 请求在对应运行时不可用时会报错，不会静默在 CPU 上执行。
-
-<a id="外部验证"></a>
+显式请求 GPU 时，若相应运行环境不可用则报错。
+自动选择、原生数组的设备保留规则见[设备与数据类型约定](../reference/covariance-api.md)。
+即使全局设置后来变化，已拟合模型的查询仍使用拟合时的后端和设备。
+数组输出、Torch 输入转换（包括支持的 FP8）以及 CPU 控制计算也在那里说明，
+不应假定整个过程都驻留在 GPU 上。
 
 ## 与其他估计结果比较
 
-比较协方差估计时，使用相同观测值、特征顺序、中心化约定和估计器。对齐协方差的
-归一化方式（上述经验估计使用 `1/n`），以及固定的收缩强度或 Graphical Lasso
-惩罚强度。迭代拟合还应对齐收敛容差和迭代次数上限。比较高斯模型分数时，使用
-相同的留出观测，不要把训练分数当成泛化表现。
+比较实现前，要统一观测、列顺序、单位、中心化方式和协方差归一化。
+经验协方差使用 `1/n`，而许多样本协方差函数默认使用 `1/(n-1)`。
+还应按方法对齐收缩目标与强度，或 Graphical Lasso 的惩罚与收敛控制。
+MCD 实现的子集搜索和校正细节可能不同，名称相同并不保证数值完全相同。
+各教程列出了相应统计来源。
 
-贡献者可参阅[验证参考](../../../dev/reviews/pr168-model-validation-provenance.md#covariance)。
+## 旧章节链接
+
+原综合页中的方法细节和 API 说明已分别移至下面的教程与参考页。
+共同概念和矩阵解读示例仍在本页。
+
+### 经验协方差
+
+见[经验协方差的推导与示例](covariance-empirical.md)。
+
+### 收缩估计
+
+[固定收缩](covariance-shrunk.md)、[Ledoit–Wolf](covariance-ledoit-wolf.md)
+和 [OAS](covariance-oas.md) 分别介绍不同的收缩强度选择规则。
+
+### 最小协方差行列式
+
+见[稳健 MCD 教程](covariance-min-cov-det.md)。
+
+### Graphical Lasso
+
+见[固定惩罚教程](covariance-graphical-lasso.md)和
+[交叉验证选参教程](covariance-graphical-lasso-cv.md)。
+
+<a id="covariance-basic"></a>
+
+### 在 CPU 上估计协方差矩阵
+
+完整的收缩估计流程见 [LedoitWolf](covariance-ledoit-wolf.md)。
+矩阵与距离的含义见[共同示例](#joint-distance)。
+
+<a id="covariance-robust"></a>
+
+### 稳健支持子集
+
+[MCD 示例](covariance-min-cov-det.md) 比较了污染观测与干净观测。
+被排除在 `support_` 之外不代表观测一定有误。
+
+<a id="covariance-sparse"></a>
+
+### 通过交叉验证选择稀疏精度矩阵
+
+[GraphicalLassoCV 示例](covariance-graphical-lasso-cv.md) 独立构造数据，
+选择惩罚强度，再对留出数据评分。
+
+<a id="cpu-与-gpu-示例"></a>
+
+<a id="strict-与-approximate"></a>
+
+<a id="估计算法"></a>
+
+<a id="公共参数"></a>
+
+<a id="后端与执行边界"></a>
+
+<a id="外部验证"></a>
+
+<a id="拟合属性与输出"></a>
+
+### API 与执行细节
+
+算法控制、拟合属性、设备与数据类型、异常及数值限制见[完整 API](../reference/covariance-api.md)。
+这些估计器没有统一的严格／近似开关，各自使用对应的估计算法。
 
 ## FAQ
 
 ### 当 $p$ 接近 $n$ 时应该使用哪个估计器？
 
-`LedoitWolf` 或 `OAS` 等收缩估计通常比无正则经验协方差更稳定。
+可以考虑 [LedoitWolf](covariance-ledoit-wolf.md) 或 [OAS](covariance-oas.md)，
+同时判断缩放单位矩阵这个目标是否适合变量及其单位。
 
 ### `MinCovDet` 是否会删除观测值？
 
-它识别稳健支持并返回稳健估计。应检查 `support_` 和稳健距离，而不是假设每个观测
-对最终估计的权重相同。
+它用支持掩码估计稳健中心和协方差，不会修改原始数据。
+应结合实际问题解释支持集和距离。
 
 ### 为什么 Graphical Lasso 的精度矩阵稀疏，而协方差矩阵可能稠密？
 
-L1 惩罚施加在精度矩阵非对角元素上；稀疏精度矩阵的逆不必稀疏。
+惩罚针对精度矩阵的非对角元素；矩阵求逆通常不会保留零元素的位置。
 
 ### Torch CUDA 张量能否使用 `device="cuda"`？
 
-可以，前提是 CuPy CUDA 可用：张量会转换为 CuPy 数组，并由 CuPy 完成计算。
-若要使用 Torch CUDA 计算，请选择 `device="torch"`。输入类型不会覆盖显式后端请求。
+可以，前提是 CuPy CUDA 可用，因为这个参数显式请求 CuPy 计算。
+`device="torch"` 才是请求 Torch CUDA。输入类型不能覆盖显式后端选择，
+详见[完整 API](../reference/covariance-api.md)。
 
 ## 路径
 
 ```python
 from statgpu.covariance import (
-    EmpiricalCovariance,
-    LedoitWolf,
-    OAS,
-    ShrunkCovariance,
-    MinCovDet,
-    GraphicalLasso,
-    GraphicalLassoCV,
+    EmpiricalCovariance, ShrunkCovariance, LedoitWolf, OAS,
+    MinCovDet, GraphicalLasso, GraphicalLassoCV,
 )
 ```
 
@@ -353,3 +331,5 @@ from statgpu.covariance import (
   covariance determinant estimator.
 - Friedman, J., Hastie, T., & Tibshirani, R. (2008). Sparse inverse covariance
   estimation with the graphical lasso.
+
+- [贡献者验证参考](../../../dev/reviews/pr168-model-validation-provenance.md#covariance).

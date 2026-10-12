@@ -56,5 +56,7 @@ For CuPy, install `statgpu[gpu11]` or `statgpu[gpu12]` for the matching CUDA maj
 - [ANOVA tutorials](models/anova.md) — [classical one-way](models/anova-oneway.md) · [Welch](models/anova-welch.md) · [balanced two-way](models/anova-twoway.md) · [post-hoc comparisons](models/anova-posthoc.md)
 - [ANOVA API](reference/anova-api.md) — all functions, result fields and input/backend limits
 - [Covariance Estimation](models/covariance.md)
+  - [EmpiricalCovariance](models/covariance-empirical.md) · [ShrunkCovariance](models/covariance-shrunk.md) · [LedoitWolf](models/covariance-ledoit-wolf.md) · [OAS](models/covariance-oas.md) · [MinCovDet](models/covariance-min-cov-det.md) · [GraphicalLasso](models/covariance-graphical-lasso.md) · [GraphicalLassoCV](models/covariance-graphical-lasso-cv.md)
+  - [Complete covariance API](reference/covariance-api.md)
 
 To contribute code, documentation, or tests, see the [Contributor Guide](../../CONTRIBUTING.md).

@@ -1,243 +1,230 @@
 # Covariance Estimation
 
-> Language: English  
-> Last updated: 2026-10-10\
+> Language: English
+> Last updated: 2026-10-12
 > Switch: [Chinese](../../cn/models/covariance.md)
 
 ## Overview
 
-Covariance describes how variables vary together; its inverse, the precision
-matrix, describes conditional relationships in a Gaussian model. Use empirical
-covariance for a well-sampled baseline, shrinkage for greater stability, robust
-covariance for multivariate outliers, or Graphical Lasso for a sparse precision
-matrix. The first example uses `LedoitWolf`, which chooses its shrinkage
-strength from the data.
+How do several measurements vary together, and what counts as an unusual
+combination of them? A covariance matrix summarizes joint variation. It can be
+used to describe data, construct multivariate distances, or supply a covariance
+estimate to another model. There is no response variable in this task: rows are
+observations and columns are measured variables.
 
-The `statgpu.covariance` module provides seven covariance and precision-matrix
-estimators:
+Start here for the common ideas and a two-variable example. Each estimator has
+its own tutorial below; the [complete covariance API](../reference/covariance-api.md)
+collects constructors, methods, outputs, input restrictions and device behavior.
 
-- `EmpiricalCovariance`
-- `LedoitWolf`
-- `OAS`
-- `ShrunkCovariance`
-- `MinCovDet`
-- `GraphicalLasso`
-- `GraphicalLassoCV`
+<a id="covariance-correlation-precision"></a>
 
-The public estimators expose NumPy, CuPy, and Torch execution paths.
+<a id="objectives"></a>
 
-## Objectives
+## Three matrices, three interpretations
 
-### Empirical covariance
-
-For centered observations $X\in\mathbb R^{n\times p}$,
+For a random vector $x$ with mean $\mu$, the population covariance is
 
 $$
-\hat S = \frac{1}{n}X^\top X.
+\Sigma=\mathbb E[(x-\mu)(x-\mu)^\top].
 $$
 
-Unless `assume_centered=True`, the column mean is estimated and removed before
-forming the covariance matrix.
+Its diagonal entries are variances. An off-diagonal entry is positive when two
+variables tend to move in the same direction about their means, and negative
+when they tend to move in opposite directions. Covariance measures linear
+co-variation; zero covariance does not rule out nonlinear dependence.
 
-### Shrinkage estimators
-
-`LedoitWolf`, `OAS`, and `ShrunkCovariance` use
-
-$$
-\hat\Sigma=(1-\alpha)\hat S+\alpha\mu I,
-\qquad
-\mu=\frac{\operatorname{tr}(\hat S)}{p}.
-$$
-
-`LedoitWolf` and `OAS` estimate $\alpha$ analytically. `ShrunkCovariance` uses the
-user-supplied `shrinkage` value.
-
-### Minimum covariance determinant
-
-`MinCovDet` searches for a concentrated subset with a small covariance
-determinant, applies FAST-MCD concentration steps, and then reweights observations
-using robust Mahalanobis distances. It is intended for covariance estimation in
-the presence of multivariate outliers.
-
-### Graphical Lasso
-
-`GraphicalLasso` estimates a sparse precision matrix $\Theta$ by solving
+The correlation matrix removes marginal scales:
 
 $$
-\max_{\Theta\succ0}
-\left\{
-\log\det(\Theta)-\operatorname{tr}(S\Theta)
--\alpha\lVert\Theta\rVert_{1,\mathrm{off}}
-\right\}.
+R_{jk}=\frac{\Sigma_{jk}}{\sqrt{\Sigma_{jj}\Sigma_{kk}}}.
 $$
 
-The precision diagonal is not L1-penalized. `GraphicalLassoCV` evaluates an alpha
-grid by cross-validation and refits the selected model on the complete dataset.
+A correlation is dimensionless and lies between $-1$ and $1$ when both variances
+are positive. It is undefined for a constant variable. A covariance of 10 has
+no universal interpretation without the two variables' units.
 
-<a id="covariance-basic"></a>
+When $\Sigma$ is invertible, the precision matrix is $\Theta=\Sigma^{-1}$.
+For a multivariate Gaussian model, $\Theta_{jk}=0$ means variables $j$ and $k$
+are conditionally independent given the other variables. This is different from
+zero marginal correlation. Partial correlation is
+$-\Theta_{jk}/\sqrt{\Theta_{jj}\Theta_{kk}}$; the raw precision entry is not itself
+a correlation. Conditional association does not establish causation, and the
+Gaussian conditional-independence interpretation does not hold for every
+non-Gaussian distribution.
 
-## Estimate a covariance matrix on CPU
+<a id="units-and-standardization"></a>
 
-Run these blocks in order. There is no response vector: `X` has one observation
-per row and one measured variable per column. First import the estimator.
+## Units and standardization change the question
 
-<!-- example: covariance-basic -->
+If variable $j$ is measured in meters, its variance is in square meters; a
+covariance carries the product of the two variables' units. Multiplying a
+column by 100 multiplies its variance by 10,000. Large matrix entries can
+therefore reflect measurement units rather than stronger relationships.
+
+Standardizing columns puts them on comparable marginal scales. That can be
+helpful for a sparse graph or a scaled-identity shrinkage target, but it changes
+the covariance being estimated. Fit any means and scales on the training rows
+only, then reuse them for held-out rows. Do not standardize train and test
+independently. Constant columns need separate handling. If $D$ holds the
+training scales, a standardized estimate $\widehat\Sigma_z$ maps back to the
+original units as $D\widehat\Sigma_zD$.
+
+`assume_centered=True` only skips estimation of the mean; it does not
+standardize columns. Use it only when zero is the intended known center.
+
+<a id="sample-size-and-stability"></a>
+
+<a id="limitations-and-failure-modes"></a>
+
+## Why the number of variables matters
+
+With $n$ observations and $p$ variables, estimating covariance means estimating
+$p(p+1)/2$ distinct numbers. For centered observations, the empirical covariance
+has rank at most $\min(p,n-1)$. It is necessarily singular when $p\ge n$, and
+can be unstable well before that when columns are strongly related.
+
+The inverse magnifies errors in small eigenvalues. Consequently a covariance
+matrix that looks reasonable entry by entry may still give unreliable distances
+or precision estimates. More observations, fewer redundant variables, or
+appropriate regularization can help. An inversion safeguard cannot recover
+information the data never contained; a stabilized precision does not guarantee
+a nonsingular stored covariance or a finite Gaussian score.
+
+<a id="choose-an-estimator"></a>
+
+<a id="robust-and-sparse-alternatives"></a>
+
+## Choose the question before the estimator
+
+| Question | Tutorial | Main trade-off |
+|---|---|---|
+| What is the direct observed covariance? | [EmpiricalCovariance](covariance-empirical.md) | Simple baseline; sensitive to outliers and ill-conditioning |
+| How much should I shrink toward equal variances and zero covariances? | [ShrunkCovariance](covariance-shrunk.md) | User chooses the bias–stability trade-off |
+| Can the data estimate the shrinkage strength? | [LedoitWolf](covariance-ledoit-wolf.md) | Analytic choice toward the scaled identity |
+| Can I use a Gaussian-oriented analytic shrinkage rule? | [OAS](covariance-oas.md) | Particularly motivated by small Gaussian samples |
+| What describes the main data cloud despite contamination? | [MinCovDet](covariance-min-cov-det.md) | Robust subset search; requires more rows than columns |
+| Which conditional relationships can be represented sparsely? | [GraphicalLasso](covariance-graphical-lasso.md) | L1 penalty on off-diagonal precision entries |
+| Which Graphical Lasso penalty predicts held-out rows best? | [GraphicalLassoCV](covariance-graphical-lasso-cv.md) | Selects and refits the same model; costs multiple fits |
+
+Shrinkage, robustness and sparsity solve different problems. Shrinkage stabilizes
+an estimate by moving it toward a target; it does not prevent a gross outlier
+from influencing the empirical covariance. Robust estimation limits the influence
+of contamination but is not a substitute for high-dimensional regularization.
+Sparse precision encodes a conditional-dependence model, not a sparse covariance
+or a test of whether an edge is scientifically real.
+
+<a id="joint-distance"></a>
+
+## A shared example: unusual combinations, not just large values
+
+Both query points below are equally far from the origin in ordinary Euclidean
+distance. The second point goes against the positive association in the data,
+so it should be much farther away in the fitted covariance geometry.
+
+<!-- example: covariance-geometry -->
 ```python
 import numpy as np
-from statgpu.covariance import LedoitWolf
-```
+from statgpu.covariance import EmpiricalCovariance
 
-Create 500 observations of 10 independent standard-normal variables, so `X` has
-shape `(500, 10)`. The population covariance in this simulation is the identity.
-
-```python
 rng = np.random.default_rng(42)
-X = rng.normal(size=(500, 10))
+z = rng.normal(size=(400, 2))
+X = np.column_stack((z[:, 0], 0.8 * z[:, 0] + 0.6 * z[:, 1]))
+model = EmpiricalCovariance(device="cpu").fit(X)
 ```
 
-Fit the shrinkage estimate. The default estimates and subtracts column means;
-you do not need to center `X` manually.
+Inspect the covariance, its rescaled correlation, and the precision:
 
 ```python
-lw = LedoitWolf(device="cpu").fit(X)
+variances = np.diag(model.covariance_)
+correlation = model.covariance_ / np.sqrt(np.outer(variances, variances))
+print(np.round(model.covariance_, 3))
+print(np.round(correlation, 3))
+print(np.round(model.precision_, 3))
 ```
 
-Inspect matrix size, shrinkage strength and the Gaussian score on these rows.
+```text
+[[1.007 0.898]
+ [0.898 1.126]]
+[[1.    0.843]
+ [0.843 1.   ]]
+[[ 3.434 -2.737]
+ [-2.737  3.069]]
+```
+
+Now measure two new rows:
 
 ```python
-print(lw.covariance_.shape, lw.shrinkage_)
-print(lw.score(X))
+queries = np.array([[2.0, 2.0], [2.0, -2.0]])
+distance_squared = model.mahalanobis(queries)
+print(np.round(distance_squared, 3))
+print(round(model.score(X), 3))
 ```
-<!-- example-end: covariance-basic -->
 
-The covariance has shape `(10, 10)`: diagonal entries estimate variances and
-off-diagonal entries estimate covariances. Here `shrinkage_` is `1.0`, so the
-estimate uses the scaled-identity target completely. This matches the simple
-simulation but is not a value to expect for every dataset. The score is about
-`-14.175`; it is a Gaussian log-likelihood score, not an accuracy percentage.
-Evaluate competing models on the same held-out rows when comparing generalization.
-
-Numeric pandas `DataFrame` inputs and ordinary array-like inputs, such as nested
-lists, can be used for fitting and for `score`, `predict`, and `mahalanobis`.
-A one-dimensional numeric input, including a pandas `Series`, is treated as one
-feature during fitting. Column labels do not align features automatically:
-keep evaluation columns in the same order as training columns. Missing and
-infinite values must be removed or handled before fitting or evaluation.
-
-## Estimation Algorithms
-
-- `EmpiricalCovariance` computes the sample covariance directly and obtains a
-  precision matrix by inversion, using stabilization only when the exact inverse
-  fails or is non-finite.
-- `LedoitWolf` and `OAS` evaluate closed-form shrinkage intensities and then invert
-  the shrunk covariance.
-- `ShrunkCovariance` follows the same direct path with a fixed intensity.
-- `MinCovDet` uses repeated initial subsets, concentration steps, consistency
-  correction, and reweighting.
-- `GraphicalLasso` uses block coordinate updates with soft-thresholded inner
-  regressions.
-- `GraphicalLassoCV` fits the Graphical Lasso across folds and candidate alpha
-  values before the final refit.
-
-## Common Parameters
-
-| Parameter | Default | Description |
-|---|---:|---|
-| `assume_centered` | `False` | Treat input as already centered |
-| `device` | `"auto"` | `"cpu"`, `"cuda"` (CuPy), `"torch"`, or `"auto"` |
-| `n_jobs` | `None` | Reserved for API compatibility where not implemented |
-
-Estimator-specific parameters include:
-
-| Estimator | Parameters |
-|---|---|
-| `ShrunkCovariance` | `shrinkage` |
-| `MinCovDet` | `support_fraction`, `random_state` |
-| `GraphicalLasso` | `alpha`, `max_iter`, `tol` |
-| `GraphicalLassoCV` | `alphas`, `cv`, `max_iter`, `tol`, `random_state` |
-
-Consult class docstrings for the exact accepted type and range of each parameter.
-
-## Fitted Attributes and Outputs
-
-Common fitted attributes include:
-
-| Attribute | Description |
-|---|---|
-| `covariance_` | Estimated covariance matrix |
-| `precision_` | Estimated inverse covariance or sparse precision matrix |
-| `location_` | Estimated mean vector; zero when centered input is assumed |
-| `n_samples_` | Number of fitted observations |
-| `n_features_` | Number of fitted features |
-
-Additional attributes include:
-
-- `shrinkage_` for shrinkage estimators;
-- `support_`, `raw_location_`, `raw_covariance_`, and robust distances for
-  `MinCovDet`;
-- `n_iter_` for iterative sparse estimators;
-- `alpha_`, CV scores, and the refitted model state for `GraphicalLassoCV`.
-
-Where exposed, `score(X)` evaluates the fitted Gaussian covariance model and
-`mahalanobis(X)` returns squared Mahalanobis distances under the fitted location
-and precision.
-
-## Robust and sparse alternatives
-
-These examples answer different questions from shrinkage estimation. Both
-reuse `X` from [the CPU example](#covariance-basic).
-
-### Robust support
-
-Use `MinCovDet` when outliers make ordinary covariance unreliable. The clean
-simulation is only an API illustration; no observation is known to be an outlier.
-
-<!-- example-requires: covariance-basic -->
-<!-- example: covariance-robust -->
-```python
-from statgpu.covariance import MinCovDet
-
-mcd = MinCovDet(random_state=42, device="cpu").fit(X)
-print(mcd.support_.sum())
+```text
+[ 4.227 47.515]
+-2.28
 ```
-<!-- example-end: covariance-robust -->
+<!-- example-end: covariance-geometry -->
 
-`support_` is a Boolean mask over training rows. Its sum counts rows in the
-final robust support; exclusion is not proof that an observation is erroneous.
+The squared Mahalanobis distance is
 
-### Sparse precision with cross-validation
+$$
+d^2(x)=(x-\widehat\mu)^\top\widehat\Theta(x-\widehat\mu).
+$$
 
-Use `GraphicalLassoCV` to choose an L1 penalty and refit a sparse precision model.
-In a Gaussian model, zero off-diagonal precision entries encode conditional
-independence, rather than zero marginal covariance or a causal relationship.
+The point `(2, -2)` is much less consistent with the observed positive
+association. `mahalanobis` and `predict` both return these **squared distances**,
+not ordinary distances, labels, probabilities or p-values. A threshold requires
+separate assumptions and calibration; fitting a covariance does not automatically
+supply an outlier test.
 
-<!-- example-requires: covariance-basic -->
-<!-- example: covariance-sparse -->
-```python
-from statgpu.covariance import GraphicalLassoCV
+`score` is the mean Gaussian log-likelihood per row under the fitted location,
+covariance and precision. Here `-2.28` is a training score, not an accuracy
+percentage. For model comparison, use the same held-out rows in the same units;
+larger scores are better. Different feature scalings change density units and
+make unadjusted scores incomparable.
 
-glcv = GraphicalLassoCV(alphas=4, cv=5, device="cpu").fit(X)
-print(glcv.alpha_)
-```
-<!-- example-end: covariance-sparse -->
+<a id="inference-boundaries"></a>
 
-`alpha_` is the selected penalty, not a significance level. The fitted
-`covariance_` and `precision_` come from the final fit on all rows of `X`.
+<a id="covariance-precision-and-inference-semantics"></a>
+
+## What fitting does and does not tell you
+
+These estimators describe variation among observed variables. Their covariance
+matrix is not automatically the covariance of regression coefficient estimates.
+For regression standard errors, use the downstream model's documented inference
+method. See [regression inference](../guides/inference-api.md) and
+[panel covariance](../panel/covariance.md) for those different targets.
+
+No fit here automatically produces confidence intervals, p-values or significance
+tests for covariance entries, robust support membership or selected graph edges.
+CV chooses a predictive penalty, not a significance level. Any resampling study
+must specify the sampling unit and whether centering, scaling, tuning and model
+selection are repeated; merely inspecting a fitted matrix does not account for
+these sources of uncertainty.
 
 <a id="cpu-and-gpu-examples"></a>
 
-## Optional GPU execution
+<a id="optional-gpu-execution"></a>
 
-Reuse `X` and `LedoitWolf` from [the CPU example](#covariance-basic). Choose
-one of these blocks when its CUDA runtime is available.
+## Practical input and device choices
+
+Numeric matrices, nested lists and numeric pandas data are accepted; there is
+no automatic alignment by DataFrame column names. Keep columns in the fitted
+order and handle missing/infinite values before fitting or querying. A
+one-dimensional fit input is treated as one feature; query shapes and all
+restrictions are in the [API reference](../reference/covariance-api.md).
+
+The following optional blocks reuse `X` above. They require the corresponding
+CUDA runtime and are alternatives to the CPU fit, not prerequisites for it.
 
 ### CuPy
 
 ```python
 import cupy as cp
+from statgpu.covariance import LedoitWolf
 
-X_cupy = cp.asarray(X)
-model_cupy = LedoitWolf(device="cuda").fit(X_cupy)
+model_cupy = LedoitWolf(device="cuda").fit(cp.asarray(X))
 print(model_cupy.covariance_.shape)
 ```
 
@@ -245,144 +232,120 @@ print(model_cupy.covariance_.shape)
 
 ```python
 import torch
+from statgpu.covariance import LedoitWolf
 
 X_torch = torch.as_tensor(X, device="cuda", dtype=torch.float64)
 model_torch = LedoitWolf(device="torch").fit(X_torch)
 print(model_torch.covariance_.shape)
 ```
 
-The device selects computation independently of the input array type:
-
-- `device="cpu"` converts NumPy, CuPy, or Torch inputs to NumPy CPU arrays.
-- `device="cuda"` converts inputs to CuPy CUDA arrays. It requires a working
-  CuPy CUDA runtime even when the input is a Torch tensor.
-- `device="torch"` converts inputs to Torch CUDA tensors. A Torch CPU input
-  is moved to CUDA; it never satisfies an explicit Torch GPU request by itself.
-- `device="auto"` inherits `statgpu.set_device(...)`. When both settings are
-  automatic, native CuPy/Torch input keeps its backend and device, including
-  Torch CPU input. Other input types use CuPy CUDA, then Torch CUDA, then NumPy
-  according to availability. An explicit global setting overrides this native
-  input selection; an explicit estimator setting overrides the global setting.
-
-When NumPy computation is selected, supported real Torch inputs are detached
-from autograd, transferred to CPU, and normalized to `float64` before checking
-for NaN or infinity. The original input is not modified. This includes
-`bfloat16`, `float8_e5m2`, and real-valued views of dense, non-quantized tensors.
-Transferring before conversion also allows CPU computation from MPS tensors,
-whose source device does not support `float64`.
-
-For Torch computation, dense `float8_e5m2` values are checked after widening to
-`float64` on their source device; native CUDA input stays on CUDA. This works
-without a raw float8 finite-check kernel, but still requires Torch support for
-conversion to `float64`. Other float8 formats, sparse or quantized tensors, and
-complex inputs do not gain support from this conversion. The estimators do not
-guarantee autograd compatibility.
-
-The seven estimators share this policy. `GraphicalLassoCV` keeps its initial
-backend and device through all folds, scoring, and the final refit. Fitted arrays
-remain on that backend. `score`, `mahalanobis`, and `predict` convert new inputs
-to the fitted backend and device, even if the global policy subsequently changes.
-`score` returns a Python float; `mahalanobis` and `predict` return NumPy arrays.
-
-The estimator device values do not accept indices such as `"cuda:1"`. An
-already-native GPU input retains its CUDA index when that backend is selected;
-CPU inputs moved to a GPU use that library's current CUDA device. Scoring uses
-the fitted array's index. See the [device guide](../guides/device-and-memory.md)
-for global configuration.
-
-## Covariance, Precision, and Inference Semantics
-
-These classes estimate covariance or precision matrices; they do not generally
-expose coefficient-level standard errors or regression p-values. Numerical
-uncertainty should be assessed with a method appropriate to the covariance
-estimator and application, such as resampling or a downstream model with a
-specified inference contract.
-
-A singular or nearly singular empirical covariance may require stabilization for
-precision computation. Stabilization is a numerical safeguard and does not turn
-a rank-deficient covariance into fully identified information in every direction.
-
-## Backend and Execution Boundaries
-
-Centering, covariance updates, matrix products, linear algebra, FAST-MCD
-concentration steps, and Graphical Lasso coordinate updates remain on the
-selected numerical backend where implemented. Some control and scalar
-distribution calculations use CPU, so do not assume the entire workflow is GPU-resident.
-
-Input validation for empty feature dimensions and NaN/Inf values occurs before
-centering or inversion so invalid data is not misreported as a singular covariance
-problem.
-
-## Strict and Approximate Behavior
-
-There is no global strict/approximate switch shared by all covariance estimators.
-Each estimator uses its documented algorithm. Numerical inversion stabilization,
-robust subset search, and CV selection are explicit parts of the corresponding
-algorithm rather than silent backend fallbacks.
-
-## Limitations and Failure Modes
-
-- `EmpiricalCovariance` can be poorly conditioned when $p$ is large relative to
-  $n$; shrinkage may be preferable.
-- `LedoitWolf` and `OAS` shrink toward a scaled identity and may be inappropriate
-  when a different structural target is required.
-- `MinCovDet` is more expensive than direct covariance estimators and requires
-  enough observations for a meaningful support subset.
-- `GraphicalLasso` assumes a sparse precision representation and may fail to
-  converge for unsuitable alpha or tolerance settings.
-- `GraphicalLassoCV` multiplies the fitting cost by the number of folds and alpha
-  candidates.
-- Explicit GPU requests fail when the requested runtime is unavailable; they do
-  not silently execute on CPU.
+An explicit GPU request raises an error if that runtime is unavailable. Automatic
+selection and native-array device retention are described in the
+[device and dtype contract](../reference/covariance-api.md). Fitted queries use
+the fitted backend/device even if global settings change later. Array outputs,
+Torch input normalization (including supported FP8), and CPU control operations
+are specified there rather than assumed to be fully GPU-resident.
 
 <a id="external-validation"></a>
 
 ## Comparing estimates
 
-Use the same observations, feature order, centering convention, and estimator
-when comparing covariance estimates. Match the covariance normalization
-(`1/n` for the empirical estimate above) and any fixed shrinkage or Graphical
-Lasso penalty. For iterative fits, also align convergence tolerances and
-iteration budgets. Compare Gaussian scores on the same held-out rows rather
-than treating training scores as generalization performance.
+Match observations, feature order, units, centering and covariance normalization
+before comparing implementations. The empirical estimate uses `1/n`, whereas
+many sample-covariance functions default to `1/(n-1)`. Match the shrinkage target
+and strength, or Graphical Lasso penalty and convergence controls, as applicable.
+MCD implementations can differ in subset search and correction details; a common
+name does not guarantee identical results. See each tutorial's references.
 
-For contributor details, see the [validation reference](../../../dev/reviews/pr168-model-validation-provenance.md#covariance).
+## Earlier section links
+
+The former combined page's method and API sections now point to their detailed
+owners. The common concepts and worked matrix interpretation remain above.
+
+### Empirical covariance
+
+See [the empirical covariance derivation and example](covariance-empirical.md).
+
+### Shrinkage estimators
+
+See [fixed shrinkage](covariance-shrunk.md), [Ledoit–Wolf](covariance-ledoit-wolf.md)
+and [OAS](covariance-oas.md) for their distinct choices of shrinkage strength.
+
+### Minimum covariance determinant
+
+See [the robust MCD tutorial](covariance-min-cov-det.md).
+
+### Graphical Lasso
+
+See [the fixed-penalty tutorial](covariance-graphical-lasso.md) and
+[penalty selection with CV](covariance-graphical-lasso-cv.md).
+
+<a id="covariance-basic"></a>
+
+### Estimate a covariance matrix on CPU
+
+For a self-contained shrinkage workflow, see [LedoitWolf](covariance-ledoit-wolf.md).
+For matrix interpretation and distances, use [the shared example](#joint-distance).
+
+<a id="covariance-robust"></a>
+
+### Robust support
+
+The [MCD example](covariance-min-cov-det.md) compares contaminated and clean rows.
+Exclusion from `support_` is not proof of an erroneous observation.
+
+<a id="covariance-sparse"></a>
+
+### Sparse precision with cross-validation
+
+The [GraphicalLassoCV example](covariance-graphical-lasso-cv.md) constructs its own
+data, selects a penalty and evaluates held-out rows.
+
+<a id="backend-and-execution-boundaries"></a>
+
+<a id="common-parameters"></a>
+
+<a id="estimation-algorithms"></a>
+
+<a id="fitted-attributes-and-outputs"></a>
+
+<a id="strict-and-approximate-behavior"></a>
+
+### API and execution details
+
+See the [complete API](../reference/covariance-api.md) for algorithms' controls,
+fitted attributes, device/dtype rules, exceptions and numerical limitations.
+There is no shared strict/approximate switch; each estimator has its own algorithm.
 
 ## FAQ
 
 ### Which estimator should I use when $p$ is close to $n$?
 
-A shrinkage estimator such as `LedoitWolf` or `OAS` is usually more stable than the
-unregularized empirical covariance.
+Consider [LedoitWolf](covariance-ledoit-wolf.md) or [OAS](covariance-oas.md), while
+checking whether the scaled-identity target suits the variables and their units.
 
 ### Does `MinCovDet` remove observations?
 
-It identifies a robust support and returns robust covariance estimates. Inspect
-`support_` and robust distances rather than assuming every observation contributes
-equally to the final estimate.
+It estimates a robust center and covariance using a support mask; it does not
+edit your data. Inspect support and distances in the context of the application.
 
 ### Why is the Graphical Lasso precision sparse but the covariance dense?
 
-The L1 penalty is applied to off-diagonal precision entries. The inverse of a
-sparse precision matrix need not be sparse.
+The penalty targets off-diagonal precision entries. Matrix inversion does not
+preserve zeros in general.
 
 ### Can I pass a Torch CUDA tensor with `device="cuda"`?
 
-Yes, if CuPy CUDA is available: the tensor is converted to CuPy and computation
-uses CuPy. Use `device="torch"` to request Torch CUDA computation instead.
-Input type does not override an explicit backend request.
+Yes, when CuPy CUDA is available: this explicitly requests CuPy computation.
+`device="torch"` requests Torch CUDA. Input type cannot override an explicit
+backend request; see the [complete API](../reference/covariance-api.md).
 
 ## Paths
 
 ```python
 from statgpu.covariance import (
-    EmpiricalCovariance,
-    LedoitWolf,
-    OAS,
-    ShrunkCovariance,
-    MinCovDet,
-    GraphicalLasso,
-    GraphicalLassoCV,
+    EmpiricalCovariance, ShrunkCovariance, LedoitWolf, OAS,
+    MinCovDet, GraphicalLasso, GraphicalLassoCV,
 )
 ```
 
@@ -396,3 +359,5 @@ from statgpu.covariance import (
   covariance determinant estimator.
 - Friedman, J., Hastie, T., & Tibshirani, R. (2008). Sparse inverse covariance
   estimation with the graphical lasso.
+
+- [Contributor validation reference](../../../dev/reviews/pr168-model-validation-provenance.md#covariance).

@@ -53,6 +53,8 @@
 - [ANOVA 概览](anova.md)
   - [经典单因素](anova-oneway.md) · [Welch](anova-welch.md) · [平衡双因素](anova-twoway.md) · [事后比较](anova-posthoc.md) · [完整 API](../reference/anova-api.md)
 - [协方差估计](covariance.md)
+  - [EmpiricalCovariance](covariance-empirical.md) · [ShrunkCovariance](covariance-shrunk.md) · [LedoitWolf](covariance-ledoit-wolf.md) · [OAS](covariance-oas.md) · [MinCovDet](covariance-min-cov-det.md) · [GraphicalLasso](covariance-graphical-lasso.md) · [GraphicalLassoCV](covariance-graphical-lasso-cv.md)
+  - [完整协方差 API](../reference/covariance-api.md)
 - [面板数据](panel.md)
 - [非参数方法](nonparametric.md)
 - [核方法](kernel-methods.md)

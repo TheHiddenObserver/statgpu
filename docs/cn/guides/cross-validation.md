@@ -33,7 +33,7 @@ statgpu 中的交叉验证是包在基础估计器外层的**模型选择过程*
 | `CoxPHCV` | `CoxPH` | Cox 惩罚强度 |
 | `KernelRidgeCV` | `KernelRidge` | 固定核函数下的 `alpha` |
 
-`KernelRidgeCV` 的 `cv` 只接受整数，不接受自定义 `cv_splits`，其 `fit` 也不接受 `sample_weight`。选择时使用的平均 MSE 与 `best_score_` 报告的平均 R² 不是同一个指标，详见[完整核岭交叉验证参考](../models/kernel-methods.md#完整估计器-api)。协方差选择另见 [GraphicalLassoCV](../models/covariance.md)。
+`KernelRidgeCV` 的 `cv` 只接受整数，不接受自定义 `cv_splits`，其 `fit` 也不接受 `sample_weight`。选择时使用的平均 MSE 与 `best_score_` 报告的平均 R² 不是同一个指标，详见[完整核岭交叉验证参考](../models/kernel-methods.md#完整估计器-api)。协方差选择另见 [GraphicalLassoCV](../models/covariance-graphical-lasso-cv.md)。
 
 精确的“损失函数 × 惩罚项 × 求解器”支持关系见 [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md)。某个具体模型的统计限制应以对应模型页为准。
 

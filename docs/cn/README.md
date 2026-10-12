@@ -67,6 +67,8 @@
 - [ANOVA 概览](models/anova.md) — 原理、方法选择与支持的设计
   - [经典单因素](models/anova-oneway.md) · [Welch](models/anova-welch.md) · [平衡双因素](models/anova-twoway.md) · [事后比较](models/anova-posthoc.md)
 - [协方差](models/covariance.md) — 经验/收缩协方差、稳健 MCD 与稀疏精度矩阵
+  - [EmpiricalCovariance](models/covariance-empirical.md) · [ShrunkCovariance](models/covariance-shrunk.md) · [LedoitWolf](models/covariance-ledoit-wolf.md) · [OAS](models/covariance-oas.md) · [MinCovDet](models/covariance-min-cov-det.md) · [GraphicalLasso](models/covariance-graphical-lasso.md) · [GraphicalLassoCV](models/covariance-graphical-lasso-cv.md)
+  - [完整协方差 API](reference/covariance-api.md)
 - [多重检验](models/multiple-testing.md) — p 值校正与合并
 - [Knockoff](models/knockoff.md) — knockoff 特征选择
 - [特征选择](models/feature-selection.md) — 逐步选择与 knockoff 概览

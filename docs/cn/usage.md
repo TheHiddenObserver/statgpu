@@ -56,5 +56,7 @@ CuPy 请按 CUDA 主版本安装 `statgpu[gpu11]` 或 `statgpu[gpu12]`；PyTorch
 - [ANOVA 教程](models/anova.md) — [经典单因素](models/anova-oneway.md) · [Welch](models/anova-welch.md) · [平衡双因素](models/anova-twoway.md) · [事后比较](models/anova-posthoc.md)
 - [ANOVA API](reference/anova-api.md) — 所有函数、结果字段与输入及后端限制
 - [协方差估计](models/covariance.md)
+  - [EmpiricalCovariance](models/covariance-empirical.md) · [ShrunkCovariance](models/covariance-shrunk.md) · [LedoitWolf](models/covariance-ledoit-wolf.md) · [OAS](models/covariance-oas.md) · [MinCovDet](models/covariance-min-cov-det.md) · [GraphicalLasso](models/covariance-graphical-lasso.md) · [GraphicalLassoCV](models/covariance-graphical-lasso-cv.md)
+  - [完整协方差 API](reference/covariance-api.md)
 
 如需贡献代码、文档或测试，请参阅[贡献指南](../../CONTRIBUTING.md)。

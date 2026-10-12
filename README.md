@@ -33,7 +33,7 @@ GPU-accelerated statistical methods with an sklearn-style API.
 | **Penalized models** | Unified penalized GLM, typed family wrappers, penalized quantile/robust regression, and PenalizedCoxPHModel |
 | **Cross-validation** | RidgeCV, LassoCV, ElasticNetCV, LogisticRegressionCV, PenalizedGLM_CV, and CoxPHCV |
 | [**ANOVA**](docs/en/models/anova.md) | [Classical one-way](docs/en/models/anova-oneway.md), [Welch](docs/en/models/anova-welch.md), [balanced two-way](docs/en/models/anova-twoway.md), [pairwise comparisons](docs/en/models/anova-posthoc.md), and effect sizes; [complete API](docs/en/reference/anova-api.md) |
-| **Covariance** | Empirical and shrinkage covariance, MinCovDet, GraphicalLasso, and GraphicalLassoCV |
+| [**Covariance**](docs/en/models/covariance.md) | [EmpiricalCovariance](docs/en/models/covariance-empirical.md), [ShrunkCovariance](docs/en/models/covariance-shrunk.md), [LedoitWolf](docs/en/models/covariance-ledoit-wolf.md), [OAS](docs/en/models/covariance-oas.md), [MinCovDet](docs/en/models/covariance-min-cov-det.md), [GraphicalLasso](docs/en/models/covariance-graphical-lasso.md), [GraphicalLassoCV](docs/en/models/covariance-graphical-lasso-cv.md); [complete API](docs/en/reference/covariance-api.md) |
 | **Panel data** | PanelOLS, RandomEffects, PooledOLS, BetweenOLS, FirstDifferenceOLS, and FamaMacBeth |
 | **Nonparametric** | KDE, kernel regression, KernelRidge/CV, KernelPCA, Nystroem, spline bases, and SplineTransformer |
 | **Semiparametric** | GAM with penalized B-splines and GCV |
