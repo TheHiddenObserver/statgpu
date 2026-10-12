@@ -1,7 +1,7 @@
 # Inference API Reference
 
 > Language: English  
-> Last updated: 2026-10-05  
+> Last updated: 2026-10-12\
 > Module: `statgpu.inference`  
 > Switch: [Chinese](../../cn/guides/inference-api.md)
 
@@ -26,8 +26,8 @@ from statgpu.inference import (
 |---|---|---|
 | distribution objects such as `norm`, `t`, `chi2`, `poisson` | CDF/SF/PPF/PDF/PMF/random sampling | [Distribution API](distribution-api.md) |
 | `get_distribution(...)` | choose a distribution/backend dynamically | [Distribution API](distribution-api.md) |
-| `adjust_pvalues(...)` | multiple-testing adjustment | [Multiple Testing](multiple-testing-combine-pvalues.md) |
-| `combine_pvalues(...)` | combine evidence across p-values | [Multiple Testing](multiple-testing-combine-pvalues.md) |
+| `adjust_pvalues(...)` | multiple-testing adjustment | [Adjustment and Combination API](multiple-testing-combine-pvalues.md) |
+| `combine_pvalues(...)` | combine evidence across p-values | [Adjustment and Combination API](multiple-testing-combine-pvalues.md) |
 | `permutation_test(...)` | permutation-based hypothesis test | this page |
 | `bootstrap_statistic(...)` | generic bootstrap for a user-supplied statistic | this page |
 
@@ -56,7 +56,7 @@ reject, pvals_bh = adjust_pvalues(pvals, method="bh")
 stat, p_global = combine_pvalues(pvals, method="fisher")
 ```
 
-Available adjustment/combination methods and their interpretation are described in [Multiple Testing](multiple-testing-combine-pvalues.md).
+For why adjustment is needed, FWER versus FDR, method choice and worked Holm/BH examples, start with [Multiple Testing Principles](../models/multiple-testing.md). Complete signatures, axes, weights and numerical limits are in the [Adjustment and Combination API](multiple-testing-combine-pvalues.md). The Fisher example above requires independent continuous uniform null p-values; its result tests a global null rather than identifying individual discoveries.
 
 ## Permutation testing
 
@@ -114,7 +114,8 @@ This generic utility is different from estimator-specific inference modes such a
 Use the documentation according to the question you are trying to answer:
 
 - **How do I evaluate a probability distribution on NumPy/CuPy/Torch?** → [Distribution API](distribution-api.md)
-- **How do I adjust or combine many p-values?** → [Multiple Testing](multiple-testing-combine-pvalues.md)
+- **Which multiple-testing or combination method fits my question?** → [Multiple Testing Principles](../models/multiple-testing.md)
+- **How do I call the adjustment and combination functions?** → [Adjustment and Combination API](multiple-testing-combine-pvalues.md)
 - **How do I run a generic permutation or bootstrap calculation?** → this page
 - **Which inference method should a regression estimator use?** → [Inference Modes](inference-modes.md)
 - **What does penalized-GLM coefficient inference target?** → [Penalized GLM inference](penalized-glm-inference.md)

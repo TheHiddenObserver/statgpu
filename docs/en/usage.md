@@ -1,7 +1,7 @@
 # statgpu Documentation Portal (English)
 
 > Language: English  
-> Last updated: 2026-10-06  
+> Last updated: 2026-10-12\
 > Switch: [Chinese](../cn/usage.md)
 
 Start with the Quickstart for a first fit. Use the model and reference pages to check supported options, defaults, and limitations.
@@ -51,7 +51,8 @@ For CuPy, install `statgpu[gpu11]` or `statgpu[gpu12]` for the matching CUDA maj
 ## Statistical utilities
 
 - [Distribution API](guides/distribution-api.md)
-- [Multiple Testing](guides/multiple-testing-combine-pvalues.md)
+- [Multiple Testing Principles](models/multiple-testing.md) — error criteria, method choice and worked examples
+- [P-value Adjustment and Combination API](guides/multiple-testing-combine-pvalues.md) — signatures, axes, weights and backend behavior
 - [ANOVA](models/anova.md)
 - [Covariance Estimation](models/covariance.md)
 

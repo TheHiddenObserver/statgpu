@@ -1,7 +1,7 @@
 # statgpu 文档入口（中文）
 
 > 语言：中文  
-> 最后更新：2026-10-06  
+> 最后更新：2026-10-12\
 > 切换：[English](../en/usage.md)
 
 首次拟合可从快速入门开始；各模型的支持选项、默认值与限制见对应模型页和参考页。
@@ -51,7 +51,8 @@ CuPy 请按 CUDA 主版本安装 `statgpu[gpu11]` 或 `statgpu[gpu12]`；PyTorch
 ## 统计工具
 
 - [分布 API](guides/distribution-api.md)
-- [多重检验](guides/multiple-testing-combine-pvalues.md)
+- [多重检验原理](models/multiple-testing.md) — 错误率标准、方法选择与逐步示例
+- [P 值校正与合并 API](guides/multiple-testing-combine-pvalues.md) — 函数签名、轴、权重与后端行为
 - [ANOVA](models/anova.md)
 - [协方差估计](models/covariance.md)
 

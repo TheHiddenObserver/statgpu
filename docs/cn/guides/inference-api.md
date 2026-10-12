@@ -1,7 +1,7 @@
 # 推断 API 参考
 
 > 语言：中文  
-> 最后更新：2026-10-05  
+> 最后更新：2026-10-12\
 > 模块：`statgpu.inference`  
 > 切换：[English](../../en/guides/inference-api.md)
 
@@ -26,8 +26,8 @@ from statgpu.inference import (
 |---|---|---|
 | `norm`、`t`、`chi2`、`poisson` 等分布对象 | CDF/SF/PPF/PDF/PMF/随机采样 | [分布 API](distribution-api.md) |
 | `get_distribution(...)` | 动态选择概率分布与计算后端 | [分布 API](distribution-api.md) |
-| `adjust_pvalues(...)` | 多重检验校正 | [多重检验](multiple-testing-combine-pvalues.md) |
-| `combine_pvalues(...)` | 合并多个 p 值提供的证据 | [多重检验](multiple-testing-combine-pvalues.md) |
+| `adjust_pvalues(...)` | 多重检验校正 | [校正与合并 API](multiple-testing-combine-pvalues.md) |
+| `combine_pvalues(...)` | 合并多个 p 值提供的证据 | [校正与合并 API](multiple-testing-combine-pvalues.md) |
 | `permutation_test(...)` | 基于排列的假设检验 | 本页 |
 | `bootstrap_statistic(...)` | 对用户给定的统计量执行通用自助法 | 本页 |
 
@@ -56,7 +56,7 @@ reject, pvals_bh = adjust_pvalues(pvals, method="bh")
 stat, p_global = combine_pvalues(pvals, method="fisher")
 ```
 
-可用的校正方法、合并方法及其统计解释见 [多重检验](multiple-testing-combine-pvalues.md)。
+为什么需要校正、FWER 与 FDR 的区别、方法选择及 Holm/BH 的逐步示例，见[多重检验原理](../models/multiple-testing.md)。完整签名、轴、权重与数值限制见[校正与合并 API](multiple-testing-combine-pvalues.md)。上面的 Fisher 示例要求原假设下的 P 值相互独立、连续且服从均匀分布；其结果检验的是总体原假设，不能确定具体哪些假设应被拒绝。
 
 ## 排列检验
 
@@ -114,7 +114,8 @@ print(result.confidence_interval)
 可以按问题选择页面：
 
 - **如何在 NumPy/CuPy/Torch 上计算概率分布？** → [分布 API](distribution-api.md)
-- **如何校正或合并多个 p 值？** → [多重检验](multiple-testing-combine-pvalues.md)
+- **如何选择多重检验或 P 值合并方法？** → [多重检验原理](../models/multiple-testing.md)
+- **如何调用校正与合并函数？** → [校正与合并 API](multiple-testing-combine-pvalues.md)
 - **如何运行通用排列检验或自助法？** → 本页
 - **回归估计器应该选择哪种推断方法？** → [推断模式](inference-modes.md)
 - **惩罚 GLM 系数推断的统计目标是什么？** → [惩罚 GLM 推断](penalized-glm-inference.md)
