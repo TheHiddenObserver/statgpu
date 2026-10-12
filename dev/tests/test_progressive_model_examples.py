@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 FIRST_EXAMPLES = {
     'adaptive-lasso': 'adaptive-lasso-prediction',
     'anova-oneway': 'anova-basic',
+    'anova-welch': 'anova-welch',
     'anova-twoway': 'anova-twoway',
     'anova-posthoc': 'anova-tukey',
     'covariance': 'covariance-basic',
@@ -49,9 +50,11 @@ EXPECTED_EXAMPLES = {
     },
     'anova-oneway': {
         'anova-basic': (),
-        'anova-welch': (),
         'anova-cupy': ('anova-basic',),
         'anova-torch': ('anova-basic',),
+    },
+    'anova-welch': {
+        'anova-welch': (),
     },
     'anova-twoway': {
         'anova-twoway': (),

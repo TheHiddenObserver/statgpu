@@ -8,7 +8,7 @@
 
 ## From “some means differ” to “which means differ?”
 
-An [omnibus ANOVA](anova-oneway.md) tests whether all group means are equal.
+An [omnibus ANOVA](anova.md) tests whether all group means are equal.
 It does not identify particular differences. Pairwise comparisons ask a more
 specific question, $H_{0,ij}:\mu_i-\mu_j=0$, and estimate each difference in
 the response's original units.
@@ -174,9 +174,9 @@ pairwise Welch uncertainty rather than a pooled error variance.
 
 ## A complete unequal-variance pairwise example
 
-This illustration is independent of the Tukey example and of the one-way
-page's Welch data. It deliberately includes a raw p-value below 0.05 that does
-not pass the corrected threshold.
+This illustration is independent of the Tukey example and of the
+[Welch ANOVA example](anova-welch.md#anova-welch). It deliberately includes a
+raw p-value below 0.05 that does not pass the corrected threshold.
 
 <!-- example: anova-bonferroni -->
 ```python
@@ -274,5 +274,5 @@ criteria and correction choices without tying them to these two ANOVA helpers.
 - [SciPy Tukey HSD reference](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.tukey_hsd.html),
   including the original Tukey and Kramer publications. Match variance assumptions
   when comparing implementations; SciPy's API options differ from statgpu's.
-- [One-way and Welch ANOVA](anova-oneway.md), [balanced two-way ANOVA](anova-twoway.md)
-  and the [ANOVA overview](anova.md).
+- [Classical one-way ANOVA](anova-oneway.md), [Welch ANOVA](anova-welch.md),
+  [balanced two-way ANOVA](anova-twoway.md) and the [ANOVA overview](anova.md).

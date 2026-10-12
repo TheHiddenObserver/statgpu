@@ -67,7 +67,7 @@
 
 ### Inference
 - [ANOVA overview](models/anova.md) — principles, method choice and supported designs
-  - [One-way and Welch](models/anova-oneway.md) · [Balanced two-way](models/anova-twoway.md) · [Post-hoc comparisons](models/anova-posthoc.md)
+  - [Classical one-way](models/anova-oneway.md) · [Welch](models/anova-welch.md) · [Balanced two-way](models/anova-twoway.md) · [Post-hoc comparisons](models/anova-posthoc.md)
 - [Covariance](models/covariance.md) — empirical/shrinkage, robust MCD, and sparse precision
 - [Multiple Testing](models/multiple-testing.md) — p-value adjustment and combination
 - [Knockoff](models/knockoff.md) — knockoff feature selection

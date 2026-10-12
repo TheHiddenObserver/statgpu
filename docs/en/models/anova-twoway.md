@@ -251,5 +251,5 @@ reproduce the main-effect or interaction tests.
 - [NIST: models and calculations for two-way ANOVA](https://www.itl.nist.gov/div898/handbook/prc/section4/prc438.htm).
 - [NIST: the hypotheses tested by ANOVA](https://www.itl.nist.gov/div898/handbook/prc/section4/prc43.htm).
 - Cohen, J. (1988). *Statistical Power Analysis for the Behavioral Sciences*, 2nd ed.
-- [One-way and Welch ANOVA](anova-oneway.md), [post-hoc comparisons](anova-posthoc.md),
-  and [complete ANOVA API reference](../reference/anova-api.md).
+- [Classical one-way ANOVA](anova-oneway.md), [Welch ANOVA](anova-welch.md),
+  [post-hoc comparisons](anova-posthoc.md), and [complete ANOVA API reference](../reference/anova-api.md).

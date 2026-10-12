@@ -8,7 +8,7 @@
 
 ## 从“有均值不同”到“哪些均值不同”
 
-[方差分析的总体检验](anova-oneway.md)回答各组总体均值是否全部相等。
+[方差分析的总体检验](anova.md)回答各组总体均值是否全部相等。
 要进一步判断具体哪两组不同，就需要两两比较：对每一对组检验
 $H_{0,ij}:\mu_i-\mu_j=0$，并以响应变量的原始单位估计均值差。
 
@@ -160,7 +160,7 @@ $$(\bar y_i-\bar y_j)\;\pm\;t_{1-\alpha/(2m),\nu_{ij}}\,SE_{ij}.$$
 
 ## 完整的不等方差两两比较示例
 
-本例可以独立运行，数据与前面的 Tukey 示例及单因素页面的 Welch 示例不同。
+本例可以独立运行，数据与前面的 Tukey 示例及 [Welch ANOVA 示例](anova-welch.md#anova-welch)不同。
 其中一对的原始 P 值小于 0.05，却达不到校正后的显著性要求，正好用来说明校正的作用。
 
 <!-- example: anova-bonferroni -->
@@ -251,5 +251,5 @@ print([f"{p:.3g}" for p in adjusted_pvalues])
 - [SciPy Tukey HSD 参考](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.tukey_hsd.html)，
   其中列出了 Tukey 与 Kramer 的原始文献。跨实现比较时应对齐方差假设；
   SciPy 与 statgpu 的 API 选项不同。
-- [单因素与 Welch 检验](anova-oneway.md)、[平衡双因素方差分析](anova-twoway.md)
+- [经典单因素检验](anova-oneway.md)、[Welch 检验](anova-welch.md)、[平衡双因素方差分析](anova-twoway.md)
   和 [ANOVA 总览](anova.md)。

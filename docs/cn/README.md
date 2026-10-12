@@ -65,7 +65,7 @@
 
 ### 推断
 - [ANOVA 概览](models/anova.md) — 原理、方法选择与支持的设计
-  - [单因素与 Welch](models/anova-oneway.md) · [平衡双因素](models/anova-twoway.md) · [事后比较](models/anova-posthoc.md)
+  - [经典单因素](models/anova-oneway.md) · [Welch](models/anova-welch.md) · [平衡双因素](models/anova-twoway.md) · [事后比较](models/anova-posthoc.md)
 - [协方差](models/covariance.md) — 经验/收缩协方差、稳健 MCD 与稀疏精度矩阵
 - [多重检验](models/multiple-testing.md) — p 值校正与合并
 - [Knockoff](models/knockoff.md) — knockoff 特征选择

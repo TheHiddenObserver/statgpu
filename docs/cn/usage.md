@@ -53,7 +53,7 @@ CuPy 请按 CUDA 主版本安装 `statgpu[gpu11]` 或 `statgpu[gpu12]`；PyTorch
 - [分布 API](guides/distribution-api.md)
 - [多重检验原理](models/multiple-testing.md) — 错误率标准、方法选择与逐步示例
 - [P 值校正与合并 API](guides/multiple-testing-combine-pvalues.md) — 函数签名、轴、权重与后端行为
-- [ANOVA 教程](models/anova.md) — [单因素 / Welch](models/anova-oneway.md), [平衡双因素](models/anova-twoway.md), [事后比较](models/anova-posthoc.md)
+- [ANOVA 教程](models/anova.md) — [经典单因素](models/anova-oneway.md) · [Welch](models/anova-welch.md) · [平衡双因素](models/anova-twoway.md) · [事后比较](models/anova-posthoc.md)
 - [ANOVA API](reference/anova-api.md) — 所有函数、结果字段与输入及后端限制
 - [协方差估计](models/covariance.md)
 

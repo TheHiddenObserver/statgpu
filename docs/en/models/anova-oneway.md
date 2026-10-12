@@ -1,4 +1,6 @@
-# One-way ANOVA: classical and Welch tests
+# Classical one-way ANOVA
+
+<a id="one-way-anova-classical-and-welch-tests"></a>
 
 > Language: English\
 > Last updated: 2026-10-12\
@@ -8,45 +10,42 @@
 
 ## Start with the scientific question
 
-Suppose independent experimental units receive one of several treatments. You
-measure one numerical response per unit and want to know whether the population
-means differ. One-way ANOVA tests the single global null
+Use classical one-way ANOVA when independent groups share a common population
+variance and the question is whether their population means are all equal:
 
 $$H_0:\mu_1=\mu_2=\cdots=\mu_k.$$
 
-A small p-value is evidence that **at least one mean differs**. It does not say
-which pair differs, that every pair differs, or that the difference is useful.
-Report group means, uncertainty and an effect size alongside the test. See
-[post-hoc comparisons](anova-posthoc.md) when the question concerns individual
-pairs, and the [ANOVA overview](anova.md) for other supported designs.
+For example, compare a numerical response across treatments applied to different
+experimental units. `f_oneway` tests this global null; it does not identify
+individual pairs. For the shared concepts and method selection, start with the
+[ANOVA overview](anova.md).
 
 <a id="choose-the-test"></a>
+<a id="choose-the-variance-model-before-interpreting-a-p-value"></a>
 
-## Choose the variance model before interpreting a p-value
+## When the classical model is appropriate
 
-- Use `f_oneway` for independent groups when a common population variance is
-  reasonable. Group sample sizes may differ.
-- Use `f_welch` when population variances need not be equal, especially when
-  sample sizes also differ. It estimates uncertainty separately for each group.
-- Both methods require independent observations and use normal-error models
-  for their reference distributions; Welch uses an approximate F distribution.
-  Neither solves dependence, severe outliers, or a badly misspecified response
-  model. Inspect distributions and the study design rather than choosing the
-  method that yields the smaller p-value.
-- Repeated measurements on the same people, matched samples and clustered units
-  need an analysis that represents that dependence. These functions do not
-  implement repeated-measures ANOVA, ANCOVA or MANOVA.
-
-The normality assumption concerns errors within groups, not the pooled outcome
-histogram. Independence comes from how observations were collected; a large
-sample cannot repair pseudoreplication. The [SciPy ANOVA notes](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.f_oneway.html)
-summarize the classical assumptions and distinguish the Welch alternative.
+- Observations must be independent, with normally distributed errors within
+  each group and a common population variance. Equal group sizes are not required.
+- Check the study design and within-group distributions before testing.
+  The function does not diagnose dependence, outliers or its model assumptions.
+- If a common variance is not reasonable, use the separate
+  [Welch one-way guide](anova-welch.md). Repeated, paired or clustered observations
+  need a model for their dependence; `f_oneway` does not provide that analysis.
 
 <a id="classical-anova"></a>
 
 ## Why a variance ratio tests means
 
-Let group $i$ have $n_i$ observations, mean $\bar y_i$, and let $N=\sum_i n_i$.
+For observation $j$ in group $i$, the classical model is
+
+$$y_{ij}=\mu_i+\varepsilon_{ij},\qquad
+\varepsilon_{ij}\overset{\mathrm{iid}}{\sim}\mathcal N(0,\sigma^2).$$
+
+Each group has its own mean $\mu_i$; all errors are independent and identically
+distributed normal variables with one common variance $\sigma^2>0$.
+For $k$ groups, let group $i$ have $n_i$ observations and mean $\bar y_i$,
+with total sample size $N=\sum_i n_i$.
 The grand mean weights each group by its size:
 
 $$\bar y=\frac{\sum_i n_i\bar y_i}{N}.$$
@@ -56,8 +55,11 @@ Variation between group means and variation left within groups are
 $$SS_B=\sum_i n_i(\bar y_i-\bar y)^2,\qquad
 SS_W=\sum_i\sum_j(y_{ij}-\bar y_i)^2.$$
 
-Dividing by degrees of freedom gives two variance estimates. Under equal
-population means and a common variance, they estimate the same noise level.
+The $k$ group means supply $k-1$ independent between-group contrasts.
+Estimating one mean in each group leaves $\sum_i(n_i-1)=N-k$ within-group
+degrees of freedom. Dividing the sums of squares by these degrees of freedom
+gives two variance estimates. Under equal population means and a common
+variance, they estimate the same noise level.
 A large between-group estimate relative to within-group noise gives evidence
 against the null:
 
@@ -111,122 +113,41 @@ square of the equal-variance two-sample t statistic. With three or more groups,
 the same global test does not identify which pair differs.
 
 `eta_squared=0.100` means that about 10.0% of the total **sample** variation is
-associated with this grouping. It is not the probability that the null is false,
-a causal claim, or a population variance fraction known without uncertainty.
-The estimated mean difference is about `0.582` in the response's original units;
-its practical importance depends on the application.
-
-<a id="welch-intuition"></a>
-
-## Welch: weight each mean by its precision
-
-A group with a noisy mean should contribute less evidence than an equally large,
-precisely measured group. Welch uses sample variances $s_i^2$ and weights
-$w_i=n_i/s_i^2$. For positive group variances, define
-
-$$W=\sum_i w_i,\qquad \bar y_w=\frac{\sum_i w_i\bar y_i}{W},\qquad
-U=\sum_i\frac{(1-w_i/W)^2}{n_i-1}.$$
-
-Then the statistic and approximate reference degrees of freedom are
-
-$$F_W=\frac{\sum_i w_i(\bar y_i-\bar y_w)^2/(k-1)}
-{1+\frac{2(k-2)}{k^2-1}U},\qquad
-\nu_1=k-1,\qquad \nu_2=\frac{k^2-1}{3U}.$$
-
-The denominator correction accounts for estimating the unequal variances.
-$\nu_2$ is an effective degrees of freedom, so a fractional value is expected.
-It is not the classical $N-k$. This is the approach of
-[Welch (1951)](https://doi.org/10.2307/2332579).
-
-<a id="anova-welch"></a>
-
-## A complete unequal-variance example
-
-This example starts afresh and needs no variables from the classical example.
-It compares three groups with different sizes and population standard deviations.
-
-<!-- example: anova-welch -->
-```python
-import numpy as np
-from statgpu.anova import f_welch
-```
-
-Generate 20, 28 and 36 observations. The second argument to `rng.normal` is a
-standard deviation, not a variance.
-
-```python
-rng = np.random.default_rng(2026)
-unequal_groups = [
-    rng.normal(10.0, 0.7, 20),
-    rng.normal(10.8, 1.5, 28),
-    rng.normal(13.0, 3.0, 36),
-]
-```
-
-Pass one array per group using `*unequal_groups`, and inspect the fractional
-denominator degrees of freedom explicitly.
-
-```python
-welch = f_welch(*unequal_groups, backend="numpy")
-print(f"F={welch.statistic:.3f}, p={welch.pvalue:.3g}")
-print(f"df=({welch.df_between}, {welch.df_within:.3f})")
-print(f"eta_squared={welch.eta_squared}")
-```
-<!-- example-end: anova-welch -->
-
-The output is `F=24.825`, `p=3.82e-08`, degrees of freedom `(2, 48.370)`,
-and `eta_squared=nan`. There is evidence against equality of all three means;
-the test does not by itself locate a difference. For unequal-variance pairwise
-questions, see the [Bonferroni pairwise Welch example](anova-posthoc.md#anova-bonferroni).
-Do not automatically follow Welch with pooled-variance Tukey comparisons.
+associated with this grouping. For interpretation and uncertainty, see the
+[effect-size overview](anova.md#effect-sizes). The estimated mean difference
+is about `0.582` in the response's original units; its practical importance
+depends on the application.
 
 <a id="effect-sizes"></a>
+<a id="distinguish-significance-from-effect-size"></a>
 
-## Distinguish significance from effect size
+## Effect sizes for the classical calculation
 
-- Classical one-way `eta_squared` is $SS_B/SS_T$, where $SS_T=SS_B+SS_W$.
-  It is a descriptive sample fraction; a small p-value can accompany a small
-  effect in a large sample.
-- `cohens_f(*groups)` computes $f=\sqrt{\eta^2/(1-\eta^2)}$ by running the
-  classical calculation. The example gives `0.334`. Common labels such as
-  small or large are conventions, not a substitute for domain knowledge.
-- `partial_eta_squared(ss_effect, ss_error)` computes
-  $\eta_p^2=SS_{effect}/(SS_{effect}+SS_{error})$. In classical one-way ANOVA
-  it equals eta-squared because there is only one effect. In a multifactor
-  design, the denominator excludes the other effects, so the two measures
-  differ; see the [two-way example](anova-twoway.md#effect-sizes).
-- Welch's `eta_squared` is deliberately `NaN`: this API does not return a
-  Welch-specific effect-size estimate. Applying `cohens_f` to the same data
-  still computes the **classical** descriptive quantity; it does not convert
-  Welch's result into a variance-adjusted effect size.
-
-Neither helper supplies an effect-size confidence interval. Report the scale,
-comparison and uncertainty appropriate to the scientific question.
+`f_oneway` returns $\eta^2=SS_B/(SS_B+SS_W)$.
+`cohens_f(*groups)` runs the same classical calculation and transforms it as
+$f=\sqrt{\eta^2/(1-\eta^2)}$; the example gives `0.334`.
+In this single-effect design, partial eta-squared equals eta-squared.
+For what these measures mean, how they differ in other designs, and the limits
+of the available helpers, see the [effect-size overview](anova.md#effect-sizes).
 
 <a id="parameters-and-pitfalls"></a>
 
 ## Parameters and input checks that matter
 
-`f_oneway`, `f_welch` and `cohens_f` accept `*groups`, `backend="auto"` and
-`dtype=None`. `None` uses the selected backend's float64. Prefer this default
-for inference; lower precision can matter when differences are small relative
-to the outcome scale. Full signatures and result fields are in the
-[ANOVA API reference](../reference/anova-api.md).
+Pass one array per group to `f_oneway(*groups, backend="auto", dtype=None)`.
+`cohens_f` accepts the same inputs. `dtype=None` uses float64, the recommended
+starting point for inference. Full signatures, result fields, flattening rules
+and backend behavior are in the [ANOVA API reference](../reference/anova-api.md#f-oneway).
 
-- Pass separate one-dimensional arrays. Inputs are flattened; a matrix is not
-  interpreted as many separate tests. There is no `axis` or `nan_policy` option.
-- Classical ANOVA requires at least two non-empty groups and $N>k$. Welch
-  requires at least two observations in **each** group.
-- NaN and infinite observations raise `ValueError`; missing values are not
-  silently omitted. Decide how missingness should be handled before testing.
-- If every observation is identical, classical ANOVA returns undefined
-  (`NaN`) statistic, p-value and eta-squared. If all groups are constant but
-  their means differ, it returns infinite F, p-value zero and eta-squared one.
-- Welch raises `ValueError` when only some groups have zero variance. If all
-  groups are constant, equal means give undefined F/p and different means give
-  infinite F/p zero; its eta-squared remains `NaN`.
-- A non-significant result does not establish equivalence. ANOVA also does not
-  diagnose outliers, normality or independence for you.
+- Supply at least two non-empty groups, with total sample size $N>k$.
+  A singleton group is allowed if this total-size condition holds.
+- Use finite real observations. NaN and infinite values raise `ValueError`;
+  decide how to handle missing data before testing.
+- If every observation is identical, statistic, p-value and eta-squared are
+  undefined (`NaN`). If all groups are constant but their means differ, F is
+  infinite, p-value is zero and eta-squared is one.
+- A non-significant result does not establish equivalence, and a small p-value
+  does not establish a useful difference. See [interpreting ANOVA](anova.md).
 
 <a id="gpu-execution"></a>
 
@@ -263,32 +184,42 @@ result_torch = f_oneway(g1_torch, g2_torch, backend="torch")
 <!-- example-end: anova-torch -->
 
 Here `backend` chooses the array library; the Torch tensors explicitly select
-CUDA. Explicit backends do not silently select a different array library.
-`"auto"` infers the library from group arrays and uses NumPy for ordinary lists
-or NumPy inputs. Reductions use the selected backend, while result fields are
-Python scalars. Distribution evaluation may involve CPU scalar calculations;
-this does not change the statistical test. These functions do not expose
-separate strict/approximate mode switches. See the
-[API execution notes](../reference/anova-api.md) for the full backend behavior.
+CUDA. Explicit backends do not silently select another array library.
+Results contain Python scalars. See the
+[API execution notes](../reference/anova-api.md#backend-dtype-device) for automatic
+selection, device placement, scalar distribution calculations and numerical limits.
 
 <a id="comparing-implementations"></a>
 
 ## Comparing implementations
 
-Use the same finite observations, group boundaries and float64 precision.
-Classical `f_oneway` can be compared with SciPy's equal-variance `f_oneway`.
-For Welch, [statsmodels `anova_oneway`](https://www.statsmodels.org/stable/generated/statsmodels.stats.oneway.anova_oneway.html)
-uses the matching settings `use_var="unequal"`, `welch_correction=True` and
-`trim_frac=0`. Compare F, p-value and both degrees of freedom. An equal-variance
-reference or a trimmed-mean test answers a different question. Similar function
-names do not imply identical options or result containers.
+Use the same finite one-dimensional observations, group boundaries and float64
+precision. Compare F and p-value with
+[SciPy `f_oneway`](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.f_oneway.html),
+using its equal-variance calculation (`equal_var=True` when that option is
+available; this is also the default in older versions). SciPy's array-axis,
+missing-value and invalid-input behavior differs from statgpu's; compare the
+same valid samples rather than assuming the interfaces are interchangeable.
+
+<a id="welch-intuition"></a>
+<a id="welch-weight-each-mean-by-its-precision"></a>
+<a id="anova-welch"></a>
+<a id="a-complete-unequal-variance-example"></a>
+
+## Unequal-variance alternative
+
+See the standalone Welch guide for
+[precision weighting and the corrected F test](anova-welch.md#welch-intuition)
+and the [complete unequal-variance example](anova-welch.md#anova-welch).
 
 <a id="references"></a>
 
 ## References and next steps
 
 - [NIST: one-way ANOVA](https://itl.nist.gov/div898/handbook/ppc/section2/ppc231.htm).
-- [Welch (1951): On the Comparison of Several Mean Values: An Alternative Approach](https://doi.org/10.2307/2332579).
+- [SciPy: classical one-way ANOVA](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.f_oneway.html).
 - Cohen, J. (1988). *Statistical Power Analysis for the Behavioral Sciences*, 2nd ed.
-- Continue with [balanced two-way ANOVA](anova-twoway.md),
-  [post-hoc comparisons](anova-posthoc.md), or the [complete API](../reference/anova-api.md).
+- Method guides: [classical one-way](anova-oneway.md), [Welch one-way](anova-welch.md),
+  and [balanced two-way](anova-twoway.md).
+- [ANOVA overview](anova.md), [post-hoc comparisons](anova-posthoc.md),
+  and the [complete API reference](../reference/anova-api.md).

@@ -53,7 +53,7 @@ For CuPy, install `statgpu[gpu11]` or `statgpu[gpu12]` for the matching CUDA maj
 - [Distribution API](guides/distribution-api.md)
 - [Multiple Testing Principles](models/multiple-testing.md) — error criteria, method choice and worked examples
 - [P-value Adjustment and Combination API](guides/multiple-testing-combine-pvalues.md) — signatures, axes, weights and backend behavior
-- [ANOVA tutorials](models/anova.md) — [one-way / Welch](models/anova-oneway.md), [balanced two-way](models/anova-twoway.md), [post-hoc comparisons](models/anova-posthoc.md)
+- [ANOVA tutorials](models/anova.md) — [classical one-way](models/anova-oneway.md) · [Welch](models/anova-welch.md) · [balanced two-way](models/anova-twoway.md) · [post-hoc comparisons](models/anova-posthoc.md)
 - [ANOVA API](reference/anova-api.md) — all functions, result fields and input/backend limits
 - [Covariance Estimation](models/covariance.md)
 

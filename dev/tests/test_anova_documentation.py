@@ -9,6 +9,7 @@ import dataclasses
 import inspect
 from pathlib import Path
 import re
+from urllib.parse import unquote, urlsplit
 
 import numpy as np
 import pytest
@@ -20,7 +21,8 @@ from doc_examples import example_code, parse_examples, run_example
 
 ROOT = Path(__file__).resolve().parents[2]
 LESSONS = {
-    "anova-oneway": ("anova-basic", "anova-welch"),
+    "anova-oneway": ("anova-basic",),
+    "anova-welch": ("anova-welch",),
     "anova-twoway": ("anova-twoway",),
     "anova-posthoc": ("anova-tukey", "anova-bonferroni"),
 }
@@ -28,6 +30,11 @@ FUNCTIONS = (
     "f_oneway", "f_welch", "f_twoway", "tukey_hsd", "bonferroni",
     "cohens_f", "partial_eta_squared",
 )
+OVERVIEW_CONCEPTS = (
+    "factors-and-design", "variance-intuition", "assumptions",
+    "choose-the-analysis", "effect-sizes", "reporting",
+)
+ENTRY_POINTS = ("README", "usage", "models/README", "guides/implemented-methods")
 RESULTS = (
     "AnovaResult", "TwoWayAnovaResult", "TukeyResult", "PosthocResult",
     "PairwiseComparison",
@@ -75,7 +82,7 @@ def test_classical_example_matches_scipy_and_sample_effect_size(language):
 
 @pytest.mark.parametrize("language", ("en", "cn"))
 def test_welch_example_matches_formula_and_scipy_tail(language):
-    scope = _lesson(language, "anova-oneway", "anova-welch")
+    scope = _lesson(language, "anova-welch", "anova-welch")
     groups, result = scope["unequal_groups"], scope["welch"]
     n = np.array([len(g) for g in groups])
     means = np.array([np.mean(g) for g in groups])
@@ -204,13 +211,17 @@ def test_reference_inventories_every_export_and_dataclass_field(language):
     assert set(anova.__all__) == set(FUNCTIONS + RESULTS)
     for name in FUNCTIONS + RESULTS:
         assert re.search(r"\b" + name + r"\b", text), name
+    assert len(FUNCTIONS) == 7 and len(RESULTS) == 5
+    assert sum(len(dataclasses.fields(getattr(anova, name))) for name in RESULTS) == 34
     for name in RESULTS:
         cls = getattr(anova, name)
         assert dataclasses.is_dataclass(cls)
         section = text.split("### `" + name + "`", 1)[1]
         section = re.split(r"\n##+ ", section, maxsplit=1)[0]
-        for field in dataclasses.fields(cls):
-            assert "`" + field.name + "`" in section, (name, field.name)
+        documented_fields = re.findall(r"^\| `([A-Za-z_]\w*)` \|", section, re.MULTILINE)
+        expected_fields = {field.name for field in dataclasses.fields(cls)}
+        assert set(documented_fields) == expected_fields, name
+        assert len(documented_fields) == len(expected_fields), name
         assert not hasattr(cls, "summary")
     for name in FUNCTIONS:
         function = getattr(anova, name)
@@ -271,7 +282,7 @@ def test_overview_routes_to_all_lessons_and_reference_without_duplicating_exampl
 
 
 @pytest.mark.parametrize("language", ("en", "cn"))
-@pytest.mark.parametrize("page", ("README", "usage", "models/README", "guides/implemented-methods"))
+@pytest.mark.parametrize("page", ENTRY_POINTS)
 def test_entry_points_link_both_anova_principles_and_complete_reference(language, page):
     text = _read(language, page)
     targets = re.findall(r"\]\(([^)]+)\)", text)
@@ -279,3 +290,119 @@ def test_entry_points_link_both_anova_principles_and_complete_reference(language
     assert any(t.split("#")[0].endswith("reference/anova-api.md") for t in targets)
     for lesson in LESSONS:
         assert any(t.split("#")[0].endswith(lesson + ".md") for t in targets)
+
+
+def _anchored_section(text, anchor):
+    """Stable section identifiers protect coverage without freezing headings."""
+    marker = f'<a id="{anchor}"></a>'
+    assert text.count(marker) == 1, anchor
+    tail = text.split(marker, 1)[1]
+    heading = re.match(r"\s*(?:<a id=\"[^\"]+\"></a>\s*)*(#{2,6}) ([^\n]+)\n", tail)
+    assert heading, f"{anchor}: anchor must introduce a section"
+    body = re.split(r"\n#{1," + str(len(heading.group(1))) + r"} ",
+                    tail[heading.end():], maxsplit=1)[0]
+    body = re.sub(r"<a id=\"[^\"]+\"></a>", "", body).strip()
+    assert body, f"{anchor}: concept section must not be empty"
+    return heading.group(2), body
+
+
+@pytest.mark.parametrize("language", ("en", "cn"))
+def test_overview_has_distinct_general_concept_sections(language):
+    text = _read(language, "models/anova")
+    sections = [_anchored_section(text, anchor) for anchor in OVERVIEW_CONCEPTS]
+    assert len({heading for heading, _ in sections}) == len(OVERVIEW_CONCEPTS)
+    assert not re.findall(r"```python\n", text)
+
+
+@pytest.mark.parametrize("language", ("en", "cn"))
+def test_classical_and_welch_own_separate_formulas_and_examples(language):
+    classical = _read(language, "models/anova-oneway")
+    welch = _read(language, "models/anova-welch")
+    _anchored_section(classical, "classical-anova")
+    _anchored_section(classical, "anova-basic")
+    _, formula = _anchored_section(welch, "welch-intuition")
+    _anchored_section(welch, "anova-welch")
+    assert "$$" in formula
+    for anchor in ("welch-intuition", "anova-welch"):
+        _, redirect = _anchored_section(classical, anchor)
+        assert f"](anova-welch.md#{anchor})" in redirect
+        assert "$$" not in redirect
+        assert not parse_examples(redirect)
+    assert "anova-welch" not in parse_examples(classical)
+    # Catch the previous duplicated Welch derivation without banning comparison
+    # prose, references, or a link to the unequal-variance alternative.
+    assert all("F_W" not in block for block in re.findall(r"\$\$(.*?)\$\$", classical, re.DOTALL))
+    for code in re.findall(r"```python\n(.*?)```", classical, re.DOTALL):
+        tree = ast.parse(code)
+        assert not any(isinstance(node, ast.Call) and (
+            isinstance(node.func, ast.Name) and node.func.id == "f_welch"
+            or isinstance(node.func, ast.Attribute) and node.func.attr == "f_welch"
+        ) for node in ast.walk(tree))
+    assert "](anova-welch.md" in classical
+    assert "](anova-oneway.md" in welch
+
+
+@pytest.mark.parametrize("language", ("en", "cn"))
+def test_reference_routes_to_overview_and_each_peer_tutorial(language):
+    text = _read(language, "reference/anova-api")
+    introduction = text.split('<a id="public-api">', 1)[0]
+    for page in ("anova", *LESSONS):
+        assert f"](../models/{page}.md)" in introduction
+
+
+def test_root_readme_exposes_all_anova_layers():
+    text = (ROOT / "README.md").read_text(encoding="utf-8")
+    for page in ("anova", *LESSONS):
+        assert f"](docs/en/models/{page}.md)" in text
+    assert "](docs/en/reference/anova-api.md)" in text
+
+
+@pytest.mark.parametrize("language", ("en", "cn"))
+def test_posthoc_links_general_concepts_and_welch_example_to_their_owners(language):
+    text = _read(language, "models/anova-posthoc")
+    _, question = _anchored_section(text, "the-question")
+    assert "](anova.md)" in question
+    assert "](anova-oneway.md)" not in question
+    _, example = _anchored_section(text, "anova-bonferroni")
+    assert "](anova-welch.md#anova-welch)" in example
+
+
+def _anova_navigation_paths():
+    return [ROOT / "README.md"] + [
+        ROOT / f"docs/{language}/{page}.md"
+        for language in ("en", "cn")
+        for page in (*ENTRY_POINTS, "models/anova", "reference/anova-api",
+                     *(f"models/{lesson}" for lesson in LESSONS))
+    ]
+
+
+def _markdown_anchors(text):
+    anchors = set(re.findall(r'<a id="([^\"]+)"></a>', text))
+    seen = {}
+    # GitHub-style heading anchors, including duplicate heading suffixes.
+    for heading in re.findall(r"^#{1,6} (.+)$", text, re.MULTILINE):
+        slug = re.sub(r"[^\w\- ]", "", heading.lower()).replace(" ", "-")
+        count = seen.get(slug, 0)
+        seen[slug] = count + 1
+        anchors.add(slug if not count else f"{slug}-{count}")
+    return anchors
+
+
+@pytest.mark.parametrize("path", _anova_navigation_paths(),
+                         ids=lambda path: str(path.relative_to(ROOT)))
+def test_anova_navigation_has_existing_targets_and_fragments(path):
+    text = path.read_text(encoding="utf-8")
+    for label, target in re.findall(r"\[([^\]]*)\]\(([^)]+)\)", text):
+        link = urlsplit(target)
+        if link.scheme or link.netloc:
+            continue
+        destination = (path.parent / unquote(link.path)).resolve() if link.path else path
+        if not destination.stem.startswith("anova"):
+            continue
+        assert destination.is_file(), (path, target)
+        if link.fragment:
+            anchors = _markdown_anchors(destination.read_text(encoding="utf-8"))
+            assert unquote(link.fragment) in anchors, (path, target)
+        # "Welch" must not continue to label the ordinary one-way destination.
+        if "Welch" in label:
+            assert destination.stem != "anova-oneway", (path, label, target)

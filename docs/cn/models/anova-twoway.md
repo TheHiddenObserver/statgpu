@@ -229,5 +229,5 @@ print(additive.interaction_statistic, additive.interaction_pvalue)
 - [NIST：双因素方差分析的模型与计算](https://www.itl.nist.gov/div898/handbook/prc/section4/prc438.htm)。
 - [NIST：方差分析所检验的假设](https://www.itl.nist.gov/div898/handbook/prc/section4/prc43.htm)。
 - Cohen, J.（1988）。*Statistical Power Analysis for the Behavioral Sciences*，第 2 版。
-- [单因素与 Welch 检验](anova-oneway.md)、[事后比较](anova-posthoc.md)
+- [经典单因素检验](anova-oneway.md)、[Welch 检验](anova-welch.md)、[事后比较](anova-posthoc.md)
   和 [ANOVA 完整 API 参考](../reference/anova-api.md)。

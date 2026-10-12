@@ -5,9 +5,12 @@
 > This page: API reference\
 > Switch: [Chinese](../../cn/reference/anova-api.md)
 
-For choosing a test and interpreting a complete example, start with the
-[ANOVA guide](../models/anova.md). This page lists the complete public function
-and result-object interface, input requirements, and numerical limitations.
+Start with the [ANOVA overview](../models/anova.md) for concepts and method choice.
+For complete worked analyses, see the [classical one-way](../models/anova-oneway.md),
+[Welch](../models/anova-welch.md), [balanced two-way](../models/anova-twoway.md),
+and [post-hoc comparison](../models/anova-posthoc.md) tutorials. This page lists
+the complete public function and result-object interface, input requirements,
+and numerical limitations.
 
 <a id="public-api"></a>
 
