@@ -1,13 +1,14 @@
 # 核方法
 
 > 语言：中文  
-> 最后更新：2026-10-09
+> 最后更新：2026-10-12
 > 切换：[English](../../en/models/kernel-methods.md)
 
 ## 先按分析问题选择工具
 
-核函数衡量观测之间的相似程度。模型借助这些相似度学习弯曲的响应关系或新的数据
-表示，不必预先把每一种非线性交互都写成输入列。
+当响应与特征之间的关系难以用直线描述时，核方法可以从观测之间的相似性出发建模。
+核函数把两条观测映射为一个相似度，模型再据此预测响应或提取新的数据坐标，
+无需手工列出所有非线性交互项。
 
 - **预测数值响应**：使用 `KernelRidge`。`KernelRidgeCV` 在训练折内选择正则化
   强度，再用传入的全部训练数据重新拟合。若相近观测应有相近响应，但难以指定曲线
@@ -17,7 +18,7 @@
 - **需要较小且可复用的核特征矩阵**：使用 `Nystroem`。它选取部分训练观测作为
   代表节点，近似完整核；当精确训练核太大时，可把这些特征交给下游模型。
 
-若直线关系已足够，或希望解释原始特征的斜率，应先考虑[线性模型](linear-regression.md)。
+若线性关系已足够，或希望解释原始特征的斜率，应先考虑[线性模型](linear-regression.md)。
 若非线性主要来自各特征独立作用的相加，[GAM](semiparametric.md) 通常更易解释。
 精确核方法能更灵活地表示交互，但训练核的存储量随样本数平方增长。RBF 相似度
 依赖距离，须合理选择特征单位与尺度；需要从数据学习的预处理必须在每个训练折内
@@ -51,7 +52,7 @@ y_train, y_test = y[train], y[test]
 
 ### 拟合一个核岭模型
 
-`gamma` 控制 RBF 相似度随距离衰减的速度，`alpha` 控制正则化强度。先给定两个数值，理解单次拟合；如何选择 `alpha` 见下文“核岭交叉验证”。
+`gamma` 控制 RBF 相似度随距离衰减的速度，`alpha` 控制正则化强度。本例先固定这两个参数，展示单次拟合；如何选择 `alpha` 见下文“核岭交叉验证”。
 
 ```python
 kr = KernelRidge(alpha=1.0, gamma=0.7, device="cpu").fit(X_train, y_train)
@@ -69,46 +70,24 @@ print("Fixed-alpha held-out R2:", kr.score(X_test, y_test))
 
 输出形状为 `(60,)`，每条留出观测对应一个响应预测。R²（决定系数）以留出响应的均值预测为基准：1 表示完全准确，0 表示与该常数预测相当，负值则更差。核系数不能当作原始特征的斜率。
 
-## 核岭回归
-
-给定训练核矩阵 $K$，核岭回归求解对偶线性系统
-
-$$
-(K+\alpha I)c=y.
-$$
-
-当核矩阵半正定时，对应的再生核希尔伯特空间（RKHS）惩罚目标为
-
-$$
-\min_c \lVert y-Kc\rVert_2^2+\alpha c^\top Kc.
-$$
-
-损失使用残差平方和，不除以样本量。$K$ 正定时，一阶条件给出上述线性系统；$K$ 半正定但奇异时，$\alpha>0$ 的同一系统选定一组实现最优拟合函数的系数。仅惩罚 $\lVert c\rVert^2$ 会得到另一种估计量。不定核没有这一凸 RKHS 解释。
-
-测试样本预测为
-
-$$
-\hat y_{test}=K(X_{test},X_{train})c.
-$$
-
-`KernelRidge` 直接求解正则化线性系统。若求解抛出线性代数错误，会逐步增大对角扰动后重试；稳定化后的结果不一定精确满足原系统。建议使用尺度合适的正 `alpha`。兼容的响应矩阵可用于多输出回归。
-
-`fit(X, y, sample_weight=None)` 当前会忽略传入的 `sample_weight`，并不拟合加权目标。请省略该参数，仅用于不加权的分析。如果需求只是排除某些行，可以在拟合前删除零权重行；这不能实现任意的加权拟合。
-
 ## 核岭交叉验证
 
-`KernelRidgeCV` 在交叉验证折上评估一组正则化参数，并在完整数据上使用选出的值
-重新拟合。
+`KernelRidgeCV` 在训练数据内比较一组 `alpha`，然后用选中的值在传入的全部
+训练数据上重新拟合。它只选择 `alpha`，不会同时搜索核类型或 `gamma`。
+`cv` 只接受整数，采用打乱后的按行 K 折划分，不支持自定义、分组或时间顺序划分。
+若分析需要这些划分，或需要在每个训练折中学习预处理，请在外部自行划分，
+逐折拟合预处理和 `KernelRidge`，不要先在全部数据上拟合需要学习参数的预处理，再交给 `KernelRidgeCV`。
 
-选择标准是验证 MSE，对各折和各响应列等权平均。`alpha_` 是选中的值；`best_score_` 是该值对应的平均折内 R²，不是用于选择的 MSE。`cv_results_` 包含 `alphas`、`mean_mse`、`mse_table`、`mean_r2`、`r2_table`、`best_alpha` 和 `best_score`。表格数组形状为 `(n_alphas, n_folds, n_targets)`，均值数组为 `(n_alphas, n_targets)`。
+选择 `alpha` 时，以各折、各响应列等权平均后的验证 MSE 最小为准。
+`alpha_` 保存选中的值；`best_score_` 则是该值的平均折内 R²，两者用途不同。
 
-训练折核矩阵奇异时，显式的零 alpha 可能产生非有限 CV 得分，却仍被选中。请使用严格为正的候选值，并在解释选择结果前检查 `mean_mse` 和 `best_score_` 是否有限。返回估计器不代表搜索有效。自动网格使用正值。
+训练折核矩阵奇异时，显式的零 alpha 可能产生非有限 CV 得分，却仍被选中。请使用严格为正的候选值，并在解释选择结果前检查 `mean_mse` 和 `best_score_` 是否有限。能够返回拟合对象，并不保证搜索结果有效。自动网格使用正值。
 
 <a id="kernel-cv-workflow"></a>
 
 ### 在训练折内选择 alpha
 
-先运行[训练集与留出集的 CPU 流程](#kernel-cpu-workflow)。下面复用该节的 `np`、`X_train`、`y_train`、`X_test` 和 `y_test`，保持相同的 `gamma=0.7`，只在训练行中选择 `alpha`。
+先运行[训练集与留出集的 CPU 流程](#kernel-cpu-workflow)。下面继续使用该节的 `np`、`X_train`、`y_train`、`X_test` 和 `y_test`，保持相同的 `gamma=0.7`，只在训练行中选择 `alpha`。
 
 ```python
 from statgpu.nonparametric.kernel_methods import KernelRidgeCV
@@ -131,18 +110,13 @@ print("Selected alpha:", kr_cv.alpha_)
 print("CV model held-out R2 / MSE:", held_out_r2, held_out_mse)
 ```
 
-`best_score_` 汇总训练数据上的交叉验证折，不是留出集结果。这里展示两种拟合的留出得分是为了说明评估方法，不应用这些测试行继续调参。
+`best_score_` 汇总训练数据上的交叉验证折，不是留出集结果。这里的留出 R² 和 MSE 用于说明评估方法，不应用这些测试行继续调参。
 
 ## Kernel PCA
 
-对中心化核矩阵 $\widetilde K$，Kernel PCA 执行
-
-$$
-\widetilde K = V\Lambda V^\top.
-$$
-
-最大特征值对应的特征向量定义非线性主成分。变换新数据时，需要计算测试集到训练集的核矩阵，
-应用训练期中心化量，并投影到保留的成分。
+`KernelPCA` 根据观测之间的核相似度学习非线性坐标，不需要响应变量。与普通 PCA
+直接寻找原始特征的线性组合不同，核主成分描述核所定义的特征空间中的变化。
+`n_components` 指定最多保留多少个坐标；实际维数还取决于中心化后的训练核中可用的正特征值方向。
 
 ### 学习并复用非线性坐标
 
@@ -164,34 +138,11 @@ print(test_coordinates.shape)
 
 `(60, 3)` 表示 60 行、三个非线性坐标，不是三个响应预测。
 
-### 重新拟合失败后
-
-KernelPCA 的重新拟合被拒绝后，训练核的中心化信息可能已经更新，但旧特征向量
-和已拟合标记仍然保留。有限的常数数据就可能触发这种情况，因为中心化核没有
-正特征值方向。此后调用 `transform` 或 `predict`，即使查询原训练数据，也可能
-得到有限但错误的坐标。因此，仅检查输出是否有限无法识别这种新旧状态混用。
-
-如果 `fit` 或 `fit_transform` 抛出异常，应丢弃该实例。请新建 KernelPCA，
-用适合的数据成功拟合后再变换查询点，不要继续使用看似仍然保留的旧拟合。
-新实例也会拒绝同样的退化数据；重新创建对象并不能让零秩核产生有效嵌入。
-
 ## Nystroem 近似
 
-Nystroem 选择 $m$ 个代表节点，并构造显式近似特征映射。若代表节点核矩阵为
-
-$$
-K_{mm}=V\Lambda V^\top,
-$$
-
-则变换特征具有形式
-
-$$
-Z=K_{nm}V\Lambda^{-1/2}V^\top.
-$$
-
-对半正定核，这是当前输出采用的对称逆平方根方向。实现实际用 NumPy SVD 计算 $K_{mm}=U\Sigma V^\top$，归一化矩阵为 $U\max(\Sigma,10^{-12}I)^{-1/2}V^\top$。输出保留全部 $m$ 个选定节点；`eigenvalues_` 存放截断后的奇异值，即使核矩阵不定也如此。不定核并不对应精确的欧氏特征表示。
-
-当 $m\ll n$ 时，这会用 $n\times m$ 特征矩阵替代完整的 $n\times n$ 核表示。
+`Nystroem` 从训练数据中选取少量代表节点，用每条观测与这些节点的相似度构造
+近似核特征。它适合完整核矩阵过大，或需要将同一组特征交给不同下游模型的场景。
+`n_components` 控制节点数，也决定输出列数（最多为训练样本数）。
 
 ### 构造较小的核特征矩阵
 
@@ -230,6 +181,34 @@ print("Held-out relative kernel approximation error:", relative_kernel_error)
 <!-- example-end: kernel-methods-cpu -->
 
 误差越小，说明这些行上 `Z @ Z.T` 与精确核越接近，不代表响应预测一定更好。完整核无法容纳时，不应照搬此诊断。
+
+## 可选 GPU 示例
+
+先完成[在训练折内选择 alpha](#kernel-cv-workflow)。下面继续使用该节的 `KernelRidgeCV`、`X_train`、`y_train`、`X_test` 和已配置的 `kr_cv`，只更改设备。根据安装情况选择一个代码段；每个代码段都需要可工作的 CUDA 后端。
+
+### CuPy
+
+<!-- example-requires: kernel-methods-cpu -->
+<!-- example: kernel-methods-cupy -->
+```python
+gpu_options = {**kr_cv.get_params(), "device": "cuda"}
+kr_cupy = KernelRidgeCV(**gpu_options).fit(X_train, y_train)
+prediction_cupy = kr_cupy.predict(X_test)
+```
+<!-- example-end: kernel-methods-cupy -->
+
+### Torch CUDA
+
+<!-- example-requires: kernel-methods-cpu -->
+<!-- example: kernel-methods-torch -->
+```python
+gpu_options = {**kr_cv.get_params(), "device": "torch"}
+kr_torch = KernelRidgeCV(**gpu_options).fit(X_train, y_train)
+prediction_torch = kr_torch.predict(X_test)
+```
+<!-- example-end: kernel-methods-torch -->
+
+`device="cuda"` 请求 CuPy CUDA，`device="torch"` 请求 Torch CUDA。KernelPCA/Nystroem 仅成功选择后端并不能证明输出位于 GPU，详见下文。
 
 ## 内置核
 
@@ -278,7 +257,7 @@ Nystroem(kernel='rbf', n_components=100, gamma=None, degree=3, coef0=1, random_s
 
 `X` 应为有限数值矩阵 `(n,p)`，预测时须保持特征顺序。一维 `X` 表示单个特征的多行观测，不表示一个多维查询点。估计器将数值输入转为 float64。记查询行数为 `q`，响应列数为 `r`；KernelPCA 保留 `k <= min(n_components,n)` 个正方向，Nystroem 使用 `m=min(n_components,n)` 个代表节点。
 
-| 类 | 完整模型专属方法调用 | 返回值与限制 |
+| 类 | 方法调用 | 返回值与限制 |
 |---|---|---|
 | KernelRidge | `fit(X, y, sample_weight=None)`、`predict(X)`、`score(X, y)` | `fit` 返回 `self`；`y` 为 `(n,)` 或 `(n,r)`。当前忽略权重。单个响应的预测为 `(q,)`，包括训练时传单列矩阵的情况；多响应为 `(q,r)`。 |
 | KernelRidgeCV | `fit(X, y)`、`predict(X)`、`score(X, y)` | 响应与预测形状同上；`fit` 返回 `self`。没有样本权重参数。预测和评分委托给 `estimator_`。 |
@@ -294,6 +273,10 @@ Nystroem(kernel='rbf', n_components=100, gamma=None, degree=3, coef0=1, random_s
 | KernelRidgeCV | `alpha_`、`best_score_`、`cv_results_` 的含义见前文；`estimator_` 为最终 KernelRidge；`dual_coef_`、`X_fit_` 引用其数组。特征数请读取 `estimator_.n_features_in_`。CV 结果数组为 NumPy。 |
 | KernelPCA | NumPy `lambdas_` `(k,)` 为保留的中心化核正特征值；NumPy `alphas_` `(n,k)` 为特征向量除以对应特征值平方根；NumPy `X_fit_` `(n,p)`；整数 `n_samples_`、`n_features_in_`。只保留超过数值阈值的特征值；没有正方向时抛出错误。 |
 | Nystroem | NumPy `components_` `(m,p)`、`component_indices_` `(m,)`、`normalization_` `(m,m)`、`eigenvalues_` `(m,)`；整数 `n_features_in_`。历史名称 `eigenvalues_` 实际存放经过下限截断的奇异值。`m=min(n_components,n_training_rows)`。 |
+
+### 交叉验证结果的组织
+
+选择标准是验证 MSE，对各折和各响应列等权平均。`alpha_` 是选中的值；`best_score_` 是该值对应的平均折内 R²，不是用于选择的 MSE。`cv_results_` 包含 `alphas`、`mean_mse`、`mse_table`、`mean_r2`、`r2_table`、`best_alpha` 和 `best_score`。表格数组形状为 `(n_alphas, n_folds, n_targets)`，均值数组为 `(n_alphas, n_targets)`。
 
 ## 完整成对核函数 API
 
@@ -338,37 +321,77 @@ np.testing.assert_allclose(explicit, implicit)
 
 实现参考：[KernelRidge](../../../statgpu/nonparametric/kernel_methods/_krr.py)、[KernelRidgeCV](../../../statgpu/nonparametric/kernel_methods/_krr_cv.py)、[KernelPCA](../../../statgpu/nonparametric/kernel_methods/_kpca.py)、[Nystroem](../../../statgpu/nonparametric/kernel_methods/_nystroem.py) 和[成对核函数](../../../statgpu/nonparametric/kernel_methods/_kernels.py)。
 
-## 可选 GPU 示例
+## 进一步理解核方法
 
-先完成[在训练折内选择 alpha](#kernel-cv-workflow)。下面复用该节的 `KernelRidgeCV`、`X_train`、`y_train`、`X_test` 和已配置的 `kr_cv`，只更改设备。根据安装情况选择一个代码段；每个代码段都需要可工作的 CUDA 后端。
+### 核岭回归
 
-### CuPy
+给定训练核矩阵 $K$，核岭回归求解对偶线性系统
 
-<!-- example-requires: kernel-methods-cpu -->
-<!-- example: kernel-methods-cupy -->
-```python
-gpu_options = {**kr_cv.get_params(), "device": "cuda"}
-kr_cupy = KernelRidgeCV(**gpu_options).fit(X_train, y_train)
-prediction_cupy = kr_cupy.predict(X_test)
-```
-<!-- example-end: kernel-methods-cupy -->
+$$
+(K+\alpha I)c=y.
+$$
 
-### Torch CUDA
+当核矩阵半正定时，对应的再生核希尔伯特空间（RKHS）惩罚目标为
 
-<!-- example-requires: kernel-methods-cpu -->
-<!-- example: kernel-methods-torch -->
-```python
-gpu_options = {**kr_cv.get_params(), "device": "torch"}
-kr_torch = KernelRidgeCV(**gpu_options).fit(X_train, y_train)
-prediction_torch = kr_torch.predict(X_test)
-```
-<!-- example-end: kernel-methods-torch -->
+$$
+\min_c \lVert y-Kc\rVert_2^2+\alpha c^\top Kc.
+$$
 
-`device="cuda"` 请求 CuPy CUDA，`device="torch"` 请求 Torch CUDA。KernelPCA/Nystroem 仅成功选择后端并不能证明输出位于 GPU，详见下文。
+损失使用残差平方和，不除以样本量。$K$ 正定时，一阶条件给出上述线性系统；$K$ 半正定但奇异时，$\alpha>0$ 的同一系统选定一组实现最优拟合函数的系数。仅惩罚 $\lVert c\rVert^2$ 会得到另一种估计量。不定核没有这一凸 RKHS 解释。
+
+测试样本预测为
+
+$$
+\hat y_{test}=K(X_{test},X_{train})c.
+$$
+
+`KernelRidge` 直接求解正则化线性系统。若求解抛出线性代数错误，会逐步增大对角扰动后重试；稳定化后的结果不一定精确满足原系统。建议使用尺度合适的正 `alpha`。兼容的响应矩阵可用于多输出回归。
+
+`fit(X, y, sample_weight=None)` 当前会忽略传入的 `sample_weight`，并不拟合加权目标。请省略该参数，仅用于不加权的分析。如果需求只是排除某些行，可以在拟合前删除零权重行；这不能实现任意的加权拟合。
+
+### 核主成分的计算
+
+对中心化核矩阵 $\widetilde K$，Kernel PCA 执行
+
+$$
+\widetilde K = V\Lambda V^\top.
+$$
+
+最大特征值对应的特征向量定义非线性主成分。变换新数据时，需要计算测试集到训练集的核矩阵，
+应用训练期中心化量，并投影到保留的成分。
+
+### Nystroem 的特征映射
+
+Nystroem 选择 $m$ 个代表节点，并构造显式近似特征映射。若代表节点核矩阵为
+
+$$
+K_{mm}=V\Lambda V^\top,
+$$
+
+则变换特征具有形式
+
+$$
+Z=K_{nm}V\Lambda^{-1/2}V^\top.
+$$
+
+对半正定核，这是输出所用的对称逆平方根形式。实现实际用 NumPy SVD 计算 $K_{mm}=U\Sigma V^\top$，归一化矩阵为 $U\max(\Sigma,10^{-12}I)^{-1/2}V^\top$。输出保留全部 $m$ 个选定节点；`eigenvalues_` 存放截断后的奇异值，即使核矩阵不定也如此。不定核并不对应精确的欧氏特征表示。
+
+当 $m\ll n$ 时，这会用 $n\times m$ 特征矩阵替代完整的 $n\times n$ 核表示。
 
 ## 后端与执行边界
 
-KernelRidge/CV 的核矩阵与求解使用所选后端。KernelPCA 通常在所选后端分解，但发生线性代数异常时，会转到 NumPy CPU 特征分解，且没有单独的回退标记。其保存的训练数据和投影系数也为 NumPy 数组，不能假定拟合始终驻留在设备上。Nystroem 混合使用 CPU 和所选后端：它将选定节点复制到 NumPy，在 CPU 上构造节点核矩阵并完成 SVD，随后使用所选数组库构造查询到节点的核矩阵并返回特征，但实际设备受下述限制。自定义 Nystroem 核也必须支持 NumPy 节点输入。节点索引、归一化矩阵和奇异值保留为主机数组；不能把 GPU Nystroem 拟合理解为全程在设备端分解。显式请求不可用设备会报错。
+四类估计器都接受 `device`，但核矩阵构造、分解和输出不一定全在同一设备上：
+
+- **KernelRidge / KernelRidgeCV**：核矩阵构造和求解使用所选后端。
+- **KernelPCA**：通常在所选后端分解；若发生线性代数异常，会改用 NumPy 在 CPU
+  上进行特征分解，且没有单独的回退标记。保存的训练数据和投影系数也是 NumPy
+  数组，因此不能假定整个拟合过程都在 GPU 上完成。
+- **Nystroem**：将选定节点复制到 NumPy，在 CPU 上构造节点核矩阵并完成 SVD，
+  随后使用所选数组库计算查询点到节点的核矩阵并返回特征，实际设备还受下述限制。
+  自定义核也必须接受 NumPy 节点输入。节点索引、归一化矩阵和奇异值保存在 CPU
+  内存中；选择 GPU 不会把节点分解移到 GPU。
+
+显式请求不可用的设备会报错。
 
 Torch CUDA 不可用时，KernelPCA 与 Nystroem 仍会拒绝 `device="torch"`。通过该检查并不保证 CUDA 执行：这些路径未始终将输入移到请求设备，因此 NumPy 或 Torch CPU 输入在拟合和变换时仍可能留在 CPU。请检查 `fit_transform`、`transform` 和 `predict` 实际返回的特征：Torch 查看 `.device`/`.is_cuda`，CuPy 查看 `.device`，不能仅依赖设备配置或选中的后端/数组库。两者的公开拟合数组按设计保留为 NumPy，不能证明数值计算所在设备。此限制还影响 Nystroem 的查询核与输出，须与有意安排在 CPU 的节点 SVD 区分。必须使用 CUDA 时，应在使用结果前拒绝 CPU 输出。需要明确的 CPU 路径时，请传入 NumPy 数组并设 `device="cpu"`。详见[设备说明](../guides/device-and-memory.md#current-smoothing-and-spline-exceptions)。
 
@@ -376,7 +399,9 @@ Torch CUDA 不可用时，KernelPCA 与 Nystroem 仍会拒绝 `device="torch"`�
 不保证计算得到的核矩阵或学习数组也是有限值；详见[结果有限性检查](#检查核拟合结果是否有限)。
 卡方核的输入必须非负。
 
-## 推断语义
+<a id="推断语义"></a>
+
+## 如何评价模型
 
 核方法当前不提供系数级标准误、假设检验或置信区间。模型质量通过预测分数、
 交叉验证损失、嵌入性质、重构或近似诊断以及应用相关验证进行评估。
@@ -390,9 +415,24 @@ Torch CUDA 不可用时，KernelPCA 与 Nystroem 仍会拒绝 `device="torch"`�
 - 直接核岭求解和稠密特征分解对训练样本数具有三次最坏计算复杂度。
 - `KernelRidgeCV` 可以在 alpha 间复用分解，但 CV 仍会增加各折的计算量。
 - `Nystroem` 将核存储降低到 $O(nm)$，另加代表节点上的线性代数运算。
-- GPU 收益依赖样本量、dtype、核、同步和可用显存；小问题可能 CPU 更快。
+- GPU 加速效果取决于样本量、数据类型、核函数、同步开销和可用显存；小问题可能 CPU 更快。
 
-## 限制与失败行为
+<a id="限制与失败行为"></a>
+
+## 数值问题与使用注意事项
+
+### 重新拟合失败后
+
+如果 `KernelPCA.fit` 或 `fit_transform` 抛出异常，应丢弃该实例。请新建
+`KernelPCA`，成功拟合后再变换查询点，不要继续使用看似仍然保留的旧拟合。
+
+原因是失败的重新拟合可能已经改写训练核的中心化信息，却仍保留旧特征向量和
+已拟合标记。此后调用 `transform` 或 `predict`，即使查询原训练数据，也可能
+得到有限但错误的坐标；仅检查输出是否有限无法识别这种新旧状态混用。
+
+有限的常数数据就可能触发该问题，因为中心化核没有正特征值方向。新实例也会
+拒绝同样的退化数据；需要调整数据或分析方法，重新创建对象本身不能让零秩核
+产生有效嵌入。
 
 ### 检查核拟合结果是否有限
 
@@ -401,7 +441,7 @@ Torch CUDA 不可用时，KernelPCA 与 Nystroem 仍会拒绝 `device="torch"`�
 NaN `gamma` 等无效核参数也可能产生这种结果。线性代数警告或没有抛出异常，都
 不能可靠证明拟合成功。
 
-应使用有限且适用于所选核的参数，并在使用前检查学习数组和查询输出。
+应使用有限且适用于所选核的参数，并在使用前检查拟合得到的数组和查询输出。
 对于 NumPy CPU 拟合，KernelRidge 检查 `np.isfinite(model.dual_coef_).all()`；
 Nystroem 检查 `np.isfinite(model.normalization_).all()` 和
 `np.isfinite(model.eigenvalues_).all()`。预测或变换特征也要检查；设备数组使用
@@ -410,18 +450,19 @@ Nystroem 检查 `np.isfinite(model.normalization_).all()` 和
 缩放会改变多项式相似度，因此预处理的选择和验证应在训练折内完成。数值有限只是
 必要条件，不能单独证明模型条件良好或适合分析目的。
 
-
+### RBF 坐标偏移过大时
 
 RBF 核遇到很大的共同坐标偏移时，请用训练数据确定一个偏移量，并同时从训练和查询特征中减去它。当前平方距离计算可能丢失相近点的差异：`1e9` 附近的坐标可能生成几乎全为 1 的核矩阵，显著改变预测。中心化保持预期的 RBF 核不变，但并非所有核的通用预处理规则，尤其不能直接套用于卡方核。
 
-- 核矩阵可能病态；必要时增大 `alpha` 或调整核尺度。
-- RBF 等核对 `gamma` 敏感。
-- 卡方核要求非负输入。
-- 大规模稠密精确核方法可能耗尽设备内存。
-- 用户自定义核负责满足所选估计器要求的后端、数据类型、形状和对称性要求。
-- 较多折数和较大的 alpha 网格会使 `KernelRidgeCV` 成本很高。
+### 其他使用注意事项
 
-## 验证方法
+核矩阵病态时，可尝试增大 `alpha` 或调整核尺度；RBF 等距离核尤其需要检查
+`gamma` 是否合适。自定义核还须满足所选估计器对后端、数据类型、矩阵形状和
+对称性的要求。大样本的内存成本与交叉验证开销见上文的复杂度说明。
+
+<a id="验证方法"></a>
+
+## 与其他实现核对结果
 
 核岭回归可直接验证正则化线性系统，或与 scikit-learn 对照，但须使用相同核、alpha、数据及不加权目标。交叉验证应检查各候选 MSE 是否有限，并确认最终重拟合沿用选定 alpha。比较 Nystroem 归一化矩阵或特征时，应对齐代表节点和 SVD 奇异值下限。CPU 检查不等于 GPU 精度或性能证据，应在实际使用的设备上验证。
 
@@ -429,12 +470,12 @@ RBF 核遇到很大的共同坐标偏移时，请用训练数据确定一个偏�
 
 ### 应使用 KernelRidge，还是 Nystroem 加线性模型？
 
-当完整训练核矩阵能放入内存且精确核表示重要时使用 Kernel Ridge；当需要可控低秩
+当完整训练核矩阵能放入内存且需要精确核表示时使用 `KernelRidge`；当需要可控低秩
 特征近似以扩展规模或复用特征时使用 Nystroem。
 
 ### 为什么 GPU 核方法可能比 CPU 慢？
 
-核构造和线性代数需要足够大，才能摊薄设备任务启动、同步和内存传输成本。
+核矩阵构造和线性代数运算的规模需要足够大，才能摊薄设备任务启动、同步和内存传输成本。
 
 ### `device="auto"` 会覆盖显式请求吗？
 
