@@ -71,6 +71,62 @@ def test_bilingual_examples_are_identical_and_self_contained(page):
     assert example_code(en, expected) == example_code(cn, expected)
 
 
+def _printed_output_tokens(output):
+    """Keep text/structure/nonzero tokens exact; ignore signs of numeric zero.
+
+    NumPy may pad a positive zero next to a bracket where negative zero had no
+    padding. Keep each bracket as a structural token, independent of spacing.
+    Match a zero mantissa lexically: converting to float could underflow a
+    genuinely nonzero value such as 1e-999 and hide a changed output.
+    """
+    zero = re.compile(r"[+-]?(?:0+(?:\.0*)?|\.0+)(?:[eE][+-]?\d+)?\Z")
+    tokens = re.findall(r"[\[\]]|[^\s\[\]]+", output)
+    return ["0" if zero.fullmatch(token) else token for token in tokens]
+
+
+@pytest.mark.parametrize("zero", (
+    "0", "+0", "-0", "0.", "+0.", "-0.", "0.000", "-0.000",
+    ".0", "+.0", "-.0", "0e0", "-0.0e-999", "+0.00E+999",
+))
+def test_printed_output_accepts_only_exact_zero_equivalence(zero):
+    expected = "values: [[-0. 1.] [2. -3.]]"
+    actual = f"values: [[ {zero} 1. ]\n [ 2. -3. ]]"
+    assert _printed_output_tokens(actual) == _printed_output_tokens(expected)
+
+
+@pytest.mark.parametrize("actual", (
+    "values: [[0. 1.001] [2. -3.]]",       # No tolerance for changed nonzero.
+    "values: [[1e-999 1.] [2. -3.]]",      # Do not mistake underflow for zero.
+    "values: [[-1e-999 1.] [2. -3.]]",
+    "values: [[0. 1.00] [2. -3.]]",        # Nonzero formatting is unchanged.
+    "values: [[0. +1.] [2. -3.]]",
+    "changed: [[0. 1.] [2. -3.]]",         # Text labels remain exact.
+    "value s: [[0. 1.] [2. -3.]]",
+    "values: [0. 1. 2. -3.]",             # Same values, different shape.
+    "values: [[0. 1. 2.] [-3.]]",
+    "values: [[1. 0.] [2. -3.]]",         # Order remains significant.
+    "values: [[0. 1.] [2. -3. 0.]]",       # Count remains significant.
+    "values: [[nan 1.] [2. -3.]]",
+    "values: [[inf 1.] [2. -3.]]",
+    "values: [[-0.x 1.] [2. -3.]]",        # Zero-like text is not a number.
+))
+def test_printed_output_rejects_nonzero_text_and_structure_changes(actual):
+    expected = "values: [[-0. 1.] [2. -3.]]"
+    assert _printed_output_tokens(actual) != _printed_output_tokens(expected)
+
+
+@pytest.mark.parametrize("language", ("en", "cn"))
+def test_graphical_lasso_output_accepts_ci_signed_zero_and_bracket_padding(language):
+    text = _read(language, "models/covariance-graphical-lasso")
+    expected = "\n".join(re.findall(r"```text\n(.*?)```", text, re.DOTALL))
+    # Reproduce the two displayed -0. entries becoming padded positive zeros
+    # in the hosted job, without changing any nonzero number or other output.
+    actual, count = re.subn(r"-0\.(?=\s|\])", " 0.", expected)
+    assert count == 2
+    assert actual.split() != expected.split()  # The former comparison fails.
+    assert _printed_output_tokens(actual) == _printed_output_tokens(expected)
+
+
 @pytest.mark.parametrize("language", ("en", "cn"))
 @pytest.mark.parametrize("page", ("covariance", *LESSONS))
 def test_every_printed_tutorial_output_matches_execution(language, page, capsys):
@@ -82,7 +138,7 @@ def test_every_printed_tutorial_output_matches_execution(language, page, capsys)
     with np.printoptions():
         _run(language, page)
     actual = capsys.readouterr().out
-    assert actual.split() == expected.split(), page
+    assert _printed_output_tokens(actual) == _printed_output_tokens(expected), page
 
 
 @pytest.mark.parametrize("language", ("en", "cn"))
