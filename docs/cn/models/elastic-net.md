@@ -7,7 +7,7 @@
 
 ## 概述
 
-`ElasticNet` 结合 L1 与 L2 正则化，在稀疏特征选择（Lasso）和系数收缩（Ridge）之间取得平衡。支持 CPU、CuPy GPU 与 PyTorch GPU。直接拟合统一使用**与后端无关的 `solver` 接口**；`device` 只负责决定在哪里执行。
+`ElasticNet` 用于连续响应的线性回归，结合 L1 与 L2 正则化，在稀疏特征选择（Lasso）和系数收缩（Ridge）之间取得平衡。
 
 ## 什么时候使用 Elastic Net？
 
@@ -124,9 +124,9 @@ $$
 \frac{1}{n} X^\top (X\hat{\beta} - y) + \alpha(1-\lambda)\hat{\beta} + \alpha\lambda \cdot \partial\|\hat{\beta}\|_1 = 0.
 $$
 
-对**直接单次拟合**，`solver` 在所有后端上都决定实际使用的算法。`device` 单独控制 CPU/CuPy/Torch 执行位置。历史 `cpu_solver` 参数已进入弃用流程，在统一引擎中不再代表第二套 CPU 直接拟合求解器。参见 [惩罚模型求解器 API 迁移指南](../guides/penalized-solver-api-migration.md)。
-
 ## 估计算法
+
+直接拟合支持 CPU、CuPy GPU 与 PyTorch GPU。`solver` 在所有后端上都决定实际使用的算法，`device` 单独控制执行位置。历史 `cpu_solver` 参数已进入弃用流程，不再决定直接拟合使用的 CPU 算法。参见 [惩罚模型求解器 API 迁移指南](../guides/penalized-solver-api-migration.md)。
 
 默认使用 **FISTA**（快速迭代收缩阈值算法），也就是带 Nesterov 加速的近端梯度法。其他求解器能否使用，以公开的求解器兼容性约束为准。
 

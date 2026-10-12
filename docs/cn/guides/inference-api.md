@@ -7,7 +7,7 @@
 
 `statgpu.inference` 汇总可复用的统计工具，包括概率分布、多重检验、p 值合并、排列检验与自助法（bootstrap）。
 
-本页只作为**模块入口**。分布函数的详细行为统一放在 [分布 API](distribution-api.md)；模型系数推断的方法选择统一放在 [推断模式](inference-modes.md)。
+本页提供模块导航、常用示例与重采样接口说明。分布函数的详细行为见 [分布 API](distribution-api.md)；模型系数推断的方法选择见 [推断模式](inference-modes.md)。
 
 ## 快速参考
 
@@ -109,17 +109,6 @@ print(result.confidence_interval)
 
 这个通用工具与模型专属的推断模式并不是同一件事。例如，惩罚 Gaussian 模型的残差自助法有自己的统计定义。如果目标是已拟合模型的系数推断，应先查看 [推断模式](inference-modes.md)，不要假定通用自助法会自动复现某个模型专属的推断程序。
 
-## 文档导航
-
-可以按问题选择页面：
-
-- **如何在 NumPy/CuPy/Torch 上计算概率分布？** → [分布 API](distribution-api.md)
-- **如何选择多重检验或 P 值合并方法？** → [多重检验原理](../models/multiple-testing.md)
-- **如何调用校正与合并函数？** → [校正与合并 API](multiple-testing-combine-pvalues.md)
-- **如何运行通用排列检验或自助法？** → 本页
-- **回归估计器应该选择哪种推断方法？** → [推断模式](inference-modes.md)
-- **惩罚 GLM 系数推断的统计目标是什么？** → [惩罚 GLM 推断](penalized-glm-inference.md)
-
 ## 估计器包装方法
 
 [估计器共享 API](../reference/estimator-api.md)列出继承辅助方法的全部参数与返回字段，并说明它们与独立函数的差异，包括 p 值结果的字典/元组形式及额外向量化控制。
@@ -201,3 +190,14 @@ print(result.observed, result.pvalue)
 相关系数约为 `0.903`，置换 p 值介于 0 和 1 之间。该检验要求零假设下响应在**指定的各组内部可交换**。辅助函数会拒绝 NaN、无穷编码和不正确的标签形状，但不会判断分组是否有统计意义。应从数据来源补齐缺失的组别，或明确采用合适的缺失数据处理方案，不要仅为运行计算而把所有未知身份归入一个人为群组。bootstrap 的分层和群组标签同样需要检查；不等大小群组的限制仍然适用。
 
 `alternative="two-sided"` 统计满足 `abs(resampled) >= abs(observed)` 的次数，并作加一修正。因此应选择以零为原假设参照点、绝对值能够衡量极端程度的统计量，例如检验零相关时的相关系数。工具不会自动把统计量中心化，也不会为不对称的零假设分布构造等尾检验。若事先指定了单向备择假设，应相应使用 `"greater"` 或 `"less"`。
+
+## 文档导航
+
+可以按问题选择页面：
+
+- **如何在 NumPy/CuPy/Torch 上计算概率分布？** → [分布 API](distribution-api.md)
+- **如何选择多重检验或 P 值合并方法？** → [多重检验原理](../models/multiple-testing.md)
+- **如何调用校正与合并函数？** → [校正与合并 API](multiple-testing-combine-pvalues.md)
+- **如何运行通用排列检验或自助法？** → 本页
+- **回归估计器应该选择哪种推断方法？** → [推断模式](inference-modes.md)
+- **惩罚 GLM 系数推断的统计目标是什么？** → [惩罚 GLM 推断](penalized-glm-inference.md)

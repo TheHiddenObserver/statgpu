@@ -8,9 +8,8 @@
 
 ## 快速开始
 
-- [完整 API 参考](README.md#完整-api-参考) — 构造参数、方法、参数取值与结果属性
-
 - [快速入门](getting-started/quickstart.md) — 安装、第一次拟合、预测与设备选择
+- [完整 API 参考](README.md#完整-api-参考) — 构造参数、方法、参数取值与结果属性
 - [已实现方法](guides/implemented-methods.md) — 公开估计器与方法清单
 - [设备与 GPU 内存](guides/device-and-memory.md) — CPU/CUDA/Torch 行为与内存控制
 - [交叉验证](guides/cross-validation.md) — 数据折、调参网格、参数选择与最终重拟合

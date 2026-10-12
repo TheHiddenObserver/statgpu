@@ -92,13 +92,17 @@ assert np.allclose(transformer.transform([[2.5]]), transformer.transform([[2.0]]
 采用不同外推假设，结果可能迅速增大。对于含噪声数据，应在训练折内选择节点数和
 后续模型的正则化参数，再用独立测试集评估预测。
 
-## 概览（Overview）
+<a id="概览overview"></a>
 
-样条模块提供 `bspline_basis`、`natural_cubic_spline_basis`、`cyclic_cubic_spline_basis`、`thin_plate_spline_basis` 以及 sklearn 风格的 `SplineTransformer`。函数通过显式 `xp` 选择 NumPy、CuPy 或 Torch；`xp=None` 使用 NumPy，不根据输入自动推断。`natural_cubic_spline_basis` 用数值约束投影三次基，近似限制端点曲率为零。SplineTransformer 使用后端原生 Cox–de Boor 递推。
+## 从变换器到基函数接口
+
+上面的流程使用 sklearn 风格的 `SplineTransformer` 保存并复用训练节点。若需要自行控制基函数构造，样条模块还提供 `bspline_basis`、`natural_cubic_spline_basis`、`cyclic_cubic_spline_basis`、`thin_plate_spline_basis`。这些函数通过显式 `xp` 选择 NumPy、CuPy 或 Torch；`xp=None` 使用 NumPy，不根据输入自动推断。`natural_cubic_spline_basis` 用数值约束投影三次基，近似限制端点曲率为零。SplineTransformer 使用后端原生 Cox–de Boor 递推。
 
 使用这些基函数的广义可加模型（GAM）请参见 [GAM](semiparametric.md)。
 
-## 路径（Path）
+<a id="路径path"></a>
+
+### 导入路径
 
 - `statgpu.nonparametric.splines.bspline_basis`
 - `statgpu.nonparametric.splines.natural_cubic_spline_basis`
@@ -106,7 +110,9 @@ assert np.allclose(transformer.transform([[2.5]]), transformer.transform([[2.0]]
 - `statgpu.nonparametric.splines.thin_plate_spline_basis`
 - `statgpu.nonparametric.splines.SplineTransformer`
 
-## 目标函数（Objective Function）
+<a id="目标函数objective-function"></a>
+
+## 基函数如何构造
 
 **B 样条基**通过 De Boor 递归计算。零次基函数为：
 
@@ -142,9 +148,11 @@ $\phi(r)=r^2\log r$。径向部分的一般形式为：偶数维使用 $r^{2m-d}
 - `linear`：沿边界切线延拓；
 - `continue`：继续边界处的多项式片段。
 
-## 估计方程（Estimating Equation）
+<a id="估计方程estimating-equation"></a>
 
-评估采用直接递推，无需求解回归系统。SplineTransformer 使用后端原生递推构造完整基矩阵；实际设备放置受下文所述限制。
+### 基函数计算与响应拟合的区别
+
+上述接口只构造基矩阵，不估计响应模型的系数。`SplineTransformer` 使用后端原生递推计算 B 样条基，无需求解回归系统；实际设备放置受下文所述限制。要预测响应，还需像开头示例一样，将基矩阵交给回归模型。
 
 ## 协方差 / 推断（Covariance / Inference）
 

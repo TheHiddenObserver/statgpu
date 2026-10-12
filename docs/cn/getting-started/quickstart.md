@@ -112,7 +112,7 @@ print(model.score(X, y))
 ## 推荐下一步
 
 - [设备与显存管理](../guides/device-and-memory.md)
-- [推断配置（Lasso）](../guides/inference-modes.md)
+- [选择推断方法](../guides/inference-modes.md)
 - [模型总览](../models/README.md)
-- [基准脚本索引](../guides/benchmarks.md)
+- [基准面板与结果解读](../guides/benchmarks.md)
 - [变更记录](../changelog.md)

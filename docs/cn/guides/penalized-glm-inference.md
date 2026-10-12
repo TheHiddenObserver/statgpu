@@ -9,26 +9,13 @@
 
 `PenalizedGeneralizedLinearModel` 与各类具体的惩罚 GLM 估计器通过 `compute_inference`、`inference_method` 和 `cov_type` 提供系数推断。
 
-对于通用接口，通常可以先从
+先根据损失函数和惩罚项确认下表中的支持范围。对于支持自动选择推断方法的组合，可以从
 
 ```python
 inference_method="auto"
 ```
 
 开始。
-
-成功完成推断后，模型会区分调用者请求的方法与最终实际解析得到的方法。相关已拟合属性包括：
-
-- `inference_requested_method_`；
-- `inference_resolved_method_`；
-- `inference_method_`；
-- `inference_target_`；
-- `penalty_conditioning_`；
-- `penalty_selection_adjusted_`。
-
-这些字段在有值时用于说明报告的不确定性究竟对应哪个统计参数，尤其适用于带惩罚拟合或经过 CV 选择之后的结果。
-
-当前 `post_selection_ols` 会把上述公开推断信息字段保留为 `None`；实际方法和所选活跃集的重拟合信息应查看 `model._inference_result.method` 与 `model._inference_result.metadata`，`params` 保存重拟合估计值。公开字段为空并不表示未执行推断。可运行示例见[选择后 OLS](inference-modes.md#post_selection_ols)。
 
 ## 支持概览
 
@@ -215,6 +202,21 @@ penalty_selection_adjusted_ = False
 Cox 分支仍然只提供估计，不提供这一系数推断接口。
 
 一般的选择与最终重拟合约定见 [交叉验证](cross-validation.md)。
+
+## 查看推断结果
+
+成功完成推断后，模型会区分调用者请求的方法与最终实际解析得到的方法。相关已拟合属性包括：
+
+- `inference_requested_method_`；
+- `inference_resolved_method_`；
+- `inference_method_`；
+- `inference_target_`；
+- `penalty_conditioning_`；
+- `penalty_selection_adjusted_`。
+
+这些字段在有值时用于说明报告的不确定性究竟对应哪个统计参数，尤其适用于带惩罚拟合或经过 CV 选择之后的结果。
+
+当前 `post_selection_ols` 会把上述公开推断信息字段保留为 `None`；实际方法和所选活跃集的重拟合信息应查看 `model._inference_result.method` 与 `model._inference_result.metadata`，`params` 保存重拟合估计值。公开字段为空并不表示未执行推断。可运行示例见[选择后 OLS](inference-modes.md#post_selection_ols)。
 
 ## 示例
 

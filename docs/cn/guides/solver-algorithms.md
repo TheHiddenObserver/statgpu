@@ -34,7 +34,7 @@ statgpu 提供一阶、二阶、近端和闭式等多类求解器。大多数模
 | ADMM | 可分/近端形式 | NumPy, CuPy, Torch |
 | `exact` | 平方误差 + L2 闭式路径 | NumPy, CuPy, Torch |
 
-后端列只说明数值实现能力；具体模型和损失函数还会进一步限制可用组合。Quantile/check loss 就属于这种情况：普通 FISTA 可用于受支持的凸稀疏模型，也可以在 Quantile L2/无惩罚目标上被显式请求；这些 L2/无惩罚组合的 `solver="auto"` 仍优先选择 IRLS。这里的 Quantile FISTA 是明确支持的一阶近端/次梯度方法，但并不意味着 pinball loss 满足教科书中光滑梯度 FISTA 的收敛假设。FISTA-BB、共享 ADMM、Newton、Proximal Newton 与 L-BFGS-B 都不支持 Quantile；只有底层直接调用普通 L-BFGS 时，才允许未传权重或均匀权重的 Quantile 调用。模型/CV 层不支持 Quantile `solver="lbfgs"`，真正非均匀的 Quantile L-BFGS 权重也会直接报错。
+后端列只说明数值实现能力；具体模型、损失函数、惩罚项与权重还会限制可用组合。选择估计器的求解器时，请先查[兼容性矩阵](solver-penalty-matrix.md)。分位数损失的非光滑性及底层调用与模型接口的差别，见[分位数求解器的适用范围](#quantile-solver-scope)。
 
 ---
 
@@ -1488,6 +1488,14 @@ $$
 ## 分位数回归的底层求解器调用
 
 本节面向直接调用 `statgpu.solvers` 导出函数或 `QuantileLoss.irls()` 的读者。选择估计器时，请参阅[分位数回归指南](../models/quantile.md)和[兼容性矩阵](solver-penalty-matrix.md)。
+
+<a id="quantile-solver-scope"></a>
+
+### 适用范围与模型接口的区别
+
+分位数回归的 check（pinball）损失是非光滑的。普通 FISTA 可用于受支持的凸稀疏模型，也可以在 Quantile L2/无惩罚目标上被显式请求；这些 L2/无惩罚组合的 `solver="auto"` 仍优先选择 IRLS。这里的 Quantile FISTA 是明确支持的一阶近端/次梯度方法，但并不意味着 pinball loss 满足教科书中光滑梯度 FISTA 的收敛假设。
+
+FISTA-BB、共享 ADMM、Newton、Proximal Newton 与 L-BFGS-B 都不支持 Quantile；只有底层直接调用普通 L-BFGS 时，才允许未传权重或均匀权重的 Quantile 调用。模型/CV 层不支持 Quantile `solver="lbfgs"`，真正非均匀的 Quantile L-BFGS 权重也会直接报错。
 
 ### 输入与权重支持
 

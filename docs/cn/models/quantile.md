@@ -60,6 +60,19 @@ print("Held-out pinball loss:", round(float(pinball_loss), 3))
 预测形状为 `(80,)`，前三项约为 `[1.429, 1.455, 1.632]`。留出 pinball 损失约为 `0.255`；固定数据和目标分位数时越小越好。`score` 返回其负值，不是 R²。一个分位数预测不是单次未来观测的置信区间。
 <!-- example-end: quantile-basic -->
 
+<a id="输出"></a>
+
+## 输入与输出
+
+拟合时，特征矩阵 `X` 必须为二维，响应 `y` 为一维，二者行数一致；估计器也接受单列 `(n_samples, 1)` 响应，并将其展平。两个输入都必须只包含有限实数。其他输入形状或非法数值会报错。在支持带权拟合的路径上，`sample_weight` 必须是一维有限非负向量，每条观测对应一个权重，且权重总和为正。[底层 Quantile 求解器参考](../guides/solver-algorithms.md#quantile-low-level-solvers) 说明直接调用求解器时的参数要求，包括延续路径控制。
+
+| 属性 | 类型 | 说明 |
+|---|---|---|
+| `coef_` | `(p,)` float | 估计系数 |
+| `intercept_` | float | 截距 |
+| `n_iter_` | int | 迭代次数 |
+| `quantile` | float | 目标分位数 |
+
 ## 参数选择与常见问题
 
 - 根据问题选择 `quantile`，不要通过挑选训练损失最小的分位数来改变研究目标。极端分位数需要更多数据。
@@ -343,22 +356,12 @@ L2 路径在左侧加入相应的 Ridge 对角项；截距坐标不参与惩罚�
 
 Quantile/check loss 本身非光滑，因此这里不应解释为满足经典光滑梯度 FISTA 的全部理论假设。statgpu 使用注册的 Quantile 次梯度、已有的一阶步长策略以及所请求惩罚项的近端算子。该路径用于显式算法控制以及凸稀疏 Quantile 路径；L2/无惩罚的自动策略仍然是 IRLS。
 
-## 输出
-
-| 属性 | 类型 | 说明 |
-|---|---|---|
-| `coef_` | `(p,)` float | 估计系数 |
-| `intercept_` | float | 截距 |
-| `n_iter_` | int | 迭代次数 |
-| `quantile` | float | 目标分位数 |
-
 ## 说明
 
 - `QuantileRegression.score()` 与类型化封装 `PenalizedQuantileRegression.score()` 使用 check/pinball 损失，并返回其相反数，以符合 sklearn“越大越好”的约定。NumPy、CuPy 与 Torch 的响应变量/权重容器在受支持路径上均可直接传入；评分会将响应、权重和预测转为 NumPy，并返回 Python 标量。通用 `PenalizedGeneralizedLinearModel(loss="quantile")` 则保留共享的标量响应 `score()` 契约，因此返回响应尺度上的 R²；`PenalizedGLM_CV.score()` 委托给选中 α 后的最终重拟合模型。CV 的 `best_score_` 是验证集损失的相反数，与拟合后的 `score()` 本来就是不同指标。
 - `sample_weight` 支持是**损失函数 × 求解器 × 估计器**路径能力，而不是所有求解器自动拥有的属性。
 - 严格 Quantile 交叉验证对所有惩罚家族都要求每一折的验证得分为有限值。只有当对应求解器路径明确把某一折标记为目标 α 的收敛失败时，该折才不会计分；只有所有折都有有限得分的 α 才有候选资格。如果任一折拟合失败或携带这种明确的目标 α 收敛失败信号，则该 α 整列都视为无效，不能只对剩余有限折求均值。通用求解器单独发出 `ConvergenceWarning` 并不会自动抹去一个已经得到的有限候选结果。两阶段策略的第一阶段筛选仍有意采用较宽松的准则；所有折均需得到有限得分的要求在后续的严格精炼与严格选择阶段执行。选中 α 后的全数据最终重拟合沿用直接估计器的收敛报告语义，并可按该语义发出 `ConvergenceWarning`，而不是作为 CV 候选失败处理。
 - Quantile 非凸延续路径会拒绝停止控制的隐式类型转换。`max_iter` 必须是正整数，`tol` 必须是有限正实数；直接标量 SCAD/MCP 与自动 Group SCAD/MCP 还要求布尔型 `lla=True`、整数 `max_lla_iters` 和有限正数 `lla_tol`。当前自动 Quantile 延续路径包含 3 个 α 步骤，因此 `max_lla_iters` 至少为 3，才能保证每一步至少执行一次 LLA 更新。中间延续步骤使用缩减后的 IRLS 预算，但不会超过公开的 `max_iter`；目标步骤最多使用完整预算。显式 Group SCAD/MCP `solver="fista"` 不进入 LLA 延续路径，因此 `lla`、`max_lla_iters` 与 `lla_tol` 不控制这条显式算法。
-- 拟合时，特征矩阵 `X` 必须为二维，响应 `y` 为一维，二者行数一致；估计器也接受单列 `(n_samples, 1)` 响应，并将其展平。两个输入都必须只包含有限实数。其他输入形状或非法数值会报错。在支持带权拟合的路径上，`sample_weight` 必须是一维有限非负向量，每条观测对应一个权重，且权重总和为正。[底层 Quantile 求解器参考](../guides/solver-algorithms.md#quantile-low-level-solvers) 说明直接调用求解器时的参数要求，包括延续路径控制。
 - 显式请求的普通 L2/无惩罚 Quantile FISTA 受支持并按请求执行；Group SCAD/MCP 的显式 FISTA 同样不会被改写成自动的分组 Proximal IRLS-LLA。
 - FISTA-BB、公开直接 ADMM、Newton、Proximal Newton 与 L-BFGS-B 都不支持 Quantile，并会在进入数值迭代前报错。普通估计器/CV 层的 L-BFGS 同样不支持 Quantile；只有底层 `lbfgs_solver` 的未加权/均匀权重历史兼容边界继续保留。`quantile_cd_solver` 仅作为导入兼容符号保留，调用时会抛出 `NotImplementedError`。底层标量 SCAD/MCP 拟合请使用 `proximal_irls_quantile_solver`。
 - 受支持的 GPU 路径不会静默回退到 CPU。

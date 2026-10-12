@@ -5,17 +5,34 @@
 > 页面定位：模型文档  
 > 切换：[英文版](../../en/models/generalized-linear-model.md)
 
+广义线性模型（GLM）用于研究响应变量与特征之间的关系，并预测给定特征时响应的平均水平。例如，可以用它预测某类事件的发生次数、二分类事件的发生概率，或始终为正的连续测量值。不同类型的响应需要不同的分布假设，GLM 为这些问题提供了统一的建模方式。
+
 ## 如何选择响应模型
 
-GLM 通过链接函数，将线性预测子与响应的条件均值联系起来。连续响应且均值关系近似线性时可用 Gaussian/identity；0/1 响应用 binomial/logit；计数响应用 Poisson/log。Log 链接使预测均值保持为正，系数取指数后表示条件均值的倍数变化；若没有额外假设，不能把它解释为因果效应。
+建立 GLM 时，需要区分两个概念：**分布族**描述响应的分布及其均值与方差的关系；**链接函数**把响应的条件均值与特征的线性组合联系起来。这里的条件均值，就是给定特征时响应的平均水平；线性组合由截距加上各特征与其系数的乘积组成，也称为线性预测子。
 
-Poisson 假设条件方差等于均值。计数数据明显过度离散时可考虑负二项模型；严格为正的连续响应可考虑 Gamma 或逆高斯模型。分布族应根据响应类型和研究假设选择，不能只看训练误差。这些接口没有 offset/exposure 参数；把暴露量作为普通特征加入公式，会估计它的系数，而不是把系数固定为 1。
+可以先根据响应类型选择模型：
+
+- 连续响应的均值与特征近似呈线性关系时，可使用高斯分布族和恒等链接（Gaussian/identity），即直接对条件均值建模。
+- 对 0/1 响应，可使用二项分布族和 logit 链接（binomial/logit），对事件发生概率建模。
+- 对非负整数计数，可使用 Poisson 分布族和对数链接（Poisson/log），对期望计数建模。Poisson 假设条件方差等于条件均值；计数数据明显过度离散时，可考虑负二项模型。
+- 对严格为正的连续响应，可考虑 Gamma 或逆高斯模型。
+
+分布族应根据响应类型和研究假设选择，不能只看训练误差。使用对数链接时，预测均值保持为正；其他特征不变时，一个特征增加一单位，其系数的指数表示条件均值的倍数变化。若没有额外假设，不能把这种关系解释为因果效应。
+
+## 普通与带惩罚模型入口
+
+`GeneralizedLinearModel` 是普通广义线性模型（GLM）的统一入口，适用于高斯、二项、Poisson 等常见分布族。`GammaRegression`、`InverseGaussianRegression`、`NegativeBinomialRegression`、`TweedieRegression` 等专用模型类用于选择相应的分布族，并设置该模型支持的链接函数等选项。
+
+当需要通过惩罚项收缩系数或进行变量选择时，可以使用 `PenalizedGeneralizedLinearModel`，或 `PenalizedLinearRegression`、`PenalizedLogisticRegression`、`PenalizedPoissonRegression` 等具体封装类。`Ridge`、`Lasso`、`ElasticNet` 是遵循 sklearn 风格的便捷封装，适合希望沿用这类接口习惯的用户；它们拟合的仍是带惩罚的高斯回归。
+
+本页用“普通 GLM”区分上述两类接口，并不表示它默认执行无惩罚拟合：普通 GLM 默认的 `solver="auto"` 使用 IRLS，配合默认 `C=1` 会收缩斜率。若要进行无惩罚拟合，可设 `C=0`；不同求解器对 `C` 的处理见后文“目标函数与 `sample_weight`”。下面的 CPU 示例显式使用无惩罚 Newton 拟合。
 
 <a id="cpu-example"></a>
 
 ## 完整 CPU 示例
 
-依次运行以下步骤：准备计数数据、拟合、预测，最后按需加入系数推断。示例不需要 GPU 或公式依赖。
+下面用 Poisson 模型学习两个特征与期望计数之间的关系。依次准备计数数据、拟合模型、评价留出数据，最后按需计算系数区间。示例不需要 GPU 或公式依赖。
 
 ### 1. 导入
 
@@ -43,7 +60,7 @@ weights = np.linspace(0.5, 2.0, 180)
 
 ### 3. 拟合无惩罚模型
 
-`C=0` 明确表达无惩罚意图。这里显式选择 Newton；该求解器不使用 C。默认 auto/IRLS 配合正 C 则会加入岭惩罚，后文说明两种目标的区别。
+这里选择 Newton 求解器进行无惩罚拟合。Newton 不使用 `C`，示例仍写出 `C=0`，以便改用 IRLS 时也保持无惩罚目标；普通 GLM 默认的 auto/IRLS 配合正 `C` 会加入岭惩罚。
 
 ```python
 model = GeneralizedLinearModel(
@@ -54,7 +71,7 @@ print("Slopes:", np.round(model.coef_, 3))
 print("Mean multipliers:", np.round(np.exp(model.coef_), 3))
 ```
 
-该种子下斜率约为 `[0.402, -0.327]`，均值倍数约为 `[1.495, 0.721]`。保持另一特征不变，第一个特征增加一单位对应期望计数约增加 49.5%，第二个特征增加一单位对应约降低 27.9%。这些是关联，不是因果效应。
+该种子下斜率约为 `[0.402, -0.327]`，均值倍数约为 `[1.495, 0.721]`。保持另一特征不变，第一个特征增加一单位对应期望计数约增加 49.5%；第二个特征增加一单位对应期望计数约降低 27.9%。这些是关联，不是因果效应。
 
 ### 4. 预测并评价留出数据
 
@@ -65,7 +82,7 @@ print("Predicted means:", np.round(mean_prediction[:3], 3))
 print("Held-out Poisson loss:", round(float(heldout_loss), 3))
 ```
 
-预测数组为 `(60,)`，均值为正且可为小数；它不必像观测计数一样是整数。留出集损失约为 `0.556`，省略只与响应有关的对数阶乘项。只有在相同留出响应和权重下比较时，越小才越好；它不是准确率或普通 R²。该普通 GLM 类没有 `score` 或 `predict_proba` 方法。
+预测数组的形状为 `(60,)`，每个值都是相应观测的预测均值，为正且可为小数；它不必像观测计数一样是整数。留出集损失约为 `0.556`，省略只与响应有关的对数阶乘项。比较不同模型时，应使用相同的留出响应和权重，损失越小表示预测越好；它不是准确率或普通 R²。该普通 GLM 类没有 `score` 或 `predict_proba` 方法。
 
 ### 5. 可选：系数区间
 
@@ -77,45 +94,12 @@ model.fit(X[:180], y[:180], sample_weight=weights)
 print("Interval shape:", model._conf_int.shape)
 ```
 
-区间数组为 `(3, 2)`，先是截距，再是两列斜率。这些是渐近边际系数区间，不是未来计数的预测区间。`summary()` 返回字符串，可用 `print(model.summary())` 显示。
+区间数组的形状为 `(3, 2)`，三行依次对应截距和两个特征的斜率，两列分别为区间下限与上限。这些是渐近边际系数区间，不是未来计数的预测区间。`summary()` 返回字符串，可用 `print(model.summary())` 显示。
 <!-- example-end: glm-poisson -->
 
-## 普通与带惩罚模型入口
-
-`GeneralizedLinearModel` 是普通广义线性模型（GLM）的统一入口，适用于高斯、二项、Poisson 等常见分布族。`GammaRegression`、`InverseGaussianRegression`、`NegativeBinomialRegression`、`TweedieRegression` 等具体模型类在同一套 GLM 基础设施上提供各自的分布族和链接函数行为。
-
-需要正则化时，可以使用 `PenalizedGeneralizedLinearModel`，或 `PenalizedLinearRegression`、`PenalizedLogisticRegression`、`PenalizedPoissonRegression` 等具体封装类。`Ridge`、`Lasso`、`ElasticNet` 是遵循 sklearn 风格的便捷封装，底层仍使用带惩罚的高斯回归。
-
-如果主要关心**带权重的 GLM**，先记住四点即可：
-
-- `sample_weight` 在受支持的 GLM 路径中表示**目标函数中的分析权重**；
-- 加权损失按 `sum(sample_weight)` 归一化，因此把全部权重同时乘以同一个正数不会改变最优解；
-- `sample_weight` 不会改变显式指定的 `solver`；如果组合不受支持，则直接报错；
-- 显式 `device="cuda"` 与 `device="torch"` 在受支持的路径中分别使用 CuPy CUDA 与 Torch CUDA。
-
-带惩罚 GLM 的系数推断见 [带惩罚 GLM 推断](../guides/penalized-glm-inference.md)；完整求解器表见 [求解器 × 惩罚项兼容性矩阵](../guides/solver-penalty-matrix.md)。
-
-[GLM 专用类完整构造参数与方法](../reference/linear-model-api.md#typed-glm-constructors)
-列出分布族的链接、离散参数、幂次，以及不同惩罚封装的默认值。
-名称相近不代表可以互换构造参数。
-
-## 公开入口
-
-- `statgpu.linear_model.GeneralizedLinearModel`
-- `statgpu.linear_model.PoissonRegression`
-- `statgpu.linear_model.GammaRegression`
-- `statgpu.linear_model.InverseGaussianRegression`
-- `statgpu.linear_model.NegativeBinomialRegression`
-- `statgpu.linear_model.TweedieRegression`
-- `statgpu.linear_model.PenalizedGeneralizedLinearModel`
-- `statgpu.linear_model.PenalizedLinearRegression`
-- `statgpu.linear_model.PenalizedLogisticRegression`
-- `statgpu.linear_model.PenalizedPoissonRegression`
-- `statgpu.linear_model.Ridge`
-- `statgpu.linear_model.Lasso`
-- `statgpu.linear_model.ElasticNet`
-
 ## 目标函数与 `sample_weight`
+
+拟合模型时，需要先明确优化的是无惩罚损失，还是加入正则化项的目标；权重则决定各条观测对数据拟合损失的贡献。
 
 设 n 为观测数，$x_i$ 为特征向量，$\beta$ 为斜率向量，b 为不受惩罚的截距。记 $\eta_i=b+x_i^\top\beta$；`fit_intercept=False` 时令 b=0。**无惩罚**的数据拟合目标为相应分布族的平均负对数似然，采用该分布族的离散度约定：
 
@@ -129,7 +113,7 @@ $$
 L_w(b,\beta)=\frac{\sum_i w_i\ell(y_i,\eta_i)}{\sum_i w_i}.
 $$
 
-权重必须有限、非负且总和为正。零权重观测不贡献数据拟合损失；所有权重同乘一个正常数，不改变该目标。
+权重必须有限、非负且总和为正。零权重观测不贡献数据拟合损失；所有权重同乘一个正常数，不改变该目标。这里的 `sample_weight` 表示分析权重，而不是重复行数或重抽样概率。传入权重不会改变显式指定的求解器；不支持的组合会直接报错。
 
 **普通 GLM 不等于自动采用无惩罚拟合。** 对本页列出的普通分布族，默认 `solver="auto"` 使用 IRLS。普通 IRLS 在 C 为正时加入斜率的岭惩罚：
 
@@ -137,7 +121,7 @@ $$
 \min_{b,\beta} L_w(b,\beta)+\frac{1}{4C}\lVert\beta\rVert_2^2.
 $$
 
-无权重时以 L 代替 L_w。岭惩罚的梯度为 $\beta/(2C)$，不包含截距；默认 `C=1` 因而会收缩斜率。当前普通 IRLS 对非正 C 不施加此项，建议以 `C=0` 明确请求无惩罚 IRLS。普通 GLM 显式选择 `newton`、`lbfgs` 或 `fista` 时使用无惩罚损失，不使用 C。因此，若原来使用了正 C，更换普通 GLM 求解器可能改变统计问题。这里 C 的含义不同于独立的 LogisticRegression，也不同于下文的 alpha 接口。
+无权重时以 L 代替 L_w。岭惩罚的梯度为 $\beta/(2C)$，不包含截距；默认 `C=1` 因而会收缩斜率。当前普通 IRLS 对非正 C 不施加此项，建议以 `C=0` 明确请求无惩罚 IRLS。普通 GLM 显式选择 `newton`、`lbfgs` 或 `fista` 时使用无惩罚损失，不使用 C。因此，若原来使用了正 C，更换普通 GLM 求解器可能改变统计问题。这里 `C` 的含义不同于独立的 `LogisticRegression`，也不同于下文的 `alpha` 接口。
 
 **带惩罚 GLM** 则使用所声明的惩罚项：
 
@@ -146,11 +130,11 @@ $$
 \text{或}\quad\min_{b,\beta}L_w(b,\beta)+\alpha P(\beta).
 $$
 
-截距仍不受惩罚。Cox 偏似然、稳健损失和分位数损失的统计定义见各自模型页。
+截距仍不受惩罚。不同惩罚项由 `penalty` 选择，`alpha` 控制惩罚强度。Cox 偏似然、稳健损失和分位数损失的统计定义见各自模型页。
 
 ## 求解器选择
 
-对大多数用户，推荐先使用 `solver="auto"`。当前直接拟合的稀疏 Gaussian 模型中，`stopping="kkt"` 并不会切换停止条件，详见[直接拟合的控制参数限制](../reference/linear-model-api.md#elasticnet)。下表仅描述统一的**带惩罚估计器**调度；普通 GLM 默认使用上文说明的 IRLS，不会因为 C 加入岭惩罚就自动采用下表。
+确定模型和惩罚方式后，一般可以先使用 `solver="auto"`，让模型选择求解器。普通 GLM 默认使用上文说明的 IRLS；下表描述的是**带惩罚估计器**的自动选择规则。两者是不同接口，普通 GLM 不会因为正 `C` 加入岭惩罚就改用下表的规则。
 
 | 设置 | `solver="auto"` 行为 |
 |---|---|
@@ -159,7 +143,7 @@ $$
 | 逻辑回归/Poisson/Gamma/逆高斯/Tweedie/负二项 + L2 | Newton |
 | 非凸 SCAD/MCP | FISTA + LLA 延续路径 |
 
-`solver="auto"` 表示使用当前模型的自动调度规则。若显式指定 `solver`，该请求不会因 `sample_weight` 而改变；如果对应组合不受支持，则拟合会报错。
+若显式指定 `solver`，该请求不会因 `sample_weight` 而改变；如果对应组合不受支持，则拟合会报错。直接拟合稀疏高斯模型时，还需注意 `stopping="kkt"` 当前并不会切换停止条件，详见[直接拟合的控制参数限制](../reference/linear-model-api.md#elasticnet)。
 
 设备选择也遵循同样原则：显式 `device="cuda"` 使用 CuPy CUDA，显式 `device="torch"` 使用 Torch CUDA。公式解析可以在 CPU 上进行，但拟合与预测的数值计算仍使用选定的计算后端。
 
@@ -195,11 +179,17 @@ L-BFGS，仍由直接拟合或交叉验证的调度规则决定，而不是仅�
 
 ## 协方差与推断
 
+系数推断用于量化估计的不确定性，与前面评价留出预测是不同的问题。普通 GLM 可通过 `compute_inference=True` 开启支持的系数推断，并用 `cov_type` 选择 `nonrobust`、`hc0` 或 `hc1`。推断与拟合使用相同的分析权重定义；是否支持权重仍取决于具体推断方法。CPU 示例展示了 HC1 系数区间的读取方式。
+
+### 带惩罚模型的推断
+
 对于通用的 `PenalizedGeneralizedLinearModel` 及各类专用的带惩罚 GLM 封装，推荐使用 `inference_method="auto"`。受支持的 M-估计、去偏与残差自助法结果会记录推断方法、目标及调参或选择条件。当前 `post_selection_ols` 即使返回了推断结果，`inference_method_` 和 `inference_target_` 仍可能为空；请读取 `_inference_result.method` 及其元数据，详见[选择后结果报告](../guides/inference-modes.md#post_selection_ols)。
 
-对于受支持的光滑非高斯 L2/无惩罚模型，`auto` 解析为固定惩罚的 `m_estimation`。正 L2 惩罚对应带惩罚的估计方程；无惩罚别名会规范为惩罚强度为 0 的 L2，对应无惩罚总体参数。当前协方差支持 `nonrobust`、`hc0`、`hc1`；HC2/HC3/HAC 在这一路径中不可用，并会明确报错。
+对于受支持的光滑非高斯 L2/无惩罚模型，`auto` 会选择固定惩罚强度下的 `m_estimation`。正 L2 惩罚对应带惩罚的估计方程；无惩罚设置按惩罚强度为 0 的 L2 处理，对应无惩罚总体参数。当前协方差支持 `nonrobust`、`hc0`、`hc1`；HC2/HC3/HAC 在这一路径中不可用，并会明确报错。
 
-受支持的 M-估计与高斯残差自助法复用拟合的后端和设备；普通 GLM 的推断与拟合使用同一套分析权重定义，但是否支持权重仍取决于推断方法。非高斯 L1/ElasticNet 系数推断不受支持。SCAD/MCP `oracle` 需要显式请求，但当前非高斯子模型重建会把分布族设置和正则化重置为默认值，并自动选择子模型设备。不要把这些结果解释为预期的无惩罚活跃集推断，详见 [oracle 限制及诊断性重拟合替代方案](../guides/penalized-glm-inference.md#current-non-gaussian-oracle-limitation)。分组惩罚目前只提供估计。
+受支持的 M-估计与高斯残差自助法复用拟合的后端和设备。非高斯 L1/ElasticNet 系数推断不受支持。SCAD/MCP `oracle` 需要显式请求，但当前非高斯子模型重建会把分布族设置和正则化重置为默认值，并自动选择子模型设备。不要把这些结果解释为预期的无惩罚活跃集推断，详见 [oracle 限制及诊断性重拟合替代方案](../guides/penalized-glm-inference.md#current-non-gaussian-oracle-limitation)。分组惩罚目前只提供估计。
+
+### 高斯稀疏模型的残差自助法
 
 对于受支持的高斯稀疏惩罚，`inference_method="bootstrap"` 表示 `cov_type="nonrobust"` 下的**无权重残差自助法**。设计矩阵和拟合后的调参配置保持固定：每次从残差中有放回抽样，把抽到的残差加到拟合值上，构造新的自助响应，再用同一个带惩罚模型重新拟合。`n_bootstrap` 控制重拟合次数，`bootstrap_random_state` 控制随机数可复现性。
 
@@ -209,7 +199,7 @@ CPU 拟合使用 NumPy；CuPy/Torch CUDA 拟合会把自助法重拟合留在同
 
 ## 参数
 
-下表精选了不同模型的控制参数，不代表一个共同构造器。`family` 属于普通 GLM，通用带惩罚类使用 `loss`；`formula` 与 `data` 是 fit 参数。完整的实际构造器与方法见[普通 GLM](../reference/linear-model-api.md#generalizedlinearmodel)、[通用带惩罚 GLM](../reference/linear-model-api.md#penalizedgeneralizedlinearmodel)及[通用 CV](../reference/linear-model-api.md#penalizedglm_cv)参考。
+下表精选了不同模型的控制参数，不代表一个共同构造器。`family` 属于普通 GLM，通用带惩罚类使用 `loss`；`formula` 与 `data` 是 `fit` 的参数。完整的实际构造器与方法见[普通 GLM](../reference/linear-model-api.md#generalizedlinearmodel)、[通用带惩罚 GLM](../reference/linear-model-api.md#penalizedgeneralizedlinearmodel)及[通用 CV](../reference/linear-model-api.md#penalizedglm_cv)参考。
 
 | 参数 | 默认值 | 说明 |
 |---|---:|---|
@@ -276,7 +266,9 @@ assert prediction.shape == (5,)
 <!-- example-end: glm-formula -->
 
 
-公式在 CPU 上解析。应单独传入 formula/data，不要同时传入数组 X/y。权重可以对应原始全部行，也可以对应公式及缺失值处理后保留的行，按位置对齐。预测会重建训练时的列和类别水平。大数据可直接使用数组以避免公式解析开销。
+公式在 CPU 上解析。应使用 `formula`/`data` 传入数据，不要同时传入数组 `X`/`y`。权重可以对应原始全部行，也可以对应公式及缺失值处理后保留的行，按位置对齐。预测会重建训练时的列和类别水平。数据量较大时，可直接使用数组以避免公式解析开销。
+
+这些 GLM 接口没有 `offset`/`exposure` 参数。如果不同观测的计数来自不同暴露量，不能把暴露量作为普通特征加入公式来代替 offset：普通特征的系数会被估计，而 offset 的系数应固定为 1。
 
 普通 GLM 公式预测目前会删除预测变量缺失的行，并返回较短且无行标签的数组。
 应处理缺失并核对输出长度，再将预测配给观测；详见[缺失行限制](../reference/linear-model-api.md#missing-prediction-rows-in-ordinary-glms)。
@@ -286,6 +278,8 @@ assert prediction.shape == (5,)
 普通 auto/IRLS/FISTA 路径在重拟合失败后，可能混用旧系数和新的观测数、公式或截距设置，对象却仍显示为已拟合；预测和似然诊断也可能随之改变。遇到这类失败后应新建估计器，成功拟合后再读取结果，详见[失败后的完整约定](../reference/linear-model-api.md#failed-ordinary-glm-refits)。显式 Newton/L-BFGS 目前会保留上一次拟合，但这仍不代表新数据拟合成功。
 
 ## 严格与近似交叉验证
+
+使用带惩罚模型时，可以通过交叉验证选择惩罚强度 `alpha`，以验证损失比较候选值，而不是只比较训练误差。
 
 `PenalizedGLM_CV` 默认使用 `cv_strategy="strict"`。严格模式下，每个交叉验证折和每个 `alpha` 都使用用户给定的 `max_iter` 与 `tol`。
 
@@ -317,9 +311,9 @@ fast_cv = PenalizedGLM_CV(
 
 ## 读取交叉验证后的推断结果
 
-通用 `PenalizedGLM_CV` 在固定 l1_ratio 下选择 alpha，再用全部训练行重拟合。它与还能搜索 l1_ratio 的 `ElasticNetCV` 不同。通用 CV 的标量响应路径拟合截距，但不提供公开 fit_intercept 选项。最终 score 是响应尺度 R²，best_score_ 则是验证损失的负值。
+通用 `PenalizedGLM_CV` 在固定 `l1_ratio` 下选择 `alpha`，再用全部训练行重拟合。它与还能搜索 `l1_ratio` 的 `ElasticNetCV` 不同。通用 CV 对标量响应拟合截距，但不提供公开的 `fit_intercept` 选项。最终模型的 `score` 返回响应尺度上的 R²，`best_score_` 则是交叉验证损失的负值，两者含义不同。
 
-当前 `summary()` 无法显示通用最终重拟合的推断报告：它调用的最终估计器没有该方法，因此会抛出 AttributeError。可以直接读取结果容器：
+交叉验证完成后，可以从 `estimator_` 读取最终重拟合的推断结果。当前不要用 `summary()` 获取这一报告：它会调用最终估计器不存在的方法，从而抛出 `AttributeError`。下面演示直接读取结果容器。
 
 先完成 [CPU 示例](#cpu-example)，再复用其中的 NumPy 导入、`X`、`y` 与 `weights`；不再生成另一份数据。
 
@@ -339,7 +333,7 @@ model = PenalizedGLM_CV(
 print("Selected alpha:", model.alpha_)
 ```
 
-选择完成后，系数推断来自所选 alpha 下的全训练集重拟合。读取结果容器，并区分“验证损失”和它的负值 `best_score_`：
+选择完成后，系数推断来自所选 `alpha` 下的全训练集重拟合。读取结果容器，并区分“验证损失”和它的负值 `best_score_`：
 
 ```python
 report = model.estimator_._inference_result.to_dict()
@@ -351,7 +345,31 @@ assert np.isclose(model.best_score_, -np.min(model.cv_results_["mean_score"]))
 <!-- example-end: glm-cv-inference -->
 
 
-该例返回 `m_estimation` 及三个有限标准误。推断以所选 alpha 为条件，不校正调参不确定性。最终通用估计器没有 predict_proba 或 summary；其 logistic 预测返回 0/1 标签，不是均值概率。若需要概率方法，应使用适当的专用模型。完整默认值、数组形状及 CV 结果键见 [API 参考](../reference/linear-model-api.md#penalizedglm_cv)。
+该例返回 `m_estimation` 及三个有限标准误。推断以所选 `alpha` 为条件，不校正调参不确定性。最终的通用估计器没有 `predict_proba` 或 `summary` 方法；使用 `loss="logistic"` 时，预测返回 0/1 标签，不是均值概率。若需要概率方法，应使用适当的专用模型。完整默认值、数组形状及 CV 结果键见 [API 参考](../reference/linear-model-api.md#penalizedglm_cv)。
+
+## 公开入口
+
+以下名称可从 `statgpu.linear_model` 导入。
+
+带惩罚 GLM 的系数推断见 [带惩罚 GLM 推断](../guides/penalized-glm-inference.md)；完整求解器表见 [求解器 × 惩罚项兼容性矩阵](../guides/solver-penalty-matrix.md)。
+
+[GLM 专用类完整构造参数与方法](../reference/linear-model-api.md#typed-glm-constructors)
+列出分布族的链接、离散参数、幂次，以及不同惩罚封装的默认值。
+名称相近不代表可以互换构造参数。
+
+- `statgpu.linear_model.GeneralizedLinearModel`
+- `statgpu.linear_model.PoissonRegression`
+- `statgpu.linear_model.GammaRegression`
+- `statgpu.linear_model.InverseGaussianRegression`
+- `statgpu.linear_model.NegativeBinomialRegression`
+- `statgpu.linear_model.TweedieRegression`
+- `statgpu.linear_model.PenalizedGeneralizedLinearModel`
+- `statgpu.linear_model.PenalizedLinearRegression`
+- `statgpu.linear_model.PenalizedLogisticRegression`
+- `statgpu.linear_model.PenalizedPoissonRegression`
+- `statgpu.linear_model.Ridge`
+- `statgpu.linear_model.Lasso`
+- `statgpu.linear_model.ElasticNet`
 
 ## 相关文档
 
