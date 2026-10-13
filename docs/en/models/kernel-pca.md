@@ -1,7 +1,7 @@
 # Kernel PCA
 
 > Language: English  
-> Last updated: 2026-10-12  
+> Last updated: 2026-10-13  
 > Switch: [Chinese](../../cn/models/kernel-pca.md)
 
 ## Find nonlinear coordinates without a response
@@ -16,12 +16,16 @@ The output is an embedding, not a response prediction or a set of original
 feature slopes. Use [KernelRidge](kernel-ridge.md) for supervised regression,
 or [Nystroem](kernel-nystroem.md) when you want an approximate kernel feature map
 with fewer landmarks. Start with ordinary PCA when linear coordinates suffice
-and the dense training kernel would be unnecessarily expensive. The
-[kernel-methods overview](kernel-methods.md) compares the available tasks.
+and the dense training kernel would be unnecessarily expensive.
 
 <a id="theory"></a>
 
 ## Center, decompose, and project
+
+The coordinate system is learned in two steps: center the training kernel,
+then find its leading directions of variation. Both steps use similarities
+between observations, so the kernel feature vectors need not be constructed
+explicitly.
 
 Let $K_{ij}=k(x_i,x_j)$ be the training kernel and
 $H=I-\mathbf 1\mathbf 1^\top/n$. Centering in feature space gives
@@ -74,9 +78,9 @@ second one: separate fits learn different centering and coordinate systems.
 
 ## A complete CPU embedding example
 
-This example runs independently. It learns a coordinate system from 180 training
-observations, then applies it unchanged to 60 held-out observations with the
-same two input features. No `y` enters the fit.
+The following self-contained example learns a coordinate system from 180
+training observations, then applies it unchanged to 60 held-out observations
+with the same two input features. No `y` enters the fit.
 
 <!-- example: kernel-pca-cpu -->
 ```python
@@ -86,7 +90,8 @@ from statgpu.nonparametric.kernel_methods import KernelPCA
 
 ### Prepare training and held-out rows
 
-The response is generated only to match the other tutorials; it is unused.
+We use the same synthetic data as the regression tutorials. The response is
+generated for consistency, but the embedding uses only the inputs.
 ```python
 rng = np.random.default_rng(42)
 X = rng.uniform(-2, 2, size=(240, 2))
@@ -99,7 +104,8 @@ X_train, X_test = X[train], X[test]
 
 ### Learn the coordinate system
 
-Fit on training inputs, then reuse the same projection on test inputs.
+The fitted object retains the training centering and projection, so test rows
+can be placed in the same coordinate system.
 ```python
 kpca = KernelPCA(n_components=3, gamma=0.7, device="cpu")
 train_coordinates = kpca.fit_transform(X_train)
@@ -135,25 +141,28 @@ information about that fold's input distribution.
 
 ## Choose dimensions and similarity
 
-- `n_components` is a **maximum**, not a promise of that many output columns.
-  Only eigenvalues above `1e-12` survive. A low-rank centered kernel can yield
-  fewer columns; no positive directions raises an error.
-- `gamma` controls the distance scale of the RBF kernel. Large values emphasize
-  very local similarity; small values make observations more similar. Choose
-  feature units and preprocessing deliberately and validate the embedding for
-  its intended use.
-- `alpha` is a finite nonnegative diagonal shift applied before eigendecomposition.
-  The shift is subtracted from eigenvalues afterward. It is **not** the ridge
-  penalty of a supervised predictor and does not regularize an inverse transform.
-- `eigen_solver="auto"` and `"dense"` currently both use dense symmetric
-  eigendecomposition.
+Start with the similarity you want the coordinates to preserve. For the RBF
+kernel, `gamma` controls the distance scale: large values emphasize very local
+similarity, while small values make observations more similar. Choose feature
+units and preprocessing deliberately and validate the embedding for its
+intended use.
 
-Use the [complete kernel API](../reference/kernel-methods-api.md) for every
-constructor argument, fitted field, method signature, kernel choice, and shape.
-`fit(X, y=None)` ignores `y`; `predict(X)` is an alias for `transform(X)`.
-There is no model-specific score and no `inverse_transform` method. In
-particular, this API does not reconstruct inputs or expose coefficient
-inference.
+Then choose how many directions to retain. `n_components` is a **maximum**, not
+a promise of that many output columns. Only eigenvalues above `1e-12` survive.
+A low-rank centered kernel can yield fewer columns; no positive directions
+raises an error.
+
+Two other controls affect the decomposition. `alpha` is a finite nonnegative
+diagonal shift applied before eigendecomposition and subtracted from the
+eigenvalues afterward. It is **not** the ridge penalty of a supervised predictor
+and does not regularize an inverse transform. `eigen_solver="auto"` and
+`"dense"` currently both use dense symmetric eigendecomposition.
+
+The [complete kernel API](../reference/kernel-methods-api.md) covers all
+constructor arguments, fitted fields, method signatures, kernel choices, and
+shapes. In particular, `fit(X, y=None)` ignores `y`, and `predict(X)` is an alias
+for `transform(X)`. There is no model-specific score or `inverse_transform`
+method; this API does not reconstruct inputs or expose coefficient inference.
 
 ## Interpret comparisons carefully
 
@@ -193,12 +202,14 @@ Reconsider the data or the analysis. Also refit after any parameter changes:
 
 Provide finite numeric input with consistent feature order and count. A
 one-dimensional `X` is treated as multiple rows of one feature. NaN/Inf input
-is rejected during fitting and transformation, but finite inputs do not ensure
-finite computed kernels: polynomial kernels can overflow. Check appropriate
-kernel controls and learned arrays as well as transformed outputs, and discard
-invalid results. Chi-squared kernels require nonnegative features. For RBF
-coordinates with a large common offset, subtract the same training-derived
-offset from training and query data to reduce squared-distance cancellation.
+is rejected during fitting and transformation. Chi-squared kernels also require
+nonnegative features.
+
+Finite inputs do not ensure finite computed kernels: polynomial kernels can
+overflow. Check appropriate kernel controls and learned arrays as well as
+transformed outputs, and discard invalid results. For RBF coordinates with a
+large common offset, subtract the same training-derived offset from training
+and query data to reduce squared-distance cancellation.
 
 The training kernel uses quadratic memory, and dense eigendecomposition has
 cubic worst-case arithmetic cost. Decomposition normally uses the selected
@@ -212,13 +223,12 @@ CUDA availability check succeeds. Inspect returned features with Torch
 `.device`/`.is_cuda` or CuPy `.device`; the selected backend and host fitted
 arrays cannot establish output placement. If CUDA placement is required,
 reject CPU outputs before use. NumPy input with `device="cpu"` is a predictable
-CPU path. See the [device guide](../guides/device-and-memory.md#current-smoothing-and-spline-exceptions)
-and [API reference](../reference/kernel-methods-api.md).
+CPU path. The [device guide](../guides/device-and-memory.md#current-smoothing-and-spline-exceptions)
+explains these placement limitations across kernel methods.
 
 ## Further reading
 
 - [Kernel-methods overview](kernel-methods.md)
 - [Nystroem: approximate reusable features](kernel-nystroem.md)
-- [Complete kernel API](../reference/kernel-methods-api.md)
 - Schölkopf, B., Smola, A., & Müller, K.-R. (1998). Nonlinear component analysis
   as a kernel eigenvalue problem.

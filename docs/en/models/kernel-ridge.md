@@ -1,7 +1,7 @@
 # Kernel Ridge Regression
 
 > Language: English  
-> Last updated: 2026-10-12  
+> Last updated: 2026-10-13  
 > Switch: [Chinese](../../cn/models/kernel-ridge.md)
 
 ## Predict a curved response from similarities
@@ -9,16 +9,16 @@
 Use `KernelRidge` to predict a continuous response when nearby or otherwise
 similar observations should have similar outcomes, but a straight-line model is
 too restrictive. An RBF kernel lets the fitted response bend without specifying
-every nonlinear feature or interaction yourself. The model combines similarities
-to training observations, so its coefficients are not slopes for the original
-features.
+every nonlinear feature or interaction yourself. The model learns weights that
+combine similarities to training observations into a prediction, while `alpha`
+penalizes the complexity of the fitted function. These weights are not slopes
+for the original features.
 
 Start with a [linear model](linear-regression.md) when linear effects suffice or
 interpretable slopes matter. A [GAM](semiparametric.md) is often easier to
 interpret when separate smooth feature effects add together. Exact kernel ridge
 is useful when interactions matter and the dense training kernel fits in memory;
 [Nystroem features](kernel-nystroem.md) provide a smaller approximate alternative.
-For the wider choice of tools, see the [kernel-methods overview](kernel-methods.md).
 
 <a id="theory"></a>
 
@@ -87,9 +87,8 @@ when selecting settings.
 
 This example runs independently. `X` has 240 rows and two continuous features;
 `y` is one continuous response per row. We reserve 60 rows for final evaluation
-and fix `alpha=1.0` and `gamma=0.7` before looking at them. To choose `alpha` from
-training folds instead, continue with the separate
-[KernelRidgeCV tutorial](kernel-ridge-cv.md).
+and fix `alpha=1.0` and `gamma=0.7` before looking at them.
+[KernelRidgeCV](kernel-ridge-cv.md) can choose `alpha` from training folds instead.
 
 <!-- example: kernel-ridge-cpu -->
 ```python
@@ -99,7 +98,9 @@ from statgpu.nonparametric.kernel_methods import KernelRidge
 
 ### Prepare and split the data
 
-Reserve test rows before choosing settings.
+The response combines a sinusoidal effect and a quadratic effect, so a straight
+line would miss its shape. Reserve test rows before choosing settings.
+
 ```python
 rng = np.random.default_rng(42)
 X = rng.uniform(-2, 2, size=(240, 2))
@@ -112,7 +113,9 @@ y_train, y_test = y[train], y[test]
 
 ### Fit the fixed-setting model
 
-Fit only on the 180 training observations.
+Fit only on the 180 training observations, then check that the learned weights
+are finite.
+
 ```python
 kr = KernelRidge(alpha=1.0, gamma=0.7, device="cpu").fit(X_train, y_train)
 assert np.isfinite(kr.dual_coef_).all()
@@ -121,6 +124,7 @@ assert np.isfinite(kr.dual_coef_).all()
 ### Predict and evaluate
 
 Apply the fitted model to test rows with the same feature order.
+
 ```python
 fixed_prediction = kr.predict(X_test)
 assert np.isfinite(fixed_prediction).all()
@@ -162,25 +166,27 @@ np.testing.assert_allclose(
 
 ## Choose the kernel and regularization together
 
-- `alpha` controls shrinkage for the summed-loss objective. Use a finite,
-  strictly positive value as a practical starting point; zero is accepted but
-  is fragile with singular kernels. An averaged-loss formulation needs a
-  corresponding penalty-scale conversion before comparison.
-- `gamma` controls the RBF similarity scale, separately from `alpha`. Its default
-  is `1 / n_features`. Choose both within the training procedure; the built-in
-  CV class selects **only alpha**.
-- `kernel` chooses the similarity definition. Polynomial kernels also use
-  `degree` and `coef0`; chi-squared requires nonnegative inputs. For KernelRidge,
-  chi-squared `gamma` must be passed through `kernel_params={"gamma": value}`,
-  because that kernel currently ignores the constructor's `gamma` argument.
-- Learned scaling, imputation, or response centering must be fitted within each
-  training fold. Use an external splitting loop when preprocessing must be
-  learned, or when observations are grouped or time-ordered; see the
-  [CV tutorial](kernel-ridge-cv.md#fold-local-preprocessing).
+For an RBF model, `gamma` controls the distance over which observations are
+similar, while `alpha` controls shrinkage for the summed-loss objective. The
+default `gamma` is `1 / n_features`. Choose both within the training procedure;
+the built-in CV class selects **only alpha**.
 
-These are teaching highlights. The [complete kernel API](../reference/kernel-methods-api.md)
-lists every constructor argument, public method, fitted attribute, kernel
-function, and backend boundary.
+Use a finite, strictly positive `alpha` as a practical starting point. Zero is
+accepted but is fragile with singular kernels. When comparing with an
+averaged-loss formulation, first convert the penalty to the same scale.
+
+Changing `kernel` changes the similarity definition. Polynomial kernels also
+use `degree` and `coef0`; chi-squared requires nonnegative inputs. For
+KernelRidge, chi-squared `gamma` must be passed through
+`kernel_params={"gamma": value}`, because that kernel currently ignores the
+constructor's `gamma` argument.
+
+Learned scaling, imputation, or response centering must be fitted within each
+training fold. Use an [external splitting loop](kernel-ridge-cv.md#fold-local-preprocessing)
+when preprocessing must be learned, or when observations are grouped or
+time-ordered. The [complete kernel API](../reference/kernel-methods-api.md) lists
+every constructor argument, public method, fitted attribute, kernel function,
+and backend boundary.
 
 <a id="numerical-precautions"></a>
 
@@ -223,7 +229,11 @@ selected backend. Explicit unavailable `"cuda"` or `"torch"` requests raise;
 `"auto"` requests automatic selection. Small examples can be faster on CPU
 because transfer, launch, and synchronization overheads matter.
 
-For cross-validated GPU fits, see the dependent [CuPy and Torch CUDA examples](kernel-ridge-cv.md#gpu-examples). CPU checks do not establish GPU accuracy or speed. KernelPCA and Nystroem have different execution and output-placement boundaries; see their tutorials and the [device guide](../guides/device-and-memory.md#current-smoothing-and-spline-exceptions).
+The [CuPy and Torch CUDA examples](kernel-ridge-cv.md#gpu-examples) extend the
+CPU cross-validation workflow to GPU fitting. CPU checks do not establish GPU
+accuracy or speed. KernelPCA and Nystroem have different execution and
+output-placement boundaries, described in their tutorials and the
+[device guide](../guides/device-and-memory.md#current-smoothing-and-spline-exceptions).
 
 ## Further reading
 

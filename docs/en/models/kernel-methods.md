@@ -1,16 +1,20 @@
 # Kernel Methods
 
 > Language: English  
-> Last updated: 2026-10-12
+> Last updated: 2026-10-13
 > Switch: [Chinese](../../cn/models/kernel-methods.md)
 
-This page explains the shared ideas before you choose a method. Each linked tutorial has its own complete CPU example; the [complete API reference](../reference/kernel-methods-api.md) collects signatures, parameters, outputs and execution limits.
+Kernel methods use similarities between observations to predict responses or
+learn new representations of data. The shared ideas below help you choose a
+method; the [method tutorials](#method-tutorials) then develop each approach with
+a self-contained CPU example.
 
 ## Choose a tool for your question
 
-A kernel measures similarity between observations. Instead of specifying every
-nonlinear interaction as an input column, a model can use these similarities to
-learn a curved response or a new representation of the data.
+The first choice is what you want to learn: a response, nonlinear coordinates,
+or a compact feature map. In each case, the kernel supplies a notion of
+similarity without requiring you to specify every nonlinear interaction as an
+input column.
 
 - For **predicting a numeric response**, use `KernelRidge`. `KernelRidgeCV` selects
   its regularization strength from training folds, then refits on the training
@@ -101,7 +105,9 @@ Rescaling a feature changes distances and therefore the question the kernel asks
 
 ### [Kernel ridge: fit and predict](kernel-ridge.md#example)
 
-Fit a numeric response on training data, then predict held-out rows. The tutorial explains the objective, kernel coefficients versus raw-feature slopes, and numerical checks.
+Follow a complete training-to-test workflow, from the regularized objective to
+held-out predictions. Learn how kernel coefficients differ from raw-feature
+slopes and how to check the fitted system.
 
 <a id="kernel-cv-workflow"></a>
 <a id="kernel-ridge-cross-validation"></a>
@@ -109,14 +115,18 @@ Fit a numeric response on training data, then predict held-out rows. The tutoria
 
 ### [Kernel ridge cross-validation: select alpha](kernel-ridge-cv.md#selection)
 
-Built-in CV selects only alpha using MSE, while best_score_ reports R². The standalone tutorial explains why preprocessing, grouped splits and time splits need an external loop.
+Choose `alpha` using validation MSE and interpret the R² reported by
+`best_score_`. The workflow also explains when learned preprocessing, grouped
+observations, or time ordering require an external splitting loop.
 
 <a id="kernel-pca"></a>
 <a id="learn-and-reuse-nonlinear-coordinates"></a>
 
 ### [KernelPCA: nonlinear coordinates](kernel-pca.md#example)
 
-Learn and reuse coordinates of the centered kernel without a response. The tutorial covers new-data projection, retained dimensions, sign ambiguity and failed-refit handling.
+Learn coordinates from a centered kernel, then project new observations into
+the same space. Understand the retained dimensions, sign ambiguity, and what
+to do after a failed refit.
 
 <a id="nystroem-approximation"></a>
 <a id="build-a-smaller-kernel-feature-matrix"></a>
@@ -124,7 +134,9 @@ Learn and reuse coordinates of the centered kernel without a response. The tutor
 
 ### [Nystroem: low-rank kernel features](kernel-nystroem.md#example)
 
-Select training landmarks and produce fewer feature columns for a downstream model. The tutorial includes prediction and a small-data kernel diagnostic, separating approximation error from prediction error.
+Build a compact feature map from training landmarks and use it in a downstream
+predictor. A small-data diagnostic shows how kernel approximation error differs
+from prediction error.
 
 <a id="optional-gpu-examples"></a>
 <a id="cupy"></a>
@@ -132,7 +144,9 @@ Select training landmarks and produce fewer feature columns for a downstream mod
 
 ### [Optional GPU examples](kernel-ridge-cv.md#gpu-examples)
 
-Change devices after completing the CPU cross-validation example. KernelPCA and Nystroem have the decomposition and output limits described below.
+Continue the CPU cross-validation workflow on CuPy or Torch CUDA. For KernelPCA
+and Nystroem, first check the [execution boundaries](#backend-and-execution-boundaries)
+below: selecting a device does not put every step on that device.
 
 ## Built-In Kernels
 
@@ -159,28 +173,36 @@ requested backend and obey the expected pairwise-kernel shape.
 
 The [kernel methods API reference](../reference/kernel-methods-api.md) collects all four estimators and eight functions: full signatures, defaults, methods, fitted attributes, array shapes, callable kernels and backend requirements.
 
-Find constructor controls, method shapes and fitted attributes under [KernelRidge](../reference/kernel-methods-api.md#kernelridge), [KernelRidgeCV](../reference/kernel-methods-api.md#kernelridgecv), [KernelPCA](../reference/kernel-methods-api.md#kernelpca), and [Nystroem](../reference/kernel-methods-api.md#nystroem).
+Go directly to [KernelRidge](../reference/kernel-methods-api.md#kernelridge), [KernelRidgeCV](../reference/kernel-methods-api.md#kernelridgecv), [KernelPCA](../reference/kernel-methods-api.md#kernelpca), and [Nystroem](../reference/kernel-methods-api.md#nystroem).
 
 <a id="reading-the-cross-validation-results"></a>
 
-The [CV result fields and shapes](../reference/kernel-methods-api.md#kernelridgecv) explain candidate arrays, fold tables, fold means, and how best_score_ differs from the selection loss.
+For candidate arrays, fold tables, and fold means, see the
+[CV result fields](../reference/kernel-methods-api.md#kernelridgecv), including
+the distinction between `best_score_` and the selection loss.
 
 <a id="complete-pairwise-function-api"></a>
 
-The [pairwise-function API](../reference/kernel-methods-api.md#pairwise-kernels) covers pairwise_kernels and the seven kernels, including the callable example, xp, dtype, and parameter forwarding.
+The [pairwise-function API](../reference/kernel-methods-api.md#pairwise-kernels)
+covers `pairwise_kernels` and the seven kernels, with a callable example and
+details of `xp`, dtype, and parameter forwarding.
 
 <a id="how-the-methods-work"></a>
 <a id="kernel-ridge-regression"></a>
 
-The [kernel ridge objective and prediction equations](kernel-ridge.md#theory) explain the regularized linear system, summed loss, and kernel coefficients.
+For the mathematics behind fitting and prediction, start with the
+[kernel ridge objective](kernel-ridge.md#theory): the summed loss, kernel
+coefficients, and regularized linear system.
 
 <a id="computing-kernel-principal-components"></a>
 
-[KernelPCA centering and projection](kernel-pca.md#theory) derives new-data coordinates from the training Gram matrix.
+The [KernelPCA derivation](kernel-pca.md#theory) connects training-kernel
+centering to new-data projection.
 
 <a id="the-nystroem-feature-map"></a>
 
-The [Nystroem SVD feature map](kernel-nystroem.md#theory) explains the landmark kernel, normalization, and low-rank approximation.
+The [Nystroem derivation](kernel-nystroem.md#theory) connects the landmark
+kernel and SVD normalization to the low-rank feature map.
 
 ## Backend and Execution Boundaries
 
@@ -205,7 +227,7 @@ KernelPCA and Nystroem still reject `device="torch"` when Torch CUDA is unavaila
 
 Inspect the actual `fit_transform`, `transform`, and `predict` outputs with Torch `.device`/`.is_cuda` (or CuPy `.device`), rather than relying on the configured device or selected backend/library.
 
-Their public fitted arrays are deliberately NumPy and cannot prove numerical-device placement. This also affects Nystroem's query kernel and output, separately from its intentional CPU landmark SVD.
+Their public fitted arrays are stored as NumPy and do not show where the numerical work ran. This also affects Nystroem's query kernel and output, separately from its intentional CPU landmark SVD.
 
 If CUDA placement is required, reject CPU outputs before using them. For a predictable CPU alternative, pass NumPy input with `device="cpu"`. See the [device guide](../guides/device-and-memory.md#current-smoothing-and-spline-exceptions).
 
@@ -278,8 +300,8 @@ transformed features; use equivalent backend-native checks on device arrays.
 Discard nonfinite fits. Review feature units/scales and kernel settings, then
 fit a fresh model. Increasing `alpha` cannot repair a kernel that has already
 overflowed. Scaling changes polynomial similarity, so choose and validate that
-preprocessing within training folds. Finiteness is necessary, not sufficient,
-for a well-conditioned or scientifically useful model.
+preprocessing within training folds. Finite results are a necessary check, but do not by themselves establish good
+conditioning or a scientifically useful model.
 
 ### Large coordinate offsets with RBF kernels
 

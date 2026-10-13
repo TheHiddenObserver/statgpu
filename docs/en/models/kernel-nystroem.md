@@ -1,26 +1,31 @@
 # Nystroem Kernel Approximation
 
 > Language: English  
-> Last updated: 2026-10-12  
+> Last updated: 2026-10-13  
 > Switch: [Chinese](../../cn/models/kernel-nystroem.md)
 
 ## Replace a full kernel with reusable features
 
-`Nystroem` learns an approximate kernel feature map from a subset of training
-observations called landmarks. If a full $n\times n$ training kernel is too
-large, a map with $m\ll n$ landmarks gives an $n\times m$ feature matrix that
-can be reused by a downstream model.
+A full kernel compares every training observation with every other one.
+`Nystroem` instead compares observations with a subset of training rows called
+landmarks, then normalizes those similarities to form an approximate kernel
+feature map. With $m\ll n$ landmarks, the resulting $n\times m$ feature matrix
+can be reused by a downstream model when the full $n\times n$ training kernel
+would be too large.
 
 Use [KernelRidge](kernel-ridge.md) when you can afford the exact kernel and want
 a direct regression model. Use [KernelPCA](kernel-pca.md) for a centered
 nonlinear coordinate system based on leading kernel principal components.
 Nystroem's output is a set of approximate kernel features; it is not itself a
-response prediction. See the [kernel-methods overview](kernel-methods.md) for the
-broader choice of tools.
+response prediction.
 
 <a id="theory"></a>
 
 ## How landmarks define the map
+
+The map needs both the similarities to the landmarks and the similarities
+among the landmarks themselves. The latter provide the normalization that
+turns raw similarity columns into approximate kernel features.
 
 Choose $m=\min(\texttt{n\_components},n)$ training observations without replacement.
 Let $K_{mm}$ be their landmark-to-landmark kernel and $K_{nm}$ the similarities
@@ -65,7 +70,7 @@ kernel exactly.
 
 ## A complete CPU map and prediction example
 
-This example runs independently. It selects 40 landmarks only from the 180
+The following self-contained example selects 40 landmarks only from the 180
 training rows, maps both training and held-out rows with the same object, then
 fits an unweighted linear ridge predictor on the mapped features. The small
 NumPy solve makes the downstream model explicit and needs no additional model
@@ -131,7 +136,9 @@ print("Held-out prediction MSE:", np.mean((y_test - prediction) ** 2))
 
 ### Compare the approximate kernel on small data
 
-This optional diagnostic uses the same test features and deliberately forms a dense kernel.
+To see what the features approximate, compare their pairwise inner products
+with the exact kernel on the same test rows. This optional diagnostic
+deliberately forms a dense kernel, so keep it to small data.
 ```python
 # Small-data diagnostic only: this explicitly forms a dense test kernel.
 K_test = pairwise_kernels(X_test, metric="rbf", gamma=0.7, xp=np)
@@ -173,22 +180,24 @@ data.
 
 ## Choose landmarks and fit within folds
 
-- `n_components` trades approximation capacity against memory and computation.
-  The actual landmark count is capped at the number of training rows. More
-  landmarks do not by themselves guarantee better downstream predictions.
-- `random_state` controls landmark sampling. Fix it for reproducibility;
-  assess sensitivity to landmark choices within the training procedure when
-  the application warrants it.
-- `gamma` sets the RBF distance scale; its default is `1 / n_features`.
-  Feature units and scaling change these similarities. Other kernels have
-  their own controls and domain restrictions.
-- Choose the downstream model's regularization as part of the same training
-  procedure; a good kernel approximation is not a substitute for validating
-  that model.
+The main approximation choice is `n_components`, which trades capacity against
+memory and computation. The actual landmark count is capped at the number of
+training rows. More landmarks do not by themselves guarantee better downstream
+predictions. Since the map also depends on which rows are selected, fix
+`random_state` for reproducible landmark sampling and assess sensitivity to
+landmark choices within the training procedure when the application warrants it.
+
+The kernel determines which similarities the map approximates. For RBF, `gamma`
+sets the distance scale and defaults to `1 / n_features`; feature units and
+scaling change these similarities. Other kernels have their own controls and
+domain restrictions. Choose the downstream model's regularization as part of
+the same training procedure: a good kernel approximation is not a substitute
+for validating that model.
 
 For cross-validation, fit scaling or imputation **and the Nystroem map separately
-within each training fold**, then transform its validation rows and fit/evaluate
-the downstream model using that fold's map. Selecting landmarks on the whole
+within each training fold**. Use that fold's map to transform its training and
+validation rows, fit the downstream model on the training features, and evaluate
+it on the validation features. Selecting landmarks on the whole
 dataset before CV leaks validation-input information. After selecting settings,
 refit preprocessing, landmarks, and the downstream model on all outer training
 rows and apply them unchanged to held-out data. Use group- or time-aware splits
@@ -197,8 +206,8 @@ when the observations require them. The
 fold-local preprocessing; a Nystroem pipeline must also learn its map inside
 that loop.
 
-These are selected controls. The [complete kernel API](../reference/kernel-methods-api.md)
-lists every argument, method, fitted array, kernel function, and output shape.
+The [complete kernel API](../reference/kernel-methods-api.md) covers the remaining
+controls, along with every method, fitted array, kernel function, and output shape.
 
 ## Numerical and execution boundaries
 
@@ -226,10 +235,10 @@ Nystroem is an explicit low-rank approximation, not a silent fallback for an
 exact estimator or an approximate inference mode.
 
 Explicit unavailable backend requests raise. Landmarks are copied to NumPy;
-landmark kernel construction and SVD run on CPU.
-Query-to-landmark kernels and outputs use the selected array library, subject
+landmark kernel construction and SVD run on CPU. Query-to-landmark kernels and outputs use the selected array library, subject
 to the current placement limitation: `device="torch"` rejects unavailable CUDA,
 but after that check, NumPy or Torch CPU input can still yield CPU tensors.
+
 Inspect outputs using Torch `.device`/`.is_cuda` or CuPy `.device`; reject CPU
 outputs if CUDA placement is required. `components_`, `component_indices_`,
 `normalization_`, and `eigenvalues_` are host NumPy arrays and cannot establish
@@ -243,6 +252,6 @@ not establish GPU accuracy or performance.
 ## Further reading
 
 - [KernelRidge: exact kernel regression](kernel-ridge.md)
-- [Kernel-methods overview](kernel-methods.md) and [complete API](../reference/kernel-methods-api.md)
+- [Kernel-methods overview](kernel-methods.md)
 - Williams, C. K. I., & Seeger, M. (2001). Using the Nystroem method to speed up
   kernel machines.

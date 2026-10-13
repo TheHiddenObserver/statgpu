@@ -1,26 +1,26 @@
 # 核岭回归
 
 > 语言：中文  
-> 最后更新：2026-10-12  
+> 最后更新：2026-10-13  
 > 切换：[English](../../en/models/kernel-ridge.md)
 
 ## 用观测之间的相似性预测非线性响应
 
 如果要预测连续响应，且相似观测应有相近结果，但直线模型过于受限，可以考虑
 `KernelRidge`。RBF 核允许拟合曲面弯曲，无需手工列出每个非线性特征与交互项。
-模型组合的是新观测与各训练观测的相似度，因此核系数不是原始特征的斜率。
+模型学习一组权重，将新观测与各训练观测的相似度组合成预测值，同时用 `alpha`
+惩罚拟合函数的复杂度。这些权重不是原始特征的斜率。
 
 若线性关系已足够，或需要解释斜率，应先考虑[线性模型](linear-regression.md)。
 如果主要是各特征独立平滑作用的相加，[GAM](semiparametric.md) 往往更易解释。
 精确核岭适合交互关系重要、且训练核能放入内存的任务；
 [Nystroem 特征](kernel-nystroem.md) 则提供更小的近似表示。
-其他分析目标可从[核方法总览](kernel-methods.md) 中选择工具。
 
 <a id="theory"></a>
 
 ## 从相似度到拟合函数
 
-设训练行为 $x_1,\ldots,x_n$，响应为 $y$，核矩阵为
+设训练观测为 $x_1,\ldots,x_n$，响应为 $y$，核矩阵为
 $K_{ij}=k(x_i,x_j)$。默认 RBF 核为
 
 $$
@@ -77,8 +77,7 @@ $$
 
 以下示例可独立运行。`X` 有 240 行、两列连续特征，`y` 为每行一个连续响应。
 先留出 60 行用于最终评价，并在查看留出结果前固定 `alpha=1.0`、`gamma=0.7`。
-若希望在训练折内选择 `alpha`，请继续阅读独立的
-[KernelRidgeCV 教程](kernel-ridge-cv.md)。
+若希望在训练折内选择 `alpha`，可使用 [KernelRidgeCV](kernel-ridge-cv.md)。
 
 <!-- example: kernel-ridge-cpu -->
 ```python
@@ -88,7 +87,9 @@ from statgpu.nonparametric.kernel_methods import KernelRidge
 
 ### 准备并划分数据
 
-先留出测试行，再选择模型设置。
+响应由正弦效应和二次效应组成，直线模型无法充分描述其形状。先留出测试行，
+再选择模型设置。
+
 ```python
 rng = np.random.default_rng(42)
 X = rng.uniform(-2, 2, size=(240, 2))
@@ -101,7 +102,8 @@ y_train, y_test = y[train], y[test]
 
 ### 用固定参数拟合
 
-仅使用 180 条训练观测拟合。
+仅使用 180 条训练观测拟合，然后检查学到的权重是否有限。
+
 ```python
 kr = KernelRidge(alpha=1.0, gamma=0.7, device="cpu").fit(X_train, y_train)
 assert np.isfinite(kr.dual_coef_).all()
@@ -110,6 +112,7 @@ assert np.isfinite(kr.dual_coef_).all()
 ### 预测并评价
 
 测试行保持相同的特征顺序，直接使用已拟合模型预测。
+
 ```python
 fixed_prediction = kr.predict(X_test)
 assert np.isfinite(fixed_prediction).all()
@@ -148,26 +151,29 @@ np.testing.assert_allclose(
 
 ## 联合考虑核与正则化
 
-- `alpha` 控制求和损失目标中的收缩程度。实践中可先使用有限、严格正的值；零值
-  虽被接受，但遇到奇异核时较脆弱。与平均损失形式比较时，必须先换算惩罚尺度。
-- `gamma` 单独控制 RBF 相似度尺度，默认值为 `1 / n_features`。它与 `alpha`
-  都应在训练过程中选择；内置 CV 类**只选择 alpha**。
-- `kernel` 决定相似度定义。多项式核还使用 `degree` 和 `coef0`；卡方核要求输入
-  非负。KernelRidge 的卡方核目前忽略构造参数 `gamma`，须通过
-  `kernel_params={"gamma": value}` 传入。
-- 从数据学习的缩放、填补、响应中心化都必须在各训练折内拟合。需要此类预处理，
-  或观测有分组、时间顺序时，应使用外部分折循环，参见
-  [CV 教程](kernel-ridge-cv.md#fold-local-preprocessing)。
+对于 RBF 模型，`gamma` 控制多远范围内的观测仍有较高相似度，`alpha` 则控制求和
+损失目标中的收缩程度。`gamma` 默认值为 `1 / n_features`。两者都应在训练过程中
+选择；内置 CV 类**只选择 alpha**。
 
-以上是教学精选参数。[完整核方法 API](../reference/kernel-methods-api.md) 列出所有
-构造参数、公开方法、拟合属性、核函数与后端边界。
+实践中可先使用有限、严格正的 `alpha`。零值虽被接受，但遇到奇异核时较脆弱。
+与平均损失形式比较时，必须先将惩罚换算到相同尺度。
+
+更换 `kernel` 会改变相似度的定义。多项式核还使用 `degree` 和 `coef0`；卡方核
+要求输入非负。KernelRidge 的卡方核目前忽略构造参数 `gamma`，须通过
+`kernel_params={"gamma": value}` 传入。
+
+从数据学习的缩放、填补、响应中心化都必须在各训练折内拟合。需要此类预处理，
+或观测有分组、时间顺序时，应使用
+[外部分折循环](kernel-ridge-cv.md#fold-local-preprocessing)。
+[完整核方法 API](../reference/kernel-methods-api.md) 列出所有构造参数、公开方法、
+拟合属性、核函数与后端边界。
 
 <a id="numerical-precautions"></a>
 
 ## 数值问题与使用注意事项
 
 `KernelRidge` 直接求解正则化线性系统。若线性代数操作抛出异常，会逐步增大对角
-jitter 后重试；得到的稳定化解未必精确满足最初显示的系统。优先选择尺度合理的
+扰动后重试；得到的稳定化解未必精确满足最初显示的系统。优先选择尺度合理的
 正 `alpha`。与 scikit-learn 或线性系统对照时，要对齐核、正则化、数据以及无权重
 的求和损失目标。
 
@@ -195,9 +201,9 @@ RBF 的平方距离运算可能丢失具有巨大共同偏移坐标之间的小�
 会报错；`"auto"` 表示自动选择。小问题可能在 CPU 上更快，因为数据传输、启动与
 同步也有开销。
 
-交叉验证 GPU 用法见有明确前置依赖的
-[CuPy 与 Torch CUDA 示例](kernel-ridge-cv.md#gpu-examples)。CPU 检查不能证明 GPU
-精度或速度。KernelPCA 与 Nystroem 的执行和输出设备边界不同，详见对应教程以及
+[CuPy 与 Torch CUDA 示例](kernel-ridge-cv.md#gpu-examples)在 CPU 交叉验证示例的
+基础上展示 GPU 拟合。CPU 检查不能证明 GPU 精度或速度。KernelPCA 与 Nystroem
+的执行和输出设备边界不同，详见对应教程以及
 [设备指南](../guides/device-and-memory.md#current-smoothing-and-spline-exceptions)。
 
 ## 延伸阅读

@@ -1,18 +1,18 @@
 # 核岭回归交叉验证
 
 > 语言：中文  
-> 最后更新：2026-10-12  
+> 最后更新：2026-10-13  
 > 切换：[English](../../en/models/kernel-ridge-cv.md)
 
 ## 不使用测试集，选择正则化强度
 
-`KernelRidgeCV` 在训练折内为核岭回归选择正则化强度 `alpha`，再用传给 `fit` 的
-全部数据拟合最终 `KernelRidge`。如果核及其设置已经确定，且观测适合随机打乱后
-按行分折，该类可以简化调参。
+正则化强度 `alpha` 决定核岭回归对拟合函数复杂度的惩罚力度。`KernelRidgeCV`
+对每个候选值在训练折上拟合，再用对应验证折的预测误差比较候选值。选定后，
+它用传给 `fit` 的全部数据拟合最终 `KernelRidge`。
 
+如果核及其设置已经确定，且观测适合随机打乱后按行分折，该类可以简化调参。
+`KernelRidgeCV` **只选择 alpha**，不选择核类型、`gamma` 或预处理方案。
 `alpha` 已固定，或需要自行控制分折与预处理时，使用 [KernelRidge](kernel-ridge.md)。
-`KernelRidgeCV` **只选择 alpha**，不选择核类型、`gamma` 或预处理方案。其他核方法
-任务可参见[总览](kernel-methods.md)。
 
 <a id="selection"></a>
 
@@ -40,15 +40,16 @@ MSE。多响应时，即使按列等权平均，数值尺度较大的响应仍�
 最小化的 MSE。** `estimator_` 是选择后用全部传入训练行重新拟合的最终模型。
 它的训练得分和 `best_score_` 都不等于独立留出评价。
 
-对于固定训练折的核 $K_{TT}=Q\Lambda Q^\top$，每个候选的系数可写为
+搜索中只有 $\alpha$ 变化，因此每折可以复用核矩阵的特征分解。
+若 $K_{TT}=Q\Lambda Q^\top$，每个候选的系数可写为
 
 $$
 c_{\alpha,T}=Q\,\operatorname{diag}\!\left(\frac{1}{\lambda_i+\alpha}\right)
 Q^\top y_T.
 $$
 
-复用每折的特征分解，避免为每个候选重新求解线性系统。核岭目标和求和损失的尺度
-详见 [KernelRidge 教程](kernel-ridge.md#theory)。
+这样就不必为每个候选重新求解线性系统。每次拟合均使用
+[按损失求和的核岭目标函数](kernel-ridge.md#theory)。
 
 <a id="example"></a>
 <a id="kernel-cv-workflow"></a>
@@ -67,6 +68,7 @@ from statgpu.nonparametric.kernel_methods import KernelRidgeCV
 ### 准备训练行与留出行
 
 留出集不参与参数搜索。
+
 ```python
 rng = np.random.default_rng(42)
 X = rng.uniform(-2, 2, size=(240, 2))
@@ -79,7 +81,8 @@ y_train, y_test = y[train], y[test]
 
 ### 在训练折中选择 alpha
 
-所有候选值使用相同且固定的核与尺度。
+用五折交叉验证比较四个正则化强度。所有候选值使用相同且固定的核与尺度。
+
 ```python
 kr_cv = KernelRidgeCV(
     alphas=[0.01, 0.1, 1.0, 10.0], gamma=0.7,
@@ -90,6 +93,7 @@ kr_cv = KernelRidgeCV(
 ### 检查搜索结果并预测
 
 解释拟合前，先排除非有限的搜索结果与模型输出。
+
 ```python
 assert np.isfinite(kr_cv.cv_results_["mean_mse"]).all()
 assert np.isfinite(kr_cv.best_score_)
@@ -103,6 +107,7 @@ held_out_mse = np.mean((y_test - prediction) ** 2)
 ### 查看所选模型与留出表现
 
 分别报告选择指标和最终评价，避免混淆。
+
 ```python
 print("Selected alpha:", kr_cv.alpha_)
 print("Mean validation MSE by alpha:", kr_cv.cv_results_["mean_mse"][:, 0])
@@ -133,32 +138,34 @@ print("CV model held-out R2 / MSE:", held_out_r2, held_out_mse)
 
 ## 选择候选值与分折方式
 
-- `alphas` 接受非空、有限、非负的数组，建议在对数尺度上选择**严格正值**。
-  `alphas=None` 时，根据训练核谱自动构造 100 个正的对数等距候选。
-- `cv` 必须为 2 到传入行数之间的整数，使用打乱后的按行 K 折。`random_state`
-  让打乱可复现，但不会把它变成分组或时间分折。
-- 一次搜索中，核类型及其控制参数保持固定。若要选择 `gamma` 等设置，需要额外的
-  训练内选择过程，评价完整拟合流程。
+可像示例一样，先在对数尺度上选择**严格为正**的 `alphas`。该参数接受任意非空、
+有限、非负的数组；`alphas=None` 时，根据训练核谱自动构造 100 个正的对数等距候选。
 
 训练折核奇异时，显式零 alpha 可能导致除零。非有限 CV 得分仍可能被选中，因此
 返回拟合对象本身不能证明搜索有效。使用正候选，并检查 `mean_mse`、`best_score_`、
 最终系数和预测的有限性。最终重新拟合成功，也不能修复此前无效的选择过程。
 
+`cv` 必须为 2 到传入行数之间的整数，使用打乱后的按行 K 折。`random_state`
+让打乱可复现，但不会把它变成分组或时间分折。
+
+一次搜索中，核类型及其控制参数保持固定。若要选择 `gamma` 等设置，需要额外的
+训练内选择过程，评价完整拟合流程。
+
 <a id="fold-local-preprocessing"></a>
 
 ## 何时必须使用外部分折循环
 
-内置 `cv` 不接受自定义 splitter、分组折或按时间排序的折，也不会为每折单独拟合
-预处理。不能先在全部传入训练行上拟合 scaler，再将变换结果交给 `KernelRidgeCV`：
-这样内层验证行已参与 scaler 的学习。
+内置 `cv` 不接受自定义分折器、分组折或按时间排序的折，也不会为每折单独拟合
+预处理。不能先在全部传入训练行上学习缩放参数，再将变换结果交给 `KernelRidgeCV`：
+这样内层验证行已参与缩放参数的估计。
 
 需要学习预处理时，应在外部循环中对原始训练数据分折，只用各折训练行拟合预处理，
 再变换验证行，并为每个候选拟合 `KernelRidge`。候选之间应复用同一组划分。选择完成
 后，用全部外层训练行重新拟合预处理与模型，再一次性评价未使用过的测试集。
 分组或时间数据还应使用保持分组或时间方向的划分。
 
-下面的独立示例展示折内缩放，仍按独立观测进行行级分折；分组或时间数据需要替换
-相应划分方式。
+下面的独立示例使用尺度不同的特征，展示为何要在分折循环内学习缩放参数。
+示例按独立观测进行行级分折；分组或时间数据需要替换相应划分方式。
 
 <!-- example: kernel-ridge-fold-local-cpu -->
 ```python
@@ -167,7 +174,7 @@ from statgpu.nonparametric.kernel_methods import KernelRidge
 
 ```
 
-准备原始数据，并留出测试集。
+先从原始数据中留出测试集，再只对训练行分折。
 
 ```python
 rng = np.random.default_rng(42)
@@ -182,7 +189,7 @@ losses = np.empty((len(alphas), len(folds)))
 
 ```
 
-只使用当前训练折拟合缩放与各候选模型。
+每折只用其训练行估计均值和尺度，再将同一变换应用到验证行，以比较各候选模型。
 
 ```python
 for fi, validation in enumerate(folds):
@@ -200,7 +207,7 @@ for fi, validation in enumerate(folds):
 
 ```
 
-选定 alpha 后，用全部外层训练行重新学习预处理。
+选定 alpha 后，用全部外层训练行重新学习预处理，供最终模型拟合和测试集预测使用。
 
 ```python
 assert np.isfinite(losses).all()
@@ -217,26 +224,26 @@ print("Held-out MSE:", np.mean((y_test - held_out_prediction) ** 2))
 ```
 <!-- example-end: kernel-ridge-fold-local-cpu -->
 
-这里每个验证损失都评价一个未使用该折验证行拟合的 scaler 和模型。最终 scaler
-由全部 120 条外层训练行学习，并原样应用到 40 条测试行。
+这里每个验证损失都对应一套仅用该折训练行拟合的缩放参数和模型。最终缩放参数
+由全部 120 条外层训练行估计，并原样应用到 40 条测试行。
 
 ## 能力边界与计算成本
 
 交叉验证不提供系数推断或置信区间。底层模型采用无权重拟合，本类没有样本权重参数。
 [KernelRidge 注意事项](kernel-ridge.md#numerical-precautions) 同样适用：有限数据
-可能产生溢出的核，RBF 坐标尺度不当可能丢失距离，重新拟合时也可能使用数值 jitter。
+可能产生溢出的核，RBF 坐标尺度不当可能丢失距离，重新拟合时也可能加入数值扰动。
 
 完整核需要平方级内存，每个训练折还需稠密特征分解。跨 alpha 复用分解能节省工作，
 但各折仍增加计算量。核及折内线性代数使用所选后端；显式请求不可用设备会报错。
-执行细节见下面的 [GPU 示例](#gpu-examples)和[完整 API](../reference/kernel-methods-api.md)。
+[完整 API](../reference/kernel-methods-api.md) 进一步说明了执行边界。
 
 <a id="gpu-examples"></a>
 
 ## 可选 GPU 示例
 
-以下交叉验证 GPU 示例依赖[上面的 CPU 示例](#kernel-cv-workflow)，其中已定义
-`KernelRidgeCV`、`X_train`、`y_train`、`X_test` 和 `kr_cv`。先运行该示例，再根据
-安装环境选择一个片段。仅改变设备；这些不是独立的 CPU 示例，都需要可工作的
+如果已安装可用的 CUDA 环境，只需改变设备，就能在 GPU 上重复同一搜索。先运行
+[CPU 选择示例](#kernel-cv-workflow)，定义 `KernelRidgeCV`、`X_train`、`y_train`、
+`X_test` 和 `kr_cv`，再选择下面一个片段。两个片段都依赖这些定义，并需要对应的
 CUDA 后端。
 
 <a id="cupy"></a>

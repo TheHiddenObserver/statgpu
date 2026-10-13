@@ -1,10 +1,16 @@
 # Kernel methods API
 
 > Language: English  
-> Last updated: 2026-10-12  
+> Last updated: 2026-10-13  
 > Switch: [Chinese](../../cn/reference/kernel-methods-api.md)
 
-This is the complete public reference for the four estimators and eight pairwise functions in `statgpu.nonparametric.kernel_methods`. For choosing a method, start with the [kernel-methods overview](../models/kernel-methods.md). For self-contained workflows, use [KernelRidge](../models/kernel-ridge.md), [KernelRidgeCV](../models/kernel-ridge-cv.md), [KernelPCA](../models/kernel-pca.md), or [Nystroem](../models/kernel-nystroem.md).
+This reference lists the signatures, parameters, methods, fitted attributes, and
+execution limits of the four estimators and eight pairwise functions in
+`statgpu.nonparametric.kernel_methods`. Start with the
+[kernel-methods overview](../models/kernel-methods.md) to choose a method.
+For complete worked examples, see [KernelRidge](../models/kernel-ridge.md),
+[KernelRidgeCV](../models/kernel-ridge-cv.md),
+[KernelPCA](../models/kernel-pca.md), and [Nystroem](../models/kernel-nystroem.md).
 
 ## Complete estimator API
 
@@ -15,7 +21,7 @@ KernelPCA(n_components=2, kernel='rbf', gamma=None, degree=3, coef0=1, alpha=1.0
 Nystroem(kernel='rbf', n_components=100, gamma=None, degree=3, coef0=1, random_state=None, device='auto', n_jobs=None)
 ```
 
-The displayed device default `'auto'` is the string equivalent of the runtime `Device.AUTO` default. All four classes accept a string or `statgpu.Device` value. The canonical import is:
+The displayed device default `'auto'` is the string equivalent of the runtime `Device.AUTO` default. All four classes accept a string or `statgpu.Device` value. Import the estimators with:
 
 ```python
 from statgpu.nonparametric.kernel_methods import (
@@ -202,7 +208,8 @@ Constructor controls are not forwarded identically by all estimators:
 
 Pairwise dispatch normalizes names, but KernelPCA/Nystroem's degree/coef0 selection does not. Use canonical lowercase names when configuring these estimators; a name such as `'Polynomial'` can dispatch successfully while omitting your intended degree/coef0. For their linear/cosine kernels, leave `gamma=None`: a non-`None` gamma is forwarded and raises `TypeError` because those functions do not accept it. Extra dictionary keywords are not filtered against a built-in function's signature and may also raise `TypeError`.
 
-A custom kernel must return a full `(n,q)` matrix on the expected backend, with compatible dtype and device, and provide the symmetry/positive-semidefiniteness needed by the selected method. A callable's own errors propagate. These are matrix-valued callables, not the scalar-per-pair callable convention of some other libraries.
+A custom kernel must return a full `(n,q)` matrix on the expected backend, with compatible dtype and device, and provide the symmetry/positive-semidefiniteness needed by the selected method. A callable's own errors propagate. Each call returns an entire pairwise matrix; some other libraries instead call
+a custom kernel once per pair and expect a scalar.
 
 ## Complete pairwise-function API
 
@@ -258,7 +265,8 @@ np.testing.assert_allclose(explicit, implicit)
 ```
 <!-- example-end: kernel-callable-cpu -->
 
-This NumPy example demonstrates the omitted-module behavior; a production GPU callable must also handle dtype/device placement explicitly.
+This NumPy example handles both an omitted `xp` and an explicit `xp=np`. A
+custom GPU kernel must also handle dtype and device placement explicitly.
 
 <a id="rbf-kernel"></a>
 
@@ -324,7 +332,7 @@ All four estimators accept `device`, but kernel construction, decomposition, fit
 
 Explicit unavailable device requests raise. KernelPCA and Nystroem still reject `device="torch"` when Torch CUDA is unavailable, but passing that availability check does not guarantee CUDA execution: NumPy or Torch CPU inputs can remain on CPU during fit and transform because requested-device conversion is not consistently applied. This also affects Nystroem's query kernel and output, separately from its intentional CPU landmark SVD.
 
-Inspect actual `fit_transform`, `transform`, and `predict` outputs with Torch `.device`/`.is_cuda` or CuPy `.device`. The configured device and selected library do not prove placement. Public fitted NumPy arrays cannot establish where numerical work ran. If CUDA placement is required, reject CPU outputs before using them. For a predictable CPU path, pass NumPy input with `device="cpu"`. See the [device guide](../guides/device-and-memory.md#current-smoothing-and-spline-exceptions). Neither KernelPCA nor Nystroem has an all-GPU execution contract.
+Inspect actual `fit_transform`, `transform`, and `predict` outputs with Torch `.device`/`.is_cuda` or CuPy `.device`. The configured device and selected library do not prove placement. Public fitted NumPy arrays cannot establish where numerical work ran. If CUDA placement is required, reject CPU outputs before using them. For a predictable CPU path, pass NumPy input with `device="cpu"`. See the [device guide](../guides/device-and-memory.md#current-smoothing-and-spline-exceptions). Neither KernelPCA nor Nystroem guarantees that all computation stays on GPU.
 
 <a id="numerical-failures"></a>
 <a id="limitations-and-failure-modes"></a>

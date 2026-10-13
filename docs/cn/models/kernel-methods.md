@@ -1,16 +1,17 @@
 # 核方法
 
 > 语言：中文  
-> 最后更新：2026-10-12
+> 最后更新：2026-10-13
 > 切换：[English](../../en/models/kernel-methods.md)
 
-本页先解释各类核方法共用的概念，再帮助你选择方法。每篇方法教程都提供可独立运行的完整 CPU 示例；[完整 API 参考](../reference/kernel-methods-api.md) 集中列出签名、参数、输出和执行限制。
+核方法利用观测之间的相似性来预测响应或学习新的数据表示。本页介绍共用概念，
+帮助你选择适合问题的方法；随后可进入[方法教程](#方法教程)，通过独立的 CPU
+示例学习具体用法。
 
 ## 先按分析问题选择工具
 
-当响应与特征之间的关系难以用直线描述时，核方法可以从观测之间的相似性出发建模。
-核函数把两条观测映射为一个相似度，模型再据此预测响应或提取新的数据坐标，
-无需手工列出所有非线性交互项。
+先确定分析目标：预测响应、提取非线性坐标，还是构造较小的特征矩阵。
+这几类方法都以核函数衡量观测之间的相似性，无需手工列出所有非线性交互项。
 
 - **预测数值响应**：使用 `KernelRidge`。`KernelRidgeCV` 在训练折内选择正则化
   强度，再用传入的全部训练数据重新拟合。若相近观测应有相近响应，但难以指定曲线
@@ -78,7 +79,7 @@ print(K.shape, K_query.shape)
 ```
 <!-- example-end: kernel-gram-cpu -->
 
-两个形状分别为 `(3, 3)` 和 `(2, 3)`。每个点到自身的距离为零，因此对角线为一。第一个与第三个训练点之间的相似度低于相邻点。这里只计算了相似度，还没有拟合响应模型或学习降维坐标。
+两个矩阵的形状分别为 `(3, 3)` 和 `(2, 3)`。每个点到自身的距离为零，因此对角线为一。第一个与第三个训练点之间的相似度低于相邻点。这里只计算了相似度，还没有拟合响应模型或学习降维坐标。
 
 ## 特征单位与核尺度
 
@@ -86,7 +87,7 @@ print(K.shape, K_query.shape)
 
 缩放一列会改变距离，也会改变核衡量的关系。应根据问题决定保留原始单位还是标准化到可比尺度。均值和尺度只能从训练行学习，再用于新数据；验证时要在每个训练折内重新学习预处理。KernelPCA 对 Gram 矩阵的中心化是在核特征空间内进行的，并不会标准化原始输入列。
 
-对采用这一默认值的核，`gamma=None` 通常取 `1 / n_features`，并不是自动搜索带宽。Chi-squared 核的默认值不同，而且要求输入非负；直接标准化可能破坏它的适用条件。详见[核参数及传递规则](../reference/kernel-methods-api.md#kernel-parameter-forwarding)。
+对采用这一默认值的核，`gamma=None` 通常取 `1 / n_features`，并不是自动搜索带宽。Chi-squared 核的默认值不同，而且要求输入非负；直接标准化可能使输入不再满足这一要求。详见[核参数及传递规则](../reference/kernel-methods-api.md#kernel-parameter-forwarding)。
 
 ## 方法教程
 
@@ -98,7 +99,8 @@ print(K.shape, K_query.shape)
 
 ### [核岭回归：拟合与预测](kernel-ridge.md#example)
 
-用训练数据拟合数值响应，再对留出数据预测。教程解释目标函数、核系数与原始特征斜率的区别，以及数值检查。
+从正则化目标函数出发，完成训练到留出集预测的完整流程，理解核系数与原始特征
+斜率的区别，并检查拟合结果是否满足求解方程。
 
 <a id="kernel-cv-workflow"></a>
 <a id="核岭交叉验证"></a>
@@ -106,14 +108,16 @@ print(K.shape, K_query.shape)
 
 ### [核岭交叉验证：选择 alpha](kernel-ridge-cv.md#selection)
 
-内置 CV 只选 alpha，以 MSE 选优，best_score_ 则报告 R²。教程给出独立示例，并说明预处理、分组或时间划分为何需要外部循环。
+用验证 MSE 选择 `alpha`，理解 `best_score_` 报告的 R²，并判断何时需要
+外部划分循环来处理预处理、分组观测或时间顺序。
 
 <a id="kernel-pca"></a>
 <a id="学习并复用非线性坐标"></a>
 
 ### [KernelPCA：非线性坐标](kernel-pca.md#example)
 
-不使用响应变量，学习并复用中心化核的坐标系。教程解释新数据投影、可保留维数、符号歧义以及失败重拟合后的处理。
+不使用响应变量，从中心化核学习坐标系，再将新观测投影到同一空间。教程说明
+可保留的维数、符号歧义，以及重新拟合失败后的处理方式。
 
 <a id="nystroem-近似"></a>
 <a id="构造较小的核特征矩阵"></a>
@@ -121,7 +125,8 @@ print(K.shape, K_query.shape)
 
 ### [Nystroem：低秩核特征](kernel-nystroem.md#example)
 
-从训练行选取地标，为下游模型产生较少的特征列。教程包含预测流程和小数据核近似诊断，并区分近似误差与预测误差。
+从训练数据选取代表节点，构造较小的特征矩阵并交给下游预测器。小数据诊断
+进一步说明核近似误差与预测误差为何是两个不同的问题。
 
 <a id="可选-gpu-示例"></a>
 <a id="cupy"></a>
@@ -129,7 +134,9 @@ print(K.shape, K_query.shape)
 
 ### [可选 GPU 示例](kernel-ridge-cv.md#gpu-examples)
 
-在 CPU 交叉验证示例基础上切换设备。KernelPCA 与 Nystroem 的分解和输出存在下文所述边界。
+在 CPU 交叉验证流程基础上改用 CuPy 或 Torch CUDA。使用 KernelPCA 与
+Nystroem 前，还应了解下文的[执行边界](#后端与执行边界)：选择设备并不意味着
+每一步都在该设备上执行。
 
 ## 内置核
 
@@ -159,24 +166,28 @@ print(K.shape, K_query.shape)
 
 <a id="交叉验证结果的组织"></a>
 
-[CV 结果字段与形状](../reference/kernel-methods-api.md#kernelridgecv)解释候选数组、逐折表、折均值以及 best_score_ 与选择损失的区别。
+候选数组、逐折表、折均值，以及 `best_score_` 与选择损失的区别，见
+[CV 结果字段](../reference/kernel-methods-api.md#kernelridgecv)。
 
 <a id="完整成对核函数-api"></a>
 
-[成对核函数 API](../reference/kernel-methods-api.md#pairwise-kernels)列出 pairwise_kernels 和七个核函数，包含自定义核示例、xp、数据类型和参数传递规则。
+[成对核函数 API](../reference/kernel-methods-api.md#pairwise-kernels) 列出
+`pairwise_kernels` 和七个核函数，并说明自定义核用法、`xp`、数据类型和参数传递规则。
 
 <a id="进一步理解核方法"></a>
 <a id="核岭回归"></a>
 
-[核岭目标函数与预测公式](kernel-ridge.md#theory)解释正则化线性系统、求和损失和核系数。
+若想理解拟合与预测背后的数学，可从[核岭目标函数](kernel-ridge.md#theory)
+开始，了解平方和损失、核系数及正则化线性系统之间的联系。
 
 <a id="核主成分的计算"></a>
 
-[核主成分的中心化与投影](kernel-pca.md#theory)从训练 Gram 矩阵推导新数据坐标。
+[核主成分推导](kernel-pca.md#theory) 说明训练核的中心化如何用于新数据投影。
 
 <a id="nystroem-的特征映射"></a>
 
-[Nystroem 的 SVD 特征映射](kernel-nystroem.md#theory)解释地标核、归一化和低秩近似。
+[Nystroem 推导](kernel-nystroem.md#theory) 说明代表节点核与 SVD 归一化
+如何构成低秩特征映射。
 
 ## 后端与执行边界
 
@@ -193,7 +204,12 @@ print(K.shape, K_query.shape)
 
 显式请求不可用的设备会报错。
 
-Torch CUDA 不可用时，KernelPCA 与 Nystroem 仍会拒绝 `device="torch"`。通过该检查并不保证 CUDA 执行：这些路径未始终将输入移到请求设备，因此 NumPy 或 Torch CPU 输入在拟合和变换时仍可能留在 CPU。请检查 `fit_transform`、`transform` 和 `predict` 实际返回的特征：Torch 查看 `.device`/`.is_cuda`，CuPy 查看 `.device`，不能仅依赖设备配置或选中的后端/数组库。两者的公开拟合数组按设计保留为 NumPy，不能证明数值计算所在设备。此限制还影响 Nystroem 的查询核与输出，须与有意安排在 CPU 的节点 SVD 区分。必须使用 CUDA 时，应在使用结果前拒绝 CPU 输出。需要明确的 CPU 路径时，请传入 NumPy 数组并设 `device="cpu"`。详见[设备说明](../guides/device-and-memory.md#current-smoothing-and-spline-exceptions)。
+Torch CUDA 不可用时，KernelPCA 与 Nystroem 仍会拒绝 `device="torch"`。通过该检查并不保证 CUDA 执行：这些路径未始终将输入移到请求设备，因此 NumPy 或 Torch CPU 输入在拟合和变换时仍可能留在 CPU。
+
+请检查 `fit_transform`、`transform` 和 `predict` 实际返回的特征：Torch 查看 `.device`/`.is_cuda`，CuPy 查看 `.device`，不能仅依赖设备配置或选中的后端/数组库。两者的公开拟合数组保存为 NumPy，不能说明数值计算所在设备。此限制还影响
+Nystroem 的查询核与输出，应与有意安排在 CPU 的节点 SVD 区分。
+
+必须使用 CUDA 时，应在使用结果前拒绝 CPU 输出。需要明确的 CPU 路径时，请传入 NumPy 数组并设 `device="cpu"`。详见[设备说明](../guides/device-and-memory.md#current-smoothing-and-spline-exceptions)。
 
 `KernelPCA` 和 `Nystroem` 在拟合和变换时拒绝输入数组中的 NaN/Inf。这项输入检查
 不保证计算得到的核矩阵或学习数组也是有限值；详见[结果有限性检查](#检查核拟合结果是否有限)。
@@ -217,7 +233,7 @@ Torch CUDA 不可用时，KernelPCA 与 Nystroem 仍会拒绝 `device="torch"`�
 - `Nystroem` 将核存储降低到 $O(nm)$，另加代表节点上的线性代数运算。
 - GPU 加速效果取决于样本量、数据类型、核函数、同步开销和可用显存；小问题可能 CPU 更快。
 
-例如，float64 的 $n=10{,}000$ 方阵仅数据就约占 800 MB，还不含分解临时数组和副本。Nystroem 取 $m=100$ 时，$(n,m)$ 特征数组约为 8 MB，但仍需地标矩阵及 $O(nm^2+m^3)$ 的稠密特征归一化与 SVD 运算；下游模型另有成本。低秩方法牺牲近似精度换取存储收益，不能只凭更少列数判断预测质量。
+例如，float64 的 $n=10{,}000$ 方阵仅数据就约占 800 MB，还不含分解临时数组和副本。Nystroem 取 $m=100$ 时，$(n,m)$ 特征数组约为 8 MB，但仍需代表节点矩阵及 $O(nm^2+m^3)$ 的稠密特征归一化与 SVD 运算；下游模型另有成本。这种存储节省需要与近似精度权衡，不能只凭列数更少就判断预测质量更好。
 
 <a id="限制与失败行为"></a>
 
@@ -250,7 +266,7 @@ Nystroem 检查 `np.isfinite(model.normalization_).all()` 和
 对应后端的有限值检查。出现非有限结果时，应丢弃该拟合，检查特征单位、尺度与
 核参数，然后用新实例重新拟合。核已经溢出时，增大 `alpha` 无法修复问题。
 缩放会改变多项式相似度，因此预处理的选择和验证应在训练折内完成。数值有限只是
-必要条件，不能单独证明模型条件良好或适合分析目的。
+必要条件，不能单独证明核矩阵条件良好或模型适合分析目的。
 
 ### RBF 坐标偏移过大时
 
@@ -266,7 +282,7 @@ RBF 核遇到很大的共同坐标偏移时，请用训练数据确定一个偏�
 
 ## 与其他实现核对结果
 
-核岭回归可直接验证正则化线性系统，或与 scikit-learn 对照，但须使用相同核、alpha、数据及不加权目标。交叉验证应检查各候选 MSE 是否有限，并确认最终重拟合沿用选定 alpha。比较 Nystroem 归一化矩阵或特征时，应对齐代表节点和 SVD 奇异值下限。CPU 检查不等于 GPU 精度或性能证据，应在实际使用的设备上验证。
+核岭回归可直接验证正则化线性系统，或与 scikit-learn 对照，但须使用相同核、alpha、数据及不加权目标。交叉验证应检查各候选 MSE 是否有限，并确认最终重拟合沿用选定 alpha。比较 Nystroem 归一化矩阵或特征时，应对齐代表节点和 SVD 奇异值下限。CPU 上的检查不能说明 GPU 上的精度或性能，应在实际使用的设备上验证。
 
 ## FAQ
 

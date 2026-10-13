@@ -1,7 +1,7 @@
 # 核主成分分析
 
 > 语言：中文  
-> 最后更新：2026-10-12  
+> 最后更新：2026-10-13  
 > 切换：[English](../../en/models/kernel-pca.md)
 
 ## 不使用响应，提取非线性坐标
@@ -13,11 +13,14 @@
 输出是嵌入坐标，不是响应预测，也不是原始特征的斜率。监督回归使用
 [KernelRidge](kernel-ridge.md)；若希望用较少代表节点构造近似核特征，可选择
 [Nystroem](kernel-nystroem.md)。如果线性坐标已经足够，且不值得构造稠密训练核，
-应先考虑普通 PCA。[核方法总览](kernel-methods.md) 对比了不同任务。
+应先考虑普通 PCA。
 
 <a id="theory"></a>
 
 ## 中心化、特征分解与投影
+
+学习坐标系分为两步：先将训练核中心化，再找出主要的变异方向。这两步都通过观测
+之间的相似度完成，无需显式构造核特征向量。
 
 设训练核为 $K_{ij}=k(x_i,x_j)$，并令
 $H=I-\mathbf 1\mathbf 1^\top/n$。特征空间中心化后有
@@ -77,7 +80,8 @@ from statgpu.nonparametric.kernel_methods import KernelPCA
 
 ### 准备训练行与留出行
 
-生成响应仅为保持各教程的数据一致；本页拟合不使用它。
+这里使用与回归教程相同的模拟数据。生成响应是为了保持数据一致，学习嵌入只使用
+输入特征。
 ```python
 rng = np.random.default_rng(42)
 X = rng.uniform(-2, 2, size=(240, 2))
@@ -90,7 +94,7 @@ X_train, X_test = X[train], X[test]
 
 ### 学习坐标系
 
-只用训练输入拟合，再对测试输入复用同一投影。
+已拟合对象保留训练时的中心化信息和投影，因此可以将测试行放入同一坐标系。
 ```python
 kpca = KernelPCA(n_components=3, gamma=0.7, device="cpu")
 train_coordinates = kpca.fit_transform(X_train)
@@ -122,18 +126,21 @@ print("First two test coordinates:\n", test_coordinates[:2])
 
 ## 选择维度与相似度
 
-- `n_components` 是**上限**，不保证返回这么多列。仅保留大于 `1e-12` 的特征值；
-  低秩中心化核可能返回更少列，无正方向时会报错。
-- `gamma` 控制 RBF 的距离尺度。较大值强调局部相似度，较小值使观测之间更相似。
-  应合理选择特征单位和预处理，并针对用途验证嵌入。
-- `alpha` 是特征分解前加入的有限、非负对角偏移量，分解后会从特征值中扣除。
-  它**不是**监督预测器的岭惩罚，也不用于逆变换正则化。
-- `eigen_solver="auto"` 和 `"dense"` 目前都使用稠密对称特征分解。
+先考虑希望坐标保留哪种相似关系。对于 RBF 核，`gamma` 控制距离尺度：较大值强调
+局部相似度，较小值使观测之间更相似。应合理选择特征单位和预处理，并针对用途
+验证嵌入。
 
-所有构造参数、拟合字段、方法签名、核选择和形状见
-[完整核方法 API](../reference/kernel-methods-api.md)。`fit(X, y=None)` 忽略 `y`；
-`predict(X)` 是 `transform(X)` 的别名。没有模型专用评分，也没有
-`inverse_transform` 方法；该 API 不负责重构输入或提供系数推断。
+再决定保留多少个方向。`n_components` 是**上限**，不保证返回这么多列。仅保留
+大于 `1e-12` 的特征值；低秩中心化核可能返回更少列，无正方向时会报错。
+
+另外两个参数影响分解过程。`alpha` 是特征分解前加入的有限、非负对角偏移量，
+分解后会从特征值中扣除。它**不是**监督预测器的岭惩罚，也不用于逆变换正则化。
+`eigen_solver="auto"` 和 `"dense"` 目前都使用稠密对称特征分解。
+
+[完整核方法 API](../reference/kernel-methods-api.md) 列出了所有构造参数、拟合
+字段、方法签名、核选择和形状。其中，`fit(X, y=None)` 忽略 `y`，`predict(X)`
+是 `transform(X)` 的别名。没有模型专用评分，也没有 `inverse_transform` 方法；
+该 API 不负责重构输入或提供系数推断。
 
 ## 谨慎解释不同拟合之间的差别
 
@@ -152,7 +159,7 @@ print("First two test coordinates:\n", test_coordinates[:2])
 `fit` 或 `fit_transform` 抛出异常后，应创建新的 `KernelPCA`，用合适数据成功拟合
 后再变换查询点，不要继续使用表面上保留的旧拟合。
 
-失败的重新拟合可能覆盖训练核中心化信息，同时留下旧特征向量和 fitted 标记。
+失败的重新拟合可能覆盖训练核中心化信息，同时留下旧特征向量和已拟合标记。
 随后的 `transform` 或 `predict` 可能返回**有限但错误的坐标**，即使查询的是原训练
 行也如此。只检查有限性无法识别这种混合拟合状态。
 
@@ -163,10 +170,11 @@ print("First two test coordinates:\n", test_coordinates[:2])
 ## 输入、数值与执行边界
 
 输入须为有限数值，查询时保持特征顺序与数量一致。一维 `X` 表示单个特征的多行
-观测。拟合与变换会拒绝 NaN/Inf 输入，但有限输入不保证核有限，例如多项式核仍
-可能溢出。除变换输出外，还应检查适用的核参数与拟合数组，丢弃无效结果。卡方核
-要求非负特征。对于带巨大共同偏移的 RBF 坐标，应对训练与查询减去同一个从训练
-数据得到的偏移，减少平方距离中的消减误差。
+观测。拟合与变换会拒绝 NaN/Inf 输入，卡方核还要求非负特征。
+
+有限输入不保证核有限，例如多项式核仍可能溢出。除变换输出外，还应检查适用的
+核参数与拟合数组，丢弃无效结果。对于带巨大共同偏移的 RBF 坐标，应对训练与查询
+减去同一个从训练数据得到的偏移，减少平方距离中的消减误差。
 
 训练核需要平方级内存，稠密特征分解最坏为立方级算术成本。分解通常使用所选后端；
 线性代数异常会触发 NumPy CPU 特征分解，并且没有单独的回退标志。即使数值运算
@@ -176,14 +184,13 @@ print("First two test coordinates:\n", test_coordinates[:2])
 Torch CUDA 可用性检查通过后，仍可能让 NumPy 或 Torch CPU 输入留在 CPU 上。
 应通过返回特征的 Torch `.device` / `.is_cuda` 或 CuPy `.device` 检查实际位置；
 所选后端及主机上的拟合数组都不能证明输出位置。若必须使用 CUDA，应在使用前拒绝
-CPU 输出。NumPy 输入配合 `device="cpu"` 是可预期的 CPU 路径。详见
+CPU 输出。NumPy 输入配合 `device="cpu"` 是可预期的 CPU 路径。
 [设备指南](../guides/device-and-memory.md#current-smoothing-and-spline-exceptions)
-与 [API 参考](../reference/kernel-methods-api.md)。
+进一步说明了各核方法的设备放置限制。
 
 ## 延伸阅读
 
 - [核方法总览](kernel-methods.md)
 - [Nystroem：可复用的近似特征](kernel-nystroem.md)
-- [完整核方法 API](../reference/kernel-methods-api.md)
 - Schölkopf, B., Smola, A., & Müller, K.-R. (1998). Nonlinear component analysis
   as a kernel eigenvalue problem.

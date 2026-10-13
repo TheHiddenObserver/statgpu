@@ -1,10 +1,14 @@
 # 核方法 API
 
 > 语言：中文  
-> 最后更新：2026-10-12  
+> 最后更新：2026-10-13  
 > 切换：[English](../../en/reference/kernel-methods-api.md)
 
-本页是 `statgpu.nonparametric.kernel_methods` 中四个估计器和八个成对核函数的完整公共参考。选择方法请从[核方法总览](../models/kernel-methods.md)开始；独立可运行的教程分别见 [KernelRidge](../models/kernel-ridge.md)、[KernelRidgeCV](../models/kernel-ridge-cv.md)、[KernelPCA](../models/kernel-pca.md) 和 [Nystroem](../models/kernel-nystroem.md)。
+本页列出 `statgpu.nonparametric.kernel_methods` 中四个估计器和八个成对核函数
+的完整签名、参数、方法、拟合属性及执行限制。选择方法可先阅读
+[核方法总览](../models/kernel-methods.md)；完整示例分别见
+[KernelRidge](../models/kernel-ridge.md)、[KernelRidgeCV](../models/kernel-ridge-cv.md)、
+[KernelPCA](../models/kernel-pca.md) 和 [Nystroem](../models/kernel-nystroem.md)。
 
 <a id="complete-estimator-api"></a>
 
@@ -41,7 +45,7 @@ from statgpu.nonparametric.kernel_methods import (
 - `X` 应为有限数值矩阵 `(n,p)`，训练行数和特征数均非零。一维 `X` 会转成 `(n,1)`，表示一个特征的多行观测，而不是一个多维查询点。查询矩阵为 `(q,p)`，须保持训练特征顺序。
 - 估计器将数值输入转为 float64。自定义核还须保持所需的后端、数据类型、形状和设备兼容性。这与底层函数的[数据类型规则](#pairwise-inputs-and-dtypes)不同。
 - 监督学习的 `y` 为 `(n,)` 或 `(n,r)`，向量内部按单列保存。单响应岭回归的预测为 `(q,)`，即使训练时 `y` 为 `(n,1)`；多响应为 `(q,r)`。
-- `fit` 返回 `self`。未拟合就调用预测或变换会抛出 `RuntimeError`。公共数值输入检查会拒绝 NaN/Inf，但**不会**因此保证计算得到的核矩阵、学习数组或所有标量核参数有效。
+- `fit` 返回 `self`。未拟合就调用预测或变换会抛出 `RuntimeError`。数值输入检查会拒绝 NaN/Inf，但这**不保证**计算得到的核矩阵、拟合数组或所有标量核参数有效。
 - 四个类均有 `get_params(deep=True)` 和 `set_params(**params)`。前者返回构造配置，并按需包含嵌套设置；后者返回 `self`。未知构造参数名抛出 `ValueError`。修改参数后须重新拟合。KernelRidge/CV 使用基类的重建路径；KernelPCA/Nystroem 对自身参数的更新可能保留旧拟合数组，不可依赖自动失效处理。
 - 四个类均继承 `adjust_pvalues`、`combine_pvalues`、`bootstrap_statistic` 和 `permutation_test`，完整签名、限制与返回值见[共享估计器 API](estimator-api.md)。这些工具不提供核系数推断，也不会自动建立适用于该模型的有效重采样过程。
 
@@ -177,7 +181,7 @@ $$
 N=U\max(\Sigma,10^{-12}I)^{-1/2}V^\top,\qquad Z=K_{qm}N.
 $$
 
-对于半正定代表节点核，这是对称逆平方根的特征方向形式。全部 `m` 列均保留，较小奇异值是**截断到下限，而非删除**。不定核也执行 SVD，但不因此得到不定相似度的精确欧氏特征表示。
+对于半正定代表节点核，这一归一化采用对称逆平方根来构造特征。全部 `m` 列均保留，较小奇异值是**截断到下限，而非删除**。不定核也执行 SVD，但不因此得到不定相似度的精确欧氏特征表示。
 
 | 拟合属性 | 形状与含义 |
 |---|---|
@@ -204,7 +208,7 @@ $$
 
 成对核分派会规范化名称，但 KernelPCA/Nystroem 选择 degree/coef0 的逻辑不会。配置时请用规范小写名称；例如 `'Polynomial'` 虽可成功分派，却可能遗漏你设置的 degree/coef0。它们的 linear/cosine 核应保持 `gamma=None`；非 `None` 的 gamma 会被转发，而相应函数不接受此参数，因此抛出 `TypeError`。字典里的额外关键字也不会按内置函数签名过滤，可能同样引起 `TypeError`。
 
-自定义核须返回预期后端上的完整 `(n,q)` 矩阵，保持数据类型和设备兼容，并满足所选方法所需的对称性、半正定性。自定义函数自身抛出的错误会继续向上传递。这里的函数按整对矩阵调用，与某些库逐对返回标量的调用约定不同。
+自定义核须返回预期后端上的完整 `(n,q)` 矩阵，保持数据类型和设备兼容，并满足所选方法所需的对称性、半正定性。自定义函数自身抛出的错误会继续向上传递。每次调用应返回两组观测之间的完整核矩阵；某些库则逐对调用自定义核，要求每次返回一个标量。
 
 <a id="complete-pairwise-function-api"></a>
 
@@ -227,7 +231,7 @@ chi2_kernel(X, Y=None, gamma=1.0, xp=None)
 
 ### 输入、形状、数据类型与设备
 
-对内置核，请准备兼容、有限的二维后端数组 `X` `(n,p)` 和 `Y` `(q,p)`，特征数须相同。`Y=None` 使用 `X`。返回值为 `(n,q)`，省略 `Y` 时为 `(n,n)`。与估计器不同，这些函数不将向量自动转为列，通常也不接受嵌套列表，请先转换。NumPy 卡方核路径还接受二维 array-like 输入。
+对内置核，请准备兼容、有限的二维后端数组 `X` `(n,p)` 和 `Y` `(q,p)`，特征数须相同。`Y=None` 使用 `X`。返回值为 `(n,q)`，省略 `Y` 时为 `(n,n)`。与估计器不同，这些函数不将向量自动转为列，通常也不接受嵌套列表，请先转换。NumPy 卡方核路径还接受可转换为二维数组的输入。
 
 对内置核，`xp=None` 使用 NumPy，**不会**自动识别输入后端。应将 `xp` 设为对应的 NumPy、CuPy 或 Torch 模块，并自行准备位于所需设备上的兼容数组。仅传 `xp` 不会把数组移到 GPU，也不会统一为 float64。这些底层函数没有统一的数据类型转换和有限值检查规则：
 
@@ -262,7 +266,8 @@ np.testing.assert_allclose(explicit, implicit)
 ```
 <!-- example-end: kernel-callable-cpu -->
 
-此 NumPy 示例演示省略模块时的处理；实际 GPU 自定义核还须明确处理数据类型和设备放置。
+此 NumPy 示例同时处理省略 `xp` 和显式传入 `xp=np` 的情况。自定义 GPU 核
+还须明确处理数据类型和数组所在设备。
 
 <a id="rbf-kernel"></a>
 
@@ -276,7 +281,7 @@ np.testing.assert_allclose(explicit, implicit)
 
 ### polynomial_kernel
 
-`polynomial_kernel(X, Y=None, degree=3, gamma=None, coef0=1, xp=None)` 返回 $(\gamma x^\top y+\mathrm{coef0})^{\mathrm{degree}}$。`gamma=None` 使用 `1/p`。很大的有限输入、尺度或次数可导致溢出，无效参数也可能产生 NaN 而不清晰报错。缩放会改变此相似度，应在训练过程中选择。另见[结果有限性检查](#check-for-nonfinite-kernel-fits)。
+`polynomial_kernel(X, Y=None, degree=3, gamma=None, coef0=1, xp=None)` 返回 $(\gamma x^\top y+\mathrm{coef0})^{\mathrm{degree}}$。`gamma=None` 使用 `1/p`。很大的有限输入、尺度或次数可导致溢出，无效参数也可能产生 NaN，却不抛出明确异常。缩放会改变此相似度，应在训练过程中选择。另见[结果有限性检查](#check-for-nonfinite-kernel-fits)。
 
 <a id="linear-kernel"></a>
 
@@ -288,7 +293,7 @@ np.testing.assert_allclose(explicit, implicit)
 
 ### laplacian_kernel
 
-`laplacian_kernel(X, Y=None, gamma=None, xp=None)` 返回 $\exp(-\gamma\lVert x-y\rVert_1)$，`gamma=None` 使用 `1/p`。NumPy 使用 SciPy 的 city-block 距离；CuPy/Torch 广播构造 `(n,q,p)` 差分数组，临时内存可能明显大于最终核矩阵。
+`laplacian_kernel(X, Y=None, gamma=None, xp=None)` 返回 $\exp(-\gamma\lVert x-y\rVert_1)$，`gamma=None` 使用 `1/p`。NumPy 使用 SciPy 的曼哈顿距离；CuPy/Torch 广播构造 `(n,q,p)` 差分数组，临时内存可能明显大于最终核矩阵。
 
 <a id="sigmoid-kernel"></a>
 
@@ -350,9 +355,9 @@ NumPy 将零除零特征项视为零。CuPy/Torch 对每个分母使用 `1e-10` 
 
 ### 检查核拟合结果是否有限
 
-有限输入不保证计算后的核有限。多项式核可能溢出，当前 KernelRidge 和 Nystroem 可能正常返回，但学习数组和预测/特征含 NaN。NaN gamma 等无效标量核参数也可产生非有限结果。有无警告、是否抛出异常都不是可靠的拟合状态检查。
+有限输入不保证计算后的核有限。多项式核可能溢出，当前 KernelRidge 和 Nystroem 可能正常返回，但拟合数组以及预测或特征中含有 NaN。NaN gamma 等无效标量核参数也可产生非有限结果。有无警告、是否抛出异常都不是可靠的拟合状态检查。
 
-应使用有限、适用的核参数，使用结果前检查学习数组和查询输出。NumPy CPU 上，KernelRidge 检查 `np.isfinite(model.dual_coef_).all()`；Nystroem 检查 `np.isfinite(model.normalization_).all()` 和 `np.isfinite(model.eigenvalues_).all()`。预测和变换特征也须检查，设备数组使用对应后端检查。CV 还须确认 `cv_results_["mean_mse"]` 与 `best_score_` 有限。
+应使用有限、适用的核参数，使用结果前检查拟合数组和查询输出。NumPy CPU 上，KernelRidge 检查 `np.isfinite(model.dual_coef_).all()`；Nystroem 检查 `np.isfinite(model.normalization_).all()` 和 `np.isfinite(model.eigenvalues_).all()`。预测和变换特征也须检查，设备数组使用对应后端检查。CV 还须确认 `cv_results_["mean_mse"]` 与 `best_score_` 有限。
 
 丢弃非有限拟合，检查特征单位、尺度和核参数，再用新实例拟合。增大 alpha 不能修复已经溢出的核。缩放会改变多项式相似度，因此预处理应在训练折内选择与验证。数值有限是必要条件，不足以证明模型条件良好或适用。对于有限但病态的核，可考虑更大的正 alpha 或更合适的核尺度；两者都不能代替修复 [RBF 坐标偏移问题](#rbf-kernel)。
 

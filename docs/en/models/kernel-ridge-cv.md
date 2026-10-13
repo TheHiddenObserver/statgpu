@@ -1,20 +1,22 @@
 # Kernel Ridge Cross-Validation
 
 > Language: English  
-> Last updated: 2026-10-12  
+> Last updated: 2026-10-13  
 > Switch: [Chinese](../../cn/models/kernel-ridge-cv.md)
 
 ## Select regularization without using the test set
 
-`KernelRidgeCV` chooses the regularization strength `alpha` for kernel ridge
-regression from training folds, then fits a final `KernelRidge` on all rows
-supplied to `fit`. It is useful when the kernel and its settings are already
-fixed and observations can be split into shuffled row-wise folds.
+The regularization strength `alpha` determines how strongly kernel ridge
+penalizes the fitted function's complexity. `KernelRidgeCV` compares candidate
+values by fitting on training folds and measuring prediction error on their
+validation folds. It then fits a final `KernelRidge` at the selected value on
+all rows supplied to `fit`.
 
-Use [KernelRidge](kernel-ridge.md) when `alpha` is fixed or when you need to
-control the splitting and preprocessing yourself. `KernelRidgeCV` selects
-**only alpha**, not the kernel type, `gamma`, or a preprocessing recipe. For
-other kernel tasks, see the [overview](kernel-methods.md).
+This is useful when the kernel and its settings are already fixed and
+observations can be split into shuffled row-wise folds. `KernelRidgeCV` selects
+**only alpha**, not the kernel type, `gamma`, or a preprocessing recipe. Use
+[KernelRidge](kernel-ridge.md) when `alpha` is fixed or when you need to control
+the splitting and preprocessing yourself.
 
 <a id="selection"></a>
 
@@ -46,7 +48,8 @@ value, not the MSE minimized during selection.** After selection, `estimator_`
 is the final model refitted on all supplied training rows. Neither its training
 score nor `best_score_` is an independent held-out evaluation.
 
-For a fixed fold kernel $K_{TT}=Q\Lambda Q^\top$, coefficients for each candidate
+Because only $\alpha$ changes during the search, each fold can reuse its kernel
+eigendecomposition. For $K_{TT}=Q\Lambda Q^\top$, coefficients for each candidate
 can be computed as
 
 $$
@@ -54,9 +57,8 @@ c_{\alpha,T}=Q\,\operatorname{diag}\!\left(\frac{1}{\lambda_i+\alpha}\right)
 Q^\top y_T.
 $$
 
-Reusing the fold eigendecomposition avoids a new linear solve for every
-candidate. The kernel-ridge objective and its summed-loss normalization are
-explained in the [KernelRidge tutorial](kernel-ridge.md#from-similarity-to-the-fitted-function).
+This avoids a new linear solve for every candidate. Each fit uses the
+[summed-loss kernel-ridge objective](kernel-ridge.md#from-similarity-to-the-fitted-function).
 
 <a id="example"></a>
 <a id="kernel-cv-workflow"></a>
@@ -76,6 +78,7 @@ from statgpu.nonparametric.kernel_methods import KernelRidgeCV
 ### Prepare training and held-out rows
 
 Keep the held-out set outside the search.
+
 ```python
 rng = np.random.default_rng(42)
 X = rng.uniform(-2, 2, size=(240, 2))
@@ -88,7 +91,9 @@ y_train, y_test = y[train], y[test]
 
 ### Select alpha on training folds
 
-All candidates share the fixed kernel and scale.
+Compare four regularization strengths across five folds. All candidates share
+the fixed kernel and scale.
+
 ```python
 kr_cv = KernelRidgeCV(
     alphas=[0.01, 0.1, 1.0, 10.0], gamma=0.7,
@@ -99,6 +104,7 @@ kr_cv = KernelRidgeCV(
 ### Check the search and predict
 
 Reject nonfinite search or model results before interpreting the fit.
+
 ```python
 assert np.isfinite(kr_cv.cv_results_["mean_mse"]).all()
 assert np.isfinite(kr_cv.best_score_)
@@ -112,6 +118,7 @@ held_out_mse = np.mean((y_test - prediction) ** 2)
 ### Read the selected model and held-out results
 
 Report the selection metric separately from the final evaluation.
+
 ```python
 print("Selected alpha:", kr_cv.alpha_)
 print("Mean validation MSE by alpha:", kr_cv.cv_results_["mean_mse"][:, 0])
@@ -145,22 +152,25 @@ for all attributes and shapes.
 
 ## Choose candidates and folds
 
-- `alphas` accepts a nonempty finite nonnegative array. Prefer **strictly
-  positive** values on a logarithmic scale. With `alphas=None`, the class builds
-  100 positive log-spaced candidates from the training kernel spectrum.
-- `cv` must be an integer from 2 through the number of supplied rows. It creates
-  shuffled row-wise K-fold splits. `random_state` makes this shuffling
-  reproducible; it does not turn the splitter into a grouped or chronological
-  one.
-- Kernel type and kernel controls remain fixed throughout a search. Choosing
-  `gamma` or other controls requires a separate training-only selection
-  procedure that evaluates the complete fitting pipeline.
+Start with **strictly positive** `alphas` on a logarithmic scale, as in the
+example. The argument accepts any nonempty finite nonnegative array; with
+`alphas=None`, the class builds 100 positive log-spaced candidates from the
+training kernel spectrum.
 
 An explicit zero alpha can cause division by zero in a singular training-fold
 kernel. Nonfinite CV scores can still be selected, so merely obtaining a fitted
 object does not establish a valid search. Use positive candidates and check
 `mean_mse`, `best_score_`, final coefficients, and predictions for finiteness.
 A successful final fit cannot repair an invalid earlier selection.
+
+The `cv` argument must be an integer from 2 through the number of supplied
+rows. It creates shuffled row-wise K-fold splits. `random_state` makes this
+shuffling reproducible; it does not turn the splitter into a grouped or
+chronological one.
+
+Kernel type and kernel controls remain fixed throughout a search. Choosing
+`gamma` or other controls requires a separate training-only selection procedure
+that evaluates the complete fitting pipeline.
 
 <a id="fold-local-preprocessing"></a>
 
@@ -179,9 +189,9 @@ across candidates. After selecting settings, fit preprocessing and the model on
 all outer training rows, then evaluate the untouched test set once. For grouped
 or temporal data, use splits that preserve the grouping or time direction.
 
-The independent example below demonstrates the fold-local scaling pattern with
-row-wise folds. Its splitter is for independent observations; replace those
-splits for grouped or time-ordered data.
+The independent example below uses features with different scales to show why
+scaling belongs inside the fold loop. Its row-wise splits are for independent
+observations; replace them for grouped or time-ordered data.
 
 <!-- example: kernel-ridge-fold-local-cpu -->
 ```python
@@ -190,7 +200,8 @@ from statgpu.nonparametric.kernel_methods import KernelRidge
 
 ```
 
-Prepare raw data and reserve the test set.
+First reserve the test set from the raw data, then divide only the training
+rows into folds.
 
 ```python
 rng = np.random.default_rng(42)
@@ -205,7 +216,8 @@ losses = np.empty((len(alphas), len(folds)))
 
 ```
 
-Fit scaling and each candidate using only the current training fold.
+Within each fold, learn the mean and scale from its training rows. Apply that
+same transformation to the validation rows before comparing candidates.
 
 ```python
 for fi, validation in enumerate(folds):
@@ -223,7 +235,8 @@ for fi, validation in enumerate(folds):
 
 ```
 
-Select alpha, then learn fresh preprocessing on all outer training rows.
+After selecting alpha, learn fresh preprocessing on all outer training rows
+and use it for the final model and test predictions.
 
 ```python
 assert np.isfinite(losses).all()
@@ -255,16 +268,18 @@ coordinates can lose distances, and a refit may use numerical jitter.
 The full kernel takes quadratic memory. Each training fold requires a dense
 eigendecomposition; reuse across alpha values saves work, but folds still add
 cost. Kernels and fold linear algebra use the selected backend; unavailable
-explicit device requests raise. See the [optional GPU examples](#gpu-examples) and the [complete API](../reference/kernel-methods-api.md) for execution details.
+explicit device requests raise. The [complete API](../reference/kernel-methods-api.md)
+describes the execution boundaries in full.
 
 <a id="gpu-examples"></a>
 
 ## Optional GPU examples
 
-These optional cross-validated GPU examples depend on the [CPU example above](#kernel-cv-workflow),
-which defines `KernelRidgeCV`, `X_train`, `y_train`, `X_test`, and `kr_cv`.
-Run that example first, then choose one snippet for a working CUDA installation.
-Only the device changes; these are not independent CPU examples.
+With a working CUDA installation, you can repeat the same search on a GPU by
+changing only the device. First run the [CPU selection example](#kernel-cv-workflow)
+to define `KernelRidgeCV`, `X_train`, `y_train`, `X_test`, and `kr_cv`, then choose
+one of the snippets below. Both depend on those definitions and require the
+corresponding CUDA backend.
 
 <a id="cupy"></a>
 
@@ -292,6 +307,7 @@ prediction_torch = kr_torch.predict(X_test)
 ```
 <!-- example-end: kernel-methods-torch -->
 
+`device="cuda"` requests CuPy CUDA; `device="torch"` requests Torch CUDA.
 Use backend-native finite checks on device predictions and coefficients, and
 check the NumPy CV results as in the CPU tutorial. CPU checks do not establish
 GPU accuracy or speed. KernelPCA and Nystroem have different execution and output
