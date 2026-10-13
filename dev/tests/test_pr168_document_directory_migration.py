@@ -1,12 +1,13 @@
 """Freeze the bilingual directory migration without weakening body-level tests.
 
 The independent page inventory and baseline anchor fingerprints prevent a
-truncated migration report from silently dropping legacy pages or fragments.
+truncated migration report from silently dropping canonical pages or fragments.
 Statistical examples and API inventories remain in their existing test modules.
 """
 
 import hashlib
 import json
+import re
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
@@ -81,44 +82,23 @@ def test_complete_bijective_mapping_matches_the_independent_page_inventory():
     assert sum(item["anchor_count"] for item in BASELINE["pages"].values()) == 1763
     for language in LANGUAGES:
         flat = {page.name for page in (ROOT / "docs" / language / "models").glob("*.md")}
-        assert flat == {name + ".md" for name in MODEL_PAGES} | {"README.md"}
+        assert flat == {"coxph.md", "README.md"}
         retained = ROOT / "docs" / language / (model_doc("coxph") + ".md")
         assert "<!-- example: coxph-cpu-walkthrough -->" in retained.read_text()
         assert str(retained.relative_to(ROOT)) not in actual
 
 
 @pytest.mark.parametrize("entry", ENTRIES, ids=lambda entry: entry["old"])
-def test_every_old_page_and_original_fragment_forwards_to_the_canonical_body(entry):
+def test_old_paths_are_removed_and_canonical_bodies_keep_original_fragments(entry):
     old, new = ROOT / entry["old"], ROOT / entry["new"]
-    assert old.is_file() and new.is_file()
-    old_text, new_text = old.read_text(), new.read_text()
-    assert old_text.startswith(("# Documentation moved", "# 文档已迁移"))
+    assert not old.exists(), "Removed paths must not reappear as compatibility stubs"
+    assert new.is_file()
+    new_text = new.read_text()
     assert not new_text.startswith(("# Documentation moved", "# 文档已迁移"))
-    assert "```" not in old_text, "Compatibility pages must not duplicate tutorial bodies"
     baseline = BASELINE["pages"][entry["old"]]
     assert len(entry["anchors"]) == baseline["anchor_count"]
     assert _digest(entry["anchors"]) == baseline["anchors_sha256"]
-    old_anchors, new_anchors = markdown_anchors(old_text), markdown_anchors(new_text)
-    assert set(entry["anchors"]) <= old_anchors
-    assert set(entry["anchors"].values()) <= new_anchors
-    destinations = list(_links(old_text))
-    resolved = {
-        ((old.parent / unquote(urlsplit(target).path)).resolve(),
-         unquote(urlsplit(target).fragment))
-        for target in destinations
-    }
-    assert (new.resolve(), "") in resolved
-    for old_anchor, new_anchor in entry["anchors"].items():
-        # Each anchor's own pointer must preserve that fragment, not merely a
-        # same-page link somewhere else on the compatibility page.
-        marker = f'<a id="{old_anchor}"></a>'
-        assert old_text.count(marker) == 1
-        section = old_text.split(marker, 1)[1].split('<a id="', 1)[0]
-        own_links = list(_links(section))
-        assert len(own_links) == 1
-        link = urlsplit(own_links[0])
-        assert (old.parent / unquote(link.path)).resolve() == new.resolve()
-        assert unquote(link.fragment) == new_anchor
+    assert set(entry["anchors"].values()) <= markdown_anchors(new_text)
 
 
 @pytest.mark.parametrize("entry", ENTRIES, ids=lambda entry: entry["new"])
@@ -159,24 +139,47 @@ def test_layered_entry_points_reach_all_families_and_bodies(language, entry):
     assert expected <= reached, (entry, expected - reached)
 
 
-@pytest.mark.parametrize("language", LANGUAGES)
-def test_maintained_document_links_use_canonical_paths_and_valid_fragments(language):
+def test_repository_links_use_canonical_paths_and_valid_migrated_fragments():
     legacy = {(ROOT / entry["old"]).resolve() for entry in ENTRIES}
     canonical = {(ROOT / entry["new"]).resolve() for entry in ENTRIES}
     anchors = {path: markdown_anchors(path.read_text()) for path in canonical}
-    paths = [ROOT / "README.md", ROOT / "docs/index.md"]
-    paths.extend((ROOT / "docs" / language).rglob("*.md"))
-    for source in paths:
-        if source.resolve() in legacy:
-            continue
-        for target in _links(source.read_text()):
+    # Parse actual Markdown/HTML links throughout the repository. Historical
+    # plain-text paths and source manifests are evidence, not live navigation.
+    for source in ROOT.rglob("*.md"):
+        text = source.read_text()
+        targets = list(_links(text))
+        for token in MarkdownIt().parse(text):
+            for child in [token] + (token.children or []):
+                if child.type in {"html_inline", "html_block"}:
+                    targets.extend(re.findall(r'href=["\']([^"\']+)', child.content))
+        for target in targets:
             link = urlsplit(target)
             if link.scheme or link.netloc:
-                continue
-            destination = (source.parent / unquote(link.path)).resolve() if link.path else source.resolve()
+                # Commit-specific URLs deliberately refer to historical trees.
+                match = re.fullmatch(
+                    r"/TheHiddenObserver/statgpu/(?:blob|tree)/(?:master|main)/(.+)",
+                    unquote(link.path),
+                ) if link.netloc.lower() == "github.com" else None
+                if not match:
+                    continue
+                destination = (ROOT / match.group(1)).resolve()
+            else:
+                destination = ((ROOT / unquote(link.path).lstrip("/")) if link.path.startswith("/")
+                               else (source.parent / unquote(link.path))).resolve() if link.path else source.resolve()
             assert destination not in legacy, (source, target)
-            if destination in canonical and link.fragment:
-                assert unquote(link.fragment) in anchors[destination], (source, target)
+            if destination in canonical:
+                assert destination.is_file(), (source, target)
+                if link.fragment:
+                    assert unquote(link.fragment) in anchors[destination], (source, target)
+
+
+def test_runtime_documentation_references_do_not_point_to_removed_paths():
+    old_paths = {entry["old"] for entry in ENTRIES}
+    for source in (ROOT / "statgpu").rglob("*.py"):
+        text = source.read_text()
+        assert not any(old in text for old in old_paths), source
+    lasso = (ROOT / "statgpu/linear_model/wrappers/_lasso.py").read_text()
+    assert "docs/en/models/regression/lasso.md" in lasso
 
 
 def test_heading_parser_preserves_rendered_labels_duplicate_slugs_and_explicit_ids():

@@ -133,3 +133,14 @@ Documentation review should treat this boundary as part of correctness, not only
 Focused documentation-contract tests may prohibit known internal-status phrases or known prose-level English fragments on pages affected by a change. Such tests should be targeted: they must not reject legitimate API identifiers, code blocks, formulas, or standard algorithm acronyms merely because they are English.
 
 Broader enforcement should be expanded deliberately as older documentation is cleaned up, rather than breaking unrelated pages solely to impose a repository-wide word ban in one step.
+
+## Canonical documentation paths
+
+Keep English and Chinese navigation mirrored and point all maintained links at
+canonical family pages. The model roots contain only `README.md`, `coxph.md`,
+and family directories; moved pages must not be recreated as flat compatibility
+stubs. Directory landing pages use `README.md`. Old external URLs from this
+migration are intentionally unsupported. Preserve canonical anchors still used
+by internal links, and leave unrelated overview anchors alone. Historical source
+manifests, commit-specific URLs, and archived plain-text provenance paths record
+their original source state and must not be blindly rewritten.

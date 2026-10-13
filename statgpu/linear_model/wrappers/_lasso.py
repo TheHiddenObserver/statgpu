@@ -2193,7 +2193,7 @@ class Lasso(_PenalizedLinearRegression):
     validated evaluation weights. llf/aic/bic are compatibility summaries,
     not generally penalty-aware or selection-adjusted criteria.
 
-    See docs/en/models/lasso.md for complete CPU examples and
+    See docs/en/models/regression/lasso.md for complete CPU examples and
     docs/en/reference/linear-model-api.md for method/result details, formula
     behavior and inherited helper links.
     """

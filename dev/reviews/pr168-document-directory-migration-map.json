@@ -2268,5 +2268,6 @@
         "直接调用损失函数层-api": "直接调用损失函数层-api"
       }
     }
-  ]
+  ],
+  "legacy_path_policy": "removed: use canonical paths; old external URLs are intentionally unsupported"
 }

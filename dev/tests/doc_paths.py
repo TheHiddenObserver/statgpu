@@ -1,7 +1,7 @@
 """Canonical documentation names for tests that span several model families.
 
 This explicit inventory is intentionally independent of the migration report:
-regression tests must read the maintained body, never the old compatibility page.
+regression tests must read the maintained body, never a removed legacy path.
 The migration tests compare this inventory with every report entry.
 """
 

@@ -26,34 +26,39 @@ The existing covariance and feature-selection overviews serve as family READMEs;
 the KDE/kernel-regression tutorial is not reused as an overview for all smoothing
 methods. No further broad guides/reference restructuring is included.
 
-## Compatibility contract
+## Canonical paths and removed legacy URLs
 
 The repository's documentation entry points are ordinary GitHub Markdown files.
 There is no documented automatic redirect or generated documentation router.
 Directory landing pages therefore use `README.md`.
 
-All 84 moved English/Chinese pages retain their old file as a compatibility page.
-Each old explicit or rendered heading anchor has a link to its corresponding
-canonical page and anchor. These compatibility files intentionally remain in the
-old flat directory; the maintained navigation points at the new content.
+The 84 moved English/Chinese pages now exist only at their canonical paths.
+The temporary old-path compatibility pages have been removed to keep the model
+roots readable. Old external URLs, including their fragments, are intentionally
+unsupported; the Git history retains the former files. The `models` roots each
+contain `README.md`, `coxph.md`, and the five statistical-family directories.
+Existing canonical-page anchors remain available for internal and direct links;
+unrelated overview compatibility anchors are outside this cleanup's scope.
 
 The machine-readable [migration map](pr168-document-directory-migration-map.json)
-records every old path, its new path, and the anchor mapping. Tests must read the
-canonical substantive pages, rather than passing against compatibility pages.
+retains old-to-new paths and original anchor mappings as migration evidence, not
+as a redirect contract. Tests read canonical substantive pages, assert old files
+are absent, and check repository navigation and canonical fragment reachability.
 Existing semantic and numerical assertions remain in force after path migration.
 
-Actual Markdown links throughout the repository are updated to canonical paths,
-including language switches and developer-document references. Historical source
-manifests and textual provenance paths remain historical records. The Lasso
-runtime docstring's existing documentation URL remains reachable through the
-compatibility page, avoiding an unrelated edit to a production source file.
+Actual Markdown links throughout the repository use canonical paths, including
+language switches and developer-document references. The Lasso runtime
+docstring now names the canonical tutorial, with no executable-code change.
+Historical source manifests, commit-specific URLs, plain-text provenance paths,
+and archived changelog entries remain historical records rather than live links.
+They must not be globally rewritten to imply those past source trees differed.
 
 ## Validation
 
 Validation covers all PR 168 regression tests and the affected documentation,
 learner-example, API-reference, language, and navigation tests. In addition to the
 existing documentation contract and link-normalization checks, validation checks
-real link fragments, bilingual pairing, family reachability, complete compatibility
+real link fragments, bilingual pairing, family reachability, preserved canonical
 anchors, and source preservation. The general documentation checker strips
 fragments, so its success alone is not evidence of anchor correctness.
 
