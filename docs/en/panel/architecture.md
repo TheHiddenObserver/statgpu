@@ -1,13 +1,15 @@
 # Panel Architecture
 
 > Language: English  
-> Last updated: 2026-09-17  
+> Last updated: 2026-10-13  
 > This page: public architecture of the Panel model family  
 > Switch: [Chinese](../../cn/panel/architecture.md)
 
 This page explains how statgpu's Panel estimators are organized: which responsibilities are shared, where estimator-specific data transformations enter, and how estimation connects to covariance, inference, diagnostics, prediction, and summaries.
 
-For model choice, identification assumptions, formulas, and statistical interpretation, start with [Panel Models](README.md) and the dedicated model pages.
+This is an architecture reference, not a prerequisite for fitting a model. For model choice, data preparation, a first fit, and result interpretation, start with [Panel Models](README.md) and the dedicated model pages.
+
+Use this reference when you need to understand why estimators transform data differently ([estimator construction](#3-estimator-specific-construction)), why Fama–MacBeth inference differs from residual OLS ([estimation and inference](#4-estimation-and-inference-layers)), where device boundaries lie ([backends](#5-backend-boundary)), or what happens after a failed refit ([fit lifecycle](#6-fit-lifecycle)).
 
 ## 1. Overall structure
 

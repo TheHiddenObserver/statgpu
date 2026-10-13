@@ -6,6 +6,25 @@
 
 ## Overview
 
+Choose covariance after choosing the mean model. It changes uncertainty estimates, not which omitted effects the regression removes or whether the regressors are exogenous. For a first fit, start with the [model guide](README.md); use this page to select an option or check its exact definition.
+
+## Choose the error structure
+
+| What you need to allow | Option and scope | Metadata to prepare |
+|---|---|---|
+| Homoskedastic, uncorrelated transformed-regression errors | `nonrobust` for the five residual-OLS models below | Model-specific entity/time labels |
+| Heteroskedasticity, without allowing arbitrary dependence between rows | `robust`/`hc1`, `hc0`, `hc2`, `hc3` for those five models | No extra covariance labels; HC2/HC3 also require valid leverage |
+| Dependence within supplied groups | `clustered` for `PanelOLS`, `PooledOLS`, `RandomEffects` | One or two cluster columns aligned with rows; at least two groups per dimension |
+| Dependence across panel entities and across ordered periods | `driscoll-kraay` for those same three models | `time_ids` for FE/RE, `time_index` for pooled OLS; kernel and bandwidth |
+| Serial dependence in a single ordered observation sequence | `hac` for `PooledOLS` only | Optional `time_index`; otherwise input order is used |
+| Uncertainty in average cross-sectional coefficients | `nonrobust` or `newey-west` for `FamaMacBeth` | Its period coefficient series, not a stacked residual covariance |
+
+HC does not handle arbitrary within-entity serial correlation. Cluster-robust and time-series covariance rely on enough independent clusters or periods for their asymptotic interpretation; two groups merely meet the input minimum. `group_debias=True` is a finite-sample adjustment, not a guarantee of reliable few-cluster inference. `BetweenOLS` and `FirstDifferenceOLS` expose only nonrobust/HC options; do not pass clustered or DK options to them.
+
+Select `cov_type` when constructing the estimator, provide the required metadata to `fit()`, and refit after changing covariance settings. Read `bse_`, `tvalues_`, `pvalues_`, and `conf_int_` only when coefficient inference is available. The [public API section](#public-api-and-aliases) lists aliases and standalone helpers; the sections below define the estimators and their limits.
+
+## Regression representation
+
 The panel estimators do not all run OLS on the same data representation: fixed effects use demeaned data, random effects use quasi-demeaned data, and first differences use differenced data. Covariance must therefore be computed from the **same transformed regression that produced the coefficients**.
 
 To write the shared formulas once, let $Z$ denote that model-specific regression design and $e$ its residual vector, and define

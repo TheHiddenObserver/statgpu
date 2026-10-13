@@ -1,7 +1,7 @@
 # Panel Fit Statistics
 
 > Language: English  
-> Last updated: 2026-10-09<br>
+> Last updated: 2026-10-13<br>
 > Switch: [Chinese](../../cn/panel/fit-statistics.md)
 
 ## Overview
@@ -11,6 +11,18 @@ Panel estimators expose a common `fit_statistics_` object so that within-, betwe
 - **overall $R^2$** measures fit to the observed outcome levels;
 - **between $R^2$** measures fit to differences in entity means;
 - **within $R^2$** measures fit to changes around each entity's own mean.
+
+Before comparing two fits, ask whether you care about changes within an entity, differences in entity averages, or outcome levels. Compare the same statistic on the same sample and with the same intercept convention. A high $R^2$ does not validate exogeneity, and changing covariance does not change the fitted coefficients or make a classical F statistic robust.
+
+## Availability and Outputs
+
+When entity metadata are available, `fit_statistics_` provides standardized within, between, and overall $R^2$. OLS-style estimators also report adjusted $R^2$ and the classical model F statistic when those quantities are defined for the fitted regression.
+
+`FamaMacBeth` reports parameter-based within, between, and overall $R^2$, but it does not report the residual-OLS adjusted $R^2$ or model F because its estimator is an average of period-by-period regressions rather than one pooled residual regression.
+
+`fit_statistics_.f_statistic` is `None` when there are no testable slope restrictions or the F ratio is undefined; a missing statistic is not acceptance of the null. At extreme scales, RSS metadata in original squared units can be `inf` while the corresponding dimensionless F statistic is finite.
+
+Read the standardized fields from `model.fit_statistics_`; consult the model page for legacy fields such as `model.rsquared`. For `PanelOLS`, `model.rsquared_within` uses the selected fixed-effect transformation, whereas `model.fit_statistics_.rsquared_within` uses entity-demeaned level data when entity labels are present. In particular, a two-way fit can report different values without either being an error. See [the FE example](panel-ols.md#cpu-example) for the fitted model and [diagnostics](diagnostics.md) for specification comparisons.
 
 ## Definitions
 
@@ -48,15 +60,7 @@ $$
 
 where $r_F=N$ for entity effects, $T$ for time effects, and $N+T-C$ for two-way effects, with $C$ the number of connected components in the observed entity-time graph.
 
-`PanelOLS.df_resid` uses the residual degrees of freedom shown above. `PanelOLS.rsquared_within` measures fit in the regression after removing the selected fixed effects. When entity labels are supplied, `fit_statistics_.rsquared_within` instead uses entity-demeaned level data and the fitted coefficients. Check which definition you need before treating these two $R^2$ fields as interchangeable.
-
-## Availability and Outputs
-
-When entity metadata are available, `fit_statistics_` provides standardized within, between, and overall $R^2$. OLS-style estimators also report adjusted $R^2$ and the classical model F statistic when those quantities are defined for the fitted regression.
-
-`FamaMacBeth` reports parameter-based within, between, and overall $R^2$, but it does not report the residual-OLS adjusted $R^2$ or model F because its estimator is an average of period-by-period regressions rather than one pooled residual regression.
-
-`fit_statistics_.f_statistic` is `None` when there are no testable slope restrictions or the F ratio is undefined; a missing statistic is not acceptance of the null. At extreme scales, RSS metadata in original squared units can be `inf` while the corresponding dimensionless F statistic is finite.
+`PanelOLS.df_resid` uses the residual degrees of freedom shown above. The two within-$R^2$ fields described under [outputs](#availability-and-outputs) use different transformations; keep that distinction when comparing models.
 
 ## References
 
