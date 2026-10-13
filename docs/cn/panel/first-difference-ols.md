@@ -1,7 +1,7 @@
 # FirstDifferenceOLS
 
 > 语言：中文  
-> 最后更新：2026-09-17  
+> 最后更新：2026-10-13  
 > 切换：[English](../../en/panel/first-difference-ols.md)
 
 ## 概述
@@ -82,26 +82,44 @@ model.fit(
 )
 ```
 
-此时每个 `(entity_id, time_id)` 组合必须唯一。数值和日期时间标签按自然顺序排列；有序 categorical 使用用户声明的类别顺序。若字符串的字典序不能表示真实时间顺序，应改用数值、日期时间或有序 categorical 标签。
+此时每个 `(entity_id, time_id)` 组合必须唯一。数值和日期时间标签按自然顺序排列；有序 categorical 使用用户声明的类别顺序。普通字符串按字典序排序；其他非 categorical 对象标签按可比较值的顺序排序，标签无法相互比较时会报错。若字符串的字典序不能表示真实时间顺序，应改用数值、日期时间或有序 categorical 标签。
 
 ## 使用示例
 
 ### 数组接口
 
+每行是一个个体在一个时期的观测：12 个个体各有 5 条按时间标记的记录。差分会消除公共截距和不随时间变化的个体效应。
+
+<a id="cpu-example"></a>
+
+<!-- example: cpu-basic -->
 ```python
+import numpy as np
 from statgpu.panel import FirstDifferenceOLS
 
-model = FirstDifferenceOLS(device="cpu").fit(
-    X,
-    y,
-    entity_ids=entity_ids,
-    time_ids=time_ids,
-)
-```
+rng = np.random.default_rng(7)
+entity_ids = np.repeat(np.arange(12), 5)
+time_ids = np.tile(np.arange(5), 12)
+x = np.repeat(np.linspace(-2, 2, 12), 5) + rng.normal(size=60)
+X = x[:, None]
+entity_effect = np.repeat(np.linspace(-1, 1, 12), 5)
+y = 1.0 + 2.0 * x + entity_effect + 0.2 * rng.normal(size=60)
 
-GPU 路径可以通过 `device="cuda"` 或 `device="torch"` 显式请求；对应后端不可用时直接报错，不会切换到 CPU。
+model = FirstDifferenceOLS(device="cpu").fit(
+    X, y, entity_ids=entity_ids, time_ids=time_ids
+)
+print("slope:", np.round(model.coef_, 3))
+print("nobs, df_resid:", model.nobs, model.df_resid)
+```
+<!-- example-end: cpu-basic -->
+
+`coef_` 只包含斜率，接近生成数据时设定的 2。每个个体贡献四条相邻观测差分，因此 `nobs=48`、`df_resid=47`。即使水平误差彼此独立，差分后也会产生序列相关；可用的 HC 选项处理异方差，并不处理一般的序列相关。
+
+在 GPU 上运行时，把 `device="cpu"` 换成 `device="cuda"`（CuPy/CUDA）或 `device="torch"`（Torch CUDA）。显式请求的后端不可用时会报错，不会切换到 CPU。
 
 ### 公式接口
+
+假设 `df` 已包含下面公式及分组参数中使用的列。
 
 ```python
 from statgpu.panel import FirstDifferenceOLS
@@ -132,6 +150,13 @@ model = FirstDifferenceOLS().fit(
 
 **为什么时间不变解释变量无法估计？**  
 因为它在同一个体内的一阶差分恒为 0，不再提供识别斜率所需的变化。
+
+<a id="external-validation"></a>
+<a id="comparing-with-other-packages"></a>
+
+## 与其他软件包比较
+
+与 statsmodels 等 OLS 实现比较时，应按相同的个体内时间顺序构造相同的差分样本，拟合时不加截距，并对齐 HC0/HC2/HC3 等协方差选项。两边都应保留日历缺口，不能把相邻已观测记录的差分改成除以时间间隔的变化率。详见[协方差定义的比较](covariance.md#comparing-covariance-definitions)。
 
 ## 相关文档
 

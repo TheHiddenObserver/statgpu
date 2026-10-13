@@ -1,7 +1,7 @@
 # GeneralizedLinearModel and Penalized GLM
 
 > Language: English  
-> Last updated: 2026-10-12<br>
+> Last updated: 2026-10-13<br>
 > This page: Model documentation  
 > Switch: [Chinese](../../../cn/models/regression/generalized-linear-model.md)
 
@@ -212,7 +212,7 @@ This is a selection of controls across different classes, not one shared constru
 | Parameter | Default | Description |
 |---|---:|---|
 | `family` | model-specific | GLM family, for example `"gaussian"`, `"binomial"`, or `"poisson"` |
-| `penalty` | `"l1"` on generic direct GLM; `"l2"` on generic CV | `none`, `l1`, `l2`, `elasticnet`, and reserved structured penalties |
+| `penalty` | `"l1"` on generic direct GLM; `"l2"` on generic CV | `none`, `l1`, `l2`, `elasticnet`, and supported structured/group penalties; valid combinations are listed in the [compatibility matrix](../../guides/solver-penalty-matrix.md) |
 | `alpha` | `1.0` or model-specific | Penalty strength in statgpu objective scale |
 | `C` | `1.0` on ordinary GLMs | Ordinary IRLS slope penalty is `sum(beta**2)/(4*C)` for positive C; C=0 disables it. Ordinary explicit Newton/L-BFGS/FISTA ignore C. Not the penalized-GLM alpha control. |
 | `l1_ratio` | `0.5` where accepted | ElasticNet mixing parameter on generic/typed penalized GLMs; specialized wrappers can omit this parameter. |

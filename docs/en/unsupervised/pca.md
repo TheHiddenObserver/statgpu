@@ -44,7 +44,8 @@ $$
 
 The two objectives are equivalent because total variance is fixed after centering.
 
-## Estimating Equation
+<a id="estimating-equation"></a>
+## Fitting steps and update formulas
 
 - `svd_solver="covariance"` computes
   $$
@@ -98,7 +99,7 @@ For a supported GPU installation, construct a new estimator with `device="cuda"`
 
 ## Approximation and interpretation
 
-PCA has no statistical strict inference mode. Exactness refers to the decomposition:
+PCA does not provide standard errors or significance tests. Exactness refers to the decomposition:
 
 - `full` and `covariance` are exact dense solvers up to floating-point error.
 - `randomized` is approximate and controlled by `random_state`, `n_oversamples`, and `iterated_power`.

@@ -24,6 +24,8 @@ print(diag.cooks_distance)
 print(diag.vif())
 ```
 
+Leverage measures how unusual an observation is in the design space. Cook's distance measures its influence on the fitted regression, while VIF describes collinearity among predictors. Interpret these together with sample size and model assumptions; no single cutoff is a universal rule for deleting observations.
+
 `RegressionDiagnostics` runs on CPU, including when the model was fitted on GPU.
 Creating it converts the required fitted arrays to NumPy, so allow for the CPU
 memory and data-transfer cost. This does not refit the model.

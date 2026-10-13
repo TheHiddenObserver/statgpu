@@ -1,7 +1,7 @@
 # Solver Algorithms
 
 > Language: English  
-> Last updated: 2026-10-12  
+> Last updated: 2026-10-13  
 > This page: Algorithm reference  
 > Switch: [Chinese](../../cn/guides/solver-algorithms.md)
 
@@ -42,7 +42,7 @@ The backend column describes numerical implementation capability only; the model
 
 **File**: `statgpu/solvers/_proximal_irls_quantile.py`
 
-**Use case**: Quantile regression with SCAD/MCP penalties. It combines an IRLS quadratic majorization of the pinball loss with local linear approximation (LLA) for the non-convex penalty.
+**Use case**: Quantile regression with SCAD/MCP penalties. It combines an epsilon-stabilized IRLS weighted quadratic approximation to the pinball loss with local linear approximation (LLA) for the non-convex penalty.
 
 ### Algorithm
 
@@ -89,7 +89,9 @@ For each continuation value of `alpha`:
    w_i=\tilde s_i\,w_i^{\mathrm{IRLS}}.
    $$
 
-3. **Parallel diagonal majorization.** Let $W=\operatorname{diag}(w)$. The implementation computes
+   These sign-dependent weights define a local weighted quadratic approximation, not a global majorizer of the original pinball loss. For example, with $\tau=0.9$, $r_0=-1$, and $\varepsilon<1$, the weight is $0.1$. The quadratic $Q(r)=0.05r^2+0.05$ matches the value and derivative of $\rho_{0.9}$ at $r_0$, but $Q(1)=0.1<\rho_{0.9}(1)=0.9$. The epsilon floor is inactive at both residuals. Thus these updates do not establish global majorization-minimization (MM) monotonicity for the original pinball objective.
+
+3. **Parallel diagonal approximation.** Let $W=\operatorname{diag}(w)$. The implementation computes
 
    $$
    g=X^\top W(y-X\beta),
@@ -115,7 +117,7 @@ For each continuation value of `alpha`:
    S(u,t)=\operatorname{sign}(u)\max(|u|-t,0).
    $$
 
-   This is a Jacobi-style parallel diagonal-majorization update rather than a cyclic coordinate-descent sweep.
+   This is a Jacobi-style parallel diagonal approximation rather than a cyclic coordinate-descent sweep. Its diagonal matrix need not majorize the full weighted Gram matrix: if $X^\top W X=\begin{pmatrix}1&0.9\\0.9&1\end{pmatrix}$, then $\operatorname{diag}(h)-X^\top W X$ has eigenvalues $-0.9$ and $0.9$, so it is not positive semidefinite.
 
 4. **Intercept and a flat LLA surrogate.** Quantile loss is not quadratic, so an intercept cannot be eliminated by mean-centering $X$ and $y$. When `fit_intercept=True`, the numerical design is augmented with a column of ones and the intercept is optimized as an ordinary coordinate of the pinball objective, with its local penalty threshold fixed at zero.
 
@@ -227,7 +229,9 @@ $$
 =\frac{X^\top\operatorname{diag}\!\left(w\odot h(\beta)\right)X}{s}.
 $$
 
-For structured losses that are not naturally written with that per-observation curvature decomposition, the solver uses the loss object's `hessian()` or `fused_gradient_and_hessian()` implementation directly.
+<a id="loss-provided-curvature"></a>
+
+These equations describe the true derivatives, wherever they exist. The numerical solver instead uses the curvature matrix $B_k$ returned by the loss object's `hessian()` or `fused_gradient_and_hessian()`. When that interface returns the exact loss Hessian, $B_k=\nabla^2L(\beta_k)$; structured losses can supply it without a per-observation decomposition. Bisquare returns a stabilized approximation: for $t_i=(y_i-x_i^\top\beta_k)/c$ inside the threshold, it replaces $(1-t_i^2)(1-5t_i^2)$ by its nonnegative part. Negative curvature is therefore clipped to zero before the Newton solver adds its own stabilization. This matrix is not the true Bisquare Hessian and is not, by itself, an inference covariance estimate.
 
 The current Newton route accepts only L2 or no penalty. The L2 convention is
 
@@ -239,7 +243,7 @@ P(\beta)=\frac{\alpha}{2}\|\beta\|_2^2,
 \nabla^2P(\beta)=\alpha I.
 $$
 
-Therefore the L2 route forms
+The true L2 objective Hessian is $\nabla^2F(\beta_k)=\nabla^2L(\beta_k)+\alpha I$. The numerical L2 route forms
 
 $$
 g_k
@@ -248,16 +252,14 @@ g_k
 $$
 
 $$
-H_k
-=\nabla^2F(\beta_k)
-=\nabla^2L(\beta_k)+\alpha I.
+H_k=B_k+\alpha I.
 $$
 
 Set $\alpha=0$ for the no-penalty route.
 
 ### Stabilized Newton system
 
-The implementation first symmetrizes the Hessian,
+The implementation first symmetrizes the supplied curvature matrix,
 
 $$
 \bar H_k
@@ -368,7 +370,7 @@ Defaults are:
 - `tol=1e-6`;
 - supported NumPy/CuPy/Torch routes use the corresponding native linear algebra.
 
-Thus the L2/no-penalty path named `proximal_newton_solver` is numerically a **damped Newton method with Hessian stabilization and Armijo backtracking**. The genuinely non-smooth Hessian-metric Proximal-Newton subproblem is not implemented; non-smooth penalties delegate to FISTA before these Newton iterations begin.
+Thus the L2/no-penalty path named `proximal_newton_solver` is numerically a **damped Newton method with stabilized loss-provided curvature and Armijo backtracking**. The genuinely non-smooth Hessian-metric Proximal-Newton subproblem is not implemented; non-smooth penalties delegate to FISTA before these Newton iterations begin.
 
 ---
 
@@ -593,7 +595,7 @@ and recomputes the same proximal step, up to 15 safeguard retries. This numerica
 
 ### Nesterov momentum and adaptive restart
 
-The standard momentum update is
+On the standard Nesterov branch, the tentative momentum update is
 
 $$
 t_{k+1}=\frac{1+\sqrt{1+4t_k^2}}2,
@@ -604,14 +606,14 @@ y_{k+1}=\beta_{k+1}
 +\frac{t_k-1}{t_{k+1}}(\beta_{k+1}-\beta_k).
 $$
 
-The restart condition is
+With `use_restart=True`, this branch checks the following condition from the second iteration onward. Here $y_k$ is the old point where this iteration evaluated the gradient and started its proximal step, and $\beta_{k+1}$ is the final accepted point after any safeguard retries:
 
 $$
-\left(y_{k+1}-\beta_{k+1}\right)^\top
+\left(y_k-\beta_{k+1}\right)^\top
 \left(\beta_{k+1}-\beta_k\right)>0.
 $$
 
-When it holds, momentum is reset:
+The newly extrapolated point is not used in this test. When the condition holds, momentum is reset before the next iteration:
 
 $$
 t_{k+1}=1,
@@ -625,7 +627,9 @@ $$
 \|\beta_{k+1}-\beta_k\|_1<\texttt{tol}.
 $$
 
-Quadratic losses do not gain useful adaptation from the BB curvature estimate and therefore retain fixed-Lipschitz FISTA behavior. BB updates are also disabled for SCAD, MCP, and their group variants because non-convex reweighting can change secant curvature abruptly.
+Momentum burn-in and capped-momentum branches bypass this restart test. Inverse-Gaussian losses disable momentum; Poisson uses capped momentum, while Gamma and Tweedie use a burn-in followed by capped momentum. Smooth logistic L2/no-penalty requests are delegated to ordinary FISTA and do not enter this BB branch.
+
+The current implementation uses a fixed Lipschitz step for quadratic losses and does not enable BB updates on those routes. BB updates are also disabled for SCAD, MCP, and their group variants because non-convex reweighting can change secant curvature abruptly.
 
 ---
 
@@ -679,7 +683,9 @@ $$
 
 When an intercept is represented by an augmented GLM column, its LLA weight is fixed at zero, so it is not penalized.
 
-### Convex surrogate
+<a id="convex-surrogate"></a>
+
+### Weighted surrogate
 
 Dropping constants independent of $\beta$, the $r$-th LLA subproblem is
 
@@ -695,7 +701,7 @@ Q_r(\beta)
 =f(\beta)+\sum_g D_g^{(r)}\|\beta_g\|_2,
 $$
 
-and the inner solve uses the matching weighted Group Lasso proximal operator.
+and the inner solve uses the matching weighted Group Lasso proximal operator. LLA replaces only the penalty and retains the original loss $f$. The full subproblem is convex when $f$ is convex, as with fixed-threshold Huber or Fair; with Bisquare, the loss and hence the full subproblem can remain nonconvex.
 
 ### FISTA inner solve
 
@@ -763,7 +769,7 @@ $$
 <\texttt{lla\_tol}.
 $$
 
-Otherwise recompute $d^{(r+1)}$ and solve the next weighted convex surrogate. The solution at the current continuation value seeds the next $\alpha$ value.
+Otherwise recompute $d^{(r+1)}$ and solve the next weighted surrogate. The solution at the current continuation value seeds the next $\alpha$ value.
 
 The generic composite route uses FISTA for the inner solve by default, including for Cox. A loss having a Hessian does not by itself make an ordinary Newton step suitable for a non-smooth penalty.
 
@@ -961,10 +967,10 @@ At iteration $k$ compute
 $$
 g_k=\nabla F(\beta_k),
 \qquad
-H_k=\nabla^2F(\beta_k).
+H_k=B_k+\nabla^2P(\beta_k).
 $$
 
-The implementation stabilizes the system with
+Here $B_k$ is the [loss-provided curvature](#loss-provided-curvature). Thus $H_k=\nabla^2F(\beta_k)$ only when the loss supplies its exact Hessian; Bisquare instead supplies a negative-curvature-clipped approximation. The implementation stabilizes this system with
 
 $$
 \widetilde H_k
@@ -1450,10 +1456,10 @@ with estimator-specific intercept treatment applied separately.
 
 ## Solver dispatch
 
-For direct model fitting, `solver="auto"` follows the model-level compatibility table. Public `none` / `null` is canonicalized to `L2(alpha=0)` before dispatch, so no-penalty smooth rows follow the L2 branch. A simplified view is:
+For shared `PenalizedGLM` (`PenalizedGeneralizedLinearModel`) direct fits, `solver="auto"` follows the model-level compatibility table. Ordinary `GLM`/`GeneralizedLinearModel` uses its own dispatch (including IRLS for smooth unpenalized automatic fits); dedicated wrappers such as `LogisticRegression` also follow their own model pages. Public `none` / `null` is canonicalized to `L2(alpha=0)` before dispatch, so no-penalty smooth rows follow the L2 branch. A simplified view is:
 
 ```text
-direct fit with solver="auto"
+shared PenalizedGLM direct fit with solver="auto"
 ├── squared_error + L2/none              → CPU exact / GPU Newton
 ├── quantile + L2/none                   → IRLS
 ├── quantile + L1/ElasticNet             → ordinary FISTA

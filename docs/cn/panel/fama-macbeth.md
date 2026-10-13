@@ -1,7 +1,7 @@
 # Fama–MacBeth
 
 > 语言：中文  
-> 最后更新：2026-09-17  
+> 最后更新：2026-10-13  
 > 页面定位：面板模型文档  
 > 切换：[English](../../en/panel/fama-macbeth.md)
 
@@ -53,9 +53,9 @@ $$
 
 时期只有在满足 `min_obs_per_period` 以及模型的最小样本量要求后才会进入最终平均；设包含截距后的设计矩阵宽度为 $k$，实际保留时期还需要满足 $n_t\ge k$。
 
-每个保留时期的横截面设计矩阵必须能够唯一识别系数。如果某个时期的设计矩阵秩亏，`.fit()` 会在系数平均和推断之前抛出 `ValueError`，而不会把一个非唯一的系数表示继续带入坐标级推断。
+每个保留时期的横截面设计矩阵必须能够唯一识别系数。如果某个时期的设计矩阵秩亏，`.fit()` 会在系数平均和推断之前抛出 `ValueError`，而不会对非唯一的系数向量报告逐系数标准误。
 
-如果设计矩阵满秩，但某个系数在 float64 下已经小到无法可靠区分其数值贡献，statgpu 也可能抛出 `FloatingPointError`。这类失败表示有限精度下无法可靠认证系数，而不是把问题错误归类为秩亏。
+如果设计矩阵满秩，但某个系数在 float64 下已经小到无法可靠区分其数值贡献，statgpu 也可能抛出 `FloatingPointError`。这表示有限精度下无法可靠计算该系数，与设计矩阵秩亏不同。真正的零系数允许存在；剧烈抵消导致非零贡献丢失是另一种情况。
 
 ## 协方差与推断
 
@@ -144,19 +144,35 @@ $$
 
 ## 后端与设备
 
-`FamaMacBeth` 支持公开文档所列的 NumPy、CuPy 与 Torch 路径。显式设备请求具有优先权：
+每行是 12 个个体之一在 5 个时期之一的观测。每期包含截距和 `x` 的设计矩阵均满列秩；生成数据时设定的斜率随时期从 1.6 变化到 2.4。
 
+<a id="cpu-example"></a>
+
+<!-- example: cpu-basic -->
 ```python
+import numpy as np
 from statgpu.panel import FamaMacBeth
 
-cpu = FamaMacBeth(device="cpu").fit(X, y, time_ids=time_ids)
-cuda = FamaMacBeth(device="cuda").fit(X, y, time_ids=time_ids)
-torch = FamaMacBeth(device="torch").fit(X, y, time_ids=time_ids)
+rng = np.random.default_rng(7)
+entity_ids = np.repeat(np.arange(12), 5)
+time_ids = np.tile(np.arange(5), 12)
+x = rng.normal(size=60)
+X = x[:, None]
+period_slopes = np.linspace(1.6, 2.4, 5)
+y = 1.0 + period_slopes[time_ids] * x + 0.2 * rng.normal(size=60)
+
+model = FamaMacBeth(device="cpu", cov_type="newey-west", bandwidth=1).fit(
+    X, y, time_ids=time_ids, entity_ids=entity_ids
+)
+print("average coef:", np.round(model.coef_, 3))
+print("standard errors:", np.round(model.bse_, 3))
+print("periods, coefficient shape:", model.n_periods, model.betas_.shape)
 ```
+<!-- example-end: cpu-basic -->
 
-如果显式请求的 CUDA/Torch 后端不可用，`.fit()` 会报错，而不会静默切换到其他后端。`device="auto"` 则允许 statgpu 根据输入和可用后端自动选择。
+`coef_` 依次包含各时期截距和斜率的平均值；斜率接近生成斜率的平均值 2。`betas_.shape=(5, 2)` 表示五期各有两个系数。`bse_` 使用一阶 Newey–West 滞后估计系数序列平均值的不确定性，并非观测级残差的 HC 协方差。五个时期仅用于演示输出；可靠的时间序列推断通常需要更多时期。
 
-时期回归、系数平均、协方差、p 值和置信区间都在所选拟合后端计算；Torch 使用实际的张量设备。公开数组 `coef_`、`bse_`、`tvalues_`、`pvalues_` 和 `conf_int_` 保持为该后端的数组或张量。
+在 GPU 上运行时，把 `device="cpu"` 换成 `device="cuda"`（CuPy/CUDA）或 `device="torch"`（Torch CUDA）。显式请求的后端不可用时会报错，不会切换到 CPU。`device="auto"` 允许自动选择后端，NumPy/CuPy/Torch 原生输入可能保留其后端。显式设备请求具有优先权，拟合和预测输入会转换到请求的或已拟合的后端。时期回归、系数平均、协方差、p 值和置信区间均使用该后端；公开数组保持为相应数组或张量，Torch 使用实际张量设备。
 
 ## 参数
 
@@ -212,7 +228,7 @@ model = FamaMacBeth().fit(
 
 - 过滤后至少需要两个有效时期，否则无法估计时期系数序列的波动，`.fit()` 会报错；
 - 每个保留时期的设计矩阵必须满列秩；秩亏时期会在推断前抛出 `ValueError`；
-- 满秩并不保证任意极端尺度都能在 float64 中可靠认证；当系数分辨率不足时，会明确抛出 `FloatingPointError`；
+- 满秩并不保证在任意极端尺度下都能可靠计算系数；当 float64 精度不足时，会明确抛出 `FloatingPointError` 并指出受影响的时期；
 - 真正的零系数允许存在，不会仅因为数值结果为 0 就被当成失败；
 - 最终协方差含非有限值或对角方差为负时，推断会报错；对角方差精确为零时，零系数对应统计量 0，非零系数对应带符号无穷；
 - 每次新的拟合尝试都会先失效旧的已拟合/推断状态；如果新拟合失败，对象保持未拟合状态。
@@ -228,10 +244,21 @@ model = FamaMacBeth().fit(
 会在形成最终系数平均之前排除。如果最后不足两个有效时期，拟合会报错。
 
 **如果某个保留时期秩亏会怎样？**  
-拟合会抛出 `ValueError`，不会把非唯一的时期系数向量纳入平均后再发布坐标级标准误。
+拟合会抛出 `ValueError`，不会把非唯一的时期系数向量纳入平均后再报告逐系数标准误。
 
 **如果时期设计满秩，但某个系数低于可靠的 float64 分辨率呢？**  
-当现有有限精度计算无法可靠认证该坐标时，拟合会抛出带有系数分辨率含义的 `FloatingPointError`，而不会把它误报成秩亏。
+当有限精度计算无法可靠求出该系数时，拟合会抛出 `FloatingPointError`，说明系数分辨率不足，而不会把它误报成秩亏。真正的零系数仍然有效。
+
+<a id="external-validation"></a>
+<a id="comparing-with-other-packages"></a>
+
+## 与其他软件包比较
+
+与 `linearmodels` 7.0 比较时，应对齐显式时期截距、保留观测、满秩时期设计、时间顺序和系数集合。先将 `betas_` 与 linearmodels 的 `all_params` 比较，再比较平均系数。
+
+对于 `cov_type="nonrobust"`，linearmodels 中对应的协方差设置是 `cov_type="unadjusted", debiased=True`。两者的系数、协方差、标准误和系数 t 统计量定义一致，但 p 值和置信区间仍可能不同：statgpu 使用保留时期数对应的自由度 $T-1$，而 linearmodels 在 `debiased=True` 时使用堆叠面板的残差自由度。
+
+对于 `cov_type="newey-west"`，在 linearmodels 中使用 `cov_type="kernel", kernel="bartlett", bandwidth=L, debiased=False`，并固定相同的 $L$。这样可对齐系数序列的核协方差与正态参考分布推断。该方法仍不同于[面板协方差](covariance.md)中的观测级残差协方差估计。
 
 ## 相关文档
 

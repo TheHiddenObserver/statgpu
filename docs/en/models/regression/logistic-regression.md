@@ -1,7 +1,7 @@
 # LogisticRegression
 
 > Language: English  
-> Last updated: 2026-10-09
+> Last updated: 2026-10-13
 > This page: Model documentation  
 > Switch: [Chinese](../../../cn/models/regression/logistic-regression.md)
 
@@ -137,7 +137,7 @@ Nonrobust covariance is $H^{-1}$; HC1–HC3 alter the score-outer-product correc
 | `max_iter` | `100` | Max IRLS iterations |
 | `tol` | `1e-4` | Convergence tolerance |
 | `device` | `"auto"` | `cpu` / `cuda` / `torch` / `auto` |
-| `n_jobs` | `None` | CPU parallelism control inherited from the base estimator; not an IRLS solver selector |
+| `n_jobs` | `None` | Accepted as shared estimator configuration; this class does not use it to control parallel fitting or select the IRLS solver |
 | `compute_inference` | `True` | Whether to compute inference stats |
 | `cov_type` | `"nonrobust"` | `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac` |
 | `hac_maxlags` | `None` | Max lag for `cov_type="hac"`; default follows Newey-West style heuristic |

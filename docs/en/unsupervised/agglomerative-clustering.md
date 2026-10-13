@@ -18,7 +18,8 @@ Use hierarchical clustering when the nested merge structure matters. Single link
 from statgpu.unsupervised import AgglomerativeClustering
 ```
 
-## Objective Function / Loss Function
+<a id="objective-function--loss-function"></a>
+## Linkage and merging criteria
 
 Agglomerative clustering is a greedy hierarchical procedure, not a global smooth optimization. At each step it merges the pair of clusters with the smallest linkage criterion.
 
@@ -59,7 +60,8 @@ $$
 \left\|\bar{x}_A-\bar{x}_B\right\|_2^2 .
 $$
 
-## Estimating Equation
+<a id="estimating-equation"></a>
+## Building and cutting the tree
 
 - Start with every sample as its own cluster.
 - Repeatedly merge the two clusters with the smallest selected linkage criterion.
@@ -95,7 +97,7 @@ For a supported GPU installation, construct a new estimator with `device="cuda"`
 
 ## Approximation and interpretation
 
-There is no strict inference mode. Supported linkages are exact for dense Euclidean inputs on CPU, CuPy, and Torch. GPU execution allocates a dense distance matrix and raises a clear `MemoryError` if the configured memory limit would be exceeded.
+The estimator does not provide standard errors or significance tests. Supported linkages are exact for dense Euclidean inputs on CPU, CuPy, and Torch. GPU execution allocates a dense distance matrix and raises a clear `MemoryError` if the configured memory limit would be exceeded.
 
 The GPU paths evaluate pairwise distances through expanded squared norms. Large common feature offsets can cause cancellation and change the hierarchy; subtract a training-derived offset in float64 before fitting. This preserves the intended Euclidean geometry. The SciPy CPU linkage path does not use that shared GPU distance formula.
 

@@ -1,7 +1,7 @@
 # 分位数回归
 
 > 语言：中文  
-> 最后更新：2026-10-09<br>
+> 最后更新：2026-10-13<br>
 > 页面定位：模型文档  
 > 切换：[英文版](../../../en/models/regression/quantile.md)
 
@@ -131,7 +131,7 @@ $$
 
 ### 独立模型的系数推断
 
-独立 `QuantileRegression` 的 `kernel` 与 `bootstrap` 推断只支持未传权重或均匀 `sample_weight`；真正非均匀的分析权重在该类中仅支持估计，若同时设置 `compute_inference=True` 会明确报错。`bootstrap` 采用 **i.i.d. 残差 bootstrap**：先按目标分位数的经验分位点对拟合残差做中心化，使重抽样误差分布的经验 τ 分位数为 0，再把中心化残差视为可交换样本进行重抽样，并用后端原生的批量 Quantile IRLS/MM 完成重拟合。它不是 wild/multiplier bootstrap，也不宣称对一般异方差具有稳健覆盖；异方差 Quantile 回归需要不同的 bootstrap 构造。`bootstrap` 推断还要求 `n_bootstrap >= 2`。`kernel` 推断则要求所选带宽规则使 `q ± h` 保持在 `(0, 1)` 内，并得到有限且严格为正的零点残差密度估计；条件不满足时会直接报错，而不是发布非有限标准误。
+独立 `QuantileRegression` 的 `kernel` 与 `bootstrap` 推断只支持未传权重或均匀 `sample_weight`；真正非均匀的分析权重在该类中仅支持估计，若同时设置 `compute_inference=True` 会明确报错。`bootstrap` 采用 **i.i.d. 残差 bootstrap**：先按目标分位数的经验分位点对拟合残差做中心化，使重抽样误差分布的经验 τ 分位数为 0，再把中心化残差视为可交换样本进行重抽样，并用后端原生的批量 Quantile IRLS 二次近似完成重拟合。它不是 wild/multiplier bootstrap，也不宣称对一般异方差具有稳健覆盖；异方差 Quantile 回归需要不同的 bootstrap 构造。`bootstrap` 推断还要求 `n_bootstrap >= 2`。`kernel` 推断则要求所选带宽规则使 `q ± h` 保持在 `(0, 1)` 内，并得到有限且严格为正的零点残差密度估计；条件不满足时会直接报错，而不是发布非有限标准误。
 
 先完成 [CPU 示例](#cpu-example)，再复用其中的导入与训练数据，下面选择核密度方法估计系数不确定性。区间对应系数，不是响应的预测区间。
 
@@ -233,8 +233,8 @@ gpu_model = PenalizedQuantileRegression(
 
 | 求解器 | 支持 | 说明 |
 |---|:---:|---|
-| Proximal IRLS-CD | ✅ | 专用 IRLS 上界 + LLA，用于标量 SCAD/MCP；支持分析权重 |
-| 分组 Proximal IRLS-LLA | ✅ | Group SCAD/MCP 的自动路径；Quantile IRLS/MM 与凸 Adaptive Group Lasso 加权最小二乘子问题组合 |
+| Proximal IRLS-CD | ✅ | 专用 IRLS 加权二次近似 + LLA，用于标量 SCAD/MCP；支持分析权重 |
+| 分组 Proximal IRLS-LLA | ✅ | Group SCAD/MCP 的自动路径；Quantile IRLS 二次近似与凸 Adaptive Group Lasso 加权最小二乘子问题组合 |
 | IRLS | ✅ | **L2/无惩罚 Quantile 下 `solver="auto"` 的默认路径**；`QuantileLoss.irls()` 明确支持 `sample_weight` |
 | FISTA | ✅ | 用于 L1/ElasticNet 等近端路径；L2/无惩罚下显式 `solver="fista"` 也会真正执行普通 FISTA，而 `auto` 仍优先 IRLS |
 | FISTA-BB | ❌ | BB 步长通过光滑梯度差估计局部曲率；Quantile 的次梯度是阶梯函数，因此估计器/CV 的显式请求与公开底层 `fista_bb_solver(QuantileLoss, ...)` 都会直接报错 |
@@ -253,10 +253,10 @@ IRLS 仍是自动选择，因为 pinball loss 本身非光滑；这里的 Quanti
 |---|---|---|
 | L2 / 无惩罚 | IRLS | `none` 会先规范化为 `L2(alpha=0)`；显式 `irls` 选择同一路径，显式普通 `fista` 也可按需选择 |
 | L1 / ElasticNet | FISTA | 近端/次梯度路径 |
-| SCAD / MCP | Proximal IRLS-CD | Quantile 专用 IRLS 上界 + LLA |
+| SCAD / MCP | Proximal IRLS-CD | Quantile 专用 IRLS 加权二次近似 + LLA |
 | adaptive_l1 | FISTA | 先准备自适应权重，再进入 Quantile FISTA |
 | group_lasso / adaptive group | 分组 FISTA | 面向分组的近端路径 |
-| group_scad / group_mcp | 分组 Proximal IRLS-LLA | 分组 LLA + Quantile IRLS/MM；每个凸 Adaptive Group Lasso 加权最小二乘代理问题都在所选后端求解 |
+| group_scad / group_mcp | 分组 Proximal IRLS-LLA | 分组 LLA + Quantile IRLS 二次近似；每个凸 Adaptive Group Lasso 加权最小二乘代理问题都在所选后端求解 |
 
 上表描述的是自动路径。若对 Group SCAD/MCP 显式指定 `solver="fista"`，该请求仍然保持为显式近端 FISTA，不会被静默改写成自动的分组 Proximal IRLS-LLA。若直接调用求解器函数，请参阅[底层 Quantile 求解器参考](../../guides/solver-algorithms.md#quantile-low-level-solvers)，了解这些函数各自的参数、返回值与警告行为。
 
@@ -272,9 +272,9 @@ $$
 但 `sample_weight` **不是所有求解器自动具备的统一能力**。当前尤其需要区分：
 
 - Quantile IRLS / Proximal IRLS-CD 具有明确的带权实现；
-- 分组 Proximal IRLS-LLA 使用同一组归一化分析权重构造 Quantile IRLS/MM 上界，然后求解相应的凸分组代理问题；
+- 分组 Proximal IRLS-LLA 使用同一组归一化分析权重构造 Quantile IRLS 加权二次近似，然后求解相应的凸分组代理问题；
 - 普通 FISTA（包括显式选择的 L2/无惩罚 FISTA）使用损失函数层的归一化带权目标；
-- Adaptive L1 需要通过初始化拟合学习自适应惩罚权重时，会使用同一组解析训练权重；若用户已经显式给定固定的自适应权重，则直接使用，不再额外运行一次无效初始化；
+- Adaptive L1 需要通过初始化拟合学习自适应惩罚权重时，会使用同一组分析训练权重；若用户已经显式给定固定的自适应权重，则直接使用，不再额外运行一次无效初始化；
 - FISTA-BB 与公开的直接 ADMM 不支持 Quantile，因为这些通用算法依赖 check loss 不具备的光滑梯度结构；
 - 底层 Quantile L-BFGS 保留无权重/均匀权重兼容面，但真正非均匀权重会报错；模型/CV 层显式 L-BFGS 仍不支持。
 
@@ -284,7 +284,9 @@ $$
 
 ### Proximal IRLS-CD（SCAD/MCP）
 
-详细更新公式见 [求解器算法](../../guides/solver-algorithms.md#1-proximal-irls-cd)。其核心是把 check loss 的 IRLS 二次上界与 SCAD/MCP 的局部线性近似结合起来。
+详细更新公式见 [求解器算法](../../guides/solver-algorithms.md#1-proximal-irls-cd)。其核心是把 check loss 的带 epsilon 稳定化的 IRLS 加权二次近似与 SCAD/MCP 的局部线性近似结合起来。
+
+IRLS 权重依赖当前残差的符号，其加权二次近似并非原始 pinball 损失的全局上界。标量求解器还采用 Jacobi 风格的对角近似，该矩阵不一定是完整加权 Gram 矩阵的上界。这两种构造都不能保证原始 pinball 目标具有全局 MM 单调性，详见[反例与更新公式](../../guides/solver-algorithms.md#1-proximal-irls-cd)。现有停止检查与收敛警告仍然适用。
 
 ### 分组 Proximal IRLS-LLA（Group SCAD/MCP）
 

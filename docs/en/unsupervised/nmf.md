@@ -29,7 +29,8 @@ $$
 
 `components_` stores `H`; `fit_transform` returns `W`.
 
-## Estimating Equation
+<a id="estimating-equation"></a>
+## Fitting steps and update formulas
 
 The implementation uses multiplicative updates:
 
@@ -102,7 +103,7 @@ The relative error is close to zero for this simple rank-one example, and `new_h
 
 ## Approximation and interpretation
 
-NMF has no strict inference mode. The objective is non-convex, and multiplicative updates seek a local solution whose quality depends on initialization and stopping criteria; exhausting the iteration budget is not proof of convergence.
+NMF does not provide standard errors or significance tests. The objective is non-convex, and multiplicative updates seek a local solution whose quality depends on initialization and stopping criteria; exhausting the iteration budget is not proof of convergence.
 
 ## Outputs
 

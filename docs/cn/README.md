@@ -30,7 +30,7 @@
 
 ## 指南
 
-- [推断 API](guides/inference-api.md) — 分布函数、多重检验、排列检验、自助法
+- [推断 API](guides/inference-api.md) — 分布函数、多重检验、置换检验、自助法
 - [分布 API](guides/distribution-api.md) — 详细的分布函数与后端使用方法
 - [已实现方法](guides/implemented-methods.md) — 公开模型与方法清单
 - [交叉验证](guides/cross-validation.md) — 数据折、调参网格、参数选择与最终重拟合

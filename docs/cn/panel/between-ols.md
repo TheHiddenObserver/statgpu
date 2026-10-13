@@ -1,7 +1,7 @@
 # BetweenOLS
 
 > 语言：中文  
-> 最后更新：2026-09-17  
+> 最后更新：2026-10-13  
 > 切换：[English](../../en/panel/between-ols.md)
 
 ## 概述
@@ -85,21 +85,35 @@ model.fit(X, y, entity_ids=entity_ids)
 
 ### 数组接口
 
+每行是一个个体—时期观测，共 12 个个体，每个个体有 5 个时期。这里 `x` 的均值在个体之间变化，响应中没有遗漏的个体效应。
+
+<a id="cpu-example"></a>
+
+<!-- example: cpu-basic -->
 ```python
+import numpy as np
 from statgpu.panel import BetweenOLS
 
-cpu = BetweenOLS(device="cpu").fit(
-    X, y, entity_ids=entity_ids
-)
+rng = np.random.default_rng(7)
+entity_ids = np.repeat(np.arange(12), 5)
+time_ids = np.tile(np.arange(5), 12)
+x = np.repeat(np.linspace(-2, 2, 12), 5) + rng.normal(size=60)
+X = x[:, None]
+y = 1.0 + 2.0 * x + 0.2 * rng.normal(size=60)
 
-cuda = BetweenOLS(device="cuda").fit(
-    X, y, entity_ids=entity_ids
-)
+model = BetweenOLS(device="cpu").fit(X, y, entity_ids=entity_ids)
+print("coef:", np.round(model.coef_, 3))
+print("nobs, df_resid:", model.nobs, model.df_resid)
 ```
+<!-- example-end: cpu-basic -->
 
-显式 `device="cuda"` 或 `device="torch"` 请求要求对应 GPU 后端实际可用；不可用时直接报错，不会自动改用 CPU。
+`coef_` 依次给出截距和 `x` 个体均值的斜率，分别接近 1 和 2。输入虽有 60 行，`nobs=12` 与 `df_resid=10` 对应的却是 12 个个体均值和两个拟合系数。若真实数据包含遗漏的个体效应，取均值并不会消除它。
+
+在 GPU 上运行时，把 `device="cpu"` 换成 `device="cuda"`（CuPy/CUDA）或 `device="torch"`（Torch CUDA）。显式请求的后端不可用时会报错，不会切换到 CPU。
 
 ### 公式接口
+
+假设 `df` 已包含下面公式及分组参数中使用的列。
 
 ```python
 from statgpu.panel import BetweenOLS
@@ -135,6 +149,13 @@ model = BetweenOLS().fit(
 
 **BetweenOLS 与固定效应回归可以互换吗？**  
 不能。两者利用的数据变异来源和识别条件不同：BetweenOLS 使用个体间长期平均差异，固定效应回归使用去除固定效应后的个体内变化。
+
+<a id="external-validation"></a>
+<a id="comparing-with-other-packages"></a>
+
+## 与其他软件包比较
+
+与 statsmodels 等 OLS 实现比较时，先构造完全相同的个体均值样本，并采用相同的截距设定；每个个体只贡献一条均值观测。对齐 HC0/HC2/HC3 等协方差选项后，使用该变换后样本计算协方差与标准误，不能直接使用原始面板行。详见[协方差定义的比较](covariance.md#comparing-covariance-definitions)。
 
 ## 相关文档
 

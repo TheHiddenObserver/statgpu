@@ -146,6 +146,21 @@
 - 增加针对性契约、formula、clone/兼容性、失败事务、无惩罚、加权 CV、安装器幂等性、加权 Newton 目标/兼容性与跨后端一致性回归，并同步中英文模型/CV/推断文档。
 - `dev/benchmarks/validate_penalized_glm_inference_gpu.py` schema v4 是维护中的物理 CUDA 验收门禁。精确干净的数值源码 `db448d718f523eacf97bcb3c419e376c9812362d` 已在 Tesla P100（CuPy 13.6.0、Torch 2.0.0+cu117、NumPy 1.24.2）通过：Logistic 无权重保留显式 FISTA 覆盖，Logistic 加权与 Poisson 加权/无权重按规范 `solver="auto"` → Newton 执行；CuPy、Torch、Torch→CuPy 与 CuPy→Torch 四条路径均通过未放宽的系数/截距（`2e-6`）与推断（`1e-5`）阈值，并记录具体 `cuda:0` 来源信息。保留的 artifact 为 `results/pr142_penalized_glm_inference_gpu/pr142_penalized_glm_inference_gpu.json`。后续仅修正 changelog/证据散文的仅文档提交，经用户明确批准可复用这一不可变的数值源码 artifact；任何数值、validator、求解器、后端、推断或容差变化都会重新打开物理验收。
 
+## 未发布 — 逐节点 Lasso 推断调参（PR #139，目标 0.2.6）
+
+### 变更
+
+- 为稀疏 Gaussian 去偏推断公开 `nodewise_alpha=None`，适用于 `PenalizedGeneralizedLinearModel`、`PenalizedLinearRegression`、`Lasso`、`ElasticNet`、`LassoCV` 与 `ElasticNetCV`。显式值须为有限正实数；`PenalizedGLM_CV` 仍不支持非默认的此项设置。
+- 默认逐节点惩罚不再依赖响应尺度，而由标准化后的中心化/加权设计决定：`sqrt(2 * log(max(p, 2)) / n_nodewise)`。非均匀分析权重下采用 Kish 型有效样本量；`p=1` 的解析情形无需逐节点惩罚。
+- 逐节点精度矩阵在标准化坐标下求解并检查 KKT 条件，再按 `D^{-1} Theta_Z D^{-1}` 变回原坐标。已拟合属性记录请求值和实际调参值，不同逐节点调参不会误用旧的精度矩阵缓存。
+- 去偏推断目标、协方差与参考分布含义、预测系数以及变量选择后的 OLS 行为保持不变；不新增旧响应尺度规则的公共模式。迁移说明见[逐节点调参指南](guides/nodewise-alpha-migration.md)。
+
+### 验证
+
+- 固定设计迁移模拟比较旧响应相关规则、新自动规则与代表性显式规则，设置为 `n=320`、`p=18`、120 次重复和两种响应噪声尺度；默认规则的逐节点惩罚不随噪声尺度改变，旧规则相差 8 倍。该模拟中的覆盖误差未劣化，平均区间宽度改善，不代表所有数据下的普遍保证。
+- Hosted 测试覆盖调参输入、KKT 检查、缓存隔离、公共 API/clone/refit、CV 最终重拟合推断、公式接口、GPU 不可用时的行为及已提交模拟产物。
+- `dev/benchmarks/validate_nodewise_alpha_inference_gpu.py` 用于真实 CUDA 上的 CuPy/Torch 验证，包括自动/显式调参、NumPy 对齐、响应尺度不变性、权重缩放与跨容器输入。列出验证器不表示本条记录新增了物理运行结果。
+
 ## 未发布 — Post-selection OLS 推断 API 清理（PR #138 / Issue #137）
 
 ### 变更
@@ -195,7 +210,9 @@
 
 - 增加公开 `LinearRegression`、formula、加权/robust、秩亏、多目标、float32、statsmodels 对齐、无主机传输、非 L2 委托以及 Ridge/RidgeCV 回归覆盖，并增加针对性的 hosted CI workflow。
 - 增加维护中的确切提交物理 CUDA validator，覆盖 CuPy/Torch 的干净工作树证明、请求/实际执行后端与具体设备来源、协方差/BSE/统计量/p 值/置信区间误差、加权/秩亏/多目标/小自由度，以及 `RidgeCV` 最终重拟合推断。
-- 已审查的实现提交上的 hosted 门禁与新一轮完整 diff review 已全部通过；最终验收仍要求在最终源码 SHA 上执行确切干净提交的 CuPy/Torch CUDA 验证。PR #129 当前保持 open/unmerged，#127 尚不能标记为 `COMPLETE`。本变更不做 GPU 加速声明。
+- [最终验收记录](https://github.com/TheHiddenObserver/statgpu/pull/129#issuecomment-5479959733)报告：确切数值源码 [`8d9f422e2fcf648e412838747b9ab5881b3fb7ef`](https://github.com/TheHiddenObserver/statgpu/commit/8d9f422e2fcf648e412838747b9ab5881b3fb7ef) 的七项 hosted workflow 与最终审查通过；两个物理 CUDA 验证器均在干净检出的 Tesla P100-SXM2-16GB `cuda:0` 上退出 0。后端原生矩阵使用 schema 5、CuPy 13.6.0 和 Torch 2.0.0+cu117；CuPy 秩恢复验证器为 schema 1，5/5 通过。
+- 该记录列出的历史产物为 `results/pr129_gaussian_gpu_8d9f422e/gaussian_backend_native_8d9f422e.json` 和 `results/pr129_gaussian_gpu_8d9f422e/gaussian_cupy_rank_recovery_8d9f422e.json`。这些结果仅对应上述源码，不是对后续版本的重新验证；本条不作 GPU 加速声明。
+- PR #129 后于 2026-08-31 合并为 [`b17c8a6c161065bfbe9efa9f60d0fad69a464773`](https://github.com/TheHiddenObserver/statgpu/commit/b17c8a6c161065bfbe9efa9f60d0fad69a464773)。较早的待验收状态记录属于当时检查点，不能作为最终状态。
 
 ## 0.2.5 — 2026-08-26（已发布）
 

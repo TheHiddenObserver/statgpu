@@ -1,7 +1,7 @@
 # Panel Covariance Estimators
 
 > Language: English  
-> Last updated: 2026-10-09<br>
+> Last updated: 2026-10-13<br>
 > Switch: [Chinese](../../cn/panel/covariance.md)
 
 ## Overview
@@ -32,7 +32,7 @@ For the residual-OLS families listed in the table above, an exactly rank-deficie
 
 ## Nonrobust and HC Covariance
 
-`nonrobust` is the usual homoskedastic OLS covariance. HC0-HC3 are heteroskedasticity-consistent alternatives that progressively adjust the contribution of observations with high leverage.
+`nonrobust` is the usual homoskedastic OLS covariance. HC0-HC3 are heteroskedasticity-consistent alternatives. HC1 adds a degrees-of-freedom correction, while HC2 and HC3 adjust for leverage.
 
 $$
 \widehat V_{\mathrm{nonrobust}}=\widehat\sigma^2 B,
@@ -114,7 +114,7 @@ Time order matters. Numeric and datetime labels use their natural order. Ordered
 
 ## Public API and Aliases
 
-The public covariance helpers exported by `statgpu.panel` are `clustered_covariance`, `two_way_clustered_covariance`, `hac_covariance`, and `driscoll_kraay_covariance`. To obtain covariance as part of a model fit, choose a `cov_type` supported by that estimator and read its fitted `cov_params_`. Consult the individual model guide for its supported covariance options.
+The public covariance helpers exported by `statgpu.panel` are `clustered_covariance`, `two_way_clustered_covariance`, `hac_covariance`, and `driscoll_kraay_covariance`. For model-based inference, choose a `cov_type` supported by that estimator and read `bse_`, `tvalues_`, `pvalues_`, and `conf_int_`. Among these panel estimators, `FamaMacBeth` additionally exposes its full coefficient covariance as `cov_params_`; the five residual-OLS estimators do not expose that attribute. Consult the individual model guide for its supported covariance options.
 
 For estimator `cov_type` values, `hc1` is an alias of `robust`; `dk` and `kernel` are aliases of `driscoll-kraay`. Driscoll-Kraay kernel aliases include Bartlett/Newey-West, Parzen/Gallant, and QS/Quadratic-Spectral/Andrews. `PooledOLS(cov_type="hac")` remains a separate ordered-sequence Bartlett/Newey-West calculation and should not be confused with Driscoll-Kraay; when `time_index` is supplied, PooledOLS sorts the sequence by that index before applying HAC.
 

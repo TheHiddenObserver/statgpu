@@ -1,7 +1,7 @@
 # PanelOLS
 
 > Language: English  
-> Last updated: 2026-10-09<br>
+> Last updated: 2026-10-13<br>
 > Switch: [Chinese](../../cn/panel/panel-ols.md)
 
 ## Overview
@@ -86,15 +86,34 @@ When an effect is enabled through constructor arguments, provide the matching `e
 
 ## CPU and GPU Example
 
+Each row is one of 12 entities observed in one of 5 periods. The entity effect is related to the entity-specific level of `x`; within-entity changes still identify the slope.
+
+<a id="cpu-example"></a>
+
+<!-- example: cpu-basic -->
 ```python
+import numpy as np
 from statgpu.panel import PanelOLS
 
-cpu = PanelOLS(entity_effects=True, device="cpu").fit(X, y, entity_ids=entity_ids)
-cuda = PanelOLS(entity_effects=True, device="cuda").fit(X, y, entity_ids=entity_ids)
-torch = PanelOLS(entity_effects=True, device="torch").fit(X, y, entity_ids=entity_ids)
-```
+rng = np.random.default_rng(7)
+entity_ids = np.repeat(np.arange(12), 5)
+time_ids = np.tile(np.arange(5), 12)
+x = np.repeat(np.linspace(-2, 2, 12), 5) + rng.normal(size=60)
+X = x[:, None]
+entity_effect = np.repeat(np.linspace(-1, 1, 12), 5)
+y = 1.0 + 2.0 * x + entity_effect + 0.2 * rng.normal(size=60)
 
-`device="cuda"` requires CuPy/CUDA and `device="torch"` requires Torch CUDA. If the requested backend is unavailable, `.fit()` raises an error rather than switching to CPU.
+model = PanelOLS(entity_effects=True, device="cpu").fit(
+    X, y, entity_ids=entity_ids
+)
+print("slope:", np.round(model.coef_, 3))
+print("nobs, df_resid:", model.nobs, model.df_resid)
+```
+<!-- example-end: cpu-basic -->
+
+`coef_` contains the single slope, close to the generating value 2. The common intercept and entity levels are absorbed by the fixed effects, so there is no separate intercept in this coefficient array. `nobs=60` retains the original row count, while `df_resid=47` subtracts the 12 entity-effect directions and one slope.
+
+To run this example on a GPU, replace `device="cpu"` with `device="cuda"` (CuPy/CUDA) or `device="torch"` (Torch CUDA). An unavailable explicitly requested backend raises an error instead of switching to CPU.
 
 ## Formula Example
 

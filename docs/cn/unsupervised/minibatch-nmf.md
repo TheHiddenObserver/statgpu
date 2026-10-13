@@ -27,7 +27,8 @@ $$
 \frac{1}{2}\left\|X - WH\right\|_F^2 .
 $$
 
-## 估计方程
+<a id="估计方程"></a>
+## 拟合步骤与更新公式
 
 每一批中，`MiniBatchNMF` 先固定 `H`，近似求解该批的激活 `W_batch`。`fit` 会在一整轮数据内固定 `H`，累加 `A = sum(W_batch.T @ W_batch)` 和 `B = sum(W_batch.T @ X_batch)`，再更新 `H`；`partial_fit` 则跨调用累加这些统计量。基本乘性更新形式如下：
 
@@ -121,7 +122,7 @@ print("相对重构误差：", np.linalg.norm(X - X_hat) / np.linalg.norm(X))
 
 ## 近似与解释边界
 
-`MiniBatchNMF` 是非凸的近似分解方法；`partial_fit` 的结果依赖批次顺序，而普通 `fit` 会汇总一整轮数据的统计量后再更新成分。它面向可扩展的矩阵分解，不提供严格的统计推断。
+`MiniBatchNMF` 是非凸的近似分解方法；`partial_fit` 的结果依赖批次顺序，而普通 `fit` 会汇总一整轮数据的统计量后再更新成分。它面向可扩展的矩阵分解，不提供标准误或显著性检验。
 
 ## 输出字段
 

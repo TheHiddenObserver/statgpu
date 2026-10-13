@@ -1,7 +1,7 @@
 # Solver × Penalty Compatibility Matrix
 
 > Language: English  
-> Last updated: 2026-09-17  
+> Last updated: 2026-10-13  
 > This page: Compatibility reference  
 > Switch: [Chinese](../../cn/guides/solver-penalty-matrix.md)
 
@@ -28,6 +28,8 @@ General conventions:
 
 ## 1. Direct-fit `solver="auto"`
 
+This table applies to shared `PenalizedGLM` (`PenalizedGeneralizedLinearModel`) direct fits. Ordinary `GLM`/`GeneralizedLinearModel` has separate dispatch, including IRLS for smooth unpenalized automatic fits. Dedicated wrappers such as `LogisticRegression` follow their own model pages.
+
 | Loss | l2 / none | l1 | elasticnet | scad | mcp | adaptive_l1 | group_lasso | group_scad | group_mcp |
 |------|:---------:|:--:|:----------:|:----:|:---:|:-----------:|:-----------:|:----------:|:---------:|
 | **squared_error** | CPU `exact` / GPU Newton | FISTA | FISTA | FISTA-LLA | FISTA-LLA | FISTA | Group FISTA | Group FISTA-LLA | Group FISTA-LLA |
@@ -43,7 +45,8 @@ General conventions:
 
 - The cells show the **effective automatic route**, not every explicit solver that may be valid.
 - FISTA-LLA denotes the non-convex continuation route used for scalar SCAD/MCP objectives; Group FISTA-LLA is the corresponding group route for losses whose smooth/first-order structure supports it. Scalar Quantile SCAD/MCP resolves to the dedicated Proximal IRLS-LLA route instead, including the public low-level `fista_lla_path` call.
-- Quantile Group SCAD/MCP instead uses Group Proximal IRLS-LLA: the pinball objective is majorized by Quantile IRLS, and each convex Adaptive-Group-Lasso weighted least-squares surrogate is solved on the selected backend.
+- Quantile Group SCAD/MCP instead uses Group Proximal IRLS-LLA: Quantile IRLS constructs an epsilon-stabilized weighted quadratic approximation, and each convex Adaptive-Group-Lasso weighted least-squares surrogate is solved on the selected backend.
+- These Quantile IRLS quadratic approximations do not establish global majorization-minimization (MM) monotonicity for the original pinball objective; see the [algorithm explanation](solver-algorithms.md#1-proximal-irls-cd).
 - Proximal IRLS-CD and Group Proximal IRLS-LLA are specialized resolved routes rather than public explicit solver keywords.
 - Group Lasso and Adaptive Group Lasso use the group-aware FISTA path.
 
@@ -63,8 +66,8 @@ This table summarizes the numerical prerequisites for **model-level explicit sol
 | `fista_bb` | smooth-gradient differences suitable for BB step adaptation | supported sparse proximal routes | excluded when the loss lacks meaningful smooth-gradient differences |
 | `admm` | supported splitting with a smooth w-subproblem | supported proximal formulations | route-specific support |
 | `irls_cd` | specialized scalar IRLS/coordinate-descent formulation | specialized routes | not a general-purpose fallback |
-| `proximal_irls_cd` | specialized proximal IRLS majorization | specialized scalar non-convex routes | internal resolved label; not a public explicit `solver=` keyword |
-| `group_proximal_irls_lla` | Quantile IRLS majorization + group LLA convex surrogate | Quantile Group SCAD/MCP automatic route | internal executed label; not a public explicit `solver=` keyword |
+| `proximal_irls_cd` | specialized proximal IRLS quadratic approximation | specialized scalar non-convex routes | internal resolved label; not a public explicit `solver=` keyword |
+| `group_proximal_irls_lla` | Quantile IRLS quadratic approximation + group LLA convex penalty | Quantile Group SCAD/MCP automatic route | internal executed label; not a public explicit `solver=` keyword |
 | `proximal_newton` | compatible Newton/proximal structure | route specific | behavior depends on loss and penalty structure |
 
 Unsupported explicit estimator combinations raise an error before numerical fitting. An explicit Group SCAD/MCP `solver="fista"` request remains an explicit proximal-FISTA request when supported; it is not rewritten into the automatic Group Proximal IRLS-LLA route.
@@ -123,7 +126,7 @@ Cross-validation may intentionally choose a different numerical route from direc
 | `group_scad` | Σ_g SCAD(‖β_g‖₂; α√p_g, a) | group LLA surrogate | `alpha`, `groups`, `a` |
 | `group_mcp` | Σ_g MCP(‖β_g‖₂; α√p_g, γ) | group LLA surrogate | `alpha`, `groups`, `gamma` |
 
-For Group SCAD/MCP, the convex LLA surrogate is represented through an adaptive group-lasso problem. Group metadata must match the final design width.
+For Group SCAD/MCP, LLA replaces the penalty by an adaptive group-lasso term. The full subproblem is convex when its data-fit term is convex. Group metadata must match the final design width.
 
 ## 6. Related references
 

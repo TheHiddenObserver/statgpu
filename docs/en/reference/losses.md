@@ -1,7 +1,7 @@
 # Loss Functions (LossBase)
 
 > Language: English  
-> Last updated: 2026-10-09\
+> Last updated: 2026-10-13\
 > This page: Low-level loss reference  
 > Switch: [Chinese](../../cn/reference/losses.md)
 
@@ -110,6 +110,8 @@ $$
 \end{cases}
 $$
 
+The true per-observation curvature is $(1-t^2)(1-5t^2)$ for $|t|\le1$, where $t=u/c$, and zero outside. It is negative for $1/\sqrt{5}<|t|<1$. For Newton-step stability, `hessian()` and `fused_gradient_and_hessian()` clip these negative values to zero before forming the weighted design cross-product. These interfaces therefore return a positive-semidefinite curvature approximation, not the exact Bisquare Hessian or an inference covariance estimate.
+
 ### Fair loss
 
 For residual \(u=y-\eta\),
@@ -147,8 +149,9 @@ The partial likelihood is invariant to adding a common constant to all linear pr
 
 | Parameter | Default | Description |
 |---|---:|---|
-| `epsilon` | `4.685` | Robustness tuning constant |
-| `method` | `"MAD"` | Scale-estimation method |
+| `delta` | `None` | Optional fixed threshold; when supplied, `epsilon` and `method` are ignored |
+| `epsilon` | `4.685` | Robustness tuning constant used with an estimated scale |
+| `method` | `"MAD"` | Scale-estimation method: `"MAD"` or `"huber_prop2"` |
 
 ### `FairLoss`
 

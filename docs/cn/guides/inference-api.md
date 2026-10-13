@@ -5,7 +5,7 @@
 > 模块：`statgpu.inference`  
 > 切换：[English](../../en/guides/inference-api.md)
 
-`statgpu.inference` 汇总可复用的统计工具，包括概率分布、多重检验、p 值合并、排列检验与自助法（bootstrap）。
+`statgpu.inference` 汇总可复用的统计工具，包括概率分布、多重检验、p 值合并、置换检验（permutation test）与自助法（bootstrap）。
 
 本页提供模块导航、常用示例与重采样接口说明。分布函数的详细行为见 [分布 API](distribution-api.md)；模型系数推断的方法选择见 [推断模式](inference-modes.md)。
 
@@ -58,7 +58,8 @@ stat, p_global = combine_pvalues(pvals, method="fisher")
 
 为什么需要校正、FWER 与 FDR 的区别、方法选择及 Holm/BH 的逐步示例，见[多重检验原理](../models/testing/multiple-testing.md)。完整签名、轴、权重与数值限制见[校正与合并 API](multiple-testing-combine-pvalues.md)。上面的 Fisher 示例要求原假设下的 P 值相互独立、连续且服从均匀分布；其结果检验的是总体原假设，不能确定具体哪些假设应被拒绝。
 
-## 排列检验
+<a id="排列检验"></a>
+## 置换检验
 
 `permutation_test` 按照接口定义对输入数据反复排列，并重新计算用户提供的统计量，从而构造排列参考分布。
 
@@ -82,7 +83,7 @@ result = permutation_test(
 print(result.pvalue)
 ```
 
-统计量与排列方案应当和应用中的原假设相匹配；通用排列检验工具无法替用户判断具体数据是否满足可交换性假设。
+统计量与排列方案应当和应用中的原假设相匹配；通用置换检验工具无法替用户判断具体数据是否满足可交换性假设。
 
 ## 通用自助法
 
@@ -198,6 +199,6 @@ print(result.observed, result.pvalue)
 - **如何在 NumPy/CuPy/Torch 上计算概率分布？** → [分布 API](distribution-api.md)
 - **如何选择多重检验或 P 值合并方法？** → [多重检验原理](../models/testing/multiple-testing.md)
 - **如何调用校正与合并函数？** → [校正与合并 API](multiple-testing-combine-pvalues.md)
-- **如何运行通用排列检验或自助法？** → 本页
+- **如何运行通用置换检验或自助法？** → 本页
 - **回归估计器应该选择哪种推断方法？** → [推断模式](inference-modes.md)
 - **惩罚 GLM 系数推断的统计目标是什么？** → [惩罚 GLM 推断](penalized-glm-inference.md)

@@ -1,7 +1,7 @@
 # Panel Diagnostics
 
 > Language: English  
-> Last updated: 2026-10-09<br>
+> Last updated: 2026-10-13<br>
 > Switch: [Chinese](../../cn/panel/diagnostics.md)
 
 ## Overview
@@ -10,7 +10,7 @@ Panel diagnostics help answer model-selection questions such as whether fixed ef
 
 ## Pooling F
 
-The pooling F test asks whether the fixed effects included in a `PanelOLS` model are jointly unnecessary. Its null hypothesis is that all included fixed effects are zero, so failure to reject supports the pooled specification relative to that fixed-effect alternative.
+The pooling F test asks whether the entity and/or time effects included in a `PanelOLS` model add explanatory power beyond a pooled model with a common intercept. Under the null, there are no additional effect differences relative to that common level; with the usual identifying constraints, the added fixed-effect coefficients are jointly zero. Failure to reject means the test found no evidence against the pooled specification relative to that fixed-effect alternative, not that the pooled model has been proved correct.
 
 $$
 F=\frac{(RSS_R-RSS_U)/q}{RSS_U/df_U},

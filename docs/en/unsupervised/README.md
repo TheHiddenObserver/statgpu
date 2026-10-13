@@ -117,5 +117,4 @@ Unsupervised estimators do not expose statistical inference fields such as stand
 
 For detailed API behavior and model-specific caveats, continue to the per-model pages linked above.
 
-The twelve public estimator classes and complete constructor/method contracts are listed in the [unsupervised index](README.md) and [API reference](api-reference.md). NNDescent is an internal neighbor-search implementation used by UMAP, not an additional export from `statgpu.unsupervised`.
-
+Complete constructor and method contracts are listed in the [API reference](api-reference.md).

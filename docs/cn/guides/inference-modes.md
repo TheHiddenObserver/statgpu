@@ -59,6 +59,8 @@ inference_method="auto"
 
 ### 分析权重
 
+分析权重（analytic weights）表示观测的相对重要性。
+
 当所选光滑求解器支持分析权重 `sample_weight` 时，拟合与对应的 M-估计使用同一个归一化带权目标：
 
 $$

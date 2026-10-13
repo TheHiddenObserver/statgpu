@@ -1,7 +1,7 @@
 # 求解器算法
 
 > 语言：中文  
-> 最后更新：2026-09-23  
+> 最后更新：2026-10-13  
 > 页面定位：算法参考  
 > 切换：[English](../../en/guides/solver-algorithms.md)
 
@@ -42,7 +42,7 @@ statgpu 提供一阶、二阶、近端和闭式等多类求解器。大多数模
 
 **文件**：`statgpu/solvers/_proximal_irls_quantile.py`
 
-**用途**：分位数回归 + SCAD/MCP。它把 check（又称 pinball）损失的 IRLS 二次上界与非凸惩罚的局部线性近似（LLA）结合起来。
+**用途**：分位数回归 + SCAD/MCP。它把 check（又称 pinball）损失的带 epsilon 稳定化的 IRLS 加权二次近似与非凸惩罚的局部线性近似（LLA）结合起来。
 
 ### 算法
 
@@ -77,7 +77,7 @@ statgpu 提供一阶、二阶、近端和闭式等多类求解器。大多数模
    w_i^{\mathrm{IRLS}}=\frac{q_i}{\max(|r_i|,\varepsilon)}.
    $$
 
-   如果传入解析权重 `sample_weight=s`，先归一化为
+   如果传入分析权重 `sample_weight=s`，先归一化为
 
    $$
    \tilde s_i=\frac{n s_i}{\sum_j s_j},
@@ -89,7 +89,9 @@ statgpu 提供一阶、二阶、近端和闭式等多类求解器。大多数模
    w_i=\tilde s_i\,w_i^{\mathrm{IRLS}}.
    $$
 
-3. **并行对角上界更新。** 记 $W=\operatorname{diag}(w)$，计算
+   这些依赖残差符号的权重定义局部加权二次近似，并非原始 pinball 损失的全局上界。例如，取 $\tau=0.9$、$r_0=-1$、$\varepsilon<1$，权重为 $0.1$。二次函数 $Q(r)=0.05r^2+0.05$ 在 $r_0$ 处与 $\rho_{0.9}$ 的函数值和导数相同，但 $Q(1)=0.1<\rho_{0.9}(1)=0.9$。两个残差处都没有触发 epsilon 下限。因此，不能据此保证原始 pinball 目标具有全局上界最小化（MM）的单调性。
+
+3. **并行对角近似更新。** 记 $W=\operatorname{diag}(w)$，计算
 
    $$
    g=X^\top W(y-X\beta),
@@ -115,7 +117,7 @@ statgpu 提供一阶、二阶、近端和闭式等多类求解器。大多数模
    S(u,t)=\operatorname{sign}(u)\max(|u|-t,0).
    $$
 
-   这里实际采用的是 Jacobi 风格的并行对角上界更新，而不是逐坐标循环更新。
+   这里采用的是 Jacobi 风格的并行对角近似，而不是逐坐标循环更新。该对角矩阵不一定是完整加权 Gram 矩阵的上界：若 $X^\top W X=\begin{pmatrix}1&0.9\\0.9&1\end{pmatrix}$，则 $\operatorname{diag}(h)-X^\top W X$ 的特征值为 $-0.9$ 与 $0.9$，并非半正定矩阵。
 
 4. **截距与完全平坦的 LLA 近似。** 分位数损失不是二次损失，因此不能通过对 $X$ 与 $y$ 做均值中心化来精确消去截距。`fit_intercept=True` 时，数值设计矩阵会增广一列常数 1，截距作为 pinball 目标中的真实坐标共同优化，其局部惩罚阈值固定为 0。
 
@@ -194,7 +196,7 @@ $$
 F(\beta)=L(\beta)+P(\beta).
 $$
 
-若损失函数支持解析权重 `sample_weight=w`，数据拟合项采用同一个归一化带权目标
+若损失函数支持分析权重 `sample_weight=w`，数据拟合项采用同一个归一化带权目标
 
 $$
 L(\beta)
@@ -227,7 +229,9 @@ $$
 =\frac{X^\top\operatorname{diag}\!\left(w\odot h(\beta)\right)X}{s}.
 $$
 
-对于不能或不需要写成上述逐样本曲率形式的结构化损失，求解器直接使用该损失对象实现的 `hessian()` 或 `fused_gradient_and_hessian()`。
+<a id="loss-provided-curvature"></a>
+
+上述公式描述真实导数存在时的形式。数值求解器实际使用损失对象的 `hessian()` 或 `fused_gradient_and_hessian()` 返回的曲率矩阵 $B_k$。接口返回精确 Hessian 时，$B_k=\nabla^2L(\beta_k)$；结构化损失无需逐样本分解也可以直接提供该矩阵。Bisquare 返回的是稳定化近似：令 $t_i=(y_i-x_i^\top\beta_k)/c$，在阈值内把 $(1-t_i^2)(1-5t_i^2)$ 的负值截为零。因此，在 Newton 求解器进一步稳定化之前，负曲率已经被截断。该矩阵不是 Bisquare 的真实 Hessian，也不能直接视为推断协方差估计。
 
 当前 Newton 路径只接受 L2 或无惩罚。L2 的实现约定为
 
@@ -239,7 +243,7 @@ P(\beta)=\frac{\alpha}{2}\|\beta\|_2^2,
 \nabla^2P(\beta)=\alpha I.
 $$
 
-因此在 L2 路径上，第 $k$ 次迭代使用
+L2 目标的真实 Hessian 为 $\nabla^2F(\beta_k)=\nabla^2L(\beta_k)+\alpha I$。数值 L2 路径在第 $k$ 次迭代使用
 
 $$
 g_k
@@ -248,16 +252,14 @@ g_k
 $$
 
 $$
-H_k
-=\nabla^2F(\beta_k)
-=\nabla^2L(\beta_k)+\alpha I.
+H_k=B_k+\alpha I.
 $$
 
 无惩罚时只需令 $\alpha=0$。
 
 ### 稳定化 Newton 系统
 
-实现先把 Hessian 对称化：
+实现先把上述曲率矩阵对称化：
 
 $$
 \bar H_k
@@ -368,7 +370,7 @@ $$
 - `tol=1e-6`；
 - 受支持的 NumPy/CuPy/Torch 路径使用对应的原生线性代数实现。
 
-因此，当前名为 `proximal_newton_solver` 的路径，在 L2/无惩罚情况下数值上就是**带稳定化 Hessian 与 Armijo 回溯的阻尼 Newton 方法**；非光滑的 Hessian 度量近端 Newton 子问题尚未实现，非光滑惩罚会在进入上述迭代前转交 FISTA。
+因此，当前名为 `proximal_newton_solver` 的路径，在 L2/无惩罚情况下数值上就是**使用稳定化损失曲率与 Armijo 回溯的阻尼 Newton 方法**；非光滑的 Hessian 度量近端 Newton 子问题尚未实现，非光滑惩罚会在进入上述迭代前转交 FISTA。
 
 ---
 
@@ -479,14 +481,14 @@ $$
 
 ### 加权路径
 
-在支持解析权重的路径上，例如逐样本得分为 $\psi_i$ 时，梯度写成
+在支持分析权重的路径上，例如逐样本得分为 $\psi_i$ 时，梯度写成
 
 $$
 g(\beta)
 =\frac{X^\top(s\odot\psi)}{\sum_i s_i}.
 $$
 
-带权目标函数与 Lipschitz 估计使用相同的权重定义。FISTA 具有带权实现，并不意味着所有模型组合都自动支持权重。Quantile 的普通 FISTA 路径（包括显式选择的 L2/无惩罚 FISTA）在相应估计器支持 `sample_weight` 时，也使用这一归一化解析权重定义。
+带权目标函数与 Lipschitz 估计使用相同的权重定义。FISTA 具有带权实现，并不意味着所有模型组合都自动支持权重。Quantile 的普通 FISTA 路径（包括显式选择的 L2/无惩罚 FISTA）在相应估计器支持 `sample_weight` 时，也使用这一归一化分析权重定义。
 
 ### 默认值
 
@@ -593,7 +595,7 @@ $$
 
 ### Nesterov 动量与自适应重启
 
-常规动量使用
+在标准 Nesterov 分支上，先构造暂定的动量更新
 
 $$
 t_{k+1}=\frac{1+\sqrt{1+4t_k^2}}{2},
@@ -605,14 +607,14 @@ y_{k+1}
 +\frac{t_k-1}{t_{k+1}}(\beta_{k+1}-\beta_k).
 $$
 
-实现使用梯度型自适应重启判据。若
+当 `use_restart=True` 时，该分支从第二次迭代开始检查以下判据。其中 $y_k$ 是本次计算梯度和执行近端步时使用的旧评价点，$\beta_{k+1}$ 则是经过所有保护性重试后最终接受的点：
 
 $$
-\left(y_{k+1}-\beta_{k+1}\right)^\top
+\left(y_k-\beta_{k+1}\right)^\top
 \left(\beta_{k+1}-\beta_k\right)>0,
 $$
 
-则清除动量：
+该检查不使用刚形成的新外推点。条件成立时，在下一次迭代前清除动量：
 
 $$
 t_{k+1}=1,
@@ -626,7 +628,9 @@ $$
 \|\beta_{k+1}-\beta_k\|_1<\texttt{tol}.
 $$
 
-平方误差等二次损失不从 BB 曲率获得额外收益，因此保持固定 Lipschitz 步长的 FISTA 行为。SCAD、MCP 及其分组版本也禁用 BB 更新，因为非凸重加权会使割线曲率突然变化。
+动量预热与固定动量上限分支不使用上述重启判据。Inverse-Gaussian 损失禁用动量；Poisson 使用受限动量，Gamma 与 Tweedie 则先预热再使用受限动量。光滑 logistic L2/无惩罚请求会转交普通 FISTA，不进入上述 BB 分支。
+
+当前实现对平方误差等二次损失使用固定 Lipschitz 步长，不启用 BB 更新。SCAD、MCP 及其分组版本也禁用 BB 更新，因为非凸重加权会使割线曲率突然变化。
 
 ---
 
@@ -680,7 +684,9 @@ $$
 
 当 GLM 通过增广列拟合截距时，截距坐标的 LLA 权重固定为 0，因此截距不参与惩罚。
 
-### 凸近似问题
+<a id="凸近似问题"></a>
+
+### 加权近似问题
 
 忽略与 $\beta$ 无关的常数项后，第 $r$ 次 LLA 将原非凸问题近似为
 
@@ -696,7 +702,7 @@ Q_r(\beta)
 =f(\beta)+\sum_g D_g^{(r)}\|\beta_g\|_2,
 $$
 
-内层改由相应的加权 Group Lasso 近端算子处理。
+内层改由相应的加权 Group Lasso 近端算子处理。LLA 只替换惩罚，仍保留原损失 $f$。当 $f$ 为凸损失（如固定阈值 Huber 或 Fair）时，整个子问题为凸；Bisquare 损失及其完整子问题仍可能非凸。
 
 ### FISTA 内层
 
@@ -790,7 +796,7 @@ w_i^{\mathrm{IRLS}}
 {\max(|r_i|,\varepsilon)}.
 $$
 
-如果传入解析权重 `sample_weight=s`，先将其归一化为总和 $n$：
+如果传入分析权重 `sample_weight=s`，先将其归一化为总和 $n$：
 
 $$
 \tilde s_i=\frac{n s_i}{\sum_j s_j},
@@ -851,13 +857,13 @@ z_i^{(k)}
 +\left(y_i-\mu_i^{(k)}\right)g'(\mu_i^{(k)}).
 $$
 
-若用户传入解析权重 $s_i$，实际最小二乘权重为
+若用户传入分析权重 $s_i$，实际最小二乘权重为
 
 $$
 w_i^{(k)}=s_i\,w_i^{\rm work}.
 $$
 
-因此解析 `sample_weight` 与 IRLS 工作权重是两个不同概念：前者来自统计目标，后者来自当前 GLM 二次近似。
+因此分析权重 `sample_weight` 与 IRLS 工作权重是两个不同概念：前者来自统计目标，后者来自当前 GLM 二次近似。
 
 令
 
@@ -921,7 +927,7 @@ u_i
 {V(\mu_i)g'(\mu_i)}.
 $$
 
-有解析权重时使用 $s_i u_i$，并令
+有分析权重时使用 $s_i u_i$，并令
 
 $$
 n_{\rm eff}=\sum_i s_i;
@@ -962,10 +968,10 @@ $$
 $$
 g_k=\nabla F(\beta_k),
 \qquad
-H_k=\nabla^2F(\beta_k).
+H_k=B_k+\nabla^2P(\beta_k).
 $$
 
-实现使用
+这里 $B_k$ 是[损失函数提供的曲率](#loss-provided-curvature)。只有损失提供精确 Hessian 时，$H_k=\nabla^2F(\beta_k)$ 才成立；Bisquare 使用截断负曲率后的矩阵。实现使用
 
 $$
 \widetilde H_k
@@ -1030,7 +1036,9 @@ $$
 
 最多尝试 20 次。如果没有候选点通过 Armijo 条件，则不接受任何未验证的小步，而是保留 $\beta_k$ 并报告线搜索失败。
 
-### 解析 `sample_weight`
+<a id="解析-sample_weight"></a>
+
+### 分析权重 `sample_weight`
 
 对明确提供带权曲率的路径，Newton 在目标函数值、梯度、Hessian 和每个 Armijo 试探点中都使用同一个归一化带权目标：
 
@@ -1273,7 +1281,9 @@ $$
 
 `lbfgs_b_solver` 当前只接受未传权重或均匀 `sample_weight`；不要把普通 `lbfgs_solver` 的非均匀 GLM 权重能力推断到 L-BFGS-B。
 
-### L-BFGS 的解析 `sample_weight`
+<a id="l-bfgs-的解析-sample_weight"></a>
+
+### L-BFGS 的分析权重 `sample_weight`
 
 直接调用 L-BFGS 时，非均匀权重需要由损失函数明确支持：
 
@@ -1283,14 +1293,14 @@ $$
 | 通用稳健 / Cox `LossBase` | ❌ 不能由无权重支持自动推出 |
 | Quantile | ❌ 非均匀权重会报错；底层调用仍可使用未传权重或均匀权重 |
 
-对支持非均匀解析权重的 GLM，初始梯度、当前目标函数、每个线搜索候选点和接受新点后的梯度都使用同一组归一化权重：
+对支持非均匀分析权重的 GLM，初始梯度、当前目标函数、每个线搜索候选点和接受新点后的梯度都使用同一组归一化权重：
 
 $$
 F(\beta)
 =\frac{\sum_i w_i\ell_i(\beta)}{\sum_i w_i}+P(\beta).
 $$
 
-在进入光滑求解器前，有限、非负且具有正总质量的解析权重，会先在实际执行后端按一个正的公共尺度做归一化。因此，只要缩放后的单个权重仍可表示，整体乘以正数不会仅仅因为输入 dtype 的原始求和溢出而改变归一化目标。均匀权重或数值上等效均匀的权重使用无权重数值路径，底层直接调用 Quantile 时也如此；模型/CV 层 Quantile `solver="lbfgs"` 仍不支持。
+在进入光滑求解器前，有限、非负且具有正总质量的分析权重，会先在实际执行后端按一个正的公共尺度做归一化。因此，只要缩放后的单个权重仍可表示，整体乘以正数不会仅仅因为输入 dtype 的原始求和溢出而改变归一化目标。均匀权重或数值上等效均匀的权重使用无权重数值路径，底层直接调用 Quantile 时也如此；模型/CV 层 Quantile `solver="lbfgs"` 仍不支持。
 
 ---
 
@@ -1456,10 +1466,10 @@ $$
 
 ## 求解器调度
 
-对普通直接拟合，`solver="auto"` 按模型层面的兼容性表分发。公开的 `none` / `null` 会在调度前规范化为 `L2(alpha=0)`，因此无惩罚的光滑行与 L2 使用同一个分支。简化表示为：
+对共享 `PenalizedGLM`（`PenalizedGeneralizedLinearModel`）直接拟合，`solver="auto"` 按模型层面的兼容性表分发。普通 `GLM`/`GeneralizedLinearModel` 有独立的调度规则（光滑无惩罚目标的自动拟合包括 IRLS）；`LogisticRegression` 等专用封装类也应以各自模型页为准。公开的 `none` / `null` 会在调度前规范化为 `L2(alpha=0)`，因此无惩罚的光滑行与 L2 使用同一个分支。简化表示为：
 
 ```text
-直接拟合，solver="auto"
+共享 PenalizedGLM 直接拟合，solver="auto"
 ├── squared_error + L2/none              → CPU 精确解 / GPU Newton
 ├── Quantile + L2/none                   → IRLS
 ├── Quantile + L1/ElasticNet             → 普通 FISTA

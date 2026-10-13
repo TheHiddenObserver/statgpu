@@ -1,7 +1,7 @@
 # FamaMacBeth
 
 > Language: English  
-> Last updated: 2026-10-09<br>
+> Last updated: 2026-10-13<br>
 > Switch: [Chinese](../../cn/panel/fama-macbeth.md)
 
 ## Overview
@@ -122,15 +122,35 @@ model.fit(X, y, time_ids=time_ids, entity_ids=None)
 
 ## CPU and GPU Example
 
+Each row is one of 12 entities in one of 5 periods. Each period has a full-rank intercept-plus-`x` design, while the generating slope varies from 1.6 to 2.4 across periods.
+
+<a id="cpu-example"></a>
+
+<!-- example: cpu-basic -->
 ```python
+import numpy as np
 from statgpu.panel import FamaMacBeth
 
-cpu = FamaMacBeth(device="cpu").fit(X, y, time_ids=time_ids)
-cuda = FamaMacBeth(device="cuda").fit(X, y, time_ids=time_ids)
-torch = FamaMacBeth(device="torch").fit(X, y, time_ids=time_ids)
-```
+rng = np.random.default_rng(7)
+entity_ids = np.repeat(np.arange(12), 5)
+time_ids = np.tile(np.arange(5), 12)
+x = rng.normal(size=60)
+X = x[:, None]
+period_slopes = np.linspace(1.6, 2.4, 5)
+y = 1.0 + period_slopes[time_ids] * x + 0.2 * rng.normal(size=60)
 
-With `device="auto"`, an already NumPy/CuPy/Torch-native input may keep its native backend. An explicit `device="cpu"`, `device="cuda"`, or `device="torch"` request is authoritative even when the input container belongs to another backend: statgpu converts fit and prediction inputs to the requested/fitted backend, and an unavailable explicitly requested GPU backend raises instead of silently switching execution.
+model = FamaMacBeth(device="cpu", cov_type="newey-west", bandwidth=1).fit(
+    X, y, time_ids=time_ids, entity_ids=entity_ids
+)
+print("average coef:", np.round(model.coef_, 3))
+print("standard errors:", np.round(model.bse_, 3))
+print("periods, coefficient shape:", model.n_periods, model.betas_.shape)
+```
+<!-- example-end: cpu-basic -->
+
+`coef_` contains the average period intercept and slope; the slope is close to the average generating slope of 2. `betas_.shape=(5, 2)` means five period estimates with two coefficients each. `bse_` measures uncertainty in the coefficient-series average using one Newey-West lag, not observation-level residual HC covariance. Five periods make this a small output demonstration; reliable time-series inference generally requires substantially more periods.
+
+To run this example on a GPU, replace `device="cpu"` with `device="cuda"` (CuPy/CUDA) or `device="torch"` (Torch CUDA). An unavailable explicitly requested backend raises an error instead of switching to CPU. With `device="auto"`, an already NumPy/CuPy/Torch-native input may keep its native backend. An explicit device request is authoritative: fit and prediction inputs are converted to the requested/fitted backend. Period regressions, coefficient averaging, covariance, p-values, and confidence intervals use that backend; public arrays stay on it, and Torch uses the actual tensor device.
 
 ## Formula Example
 

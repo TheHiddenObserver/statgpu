@@ -67,7 +67,7 @@ print(proba.shape, model.converged_, model.score(X), model.bic(X))
 
 ## 近似与解释边界
 
-`GaussianMixture` 提供似然分数，但没有严格推断的协方差或 p 值模式。EM 优化的似然是非凸的，可能收敛到局部最优；结果的可复现性取决于初始化、`random_state`、`n_init`、`tol` 和 `max_iter`。
+`GaussianMixture` 提供似然分数，但不提供参数标准误或 p 值。EM 优化的似然是非凸的，可能收敛到局部最优；结果的可复现性取决于初始化、`random_state`、`n_init`、`tol` 和 `max_iter`。
 
 ## 输出字段
 

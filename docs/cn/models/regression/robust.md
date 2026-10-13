@@ -1,7 +1,7 @@
 # 稳健回归
 
 > 语言：中文  
-> 最后更新：2026-10-09<br>
+> 最后更新：2026-10-13<br>
 > 页面定位：模型文档  
 > 切换：[English](../../../en/models/regression/robust.md)
 
@@ -126,7 +126,7 @@ $$
 
 | 参数 | 默认值 | 说明 |
 |---|---:|---|
-| `delta` | `None` | 可选固定阈值 |
+| `delta` | `None` | 可选固定阈值；一旦提供，会忽略 `epsilon` 与 `method` |
 | `epsilon` | `4.685` | 与估计尺度相乘得到有效阈值 |
 | `method` | `"MAD"` | `"MAD"` 或 `"huber_prop2"` |
 
@@ -239,7 +239,7 @@ coef, n_iter = fista_solver(
 |---------|---------------|-------|
 | L2 / 无惩罚 | Newton | 稳健损失提供梯度与 Hessian |
 | L1 / ElasticNet | FISTA | 近端稀疏路径 |
-| SCAD / MCP | FISTA + LLA | 非凸惩罚通过局部线性近似形成加权凸子问题 |
+| SCAD / MCP | FISTA + LLA | 局部线性近似将惩罚替换为加权 L1 项 |
 | 自适应 L1 | FISTA / LLA 路径 | 使用自适应加权近端形式 |
 | 分组惩罚 | Group FISTA / Group FISTA-LLA | 使用对应的分组近端算子 |
 
@@ -247,11 +247,11 @@ coef, n_iter = fista_solver(
 
 ### 光滑 Huber / Bisquare / Fair
 
-对于 L2/无惩罚目标，当前自动分发使用 Newton。损失函数提供实际梯度和 Hessian，求解器使用线性系统与 Armijo 回溯完成更新。
+对于 L2/无惩罚目标，当前自动分发使用 Newton。损失函数提供梯度和曲率矩阵，求解器使用线性系统与 Armijo 回溯完成更新。Huber 与 Fair 提供损失曲率（Huber 使用分段二阶导数）。Bisquare 则将逐样本负曲率截为零，以稳定 Newton 步；其返回矩阵并非真实 Hessian，也不能直接视为推断协方差估计。详见[损失函数参考](../../reference/losses.md#bisquare-损失tukey-biweight)。
 
 ### SCAD / MCP
 
-非凸惩罚通过 LLA 转换成局部加权凸问题，再由 FISTA 系列内层求解。对于非光滑惩罚，底层 `proximal_newton_solver` 会发出 `RuntimeWarning` 并使用 FISTA，因为该求解器没有实现 Hessian 度量近端子问题。
+LLA 将非凸惩罚替换为加权 L1 项，同时保留原损失，再由 FISTA 系列内层迭代求解。固定阈值 Huber、Fair 等凸损失对应的子问题是凸的；Bisquare 子问题仍可能非凸，因此仍需检查初始化和局部解的稳定性。对于非光滑惩罚，底层 `proximal_newton_solver` 会发出 `RuntimeWarning` 并使用 FISTA，因为该求解器没有实现 Hessian 度量近端子问题。
 
 ### Huber IRLS 的当前状态
 

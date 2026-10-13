@@ -1,7 +1,7 @@
 # RandomEffects
 
 > 语言：中文  
-> 最后更新：2026-09-17  
+> 最后更新：2026-10-13  
 > 页面定位：面板模型文档  
 > 切换：[English](../../en/panel/random-effects.md)
 
@@ -159,15 +159,33 @@ model.fit(X, y, entity_ids=entity_ids, time_ids=None, cluster=None)
 
 ## CPU 与 GPU 示例
 
+每行是 12 个个体之一在 5 个时期之一的观测。模拟的个体效应独立于 `x`，符合随机效应的正交性假设。数组接口不会自动添加常数列，因此这里在 `X` 中显式加入。
+
+<a id="cpu-example"></a>
+
+<!-- example: cpu-basic -->
 ```python
+import numpy as np
 from statgpu.panel import RandomEffects
 
-cpu = RandomEffects(device="cpu").fit(X, y, entity_ids=entity_ids)
-cuda = RandomEffects(device="cuda").fit(X, y, entity_ids=entity_ids)
-torch = RandomEffects(device="torch").fit(X, y, entity_ids=entity_ids)
-```
+rng = np.random.default_rng(7)
+entity_ids = np.repeat(np.arange(12), 5)
+time_ids = np.tile(np.arange(5), 12)
+x = rng.normal(size=60)
+X = np.column_stack([np.ones(60), x])
+entity_effect = rng.normal(scale=0.6, size=12)
+y = 1.0 + 2.0 * x + entity_effect[entity_ids] + 0.2 * rng.normal(size=60)
 
-如果显式请求的 GPU 后端不可用，`.fit()` 会直接报错，而不会切换到 CPU。
+model = RandomEffects(device="cpu").fit(X, y, entity_ids=entity_ids)
+print("coef:", np.round(model.coef_, 3))
+print("theta:", round(float(model.theta_), 3))
+print("nobs:", model.nobs)
+```
+<!-- example-end: cpu-basic -->
+
+`coef_` 与 `X` 的列顺序一致：先截距、后斜率，斜率接近生成数据时设定的 2。由于各个体观测数相同，这里的 `theta_` 就是共同的准去均值因子；介于 0 与 1 的值表示减去一部分个体均值。`nobs=60` 仍是原始观测行数。这个小型模拟用于说明输出，不是对随机效应假设的检验。
+
+在 GPU 上运行时，把 `device="cpu"` 换成 `device="cuda"`（CuPy/CUDA）或 `device="torch"`（Torch CUDA）。显式请求的后端不可用时会报错，不会切换到 CPU。
 
 ## 公式接口
 
@@ -205,7 +223,7 @@ without_intercept = RandomEffects().fit(
 
 ## 数值行为与失败语义
 
-改变 `cov_type` 不会重新拟合随机效应模型：方差分量与系数保持不变，只改变报告的不确定性。
+在同一数据和其余设置下分别拟合时，不同 `cov_type` 得到相同的方差分量和系数，只改变标准误及相关推断。修改已拟合对象的参数后，需要重新调用 `fit()`。`set_params()` 会重置已拟合状态，直接给属性赋值也不会重新计算已有结果。
 
 用户可以依赖以下公开行为：
 
@@ -222,13 +240,22 @@ without_intercept = RandomEffects().fit(
 ## 常见问题
 
 **`cov_type` 会改变 Swamy–Arora 系数估计吗？**  
-不会；它只改变 GLS 拟合后的标准误与相关推断。
+不会。在同一数据和其余设置下换用另一种协方差并重新拟合，只改变 GLS 拟合后的标准误与相关推断。
 
 **为什么 $\widehat\sigma_a^2$ 可能等于 0？**  
 有限样本下未经截断的 Swamy–Arora 估计可能为负；由于方差不能为负，statgpu 会把该估计截断为 0。
 
 **稳健标准误能解决随机效应模型的内生性吗？**  
 不能。稳健协方差只改变不确定性估计，无法替代 $E(a_i\mid X_i)=0$ 这样的识别条件。
+
+<a id="external-validation"></a>
+<a id="comparing-with-other-packages"></a>
+
+## 与其他软件包比较
+
+随机效应系数**不保证与其他软件包一致**，因为 statgpu 使用自己的 Swamy–Arora 方差分量构造。比较协方差时，应使用 statgpu 实际得到的准去均值回归 $(X^*,y^*)$：在对齐协方差设置和自由度后，可与 linearmodels 比较稳健及 Driscoll–Kraay 协方差，与 statsmodels 比较 HC2/HC3。
+
+这样的比较只针对该变换后回归的不确定性，不能据此认定不同随机效应实现具有等价的系数估计。详见[协方差定义的比较](covariance.md#comparing-covariance-definitions)。
 
 ## 相关文档
 

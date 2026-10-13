@@ -1,7 +1,7 @@
 # Robust Regression
 
 > Language: English  
-> Last updated: 2026-10-09<br>
+> Last updated: 2026-10-13<br>
 > This page: Model documentation  
 > Switch: [Chinese](../../../cn/models/regression/robust.md)
 
@@ -126,7 +126,7 @@ The loss objects are imported from `statgpu.losses`: `HuberLoss`, `BisquareLoss`
 
 | Parameter | Default | Description |
 |---|---:|---|
-| `delta` | `None` | Optional fixed threshold |
+| `delta` | `None` | Optional fixed threshold; when supplied, `epsilon` and `method` are ignored |
 | `epsilon` | `4.685` | Multiplied by the estimated scale to obtain the effective threshold |
 | `method` | `"MAD"` | `"MAD"` or `"huber_prop2"` |
 
@@ -239,7 +239,7 @@ The table below describes the current public model / low-level solver routes. `s
 |---------|------------|-------|
 | L2 / none | Newton | Robust losses provide gradient and Hessian primitives |
 | L1 / ElasticNet | FISTA | Proximal sparse route |
-| SCAD / MCP | FISTA + LLA | Local linear approximation forms a weighted convex surrogate |
+| SCAD / MCP | FISTA + LLA | Local linear approximation replaces the penalty with a weighted L1 term |
 | Adaptive L1 | FISTA / LLA route | Adaptive weighted proximal form |
 | Group penalties | Group FISTA / Group FISTA-LLA | Corresponding group proximal operators |
 
@@ -247,11 +247,11 @@ The table below describes the current public model / low-level solver routes. `s
 
 ### Smooth Huber / Bisquare / Fair
 
-For L2/no-penalty objectives, the current automatic dispatch uses Newton. The loss supplies the actual gradient and Hessian and the solver combines a linear-system step with Armijo backtracking.
+For L2/no-penalty objectives, the current automatic dispatch uses Newton. The loss supplies the gradient and a curvature matrix, and the solver combines a linear-system step with Armijo backtracking. Huber and Fair provide their loss curvature (the piecewise second derivative for Huber). Bisquare clips negative per-observation curvature to zero to stabilize Newton steps; its returned matrix is not the true Hessian and is not, by itself, an inference covariance estimate. See the [loss reference](../../reference/losses.md#bisquare-loss-tukey-biweight).
 
 ### SCAD / MCP
 
-Non-convex penalties are handled through LLA, producing a locally weighted convex problem solved by FISTA-family inner iterations. For non-smooth penalties, the low-level `proximal_newton_solver` emits `RuntimeWarning` and uses FISTA because it does not implement a Hessian-metric proximal subproblem.
+LLA replaces the non-convex penalty with a weighted L1 term while retaining the original loss, and FISTA-family iterations solve the inner problem. With convex losses such as fixed-threshold Huber and Fair, that subproblem is convex; with Bisquare it can remain nonconvex, so initialization and local-solution stability still matter. For non-smooth penalties, the low-level `proximal_newton_solver` emits `RuntimeWarning` and uses FISTA because it does not implement a Hessian-metric proximal subproblem.
 
 ### Current Huber IRLS status
 

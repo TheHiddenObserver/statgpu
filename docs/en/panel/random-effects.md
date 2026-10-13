@@ -1,7 +1,7 @@
 # RandomEffects
 
 > Language: English  
-> Last updated: 2026-10-09<br>
+> Last updated: 2026-10-13<br>
 > Switch: [Chinese](../../cn/panel/random-effects.md)
 
 ## Overview
@@ -123,15 +123,33 @@ model.fit(X, y, entity_ids=entity_ids, time_ids=None, cluster=None)
 
 ## CPU and GPU Example
 
+Each row is one of 12 entities observed in one of 5 periods. The simulated entity effect is drawn independently of `x`, matching the random-effects orthogonality assumption. The array API does not add a constant, so `X` includes one explicitly.
+
+<a id="cpu-example"></a>
+
+<!-- example: cpu-basic -->
 ```python
+import numpy as np
 from statgpu.panel import RandomEffects
 
-cpu = RandomEffects(device="cpu").fit(X, y, entity_ids=entity_ids)
-cuda = RandomEffects(device="cuda").fit(X, y, entity_ids=entity_ids)
-torch = RandomEffects(device="torch").fit(X, y, entity_ids=entity_ids)
-```
+rng = np.random.default_rng(7)
+entity_ids = np.repeat(np.arange(12), 5)
+time_ids = np.tile(np.arange(5), 12)
+x = rng.normal(size=60)
+X = np.column_stack([np.ones(60), x])
+entity_effect = rng.normal(scale=0.6, size=12)
+y = 1.0 + 2.0 * x + entity_effect[entity_ids] + 0.2 * rng.normal(size=60)
 
-If an explicitly requested GPU backend is unavailable, `.fit()` raises an error rather than switching to CPU.
+model = RandomEffects(device="cpu").fit(X, y, entity_ids=entity_ids)
+print("coef:", np.round(model.coef_, 3))
+print("theta:", round(float(model.theta_), 3))
+print("nobs:", model.nobs)
+```
+<!-- example-end: cpu-basic -->
+
+`coef_` follows the columns of `X`: intercept, then slope. The slope is close to the generating value 2. `theta_` reports the quasi-demeaning factor here because all entities have the same number of observations; a value between 0 and 1 removes part of each entity mean. `nobs=60` still counts the original rows. This small simulation illustrates the output, not a test of the random-effects assumption.
+
+To run this example on a GPU, replace `device="cpu"` with `device="cuda"` (CuPy/CUDA) or `device="torch"` (Torch CUDA). An unavailable explicitly requested backend raises an error instead of switching to CPU.
 
 ## Formula Example
 
@@ -159,7 +177,7 @@ Public results include `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `th
 
 ## Numerical and Strict Behavior
 
-Changing `cov_type` does not refit the random-effects model: the variance components and coefficients stay the same, while the reported uncertainty changes.
+Separate fits to the same data with the same remaining settings give the same variance components and coefficients for different `cov_type` choices; only standard errors and related inference change. After changing parameters on a fitted object, call `fit()` again. `set_params()` resets the fitted state, and direct attribute assignment does not recompute existing results.
 
 The auxiliary regressions and final GLS calculation use numerical safeguards for extreme response scales and cancellation. They retain the same Swamy-Arora and least-squares definitions.
 
@@ -173,7 +191,7 @@ The classical Hausman comparison is available only under the conditions document
 
 ## FAQ
 
-**Does `cov_type` change the Swamy-Arora coefficient estimate?**  No. It changes only the standard errors and related inference reported after the GLS fit.
+**Does `cov_type` change the Swamy-Arora coefficient estimate?**  No. With the same data and other settings, refitting with another covariance choice changes only the standard errors and related inference reported after the GLS fit.
 
 **Why can $\widehat\sigma_a^2$ be zero?**  The raw Swamy-Arora estimate can be negative in finite samples; statgpu truncates that variance estimate at zero because a variance cannot be negative.
 

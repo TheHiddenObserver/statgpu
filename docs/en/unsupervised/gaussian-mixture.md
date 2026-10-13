@@ -66,7 +66,7 @@ For a supported GPU installation, construct a new estimator with `device="cuda"`
 
 ## Approximation and interpretation
 
-GMM has likelihood scores but no strict inference covariance or p-value mode. EM optimizes a non-convex likelihood and can converge to local optima. Reproducibility depends on initialization, `random_state`, `n_init`, `tol`, and `max_iter`.
+GMM has likelihood scores but no parameter standard errors or p-values. EM optimizes a non-convex likelihood and can converge to local optima. Reproducibility depends on initialization, `random_state`, `n_init`, `tol`, and `max_iter`.
 
 ## Outputs
 

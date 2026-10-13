@@ -1,7 +1,7 @@
 # SCAD
 
 > Language: English  
-> Last updated: 2026-10-09<br>
+> Last updated: 2026-10-13<br>
 > This page: Model documentation  
 > Switch: [Chinese](../../../cn/models/regression/scad.md)
 
@@ -111,7 +111,7 @@ results. Another sample can select noise or miss a real signal.
 - Increase `max_iter` and tighten `tol` to assess numerical stability. `n_iter_`
   alone does not prove global optimality. Local minima remain possible.
 - Keep the test set separate from tuning, and repeat learned preprocessing
-  inside each training fold. These wrappers have no built-in CV method.
+  inside each training fold. This wrapper has no built-in CV method.
 
 ## Algorithm
 

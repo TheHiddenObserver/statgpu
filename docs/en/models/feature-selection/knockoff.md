@@ -144,7 +144,8 @@ successful fit before treating its output as a result for the new data.
 <a id="construct-and-verify-the-supplied-pair"></a>
 <a id="generate-the-response-and-select-features"></a>
 <a id="prespecify-the-design-and-target"></a>
-## A complete CPU example with a valid supplied pair
+<a id="a-complete-cpu-example-with-a-valid-supplied-pair"></a>
+## Continue with the worked examples
 
 To put these principles into practice, follow the
 [Fixed-X tutorial](knockoff-fixed-x.md): construct a controlled, centered QR
@@ -179,7 +180,8 @@ feature-distribution sampler.
 
 <a id="cupy"></a>
 <a id="torch-cuda"></a>
-## CPU+GPU Examples
+<a id="cpugpu-examples"></a>
+## GPU execution and example links
 
 Optional CuPy and Torch CUDA variants extend the supplied-pair workflow in the
 [Fixed-X tutorial](knockoff-fixed-x.md). `backend="torch"` selects a library:

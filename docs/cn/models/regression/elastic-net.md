@@ -1,7 +1,7 @@
 # Elastic Net 弹性网络
 
 > 语言：中文  
-> 最后更新：2026-10-09<br>
+> 最后更新：2026-10-13<br>
 > 页面定位：模型文档  
 > 切换：[English](../../../en/models/regression/elastic-net.md)
 
@@ -132,14 +132,15 @@ $$
 
 ### 近端更新
 
-Elastic Net 的 L1/L2 部分由近端算子共同处理：
+令 `z` 为当前系数向量（FISTA 中为外推点），`step > 0` 为步长。在 `z` 处先执行平方误差的梯度步，再用 Elastic Net 近端算子共同处理 L1/L2 惩罚：
 
 ```text
 # 平均平方误差项的梯度
-grad = (X.T @ X @ w - X.T @ y) / n
+grad = (X.T @ X @ z - X.T @ y) / n
+beta_tilde = z - step * grad
 
 # Elastic Net 近端更新
-w = soft_threshold(w_tilde, alpha * l1_ratio * step) / (
+beta = soft_threshold(beta_tilde, alpha * l1_ratio * step) / (
     1 + alpha * (1 - l1_ratio) * step
 )
 ```

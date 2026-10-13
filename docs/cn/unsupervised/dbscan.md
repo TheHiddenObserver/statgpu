@@ -18,7 +18,8 @@
 from statgpu.unsupervised import DBSCAN
 ```
 
-## 目标函数 / 损失函数
+<a id="目标函数--损失函数"></a>
+## 密度判定与成簇规则
 
 DBSCAN 不是光滑优化问题，没有可微的损失函数；它的准则是密度可达性（density reachability）：
 

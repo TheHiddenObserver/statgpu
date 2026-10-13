@@ -1,7 +1,7 @@
 # PooledOLS
 
 > Language: English  
-> Last updated: 2026-10-09<br>
+> Last updated: 2026-10-13<br>
 > Switch: [Chinese](../../cn/panel/pooled-ols.md)
 
 ## Overview
@@ -77,15 +77,32 @@ Pass `cluster` when using clustered covariance and `time_index` when using Drisc
 
 ## CPU and GPU Example
 
+Each row is one entity observed in one period: 12 entities with 5 observations each. This simulation has a common intercept of 1 and slope of 2, with independent noise.
+
+<a id="cpu-example"></a>
+
+<!-- example: cpu-basic -->
 ```python
+import numpy as np
 from statgpu.panel import PooledOLS
 
-cpu = PooledOLS(device="cpu").fit(X, y)
-cuda = PooledOLS(device="cuda").fit(X, y)
-torch = PooledOLS(device="torch").fit(X, y)
-```
+rng = np.random.default_rng(7)
+entity_ids = np.repeat(np.arange(12), 5)
+time_ids = np.tile(np.arange(5), 12)
+x = rng.normal(size=60)
+X = x[:, None]
+y = 1.0 + 2.0 * x + 0.2 * rng.normal(size=60)
 
-If an explicitly requested GPU backend is unavailable, `.fit()` raises an error instead of switching to CPU.
+model = PooledOLS(device="cpu").fit(X, y, entity_ids=entity_ids)
+print("coef:", np.round(model.coef_, 3))
+print("standard errors:", np.round(model.bse_, 3))
+print("nobs:", model.nobs)
+```
+<!-- example-end: cpu-basic -->
+
+`coef_` is ordered as intercept, then the slope for the single column of `X`. The estimated slope is close to the generating value 2; `bse_` gives the standard errors in the same order. `nobs=60` counts all stacked rows. This agreement in simulated data does not establish exogeneity for a real panel.
+
+To run this example on a GPU, replace `device="cpu"` with `device="cuda"` (CuPy/CUDA) or `device="torch"` (Torch CUDA). An unavailable explicitly requested backend raises an error instead of switching to CPU.
 
 ## Formula Example
 

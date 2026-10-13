@@ -1,7 +1,7 @@
 # 损失函数（LossBase）
 
 > 语言：中文  
-> 最后更新：2026-10-09\
+> 最后更新：2026-10-13\
 > 页面定位：底层损失函数参考  
 > 切换：[英文版](../../en/reference/losses.md)
 
@@ -16,7 +16,7 @@
 - [分位数回归](../models/regression/quantile.md) — 分位数回归模型、求解器选择、权重与推断
 - [稳健回归](../models/regression/robust.md) — Huber、Bisquare、Fair 模型
 - [CoxPH](../models/coxph.md) — Cox 模型、并列事件、计数过程数据与推断
-- [广义线性模型](../models/regression/generalized-linear-model.md) — GLM 目标函数与解析权重语义
+- [广义线性模型](../models/regression/generalized-linear-model.md) — GLM 目标函数与分析权重语义
 - [求解器 × 惩罚项兼容性矩阵](../guides/solver-penalty-matrix.md) — 实际支持的求解组合
 - [求解器算法](../guides/solver-algorithms.md) — 数值算法与适用前提
 
@@ -54,7 +54,7 @@ $$
 L(\beta)=\frac{1}{n}\sum_{i=1}^n\ell_i(\beta).
 $$
 
-当某个 `LossBase` 实现通过共享一阶原语接受解析 `sample_weight` 时，使用归一化加权目标
+当某个 `LossBase` 实现通过共享一阶原语接受分析权重 `sample_weight` 时，使用归一化加权目标
 
 $$
 L_w(\beta)
@@ -110,6 +110,8 @@ $$
 \end{cases}
 $$
 
+令 $t=u/c$，当 $|t|\le1$ 时，真实逐样本曲率为 $(1-t^2)(1-5t^2)$，阈值外为零。在 $1/\sqrt{5}<|t|<1$ 的区间内曲率为负。为稳定 Newton 步，`hessian()` 和 `fused_gradient_and_hessian()` 会先将这些负值截为零，再形成加权设计矩阵乘积。因此，这两个接口返回半正定的曲率近似，并非 Bisquare 的精确 Hessian，也不是推断协方差估计。
+
 ### Fair 损失
 
 令残差 $u=y-\eta$，则
@@ -147,8 +149,9 @@ Cox 部分似然对所有线性预测子同时加上一个常数保持不变，�
 
 | 参数 | 默认值 | 说明 |
 |---|---:|---|
-| `epsilon` | `4.685` | 稳健性调节常数 |
-| `method` | `"MAD"` | 尺度估计方法 |
+| `delta` | `None` | 可选固定阈值；一旦提供，会忽略 `epsilon` 与 `method` |
+| `epsilon` | `4.685` | 与估计尺度配合使用的稳健性调节常数 |
+| `method` | `"MAD"` | 尺度估计方法：`"MAD"` 或 `"huber_prop2"` |
 
 ### `FairLoss`
 

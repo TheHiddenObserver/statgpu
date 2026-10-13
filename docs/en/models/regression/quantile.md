@@ -1,7 +1,7 @@
 # Quantile Regression
 
 > Language: English  
-> Last updated: 2026-10-12<br>
+> Last updated: 2026-10-13<br>
 > This page: Model documentation  
 > Switch: [Chinese](../../../cn/models/regression/quantile.md)
 
@@ -131,7 +131,7 @@ The table selects the target-quantile control only. Complete standalone paramete
 
 ### Standalone coefficient inference
 
-Standalone kernel/bootstrap inference is defined only for omitted or uniform `sample_weight`; genuinely non-uniform analytic weights are estimation-only on this class and raise when `compute_inference=True`. The bootstrap implementation is an **i.i.d. residual bootstrap**: fitted residuals are first centered at their empirical target-quantile so the bootstrap error distribution has empirical τ-quantile zero, then the centered residuals are resampled as exchangeable draws and refitted with backend-native batched Quantile IRLS/MM. It is not a wild/multiplier bootstrap and does not claim heteroscedastic-robust coverage; heteroscedastic quantile-regression bootstrap inference requires a different resampling construction. Bootstrap inference also requires `n_bootstrap >= 2`. Kernel inference additionally requires the selected bandwidth rule to keep `q ± h` inside `(0, 1)` and to produce a finite positive residual-density estimate at zero; otherwise inference raises instead of publishing non-finite standard errors.
+Standalone kernel/bootstrap inference is defined only for omitted or uniform `sample_weight`; genuinely non-uniform analytic weights are estimation-only on this class and raise when `compute_inference=True`. The bootstrap implementation is an **i.i.d. residual bootstrap**: fitted residuals are first centered at their empirical target-quantile so the bootstrap error distribution has empirical τ-quantile zero, then the centered residuals are resampled as exchangeable draws and refitted with backend-native batched Quantile IRLS quadratic approximation. It is not a wild/multiplier bootstrap and does not claim heteroscedastic-robust coverage; heteroscedastic quantile-regression bootstrap inference requires a different resampling construction. Bootstrap inference also requires `n_bootstrap >= 2`. Kernel inference additionally requires the selected bandwidth rule to keep `q ± h` inside `(0, 1)` and to produce a finite positive residual-density estimate at zero; otherwise inference raises instead of publishing non-finite standard errors.
 
 Reuse the imports and training data from the completed [CPU example](#cpu-example). The kernel-density method below estimates coefficient uncertainty; its intervals are for coefficients, not future responses.
 
@@ -233,8 +233,8 @@ The support column below first describes unweighted algorithm availability. With
 
 | Solver | Support | Notes |
 |--------|:---:|-------|
-| Proximal IRLS-CD | ✅ | Specialized IRLS majorization + LLA for scalar SCAD/MCP; supports analytic `sample_weight` |
-| Group Proximal IRLS-LLA | ✅ | Automatic Group SCAD/MCP route; Quantile IRLS/MM plus a convex Adaptive-Group-Lasso weighted least-squares solve on the selected backend |
+| Proximal IRLS-CD | ✅ | Specialized IRLS weighted quadratic approximation + LLA for scalar SCAD/MCP; supports analytic `sample_weight` |
+| Group Proximal IRLS-LLA | ✅ | Automatic Group SCAD/MCP route; Quantile IRLS quadratic approximation plus a convex Adaptive-Group-Lasso weighted least-squares solve on the selected backend |
 | IRLS | ✅ | **Default `solver="auto"` route for L2/no-penalty Quantile objectives**; `QuantileLoss.irls()` has an explicit `sample_weight` path |
 | FISTA | ✅ | Used for L1/ElasticNet and related proximal routes; explicit L2/no-penalty `solver="fista"` also executes ordinary FISTA, while `auto` continues to prefer IRLS there |
 | FISTA-BB | ❌ | BB step sizes use smooth-gradient differences as local-curvature estimates. Quantile has a step-function subgradient, so estimator/CV requests and public low-level `fista_bb_solver(QuantileLoss, ...)` raise an error |
@@ -251,10 +251,10 @@ For L2/no-penalty Quantile objectives, `PenalizedQuantileRegression(..., solver=
 |---------|----------------------------|-------|
 | l2 / none | IRLS | `none` is canonicalized to `L2(alpha=0)`; explicit `irls` selects the same route and explicit ordinary `fista` is available when requested |
 | l1 / elasticnet | FISTA | Proximal/subgradient route |
-| SCAD / MCP | Proximal IRLS-CD | Specialized Quantile IRLS majorization + LLA |
+| SCAD / MCP | Proximal IRLS-CD | Specialized Quantile IRLS weighted quadratic approximation + LLA |
 | adaptive_l1 | FISTA | Adaptive weights are prepared first, then the Quantile FISTA route is used |
 | group_lasso / adaptive group | Group FISTA | Group-aware proximal route |
-| group_scad / group_mcp | Group Proximal IRLS-LLA | Group LLA with Quantile IRLS/MM; each convex Adaptive-Group-Lasso weighted least-squares surrogate is solved on the selected backend |
+| group_scad / group_mcp | Group Proximal IRLS-LLA | Group LLA with Quantile IRLS quadratic approximation; each convex Adaptive-Group-Lasso weighted least-squares surrogate is solved on the selected backend |
 
 The table describes the automatic route. An explicit Group SCAD/MCP `solver="fista"` request remains an explicit proximal-FISTA request; it is not silently rewritten into Group Proximal IRLS-LLA. If you call solver functions directly, see the [low-level Quantile solver reference](../../guides/solver-algorithms.md#quantile-low-level-solvers) for their separate argument, return-value, and warning behavior.
 
@@ -270,7 +270,7 @@ $$
 But `sample_weight` is **not one universal solver capability**. In particular:
 
 - Quantile IRLS / Proximal IRLS-CD have explicit weighted implementations;
-- Group Proximal IRLS-LLA normalizes the same analytic weights and carries them into each Quantile IRLS/MM majorization before solving the convex group surrogate;
+- Group Proximal IRLS-LLA normalizes the same analytic weights and carries them into each Quantile IRLS weighted quadratic approximation before solving the convex group surrogate;
 - ordinary FISTA, including explicitly selected L2/no-penalty FISTA, uses the loss-layer normalized weighted objective where supported;
 - Adaptive L1 uses the same analytic training weights when it must learn adaptive penalty weights from its initialization fit; user-supplied fixed adaptive weights are used directly and do not trigger a redundant initializer;
 - FISTA-BB and direct public ADMM do not support Quantile because their generic algorithms rely on smooth-gradient structure that check loss does not provide;
@@ -282,7 +282,9 @@ For weighted support across other losses and solver families, see the [Solver ×
 
 ### Proximal IRLS-CD (SCAD/MCP)
 
-See [Solver Algorithms](../../guides/solver-algorithms.md#1-proximal-irls-cd) for the full update equations. The method combines an IRLS quadratic majorization of the check loss with local linear approximation of SCAD/MCP.
+See [Solver Algorithms](../../guides/solver-algorithms.md#1-proximal-irls-cd) for the full update equations. The method combines an epsilon-stabilized IRLS weighted quadratic approximation to the check loss with local linear approximation of SCAD/MCP.
+
+The IRLS weights depend on the current residual sign, and their weighted quadratic approximation is not a global majorizer of the original pinball loss. The scalar solver also uses a Jacobi-style diagonal approximation that need not bound the full weighted Gram matrix. Neither construction establishes global MM monotonicity for the original pinball objective; see the [counterexamples and update equations](../../guides/solver-algorithms.md#1-proximal-irls-cd). The existing stopping checks and convergence warnings still apply.
 
 ### Group Proximal IRLS-LLA (Group SCAD/MCP)
 

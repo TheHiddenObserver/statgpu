@@ -1,7 +1,7 @@
 # 面板模型协方差估计
 
 > 语言：中文  
-> 最后更新：2026-09-17  
+> 最后更新：2026-10-13  
 > 页面定位：面板模型协方差与系数推断参考  
 > 切换：[English](../../en/panel/covariance.md)
 
@@ -27,9 +27,9 @@ $$
 | `BetweenOLS` | 每个个体一个均值观测的回归 |
 | `FirstDifferenceOLS` | 一阶差分后的回归 |
 
-`FamaMacBeth` 不使用上述基于单个残差回归的协方差形式。它根据各时期估计系数构成的时间序列计算不确定性，详见 [FamaMacBeth](fama-macbeth.md)。
+`FamaMacBeth` 不使用上述基于单个残差回归的协方差形式。它根据各时期估计系数构成的时间序列计算不确定性，详见 [FamaMacBeth](fama-macbeth.md)。每个保留时期的设计矩阵必须满列秩，否则 `.fit()` 会抛出 `ValueError`。
 
-如果实际回归空间中的设计矩阵精确秩亏，拟合值仍可能是唯一的，但系数向量本身并不唯一。此时 statgpu 会保留仍有明确含义的拟合结果，但不会继续发布依赖唯一系数表示的标准误、检验统计量、p 值和置信区间。
+对于上表五类基于残差 OLS 的估计器，如果实际回归空间中的设计矩阵精确秩亏，拟合值仍可能是唯一的，但系数向量本身并不唯一。此时 statgpu 会保留仍有明确含义的拟合结果，但不会报告依赖唯一系数表示的标准误、检验统计量、p 值和置信区间。
 
 ## 经典协方差与 HC0–HC3
 
@@ -115,7 +115,7 @@ $$
 
 其中 $\widehat V_{12}$ 对两个聚类标签组成的联合分组计算。
 
-如果一个聚类维度嵌套在另一个维度中，statgpu 比较的是二者诱导出的分组划分是否等价，而不是要求用户提供的整数编码逐元素相同。
+当一个聚类划分嵌套于另一个时，较细划分与交集项相消，结果等于较粗划分的协方差。这一性质取决于各组的成员关系，而不是标签的整数编码；两个边际划分本身不必相同。
 
 极端数值尺度下，如果双向聚类计算中的非零得分分量或其乘积超出 float64 的工作范围，statgpu 会抛出 `FloatingPointError`，而不是把该分量当成 0。
 
@@ -178,7 +178,7 @@ Driscoll–Kraay 则先按照面板时间索引聚合同一期观测的得分贡
 - `hac_covariance`
 - `driscoll_kraay_covariance`
 
-若需要在模型拟合时计算协方差，请选择该估计器支持的 `cov_type`，拟合后读取 `cov_params_`。各模型支持的协方差选项见对应的模型说明。
+若需要模型的系数推断，请选择该估计器支持的 `cov_type`，拟合后读取 `bse_`、`tvalues_`、`pvalues_` 和 `conf_int_`。这些面板估计器中，`FamaMacBeth` 还通过 `cov_params_` 公开完整的系数协方差矩阵；上表五类基于残差 OLS 的估计器不提供该属性。各模型支持的协方差选项见对应的模型说明。
 
 估计器的 `cov_type` 支持以下常用别名：
 
@@ -194,6 +194,22 @@ Driscoll–Kraay 核名称支持 Bartlett/Newey–West、Parzen/Gallant 与 QS/Q
 系数检验使用实际的正标准误，不加入绝对方差下限。精确零方差的统计量规则见上文，不能把零标准误简单解释为没有估计不确定性。
 
 显式设备请求遵循 [设备与 GPU 内存](../guides/device-and-memory.md) 中的后端语义。
+
+<a id="validation-matrix"></a>
+<a id="comparing-covariance-definitions"></a>
+
+## 协方差定义的比较
+
+只有使用相同观测、变换后回归、截距、残差自由度和协方差设置，包间比较才有明确含义：
+
+- HC0–HC3：使用相同设计矩阵和残差，并对齐杠杆值及有限样本修正。
+- 单向或双向聚类：使用相同的分组划分和 `group_debias` 设置。
+- Driscoll–Kraay：对齐时间顺序、核、带宽及固定效应占用的自由度。
+- `BetweenOLS` 与 `FirstDifferenceOLS`：先构造相同的个体均值或差分样本，再与 statsmodels 等 OLS 实现比较。
+- `RandomEffects`：基于 statgpu 的准去均值回归 $(X^*,y^*)$ 比较协方差；使用不同方差分量构造的软件包不一定得到相同的 GLS 系数。
+- `FamaMacBeth`：分别对齐系数序列协方差和推断参考分布，见 [FamaMacBeth 的包间比较](fama-macbeth.md#comparing-with-other-packages)。
+
+若参考分布或其自由度不同，系数或协方差一致，并不意味着 p 值和置信区间也相同。
 
 ## 相关文档
 

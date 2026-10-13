@@ -142,7 +142,7 @@ $$
 | `max_iter` | `100` | IRLS 最大迭代数 |
 | `tol` | `1e-4` | 收敛阈值 |
 | `device` | `"auto"` | `cpu` / `cuda` / `torch` / `auto` |
-| `n_jobs` | `None` | 基类的 CPU 并行度设置，不用于选择 IRLS 求解器 |
+| `n_jobs` | `None` | 接受的共享估计器配置；本类不使用它控制并行拟合，也不用于选择 IRLS 求解器 |
 | `compute_inference` | `True` | 是否计算推断统计 |
 | `cov_type` | `"nonrobust"` | `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac` |
 | `hac_maxlags` | `None` | `cov_type="hac"` 时最大滞后阶 |

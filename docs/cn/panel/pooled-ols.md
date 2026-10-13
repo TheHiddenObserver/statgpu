@@ -1,7 +1,7 @@
 # PooledOLS
 
 > 语言：中文  
-> 最后更新：2026-09-17  
+> 最后更新：2026-10-13  
 > 页面定位：面板模型文档  
 > 切换：[English](../../en/panel/pooled-ols.md)
 
@@ -97,15 +97,32 @@ model.fit(X, y, cluster=None, time_index=None, entity_ids=None)
 
 ## CPU 与 GPU 示例
 
+每行是某个个体在一个时期的观测：12 个个体，每个个体观测 5 次。模拟数据具有公共截距 1、斜率 2 和独立噪声。
+
+<a id="cpu-example"></a>
+
+<!-- example: cpu-basic -->
 ```python
+import numpy as np
 from statgpu.panel import PooledOLS
 
-cpu = PooledOLS(device="cpu").fit(X, y)
-cuda = PooledOLS(device="cuda").fit(X, y)
-torch = PooledOLS(device="torch").fit(X, y)
-```
+rng = np.random.default_rng(7)
+entity_ids = np.repeat(np.arange(12), 5)
+time_ids = np.tile(np.arange(5), 12)
+x = rng.normal(size=60)
+X = x[:, None]
+y = 1.0 + 2.0 * x + 0.2 * rng.normal(size=60)
 
-若显式请求的 GPU 后端不可用，`.fit()` 会直接报错，而不会静默切换到 CPU。
+model = PooledOLS(device="cpu").fit(X, y, entity_ids=entity_ids)
+print("coef:", np.round(model.coef_, 3))
+print("standard errors:", np.round(model.bse_, 3))
+print("nobs:", model.nobs)
+```
+<!-- example-end: cpu-basic -->
+
+`coef_` 依次是截距和 `X` 唯一一列的斜率。估计斜率接近生成数据时设定的 2；`bse_` 按相同顺序给出标准误。`nobs=60` 表示所有堆叠后的观测行数。模拟结果接近设定值，并不能证明真实面板满足外生性条件。
+
+在 GPU 上运行时，把 `device="cpu"` 换成 `device="cuda"`（CuPy/CUDA）或 `device="torch"`（Torch CUDA）。显式请求的后端不可用时会报错，不会切换到 CPU。
 
 ## 公式接口
 
@@ -149,6 +166,13 @@ model = PooledOLS().fit(
 
 **`hac` 与 Driscoll–Kraay 相同吗？**  
 不同。HAC 把观测当作一条有顺序的序列；Driscoll–Kraay 则先按时间时期聚合观测贡献，再计算跨期相关。
+
+<a id="external-validation"></a>
+<a id="comparing-with-other-packages"></a>
+
+## 与其他软件包比较
+
+与 `linearmodels` 7.0 比较时，应使用同一组堆叠观测并显式包含截距。Driscoll–Kraay 比较还需对齐时间标签、核、带宽与自由度约定；聚类稳健协方差需对齐聚类分组和 `group_debias`。即使 OLS 系数一致，这些选择仍会影响协方差和标准误。详见[协方差定义的比较](covariance.md#comparing-covariance-definitions)。
 
 ## 相关文档
 

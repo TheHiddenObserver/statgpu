@@ -27,7 +27,8 @@ $$
 \frac{1}{2}\left\|X - WH\right\|_F^2 .
 $$
 
-## Estimating Equation
+<a id="estimating-equation"></a>
+## Fitting steps and update formulas
 
 For each batch, `MiniBatchNMF` approximately solves activations `W_batch` with fixed `H`. In `fit`, it holds `H` fixed for a whole epoch, sums `A = sum(W_batch.T @ W_batch)` and `B = sum(W_batch.T @ X_batch)`, then updates `H`. In `partial_fit`, these statistics accumulate across calls. The elementary multiplicative updates have the form:
 
@@ -121,7 +122,7 @@ The relative error is close to zero for these proportional positive batches. The
 
 ## Approximation and interpretation
 
-MiniBatchNMF is non-convex; incremental `partial_fit` updates depend on batch order. Ordinary `fit` aggregates statistics over an epoch before updating components. It is intended for scalable approximate factorization, not strict statistical inference.
+MiniBatchNMF is non-convex; incremental `partial_fit` updates depend on batch order. Ordinary `fit` aggregates statistics over an epoch before updating components. It is intended for scalable approximate factorization, and does not provide standard errors or significance tests.
 
 ## Outputs
 

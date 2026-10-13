@@ -44,7 +44,8 @@ $$
 
 二者等价，因为中心化后的总方差是固定的。
 
-## 估计方程
+<a id="估计方程"></a>
+## 拟合步骤与更新公式
 
 - `svd_solver="covariance"` 先计算
   $$
@@ -97,7 +98,7 @@ print(Z.shape, np.mean((X - X_hat) ** 2))
 
 ## 近似与解释边界
 
-`PCA` 没有统计推断意义上的严格推断模式；这里的“精确/近似”指的是分解算法：
+`PCA` 不提供标准误或显著性检验；这里的“精确/近似”指的是分解算法：
 
 - `full` 和 `covariance` 在稠密输入上是精确求解器，误差仅来自浮点运算。
 - `randomized` 是近似的截断 SVD，由 `random_state`、`n_oversamples` 和 `iterated_power` 控制。

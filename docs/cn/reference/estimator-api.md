@@ -120,4 +120,12 @@ print(boot.observed, len(boot.samples))
 
 ## 与模块函数的区别
 
-独立的 `bootstrap_statistic` 与 `permutation_test` 函数还接受 `force_vectorized=False` 和 `statistic_hint=None`，估计器包装方法不接受这两项。IID、分层重采样、分块 bootstrap、等大小整群 bootstrap 和组内置换均有批量计算方式；这些方式下，`force_vectorized=True` 会拒绝不兼容的首次批量试调用，但后续批次不兼容时仍可能退回逐次调用，不能保证所有重采样都采用向量化执行。向量化回调应能处理任意批次大小，包括最后只有一行的批次，并为每行返回一个结果。不等大小整群 bootstrap 当前即使设置该标志也逐次调用，不能把它视为通用的向量化保证。`statistic_hint="mean"` 只适用于一维数组的 bootstrap 均值。矩阵数据请省略该提示并提供返回标量的统计量；当前均值快速计算只沿最后一轴求均值，可能触发广播错误。置换相关系数可用 `"pearson_corr"`，此时 X 须为 `(n,)` 或 `(n, 1)`。提示会选择内置的重采样计算，不会检查原始统计量回调是否与之等价。独立函数的 `backend="auto"` 根据数组推断，且数据必须显式提供。导入与示例见[模块指南](../guides/inference-api.md)。
+**独立函数额外参数。** 独立的 `bootstrap_statistic` 与 `permutation_test` 函数还接受 `force_vectorized=False` 和 `statistic_hint=None`，估计器包装方法不接受这两项。
+
+**向量化与回退。** IID、分层重采样、分块 bootstrap、等大小整群 bootstrap 和组内置换均有批量计算方式；这些方式下，`force_vectorized=True` 会拒绝不兼容的首次批量试调用，但后续批次不兼容时仍可能退回逐次调用，不能保证所有重采样都采用向量化执行。向量化回调应能处理任意批次大小，包括最后只有一行的批次，并为每行返回一个结果。不等大小整群 bootstrap 当前即使设置该标志也逐次调用，不能把它视为通用的向量化保证。
+
+**统计量提示与输入形状。** `statistic_hint="mean"` 只适用于一维数组的 bootstrap 均值。矩阵数据请省略该提示并提供返回标量的统计量；当前均值快速计算只沿最后一轴求均值，可能触发广播错误。置换相关系数可用 `"pearson_corr"`，此时 X 须为 `(n,)` 或 `(n, 1)`。提示会选择内置的重采样计算，不会检查原始统计量回调是否与之等价。
+
+**后端与输入。** 独立函数的 `backend="auto"` 根据数组推断，且数据必须显式提供。
+
+导入与示例见[模块指南](../guides/inference-api.md)。

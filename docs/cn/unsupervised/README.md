@@ -117,5 +117,4 @@ print("held-out reconstruction MSE:", round(float(np.mean((X_test - X_reconstruc
 
 无监督估计器通常不提供标准误、p 值、置信区间、AIC 或 BIC 等统计推断字段，除非模型本身自然定义了这些量。
 
-十二个公开估计器及完整构造和方法约定见[无监督学习索引](README.md)与 [API 参考](api-reference.md)。NNDescent 是 UMAP 使用的内部近邻搜索实现，并不是 `statgpu.unsupervised` 额外导出的估计器。
-
+完整构造和方法约定见 [API 参考](api-reference.md)。

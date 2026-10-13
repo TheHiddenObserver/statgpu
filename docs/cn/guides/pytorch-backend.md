@@ -63,7 +63,8 @@ print(model.score(X, y))
 
 估计器会把兼容的 NumPy 输入转换到所选的 Torch CUDA 后端。如果 Torch CUDA 不可用，显式 Torch 请求会报错。
 
-### 直接使用 Torch CUDA tensor
+<a id="直接使用-torch-cuda-tensor"></a>
+### 直接使用 Torch CUDA 张量
 
 ```python
 import torch
@@ -77,7 +78,7 @@ model.fit(X, y)
 prediction = model.predict(X)
 ```
 
-输出是否保持为 Torch tensor 取决于具体方法。请查看模型页，确认输出是 Torch 数组，还是有意转换为 CPU 元数据、NumPy 数组或 Python 标量统计摘要。
+输出是否保持为 Torch 张量取决于具体方法。请查看模型页，确认输出是 Torch 数组，还是有意转换为 CPU 元数据、NumPy 数组或 Python 标量统计摘要。
 
 ## 设备选择
 
@@ -151,7 +152,7 @@ torch.manual_seed(42)
 torch.cuda.manual_seed_all(42)
 ```
 
-交叉验证的数据折、landmark 抽样、随机分解和随机初始化还可能使用估计器自己的 `random_state`。要获得可复现结果，应同时确认模型文档中的随机性来源。
+交叉验证的数据折、代表样本点（landmark）抽样、随机分解和随机初始化还可能使用估计器自己的 `random_state`。要获得可复现结果，应同时确认模型文档中的随机性来源。
 
 ## 显存管理
 
@@ -192,7 +193,7 @@ print(torch.cuda.is_available())
 
 ### 显存不足
 
-可以减小问题规模，使用文档明确提供的批处理或近似方法，减少 CV 候选网格或数据折数量，或选择内存复杂度更低的方法。`torch.cuda.empty_cache()` 无法减少算法当前正在使用的 tensor 所必需的内存。
+可以减小问题规模，使用文档明确提供的批处理或近似方法，减少 CV 候选网格或数据折数量，或选择内存复杂度更低的方法。`torch.cuda.empty_cache()` 无法减少算法当前正在使用的张量所必需的内存。
 
 ### 与其他框架结果不同
 

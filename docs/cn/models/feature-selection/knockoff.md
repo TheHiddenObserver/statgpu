@@ -87,7 +87,8 @@ $$
 <a id="构造并检查外部配对"></a>
 <a id="生成响应并选择特征"></a>
 <a id="预先设定设计与目标错误率"></a>
-## 使用有效外部配对的完整 CPU 示例
+<a id="使用有效外部配对的完整-cpu-示例"></a>
+## 继续阅读完整示例
 
 可以从 [Fixed-X 教程](knockoff-fixed-x.md) 开始实践：构造中心化的受控 QR 配对，验证全部 Gram 条件，生成高斯响应，再应用筛选函数和选择器。n≥2p+1 是这项特殊模拟构造的条件；不能用 QR 设计替换真实测量的预测变量。另一篇 [Model-X 示例](knockoff-model-x.md) 则从已知的独立高斯特征分布出发，演示非线性响应下的选择。
 
@@ -103,7 +104,8 @@ $$
 
 <a id="cupy"></a>
 <a id="torch-cuda"></a>
-## CPU/GPU 示例
+<a id="cpugpu-示例"></a>
+## GPU 用法与示例入口
 
 [Fixed-X 教程](knockoff-fixed-x.md) 在同一外部配对上给出可选 CuPy 与 Torch CUDA 扩展。`backend="torch"` 选择计算库：原生构造跟随 X 的设备，包括 Torch CPU；但原生 Torch Lasso 调参与拟合会请求 CUDA，即使输入在 CPU 或已提供 Xk，也不保证使用输入的非默认 GPU。适合时在 Torch CPU 上选择 `corr_diff` 或 `ols_coef_diff`；CPU Lasso 使用 NumPy 输入和 `backend="numpy"`。完整说明见[设备位置](../../reference/feature-selection-api.md#torch-设备放置)与 [Lasso 设备路由](../../reference/feature-selection-api.md#torch-lasso-的设备选择)。
 

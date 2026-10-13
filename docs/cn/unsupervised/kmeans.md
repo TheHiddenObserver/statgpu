@@ -28,7 +28,8 @@ $$
 
 其中 `C` 是聚类中心，`z_i` 是样本 `i` 的簇标签。
 
-## 估计方程
+<a id="估计方程"></a>
+## 拟合步骤与更新公式
 
 实现采用 Lloyd 迭代：
 
@@ -73,7 +74,7 @@ print(labels.shape, model.cluster_centers_.shape, model.inertia_)
 
 ## 近似与解释边界
 
-`KMeans` 是非凸迭代优化器，不提供严格的统计推断；不同初始化可能得到不同的局部最优，可复现性取决于 `random_state`、`init`、`n_init`、`max_iter` 和 `tol`。
+`KMeans` 是非凸迭代优化器，不提供标准误或显著性检验；不同初始化可能得到不同的局部最优，可复现性取决于 `random_state`、`init`、`n_init`、`max_iter` 和 `tol`。
 
 ## 输出字段
 

@@ -28,7 +28,8 @@ $$
 
 where `C` are cluster centers and `z_i` is the assigned cluster for sample `i`.
 
-## Estimating Equation
+<a id="estimating-equation"></a>
+## Fitting steps and update formulas
 
 The implementation uses Lloyd iterations:
 
@@ -73,7 +74,7 @@ For a supported GPU installation, construct a new estimator with `device="cuda"`
 
 ## Approximation and interpretation
 
-KMeans is an iterative non-convex optimizer, not a strict inference estimator. Different initializations can reach different local optima. Reproducibility depends on `random_state`, `init`, `n_init`, `max_iter`, and `tol`.
+KMeans is an iterative non-convex optimizer and does not provide standard errors or significance tests. Different initializations can reach different local optima. Reproducibility depends on `random_state`, `init`, `n_init`, `max_iter`, and `tol`.
 
 ## Outputs
 

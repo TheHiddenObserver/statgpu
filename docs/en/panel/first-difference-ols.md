@@ -1,7 +1,7 @@
 # FirstDifferenceOLS
 
 > Language: English  
-> Last updated: 2026-10-09<br>
+> Last updated: 2026-10-13<br>
 > Switch: [Chinese](../../cn/panel/first-difference-ols.md)
 
 ## Overview
@@ -77,15 +77,34 @@ model.fit(X, y, entity_ids=entity_ids, time_ids=None)
 
 ## CPU and GPU Example
 
+Each row is one entity in one period: 12 entities with 5 chronologically labeled observations each. Differencing removes both the common intercept and the time-invariant entity effect.
+
+<a id="cpu-example"></a>
+
+<!-- example: cpu-basic -->
 ```python
+import numpy as np
 from statgpu.panel import FirstDifferenceOLS
 
-cpu = FirstDifferenceOLS(device="cpu").fit(X, y, entity_ids=entity_ids, time_ids=time_ids)
-cuda = FirstDifferenceOLS(device="cuda").fit(X, y, entity_ids=entity_ids, time_ids=time_ids)
-torch = FirstDifferenceOLS(device="torch").fit(X, y, entity_ids=entity_ids, time_ids=time_ids)
-```
+rng = np.random.default_rng(7)
+entity_ids = np.repeat(np.arange(12), 5)
+time_ids = np.tile(np.arange(5), 12)
+x = np.repeat(np.linspace(-2, 2, 12), 5) + rng.normal(size=60)
+X = x[:, None]
+entity_effect = np.repeat(np.linspace(-1, 1, 12), 5)
+y = 1.0 + 2.0 * x + entity_effect + 0.2 * rng.normal(size=60)
 
-If an explicitly requested GPU backend is unavailable, `.fit()` raises an error rather than switching to CPU.
+model = FirstDifferenceOLS(device="cpu").fit(
+    X, y, entity_ids=entity_ids, time_ids=time_ids
+)
+print("slope:", np.round(model.coef_, 3))
+print("nobs, df_resid:", model.nobs, model.df_resid)
+```
+<!-- example-end: cpu-basic -->
+
+`coef_` contains only the slope, close to the generating value 2. Each entity contributes four adjacent-observation differences, so `nobs=48` and `df_resid=47`. Even independent level errors become serially correlated after differencing; the available HC choices address heteroskedasticity, not general serial correlation.
+
+To run this example on a GPU, replace `device="cpu"` with `device="cuda"` (CuPy/CUDA) or `device="torch"` (Torch CUDA). An unavailable explicitly requested backend raises an error instead of switching to CPU.
 
 ## Formula Example
 

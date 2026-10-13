@@ -1,8 +1,9 @@
-# Nonparametric Methods
+<a id="nonparametric-methods"></a>
+# Kernel density estimation and local regression
 
 > Language: English  
 > Last updated: 2026-10-09
-> This page: Nonparametric overview  
+> This page: KDE and local kernel regression tutorial  
 > Switch: [Chinese](../../../cn/models/nonparametric/nonparametric.md)
 
 ## Choose the question before the smoother

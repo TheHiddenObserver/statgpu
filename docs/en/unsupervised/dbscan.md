@@ -18,7 +18,8 @@ Use DBSCAN when dense regions may have irregular shapes and some observations sh
 from statgpu.unsupervised import DBSCAN
 ```
 
-## Objective Function / Loss Function
+<a id="objective-function--loss-function"></a>
+## Density and cluster formation rules
 
 DBSCAN is not a smooth optimization problem. It has no differentiable loss to minimize. Its criterion is density reachability:
 

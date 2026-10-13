@@ -1,7 +1,7 @@
 # 广义线性模型与带惩罚 GLM
 
 > 语言：中文  
-> 最后更新：2026-10-09<br>
+> 最后更新：2026-10-13<br>
 > 页面定位：模型文档  
 > 切换：[英文版](../../../en/models/regression/generalized-linear-model.md)
 
@@ -204,7 +204,7 @@ CPU 拟合使用 NumPy；CuPy/Torch CUDA 拟合会把自助法重拟合留在同
 | 参数 | 默认值 | 说明 |
 |---|---:|---|
 | `family` | 模型相关 | GLM 分布族，例如 `"gaussian"`、`"binomial"`、`"poisson"` |
-| `penalty` | 通用直接模型为 `"l1"`；通用 CV 为 `"l2"` | `none`、`l1`、`l2`、`elasticnet` 以及结构化惩罚 |
+| `penalty` | 通用直接模型为 `"l1"`；通用 CV 为 `"l2"` | `none`、`l1`、`l2`、`elasticnet` 以及受支持的结构化/分组惩罚；可用组合见[兼容性矩阵](../../guides/solver-penalty-matrix.md) |
 | `alpha` | `1.0` 或模型默认 | statgpu 目标函数尺度下的惩罚强度 |
 | `C` | 普通 GLM 为 `1.0` | 正 C 对应普通 IRLS 的斜率惩罚 `sum(beta**2)/(4*C)`；C=0 取消此项。普通显式 Newton/L-BFGS/FISTA 不使用 C。它不是带惩罚 GLM 的 alpha 参数。 |
 | `l1_ratio` | 接受该参数的类为 `0.5` | 通用及专用带惩罚 GLM 的 ElasticNet 混合参数；部分专用封装不暴露此参数。 |

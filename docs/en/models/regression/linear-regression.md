@@ -1,7 +1,7 @@
 # LinearRegression
 
 > Language: English  
-> Last updated: 2026-10-09<br>
+> Last updated: 2026-10-13<br>
 > This page: Model documentation  
 > Switch: [Chinese](../../../cn/models/regression/linear-regression.md)
 
@@ -109,7 +109,7 @@ print("95% coefficient intervals:\n", np.round(model._conf_int, 3))
 ```
 
 The interval rows are **intercept first, then input columns in order**. Notice
-that the third interval happens to exclude zero even though its true slope is
+that the interval for the third slope (the fourth row) happens to exclude zero even though its true slope is
 zero. A nominal 95% interval is not guaranteed to cover the truth in every
 sample; checking many coefficients adds a multiple-testing concern. HC3 changes
 the covariance estimate, not the fitted OLS coefficients. These are marginal

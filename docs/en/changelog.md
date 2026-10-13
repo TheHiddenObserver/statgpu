@@ -210,8 +210,9 @@ This page records user-visible changes for current and recent statgpu releases.
 
 ### Validation
 
-- Hosted CI and the fresh final review are complete for the merged numerical source.
-- Tesla P100 physical validation passed on the accepted exact numerical source with NumPy/CuPy/Torch covariance/BSE/statistic/p-value/CI parity, weighted/rank/multi-target/small-df cases, concrete backend/device provenance, and a `RidgeCV` final-refit case. Later docs-only closure reused that immutable numerical artifact under the explicitly approved documentation-only evidence exception.
+- The [final acceptance record](https://github.com/TheHiddenObserver/statgpu/pull/129#issuecomment-5479959733) reports seven passing hosted workflows and final review on exact numerical source [`8d9f422e2fcf648e412838747b9ab5881b3fb7ef`](https://github.com/TheHiddenObserver/statgpu/commit/8d9f422e2fcf648e412838747b9ab5881b3fb7ef). Both physical CUDA validators exited 0 from a clean checkout on Tesla P100-SXM2-16GB `cuda:0`: the backend-native matrix used schema 5, CuPy 13.6.0 and Torch 2.0.0+cu117; the schema-1 CuPy rank-recovery validator passed 5/5 cases. Coverage included covariance/BSE/statistic/p-value/CI parity, weighted/rank/multi-target/small-df cases, backend/device provenance, and `RidgeCV` final-refit inference.
+- That record identifies the historical artifacts as `results/pr129_gaussian_gpu_8d9f422e/gaussian_backend_native_8d9f422e.json` and `results/pr129_gaussian_gpu_8d9f422e/gaussian_cupy_rank_recovery_8d9f422e.json`. These results apply to the cited source, not to later versions; no GPU speedup claim is made.
+- PR #129 was subsequently merged on 2026-08-31 as [`b17c8a6c161065bfbe9efa9f60d0fad69a464773`](https://github.com/TheHiddenObserver/statgpu/commit/b17c8a6c161065bfbe9efa9f60d0fad69a464773). Earlier pending-acceptance records describe their own checkpoints rather than the final state.
 
 ## 0.2.5 — 2026-08-26
 
@@ -228,7 +229,10 @@ This page records user-visible changes for current and recent statgpu releases.
 - Fixed CuPy inverse Beta/Gamma LUT cache tuple ordering, restoring Student-t/Beta/F/Gamma/chi-square inverse quantiles and downstream confidence-interval widths.
 - Released the corresponding panel/distribution regression coverage and universal `py3-none-any` package artifacts for `0.2.5`.
 
-## Unreleased — 2026-08-09
+<a id="unreleased--2026-08-09"></a>
+## 2026-08-09 — Historical Panel development record
+
+The related Stage C capabilities were subsequently released in 0.2.5; the entries below retain the earlier development context.
 
 ### PR #126 — Panel Tier-1 Stage C covariance
 

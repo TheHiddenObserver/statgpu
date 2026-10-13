@@ -1,7 +1,7 @@
 # PanelOLS
 
 > 语言：中文  
-> 最后更新：2026-09-17  
+> 最后更新：2026-10-13  
 > 切换：[English](../../en/panel/panel-ols.md)
 
 ## 概述
@@ -115,18 +115,38 @@ model.fit(
 
 ### 数组接口
 
+每行是 12 个个体之一在 5 个时期之一的观测。个体效应与 `x` 的个体间水平差异相关，但个体内部的变化仍可用于识别斜率。
+
+<a id="cpu-example"></a>
+
+<!-- example: cpu-basic -->
 ```python
+import numpy as np
 from statgpu.panel import PanelOLS
 
-model = PanelOLS(
-    entity_effects=True,
-    device="cpu",
-).fit(X, y, entity_ids=entity_ids)
-```
+rng = np.random.default_rng(7)
+entity_ids = np.repeat(np.arange(12), 5)
+time_ids = np.tile(np.arange(5), 12)
+x = np.repeat(np.linspace(-2, 2, 12), 5) + rng.normal(size=60)
+X = x[:, None]
+entity_effect = np.repeat(np.linspace(-1, 1, 12), 5)
+y = 1.0 + 2.0 * x + entity_effect + 0.2 * rng.normal(size=60)
 
-`device="cuda"` 需要 CuPy/CUDA，`device="torch"` 需要 Torch CUDA。显式请求的后端不可用时直接报错，不会自动改用 CPU。
+model = PanelOLS(entity_effects=True, device="cpu").fit(
+    X, y, entity_ids=entity_ids
+)
+print("slope:", np.round(model.coef_, 3))
+print("nobs, df_resid:", model.nobs, model.df_resid)
+```
+<!-- example-end: cpu-basic -->
+
+`coef_` 只包含一个斜率，接近生成数据时设定的 2。公共截距和各个体的水平已被固定效应吸收，因此该系数数组不含单独的截距。`nobs=60` 保留原始观测行数；`df_resid=47` 则扣除了 12 个个体效应方向和一个斜率。
+
+在 GPU 上运行时，把 `device="cpu"` 换成 `device="cuda"`（CuPy/CUDA）或 `device="torch"`（Torch CUDA）。显式请求的后端不可用时会报错，不会切换到 CPU。
 
 ### 公式接口
+
+假设 `df` 已包含下面公式及分组参数中使用的列。
 
 ```python
 from statgpu.panel import PanelOLS
@@ -156,7 +176,7 @@ level_no_intercept = PanelOLS().fit(
 
 常用结果包括：
 
-- `coef_`：固定效应变换后回归的斜率系数；
+- `coef_`：有固定效应时为变换后回归的斜率；无固定效应时按实际设计包含相应系数项（包括设计中的截距）；
 - `bse_`、`tvalues_`、`pvalues_`、`conf_int_`：可用时的系数推断；
 - `rsquared_within`、`fit_statistics_`：拟合优度统计量；
 - `nobs`、`df_resid`：样本量和残差自由度；
@@ -180,6 +200,13 @@ Pooling F 检验和 Hausman 检验见 [面板诊断](diagnostics.md)。
 
 **固定效应会改变斜率的识别来源吗？**  
 会。系数只由去除相应固定效应后仍存在的解释变量变化识别。
+
+<a id="external-validation"></a>
+<a id="comparing-with-other-packages"></a>
+
+## 与其他软件包比较
+
+与 linearmodels 比较单向或双向固定效应时，应对齐样本、纳入的固定效应、变换后设计矩阵，以及被吸收效应占用的自由度。与 R plm 比较单向固定效应时也需要这些设置一致。Driscoll–Kraay 还需对齐时间顺序、核和带宽。无固定效应时，可与 statsmodels 等普通 OLS 实现比较，但截距设定必须相同。详见[协方差定义的比较](covariance.md#comparing-covariance-definitions)。
 
 ## 相关文档
 

@@ -1,7 +1,7 @@
 # BetweenOLS
 
 > Language: English  
-> Last updated: 2026-10-09<br>
+> Last updated: 2026-10-13<br>
 > Switch: [Chinese](../../cn/panel/between-ols.md)
 
 ## Overview
@@ -79,15 +79,31 @@ model.fit(X, y, entity_ids=entity_ids)
 
 ## CPU and GPU Example
 
+Each row is an entity-period observation, with 12 entities and 5 periods per entity. Here the mean of `x` varies across entities and the outcome has no omitted entity effect.
+
+<a id="cpu-example"></a>
+
+<!-- example: cpu-basic -->
 ```python
+import numpy as np
 from statgpu.panel import BetweenOLS
 
-cpu = BetweenOLS(device="cpu").fit(X, y, entity_ids=entity_ids)
-cuda = BetweenOLS(device="cuda").fit(X, y, entity_ids=entity_ids)
-torch = BetweenOLS(device="torch").fit(X, y, entity_ids=entity_ids)
-```
+rng = np.random.default_rng(7)
+entity_ids = np.repeat(np.arange(12), 5)
+time_ids = np.tile(np.arange(5), 12)
+x = np.repeat(np.linspace(-2, 2, 12), 5) + rng.normal(size=60)
+X = x[:, None]
+y = 1.0 + 2.0 * x + 0.2 * rng.normal(size=60)
 
-If `device="cuda"` or `device="torch"` is requested but that GPU backend is unavailable, `.fit()` raises an error rather than switching to CPU.
+model = BetweenOLS(device="cpu").fit(X, y, entity_ids=entity_ids)
+print("coef:", np.round(model.coef_, 3))
+print("nobs, df_resid:", model.nobs, model.df_resid)
+```
+<!-- example-end: cpu-basic -->
+
+`coef_` gives the intercept and the slope on the entity mean of `x`, close to 1 and 2. Although the input has 60 rows, `nobs=12` and `df_resid=10` describe the 12 entity means and two fitted coefficients. Averaging does not remove an omitted entity effect if real data contain one.
+
+To run this example on a GPU, replace `device="cpu"` with `device="cuda"` (CuPy/CUDA) or `device="torch"` (Torch CUDA). An unavailable explicitly requested backend raises an error instead of switching to CPU.
 
 ## Formula Example
 

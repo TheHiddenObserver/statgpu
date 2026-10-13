@@ -18,7 +18,8 @@
 from statgpu.unsupervised import AgglomerativeClustering
 ```
 
-## 目标函数 / 损失函数
+<a id="目标函数--损失函数"></a>
+## 链接准则与合并规则
 
 层次聚类是贪心合并过程，不是全局光滑优化问题。每一步都合并连接准则（linkage criterion）取值最小的一对簇。
 
@@ -59,7 +60,8 @@ $$
 \left\|\bar{x}_A-\bar{x}_B\right\|_2^2 .
 $$
 
-## 估计方程
+<a id="估计方程"></a>
+## 构建与切分层次树
 
 - 从每个样本一个簇开始。
 - 反复合并所选连接准则取值最小的两个簇。
@@ -95,7 +97,7 @@ print(labels.shape, model.children_.shape, model.distances_[-3:])
 
 ## 近似与解释边界
 
-`AgglomerativeClustering` 没有统计推断意义上的严格模式：对稠密欧氏输入，CPU、CuPy 与 Torch 路径都给出精确计算。GPU 执行会分配稠密距离矩阵；一旦超过配置的距离矩阵内存上限，会明确抛出 `MemoryError`。
+`AgglomerativeClustering` 不提供标准误或显著性检验。对稠密欧氏输入，CPU、CuPy 与 Torch 路径都给出精确计算。GPU 执行会分配稠密距离矩阵；一旦超过配置的距离矩阵内存上限，会明确抛出 `MemoryError`。
 
 GPU 路径通过展开平方范数计算成对距离。很大的共同特征偏移可能导致消减误差并改变层次结构；应在拟合前以 float64 减去由训练数据确定的偏移，这不会改变原本的欧氏几何关系。SciPy 的 CPU 层次聚类路径不使用这一共享 GPU 距离公式。
 

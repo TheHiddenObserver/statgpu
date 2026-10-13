@@ -1,7 +1,7 @@
 # Elastic Net
 
 > Language: English  
-> Last updated: 2026-10-12<br>
+> Last updated: 2026-10-13<br>
 > This page: Model documentation  
 > Language switch: [Chinese](../../../cn/models/regression/elastic-net.md)
 
@@ -135,14 +135,15 @@ The normal default is **FISTA** (Fast Iterative Shrinkage-Thresholding Algorithm
 
 ### Proximal update
 
-The L1 and L2 parts are handled by the Elastic Net proximal operator:
+Let `z` be the current coefficient vector, or the extrapolated point in FISTA, and let `step > 0` be the step size. Take a squared-error gradient step at `z`, then handle both penalty terms with the Elastic Net proximal operator:
 
 ```text
 # Gradient of the average squared-error term
-grad = (X.T @ X @ w - X.T @ y) / n
+grad = (X.T @ X @ z - X.T @ y) / n
+beta_tilde = z - step * grad
 
 # Elastic Net proximal step
-w = soft_threshold(w_tilde, alpha * l1_ratio * step) / (
+beta = soft_threshold(beta_tilde, alpha * l1_ratio * step) / (
     1 + alpha * (1 - l1_ratio) * step
 )
 ```
