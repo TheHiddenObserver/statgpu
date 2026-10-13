@@ -46,6 +46,11 @@ y_train = np.sin(1.5 * X_train[:, 0])
 
 `fit_transform` learns knots from training points and expands the feature into spline basis columns; this step does not use `y_train`.
 
+Here `degree=3` selects piecewise cubic basis functions, joined at knot locations.
+`n_knots=6` counts six knots per feature, including the two boundaries; the default
+`knots="uniform"` spaces them evenly across the training range. Knot count is not
+the number of output basis columns.
+
 ```python
 transformer = SplineTransformer(
     n_knots=6, degree=3, include_bias=False,

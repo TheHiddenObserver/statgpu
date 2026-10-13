@@ -14,6 +14,10 @@ Because every retained entity contributes one averaged observation, the effectiv
 
 Choose it to compare long-run averages across firms, people, or regions. If you instead want to remove time-invariant differences between entities, consider [PanelOLS](panel-ols.md) or [FirstDifferenceOLS](first-difference-ols.md). Averaging does not remove an entity effect: interpreting the slope as a common structural effect requires the combined entity effect and averaged error to be orthogonal to the entity means of the predictors.
 
+Start from $y_{it}=\alpha+x_{it}^{\top}\beta+a_i+\varepsilon_{it}$. Here $i$ indexes entities, $t$ indexes periods, $y_{it}$ is the response, $x_{it}$ is the predictor vector, $\alpha$ is a common intercept, $\beta$ is the common slope vector, $a_i$ is a time-invariant entity effect, and $\varepsilon_{it}$ is the remaining error. Taking means over each entity's observed periods gives $\bar y_i=\alpha+\bar x_i^{\top}\beta+a_i+\bar\varepsilon_i$.
+
+`BetweenOLS` fits an intercept and slopes to these mean rows by least squares, with one equal-weight observation per entity. The bars denote entity means; $a_i$ remains in the averaged equation, which is why the orthogonality condition above matters.
+
 ## Prepare the panel rows
 
 Use long-form panel data: each row is one entity-period observation. Pass `X` with shape `(n, p)`, `y` with shape `(n,)`, and `entity_ids` of length `n`, all in the same row order. A one-dimensional `X` is accepted as a single predictor. IDs identify the entity to which each row belongs; they are not predictor columns. Supply finite numeric values.

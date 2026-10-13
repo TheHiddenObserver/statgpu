@@ -40,6 +40,10 @@ y_train = np.sin(1.5 * X_train[:, 0])
 
 `fit_transform` 只从训练点学习节点，并将这一列特征展开为样条基列；此步骤不使用 `y_train`。
 
+这里的 `degree=3` 选择在节点处衔接的分段三次基函数。`n_knots=6` 表示每个
+特征有六个节点，包含两个边界节点；默认的 `knots="uniform"` 在训练范围内
+等距布置这些节点。节点数不等于输出基列数。
+
 ```python
 transformer = SplineTransformer(
     n_knots=6, degree=3, include_bias=False,

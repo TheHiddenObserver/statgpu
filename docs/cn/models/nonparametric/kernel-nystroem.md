@@ -86,6 +86,10 @@ y_train, y_test = y[train], y[test]
 ### 拟合并复用特征映射
 
 测试行使用训练时选定的节点和归一化矩阵。
+本例使用默认的 RBF 核 $k(x,x')=\exp(-\gamma\lVert x-x'\rVert^2)$。
+`gamma=0.7` 控制距离尺度：`gamma` 越大，相似度随距离衰减越快。
+`n_components=40` 限制映射使用的训练代表节点数。
+
 ```python
 nystroem = Nystroem(
     n_components=40, gamma=0.7, random_state=42, device="cpu",

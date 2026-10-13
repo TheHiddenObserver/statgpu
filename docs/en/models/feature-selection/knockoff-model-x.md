@@ -50,10 +50,27 @@ replace your observed data with this simulation or standardize X and Xk
 separately using their sample moments. For real data, justify a construction
 for the actual feature law.
 
+## From feature competition to a selection rule
+
+For the supplied matrices in these examples, `corr_diff` computes
+W_j=|X_jᵀ(y−ȳ)|−|Xk_jᵀ(y−ȳ)|, where X_j and Xk_j are the original and
+knockoff columns and ȳ is the sample response mean. These are differences of
+absolute inner products with the centered response, not normalized correlation
+coefficients or p-values. A positive W_j favors the original feature; its
+magnitude depends on the input scale and sample size.
+
+The intended knockoff+ rule checks each distinct positive value of |W| as a
+candidate T. Count **all** features with W≤−T and **all** with W≥T, including
+every tie, and form (1+#{W≤−T})/max(1,#{W≥T}). Choose the smallest T whose
+ratio is at most the prespecified FDR target q, then select the original features with W≥T. If no candidate
+qualifies, select none. The extra 1 is the knockoff+ offset; offset-0 `knockoff`
+removes it and has a different modified-FDR target. This defines the rule whose
+current implementation limitations are discussed next; it does not resolve them.
+
 ## Before the first call: choose q and check threshold limitations
 
 Prespecify the hypothesis family, q and statistic. For knockoff+, the minimum
-possible threshold ratio is 1/p; q=0.20 needs at least five positive discoveries
+possible threshold ratio is 1/p for p candidate features; q=0.20 needs at least five positive discoveries
 at an eligible threshold. Twenty features make that possible, not certain.
 Do not change q after seeing the selection to get more discoveries.
 

@@ -16,6 +16,10 @@ If stable entity differences are systematically related to the regressors, consi
 
 The fit estimates Swamy-Arora variance components, subtracts part of each entity mean (quasi-demeaning), then estimates the slopes by feasible GLS. A different `cov_type` changes uncertainty after that fit, not the variance components or coefficients.
 
+The model is $y_{it}=x_{it}^{\top}\beta+a_i+\varepsilon_{it}$, where $i$ indexes entities and $t$ indexes periods. The response is $y_{it}$, $x_{it}$ is the row's predictor vector (including a constant if supplied), and $\beta$ contains the common coefficients. The random intercept $a_i$ is shared by all observations of entity $i$, while $\varepsilon_{it}$ is the observation-specific error.
+
+Quasi-demeaning forms $y_{it}^{*}=y_{it}-\theta_i\bar y_i$ and $x_{it}^{*}=x_{it}-\theta_i\bar x_i$, then fits least squares to these transformed rows. Bars denote means over the entity's observed periods; $\theta_i$ controls how much of each mean is removed, using the estimated variance components and the entity's observation count.
+
 ## Prepare entity groups and the design matrix
 
 Use long-form observations, with one row per entity and period:

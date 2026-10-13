@@ -23,14 +23,21 @@ interface, including [backend, device, and dtype rules](../../reference/covarian
 
 ## What does cross-validation maximize?
 
-Each candidate $\alpha$ fits a precision matrix using the same objective as
-Graphical Lasso:
+Within each training fold, $S$ is the empirical covariance, computed with the
+training-row count as denominator and centered on that fold's column means
+unless `assume_centered=True`. The optimization variable $\Theta$ is a positive
+definite precision matrix (inverse covariance). Each candidate $\alpha$ uses
+the same objective as Graphical Lasso:
 
 $$
 \operatorname{tr}(S\Theta)-\log\det\Theta
 +\alpha\sum_{j\ne k}|\Theta_{jk}|,
 \qquad \Theta\succ0.
 $$
+
+The first two terms measure Gaussian fit. The L1 term penalizes only the
+off-diagonal entries of $\Theta$, encouraging sparse conditional relationships;
+the diagonal is unpenalized. Here $\alpha$ controls penalty strength.
 
 For validation fold $V_k$, the fitted training-fold location $\widehat\mu_k$
 and covariance $\widehat\Sigma_k$ define the mean Gaussian log-likelihood

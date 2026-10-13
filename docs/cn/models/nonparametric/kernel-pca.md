@@ -95,6 +95,9 @@ X_train, X_test = X[train], X[test]
 ### 学习坐标系
 
 已拟合对象保留训练时的中心化信息和投影，因此可以将测试行放入同一坐标系。
+本例使用默认的 RBF 核 $k(x,x')=\exp(-\gamma\lVert x-x'\rVert^2)$。
+`gamma=0.7` 控制距离尺度：`gamma` 越大，相似度随距离衰减越快，越强调局部关系。
+
 ```python
 kpca = KernelPCA(n_components=3, gamma=0.7, device="cpu")
 train_coordinates = kpca.fit_transform(X_train)

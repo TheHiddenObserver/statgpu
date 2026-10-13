@@ -148,6 +148,9 @@ print(reject_step_up.tolist())  # [True, True, True]
 现在复用同一组 `p` 值回答另一个问题：合并证据是否与五个原假设同时成立的
 交集原假设不相符？这种解释要求原假设下的 P 值相互独立、连续且服从均匀分布。
 
+Fisher 累加各项 $-2\log p_i$：P 值越小，正向贡献越大，因此较大的总和提供
+反对总体原假设的证据。它通过 P 值的对数合并证据，而不是对 P 值取平均。
+
 ```python
 statistic, global_p = combine_pvalues(p, method="fisher", backend="numpy")
 print(round(float(statistic), 4), round(float(global_p), 6))

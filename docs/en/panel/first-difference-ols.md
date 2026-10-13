@@ -14,6 +14,10 @@ This estimator can be applied to the same one-way fixed-parameter entity-effect 
 
 Choose it when changes within the same entity answer your question and you want to remove a time-invariant entity effect. It cannot estimate effects of time-invariant predictors. As with [fixed effects](panel-ols.md), a common sufficient assumption is strict exogeneity: errors have conditional mean zero given the full regressor history and the entity effect. Differencing alone does not establish that assumption.
 
+Start from $y_{it}=\alpha+x_{it}^{\top}\beta+a_i+\varepsilon_{it}$. Here $i$ indexes entities, $t$ indexes periods, $y_{it}$ is the response, $x_{it}$ is the predictor vector, $\alpha$ is a common intercept, $\beta$ is the common slope vector, $a_i$ is a time-invariant entity effect, and $\varepsilon_{it}$ is the remaining error. Differencing within an entity gives $\Delta y_{it}=\Delta x_{it}^{\top}\beta+\Delta\varepsilon_{it}$, removing both $\alpha$ and $a_i$.
+
+Here $\Delta$ means the current value minus the previous observed value for the same entity, without dividing by the calendar gap. Fitting minimizes squared residuals in this differenced equation, without an intercept; the original levels are the inputs to `.fit()`.
+
 ## Prepare levels and set the time order
 
 Use long-form panel data: each row is one entity-period observation. Pass `X` with shape `(n, p)`, `y` with shape `(n,)`, and `entity_ids` of length `n`, all in the same row order. A one-dimensional `X` is accepted as a single predictor. IDs identify the entity to which each row belongs; they are not predictor columns. Supply finite numeric values.

@@ -106,6 +106,11 @@ X_train, X_test = X[train], X[test]
 
 The fitted object retains the training centering and projection, so test rows
 can be placed in the same coordinate system.
+The example uses the default RBF kernel,
+$k(x,x')=\exp(-\gamma\lVert x-x'\rVert^2)$. Its `gamma=0.7` sets the distance
+scale: larger `gamma` makes similarity decay faster with distance, emphasizing
+more local relationships.
+
 ```python
 kpca = KernelPCA(n_components=3, gamma=0.7, device="cpu")
 train_coordinates = kpca.fit_transform(X_train)

@@ -18,6 +18,10 @@ Fixed effects may be correlated with the regressor history. They do not remove t
 
 statgpu applies these transformations directly instead of building a large dummy-variable matrix. The statistical fixed-effects model is unchanged.
 
+Write the model as $y_{it}=x_{it}^{\top}\beta+a_i+\gamma_t+\varepsilon_{it}$, omitting an effect when it is not selected. Here $i$ indexes entities, $t$ indexes periods, $y_{it}$ is the response, $x_{it}$ is the row's predictor vector, and $\beta$ is the common slope vector. The entity level $a_i$ and period level $\gamma_t$ are fixed but unknown; $\varepsilon_{it}$ is the remaining observation-level error.
+
+For the entity-only example below, subtracting each entity's observed-period means gives $y_{it}-\bar y_i=(x_{it}-\bar x_i)^{\top}\beta+(\varepsilon_{it}-\bar\varepsilon_i)$. Least squares on these demeaned rows estimates the slopes; the entity level, including any common intercept, disappears. Bars denote averages over that entity's observed periods.
+
 ## Prepare your panel data
 
 Use long-form data: one row per entity-period observation, not one column per period.

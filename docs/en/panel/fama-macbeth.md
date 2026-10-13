@@ -12,6 +12,10 @@
 
 Use it when you want to ask “what is the average cross-sectional association across periods?”, allowing intercepts and slopes to change over time. It is not a fixed-effects transformation that removes omitted entity effects. The usual period-slope interpretation still needs cross-sectional exogeneity or the appropriate projection orthogonality condition in each period. Every retained period must identify all coefficients, and inference needs enough periods to describe their time-series variation.
 
+The period-specific model is $y_{it}=\alpha_t+x_{it}^{\top}\beta_t+\varepsilon_{it}$. Here $i$ indexes entities, $t$ indexes periods, $y_{it}$ is the response, and $x_{it}$ is the predictor vector in that row of `X`. The intercept $\alpha_t$ and slopes $\beta_t$ may change with the period; $\varepsilon_{it}$ is the observation-level error.
+
+Each retained period gets an OLS regression on its original predictor rows, with an added intercept. The slope estimates are then averaged: $\widehat\beta_{\mathrm{FM}}=T^{-1}\sum_{t=1}^{T}\widehat\beta_t$, where $T$ counts only retained periods; the intercept estimates are averaged in the same way. This estimates the equal-weight target $\beta_{\mathrm{FM}}=T^{-1}\sum_{t=1}^{T}\beta_t$ without demeaning or differencing `X`.
+
 ## Prepare and check each period
 
 Use one row per entity-period observation: `X` has shape `(n, p)`, `y` has shape `(n,)`, and the required `time_ids` has length `n`. Keep all arrays in the same row order and use finite numeric values. A one-dimensional `X` is accepted as a single predictor. Each time label defines one cross-sectional regression; do not add a constant column because the model adds a period intercept. Optional `entity_ids` only supplies standardized within/between $R^2$ information.

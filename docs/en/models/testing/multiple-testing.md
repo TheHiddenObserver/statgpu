@@ -153,6 +153,10 @@ Now reuse the same `p` values for a different question: is the intersection null
 that all five hypotheses hold inconsistent with the combined evidence? This
 interpretation requires independent, continuous uniform null p-values.
 
+Fisher adds the contributions $-2\log p_i$: a smaller p-value gives a larger
+positive contribution, so a large total is evidence against the global null.
+This combines evidence through log p-values rather than averaging them.
+
 ```python
 statistic, global_p = combine_pvalues(p, method="fisher", backend="numpy")
 print(round(float(statistic), 4), round(float(global_p), 6))

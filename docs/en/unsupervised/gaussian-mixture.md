@@ -32,6 +32,12 @@ $$
 \right].
 $$
 
+Here $x_i$ is observation $i$, $n$ is the number of observations, and $K$ is the
+number of components. Each $\pi_k$ is a nonnegative mixing weight, with
+$\sum_k\pi_k=1$; $\mu_k$ is the component's mean vector and $\Sigma_k$ its
+covariance, describing its spread and within-component correlations. The sum
+inside the logarithm is the mixture density at $x_i$.
+
 `covariance_type` controls the shape of `\Sigma_k`: diagonal per component, spherical per component, one tied full covariance, or one full covariance per component. `reg_covar` is a variance floor for diagonal/spherical M-step updates; full/tied updates add it to the covariance diagonal. These conventions differ, so equal values need not match another library.
 
 ## A small CPU example

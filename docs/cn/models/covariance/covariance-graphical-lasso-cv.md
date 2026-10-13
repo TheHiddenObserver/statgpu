@@ -23,13 +23,18 @@ Graphical Lasso 的惩罚过小，可能保留噪声造成的关联；惩罚过�
 
 ## 交叉验证在最大化什么？
 
-对每个候选 $\alpha$，拟合的目标与 Graphical Lasso 相同：
+在每个训练折内，$S$ 是以该折训练行数为分母计算的经验协方差；除非设置
+`assume_centered=True`，计算前会减去该折训练数据的列均值。优化变量 $\Theta$
+是正定精度矩阵，即逆协方差。对每个候选 $\alpha$，拟合的目标与 Graphical Lasso 相同：
 
 $$
 \operatorname{tr}(S\Theta)-\log\det\Theta
 +\alpha\sum_{j\ne k}|\Theta_{jk}|,
 \qquad \Theta\succ0.
 $$
+
+前两项衡量高斯拟合；L1 项只惩罚 $\Theta$ 的非对角元素，鼓励稀疏的条件关联，
+对角元素不受惩罚。这里的 $\alpha$ 控制惩罚强度。
 
 设有 $p$ 个特征、$K$ 个验证折。对验证折 $V_k$，使用其余折拟合得到的中心
 $\widehat\mu_k$、协方差 $\widehat\Sigma_k$ 和精度矩阵 $\widehat\Theta_k$，

@@ -99,6 +99,11 @@ y_train, y_test = y[train], y[test]
 ### Fit and reuse the feature map
 
 The test rows use the training landmarks and normalization.
+The example uses the default RBF kernel,
+$k(x,x')=\exp(-\gamma\lVert x-x'\rVert^2)$. Its `gamma=0.7` sets the distance
+scale: larger `gamma` makes similarity decay faster with distance.
+`n_components=40` limits the number of training landmarks used in the map.
+
 ```python
 nystroem = Nystroem(
     n_components=40, gamma=0.7, random_state=42, device="cpu",
