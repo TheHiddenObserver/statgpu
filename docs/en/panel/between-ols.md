@@ -68,6 +68,8 @@ Public results include `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `rs
 
 Standard errors are computed from that entity-mean regression. `cov_type="nonrobust"` uses the usual homoskedastic OLS covariance; `robust`/`hc1` and HC0/HC2/HC3 provide heteroskedasticity-consistent alternatives. The shared formulas are given in [Panel covariance](covariance.md).
 
+The independent units for these choices are entity means. HC allows different variances across those means, including differences associated with unequal entity observation counts, but does not handle dependence between entities. Clustered, HAC, and DK covariance are not available on this estimator.
+
 These covariance choices change inference for the between regression; they do not replace the orthogonality condition needed to interpret its slope as the structural $\beta$ from the underlying panel model.
 
 <a id="numerical-and-strict-behavior"></a>

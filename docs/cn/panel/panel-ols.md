@@ -88,7 +88,7 @@ print("nobs, df_resid:", model.nobs, model.df_resid)
 
 先根据希望进行的比较选择固定效应，再根据剩余误差的结构选择标准误：
 
-- 默认 `cov_type="nonrobust"` 使用经典协方差；`robust`/`hc1` 与 `hc0`/`hc2`/`hc3` 提供异方差稳健替代方案。
+- 默认 `cov_type="nonrobust"` 使用经典协方差。也支持 HC0–HC3，但在固定短 $T>2$ 的个体效应模型中，即使原始误差没有序列相关，直接用于组内回归的普通 HC0/HC1 仍可能不一致。HC2/HC3 也不是通用补救，详见 [HC 适用条件](covariance.md#nonrobust-and-hc-covariance)。
 - 若误差可能在个体内相关，可设置 `cov_type="clustered"`，并在 `fit()` 中传入 `cluster=entity_ids`。固定效应标签不会自动决定聚类层级。`group_debias=True` 是可选的小簇数修正，仅适用于聚类协方差。
 - 使用 Driscoll–Kraay 时设置 `cov_type="driscoll-kraay"` 并传入 `time_ids`，即使模型没有时间固定效应也需要时间标签。`bandwidth` 与 `kernel` 控制时间平滑。此模型不支持 `PooledOLS` 的独立 `hac` 选项。
 

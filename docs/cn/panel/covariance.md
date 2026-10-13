@@ -13,14 +13,14 @@
 
 | 需要允许的误差结构 | 选项及适用模型 | 需要准备的信息 |
 |---|---|---|
-| 变换后回归误差同方差且互不相关 | 下表五类残差 OLS 模型的 `nonrobust` | 模型本身所需的个体或时间标签 |
+| 符合相应模型的经典同方差协方差假设 | 下表五类残差 OLS 模型的 `nonrobust` | 模型本身所需的个体或时间标签 |
 | 异方差，不额外允许任意行间相关 | 这五类模型的 `robust`/`hc1`、`hc0`、`hc2`、`hc3` | 无额外协方差标签；HC2/HC3 还要求杠杆值有效 |
 | 给定组内的误差相关 | `PanelOLS`、`PooledOLS`、`RandomEffects` 的 `clustered` | 与观测逐行对齐的一列或两列聚类标签；每个维度至少两组 |
-| 跨个体及按时间排序的跨时期相关 | 上述三类模型的 `driscoll-kraay` | FE/RE 使用 `time_ids`，合并 OLS 使用 `time_index`；另选核函数与带宽 |
+| 时间维度足够长时的跨个体相关与弱时间依赖 | 上述三类模型的 `driscoll-kraay` | FE/RE 使用 `time_ids`，合并 OLS 使用 `time_index`；另选核函数与带宽 |
 | 单条有序观测序列中的序列相关 | 仅 `PooledOLS` 的 `hac` | 可选 `time_index`；不提供时使用输入行序 |
 | 横截面平均系数的不确定性 | `FamaMacBeth` 的 `nonrobust` 或 `newey-west` | 各时期的系数序列，而非堆叠后的残差协方差 |
 
-HC 不处理任意的个体内序列相关。聚类和时间序列协方差的渐近解释需要足够多的独立聚类组或时期；两组只是输入下限。`group_debias=True` 是有限样本调整，不能保证少量聚类下的推断可靠。`BetweenOLS` 和 `FirstDifferenceOLS` 只公开非稳健与 HC 选项，不接受聚类或 DK 选项。
+选项能够运行，不代表其推断假设已经满足；应按实际回归或系数序列判断。HC 不处理任意的个体内序列相关，直接用于组内回归时还存在固定短面板的额外限制，详见下文。聚类稳健协方差需要足够多的簇；时间序列协方差需要足够长且符合相应依赖条件的序列；两组只是输入下限。`group_debias=True` 是有限样本调整，不能保证少量聚类下的推断可靠。`BetweenOLS` 和 `FirstDifferenceOLS` 只公开非稳健与 HC 选项，不接受聚类或 DK 选项。
 
 构造模型时选择 `cov_type`，在 `fit()` 中提供所需标签，修改协方差设置后重新拟合。确认系数推断可用后，再读取 `bse_`、`tvalues_`、`pvalues_` 和 `conf_int_`。[公开 API 部分](#公开-api-与别名)列出别名与独立函数；下文保留各估计量的定义和限制。
 
@@ -50,9 +50,19 @@ $$
 
 对于上表五类基于残差 OLS 的估计器，如果实际回归空间中的设计矩阵精确秩亏，拟合值仍可能是唯一的，但系数向量本身并不唯一。此时 statgpu 会保留仍有明确含义的拟合结果，但不会报告依赖唯一系数表示的标准误、检验统计量、p 值和置信区间。
 
+<a id="nonrobust-and-hc-covariance"></a>
+
 ## 经典协方差与 HC0–HC3
 
-`cov_type="nonrobust"` 对应通常的同方差 OLS 协方差：
+`cov_type="nonrobust"` 使用经典模型协方差，需要满足相应模型的同方差等方差结构假设。对于固定效应，给定解释变量和固定效应后，原始特异误差同方差且互不相关，可以支持使用扣除适当残差自由度的经典协方差；去均值本身会使变换后的误差相关，经典固定效应方差公式并不要求它们彼此独立。随机效应还依赖误差分量设定及相应的 GLS 变换。该选项通常不能抵御异方差或错误的相关结构设定。
+
+HC0–HC3 使用上表相应回归中每行残差的平方。在适当的独立观测渐近条件下，它们允许异方差；HC1 调整自由度，HC2/HC3 调整杠杆值。模型支持这些选项，不代表所有面板变换后都适用。
+
+**固定短面板的个体效应尤其需要注意。** 当 $T>2$ 固定、个体数不断增加时，即使原始特异误差不存在序列相关，直接对组内回归使用普通 HC0/HC1 仍可能不一致（Stock 和 Watson，2008，第 1 节）。这里实现的 HC2/HC3 杠杆值调整也不是这一固定 $T$ 问题的通用补救。如果个体之间独立且个体数足够多，按个体聚类通常是允许个体内相关的合适替代方案；它仍不允许任意的跨个体相关。
+
+对于 `BetweenOLS`，独立抽样单位是个体均值，而非原面板中的每一行。HC 允许不同个体均值的误差方差不同，包括个体观测数不等带来的方差差异，但不修正个体之间的相关性。对于 `FirstDifferenceOLS`，相邻差分共享一个水平误差项；即使水平误差独立，一个体超过两期时，差分误差通常仍有序列相关。非稳健与 HC 选项都不会自动处理这种差分诱发的相关。这两个估计器均不提供聚类、HAC 或 DK 选项；若其适用假设不成立，应另选模型与协方差方案。
+
+经典协方差为：
 
 $$
 \widehat V_{\mathrm{nonrobust}}
@@ -102,7 +112,15 @@ HC2/HC3 要求 $1-h_i$ 在数值上为正。如果某个观测的杠杆值在数
 
 ## 聚类稳健协方差
 
-聚类稳健协方差允许同一聚类组内的观测具有相关误差。对聚类组 $g$，令
+聚类标签应由希望允许的相关结构决定，不能仅根据均值模型包含哪些固定效应来选择：
+
+- **按个体聚类**允许同一个体内的异方差与任意跨期相关，但要求不同个体簇相互独立，或满足相应的渐近弱依赖条件。它不覆盖使不同个体相关的共同冲击。
+- **按时间聚类**允许同一期内不同个体任意相关，但要求各时期簇相互独立。它不覆盖跨期序列相关。
+- **按个体和时间双向聚类**允许共享同一个体或同一时期的观测相关，不允许对两种标签都不同的观测任意设定相关，例如不受限制的跨个体、跨时期溢出效应。
+
+常规聚类稳健推断要求**每个**聚类维度都有足够多的簇，并满足适当的矩条件、没有单个簇主导整体等要求。双向聚类中，个体数很多不能弥补时期簇太少。没有适用于所有问题的簇数门槛，簇大小不均与杠杆值也很重要。至少两组的输入下限和 `group_debias=True` 都不保证小簇数推断可靠；报告的参考分布仍是渐近正态，而非专门的小簇数修正。
+
+对聚类组 $g$，令
 
 $$
 s_g=\sum_{i\in g}\psi_i,
@@ -140,7 +158,11 @@ $$
 
 ## Driscoll–Kraay 协方差
 
-Driscoll–Kraay 协方差按时间索引聚合同一期内各观测的得分贡献。定义
+当误差既有跨个体相关，也有跨期相关，而且时间维度足够长时，可以考虑 Driscoll–Kraay。它的理论依据是时间聚合得分序列的大 $T$ 渐近，需要有限矩、足够弱的时间依赖等正则条件（Driscoll 和 Kraay，1998）。它不保证能处理任意相关或非平稳共同冲击，也不能仅凭个体很多就保证短面板的推断可靠。
+
+带宽需要在遗漏序列相关与远期滞后估计过于嘈杂之间折中。在通常的 HAC 一致性条件下，带宽随时间维度增加，但增长速度应受适当约束，不能一直占据序列长度的较大固定比例。应结合时期数，检查合理带宽范围内结果是否稳定；自动带宽只是经验规则，并不能证明这些条件成立。
+
+statgpu 按时间索引聚合同一期内各观测的得分贡献。定义
 
 $$
 g_t=\sum_{i:t_i=t}\psi_i,
@@ -187,6 +209,51 @@ $$
 `PooledOLS(cov_type="hac")` 是独立的按序列计算的 Bartlett/Newey–West HAC，不应与 Driscoll–Kraay 混为一谈。如果提供 `time_index`，`PooledOLS` 会先按照该索引排序再计算 HAC。
 
 Driscoll–Kraay 则先按照面板时间索引聚合同一期观测的得分贡献，再对期与期之间的滞后相关进行核加权。
+
+<a id="ordered-sequence-hac"></a>
+
+## 合并 OLS 的 HAC 针对单条有序序列
+
+`PooledOLS(cov_type="hac")` 对单条观测级得分序列计算 Bartlett/Newey–West 协方差。传入 `time_index` 时先按它排序，否则按输入行序计算滞后。适用的例子是单条时间序列回归：观测间距有明确含义，序列依赖足够弱，观测数足够多，带宽选择合适。
+
+它不会在个体边界重置滞后，也不会把同一期的观测先聚合。仅将堆叠面板按时间排序，并不能得到一般的面板 HAC：相邻行可能来自不同个体，相同时间标签的多行仍占据不同序列位置。若相关仅发生在相互独立的个体内部，可考虑个体聚类；若符合两维相关结构，可考虑双向聚类；若有足够长的时间维度且满足相应条件，可考虑 DK。`PanelOLS` 和 `RandomEffects` 不接受单独的 `hac` 选项。
+
+<a id="coefficient-series-conditions"></a>
+
+## FamaMacBeth 针对时期系数序列
+
+`FamaMacBeth` 的 `nonrobust` 根据各期系数的样本波动估计平均值的方差，把时期估计视为独立。`newey-west` 则估计该系数序列的长期协方差，需要有意义的时间顺序、足够弱的序列依赖、适当的矩与稳定性条件、合适的带宽，以及足够多的保留时期。两个有效时期只是输入下限，并不保证推断可靠。
+
+两种选项都不能修复各期回归的内生性、未识别的横截面系数或系数序列中任意的结构变化。单期个体很多，不能替代时间序列推断所需的足够时期数。平均斜率目标、时期筛选和参考分布见 [FamaMacBeth 指南](fama-macbeth.md)。
+
+## 传入两个聚类维度
+
+下面的完整示例让 `cluster` 的每行分别存放一个个体标签和一个时间标签。均值模型包含个体效应；增加时间聚类不会增加时间固定效应。模拟数据含有各期共同冲击，因此同时按个体和时间聚类。这里的样本规模用于说明调用方式，不是保证有效推断的簇数门槛。
+
+<!-- example: covariance-two-way -->
+```python
+import numpy as np
+from statgpu.panel import PanelOLS
+
+rng = np.random.default_rng(42)
+n_entities, n_periods = 80, 60
+entity_ids = np.repeat(np.arange(n_entities), n_periods)
+time_ids = np.tile(np.arange(n_periods), n_entities)
+X = rng.normal(size=(len(entity_ids), 1))
+entity_shocks = rng.normal(size=n_entities)
+time_shocks = rng.normal(size=n_periods)
+y = (2.0 * X[:, 0] + entity_shocks[entity_ids]
+     + time_shocks[time_ids] + rng.normal(size=len(entity_ids)))
+cluster = np.column_stack([entity_ids, time_ids])
+model = PanelOLS(
+    entity_effects=True, cov_type="clustered", device="cpu"
+).fit(X, y, entity_ids=entity_ids, time_ids=time_ids, cluster=cluster)
+print("coef:", np.round(model.coef_, 3))
+print("standard errors:", np.round(model.bse_, 3))
+```
+<!-- example-end: covariance-two-way -->
+
+两列分别定义个体与时间分组。如果把个体—时间配对标签压成一列，得到的会是按交集分组的单向聚类，与双向聚类不同。
 
 ## 公开 API 与别名
 
@@ -243,5 +310,7 @@ Driscoll–Kraay 核名称支持 Bartlett/Newey–West、Parzen/Gallant 与 QS/Q
 - MacKinnon, J. G., & White, H. (1985). Some heteroskedasticity-consistent covariance matrix estimators with improved finite sample properties. *Journal of Econometrics*, 29(3), 305-325.
 - Newey, W. K., & West, K. D. (1987). A simple, positive semi-definite, heteroskedasticity and autocorrelation consistent covariance matrix. *Econometrica*, 55(3), 703-708.
 - Andrews, D. W. K. (1991). Heteroskedasticity and autocorrelation consistent covariance matrix estimation. *Econometrica*, 59(3), 817-858.
-- Driscoll, J. C., & Kraay, A. C. (1998). Consistent covariance matrix estimation with spatially dependent panel data. *The Review of Economics and Statistics*, 80(4), 549-560.
+- Driscoll, J. C., & Kraay, A. C. (1998). Consistent covariance matrix estimation with spatially dependent panel data. *The Review of Economics and Statistics*, 80(4), 549-560. [doi:10.1162/003465398557825](https://doi.org/10.1162/003465398557825)
 - Cameron, A. C., Gelbach, J. B., & Miller, D. L. (2011). Robust inference with multiway clustering. *Journal of Business & Economic Statistics*, 29(2), 238-249.
+
+- Stock, J. H., & Watson, M. W. (2008). Heteroskedasticity-robust standard errors for fixed effects panel data regression. *Econometrica*, 76(1), 155–174. [doi:10.1111/j.0012-9682.2008.00821.x](https://doi.org/10.1111/j.0012-9682.2008.00821.x)。[作者稿](https://www.princeton.edu/~mwatson/papers/Stock_Watson_Ecta_2008.pdf)。

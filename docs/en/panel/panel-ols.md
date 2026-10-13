@@ -86,7 +86,7 @@ After formula fitting, `predict(new_df)` rebuilds the regressor design from the 
 
 Choose the effects from the comparison you want to make, then choose uncertainty settings for the remaining errors:
 
-- `cov_type="nonrobust"` is the default classical covariance. `robust`/`hc1` and `hc0`/`hc2`/`hc3` provide heteroskedasticity-robust alternatives.
+- `cov_type="nonrobust"` is the default classical covariance. HC0–HC3 are also available, but ordinary HC0/HC1 on the within regression can be inconsistent with fixed short $T>2$, even without serial correlation in the original errors. HC2/HC3 are not a general fix; see [HC applicability](covariance.md#nonrobust-and-hc-covariance).
 - For errors that may be correlated within an entity, use `cov_type="clustered"` and pass `cluster=entity_ids` to `fit()`. An effect ID does not automatically select the clustering level. `group_debias=True` is an optional small-number-of-clusters correction, available only with clustered covariance.
 - For Driscoll-Kraay covariance, use `cov_type="driscoll-kraay"` and supply `time_ids`, even if no time fixed effects are included. `bandwidth` and `kernel` control its time smoothing. This estimator does not support the separate `hac` option offered by `PooledOLS`.
 

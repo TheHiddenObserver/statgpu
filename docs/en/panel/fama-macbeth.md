@@ -70,6 +70,8 @@ Public results include `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `be
 
 The default `cov_type="newey-west"` allows serial dependence in the retained coefficient series. Choose `bandwidth` to represent the lags you want included; `None` uses the automatic rule described below. `cov_type="nonrobust"` treats period estimates as independent. Neither choice is an observation-level HC, cluster, HAC, or Driscoll–Kraay covariance. The labels share names with other estimators, but the uncertainty here is uncertainty in an average of period coefficients.
 
+Newey-West inference needs a sufficiently long, suitably stable coefficient series with weak temporal dependence and an appropriate bandwidth. Many entities in each period do not replace enough periods, and automatic bandwidth selection does not establish validity; see [coefficient-series conditions](covariance.md#coefficient-series-conditions).
+
 After fitting, use `bse_` for coefficient standard errors, `tvalues_` for test statistics, `pvalues_` for two-sided p-values, and `conf_int_` for confidence intervals. These public arrays and `coef_` remain on the selected fit backend; for Torch, p-values and confidence intervals are computed on the actual tensor device. With `cov_type="newey-west"`, `tvalues_` contains z-statistics evaluated against the normal distribution. With `cov_type="nonrobust"`, it contains t-statistics evaluated against Student-t with $T-1$ degrees of freedom.
 
 <a id="numerical-and-strict-behavior"></a>

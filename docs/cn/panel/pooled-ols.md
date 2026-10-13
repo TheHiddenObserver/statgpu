@@ -80,7 +80,7 @@ print("nobs:", model.nobs)
 - `cov_type="hac"`：把观测看作一条有顺序的序列，并使用 Bartlett/Newey–West HAC。若提供 `time_index`，会先按时间顺序排序；否则使用输入数据的行顺序；
 - `cov_type="driscoll-kraay"`：先按照 `time_index` 把观测分配到各时期，在时期内聚合协方差贡献，再对跨期滞后进行核加权。
 
-因此，HAC 与 Driscoll–Kraay 不能互换解释。完整公式见 [面板模型协方差](covariance.md)。
+因此，HAC 与 Driscoll–Kraay 不能互换解释。HAC 不会在个体边界重置滞后，也不会聚合同期多行；对堆叠面板排序不等于一般的面板 HAC。使用前请检查[单条有序序列的适用条件](covariance.md#ordered-sequence-hac)。
 
 ### 时间标签顺序
 

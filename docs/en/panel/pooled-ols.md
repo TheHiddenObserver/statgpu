@@ -79,7 +79,7 @@ The default `cov_type="nonrobust"` uses classical standard errors. Use an HC opt
 - `cov_type="hac"` treats the observations as one ordered sequence and applies Bartlett/Newey-West HAC. If `time_index` is supplied, the rows are first sorted by its chronology; otherwise the input row order is used. Numeric and datetime labels use their natural order. An ordered pandas categorical uses the category order declared by the user. Plain string labels use lexical order; other non-categorical object labels follow their sorted comparable-value order and fail if they are not mutually comparable. Labels such as `t1, t2, t10` should therefore be supplied as an ordered categorical (or a numeric/datetime key) when lexical string order is not the intended chronology.
 - `cov_type="driscoll-kraay"` groups observations by `time_index` and combines their contributions within each period before applying lag weights.
 
-These two choices are therefore not interchangeable. Full formulas are in [Panel covariance](covariance.md).
+These two choices are therefore not interchangeable. HAC neither resets lags at entity boundaries nor aggregates repeated periods, so sorting a stacked panel does not make it general panel HAC. Check the [ordered-sequence applicability conditions](covariance.md#ordered-sequence-hac) before using it.
 
 ## Formula Example
 

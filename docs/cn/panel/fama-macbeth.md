@@ -90,6 +90,8 @@ print("periods, coefficient shape:", model.n_periods, model.betas_.shape)
 
 默认 `cov_type="newey-west"` 允许保留时期的系数序列存在序列相关。用 `bandwidth` 指定纳入的滞后阶数，`None` 使用后文给出的自动规则。`cov_type="nonrobust"` 把各期系数估计视为独立。两种选择都不是观测级的 HC、cluster、HAC 或 Driscoll–Kraay 协方差；即使名称与其他模型相同，这里的不确定性针对的也是时期系数的平均值。
 
+Newey–West 推断需要足够长且具有适当稳定性、弱时间依赖的系数序列，并选择合适的带宽。每期个体很多不能替代足够多的时期，自动带宽也不能证明推断有效，详见[系数序列的适用条件](covariance.md#coefficient-series-conditions)。
+
 `bse_` 给出系数标准误，`pvalues_` 给出双侧 p 值，`conf_int_` 给出置信区间。`cov_type="newey-west"` 时，`tvalues_` 存放使用正态参考分布的 z 统计量；`cov_type="nonrobust"` 时，它存放使用自由度为 $T-1$ 的 Student-t 参考分布的 t 统计量。使用 `print(model.summary())` 可一起查看系数估计、不确定性、协方差选择和样本量。
 
 这些公开推断数组和 `coef_` 均保留在选定的拟合后端；Torch 的 p 值与置信区间在实际张量设备上计算。
