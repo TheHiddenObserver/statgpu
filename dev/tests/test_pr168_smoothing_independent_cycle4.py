@@ -33,14 +33,17 @@ class _ExplicitAcceleratorPlacementError(Exception):
     """Only the known explicit-accelerator output-placement contract failed."""
 
 
-def _example(language, name):
-    path = ROOT / f"docs/{language}/models/kernel-methods.md"
+def _example(language, name, page):
+    path = ROOT / f"docs/{language}/{page}.md"
     return run_example(path.read_text(), name, str(path))
 
 
 @pytest.mark.parametrize("language", ["en", "cn"])
 def test_seeded_kernel_workflow_keeps_held_out_rows_out_of_fit(language):
-    example = _example(language, "kernel-methods-cpu")
+    example = _example(language, "kernel-ridge-cv-cpu", "models/kernel-ridge-cv")
+    ridge = _example(language, "kernel-ridge-cpu", "models/kernel-ridge")
+    pca = _example(language, "kernel-pca-cpu", "models/kernel-pca")
+    nystroem = _example(language, "kernel-nystroem-cpu", "models/kernel-nystroem")
     train, test = example["train"], example["test"]
     assert not np.intersect1d(train, test).size
     assert_array_equal(np.sort(np.r_[train, test]), np.arange(240))
@@ -48,10 +51,10 @@ def test_seeded_kernel_workflow_keeps_held_out_rows_out_of_fit(language):
     selected = example["kr_cv"]
     assert selected.random_state == 42
     assert_allclose(selected.estimator_.X_fit_, X[train])
-    assert_allclose(example["kr"].X_fit_, X[train])
-    assert_allclose(example["kpca"].X_fit_, X[train])
-    approximation = example["nystroem"]
-    assert_allclose(approximation.components_, X[train][approximation.component_indices_])
+    assert_allclose(ridge["kr"].X_fit_, ridge["X"][ridge["train"]])
+    assert_allclose(pca["kpca"].X_fit_, pca["X"][pca["train"]])
+    approximation = nystroem["nystroem"]
+    assert_allclose(approximation.components_, nystroem["X"][nystroem["train"]][approximation.component_indices_])
     assert selected.cv_results_["mse_table"].shape == (4, 5, 1)
     assert np.isfinite(selected.cv_results_["mse_table"]).all()
     best = np.argmin(selected.cv_results_["mean_mse"].mean(axis=1))
@@ -65,14 +68,14 @@ def test_seeded_kernel_workflow_keeps_held_out_rows_out_of_fit(language):
     assert_allclose(example["held_out_mse"], np.mean(errors**2))
     assert_allclose(example["held_out_r2"], 1 - np.sum(errors**2) / np.sum((y[test] - y[test].mean())**2))
     assert example["held_out_r2"] > 0.9
-    assert example["test_coordinates"].shape == (60, 3)
-    assert example["test_features"].shape == (60, 40)
-    assert 0 <= example["relative_kernel_error"] < 0.1
+    assert pca["test_coordinates"].shape == (60, 3)
+    assert nystroem["test_features"].shape == (60, 40)
+    assert 0 <= nystroem["relative_kernel_error"] < 0.1
 
 
 @pytest.mark.parametrize("language", ["en", "cn"])
 def test_callable_example_handles_omitted_and_explicit_array_modules(language):
-    example = _example(language, "kernel-callable-cpu")
+    example = _example(language, "kernel-callable-cpu", "reference/kernel-methods-api")
     assert_allclose(example["implicit"], example["X"] @ example["X"].T)
     assert_allclose(example["explicit"], example["implicit"])
 
@@ -161,15 +164,22 @@ def test_public_device_surfaces_explain_actual_placement_checks(language):
 @pytest.mark.parametrize("language", ["en", "cn"])
 def test_kernel_page_leads_with_choices_and_interprets_held_out_results(language):
     text = (ROOT / f"docs/{language}/models/kernel-methods.md").read_text()
-    opening = text.split("<!-- example: kernel-methods-cpu -->", 1)[0]
+    opening = text.split("<!-- example: kernel-gram-cpu -->", 1)[0]
     for name in ("KernelRidge", "KernelRidgeCV", "KernelPCA", "Nystroem", "GAM"):
         assert name in opening
     assert "linear-regression.md" in opening
-    assert "held-out" in opening if language == "en" else "留出" in opening
-    reference = "## Complete estimator API" if language == "en" else "## 完整估计器 API"
-    assert text.index("held_out_r2") < text.index(reference)
-    assert "relative_kernel_error" in text and "best_score_" in text
-    assert "including `None`" in text if language == "en" else "包括 `None`" in text
+    cv = (ROOT / f"docs/{language}/models/kernel-ridge-cv.md").read_text()
+    nystroem = (ROOT / f"docs/{language}/models/kernel-nystroem.md").read_text()
+    api = (ROOT / f"docs/{language}/reference/kernel-methods-api.md").read_text()
+    cv_opening = cv.split("<!-- example: kernel-ridge-cv-cpu -->", 1)[0]
+    assert "held-out" in cv_opening if language == "en" else "留出" in cv_opening
+    assert "held_out_r2" in cv and "best_score_" in cv
+    assert "relative_kernel_error" in nystroem
+    assert "including `None`" in api if language == "en" else "包括 `None`" in api
+    # Selection and its result interpretation live in the tutorial; complete
+    # signatures belong to the linked reference rather than the overview.
+    assert "KernelRidgeCV(alphas=None" not in text
+    assert "../reference/kernel-methods-api.md" in cv
 
 
 def test_chinese_cox_prose_and_spline_public_layering():

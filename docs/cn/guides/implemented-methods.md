@@ -118,12 +118,14 @@ print(np.round(model.predict(X[:3]), 6))
 
 - `KernelDensityEstimator` / `KDE`
 - `KernelRegression` / `KernelRegressionRegressor`
-- `KernelRidge` 与 `KernelRidgeCV`
-- `KernelPCA`
-- `Nystroem`
+- [KernelRidge](../models/kernel-ridge.md) / [KernelRidgeCV](../models/kernel-ridge-cv.md)
+- [KernelPCA](../models/kernel-pca.md)
+- [Nystroem](../models/kernel-nystroem.md)
 - `SplineTransformer`
 - B 样条、自然三次样条、周期三次样条与薄板样条基
 - `GAM`
+
+核相似度与方法选择见[概览](../models/kernel-methods.md)；函数签名、拟合属性与执行边界见[完整 API](../reference/kernel-methods-api.md)。
 
 ## 无监督学习
 

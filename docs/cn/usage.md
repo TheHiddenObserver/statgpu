@@ -35,6 +35,9 @@ CuPy 请按 CUDA 主版本安装 `statgpu[gpu11]` 或 `statgpu[gpu12]`；PyTorch
 - [ANOVA 概览](models/anova.md) — 原理、方法选择与支持的设计
 - [协方差估计](models/covariance.md)
 - [非参数方法](models/nonparametric.md)
+- [核方法](models/kernel-methods.md)
+  - [KernelRidge](models/kernel-ridge.md) · [KernelRidgeCV](models/kernel-ridge-cv.md) · [KernelPCA](models/kernel-pca.md) · [Nystroem](models/kernel-nystroem.md)
+  - [完整核方法 API](reference/kernel-methods-api.md)
 - [无监督学习](models/unsupervised.md)
 - [特征选择](models/feature-selection.md)
 - [回归诊断](guides/regression-diagnostics.md)

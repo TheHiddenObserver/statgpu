@@ -35,6 +35,9 @@ For CuPy, install `statgpu[gpu11]` or `statgpu[gpu12]` for the matching CUDA maj
 - [ANOVA overview](models/anova.md) — principles, method choice and supported designs
 - [Covariance Estimation](models/covariance.md)
 - [Nonparametric Methods](models/nonparametric.md)
+- [Kernel methods](models/kernel-methods.md)
+  - [KernelRidge](models/kernel-ridge.md) · [KernelRidgeCV](models/kernel-ridge-cv.md) · [KernelPCA](models/kernel-pca.md) · [Nystroem](models/kernel-nystroem.md)
+  - [Complete kernel API](reference/kernel-methods-api.md)
 - [Unsupervised Learning](models/unsupervised.md)
 - [Feature Selection](models/feature-selection.md)
 - [Regression Diagnostics](guides/regression-diagnostics.md)

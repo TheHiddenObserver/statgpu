@@ -26,6 +26,11 @@ PAGES = (
     "docs/cn/models/unsupervised.md",
     "docs/cn/models/splines.md",
     "docs/cn/models/kernel-methods.md",
+    "docs/cn/models/kernel-ridge.md",
+    "docs/cn/models/kernel-ridge-cv.md",
+    "docs/cn/models/kernel-pca.md",
+    "docs/cn/models/kernel-nystroem.md",
+    "docs/cn/reference/kernel-methods-api.md",
 )
 
 FRAGMENTS_TO_AVOID = (

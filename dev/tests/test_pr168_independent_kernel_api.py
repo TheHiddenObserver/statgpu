@@ -44,7 +44,7 @@ def _signature(obj):
 
 @pytest.mark.parametrize('language', ['en', 'cn'])
 def test_kernel_page_has_every_export_signature_and_default(language):
-    text = (ROOT / f'docs/{language}/models/kernel-methods.md').read_text()
+    text = (ROOT / f'docs/{language}/reference/kernel-methods-api.md').read_text()
     lines = '\n'.join(re.findall(r'```text\n(.*?)```', text, re.DOTALL)).splitlines()
     for name in kernels.__all__:
         assert name + _signature(getattr(kernels, name)) in lines, name

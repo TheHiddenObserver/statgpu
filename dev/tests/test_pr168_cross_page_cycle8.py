@@ -88,8 +88,8 @@ def test_shared_cv_inventory_links_kernel_specific_contract(language):
     inventory = _page(language, "guides/implemented-methods")
     assert "| `KernelRidgeCV` |" in guide
     assert "| `KernelRidgeCV` |" in inventory
-    anchor = "complete-estimator-api" if language == "en" else "完整估计器-api"
-    assert "../models/kernel-methods.md#" + anchor in guide
+    anchor = "kernelridgecv"
+    assert "../reference/kernel-methods-api.md#" + anchor in guide
     assert "best_score_" in guide and "sample_weight" in guide
     assert "cv_splits" not in inspect.signature(KernelRidgeCV).parameters
     assert "sample_weight" not in inspect.signature(KernelRidgeCV.fit).parameters

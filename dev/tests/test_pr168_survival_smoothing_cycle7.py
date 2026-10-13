@@ -141,13 +141,14 @@ def test_full_rollback_repair_would_remove_expected_failure(monkeypatch):
 
 @pytest.mark.parametrize("language", ["en", "cn"])
 def test_kernel_pca_failed_refit_guidance_matches_installed_help(language):
-    text = (ROOT / f"docs/{language}/models/kernel-methods.md").read_text()
+    text = (ROOT / f"docs/{language}/models/kernel-pca.md").read_text()
     if language == "en":
-        for phrase in ["After a failed refit", "finite but incorrect", "discard that instance",
-                       "not a way", "fit_transform"]:
+        for phrase in ["After a failed refit", "finite but incorrect", "discard the instance",
+                       "zero-rank", "fit_transform", "A fresh instance will reject"]:
             assert phrase in text
     else:
-        for phrase in ["重新拟合失败后", "有限但错误", "丢弃该实例", "零秩核", "fit_transform"]:
+        for phrase in ["重新拟合失败后", "有限但错误", "应弃用该实例", "零秩嵌入",
+                       "fit_transform", "新实例也会拒绝"]:
             assert phrase in text
     assert "failed refit" in inspect.getdoc(KernelPCA)
     assert "finite but incorrect" in inspect.getdoc(KernelPCA)

@@ -58,6 +58,8 @@
 - [面板数据](panel.md)
 - [非参数方法](nonparametric.md)
 - [核方法](kernel-methods.md)
+  - [KernelRidge](kernel-ridge.md) · [KernelRidgeCV](kernel-ridge-cv.md) · [KernelPCA](kernel-pca.md) · [Nystroem](kernel-nystroem.md)
+  - [完整核方法 API](../reference/kernel-methods-api.md)
 - [样条基函数](splines.md)
 - [GAM / 半参数模型](semiparametric.md)
 - [特征选择](feature-selection.md)

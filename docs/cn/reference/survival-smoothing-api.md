@@ -8,8 +8,8 @@
 
 本页模型的浮点计算使用 float64，不保留 float32 输入精度；后端原生数值预测仍使用拟合时的数组库类型。
 
-相关完整 API 位于各模型页：[KernelRidge、KernelRidgeCV、KernelPCA 与 Nystroem](../models/kernel-methods.md#完整估计器-api)、
-[成对核函数](../models/kernel-methods.md#完整成对核函数-api)，以及[样条基与 SplineTransformer](../models/splines.md#完整的模型专属调用)。
+相关完整 API：[KernelRidge、KernelRidgeCV、KernelPCA 与 Nystroem](kernel-methods-api.md#完整估计器-api)、
+[成对核函数](kernel-methods-api.md#完整成对核函数-api)，以及[样条基与 SplineTransformer](../models/splines.md#完整的模型专属调用)。
 
 ## CoxPH 与 CoxPHCV
 

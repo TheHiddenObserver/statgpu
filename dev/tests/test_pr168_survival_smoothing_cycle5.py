@@ -114,11 +114,15 @@ def test_custom_knots_define_boundaries_and_ignored_weights_do_not_move_knots():
 
 @pytest.mark.parametrize("language", ["en", "cn"])
 def test_kernel_nonfinite_guidance_has_learned_and_output_checks(language):
-    text = (ROOT / f"docs/{language}/models/kernel-methods.md").read_text()
+    text = (ROOT / f"docs/{language}/reference/kernel-methods-api.md").read_text()
     for phrase in ["np.isfinite(model.dual_coef_).all()", "np.isfinite(model.normalization_).all()",
                    "np.isfinite(model.eigenvalues_).all()", "NaN", "alpha"]:
         assert phrase in text
-    assert "already\noverflowed" in text if language == "en" else "核已经溢出" in text
+    compact = " ".join(text.replace("-", " ").split())
+    if language == "en":
+        assert "Increasing alpha cannot repair an already overflowed kernel" in compact
+    else:
+        assert "增大 alpha 不能修复已经溢出的核" in text
     for cls in [KernelRidge, Nystroem]:
         doc = inspect.getdoc(cls)
         assert "NaN learned arrays" in doc

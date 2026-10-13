@@ -120,12 +120,14 @@ See [Panel Data Models](../models/panel.md) for model choice, covariance, rank-d
 
 - `KernelDensityEstimator` / `KDE`
 - `KernelRegression` / `KernelRegressionRegressor`
-- `KernelRidge` and `KernelRidgeCV`
-- `KernelPCA`
-- `Nystroem`
+- [KernelRidge](../models/kernel-ridge.md) / [KernelRidgeCV](../models/kernel-ridge-cv.md)
+- [KernelPCA](../models/kernel-pca.md)
+- [Nystroem](../models/kernel-nystroem.md)
 - `SplineTransformer`
 - B-spline, natural cubic, cyclic cubic, and thin-plate spline bases
 - `GAM`
+
+Kernel similarities and method choice are explained in the [overview](../models/kernel-methods.md); signatures, fitted attributes, and execution limits are in the [complete API](../reference/kernel-methods-api.md).
 
 ## Unsupervised Learning
 

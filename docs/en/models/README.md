@@ -67,6 +67,8 @@ NumPy/CuPy/Torch support matrix.
 - [Panel Data](panel.md)
 - [Nonparametric Methods](nonparametric.md)
 - [Kernel Methods](kernel-methods.md)
+  - [KernelRidge](kernel-ridge.md) · [KernelRidgeCV](kernel-ridge-cv.md) · [KernelPCA](kernel-pca.md) · [Nystroem](kernel-nystroem.md)
+  - [Complete kernel API](../reference/kernel-methods-api.md)
 - [Spline Basis Functions](splines.md)
 - [GAM / Semiparametric Models](semiparametric.md)
 - [Feature Selection](feature-selection.md)

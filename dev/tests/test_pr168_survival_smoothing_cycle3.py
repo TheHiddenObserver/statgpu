@@ -54,13 +54,15 @@ def test_kernel_ridge_matches_rkhs_objective_not_coefficient_ridge():
 
 @pytest.mark.parametrize("lang", ["en", "cn"])
 def test_linked_kernel_docs_state_objective_and_current_boundaries(lang):
-    text = (ROOT / f"docs/{lang}/models/kernel-methods.md").read_text()
-    assert r"\alpha c^\top Kc" in text
-    assert r"\alpha\lVert c\rVert_2^2" not in text
-    assert "sample_weight" in text
-    assert "mean_mse" in text and "best_score_" in text
-    assert "NumPy SVD" in text
-    assert r"Z=K_{nm}V\Lambda^{-1/2}V^\top" in text
+    ridge = (ROOT / f"docs/{lang}/models/kernel-ridge.md").read_text()
+    cv = (ROOT / f"docs/{lang}/models/kernel-ridge-cv.md").read_text()
+    nystroem = (ROOT / f"docs/{lang}/models/kernel-nystroem.md").read_text()
+    assert r"\alpha c^\top Kc" in ridge
+    assert r"\alpha\lVert c\rVert_2^2" not in ridge
+    assert "sample_weight" in ridge
+    assert "mean_mse" in cv and "best_score_" in cv
+    assert "NumPy SVD" in nystroem
+    assert r"Z=K_{nm}V\Lambda^{-1/2}V^\top" in nystroem
 
 
 def test_nystroem_normalization_and_rank_deficient_output_width():

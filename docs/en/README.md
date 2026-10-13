@@ -62,6 +62,8 @@
 ### Nonparametric
 - [Nonparametric Overview](models/nonparametric.md) — kernel methods and splines
 - [Kernel Methods](models/kernel-methods.md) — KernelRidge/CV, KernelPCA, and Nystroem
+  - [KernelRidge](models/kernel-ridge.md) · [KernelRidgeCV](models/kernel-ridge-cv.md) · [KernelPCA](models/kernel-pca.md) · [Nystroem](models/kernel-nystroem.md)
+  - [Complete kernel API](reference/kernel-methods-api.md)
 - [Splines](models/splines.md) — B/natural/cyclic/thin-plate splines and SplineTransformer
 - [Semiparametric (GAM)](models/semiparametric.md) — generalized additive models
 
@@ -81,6 +83,7 @@
 ### Complete API references
 
 - [ANOVA API](reference/anova-api.md) — seven functions, five result types, defaults and input/device limits
+- [Complete kernel API](reference/kernel-methods-api.md) — four estimators, pairwise kernels, shapes and numerical/backend limits
 - [Shared estimator API](reference/estimator-api.md) — parameter management and inherited inference helpers
 - [Linear-model API](reference/linear-model-api.md) — constructors, fit/predict methods, CV, and fitted results
 - [Feature-selection API](reference/feature-selection-api.md) — stepwise and knockoff interfaces

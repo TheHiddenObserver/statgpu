@@ -11,7 +11,7 @@ Nonparametric does not mean assumption-free. Kernel methods borrow information f
 
 - **Where are observations concentrated?** Use kernel density estimation (KDE), with samples `X` and no response `y`.
 - **How does a continuous response vary with predictors?** Use kernel regression, with paired `X, y`. Nadaraya–Watson (`"nw"`) takes a local weighted average; `"local_linear"` fits a line in each neighborhood and can reduce boundary bias.
-- **Do you need an additive curve for each feature?** See [GAM](semiparametric.md). For other approaches, see [kernel ridge regression](kernel-methods.md) and [spline bases](splines.md).
+- **Do you need an additive curve for each feature?** See [GAM](semiparametric.md). For other approaches, see [kernel ridge regression](kernel-ridge.md) and [spline bases](splines.md).
 
 This page is a starting workflow for KDE and kernel regression, not a catalog of all nonparametric algorithms. These methods are most useful in low-dimensional continuous data. Sparse neighborhoods, many predictors, and extrapolation deserve particular care.
 

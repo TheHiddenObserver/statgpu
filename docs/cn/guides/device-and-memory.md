@@ -70,7 +70,7 @@ Torch 张量查看 `.device` 与 `.is_cuda`，CuPy 数组查看 `.device`。NumP
 
 如果必须使用 GPU，请不要接受这些方法返回的 CPU 结果。请使用受支持的 GPU 输入与后端组合，并在使用结果前检查上述数组。需要明确的 CPU 替代方案时，请传入 NumPy 数组并设 `device="cpu"`；KDE/核回归还需设 `backend="numpy"`。
 
-其他限制与受支持的组合见[核平滑](../models/nonparametric.md#可选-gpu-路径与外部对照)、[核特征](../models/kernel-methods.md#后端与执行边界)与[样条](../models/splines.md#后端执行与验证边界)。
+其他限制与受支持的组合见[核平滑](../models/nonparametric.md#可选-gpu-路径与外部对照)、[核特征](../reference/kernel-methods-api.md#后端与执行边界)与[样条](../models/splines.md#后端执行与验证边界)。
 
 ## 输入转换与返回数组
 

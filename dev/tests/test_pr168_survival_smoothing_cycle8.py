@@ -201,15 +201,16 @@ def test_reference_links_complete_kernel_and_spline_apis(language):
     root = Path(__file__).resolve().parents[2]
     reference = (root / f"docs/{language}/reference/survival-smoothing-api.md").read_text()
     anchors = (
-        ("kernel-methods", "complete-estimator-api", "Complete estimator API"),
-        ("kernel-methods", "complete-pairwise-function-api", "Complete pairwise-function API"),
-        ("splines", "complete-model-specific-calls", "Complete model-specific calls"),
+        ("reference/kernel-methods-api", "complete-estimator-api", "Complete estimator API"),
+        ("reference/kernel-methods-api", "complete-pairwise-function-api", "Complete pairwise-function API"),
+        ("models/splines", "complete-model-specific-calls", "Complete model-specific calls"),
     ) if language == "en" else (
-        ("kernel-methods", "完整估计器-api", "完整估计器 API"),
-        ("kernel-methods", "完整成对核函数-api", "完整成对核函数 API"),
-        ("splines", "完整的模型专属调用", "完整的模型专属调用"),
+        ("reference/kernel-methods-api", "完整估计器-api", "完整估计器 API"),
+        ("reference/kernel-methods-api", "完整成对核函数-api", "完整成对核函数 API"),
+        ("models/splines", "完整的模型专属调用", "完整的模型专属调用"),
     )
     for name, anchor, heading in anchors:
-        assert f"../models/{name}.md#{anchor}" in reference
-        destination = (root / f"docs/{language}/models/{name}.md").read_text()
+        target = f"{name.removeprefix('reference/')}.md" if name.startswith("reference/") else f"../{name}.md"
+        assert f"{target}#{anchor}" in reference
+        destination = (root / f"docs/{language}/{name}.md").read_text()
         assert f"## {heading}" in destination

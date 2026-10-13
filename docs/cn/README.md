@@ -60,6 +60,8 @@
 ### 非参数
 - [非参数概述](models/nonparametric.md) — 核方法与样条
 - [核方法](models/kernel-methods.md) — KernelRidge/CV、KernelPCA 与 Nystroem
+  - [KernelRidge](models/kernel-ridge.md) · [KernelRidgeCV](models/kernel-ridge-cv.md) · [KernelPCA](models/kernel-pca.md) · [Nystroem](models/kernel-nystroem.md)
+  - [完整核方法 API](reference/kernel-methods-api.md)
 - [样条](models/splines.md) — B 样条、自然样条、周期样条、薄板样条与 `SplineTransformer`
 - [半参数（GAM）](models/semiparametric.md) — 广义可加模型
 
@@ -79,6 +81,7 @@
 ### 完整 API 参考
 
 - [ANOVA API](reference/anova-api.md) — 七个函数、五种结果类型、默认值与输入及设备限制
+- [完整核方法 API](reference/kernel-methods-api.md) — 四类估计器、成对核函数、形状及数值与后端限制
 - [估计器通用 API](reference/estimator-api.md) — 参数管理与继承的推断辅助方法
 - [线性模型 API](reference/linear-model-api.md) — 构造参数、拟合与预测方法、交叉验证及拟合结果
 - [特征选择 API](reference/feature-selection-api.md) — 逐步选择与 knockoff 接口
