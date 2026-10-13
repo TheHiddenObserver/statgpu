@@ -6,7 +6,7 @@
 
 ## Overview
 
-`DBSCAN` finds density-connected components in dense Euclidean data. It supports CPU, CuPy/CUDA, and Torch CUDA paths. Execution and memory costs depend on data density, dimensionality and optional compiled extensions; GPU paths include host transfers.
+`DBSCAN` finds density-connected components in dense Euclidean data.
 
 ## When to use it
 
@@ -32,22 +32,6 @@ DBSCAN is not a smooth optimization problem. It has no differentiable loss to mi
 - Non-core points reachable from a core component are border points.
 - Other points are noise with label `-1`.
 
-## Execution and memory
-
-CPU data with at most 12 features use SciPy tree search. Wider CPU data use scikit-learn `NearestNeighbors`; install scikit-learn for that path. Compiled statgpu Cython extensions can accelerate graph labeling; an uncompiled installation uses a Python implementation.
-
-GPU distances use float32, while stored core observations use float64. Both GPU paths include host transfers, and the CuPy path also performs some graph processing in Python. Include those costs when timing the complete fit. `batch_size` limits distance batches, not the total neighbor graph: dense neighborhoods can still require quadratic memory. Check label/noise stability near the `eps` boundary, where float32 comparisons can differ.
-
-Large common feature offsets can also erase separations during the GPU float32 conversion or expanded-distance calculation, even far from the `eps` boundary. Subtract one training-derived feature offset while the data are still float64, before fitting; translation preserves Euclidean distances and leaves `eps` unchanged. Keep that offset to interpret `components_` in original units. Finite labels alone do not establish that the neighbor graph is correct.
-
-## Parameters
-
-- `eps`: neighborhood radius; must be positive and finite. Non-finite values are not reliably rejected, so validate this control before fitting.
-- `min_samples`: minimum closed-neighborhood count for a core sample.
-- `metric`: only `"euclidean"` is supported.
-- `batch_size`: optional GPU distance-batch size; does not bound all stored graph edges.
-- `device`: `"auto"`, `"cpu"`, `"cuda"`, or `"torch"`.
-
 ## A small CPU example
 
 <!-- learner-example: dbscan -->
@@ -65,6 +49,26 @@ print(labels.shape, np.unique(labels), model.core_sample_indices_.shape)
 The last row is isolated and receives `-1`, the noise label. `components_` stores core observations, not cluster centers. There is no new-data prediction rule; refitting a combined dataset can change earlier assignments.
 
 For a supported GPU installation, construct a new estimator with `device="cuda"` (CuPy) or `device="torch"` (Torch CUDA). Arrays generally stay on that backend; see the [API reference](api-reference.md#dbscan) for output ownership and host-side work. An unavailable explicit GPU raises an error.
+
+**Before fitting on a GPU**, read [Execution and memory](#execution-and-memory) for float32 precision, large feature offsets, host transfers, and graph-memory limits.
+
+## Parameters
+
+- `eps`: neighborhood radius; must be positive and finite. Non-finite values are not reliably rejected, so validate this control before fitting.
+- `min_samples`: minimum closed-neighborhood count for a core sample.
+- `metric`: only `"euclidean"` is supported.
+- `batch_size`: optional GPU distance-batch size; does not bound all stored graph edges.
+- `device`: `"auto"`, `"cpu"`, `"cuda"`, or `"torch"`.
+
+## Execution and memory
+
+DBSCAN supports CPU, CuPy/CUDA, and Torch CUDA paths. Execution and memory costs depend on data density, dimensionality and optional compiled extensions; GPU paths include host transfers.
+
+CPU data with at most 12 features use SciPy tree search. Wider CPU data use scikit-learn `NearestNeighbors`; install scikit-learn for that path. Compiled statgpu Cython extensions can accelerate graph labeling; an uncompiled installation uses a Python implementation.
+
+GPU distances use float32, while stored core observations use float64. Both GPU paths include host transfers, and the CuPy path also performs some graph processing in Python. Include those costs when timing the complete fit. `batch_size` limits distance batches, not the total neighbor graph: dense neighborhoods can still require quadratic memory. Check label/noise stability near the `eps` boundary, where float32 comparisons can differ.
+
+Large common feature offsets can also erase separations during the GPU float32 conversion or expanded-distance calculation, even far from the `eps` boundary. Subtract one training-derived feature offset while the data are still float64, before fitting; translation preserves Euclidean distances and leaves `eps` unchanged. Keep that offset to interpret `components_` in original units. Finite labels alone do not establish that the neighbor graph is correct.
 
 ## Approximation and interpretation
 

@@ -10,13 +10,9 @@
 
 Use `PanelOLS` when you want to estimate how changes in a regressor relate to changes in an outcome after accounting for persistent differences between entities, shocks shared by a time period, or both. For example, entity effects compare a firm's changing inputs and outcomes after removing its stable baseline.
 
-- Set `entity_effects=True` to remove entity-specific levels. A regressor that never changes within an entity cannot have a separately identified slope in this model.
-- Add `time_effects=True` to remove period-specific levels shared across entities.
-- Both options default to `False`. Without either effect, this is a level regression; [PooledOLS](pooled-ols.md) offers a pooled model with an automatic intercept.
+Entity effects remove entity-specific levels, so a regressor that never changes within an entity cannot have a separately identified slope. Time effects remove period-specific levels shared across entities; two-way effects account for both kinds of differences.
 
 Fixed effects may be correlated with the regressor history. They do not remove time-varying confounding: the usual static-model interpretation still requires the idiosyncratic error to have conditional mean zero given that history and the included effects. The slope needs variation that survives removal of all selected effects.
-
-statgpu applies these transformations directly instead of building a large dummy-variable matrix. The statistical fixed-effects model is unchanged.
 
 Write the model as $y_{it}=x_{it}^{\top}\beta+a_i+\gamma_t+\varepsilon_{it}$, omitting an effect when it is not selected. Here $i$ indexes entities, $t$ indexes periods, $y_{it}$ is the response, $x_{it}$ is the row's predictor vector, and $\beta$ is the common slope vector. The entity level $a_i$ and period level $\gamma_t$ are fixed but unknown; $\varepsilon_{it}$ is the remaining observation-level error.
 
@@ -28,7 +24,7 @@ Use long-form data: one row per entity-period observation, not one column per pe
 
 - `X` has shape `(n_observations, n_features)` and `y` has shape `(n_observations,)`. Keep rows aligned across all arrays.
 - `entity_ids` identifies which entity produced each row; `time_ids` identifies its period. Each supplied ID array has one label per row. Labels are grouping metadata, not extra regressors.
-- Provide `entity_ids` for entity effects and `time_ids` for time effects. Supplying IDs alone does not turn on an effect in the array API.
+- Set `entity_effects=True` and provide `entity_ids` for entity effects; set `time_effects=True` and provide `time_ids` for time effects. Enable both and supply both ID arrays for two-way effects. Both options default to `False`: supplying IDs alone does not turn on an effect in the array API.
 - The array API does not add an intercept. With fixed effects, leave out a constant column because the effects already absorb it. Without effects, include a constant yourself if the level regression should have an intercept.
 
 The example below has `X.shape == (60, 1)`: 12 entities observed in 5 periods. The entity effect is related to the entity-specific level of `x`; within-entity changes still identify the slope.
@@ -83,6 +79,8 @@ For a one-way fit, a supplied known label adds its fitted effect; an omitted or 
 After formula fitting, `predict(new_df)` rebuilds the regressor design from the formula, but fixed-effect prediction IDs still need to be passed explicitly.
 
 ## Choose effects and standard errors
+
+Use `entity_effects=True` for within-entity comparisons, `time_effects=True` to account for common period shocks, or both for two-way effects. Both options default to `False`. Without either effect, this is a level regression; [PooledOLS](pooled-ols.md) offers a pooled model with an automatic intercept.
 
 Choose the effects from the comparison you want to make, then choose uncertainty settings for the remaining errors:
 
@@ -157,6 +155,8 @@ In the fixed-parameter formulation this expectation is understood conditional on
 The slope $\beta$ is identified only from regressor variation that remains after the included effects are removed. For example, a time-invariant regressor is absorbed by entity fixed effects and cannot have a separately identified slope in that specification. When both `entity_effects=False` and `time_effects=False`, the model reduces to an ordinary level regression and the fixed-effects interpretation above no longer applies.
 
 ## Estimator
+
+statgpu applies these transformations directly instead of building a large dummy-variable matrix. The statistical fixed-effects model is unchanged.
 
 Let $F$ denote the included fixed-effect design and $M_F=I-F(F^\top F)^+F^\top$. The slope estimate solves
 

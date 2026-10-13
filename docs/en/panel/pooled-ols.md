@@ -12,8 +12,6 @@ Use `PooledOLS` when the target is one common intercept and one set of slopes ac
 
 Pooling does not remove entity or time effects. For the usual interpretation of the slope, the composite error, including any unmodeled entity differences, must have conditional mean zero given the regressor history. If persistent entity differences are related to your regressors, consider [PanelOLS](panel-ols.md) with entity effects. Changing standard errors cannot fix that mean-model problem.
 
-Supplying `entity_ids` does not change the coefficients: it enables panel-specific fit statistics and the Breusch-Pagan LM diagnostic. It also does not automatically cluster standard errors.
-
 The model is $y_{it}=\alpha+x_{it}^{\top}\beta+u_{it}$: $i$ indexes entities, $t$ indexes periods, $y_{it}$ is the response, and $x_{it}$ is the predictor vector in that row of `X`. The intercept $\alpha$ and slopes $\beta$ are shared across all rows; $u_{it}$ includes any entity or time differences left outside the model. Fitting minimizes the sum of squared residuals $\sum_{i,t}(y_{it}-\alpha-x_{it}^{\top}\beta)^2$ over the stacked observations.
 
 ## Prepare the stacked observations
@@ -22,7 +20,7 @@ Stack your panel in long form, with one row per entity-period observation:
 
 - `X`: shape `(n_observations, n_features)`, containing regressors without an intercept column. `PooledOLS` always adds the intercept itself.
 - `y`: shape `(n_observations,)`, in the same row order as `X`.
-- Optional `entity_ids`: one entity label per row. Use it for within/between fit statistics and the LM diagnostic.
+- Optional `entity_ids`: one entity label per row. It enables panel-specific fit statistics, including within/between measures, and the Breusch-Pagan LM diagnostic without changing the coefficients. It does not automatically cluster standard errors; see [Choose standard errors for your panel](#choose-standard-errors-for-your-panel).
 - Optional `time_index`: one period label per row. It is required for Driscoll-Kraay covariance and can define the chronological order for HAC. This argument is named `time_index`, not `time_ids`.
 
 In the example, `X.shape == (60, 1)` represents 12 entities with 5 observations each. The data share a common intercept of 1 and slope of 2, with independent noise.

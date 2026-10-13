@@ -30,8 +30,10 @@ h_s(t\mid x)=h_{0s}(t)\exp(x^\top\beta).
 $$
 
 Here $h_{0s}$ is the baseline hazard in stratum $s$, $x$ is a covariate vector,
-and $\beta$ is the shared coefficient vector. The baseline describes how the
-instantaneous event hazard changes over time, and predictors multiply it.
+and $\beta$ is the shared coefficient vector. Each stratum has separately
+constructed risk sets and its own estimated baseline hazard. The baseline
+describes how the instantaneous event hazard changes over time, and predictors
+multiply it.
 Hazard describes how quickly an event occurs in the next small time interval
 among individuals who have remained event-free up to that time.
 For fixed covariates within the same stratum, the **proportional-hazards (PH)
@@ -42,15 +44,8 @@ by itself a causal effect. Check whether PH and the study design are reasonable;
 optimizer convergence alone does not validate these assumptions. Time-varying
 covariates can change `x(t)`, but their fitted coefficient remains constant.
 
-`CoxPH` implements proportional-hazards regression with Breslow, Efron, or Exact
-tie handling on NumPy, CuPy CUDA, and Torch CUDA. It supports ordinary
-right-censored observations, delayed entry, counting-process `(start, stop]`
-rows, stratification (`strata`), time-varying covariates, robust/cluster covariance,
-and L2-penalty selection through `CoxPHCV`. Each stratum has separately
-constructed risk sets and its own estimated baseline hazard, while the
-regression coefficients are shared.
-
-Start with the CPU walkthrough, then read the prediction and parameter sections.
+This page starts with ordinary right-censored data in the CPU walkthrough;
+more complex inputs are covered in [Input Shapes and Fit API](#input-shapes-and-fit-api).
 The later sections explain stratification, ties, and inference; the complete
 method inventory is in the [API reference](../reference/survival-smoothing-api.md#coxph-and-coxphcv).
 
@@ -227,6 +222,8 @@ confidence intervals.
 
 The matrix API is `CoxPH(...).fit(X, time, event, ...)` or
 `CoxPHCV(...).fit(X, time, event, ...)`; both return the fitted estimator.
+Both support ordinary right-censored observations, delayed entry, and
+time-varying covariates represented by counting-process `(start, stop]` rows.
 
 | Input | Shape / contract |
 |---|---|
@@ -880,6 +877,10 @@ approximate screening. `cv_results_` reports
 and effective modes and candidate masks.
 
 ## Support Matrix
+
+The table summarizes `CoxPH` and `CoxPHCV` support on NumPy, CuPy CUDA, and Torch
+CUDA. Read tie methods and backends together: robust inference is available on
+all three backends, but Exact ties do not support robust covariance.
 
 | Capability | Breslow | Efron | Exact | NumPy | CuPy | Torch |
 |---|---|---|---|---|---|---|

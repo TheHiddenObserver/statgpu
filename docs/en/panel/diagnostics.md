@@ -10,13 +10,15 @@ Panel diagnostics help answer model-selection questions such as whether fixed ef
 
 ## Choose the question, then check applicability
 
-- Do the fitted fixed effects add to a pooled common-intercept model? Use `PanelOLS.pooling_f_test()`.
-- Does a pooled model need an entity error component? Fit `PooledOLS` with `entity_ids`, then use `breusch_pagan_lm_test()`.
-- Is classical one-way entity RE compatible with FE on the same data? Use `hausman_test()` with aligned, full-rank, nonrobust fits.
+- Do the fitted fixed effects add to a pooled common-intercept model? Use the pooling F test.
+- Does a pooled model need an entity error component? Use the Breusch-Pagan LM test.
+- Is classical one-way entity RE compatible with FE on the same data? Use the Hausman test.
 
-These are different null hypotheses, not a sequence that automatically selects a valid model. Failure to reject does not establish the assumptions, and a smaller p-value in one test does not make it a substitute for another.
+These are different null hypotheses, not a sequence that automatically selects a valid model. Failure to reject does not establish the assumptions, and a smaller p-value in one test does not make it a substitute for another. The classical Hausman comparison requires the same aligned sample and coefficient design, uniquely identified coefficients, and nonrobust one-way entity FE and RE fits.
 
 ## Run the comparisons on one sample
+
+Call `PanelOLS.pooling_f_test()` for pooling F. For the LM test, fit `PooledOLS` with `entity_ids`, then call `breusch_pagan_lm_test()`. For Hausman, use `hausman_test()` on the compatible fitted FE and RE models. The sections below give each test's definition and applicability conditions.
 
 This example uses the same 30 entities and 8 observations per entity for all three fits. FE and RE use the same single slope column without a level constant; pooled OLS adds its own intercept. This simulation illustrates reading the tests, not deciding the assumptions of a real application.
 

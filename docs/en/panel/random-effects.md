@@ -14,7 +14,7 @@ The key assumption is stronger than for fixed effects: the entity-specific rando
 
 If stable entity differences are systematically related to the regressors, consider [PanelOLS](panel-ols.md) with entity effects. Robust standard errors do not remove this identification problem. `RandomEffects` models one random intercept per entity, not time random effects or random slopes.
 
-The fit estimates Swamy-Arora variance components, subtracts part of each entity mean (quasi-demeaning), then estimates the slopes by feasible GLS. A different `cov_type` changes uncertainty after that fit, not the variance components or coefficients.
+The fit estimates Swamy-Arora variance components, subtracts part of each entity mean (quasi-demeaning), then estimates the slopes by feasible GLS.
 
 The model is $y_{it}=x_{it}^{\top}\beta+a_i+\varepsilon_{it}$, where $i$ indexes entities and $t$ indexes periods. The response is $y_{it}$, $x_{it}$ is the row's predictor vector (including a constant if supplied), and $\beta$ contains the common coefficients. The random intercept $a_i$ is shared by all observations of entity $i$, while $\varepsilon_{it}$ is the observation-specific error.
 
@@ -80,6 +80,8 @@ To run this example on a GPU, replace `device="cpu"` with `device="cuda"` (CuPy/
 Use the same design columns and order as at fit time, including the explicit constant used in this example. After formula fitting, a DataFrame with the required regressors can be passed instead. A shortened array can omit the fitted explicit constant only when its identity is unambiguous; other feature-count mismatches are rejected. Keeping the full training design is the clearest array convention.
 
 ## Choose uncertainty settings and refit
+
+A different `cov_type` changes uncertainty after that fit, not the variance components or coefficients.
 
 Start with the random-effects assumptions above, then select the uncertainty model. The default is `cov_type="nonrobust"`; HC0/1/2/3, clustered, and Driscoll-Kraay alternatives are also available.
 
