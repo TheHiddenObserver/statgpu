@@ -9,7 +9,7 @@
 
 `statgpu.unsupervised` 提供 sklearn 风格的无监督学习估计器，并遵循显式 CPU、CuPy/CUDA、Torch CUDA 设备语义。可以通过下方模型指南比较目标函数、选择参数、解释拟合输出，并检查设备与输入限制。
 
-UMAP 可在内部使用近似近邻搜索，但该搜索不是单独导出的估计器。各模型按其适用操作提供 `fit`、`transform`、`predict`、`fit_predict` 和 `score` 风格。
+UMAP 可使用内部的 NNDescent 实现进行近似近邻搜索，但该搜索不是单独导出的估计器。各模型按其适用操作提供 `fit`、`transform`、`predict`、`fit_predict` 和 `score` 风格。
 
 ## 从你的问题选择模型
 

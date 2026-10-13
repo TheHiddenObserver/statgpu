@@ -9,7 +9,7 @@
 
 `statgpu.unsupervised` contains sklearn-style unsupervised estimators with explicit CPU, CuPy/CUDA, and Torch CUDA device behavior. Use the model guides below to compare objectives, choose parameters, interpret fitted outputs, and check device and input restrictions.
 
-UMAP can use internal approximate nearest-neighbor search; that search is not a separately exported estimator. The API follows the familiar `fit`, `transform`, `predict`, `fit_predict`, and `score` style where those operations make sense for the model.
+UMAP can use the internal NNDescent implementation for approximate nearest-neighbor search; that search is not a separately exported estimator. The API follows the familiar `fit`, `transform`, `predict`, `fit_predict`, and `score` style where those operations make sense for the model.
 
 ## Choose a starting point
 
