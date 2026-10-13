@@ -6,6 +6,8 @@
 
 This page covers all eight exports of `statgpu.feature_selection`: `StepwiseSelector`, `stepwise_selection`, `KnockoffResult`, `knockoff_filter`, `fixed_x_knockoff_filter`, `model_x_knockoff_filter`, `KnockoffSelector`, and `FixedXKnockoffSelector`. All except `KnockoffResult` also have top-level `statgpu` aliases. These classes do not inherit BaseEstimator's p-value/bootstrap helpers.
 
+For knockoff principles and method choice, read the [overview](../models/knockoff.md); follow the separate [Fixed-X tutorial](../models/knockoff-fixed-x.md) or [Model-X tutorial](../models/knockoff-model-x.md) for a complete workflow. This page is the complete interface, device, RNG, cache and fallback reference.
+
 ## StepwiseSelector
 
 ```python
@@ -138,7 +140,7 @@ for repeatable, separately seeded draws. NumPy
 construction with `None` remains unseeded. A valid supplied `Xk` bypasses
 construction. Check statistic repeatability separately, especially for the
 Lasso cache limitation below. See the
-[reproducibility guidance](../models/knockoff.md#reproducibility-of-generated-torch-model-x).
+[reproducibility guidance](../models/knockoff-model-x.md#reproducibility-of-generated-torch-model-x).
 
 <a id="repeated-lasso-statistic-calls"></a>
 
@@ -164,7 +166,7 @@ because temporary construction arrays are not retained by the caller.
 This small cache example checks which W is largest, not a discovery guarantee:
 its noiseless responses illustrate input changes, and p=4 at the default q=0.1
 cannot yield a knockoff+ discovery. For a Gaussian-response selection workflow,
-use the [centered-pair tutorial](../models/knockoff.md#centered-pair-example).
+use the [centered-pair tutorial](../models/knockoff-fixed-x.md#centered-pair-example).
 
 Start the following block in a fresh Python process. Re-running it in an old
 notebook namespace does not keep references from earlier runs alive; restart
@@ -243,11 +245,11 @@ but centers X without ensuring centered Xk. Its response-centered statistics
 can therefore have unequal projected Gram matrices and lose the usual null
 score-pair exchangeability, even without threshold ties or when n>2p. Increasing
 n alone does not repair this. Do not infer nominal FDR control from valid raw
-Grams or absence of ties. See the [centering explanation](../models/knockoff.md#generated-fixed-x-centering-limitation).
+Grams or absence of ties. See the [centering explanation](../models/knockoff-fixed-x.md#generated-fixed-x-centering-limitation).
 
 A supplied Xk bypasses construction. Check the complete matched-pair conditions
 after the intercept/nuisance projection as well as shape and rank. The centered
-[matched-pair tutorial](../models/knockoff.md#centered-pair-example) avoids this geometry defect for its special orthogonal design
+[matched-pair tutorial](../models/knockoff-fixed-x.md#centered-pair-example) avoids this geometry defect for its special orthogonal design
 with n≥2p+1; it is not a general arbitrary-X repair. Other statistical, threshold
 and cache limitations remain.
 
@@ -263,7 +265,7 @@ Knockoff construction/statistic inputs are converted to float64; selector `trans
 ## Runnable fixed-X example
 
 For the full workflow and a possible nonempty selection, start with the
-[centered matched-pair tutorial](../models/knockoff.md#centered-pair-example).
+[centered matched-pair tutorial](../models/knockoff-fixed-x.md#centered-pair-example).
 The selector example below instead illustrates a deliberately prespecified
 empty result: with p=5 and q=0.1, the smallest possible knockoff+ ratio is
 1/p=0.2>q. It therefore selects nothing for **any** feature statistics, even

@@ -405,7 +405,7 @@ def test_new_control_geometry_and_inference_boundaries_are_explicit(language):
         assert 'stopping' in text and 'KKT' in text
         assert ('ignored' in text or 'ignores' in text) if language == 'en' else '忽略' in text
     assert 'rho=1.0' in lasso and 'rho=1.0' in linear
-    for directory, page in [('models', 'knockoff'), ('reference', 'feature-selection-api')]:
+    for directory, page in [('models', 'knockoff-fixed-x'), ('reference', 'feature-selection-api')]:
         text = _page(language, directory, page)
         for token in ['Xk', 'n≥2p+1', 'Model-X']:
             assert token in text
@@ -423,7 +423,8 @@ def test_new_control_geometry_and_inference_boundaries_are_explicit(language):
         assert '拟合值加重采样残差' in lasso
         assert 'Formula 输入' not in _page(language, 'models', 'linear-regression')
         assert 'penalized solver API 迁移指南' not in enet
-        assert 'S-matrix 方法' not in _page(language, 'models', 'knockoff').replace('`', '')
+        for page in ('knockoff', 'knockoff-fixed-x', 'knockoff-model-x'):
+            assert 'S-matrix 方法' not in _page(language, 'models', page).replace('`', '')
         assert 'StepwiseSelector 消费' not in _page(language, 'reference', 'feature-selection-api')
 
 
@@ -533,9 +534,10 @@ def test_knockoff_q_defaults_and_installed_help_disclose_nan(entrypoint):
 
 
 @pytest.mark.parametrize('language', ['en', 'cn'])
-def test_knockoff_q_checks_are_executable_in_both_documented_workflows(language):
+def test_knockoff_q_checks_are_executable_in_each_documented_workflow(language):
     for directory, page, marker in [
-        ('models', 'knockoff', 'learner-example: knockoff-selection'),
+        ('models', 'knockoff-fixed-x', 'learner-example: knockoff-selection'),
+        ('models', 'knockoff-model-x', 'learner-example: knockoff-model-x'),
         ('reference', 'feature-selection-api', 'api-example: knockoff-selector'),
     ]:
         text = _page(language, directory, page)
@@ -580,7 +582,7 @@ def test_knockoff_torch_library_selection_preserves_cpu_inputs(monkeypatch, entr
 
 @pytest.mark.parametrize('language', ['en', 'cn'])
 def test_knockoff_torch_placement_and_two_row_normalization_are_explicit(language):
-    learner = _page(language, 'models', 'knockoff')
+    learner = _page(language, 'models', 'knockoff-fixed-x')
     reference = _page(language, 'reference', 'feature-selection-api')
     for text in [learner, reference]:
         assert 'Torch CPU' in text and 'CUDA' in text and 'device="torch"' in text

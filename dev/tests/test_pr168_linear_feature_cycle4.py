@@ -4,6 +4,7 @@ Known runtime limitations are observed conditionally, not required to persist.
 Correctness assertions cover the documented safe workflows and public results.
 """
 import linecache
+import re
 from pathlib import Path
 
 import numpy as np
@@ -131,11 +132,12 @@ def test_lasso_profile_discloses_changes_to_statistical_tuning():
         ))
     assert all(np.isfinite(result.W).all() for result in results)
     for language in ['en', 'cn']:
-        for directory, name in [('models', 'knockoff'), ('reference', 'feature-selection-api')]:
+        for directory, name in [('models', 'knockoff-fixed-x'), ('models', 'knockoff-model-x'),
+                                ('reference', 'feature-selection-api')]:
             text = _page(language, directory, name)
             assert 'lasso_fast_profile' in text
-            assert ('candidate penalties' in text if language == 'en' else '候选惩罚' in text)
-            assert ('selected features' in text or 'selected\nfeatures' in text if language == 'en' else '入选特征' in text)
+            assert re.search(r'candidate\s+penalties' if language == 'en' else r'候选\s*惩罚', text)
+            assert re.search(r'selected\s+features' if language == 'en' else r'(?:入选|所选)特征', text)
     assert 'not an\n        output-preserving speed switch' in fixed_x_knockoff_filter.__doc__
 
 

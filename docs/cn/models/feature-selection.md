@@ -199,7 +199,7 @@ BIC 下降解释了为什么搜索接受这两次加入。本次模拟恢复了�
 
 特征选择命名空间还导出 `KnockoffResult`、`knockoff_filter`、
 `fixed_x_knockoff_filter`、`model_x_knockoff_filter`、`KnockoffSelector` 和
-`FixedXKnockoffSelector`。完整参数与输出约定见 API 参考；fixed-X 要求以及高斯二阶 model-X 假设见 [knockoff 页面](knockoff.md)。这些方法解决的问题与贪心 AIC/BIC 搜索不同。
+`FixedXKnockoffSelector`。完整参数与输出约定见 API 参考；[knockoff 总览](knockoff.md)比较两类假设，[Fixed-X 教程](knockoff-fixed-x.md)与 [Model-X 教程](knockoff-model-x.md)分别解释配对设计和特征分布构造。这些方法解决的问题与贪心 AIC/BIC 搜索不同。
 
 - Akaike, H. (1974). A new look at the statistical model identification. *IEEE Transactions on Automatic Control*, 19(6), 716–723. [DOI](https://doi.org/10.1109/TAC.1974.1100705)
 - Schwarz, G. (1978). Estimating the dimension of a model. *The Annals of Statistics*, 6(2), 461–464. [DOI](https://doi.org/10.1214/aos/1176344136)

@@ -150,7 +150,8 @@ UMAP 可通过 `nn_method="nndescent"` 使用内部的 NNDescent 近似近邻搜
 ## 特征选择与诊断
 
 - `StepwiseSelector` 与 `stepwise_selection`
-- fixed-X / model-X knockoff 筛选及选择器封装
+- [Knockoff 总览](../models/knockoff.md) — 原理、假设与结果解释
+  - [Fixed-X 教程](../models/knockoff-fixed-x.md) · [Model-X 教程](../models/knockoff-model-x.md) · [完整特征选择 API](../reference/feature-selection-api.md)
 - `RegressionDiagnostics` 与 `diagnose_model`
 
 ## 多重检验与重抽样

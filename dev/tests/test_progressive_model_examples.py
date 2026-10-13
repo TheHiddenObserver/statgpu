@@ -36,7 +36,8 @@ FIRST_EXAMPLES = {
     'kernel-ridge-cv': 'kernel-ridge-cv-cpu',
     'kernel-pca': 'kernel-pca-cpu',
     'kernel-nystroem': 'kernel-nystroem-cpu',
-    'knockoff': 'knockoff-selection',
+    'knockoff-fixed-x': 'knockoff-selection',
+    'knockoff-model-x': 'knockoff-model-x',
     'lasso': 'lasso-prediction',
     'linear-regression': 'linear-prediction',
     'logistic-regression': 'logistic-unpenalized',
@@ -119,8 +120,13 @@ EXPECTED_EXAMPLES = {
     },
     'kernel-pca': {'kernel-pca-cpu': ()},
     'kernel-nystroem': {'kernel-nystroem-cpu': ()},
-    'knockoff': {
+    'knockoff-fixed-x': {
         'knockoff-selection': (),
+        'knockoff-fixed-x-selector': ('knockoff-selection',),
+    },
+    'knockoff-model-x': {
+        'knockoff-model-x': (),
+        'knockoff-model-x-selector': ('knockoff-model-x',),
     },
     'lasso': {
         'lasso-prediction': (),
@@ -348,7 +354,7 @@ UNMARKED_EXAMPLES = {
     'covariance': ('gpu', 'gpu', 'import-inventory'),
     'coxph': ('formula-sketch',),
     'generalized-linear-model': ('gpu', 'configuration', 'configuration'),
-    'knockoff': ('gpu', 'gpu'),
+    'knockoff-fixed-x': ('gpu', 'gpu'),
     'logistic-regression': ('gpu',),
     'ordered': ('gpu',),
     'poisson-regression': ('gpu',),

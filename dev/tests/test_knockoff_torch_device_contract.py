@@ -316,7 +316,7 @@ def test_installed_fixedx_help_and_modelx_help_agree_on_input_device():
 @pytest.mark.parametrize("language", ["en", "cn"])
 def test_bilingual_docs_describe_device_seed_scope_and_valid_external_pairs(language):
     reference = (ROOT / f"docs/{language}/reference/feature-selection-api.md").read_text()
-    model = (ROOT / f"docs/{language}/models/knockoff.md").read_text()
+    model = (ROOT / f"docs/{language}/models/knockoff-model-x.md").read_text()
     for text in (reference, model):
         text = " ".join(text.split())
         for required in ('compat_mode="statgpu"', 'Xk=None', 'backend="numpy"',

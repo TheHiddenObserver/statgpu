@@ -40,6 +40,8 @@ CuPy 请按 CUDA 主版本安装 `statgpu[gpu11]` 或 `statgpu[gpu12]`；PyTorch
   - [完整核方法 API](reference/kernel-methods-api.md)
 - [无监督学习](models/unsupervised.md)
 - [特征选择](models/feature-selection.md)
+- [Knockoff 总览](models/knockoff.md) — 原理、假设与结果解释
+  - [Fixed-X 教程](models/knockoff-fixed-x.md) · [Model-X 教程](models/knockoff-model-x.md) · [完整特征选择 API](reference/feature-selection-api.md)
 - [回归诊断](guides/regression-diagnostics.md)
 
 ## 优化与兼容性参考

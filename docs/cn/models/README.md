@@ -63,7 +63,8 @@
 - [样条基函数](splines.md)
 - [GAM / 半参数模型](semiparametric.md)
 - [特征选择](feature-selection.md)
-- [Knockoff](knockoff.md)
+- [Knockoff 总览](knockoff.md) — 原理、假设与结果解释
+  - [Fixed-X 教程](knockoff-fixed-x.md) · [Model-X 教程](knockoff-model-x.md) · [完整特征选择 API](../reference/feature-selection-api.md)
 - [多重检验](multiple-testing.md)
 
 ## 无监督学习

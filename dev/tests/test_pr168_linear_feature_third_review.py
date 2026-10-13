@@ -44,7 +44,7 @@ def _execute_marked_example(text, marker):
 
 @pytest.mark.parametrize('language', ['en', 'cn'])
 def test_knockoff_learner_example_is_complete_and_interprets_selection(language):
-    text = _page(language, 'models', 'knockoff')
+    text = _page(language, 'models', 'knockoff-fixed-x')
     namespace = _execute_marked_example(text, 'learner-example: knockoff-selection')
     result = namespace['result']
     np.testing.assert_array_equal(result.selected_features, [0, 1, 2, 3, 4, 5, 15])
@@ -53,7 +53,7 @@ def test_knockoff_learner_example_is_complete_and_interprets_selection(language)
     assert result.metadata['xk_source'] == 'provided'
     assert namespace['q'] == .20
     assert np.count_nonzero(namespace['beta']) == 6
-    assert ('not the actual fraction' in text if language == 'en' else '不是这一次样本' in text)
+    assert ('not the realized fraction' in text if language == 'en' else '不是本次实际的无效特征比例' in text)
 
 
 @pytest.mark.parametrize('language', ['en', 'cn'])
@@ -112,9 +112,10 @@ print(json.dumps(result.W.tolist()))
     if not np.allclose(changed.W, cold):
         for language in ['en', 'cn']:
             text = _page(language, 'reference', 'feature-selection-api')
-            learner = _page(language, 'models', 'knockoff')
             assert 'repeated-lasso-statistic-calls' in text
-            assert 'repeated-lasso-statistic-calls' in learner
+            for page in ('knockoff-fixed-x', 'knockoff-model-x'):
+                learner = _page(language, 'models', page)
+                assert 'repeated-lasso-statistic-calls' in learner
             assert ('fresh Python process' in text if language == 'en' else '新的 Python 进程' in text)
             assert ('memory identity' in text if language == 'en' else '内存标识' in text)
         assert 'reuse stale statistics' in fixed_x_knockoff_filter.__doc__

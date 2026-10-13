@@ -6,7 +6,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 MODELS = (
-    "linear-regression", "ridge", "lasso", "elastic-net", "knockoff", "nonparametric",
+    "linear-regression", "ridge", "lasso", "elastic-net", "knockoff", "knockoff-fixed-x", "knockoff-model-x", "nonparametric",
 )
 
 

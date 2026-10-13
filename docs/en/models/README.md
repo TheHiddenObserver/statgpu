@@ -72,7 +72,8 @@ NumPy/CuPy/Torch support matrix.
 - [Spline Basis Functions](splines.md)
 - [GAM / Semiparametric Models](semiparametric.md)
 - [Feature Selection](feature-selection.md)
-- [Knockoffs](knockoff.md)
+- [Knockoff overview](knockoff.md) — principles, assumptions and interpretation
+  - [Fixed-X tutorial](knockoff-fixed-x.md) · [Model-X tutorial](knockoff-model-x.md) · [Complete feature-selection API](../reference/feature-selection-api.md)
 - [Multiple Testing](multiple-testing.md)
 
 ## Unsupervised Learning

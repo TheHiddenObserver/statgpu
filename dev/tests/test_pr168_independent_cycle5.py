@@ -163,11 +163,12 @@ def test_cox_cv_packed_target_matches_separate_arguments(columns):
         assert token in help_text
 
 
-def test_knockoff_faq_retains_both_gpu_backend_choices():
-    page = (ROOT / "docs/en/models/knockoff.md").read_text()
-    faq = page.split("## FAQ", 1)[1].split("## ", 1)[0]
-    assert 'backend="cupy"' in faq and 'backend="torch"' in faq
-    assert "Torch CUDA tensors" in faq and "GPU? Yes" not in faq
+def test_knockoff_tutorial_retains_both_gpu_backend_choices():
+    page = (ROOT / "docs/en/models/knockoff-fixed-x.md").read_text()
+    gpu = page.split("## Optional GPU versions of the same example", 1)[1].split("## Statistical scope", 1)[0]
+    assert 'backend="cupy"' in gpu and 'backend="torch"' in gpu
+    assert 'torch.from_numpy(a).to("cuda")' in gpu
+    assert "Torch CPU" in gpu and "same device" in gpu and "GPU? Yes" not in gpu
 
 
 @pytest.mark.parametrize("name", ["rbf_kernel", "polynomial_kernel", "linear_kernel",

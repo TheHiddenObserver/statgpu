@@ -74,7 +74,8 @@
   - [EmpiricalCovariance](models/covariance-empirical.md) · [ShrunkCovariance](models/covariance-shrunk.md) · [LedoitWolf](models/covariance-ledoit-wolf.md) · [OAS](models/covariance-oas.md) · [MinCovDet](models/covariance-min-cov-det.md) · [GraphicalLasso](models/covariance-graphical-lasso.md) · [GraphicalLassoCV](models/covariance-graphical-lasso-cv.md)
   - [Complete covariance API](reference/covariance-api.md)
 - [Multiple Testing](models/multiple-testing.md) — p-value adjustment and combination
-- [Knockoff](models/knockoff.md) — knockoff feature selection
+- [Knockoff overview](models/knockoff.md) — principles, assumptions and interpretation
+  - [Fixed-X tutorial](models/knockoff-fixed-x.md) · [Model-X tutorial](models/knockoff-model-x.md) · [Complete feature-selection API](reference/feature-selection-api.md)
 - [Feature Selection](models/feature-selection.md) — stepwise selection and knockoff overview
 - [Regression Diagnostics](guides/regression-diagnostics.md) — residuals, leverage, Cook’s distance, and VIF
 

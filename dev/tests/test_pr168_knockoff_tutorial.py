@@ -23,7 +23,7 @@ def _example(language, page, marker):
 
 @pytest.mark.parametrize("language", ["en", "cn"])
 def test_first_tutorial_supplies_centered_complete_matched_pair(language):
-    _, _, ns = _example(language, "models/knockoff", "learner-example: knockoff-selection")
+    _, _, ns = _example(language, "models/knockoff-fixed-x", "learner-example: knockoff-selection")
     X, Xk, y = (ns[name] for name in ("X", "Xk", "y"))
     n, p = X.shape
     assert (n, p, ns["q"]) == (240, 20, .20)
@@ -45,7 +45,7 @@ def test_first_tutorial_supplies_centered_complete_matched_pair(language):
 
 @pytest.mark.parametrize("language", ["en", "cn"])
 def test_tutorial_statistics_and_complete_threshold_counts_agree(language):
-    text, code, ns = _example(language, "models/knockoff", "learner-example: knockoff-selection")
+    text, code, ns = _example(language, "models/knockoff-fixed-x", "learner-example: knockoff-selection")
     X, Xk, y, result = (ns[name] for name in ("X", "Xk", "y", "result"))
     expected_w = abs(X.T @ (y - y.mean())) - abs(Xk.T @ (y - y.mean()))
     np.testing.assert_allclose(result.W, expected_w, atol=1e-14)
@@ -79,12 +79,12 @@ def test_selector_example_teaches_inevitable_empty_result(language):
     assert result.estimated_fdr == 0
     assert ns["selected"].shape == (10, 0)
     assert "1/p=0.2>q" in text
-    assert "../models/knockoff.md#centered-pair-example" in text
+    assert "../models/knockoff-fixed-x.md#centered-pair-example" in text
 
 
 @pytest.mark.parametrize("language", ["en", "cn"])
 def test_knockoff_learner_links_contributor_validation_instead_of_listing_scripts(language):
-    text = (ROOT / f"docs/{language}/models/knockoff.md").read_text(encoding="utf-8")
+    text = (ROOT / f"docs/{language}/models/knockoff-fixed-x.md").read_text(encoding="utf-8")
     assert "../../../dev/references/model-validation.md#knockoff" in text
     assert "dev/benchmarks/benchmark_knockoff_" not in text
     assert "#centered-pair-example" in text

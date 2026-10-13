@@ -72,7 +72,8 @@
   - [EmpiricalCovariance](models/covariance-empirical.md) · [ShrunkCovariance](models/covariance-shrunk.md) · [LedoitWolf](models/covariance-ledoit-wolf.md) · [OAS](models/covariance-oas.md) · [MinCovDet](models/covariance-min-cov-det.md) · [GraphicalLasso](models/covariance-graphical-lasso.md) · [GraphicalLassoCV](models/covariance-graphical-lasso-cv.md)
   - [完整协方差 API](reference/covariance-api.md)
 - [多重检验](models/multiple-testing.md) — p 值校正与合并
-- [Knockoff](models/knockoff.md) — knockoff 特征选择
+- [Knockoff 总览](models/knockoff.md) — 原理、假设与结果解释
+  - [Fixed-X 教程](models/knockoff-fixed-x.md) · [Model-X 教程](models/knockoff-model-x.md) · [完整特征选择 API](reference/feature-selection-api.md)
 - [特征选择](models/feature-selection.md) — 逐步选择与 knockoff 概览
 - [回归诊断](guides/regression-diagnostics.md) — 残差、杠杆值、Cook 距离与 VIF
 

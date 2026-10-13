@@ -1,383 +1,136 @@
 # Knockoff 特征选择
 
-> 语言: 中文  
-> 最后更新：2026-10-09\
-> 页面定位: 方法文档  
-> 切换: [English](../../en/models/knockoff.md)
+> 语言：中文  
+> 最后更新：2026-10-13  
+> 本页：原理与方法选择  
+> 切换：[English](../../en/models/knockoff.md)
 
 <a id="概览"></a>
 
 ## Knockoff 选择要解决什么问题？
 
-当你希望找出影响响应的预测变量，同时限制错误发现时，可以考虑 Knockoff。
-错误发现率（FDR）是所选特征中实际无效特征比例的期望值，未选中任何特征时
-该比例按零计；它不是“所有所选特征都正确”的概率。
+当很多预测变量都可能与响应有关，而把噪声误选为信号的代价较高时，可以让每个变量与一个人工负对照竞争。Knockoff 的目标是在相应假设成立时，筛选原始特征并控制错误发现率（FDR）。
 
-Knockoff 可以理解为匹配的负对照：每个原特征都与一个依赖结构相似的人造
-对应变量竞争。较大的正统计量 W 表示原特征比其 knockoff 更重要；比较正、
-负统计量，可以确定选择原始列的阈值。
+若 R 是选中的特征数，V 是其中零假设成立的特征数，则
+$$
+\operatorname{FDR}=\mathbb{E}\left[\frac{V}{\max(R,1)}\right].
+$$
+这是重复抽样下错误发现比例的期望，空选择记作零；它不是逐个特征的正确概率，也不保证每次选择都没有错误。某一次样本的错误发现比例可以超过目标 q。
 
-使用 fixed-X，需要可信的匹配设计，以及具有独立同方差正态误差的高斯线性
-响应模型。Model-X 则需要可信的特征分布构造，响应关系可以是任意形式。
-当前自动构造和阈值并列存在重要[限制](#统计量并列时的限制)，选择一个 API
-分支不代表假设自动成立。若主要关注预测，可比较[逐步选择](feature-selection.md)，
-并用留出数据评价。
+如果首要目标是预测，可以比较[逐步选择](feature-selection.md)，并用留出数据衡量效果。Knockoff 筛选本身不拟合预测模型，也不提供回归系数的 p 值。
 
-全部函数/选择器签名、参数和结果字段见[特征选择 API 参考](../reference/feature-selection-api.md)。
+<a id="协方差与推断"></a>
+<a id="常见问题faq"></a>
+## 先选择可信的假设，再选择接口
 
-<a id="先验证目标错误率"></a>
+| 方法 | 哪些条件需要可信？ | 从哪里开始 |
+|---|---|---|
+| Fixed-X | 截距或其他干扰项投影后的有效配对设计、相容的统计量，以及误差独立同方差且服从正态分布的线性响应模型 | [Fixed-X 教程](knockoff-fixed-x.md) |
+| Model-X | 原特征与 knockoff 成对可交换，且给定 X 后 knockoff 与 y 条件独立；响应关系可以非线性 | [Model-X 教程](knockoff-model-x.md) |
 
-## 在选择前确定目标错误率
+两条路径都会计算统计量并应用阈值，但依赖不同的设计或特征分布假设，不能把两者当作速度或数值精度档位。Model-X 不是简单地把 fixed-X 改成适用于更少样本的版本。根据任意观测数据估计高斯特征分布，并不能确立精确的 model-X 条件；选择函数名称也不会替你验证这些假设。
 
-应在查看发现结果前确定 q 和统计量。Knockoff+ 即使在最有利的情况下，阈值
-计数比也不会低于 1/p。因此 q=0.20 要求合格阈值至少对应五个正向发现；
-20 个预测变量使非空选择成为可能，但不保证一定有发现。应根据可接受的
-错误率选择 q，而不是用它调出期望的特征数量。
+### 响应模型假设
 
-调用过滤函数或拟合选择器前，应检查 `np.isfinite(q) and 0 < q < 1`。
-这适用于三个过滤函数、两个选择器类及两种阈值规则。当前验证会漏过 `q=np.nan`，
-并可能返回空选择、`threshold=inf`、`estimated_fdr=0.0` 或全为 False 的选择掩码。
-此时结果无效，不能解释为在合理目标错误率下未发现特征。请自行拒绝非有限 q，
-也不要在查看结果后改换目标错误率。
-
-<a id="centered-pair-example"></a>
-
-<a id="完整的-cpu-示例"></a>
-
-## 使用有效外部配对的完整 CPU 示例
-
-下面的受控模拟在生成 y 之前一起构造 X 与 Xk。QR 正交化的第一列留给截距，
-其余列分成两组中心化且相互正交的变量，因此 XᵀX=XkᵀXk=I、XᵀXk=0。
-它们满足 S=I 时 fixed-X 的匹配 Gram 条件，截距投影后仍然成立。
-这一构造需要 n≥2p+1。
-
-这是特殊的模拟设计，不是修复任意观测 X 的方法。分析自己的数据时，需要为
-原设计取得并验证匹配 X/Xk，包括截距或干扰变量投影后的配对条件。不要用
-这段 QR 代码替换已经观测到的预测变量，也不要只对自动生成的 Xk 再做中心化；
-前者会改变分析问题，后者可能破坏 Gram 约束。提供 `Xk` 可跳过目前存在
-[中心化限制](#自动-fixed-x-构造的中心化限制)的自动构造。
-
-这里预先设定 p=20、q=0.20、六个非零系数和 `corr_diff` 统计量。
-响应包含截距与标准差为 0.5 的独立高斯噪声，符合 fixed-X 响应模型假设。
-
-按顺序运行以下代码。`X` 与外部 knockoff 矩阵 `Xk` 的形状均为 `(240, 20)`，
-`y` 为每条观测提供一个响应，共 240 个值。
-
-<!-- learner-example: knockoff-selection -->
-```python
-import numpy as np
-from statgpu import fixed_x_knockoff_filter
-```
-
-### 预先设定设计与目标错误率
-
-生成响应前先设定维度与目标错误率。下文调用将使用预先选定的 `corr_diff`
-统计量与 knockoff+ 规则。
-
-```python
-n, p = 240, 20
-q = 0.20
-if not (np.isfinite(q) and 0 < q < 1):
-    raise ValueError("q must be finite and strictly between 0 and 1")
-```
-
-### 构造并检查外部配对
-
-把常数方向留给截距，再取两组正交列。这是上文说明的特殊模拟设计。
-
-```python
-rng = np.random.default_rng(42)
-Q, _ = np.linalg.qr(np.column_stack([np.ones(n), rng.normal(size=(n, 2*p))]))
-X, Xk = Q[:, 1:p+1], Q[:, p+1:2*p+1]
-```
-
-使用配对前，检查中心化与三项 Gram 约束。这些检查验证的是本次模拟设计，
-不能据此断言任意数据都满足条件。
-
-```python
-np.testing.assert_allclose(X.mean(axis=0), 0, atol=1e-14)
-np.testing.assert_allclose(Xk.mean(axis=0), 0, atol=1e-14)
-np.testing.assert_allclose(X.T @ X, np.eye(p), atol=1e-14)
-np.testing.assert_allclose(Xk.T @ Xk, np.eye(p), atol=1e-14)
-np.testing.assert_allclose(X.T @ Xk, 0, atol=1e-14)
-```
-
-### 生成响应并选择特征
-
-只有原始矩阵的前六列影响模拟响应。配对构造完成后，再以独立、等方差的高斯噪声
-生成 y。
-
-```python
-beta = np.zeros(p)
-beta[:6] = [8, -7, 6, -5, 4, -3]
-y = 2.0 + X @ beta + rng.normal(scale=0.5, size=n)
-```
-
-显式传入两个矩阵，跳过自动构造。
-
-```python
-result = fixed_x_knockoff_filter(
-    X, y, Xk=Xk, q=q, method="corr_diff",
-    fdr_control="knockoff_plus", backend="numpy",
-)
-```
-
-查看所选原始列的索引与阈值相关量；下一节解释它们能说明什么，以及不能说明什么。
-
-```python
-print("Selected columns:", result.selected_features.tolist())
-print("Threshold:", round(result.threshold, 3))
-print("Threshold ratio:", round(result.estimated_fdr, 3))
-```
-<!-- example-end: knockoff-selection -->
-
-## 如何理解选择结果及其不确定性
-
-该种子下，输出为 `Selected columns: [0, 1, 2, 3, 4, 5, 15]`，阈值 `1.019`，
-阈值计数比 `0.143`。索引从零开始，对应原始列。由于模拟真值已知，
-我们知道第 0–5 列是真信号，第 15 列是一次错误发现。目标 q 不保证每个
-入选特征都正确，也不约束每一次样本的实际错误发现比例。
-
-`corr_diff` 使用 W_j=|X_jᵀ(y−ȳ)|−|Xk_jᵀ(y−ȳ)|。例如，
-`result.W[0]` 约为 6.386，支持原始信号；`result.W[11]` 约为 −0.921，
-更支持其 knockoff。本次运行没有绝对统计量并列。在所选阈值处，有七个 W
-达到正阈值，没有 W 小于等于 −T，因此 knockoff+ 计数比为 (1+0)/7。
-`estimated_fdr` 是规则给出的估计值，不是这一次样本中实际无效特征的比例，
-也不是逐特征 p 值。
-其他样本可能遗漏信号或选中更多噪声，一次模拟结果也不能实证证明 FDR 控制。
-
-输入有效时，空选择也是有效结果：没有阈值满足规则，`threshold` 为无穷大，
-实现报告 `estimated_fdr=0.0`，但这不证明所有预测变量都无效。应保留预设 q，
-检查假设和检验效能，而不是看到结果后再放宽 q。API 参考提供了一个
-[必然返回空选择的小例子](../reference/feature-selection-api.md#runnable-fixed-x-example)。
-
-过滤函数不拟合系数或预测模型。如果还要评价预测，应在每个训练折内重新选择，
-再用选中列拟合独立模型，并将评价行单独保留。
+Fixed-X 使用 y=b1+Xβ+ε，其中 ε∼N(0,σ²I)，零假设特征在该模型中满足 β_j=0。设计与统计量必须在处理截距或其他干扰项后仍相容。Model-X 则依赖特征分布：交换任意一组原特征与对应 knockoff 列后，联合分布应保持不变，而且给定 X 后 Xk 与 y 条件独立。这里的零假设是：给定其余原始特征后，y 与该特征条件独立。两类构造的理论来源见[参考文献](#参考references)，具体要求见各自教程。
 
 <a id="目标函数"></a>
 
 ## 阈值如何工作
 
-统计目标是在给定 FDR 水平 `q` 下，通过 knockoff 统计量 `W` 与阈值规则（`knockoff_plus` 或 `knockoff`）选择特征集合。达到该目标仍需满足相关假设，并考虑下文说明的自动构造中心化与并列计数限制。
+1. 构造有效配对矩阵 Xk，不能以破坏假设的方式使用响应信息。
+2. 每个特征计算一个原特征对照 knockoff 的统计量 W_j；交换配对时其符号应反转，较大的正值有利于原特征。
+3. 利用较大的负统计量估计错误竞争的规模，确定阈值 T，并选择 W_j ≥ T 的原始列。
+
+`corr_diff` 比较原特征和 knockoff 与中心化响应的绝对内积：
+$$
+W_j=|X_j^\mathsf{T}(y-\bar y)|-|Xk_j^\mathsf{T}(y-\bar y)|.
+$$
+它衡量边际关联，因此可能遗漏纯非线性效应，例如对称分布特征的平方项。`ols_coef_diff` 与 `lasso_coef_diff` 比较系数绝对值。更复杂的统计量可以改变检出能力，但不能修复无效配对或错误的阈值计数。
+
+<a id="先验证目标错误率"></a>
+
+## 在选择前确定目标错误率
+
+在查看发现结果前，先确定 q、假设集合、统计量和 Lasso 计算配置。每次调用筛选函数或拟合选择器之前，都应检查 `np.isfinite(q) and 0 < q < 1`。当前实现对两种阈值规则都会漏过 `q=np.nan`，可能返回 `threshold=inf`、`estimated_fdr=0.0` 的无效空选择，因此必须自行拒绝非有限 q。
+
+Knockoff+ 最小可能比例是 1/p。q=0.20 时，合格阈值至少需要五个正向发现；p=20 只是允许出现非空选择，并不保证会选中变量。不要看完结果再增大 q，也不要为了获得发现而加入不相关特征。
 
 <a id="估计方程"></a>
 
 ### Knockoff+ 规则
 
-构造 knockoff 特征并计算反对称特征统计量 $W_j$ 后，knockoff+ 使用阈值
-
+理论阈值从非零绝对统计量的不同取值中选取：
 $$
-T=\min\left\{t\in\{|W_j|:|W_j|>0\}:\frac{1+\#\{j:W_j\le-t\}}{\max(1,\#\{j:W_j\ge t\})}\le q\right\},\qquad
-\widehat S=\{j:W_j\ge T\}.
+T = \min \left\{ t\in\{|W_j|:|W_j|>0\} : \frac{1+\#\{j:W_j\le -t\}}{\max(1,\#\{j:W_j\ge t\})}\le q \right\}.
 $$
-
-q 为目标 FDR，$\#\{\cdot\}$ 表示计数；没有合格阈值时选择为空。`fdr_control="knockoff"` 将分子中的 1 换为 0，其理论错误率目标与 knockoff+ 不同，不能仅把两者理解为数值精度模式。
-
-`model_x` 可通过 `modelx_draws` 进行多次采样并平均统计量。增加抽样有助于减小蒙特卡洛波动，但不自动为平均后的统计量建立 FDR 保证；估计的高斯特征模型也不能保证任意特征分布下的可交换性。
+每个候选阈值都必须计入满足条件的**所有**特征；没有合格阈值就不选择任何特征。默认的 `fdr_control="knockoff_plus"` 在分子中使用偏移量 1；`fdr_control="knockoff"` 使用偏移量 0，对应不同的修正 FDR 目标，并不是 knockoff+ 的数值近似。
 
 ### 统计量并列时的限制
 
-上式是理论 knockoff+ 阈值规则。当前实现遇到绝对统计量并列时可能与该规则不一致：先评估并列组中的部分累计计数，再选择整个阈值组。W=[8,8,-8]、q=0.5 时，可能报告阈值 8、estimated_fdr=0.5，但完整阈值计数比为 (1+1)/2=1，理论规则应不选择任何特征。阈值出现并列时，不能把当前输出解释为满足名义 knockoff+ FDR 控制。偏移为 0 的 `knockoff` 也受同一计数限制影响。重新拟合系数、增加抽样次数或更换设备都不能修复它。
+当前实现可能只累计并列组中的一部分就评估阈值，随后却选中整个阈值组。例如 W=[8,8,-8]、q=0.5 时，可能报告阈值 8、estimated_fdr=0.5，而完整阈值比例为 (1+1)/2=1，理论规则应当不选择。不能把这种并列阈值结果解释为名义 knockoff+ FDR 控制；偏移量为 0 的 `knockoff` 也有相同计数限制。增加抽样次数、重拟合系数或更换设备都不能修复它。除了构造有效性，还要检查并列统计量。
+
+<a id="输出outputs"></a>
+## 如何理解选择结果及其不确定性
+
+`selected_features` 是从零开始的原始列索引，`W` 是竞争统计量，`threshold` 是筛选界限。`estimated_fdr` 是阈值规则的估计量，不是实际错误发现比例或逐特征 p 值。`q_trajectory` 记录逐秩诊断信息，不能证明整个并列组已正确计数；查看 `metadata` 可了解实际执行的构造和抽样次数。
+
+输入有效时，空选择可能意味着没有阈值合格。此时 `threshold` 为无穷大，实现报告 `estimated_fdr=0.0`，但这不证明所有预测变量都是零假设特征。[Fixed-X 教程](knockoff-fixed-x.md) 用已知真值的模拟解释一个包含错误发现的结果；[Model-X 教程](knockoff-model-x.md) 则独立演示特征分布构造与非线性响应。
+
+选择器提供 `result_`、`selected_features_`、`get_support()` 和 `transform()`，其 `fit` 返回选择器自身。它们不是预测模型：应在每个训练折内重新筛选，再用所选训练列拟合独立估计器，最后在未参与选择的样本上评价。拟合失败后可能仍能访问上次成功的选择状态；应创建新选择器并成功拟合，才能把输出解释为新数据的结果。
+
+<a id="centered-pair-example"></a>
+<a id="完整的-cpu-示例"></a>
+
+<a id="构造并检查外部配对"></a>
+<a id="生成响应并选择特征"></a>
+<a id="预先设定设计与目标错误率"></a>
+## 使用有效外部配对的完整 CPU 示例
+
+[自包含的 Fixed-X 教程](knockoff-fixed-x.md) 构造中心化 QR 配对，验证全部 Gram 条件，生成高斯响应，并演示筛选函数和选择器。n≥2p+1 是这项特殊构造的条件，不能用模拟 QR 设计替换真实测量的预测变量。如果研究的是独立高斯随机特征，请使用单独的 [Model-X 示例](knockoff-model-x.md)。
 
 ### 自动 fixed-X 构造的中心化限制
 
-自动 fixed-X 构造会中心化 X，但生成的 Xk 列均值可能不为零。
-`corr_diff`、`ols_coef_diff` 和非 knockpy 兼容模式的原生 Lasso 统计量会中心化 y。
-因此，原始 Gram 矩阵相等不代表响应中心化投影 P=I−11ᵀ/n 后仍相等：
-XᵀPX 与 XkᵀPXk 可能不同。即使列满秩且 n>2p，也会破坏通常的零假设
-得分对可交换性论证。这与阈值并列问题独立，单纯增加 n 不能修复当前构造，
-避开并列也不足以为自动生成的 fixed-X 输出声称名义 FDR 控制。
-
-例如输入 X=[−1,1]ᵀ 的 Gram 为 2；经过单位范数标准化后，
-工作设计为 X_work=[−1,1]ᵀ/√2。构造种子为 7 时，生成的 knockoff 约为
-[0.707,0.707]ᵀ。这两个工作矩阵在投影前的 Gram 都是 1，投影后却分别为 1 和 0。
-任何非常数中心化响应及其相反数都会得到正的相关差统计量。这展示的是零假设符号对称性丢失，
-不是测得 FDR 超标：单特征 knockoff+ 不会选择任何变量。
-
-真正中心化且满足完整配对约束的外部 X/Xk 可以避开这一几何问题。
-应检查截距/干扰变量投影后的完整匹配 Gram 条件，而不只是相同形状或边际范数。
-[中心化配对示例](#centered-pair-example)
-构造了一个要求 n≥2p+1 的特殊设计，不是任意 X 的通用修复；事后单独中心化
-自动生成的 Xk 也可能破坏 Gram 约束。外部配对几何有效时，响应假设、
-统计量有效性、阈值并列和缓存限制仍然需要检查。
-
-### 响应模型假设
-
-引用的 [fixed-X 有限样本结果](https://arxiv.org/html/1404.5609v3)要求高斯线性响应
-模型 y=b1+Xβ+ε，其中 ε∼N(0,σ²I) 为相互独立、同方差的正态误差，
-并要求配对设计、统计量和截距处理相容。函数接受有限 y，并不表示这些假设成立。
-
-[Model-X 理论](https://arxiv.org/abs/1610.02351)则依赖特征配对可交换性，
-以及给定 X 后 knockoff 与 y 条件独立，响应关系可以是任意形式。
-因此它不只是保留相同假设的小样本替代方案。本实现估计高斯特征分布并可平均
-多次抽样统计量，仍受下文所述限制。
-
-## 协方差与推断
-
-Knockoff 为选择推断框架，不采用回归模型中的 `cov_type` 协方差配置。其统计保证依赖 knockoff 构造假设与阈值规则。
-
-`compat_mode` 支持：
-- `statgpu`：默认实现
-- `knockpy`：兼容路径（部分采样器分发入口仍为占位）。可选包缺失或 S 矩阵求解报错时，可能改用样本协方差或等相关 S 矩阵。应检查 `metadata["modelx_covariance_estimator"]` 与 `metadata["modelx_smatrix_source"]`，不能仅凭请求名称判断执行方法，详见[兼容模式参考](../reference/feature-selection-api.md)。
-
-## 参数
-
-统一入口 `knockoff_filter` 关键参数如下：
-
-| 参数 | 默认值 | 说明 |
-|---|---:|---|
-| `knockoff_type` | `fixed_x` | `fixed_x` 或 `model_x` |
-| `q` | `0.1` | 有限 FDR 控制目标，必须在 `(0, 1)`；当前内部检查会漏过 NaN，调用前请自行验证。 |
-| `method` | `corr_diff` | `corr_diff` / `ols_coef_diff` / `lasso_coef_diff` |
-| `fdr_control` | `knockoff_plus` | `knockoff_plus` 或 `knockoff` |
-| `random_state` | `None` | 随机种子 |
-| `backend` | `auto` | 计算后端：`auto` / `numpy` / `cupy` / `torch` |
-| `Xk` | `None` | 外部提供 knockoff 设计矩阵，形状需与 `X` 相同 |
-| `compat_mode` | `statgpu` | `statgpu` 或 `knockpy` |
-| `lasso_cv_impl` | `auto` | `auto` / `statgpu` / `sklearn` |
-| `lasso_fast_profile` | `off` | Lasso 快速配置 |
-| `modelx_covariance_shrinkage` | `0.20` | model-X 协方差收缩系数 |
-| `modelx_s_scale` | `0.999` | model-X `S` 缩放系数 |
-| `modelx_draws` | `None` | model-X 抽样次数 |
-| `modelx_shrinkage` | `ledoitwolf` | knockpy 兼容路径协方差估计策略 |
-| `modelx_smatrix_method` | `mvr` | knockpy 兼容路径 S 矩阵方法 |
-| `knockpy_sampler` | `None` | 可选分发入口 |
-| `knockpy_sampler_method` | `None` | `sampler=gaussian` 时子方法 |
-
-<a id="reproducibility-of-generated-torch-model-x"></a>
-
-## Torch 自动 model-X 构造的可重复性
-
-当 `knockoff_type="model_x"`、`compat_mode="statgpu"` 且 `Xk=None` 时，
-整数 `random_state` 控制构造的随机性，不推进全局 Torch 随机数状态。在输入、设置以及后端、dtype、设备和软件环境
-相同的条件下，重复构造可得到相同结果。`KnockoffSelector` 具有相同行为。
-这不保证跨后端或跨 GPU 的数值相同，也不保证实际 FDR 控制，且与下文的
-Lasso 缓存限制不同。
-
-原生 Torch/CuPy 构造在 `random_state=None` 时每次抽样使用种子 0，因而
-多次抽样使用相同的构造噪声；若要可重复且分别设定种子的多次抽样，应指定
-整数种子。NumPy 构造在 `None` 时
-仍不固定种子。有效外部 `Xk` 可跳过构造，但仍应单独检查所选统计量的可重复性。
-提供矩阵不能免除统计假设、阈值及 Lasso 缓存限制。Fixed-X 仍有独立的构造
-要求与统计假设。
-
-## 重复计算 Lasso 统计量
-
-使用 `method="lasso_coef_diff"` 且 `random_state` 为整数时，原地修改 X、y
-或 Xk 可能在没有提示的情况下复用旧统计量。仅新建选择器不能避免这个问题；
-旧输入占用的内存被再次使用时也有相同风险。需要对变化后的数据进行可重复分析时，
-每次调用应在新的 Python 进程中执行。若提供的 X/y/Xk 均为 float64 NumPy 数组，也可为三个输入都创建新副本，
-并在整个分析过程中保留所有旧输入数组且不修改它们。`random_state=None` 可避开
-这种按种子复用的行为，但不再具有固定种子的可重复性。详见[限制与安全复制示例](../reference/feature-selection-api.md#repeated-lasso-statistic-calls)。
-
-## 如何选择 Lasso 计算配置
-
-`lasso_fast_profile="off"` 保留默认的统计量拟合设置。`auto`、`moderate` 与
-`aggressive` 可能改变 CV 折数、候选惩罚、迭代预算或容差，因此 W 与入选特征
-也可能变化，不能仅把它当作运行速度开关。应在查看发现结果前选定配置；
-比较后端或不同实现时，保持该设置一致。
-
-## 性能与统计边界
-
-运行时间取决于样本量、特征数、统计量、抽样次数及数据传输。不存在对所有问题通用的 GPU 提速倍数。高斯二阶 model-X 的有效性依赖特征分布与构造假设，不能保证任意数据上的分布无关 FDR 控制。
-
-## CPU/GPU 示例
-
-以下可选 GPU 示例复用[中心化配对 CPU 示例](#centered-pair-example)中的
-X、y、Xk 和 q，保留相同的外部 fixed-X 配对、统计量和目标错误率。
-CuPy/Torch 需要已安装且可用的 CUDA 后端。这一 QR 配对用于 fixed-X，
-不是 model-X 的可交换性构造；model-X 需要符合特征分布的构造方式。
-
-从下面选择一个后端；两段代码也复用 CPU 示例中导入的 `fixed_x_knockoff_filter`。
-
-### CuPy
-
-```python
-import cupy as cp
-
-X_gpu, y_gpu, Xk_gpu = cp.asarray(X), cp.asarray(y), cp.asarray(Xk)
-res_gpu = fixed_x_knockoff_filter(
-    X_gpu, y_gpu, Xk=Xk_gpu, q=q, method="corr_diff",
-    fdr_control="knockoff_plus", backend="cupy",
-)
-```
-
-### Torch CUDA
-
-```python
-import torch
-
-X_torch, y_torch, Xk_torch = [torch.from_numpy(a).to("cuda") for a in (X, y, Xk)]
-res_torch = fixed_x_knockoff_filter(
-    X_torch, y_torch, Xk=Xk_torch, q=q, method="corr_diff",
-    fdr_control="knockoff_plus", backend="torch",
-)
-```
+自动 fixed-X 构造会中心化 X，但 Xk 的列均值可能不为零。对中心化响应计算统计量时，原始 Gram 相等未必在 P=I−11ᵀ/n 投影后保持：XᵀPX 与 XkᵀPXk 可能不同，即使没有并列或 n>2p，也可能失去通常的零假设配对得分对称性。仅增大 n 无法修复，原始 Gram 有效也不能据此声称名义 FDR 控制。外部配对必须在投影后满足完整条件；仅在生成后中心化 Xk 可能破坏其 Gram 约束。[Fixed-X 构造说明](knockoff-fixed-x.md) 提供具体反例与检查方法。
 
 <a id="严格与近似模式的差别"></a>
 
 ## 阈值规则与构造假设
 
-本模块不使用 `strict/approx` 推断口径开关。`fixed_x` 与 `model_x` 采用不同的设计或特征分布假设，应根据统计问题选择，不能把两者当作速度或数值精度档位。`modelx_draws`（必须为正整数）影响计算量与蒙特卡洛波动；后端选择均不替代构造假设或阈值规则。
+自动 model-X 的高斯矩估计未必符合真实特征分布。增加 `modelx_draws` 会对多次构造的 W 求平均；减少蒙特卡洛波动不等于该平均统计量已有 FDR 定理。传入 Xk 时只计算一次，不会生成新的独立配对。[Model-X 教程](knockoff-model-x.md) 解释这些限制和兼容模式元数据。显式 `knockpy_sampler` 分派尚未实现，可能抛出 `NotImplementedError`，并没有提供通用特征分布采样器。
 
-这里 `backend="torch"` 选择 Torch 计算库，不同于估计器要求 CUDA 的 `device="torch"`。原生 fixed-X 与 model-X 自动构造遵循 X 的设备。Torch CPU 输入在 CUDA 可用时仍留在 CPU；CUDA 输入保留其 GPU 编号。详见 [Torch 设备放置](../reference/feature-selection-api.md#torch-device-placement)。
+<a id="cupy"></a>
+<a id="torch-cuda"></a>
+## CPU/GPU 示例
 
-以上设备保持行为适用于构造阶段。原生 Torch 的 `method="lasso_coef_diff"`
-调参与拟合仍请求 CUDA，CPU 输入、提供 Xk 及 fixed-X 也有这一限制，且不能
-保证使用输入所在的非默认 GPU。若适合分析问题，Torch CPU 统计量可选择
-`corr_diff` 或 `ols_coef_diff`；CPU Lasso 应使用 NumPy 输入与 `backend="numpy"`。
-详见 [Torch Lasso 的设备选择](../reference/feature-selection-api.md#torch-lasso-device-routing)。
+[Fixed-X 教程](knockoff-fixed-x.md) 在同一外部配对上给出可选 CuPy 与 Torch CUDA 扩展。`backend="torch"` 选择计算库：原生构造跟随 X 的设备，包括 Torch CPU；但原生 Torch Lasso 调参与拟合会请求 CUDA，即使输入在 CPU 或已提供 Xk，也不保证使用输入的非默认 GPU。适合时在 Torch CPU 上选择 `corr_diff` 或 `ols_coef_diff`；CPU Lasso 使用 NumPy 输入和 `backend="numpy"`。完整说明见[设备位置](../reference/feature-selection-api.md#torch-设备放置)与 [Lasso 设备路由](../reference/feature-selection-api.md#torch-lasso-的设备选择)。
 
-需要 CPU model-X 构造时，可用 Torch CPU 张量并设 `backend="torch"`，或使用 NumPy X/y 与 `backend="numpy"`。应让 X/y/Xk 位于同一目标设备。经过外部验证的 model-X Xk 可跳过构造，但形状和设备一致不能证明特征对交换性或给定 X 后与 y 的条件独立性。这些原生构造规则适用于 `compat_mode="statgpu"` 且 `Xk=None` 的路径，包括 `KnockoffSelector`；fixed-X 的构造与统计假设另有要求。
+<a id="reproducibility-of-generated-torch-model-x"></a>
 
-## 输出（Outputs）
+## Torch 自动 model-X 构造的可重复性
 
-过滤函数返回 `KnockoffResult`；选择器 `fit` 返回 `self`，其结果读取 `result_`，所选索引读取 `selected_features_`。结果常用字段：
+整数 `random_state` 使原生 Torch 自动 model-X 构造在相同后端、数据类型、设备和软件环境内可重复，并且不推进 Torch 全局随机数状态。原生 Torch/CuPy 的 `random_state=None` 会为每次构造使用种子 0，而 NumPy 不固定种子。这不承诺跨后端一致或 FDR 控制；详见[构造随机数说明](../reference/feature-selection-api.md#torch-model-x-构造的种子与可重复性)。
 
-- `selected_features`
-- `W`
-- `threshold`
-- `estimated_fdr`
-- `q_trajectory`
-- `metadata`（例如抽样次数、兼容模式、`Xk` 来源）
+## 重复计算 Lasso 统计量
 
-`selected_features` 为空是有效结果。`estimated_fdr` 是阈值规则给出的估计，不是实际观测到的错误比例，也不是每个特征的 p 值。应结合 `W` 与 `threshold` 检查上文的自动构造中心化与并列限制，并在未参与选择的数据上评价后续预测模型。
+带种子的 Lasso 调用可能在原地修改 X、y、Xk 或输入内存被复用后，继续使用旧统计量；仅创建新选择器并不能解决。对变化的数据应使用独立 Python 进程；仅限外部 float64 NumPy 输入的复制并保留旧数组方案，以及 `random_state=None` 的取舍，见[缓存限制](../reference/feature-selection-api.md#repeated-lasso-statistic-calls)。
 
-## 常见问题（FAQ）
+## 如何选择 Lasso 计算配置
 
-- **哪些输入会直接报错？**  
-  `q <= 0` 或 `q >= 1`、`X` 非二维、`y` 长度与 `X` 不一致、`Xk` 形状不匹配会报错。但当前 `q=np.nan` 会漏过检查并产生无效空选择；调用前必须自行检查 q 有限且在 `(0,1)` 内。
-- **`knockpy_sampler` 可以直接用吗？**  
-  只有 `compat_mode="knockpy"` 的 model-X 自动构造会使用该参数；目前的采样器尚未实现，会抛出 `NotImplementedError`。默认 `statgpu` 模式、fixed-X 或已经提供 `Xk` 时忽略该参数，并不执行请求的采样器。
-- **`fixed_x` 的主要约束是什么？**  
-  通常要求样本规模与矩阵秩满足构造条件（常见约束为 `n >= 2p`）。这些条件不能保证中心化配对几何有效，也不能替代高斯线性响应假设。
+`lasso_fast_profile="off"` 保持默认配置；其他配置可能改变折数、候选惩罚、迭代预算和容差，从而改变 W 与筛选结果。应预先确定配置，并在比较时保持不变，参数解释见[完整 API 参考](../reference/feature-selection-api.md)。
 
+<a id="参数"></a>
+<a id="外部验证external-validation"></a>
+<a id="导入路径"></a>
+<a id="性能与统计边界"></a>
+<a id="路径"></a>
 ## 进阶参考
 
-<a id="路径"></a>
+完整签名、参数、方法、结果字段、数据类型与设备行为、随机数、缓存和回退规则统一见[特征选择 API 参考](../reference/feature-selection-api.md)。兼容模式所请求的协方差或 S 矩阵方法可能回退，应查看实际执行元数据，而不是只看请求的方法名称。大问题的耗时可能主要来自构造或 Lasso 拟合；选择 GPU 后端不保证每项兼容模式操作都留在 GPU。
 
-### 导入路径
-
-主路径：
-- `statgpu.feature_selection.knockoff_filter`
-- `statgpu.feature_selection.fixed_x_knockoff_filter`
-- `statgpu.feature_selection.model_x_knockoff_filter`
-- `statgpu.feature_selection.KnockoffSelector`
-- `statgpu.feature_selection.FixedXKnockoffSelector`
-
-顶层别名：
-- `statgpu.knockoff_filter`
-- `statgpu.fixed_x_knockoff_filter`
-- `statgpu.model_x_knockoff_filter`
-- `statgpu.KnockoffSelector`
-- `statgpu.FixedXKnockoffSelector`
-
-<a id="外部验证external-validation"></a>
-
-需要复现实现在不同基线下的比较时，贡献者可阅读可选的
-[Knockoff 验证指南](../../../dev/references/model-validation.md#knockoff)。
+需要复现实现比较时，可参考可选的 [Knockoff 验证指南](../../../dev/references/model-validation.md#knockoff)。
 
 ## 参考（References）
 
-- Barber, R. F., & Candes, E. J. (2015). Controlling the false discovery rate via knockoffs. *Annals of Statistics*, 43(5), 2055-2085. [https://doi.org/10.1214/15-AOS1337](https://doi.org/10.1214/15-AOS1337)
-- Candes, E., Fan, Y., Janson, L., & Lv, J. (2018). Panning for gold: Model-X knockoffs for high-dimensional controlled variable selection. *Journal of the Royal Statistical Society: Series B*, 80(3), 551-577. [https://doi.org/10.1111/rssb.12265](https://doi.org/10.1111/rssb.12265)
+- Barber, R. F., & Candes, E. J. (2015). Controlling the false discovery rate via knockoffs. *Annals of Statistics*, 43(5), 2055–2085. [论文](https://doi.org/10.1214/15-AOS1337)
+- Candes, E., Fan, Y., Janson, L., & Lv, J. (2018). Panning for gold: Model-X knockoffs for high-dimensional controlled variable selection. *JRSS B*, 80(3), 551–577. [论文](https://doi.org/10.1111/rssb.12265)

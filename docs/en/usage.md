@@ -40,6 +40,8 @@ For CuPy, install `statgpu[gpu11]` or `statgpu[gpu12]` for the matching CUDA maj
   - [Complete kernel API](reference/kernel-methods-api.md)
 - [Unsupervised Learning](models/unsupervised.md)
 - [Feature Selection](models/feature-selection.md)
+- [Knockoff overview](models/knockoff.md) — principles, assumptions and interpretation
+  - [Fixed-X tutorial](models/knockoff-fixed-x.md) · [Model-X tutorial](models/knockoff-model-x.md) · [Complete feature-selection API](reference/feature-selection-api.md)
 - [Regression Diagnostics](guides/regression-diagnostics.md)
 
 ## Optimization and compatibility references

@@ -152,7 +152,8 @@ The base installation contains Cox fitting. The optional `statgpu[survival]` ext
 ## Feature Selection and Diagnostics
 
 - `StepwiseSelector` and `stepwise_selection`
-- fixed-X and model-X knockoff filters and selector wrappers
+- [Knockoff overview](../models/knockoff.md) — principles, assumptions and interpretation
+  - [Fixed-X tutorial](../models/knockoff-fixed-x.md) · [Model-X tutorial](../models/knockoff-model-x.md) · [Complete feature-selection API](../reference/feature-selection-api.md)
 - `RegressionDiagnostics` and `diagnose_model`
 
 ## Multiple Testing and Resampling

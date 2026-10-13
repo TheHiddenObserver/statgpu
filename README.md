@@ -44,6 +44,10 @@ GPU-accelerated statistical methods with an sklearn-style API.
 | **Diagnostics** | RegressionDiagnostics and `diagnose_model` |
 | **Multiple testing** | `adjust_pvalues`, `combine_pvalues`, and `permutation_test` |
 
+Knockoff: [overview](docs/en/models/knockoff.md) · [Fixed-X tutorial](docs/en/models/knockoff-fixed-x.md) · [Model-X tutorial](docs/en/models/knockoff-model-x.md) · [complete API](docs/en/reference/feature-selection-api.md).
+
+Knockoff 中文：[总览](docs/cn/models/knockoff.md) · [Fixed-X 教程](docs/cn/models/knockoff-fixed-x.md) · [Model-X 教程](docs/cn/models/knockoff-model-x.md) · [完整 API](docs/cn/reference/feature-selection-api.md)。
+
 ## Documentation
 
 - **English docs**: [docs/en/](docs/en/) — full documentation index
