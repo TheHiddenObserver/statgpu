@@ -13,12 +13,15 @@ discovery rate (FDR), the expected fraction of null features among discoveries,
 with an empty selection counted as zero. A large positive statistic W favors
 the original feature over its control; it is not a coefficient or a p-value.
 
-Use this approach when a valid matched design and a Gaussian linear response
-model are credible. [Model-X knockoffs](knockoff-model-x.md) use different
-assumptions about the feature distribution and can allow nonlinear responses.
-The [overview](knockoff.md) compares the two approaches. All signatures,
-parameters, selector methods and result fields are documented in the
-[feature-selection API reference](../reference/feature-selection-api.md).
+This tutorial first explains the matched-design conditions, then builds a
+controlled example whose conditions can be checked directly. Use fixed-X when
+a valid matched design and a Gaussian linear response model are credible.
+If you can instead justify a knockoff construction for the feature distribution,
+[Model-X knockoffs](knockoff-model-x.md) also allow nonlinear responses.
+
+See the [overview](knockoff.md) for method choice and the
+[feature-selection API reference](../reference/feature-selection-api.md) for
+all signatures, parameters, selector methods and result fields.
 
 ## What makes a fixed-X pair valid?
 
@@ -74,10 +77,10 @@ projection. This particular construction needs n≥2p+1.
 
 This is a special simulation design, not a way to repair arbitrary observed X.
 For your own data, obtain and validate a matched X/Xk pair for the observed
-design, including after any intercept/nuisance projection. Do not replace
-measured predictors with this QR design or simply center an automatically
-generated Xk: that can change the question or destroy the Gram constraints.
-Passing `Xk` bypasses automatic construction.
+design, including after any intercept/nuisance projection. Replacing measured
+predictors with the QR design changes the analysis; centering an automatically
+generated Xk afterward can destroy the Gram constraints. Neither is a general
+repair. Passing `Xk` bypasses automatic construction.
 
 Run these blocks in order. Both matrices have shape `(240, 20)` and y has 240
 responses. We prespecify six nonzero coefficients and `corr_diff`; the response

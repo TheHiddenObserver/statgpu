@@ -35,12 +35,16 @@ prediction model or provide coefficient p-values.
 | Fixed-X | A matched design after nuisance/intercept projection, a compatible statistic, and a Gaussian linear response with independent equal-variance errors | [Fixed-X tutorial](knockoff-fixed-x.md) |
 | Model-X | Feature-pair exchangeability and knockoffs independent of y conditional on X; the response relationship may be nonlinear | [Model-X tutorial](knockoff-model-x.md) |
 
-Both paths compute knockoff statistics and apply a threshold, but they justify
-that competition differently. They are not speed or numerical-precision profiles.
-Model-X is not simply fixed-X with fewer rows.
-A Gaussian construction estimated from arbitrary observed features does not
-establish the exact model-X conditions. Choosing a function name does not test
-these assumptions for you.
+The choice depends on which assumptions you can justify. Fixed-X uses a
+matched design and a Gaussian linear response model; Model-X uses the joint
+feature distribution and allows a broader response relationship. Both compute
+knockoff statistics and apply a threshold. The distinction is statistical, not
+a choice of speed or numerical precision, and a smaller sample alone is not a
+reason to choose Model-X.
+
+In particular, fitting a Gaussian distribution to arbitrary observed features
+does not establish the exact Model-X conditions. Neither API checks all the
+assumptions needed for FDR control.
 
 ### Response-model assumptions
 
@@ -59,7 +63,7 @@ tutorial for the different constructions.
 
 1. Construct a valid paired matrix Xk without using response information in a way that violates the assumptions.
 2. Compute one original-versus-knockoff statistic W_j per feature. Swapping a pair should reverse its sign; large positive values favor the original.
-3. Use large negative statistics as evidence about false positive competition, choose a threshold T, and select original columns with W_j ≥ T.
+3. Use large negative statistics to estimate how often null original features might win the competition, choose a threshold T, and select original columns with W_j ≥ T.
 
 For `corr_diff`, the statistic is the difference of absolute centered-response
 inner products:
@@ -90,7 +94,8 @@ results or add unrelated predictors merely to obtain discoveries.
 
 ### The knockoff+ rule
 
-For positive distinct absolute statistics, the theoretical threshold is
+The theoretical rule considers the distinct positive values of |W| as candidate
+thresholds:
 $$
 T = \min \left\{ t\in\{|W_j|:|W_j|>0\} : \frac{1+\#\{j:W_j\le -t\}}{\max(1,\#\{j:W_j\ge t\})}\le q \right\}.
 $$
@@ -141,12 +146,13 @@ successful fit before treating its output as a result for the new data.
 <a id="prespecify-the-design-and-target"></a>
 ## A complete CPU example with a valid supplied pair
 
-The [self-contained Fixed-X tutorial](knockoff-fixed-x.md) builds a controlled,
-centered QR pair, verifies all matched-pair Gram conditions, generates a
-Gaussian response, runs the filter and uses a selector. Its n≥2p+1 requirement
-belongs to that special construction. Do not replace measured predictors with
-the simulated QR design. For independent Gaussian random features instead,
-start with the separate [Model-X example](knockoff-model-x.md).
+To put these principles into practice, follow the
+[Fixed-X tutorial](knockoff-fixed-x.md): construct a controlled, centered QR
+pair, verify all matched-pair Gram conditions, generate a Gaussian response,
+and apply the filter and selector. The n≥2p+1 requirement belongs to this
+special simulation; the QR design must not replace measured predictors.
+The separate [Model-X example](knockoff-model-x.md) starts from a known
+independent Gaussian feature distribution and allows a nonlinear response.
 
 ### Generated fixed-X centering limitation
 
@@ -197,9 +203,11 @@ This does not promise cross-backend equality or FDR control. See
 
 Seeded Lasso calls can reuse stale statistics after X, y or Xk is changed in
 place, or after input memory is recycled. A fresh selector alone is not a
-remedy. Use a fresh process for each changed-data analysis; the restricted
-supplied-float64-NumPy copy-and-retain workaround and the `random_state=None`
-tradeoff are in the [cache reference](../reference/feature-selection-api.md#repeated-lasso-statistic-calls).
+remedy. Use a fresh Python process for each changed-data analysis. The
+[cache reference](../reference/feature-selection-api.md#repeated-lasso-statistic-calls)
+explains two alternatives and their conditions: copy all supplied float64 NumPy
+inputs and retain the old arrays, or use `random_state=None` and give up
+seed-based repeatability.
 
 ## Choosing a Lasso computational profile
 

@@ -12,10 +12,13 @@ Model-X knockoff 关注：给定其他特征之后，哪些特征仍为 y 提供
 都与一个人造对应变量竞争；正的 W 更支持原特征。目标是错误发现率（FDR）
 控制，不是预测误差，也不是逐特征 p 值。
 
-响应可以是非线性、离散或非高斯的。相应地，你需要有可信的联合特征分布
-构造。这与 [fixed-X knockoff](knockoff-fixed-x.md) 的高斯线性响应假设不同，
-不能仅把它当作 n 较小时的替代方案。两种方法如何选择见[总览](knockoff.md)；
-全部函数、参数、方法和结果字段见
+响应可以是非线性、离散或非高斯的。相应地，你需要根据联合特征分布论证
+knockoff 构造的有效性。本教程先解释这一要求，再用已知的独立高斯特征分布
+和非线性响应演示完整流程。
+
+[Fixed-X knockoff](knockoff-fixed-x.md) 则依赖另一组假设：有效的配对设计
+和高斯线性响应模型。仅凭样本量不能决定采用哪一种方法。选型比较见
+[总览](knockoff.md)；全部函数、参数、方法和结果字段见
 [特征选择 API 参考](../reference/feature-selection-api.md)。
 
 ## 什么样的 Model-X knockoff 才有效？
@@ -42,10 +45,10 @@ Model-X knockoff 关注：给定其他特征之后，哪些特征仍为 y 提供
 ## 首次调用前：确定 q，并了解阈值限制
 
 预先确定检验的特征集合、q 和统计量。Knockoff+ 的阈值计数比最低为 1/p；
-q=0.20 要求合格阈值至少对应五个正向发现。20 个特征使这一点成为可能，
-但不保证一定实现。不要在看到结果后为了更多发现而改变 q。
+q=0.20 要求至少五个 W 为正且达到阈值的特征。20 个特征只是让非空选择
+成为可能，并不保证一定选中变量。不要在看到结果后为了选中更多特征而改变 q。
 
-调用过滤函数或拟合选择器前，检查 `np.isfinite(q) and 0 < q < 1`。
+调用筛选函数或拟合选择器前，检查 `np.isfinite(q) and 0 < q < 1`。
 当前验证会漏过 `q=np.nan`，在两种阈值规则下都可能返回无效的空选择、
 `threshold=inf`、`estimated_fdr=0.0` 或全为 False 的掩码。
 
@@ -223,12 +226,12 @@ print("Transformed shape:", selected.shape)
 
 ### Lasso 缓存限制
 
-有种子的 `lasso_coef_diff` 在原地修改输入或复用早先输入内存后，可能沿用
-过期统计量。新建选择器不能隔离这一缓存。需要可重复地分析更改后的数据时，
+设置了种子的 `lasso_coef_diff` 在原地修改输入或复用早先输入内存后，可能
+沿用过期统计量。新建选择器不能隔离这一缓存。需要可重复地分析更改后的数据时，
 应使用新的 Python 进程。对于显式提供的 float64 NumPy X/y/Xk，也可以每次
-复制全部三个输入，同时让所有历史输入保持存活且不再改变；自动生成 Xk 时
-优先使用独立进程。`random_state=None` 可停用基于种子的复用，但不再提供
-种子可重复性。详见[完整 Lasso 警告](../reference/feature-selection-api.md#repeated-lasso-statistic-calls)。
+复制全部三个输入，同时保留所有历史输入，且不再修改它们；自动生成 Xk 时
+优先使用独立进程。`random_state=None` 可停用基于种子的复用，但无法再依靠
+固定种子重复结果。详见[完整 Lasso 警告](../reference/feature-selection-api.md#repeated-lasso-statistic-calls)。
 
 ### Torch 构造与 Lasso 拟合的设备行为不同
 
@@ -247,8 +250,8 @@ X.device，包括 CPU 和非默认 CUDA 设备；原生统计量的 X/y/Xk 应�
 ### 自动 Torch Model-X 构造的可重复性
 
 原生自动构造（`compat_mode="statgpu"`、`Xk=None`）中，整数 `random_state`
-可使 Torch 构造在相同后端、dtype、设备和软件环境下重复，同时不推进全局
-Torch RNG。统一过滤函数和选择器同样适用。这既不是跨后端或跨 GPU 相等的
+可使 Torch 构造在相同后端、数据类型（dtype）、设备和软件环境下重复，同时不推进
+全局 Torch 随机数状态。统一筛选函数和选择器同样适用。这既不是跨后端或跨 GPU 相等的
 保证，也不保证实际 FDR 控制；统计量的可重复性需要单独检查，尤其是 Lasso。
 
 当 `random_state=None` 时，原生 Torch/CuPy 构造会为每次抽样使用种子 0，

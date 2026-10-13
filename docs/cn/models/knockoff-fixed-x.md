@@ -12,10 +12,13 @@ Fixed-X knockoff 将设计矩阵 X 视为固定，对每个观测预测变量构
 特征比例的期望值；空选择时该比例按零计。较大的正统计量 W 表示原特征优于
 其对照，但 W 不是回归系数，也不是 p 值。
 
-使用这一方法，需要可信的匹配设计和高斯线性响应模型。
-[Model-X knockoff](knockoff-model-x.md) 采用不同的特征分布假设，可以允许
-非线性响应。两种方法的选择见[总览](knockoff.md)；完整函数签名、参数、
-选择器方法和结果字段见[特征选择 API 参考](../reference/feature-selection-api.md)。
+本教程先解释配对设计的条件，再构造一个可以直接验证这些条件的受控示例。
+采用 Fixed-X，需要有依据支持配对设计和高斯线性响应模型的假设。如果能够
+根据特征分布论证 knockoff 构造的有效性，也可以考虑允许非线性响应的
+[Model-X knockoff](knockoff-model-x.md)。
+
+选型比较见[总览](knockoff.md)；完整函数签名、参数、选择器方法和结果字段
+见[特征选择 API 参考](../reference/feature-selection-api.md)。
 
 ## 什么样的 fixed-X 配对才有效？
 
@@ -36,10 +39,10 @@ y=b1+Xβ+ε，其中误差相互独立、方差相同，且 ε∼N(0,σ²I)。
 ## 首次调用前：确定 q，并了解阈值限制
 
 在查看发现结果之前，确定检验的特征集合、q 和统计量。Knockoff+ 的阈值
-计数比最低为 1/p：q=0.20 要求合格阈值至少对应五个正向发现。即使有
+计数比最低为 1/p：q=0.20 要求至少五个 W 为正且达到阈值的特征。即使有
 20 个预测变量，也不保证一定选中特征。
 
-调用过滤函数或拟合选择器前，检查 `np.isfinite(q) and 0 < q < 1`。
+调用筛选函数或拟合选择器前，检查 `np.isfinite(q) and 0 < q < 1`。
 当前验证会漏过 `q=np.nan`，可能返回无效的空选择、`threshold=inf`、
 `estimated_fdr=0.0` 和全为 False 的选择掩码。这一提醒适用于两种阈值规则。
 
@@ -202,8 +205,8 @@ print("Transformed shape:", selected.shape)
 使用整数种子的 `lasso_coef_diff` 调用，在原地修改输入或复用早先数组内存后，
 可能沿用过期统计量。仅创建新选择器不足以隔离这一风险。需要可重复地分析
 更改后的数据时，应每次使用新的 Python 进程。对于显式提供的 float64 NumPy
-X/y/Xk，也可以每次复制全部三个输入，同时让所有历史输入始终存活且不再改变。
-`random_state=None` 可停用基于种子的复用，但不再提供种子可重复性。
+X/y/Xk，也可以每次复制全部三个输入，同时保留所有历史输入，且不再修改它们。
+`random_state=None` 可停用基于种子的复用，但无法再依靠固定种子重复结果。
 详见[完整 Lasso 警告与复制示例](../reference/feature-selection-api.md#repeated-lasso-statistic-calls)。
 
 <a id="generated-fixed-x-centering-limitation"></a>

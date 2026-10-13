@@ -14,12 +14,15 @@ artificial counterpart; positive W favors the original. The goal is false
 discovery rate (FDR) control, not prediction error or per-feature p-values.
 
 The response may be nonlinear, discrete or otherwise non-Gaussian. In return,
-you need a credible construction for the joint feature distribution. This is
-a different assumption from the Gaussian linear response used by
-[fixed-X knockoffs](knockoff-fixed-x.md), not just a substitute when n is small.
-Read the [overview](knockoff.md) for choosing between them; the
-[feature-selection API reference](../reference/feature-selection-api.md)
-contains the complete functions, parameters, methods and result fields.
+you need to justify the knockoff construction for the joint feature distribution.
+This tutorial explains that requirement and demonstrates it with a known
+independent Gaussian feature law and a nonlinear response.
+
+[Fixed-X knockoffs](knockoff-fixed-x.md) rely on a different assumption: a
+Gaussian linear response model with a valid matched design. Sample size alone
+does not determine which approach to use. See the [overview](knockoff.md) for
+method choice and the [feature-selection API reference](../reference/feature-selection-api.md)
+for all functions, parameters, methods and result fields.
 
 ## What makes a Model-X knockoff valid?
 
