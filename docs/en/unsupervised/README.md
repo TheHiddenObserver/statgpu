@@ -9,6 +9,8 @@
 
 `statgpu.unsupervised` contains sklearn-style unsupervised estimators with explicit CPU, CuPy/CUDA, and Torch CUDA device behavior. Use the model guides below to compare objectives, choose parameters, interpret fitted outputs, and check device and input restrictions.
 
+UMAP can use internal approximate nearest-neighbor search; that search is not a separately exported estimator. The API follows the familiar `fit`, `transform`, `predict`, `fit_predict`, and `score` style where those operations make sense for the model.
+
 ## Choose a starting point
 
 | Your question | Start with | What to inspect |
@@ -74,6 +76,8 @@ The [complete unsupervised API reference](api-reference.md) lists defaults, meth
 - [UMAP](umap.md): dense Euclidean UMAP with exact or approximate neighbor search and host-side SciPy graph assembly.
 - [TSNE](tsne.md): dense exact Euclidean t-SNE.
 
+<a id="model-summary"></a>
+
 ## Support Matrix
 
 | Estimator | CPU | CuPy/CUDA | Torch CUDA | Main objective or criterion |
@@ -98,3 +102,20 @@ Explicit `device="cuda"` and `device="torch"` do not silently fall back to CPU. 
 Algorithm agreement depends on matching objectives, initialization, tolerance and preprocessing. Model-specific limitations and numerical precautions are described in the linked guides. Check output finiteness and convergence where available, and benchmark your own workload when performance matters.
 
 For CPU `DBSCAN` with more than 12 features, install scikit-learn: this configuration uses its `NearestNeighbors` for neighbor search. See the [DBSCAN guide](dbscan.md) for dependencies, memory requirements, and known limitations.
+
+## Device Behavior
+
+Most unsupervised estimators expose `device="auto"`, `"cpu"`, `"cuda"`, and `"torch"`. If an explicitly requested GPU backend is unavailable, fitting raises an error. Some algorithms still perform CPU work or return NumPy arrays; check the per-model page for supported operations, output placement, and limitations before relying on a GPU path.
+
+## Input validation
+
+Observation matrices are checked for NaN/Inf before SVD, eigendecomposition, distance computation, or iterative updates and raise a public validation error. This does not cover every constructor setting: numeric controls and explicit MiniBatchKMeans initial centers also need to be finite, but are not all checked reliably. See the [shared input rules](api-reference.md#shared-inputs-devices-and-state) and [initial-center precautions](minibatch-kmeans.md#numerical-and-lifecycle-cautions).
+
+## Notes
+
+Unsupervised estimators do not expose statistical inference fields such as standard errors, p-values, confidence intervals, AIC, or BIC unless the model naturally defines them.
+
+For detailed API behavior and model-specific caveats, continue to the per-model pages linked above.
+
+The twelve public estimator classes and complete constructor/method contracts are listed in the [unsupervised index](README.md) and [API reference](api-reference.md). NNDescent is an internal neighbor-search implementation used by UMAP, not an additional export from `statgpu.unsupervised`.
+

@@ -1,6 +1,7 @@
 """Guard the model-page wording and numerical distinctions clarified in #168."""
 
 import re
+from doc_paths import model_doc
 from pathlib import Path
 
 import numpy as np
@@ -27,7 +28,7 @@ def _text(path):
     ),
 )
 def test_model_pages_avoid_reviewed_translationese(page, fragments):
-    text = _text(f"docs/cn/models/{page}.md")
+    text = _text(f"docs/cn/{model_doc(page)}.md")
     for fragment in fragments:
         assert fragment not in text
 

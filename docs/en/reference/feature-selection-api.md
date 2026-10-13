@@ -6,7 +6,7 @@
 
 This page covers all eight exports of `statgpu.feature_selection`: `StepwiseSelector`, `stepwise_selection`, `KnockoffResult`, `knockoff_filter`, `fixed_x_knockoff_filter`, `model_x_knockoff_filter`, `KnockoffSelector`, and `FixedXKnockoffSelector`. All except `KnockoffResult` also have top-level `statgpu` aliases. These classes do not inherit BaseEstimator's p-value/bootstrap helpers.
 
-For knockoff principles and method choice, read the [overview](../models/knockoff.md); follow the separate [Fixed-X tutorial](../models/knockoff-fixed-x.md) or [Model-X tutorial](../models/knockoff-model-x.md) for a complete workflow. This page is the complete interface, device, RNG, cache and fallback reference.
+For knockoff principles and method choice, read the [overview](../models/feature-selection/knockoff.md); follow the separate [Fixed-X tutorial](../models/feature-selection/knockoff-fixed-x.md) or [Model-X tutorial](../models/feature-selection/knockoff-model-x.md) for a complete workflow. This page is the complete interface, device, RNG, cache and fallback reference.
 
 ## StepwiseSelector
 
@@ -15,7 +15,7 @@ StepwiseSelector(model_class, criterion='aic', direction='both', max_features=No
 stepwise_selection(X, y, model_class=LinearRegression, criterion='aic', direction='both', **model_kwargs)
 ```
 
-Pass a callable/class as `model_class`; candidate fitting needs compatible `fit`, AIC/BIC diagnostics, and the downstream methods you intend to use. Constructor options, all seven public methods, selected/history fields, greedy-search behavior, scoring fallback, and restrictions are fully listed on the [stepwise learner page](../models/feature-selection.md#choosing-parameters).
+Pass a callable/class as `model_class`; candidate fitting needs compatible `fit`, AIC/BIC diagnostics, and the downstream methods you intend to use. Constructor options, all seven public methods, selected/history fields, greedy-search behavior, scoring fallback, and restrictions are fully listed on the [stepwise learner page](../models/feature-selection/README.md#choosing-parameters).
 
 `stepwise_selection` returns a fitted selector. Its keyword arguments can include selector controls such as `max_features`, `n_jobs`, `verbose` as well as wrapped-model settings; selector controls are consumed by StepwiseSelector rather than forwarded. `fit`/`score` accept a flat response or a single column, which is flattened. No `fit_transform`, `get_support`, sample weights, formula input, or coefficient-inference API is supplied by StepwiseSelector. Use `fit(...).transform(...)` and `selected_features_`.
 
@@ -25,7 +25,7 @@ parameters can fail only at `fit`. A returned selector does not establish that
 all criterion scores were valid: an infinite initial score can block otherwise
 finite improvements, and a failed backward search can exceed `max_features`.
 Check finite criterion histories and the cap before using the selected model;
-see [nonfinite-score limitations](../models/feature-selection.md#nonfinite-score-limitations).
+see [nonfinite-score limitations](../models/feature-selection/README.md#nonfinite-score-limitations).
 
 ## Knockoff functions and constructors
 
@@ -140,7 +140,7 @@ for repeatable, separately seeded draws. NumPy
 construction with `None` remains unseeded. A valid supplied `Xk` bypasses
 construction. Check statistic repeatability separately, especially for the
 Lasso cache limitation below. See the
-[reproducibility guidance](../models/knockoff-model-x.md#reproducibility-of-generated-torch-model-x).
+[reproducibility guidance](../models/feature-selection/knockoff-model-x.md#reproducibility-of-generated-torch-model-x).
 
 <a id="repeated-lasso-statistic-calls"></a>
 
@@ -166,7 +166,7 @@ because temporary construction arrays are not retained by the caller.
 This small cache example checks which W is largest, not a discovery guarantee:
 its noiseless responses illustrate input changes, and p=4 at the default q=0.1
 cannot yield a knockoff+ discovery. For a Gaussian-response selection workflow,
-use the [centered-pair tutorial](../models/knockoff-fixed-x.md#centered-pair-example).
+use the [centered-pair tutorial](../models/feature-selection/knockoff-fixed-x.md#centered-pair-example).
 
 Start the following block in a fresh Python process. Re-running it in an old
 notebook namespace does not keep references from earlier runs alive; restart
@@ -236,7 +236,7 @@ These selectors do not fit a response-prediction model and supply no `predict`, 
 
 ## Statistical and backend boundaries
 
-The theoretical knockoff+ threshold must count **all** features at each distinct absolute-statistic threshold. Current tied-|W| handling can select a partial-prefix threshold and understate its estimated FDR before selecting the entire tie. For W=[8,8,-8], q=0.5, the implementation can select [0,1] with estimated_fdr=0.5 while the full theoretical ratio equals 1. Do not claim nominal FDR control for these tied-threshold outputs; see the [learner warning](../models/knockoff.md#tied-statistic-limitation).
+The theoretical knockoff+ threshold must count **all** features at each distinct absolute-statistic threshold. Current tied-|W| handling can select a partial-prefix threshold and understate its estimated FDR before selecting the entire tie. For W=[8,8,-8], q=0.5, the implementation can select [0,1] with estimated_fdr=0.5 while the full theoretical ratio equals 1. Do not claim nominal FDR control for these tied-threshold outputs; see the [learner warning](../models/feature-selection/knockoff.md#tied-statistic-limitation).
 
 
 
@@ -245,11 +245,11 @@ but centers X without ensuring centered Xk. Its response-centered statistics
 can therefore have unequal projected Gram matrices and lose the usual null
 score-pair exchangeability, even without threshold ties or when n>2p. Increasing
 n alone does not repair this. Do not infer nominal FDR control from valid raw
-Grams or absence of ties. See the [centering explanation](../models/knockoff-fixed-x.md#generated-fixed-x-centering-limitation).
+Grams or absence of ties. See the [centering explanation](../models/feature-selection/knockoff-fixed-x.md#generated-fixed-x-centering-limitation).
 
 A supplied Xk bypasses construction. Check the complete matched-pair conditions
 after the intercept/nuisance projection as well as shape and rank. The centered
-[matched-pair tutorial](../models/knockoff-fixed-x.md#centered-pair-example) avoids this geometry defect for its special orthogonal design
+[matched-pair tutorial](../models/feature-selection/knockoff-fixed-x.md#centered-pair-example) avoids this geometry defect for its special orthogonal design
 with n≥2p+1; it is not a general arbitrary-X repair. Other statistical, threshold
 and cache limitations remain.
 
@@ -258,14 +258,14 @@ independent homoskedastic normal errors. Model-X instead assumes valid
 feature-pair exchangeability and conditional independence from y given X, while
 allowing arbitrary response relationships. Here estimated Gaussian moments and
 multi-draw averaging do not guarantee FDR control for arbitrary feature laws.
-See [response-model assumptions and sources](../models/knockoff.md#response-model-assumptions).
+See [response-model assumptions and sources](../models/feature-selection/knockoff.md#response-model-assumptions).
 
 Knockoff construction/statistic inputs are converted to float64; selector `transform` only selects columns and preserves the original input dtype. Native NumPy/CuPy/Torch numerical paths exist, but choosing `lasso_cv_impl="sklearn"` or certain `compat_mode="knockpy"` construction routes entails host conversion/CPU or optional-library work. `backend` is not a guarantee that every compatibility step stays on GPU. The native alternative with supplied Xk and explicit `lasso_cv_impl="statgpu"` avoids the general knockpy CPU construction route. Unsupported sampler dispatch raises; it does not automatically implement another sampler.
 
 ## Runnable fixed-X example
 
 For the full workflow and a possible nonempty selection, start with the
-[centered matched-pair tutorial](../models/knockoff-fixed-x.md#centered-pair-example).
+[centered matched-pair tutorial](../models/feature-selection/knockoff-fixed-x.md#centered-pair-example).
 The selector example below instead illustrates a deliberately prespecified
 empty result: with p=5 and q=0.1, the smallest possible knockoff+ ratio is
 1/p=0.2>q. It therefore selects nothing for **any** feature statistics, even

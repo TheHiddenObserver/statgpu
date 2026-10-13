@@ -4,7 +4,7 @@ This developer reference preserves implementation detail moved from the GLM
 learner page at source snapshot `94758a78f3acc741ac0ba2a8c85076763117e7b0`.
 It does not record a new numerical or physical-GPU validation run. Public
 solver combinations, analytic-weight semantics, and initialization failures
-remain in the [GLM model guide](../../docs/en/models/generalized-linear-model.md).
+remain in the [GLM model guide](../../docs/en/models/regression/generalized-linear-model.md).
 
 The ordinary public adapter is implemented in
 `statgpu/linear_model/_glm_weighted_explicit_solver_contract.py`; Gamma domain
@@ -17,7 +17,7 @@ These ownership details are not additional public API guarantees.
 
 For supported ordinary GLM combinations, explicit `solver="newton"` and `solver="lbfgs"` accept non-uniform analytic weights when that family/link combination supports the solver.
 
-Both solvers optimize the [normalized weighted objective](../../docs/en/models/generalized-linear-model.md#objective-function-and-sample_weight). The same weight vector is used consistently throughout the optimization:
+Both solvers optimize the [normalized weighted objective](../../docs/en/models/regression/generalized-linear-model.md#objective-function-and-sample_weight). The same weight vector is used consistently throughout the optimization:
 
 - Newton uses it in objective, gradient, Hessian, and Armijo line-search evaluations;
 - L-BFGS uses it in the initial gradient, current objective, every line-search candidate, and the accepted-point gradient.

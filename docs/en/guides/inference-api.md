@@ -56,7 +56,7 @@ reject, pvals_bh = adjust_pvalues(pvals, method="bh")
 stat, p_global = combine_pvalues(pvals, method="fisher")
 ```
 
-For why adjustment is needed, FWER versus FDR, method choice and worked Holm/BH examples, start with [Multiple Testing Principles](../models/multiple-testing.md). Complete signatures, axes, weights and numerical limits are in the [Adjustment and Combination API](multiple-testing-combine-pvalues.md). The Fisher example above requires independent continuous uniform null p-values; its result tests a global null rather than identifying individual discoveries.
+For why adjustment is needed, FWER versus FDR, method choice and worked Holm/BH examples, start with [Multiple Testing Principles](../models/testing/multiple-testing.md). Complete signatures, axes, weights and numerical limits are in the [Adjustment and Combination API](multiple-testing-combine-pvalues.md). The Fisher example above requires independent continuous uniform null p-values; its result tests a global null rather than identifying individual discoveries.
 
 ## Permutation testing
 
@@ -210,7 +210,7 @@ prespecified directional alternative, use `"greater"` or `"less"` as appropriate
 Use the documentation according to the question you are trying to answer:
 
 - **How do I evaluate a probability distribution on NumPy/CuPy/Torch?** → [Distribution API](distribution-api.md)
-- **Which multiple-testing or combination method fits my question?** → [Multiple Testing Principles](../models/multiple-testing.md)
+- **Which multiple-testing or combination method fits my question?** → [Multiple Testing Principles](../models/testing/multiple-testing.md)
 - **How do I call the adjustment and combination functions?** → [Adjustment and Combination API](multiple-testing-combine-pvalues.md)
 - **How do I run a generic permutation or bootstrap calculation?** → this page
 - **Which inference method should a regression estimator use?** → [Inference Modes](inference-modes.md)

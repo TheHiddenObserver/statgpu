@@ -222,4 +222,4 @@ CV 选择与系数推断分成两个阶段：
 - [交叉验证](cross-validation.md) — 调参选择与最终重拟合
 - [逐节点 Lasso 推断调参迁移](nodewise-alpha-migration.md) — `nodewise_alpha`
 - [设备与 GPU 内存](device-and-memory.md) — 后端/设备语义
-- [Lasso](../models/lasso.md) 与 [ElasticNet](../models/elastic-net.md) — 稀疏推断的模型专属说明
+- [Lasso](../models/regression/lasso.md) 与 [ElasticNet](../models/regression/elastic-net.md) — 稀疏推断的模型专属说明

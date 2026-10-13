@@ -56,7 +56,7 @@ reject, pvals_bh = adjust_pvalues(pvals, method="bh")
 stat, p_global = combine_pvalues(pvals, method="fisher")
 ```
 
-为什么需要校正、FWER 与 FDR 的区别、方法选择及 Holm/BH 的逐步示例，见[多重检验原理](../models/multiple-testing.md)。完整签名、轴、权重与数值限制见[校正与合并 API](multiple-testing-combine-pvalues.md)。上面的 Fisher 示例要求原假设下的 P 值相互独立、连续且服从均匀分布；其结果检验的是总体原假设，不能确定具体哪些假设应被拒绝。
+为什么需要校正、FWER 与 FDR 的区别、方法选择及 Holm/BH 的逐步示例，见[多重检验原理](../models/testing/multiple-testing.md)。完整签名、轴、权重与数值限制见[校正与合并 API](multiple-testing-combine-pvalues.md)。上面的 Fisher 示例要求原假设下的 P 值相互独立、连续且服从均匀分布；其结果检验的是总体原假设，不能确定具体哪些假设应被拒绝。
 
 ## 排列检验
 
@@ -196,7 +196,7 @@ print(result.observed, result.pvalue)
 可以按问题选择页面：
 
 - **如何在 NumPy/CuPy/Torch 上计算概率分布？** → [分布 API](distribution-api.md)
-- **如何选择多重检验或 P 值合并方法？** → [多重检验原理](../models/multiple-testing.md)
+- **如何选择多重检验或 P 值合并方法？** → [多重检验原理](../models/testing/multiple-testing.md)
 - **如何调用校正与合并函数？** → [校正与合并 API](multiple-testing-combine-pvalues.md)
 - **如何运行通用排列检验或自助法？** → 本页
 - **回归估计器应该选择哪种推断方法？** → [推断模式](inference-modes.md)

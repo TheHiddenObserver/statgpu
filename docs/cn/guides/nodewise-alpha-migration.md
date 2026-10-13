@@ -107,7 +107,7 @@ print(model.nodewise_alpha_)
 
 - [推断模式](inference-modes.md) — `debiased`、`post_selection_ols` 与 `bootstrap` 的选择
 - [交叉验证](cross-validation.md) — 选择与最终重拟合的语义
-- [Lasso](../models/lasso.md) 与 [ElasticNet](../models/elastic-net.md) — 模型专属推断控制
+- [Lasso](../models/regression/lasso.md) 与 [ElasticNet](../models/regression/elastic-net.md) — 模型专属推断控制
 
 ## 参考文献
 

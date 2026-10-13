@@ -97,8 +97,19 @@ def test_shared_cv_inventory_links_kernel_specific_contract(language):
 
 @pytest.mark.parametrize("language", ["en", "cn"])
 def test_portal_does_not_promise_unconditional_oracle_property(language):
-    text = _page(language, "README")
+    # Method-choice descriptions moved into the canonical family table. Keep
+    # both real tutorial links and the original shrinkage/oracle guards.
+    text = _page(language, "models/regression/README")
     for name in ("SCAD", "MCP"):
-        line = next(line for line in text.splitlines() if line.startswith(f"- [{name}]"))
+        target = f"[{name}]({name.lower()}.md)"
+        rows = [line for line in text.splitlines()
+                if line.startswith("|") and target in line]
+        assert len(rows) == 1, (name, rows)
+        line = rows[0]
         assert "oracle" not in line.lower()
         assert ("shrinkage" if language == "en" else "收缩") in line
+
+    # Short navigation pages should link to assumption-qualified method
+    # explanations instead of introducing their own oracle-property claims.
+    for page in ("README", "usage", "models/README"):
+        assert "oracle" not in _page(language, page).lower(), page

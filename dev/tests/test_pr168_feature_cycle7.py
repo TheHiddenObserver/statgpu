@@ -205,7 +205,7 @@ def test_torch_fixedx_and_supplied_modelx_remain_repeatable(torch_cpu):
 
 @pytest.mark.parametrize("language", ["en", "cn"])
 def test_seed_contract_scopes_repeatability_and_preserves_other_limitations(language):
-    model = (ROOT / f"docs/{language}/models/knockoff-model-x.md").read_text()
+    model = (ROOT / f"docs/{language}/models/feature-selection/knockoff-model-x.md").read_text()
     reference = (ROOT / f"docs/{language}/reference/feature-selection-api.md").read_text()
     for text in (model, reference):
         text = " ".join(text.split())

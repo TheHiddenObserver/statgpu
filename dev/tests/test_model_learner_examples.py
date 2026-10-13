@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from doc_paths import model_doc
 from doc_examples import run_example
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -14,7 +15,7 @@ _MODELS = ("linear-regression", "logistic-regression", "elastic-net", "feature-s
 @pytest.mark.parametrize("language", ("en", "cn"))
 @pytest.mark.parametrize("page", _MODELS)
 def test_first_learner_example_is_self_contained_cpu(language, page):
-    text = (_ROOT / f"docs/{language}/models/{page}.md").read_text(encoding="utf-8")
+    text = (_ROOT / f"docs/{language}/{model_doc(page)}.md").read_text(encoding="utf-8")
     names = {"linear-regression": "linear-prediction",
              "logistic-regression": "logistic-unpenalized",
              "elastic-net": "elasticnet-prediction",
@@ -57,7 +58,7 @@ def test_first_learner_example_is_self_contained_cpu(language, page):
 def test_linear_column_target_example_scores_a_flattened_response(language):
     from statgpu.linear_model import LinearRegression
 
-    page = _ROOT / f"docs/{language}/models/linear-regression.md"
+    page = _ROOT / f"docs/{language}/models/regression/linear-regression.md"
     text = page.read_text(encoding="utf-8")
     namespace = run_example(text, "linear-column-target", str(page))
     model, X, y_column = (namespace[name] for name in ("model", "X", "y_column"))
@@ -75,7 +76,7 @@ def test_linear_column_target_example_scores_a_flattened_response(language):
 def test_logistic_documentation_distinguishes_penalized_score(language):
     from statgpu.linear_model import LogisticRegression
 
-    text = (_ROOT / f"docs/{language}/models/logistic-regression.md").read_text(encoding="utf-8")
+    text = (_ROOT / f"docs/{language}/models/regression/logistic-regression.md").read_text(encoding="utf-8")
     assert r"-\alpha_C\beta=0" in text
     assert r"1/C,&C>0" in text
     assert r"0,&C=0" in text
@@ -114,7 +115,7 @@ def test_elasticnet_initialization_documentation_tracks_runtime(language):
     model.fit(X, y)
     retained = getattr(model, "_init_coef", None) is not None
 
-    text = (_ROOT / f"docs/{language}/models/elastic-net.md").read_text(encoding="utf-8")
+    text = (_ROOT / f"docs/{language}/models/regression/elastic-net.md").read_text(encoding="utf-8")
     retention_warning = {
         "en": "retains this starting vector",
         "cn": "仍会保留该初值",
@@ -156,7 +157,7 @@ def test_elasticnet_bootstrap_documentation_matches_public_result(language):
     assert result.metadata["penalty_conditioning"] == "fixed_penalty"
     assert np.all(np.isfinite(result.conf_int))
 
-    text = (_ROOT / f"docs/{language}/models/elastic-net.md").read_text(encoding="utf-8")
+    text = (_ROOT / f"docs/{language}/models/regression/elastic-net.md").read_text(encoding="utf-8")
     for contract in ("NumPy/CuPy/Torch", "`sample_weight=None`", '`cov_type="nonrobust"`'):
         assert contract in text
     for stale in ("remains a CPU-native residual-refit path", "当前仍是 CPU 原生的残差重拟合路径"):

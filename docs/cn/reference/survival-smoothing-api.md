@@ -4,12 +4,12 @@
 > 最后更新：2026-10-11  
 > 切换：[English](../../en/reference/survival-smoothing-api.md)
 
-本页用于在阅读 [CoxPH](../models/coxph.md)、[GAM](../models/semiparametric.md) 或[非参数方法](../models/nonparametric.md)示例后查找具体调用。签名列出公开参数与默认值；`*` 后的参数须按名称传入。形状记号：`n` 为训练行数，`p` 为特征数，`q` 为查询行数，`r` 为目标列数。预测等方法需要先成功拟合。通用[参数管理](estimator-api.md#parameter-management)和[推断辅助方法](estimator-api.md#inference-helpers)另有说明；通用重采样工具不会自动提供适合生存模型的推断或 GAM 置信带。
+本页用于在阅读 [CoxPH](../models/coxph.md)、[GAM](../models/nonparametric/semiparametric.md) 或[非参数方法](../models/nonparametric/nonparametric.md)示例后查找具体调用。签名列出公开参数与默认值；`*` 后的参数须按名称传入。形状记号：`n` 为训练行数，`p` 为特征数，`q` 为查询行数，`r` 为目标列数。预测等方法需要先成功拟合。通用[参数管理](estimator-api.md#parameter-management)和[推断辅助方法](estimator-api.md#inference-helpers)另有说明；通用重采样工具不会自动提供适合生存模型的推断或 GAM 置信带。
 
 本页模型的浮点计算使用 float64，不保留 float32 输入精度；后端原生数值预测仍使用拟合时的数组库类型。
 
 相关完整 API：[KernelRidge、KernelRidgeCV、KernelPCA 与 Nystroem](kernel-methods-api.md#完整估计器-api)、
-[成对核函数](kernel-methods-api.md#完整成对核函数-api)，以及[样条基与 SplineTransformer](../models/splines.md#完整的模型专属调用)。
+[成对核函数](kernel-methods-api.md#完整成对核函数-api)，以及[样条基与 SplineTransformer](../models/nonparametric/splines.md#完整的模型专属调用)。
 
 ## CoxPH 与 CoxPHCV
 
@@ -183,7 +183,7 @@ assert summary_result is None
 
 ## GAM
 
-从 `statgpu.semiparametric` 导入。完整构造参数含义和允许值见 [GAM 参数表](../models/semiparametric.md#完整构造参数与输出参考)。
+从 `statgpu.semiparametric` 导入。完整构造参数含义和允许值见 [GAM 参数表](../models/nonparametric/semiparametric.md#完整构造参数与输出参考)。
 
 <!-- signature: GAM -->
 ```text
@@ -211,7 +211,7 @@ GAM.summary()
 - 多特征 Torch GAM 预测请显式使用 `(q,p)`，单个点为 `(1,p)`；当前一维向量的形状检查会抛出 `TypeError`。
 - `summary`：打印并返回字典，含 `n_features`、`n_splines_per_feature`、`spline_degree`、`penalty_order`、`smoothing_parameter`、`effective_df`、`intercept`，仅自动选择时另有 `gcv_score`。
 - 拟合属性：后端 `coef_`，长度为 `1+sum(n_basis_j)`；逐特征后端节点数组 `knots_`；标量 `intercept_`、`edf_`、`lam_`；自动选择时 `gcv_score_` 为浮点数，固定 lambda 时为 `None`；`n_features_` 为整数。系数对应中心化的基函数，不是原始特征斜率。
-- 较大的有限 lambda 会使随矩阵迹缩放的稳定项收缩本不应受罚的截距及其他惩罚零空间方向。请检查训练均值是否保持，并验证原目标；有限 GCV 或预测不足以证明正确。详见[大 lambda 限制](../models/semiparametric.md#large-smoothing-penalties-and-the-intercept)。
+- 较大的有限 lambda 会使随矩阵迹缩放的稳定项收缩本不应受罚的截距及其他惩罚零空间方向。请检查训练均值是否保持，并验证原目标；有限 GCV 或预测不足以证明正确。详见[大 lambda 限制](../models/nonparametric/semiparametric.md#large-smoothing-penalties-and-the-intercept)。
 - `lam=None` 搜索内置 100 点网格；没有 GAM 自定义网格或专用 CV 估计器接口。其他设置可用外部验证选择。没有专用 `score`、样本加权目标、family/link、系数推断或置信带方法；继承的通用工具不会自动补齐这些能力。
 - `set_params` 后始终重新拟合。部分 GAM 改参当前保留旧拟合数组，未重拟合便预测可能使用不一致状态。改变基函数设计时，创建新 GAM 实例最稳妥。重拟合若在构造基函数时失败，还可能把旧系数与新节点或特征数混在一起；此时应丢弃该实例，在新实例上成功拟合后再预测或解释 `summary()`。
 
@@ -295,7 +295,7 @@ kde_pdf(samples, points, *, bandwidth='scott', weights=None, kernel='gaussian', 
 使 KDE 和采用数值带宽因子、Scott 或 Silverman 规则的核回归仅因计量单位变化
 就产生显著不同的结果。仅中心化不能解决这个问题。拟合前应一致地缩放训练特征
 和查询；KDE 换回原始单位时还需要密度的雅可比修正。具体变换、反例、不同带宽
-路径的边界以及验证限制见[坐标尺度过小](../models/nonparametric.md#坐标尺度过小)。
+路径的边界以及验证限制见[坐标尺度过小](../models/nonparametric/nonparametric.md#坐标尺度过小)。
 
 KDE 与核回归当前存在显式设备请求的例外。NumPy 或 Torch CPU 输入即使搭配 `device="torch"` 与 `backend="auto"` 或 `"torch"`，仍可能在 Torch CPU 上拟合和预测。设置 `device="cuda", backend="auto"` 时，CuPy 不可用而 Torch CUDA 可用也可能选中 Torch，随后 NumPy 或 Torch CPU 输入仍留在 CPU。显式 `backend="torch"` 搭配 `device="cuda"` 也可能在 CPU 上执行；`backend="numpy"` 会覆盖这两种加速器请求。应检查 `samples_` 与密度/预测数组的实际位置：Torch 查看 `.device`/`.is_cuda`，CuPy 查看 `.device`，NumPy 数组位于 CPU。仅查看配置的 `device` 与 `backend_` 不够。需要明确的 CPU 路径时，请用 NumPy 输入并设置 `device="cpu", backend="numpy"`。如果流程必须使用 GPU，请拒绝 CPU 结果，不要继续使用它们；详见[设备说明](../guides/device-and-memory.md)。
 
@@ -385,7 +385,7 @@ KDEBootstrapResult.to_dict()
 - `kde_confidence_interval(method="normal")`：仅一维高斯 KDE；绝对宽度来自拟合协方差。返回渐近、逐点、下界截断到零的正态区间。结果 `n_resamples=0`、`bootstrap_samples=None`，即使请求 `return_bootstrap_samples=True` 也如此。
 - `kde_confidence_interval(method="bootstrap", bootstrap_method="percentile")`：百分位重采样；不支持其他 bootstrap 区间方法。
 - `kde_bootstrap_confidence_interval(method="percentile")`：该 bootstrap 路径的便捷包装。这里的 `method` 指百分位方法，通用函数的 `method` 则区分正态与 bootstrap。
-- `return_bootstrap_samples=True` 保留重复样本的估计矩阵，否则结果不含该矩阵。区间不校正平滑偏差，不是同时覆盖；[教程](../models/nonparametric.md#cpu-示例三逐点密度区间)解释了选择器重拟合，以及示例解释为何限定于独立等权观测。非均匀权重同时用于抽样及再次加权，需要根据研究设计判断其合理性。
+- `return_bootstrap_samples=True` 保留重复样本的估计矩阵，否则结果不含该矩阵。区间不校正平滑偏差，不是同时覆盖；[教程](../models/nonparametric/nonparametric.md#cpu-示例三逐点密度区间)解释了选择器重拟合，以及示例解释为何限定于独立等权观测。非均匀权重同时用于抽样及再次加权，需要根据研究设计判断其合理性。
 
 `KDEBootstrapResult` 用于**两种**区间方法。数组均为 NumPy：一维 `points` 为 `(q,)`，多维为 `(q,p)`；`estimate`、`lower`、`upper` 均为 `(q,)`；可选 `bootstrap_samples` 为 `(n_resamples,q)`。另有 `confidence_level`、`n_resamples`、`random_state`、`kernel`、`backend`、`metadata`。后端标签记录拟合的数组库，不代表返回数组仍在该设备。元数据包括 `method`、`bandwidth`、`batch_size`、`n_features`，正态路径另有 `n_eff`，bootstrap 路径另有 `bootstrap_method`。`to_dict()` 把结果数组转为列表，没有重复样本时省略 `bootstrap_samples`。
 

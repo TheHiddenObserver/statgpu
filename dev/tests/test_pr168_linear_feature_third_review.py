@@ -8,6 +8,7 @@ import subprocess
 import sys
 from collections import OrderedDict
 from pathlib import Path
+from doc_paths import model_doc
 
 import numpy as np
 import pytest
@@ -35,7 +36,8 @@ def _paired_design():
 
 
 def _page(language, directory, name):
-    return (ROOT / 'docs' / language / directory / (name + '.md')).read_text()
+    relative = model_doc(name) if directory == "models" else f"{directory}/{name}"
+    return (ROOT / "docs" / language / (relative + ".md")).read_text()
 
 
 def _execute_marked_example(text, marker):

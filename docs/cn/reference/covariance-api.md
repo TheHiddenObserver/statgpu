@@ -4,17 +4,17 @@
 > 最后更新：2026-10-12
 > 切换：[English](../../en/reference/covariance-api.md)
 
-本页完整列出协方差估计器的公开 API。选择方法时，可先阅读[协方差概览](../models/covariance.md)；查询某个类的专属参数和属性时，可点击下表中的类名。下列七个类均可从 `statgpu.covariance` 或 `statgpu` 导入。
+本页完整列出协方差估计器的公开 API。选择方法时，可先阅读[协方差概览](../models/covariance/README.md)；查询某个类的专属参数和属性时，可点击下表中的类名。下列七个类均可从 `statgpu.covariance` 或 `statgpu` 导入。
 
 | 类 | 方法指南 | 专属构造参数 |
 |---|---|---|
-| [`EmpiricalCovariance`](#empiricalcovariance) | [经验协方差](../models/covariance-empirical.md) | 无 |
-| [`LedoitWolf`](#ledoitwolf) | [Ledoit–Wolf 收缩](../models/covariance-ledoit-wolf.md) | 无 |
-| [`OAS`](#oas) | [Oracle Approximating Shrinkage](../models/covariance-oas.md) | 无 |
-| [`ShrunkCovariance`](#shrunkcovariance) | [固定强度收缩](../models/covariance-shrunk.md) | `shrinkage` |
-| [`MinCovDet`](#mincovdet) | [最小协方差行列式](../models/covariance-min-cov-det.md) | `support_fraction`、`random_state` |
-| [`GraphicalLasso`](#graphicallasso) | [Graphical Lasso](../models/covariance-graphical-lasso.md) | `alpha`、`max_iter`、`tol` |
-| [`GraphicalLassoCV`](#graphicallassocv) | [交叉验证 Graphical Lasso](../models/covariance-graphical-lasso-cv.md) | `alphas`、`cv`、`max_iter`、`tol`、`random_state` |
+| [`EmpiricalCovariance`](#empiricalcovariance) | [经验协方差](../models/covariance/covariance-empirical.md) | 无 |
+| [`LedoitWolf`](#ledoitwolf) | [Ledoit–Wolf 收缩](../models/covariance/covariance-ledoit-wolf.md) | 无 |
+| [`OAS`](#oas) | [Oracle Approximating Shrinkage](../models/covariance/covariance-oas.md) | 无 |
+| [`ShrunkCovariance`](#shrunkcovariance) | [固定强度收缩](../models/covariance/covariance-shrunk.md) | `shrinkage` |
+| [`MinCovDet`](#mincovdet) | [最小协方差行列式](../models/covariance/covariance-min-cov-det.md) | `support_fraction`、`random_state` |
+| [`GraphicalLasso`](#graphicallasso) | [Graphical Lasso](../models/covariance/covariance-graphical-lasso.md) | `alpha`、`max_iter`、`tol` |
+| [`GraphicalLassoCV`](#graphicallassocv) | [交叉验证 Graphical Lasso](../models/covariance/covariance-graphical-lasso-cv.md) | `alphas`、`cv`、`max_iter`、`tol`、`random_state` |
 
 <a id="constructors-and-common-parameters"></a>
 
@@ -157,7 +157,7 @@ $$
 
 ## OAS
 
-构造函数和收缩形式与 `LedoitWolf` 相同，但采用 Oracle Approximating Shrinkage 的强度公式。实现沿用 scikit-learn 常用约定，省略原公式的 `2/p` 修正项；解释见 [OAS 指南](../models/covariance-oas.md)。
+构造函数和收缩形式与 `LedoitWolf` 相同，但采用 Oracle Approximating Shrinkage 的强度公式。实现沿用 scikit-learn 常用约定，省略原公式的 `2/p` 修正项；解释见 [OAS 指南](../models/covariance/covariance-oas.md)。
 
 | 专属属性 | 类型 | 含义 |
 |---|---|---|

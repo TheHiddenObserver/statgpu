@@ -235,7 +235,7 @@ model = FamaMacBeth().fit(
 
 ## 相关文档
 
-- [面板模型总览](../models/panel.md) — Panel 模型族与选择建议
+- [面板模型总览](README.md) — Panel 模型族与选择建议
 - [面板模型架构](architecture.md) — 共享层和各估计器的职责
 - [面板模型协方差](covariance.md) — HC、cluster、HAC 与 Driscoll–Kraay
 - [设备与 GPU 内存](../guides/device-and-memory.md) — 后端与设备语义

@@ -7,7 +7,7 @@
 
 This page explains how statgpu's Panel estimators are organized: which responsibilities are shared, where estimator-specific data transformations enter, and how estimation connects to covariance, inference, diagnostics, prediction, and summaries.
 
-For model choice, identification assumptions, formulas, and statistical interpretation, start with [Panel Models](../models/panel.md) and the dedicated model pages.
+For model choice, identification assumptions, formulas, and statistical interpretation, start with [Panel Models](README.md) and the dedicated model pages.
 
 ## 1. Overall structure
 
@@ -108,7 +108,7 @@ That is different from the generic `LossBase + Penalty + Solver` composition use
 
 ## 8. Where to look next
 
-- [Panel Models](../models/panel.md) — model choice and family overview
+- [Panel Models](README.md) — model choice and family overview
 - dedicated Panel model pages — formulas, assumptions, parameters, examples, interpretation
 - [Device and GPU Memory](../guides/device-and-memory.md) — device semantics
 - Panel covariance/diagnostic pages — covariance estimators and specification tests

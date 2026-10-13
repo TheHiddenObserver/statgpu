@@ -1,66 +1,33 @@
 # statgpu 文档入口（中文）
 
 > 语言：中文  
-> 最后更新：2026-10-12\
+> 最后更新：2026-10-13  
 > 切换：[English](../en/usage.md)
 
-首次拟合可从快速入门开始；各模型的支持选项、默认值与限制见对应模型页和参考页。
+这是一条完成首次拟合的简短路径。完整指南与参考文档按层次整理在[文档索引](README.md)中。
 
 ## 快速开始
 
-- [快速入门](getting-started/quickstart.md) — 安装、第一次拟合、预测与设备选择
-- [完整 API 参考](README.md#完整-api-参考) — 构造参数、方法、参数取值与结果属性
-- [已实现方法](guides/implemented-methods.md) — 公开估计器与方法清单
-- [设备与 GPU 内存](guides/device-and-memory.md) — CPU/CUDA/Torch 行为与内存控制
-- [交叉验证](guides/cross-validation.md) — 数据折、调参网格、参数选择与最终重拟合
-- [statgpu 的交叉验证如何工作](guides/cross-validation-design.md) — 公开执行模型与加速语义
-- [推断模式](guides/inference-modes.md) — 选择并解释系数推断方法
-- [推断 API](guides/inference-api.md) — 分布函数、多重检验、排列检验与自助法工具
-- [变更记录](changelog.md) — 版本历史
+1. 按[快速入门](getting-started/quickstart.md)完成安装、拟合与预测。
+2. 选择 CPU、CUDA 或 Torch 前，先核对[设备指南](guides/device-and-memory.md)。CuPy 请按 CUDA 主版本安装 `statgpu[gpu11]` 或 `statgpu[gpu12]`；PyTorch 后端使用 `statgpu[torch]`。基础安装已经包含 Cox 实现，`statgpu[survival]` 增加的是可选的外部比较依赖。
 
-CuPy 请按 CUDA 主版本安装 `statgpu[gpu11]` 或 `statgpu[gpu12]`；PyTorch 后端使用 `statgpu[torch]`。基础安装已经包含 Cox 实现，`statgpu[survival]` 增加的是可选的外部比较依赖。
+<a id="模型族"></a>
 
-## 模型族
-
-- [模型总览](models/README.md)
-- [线性回归](models/linear-regression.md)
-- [Ridge](models/ridge.md)
-- [Lasso](models/lasso.md)
-- [ElasticNet](models/elastic-net.md)
-- [广义线性模型](models/generalized-linear-model.md)
-- [分位数回归](models/quantile.md)
-- [稳健回归](models/robust.md)
-- [Cox 比例风险模型](models/coxph.md)
-- [面板模型](models/panel.md)
-- [ANOVA 概览](models/anova.md) — 原理、方法选择与支持的设计
-- [协方差估计](models/covariance.md)
-- [非参数方法](models/nonparametric.md)
-- [核方法](models/kernel-methods.md)
-  - [KernelRidge](models/kernel-ridge.md) · [KernelRidgeCV](models/kernel-ridge-cv.md) · [KernelPCA](models/kernel-pca.md) · [Nystroem](models/kernel-nystroem.md)
-  - [完整核方法 API](reference/kernel-methods-api.md)
-- [无监督学习](models/unsupervised.md)
-- [特征选择](models/feature-selection.md)
-- [Knockoff 总览](models/knockoff.md) — 原理、假设与结果解释
-  - [Fixed-X 教程](models/knockoff-fixed-x.md) · [Model-X 教程](models/knockoff-model-x.md) · [完整特征选择 API](reference/feature-selection-api.md)
-- [回归诊断](guides/regression-diagnostics.md)
+3. 在[模型与统计方法](models/README.md)中按问题选择方法族，再运行对应教程。修改示例前，先检查输入假设、输出含义与限制。
+4. 调参时参考[交叉验证](guides/cross-validation.md)；需要系数不确定性时参考[推断模式](guides/inference-modes.md)。拟合回归后，可通过[回归诊断](guides/regression-diagnostics.md)检查结果。
 
 ## 优化与兼容性参考
 
-- [损失函数](models/losses.md) — 底层损失函数定义与数值性质
-- [损失函数 × 惩罚项 × 求解器框架](guides/loss-penalty-solver-framework.md) — 各组件如何组合
-- [求解器 × 惩罚项兼容性矩阵](guides/solver-penalty-matrix.md) — 支持与不支持的组合
-- [求解器算法](guides/solver-algorithms.md) — 算法定义
-- [惩罚模型求解器 API 迁移](guides/penalized-solver-api-migration.md) — 从旧求解器控制方式迁移
+需要进一步配置拟合时，查阅[求解器 × 惩罚项兼容性矩阵](guides/solver-penalty-matrix.md)
+与[损失函数 × 惩罚项 × 求解器框架](guides/loss-penalty-solver-framework.md)。
+更新旧代码时，参阅[惩罚模型求解器迁移指南](guides/penalized-solver-api-migration.md)。
+[交叉验证设计指南](guides/cross-validation-design.md)解释执行方式与加速语义。
 
 ## 统计工具
 
-- [分布 API](guides/distribution-api.md)
-- [多重检验原理](models/multiple-testing.md) — 错误率标准、方法选择与逐步示例
-- [P 值校正与合并 API](guides/multiple-testing-combine-pvalues.md) — 函数签名、轴、权重与后端行为
-- [ANOVA 教程](models/anova.md) — [经典单因素](models/anova-oneway.md) · [Welch](models/anova-welch.md) · [平衡双因素](models/anova-twoway.md) · [事后比较](models/anova-posthoc.md)
-- [ANOVA API](reference/anova-api.md) — 所有函数、结果字段与输入及后端限制
-- [协方差估计](models/covariance.md)
-  - [EmpiricalCovariance](models/covariance-empirical.md) · [ShrunkCovariance](models/covariance-shrunk.md) · [LedoitWolf](models/covariance-ledoit-wolf.md) · [OAS](models/covariance-oas.md) · [MinCovDet](models/covariance-min-cov-det.md) · [GraphicalLasso](models/covariance-graphical-lasso.md) · [GraphicalLassoCV](models/covariance-graphical-lasso-cv.md)
-  - [完整协方差 API](reference/covariance-api.md)
+组间比较或多个 P 值从[统计检验](models/testing/README.md)开始。
+分布函数、重抽样与结果对象分别见[分布 API](guides/distribution-api.md)和[推断 API](guides/inference-api.md)。
 
-如需贡献代码、文档或测试，请参阅[贡献指南](../../CONTRIBUTING.md)。
+通过[已实现方法](guides/implemented-methods.md)核对支持范围，通过
+[完整 API 参考](README.md#完整-api-参考)核对函数签名与拟合属性。
+更新说明见[变更记录](changelog.md)。如需贡献代码、文档或测试，请参阅[贡献指南](../../CONTRIBUTING.md)。

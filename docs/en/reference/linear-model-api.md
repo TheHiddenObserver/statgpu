@@ -35,10 +35,10 @@ LinearRegression(fit_intercept=True, device='auto', n_jobs=None, compute_inferen
 | `coef_`, `intercept_`, `rank_` | Shapes `(p,)`/scalar, or `(t,p)`/`(t,)`; `rank_` is fitted design rank. |
 | `rsquared`, `rsquared_adj` | Training R² (using fitted weights; pooled for multi-output) and residual-DoF adjustment. These are distinct from held-out `score`. |
 | `fvalue`, `f_pvalue` | Single-target residual-based F diagnostic, not an HC/HAC joint Wald test. Weighted multi-output access currently raises `TypeError`; unweighted pooled output is not a joint multivariate test. |
-| `llf`, `aic`, `bic` | Unweighted single-target Gaussian likelihood/information criteria. Weighted values omit the WLS log-weight normalization and depend on weight scale. Multi-output AIC/BIC are `None`, and pooled `llf` is not a joint multivariate likelihood. See [diagnostic limits](../models/linear-regression.md#diagnostic-limitations-with-weights-or-multiple-targets). |
+| `llf`, `aic`, `bic` | Unweighted single-target Gaussian likelihood/information criteria. Weighted values omit the WLS log-weight normalization and depend on weight scale. Multi-output AIC/BIC are `None`, and pooled `llf` is not a joint multivariate likelihood. See [diagnostic limits](../models/regression/linear-regression.md#diagnostic-limitations-with-weights-or-multiple-targets). |
 | `_bse`, `_tvalues`, `_pvalues`, `_conf_int` | Intercept first when fitted. For k parameters: `(k,)` and CI `(k,2)`; CPU multi-output uses `(k,t)` and `(k,t,2)`. Inference-disabled/unavailable arrays are `None`. |
 
-Classical covariance uses t-reference inference; HC/HAC uses normal-reference inference despite the `_tvalues` name. CPU multi-output inference is supported; GPU multi-output fitting requires `compute_inference=False`. See the [learner page](../models/linear-regression.md) for interpretation and assumptions.
+Classical covariance uses t-reference inference; HC/HAC uses normal-reference inference despite the `_tvalues` name. CPU multi-output inference is supported; GPU multi-output fitting requires `compute_inference=False`. See the [learner page](../models/regression/linear-regression.md) for interpretation and assumptions.
 
 ## LogisticRegression
 
@@ -118,7 +118,7 @@ Lasso(alpha=1.0, fit_intercept=True, max_iter=1000, tol=0.0001, stopping='coef_d
 `nodewise_alpha` is keyword-only. This is the L1-only wrapper, not an alias
 for the full ElasticNet constructor: `l1_ratio`, `cov_type`, `hac_maxlags`, and
 `initial_coef` are not Lasso constructor/fit controls. It uses the default
-nonrobust inference configuration. See the [learner page](../models/lasso.md)
+nonrobust inference configuration. See the [learner page](../models/regression/lasso.md)
 for the objective, tuning guidance and statistical interpretation.
 
 ### Lasso methods and shapes
@@ -168,7 +168,7 @@ and GPU FISTA check coefficient movement; ADMM checks primal/dual residuals.
 The separate Lasso CV/path helper does not establish direct/final-refit KKT
 certification. `admm_rho` is stored but ignored by unified ADMM, which starts at
 rho=1.0. Adaptation depends on the solver path; the direct squared-error Cholesky
-solve keeps rho fixed. See [control limitations](../models/lasso.md#solvers-and-current-control-limitations).
+solve keeps rho fixed. See [control limitations](../models/regression/lasso.md#solvers-and-current-control-limitations).
 
 ## ElasticNet
 
@@ -205,7 +205,7 @@ ElasticNet(alpha=1.0, l1_ratio=0.5, fit_intercept=True, max_iter=1000, tol=0.000
 | `_params`, `_bse`, `_tvalues`, `_zvalues`, `_pvalues`, `_conf_int` | Reporting parameters/uncertainty, not necessarily prediction coefficients. Usually `(k,)` and `(k,2)` for CI, with intercept first; availability depends on the inference method. |
 | `_inference_result`, `nodewise_alpha_` | Structured result (`params`, `bse`, `statistic`, `pvalues`, `conf_int`, `method`, `distribution`, `metadata`) and resolved multi-feature node-wise tuning. |
 | `inference_requested_method_`, `inference_resolved_method_`, `inference_method_`, `inference_target_`, `penalty_conditioning_`, `penalty_selection_adjusted_` | Debiased/bootstrap inference records public procedure/target fields. The current `post_selection_ols` path can leave `inference_method_` and `inference_target_` as `None` despite successful inference; read `_inference_result.method` and `_inference_result.metadata` for that path. These are reporting attributes, not extra constructor parameters. |
-| `rsquared`, `rsquared_adj`, `fvalue`, `f_pvalue`, `llf`, `aic`, `bic` | Available fit diagnostics. After weighted debiased inference, `rsquared`/`rsquared_adj` use a re-centered working response and need not equal raw weighted R²; use validated `score(X,y,sample_weight=weights)` instead, as shown in [weighted diagnostics](../models/elastic-net.md#weighted-training-diagnostics). AIC/BIC/F are compatibility plug-in summaries, not general penalty-aware effective-DoF or selective-inference criteria; missing state can yield `None`/NaN. |
+| `rsquared`, `rsquared_adj`, `fvalue`, `f_pvalue`, `llf`, `aic`, `bic` | Available fit diagnostics. After weighted debiased inference, `rsquared`/`rsquared_adj` use a re-centered working response and need not equal raw weighted R²; use validated `score(X,y,sample_weight=weights)` instead, as shown in [weighted diagnostics](../models/regression/elastic-net.md#weighted-training-diagnostics). AIC/BIC/F are compatibility plug-in summaries, not general penalty-aware effective-DoF or selective-inference criteria; missing state can yield `None`/NaN. |
 
 ### Covariance and inference behavior
 
@@ -428,7 +428,7 @@ PenalizedGeneralizedLinearModel(loss='squared_error', penalty='l1', alpha=1.0, l
 
 | Parameter | Default | Meaning and restrictions |
 |---|---|---|
-| `loss` | `'squared_error'` | Loss names include squared_error, logistic, poisson, gamma, inverse_gaussian, negative_binomial, tweedie and quantile. Consult the [loss reference](../models/losses.md) for other families and their restrictions. |
+| `loss` | `'squared_error'` | Loss names include squared_error, logistic, poisson, gamma, inverse_gaussian, negative_binomial, tweedie and quantile. Consult the [loss reference](losses.md) for other families and their restrictions. |
 | `penalty` | `'l1'` | none, l1, l2, elasticnet, scad, mcp, adaptive_l1, supported group penalties, or a Penalty object. |
 | `alpha` | `1.0` | Penalty strength on the average-loss scale. A supplied Penalty object owns its own configuration. |
 | `l1_ratio` | `0.5` | L1 fraction for elasticnet. |
@@ -500,7 +500,7 @@ This generic CV class is distinct from ElasticNetCV and LogisticRegressionCV. `f
 
 For a candidate count a and fold count f, `alpha_grid_` and `cv_results_["alpha"]` have shape `(a,)`; `mean_score` has `(a,)`, and `all_scores` has `(f,a)`. These score arrays hold losses (smaller is better). Other keys are `device_sizing_fold_count`, `cv_strategy_`, `cv_selected_device_`, `mean_score_stage1`, `all_scores_stage1`, and `refined_mask`. Stage-one arrays are None in strict mode; the boolean refinement mask has `(a,)`. `coef_`, `intercept_`, and `estimator_` describe the final full-data fit. `cv_strategy_` and `cv_selected_device_` are also attributes.
 
-`summary(*args,**kwargs)` currently raises AttributeError after successful generic final-refit inference because it delegates to a final estimator without a summary method. Without inference it raises RuntimeError instead. Read `estimator_._inference_result.to_dict()` (or `to_dataframe()` with pandas) for supported inference; the failure to render a summary does not itself change the fitted coefficients. See the runnable result example on the [GLM page](../models/generalized-linear-model.md#reading-cv-inference-results). Shared configuration/p-value/resampling methods apply.
+`summary(*args,**kwargs)` currently raises AttributeError after successful generic final-refit inference because it delegates to a final estimator without a summary method. Without inference it raises RuntimeError instead. Read `estimator_._inference_result.to_dict()` (or `to_dataframe()` with pandas) for supported inference; the failure to render a summary does not itself change the fitted coefficients. See the runnable result example on the [GLM page](../models/regression/generalized-linear-model.md#reading-cv-inference-results). Shared configuration/p-value/resampling methods apply.
 
 For `PenalizedGLM_CV`, the same generator-defined `cv_splits` can be reused by repeated `fit()` calls, scikit-learn clones, and pickle round trips. Do not separately consume the generator after passing it to the estimator; use a list if you also need to inspect the splits yourself.
 
@@ -512,11 +512,11 @@ Ridge(alpha=1.0, fit_intercept=True, device='auto', n_jobs=None, gpu_memory_clea
 ```
 
 Every constructor parameter and its meaning is listed in the
-[complete Ridge parameter table](../models/ridge.md#parameters).
+[complete Ridge parameter table](../models/regression/ridge.md#parameters).
 This wrapper accepts only a scalar response. Default `solver="exact"` fits L2
 regression; `compute_inference=True` enables the supported Gaussian covariance
 path. The optimized CPU exact path has the documented
-[large-offset limitation](../models/ridge.md#large-feature-offsets).
+[large-offset limitation](../models/regression/ridge.md#large-feature-offsets).
 
 | Method | Arguments, defaults and return |
 |---|---|
@@ -546,13 +546,13 @@ SCADRegression(alpha=1.0, a=3.7, fit_intercept=True, max_iter=1000, tol=0.0001, 
 ```
 
 Every constructor parameter and its meaning is listed in the
-[complete SCADRegression parameter table](../models/scad.md#parameters).
+[complete SCADRegression parameter table](../models/regression/scad.md#parameters).
 Import with `from statgpu.linear_model import SCADRegression`; the top-level
 `statgpu` module does not export it. `alpha` must be finite and positive, and
 `a` must be finite and greater than 2.
 Keep `compute_inference=False`: the wrapper does not expose `inference_method`,
 and enabling inference raises. Use the generic penalized-linear interface from
-the [model page](../models/scad.md#covarianceinference) for explicit inference.
+the [model page](../models/regression/scad.md#covarianceinference) for explicit inference.
 
 | Method | Arguments, defaults and return |
 |---|---|
@@ -579,13 +579,13 @@ MCPRegression(alpha=1.0, gamma=3.0, fit_intercept=True, max_iter=1000, tol=0.000
 ```
 
 Every constructor parameter and its meaning is listed in the
-[complete MCPRegression parameter table](../models/mcp.md#parameters).
+[complete MCPRegression parameter table](../models/regression/mcp.md#parameters).
 Import with `from statgpu.linear_model import MCPRegression`; the top-level
 `statgpu` module does not export it. `alpha` must be finite and positive, and
 `gamma` must be finite and greater than 1.
 Keep `compute_inference=False`: the wrapper does not expose `inference_method`,
 and enabling inference raises. Use the generic penalized-linear interface from
-the [model page](../models/mcp.md#covarianceinference) for explicit inference.
+the [model page](../models/regression/mcp.md#covarianceinference) for explicit inference.
 
 | Method | Arguments, defaults and return |
 |---|---|
@@ -645,7 +645,7 @@ There is no `cv_results_["mean_mse"]` key. `coef_` `(p,)`, scalar `intercept_`,
 `estimator_` and conditions on alpha; it does not account for tuning uncertainty.
 `cv_selected_device_` records the final device. There is no public solver,
 max_iter or tol control on RidgeCV; the final estimator uses Ridge's exact path.
-The [large-offset caution](../models/ridge.md#large-feature-offsets) also matters
+The [large-offset caution](../models/regression/ridge.md#large-feature-offsets) also matters
 when interpreting this final Ridge fit.
 
 Generated folds are shuffled K-fold, not grouped, stratified or time-aware.
@@ -787,7 +787,7 @@ All arguments except `link` use the [ordinary GLM parameter table](#generalizedl
 with the same defaults. `link="log"` gives mean `exp(eta)`; `"inverse_power"`
 gives mean `1/eta` and requires a positive linear predictor. Responses must be
 strictly positive. The latter link's explicit Newton/L-BFGS domain behavior is
-described in the [weighted GLM guide](../models/generalized-linear-model.md).
+described in the [weighted GLM guide](../models/regression/generalized-linear-model.md).
 The constructor has no shape/dispersion or generic `family` parameter.
 
 ## InverseGaussianRegression

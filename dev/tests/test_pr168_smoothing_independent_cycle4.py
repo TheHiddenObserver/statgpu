@@ -40,10 +40,10 @@ def _example(language, name, page):
 
 @pytest.mark.parametrize("language", ["en", "cn"])
 def test_seeded_kernel_workflow_keeps_held_out_rows_out_of_fit(language):
-    example = _example(language, "kernel-ridge-cv-cpu", "models/kernel-ridge-cv")
-    ridge = _example(language, "kernel-ridge-cpu", "models/kernel-ridge")
-    pca = _example(language, "kernel-pca-cpu", "models/kernel-pca")
-    nystroem = _example(language, "kernel-nystroem-cpu", "models/kernel-nystroem")
+    example = _example(language, "kernel-ridge-cv-cpu", "models/nonparametric/kernel-ridge-cv")
+    ridge = _example(language, "kernel-ridge-cpu", "models/nonparametric/kernel-ridge")
+    pca = _example(language, "kernel-pca-cpu", "models/nonparametric/kernel-pca")
+    nystroem = _example(language, "kernel-nystroem-cpu", "models/nonparametric/kernel-nystroem")
     train, test = example["train"], example["test"]
     assert not np.intersect1d(train, test).size
     assert_array_equal(np.sort(np.r_[train, test]), np.arange(240))
@@ -140,8 +140,8 @@ def test_retained_kernel_dimensions_normalization_and_installed_help():
 
 @pytest.mark.parametrize("language", ["en", "cn"])
 def test_public_device_surfaces_explain_actual_placement_checks(language):
-    paths = ["models/nonparametric.md", "reference/survival-smoothing-api.md",
-             "models/splines.md", "guides/device-and-memory.md"]
+    paths = ["models/nonparametric/nonparametric.md", "reference/survival-smoothing-api.md",
+             "models/nonparametric/splines.md", "guides/device-and-memory.md"]
     for relative in paths:
         text = (ROOT / "docs" / language / relative).read_text()
         for phrase in ('device="torch"', 'device="cuda"', ".device", ".is_cuda", "NumPy"):
@@ -163,13 +163,13 @@ def test_public_device_surfaces_explain_actual_placement_checks(language):
 
 @pytest.mark.parametrize("language", ["en", "cn"])
 def test_kernel_page_leads_with_choices_and_interprets_held_out_results(language):
-    text = (ROOT / f"docs/{language}/models/kernel-methods.md").read_text()
+    text = (ROOT / f"docs/{language}/models/nonparametric/kernel-methods.md").read_text()
     opening = text.split("<!-- example: kernel-gram-cpu -->", 1)[0]
     for name in ("KernelRidge", "KernelRidgeCV", "KernelPCA", "Nystroem", "GAM"):
         assert name in opening
     assert "linear-regression.md" in opening
-    cv = (ROOT / f"docs/{language}/models/kernel-ridge-cv.md").read_text()
-    nystroem = (ROOT / f"docs/{language}/models/kernel-nystroem.md").read_text()
+    cv = (ROOT / f"docs/{language}/models/nonparametric/kernel-ridge-cv.md").read_text()
+    nystroem = (ROOT / f"docs/{language}/models/nonparametric/kernel-nystroem.md").read_text()
     api = (ROOT / f"docs/{language}/reference/kernel-methods-api.md").read_text()
     cv_opening = cv.split("<!-- example: kernel-ridge-cv-cpu -->", 1)[0]
     assert "held-out" in cv_opening if language == "en" else "留出" in cv_opening
@@ -193,7 +193,7 @@ def test_chinese_cox_prose_and_spline_public_layering():
         assert contract in cox
     assert "生存分析专用分支" not in cox
     for language in ("en", "cn"):
-        splines = (ROOT / f"docs/{language}/models/splines.md").read_text()
+        splines = (ROOT / f"docs/{language}/models/nonparametric/splines.md").read_text()
         assert "QR fallback" not in splines and "QR 回退" not in splines
         assert "1e6" in splines and "boundary_lo" in splines
         assert "cyclic_cubic_spline_basis" in splines
@@ -295,7 +295,7 @@ def test_spline_should_honor_explicit_accelerator_with_torch_cpu_input_or_raise(
 
 @pytest.mark.parametrize("language", ["en", "cn"])
 def test_kernel_feature_docs_distinguish_availability_from_actual_placement(language):
-    text = (ROOT / f"docs/{language}/models/kernel-methods.md").read_text()
+    text = (ROOT / f"docs/{language}/models/nonparametric/kernel-methods.md").read_text()
     for phrase in ("KernelPCA", "Nystroem", 'device="torch"', ".device", ".is_cuda",
                    "NumPy", "fit_transform", "current-smoothing-and-spline-exceptions"):
         assert phrase in text
@@ -471,7 +471,7 @@ def test_kde_zero_weight_deletion_preserves_numeric_factor_not_every_string_sele
 
 @pytest.mark.parametrize("language", ["en", "cn"])
 def test_zero_weight_guidance_distinguishes_reselection_and_preserved_factor(language):
-    for relative in ("models/nonparametric.md", "reference/survival-smoothing-api.md"):
+    for relative in ("models/nonparametric/nonparametric.md", "reference/survival-smoothing-api.md"):
         text = (ROOT / "docs" / language / relative).read_text()
         assert "bandwidth=original.bandwidth_factor_" in text
         for selector in ("nrd", "nrd0", "ucv", "bcv", "sj-ste", "sj-dpi"):

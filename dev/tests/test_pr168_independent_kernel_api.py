@@ -223,7 +223,7 @@ def test_repeated_boundary_knot_basis_matches_analytic_recurrence(degree):
 
 @pytest.mark.parametrize('language', ['en', 'cn'])
 def test_spline_complete_methods_and_zero_denominator_convention(language):
-    text = (ROOT / f'docs/{language}/models/splines.md').read_text()
+    text = (ROOT / f'docs/{language}/models/nonparametric/splines.md').read_text()
     assert r'\frac{t_{i+k+1}-x}{t_{i+k+1}-t_{i+1}}' in text
     assert '0/0 = 0' not in text
     for name in ('fit', 'fit_transform', 'transform', 'predict',

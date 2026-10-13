@@ -20,10 +20,10 @@ This page explains how those pieces combine to fit a model and how their compati
 
 Use the following references for those details:
 
-- [Loss Functions](../models/losses.md) — loss definitions and loss-level numerical properties
+- [Loss Functions](../reference/losses.md) — loss definitions and loss-level numerical properties
 - [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md) — actual loss × penalty × solver routes
 - [Solver Algorithms](solver-algorithms.md) — update equations, convergence behavior, and algorithmic assumptions
-- model pages such as [GeneralizedLinearModel](../models/generalized-linear-model.md), [Quantile Regression](../models/quantile.md), [Robust Regression](../models/robust.md), and [CoxPH](../models/coxph.md) — model-specific statistical behavior
+- model pages such as [GeneralizedLinearModel](../models/regression/generalized-linear-model.md), [Quantile Regression](../models/regression/quantile.md), [Robust Regression](../models/regression/robust.md), and [CoxPH](../models/coxph.md) — model-specific statistical behavior
 
 ## 1. Runtime architecture
 
@@ -152,7 +152,7 @@ Consequently:
 - weight restrictions also apply to low-level calls: for example, shared ADMM rejects non-uniform weights on its supported losses;
 - common rescaling of weights is invariant only on routes whose declared objective has that normalization.
 
-For the meaning and availability of weights in a particular model, see its model page. For loss-level weighting of first-order quantities, see [Loss Functions](../models/losses.md).
+For the meaning and availability of weights in a particular model, see its model page. For loss-level weighting of first-order quantities, see [Loss Functions](../reference/losses.md).
 
 ## 6. Backend and device boundary
 
@@ -210,7 +210,7 @@ Use this table to find the reference that answers your question:
 
 | Question | Canonical documentation |
 |---|---|
-| What is this loss mathematically? What primitives does it provide? | [Loss Functions](../models/losses.md) |
+| What is this loss mathematically? What primitives does it provide? | [Loss Functions](../reference/losses.md) |
 | Which loss × penalty combination uses which solver? | [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md) |
 | How does Newton/FISTA/ADMM/etc. update the parameters? | [Solver Algorithms](solver-algorithms.md) |
 | How do Loss, Penalty, Solver, Backend, and CV compose? | **This page** |
@@ -221,11 +221,11 @@ When choosing a solver for a particular model, read its model page alongside the
 
 ## See also
 
-- [Loss Functions](../models/losses.md)
+- [Loss Functions](../reference/losses.md)
 - [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md)
 - [Solver Algorithms](solver-algorithms.md)
-- [GeneralizedLinearModel](../models/generalized-linear-model.md)
-- [Quantile Regression](../models/quantile.md)
-- [Robust Regression](../models/robust.md)
+- [GeneralizedLinearModel](../models/regression/generalized-linear-model.md)
+- [Quantile Regression](../models/regression/quantile.md)
+- [Robust Regression](../models/regression/robust.md)
 - [CoxPH](../models/coxph.md)
 - [Inference Modes](inference-modes.md)

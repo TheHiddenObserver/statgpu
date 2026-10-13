@@ -4,12 +4,12 @@
 > Last updated: 2026-10-11  
 > Switch: [Chinese](../../cn/reference/survival-smoothing-api.md)
 
-Use this page to look up a call after the [CoxPH](../models/coxph.md), [GAM](../models/semiparametric.md), or [nonparametric](../models/nonparametric.md) walkthrough. Signatures below include public arguments and defaults; `*` starts keyword-only arguments. Shape notation: `n` training rows, `p` features, `q` query rows, `r` response columns. Fitted methods require a successful fit. Generic [parameter management](estimator-api.md#parameter-management) and [inference helpers](estimator-api.md#inference-helpers) are documented separately. Generic resampling helpers do not automatically supply model-valid survival inference or GAM confidence bands. Floating-point model calculations on this page use float64 rather than preserving a float32 input dtype; backend-native numeric predictions still have the fitted array-library type.
+Use this page to look up a call after the [CoxPH](../models/coxph.md), [GAM](../models/nonparametric/semiparametric.md), or [nonparametric](../models/nonparametric/nonparametric.md) walkthrough. Signatures below include public arguments and defaults; `*` starts keyword-only arguments. Shape notation: `n` training rows, `p` features, `q` query rows, `r` response columns. Fitted methods require a successful fit. Generic [parameter management](estimator-api.md#parameter-management) and [inference helpers](estimator-api.md#inference-helpers) are documented separately. Generic resampling helpers do not automatically supply model-valid survival inference or GAM confidence bands. Floating-point model calculations on this page use float64 rather than preserving a float32 input dtype; backend-native numeric predictions still have the fitted array-library type.
 
 Related complete APIs: [KernelRidge, KernelRidgeCV,
 KernelPCA, and Nystroem](kernel-methods-api.md#complete-estimator-api),
 [pairwise kernel functions](kernel-methods-api.md#complete-pairwise-function-api),
-and [spline bases and SplineTransformer](../models/splines.md#complete-model-specific-calls).
+and [spline bases and SplineTransformer](../models/nonparametric/splines.md#complete-model-specific-calls).
 
 ## CoxPH and CoxPHCV
 
@@ -185,7 +185,7 @@ The first three printed lines are `(2, 2) (2, 2) (2, 3)`, `True`, and `True`, fo
 
 ## GAM
 
-Import `GAM` from `statgpu.semiparametric`. All constructor meanings and admissible values are in the [GAM table](../models/semiparametric.md#complete-constructor-and-output-reference).
+Import `GAM` from `statgpu.semiparametric`. All constructor meanings and admissible values are in the [GAM table](../models/nonparametric/semiparametric.md#complete-constructor-and-output-reference).
 
 <!-- signature: GAM -->
 ```text
@@ -213,7 +213,7 @@ GAM.summary()
 - For multi-feature Torch GAM prediction, use explicit `(q,p)` queries, including `(1,p)` for one point; the current vector shape check raises `TypeError`.
 - `summary`: prints and returns a dictionary with `n_features`, `n_splines_per_feature`, `spline_degree`, `penalty_order`, `smoothing_parameter`, `effective_df`, `intercept`, and, only after automatic selection, `gcv_score`.
 - Fitted fields: backend-native `coef_` of length `1+sum(n_basis_j)` and per-feature `knots_`; scalar `intercept_`, `edf_`, `lam_`; `gcv_score_` is a float for automatic selection and `None` for fixed lambda; `n_features_` is an integer. Coefficients describe centered basis functions, not raw-feature slopes.
-- Large finite lambda can make trace-scaled stabilization shrink the intended unpenalized intercept and other penalty-nullspace directions. Check training-mean preservation and validate the original objective; finite GCV/predictions are insufficient. See the [large-lambda limitation](../models/semiparametric.md#large-smoothing-penalties-and-the-intercept).
+- Large finite lambda can make trace-scaled stabilization shrink the intended unpenalized intercept and other penalty-nullspace directions. Check training-mean preservation and validate the original objective; finite GCV/predictions are insufficient. See the [large-lambda limitation](../models/nonparametric/semiparametric.md#large-smoothing-penalties-and-the-intercept).
 - `lam=None` searches the built-in 100-value grid; check that `gcv_score_` is finite before interpreting the result. When all candidates have infinite GCV, the current implementation still returns the first grid value, so a returned object alone does not prove successful selection; there is no GAM custom-grid/CV-estimator API. Choose other settings with external validation. No GAM-specific `score`, sample-weight objective, family/link, coefficient inference, or confidence-band method is provided. Generic inherited helpers do not create these capabilities.
 - Always refit after `set_params`. Some GAM parameter updates currently retain the previous fitted arrays; continued prediction before refitting can use inconsistent state. A fresh GAM instance is the safest way to change the basis design. A failed refit during basis construction can also leave old coefficients alongside new knots or feature counts. After such a failure, discard the instance and fit a fresh one before predicting or interpreting `summary()`.
 
@@ -299,7 +299,7 @@ can materially change KDE and kernel-regression results with numeric bandwidth
 factors, Scott, or Silverman rules. Centering
 alone does not address this. Scale training features and queries consistently
 before fitting, and apply the density Jacobian when reporting KDE in the
-original units. See [small coordinate scales](../models/nonparametric.md#small-coordinate-scales)
+original units. See [small coordinate scales](../models/nonparametric/nonparametric.md#small-coordinate-scales)
 for the transformation, an observed counterexample, and validation limits.
 
 KDE and kernel regression currently have explicit-device exceptions. With NumPy or Torch CPU inputs, `device="torch"` plus `backend="auto"` or `"torch"` can still fit and predict on Torch CPU. With `device="cuda", backend="auto"`, an unavailable CuPy backend can select Torch when Torch CUDA is available; NumPy or Torch CPU input can then remain on CPU. Explicit `backend="torch"` can likewise run on CPU with `device="cuda"`; `backend="numpy"` overrides either accelerator request. Inspect `samples_` and density/prediction array placement, using Torch `.device`/`.is_cuda` or CuPy `.device`; NumPy arrays are on CPU. The configured `device` and `backend_` alone are insufficient. For a predictable CPU path, use NumPy inputs with `device="cpu", backend="numpy"`. If your workflow requires GPU execution, reject CPU-resident results rather than continuing with them; see [device guidance](../guides/device-and-memory.md).
@@ -384,7 +384,7 @@ Shared `samples`, `points`, `bandwidth`, `weights`, `kernel`, and `backend` have
 - `kde_confidence_interval(method="normal")`: only 1D Gaussian KDE; the fitted covariance determines the absolute width. It returns an asymptotic, pointwise, zero-lower-clipped normal interval. The result has `n_resamples=0` and `bootstrap_samples=None`, even if `return_bootstrap_samples=True`.
 - `kde_confidence_interval(method="bootstrap", bootstrap_method="percentile")`: percentile resampling; no other bootstrap method is supported.
 - `kde_bootstrap_confidence_interval(method="percentile")`: convenience wrapper for that bootstrap path. Here `method` names the percentile procedure, whereas the general function's `method` chooses normal versus bootstrap.
-- `return_bootstrap_samples=True` returns the bootstrap replicate matrix; otherwise it is omitted from the result. Intervals do not adjust smoothing bias or give simultaneous coverage. The [tutorial](../models/nonparametric.md#cpu-example-3-pointwise-density-intervals) explains selector refitting and why the illustrated interpretation is restricted to independent, equally weighted data. Nonuniform weights are used both for sampling and reweighting and need a study-specific justification.
+- `return_bootstrap_samples=True` returns the bootstrap replicate matrix; otherwise it is omitted from the result. Intervals do not adjust smoothing bias or give simultaneous coverage. The [tutorial](../models/nonparametric/nonparametric.md#cpu-example-3-pointwise-density-intervals) explains selector refitting and why the illustrated interpretation is restricted to independent, equally weighted data. Nonuniform weights are used both for sampling and reweighting and need a study-specific justification.
 
 `KDEBootstrapResult` is the result container for **both** methods. Arrays are NumPy: `points` `(q,)` for one feature or `(q,p)` otherwise; `estimate`, `lower`, `upper` `(q,)`; optional `bootstrap_samples` `(n_resamples,q)`. Other fields are `confidence_level`, `n_resamples`, `random_state`, `kernel`, `backend`, and `metadata`. The backend label records the fitted array library, not the output-array location. Metadata includes `method`, `bandwidth`, `batch_size`, `n_features`, plus `n_eff` for normal intervals or `bootstrap_method` for bootstrap. `to_dict()` converts result arrays to lists and omits `bootstrap_samples` when absent.
 

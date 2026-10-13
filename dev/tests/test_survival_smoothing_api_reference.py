@@ -4,6 +4,7 @@ import ast
 import inspect
 import re
 from dataclasses import fields
+from doc_paths import model_doc
 from pathlib import Path
 
 import numpy as np
@@ -108,7 +109,7 @@ def test_result_containers_and_shared_reference_are_documented(language):
     assert "estimator-api.md#parameter-management" in text
     assert "estimator-api.md#inference-helpers" in text
     for topic in ("coxph", "semiparametric", "nonparametric"):
-        assert "../reference/survival-smoothing-api.md#" in _page(language, f"models/{topic}.md")
+        assert "../reference/survival-smoothing-api.md#" in _page(language, f"{model_doc(topic)}.md")
 
 
 @pytest.fixture(scope="module", params=("en", "cn"))
@@ -188,8 +189,8 @@ def test_bandwidth_formulas_and_diagnostic_fields(reference_examples):
 @pytest.mark.parametrize("language", ("en", "cn"))
 def test_core_display_formulas_and_symbol_definitions(language):
     cox = _page(language, "models/coxph.md")
-    smooth = _page(language, "models/nonparametric.md")
-    gam = _page(language, "models/semiparametric.md")
+    smooth = _page(language, "models/nonparametric/nonparametric.md")
+    gam = _page(language, "models/nonparametric/semiparametric.md")
     cox_math = "\n".join(re.findall(r"\$\$(.*?)\$\$", cox, re.DOTALL))
     smooth_math = "\n".join(re.findall(r"\$\$(.*?)\$\$", smooth, re.DOTALL))
     gam_math = "\n".join(re.findall(r"\$\$(.*?)\$\$", gam, re.DOTALL))

@@ -1,4 +1,5 @@
 """Keep user contracts visible while engineering history lives with contributors."""
+from doc_paths import model_doc
 from pathlib import Path
 
 import pytest
@@ -51,7 +52,7 @@ def test_panel_user_pages_do_not_present_source_specific_acceptance_as_current(p
 @pytest.mark.parametrize("language", ["en", "cn"])
 @pytest.mark.parametrize("model", ["anova", "covariance"])
 def test_model_evidence_is_routed_out_of_learner_pages(language, model):
-    text = read(f"docs/{language}/models/{model}.md")
+    text = read(f"docs/{language}/{model_doc(model)}.md")
     assert "dev/reviews/pr168-model-validation-provenance.md#" in text
     for phrase in ("Maintained tests cover", "维护测试覆盖", "维护中的测试覆盖"):
         assert phrase not in text

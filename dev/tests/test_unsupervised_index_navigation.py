@@ -47,7 +47,7 @@ def test_index_relative_links_resolve_and_match_across_languages():
         targets = re.findall(r'\]\(([^)]+)\)', index.read_text(encoding='utf-8'))
         for target in targets:
             assert (index.parent / target.split("#", 1)[0]).resolve().is_file(), target
-        routes.append({t.split("#", 1)[0] for t in targets if not t.startswith('../')})
+        routes.append({t.split("#", 1)[0] for t in targets if not t.startswith('../') and t.split('#', 1)[0] != 'README.md'})
     assert routes[0] == routes[1] == set(_ESTIMATORS.values()) | {'api-reference.md'}
 
 
@@ -123,7 +123,7 @@ def test_index_discloses_dbscan_runtime_neighbor_dependency(language, monkeypatc
 def test_model_overview_distinguishes_internal_neighbor_search_from_exports(language):
     from statgpu import unsupervised
 
-    text = (_ROOT / f'docs/{language}/models/unsupervised.md').read_text(encoding='utf-8')
+    text = (_ROOT / f'docs/{language}/unsupervised/README.md').read_text(encoding='utf-8')
     assert set(unsupervised.__all__) == set(_ESTIMATORS)
     overview = text.split('## ')[1]
     if language == 'en':
@@ -135,4 +135,4 @@ def test_model_overview_distinguishes_internal_neighbor_search_from_exports(lang
         assert 'Gaussian mixture' not in text
         assert '簇内平方欧氏距离之和' in text
     assert 'NNDescent' in text
-    assert '../unsupervised/api-reference.md' in text
+    assert '](api-reference.md)' in text

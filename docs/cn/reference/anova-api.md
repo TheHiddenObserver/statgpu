@@ -5,9 +5,9 @@
 > 本页：API 参考\
 > 切换：[English](../../en/reference/anova-api.md)
 
-理解概念与选择方法，请先阅读 [ANOVA 概览](../models/anova.md)。
-完整分析示例分别见[经典单因素](../models/anova-oneway.md)、[Welch](../models/anova-welch.md)、
-[平衡双因素](../models/anova-twoway.md)与[事后比较](../models/anova-posthoc.md)教程。
+理解概念与选择方法，请先阅读 [ANOVA 概览](../models/testing/anova.md)。
+完整分析示例分别见[经典单因素](../models/testing/anova-oneway.md)、[Welch](../models/testing/anova-welch.md)、
+[平衡双因素](../models/testing/anova-twoway.md)与[事后比较](../models/testing/anova-posthoc.md)教程。
 本页用于查阅全部公开函数的签名、参数、返回字段、输入要求和数值限制。
 
 <a id="public-api"></a>

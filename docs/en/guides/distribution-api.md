@@ -12,7 +12,7 @@ percentiles, densities, or simulated observations. Use this API when the
 reference distribution and its parameters are already known: for example,
 normal measurement errors, a Student t test statistic, or Poisson event counts.
 It does not fit a distribution to data or check whether that assumption is
-appropriate. For an unknown density, consider [kernel density estimation](../models/nonparametric.md).
+appropriate. For an unknown density, consider [kernel density estimation](../models/nonparametric/nonparametric.md).
 For regression inference, start with the fitted model's inference output rather
 than choosing a reference distribution without accounting for how it was fitted.
 

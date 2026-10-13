@@ -83,7 +83,7 @@ def test_automatic_gam_selection_caller_guard_rejects_no_finite_candidate():
 
 @pytest.mark.parametrize("language", ("en", "cn"))
 def test_learner_gam_example_checks_selection_before_predicting(language):
-    source = (ROOT / f"docs/{language}/models/semiparametric.md").read_text()
+    source = (ROOT / f"docs/{language}/models/nonparametric/semiparametric.md").read_text()
     guard = source.index("if not np.isfinite(gam.gcv_score_):")
     prediction = source.index("prediction = gam.predict(X_test)")
     assert guard < prediction

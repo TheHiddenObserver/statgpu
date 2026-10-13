@@ -10,13 +10,13 @@ _ROOT = Path(__file__).resolve().parents[2]
 
 _PAGES = (
     "docs/cn/guides/distribution-api.md",
-    "docs/cn/models/linear-regression.md",
-    "docs/cn/models/logistic-regression.md",
-    "docs/cn/models/semiparametric.md",
-    "docs/cn/models/nonparametric.md",
-    "docs/cn/models/elastic-net.md",
-    "docs/cn/models/feature-selection.md",
-    "docs/cn/models/unsupervised.md",
+    "docs/cn/models/regression/linear-regression.md",
+    "docs/cn/models/regression/logistic-regression.md",
+    "docs/cn/models/nonparametric/semiparametric.md",
+    "docs/cn/models/nonparametric/nonparametric.md",
+    "docs/cn/models/regression/elastic-net.md",
+    "docs/cn/models/feature-selection/README.md",
+    "docs/cn/unsupervised/README.md",
     "docs/cn/unsupervised/README.md",
     "docs/cn/models/coxph.md",
 )
@@ -116,7 +116,7 @@ def test_logistic_documentation_matches_public_solver_capability():
     from statgpu.linear_model import LogisticRegression
 
     for language in ("en", "cn"):
-        text = (_ROOT / f"docs/{language}/models/logistic-regression.md").read_text(
+        text = (_ROOT / f"docs/{language}/models/regression/logistic-regression.md").read_text(
             encoding="utf-8"
         )
         _check_logistic_solver_documentation(LogisticRegression, text, language)

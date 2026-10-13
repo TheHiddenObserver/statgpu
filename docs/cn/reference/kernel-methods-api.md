@@ -6,9 +6,9 @@
 
 本页列出 `statgpu.nonparametric.kernel_methods` 中四个估计器和八个成对核函数
 的完整签名、参数、方法、拟合属性及执行限制。选择方法可先阅读
-[核方法总览](../models/kernel-methods.md)；完整示例分别见
-[KernelRidge](../models/kernel-ridge.md)、[KernelRidgeCV](../models/kernel-ridge-cv.md)、
-[KernelPCA](../models/kernel-pca.md) 和 [Nystroem](../models/kernel-nystroem.md)。
+[核方法总览](../models/nonparametric/kernel-methods.md)；完整示例分别见
+[KernelRidge](../models/nonparametric/kernel-ridge.md)、[KernelRidgeCV](../models/nonparametric/kernel-ridge-cv.md)、
+[KernelPCA](../models/nonparametric/kernel-pca.md) 和 [Nystroem](../models/nonparametric/kernel-nystroem.md)。
 
 <a id="complete-estimator-api"></a>
 
@@ -53,7 +53,7 @@ from statgpu.nonparametric.kernel_methods import (
 
 ### KernelRidge
 
-[教程：拟合并评估非线性响应预测](../models/kernel-ridge.md)。
+[教程：拟合并评估非线性响应预测](../models/nonparametric/kernel-ridge.md)。
 
 除共有参数外，`alpha=1.0` 是有限非负标量，`kernel_params=None` 是可选的核关键字参数字典。求解的正则化系统为
 
@@ -82,7 +82,7 @@ $$
 
 ### KernelRidgeCV
 
-[教程：在训练折内选择 alpha](../models/kernel-ridge-cv.md)。
+[教程：在训练折内选择 alpha](../models/nonparametric/kernel-ridge-cv.md)。
 
 | 额外参数 | 含义与限制 |
 |---|---|
@@ -127,7 +127,7 @@ $$
 
 ### KernelPCA
 
-[教程：学习非线性坐标](../models/kernel-pca.md)。
+[教程：学习非线性坐标](../models/nonparametric/kernel-pca.md)。
 
 | 额外参数 | 含义与限制 |
 |---|---|
@@ -160,7 +160,7 @@ $$
 
 ### Nystroem
 
-[教程：构造可复用的近似核特征](../models/kernel-nystroem.md)。
+[教程：构造可复用的近似核特征](../models/nonparametric/kernel-nystroem.md)。
 
 | 额外参数 | 含义与限制 |
 |---|---|

@@ -34,12 +34,12 @@ _PUBLIC_DOC_PAIRS = (
         "docs/cn/guides/solver-penalty-matrix.md",
     ),
     (
-        "docs/en/models/losses.md",
-        "docs/cn/models/losses.md",
+        "docs/en/reference/losses.md",
+        "docs/cn/reference/losses.md",
     ),
     (
-        "docs/en/models/quantile.md",
-        "docs/cn/models/quantile.md",
+        "docs/en/models/regression/quantile.md",
+        "docs/cn/models/regression/quantile.md",
     ),
     (
         "docs/en/guides/cross-validation.md",
@@ -229,15 +229,15 @@ def test_documentation_root_portal_stays_user_facing():
 
 
 def test_loss_reference_keeps_quantile_content_at_loss_layer():
-    en = (_ROOT / "docs/en/models/losses.md").read_text(encoding="utf-8")
-    cn = (_ROOT / "docs/cn/models/losses.md").read_text(encoding="utf-8")
+    en = (_ROOT / "docs/en/reference/losses.md").read_text(encoding="utf-8")
+    cn = (_ROOT / "docs/cn/reference/losses.md").read_text(encoding="utf-8")
 
     assert "QuantileLoss" in en
     assert "non-smooth step-function subgradient and no Hessian" in en
-    assert "[Quantile Regression](quantile.md)" in en
+    assert "[Quantile Regression](../models/regression/quantile.md)" in en
     assert "`QuantileLoss`" in cn
     assert "次梯度为阶梯函数，并且没有 Hessian" in cn
-    assert "[分位数回归](quantile.md)" in cn
+    assert "[分位数回归](../models/regression/quantile.md)" in cn
 
     estimator_solver_terms = (
         "PenalizedQuantileRegression",
@@ -436,7 +436,7 @@ def test_usage_portals_do_not_embed_contributor_or_validation_workflows():
     cn = (_ROOT / "docs/cn/usage.md").read_text(encoding="utf-8")
 
     for text in (en, cn):
-        assert "Cross-Validation" in text or "交叉验证" in text
+        assert "cross-validation" in text.lower() or "交叉验证" in text
         assert "Contributor Checklist" not in text
         assert "Validation and Evidence" not in text
         assert "dev/AGENTS.md" not in text

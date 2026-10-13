@@ -1469,7 +1469,7 @@ direct fit with solver="auto"
 └── other group penalties                → group-aware FISTA / FISTA-LLA
 ```
 
-For Quantile L2/no-penalty objectives, explicit `solver="irls"` selects the same algorithm as `auto`, while explicit `solver="fista"` executes ordinary FISTA and is never silently substituted by IRLS. Automatic Quantile Group SCAD/MCP uses Group Proximal IRLS-LLA for direct fitting and cross-validation; an explicit Group SCAD/MCP `solver="fista"` remains ordinary group proximal FISTA and is not rewritten into that automatic route. The Group Proximal IRLS-LLA surrogate equations and weighting semantics are given in the [Quantile Regression model page](../models/quantile.md). Quantile FISTA-BB, estimator/CV L-BFGS, and ADMM requests are unsupported and raise an error before numerical iteration. Direct low-level L-BFGS accepts Quantile calls with omitted or uniform weights and rejects non-uniform weights. Sparse Quantile ordinary FISTA and SCAD/MCP Proximal IRLS-CD are separate estimator algorithms.
+For Quantile L2/no-penalty objectives, explicit `solver="irls"` selects the same algorithm as `auto`, while explicit `solver="fista"` executes ordinary FISTA and is never silently substituted by IRLS. Automatic Quantile Group SCAD/MCP uses Group Proximal IRLS-LLA for direct fitting and cross-validation; an explicit Group SCAD/MCP `solver="fista"` remains ordinary group proximal FISTA and is not rewritten into that automatic route. The Group Proximal IRLS-LLA surrogate equations and weighting semantics are given in the [Quantile Regression model page](../models/regression/quantile.md). Quantile FISTA-BB, estimator/CV L-BFGS, and ADMM requests are unsupported and raise an error before numerical iteration. Direct low-level L-BFGS accepts Quantile calls with omitted or uniform weights and rejects non-uniform weights. Sparse Quantile ordinary FISTA and SCAD/MCP Proximal IRLS-CD are separate estimator algorithms.
 
 For the full family/backend/problem-size rules, including Poisson and Negative-Binomial sparse CV, see the [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md).
 
@@ -1481,7 +1481,7 @@ For the full family/backend/problem-size rules, including Poisson and Negative-B
 
 ## Quantile low-level solver calls
 
-This section is for callers of functions exported by `statgpu.solvers` and of `QuantileLoss.irls()`. For estimator selection, use the [Quantile model guide](../models/quantile.md) and the [compatibility matrix](solver-penalty-matrix.md).
+This section is for callers of functions exported by `statgpu.solvers` and of `QuantileLoss.irls()`. For estimator selection, use the [Quantile model guide](../models/regression/quantile.md) and the [compatibility matrix](solver-penalty-matrix.md).
 
 <a id="quantile-solver-scope"></a>
 

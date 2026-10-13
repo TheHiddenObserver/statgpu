@@ -124,14 +124,14 @@ def test_absolute_regression_widths_transform_with_feature_units():
 
 @pytest.mark.parametrize("language", ["en", "cn"])
 def test_smoothing_unit_guidance_gives_density_and_response_mapping(language):
-    text = (ROOT / f"docs/{language}/models/nonparametric.md").read_text()
+    text = (ROOT / f"docs/{language}/models/nonparametric/nonparametric.md").read_text()
     for phrase in ["1e-9", "0.243898", "0.000997", "density_x = density_z / np.prod(scale)",
                    "log_density_x = log_density_z - np.log(scale).sum()", "bandwidth_per_feature",
                    "Scott", "Silverman", "nrd`/`nrd0"]:
         assert phrase in text
     reference = (ROOT / f"docs/{language}/reference/survival-smoothing-api.md").read_text()
     anchor = "small-coordinate-scales" if language == "en" else "坐标尺度过小"
-    assert f"../models/nonparametric.md#{anchor}" in reference
+    assert f"../models/nonparametric/nonparametric.md#{anchor}" in reference
     for cls in [KernelDensityEstimator, KernelRegression]:
         assert "absolute covariance stabilization" in inspect.getdoc(cls).replace("\n", " ")
     assert "density Jacobian" in inspect.getdoc(KernelRegression)

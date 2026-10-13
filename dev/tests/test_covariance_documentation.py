@@ -15,6 +15,7 @@ from scipy.stats import multivariate_normal
 
 import statgpu
 import statgpu.covariance as covariance
+from doc_paths import model_doc, peer_link, reachable_pages
 from doc_examples import example_code, parse_examples, run_example
 
 
@@ -46,8 +47,8 @@ def _read(language, page):
 
 def _run(language, page):
     name = "covariance-geometry" if page == "covariance" else page
-    return run_example(_read(language, f"models/{page}"), name,
-                       f"docs/{language}/models/{page}.md")
+    return run_example(_read(language, model_doc(page)), name,
+                       f"docs/{language}/{model_doc(page)}.md")
 
 
 def _assert_gaussian_query(model, X):
@@ -63,7 +64,7 @@ def _assert_gaussian_query(model, X):
 @pytest.mark.parametrize("page", ("covariance", *LESSONS))
 def test_bilingual_examples_are_identical_and_self_contained(page):
     expected = "covariance-geometry" if page == "covariance" else page
-    en, cn = [_read(language, f"models/{page}") for language in ("en", "cn")]
+    en, cn = [_read(language, model_doc(page)) for language in ("en", "cn")]
     for text in (en, cn):
         examples = parse_examples(text)
         assert tuple(examples) == (expected,)
@@ -117,7 +118,7 @@ def test_printed_output_rejects_nonzero_text_and_structure_changes(actual):
 
 @pytest.mark.parametrize("language", ("en", "cn"))
 def test_graphical_lasso_output_accepts_ci_signed_zero_and_bracket_padding(language):
-    text = _read(language, "models/covariance-graphical-lasso")
+    text = _read(language, "models/covariance/covariance-graphical-lasso")
     expected = "\n".join(re.findall(r"```text\n(.*?)```", text, re.DOTALL))
     # Reproduce the two displayed -0. entries becoming padded positive zeros
     # in the hosted job, without changing any nonzero number or other output.
@@ -130,7 +131,7 @@ def test_graphical_lasso_output_accepts_ci_signed_zero_and_bracket_padding(langu
 @pytest.mark.parametrize("language", ("en", "cn"))
 @pytest.mark.parametrize("page", ("covariance", *LESSONS))
 def test_every_printed_tutorial_output_matches_execution(language, page, capsys):
-    text = _read(language, f"models/{page}")
+    text = _read(language, model_doc(page))
     # Every text fence on these learner pages is a published output, not code.
     expected = "\n".join(re.findall(r"```text\n(.*?)```", text, re.DOTALL))
     assert expected.strip(), page
@@ -287,7 +288,7 @@ def test_complete_reference_matches_runtime_constructor_defaults_and_public_inve
 
 @pytest.mark.parametrize("language", ("en", "cn"))
 def test_common_overview_keeps_distinct_concepts_and_routes_to_complete_layers(language):
-    text = _read(language, "models/covariance")
+    text = _read(language, "models/covariance/README")
     for anchor in CONCEPTS:
         assert text.count(f'<a id="{anchor}"></a>') == 1
         tail = text.split(f'<a id="{anchor}"></a>', 1)[1]
@@ -297,14 +298,14 @@ def test_common_overview_keeps_distinct_concepts_and_routes_to_complete_layers(l
         assert len(re.sub(r"<[^>]+>", "", body).strip()) > 100
     for page in LESSONS:
         assert f"]({page}.md)" in text
-        tutorial = _read(language, f"models/{page}")
-        assert "](covariance.md" in tutorial
-        assert "](../reference/covariance-api.md" in tutorial
+        tutorial = _read(language, model_doc(page))
+        assert "](README.md" in tutorial
+        assert "](../../reference/covariance-api.md" in tutorial
         assert "$$" in tutorial
-    assert "](../reference/covariance-api.md)" in text
+    assert "](../../reference/covariance-api.md)" in text
     reference = _read(language, "reference/covariance-api")
     for page in ("covariance", *LESSONS):
-        assert f"](../models/{page}.md)" in reference
+        assert f"](../{model_doc(page)}.md)" in reference
     for legacy in ("covariance-basic", "covariance-robust", "covariance-sparse", "cpu-and-gpu-examples"):
         assert f'<a id="{legacy}"></a>' in text
 
@@ -312,20 +313,23 @@ def test_common_overview_keeps_distinct_concepts_and_routes_to_complete_layers(l
 @pytest.mark.parametrize("language", ("en", "cn"))
 @pytest.mark.parametrize("page", ENTRY_POINTS)
 def test_entry_points_expose_common_concepts_all_methods_and_complete_api(language, page):
-    targets = re.findall(r"\]\(([^)]+)\)", _read(language, page))
-    for destination in ("covariance", *LESSONS, "covariance-api"):
-        assert any(target.split("#")[0].endswith(destination + ".md") for target in targets)
+    language_root = ROOT / "docs" / language
+    reached = reachable_pages(language_root / (page + ".md"), language_root)
+    for destination in ("covariance", *LESSONS):
+        expected = (language_root / (model_doc(destination) + ".md")).resolve()
+        assert expected in reached, (page, destination)
+    assert (language_root / "reference/covariance-api.md").resolve() in reached
 
 
 def test_root_readme_exposes_all_covariance_layers():
     text = (ROOT / "README.md").read_text(encoding="utf-8")
     for page in ("covariance", *LESSONS):
-        assert f"](docs/en/models/{page}.md)" in text
+        assert f"](docs/en/{model_doc(page)}.md)" in text
     assert "](docs/en/reference/covariance-api.md)" in text
 
 
 @pytest.mark.parametrize("language", ("en", "cn"))
-@pytest.mark.parametrize("page", ("models/covariance", *(f"models/{x}" for x in LESSONS),
+@pytest.mark.parametrize("page", ("models/covariance/README", *(model_doc(x) for x in LESSONS),
                                   "reference/covariance-api"))
 def test_public_covariance_pages_do_not_expose_internal_review_status(language, page):
     text = _read(language, page)

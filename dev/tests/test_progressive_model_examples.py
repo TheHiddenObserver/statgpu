@@ -10,6 +10,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from doc_paths import model_doc
 from doc_examples import parse_examples, run_example
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -216,7 +217,7 @@ def _checked_examples(text, page, source):
 
 
 def _page(language, page):
-    path = ROOT / f'docs/{language}/models/{page}.md'
+    path = ROOT / f'docs/{language}/{model_doc(page)}.md'
     return path, path.read_text(encoding='utf-8')
 
 

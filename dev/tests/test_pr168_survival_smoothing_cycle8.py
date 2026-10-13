@@ -185,7 +185,7 @@ def test_chi2_gamma_desired_result_passes_without_the_known_failure_marker(monke
 @pytest.mark.parametrize("language", ["en", "cn"])
 def test_kernel_validation_claim_names_inputs_and_separate_computed_results(language):
     root = Path(__file__).resolve().parents[2]
-    page = (root / f"docs/{language}/models/kernel-methods.md").read_text()
+    page = (root / f"docs/{language}/models/nonparametric/kernel-methods.md").read_text()
     section = page.split("## Backend and Execution Boundaries" if language == "en"
                          else "## 后端与执行边界", 1)[1].split("\n## ", 1)[0]
     if language == "en":
@@ -203,11 +203,11 @@ def test_reference_links_complete_kernel_and_spline_apis(language):
     anchors = (
         ("reference/kernel-methods-api", "complete-estimator-api", "Complete estimator API"),
         ("reference/kernel-methods-api", "complete-pairwise-function-api", "Complete pairwise-function API"),
-        ("models/splines", "complete-model-specific-calls", "Complete model-specific calls"),
+        ("models/nonparametric/splines", "complete-model-specific-calls", "Complete model-specific calls"),
     ) if language == "en" else (
         ("reference/kernel-methods-api", "完整估计器-api", "完整估计器 API"),
         ("reference/kernel-methods-api", "完整成对核函数-api", "完整成对核函数 API"),
-        ("models/splines", "完整的模型专属调用", "完整的模型专属调用"),
+        ("models/nonparametric/splines", "完整的模型专属调用", "完整的模型专属调用"),
     )
     for name, anchor, heading in anchors:
         target = f"{name.removeprefix('reference/')}.md" if name.startswith("reference/") else f"../{name}.md"

@@ -23,8 +23,8 @@ def test_inventory_distinguishes_logistic_from_ordered_probit(language):
     assert "logit" in rows[0].lower()
     assert "probit" not in rows[0].lower()
     assert "| `OrderedProbitRegression` |" in text
-    assert "[`LogisticRegression`](../models/logistic-regression.md)" in text
-    assert "[`OrderedProbitRegression`](../models/ordered.md)" in text
+    assert "[`LogisticRegression`](../models/regression/logistic-regression.md)" in text
+    assert "[`OrderedProbitRegression`](../models/regression/ordered.md)" in text
     assert "`n_categories=2`" in text
     assert callable(OrderedProbitRegression)
 

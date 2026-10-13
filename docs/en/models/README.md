@@ -1,38 +1,36 @@
-# Models Overview
+<a id="models-overview"></a>
+
+# Models and Statistical Methods
 
 > Language: English  
-> Last updated: 2026-07-30  
+> Last updated: 2026-10-13  
 > Switch: [Chinese](../../cn/models/README.md)
 
-This page is a navigation overview. Current solver, penalty, backend, and inference
-coverage is maintained in [Implemented Methods](../guides/implemented-methods.md) and
-the linked model pages.
+Choose a family by the question you want to answer, then use its overview to
+choose a tutorial. For a first fit, follow the [beginner path](../usage.md).
+Current solver, penalty, backend, and inference coverage is maintained in
+[Implemented Methods](../guides/implemented-methods.md) and the linked method pages.
 
-## Core Framework
+<a id="regression-and-glm"></a>
+<a id="specialized-statistical-modules"></a>
+<a id="unsupervised-learning"></a>
 
-| Page | Content |
-|---|---|
-| [Loss Functions](losses.md) | Loss definitions and per-sample formulas |
-| [Solver Algorithms](../guides/solver-algorithms.md) | Solver update formulas and applicability |
-| [Loss × Penalty × Solver Framework](../guides/loss-penalty-solver-framework.md) | Dispatch logic and compatibility |
-| [Solver × Penalty Matrix](../guides/solver-penalty-matrix.md) | Explicit solver routing and restrictions |
-| [Inference API](../guides/inference-api.md) | Covariance, resampling, and inference interfaces |
+## Choose a family
 
-## Regression and GLM
+| Your question | Start here | What to choose next |
+|---|---|---|
+| How does a response vary with predictors? | [Regression](regression/README.md) | Response type, shrinkage, quantiles, or robust loss |
+| Do group means differ, or how should many tests be handled? | [Statistical testing](testing/README.md) | ANOVA design, post-hoc comparisons, or p-value adjustment |
+| How do variables vary together? | [Covariance estimation](covariance/README.md) | Empirical, shrinkage, robust, or sparse-precision estimation |
+| Do you need a density, a smooth response curve, or nonlinear features? | [Nonparametric methods](nonparametric/README.md) | KDE/local regression, kernel methods, splines, or GAM |
+| Which predictors should be retained? | [Feature selection](feature-selection/README.md) | AIC/BIC stepwise search or knockoff selection and its assumptions |
+| Is the response time to an event? | [Survival analysis](coxph.md) | Compare Cox estimators [below](#choosing-a-cox-estimator) |
+| Are observations repeated across entities and time? | [Panel data](../panel/README.md) | Choose among panel estimators |
+| Do you want structure or a representation without a response? | [Unsupervised learning](../unsupervised/README.md) | Decomposition, clustering, mixture, or manifold methods |
 
-- [Linear Regression](linear-regression.md)
-- [Ridge](ridge.md)
-- [Lasso](lasso.md)
-- [Elastic Net](elastic-net.md)
-- [Adaptive Lasso](adaptive-lasso.md)
-- [SCAD](scad.md)
-- [MCP](mcp.md)
-- [Logistic Regression](logistic-regression.md)
-- [Poisson Regression](poisson-regression.md)
-- [Generalized Linear Models](generalized-linear-model.md)
-- [Ordered Logit/Probit](ordered.md)
-- [Quantile Regression](quantile.md)
-- [Robust Regression](robust.md)
+The family pages explain method choice and link to every tutorial in that family.
+For constructors, methods, and fitted attributes, use the
+[complete API references](../README.md#complete-api-references).
 
 ## Survival Analysis
 
@@ -57,36 +55,15 @@ Breslow/Efron/Exact ties, delayed-entry and `(start, stop]` data, strata,
 robust/cluster inference, subject-grouped CV, prediction boundaries, and the
 NumPy/CuPy/Torch support matrix.
 
-## Specialized Statistical Modules
+## Core Framework
 
-- [ANOVA overview](anova.md)
-  - [Classical one-way](anova-oneway.md) · [Welch](anova-welch.md) · [Balanced two-way](anova-twoway.md) · [Post-hoc comparisons](anova-posthoc.md) · [Complete API](../reference/anova-api.md)
-- [Covariance Estimation](covariance.md)
-  - [EmpiricalCovariance](covariance-empirical.md) · [ShrunkCovariance](covariance-shrunk.md) · [LedoitWolf](covariance-ledoit-wolf.md) · [OAS](covariance-oas.md) · [MinCovDet](covariance-min-cov-det.md) · [GraphicalLasso](covariance-graphical-lasso.md) · [GraphicalLassoCV](covariance-graphical-lasso-cv.md)
-  - [Complete covariance API](../reference/covariance-api.md)
-- [Panel Data](panel.md)
-- [Nonparametric Methods](nonparametric.md)
-- [Kernel Methods](kernel-methods.md)
-  - [KernelRidge](kernel-ridge.md) · [KernelRidgeCV](kernel-ridge-cv.md) · [KernelPCA](kernel-pca.md) · [Nystroem](kernel-nystroem.md)
-  - [Complete kernel API](../reference/kernel-methods-api.md)
-- [Spline Basis Functions](splines.md)
-- [GAM / Semiparametric Models](semiparametric.md)
-- [Feature Selection](feature-selection.md)
-- [Knockoff overview](knockoff.md) — principles, assumptions and interpretation
-  - [Fixed-X tutorial](knockoff-fixed-x.md) · [Model-X tutorial](knockoff-model-x.md) · [Complete feature-selection API](../reference/feature-selection-api.md)
-- [Multiple Testing](multiple-testing.md)
-
-## Unsupervised Learning
-
-- [Unsupervised Overview](unsupervised.md)
-- [PCA](../unsupervised/pca.md)
-- [Truncated SVD](../unsupervised/truncated-svd.md)
-- [Incremental PCA](../unsupervised/incremental-pca.md)
-- [NMF](../unsupervised/nmf.md)
-- [MiniBatch NMF](../unsupervised/minibatch-nmf.md)
-- [DBSCAN](../unsupervised/dbscan.md)
-- [UMAP](../unsupervised/umap.md)
-- [t-SNE](../unsupervised/tsne.md)
+| Page | Content |
+|---|---|
+| [Loss Functions](../reference/losses.md) | Loss definitions and per-sample formulas |
+| [Solver Algorithms](../guides/solver-algorithms.md) | Solver update formulas and applicability |
+| [Loss × Penalty × Solver Framework](../guides/loss-penalty-solver-framework.md) | Dispatch logic and compatibility |
+| [Solver × Penalty Matrix](../guides/solver-penalty-matrix.md) | Explicit solver routing and restrictions |
+| [Inference API](../guides/inference-api.md) | Covariance, resampling, and inference interfaces |
 
 ## Current Coverage Principles
 

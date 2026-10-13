@@ -23,7 +23,7 @@
 | `OrderedLogitRegression` | 有序 logit 回归 与解析 Hessian 推断 | NumPy, CuPy, Torch |
 | `OrderedProbitRegression` | 有序 probit 回归 与解析 Hessian 推断 | NumPy, CuPy, Torch |
 
-[`LogisticRegression`](../models/logistic-regression.md) 使用 logit 连接函数，不提供 probit 连接函数选项。有序 probit 模型由独立的 [`OrderedProbitRegression`](../models/ordered.md) 提供；设置 `n_categories=2` 即可拟合二元 probit 回归。
+[`LogisticRegression`](../models/regression/logistic-regression.md) 使用 logit 连接函数，不提供 probit 连接函数选项。有序 probit 模型由独立的 [`OrderedProbitRegression`](../models/regression/ordered.md) 提供；设置 `n_categories=2` 即可拟合二元 probit 回归。
 
 ## 惩罚模型
 
@@ -85,23 +85,23 @@ print(np.round(model.predict(X[:3]), 6))
 - `partial_eta_squared`
 
 以上是七个函数：三个总体检验、两种两两比较程序和两个效应量辅助函数。支持的设计为
-独立组单因素、Welch 单因素和平衡双因素 ANOVA。方法选择见[概览](../models/anova.md)；
-完整分析示例见[经典单因素](../models/anova-oneway.md)、[Welch](../models/anova-welch.md)、
-[平衡双因素](../models/anova-twoway.md)
-与[事后比较](../models/anova-posthoc.md)教程；五种结果类型、默认值、输入限制与标量
+独立组单因素、Welch 单因素和平衡双因素 ANOVA。方法选择见[概览](../models/testing/anova.md)；
+完整分析示例见[经典单因素](../models/testing/anova-oneway.md)、[Welch](../models/testing/anova-welch.md)、
+[平衡双因素](../models/testing/anova-twoway.md)
+与[事后比较](../models/testing/anova-posthoc.md)教程；五种结果类型、默认值、输入限制与标量
 分布边界见[完整 ANOVA API](../reference/anova-api.md)。
 
 ## 协方差估计
 
-- [EmpiricalCovariance](../models/covariance-empirical.md)
-- [LedoitWolf](../models/covariance-ledoit-wolf.md)
-- [OAS](../models/covariance-oas.md)
-- [ShrunkCovariance](../models/covariance-shrunk.md)
-- [MinCovDet](../models/covariance-min-cov-det.md)
-- [GraphicalLasso](../models/covariance-graphical-lasso.md)
-- [GraphicalLassoCV](../models/covariance-graphical-lasso-cv.md)
+- [EmpiricalCovariance](../models/covariance/covariance-empirical.md)
+- [LedoitWolf](../models/covariance/covariance-ledoit-wolf.md)
+- [OAS](../models/covariance/covariance-oas.md)
+- [ShrunkCovariance](../models/covariance/covariance-shrunk.md)
+- [MinCovDet](../models/covariance/covariance-min-cov-det.md)
+- [GraphicalLasso](../models/covariance/covariance-graphical-lasso.md)
+- [GraphicalLassoCV](../models/covariance/covariance-graphical-lasso-cv.md)
 
-详见 [协方差估计](../models/covariance.md)，参数、方法及输入限制见[完整协方差 API](../reference/covariance-api.md)。
+详见 [协方差估计](../models/covariance/README.md)，参数、方法及输入限制见[完整协方差 API](../reference/covariance-api.md)。
 
 ## 面板数据
 
@@ -112,20 +112,20 @@ print(np.round(model.predict(X[:3]), 6))
 - `FirstDifferenceOLS`
 - `FamaMacBeth`
 
-模型选择、协方差、秩亏与预测行为见 [面板模型](../models/panel.md)。
+模型选择、协方差、秩亏与预测行为见 [面板模型](../panel/README.md)。
 
 ## 非参数与半参数方法
 
 - `KernelDensityEstimator` / `KDE`
 - `KernelRegression` / `KernelRegressionRegressor`
-- [KernelRidge](../models/kernel-ridge.md) / [KernelRidgeCV](../models/kernel-ridge-cv.md)
-- [KernelPCA](../models/kernel-pca.md)
-- [Nystroem](../models/kernel-nystroem.md)
+- [KernelRidge](../models/nonparametric/kernel-ridge.md) / [KernelRidgeCV](../models/nonparametric/kernel-ridge-cv.md)
+- [KernelPCA](../models/nonparametric/kernel-pca.md)
+- [Nystroem](../models/nonparametric/kernel-nystroem.md)
 - `SplineTransformer`
 - B 样条、自然三次样条、周期三次样条与薄板样条基
 - `GAM`
 
-核相似度与方法选择见[概览](../models/kernel-methods.md)；函数签名、拟合属性与执行边界见[完整 API](../reference/kernel-methods-api.md)。
+核相似度与方法选择见[概览](../models/nonparametric/kernel-methods.md)；函数签名、拟合属性与执行边界见[完整 API](../reference/kernel-methods-api.md)。
 
 ## 无监督学习
 
@@ -150,8 +150,8 @@ UMAP 可通过 `nn_method="nndescent"` 使用内部的 NNDescent 近似近邻搜
 ## 特征选择与诊断
 
 - `StepwiseSelector` 与 `stepwise_selection`
-- [Knockoff 总览](../models/knockoff.md) — 原理、假设与结果解释
-  - [Fixed-X 教程](../models/knockoff-fixed-x.md) · [Model-X 教程](../models/knockoff-model-x.md) · [完整特征选择 API](../reference/feature-selection-api.md)
+- [Knockoff 总览](../models/feature-selection/knockoff.md) — 原理、假设与结果解释
+  - [Fixed-X 教程](../models/feature-selection/knockoff-fixed-x.md) · [Model-X 教程](../models/feature-selection/knockoff-model-x.md) · [完整特征选择 API](../reference/feature-selection-api.md)
 - `RegressionDiagnostics` 与 `diagnose_model`
 
 ## 多重检验与重抽样

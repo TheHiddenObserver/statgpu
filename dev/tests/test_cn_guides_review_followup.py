@@ -50,7 +50,7 @@ def test_kde_numeric_factor_is_not_an_absolute_width(scale):
 
 @pytest.mark.parametrize('language, factor_term', [('en', 'factor'), ('cn', '因子')])
 def test_kde_first_example_explains_the_bandwidth_factor(language, factor_term):
-    text = _page(language, 'models/nonparametric.md')
+    text = _page(language, 'models/nonparametric/nonparametric.md')
     # Check the immediate example section, not an explanation much later on.
     introduction = text.split('<!-- example: kde-cpu -->', 1)[0].rsplit('\n## ', 1)[-1]
     assert 'bandwidth=0.35' in introduction
@@ -59,11 +59,11 @@ def test_kde_first_example_explains_the_bandwidth_factor(language, factor_term):
 
 
 @pytest.mark.parametrize('page, fragments', [
-    ('models/semiparametric.md', (
+    ('models/nonparametric/semiparametric.md', (
         '请求的基数', '实际基数', '增加基数', '按 job 并行',
         '分配更多分辨率', '调整后的分母非正',
     )),
-    ('models/nonparametric.md', ('条件化的对象', '规范源码签名', 'device/jobs/cleanup')),
+    ('models/nonparametric/nonparametric.md', ('条件化的对象', '规范源码签名', 'device/jobs/cleanup')),
     ('guides/distribution-api.md', (
         '最小支持整数', '内部概率', '正侧临界值', '拒绝判断',
         '正支持分布', '位置界值', '非 R 历史名称',

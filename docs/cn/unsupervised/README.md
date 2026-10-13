@@ -9,6 +9,8 @@
 
 `statgpu.unsupervised` 提供 sklearn 风格的无监督学习估计器，并遵循显式 CPU、CuPy/CUDA、Torch CUDA 设备语义。可以通过下方模型指南比较目标函数、选择参数、解释拟合输出，并检查设备与输入限制。
 
+UMAP 可在内部使用近似近邻搜索，但该搜索不是单独导出的估计器。各模型按其适用操作提供 `fit`、`transform`、`predict`、`fit_predict` 和 `score` 风格。
+
 ## 从你的问题选择模型
 
 | 你想回答什么问题？ | 可以先看 | 重点检查什么？ |
@@ -74,12 +76,14 @@ print("held-out reconstruction MSE:", round(float(np.mean((X_test - X_reconstruc
 - [UMAP](umap.md)：基于稠密欧氏数据的 UMAP，支持精确或近似近邻搜索，图组装在主机端使用 SciPy。
 - [TSNE](tsne.md)：稠密欧氏距离的精确 t-SNE。
 
+<a id="模型总览"></a>
+
 ## 支持矩阵
 
 | 估计器 | CPU | CuPy/CUDA | Torch CUDA | 主要目标或准则 |
 |---|---|---|---|---|
 | `PCA` | 支持 | 支持 | 支持 | 最大方差 / 秩 k 重构损失 |
-| `KMeans` | 支持 | 支持 | 支持 | 簇内平方和：各样本到所属聚类中心的平方欧氏距离之和 |
+| `KMeans` | 支持 | 支持 | 支持 | 簇内平方欧氏距离之和：各样本到所属聚类中心的平方距离相加 |
 | `DBSCAN` | 支持 | 支持 | 支持 | 密度可达性与连通分量 |
 | `GaussianMixture` | 支持 | 支持 | 支持 | 高斯混合模型的对数似然 |
 | `NMF` | 支持 | 支持 | 支持 | 非负约束下的 Frobenius 重构损失 |
@@ -100,3 +104,18 @@ print("held-out reconstruction MSE:", round(float(np.mean((X_test - X_reconstruc
 在 CPU 上用 `DBSCAN` 处理超过 12 个特征时，需安装 scikit-learn，因为该配置使用其 `NearestNeighbors` 搜索邻居。依赖、内存要求和已知限制见 [DBSCAN 指南](dbscan.md)。
 
 当前具体限制见 [UMAP](umap.md) 和 [DBSCAN](dbscan.md)；支持 CPU 不代表每种参数与数据组合都可靠。
+
+## 设备行为
+
+多数无监督估计器都提供 `device="auto"`、`"cpu"`、`"cuda"` 和 `"torch"`。显式请求的 GPU 后端不可用时，拟合会报错。部分算法仍包含 CPU 计算或返回 NumPy 数组；依赖 GPU 路径前，请查看对应模型页中的操作支持、输出位置和限制。
+
+## 输入验证
+
+观测矩阵会在 SVD、特征分解、距离计算或迭代更新之前接受 NaN/Inf 检查；发现非有限值时会抛出公开的验证错误。这不代表所有构造参数都已检查：数值控制参数及 MiniBatchKMeans 的显式初始中心也必须有限，但当前并非全部得到可靠验证。详见[公共输入规则](api-reference.md#公共输入设备与状态)和[初始中心注意事项](minibatch-kmeans.md#数值与使用注意事项)。
+
+## 说明
+
+无监督估计器通常不提供标准误、p 值、置信区间、AIC 或 BIC 等统计推断字段，除非模型本身自然定义了这些量。
+
+十二个公开估计器及完整构造和方法约定见[无监督学习索引](README.md)与 [API 参考](api-reference.md)。NNDescent 是 UMAP 使用的内部近邻搜索实现，并不是 `statgpu.unsupervised` 额外导出的估计器。
+

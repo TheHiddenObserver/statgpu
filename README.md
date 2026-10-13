@@ -32,11 +32,11 @@ GPU-accelerated statistical methods with an sklearn-style API.
 | **Regression & GLM** | LinearRegression, Ridge, Lasso, ElasticNet, Logistic, Poisson, Gamma, Inverse Gaussian, Negative Binomial, Tweedie, QuantileRegression, and ordered models |
 | **Penalized models** | Unified penalized GLM, typed family wrappers, penalized quantile/robust regression, and PenalizedCoxPHModel |
 | **Cross-validation** | RidgeCV, LassoCV, ElasticNetCV, LogisticRegressionCV, PenalizedGLM_CV, and CoxPHCV |
-| [**ANOVA**](docs/en/models/anova.md) | [Classical one-way](docs/en/models/anova-oneway.md), [Welch](docs/en/models/anova-welch.md), [balanced two-way](docs/en/models/anova-twoway.md), [pairwise comparisons](docs/en/models/anova-posthoc.md), and effect sizes; [complete API](docs/en/reference/anova-api.md) |
-| [**Covariance**](docs/en/models/covariance.md) | [EmpiricalCovariance](docs/en/models/covariance-empirical.md), [ShrunkCovariance](docs/en/models/covariance-shrunk.md), [LedoitWolf](docs/en/models/covariance-ledoit-wolf.md), [OAS](docs/en/models/covariance-oas.md), [MinCovDet](docs/en/models/covariance-min-cov-det.md), [GraphicalLasso](docs/en/models/covariance-graphical-lasso.md), [GraphicalLassoCV](docs/en/models/covariance-graphical-lasso-cv.md); [complete API](docs/en/reference/covariance-api.md) |
+| [**ANOVA**](docs/en/models/testing/anova.md) | [Classical one-way](docs/en/models/testing/anova-oneway.md), [Welch](docs/en/models/testing/anova-welch.md), [balanced two-way](docs/en/models/testing/anova-twoway.md), [pairwise comparisons](docs/en/models/testing/anova-posthoc.md), and effect sizes; [complete API](docs/en/reference/anova-api.md) |
+| [**Covariance**](docs/en/models/covariance/README.md) | [EmpiricalCovariance](docs/en/models/covariance/covariance-empirical.md), [ShrunkCovariance](docs/en/models/covariance/covariance-shrunk.md), [LedoitWolf](docs/en/models/covariance/covariance-ledoit-wolf.md), [OAS](docs/en/models/covariance/covariance-oas.md), [MinCovDet](docs/en/models/covariance/covariance-min-cov-det.md), [GraphicalLasso](docs/en/models/covariance/covariance-graphical-lasso.md), [GraphicalLassoCV](docs/en/models/covariance/covariance-graphical-lasso-cv.md); [complete API](docs/en/reference/covariance-api.md) |
 | **Panel data** | PanelOLS, RandomEffects, PooledOLS, BetweenOLS, FirstDifferenceOLS, and FamaMacBeth |
 | **Nonparametric** | KDE, kernel regression, spline bases, and SplineTransformer |
-| [**Kernel methods**](docs/en/models/kernel-methods.md) | [KernelRidge](docs/en/models/kernel-ridge.md), [KernelRidgeCV](docs/en/models/kernel-ridge-cv.md), [KernelPCA](docs/en/models/kernel-pca.md), [Nystroem](docs/en/models/kernel-nystroem.md); [complete API](docs/en/reference/kernel-methods-api.md) |
+| [**Kernel methods**](docs/en/models/nonparametric/kernel-methods.md) | [KernelRidge](docs/en/models/nonparametric/kernel-ridge.md), [KernelRidgeCV](docs/en/models/nonparametric/kernel-ridge-cv.md), [KernelPCA](docs/en/models/nonparametric/kernel-pca.md), [Nystroem](docs/en/models/nonparametric/kernel-nystroem.md); [complete API](docs/en/reference/kernel-methods-api.md) |
 | **Semiparametric** | GAM with penalized B-splines and GCV |
 | **Unsupervised** | PCA, SVD, NMF, UMAP, t-SNE, KMeans, DBSCAN, GMM, and AgglomerativeClustering |
 | **Survival** | CoxPH/CoxPHCV with Breslow, Efron, or Exact ties, `(start, stop]` data, strata, robust covariance, and subject-grouped CV; PenalizedCoxPHModel |
@@ -44,22 +44,22 @@ GPU-accelerated statistical methods with an sklearn-style API.
 | **Diagnostics** | RegressionDiagnostics and `diagnose_model` |
 | **Multiple testing** | `adjust_pvalues`, `combine_pvalues`, and `permutation_test` |
 
-Knockoff: [overview](docs/en/models/knockoff.md) · [Fixed-X tutorial](docs/en/models/knockoff-fixed-x.md) · [Model-X tutorial](docs/en/models/knockoff-model-x.md) · [complete API](docs/en/reference/feature-selection-api.md).
+Knockoff: [overview](docs/en/models/feature-selection/knockoff.md) · [Fixed-X tutorial](docs/en/models/feature-selection/knockoff-fixed-x.md) · [Model-X tutorial](docs/en/models/feature-selection/knockoff-model-x.md) · [complete API](docs/en/reference/feature-selection-api.md).
 
-Knockoff 中文：[总览](docs/cn/models/knockoff.md) · [Fixed-X 教程](docs/cn/models/knockoff-fixed-x.md) · [Model-X 教程](docs/cn/models/knockoff-model-x.md) · [完整 API](docs/cn/reference/feature-selection-api.md)。
+Knockoff 中文：[总览](docs/cn/models/feature-selection/knockoff.md) · [Fixed-X 教程](docs/cn/models/feature-selection/knockoff-fixed-x.md) · [Model-X 教程](docs/cn/models/feature-selection/knockoff-model-x.md) · [完整 API](docs/cn/reference/feature-selection-api.md)。
 
 ## Documentation
 
-- **English docs**: [docs/en/](docs/en/) — full documentation index
-- **Chinese docs**: [docs/cn/](docs/cn/) — 中文文档
+- **English docs**: [docs/en/](docs/en) — full documentation index
+- **Chinese docs**: [docs/cn/](docs/cn) — 中文文档
 - **Quickstart**: [Quickstart](docs/en/getting-started/quickstart.md)
 - **Implemented methods**: [Method Inventory](docs/en/guides/implemented-methods.md)
-- **GLM + Penalty**: [Generalized Linear Model](docs/en/models/generalized-linear-model.md)
+- **GLM + Penalty**: [Generalized Linear Model](docs/en/models/regression/generalized-linear-model.md)
 - **Cross-validation**: [Cross-Validation Guide](docs/en/guides/cross-validation.md)
 - **Loss × Penalty × Solver Framework**: [Framework Guide](docs/en/guides/loss-penalty-solver-framework.md)
 - **Solver-Penalty Matrix**: [Solver × Penalty](docs/en/guides/solver-penalty-matrix.md)
 - **Survival analysis**: [Cox Proportional Hazards](docs/en/models/coxph.md)
-- **Panel models**: [Panel Data Models](docs/en/models/panel.md)
+- **Panel models**: [Panel Data Models](docs/en/panel/README.md)
 - **Device & memory**: [Device and GPU Memory](docs/en/guides/device-and-memory.md)
 - **PyTorch backend**: [PyTorch Backend](docs/en/guides/pytorch-backend.md)
 - **Distribution API**: [Distribution API](docs/en/guides/distribution-api.md)

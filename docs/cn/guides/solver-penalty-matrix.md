@@ -47,7 +47,7 @@
 - Proximal IRLS-CD 与分组 Proximal IRLS-LLA 都是内部解析后的实际路径，不是公开的显式 `solver=` 关键字。
 - Group Lasso 和 Adaptive Group Lasso 仍使用分组 FISTA。
 
-分布族/链接函数的定义域限制、权重语义或特殊初始化规则见 [广义线性模型](../models/generalized-linear-model.md)。Quantile 的非光滑性质和具体求解器选择见 [分位数回归](../models/quantile.md)。
+分布族/链接函数的定义域限制、权重语义或特殊初始化规则见 [广义线性模型](../models/regression/generalized-linear-model.md)。Quantile 的非光滑性质和具体求解器选择见 [分位数回归](../models/regression/quantile.md)。
 
 ## 2. 显式求解器约束
 
@@ -131,8 +131,8 @@ Group SCAD/MCP 的凸 LLA 近似通过 Adaptive Group Lasso 问题表示。分�
 
 - [求解器算法](solver-algorithms.md) — 更新公式、收敛/停止行为与算法前提
 - [损失函数 × 惩罚项 × 求解器框架](loss-penalty-solver-framework.md) — 计算架构与分发概念
-- [损失函数](../models/losses.md) — 损失层数学定义与数值原语
-- [广义线性模型](../models/generalized-linear-model.md) — GLM 分布族/链接、权重、CV 与推断
-- [分位数回归](../models/quantile.md) — Quantile 专属求解器、惩罚项、权重和推断行为
-- [稳健回归](../models/robust.md) — 稳健损失估计器行为
+- [损失函数](../reference/losses.md) — 损失层数学定义与数值原语
+- [广义线性模型](../models/regression/generalized-linear-model.md) — GLM 分布族/链接、权重、CV 与推断
+- [分位数回归](../models/regression/quantile.md) — Quantile 专属求解器、惩罚项、权重和推断行为
+- [稳健回归](../models/regression/robust.md) — 稳健损失估计器行为
 - [带惩罚 GLM 推断](penalized-glm-inference.md) 与 [推断模式](inference-modes.md) — 推断支持范围与结果解释

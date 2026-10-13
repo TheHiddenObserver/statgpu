@@ -7,8 +7,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_quantile_model_pages_document_complete_fold_cv_eligibility():
-    en = (ROOT / "docs/en/models/quantile.md").read_text(encoding="utf-8")
-    cn = (ROOT / "docs/cn/models/quantile.md").read_text(encoding="utf-8")
+    en = (ROOT / "docs/en/models/regression/quantile.md").read_text(encoding="utf-8")
+    cn = (ROOT / "docs/cn/models/regression/quantile.md").read_text(encoding="utf-8")
 
     assert re.search(r"finite validation scores?[^.]*every fold", en)
     assert "explicitly marks as a target-level convergence failure" in en

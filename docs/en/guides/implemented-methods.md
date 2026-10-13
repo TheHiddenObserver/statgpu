@@ -23,7 +23,7 @@ This page is the public inventory of models, functions, and major solver familie
 | `OrderedLogitRegression` | Ordered logit with analytical-Hessian inference | NumPy, CuPy, Torch |
 | `OrderedProbitRegression` | Ordered probit with analytical-Hessian inference | NumPy, CuPy, Torch |
 
-[`LogisticRegression`](../models/logistic-regression.md) uses the logit link and has no probit link option. [`OrderedProbitRegression`](../models/ordered.md) provides the separate ordered-probit model; set `n_categories=2` for binary probit regression.
+[`LogisticRegression`](../models/regression/logistic-regression.md) uses the logit link and has no probit link option. [`OrderedProbitRegression`](../models/regression/ordered.md) provides the separate ordered-probit model; set `n_categories=2` for binary probit regression.
 
 ## Penalized Models
 
@@ -86,24 +86,24 @@ See [Cross-Validation](cross-validation.md) for fold, selection, refit, weight, 
 
 These are seven functions: three omnibus tests, two pairwise-comparison procedures,
 and two effect-size helpers. The designs are independent-group one-way, Welch
-one-way, and balanced two-way ANOVA. See the [overview](../models/anova.md) for
-method choice; [classical one-way](../models/anova-oneway.md),
-[Welch](../models/anova-welch.md), [balanced two-way](../models/anova-twoway.md)
-and [post-hoc](../models/anova-posthoc.md) tutorials for worked analyses; and the
+one-way, and balanced two-way ANOVA. See the [overview](../models/testing/anova.md) for
+method choice; [classical one-way](../models/testing/anova-oneway.md),
+[Welch](../models/testing/anova-welch.md), [balanced two-way](../models/testing/anova-twoway.md)
+and [post-hoc](../models/testing/anova-posthoc.md) tutorials for worked analyses; and the
 [complete ANOVA API](../reference/anova-api.md) for all five result types, defaults,
 input restrictions and scalar distribution boundaries.
 
 ## Covariance Estimation
 
-- [EmpiricalCovariance](../models/covariance-empirical.md)
-- [LedoitWolf](../models/covariance-ledoit-wolf.md)
-- [OAS](../models/covariance-oas.md)
-- [ShrunkCovariance](../models/covariance-shrunk.md)
-- [MinCovDet](../models/covariance-min-cov-det.md)
-- [GraphicalLasso](../models/covariance-graphical-lasso.md)
-- [GraphicalLassoCV](../models/covariance-graphical-lasso-cv.md)
+- [EmpiricalCovariance](../models/covariance/covariance-empirical.md)
+- [LedoitWolf](../models/covariance/covariance-ledoit-wolf.md)
+- [OAS](../models/covariance/covariance-oas.md)
+- [ShrunkCovariance](../models/covariance/covariance-shrunk.md)
+- [MinCovDet](../models/covariance/covariance-min-cov-det.md)
+- [GraphicalLasso](../models/covariance/covariance-graphical-lasso.md)
+- [GraphicalLassoCV](../models/covariance/covariance-graphical-lasso-cv.md)
 
-See [Covariance Estimation](../models/covariance.md). [Complete covariance API](../reference/covariance-api.md).
+See [Covariance Estimation](../models/covariance/README.md). [Complete covariance API](../reference/covariance-api.md).
 
 ## Panel Data
 
@@ -114,20 +114,20 @@ See [Covariance Estimation](../models/covariance.md). [Complete covariance API](
 - `FirstDifferenceOLS`
 - `FamaMacBeth`
 
-See [Panel Data Models](../models/panel.md) for model choice, covariance, rank-deficiency, and prediction behavior.
+See [Panel Data Models](../panel/README.md) for model choice, covariance, rank-deficiency, and prediction behavior.
 
 ## Nonparametric and Semiparametric Methods
 
 - `KernelDensityEstimator` / `KDE`
 - `KernelRegression` / `KernelRegressionRegressor`
-- [KernelRidge](../models/kernel-ridge.md) / [KernelRidgeCV](../models/kernel-ridge-cv.md)
-- [KernelPCA](../models/kernel-pca.md)
-- [Nystroem](../models/kernel-nystroem.md)
+- [KernelRidge](../models/nonparametric/kernel-ridge.md) / [KernelRidgeCV](../models/nonparametric/kernel-ridge-cv.md)
+- [KernelPCA](../models/nonparametric/kernel-pca.md)
+- [Nystroem](../models/nonparametric/kernel-nystroem.md)
 - `SplineTransformer`
 - B-spline, natural cubic, cyclic cubic, and thin-plate spline bases
 - `GAM`
 
-Kernel similarities and method choice are explained in the [overview](../models/kernel-methods.md); signatures, fitted attributes, and execution limits are in the [complete API](../reference/kernel-methods-api.md).
+Kernel similarities and method choice are explained in the [overview](../models/nonparametric/kernel-methods.md); signatures, fitted attributes, and execution limits are in the [complete API](../reference/kernel-methods-api.md).
 
 ## Unsupervised Learning
 
@@ -152,8 +152,8 @@ The base installation contains Cox fitting. The optional `statgpu[survival]` ext
 ## Feature Selection and Diagnostics
 
 - `StepwiseSelector` and `stepwise_selection`
-- [Knockoff overview](../models/knockoff.md) — principles, assumptions and interpretation
-  - [Fixed-X tutorial](../models/knockoff-fixed-x.md) · [Model-X tutorial](../models/knockoff-model-x.md) · [Complete feature-selection API](../reference/feature-selection-api.md)
+- [Knockoff overview](../models/feature-selection/knockoff.md) — principles, assumptions and interpretation
+  - [Fixed-X tutorial](../models/feature-selection/knockoff-fixed-x.md) · [Model-X tutorial](../models/feature-selection/knockoff-model-x.md) · [Complete feature-selection API](../reference/feature-selection-api.md)
 - `RegressionDiagnostics` and `diagnose_model`
 
 ## Multiple Testing and Resampling

@@ -54,9 +54,9 @@ def test_kernel_ridge_matches_rkhs_objective_not_coefficient_ridge():
 
 @pytest.mark.parametrize("lang", ["en", "cn"])
 def test_linked_kernel_docs_state_objective_and_current_boundaries(lang):
-    ridge = (ROOT / f"docs/{lang}/models/kernel-ridge.md").read_text()
-    cv = (ROOT / f"docs/{lang}/models/kernel-ridge-cv.md").read_text()
-    nystroem = (ROOT / f"docs/{lang}/models/kernel-nystroem.md").read_text()
+    ridge = (ROOT / f"docs/{lang}/models/nonparametric/kernel-ridge.md").read_text()
+    cv = (ROOT / f"docs/{lang}/models/nonparametric/kernel-ridge-cv.md").read_text()
+    nystroem = (ROOT / f"docs/{lang}/models/nonparametric/kernel-nystroem.md").read_text()
     assert r"\alpha c^\top Kc" in ridge
     assert r"\alpha\lVert c\rVert_2^2" not in ridge
     assert "sample_weight" in ridge
@@ -92,7 +92,7 @@ def test_natural_basis_and_transformer_dimensions_match_linked_examples():
 
 @pytest.mark.parametrize("lang", ["en", "cn"])
 def test_linked_spline_docs_disclose_boundary_and_inference_limits(lang):
-    text = (ROOT / f"docs/{lang}/models/splines.md").read_text()
+    text = (ROOT / f"docs/{lang}/models/nonparametric/splines.md").read_text()
     assert "n_knots + 2" in text
     assert "n_knots + 4" in text
     assert "boundary_lo" in text and "boundary_hi" in text

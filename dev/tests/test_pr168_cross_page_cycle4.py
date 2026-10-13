@@ -68,7 +68,7 @@ def test_bilingual_unsupervised_navigation_has_reciprocal_links(name):
 
 @pytest.mark.parametrize("language", ["en", "cn"])
 def test_glm_overview_links_actual_result_and_oracle_boundaries(language):
-    text = (ROOT / f"docs/{language}/models/generalized-linear-model.md").read_text()
+    text = (ROOT / f"docs/{language}/models/regression/generalized-linear-model.md").read_text()
     for fragment in (
         "inference_method_", "inference_target_", "_inference_result.method",
         "../guides/inference-modes.md#post_selection_ols",
@@ -112,7 +112,7 @@ def test_ordinary_glm_objective_retains_solver_specific_c_semantics(weighted, so
     np.testing.assert_allclose(X.T @ score + ridge * model.coef_, 0., atol=1e-7)
     np.testing.assert_allclose(score.sum(), 0., atol=1e-7)
     for language in ("en", "cn"):
-        text = (ROOT / f"docs/{language}/models/generalized-linear-model.md").read_text()
+        text = (ROOT / f"docs/{language}/models/regression/generalized-linear-model.md").read_text()
         assert "\\frac{1}{4C}" in text
         assert "| `C` |" in text and "| `l1_ratio` |" in text
         assert "| `l1_ratio` | `None`" not in text

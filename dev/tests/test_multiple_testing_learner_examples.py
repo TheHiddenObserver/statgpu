@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from doc_examples import example_code, run_example
+from doc_paths import reachable_pages
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -18,7 +19,7 @@ MARKER = "multiple-testing-learner"
 
 
 def _lesson(language):
-    return (ROOT / f"docs/{language}/models/multiple-testing.md").read_text(encoding="utf-8")
+    return (ROOT / f"docs/{language}/models/testing/multiple-testing.md").read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize("language", ("en", "cn"))
@@ -87,5 +88,12 @@ def test_navigation_distinguishes_principles_from_complete_api(language, page):
     text = path.read_text(encoding="utf-8")
     prefix = "../" if page.startswith("guides/") else ""
     api_prefix = "" if page.startswith("guides/") else "guides/"
-    assert re.search(r"\]\(" + re.escape(prefix + "models/multiple-testing.md") + r"(?:#[^)]*)?\)", text)
-    assert re.search(r"\]\(" + re.escape(api_prefix + "multiple-testing-combine-pvalues.md") + r"(?:#[^)]*)?\)", text)
+    if page == "usage.md":
+        # The beginner path routes to the testing family before the two layers.
+        reached = reachable_pages(path, ROOT / "docs" / language)
+        for relative in ("models/testing/multiple-testing.md",
+                         "guides/multiple-testing-combine-pvalues.md"):
+            assert (ROOT / "docs" / language / relative).resolve() in reached
+    else:
+        assert re.search(r"\]\(" + re.escape(prefix + "models/testing/multiple-testing.md") + r"(?:#[^)]*)?\)", text)
+        assert re.search(r"\]\(" + re.escape(api_prefix + "multiple-testing-combine-pvalues.md") + r"(?:#[^)]*)?\)", text)

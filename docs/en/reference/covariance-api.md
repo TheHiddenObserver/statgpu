@@ -5,19 +5,19 @@
 > Switch: [Chinese](../../cn/reference/covariance-api.md)
 
 This is the complete covariance-estimator API inventory. For choosing a method,
-start with the [covariance overview](../models/covariance.md). Click a class name
+start with the [covariance overview](../models/covariance/README.md). Click a class name
 below for its specific parameters and attributes. The seven classes are exported
 from both `statgpu.covariance` and `statgpu`.
 
 | Class | Method guide | Additional constructor controls |
 |---|---|---|
-| [`EmpiricalCovariance`](#empiricalcovariance) | [Empirical covariance](../models/covariance-empirical.md) | None |
-| [`LedoitWolf`](#ledoitwolf) | [Ledoit–Wolf shrinkage](../models/covariance-ledoit-wolf.md) | None |
-| [`OAS`](#oas) | [Oracle Approximating Shrinkage](../models/covariance-oas.md) | None |
-| [`ShrunkCovariance`](#shrunkcovariance) | [Fixed shrinkage](../models/covariance-shrunk.md) | `shrinkage` |
-| [`MinCovDet`](#mincovdet) | [Minimum covariance determinant](../models/covariance-min-cov-det.md) | `support_fraction`, `random_state` |
-| [`GraphicalLasso`](#graphicallasso) | [Graphical Lasso](../models/covariance-graphical-lasso.md) | `alpha`, `max_iter`, `tol` |
-| [`GraphicalLassoCV`](#graphicallassocv) | [Cross-validated Graphical Lasso](../models/covariance-graphical-lasso-cv.md) | `alphas`, `cv`, `max_iter`, `tol`, `random_state` |
+| [`EmpiricalCovariance`](#empiricalcovariance) | [Empirical covariance](../models/covariance/covariance-empirical.md) | None |
+| [`LedoitWolf`](#ledoitwolf) | [Ledoit–Wolf shrinkage](../models/covariance/covariance-ledoit-wolf.md) | None |
+| [`OAS`](#oas) | [Oracle Approximating Shrinkage](../models/covariance/covariance-oas.md) | None |
+| [`ShrunkCovariance`](#shrunkcovariance) | [Fixed shrinkage](../models/covariance/covariance-shrunk.md) | `shrinkage` |
+| [`MinCovDet`](#mincovdet) | [Minimum covariance determinant](../models/covariance/covariance-min-cov-det.md) | `support_fraction`, `random_state` |
+| [`GraphicalLasso`](#graphicallasso) | [Graphical Lasso](../models/covariance/covariance-graphical-lasso.md) | `alpha`, `max_iter`, `tol` |
+| [`GraphicalLassoCV`](#graphicallassocv) | [Cross-validated Graphical Lasso](../models/covariance/covariance-graphical-lasso-cv.md) | `alphas`, `cv`, `max_iter`, `tol`, `random_state` |
 
 ## Constructors and common parameters
 
@@ -208,7 +208,7 @@ block-size parameter.
 Same constructor and shrinkage form as `LedoitWolf`, with the Oracle
 Approximating Shrinkage intensity. The implementation follows the commonly used
 scikit-learn convention omitting the original formula's `2/p` correction; see
-the [OAS guide](../models/covariance-oas.md) for interpretation.
+the [OAS guide](../models/covariance/covariance-oas.md) for interpretation.
 
 | Additional attribute | Type | Meaning |
 |---|---|---|

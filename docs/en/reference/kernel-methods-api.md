@@ -7,10 +7,10 @@
 This reference lists the signatures, parameters, methods, fitted attributes, and
 execution limits of the four estimators and eight pairwise functions in
 `statgpu.nonparametric.kernel_methods`. Start with the
-[kernel-methods overview](../models/kernel-methods.md) to choose a method.
-For complete worked examples, see [KernelRidge](../models/kernel-ridge.md),
-[KernelRidgeCV](../models/kernel-ridge-cv.md),
-[KernelPCA](../models/kernel-pca.md), and [Nystroem](../models/kernel-nystroem.md).
+[kernel-methods overview](../models/nonparametric/kernel-methods.md) to choose a method.
+For complete worked examples, see [KernelRidge](../models/nonparametric/kernel-ridge.md),
+[KernelRidgeCV](../models/nonparametric/kernel-ridge-cv.md),
+[KernelPCA](../models/nonparametric/kernel-pca.md), and [Nystroem](../models/nonparametric/kernel-nystroem.md).
 
 ## Complete estimator API
 
@@ -53,7 +53,7 @@ from statgpu.nonparametric.kernel_methods import (
 
 ### KernelRidge
 
-[Tutorial: fit and evaluate nonlinear response predictions](../models/kernel-ridge.md).
+[Tutorial: fit and evaluate nonlinear response predictions](../models/nonparametric/kernel-ridge.md).
 
 In addition to the shared controls, `alpha=1.0` is a finite nonnegative scalar, and `kernel_params=None` is an optional dictionary of kernel keyword arguments. The regularized system is
 
@@ -82,7 +82,7 @@ If the direct solve raises a linear-algebra exception, fitting retries with prog
 
 ### KernelRidgeCV
 
-[Tutorial: select alpha inside training folds](../models/kernel-ridge-cv.md).
+[Tutorial: select alpha inside training folds](../models/nonparametric/kernel-ridge-cv.md).
 
 | Additional argument | Meaning and restrictions |
 |---|---|
@@ -127,7 +127,7 @@ For grouped/time-ordered splits or learned preprocessing within folds, use an ex
 
 ### KernelPCA
 
-[Tutorial: learn nonlinear coordinates](../models/kernel-pca.md).
+[Tutorial: learn nonlinear coordinates](../models/nonparametric/kernel-pca.md).
 
 | Additional argument | Meaning and restrictions |
 |---|---|
@@ -160,7 +160,7 @@ If `fit` or `fit_transform` raises, discard the instance and fit suitable data o
 
 ### Nystroem
 
-[Tutorial: build reusable approximate kernel features](../models/kernel-nystroem.md).
+[Tutorial: build reusable approximate kernel features](../models/nonparametric/kernel-nystroem.md).
 
 | Additional argument | Meaning and restrictions |
 |---|---|

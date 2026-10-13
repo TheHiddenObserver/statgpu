@@ -240,4 +240,4 @@ A useful decision rule is:
 - [Cross-Validation](cross-validation.md) — tuning selection and final-refit behavior
 - [Node-wise Lasso inference tuning migration](nodewise-alpha-migration.md) — `nodewise_alpha`
 - [Device and GPU Memory](device-and-memory.md) — backend/device semantics
-- [Lasso](../models/lasso.md) and [ElasticNet](../models/elastic-net.md) — model-specific sparse inference
+- [Lasso](../models/regression/lasso.md) and [ElasticNet](../models/regression/elastic-net.md) — model-specific sparse inference

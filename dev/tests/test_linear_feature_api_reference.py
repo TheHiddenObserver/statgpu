@@ -63,7 +63,7 @@ def test_live_linear_constructors_and_public_methods_have_readable_reference(lan
 @pytest.mark.parametrize("obj", FEATURE)
 def test_feature_namespace_parameters_and_methods_are_covered(lang, obj):
     text = read_reference(lang, "feature-selection-api")
-    stepwise = (ROOT / "docs" / lang / "models" / "feature-selection.md").read_text()
+    stepwise = (ROOT / "docs" / lang / 'models/feature-selection/README.md').read_text()
     combined = text + stepwise
     for name in parameter_names(obj):
         assert name in combined, (obj.__name__, name)
@@ -113,7 +113,7 @@ def test_binary_evaluation_namespace_and_return_contract():
     for curve in (result["roc_curve"], result["precision_recall_curve"]):
         assert len({len(value) for value in curve.values()}) == 1
     for lang in ("en", "cn"):
-        text = (ROOT / "docs" / lang / "models" / "logistic-regression.md").read_text()
+        text = (ROOT / "docs" / lang / 'models/regression/logistic-regression.md').read_text()
         assert "statgpu.evaluation" not in text
 
 
@@ -125,7 +125,7 @@ def test_cv_docstrings_describe_negative_scores_and_actual_schema():
 
 @pytest.mark.parametrize("lang", ["en", "cn"])
 def test_display_formulas_define_intercept_weights_and_debiased_target(lang):
-    text = (ROOT / "docs" / lang / "models" / "elastic-net.md").read_text()
+    text = (ROOT / "docs" / lang / 'models/regression/elastic-net.md').read_text()
     assert r"\min_{b,\beta}" in text
     assert r"\sum_{i=1}^n w_i" in text
     assert r"\hat\theta_{\mathrm{db}}" in text
@@ -299,7 +299,7 @@ def test_weighted_ols_likelihood_boundary_is_explicit_when_normalization_missing
     analytic_llf = -0.5 * np.sum(np.log(2 * np.pi * sigma2 / weights) + weights * residual ** 2 / sigma2)
     if not np.isclose(model.llf, analytic_llf):
         for lang in ("en", "cn"):
-            text = (ROOT / "docs" / lang / "models" / "linear-regression.md").read_text()
+            text = (ROOT / "docs" / lang / 'models/regression/linear-regression.md').read_text()
             assert "0.5 * sum(log(sample_weight))" in text
             assert all(name in text for name in ("llf", "aic", "bic"))
 

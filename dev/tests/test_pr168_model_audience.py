@@ -13,7 +13,7 @@ def _text(relative):
 
 @pytest.mark.parametrize("language", ("en", "cn"))
 def test_glm_keeps_weight_and_initialization_contract_without_solver_internals(language):
-    page = _text(f"docs/{language}/models/generalized-linear-model.md")
+    page = _text(f"docs/{language}/models/regression/generalized-linear-model.md")
     for token in ("sample_weight", 'solver="newton"', 'solver="lbfgs"',
                   'link="inverse_power"', r"\eta_i=b+x_i^\top\beta>0",
                   "solver-penalty-matrix.md", "solver-algorithms.md",
@@ -85,7 +85,7 @@ def test_mixture_example_and_cautions_precede_em_derivation(language):
 
 @pytest.mark.parametrize("language", ("en", "cn"))
 def test_spline_accuracy_heading_does_not_imply_a_mode_parameter(language):
-    text = _text(f"docs/{language}/models/splines.md")
+    text = _text(f"docs/{language}/models/nonparametric/splines.md")
     assert "## strict / approx" not in text
     anchor = "strict--approx-difference" if language == "en" else "strict--approx-区别"
     assert f'id="{anchor}"' in text

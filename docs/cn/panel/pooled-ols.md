@@ -152,7 +152,7 @@ model = PooledOLS().fit(
 
 ## 相关文档
 
-- [面板模型总览](../models/panel.md) — Panel 模型选择与解释
+- [面板模型总览](README.md) — Panel 模型选择与解释
 - [面板模型协方差](covariance.md) — HC、cluster、HAC 与 Driscoll–Kraay 公式
 - [面板诊断](diagnostics.md) — Breusch–Pagan LM 等诊断
 - [设备与 GPU 内存](../guides/device-and-memory.md) — 后端与设备语义

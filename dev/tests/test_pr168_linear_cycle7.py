@@ -12,6 +12,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from doc_paths import model_doc
 from doc_examples import run_example
 
 from statgpu.linear_model import MCPRegression, Ridge, SCADRegression
@@ -21,7 +22,8 @@ CLASSES = [(Ridge, "ridge"), (SCADRegression, "scad"), (MCPRegression, "mcp")]
 
 
 def _page(language, directory, page):
-    return (ROOT / "docs" / language / directory / f"{page}.md").read_text()
+    relative = model_doc(page) if directory == "models" else f"{directory}/{page}"
+    return (ROOT / "docs" / language / (relative + ".md")).read_text()
 
 
 def _example(language, page, label):
@@ -69,7 +71,7 @@ def test_scalar_gaussian_api_references_cover_live_public_interfaces(language, c
     text = _page(language, "reference", "linear-model-api")
     section = text.split(f"## {cls.__name__}\n", 1)[1].split("\n## ", 1)[0]
     assert _signature(cls) in section
-    assert f"../models/{page}.md#" in section
+    assert f"../{model_doc(page)}.md#" in section
     model_page = _page(language, "models", page)
     for parameter in inspect.signature(cls).parameters:
         assert f"| `{parameter}` |" in model_page, parameter

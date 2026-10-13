@@ -225,7 +225,7 @@ For residual bootstrap, resampling starts only after CV has selected the tuning 
 `PenalizedGLM_CV.summary()` currently delegates to a generic final estimator
 that has no `summary()` method and can raise `AttributeError` even after
 successful coefficient inference. Read `model.estimator_._inference_result`
-and its `to_dict()` output instead; see the [complete CV reporting example](../models/generalized-linear-model.md#reading-cv-inference-results).
+and its `to_dict()` output instead; see the [complete CV reporting example](../models/regression/generalized-linear-model.md#reading-cv-inference-results).
 
 The Cox branch remains estimation-only.
 

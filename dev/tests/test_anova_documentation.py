@@ -16,6 +16,7 @@ import pytest
 from scipy import stats
 
 import statgpu.anova as anova
+from doc_paths import model_doc, peer_link, reachable_pages
 from doc_examples import example_code, parse_examples, run_example
 
 
@@ -46,14 +47,14 @@ def _read(language, page):
 
 
 def _lesson(language, page, example):
-    return run_example(_read(language, f"models/{page}"), example,
-                       f"docs/{language}/models/{page}.md")
+    return run_example(_read(language, model_doc(page)), example,
+                       f"docs/{language}/{model_doc(page)}.md")
 
 
 @pytest.mark.parametrize("page,names", LESSONS.items())
 def test_bilingual_lessons_have_the_same_self_contained_examples(page, names):
-    en = _read("en", f"models/{page}")
-    cn = _read("cn", f"models/{page}")
+    en = _read("en", model_doc(page))
+    cn = _read("cn", model_doc(page))
     for text in (en, cn):
         examples = parse_examples(text)
         assert tuple(name for name in examples if name not in {"anova-cupy", "anova-torch"}) == names
@@ -269,27 +270,27 @@ def test_reference_signatures_match_runtime_parameters_and_defaults(language):
 
 @pytest.mark.parametrize("language", ("en", "cn"))
 def test_overview_routes_to_all_lessons_and_reference_without_duplicating_examples(language):
-    text = _read(language, "models/anova")
+    text = _read(language, "models/testing/anova")
     assert not parse_examples(text)
     for page in LESSONS:
         assert "](" + page + ".md" in text
-    assert "](../reference/anova-api.md)" in text
+    assert "](../../reference/anova-api.md)" in text
     assert "](multiple-testing.md)" in text
     for page in LESSONS:
-        tutorial = _read(language, f"models/{page}")
-        assert "](../reference/anova-api.md" in tutorial
-    assert "](multiple-testing.md" in _read(language, "models/anova-posthoc")
+        tutorial = _read(language, model_doc(page))
+        assert "](../../reference/anova-api.md" in tutorial
+    assert "](multiple-testing.md" in _read(language, "models/testing/anova-posthoc")
 
 
 @pytest.mark.parametrize("language", ("en", "cn"))
 @pytest.mark.parametrize("page", ENTRY_POINTS)
 def test_entry_points_link_both_anova_principles_and_complete_reference(language, page):
-    text = _read(language, page)
-    targets = re.findall(r"\]\(([^)]+)\)", text)
-    assert any(t.split("#")[0].endswith("anova.md") for t in targets)
-    assert any(t.split("#")[0].endswith("reference/anova-api.md") for t in targets)
-    for lesson in LESSONS:
-        assert any(t.split("#")[0].endswith(lesson + ".md") for t in targets)
+    language_root = ROOT / "docs" / language
+    reached = reachable_pages(language_root / (page + ".md"), language_root)
+    for destination in ("anova", *LESSONS):
+        expected = (language_root / (model_doc(destination) + ".md")).resolve()
+        assert expected in reached, (page, destination)
+    assert (language_root / "reference/anova-api.md").resolve() in reached
 
 
 def _anchored_section(text, anchor):
@@ -308,7 +309,7 @@ def _anchored_section(text, anchor):
 
 @pytest.mark.parametrize("language", ("en", "cn"))
 def test_overview_has_distinct_general_concept_sections(language):
-    text = _read(language, "models/anova")
+    text = _read(language, "models/testing/anova")
     sections = [_anchored_section(text, anchor) for anchor in OVERVIEW_CONCEPTS]
     assert len({heading for heading, _ in sections}) == len(OVERVIEW_CONCEPTS)
     assert not re.findall(r"```python\n", text)
@@ -316,8 +317,8 @@ def test_overview_has_distinct_general_concept_sections(language):
 
 @pytest.mark.parametrize("language", ("en", "cn"))
 def test_classical_and_welch_own_separate_formulas_and_examples(language):
-    classical = _read(language, "models/anova-oneway")
-    welch = _read(language, "models/anova-welch")
+    classical = _read(language, "models/testing/anova-oneway")
+    welch = _read(language, "models/testing/anova-welch")
     _anchored_section(classical, "classical-anova")
     _anchored_section(classical, "anova-basic")
     _, formula = _anchored_section(welch, "welch-intuition")
@@ -347,19 +348,19 @@ def test_reference_routes_to_overview_and_each_peer_tutorial(language):
     text = _read(language, "reference/anova-api")
     introduction = text.split('<a id="public-api">', 1)[0]
     for page in ("anova", *LESSONS):
-        assert f"](../models/{page}.md)" in introduction
+        assert f"](../{model_doc(page)}.md)" in introduction
 
 
 def test_root_readme_exposes_all_anova_layers():
     text = (ROOT / "README.md").read_text(encoding="utf-8")
     for page in ("anova", *LESSONS):
-        assert f"](docs/en/models/{page}.md)" in text
+        assert f"](docs/en/{model_doc(page)}.md)" in text
     assert "](docs/en/reference/anova-api.md)" in text
 
 
 @pytest.mark.parametrize("language", ("en", "cn"))
 def test_posthoc_links_general_concepts_and_welch_example_to_their_owners(language):
-    text = _read(language, "models/anova-posthoc")
+    text = _read(language, "models/testing/anova-posthoc")
     _, question = _anchored_section(text, "the-question")
     assert "](anova.md)" in question
     assert "](anova-oneway.md)" not in question
@@ -371,8 +372,8 @@ def _anova_navigation_paths():
     return [ROOT / "README.md"] + [
         ROOT / f"docs/{language}/{page}.md"
         for language in ("en", "cn")
-        for page in (*ENTRY_POINTS, "models/anova", "reference/anova-api",
-                     *(f"models/{lesson}" for lesson in LESSONS))
+        for page in (*ENTRY_POINTS, "models/testing/anova", "reference/anova-api",
+                     *(model_doc(lesson) for lesson in LESSONS))
     ]
 
 

@@ -11,6 +11,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from doc_paths import model_doc
 from doc_examples import run_example
 
 from statgpu.linear_model import (
@@ -36,7 +37,7 @@ def _example(language, page, marker):
 
 @pytest.mark.parametrize('language', ['en', 'cn'])
 def test_poisson_unpenalized_example_solves_score_equation(language):
-    ns = _example(language, 'models/poisson-regression.md',
+    ns = _example(language, 'models/regression/poisson-regression.md',
                   'learner-example: poisson-unpenalized')
     model, X, y = ns['model'], ns['X'], ns['y']
     np.testing.assert_allclose(model.coef_, [.377, -.154], atol=.0005)
@@ -70,7 +71,7 @@ def test_ordinary_poisson_irls_documented_penalty_scale(weighted, C):
                                      (SCADRegression, 'scad'), (MCPRegression, 'mcp'),
                                      (Ridge, 'ridge')])
 def test_connected_model_parameter_tables_cover_live_constructor(language, cls, name):
-    text = (ROOT / f'docs/{language}/models/{name}.md').read_text()
+    text = (ROOT / f'docs/{language}/{model_doc(name)}.md').read_text()
     for parameter in inspect.signature(cls).parameters:
         assert f'| `{parameter}` |' in text, (cls.__name__, parameter)
     if cls is PoissonRegression:
@@ -200,7 +201,7 @@ def test_training_origin_workaround_preserves_ridge_objective(weighted, inferenc
 
 @pytest.mark.parametrize('language', ['en', 'cn'])
 def test_ridge_centering_example_reuses_training_origin(language):
-    ns = _example(language, 'models/ridge.md', 'learner-example: ridge-training-origin')
+    ns = _example(language, 'models/regression/ridge.md', 'learner-example: ridge-training-origin')
     model, X, y = ns['model'], ns['X_train'], ns['y_train']
     centered = X - ns['origin']
     ymean = y.mean()
@@ -216,9 +217,9 @@ def test_ridge_centering_example_reuses_training_origin(language):
 
 @pytest.mark.parametrize('language', ['en', 'cn'])
 def test_connected_pages_describe_current_behavior_without_obsolete_inference_claims(language):
-    scad = (ROOT / f'docs/{language}/models/scad.md').read_text()
-    mcp = (ROOT / f'docs/{language}/models/mcp.md').read_text()
-    ridge = (ROOT / f'docs/{language}/models/ridge.md').read_text()
+    scad = (ROOT / f'docs/{language}/models/regression/scad.md').read_text()
+    mcp = (ROOT / f'docs/{language}/models/regression/mcp.md').read_text()
+    ridge = (ROOT / f'docs/{language}/models/regression/ridge.md').read_text()
     for text in [scad, mcp]:
         assert 'PenalizedLinearRegression' in text
         assert 'inference_method' in text

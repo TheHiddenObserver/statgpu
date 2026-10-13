@@ -35,10 +35,10 @@ LinearRegression(fit_intercept=True, device='auto', n_jobs=None, compute_inferen
 | `coef_`、`intercept_`、`rank_` | 单目标形状 `(p,)`/标量，多目标 `(t,p)`/`(t,)`；`rank_` 是拟合设计矩阵的秩。 |
 | `rsquared`、`rsquared_adj` | 训练 R²（使用拟合权重；多目标为合并计算）及残差自由度修正。不同于留出数据的 `score`。 |
 | `fvalue`、`f_pvalue` | 单目标的残差 F 诊断，不是 HC/HAC 联合 Wald 检验。加权多目标访问当前抛出 `TypeError`；无权重的合并输出不是联合多元检验。 |
-| `llf`、`aic`、`bic` | 无权重单目标的高斯似然和信息准则。加权数值缺少 WLS 对数权重归一化项，会随权重尺度改变。多目标 AIC/BIC 为 `None`，合并 `llf` 不是联合多元似然。详见[诊断限制](../models/linear-regression.md#加权或多目标诊断的限制)。 |
+| `llf`、`aic`、`bic` | 无权重单目标的高斯似然和信息准则。加权数值缺少 WLS 对数权重归一化项，会随权重尺度改变。多目标 AIC/BIC 为 `None`，合并 `llf` 不是联合多元似然。详见[诊断限制](../models/regression/linear-regression.md#加权或多目标诊断的限制)。 |
 | `_bse`、`_tvalues`、`_pvalues`、`_conf_int` | 拟合截距时置于首位。k 个参数时形状为 `(k,)`，区间为 `(k,2)`；CPU 多目标为 `(k,t)` 与 `(k,t,2)`。关闭或无法计算推断时为 `None`。 |
 
-经典协方差采用 t 参考分布；HC/HAC 采用正态参考分布，尽管属性名仍为 `_tvalues`。CPU 支持多目标推断；GPU 多目标拟合需设 `compute_inference=False`。解释和假设见[入门页](../models/linear-regression.md)。
+经典协方差采用 t 参考分布；HC/HAC 采用正态参考分布，尽管属性名仍为 `_tvalues`。CPU 支持多目标推断；GPU 多目标拟合需设 `compute_inference=False`。解释和假设见[入门页](../models/regression/linear-regression.md)。
 
 ## LogisticRegression
 
@@ -118,7 +118,7 @@ Lasso(alpha=1.0, fit_intercept=True, max_iter=1000, tol=0.0001, stopping='coef_d
 `nodewise_alpha` 只能按关键字传入。Lasso 是仅含 L1 惩罚的包装类，
 不能照搬 ElasticNet 的完整构造参数：`l1_ratio`、`cov_type`、`hac_maxlags`、
 `initial_coef` 都不是 Lasso 的构造/拟合控制参数。它采用默认非稳健推断配置。
-目标函数、调参建议与统计解释见[入门页](../models/lasso.md)。
+目标函数、调参建议与统计解释见[入门页](../models/regression/lasso.md)。
 
 ### Lasso 方法与形状
 
@@ -164,7 +164,7 @@ Lasso(alpha=1.0, fit_intercept=True, max_iter=1000, tol=0.0001, stopping='coef_d
 检查系数变化，ADMM 检查原始/对偶残差。单独的 Lasso CV/路径辅助算法
 不能为直接拟合或最终重拟合提供 KKT 认证。`admm_rho` 被保存但被统一 ADMM
 忽略，实际以 rho=1.0 启动。是否自适应调整取决于求解方式；平方误差的直接
-Cholesky 求解保持 rho 不变，详见 [Lasso 求解限制](../models/lasso.md)。
+Cholesky 求解保持 rho 不变，详见 [Lasso 求解限制](../models/regression/lasso.md)。
 
 ## ElasticNet
 
@@ -201,7 +201,7 @@ ElasticNet(alpha=1.0, l1_ratio=0.5, fit_intercept=True, max_iter=1000, tol=0.000
 | `_params`、`_bse`、`_tvalues`、`_zvalues`、`_pvalues`、`_conf_int` | 报告参数及不确定性，不一定等于预测系数。通常为 `(k,)`，区间为 `(k,2)`，截距优先；具体可用项依推断方法而定。 |
 | `_inference_result`、`nodewise_alpha_` | 结构化结果（`params`、`bse`、`statistic`、`pvalues`、`conf_int`、`method`、`distribution`、`metadata`）与多特征时实际使用的逐节点调参值。 |
 | `inference_requested_method_`、`inference_resolved_method_`、`inference_method_`、`inference_target_`、`penalty_conditioning_`、`penalty_selection_adjusted_` | 去偏和 bootstrap 推断会记录公开的方法/目标字段。当前 `post_selection_ols` 即使推断成功，`inference_method_` 与 `inference_target_` 也可能仍为 `None`；应读取 `_inference_result.method` 和 `_inference_result.metadata`。这些属于报告属性，不是构造参数。 |
-| `rsquared`、`rsquared_adj`、`fvalue`、`f_pvalue`、`llf`、`aic`、`bic` | 可用的拟合诊断。加权纠偏推断后的 `rsquared`/`rsquared_adj` 使用再次中心化的工作响应，不一定等于原始加权 R²；应验证权重后调用 `score(X,y,sample_weight=weights)`，见[加权诊断](../models/elastic-net.md#加权训练诊断)。AIC/BIC/F 为兼容性代入式汇总，不是通用的惩罚有效自由度或选择性推断准则；状态缺失可能返回 `None`/NaN。 |
+| `rsquared`、`rsquared_adj`、`fvalue`、`f_pvalue`、`llf`、`aic`、`bic` | 可用的拟合诊断。加权纠偏推断后的 `rsquared`/`rsquared_adj` 使用再次中心化的工作响应，不一定等于原始加权 R²；应验证权重后调用 `score(X,y,sample_weight=weights)`，见[加权诊断](../models/regression/elastic-net.md#加权训练诊断)。AIC/BIC/F 为兼容性代入式汇总，不是通用的惩罚有效自由度或选择性推断准则；状态缺失可能返回 `None`/NaN。 |
 
 <a id="covariance-and-inference-behavior"></a>
 
@@ -422,7 +422,7 @@ PenalizedGeneralizedLinearModel(loss='squared_error', penalty='l1', alpha=1.0, l
 
 | 参数 | 默认值 | 含义与限制 |
 |---|---|---|
-| `loss` | `'squared_error'` | 损失名包括 squared_error、logistic、poisson、gamma、inverse_gaussian、negative_binomial、tweedie 和 quantile。其他分布族及限制见[损失参考](../models/losses.md)。 |
+| `loss` | `'squared_error'` | 损失名包括 squared_error、logistic、poisson、gamma、inverse_gaussian、negative_binomial、tweedie 和 quantile。其他分布族及限制见[损失参考](losses.md)。 |
 | `penalty` | `'l1'` | none、l1、l2、elasticnet、scad、mcp、adaptive_l1、受支持的分组惩罚，或 Penalty 对象。 |
 | `alpha` | `1.0` | 平均损失尺度上的惩罚强度；传入 Penalty 对象时使用该对象自身配置。 |
 | `l1_ratio` | `0.5` | elasticnet 中 L1 部分的比例。 |
@@ -494,7 +494,7 @@ PenalizedGLM_CV(loss='squared_error', penalty='l2', alpha_grid=None, n_alphas=10
 
 设候选数为 a、折数为 f：`alpha_grid_` 与 `cv_results_["alpha"]` 为 `(a,)`，`mean_score` 为 `(a,)`，`all_scores` 为 `(f,a)`。这些 score 数组存储损失，越小越好。其他键为 `device_sizing_fold_count`、`cv_strategy_`、`cv_selected_device_`、`mean_score_stage1`、`all_scores_stage1`、`refined_mask`。严格模式的第一阶段数组为 None；布尔细化掩码为 `(a,)`。`coef_`、`intercept_` 与 `estimator_` 对应最终全数据拟合。`cv_strategy_` 和 `cv_selected_device_` 也作为属性提供。
 
-当前 `summary(*args,**kwargs)` 在通用最终重拟合推断成功后仍会抛出 AttributeError，因为它委托的估计器没有 summary 方法；未启用推断时则抛出 RuntimeError。可用 `estimator_._inference_result.to_dict()`，或安装 pandas 后用 `to_dataframe()` 读取受支持的推断。报告渲染失败本身不会改变拟合系数。可运行的结果示例见 [GLM 页面](../models/generalized-linear-model.md#reading-cv-inference-results)。共享配置、p 值及重采样方法同样适用。
+当前 `summary(*args,**kwargs)` 在通用最终重拟合推断成功后仍会抛出 AttributeError，因为它委托的估计器没有 summary 方法；未启用推断时则抛出 RuntimeError。可用 `estimator_._inference_result.to_dict()`，或安装 pandas 后用 `to_dataframe()` 读取受支持的推断。报告渲染失败本身不会改变拟合系数。可运行的结果示例见 [GLM 页面](../models/regression/generalized-linear-model.md#reading-cv-inference-results)。共享配置、p 值及重采样方法同样适用。
 
 对 `PenalizedGLM_CV`，重复 `fit()`、scikit-learn 克隆，以及 pickle 序列化后恢复的估计器，都可以复用同一生成器提供的 `cv_splits`。传给估计器后，不要再单独读取该生成器；如果还需要自行检查各折索引，请先转换为列表。
 
@@ -505,10 +505,10 @@ PenalizedGLM_CV(loss='squared_error', penalty='l2', alpha_grid=None, n_alphas=10
 Ridge(alpha=1.0, fit_intercept=True, device='auto', n_jobs=None, gpu_memory_cleanup=False, compute_inference=True, cov_type='nonrobust', hac_maxlags=None, max_iter=1000, tol=0.0001, solver='exact', cpu_solver='fista', lipschitz_L=None)
 ```
 
-每个构造参数及含义均列于[完整 Ridge 参数表](../models/ridge.md#参数)。
+每个构造参数及含义均列于[完整 Ridge 参数表](../models/regression/ridge.md#参数)。
 此封装类只接受单一响应。默认 `solver="exact"` 拟合 L2 回归；
 `compute_inference=True` 启用受支持的高斯协方差推断。
-CPU 闭式优化路径存在已说明的[大偏移限制](../models/ridge.md#large-feature-offsets)。
+CPU 闭式优化路径存在已说明的[大偏移限制](../models/regression/ridge.md#large-feature-offsets)。
 
 | 方法 | 参数、默认值与返回值 |
 |---|---|
@@ -535,12 +535,12 @@ HC/HAC 使用正态参考。缺少所需推断状态时，诊断属性 `rsquared
 SCADRegression(alpha=1.0, a=3.7, fit_intercept=True, max_iter=1000, tol=0.0001, device='auto', compute_inference=False, solver='auto', gpu_memory_cleanup=False)
 ```
 
-每个构造参数及含义均列于[完整 SCADRegression 参数表](../models/scad.md#参数)。
+每个构造参数及含义均列于[完整 SCADRegression 参数表](../models/regression/scad.md#参数)。
 应使用 `from statgpu.linear_model import SCADRegression`；顶层 `statgpu`
 不导出该类。`alpha` 必须为有限正数，`a`
 必须有限且大于 2。请保持 `compute_inference=False`：
 此封装类不暴露 `inference_method`，开启推断后拟合会报错。
-显式推断应使用[模型页](../models/scad.md#推断)介绍的通用带惩罚线性接口。
+显式推断应使用[模型页](../models/regression/scad.md#推断)介绍的通用带惩罚线性接口。
 
 | 方法 | 参数、默认值与返回值 |
 |---|---|
@@ -565,12 +565,12 @@ SCADRegression(alpha=1.0, a=3.7, fit_intercept=True, max_iter=1000, tol=0.0001, 
 MCPRegression(alpha=1.0, gamma=3.0, fit_intercept=True, max_iter=1000, tol=0.0001, device='auto', compute_inference=False, solver='auto', gpu_memory_cleanup=False)
 ```
 
-每个构造参数及含义均列于[完整 MCPRegression 参数表](../models/mcp.md#参数)。
+每个构造参数及含义均列于[完整 MCPRegression 参数表](../models/regression/mcp.md#参数)。
 应使用 `from statgpu.linear_model import MCPRegression`；顶层 `statgpu`
 不导出该类。`alpha` 必须为有限正数，`gamma`
 必须有限且大于 1。请保持 `compute_inference=False`：
 此封装类不暴露 `inference_method`，开启推断后拟合会报错。
-显式推断应使用[模型页](../models/mcp.md#推断)介绍的通用带惩罚线性接口。
+显式推断应使用[模型页](../models/regression/mcp.md#推断)介绍的通用带惩罚线性接口。
 
 | 方法 | 参数、默认值与返回值 |
 |---|---|
@@ -626,7 +626,7 @@ NumPy `(m,)`。`score(X,y)` 返回不加权 R²，不接受权重参数；如需
 推断应从 `estimator_` 读取，以已选 alpha 为条件，不校正调参不确定性。
 `cv_selected_device_` 记录最终设备。RidgeCV 不公开 solver、max_iter 或 tol 控制；
 最终估计器采用 Ridge 的闭式路径。解释最终拟合时也应注意
-[大偏移限制](../models/ridge.md#large-feature-offsets)。
+[大偏移限制](../models/regression/ridge.md#large-feature-offsets)。
 
 自动生成的验证折是随机打乱的 K 折，不自动按组、分层或时间设计。
 指定设计应使用可重复的索引对列表，并在拟合前自行校验；请求被接受不代表
@@ -759,7 +759,7 @@ GammaRegression(fit_intercept=True, max_iter=100, tol=0.0001, C=1.0, device='aut
 除 `link` 外，全部参数及默认值沿用[普通 GLM 参数表](#generalizedlinearmodel)。
 `link="log"` 对应均值 `exp(eta)`；`"inverse_power"` 对应 `1/eta`，要求线性
 预测子为正。响应必须严格为正。后一链接的显式 Newton/L-BFGS 定义域行为见
-[带权 GLM 说明](../models/generalized-linear-model.md)。该构造函数不提供形状、
+[带权 GLM 说明](../models/regression/generalized-linear-model.md)。该构造函数不提供形状、
 离散参数或通用 `family` 参数。
 
 ## InverseGaussianRegression

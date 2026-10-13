@@ -32,7 +32,7 @@ class _NonfiniteKernelFittedState(Exception):
 
 @pytest.mark.parametrize("language", ["en", "cn"])
 def test_spline_training_query_example_is_self_contained_and_reuses_fit(language):
-    path = ROOT / f"docs/{language}/models/splines.md"
+    path = ROOT / f"docs/{language}/models/nonparametric/splines.md"
     text = path.read_text()
     namespace = run_example(text, 'spline-transformer-reuse-cpu', str(path))
     model = namespace["transformer"]
@@ -65,7 +65,7 @@ def test_installed_spline_help_covers_constructor_methods_and_learned_state():
 
 @pytest.mark.parametrize("language", ["en", "cn"])
 def test_spline_reference_lists_all_exported_calls_and_exact_parameters(language):
-    text = (ROOT / f"docs/{language}/models/splines.md").read_text()
+    text = (ROOT / f"docs/{language}/models/nonparametric/splines.md").read_text()
     objects = {
         "bspline_basis": bspline_basis,
         "natural_cubic_spline_basis": natural_cubic_spline_basis,

@@ -141,7 +141,7 @@ def test_full_rollback_repair_would_remove_expected_failure(monkeypatch):
 
 @pytest.mark.parametrize("language", ["en", "cn"])
 def test_kernel_pca_failed_refit_guidance_matches_installed_help(language):
-    text = (ROOT / f"docs/{language}/models/kernel-pca.md").read_text()
+    text = (ROOT / f"docs/{language}/models/nonparametric/kernel-pca.md").read_text()
     if language == "en":
         for phrase in ["After a failed refit", "finite but incorrect", "discard the instance",
                        "zero-rank", "fit_transform", "A fresh instance will reject"]:

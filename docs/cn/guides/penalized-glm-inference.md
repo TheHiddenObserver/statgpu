@@ -197,7 +197,7 @@ penalty_selection_adjusted_ = False
 `PenalizedGLM_CV.summary()` 当前会调用最终通用估计器并不存在的
 `summary()` 方法，因此即使系数推断成功，也可能抛出 `AttributeError`。
 请改读 `model.estimator_._inference_result` 或其 `to_dict()` 输出；
-完整用法见 [CV 推断结果示例](../models/generalized-linear-model.md#reading-cv-inference-results)。
+完整用法见 [CV 推断结果示例](../models/regression/generalized-linear-model.md#reading-cv-inference-results)。
 
 Cox 分支仍然只提供估计，不提供这一系数推断接口。
 

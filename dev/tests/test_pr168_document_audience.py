@@ -1,5 +1,6 @@
 """Keep model comparisons user-facing and developer validation catalogs separate."""
 import re
+from doc_paths import model_doc
 from pathlib import Path
 
 import pytest
@@ -13,7 +14,7 @@ MODELS = (
 @pytest.mark.parametrize("language", ["en", "cn"])
 @pytest.mark.parametrize("model", MODELS)
 def test_model_guides_link_to_validation_reference_without_script_catalogs(language, model):
-    text = (ROOT / f"docs/{language}/models/{model}.md").read_text(encoding="utf-8")
+    text = (ROOT / f"docs/{language}/{model_doc(model)}.md").read_text(encoding="utf-8")
     assert "dev/references/model-validation.md#" in text
     assert not re.search(r"dev/(?:tests|benchmarks|comparisons)/", text)
     assert not re.search(r"`test_[a-z_]+`", text)
@@ -52,11 +53,11 @@ def test_developer_reference_preserves_relocated_validation_entries():
 
 @pytest.mark.parametrize("language", ["en", "cn"])
 def test_user_comparison_settings_remain_in_model_guides(language):
-    model_dir = ROOT / f"docs/{language}/models"
-    linear = (model_dir / "linear-regression.md").read_text(encoding="utf-8")
-    ridge = (model_dir / "ridge.md").read_text(encoding="utf-8")
-    elastic = (model_dir / "elastic-net.md").read_text(encoding="utf-8")
-    nonparametric = (model_dir / "nonparametric.md").read_text(encoding="utf-8")
+    model_dir = ROOT / f"docs/{language}"
+    linear = (model_dir / (model_doc("linear-regression") + ".md")).read_text(encoding="utf-8")
+    ridge = (model_dir / (model_doc("ridge") + ".md")).read_text(encoding="utf-8")
+    elastic = (model_dir / (model_doc("elastic-net") + ".md")).read_text(encoding="utf-8")
+    nonparametric = (model_dir / (model_doc("nonparametric") + ".md")).read_text(encoding="utf-8")
     assert "statsmodels.OLS" in linear and "WLS" in linear
     assert "sklearn_alpha" in ridge and "statgpu_alpha" in ridge
     assert "l1_ratio=0" in elastic and "Ridge" in elastic

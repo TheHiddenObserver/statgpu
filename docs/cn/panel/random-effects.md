@@ -232,7 +232,7 @@ without_intercept = RandomEffects().fit(
 
 ## 相关文档
 
-- [面板模型总览](../models/panel.md) — Panel 模型选择与解释
+- [面板模型总览](README.md) — Panel 模型选择与解释
 - [PanelOLS](panel-ols.md) — 固定效应估计
 - [面板模型协方差](covariance.md) — HC、cluster 与 Driscoll–Kraay
 - [面板诊断](diagnostics.md) — Hausman 等检验

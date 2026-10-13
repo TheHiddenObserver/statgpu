@@ -47,7 +47,7 @@ General conventions:
 - Proximal IRLS-CD and Group Proximal IRLS-LLA are specialized resolved routes rather than public explicit solver keywords.
 - Group Lasso and Adaptive Group Lasso use the group-aware FISTA path.
 
-For family/link domain restrictions, weighting semantics, or special initialization rules, see [GeneralizedLinearModel](../models/generalized-linear-model.md). For Quantile-specific solver choices and non-smooth behavior, see [Quantile Regression](../models/quantile.md).
+For family/link domain restrictions, weighting semantics, or special initialization rules, see [GeneralizedLinearModel](../models/regression/generalized-linear-model.md). For Quantile-specific solver choices and non-smooth behavior, see [Quantile Regression](../models/regression/quantile.md).
 
 ## 2. Explicit solver constraints
 
@@ -131,8 +131,8 @@ The following references explain the algorithms, model-specific assumptions, and
 
 - [Solver Algorithms](solver-algorithms.md) — update equations, convergence/stopping behavior, and algorithmic assumptions
 - [Loss × Penalty × Solver Framework](loss-penalty-solver-framework.md) — computation architecture and dispatch concepts
-- [Loss Functions](../models/losses.md) — loss-layer mathematics and numerical primitives
-- [GeneralizedLinearModel](../models/generalized-linear-model.md) — GLM family/link behavior, weights, CV, and inference
-- [Quantile Regression](../models/quantile.md) — Quantile-specific solver, penalty, weighting, and inference behavior
-- [Robust Regression](../models/robust.md) — robust-loss estimator behavior
+- [Loss Functions](../reference/losses.md) — loss-layer mathematics and numerical primitives
+- [GeneralizedLinearModel](../models/regression/generalized-linear-model.md) — GLM family/link behavior, weights, CV, and inference
+- [Quantile Regression](../models/regression/quantile.md) — Quantile-specific solver, penalty, weighting, and inference behavior
+- [Robust Regression](../models/regression/robust.md) — robust-loss estimator behavior
 - [Penalized GLM inference](penalized-glm-inference.md) and [Inference Modes](inference-modes.md) — inference support and interpretation

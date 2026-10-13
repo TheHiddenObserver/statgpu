@@ -69,7 +69,7 @@ def _known_torch_size_failure(helper, size_check):
 
 @pytest.mark.parametrize("language", ["en", "cn"])
 def test_torch_restrictions_present_in_learner_and_complete_reference(language):
-    for relative in ("models/nonparametric.md", "reference/survival-smoothing-api.md"):
+    for relative in ("models/nonparametric/nonparametric.md", "reference/survival-smoothing-api.md"):
         text = (ROOT / "docs" / language / relative).read_text()
         anchor = "### Current Torch restrictions" if "models" in relative else "### Torch argument restrictions"
         if language == "cn":
@@ -82,7 +82,7 @@ def test_torch_restrictions_present_in_learner_and_complete_reference(language):
 
 @pytest.mark.parametrize("language", ["en", "cn"])
 def test_natural_boundary_warning_is_scale_specific_and_not_a_repair_claim(language):
-    text = (ROOT / f"docs/{language}/models/splines.md").read_text()
+    text = (ROOT / f"docs/{language}/models/nonparametric/splines.md").read_text()
     assert "1e6" in text
     assert "TypeError" in text and "(1,p)" in text
     if language == "en":
@@ -93,7 +93,7 @@ def test_natural_boundary_warning_is_scale_specific_and_not_a_repair_claim(langu
         assert "不能\n让约束变得精确" in text
         assert "经过独立验证的自然样条构造" in text
         assert "每个训练折内学习节点" in text
-    gam = (ROOT / f"docs/{language}/models/semiparametric.md").read_text()
+    gam = (ROOT / f"docs/{language}/models/nonparametric/semiparametric.md").read_text()
     assert "TypeError" in gam and "X[:1]" in gam
 
 

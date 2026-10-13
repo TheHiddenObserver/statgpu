@@ -6,7 +6,7 @@
 
 本页覆盖 `statgpu.feature_selection` 的八个导出：`StepwiseSelector`、`stepwise_selection`、`KnockoffResult`、`knockoff_filter`、`fixed_x_knockoff_filter`、`model_x_knockoff_filter`、`KnockoffSelector`、`FixedXKnockoffSelector`。除 `KnockoffResult` 外均有顶层 `statgpu` 别名。这些选择器不继承 BaseEstimator 的 p 值/bootstrap 辅助方法。
 
-Knockoff 的原理与方法选择见[总览](../models/knockoff.md)，完整流程分别见 [Fixed-X 教程](../models/knockoff-fixed-x.md)和 [Model-X 教程](../models/knockoff-model-x.md)。本页统一给出完整接口及设备、随机数、缓存和回退规则。
+Knockoff 的原理与方法选择见[总览](../models/feature-selection/knockoff.md)，完整流程分别见 [Fixed-X 教程](../models/feature-selection/knockoff-fixed-x.md)和 [Model-X 教程](../models/feature-selection/knockoff-model-x.md)。本页统一给出完整接口及设备、随机数、缓存和回退规则。
 
 ## StepwiseSelector
 
@@ -15,7 +15,7 @@ StepwiseSelector(model_class, criterion='aic', direction='both', max_features=No
 stepwise_selection(X, y, model_class=LinearRegression, criterion='aic', direction='both', **model_kwargs)
 ```
 
-`model_class` 应为可调用对象/类；候选拟合需要兼容的 `fit`、AIC/BIC 诊断，以及你后续需要调用的方法。构造参数、全部七个公开方法、选择结果/历史字段、贪心搜索行为、替代评分与限制，完整列于[逐步选择入门页](../models/feature-selection.md#如何选择参数)。
+`model_class` 应为可调用对象/类；候选拟合需要兼容的 `fit`、AIC/BIC 诊断，以及你后续需要调用的方法。构造参数、全部七个公开方法、选择结果/历史字段、贪心搜索行为、替代评分与限制，完整列于[逐步选择入门页](../models/feature-selection/README.md#如何选择参数)。
 
 `stepwise_selection` 返回已拟合选择器。关键字可包含 `max_features`、`n_jobs`、`verbose` 等选择器控制以及模型配置；选择器参数由 StepwiseSelector 处理，不会继续转交模型。`fit`/`score` 接受一维响应或会被展平的单列响应。StepwiseSelector 不提供 `fit_transform`、`get_support`、样本权重、公式输入或系数推断接口；转换使用 `fit(...).transform(...)`，索引读取 `selected_features_`。
 
@@ -23,7 +23,7 @@ stepwise_selection(X, y, model_class=LinearRegression, criterion='aic', directio
 当作包装模型的构造关键字，未知模型参数可能直到 `fit` 才报错。返回选择器不代表
 评分全部有效：初始无穷大评分可能阻止接受有限的改进结果；后向搜索失败时，特征数
 可能超过 `max_features`。使用所选模型前，应检查准则历史全部有限且满足数量上限，
-详见[非有限评分限制](../models/feature-selection.md#nonfinite-score-limitations)。
+详见[非有限评分限制](../models/feature-selection/README.md#nonfinite-score-limitations)。
 
 ## Knockoff 函数与构造函数
 
@@ -132,7 +132,7 @@ Lasso 统计量还应显式设 `lasso_cv_impl="statgpu"`，避免请求兼容模
 整数种子。NumPy 构造在 `None` 时
 仍不固定种子。有效外部 `Xk` 可跳过构造，但统计量的可重复性仍需单独检查，
 尤其是下文的 Lasso 缓存限制。
-详见[可重复性说明](../models/knockoff-model-x.md#reproducibility-of-generated-torch-model-x)。
+详见[可重复性说明](../models/feature-selection/knockoff-model-x.md#reproducibility-of-generated-torch-model-x)。
 
 <a id="repeated-lasso-statistic-calls"></a>
 
@@ -154,7 +154,7 @@ Lasso 统计量还应显式设 `lasso_cv_impl="statgpu"`，避免请求兼容模
 
 这个缓存示例检查最大的 W 对应哪一列，不用于说明发现保证：无噪声响应用于
 展示输入变化，而且 p=4、默认 q=0.1 时 knockoff+ 不可能有发现。
-具有高斯响应的完整选择流程见[中心化配对入门示例](../models/knockoff-fixed-x.md#centered-pair-example)。
+具有高斯响应的完整选择流程见[中心化配对入门示例](../models/feature-selection/knockoff-fixed-x.md#centered-pair-example)。
 
 请在新的 Python 进程中开始执行下面的代码块。在旧 notebook 会话中重新运行
 代码，并不会自动保留之前每次运行的输入引用；若旧数组已释放，应先重启进程。
@@ -222,7 +222,7 @@ assert np.argmax(results[1].W) == 1
 
 ## 统计与后端边界
 
-理论 knockoff+ 阈值必须在每个不同的绝对统计量阈值处统计**全部**特征。当前并列 |W| 处理可能使用部分前缀计数，低估阈值处的估计 FDR，随后却选入整个并列组。W=[8,8,-8]、q=0.5 时，可能选择 [0,1] 并报告 estimated_fdr=0.5，而理论完整计数比为 1。此类并列阈值输出不能据此声称名义 FDR 控制，详见[入门页警告](../models/knockoff.md#统计量并列时的限制)。
+理论 knockoff+ 阈值必须在每个不同的绝对统计量阈值处统计**全部**特征。当前并列 |W| 处理可能使用部分前缀计数，低估阈值处的估计 FDR，随后却选入整个并列组。W=[8,8,-8]、q=0.5 时，可能选择 [0,1] 并报告 estimated_fdr=0.5，而理论完整计数比为 1。此类并列阈值输出不能据此声称名义 FDR 控制，详见[入门页警告](../models/feature-selection/knockoff.md#统计量并列时的限制)。
 
 
 
@@ -230,16 +230,16 @@ assert np.argmax(results[1].W) == 1
 统计量中心化响应后，两者投影 Gram 可能不同，破坏通常的零假设得分对可交换性。
 即使无阈值并列且 n>2p 也有此问题，单纯增加 n 不能修复。
 不能因原始 Gram 有效或没有并列就声称名义 FDR 控制，详见
-[中心化限制](../models/knockoff-fixed-x.md#generated-fixed-x-centering-limitation)。
+[中心化限制](../models/feature-selection/knockoff-fixed-x.md#generated-fixed-x-centering-limitation)。
 
 外部 Xk 绕过构造，必须检查截距/干扰变量投影后的完整配对约束，不能只检查形状和秩。
-[中心化配对入门示例](../models/knockoff-fixed-x.md#centered-pair-example)以 n≥2p+1 构造特殊正交设计，可避开这一几何问题，
+[中心化配对入门示例](../models/feature-selection/knockoff-fixed-x.md#centered-pair-example)以 n≥2p+1 构造特殊正交设计，可避开这一几何问题，
 但不是任意 X 的通用修复。其他统计、阈值和缓存限制仍然适用。
 
 fixed-X 有限样本解释要求高斯线性响应及独立同方差正态误差；Model-X 则要求
 特征配对可交换性、给定 X 后与 y 条件独立，同时允许任意响应关系。
 这里估计高斯矩并平均多次抽样统计量，不保证任意特征分布下的 FDR 控制。
-假设区别与文献见[响应模型假设](../models/knockoff.md#响应模型假设)。
+假设区别与文献见[响应模型假设](../models/feature-selection/knockoff.md#响应模型假设)。
 
 Knockoff 构造与统计量计算把输入转换为 float64；选择器 `transform` 仅选列，保留输入的原始 dtype。存在原生 NumPy/CuPy/Torch 数值路径，但 `lasso_cv_impl="sklearn"` 或部分 `compat_mode="knockpy"` 构造涉及主机转换、CPU 或可选库。`backend` 不能保证兼容步骤全部留在 GPU。提供 Xk 并显式 `lasso_cv_impl="statgpu"` 的原生路径可避开通用 knockpy CPU 构造。不支持的采样分发会报错，不会自动实现另一个采样器。
 
@@ -247,7 +247,7 @@ Knockoff 构造与统计量计算把输入转换为 float64；选择器 `transfo
 
 ## 可运行的 fixed-X 示例
 
-完整分析流程及可能得到非空结果的例子，见[中心化配对入门示例](../models/knockoff-fixed-x.md#centered-pair-example)。
+完整分析流程及可能得到非空结果的例子，见[中心化配对入门示例](../models/feature-selection/knockoff-fixed-x.md#centered-pair-example)。
 下面的选择器示例则预先设定一个必然为空的结果：p=5、q=0.1 时，knockoff+
 最小可能计数比为 1/p=0.2>q。因此，无论统计量取何值，即使所有原特征都胜过
 其 knockoff，也不会选择任何特征。这是阈值分辨率的限制，不只是某次抽样

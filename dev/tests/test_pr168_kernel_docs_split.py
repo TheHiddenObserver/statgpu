@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
+from doc_paths import markdown_anchors, model_doc, peer_link, reachable_pages
 from doc_examples import example_code, parse_examples, run_example
 from statgpu.nonparametric import kernel_methods as kernels
 
@@ -25,7 +26,7 @@ LESSONS = {
     "kernel-pca": "kernel-pca-cpu",
     "kernel-nystroem": "kernel-nystroem-cpu",
 }
-PAGES = ("models/kernel-methods", *(f"models/{page}" for page in LESSONS),
+PAGES = ("models/nonparametric/kernel-methods", *(model_doc(page) for page in LESSONS),
          "reference/kernel-methods-api")
 ENTRY_POINTS = ("README", "usage", "models/README", "guides/implemented-methods")
 EXPORTS = (
@@ -49,30 +50,23 @@ def _rbf(X, Y, gamma=0.7):
 
 
 def _anchors(text):
-    result = set(re.findall(r'<a id="([^"]+)"></a>', text))
-    seen = {}
-    for heading in re.findall(r"^#{1,6} (.+)$", text, re.MULTILINE):
-        slug = re.sub(r"[^\w\- ]", "", heading.lower()).replace(" ", "-")
-        count = seen.get(slug, 0)
-        seen[slug] = count + 1
-        result.add(slug if not count else f"{slug}-{count}")
-    return result
+    return markdown_anchors(text)
 
 
 @pytest.mark.parametrize("language", ("en", "cn"))
 def test_six_pages_separate_shared_concepts_method_lessons_and_complete_api(language):
-    overview = _read(language, "models/kernel-methods")
+    overview = _read(language, "models/nonparametric/kernel-methods")
     reference = _read(language, "reference/kernel-methods-api")
     assert set(parse_examples(overview)) == {"kernel-gram-cpu"}
     for page in LESSONS:
         assert f"]({page}.md" in overview
-        tutorial = _read(language, f"models/{page}")
+        tutorial = _read(language, model_doc(page))
         assert "](kernel-methods.md" in tutorial
-        assert "](../reference/kernel-methods-api.md" in tutorial
-        assert f"](../models/{page}.md)" in reference
+        assert "](../../reference/kernel-methods-api.md" in tutorial
+        assert f"](../{model_doc(page)}.md)" in reference
         assert "$$" in tutorial
-    assert "](../reference/kernel-methods-api.md)" in overview
-    assert "](../models/kernel-methods.md)" in reference
+    assert "](../../reference/kernel-methods-api.md)" in overview
+    assert "](../models/nonparametric/kernel-methods.md)" in reference
     for name in EXPORTS[:4]:
         assert name + "(" not in overview, name
     assert "Gram" in overview and "gamma" in overview
@@ -81,8 +75,8 @@ def test_six_pages_separate_shared_concepts_method_lessons_and_complete_api(lang
 
 @pytest.mark.parametrize("page,name", LESSONS.items())
 def test_each_bilingual_method_example_has_the_same_self_contained_statements(page, name):
-    en = _read("en", f"models/{page}")
-    cn = _read("cn", f"models/{page}")
+    en = _read("en", model_doc(page))
+    cn = _read("cn", model_doc(page))
     for text in (en, cn):
         examples = parse_examples(text)
         assert name == next(iter(examples))
@@ -97,7 +91,7 @@ def test_each_bilingual_method_example_has_the_same_self_contained_statements(pa
 def test_each_page_has_a_valid_language_peer_and_public_audience(language, page):
     text = _read(language, page)
     other = "cn" if language == "en" else "en"
-    assert f"](../../{other}/{page}.md)" in text
+    assert f"]({peer_link(language, page)})" in text
     for phrase in ("contract closure", "exact-head", "maintained route", "review-clean",
                    "证据闭环", "维护中的路径", "PR #168"):
         assert phrase not in text
@@ -106,16 +100,18 @@ def test_each_page_has_a_valid_language_peer_and_public_audience(language, page)
 @pytest.mark.parametrize("language", ("en", "cn"))
 @pytest.mark.parametrize("page", ENTRY_POINTS)
 def test_navigation_exposes_overview_every_method_and_complete_api(language, page):
-    targets = re.findall(r"\]\(([^)]+)\)", _read(language, page))
-    for destination in ("kernel-methods", *LESSONS, "kernel-methods-api"):
-        assert any(target.split("#")[0].endswith(destination + ".md")
-                   for target in targets), (page, destination)
+    language_root = ROOT / "docs" / language
+    reached = reachable_pages(language_root / (page + ".md"), language_root)
+    for destination in ("kernel-methods", *LESSONS):
+        expected = (language_root / (model_doc(destination) + ".md")).resolve()
+        assert expected in reached, (page, destination)
+    assert (language_root / "reference/kernel-methods-api.md").resolve() in reached
 
 
 def test_root_readme_exposes_all_kernel_layers():
     text = (ROOT / "README.md").read_text(encoding="utf-8")
     for page in ("kernel-methods", *LESSONS):
-        assert f"](docs/en/models/{page}.md)" in text
+        assert f"](docs/en/{model_doc(page)}.md)" in text
     assert "](docs/en/reference/kernel-methods-api.md)" in text
 
 
@@ -159,7 +155,7 @@ def test_reference_covers_all_exports_parameters_methods_and_inherited_helpers(l
 
 @pytest.mark.parametrize("language", ("en", "cn"))
 def test_gram_example_matches_analytic_similarity_and_query_orientation(language):
-    scope = _run(language, "models/kernel-methods", "kernel-gram-cpu")
+    scope = _run(language, "models/nonparametric/kernel-methods", "kernel-gram-cpu")
     expected = _rbf(scope["X"], scope["X"], np.log(2))
     assert scope["K"].shape == (3, 3)
     assert_allclose(scope["K"], expected, rtol=1e-13, atol=1e-15)
@@ -172,7 +168,7 @@ def test_gram_example_matches_analytic_similarity_and_query_orientation(language
 @pytest.mark.parametrize("language", ("en", "cn"))
 @pytest.mark.parametrize("page,name", LESSONS.items())
 def test_independent_lessons_keep_queries_out_of_fitted_training_state(language, page, name):
-    scope = _run(language, f"models/{page}", name)
+    scope = _run(language, model_doc(page), name)
     train, test = scope["train"], scope["test"]
     assert not np.intersect1d(train, test).size
     assert_array_equal(np.sort(np.r_[train, test]), np.arange(240))
@@ -188,7 +184,7 @@ def test_independent_lessons_keep_queries_out_of_fitted_training_state(language,
 
 @pytest.mark.parametrize("language", ("en", "cn"))
 def test_ridge_example_solves_the_unweighted_rkhs_system_and_predicts_queries(language):
-    scope = _run(language, "models/kernel-ridge", "kernel-ridge-system-check")
+    scope = _run(language, "models/nonparametric/kernel-ridge", "kernel-ridge-system-check")
     model, X, y = scope["kr"], scope["X_train"], scope["y_train"]
     K = _rbf(X, X)
     expected_dual = np.linalg.solve(K + model.alpha * np.eye(len(X)), y)
@@ -201,7 +197,7 @@ def test_ridge_example_solves_the_unweighted_rkhs_system_and_predicts_queries(la
 
 @pytest.mark.parametrize("language", ("en", "cn"))
 def test_cv_example_selection_scores_and_final_refit_match_independent_fold_solves(language):
-    scope = _run(language, "models/kernel-ridge-cv", "kernel-ridge-cv-cpu")
+    scope = _run(language, "models/nonparametric/kernel-ridge-cv", "kernel-ridge-cv-cpu")
     model, X, y = scope["kr_cv"], scope["X_train"], scope["y_train"]
     K = _rbf(X, X)
     order = np.random.RandomState(42).permutation(len(X))
@@ -228,7 +224,7 @@ def test_cv_example_selection_scores_and_final_refit_match_independent_fold_solv
 
 @pytest.mark.parametrize("language", ("en", "cn"))
 def test_external_cv_example_fits_scaling_inside_each_training_fold(language):
-    scope = _run(language, "models/kernel-ridge-cv", "kernel-ridge-fold-local-cpu")
+    scope = _run(language, "models/nonparametric/kernel-ridge-cv", "kernel-ridge-fold-local-cpu")
     X, y, folds, alphas = (scope[name] for name in ("X_train", "y_train", "folds", "alphas"))
     assert len(X) == 120 and len(scope["X_test"]) == 40
     expected = np.empty((len(alphas), len(folds)))
@@ -255,7 +251,7 @@ def test_external_cv_example_fits_scaling_inside_each_training_fold(language):
 
 @pytest.mark.parametrize("language", ("en", "cn"))
 def test_pca_example_uses_training_centering_and_scaled_eigenvectors_for_queries(language):
-    scope = _run(language, "models/kernel-pca", "kernel-pca-cpu")
+    scope = _run(language, "models/nonparametric/kernel-pca", "kernel-pca-cpu")
     model, X = scope["kpca"], scope["X_train"]
     K = _rbf(X, X)
     centered = K - K.mean(axis=0) - K.mean(axis=1)[:, None] + K.mean()
@@ -273,7 +269,7 @@ def test_pca_example_uses_training_centering_and_scaled_eigenvectors_for_queries
 
 @pytest.mark.parametrize("language", ("en", "cn"))
 def test_nystroem_example_preserves_landmarks_svd_orientation_and_approximation_error(language):
-    scope = _run(language, "models/kernel-nystroem", "kernel-nystroem-cpu")
+    scope = _run(language, "models/nonparametric/kernel-nystroem", "kernel-nystroem-cpu")
     model, X = scope["nystroem"], scope["X_train"]
     landmarks = X[model.component_indices_]
     assert model.components_.shape == (40, 2)
@@ -414,7 +410,7 @@ LEGACY_ANCHORS = {
 
 @pytest.mark.parametrize("language", ("en", "cn"))
 def test_every_pre_split_overview_anchor_still_resolves(language):
-    text = _read(language, "models/kernel-methods")
+    text = _read(language, "models/nonparametric/kernel-methods")
     assert len(LEGACY_ANCHORS[language]) == 47
     assert LEGACY_ANCHORS[language] <= _anchors(text)
     explicit = re.findall(r'<a id="([^\"]+)"></a>', text)

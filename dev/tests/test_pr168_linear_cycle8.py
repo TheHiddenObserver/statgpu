@@ -11,6 +11,7 @@ import inspect
 import re
 from enum import Enum
 from pathlib import Path
+from doc_paths import model_doc
 from types import SimpleNamespace
 
 import numpy as np
@@ -27,7 +28,8 @@ TYPED = [lm.GammaRegression, lm.InverseGaussianRegression,
 
 
 def _page(language, directory, name):
-    return (ROOT / 'docs' / language / directory / f'{name}.md').read_text()
+    relative = model_doc(name) if directory == "models" else f"{directory}/{name}"
+    return (ROOT / "docs" / language / (relative + ".md")).read_text()
 
 
 def _signature(cls):

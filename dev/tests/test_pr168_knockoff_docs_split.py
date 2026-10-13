@@ -14,6 +14,7 @@ from urllib.parse import unquote, urlsplit
 import numpy as np
 import pytest
 
+from doc_paths import model_doc, peer_link, reachable_pages
 from doc_examples import example_code, parse_examples, run_example
 from statgpu import feature_selection as selection
 
@@ -22,7 +23,7 @@ LESSONS = {
     "knockoff-fixed-x": "knockoff-selection",
     "knockoff-model-x": "knockoff-model-x",
 }
-PAGES = ("models/knockoff", *(f"models/{page}" for page in LESSONS),
+PAGES = ("models/feature-selection/knockoff", *(model_doc(page) for page in LESSONS),
          "reference/feature-selection-api")
 ENTRY_POINTS = ("README", "usage", "models/README", "guides/implemented-methods")
 CALLABLES = (
@@ -52,17 +53,17 @@ def _anchors(text):
 
 @pytest.mark.parametrize("language", ("en", "cn"))
 def test_overview_routes_readers_to_independent_lessons_and_one_complete_api(language):
-    overview = _read(language, "models/knockoff")
+    overview = _read(language, "models/feature-selection/knockoff")
     reference = _read(language, "reference/feature-selection-api")
     assert not parse_examples(overview), "The overview must not duplicate a full tutorial"
     for page in LESSONS:
         assert f"]({page}.md" in overview
-        lesson = _read(language, f"models/{page}")
+        lesson = _read(language, model_doc(page))
         assert "](knockoff.md" in lesson
-        assert "](../reference/feature-selection-api.md" in lesson
-        assert f"](../models/{page}.md" in reference
-    assert "](../reference/feature-selection-api.md" in overview
-    assert "](../models/knockoff.md" in reference
+        assert "](../../reference/feature-selection-api.md" in lesson
+        assert f"](../{model_doc(page)}.md" in reference
+    assert "](../../reference/feature-selection-api.md" in overview
+    assert "](../models/feature-selection/knockoff.md" in reference
     for token in ("Fixed-X", "Model-X", "FDR", "knockoff_plus", "q", "W"):
         assert token in overview
     # Complete call signatures have one owner; small task-specific calls belong
@@ -73,8 +74,8 @@ def test_overview_routes_readers_to_independent_lessons_and_one_complete_api(lan
 
 @pytest.mark.parametrize("page,marker", LESSONS.items())
 def test_bilingual_lessons_have_identical_self_contained_cpu_and_selector_steps(page, marker):
-    en = _read("en", f"models/{page}")
-    cn = _read("cn", f"models/{page}")
+    en = _read("en", model_doc(page))
+    cn = _read("cn", model_doc(page))
     selector_marker = page + "-selector"
     for text in (en, cn):
         examples = parse_examples(text)
@@ -92,7 +93,7 @@ def test_bilingual_lessons_have_identical_self_contained_cpu_and_selector_steps(
 def test_split_pages_keep_language_peers_and_audience_boundaries(language, page):
     text = _read(language, page)
     other = "cn" if language == "en" else "en"
-    assert f"](../../{other}/{page}.md)" in text
+    assert f"]({peer_link(language, page)})" in text
     for phrase in ("contract closure", "exact-head", "maintained route", "review-clean",
                    "证据闭环", "维护中的路径", "PR #168"):
         assert phrase not in text
@@ -101,16 +102,18 @@ def test_split_pages_keep_language_peers_and_audience_boundaries(language, page)
 @pytest.mark.parametrize("language", ("en", "cn"))
 @pytest.mark.parametrize("page", ENTRY_POINTS)
 def test_entry_points_expose_both_knockoff_lessons_and_the_complete_api(language, page):
-    targets = re.findall(r"\]\(([^)]+)\)", _read(language, page))
-    for destination in ("knockoff", *LESSONS, "feature-selection-api"):
-        assert any(target.split("#")[0].endswith(destination + ".md")
-                   for target in targets), (page, destination)
+    language_root = ROOT / "docs" / language
+    reached = reachable_pages(language_root / (page + ".md"), language_root)
+    for destination in ("knockoff", *LESSONS):
+        expected = (language_root / (model_doc(destination) + ".md")).resolve()
+        assert expected in reached, (page, destination)
+    assert (language_root / "reference/feature-selection-api.md").resolve() in reached
 
 
 def test_root_readme_exposes_all_knockoff_layers():
     text = (ROOT / "README.md").read_text(encoding="utf-8")
     for page in ("knockoff", *LESSONS):
-        assert f"](docs/en/models/{page}.md)" in text
+        assert f"](docs/en/{model_doc(page)}.md)" in text
     assert "](docs/en/reference/feature-selection-api.md)" in text
 
 
@@ -159,7 +162,7 @@ def test_complete_api_retains_knockoff_signatures_defaults_methods_and_result_fi
 
 @pytest.mark.parametrize("language", ("en", "cn"))
 def test_model_x_tutorial_uses_the_known_joint_feature_law_and_independent_response_noise(language):
-    ns = _run(language, "models/knockoff-model-x", "knockoff-model-x")
+    ns = _run(language, "models/feature-selection/knockoff-model-x", "knockoff-model-x")
     assert (ns["n"], ns["p"], ns["q"]) == (400, 20, .20)
     rng = np.random.default_rng(73)
     X = rng.normal(size=(400, 20))
@@ -175,7 +178,7 @@ def test_model_x_tutorial_uses_the_known_joint_feature_law_and_independent_respo
     assert result.metadata["xk_source"] == "provided"
     assert result.metadata["n_modelx_draws"] == 1
     assert result.knockoff_type == "model_x" and result.backend == "numpy"
-    code = example_code(_read(language, "models/knockoff-model-x"), "knockoff-model-x")
+    code = example_code(_read(language, "models/feature-selection/knockoff-model-x"), "knockoff-model-x")
     assert "modelx_draws=7" in code
     assert code.index("q = 0.20") < code.index("y =")
     assert code.index("Xk =") < code.index("y =")
@@ -184,7 +187,7 @@ def test_model_x_tutorial_uses_the_known_joint_feature_law_and_independent_respo
 @pytest.mark.parametrize("language", ("en", "cn"))
 @pytest.mark.parametrize("page,marker", LESSONS.items())
 def test_each_lesson_matches_full_threshold_counts_and_numeric_interpretation(language, page, marker):
-    ns = _run(language, f"models/{page}", marker)
+    ns = _run(language, model_doc(page), marker)
     X, Xk, y, result = (ns[key] for key in ("X", "Xk", "y", "result"))
     expected_w = abs(X.T @ (y - y.mean())) - abs(Xk.T @ (y - y.mean()))
     np.testing.assert_allclose(result.W, expected_w, atol=1e-10)
@@ -240,13 +243,13 @@ def test_each_lesson_matches_full_threshold_counts_and_numeric_interpretation(la
 @pytest.mark.parametrize("language", ("en", "cn"))
 @pytest.mark.parametrize("page,marker", LESSONS.items())
 def test_printed_outputs_match_the_explained_numerical_results(language, page, marker, capsys):
-    ns = _run(language, f"models/{page}", marker)
+    ns = _run(language, model_doc(page), marker)
     output = capsys.readouterr().out
     result = ns["result"]
     assert f"Selected columns: {result.selected_features.tolist()}" in output
     assert f"Threshold: {round(result.threshold, 3)}" in output
     assert f"Threshold ratio: {round(result.estimated_fdr, 3)}" in output
-    text = _read(language, f"models/{page}")
+    text = _read(language, model_doc(page))
     assert str(result.selected_features.tolist()) in text
     assert f"{result.threshold:.3f}" in text
     assert f"{result.estimated_fdr:.3f}" in text
@@ -260,7 +263,7 @@ def test_printed_outputs_match_the_explained_numerical_results(language, page, m
 @pytest.mark.parametrize("language", ("en", "cn"))
 @pytest.mark.parametrize("page", LESSONS)
 def test_each_selector_example_preserves_selection_original_layout_and_parameter_contract(language, page):
-    ns = _run(language, f"models/{page}", page + "-selector")
+    ns = _run(language, model_doc(page), page + "-selector")
     selector, result = ns["selector"], ns["result"]
     np.testing.assert_array_equal(selector.selected_features_, result.selected_features)
     np.testing.assert_allclose(selector.result_.W, result.W, atol=1e-10)
@@ -365,7 +368,7 @@ LEGACY_ANCHORS = {'cn': {'centered-pair-example',
 
 @pytest.mark.parametrize("language", ("en", "cn"))
 def test_every_pre_split_overview_fragment_still_resolves(language):
-    text = _read(language, "models/knockoff")
+    text = _read(language, "models/feature-selection/knockoff")
     assert len(LEGACY_ANCHORS[language]) == {"en": 36, "cn": 38}[language]
     assert LEGACY_ANCHORS[language] <= _anchors(text)
     explicit = re.findall(r'<a id="([^\"]+)"></a>', text)

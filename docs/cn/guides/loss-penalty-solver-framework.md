@@ -20,10 +20,10 @@ statgpu 将面向用户的统计模型接口与内部数值组件分层组织：
 
 需要具体信息时请查阅：
 
-- [损失函数](../models/losses.md) — 损失函数定义与底层数值性质
+- [损失函数](../reference/losses.md) — 损失函数定义与底层数值性质
 - [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md) — 实际的损失函数 × 惩罚项 × 求解器路径
 - [求解器算法](solver-algorithms.md) — 更新公式、收敛行为与算法前提
-- [广义线性模型](../models/generalized-linear-model.md)、[分位数回归](../models/quantile.md)、[稳健回归](../models/robust.md)、[CoxPH](../models/coxph.md) 等模型页 — 模型专属统计行为
+- [广义线性模型](../models/regression/generalized-linear-model.md)、[分位数回归](../models/regression/quantile.md)、[稳健回归](../models/regression/robust.md)、[CoxPH](../models/coxph.md) 等模型页 — 模型专属统计行为
 
 ## 1. 运行架构
 
@@ -152,7 +152,7 @@ $$
 - 底层调用同样存在权重限制：例如，共享 ADMM 在其支持的损失上会拒绝非均匀权重；
 - 只有明确采用上述归一化目标的路径，才能据此推出统一缩放权重不改变目标最优点。
 
-各模型页说明相应权重的统计含义与支持范围；损失函数层的一阶权重语义见 [损失函数](../models/losses.md)。
+各模型页说明相应权重的统计含义与支持范围；损失函数层的一阶权重语义见 [损失函数](../reference/losses.md)。
 
 ## 6. 后端与设备边界
 
@@ -210,7 +210,7 @@ CV / 元估计器在普通拟合之外增加一层编排。它负责：
 
 | 问题 | 主要文档 |
 |---|---|
-| 这个损失函数的数学定义是什么？提供哪些数值原语？ | [损失函数](../models/losses.md) |
+| 这个损失函数的数学定义是什么？提供哪些数值原语？ | [损失函数](../reference/losses.md) |
 | 某个损失函数 × 惩罚项组合实际使用哪个求解器？ | [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md) |
 | Newton / FISTA / ADMM 等具体如何更新？ | [求解器算法](solver-algorithms.md) |
 | Loss、Penalty、Solver、Backend、CV 如何组合？ | **本页** |
@@ -221,7 +221,7 @@ CV / 元估计器在普通拟合之外增加一层编排。它负责：
 
 ## 相关文档
 
-- [损失函数](../models/losses.md)
+- [损失函数](../reference/losses.md)
 - [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md)
 - [求解器算法](solver-algorithms.md)
 - [交叉验证](cross-validation.md)

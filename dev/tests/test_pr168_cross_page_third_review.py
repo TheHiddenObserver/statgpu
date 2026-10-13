@@ -14,14 +14,14 @@ ROOT = Path(__file__).resolve().parents[2]
 
 @pytest.mark.parametrize('lang', ['en', 'cn'])
 @pytest.mark.parametrize('kind,slug,marker', [
-    ('models', 'multiple-testing', 'multiple-testing-learner'),
+    ('models/testing', 'multiple-testing', 'multiple-testing-learner'),
     ('guides', 'multiple-testing-combine-pvalues', 'multiple-testing-axis'),
 ])
 def test_complete_multiple_testing_examples(lang, kind, slug, marker):
     text = (ROOT / 'docs' / lang / kind / f'{slug}.md').read_text()
-    namespace = run_example(text, marker, f'{lang}/{slug}', allow_legacy=kind != 'models')
+    namespace = run_example(text, marker, f'{lang}/{slug}', allow_legacy=kind != 'models/testing')
     assert np.all(np.isfinite(namespace['adjusted']))
-    if kind == 'models':
+    if kind == 'models/testing':
         np.testing.assert_array_equal(namespace['reject'], [True, True, False, False, False])
         np.testing.assert_allclose(namespace['adjusted'], [.005, .04, .09, .1, .5])
 
@@ -81,7 +81,7 @@ def test_fisher_rejects_weights_and_safe_level_guard():
     result = LinearRegression(device='cpu').adjust_pvalues([.001, .01, .8], alpha=.05)
     np.testing.assert_array_equal(result['reject'], [True, True, False])
     for lang in ['en', 'cn']:
-        for kind, slug in [('models', 'multiple-testing'), ('guides', 'multiple-testing-combine-pvalues')]:
+        for kind, slug in [('models/testing', 'multiple-testing'), ('guides', 'multiple-testing-combine-pvalues')]:
             text = (ROOT / 'docs' / lang / kind / f'{slug}.md').read_text()
             assert 'NaN' in text and 'alpha' in text
 
@@ -106,7 +106,7 @@ def test_one_class_subset_has_threshold_metrics_but_no_roc_evaluation(include_cu
 
 @pytest.mark.parametrize('lang', ['en', 'cn'])
 def test_multiple_testing_statistical_and_language_boundaries(lang):
-    model = (ROOT / 'docs' / lang / 'models/multiple-testing.md').read_text()
+    model = (ROOT / 'docs' / lang / 'models/testing/multiple-testing.md').read_text()
     guide = (ROOT / 'docs' / lang / 'guides/multiple-testing-combine-pvalues.md').read_text()
     assert all(term in model for term in ['PRDS', 'Simes', 'FWER', 'FDR', 'arxiv.org/abs/1808.09011'])
     assert all(term in guide for term in ['fdr_hochberg', 'weights', 'float64', 'eps', 'multipletests'])

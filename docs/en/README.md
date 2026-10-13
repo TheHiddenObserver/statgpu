@@ -1,14 +1,32 @@
 # StatGPU Documentation
 
-> Language: English
->
-> Last updated: 2026-10-12
->
+> Language: English  
+> Last updated: 2026-10-13  
 > Switch: [Chinese](../cn/README.md)
 
 ## Getting Started
 
-- [Quickstart](getting-started/quickstart.md) — install, first model, device selection
+- [Beginner path](usage.md) — the short route from installation to choosing and checking a method
+- [Quickstart](getting-started/quickstart.md) — installation, first fit, prediction, and device selection
+
+<a id="models"></a>
+<a id="linear-family"></a>
+<a id="generalized-linear-models"></a>
+<a id="survival"></a>
+<a id="unsupervised"></a>
+<a id="panel"></a>
+<a id="nonparametric"></a>
+<a id="inference"></a>
+
+## Models and Statistical Methods
+
+Use the [family chooser](models/README.md) to match a method to your question.
+Each family entry leads to its tutorials and complete API reference.
+
+- Response models: [regression](models/regression/README.md) for response types and penalties; [survival](models/coxph.md) for time-to-event data
+- Statistical questions: [testing](models/testing/README.md) for group comparisons and multiple tests; [covariance](models/covariance/README.md) for joint variation and precision matrices
+- Flexible fitting and selection: [nonparametric methods](models/nonparametric/README.md) for densities, curves, and kernel features; [feature selection](models/feature-selection/README.md) for stepwise and knockoff methods
+- Data structure: [panel data](panel/README.md) for entity/time observations; [unsupervised learning](unsupervised/README.md) for structure without a response
 
 ## Guides
 
@@ -21,68 +39,17 @@
 - [Device and GPU Memory](guides/device-and-memory.md) — device selection, memory cleanup
 - [PyTorch Backend](guides/pytorch-backend.md) — PyTorch execution, inference boundaries, and troubleshooting
 - [Distribution API](guides/distribution-api.md) — statistical distribution functions
+- [Regression Diagnostics](guides/regression-diagnostics.md) — residuals, leverage, Cook’s distance, and VIF
 - [Inference Modes](guides/inference-modes.md) — choosing and interpreting coefficient-inference methods
 - [Multiple Testing](guides/multiple-testing-combine-pvalues.md) — p-value adjustment and combination
 - [Benchmarks](guides/benchmarks.md) — benchmark methodology and comparison notes
 - [Interactive Benchmark Dashboard](guides/statgpu_benchmark_dashboard.md) — filters, charts, metric panels, and data provenance
 
-## Models
-
-### Linear Family
-- [LinearRegression](models/linear-regression.md) — OLS with inference
-- [Ridge](models/ridge.md) — Ridge regression + RidgeCV
-- [Lasso](models/lasso.md) — Lasso + LassoCV + debiased inference
-- [ElasticNet](models/elastic-net.md) — ElasticNet + ElasticNetCV
-- [SCAD](models/scad.md) — non-convex sparse regression with reduced large-coefficient shrinkage
-- [MCP](models/mcp.md) — non-convex sparse regression with reduced large-coefficient shrinkage
-- [AdaptiveLasso](models/adaptive-lasso.md) — adaptive L1 penalty
-
-### Loss Functions
-- [Loss Functions (LossBase)](models/losses.md) — low-level loss definitions and numerical properties
-- [Quantile Regression](models/quantile.md) — pinball loss + PenalizedQuantileRegression
-- [Robust Regression](models/robust.md) — Huber, Bisquare, Fair + PenalizedRobustRegression
-
-### Generalized Linear Models
-- [GeneralizedLinearModel](models/generalized-linear-model.md) — GLM + PenalizedGLM base
-- [LogisticRegression](models/logistic-regression.md) — logistic classification
-- [PoissonRegression](models/poisson-regression.md) — count regression
-- [Ordered Models](models/ordered.md) — ordered logit/probit
-
-### Survival
-- [CoxPH](models/coxph.md) — Breslow/Efron/Exact Cox models with delayed-entry/start-stop data, strata, robust covariance, and NumPy/CuPy/Torch paths
-- [CoxPHCV](models/coxph.md) — L2 grid selection and refit with subject-preserving folds
-- [PenalizedCoxPHModel](models/coxph.md) — estimation-only L1/L2/ElasticNet/SCAD/MCP Cox fits; no intercept
-
-### Unsupervised
-- [Unsupervised Overview](models/unsupervised.md) — PCA, clustering, mixture, manifold, and matrix-factorization methods
-
-### Panel
-- [Panel](models/panel.md) — six panel estimators including pooled, between, first-difference, and Fama–MacBeth
-
-### Nonparametric
-- [Nonparametric Overview](models/nonparametric.md) — kernel methods and splines
-- [Kernel Methods](models/kernel-methods.md) — KernelRidge/CV, KernelPCA, and Nystroem
-  - [KernelRidge](models/kernel-ridge.md) · [KernelRidgeCV](models/kernel-ridge-cv.md) · [KernelPCA](models/kernel-pca.md) · [Nystroem](models/kernel-nystroem.md)
-  - [Complete kernel API](reference/kernel-methods-api.md)
-- [Splines](models/splines.md) — B/natural/cyclic/thin-plate splines and SplineTransformer
-- [Semiparametric (GAM)](models/semiparametric.md) — generalized additive models
-
-### Inference
-- [ANOVA overview](models/anova.md) — principles, method choice and supported designs
-  - [Classical one-way](models/anova-oneway.md) · [Welch](models/anova-welch.md) · [Balanced two-way](models/anova-twoway.md) · [Post-hoc comparisons](models/anova-posthoc.md)
-- [Covariance](models/covariance.md) — empirical/shrinkage, robust MCD, and sparse precision
-  - [EmpiricalCovariance](models/covariance-empirical.md) · [ShrunkCovariance](models/covariance-shrunk.md) · [LedoitWolf](models/covariance-ledoit-wolf.md) · [OAS](models/covariance-oas.md) · [MinCovDet](models/covariance-min-cov-det.md) · [GraphicalLasso](models/covariance-graphical-lasso.md) · [GraphicalLassoCV](models/covariance-graphical-lasso-cv.md)
-  - [Complete covariance API](reference/covariance-api.md)
-- [Multiple Testing](models/multiple-testing.md) — p-value adjustment and combination
-- [Knockoff overview](models/knockoff.md) — principles, assumptions and interpretation
-  - [Fixed-X tutorial](models/knockoff-fixed-x.md) · [Model-X tutorial](models/knockoff-model-x.md) · [Complete feature-selection API](reference/feature-selection-api.md)
-- [Feature Selection](models/feature-selection.md) — stepwise selection and knockoff overview
-- [Regression Diagnostics](guides/regression-diagnostics.md) — residuals, leverage, Cook’s distance, and VIF
-
 ## Reference
 
 ### Complete API references
 
+- [Complete covariance API](reference/covariance-api.md) — estimators, fitted matrices, scoring, and backend limits
 - [ANOVA API](reference/anova-api.md) — seven functions, five result types, defaults and input/device limits
 - [Complete kernel API](reference/kernel-methods-api.md) — four estimators, pairwise kernels, shapes and numerical/backend limits
 - [Shared estimator API](reference/estimator-api.md) — parameter management and inherited inference helpers
@@ -93,8 +60,12 @@
 - [Distribution API](guides/distribution-api.md) — supported families, parameters, and array semantics
 - [Inference API](guides/inference-api.md) — result objects, resampling, and multiple-testing functions
 
+<a id="loss-functions"></a>
+
 ### Algorithms and release history
 
+- [Loss Functions](reference/losses.md) — low-level loss definitions and numerical properties
+- [Penalized Solver API Migration](guides/penalized-solver-api-migration.md) — migration from legacy solver controls
 - [Solver Algorithms](guides/solver-algorithms.md) — optimization algorithm details
 - [Loss × Penalty × Solver Framework](guides/loss-penalty-solver-framework.md) — component composition and dispatch
 - [L-BFGS Float32 Numerical Behavior](guides/lbfgs-float32-precision-contract.md) — interpreting native float32 backend differences

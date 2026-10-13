@@ -10,6 +10,7 @@ import re
 import warnings
 from enum import Enum
 from pathlib import Path
+from doc_paths import model_doc
 from types import SimpleNamespace
 
 import numpy as np
@@ -65,7 +66,8 @@ KNOCKOFF_ROUTES = [
 
 
 def _page(language, directory, name):
-    return (ROOT / 'docs' / language / directory / f'{name}.md').read_text()
+    relative = model_doc(name) if directory == "models" else f"{directory}/{name}"
+    return (ROOT / "docs" / language / (relative + ".md")).read_text()
 
 
 def _execute(code, label):
@@ -602,4 +604,4 @@ def test_knockoff_torch_placement_and_two_row_normalization_are_explicit(languag
 
 def test_logistic_learner_has_one_language_switch():
     text = _page('en', 'models', 'logistic-regression')
-    assert text.count('[Chinese](../../cn/models/logistic-regression.md)') == 1
+    assert text.count('[Chinese](../../../cn/models/regression/logistic-regression.md)') == 1

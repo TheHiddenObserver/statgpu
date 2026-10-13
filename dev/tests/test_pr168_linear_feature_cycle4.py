@@ -6,6 +6,7 @@ Correctness assertions cover the documented safe workflows and public results.
 import linecache
 import re
 from pathlib import Path
+from doc_paths import model_doc
 
 import numpy as np
 import pytest
@@ -38,7 +39,8 @@ class _MissingSmallCVDetails(AssertionError):
 
 
 def _page(language, directory, name):
-    return (ROOT / 'docs' / language / directory / (name + '.md')).read_text()
+    relative = model_doc(name) if directory == "models" else f"{directory}/{name}"
+    return (ROOT / "docs" / language / (relative + ".md")).read_text()
 
 
 def _weighted_problem():

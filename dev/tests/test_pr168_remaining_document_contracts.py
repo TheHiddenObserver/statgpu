@@ -20,7 +20,7 @@ def read(language, path):
 
 @pytest.mark.parametrize("language", ("en", "cn"))
 def test_model_guidance_uses_public_results_and_links_low_level_contracts(language):
-    quantile = read(language, "models/quantile")
+    quantile = read(language, "models/regression/quantile")
     solver = read(language, "guides/solver-algorithms")
     assert "solver-algorithms.md#quantile-low-level-solvers" in quantile
     assert 'id="quantile-low-level-solvers"' in solver

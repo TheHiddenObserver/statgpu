@@ -129,7 +129,7 @@ def test_penalized_ls_should_preserve_unpenalized_coordinate():
 
 @pytest.mark.parametrize("language", ["en", "cn"])
 def test_gam_help_and_bilingual_safeguard_disclose_wrong_target_risk(language):
-    text = (ROOT / f"docs/{language}/models/semiparametric.md").read_text()
+    text = (ROOT / f"docs/{language}/models/nonparametric/semiparametric.md").read_text()
     reference = (ROOT / f"docs/{language}/reference/survival-smoothing-api.md").read_text()
     for token in ("large-smoothing-penalties-and-the-intercept", "lam=1e10", "lam=1e12",
                   "training_prediction.mean()", "rtol=1e-8"):
@@ -164,7 +164,7 @@ def test_cox_cv_packed_target_matches_separate_arguments(columns):
 
 
 def test_knockoff_tutorial_retains_both_gpu_backend_choices():
-    page = (ROOT / "docs/en/models/knockoff-fixed-x.md").read_text()
+    page = (ROOT / "docs/en/models/feature-selection/knockoff-fixed-x.md").read_text()
     gpu = page.split("## Optional GPU versions of the same example", 1)[1].split("## Statistical scope", 1)[0]
     assert 'backend="cupy"' in gpu and 'backend="torch"' in gpu
     assert 'torch.from_numpy(a).to("cuda")' in gpu

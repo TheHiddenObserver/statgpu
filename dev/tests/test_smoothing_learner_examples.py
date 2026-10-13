@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from doc_paths import model_doc
 from doc_examples import parse_examples, run_example
 from scipy.interpolate import BSpline
 from scipy.stats import gaussian_kde
@@ -30,7 +31,7 @@ EXAMPLES = {
 
 
 def _blocks(language, page):
-    text = (ROOT / f"docs/{language}/models/{page}.md").read_text(encoding="utf-8")
+    text = (ROOT / f"docs/{language}/{model_doc(page)}.md").read_text(encoding="utf-8")
     examples = parse_examples(text, f"{language}/{page}.md")
     assert set(examples) == EXAMPLES[page]
     assert sum(len(example.blocks) for example in examples.values()) == len(
@@ -44,10 +45,10 @@ def examples(request):
     """Run CPU tutorials with only their explicitly declared prerequisites."""
     namespaces = {}
     for page in EXAMPLES:
-        text = (ROOT / f"docs/{request.param}/models/{page}.md").read_text(encoding="utf-8")
+        text = (ROOT / f"docs/{request.param}/{model_doc(page)}.md").read_text(encoding="utf-8")
         for name, example in _blocks(request.param, page).items():
             for block in example.blocks:
-                compile(block, f"docs/{request.param}/models/{page}.md:{name}", "exec")
+                compile(block, f"docs/{request.param}/{model_doc(page)}.md:{name}", "exec")
             if name.endswith("-cpu"):
                 namespaces[name] = run_example(text, name, f"{request.param}/{page}.md")
     return namespaces
@@ -168,7 +169,7 @@ def test_bootstrap_example_quantiles_determinism_and_scipy_replicates(examples):
 
 @pytest.mark.parametrize("language", ("en", "cn"))
 def test_gam_constructor_inventory_matches_current_signature(language):
-    text = (ROOT / f"docs/{language}/models/semiparametric.md").read_text(encoding="utf-8")
+    text = (ROOT / f"docs/{language}/models/nonparametric/semiparametric.md").read_text(encoding="utf-8")
     for parameter in signature(GAM).parameters:
         assert f"| `{parameter}` |" in text
 

@@ -136,7 +136,7 @@ def test_bilingual_pages_explain_constructor_validation_and_solver_boundaries(la
     mixture = (directory / "gaussian-mixture.md").read_text()
     minibatch = (directory / "minibatch-kmeans.md").read_text()
     nmf = (directory / "nmf.md").read_text()
-    overview = (ROOT / f"docs/{language}/models/unsupervised.md").read_text()
+    overview = (ROOT / f"docs/{language}/unsupervised/README.md").read_text()
     assert "`reg_covar=0`" in mixture
     assert "NaN" in mixture and "NaN" in reference
     assert "`score_samples(X)`" in mixture and "`predict_proba(X)`" in mixture

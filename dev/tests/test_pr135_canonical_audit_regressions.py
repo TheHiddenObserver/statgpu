@@ -158,8 +158,8 @@ def test_lasso_bilingual_docs_cover_complete_constructor_inventory():
         name for name in inspect.signature(Lasso.__init__).parameters if name != "self"
     ]
     for path in (
-        Path("docs/en/models/lasso.md"),
-        Path("docs/cn/models/lasso.md"),
+        Path("docs/en/models/regression/lasso.md"),
+        Path("docs/cn/models/regression/lasso.md"),
     ):
         text = path.read_text(encoding="utf-8")
         missing = [name for name in public_params if f"`{name}`" not in text]

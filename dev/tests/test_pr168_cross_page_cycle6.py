@@ -31,11 +31,15 @@ def test_documentation_index_exposes_all_completed_api_references(language):
     ):
         assert f']({relative})' in text
         assert (index.parent / relative).is_file()
-    # The kernel-methods page covers feature maps/ridge, rather than KDE.
-    kernel_line = next(line for line in text.splitlines()
-                       if '](models/kernel-methods.md)' in line)
-    assert 'KernelPCA' in kernel_line and 'Nystroem' in kernel_line
-    assert 'KDE' not in kernel_line
+    # Method choice now belongs to the family index. Keep its kernel feature
+    # maps/ridge section distinct from the KDE/local-regression section.
+    family = 'models/nonparametric/README.md'
+    assert f']({family})' in text
+    family_text = (index.parent / family).read_text(encoding='utf-8')
+    kernel_section = next(section for section in family_text.split('\n## ')
+                          if '](kernel-methods.md)' in section)
+    assert 'KernelPCA' in kernel_section and 'Nystroem' in kernel_section
+    assert 'KDE' not in kernel_section
 
 
 @pytest.mark.parametrize('global_device', [Device.CPU, Device.CUDA, Device.TORCH])

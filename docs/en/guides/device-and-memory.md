@@ -70,7 +70,7 @@ For Torch tensors, inspect `.device` and `.is_cuda`; for CuPy arrays, inspect `.
 
 If GPU execution is required, do not accept a CPU result from these methods. Use a supported GPU input/backend combination and verify the arrays above before using the result. For a predictable CPU alternative, pass NumPy inputs with `device="cpu"`; for KDE/kernel regression, also set `backend="numpy"`.
 
-Other restrictions and supported combinations are described in [kernel smoothing](../models/nonparametric.md#optional-gpu-execution-and-external-comparisons), [kernel features](../reference/kernel-methods-api.md#backend-and-execution-boundaries), and [splines](../models/splines.md#backend-execution-and-extrapolation-boundary).
+Other restrictions and supported combinations are described in [kernel smoothing](../models/nonparametric/nonparametric.md#optional-gpu-execution-and-external-comparisons), [kernel features](../reference/kernel-methods-api.md#backend-and-execution-boundaries), and [splines](../models/nonparametric/splines.md#backend-execution-and-extrapolation-boundary).
 
 ## Input conversion and returned arrays
 

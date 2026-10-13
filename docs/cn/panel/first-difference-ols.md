@@ -135,7 +135,7 @@ model = FirstDifferenceOLS().fit(
 
 ## 相关文档
 
-- [面板模型总览](../models/panel.md)
+- [面板模型总览](README.md)
 - [面板协方差](covariance.md)
 - [面板拟合统计量](fit-statistics.md)
 

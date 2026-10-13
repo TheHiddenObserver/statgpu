@@ -5,6 +5,7 @@ those algorithms are repaired, their issue regressions should enforce rejection
 or correctness directly; these tests ensure current docs do not hide them.
 """
 from pathlib import Path
+from doc_paths import model_doc
 
 import numpy as np
 import pytest
@@ -22,7 +23,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _page(language, directory, name):
-    return (ROOT / 'docs' / language / directory / (name + '.md')).read_text()
+    relative = model_doc(name) if directory == "models" else f"{directory}/{name}"
+    return (ROOT / "docs" / language / (relative + ".md")).read_text()
 
 
 @pytest.mark.parametrize('direction', ['forward', 'backward', 'both'])
