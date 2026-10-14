@@ -1,6 +1,7 @@
 """Keep panel lessons runnable before their mathematical/API reference."""
 from pathlib import Path
 import re
+from urllib.parse import unquote, urlsplit
 
 import numpy as np
 import pytest
@@ -8,6 +9,8 @@ from numpy.testing import assert_allclose
 from scipy.stats import chi2, f
 
 from doc_examples import example_code, run_example
+from doc_paths import markdown_anchors
+from markdown_it import MarkdownIt
 
 ROOT = Path(__file__).resolve().parents[2]
 MODELS = ("panel-ols", "pooled-ols", "random-effects", "between-ols",
@@ -137,3 +140,22 @@ def test_tutorial_prediction_semantics(language, page):
     elif page == "between-ols":
         means = X.reshape(12, 5, 1).mean(axis=1)
         assert_allclose(model.predict(means), model.coef_[0] + means @ model.coef_[1:])
+
+
+@pytest.mark.parametrize("language", ("en", "cn"))
+@pytest.mark.parametrize("page", ("fit-statistics", "panel-ols"))
+def test_fit_statistics_and_prediction_links_reach_existing_sections(language, page):
+    path, text = read(language, page)
+    for token in MarkdownIt().parse(text):
+        for child in token.children or ():
+            if child.type != "link_open":
+                continue
+            href = child.attrGet("href")
+            link = urlsplit(href)
+            if link.scheme or link.netloc or not link.fragment:
+                continue
+            destination = (path.parent / unquote(link.path)) if link.path else path
+            assert destination.is_file(), (path, href)
+            assert unquote(link.fragment) in markdown_anchors(
+                destination.read_text(encoding="utf-8")
+            ), (path, href)
