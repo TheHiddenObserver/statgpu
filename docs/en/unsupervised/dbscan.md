@@ -1,7 +1,7 @@
 # DBSCAN
 
 > Language: English
-> Last updated: 2026-10-13
+> Last updated: 2026-10-14
 > Switch: [Chinese](../../cn/unsupervised/dbscan.md)
 
 ## Overview
@@ -39,6 +39,10 @@ DBSCAN is not a smooth optimization problem. It has no differentiable loss to mi
 - Other points are noise with label `-1`.
 
 In the formula, $\varepsilon$ is `eps`, $x_i$ is the point being tested, and the set contains all observations within that radius. Border points can join a group but do not propagate it: a sparse chain of non-core points cannot by itself connect two core components. A sufficiently dense bridge of core points can still merge them. Thus the neighborhood count is what distinguishes DBSCAN from simply joining every pair of nearby points.
+
+![With eps 0.52 and min_samples 5 including the point itself, two groups contain ten filled core points and two hollow border points; three gray crosses remain noise.](../../assets/unsupervised/dbscan-en.svg)
+
+The dashed circle is an `eps=0.52` neighborhood containing five observations, including its center, so that center satisfies `min_samples=5`. Filled symbols are core points; hollow symbols are non-core points close enough to a core point to join its cluster. Gray crosses receive the noise label `-1`. Colors and shapes distinguish the two clusters. Border points do not extend a cluster, and changing the radius or the data's scale can change these assignments; this picture does not establish that the noise observations are errors.
 
 ## A small CPU example
 

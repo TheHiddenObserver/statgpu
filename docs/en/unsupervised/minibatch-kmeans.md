@@ -1,7 +1,7 @@
 # MiniBatchKMeans
 
 > Language: English
-> Last updated: 2026-10-13
+> Last updated: 2026-10-14
 > Switch: [Chinese](../../cn/unsupervised/minibatch-kmeans.md)
 > Path: `statgpu.unsupervised.MiniBatchKMeans`
 
@@ -50,6 +50,10 @@ $$
 Here $B_j$ contains this batch's rows assigned to center $j$, $\bar{x}_{B_j}$ is their mean, and $n_j$ is the accumulated assignment count before the batch. Thus $\eta_j$ is the new batch's share of the combined count. As that accumulated count grows, an equally sized new batch moves the center less; a cluster receiving no rows keeps its center.
 
 After mini-batch updates, `fit` runs a small exact Lloyd polishing pass on the full dense dataset. This keeps the estimator mini-batch driven while reducing the final inertia gap against full-data label assignments.
+
+![Two center paths show four successive partial_fit updates from fixed starting centers; a second panel shows cumulative assignment counts growing to twelve for each center.](../../assets/unsupervised/minibatch-kmeans-en.svg)
+
+The left panel records two centers after four actual `partial_fit` calls; step 0 marks their supplied initial positions. Gray points show the observations from all four batches, not a final labeling. The right panel records `counts_`, the accumulated assignments to each center. Earlier batches retain their influence, so the centers do not simply follow the latest batch means. This illustrates `partial_fit`; `fit` additionally performs the full-data polishing described above, and these paths are not a speed comparison.
 
 ## Parameters
 

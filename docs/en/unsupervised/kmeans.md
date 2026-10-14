@@ -1,7 +1,7 @@
 # KMeans
 
 > Language: English
-> Last updated: 2026-10-13
+> Last updated: 2026-10-14
 > Switch: [Chinese](../../cn/unsupervised/kmeans.md)
 
 ## Overview
@@ -55,6 +55,10 @@ The implementation uses Lloyd iterations:
 - Reset empty clusters with the sample currently farthest from its assigned center.
 - Stop when squared center movement is at most `tol`, or when `max_iter` is reached.
 - Run `n_init` initializations and retain the solution with the lowest inertia.
+
+![Eight points are assigned to two old centers; moving each center to its assigned mean reduces the fixed-assignment squared-distance sum from 11 to 4.75.](../../assets/unsupervised/kmeans-en.svg)
+
+The left panel assigns each point to the nearest of two chosen centers; the right panel holds those assignments fixed and moves each center to its group's mean. Arrows show the updates from `(0, 0)` and `(4, 2)` to `(0.5, 0.5)` and `(3.75, 1)`. The squared-distance sum falls from 11 to 4.75. This is a computed illustration of one Lloyd update, not an iteration history returned by `fit` or a claim of a global optimum.
 
 ## Parameters
 

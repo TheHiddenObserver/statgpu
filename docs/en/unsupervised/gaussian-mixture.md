@@ -1,7 +1,7 @@
 # GaussianMixture
 
 > Language: English
-> Last updated: 2026-10-13
+> Last updated: 2026-10-14
 > Switch: [Chinese](../../cn/unsupervised/gaussian-mixture.md)
 
 ## Overview
@@ -45,6 +45,10 @@ covariance, describing its spread and within-component correlations. The sum
 inside the logarithm is the mixture density at $x_i$.
 
 `covariance_type` controls the shape of `\Sigma_k`: diagonal per component, spherical per component, one tied full covariance, or one full covariance per component. `reg_covar` is a variance floor for diagonal/spherical M-step updates; full/tied updates add it to the covariance diagonal. These conventions differ, so equal values need not match another library.
+
+![The same overlapping observations have hard component assignments on the left and a continuous component-2 membership probability on the right; fitted component ellipses show their different orientations.](../../assets/unsupervised/gmm-en.svg)
+
+Both panels use the same fitted two-component model with `covariance_type="full"`. Shapes identify the component with the larger responsibility; the right panel's color shows the probability of component 2 from `predict_proba`. Intermediate colors preserve the ambiguity hidden by hard labels. Ellipses mark Mahalanobis distances 1 and 2 from each fitted mean: they are component density contours, not confidence intervals. These are probabilities under the fitted model, not probabilities that a real-world category has been identified correctly.
 
 ## A small CPU example
 

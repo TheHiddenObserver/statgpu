@@ -1,7 +1,7 @@
 # AgglomerativeClustering
 
 > 语言：中文
-> 最后更新：2026-10-13
+> 最后更新：2026-10-14
 > 切换：[English](../../en/unsupervised/agglomerative-clustering.md)
 
 ## 概览
@@ -75,6 +75,10 @@ $$
 - 按 `n_clusters` 切树并生成 `labels_`。
 
 CPU 路径调用 SciPy 的层次聚类子模块计算精确连接；显式 CuPy/Torch 路径在所选 GPU 后端上使用稠密距离矩阵。单连接先构建最小生成树，再在 CPU 上组装合并树；完全连接、平均连接和 Ward 连接则使用 Lance–Williams 公式更新连接距离。
+
+![六个编号观测的同一棵Ward树在两个高度切分：较低处形成三个二点组，较高处将1至4号合为一组，5与6号仍在同组。](../../assets/unsupervised/agglomerative-cn.svg)
+
+编号点和树描述的是同样六个观测。切分 A 得到 `(1, 2)`、`(3, 4)`、`(5, 6)` 三组，较高的切分 B 将前两组合并。树由拟合结果 `children_` 和 `distances_` 绘制，两幅散点图表示对应切分。Ward 高度为 $\sqrt{2\Delta}$，其中 $\Delta$ 是合并导致的簇内平方误差增量。高度不是概率或显著性水平，叶子之间的横向间隔也不表示观测间距离。
 
 ## 参数
 

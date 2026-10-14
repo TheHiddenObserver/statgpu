@@ -1,7 +1,7 @@
 # AgglomerativeClustering
 
 > Language: English
-> Last updated: 2026-10-13
+> Last updated: 2026-10-14
 > Switch: [Chinese](../../cn/unsupervised/agglomerative-clustering.md)
 
 ## Overview
@@ -75,6 +75,10 @@ $$
 - Cut the tree to produce `n_clusters` labels.
 
 The CPU path delegates exact linkage computation to SciPy hierarchy routines. Explicit CuPy/Torch paths use dense distance matrices on the selected GPU backend. Single linkage builds a minimum spanning tree and assembles the merge tree on CPU; complete, average, and Ward linkage use Lance–Williams updates.
+
+![One Ward tree for six numbered observations is cut at two heights: the lower cut produces three pairs, while the higher cut merges observations 1 through 4 and leaves 5 and 6 together.](../../assets/unsupervised/agglomerative-en.svg)
+
+The numbered points and the tree describe the same six observations. Cut A gives three groups, `(1, 2)`, `(3, 4)` and `(5, 6)`; the higher cut B joins the first two groups. The tree is drawn from the fitted `children_` and `distances_`, and the two scatterplots show the corresponding cuts. Ward height is $\sqrt{2\Delta}$, where $\Delta$ is the increase in within-cluster squared error. It is not a probability or a significance level; horizontal leaf spacing does not represent distances between observations.
 
 ## Parameters
 
