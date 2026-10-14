@@ -125,6 +125,9 @@ def test_no_legacy_strict_approx_heading_remains_in_chinese_docs():
 
 @pytest.mark.parametrize("page", [
     "docs/cn/models/testing/multiple-testing.md",
+    "docs/cn/models/testing/multiple-testing-fwer.md",
+    "docs/cn/models/testing/multiple-testing-fdr.md",
+    "docs/cn/models/testing/pvalue-combination.md",
     "docs/cn/guides/multiple-testing-combine-pvalues.md",
 ])
 def test_multiple_testing_pages_avoid_literal_translation_fragments(page):

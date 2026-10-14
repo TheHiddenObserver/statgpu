@@ -45,6 +45,9 @@ FIRST_EXAMPLES = {
     'losses': 'losses-huber',
     'mcp': 'mcp-prediction',
     'multiple-testing': 'multiple-testing-learner',
+    'multiple-testing-fwer': 'multiple-testing-fwer',
+    'multiple-testing-fdr': 'multiple-testing-fdr',
+    'pvalue-combination': 'pvalue-combination-fisher',
     'nonparametric': 'kde-cpu',
     'ordered': 'ordered-basic',
     'poisson-regression': 'poisson-unpenalized',
@@ -151,6 +154,20 @@ EXPECTED_EXAMPLES = {
     'multiple-testing': {
         'multiple-testing-learner': (),
         'multiple-testing-families': (),
+    },
+    'multiple-testing-fwer': {
+        'multiple-testing-fwer': (),
+        'multiple-testing-bonferroni': (),
+        'multiple-testing-hochberg': (),
+    },
+    'multiple-testing-fdr': {
+        'multiple-testing-fdr': (),
+        'multiple-testing-by': (),
+    },
+    'pvalue-combination': {
+        'pvalue-combination-fisher': (),
+        'pvalue-combination-stouffer': (),
+        'pvalue-combination-cauchy': (),
     },
     'nonparametric': {
         'kde-cpu': (),

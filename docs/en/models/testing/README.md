@@ -30,6 +30,12 @@ alone is not evidence that a repeated-measures or unbalanced design is supported
 methods, and worked examples. Start here when you already have several p-values
 and need to decide what error rate to control or what combining evidence means.
 
+Choose a focused lesson after the overview:
+
+- [FWER: Bonferroni, Holm, Hochberg](multiple-testing-fwer.md)
+- [FDR: BH and BY](multiple-testing-fdr.md)
+- [P-value combination: Fisher, Stouffer, Cauchy/ACAT](pvalue-combination.md)
+
 For selecting features with knockoff assumptions, use the separate
 [feature-selection family](../feature-selection/README.md).
 

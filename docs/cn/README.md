@@ -41,7 +41,8 @@
 - [PyTorch 后端](guides/pytorch-backend.md) — PyTorch 后端使用说明
 - [回归诊断](guides/regression-diagnostics.md) — 残差、杠杆值、Cook 距离与 VIF
 - [推断模式](guides/inference-modes.md) — 选择并解释系数推断方法
-- [多重检验](guides/multiple-testing-combine-pvalues.md) — p 值校正与合并
+- [多重检验概览](models/testing/multiple-testing.md) — 选择假设族、错误率标准或总体检验
+- [P 值校正与合并 API](guides/multiple-testing-combine-pvalues.md) — 完整签名、形状与数值限制
 - [基准测试](guides/benchmarks.md) — 基准测试方法与对比说明
 - [交互式基准面板](../assets/benchmarks/index.html) — 筛选、图表、指标与数据来源
 

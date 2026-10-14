@@ -53,7 +53,7 @@ def test_stepwise_decisions_stop_propagate_and_include_equality(
 def test_holm_documentation_keeps_inclusive_threshold_and_stopping_rule(language):
     # A lexical guard is not evidence of statistical validity.
     root = Path(__file__).resolve().parents[2]
-    text = (root / f"docs/{language}/models/testing/multiple-testing.md").read_text(
+    text = (root / f"docs/{language}/models/testing/multiple-testing-fwer.md").read_text(
         encoding="utf-8"
     )
     holm = text.split("### Make individual decisions with Holm" if language == "en"
@@ -71,7 +71,7 @@ def test_holm_documentation_keeps_inclusive_threshold_and_stopping_rule(language
 @pytest.mark.parametrize("language", ["en", "cn"])
 def test_hochberg_documentation_keeps_propagation_equality_and_no_rejections(language):
     root = Path(__file__).resolve().parents[2]
-    text = (root / f"docs/{language}/models/testing/multiple-testing.md").read_text(encoding="utf-8")
+    text = (root / f"docs/{language}/models/testing/multiple-testing-fwer.md").read_text(encoding="utf-8")
     heading = "### Hochberg's step-up decision" if language == "en" else "### Hochberg 的逐步上升判断"
     hochberg = text.split(heading, 1)[1].split("\n## ", 1)[0]
     assert r"p_{(k)} \leq \alpha / (m - k + 1)" in hochberg

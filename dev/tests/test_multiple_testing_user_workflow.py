@@ -13,9 +13,13 @@ from statgpu.inference import adjust_pvalues, combine_pvalues
 def test_documented_cpu_examples_and_expected_results(language, capsys):
     path = Path(__file__).resolve().parents[2] / f"docs/{language}/models/testing/multiple-testing.md"
     text = path.read_text(encoding="utf-8")
-    # PR168's lesson is intentionally progressive. Execute its explicitly bounded
-    # group, and the standalone family example in a separate fresh namespace.
-    first = run_example(text, "multiple-testing-learner", str(path))
+    # Each method lesson and the shared family example have fresh namespaces.
+    fdr_path = path.with_name("multiple-testing-fdr.md")
+    fdr_text = fdr_path.read_text(encoding="utf-8")
+    first = run_example(fdr_text, "multiple-testing-fdr", str(fdr_path))
+    combination_path = path.with_name("pvalue-combination.md")
+    combination_text = combination_path.read_text(encoding="utf-8")
+    combined = run_example(combination_text, "pvalue-combination-fisher", str(combination_path))
     batched = run_example(text, "multiple-testing-families", str(path))
     np.testing.assert_array_equal(first["reject_bh"], [True, True, True, False, False])
     np.testing.assert_allclose(first["adjusted_bh"], [.005, .025, .05, .0625, .5])
@@ -26,9 +30,9 @@ def test_documented_cpu_examples_and_expected_results(language, capsys):
     np.testing.assert_allclose(batched["row_p_global"], [.003529618404342517, .4532130341997297])
     assert batched["row_p_global"].shape == (2,)
     assert "37.4167 4.8e-05" in capsys.readouterr().out
-    assert round(float(first["global_p"]), 6) == .000048
+    assert round(float(combined["global_p"]), 6) == .000048
     # Keep literal displayed masks/p-values tied to the executed examples.
-    assert "[True, True, True, False, False]" in text
+    assert "[True, True, True, False, False]" in fdr_text
     assert "[[True, False], [False, False]]" in text
     assert "[[True, True], [False, False]]" in text
     assert "[0.00353, 0.453213]" in text
@@ -117,6 +121,7 @@ def test_family_and_interpretation_guidance_is_present(language):
     text = path.read_text(encoding="utf-8")
     reference = path.parents[2] / "guides/multiple-testing-combine-pvalues.md"
     api = reference.read_text(encoding="utf-8")
+    combination = path.with_name("pvalue-combination.md").read_text(encoding="utf-8")
     assert "axis=None" in text and "axis=1" in text
     assert "nan_policy" in api and "[0,1]" in api
     if language == "en":
@@ -124,14 +129,14 @@ def test_family_and_interpretation_guidance_is_present(language):
         assert "non-rejection does not establish that a null hypothesis is true" in text
         assert "the total number of rejections" in text
         assert r"\frac{V}{\max(R,1)}" in text
-        assert "Prespecify them, or justify their independence" in text
+        assert "Prespecify them, or justify their independence" in combination
     else:
         assert "**不会**自动控制" in text
         assert "未拒绝也不等于证明原假设成立" in text
         assert "在全部拒绝中，错误拒绝所占比例的期望" in text
         assert r"\frac{V}{\max(R,1)}" in text
-        assert "应预先指定权重，或说明其与原假设检验统计量的独立性" in text
-        assert "不要在看到较小 P 值后才增加它们的权重" in text
+        assert "应预先指定权重，或说明其与原假设检验统计量的独立性" in combination
+        assert "不要在看到较小 P 值后才增加它们的权重" in combination
 
 
 def test_bilingual_family_examples_execute_identical_code():

@@ -6,6 +6,8 @@
 
 以下函数可从 `statgpu.inference` 或 `statgpu` 导入。选择假设族、区分 FWER 与 FDR、理解公式及依赖条件时，请先阅读[多重检验](../models/testing/multiple-testing.md)。
 
+详细教程：[FWER](../models/testing/multiple-testing-fwer.md)、[FDR](../models/testing/multiple-testing-fdr.md)和 [P 值合并](../models/testing/pvalue-combination.md)。
+
 ## 完整签名
 
 ```text
@@ -50,7 +52,7 @@ combine_pvalues(pvalues, method="fisher", weights=None, axis=None, backend="auto
 
 历史别名 `fdr_hochberg` 实际调用的是控制 **FWER 的 Hochberg**，不是控制 FDR 的 BH。此实现没有 Tippett 方法。Bonferroni/Holm 允许任意依赖；BH 要求独立或适当的正依赖；BY 允许任意依赖；Hochberg 要求独立或满足相应的 Simes 依赖条件。所有方法都要求边际 P 值有效。
 
-Fisher 使用独立均匀 P 值对应的卡方参考分布；Stouffer 使用独立正态分数的方差，不估计检验之间的协方差。Cauchy/ACAT 对归一化权重的正切统计量使用一定正则条件下的 Cauchy 尾部近似，并不对任意依赖结构和任意有限显著性水平作统一保证。详见[合并公式及参考文献](../models/testing/multiple-testing.md#合并公式与适用条件)。
+Fisher 使用独立均匀 P 值对应的卡方参考分布；Stouffer 使用独立正态分数的方差，不估计检验之间的协方差。Cauchy/ACAT 对归一化权重的正切统计量使用一定正则条件下的 Cauchy 尾部近似，并不对任意依赖结构和任意有限显著性水平作统一保证。详见[合并公式及参考文献](../models/testing/pvalue-combination.md)。
 
 <a id="a-complete-axis-and-weight-example"></a>
 

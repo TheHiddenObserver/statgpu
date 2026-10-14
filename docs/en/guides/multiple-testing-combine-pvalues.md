@@ -6,6 +6,8 @@
 
 Import these functions from `statgpu.inference` or `statgpu`. For choosing the hypothesis family, FWER versus FDR, formulas and dependence assumptions, start with [multiple testing](../models/testing/multiple-testing.md).
 
+Detailed lessons: [FWER](../models/testing/multiple-testing-fwer.md), [FDR](../models/testing/multiple-testing-fdr.md), and [p-value combination](../models/testing/pvalue-combination.md).
+
 ## Complete signatures
 
 ```text
@@ -51,7 +53,7 @@ missing values are not silently omitted.
 
 Despite its legacy name, `fdr_hochberg` invokes **FWER Hochberg**, not FDR BH. There is no Tippett method in this implementation. Bonferroni/Holm allow arbitrary dependence, BH requires independence or suitable positive dependence, BY allows arbitrary dependence, and Hochberg requires independence or an applicable Simes dependence condition. All require valid marginal p-values.
 
-Fisher uses the independent-uniform chi-square reference. Stouffer uses the independent-normal-score variance; it does not estimate covariance between tests. Cauchy/ACAT uses a normalized-weight tangent statistic and Cauchy tail approximation under regularity conditions. It does not give a universal finite-level guarantee for arbitrary p-value dependence. See the [formulas and references](../models/testing/multiple-testing.md#combination-formulas-and-assumptions).
+Fisher uses the independent-uniform chi-square reference. Stouffer uses the independent-normal-score variance; it does not estimate covariance between tests. Cauchy/ACAT uses a normalized-weight tangent statistic and Cauchy tail approximation under regularity conditions. It does not give a universal finite-level guarantee for arbitrary p-value dependence. See the [formulas and references](../models/testing/pvalue-combination.md).
 
 ## A complete axis and weight example
 
