@@ -1,22 +1,30 @@
 # NMF
 
 > Language: English
-> Last updated: 2026-10-06
+> Last updated: 2026-10-13
 > Switch: [Chinese](../../cn/unsupervised/nmf.md)
 
 ## Overview
 
-`NMF` factorizes non-negative dense data into non-negative factors `W` and `H`. The current implementation supports multiplicative updates with Frobenius loss on CPU, CuPy/CUDA, and Torch CUDA.
+For a collection of measured spectra, each row contains nonnegative intensities across wavelengths. You want to describe observations using a few recurring spectral patterns and how strongly each pattern contributes. Averaging all spectra gives only one pattern; assigning each observation to one cluster cannot express a mixture of several patterns. PCA can compress the data, but its signed directions can reconstruct observations by cancellation, which is awkward when the intended explanation is additive.
+
+NMF seeks nonnegative building blocks and nonnegative weights. Each observation is approximated by adding scaled copies of the learned patterns: one factor describes the patterns across features, and the other describes their contributions to each row. This is why nonnegativity can make a decomposition easier to inspect when additive structure is plausible.
+
+An additive representation is still a modeling choice. It does not establish that the learned patterns are pure physical sources, nor that there is a unique decomposition. Nonnegativity alone also does not turn the weights into probabilities or force them to sum to one.
 
 ## When to use it
 
-Use NMF when nonnegative features have an additive interpretation, such as intensities or counts. It does not mean-center inputs. Choose rank using useful factor patterns and reconstruction; factors have scale and permutation ambiguities and are not unique scientific mechanisms.
+Use NMF for dense nonnegative measurements when sums of patterns are a useful explanation. Do not mean-center the input; if signed departures from a baseline are the object of interest, [PCA](pca.md) may be more appropriate. [TruncatedSVD](truncated-svd.md) also approximates an uncentered matrix, but permits cancellation through signed factors. Consider [MiniBatchNMF](minibatch-nmf.md) when a shared dictionary must be learned in batches.
+
+Choose rank using reconstruction on representative held-out observations and whether patterns remain useful across initializations. Feature units determine the weights in the squared-error objective: nonnegative counts or intensities are eligible inputs, but nonnegativity by itself does not establish that Frobenius loss suits the application. Factors have scale and permutation ambiguities, so compare matched patterns and reconstructions rather than raw coefficients alone.
 
 ## Path
 
 ```python
 from statgpu.unsupervised import NMF
 ```
+
+This estimator supports dense input on CPU, CuPy/CUDA, and Torch CUDA.
 
 ## Objective Function / Loss Function
 
@@ -130,3 +138,4 @@ Constructor defaults, all public methods, output shapes, and restrictions are li
 
 - Lee, D. D., & Seung, H. S. (1999). Learning the parts of objects by non-negative matrix factorization. *Nature*, 401(6755), 788-791. https://doi.org/10.1038/44565
 - Lee, D. D., & Seung, H. S. (2001). Algorithms for non-negative matrix factorization. In T. K. Leen, T. G. Dietterich, & V. Tresp (Eds.), *Advances in Neural Information Processing Systems 13* (pp. 556-562). MIT Press.
+- scikit-learn Developers. [NMF: nonnegative factors and reconstruction objectives](https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.NMF.html).

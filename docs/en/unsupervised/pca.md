@@ -1,22 +1,30 @@
 # PCA
 
 > Language: English
-> Last updated: 2026-10-05
+> Last updated: 2026-10-13
 > Switch: [Chinese](../../cn/unsupervised/pca.md)
 
 ## Overview
 
-`PCA` estimates an orthonormal low-dimensional basis that captures the largest variance directions of centered dense data. It supports CPU, CuPy/CUDA, and Torch CUDA backends.
+A sensor panel may record many measurements of the same process, with several readings rising and falling together. You want a compact description of how observations differ, without choosing one sensor as the outcome. Keeping every column preserves redundant information. Dropping correlated columns by hand can discard useful contrasts, while averaging them into one number presumes that there is only one pattern worth keeping.
+
+PCA learns weighted combinations of the features. Imagine a cloud of observations stretched along a diagonal: measuring along that diagonal describes its main spread more directly than keeping either original axis. PCA first moves the origin to the feature means, then finds perpendicular directions that successively capture the most remaining variance. Retaining a few of these directions gives both a shorter coordinate vector and an approximation in the original feature space.
+
+This is a compression criterion, not a search for the causes of variation. A strong background effect can occupy a leading component, while a small but useful signal can be discarded.
 
 ## When to use it
 
-Use PCA when correlated numeric features can be summarized by a smaller set of linear directions. Centering is automatic, but feature scaling is not: choose units before fitting, and fit preprocessing only on training data. Choose rank from retained variance and held-out reconstruction, rather than treating high variance as scientific importance.
+Use PCA when a linear summary of correlated numeric features is useful for exploration, compression, or preprocessing. If original feature names must remain the coordinates, feature selection answers a different need. Choose [IncrementalPCA](incremental-pca.md) when rows must be processed in successive batches, [TruncatedSVD](truncated-svd.md) when the uncentered matrix is the object to approximate, or [NMF](nmf.md) when nonnegative additive patterns are central to interpretation.
+
+Centering is automatic, but feature scaling is not: changing units changes which variations receive the most weight. Choose units before fitting and learn preprocessing only from training data. Select rank using retained variance, held-out reconstruction, and the intended downstream task; high explained variance alone does not establish predictive or scientific importance.
 
 ## Path
 
 ```python
 from statgpu.unsupervised import PCA
 ```
+
+This estimator supports dense input on CPU, CuPy/CUDA, and Torch CUDA.
 
 ## Objective Function / Loss Function
 
@@ -137,3 +145,4 @@ Constructor defaults, all public methods, output shapes, and restrictions are li
 - Pearson, K. (1901). On lines and planes of closest fit to systems of points in space. *The London, Edinburgh, and Dublin Philosophical Magazine and Journal of Science*, Series 6, 2(11), 559-572. https://doi.org/10.1080/14786440109462720
 - Jolliffe, I. T. (2002). *Principal Component Analysis* (2nd ed.). Springer Series in Statistics. Springer. https://doi.org/10.1007/b98835
 - Halko, N., Martinsson, P. G., & Tropp, J. A. (2011). Finding structure with randomness: Probabilistic algorithms for constructing approximate matrix decompositions. *SIAM Review*, 53(2), 217-288. https://doi.org/10.1137/090771806
+- scikit-learn Developers. [PCA: centering, components, and explained variance](https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.PCA.html).

@@ -1,17 +1,23 @@
 # TruncatedSVD
 
 > 语言：中文
-> 最后更新：2026-10-05
+> 最后更新：2026-10-13
 > 切换：[English](../../en/unsupervised/truncated-svd.md)
 > 路径：`statgpu.unsupervised.TruncatedSVD`
 
 ## 概览
 
-`TruncatedSVD` 在不对输入矩阵做中心化的前提下计算低秩投影；这一点与 `PCA` 不同，也更适合稠密的 LSA 类流程。
+在文档—词项矩阵中，每一行是一篇文档，每一列记录一个词的权重。你希望用更少的坐标概括词语共同出现的模式，同时近似原来的矩阵。只保留几个常见词会丢掉它们之间的联合结构；把每行求和又只剩一个总量。如果减去每个词的平均权重，问题则变成了“这篇文档与平均文档有何不同”。
+
+TruncatedSVD 不减去特征均值，而是直接保留原矩阵的几个奇异方向。每行用这些方向上的坐标表示，再用保留的坐标重构一个低秩近似。这也是潜在语义分析（LSA）应用于文档—词项矩阵时的基本思路。同样的非中心化近似也适用于其他数值矩阵，并不要求输入是文本或非负数。
+
+是否保留原点，会实质改变问题。较大的共同水平可能主导第一个方向，即使它对均值附近的差异解释不多。奇异方向也不会自动对应一个有名称的主题或独立的真实来源。
 
 ## 何时使用
 
-如果数据原点具有意义，中心化会改变问题，可使用 TruncatedSVD。与 PCA 不同，较大的特征均值可能主导首个方向。当前实现要求稠密输入，不能直接用于稀疏文本矩阵。
+希望近似未经中心化的原矩阵时，可使用 TruncatedSVD；关注相对各特征均值的变化时，应选择 [PCA](pca.md)，因为中心化后再做 SVD 就得到 PCA 问题。如果模式及其贡献都必须非负，可考虑 [NMF](nmf.md)；TruncatedSVD 允许正负系数。
+
+statgpu 的当前实现只接受稠密输入。LSA 的应用背景不代表它支持稀疏文档—词项矩阵；如果稠密矩阵难以容纳，应选择支持稀疏输入的实现。可结合重构误差和降维坐标的实际用途选择秩，不要仅凭成分顺序就给它们赋予主题含义。
 
 ## 导入路径
 
@@ -21,6 +27,8 @@
 from statgpu.unsupervised import TruncatedSVD
 ```
 
+当前估计器支持 CPU、CuPy/CUDA 与 Torch CUDA 上的稠密输入。
+
 ## 目标函数
 
 给定秩 `k`，Truncated SVD 求解：
@@ -28,6 +36,8 @@ from statgpu.unsupervised import TruncatedSVD
 $$
 \min_{\operatorname{rank}(Z) \le k} \|X - Z\|_F^2.
 $$
+
+返回的成分是 `X` 的前几个右奇异向量。
 
 ## 估计方程
 
@@ -83,4 +93,5 @@ print(Z.shape, X_hat.shape, model.explained_variance_ratio_.sum())
 
 ## 参考文献
 
-- Halko, N., Martinsson, P. G., & Tropp, J. A. (2011). Finding structure with randomness: Probabilistic algorithms for constructing approximate matrix decompositions. *SIAM Review*, 53(2), 217-288.
+- Halko, N., Martinsson, P. G., & Tropp, J. A. (2011). Finding structure with randomness: Probabilistic algorithms for constructing approximate matrix decompositions. *SIAM Review*, 53(2), 217-288. https://doi.org/10.1137/090771806
+- scikit-learn Developers. [TruncatedSVD：非中心化投影与 LSA](https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.TruncatedSVD.html)。

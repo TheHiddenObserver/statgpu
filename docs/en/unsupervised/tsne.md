@@ -1,17 +1,23 @@
 # TSNE
 
 > Language: English
-> Last updated: 2026-10-06
+> Last updated: 2026-10-13
 > Switch: [Chinese](../../cn/unsupervised/tsne.md)
 > Path: `statgpu.unsupervised.TSNE`
 
 ## Overview
 
-`TSNE` embeds dense data by matching high-dimensional Gaussian affinities with low-dimensional Student-t affinities. The current implementation implements exact dense Euclidean t-SNE.
+Suppose each image in a collection is described by hundreds of numeric features, and you want to inspect which images have similar feature profiles without predefined categories. A scatter plot of two columns discards the other features. The first two [PCA](pca.md) components summarize large directions of variation, but their linear projection can overlap neighborhoods that lie on a curved structure. The question for t-SNE is more local: can observations that are similar in the supplied feature space remain close on a two-dimensional map?
+
+Instead of trying to preserve every distance, t-SNE converts distances into neighbor affinities and tries to reproduce those affinities in the map. Each observation gets its own neighborhood scale. The low-dimensional Student-t affinities have heavier tails than the high-dimensional Gaussian affinities, allowing dissimilar observations more room to spread out and reducing crowding. This is the intuition behind the [original t-SNE method](https://jmlr.org/papers/v9/vandermaaten08a.html). statgpu implements exact dense Euclidean t-SNE; the features and their scaling must therefore make Euclidean proximity meaningful for your question.
 
 ## When to use it
 
-Use t-SNE for a visualization of local similarities rather than a predictive feature map. Compare perplexity and random seeds before interpreting islands. Global distances, plot axes and island areas are not quantitative measures of population differences.
+Use t-SNE when inspecting local similarities in a fixed set of observations is the goal, for example to review representative images from nearby points or investigate why an observation sits apart.
+
+- Start with a raw-feature plot or PCA when a few measured variables or a linear summary already answer the question. Prefer PCA when you need explained variance, reconstruction, or a fitted map that can transform later observations.
+- Compare [UMAP](umap.md) when you want to explore a selected-neighbor graph and vary its neighborhood size separately from its layout controls. t-SNE instead matches pairwise affinities, with `perplexity` setting an effective neighborhood scale. Neither statgpu implementation supports new-data `transform`.
+- If you need cluster assignments, specify and validate a clustering method separately. A t-SNE island does not establish a distinct population or choose the number of clusters for you.
 
 ## Path
 
@@ -23,7 +29,7 @@ from statgpu.unsupervised import TSNE
 
 ## Objective Function / Loss Function
 
-t-SNE minimizes KL divergence:
+Write $p_{ij}$ for the input-space affinity of a pair and $q_{ij}$ for its map affinity. A pair with large $p_{ij}$ contributes strongly to the loss if the map gives it very small $q_{ij}$: breaking an important neighborhood is costly. t-SNE minimizes KL divergence:
 
 $$
 \operatorname{KL}(P \| Q)
@@ -77,13 +83,15 @@ embedding = model.fit_transform(X)
 print(embedding.shape, model.n_iter_, model.kl_divergence_)
 ```
 
-The embedding has shape `(40, 2)`. KL divergence describes this training affinity fit, not a held-out prediction score. Even exact pairwise affinities lead to a non-convex optimization and do not promise a globally optimal embedding.
+The embedding has shape `(40, 2)`, with one row for each input observation; retain row identifiers to look up the original features or images. KL divergence describes this training affinity fit, not a held-out prediction score. Even exact pairwise affinities lead to a non-convex optimization and do not promise a globally optimal embedding. The two groups in this synthetic example were put into the input deliberately; a separated-looking result on unknown data would not supply the same evidence.
 
 For a supported GPU installation, construct a new estimator with `device="cuda"` (CuPy) or `device="torch"` (Torch CUDA). Arrays generally stay on that backend; see the [API reference](api-reference.md#tsne) for output ownership and host-side work. An unavailable explicit GPU raises an error.
 
 ## Approximation and interpretation
 
 This is exact dense t-SNE and requires pairwise arrays whose memory grows quadratically with the number of observations. Barnes-Hut and FFT/FIt-SNE acceleration are not supported.
+
+Read the map as a source of questions to check in the original features. Compare several feasible perplexities and random seeds, then inspect whether apparent neighbors really are similar under your chosen preprocessing. Plot axes have no feature units; gaps between islands and island areas do not measure population separation or density. Even unclustered data can produce apparent clumps, as demonstrated in [How to Use t-SNE Effectively](https://distill.pub/2016/misread-tsne/). Stability across settings is a useful check, but is not proof of a genuine cluster or a statistical significance test.
 
 ## Outputs
 
@@ -104,5 +112,6 @@ Constructor defaults, all public methods, output shapes, and restrictions are li
 
 ## References
 
-- van der Maaten, L., & Hinton, G. (2008). Visualizing data using t-SNE. *Journal of Machine Learning Research*, 9, 2579-2605.
+- van der Maaten, L., & Hinton, G. (2008). [Visualizing data using t-SNE](https://jmlr.org/papers/v9/vandermaaten08a.html). *Journal of Machine Learning Research*, 9, 2579-2605.
+- Wattenberg, M., Viégas, F., & Johnson, I. (2016). [How to Use t-SNE Effectively](https://distill.pub/2016/misread-tsne/). *Distill*.
 - Linderman, G. C., Rachh, M., Hoskins, J. G., Steinerberger, S., & Kluger, Y. (2019). Fast interpolation-based t-SNE for improved visualization of single-cell RNA-seq data. *Nature Methods*, 16, 243-245.

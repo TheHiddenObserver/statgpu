@@ -1,22 +1,30 @@
 # MiniBatchNMF
 
 > 语言：中文
-> 最后更新：2026-10-06
+> 最后更新：2026-10-13
 > 切换：[English](../../en/unsupervised/minibatch-nmf.md)
 
 ## 概览
 
-`MiniBatchNMF` 在稠密的小批量（mini-batch）数据上拟合非负低秩分解。支持 Frobenius 损失和乘性更新（MU）的小批量算法，覆盖 CPU、CuPy/CUDA 与 Torch CUDA。
+非负光谱数据逐批增加时，往往需要用同一组反复出现的模式描述前后各批观测。分别对每批做 NMF，会得到彼此无关的字典：即使模式形状相似，顺序和尺度也可能不同。每次都把全部数据重新拟合一遍，则需要反复处理历史观测及其激活系数。
+
+MiniBatchNMF 学习共享的非负字典，同时逐批处理激活系数。每批用紧凑的统计量概括当前估计的激活与观测之间的关系，再用这些摘要指导字典更新。它保留了 NMF 的加和解释，但不把全部行的激活系数当作一个大矩阵联合更新。
+
+学习过程中，字典本身也会改变。更新前算出的系数对应当时的字典，不能直接与后来字典下的系数混用，并假定其含义一直不变。非负模式仍是描述性的近似，不能直接视为已识别的物理来源或概率。
 
 ## 何时使用
 
-需要分批学习非负加和结构时，可使用 MiniBatchNMF。`fit` 接收全部数据，外部数据流可用 `partial_fit`。应固定秩与特征含义，并用 `transform` 返回的因子检查重构，不要假设该求解过程与拟合时的更新完全相同。
+需要逐批拟合，或持续接收稠密非负观测时，可选择 MiniBatchNMF。数据规模可控时，可用 [NMF](nmf.md) 作为整体拟合的参照，在相同秩和预处理下比较重构效果。如果关注的是相对均值的正负变化，而非非负模式相加，[IncrementalPCA](incremental-pca.md) 对应的是前一种目标。
+
+各批应保持相同的特征含义、单位和秩。当前增量更新累积历史统计量而不设置遗忘因子，因此新批次不会自动替代旧的运行状态。应从有代表性的数据开始，并覆盖预计会出现正值的特征；早期批次只覆盖数据的一小部分时，尤其要注意后文的全零特征初始化限制。
 
 ## 导入路径
 
 ```python
 from statgpu.unsupervised import MiniBatchNMF
 ```
+
+当前估计器支持 CPU、CuPy/CUDA 与 Torch CUDA 上的稠密输入。
 
 ## 目标函数 / 损失函数
 
@@ -44,6 +52,8 @@ $$
 - `init`：支持 `"random"`。
 - `batch_size`、`max_iter`、`tol`、`random_state`。
 - `device`：`"auto"`、`"cpu"`、`"cuda"` 或 `"torch"`。
+
+`fit` 会先接收并转换完整输入数组，再进入内部批次循环。外部数据流需要由调用方读取稠密批次并传给 `partial_fit`；估计器不会自动读取文件，也不支持稀疏输入。训练后比较观测时，应通过 `transform` 在最终字典下计算激活，不要假设它与拟合时的更新求解完全相同。
 
 ## 一个可独立运行的 CPU 示例
 
@@ -152,3 +162,4 @@ print("相对重构误差：", np.linalg.norm(X - X_hat) / np.linalg.norm(X))
 - Lee, D. D., & Seung, H. S. (2001). Algorithms for non-negative matrix factorization. *Advances in Neural Information Processing Systems*, 13.
 - Cichocki, A., Zdunek, R., Phan, A. H., & Amari, S.-I. (2009). *Nonnegative Matrix and Tensor Factorizations: Applications to Exploratory Multi-way Data Analysis and Blind Source Separation*. Wiley.
 - scikit-learn Developers. `sklearn.decomposition.MiniBatchNMF`. scikit-learn documentation. https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.MiniBatchNMF.html
+- Lee, D. D., & Seung, H. S. (1999). Learning the parts of objects by non-negative matrix factorization. *Nature*, 401(6755), 788-791. https://doi.org/10.1038/44565

@@ -1,19 +1,33 @@
 # UMAP
 
 > 语言：中文
-> 最后更新：2026-10-06
+> 最后更新：2026-10-13
 > 切换：[English](../../en/unsupervised/umap.md)
 > 路径：`statgpu.unsupervised.UMAP`
 
 ## 概览
 
-`UMAP` 在输入空间构造模糊近邻图（fuzzy neighbor graph），并优化低维嵌入（embedding）。它既支持稠密、精确的欧氏近邻，也支持内置的 NNDescent 近似近邻搜索。
+假设用数十个传感器记录机器在不同工况下的状态，你想查看哪些观测的传感器读数相似，以及相近状态之间是否存在逐渐变化的关系。只画两个传感器会遗漏其余信息；[PCA](pca.md) 的前两个主成分采用同一个线性投影，也可能把弯曲结构的不同部分叠在一起。如果预处理后的读数之间的欧氏距离能反映所关心的相似性，近邻布局就提供了另一种探索这些关系的方式。
+
+UMAP 从连接关系出发：为每个观测选出若干近邻，再用权重描述连接的强弱。随后通过沿图边的吸引力和抽样排斥力，把观测安排到低维空间中。目标是呈现有用的近邻关系，而不是得到代表某个传感器的坐标轴。statgpu 支持稠密欧氏数据、精确近邻搜索，以及内置的 NNDescent 搜索选项。
 
 ## 何时使用
 
-UMAP 可用于观察局部近邻结构。应比较多个随机种子、邻居数与 `min_dist` 设置。图中不同岛状区域的距离、面积或大小，不能直接解释为人群间差异或占比。
+UMAP 适合探索纳入更少或更多近邻时，一个观测周围的关系如何变化。在传感器场景中，可以沿图上看似渐变的区域挑选观测，回查实际测量值；仅凭图形不能确定时间先后或物理机制。
 
-吸引力使相连的近邻靠近，排斥力使点分散。本实现的图权重和力更新与 umap-learn 不同，因此相同参数值不代表等价的嵌入。应把结果视为近似近邻布局；具体差异见[进阶公式](#进阶近邻图与布局公式)。
+- 如果带单位的原始坐标或线性方差概括已经足够，使用原始特征散点图或 PCA。PCA 还支持数据重构和可复用的 `transform`；statgpu UMAP 只嵌入参与拟合的观测。
+- 如果重点是匹配局部成对亲和度，可比较 [t-SNE](tsne.md)。UMAP 用邻居数控制图的构造，并通过 `min_dist` 和 `spread` 单独控制布局。这是探索局部结构的不同方式，不保证任何一种图都能保留全部全局距离。
+- 不要仅依据 umap-learn 的速度或功能介绍来选择本实现：statgpu 默认使用稠密精确搜索，图权重和力更新也不同。相同参数值不代表等价的嵌入；差异见[进阶公式](#进阶近邻图与布局公式)。
+
+## 从近邻关系到低维图
+
+用 $w_{ij}\in[0,1]$ 表示输入空间中对称图连接的强度，用 $y_i$ 表示观测 $i$ 在图中的坐标。布局使用随图中距离减小而增大的亲和度：
+
+$$
+q_{ij}=\left(1+a\|y_i-y_j\|^{2b}\right)^{-1},\qquad a,b>0.
+$$
+
+`n_neighbors` 改变输入空间中考虑哪些连接；`min_dist` 和 `spread` 确定曲线参数 $a,b$。较强的图边吸引相应的点，抽样点对则提供排斥力。标准 UMAP 用模糊集交叉熵表示图与布局之间的不匹配；这里的力更新构造近似近邻布局，并非该目标的精确梯度。因此应把图用于探索，再结合输入数据检查它是否有用。
 
 ## 导入路径
 
@@ -37,7 +51,7 @@ embedding = model.fit_transform(X)
 print(embedding.shape, model.n_epochs_)
 ```
 
-嵌入形状为 `(40, 2)`，只对应参与拟合的行。短迭代示例用于说明 API，不代表已获得理想可视化质量。不支持新数据 `transform`，应保留行标识以便追溯样本。
+嵌入形状为 `(40, 2)`，只对应参与拟合的行。短迭代示例用于说明 API，不代表已获得理想可视化质量。不支持新数据 `transform`，应保留行标识以便追溯样本。这里的两组数据是刻意生成的，因此本例不能说明 UMAP 可以证实未知数据中的簇。
 
 安装了相应 GPU 后端后，可新建估计器并指定 `device="cuda"`（CuPy）或 `device="torch"`（Torch CUDA）。数组通常留在该后端；输出所在设备及主机端步骤见 [API 参考](api-reference.md#umap)。显式请求的 GPU 不可用时会报错。
 
@@ -59,6 +73,8 @@ print(embedding.shape, model.n_epochs_)
 ## 近似与解释边界
 
 `nn_method='exact'` 以 float32 距离运算穷举稠密欧氏近邻，舍入可能影响距离接近的情况；`nn_method='nndescent'` 是近似搜索，并按所选后端执行。两种模式都要经过上述基于 SciPy 的主机侧模糊并集组装；因此图组装仍需要主机内存。
+
+解释图形前，应比较多组随机种子、邻居数和布局设置，再回到原始特征中核实相邻点及拟议的分组边界。改变 `min_dist` 后岛状区域看起来更紧密，并不是群体密度更高的新证据。[UMAP 作者的聚类说明](https://umap-learn.readthedocs.io/en/latest/clustering.html)指出，UMAP 会扭曲密度，也可能在一个簇内部产生看似断开的区域。岛间距离、面积和表面上的连续形态，都不是经过校准的群体间隔、占比或物理轨迹测量。如果簇成员关系很重要，应单独验证这一判断，而不是直接数图中的岛。
 
 ## 输出
 
@@ -126,6 +142,6 @@ $$
 
 ## 参考文献
 
-- McInnes, L., Healy, J., & Melville, J. (2018). UMAP: Uniform Manifold Approximation and Projection for Dimension Reduction. *arXiv:1802.03426*.
-
+- McInnes, L., Healy, J., & Melville, J. (2018). [UMAP: Uniform Manifold Approximation and Projection for Dimension Reduction](https://arxiv.org/abs/1802.03426). *arXiv:1802.03426*.
+- umap-learn 开发者。[Basic UMAP Parameters](https://umap-learn.readthedocs.io/en/latest/parameters.html) 和 [Using UMAP for Clustering](https://umap-learn.readthedocs.io/en/latest/clustering.html)。这些资料介绍参考实现；statgpu 的差异见上文。
 - umap-learn 开发者。[`smooth_knn_dist` 源码参考](https://umap-learn.readthedocs.io/en/latest/_modules/umap/umap_.html#smooth_knn_dist)。

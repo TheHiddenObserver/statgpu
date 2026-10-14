@@ -1,16 +1,22 @@
 # DBSCAN
 
 > Language: English
-> Last updated: 2026-10-05
+> Last updated: 2026-10-13
 > Switch: [Chinese](../../cn/unsupervised/dbscan.md)
 
 ## Overview
 
-`DBSCAN` finds density-connected components in dense Euclidean data.
+Imagine a point cloud with two densely sampled curved bands and scattered observations between them. You want to recover the bands without deciding their number beforehand or forcing the scattered points into a group. A nearest-center partition can split a curved band and absorb isolated points, because every row must belong to one of its centers.
+
+`DBSCAN` instead looks for neighborhoods with enough observations to sustain a cluster. It connects nearby dense neighborhoods and extends each group to adjacent border points, leaving the rest unassigned. This makes local density connectivity, rather than distance to a single representative center, the organizing idea. The original [DBSCAN paper](https://aaai.org/papers/kdd96-037-a-density-based-algorithm-for-discovering-clusters-in-large-spatial-databases-with-noise/) motivates this approach for irregularly shaped clusters with noise.
 
 ## When to use it
 
-Use DBSCAN when dense regions may have irregular shapes and some observations should remain unassigned. `eps` is measured in feature units; inspect several radii and `min_samples` values. Unequal cluster densities can make one global radius unsuitable.
+Use DBSCAN when dense regions may have irregular shapes and some observations should remain unassigned. Unlike [KMeans](kmeans.md), it does not take a target cluster count. You still choose a neighborhood scale and a minimum local count, so the number of discovered groups is conditional on those choices, not a parameter-free discovery of the “true” number.
+
+`eps` is measured in feature units; inspect several radii and `min_samples` values after choosing a meaningful feature scale. Too small a radius may fragment a group or leave much of the data unassigned; too large a radius may connect groups you wanted to separate. Unequal cluster densities can make one global radius unsuitable, as discussed in the [density-based clustering guide](https://scikit-learn.org/stable/modules/clustering.html#dbscan).
+
+The noise label means that an observation does not belong to a dense region under the chosen settings. It does not establish a measurement error, fraud, or any other substantive anomaly. If your main need is to assign future rows to stable centers, consider KMeans instead: this implementation of DBSCAN describes the fitted dataset and does not provide a new-data prediction rule.
 
 ## Path
 
@@ -23,7 +29,7 @@ from statgpu.unsupervised import DBSCAN
 
 DBSCAN is not a smooth optimization problem. It has no differentiable loss to minimize. Its criterion is density reachability:
 
-- A point is core if its closed `eps` neighborhood contains at least `min_samples` points.
+- A point is core if its closed `eps` neighborhood contains at least `min_samples` points, including the point itself.
   $$
   \left|\left\{x_j : \left\|x_i - x_j\right\|_2 \le \varepsilon\right\}\right|
   \ge \text{min\_samples}.
@@ -31,6 +37,8 @@ DBSCAN is not a smooth optimization problem. It has no differentiable loss to mi
 - Core points connected by `eps`-neighbor chains form a cluster.
 - Non-core points reachable from a core component are border points.
 - Other points are noise with label `-1`.
+
+In the formula, $\varepsilon$ is `eps`, $x_i$ is the point being tested, and the set contains all observations within that radius. Border points can join a group but do not propagate it: a sparse chain of non-core points cannot by itself connect two core components. A sufficiently dense bridge of core points can still merge them. Thus the neighborhood count is what distinguishes DBSCAN from simply joining every pair of nearby points.
 
 ## A small CPU example
 

@@ -1,17 +1,23 @@
 # TruncatedSVD
 
 > Language: English
-> Last updated: 2026-10-05
+> Last updated: 2026-10-13
 > Switch: [Chinese](../../cn/unsupervised/truncated-svd.md)
 > Path: `statgpu.unsupervised.TruncatedSVD`
 
 ## Overview
 
-`TruncatedSVD` computes a low-rank projection without centering the input matrix. This makes it different from `PCA` and suitable for dense LSA-style workflows.
+In a document-term matrix, rows describe documents and columns record term weights. You want fewer coordinates that summarize patterns of terms occurring together, while still approximating the original matrix. Selecting only a few common terms discards their joint structure; taking a row total reduces every document to one magnitude. Subtracting each term's mean would answer another question: how each document differs from an average document.
+
+TruncatedSVD keeps a few singular directions of the matrix as it stands, without subtracting feature means. Each row is represented by its coordinates along those directions, and the retained coordinates reconstruct a low-rank approximation. Applied to a document-term matrix, this is the basic idea of latent semantic analysis (LSA). The same uncentered approximation applies to other numeric matrices; it does not require text or nonnegative values.
+
+The choice to retain the origin is substantive. A large common level may dominate the first direction even if it explains little of the differences around the mean. A singular direction is also not automatically a named topic or an independently meaningful source.
 
 ## When to use it
 
-Use TruncatedSVD when the origin has meaning and centering would change the question. Unlike PCA, a large feature mean can dominate its leading direction. This implementation requires dense input; it is not a sparse text-matrix solver.
+Use TruncatedSVD when approximating the uncentered matrix is the intended goal. Choose [PCA](pca.md) when variation around feature means is what matters; applying SVD after centering leads to the PCA problem. Choose [NMF](nmf.md) when both the patterns and their contributions must be nonnegative: TruncatedSVD allows positive and negative coefficients.
+
+The statgpu implementation accepts dense input only. The LSA motivation does not imply support for sparse document-term matrices; use a sparse-capable implementation if the dense matrix would be impractical. Choose rank from reconstruction and the intended use of the reduced coordinates, rather than assigning a topic interpretation from the component order alone.
 
 ## Path
 
@@ -20,6 +26,8 @@ Import from `statgpu.unsupervised`:
 ```python
 from statgpu.unsupervised import TruncatedSVD
 ```
+
+This estimator supports dense input on CPU, CuPy/CUDA, and Torch CUDA.
 
 ## Objective Function / Loss Function
 
@@ -83,5 +91,5 @@ Constructor defaults, all public methods, output shapes, and restrictions are li
 
 ## References
 
-- Halko, N., Martinsson, P. G., & Tropp, J. A. (2011). Finding structure with randomness: Probabilistic algorithms for constructing approximate matrix decompositions. *SIAM Review*, 53(2), 217-288.
-- scikit-learn developers. `sklearn.decomposition.TruncatedSVD` API documentation.
+- Halko, N., Martinsson, P. G., & Tropp, J. A. (2011). Finding structure with randomness: Probabilistic algorithms for constructing approximate matrix decompositions. *SIAM Review*, 53(2), 217-288. https://doi.org/10.1137/090771806
+- scikit-learn Developers. [TruncatedSVD: uncentered projection and LSA](https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.TruncatedSVD.html).

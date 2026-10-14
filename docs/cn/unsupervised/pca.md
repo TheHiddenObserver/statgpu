@@ -1,22 +1,30 @@
 # PCA
 
 > 语言：中文
-> 最后更新：2026-10-05
+> 最后更新：2026-10-13
 > 切换：[English](../../en/unsupervised/pca.md)
 
 ## 概览
 
-`PCA` 对已中心化的稠密数据估计一组正交低维基，使其捕捉方差最大的方向。支持 CPU、CuPy/CUDA 与 Torch CUDA。
+一组传感器可能记录同一过程的许多测量值，其中不少读数总是一起升降。你希望用较少的数描述观测之间的差异，又不想指定某个传感器作为预测目标。保留全部列会留下重复信息；手动删除相关列可能丢掉有用的差异；直接取平均则预先假定只有一种共同变化值得保留。
+
+PCA 从数据中学习特征的加权组合。可以把观测想象成一团沿对角线拉长的点：沿这条对角线测量，比只保留某个原始坐标轴更能概括主要变化。PCA 先把原点移到各特征的均值，再依次寻找彼此正交、尽可能保留剩余方差的方向。保留其中几个方向，既得到更短的坐标向量，也能在原始特征空间中重构观测的近似值。
+
+这里优化的是压缩效果，并不识别变化的成因。强烈的背景变化可能占据前几个主成分，而幅度较小却有用的信号可能被舍弃。
 
 ## 何时使用
 
-当多个数值特征高度相关，且希望用少量线性方向概括它们时，可使用 PCA。模型会自动中心化，但不会自动统一量纲；应先选择合理的单位，并只用训练数据拟合预处理。可结合累计解释方差和留出数据的重构误差选择成分数，高方差本身不代表科学上的重要性。
+当相关数值特征的线性概括有助于探索、压缩或预处理时，可使用 PCA。如果希望新坐标仍是原始特征，应考虑特征选择。必须逐批处理观测时可考虑 [IncrementalPCA](incremental-pca.md)；希望近似未经中心化的原矩阵时可考虑 [TruncatedSVD](truncated-svd.md)；希望用非负模式相加来解释观测时可考虑 [NMF](nmf.md)。
+
+模型会自动中心化，但不会自动统一量纲：改变单位就会改变各种变化在目标中的权重。应先选择合理单位，并只用训练数据拟合预处理。可结合累计解释方差、留出数据的重构误差和后续任务选择成分数；解释方差高本身不代表预测价值或科学上的重要性。
 
 ## 导入路径
 
 ```python
 from statgpu.unsupervised import PCA
 ```
+
+当前估计器支持 CPU、CuPy/CUDA 与 Torch CUDA 上的稠密输入。
 
 ## 目标函数 / 损失函数
 
@@ -138,3 +146,4 @@ print(Z.shape, np.mean((X - X_hat) ** 2))
 - Pearson, K. (1901). On lines and planes of closest fit to systems of points in space. *The London, Edinburgh, and Dublin Philosophical Magazine and Journal of Science*, Series 6, 2(11), 559-572. https://doi.org/10.1080/14786440109462720
 - Jolliffe, I. T. (2002). *Principal Component Analysis* (2nd ed.). Springer Series in Statistics. Springer. https://doi.org/10.1007/b98835
 - Halko, N., Martinsson, P. G., & Tropp, J. A. (2011). Finding structure with randomness: Probabilistic algorithms for constructing approximate matrix decompositions. *SIAM Review*, 53(2), 217-288. https://doi.org/10.1137/090771806
+- scikit-learn Developers. [PCA：中心化、主成分与解释方差](https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.PCA.html)。

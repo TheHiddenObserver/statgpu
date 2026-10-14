@@ -1,13 +1,23 @@
 # Unsupervised Learning
 
 > Language: English
-> Last updated: 2026-10-05
+> Last updated: 2026-10-13
 > This page: Unsupervised learning index
 > Switch: [Chinese](../../cn/unsupervised/README.md)
 
 ## Overview
 
-`statgpu.unsupervised` contains sklearn-style unsupervised estimators with explicit CPU, CuPy/CUDA, and Torch CUDA device behavior. Use the model guides below to compare objectives, choose parameters, interpret fitted outputs, and check device and input restrictions.
+An unlabeled table can still contain useful structure: several measurements may record almost the same variation, observations may form groups, or nearby observations may follow a pattern that is hard to see in individual columns. Column averages and one-variable plots help inspect the data, but do not describe these relationships between features or observations. Unsupervised learning starts by deciding which of those relationships you want to summarize, without a known target label to tell the model what the right answer is.
+
+Three questions lead to different kinds of output:
+
+- **Representation:** can fewer coordinates or additive parts reconstruct what matters in the measurements? A low reconstruction error describes the chosen representation; it does not establish that its components are scientifically meaningful.
+- **Grouping:** which observations should be treated as similar, and should every observation belong to a group? A center-based partition, a probability model, a density-connected group and a hierarchy answer different versions of this question.
+- **Visualization:** which observations are neighbors in the measured feature space? A useful map can suggest patterns to investigate, but its visible islands are not automatically discovered classes.
+
+Choose the question before the algorithm. For example, compressing correlated sensor readings and grouping sensor operating conditions are different tasks even if they use the same table. Start with the original features and a simple summary or linear projection, then use a more specialized method when you can say what that baseline misses. With no supplied labels, inspect stability, reconstruction or neighborhood behavior as appropriate, and check the interpretation against information outside the fit.
+
+`statgpu.unsupervised` contains sklearn-style estimators for these tasks. The model guides below connect the motivation to the objective, fitted outputs and limitations; their device sections explain the explicit CPU, CuPy/CUDA and Torch CUDA behavior.
 
 UMAP can use the internal NNDescent implementation for approximate nearest-neighbor search; that search is not a separately exported estimator. The API follows the familiar `fit`, `transform`, `predict`, `fit_predict`, and `score` style where those operations make sense for the model.
 

@@ -1,22 +1,30 @@
 # IncrementalPCA
 
 > Language: English
-> Last updated: 2026-10-05
+> Last updated: 2026-10-13
 > Switch: [Chinese](../../cn/unsupervised/incremental-pca.md)
 
 ## Overview
 
-`IncrementalPCA` fits principal components from dense mini-batches while maintaining running mean, variance, sample count, and a truncated SVD basis. It supports CPU, CuPy/CUDA, and Torch CUDA backends.
+Daily measurement files raise a practical question: how can all observations share one compact coordinate system as the collection grows? Repeating PCA on every file separately gives different directions and means, so coordinates from different days are not directly comparable. Rebuilding PCA from all accumulated rows avoids that mismatch, but requires revisiting the history whenever new rows arrive.
+
+IncrementalPCA carries forward a summary: the directions retained so far, their strengths, and running feature statistics. Each new batch is combined with that summary to update a shared basis. Correcting for the difference between the old and new means matters: a shift between batches is part of the variation in the combined data, not something to erase by centering each batch independently.
+
+The saving comes with information loss. Once a direction has been discarded from the historical summary, later updates cannot reconstruct the old observations' variation in that direction. The method therefore approximates a pooled PCA rather than guaranteeing the same result as fitting all rows together.
 
 ## When to use it
 
-Use IncrementalPCA to learn a linear basis from successive batches. Truncation after each batch can lose directions that full PCA would retain, so compare a representative subset and keep preprocessing fixed. A small first `partial_fit` batch limits the default rank for that incremental fit; a new `fit` resets it.
+Choose IncrementalPCA when the need to process successive dense batches outweighs the benefit of one full decomposition. If the data can be handled together, [PCA](pca.md) is the simpler reference for the same centered reconstruction problem. If the desired representation is a sum of nonnegative patterns rather than signed directions around a mean, consider [MiniBatchNMF](minibatch-nmf.md).
+
+Keep feature definitions and preprocessing fixed across batches, and compare reconstruction and retained subspaces with full PCA on representative data. This implementation accumulates history without a forgetting factor: it summarizes all processed rows, not just the most recent operating regime. Streaming updates alone do not make it a drift detector.
 
 ## Path
 
 ```python
 from statgpu.unsupervised import IncrementalPCA
 ```
+
+This estimator supports dense input on CPU, CuPy/CUDA, and Torch CUDA.
 
 ## Objective Function / Loss Function
 
@@ -38,6 +46,8 @@ Each `partial_fit` updates running batch statistics and computes an SVD of a com
 - `whiten`: divides transformed components by the square root of the fitted variance, with a small variance floor.
 - `copy`: sklearn-style compatibility flag.
 - `device`: `"auto"`, `"cpu"`, `"cuda"`, or `"torch"`.
+
+`fit` receives and converts the complete input array before processing batches; it is not a disk-streaming reader. To supply data without materializing the whole collection, load dense batches yourself and pass them to `partial_fit`. A small first `partial_fit` batch limits the default rank for that incremental fit; a new `fit` resets it.
 
 ## A small CPU example
 

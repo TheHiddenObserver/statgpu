@@ -1,16 +1,26 @@
 # KMeans
 
 > Language: English
-> Last updated: 2026-10-05
+> Last updated: 2026-10-13
 > Switch: [Chinese](../../cn/unsupervised/kmeans.md)
 
 ## Overview
 
-`KMeans` partitions dense observations into `n_clusters` groups by minimizing squared Euclidean within-cluster error. It supports CPU, CuPy/CUDA, and Torch CUDA backends.
+Suppose you have temperature, pressure, and vibration measurements from machines, but no labels for their operating regimes. One overall average can hide several recurring patterns; separate thresholds on each measurement can miss combinations that distinguish those patterns. You want a small set of representative profiles and a way to assign each observation to one of them.
+
+`KMeans` learns those profiles as cluster centers. It alternates between assigning each row to its nearest center and moving each center to the mean of its assigned rows. The result summarizes the data with a chosen number of prototypes. A center is an average profile, so it need not be an observation that actually occurred.
 
 ## When to use it
 
-Use KMeans for a chosen number of roughly compact Euclidean groups. Scale features deliberately and inspect centers and inertia across several seeds. It assigns every row to a cluster, including outliers; DBSCAN is an alternative when noise labels matter.
+Use KMeans when distance to a representative center is a useful definition of similarity and you want a fixed number of roughly compact groups. Choose feature units deliberately: without rescaling, a measurement with a large numerical range can dominate squared distance. Standardization is one possible choice, but it also changes what counts as similar. The [K-means geometry guide](https://scikit-learn.org/stable/modules/clustering.html#k-means) explains why elongated or curved groups can be poorly represented by this objective.
+
+The next choice depends on what you need from the grouping:
+
+- [MiniBatchKMeans](minibatch-kmeans.md) keeps the same center-based goal while updating from smaller batches.
+- [GaussianMixture](gaussian-mixture.md) is useful when overlapping groups call for model-based soft membership and covariance shapes.
+- [DBSCAN](dbscan.md) addresses density-connected regions and can leave observations unassigned instead of forcing every row into a group.
+
+KMeans will produce a partition even when the data do not contain distinct populations. Inspect the profiles, their usefulness for your task, and stability across seeds and reasonable preprocessing choices before giving the groups substantive names.
 
 ## Path
 
@@ -20,13 +30,13 @@ from statgpu.unsupervised import KMeans
 
 ## Objective Function / Loss Function
 
-KMeans minimizes inertia:
+Representing a row by its assigned center creates a reconstruction error. KMeans adds the squared errors over all rows and seeks centers and assignments that make this total, called inertia, small:
 
 $$
 \min_{C, z} \sum_{i=1}^{n} \left\|x_i - c_{z_i}\right\|_2^2 ,
 $$
 
-where `C` are cluster centers and `z_i` is the assigned cluster for sample `i`.
+Here $x_i$ is row $i$, $n$ is the number of rows, $C$ is the collection of centers, and $c_{z_i}$ is the center assigned to that row. Squaring the distance gives large deviations more influence. For fixed assignments, the mean minimizes this sum within each cluster; for fixed centers, choosing the nearest center minimizes each row's contribution. These two observations lead to the alternating updates below.
 
 <a id="estimating-equation"></a>
 ## Fitting steps and update formulas

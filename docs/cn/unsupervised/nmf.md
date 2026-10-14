@@ -1,22 +1,30 @@
 # NMF
 
 > 语言：中文
-> 最后更新：2026-10-06
+> 最后更新：2026-10-13
 > 切换：[English](../../en/unsupervised/nmf.md)
 
 ## 概览
 
-`NMF` 把非负的稠密数据分解为两个非负因子 `W` 与 `H`。支持 Frobenius 损失下的乘性更新（multiplicative updates），并支持 CPU、CuPy/CUDA 与 Torch CUDA。
+分析一组实测光谱时，可以把每条光谱放在一行，各列记录不同波长上的非负强度。你希望用几个反复出现的光谱模式，以及每个模式在观测中的贡献程度来描述数据。对全部光谱取平均只能得到一个模式；把每条观测归入一个簇，又无法表达多个模式的混合。PCA 虽能压缩数据，但带符号的方向允许正负贡献相互抵消，不容易对应“若干部分相加”的解释。
+
+NMF 同时学习非负的基本模式和非负的权重。每条观测都近似为若干模式缩放后的和：一个因子描述各模式在特征上的形状，另一个描述它们对每行观测的贡献。加和结构合理时，非负约束因此可能让分解更容易理解。
+
+加和表示仍是一种建模选择。它不能证明学到的模式就是纯粹的物理来源，也不能保证分解唯一。仅有非负约束，还不会把权重变成概率或要求它们之和为一。
 
 ## 何时使用
 
-对于强度、计数等可解释为非负加和的特征，可使用 NMF。它不会中心化输入。应结合因子的实际含义和重构误差选择秩；因子存在缩放和排列的不唯一性，不应直接视为唯一的科学机制。
+当非负模式相加是有用的解释时，可对稠密非负测量使用 NMF。不要对输入做均值中心化；如果关注的是相对基线的正负偏离，[PCA](pca.md) 可能更合适。[TruncatedSVD](truncated-svd.md) 也近似未经中心化的矩阵，但允许带符号因子相互抵消。需要分批学习共享字典时，可考虑 [MiniBatchNMF](minibatch-nmf.md)。
+
+可结合代表性留出观测的重构误差，以及不同初始化下模式是否仍有用来选择秩。特征单位会决定平方误差目标中的权重：非负计数或强度可以作为输入，但仅凭非负性不能判断 Frobenius 损失是否适合具体问题。因子存在缩放和排列的不唯一性，应比较对齐后的模式与重构，而非直接比较原始系数。
 
 ## 导入路径
 
 ```python
 from statgpu.unsupervised import NMF
 ```
+
+当前估计器支持 CPU、CuPy/CUDA 与 Torch CUDA 上的稠密输入。
 
 ## 目标函数 / 损失函数
 
@@ -132,3 +140,4 @@ print("新观测按原始单位重构：", new_hat)
 
 - Lee, D. D., & Seung, H. S. (1999). Learning the parts of objects by non-negative matrix factorization. *Nature*, 401(6755), 788-791. https://doi.org/10.1038/44565
 - Lee, D. D., & Seung, H. S. (2001). Algorithms for non-negative matrix factorization. In T. K. Leen, T. G. Dietterich, & V. Tresp (Eds.), *Advances in Neural Information Processing Systems 13* (pp. 556-562). MIT Press.
+- scikit-learn Developers. [NMF：非负因子与重构目标](https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.NMF.html)。

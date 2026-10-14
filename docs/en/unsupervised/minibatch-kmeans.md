@@ -1,17 +1,23 @@
 # MiniBatchKMeans
 
 > Language: English
-> Last updated: 2026-10-05
+> Last updated: 2026-10-13
 > Switch: [Chinese](../../cn/unsupervised/minibatch-kmeans.md)
 > Path: `statgpu.unsupervised.MiniBatchKMeans`
 
 ## Overview
 
-`MiniBatchKMeans` fits K-Means centers with small batches instead of full Lloyd passes over the whole dataset.
+You may want a few representative profiles for millions of observations, or need to update those profiles as records arrive in chunks. Full KMeans revisits every row when updating its centers. Fitting once to a small subset avoids that work but leaves later observations out of the learned profiles.
+
+`MiniBatchKMeans` lets successive batches contribute to the same centers. Each batch is assigned using the current centers, then its cluster-wise averages are combined with the accumulated assignments. It changes how the centers are learned, not what a good center means: the target is still squared Euclidean reconstruction error. The [mini-batch algorithm description](https://scikit-learn.org/stable/modules/generated/sklearn.cluster.MiniBatchKMeans.html) provides the broader algorithmic context; the full-data steps used by statgpu are described below.
 
 ## When to use it
 
-Use MiniBatchKMeans when repeated smaller center updates are useful. `fit` still takes the whole dense dataset and performs final full-data polishing; use `partial_fit` for an external stream. Fix feature preprocessing across batches and supply enough rows to initialize all clusters.
+Use it when smaller, incremental center updates fit your workflow and an approximate solution is acceptable. Ordinary [KMeans](kmeans.md) remains a useful comparison when full-data iterations are affordable. Mini-batching does not solve KMeans' geometric limitations or introduce noise labels or membership probabilities.
+
+There are two distinct workflows in statgpu. `fit` still takes the whole dense dataset and performs final full-data polishing, so selecting a small batch size does not make that call an out-of-core fit. For an external stream, feed chunks through `partial_fit`. Keep the same feature meanings, scaling, and centering across chunks; with data-based initialization, the first chunk must contain enough rows to initialize all centers.
+
+Batch composition matters. A first batch containing only one operating regime is a poor starting view of the whole population. Where possible, mix or shuffle representative records and check final centers on a common evaluation set. The cumulative updates also retain old observations' influence: there is no forgetting mechanism, so this is not automatically a model of only the most recent behavior.
 
 ## Path
 
@@ -29,7 +35,7 @@ $$
 \sum_i \min_j \|x_i - c_j\|_2^2.
 $$
 
-Mini-batch updates optimize this objective approximately.
+Each $x_i$ is an observation and $c_j$ a center; the minimum chooses the closest center for that row. Mini-batch updates optimize this objective approximately, using each batch's assignments rather than recomputing all earlier assignments after every update.
 
 ## Estimating Equation
 
@@ -40,6 +46,8 @@ c_j \leftarrow c_j + \eta_j(\bar{x}_{B_j} - c_j),
 \qquad
 \eta_j = \frac{|B_j|}{n_j + |B_j|}.
 $$
+
+Here $B_j$ contains this batch's rows assigned to center $j$, $\bar{x}_{B_j}$ is their mean, and $n_j$ is the accumulated assignment count before the batch. Thus $\eta_j$ is the new batch's share of the combined count. As that accumulated count grows, an equally sized new batch moves the center less; a cluster receiving no rows keeps its center.
 
 After mini-batch updates, `fit` runs a small exact Lloyd polishing pass on the full dense dataset. This keeps the estimator mini-batch driven while reducing the final inertia gap against full-data label assignments.
 

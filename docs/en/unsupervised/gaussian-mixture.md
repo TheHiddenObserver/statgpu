@@ -1,16 +1,22 @@
 # GaussianMixture
 
 > Language: English
-> Last updated: 2026-10-05
+> Last updated: 2026-10-13
 > Switch: [Chinese](../../cn/unsupervised/gaussian-mixture.md)
 
 ## Overview
 
-`GaussianMixture` fits a Gaussian mixture model with expectation-maximization. It supports `"diag"`, `"spherical"`, `"tied"`, and `"full"` covariance types on CPU, CuPy/CUDA, and Torch CUDA backends.
+Suppose measurements from several operating regimes overlap: a reading near the boundary could plausibly come from either regime, and some regimes vary more widely or along different directions. One Gaussian distribution may smooth over those differences. A hard nearest-center label hides the ambiguity by assigning every reading to exactly one group.
+
+`GaussianMixture` describes the data as a weighted blend of Gaussian components, each with a center and a covariance structure. An observation can be compatible with several components at once. Expectation-maximization (EM) alternates between estimating those fractional memberships and updating the component distributions from them. This provides both a density model and model-based soft grouping; see the [Gaussian mixture guide](https://scikit-learn.org/stable/modules/mixture.html) for the probabilistic formulation.
 
 ## When to use it
 
-Use a Gaussian mixture for overlapping groups when soft membership is useful. Start with a small component count and a simple covariance structure; inspect responsibilities, convergence and held-out log density. A fitted component need not correspond to a real population.
+Use a mixture when overlap itself matters, or when you want to evaluate how much density the fitted model assigns to new observations. Compared with [KMeans](kmeans.md), covariance modeling allows the component's spread to affect membership rather than using only Euclidean distance to its center. The chosen covariance structure determines which shapes are possible; a simple structure can be a useful starting point when there is little data per component.
+
+Separate the goal of describing density from the goal of naming groups. Several Gaussian components may help approximate one non-Gaussian population, so a fitted component need not correspond to a real population. More components or more flexible covariances are not automatically more meaningful. Inspect responsibilities, convergence, and held-out log density; compare candidate fits on the same rows with the same preprocessing.
+
+Soft membership is also not a noise detector. Even a reading far from every component can receive a large relative responsibility for the least unlikely one. Check its density as well as its memberships, and use [DBSCAN](dbscan.md) when the intended definition of a cluster is a dense connected region with unassigned background points. Neither output alone establishes the substantive cause of an unusual observation.
 
 ## Path
 
@@ -20,7 +26,7 @@ from statgpu.unsupervised import GaussianMixture
 
 ## Objective Function / Loss Function
 
-For a fixed number of mixture components, the model maximizes average log likelihood:
+Because the component that generated each observation is unknown, its density is obtained by adding the weighted contributions from all components. For a fixed number of mixture components, the model maximizes the average logarithm of that combined density, or average log likelihood:
 
 $$
 \ell(\theta)

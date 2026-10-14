@@ -1,22 +1,30 @@
 # MiniBatchNMF
 
 > Language: English
-> Last updated: 2026-10-06
+> Last updated: 2026-10-13
 > Switch: [Chinese](../../cn/unsupervised/minibatch-nmf.md)
 
 ## Overview
 
-`MiniBatchNMF` fits a non-negative low-rank factorization from dense mini-batches. The current implementation supports Frobenius loss with multiplicative-update style mini-batch updates on CPU, CuPy/CUDA, and Torch CUDA.
+As a collection of nonnegative spectra grows in batches, the goal is often to use the same recurring patterns to describe both earlier and later observations. Fitting a separate NMF to every batch yields unrelated dictionaries: even similarly shaped patterns may appear in a different order or at a different scale. Repeatedly refitting the entire collection instead revisits all historical rows and their activation coefficients.
+
+MiniBatchNMF learns a shared nonnegative dictionary while handling activation coefficients a batch at a time. Each batch contributes a compact summary of how its estimated activations relate to the observations; those summaries guide dictionary updates. The additive interpretation is the same as in NMF, while the fitting route avoids treating all row activations as one jointly updated matrix.
+
+The dictionary can change as learning proceeds. A coefficient computed before an update refers to the dictionary at that time, so it should not be mixed with coefficients from a later dictionary as though their meanings were fixed. Nonnegative patterns remain a descriptive approximation, not identified physical sources or probabilities.
 
 ## When to use it
 
-Use MiniBatchNMF for nonnegative additive structure learned in batches. `fit` receives all rows; `partial_fit` accepts an external stream. Keep rank and feature meaning fixed, and inspect reconstruction with factors returned by `transform` rather than assuming its solve equals the fitting updates.
+Choose MiniBatchNMF when batchwise fitting or incoming dense nonnegative observations are part of the problem. Use [NMF](nmf.md) as a full-data reference when the collection is manageable, and compare reconstructions using the same rank and preprocessing. If the question is about signed variation around a mean rather than additive patterns, [IncrementalPCA](incremental-pca.md) addresses that different objective.
+
+Keep feature meaning, units, and rank fixed across batches. The current incremental updates accumulate historical statistics without a forgetting factor, so new batches do not automatically replace old operating conditions. Begin with representative data, including features expected to become active; the zero-feature initialization limitation below is especially important when early batches cover only a narrow part of the data.
 
 ## Path
 
 ```python
 from statgpu.unsupervised import MiniBatchNMF
 ```
+
+This estimator supports dense input on CPU, CuPy/CUDA, and Torch CUDA.
 
 ## Objective Function / Loss Function
 
@@ -44,6 +52,8 @@ $$
 - `init`: currently supports `"random"`.
 - `batch_size`, `max_iter`, `tol`, `random_state`.
 - `device`: `"auto"`, `"cpu"`, `"cuda"`, or `"torch"`.
+
+`fit` receives and converts the whole input array before its internal batch loop. For an external stream, load dense batches yourself and call `partial_fit`; the estimator does not read files or accept sparse input. To compare observations after training, compute their activations with the final dictionary using `transform`, rather than assuming its solve equals the fitting updates.
 
 ## A small CPU example
 
@@ -150,3 +160,4 @@ Constructor defaults, all public methods, output shapes, and restrictions are li
 - Lee, D. D., & Seung, H. S. (2001). Algorithms for non-negative matrix factorization. *Advances in Neural Information Processing Systems*, 13.
 - Cichocki, A., Zdunek, R., Phan, A. H., & Amari, S.-I. (2009). *Nonnegative Matrix and Tensor Factorizations: Applications to Exploratory Multi-way Data Analysis and Blind Source Separation*. Wiley.
 - scikit-learn Developers. `sklearn.decomposition.MiniBatchNMF`. scikit-learn documentation. https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.MiniBatchNMF.html
+- Lee, D. D., & Seung, H. S. (1999). Learning the parts of objects by non-negative matrix factorization. *Nature*, 401(6755), 788-791. https://doi.org/10.1038/44565

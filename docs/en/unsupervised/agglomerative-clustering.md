@@ -1,16 +1,22 @@
 # AgglomerativeClustering
 
 > Language: English
-> Last updated: 2026-10-05
+> Last updated: 2026-10-13
 > Switch: [Chinese](../../cn/unsupervised/agglomerative-clustering.md)
 
 ## Overview
 
-`AgglomerativeClustering` builds an exact hierarchical clustering tree for dense Euclidean data. It supports `"single"`, `"complete"`, `"average"`, and `"ward"` linkage on CPU, CuPy/CUDA, and Torch CUDA paths. The GPU paths are dense exact implementations intended for small to medium data; they do not silently fall back to CPU.
+When comparing product profiles or experimental samples, you may want to know both which observations are closest and which small groups belong to larger families. A single flat partition answers only one level of that question. Running KMeans separately for several cluster counts does not require the resulting partitions to nest inside one another.
+
+`AgglomerativeClustering` builds a nested grouping from the bottom up. Every observation starts alone; the closest pair of groups is merged, then the process repeats until one group remains. The merge tree records how local similarities accumulate into broader groups. Cutting that tree gives a flat partition while retaining the context of the earlier merges.
 
 ## When to use it
 
-Use hierarchical clustering when the nested merge structure matters. Single linkage can chain groups through a few bridge points; complete linkage emphasizes diameter, average linkage averages pair distances, and Ward favors compact groups. Distance scaling changes the hierarchy.
+Use hierarchical clustering when the nested merge structure matters, rather than only a final label for each row. The important modeling choice is what makes two *groups* close. Single linkage asks whether any pair of their members is close, so a few bridge points can chain otherwise separated groups together. Complete linkage checks the farthest pair; average linkage considers all cross-group distances. Ward asks how much merging would increase within-group squared error. These definitions are described in the [SciPy linkage reference](https://docs.scipy.org/doc/scipy/reference/generated/scipy.cluster.hierarchy.linkage.html).
+
+Ward and [KMeans](kmeans.md) both use squared-error ideas, but solve different problems: Ward commits to successive merges and cannot undo them, whereas KMeans reassigns individual rows to centers. Choose KMeans when reusable centers and assignment of future rows are the main goal; choose the hierarchy when relationships across grouping levels are the result you want to inspect. Use [DBSCAN](dbscan.md) when leaving sparse observations outside clusters matters more than building a complete tree.
+
+A tree will be produced even without distinct natural families. Feature scaling and linkage choice change that tree, and a large merge height is not a significance test. Check whether the branches have a useful interpretation; “exact” here means following the chosen linkage procedure, not discovering a uniquely correct taxonomy or a globally optimal partition.
 
 ## Path
 
@@ -21,7 +27,7 @@ from statgpu.unsupervised import AgglomerativeClustering
 <a id="objective-function--loss-function"></a>
 ## Linkage and merging criteria
 
-Agglomerative clustering is a greedy hierarchical procedure, not a global smooth optimization. At each step it merges the pair of clusters with the smallest linkage criterion.
+Agglomerative clustering is a greedy hierarchical procedure, not a global smooth optimization. At each step it merges the pair of clusters with the smallest linkage criterion. In the formulas below, $A$ and $B$ are candidate groups, $|A|$ and $|B|$ are their sizes, and $\bar{x}_A$ and $\bar{x}_B$ are their mean vectors. The first three criteria summarize cross-group distances in different ways; Ward measures the cost of replacing two separate means with one merged mean.
 
 Single linkage:
 
@@ -97,7 +103,7 @@ For a supported GPU installation, construct a new estimator with `device="cuda"`
 
 ## Approximation and interpretation
 
-The estimator does not provide standard errors or significance tests. Supported linkages are exact for dense Euclidean inputs on CPU, CuPy, and Torch. GPU execution allocates a dense distance matrix and raises a clear `MemoryError` if the configured memory limit would be exceeded.
+The estimator does not provide standard errors or significance tests. Supported linkages are exact for dense Euclidean inputs on CPU, CuPy, and Torch. All four linkages (`"single"`, `"complete"`, `"average"`, and `"ward"`) are available on these paths. The GPU paths are intended for small to medium data and do not silently fall back to CPU. GPU execution allocates a dense distance matrix and raises a clear `MemoryError` if the configured memory limit would be exceeded.
 
 The GPU paths evaluate pairwise distances through expanded squared norms. Large common feature offsets can cause cancellation and change the hierarchy; subtract a training-derived offset in float64 before fitting. This preserves the intended Euclidean geometry. The SciPy CPU linkage path does not use that shared GPU distance formula.
 
