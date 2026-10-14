@@ -13,7 +13,13 @@ from statgpu.unsupervised._utils import check_2d_array, reject_sparse, scalar_to
 
 
 class GaussianMixture(BaseEstimator):
-    """Gaussian mixture model fitted with log-domain EM."""
+    """Gaussian mixture model fitted with log-domain EM.
+
+    Keep ``reg_covar`` positive for degenerate data. With ``reg_covar=0``,
+    singular covariances can produce NaN fitted results for diagonal/spherical
+    models or a linear-algebra error for full/tied models. Check covariance,
+    density and responsibility finiteness before interpreting the result.
+    """
 
     def __init__(
         self,

@@ -1,6 +1,6 @@
 # Implemented Methods
 
-> Last updated: 2026-09-17  
+> Last updated: 2026-10-08  
 > Switch: [Chinese](../../cn/guides/implemented-methods.md)
 
 This page is the public inventory of models, functions, and major solver families available in statgpu. Detailed mathematics, inference scope, and compatibility rules live on the linked model and guide pages.
@@ -13,7 +13,7 @@ This page is the public inventory of models, functions, and major solver familie
 | `Ridge` | L2-penalized linear regression | NumPy, CuPy, Torch |
 | `Lasso` | L1 regression with debiased/bootstrap inference paths | NumPy, CuPy, Torch |
 | `ElasticNet` | L1+L2 penalized regression | NumPy, CuPy, Torch |
-| `LogisticRegression` | Binary logistic/probit regression | NumPy, CuPy, Torch |
+| `LogisticRegression` | Binary logistic regression (logit link) | NumPy, CuPy, Torch |
 | `PoissonRegression` | Poisson GLM | NumPy, CuPy, Torch |
 | `GammaRegression` | Gamma GLM | NumPy, CuPy, Torch |
 | `InverseGaussianRegression` | Inverse Gaussian GLM | NumPy, CuPy, Torch |
@@ -22,6 +22,8 @@ This page is the public inventory of models, functions, and major solver familie
 | `QuantileRegression` | Quantile regression with kernel/bootstrap inference | NumPy, CuPy, Torch |
 | `OrderedLogitRegression` | Ordered logit with analytical-Hessian inference | NumPy, CuPy, Torch |
 | `OrderedProbitRegression` | Ordered probit with analytical-Hessian inference | NumPy, CuPy, Torch |
+
+[`LogisticRegression`](../models/regression/logistic-regression.md) uses the logit link and has no probit link option. [`OrderedProbitRegression`](../models/regression/ordered.md) provides the separate ordered-probit model; set `n_categories=2` for binary probit regression.
 
 ## Penalized Models
 
@@ -41,17 +43,22 @@ Solver availability depends on the selected loss and penalty. Consult the [Loss 
 
 ### Example
 
+<!-- api-example: inventory-poisson -->
 ```python
+import numpy as np
 from statgpu.linear_model import PenalizedGeneralizedLinearModel
 
+rng = np.random.default_rng(42)
+X = rng.normal(size=(80, 2))
+y = rng.poisson(np.exp(0.3 + X @ np.array([0.5, -0.2])))
 model = PenalizedGeneralizedLinearModel(
-    loss="poisson",
-    penalty="l1",
-    alpha=0.05,
-    solver="fista",
-)
-model.fit(X, y)
+    loss="poisson", penalty="l1", alpha=0.05, solver="fista",
+    device="cpu", compute_inference=False, max_iter=2000, tol=1e-8,
+).fit(X, y)
+print(np.round(model.predict(X[:3]), 6))
 ```
+
+The fitted values are expected event counts, about `[1.458758, 1.547328, 0.775672]`. This L1-Poisson example is estimation-only; coefficient inference for non-Gaussian L1/ElasticNet fits is not implemented. Choose the penalty by a separate validation procedure for real data.
 
 ## Cross-Validation
 
@@ -63,6 +70,7 @@ model.fit(X, y)
 | `LogisticRegressionCV` | Logistic-regression CV | NumPy, CuPy, Torch |
 | `PenalizedGLM_CV` | Unified penalized-GLM CV | NumPy, CuPy, Torch |
 | `CoxPHCV` | Cox penalty search and final refit | NumPy, CuPy, Torch |
+| `KernelRidgeCV` | Fixed-kernel alpha selection; integer folds, no sample weights | NumPy, CuPy, Torch |
 
 See [Cross-Validation](cross-validation.md) for fold, selection, refit, weight, and inference-after-selection semantics.
 
@@ -76,19 +84,26 @@ See [Cross-Validation](cross-validation.md) for fold, selection, refit, weight, 
 - `cohens_f`
 - `partial_eta_squared`
 
-See [ANOVA](../models/anova.md) for design restrictions and scalar distribution boundaries.
+These are seven functions: three omnibus tests, two pairwise-comparison procedures,
+and two effect-size helpers. The designs are independent-group one-way, Welch
+one-way, and balanced two-way ANOVA. See the [overview](../models/testing/anova.md) for
+method choice; [classical one-way](../models/testing/anova-oneway.md),
+[Welch](../models/testing/anova-welch.md), [balanced two-way](../models/testing/anova-twoway.md)
+and [post-hoc](../models/testing/anova-posthoc.md) tutorials for worked analyses; and the
+[complete ANOVA API](../reference/anova-api.md) for all five result types, defaults,
+input restrictions and scalar distribution boundaries.
 
 ## Covariance Estimation
 
-- `EmpiricalCovariance`
-- `LedoitWolf`
-- `OAS`
-- `ShrunkCovariance`
-- `MinCovDet`
-- `GraphicalLasso`
-- `GraphicalLassoCV`
+- [EmpiricalCovariance](../models/covariance/covariance-empirical.md)
+- [LedoitWolf](../models/covariance/covariance-ledoit-wolf.md)
+- [OAS](../models/covariance/covariance-oas.md)
+- [ShrunkCovariance](../models/covariance/covariance-shrunk.md)
+- [MinCovDet](../models/covariance/covariance-min-cov-det.md)
+- [GraphicalLasso](../models/covariance/covariance-graphical-lasso.md)
+- [GraphicalLassoCV](../models/covariance/covariance-graphical-lasso-cv.md)
 
-See [Covariance Estimation](../models/covariance.md).
+See [Covariance Estimation](../models/covariance/README.md). [Complete covariance API](../reference/covariance-api.md).
 
 ## Panel Data
 
@@ -99,17 +114,20 @@ See [Covariance Estimation](../models/covariance.md).
 - `FirstDifferenceOLS`
 - `FamaMacBeth`
 
-See [Panel Data Models](../models/panel.md) for model choice, covariance, rank-deficiency, and prediction behavior.
+See [Panel Data Models](../panel/README.md) for model choice, covariance, rank-deficiency, and prediction behavior.
 
 ## Nonparametric and Semiparametric Methods
 
-- `KernelDensity` and kernel regression
-- `KernelRidge` and `KernelRidgeCV`
-- `KernelPCA`
-- `Nystroem`
+- `KernelDensityEstimator` / `KDE`
+- `KernelRegression` / `KernelRegressionRegressor`
+- [KernelRidge](../models/nonparametric/kernel-ridge.md) / [KernelRidgeCV](../models/nonparametric/kernel-ridge-cv.md)
+- [KernelPCA](../models/nonparametric/kernel-pca.md)
+- [Nystroem](../models/nonparametric/kernel-nystroem.md)
 - `SplineTransformer`
 - B-spline, natural cubic, cyclic cubic, and thin-plate spline bases
 - `GAM`
+
+Kernel similarities and method choice are explained in the [overview](../models/nonparametric/kernel-methods.md); signatures, fitted attributes, and execution limits are in the [complete API](../reference/kernel-methods-api.md).
 
 ## Unsupervised Learning
 
@@ -117,7 +135,9 @@ See [Panel Data Models](../models/panel.md) for model choice, covariance, rank-d
 - `NMF`, `MiniBatchNMF`
 - `KMeans`, `MiniBatchKMeans`, `DBSCAN`
 - `GaussianMixture`, `AgglomerativeClustering`
-- `UMAP`, `TSNE`, `NNDescent`
+- `UMAP`, `TSNE`
+
+UMAP can use an internal approximate NNDescent search through `nn_method="nndescent"`. NNDescent is not a separate public estimator export; see the [UMAP support limits](../unsupervised/umap.md).
 
 ## Survival Analysis
 
@@ -132,7 +152,8 @@ The base installation contains Cox fitting. The optional `statgpu[survival]` ext
 ## Feature Selection and Diagnostics
 
 - `StepwiseSelector` and `stepwise_selection`
-- fixed-X and model-X knockoff filters and selector wrappers
+- [Knockoff overview](../models/feature-selection/knockoff.md) — principles, assumptions and interpretation
+  - [Fixed-X tutorial](../models/feature-selection/knockoff-fixed-x.md) · [Model-X tutorial](../models/feature-selection/knockoff-model-x.md) · [Complete feature-selection API](../reference/feature-selection-api.md)
 - `RegressionDiagnostics` and `diagnose_model`
 
 ## Multiple Testing and Resampling

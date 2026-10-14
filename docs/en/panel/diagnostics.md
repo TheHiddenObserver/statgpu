@@ -1,18 +1,70 @@
 # Panel Diagnostics
 
 > Language: English  
-> Last updated: 2026-08-18<br>
+> Last updated: 2026-10-13<br>
 > Switch: [Chinese](../../cn/panel/diagnostics.md)
 
-## Overview and Path
+## Overview
 
 Panel diagnostics help answer model-selection questions such as whether fixed effects are needed or whether a random-effects specification is compatible with the fixed-effects estimate. Each test returns a `PanelTestResult` containing the statistic, p-value, reference distribution, and a readable statement of the null and alternative hypotheses.
 
-Implementation: `statgpu/panel/_diagnostics.py` plus the shared diagnostic-context helpers.
+## Choose the question, then check applicability
+
+- Do the fitted fixed effects add to a pooled common-intercept model? Use the pooling F test.
+- Does a pooled model need an entity error component? Use the Breusch-Pagan LM test.
+- Is classical one-way entity RE compatible with FE on the same data? Use the Hausman test.
+
+These are different null hypotheses, not a sequence that automatically selects a valid model. Failure to reject does not establish the assumptions, and a smaller p-value in one test does not make it a substitute for another. The classical Hausman comparison requires the same aligned sample and coefficient design, uniquely identified coefficients, and nonrobust one-way entity FE and RE fits.
+
+## Run the comparisons on one sample
+
+Call `PanelOLS.pooling_f_test()` for pooling F. For the LM test, fit `PooledOLS` with `entity_ids`, then call `breusch_pagan_lm_test()`. For Hausman, use `hausman_test()` on the compatible fitted FE and RE models. The sections below give each test's definition and applicability conditions.
+
+This example uses the same 30 entities and 8 observations per entity for all three fits. FE and RE use the same single slope column without a level constant; pooled OLS adds its own intercept. This simulation illustrates reading the tests, not deciding the assumptions of a real application.
+
+<!-- example: cpu-diagnostics -->
+```python
+import numpy as np
+from statgpu.panel import PanelOLS, PooledOLS, RandomEffects
+
+rng = np.random.default_rng(17)
+entity_ids = np.repeat(np.arange(30), 8)
+X = rng.normal(size=(240, 1))
+y = (2.0 * X[:, 0] + np.repeat(rng.normal(size=30), 8)
+     + rng.normal(scale=0.4, size=240))
+
+fe = PanelOLS(entity_effects=True, cov_type="nonrobust", device="cpu").fit(
+    X, y, entity_ids=entity_ids
+)
+pooled = PooledOLS(device="cpu").fit(X, y, entity_ids=entity_ids)
+re = RandomEffects(cov_type="nonrobust", device="cpu").fit(
+    X, y, entity_ids=entity_ids
+)
+tests = {
+    "pooling F": fe.pooling_f_test(),
+    "Breusch-Pagan LM": pooled.breusch_pagan_lm_test(),
+    "Hausman": fe.hausman_test(re),
+}
+for name, result in tests.items():
+    if result.applicable:
+        print(name, result.statistic, result.pvalue, result.null)
+    else:
+        print(name, "not applicable:", result.reason)
+```
+<!-- example-end: cpu-diagnostics -->
+
+Pooling F is about 40.26 and LM about 564.32, both giving strong evidence against their respective pooled nulls in this simulation. Hausman is **not applicable** here because the estimated covariance difference is not positive semidefinite. That is not evidence for or against RE: report the reason rather than manufacturing or interpreting a p-value. The model pages explain [FE](panel-ols.md#cpu-example), [pooled OLS](pooled-ols.md#cpu-example), and [RE](random-effects.md#cpu-example) results in more detail.
+
+## Outputs and Strict Behavior
+
+First check `result.applicable`. If it is false, read `result.reason` rather than interpreting a missing p-value. Otherwise, read the null hypothesis and reference distribution alongside the statistic and p-value.
+
+`PanelTestResult` reports `statistic`, `pvalue`, the reference distribution, degrees of freedom, null and alternative text, and an `applicable` flag. When a test cannot be computed under its documented definition, inspect `reason` to see why; statgpu does not return a different test under the same method name.
+
 
 ## Pooling F
 
-The pooling F test asks whether the fixed effects included in a `PanelOLS` model are jointly unnecessary. Its null hypothesis is that all included fixed effects are zero, so failure to reject supports the pooled specification relative to that fixed-effect alternative.
+The pooling F test asks whether the entity and/or time effects included in a `PanelOLS` model add explanatory power beyond a pooled model with a common intercept. Under the null, there are no additional effect differences relative to that common level; with the usual identifying constraints, the added fixed-effect coefficients are jointly zero. Failure to reject means the test found no evidence against the pooled specification relative to that fixed-effect alternative, not that the pooled model has been proved correct.
 
 $$
 F=\frac{(RSS_R-RSS_U)/q}{RSS_U/df_U},
@@ -60,15 +112,10 @@ result = re.hausman_test(fe)
 >
 > Numerically, let $D=V_{\mathrm{FE}}-V_{\mathrm{RE}}$. If $D$ has a materially negative eigenvalue, the classical quadratic form is not valid and the test is reported as inapplicable. If $D$ is singular but positive semidefinite, statgpu uses the Moore-Penrose inverse $D^+$ only when the coefficient difference lies in $\operatorname{range}(D)$.
 
-## Outputs and Strict Behavior
+## Numerical limits
 
-`PanelTestResult` reports `statistic`, `pvalue`, the reference distribution, degrees of freedom, null and alternative text, and an `applicable` flag. When a test cannot be computed under its documented definition, inspect `reason` to see why; statgpu does not return a different test under the same method name.
+For finite extreme-scale inputs, classical model F, pooling F, and Breusch-Pagan LM use range-aware arithmetic without changing their statistical definitions. Public RSS metadata is expressed in the original squared units and may be `inf` when that squared quantity itself exceeds float64 range. This alone does not imply an infinite test statistic: the scale-invariant statistic is protected against avoidable intermediate overflow and underflow.
 
-For finite extreme-scale inputs, classical model F, pooling F, and Breusch-Pagan LM evaluate their scale-invariant quadratic reductions on backend-native normalized working values. Scalar and column centering use overflow-safe reduction-length scaling, while subnormal normalization avoids backend-specific division by a subnormal denominator. Public RSS metadata is restored to the original squared units when representable (and may be `inf` only when that squared quantity itself is outside float64); the test statistic is not allowed to become `0`, `NaN`, or `inf` merely because an avoidable intermediate overflowed or underflowed.
-
-## External Validation
-
-Where definitions overlap, the diagnostic and supporting covariance calculations are compared with pinned Python and R references: `linearmodels==7.0`, `statsmodels==0.14.6`, R `plm==2.6-7`, and `sandwich==3.1-3`. The corresponding checks live in the panel diagnostic tests and `dev/tests/test_panel_stage_c_r_external.py`.
 
 ## References
 

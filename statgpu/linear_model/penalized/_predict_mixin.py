@@ -164,9 +164,10 @@ class _PenalizedPredictMixin:
         return_cpu : bool, default=True
             If True, always return a numpy ndarray (GPU→CPU transfer happens
             automatically when the model was fitted on GPU).  If False, return
-            the result in the same backend as the fitted coefficients (cupy/
-            torch when fitted on GPU, numpy when fitted on CPU).  Setting to
-            False avoids an unnecessary D→H transfer when chaining GPU
+            the result in the fitted model's numerical backend (CuPy/Torch
+            for GPU fitting, NumPy for CPU fitting). Public ``coef_`` storage
+            is NumPy even after GPU fitting and does not determine the output
+            backend. Setting to False avoids a D→H transfer when chaining GPU
             operations (e.g., ``model.predict(X_gpu) - y_gpu``).
 
         Returns
@@ -261,12 +262,15 @@ class _PenalizedPredictMixin:
         y : array-like of shape (n_samples,)
             True values.
         sample_weight : array-like of shape (n_samples,), optional
-            Sample weights. When provided, returns weighted R².
+            Finite nonnegative evaluation weights with positive total weight.
+            These are independent of training weights. The squared-error path
+            currently does not reliably reject negative weights and can return
+            invalid R² above 1; validate the vector before calling this method.
 
         Returns
         -------
         score : float
-            R² or pseudo-R² score.
+            Response-scale R², not deviance-based pseudo-R².
         """
         is_quantile = (
             str(getattr(self, "loss", "")).lower().strip() == "quantile"

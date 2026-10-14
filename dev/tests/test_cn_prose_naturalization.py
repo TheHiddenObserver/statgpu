@@ -23,9 +23,14 @@ PAGES = (
     "docs/cn/unsupervised/nmf.md",
     "docs/cn/unsupervised/truncated-svd.md",
     "docs/cn/unsupervised/tsne.md",
-    "docs/cn/models/unsupervised.md",
-    "docs/cn/models/splines.md",
-    "docs/cn/models/kernel-methods.md",
+    "docs/cn/unsupervised/README.md",
+    "docs/cn/models/nonparametric/splines.md",
+    "docs/cn/models/nonparametric/kernel-methods.md",
+    "docs/cn/models/nonparametric/kernel-ridge.md",
+    "docs/cn/models/nonparametric/kernel-ridge-cv.md",
+    "docs/cn/models/nonparametric/kernel-pca.md",
+    "docs/cn/models/nonparametric/kernel-nystroem.md",
+    "docs/cn/reference/kernel-methods-api.md",
 )
 
 FRAGMENTS_TO_AVOID = (

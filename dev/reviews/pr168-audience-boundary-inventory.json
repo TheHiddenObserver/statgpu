@@ -1,0 +1,1307 @@
+{
+  "baseline_head": "880b7b8474ab4728ed44a4556b1b64faaa6e7b55",
+  "comparison_base": "3fba9af81db8624ab6e882cb153e7ede7ead7f63",
+  "scope": "162 baseline active user pages; 13 developer contract/plan and eight historical release/changelog pages were purpose-classified separately, not exhaustively re-audited",
+  "counts": {
+    "preserved": 128,
+    "changed": 34
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "baseline_blob": "9eca874a3dd35fea9ae8988b63d73a4c064b9f3e",
+      "candidate_blob": "9eca874a3dd35fea9ae8988b63d73a4c064b9f3e",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/README.md",
+      "baseline_blob": "ac65dc9c070f04bd93ef54b65712bffb70acc15b",
+      "candidate_blob": "ac65dc9c070f04bd93ef54b65712bffb70acc15b",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/benchmarks.md",
+      "baseline_blob": "a7b3d5db7799c70ecc506fd323b0750c02f52d43",
+      "candidate_blob": "090dd16c31eb97bd1274d41a9822deb4dbc3b1bb",
+      "baseline_audit": "full_read_with_audience_findings",
+      "disposition": "changed",
+      "rationale": "Separated dashboard use from maintenance, derived coverage from generated data, and qualified historical speed evidence."
+    },
+    {
+      "path": "docs/cn/getting-started/quickstart.md",
+      "baseline_blob": "ad7aa58af10891f0c6b74e178d0c4f61f6a4325f",
+      "candidate_blob": "ad7aa58af10891f0c6b74e178d0c4f61f6a4325f",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/guides/benchmarks.md",
+      "baseline_blob": "c7a16bc83a62d3898b39d2c684b18dd5a1bf8bff",
+      "candidate_blob": "75ac89caf9067013299ada77a8cb0ebd5d48e37c",
+      "baseline_audit": "full_read_with_audience_findings",
+      "disposition": "changed",
+      "rationale": "Separated dashboard use from maintenance, derived coverage from generated data, and qualified historical speed evidence."
+    },
+    {
+      "path": "docs/cn/guides/cox-cv-staged-safety.md",
+      "baseline_blob": "b029fd5034735561079f07f3ae94fdc9f31d084b",
+      "candidate_blob": "3ddc3b8740bef5806c033db036d69240ede721c3",
+      "baseline_audit": "full_read_with_audience_findings",
+      "disposition": "changed",
+      "rationale": "Moved future screening-author guidance to developer provenance; preserved current exhaustive evaluation and diagnostics."
+    },
+    {
+      "path": "docs/cn/guides/cross-validation-design.md",
+      "baseline_blob": "1f996599c5203a4509fb2b59dd4b8de37c332161",
+      "candidate_blob": "4ce622fd2bc9d0efa18825485843cbafb007bbde",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "changed",
+      "rationale": "Clarified RidgeCV known implementation defect; preserved conditions, consequence and external-CV workaround."
+    },
+    {
+      "path": "docs/cn/guides/cross-validation.md",
+      "baseline_blob": "9ee570b4c44f2b912e6ce9bab0221c023788a310",
+      "candidate_blob": "e5cc30e035609550b84ac9779e69da7472a257ba",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "changed",
+      "rationale": "Clarified RidgeCV known implementation defect; preserved conditions, consequence and external-CV workaround."
+    },
+    {
+      "path": "docs/cn/guides/device-and-memory.md",
+      "baseline_blob": "ed85ad154044c67c0391d6953f43988ce4a9b9c0",
+      "candidate_blob": "ed85ad154044c67c0391d6953f43988ce4a9b9c0",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/guides/distribution-api.md",
+      "baseline_blob": "d45327e6695166da05fd6d20f6a9936d92eaf6a0",
+      "candidate_blob": "d45327e6695166da05fd6d20f6a9936d92eaf6a0",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/guides/implemented-methods.md",
+      "baseline_blob": "9e9c2ef5421eacc4d43a6929ab08a64ab5aad142",
+      "candidate_blob": "9e9c2ef5421eacc4d43a6929ab08a64ab5aad142",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/guides/inference-api.md",
+      "baseline_blob": "de2052ee9fd4d4fcc45097aab7ba4a98d75db437",
+      "candidate_blob": "de2052ee9fd4d4fcc45097aab7ba4a98d75db437",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/guides/inference-modes.md",
+      "baseline_blob": "c786db530a38959e20975e0223908ff7257e0f3f",
+      "candidate_blob": "c786db530a38959e20975e0223908ff7257e0f3f",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/guides/lbfgs-float32-precision-contract.md",
+      "baseline_blob": "ffd74e2c5e9d1d1985f8310d5063d605e8e36fe5",
+      "candidate_blob": "356775ed94c4bed7cf5acc7040a2259c76b62a0a",
+      "baseline_audit": "full_read_with_low_editorial_findings",
+      "disposition": "changed",
+      "rationale": "Removed passive test/developer-change wording; retained practical statistical and numerical guidance."
+    },
+    {
+      "path": "docs/cn/guides/loss-penalty-solver-framework.md",
+      "baseline_blob": "c4b46eaa0069288f0e60ac14412e9d45b965ea1d",
+      "candidate_blob": "c4b46eaa0069288f0e60ac14412e9d45b965ea1d",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/guides/multiple-testing-combine-pvalues.md",
+      "baseline_blob": "286e9b3f3e80297c47d7b3d6af64feea3ba2b900",
+      "candidate_blob": "286e9b3f3e80297c47d7b3d6af64feea3ba2b900",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/guides/nodewise-alpha-migration.md",
+      "baseline_blob": "b450f1139887a39531a74cb52d994d53622a6651",
+      "candidate_blob": "b450f1139887a39531a74cb52d994d53622a6651",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/guides/penalized-glm-inference.md",
+      "baseline_blob": "613805cce9a9d3d3423c439ef50849bf8f03a8a0",
+      "candidate_blob": "613805cce9a9d3d3423c439ef50849bf8f03a8a0",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/guides/penalized-solver-api-migration.md",
+      "baseline_blob": "d42be26aeb9a1721a3414d42f85c405ea7eeca0f",
+      "candidate_blob": "d42be26aeb9a1721a3414d42f85c405ea7eeca0f",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/guides/pytorch-backend.md",
+      "baseline_blob": "faf813eeca8d2548c022bbeda348aebb08b19768",
+      "candidate_blob": "faf813eeca8d2548c022bbeda348aebb08b19768",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/guides/regression-diagnostics.md",
+      "baseline_blob": "75b401ae8c451ffa3058f2ca3a26eb23a9e77d57",
+      "candidate_blob": "eb2c83bcfe33d0f543bd1d3e4a086b40b7dabcf9",
+      "baseline_audit": "full_read_with_low_editorial_findings",
+      "disposition": "changed",
+      "rationale": "Removed passive test/developer-change wording; retained practical statistical and numerical guidance."
+    },
+    {
+      "path": "docs/cn/guides/solver-algorithms.md",
+      "baseline_blob": "1c8a5fdfac83bbdbdee3c5d63d4a9f5ec8f8df9a",
+      "candidate_blob": "7c29a106fe1acf6c19f8bca29c1467fe1e610f98",
+      "baseline_audit": "full_read_with_low_editorial_findings",
+      "disposition": "changed",
+      "rationale": "Removed passive test/developer-change wording; retained practical statistical and numerical guidance."
+    },
+    {
+      "path": "docs/cn/guides/solver-penalty-matrix.md",
+      "baseline_blob": "e453465003557381f2401f2df67a284e6a05b877",
+      "candidate_blob": "e453465003557381f2401f2df67a284e6a05b877",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/models/README.md",
+      "baseline_blob": "7214766f300ae40ad1222308b78f91c7c693d6e9",
+      "candidate_blob": "7214766f300ae40ad1222308b78f91c7c693d6e9",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/models/adaptive-lasso.md",
+      "baseline_blob": "2fd5501ccc2d39507e19efb31ad22ad6422401b6",
+      "candidate_blob": "2fd5501ccc2d39507e19efb31ad22ad6422401b6",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/models/anova.md",
+      "baseline_blob": "c26bafcb85c5319fb960f7962eb0d2cb80adb5a5",
+      "candidate_blob": "133561fc14a54022c2a353fd45d4d473e2b858a2",
+      "baseline_audit": "full_read_with_audience_findings",
+      "disposition": "changed",
+      "rationale": "Moved maintained-test/evidence inventory to model provenance; retained hypotheses and added actionable comparison settings."
+    },
+    {
+      "path": "docs/cn/models/covariance.md",
+      "baseline_blob": "02b5544e9cf1de6bed61bca5e323011fa8ed11e3",
+      "candidate_blob": "9a42742eb07848989048b289876d1d39cda101f0",
+      "baseline_audit": "full_read_with_audience_findings",
+      "disposition": "changed",
+      "rationale": "Moved maintained-test/evidence inventory to model provenance; retained hypotheses and added actionable comparison settings."
+    },
+    {
+      "path": "docs/cn/models/coxph.md",
+      "baseline_blob": "d99d78e7d36326e5c4b2c731fd95b14c3db9f5ca",
+      "candidate_blob": "d99d78e7d36326e5c4b2c731fd95b14c3db9f5ca",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/models/elastic-net.md",
+      "baseline_blob": "baf5ecd7732721e34efdea66c4cb614f5517039a",
+      "candidate_blob": "baf5ecd7732721e34efdea66c4cb614f5517039a",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/models/feature-selection.md",
+      "baseline_blob": "399c60d33b9797e1fb9a1139c75a027fe8c3fc35",
+      "candidate_blob": "399c60d33b9797e1fb9a1139c75a027fe8c3fc35",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/models/generalized-linear-model.md",
+      "baseline_blob": "7e5216aaacef552952247a5883ee4f035b1c04b4",
+      "candidate_blob": "7e5216aaacef552952247a5883ee4f035b1c04b4",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/models/kernel-methods.md",
+      "baseline_blob": "33c2060cce9d350f4d76565b17a92ad5bbaf75ef",
+      "candidate_blob": "33c2060cce9d350f4d76565b17a92ad5bbaf75ef",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/models/knockoff.md",
+      "baseline_blob": "48979e82915c4e919a6866679d319d571392418b",
+      "candidate_blob": "48979e82915c4e919a6866679d319d571392418b",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/models/lasso.md",
+      "baseline_blob": "bcff402bf096ab1ef46ee291d09df9ebf7ab00eb",
+      "candidate_blob": "bcff402bf096ab1ef46ee291d09df9ebf7ab00eb",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/models/linear-regression.md",
+      "baseline_blob": "c094d6d6bd3fc0fa600c5ddc47de20eeed678cb6",
+      "candidate_blob": "c094d6d6bd3fc0fa600c5ddc47de20eeed678cb6",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/models/logistic-regression.md",
+      "baseline_blob": "0f1ad5a57d820e445ba0c79c6ee0ed3a331ee36b",
+      "candidate_blob": "591054b4e81fdddaec1c2a49210925d0e016a222",
+      "baseline_audit": "full_read_with_audience_findings",
+      "disposition": "changed",
+      "rationale": "Replaced passive validation claim with aligned unweighted/unpenalized comparison guidance."
+    },
+    {
+      "path": "docs/cn/models/losses.md",
+      "baseline_blob": "9e00e21e138cb5e82ff2c2ac65bfd51e2e0eb4e9",
+      "candidate_blob": "9e00e21e138cb5e82ff2c2ac65bfd51e2e0eb4e9",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/models/mcp.md",
+      "baseline_blob": "69658639751ac66c8e5ca70c04aed90e720787ef",
+      "candidate_blob": "69658639751ac66c8e5ca70c04aed90e720787ef",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/models/multiple-testing.md",
+      "baseline_blob": "8bc1662a137a9ab31aef26da46096c00922ee82c",
+      "candidate_blob": "8bc1662a137a9ab31aef26da46096c00922ee82c",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/models/nonparametric.md",
+      "baseline_blob": "c176dc54e7331eedad670072081b51539f3767a3",
+      "candidate_blob": "c176dc54e7331eedad670072081b51539f3767a3",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/models/ordered.md",
+      "baseline_blob": "105c82f51cead4f977aa05aedae259deab4d65d9",
+      "candidate_blob": "105c82f51cead4f977aa05aedae259deab4d65d9",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/models/panel.md",
+      "baseline_blob": "5d9f6f295e76139205a25c57ed3241c8fc2bdae7",
+      "candidate_blob": "5d9f6f295e76139205a25c57ed3241c8fc2bdae7",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/models/poisson-regression.md",
+      "baseline_blob": "2640aa8ff5ba597b5f0500c1adb5f5a862c610fa",
+      "candidate_blob": "2640aa8ff5ba597b5f0500c1adb5f5a862c610fa",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/models/quantile.md",
+      "baseline_blob": "4a001246f9610923a3b9aa514823a413e617a387",
+      "candidate_blob": "4a001246f9610923a3b9aa514823a413e617a387",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/models/ridge.md",
+      "baseline_blob": "1fff4bffd83dca3f1d21a8df94282f6603031ca6",
+      "candidate_blob": "1fff4bffd83dca3f1d21a8df94282f6603031ca6",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/models/robust.md",
+      "baseline_blob": "5e1b5336a2e9008dda4ef22122d0766424f4fd9d",
+      "candidate_blob": "5e1b5336a2e9008dda4ef22122d0766424f4fd9d",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/models/scad.md",
+      "baseline_blob": "6122eb14d7128c75d7c416441565d74777d6ef94",
+      "candidate_blob": "6122eb14d7128c75d7c416441565d74777d6ef94",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/models/semiparametric.md",
+      "baseline_blob": "d211bc9a33e980a07c7ee904fa058521af0192bb",
+      "candidate_blob": "d211bc9a33e980a07c7ee904fa058521af0192bb",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/models/splines.md",
+      "baseline_blob": "6c45c2e8639a3590b7d1208035f9df5fa486262d",
+      "candidate_blob": "6c45c2e8639a3590b7d1208035f9df5fa486262d",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/models/unsupervised.md",
+      "baseline_blob": "0d81ea71c65378fc8f59a2f39fdc0f0f65f5e388",
+      "candidate_blob": "0d81ea71c65378fc8f59a2f39fdc0f0f65f5e388",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/panel/architecture.md",
+      "baseline_blob": "f7785f2e663d4b51d5e06bc95de01f5e59838fe6",
+      "candidate_blob": "f7785f2e663d4b51d5e06bc95de01f5e59838fe6",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/panel/between-ols.md",
+      "baseline_blob": "46fd386a5eae8a9d69870ebebcfc8069ec0d0e51",
+      "candidate_blob": "46fd386a5eae8a9d69870ebebcfc8069ec0d0e51",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/panel/covariance.md",
+      "baseline_blob": "462a73807a4336be54321a928752e46c02593ada",
+      "candidate_blob": "462a73807a4336be54321a928752e46c02593ada",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/panel/diagnostics.md",
+      "baseline_blob": "ca5eb7fe9f87bafc6034da4d0e0579410afa7679",
+      "candidate_blob": "ca5eb7fe9f87bafc6034da4d0e0579410afa7679",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/panel/fama-macbeth.md",
+      "baseline_blob": "d1ab0ced980e488ebc9c42643c71d9656a0b879e",
+      "candidate_blob": "d1ab0ced980e488ebc9c42643c71d9656a0b879e",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/panel/first-difference-ols.md",
+      "baseline_blob": "1820c0e3f43cb6a8aad8abb632462a4a4149dc2a",
+      "candidate_blob": "1820c0e3f43cb6a8aad8abb632462a4a4149dc2a",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/panel/fit-statistics.md",
+      "baseline_blob": "6261cb7d088f266e7d5c9d6dede7869a7a737267",
+      "candidate_blob": "6261cb7d088f266e7d5c9d6dede7869a7a737267",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/panel/panel-ols.md",
+      "baseline_blob": "d63d6d584e21adf545f31f0fe97a9aa2c622d2a7",
+      "candidate_blob": "d63d6d584e21adf545f31f0fe97a9aa2c622d2a7",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/panel/pooled-ols.md",
+      "baseline_blob": "42958c35d5f64b42af384042f264feb7977c81cc",
+      "candidate_blob": "42958c35d5f64b42af384042f264feb7977c81cc",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/panel/random-effects.md",
+      "baseline_blob": "29f2b8491f3dece4c208f76f049fc2dd8e9de213",
+      "candidate_blob": "29f2b8491f3dece4c208f76f049fc2dd8e9de213",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/reference/coxph-diagnostics.md",
+      "baseline_blob": "e84fb2d49013fb045bfefb44e5f929ecb9443bd1",
+      "candidate_blob": "e84fb2d49013fb045bfefb44e5f929ecb9443bd1",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/reference/estimator-api.md",
+      "baseline_blob": "5827b771b830a5b0c8fff7535b67d43ea8079505",
+      "candidate_blob": "5827b771b830a5b0c8fff7535b67d43ea8079505",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/reference/feature-selection-api.md",
+      "baseline_blob": "edbc06334205ec4bf01040c8cad39b89ccb3baff",
+      "candidate_blob": "edbc06334205ec4bf01040c8cad39b89ccb3baff",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/reference/linear-model-api.md",
+      "baseline_blob": "2d1b32083cacb7411fcdd3b0a2ac896f89f9f2d9",
+      "candidate_blob": "f1c1135344f728ae2628ffd4075b167cb0e48cdc",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "changed",
+      "rationale": "Clarified RidgeCV known implementation defect; preserved conditions, consequence and external-CV workaround."
+    },
+    {
+      "path": "docs/cn/reference/survival-smoothing-api.md",
+      "baseline_blob": "e2851b2fd54096a1926bae4a951340ccea6053da",
+      "candidate_blob": "e2851b2fd54096a1926bae4a951340ccea6053da",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/unsupervised/README.md",
+      "baseline_blob": "64c2a142bfc10bc37a3f0604c125b59cb078e8bb",
+      "candidate_blob": "64c2a142bfc10bc37a3f0604c125b59cb078e8bb",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/unsupervised/agglomerative-clustering.md",
+      "baseline_blob": "9345e53d30dac6273b5f46c1a00e7dc8d6195b57",
+      "candidate_blob": "9345e53d30dac6273b5f46c1a00e7dc8d6195b57",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/unsupervised/api-reference.md",
+      "baseline_blob": "2c5db30e013222ba51327c45e1a7d03a4c8f685d",
+      "candidate_blob": "2c5db30e013222ba51327c45e1a7d03a4c8f685d",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/unsupervised/dbscan.md",
+      "baseline_blob": "1daf40c22f1a602e21ddd56659e800eff9c9636c",
+      "candidate_blob": "1daf40c22f1a602e21ddd56659e800eff9c9636c",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/unsupervised/gaussian-mixture.md",
+      "baseline_blob": "a1b4130b09c431f6644e16489c04e11fcb4a93dc",
+      "candidate_blob": "a1b4130b09c431f6644e16489c04e11fcb4a93dc",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/unsupervised/incremental-pca.md",
+      "baseline_blob": "9fa90b7e7eebd2388ee63bcd5a9183e6afa434ae",
+      "candidate_blob": "9fa90b7e7eebd2388ee63bcd5a9183e6afa434ae",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/unsupervised/kmeans.md",
+      "baseline_blob": "d5e7fe3e8e8700df5f478e6b6763c15dd28a8517",
+      "candidate_blob": "d5e7fe3e8e8700df5f478e6b6763c15dd28a8517",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/unsupervised/minibatch-kmeans.md",
+      "baseline_blob": "47de8e6757325979403666ca832e86aed709ae21",
+      "candidate_blob": "47de8e6757325979403666ca832e86aed709ae21",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/unsupervised/minibatch-nmf.md",
+      "baseline_blob": "466d898f21f529a6df90bdb830e1ffe99c0cc8d9",
+      "candidate_blob": "466d898f21f529a6df90bdb830e1ffe99c0cc8d9",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/unsupervised/nmf.md",
+      "baseline_blob": "ca85e2e88a85939ddf66f0d83a99cdb1067693f7",
+      "candidate_blob": "ca85e2e88a85939ddf66f0d83a99cdb1067693f7",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/unsupervised/pca.md",
+      "baseline_blob": "1b0f4747e7e32e2a5679b335631cf1a410e8bd80",
+      "candidate_blob": "1b0f4747e7e32e2a5679b335631cf1a410e8bd80",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/unsupervised/truncated-svd.md",
+      "baseline_blob": "5ce2b8c5d3f1a93341d42fa44aa058b46a83c2ab",
+      "candidate_blob": "5ce2b8c5d3f1a93341d42fa44aa058b46a83c2ab",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/unsupervised/tsne.md",
+      "baseline_blob": "ebe94435a9c541d39b0fe891a3a2865beec38289",
+      "candidate_blob": "ebe94435a9c541d39b0fe891a3a2865beec38289",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/unsupervised/umap.md",
+      "baseline_blob": "60e0d32b6bfe50c2d8c8be67ee95abfdb245f0a3",
+      "candidate_blob": "60e0d32b6bfe50c2d8c8be67ee95abfdb245f0a3",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/cn/usage.md",
+      "baseline_blob": "8145dcc34dc3ea8f345c28f95aa90a18e6ff2f55",
+      "candidate_blob": "8145dcc34dc3ea8f345c28f95aa90a18e6ff2f55",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/README.md",
+      "baseline_blob": "a0e14b951e27904171457a537d9e1a22bdb05c16",
+      "candidate_blob": "a0e14b951e27904171457a537d9e1a22bdb05c16",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/benchmarks.md",
+      "baseline_blob": "482e668e5c4aed0eac57834ba2881f94c72613c4",
+      "candidate_blob": "946d625f7534bfb25db681d91374ef295b1a1a75",
+      "baseline_audit": "full_read_with_audience_findings",
+      "disposition": "changed",
+      "rationale": "Separated dashboard use from maintenance, derived coverage from generated data, and qualified historical speed evidence."
+    },
+    {
+      "path": "docs/en/getting-started/quickstart.md",
+      "baseline_blob": "6f7b5f11067c8ccf02663725d0ef1bbb00a2d1ee",
+      "candidate_blob": "6f7b5f11067c8ccf02663725d0ef1bbb00a2d1ee",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/guides/benchmarks.md",
+      "baseline_blob": "4f691bff46c841a67f4be78e3e1c8773a59370a3",
+      "candidate_blob": "8afb8a676ffb810550723596d6b341f29db7f0a3",
+      "baseline_audit": "full_read_with_audience_findings",
+      "disposition": "changed",
+      "rationale": "Separated dashboard use from maintenance, derived coverage from generated data, and qualified historical speed evidence."
+    },
+    {
+      "path": "docs/en/guides/cox-cv-staged-safety.md",
+      "baseline_blob": "7340bcd4a6e15fe7b2dc93d11de8bff0527cbea8",
+      "candidate_blob": "7340bcd4a6e15fe7b2dc93d11de8bff0527cbea8",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/guides/cross-validation-design.md",
+      "baseline_blob": "382911cb9f528b25ffdc5b44d9d8bb0c8bbd8b69",
+      "candidate_blob": "5c7b845e9dcceebaa9012f3c59baa9f8f46a6b7f",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "changed",
+      "rationale": "Clarified RidgeCV known implementation defect; preserved conditions, consequence and external-CV workaround."
+    },
+    {
+      "path": "docs/en/guides/cross-validation.md",
+      "baseline_blob": "a43bb958bc0da9f3bfb4e374d895e5bb588f0f7d",
+      "candidate_blob": "c61d1a6a5f1a647e32bad82214eff4f159432ce1",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "changed",
+      "rationale": "Clarified RidgeCV known implementation defect; preserved conditions, consequence and external-CV workaround."
+    },
+    {
+      "path": "docs/en/guides/device-and-memory.md",
+      "baseline_blob": "e4363a256e9a1f4a6f48c0a8a1388e01d11d0da2",
+      "candidate_blob": "e4363a256e9a1f4a6f48c0a8a1388e01d11d0da2",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/guides/distribution-api.md",
+      "baseline_blob": "6de694e01b9d45ad2c619b7935934a7fc98659a6",
+      "candidate_blob": "6de694e01b9d45ad2c619b7935934a7fc98659a6",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/guides/implemented-methods.md",
+      "baseline_blob": "0659e2df9e573f489844f83ef86176781a117b9a",
+      "candidate_blob": "0659e2df9e573f489844f83ef86176781a117b9a",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/guides/inference-api.md",
+      "baseline_blob": "88759b9e68e6ded6dee60fd8e399f7e32de3df08",
+      "candidate_blob": "88759b9e68e6ded6dee60fd8e399f7e32de3df08",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/guides/inference-modes.md",
+      "baseline_blob": "2e66a0f68197667bc9e911b781b890265140d6da",
+      "candidate_blob": "2e66a0f68197667bc9e911b781b890265140d6da",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/guides/lbfgs-float32-precision-contract.md",
+      "baseline_blob": "b9b2ca3bbc32da6e01fc69661c26e679d831f4eb",
+      "candidate_blob": "def8b35fca6ad11bb11c75bbfb803716d390672b",
+      "baseline_audit": "full_read_with_low_editorial_findings",
+      "disposition": "changed",
+      "rationale": "Removed passive test/developer-change wording; retained practical statistical and numerical guidance."
+    },
+    {
+      "path": "docs/en/guides/loss-penalty-solver-framework.md",
+      "baseline_blob": "d3b87d114a72f404548c68708d6d4b5dec908782",
+      "candidate_blob": "d3b87d114a72f404548c68708d6d4b5dec908782",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/guides/multiple-testing-combine-pvalues.md",
+      "baseline_blob": "10542ff798e00e167738a0767723af1d8ede2864",
+      "candidate_blob": "10542ff798e00e167738a0767723af1d8ede2864",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/guides/nodewise-alpha-migration.md",
+      "baseline_blob": "e6efb54264812105990f90d10e78a49e1e62e6e0",
+      "candidate_blob": "e6efb54264812105990f90d10e78a49e1e62e6e0",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/guides/penalized-glm-inference.md",
+      "baseline_blob": "eb6075aa054e96876ec352b3dca2a4188d8bf281",
+      "candidate_blob": "eb6075aa054e96876ec352b3dca2a4188d8bf281",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/guides/penalized-solver-api-migration.md",
+      "baseline_blob": "87e6cc0d3988c500a7c7f1809c11d719e83845cb",
+      "candidate_blob": "87e6cc0d3988c500a7c7f1809c11d719e83845cb",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/guides/pytorch-backend.md",
+      "baseline_blob": "25d77967e7400c3a59d9d9d3487cc5175e0394fe",
+      "candidate_blob": "25d77967e7400c3a59d9d9d3487cc5175e0394fe",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/guides/regression-diagnostics.md",
+      "baseline_blob": "630cb5dcca2546f33ef0f7dcf4532cb690004e20",
+      "candidate_blob": "08ab18a8c548dee7e5885c24d7f8d2602093ac4a",
+      "baseline_audit": "full_read_with_low_editorial_findings",
+      "disposition": "changed",
+      "rationale": "Removed passive test/developer-change wording; retained practical statistical and numerical guidance."
+    },
+    {
+      "path": "docs/en/guides/solver-algorithms.md",
+      "baseline_blob": "cd98a2432638746e1fde4e87eaf83c62fe44dc18",
+      "candidate_blob": "c4a2a1c325f5b624269b7265cf701ea3d4acc8d8",
+      "baseline_audit": "full_read_with_low_editorial_findings",
+      "disposition": "changed",
+      "rationale": "Removed passive test/developer-change wording; retained practical statistical and numerical guidance."
+    },
+    {
+      "path": "docs/en/guides/solver-penalty-matrix.md",
+      "baseline_blob": "0356690d6f284a1cadac0eab31b4d4711556cff0",
+      "candidate_blob": "0356690d6f284a1cadac0eab31b4d4711556cff0",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/guides/statgpu_benchmark_dashboard.md",
+      "baseline_blob": "1ca48ff9e771bc4bb709592e7c84483d3c46b526",
+      "candidate_blob": "f0eca2d4fdc822ad8e105fdee6c5bce4f7d41a58",
+      "baseline_audit": "full_read_with_audience_findings",
+      "disposition": "changed",
+      "rationale": "Separated dashboard use from maintenance, derived coverage from generated data, and qualified historical speed evidence."
+    },
+    {
+      "path": "docs/en/guides/statgpu_benchmark_dashboard_next_phase_plan.md",
+      "baseline_blob": "2962b3ed7afd571f95a7191ca5b265454d4344c5",
+      "candidate_blob": null,
+      "baseline_audit": "full_read_with_audience_findings",
+      "disposition": "changed",
+      "rationale": "Relocated entire historical PR78 plan to dev/plans with history banner and repaired inbound references."
+    },
+    {
+      "path": "docs/en/models/README.md",
+      "baseline_blob": "31ec74f56108f51060054ba9d19ce90ec95e7042",
+      "candidate_blob": "31ec74f56108f51060054ba9d19ce90ec95e7042",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/models/adaptive-lasso.md",
+      "baseline_blob": "4ed2b8844186c081ecd4512f1a2fb27e723ec5d1",
+      "candidate_blob": "4ed2b8844186c081ecd4512f1a2fb27e723ec5d1",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/models/anova.md",
+      "baseline_blob": "d2b5a59e2c47ea9e244bb1b9ba3fd1faa61642bd",
+      "candidate_blob": "10e9e7c99224fd8b321496a7a2d970334568db07",
+      "baseline_audit": "full_read_with_audience_findings",
+      "disposition": "changed",
+      "rationale": "Moved maintained-test/evidence inventory to model provenance; retained hypotheses and added actionable comparison settings."
+    },
+    {
+      "path": "docs/en/models/covariance.md",
+      "baseline_blob": "2ad88c5f4ac9858465ee854181706c3816fe537a",
+      "candidate_blob": "666b4d6de6883736b6539237983e0099592110f2",
+      "baseline_audit": "full_read_with_audience_findings",
+      "disposition": "changed",
+      "rationale": "Moved maintained-test/evidence inventory to model provenance; retained hypotheses and added actionable comparison settings."
+    },
+    {
+      "path": "docs/en/models/coxph.md",
+      "baseline_blob": "fbbe103411cc3d072f9f81641d06f0f062883a9c",
+      "candidate_blob": "fbbe103411cc3d072f9f81641d06f0f062883a9c",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/models/elastic-net.md",
+      "baseline_blob": "e3708383f51fca73c37076b09b2abc211a918a0b",
+      "candidate_blob": "e3708383f51fca73c37076b09b2abc211a918a0b",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/models/feature-selection.md",
+      "baseline_blob": "1958c0c9bdc4135af19eb7ef8f9bfda82c68efc7",
+      "candidate_blob": "1958c0c9bdc4135af19eb7ef8f9bfda82c68efc7",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/models/generalized-linear-model.md",
+      "baseline_blob": "b364fb308e68be801acc00bbcc1208071d8d9865",
+      "candidate_blob": "b364fb308e68be801acc00bbcc1208071d8d9865",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/models/kernel-methods.md",
+      "baseline_blob": "99ee03cd5fa3c55c7548e84a6e9c06c0ccc50a59",
+      "candidate_blob": "99ee03cd5fa3c55c7548e84a6e9c06c0ccc50a59",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/models/knockoff.md",
+      "baseline_blob": "20648b6e80ba1d1c4c3dc047aec9440040132c69",
+      "candidate_blob": "20648b6e80ba1d1c4c3dc047aec9440040132c69",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/models/lasso.md",
+      "baseline_blob": "145cad311386b6639af71c1698dc0f2578dfc354",
+      "candidate_blob": "145cad311386b6639af71c1698dc0f2578dfc354",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/models/linear-regression.md",
+      "baseline_blob": "bf1fbdeaa448b333e06036dff7c3a125245c0815",
+      "candidate_blob": "bf1fbdeaa448b333e06036dff7c3a125245c0815",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/models/logistic-regression.md",
+      "baseline_blob": "62a4ea27e1904bef8698d37f1082fd8ba8bb3251",
+      "candidate_blob": "b44ef3d8210b286ab0c8fa3c9fbca58968da9f59",
+      "baseline_audit": "full_read_with_audience_findings",
+      "disposition": "changed",
+      "rationale": "Replaced passive validation claim with aligned unweighted/unpenalized comparison guidance."
+    },
+    {
+      "path": "docs/en/models/losses.md",
+      "baseline_blob": "d8910bf49e62b7042e181ea1831621f9f41d13e3",
+      "candidate_blob": "d8910bf49e62b7042e181ea1831621f9f41d13e3",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/models/mcp.md",
+      "baseline_blob": "6e0b02d2fef9c1505af1e496f1a3d1340d076077",
+      "candidate_blob": "6e0b02d2fef9c1505af1e496f1a3d1340d076077",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/models/multiple-testing.md",
+      "baseline_blob": "164614da594abb15d2f583b423d14e30db9b13d2",
+      "candidate_blob": "164614da594abb15d2f583b423d14e30db9b13d2",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/models/nonparametric.md",
+      "baseline_blob": "0107be51cafb8271e454e2a3f3f8d6d83d4fff54",
+      "candidate_blob": "0107be51cafb8271e454e2a3f3f8d6d83d4fff54",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/models/ordered.md",
+      "baseline_blob": "e237b3caedebb8cb5e100b165bde2c1d92840372",
+      "candidate_blob": "e237b3caedebb8cb5e100b165bde2c1d92840372",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/models/panel.md",
+      "baseline_blob": "7b0e4095fe9abcfe2a86afb448c1ddd4085db488",
+      "candidate_blob": "7b0e4095fe9abcfe2a86afb448c1ddd4085db488",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/models/poisson-regression.md",
+      "baseline_blob": "f5d233576a689a46887184cd5ebd1425bf0b954b",
+      "candidate_blob": "f5d233576a689a46887184cd5ebd1425bf0b954b",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/models/quantile.md",
+      "baseline_blob": "4ad9d446b890a4187194e3bed19b2fd61824ffde",
+      "candidate_blob": "4ad9d446b890a4187194e3bed19b2fd61824ffde",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/models/ridge.md",
+      "baseline_blob": "60fc1e0c843d3ab2b836819976a11ba4e08d4e55",
+      "candidate_blob": "60fc1e0c843d3ab2b836819976a11ba4e08d4e55",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/models/robust.md",
+      "baseline_blob": "1ae5c1b41340d5a5c778bf306c3f94f24c0a9c53",
+      "candidate_blob": "1ae5c1b41340d5a5c778bf306c3f94f24c0a9c53",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/models/scad.md",
+      "baseline_blob": "53f86367aefcd22e9a60fd75a1944798478bbd08",
+      "candidate_blob": "53f86367aefcd22e9a60fd75a1944798478bbd08",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/models/semiparametric.md",
+      "baseline_blob": "271d1222ff13b30922ea189c09226f706e51c166",
+      "candidate_blob": "271d1222ff13b30922ea189c09226f706e51c166",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/models/splines.md",
+      "baseline_blob": "e3bc824d21f737efe9060667f1f9d5c722b2294f",
+      "candidate_blob": "e3bc824d21f737efe9060667f1f9d5c722b2294f",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/models/unsupervised.md",
+      "baseline_blob": "f4e68d512bf6d9542dca252b6fe593220d8d0dc4",
+      "candidate_blob": "f4e68d512bf6d9542dca252b6fe593220d8d0dc4",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/panel/architecture.md",
+      "baseline_blob": "6252f2a708623992f984b65529382bd0424854ed",
+      "candidate_blob": "6252f2a708623992f984b65529382bd0424854ed",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/panel/between-ols.md",
+      "baseline_blob": "ad4b97432eb0268fbb6d8903a66c1b3dcc529699",
+      "candidate_blob": "5e0ddba3b1d5b4b59ed4a1bf7245fbbe33c85456",
+      "baseline_audit": "full_read_with_audience_findings",
+      "disposition": "changed",
+      "rationale": "Moved exact-source validation/private implementation details to panel provenance; retained mathematical and observable numerical contracts."
+    },
+    {
+      "path": "docs/en/panel/covariance.md",
+      "baseline_blob": "2d42566a0f2e5fc81fd8e2edf858d264ba368eb0",
+      "candidate_blob": "2eb6b4a355c9efc48f5a62ae51bd342d6d2857b9",
+      "baseline_audit": "full_read_with_audience_findings",
+      "disposition": "changed",
+      "rationale": "Moved exact-source validation/private implementation details to panel provenance; retained mathematical and observable numerical contracts."
+    },
+    {
+      "path": "docs/en/panel/diagnostics.md",
+      "baseline_blob": "b504f48076154ee2f905a10784e39856c6681034",
+      "candidate_blob": "9c5315ff446649f05c0400ba69b963e6e3b19e7b",
+      "baseline_audit": "full_read_with_audience_findings",
+      "disposition": "changed",
+      "rationale": "Moved exact-source validation/private implementation details to panel provenance; retained mathematical and observable numerical contracts."
+    },
+    {
+      "path": "docs/en/panel/fama-macbeth.md",
+      "baseline_blob": "729572b2ce6bb44abe75bb2612dd190fcf8c70e2",
+      "candidate_blob": "1bf6d4729de214b88051f8a4c3492aa63a912bf3",
+      "baseline_audit": "full_read_with_audience_findings",
+      "disposition": "changed",
+      "rationale": "Moved exact-source validation/private implementation details to panel provenance; retained mathematical and observable numerical contracts."
+    },
+    {
+      "path": "docs/en/panel/first-difference-ols.md",
+      "baseline_blob": "71f3786e9de6cf54e9f2f21d63d9f49ed883efb5",
+      "candidate_blob": "7b8b4e65d3f73d4403454dbc0cb3e7c850a28b67",
+      "baseline_audit": "full_read_with_audience_findings",
+      "disposition": "changed",
+      "rationale": "Moved exact-source validation/private implementation details to panel provenance; retained mathematical and observable numerical contracts."
+    },
+    {
+      "path": "docs/en/panel/fit-statistics.md",
+      "baseline_blob": "0715020750231e9863dfc907481f6f0bca57a9ba",
+      "candidate_blob": "73d5eb0c4b92cf6553b7c31fc843961cdaaddce5",
+      "baseline_audit": "full_read_with_audience_findings",
+      "disposition": "changed",
+      "rationale": "Moved exact-source validation/private implementation details to panel provenance; retained mathematical and observable numerical contracts."
+    },
+    {
+      "path": "docs/en/panel/panel-ols.md",
+      "baseline_blob": "84ee21b56db287bda363784771221493e10c27f6",
+      "candidate_blob": "7f0a80c379f6632e480843c5d04b39677e26896a",
+      "baseline_audit": "full_read_with_audience_findings",
+      "disposition": "changed",
+      "rationale": "Moved exact-source validation/private implementation details to panel provenance; retained mathematical and observable numerical contracts."
+    },
+    {
+      "path": "docs/en/panel/pooled-ols.md",
+      "baseline_blob": "37e4695d87dde98016a30ed3aa8256952b81b42e",
+      "candidate_blob": "3ad073c7afc26f8b3bdc96309775e71709985884",
+      "baseline_audit": "full_read_with_audience_findings",
+      "disposition": "changed",
+      "rationale": "Moved exact-source validation/private implementation details to panel provenance; retained mathematical and observable numerical contracts."
+    },
+    {
+      "path": "docs/en/panel/random-effects.md",
+      "baseline_blob": "7cf6bcab38b5376040a561be1146f37ab2e43337",
+      "candidate_blob": "681b4a6f22d3405fc3e183b281d7c7c4492869a4",
+      "baseline_audit": "full_read_with_audience_findings",
+      "disposition": "changed",
+      "rationale": "Moved exact-source validation/private implementation details to panel provenance; retained mathematical and observable numerical contracts."
+    },
+    {
+      "path": "docs/en/reference/coxph-diagnostics.md",
+      "baseline_blob": "5ec6ee267f429a30739bb326bdab8ecffc3936df",
+      "candidate_blob": "5ec6ee267f429a30739bb326bdab8ecffc3936df",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/reference/estimator-api.md",
+      "baseline_blob": "1bfb50fb1097e321126b135f336f6028ecee61f7",
+      "candidate_blob": "1bfb50fb1097e321126b135f336f6028ecee61f7",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/reference/feature-selection-api.md",
+      "baseline_blob": "6c28bb4a56ecad2e8237da5b806dcaeb33d36e57",
+      "candidate_blob": "6c28bb4a56ecad2e8237da5b806dcaeb33d36e57",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/reference/linear-model-api.md",
+      "baseline_blob": "9e9a8d4590f5fac7835e6e6b48cb0ce8ef56fb02",
+      "candidate_blob": "6b53d3fa572708e6fa0ae6fe52649acf1100696e",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "changed",
+      "rationale": "Clarified RidgeCV known implementation defect; preserved conditions, consequence and external-CV workaround."
+    },
+    {
+      "path": "docs/en/reference/survival-smoothing-api.md",
+      "baseline_blob": "0e77e959e3f9bb14bb2f8970fdbba5f5bf0c0968",
+      "candidate_blob": "0e77e959e3f9bb14bb2f8970fdbba5f5bf0c0968",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/unsupervised/README.md",
+      "baseline_blob": "c35c4bf070ae21e57b94d40b09051cc79ddc9694",
+      "candidate_blob": "c35c4bf070ae21e57b94d40b09051cc79ddc9694",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/unsupervised/agglomerative-clustering.md",
+      "baseline_blob": "0f115326b8d22248761acb4cc8b372e85d1f4d41",
+      "candidate_blob": "0f115326b8d22248761acb4cc8b372e85d1f4d41",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/unsupervised/api-reference.md",
+      "baseline_blob": "ec57acd92fc655ba7383571752a9340a290003ff",
+      "candidate_blob": "ec57acd92fc655ba7383571752a9340a290003ff",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/unsupervised/dbscan.md",
+      "baseline_blob": "c19fabeb2161edefdae65da773c93c089f971f80",
+      "candidate_blob": "c19fabeb2161edefdae65da773c93c089f971f80",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/unsupervised/gaussian-mixture.md",
+      "baseline_blob": "2c99b9cacd731d63d03e5e77693f98bdd4dd12d3",
+      "candidate_blob": "2c99b9cacd731d63d03e5e77693f98bdd4dd12d3",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/unsupervised/incremental-pca.md",
+      "baseline_blob": "8a43af2ec6215e6656a5d52eab78b44d82e5d849",
+      "candidate_blob": "8a43af2ec6215e6656a5d52eab78b44d82e5d849",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/unsupervised/kmeans.md",
+      "baseline_blob": "2bd57c6cfd183d27e2fd23fb3eacd110df3622a4",
+      "candidate_blob": "2bd57c6cfd183d27e2fd23fb3eacd110df3622a4",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/unsupervised/minibatch-kmeans.md",
+      "baseline_blob": "d3448278df413cf0a1f191c7683014038d693c87",
+      "candidate_blob": "d3448278df413cf0a1f191c7683014038d693c87",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/unsupervised/minibatch-nmf.md",
+      "baseline_blob": "f3fd359fe5de25207a511c3c1e1a570b55744274",
+      "candidate_blob": "f3fd359fe5de25207a511c3c1e1a570b55744274",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/unsupervised/nmf.md",
+      "baseline_blob": "b0ae5bf53b347a6f80f5b12bf43edf1a9f1f11bf",
+      "candidate_blob": "b0ae5bf53b347a6f80f5b12bf43edf1a9f1f11bf",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/unsupervised/pca.md",
+      "baseline_blob": "ba66964a01359894248da6034d690b3e4bcca68f",
+      "candidate_blob": "ba66964a01359894248da6034d690b3e4bcca68f",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/unsupervised/truncated-svd.md",
+      "baseline_blob": "52ad2826d52874473c2e4d6e452251d589860eae",
+      "candidate_blob": "52ad2826d52874473c2e4d6e452251d589860eae",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/unsupervised/tsne.md",
+      "baseline_blob": "7f2cc5e828e3a8d656169e3f76e65c9516a0f47b",
+      "candidate_blob": "7f2cc5e828e3a8d656169e3f76e65c9516a0f47b",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/unsupervised/umap.md",
+      "baseline_blob": "8a22ef5d670f26f8b606c30e75ee3cbe3f8ce85a",
+      "candidate_blob": "8a22ef5d670f26f8b606c30e75ee3cbe3f8ce85a",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/en/usage.md",
+      "baseline_blob": "0b19560dd991a3ccf5cd593cb4e0448ff29bc12e",
+      "candidate_blob": "0b19560dd991a3ccf5cd593cb4e0448ff29bc12e",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    },
+    {
+      "path": "docs/index.md",
+      "baseline_blob": "80b22c154e16ecbf9dd49ac4081807053ceda699",
+      "candidate_blob": "80b22c154e16ecbf9dd49ac4081807053ceda699",
+      "baseline_audit": "full_read_no_substantive_audience_finding",
+      "disposition": "preserved",
+      "rationale": "Preserved byte-for-byte; no audience-placement finding."
+    }
+  ]
+}

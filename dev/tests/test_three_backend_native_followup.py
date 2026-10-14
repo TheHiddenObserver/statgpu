@@ -4,10 +4,20 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from statgpu._config import Device, _device_manager
 from statgpu.anova import bonferroni, tukey_hsd
 from statgpu.covariance import GraphicalLasso, GraphicalLassoCV, MinCovDet
 from statgpu.nonparametric import SplineTransformer
 from statgpu.panel import FamaMacBeth
+
+
+@pytest.fixture
+def automatic_global_device(monkeypatch):
+    """Isolate native-input tests from a caller-owned global device policy."""
+    # Setting estimator device="auto" alone still honors a global CPU/GPU
+    # override. These tests require both policies to be automatic. Monkeypatch
+    # restores the incoming policy, including when an optional backend skips.
+    monkeypatch.setattr(_device_manager, "_current_device", Device.AUTO)
 
 
 def _comparison_matrix(result):
@@ -20,6 +30,7 @@ def _comparison_matrix(result):
     )
 
 
+@pytest.mark.usefixtures("automatic_global_device")
 def test_graphical_lasso_torch_cpu_matches_numpy_and_preserves_backend():
     torch = pytest.importorskip("torch")
     rng = np.random.default_rng(123)
@@ -37,6 +48,7 @@ def test_graphical_lasso_torch_cpu_matches_numpy_and_preserves_backend():
     assert_allclose(native.precision_.numpy(), cpu.precision_, rtol=2e-5, atol=2e-6)
 
 
+@pytest.mark.usefixtures("automatic_global_device")
 def test_graphical_lasso_cv_torch_cpu_matches_numpy_selection():
     torch = pytest.importorskip("torch")
     rng = np.random.default_rng(7)
@@ -49,6 +61,7 @@ def test_graphical_lasso_cv_torch_cpu_matches_numpy_selection():
     assert_allclose(native.covariance_.numpy(), cpu.covariance_, rtol=2e-6, atol=2e-7)
 
 
+@pytest.mark.usefixtures("automatic_global_device")
 def test_min_cov_det_torch_cpu_matches_numpy_and_keeps_support_on_backend():
     torch = pytest.importorskip("torch")
     rng = np.random.default_rng(42)
@@ -67,6 +80,7 @@ def test_min_cov_det_torch_cpu_matches_numpy_and_keeps_support_on_backend():
 
 
 @pytest.mark.parametrize("mode", ["constant", "linear", "continue"])
+@pytest.mark.usefixtures("automatic_global_device")
 def test_spline_transformer_torch_cpu_matches_numpy_for_all_extrapolations(mode):
     torch = pytest.importorskip("torch")
     train = np.linspace(0.0, 1.0, 40).reshape(-1, 1)
@@ -83,6 +97,7 @@ def test_spline_transformer_torch_cpu_matches_numpy_for_all_extrapolations(mode)
     assert_allclose(actual.sum(dim=1).numpy(), np.ones(points.shape[0]), atol=2e-12)
 
 
+@pytest.mark.usefixtures("automatic_global_device")
 def test_fama_macbeth_torch_cpu_matches_numpy_and_predict_stays_native():
     torch = pytest.importorskip("torch")
     rng = np.random.default_rng(9)
@@ -143,6 +158,7 @@ def test_repaired_modules_do_not_convert_full_numeric_designs_to_numpy():
     assert "_to_numpy(g)" not in inspect.getsource(posthoc_module.bonferroni)
 
 
+@pytest.mark.usefixtures("automatic_global_device")
 def test_optional_cupy_native_paths_match_numpy_when_cuda_is_available():
     cp = pytest.importorskip("cupy")
     try:

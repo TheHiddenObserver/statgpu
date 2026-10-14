@@ -2315,15 +2315,97 @@ _CV_DEVICE_ALWAYS_CPU = {
 class PenalizedGLM_CV(CVEstimatorBase):
     """Cross-validated penalized GLM and right-censored Cox estimator.
 
-    Scalar-response losses use the optimized GLM CV engine. ``loss="cox_ph"``
-    uses a survival-specific strict-CV path that preserves the two-column
-    target, scores unpenalized held-out partial likelihood, forbids an
-    intercept, and refits :class:`PenalizedCoxPHModel`.
+    Scalar-response losses use the optimized GLM CV engine and fit an intercept;
+    no public fit_intercept parameter is exposed here. loss="cox_ph" instead
+    uses a dedicated survival target and no-intercept contract.
 
-    Custom ``cv_splits`` may be a reusable sequence or a one-shot iterator.
-    A one-shot iterator is materialized privately once and reused across
-    repeated fits, scikit-learn cloning, and serialization; the public
-    ``cv_splits`` attribute is not rewritten during fit.
+    Parameters
+    ----------
+    loss : str, default='squared_error'
+        Scalar-response loss; cox_ph uses a separate survival contract.
+    penalty : str or Penalty, default='l2'
+        Tunable supported penalty; none is rejected as non-tunable.
+    alpha_grid : array-like or None, default=None
+        Explicit finite grid; ordinary tunable penalties require positive values. An omitted grid is generated for the selected loss/penalty.
+    n_alphas : int, default=100
+        Requested automatic grid size.
+    l1_ratio : float, default=0.5
+        Fixed Elastic Net mixture, not a sequence searched by this class.
+    cv : int, default=5
+        Generated shuffled K-fold count.
+    cv_splits : iterable or None, default=None
+        Explicit disjoint nonempty integer train/validation indices; one-shot iterators are materialized and reused.
+    random_state : int or None, default=0
+        Seed for generated folds.
+    device : str or Device, default='auto'
+        Explicit cpu/cuda/torch or size-aware automatic CV routing; inspect cv_selected_device_.
+    max_iter : int, default=1000
+        Strict fold/refit iteration budget.
+    tol : float, default=0.0001
+        Strict fold/refit tolerance.
+    solver : str, default='auto'
+        Requested compatible solver; inference does not choose a different tuning grid.
+    cv_strategy : str, default='strict'
+        strict or two_stage; two_stage screens approximately before strict refinement.
+    acknowledge_approx : bool, default=False
+        Acknowledge two-stage approximation and suppress its warning.
+    refine_top_k : int, default=3
+        Number of promising candidates to refine, subject to refinement safeguards.
+    loss_kwargs : dict or None, default=None
+        Family/link settings forwarded to fits and validation loss.
+    penalty_kwargs : dict or None, default=None
+        Penalty-specific configuration.
+    compute_inference : bool, default=False
+        Keyword-only; supported final-refit inference, not fold inference.
+    inference_method : str, default='auto'
+        Keyword-only final-refit inference request.
+    cov_type : str, default='nonrobust'
+        Keyword-only final-refit covariance.
+    hac_maxlags : int or None, default=None
+        Keyword-only; retained only where the final inference method supports HAC.
+
+    Methods
+    -------
+    fit(X, y, sample_weight=None)
+        Return self; scalar-response shapes are (n, p) and (n,). No formula input.
+    predict(X)
+        Delegate to the selected full-data estimator.
+    score(X, y, sample_weight=None)
+        Scalar-response R-squared, including on logistic labels. Cox uses its
+        concordance score. Neither is the negative validation loss best_score_.
+    summary(*args, **kwargs)
+        Currently raises AttributeError after successful generic final-refit
+        inference because the final estimator has no summary method. Read
+        estimator_._inference_result.to_dict(), or to_dataframe() with pandas.
+    get_params(deep=True), set_params(**params)
+        Shared configuration; get_params materializes one-shot custom folds.
+    adjust_pvalues, combine_pvalues, bootstrap_statistic, permutation_test
+        Shared statistical helpers.
+
+    Attributes
+    ----------
+    alpha_ : float
+        Selected alpha, minimizing mean held-out loss.
+    alpha_grid_ : numpy.ndarray of shape (a,)
+        Actual alpha grid.
+    best_score_ : float
+        Negative selected mean validation loss, not final-estimator R-squared.
+    cv_results_ : dict
+        alpha (a,), mean_score (a,), all_scores (f, a), device_sizing_fold_count,
+        cv_strategy_, cv_selected_device_, mean_score_stage1, all_scores_stage1,
+        refined_mask (a,). Score arrays contain losses; smaller is better.
+        Stage-one arrays are None in strict mode.
+    estimator_, coef_, intercept_ : fitted state
+        Selected full-data estimator, NumPy slopes (p,), scalar intercept.
+    cv_strategy_, cv_selected_device_ : str
+        Executed strategy and chosen CV device.
+
+    Notes
+    -----
+    Inference runs on the final full-data refit only and conditions on selected
+    alpha; it does not correct tuning uncertainty. Custom cv_splits can be a
+    reusable sequence or one-shot iterator, materialized privately for reuse
+    across fits, cloning and serialization without rewriting the public input.
     """
 
     def __init__(

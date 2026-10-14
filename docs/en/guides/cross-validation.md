@@ -1,7 +1,7 @@
 # Cross-Validation
 
 > Language: English  
-> Last updated: 2026-09-17  
+> Last updated: 2026-10-11
 > This page: user guide for CV selection and refit behavior  
 > Switch: [Chinese](../../cn/guides/cross-validation.md)
 
@@ -19,7 +19,7 @@ candidate grid
 
 This page documents the task-oriented public behavior: how to configure folds and tuning grids, how solver/device choices interact with CV, what happens during the final refit, and how inference after CV should be interpreted.
 
-For the public execution model behind these behaviors—including the selection/refit split, pathwise reuse, GPU batching, and selection-cache semantics—see [How statgpu Cross-Validation Works](cross-validation-design.md). Exact private fast paths, cache-key fields, helper names, and benchmark-derived routing thresholds remain implementation details.
+For the public execution model behind these behaviors—including the selection/refit split, pathwise reuse, GPU batching, and selection-cache semantics—see [How statgpu Cross-Validation Works](cross-validation-design.md).
 
 ## Available CV estimators
 
@@ -31,65 +31,85 @@ For the public execution model behind these behaviors—including the selection/
 | `LogisticRegressionCV` | `LogisticRegression` | regularization strength |
 | `PenalizedGLM_CV` | penalized GLM / penalized Cox | `alpha` for the selected loss and penalty |
 | `CoxPHCV` | `CoxPH` | Cox penalty strength |
+| `KernelRidgeCV` | `KernelRidge` | `alpha` for a fixed kernel |
+
+`KernelRidgeCV` accepts an integer `cv`, not custom `cv_splits`, and does not accept fit-time `sample_weight`. Its selected mean MSE and reported `best_score_` (mean R²) are different quantities; see the [complete kernel CV reference](../reference/kernel-methods-api.md#kernelridgecv). Covariance selection is covered separately by [GraphicalLassoCV](../models/covariance/covariance-graphical-lasso-cv.md).
 
 For exact loss × penalty × solver availability, use the [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md). Model-specific statistical restrictions belong to the corresponding model page.
 
 ## Quick start
 
+Each example below runs independently on CPU. The regression examples reserve the last 20 observations as a test set; CV sees only the first 80. Any learned preprocessing, such as scaling or imputation, must also be fitted separately within each training fold.
+
 ### RidgeCV
 
+<!-- api-example: cv-ridge -->
 ```python
+import numpy as np
 from statgpu.linear_model import RidgeCV
 
+rng = np.random.default_rng(17)
+X = rng.normal(size=(100, 4))
+y = 1.0 + X @ np.array([2.0, -1.0, 0.0, 0.0]) + rng.normal(scale=0.4, size=100)
 model = RidgeCV(
-    alphas=None,
-    n_alphas=100,
-    cv=5,
-    device="auto",
-)
-model.fit(X, y)
-
+    alphas=[0.001, 0.01, 0.1, 1.0], cv=3, random_state=7,
+    device="cpu", compute_inference=False,
+).fit(X[:80], y[:80])
+prediction = model.predict(X[80:])
 print(model.alpha_)
-print(model.score(X_test, y_test))
+print(round(model.score(X[80:], y[80:]), 3))
 ```
+
+The selected alpha is `0.001`; the held-out R² is about `0.975`. This score uses data that did not participate in CV or refitting.
 
 ### LassoCV
 
 `LassoCV` distinguishes the algorithm used to score the CV path from the algorithm used for the final full-data refit:
 
+<!-- api-example: cv-lasso -->
 ```python
+import numpy as np
 from statgpu.linear_model import LassoCV
 
+rng = np.random.default_rng(17)
+X = rng.normal(size=(100, 4))
+y = 1.0 + X @ np.array([2.0, -1.0, 0.0, 0.0]) + rng.normal(scale=0.4, size=100)
 model = LassoCV(
-    cv=5,
-    cv_solver="auto",   # CV folds/path
-    solver="fista",     # final full-data refit
-    device="auto",
-)
-model.fit(X, y)
-
+    alphas=[0.001, 0.01, 0.1, 1.0], cv=3, random_state=7,
+    device="cpu", compute_inference=False,
+    cv_solver="auto", solver="fista",
+).fit(X[:80], y[:80])
+prediction = model.predict(X[80:])
 print(model.alpha_)
+print(round(model.score(X[80:], y[80:]), 3))
 print(model.cv_solver_)
 ```
+
+The selected alpha is `0.01` and held-out R² is about `0.976`. On this CPU example the selection solver is `coordinate_descent`, while the final refit uses `fista`.
 
 `cv_solver_` records the algorithm that actually ran during selection. The older `cpu_solver` control is deprecated; see the [penalized solver API migration guide](penalized-solver-api-migration.md).
 
 ### PenalizedGLM_CV
 
+<!-- api-example: cv-poisson -->
 ```python
+import numpy as np
 from statgpu.linear_model import PenalizedGLM_CV
 
+rng = np.random.default_rng(17)
+X = rng.normal(size=(100, 2))
+y = rng.poisson(np.exp(0.3 + X @ np.array([0.5, -0.2])))
 model = PenalizedGLM_CV(
-    loss="poisson",
-    penalty="scad",
-    cv=5,
-    device="auto",
-)
-model.fit(X, y)
-
+    loss="poisson", penalty="l1", alpha_grid=[0.01, 0.05, 0.1],
+    cv=3, random_state=7, device="cpu", compute_inference=False,
+    max_iter=2000, tol=1e-7,
+).fit(X[:80], y[:80])
+prediction = model.predict(X[80:])
 print(model.alpha_)
-pred = model.predict(X_test)
+print(np.round(prediction[:3], 3))
 ```
+
+The selected alpha is `0.01`; the first three predicted expected counts are about `[2.108, 1.671, 1.750]`. Counts are nonnegative integers in the training response; predicted means need not be integers. This penalized non-Gaussian example is estimation-only.
 
 An explicit solver request remains authoritative wherever that loss/penalty combination supports it. Unsupported explicit combinations raise an error rather than silently changing algorithms. `solver="auto"` uses the documented dispatch for the selected model family.
 
@@ -99,37 +119,50 @@ With an integer `cv`, statgpu constructs k-fold training/validation splits. `ran
 
 Estimators that expose `cv_splits` also accept explicit train/validation index pairs:
 
+<!-- api-example: cv-ordered-splits -->
 ```python
+import numpy as np
 from sklearn.model_selection import TimeSeriesSplit
 from statgpu.linear_model import PenalizedGLM_CV
 
-tscv = TimeSeriesSplit(n_splits=5)
-
+rng = np.random.default_rng(17)
+time = np.linspace(-1.0, 1.0, 90)
+X = np.column_stack([time, np.sin(2.0 * np.pi * time)])
+y = rng.poisson(np.exp(0.4 + 0.3 * time))
+splits = list(TimeSeriesSplit(n_splits=3, gap=2).split(X))
 model = PenalizedGLM_CV(
-    loss="poisson",
-    penalty="l1",
-    cv_splits=list(tscv.split(X)),
-)
-model.fit(X, y)
+    loss="poisson", penalty="l1", alpha_grid=[0.05, 0.1],
+    cv_splits=splits, device="cpu", compute_inference=False,
+    max_iter=2000, tol=1e-7,
+).fit(X, y)
+print(model.alpha_)
 ```
 
-Use custom splits when ordinary randomly shuffled folds are statistically inappropriate, for example with ordered or grouped data. The split itself is part of the statistical design; statgpu does not infer whether a user-supplied split is scientifically appropriate for the application.
+This example selects `alpha_=0.05`. Each validation block follows its training block, with two excluded rows between them. Choose the gap and grouping for the actual dependence structure; these illustrative settings do not establish validity for every time series. The final refit still uses all 90 rows, so use a separate future test period to assess generalization.
 
-For `PenalizedGLM_CV`, `cv_splits` may also be a one-shot iterator such as a generator. statgpu materializes that iterator privately once and reuses the snapshot for repeated `fit()` calls, scikit-learn cloning, and pickle serialization, while leaving the public `cv_splits` attribute unchanged. Reusable lists and tuples continue to be read directly.
+Use custom splits when ordinary shuffled folds do not match the data, such as ordered or grouped observations. Validate each pair as nonempty, disjoint, one-dimensional integer indices without repeated rows. Validation varies by estimator; the shared splitter can cast or flatten indices and skip empty pairs, so acceptance alone does not establish a valid split. Scientific suitability remains the caller's responsibility.
+
+**RidgeCV custom splits:** arbitrary training subsets are not reliably supported. If your design excludes training rows beyond the validation set, use an external CV loop. Check the [RidgeCV support boundary and external-loop alternative](../reference/linear-model-api.md#custom-ridgecv-training-subsets) before fitting.
+
+For `PenalizedGLM_CV`, `cv_splits` accepts a list, tuple, or one-shot iterator such as a generator. The same generator-defined splits can be reused by repeated `fit()` calls, scikit-learn clones, and pickle round trips. Do not separately consume the generator after passing it to the estimator; use a list if you also need to inspect the splits yourself.
 
 ### Cox data
 
-Cox CV has additional requirements because validation scores depend on event information and survival-risk sets. For `PenalizedGLM_CV(loss="cox_ph", ...)`, survival targets remain two-dimensional and every evaluated train/validation partition must contain the event information required by the Cox score. Invalid partitions raise before candidate selection.
+Cox validation scores depend on observed events and survival-risk sets. For `PenalizedGLM_CV(loss="cox_ph", ...)`, pass `y` with shape `(n_samples, 2)` and columns `[time, event]`. Each training and validation partition should contain at least one observed event.
 
-The penalized Cox CV branch does not support `sample_weight` or post-selection coefficient inference. For the complete survival-data contract, including `CoxPHCV`, see [Cox Proportional Hazards](../models/coxph.md).
+A fold whose training or validation partition has no observed events is excluded. Selection and the full-data refit can still succeed using the remaining folds, so a successful fit does not mean every requested fold contributed. Check `cv_results_["fold_valid"]`, `failure_path`, and `n_effective_folds`. If no fold can be evaluated, fitting raises `RuntimeError`; malformed split indices or overlapping training/validation indices raise `ValueError`.
+
+`PenalizedGLM_CV(loss="cox_ph", ...)` does not support `sample_weight` or post-selection coefficient inference. `CoxPHCV` also excludes event-free folds and reports per-candidate `effective_fold_counts`. For the complete survival-data requirements and scoring differences, see [Cox Proportional Hazards](../models/coxph.md).
 
 ## Tuning grids
 
-Specialized estimators such as `RidgeCV`, `LassoCV`, and `ElasticNetCV` expose `alphas`; `PenalizedGLM_CV` exposes `alpha_grid`.
+Specialized estimators such as `RidgeCV`, `LassoCV`, `ElasticNetCV`, and `KernelRidgeCV` expose `alphas`; `PenalizedGLM_CV` exposes `alpha_grid`. Alpha scales differ by objective: Ridge uses average squared loss, whereas KernelRidge uses the unnormalized kernel system. Do not transfer a grid between them without checking their model definitions.
 
 When a grid is omitted, the estimator constructs a data-dependent grid appropriate to its model. A user-supplied grid is treated as the requested candidate set after the estimator's public validation rules are applied.
 
-For Quantile rows in `PenalizedGLM_CV`, the automatic grid uses the intercept-only check-loss score at the requested quantile rather than a squared-residual surrogate. Analytic `sample_weight` enters the same normalized pinball subgradient. For Group SCAD/MCP, the feature score is mapped to the public group-penalty scale through `max_g ||score_g||_2 / sqrt(p_g)`, matching the penalty's `alpha * sqrt(p_g)` local threshold. With fixed positive Adaptive L1 weights, the same score is divided coordinatewise by the effective adaptive weights before taking the maximum; fixed positive Adaptive Group Lasso weights analogously use `max_g ||score_g||_2 / (w_g sqrt(p_g))`. When adaptive weights are not yet fixed and will be learned from an initialization fit, the generated grid remains a pre-initialization heuristic rather than an exact all-zero KKT threshold.
+For Quantile models, use a grid appropriate to the requested quantile and penalty. Check whether the selected alpha is at a grid endpoint and consider extending the grid if needed. Automatic-grid scaling for group and adaptive penalties is described in [Advanced: automatic Quantile grids](#advanced-automatic-quantile-grids); when adaptive weights are learned from an initialization fit, the initial grid is a heuristic.
+
+For the `X, y` from the Ridge quick start, an explicit-grid variation is:
 
 ```python
 import numpy as np
@@ -137,9 +170,9 @@ from statgpu.linear_model import RidgeCV
 
 model = RidgeCV(
     alphas=np.logspace(-4, 2, 50),
-    cv=5,
+    cv=5, device="cpu", compute_inference=False,
 )
-model.fit(X, y)
+model.fit(X[:80], y[:80])
 ```
 
 Scalar-response penalized CV generally searches positive regularization strengths. If an unpenalized fit is the scientific target, use the corresponding direct estimator with its documented zero/no-penalty configuration rather than assuming every CV class treats zero as an ordinary candidate.
@@ -150,13 +183,15 @@ Cox grids have survival-specific validation rules; see the Cox model page rather
 
 Where a CV estimator supports `sample_weight`, the weights enter the training-fold objective and the corresponding weighted validation criterion, and the selected final model is refit with the full-data weights. For `PenalizedGLM_CV`, every evaluated training fold and validation fold must retain a finite positive total analytic weight. A fold with zero weight mass is undefined for the declared weighted objective and raises before candidate fitting; statgpu does not replace that fold by an unweighted score.
 
-For Quantile rows, strict selection also requires complete finite fold evidence for each alpha. A fold fit that fails and produces no finite score makes that alpha ineligible rather than allowing the remaining folds to determine its mean score. Automatic scalar/Group non-convex Quantile routes expose target-level convergence failure as such an unscoreable fold; an ordinary solver `ConvergenceWarning` by itself does not discard an otherwise finite result. With `cv_strategy="two_stage"`, the screening pass remains relaxed; the complete-evidence rule is enforced in strict refinement and ordinary strict CV.
+With the Ridge quick-start data, this uses illustrative positive training weights:
 
 ```python
+import numpy as np
 from statgpu.linear_model import RidgeCV
 
-model = RidgeCV(cv=5)
-model.fit(X, y, sample_weight=w)
+w = np.linspace(0.5, 1.5, 80)
+model = RidgeCV(cv=5, device="cpu", compute_inference=False)
+model.fit(X[:80], y[:80], sample_weight=w)
 ```
 
 Weight support is **not** a blanket property of the word “CV”: it depends on the base loss, penalty, and solver route. If an explicit solver does not support the requested weighted objective, statgpu raises instead of dropping the weights or silently switching to a different objective. The [compatibility matrix](solver-penalty-matrix.md) and model pages are the canonical places to check those combinations.
@@ -173,6 +208,12 @@ This distinction matters for interpretation:
 - inference, when supported, is computed from the selected full-data refit rather than separately inside every fold.
 
 For why this separation is part of the design rather than just an implementation detail, see [How statgpu Cross-Validation Works](cross-validation-design.md).
+
+### Selection failures
+
+For Quantile models with `cv_strategy="strict"`, an alpha is eligible only if every evaluated fold returns a finite validation score. If a fold fit fails without a finite score, that alpha is excluded; its mean is not calculated from only the remaining successful folds. For automatic scalar or group SCAD/MCP Quantile fits, failure to converge at the requested alpha counts as a failed fold. An ordinary solver `ConvergenceWarning` alone does not exclude an otherwise finite result.
+
+With `cv_strategy="two_stage"`, the initial screening pass may retain candidates with incomplete scores; every evaluated fold must return a finite score in the strict refinement stage. Cox models have separate event-based fold exclusions, described under [Cox data](#cox-data).
 
 ## Inference after CV
 
@@ -191,7 +232,7 @@ CV follows the same explicit-device rule as direct estimators:
 - `device="torch"` requests the Torch CUDA route and raises if it is unavailable;
 - `device="auto"` may choose among available backends according to the estimator and workload.
 
-Automatic routing is an implementation choice and may evolve with measured performance. Do not write application logic that depends on a particular internal size threshold. If a specific execution backend is required, request it explicitly.
+Automatic selection can vary with the estimator, input, and available backends. If a specific execution backend is required, request it explicitly and check the model-specific restrictions.
 
 The public design page explains why automatic backend choice and GPU batching are allowed to vary without changing the CV statistical problem: [How statgpu Cross-Validation Works](cross-validation-design.md). See [Device and GPU Memory](device-and-memory.md) for the device contract.
 
@@ -219,6 +260,10 @@ A practical sequence is:
 3. use the estimator's automatic grid unless there is a substantive reason to supply one;
 4. leave solver/device selection on `auto` unless reproducibility, hardware, or algorithm choice requires an explicit setting;
 5. interpret inference after tuning as inference conditional on the selected configuration unless a method explicitly states otherwise.
+
+## Advanced: automatic Quantile grids
+
+For Quantile rows in `PenalizedGLM_CV`, the automatic grid uses the intercept-only check-loss score at the requested quantile rather than a squared-residual surrogate. Analytic `sample_weight` enters the same normalized pinball subgradient. For Group SCAD/MCP, the feature score is mapped to the public group-penalty scale through `max_g ||score_g||_2 / sqrt(p_g)`, matching the penalty's `alpha * sqrt(p_g)` local threshold. With fixed positive Adaptive L1 weights, the same score is divided coordinatewise by the effective adaptive weights before taking the maximum; fixed positive Adaptive Group Lasso weights analogously use `max_g ||score_g||_2 / (w_g sqrt(p_g))`. When adaptive weights are not yet fixed and will be learned from an initialization fit, the generated grid remains a pre-initialization heuristic rather than an exact all-zero KKT threshold.
 
 ## Related documentation
 

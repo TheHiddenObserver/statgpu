@@ -25,11 +25,32 @@ class PCA(BaseEstimator):
         computes an approximate truncated SVD and is useful when only a small
         number of components is needed.
     whiten : bool, default=False
-        When True, scale transformed components to unit variance.
+        When True, divide scores by the fitted component standard deviations.
+        Training scores have unit sample variance for positive retained variances
+        and an accurate exact decomposition; randomized decomposition only approximates
+        this scaling.
+        New-data covariance is not forced to be the identity.
     copy : bool, default=True
         Kept for sklearn-style API compatibility. Inputs are not modified.
+    random_state : int, numpy.random.Generator, numpy.random.RandomState or None, default=None
+        Seed for the randomized solver; ignored by deterministic solvers.
+        Integer seeds are in [0, 2**32-1]. Generator objects are stateful and
+        fitting can advance them; reuse an integer to restart from that seed.
+    n_oversamples : int, default=10
+        Nonnegative extra projection directions for the randomized solver.
+    iterated_power : int, default=2
+        Nonnegative number of randomized power iterations.
     device : {'auto', 'cpu', 'cuda', 'torch'}, default='auto'
-        Compute device.
+        NumPy CPU, CuPy CUDA, Torch CUDA, or automatic device selection.
+    n_jobs : int or None, default=None
+        Common estimator configuration; does not control PCA kernel threads.
+
+    Notes
+    -----
+    The covariance solver can lose precision at large common feature offsets;
+    use ``svd_solver="full"`` or center first in float64. Whitening a retained
+    zero-variance component is undefined. Constructor defaults, method and
+    output contracts are also documented in the unsupervised API reference.
     """
 
     def __init__(

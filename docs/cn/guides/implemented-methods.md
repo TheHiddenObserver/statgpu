@@ -1,6 +1,6 @@
 # 已实现方法
 
-> 最后更新：2026-09-17  
+> 最后更新：2026-10-08  
 > 切换：[English](../../en/guides/implemented-methods.md)
 
 本页汇总 statgpu 当前公开的模型、函数与主要求解器族。详细的数学定义、推断范围与兼容性规则，请以对应模型页和指南为准。
@@ -13,15 +13,17 @@
 | `Ridge` | L2 惩罚线性回归 | NumPy, CuPy, Torch |
 | `Lasso` | L1 回归，含去偏推断和自助法推断路径 | NumPy, CuPy, Torch |
 | `ElasticNet` | L1+L2 惩罚回归 | NumPy, CuPy, Torch |
-| `LogisticRegression` | 二元 logistic/probit 回归 | NumPy, CuPy, Torch |
+| `LogisticRegression` | 二元逻辑回归（logit 连接函数） | NumPy, CuPy, Torch |
 | `PoissonRegression` | Poisson GLM | NumPy, CuPy, Torch |
 | `GammaRegression` | Gamma GLM | NumPy, CuPy, Torch |
 | `InverseGaussianRegression` | Inverse Gaussian GLM | NumPy, CuPy, Torch |
 | `NegativeBinomialRegression` | 负二项 GLM | NumPy, CuPy, Torch |
 | `TweedieRegression` | Tweedie GLM | NumPy, CuPy, Torch |
 | `QuantileRegression` | 分位数回归，支持核方法和自助法推断 | NumPy, CuPy, Torch |
-| `OrderedLogitRegression` | Ordered logit 与解析 Hessian 推断 | NumPy, CuPy, Torch |
-| `OrderedProbitRegression` | Ordered probit 与解析 Hessian 推断 | NumPy, CuPy, Torch |
+| `OrderedLogitRegression` | 有序 logit 回归 与解析 Hessian 推断 | NumPy, CuPy, Torch |
+| `OrderedProbitRegression` | 有序 probit 回归 与解析 Hessian 推断 | NumPy, CuPy, Torch |
+
+[`LogisticRegression`](../models/regression/logistic-regression.md) 使用 logit 连接函数，不提供 probit 连接函数选项。有序 probit 模型由独立的 [`OrderedProbitRegression`](../models/regression/ordered.md) 提供；设置 `n_categories=2` 即可拟合二元 probit 回归。
 
 ## 惩罚模型
 
@@ -41,17 +43,22 @@
 
 ### 示例
 
+<!-- api-example: inventory-poisson -->
 ```python
+import numpy as np
 from statgpu.linear_model import PenalizedGeneralizedLinearModel
 
+rng = np.random.default_rng(42)
+X = rng.normal(size=(80, 2))
+y = rng.poisson(np.exp(0.3 + X @ np.array([0.5, -0.2])))
 model = PenalizedGeneralizedLinearModel(
-    loss="poisson",
-    penalty="l1",
-    alpha=0.05,
-    solver="fista",
-)
-model.fit(X, y)
+    loss="poisson", penalty="l1", alpha=0.05, solver="fista",
+    device="cpu", compute_inference=False, max_iter=2000, tol=1e-8,
+).fit(X, y)
+print(np.round(model.predict(X[:3]), 6))
 ```
+
+预测值是事件次数的条件均值，约为 `[1.458758, 1.547328, 0.775672]`。此 L1-Poisson 示例只做参数估计；非高斯 L1/ElasticNet 模型尚不提供系数推断。处理实际数据时，应另用验证过程选择惩罚强度。
 
 ## 交叉验证
 
@@ -63,6 +70,7 @@ model.fit(X, y)
 | `LogisticRegressionCV` | Logistic 回归交叉验证 | NumPy, CuPy, Torch |
 | `PenalizedGLM_CV` | 统一惩罚 GLM 交叉验证 | NumPy, CuPy, Torch |
 | `CoxPHCV` | 搜索 Cox 惩罚强度并进行最终重拟合 | NumPy, CuPy, Torch |
+| `KernelRidgeCV` | 固定核函数的 alpha 选择；整数数据折，不接受样本权重 | NumPy, CuPy, Torch |
 
 数据折、参数选择、最终重拟合、权重以及选择后推断的语义见 [交叉验证](cross-validation.md)。
 
@@ -76,19 +84,24 @@ model.fit(X, y)
 - `cohens_f`
 - `partial_eta_squared`
 
-设计限制与标量分布边界见 [ANOVA](../models/anova.md)。
+以上是七个函数：三个总体检验、两种两两比较程序和两个效应量辅助函数。支持的设计为
+独立组单因素、Welch 单因素和平衡双因素 ANOVA。方法选择见[概览](../models/testing/anova.md)；
+完整分析示例见[经典单因素](../models/testing/anova-oneway.md)、[Welch](../models/testing/anova-welch.md)、
+[平衡双因素](../models/testing/anova-twoway.md)
+与[事后比较](../models/testing/anova-posthoc.md)教程；五种结果类型、默认值、输入限制与标量
+分布边界见[完整 ANOVA API](../reference/anova-api.md)。
 
 ## 协方差估计
 
-- `EmpiricalCovariance`
-- `LedoitWolf`
-- `OAS`
-- `ShrunkCovariance`
-- `MinCovDet`
-- `GraphicalLasso`
-- `GraphicalLassoCV`
+- [EmpiricalCovariance](../models/covariance/covariance-empirical.md)
+- [LedoitWolf](../models/covariance/covariance-ledoit-wolf.md)
+- [OAS](../models/covariance/covariance-oas.md)
+- [ShrunkCovariance](../models/covariance/covariance-shrunk.md)
+- [MinCovDet](../models/covariance/covariance-min-cov-det.md)
+- [GraphicalLasso](../models/covariance/covariance-graphical-lasso.md)
+- [GraphicalLassoCV](../models/covariance/covariance-graphical-lasso-cv.md)
 
-详见 [协方差估计](../models/covariance.md)。
+详见 [协方差估计](../models/covariance/README.md)，参数、方法及输入限制见[完整协方差 API](../reference/covariance-api.md)。
 
 ## 面板数据
 
@@ -99,17 +112,20 @@ model.fit(X, y)
 - `FirstDifferenceOLS`
 - `FamaMacBeth`
 
-模型选择、协方差、秩亏与预测行为见 [面板模型](../models/panel.md)。
+模型选择、协方差、秩亏与预测行为见 [面板模型](../panel/README.md)。
 
 ## 非参数与半参数方法
 
-- `KernelDensity` 与核回归
-- `KernelRidge` 与 `KernelRidgeCV`
-- `KernelPCA`
-- `Nystroem`
+- `KernelDensityEstimator` / `KDE`
+- `KernelRegression` / `KernelRegressionRegressor`
+- [KernelRidge](../models/nonparametric/kernel-ridge.md) / [KernelRidgeCV](../models/nonparametric/kernel-ridge-cv.md)
+- [KernelPCA](../models/nonparametric/kernel-pca.md)
+- [Nystroem](../models/nonparametric/kernel-nystroem.md)
 - `SplineTransformer`
 - B 样条、自然三次样条、周期三次样条与薄板样条基
 - `GAM`
+
+核相似度与方法选择见[概览](../models/nonparametric/kernel-methods.md)；函数签名、拟合属性与执行边界见[完整 API](../reference/kernel-methods-api.md)。
 
 ## 无监督学习
 
@@ -117,7 +133,9 @@ model.fit(X, y)
 - `NMF`、`MiniBatchNMF`
 - `KMeans`、`MiniBatchKMeans`、`DBSCAN`
 - `GaussianMixture`、`AgglomerativeClustering`
-- `UMAP`、`TSNE`、`NNDescent`
+- `UMAP`、`TSNE`
+
+UMAP 可通过 `nn_method="nndescent"` 使用内部的 NNDescent 近似近邻搜索。NNDescent 不是单独公开导出的估计器，使用前请查阅 [UMAP 的支持限制](../unsupervised/umap.md)。
 
 ## 生存分析
 
@@ -132,7 +150,8 @@ model.fit(X, y)
 ## 特征选择与诊断
 
 - `StepwiseSelector` 与 `stepwise_selection`
-- fixed-X / model-X knockoff filter 与选择器封装
+- [Knockoff 总览](../models/feature-selection/knockoff.md) — 原理、假设与结果解释
+  - [Fixed-X 教程](../models/feature-selection/knockoff-fixed-x.md) · [Model-X 教程](../models/feature-selection/knockoff-model-x.md) · [完整特征选择 API](../reference/feature-selection-api.md)
 - `RegressionDiagnostics` 与 `diagnose_model`
 
 ## 多重检验与重抽样

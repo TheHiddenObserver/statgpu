@@ -1,15 +1,147 @@
 # RandomEffects
 
 > 语言：中文  
-> 最后更新：2026-09-17  
+> 最后更新：2026-10-13  
 > 页面定位：面板模型文档  
 > 切换：[English](../../en/panel/random-effects.md)
 
-## 概览
+<a id="概览"></a>
 
-`RandomEffects` 使用 Swamy–Arora 方法估计单向随机截距面板模型的方差分量，再通过可行 GLS 得到系数。与固定效应模型不同，它把个体专属效应建模为随机成分，而不是为每个个体设置一个不受约束的固定参数。
+## 什么时候适合随机截距
 
-`cov_type` 只改变 GLS 拟合之后报告的标准误和检验，不会改变 Swamy–Arora 方差分量，也不会改变系数估计。
+当你希望同时利用个体内部的变化与个体之间的差异估计公共斜率，并用随机截距描述个体的基准水平时，可以使用 `RandomEffects`。例如，它可以结合一家企业内部的变化与不同企业之间的比较。
+
+先把解释变量未解释的部分分成两类：同一个体各期共享的长期偏差 $a_i$，以及每条观测各自剩下的误差 $\varepsilon_{it}$（个体特异误差）。“解释变量历史”指该个体所有时期的解释变量，不是额外传入的一组数据。
+
+这里的核心假设比固定效应更强：给定这些解释变量后，随机效应 $a_i$ 的条件均值必须为零。例如，若投入长期较高的企业也恰好有持续较高、未记录的管理能力，这个条件就可能不成立。此外，给定这些解释变量和 $a_i$ 后，各期 $\varepsilon_{it}$ 的条件均值也必须为零。经典误差分量结构还假设各分量方差恒定、特异误差在个体内不随时间相关，且两个误差分量正交。下文用公式给出精确条件。
+
+如果个体的稳定差异与解释变量存在系统性联系，可考虑带个体效应的 [PanelOLS](panel-ols.md)。稳健标准误不能消除这一识别问题。`RandomEffects` 拟合的是每个个体的一个随机截距，不包含时间随机效应或随机斜率。
+
+模型根据估计的两类误差方差，决定从每行减去多少个体均值。拟合先用 Swamy–Arora 估计方差分量，再减去一部分个体均值（准去均值），最后用可行 GLS 估计系数。
+
+模型为 $y_{it}=x_{it}^{\top}\beta+a_i+\varepsilon_{it}$，其中 $i$ 表示个体，$t$ 表示时期。$y_{it}$ 是响应，$x_{it}$ 是该行的解释变量向量（若传入常数列，也包含该列），$\beta$ 包含公共系数。随机截距 $a_i$ 由个体 $i$ 的所有观测共享，$\varepsilon_{it}$ 则是每条观测各自的误差。
+
+准去均值构造 $y_{it}^{*}=y_{it}-\theta_i\bar y_i$ 和 $x_{it}^{*}=x_{it}-\theta_i\bar x_i$，再对这些变换后的观测做最小二乘。横线表示该个体已观测时期的均值；$\theta_i$ 根据估计的方差分量和该个体的观测次数，决定减去多少均值。
+
+## 准备个体分组与设计矩阵
+
+使用长表，每行是一个个体在一个时期的观测：
+
+- `X` 的形状为 `(n_observations, n_features)`，`y` 为 `(n_observations,)`；所有数组按行对齐。
+- `entity_ids` 必须提供，每行一个标签，用于确定准去均值及方差分量估计中的个体分组。
+- 数组接口不自动添加常数。需要公共截距时，请在 `X` 中加入一列 1。
+- Driscoll–Kraay 协方差需要 `time_ids`，聚类协方差需要 `cluster`。提供这些标签不会额外加入随机效应。
+
+示例使用 12 个个体、5 个时期；个体效应独立于 `x` 生成，符合随机效应的正交性假设。`X.shape == (60, 2)` 包含显式常数列和一个解释变量。
+
+<a id="cpu-与-gpu-示例"></a>
+
+## 拟合随机截距模型
+
+<a id="cpu-example"></a>
+
+<!-- example: cpu-basic -->
+```python
+import numpy as np
+from statgpu.panel import RandomEffects
+
+rng = np.random.default_rng(7)
+entity_ids = np.repeat(np.arange(12), 5)
+time_ids = np.tile(np.arange(5), 12)
+x = rng.normal(size=60)
+X = np.column_stack([np.ones(60), x])
+entity_effect = rng.normal(scale=0.6, size=12)
+y = 1.0 + 2.0 * x + entity_effect[entity_ids] + 0.2 * rng.normal(size=60)
+
+model = RandomEffects(device="cpu").fit(X, y, entity_ids=entity_ids)
+print("coef:", np.round(model.coef_, 3))
+print("theta:", round(float(model.theta_), 3))
+print("nobs:", model.nobs)
+```
+<!-- example-end: cpu-basic -->
+
+`coef_` 与 `X` 的列顺序一致：先截距、后斜率，斜率接近生成数据时设定的 2。由于各个体观测数相同，这里的 `theta_` 就是共同的准去均值因子；介于 0 与 1 的值表示减去一部分个体均值。`nobs=60` 仍是原始观测行数。这个小型模拟用于说明输出，不是对随机效应假设的检验。
+
+在 GPU 上运行时，把 `device="cpu"` 换成 `device="cuda"`（CuPy/CUDA）或 `device="torch"`（Torch CUDA）。显式请求的后端不可用时会报错，不会切换到 CPU。
+
+<a id="输出"></a>
+
+## 读懂系数与方差分量
+
+`coef_` 按原始水平设计矩阵的列顺序排列。示例中第一个系数是公共截距，第二个是结合个体内与个体间变化估计的公共斜率。
+
+`bse_` 按 `coef_` 的顺序衡量各系数的不确定性，并不是单次预测的波动大小。`conf_int_` 每行给出一个系数的区间下限与上限；`alpha=0.05` 对应 95% 区间。`tvalues_` 是系数与标准误之比：默认 `nonrobust` 拟合使用自由度为 `df_resid` 的 Student-t 参考分布，其他支持的协方差类型使用正态参考分布计算 p 值与区间。比较推断结果前，请核对[面板协方差](covariance.md)中的约定。
+
+`variance_components_` 是字典：`sigma2_e` 为个体特异误差方差，`sigma2_a` 为随机截距方差。`theta_` 概括减去了多少个体均值。非平衡面板中，拟合会使用各个体自己的因子；`theta_` 是这些因子在个体之间的平均值，不是对所有行统一使用的因子。等价地，相同观测数对应的因子按该类个体的数量加权。
+
+`nobs` 计数原始行数，`df_resid` 是最终变换后回归的残差自由度，`fit_statistics_` 包含标准化的拟合统计量，见[拟合统计量](fit-statistics.md)。`summary()` 打印并返回结构化面板摘要。
+
+### 预测结果的公共部分
+
+`model.predict(X_new)` 返回原始水平设计矩阵与 `coef_` 的乘积，类型为 NumPy 数组。它不是准去均值后的结果，也不会估计或加入个体专属的随机截距。`predict()` 不接受个体标签。
+
+使用与拟合时相同的列及顺序，包括示例中显式加入的常数列。公式拟合后，也可传入包含所需解释变量的 DataFrame。只有在身份明确时，缩短一列的数组才允许省略拟合时的显式常数；其他列数不匹配会报错。数组预测时保留完整的训练设计最为清楚。
+
+## 选择标准误并重新拟合
+
+更换 `cov_type` 改变拟合后的不确定性，不改变方差分量与系数。
+
+先确认上述随机效应假设，再选择不确定性模型。默认是 `cov_type="nonrobust"`，也可使用 HC0–HC3、聚类稳健与 Driscoll–Kraay。
+
+- 若按个体聚类，设置 `cov_type="clustered"`，并在 `fit()` 中传入 `cluster=entity_ids`。仅提供 `entity_ids` 不会自动启用聚类标准误；`group_debias=True` 可选地加入小簇数修正。
+- Driscoll–Kraay 需要 `time_ids`；通过 `bandwidth` 与 `kernel` 选择时间平滑。本模型没有独立的 `hac` 选项。
+- 比较协方差选择时，须对相同数据及其余设置重新拟合。`set_params()` 会重置已拟合状态，直接给属性赋值也不会重算已有结果。
+
+这些选项针对同一个准去均值 GLS 回归计算协方差，不会改变 Swamy–Arora 变换，也不能修复随机效应与解释变量之间的相关性。
+
+## 公式接口
+
+假设 `df` 包含 `y`、`x1`、`x2` 与 `entity`：
+
+```python
+from statgpu.panel import RandomEffects
+
+with_intercept = RandomEffects().fit(
+    formula="y ~ x1 + x2 | entity",
+    data=df,
+)
+
+without_intercept = RandomEffects().fit(
+    formula="y ~ 0 + x1 + x2 | entity",
+    data=df,
+)
+```
+
+管道符（`|`）后的第一个变量表示个体分组列。只有当 `cov_type="driscoll-kraay"` 时才接受第二个管道变量，并把它作为 `time_ids`；其他协方差类型下会明确报错，而不是静默忽略该变量。
+
+如果同时显式传入 `entity_ids` / `time_ids`，它们必须与公式中管道部分指定的对应列一致。`RandomEffects` 会拒绝固定效应专用标记 `EntityEffects`、`TimeEffects` 和 `FixedEffects`；分组元数据应通过管道语法提供。
+
+<a id="数值行为与失败语义"></a>
+
+## 检查数据是否支持这次拟合
+
+个体内与个体间辅助回归的残差自由度都必须为正。尤其是，个体数必须大于个体间回归的识别秩；仅在少数个体上收集很多行数据并不足够。
+
+最终变换后的设计若精确秩亏，拟合值仍可能可用，但系数向量不唯一；此时系数级标准误、检验、p 值与置信区间不可用。
+
+辅助回归与最终 GLS 的数值保护会在极端尺度或抵消情形下保留原有 Swamy–Arora 与最小二乘定义。但如果 float64 无法可靠表示个体内/个体间残差方差贡献或准去均值数据，`fit()` 会抛出 `FloatingPointError`。输入有限、设计满秩并不保证计算结果一定可表示。
+
+每次新的拟合尝试都会先清除旧状态；失败后不会保留可当作成功结果使用的部分输出。协方差输入不合法或显式请求的 GPU 后端不可用时也会报错。
+
+## Hausman 比较
+
+经典 Hausman 比较只在 [面板诊断](diagnostics.md) 说明的条件下可用。它检验的核心正是随机效应模型中“个体效应与解释变量不相关”这一额外假设是否与固定效应估计结果相容。
+
+## 常见问题
+
+**`cov_type` 会改变 Swamy–Arora 系数估计吗？**  
+不会。在同一数据和其余设置下换用另一种协方差并重新拟合，只改变 GLS 拟合后的标准误与相关推断。
+
+**为什么 $\widehat\sigma_a^2$ 可能等于 0？**  
+有限样本下未经截断的 Swamy–Arora 估计可能为负；由于方差不能为负，statgpu 会把该估计截断为 0。
+
+**稳健标准误能解决随机效应模型的内生性吗？**  
+不能。稳健协方差只改变不确定性估计，无法替代 $E(a_i\mid X_i)=0$ 这样的识别条件。
 
 ## 统计模型与识别
 
@@ -147,94 +279,37 @@ HC0–HC3、聚类稳健以及 Driscoll–Kraay 协方差也都基于同一个�
 | `kernel` | `"bartlett"` | Bartlett/Newey–West、Parzen/Gallant、QS/Quadratic-Spectral/Andrews 等别名 | Driscoll–Kraay 核函数 |
 | `group_debias` | `False` | 布尔值；仅聚类稳健协方差使用 | 是否应用小聚类数修正 |
 
-拟合接口：
+### 拟合与其他方法
 
 ```python
-model.fit(X, y, entity_ids=entity_ids, time_ids=None, cluster=None)
+model.fit(X=None, y=None, entity_ids=None, time_ids=None,
+          formula=None, data=None, cluster=None)
 ```
 
-- `entity_ids` 必需，因为方差分量估计和准去均值都按个体进行；
-- Driscoll–Kraay 还需要 `time_ids`；
-- 聚类稳健协方差需要 `cluster`。
+可传入数组，或配合 `data` 使用 `formula`；`fit()` 返回已拟合的估计器。个体标签必需，且每行一个；DK 还需要 `time_ids`，聚类协方差需要[面板协方差](covariance.md)说明的一维或二维 `cluster` 分组。公式旁路元数据需要与保留观测对齐，见[本页公式接口](#公式接口)。
 
-## CPU 与 GPU 示例
+- `predict(X)`：返回公共水平预测，不加入个体专属随机截距。
+- `summary()`：打印并返回结构化面板摘要。
+- `hausman_test(fixed_effects_model)`：与兼容的固定效应拟合比较；见[面板诊断](diagnostics.md)。
+- `get_params(deep=True)` / `set_params(**params)`：读取或修改构造参数；`set_params()` 清除拟合状态后须重新拟合。
 
-```python
-from statgpu.panel import RandomEffects
+拟合属性：`coef_`、`bse_`、`tvalues_`、`pvalues_`、`conf_int_`、`theta_`、`variance_components_`、`fit_statistics_`、`nobs`、`df_resid`。变换后设计精确秩亏时，系数推断数组不可用。
 
-cpu = RandomEffects(device="cpu").fit(X, y, entity_ids=entity_ids)
-cuda = RandomEffects(device="cuda").fit(X, y, entity_ids=entity_ids)
-torch = RandomEffects(device="torch").fit(X, y, entity_ids=entity_ids)
-```
+继承的 `adjust_pvalues`、`combine_pvalues`、`bootstrap_statistic` 和 `permutation_test` 的完整签名见[共享估计器 API](../reference/estimator-api.md)。这些工具不会自动选择适用于面板依赖结构的重采样方案。
 
-如果显式请求的 GPU 后端不可用，`.fit()` 会直接报错，而不会切换到 CPU。
+<a id="external-validation"></a>
 
-## 公式接口
+<a id="comparing-with-other-packages"></a>
 
-假设 `df` 包含 `y`、`x1`、`x2` 与 `entity`：
+## 与其他软件包比较
 
-```python
-from statgpu.panel import RandomEffects
+随机效应系数**不保证与其他软件包一致**，因为 statgpu 使用自己的 Swamy–Arora 方差分量构造。比较协方差时，应使用 statgpu 实际得到的准去均值回归 $(X^*,y^*)$：在对齐协方差设置和自由度后，可与 linearmodels 比较稳健及 Driscoll–Kraay 协方差，与 statsmodels 比较 HC2/HC3。
 
-with_intercept = RandomEffects().fit(
-    formula="y ~ x1 + x2 | entity",
-    data=df,
-)
-
-without_intercept = RandomEffects().fit(
-    formula="y ~ 0 + x1 + x2 | entity",
-    data=df,
-)
-```
-
-管道符（`|`）后的第一个变量表示个体分组列。只有当 `cov_type="driscoll-kraay"` 时才接受第二个管道变量，并把它作为 `time_ids`；其他协方差类型下会明确报错，而不是静默忽略该变量。
-
-如果同时显式传入 `entity_ids` / `time_ids`，它们必须与公式中管道部分指定的对应列一致。`RandomEffects` 会拒绝固定效应专用标记 `EntityEffects`、`TimeEffects` 和 `FixedEffects`；分组元数据应通过管道语法提供。
-
-## 输出
-
-常用结果包括：
-
-- `coef_`、`bse_`、`tvalues_`、`pvalues_`、`conf_int_`；
-- `theta_`；
-- `variance_components_`；
-- `fit_statistics_`；
-- `nobs`、`df_resid`。
-
-`variance_components_` 保存 $\widehat\sigma_e^2$ 与 $\widehat\sigma_a^2$；`theta_` 是拟合中各个体准去均值因子按个体数量加权后的平均值。
-
-## 数值行为与失败语义
-
-改变 `cov_type` 不会重新拟合随机效应模型：方差分量与系数保持不变，只改变报告的不确定性。
-
-用户可以依赖以下公开行为：
-
-- 个体内和个体间辅助回归都必须具有正的残差自由度；如果个体数量不足以支持个体间回归，`.fit()` 会报错，而不会人为构造不可靠的方差分量；
-- 极端尺度下，如果 float64 无法可靠表示个体内/个体间残差方差或准去均值结果，会抛出 `FloatingPointError`，而不会返回有限但错误的 GLS 系数；
-- 如果变换后的设计矩阵精确秩亏，拟合值仍可能有意义，但系数向量不唯一。此时不会继续发布依赖唯一系数表示的标准误、检验、p 值与置信区间；
-- 不合法的协方差输入或不可用的显式 GPU 后端会直接报错；
-- 每次新的拟合尝试都会先失效旧的已拟合/推断状态，失败后对象不会保留看起来像成功结果的部分状态。
-
-这些边界描述的是用户可观察的数值行为，不要求应用代码依赖内部使用哪一种 SVD、缩放、归约或验证脚本。
-
-## Hausman 比较
-
-经典 Hausman 比较只在 [面板诊断](diagnostics.md) 说明的条件下可用。它检验的核心正是随机效应模型中“个体效应与解释变量不相关”这一额外假设是否与固定效应估计结果相容。
-
-## 常见问题
-
-**`cov_type` 会改变 Swamy–Arora 系数估计吗？**  
-不会；它只改变 GLS 拟合后的标准误与相关推断。
-
-**为什么 $\widehat\sigma_a^2$ 可能等于 0？**  
-有限样本下未经截断的 Swamy–Arora 估计可能为负；由于方差不能为负，statgpu 会把该估计截断为 0。
-
-**稳健标准误能解决随机效应模型的内生性吗？**  
-不能。稳健协方差只改变不确定性估计，无法替代 $E(a_i\mid X_i)=0$ 这样的识别条件。
+这样的比较只针对该变换后回归的不确定性，不能据此认定不同随机效应实现具有等价的系数估计。详见[协方差定义的比较](covariance.md#comparing-covariance-definitions)。
 
 ## 相关文档
 
-- [面板模型总览](../models/panel.md) — Panel 模型选择与解释
+- [面板模型总览](README.md) — Panel 模型选择与解释
 - [PanelOLS](panel-ols.md) — 固定效应估计
 - [面板模型协方差](covariance.md) — HC、cluster 与 Driscoll–Kraay
 - [面板诊断](diagnostics.md) — Hausman 等检验

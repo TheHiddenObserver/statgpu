@@ -13,11 +13,14 @@ from statgpu.nonparametric.splines._bspline_basis import bspline_basis, _get_xp
 def cyclic_cubic_spline_basis(x, knots, xp=None):
     """Construct a cyclic (periodic) cubic B-spline basis.
 
-    Enforces periodicity constraints at the boundary:
-    f(a) = f(b), f'(a) = f'(b), f''(a) = f''(b)
+    Attempts to impose matching values and first two derivatives at the
+    evaluation-range boundaries. Interior knots must lie strictly between
+    min(x) and max(x).
 
-    where a = min(knots), b = max(knots).  This reduces the basis by
-    3 functions compared to a standard B-spline basis.
+    The current central-difference construction evaluates zero-valued basis
+    functions outside the boundaries and does not reliably impose the true
+    one-sided derivative constraints. Do not use the returned basis when
+    periodic continuity is required.
 
     Parameters
     ----------
@@ -30,8 +33,10 @@ def cyclic_cubic_spline_basis(x, knots, xp=None):
 
     Returns
     -------
-    B : array, shape (n, m + degree + 1 - 3)
-        Cyclic cubic spline basis matrix.
+    B : array, shape (n, m + 4 - rank)
+        Projected cubic basis, where rank is the numerical constraint rank.
+        Three independent constraints would give m + 1 columns; the current
+        implementation can return another width, including m + 2.
 
     Notes
     -----

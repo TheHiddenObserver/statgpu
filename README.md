@@ -11,7 +11,7 @@ GPU-accelerated statistical methods with an sklearn-style API.
 ## Core Features
 
 - 🚀 **Three backends**: NumPy (CPU), CuPy (CUDA), and PyTorch (CUDA), with automatic device selection
-- 🧭 **Explicit backend semantics**: core numerical arrays remain on the selected backend where supported; explicit device requests do not silently switch backend, and model-specific metadata, control-flow, and scalar boundaries are documented per method
+- 🧭 **Explicit backend semantics**: choose CPU or GPU execution per model; [current kernel/spline routing exceptions](docs/en/guides/device-and-memory.md#current-smoothing-and-spline-exceptions) can return CPU results despite a GPU request, so check array placement when GPU execution is required. Input, output, and scalar conversions are documented per method
 - 🔧 **sklearn-style estimators**: familiar `fit`/`predict`/`score` methods and parameter conventions
 - 📊 **GLM + robust + quantile + Cox**: Gaussian and non-Gaussian regression, robust losses, quantile regression, and survival analysis
 - 🔥 **Penalty framework**: L1, L2, Elastic Net, SCAD, MCP, adaptive, and grouped penalties
@@ -32,10 +32,11 @@ GPU-accelerated statistical methods with an sklearn-style API.
 | **Regression & GLM** | LinearRegression, Ridge, Lasso, ElasticNet, Logistic, Poisson, Gamma, Inverse Gaussian, Negative Binomial, Tweedie, QuantileRegression, and ordered models |
 | **Penalized models** | Unified penalized GLM, typed family wrappers, penalized quantile/robust regression, and PenalizedCoxPHModel |
 | **Cross-validation** | RidgeCV, LassoCV, ElasticNetCV, LogisticRegressionCV, PenalizedGLM_CV, and CoxPHCV |
-| **ANOVA** | One-way, two-way, Welch ANOVA, post-hoc comparisons, and effect sizes |
-| **Covariance** | Empirical and shrinkage covariance, MinCovDet, GraphicalLasso, and GraphicalLassoCV |
+| [**ANOVA**](docs/en/models/testing/anova.md) | [Classical one-way](docs/en/models/testing/anova-oneway.md), [Welch](docs/en/models/testing/anova-welch.md), [balanced two-way](docs/en/models/testing/anova-twoway.md), [pairwise comparisons](docs/en/models/testing/anova-posthoc.md), and effect sizes; [complete API](docs/en/reference/anova-api.md) |
+| [**Covariance**](docs/en/models/covariance/README.md) | [EmpiricalCovariance](docs/en/models/covariance/covariance-empirical.md), [ShrunkCovariance](docs/en/models/covariance/covariance-shrunk.md), [LedoitWolf](docs/en/models/covariance/covariance-ledoit-wolf.md), [OAS](docs/en/models/covariance/covariance-oas.md), [MinCovDet](docs/en/models/covariance/covariance-min-cov-det.md), [GraphicalLasso](docs/en/models/covariance/covariance-graphical-lasso.md), [GraphicalLassoCV](docs/en/models/covariance/covariance-graphical-lasso-cv.md); [complete API](docs/en/reference/covariance-api.md) |
 | **Panel data** | PanelOLS, RandomEffects, PooledOLS, BetweenOLS, FirstDifferenceOLS, and FamaMacBeth |
-| **Nonparametric** | KDE, kernel regression, KernelRidge/CV, KernelPCA, Nystroem, spline bases, and SplineTransformer |
+| **Nonparametric** | KDE, kernel regression, spline bases, and SplineTransformer |
+| [**Kernel methods**](docs/en/models/nonparametric/kernel-methods.md) | [KernelRidge](docs/en/models/nonparametric/kernel-ridge.md), [KernelRidgeCV](docs/en/models/nonparametric/kernel-ridge-cv.md), [KernelPCA](docs/en/models/nonparametric/kernel-pca.md), [Nystroem](docs/en/models/nonparametric/kernel-nystroem.md); [complete API](docs/en/reference/kernel-methods-api.md) |
 | **Semiparametric** | GAM with penalized B-splines and GCV |
 | **Unsupervised** | PCA, SVD, NMF, UMAP, t-SNE, KMeans, DBSCAN, GMM, and AgglomerativeClustering |
 | **Survival** | CoxPH/CoxPHCV with Breslow, Efron, or Exact ties, `(start, stop]` data, strata, robust covariance, and subject-grouped CV; PenalizedCoxPHModel |
@@ -43,18 +44,22 @@ GPU-accelerated statistical methods with an sklearn-style API.
 | **Diagnostics** | RegressionDiagnostics and `diagnose_model` |
 | **Multiple testing** | `adjust_pvalues`, `combine_pvalues`, and `permutation_test` |
 
+Knockoff: [overview](docs/en/models/feature-selection/knockoff.md) · [Fixed-X tutorial](docs/en/models/feature-selection/knockoff-fixed-x.md) · [Model-X tutorial](docs/en/models/feature-selection/knockoff-model-x.md) · [complete API](docs/en/reference/feature-selection-api.md).
+
+Knockoff 中文：[总览](docs/cn/models/feature-selection/knockoff.md) · [Fixed-X 教程](docs/cn/models/feature-selection/knockoff-fixed-x.md) · [Model-X 教程](docs/cn/models/feature-selection/knockoff-model-x.md) · [完整 API](docs/cn/reference/feature-selection-api.md)。
+
 ## Documentation
 
-- **English docs**: [docs/en/](docs/en/) — full documentation index
-- **Chinese docs**: [docs/cn/](docs/cn/) — 中文文档
+- **English docs**: [docs/en/](docs/en) — full documentation index
+- **Chinese docs**: [docs/cn/](docs/cn) — 中文文档
 - **Quickstart**: [Quickstart](docs/en/getting-started/quickstart.md)
 - **Implemented methods**: [Method Inventory](docs/en/guides/implemented-methods.md)
-- **GLM + Penalty**: [Generalized Linear Model](docs/en/models/generalized-linear-model.md)
+- **GLM + Penalty**: [Generalized Linear Model](docs/en/models/regression/generalized-linear-model.md)
 - **Cross-validation**: [Cross-Validation Guide](docs/en/guides/cross-validation.md)
 - **Loss × Penalty × Solver Framework**: [Framework Guide](docs/en/guides/loss-penalty-solver-framework.md)
 - **Solver-Penalty Matrix**: [Solver × Penalty](docs/en/guides/solver-penalty-matrix.md)
 - **Survival analysis**: [Cox Proportional Hazards](docs/en/models/coxph.md)
-- **Panel models**: [Panel Data Models](docs/en/models/panel.md)
+- **Panel models**: [Panel Data Models](docs/en/panel/README.md)
 - **Device & memory**: [Device and GPU Memory](docs/en/guides/device-and-memory.md)
 - **PyTorch backend**: [PyTorch Backend](docs/en/guides/pytorch-backend.md)
 - **Distribution API**: [Distribution API](docs/en/guides/distribution-api.md)
@@ -93,46 +98,42 @@ Choose CuPy and PyTorch builds compatible with the installed CUDA driver and run
 The default example runs after the base `pip install statgpu` installation. Use an
 explicit GPU device only after installing the corresponding CuPy or PyTorch extra.
 
+<!-- api-example: readme-quick-start -->
 ```python
 import numpy as np
 from statgpu import adjust_pvalues, combine_pvalues
-from statgpu.inference import norm, poisson
+from statgpu.inference import norm
 from statgpu.linear_model import LinearRegression, PenalizedGLM_CV
 
-# Generate data using statgpu distributions
-X = norm.rvs(size=(10000, 100))
-y = X @ norm.rvs(size=100) + norm.rvs(size=10000) * 0.5
+# Native distribution sampling uses NumPy's global seed.
+np.random.seed(42)
+X = norm.rvs(size=(300, 8), backend="numpy")
+y = X @ norm.rvs(size=8, backend="numpy") + norm.rvs(size=300, backend="numpy") * 0.5
 
-# Portable linear regression: selects an available backend
-model = LinearRegression(device="auto")
+model = LinearRegression(device="cpu")
 model.fit(X, y)
 print(f"R²: {model.score(X, y):.4f}")
 
-# Penalized GLM with cross-validation
-y_pois = poisson.rvs(
-    mu=np.exp(X[:, :5] @ np.ones(5) * 0.1),
-    size=X.shape[0],
-)
+# Native poisson.rvs takes a scalar mean. NumPy supports one mean per row.
+rng = np.random.default_rng(42)
+y_pois = rng.poisson(np.exp(X[:, :5] @ np.ones(5) * 0.1))
 cv_model = PenalizedGLM_CV(
     loss="poisson",
     penalty="elasticnet",
     l1_ratio=0.5,
-    cv=5,
+    alpha_grid=np.logspace(-2, 0, 8),
+    cv=3,
     device="cpu",
+    compute_inference=False,
 )
 cv_model.fit(X[:, :5], y_pois)
 print(f"Best alpha: {cv_model.alpha_:.4f}")
 
-# Multiple-testing correction
 reject, pvals_adj = adjust_pvalues(
-    np.array([0.003, 0.02, 0.5]),
-    method="bh",
+    np.array([0.003, 0.02, 0.5]), method="bh",
 )
-
-# Global p-value combination
 stat, p_global = combine_pvalues(
-    np.array([0.01, 0.07, 0.03, 0.40]),
-    method="fisher",
+    np.array([0.01, 0.07, 0.03, 0.40]), method="fisher",
 )
 ```
 
@@ -151,35 +152,19 @@ from statgpu.linear_model import LinearRegression
 model = LinearRegression(device="cuda", n_jobs=4)
 ```
 
-## Benchmark Results (RTX 4090)
+## Benchmark evidence
 
-Full reports: `results/unsupervised_bench_2026-06-27.md`, `results/glm_solver_benchmark_2026-06-23.md`
+Historical reports are available for [GLM solvers (2026-06-23)](results/glm_solver_benchmark_2026-06-23.md)
+and [unsupervised methods (2026-06-27)](results/unsupervised_bench_2026-06-27.md).
+Both reports identify Tesla P100 hardware. They are dated snapshots, not
+measurements of the current source or guarantees for another GPU or workload.
+See the [historical attribution record](dev/references/readme-historical-benchmarks.md)
+for the limitations of older comparison tables.
 
-Test environment: RTX 4090 (24GB), CuPy 14.1.0, PyTorch 2.8.0+cu128,
-scikit-learn 1.8.0, statsmodels 0.14.6, lifelines 0.30.3.
-These are environment-specific benchmark results, not installation requirements or
-universal speed guarantees.
-
-### Selected Benchmark Results
-
-| Module | Dataset | n | p | Best Speedup | Precision |
-|---|---|---:|---:|---:|---|
-| Poisson GLM | freMTPL2 | 678K | 42 | 196.9x vs sklearn | coef_corr=1.000000 |
-| Gamma GLM | synthetic | 678K | 42 | 97.9x vs sklearn | coef_corr=0.9995 |
-| CoxPH | synthetic | 1.9K | 500 | 1.2x vs CPU | coef_corr=1.000 |
-| adjust_pvalues (BH) | synthetic | — | 1M | 0.55x | 100% agreement |
-| PenalizedPoisson (L1) | freMTPL2 | 678K | 42 | — | OK |
-| PenalizedCoxPH (L2) | synthetic | 1.9K | 500 | — | C-index match |
-
-### Precision Summary
-
-| Module | Metric | Result |
-|---|---|---|
-| Poisson GLM | coefficient correlation vs sklearn | 1.000000 |
-| Gamma GLM | coefficient correlation vs sklearn | 0.9995 |
-| CoxPH | coefficient correlation vs lifelines | 1.000 |
-| adjust_pvalues (BH) | rejection agreement vs statsmodels | 100% |
-| Penalized models | self-consistency | validated across supported penalties |
+Check correctness and align the statistical objective before comparing speed.
+A useful benchmark records its source commit, hardware and package versions,
+workload, timing/synchronization and transfer boundaries. Coefficient correlation
+alone does not prove coefficient accuracy, calibrated inference, or backend parity.
 
 ## Contributing
 
