@@ -94,6 +94,24 @@ Project-management status, review findings, follow-up ownership, exact-source ev
 
 A statement can be factually correct and still be a documentation defect if it is placed in the wrong layer.
 
+## General methods and concrete examples
+
+On learner-facing method pages, explain the method's general problem, input,
+and output in ordinary language before introducing an application. The opening
+should make sense without assuming a particular industry or dataset. For example,
+NMF learns nonnegative patterns and per-sample coefficients whose product
+approximates a nonnegative data table; spectra are one illustration of those
+objects, not their general definition.
+
+Keep concrete examples and numerical output explanations. Label an application
+as an example and map its objects back to the method: wavelengths are features,
+for instance. Later parameter and result explanations should use general terms
+unless explicitly discussing that example. Do not replace accessible explanations
+with a list of formal terms, or impose the same opening template on every page.
+Preserve genuine statistical restrictions, such as nonnegative NMF input,
+time-to-event survival data, or repeated entity/time observations in panel models.
+API reference pages may remain reference-first and link to the learner explanation.
+
 ## English and Chinese pages
 
 EN/CN pages do not need word-for-word translation, but their capability claims and documentation layer must match. Internal review terminology should not be translated literally into the other language and then exposed to users.
@@ -133,3 +151,14 @@ Documentation review should treat this boundary as part of correctness, not only
 Focused documentation-contract tests may prohibit known internal-status phrases or known prose-level English fragments on pages affected by a change. Such tests should be targeted: they must not reject legitimate API identifiers, code blocks, formulas, or standard algorithm acronyms merely because they are English.
 
 Broader enforcement should be expanded deliberately as older documentation is cleaned up, rather than breaking unrelated pages solely to impose a repository-wide word ban in one step.
+
+## Canonical documentation paths
+
+Keep English and Chinese navigation mirrored and point all maintained links at
+canonical family pages. The model roots contain only `README.md`, `coxph.md`,
+and family directories; moved pages must not be recreated as flat compatibility
+stubs. Directory landing pages use `README.md`. Old external URLs from this
+migration are intentionally unsupported. Preserve canonical anchors still used
+by internal links, and leave unrelated overview anchors alone. Historical source
+manifests, commit-specific URLs, and archived plain-text provenance paths record
+their original source state and must not be blindly rewritten.

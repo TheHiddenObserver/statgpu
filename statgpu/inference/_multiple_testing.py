@@ -239,7 +239,9 @@ def adjust_pvalues(
         One of: 'bh', 'by', 'holm', 'bonferroni', 'hochberg'.
         Common aliases are accepted (e.g., 'fdr_bh', 'bonf', 'step_up').
     alpha : float, default=0.05
-        Rejection threshold in (0, 1).
+        Finite rejection threshold in (0, 1). The current validator does
+        not reject NaN and would return an all-false mask; validate levels
+        computed from external inputs before calling.
     axis : int or None, default=None
         Axis along which to adjust p-values.
         If None, adjusts over all values flattened.
@@ -301,6 +303,13 @@ def combine_pvalues(
     """
     Combine p-values into a global p-value.
 
+    Fisher and Stouffer use independent-test reference distributions; no
+    dependence covariance is estimated. Cauchy uses a tail approximation
+    under regularity conditions, not universal finite-level error control.
+    A global rejection does not identify individual false hypotheses.
+    Endpoint clipping and distribution-tail cancellation can limit extreme
+    probabilities; zero output need not mean an exact zero probability.
+
     Parameters
     ----------
     pvalues : array-like
@@ -308,7 +317,14 @@ def combine_pvalues(
     method : {'fisher', 'cauchy', 'stouffer'}, default='fisher'
         Combination method. Aliases accepted (e.g., 'acat').
     weights : array-like, optional
-        Optional non-negative weights for method='cauchy' or 'stouffer'.
+        Finite nonnegative weights with positive sum for method='cauchy'
+        or 'stouffer', matching the combination-axis length. They are
+        normalized internally. Fisher rejects supplied weights.
+        Validate a nonempty one-dimensional vector, then divide by its
+        largest positive entry before calling: the current normalization
+        can overflow for individually finite large weights and return a
+        wrong Cauchy p-value or NaN Stouffer result. Positive common scaling
+        preserves the intended relative-weight calculation.
     axis : int or None, default=None
         Axis along which to combine p-values. If None, flattens all values.
     backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
@@ -381,7 +397,12 @@ def multipletests(
     axis: Optional[int] = None,
     backend: str = "auto",
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """Alias compatible with common scientific naming."""
+    """Return the same pair as adjust_pvalues using alpha before method.
+
+    Pass alpha and method by keyword: their positional order differs from
+    adjust_pvalues. This function returns only (reject, adjusted), not the
+    four-item statsmodels result.
+    """
     return adjust_pvalues(
         pvalues,
         method=method,

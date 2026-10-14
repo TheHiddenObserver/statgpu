@@ -90,7 +90,8 @@ def f_twoway(
 ) -> TwoWayAnovaResult:
     """Perform a balanced two-way ANOVA.
 
-    Each cell must contain the same number of observations.  Unbalanced
+    Each cell must contain the same number of finite observations. NaN and
+    infinite observations raise ValueError. Unbalanced
     designs require an explicit sums-of-squares convention (Type I/II/III),
     which this API does not expose, so they are rejected rather than silently
     applying the orthogonal balanced-design decomposition.
@@ -116,6 +117,8 @@ def f_twoway(
         raise ValueError("each factor cell must contain at least one observation")
 
     cube = xp.stack(cell_arrays, axis=0).reshape(n_a, n_b, n_cell)
+    if not bool(_to_float_scalar(xp.all(xp.isfinite(cube)))):
+        raise ValueError("factor cells contain NaN or infinite values")
     cell_means = xp.mean(cube, axis=2)
     row_means = xp.mean(cell_means, axis=1)
     col_means = xp.mean(cell_means, axis=0)

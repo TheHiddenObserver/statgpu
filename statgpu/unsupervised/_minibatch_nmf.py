@@ -12,7 +12,19 @@ from statgpu.unsupervised._utils import backend_random_normal, check_2d_array, r
 
 
 class MiniBatchNMF(BaseEstimator):
-    """Dense mini-batch NMF with multiplicative updates and Frobenius loss."""
+    """Dense mini-batch NMF with multiplicative updates and Frobenius loss.
+
+    A feature that is zero throughout the first ``partial_fit`` batch can
+    permanently zero its dictionary column. Later positive batches cannot
+    revive that column. Buffer representative initialization rows, or restart
+    with representative retained data when previously absent features appear.
+
+    Even strictly positive batches can collapse at very small input units
+    because fixed absolute stabilizers dominate the updates. Use one fixed
+    positive training-derived scale across all features, batches and later
+    transforms; multiply reconstructions by that scale to restore original
+    units. Check relative error as well as the absolute reconstruction error.
+    """
 
     def __init__(
         self,
@@ -258,6 +270,12 @@ class MiniBatchNMF(BaseEstimator):
         return W
 
     def inverse_transform(self, X):
+        """Multiply finite coordinates by the fitted nonnegative dictionary.
+
+        Unlike observation fitting/encoding, this linear reconstruction does
+        not reject negative coordinates. Use nonnegative input factors for a
+        nonnegative reconstruction; signed coordinates can yield signed output.
+        """
         self._check_is_fitted()
         backend = self._get_backend()
         X_arr = backend.asarray(X, dtype=backend.float64)

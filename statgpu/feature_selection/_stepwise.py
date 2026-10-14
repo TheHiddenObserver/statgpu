@@ -33,10 +33,11 @@ class StepwiseSelector:
     direction : {'forward', 'backward', 'both'}, default='both'
         Search direction.
     max_features : int or None, default=None
-        Maximum number of selected features. For backward selection, a value
+        Intended maximum number of selected features. For backward selection, a value
         smaller than the input width is treated as a hard cap: features are
         removed until the cap is met, then elimination continues only while the
-        criterion improves.
+        criterion improves. This requires finite-scoring removal candidates;
+        the current nonfinite-score path can return without meeting the cap.
     n_jobs : int or None, default=None
         Number of joblib workers used to score candidates. Threads are used so
         device arrays are not copied into worker processes.
@@ -50,6 +51,18 @@ class StepwiseSelector:
     Candidate subsets are always sorted before fitting. This is important: the
     final fitted coefficient order and the order used by ``predict`` must be
     identical.
+
+    Both AIC and BIC must be finite to use the wrapped model's criteria.
+    Otherwise a finite ``rsquared`` enables a Gaussian-style ranking proxy;
+    this is not a general likelihood criterion for arbitrary model families.
+    Missing/nonfinite criteria receive infinite scores. An infinite starting
+    score currently prevents forward/bidirectional search from accepting even
+    finite improvements, and all-invalid removals can leave a backward search
+    above ``max_features``. Check finite criterion histories and the selected
+    count before interpreting a returned selector as a successful search.
+
+    Ordinary inference from ``best_model_`` does not adjust for the preceding
+    variable search. Repeat selection inside each training fold for evaluation.
     """
 
     _VALID_CRITERIA = {"aic", "bic"}
@@ -149,7 +162,28 @@ class StepwiseSelector:
         return y
 
     def fit(self, X, y):
-        """Run stepwise selection and fit the final estimator."""
+        """Run stepwise selection and fit the final estimator.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Finite numeric design matrix; use the original feature layout.
+        y : array-like of shape (n_samples,) or (n_samples, 1)
+            Finite response. A single column is flattened.
+
+        Returns
+        -------
+        self : StepwiseSelector
+            Fitted selector with sorted ``selected_features_``, ``best_model_``
+            and accepted-state AIC/BIC histories. Histories include the initial
+            subset. Existing histories and caches are cleared before fitting.
+
+        Notes
+        -----
+        Sample weights and formula/data arguments are not accepted. A return
+        does not establish finite selection scores; see the class Notes for
+        the current nonfinite-score limitations.
+        """
         self._validate_constructor_params()
         self._reset_fit_state()
         X = self._prepare_X(X)
@@ -337,26 +371,42 @@ class StepwiseSelector:
             raise RuntimeError("StepwiseSelector has not been fitted yet")
 
     def transform(self, X):
-        """Return the columns retained by the fitted selector."""
+        """Return selected columns of a finite two-dimensional design matrix.
+
+        Supply the original feature layout. The result has shape
+        ``(n_samples, len(selected_features_))`` and preserves NumPy/CuPy/Torch
+        array dtype/backend; it can have zero columns. The current method does
+        not verify the original training width. Calling before fit raises.
+        """
         self._check_is_fitted()
         X = self._prepare_X(X)
         return X[:, self.selected_features_]
 
     def predict(self, X):
-        """Predict with the selected feature subset."""
+        """Select columns from original-layout X and return model predictions.
+
+        Output type and shape follow ``best_model_.predict``. X must be a
+        finite two-dimensional design matrix. Calling before fit raises.
+        """
         self._check_is_fitted()
         X_selected = self.transform(X)
         return self.best_model_.predict(X_selected)
 
     def score(self, X, y):
-        """Return the wrapped estimator's score."""
+        """Return the wrapped estimator's score on original-layout X and y.
+
+        X is a finite two-dimensional matrix. y is a finite one-dimensional
+        response or a single column, which is flattened. The score's meaning
+        follows ``best_model_`` (R² for LinearRegression); it is not AIC/BIC.
+        Sample weights are not accepted. Calling before fit raises.
+        """
         self._check_is_fitted()
         X = self._prepare_X(X)
         y = self._prepare_y(y)
         return self.best_model_.score(X[:, self.selected_features_], y)
 
     def summary(self):
-        """Print a concise selection summary."""
+        """Print selection settings, indices and final AIC/BIC; return None."""
         self._check_is_fitted()
         print("=" * 60)
         print("Stepwise Model Selection Summary")
@@ -376,7 +426,11 @@ class StepwiseSelector:
         return type(self)(**deepcopy(self.get_params(deep=False)))
 
     def get_params(self, deep=True):
-        """Return constructor parameters using sklearn-style names."""
+        """Return a flat dictionary of selector and model constructor settings.
+
+        ``deep`` is accepted for compatibility but does not expand nested
+        estimator parameters. Fitted selection state is excluded.
+        """
         params = {
             "model_class": self.model_class,
             "criterion": self.criterion,
@@ -389,7 +443,13 @@ class StepwiseSelector:
         return params
 
     def set_params(self, **params):
-        """Set parameters transactionally and clear fitted selection state."""
+        """Update configuration and return self, clearing fitted selection state.
+
+        Empty updates leave the selector unchanged. Selector controls are
+        checked when constructing the replacement. Other names become wrapped
+        model constructor keywords and are checked only when fit creates that
+        model; misspelled model parameters need not fail at set_params time.
+        """
         if not params:
             return self
 

@@ -1,18 +1,34 @@
 # IncrementalPCA
 
 > Language: English
-> Last updated: 2026-05-07
+> Last updated: 2026-10-14
 > Switch: [Chinese](../../cn/unsupervised/incremental-pca.md)
 
 ## Overview
 
-`IncrementalPCA` fits principal components from dense mini-batches while maintaining running mean, variance, sample count, and a truncated SVD basis. It supports CPU, CuPy/CUDA, and Torch CUDA backends.
+IncrementalPCA compresses numeric observations into fewer coordinates, each formed by combining the features after subtracting their means. It learns the weights for these combinations in successive batches, aiming to retain as much of the observations' variation as possible. The coordinates can also reconstruct an approximation of each observation. As new batches arrive, it updates shared weights and running means without rereading all historical rows at every update.
+
+Each output coordinate is a weighted sum of the features after subtracting their column means. For example, two centered measurements `[2, -1]` with weights `[0.6, 0.8]` give the coordinate `2*0.6 - 1*0.8 = 0.4`. This illustrates the conversion, not a promised result of fitting a particular dataset. The retained sets of weights are called directions; together they form the basis used for reconstruction. With `whiten=True`, each coordinate is additionally divided by the fitted standard deviation, subject to a small variance floor.
+
+For example, daily files might contain machine records with 20 sensor readings per row, to be compressed to three numbers. Repeating PCA on every file separately gives different directions and means, so coordinates from different days are not directly comparable. Rebuilding PCA from all accumulated rows avoids that mismatch, but requires revisiting the history whenever new rows arrive.
+
+IncrementalPCA carries forward a summary: the directions retained so far, their strengths, and running feature statistics. Each new batch is combined with that summary to update a shared basis. Correcting for the difference between the old and new means matters: a shift between batches is part of the variation in the combined data, not something to erase by centering each batch independently.
+
+The saving comes with information loss. Once a direction has been discarded from the historical summary, later updates cannot reconstruct the old observations' variation in that direction. The method therefore approximates a pooled PCA rather than guaranteeing the same result as fitting all rows together.
+
+## When to use it
+
+Choose IncrementalPCA when the need to process successive dense batches outweighs the benefit of one full decomposition. If the data can be handled together, [PCA](pca.md) is the simpler reference for the same centered reconstruction problem. If the desired representation is a sum of nonnegative patterns rather than signed directions around a mean, consider [MiniBatchNMF](minibatch-nmf.md).
+
+Keep feature definitions and preprocessing fixed across batches, and compare reconstruction and retained subspaces with full PCA on representative data. This implementation accumulates history without a forgetting factor: it summarizes all processed rows, not just the most recent operating regime. Streaming updates alone do not make it a drift detector.
 
 ## Path
 
 ```python
 from statgpu.unsupervised import IncrementalPCA
 ```
+
+This estimator supports dense input on CPU, CuPy/CUDA, and Torch CUDA.
 
 ## Objective Function / Loss Function
 
@@ -29,26 +45,38 @@ Each `partial_fit` updates running batch statistics and computes an SVD of a com
 
 ## Parameters
 
-- `n_components`: number of components; `None` keeps `n_features`.
+- `n_components`: number of components; `None` uses `min(n_samples, n_features)` in `fit`, or fixes the rank from the first `partial_fit` batch.
 - `batch_size`: batch size used by `fit`; `partial_fit` accepts caller-provided batches.
-- `whiten`: scales transformed components by explained variance.
+- `whiten`: divides transformed components by the square root of the fitted variance, with a small variance floor.
 - `copy`: sklearn-style compatibility flag.
 - `device`: `"auto"`, `"cpu"`, `"cuda"`, or `"torch"`.
 
-## CPU+GPU Examples
+`fit` receives and converts the complete input array before processing batches; it is not a disk-streaming reader. To supply data without materializing the whole collection, load dense batches yourself and pass them to `partial_fit`. A small first `partial_fit` batch limits the default rank for that incremental fit; a new `fit` resets it.
 
+## A small CPU example
+
+<!-- learner-example: incremental-pca -->
 ```python
+import numpy as np
 from statgpu.unsupervised import IncrementalPCA
 
-ipca = IncrementalPCA(n_components=8, batch_size=1024, device="cuda")
-ipca.fit(X)
-Z = ipca.transform(X)
-X_hat = ipca.inverse_transform(Z)
+rng = np.random.default_rng(0)
+X = rng.normal(size=(60, 5))
+model = IncrementalPCA(n_components=2, device="cpu")
+for start in range(0, len(X), 15):
+    model.partial_fit(X[start:start + 15])
+Z = model.transform(X)
+X_hat = model.inverse_transform(Z)
+print(Z.shape, model.n_samples_seen_, X_hat.shape)
 ```
 
-## Strict/Approx Difference
+This example has five readings per record and compresses each of 60 records to two numbers, so `Z` is `(60, 2)`. With the default `whiten=False`, `Z = (X - model.mean_) @ model.components_.T`: each row uses the same final means and weights. `n_samples_seen_` is 60; `mean_` and `var_` summarize all processed rows. Earlier batch coordinates do not automatically change when those means and weights change. After all batches are learned, call `transform` again on records you want to compare, as above.
 
-IncrementalPCA is an approximate streaming/batch estimator. Its result can differ from full PCA depending on batch order and batch size, but CPU/CuPy/Torch should agree for the same batches.
+For a supported GPU installation, construct a new estimator with `device="cuda"` (CuPy) or `device="torch"` (Torch CUDA). Arrays generally stay on that backend; see the [API reference](api-reference.md#incrementalpca) for output ownership and host-side work. An unavailable explicit GPU raises an error.
+
+## Approximation and interpretation
+
+IncrementalPCA is an approximate streaming/batch estimator. Its result can differ from full PCA depending on batch order and batch size, and floating-point decomposition choices can differ across backends. Compare explained variance, reconstruction and retained subspaces within appropriate tolerances; component signs and bases within repeated-singular-value subspaces are not unique.
 
 ## Outputs
 
@@ -64,15 +92,13 @@ IncrementalPCA is an approximate streaming/batch estimator. Its result can diffe
 
 ## FAQ
 
-**Does v1 support sparse input?**
-No. Phase 3C supports dense 2D float arrays only.
+**Does it support sparse input?**
+No. The current implementation supports dense 2D float arrays only.
 
-## External Validation
 
-- Tests: `dev/tests/test_unsupervised_incremental_pca.py`.
-- Benchmark: `dev/benchmarks/benchmark_unsupervised_phase3c.py`.
-- Latest remote artifact: `results/unsupervised_phase3c_opt7_20260507_185500.json`.
-- Baseline: sklearn `IncrementalPCA` with aligned `n_components` and `batch_size`.
+## Complete API reference
+
+Constructor defaults, all public methods, output shapes, and restrictions are listed in the [IncrementalPCA API reference](api-reference.md#incrementalpca).
 
 ## References
 

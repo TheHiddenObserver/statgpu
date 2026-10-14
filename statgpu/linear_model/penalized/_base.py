@@ -140,58 +140,98 @@ class PenalizedGeneralizedLinearModel(
     _PenalizedPredictMixin,
     BaseEstimator,
 ):
-    """
-    Penalized generalized linear model with pluggable GLM loss and penalty.
+    """Penalized generalized linear model with a loss and penalty.
 
-    Minimizes: loss(X, y, w) + penalty(w)
+    Minimize the average loss plus alpha times the declared slope penalty;
+    the fitted intercept is unpenalized. Analytic weights normalize the data-fit
+    term by their sum. Solver and inference support depend on the combination.
 
     Parameters
     ----------
     loss : str, default='squared_error'
-        Loss function, including 'squared_error', 'logistic', 'poisson',
-        'gamma', 'negative_binomial', 'tweedie', 'inverse_gaussian', and
-        'quantile'. Solver and inference support remain combination-specific;
-        consult the compatibility matrix for the selected loss and penalty.
-    penalty : str or Penalty
-        Penalty type: 'l1', 'l2', 'elasticnet', 'scad', 'mcp', 'adaptive_l1',
-        'group_lasso', 'group_scad', 'group_mcp', or a Penalty instance.
-    solver : str, default='auto'
-        Solver: 'auto', 'fista', 'fista_bb', 'irls', 'newton', 'lbfgs', 'exact'.
-        'auto' selects the best path for the resolved backend and loss/penalty
-        combination (see _SOLVER_DISPATCH_TABLE).
+        Loss names include 'squared_error', 'logistic', 'poisson', 'gamma',
+        'inverse_gaussian', 'negative_binomial', 'tweedie', and 'quantile'.
+        Other loss families and Quantile have separate solver/inference
+        restrictions; consult the loss and solver-penalty references.
+    penalty : str or Penalty, default='l1'
+        none, l1, l2, elasticnet, scad, mcp, adaptive_l1, supported group penalties, or a Penalty object.
     alpha : float, default=1.0
-        Regularization strength.
+        Penalty strength on the average-loss scale. A supplied Penalty object owns its own configuration.
     l1_ratio : float, default=0.5
-        Only used when penalty='elasticnet'.
-    penalty_kwargs : dict, optional
-        Additional arguments passed to the penalty constructor.
+        L1 fraction for elasticnet.
+    penalty_kwargs : dict or None, default=None
+        Additional penalty constructor settings, e.g. groups or shape controls.
     fit_intercept : bool, default=True
-        Whether to calculate the intercept.
+        Unpenalized intercept; formula syntax takes precedence.
     max_iter : int, default=1000
-        Maximum number of iterations.
-    tol : float, default=1e-4
-        Tolerance for convergence.
+        Per-solve iteration budget.
+    tol : float, default=0.0001
+        Numerical tolerance.
     device : str or Device, default='auto'
-        Computation device: 'cpu', 'cuda', or 'auto'.
-    cpu_solver : str, default='fista'
-        CPU solver: 'fista', 'fista_bb', or 'coordinate_descent'.
-    lipschitz_L : float, optional
-        Pre-computed Lipschitz constant.
+        cpu, cuda, torch, auto; see the backend guide.
+    n_jobs : int or None, default=None
+        Shared CPU-worker setting where used.
+    cpu_solver : str, deprecated
+        Historical compatibility parameter, default='fista'. It no longer selects the direct-fit algorithm;
+        use solver instead. Explicit non-None user-supplied values emit FutureWarning,
+        including the historical default; omitted defaults and internal clone
+        replay do not. See the solver migration guide.
+    solver : str, default='auto'
+        Choices include 'auto', 'fista', 'fista_bb', 'admm', 'irls', 'newton',
+        'lbfgs', and 'exact'. Support depends on the loss and penalty;
+        unsupported explicit combinations raise an error. In particular,
+        the shared ADMM route does not support Quantile loss.
+    lipschitz_L : float or None, default=None
+        Optional Lipschitz bound for compatible proximal paths.
     gpu_memory_cleanup : bool, default=False
-        If True, free GPU memory pool after fitting.
+        Best-effort GPU memory-pool cleanup.
+    compute_inference : bool, default=False
+        Run supported post-fit inference only when True.
+    inference_method : str, default='auto'
+        Resolve a supported method from loss/penalty; consult the inference matrix.
+    cov_type : str, default='nonrobust'
+        Method-specific covariance; non-Gaussian smooth inference supports nonrobust/hc0/hc1.
+    hac_maxlags : int or None, default=None
+        HAC lag control only on paths supporting HAC.
+    stopping : str, default='coef_delta'
+        Stored convergence request; direct sparse Gaussian fits currently ignore the kkt choice.
+    lla : bool, default=True
+        Enable local linear approximation for supported nonconvex penalties.
+    max_lla_iters : int, default=50
+        Maximum outer LLA iterations.
+    lla_tol : float, default=1e-06
+        Outer LLA convergence tolerance.
+    loss_kwargs : dict or None, default=None
+        Loss-specific controls, e.g. link, Negative Binomial dispersion alpha, or Tweedie power.
+    nodewise_alpha : float or None, default=None
+        Keyword-only tuning for supported debiased precision estimation; not the fit penalty.
 
-    Examples
-    --------
-    # Lasso
-    >>> model = PenalizedLinearRegression(penalty='l1', alpha=0.1)
+    Methods
+    -------
+    fit(X=None, y=None, sample_weight=None, formula=None, data=None)
+        Return self; numeric X has shape (n, p), scalar-response y has shape (n,).
+    predict(X, return_cpu=True)
+        Return (m,) predictions; default NumPy, native fitted backend when False.
+        Logistic returns 0/1 labels (probability strictly above 0.5 selects 1),
+        while other GLMs return response means.
+    score(X, y, sample_weight=None)
+        Response-scale R-squared, including on logistic labels; not accuracy or
+        deviance pseudo-R-squared. Pass one-dimensional y and validate finite,
+        nonnegative weights with positive sum; shared score checks are incomplete.
+    get_params(deep=True), set_params(**params)
+        Shared estimator configuration methods.
+    adjust_pvalues, combine_pvalues, bootstrap_statistic, permutation_test
+        Shared statistical helpers, not automatic GLM resampling/refitting.
 
-    # Ridge
-    >>> model = PenalizedLinearRegression(penalty='l2', alpha=1.0)
-
-    # Elastic Net
-    >>> model = PenalizedLinearRegression(
-    ...     penalty='elasticnet', alpha=0.1, l1_ratio=0.5
-    ... )
+    Notes
+    -----
+    The generic class has no predict_proba or summary method. Typed wrappers can
+    provide additional methods. Read supported coefficient inference through
+    _inference_result.to_dict(), or to_dataframe() when pandas is installed.
+    Prediction coef_ and intercept_ need not equal corrected/refitted inference
+    parameters. The inference guide defines each supported statistical target.
+    There are no generic n_bootstrap, bootstrap_random_state or initial_coef
+    constructor parameters; specialized wrapper controls are not interchangeable.
     """
 
     def __init__(

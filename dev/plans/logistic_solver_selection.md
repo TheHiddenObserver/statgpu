@@ -2,10 +2,14 @@
 
 ## Baseline and scope
 
-Baseline: master `3fba9af81db8624ab6e882cb153e7ede7ead7f63`.
+Original feature baseline: master `3fba9af81db8624ab6e882cb153e7ede7ead7f63`.
+Synchronization baseline: merged master `9890ef7c053adaba94d296e2127a56f1c543a216`.
 This additive feature reconciles standalone logistic wrappers with an existing
 backend-native L-BFGS implementation; it does not delegate to unpenalized GLM
-fitting or change default shared-solver behavior. The existing docs-only PRs are independent.
+fitting or change default shared-solver behavior. PR #171's multiple-testing documentation/tests are independent of this feature.
+Merged PR #168 supplies the canonical learner pages, API reference and
+capability-aware solver documentation guard; this synchronization preserves
+those layers and updates their observable solver contract.
 Package metadata stays at 0.2.5; this feature is unreleased.
 
 ## Reconnaissance and design decisions

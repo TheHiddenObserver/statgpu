@@ -86,8 +86,11 @@ class SpecialFunctions(Protocol):
 class CuPySpecialFunctions:
     """Special functions via cupyx.scipy.special with LUT acceleration.
 
-    Inverse special functions (betaincinv, gammaincinv) use GPU-resident LUT
-    + 1-step Newton refinement for ~10-100x speedup over cupyx iterative solver.
+    Eligible inverse beta/gamma calls use device-resident lookup tables and
+    one Newton refinement step. Tables are built with SciPy on CPU. With
+    ``use_lut=False``, calls use cupyx special-function inverses directly.
+    Accuracy and performance depend on parameters, tails, and hardware;
+    lookup-table clipping can saturate otherwise representable quantiles.
     """
 
     def __init__(self, *, use_lut: bool = True):
@@ -263,10 +266,11 @@ _torch_betainc_lut_cache: dict = {}
 
 
 def _get_torch_betaincinv_lut(a, b, device, n_points=20000):
-    """Build a GPU-resident inverse LUT for betaincinv(a, b, y).
+    """Build an inverse beta LUT on the requested Torch device.
 
-    Precomputes x = betaincinv(a, b, y) for 20K y values via scipy on CPU
-    (one-time cost, <200ms) then uses searchsorted for O(log n) lookup.
+    Precompute x = betaincinv(a, b, y) with SciPy on CPU, then convert the
+    table to ``device``. The default table has 20,000 probability points;
+    subsequent calls with the same cache key reuse it.
     """
     from scipy import special as _scsp
     import torch
@@ -284,11 +288,11 @@ def _get_torch_betaincinv_lut(a, b, device, n_points=20000):
 
 
 def _get_torch_betainc_lut(a, b, device, n_points=40000):
-    """Build a GPU-resident forward LUT for betainc(a, b, x).
+    """Build a forward beta LUT on the requested Torch device.
 
-    Precomputes y = betainc(a, b, x) for 40K x values via scipy on CPU
-    (one-time cost, <50ms) then uses searchsorted for O(log n) lookup.
-    Uses log spacing near boundaries for better precision when a or b is small.
+    Precompute y = betainc(a, b, x) with SciPy on CPU, then convert the
+    table to ``device``. The default table has 40,000 points, with logarithmic
+    spacing near the boundaries. Interpolation has no global error guarantee.
     """
     from scipy import special as _scsp
     import torch
@@ -314,7 +318,14 @@ def _get_torch_betainc_lut(a, b, device, n_points=40000):
 
 
 class TorchSpecialFunctions:
-    """Special functions via torch.special with fallbacks for missing functions."""
+    """Torch special functions with lookup-table and numerical fallbacks.
+
+    Native function availability is checked at runtime. The incomplete-beta
+    quadrature fallback can be severely inaccurate for shapes below one,
+    including at ordinary probabilities. Both inverse-beta fallback modes
+    use that quadrature, so ``use_lut=True`` does not avoid the problem.
+    Grouped forward-beta evaluation can use LUTs even with ``use_lut=False``.
+    """
 
     def __init__(self, device: str | None = None, *, use_lut: bool = True):
         import torch
@@ -329,7 +340,7 @@ class TorchSpecialFunctions:
     # ── betainc fallback ───────────────────────────────────────────
     def betainc(self, a, b, x):
         t = self._torch
-        # Check if torch has native betainc (>= 1.8)
+        # Check runtime availability; no Torch version number guarantees betainc.
         if hasattr(t.special, "betainc"):
             return t.special.betainc(
                 self._as_tensor(a), self._as_tensor(b), self._as_tensor(x),
@@ -376,6 +387,8 @@ class TorchSpecialFunctions:
         """Regularized incomplete beta via trapezoidal rule on Chebyshev-mapped grid.
 
         Uses Chebyshev-node mapping to cluster grid points near s=0 and s=1.
+        The current endpoint treatment is unreliable for singular integrands,
+        notably when ``a < 1``; finite clipped output is not an accuracy check.
         """
         import math as _math
         t = self._torch
@@ -419,7 +432,9 @@ class TorchSpecialFunctions:
         3. Interpolate all pairs simultaneously via batched gather
         4. Scatter results back to output positions
 
-        This avoids 100+ separate searchsorted calls, reducing overhead by ~100x.
+        The grouped path shares searches across parameter pairs. It is used
+        for non-scalar beta parameters regardless of ``use_lut`` and may build
+        tables with SciPy on CPU, including for binomial CDF/quantile calls.
         """
         x_flat = self._as_tensor(x).flatten()
         a_flat = self._as_tensor(a).flatten()
@@ -712,10 +727,12 @@ class TorchSpecialFunctions:
 class ScipySpecialFunctions:
     """Special functions via scipy.special (pure NumPy / CPU).
 
-    Inverse functions (gammaincinv, betaincinv) use cached LUT + interpolation
-    for ~100ms evaluation on 1M points (vs ~3000ms for scipy's iterative solver).
-    Accuracy: ~1e-5 for typical parameter ranges.
-    For edge-case parameters (extreme a, b), falls back to scipy for full accuracy.
+    Eligible inverse beta/gamma calls use cached lookup tables, interpolation,
+    and Newton refinement. ``use_lut=False`` selects SciPy's inverse functions.
+    Eligibility and clipping differ between beta and gamma; extreme parameters
+    do not universally trigger a direct SciPy call. In particular, gamma LUTs
+    can saturate at their finite upper grid limit. There is no universal speed
+    or accuracy guarantee.
     """
 
     def __init__(self, *, use_lut: bool = True):
@@ -2282,21 +2299,34 @@ def get_distribution(name: str, backend: str = "auto", device: str | None = None
     name : str
         Distribution name (e.g. ``'norm'``, ``'t'``, ``'chi2'``).
     backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
-        Which backend to use.  ``'auto'`` picks the first available GPU
-        backend (cupy > torch) or falls back to numpy.
+        Backend for this fixed distribution object. ``'auto'`` tries CuPy,
+        then Torch, then NumPy. Torch may use CPU when CUDA is unavailable;
+        successful construction does not test every later operation. Module-
+        level proxies instead infer their backend from each call's inputs.
     device : str, optional
         Torch device string (e.g. ``'cuda'``, ``'cuda:0'``, ``'cpu'``).
         Only used when backend is ``'torch'``.
     use_lut : bool, default=True
-        Use LUT cache + 1-step Newton refinement for inverse special functions
-        (``betaincinv``, ``gammaincinv``).  When ``False``, falls back to the
-        full iterative solver (scipy for numpy, Newton-Raphson for torch).
-        ``True`` gives 10-500x speedup for ``t.ppf``/``f.ppf`` on GPU,
-        with negligible accuracy loss (LUT is built from scipy reference values).
+        Enable eligible incomplete-beta/gamma lookup-table paths and
+        refinement. With ``False``, NumPy uses SciPy inverses and CuPy uses
+        cupyx special-function inverses. Torch uses available native functions
+        or numerical fallbacks; grouped forward-beta calls can still use LUTs
+        with ``False``. Lookup-table construction can use host SciPy. Torch's
+        inverse-beta fallback can give severely wrong ordinary quantiles for
+        shapes below one in either mode, including Student t with ``df=1``.
+        This flag provides no universal speed or accuracy guarantee and does
+        not remove cancellation in extreme survival/inverse-survival tails.
 
     Returns
     -------
-    Distribution object with methods: cdf, sf, ppf, isf, pdf, rvs, etc.
+    object
+        A fixed-backend native distribution with ``cdf``, ``sf``, ``ppf``,
+        ``isf``, ``pdf`` (continuous) or ``pmf`` (discrete), and ``rvs``.
+        Pass backend controls to this factory, not to the object's methods.
+        Native sampling runs on CPU before conversion, currently ignores
+        ``dtype``, and F sampling raises ``TypeError``. Use finite numeric
+        inputs: some density/mass methods currently turn NaN observations
+        into zero instead of preserving missingness.
     """
     if backend == "auto":
         if CuPySpecialFunctions is not None:  # always importable if cupy installed
@@ -2429,9 +2459,12 @@ BinomDistributionGPU = BinomDistributionBase
 
 
 def get_distribution_gpu(name: str, *, allow_fallback: bool = False):
-    """Backward-compatible wrapper: get GPU distribution by name.
+    """Get a native distribution or explicitly permit a SciPy fallback.
 
-    Delegates to the unified factory, defaulting to the best GPU backend.
+    Native names use ``get_distribution(..., backend="auto")`` and may select
+    CPU. Other SciPy names require ``allow_fallback=True``: computation then
+    runs on CPU, with output optionally converted to the automatic backend.
+    This wrapper does not guarantee GPU-only execution.
     """
     import scipy.stats as sps
 
@@ -2474,7 +2507,11 @@ def list_available_distributions_gpu(include_scipy: bool = True):
 
 
 class ScipyFallbackDistribution:
-    """Dynamic scipy.stats distribution wrapper returning GPU-backed outputs."""
+    """SciPy CPU distribution wrapper with optional backend conversion.
+
+    GPU inputs are copied to CPU for SciPy. Outputs may be NumPy or converted
+    to the automatically selected backend, independently of the input type.
+    """
 
     def __init__(self, name: str):
         self.name = str(name)

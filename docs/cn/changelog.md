@@ -1,9 +1,55 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-09-23<br>
+> 最后更新：2026-10-10<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
+
+## 未发布 — 入门指南与 API 参考（PR #168）
+
+### 改进（2026-10-10）
+
+- 在每次公开调用内复用协方差有限值检查已经规范化的工作输入。受支持的 Torch 输入走 NumPy 路径时，`fit`、`score`、`predict` 和 `mahalanobis` 只执行一次 Torch 到 NumPy 的规范化，包括预测中的嵌套调用；原生 Torch FP8 调用也复用在原设备上完成的升精度结果。所有传入的数值参数仍接受检查，包括统计计算中忽略的 `y`，估计器不会缓存输入。数值结果、后端选择、输入归属及异常行为保持不变。`dev/tests/test_covariance_normalization_reuse.py` 检查转换次数与这些保留契约；转换次数不代表实测运行时间加速。
+
+### 修复（2026-10-10）
+
+- **协方差 Torch 转换与 FP8 验证**：全部七个协方差估计器在公共有限值检查之前规范化受支持的实数 Torch 输入。NumPy 路径先传至 CPU，再转为 `float64`，保留 `bfloat16`、`float8_e5m2`、惰性负值视图及 MPS 到 CPU 的转换。原生 Torch 的 `float8_e5m2` 检查先在原设备上转换临时数组，不再依赖原始 FP8 类型的有限值检查算子。此前 Torch 2.5.1 CUDA 会在进入协方差转换函数之前拒绝这些 FP8 输入。NaN、正无穷与负无穷仍会报错；拟合后端、原始输入与底层存储、梯度、显式设备不可用时报错以及已有 CuPy/pandas 处理保持不变。测试位于 `dev/tests/test_covariance_torch_inputs.py` 与 `dev/tests/test_covariance_fp8_prevalidation.py`，包含模拟缺失算子的执行顺序回归。CPU 结果不能代替真实 CUDA 或 MPS 验收，仍须在相应硬件上重跑。其他 float8 格式、复数、稀疏及量化输入的支持范围不变。
+
+- 恢复全部七个协方差估计器对数值型 pandas `DataFrame` 的拟合、评分、预测与 Mahalanobis 距离支持，以及单特征 `Series` 的拟合支持。此前设备转换误将 pandas 需要键参数的 `get` 方法当作 CuPy 传输方法。现在先规范化普通类数组输入，真正的 CuPy 数组和 Torch 张量仍按已有设备策略处理。回归测试对照 NumPy 结果、检查非法输入，并执行真实 Torch CPU 查询；物理 CUDA 测试仅在硬件可用时运行。
+
+### 修复（2026-10-09）
+
+- `f_oneway`、`cohens_f` 和 `f_twoway` 现在拒绝观测值中的 NaN、正无穷和负无穷，与其他维护中的 ANOVA 方法保持一致。有限常数组和残差自由度不足时的已有结果定义不变。
+- 协方差估计器现在遵守显式指定的计算设备，即使输入为 Torch 张量或 CuPy 数组：`cpu` 使用 NumPy，`cuda` 要求 CuPy CUDA，`torch` 要求 Torch CUDA；显式请求的后端不可用时会报错。只有估计器与全局设备策略均为 `auto` 时，才保留输入所属后端的既有行为。评分、Mahalanobis 距离及交叉验证使用拟合时的计算后端。
+- 修复中英文 GLM 公共参数表的 `C` 行，完整保留渲染后的惩罚归一化公式、`C=0` 行为与求解器例外说明。
+
+### 修复（2026-10-06）
+
+- 修复原生 Torch 自动生成 model-X knockoff 的设备与种子处理：局部随机数生成器和随机矩阵现在使用输入张量的确切设备；即使 CUDA 可用，CPU 输入也在 CPU 上构造，且 `random_state` 生效、构造不消耗 Torch 全局随机数状态。沿用 `None` 转为零种子的规则时，多次 Torch 构造会重复同一随机矩阵；如需不同且可复现的逐次抽样，应显式提供整数种子。这不保证跨后端或跨设备逐位一致，也不修复独立的 Lasso 缓存和设备分派限制。
+
+### 改进（2026-10-09）
+
+- 将模型与面板方法的验证记录、基准看板维护步骤移到开发者文档，用户页保留统计假设、数值警告与对照设置；明确 RidgeCV 自定义训练行问题属于已知实现缺陷，并保留外部交叉验证的绕行方法。把 PR78 历史看板计划移到开发者计划目录，用生成数据链接代替容易过时的当前数量，并按实际工作负载与已有来源限定历史速度结果。
+
+- 将模型教程整理为配有说明的短步骤：导入与输入含义、数据准备、拟合、预测及结果解释。后续的推断、调参和 GPU 示例在适用时明确复用前文数据，避免重复整套数据生成或 CPU 拟合。中英文保持相同的学习顺序，并保留各模型的公式、假设与使用限制。
+- 为原先依赖未定义变量的示例补齐数据准备。示例测试按照读者实际阅读的顺序执行代码块和明确声明的前置步骤，同时保留预测、推断和交叉验证结果的检查。
+
+### 改进（2026-10-06）
+
+- UMAP 缺失邻边的预期失败只识别特定有限图；异常图会正常报错，真正修复 UMAP 后会触发 strict XPASS。
+
+- 说明普通 LinearRegression/GLM 公式预测静默删除缺失行的限制，以及后续广播可能产生错误但有限的 LinearRegression 评分。新增完整查询与保留索引的检查步骤，并区分已经拒绝预测缺失行的惩罚模型。底层实现仍需单独修复。
+
+- 将 Poisson 与通用交叉验证示例改为可独立运行、固定随机种子的 CPU 流程，包含独立测试集、保持时间顺序且留有间隔的数据折，以及期望计数、倍数效应和不确定性的解释。补全类型化 GLM 的构造参数参考和 CV 运行时帮助，明确模型族专属参数与实际公开方法。
+- 修正 UMAP 参考交叉熵的求和范围，排除自身配对；补全 TSNE 条件概率、联合概率和可实现困惑度的定义，并说明 UMAP 吸引曲线拟合中的主机计算。即使 TSNE 返回有限的嵌入，也不代表它实现了一个本来不可能达到的困惑度。
+- 从通用参考直接链接完整的核方法和样条 API。通过独立数值特征与变异检查收紧已知缺陷测试，避免把无关 NaN、有限但错误的结果或运行时异常误标为预期失败。
+
+- 补全 Ridge、SCAD 和 MCP 的学习流程，提供可独立运行的 CPU 示例，明确不受惩罚的截距，并完善模型方法、公式、权重参考与运行时帮助。说明原生 Torch model-X 的随机种子语义、采样器选项的实际分发范围，以及 KernelPCA 重新拟合失败后混合新旧状态的风险；同时说明不带权重的 RidgeCV 对自定义训练子集的限制，以及如何通过显式验证循环保留指定的训练行。其余 RidgeCV 与 KernelPCA 限制仍需单独修复。
+- 扩展线性模型、推断、特征选择、生存分析、平滑及十二类无监督估计器的中英文解释、数学定义与可运行示例。[完整 API 索引](README.md#完整-api-参考)汇集构造参数、方法与拟合结果参考。
+- 澄清推断目标、选择和调参后的条件推断、权重、重采样假设与可用的结果报告方式；同步说明 Ridge、SCAD、MCP 与 Poisson 的实际默认行为和支持的接口，并区分 Cox 模型族中求和与按行数平均的部分似然。
+- 说明失败重拟合、非有限输出、数据几何与设备放置的当前限制及检查方法。[坐标缩放说明](models/nonparametric/nonparametric.md)和 [NMF 指南](unsupervised/nmf.md)解释了极小计量单位可能改变当前结果的问题，给出一致缩放、复用变换及还原预测或密度的做法。[Ridge 指南](models/regression/ridge.md)另提供训练数据确定的中心化步骤，以减轻大坐标偏移造成的数值问题。
+- 澄清采用通用设备分派的估计器在 `device="auto"` 下会继承全局设备策略，并补齐公开构造函数帮助。保留的基准报告按其原始源码与硬件标为历史测量。
+- 除文档、帮助文字与回归测试外，本 PR 还修复了原生 Torch model-X 的随机矩阵设备选择和局部随机数生成器使用、ANOVA 对非有限输入的拒绝行为，以及协方差模型的设备选择。其他单独跟踪的数值与状态限制仍未修复，UMAP 生产代码也没有改动。CPU 示例与分派检查不能作为物理 GPU 执行或性能证据。
 
 ## 未发布 — 逻辑回归分类器求解器选择（2026-10-03）
 
@@ -117,6 +163,21 @@ print(model.C_, model.solver_)
 - 增加针对性契约、formula、clone/兼容性、失败事务、无惩罚、加权 CV、安装器幂等性、加权 Newton 目标/兼容性与跨后端一致性回归，并同步中英文模型/CV/推断文档。
 - `dev/benchmarks/validate_penalized_glm_inference_gpu.py` schema v4 是维护中的物理 CUDA 验收门禁。精确干净的数值源码 `db448d718f523eacf97bcb3c419e376c9812362d` 已在 Tesla P100（CuPy 13.6.0、Torch 2.0.0+cu117、NumPy 1.24.2）通过：Logistic 无权重保留显式 FISTA 覆盖，Logistic 加权与 Poisson 加权/无权重按规范 `solver="auto"` → Newton 执行；CuPy、Torch、Torch→CuPy 与 CuPy→Torch 四条路径均通过未放宽的系数/截距（`2e-6`）与推断（`1e-5`）阈值，并记录具体 `cuda:0` 来源信息。保留的 artifact 为 `results/pr142_penalized_glm_inference_gpu/pr142_penalized_glm_inference_gpu.json`。后续仅修正 changelog/证据散文的仅文档提交，经用户明确批准可复用这一不可变的数值源码 artifact；任何数值、validator、求解器、后端、推断或容差变化都会重新打开物理验收。
 
+## 未发布 — 逐节点 Lasso 推断调参（PR #139，目标 0.2.6）
+
+### 变更
+
+- 为稀疏 Gaussian 去偏推断公开 `nodewise_alpha=None`，适用于 `PenalizedGeneralizedLinearModel`、`PenalizedLinearRegression`、`Lasso`、`ElasticNet`、`LassoCV` 与 `ElasticNetCV`。显式值须为有限正实数；`PenalizedGLM_CV` 仍不支持非默认的此项设置。
+- 默认逐节点惩罚不再依赖响应尺度，而由标准化后的中心化/加权设计决定：`sqrt(2 * log(max(p, 2)) / n_nodewise)`。非均匀分析权重下采用 Kish 型有效样本量；`p=1` 的解析情形无需逐节点惩罚。
+- 逐节点精度矩阵在标准化坐标下求解并检查 KKT 条件，再按 `D^{-1} Theta_Z D^{-1}` 变回原坐标。已拟合属性记录请求值和实际调参值，不同逐节点调参不会误用旧的精度矩阵缓存。
+- 去偏推断目标、协方差与参考分布含义、预测系数以及变量选择后的 OLS 行为保持不变；不新增旧响应尺度规则的公共模式。迁移说明见[逐节点调参指南](guides/nodewise-alpha-migration.md)。
+
+### 验证
+
+- 固定设计迁移模拟比较旧响应相关规则、新自动规则与代表性显式规则，设置为 `n=320`、`p=18`、120 次重复和两种响应噪声尺度；默认规则的逐节点惩罚不随噪声尺度改变，旧规则相差 8 倍。该模拟中的覆盖误差未劣化，平均区间宽度改善，不代表所有数据下的普遍保证。
+- Hosted 测试覆盖调参输入、KKT 检查、缓存隔离、公共 API/clone/refit、CV 最终重拟合推断、公式接口、GPU 不可用时的行为及已提交模拟产物。
+- `dev/benchmarks/validate_nodewise_alpha_inference_gpu.py` 用于真实 CUDA 上的 CuPy/Torch 验证，包括自动/显式调参、NumPy 对齐、响应尺度不变性、权重缩放与跨容器输入。列出验证器不表示本条记录新增了物理运行结果。
+
 ## 未发布 — Post-selection OLS 推断 API 清理（PR #138 / Issue #137）
 
 ### 变更
@@ -166,7 +227,9 @@ print(model.C_, model.solver_)
 
 - 增加公开 `LinearRegression`、formula、加权/robust、秩亏、多目标、float32、statsmodels 对齐、无主机传输、非 L2 委托以及 Ridge/RidgeCV 回归覆盖，并增加针对性的 hosted CI workflow。
 - 增加维护中的确切提交物理 CUDA validator，覆盖 CuPy/Torch 的干净工作树证明、请求/实际执行后端与具体设备来源、协方差/BSE/统计量/p 值/置信区间误差、加权/秩亏/多目标/小自由度，以及 `RidgeCV` 最终重拟合推断。
-- 已审查的实现提交上的 hosted 门禁与新一轮完整 diff review 已全部通过；最终验收仍要求在最终源码 SHA 上执行确切干净提交的 CuPy/Torch CUDA 验证。PR #129 当前保持 open/unmerged，#127 尚不能标记为 `COMPLETE`。本变更不做 GPU 加速声明。
+- [最终验收记录](https://github.com/TheHiddenObserver/statgpu/pull/129#issuecomment-5479959733)报告：确切数值源码 [`8d9f422e2fcf648e412838747b9ab5881b3fb7ef`](https://github.com/TheHiddenObserver/statgpu/commit/8d9f422e2fcf648e412838747b9ab5881b3fb7ef) 的七项 hosted workflow 与最终审查通过；两个物理 CUDA 验证器均在干净检出的 Tesla P100-SXM2-16GB `cuda:0` 上退出 0。后端原生矩阵使用 schema 5、CuPy 13.6.0 和 Torch 2.0.0+cu117；CuPy 秩恢复验证器为 schema 1，5/5 通过。
+- 该记录列出的历史产物为 `results/pr129_gaussian_gpu_8d9f422e/gaussian_backend_native_8d9f422e.json` 和 `results/pr129_gaussian_gpu_8d9f422e/gaussian_cupy_rank_recovery_8d9f422e.json`。这些结果仅对应上述源码，不是对后续版本的重新验证；本条不作 GPU 加速声明。
+- PR #129 后于 2026-08-31 合并为 [`b17c8a6c161065bfbe9efa9f60d0fad69a464773`](https://github.com/TheHiddenObserver/statgpu/commit/b17c8a6c161065bfbe9efa9f60d0fad69a464773)。较早的待验收状态记录属于当时检查点，不能作为最终状态。
 
 ## 0.2.5 — 2026-08-26（已发布）
 

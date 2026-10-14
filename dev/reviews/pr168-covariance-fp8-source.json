@@ -1,0 +1,717 @@
+{
+  "original_head": "8e920c0122fa4e9cd92d66ce27855741617db31b",
+  "pr_base": "3fba9af81db8624ab6e882cb153e7ede7ead7f63",
+  "scope": "Changed production/test/CI/public-documentation payload plus shared-wrapper consumer inventory, source consumers, converters and original validators. This manifest and repair record are excluded to avoid circular hashes. Published commit/tree and exact-head hosted results are recorded in PR168. CPU/emulator evidence is not physical-device acceptance.",
+  "changed_payload_count": 9,
+  "changed_payload_fingerprint": "6065fc7d52199f6a34ecb7e102837b9070b2a8bc29a37a3f20a969a290ee2bda",
+  "fingerprint_contract": "SHA256 of sorted changed-payload path + NUL + mode + NUL + Git blob SHA + newline records",
+  "files": [
+    {
+      "path": ".github/workflows/test.yml",
+      "role": "changed_payload",
+      "mode": "100644",
+      "git_blob_sha": "5e60085d5f5877bfac9b3e616f30922f72311ed2",
+      "sha256": "291f847ab90d67dae844ec1238e8ae9c8de26f156ab31e1b108c11b04bd84a43"
+    },
+    {
+      "path": "CHANGELOG.md",
+      "role": "changed_payload",
+      "mode": "100644",
+      "git_blob_sha": "0121087ce90aa8e826affbb6849a6533db19c7fd",
+      "sha256": "71bd8809997e6a66c9a9279e28c37b39797d34fd070aae2f081116780d78bf89"
+    },
+    {
+      "path": "dev/reviews/pr168-covariance-fp8-consumers.json",
+      "role": "consumer_inventory",
+      "mode": "100644",
+      "git_blob_sha": "58da221b3d9d29701826953021d7a10831363c78",
+      "sha256": "e316c268bf5bd384fabf6fe3f548553ea531044a4bc5d9b1491b7bf0a714375e"
+    },
+    {
+      "path": "dev/tests/test_covariance_array_inputs.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "464b2921f051f1cd85846329d70d9f4c6f0edb78",
+      "sha256": "8123998bfa8946c17e02a31450ab53f55420ea64148dd419aa4de62cd003a2b1"
+    },
+    {
+      "path": "dev/tests/test_covariance_device_contract.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "ee8445cef1ccb7e4c56bf2a37fb017d9dce3095b",
+      "sha256": "a91c9c1dd4ef88a7c5bafe037276886a243e10e7acb3d79aeefc3522c84156b6"
+    },
+    {
+      "path": "dev/tests/test_covariance_fp8_prevalidation.py",
+      "role": "changed_payload",
+      "mode": "100644",
+      "git_blob_sha": "c266b0a72a3e03f80cac2e4b8ee0839e7a046f9a",
+      "sha256": "38c44fe071680e86b9ed0b21aa7d292595db18bcde6e277445dd403349def7f8"
+    },
+    {
+      "path": "dev/tests/test_covariance_torch_inputs.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "ebb054bfcdbcd9101a3380f495ef58eadd5d2c8f",
+      "sha256": "923226025d79d5b7bdb6d867f142fdf21a4487cb4218b2aaa448ac566182b62c"
+    },
+    {
+      "path": "dev/tests/test_three_backend_native_followup.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "1778f5dabcfbcfeac1845690e2038a07f22ced78",
+      "sha256": "7e477b3bc628c516a80e3b6db7b000de8ce343eb27a7d18a702a9b99bc1eb7e3"
+    },
+    {
+      "path": "dev/tests/test_three_backend_native_isolation.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "d32695d42a8162c5bcfd99ca923e18b066bf0c84",
+      "sha256": "3109464a2fd3e4c7f1988e4ebe42c2821b966847121576ba49efda0efb86ea39"
+    },
+    {
+      "path": "docs/cn/changelog.md",
+      "role": "changed_payload",
+      "mode": "100644",
+      "git_blob_sha": "572b917679dfafb1ce979c28888a0a4e207609a3",
+      "sha256": "6da95829ca86d167d64d239c46818d11179775a39a03c29552f508a1d895776f"
+    },
+    {
+      "path": "docs/cn/models/covariance.md",
+      "role": "changed_payload",
+      "mode": "100644",
+      "git_blob_sha": "0eded0887e15e61b844e6f9bd1008bd61e599917",
+      "sha256": "7e9f2c73e5df36e28dd9d29fa79ff37f73ba064a87ebde156dabcd6a33d333cd"
+    },
+    {
+      "path": "docs/en/changelog.md",
+      "role": "changed_payload",
+      "mode": "100644",
+      "git_blob_sha": "79e834cdbcd5937c6fa51f5179fcf67acd5e60db",
+      "sha256": "44665edf4cf2d02527c95a5ad914e6a7a03deb8e2e46a8ca8217b53a57825d86"
+    },
+    {
+      "path": "docs/en/models/covariance.md",
+      "role": "changed_payload",
+      "mode": "100644",
+      "git_blob_sha": "6aaed1a59eab1f4d028eb5caa6f2a05eceb88e6e",
+      "sha256": "8b54d93430bff12127015fff69cc1e3acaa9059ea6542564becaf448bc0afebb"
+    },
+    {
+      "path": "statgpu/__init__.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "3471f17a23b80b2c34ef9d8dd92e551663c691ac",
+      "sha256": "c80c3ebd7a059a25648fb34964a5aa037c24c90ccca1b9b3e0708739cdb5d1c6"
+    },
+    {
+      "path": "statgpu/_base.py",
+      "role": "changed_payload",
+      "mode": "100644",
+      "git_blob_sha": "3eb7cd167401fdefe3be2cf6376eefcba473bd1b",
+      "sha256": "25b26a2f6f32599ce66c780fbf72f302696fd00dd11bf8903c0f1f79a8646f97"
+    },
+    {
+      "path": "statgpu/backends/_utils.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "08f6b15702f7c08844bd0816fa0a20dddc952c8a",
+      "sha256": "ae53a998179ffe775f67d8b89fdf0c50f6d28474df6d2b258d6a8af54ad5e859"
+    },
+    {
+      "path": "statgpu/backends/_validation.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "011ed63cfbd78332da4093b1e382dad3fddff62b",
+      "sha256": "89753ed8335b76d1ef0b4cb3f031b45484261fe2fd0f904e9c80f937868ab8bd"
+    },
+    {
+      "path": "statgpu/covariance/_empirical.py",
+      "role": "changed_payload",
+      "mode": "100644",
+      "git_blob_sha": "6b10b7fcf09b245d8283f869901d3d6776e6f9cb",
+      "sha256": "0fcd5de0d4cad69d495f34d582cc4964780da0766079dc49fa6d51db2ea489f9"
+    },
+    {
+      "path": "statgpu/covariance/_graphical_lasso.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "54fbbe258a2f2b32ad2b1d1d82f7408de59f13c0",
+      "sha256": "d8526baaef3a55f56e5353066f9abe041303cbec6a2cf3c6d7e5694a3194cbea"
+    },
+    {
+      "path": "statgpu/covariance/_robust.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "0be8c680b5ce4c7e02998ae556c800df251c9cef",
+      "sha256": "e08bd603b6809ec9d752cbe7d1cc007203a98cf1937c1b79a92a0432509c954e"
+    },
+    {
+      "path": "statgpu/covariance/_shrinkage.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "a6b98fcb5a2620ba7f73353969a33115419dde48",
+      "sha256": "8600829df3ccd07fd2c96a9bd1019778d11b1303a6f605137567fc3728d5e816"
+    },
+    {
+      "path": "statgpu/cross_validation/_base.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "71696a16f002e0de79c92f9b8795998b45d10348",
+      "sha256": "c5cff1c47d78c34a491007386c6412ced9250bc006c8f89ce4aca776af63e1cc"
+    },
+    {
+      "path": "statgpu/feature_selection/_knockoff.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "8635f8e08ba3f2a80c224b977afb26390f3c5b9f",
+      "sha256": "141dbb719b68118d7ff275ab460bda890b404d0b079ba5285d56a637061f2a25"
+    },
+    {
+      "path": "statgpu/feature_selection/_stepwise.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "f29998cbcf5c5d9ea3040e5455a67963e9975440",
+      "sha256": "03b355667d86d49cb1e63b42685010ced883b4540521cb56f50769daad9b3d47"
+    },
+    {
+      "path": "statgpu/linear_model/_glm_base.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "3d6dc8f5469f615b40af2a3815e52809c051a322",
+      "sha256": "6dd0e5eba6626eeea608b20ba32b9d714082bdae0156f2079d18a23a19549426"
+    },
+    {
+      "path": "statgpu/linear_model/_glm_weighted_explicit_solver_contract.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "258ac4fa9d366666cade0be5798b0faf91a5b215",
+      "sha256": "7c7a1ea82570fd5ad5d5cf78c053484f7cea48ac96970a35b8dc1b868bb8ee32"
+    },
+    {
+      "path": "statgpu/linear_model/_ordered_logit.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "7a0ca4ed79a0a273ad5d6068d4e53b4a1e257ea7",
+      "sha256": "7d30ae4b7426c1b584149bd4f1d1ac2b05bbd64b522c19ae39abb268ed2e2e2c"
+    },
+    {
+      "path": "statgpu/linear_model/_ordered_probit.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "60132f2600d13367530341a5a2fb7970cae80d78",
+      "sha256": "6dc8b00857e4207fe64a1b9e87006f29ddedf806a51215a808530ca224c91fc1"
+    },
+    {
+      "path": "statgpu/linear_model/_penalized_glm_inference_contract.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "9a7879c942803577084c66fbdbeb5f83b9e1fb43",
+      "sha256": "0d839bebd130b94e1aa7793add5829cecded5534d4a4dc03ec19e639213bc35b"
+    },
+    {
+      "path": "statgpu/linear_model/_penalized_inference_api_contract.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "646fd13878c3ffd0d628726fe0b6c53aca707612",
+      "sha256": "01770f0dbb27fb44e7e83d062b825cfe4108a6411d005de5d1944b299045cc42"
+    },
+    {
+      "path": "statgpu/linear_model/_post_selection_ols_fifth_review_contract.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "5eac95f2acac67a603eb64de46189e795b8502f5",
+      "sha256": "e546551106beb56c5b0b1527de91e3f52be26c563f0c4d807fb6c8a1d8c1e40c"
+    },
+    {
+      "path": "statgpu/linear_model/cv/_elasticnet_cv.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "aaf7f62eb1cd941c0c7c0ebaee39d0ee45573f7e",
+      "sha256": "8a5d40370b3a2769efd812b153b9699f28816e39eb74e25b1a131c84ff058e95"
+    },
+    {
+      "path": "statgpu/linear_model/cv/_lasso_cv.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "ce038665fd9a603a10075d18e5973350a5a946ae",
+      "sha256": "04870b83ace22cb781bd1fb2858d5eb172fb3fceaa32a3aac1cb7a961de9071d"
+    },
+    {
+      "path": "statgpu/linear_model/cv/_logistic_cv.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "4fb36f29cd45791f05a4559616bc1223f394630e",
+      "sha256": "d5c710a573148d335708de9890c3481abf05081640f7de176ce00fd1e8193e13"
+    },
+    {
+      "path": "statgpu/linear_model/cv/_ridge_cv.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "93013cb137d8472a41ffc459301b92b2a2feef15",
+      "sha256": "fb83e361dc045d9df418abc3994f282671b744b2dd1844564159547056e311f2"
+    },
+    {
+      "path": "statgpu/linear_model/legacy/_elasticnet_legacy.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "da1e863d35ef63d18a9fde1b945ccfd6c08270f1",
+      "sha256": "3a1928b8c966bfc542a8b216bc9ffe7dfb7e4cf54f1745072312ffa959b15e96"
+    },
+    {
+      "path": "statgpu/linear_model/legacy/_lasso_legacy.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "29bf3e599fc7948f0c9135021ddb76f0daed0b89",
+      "sha256": "869b45ded77a09cd16a59601b316c6a4fa8e04a2752914869378c2e7cebc5cf2"
+    },
+    {
+      "path": "statgpu/linear_model/legacy/_ridge_legacy.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "2b4804ca80941a1e226b3862f094edd01bd617f7",
+      "sha256": "62fdc8505957b2bc79e1e1fd9edbc707e368c16edc649168fbdb53ab347e5799"
+    },
+    {
+      "path": "statgpu/linear_model/penalized/_base.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "bcac65b9a1d929981cf84f58ba786fe6110f72f3",
+      "sha256": "a5613c3a23d711402730d879d8a08781e8098a3d10df86064a85d0a2633c9bbe"
+    },
+    {
+      "path": "statgpu/linear_model/penalized/_final_finite_validation_cleanup_contract.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "d8756666f18a98e4bb273a931f8e875e5ab305f4",
+      "sha256": "c3ed670e4c861ac630f836f2cc6038fc8c2dd68a696604ca964cbe0c92f37ecc"
+    },
+    {
+      "path": "statgpu/linear_model/penalized/_group_penalty_model_contract.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "97c1c8da6badd94c6d8a6ebd44f6230fe447631c",
+      "sha256": "78566a0056012eb95c52424957b9aa700cd521b9d082d182cc010aae150a8337"
+    },
+    {
+      "path": "statgpu/linear_model/penalized/_latest_review_fix_contract.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "ac6691df6414da7420ac17c11bf2fde5a7e4fc9d",
+      "sha256": "1dbe49dbb7c3a8175e7321961091f3be9f3b250fb8ebeb84976c70d92d71033a"
+    },
+    {
+      "path": "statgpu/linear_model/penalized/_no_inference_cleanup_contract.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "b6e01438c56a85ab56a958044aae2c14bcfc987b",
+      "sha256": "d65d7dc95f96ed7f1c3aa4c436622ca5c7427a8470ac8d65d4851cc76042bd3e"
+    },
+    {
+      "path": "statgpu/linear_model/penalized/_penalized_cox.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "da8fadb6e6773f4f9233052905f221ae6ba50083",
+      "sha256": "23c864ceed99248b96617504f62dcb2a0ea63b4546e6603ade2938769397cade"
+    },
+    {
+      "path": "statgpu/linear_model/penalized/_penalized_cv.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "188522025aad72498d06119c873d18379a8ab57f",
+      "sha256": "3aa2c6d2f6c34c6cfbfb93febbe1649c4039b8f8a7682298340274426abf768c"
+    },
+    {
+      "path": "statgpu/linear_model/penalized/_penalized_gamma.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "575f3562644b7eb70f70fe524ba38e3620a75d28",
+      "sha256": "8537ec1f9c379292a59a11eb6d7c0faccc202e07a001560d23ae949f56351238"
+    },
+    {
+      "path": "statgpu/linear_model/penalized/_penalized_inverse_gaussian.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "6ba8ae5d797e4fa446419f7b1334cf3602558b27",
+      "sha256": "43105b7c7581a31b31218b14a1d677a0fc445deb64a59cb7666c07aa1932a8eb"
+    },
+    {
+      "path": "statgpu/linear_model/penalized/_penalized_linear.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "c36a1f33f71d7c7f53e01f846a96369798d60d88",
+      "sha256": "5603d4cec0950389ca842a4f501b2381867b0fa8283c6abda35b2c4102583237"
+    },
+    {
+      "path": "statgpu/linear_model/penalized/_penalized_logistic.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "70ff0ca78d35003b059ed1c3e56a03ddddc691c9",
+      "sha256": "f5c8e866eb187be04a5e15ad806729ac95b3f4371b1a402eb0b57389ac2e74c4"
+    },
+    {
+      "path": "statgpu/linear_model/penalized/_penalized_negative_binomial.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "0d6e7432fee9fe5f5850f60448c0c9306e8d4d3c",
+      "sha256": "922421f460ab8d823fe2056b77d19a2b1d6e1fac98ae36e0bda0bb9b3b75bd62"
+    },
+    {
+      "path": "statgpu/linear_model/penalized/_penalized_poisson.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "f66004feb1791232aaa47239bcf445d9e3027aa7",
+      "sha256": "c7e7909ee6ec71c3e7fca0a92659b857f069bcae6841c5ae58baebbfbe807457"
+    },
+    {
+      "path": "statgpu/linear_model/penalized/_penalized_quantile.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "6e588f13cdd9d6676eaf9df8fa9464b844b3db67",
+      "sha256": "a4592c755dd9e22cba408b41502c9a03e517d0757e62c571a2f8ddb865a15c3d"
+    },
+    {
+      "path": "statgpu/linear_model/penalized/_penalized_robust.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "14cd5a3a163ad4a7bf6f8f5a4ea9eb2b9ee09142",
+      "sha256": "9743d57f46fe1b9118aeb45edbdc7ca774c8db8e35b86c1e7a59153499b42522"
+    },
+    {
+      "path": "statgpu/linear_model/penalized/_penalized_tweedie.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "c6eb55a0e12905a8e17c4101ee23ed8ac1ea63c7",
+      "sha256": "a70d636d76439a9e7ee30f5006cb18fb78b5a2a87ade4f5b58c9581649d82df9"
+    },
+    {
+      "path": "statgpu/linear_model/penalized/_quantile_group_lla_contract.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "e222441a2a826baa52246bbbc026f4cf77b1fee2",
+      "sha256": "10187e00f33bf6013aa66a927aba430f3cf54fb7634a16fc332aa358bb330e17"
+    },
+    {
+      "path": "statgpu/linear_model/penalized/_quantile_solver_contract.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "2512a6347551a1686e1ae27d104a48f5a880767b",
+      "sha256": "c03a4cfc082a98dcca7643d19c3a2195b03bfe766e9c13cf979c187a238d34b7"
+    },
+    {
+      "path": "statgpu/linear_model/wrappers/_adaptive_lasso.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "af59bd6a417a76aaf168f9de7ebd8c99024881e5",
+      "sha256": "5b4796775785a31208e82f018e18d7e6d7a10b0ee006f58dce9ebf9849fbbd22"
+    },
+    {
+      "path": "statgpu/linear_model/wrappers/_elasticnet.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "83a04100125a798c6f5ebea5dda28e6e1ade3340",
+      "sha256": "996edcf2e7caf4e55ef9a85d4925654a3f4881e4b67cea74fc0e227e98490949"
+    },
+    {
+      "path": "statgpu/linear_model/wrappers/_gamma.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "42f78b04c83aa4887f2f9cf0175a2655931aaefd",
+      "sha256": "c548bba4422106813e61c6df9c95d910c21b19b4cf0d24e8192e7d38769cdf48"
+    },
+    {
+      "path": "statgpu/linear_model/wrappers/_inverse_gaussian.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "30f8bd780f7a8ad2d6890939f8712c90910297e3",
+      "sha256": "05fd9aee98fe2d06bc18b46c070877187b88bfb4f4bc032e3051af2356d2c91d"
+    },
+    {
+      "path": "statgpu/linear_model/wrappers/_lasso.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "c6b09cdef30e5a5cb766a15e9cab7ead2e890d0b",
+      "sha256": "bf67bb52fe7b01fa0a5f0bc4e043fa52102baf515b6270a96a7fae51e0add80f"
+    },
+    {
+      "path": "statgpu/linear_model/wrappers/_linear.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "bb34d0e48f8f45cafb714886779311117ba812c7",
+      "sha256": "49682e5048ccdf586a046c06565a87c8ab1ca11ac5bc33e89b56d158aaa99fe5"
+    },
+    {
+      "path": "statgpu/linear_model/wrappers/_linear_fit_transaction_contract.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "c7015be617de2143aa73d6fd99c8b83d178ec771",
+      "sha256": "02569e7246b755f1a249161ab77e233d6f1d1bce33ef27ae00cbf0906421a661"
+    },
+    {
+      "path": "statgpu/linear_model/wrappers/_logistic.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "a6f2a292fd125e8f686052f9407186686c4fa875",
+      "sha256": "f2f80c764d74b42ef2a4980e4150b14ae374eb2edaddaff5a39abbef8cd29f9d"
+    },
+    {
+      "path": "statgpu/linear_model/wrappers/_mcp.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "eb28fff95a2aa08378563dd7c5af0edfd68d4d05",
+      "sha256": "5361f4abdaf0759b7a6d04dbc9370f64afeffdde573d4d184aa96bb9f9f51bc6"
+    },
+    {
+      "path": "statgpu/linear_model/wrappers/_negative_binomial.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "80fbb8ed7c7ad2cb463549e04881828703118927",
+      "sha256": "4f4ddb989dd03c1a6e4347afcdde850de7f3134057fd35ca17e6dce348e5f7bb"
+    },
+    {
+      "path": "statgpu/linear_model/wrappers/_poisson.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "596a9bf96744ffdb8320d2f8f8d90af015cfd929",
+      "sha256": "652145c5c7d3edf1c65ff1d463a7861938d9eb271af0791448a8cc5b3d561bab"
+    },
+    {
+      "path": "statgpu/linear_model/wrappers/_quantile.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "0cadf83dfb9d4be23dcb4149fc98076104ab6e1c",
+      "sha256": "b03962ada59112e9197f2af9549775e7347fa907342de222a8dd5ae26ee7d054"
+    },
+    {
+      "path": "statgpu/linear_model/wrappers/_ridge.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "642b91743de4e5377c805052bf6a0a9bcb8e9abf",
+      "sha256": "8015f679873df478c08755e06a509149a86fd19c166f5b30450c2e563d0d7b76"
+    },
+    {
+      "path": "statgpu/linear_model/wrappers/_scad.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "8b044f3886bb756aff9918f69d6e414cd3ddb07f",
+      "sha256": "38e9411f9ed78c6be944555ecf93af6ef3a67b6b0a482f8d75ce636a9cf722fa"
+    },
+    {
+      "path": "statgpu/linear_model/wrappers/_tweedie.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "b73e3934975bb3fe969ef28e1c8b9de4182c195b",
+      "sha256": "63f0b2c83b96fd29afc05ac77720c3d761ed3d0c5093ceeca7eae2a9bc2d73ff"
+    },
+    {
+      "path": "statgpu/nonparametric/kernel_methods/_kpca.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "4ca4ed95aba7cc14a5bd94493d56007eca443191",
+      "sha256": "01e3de99abc2d2a2b3e774704c9b67398f7905fe18937a63eca483c721edfbfc"
+    },
+    {
+      "path": "statgpu/nonparametric/kernel_methods/_krr.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "465f7d456b4fa9e092e971e5d6a4d4753c7ca3b4",
+      "sha256": "a49dbafc80c4d4886749380a30ae58c38c62d9188656bf4ad1053f713ca7e560"
+    },
+    {
+      "path": "statgpu/nonparametric/kernel_methods/_krr_cv.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "4376f57ef10fa33d2305c7a44d83b231a423cbb8",
+      "sha256": "2595d9065146dfc1e983568eea035e0b07acf1648626d6c65ca81186d45c824c"
+    },
+    {
+      "path": "statgpu/nonparametric/kernel_methods/_nystroem.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "3666b2845599505b9601ceccd29a76631c2cb852",
+      "sha256": "5cb1a4bee425390663bbffd1af9917a5c29ccd83b209f282cb933ab09a1c7056"
+    },
+    {
+      "path": "statgpu/nonparametric/kernel_smoothing/_kde.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "4d2249c7434c88fbeca29ea8f06c4fccc066012a",
+      "sha256": "d72cad4df5bd5d6aaaa7b4d2de37dab9679100a8097e0fa1fc29d2d87a27cd0d"
+    },
+    {
+      "path": "statgpu/nonparametric/kernel_smoothing/_kernel_regression.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "8cba079f8183c92828c6b181c78ae789da82d01a",
+      "sha256": "8f4e1ed4305fce9b3937406a91b74fc94d774aba9f27b33d3344cbedbc1a7a38"
+    },
+    {
+      "path": "statgpu/nonparametric/splines/_transformer.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "57bb7b1c0a9c2690dfc250f89aaa436ccb5f0130",
+      "sha256": "95132b4f2e5b0c5aa79778ccc425c90563a67d6b67adc17b62efb103b3dbe0f6"
+    },
+    {
+      "path": "statgpu/panel/_base.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "e9991c39e11c8eb78aa70349b01af0a1bf83b763",
+      "sha256": "30ddf02352f646903e9e8499282c6b99108026c7f8ae3d88ae433bb74bf8cd8b"
+    },
+    {
+      "path": "statgpu/panel/_between.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "9958b00d1254d8a72ce22c5d651ddbb6736eb1ce",
+      "sha256": "08d662bf424956f8d09c6d592b317fd60c55cc3a77683cc8ad99d56457826c1f"
+    },
+    {
+      "path": "statgpu/panel/_fama_macbeth.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "8c1a347f401f9ef7689b0b51aff759d5084e8254",
+      "sha256": "0da797931c72791cbb363e12e8ec0f24046de658e8c7071f4a19dc620a57e596"
+    },
+    {
+      "path": "statgpu/panel/_first_diff.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "3b552172a8198c4f20fc41a7f183453d2c5086af",
+      "sha256": "1e26cec6dcddaab554e0f518591b8836e3489f296485d79adcad14fcef6a8687"
+    },
+    {
+      "path": "statgpu/panel/_fixed_effects.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "4e5dfef98e9a53130d75c26db4657422431fc4b9",
+      "sha256": "5ed2d08a927e8a4ba3cc6e3c5591ae611f87f5e5a0a73cd20ad91df1447e894d"
+    },
+    {
+      "path": "statgpu/panel/_formula.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "53a5c62a94dc33cd5480602ee15dcc8fa6c4a72d",
+      "sha256": "3ba77ad625df871161b94e5be5983010ae35330ea7bc9bf28e87cf246d803cda"
+    },
+    {
+      "path": "statgpu/panel/_pooled.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "9749c0db79521d2d3dac33b01cf56acc74dbd28c",
+      "sha256": "9ac54bcded663e9fbbd47109528b288405a044f46f3b9f4b346df3bbea3f3538"
+    },
+    {
+      "path": "statgpu/panel/_random_effects.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "2fb4771ddf6d011e0ebe8c371977c8b042ea8b89",
+      "sha256": "8cce0e78750111d42bc3a25e1ee9c5df386511dcff820ce95fa5f184faba1f95"
+    },
+    {
+      "path": "statgpu/semiparametric/_gam.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "1db9340a5a82422215a634f61c43f44f8380ef4f",
+      "sha256": "dd47c63e4287e52e6e666e89d67253602db75193b5440c5430ae2c1eb1dd8fa9"
+    },
+    {
+      "path": "statgpu/survival/_cox.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "cfb7f5692121dc8d66780373a060fa15094ef210",
+      "sha256": "9b9a3f8f7b06b612dfcf2c3cc9afc0b0036760045cf482546b0817d570a6bc4c"
+    },
+    {
+      "path": "statgpu/survival/_cox_cv.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "43d74192ed7e7e1c631a97b506751a80e7b96ca7",
+      "sha256": "b719adb0728a74b47553416c6ebaaa18d4370b116ed3179722e1bf768667a68a"
+    },
+    {
+      "path": "statgpu/unsupervised/_agglomerative.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "5b17fc0263c7993a4c881d2d1298303e8f2471fd",
+      "sha256": "11db14c3169ba37e9dcd5dddcbc843a4d4b72ae8dbceefc3704e669c8f082b43"
+    },
+    {
+      "path": "statgpu/unsupervised/_dbscan.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "6196eafdd10064bc1074f7fa60144030722ce5a5",
+      "sha256": "8cb2745f67a355ffe9d04d093de93a9c046d428d88de4f796d5f9bc971e6c961"
+    },
+    {
+      "path": "statgpu/unsupervised/_gmm.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "d5e5e92ae790ce8bcb3bb0fe1e583d80397202c0",
+      "sha256": "08c287a47c2b80defd2948f1d82a2446270fbfc6dde8ee9d23f95800f2fe76e2"
+    },
+    {
+      "path": "statgpu/unsupervised/_incremental_pca.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "9806cd50bcc5d4f095c893fcafd3b971973f4ae1",
+      "sha256": "42d612f8d80754969ac8f0d483cdfcc1b59e95b38b9a7321a46176ae3bd85d8b"
+    },
+    {
+      "path": "statgpu/unsupervised/_kmeans.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "c0afde5f0ab2f6eb886fc47bf8fcc8c16537ec54",
+      "sha256": "0553916c3d8813bb8b4a05f566636a4212a94da10476c37ef3ec45b6ba5ccfae"
+    },
+    {
+      "path": "statgpu/unsupervised/_minibatch_kmeans.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "ee4a0c2f54b909b77da8076b6c1ee74019566775",
+      "sha256": "3ce77e8c6b12bff261a0feb9a2b4d97ace728a7b26ba86f3e6d07619381bbc56"
+    },
+    {
+      "path": "statgpu/unsupervised/_minibatch_nmf.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "f3ca7a32a55f4525cf9b7044d50ec814a93e4c93",
+      "sha256": "db4f131c33605021cabd9fa640e3f39a092a53641443112a8e0389785f5efad8"
+    },
+    {
+      "path": "statgpu/unsupervised/_nmf.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "ba22c0b2d16b7a8706eddbc84353aa48fca5a059",
+      "sha256": "96f6d3c38b10943d61a1e89ddef3e6515c8053f78419bac8222cc8d38bb5d64b"
+    },
+    {
+      "path": "statgpu/unsupervised/_pca.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "0c395523e90fdfdb4778ef65890f3d85b55258c1",
+      "sha256": "e95fb460deec6874fcf7b73260e87ad4de3dd28508c54f106eacf69775498766"
+    },
+    {
+      "path": "statgpu/unsupervised/_truncated_svd.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "35719c82d4da6a76d477eed607063d02a6f6cca1",
+      "sha256": "fae317adee22c3c828326ae7a8000bc2b7a25417f7c6615d8ff55471dd71c8ab"
+    },
+    {
+      "path": "statgpu/unsupervised/_tsne.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "9bd07e30f7f9199b40b413aa303179f4c446dacd",
+      "sha256": "60cb1823ae8a967412bc21dde0442b958d52aa6e80e9b45f6fd647a3713a7a08"
+    },
+    {
+      "path": "statgpu/unsupervised/_umap.py",
+      "role": "unchanged_context",
+      "mode": "100644",
+      "git_blob_sha": "aa148e860e360f2edc5e431593f0c2d14d1d394c",
+      "sha256": "4d0f3b45e8bea06e3c12b223088ed71174467bd6518df9d83ab0034188a6a8ee"
+    }
+  ]
+}

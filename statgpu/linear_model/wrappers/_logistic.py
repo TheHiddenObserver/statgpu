@@ -90,19 +90,27 @@ class LogisticRegression(BaseEstimator):
         Maximum number of iterations for the selected solver.
     tol : float, default=1e-4
         Tolerance for stopping criteria. IRLS checks parameter-step norm.
-        L-BFGS checks the gradient norm after dividing the entire
-        penalized objective by the sample count (or total sample weight).
+        L-BFGS checks the gradient norm after dividing the entire penalized
+        objective by sample count or total sample weight.
     device : str or Device, default='auto'
         Computation device: 'cpu', 'cuda' (CuPy), 'torch' (Torch CUDA), or 'auto'.
-    n_jobs : int, optional
-        Number of parallel jobs for CPU computation.
-    solver : {'auto', 'irls', 'lbfgs'}, default='auto'
-        Optimization algorithm. 'auto' retains the IRLS route. Both explicit
-        solvers minimize the summed (optionally weighted) Bernoulli negative
-        log-likelihood plus ``||coef||**2 / (2*C)`` for positive C. The
-        intercept is unpenalized; C=0 disables the penalty. L-BFGS stops when
-        the gradient norm meets the tolerance.
+    n_jobs : int or None, default=None
+        Shared CPU worker setting; it does not choose an IRLS solver or promise
+        parallel fitting in this class.
+    compute_inference : bool, default=True
+        Compute normal-reference coefficient uncertainty after fitting.
+    cov_type : str, default='nonrobust'
+        Inverse information or robust HC0-HC3/HAC sandwich. With C>0 these
+        use penalized curvature and do not remove shrinkage/tuning uncertainty.
+    gpu_memory_cleanup : bool, default=False
+        Attempt GPU memory-pool cleanup after fitting.
+    hac_maxlags : int or None, default=None
+        Nonnegative HAC lag, or the sample-size rule when omitted.
     
+    solver : {'auto', 'irls', 'lbfgs'}, default='auto'
+        Optimization algorithm. 'auto' retains IRLS. Both explicit solvers
+        minimize the same summed-loss objective described below.
+
     Attributes
     ----------
     coef_ : ndarray of shape (n_features,)
@@ -114,7 +122,15 @@ class LogisticRegression(BaseEstimator):
     solver_ : str
         Resolved solver used by the last successful fit.
     converged_ : bool
-        Whether the selected solver satisfied its stopping criterion.
+        Whether the numerical stopping criterion was reached.
+
+    Notes
+    -----
+    This is a binary 0/1 model; no formula or multiclass interface is provided.
+    The objective is summed weighted negative log-likelihood plus
+    ``||coef||**2 / (2*C)`` for C>0, with an unpenalized intercept. C=0 removes
+    the penalty. Public coefficient/inference arrays are NumPy arrays, including
+    after GPU fitting; prediction and evaluation arrays follow the backend.
     """
     
     def __init__(
@@ -1381,7 +1397,12 @@ class LogisticRegression(BaseEstimator):
         return binary_roc_auc_score(y_true, y_score, backend="numpy")
 
     def precision_recall_curve(self, X, y) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Compute precision-recall arrays (precision, recall, thresholds)."""
+        """Return equal-length precision, recall and threshold arrays.
+
+        Thresholds decrease from infinity, whose precision/recall are 1/0.
+        Requires at least one positive evaluation label; all-zero y raises
+        ValueError. All-one y is accepted, unlike ROC's two-class requirement.
+        """
         if self._get_compute_device() == Device.CUDA:
             cp = _require_cupy("precision_recall_curve")
 
@@ -1398,7 +1419,11 @@ class LogisticRegression(BaseEstimator):
         return binary_precision_recall_curve(y_true, y_score, backend="numpy")
 
     def average_precision_score(self, X, y) -> float:
-        """Compute average precision on a dataset."""
+        """Compute precision integrated over recall increments.
+
+        Requires at least one positive evaluation label; all-zero y raises
+        ValueError. All-one y returns 1 but cannot assess class discrimination.
+        """
         if self._get_compute_device() == Device.CUDA:
             cp = _require_cupy("average_precision_score")
 
@@ -1434,6 +1459,14 @@ class LogisticRegression(BaseEstimator):
             Probability threshold used for hard predictions.
         include_curves : bool, default=True
             Whether to include full ROC/PR curve arrays in the output.
+            Scalar ROC AUC is computed even when False, so y must contain
+            both classes. Use classification_table or confusion_matrix for
+            threshold metrics on a one-class subset.
+
+        Raises
+        ------
+        ValueError
+            If y has only one class; ROC AUC is undefined for that subset.
 
         Returns
         -------

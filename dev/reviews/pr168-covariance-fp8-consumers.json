@@ -1,0 +1,1596 @@
+{
+  "schema_version": 1,
+  "scope": "Bounded covariance FP8 public prevalidation repair; maintained BaseEstimator consumers after standard statgpu import, with static-only legacy qualification. This inventory is not physical backend evidence.",
+  "baseline_head": "8e920c0122fa4e9cd92d66ce27855741617db31b",
+  "counts": {
+    "runtime_classes": 73,
+    "concrete_classes": 71,
+    "abstract_classes": 2,
+    "covariance_hook_consumers": 7,
+    "identity_hook_consumers": 66,
+    "public_numerical_method_surfaces": 557
+  },
+  "finite_guard_installers": [
+    {
+      "source": "statgpu/_base.py",
+      "entrypoints": [
+        "BaseEstimator.__init_subclass__",
+        "BaseEstimator._install_public_finite_validation",
+        "refresh_public_finite_validation_contracts"
+      ],
+      "contract": "Class creation installs marked guards; refresh traverses descendants and skips already marked methods. Private validation hooks are not wrapped."
+    },
+    {
+      "source": "statgpu/__init__.py",
+      "entrypoints": [
+        "_refresh_finite_contracts"
+      ],
+      "contract": "Final package import refresh runs after maintained mixins and aliases are installed."
+    }
+  ],
+  "runtime_wrapper_sources": [
+    "statgpu/linear_model/_glm_weighted_explicit_solver_contract.py",
+    "statgpu/linear_model/_penalized_glm_inference_contract.py",
+    "statgpu/linear_model/_penalized_inference_api_contract.py",
+    "statgpu/linear_model/_post_selection_ols_fifth_review_contract.py",
+    "statgpu/linear_model/penalized/_final_finite_validation_cleanup_contract.py",
+    "statgpu/linear_model/penalized/_group_penalty_model_contract.py",
+    "statgpu/linear_model/penalized/_latest_review_fix_contract.py",
+    "statgpu/linear_model/penalized/_no_inference_cleanup_contract.py",
+    "statgpu/linear_model/penalized/_quantile_group_lla_contract.py",
+    "statgpu/linear_model/penalized/_quantile_solver_contract.py",
+    "statgpu/linear_model/wrappers/_linear_fit_transaction_contract.py"
+  ],
+  "runtime_refresh_idempotent": true,
+  "default_contract": "All noncovariance consumers retain the identity/default check_finite operation. Covariance overrides only X for fit, score, predict and mahalanobis. Formula-owned pandas/side-array exclusions, Cox structured-y exclusion, reset order, signature and original-call arguments remain in the existing shared guard.",
+  "direct_shared_validator_consumers_outside_new_hook": [
+    "statgpu/feature_selection/_knockoff.py",
+    "statgpu/feature_selection/_stepwise.py",
+    "statgpu/panel/_base.py",
+    "statgpu/panel/_formula.py"
+  ],
+  "shared_validator_source": "statgpu/backends/_validation.py",
+  "shared_validator_unchanged_sha256": "89753ed8335b76d1ef0b4cb3f031b45484261fe2fd0f904e9c80f937868ab8bd",
+  "static_only_legacy": [
+    {
+      "path": "statgpu/linear_model/legacy/_elasticnet_legacy.py",
+      "name": "ElasticNet",
+      "line": 306,
+      "bases": [
+        "BaseEstimator"
+      ],
+      "qualification": "Legacy implementation; not a maintained runtime/public export from standard statgpu import. It still inherits the default BaseEstimator guard when imported explicitly."
+    },
+    {
+      "path": "statgpu/linear_model/legacy/_lasso_legacy.py",
+      "name": "Lasso",
+      "line": 108,
+      "bases": [
+        "BaseEstimator"
+      ],
+      "qualification": "Legacy implementation; not a maintained runtime/public export from standard statgpu import. It still inherits the default BaseEstimator guard when imported explicitly."
+    },
+    {
+      "path": "statgpu/linear_model/legacy/_ridge_legacy.py",
+      "name": "_RidgeLegacy",
+      "line": 16,
+      "bases": [
+        "BaseEstimator"
+      ],
+      "qualification": "Legacy implementation; not a maintained runtime/public export from standard statgpu import. It still inherits the default BaseEstimator guard when imported explicitly."
+    },
+    {
+      "path": "statgpu/linear_model/legacy/_lasso_legacy.py",
+      "name": "LassoCV",
+      "line": 4404,
+      "bases": [
+        "CVEstimatorBase"
+      ],
+      "qualification": "Legacy implementation; not a maintained runtime/public export from standard statgpu import. It still inherits the default BaseEstimator guard when imported explicitly."
+    }
+  ],
+  "consumers": [
+    {
+      "class": "statgpu.covariance._empirical.EmpiricalCovariance",
+      "source": "statgpu/covariance/_empirical.py",
+      "abstract": false,
+      "hook_owner": "statgpu.covariance._empirical.EmpiricalCovariance",
+      "public_aliases": [
+        "statgpu.EmpiricalCovariance",
+        "statgpu.covariance.EmpiricalCovariance",
+        "statgpu.covariance._empirical.EmpiricalCovariance"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "mahalanobis",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.covariance._graphical_lasso.GraphicalLasso",
+      "source": "statgpu/covariance/_graphical_lasso.py",
+      "abstract": false,
+      "hook_owner": "statgpu.covariance._empirical.EmpiricalCovariance",
+      "public_aliases": [
+        "statgpu.GraphicalLasso",
+        "statgpu.covariance.GraphicalLasso",
+        "statgpu.covariance._graphical_lasso.GraphicalLasso"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "mahalanobis",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.covariance._graphical_lasso.GraphicalLassoCV",
+      "source": "statgpu/covariance/_graphical_lasso.py",
+      "abstract": false,
+      "hook_owner": "statgpu.covariance._empirical.EmpiricalCovariance",
+      "public_aliases": [
+        "statgpu.GraphicalLassoCV",
+        "statgpu.covariance.GraphicalLassoCV",
+        "statgpu.covariance._graphical_lasso.GraphicalLassoCV"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "mahalanobis",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.covariance._robust.MinCovDet",
+      "source": "statgpu/covariance/_robust.py",
+      "abstract": false,
+      "hook_owner": "statgpu.covariance._empirical.EmpiricalCovariance",
+      "public_aliases": [
+        "statgpu.MinCovDet",
+        "statgpu.covariance.MinCovDet",
+        "statgpu.covariance._robust.MinCovDet"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "mahalanobis",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.covariance._shrinkage.LedoitWolf",
+      "source": "statgpu/covariance/_shrinkage.py",
+      "abstract": false,
+      "hook_owner": "statgpu.covariance._empirical.EmpiricalCovariance",
+      "public_aliases": [
+        "statgpu.LedoitWolf",
+        "statgpu.covariance.LedoitWolf",
+        "statgpu.covariance._shrinkage.LedoitWolf"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "mahalanobis",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.covariance._shrinkage.OAS",
+      "source": "statgpu/covariance/_shrinkage.py",
+      "abstract": false,
+      "hook_owner": "statgpu.covariance._empirical.EmpiricalCovariance",
+      "public_aliases": [
+        "statgpu.OAS",
+        "statgpu.covariance.OAS",
+        "statgpu.covariance._shrinkage.OAS"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "mahalanobis",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.covariance._shrinkage.ShrunkCovariance",
+      "source": "statgpu/covariance/_shrinkage.py",
+      "abstract": false,
+      "hook_owner": "statgpu.covariance._empirical.EmpiricalCovariance",
+      "public_aliases": [
+        "statgpu.ShrunkCovariance",
+        "statgpu.covariance.ShrunkCovariance",
+        "statgpu.covariance._shrinkage.ShrunkCovariance"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "mahalanobis",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.cross_validation._base.CVEstimatorBase",
+      "source": "statgpu/cross_validation/_base.py",
+      "abstract": true,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.cross_validation.CVEstimatorBase",
+        "statgpu.cross_validation._base.CVEstimatorBase"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model._glm_base.GeneralizedLinearModel",
+      "source": "statgpu/linear_model/_glm_base.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.GeneralizedLinearModel",
+        "statgpu.linear_model.GeneralizedLinearModel"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model._glm_base.OrderedGeneralizedLinearModel",
+      "source": "statgpu/linear_model/_glm_base.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.OrderedGeneralizedLinearModel",
+        "statgpu.linear_model.OrderedGeneralizedLinearModel"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "predict_proba",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model._ordered_logit.OrderedLogitRegression",
+      "source": "statgpu/linear_model/_ordered_logit.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.OrderedLogitRegression",
+        "statgpu.linear_model.OrderedLogitRegression"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "predict_proba",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model._ordered_probit.OrderedProbitRegression",
+      "source": "statgpu/linear_model/_ordered_probit.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.OrderedProbitRegression",
+        "statgpu.linear_model.OrderedProbitRegression"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "predict_proba",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model.cv._elasticnet_cv.ElasticNetCV",
+      "source": "statgpu/linear_model/cv/_elasticnet_cv.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.ElasticNetCV",
+        "statgpu.linear_model.ElasticNetCV",
+        "statgpu.linear_model.cv.ElasticNetCV",
+        "statgpu.linear_model.cv._elasticnet_cv.ElasticNetCV"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model.cv._lasso_cv.LassoCV",
+      "source": "statgpu/linear_model/cv/_lasso_cv.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.LassoCV",
+        "statgpu.linear_model.LassoCV",
+        "statgpu.linear_model.cv.LassoCV",
+        "statgpu.linear_model.cv._lasso_cv.LassoCV"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model.cv._logistic_cv.LogisticRegressionCV",
+      "source": "statgpu/linear_model/cv/_logistic_cv.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.LogisticRegressionCV",
+        "statgpu.linear_model.LogisticRegressionCV",
+        "statgpu.linear_model.cv.LogisticRegressionCV",
+        "statgpu.linear_model.cv._logistic_cv.LogisticRegressionCV"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "predict_proba",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model.cv._ridge_cv.RidgeCV",
+      "source": "statgpu/linear_model/cv/_ridge_cv.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.RidgeCV",
+        "statgpu.linear_model.RidgeCV",
+        "statgpu.linear_model.cv.RidgeCV",
+        "statgpu.linear_model.cv._ridge_cv.RidgeCV"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model.penalized._base.PenalizedGeneralizedLinearModel",
+      "source": "statgpu/linear_model/penalized/_base.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.PenalizedGeneralizedLinearModel",
+        "statgpu.linear_model.PenalizedGeneralizedLinearModel",
+        "statgpu.linear_model.penalized.PenalizedGeneralizedLinearModel",
+        "statgpu.linear_model.penalized._base.PenalizedGeneralizedLinearModel"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model.penalized._penalized_cox.PenalizedCoxPHModel",
+      "source": "statgpu/linear_model/penalized/_penalized_cox.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.PenalizedCoxPHModel",
+        "statgpu.linear_model.PenalizedCoxPHModel",
+        "statgpu.linear_model.penalized.PenalizedCoxPHModel",
+        "statgpu.linear_model.penalized._penalized_cox.PenalizedCoxPHModel"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "predict_hazard_ratio",
+        "predict_risk_score",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model.penalized._penalized_cv.PenalizedGLM_CV",
+      "source": "statgpu/linear_model/penalized/_penalized_cv.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.PenalizedGLM_CV",
+        "statgpu.linear_model.PenalizedGLM_CV",
+        "statgpu.linear_model.penalized.PenalizedGLM_CV",
+        "statgpu.linear_model.penalized._penalized_cv.PenalizedGLM_CV"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model.penalized._penalized_gamma.PenalizedGammaRegression",
+      "source": "statgpu/linear_model/penalized/_penalized_gamma.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.linear_model.PenalizedGammaRegression",
+        "statgpu.linear_model.penalized.PenalizedGammaRegression"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model.penalized._penalized_inverse_gaussian.PenalizedInverseGaussianRegression",
+      "source": "statgpu/linear_model/penalized/_penalized_inverse_gaussian.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.linear_model.PenalizedInverseGaussianRegression",
+        "statgpu.linear_model.penalized.PenalizedInverseGaussianRegression"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model.penalized._penalized_linear.PenalizedLinearRegression",
+      "source": "statgpu/linear_model/penalized/_penalized_linear.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.PenalizedLinearRegression",
+        "statgpu.linear_model.PenalizedLinearRegression",
+        "statgpu.linear_model.penalized.PenalizedLinearRegression"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model.penalized._penalized_logistic.PenalizedLogisticRegression",
+      "source": "statgpu/linear_model/penalized/_penalized_logistic.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.PenalizedLogisticRegression",
+        "statgpu.linear_model.PenalizedLogisticRegression",
+        "statgpu.linear_model.penalized.PenalizedLogisticRegression"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "predict_proba",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model.penalized._penalized_negative_binomial.PenalizedNegativeBinomialRegression",
+      "source": "statgpu/linear_model/penalized/_penalized_negative_binomial.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.linear_model.PenalizedNegativeBinomialRegression",
+        "statgpu.linear_model.penalized.PenalizedNegativeBinomialRegression"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model.penalized._penalized_poisson.PenalizedPoissonRegression",
+      "source": "statgpu/linear_model/penalized/_penalized_poisson.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.PenalizedPoissonRegression",
+        "statgpu.linear_model.PenalizedPoissonRegression",
+        "statgpu.linear_model.penalized.PenalizedPoissonRegression"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model.penalized._penalized_quantile.PenalizedQuantileRegression",
+      "source": "statgpu/linear_model/penalized/_penalized_quantile.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.PenalizedQuantileRegression",
+        "statgpu.linear_model.PenalizedQuantileRegression",
+        "statgpu.linear_model.penalized.PenalizedQuantileRegression",
+        "statgpu.linear_model.penalized._penalized_quantile.PenalizedQuantileRegression"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model.penalized._penalized_robust.PenalizedRobustRegression",
+      "source": "statgpu/linear_model/penalized/_penalized_robust.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.PenalizedRobustRegression",
+        "statgpu.linear_model.PenalizedRobustRegression",
+        "statgpu.linear_model.penalized.PenalizedRobustRegression",
+        "statgpu.linear_model.penalized._penalized_robust.PenalizedRobustRegression"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model.penalized._penalized_tweedie.PenalizedTweedieRegression",
+      "source": "statgpu/linear_model/penalized/_penalized_tweedie.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.linear_model.PenalizedTweedieRegression",
+        "statgpu.linear_model.penalized.PenalizedTweedieRegression"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model.wrappers._adaptive_lasso.AdaptiveLasso",
+      "source": "statgpu/linear_model/wrappers/_adaptive_lasso.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.linear_model.AdaptiveLasso",
+        "statgpu.linear_model.wrappers.AdaptiveLasso"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model.wrappers._elasticnet.ElasticNet",
+      "source": "statgpu/linear_model/wrappers/_elasticnet.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.ElasticNet",
+        "statgpu.linear_model.ElasticNet",
+        "statgpu.linear_model.wrappers.ElasticNet",
+        "statgpu.linear_model.wrappers._elasticnet.ElasticNet"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model.wrappers._gamma.GammaRegression",
+      "source": "statgpu/linear_model/wrappers/_gamma.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.GammaRegression",
+        "statgpu.linear_model.GammaRegression",
+        "statgpu.linear_model.wrappers.GammaRegression"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model.wrappers._inverse_gaussian.InverseGaussianRegression",
+      "source": "statgpu/linear_model/wrappers/_inverse_gaussian.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.InverseGaussianRegression",
+        "statgpu.linear_model.InverseGaussianRegression",
+        "statgpu.linear_model.wrappers.InverseGaussianRegression"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model.wrappers._lasso.Lasso",
+      "source": "statgpu/linear_model/wrappers/_lasso.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.Lasso",
+        "statgpu.linear_model.Lasso",
+        "statgpu.linear_model.wrappers.Lasso",
+        "statgpu.linear_model.wrappers._lasso.Lasso"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model.wrappers._linear.LinearRegression",
+      "source": "statgpu/linear_model/wrappers/_linear.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.LinearRegression",
+        "statgpu.linear_model.LinearRegression",
+        "statgpu.linear_model.wrappers.LinearRegression",
+        "statgpu.linear_model.wrappers._linear.LinearRegression"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model.wrappers._logistic.LogisticRegression",
+      "source": "statgpu/linear_model/wrappers/_logistic.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.LogisticRegression",
+        "statgpu.linear_model.LogisticRegression",
+        "statgpu.linear_model.wrappers.LogisticRegression",
+        "statgpu.linear_model.wrappers._logistic.LogisticRegression"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "average_precision_score",
+        "bootstrap_statistic",
+        "classification_table",
+        "combine_pvalues",
+        "confusion_matrix",
+        "evaluate_classification",
+        "fit",
+        "permutation_test",
+        "plot_precision_recall_curve",
+        "plot_roc_curve",
+        "precision_recall_curve",
+        "predict",
+        "predict_proba",
+        "predict_with_threshold",
+        "roc_auc_score",
+        "roc_curve",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model.wrappers._mcp.MCPRegression",
+      "source": "statgpu/linear_model/wrappers/_mcp.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.linear_model.MCPRegression",
+        "statgpu.linear_model.wrappers.MCPRegression"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model.wrappers._negative_binomial.NegativeBinomialRegression",
+      "source": "statgpu/linear_model/wrappers/_negative_binomial.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.NegativeBinomialRegression",
+        "statgpu.linear_model.NegativeBinomialRegression",
+        "statgpu.linear_model.wrappers.NegativeBinomialRegression"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model.wrappers._poisson.PoissonRegression",
+      "source": "statgpu/linear_model/wrappers/_poisson.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.PoissonRegression",
+        "statgpu.linear_model.PoissonRegression",
+        "statgpu.linear_model.wrappers.PoissonRegression"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model.wrappers._quantile.QuantileRegression",
+      "source": "statgpu/linear_model/wrappers/_quantile.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.QuantileRegression",
+        "statgpu.linear_model.QuantileRegression",
+        "statgpu.linear_model.wrappers.QuantileRegression"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model.wrappers._ridge.Ridge",
+      "source": "statgpu/linear_model/wrappers/_ridge.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.Ridge",
+        "statgpu.linear_model.Ridge",
+        "statgpu.linear_model.wrappers.Ridge",
+        "statgpu.linear_model.wrappers._ridge.Ridge"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model.wrappers._scad.SCADRegression",
+      "source": "statgpu/linear_model/wrappers/_scad.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.linear_model.SCADRegression",
+        "statgpu.linear_model.wrappers.SCADRegression"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.linear_model.wrappers._tweedie.TweedieRegression",
+      "source": "statgpu/linear_model/wrappers/_tweedie.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.TweedieRegression",
+        "statgpu.linear_model.TweedieRegression",
+        "statgpu.linear_model.wrappers.TweedieRegression"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict"
+      ]
+    },
+    {
+      "class": "statgpu.nonparametric.kernel_methods._kpca.KernelPCA",
+      "source": "statgpu/nonparametric/kernel_methods/_kpca.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.KernelPCA",
+        "statgpu.nonparametric.KernelPCA",
+        "statgpu.nonparametric.kernel_methods.KernelPCA",
+        "statgpu.nonparametric.kernel_methods._kpca.KernelPCA"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "fit_transform",
+        "permutation_test",
+        "predict",
+        "transform"
+      ]
+    },
+    {
+      "class": "statgpu.nonparametric.kernel_methods._krr.KernelRidge",
+      "source": "statgpu/nonparametric/kernel_methods/_krr.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.KernelRidge",
+        "statgpu.nonparametric.KernelRidge",
+        "statgpu.nonparametric.kernel_methods.KernelRidge"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.nonparametric.kernel_methods._krr_cv.KernelRidgeCV",
+      "source": "statgpu/nonparametric/kernel_methods/_krr_cv.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.KernelRidgeCV",
+        "statgpu.nonparametric.KernelRidgeCV",
+        "statgpu.nonparametric.kernel_methods.KernelRidgeCV"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.nonparametric.kernel_methods._nystroem.Nystroem",
+      "source": "statgpu/nonparametric/kernel_methods/_nystroem.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.Nystroem",
+        "statgpu.nonparametric.Nystroem",
+        "statgpu.nonparametric.kernel_methods.Nystroem",
+        "statgpu.nonparametric.kernel_methods._nystroem.Nystroem"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "fit_transform",
+        "permutation_test",
+        "predict",
+        "transform"
+      ]
+    },
+    {
+      "class": "statgpu.nonparametric.kernel_smoothing._kde.KDE",
+      "source": "statgpu/nonparametric/kernel_smoothing/_kde.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.KDE",
+        "statgpu.inference.KDE",
+        "statgpu.nonparametric.KDE",
+        "statgpu.nonparametric.kernel_smoothing.KDE",
+        "statgpu.nonparametric.kernel_smoothing._kde.KDE"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "score",
+        "score_samples"
+      ]
+    },
+    {
+      "class": "statgpu.nonparametric.kernel_smoothing._kde.KernelDensityEstimator",
+      "source": "statgpu/nonparametric/kernel_smoothing/_kde.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.KernelDensityEstimator",
+        "statgpu.nonparametric.KernelDensityEstimator",
+        "statgpu.nonparametric.kernel_smoothing.KernelDensityEstimator",
+        "statgpu.nonparametric.kernel_smoothing._kde.KernelDensityEstimator"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "score",
+        "score_samples"
+      ]
+    },
+    {
+      "class": "statgpu.nonparametric.kernel_smoothing._kernel_regression.KernelRegression",
+      "source": "statgpu/nonparametric/kernel_smoothing/_kernel_regression.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.KernelRegression",
+        "statgpu.nonparametric.KernelRegression",
+        "statgpu.nonparametric.kernel_smoothing.KernelRegression",
+        "statgpu.nonparametric.kernel_smoothing._kernel_regression.KernelRegression"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.nonparametric.kernel_smoothing._kernel_regression.KernelRegressionRegressor",
+      "source": "statgpu/nonparametric/kernel_smoothing/_kernel_regression.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.KernelRegressionRegressor",
+        "statgpu.nonparametric.KernelRegressionRegressor",
+        "statgpu.nonparametric.kernel_smoothing.KernelRegressionRegressor",
+        "statgpu.nonparametric.kernel_smoothing._kernel_regression.KernelRegressionRegressor"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.nonparametric.splines._transformer.SplineTransformer",
+      "source": "statgpu/nonparametric/splines/_transformer.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.SplineTransformer",
+        "statgpu.nonparametric.SplineTransformer",
+        "statgpu.nonparametric.splines.SplineTransformer",
+        "statgpu.nonparametric.splines._transformer.SplineTransformer"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "fit_transform",
+        "permutation_test",
+        "predict",
+        "transform"
+      ]
+    },
+    {
+      "class": "statgpu.panel._base.BasePanelModel",
+      "source": "statgpu/panel/_base.py",
+      "abstract": true,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict"
+      ]
+    },
+    {
+      "class": "statgpu.panel._between.BetweenOLS",
+      "source": "statgpu/panel/_between.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.BetweenOLS",
+        "statgpu.panel.BetweenOLS",
+        "statgpu.panel._between.BetweenOLS"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict"
+      ]
+    },
+    {
+      "class": "statgpu.panel._fama_macbeth.FamaMacBeth",
+      "source": "statgpu/panel/_fama_macbeth.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.FamaMacBeth",
+        "statgpu.panel.FamaMacBeth",
+        "statgpu.panel._fama_macbeth.FamaMacBeth"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict"
+      ]
+    },
+    {
+      "class": "statgpu.panel._first_diff.FirstDifferenceOLS",
+      "source": "statgpu/panel/_first_diff.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.FirstDifferenceOLS",
+        "statgpu.panel.FirstDifferenceOLS",
+        "statgpu.panel._first_diff.FirstDifferenceOLS"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict"
+      ]
+    },
+    {
+      "class": "statgpu.panel._fixed_effects.PanelOLS",
+      "source": "statgpu/panel/_fixed_effects.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.FixedEffects",
+        "statgpu.PanelOLS",
+        "statgpu.panel.FixedEffects",
+        "statgpu.panel.PanelOLS",
+        "statgpu.panel._fixed_effects.PanelOLS"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict"
+      ]
+    },
+    {
+      "class": "statgpu.panel._pooled.PooledOLS",
+      "source": "statgpu/panel/_pooled.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.PooledOLS",
+        "statgpu.panel.PooledOLS",
+        "statgpu.panel._pooled.PooledOLS"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict"
+      ]
+    },
+    {
+      "class": "statgpu.panel._random_effects.RandomEffects",
+      "source": "statgpu/panel/_random_effects.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.RandomEffects",
+        "statgpu.RandomEffectsOLS",
+        "statgpu.panel.RandomEffects",
+        "statgpu.panel.RandomEffectsOLS",
+        "statgpu.panel._random_effects.RandomEffects"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict"
+      ]
+    },
+    {
+      "class": "statgpu.semiparametric._gam.GAM",
+      "source": "statgpu/semiparametric/_gam.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.GAM",
+        "statgpu.semiparametric.GAM",
+        "statgpu.semiparametric._gam.GAM"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict"
+      ]
+    },
+    {
+      "class": "statgpu.survival._cox.CoxPH",
+      "source": "statgpu/survival/_cox.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.CoxPH",
+        "statgpu.survival.CoxPH"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "predict_hazard_ratio",
+        "predict_risk_score",
+        "predict_survival",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.survival._cox_cv.CoxPHCV",
+      "source": "statgpu/survival/_cox_cv.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.CoxPHCV",
+        "statgpu.survival.CoxPHCV"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "permutation_test",
+        "predict",
+        "predict_hazard_ratio",
+        "predict_risk_score",
+        "predict_survival",
+        "score"
+      ]
+    },
+    {
+      "class": "statgpu.unsupervised._agglomerative.AgglomerativeClustering",
+      "source": "statgpu/unsupervised/_agglomerative.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.AgglomerativeClustering",
+        "statgpu.unsupervised.AgglomerativeClustering"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "fit_predict",
+        "permutation_test",
+        "predict"
+      ]
+    },
+    {
+      "class": "statgpu.unsupervised._dbscan.DBSCAN",
+      "source": "statgpu/unsupervised/_dbscan.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.DBSCAN",
+        "statgpu.unsupervised.DBSCAN"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "fit_predict",
+        "permutation_test",
+        "predict"
+      ]
+    },
+    {
+      "class": "statgpu.unsupervised._gmm.GaussianMixture",
+      "source": "statgpu/unsupervised/_gmm.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.GaussianMixture",
+        "statgpu.unsupervised.GaussianMixture"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "aic",
+        "bic",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "fit_predict",
+        "permutation_test",
+        "predict",
+        "predict_proba",
+        "score",
+        "score_samples"
+      ]
+    },
+    {
+      "class": "statgpu.unsupervised._incremental_pca.IncrementalPCA",
+      "source": "statgpu/unsupervised/_incremental_pca.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.IncrementalPCA",
+        "statgpu.unsupervised.IncrementalPCA"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "fit_transform",
+        "inverse_transform",
+        "partial_fit",
+        "permutation_test",
+        "predict",
+        "transform"
+      ]
+    },
+    {
+      "class": "statgpu.unsupervised._kmeans.KMeans",
+      "source": "statgpu/unsupervised/_kmeans.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.KMeans",
+        "statgpu.unsupervised.KMeans"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "fit_predict",
+        "permutation_test",
+        "predict",
+        "score",
+        "transform"
+      ]
+    },
+    {
+      "class": "statgpu.unsupervised._minibatch_kmeans.MiniBatchKMeans",
+      "source": "statgpu/unsupervised/_minibatch_kmeans.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.MiniBatchKMeans",
+        "statgpu.unsupervised.MiniBatchKMeans"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "fit_predict",
+        "partial_fit",
+        "permutation_test",
+        "predict",
+        "score",
+        "transform"
+      ]
+    },
+    {
+      "class": "statgpu.unsupervised._minibatch_nmf.MiniBatchNMF",
+      "source": "statgpu/unsupervised/_minibatch_nmf.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.MiniBatchNMF",
+        "statgpu.unsupervised.MiniBatchNMF"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "fit_transform",
+        "inverse_transform",
+        "partial_fit",
+        "permutation_test",
+        "predict",
+        "transform"
+      ]
+    },
+    {
+      "class": "statgpu.unsupervised._nmf.NMF",
+      "source": "statgpu/unsupervised/_nmf.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.NMF",
+        "statgpu.unsupervised.NMF"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "fit_transform",
+        "inverse_transform",
+        "permutation_test",
+        "predict",
+        "transform"
+      ]
+    },
+    {
+      "class": "statgpu.unsupervised._pca.PCA",
+      "source": "statgpu/unsupervised/_pca.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.PCA",
+        "statgpu.unsupervised.PCA"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "fit_transform",
+        "inverse_transform",
+        "permutation_test",
+        "predict",
+        "transform"
+      ]
+    },
+    {
+      "class": "statgpu.unsupervised._truncated_svd.TruncatedSVD",
+      "source": "statgpu/unsupervised/_truncated_svd.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.TruncatedSVD",
+        "statgpu.unsupervised.TruncatedSVD"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "fit_transform",
+        "inverse_transform",
+        "permutation_test",
+        "predict",
+        "transform"
+      ]
+    },
+    {
+      "class": "statgpu.unsupervised._tsne.TSNE",
+      "source": "statgpu/unsupervised/_tsne.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.TSNE",
+        "statgpu.unsupervised.TSNE"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "fit_transform",
+        "permutation_test",
+        "predict",
+        "transform"
+      ]
+    },
+    {
+      "class": "statgpu.unsupervised._umap.UMAP",
+      "source": "statgpu/unsupervised/_umap.py",
+      "abstract": false,
+      "hook_owner": "statgpu._base.BaseEstimator",
+      "public_aliases": [
+        "statgpu.UMAP",
+        "statgpu.unsupervised.UMAP"
+      ],
+      "public_numerical_methods": [
+        "adjust_pvalues",
+        "bootstrap_statistic",
+        "combine_pvalues",
+        "fit",
+        "fit_transform",
+        "permutation_test",
+        "predict",
+        "transform"
+      ]
+    }
+  ]
+}

@@ -24,11 +24,11 @@ _CLEANED_CN_PAGES = (
     "docs/cn/guides/cox-cv-staged-safety.md",
     "docs/cn/guides/pytorch-backend.md",
     "docs/cn/models/README.md",
-    "docs/cn/models/losses.md",
-    "docs/cn/models/quantile.md",
-    "docs/cn/models/ridge.md",
-    "docs/cn/models/lasso.md",
-    "docs/cn/models/poisson-regression.md",
+    "docs/cn/reference/losses.md",
+    "docs/cn/models/regression/quantile.md",
+    "docs/cn/models/regression/ridge.md",
+    "docs/cn/models/regression/lasso.md",
+    "docs/cn/models/regression/poisson-regression.md",
     "docs/cn/panel/architecture.md",
     "docs/cn/panel/covariance.md",
     "docs/cn/panel/panel-ols.md",
@@ -42,8 +42,8 @@ _CLEANED_CN_PAGES = (
     "docs/cn/benchmarks.md",
     "docs/cn/guides/benchmarks.md",
     "docs/cn/models/coxph.md",
-    "docs/cn/models/elastic-net.md",
-    "docs/cn/models/scad.md",
+    "docs/cn/models/regression/elastic-net.md",
+    "docs/cn/models/regression/scad.md",
     "docs/cn/releases/pr79-final-validation.md",
 )
 
@@ -331,10 +331,10 @@ def test_cleaned_chinese_pages_avoid_known_mixed_language_prose():
 
 
 def test_quantile_page_uses_chinese_explanatory_prose():
-    text = _read("docs/cn/models/quantile.md")
+    text = _read("docs/cn/models/regression/quantile.md")
     for fragment in _QUANTILE_PROSE_FRAGMENTS_TO_AVOID:
         assert fragment not in text, (
-            "docs/cn/models/quantile.md: explanatory prose fragment "
+            "docs/cn/models/regression/quantile.md: explanatory prose fragment "
             f"{fragment!r}"
         )
 
@@ -387,7 +387,7 @@ def test_pr166_solver_algorithm_prose_uses_chinese_explanatory_vocabulary():
 def test_chinese_pages_keep_real_api_identifiers_searchable():
     cv = _read("docs/cn/guides/cross-validation.md")
     inference = _read("docs/cn/guides/inference-modes.md")
-    quantile = _read("docs/cn/models/quantile.md")
+    quantile = _read("docs/cn/models/regression/quantile.md")
     torch_guide = _read("docs/cn/guides/pytorch-backend.md")
     covariance = _read("docs/cn/panel/covariance.md")
 

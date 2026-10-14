@@ -180,4 +180,4 @@ The data pipeline and frontend architecture are ready for integration. Remaining
 - Add responsive/mobile layout improvements if the dashboard becomes a primary public entry point.
 - Add new benchmark families only when canonical sources and parser tests are available.
 
-These items are tracked in `docs/en/guides/statgpu_benchmark_dashboard_next_phase_plan.md`.
+These items were tracked in the [historical plan after PR #78](../../dev/plans/statgpu_benchmark_dashboard_next_phase_plan.md). Use the [dashboard maintenance guide](../../frontend/docs/benchmark-dashboard-maintenance.md) for current contributor workflows.
