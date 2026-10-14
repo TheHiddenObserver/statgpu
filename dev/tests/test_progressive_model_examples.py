@@ -150,6 +150,7 @@ EXPECTED_EXAMPLES = {
     },
     'multiple-testing': {
         'multiple-testing-learner': (),
+        'multiple-testing-families': (),
     },
     'nonparametric': {
         'kde-cpu': (),
