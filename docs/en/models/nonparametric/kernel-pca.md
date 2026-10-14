@@ -6,8 +6,13 @@
 
 ## Find nonlinear coordinates without a response
 
-`KernelPCA` represents observations by a few coordinates derived from their
-kernel similarities. Ordinary PCA finds linear combinations of the input
+`KernelPCA` takes each observation's features without needing a response to
+predict. It computes kernel similarities between observations, then summarizes
+major patterns of variation with a few new numeric coordinates. Each output row
+still belongs to one original observation; each column is a constructed
+coordinate, not an original measurement. For example, use the first two columns
+as horizontal and vertical coordinates in a scatter plot, or pass the columns
+to a later model. Ordinary PCA finds linear combinations of the input
 features; kernel PCA finds directions of variation in the feature space defined
 by a kernel. Use it to explore nonlinear structure or to construct a
 representation for a later model. No response variable is needed.
@@ -132,7 +137,11 @@ print("First two test coordinates:\n", test_coordinates[:2])
 ```
 <!-- example-end: kernel-pca-cpu -->
 
-The shapes are `(180, 3)` and `(60, 3)`. Three nonlinear coordinates can be
+The shapes are `(180, 3)` and `(60, 3)`. In particular, `(60, 3)` means that each
+of 60 new observations receives three coordinates: the three numbers in
+`test_coordinates[0]` all describe the first test observation. Coordinate signs
+and directions depend on the fitted coordinate system; a column cannot be read
+as the effect of an original predictor. Three nonlinear coordinates can be
 extracted from two original features because the kernel's feature space need
 not have the same dimension as the input. The first coordinate corresponds to
 the largest retained centered-kernel eigenvalue. You can plot the first two

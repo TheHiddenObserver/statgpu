@@ -7,7 +7,7 @@
 
 ## When to use robust regression
 
-Consider robust regression when a few large response residuals could dominate a least-squares fit to a continuous outcome. Huber uses squared loss for small residuals and linear loss for large ones; Bisquare and Fair downweight differently. The target is the conditional location defined by the chosen loss, which need not equal the conditional mean.
+A residual is the observed response minus its prediction. Consider robust regression when a few large residuals could dominate a least-squares fit to a continuous outcome. Huber uses squared loss for small residuals and more slowly growing linear loss for large ones; Bisquare and Fair downweight differently. The model still gives one numeric prediction per observation. It targets the central level that minimizes the expected chosen loss for given features, called a conditional location. With an asymmetric response distribution, this need not equal the conditional mean.
 
 `PenalizedRobustRegression` combines these losses with regularization: the loss limits the influence of unusual response residuals, while the penalty shrinks coefficients. These choices address different problems. Robust loss does not automatically repair erroneous data, high-leverage predictor outliers, or omitted variables. For a particular conditional percentile, consider [quantile regression](quantile.md).
 
@@ -47,7 +47,7 @@ model = PenalizedRobustRegression(
 print("Slopes:", np.round(model.coef_, 3))
 ```
 
-The slopes round to `[1.522, -0.723]`, near the simulated `[1.5, -0.7]`; this is not an accuracy guarantee under other contamination patterns. Each slope describes a unit change in fitted location while holding the other feature fixed.
+The slopes round to `[1.522, -0.723]`, near the simulated `[1.5, -0.7]`; this is not an accuracy guarantee under other contamination patterns. Each slope describes the change in the predicted central level for a one-unit increase in that feature, holding the other feature fixed. For example, the first slope means a rise of about 1.522 response units, with the central level defined by the Huber loss.
 
 ### 4. Predict and evaluate held-out rows
 

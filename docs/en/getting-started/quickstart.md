@@ -21,8 +21,7 @@ needs neither a GPU nor CuPy or PyTorch. Optional GPU setup is described separat
 
 ## Minimal Example
 
-Fit a linear regression to simulated data, then make predictions and check the
-training fit:
+Generate 1000 simulated observations. Each row of `X` is one sample, its 20 columns are input features, and `y` holds one continuous response per sample. Linear regression learns to predict `y` from `X`; then predict the first three rows and check the fit on the training data:
 
 ```python
 import numpy as np

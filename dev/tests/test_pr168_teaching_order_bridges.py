@@ -161,6 +161,6 @@ def test_other_optional_bridges_precede_their_specific_use(language):
 
     text = _text(language, 'guides/regression-diagnostics')
     before = text[:text.index('print(diag.leverage)')]
-    for meaning in (('design space', 'influence on the fitted regression', 'collinearity among predictors')
-                    if language == 'en' else ('设计空间', '对回归拟合的影响', '预测变量间的共线性')):
+    for meaning in (('predictor values', 'influence on the fitted regression', 'explained linearly by the other features')
+                    if language == 'en' else ('预测变量组合', '对拟合的影响', '被其他特征线性解释')):
         assert meaning in before

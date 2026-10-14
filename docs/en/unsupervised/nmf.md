@@ -6,17 +6,31 @@
 
 ## Overview
 
-For a collection of measured spectra, each row contains nonnegative intensities across wavelengths. You want to describe observations using a few recurring spectral patterns and how strongly each pattern contributes. Averaging all spectra gives only one pattern; assigning each observation to one cluster cannot express a mixture of several patterns.
+Suppose you measure 60 samples at the same five wavelengths. The nonnegative data table `X` has shape `(60, 5)`: one row per sample and one column per wavelength. Instead of assigning each sample to one type, you want to approximate its five intensities using two basic spectra, A and B.
 
-NMF seeks nonnegative building blocks and nonnegative weights. Each observation is approximated by adding scaled copies of the learned patterns: one factor describes the patterns across features, and the other describes their contributions to each row. This is why nonnegativity can make a decomposition easier to inspect when additive structure is plausible.
+NMF learns two tables together. `H`, with shape `(2, 5)`, stores A and B as its two rows. `W`, with shape `(60, 2)`, stores each sample's two nonnegative coefficients: how much to multiply A and B by before adding them. More generally, for `n` samples, `p` measurements, and `k` basic spectra, `X` is `(n, p)`, `H` is `(k, p)`, and `W` is `(n, k)`.
 
-An additive representation is still a modeling choice. It does not establish that the learned patterns are pure physical sources, nor that there is a unique decomposition. Nonnegativity alone also does not turn the weights into probabilities or force them to sum to one.
+For example, let A be `[1, 0, 2, 0, 1]` and B be `[0, 2, 0, 2, 1]`. A sample with coefficients `[2, 0.5]` is approximated by `2*A + 0.5*B = [2, 1, 4, 1, 2.5]`. Compare those five reconstructed intensities with its five measured intensities to judge the approximation. These illustrative values show the multiplication; they are not a promised fitted result.
+
+<!-- worked-example: nonnegative-spectra -->
+```python
+import numpy as np
+
+H = np.array([[1., 0., 2., 0., 1.], [0., 2., 0., 2., 1.]])
+w = np.array([2., 0.5])
+x_hat = w @ H
+print(x_hat)  # [2.  1.  4.  1.  2.5]
+```
+
+The coefficients are multipliers, not the number of basic spectra or probabilities. Here `n_components=2` sets the number of basic spectra; this sample gives them coefficients 2 and 0.5, which need not sum to one. Both tables are learned from data and contain only zero or positive values, so reconstruction adds contributions without positive and negative cancellation. The learned basic spectra need not be actual pure substances, and the decomposition need not be unique. The table of basic spectra is also called a dictionary; its per-sample coefficients are called activations.
 
 ## When to use it
 
 Use NMF for dense nonnegative measurements when sums of patterns are a useful explanation. PCA can compress the data, but its signed directions can reconstruct observations by cancellation, which is awkward when the intended explanation is additive. Do not mean-center the input; if signed departures from a baseline are the object of interest, [PCA](pca.md) may be more appropriate. [TruncatedSVD](truncated-svd.md) also approximates an uncentered matrix, but permits cancellation through signed factors. Consider [MiniBatchNMF](minibatch-nmf.md) when a shared dictionary must be learned in batches.
 
-Choose rank using reconstruction on representative held-out observations and whether patterns remain useful across initializations. Feature units determine the weights in the squared-error objective: nonnegative counts or intensities are eligible inputs, but nonnegativity by itself does not establish that Frobenius loss suits the application. Factors have scale and permutation ambiguities, so compare matched patterns and reconstructions rather than raw coefficients alone.
+`n_components` sets the number of basic spectra, not necessarily the actual matrix rank. Hold out representative samples, fit on the others, then use `transform` and `inverse_transform` to compare held-out reconstructed intensities with their measurements. Repeat with a few random seeds to see whether similar basic spectra appear. Before comparing, match similar spectra and account for scale: doubling A and halving its coefficients leaves the reconstruction unchanged.
+
+The fitting objective adds up squared intensity errors (and multiplies the total by one half); this is the squared Frobenius reconstruction loss below. Changing a column to much larger numerical units gives it more influence on that total. Nonnegative input is required, but does not by itself make this error measure suitable for your problem.
 
 ## Path
 
@@ -56,7 +70,7 @@ With `init="random"`, the seed controls data-row sampling for the initial dictio
 
 ## Parameters
 
-- `n_components`: latent dimension; `None` uses `min(n_samples, n_features)`.
+- `n_components`: number of basic spectra (the reconstruction has rank at most this number); `None` uses `min(n_samples, n_features)`.
 - `init`: only `"random"` is supported.
 - `solver`: only `"mu"` is supported.
 - `beta_loss`: only `"frobenius"` is supported.
@@ -78,7 +92,7 @@ X_hat = model.inverse_transform(W)
 print(W.shape, model.components_.shape, np.linalg.norm(X - X_hat))
 ```
 
-The factors are `W` `(60, 2)` and `components_` `(2, 5)`. `reconstruction_err_` is a Frobenius norm, not its square or a normalized per-row error. A later `transform` solves new activations with the dictionary held fixed.
+`components_[0]` and `components_[1]` are the two learned basic spectra A and B, each containing five intensities. `W[i]` contains sample `i`'s two coefficients. Thus `W` is `(60, 2)`, `components_` is `(2, 5)`, and `W @ model.components_` reconstructs all 60 samples as a `(60, 5)` table. `reconstruction_err_` is a Frobenius norm, not its square or a normalized per-row error. A later `transform` solves new activations with the dictionary held fixed.
 
 For a supported GPU installation, construct a new estimator with `device="cuda"` (CuPy) or `device="torch"` (Torch CUDA). Arrays generally stay on that backend; see the [API reference](api-reference.md#nmf) for output ownership and host-side work. An unavailable explicit GPU raises an error.
 

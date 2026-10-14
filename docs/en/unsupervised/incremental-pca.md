@@ -6,7 +6,9 @@
 
 ## Overview
 
-Daily measurement files raise a practical question: how can all observations share one compact coordinate system as the collection grows? The aim is to describe each observation with a few numbers instead of all its measured features. Each number combines the features' differences from their means using shared weights; those weights define a direction, and the retained directions together form a basis for approximating the observations.
+Suppose each daily file contains machine records with 20 sensor readings per row. You want to compress each record to three numbers and compare records from different days using the same conversion rule. IncrementalPCA reads one batch at a time and updates the conversion weights and column means without rereading all historical records.
+
+As in [PCA](pca.md), each output number is a weighted sum of the readings after subtracting their column means. For example, two centered readings `[2, -1]` with weights `[0.6, 0.8]` give the coordinate `2*0.6 - 1*0.8 = 0.4`. This illustrates the conversion, not a promised result of fitting a particular dataset. The retained sets of weights are called directions; together they form the basis used for reconstruction. With `whiten=True`, each coordinate is additionally divided by the fitted standard deviation, subject to a small variance floor.
 
 Repeating PCA on every file separately gives different directions and means, so coordinates from different days are not directly comparable. Rebuilding PCA from all accumulated rows avoids that mismatch, but requires revisiting the history whenever new rows arrive.
 
@@ -68,7 +70,7 @@ X_hat = model.inverse_transform(Z)
 print(Z.shape, model.n_samples_seen_, X_hat.shape)
 ```
 
-The final basis transforms all 60 rows to `(60, 2)`; `n_samples_seen_` is 60. `mean_` and `var_` describe all processed rows, but earlier per-batch coordinates are not automatically rotated into the final basis.
+This example has five readings per record and compresses each of 60 records to two numbers, so `Z` is `(60, 2)`. With the default `whiten=False`, `Z = (X - model.mean_) @ model.components_.T`: each row uses the same final means and weights. `n_samples_seen_` is 60; `mean_` and `var_` summarize all processed rows. Earlier batch coordinates do not automatically change when those means and weights change. After all batches are learned, call `transform` again on records you want to compare, as above.
 
 For a supported GPU installation, construct a new estimator with `device="cuda"` (CuPy) or `device="torch"` (Torch CUDA). Arrays generally stay on that backend; see the [API reference](api-reference.md#incrementalpca) for output ownership and host-side work. An unavailable explicit GPU raises an error.
 

@@ -28,14 +28,17 @@ k(x,z)=\exp\{-\gamma\lVert x-z\rVert_2^2\}.
 $$
 
 `gamma` 越大，相似度随距离衰减得越快。特征单位会影响距离；尺度远大于其他列的
-特征可能主导相似度。对于半正定核，核岭最小化平方误差与 RKHS 惩罚之和：
+特征可能主导相似度。对于半正定核，拟合是在一类由核函数规定的函数中进行的。
+这个函数空间称为再生核希尔伯特空间（RKHS），下式用 $\mathcal H$ 表示。
+第一项要求预测接近观测响应；第二项按这个空间的范数限制拟合函数的复杂度：
 
 $$
 \min_{f\in\mathcal H}\sum_{i=1}^n(y_i-f(x_i))^2
     +\alpha\lVert f\rVert_{\mathcal H}^2.
 $$
 
-拟合函数可写为 $f(x)=\sum_i c_i k(x,x_i)$，代入后得到
+拟合函数可写为 $f(x)=\sum_i c_i k(x,x_i)$。代入后，函数的惩罚变成
+$c^\top Kc$，不是简单地对权重平方求和，系数目标为
 
 $$
 \min_c\ \lVert y-Kc\rVert_2^2+\alpha c^\top Kc.

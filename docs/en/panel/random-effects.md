@@ -10,11 +10,13 @@
 
 Use `RandomEffects` for a one-way random-intercept panel model when both within-entity changes and between-entity differences should contribute to the common slope. For example, it can combine changes within a firm with comparisons across firms, while accounting for their different baseline levels.
 
-The key assumption is stronger than for fixed effects: the entity-specific random effect must have conditional mean zero given the entity's regressor history. The idiosyncratic error must also have conditional mean zero given that history and the random effect. The classical error-components structure further assumes constant component variances, serially uncorrelated idiosyncratic errors, and orthogonality between the two error components.
+First separate what the regressors do not explain into two parts: a persistent deviation $a_i$ shared by all observations of a firm, and an observation-specific error $\varepsilon_{it}$. The latter is also called the idiosyncratic error. The regressor history means that firm's predictor values across all its periods, not an extra input array.
+
+The key assumption is stronger than for fixed effects: given this entire regressor history, the random effect $a_i$ must have conditional mean zero. For example, the assumption can fail if firms with persistently higher inputs also have persistently higher, unrecorded management ability. Given both that history and $a_i$, each $\varepsilon_{it}$ must also have conditional mean zero. The classical error-components structure further assumes constant component variances, serially uncorrelated idiosyncratic errors, and orthogonality between the two error components. The precise conditions appear below.
 
 If stable entity differences are systematically related to the regressors, consider [PanelOLS](panel-ols.md) with entity effects. Robust standard errors do not remove this identification problem. `RandomEffects` models one random intercept per entity, not time random effects or random slopes.
 
-The fit estimates Swamy-Arora variance components, subtracts part of each entity mean (quasi-demeaning), then estimates the slopes by feasible GLS.
+The model uses the estimated variances of the two error components to decide how much of each entity mean to subtract from a row. The fit estimates Swamy-Arora variance components, subtracts part of each entity mean (quasi-demeaning), then estimates the slopes by feasible GLS.
 
 The model is $y_{it}=x_{it}^{\top}\beta+a_i+\varepsilon_{it}$, where $i$ indexes entities and $t$ indexes periods. The response is $y_{it}$, $x_{it}$ is the row's predictor vector (including a constant if supplied), and $\beta$ contains the common coefficients. The random intercept $a_i$ is shared by all observations of entity $i$, while $\varepsilon_{it}$ is the observation-specific error.
 

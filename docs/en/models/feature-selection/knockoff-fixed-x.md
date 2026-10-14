@@ -25,6 +25,18 @@ all signatures, parameters, selector methods and result fields.
 
 ## What makes a fixed-X pair valid?
 
+Each row of X is an observation and each column a candidate predictor. Xk has
+exactly the same shape: its j-th column is the artificial control for the j-th
+original predictor, not an arbitrary noise column. Under the Gaussian linear
+response assumptions below and with a compatible statistic, the pairing makes
+null original variables and their controls symmetric competitors, allowing their
+comparisons to inform the false-discovery estimate.
+
+The Gram matrix XᵀX records column sums of squares on its diagonal and sums of
+products between columns off the diagonal. The equalities below match these
+relationships within the controls and between originals and controls. When an
+intercept is fitted, subtract column means before checking the relationships.
+
 For the design actually used by the statistic, write Σ=XᵀX. A matched pair
 must satisfy XkᵀXk=Σ and XᵀXk=Σ−S, where S is a nonnegative diagonal matrix
 and the resulting joint Gram matrix is positive semidefinite. Matching shapes

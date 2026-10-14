@@ -8,7 +8,9 @@
 
 Suppose measurements from several operating regimes overlap: a reading near the boundary could plausibly come from either regime, and some regimes vary more widely or along different directions. One Gaussian distribution may smooth over those differences. A hard nearest-center label hides the ambiguity by assigning every reading to exactly one group.
 
-`GaussianMixture` describes the data as a weighted blend of Gaussian components, each with a center and a covariance structure. An observation can be compatible with several components at once. Expectation-maximization (EM) alternates between estimating those fractional memberships and updating the component distributions from them. This provides both a density model and model-based soft grouping; see the [Gaussian mixture guide](https://scikit-learn.org/stable/modules/mixture.html) for the probabilistic formulation.
+`GaussianMixture` describes data as a weighted mixture of Gaussian components, each with its own center and covariance structure. For each record, `predict_proba` gives probabilities of belonging to the fitted components: for example, 0.7 for component A and 0.3 for B. They sum to one for that record. These probabilities are called responsibilities, or soft memberships. They are conditional on the fitted model, not probabilities that a real operating state has been identified correctly.
+
+The expectation-maximization (EM) algorithm alternates between calculating these probabilities and using them as weights to update the component distributions. The model can therefore describe data density and give model-based soft groups; see the [Gaussian mixture model guide](https://scikit-learn.org/stable/modules/mixture.html).
 
 ## When to use it
 

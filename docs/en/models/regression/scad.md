@@ -7,13 +7,31 @@
 
 ## Overview
 
-`SCADRegression` provides SCAD-penalized (Smoothly Clipped Absolute Deviation) linear regression (Fan & Li, 2001). SCAD is a non-convex penalty that reduces shrinkage of large coefficients. Its **oracle property** is an asymptotic result under regularity and tuning conditions, not a finite-sample guarantee for every fitted model.
+Use `SCADRegression` when you have candidate predictors and a continuous response,
+want to predict new observations, and would like to retain only some predictors.
+Like Lasso, it can set some coefficients to zero, removing those variables from
+the linear prediction. It reduces the pull toward zero for larger coefficients.
+The output is still a set of linear regression coefficients; a nonzero coefficient
+does not by itself establish statistical significance or causality.
 
-Use this model for a continuous response when sparse prediction is useful and
-Lasso's shrinkage of large slopes is a concern. Begin with [Lasso](lasso.md) or
-[Elastic Net](elastic-net.md) when you want a convex objective and simpler tuning.
-Non-convex fitting can converge to different local solutions; a selected feature
-is not automatically significant or causal.
+In the input matrix X, each row is an observation and each column a candidate
+predictor; each entry of `coef_` belongs to one predictor in that column order.
+For arithmetic illustration only, suppose the intercept is 1 and the fitted
+coefficients are `[2, 0, -0.5]`. A new row `[3, 7, 2]` then gives
+$1+2\times3+0\times7-0.5\times2=6$. The second predictor contributes nothing
+because its coefficient is zero. These numbers illustrate linear prediction,
+not the result of fitting the example below.
+
+SCAD (Smoothly Clipped Absolute Deviation; Fan & Li, 2001) uses a non-convex
+penalty, so numerical fitting can converge to different local solutions. Begin
+with [Lasso](lasso.md) or [Elastic Net](elastic-net.md) when you want a convex
+objective and simpler tuning.
+
+Under suitable model, regularity, and tuning conditions, as the sample grows,
+SCAD can select the truly nonzero variables consistently and estimate their
+coefficients with asymptotic behavior like a method that knew those variables
+in advance. This is the **oracle property**, not a guarantee for any individual
+finite-sample fit.
 
 ## Path
 

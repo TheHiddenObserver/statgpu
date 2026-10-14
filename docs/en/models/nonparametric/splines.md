@@ -7,13 +7,25 @@
 
 ## Turn a curved predictor effect into reusable features
 
-A spline basis expands one numeric predictor into several overlapping, local
-curves. A later regression combines these columns to learn a nonlinear effect;
-the basis itself does not fit a response. Use `SplineTransformer` when training
+Suppose you want to predict a response that bends as time changes. A spline
+basis first chooses joining locations, called knots, and constructs basis
+functions that act over overlapping intervals. Evaluating every basis function
+at each time point turns the original time column into several numeric columns:
+row i contains the basis values at observation i. A later regression learns
+weights for these columns and adds their contributions to form a curved
+prediction. The basis transform itself neither uses the response nor fits the
+response model. Use `SplineTransformer` when training
 and new observations must share the same knots and feature definition. Use
 [GAM](semiparametric.md) when you also want an additive least-squares model and
 automatic smoothing selection. More knots allow more detail, but do not by
 themselves control overfitting.
+
+A small arithmetic illustration uses two linear basis functions on $0\le t\le1$:
+$B_1(t)=1-t$ and $B_2(t)=t$. At $t=0.25$, evaluating both gives the matrix row
+`[0.75, 0.25]`. If a later model assigns weights `[2, 6]` with no extra intercept,
+its prediction is $2\times0.75+6\times0.25=3$. Thus a row holds function values,
+and regression combines those values; this two-function illustration is not the
+seven-column cubic basis used in the CPU example below.
 
 Fit the transformer only on training rows, then call `transform` on validation
 or test rows. In a cross-validation pipeline, learn knots inside each training

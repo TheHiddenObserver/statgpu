@@ -216,6 +216,18 @@ selected-alpha `Lasso` refit remains on that backend.
 
 ### Node-wise tuning for debiased inference
 
+Debiasing starts with the usual penalized response fit, then performs extra
+calculations to correct part of its shrinkage bias. In node-wise Lasso, each
+feature column in turn becomes a temporary response, predicted using all the
+other feature columns. For example, with three columns, the first auxiliary
+regression predicts column 1 from columns 2 and 3, not the original response y.
+These regressions estimate relationships among features to build the approximate
+inverse matrix (precision matrix) used in the correction. `nodewise_alpha`
+controls their penalty; the main `alpha` controls the prediction fit. Corrected
+coefficients and intervals belong to inference reports; prediction coefficients
+stay unchanged, and interval validity still requires the relevant model and
+high-dimensional inference assumptions.
+
 `alpha` controls the main penalized Lasso fit. `nodewise_alpha` is a **different** tuning parameter used only by `inference_method="debiased"` to construct the node-wise Lasso approximation to the design precision matrix.
 
 If `nodewise_alpha` is supplied, that positive scalar is used exactly on the standardized node-wise design. If it is omitted (`None`), statgpu standardizes the centered/weighted working design and uses the response-independent default

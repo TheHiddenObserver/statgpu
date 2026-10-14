@@ -22,7 +22,7 @@ statgpu 提供多种推断方法，是因为经典低维回归、固定惩罚 GL
 | 普通 `GeneralizedLinearModel`，包括 Gaussian | `m_estimation` | 受支持的系数推断使用正态（z）参考分布 |
 | 光滑的非 Gaussian L2 / 无惩罚 GLM | `m_estimation` | 固定惩罚强度下的估计方程推断 |
 | Gaussian Lasso / ElasticNet | `debiased` | 去偏 / 去稀疏化系数推断 |
-| Gaussian Lasso / ElasticNet | `post_selection_ols` | 在已选择的活跃集上做 OLS/WLS 诊断性重拟合 |
+| Gaussian Lasso / ElasticNet | `post_selection_ols` | 在模型选中的特征集合（活跃集）上做 OLS/WLS 诊断性重拟合 |
 | 受支持的 Gaussian 惩罚模型 | `bootstrap` | 调参配置固定时的残差自助法分布 |
 | Gaussian SCAD/MCP；非 Gaussian 重拟合存在下文所述限制 | 显式请求 `oracle` | 活跃集重拟合；普通区间不校正变量选择 |
 | 不支持的损失函数 / 惩罚项 / 方法组合 | — | 直接报错，而不是静默换成另一种推断目标 |
@@ -55,6 +55,8 @@ inference_method="auto"
 
 会解析为 `m_estimation`。
 
+这里先把惩罚强度 `alpha` 固定下来，再估计在相同建模条件下重复取样时，带惩罚系数估计会有多大波动。`alpha>0` 时，惩罚也改变了所估计的目标，因此这里的区间不能直接解释为无惩罚总体参数的区间。HC0/HC1 改变协方差的估计方式，不会消除收缩偏差，也不会计入选择 `alpha` 的不确定性。
+
 当 L2 惩罚强度为正时，推断目标是**给定惩罚强度下的惩罚估计方程**；无惩罚拟合对应普通的无惩罚参数。当前非 Gaussian 固定惩罚协方差支持 `nonrobust`、`hc0`、`hc1`；在不支持的路径上请求 HC2、HC3 或 HAC 会直接报错。
 
 ### 分析权重
@@ -79,17 +81,21 @@ $$
 
 ### `debiased`
 
-去偏（de-biased / de-sparsified）推断先估计设计 Gram 矩阵或协方差矩阵的近似逆，即精度矩阵，再进行一步修正，以减小惩罚估计量的一阶正则化偏差。
+Lasso 和 ElasticNet 在拟合时会把系数向零收缩，因此不能直接沿用普通无惩罚回归的区间解释。`debiased` 修正这种收缩造成的偏差，再报告修正后系数的标准误和区间。模型预测仍使用原来的惩罚 `coef_` 和 `intercept_`，不使用推断中的修正估计。
+
+修正需要估计特征之间的线性关系。去偏（de-biased / de-sparsified）推断先估计设计 Gram 矩阵或协方差矩阵的近似逆，即精度矩阵，再进行一步修正，以减小惩罚估计量的一阶正则化偏差。
 
 当目标是高维模型中的边际系数推断，并且相关理论假设对应用场景合理时，可以使用这一模式。逐节点精度矩阵估计的调参与主模型惩罚参数分开控制；见 [逐节点 Lasso 推断调参迁移](nodewise-alpha-migration.md)。
 
 支持分析权重时，去偏推断与稀疏 Gaussian 拟合使用同一个带权中心化统计问题，因此统一缩放全部正权重不会改变其统计推断目标。
 
+边际区间分别针对每个系数；把这些单独区间放在一起，并不保证它们以所声明的概率同时覆盖全部相应系数。
+
 如果开启同时推断，statgpu 使用 max-|Z| 校准，而不是把普通边际区间直接当作同时置信区间。相关控制见 Lasso/ElasticNet 模型文档。
 
 ### `post_selection_ols`
 
-`post_selection_ols` 先取得惩罚模型选出的活跃集，然后在**完全相同的活跃集上重新拟合无惩罚 OLS 或 WLS**。
+`post_selection_ols` 先取得惩罚模型选中的特征集合（活跃集），然后在**完全相同的活跃集上重新拟合无惩罚 OLS 或 WLS**。
 
 因此必须区分：
 

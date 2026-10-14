@@ -8,7 +8,9 @@ Use panel models when the same entities, such as firms, people, or regions, are 
 
 ## Choose the model for your question
 
-If persistent entity differences may be related to your predictors, start with [fixed effects](panel-ols.md) or [first differences](first-difference-ols.md). If you want to use both within- and between-entity variation, [random effects](random-effects.md) requires the stronger orthogonality assumption below. Use [pooled OLS](pooled-ols.md) only when a common level regression is the intended mean model; supplying entity labels does not remove omitted entity effects.
+If persistent entity differences may be related to your predictors, start with [fixed effects](panel-ols.md) or [first differences](first-difference-ols.md). If you want to use both within- and between-entity variation, [random effects](random-effects.md) requires the stronger orthogonality assumption below.
+
+Consider [pooled OLS](pooled-ols.md) when you want to combine all entities' original observations across periods and describe them with one intercept and one set of slopes. It does not remove persistent differences between entities. If an omitted difference, such as a firm's management quality, is related to the predictors, the pooled slope can include its influence. Supplying entity labels or changing to robust standard errors does not remove that problem.
 
 For long-run differences in entity averages, use [BetweenOLS](between-ols.md). For the average of period-by-period cross-sectional coefficients, use [FamaMacBeth](fama-macbeth.md). These targets are not interchangeable, and a covariance option cannot repair a failed identification assumption.
 

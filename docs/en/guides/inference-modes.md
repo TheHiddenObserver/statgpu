@@ -22,7 +22,7 @@ Use this page to answer two questions:
 | ordinary `GeneralizedLinearModel`, including Gaussian | `m_estimation` | normal/z reference for supported coefficient inference |
 | smooth non-Gaussian L2/no-penalty penalized GLM | `m_estimation` | fixed-penalty estimating-equation inference |
 | Gaussian Lasso/ElasticNet | `debiased` | de-biased/de-sparsified coefficient inference |
-| Gaussian Lasso/ElasticNet | `post_selection_ols` | OLS/WLS diagnostic refit on the selected active set |
+| Gaussian Lasso/ElasticNet | `post_selection_ols` | OLS/WLS diagnostic refit on the selected features (the active set) |
 | supported Gaussian penalized models | `bootstrap` | residual-bootstrap distribution with tuning held fixed |
 | Gaussian SCAD/MCP; non-Gaussian refits have a limitation below | `oracle` when explicitly requested | active-set refit; ordinary intervals do not adjust for selection |
 | unsupported loss/penalty/method combination | — | raises an error instead of substituting another inferential target |
@@ -55,6 +55,8 @@ inference_method="auto"
 
 resolves to `m_estimation`.
 
+Hold the penalty strength `alpha` fixed and ask how much the penalized coefficient estimate would vary across repeated samples under the same modeling conditions. With `alpha>0`, the penalty also changes the target being estimated: these intervals cannot simply be read as intervals for the unpenalized population parameter. HC0/HC1 change the covariance estimate; they do not remove shrinkage bias or include the uncertainty from choosing `alpha`.
+
 A positive L2 fit targets the **penalized estimating equation** at the chosen penalty strength. An unpenalized fit targets the ordinary unpenalized model parameter. The current non-Gaussian fixed-penalty covariance choices are `nonrobust`, `hc0`, and `hc1`; requesting HC2/HC3/HAC on a row that does not support them raises an error.
 
 ### Analytic weights
@@ -77,17 +79,21 @@ For Gaussian `Lasso`, `ElasticNet`, and equivalent squared-error L1/ElasticNet p
 
 ### `debiased`
 
-De-biased/de-sparsified inference corrects the first-order regularization bias by estimating an approximate inverse of the design Gram/covariance matrix, that is, a precision matrix, and applying a one-step correction.
+Lasso and ElasticNet shrink fitted coefficients toward zero, so ordinary unpenalized-regression intervals cannot simply be attached to those estimates. `debiased` adjusts for this shrinkage bias and reports standard errors and intervals for the corrected coefficients. Prediction still uses the original penalized `coef_` and `intercept_`, not the corrected inference estimates.
+
+The correction requires estimating linear relationships among features. De-biased/de-sparsified inference corrects the first-order regularization bias by estimating an approximate inverse of the design Gram/covariance matrix, that is, a precision matrix, and applying a one-step correction.
 
 This is the appropriate coefficient-inference mode when you need high-dimensional marginal inference and its assumptions are reasonable for the application. Node-wise precision tuning is controlled separately from the main model penalty; see [Node-wise Lasso inference tuning migration](nodewise-alpha-migration.md).
 
 When analytic weights are supported, de-biased inference uses the same weighted-centered statistical problem as the sparse Gaussian fit. Global positive rescaling of the weights does not change that target.
 
+A marginal interval concerns one coefficient at a time. A collection of such intervals does not by itself provide the stated coverage for all coefficients at once.
+
 If simultaneous inference is enabled, statgpu uses max-|Z| calibration rather than treating ordinary marginal intervals as simultaneous intervals. Check the Lasso/ElasticNet model documentation for the relevant simultaneous-inference controls.
 
 ### `post_selection_ols`
 
-`post_selection_ols` first takes the active set chosen by the penalized model and then fits an **unpenalized OLS or WLS regression on exactly that active set**.
+`post_selection_ols` first takes the features selected by the penalized model (the active set) and then fits an **unpenalized OLS or WLS regression on exactly that active set**.
 
 This distinction is important:
 

@@ -6,13 +6,27 @@
 
 ## Overview
 
-For measured spectra, each observation records nonnegative intensities across wavelengths. A useful description is to add together a few recurring nonnegative patterns, using different amounts of each pattern for each observation. The shared patterns form a dictionary; the per-observation amounts are activation coefficients, also kept nonnegative.
+Suppose you measure 60 samples at the same five wavelengths. The nonnegative data table `X` has shape `(60, 5)`: one row per sample and one column per wavelength. Instead of assigning each sample to one type, you want to approximate its five intensities using two basic spectra, A and B.
 
-As the collection grows in batches, the goal is to use the same patterns to describe both earlier and later observations. Fitting a separate NMF to every batch yields unrelated dictionaries: even similarly shaped patterns may appear in a different order or at a different scale. Repeatedly refitting the entire collection instead revisits all historical rows and their activation coefficients.
+Like NMF, MiniBatchNMF learns two tables. `H`, with shape `(2, 5)`, stores A and B as its two rows. `W`, with shape `(60, 2)`, stores each sample's two nonnegative coefficients: how much to multiply A and B by before adding them. More generally, for `n` samples, `p` measurements, and `k` basic spectra, `X` is `(n, p)`, `H` is `(k, p)`, and `W` is `(n, k)`.
 
-MiniBatchNMF learns a shared nonnegative dictionary while handling activation coefficients a batch at a time. The additive interpretation is the same as in NMF, while the fitting route avoids treating all row activations as one jointly updated matrix.
+For example, let A be `[1, 0, 2, 0, 1]` and B be `[0, 2, 0, 2, 1]`. A sample with coefficients `[2, 0.5]` is approximated by `2*A + 0.5*B = [2, 1, 4, 1, 2.5]`. Compare those five reconstructed intensities with its five measured intensities to judge the approximation. These illustrative values show the multiplication; they are not a promised fitted result.
 
-The dictionary can change as learning proceeds. A coefficient computed before an update refers to the dictionary at that time, so it should not be mixed with coefficients from a later dictionary as though their meanings were fixed. Nonnegative patterns remain a descriptive approximation, not identified physical sources or probabilities.
+<!-- worked-example: nonnegative-spectra -->
+```python
+import numpy as np
+
+H = np.array([[1., 0., 2., 0., 1.], [0., 2., 0., 2., 1.]])
+w = np.array([2., 0.5])
+x_hat = w @ H
+print(x_hat)  # [2.  1.  4.  1.  2.5]
+```
+
+The coefficients are multipliers, not the number of basic spectra or probabilities. Here `n_components=2` sets the number of basic spectra; this sample gives them coefficients 2 and 0.5, which need not sum to one. Both tables are learned from data and contain only zero or positive values, so reconstruction adds contributions without positive and negative cancellation. The learned basic spectra need not be actual pure substances, and the decomposition need not be unique. The table of basic spectra is also called a dictionary; its per-sample coefficients are called activations.
+
+With `partial_fit`, each incoming batch contains new samples measured at the same five wavelengths. MiniBatchNMF first estimates their coefficients using the current A and B, adds this batch's calculations to accumulated statistics, and then updates the basic spectra. This avoids rereading every historical sample on every call. In contrast, `fit` keeps the basic spectra fixed throughout one full pass over its input batches and updates them after that pass.
+
+Because A and B change, yesterday's “2 times A” can mean different intensities from today's “2 times A”. For example, if A doubles while the sample stays the same, its matching coefficient must halve. After training, call `transform` again on all samples you want to compare, using the final basic spectra. Earlier coefficients are not updated automatically.
 
 ## When to use it
 
@@ -42,7 +56,7 @@ $$
 
 Each batch contributes a compact summary of how its estimated activations relate to the observations; those summaries guide dictionary updates.
 
-For each batch, `MiniBatchNMF` approximately solves activations `W_batch` with fixed `H`. In `fit`, it holds `H` fixed for a whole epoch, sums `A = sum(W_batch.T @ W_batch)` and `B = sum(W_batch.T @ X_batch)`, then updates `H`. In `partial_fit`, these statistics accumulate across calls. The elementary multiplicative updates have the form:
+For each batch, `MiniBatchNMF` approximately solves activations `W_batch` with fixed `H`. In `fit`, it holds `H` fixed for a whole epoch, sums `A = sum(W_batch.T @ W_batch)` and `B = sum(W_batch.T @ X_batch)`, then updates `H`. In `partial_fit`, these statistics accumulate across calls. Here the statistic matrices `A` and `B` are different objects from the two illustrative spectra called A and B above. The elementary multiplicative updates have the form:
 
 $$
 W \leftarrow W \odot \frac{XH^\top}{WHH^\top + \epsilon},
@@ -52,7 +66,7 @@ $$
 
 ## Parameters
 
-- `n_components`: factorization rank; `None` uses `min(n_samples, n_features)`.
+- `n_components`: number of basic spectra (the reconstruction has rank at most this number); `None` uses `min(n_samples, n_features)`.
 - `init`: currently supports `"random"`.
 - `batch_size`, `max_iter`, `tol`, `random_state`.
 - `device`: `"auto"`, `"cpu"`, `"cuda"`, or `"torch"`.
@@ -76,7 +90,7 @@ X_hat = model.inverse_transform(W)
 print(W.shape, model.components_.shape, np.linalg.norm(X - X_hat))
 ```
 
-The factors are `(60, 2)` and `(2, 5)`. After `partial_fit`, `reconstruction_err_` describes only that batch with the fitting factors; the independently computed full-data residual above answers a different question.
+`components_[0]` and `components_[1]` are the two learned basic spectra A and B, each containing five intensities. `W[i]` contains sample `i`'s two coefficients. Thus `W` is `(60, 2)`, `components_` is `(2, 5)`, and `W @ model.components_` reconstructs all 60 samples as a `(60, 5)` table. The rows of `W` follow the original order of `X`, including the earlier batches, and all use the final basic spectra. After `partial_fit`, `reconstruction_err_` describes only that batch with the fitting factors; the independently computed full-data residual above answers a different question.
 
 For a supported GPU installation, construct a new estimator with `device="cuda"` (CuPy) or `device="torch"` (Torch CUDA). Arrays generally stay on that backend; see the [API reference](api-reference.md#minibatchnmf) for output ownership and host-side work. An unavailable explicit GPU raises an error.
 

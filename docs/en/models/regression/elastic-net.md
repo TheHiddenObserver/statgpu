@@ -186,6 +186,18 @@ The public wrapper does not accept separate `backend`, `warm_start`, or `random_
 
 ## Covariance/Inference
 
+Debiasing starts with the usual penalized response fit, then performs extra
+calculations to correct part of its shrinkage bias. In node-wise Lasso, each
+feature column in turn becomes a temporary response, predicted using all the
+other feature columns. For example, with three columns, the first auxiliary
+regression predicts column 1 from columns 2 and 3, not the original response y.
+These regressions estimate relationships among features to build the approximate
+inverse matrix (precision matrix) used in the correction. `nodewise_alpha`
+controls their penalty; the main `alpha` controls the prediction fit. Corrected
+coefficients and intervals belong to inference reports; prediction coefficients
+stay unchanged, and interval validity still requires the relevant model and
+high-dimensional inference assumptions.
+
 `ElasticNet` is estimation-only by default. Set `compute_inference=True` to run post-fit inference through the shared penalized-linear inference engine. The default `inference_method="debiased"` uses the same standardized node-wise Lasso one-step correction framework as the sparse Gaussian Lasso path to construct an approximate precision matrix, corrected coefficients, standard errors, z statistics, p-values, and confidence intervals. Its statistical validity depends on the usual design, sparsity, regularization, and model assumptions; the Lasso literature is background for the construction rather than a blanket guarantee for every `l1_ratio`. `summary()` is available after inference succeeds.
 
 | Parameter | Default | Meaning |

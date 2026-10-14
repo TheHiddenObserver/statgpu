@@ -35,6 +35,8 @@ For sparse Gaussian methods such as `debiased` and `post_selection_ols`, see [In
 
 ## Fixed-penalty M-estimation
 
+Hold the penalty strength `alpha` fixed and ask how much the penalized coefficient estimate would vary across repeated samples under the same modeling conditions. With `alpha>0`, the penalty also changes the target being estimated: these intervals cannot simply be read as intervals for the unpenalized population parameter. HC0/HC1 change the covariance estimate; they do not remove shrinkage bias or include the uncertainty from choosing `alpha`.
+
 For a supported smooth non-Gaussian L2/no-penalty fit, statgpu treats the fitted coefficient as the solution of an estimating equation at the chosen penalty strength.
 
 For positive L2 penalty the target is reported as:
@@ -277,9 +279,7 @@ print(inference["params"])
 print(inference["conf_int"])
 ```
 
-The printed method is `m_estimation`; the positive L2 penalty means its target
-is `penalized_estimating_equation`. HC0 does not undo the fitted shrinkage or
-provide selection-adjusted intervals.
+`params` contains the coefficient estimates used for this inference, and each row of `conf_int` gives the corresponding lower and upper interval limits. In this example there are three parameters: the intercept followed by the two columns of `X`; `to_dict()` returns these as lists, with three two-value rows in `conf_int` (shape `(3, 2)` after conversion to an array). The resolved method is `m_estimation`. The target label `penalized_estimating_equation` means these intervals describe the fixed-penalty target above, here at `alpha=0.03`. HC0 does not undo the fitted shrinkage or provide selection-adjusted intervals.
 
 The generic penalized GLM and typed non-Gaussian wrappers do not currently
 provide `summary()`. Use the result's `params`, `bse`, `pvalues`, and `conf_int`,

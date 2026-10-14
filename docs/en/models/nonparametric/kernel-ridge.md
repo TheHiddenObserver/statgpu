@@ -33,8 +33,11 @@ $$
 
 Larger `gamma` makes similarity decay over a shorter distance. Feature units
 therefore matter: a feature with a much larger scale can dominate the distance.
-For a positive-semidefinite kernel, kernel ridge minimizes squared error with an
-RKHS penalty:
+For a positive-semidefinite kernel, fitting chooses a function from the family
+specified by the kernel. This function space is called a reproducing kernel
+Hilbert space (RKHS), written $\mathcal H$ below. The first term keeps predictions
+close to observed responses; the second uses this space's norm to limit the
+complexity of the fitted function:
 
 $$
 \min_{f\in\mathcal H}\sum_{i=1}^n(y_i-f(x_i))^2
@@ -42,7 +45,8 @@ $$
 $$
 
 The fitted function has a representation $f(x)=\sum_i c_i k(x,x_i)$. Substitution
-gives the coefficient objective
+turns the function penalty into $c^\top Kc$, not a sum of squared weights, giving
+the coefficient objective
 
 $$
 \min_c\ \lVert y-Kc\rVert_2^2+\alpha c^\top Kc.

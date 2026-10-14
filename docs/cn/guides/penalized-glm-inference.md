@@ -35,6 +35,8 @@ inference_method="auto"
 
 ## 固定惩罚 M-估计
 
+这里先把惩罚强度 `alpha` 固定下来，再估计在相同建模条件下重复取样时，带惩罚系数估计会有多大波动。`alpha>0` 时，惩罚也改变了所估计的目标，因此这里的区间不能直接解释为无惩罚总体参数的区间。HC0/HC1 改变协方差的估计方式，不会消除收缩偏差，也不会计入选择 `alpha` 的不确定性。
+
 对于受支持的光滑非 Gaussian L2 / 无惩罚拟合，statgpu 把已拟合系数看作给定惩罚强度下估计方程的解。
 
 当 L2 惩罚强度为正时，会报告：
@@ -250,7 +252,7 @@ print(inference["params"])
 print(inference["conf_int"])
 ```
 
-输出方法为 `m_estimation`；由于 L2 惩罚强度为正，推断目标为 `penalized_estimating_equation`。HC0 不会消除拟合的收缩偏差，也不会提供经过选择校正的区间。
+`params` 是用于这次推断的系数估计，`conf_int` 每行给出相应参数的区间下限和上限。本例共有三个参数：先截距，再按 `X` 的两列排列；`to_dict()` 将结果返回为列表，`conf_int` 有三行、每行两个值，转成数组后形状为 `(3, 2)`。实际采用的方法是 `m_estimation`；目标标签 `penalized_estimating_equation` 提醒我们按上文的固定惩罚目标解释区间，本例固定 `alpha=0.03`。HC0 不会消除拟合的收缩偏差，也不会提供经过选择校正的区间。
 
 通用惩罚 GLM 和具体的非 Gaussian 包装类目前没有 `summary()`。可以读取结果的 `params`、`bse`、`pvalues`、`conf_int`，或如上调用 `to_dict()`；`to_dataframe()` 还需要安装 pandas。
 

@@ -7,7 +7,7 @@
 
 ## When to use this model
 
-`LogisticRegression` models the probability of a binary outcome, such as whether an event occurs. It combines a linear predictor with the logistic function, so predicted probabilities stay between 0 and 1. Use it for binary prediction or for interpreting associations on the log-odds scale. Association alone does not establish causality.
+`LogisticRegression` models the probability of a binary outcome, such as whether an event occurs. It combines a linear predictor with the logistic function, so predicted probabilities stay between 0 and 1. Use it for binary prediction or for interpreting associations on the log-odds scale: the logarithm of $p/(1-p)$, where $p$ is the event probability. Association alone does not establish causality.
 
 This standalone estimator uses IRLS and optional L2 regularization on CPU/GPU. It does not implement multiclass, L1, or Elastic Net fitting. For broader penalty choices, see [penalized GLM](generalized-linear-model.md); do not assume those estimators share this class's `C` or solver interface.
 
@@ -50,7 +50,7 @@ print("coef:", np.round(model.coef_, 3))
 print("odds ratios:", np.round(np.exp(model.coef_), 3))
 ```
 
-For this seed, coefficients round to `[0.849, -0.501, 0.138]` and odds ratios to `[2.338, 0.606, 1.148]`. Holding other features fixed, a unit increase in the first feature multiplies the odds by about 2.338; this is not a probability ratio. Check that `converged_` is true before interpreting the estimates.
+For this seed, coefficients round to `[0.849, -0.501, 0.138]` and odds ratios to `[2.338, 0.606, 1.148]`. Odds mean the probability of occurrence divided by the probability of non-occurrence, $p/(1-p)$. Holding other features fixed, a unit increase in the first feature multiplies this ratio by about 2.338. For example, a starting probability of 0.5 gives odds of 1; multiplying the odds by 2.338 gives probability $2.338/(1+2.338)\approx0.70$, rather than multiplying 0.5 by 2.338. Different starting probabilities give different probability changes. Check that `converged_` is true before interpreting the estimates.
 
 ### 4. Predict on held-out rows
 

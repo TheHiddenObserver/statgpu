@@ -12,6 +12,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 # Each entry names a simple baseline, the method's idea, and an interpretation
 # boundary. EN/CN assertions deliberately use independently natural phrasing.
+# Revised quantitative examples are also executed in
+# test_plain_language_unsupervised_examples; these are only placement guards.
 CONCEPTS = {
     'kmeans': {
         'en': ('One overall average', 'nearest center', 'even when the data do not contain distinct populations'),
@@ -30,7 +32,7 @@ CONCEPTS = {
         'cn': ('按最近中心分组', '局部密度连通性', '不能据此认定'),
     },
     'gaussian-mixture': {
-        'en': ('One Gaussian distribution', 'fractional memberships', 'not a noise detector'),
+        'en': ('One Gaussian distribution', '0.7 for component A and 0.3 for B', 'not a noise detector'),
         'cn': ('只用一个高斯分布', '软归属', '不等于噪声检测'),
     },
     'pca': {
@@ -42,16 +44,16 @@ CONCEPTS = {
         'cn': ('分别对每天的数据', '旧均值与新批次均值', '损失信息'),
     },
     'truncated-svd': {
-        'en': ('Selecting only a few common terms', 'without subtracting feature means', 'not automatically a named topic'),
-        'cn': ('只保留几个常见词', '不减去特征均值', '不会自动对应'),
+        'en': ('Selecting only a few common terms', "does not first subtract each term's average weight", 'need not correspond to a topic you can name'),
+        'cn': ('只保留几个常见词', '不先减去每列的平均词权重', '不一定对应可以命名的主题'),
     },
     'nmf': {
-        'en': ('assigning each observation to one cluster', 'adding scaled copies', 'weights into probabilities'),
-        'cn': ('把每条观测归入一个簇', '缩放后的和', '权重变成概率'),
+        'en': ('assigning each sample to one type', '2*A + 0.5*B', 'not the number of basic spectra or probabilities'),
+        'cn': ('把每份样品硬分成某一种类型', '2*A + 0.5*B', '不是基本光谱的个数，也不是概率'),
     },
     'minibatch-nmf': {
-        'en': ('separate NMF to every batch', 'shared nonnegative dictionary', 'dictionary can change'),
-        'cn': ('分别对每批做 NMF', '共享的非负字典', '字典本身也会改变'),
+        'en': ('current A and B', 'after that pass', 'Earlier coefficients are not updated automatically'),
+        'cn': ('当前 A 和 B', '整轮结束后才更新', '旧系数不会自动更新'),
     },
     'tsne': {
         'en': ('scatter plot of two columns', 'neighbor affinities', 'does not establish a distinct population'),

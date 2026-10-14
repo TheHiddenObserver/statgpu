@@ -12,7 +12,9 @@
 
 Because every retained entity contributes one averaged observation, the effective sample size is the number of retained entities, not the number of original panel rows.
 
-Choose it to compare long-run averages across firms, people, or regions. If you instead want to remove time-invariant differences between entities, consider [PanelOLS](panel-ols.md) or [FirstDifferenceOLS](first-difference-ols.md). Averaging does not remove an entity effect: interpreting the slope as a common structural effect requires the combined entity effect and averaged error to be orthogonal to the entity means of the predictors.
+Choose it to compare long-run averages across firms, people, or regions. If you instead want to remove time-invariant differences between entities, consider [PanelOLS](panel-ols.md) or [FirstDifferenceOLS](first-difference-ols.md).
+
+For example, compare firms' average inputs and outputs. Averaging leaves persistent management differences in the data. If those differences affect both inputs and outputs, the between slope can include their influence. To interpret the slope as the same structural $\beta$ in the underlying panel equation, an extra condition is needed: the combined entity effect and averaged error, $a_i+\bar\varepsilon_i$, must be orthogonal to the predictor means $\bar x_i$. The moment condition and its conditional-mean form are given below.
 
 Start from $y_{it}=\alpha+x_{it}^{\top}\beta+a_i+\varepsilon_{it}$. Here $i$ indexes entities, $t$ indexes periods, $y_{it}$ is the response, $x_{it}$ is the predictor vector, $\alpha$ is a common intercept, $\beta$ is the common slope vector, $a_i$ is a time-invariant entity effect, and $\varepsilon_{it}$ is the remaining error. Taking means over each entity's observed periods gives $\bar y_i=\alpha+\bar x_i^{\top}\beta+a_i+\bar\varepsilon_i$.
 

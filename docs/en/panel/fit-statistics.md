@@ -58,7 +58,7 @@ df_{\mathrm{resid,diag}}=n-r_X-r_F,
 df_{\mathrm{total,diag}}=n-r_F,
 $$
 
-where $r_F=N$ for entity effects, $T$ for time effects, and $N+T-C$ for two-way effects, with $C$ the number of connected components in the observed entity-time graph.
+where $r_F=N$ for entity effects, $T$ for time effects, and $N+T-C$ for two-way effects, with $C$ the number of connected components in the observed entity-time graph. Each observed row connects its entity node to its period node; $C$ counts the groups that cannot be reached from one another along those connections. See the [prediction example](panel-ols.md#predict-with-or-without-fitted-effects) for two disconnected groups.
 
 `PanelOLS.df_resid` uses the residual degrees of freedom shown above. The two within-$R^2$ fields described under [outputs](#availability-and-outputs) use different transformations; keep that distinction when comparing models.
 

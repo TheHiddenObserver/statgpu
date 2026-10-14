@@ -9,9 +9,11 @@
 
 In a document-term matrix, rows describe documents and columns record term weights. You want fewer coordinates that summarize patterns of terms occurring together, while still approximating the original matrix. Selecting only a few common terms discards their joint structure; taking a row total reduces every document to one magnitude. Subtracting each term's mean would answer another question: how each document differs from an average document.
 
-TruncatedSVD learns a few shared patterns, each assigning a weight to every term. A document is approximated by scaling these patterns by its own coordinates and adding them together, so each coordinate summarizes a combination of terms rather than a single word. These patterns are the matrix's retained singular directions; they provide a low-rank approximation without subtracting feature means. Applied to a document-term matrix, this is the basic idea of latent semantic analysis (LSA). The same uncentered approximation applies to other numeric matrices; it does not require text or nonnegative values.
+TruncatedSVD learns a few shared patterns, each assigning a weight to every term. A document is approximated by scaling these patterns by its own coordinates and adding them together, so each coordinate summarizes a combination of terms rather than a single word.
 
-The choice to retain the origin is substantive. A large common level may dominate the first direction even if it explains little of the differences around the mean. A singular direction is also not automatically a named topic or an independently meaningful source.
+It does not first subtract each term's average weight. If all documents use some of the same words heavily, the first component may mostly reflect that shared word use rather than differences between documents. A component need not correspond to a topic you can name or an independently meaningful source.
+
+Formally, the patterns are retained singular directions and give a low-rank approximation to the uncentered matrix. For document-term data, this is the basic idea of latent semantic analysis (LSA). The same operation applies to other numeric matrices; it does not require text or nonnegative values.
 
 ## When to use it
 
@@ -68,7 +70,7 @@ X_hat = model.inverse_transform(Z)
 print(Z.shape, X_hat.shape, model.explained_variance_ratio_.sum())
 ```
 
-Coordinates have shape `(60, 2)`. The reconstruction does not add a mean. Explained variance is the centered variance of projected coordinates (divisor `n`), although fitting itself is uncentered; it is not simply the retained squared singular values divided by total squared norm.
+Each of the 60 input rows has five measurements; each output row has two numbers giving its coordinates on the two learned patterns, so `Z` has shape `(60, 2)`. For document-term data, that would mean two coordinates per document. Here `Z = X @ model.components_.T` and `X_hat = Z @ model.components_`: neither step subtracts or adds a mean. Explained variance is the centered variance of projected coordinates (divisor `n`), although fitting itself is uncentered; it is not simply the retained squared singular values divided by total squared norm.
 
 For a supported GPU installation, construct a new estimator with `device="cuda"` (CuPy) or `device="torch"` (Torch CUDA). Arrays generally stay on that backend; see the [API reference](api-reference.md#truncatedsvd) for output ownership and host-side work. An unavailable explicit GPU raises an error.
 

@@ -84,25 +84,28 @@ def test_core_math_precedes_complete_example_and_api_is_linked(lang, slug):
 
 
 @pytest.mark.parametrize('lang', ['en', 'cn'])
-def test_minibatch_patterns_and_amounts_are_explained_before_batch_learning(lang):
+def test_minibatch_tables_and_worked_reconstruction_precede_batch_learning(lang):
     text = page(lang, 'minibatch-nmf')
     intro = overview(text)
-    addition, dictionary, amount, batching = (
-        ('add together', 'shared patterns form a dictionary',
-         'per-observation amounts are activation coefficients', 'collection grows in batches')
-        if lang == 'en' else
-        ('非负模式相加', '共享模式称为字典', '用量称为激活系数', '数据逐批增加'))
-    assert intro.index(addition) < intro.index(dictionary) < intro.index(amount) < intro.index(batching)
+    worked = intro.index('<!-- worked-example: nonnegative-spectra -->')
+    # Concrete table meanings and multiplication precede the streaming update.
+    # Arithmetic, shapes, scale ambiguity, and stale coefficients are exercised
+    # in test_plain_language_unsupervised_examples, not inferred from word order.
+    assert all(shape in intro[:worked] for shape in ('(n, p)', '(k, p)', '(n, k)'))
+    assert worked < intro.index('`partial_fit`')
+    assert intro.index('`H`') < worked and intro.index('`W`') < worked
+    assert intro.index('2*A + 0.5*B') < intro.index('dictionary' if lang == 'en' else '字典')
     assert ('compact statistics' if lang == 'en' else '紧凑统计量') not in intro
 
 
 @pytest.mark.parametrize('lang', ['en', 'cn'])
-def test_linear_representations_explain_the_coordinate_bridge(lang):
+def test_linear_representations_explain_conversion_before_naming_directions(lang):
     ipca = overview(page(lang, 'incremental-pca'))
     svd = overview(page(lang, 'truncated-svd'))
+    # A reader can calculate one coordinate before meeting the formal name.
+    assert ipca.index('2*0.6 - 1*0.8 = 0.4') < ipca.index(
+        'called directions' if lang == 'en' else '称为一个方向')
     if lang == 'en':
-        assert ipca.index('Each number combines') < ipca.index('define a direction')
         assert svd.index('scaling these patterns') < svd.index('singular directions')
     else:
-        assert ipca.index('共享权重') < ipca.index('定义一个方向')
         assert svd.index('相加') < svd.index('奇异方向')

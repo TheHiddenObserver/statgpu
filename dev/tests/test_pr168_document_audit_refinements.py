@@ -30,7 +30,10 @@ def test_shared_resampling_limits_are_retrievable(language):
 @pytest.mark.parametrize('language', ['en', 'cn'])
 def test_diagnostics_explain_outputs_without_universal_deletion_rule(language):
     text = doc(language, 'guides/regression-diagnostics')
-    required = ('design space', 'influence', 'collinearity', 'no single cutoff') if language == 'en' else ('设计空间', '影响', '共线性', '删样本规则')
+    # Concrete row/column meanings replace the unexplained 'design space' term.
+    # Analytic leverage/Cook/VIF and row-permutation checks live in
+    # test_plain_language_guide_panel_examples.
+    required = ('predictor values', 'non-intercept design column', 'influence', 'collinearity', 'no single cutoff') if language == 'en' else ('预测变量组合', '非截距设计列', '影响', '共线性', '删样本规则')
     for term in required:
         assert term in text
     assert ('runs on CPU' if language == 'en' else 'CPU') in text

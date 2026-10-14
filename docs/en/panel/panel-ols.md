@@ -76,6 +76,8 @@ To run this example on a GPU, replace `device="cpu"` with `device="cuda"` (CuPy/
 
 For a one-way fit, a supplied known label adds its fitted effect; an omitted or unseen label adds none. For a two-way fit, supply both `entity_ids` and `time_ids` to include the effects. Both labels must be known and belong to the same connected component of the fitted entity-time pattern. A known label paired with an unknown or omitted label, or labels from different components, raises an error. If neither label is known (including when both arrays are omitted), prediction uses only the linear part. This fallback is not an estimate of the missing entity or period effect.
 
+Think of entities and periods as two kinds of nodes. Each training observation draws an edge between its entity and period. Labels reachable from one another along these edges form a connected component. For example, observations `(A, 1)`, `(A, 2)`, `(B, 1)`, and `(B, 2)` connect firms A/B to periods 1/2. A separate group `(C, 3)`, `(C, 4)`, `(D, 3)`, and `(D, 4)` connects C/D to 3/4. With no observation linking these groups, `(A, 3)` is forbidden for prediction with effects even though both labels were seen. The relative effect levels of the two groups cannot be determined from the training data. A pair need not itself have occurred in training: known labels in the same component are sufficient, subject to the rules above.
+
 After formula fitting, `predict(new_df)` rebuilds the regressor design from the formula, but fixed-effect prediction IDs still need to be passed explicitly.
 
 ## Choose effects and standard errors
