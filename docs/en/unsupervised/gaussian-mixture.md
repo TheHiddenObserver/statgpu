@@ -6,9 +6,11 @@
 
 ## Overview
 
-Suppose measurements from several operating regimes overlap: a reading near the boundary could plausibly come from either regime, and some regimes vary more widely or along different directions. One Gaussian distribution may smooth over those differences. A hard nearest-center label hides the ambiguity by assigning every reading to exactly one group.
+`GaussianMixture` models the distribution of numeric observations by combining several Gaussian distributions. Each component describes a center and a covariance structure, which controls its spread and correlations; a mixing weight sets its share of the combined density. The fitted model can evaluate density at new observations and express uncertain membership in its components.
 
-`GaussianMixture` describes data as a weighted mixture of Gaussian components, each with its own center and covariance structure. For each record, `predict_proba` gives probabilities of belonging to the fitted components: for example, 0.7 for component A and 0.3 for B. They sum to one for that record. These probabilities are called responsibilities, or soft memberships. They are conditional on the fitted model, not probabilities that a real operating state has been identified correctly.
+For each record, `predict_proba` gives probabilities of belonging to the fitted components: for example, 0.7 for component A and 0.3 for B. They sum to one for that record. These probabilities are called responsibilities, or soft memberships. They are conditional on the fitted model, not probabilities that a real-world category has been identified correctly.
+
+For example, measurements from several operating regimes might overlap and vary along different directions. One Gaussian distribution may smooth over those differences. A hard nearest-center label hides the ambiguity by assigning every reading to exactly one group; a mixture can retain that uncertainty without establishing that its components are actual operating regimes.
 
 The expectation-maximization (EM) algorithm alternates between calculating these probabilities and using them as weights to update the component distributions. The model can therefore describe data density and give model-based soft groups; see the [Gaussian mixture model guide](https://scikit-learn.org/stable/modules/mixture.html).
 

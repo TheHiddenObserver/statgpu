@@ -7,18 +7,25 @@
 
 ## Turn a curved predictor effect into reusable features
 
-Suppose you want to predict a response that bends as time changes. A spline
-basis first chooses joining locations, called knots, and constructs basis
-functions that act over overlapping intervals. Evaluating every basis function
-at each time point turns the original time column into several numeric columns:
-row i contains the basis values at observation i. A later regression learns
-weights for these columns and adds their contributions to form a curved
-prediction. The basis transform itself neither uses the response nor fits the
-response model. Use `SplineTransformer` when training
-and new observations must share the same knots and feature definition. Use
-[GAM](semiparametric.md) when you also want an additive least-squares model and
-automatic smoothing selection. More knots allow more detail, but do not by
-themselves control overfitting.
+Spline bases represent flexible functions by expanding numeric inputs into a
+matrix of basis values. Each row corresponds to an observation or evaluation
+point, and each column to a basis function. A later model can learn weights for
+these columns to form a fitted function. The basis transform itself neither
+uses a response nor fits a response model.
+
+For one-dimensional B-splines, joining locations called knots define overlapping
+intervals on which the basis functions act. `SplineTransformer` expands each
+input feature separately and saves the knots so that training and new
+observations share the same feature definition. Use [GAM](semiparametric.md)
+when you also want an additive least-squares model and automatic smoothing
+selection. More knots allow more detail, but do not themselves control
+overfitting.
+
+**Example: a response that curves over time.** If time is the input feature,
+evaluating the basis at each time point expands that column into several
+numeric columns. A later regression combines them into a curved response
+prediction. Time is one possible predictor; the same feature construction
+applies to other numeric predictors.
 
 A small arithmetic illustration uses two linear basis functions on $0\le t\le1$:
 $B_1(t)=1-t$ and $B_2(t)=t$. At $t=0.25$, evaluating both gives the matrix row

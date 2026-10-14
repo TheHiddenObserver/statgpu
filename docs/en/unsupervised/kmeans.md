@@ -6,9 +6,9 @@
 
 ## Overview
 
-Suppose you have temperature, pressure, and vibration measurements from machines, but no labels for their operating regimes. One overall average can hide several recurring patterns; separate thresholds on each measurement can miss combinations that distinguish those patterns. You want a small set of representative profiles and a way to assign each observation to one of them.
+`KMeans` groups numeric observations around a chosen number of representative centers. Every row is assigned to its nearest center, and each center is an average of the rows assigned to it. Fitting alternates these assignments and center updates to reduce the total squared distance to the assigned centers. A center need not be an observation that actually occurred.
 
-`KMeans` learns those profiles as cluster centers. It alternates between assigning each row to its nearest center and moving each center to the mean of its assigned rows. The result summarizes the data with a chosen number of prototypes. A center is an average profile, so it need not be an observation that actually occurred.
+For example, temperature, pressure, and vibration measurements from machines may have no labels for their operating regimes. One overall average can hide several recurring patterns; separate thresholds on each measurement can miss combinations that distinguish them. KMeans supplies a set of average profiles and a center assignment for each observation, which you can then inspect for useful differences.
 
 ## When to use it
 

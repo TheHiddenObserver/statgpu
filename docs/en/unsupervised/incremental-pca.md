@@ -6,11 +6,11 @@
 
 ## Overview
 
-Suppose each daily file contains machine records with 20 sensor readings per row. You want to compress each record to three numbers and compare records from different days using the same conversion rule. IncrementalPCA reads one batch at a time and updates the conversion weights and column means without rereading all historical records.
+IncrementalPCA compresses numeric observations into fewer coordinates, each formed by combining the features after subtracting their means. It learns the weights for these combinations in successive batches, aiming to retain as much of the observations' variation as possible. The coordinates can also reconstruct an approximation of each observation. As new batches arrive, it updates shared weights and running means without rereading all historical rows at every update.
 
-As in [PCA](pca.md), each output number is a weighted sum of the readings after subtracting their column means. For example, two centered readings `[2, -1]` with weights `[0.6, 0.8]` give the coordinate `2*0.6 - 1*0.8 = 0.4`. This illustrates the conversion, not a promised result of fitting a particular dataset. The retained sets of weights are called directions; together they form the basis used for reconstruction. With `whiten=True`, each coordinate is additionally divided by the fitted standard deviation, subject to a small variance floor.
+Each output coordinate is a weighted sum of the features after subtracting their column means. For example, two centered measurements `[2, -1]` with weights `[0.6, 0.8]` give the coordinate `2*0.6 - 1*0.8 = 0.4`. This illustrates the conversion, not a promised result of fitting a particular dataset. The retained sets of weights are called directions; together they form the basis used for reconstruction. With `whiten=True`, each coordinate is additionally divided by the fitted standard deviation, subject to a small variance floor.
 
-Repeating PCA on every file separately gives different directions and means, so coordinates from different days are not directly comparable. Rebuilding PCA from all accumulated rows avoids that mismatch, but requires revisiting the history whenever new rows arrive.
+For example, daily files might contain machine records with 20 sensor readings per row, to be compressed to three numbers. Repeating PCA on every file separately gives different directions and means, so coordinates from different days are not directly comparable. Rebuilding PCA from all accumulated rows avoids that mismatch, but requires revisiting the history whenever new rows arrive.
 
 IncrementalPCA carries forward a summary: the directions retained so far, their strengths, and running feature statistics. Each new batch is combined with that summary to update a shared basis. Correcting for the difference between the old and new means matters: a shift between batches is part of the variation in the combined data, not something to erase by centering each batch independently.
 

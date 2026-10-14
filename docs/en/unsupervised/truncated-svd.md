@@ -7,13 +7,11 @@
 
 ## Overview
 
-In a document-term matrix, rows describe documents and columns record term weights. You want fewer coordinates that summarize patterns of terms occurring together, while still approximating the original matrix. Selecting only a few common terms discards their joint structure; taking a row total reduces every document to one magnitude. Subtracting each term's mean would answer another question: how each document differs from an average document.
+TruncatedSVD approximates a numeric matrix using a chosen number of shared patterns, without first subtracting column means. Each pattern assigns a weight to every input feature. Each row gets coordinates that scale these patterns; adding the scaled patterns reconstructs an approximation of that row. The patterns and coordinates can contain positive or negative values.
 
-TruncatedSVD learns a few shared patterns, each assigning a weight to every term. A document is approximated by scaling these patterns by its own coordinates and adding them together, so each coordinate summarizes a combination of terms rather than a single word.
+The method keeps the strongest singular directions: directions that capture the most squared magnitude in the original matrix. Keeping a few gives a low-rank approximation and a shorter coordinate vector for each row. Because fitting is uncentered, a large pattern shared by most rows can dominate the result even if it explains little of the differences between rows. A component need not represent an independently meaningful source.
 
-It does not first subtract each term's average weight. If all documents use some of the same words heavily, the first component may mostly reflect that shared word use rather than differences between documents. A component need not correspond to a topic you can name or an independently meaningful source.
-
-Formally, the patterns are retained singular directions and give a low-rank approximation to the uncentered matrix. For document-term data, this is the basic idea of latent semantic analysis (LSA). The same operation applies to other numeric matrices; it does not require text or nonnegative values.
+For example, in a document-term matrix, rows describe documents and columns record term weights. Selecting only a few common terms discards their joint structure; taking a row total reduces every document to one magnitude. TruncatedSVD instead summarizes combinations of terms occurring together. It does not first subtract each term's average weight, so the first component may mostly reflect shared word use. A component need not correspond to a topic you can name. This text application is called latent semantic analysis (LSA); text and nonnegative values are not requirements of the method.
 
 ## When to use it
 

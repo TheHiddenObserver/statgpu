@@ -84,16 +84,19 @@ def test_core_math_precedes_complete_example_and_api_is_linked(lang, slug):
 
 
 @pytest.mark.parametrize('lang', ['en', 'cn'])
-def test_minibatch_tables_and_worked_reconstruction_precede_batch_learning(lang):
+def test_minibatch_general_tables_precede_batch_learning_and_keep_worked_example(lang):
     text = page(lang, 'minibatch-nmf')
     intro = overview(text)
     worked = intro.index('<!-- worked-example: nonnegative-spectra -->')
-    # Concrete table meanings and multiplication precede the streaming update.
+    # General table meanings and reconstruction precede the streaming update;
+    # an application example must not be a prerequisite for that definition.
     # Arithmetic, shapes, scale ambiguity, and stale coefficients are exercised
     # in test_plain_language_unsupervised_examples, not inferred from word order.
-    assert all(shape in intro[:worked] for shape in ('(n, p)', '(k, p)', '(n, k)'))
-    assert worked < intro.index('`partial_fit`')
-    assert intro.index('`H`') < worked and intro.index('`W`') < worked
+    batch_update = intro.index('`partial_fit`')
+    assert all(shape in intro[:batch_update] for shape in ('(n, p)', '(k, p)', '(n, k)'))
+    assert intro.index('`W @ H`') < batch_update
+    assert intro.index('`H`') < batch_update and intro.index('`W`') < batch_update
+    assert batch_update < worked
     assert intro.index('2*A + 0.5*B') < intro.index('dictionary' if lang == 'en' else '字典')
     assert ('compact statistics' if lang == 'en' else '紧凑统计量') not in intro
 
@@ -106,6 +109,6 @@ def test_linear_representations_explain_conversion_before_naming_directions(lang
     assert ipca.index('2*0.6 - 1*0.8 = 0.4') < ipca.index(
         'called directions' if lang == 'en' else '称为一个方向')
     if lang == 'en':
-        assert svd.index('scaling these patterns') < svd.index('singular directions')
+        assert svd.index('scale these patterns') < svd.index('singular directions')
     else:
         assert svd.index('相加') < svd.index('奇异方向')

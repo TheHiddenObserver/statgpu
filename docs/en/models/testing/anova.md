@@ -9,11 +9,18 @@
 
 ## What question does ANOVA answer?
 
-Suppose you measure a continuous outcome under several treatments. Their sample
-means will differ even when their population means are equal. Analysis of
-variance (ANOVA) separates systematic differences associated with a grouping or
-factorial model from the variation left unexplained by that model. It asks
-whether the observed differences are large relative to that background noise.
+Analysis of variance (ANOVA) studies how the mean of a numerical response
+varies across groups or combinations of factor levels. It uses the response
+observations and their grouping or factorial design to separate variation
+associated with the model from variation left unexplained. The resulting F
+statistics and p-values test specified hypotheses about means or factor effects,
+under the assumptions of the chosen analysis.
+
+For example, several treatments may produce different sample mean responses
+even when their population means are equal. ANOVA asks whether those differences
+are large relative to the background variation. Treatment groups are one
+application; groups can also represent observed categories, with causal
+interpretation depending on the study design.
 
 For one factor with $k$ levels, the omnibus null hypothesis is
 

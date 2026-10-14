@@ -10,7 +10,7 @@
 
 Use `RandomEffects` for a one-way random-intercept panel model when both within-entity changes and between-entity differences should contribute to the common slope. For example, it can combine changes within a firm with comparisons across firms, while accounting for their different baseline levels.
 
-First separate what the regressors do not explain into two parts: a persistent deviation $a_i$ shared by all observations of a firm, and an observation-specific error $\varepsilon_{it}$. The latter is also called the idiosyncratic error. The regressor history means that firm's predictor values across all its periods, not an extra input array.
+First separate what the regressors do not explain into two parts: a persistent deviation $a_i$ shared by all observations of an entity, and an observation-specific error $\varepsilon_{it}$. The latter is also called the idiosyncratic error. The regressor history means that entity's predictor values across all its periods, not an extra input array.
 
 The key assumption is stronger than for fixed effects: given this entire regressor history, the random effect $a_i$ must have conditional mean zero. For example, the assumption can fail if firms with persistently higher inputs also have persistently higher, unrecorded management ability. Given both that history and $a_i$, each $\varepsilon_{it}$ must also have conditional mean zero. The classical error-components structure further assumes constant component variances, serially uncorrelated idiosyncratic errors, and orthogonality between the two error components. The precise conditions appear below.
 

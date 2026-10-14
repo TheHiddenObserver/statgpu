@@ -6,9 +6,15 @@
 
 ## Overview
 
-Suppose you measure 60 samples at the same five wavelengths. The nonnegative data table `X` has shape `(60, 5)`: one row per sample and one column per wavelength. Instead of assigning each sample to one type, you want to approximate its five intensities using two basic spectra, A and B.
+MiniBatchNMF approximates a nonnegative data table using a chosen number of shared basic patterns. Each row of the input is a sample and each column is a feature. It learns two nonnegative tables: `H` contains one basic pattern per row, with a value for every feature; `W` contains one row per sample, giving the coefficient that multiplies each pattern. Multiplying each pattern by its sample-specific coefficient and adding the results reconstructs that sample approximately. In matrix form, `X` is approximated by `W @ H`.
 
-Like NMF, MiniBatchNMF learns two tables. `H`, with shape `(2, 5)`, stores A and B as its two rows. `W`, with shape `(60, 2)`, stores each sample's two nonnegative coefficients: how much to multiply A and B by before adding them. More generally, for `n` samples, `p` measurements, and `k` basic spectra, `X` is `(n, p)`, `H` is `(k, p)`, and `W` is `(n, k)`.
+For `n` samples, `p` features, and `k` patterns, `X` is `(n, p)`, `H` is `(k, p)`, and `W` is `(n, k)`. Both learned tables contain only zero or positive values: contributions add without positive and negative cancellation. The coefficients need not sum to one. These patterns need not be actual physical parts, and the decomposition need not be unique.
+
+MiniBatchNMF learns the shared patterns from batches rather than updating from all observations together as in [NMF](nmf.md). With `partial_fit`, it estimates the current batch's coefficients, accumulates summary statistics, and updates the patterns without rereading all historical samples. In contrast, `fit` keeps the patterns fixed throughout one full pass over its input batches and updates them after that pass. Earlier coefficients are not updated automatically when the patterns change; after training, call `transform` again on samples you want to compare using the final patterns.
+
+### Example: two basic spectra
+
+Suppose you measure 60 samples at the same five wavelengths. Here `X` has shape `(60, 5)`, and the basic patterns are spectra. Instead of assigning each sample to one type, approximate its five intensities using two basic spectra, A and B. `H` has shape `(2, 5)` and stores A and B as its rows; `W` has shape `(60, 2)` and stores each sample's two coefficients.
 
 For example, let A be `[1, 0, 2, 0, 1]` and B be `[0, 2, 0, 2, 1]`. A sample with coefficients `[2, 0.5]` is approximated by `2*A + 0.5*B = [2, 1, 4, 1, 2.5]`. Compare those five reconstructed intensities with its five measured intensities to judge the approximation. These illustrative values show the multiplication; they are not a promised fitted result.
 
@@ -22,11 +28,11 @@ x_hat = w @ H
 print(x_hat)  # [2.  1.  4.  1.  2.5]
 ```
 
-The coefficients are multipliers, not the number of basic spectra or probabilities. Here `n_components=2` sets the number of basic spectra; this sample gives them coefficients 2 and 0.5, which need not sum to one. Both tables are learned from data and contain only zero or positive values, so reconstruction adds contributions without positive and negative cancellation. The learned basic spectra need not be actual pure substances, and the decomposition need not be unique. The table of basic spectra is also called a dictionary; its per-sample coefficients are called activations.
+The coefficients are multipliers, not the number of basic spectra or probabilities. Here `n_components=2` sets the number of basic spectra; this sample gives them coefficients 2 and 0.5, which need not sum to one. The learned basic spectra need not be actual pure substances. In general, the table of basic patterns is also called a dictionary, and the sample coefficients are called activations.
 
-With `partial_fit`, each incoming batch contains new samples measured at the same five wavelengths. MiniBatchNMF first estimates their coefficients using the current A and B, adds this batch's calculations to accumulated statistics, and then updates the basic spectra. This avoids rereading every historical sample on every call. In contrast, `fit` keeps the basic spectra fixed throughout one full pass over its input batches and updates them after that pass.
+In this example, each incoming batch contains new samples measured at the same five wavelengths. Updating the shared patterns means updating the current A and B.
 
-Because A and B change, yesterday's “2 times A” can mean different intensities from today's “2 times A”. For example, if A doubles while the sample stays the same, its matching coefficient must halve. After training, call `transform` again on all samples you want to compare, using the final basic spectra. Earlier coefficients are not updated automatically.
+Because A and B change, yesterday's “2 times A” can mean different intensities from today's “2 times A”. For example, if A doubles while the sample stays the same, its matching coefficient must halve. This is why samples being compared must use coefficients computed with the same final basic spectra.
 
 ## When to use it
 
@@ -66,7 +72,7 @@ $$
 
 ## Parameters
 
-- `n_components`: number of basic spectra (the reconstruction has rank at most this number); `None` uses `min(n_samples, n_features)`.
+- `n_components`: number of basic patterns (the reconstruction has rank at most this number); `None` uses `min(n_samples, n_features)`.
 - `init`: currently supports `"random"`.
 - `batch_size`, `max_iter`, `tol`, `random_state`.
 - `device`: `"auto"`, `"cpu"`, `"cuda"`, or `"torch"`.
@@ -90,7 +96,7 @@ X_hat = model.inverse_transform(W)
 print(W.shape, model.components_.shape, np.linalg.norm(X - X_hat))
 ```
 
-`components_[0]` and `components_[1]` are the two learned basic spectra A and B, each containing five intensities. `W[i]` contains sample `i`'s two coefficients. Thus `W` is `(60, 2)`, `components_` is `(2, 5)`, and `W @ model.components_` reconstructs all 60 samples as a `(60, 5)` table. The rows of `W` follow the original order of `X`, including the earlier batches, and all use the final basic spectra. After `partial_fit`, `reconstruction_err_` describes only that batch with the fitting factors; the independently computed full-data residual above answers a different question.
+Continuing the spectrum example, `components_[0]` and `components_[1]` are the two learned basic spectra A and B, each containing five intensities. `W[i]` contains sample `i`'s two coefficients. Thus `W` is `(60, 2)`, `components_` is `(2, 5)`, and `W @ model.components_` reconstructs all 60 samples as a `(60, 5)` table. The rows of `W` follow the original order of `X`, including the earlier batches, and all use the final basic spectra. After `partial_fit`, `reconstruction_err_` describes only that batch with the fitting factors; the independently computed full-data residual above answers a different question.
 
 For a supported GPU installation, construct a new estimator with `device="cuda"` (CuPy) or `device="torch"` (Torch CUDA). Arrays generally stay on that backend; see the [API reference](api-reference.md#minibatchnmf) for output ownership and host-side work. An unavailable explicit GPU raises an error.
 

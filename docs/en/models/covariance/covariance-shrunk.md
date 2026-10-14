@@ -6,8 +6,14 @@
 
 ## Why can an estimated inverse be unreliable?
 
-Two almost identical measurements contain little information about their
-difference. Empirical covariance then has a very small eigenvalue in that
+Fixed covariance shrinkage estimates joint variation from a matrix of
+observations, with rows as samples and columns as variables. It blends the
+empirical covariance with a scaled identity matrix to trade some sample detail
+for stability. The output is a regularized covariance estimate that can be used
+for multivariate distances or downstream models; no response variable is needed.
+
+For example, two almost identical measurements contain little information about
+their difference. Empirical covariance then has a very small eigenvalue in that
 direction. Inverting the matrix magnifies small estimation errors, so distances
 or downstream calculations can become unstable.
 

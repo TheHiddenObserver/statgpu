@@ -8,7 +8,14 @@
 
 ## Two factors ask three different questions
 
-Suppose you measure plant growth under two fertilizers and three watering
+Two-way ANOVA studies a numerical response classified by two factors. Its
+inputs are response samples for the factor-level combinations; it tests each
+factor's main effect and, when included, their interaction. The output contains
+an F statistic and p-value for each tested effect, with degrees of freedom and
+effect-size summaries. The balanced implementation here requires equal sample
+counts in every combination.
+
+For example, suppose you measure plant growth under two fertilizers and three watering
 schedules. Every fertilizer is used at every watering level, giving six
 combinations, or **cells**. With independent plants in each cell, two-way ANOVA
 can separate three questions:

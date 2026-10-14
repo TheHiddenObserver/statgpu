@@ -6,9 +6,11 @@
 
 ## Overview
 
-Imagine a point cloud with two densely sampled curved bands and scattered observations between them. You want to recover the bands without deciding their number beforehand or forcing the scattered points into a group. A nearest-center partition can split a curved band and absorb isolated points, because every row must belong to one of its centers.
+DBSCAN groups observations by connecting neighborhoods that contain enough nearby points. It extends these dense groups to adjacent border points and leaves other observations unassigned as noise. The neighborhood radius and minimum count define what counts as dense; you do not specify a cluster count.
 
-`DBSCAN` instead looks for neighborhoods with enough observations to sustain a cluster. It connects nearby dense neighborhoods and extends each group to adjacent border points, leaving the rest unassigned. This makes local density connectivity, rather than distance to a single representative center, the organizing idea. The original [DBSCAN paper](https://aaai.org/papers/kdd96-037-a-density-based-algorithm-for-discovering-clusters-in-large-spatial-databases-with-noise/) motivates this approach for irregularly shaped clusters with noise.
+For example, imagine a point cloud with two densely sampled curved bands and scattered observations between them. You want to recover the bands without deciding their number beforehand or forcing the scattered points into a group. A nearest-center partition can split a curved band and absorb isolated points, because every row must belong to one of its centers.
+
+Local density connectivity, rather than distance to a single representative center, is the organizing idea. The original [DBSCAN paper](https://aaai.org/papers/kdd96-037-a-density-based-algorithm-for-discovering-clusters-in-large-spatial-databases-with-noise/) motivates this approach for irregularly shaped clusters with noise.
 
 ## When to use it
 

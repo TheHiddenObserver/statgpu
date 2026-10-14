@@ -7,7 +7,9 @@
 
 ## Overview
 
-Suppose each image in a collection is described by hundreds of numeric features, and you want to inspect which images have similar feature profiles without predefined categories. A scatter plot of two columns discards the other features. t-SNE aims to place the images on a two-dimensional map so that observations close in the original feature space remain neighbors on the map.
+t-SNE places numeric observations in a low-dimensional map, usually with two or three coordinates per row, to explore local similarities. It aims to keep important neighbors close rather than preserve all pairwise distances or reconstruct the original measurements.
+
+For example, suppose each image in a collection is described by hundreds of numeric features, and you want to inspect which images have similar feature profiles without predefined categories. A scatter plot of two columns discards the other features. t-SNE aims to place the images on a two-dimensional map so that observations close in the original feature space remain neighbors on the map.
 
 To do this, t-SNE converts distances into neighbor affinities: weights that express how close observations are, with larger weights for nearer neighbors. Each observation gets its own neighborhood scale. The map then moves points to reproduce those affinities, giving priority to keeping strongly related observations close rather than preserving every distance. The resulting coordinates are an embedding, a low-dimensional representation with one point per observation. statgpu implements exact dense Euclidean t-SNE; the features and their scaling must therefore make Euclidean proximity meaningful for your question.
 

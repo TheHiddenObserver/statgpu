@@ -1,12 +1,14 @@
 # PCA
 
 > Language: English
-> Last updated: 2026-10-13
+> Last updated: 2026-10-14
 > Switch: [Chinese](../../cn/unsupervised/pca.md)
 
 ## Overview
 
-A sensor panel may record many measurements of the same process, with several readings rising and falling together. You want a compact description of how observations differ, without choosing one sensor as the outcome. Keeping every column preserves redundant information. Dropping correlated columns by hand can discard useful contrasts, while averaging them into one number presumes that there is only one pattern worth keeping.
+PCA summarizes numeric features with fewer coordinates while retaining as much variation around their means as possible. It learns combinations of features rather than choosing individual columns or requiring a target outcome. The reduced coordinates can be used to reconstruct an approximation in the original feature space.
+
+For example, a sensor panel may record many measurements of the same process, with several readings rising and falling together. You want a compact description of how observations differ, without choosing one sensor as the outcome. Keeping every column preserves redundant information. Dropping correlated columns by hand can discard useful contrasts, while averaging them into one number presumes that there is only one pattern worth keeping.
 
 PCA learns weighted combinations of the features. Imagine a cloud of observations stretched along a diagonal: measuring along that diagonal describes its main spread more directly than keeping either original axis. PCA first moves the origin to the feature means, then finds perpendicular directions that successively capture the most remaining variance. Retaining a few of these directions gives both a shorter coordinate vector and an approximation in the original feature space.
 

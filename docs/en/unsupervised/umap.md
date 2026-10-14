@@ -7,9 +7,11 @@
 
 ## Overview
 
-Suppose a machine is measured by dozens of sensors under different operating conditions. You want to inspect which observations have similar sensor profiles and whether nearby profiles form a gradual progression. Plotting two sensors hides the others. UMAP builds a low-dimensional map from nearby observations across the supplied features, so you can explore these relationships in one picture. For statgpu UMAP, Euclidean distance between the prepared sensor profiles must reflect the similarity you care about.
+UMAP creates a low-dimensional representation of numeric observations from their neighborhood relationships. It connects nearby observations in a weighted graph, then arranges a point for each observation in a smaller coordinate space. This gives a map to explore, rather than a reconstruction of the input features or a set of cluster labels.
 
-UMAP first builds a neighbor graph: each observation is a point in the graph, and an edge connects it to a selected nearby observation. Each edge has a weight describing the strength of that connection. It then arranges points on the map using attraction along graph edges, scaled by their weights, and repulsion between sampled pairs of points, so the layout can spread out while keeping strong connections close. The resulting coordinates are an embedding, a low-dimensional representation with one point per observation. The aim is a useful view of neighborhood relationships; the axes do not correspond to particular sensors. statgpu supports dense Euclidean input.
+For example, suppose a machine is measured by dozens of sensors under different operating conditions. You want to inspect which observations have similar sensor profiles and whether nearby profiles form a gradual progression. Plotting two sensors hides the others. UMAP builds a low-dimensional map from nearby observations across the supplied features, so you can explore these relationships in one picture. For statgpu UMAP, Euclidean distance between the prepared sensor profiles must reflect the similarity you care about.
+
+UMAP first builds a neighbor graph: each observation is a point in the graph, and an edge connects it to a selected nearby observation. Each edge has a weight describing the strength of that connection. It then arranges points on the map using attraction along graph edges, scaled by their weights, and repulsion between sampled pairs of points, so the layout can spread out while keeping strong connections close. The resulting coordinates are an embedding, a low-dimensional representation with one point per observation. The aim is a useful view of neighborhood relationships; the axes do not correspond to particular input features. statgpu supports dense Euclidean input.
 
 ## When to use it
 

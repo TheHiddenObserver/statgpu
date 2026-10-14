@@ -8,8 +8,11 @@
 
 ## Compare means without pooling group variances
 
-Suppose independent treatment groups have different levels of variability,
-perhaps with different sample sizes as well. `f_welch` tests the global null
+Welch one-way ANOVA compares the means of a numerical response across
+independent groups without assuming equal population variances. The input is
+one response sample per group, and the output includes an F statistic, its
+approximate degrees of freedom, and a p-value. Group sizes may differ.
+`f_welch` tests the global null
 
 $$H_0:\mu_1=\mu_2=\cdots=\mu_k$$
 
