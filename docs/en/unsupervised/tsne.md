@@ -1,21 +1,21 @@
 # TSNE
 
 > Language: English
-> Last updated: 2026-10-13
+> Last updated: 2026-10-14
 > Switch: [Chinese](../../cn/unsupervised/tsne.md)
 > Path: `statgpu.unsupervised.TSNE`
 
 ## Overview
 
-Suppose each image in a collection is described by hundreds of numeric features, and you want to inspect which images have similar feature profiles without predefined categories. A scatter plot of two columns discards the other features. The first two [PCA](pca.md) components summarize large directions of variation, but their linear projection can overlap neighborhoods that lie on a curved structure. The question for t-SNE is more local: can observations that are similar in the supplied feature space remain close on a two-dimensional map?
+Suppose each image in a collection is described by hundreds of numeric features, and you want to inspect which images have similar feature profiles without predefined categories. A scatter plot of two columns discards the other features. t-SNE aims to place the images on a two-dimensional map so that observations close in the original feature space remain neighbors on the map.
 
-Instead of trying to preserve every distance, t-SNE converts distances into neighbor affinities and tries to reproduce those affinities in the map. Each observation gets its own neighborhood scale. The low-dimensional Student-t affinities have heavier tails than the high-dimensional Gaussian affinities, allowing dissimilar observations more room to spread out and reducing crowding. This is the intuition behind the [original t-SNE method](https://jmlr.org/papers/v9/vandermaaten08a.html). statgpu implements exact dense Euclidean t-SNE; the features and their scaling must therefore make Euclidean proximity meaningful for your question.
+To do this, t-SNE converts distances into neighbor affinities: weights that express how close observations are, with larger weights for nearer neighbors. Each observation gets its own neighborhood scale. The map then moves points to reproduce those affinities, giving priority to keeping strongly related observations close rather than preserving every distance. The resulting coordinates are an embedding, a low-dimensional representation with one point per observation. statgpu implements exact dense Euclidean t-SNE; the features and their scaling must therefore make Euclidean proximity meaningful for your question.
 
 ## When to use it
 
 Use t-SNE when inspecting local similarities in a fixed set of observations is the goal, for example to review representative images from nearby points or investigate why an observation sits apart.
 
-- Start with a raw-feature plot or PCA when a few measured variables or a linear summary already answer the question. Prefer PCA when you need explained variance, reconstruction, or a fitted map that can transform later observations.
+- Start with a raw-feature plot or [PCA](pca.md) when a few measured variables or a linear summary already answer the question. PCA summarizes large directions of variation with a linear projection, which can overlap neighborhoods on a curved structure; t-SNE instead focuses on local affinities. Prefer PCA when you need explained variance, reconstruction, or a fitted map that can transform later observations.
 - Compare [UMAP](umap.md) when you want to explore a selected-neighbor graph and vary its neighborhood size separately from its layout controls. t-SNE instead matches pairwise affinities, with `perplexity` setting an effective neighborhood scale. Neither statgpu implementation supports new-data `transform`.
 - If you need cluster assignments, specify and validate a clustering method separately. A t-SNE island does not establish a distinct population or choose the number of clusters for you.
 
@@ -61,7 +61,7 @@ q_{ij} =
 {\sum_{a \ne b}(1+\|y_a-y_b\|_2^2)^{-1}}.
 $$
 
-Set $q_{ii}=0$. Both joint affinity matrices sum to one across distinct ordered pairs when the bandwidth search succeeds. The embedding is optimized with early exaggeration, momentum, and adaptive per-coordinate gains.
+Set $q_{ii}=0$. Both joint affinity matrices sum to one across distinct ordered pairs when the bandwidth search succeeds. The map affinities use a Student-t distribution with one degree of freedom. Its heavier tails, compared with the input-space Gaussian affinities, let moderately separated map points retain more affinity. This helps reduce crowding, the difficulty of fitting many high-dimensional neighbors into a small low-dimensional region, as described in the [original t-SNE method](https://jmlr.org/papers/v9/vandermaaten08a.html). The embedding is optimized with early exaggeration, momentum, and adaptive per-coordinate gains.
 
 Perplexity is an effective neighborhood size, not a literal number of selected neighbors. A distribution over `n-1` other observations has perplexity between 1 and `n-1`; tied nearest neighbors can impose a larger lower limit. The API range check only requires `0 < perplexity < n`, so an accepted setting need not be attainable. Prefer a value comfortably inside the feasible range and below the sample count; duplicate observations and failed numerical calibration can prevent the target from being reached. Compare settings within the same dataset rather than comparing KL values computed from different target affinities.
 

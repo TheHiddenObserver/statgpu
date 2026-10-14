@@ -1,21 +1,21 @@
 # UMAP
 
 > Language: English
-> Last updated: 2026-10-13
+> Last updated: 2026-10-14
 > Switch: [Chinese](../../cn/unsupervised/umap.md)
 > Path: `statgpu.unsupervised.UMAP`
 
 ## Overview
 
-Suppose a machine is measured by dozens of sensors under different operating conditions. You want to inspect which observations have similar sensor profiles and whether nearby profiles form a gradual progression. Plotting two sensors hides the others; even the first two [PCA](pca.md) components can overlap parts of a curved pattern because they use a single linear projection. A neighborhood map offers another way to explore those relationships, provided Euclidean distance between the prepared sensor profiles reflects the similarity you care about.
+Suppose a machine is measured by dozens of sensors under different operating conditions. You want to inspect which observations have similar sensor profiles and whether nearby profiles form a gradual progression. Plotting two sensors hides the others. UMAP builds a low-dimensional map from nearby observations across the supplied features, so you can explore these relationships in one picture. For statgpu UMAP, Euclidean distance between the prepared sensor profiles must reflect the similarity you care about.
 
-UMAP starts from connections: each observation is linked to selected nearby observations, with weights describing the strength of those connections. It then arranges the observations in a low-dimensional space using attraction along graph edges and sampled repulsion. The aim is a useful view of neighborhood relationships, not axes that correspond to particular sensors. statgpu supports dense Euclidean data, exact neighbors, and an internal NNDescent search option.
+UMAP first builds a neighbor graph: each observation is a point in the graph, and an edge connects it to a selected nearby observation. Each edge has a weight describing the strength of that connection. It then arranges points on the map using attraction along graph edges, scaled by their weights, and repulsion between sampled pairs of points, so the layout can spread out while keeping strong connections close. The resulting coordinates are an embedding, a low-dimensional representation with one point per observation. The aim is a useful view of neighborhood relationships; the axes do not correspond to particular sensors. statgpu supports dense Euclidean input.
 
 ## When to use it
 
 Use UMAP to explore how an observation's neighborhood changes as you include fewer or more neighbors. In the sensor example, points along an apparent progression are candidates to inspect in the measured variables; the picture alone cannot establish time order or a physical mechanism.
 
-- Use a raw-feature plot or PCA when measured axes or a linear variance summary are enough. PCA also provides reconstruction and a reusable `transform`; statgpu UMAP embeds only the fitted observations.
+- Use a raw-feature plot or [PCA](pca.md) when measured axes or a linear variance summary are enough. PCA uses a single linear projection, which can overlap parts of a curved pattern; UMAP instead builds its layout from neighbor connections. PCA also provides reconstruction and a reusable `transform`; statgpu UMAP embeds only the fitted observations.
 - Compare [t-SNE](tsne.md) when the emphasis is matching local pairwise affinities. UMAP exposes a neighbor-count choice for graph construction and separate layout controls through `min_dist` and `spread`. These are different ways to explore local structure, not a guarantee that either map preserves all global distances.
 - Do not select this implementation solely from speed or feature claims about umap-learn: statgpu uses dense exact search by default, and its graph weights and force updates differ. Matching parameter values does not imply equivalent embeddings; see the [advanced equations](#advanced-graph-and-layout-equations).
 
@@ -62,7 +62,7 @@ For a supported GPU installation, construct a new estimator with `device="cuda"`
 - `n_components` controls output dimensions; use at least two on CPU. `metric` currently supports Euclidean distance only.
 - `init="random"` with `random_state` provides seeded initialization; the spectral path has the limitation below.
 - `n_epochs` and `learning_rate` control optimization; `negative_sample_rate` and `repulsion_strength` control sampled repulsion. Supply finite numeric controls.
-- `nn_method="auto"` selects exact search. `nn_method="nndescent"` requests approximate neighbors but currently fails on CPU with NumPy 2. `device` selects the numerical backend; GPU fits still need host memory.
+- `nn_method="auto"` selects exact search. `nn_method="nndescent"` requests the internal NNDescent approximate-neighbor search but currently fails on CPU with NumPy 2. `device` selects the numerical backend; GPU fits still need host memory.
 
 All constructor defaults and approximate-search controls are in the [API reference](api-reference.md#umap).
 

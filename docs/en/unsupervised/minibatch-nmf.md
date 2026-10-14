@@ -1,14 +1,16 @@
 # MiniBatchNMF
 
 > Language: English
-> Last updated: 2026-10-13
+> Last updated: 2026-10-14
 > Switch: [Chinese](../../cn/unsupervised/minibatch-nmf.md)
 
 ## Overview
 
-As a collection of nonnegative spectra grows in batches, the goal is often to use the same recurring patterns to describe both earlier and later observations. Fitting a separate NMF to every batch yields unrelated dictionaries: even similarly shaped patterns may appear in a different order or at a different scale. Repeatedly refitting the entire collection instead revisits all historical rows and their activation coefficients.
+For measured spectra, each observation records nonnegative intensities across wavelengths. A useful description is to add together a few recurring nonnegative patterns, using different amounts of each pattern for each observation. The shared patterns form a dictionary; the per-observation amounts are activation coefficients, also kept nonnegative.
 
-MiniBatchNMF learns a shared nonnegative dictionary while handling activation coefficients a batch at a time. Each batch contributes a compact summary of how its estimated activations relate to the observations; those summaries guide dictionary updates. The additive interpretation is the same as in NMF, while the fitting route avoids treating all row activations as one jointly updated matrix.
+As the collection grows in batches, the goal is to use the same patterns to describe both earlier and later observations. Fitting a separate NMF to every batch yields unrelated dictionaries: even similarly shaped patterns may appear in a different order or at a different scale. Repeatedly refitting the entire collection instead revisits all historical rows and their activation coefficients.
+
+MiniBatchNMF learns a shared nonnegative dictionary while handling activation coefficients a batch at a time. The additive interpretation is the same as in NMF, while the fitting route avoids treating all row activations as one jointly updated matrix.
 
 The dictionary can change as learning proceeds. A coefficient computed before an update refers to the dictionary at that time, so it should not be mixed with coefficients from a later dictionary as though their meanings were fixed. Nonnegative patterns remain a descriptive approximation, not identified physical sources or probabilities.
 
@@ -37,6 +39,8 @@ $$
 
 <a id="estimating-equation"></a>
 ## Fitting steps and update formulas
+
+Each batch contributes a compact summary of how its estimated activations relate to the observations; those summaries guide dictionary updates.
 
 For each batch, `MiniBatchNMF` approximately solves activations `W_batch` with fixed `H`. In `fit`, it holds `H` fixed for a whole epoch, sums `A = sum(W_batch.T @ W_batch)` and `B = sum(W_batch.T @ X_batch)`, then updates `H`. In `partial_fit`, these statistics accumulate across calls. The elementary multiplicative updates have the form:
 

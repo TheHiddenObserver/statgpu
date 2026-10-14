@@ -1,7 +1,7 @@
 # TruncatedSVD
 
 > Language: English
-> Last updated: 2026-10-13
+> Last updated: 2026-10-14
 > Switch: [Chinese](../../cn/unsupervised/truncated-svd.md)
 > Path: `statgpu.unsupervised.TruncatedSVD`
 
@@ -9,7 +9,7 @@
 
 In a document-term matrix, rows describe documents and columns record term weights. You want fewer coordinates that summarize patterns of terms occurring together, while still approximating the original matrix. Selecting only a few common terms discards their joint structure; taking a row total reduces every document to one magnitude. Subtracting each term's mean would answer another question: how each document differs from an average document.
 
-TruncatedSVD keeps a few singular directions of the matrix as it stands, without subtracting feature means. Each row is represented by its coordinates along those directions, and the retained coordinates reconstruct a low-rank approximation. Applied to a document-term matrix, this is the basic idea of latent semantic analysis (LSA). The same uncentered approximation applies to other numeric matrices; it does not require text or nonnegative values.
+TruncatedSVD learns a few shared patterns, each assigning a weight to every term. A document is approximated by scaling these patterns by its own coordinates and adding them together, so each coordinate summarizes a combination of terms rather than a single word. These patterns are the matrix's retained singular directions; they provide a low-rank approximation without subtracting feature means. Applied to a document-term matrix, this is the basic idea of latent semantic analysis (LSA). The same uncentered approximation applies to other numeric matrices; it does not require text or nonnegative values.
 
 The choice to retain the origin is substantive. A large common level may dominate the first direction even if it explains little of the differences around the mean. A singular direction is also not automatically a named topic or an independently meaningful source.
 

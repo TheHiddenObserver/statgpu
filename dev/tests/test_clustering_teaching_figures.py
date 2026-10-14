@@ -27,7 +27,13 @@ def test_bilingual_images_exist_have_alt_and_precede_example(lang, page, asset):
     pattern = r'!\[([^\]]+)\]\((../../assets/unsupervised/' + asset + '-' + lang + r'\.svg)\)'
     match = re.search(pattern, text)
     assert match and len(match.group(1)) >= 30
-    assert text.index('$$') < match.start() < text.index(f'<!-- learner-example: {page} -->')
+    example = text.index(f'<!-- learner-example: {page} -->')
+    if page == 'agglomerative-clustering':
+        # The tree is an intuition aid; its technical height caption comes
+        # after the linkage definitions (protected by opening-order tests).
+        assert match.start() < text.index('$$') < example
+    else:
+        assert text.index('$$') < match.start() < example
     path = ROOT / f'docs/assets/unsupervised/{asset}-{lang}.svg'
     svg = ET.parse(path).getroot()
     assert svg.tag.endswith('svg')

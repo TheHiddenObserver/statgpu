@@ -1,12 +1,12 @@
 # NMF
 
 > Language: English
-> Last updated: 2026-10-13
+> Last updated: 2026-10-14
 > Switch: [Chinese](../../cn/unsupervised/nmf.md)
 
 ## Overview
 
-For a collection of measured spectra, each row contains nonnegative intensities across wavelengths. You want to describe observations using a few recurring spectral patterns and how strongly each pattern contributes. Averaging all spectra gives only one pattern; assigning each observation to one cluster cannot express a mixture of several patterns. PCA can compress the data, but its signed directions can reconstruct observations by cancellation, which is awkward when the intended explanation is additive.
+For a collection of measured spectra, each row contains nonnegative intensities across wavelengths. You want to describe observations using a few recurring spectral patterns and how strongly each pattern contributes. Averaging all spectra gives only one pattern; assigning each observation to one cluster cannot express a mixture of several patterns.
 
 NMF seeks nonnegative building blocks and nonnegative weights. Each observation is approximated by adding scaled copies of the learned patterns: one factor describes the patterns across features, and the other describes their contributions to each row. This is why nonnegativity can make a decomposition easier to inspect when additive structure is plausible.
 
@@ -14,7 +14,7 @@ An additive representation is still a modeling choice. It does not establish tha
 
 ## When to use it
 
-Use NMF for dense nonnegative measurements when sums of patterns are a useful explanation. Do not mean-center the input; if signed departures from a baseline are the object of interest, [PCA](pca.md) may be more appropriate. [TruncatedSVD](truncated-svd.md) also approximates an uncentered matrix, but permits cancellation through signed factors. Consider [MiniBatchNMF](minibatch-nmf.md) when a shared dictionary must be learned in batches.
+Use NMF for dense nonnegative measurements when sums of patterns are a useful explanation. PCA can compress the data, but its signed directions can reconstruct observations by cancellation, which is awkward when the intended explanation is additive. Do not mean-center the input; if signed departures from a baseline are the object of interest, [PCA](pca.md) may be more appropriate. [TruncatedSVD](truncated-svd.md) also approximates an uncentered matrix, but permits cancellation through signed factors. Consider [MiniBatchNMF](minibatch-nmf.md) when a shared dictionary must be learned in batches.
 
 Choose rank using reconstruction on representative held-out observations and whether patterns remain useful across initializations. Feature units determine the weights in the squared-error objective: nonnegative counts or intensities are eligible inputs, but nonnegativity by itself does not establish that Frobenius loss suits the application. Factors have scale and permutation ambiguities, so compare matched patterns and reconstructions rather than raw coefficients alone.
 

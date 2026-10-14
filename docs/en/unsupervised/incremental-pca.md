@@ -1,12 +1,14 @@
 # IncrementalPCA
 
 > Language: English
-> Last updated: 2026-10-13
+> Last updated: 2026-10-14
 > Switch: [Chinese](../../cn/unsupervised/incremental-pca.md)
 
 ## Overview
 
-Daily measurement files raise a practical question: how can all observations share one compact coordinate system as the collection grows? Repeating PCA on every file separately gives different directions and means, so coordinates from different days are not directly comparable. Rebuilding PCA from all accumulated rows avoids that mismatch, but requires revisiting the history whenever new rows arrive.
+Daily measurement files raise a practical question: how can all observations share one compact coordinate system as the collection grows? The aim is to describe each observation with a few numbers instead of all its measured features. Each number combines the features' differences from their means using shared weights; those weights define a direction, and the retained directions together form a basis for approximating the observations.
+
+Repeating PCA on every file separately gives different directions and means, so coordinates from different days are not directly comparable. Rebuilding PCA from all accumulated rows avoids that mismatch, but requires revisiting the history whenever new rows arrive.
 
 IncrementalPCA carries forward a summary: the directions retained so far, their strengths, and running feature statistics. Each new batch is combined with that summary to update a shared basis. Correcting for the difference between the old and new means matters: a shift between batches is part of the variation in the combined data, not something to erase by centering each batch independently.
 
