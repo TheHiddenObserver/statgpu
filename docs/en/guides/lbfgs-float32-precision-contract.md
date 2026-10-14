@@ -1,13 +1,13 @@
 # L-BFGS Float32 Numerical Behavior
 
 > Language: English  
-> Last updated: 2026-09-17  
+> Last updated: 2026-10-12  
 > This page: user-facing numerical guidance  
 > Switch: [Chinese](../../cn/guides/lbfgs-float32-precision-contract.md)
 
 ## Scope
 
-This page explains how to interpret native float32 L-BFGS results across NumPy, CuPy, and Torch. It does not change the L-BFGS algorithm, the statistical objective, analytic-weight semantics, solver selection, or explicit device behavior.
+This page explains how to interpret native float32 L-BFGS results across NumPy, CuPy, and Torch, focusing on comparisons between finite-precision fits.
 
 For the algorithm itself, see [Solver Algorithms](solver-algorithms.md).
 
@@ -65,8 +65,6 @@ If NumPy, CuPy, and Torch float32 L-BFGS runs produce slightly different coeffic
 - confirm that all runs used the same data, objective normalization, weights, penalty, and stopping controls;
 - compare each backend with a float64 run when a tighter reference is needed;
 - use float64 if the application requires close coefficient agreement rather than merely an equivalent optimized objective.
-
-Do not loosen the statistical objective or change solver semantics merely to force bitwise-like float32 coefficient agreement across backends.
 
 ## Related documentation
 

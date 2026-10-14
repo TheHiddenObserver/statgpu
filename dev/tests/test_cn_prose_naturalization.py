@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 PAGES = (
@@ -23,10 +22,14 @@ PAGES = (
     "docs/cn/unsupervised/nmf.md",
     "docs/cn/unsupervised/truncated-svd.md",
     "docs/cn/unsupervised/tsne.md",
-    "docs/cn/models/unsupervised.md",
-    "docs/cn/models/splines.md",
-    "docs/cn/models/kernel-methods.md",
-    "docs/cn/models/multiple-testing.md",
+    "docs/cn/unsupervised/README.md",
+    "docs/cn/models/nonparametric/splines.md",
+    "docs/cn/models/nonparametric/kernel-methods.md",
+    "docs/cn/models/nonparametric/kernel-ridge.md",
+    "docs/cn/models/nonparametric/kernel-ridge-cv.md",
+    "docs/cn/models/nonparametric/kernel-pca.md",
+    "docs/cn/models/nonparametric/kernel-nystroem.md",
+    "docs/cn/reference/kernel-methods-api.md",
 )
 
 FRAGMENTS_TO_AVOID = (
@@ -101,32 +104,7 @@ FRAGMENTS_TO_AVOID = (
     "tied covariance",
     "log likelihood",
     "## strict/approx 差异",
-    "Calculation 在 Arbitrary",
-    "Calculation in Arbitrary",
     "responsibility 对齐",
-    "step-down procedure",
-    "step-up procedure",
-    "chi-squared combination",
-    "Parameter | Type | Default | Description",
-    "Raw p-values",
-    "Significance level",
-    "Axis for batch processing",
-    "GPU acceleration",
-    "What's the difference between FDR and FWER",
-    "Non-negative weights",
-    "Boolean rejection array",
-    "Test statistic + global p-value",
-    "Order p-values",
-    "Start from largest p-value",
-    "Same as BH but",
-    "More conservative than BH",
-    "Approximately distributed as Cauchy",
-    "No assumption on dependence structure",
-    "Most powerful when effects",
-    "Powerful when a small subset",
-    "Find largest $k$ such that",
-    "Reject $H_{(i)}$ if",
-    "Accept $H_{(i)}$ if",
 )
 
 
@@ -143,3 +121,41 @@ def test_no_legacy_strict_approx_heading_remains_in_chinese_docs():
         if "## strict/approx 差异" in path.read_text(encoding="utf-8"):
             offenders.append(path.relative_to(ROOT).as_posix())
     assert not offenders, f"legacy strict/approx headings remain: {offenders!r}"
+
+
+@pytest.mark.parametrize("page", [
+    "docs/cn/models/testing/multiple-testing.md",
+    "docs/cn/guides/multiple-testing-combine-pvalues.md",
+])
+def test_multiple_testing_pages_avoid_literal_translation_fragments(page):
+    # These lexical checks protect prose, not statistical validity.
+    fragments = (
+        "Calculation 在 Arbitrary",
+        "Calculation in Arbitrary",
+        "step-down procedure",
+        "step-up procedure",
+        "chi-squared combination",
+        "Parameter | Type | Default | Description",
+        "Raw p-values",
+        "Significance level",
+        "Axis for batch processing",
+        "GPU acceleration",
+        "What's the difference between FDR and FWER",
+        "Non-negative weights",
+        "Boolean rejection array",
+        "Test statistic + global p-value",
+        "Order p-values",
+        "Start from largest p-value",
+        "Same as BH but",
+        "More conservative than BH",
+        "Approximately distributed as Cauchy",
+        "No assumption on dependence structure",
+        "Most powerful when effects",
+        "Powerful when a small subset",
+        "Find largest $k$ such that",
+        "Reject $H_{(i)}$ if",
+        "Accept $H_{(i)}$ if",
+    )
+    text = (ROOT / page).read_text(encoding="utf-8")
+    present = [fragment for fragment in fragments if fragment in text]
+    assert not present, f"{page}: literal-translation fragments {present!r}"

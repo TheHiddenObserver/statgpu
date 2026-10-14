@@ -1,24 +1,34 @@
 # AgglomerativeClustering
 
 > 语言：中文
-> 最后更新：2026-09-29
+> 最后更新：2026-10-14
 > 切换：[English](../../en/unsupervised/agglomerative-clustering.md)
 
 ## 概览
 
-`AgglomerativeClustering` 为稠密欧氏（Euclidean）数据构建精确的层次聚类树。CPU、CuPy/CUDA 与 Torch CUDA 路径都支持 `"single"`、`"complete"`、`"average"` 和 `"ward"` 四种连接准则。GPU 路径是稠密、精确的第一版实现，面向中小规模数据；显式请求 GPU 时不会静默回退到 CPU。
+比较产品画像或实验样本时，你可能既想知道哪些观测最相近，也想知道这些小组如何归入更大的类别。一次平面划分只回答了其中一个层级的问题。
 
-## 导入路径
+`AgglomerativeClustering` 从下向上构建嵌套分组。开始时每条观测独自成组，随后反复合并最接近的两组，直到只剩一个组。合并树记录了局部相似关系如何逐步组成更大的群组。在某个层级切分这棵树，就得到一个平面划分，同时保留此前各次合并的上下文。合并一旦发生就不会撤销：切分越粗，已有的小组只会继续归入更大的组，组内成员不会被拆开重新分配。
 
-```python
-from statgpu.unsupervised import AgglomerativeClustering
-```
+<a id="估计方程"></a>
+## 构建与切分层次树
 
-## 目标函数 / 损失函数
+下图的编号点和树描述的是同样六个观测。沿树枝向上看，可以看到小组怎样合成更大的组。切分 A 得到 `(1, 2)`、`(3, 4)`、`(5, 6)` 三组，较高的切分 B 将前两组合并；两幅散点图表示这两种切分。
 
-层次聚类是贪心合并过程，不是全局光滑优化问题。每一步都合并连接准则（linkage criterion）取值最小的一对簇。
+图中的 `h` 是水平切线的高度，`k` 是切分后留下的组数：数一数切线穿过多少条尚未汇合的树枝，就能得到组数。A 处的 `h=1.22` 留下 `k=3` 组；B 处的 `h=3.74` 允许再合并一次，留下 `k=2` 组。切线每跨过一个新的合并位置，组数就会减少，分组也会变粗。
 
-single linkage：
+Ward 是这棵树采用的合并规则：优先选择使各组成员相对组均值的分散程度增加最少的合并。纵轴用来表示这种合并代价，连接位置越高，代表这次合并的代价越大。后面的连接准则一节会定义这个代价，并解释轴上标注的平方根尺度。现在读分组时，可以从每个编号沿树枝向上走到切线；在切线下已经汇合的编号属于同一组。叶子之间的横向间隔不表示观测间距离，树的高度也不是概率或显著性水平。
+
+![六个编号观测的同一棵Ward树在两个高度切分：较低处形成三个二点组，较高处将1至4号合为一组，5与6号仍在同组。](../../assets/unsupervised/agglomerative-cn.svg)
+
+接下来的问题是：怎样判断下一步应合并哪两组？这需要选择衡量组间接近程度的连接准则；同样的点采用不同准则，可能得到不同的树。
+
+<a id="目标函数--损失函数"></a>
+## 链接准则与合并规则
+
+层次聚类是贪心合并过程，不是全局光滑优化问题。每一步都合并连接准则（linkage criterion）取值最小的一对簇。以下公式中，$A$、$B$ 是候选合并组，$|A|$、$|B|$ 是各自样本数，$\bar{x}_A$、$\bar{x}_B$ 是各组均值向量。前三种准则以不同方式概括跨组距离；Ward 衡量的是用一个合并后的均值代替两个独立均值所付出的代价。
+
+单连接（`linkage="single"`）查看两组中最近的一对成员，因此少数桥接点就可能把原本分开的组串起来：
 
 $$
 d(A, B)
@@ -27,7 +37,7 @@ d(A, B)
 \left\|x - y\right\|_2 .
 $$
 
-complete linkage：
+完全连接（`linkage="complete"`）查看两组中最远的一对成员；只有所有跨组距离都较小，两组才算接近：
 
 $$
 d(A, B)
@@ -36,7 +46,7 @@ d(A, B)
 \left\|x - y\right\|_2 .
 $$
 
-average linkage：
+平均连接（`linkage="average"`）对所有跨组距离取平均：
 
 $$
 d(A, B)
@@ -55,14 +65,21 @@ $$
 \left\|\bar{x}_A-\bar{x}_B\right\|_2^2 .
 $$
 
-## 估计方程
+上面的六点图使用 Ward 连接。树由拟合结果 `children_` 和 `distances_` 绘制；Ward 高度为 $\sqrt{2\Delta}$，其中 $\Delta$ 是上式定义的簇内平方误差增量，图中轴标签的 ΔSSE 表示同一个增量。这些连接准则的定义也可参见 [SciPy 连接准则参考](https://docs.scipy.org/doc/scipy/reference/generated/scipy.cluster.hierarchy.linkage.html)。
 
-- 从每个样本一个簇开始。
-- 反复合并所选连接准则取值最小的两个簇。
-- 将合并树保存为 `children_`，将合并距离保存为 `distances_`。
-- 按 `n_clusters` 切树并生成 `labels_`。
+## 何时使用
 
-CPU 路径调用 SciPy 的层次聚类子模块计算精确连接；显式 CuPy/Torch 路径使用 statgpu 自有的、常驻后端的稠密距离矩阵，并用 Lance-Williams 公式增量更新连接距离。
+如果结果中真正重要的是逐层合并结构，而不只是每条记录的最终标签，可使用层次聚类。
+
+为不同簇数分别运行 KMeans，并不保证各次划分彼此嵌套。Ward 与 [KMeans](kmeans.md) 都使用平方误差的思想，但解决的问题不同：Ward 逐次合并，先前的合并无法撤销；KMeans 则可以把单条记录重新分给其他中心。如果主要需要可复用的中心以及未来记录的分配规则，可选择 KMeans；如果希望观察不同分组层级之间的关系，层次树更切题。如果更关心让稀疏观测留在簇外，而不是构建覆盖所有样本的树，可考虑 [DBSCAN](dbscan.md)。
+
+即使数据没有截然分开的天然类别，也能构建一棵树。特征缩放和连接准则都会改变它，较大的合并高度也不是显著性检验。应检查各分支是否具有实际解释；这里的“精确”指遵循所选连接过程，不表示找到了唯一正确的分类体系或全局最优划分。
+
+## 导入路径
+
+```python
+from statgpu.unsupervised import AgglomerativeClustering
+```
 
 ## 参数
 
@@ -71,29 +88,40 @@ CPU 路径调用 SciPy 的层次聚类子模块计算精确连接；显式 CuPy/
 - `metric`：仅支持 `"euclidean"`。
 - `device`：`"cpu"`、`"cuda"`、`"torch"` 或 `"auto"`。该估计器的 `device="auto"` 仍默认选择 CPU；显式请求 GPU 时会执行稠密、精确的后端实现。
 
-## CPU+GPU 示例
+## 一个可独立运行的 CPU 示例
 
+<!-- learner-example: agglomerative-clustering -->
 ```python
 import numpy as np
 from statgpu.unsupervised import AgglomerativeClustering
 
-X = np.random.default_rng(0).normal(size=(300, 6))
-
-model = AgglomerativeClustering(n_clusters=4, linkage="ward", device="cpu")
+rng = np.random.default_rng(0)
+X = np.vstack([rng.normal(-2, 0.3, (15, 2)), rng.normal(2, 0.3, (15, 2))])
+model = AgglomerativeClustering(n_clusters=2, linkage="ward", device="cpu")
 labels = model.fit_predict(X)
-
-model_gpu = AgglomerativeClustering(n_clusters=4, linkage="ward", device="cuda")
-labels_gpu = model_gpu.fit_predict(X)  # NumPy 输入会被转到 CUDA 后端
-
-# 若希望全程保持 CuPy 数组，可先显式转换再传入。
-# import cupy as cp
-# X_gpu = cp.asarray(X)
-# labels_gpu = model_gpu.fit_predict(X_gpu)
+print(labels.shape, model.children_.shape, model.distances_[-3:])
 ```
 
-## 严格与近似模式的差别
+30 个样本对应 `(29, 2)` 的合并对。除了最终分组，还应查看合并高度；CPU 的 maxclust 切分在高度相同时可能得到少于请求数量的簇。不提供新样本预测。
 
-`AgglomerativeClustering` 没有统计推断意义上的严格模式：对稠密欧氏输入，CPU、CuPy 与 Torch 路径都给出精确计算。GPU 执行会分配稠密距离矩阵；一旦超过第一版实现设定的显存保护阈值，会明确抛出 `MemoryError`。
+安装了相应 GPU 后端后，可新建估计器并指定 `device="cuda"`（CuPy）或 `device="torch"`（Torch CUDA）。标签、合并对与合并高度始终返回 NumPy 数组，即使在 GPU 上拟合也如此；输出及主机端步骤见 [API 参考](api-reference.md#agglomerativeclustering)。显式请求的 GPU 不可用时会报错。
+
+## 近似与解释边界
+
+`AgglomerativeClustering` 不提供标准误或显著性检验。对稠密欧氏输入，CPU、CuPy 与 Torch 路径都给出精确计算，均支持 `"single"`、`"complete"`、`"average"` 和 `"ward"` 四种连接准则。GPU 路径面向中小规模数据，不会静默回退到 CPU。GPU 执行会分配稠密距离矩阵；一旦超过配置的距离矩阵内存上限，会明确抛出 `MemoryError`。
+
+GPU 路径通过展开平方范数计算成对距离。很大的共同特征偏移可能导致消减误差并改变层次结构；应在拟合前以 float64 减去由训练数据确定的偏移，这不会改变原本的欧氏几何关系。SciPy 的 CPU 层次聚类路径不使用这一共享 GPU 距离公式。
+
+`distances_` 中的 Ward 合并高度为 $\sqrt{2\Delta(A,B)}$，不是平方误差增加量 $\Delta(A,B)$ 本身。GPU 距离矩阵估计内存会与配置上限比较；默认上限为 1 GiB，可在导入模块前设置 `STATGPU_AGGLOMERATIVE_GPU_MAX_BYTES`。该值不是当前可用显存。
+
+## 计算路径与树的保存
+
+- 从每个样本一个簇开始。
+- 反复合并所选连接准则取值最小的两个簇。
+- 将合并树保存为 `children_`，将合并距离保存为 `distances_`。
+- 按 `n_clusters` 切树并生成 `labels_`。
+
+CPU 路径调用 SciPy 的层次聚类子模块计算精确连接；显式 CuPy/Torch 路径在所选 GPU 后端上使用稠密距离矩阵。单连接先构建最小生成树，再在 CPU 上组装合并树；完全连接、平均连接和 Ward 连接则使用 Lance–Williams 公式更新连接距离。
 
 ## 输出字段
 
@@ -110,15 +138,14 @@ labels_gpu = model_gpu.fit_predict(X)  # NumPy 输入会被转到 CUDA 后端
 **能对新样本 predict 吗？**
 不能。当前实现不支持对未见样本调用 `predict`。
 
-## 外部验证
 
-- 测试脚本：`dev/tests/test_unsupervised_agglomerative.py`。
-- 基准测试：`dev/benchmarks/benchmark_unsupervised_phase3b.py`。
-- 最新远程验证产物：`results/unsupervised_agglomerative_gpu_verify_20260509_agglo_gpu.json` 和 `results/unsupervised_agglomerative_gpu_verify_summary_20260509_agglo_gpu.md`。
-- 对齐基线：sklearn 的 `AgglomerativeClustering`、SciPy 的 `linkage`，以及参数可以对齐时的 R `cluster::agnes`。
-- Phase 3B 的验证目标：四种连接准则在标签置换下的一致性、调整兰德指数（ARI），以及可比场景下的连接距离。
+## 完整 API 参考
 
-## References
+构造默认值、全部公开方法、输出形状与限制见 [AgglomerativeClustering API 参考](api-reference.md#agglomerativeclustering)。
+
+<a id="references"></a>
+
+## 参考文献
 
 - Sneath, P. H. A. (1957). The application of computers to taxonomy. *Journal of General Microbiology*, 17(1), 201-226. https://doi.org/10.1099/00221287-17-1-201
 - Murtagh, F. (1983). A survey of recent advances in hierarchical clustering algorithms. *The Computer Journal*, 26(4), 354-359. https://doi.org/10.1093/comjnl/26.4.354

@@ -1,13 +1,13 @@
 # Solver Algorithms
 
 > Language: English  
-> Last updated: 2026-09-18  
+> Last updated: 2026-10-13  
 > This page: Algorithm reference  
 > Switch: [Chinese](../../cn/guides/solver-algorithms.md)
 
 ## Overview
 
-statgpu provides first-order, second-order, proximal, and closed-form solvers. Most model users should start with `solver="auto"`; this page is the algorithm-level reference and therefore keeps the mathematical update rules, convergence criteria, backend behavior, and important capability boundaries explicit.
+statgpu provides first-order, second-order, proximal, and closed-form solvers. For most model fits, start with `solver="auto"`. Use this reference to understand the update rules, stopping criteria, backend support, and limitations of each algorithm.
 
 Three rules are useful when reading this page:
 
@@ -34,7 +34,7 @@ For model-level dispatch, see [Solver × Penalty Compatibility Matrix](solver-pe
 | ADMM | separable/proximal formulations | NumPy, CuPy, Torch |
 | `exact` | squared error + L2 closed-form path | NumPy, CuPy, Torch |
 
-The backend column describes numerical implementation capability only. Estimator and loss compatibility can further narrow the valid combinations. Quantile/check loss is one such case: ordinary FISTA is available on supported sparse convex estimator paths and can also be requested explicitly for Quantile L2/no-penalty objectives; `solver="auto"` continues to prefer IRLS for those L2/no-penalty rows. This Quantile use is an explicitly supported first-order proximal/subgradient method, not a claim that textbook smooth-gradient FISTA convergence theory applies to pinball loss. FISTA-BB, shared ADMM, Newton, Proximal Newton, and L-BFGS-B do not support Quantile. Direct low-level ordinary L-BFGS retains its historical omitted/uniform-weight Quantile behavior, whereas estimator/CV `solver="lbfgs"` is unsupported and genuine non-uniform Quantile L-BFGS weights raise an error.
+The backend column describes numerical implementation capability only; the model, loss, penalty, and weights can further narrow the valid combinations. For estimator selection, start with the [compatibility matrix](solver-penalty-matrix.md). The [Quantile solver scope](#quantile-solver-scope) explains its non-smooth loss and the differences between low-level calls and model interfaces.
 
 ---
 
@@ -42,7 +42,7 @@ The backend column describes numerical implementation capability only. Estimator
 
 **File**: `statgpu/solvers/_proximal_irls_quantile.py`
 
-**Use case**: Quantile regression with SCAD/MCP penalties. It combines an IRLS quadratic majorization of the pinball loss with local linear approximation (LLA) for the non-convex penalty.
+**Use case**: Quantile regression with SCAD/MCP penalties. It combines an epsilon-stabilized IRLS weighted quadratic approximation to the pinball loss with local linear approximation (LLA) for the non-convex penalty.
 
 ### Algorithm
 
@@ -89,7 +89,9 @@ For each continuation value of `alpha`:
    w_i=\tilde s_i\,w_i^{\mathrm{IRLS}}.
    $$
 
-3. **Parallel diagonal majorization.** Let $W=\operatorname{diag}(w)$. The implementation computes
+   These sign-dependent weights define a local weighted quadratic approximation, not a global majorizer of the original pinball loss. For example, with $\tau=0.9$, $r_0=-1$, and $\varepsilon<1$, the weight is $0.1$. The quadratic $Q(r)=0.05r^2+0.05$ matches the value and derivative of $\rho_{0.9}$ at $r_0$, but $Q(1)=0.1<\rho_{0.9}(1)=0.9$. The epsilon floor is inactive at both residuals. Thus these updates do not establish global majorization-minimization (MM) monotonicity for the original pinball objective.
+
+3. **Parallel diagonal approximation.** Let $W=\operatorname{diag}(w)$. The implementation computes
 
    $$
    g=X^\top W(y-X\beta),
@@ -115,7 +117,7 @@ For each continuation value of `alpha`:
    S(u,t)=\operatorname{sign}(u)\max(|u|-t,0).
    $$
 
-   This is a Jacobi-style parallel diagonal-majorization update rather than a cyclic coordinate-descent sweep.
+   This is a Jacobi-style parallel diagonal approximation rather than a cyclic coordinate-descent sweep. Its diagonal matrix need not majorize the full weighted Gram matrix: if $X^\top W X=\begin{pmatrix}1&0.9\\0.9&1\end{pmatrix}$, then $\operatorname{diag}(h)-X^\top W X$ has eigenvalues $-0.9$ and $0.9$, so it is not positive semidefinite.
 
 4. **Intercept and a flat LLA surrogate.** Quantile loss is not quadratic, so an intercept cannot be eliminated by mean-centering $X$ and $y$. When `fit_intercept=True`, the numerical design is augmented with a column of ones and the intercept is optimized as an ordinary coordinate of the pinball objective, with its local penalty threshold fixed at zero.
 
@@ -150,8 +152,13 @@ For each continuation value of `alpha`:
 - continuation path: `lambda_max` to target `alpha`;
 - `max_lla_per_step=2`;
 - `lla_tol=1e-6`;
-- `tol=1e-6`;
-- GPU convergence checks remain on device except for the final boolean synchronization.
+- `tol=1e-6`.
+
+### Backend implementation
+
+- NumPy: NumPy matrix operations;
+- CuPy: CuPy matrix operations and available GPU kernels;
+- Torch: device-native tensor operations.
 
 ---
 
@@ -167,7 +174,7 @@ $$
 F(\beta)=\ell(\beta)+P(\beta),
 $$
 
-a true Proximal Newton step should solve a Hessian-metric proximal subproblem such as
+a Hessian-metric Proximal Newton step solves a subproblem of the form
 
 $$
 \Delta_k
@@ -179,7 +186,7 @@ $$
 \right\}.
 $$
 
-Applying an ordinary Euclidean prox to a Newton step would optimize a different composite objective. The implementation therefore executes Newton only on L2/no-penalty smooth routes; non-smooth requests warn and delegate to FISTA until a correct Hessian-metric proximal subproblem is implemented.
+Applying an ordinary Euclidean prox to a Newton step would optimize a different composite objective. The implementation therefore executes Newton only on L2/no-penalty smooth routes. For supported smooth losses with a non-smooth penalty, it emits a warning and uses FISTA; a Hessian-metric proximal subproblem is not available.
 
 ### Full smooth objective
 
@@ -222,7 +229,9 @@ $$
 =\frac{X^\top\operatorname{diag}\!\left(w\odot h(\beta)\right)X}{s}.
 $$
 
-For structured losses that are not naturally written with that per-observation curvature decomposition, the solver uses the loss object's `hessian()` or `fused_gradient_and_hessian()` implementation directly.
+<a id="loss-provided-curvature"></a>
+
+These equations describe the true derivatives, wherever they exist. The numerical solver instead uses the curvature matrix $B_k$ returned by the loss object's `hessian()` or `fused_gradient_and_hessian()`. When that interface returns the exact loss Hessian, $B_k=\nabla^2L(\beta_k)$; structured losses can supply it without a per-observation decomposition. Bisquare returns a stabilized approximation: for $t_i=(y_i-x_i^\top\beta_k)/c$ inside the threshold, it replaces $(1-t_i^2)(1-5t_i^2)$ by its nonnegative part. Negative curvature is therefore clipped to zero before the Newton solver adds its own stabilization. This matrix is not the true Bisquare Hessian and is not, by itself, an inference covariance estimate.
 
 The current Newton route accepts only L2 or no penalty. The L2 convention is
 
@@ -234,7 +243,7 @@ P(\beta)=\frac{\alpha}{2}\|\beta\|_2^2,
 \nabla^2P(\beta)=\alpha I.
 $$
 
-Therefore the L2 route forms
+The true L2 objective Hessian is $\nabla^2F(\beta_k)=\nabla^2L(\beta_k)+\alpha I$. The numerical L2 route forms
 
 $$
 g_k
@@ -243,16 +252,14 @@ g_k
 $$
 
 $$
-H_k
-=\nabla^2F(\beta_k)
-=\nabla^2L(\beta_k)+\alpha I.
+H_k=B_k+\alpha I.
 $$
 
 Set $\alpha=0$ for the no-penalty route.
 
 ### Stabilized Newton system
 
-The implementation first symmetrizes the Hessian,
+The implementation first symmetrizes the supplied curvature matrix,
 
 $$
 \bar H_k
@@ -363,7 +370,7 @@ Defaults are:
 - `tol=1e-6`;
 - supported NumPy/CuPy/Torch routes use the corresponding native linear algebra.
 
-Thus the L2/no-penalty path named `proximal_newton_solver` is numerically a **damped Newton method with Hessian stabilization and Armijo backtracking**. The genuinely non-smooth Hessian-metric Proximal-Newton subproblem is not implemented; non-smooth penalties delegate to FISTA before these Newton iterations begin.
+Thus the L2/no-penalty path named `proximal_newton_solver` is numerically a **damped Newton method with stabilized loss-provided curvature and Armijo backtracking**. The genuinely non-smooth Hessian-metric Proximal-Newton subproblem is not implemented; non-smooth penalties delegate to FISTA before these Newton iterations begin.
 
 ---
 
@@ -379,7 +386,7 @@ $$
 
 with smooth $f$ and a penalty $P$ that has a proximal operator. This is the textbook FISTA setting.
 
-statgpu also supports ordinary FISTA for Quantile regression. On these paths the same engine uses the check-loss subgradient supplied by `QuantileLoss`; because check/pinball loss is non-smooth, this should be read as an accelerated first-order proximal/subgradient implementation, not as a claim that the Beck-Teboulle smooth-composite convergence assumptions apply. For Quantile L2/no penalty, `solver="auto"` remains IRLS; only an explicit `solver="fista"` request selects this ordinary-FISTA path.
+statgpu also supports ordinary FISTA for Quantile regression. On these paths the same engine uses the check-loss subgradient supplied by `QuantileLoss`; because check/pinball loss is non-smooth, this is an accelerated first-order proximal/subgradient method. The Beck-Teboulle smooth-composite convergence assumptions do not apply. For Quantile L2/no penalty, `solver="auto"` remains IRLS; only an explicit `solver="fista"` request selects this ordinary-FISTA path.
 
 ### Proximal-gradient update
 
@@ -447,7 +454,7 @@ L_k\leftarrow1.5L_k,
 \gamma_k\leftarrow\frac1{L_k},
 $$
 
-and the proximal step is recomputed, for at most 20 backtracking attempts. If no trial satisfies the safeguard, the solver discards the unverified trial, stops with a `ConvergenceWarning`, and returns an already accepted iterate (the tracked best accepted iterate when one is available). Supported asynchronous GPU non-smooth routes use a conservative fixed $L_k$ instead of synchronizing for every backtracking trial; the proximal update itself is unchanged.
+and the proximal step is recomputed, for at most 20 backtracking attempts. If no trial satisfies the safeguard, the solver discards the unverified trial, stops with a `ConvergenceWarning`, and returns an already accepted iterate (the tracked best accepted iterate when one is available). Some supported GPU non-smooth paths use conservative fixed-step proximal updates rather than this backtracking procedure. The weighted objective and solver compatibility restrictions remain the same.
 
 For the Quantile ordinary-FISTA path, this same check is used as a numerical step-size safeguard with the selected subgradient. It does not make the check loss smooth and does not supply the textbook smooth-FISTA convergence guarantee.
 
@@ -494,7 +501,7 @@ Weighted objective tracking and the weighted Lipschitz estimate use the same ana
 
 **File**: `statgpu/solvers/_fista_bb.py`
 
-**Use case**: FISTA with local Barzilai-Borwein curvature estimates for step-size selection on supported sparse-penalty GLM routes. Quantile/check loss is excluded because its step-function subgradient does not provide the smooth gradient differences required by the BB curvature estimate.
+**Use case**: FISTA with local Barzilai-Borwein curvature estimates for step-size selection on supported sparse-penalty GLM routes. Quantile/check loss is excluded from both low-level and estimator FISTA-BB interfaces because its step-function subgradient does not provide the smooth gradient differences required by the BB curvature estimate.
 
 ### Lipschitz burn-in and BB curvature
 
@@ -584,11 +591,11 @@ $$
 \gamma_k\leftarrow\frac{\gamma_k}{2}
 $$
 
-and recomputes the same proximal step, up to 15 safeguard retries.
+and recomputes the same proximal step, up to 15 safeguard retries. This numerical safeguard does not change the proximal objective.
 
 ### Nesterov momentum and adaptive restart
 
-The standard momentum update is
+On the standard Nesterov branch, the tentative momentum update is
 
 $$
 t_{k+1}=\frac{1+\sqrt{1+4t_k^2}}2,
@@ -599,14 +606,14 @@ y_{k+1}=\beta_{k+1}
 +\frac{t_k-1}{t_{k+1}}(\beta_{k+1}-\beta_k).
 $$
 
-The restart condition is
+With `use_restart=True`, this branch checks the following condition from the second iteration onward. Here $y_k$ is the old point where this iteration evaluated the gradient and started its proximal step, and $\beta_{k+1}$ is the final accepted point after any safeguard retries:
 
 $$
-\left(y_{k+1}-\beta_{k+1}\right)^\top
+\left(y_k-\beta_{k+1}\right)^\top
 \left(\beta_{k+1}-\beta_k\right)>0.
 $$
 
-When it holds, momentum is reset:
+The newly extrapolated point is not used in this test. When the condition holds, momentum is reset before the next iteration:
 
 $$
 t_{k+1}=1,
@@ -620,7 +627,9 @@ $$
 \|\beta_{k+1}-\beta_k\|_1<\texttt{tol}.
 $$
 
-Quadratic losses do not gain useful adaptation from the BB curvature estimate and therefore retain fixed-Lipschitz FISTA behavior. BB updates are also disabled for SCAD, MCP, and their group variants because non-convex reweighting can change secant curvature abruptly.
+Momentum burn-in and capped-momentum branches bypass this restart test. Inverse-Gaussian losses disable momentum; Poisson uses capped momentum, while Gamma and Tweedie use a burn-in followed by capped momentum. Smooth logistic L2/no-penalty requests are delegated to ordinary FISTA and do not enter this BB branch.
+
+The current implementation uses a fixed Lipschitz step for quadratic losses and does not enable BB updates on those routes. BB updates are also disabled for SCAD, MCP, and their group variants because non-convex reweighting can change secant curvature abruptly.
 
 ---
 
@@ -674,7 +683,9 @@ $$
 
 When an intercept is represented by an augmented GLM column, its LLA weight is fixed at zero, so it is not penalized.
 
-### Convex surrogate
+<a id="convex-surrogate"></a>
+
+### Weighted surrogate
 
 Dropping constants independent of $\beta$, the $r$-th LLA subproblem is
 
@@ -683,14 +694,14 @@ Q_r(\beta)
 =f(\beta)+\sum_j d_j^{(r)}|\beta_j|.
 $$
 
-Thus the default inner problem is weighted L1. With a group-LLA factory, the corresponding surrogate is
+Thus the default inner problem is weighted L1. For group penalties, the corresponding surrogate is
 
 $$
 Q_r(\beta)
 =f(\beta)+\sum_g D_g^{(r)}\|\beta_g\|_2,
 $$
 
-and the inner solve uses the matching weighted Group Lasso proximal operator.
+and the inner solve uses the matching weighted Group Lasso proximal operator. LLA replaces only the penalty and retains the original loss $f$. The full subproblem is convex when $f$ is convex, as with fixed-threshold Huber or Fair; with Bisquare, the loss and hence the full subproblem can remain nonconvex.
 
 ### FISTA inner solve
 
@@ -739,19 +750,15 @@ $$
 \|\beta_{k+1}-\beta_k\|_1<\texttt{tol}.
 $$
 
-For non-quadratic losses the implementation periodically recomputes the Lipschitz estimate. If the new estimate differs from the current one by roughly more than a factor of 1.5, it updates
+For non-quadratic losses, the step scale can be updated during optimization; each proximal step uses the current estimate through $\gamma_k=1/L_k$.
+
+For unweighted squared error, the gradient also has the algebraically equivalent form
 
 $$
-\gamma_k=\frac1{L_k}
+g_k=\frac{X^\top Xy_k-X^\top y}{n}.
 $$
 
-before continuing. The unweighted squared-error GPU fast path uses
-
-$$
-g_k=\frac{X^\top Xy_k-X^\top y}{n}
-$$
-
-to avoid redundant matrix products.
+Reusing the products $X^\top X$ and $X^\top y$ can reduce repeated work without changing that objective.
 
 ### LLA outer-loop convergence
 
@@ -762,9 +769,9 @@ $$
 <\texttt{lla\_tol}.
 $$
 
-Otherwise recompute $d^{(r+1)}$ and solve the next weighted convex surrogate. The solution at the current continuation value seeds the next $\alpha$ value.
+Otherwise recompute $d^{(r+1)}$ and solve the next weighted surrogate. The solution at the current continuation value seeds the next $\alpha$ value.
 
-The generic composite route uses FISTA by default. A Proximal Newton inner solve is used only if the loss explicitly advertises a correct Hessian-metric proximal subproblem. Cox currently remains on FISTA-LLA.
+The generic composite route uses FISTA for the inner solve by default, including for Cox. A loss having a Hessian does not by itself make an ordinary Newton step suitable for a non-smooth penalty.
 
 ---
 
@@ -813,9 +820,8 @@ $
 $
 
 If the iteration budget is exhausted before this criterion is met, the solver
-returns the final iterate and emits `ConvergenceWarning`. Callers can therefore
-distinguish a converged IRLS solve from a budget-limited result without changing
-the existing return-value shape.
+returns the final iterate and emits `ConvergenceWarning`. This warning identifies
+a budget-limited result that has not met the convergence criterion.
 
 ### GLM IRLS
 
@@ -961,10 +967,10 @@ At iteration $k$ compute
 $$
 g_k=\nabla F(\beta_k),
 \qquad
-H_k=\nabla^2F(\beta_k).
+H_k=B_k+\nabla^2P(\beta_k).
 $$
 
-The implementation stabilizes the system with
+Here $B_k$ is the [loss-provided curvature](#loss-provided-curvature). Thus $H_k=\nabla^2F(\beta_k)$ only when the loss supplies its exact Hessian; Bisquare instead supplies a negative-curvature-clipped approximation. The implementation stabilizes this system with
 
 $$
 \widetilde H_k
@@ -1038,7 +1044,7 @@ F(\beta)
 =\frac{\sum_i w_i\ell_i(\beta)}{\sum_i w_i}+P(\beta).
 $$
 
-Multiplying all active weights by one positive constant therefore leaves the optimum unchanged. Uniform/effectively-uniform weights retain the historical unweighted numerical path where that compatibility route is defined.
+Multiplying all active weights by one positive constant therefore leaves the optimum unchanged. Uniform/effectively-uniform weights use the unweighted numerical path.
 
 ---
 
@@ -1046,7 +1052,7 @@ Multiplying all active weights by one positive constant therefore leaves the opt
 
 **Files**: `statgpu/solvers/_lbfgs.py`, `statgpu/solvers/_lbfgs_b.py`
 
-**Use case**: Limited-memory quasi-Newton optimization is intended for smooth objectives, plus a projected box-constrained variant. A historical direct low-level `lbfgs_solver(QuantileLoss, ...)` compatibility surface is regression-covered and retained for omitted/uniform weights; this does not make estimator/CV `solver="lbfgs"` supported for Quantile and does not enable genuine non-uniform Quantile weights.
+**Use case**: Limited-memory quasi-Newton optimization is intended for smooth objectives, plus a projected box-constrained variant. The direct low-level `lbfgs_solver(QuantileLoss, ...)` call accepts omitted or uniform weights; this does not make estimator/CV `solver="lbfgs"` supported for Quantile and does not enable genuine non-uniform Quantile weights.
 
 ### L-BFGS curvature history
 
@@ -1185,7 +1191,7 @@ $$
 F(\beta_k+t p_k)\le F(\beta_k)+\varepsilon_F.
 $$
 
-Thus this rule is not a general Armijo relaxation: both the requested objective decrease and the actual parameter displacement must already be below their documented numerical resolutions, and the trial may not increase the complete objective beyond the same roundoff scale. If neither exact Armijo nor this bounded roundoff rule accepts any of the 25 trials, the unconstrained route retains the historical line-search warning/stagnation behavior rather than silently accepting the last trial point.
+Thus this rule is not a general Armijo relaxation: both the requested objective decrease and the actual parameter displacement must already be below their documented numerical resolutions, and the trial may not increase the complete objective beyond the same roundoff scale. If neither exact Armijo nor this bounded roundoff rule accepts any of the 25 trials, the unconstrained route emits a line-search warning and stops without accepting the last trial point.
 
 A loss may additionally expose a smooth-domain cap for the finalized additive direction. Let
 
@@ -1288,7 +1294,7 @@ F(\beta)
 =\frac{\sum_i w_i\ell_i(\beta)}{\sum_i w_i}+P(\beta).
 $$
 
-Before smooth-solver evaluation, finite non-negative analytic weights with positive mass are normalized by a positive common scale on the executed backend. Consequently, representable global positive rescaling does not change the normalized objective merely because the raw input-dtype sum would overflow. Uniform/effectively-uniform weights retain the historical unweighted numerical path, including the direct low-level Quantile compatibility surface. Estimator/CV Quantile `solver="lbfgs"` remains unsupported.
+Before smooth-solver evaluation, finite non-negative analytic weights with positive mass are normalized by a positive common scale on the executed backend. Consequently, representable global positive rescaling does not change the normalized objective merely because the raw input-dtype sum would overflow. Uniform/effectively-uniform weights use the unweighted numerical path, including in direct low-level Quantile calls. Estimator/CV Quantile `solver="lbfgs"` remains unsupported.
 
 ---
 
@@ -1341,7 +1347,7 @@ $$
 
 ### $w$-subproblem: squared-error Cholesky path
 
-When the loss has a constant Hessian and the feature dimension is within the current Cholesky threshold, pre-factor
+For squared error, a direct solution can reuse a Cholesky factorization of
 
 $$
 A=\frac{X^\top X}{n}+\rho I,
@@ -1354,7 +1360,7 @@ Aw^{k+1}
 =\frac{X^\top y}{n}+\rho(z^k-u^k).
 $$
 
-This path pins $\rho$, because changing it would invalidate the precomputed Cholesky factor.
+The solver selects the direct or iterative strategy automatically. When it uses the direct factorization, $\rho$ stays fixed even if `adaptive_rho=True`.
 
 ### $w$-subproblem: Nesterov accelerated-gradient path
 
@@ -1396,7 +1402,7 @@ $$
 <\texttt{cg\_tol}\times p.
 $$
 
-Although the public/internal arguments are still named `cg_max_iter` and `cg_tol`, the current non-Cholesky fallback is Nesterov accelerated gradient, not conjugate gradient. Quantile/check loss is excluded from this shared ADMM route because its step-function subgradient does not satisfy the smooth-gradient assumptions of this inner solve.
+The parameters `cg_max_iter` and `cg_tol` control this Nesterov accelerated-gradient inner solve, despite the `cg` prefix; the non-Cholesky path does not use conjugate gradient. Quantile/check loss is excluded from this shared ADMM route because its step-function subgradient does not satisfy the smooth-gradient assumptions of this inner solve.
 
 ### Primal/dual residuals and adaptive $\rho$
 
@@ -1435,7 +1441,7 @@ The solver returns $z$, since $z$ is always the variable after applying the pena
 
 ## 10. `exact` (closed-form path)
 
-**Implemented in**: `_fit_mixin._solve_exact_*`
+**File**: `statgpu/linear_model/penalized/_fit_mixin.py`
 
 **Use case**: Squared-error + L2 rows where solver dispatch selects the closed-form/eigendecomposition path, based on systems of the form
 
@@ -1450,10 +1456,10 @@ with estimator-specific intercept treatment applied separately.
 
 ## Solver dispatch
 
-For direct model fitting, `solver="auto"` follows the model-level compatibility table. Public `none` / `null` is canonicalized to `L2(alpha=0)` before dispatch, so no-penalty smooth rows follow the L2 branch. A simplified view is:
+For shared `PenalizedGLM` (`PenalizedGeneralizedLinearModel`) direct fits, `solver="auto"` follows the model-level compatibility table. Ordinary `GLM`/`GeneralizedLinearModel` uses its own dispatch (including IRLS for smooth unpenalized automatic fits); dedicated wrappers such as `LogisticRegression` also follow their own model pages. Public `none` / `null` is canonicalized to `L2(alpha=0)` before dispatch, so no-penalty smooth rows follow the L2 branch. A simplified view is:
 
 ```text
-direct fit with solver="auto"
+shared PenalizedGLM direct fit with solver="auto"
 ├── squared_error + L2/none              → CPU exact / GPU Newton
 ├── quantile + L2/none                   → IRLS
 ├── quantile + L1/ElasticNet             → ordinary FISTA
@@ -1469,13 +1475,53 @@ direct fit with solver="auto"
 └── other group penalties                → group-aware FISTA / FISTA-LLA
 ```
 
-For Quantile L2/no-penalty objectives, explicit `solver="irls"` selects the same algorithm as `auto`, while explicit `solver="fista"` executes ordinary FISTA and is never silently substituted by IRLS. Automatic Quantile Group SCAD/MCP uses the private Group Proximal IRLS-LLA estimator/CV route; an explicit Group SCAD/MCP `solver="fista"` remains ordinary group proximal FISTA and is not rewritten into that automatic route. The Group Proximal IRLS-LLA surrogate equations and weighting semantics are given in the [Quantile Regression model page](../models/quantile.md). Quantile FISTA-BB, estimator/CV L-BFGS, and ADMM requests are unsupported and raise an error before numerical iteration. Direct low-level L-BFGS retains the existing omitted/uniform Quantile behavior, with non-uniform weights rejected. Sparse Quantile ordinary FISTA and SCAD/MCP Proximal IRLS-CD are separate estimator algorithms.
+For Quantile L2/no-penalty objectives, explicit `solver="irls"` selects the same algorithm as `auto`, while explicit `solver="fista"` executes ordinary FISTA and is never silently substituted by IRLS. Automatic Quantile Group SCAD/MCP uses Group Proximal IRLS-LLA for direct fitting and cross-validation; an explicit Group SCAD/MCP `solver="fista"` remains ordinary group proximal FISTA and is not rewritten into that automatic route. The Group Proximal IRLS-LLA surrogate equations and weighting semantics are given in the [Quantile Regression model page](../models/regression/quantile.md). Quantile FISTA-BB, estimator/CV L-BFGS, and ADMM requests are unsupported and raise an error before numerical iteration. Direct low-level L-BFGS accepts Quantile calls with omitted or uniform weights and rejects non-uniform weights. Sparse Quantile ordinary FISTA and SCAD/MCP Proximal IRLS-CD are separate estimator algorithms.
 
-The tree is intentionally a summary. Exact family/backend/problem-size rules—especially Poisson and Negative-Binomial CV sparse routing—are defined in the [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md).
+For the full family/backend/problem-size rules, including Poisson and Negative-Binomial sparse CV, see the [Solver × Penalty Compatibility Matrix](solver-penalty-matrix.md).
 
 `PenalizedGLM_CV` has a related but intentionally separate smooth-L2 policy. With `solver="auto"`, Quantile L2/no-penalty candidates and selected final refits use IRLS; an explicit `solver="fista"` request remains authoritative for both CV child fits and the selected full-data refit. Gamma, Inverse-Gaussian, and Negative-Binomial L2 CV/final-refit routes use L-BFGS, while logistic, Poisson, and Tweedie L2 rows use Newton. Consult the compatibility matrix rather than inferring CV behavior from the direct-fit tree.
 
 `sample_weight` does not change an explicitly requested solver. Unsupported weighted combinations raise instead of selecting a different solver.
+
+<a id="quantile-low-level-solvers"></a>
+
+## Quantile low-level solver calls
+
+This section is for callers of functions exported by `statgpu.solvers` and of `QuantileLoss.irls()`. For estimator selection, use the [Quantile model guide](../models/regression/quantile.md) and the [compatibility matrix](solver-penalty-matrix.md).
+
+<a id="quantile-solver-scope"></a>
+
+### Supported scope and model-interface differences
+
+Quantile/check (pinball) loss is non-smooth. Ordinary FISTA is available on supported sparse convex estimator paths and can also be requested explicitly for Quantile L2/no-penalty objectives; `solver="auto"` continues to prefer IRLS for those L2/no-penalty rows. This Quantile use is an explicitly supported first-order proximal/subgradient method, not a claim that textbook smooth-gradient FISTA convergence theory applies to pinball loss.
+
+FISTA-BB, shared ADMM, Newton, Proximal Newton, and L-BFGS-B do not support Quantile. Direct low-level ordinary L-BFGS accepts Quantile calls with omitted or uniform weights, whereas estimator/CV `solver="lbfgs"` is unsupported and genuine non-uniform Quantile L-BFGS weights raise an error.
+
+### Inputs and supported weights
+
+For Quantile calls to `fista_solver`, `lbfgs_solver`, `QuantileLoss.irls()`, `proximal_irls_quantile_solver`, and `fista_lla_path`, supply real finite `X` with shape `(n, p)` and one-dimensional `y` with shape `(n,)`, with matching row counts and at least one observation. Invalid shapes and non-finite values raise `ValueError` before numerical iteration. A one-column response matrix is not accepted in place of a vector.
+
+Supported analytic weights have shape `(n,)`, contain finite nonnegative values, and have a positive sum. They define the normalized weighted pinball objective, dividing the weighted loss by the sum of weights. Ordinary FISTA, Quantile IRLS, and the Quantile continuation solvers support these weights. Direct `lbfgs_solver` accepts only omitted or uniform weights for Quantile; non-uniform weights raise an error. This low-level compatibility does not make estimator/CV `solver="lbfgs"` available for Quantile.
+
+| Callable | Additional input controls |
+|---|---|
+| `fista_solver` | Positive integer `max_iter`; finite positive `tol`; boolean `cv_mode`; `lipschitz_L=None` or a finite positive value. Optional `init_coef` is a finite real vector of length `p`. |
+| `lbfgs_solver` | Positive integer `max_iter` and `history_size`; finite positive `tol`; optional finite real `init_coef` of length `p`. |
+| `QuantileLoss.irls()` | At least one feature; boolean `fit_intercept`; positive integer `max_iter`; finite positive `tol` and `eps`, with `eps` large enough for finite float64 weights. Optional `init_coef` matches the supplied design columns. |
+| `proximal_irls_quantile_solver` | Scalar SCAD/MCP; boolean `fit_intercept`; positive integer `max_lla_per_step`; finite positive `tol` and `lla_tol`. `max_iter=None` sets an IRLS iteration limit of 100 for each inner solve; otherwise use a positive integer or a list/tuple with one positive integer per path value. |
+| `fista_lla_path` | Scalar or group SCAD/MCP; boolean `fit_intercept` and `return_path`; positive integer `max_lla_per_step`; finite positive `tol` and `lla_tol`; positive integer `max_iter` or one positive integer per path value in a list/tuple. Optional `init_coef` is a finite real vector of length `p`, excluding the intercept; `init_intercept` is a finite real scalar. |
+
+For both continuation functions, `alpha_path` must be a non-empty one-dimensional sequence of finite positive values in non-increasing order from the continuation start to the target. SCAD requires finite `a > 2`; MCP requires finite `gamma > 1`. Boolean values are not accepted as iteration counts, tolerances, path values, or penalty shape parameters. Invalid controls raise `ValueError` rather than being silently coerced.
+
+### Return values and convergence warnings
+
+`proximal_irls_quantile_solver` returns `(coef, intercept, n_iter)`, with NumPy `coef` of shape `(p,)`, a scalar intercept, and the total number of completed IRLS updates across continuation and LLA steps. The intercept is zero when `fit_intercept=False`.
+
+`fista_lla_path` returns the same three-item layout by default. With `return_path=True`, it returns `(coef, intercept, n_iter, path)`. For `m` continuation values, `path` contains NumPy arrays `alpha` `(m,)`, `coef` `(m, p)`, `intercept` `(m,)`, and `n_iter` `(m,)`. The path's iteration counts are cumulative, not per-alpha increments.
+
+The numerical method and iteration-count units can differ between default scalar SCAD/MCP calls and group, warm-start, custom-surrogate, or path-reporting calls: the former count IRLS updates, while FISTA-LLA calls count proximal updates. Do not compare those counts as if they measured the same algorithm, or assume that requesting a path only adds reporting.
+
+For these Quantile continuation solvers, failure to satisfy the target-alpha inner or outer stopping criterion produces a `ConvergenceWarning` and returns the final iterate. FISTA-LLA returns its final accepted iterate. A returned coefficient vector or positive iteration count alone is not evidence of convergence. Review the warning before using the fit; changing a budget or initialization is a new solve, not proof that the previous result converged.
 
 ## References
 

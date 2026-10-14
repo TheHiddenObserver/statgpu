@@ -37,10 +37,14 @@ class DBSCAN(BaseEstimator):
 
     CPU strategy:
       - p ≤ 12 (low-dim): cKDTree ``query_pairs`` → Cython Union-Find
-      - p > 12 (high-dim): sklearn ``radius_neighbors_graph`` → Cython CSR
+      - p > 12 (high-dim): sklearn ``radius_neighbors`` → Cython CSR
 
     GPU strategy:
       - Batched distance computation → sparse neighbor graph → connected components
+
+    GPU float32 conversion and expanded distances can erase small separations
+    at large common feature offsets. Center in float64 before fitting and keep
+    the same ``eps``; translation preserves Euclidean neighborhoods.
     """
 
     def __init__(
@@ -295,14 +299,15 @@ class DBSCAN(BaseEstimator):
         return backend.asarray(row_idx, dtype=backend.int64), backend.asarray(col_idx, dtype=backend.int64)
 
     # ------------------------------------------------------------------ #
-    #  GPU path (fully on-device for torch, no GPU→CPU transfer)         #
+    #  Torch GPU path (final labels and core indices pass through host)  #
     # ------------------------------------------------------------------ #
 
     def _fit_gpu(self, backend, X_arr, n_samples, n_features):
-        """Fully GPU-based DBSCAN: single-pass distance → graph → labels.
+        """Torch DBSCAN: GPU distances, cached edges, and graph labeling.
 
-        Computes distances once, caches edges as GPU tensors, then processes
-        entirely on GPU. Only final labels transferred to CPU.
+        Distances use float32. Scalar decisions can synchronize the device;
+        final labels and core indices are both copied to CPU before the public
+        fit method converts them back to the selected backend.
         """
         import torch
 
@@ -416,9 +421,9 @@ class DBSCAN(BaseEstimator):
         if backend.name == "numpy":
             return self._fit_numpy(X_arr)
 
-        # GPU path: fully on-device computation
+        # GPU distance and label computation, with documented host boundaries
         if hasattr(X_arr, "is_cuda") and X_arr.is_cuda:
-            # PyTorch CUDA: use fully GPU-based approach
+            # PyTorch CUDA: graph operations on GPU; final indices pass through host
             labels_np, core_indices = self._fit_gpu(backend, X_arr, n_samples, n_features)
         elif backend.name == "cupy":
             # CuPy: GPU distance + CuPy-based labeling (uses host syncs in CC)

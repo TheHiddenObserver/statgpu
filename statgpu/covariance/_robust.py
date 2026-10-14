@@ -10,8 +10,8 @@ import numpy as np
 from scipy.stats import chi2 as _chi2
 
 from statgpu._config import Device
-from statgpu.backends import _get_xp, _to_float_scalar, xp_asarray, xp_zeros
-from statgpu.covariance._empirical import EmpiricalCovariance, _detect_backend, _stable_inv
+from statgpu.backends import _to_float_scalar, xp_asarray, xp_zeros
+from statgpu.covariance._empirical import EmpiricalCovariance, _stable_inv
 
 
 def _consistency_factor(p, alpha):
@@ -47,6 +47,10 @@ class MinCovDet(EmpiricalCovariance):
     Random subset indices and chi-square cutoffs are generated on the CPU, but
     covariance, inverse, distance, ordering, C-step, and reweighting operations
     stay on the selected NumPy, CuPy, or Torch backend.
+    ``device='cpu'`` selects NumPy, ``'cuda'`` selects CuPy CUDA, and
+    ``'torch'`` selects Torch CUDA; unavailable explicit GPU requests raise.
+    ``'auto'`` inherits global policy, preserving native input arrays (including
+    Torch CPU) only when the global policy is also automatic.
     """
 
     def __init__(
@@ -62,19 +66,7 @@ class MinCovDet(EmpiricalCovariance):
         self.random_state = random_state
 
     def _prepare_input(self, X):
-        backend_name = _detect_backend(X, self._get_compute_device())
-        xp = _get_xp(backend_name)
-        ref = None
-        if backend_name == "torch":
-            import torch
-
-            if isinstance(X, torch.Tensor):
-                ref = X
-            else:
-                dev = self._get_compute_device()
-                target = "cuda" if dev.value in ("torch", "cuda") else "cpu"
-                ref = torch.empty(0, dtype=torch.float64, device=target)
-        X_arr = xp_asarray(X, dtype=xp.float64, xp=xp, ref_arr=ref)
+        backend_name, xp, X_arr = self._prepare_covariance_input(X)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
         if X_arr.ndim != 2 or int(X_arr.shape[0]) < 2 or int(X_arr.shape[1]) < 1:
@@ -125,11 +117,8 @@ class MinCovDet(EmpiricalCovariance):
         c_reweight = _consistency_factor(p, 0.975)
 
         if n_support < p + 1:
-            support_mask = (
-                xp.zeros(n, dtype=xp.bool, device=X_arr.device)
-                if backend_name == "torch"
-                else xp.zeros(n, dtype=xp.bool_)
-            )
+            bool_dtype = xp.bool if backend_name == "torch" else xp.bool_
+            support_mask = xp_zeros(n, bool_dtype, xp, X_arr)
             support_mask[best_subset] = True
             final_location = raw_location
             final_cov = raw_cov_corrected

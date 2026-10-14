@@ -34,7 +34,7 @@ def thin_plate_spline_basis(x, knots, penalty_order=2, xp=None):
 
     Returns
     -------
-    B : array, shape (n, m + d + 1)
+    B : array, shape (n, n_knots + d + 1)
         Thin plate spline basis matrix.  Includes the radial basis
         functions plus a polynomial term (intercept + linear terms).
 
@@ -42,9 +42,13 @@ def thin_plate_spline_basis(x, knots, penalty_order=2, xp=None):
     -----
     The thin plate spline basis consists of:
     1. Radial basis functions: φ(||x - ξ_j||) for each knot ξ_j
-    2. Polynomial terms: [1, x_1, ..., x_d] (to ensure completeness)
+    2. Polynomial terms: [1, x_1, ..., x_d]
 
-    For 1-D data, this is equivalent to the cubic smoothing spline basis.
+    The polynomial block is always intercept plus linear terms, regardless
+    of penalty_order. This matches the polynomial null space for order 2;
+    other orders do not receive their full order-specific polynomial block.
+    The function constructs features only, without fitting a smoother,
+    imposing coefficient side constraints, or constructing a penalty matrix.
     """
     xp = _get_xp(xp)
 

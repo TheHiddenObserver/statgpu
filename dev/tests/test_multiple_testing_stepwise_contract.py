@@ -53,10 +53,11 @@ def test_stepwise_decisions_stop_propagate_and_include_equality(
 def test_holm_documentation_keeps_inclusive_threshold_and_stopping_rule(language):
     # A lexical guard is not evidence of statistical validity.
     root = Path(__file__).resolve().parents[2]
-    text = (root / f"docs/{language}/models/multiple-testing.md").read_text(
+    text = (root / f"docs/{language}/models/testing/multiple-testing.md").read_text(
         encoding="utf-8"
     )
-    holm = text.split("**Holm", 1)[1].split("**Benjamini", 1)[0]
+    holm = text.split("### Make individual decisions with Holm" if language == "en"
+                      else "### 用 Holm 逐项作出判断", 1)[1].split("\n### ", 1)[0]
     assert r"p_{(i)} \leq \alpha / (m - i + 1)" in holm
     assert r"p_{(i)} < \alpha / (m - i + 1)" not in holm
     if language == "en":
@@ -65,3 +66,20 @@ def test_holm_documentation_keeps_inclusive_threshold_and_stopping_rule(language
     else:
         assert "首次不满足条件时立即停止" in holm
         assert "后续假设均不拒绝" in holm
+
+
+@pytest.mark.parametrize("language", ["en", "cn"])
+def test_hochberg_documentation_keeps_propagation_equality_and_no_rejections(language):
+    root = Path(__file__).resolve().parents[2]
+    text = (root / f"docs/{language}/models/testing/multiple-testing.md").read_text(encoding="utf-8")
+    heading = "### Hochberg's step-up decision" if language == "en" else "### Hochberg 的逐步上升判断"
+    hochberg = text.split(heading, 1)[1].split("\n## ", 1)[0]
+    assert r"p_{(k)} \leq \alpha / (m - k + 1)" in hochberg
+    assert "[0.0625, 0.0625, 0.5]" in hochberg
+    if language == "en":
+        assert "through $k$, including equality" in hochberg
+        assert "If no rank passes, reject none" in hochberg
+    else:
+        assert "第 1 项到第 $k$ 项的全部假设" in hochberg
+        assert "等于阈值时也通过比较" in hochberg
+        assert "若没有任何位置通过，就不拒绝任何假设" in hochberg

@@ -1,7 +1,7 @@
 # 求解器 × 惩罚项兼容性矩阵
 
 > 语言：中文  
-> 最后更新：2026-09-23  
+> 最后更新：2026-10-13  
 > 页面定位：兼容性参考  
 > 切换：[英文版](../../en/guides/solver-penalty-matrix.md)
 
@@ -15,7 +15,7 @@
 2. 显式指定求解器时，需要满足哪些数值前提？
 3. `PenalizedGLM_CV` 在 `solver="auto"` 下会选择什么？
 
-模型专属行为放在对应模型页；更新公式和算法前提放在 [求解器算法](solver-algorithms.md)。
+模型专属行为见对应模型页；更新公式和算法前提见 [求解器算法](solver-algorithms.md)。
 
 通用约定：
 
@@ -27,6 +27,8 @@
 `AdaptiveGroupLassoPenalty` 可以作为公开惩罚对象使用，但调用者必须显式提供组权重，因此没有字符串注册别名。
 
 ## 1. 直接拟合的 `solver="auto"`
+
+本表适用于共享 `PenalizedGLM`（`PenalizedGeneralizedLinearModel`）的直接拟合。普通 `GLM`/`GeneralizedLinearModel` 有独立的调度规则，包括光滑无惩罚目标自动使用 IRLS 的情形；`LogisticRegression` 等专用封装类应以各自模型页为准。
 
 | 损失 | l2 / none | l1 | elasticnet | scad | mcp | adaptive_l1 | group_lasso | group_scad | group_mcp |
 |------|:---------:|:--:|:----------:|:----:|:---:|:-----------:|:-----------:|:----------:|:---------:|
@@ -43,11 +45,12 @@
 
 - 单元格表示**实际的自动分发路径**，不代表全部可用的显式求解器选择。
 - FISTA-LLA 表示标量 SCAD/MCP 使用的非凸延续路径；对于具有合适光滑/一阶结构的其他损失，分组 FISTA-LLA 是对应的分组路径。标量 Quantile SCAD/MCP 改用专用 Proximal IRLS-LLA 路径，公开底层 `fista_lla_path` 调用同样如此。
-- Quantile 的 Group SCAD/MCP 改用分组 Proximal IRLS-LLA：先用 Quantile IRLS 对 pinball 目标构造二次上界，再在所选后端求解相应的凸 Adaptive Group Lasso 加权最小二乘子问题。
+- Quantile 的 Group SCAD/MCP 改用分组 Proximal IRLS-LLA：先用 Quantile IRLS 构造带 epsilon 稳定化的加权二次近似，再在所选后端求解相应的凸 Adaptive Group Lasso 加权最小二乘子问题。
+- 这些 Quantile IRLS 二次近似不保证原始 pinball 目标具有全局上界最小化（MM）的单调性，详见[算法说明](solver-algorithms.md#1-proximal-irls-cd)。
 - Proximal IRLS-CD 与分组 Proximal IRLS-LLA 都是内部解析后的实际路径，不是公开的显式 `solver=` 关键字。
 - Group Lasso 和 Adaptive Group Lasso 仍使用分组 FISTA。
 
-分布族/链接函数的定义域限制、权重语义或特殊初始化规则见 [广义线性模型](../models/generalized-linear-model.md)。Quantile 的非光滑性质和具体求解器选择见 [分位数回归](../models/quantile.md)。
+分布族/链接函数的定义域限制、权重语义或特殊初始化规则见 [广义线性模型](../models/regression/generalized-linear-model.md)。Quantile 的非光滑性质和具体求解器选择见 [分位数回归](../models/regression/quantile.md)。
 
 ## 2. 显式求解器约束
 
@@ -63,8 +66,8 @@
 | `fista_bb` | BB 步长能够使用有意义的光滑梯度差 | 受支持的稀疏近端路径 | 损失函数缺少有效光滑梯度差时不可用 |
 | `admm` | 支持相应变量分裂，并且 w 子问题光滑 | 受支持的近端形式 | 具体支持范围依路径而定 |
 | `irls_cd` | 专用标量 IRLS/坐标下降结构 | 专用路径 | 不是通用备用算法 |
-| `proximal_irls_cd` | 专用近端 IRLS 上界近似 | 标量非凸专用路径 | 内部解析标签；不是公开显式 `solver=` 关键字 |
-| `group_proximal_irls_lla` | Quantile IRLS 上界 + 分组 LLA 凸近似 | Quantile Group SCAD/MCP 自动路径 | 内部实际执行标签；不是公开显式 `solver=` 关键字 |
+| `proximal_irls_cd` | 专用近端 IRLS 二次近似 | 标量非凸专用路径 | 内部解析标签；不是公开显式 `solver=` 关键字 |
+| `group_proximal_irls_lla` | Quantile IRLS 二次近似 + 分组 LLA 凸惩罚 | Quantile Group SCAD/MCP 自动路径 | 内部实际执行标签；不是公开显式 `solver=` 关键字 |
 | `proximal_newton` | 损失函数与惩罚项具备相容的 Newton/近端结构 | 依路径而定 | 行为取决于具体损失函数与惩罚项 |
 
 不支持的显式估计器组合会在数值拟合前报错。受支持时，Group SCAD/MCP 的显式 `solver="fista"` 仍然表示显式近端 FISTA，不会被静默改写为自动的分组 Proximal IRLS-LLA。
@@ -104,9 +107,9 @@
 - 表格记录实际的自动路径；只有确实影响分发的后端/规模差异才直接写在对应单元格中。
 - 如果某个“损失函数 × 惩罚项 × 求解器”组合支持显式求解器，那么这个请求在 CV 中仍保持有效，不会仅因为数据折或权重存在而被静默替换。
 - 候选模型拟合与最终全数据重拟合会保留解析后的损失函数、惩罚项、分组与求解器约定。
-- Quantile Group SCAD/MCP 的候选拟合使用各训练折自己的解析权重，选定后的最终重拟合使用全数据权重，并进入同一个分组 Proximal IRLS-LLA 路径。
-- 分组输入会在候选模型拟合前验证；详细规则见 [损失函数 × 惩罚项 × 求解器框架](loss-penalty-solver-framework.md)。
-- 严格/两阶段 CV 语义和模型专属验证细节放在对应模型页，不在本页重复。
+- Quantile Group SCAD/MCP 的候选拟合使用各训练折自己的分析权重，选定后的最终重拟合使用全数据权重，并进入同一个分组 Proximal IRLS-LLA 路径。
+- 分组输入会在候选模型拟合前验证。
+- 严格/两阶段 CV 选项与模型专属验证行为见对应模型页。
 
 ## 5. 惩罚项参考
 
@@ -117,22 +120,22 @@
 | `elasticnet` | α[λ‖β‖₁ + ½(1-λ)‖β‖²] | 软阈值 + L2 缩放 | `alpha`, `l1_ratio` |
 | `scad` | SCAD(β; α, a) | SCAD 阈值化 / LLA | `alpha`, `a` |
 | `mcp` | MCP(β; α, γ) | MCP 阈值化 / LLA | `alpha`, `gamma` |
-| `adaptive_l1` | αΣ_j w_j|β_j| | 带权软阈值 | `alpha`、weights |
+| `adaptive_l1` | αΣ_j w_j\|β_j\| | 带权软阈值 | `alpha`、weights |
 | `group_lasso` | αΣ_g √p_g‖β_g‖₂ | 分块软阈值 | `alpha`、`groups` |
 | `AdaptiveGroupLassoPenalty` | αΣ_g w_g√p_g‖β_g‖₂ | 带权分块软阈值 | `alpha`、`groups`、`weights`；仅对象形式 |
 | `group_scad` | Σ_g SCAD(‖β_g‖₂; α√p_g, a) | 分组 LLA 近似 | `alpha`、`groups`、`a` |
 | `group_mcp` | Σ_g MCP(‖β_g‖₂; α√p_g, γ) | 分组 LLA 近似 | `alpha`、`groups`、`gamma` |
 
-Group SCAD/MCP 的凸 LLA 近似通过 Adaptive Group Lasso 问题表示。分组元数据必须与最终设计矩阵宽度一致；精确验证规则见 [损失函数 × 惩罚项 × 求解器框架](loss-penalty-solver-framework.md)。
+Group SCAD/MCP 的 LLA 将惩罚替换为 Adaptive Group Lasso 项。当数据拟合项为凸时，完整子问题为凸。分组元数据必须与最终设计矩阵宽度一致。
 
 ## 6. 相关参考
 
-本页刻意不重复模型专属推导、优化保护措施、推断约定或验证流程。
+以下参考说明这些组合所用的算法、模型专属假设与推断选项。
 
 - [求解器算法](solver-algorithms.md) — 更新公式、收敛/停止行为与算法前提
 - [损失函数 × 惩罚项 × 求解器框架](loss-penalty-solver-framework.md) — 计算架构与分发概念
-- [损失函数](../models/losses.md) — 损失层数学定义与数值原语
-- [广义线性模型](../models/generalized-linear-model.md) — GLM 分布族/链接、权重、CV 与推断
-- [分位数回归](../models/quantile.md) — Quantile 专属求解器、惩罚项、权重和推断行为
-- [稳健回归](../models/robust.md) — 稳健损失估计器行为
+- [损失函数](../reference/losses.md) — 损失层数学定义与数值原语
+- [广义线性模型](../models/regression/generalized-linear-model.md) — GLM 分布族/链接、权重、CV 与推断
+- [分位数回归](../models/regression/quantile.md) — Quantile 专属求解器、惩罚项、权重和推断行为
+- [稳健回归](../models/regression/robust.md) — 稳健损失估计器行为
 - [带惩罚 GLM 推断](penalized-glm-inference.md) 与 [推断模式](inference-modes.md) — 推断支持范围与结果解释
