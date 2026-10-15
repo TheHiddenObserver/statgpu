@@ -1,7 +1,7 @@
 # 估计器共享 API
 
 > 语言：中文  
-> 最后更新：2026-10-06  
+> 最后更新：2026-10-15  
 > 切换：[English](../../en/reference/estimator-api.md)
 
 本页说明继承自 `BaseEstimator` 的方法。类上有这些方法，不代表相应模型一定提供系数 p 值或缓存训练数组。模型覆盖的方法及其拟合结果以模型专属参考为准。这些辅助方法不会自动重拟合模型、判断重采样方案是否科学合理，也不会自动修正变量选择的不确定性。
@@ -33,7 +33,7 @@ model.adjust_pvalues(pvalues=None, method="bh", alpha=0.05, axis=0, backend="aut
 - `method`：`"bh"`、`"by"`、`"holm"`、`"bonferroni"` 或 `"hochberg"`；别名见[多重检验指南](../guides/multiple-testing-combine-pvalues.md)。
 - `alpha`：位于 `(0, 1)` 的有限显著性水平。调用前应自行验证；当前实现可能接受 NaN 并返回全部为假的拒绝决定。参见[有限显著性水平示例](../guides/multiple-testing-combine-pvalues.md#a-complete-axis-and-weight-example)。
 - `axis=0`：沿第一个轴校正；`None` 将全部元素视为同一个检验族。多目标系数数组尤其需要明确检验族。
-- `backend`：`"auto"`、`"numpy"`、`"cupy"` 或 `"torch"`；估计器解析为 GPU 设备时，`auto` 显式选择对应 CuPy/Torch；解析为 CPU 时，当前仍由传入数组决定后端。若必须返回 NumPy，请设 `backend="numpy"`。估计器辅助方法中显式指定 `backend="torch"` 要求 Torch CUDA，即使估计器配置为 CPU 也是如此。
+- `backend`：`"auto"`、`"numpy"`、`"cupy"` 或 `"torch"`；估计器解析为 GPU 设备时，`auto` 显式选择对应 CuPy/Torch；解析为 CPU 时，当前仍由传入数组决定后端。若必须返回 NumPy，请设 `backend="numpy"`。估计器辅助方法中显式指定 `backend="torch"` 要求 Torch CUDA，即使估计器配置为 CPU 也是如此。辅助方法会先将 P 值及传入的合并权重转换到 CUDA，再调用模块级函数；模块级函数保留 Torch 输入设备的规则不会覆盖估计器的这一步转换。若希望由传入的 Torch CPU 张量或指定编号的 CUDA 张量决定计算位置，请直接调用[模块级函数](../guides/multiple-testing-combine-pvalues.md#backend-selection-and-conversion)。
 
 返回字典，键为 `method`、`alpha`、`axis`、`backend`、`pvalues`、`pvalues_adjusted` 和布尔数组 `reject`。校正值和拒绝决定保持输入形状。`backend` 字段记录辅助方法传下去的选项，可能仍为 `"auto"`，不一定是最终数组库名。没有显式转换时，`pvalues` 可能保留原列表或数组类型；它不是模块函数返回的 `(reject, adjusted)` 元组。原始边际 p 值必须有效，并满足所选方法的依赖结构假设。
 

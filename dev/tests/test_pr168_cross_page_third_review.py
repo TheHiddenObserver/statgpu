@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 @pytest.mark.parametrize('lang', ['en', 'cn'])
 @pytest.mark.parametrize('kind,slug,marker', [
     ('models/testing', 'multiple-testing', 'multiple-testing-learner'),
+    ('models/testing', 'multiple-testing-fwer', 'multiple-testing-fwer'),
     ('guides', 'multiple-testing-combine-pvalues', 'multiple-testing-axis'),
 ])
 def test_complete_multiple_testing_examples(lang, kind, slug, marker):
@@ -81,7 +82,8 @@ def test_fisher_rejects_weights_and_safe_level_guard():
     result = LinearRegression(device='cpu').adjust_pvalues([.001, .01, .8], alpha=.05)
     np.testing.assert_array_equal(result['reject'], [True, True, False])
     for lang in ['en', 'cn']:
-        for kind, slug in [('models/testing', 'multiple-testing'), ('guides', 'multiple-testing-combine-pvalues')]:
+        # Input validation now lives in the complete API reference.
+        for kind, slug in [('guides', 'multiple-testing-combine-pvalues')]:
             text = (ROOT / 'docs' / lang / kind / f'{slug}.md').read_text()
             assert 'NaN' in text and 'alpha' in text
 
@@ -108,10 +110,17 @@ def test_one_class_subset_has_threshold_metrics_but_no_roc_evaluation(include_cu
 def test_multiple_testing_statistical_and_language_boundaries(lang):
     model = (ROOT / 'docs' / lang / 'models/testing/multiple-testing.md').read_text()
     guide = (ROOT / 'docs' / lang / 'guides/multiple-testing-combine-pvalues.md').read_text()
-    assert all(term in model for term in ['PRDS', 'Simes', 'FWER', 'FDR', 'arxiv.org/abs/1808.09011'])
+    fwer = (ROOT / 'docs' / lang / 'models/testing/multiple-testing-fwer.md').read_text()
+    fdr = (ROOT / 'docs' / lang / 'models/testing/multiple-testing-fdr.md').read_text()
+    combination = (ROOT / 'docs' / lang / 'models/testing/pvalue-combination.md').read_text()
+    assert all(term in model for term in ['PRDS', 'Simes', 'FWER', 'FDR'])
+    assert 'Simes' in fwer and 'FWER' in fwer
+    assert 'PRDS' in fdr and 'FDR' in fdr
+    assert 'arxiv.org/abs/1808.09011' in combination
     assert all(term in guide for term in ['fdr_hochberg', 'weights', 'float64', 'eps', 'multipletests'])
     assert 'Weight input is not used' not in guide
-    assert 'No assumption on dependence structure' not in model
-    if lang == 'cn':
-        assert 'Order p-values' not in model
-        assert 'Raw p-values' not in model
+    for text in (model, fwer, fdr, combination):
+        assert 'No assumption on dependence structure' not in text
+        if lang == 'cn':
+            assert 'Order p-values' not in text
+            assert 'Raw p-values' not in text

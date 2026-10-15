@@ -151,7 +151,7 @@ def test_other_optional_bridges_precede_their_specific_use(language):
                     if language == 'en' else ('非负', '混合权重', '均值向量', '协方差', '混合密度')):
         assert meaning in before
 
-    text = _text(language, 'models/testing/multiple-testing')
+    text = _text(language, 'models/testing/pvalue-combination')
     call = text.index('statistic, global_p = combine_pvalues(')
     formula = text.index('$-2\\log p_i$')
     bridge = _compact(text[formula:call])

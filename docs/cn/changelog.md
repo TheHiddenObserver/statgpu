@@ -1,9 +1,20 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-10-10<br>
+> 最后更新：2026-10-15<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
+
+## 未发布 — 多重检验的 Torch 设备处理（PR #171）
+
+### 修复（2026-10-15）
+
+- **多重检验保留 Torch 输入设备**：
+  - 模块级 `adjust_pvalues`、`multipletests` 和 `combine_pvalues` 此前选择 Torch 时，没有将数组分配绑定到输入张量的具体设备。因此 CUDA 可用时，转换可能移动 CPU 输入，也可能将秩、校正因子或权重分配到其他 CUDA 设备。
+  - 现在无论使用 `backend="auto"` 还是显式 `"torch"`，Torch `pvalues` 张量都会保留其 CPU 或确切的 CUDA 设备编号。Float32 输入在同一设备上升为 float64；临时数组、传入或默认权重以及输出均位于该设备。权重不参与后端或设备选择。
+  - 非 Torch P 值显式指定 `backend="torch"` 时，CUDA 可用则使用当前具体 CUDA 设备，否则使用 CPU。MPS 等不支持的 Torch P 值设备会引发 `ValueError`，因为这些函数仅支持 CPU 与 CUDA 上的 float64 计算，不会静默改用其他设备。
+  - 模块级函数仍不受 `set_device` 影响。估计器辅助方法选择 Torch 时，仍保留独立的 CUDA 要求和输入转换；共享后端工厂的行为不变。NaN `alpha`、权重总和溢出及极端概率尾部的已有数值警告仍然适用。
+  - 同步更新中英文多重检验 API、设备指南与估计器辅助方法参考，并在 `dev/tests/test_multiple_testing_device_ownership.py` 中新增设备归属回归测试，其中物理 CUDA 检查仅在相应硬件可用时运行。本次本地更新不声称已完成物理 GPU 验证。
 
 ## 未发布 — 入门指南与 API 参考（PR #168）
 

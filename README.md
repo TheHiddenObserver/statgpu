@@ -63,7 +63,7 @@ Knockoff 中文：[总览](docs/cn/models/feature-selection/knockoff.md) · [Fix
 - **Device & memory**: [Device and GPU Memory](docs/en/guides/device-and-memory.md)
 - **PyTorch backend**: [PyTorch Backend](docs/en/guides/pytorch-backend.md)
 - **Distribution API**: [Distribution API](docs/en/guides/distribution-api.md)
-- **Multiple testing**: [Multiple Testing](docs/en/guides/multiple-testing-combine-pvalues.md)
+- **Multiple testing**: [Overview and tutorials](docs/en/models/testing/multiple-testing.md) · [Adjustment and combination API](docs/en/guides/multiple-testing-combine-pvalues.md)
 - **Contributing**: [Contributor Guide](CONTRIBUTING.md)
 - **Releasing**: [PyPI Release Guide](RELEASING.md)
 - **Changelog**: [Changelog](docs/en/changelog.md)

@@ -41,7 +41,8 @@ Each family entry leads to its tutorials and complete API reference.
 - [Distribution API](guides/distribution-api.md) — statistical distribution functions
 - [Regression Diagnostics](guides/regression-diagnostics.md) — residuals, leverage, Cook’s distance, and VIF
 - [Inference Modes](guides/inference-modes.md) — choosing and interpreting coefficient-inference methods
-- [Multiple Testing](guides/multiple-testing-combine-pvalues.md) — p-value adjustment and combination
+- [Multiple Testing overview](models/testing/multiple-testing.md) — choose a family, error criterion, or global test
+- [P-value adjustment and combination API](guides/multiple-testing-combine-pvalues.md) — complete signatures, shapes, and numerical limits
 - [Benchmarks](guides/benchmarks.md) — benchmark methodology and comparison notes
 - [Interactive Benchmark Dashboard](guides/statgpu_benchmark_dashboard.md) — filters, charts, metric panels, and data provenance
 

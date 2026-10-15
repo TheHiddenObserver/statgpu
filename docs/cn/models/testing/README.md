@@ -26,6 +26,12 @@
 [多重检验](multiple-testing.md)解释错误率标准、校正方法与完整示例。
 如果已有多个 P 值，需要选择控制哪种错误率，或理解合并证据的含义，从这里开始。
 
+阅读概览后，可选择对应教程：
+
+- [FWER：Bonferroni、Holm、Hochberg](multiple-testing-fwer.md)
+- [FDR：BH 与 BY](multiple-testing-fdr.md)
+- [P 值合并：Fisher、Stouffer、Cauchy/ACAT](pvalue-combination.md)
+
 若希望在 knockoff 假设下选择变量，请转到独立的[特征选择方法族](../feature-selection/README.md)。
 
 ## 查阅完整接口
