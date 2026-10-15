@@ -8,6 +8,10 @@ All notable changes to statgpu are documented here, organized by release and dat
 - Fixed module-level p-value adjustment and combination to preserve Torch input CPU or indexed-CUDA ownership through float64 conversion, temporary arrays, weights, and outputs; retained current-device selection for explicit Torch with non-Torch input and rejected unsupported Torch devices explicitly.
 - Clarified bilingual function-versus-estimator device rules and added focused device-ownership regressions, with physical CUDA checks conditional on available hardware.
 
+### PR #134 — Added bilingual Lasso inference companions
+- Added English and Chinese advanced guides deriving the weighted working problem, debiased estimates, node-wise precision, marginal standard errors, and shared multiplier simultaneous intervals, with explicit tuning and coverage limitations.
+- Linked the companions from canonical model guides, migration guides, and navigation; added executable formula/example checks and three-engine production coverage for bilingual navigation, math rendering, reload, and Back behavior.
+
 ## Unreleased — 2026-10-10
 
 ### PR #168 — Completed learner docs and repaired input/device handling
