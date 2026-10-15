@@ -8,7 +8,7 @@ The [source manifest](../../dev/benchmarks/frontend_sources.json) defines canoni
 
 The manifest requires explicit source dates on or after `2026-06-01`; canonical sources are SHA256-verified. Strict generation rejects unapproved issues. The three generated files share a `generation_id`; corresponding files are generated under ignored `frontend/public/data/`, copied into `frontend/dist/data/`, and assembled at `.site-dist/dashboard/data/`. Source inputs and the manifest remain versioned. Inventory counts distinguish registration, availability, and successful parsing. `runs_generated`, model-registry length, and rows containing `metrics.cross_validation` measure different things.
 
-To inspect those quantities without regenerating files, run from the repository root:
+On a fresh checkout, first run the bundle-generation command in [Generate and validate](#generate-and-validate) below. Generated files are not committed. Once the bundle exists, inspect those quantities without regenerating files by running from the repository root:
 
 ```bash
 python - <<'PYCOUNTS'

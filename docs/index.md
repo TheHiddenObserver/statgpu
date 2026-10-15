@@ -32,6 +32,8 @@ features:
 
 ## Explore statgpu
 
+Choose a documentation entry point based on what you want to do:
+
 | I want to... | Start here |
 |---|---|
 | run my first model | [Quickstart](/en/getting-started/quickstart) |

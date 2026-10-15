@@ -12,6 +12,7 @@ on:
       - 'dev/validation/check_docs_contracts.py'
       - 'dev/validation/fix_docs_links.py'
       - 'dev/tests/test_website_source_routes.py'
+      - 'dev/tests/test_pr168_audience_boundaries.py'
       - 'docs/**'
       - 'frontend/**'
       - 'dev/benchmarks/**'
@@ -39,6 +40,7 @@ on:
       - 'dev/validation/check_docs_contracts.py'
       - 'dev/validation/fix_docs_links.py'
       - 'dev/tests/test_website_source_routes.py'
+      - 'dev/tests/test_pr168_audience_boundaries.py'
       - 'docs/**'
       - 'frontend/**'
       - 'dev/benchmarks/**'
@@ -72,7 +74,7 @@ jobs:
         run: |
           python dev/validation/check_docs_contracts.py
           python dev/validation/fix_docs_links.py --check
-          pytest dev/tests/test_website_source_routes.py -v
+          pytest dev/tests/test_website_source_routes.py dev/tests/test_pr168_audience_boundaries.py -v
       - name: Run generator and parser tests
         run: |
           pytest \
