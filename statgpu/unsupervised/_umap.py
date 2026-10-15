@@ -1,4 +1,4 @@
-"""Dense exact UMAP."""
+"""Dense UMAP-style neighborhood embedding."""
 
 from __future__ import annotations
 
@@ -25,12 +25,28 @@ class UMAP(BaseEstimator):
     UMAP with NumPy, CuPy, or Torch backends.
 
     Supports exact NN (dense distance) and approximate NNDescent.
-    Graph construction uses sparse COO edges (O(n*k) memory).
+    Stored graph edges use O(n*k) memory, but exact neighbor search allocates
+    dense O(n**2) pairwise distances. Graph assembly, spectral initialization,
+    and attraction-curve fitting use host SciPy.
+    Graph bandwidth is the mean neighbor distance above the closest distance,
+    with a 1e-12 floor; it does not solve the reference local membership-sum
+    calibration. ``min_dist`` and ``spread`` affect the embedding attraction
+    curve, not graph weights.
     Optimization loop and negative sampling are backend-aware
     (torch.randint / cp.random.randint / np.random.randint).
 
     Known limitations:
-    - Spectral initialization uses CPU SciPy sparse eigensolver.
+    - Sparse spectral initialization can retain the constant eigenvector and
+      does not seed the SciPy eigensolver start; use ``init="random"`` when
+      seeded initialization matters.
+    - Float32 neighbor distances can lose small separations at large common
+      feature offsets; center in float64 before fitting.
+    - Very large distances can make exact search select self-neighbors that
+      are later removed. After centering, divide all features by one common
+      positive training-derived scale to obtain moderate coordinates.
+    - NumPy 2 CPU NNDescent and CPU one-dimensional layouts currently fail;
+      NumPy 2 CPU negative sampling can also use Torch CPU when installed.
+    - Force updates approximate a layout, not the exact reference gradient.
     - Graph edge construction may transfer indices/weights through host memory.
     - Transform of new data is not yet supported.
     """

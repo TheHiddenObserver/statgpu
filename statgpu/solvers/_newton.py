@@ -16,22 +16,40 @@ from statgpu.backends._array_ops import (
     _dot_dev,
     _norm2_dev,
     _sync_scalars,
-    _zeros,
     _device_leq,
 )
 from statgpu.backends._utils import _to_float_scalar
 
 from ._convergence import ConvergenceWarning
+from ._smooth_domain import (
+    _LossDomainError,
+    _domain_feasible,
+    _domain_max_step,
+    _initial_smooth_params,
+    _prepare_analytic_sample_weight,
+)
 from ._utils import (
-    _validate_uniform_sample_weight,
     _smooth_penalty_gradient,
     _smooth_penalty_hessian,
     _smooth_penalty_value_dev,
     _runtime_error_is_singular,
-    _as_backend_vector,
     _validate_smooth_penalty,
     _trial_error_is_numerical,
 )
+
+
+def _prepare_newton_sample_weight(sample_weight, n_samples, backend, ref_arr):
+    """Compatibility alias for the shared smooth-solver weight preparation."""
+    return _prepare_analytic_sample_weight(
+        sample_weight, n_samples, backend, ref_arr
+    )
+
+
+def _call_loss_with_weight(fn, *args, sample_weight=None):
+    """Call one loss primitive with analytic weights when they are active."""
+    if sample_weight is None:
+        return fn(*args)
+    return fn(*args, sample_weight=sample_weight)
 
 
 def newton_solver(
@@ -48,6 +66,17 @@ def newton_solver(
 
     Supports numpy / cupy / torch backends via auto-detection of X.
 
+    Non-uniform ``sample_weight`` is treated as analytic/frequency-style
+    objective weighting using the same normalized average-loss convention as
+    ``LossBase``: weighted loss, gradient, Hessian, and every Armijo trial use
+    ``sum_i w_i * contribution_i / sum_i w_i``. Losses that do not implement
+    weighted curvature remain free to reject the request explicitly.
+
+    Losses may additionally expose private ``_loss_domain_*`` hooks.  When
+    present, Newton obtains or validates an interior start before the first
+    derivative evaluation, caps Armijo using the final post-fallback additive
+    search direction, and never evaluates an infeasible trial point.
+
     For losses with constant Hessian, the Hessian is computed once and
     reused across iterations; Armijo backtracking still verifies each step.
 
@@ -56,22 +85,33 @@ def newton_solver(
     _validate_smooth_penalty(penalty, "newton_solver")
     backend = _resolve_backend("auto", X)
     X_proc, y_proc = loss.preprocess(X, y)
-    _validate_uniform_sample_weight(sample_weight, X_proc.shape[0], "newton_solver")
+    sample_weight = _prepare_newton_sample_weight(
+        sample_weight, X_proc.shape[0], backend, X_proc
+    )
     n_features = X_proc.shape[1]
 
-    if init_coef is not None:
-        params = _as_backend_vector(init_coef, backend, X_proc)
-    else:
-        params = _zeros(n_features, backend, ref_tensor=X_proc)
+    params = _initial_smooth_params(
+        loss,
+        X_proc,
+        y_proc,
+        backend=backend,
+        n_features=n_features,
+        init_coef=init_coef,
+        sample_weight=sample_weight,
+    )
 
     # Constant-Hessian detection via loss attribute (generic, not loss-name based)
     _const_hessian = getattr(loss, "_has_constant_hessian", False)
 
     _fixed_hess = None
     if _const_hessian:
-        _fixed_hess = loss.hessian(X_proc, y_proc, params) + _smooth_penalty_hessian(
-            penalty, params
-        )
+        _fixed_hess = _call_loss_with_weight(
+            loss.hessian,
+            X_proc,
+            y_proc,
+            params,
+            sample_weight=sample_weight,
+        ) + _smooth_penalty_hessian(penalty, params)
 
     iteration = -1
     line_search_failed = False
@@ -98,17 +138,33 @@ def newton_solver(
 
         if _has_fused and _fixed_hess is None:
             # Fused: compute gradient and hessian in one pass
-            loss_grad, loss_hess = loss.fused_gradient_and_hessian(
-                X_proc, y_proc, params
+            loss_grad, loss_hess = _call_loss_with_weight(
+                loss.fused_gradient_and_hessian,
+                X_proc,
+                y_proc,
+                params,
+                sample_weight=sample_weight,
             )
             grad = loss_grad + _smooth_penalty_gradient(penalty, params)
             hess = loss_hess + _smooth_penalty_hessian(penalty, params)
         else:
-            grad = loss.gradient(X_proc, y_proc, params) + _smooth_penalty_gradient(
-                penalty, params
+            loss_grad = _call_loss_with_weight(
+                loss.gradient,
+                X_proc,
+                y_proc,
+                params,
+                sample_weight=sample_weight,
             )
+            grad = loss_grad + _smooth_penalty_gradient(penalty, params)
             hess = _fixed_hess if _fixed_hess is not None else (
-                loss.hessian(X_proc, y_proc, params) + _smooth_penalty_hessian(penalty, params)
+                _call_loss_with_weight(
+                    loss.hessian,
+                    X_proc,
+                    y_proc,
+                    params,
+                    sample_weight=sample_weight,
+                )
+                + _smooth_penalty_hessian(penalty, params)
             )
 
         grad_norm_dev = _norm2_dev(grad)
@@ -162,8 +218,14 @@ def newton_solver(
             else:
                 direction = np.linalg.lstsq(hess_reg, grad, rcond=None)[0]
 
-        # Armijo backtracking line search
-        obj_old_dev, _ = loss.fused_value_and_gradient(X_proc, y_proc, params_old)
+        # Armijo uses the same weighted objective as the Newton system.
+        obj_old_dev, _ = _call_loss_with_weight(
+            loss.fused_value_and_gradient,
+            X_proc,
+            y_proc,
+            params_old,
+            sample_weight=sample_weight,
+        )
         obj_old_dev = obj_old_dev + _smooth_penalty_value_dev(penalty, params_old)
         gdd_dev = _dot_dev(grad, direction)
         gdd = _to_float_scalar(gdd_dev)
@@ -173,12 +235,38 @@ def newton_solver(
             direction = grad
             gdd = grad_norm * grad_norm
 
-        step = 1.0
+        # Freeze the final direction *after* all fallbacks, then ask the loss
+        # for an interior cap for the actual additive update Delta=-direction.
+        additive_direction = -direction
+        domain_cap = _domain_max_step(
+            loss,
+            X_proc,
+            params_old,
+            additive_direction,
+            sample_weight=sample_weight,
+        )
+        step = min(1.0, domain_cap) if domain_cap is not None else 1.0
+
         accepted = False
+        evaluated_domain_trial = False
+        rejected_by_domain = False
         for _bt in range(20):
-            params_try = params_old - step * direction
+            params_try = params_old + step * additive_direction
+            if not _domain_feasible(
+                loss, X_proc, params_try, sample_weight=sample_weight
+            ):
+                rejected_by_domain = True
+                step *= 0.5
+                continue
+            evaluated_domain_trial = True
             try:
-                obj_try_dev, _ = loss.fused_value_and_gradient(X_proc, y_proc, params_try)
+                obj_try_dev, _ = _call_loss_with_weight(
+                    loss.fused_value_and_gradient,
+                    X_proc,
+                    y_proc,
+                    params_try,
+                    sample_weight=sample_weight,
+                )
                 obj_try_dev = obj_try_dev + _smooth_penalty_value_dev(
                     penalty, params_try
                 )
@@ -193,7 +281,12 @@ def newton_solver(
                     raise
             step *= 0.5
         if not accepted:
-            # Never accept an unverified trial step.  A tiny rejected step
+            if rejected_by_domain and not evaluated_domain_trial:
+                raise _LossDomainError(
+                    "newton_solver could not evaluate a numerically interior "
+                    "trial step for the declared loss domain."
+                )
+            # Never accept an unverified trial step. A tiny rejected step
             # would also make a parameter-difference test report false
             # convergence.
             params = params_old

@@ -1,26 +1,23 @@
 # PyTorch 后端指南
 
 > 语言：中文  
-> 最后更新：2026-07-24  
+> 最后更新：2026-10-07  
 > 切换：[English](../../en/guides/pytorch-backend.md)
 
 ## 概览
 
-StatGPU 支持三个执行后端：
+StatGPU 支持三个主要执行后端：
 
 | `device` 值 | 数值后端 | 典型执行位置 |
 |---|---|---|
 | `"cpu"` | NumPy | CPU |
 | `"cuda"` | CuPy | NVIDIA CUDA |
 | `"torch"` | PyTorch | NVIDIA CUDA |
-| `"auto"` | 自动选择 | 根据可用性与输入选择 CuPy、Torch CUDA 或 NumPy |
+| `"auto"` | 自动选择 | 根据可用性与工作负载选择 CuPy、Torch CUDA 或 NumPy |
 
-`device="torch"` 是显式 PyTorch 请求；`device="cuda"` 选择 CuPy，不是 Torch 的
-别名。显式请求在对应后端不可用时会报错，不会静默切换到其他后端。
+`device="torch"` 是显式的 PyTorch 请求；`device="cuda"` 选择 CuPy，并不是 Torch 的别名。采用通用设备规则的估计器（包括下文的 `LinearRegression`）在请求的加速器不可用时会报错。[当前核方法与样条的设备选择例外](device-and-memory.md#current-smoothing-and-spline-exceptions)则可能返回 CPU 结果，使用这些估计器时须检查实际输出数组。
 
-不同模型、solver、交叉验证和推断选项的覆盖范围可能不同。应查看
-[已实现方法](implemented-methods.md)和对应模型页，而不是假设每个公共估计器都有
-完全相同的 Torch 路径。
+不同模型、求解器、交叉验证和推断方法的后端覆盖范围可能不同。请查看 [已实现方法](implemented-methods.md)、[设备与 GPU 内存](device-and-memory.md) 和对应模型页，而不要假定每个公开估计器都有完全相同的 Torch 路径。
 
 ## 安装
 
@@ -30,7 +27,7 @@ StatGPU 支持三个执行后端：
 pip install "statgpu[torch]"
 ```
 
-GPU 执行需要兼容的 PyTorch CUDA build 和 NVIDIA 驱动。拟合前可检查：
+GPU 执行需要兼容的 PyTorch CUDA 构建和 NVIDIA 驱动。拟合前可以检查：
 
 ```python
 import torch
@@ -64,10 +61,10 @@ model.fit(X, y)
 print(model.score(X, y))
 ```
 
-估计器会将兼容的 NumPy 输入转换到所选 Torch CUDA 后端。若 Torch CUDA
-不可用，显式 Torch 请求会报错。
+估计器会把兼容的 NumPy 输入转换到所选的 Torch CUDA 后端。如果 Torch CUDA 不可用，显式 Torch 请求会报错。
 
-### 直接使用 Torch CUDA tensor
+<a id="直接使用-torch-cuda-tensor"></a>
+### 直接使用 Torch CUDA 张量
 
 ```python
 import torch
@@ -81,8 +78,7 @@ model.fit(X, y)
 prediction = model.predict(X)
 ```
 
-输出是否保持为 Torch tensor 取决于具体方法。应查看模型页，确认输出是 Torch
-数组，还是有意暴露为 CPU 元数据或标量统计摘要。
+输出是否保持为 Torch 张量取决于具体方法。请查看模型页，确认输出是 Torch 数组，还是有意转换为 CPU 元数据、NumPy 数组或 Python 标量统计摘要。
 
 ## 设备选择
 
@@ -102,51 +98,52 @@ import statgpu as sg
 sg.set_device("torch")
 ```
 
-估计器公开 `device=` 参数时，估计器级设置优先。只有明确需要自动选择时才使用
-`"auto"`。
+采用通用设备规则的估计器在显式指定非 `auto` 设备时会覆盖全局设置，
+`device="auto"` 则继承全局策略。其他估计器使用 `auto` 时可能选择不同后端；
+执行位置重要时，请逐模型显式指定设备，并检查其限制。
+使用 `sg.set_device("auto")` 恢复自动选择，或用 `device="cpu"` 明确要求 CPU。
+另见[全局设置与估计器设置](device-and-memory.md#全局设置与估计器设置)。
 
 ## 统计推断
 
-使用 Torch 执行并不意味着每一种推断选项都可用。推断覆盖取决于估计器、协方差
-类型、solver、数据合同和可选依赖。对于支持推断的模型，应在其文档中确认：
+使用 Torch 执行并不意味着每一种推断方法都可用。推断支持范围取决于估计器、协方差类型、求解器、数据约定和可选依赖。对于支持推断的模型，应在其文档中确认：
 
-- 支持的协方差估计；
-- 标准误、检验统计量、p 值和置信区间；
-- strict 路径与显式请求的 approximate 行为；
-- delayed entry、cluster、ties、秩亏或 formula 限制；
-- 最终摘要是 Torch 数组、NumPy 数组还是标量元数据。
+- 支持哪些协方差估计；
+- 是否提供标准误、检验统计量、p 值和置信区间；
+- 某些严格或近似计算路径是否需要显式请求；
+- 延迟进入、聚类、并列事件、秩亏或公式接口是否有限制；
+- 最终结果是 Torch 数组、NumPy 数组还是标量元数据。
 
-不支持的推断组合应显式失败，或进入文档化的 estimation-only 模式；不应静默
-产生近似结果。
+启用推断前，请检查模型支持的方法。如果估计器提供 `compute_inference` 参数，只做参数估计时应将它设为 `False`。只有模型文档明确提供近似方法并说明其限制时，才选择相应选项。
 
 ## 执行边界
 
-方法支持 Torch 时，核心数值数组应保留在 Torch 后端。合理的 CPU 边界可能包括：
+使用 Torch 时仍可能有部分工作在 CPU 上完成，具体取决于方法，例如：
 
-- formula、标签、特征名和小型索引元数据；
-- fold 定义、收敛决策和标量控制流；
+- 公式、标签、特征名和小型索引元数据；
+- 数据折定义、收敛判定和标量控制逻辑；
 - Torch 中缺失的标量分布函数；
-- 有意表示为 NumPy 或 Python 标量的用户摘要；
-- 只接受 CPU 数组的外部验证库。
+- 有意表示为 NumPy 数组或 Python 标量的用户结果摘要。
 
-这些边界取决于具体模型。声称所有中间量都始终位于 GPU 并不准确。完整设计矩阵
-转移或后端切换不能作为静默 fallback 出现。
+如果工作负载要求仅使用 GPU，除返回数组的设备外，还须检查模型的设备与推断限制。返回 GPU 张量本身，并不能证明计算的每一部分都在 GPU 上完成。
 
-## Dtype 与数值精度
+## 数据类型与数值精度
 
 统计推断通常更适合使用 `float64`：
 
 ```python
+import torch
+
 X = torch.randn(2000, 50, device="cuda", dtype=torch.float64)
 ```
 
-预测变量、响应、权重、offset 和初始化数组应使用相容 dtype。NumPy、CuPy 与
-Torch 的结果差异应结合算法、条件数、停止规则和 dtype 设定容差，而不是要求
-bitwise 相同。
+预测变量、响应变量、权重、`offset` 和初始化数组应使用相容的数据类型。比较 NumPy、CuPy 与 Torch 的结果时，应结合算法、条件数、停止规则和数据类型设置合理容差，而不是要求逐位完全一致。
+
+L-BFGS 的 float32 跨后端差异另见 [L-BFGS Float32 数值行为](lbfgs-float32-precision-contract.md)。
 
 ## 随机性与可复现性
 
-算法含随机性时，同时设置模型的 `random_state` 与 Torch seed：
+算法包含随机性时，可以同时设置模型的 `random_state` 与 Torch 随机种子：
 
 ```python
 import torch
@@ -155,15 +152,13 @@ torch.manual_seed(42)
 torch.cuda.manual_seed_all(42)
 ```
 
-交叉验证 folds、landmark 抽样、随机分解和随机初始化还可能使用估计器自己的
-`random_state`。
+交叉验证的数据折、代表样本点（landmark）抽样、随机分解和随机初始化还可能使用估计器自己的 `random_state`。要获得可复现结果，应同时确认模型文档中的随机性来源。
 
 ## 显存管理
 
-显存需求取决于估计器和工作负载。精确核方法、稠密 Hessian 或协方差计算可能需要
-二次或更高阶的中间存储。应在文档支持时使用适合问题的 batching 或近似方法。
+显存需求取决于估计器和工作负载。精确核方法、稠密 Hessian 或协方差计算可能需要二次或更高阶的中间存储。模型文档提供批处理或近似方法时，可以根据问题规模选择相应选项。
 
-排查问题时可释放 Torch 缓存：
+排查问题时可以释放 Torch 缓存：
 
 ```python
 import torch
@@ -171,27 +166,15 @@ import torch
 torch.cuda.empty_cache()
 ```
 
-部分估计器公开 `gpu_memory_cleanup=True`。该选项控制缓存清理，不改变统计目标，
-也不允许 CPU fallback。
+部分估计器提供 `gpu_memory_cleanup=True`。该选项控制可回收缓存的清理，不改变统计目标，也不会允许显式 Torch 请求静默退回 CPU。更多说明见 [设备与 GPU 内存](device-and-memory.md)。
 
-## 性能与验证证据
+## 性能应如何理解
 
-GPU 性能依赖样本量、特征维度、dtype、kernel 或 solver、硬件、同步和显存压力。
-小型任务可能在 CPU 上更快。不能把一个模型或一张 GPU 上的 benchmark 当成全局
-加速保证。
+GPU 性能依赖样本量、特征维度、数据类型、数值内核或求解器、硬件、同步开销和显存压力。小型任务可能在 CPU 上更快，因此不应把某个模型或某一张 GPU 上的加速比当成所有工作负载的统一保证。
 
-维护的证据应记录：
+比较耗时时，应使用相同的工作负载和数据类型，计入实际应用需要的数据传输，并同步真正执行计算的 GPU。
 
-- 精确 commit SHA；
-- Python、Torch、CUDA 和驱动版本；
-- GPU 型号；
-- 包含同步的计时方法；
-- 准确性或统计一致性指标；
-- passed、failed 和 skipped 测试数量。
-
-当前与历史 benchmark 位于 `results/` 和 `dev/benchmarks/`。保留的
-[Torch 后端报告](https://github.com/TheHiddenObserver/statgpu/blob/master/dev/docs/torch_backend_final_report.md)是带日期的证据快照，
-不是当前支持矩阵。
+需要记录测试或性能测量结果的贡献者，可另阅 [Torch 验证参考](../../../dev/references/model-validation.md#torch-backend)。
 
 ## 故障排查
 
@@ -202,20 +185,15 @@ import torch
 print(torch.cuda.is_available())
 ```
 
-检查 NVIDIA 驱动、安装的 Torch build 及其自带 CUDA runtime。系统 CUDA toolkit
-版本本身不能决定哪个 Torch wheel 可用。
+检查 NVIDIA 驱动、安装的 Torch 构建及其自带 CUDA runtime。系统 CUDA toolkit 的版本本身并不能决定某个 Torch wheel 是否可用。
 
 ### 显式 Torch 执行报错
 
-当 Torch CUDA 或必要 Torch 运算不可用时，这是预期行为。只有在符合预期合同的
-情况下才改用 `device="cpu"` 或 `device="auto"`；不能期待 `device="torch"`
-静默 fallback。
+当 Torch CUDA 或必要的 Torch 运算不可用时，显式请求报错是预期行为。只有在符合应用意图时才改用 `device="cpu"` 或 `device="auto"`；[当前核方法与样条的设备选择例外](device-and-memory.md#current-smoothing-and-spline-exceptions)可能返回 CPU 张量，因此调用成功本身并不证明执行了 CUDA 计算。
 
 ### 显存不足
 
-减小问题规模，使用文档化的 batching 或近似方法，减少 CV grid 或 fold 数，或选择
-内存复杂度更低的方法。`torch.cuda.empty_cache()` 无法减少算法当前活跃 tensor
-必须占用的内存。
+可以减小问题规模，使用文档明确提供的批处理或近似方法，减少 CV 候选网格或数据折数量，或选择内存复杂度更低的方法。`torch.cuda.empty_cache()` 无法减少算法当前正在使用的张量所必需的内存。
 
 ### 与其他框架结果不同
 
@@ -224,15 +202,15 @@ print(torch.cuda.is_available())
 - 目标函数归一化；
 - 正则化尺度；
 - 截距与特征编码；
-- solver 与停止容差；
-- sample weights、offset、ties 和协方差选项；
-- dtype 与随机种子。
+- 求解器与停止容差；
+- 样本权重、`offset`、并列事件和协方差选项；
+- 数据类型与随机种子。
 
-若其他框架优化求和损失，而 StatGPU 优化平均损失，惩罚参数可能需要相应缩放。
+如果其他框架优化求和形式的损失，而 StatGPU 优化平均损失，惩罚参数可能需要相应缩放。
 
 ## 相关文档
 
-- [设备与显存管理](device-and-memory.md)
+- [设备与 GPU 内存](device-and-memory.md)
 - [已实现方法](implemented-methods.md)
 - [交叉验证](cross-validation.md)
 - [推断 API](inference-api.md)
@@ -242,4 +220,3 @@ print(torch.cuda.is_available())
 ## 参考资料
 
 - [PyTorch 文档](https://pytorch.org/docs/)
-- [StatGPU Torch 后端证据快照](https://github.com/TheHiddenObserver/statgpu/blob/master/dev/docs/torch_backend_final_report.md)

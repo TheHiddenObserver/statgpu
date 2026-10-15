@@ -6,8 +6,10 @@ This package provides loss types beyond GLM families:
 - HuberLoss: robust regression (Huber M-estimator)
 - CoxPartialLikelihoodLoss: survival analysis (Cox PH)
 
-All losses inherit from LossBase and plug into the existing
-penalty/solver infrastructure (FISTA, Newton, L-BFGS, ADMM).
+All losses inherit from LossBase and plug into the shared
+penalty/solver infrastructure. Solver compatibility is capability-specific:
+implementing the loss interface does not imply support for every generic
+optimizer (FISTA, Newton, L-BFGS, ADMM, and related variants).
 
 Usage:
     from statgpu.losses import QuantileLoss, HuberLoss, get_loss
@@ -23,6 +25,11 @@ from ._quantile import QuantileLoss
 from ._huber import HuberLoss
 from ._bisquare import BisquareLoss
 from ._fair import FairLoss
+
+# Direct ``QuantileLoss.irls()`` calls are a maintained low-level weighted
+# surface. Install their fail-closed analytic-weight validation after the class
+# is defined, without changing the reviewed numerical IRLS kernel itself.
+from . import _quantile_irls_validation_contract as _quantile_irls_validation_contract
 
 
 def __getattr__(name):

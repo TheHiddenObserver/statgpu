@@ -1,221 +1,228 @@
-# Loss × Penalty × Solver 框架
+# 损失函数 × 惩罚项 × 求解器框架
 
-> 语言：中文
->
-> 最后更新：2026-09-04
->
-> 切换：[English](../../en/guides/loss-penalty-solver-framework.md)
+> 语言：中文  
+> 最后更新：2026-09-17  
+> 页面定位：计算架构指南  
+> 切换：[英文版](../../en/guides/loss-penalty-solver-framework.md)
 
 ## 概述
 
-statgpu 支持 **损失函数 × 惩罚类型 × 求解器 × 后端** 的组合空间。本文档记录完整框架架构、调度逻辑和覆盖矩阵。
+statgpu 将面向用户的统计模型接口与内部数值组件分层组织：
 
-## 架构
+- **模型（Model）**负责用户可见的统计约定和完整拟合流程；
+- **损失函数（Loss）**定义数据拟合项以及可提供的数值原语；
+- **惩罚项（Penalty）**定义正则化项及其数值原语；
+- **求解器（Solver）**使用这些原语执行优化；
+- **计算后端（Backend）**贯穿数值层，在 NumPy、CuPy 或 Torch 上提供执行环境；
+- **CV / 元估计器**反复构造并评价兼容的拟合，完成选择后再进行最终重拟合。
 
+本页解释这些组件**怎样组合完成拟合，以及它们的兼容性如何影响求解器选择**。
+
+需要具体信息时请查阅：
+
+- [损失函数](../reference/losses.md) — 损失函数定义与底层数值性质
+- [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md) — 实际的损失函数 × 惩罚项 × 求解器路径
+- [求解器算法](solver-algorithms.md) — 更新公式、收敛行为与算法前提
+- [广义线性模型](../models/regression/generalized-linear-model.md)、[分位数回归](../models/regression/quantile.md)、[稳健回归](../models/regression/robust.md)、[CoxPH](../models/coxph.md) 等模型页 — 模型专属统计行为
+
+## 1. 运行架构
+
+一次典型拟合可以概括为：
+
+```text
+用户
+  │
+  │  estimator = Model(...)
+  │  estimator.fit(X, y, sample_weight=...)
+  ▼
+模型 / 公共 API
+  │
+  ├── 解析并验证数据 / 公式输入
+  ├── 解析后端与设备
+  ├── 构造 Loss
+  ├── 构造 Penalty
+  ├── 验证或解析 Solver
+  ├── 准备截距 / 初值 / 本次拟合状态
+  │
+  ▼
+优化问题
+  │
+  │               F(β) = L(β) + P(β)
+  │                      ▲       ▲
+  │                      │       │
+  │                    Loss   Penalty
+  ▼
+Solver
+  │
+  ├── 调用算法所需的数值原语
+  ├── 在选定后端上迭代
+  ├── 执行停止 / 收敛判据
+  │
+  ▼
+已拟合模型状态
+  │
+  ├── 系数 / 截距
+  ├── 收敛信息与实际求解器信息
+  ├── 估计器公开的推断或 CV 状态
+  └── 预测 / 评分接口
 ```
-fit(X, y, sample_weight)
-  ├── _resolve_loss()   → LossBase 子类
-  ├── _resolve_penalty() → Penalty 子类
-  ├── _select_solver()   → solver 名称（auto 或显式）
-  ├── _pre_fit()         → 后端转换、截距增强
-  └── _fit_loss_backend() → 路由到具体 solver 路径
-       ├── fista / fista_bb              → 通用 proximal 路径
-       ├── newton / irls / lbfgs        → 光滑路径
-       ├── quantile refinement          → 分位数 IRLS 或 proximal IRLS + LLA
-       ├── robust refinement            → Newton、FISTA 或 FISTA-LLA
-       ├── Cox refinement               → Cox 专用 Newton/FISTA/FISTA-LLA
-       └── admm                         → 受支持的分裂路径
-```
 
-## 1. 损失函数
+模型类是整个流程的编排边界。某个损失函数、惩罚项或底层求解器可以独立使用，但“这个底层组件存在”本身并不能推出完整的公开估计器路径已经受支持。
 
-### LossBase
+## 2. 各组件的职责
 
-抽象基类位于 `statgpu/losses/_base.py`。子类实现 `per_sample_value()` 和 `per_sample_gradient()`。基类自动派生 `value()`、`gradient()`、`fused_value_and_gradient()`。
-
-```python
-class LossBase:
-    name: str               # "quantile", "huber" 等
-    y_type: str             # "continuous" / "survival"
-    smooth_gradient: bool   # 光滑性能力
-    has_hessian: bool       # Hessian contract，不等于公开 solver 保证
-    _supports_irls: bool    # 低层 IRLS contract
-```
-
-### 全部损失函数
-
-| 损失 | 类 | `has_hessian` | `smooth_gradient` | `_supports_irls` | R 等价 |
-|------|-------|:---:|:---:|:---:|--------------|
-| 平方误差 | `GLMLoss` (squared_error) | ✅ | ✅ | ✅ | `lm()` |
-| Logistic | `GLMLoss` (logistic) | ✅ | ✅ | ✅ | `glm(…, binomial)` |
-| Poisson | `GLMLoss` (poisson) | ✅ | ✅ | ✅ | `glm(…, poisson)` |
-| Gamma | `GLMLoss` (gamma) | ✅ | ✅ | ✅ | `glm(…, Gamma)` |
-| 逆高斯 | `GLMLoss` (inverse_gaussian) | ✅ | ✅ | ✅ | `glm(…, inverse.gaussian)` |
-| 负二项 | `GLMLoss` (negative_binomial) | ✅ | ✅ | ✅ | `glm.nb()` |
-| Tweedie | `GLMLoss` (tweedie) | ✅ | ✅ | ✅ | `glm(…, tweedie)` |
-| Quantile | `QuantileLoss` | ❌ | ❌ | ✅ | `quantreg::rq()` |
-| Huber | `HuberLoss` | ✅ | ✅ | ❌ | `MASS::rlm()` |
-| Bisquare | `BisquareLoss` | ✅ | ✅ | ✅ | `MASS::rlm(psi="bisquare")` |
-| Fair | `FairLoss` | ✅ | ✅ | ✅ | `MASS::rlm(psi="fair")` |
-| Cox PH | `CoxPartialLikelihoodLoss` | ✅ | ✅ | ❌ | `survival::coxph()` |
-
-这些标志描述的是 loss 对象能力，并不会自动把某个名称变成估计器合法的
-`solver=` 取值。尤其是 Bisquare 和 Fair 虽然在 loss 层声明了 IRLS contract，
-目前并未作为高层估计器 IRLS 路径写入支持范围；请以对应模型页为准。
-
-### 逐样本公式
-
-**Quantile (Pinball)**:
-$$\ell(u) = u \cdot (\tau - \mathbf{1}_{u<0}), \quad u = y - \eta$$
-
-**Huber** (delta-k = 1.345):
-$$\ell(u) = \begin{cases} \frac{1}{2}u^2 & |u| \leq k \\ k|u| - \frac{1}{2}k^2 & |u| > k \end{cases}$$
-
-**Bisquare (Tukey biweight)** (c = 4.685):
-$$\ell(u) = \begin{cases} \frac{c^2}{6}[1 - (1-(u/c)^2)^3] & |u| \leq c \\ c^2/6 & |u| > c \end{cases}$$
-
-**Cox 部分似然**（`CoxPartialLikelihoodLoss` 的 Breslow / Efron ties）：
-$$L(\beta) = \prod_{i:\delta_i=1} \frac{\exp(X_i\beta)}{\sum_{j:T_j \geq T_i} \exp(X_j\beta)}$$
-
-该 loss 对象接收 `[time, event]` 二列响应并服务于惩罚 Cox estimator。完整
-`CoxPH`/`CoxPHCV` 还支持 Exact ties 与计数过程风险集
-
-$$
-R_s(t)=\{j:\operatorname{strata}_j=s,\;\operatorname{start}_j<t\leq
-\operatorname{stop}_j\},
-$$
-
-以及 `subject_id` 语义；这些不是通用 loss 对象当前的输入轴。
-
-## 2. 惩罚函数
-
-### 全部惩罚
-
-| 惩罚 | `is_convex` | `is_smooth` | Proximal 算子 | LLA 支持 | P(β) |
-|---------|:---:|:---:|:---:|:---:|------|
-| None / Null | ✅ | ✅ | identity | ❌ | 0 |
-| L2 (Ridge) | ✅ | ✅ | — | ❌ | α·‖β‖²₂ |
-| L1 (Lasso) | ✅ | ❌ | 软阈值 | ❌ | α·‖β‖₁ |
-| ElasticNet | ✅ | ❌ | 软阈值 | ❌ | α(r‖β‖₁+(1-r)‖β‖²₂) |
-| SCAD | ❌ | ❌ | 三段式 | ✅ | 分段函数 |
-| MCP | ❌ | ❌ | 三段式 | ✅ | 分段函数 |
-| Adaptive L1 | ✅ | ❌ | 加权软阈值 | ✅ | α/|β̂|^ν · |β| |
-| Group Lasso | ✅ | ❌ | 块软阈值 | ❌ | · |
-| Group MCP | ❌ | ❌ | 块 proximal | ✅ | · |
-| Group SCAD | ❌ | ❌ | 块 proximal | ✅ | · |
-
-### SCAD 公式
-$$P(|\beta|) = \begin{cases} \alpha|\beta| & |\beta| \leq \alpha \\ \frac{-(|\beta|^2 - 2a\alpha|\beta| + \alpha^2)}{2(a-1)} & \alpha < |\beta| \leq a\alpha \\ \frac{(a+1)\alpha^2}{2} & |\beta| > a\alpha \end{cases}$$
-
-### LLA（局部线性近似）
-非凸惩罚（SCAD、MCP）通过 LLA 求解：
-1. 在当前迭代点计算权重 `w_j = P'(|β_j|)`
-2. 求解加权 L1 问题：`min L(β) + Σ w_j·|β_j|`
-3. 重复直到收敛（通常 2-5 次迭代）
-
-## 3. 求解器
-
-::: warning 估计器边界
-求解器库包含的可调用函数多于高层估计器公开的 `solver=` 取值。选择算法时应先看
-模型页，本页只解释内部调度关系。
-:::
-
-### 公开控制项与内部路径
-
-| 层级 | 名称 | 含义 |
+| 组件 | 负责 | 单独不能决定 |
 |---|---|---|
-| 共享惩罚估计器选择器 | `auto`、`fista`、`fista_bb`、`irls`、`newton`、`lbfgs`、`admm`、`exact` | 候选值；每个估计器只接受其中一部分 |
-| CPU 平方误差兼容路径 | `coordinate_descent` | 仅 L1/Elastic Net；不是分位数 CD |
-| 内部或低层函数 | `fista_lla_path`、`proximal_irls_quantile_solver`、`quantile_cd_solver`、`proximal_newton_solver`、`lbfgs_b_solver` | 实现 API，不是通用估计器关键字 |
-| 固定算法估计器 | 无选择器 | Logistic 回归、普通分位数回归、普通 Cox PH 和有序模型自行选择算法 |
+| **模型 / 估计器** | 公共参数、数据验证、公式、损失函数/惩罚项构造、求解器选择、拟合状态、预测、模型层推断 | 底层算法的更新方程 |
+| **损失函数** | 数据拟合项 `L(β)`、函数值/梯度，以及可选的曲率或专用原语 | 哪些惩罚项或公开估计器一定可用 |
+| **惩罚项** | 正则化项 `P(β)`、梯度/近端算子/LLA 或分组元数据 | 损失函数是否提供某个求解器所需的数值量 |
+| **求解器** | 数值更新规则、线搜索/步长策略、停止与收敛行为 | 损失函数、权重、估计目标或 CV 的统计含义 |
+| **后端** | 数组类型、设备、线性代数和后端原生数值操作 | 某条统计路径是否受支持 |
+| **CV / 元估计器** | 各折重建、评分、选择和最终重拟合 | 绕过一条原本不支持的直接拟合约定 |
 
-模型专属路由会先于部分通用 solver 分支执行。对 SCAD、MCP 和 Adaptive Lasso，
-一个通过共享校验的通用名称未必会切换到不同算法。除非模型页明确说明路径不同，
-不要用这些名称做算法性能对比。
+因此，阅读 API 时不能只看单个函数签名。例如，一个求解器带有 `sample_weight` 参数，并不意味着任意损失函数和任意估计器都会自动获得同样的带权能力。
 
-### 当前自动路径
+## 3. 契约如何组合
 
-| 模型或目标 | 自动或固定路径 |
-|---|---|
-| 普通 GLM | IRLS |
-| Ridge | wrapper 默认 `exact`；共享 `auto` 在 NumPy 上用 exact，在 CuPy/Torch 上用 Newton |
-| Lasso / Elastic Net | FISTA |
-| Adaptive Lasso | 初始估计后执行加权 L1 FISTA |
-| SCAD / MCP | 模型专属 FISTA-LLA continuation |
-| 惩罚分位数，L2/none | 分位数 IRLS refinement |
-| 惩罚分位数，SCAD/MCP | proximal IRLS + LLA |
-| 惩罚稳健回归，L2/none | Newton |
-| 惩罚稳健回归，稀疏惩罚 | FISTA；SCAD/MCP 使用 FISTA-LLA |
-| 普通 Cox PH / 有序模型 | 固定 Newton 变体，不提供公开选择器 |
+通用优化目标为
 
-平方误差/L2 的 `exact` 求解器与 `CoxPH(ties="exact")` 无关。精确的接受与拒绝
-组合见[求解器 × 惩罚兼容矩阵](solver-penalty-matrix.md)。
+$$
+F(\beta)=L(\beta)+P(\beta).
+$$
 
-### 专用内部路径
+不同求解器需要不同的数值原语。具体算法可能使用以下量中的一部分：
 
-- 分位数 SCAD/MCP 使用二次 IRLS majorization 和 LLA 阈值步骤。估计器暴露的是
-  高层 penalty-aware 路径，而不是低层函数名。
-- SCAD/MCP FISTA-LLA 先走 continuation path，再更新局部线性权重，并求解加权 L1
-  内层问题。
-- Proximal Newton 仍是低层求解器库 facade。当前稳健回归 SCAD/MCP 的估计器路径是
-  FISTA-LLA，而不是 Proximal Newton。
+$$
+L(\beta),\qquad
+\nabla L(\beta),\qquad
+\nabla^2L(\beta),\qquad
+P(\beta),\qquad
+\nabla P(\beta),\qquad
+\operatorname{prox}_{\gamma P}(v),
+$$
 
-## 4. 后端范围
+也可能需要某个损失函数或惩罚项专有的 IRLS 上界、局部线性近似、分组结构等操作。
 
-共享 FISTA、FISTA-BB、加权 L1/FISTA-LLA、分位数 IRLS、光滑
-Newton/L-BFGS 和 Cox 专属路径，在对应估计器开放时具有 NumPy、CuPy 与 Torch
-实现。后端覆盖不会扩大模型的公开选择器；例如 `LogisticRegression` 在所有后端
-都仍然固定使用 IRLS。
+一条公开路径只有在所有组件描述的是**同一个目标函数和参数化方式**时才是完整一致的。单独每个函数都“可以调用”并不足够。尤其需要保证：
 
-## 5. 模型专属参考
+- 目标函数与梯度使用相同的缩放和权重约定；
+- 依赖曲率的算法使用与目标函数一致的曲率；
+- 近端方法使用与近端算子或近似步骤相匹配的惩罚项表示；
+- 截距处理在损失函数、惩罚项、初始化和求解器更新之间保持一致；
+- 后端/设备的选择不能通过静默切换路径改变原本的数值问题。
 
-| 模型族 | 以此求解器章节为准 |
-|---|---|
-| GLM wrappers | [广义线性模型](../models/generalized-linear-model.md#求解器支持)、[逻辑回归](../models/logistic-regression.md#求解器支持)、[泊松回归](../models/poisson-regression.md#求解器支持) |
-| 凸正则化 | [Ridge](../models/ridge.md#求解器支持)、[Lasso](../models/lasso.md#求解器支持)、[Elastic Net](../models/elastic-net.md#求解器支持) |
-| 加权或非凸正则化 | [Adaptive Lasso](../models/adaptive-lasso.md#求解器支持)、[SCAD](../models/scad.md#求解器支持)、[MCP](../models/mcp.md#求解器支持) |
-| 专门回归 | [分位数回归](../models/quantile.md#求解器支持)、[稳健回归](../models/robust.md#求解器支持)、[Cox PH](../models/coxph.md#求解器支持) |
-| 其他模型专属算法 | [有序模型](../models/ordered.md#求解器支持)、[核方法](../models/kernel-methods.md#求解器支持)、[PCA](../unsupervised/pca.md#求解器支持)、[NMF](../unsupervised/nmf.md#求解器支持) |
+当前具体组合请查阅 [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md)。
 
-`PenalizedCoxPHModel` 仅提供惩罚估计且不拟合截距。`compute_inference=True`
-会抛出 `NotImplementedError`；需要推断、baseline hazard 或生存曲线时使用普通
-`CoxPH`。
+## 4. 能力匹配与求解器分发
 
-## 6. 快速参考
+模型层大体按以下顺序解析一条拟合路径：
 
-```python
-# Quantile 回归 + SCAD
-from statgpu.linear_model.penalized import PenalizedQuantileRegression
-model = PenalizedQuantileRegression(quantile=0.5, penalty='scad', alpha=0.1)
-model.fit(X, y)
+1. 规范化公共别名并验证模型参数；
+2. 构造具体的 Loss 与 Penalty 对象；
+3. 解析数值后端和设备；
+4. 如果用户显式指定求解器，验证完整的“损失函数 × 惩罚项 × 估计器”路径是否支持它；
+5. 如果请求 `solver="auto"`，根据模型的兼容性策略选择自动路径；
+6. 执行选定求解器，不静默改写用户的显式请求；
+7. 保存估计器对外暴露的实际求解器和后端信息。
 
-# 稳健回归 + MCP
-from statgpu.linear_model.penalized import PenalizedRobustRegression
-model = PenalizedRobustRegression(loss='huber', penalty='mcp', alpha=0.1)
-model.fit(X, y)
+因此，`solver="auto"` 是一种**分发策略**，不是一种具体数值算法。它解析得到的算法可以随损失函数、惩罚项、后端和估计器类型变化。直接拟合与 CV 也可能因为计算负载不同而有意采用不同的自动路径。
 
-# Cox PH + SCAD 惩罚（FISTA-LLA；响应为 [time, event]）
-import numpy as np
-from statgpu.linear_model import PenalizedCoxPHModel
+内部解析后的标签还可能表示延续路径或复合路径；这些标签不一定都是合法的公共 `solver=` 参数值。兼容性矩阵负责区分用户可以显式请求的求解器与内部解析后的路径。
 
-y_surv = np.column_stack([time, event])
-model = PenalizedCoxPHModel(
-    penalty='scad', alpha=0.1,
-    fit_intercept=False, compute_inference=False,
-)
-model.fit(X, y_surv)
+准确的当前分发规则见 [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md)；各算法如何计算见 [求解器算法](solver-algorithms.md)。
 
-# 全部惩罚 + 损失通过 PenalizedGeneralizedLinearModel
-from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
-model = PenalizedGeneralizedLinearModel(loss='gamma', penalty='scad', alpha=0.1)
-model.fit(X, y)
+## 5. `sample_weight` 与目标函数一致性
+
+`sample_weight` 不是求解器的通用属性。它的统计含义和可用范围属于完整的**损失函数 × 求解器 × 估计器**约定。
+
+对于采用归一化分析权重目标的路径，数据拟合项形如
+
+$$
+L_w(\beta)
+=
+\frac{\sum_i w_i\,\ell_i(\beta)}{\sum_i w_i}.
+$$
+
+分母决定了数据拟合项相对于惩罚项的尺度。若把这个加权平均改成加权总和，就需要相应缩放惩罚项，才能保持两者的相对强度。上述目标函数的梯度与曲率也具有相同的归一化因子。
+
+因此：
+
+- 共享方法签名中出现 `sample_weight`，并不能推出完整估计器已经支持带权拟合；
+- 提供权重不会自动把用户显式指定的求解器改成另一个求解器；
+- 底层调用同样存在权重限制：例如，共享 ADMM 在其支持的损失上会拒绝非均匀权重；
+- 只有明确采用上述归一化目标的路径，才能据此推出统一缩放权重不改变目标最优点。
+
+各模型页说明相应权重的统计含义与支持范围；损失函数层的一阶权重语义见 [损失函数](../reference/losses.md)。
+
+## 6. 后端与设备边界
+
+后端是贯穿各层的执行维度，而不是独立的统计模型层：
+
+```text
+                  NumPy / CuPy / Torch
+                ┌──────────────────────┐
+模型       ──────┤ 设备选择             │
+损失函数   ──────┤ 目标函数数值原语     │
+惩罚项     ──────┤ 近端算子 / 梯度      │
+求解器     ──────┤ 数值迭代             │
+                └──────────────────────┘
 ```
 
-## 参考文献
+在共享的带惩罚 GLM 拟合路径中，显式指定 `device="cuda"` 或 `device="torch"` 时需要相应的 GPU 后端；该后端不可用时会报错。这些路径可用 `device="auto"` 自动选择后端。其他模型可能采用不同的设备选择规则；模型专属选项和数据传输注意事项见 [设备与内存](device-and-memory.md)。
 
-- Fan & Li (2001): Variable selection via nonconcave penalized likelihood (SCAD)
-- Zhang (2010): Nearly unbiased variable selection under minimax concave penalty (MCP)
-- Wu & Liu (2009): Variable selection in quantile regression
-- Hunter & Li (2005): MM algorithms for nonconvex penalized estimation
-- Barzilai & Borwein (1988): Two-point step size gradient methods (BB)
-- O'Donoghue & Candes (2015): Adaptive restart for accelerated gradient schemes
+后端支持范围取决于具体路径：某个求解器同时实现 NumPy、CuPy、Torch，并不意味着所有损失函数、估计器或推断程序都支持这三个后端。预处理、输出位置与支持的设备请查阅对应模型文档。
+
+## 7. CV 与元估计器边界
+
+CV / 元估计器在普通拟合之外增加一层编排。它负责：
+
+- 为各数据折构造独立的估计器状态；
+- 按选定损失函数、惩罚项和调参值构造候选模型；
+- 使用当前训练折的数据和权重；
+- 计算声明的验证分数；
+- 选择调参结果；
+- 按预定路径执行最终全数据重拟合。
+
+每个候选模型仍受损失函数、惩罚项与求解器兼容性的限制。在 `PenalizedGLM_CV` 中，受支持的显式求解器请求同时用于候选拟合与选定参数后的全数据重拟合。
+
+为了计算效率，CV 的 `solver="auto"` 可以有意与直接拟合的 `solver="auto"` 不同。这些差异统一记录在 [CV 兼容性矩阵](solver-penalty-matrix.md#4-cv-的-solverautopenalizedglm_cv) 中。
+
+严格/近似 CV、评分方式、延续路径与最终重拟合选项见 [交叉验证](cross-validation.md)及对应模型页。
+
+## 8. 公共估计器 API 与底层 API
+
+普通用户应优先使用模型类作为入口。文档明确公开的底层损失函数、惩罚项和求解器 API 也可以直接使用，但其约定可能比估计器路径更窄，或者本来就属于不同层次的接口。
+
+不要根据以下任意一个单独事实推断估计器已经支持某项能力：
+
+- 某个损失函数有 `gradient()` 或 `hessian()`；
+- 某个惩罚项有 `prox()`；
+- 某个求解器函数签名中存在某个参数；
+- 某个底层调用在一个后端或一个无权重例子中可以运行。
+
+反过来，一个估计器也可以把多个底层组件组合成一条解析后的路径。公开支持范围由完整估计器约定与兼容性矩阵定义，而不是由单个底层组件决定。
+
+<a id="9-文档职责分工"></a>
+
+## 9. 查找所需参考
+
+可按具体问题查找相应参考：
+
+| 问题 | 主要文档 |
+|---|---|
+| 这个损失函数的数学定义是什么？提供哪些数值原语？ | [损失函数](../reference/losses.md) |
+| 某个损失函数 × 惩罚项组合实际使用哪个求解器？ | [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md) |
+| Newton / FISTA / ADMM 等具体如何更新？ | [求解器算法](solver-algorithms.md) |
+| Loss、Penalty、Solver、Backend、CV 如何组合？ | **本页** |
+| 某个具体模型支持什么、为什么？ | 对应模型页 |
+| 某种推断程序或推断目标是否可用？ | [推断模式](inference-modes.md)及模型专属推断文档 |
+
+为具体模型选择求解器时，请结合模型页与兼容性矩阵阅读；模型页还会说明额外的输入限制和统计假设。
+
+## 相关文档
+
+- [损失函数](../reference/losses.md)
+- [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md)
+- [求解器算法](solver-algorithms.md)
+- [交叉验证](cross-validation.md)
+- [推断模式](inference-modes.md)

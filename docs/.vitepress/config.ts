@@ -1,4 +1,11 @@
 import { defineConfig } from 'vitepress';
+import path from 'node:path';
+import { existsSync } from 'node:fs';
+import { compressedLocalSearchPlugin } from '../../scripts/search-index-compression.mjs';
+
+const docsRoot = path.resolve(process.cwd(), 'docs');
+const repositoryRoot = path.dirname(docsRoot);
+const repositoryUrl = 'https://github.com/TheHiddenObserver/statgpu/blob/master/';
 
 function normalizeBase(value: string | undefined): string {
   const candidate = value?.trim() || '/statgpu/';
@@ -27,184 +34,772 @@ function isPublicSearchPage(relativePath: string): boolean {
 
 function englishModelReference() {
   return {
-    text: 'Model reference',
-    collapsed: false,
-    items: [
-      { text: 'Model directory', link: '/en/models/' },
-      { text: 'Current model overview', link: '/en/models/README' },
-      {
-        text: 'Regression and GLM',
-        collapsed: true,
-        items: [
-          { text: 'Linear regression', link: '/en/models/linear-regression' },
-          { text: 'Linear inference and API', link: '/en/models/linear-regression-inference' },
-          { text: 'Generalized linear models', link: '/en/models/generalized-linear-model' },
-          { text: 'GLM families and API', link: '/en/models/glm-family-reference' },
-          { text: 'Logistic regression', link: '/en/models/logistic-regression' },
-          { text: 'Poisson regression', link: '/en/models/poisson-regression' },
-          { text: 'Ordered models', link: '/en/models/ordered' },
-          { text: 'Quantile regression', link: '/en/models/quantile' },
-          { text: 'Robust regression', link: '/en/models/robust' },
-          { text: 'Cox proportional hazards', link: '/en/models/coxph' },
-        ],
-      },
-      {
-        text: 'Regularization',
-        collapsed: true,
-        items: [
-          { text: 'Feature selection', link: '/en/models/feature-selection' },
-          { text: 'Ridge', link: '/en/models/ridge' },
-          { text: 'Lasso', link: '/en/models/lasso' },
-          { text: 'Lasso inference', link: '/en/models/lasso-inference' },
-          { text: 'Elastic Net', link: '/en/models/elastic-net' },
-          { text: 'Adaptive Lasso', link: '/en/models/adaptive-lasso' },
-          { text: 'SCAD', link: '/en/models/scad' },
-          { text: 'MCP', link: '/en/models/mcp' },
-          { text: 'Knockoff filters', link: '/en/models/knockoff' },
-        ],
-      },
-      {
-        text: 'Statistical modules',
-        collapsed: true,
-        items: [
-          { text: 'ANOVA', link: '/en/models/anova' },
-          { text: 'Covariance', link: '/en/models/covariance' },
-          { text: 'Nonparametric methods', link: '/en/models/nonparametric' },
-          { text: 'Kernel methods', link: '/en/models/kernel-methods' },
-          { text: 'Splines', link: '/en/models/splines' },
-          { text: 'GAM / semiparametric', link: '/en/models/semiparametric' },
-          { text: 'Multiple testing', link: '/en/models/multiple-testing' },
-          { text: 'Loss functions', link: '/en/models/losses' },
-        ],
-      },
-      {
-        text: 'Unsupervised learning',
-        collapsed: true,
-        items: [
-          { text: 'Overview', link: '/en/unsupervised/' },
-          { text: 'PCA', link: '/en/unsupervised/pca' },
-          { text: 'Incremental PCA', link: '/en/unsupervised/incremental-pca' },
-          { text: 'Truncated SVD', link: '/en/unsupervised/truncated-svd' },
-          { text: 'NMF', link: '/en/unsupervised/nmf' },
-          { text: 'MiniBatch NMF', link: '/en/unsupervised/minibatch-nmf' },
-          { text: 'K-Means', link: '/en/unsupervised/kmeans' },
-          { text: 'MiniBatch K-Means', link: '/en/unsupervised/minibatch-kmeans' },
-          { text: 'Agglomerative clustering', link: '/en/unsupervised/agglomerative-clustering' },
-          { text: 'DBSCAN', link: '/en/unsupervised/dbscan' },
-          { text: 'Gaussian mixture', link: '/en/unsupervised/gaussian-mixture' },
-          { text: 't-SNE', link: '/en/unsupervised/tsne' },
-          { text: 'UMAP', link: '/en/unsupervised/umap' },
-        ],
-      },
-      {
-        text: 'Panel models',
-        collapsed: true,
-        items: [
-          { text: 'Overview', link: '/en/panel/' },
-          { text: 'Pooled OLS', link: '/en/panel/pooled-ols' },
-          { text: 'Panel OLS', link: '/en/panel/panel-ols' },
-          { text: 'Between OLS', link: '/en/panel/between-ols' },
-          { text: 'Random effects', link: '/en/panel/random-effects' },
-          { text: 'First-difference OLS', link: '/en/panel/first-difference-ols' },
-          { text: 'Fama-MacBeth', link: '/en/panel/fama-macbeth' },
-          { text: 'Covariance', link: '/en/panel/covariance' },
-          { text: 'Fit statistics', link: '/en/panel/fit-statistics' },
-          { text: 'Diagnostics', link: '/en/panel/diagnostics' },
-        ],
-      },
-    ],
-  };
+  "text": "Model reference",
+  "collapsed": false,
+  "items": [
+    {
+      "text": "Model directory",
+      "link": "/en/models/README"
+    },
+    {
+      "text": "Regression",
+      "collapsed": true,
+      "items": [
+        {
+          "text": "Regression",
+          "link": "/en/models/regression/README"
+        },
+        {
+          "text": "Adaptive Lasso",
+          "link": "/en/models/regression/adaptive-lasso"
+        },
+        {
+          "text": "Elastic Net",
+          "link": "/en/models/regression/elastic-net"
+        },
+        {
+          "text": "GeneralizedLinearModel and Penalized GLM",
+          "link": "/en/models/regression/generalized-linear-model"
+        },
+        {
+          "text": "Lasso",
+          "link": "/en/models/regression/lasso"
+        },
+        {
+          "text": "Lasso inference",
+          "link": "/en/models/regression/lasso-inference"
+        },
+        {
+          "text": "LinearRegression",
+          "link": "/en/models/regression/linear-regression"
+        },
+        {
+          "text": "LogisticRegression",
+          "link": "/en/models/regression/logistic-regression"
+        },
+        {
+          "text": "MCP",
+          "link": "/en/models/regression/mcp"
+        },
+        {
+          "text": "Ordered Generalized Linear Models (Logit/Probit)",
+          "link": "/en/models/regression/ordered"
+        },
+        {
+          "text": "PoissonRegression",
+          "link": "/en/models/regression/poisson-regression"
+        },
+        {
+          "text": "Quantile Regression",
+          "link": "/en/models/regression/quantile"
+        },
+        {
+          "text": "Ridge",
+          "link": "/en/models/regression/ridge"
+        },
+        {
+          "text": "Robust Regression",
+          "link": "/en/models/regression/robust"
+        },
+        {
+          "text": "SCAD",
+          "link": "/en/models/regression/scad"
+        }
+      ]
+    },
+    {
+      "text": "Statistical testing",
+      "collapsed": true,
+      "items": [
+        {
+          "text": "Statistical Testing",
+          "link": "/en/models/testing/README"
+        },
+        {
+          "text": "Classical one-way ANOVA",
+          "link": "/en/models/testing/anova-oneway"
+        },
+        {
+          "text": "Post-hoc comparisons: Tukey and Bonferroni Welch tests",
+          "link": "/en/models/testing/anova-posthoc"
+        },
+        {
+          "text": "Balanced two-way ANOVA",
+          "link": "/en/models/testing/anova-twoway"
+        },
+        {
+          "text": "Welch one-way ANOVA",
+          "link": "/en/models/testing/anova-welch"
+        },
+        {
+          "text": "ANOVA: comparing group means",
+          "link": "/en/models/testing/anova"
+        },
+        {
+          "text": "False discovery rate control: BH and BY",
+          "link": "/en/models/testing/multiple-testing-fdr"
+        },
+        {
+          "text": "Family-wise error control: Bonferroni, Holm and Hochberg",
+          "link": "/en/models/testing/multiple-testing-fwer"
+        },
+        {
+          "text": "Multiple testing and p-value combination",
+          "link": "/en/models/testing/multiple-testing"
+        },
+        {
+          "text": "Combine p-values: Fisher, Stouffer and Cauchy",
+          "link": "/en/models/testing/pvalue-combination"
+        }
+      ]
+    },
+    {
+      "text": "Covariance estimation",
+      "collapsed": true,
+      "items": [
+        {
+          "text": "Covariance Estimation",
+          "link": "/en/models/covariance/README"
+        },
+        {
+          "text": "Empirical Covariance: Learn the Unregularized Baseline",
+          "link": "/en/models/covariance/covariance-empirical"
+        },
+        {
+          "text": "GraphicalLassoCV: choose a sparse-model penalty with held-out data",
+          "link": "/en/models/covariance/covariance-graphical-lasso-cv"
+        },
+        {
+          "text": "GraphicalLasso: a sparse map of conditional relationships",
+          "link": "/en/models/covariance/covariance-graphical-lasso"
+        },
+        {
+          "text": "Ledoit–Wolf: Let the Data Choose Shrinkage",
+          "link": "/en/models/covariance/covariance-ledoit-wolf"
+        },
+        {
+          "text": "MinCovDet: estimate the center and spread despite outlying rows",
+          "link": "/en/models/covariance/covariance-min-cov-det"
+        },
+        {
+          "text": "OAS: Gaussian-Based Shrinkage for Small Samples",
+          "link": "/en/models/covariance/covariance-oas"
+        },
+        {
+          "text": "Fixed Shrinkage: Trade Some Detail for Stability",
+          "link": "/en/models/covariance/covariance-shrunk"
+        }
+      ]
+    },
+    {
+      "text": "Nonparametric methods",
+      "collapsed": true,
+      "items": [
+        {
+          "text": "Nonparametric Methods",
+          "link": "/en/models/nonparametric/README"
+        },
+        {
+          "text": "Kernel Methods",
+          "link": "/en/models/nonparametric/kernel-methods"
+        },
+        {
+          "text": "Nystroem Kernel Approximation",
+          "link": "/en/models/nonparametric/kernel-nystroem"
+        },
+        {
+          "text": "Kernel PCA",
+          "link": "/en/models/nonparametric/kernel-pca"
+        },
+        {
+          "text": "Kernel Ridge Cross-Validation",
+          "link": "/en/models/nonparametric/kernel-ridge-cv"
+        },
+        {
+          "text": "Kernel Ridge Regression",
+          "link": "/en/models/nonparametric/kernel-ridge"
+        },
+        {
+          "text": "Kernel density estimation and local regression",
+          "link": "/en/models/nonparametric/nonparametric"
+        },
+        {
+          "text": "GAM (Generalized Additive Model)",
+          "link": "/en/models/nonparametric/semiparametric"
+        },
+        {
+          "text": "Spline Basis Functions",
+          "link": "/en/models/nonparametric/splines"
+        }
+      ]
+    },
+    {
+      "text": "Feature selection",
+      "collapsed": true,
+      "items": [
+        {
+          "text": "Feature Selection",
+          "link": "/en/models/feature-selection/README"
+        },
+        {
+          "text": "Fixed-X Knockoff Selection",
+          "link": "/en/models/feature-selection/knockoff-fixed-x"
+        },
+        {
+          "text": "Model-X Knockoff Selection",
+          "link": "/en/models/feature-selection/knockoff-model-x"
+        },
+        {
+          "text": "Knockoff Feature Selection",
+          "link": "/en/models/feature-selection/knockoff"
+        }
+      ]
+    },
+    {
+      "text": "Unsupervised learning",
+      "collapsed": true,
+      "items": [
+        {
+          "text": "Unsupervised Learning",
+          "link": "/en/unsupervised/README"
+        },
+        {
+          "text": "AgglomerativeClustering",
+          "link": "/en/unsupervised/agglomerative-clustering"
+        },
+        {
+          "text": "Unsupervised estimator API reference",
+          "link": "/en/unsupervised/api-reference"
+        },
+        {
+          "text": "DBSCAN",
+          "link": "/en/unsupervised/dbscan"
+        },
+        {
+          "text": "GaussianMixture",
+          "link": "/en/unsupervised/gaussian-mixture"
+        },
+        {
+          "text": "IncrementalPCA",
+          "link": "/en/unsupervised/incremental-pca"
+        },
+        {
+          "text": "KMeans",
+          "link": "/en/unsupervised/kmeans"
+        },
+        {
+          "text": "MiniBatchKMeans",
+          "link": "/en/unsupervised/minibatch-kmeans"
+        },
+        {
+          "text": "MiniBatchNMF",
+          "link": "/en/unsupervised/minibatch-nmf"
+        },
+        {
+          "text": "NMF",
+          "link": "/en/unsupervised/nmf"
+        },
+        {
+          "text": "PCA",
+          "link": "/en/unsupervised/pca"
+        },
+        {
+          "text": "TruncatedSVD",
+          "link": "/en/unsupervised/truncated-svd"
+        },
+        {
+          "text": "TSNE",
+          "link": "/en/unsupervised/tsne"
+        },
+        {
+          "text": "UMAP",
+          "link": "/en/unsupervised/umap"
+        }
+      ]
+    },
+    {
+      "text": "Panel models",
+      "collapsed": true,
+      "items": [
+        {
+          "text": "Panel Models",
+          "link": "/en/panel/README"
+        },
+        {
+          "text": "Panel Architecture",
+          "link": "/en/panel/architecture"
+        },
+        {
+          "text": "BetweenOLS",
+          "link": "/en/panel/between-ols"
+        },
+        {
+          "text": "Panel Covariance Estimators",
+          "link": "/en/panel/covariance"
+        },
+        {
+          "text": "Panel Diagnostics",
+          "link": "/en/panel/diagnostics"
+        },
+        {
+          "text": "FamaMacBeth",
+          "link": "/en/panel/fama-macbeth"
+        },
+        {
+          "text": "FirstDifferenceOLS",
+          "link": "/en/panel/first-difference-ols"
+        },
+        {
+          "text": "Panel Fit Statistics",
+          "link": "/en/panel/fit-statistics"
+        },
+        {
+          "text": "PanelOLS",
+          "link": "/en/panel/panel-ols"
+        },
+        {
+          "text": "PooledOLS",
+          "link": "/en/panel/pooled-ols"
+        },
+        {
+          "text": "RandomEffects",
+          "link": "/en/panel/random-effects"
+        }
+      ]
+    },
+    {
+      "text": "Cox proportional hazards",
+      "link": "/en/models/coxph"
+    },
+    {
+      "text": "Complete API references",
+      "collapsed": true,
+      "items": [
+        {
+          "text": "ANOVA API Reference",
+          "link": "/en/reference/anova-api"
+        },
+        {
+          "text": "Covariance API reference",
+          "link": "/en/reference/covariance-api"
+        },
+        {
+          "text": "CoxPH device and CV diagnostics",
+          "link": "/en/reference/coxph-diagnostics"
+        },
+        {
+          "text": "Shared estimator API",
+          "link": "/en/reference/estimator-api"
+        },
+        {
+          "text": "Feature-selection API reference",
+          "link": "/en/reference/feature-selection-api"
+        },
+        {
+          "text": "Kernel methods API",
+          "link": "/en/reference/kernel-methods-api"
+        },
+        {
+          "text": "Linear-model API reference",
+          "link": "/en/reference/linear-model-api"
+        },
+        {
+          "text": "Loss Functions (LossBase)",
+          "link": "/en/reference/losses"
+        },
+        {
+          "text": "Survival and smoothing API reference",
+          "link": "/en/reference/survival-smoothing-api"
+        }
+      ]
+    }
+  ]
+};
 }
 
 function chineseModelReference() {
   return {
-    text: '模型参考',
-    collapsed: false,
-    items: [
-      { text: '模型目录', link: '/cn/models/' },
-      { text: '当前模型总览', link: '/cn/models/README' },
-      {
-        text: '回归与 GLM',
-        collapsed: true,
-        items: [
-          { text: '线性回归', link: '/cn/models/linear-regression' },
-          { text: '线性推断与完整 API', link: '/cn/models/linear-regression-inference' },
-          { text: '广义线性模型', link: '/cn/models/generalized-linear-model' },
-          { text: 'GLM 分布族与完整 API', link: '/cn/models/glm-family-reference' },
-          { text: 'Logistic 回归', link: '/cn/models/logistic-regression' },
-          { text: 'Poisson 回归', link: '/cn/models/poisson-regression' },
-          { text: '有序模型', link: '/cn/models/ordered' },
-          { text: '分位数回归', link: '/cn/models/quantile' },
-          { text: '稳健回归', link: '/cn/models/robust' },
-          { text: 'Cox 比例风险', link: '/cn/models/coxph' },
-        ],
-      },
-      {
-        text: '正则化',
-        collapsed: true,
-        items: [
-          { text: '特征选择', link: '/cn/models/feature-selection' },
-          { text: 'Ridge', link: '/cn/models/ridge' },
-          { text: 'Lasso', link: '/cn/models/lasso' },
-          { text: 'Lasso 推断', link: '/cn/models/lasso-inference' },
-          { text: 'Elastic Net', link: '/cn/models/elastic-net' },
-          { text: 'Adaptive Lasso', link: '/cn/models/adaptive-lasso' },
-          { text: 'SCAD', link: '/cn/models/scad' },
-          { text: 'MCP', link: '/cn/models/mcp' },
-          { text: 'Knockoff 筛选', link: '/cn/models/knockoff' },
-        ],
-      },
-      {
-        text: '统计模块',
-        collapsed: true,
-        items: [
-          { text: '方差分析', link: '/cn/models/anova' },
-          { text: '协方差估计', link: '/cn/models/covariance' },
-          { text: '非参数方法', link: '/cn/models/nonparametric' },
-          { text: '核方法', link: '/cn/models/kernel-methods' },
-          { text: '样条', link: '/cn/models/splines' },
-          { text: 'GAM / 半参数', link: '/cn/models/semiparametric' },
-          { text: '多重检验', link: '/cn/models/multiple-testing' },
-          { text: '损失函数', link: '/cn/models/losses' },
-        ],
-      },
-      {
-        text: '无监督学习',
-        collapsed: true,
-        items: [
-          { text: '总览', link: '/cn/unsupervised/' },
-          { text: 'PCA', link: '/cn/unsupervised/pca' },
-          { text: 'Incremental PCA', link: '/cn/unsupervised/incremental-pca' },
-          { text: 'Truncated SVD', link: '/cn/unsupervised/truncated-svd' },
-          { text: 'NMF', link: '/cn/unsupervised/nmf' },
-          { text: 'MiniBatch NMF', link: '/cn/unsupervised/minibatch-nmf' },
-          { text: 'K-Means', link: '/cn/unsupervised/kmeans' },
-          { text: 'MiniBatch K-Means', link: '/cn/unsupervised/minibatch-kmeans' },
-          { text: '层次聚类', link: '/cn/unsupervised/agglomerative-clustering' },
-          { text: 'DBSCAN', link: '/cn/unsupervised/dbscan' },
-          { text: '高斯混合', link: '/cn/unsupervised/gaussian-mixture' },
-          { text: 't-SNE', link: '/cn/unsupervised/tsne' },
-          { text: 'UMAP', link: '/cn/unsupervised/umap' },
-        ],
-      },
-      {
-        text: '面板模型',
-        collapsed: true,
-        items: [
-          { text: '总览', link: '/cn/panel/' },
-          { text: 'Pooled OLS', link: '/cn/panel/pooled-ols' },
-          { text: 'Panel OLS', link: '/cn/panel/panel-ols' },
-          { text: 'Between OLS', link: '/cn/panel/between-ols' },
-          { text: '随机效应', link: '/cn/panel/random-effects' },
-          { text: '一阶差分 OLS', link: '/cn/panel/first-difference-ols' },
-          { text: 'Fama-MacBeth', link: '/cn/panel/fama-macbeth' },
-          { text: '协方差估计', link: '/cn/panel/covariance' },
-          { text: '拟合统计量', link: '/cn/panel/fit-statistics' },
-          { text: '模型诊断', link: '/cn/panel/diagnostics' },
-        ],
-      },
-    ],
-  };
+  "text": "模型参考",
+  "collapsed": false,
+  "items": [
+    {
+      "text": "模型目录",
+      "link": "/cn/models/README"
+    },
+    {
+      "text": "回归",
+      "collapsed": true,
+      "items": [
+        {
+          "text": "回归",
+          "link": "/cn/models/regression/README"
+        },
+        {
+          "text": "Adaptive Lasso",
+          "link": "/cn/models/regression/adaptive-lasso"
+        },
+        {
+          "text": "Elastic Net 弹性网络",
+          "link": "/cn/models/regression/elastic-net"
+        },
+        {
+          "text": "广义线性模型与带惩罚 GLM",
+          "link": "/cn/models/regression/generalized-linear-model"
+        },
+        {
+          "text": "Lasso",
+          "link": "/cn/models/regression/lasso"
+        },
+        {
+          "text": "Lasso 推断原理",
+          "link": "/cn/models/regression/lasso-inference"
+        },
+        {
+          "text": "LinearRegression",
+          "link": "/cn/models/regression/linear-regression"
+        },
+        {
+          "text": "LogisticRegression",
+          "link": "/cn/models/regression/logistic-regression"
+        },
+        {
+          "text": "MCP",
+          "link": "/cn/models/regression/mcp"
+        },
+        {
+          "text": "有序广义线性模型 (Ordered Logit/Probit)",
+          "link": "/cn/models/regression/ordered"
+        },
+        {
+          "text": "PoissonRegression",
+          "link": "/cn/models/regression/poisson-regression"
+        },
+        {
+          "text": "分位数回归",
+          "link": "/cn/models/regression/quantile"
+        },
+        {
+          "text": "Ridge",
+          "link": "/cn/models/regression/ridge"
+        },
+        {
+          "text": "稳健回归",
+          "link": "/cn/models/regression/robust"
+        },
+        {
+          "text": "SCAD",
+          "link": "/cn/models/regression/scad"
+        }
+      ]
+    },
+    {
+      "text": "统计检验",
+      "collapsed": true,
+      "items": [
+        {
+          "text": "统计检验",
+          "link": "/cn/models/testing/README"
+        },
+        {
+          "text": "经典单因素方差分析",
+          "link": "/cn/models/testing/anova-oneway"
+        },
+        {
+          "text": "事后比较：Tukey 与 Bonferroni 两两 Welch 检验",
+          "link": "/cn/models/testing/anova-posthoc"
+        },
+        {
+          "text": "平衡双因素方差分析",
+          "link": "/cn/models/testing/anova-twoway"
+        },
+        {
+          "text": "Welch 单因素方差分析",
+          "link": "/cn/models/testing/anova-welch"
+        },
+        {
+          "text": "ANOVA：比较组均值",
+          "link": "/cn/models/testing/anova"
+        },
+        {
+          "text": "错误发现率控制：BH 与 BY",
+          "link": "/cn/models/testing/multiple-testing-fdr"
+        },
+        {
+          "text": "族错误率控制：Bonferroni、Holm 与 Hochberg",
+          "link": "/cn/models/testing/multiple-testing-fwer"
+        },
+        {
+          "text": "多重检验与 P 值合并",
+          "link": "/cn/models/testing/multiple-testing"
+        },
+        {
+          "text": "P 值合并：Fisher、Stouffer 与 Cauchy",
+          "link": "/cn/models/testing/pvalue-combination"
+        }
+      ]
+    },
+    {
+      "text": "协方差估计",
+      "collapsed": true,
+      "items": [
+        {
+          "text": "协方差估计",
+          "link": "/cn/models/covariance/README"
+        },
+        {
+          "text": "经验协方差：理解未经正则化的基线",
+          "link": "/cn/models/covariance/covariance-empirical"
+        },
+        {
+          "text": "GraphicalLassoCV：用留出数据选择稀疏模型的惩罚",
+          "link": "/cn/models/covariance/covariance-graphical-lasso-cv"
+        },
+        {
+          "text": "GraphicalLasso：用稀疏精度矩阵理解条件关联",
+          "link": "/cn/models/covariance/covariance-graphical-lasso"
+        },
+        {
+          "text": "Ledoit–Wolf：让数据决定收缩强度",
+          "link": "/cn/models/covariance/covariance-ledoit-wolf"
+        },
+        {
+          "text": "MinCovDet：减轻异常观测对中心和协方差的影响",
+          "link": "/cn/models/covariance/covariance-min-cov-det"
+        },
+        {
+          "text": "OAS：利用高斯假设进行小样本收缩",
+          "link": "/cn/models/covariance/covariance-oas"
+        },
+        {
+          "text": "固定收缩：用适度偏差换取稳定性",
+          "link": "/cn/models/covariance/covariance-shrunk"
+        }
+      ]
+    },
+    {
+      "text": "非参数方法",
+      "collapsed": true,
+      "items": [
+        {
+          "text": "非参数方法",
+          "link": "/cn/models/nonparametric/README"
+        },
+        {
+          "text": "核方法",
+          "link": "/cn/models/nonparametric/kernel-methods"
+        },
+        {
+          "text": "Nystroem 核近似",
+          "link": "/cn/models/nonparametric/kernel-nystroem"
+        },
+        {
+          "text": "核主成分分析",
+          "link": "/cn/models/nonparametric/kernel-pca"
+        },
+        {
+          "text": "核岭回归交叉验证",
+          "link": "/cn/models/nonparametric/kernel-ridge-cv"
+        },
+        {
+          "text": "核岭回归",
+          "link": "/cn/models/nonparametric/kernel-ridge"
+        },
+        {
+          "text": "核密度估计与局部核回归",
+          "link": "/cn/models/nonparametric/nonparametric"
+        },
+        {
+          "text": "GAM（广义可加模型）",
+          "link": "/cn/models/nonparametric/semiparametric"
+        },
+        {
+          "text": "样条基函数",
+          "link": "/cn/models/nonparametric/splines"
+        }
+      ]
+    },
+    {
+      "text": "特征选择",
+      "collapsed": true,
+      "items": [
+        {
+          "text": "特征选择",
+          "link": "/cn/models/feature-selection/README"
+        },
+        {
+          "text": "Fixed-X Knockoff 特征选择",
+          "link": "/cn/models/feature-selection/knockoff-fixed-x"
+        },
+        {
+          "text": "Model-X Knockoff 特征选择",
+          "link": "/cn/models/feature-selection/knockoff-model-x"
+        },
+        {
+          "text": "Knockoff 特征选择",
+          "link": "/cn/models/feature-selection/knockoff"
+        }
+      ]
+    },
+    {
+      "text": "无监督学习",
+      "collapsed": true,
+      "items": [
+        {
+          "text": "无监督学习",
+          "link": "/cn/unsupervised/README"
+        },
+        {
+          "text": "AgglomerativeClustering",
+          "link": "/cn/unsupervised/agglomerative-clustering"
+        },
+        {
+          "text": "无监督估计器 API 参考",
+          "link": "/cn/unsupervised/api-reference"
+        },
+        {
+          "text": "DBSCAN",
+          "link": "/cn/unsupervised/dbscan"
+        },
+        {
+          "text": "GaussianMixture",
+          "link": "/cn/unsupervised/gaussian-mixture"
+        },
+        {
+          "text": "IncrementalPCA",
+          "link": "/cn/unsupervised/incremental-pca"
+        },
+        {
+          "text": "KMeans",
+          "link": "/cn/unsupervised/kmeans"
+        },
+        {
+          "text": "MiniBatchKMeans",
+          "link": "/cn/unsupervised/minibatch-kmeans"
+        },
+        {
+          "text": "MiniBatchNMF",
+          "link": "/cn/unsupervised/minibatch-nmf"
+        },
+        {
+          "text": "NMF",
+          "link": "/cn/unsupervised/nmf"
+        },
+        {
+          "text": "PCA",
+          "link": "/cn/unsupervised/pca"
+        },
+        {
+          "text": "TruncatedSVD",
+          "link": "/cn/unsupervised/truncated-svd"
+        },
+        {
+          "text": "TSNE",
+          "link": "/cn/unsupervised/tsne"
+        },
+        {
+          "text": "UMAP",
+          "link": "/cn/unsupervised/umap"
+        }
+      ]
+    },
+    {
+      "text": "面板模型",
+      "collapsed": true,
+      "items": [
+        {
+          "text": "面板模型",
+          "link": "/cn/panel/README"
+        },
+        {
+          "text": "面板模型架构",
+          "link": "/cn/panel/architecture"
+        },
+        {
+          "text": "BetweenOLS",
+          "link": "/cn/panel/between-ols"
+        },
+        {
+          "text": "面板模型协方差估计",
+          "link": "/cn/panel/covariance"
+        },
+        {
+          "text": "面板模型诊断",
+          "link": "/cn/panel/diagnostics"
+        },
+        {
+          "text": "Fama–MacBeth",
+          "link": "/cn/panel/fama-macbeth"
+        },
+        {
+          "text": "FirstDifferenceOLS",
+          "link": "/cn/panel/first-difference-ols"
+        },
+        {
+          "text": "面板拟合统计量",
+          "link": "/cn/panel/fit-statistics"
+        },
+        {
+          "text": "PanelOLS",
+          "link": "/cn/panel/panel-ols"
+        },
+        {
+          "text": "PooledOLS",
+          "link": "/cn/panel/pooled-ols"
+        },
+        {
+          "text": "RandomEffects",
+          "link": "/cn/panel/random-effects"
+        }
+      ]
+    },
+    {
+      "text": "Cox 比例风险",
+      "link": "/cn/models/coxph"
+    },
+    {
+      "text": "完整 API 参考",
+      "collapsed": true,
+      "items": [
+        {
+          "text": "ANOVA API 参考",
+          "link": "/cn/reference/anova-api"
+        },
+        {
+          "text": "协方差 API 参考",
+          "link": "/cn/reference/covariance-api"
+        },
+        {
+          "text": "CoxPH 设备与 CV 诊断",
+          "link": "/cn/reference/coxph-diagnostics"
+        },
+        {
+          "text": "估计器共享 API",
+          "link": "/cn/reference/estimator-api"
+        },
+        {
+          "text": "特征选择 API 参考",
+          "link": "/cn/reference/feature-selection-api"
+        },
+        {
+          "text": "核方法 API",
+          "link": "/cn/reference/kernel-methods-api"
+        },
+        {
+          "text": "线性模型 API 参考",
+          "link": "/cn/reference/linear-model-api"
+        },
+        {
+          "text": "损失函数（LossBase）",
+          "link": "/cn/reference/losses"
+        },
+        {
+          "text": "生存分析与平滑方法 API 参考",
+          "link": "/cn/reference/survival-smoothing-api"
+        }
+      ]
+    }
+  ]
+};
 }
 
 const englishSidebar = [
@@ -221,8 +816,6 @@ const englishSidebar = [
     text: 'Guides',
     items: [
       { text: 'Device and memory', link: '/en/guides/device-and-memory' },
-      { text: 'Formula interface', link: '/en/guides/formula-interface' },
-      { text: 'Acceleration internals', link: '/en/guides/acceleration-internals' },
       { text: 'Solver algorithms', link: '/en/guides/solver-algorithms' },
       { text: 'Solver and penalty matrix', link: '/en/guides/solver-penalty-matrix' },
       { text: 'Cross-validation', link: '/en/guides/cross-validation' },
@@ -253,8 +846,6 @@ const chineseSidebar = [
     text: '\u6307\u5357',
     items: [
       { text: '\u8bbe\u5907\u4e0e\u663e\u5b58', link: '/cn/guides/device-and-memory' },
-      { text: 'Formula \u63a5\u53e3', link: '/cn/guides/formula-interface' },
-      { text: 'CPU/GPU \u52a0\u901f\u5b9e\u73b0', link: '/cn/guides/acceleration-internals' },
       { text: '\u6c42\u89e3\u5668\u7b97\u6cd5', link: '/cn/guides/solver-algorithms' },
       { text: '\u6c42\u89e3\u5668\u4e0e\u60e9\u7f5a\u77e9\u9635', link: '/cn/guides/solver-penalty-matrix' },
       { text: '\u4ea4\u53c9\u9a8c\u8bc1', link: '/cn/guides/cross-validation' },
@@ -273,6 +864,7 @@ const chineseSidebar = [
 
 export default defineConfig({
   base,
+  vite: { plugins: [compressedLocalSearchPlugin()] },
   outDir: '../.site-dist',
   // VitePress 1.6.4 builds its MiniSearch index by concurrently adding pages
   // to a shared index. Serializing page work makes the emitted local-search
@@ -294,7 +886,7 @@ export default defineConfig({
             text: 'Documentation',
             items: [
               { text: 'Quickstart', link: '/en/getting-started/quickstart' },
-              { text: 'Model catalog', link: '/en/models/' },
+              { text: 'Model catalog', link: '/en/models/README' },
               { text: 'Solver guide', link: '/en/guides/solver-algorithms' },
               { text: 'Implemented methods', link: '/en/guides/implemented-methods' },
             ],
@@ -321,7 +913,7 @@ export default defineConfig({
             text: '文档',
             items: [
               { text: '快速上手', link: '/cn/getting-started/quickstart' },
-              { text: '模型目录', link: '/cn/models/' },
+              { text: '模型目录', link: '/cn/models/README' },
               { text: '求解器指南', link: '/cn/guides/solver-algorithms' },
               { text: '已实现方法', link: '/cn/guides/implemented-methods' },
             ],
@@ -342,23 +934,33 @@ export default defineConfig({
   markdown: {
     math: true,
     config(md) {
-      const defaultLinkOpen: NonNullable<
-        typeof md.renderer.rules.link_open
-      > =
-        md.renderer.rules.link_open ??
-        ((tokens, index, options, _env, self) =>
-          self.renderToken(tokens, index, options));
-
-      md.renderer.rules.link_open = (tokens, index, options, env, self) => {
-        const href = tokens[index].attrGet('href');
-        if (href === '/dashboard/' || href === '/dashboard') {
-          // The dashboard is a separate Vite app. Bypass VitePress SPA routing
-          // so navigation loads its assembled index.html instead of the docs 404.
-          tokens[index].attrSet('href', base + 'dashboard/');
-          tokens[index].attrSet('target', '_self');
+      md.core.ruler.after('inline', 'statgpu-source-links', state => {
+        const relativePath = state.env.relativePath;
+        if (!relativePath) return;
+        const source = path.resolve(docsRoot, relativePath);
+        for (const token of state.tokens) {
+          for (const child of token.children ?? []) {
+            if (child.type !== 'link_open') continue;
+            const href = child.attrGet('href');
+            if (!href || /^(?:[a-z]+:|\/\/|#)/i.test(href)) continue;
+            if (href === '/dashboard/' || href === '/dashboard') {
+              child.attrSet('href', base + 'dashboard/');
+              child.attrSet('target', '_self');
+              continue;
+            }
+            const [target, fragment] = href.split('#', 2);
+            const absolute = path.resolve(path.dirname(source), target);
+            const repoRelative = path.relative(repositoryRoot, absolute).replace(/\\/g, '/');
+            const docsRelative = path.relative(docsRoot, absolute);
+            if (!href.startsWith('/') && (docsRelative.startsWith('..') || target.endsWith('.markdown'))) {
+              if (repoRelative.startsWith('..') || !existsSync(absolute)) {
+                throw new Error(`Invalid repository link in ${relativePath}: ${href}`);
+              }
+              child.attrSet('href', repositoryUrl + repoRelative + (fragment ? '#' + fragment : ''));
+            }
+          }
         }
-        return defaultLinkOpen(tokens, index, options, env, self);
-      };
+      });
     },
   },
   // The dashboard is assembled after VitePress completes, then checked by
@@ -405,7 +1007,7 @@ export default defineConfig({
         text: 'Documentation',
         items: [
           { text: 'Quickstart', link: '/en/getting-started/quickstart' },
-          { text: 'Model catalog', link: '/en/models/' },
+          { text: 'Model catalog', link: '/en/models/README' },
           { text: 'Solver guide', link: '/en/guides/solver-algorithms' },
           { text: 'Implemented methods', link: '/en/guides/implemented-methods' },
         ],

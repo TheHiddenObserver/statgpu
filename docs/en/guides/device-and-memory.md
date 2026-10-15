@@ -1,71 +1,129 @@
 # Device and GPU Memory
 
-> Language: English  
-> Last updated: 2026-06-01
-> This page: Guide  
+> Language: English\
+> Last updated: 2026-10-15\
+> This page: device selection and GPU memory controls\
 > Switch: [Chinese](../../cn/guides/device-and-memory.md)
 
-Language switch: [Chinese](../../cn/guides/device-and-memory.md)
+## Choose a device
 
-## Device Selection
+For estimators using the shared device handling, such as `Ridge`, the choices are:
 
-Every estimator supports:
-- `device="cpu"`
-- `device="cuda"`
-- `device="torch"`
-- `device="auto"` (default)
+- `device="cpu"`: compute with NumPy on CPU.
+- `device="cuda"`: compute with CuPy on a CUDA GPU.
+- `device="torch"`: compute with Torch on a CUDA GPU.
+- `device="auto"`: let the estimator choose a backend, taking the global setting into account.
 
-Device purity rules:
-- `device="cpu"` keeps core fit/predict/score computation on NumPy.
-- `device="cuda"` uses CuPy for core computation. If CuPy/CUDA is unavailable, statgpu raises an error instead of falling back to CPU.
-- `device="torch"` uses Torch CUDA for core computation. If Torch CUDA is unavailable, statgpu raises an error instead of using Torch CPU.
-- `device="auto"` is the only mode allowed to choose another available backend automatically.
-- Formula/DataFrame parsing can run on CPU as preprocessing, but model computation is converted to the selected backend.
+An explicit `"cuda"` or `"torch"` request on these estimators raises an error if the corresponding CUDA backend is unavailable. Use `device="cpu"` for CPU execution, or `device="auto"` when automatic selection is acceptable. Some kernel and spline estimators handle these settings differently; read the [exceptions and placement checks](#current-smoothing-and-spline-exceptions) before relying on GPU execution.
 
-## CPU/GPU Transfer Optimizations
+This example runs on CPU without CuPy or Torch:
 
-statgpu now keeps common GPU-to-GPU conversions off the host when possible:
-
-- CuPy -> Torch CUDA conversions prefer DLPack zero-copy sharing.
-- Torch CUDA -> CuPy conversions prefer DLPack zero-copy sharing.
-- NumPy -> Torch CUDA transfers use pinned host memory with `non_blocking=True` when PyTorch accepts it.
-- If a DLPack or pinned-memory path is unavailable in the current environment, statgpu falls back to the existing safe conversion path.
-
-These optimizations are implementation details and do not change device purity:
-explicit `device="cuda"` still requires CuPy/CUDA, and explicit `device="torch"`
-still requires Torch CUDA.
-
-Solver coverage for GLM-style estimators:
-
-| Solver | NumPy | CuPy | Torch |
-|---|---|---|---|
-| `exact` | yes | yes | yes |
-| `fista` | yes | yes | yes |
-| `irls` | yes | yes | yes |
-| `newton` | smooth objectives | smooth objectives | smooth objectives |
-| `lbfgs` | smooth objectives | smooth objectives | smooth objectives |
-
-Non-smooth penalties such as L1 and ElasticNet use FISTA. Newton/L-BFGS with non-smooth penalties raises `ValueError`.
-
-## GPU Memory Cleanup: `gpu_memory_cleanup`
-
-Supported by all current models:
-- `LinearRegression`
-- `Ridge`
-- `Lasso`
-- `LogisticRegression`
-- `CoxPH`
-- `CoxPHCV`
-
-Behavior:
-- `gpu_memory_cleanup=False` (default): better repeated-fit throughput due to CuPy pool reuse.
-- `gpu_memory_cleanup=True`: frees CuPy pool blocks and asks Torch CUDA to release cached blocks after public GPU work, usually lowering steady VRAM usage.
-
-Example:
-
+<!-- api-example: device-cpu -->
 ```python
+import numpy as np
 from statgpu.linear_model import Ridge
 
-model = Ridge(alpha=1.0, device="cuda", gpu_memory_cleanup=True)
-model.fit(X, y)
+rng = np.random.default_rng(42)
+X = rng.normal(size=(200, 5))
+y = 1.0 + X @ np.arange(1.0, 6.0) + rng.normal(size=200)
+model = Ridge(alpha=1.0, device="cpu", compute_inference=False).fit(X, y)
+predictions = model.predict(X[:3])
+print(predictions)
 ```
+
+Backend support depends on the model and operation. Check the model page or [Implemented Methods](implemented-methods.md) before choosing a backend for fitting, cross-validation, or inference. An available backend does not make every loss, penalty, and solver combination usable; see the [Solver × Penalty Matrix](solver-penalty-matrix.md).
+
+### Estimator `device` versus function `backend`
+
+`device="torch"` requests Torch CUDA on estimators with the shared device handling. A function's `backend="torch"` selects the Torch library and can support Torch CPU. For example, `get_backend(backend="torch", device="cpu")` returns a Torch CPU backend, while `get_backend(backend="torch")` chooses Torch CUDA when available and Torch CPU otherwise. Torch must be installed in either case. Check each function's backend documentation rather than treating these two parameters as interchangeable.
+
+The module-level `adjust_pvalues`, `multipletests`, and `combine_pvalues`
+functions preserve a Torch `pvalues` tensor's CPU or exact indexed CUDA device
+when Torch is selected by `backend="auto"` or `"torch"`, including float64
+promotion, temporary arrays, weights, and outputs. Non-Torch input with explicit
+`backend="torch"` uses the current CUDA device when available, otherwise CPU.
+MPS and other unsupported Torch input devices raise `ValueError` because
+these functions support float64 computation on CPU and CUDA only. Their
+selection is independent of `set_device`; estimator helpers first apply their
+own conversion rules. See the [multiple-testing API](multiple-testing-combine-pvalues.md#backend-selection-and-conversion).
+
+## Global settings and estimator settings
+
+`statgpu.set_device` changes the process-wide device setting. For estimators using the shared device handling:
+
+- An explicit estimator `device="cpu"`, `"cuda"`, or `"torch"` takes precedence over the global setting.
+- An estimator's `device="auto"` consults the global setting. It does not reset that setting to automatic selection.
+
+After `set_device("torch")`, for example, `device="auto"` can still raise when Torch CUDA is unavailable. Use `set_device("auto")` to restore automatic global selection, or set `device="cpu"` on the model for an explicit CPU fit. Setting an unavailable global GPU device emits a warning and retains the requested setting.
+
+With an automatic global setting, `statgpu.get_device()` reports CuPy CUDA when available, then Torch CUDA, then CPU. This reports the resolved global choice, not the device used by every model. Models with their own automatic selection, including penalized GLMs, can choose CPU for some workloads when their `device` is `"auto"`, even with a global GPU setting. Use an explicit per-model device when hardware placement matters, subject to the exceptions below.
+
+Prefer a per-model setting when only one fit needs a different device. If you change the global setting temporarily, restore the previously configured policy afterward, including on an error. Keep track of that policy yourself: `get_device()` resolves `"auto"` to a concrete device, so saving its result does not preserve an earlier `"auto"` policy.
+
+<a id="current-smoothing-and-spline-exceptions"></a>
+
+## Kernel and spline exceptions: check array placement
+
+For the following estimators, a GPU setting alone does not establish GPU execution:
+
+- `KernelDensityEstimator` (including `KDE`) and `KernelRegression` (including `KernelRegressionRegressor`) can fit NumPy or Torch CPU input on Torch CPU with `device="torch"` and `backend="auto"` or `"torch"`. Explicit `backend="torch"` can also run on CPU with `device="cuda"`; explicit `backend="numpy"` overrides either GPU request. With `device="cuda", backend="auto"`, these estimators can select Torch when CuPy is unavailable but Torch CUDA is available, and CPU input can still remain on CPU.
+- `SplineTransformer` preserves a supplied Torch tensor's device. Torch CPU input can therefore leave both fitted knots and transformed features on CPU even with `device="torch"` or `"cuda"`. NumPy input with the same settings can instead raise when the requested accelerator is unavailable.
+- `KernelPCA` and `Nystroem` reject `device="torch"` when Torch CUDA is unavailable. After that check succeeds, NumPy or Torch CPU input can still produce Torch CPU features. Passing the availability check does not establish tensor placement.
+
+Check the arrays that these methods actually use and return:
+
+- KDE/kernel regression: `samples_` and the returned density or prediction.
+- `SplineTransformer`: each array in `knots_` and the transformed basis.
+- `KernelPCA`/`Nystroem`: the features returned by `fit_transform`, `transform`, or `predict`. Their public fitted arrays are stored as NumPy arrays even after GPU computation and cannot identify the computation device.
+
+For Torch tensors, inspect `.device` and `.is_cuda`; for CuPy arrays, inspect `.device`. NumPy arrays are on CPU. Neither `model.device` nor a library label such as `backend_="torch"` proves CUDA execution.
+
+If GPU execution is required, do not accept a CPU result from these methods. Use a supported GPU input/backend combination and verify the arrays above before using the result. For a predictable CPU alternative, pass NumPy inputs with `device="cpu"`; for KDE/kernel regression, also set `backend="numpy"`.
+
+Other restrictions and supported combinations are described in [kernel smoothing](../models/nonparametric/nonparametric.md#optional-gpu-execution-and-external-comparisons), [kernel features](../reference/kernel-methods-api.md#backend-and-execution-boundaries), and [splines](../models/nonparametric/splines.md#backend-execution-and-extrapolation-boundary).
+
+## Input conversion and returned arrays
+
+Formula/DataFrame parsing and preparation of column information can run on CPU before numerical fitting. GPU fitting can also involve copying input arrays from CPU to GPU. Account for those transfers when comparing end-to-end runtime, and check the model's accepted input types before reusing GPU arrays.
+
+Output types are method-specific. For example, `Ridge.predict(X)` returns a NumPy array by default, including after a GPU fit. `Ridge.predict(X, return_cpu=False)` returns predictions in the fitted model's numerical backend: NumPy for a CPU fit, CuPy or Torch for a GPU fit. Use this option when continuing with operations on the same GPU backend. `Ridge.coef_` remains a NumPy array and does not indicate where fitting ran.
+
+A documented conversion to NumPy at the output is different from the CPU execution described in the kernel/spline exceptions. Check the method's return-value documentation before using an output's type to infer computation placement.
+
+## GPU memory cleanup
+
+Some GPU-capable estimators expose `gpu_memory_cleanup`. On `Ridge`, for example:
+
+- `gpu_memory_cleanup=False` (the default) retains reusable backend allocations, which can help repeated-fit throughput.
+- `gpu_memory_cleanup=True` requests release of unused GPU memory-pool allocations during fit cleanup. This can reduce reserved GPU memory, at the cost of allocating memory again for later work.
+
+Cleanup does not discard fitted state needed for `predict()`, `score()`, or supported inference. It also cannot release memory still held by live arrays in your code or the fitted model, so it does not guarantee that all GPU memory is returned or that a fit will require less peak memory. The available option and cleanup timing depend on the estimator.
+
+The following standalone example requires a working CuPy/CUDA installation:
+
+<!-- api-example: cuda-cleanup -->
+```python
+import numpy as np
+from statgpu.linear_model import Ridge
+
+rng = np.random.default_rng(42)
+X = rng.normal(size=(200, 5))
+y = 1.0 + X @ np.arange(1.0, 6.0) + rng.normal(size=200)
+model = Ridge(
+    alpha=1.0,
+    device="cuda",
+    gpu_memory_cleanup=True,
+)
+model.fit(X, y)
+print(model.score(X, y))
+```
+
+Enable cleanup when several models share a GPU or returning unused memory matters more than repeated-fit latency. Leave it disabled when you want to reuse allocations across repeated fits and have enough GPU memory.
+
+## Related documentation
+
+- [Implemented Methods](implemented-methods.md) — model/backend inventory
+- [Cross-Validation](cross-validation.md) — device behavior during selection and refit
+- [Solver × Penalty Matrix](solver-penalty-matrix.md) — solver compatibility
+- [Solver Algorithms](solver-algorithms.md) — algorithm definitions
+- [PyTorch Backend](pytorch-backend.md) — PyTorch-specific usage

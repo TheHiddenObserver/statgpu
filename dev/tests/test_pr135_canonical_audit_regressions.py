@@ -114,16 +114,26 @@ def test_lassocv_glmnet_alias_reports_coordinate_descent_for_auto(method_alias):
 
 def test_lasso_cv_selector_validates_torch_inputs_on_torch_backend(monkeypatch):
     torch = pytest.importorskip("torch")
-    calls = []
+    from statgpu.backends import get_backend
+    from statgpu.linear_model.cv import _device as cv_device
 
-    class FakeBackend:
-        def asarray(self, value, dtype=None):
-            return value
+    calls = []
+    resolver_calls = []
+    cpu_torch_backend = get_backend(backend="torch", device="cpu")
 
     def fake_get_backend(*, backend="auto", device="auto"):
         calls.append((backend, device))
-        return FakeBackend()
+        return cpu_torch_backend
 
+    def fake_resolver_get_backend(*, backend="auto", device="auto"):
+        resolver_calls.append((backend, device))
+        return cpu_torch_backend
+
+    # The uniform-weight identity wrapper now resolves the same explicit
+    # backend before delegating to the original selector. Replace physical
+    # conversion at both lookup sites, retaining real Torch validation and
+    # checking that neither request silently changes its library/device.
+    monkeypatch.setattr(cv_device, "get_backend", fake_resolver_get_backend)
     monkeypatch.setattr(lasso_impl, "get_backend", fake_get_backend)
     details = lasso_impl._select_lasso_alpha_cv(
         torch.ones((3, 2)),
@@ -137,6 +147,7 @@ def test_lasso_cv_selector_validates_torch_inputs_on_torch_backend(monkeypatch):
 
     assert details["alpha"] == pytest.approx(0.1)
     assert calls == [("torch", "cuda")]
+    assert resolver_calls == [("torch", "cuda")]
 
 
 def test_lasso_bilingual_docs_cover_complete_constructor_inventory():
@@ -147,15 +158,15 @@ def test_lasso_bilingual_docs_cover_complete_constructor_inventory():
         name for name in inspect.signature(Lasso.__init__).parameters if name != "self"
     ]
     for path in (
-        Path("docs/en/models/lasso.md"),
-        Path("docs/cn/models/lasso.md"),
+        Path("docs/en/models/regression/lasso.md"),
+        Path("docs/cn/models/regression/lasso.md"),
     ):
         text = path.read_text(encoding="utf-8")
         missing = [name for name in public_params if f"`{name}`" not in text]
         assert missing == [], f"{path} missing public Lasso parameters: {missing}"
 
 
-def test_lassocv_bilingual_cache_docs_match_current_key_contract():
+def test_lassocv_cache_contract_lives_in_internal_cv_architecture():
     from pathlib import Path
 
     stale_fragments = (
@@ -168,17 +179,24 @@ def test_lassocv_bilingual_cache_docs_match_current_key_contract():
         "memory address changes",
         "内存地址变化",
     )
-    required_fragments = (
+    internal_fragments = (
         "_array_identity_token",
         "_make_lasso_cv_auto_cache_key",
         "gpu_cv_mixed_precision",
         "STATGPU_LASSO_CV_CACHE_SIZE",
         "64",
     )
+
+    # Public CV guides own observable selection/refit behavior, not cache-key
+    # implementation details.
     for path in (
         Path("docs/en/guides/cross-validation.md"),
         Path("docs/cn/guides/cross-validation.md"),
     ):
         text = path.read_text(encoding="utf-8")
         assert all(fragment not in text for fragment in stale_fragments)
-        assert all(fragment in text for fragment in required_fragments)
+        assert all(fragment not in text for fragment in internal_fragments)
+
+    internal = Path("dev/design/CROSS_VALIDATION.md").read_text(encoding="utf-8")
+    assert all(fragment not in internal for fragment in stale_fragments)
+    assert all(fragment in internal for fragment in internal_fragments)

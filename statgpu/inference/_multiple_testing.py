@@ -6,8 +6,48 @@ from typing import Optional, Tuple
 
 import numpy as np
 
-from statgpu.backends import get_backend, _resolve_backend, _to_float_scalar
+from statgpu.backends import (
+    TorchBackend,
+    _resolve_backend,
+    _to_float_scalar,
+    get_backend,
+)
 from statgpu.inference._distributions_backend import chi2, norm
+
+
+def _get_multiple_testing_backend(backend, pvalues):
+    """Bind all arrays in one call to the p-value tensor's concrete device.
+
+    These module functions select an array library, unlike estimator ``device``
+    dispatch. Do not change the shared factory backend or CUDA's current device.
+    """
+    name = _resolve_backend(backend, pvalues)
+    if name != "torch":
+        return get_backend(name)
+
+    import torch
+
+    if isinstance(pvalues, torch.Tensor):
+        device = pvalues.device
+        if device.type not in ("cpu", "cuda"):
+            raise ValueError(
+                "Multiple-testing Torch inputs must be on CPU or CUDA; "
+                f"device '{device}' is unsupported by the float64 contract. "
+                "Move pvalues explicitly to CPU or CUDA before calling."
+            )
+        device = str(device)
+    else:
+        device = (
+            f"cuda:{torch.cuda.current_device()}"
+            if torch.cuda.is_available() else "cpu"
+        )
+
+    local_backend = TorchBackend(device=device)
+    # The generic backend's optional random-matmul warmup is unnecessary for
+    # these small functional kernels. Skip it for a call-local instance so
+    # repeated inference neither consumes the user's RNG nor warms every call.
+    local_backend._initialized = True
+    return local_backend
 
 
 def _to_bool_scalar(x) -> bool:
@@ -239,12 +279,18 @@ def adjust_pvalues(
         One of: 'bh', 'by', 'holm', 'bonferroni', 'hochberg'.
         Common aliases are accepted (e.g., 'fdr_bh', 'bonf', 'step_up').
     alpha : float, default=0.05
-        Rejection threshold in (0, 1).
+        Finite rejection threshold in (0, 1). The current validator does
+        not reject NaN and would return an all-false mask; validate levels
+        computed from external inputs before calling.
     axis : int or None, default=None
         Axis along which to adjust p-values.
         If None, adjusts over all values flattened.
     backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
-        Compute backend. ``'auto'`` infers from input array type.
+        Array library. ``'auto'`` infers from pvalues. Torch CPU/CUDA tensors
+        retain their device, with float64 computation; temporary arrays use
+        that device. Other Torch devices
+        raise. Non-Torch input with ``'torch'`` uses the current CUDA device
+        when available, otherwise CPU. Global ``set_device`` is not consulted.
 
     Returns
     -------
@@ -255,8 +301,7 @@ def adjust_pvalues(
     """
     method_n = _normalize_method(method)
     alpha_f = _validate_alpha(alpha)
-    backend_name = _resolve_backend(backend, pvalues)
-    backend = get_backend(backend_name)
+    backend = _get_multiple_testing_backend(backend, pvalues)
 
     arr = backend.asarray(pvalues, dtype=backend.float64)
 
@@ -301,6 +346,13 @@ def combine_pvalues(
     """
     Combine p-values into a global p-value.
 
+    Fisher and Stouffer use independent-test reference distributions; no
+    dependence covariance is estimated. Cauchy uses a tail approximation
+    under regularity conditions, not universal finite-level error control.
+    A global rejection does not identify individual false hypotheses.
+    Endpoint clipping and distribution-tail cancellation can limit extreme
+    probabilities; zero output need not mean an exact zero probability.
+
     Parameters
     ----------
     pvalues : array-like
@@ -308,11 +360,22 @@ def combine_pvalues(
     method : {'fisher', 'cauchy', 'stouffer'}, default='fisher'
         Combination method. Aliases accepted (e.g., 'acat').
     weights : array-like, optional
-        Optional non-negative weights for method='cauchy' or 'stouffer'.
+        Finite nonnegative weights with positive sum for method='cauchy'
+        or 'stouffer', matching the combination-axis length. They are
+        normalized internally. Fisher rejects supplied weights.
+        Validate a nonempty one-dimensional vector, then divide by its
+        largest positive entry before calling: the current normalization
+        can overflow for individually finite large weights and return a
+        wrong Cauchy p-value or NaN Stouffer result. Positive common scaling
+        preserves the intended relative-weight calculation.
     axis : int or None, default=None
         Axis along which to combine p-values. If None, flattens all values.
     backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
-        Compute backend. ``'auto'`` infers from input array type.
+        Array library. ``'auto'`` infers from pvalues, not weights.
+        Torch CPU/CUDA tensors retain their device, with float64 computation;
+        weights and temporary arrays use that device. Other Torch devices
+        raise. Non-Torch input with ``'torch'`` uses the current CUDA device
+        when available, otherwise CPU. Global ``set_device`` is not consulted.
 
     Returns
     -------
@@ -322,8 +385,7 @@ def combine_pvalues(
         Combined p-value(s).
     """
     method_n = _normalize_combine_method(method)
-    backend_name = _resolve_backend(backend, pvalues)
-    backend = get_backend(backend_name)
+    backend = _get_multiple_testing_backend(backend, pvalues)
 
     arr = backend.asarray(pvalues, dtype=backend.float64)
 
@@ -381,7 +443,12 @@ def multipletests(
     axis: Optional[int] = None,
     backend: str = "auto",
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """Alias compatible with common scientific naming."""
+    """Return the same pair as adjust_pvalues using alpha before method.
+
+    Pass alpha and method by keyword: their positional order differs from
+    adjust_pvalues. This function returns only (reject, adjusted), not the
+    four-item statsmodels result.
+    """
     return adjust_pvalues(
         pvalues,
         method=method,

@@ -1,386 +1,1551 @@
 # 求解器算法
 
-> 语言：简体中文
-> 最后更新：2026-09-04
+> 语言：中文  
+> 最后更新：2026-10-14  
+> 页面定位：算法参考  
 > 切换：[English](../../en/guides/solver-algorithms.md)
 
-## 范围与统一目标
+## 概览
 
-statgpu 的多数估计器求解复合目标
+statgpu 提供一阶、二阶、近端和闭式等多类求解器。大多数模型拟合可以先使用 `solver="auto"`。本页说明各算法的更新公式、停止条件、后端支持与使用限制。
+
+阅读本页时可以先记住三点：
+
+1. 支持某个计算后端，不代表所有损失函数、惩罚项和权重组合都受支持。
+2. `sample_weight` 不会改变显式指定的 `solver`。如果所请求的带权组合不受支持，则直接报错。
+3. 权重支持取决于完整的模型路径。尤其是直接调用 L-BFGS 时，非均匀权重只有在损失函数明确支持带权目标与梯度时才可用，并不会自动扩展到所有 `LossBase`。
+
+模型层面的完整分发表见 [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md)。
+
+## 求解器总览
+
+| 求解器 | 最适合 | 后端支持 |
+|--------|--------|:---:|
+| Proximal IRLS-CD | 分位数回归 + SCAD/MCP | NumPy, CuPy, Torch |
+| 分组 Proximal IRLS-LLA | 自动 Quantile + Group SCAD/MCP | NumPy, CuPy, Torch |
+| Proximal Newton | 光滑损失 + L2/无惩罚；非光滑请求使用 FISTA | NumPy, CuPy, Torch |
+| FISTA | 近端梯度路径；受支持的 Quantile 一阶路径 | NumPy, CuPy, Torch |
+| FISTA-BB | GLM + 稀疏惩罚 | NumPy, CuPy, Torch |
+| FISTA-LLA | 非凸惩罚的延续/LLA 路径 | NumPy, CuPy, Torch |
+| IRLS | 具有 IRLS 实现的损失 | NumPy, CuPy, Torch |
+| Newton | 有 Hessian 的光滑损失 | NumPy, CuPy, Torch |
+| L-BFGS | 光滑损失、中等参数维度 | NumPy, CuPy, Torch |
+| L-BFGS-B | 带盒约束的光滑问题 | NumPy, CuPy, Torch |
+| ADMM | 可分/近端形式 | NumPy, CuPy, Torch |
+| `exact` | 平方误差 + L2 闭式路径 | NumPy, CuPy, Torch |
+
+后端列只说明数值实现能力；具体模型、损失函数、惩罚项与权重还会限制可用组合。选择估计器的求解器时，请先查[兼容性矩阵](solver-penalty-matrix.md)。分位数损失的非光滑性及底层调用与模型接口的差别，见[分位数求解器的适用范围](#quantile-solver-scope)。
+
+---
+
+## 1. Proximal IRLS-CD
+
+**文件**：`statgpu/solvers/_proximal_irls_quantile.py`
+
+**用途**：分位数回归 + SCAD/MCP。它把 check（又称 pinball）损失的带 epsilon 稳定化的 IRLS 加权二次近似与非凸惩罚的局部线性近似（LLA）结合起来。
+
+### 算法
+
+对延续路径中的每个 `alpha`：
+
+1. **LLA 外循环。** 在当前系数处计算惩罚导数
+
+   $$
+   d_j=P'(|\beta_j|),
+   $$
+
+   SCAD/MCP 的当前局部阈值为
+
+   $$
+   t_j=n\,d_j.
+   $$
+
+2. **IRLS-CD 内循环。** 先计算残差
+
+   $$
+   r_i=y_i-x_i^\top\beta.
+   $$
+
+   定义
+
+   $$
+   q_i=\begin{cases}
+   \tau, & r_i\ge 0,\\
+   1-\tau, & r_i<0,
+   \end{cases}
+   \qquad
+   w_i^{\mathrm{IRLS}}=\frac{q_i}{\max(|r_i|,\varepsilon)}.
+   $$
+
+   如果传入分析权重 `sample_weight=s`，先归一化为
+
+   $$
+   \tilde s_i=\frac{n s_i}{\sum_j s_j},
+   $$
+
+   再使用
+
+   $$
+   w_i=\tilde s_i\,w_i^{\mathrm{IRLS}}.
+   $$
+
+   这些依赖残差符号的权重定义局部加权二次近似，并非原始 pinball 损失的全局上界。例如，取 $\tau=0.9$、$r_0=-1$、$\varepsilon<1$，权重为 $0.1$。二次函数 $Q(r)=0.05r^2+0.05$ 在 $r_0$ 处与 $\rho_{0.9}$ 的函数值和导数相同，但 $Q(1)=0.1<\rho_{0.9}(1)=0.9$。两个残差处都没有触发 epsilon 下限。因此，不能据此保证原始 pinball 目标具有全局上界最小化（MM）的单调性。
+
+3. **并行对角近似更新。** 记 $W=\operatorname{diag}(w)$，计算
+
+   $$
+   g=X^\top W(y-X\beta),
+   \qquad
+   h=\operatorname{diag}(X^\top W X),
+   $$
+
+   然后令
+
+   $$
+   u=g+h\odot\beta,
+   $$
+
+   并对所有坐标并行更新
+
+   $$
+   \beta_j^{\mathrm{new}}=\frac{S(u_j,t_j)}{h_j},
+   $$
+
+   其中软阈值算子为
+
+   $$
+   S(u,t)=\operatorname{sign}(u)\max(|u|-t,0).
+   $$
+
+   这里采用的是 Jacobi 风格的并行对角近似，而不是逐坐标循环更新。该对角矩阵不一定是完整加权 Gram 矩阵的上界：若 $X^\top W X=\begin{pmatrix}1&0.9\\0.9&1\end{pmatrix}$，则 $\operatorname{diag}(h)-X^\top W X$ 的特征值为 $-0.9$ 与 $0.9$，并非半正定矩阵。
+
+4. **截距与完全平坦的 LLA 近似。** 分位数损失不是二次损失，因此不能通过对 $X$ 与 $y$ 做均值中心化来精确消去截距。`fit_intercept=True` 时，数值设计矩阵会增广一列常数 1，截距作为 pinball 目标中的真实坐标共同优化，其局部惩罚阈值固定为 0。
+
+   如果某一轮中所有特征侧 LLA 导数都严格为零，
+
+   $$
+   d_1=\cdots=d_p=0,
+   $$
+
+   则当前 SCAD/MCP 近似已经没有活动惩罚，退化成普通带权分位数回归。此时求解器复用完整的 `QuantileLoss.irls()` WLS 更新来求解该近似，而不是继续使用对角 Jacobi 近似。这个完全平坦近似使用
+
+   $$
+   \min(\texttt{tol},10^{-8})
+   $$
+
+   作为 IRLS 收敛容差，与 Quantile IRLS 的精度约定一致。只要仍有任意 $d_j>0$，就继续执行上面的常规 Proximal IRLS-CD 内循环。
+
+5. **收敛判据。** 对仍有活动惩罚的 Proximal IRLS-CD 步，内循环检查
+
+   $$
+   \|\beta^{\mathrm{new}}-\beta\|_\infty<\texttt{tol}.
+   $$
+
+   完全平坦的近似则使用 Quantile IRLS 的 $\ell_2$ 参数变化判据。LLA 外循环仍检查
+
+   $$
+   \|\beta-\beta_{\mathrm{before\,LLA}}\|_\infty<\texttt{lla\_tol}.
+   $$
+
+### 延续路径与默认值
+
+- 延续路径：从 `lambda_max` 到目标 `alpha`；
+- `max_lla_per_step=2`；
+- `lla_tol=1e-6`；
+- `tol=1e-6`。
+
+### 计算后端
+
+- NumPy：NumPy 矩阵运算；
+- CuPy：CuPy 矩阵运算和可用的 GPU 核函数；
+- Torch：设备原生张量运算。
+
+---
+
+## 2. Proximal Newton
+
+**文件**：`statgpu/solvers/_proximal_newton.py`
+
+**用途**：光滑损失 + L2/无惩罚，并且普通 Newton 系统具有明确数学定义的场景。
+
+对于一般的非光滑复合目标
 
 $$
-\min_{\beta\in\mathbb R^p}
-F(\beta)
-=
-f(\beta)+P(\beta),
+F(\beta)=\ell(\beta)+P(\beta),
 $$
 
-其中 $f$ 是平均数据拟合损失，$P$ 可以为零、Ridge 等光滑惩罚，或者非光滑/非凸惩罚。截距通常不进入 $P$。
-
-本页按当前源码列出 **10 条通用求解路径**：其中 8 个低层函数由 `statgpu.solvers` 导出，IRLS 以 `statgpu.glm_core.IRLSSolver` 导出，`exact` 则是估计器内部的闭式路径。模型专用算法只放在对应模型页；分位数专用求解器见[分位数回归](../models/quantile.md#算法详解)。
-
-::: warning API 边界
-该清单比任意单个估计器接受的 `solver=` 取值更广。除非已经核对[求解器 × 惩罚兼容矩阵](solver-penalty-matrix.md)，否则优先使用 `solver="auto"`。直接求解器函数需要 loss 与 penalty 对象，属于进阶接口。
-:::
-
-## 从模型页面选择
-
-求解器应从正在拟合的模型页面选择，而不是从下方完整算法清单中随意挑选。各链接页面会列出公开选择器、默认值、`auto` 的实际分发路径，以及明确不可用的组合。
-
-| 模型接口 | 求解器控制项 | 模型专属说明 |
-|---|---|---|
-| `GeneralizedLinearModel` 与支持选择器的类型化 GLM | `solver` | [广义线性模型](../models/generalized-linear-model.md#求解器支持)、[Poisson](../models/poisson-regression.md#求解器支持) |
-| `LogisticRegression` 类型化 wrapper | 固定 IRLS；无选择器 | [逻辑回归](../models/logistic-regression.md#求解器支持) |
-| Ridge | `solver` | [岭回归](../models/ridge.md#求解器支持) |
-| Lasso 与 Elastic Net | `solver`；CV/路径辅助接口还提供 `cpu_solver` | [Lasso](../models/lasso.md#求解器支持)、[Elastic Net](../models/elastic-net.md#求解器支持) |
-| Adaptive Lasso、SCAD、MCP | 模型专属 continuation/加权 L1 路径 | [Adaptive Lasso](../models/adaptive-lasso.md#求解器支持)、[SCAD](../models/scad.md#求解器支持)、[MCP](../models/mcp.md#求解器支持) |
-| 稳健回归 | 模型专属 `solver` 规则 | [稳健回归](../models/robust.md#求解器支持) |
-| Cox 与有序响应模型 | 固定 Newton 路径或惩罚模型 `solver` | [CoxPH](../models/coxph.md#求解器支持)、[有序模型](../models/ordered.md#求解器支持) |
-| PCA、KernelPCA、NMF | `svd_solver`、`eigen_solver` 或 `solver` | [PCA](../unsupervised/pca.md#求解器支持)、[核方法](../models/kernel-methods.md#求解器支持)、[NMF](../unsupervised/nmf.md#求解器支持) |
-
-`fista_lla_path`、`proximal_newton_solver`、`lbfgs_b_solver` 等名称属于内部路径或低层 API，并不是所有估计器都能传入的 `solver=` 值。
-
-## 完整清单
-
-| # | 路径 | 公开状态 | 主要用途 | 后端 |
-|---:|---|---|---|---|
-| 1 | FISTA | `fista_solver`；估计器会调度 | 凸非光滑惩罚和一般复合目标 | NumPy、CuPy、Torch |
-| 2 | FISTA-BB | `fista_bb_solver`；估计器会调度 | 使用自适应谱步长的稀疏 GLM | NumPy、CuPy、Torch |
-| 3 | FISTA-LLA | `fista_lla_path`；continuation 子路径 | SCAD、MCP、Group SCAD、Group MCP | NumPy、CuPy、Torch |
-| 4 | Newton-Raphson | `newton_solver`；估计器会调度 | 无惩罚或 L2 的光滑损失 | NumPy、CuPy、Torch |
-| 5 | Proximal-Newton facade | `proximal_newton_solver`；低层直接 API | 光滑情形走 Newton；非光滑情形转 FISTA | NumPy、CuPy、Torch |
-| 6 | GLM IRLS | `IRLSSolver`；估计器会调度 | 普通 GLM 与受支持的光滑惩罚 GLM | NumPy、CuPy、Torch |
-| 7 | L-BFGS | `lbfgs_solver`；估计器会调度 | 不希望保存完整 Hessian 的光滑目标 | NumPy、CuPy、Torch |
-| 8 | L-BFGS-B | `lbfgs_b_solver`；低层直接 API | 带 box constraint 的光滑目标 | NumPy、CuPy、Torch |
-| 9 | ADMM | `admm_solver`；可显式选择 | 拆分光滑 loss 与近端 penalty 更新 | NumPy、CuPy、Torch |
-| 10 | Exact Ridge | 估计器 `solver="exact"` | squared error + L2 | NumPy、CuPy、Torch |
-
-下方每个算法段落会用文字解释方法，并在推导附近保留简洁的“作者—年份”引用；完整书目信息统一列在页面末尾。这些引用对应数学算法家族；statgpu 的后端 kernel、数值保护、停止规则与估计器分发属于具体实现。
-
-## 公共记号：近端算子
-
-对步长 $\gamma>0$，近端算子定义为
+Hessian 度量下的 Proximal Newton 步求解如下形式的近端子问题
 
 $$
-\operatorname{prox}_{\gamma P}(v)
-=
-\arg\min_u
+\Delta_k
+=\arg\min_{\Delta}
 \left\{
-\frac{1}{2}\lVert u-v\rVert_2^2+\gamma P(u)
+\nabla\ell(\beta_k)^\top\Delta
++\frac12\Delta^\top H_k\Delta
++P(\beta_k+\Delta)
 \right\}.
 $$
 
-当 $P(\beta)=\lambda\lVert\beta\rVert_1$ 时，它就是逐元素软阈值：
+直接把普通欧氏近端算子套在 Newton 步上会对应另一个复合目标。因此当前实现只在 L2/无惩罚的光滑路径上执行 Newton。对于受支持的光滑损失与非光滑惩罚的组合，会发出警告并使用 FISTA；目前不提供 Hessian 度量下的近端子问题求解。
+
+### 完整光滑目标
+
+当前路径的目标写成
 
 $$
-\mathcal S_{\gamma\lambda}(v_j)
-=
-\operatorname{sign}(v_j)
-\max\left(|v_j|-\gamma\lambda,0\right).
+F(\beta)=L(\beta)+P(\beta).
 $$
 
-## 1. FISTA
+若损失函数支持分析权重 `sample_weight=w`，数据拟合项采用同一个归一化带权目标
 
-**源码：**`statgpu/solvers/_fista.py`
+$$
+L(\beta)
+=\frac{1}{s}\sum_{i=1}^n w_i\,\ell_i(\eta_i),
+\qquad
+\eta_i=x_i^\top\beta,
+\qquad
+s=\sum_{i=1}^n w_i.
+$$
 
-FISTA 按 Beck 与 Teboulle（2009）的方案把近端梯度更新与 Nesterov 动量结合；当前实现的重启行为与 O'Donoghue 和 Candès（2015）的自适应重启思想相关。令 $L_k$ 为局部 Lipschitz 估计，则
+无权重时等价于 $w_i=1$、$s=n$。若相应损失可以逐样本写出
+
+$$
+\psi_i(\beta)
+=\frac{\partial\ell_i}{\partial\eta_i},
+\qquad
+h_i(\beta)
+=\frac{\partial^2\ell_i}{\partial\eta_i^2},
+$$
+
+则其梯度与 Hessian 为
+
+$$
+\nabla L(\beta)
+=\frac{X^\top\!\left(w\odot\psi(\beta)\right)}{s},
+$$
+
+$$
+\nabla^2L(\beta)
+=\frac{X^\top\operatorname{diag}\!\left(w\odot h(\beta)\right)X}{s}.
+$$
+
+<a id="loss-provided-curvature"></a>
+
+上述公式描述真实导数存在时的形式。数值求解器实际使用损失对象的 `hessian()` 或 `fused_gradient_and_hessian()` 返回的曲率矩阵 $B_k$。接口返回精确 Hessian 时，$B_k=\nabla^2L(\beta_k)$；结构化损失无需逐样本分解也可以直接提供该矩阵。Bisquare 返回的是稳定化近似：令 $t_i=(y_i-x_i^\top\beta_k)/c$，在阈值内把 $(1-t_i^2)(1-5t_i^2)$ 的负值截为零。因此，在 Newton 求解器进一步稳定化之前，负曲率已经被截断。该矩阵不是 Bisquare 的真实 Hessian，也不能直接视为推断协方差估计。
+
+当前 Newton 路径只接受 L2 或无惩罚。L2 的实现约定为
+
+$$
+P(\beta)=\frac{\alpha}{2}\|\beta\|_2^2,
+\qquad
+\nabla P(\beta)=\alpha\beta,
+\qquad
+\nabla^2P(\beta)=\alpha I.
+$$
+
+L2 目标的真实 Hessian 为 $\nabla^2F(\beta_k)=\nabla^2L(\beta_k)+\alpha I$。数值 L2 路径在第 $k$ 次迭代使用
+
+$$
+g_k
+=\nabla F(\beta_k)
+=\nabla L(\beta_k)+\alpha\beta_k,
+$$
+
+$$
+H_k=B_k+\alpha I.
+$$
+
+无惩罚时只需令 $\alpha=0$。
+
+### 稳定化 Newton 系统
+
+实现先把上述曲率矩阵对称化：
+
+$$
+\bar H_k
+=\frac12\left(H_k+H_k^\top\right),
+$$
+
+然后加入固定的数值稳定项
+
+$$
+\widetilde H_k
+=\bar H_k+10^{-10}I.
+$$
+
+若
+
+$$
+\|g_k\|_2\le \texttt{tol},
+$$
+
+则认为已经收敛。否则求解
+
+$$
+\widetilde H_k d_k=g_k.
+$$
+
+代码采用“减去方向”的记号，因此候选更新为
+
+$$
+\beta_k(t)=\beta_k-t d_k.
+$$
+
+若线性方程求解被识别为真正的奇异或病态 Hessian，当前实现**不**调用最小二乘回退，而是直接使用最速下降方向
+
+$$
+d_k=g_k.
+$$
+
+下降量定义为
+
+$$
+q_k=g_k^\top d_k.
+$$
+
+因为候选点写作 $\beta_k-t d_k$，有效下降方向需要
+
+$$
+q_k>0.
+$$
+
+若 $q_k$ 非有限或不大于 0，则同样回退到
+
+$$
+d_k=g_k,
+\qquad
+q_k=\|g_k\|_2^2.
+$$
+
+### Armijo 回溯线搜索
+
+线搜索从
+
+$$
+t_0=1
+$$
+
+开始，每次失败后减半，因此第 $m$ 个候选步长为
+
+$$
+t_m=2^{-m},
+\qquad m=0,1,\ldots,24.
+$$
+
+接受第一个满足完整复合目标 Armijo 条件的候选点：
+
+$$
+F(\beta_k-t_m d_k)
+\le
+F(\beta_k)-10^{-4}t_m q_k.
+$$
+
+接受后更新
+
+$$
+\beta_{k+1}=\beta_k-t_m d_k.
+$$
+
+这里的 $F=L+P$ 在当前点和所有试探点都包含 L2 惩罚值。L2 的梯度与曲率已经进入 $g_k$ 和 $H_k$，因此试探点**不会**再额外应用一次欧氏近端算子；否则会重复计入同一个 L2 惩罚。
+
+若 25 个候选步长全部失败，则恢复
+
+$$
+\beta_{k+1}=\beta_k,
+$$
+
+发出线搜索失败警告并结束求解。试探点出现可识别的数值定义域失败时，该候选点被拒绝并继续缩短步长；设备、输入契约等非数值试探错误不会被静默吞掉。
+
+### 初值、默认值与计算后端
+
+若未提供 `init_coef`，则
+
+$$
+\beta_0=0.
+$$
+
+默认控制参数为：
+
+- `max_iter=50`；
+- `tol=1e-6`；
+- 受支持的 NumPy/CuPy/Torch 路径使用对应的原生线性代数实现。
+
+因此，当前名为 `proximal_newton_solver` 的路径，在 L2/无惩罚情况下数值上就是**使用稳定化损失曲率与 Armijo 回溯的阻尼 Newton 方法**；非光滑的 Hessian 度量近端 Newton 子问题尚未实现，非光滑惩罚会在进入上述迭代前转交 FISTA。
+
+---
+
+## 3. FISTA（快速迭代收缩阈值算法）
+
+**文件**：`statgpu/solvers/_fista.py`
+
+**经典适用场景**：复合目标
+
+$$
+F(\beta)=f(\beta)+P(\beta),
+$$
+
+其中 $f$ 光滑，而 $P$ 具有近端算子。这是教科书式 FISTA 的标准设定。
+
+statgpu 还支持普通 FISTA 的 Quantile 路径。在这些路径上，同一个求解器引擎使用 `QuantileLoss` 提供的 check-loss 次梯度；由于 check/pinball loss 本身非光滑，因此这里使用的是加速一阶近端/次梯度方法，而不是声称满足 Beck–Teboulle 光滑复合目标的收敛假设。对于 Quantile L2/无惩罚目标，`solver="auto"` 仍使用 IRLS；只有显式 `solver="fista"` 才选择这条普通 FISTA 路径。
+
+### 近端梯度更新
+
+初始化
+
+$$
+\beta_0=y_0,\qquad t_0=1.
+$$
+
+对于经典的光滑路径，在第 $k$ 次迭代的动量点 $y_k$ 上计算
+
+$$
+g_k=\nabla f(y_k).
+$$
+
+对于 Quantile 普通 FISTA 路径，损失层提供选定的 check-loss 次梯度
+
+$$
+g_k\in\partial f(y_k).
+$$
+
+给定当前 Lipschitz 常数 $L_k$，步长为
+
+$$
+\gamma_k=\frac{1}{L_k},
+$$
+
+近端更新为
 
 $$
 \beta_{k+1}
-=
-\operatorname{prox}_{P/L_k}
-\left(
-z_k-\frac{1}{L_k}\nabla f(z_k)
-\right),
+=\operatorname{prox}_{\gamma_k P}
+\left(y_k-\gamma_k g_k\right).
 $$
 
+这里
+
 $$
-t_{k+1}
-=
-\frac{1+\sqrt{1+4t_k^2}}{2},
+\operatorname{prox}_{\gamma P}(v)
+=\arg\min_x\left\{\gamma P(x)+\frac12\|x-v\|_2^2\right\}.
+$$
+
+### 二次上界与回溯
+
+在需要回溯的路径上，令
+
+$$
+\Delta_k=\beta_{k+1}-y_k.
+$$
+
+候选点检查光滑路径对应的二次上界条件
+
+$$
+f(\beta_{k+1})
+\le
+f(y_k)+g_k^\top\Delta_k
++\frac{L_k}{2}\|\Delta_k\|_2^2+\varepsilon_{\rm slack}.
+$$
+
+若不满足，当前实现按
+
+$$
+L_k\leftarrow1.5L_k,
 \qquad
-z_{k+1}
-=
-\beta_{k+1}
-+
-\frac{t_k-1}{t_{k+1}}
-\left(\beta_{k+1}-\beta_k\right).
+\gamma_k\leftarrow\frac{1}{L_k}
 $$
 
-实现会在需要时进行 backtracking，保存当前最佳目标以便发散恢复，并可针对陡峭的指数 link loss 限制或关闭动量。GPU 路径会融合近端与动量操作。默认控制为 `max_iter=1000`、`tol=1e-4`。
+重新计算近端步，最多回溯 20 次。如果 20 次候选都不能通过这一保护条件，求解器会丢弃未经验证的候选点，发出 `ConvergenceWarning` 并停止；返回值来自已经接受的迭代点，并在已有历史最优记录时返回所跟踪的最佳已接受迭代点。部分受支持的 GPU 非光滑路径采用保守的固定步长近端更新，而不使用上述回溯过程；带权目标函数和求解器兼容性限制保持不变。
 
-## 2. FISTA-BB
+对于 Quantile 的普通 FISTA 路径，同一个检查会与所选次梯度一起用于保护数值步长；它不会把 check loss 变成光滑目标，也不会因此获得光滑目标下 FISTA 的标准收敛保证。
 
-**源码：**`statgpu/solvers/_fista_bb.py`
+### Nesterov 动量
 
-FISTA-BB 保留 Beck 与 Teboulle（2009）的加速近端结构，同时采用 Barzilai 与 Borwein（1988）的谱步长构造。它用相邻参数和光滑梯度估计局部步长：
+接受 $\beta_{k+1}$ 后，更新
 
 $$
-s_k=\beta_k-\beta_{k-1},
-\qquad
-y_k=\nabla f(\beta_k)-\nabla f(\beta_{k-1}).
+t_{k+1}=\frac{1+\sqrt{1+4t_k^2}}{2},
 $$
 
-两个 Barzilai-Borwein 候选步长为
+$$
+y_{k+1}=\beta_{k+1}
++\frac{t_k-1}{t_{k+1}}(\beta_{k+1}-\beta_k).
+$$
+
+典型的系数收敛判据为
+
+$$
+\|\beta_{k+1}-\beta_k\|_1<\texttt{tol}.
+$$
+
+对部分自适应惩罚路径，实现还会结合目标函数稳定性判据，避免仅因系数在相近目标值附近小幅振荡而误判。
+
+### 加权路径
+
+在支持分析权重的路径上，例如逐样本得分为 $\psi_i$ 时，梯度写成
+
+$$
+g(\beta)
+=\frac{X^\top(s\odot\psi)}{\sum_i s_i}.
+$$
+
+带权目标函数与 Lipschitz 估计使用相同的权重定义。FISTA 具有带权实现，并不意味着所有模型组合都自动支持权重。Quantile 的普通 FISTA 路径（包括显式选择的 L2/无惩罚 FISTA）在相应估计器支持 `sample_weight` 时，也使用这一归一化分析权重定义。
+
+### 默认值
+
+- 默认 `max_iter=1000`；
+- 默认 `tol=1e-4`。
+
+---
+
+## 4. FISTA-BB（Barzilai-Borwein）
+
+**文件**：`statgpu/solvers/_fista_bb.py`
+
+**用途**：在 FISTA 近端更新上使用 Barzilai-Borwein 曲率估计来选择步长，适合受支持的 GLM 稀疏惩罚路径。Quantile/check loss 的次梯度是阶梯函数，无法提供 BB 曲率估计所需的光滑梯度差分，因此公开底层接口和模型层 FISTA-BB 都排除 Quantile。
+
+### Lipschitz 预热与 BB 曲率
+
+先由 Lipschitz 常数 $L$ 定义基准步长
+
+$$
+\gamma_L=\frac1L.
+$$
+
+在预热阶段使用
+
+$$
+\gamma_k=\gamma_L.
+$$
+
+预热结束后，令
+
+$$
+s_{k-1}=\beta_k-\beta_{k-1},
+$$
+
+$$
+q_{k-1}=\nabla f(\beta_k)-\nabla f(\beta_{k-1}).
+$$
+
+当
+
+$$
+s_{k-1}^\top q_{k-1}>0
+$$
+
+且曲率信息数值有效时，交替使用
 
 $$
 \gamma_k^{\mathrm{BB1}}
-=
-\frac{s_k^\top s_k}{s_k^\top y_k},
-\qquad
+=\frac{s_{k-1}^\top s_{k-1}}
+{s_{k-1}^\top q_{k-1}},
+$$
+
+和
+
+$$
 \gamma_k^{\mathrm{BB2}}
-=
-\frac{s_k^\top y_k}{y_k^\top y_k}.
+=\frac{s_{k-1}^\top q_{k-1}}
+{q_{k-1}^\top q_{k-1}}.
 $$
 
-burn-in 后会交替使用两种步长，并将其截断到安全范围；动量方向与下降方向冲突时执行 adaptive restart。SCAD/MCP 及其 group 版本会关闭 BB 自适应，因为变化的 LLA 权重会使谱步长不稳定。二次损失可能转回标准 FISTA。
-
-## 3. FISTA-LLA
-
-**源码：**`statgpu/solvers/_fista_lla.py` 与 `_fista_lla_group_contract.py`
-
-SCAD/MCP 的非凸惩罚背景来自 Fan 与 Li（2001），局部线性近似策略采用 Zou 与 Li（2008）的构造。它在 $\beta^{(m)}$ 附近把非凸惩罚替换为 weighted L1 surrogate：
+默认步长边界为
 
 $$
-P_\lambda(|\beta_j|)
-\approx
-P_\lambda(|\beta_j^{(m)}|)
-+
-P_\lambda'(|\beta_j^{(m)}|)
-\left(|\beta_j|-|\beta_j^{(m)}|\right).
-$$
-
-去掉常数后，每个外层迭代求解
-
-$$
-\min_\beta
-f(\beta)
-+
-\sum_{j=1}^p\omega_j^{(m)}|\beta_j|,
+\gamma_{\min}=10^{-3}\gamma_L,
 \qquad
-\omega_j^{(m)}
-=
-P_\lambda'(|\beta_j^{(m)}|),
+\gamma_{\max}=10^3\gamma_L,
 $$
 
-内层使用 FISTA。递减 continuation path $\lambda_1>\cdots>\lambda_M$ 为困难的 SCAD/MCP 问题提供 warm start。Group SCAD/MCP 对 $\lVert\beta_g\rVert_2$ 应用同样近似，并使用 group-aware FISTA 内层问题。
+因此选出的 BB 步长会再投影到
 
-## 4. Newton-Raphson
+$$
+\gamma_k
+\leftarrow
+\min\{\gamma_{\max},\max(\gamma_k,\gamma_{\min})\}.
+$$
 
-**源码：**`statgpu/solvers/_newton.py`
+如果当前曲率对不满足有效性条件，就继续使用已有安全步长，而不是强行形成 BB 比值。
 
-Newton 方向与线搜索采用 Nocedal 与 Wright（2006）的标准表述。对光滑目标，定义
+### 近端更新与保护性缩步
+
+在动量点 $y_k$ 计算
+
+$$
+g_k=\nabla f(y_k),
+$$
+
+然后执行
+
+$$
+v_k=y_k-\gamma_k g_k,
+$$
+
+$$
+\beta_{k+1}=\operatorname{prox}_{\gamma_kP}(v_k).
+$$
+
+对于非二次 GLM，当前实现还会定期检查候选点的目标函数与系数范数。如果保护性检查认为步长过大，则执行
+
+$$
+\gamma_k\leftarrow\frac{\gamma_k}{2}
+$$
+
+并重新计算同一个近端更新，最多尝试 15 次。这一检查是数值保护机制，不改变近端目标本身。
+
+### Nesterov 动量与自适应重启
+
+在标准 Nesterov 分支上，先构造暂定的动量更新
+
+$$
+t_{k+1}=\frac{1+\sqrt{1+4t_k^2}}{2},
+$$
+
+$$
+y_{k+1}
+=\beta_{k+1}
++\frac{t_k-1}{t_{k+1}}(\beta_{k+1}-\beta_k).
+$$
+
+当 `use_restart=True` 时，该分支从第二次迭代开始检查以下判据。其中 $y_k$ 是本次计算梯度和执行近端步时使用的旧评价点，$\beta_{k+1}$ 则是经过所有保护性重试后最终接受的点：
+
+$$
+\left(y_k-\beta_{k+1}\right)^\top
+\left(\beta_{k+1}-\beta_k\right)>0,
+$$
+
+该检查不使用刚形成的新外推点。条件成立时，在下一次迭代前清除动量：
+
+$$
+t_{k+1}=1,
+\qquad
+y_{k+1}=\beta_{k+1}.
+$$
+
+收敛检查使用
+
+$$
+\|\beta_{k+1}-\beta_k\|_1<\texttt{tol}.
+$$
+
+动量预热与固定动量上限分支不使用上述重启判据。Inverse-Gaussian 损失禁用动量；Poisson 使用受限动量，Gamma 与 Tweedie 则先预热再使用受限动量。光滑 logistic L2/无惩罚请求会转交普通 FISTA，不进入上述 BB 分支。
+
+当前实现对平方误差等二次损失使用固定 Lipschitz 步长，不启用 BB 更新。SCAD、MCP 及其分组版本也禁用 BB 更新，因为非凸重加权会使割线曲率突然变化。
+
+---
+
+## 5. FISTA-LLA
+
+**文件**：`statgpu/solvers/_fista_lla.py`
+
+**用途**：SCAD、MCP 以及可以表示成局部加权凸惩罚的 LLA 路径。
+
+### 延续路径
+
+设延续参数依次为
+
+$$
+\alpha^{(0)}>\alpha^{(1)}>\cdots>\alpha^{(M)}=\alpha_{\rm target}.
+$$
+
+在每个 $\alpha^{(m)}$ 上运行 LLA 外循环。记当前 LLA 迭代为 $r$，系数为 $\beta^{(r)}$。
+
+### LLA 权重
+
+对标量非凸惩罚，局部线性近似使用
+
+$$
+d_j^{(r)}
+=P_{\alpha^{(m)}}'\!\left(|\beta_j^{(r)}|\right).
+$$
+
+SCAD 的当前实现为
+
+$$
+d_j^{(r)}=
+\begin{cases}
+\alpha, & |\beta_j^{(r)}|\le\alpha,\\[3pt]
+\dfrac{a\alpha-|\beta_j^{(r)}|}{a-1},
+& \alpha<|\beta_j^{(r)}|\le a\alpha,\\[8pt]
+0, & |\beta_j^{(r)}|>a\alpha,
+\end{cases}
+$$
+
+而 MCP 为
+
+$$
+d_j^{(r)}=
+\begin{cases}
+\alpha-\dfrac{|\beta_j^{(r)}|}{\gamma},
+& |\beta_j^{(r)}|\le\gamma\alpha,\\[8pt]
+0, & |\beta_j^{(r)}|>\gamma\alpha.
+\end{cases}
+$$
+
+当 GLM 通过增广列拟合截距时，截距坐标的 LLA 权重固定为 0，因此截距不参与惩罚。
+
+<a id="凸近似问题"></a>
+
+### 加权近似问题
+
+忽略与 $\beta$ 无关的常数项后，第 $r$ 次 LLA 将原非凸问题近似为
+
+$$
+Q_r(\beta)
+=f(\beta)+\sum_j d_j^{(r)}|\beta_j|.
+$$
+
+因此默认内层是加权 L1 问题。对于分组惩罚，对应的近似为
+
+$$
+Q_r(\beta)
+=f(\beta)+\sum_g D_g^{(r)}\|\beta_g\|_2,
+$$
+
+内层改由相应的加权 Group Lasso 近端算子处理。LLA 只替换惩罚，仍保留原损失 $f$。当 $f$ 为凸损失（如固定阈值 Huber 或 Fair）时，整个子问题为凸；Bisquare 损失及其完整子问题仍可能非凸。
+
+### FISTA 内层
+
+在固定的 LLA 权重 $d^{(r)}$ 下，令
+
+$$
+\gamma_k=\frac{1}{L_k},
+\qquad
+g_k=\nabla f(y_k).
+$$
+
+先计算
+
+$$
+v_k=y_k-\gamma_k g_k.
+$$
+
+对于默认的加权 L1 内层，逐坐标近端更新为
+
+$$
+\beta_{k+1,j}
+=S\!\left(v_{k,j},\gamma_k d_j^{(r)}\right),
+$$
+
+其中
+
+$$
+S(v,t)=\operatorname{sign}(v)\max(|v|-t,0).
+$$
+
+随后使用 Nesterov 动量
+
+$$
+t_{k+1}=\frac{1+\sqrt{1+4t_k^2}}{2},
+$$
+
+$$
+y_{k+1}
+=\beta_{k+1}
++\frac{t_k-1}{t_{k+1}}(\beta_{k+1}-\beta_k).
+$$
+
+内层典型收敛判据为
+
+$$
+\|\beta_{k+1}-\beta_k\|_1<\texttt{tol}.
+$$
+
+对非二次损失，优化过程中可以更新步长尺度；每次近端更新通过 $\gamma_k=1/L_k$ 使用当前估计。
+
+对于无权重平方误差，梯度也可以写成代数等价的形式
+
+$$
+g_k=\frac{X^\top Xy_k-X^\top y}{n}.
+$$
+
+复用 $X^\top X$ 和 $X^\top y$ 可以减少重复计算，而不改变目标函数。
+
+### LLA 外循环收敛
+
+一次内层求解结束后得到 $\beta^{(r+1)}$。若
+
+$$
+\|\beta^{(r+1)}-\beta^{(r)}\|_1
+<\texttt{lla\_tol},
+$$
+
+则结束当前 $\alpha^{(m)}$ 上的 LLA；否则重新计算 $d^{(r+1)}$ 并继续。随后以上一延续点的解作为下一 $\alpha$ 的起点。
+
+通用复合路径默认使用 FISTA 求解内层问题，Cox 也采用这一路径。损失函数具有 Hessian，并不意味着普通 Newton 步就适用于非光滑惩罚。
+
+---
+
+## 6. IRLS（迭代重加权最小二乘）
+
+**实现**：`statgpu/glm_core/_irls.py`，以及少数损失函数自己的 `irls()` 方法。
+
+### 分位数 IRLS
+
+当前 `QuantileLoss.irls()` 使用迭代重加权最小二乘（IRLS）。若没有显式提供初始值，则从 OLS 初值开始。每次迭代先计算
+
+$$
+r_i=y_i-x_i^\top\beta,
+$$
+
+再计算
+
+$$
+w_i^{\mathrm{IRLS}}
+=\frac{\tau+(1-2\tau)\mathbf 1\{r_i<0\}}
+{\max(|r_i|,\varepsilon)}.
+$$
+
+如果传入分析权重 `sample_weight=s`，先将其归一化为总和 $n$：
+
+$$
+\tilde s_i=\frac{n s_i}{\sum_j s_j},
+$$
+
+有效权重为
+
+$$
+w_i=\tilde s_i w_i^{\mathrm{IRLS}}.
+$$
+
+记 $W=\operatorname{diag}(w)$。无惩罚时，更新量由下面的加权最小二乘系统给出：
+
+$$
+(X^\top W X+\varepsilon I)\beta_{\mathrm{new}}=X^\top W y.
+$$
+
+如果使用 L2 惩罚，则在左侧再加入对应的对角 ridge 项；当 `fit_intercept=True` 时，截距坐标不参与惩罚。收敛判据为
+
+$
+\|\beta_{\mathrm{new}}-\beta\|_2<\texttt{tol}.
+$
+
+如果在达到上述判据前就耗尽迭代预算，求解器会返回最后一次迭代并发出
+`ConvergenceWarning`。这个警告表示结果受迭代次数限制，尚未达到收敛判据。
+
+### GLM IRLS
+
+设链接函数为
+
+$$
+\eta=g(\mu),
+\qquad
+\mu=g^{-1}(\eta),
+$$
+
+分布族方差函数为 $V(\mu)$。在第 $k$ 次迭代，先计算
+
+$$
+\eta_i^{(k)}=x_i^\top\beta_k,
+\qquad
+\mu_i^{(k)}=g^{-1}(\eta_i^{(k)}).
+$$
+
+IRLS Fisher 工作权重为
+
+$$
+w_i^{\rm work}
+=\frac{1}
+{V(\mu_i^{(k)})\,[g'(\mu_i^{(k)})]^2},
+$$
+
+工作响应为
+
+$$
+z_i^{(k)}
+=\eta_i^{(k)}
++\left(y_i-\mu_i^{(k)}\right)g'(\mu_i^{(k)}).
+$$
+
+若用户传入分析权重 $s_i$，实际最小二乘权重为
+
+$$
+w_i^{(k)}=s_i\,w_i^{\rm work}.
+$$
+
+因此分析权重 `sample_weight` 与 IRLS 工作权重是两个不同概念：前者来自统计目标，后者来自当前 GLM 二次近似。
+
+令
+
+$$
+W_k=\operatorname{diag}\left(w_1^{(k)},\ldots,w_n^{(k)}\right).
+$$
+
+若 L2 对角惩罚矩阵为 $R$，额外二次惩罚矩阵为 $\Omega$，则 WLS 候选解满足
+
+$$
+\left(X^\top W_kX+R+\Omega\right)\widetilde\beta_{k+1}
+=X^\top W_k z^{(k)}.
+$$
+
+线性方程只有在真正的秩失败时才退回最小二乘求解。
+
+### IRLS 目标函数回溯
+
+令
+
+$$
+\Delta_k=\widetilde\beta_{k+1}-\beta_k.
+$$
+
+从 $t=1$ 开始考察
+
+$$
+\beta_k(t)=\beta_k+t\Delta_k.
+$$
+
+当前实现要求注册的 GLM 目标函数不增加超过数值容差：
+
+$$
+F(\beta_k(t))
+\le
+F(\beta_k)+\varepsilon_F,
+$$
+
+其中
+
+$$
+\varepsilon_F
+=\max\left(10^{-10}|F(\beta_k)|,10^{-6}\right).
+$$
+
+若不满足，则
+
+$$
+t\leftarrow\frac{t}{2},
+$$
+
+最多回溯 30 次。若仍找不到可接受候选点，则保留旧参数并报告线搜索失败。
+
+### GLM IRLS 收敛判据
+
+令
+
+$$
+u_i
+=\frac{\mu_i-y_i}
+{V(\mu_i)g'(\mu_i)}.
+$$
+
+有分析权重时使用 $s_i u_i$，并令
+
+$$
+n_{\rm eff}=\sum_i s_i;
+$$
+
+无权重时 $n_{\rm eff}=n$。归一化数据项得分为
+
+$$
+g_f=\frac{X^\top u}{n_{\rm eff}},
+$$
+
+再加上对应的 L2/二次惩罚梯度。当前实现以
+
+$$
+\|g_f\|_2<\texttt{tol}
+$$
+
+作为最终收敛判据，而不是仅凭一次被线搜索截短后的参数变化量判断收敛。
+
+---
+
+## 7. Newton-Raphson
+
+**文件**：`statgpu/solvers/_newton.py`
+
+**用途**：有 Hessian 的光滑损失 + L2/无惩罚。
+
+### Newton 系统
+
+记完整光滑目标为
+
+$$
+F(\beta)=\ell(\beta)+P(\beta).
+$$
+
+第 $k$ 次迭代计算
 
 $$
 g_k=\nabla F(\beta_k),
 \qquad
-H_k=\nabla^2F(\beta_k).
+H_k=B_k+\nabla^2P(\beta_k).
 $$
 
-带数值正则的 Newton 更新为
+这里 $B_k$ 是[损失函数提供的曲率](#loss-provided-curvature)。只有损失提供精确 Hessian 时，$H_k=\nabla^2F(\beta_k)$ 才成立；Bisquare 使用截断负曲率后的矩阵。实现使用
 
 $$
-\left(H_k+\delta I\right)d_k=g_k,
-\qquad
-\beta_{k+1}=\beta_k-a_kd_k,
+\widetilde H_k
+=\frac12(H_k+H_k^\top)+10^{-10}I
 $$
 
-其中 $\delta=10^{-10}$，$a_k$ 由 Armijo backtracking 选择。常量 Hessian 会被缓存；真正的秩亏可回退到 least squares，其他数值错误不会被静默吞掉。该函数只接受光滑惩罚和均匀 `sample_weight`。
-
-## 5. Proximal-Newton facade
-
-**源码：**`statgpu/solvers/_proximal_newton.py`
-
-复合 Proximal Newton 框架可参见 Lee、Sun 与 Saunders（2014）。完整的非光滑 Proximal Newton 应求解 Hessian metric 子问题
+进行数值稳定化，并求解
 
 $$
-d_k
-=
-\arg\min_d
-\left\{
-g_k^\top d
-+
-\frac{1}{2}d^\top H_kd
-+
-P(\beta_k+d)
-\right\}.
+\widetilde H_k d_k=g_k.
 $$
 
-当前尚未实现这个 Hessian-metric proximal 子问题。公开函数在 L2/无惩罚时执行 Newton；收到非光滑惩罚时先发出 `RuntimeWarning`，再转给 `fista_solver`。这条明确边界可避免把错误的 Euclidean-prox shortcut 描述成 Proximal Newton。
-
-## 6. GLM IRLS
-
-**源码：**`statgpu/glm_core/_irls.py`
-
-IRLS 可参见 Green（1984）以及 McCullagh 与 Nelder（1989）的 GLM 论述。在当前均值 $\mu_i$ 和线性预测子 $\eta_i=g(\mu_i)$ 处，它构造
+代码使用
 
 $$
-z_i
-=
-\eta_i
-+
-(y_i-\mu_i)g'(\mu_i),
-\qquad
-w_i
-=
-\frac{\left(d\mu_i/d\eta_i\right)^2}{V(\mu_i)}.
+\beta_k(t)=\beta_k-t d_k
 $$
 
-随后求解 weighted Ridge 系统
+作为试探点。如果直接线性求解发生真正的秩失败，普通 Newton 与 Proximal Newton 不同：这里会使用最小二乘解
 
 $$
-\left(\tilde X^\top W\tilde X+\lambda D\right)\beta_{\mathrm{new}}
-=
-\tilde X^\top Wz,
+d_k=\widetilde H_k^{+}g_k,
 $$
 
-其中 $D$ 通常不惩罚截距。backtracking line search 会检查已注册的 family/link 目标。`IRLSSolver` 支持解析 sample weight 和 NumPy、CuPy、Torch。普通 GLM 中 `solver="auto"` 当前会解析为 IRLS；需要无惩罚 IRLS 时设置 `C=0`。
+其中 $\widetilde H_k^{+}$ 表示由 `lstsq` 得到的广义逆意义解。
 
-## 7. L-BFGS
+若
 
-**源码：**`statgpu/solvers/_lbfgs.py`
+$$
+g_k^\top d_k\le0
+$$
 
-有限内存更新采用 Liu 与 Nocedal（1989）的方法。L-BFGS 根据最近若干组
+或该内积非有限，则改用最速下降
+
+$$
+d_k=g_k.
+$$
+
+梯度范数满足
+
+$$
+\|g_k\|_2\le\texttt{tol}
+$$
+
+时停止。对于声明 Hessian 为常数的损失，Hessian 会在循环外计算一次并复用。
+
+### Armijo 回溯
+
+从 $t=1$ 开始，接受第一个满足
+
+$$
+F(\beta_k-t d_k)
+\le
+F(\beta_k)-10^{-4}t\,g_k^\top d_k
+$$
+
+的候选点。失败时
+
+$$
+t\leftarrow\frac t2,
+$$
+
+最多尝试 20 次。如果没有候选点通过 Armijo 条件，则不接受任何未验证的小步，而是保留 $\beta_k$ 并报告线搜索失败。
+
+<a id="解析-sample_weight"></a>
+
+### 分析权重 `sample_weight`
+
+对明确提供带权曲率的路径，Newton 在目标函数值、梯度、Hessian 和每个 Armijo 试探点中都使用同一个归一化带权目标：
+
+$$
+F(\beta)
+=\frac{\sum_i w_i\ell_i(\beta)}{\sum_i w_i}+P(\beta).
+$$
+
+因此，把所有有效权重同时乘以一个正数不会改变最优解。均匀权重或与均匀权重数值等价的情况，使用无权重数值路径。
+
+---
+
+## 8. L-BFGS / L-BFGS-B
+
+**文件**：`statgpu/solvers/_lbfgs.py`、`statgpu/solvers/_lbfgs_b.py`
+
+**用途**：L-BFGS 的通用设计目标是光滑目标，以及其盒约束投影版本。底层直接调用 `lbfgs_solver(QuantileLoss, ...)` 时，可使用未传权重或均匀权重；这并不表示模型/CV 层支持 Quantile `solver="lbfgs"`，也不会因此开放真正非均匀的 Quantile 权重。
+
+### L-BFGS 曲率历史
+
+记
+
+$$
+g_k=\nabla F(\beta_k).
+$$
+
+并在接受新点后定义
 
 $$
 s_k=\beta_{k+1}-\beta_k,
 \qquad
-y_k=g_{k+1}-g_k,
+y_k=g_{k+1}-g_k.
+$$
+
+只有当
+
+$$
+y_k^\top s_k>10^{-12}
+$$
+
+时才保存该曲率对，并令
+
+$$
+\rho_k=\frac1{y_k^\top s_k}.
+$$
+
+当前默认历史长度为
+
+$$
+m=10.
+$$
+
+超过 $m$ 后丢弃最旧的 $(s,y,\rho)$。
+
+### 双循环递推
+
+从
+
+$$
+q=g_k
+$$
+
+开始，对历史按从新到旧的顺序计算
+
+$$
+\alpha_i=\rho_i s_i^\top q,
 \qquad
-\rho_k=(y_k^\top s_k)^{-1}
+q\leftarrow q-\alpha_i y_i.
 $$
 
-近似 $H_k^{-1}g_k$。标准 two-loop recursion 不需要形成稠密 Hessian 即可得到 $d_k=-B_kg_k$，随后用 Armijo backtracking 检查完整光滑目标。默认 history size 为 10，只接受 L2/无惩罚和均匀 `sample_weight`。
-
-## 8. L-BFGS-B
-
-**源码：**`statgpu/solvers/_lbfgs_b.py`
-
-带边界约束的有限内存方法采用 Byrd 等（1995）的构造。L-BFGS-B 加入逐坐标 box constraint
+若已有曲率历史，初始逆 Hessian 缩放为
 
 $$
-\ell_j\le\beta_j\le u_j
+\gamma_k
+=\frac{s_{k-1}^\top y_{k-1}}
+{y_{k-1}^\top y_{k-1}},
 $$
 
-并投影候选点：
+否则取 $\gamma_k=1$。令
 
 $$
-\beta_{k+1}
-=
-\Pi_{[\ell,u]}
-\left(\beta_k+a_kd_k\right).
+r=\gamma_k q.
 $$
 
-收敛判断使用 projected gradient：在活跃边界上继续指向边界外的分量会被置零。上下界必须与系数同形、不得包含 NaN，并满足 $\ell_j\le u_j$。该路径同样只接受光滑惩罚和均匀 sample weight。
-
-## 9. ADMM
-
-**源码：**`statgpu/solvers/_admm.py`
-
-变量拆分和残差诊断采用 Boyd 等（2011）的 ADMM 表述。该方法引入 $z$ 并求解
+再按从旧到新的顺序计算
 
 $$
-\min_{\beta,z}
-f(\beta)+P(z)
-\quad\text{subject to}\quad
-\beta=z.
+\beta_i^{\rm loop}=\rho_i y_i^\top r,
 $$
 
-使用 scaled dual variable $u$ 后，
+$$
+r\leftarrow r+s_i
+\left(\alpha_i-\beta_i^{\rm loop}\right).
+$$
+
+最终搜索方向为
 
 $$
-\beta^{k+1}
-=
-\arg\min_\beta
-\left[
-f(\beta)
-+
-\frac{\rho}{2}
-\lVert\beta-z^k+u^k\rVert_2^2
-\right],
+p_k=-r.
+$$
+
+如果
+
+$$
+g_k^\top p_k\ge0,
+$$
+
+则放弃该拟牛顿方向，改用
+
+$$
+p_k=-g_k.
+$$
+
+### L-BFGS Armijo 线搜索
+
+对无约束损失，线搜索从 $t=1$ 开始，接受第一个满足
+
+$$
+F(\beta_k+t p_k)
+\le
+F(\beta_k)+10^{-4}t\,g_k^\top p_k
+$$
+
+的候选点。失败时
+
+$$
+t\leftarrow\frac t2,
+$$
+
+最多回溯 25 次。
+
+当精确 Armijo 所要求的目标下降已经低于完整目标函数的浮点分辨率时，当前实现允许一个严格受限的舍入规则。定义
+
+$$
+\varepsilon_F
+=64\,\varepsilon_{\mathrm{dtype}(F)}
+\max\{1,|F(\beta_k)|\},
+$$
+
+其中 $\varepsilon_{\mathrm{dtype}(F)}$ 是完整目标 $F=L+P$ 实际求值标量 dtype 的机器 epsilon。一个没有通过精确 Armijo 条件的候选点，只有同时满足以下三个条件时才可按舍入分辨率接受：
+
+$$
+-10^{-4}t\,g_k^\top p_k\le\varepsilon_F,
+$$
+
+$$
+t\,\|p_k\|_2\le\texttt{tol},
+$$
+
+以及
+
+$$
+F(\beta_k+t p_k)\le F(\beta_k)+\varepsilon_F.
+$$
+
+因此，这不是对 Armijo 条件的一般放宽：所要求的目标下降与实际参数位移都必须已经低于上述数值分辨率，而且候选完整目标不能上升超过同一个舍入尺度。如果 25 个候选点既没有通过精确 Armijo，也没有满足上述受限舍入规则，无约束路径会发出线搜索警告并停止，不接受最后一个未通过条件的候选点。
+
+某些损失会为最终搜索方向提供光滑定义域上界。记该方向允许的最大认证步长为
+
+$$
+t_{\max,k}>0.
+$$
+
+这时第一次 Armijo 试探从
+
+$$
+t_0=\min\{1,t_{\max,k}\}
+$$
+
+开始。搜索前还会检查最大可行参数位移。若
+
+$$
+t_{\max,k}\,\|p_k\|_2\le\texttt{tol}
+\qquad\text{且}\qquad
+\|g_k\|_2>\texttt{tol},
+$$
+
+则算法不是“已经收敛”，而是被允许的定义域边界钉住（domain-pinned），此时会明确报错。
+
+如果拟牛顿方向在定义域内连续 25 次 Armijo 试探都失败，L-BFGS 会丢弃本轮拟牛顿方向，用最速下降方向重新尝试：
+
+$$
+p_k^{\rm sd}=-g_k.
+$$
+
+同时针对这个新方向重新计算定义域上界 $t_{\max,k}^{\rm sd}$。若第二轮最速下降 Armijo 仍在梯度尚未收敛时耗尽 25 次试探，则定义域路径抛出错误，而不是把当前点当作成功拟合结果发布。
+
+接受新点后重新计算 $g_{k+1}$ 并更新曲率历史。默认的普通无约束路径可在
+
+$$
+\|g_k\|_2<\texttt{tol}
+$$
+
+或
+
+$$
+\|s_k\|_2<\texttt{tol}
+$$
+
+时结束。但在带定义域上界的路径上，一个很小的已接受 $\|s_k\|_2$ 本身不能证明收敛；只有梯度判据满足时才判定收敛，否则继续寻找有效步长，或最终以 domain-pinned / 定义域线搜索失败结束。
+
+独立的 `LogisticRegression(solver="lbfgs")` 虽然没有定义域上界，也要求梯度收敛。只有最终缩放后目标函数的梯度范数小于 `tol`，且未发生线搜索失败时，才报告 `converged_=True`；已接受步长很小本身不足以证明收敛。`LogisticRegressionCV` 的候选拟合与最终重拟合也遵循这一规则。缩放方式及与 IRLS 的区别见[分类器的目标函数与停止准则](../models/regression/logistic-regression.md#求解器选择与收敛)。
+
+### L-BFGS-B：盒约束投影版本
+
+当前 `lbfgs_b_solver` 使用投影梯度形式的 L-BFGS-B，而不是包含广义 Cauchy 点与子空间最小化的完整 Byrd–Lu–Nocedal–Zhu 算法。对盒约束
+
+$$
+\ell_j\le\beta_j\le u_j,
+$$
+
+定义投影
+
+$$
+\Pi_{[\ell,u]}(v)_j
+=\min\{u_j,\max(\ell_j,v_j)\}.
+$$
+
+在活动边界上，如果梯度指向盒外，则投影梯度置零：
+
+$$
+\bar g_j=
+\begin{cases}
+0,& \beta_j\le\ell_j\ \text{且}\ g_j>0,\\
+0,& \beta_j\ge u_j\ \text{且}\ g_j<0,\\
+g_j,& \text{其他情况}.
+\end{cases}
+$$
+
+两循环递推得到的方向也会删除所有会立即离开可行盒的分量。线搜索候选点为
+
+$$
+\beta_k(t)
+=\Pi_{[\ell,u]}\left(\beta_k+t p_k\right),
+$$
+
+并使用同样的 Armijo 条件。收敛检查使用
+
+$$
+\|\bar g_k\|_2<\texttt{tol}.
+$$
+
+`lbfgs_b_solver` 当前只接受未传权重或均匀 `sample_weight`；不要把普通 `lbfgs_solver` 的非均匀 GLM 权重能力推断到 L-BFGS-B。
+
+<a id="l-bfgs-的解析-sample_weight"></a>
+
+### L-BFGS 的分析权重 `sample_weight`
+
+直接调用 L-BFGS 时，非均匀权重需要由损失函数明确支持：
+
+| 直接 L-BFGS 路径 | 非均匀 `sample_weight` |
+|---|---|
+| 支持带权目标的 `GLMLoss` | ✅ 支持 |
+| 独立的 `LogisticRegression` / `LogisticRegressionCV` | ✅ 支持，采用分类器的求和损失与 C 倒数尺度的惩罚 |
+| 通用稳健 / Cox `LossBase` | ❌ 不能由无权重支持自动推出 |
+| Quantile | ❌ 非均匀权重会报错；底层调用仍可使用未传权重或均匀权重 |
+
+对支持非均匀分析权重的共享 GLM 损失，初始梯度、当前目标函数、每个线搜索候选点和接受新点后的梯度都使用同一组归一化权重：
+
+$$
+F(\beta)
+=\frac{\sum_i w_i\ell_i(\beta)}{\sum_i w_i}+P(\beta).
+$$
+
+在进入光滑求解器前，有限、非负且具有正总质量的分析权重，会先在实际执行后端按一个正的公共尺度做归一化。因此，只要缩放后的单个权重仍可表示，整体乘以正数不会仅仅因为输入 dtype 的原始求和溢出而改变归一化目标。均匀权重或数值上等效均匀的权重使用无权重数值路径，底层直接调用 Quantile 时也如此；模型/CV 层 Quantile `solver="lbfgs"` 仍不支持。
+
+独立的逻辑回归分类器在正 C 下保留 `sum(w_i * loss_i) + ||coef||**2/(2*C)`，且不惩罚截距。其 L-BFGS 拟合把整个表达式（包括惩罚）除以 `sum(sample_weight)`，没有权重时除以 n。这一数值缩放保持原求和损失的最优解不变，但把用户权重整体乘以常数仍可能改变有效正则强度。直接拟合的 `C=0` 完全去掉惩罚。不要把共享 GLM 的权重缩放不变性或 alpha 约定套用于这个分类器。
+
+---
+
+## 9. ADMM（交替方向乘子法）
+
+**文件**：`statgpu/solvers/_admm.py`
+
+将
+
+$$
+\min_w f(w)+P(w)
+$$
+
+改写为一致性约束问题
+
+$$
+\min_{w,z} f(w)+P(z)
+\quad\text{s.t.}\quad w=z.
+$$
+
+使用缩放对偶变量 $u$ 时，对应的增广拉格朗日可写为
+
+$$
+\mathcal L_\rho(w,z,u)
+=f(w)+P(z)
++\frac{\rho}{2}\|w-z+u\|_2^2
+-\frac{\rho}{2}\|u\|_2^2.
+$$
+
+### 外层更新
+
+第 $k$ 次 ADMM 迭代为
+
+$$
+w^{k+1}
+=\arg\min_w
+\left\{
+f(w)+\frac{\rho}{2}\|w-z^k+u^k\|_2^2
+\right\},
 $$
 
 $$
 z^{k+1}
-=
-\operatorname{prox}_{P/\rho}
-\left(\beta^{k+1}+u^k\right),
-\qquad
+=\operatorname{prox}_{P/\rho}(w^{k+1}+u^k),
+$$
+
+$$
 u^{k+1}
-=
-u^k+\beta^{k+1}-z^{k+1}.
+=u^k+w^{k+1}-z^{k+1}.
 $$
 
-小型常量 Hessian 系统使用缓存的 Cholesky；其他 loss 子问题使用 Nesterov 加速梯度迭代，`cg_max_iter` 是保留的历史参数名。原始与对偶残差为
+### $w$ 子问题：平方误差闭式路径
+
+对于平方误差，直接求解可以复用以下矩阵的 Cholesky 分解：
 
 $$
-r_{\mathrm p}=\lVert\beta-z\rVert_2,
-\qquad
-r_{\mathrm d}=\rho\lVert z^k-z^{k-1}\rVert_2.
+A=\frac{X^\top X}{n}+\rho I,
 $$
 
-开启自适应 $\rho$ 后，当一侧残差超过另一侧十倍时会将 $\rho$ 加倍或减半。当前仅接受均匀 sample weight。
-
-## 10. Exact Ridge
-
-**源码：**`statgpu/linear_model/penalized/_fit_mixin.py` 中的 `_solve_exact_numpy`、`_solve_exact_cupy` 与 `_solve_exact_torch`
-
-该 Ridge 闭式估计采用 Hoerl 与 Kennard（1970）的基本构造。对中心化/加权后的 $X_c$ 与 $y_c$，估计器求解
+每次外层迭代只需求解
 
 $$
-\hat\beta
-=
-\left(
-X_c^\top W X_c+n_{\mathrm{eff}}\alpha I
-\right)^{-1}
-X_c^\top W y_c.
+Aw^{k+1}
+=\frac{X^\top y}{n}+\rho(z^k-u^k).
 $$
 
-它对应平均 squared error 加 $\alpha\lVert\beta\rVert_2^2/2$ 的约定。截距由加权均值重建，不被惩罚。NumPy 使用直接求解并在秩亏时回退 pseudoinverse；CuPy 优先 Cholesky；Torch 使用 `torch.linalg.solve`。自动调度在 CPU 上偏好 exact Ridge，而同类 GPU 问题使用 Newton，因为中小规模 GPU 分解的启动成本可能抵消收益。
+求解器自动选择直接或迭代求解方式。使用直接分解时，即使设置 `adaptive_rho=True`，$\rho$ 也保持固定。
 
-## 自动调度与直接可用不是一回事
+### $w$ 子问题：Nesterov 加速梯度路径
 
-主要自动策略如下：
+一般 GLM 使用内层加速梯度。记当前内层动量点为 $v_j$，则
 
-| 目标 | 典型自动路径 |
+$$
+g_j
+=\nabla f(v_j)+\rho(v_j-z^k+u^k).
+$$
+
+步长为
+
+$$
+\gamma
+=\frac{1}{L_f+\rho+10^{-8}},
+$$
+
+并更新
+
+$$
+w_{j+1}=v_j-\gamma g_j.
+$$
+
+随后使用
+
+$$
+t_{j+1}=\frac{1+\sqrt{1+4t_j^2}}{2},
+$$
+
+$$
+v_{j+1}
+=w_{j+1}
++\frac{t_j-1}{t_{j+1}}(w_{j+1}-w_j).
+$$
+
+内层在
+
+$$
+\|w_{j+1}-w_j\|_1
+<\texttt{cg\_tol}\times p
+$$
+
+时提前结束。参数 `cg_max_iter` / `cg_tol` 控制这个 Nesterov 加速梯度内层求解；虽然名称含有 `cg`，非 Cholesky 路径并不使用共轭梯度。Quantile/check loss 的次梯度是阶梯函数，不满足该内层求解所需的光滑梯度假设，因此共享 ADMM 路径排除 Quantile。
+
+### 原始/对偶残差与自适应 $\rho$
+
+定义
+
+$$
+r_{\rm p}^{k+1}
+=\|w^{k+1}-z^{k+1}\|_2,
+$$
+
+$$
+r_{\rm d}^{k+1}
+=\rho\|z^{k+1}-z^k\|_2.
+$$
+
+若启用 `adaptive_rho=True`，当前规则为
+
+$$
+\rho\leftarrow
+\begin{cases}
+\min(2\rho,10^4),& r_{\rm p}>10r_{\rm d},\\
+\max(\rho/2,10^{-4}),& r_{\rm d}>10r_{\rm p},\\
+\rho,& \text{其他情况}.
+\end{cases}
+$$
+
+改变 $\rho$ 后同步更新内层步长 $\gamma=1/(L_f+\rho+10^{-8})$。外层收敛要求
+
+$$
+r_{\rm p}<\texttt{tol}
+\qquad\text{且}\qquad
+r_{\rm d}<\texttt{tol}.
+$$
+
+最终返回 $z$，因为 $z$ 始终是应用惩罚近端算子后的变量。共享 `admm_solver` 当前只在 ADMM 支持的损失上接受未传或均匀 `sample_weight`；Quantile 请求会在进入这一权重规则之前报错。
+
+---
+
+## 10. `exact`（闭式路径）
+
+**文件**：`statgpu/linear_model/penalized/_fit_mixin.py`
+
+**用途**：平方误差 + L2，并且自动分发选择闭式/特征分解路径的情形。对应的基本线性系统形如
+
+$$
+\left(\frac{X^\top X}{n}+\alpha I\right)\beta
+=\frac{X^\top y}{n},
+$$
+
+截距处理由具体模型单独完成。
+
+---
+
+## 求解器调度
+
+对共享 `PenalizedGLM`（`PenalizedGeneralizedLinearModel`）直接拟合，`solver="auto"` 按模型层面的兼容性表分发。普通 `GLM`/`GeneralizedLinearModel` 有独立的调度规则（光滑无惩罚目标的自动拟合包括 IRLS）；`LogisticRegression` 等专用封装类也应以各自模型页为准。公开的 `none` / `null` 会在调度前规范化为 `L2(alpha=0)`，因此无惩罚的光滑行与 L2 使用同一个分支。简化表示为：
+
+```text
+共享 PenalizedGLM 直接拟合，solver="auto"
+├── squared_error + L2/none              → CPU 精确解 / GPU Newton
+├── Quantile + L2/none                   → IRLS
+├── Quantile + L1/ElasticNet             → 普通 FISTA
+├── Quantile + SCAD/MCP                  → Proximal IRLS-CD
+├── Quantile + Group SCAD/MCP            → 分组 Proximal IRLS-LLA
+├── 光滑非高斯 GLM + L2/none             → Newton
+├── squared_error + 凸稀疏惩罚            → FISTA
+├── gamma / inverse-Gaussian + 稀疏惩罚   → FISTA
+├── logistic / poisson / NB + 稀疏惩罚    → FISTA-BB
+├── tweedie + 稀疏惩罚                    → CPU FISTA-BB / GPU FISTA
+├── 其他标量 SCAD/MCP                     → FISTA-LLA
+├── adaptive L1                           → 先初始化自适应权重，再按凸稀疏 FISTA/FISTA-BB 规则
+└── 其他分组惩罚                          → Group FISTA / FISTA-LLA
+```
+
+对于 Quantile L2/无惩罚目标，显式 `solver="irls"` 与 `auto` 选择同一算法；显式 `solver="fista"` 则真正执行普通 FISTA，不会被静默替换成 IRLS。自动 Quantile Group SCAD/MCP 使用内部的分组 Proximal IRLS-LLA 模型/CV 路径；若对 Group SCAD/MCP 显式请求 `solver="fista"`，则仍执行普通分组近端 FISTA，不会被改写成该自动路径。分组 Proximal IRLS-LLA 的代理目标、权重与更新公式见 [分位数回归模型页](../models/regression/quantile.md)。Quantile FISTA-BB、模型/CV 层 L-BFGS 与 ADMM 请求均不受支持，并会在数值迭代前报错。底层直接 L-BFGS 可接受未传权重或均匀权重的 Quantile 调用，非均匀权重则被拒绝。稀疏 Quantile 的普通 FISTA 与 SCAD/MCP 的 Proximal IRLS-CD 是两种不同的模型层算法。
+
+完整的分布族、后端与问题规模规则，包括 Poisson 和 Negative-Binomial 的稀疏交叉验证，见 [求解器 × 惩罚项兼容性矩阵](solver-penalty-matrix.md)。
+
+`PenalizedGLM_CV` 的光滑 L2 分发与直接拟合相关但有意独立。使用 `solver="auto"` 时，Quantile L2/无惩罚候选拟合与最终重拟合使用 IRLS；若显式指定 `solver="fista"`，该请求对 CV 子拟合和最终全数据重拟合都保持有效并执行普通 FISTA。Gamma、Inverse-Gaussian、Negative-Binomial 的 L2 交叉验证/最终重拟合路径使用 L-BFGS，而 logistic、Poisson、Tweedie 的 L2 组合使用 Newton。不要从直接拟合的分发树推断交叉验证行为，应以兼容性矩阵为准。
+
+`sample_weight` 不会改变显式指定的 `solver`。不支持的带权组合会直接报错，而不是选择另一个求解器。
+
+<a id="quantile-low-level-solvers"></a>
+
+## 分位数回归的底层求解器调用
+
+本节面向直接调用 `statgpu.solvers` 导出函数或 `QuantileLoss.irls()` 的读者。选择估计器时，请参阅[分位数回归指南](../models/regression/quantile.md)和[兼容性矩阵](solver-penalty-matrix.md)。
+
+<a id="quantile-solver-scope"></a>
+
+### 适用范围与模型接口的区别
+
+分位数回归的 check（pinball）损失是非光滑的。普通 FISTA 可用于受支持的凸稀疏模型，也可以在 Quantile L2/无惩罚目标上被显式请求；这些 L2/无惩罚组合的 `solver="auto"` 仍优先选择 IRLS。这里的 Quantile FISTA 是明确支持的一阶近端/次梯度方法，但并不意味着 pinball loss 满足教科书中光滑梯度 FISTA 的收敛假设。
+
+FISTA-BB、共享 ADMM、Newton、Proximal Newton 与 L-BFGS-B 都不支持 Quantile；只有底层直接调用普通 L-BFGS 时，才允许未传权重或均匀权重的 Quantile 调用。模型/CV 层不支持 Quantile `solver="lbfgs"`，真正非均匀的 Quantile L-BFGS 权重也会直接报错。
+
+### 输入与权重支持
+
+向 `fista_solver`、`lbfgs_solver`、`QuantileLoss.irls()`、`proximal_irls_quantile_solver` 或 `fista_lla_path` 传入 Quantile 损失时，`X` 必须是形状为 `(n, p)` 的有限实数矩阵，`y` 必须是形状为 `(n,)` 的一维有限实数向量，二者行数相同且至少有一个观测。形状错误或非有限值会在数值迭代前触发 `ValueError`；单列响应矩阵不能替代一维向量。
+
+受支持的分析权重形状为 `(n,)`，各元素有限、非负，总和为正。带权 pinball 目标用权重总和归一化。普通 FISTA、Quantile IRLS 和分位数延拓求解器支持这类权重。直接调用 `lbfgs_solver` 求解 Quantile 时，只能省略权重或使用均匀权重；非均匀权重会报错。这一底层兼容性不意味着分位数估计器或交叉验证支持 `solver="lbfgs"`。
+
+| 调用入口 | 其他输入要求 |
 |---|---|
-| 普通 `GeneralizedLinearModel` | IRLS |
-| CPU 上 squared error + L2 | exact |
-| GPU 上 squared error + L2 | Newton |
-| 标量或 group SCAD/MCP | FISTA-LLA |
-| squared error + L1/Elastic Net | FISTA |
-| 稀疏 GLM | 根据 family、后端、CV 模式和规模选择 FISTA 或 FISTA-BB |
-| 光滑 GLM/robust/Cox 目标 | Newton；部分 CV 情况使用 L-BFGS |
+| `fista_solver` | `max_iter` 为正整数；`tol` 为有限正数；`cv_mode` 为布尔值；`lipschitz_L` 为 None 或有限正数。可选 `init_coef` 为长度为 `p` 的有限实数向量。 |
+| `lbfgs_solver` | `max_iter` 和 `history_size` 为正整数；`tol` 为有限正数；可选 `init_coef` 为长度为 `p` 的有限实数向量。 |
+| `QuantileLoss.irls()` | 至少一个特征；`fit_intercept` 为布尔值；`max_iter` 为正整数；`tol` 和 `eps` 为有限正数，且 `eps` 足够大，使 float64 权重保持有限。可选 `init_coef` 的长度与传入设计矩阵的列数一致。 |
+| `proximal_irls_quantile_solver` | 使用标量 SCAD/MCP；`fit_intercept` 为布尔值；`max_lla_per_step` 为正整数；`tol` 和 `lla_tol` 为有限正数。`max_iter=None` 表示每次内层求解最多进行 100 次 IRLS 迭代；也可传正整数，或与路径等长、各项均为正整数的列表/元组。 |
+| `fista_lla_path` | 使用标量或分组 SCAD/MCP；`fit_intercept` 和 `return_path` 为布尔值；`max_lla_per_step` 为正整数；`tol` 和 `lla_tol` 为有限正数；`max_iter` 为正整数，或与路径等长的正整数列表/元组。可选 `init_coef` 为长度为 `p`、不含截距的有限实数向量；`init_intercept` 为有限实数标量。 |
 
-`proximal_newton_solver` 与 `lbfgs_b_solver` 可以直接导入，但当前不是 `auto` 的目的地。模型专属算法、ordered-model trust-region Newton、融合 GPU kernel 与 group LLA wrapper 会归入父模型/父路径说明，不再虚增 solver keyword。
+两个延拓函数都要求 `alpha_path` 是非空的一维有限正数序列，并从延拓起点到目标值保持非递增。SCAD 要求有限的 `a > 2`；MCP 要求有限的 `gamma > 1`。迭代次数、容差、路径值和惩罚形状参数不接受布尔值；非法控制项会触发 `ValueError`，不会静默转换。
 
-准确的接受与拒绝组合见[求解器 × 惩罚兼容矩阵](solver-penalty-matrix.md)，架构关系见 [Loss × Penalty × Solver 框架](loss-penalty-solver-framework.md)。
+### 返回值与收敛警告
 
-## 常用控制项与失败信号
+`proximal_irls_quantile_solver` 返回 `(coef, intercept, n_iter)`：`coef` 是形状为 `(p,)` 的 NumPy 数组，截距为标量，`n_iter` 是所有延拓和 LLA 阶段中已完成的 IRLS 更新总数。`fit_intercept=False` 时截距为零。
 
-| 控制项 | 含义 |
-|---|---|
-| `max_iter` | 外层最大迭代数；continuation 方法还可能有内层上限 |
-| `tol` | 依算法表示梯度、参数步长或残差阈值 |
-| `history_size` | L-BFGS/L-BFGS-B 保留的 $(s_k,y_k)$ 组数 |
-| `lipschitz_L` | FISTA 路径可选的光滑梯度 Lipschitz 常数 |
-| `rho`、`adaptive_rho` | ADMM augmented-Lagrangian 尺度与残差平衡 |
-| `alpha_path`、`max_lla_per_step`、`lla_tol` | 非凸惩罚的 continuation 与 LLA 控制 |
+`fista_lla_path` 默认也返回上述三项。设置 `return_path=True` 时，返回 `(coef, intercept, n_iter, path)`。若有 `m` 个延拓值，`path` 包含 NumPy 数组 `alpha` `(m,)`、`coef` `(m, p)`、`intercept` `(m,)` 和 `n_iter` `(m,)`；其中迭代次数为累计值，不是每个 alpha 单独的增量。
 
-达到 `max_iter` 时，受支持路径会发出 convergence warning。求解器返回系数并不等于统计模型合理；仍需检查收敛元数据、objective/KKT 诊断和样本外验证。
+默认的标量 SCAD/MCP 调用与分组、热启动、自定义近似惩罚或返回路径的调用，可能采用不同数值方法和迭代计数单位：前者记录 IRLS 更新，FISTA-LLA 调用记录近端更新。不能把这些次数当作同一种算法的工作量直接比较，也不要假定返回路径只会增加输出而不影响求解方法。
+
+这些分位数延拓求解器在目标 alpha 处未满足内层或外层停止条件时，会发出 `ConvergenceWarning` 并返回最后的迭代结果；FISTA-LLA 返回最后一个已接受的迭代点。仅有系数输出或正的迭代次数不能证明收敛。使用结果前应检查警告；改变迭代预算或初始化后重新求解，并不能证明上一次结果已经收敛。
 
 ## 参考文献
 
-- Barzilai, J., & Borwein, J. M. (1988). [Two-point step size gradient methods](https://doi.org/10.1093/imanum/8.1.141). *IMA Journal of Numerical Analysis*, 8(1), 141–148.
-- Beck, A., & Teboulle, M. (2009). [A fast iterative shrinkage-thresholding algorithm for linear inverse problems](https://doi.org/10.1137/080716542). *SIAM Journal on Imaging Sciences*, 2(1), 183–202.
-- Boyd, S., Parikh, N., Chu, E., Peleato, B., & Eckstein, J. (2011). [Distributed optimization and statistical learning via the alternating direction method of multipliers](https://doi.org/10.1561/2200000016). *Foundations and Trends in Machine Learning*, 3(1), 1–122.
-- Byrd, R. H., Lu, P., Nocedal, J., & Zhu, C. (1995). [A limited memory algorithm for bound constrained optimization](https://doi.org/10.1137/0916069). *SIAM Journal on Scientific Computing*, 16(5), 1190–1208.
-- Fan, J., & Li, R. (2001). [Variable selection via nonconcave penalized likelihood and its oracle properties](https://doi.org/10.1198/016214501753382273). *Journal of the American Statistical Association*, 96(456), 1348–1360.
-- Green, P. J. (1984). [Iteratively reweighted least squares for maximum likelihood estimation, and some robust and resistant alternatives](https://doi.org/10.1111/j.2517-6161.1984.tb01288.x). *Journal of the Royal Statistical Society: Series B*, 46(2), 149–192.
-- Hoerl, A. E., & Kennard, R. W. (1970). [Ridge regression: Biased estimation for nonorthogonal problems](https://doi.org/10.1080/00401706.1970.10488634). *Technometrics*, 12(1), 55–67.
-- Lee, J. D., Sun, Y., & Saunders, M. A. (2014). [Proximal Newton-type methods for minimizing composite functions](https://doi.org/10.1137/130921428). *SIAM Journal on Optimization*, 24(3), 1420–1443.
-- Liu, D. C., & Nocedal, J. (1989). [On the limited memory BFGS method for large scale optimization](https://doi.org/10.1007/BF01589116). *Mathematical Programming*, 45, 503–528.
-- McCullagh, P., & Nelder, J. A. (1989). *Generalized Linear Models*（第 2 版）. Chapman & Hall/CRC.
-- Nocedal, J., & Wright, S. J. (2006). [*Numerical Optimization*（第 2 版）](https://doi.org/10.1007/978-0-387-40065-5). Springer.
-- O'Donoghue, B., & Candès, E. (2015). [Adaptive restart for accelerated gradient schemes](https://doi.org/10.1007/s10208-013-9150-3). *Foundations of Computational Mathematics*, 15(3), 715–732.
-- Zou, H., & Li, R. (2008). [One-step sparse estimates in nonconcave penalized likelihood models](https://doi.org/10.1214/07-AOS520). *Annals of Statistics*, 36(4), 1509–1533.
+- Beck, A. & Teboulle, M. (2009). A Fast Iterative Shrinkage-Thresholding Algorithm. *SIAM J. Imaging Sciences*, 2(1), 183-202.
+- Barzilai, J. & Borwein, J. M. (1988). Two-Point Step Size Gradient Methods. *IMA J. Numer. Anal.*, 8(1), 141-148.
+- O'Donoghue, B. & Candes, E. (2015). Adaptive Restart for Accelerated Gradient Schemes. *Foundations of Computational Mathematics*, 15(3), 715-732.
+- Lee, J. D., Sun, Y. & Saunders, M. A. (2014). Proximal Newton-Type Methods for Minimizing Composite Functions. *SIAM J. Optimization*, 24(3), 1420-1443.
+- Liu, D. C. & Nocedal, J. M. (1989). On the Limited Memory BFGS Method for Large Scale Optimization. *Mathematical Programming*, 45, 503-528.
+- Byrd, R. H., Lu, P., Nocedal, J. & Zhu, C. (1995). A Limited Memory Algorithm for Bound Constrained Optimization. *SIAM J. Scientific Computing*, 16(5), 1190-1208.
+- Boyd, S. et al. (2011). Distributed Optimization and Statistical Learning via ADMM. *Foundations and Trends in Machine Learning*, 3(1), 1-122.
+- Fan, J. & Li, R. (2001). Variable Selection via Nonconcave Penalized Likelihood Models. *JASA*, 96, 1348-1360.
+- Zou, H. & Li, R. (2008). One-step Sparse Estimates in Nonconcave Penalized Likelihood Models. *Annals of Statistics*, 36(4), 1509-1533.

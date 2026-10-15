@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { dashboardURL, siteRoot } from './site';
 
 async function openProduction(page: Page): Promise<void> {
   const consoleErrors: string[] = [];
@@ -28,13 +29,13 @@ test.describe('Deployed benchmark dashboard', () => {
     });
     await openProduction(page);
 
-    expect(new URL(page.url()).pathname).toBe('/statgpu/dashboard/');
+    expect(page.url()).toBe(dashboardURL);
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
     await expect(page.locator('#timing-chart')).toHaveAttribute('role', 'img');
     await expect(page.locator('#speedup-chart')).toHaveAttribute('role', 'img');
     await expect(page.getByRole('link', { name: 'Back to statgpu home' })).toHaveAttribute(
       'href',
-      'http://127.0.0.1:4173/statgpu/',
+      siteRoot,
     );
     await expect(page.locator('#env-select option')).toHaveCount(1);
     await expect(page.locator('#env-select option')).toContainText(
@@ -42,7 +43,7 @@ test.describe('Deployed benchmark dashboard', () => {
     );
     await expect(page.getByRole('link', { name: 'Benchmark guide' })).toHaveAttribute(
       'href',
-      'http://127.0.0.1:4173/statgpu/en/guides/benchmarks',
+      `${siteRoot}en/guides/benchmarks`,
     );
     await expect(page.getByRole('link', { name: 'Raw data (JSON)' })).toHaveAttribute(
       'href',

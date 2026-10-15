@@ -24,7 +24,8 @@ def cohens_f(
     Parameters
     ----------
     *groups : array-like
-        Two or more sample arrays, one per group.
+        Two or more sample arrays, one per group, containing only finite
+        observations. Uses the same input validation as ``f_oneway``.
     backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
         Compute backend.
     dtype : dtype or None, default=None

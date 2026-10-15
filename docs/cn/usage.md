@@ -1,54 +1,33 @@
 # statgpu 文档入口（中文）
 
 > 语言：中文  
-> 最后更新：2026-07-24  
+> 最后更新：2026-10-13  
 > 切换：[English](../en/usage.md)
 
-该入口只链接维护中的能力清单，避免重复保存容易过期的支持矩阵。
+这是一条完成首次拟合的简短路径。完整指南与参考文档按层次整理在[文档索引](README.md)中。
 
 ## 快速开始
 
-- [快速入门](getting-started/quickstart.md)
-- [已实现方法](guides/implemented-methods.md)
-- [设备与 GPU 内存](guides/device-and-memory.md)
-- [PyTorch 后端](guides/pytorch-backend.md)
-- [交叉验证](guides/cross-validation.md)
-- [推断 API](guides/inference-api.md)
-- [变更记录](changelog.md)
+1. 按[快速入门](getting-started/quickstart.md)完成安装、拟合与预测。
+2. 选择 CPU、CUDA 或 Torch 前，先核对[设备指南](guides/device-and-memory.md)。CuPy 请按 CUDA 主版本安装 `statgpu[gpu11]` 或 `statgpu[gpu12]`；PyTorch 后端使用 `statgpu[torch]`。基础安装已经包含 Cox 实现，`statgpu[survival]` 增加的是可选的外部比较依赖。
 
-CuPy 请按 CUDA 主版本安装 `statgpu[gpu11]` 或 `statgpu[gpu12]`；
-PyTorch 后端使用 `statgpu[torch]`。维护中的 Cox 实现已包含在基础安装中；
-`statgpu[survival]` 仅增加 statsmodels，用于可选外部验证与比较。
+<a id="模型族"></a>
 
-## 模型族
+3. 在[模型与统计方法](models/README.md)中按问题选择方法族，再运行对应教程。修改示例前，先检查输入假设、输出含义与限制。
+4. 调参时参考[交叉验证](guides/cross-validation.md)；需要系数不确定性时参考[推断模式](guides/inference-modes.md)。拟合回归后，可通过[回归诊断](guides/regression-diagnostics.md)检查结果。
 
-- [模型总览](models/README.md)
-- [广义线性模型](models/generalized-linear-model.md)
-- [Cox 比例风险模型](models/coxph.md)
-- [面板模型](models/panel.md)
-- [ANOVA](models/anova.md)
-- [协方差估计](models/covariance.md)
-- [非参数方法](models/nonparametric.md)
-- [无监督学习](models/unsupervised.md)
-- [特征选择](models/feature-selection.md)
-- [回归诊断](guides/regression-diagnostics.md)
+## 优化与兼容性参考
 
-`RidgeCV`、`LassoCV`、`ElasticNetCV`、`LogisticRegressionCV`、
-`PenalizedGLM_CV` 与 `CoxPHCV` 均已实现。具体 loss、penalty、推断与后端覆盖见
-[已实现方法](guides/implemented-methods.md)及对应模型页。
+需要进一步配置拟合时，查阅[求解器 × 惩罚项兼容性矩阵](guides/solver-penalty-matrix.md)
+与[损失函数 × 惩罚项 × 求解器框架](guides/loss-penalty-solver-framework.md)。
+更新旧代码时，参阅[惩罚模型求解器迁移指南](guides/penalized-solver-api-migration.md)。
+[交叉验证设计指南](guides/cross-validation-design.md)解释执行方式与加速语义。
 
-## 验证与证据
+## 统计工具
 
-所有验证结论都应限定到实际测试的模型、后端、硬件与 commit。托管 CI、物理 GPU
-测试、历史 benchmark 与发布证据分别记录在对应 workflow、模型页、changelog、
-`results/` 或 `dev/` artifact 中；GPU 测试被跳过不等同于完成物理 GPU 验证。
+组间比较或多个 P 值从[统计检验](models/testing/README.md)开始。
+分布函数、重抽样与结果对象分别见[分布 API](guides/distribution-api.md)和[推断 API](guides/inference-api.md)。
 
-## 贡献者检查
-
-修改代码时遵循仓库中的[开发指南](https://github.com/TheHiddenObserver/statgpu/blob/master/dev/AGENTS.md)
-与 canonical Claude Code [`new-module-dev` skill](https://github.com/TheHiddenObserver/statgpu/blob/master/.claude/skills/new-module-dev/SKILL.md)。
-独立 review 使用 [`code-review` skill](https://github.com/TheHiddenObserver/statgpu/blob/master/.claude/skills/code-review/SKILL.md)，
-性能/证据工作激活时使用 [`benchmark` skill](https://github.com/TheHiddenObserver/statgpu/blob/master/.claude/skills/benchmark/SKILL.md)。
-这些链接指向 GitHub 仓库源码，而不是 VitePress 站内路由。先按影响范围激活必要 gate，同时保留新 statistical/numerical capability
-默认的三后端 closure 与新 tunable loss x penalty 的 direct+CV closure；保持显式设备语义，外部比较前确认 objective normalization，
-并同步受影响的中英文 public capability claim。
+通过[已实现方法](guides/implemented-methods.md)核对支持范围，通过
+[完整 API 参考](README.md#完整-api-参考)核对函数签名与拟合属性。
+更新说明见[变更记录](changelog.md)。如需贡献代码、文档或测试，请参阅[贡献指南](../../CONTRIBUTING.md)。

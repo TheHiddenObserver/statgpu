@@ -18,7 +18,18 @@ from statgpu.unsupervised._utils import (
 
 
 class NMF(BaseEstimator):
-    """NMF with multiplicative updates and Frobenius loss."""
+    """NMF with multiplicative updates and Frobenius loss.
+
+    ``tol`` controls periodic reconstruction-error checks during ``fit``.
+    With fitted components fixed, ``transform`` always runs ``max_iter``
+    updates and does not stop early by ``tol``.
+
+    Fixed absolute stabilizers can collapse factors for very small positive
+    input units, even with ``tol=0``. Use one fixed positive training-derived
+    scale for all features and later transforms, then multiply reconstructions
+    by that scale to restore original units. Inspect relative reconstruction
+    error; a tiny absolute residual does not establish a useful factorization.
+    """
 
     def __init__(
         self,
@@ -163,6 +174,12 @@ class NMF(BaseEstimator):
         return self.fit(X, y=y)._fit_W
 
     def inverse_transform(self, X):
+        """Multiply finite coordinates by the fitted nonnegative dictionary.
+
+        Unlike observation fitting/encoding, this linear reconstruction does
+        not reject negative coordinates. Use nonnegative input factors for a
+        nonnegative reconstruction; signed coordinates can yield signed output.
+        """
         self._check_is_fitted()
         backend = self._get_backend()
         X_arr = backend.asarray(X, dtype=backend.float64)

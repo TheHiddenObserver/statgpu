@@ -1,10 +1,11 @@
 import { defineConfig, devices } from '@playwright/test';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
+import { dashboardURL } from './e2e-production/site';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const productionURL = 'http://127.0.0.1:4173/statgpu/dashboard/';
+const productionURL = dashboardURL;
 
 export default defineConfig({
   testDir: './e2e-production',
@@ -24,8 +25,7 @@ export default defineConfig({
     { name: 'webkit-production', use: { ...devices['Desktop Safari'] } },
   ],
   webServer: {
-    command:
-      'node node_modules/vitepress/bin/vitepress.js preview docs --host 127.0.0.1 --port 4173',
+    command: 'node node_modules/vitepress/bin/vitepress.js preview docs --host 127.0.0.1 --port 4173',
     url: productionURL,
     reuseExistingServer: !process.env.CI,
     cwd: dirname(__dirname),

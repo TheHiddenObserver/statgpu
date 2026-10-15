@@ -51,11 +51,38 @@ three-file benchmark bundle, and `.nojekyll`. Verification rejects:
 - root-absolute URLs outside the configured site base;
 - the legacy `docs/assets/benchmarks` route;
 - dashboard JavaScript above 750 KiB;
-- `benchmark_data.json` above 6 MiB.
+- `benchmark_data.json` above 6 MiB;
+- the two locale search modules and their decoder above 1.6 MiB.
+
+Public documentation remains fully searchable, including complete API references.
+Builds losslessly gzip each locale index and verify its decoded byte count and
+SHA-256 digest. Browsers use the native `DecompressionStream` gzip API when available and a
+bundled, pinned gzip decoder otherwise. The transfer budget counts
+both emitted base64 locale modules and the separately emitted decoder, including
+all fallback code, without
+assuming server-side compression. Cross-browser search tests still exercise
+prefetching, Chinese controls, compact results, and reference-page queries.
 
 The workflow builds twice and compares complete artifact hashes. It also
 requires a clean repository tree, including non-ignored untracked files, before
 browser QA and publication.
+
+## Pinned build-tool compatibility overrides
+
+VitePress remains pinned to 1.6.4. The root npm overrides select Vite 6.4.3
+instead of VitePress's declared Vite 5 range, and `@xmldom/xmldom` 0.9.12 instead
+of `speech-rule-engine` 4.1.4's exact 0.9.10 dependency. These are deliberate
+build-tool compatibility exceptions to remove inherited security advisories;
+they are not a VitePress framework migration. Keep both overrides explicit and
+validate dependency resolution, both site bases, search, MathJax, reproducible
+output, and all three browser engines after changing either one.
+
+The dashboard retains ECharts 5.6. The moderate
+[Lines-series tooltip advisory](https://github.com/advisories/GHSA-fgmj-fm8m-jvvx)
+affects the unused Lines series and its default formatter. The dashboard
+registers only BarChart and supplies its own tooltip formatters. An ECharts
+major-version migration is separate from this website integration; the package
+advisory remains visible in frontend audit results.
 
 ## Custom domain migration
 

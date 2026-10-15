@@ -1,18 +1,116 @@
 # PooledOLS
 
 > Language: English  
-> Last updated: 2026-08-19  
+> Last updated: 2026-10-13<br>
 > Switch: [Chinese](../../cn/panel/pooled-ols.md)
 
-## Overview
+<a id="overview"></a>
 
-`PooledOLS` stacks all panel observations and fits one ordinary linear regression with a common intercept and common slopes. It does **not** remove entity or time effects, so it is appropriate when a single pooled conditional-mean relationship is the intended model.
+## When one pooled relationship is appropriate
 
-`entity_ids` is optional: supplying it does not change the coefficient estimates, but it enables panel-specific fit statistics and the Breusch-Pagan LM diagnostic.
+Use `PooledOLS` when the target is one common intercept and one set of slopes across all entity-period observations. It fits ordinary least squares on the stacked rows, so it is a useful baseline when a single pooled relationship is scientifically appropriate.
 
-## Path
+Pooling does not remove entity or time effects. For the usual interpretation of the slope, the composite error, including any unmodeled entity differences, must have conditional mean zero given the regressor history. If persistent entity differences are related to your regressors, consider [PanelOLS](panel-ols.md) with entity effects. Changing standard errors cannot fix that mean-model problem.
 
-Implementation: `statgpu/panel/_pooled.py`.
+The model is $y_{it}=\alpha+x_{it}^{\top}\beta+u_{it}$: $i$ indexes entities, $t$ indexes periods, $y_{it}$ is the response, and $x_{it}$ is the predictor vector in that row of `X`. The intercept $\alpha$ and slopes $\beta$ are shared across all rows; $u_{it}$ includes any entity or time differences left outside the model. Fitting minimizes the sum of squared residuals $\sum_{i,t}(y_{it}-\alpha-x_{it}^{\top}\beta)^2$ over the stacked observations.
+
+## Prepare the stacked observations
+
+Stack your panel in long form, with one row per entity-period observation:
+
+- `X`: shape `(n_observations, n_features)`, containing regressors without an intercept column. `PooledOLS` always adds the intercept itself.
+- `y`: shape `(n_observations,)`, in the same row order as `X`.
+- Optional `entity_ids`: one entity label per row. It enables panel-specific fit statistics, including within/between measures, and the Breusch-Pagan LM diagnostic without changing the coefficients. It does not automatically cluster standard errors; see [Choose standard errors for your panel](#choose-standard-errors-for-your-panel).
+- Optional `time_index`: one period label per row. It is required for Driscoll-Kraay covariance and can define the chronological order for HAC. This argument is named `time_index`, not `time_ids`.
+
+In the example, `X.shape == (60, 1)` represents 12 entities with 5 observations each. The data share a common intercept of 1 and slope of 2, with independent noise.
+
+<a id="cpu-and-gpu-example"></a>
+
+## Fit a pooled baseline
+
+<a id="cpu-example"></a>
+
+<!-- example: cpu-basic -->
+```python
+import numpy as np
+from statgpu.panel import PooledOLS
+
+rng = np.random.default_rng(7)
+entity_ids = np.repeat(np.arange(12), 5)
+time_ids = np.tile(np.arange(5), 12)
+x = rng.normal(size=60)
+X = x[:, None]
+y = 1.0 + 2.0 * x + 0.2 * rng.normal(size=60)
+
+model = PooledOLS(device="cpu").fit(X, y, entity_ids=entity_ids)
+print("coef:", np.round(model.coef_, 3))
+print("standard errors:", np.round(model.bse_, 3))
+print("nobs:", model.nobs)
+```
+<!-- example-end: cpu-basic -->
+
+`coef_` is ordered as intercept, then the slope for the single column of `X`. The estimated slope is close to the generating value 2; `bse_` gives the standard errors in the same order. `nobs=60` counts all stacked rows. This agreement in simulated data does not establish exogeneity for a real panel.
+
+To run this example on a GPU, replace `device="cpu"` with `device="cuda"` (CuPy/CUDA) or `device="torch"` (Torch CUDA). An unavailable explicitly requested backend raises an error instead of switching to CPU.
+
+<a id="outputs"></a>
+
+## Interpret coefficients, uncertainty, and predictions
+
+Read `coef_[0]` as the common intercept and the remaining coefficients in `X` column order. They summarize the pooled relationship across rows; they are not within-entity effects.
+
+`bse_` is the uncertainty of each coefficient, in the same order as `coef_`; it is not the spread of individual predictions. `conf_int_` gives one lower/upper interval per coefficient (`alpha=0.05` means 95%). `tvalues_` is the coefficient-to-standard-error ratio: the default `nonrobust` fit uses a Student-$t$ reference with `df_resid`, while the other supported covariance choices use a normal reference for p-values and intervals. See [Panel covariance](covariance.md) before comparing inference across settings.
+
+`rsquared` is the pooled fit's $R^2$. `fit_statistics_` contains the standardized fit statistics, including within/between $R^2$ when `entity_ids` was supplied; see [fit statistics](fit-statistics.md). `nobs` is the original row count and `df_resid` is the residual degrees of freedom. `summary()` returns a structured panel summary.
+
+For new rows, `model.predict(X_new)` adds the fitted common intercept and applies the slopes. Supply the same feature columns and order as at fit time, without a constant column. The result is a NumPy array with one prediction per row; entity/time labels are not needed and no entity-specific effect is added. After formula fitting, you can instead pass a DataFrame containing the required regressor columns to `predict()`.
+
+<a id="covariance-and-inference"></a>
+
+## Choose standard errors for your panel
+
+The default `cov_type="nonrobust"` uses classical standard errors. Use an HC option for heteroskedasticity, or `cov_type="clustered"` with `cluster=entity_ids` when the intended clusters are entities. Cluster labels may describe a different grouping if your error structure calls for it; `group_debias=True` optionally applies the small-number-of-clusters correction.
+
+`cov_type` changes the standard-error calculation, not the OLS coefficient estimate. In addition to nonrobust and HC covariance, `PooledOLS` supports clustered covariance and two time-dependent choices:
+
+- `cov_type="hac"` treats the observations as one ordered sequence and applies Bartlett/Newey-West HAC. If `time_index` is supplied, the rows are first sorted by its chronology; otherwise the input row order is used. Numeric and datetime labels use their natural order. An ordered pandas categorical uses the category order declared by the user. Plain string labels use lexical order; other non-categorical object labels follow their sorted comparable-value order and fail if they are not mutually comparable. Labels such as `t1, t2, t10` should therefore be supplied as an ordered categorical (or a numeric/datetime key) when lexical string order is not the intended chronology.
+- `cov_type="driscoll-kraay"` groups observations by `time_index` and combines their contributions within each period before applying lag weights.
+
+These two choices are therefore not interchangeable. HAC neither resets lags at entity boundaries nor aggregates repeated periods, so sorting a stacked panel does not make it general panel HAC. Check the [ordered-sequence applicability conditions](covariance.md#ordered-sequence-hac) before using it.
+
+## Formula Example
+
+Assume `df` contains `y`, `x1`, and `x2` columns.
+
+```python
+from statgpu.panel import PooledOLS
+
+model = PooledOLS().fit(
+    formula="y ~ x1 + x2",
+    data=df,
+)
+```
+
+`PooledOLS` always includes an intercept, so explicit no-intercept formulas are rejected.
+
+<a id="numerical-and-strict-behavior"></a>
+
+## Check these limits before using the results
+
+Check that your specification includes only the intercept added by `PooledOLS`; do not add a second constant column to `X`. If the design is exactly rank deficient, fitted values remain available but the coefficients are not unique, so coefficient-level standard errors, tests, p-values, and confidence intervals are disabled. See [Panel covariance](covariance.md).
+
+Required metadata must be present and aligned: clustered covariance needs `cluster`, Driscoll-Kraay needs `time_index`, and malformed cluster arrays raise an error. HAC rejects missing or non-finite time metadata rather than guessing the order.
+
+A new `fit()` attempt invalidates previous fitted results. If refitting fails, partially computed results are also cleared; `predict()` and `summary()` then report an unfitted estimator. Explicit GPU requests fail if the requested backend is unavailable.
+
+At extreme response scales, the intercept calculation protects representable small contributions from cancellation between large positive and negative responses. The legacy `rsquared` calculation also uses range-safe centering when direct subtraction of the response mean would overflow. These safeguards preserve the same least-squares target.
+
+## FAQ
+
+**Does supplying `entity_ids` change coefficients?**  No. It only enables panel-aware fit statistics and diagnostics.
+
+**Is `hac` the same as Driscoll-Kraay?**  No. HAC treats observations as one ordered sequence; Driscoll-Kraay first aggregates observation contributions within each supplied time period.
 
 ## Statistical Model and Identification
 
@@ -52,15 +150,6 @@ $$
 
 Thus the coefficient estimate is the same OLS fit you would obtain from treating the stacked panel rows as one regression sample.
 
-## Covariance and Inference
-
-`cov_type` changes the standard-error calculation, not the OLS coefficient estimate. In addition to nonrobust and HC covariance, `PooledOLS` supports clustered covariance and two time-dependent choices:
-
-- `cov_type="hac"` treats the observations as one ordered sequence and applies Bartlett/Newey-West HAC. If `time_index` is supplied, the rows are first sorted by its chronology; otherwise the input row order is used. Numeric and datetime labels use their natural order. An ordered pandas categorical uses the category order declared by the user. Plain string labels use lexical order; other non-categorical object labels follow their sorted comparable-value order and fail if they are not mutually comparable. Labels such as `t1, t2, t10` should therefore be supplied as an ordered categorical (or a numeric/datetime key) when lexical string order is not the intended chronology.
-- `cov_type="driscoll-kraay"` groups observations by `time_index` and combines their contributions within each period before applying lag weights.
-
-These two choices are therefore not interchangeable. Full formulas are in [Panel covariance](covariance.md).
-
 ## Parameters
 
 | Parameter | Default | Allowed / Constraint | Meaning |
@@ -73,66 +162,29 @@ These two choices are therefore not interchangeable. Full formulas are in [Panel
 | `n_jobs` | `None` | integer or `None` | Shared parallelism hint. |
 | `group_debias` | `False` | boolean; clustered covariance only | Apply the small-number-of-clusters correction. |
 
-```python
-model.fit(X, y, cluster=None, time_index=None, entity_ids=None)
-```
-
-Pass `cluster` when using clustered covariance and `time_index` when using Driscoll-Kraay. For legacy HAC, `time_index` is optional and, when supplied, defines the ordering used by the HAC calculation. Pass `entity_ids` when you also want standardized within/between $R^2$ or the Breusch-Pagan LM test.
-
-## CPU and GPU Example
+### Fitting and other methods
 
 ```python
-from statgpu.panel import PooledOLS
-
-cpu = PooledOLS(device="cpu").fit(X, y)
-cuda = PooledOLS(device="cuda").fit(X, y)
-torch = PooledOLS(device="torch").fit(X, y)
+model.fit(X=None, y=None, cluster=None, time_index=None,
+          formula=None, data=None, entity_ids=None)
 ```
 
-If an explicitly requested GPU backend is unavailable, `.fit()` raises an error instead of switching to CPU.
+Supply arrays or `formula` with `data`; `fit()` returns the fitted estimator. ID/time arrays have one label per observation, and `cluster` accepts the one- or two-way grouping described in [Panel covariance](covariance.md). `entity_ids` enables panel-aware statistics; `time_index` is required for DK and optional for HAC. Formula-side metadata must align with the retained observations; see [the formula example above](#formula-example).
 
-## Formula Example
+- `predict(X)`: return pooled level predictions as a NumPy array.
+- `summary()`: return the structured panel summary.
+- `breusch_pagan_lm_test()`: return the random-effects LM diagnostic when `entity_ids` was supplied; check [applicability conditions](diagnostics.md).
+- `get_params(deep=True)` / `set_params(**params)`: inspect or change constructor settings. `set_params()` clears fitted results; fit again after a change.
 
-Assume `df` contains `y`, `x1`, and `x2` columns.
+Fitted attributes: `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `rsquared`, `fit_statistics_`, `nobs`, `df_resid`, and `rank_` (the fitted design's numerical rank). Coefficient-inference arrays are unavailable for an exactly rank-deficient design.
 
-```python
-from statgpu.panel import PooledOLS
+The inherited `adjust_pvalues`, `combine_pvalues`, `bootstrap_statistic`, and `permutation_test` helpers have complete signatures in the [shared estimator API](../reference/estimator-api.md). They do not automatically select a panel-valid resampling scheme.
 
-model = PooledOLS().fit(
-    formula="y ~ x1 + x2",
-    data=df,
-)
-```
+<a id="external-validation"></a>
 
-`PooledOLS` always includes an intercept, so explicit no-intercept formulas are rejected.
+## Comparing with Other Packages
 
-## Outputs
-
-Public results include `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `rsquared`, `fit_statistics_`, `nobs`, and `df_resid`. With `entity_ids`, `breusch_pagan_lm_test()` is also available; see [Panel diagnostics](diagnostics.md).
-
-## Numerical and Strict Behavior
-
-The automatically added constant is protected against response-cancellation loss. Ordinary responses keep the historical SVD/BLAS solve. When the response is classified as magnitude/cancellation sensitive, statgpu keeps the same SVD, numerical-rank cutoff, design scaling, and minimum-norm parameterization, but evaluates the SVD response projection with the shared magnitude-tiered reduction. For example, the representable intercept tail in a response such as `[2**55, 1, -2**55]` is not silently reduced to zero. Legacy pooled $R^2$ centering uses the same range-safe working-scale policy as the standardized diagnostics when physical `y-mean(y)` subtraction would overflow.
-
-Required metadata are checked before covariance is computed. For example, clustered covariance without `cluster`, Driscoll-Kraay without `time_index`, or a cluster array with the wrong shape raises an error rather than producing a different covariance estimator. Legacy HAC also rejects missing/non-finite time metadata instead of guessing an ordering.
-
-A new `fit()` attempt invalidates the previous fitted/inference state before work begins. If the refit fails at any later stage, partially written outputs are cleared as well; `predict()` and `summary()` then report the estimator as unfitted.
-
-If the design matrix is exactly rank deficient, fitted values can still be computed but the coefficient vector is not unique. statgpu therefore disables coefficient-level standard errors, tests, p-values, and confidence intervals for that fit instead of reporting inference from an arbitrary coefficient representation; see [Panel covariance](covariance.md).
-
-An explicit `device="cuda"` or `device="torch"` request also raises if that backend is unavailable rather than silently using CPU.
-
-## FAQ
-
-**Does supplying `entity_ids` change coefficients?**  No. It only enables panel-aware fit statistics and diagnostics.
-
-**Is `hac` the same as Driscoll-Kraay?**  No. HAC treats observations as one ordered sequence; Driscoll-Kraay first aggregates observation contributions within each supplied time period.
-
-## External Validation
-
-We compare the public `PooledOLS` estimator with `linearmodels==7.0` for Driscoll-Kraay coefficients, covariance, and BSE, and for group-debiased clustered covariance. Coefficients use `rtol=2e-10, atol=2e-11`; covariance/BSE use `rtol=5e-9, atol=5e-11`. Definition-level HC, clustering, Driscoll-Kraay, default-bandwidth, and R `sandwich` checks are summarized in the [validation matrix](covariance.md#validation-matrix).
-
-GPU consistency is tested separately by comparing CuPy and Torch outputs with NumPy at default `rtol=5e-6, atol=5e-7`; observed maximum differences are stored in the PR #126 physical validation artifacts. The dedicated `dev/benchmarks/validate_panel_hac_chronology_gpu.py` gate additionally checks ordered-categorical legacy-HAC chronology, a lexical-order negative control, formula missing-row alignment, and requested/executed CuPy/Torch backend identity on the final exact source. The additional `dev/benchmarks/validate_panel_intercept_cancellation_gpu.py` gate checks the cancellation-sensitive automatic-intercept path on both physical GPU backends.
+To compare with `linearmodels` 7.0, use the same stacked sample and explicit intercept. For Driscoll-Kraay, align the time labels, kernel, bandwidth, and degrees-of-freedom convention; for clustered covariance, align cluster groups and `group_debias`. These choices affect covariance and standard errors even when the OLS coefficients agree. See [comparing covariance definitions](covariance.md#comparing-covariance-definitions).
 
 ## References
 

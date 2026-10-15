@@ -4,6 +4,7 @@ import { runHasMetricScope } from '../src/metric-scope';
 import { getUniqueScaleKeys } from '../src/scales';
 import {
   createDefaultState,
+  setSelectedEnvironment,
   setSelectedModel,
   setSelectedPenalty,
   setSelectedSolver,
@@ -208,4 +209,34 @@ test('upstream filter changes clear backend and external selections', () => {
   expect(state.selectedScaleKeys).toEqual(new Set(['n20_p2']));
   expect(state.selectedBackends.size).toBe(0);
   expect(state.showExternal.size).toBe(0);
+});
+
+
+test('changing hardware groups replaces session membership and resets downstream filters', () => {
+  const state = createDefaultState(environments, [makeRun('remote-p100', ['linear_models'])]);
+  state.selectedMetricScope = 'cross_validation';
+  state.selectedModelId = 'RidgeCV';
+  state.selectedVariant = 'old-session';
+  state.selectedPenalty = 'l2';
+  state.selectedSolver = 'cv';
+  state.selectedScaleKeys.add('n10_p2');
+  state.selectedBackends.add('cupy');
+  state.showExternal.add('sklearn');
+  state.tableLimit = Infinity;
+
+  setSelectedEnvironment(state, {
+    env_id: 'new-hardware', label: 'New hardware', gpu: 'GPU', cpu: 'CPU',
+    member_env_ids: ['session-a', 'session-b'],
+  });
+
+  expect(state.selectedEnvId).toBe('new-hardware');
+  expect(state.selectedEnvIds).toEqual(new Set(['session-a', 'session-b']));
+  expect(state.selectedMetricScope).toBe('all');
+  for (const value of [state.selectedModelId, state.selectedVariant, state.selectedPenalty, state.selectedSolver]) {
+    expect(value).toBeNull();
+  }
+  expect(state.selectedScaleKeys.size).toBe(0);
+  expect(state.selectedBackends.size).toBe(0);
+  expect(state.showExternal.size).toBe(0);
+  expect(state.tableLimit).toBe(200);
 });

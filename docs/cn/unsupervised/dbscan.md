@@ -1,184 +1,116 @@
-# 基于密度的聚类（DBSCAN）
+# DBSCAN
 
-> 语言：简体中文
-> 最后更新：2026-09-03
+> 语言：中文
+> 最后更新：2026-10-14
 > 切换：[English](../../en/unsupervised/dbscan.md)
 
-## 它解决什么问题？
+## 概览
 
-`DBSCAN` 寻找由相邻观测组成的高密度区域，并把孤立观测标记为噪声。与 K-Means 不同，它不需要预先指定簇数，也可以识别非球形的簇。
+DBSCAN 连接包含足够近邻的局部邻域，形成密集的观测组，再吸纳相邻的边界点，其余观测标为噪声而不分组。邻域半径与最低计数共同决定什么算“密集”，无需指定簇数。
 
-statgpu 的实现面向稠密欧氏数据，提供 CPU、CuPy/CUDA 和 Torch CUDA 路径。
+例如，设想一个点云中有两条采样密集的弯曲带，中间还散落着一些零星观测。你希望找回这两条带，不预先规定簇数，也不强迫零星点归入某组。按最近中心分组可能切开一条弯曲带，并把孤立点吸收到某个簇中，因为这种划分要求每条记录都有所属中心。
 
-## 什么时候使用？
+组织数据的依据是局部密度连通性，而不是到某一个代表性中心的距离。[DBSCAN 原始论文](https://aaai.org/papers/kdd96-037-a-density-based-algorithm-for-discovering-clusters-in-large-spatial-databases-with-noise/)正是针对带噪声、不规则形状的聚类问题提出这一思路。
 
-以下情况适合从 DBSCAN 开始：
+## 何时使用
 
-- 簇由局部密度定义，而不是由到质心的距离定义；
-- 簇可能弯曲或形状不规则；
-- 噪声识别本身就是任务的一部分；
-- 事先不知道簇数；
-- 大多数簇可以用一个有意义的邻域尺度描述。
+当密集区域可能形状不规则，且允许部分样本不归入任何簇时，可使用 DBSCAN。与 [KMeans](kmeans.md) 不同，它不要求给定目标簇数。但你仍需选择邻域尺度和最小局部计数，因此发现多少组取决于这些选择，并不是无须调参就能找出“真实”簇数。
 
-如果不同簇的密度差异很大、高维距离已经失去区分度、每个新观测都必须获得预测，或需要软成员概率，应考虑其他方法。若原始特征上的欧氏距离没有实际意义，应先降维或构造有意义的表示。
+`eps` 与特征单位一致；确定有意义的特征尺度后，应比较多个半径和 `min_samples` 设置。半径太小可能把一个组切碎，或让大量观测不被分组；半径太大则可能连通本想分开的组。若不同簇的密度差异很大，一个统一半径可能并不合适，可参见[密度聚类指南](https://scikit-learn.org/stable/modules/clustering.html#dbscan)。
 
-## 直观理解
+噪声标签只表示该观测在所选设置下不属于一个密集区域，不能据此认定它是测量错误、欺诈或其他实质性异常。如果主要需求是把未来记录分配给稳定中心，可考虑 KMeans；这里的 DBSCAN 描述的是已拟合数据集，不提供新数据预测规则。
 
-DBSCAN 把训练点分为三类：
+## 导入路径
 
-- **核心点：** 以自身为中心、半径为 `eps` 的范围内至少有 `min_samples` 个观测，计数包含自身；
-- **边界点：** 自身不是核心点，但位于某个核心点的 `eps` 邻域内；
-- **噪声点：** 无法从任何核心连通分量通过密度可达关系到达，标签为 `-1`。
+```python
+from statgpu.unsupervised import DBSCAN
+```
 
-彼此连通的核心点组成一个簇，可达的边界点再依附到该簇。因此 DBSCAN 寻找的是足够稠密区域的连通分量，而不是预先划分固定数量的质心区域。
+<a id="目标函数--损失函数"></a>
+## 密度判定与成簇规则
 
-## 密度判据
+DBSCAN 不是光滑优化问题，没有可微的损失函数；它的准则是密度可达性（density reachability）：
 
-当
+- 如果一个点的闭 `eps` 邻域内至少包含 `min_samples` 个点（包括该点自身），该点就是核心点（core point）。
+  $$
+  \left|\left\{x_j : \left\|x_i - x_j\right\|_2 \le \varepsilon\right\}\right|
+  \ge \text{min\_samples}.
+  $$
+- 由 `eps` 邻接关系连通的核心点构成一个簇。
+- 能从核心点集到达、但自身不是核心点的点称为边界点（border point）。
+- 其余点是噪声（noise），标签为 `-1`。
 
-$$
-\left|
-\left\{
-x_j:\lVert x_i-x_j\rVert_2\leq\varepsilon
-\right\}
-\right|
-\geq \text{min\_samples}
-$$
+公式中，$\varepsilon$ 对应 `eps`，$x_i$ 是正在检查的点，集合包含半径内的所有观测。边界点可以加入一个簇，但不会继续扩展它：仅由非核心点组成的稀疏链，不能把两个核心点连通分量接起来；足够密集的核心点桥接仍可能让它们合并。因此，局部计数要求使 DBSCAN 区别于简单地把所有邻近点连在一起。
 
-时，$x_i$ 是核心点。其中 $\varepsilon$ 对应 `eps`，闭邻域包含 $x_i$ 自身。
+![eps为0.52且min_samples为5并计入自身时，两簇包含十个实心核心点和两个空心边界点，三个灰色叉号仍为噪声。](../../assets/unsupervised/dbscan-cn.svg)
 
-DBSCAN 没有需要最小化的可微损失函数；结果由邻域图和密度可达规则决定。
+虚线圆是半径 `eps=0.52` 的邻域，包含圆心自身在内的五个观测，因此圆心满足 `min_samples=5` 的核心点条件。实心符号表示核心点；空心符号自身不是核心点，但因邻近核心点而加入相应簇。灰色叉号得到噪声标签 `-1`，颜色和形状区分两个簇。边界点不会继续扩展簇，改变半径或特征尺度可能改变这些分配；图中的噪声标记也不能证明观测有误。
 
-## 先准备数据
+## 一个可独立运行的 CPU 示例
 
-`eps` 与特征使用相同单位。一个以“千”为单位的变量可能完全压过取值在 0 到 1 之间的变量。拟合前应标准化连续特征，或使用具有科学含义的变换。
-
-还应检查重复值、缺失值与高维稀疏性。当前实现接受稠密数组，并且只支持 `metric="euclidean"`。
-
-## 最小可运行示例
-
-下面生成三个紧凑簇，并加入均匀分布的噪声候选点。
-
+<!-- learner-example: dbscan -->
 ```python
 import numpy as np
 from statgpu.unsupervised import DBSCAN
 
-rng = np.random.default_rng(3)
-cluster_a = rng.normal(loc=(-2.0, -1.0), scale=0.22, size=(120, 2))
-cluster_b = rng.normal(loc=(0.2, 1.8), scale=0.25, size=(140, 2))
-cluster_c = rng.normal(loc=(2.2, -0.5), scale=0.20, size=(110, 2))
-noise = rng.uniform(low=-4.0, high=4.0, size=(30, 2))
-X = np.vstack([cluster_a, cluster_b, cluster_c, noise])
-
-model = DBSCAN(
-    eps=0.45,
-    min_samples=6,
-    device="cpu",
-).fit(X)
-
-labels = model.labels_
-n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
-n_noise = int(np.sum(labels == -1))
-
-print("簇数：", n_clusters)
-print("噪声点数：", n_noise)
-print("前十个标签：", labels[:10])
+rng = np.random.default_rng(0)
+X = np.vstack([rng.normal(-2, 0.1, (20, 2)), rng.normal(2, 0.1, (20, 2)), [[8., 8.]]])
+model = DBSCAN(eps=0.5, min_samples=3, device="cpu")
+labels = model.fit_predict(X)
+print(labels.shape, np.unique(labels), model.core_sample_indices_.shape)
 ```
 
-该数据通常得到约 3 个簇。部分均匀采样点可能落在某个簇附近，因此最终被标为噪声的数量不一定正好等于生成的 30 个噪声候选点。
+最后一行远离其他样本，标签为表示噪声的 `-1`。`components_` 保存核心样本，不是聚类中心。实现不提供新数据预测规则；把新旧数据一起重新拟合可能改变原有标签。
 
-## 如何读取结果？
+安装了相应 GPU 后端后，可新建估计器并指定 `device="cuda"`（CuPy）或 `device="torch"`（Torch CUDA）。数组通常留在该后端；输出所在设备及主机端步骤见 [API 参考](api-reference.md#dbscan)。显式请求的 GPU 不可用时会报错。
 
-- `labels_[i]` 是第 `i` 个训练样本所属的簇。
-- `0, 1, ...` 只是标识符，数值大小没有顺序含义。
-- `-1` 表示噪声。
-- `core_sample_indices_` 是核心点的下标。
-- `components_` 保存拟合得到的核心样本。
-- 簇数等于不同非负标签的数量。
+**在 GPU 上拟合前**，请先阅读[计算路径与内存](#计算路径与内存)，了解 float32 精度、大特征偏移、主机传输和近邻图内存限制。
 
-DBSCAN 不支持对未见样本调用 `predict`。处理新观测时，应重新拟合，或根据应用场景定义并验证独立的分配规则。
+## 参数
 
-## 关键参数怎么选？
+- `eps`：邻域半径，必须为正且有限。非有限值当前不一定被拒绝，因此应在拟合前自行验证。
+- `min_samples`：成为核心点所需的闭邻域样本数。
+- `metric`：仅支持 `"euclidean"`。
+- `batch_size`：可选的 GPU 距离计算批量大小，不限制全部图边的存储。
+- `device`：`"auto"`、`"cpu"`、`"cuda"` 或 `"torch"`。
 
-| 参数 | 默认值 | 选择建议 |
-|---|---:|---|
-| `eps` | `0.5` | 以特征单位表示的邻域半径；可从领域知识或排序后的 $k$ 近邻距离开始 |
-| `min_samples` | `5` | 值越大，对局部密度证据要求越强，也更容易产生噪声；值越小，更容易接受小而嘈杂的簇 |
-| `metric` | `"euclidean"` | 当前唯一支持的距离 |
-| `algorithm` | `"auto"` | CPU 近邻搜索提示，通常保持自动 |
-| `batch_size` | `None` | GPU 距离分批大小；临时距离块显存不足时减小 |
-| `device` | `"auto"` | 根据数据规模与已安装后端选择 `cpu`、`cuda` 或 `torch` |
+## 计算路径与内存
 
-一种实用调参顺序是：
+DBSCAN 支持 CPU、CuPy/CUDA 与 Torch CUDA。计算和内存成本取决于密度、维数及是否安装编译扩展，GPU 路径包含主机传输。
 
-1. 缩放或变换特征；
-2. 根据“可信的最小局部支持数”选择 `min_samples`；
-3. 计算每个点到第 `min_samples` 个近邻的距离并排序；
-4. 在距离曲线明显转折附近尝试多个 `eps`；
-5. 比较簇的稳定性与领域意义，而不只是簇数。
+CPU 数据不超过 12 个特征时使用 SciPy 树搜索；更高维数据使用 scikit-learn 的 `NearestNeighbors`，需安装 scikit-learn。编译好的 statgpu Cython 扩展可加速图标签计算，未编译时使用 Python 实现。
 
-密度差异明显时不存在通用的最佳启发式规则。
+GPU 距离计算使用 float32，保存的核心样本使用 float64。两条 GPU 路径都包含主机传输，CuPy 路径还有部分图处理在 Python 中完成。测量完整拟合耗时时，应把这些成本计入。`batch_size` 只限制距离计算的批次，不限制整个近邻图；密集邻域仍可能占用二次增长的内存。`eps` 边界附近的 float32 比较可能不同，应检查标签和噪声判定的稳定性。
 
-## 与其他方法比较
+很大的共同特征偏移还可能在 GPU 转为 float32 或展开计算距离时丢失样本间距，即使这些距离并不接近 `eps` 边界。应在数据仍为 float64 时，先减去由训练数据确定的统一特征偏移，再拟合；平移保持欧氏距离不变，无需改变 `eps`。应保存该偏移，以便把 `components_` 转回原始单位。标签有限并不代表近邻图正确。
 
-| 方法 | 更适合的情况 |
-|---|---|
-| K-Means | 簇紧凑、近似球形，且簇数已知 |
-| Gaussian mixture | 需要软成员概率与椭圆形分量 |
-| 层次聚类 | 需要层级结构或树状图 |
-| HDBSCAN（当前 API 未提供） | 簇密度不同，且重视层级密度稳定性 |
+## 近似与解释边界
 
-## CPU 与 GPU 行为
+算法目标由欧氏邻域决定，不涉及统计推断。当前未编译扩展的 CPU 路径存在一个限制：当核心点之间没有任何连边时，可能错误地把互不连通的核心点合并。遇到这类稀疏核心点配置时，应先与独立实现核对标签；稠密簇示例不能覆盖这个情况。
 
-所有路径使用相同的稠密欧氏邻域判据：
+## 输出字段
 
-- 低维 CPU 数据使用 `cKDTree`，可用时再进入编译的 Cython 标签流水线；
-- 较高维 CPU 数据使用优化近邻搜索，并保持相同标签契约；
-- CuPy 与 Torch 路径在 GPU 上分批计算距离，并用后端特定流程构造连通分量。
+- `labels_`
+- `core_sample_indices_`
+- `components_`
+- `n_features_in_`
 
-[CPU/GPU 加速实现](../guides/acceleration-internals.md)进一步说明 `batch_size`、设备传输、同步和标签不变验证为何会影响该路径。
+## FAQ
 
-```python
-# CuPy CUDA 路径
-gpu_model = DBSCAN(
-    eps=0.45,
-    min_samples=6,
-    batch_size=2048,
-    device="cuda",
-).fit(X)
+**能为新样本预测簇吗？**
+不能。只提供训练数据的 `fit_predict`；`predict` 会抛出 `NotImplementedError`。
 
-# Torch CUDA 路径
-torch_model = DBSCAN(
-    eps=0.45,
-    min_samples=6,
-    device="torch",
-).fit(X)
-```
+**GPU 一定更快吗？**
+速度取决于数据量、密度、传输和可用内存。应测量完整工作流，支持 GPU 本身不代表加速保证。
 
-CPU 与 GPU 可能使用不同数字标识同一个划分。比较结果时应使用 adjusted Rand index 等不依赖标签编号的指标，而不是要求标签数字逐项相等。恰好位于 `eps` 边界附近的点也可能受浮点比较影响。
 
-当前性能证据统一放在版本化[基准面板](/dashboard/)中，以便同时查看硬件与数据来源。
+## 完整 API 参考
 
-## 常见误区
+构造默认值、全部公开方法、输出形状与限制见 [DBSCAN API 参考](api-reference.md#dbscan)。
 
-- 未缩放特征是邻域含义失真的最常见原因。
-- 增大 `eps` 可能合并不同群组；减小它可能把簇切碎并产生更多噪声。
-- 增大 `min_samples` 不等于简单地获得“更好”的簇，而是改变密度定义。
-- 高维空间中的距离可能趋于相似，通常需要先降维。
-- 聚类标签是探索性结构，不是客观真实类别。
-- 在完整数据上拟合 DBSCAN 后，并没有内置的样本外预测步骤。
-
-## API 与验证
-
-导入路径：`statgpu.unsupervised.DBSCAN`
-
-方法：`fit` 与 `fit_predict`。按设计，调用 `predict` 会抛出 `NotImplementedError`。
-
-输出：`labels_`、`core_sample_indices_`、`components_` 与 `n_features_in_`。
-
-与 scikit-learn 对齐的欧氏配置验证位于 `dev/tests/test_unsupervised_dbscan.py`。基准生成器会把准确性与运行时间来源独立记录，不与本概念指南混在一起。
+<a id="references"></a>
 
 ## 参考文献
 
-- Ester, M., Kriegel, H.-P., Sander, J., & Xu, X. (1996). A density-based algorithm for discovering clusters in large spatial databases with noise. In *KDD-96* (pp. 226-231).
-- Schubert, E., Sander, J., Ester, M., Kriegel, H.-P., & Xu, X. (2017). DBSCAN revisited, revisited: Why and how you should (still) use DBSCAN. *ACM Transactions on Database Systems*, 42(3), Article 19.
+- Ester, M., Kriegel, H.-P., Sander, J., & Xu, X. (1996). A density-based algorithm for discovering clusters in large spatial databases with noise. In *Proceedings of the Second International Conference on Knowledge Discovery and Data Mining (KDD-96)* (pp. 226-231). AAAI Press. https://aaai.org/papers/kdd96-037-a-density-based-algorithm-for-discovering-clusters-in-large-spatial-databases-with-noise/
+- Schubert, E., Sander, J., Ester, M., Kriegel, H.-P., & Xu, X. (2017). DBSCAN revisited, revisited: Why and how you should (still) use DBSCAN. *ACM Transactions on Database Systems*, 42(3), Article 19. https://doi.org/10.1145/3068335

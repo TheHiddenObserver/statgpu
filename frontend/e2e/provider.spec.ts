@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { StaticJsonBenchmarkProvider } from '../src/providers/benchmark';
+import { groupPhysicalEnvironments, StaticJsonBenchmarkProvider } from '../src/providers/benchmark';
 
 function validBenchmarkData() {
   return {
@@ -128,4 +128,40 @@ test.describe('Benchmark data provider contract', () => {
     expect(bundle.parseReport).toBeNull();
     expect(bundle.sourceInventory).toBeNull();
   });
+});
+
+
+test('hardware grouping is explicit and preserves source environment objects', () => {
+  const environments = [
+    { env_id: 'session-a', label: 'Session A', gpu: 'P100', cpu: 'CPU', physical_env_id: 'p100' },
+    { env_id: 'session-b', label: 'Session B', gpu: 'P100', cpu: 'CPU', physical_env_id: 'p100' },
+    { env_id: 'independent', label: 'Independent', gpu: 'P100', cpu: 'CPU' },
+  ];
+  const before = JSON.stringify(environments);
+  const grouped = groupPhysicalEnvironments(environments);
+  expect(grouped).toHaveLength(2);
+  expect(grouped[0].env_id).toBe('p100');
+  expect(grouped[0].member_env_ids).toEqual(['session-a', 'session-b']);
+  expect(grouped[1].member_env_ids).toEqual(['independent']);
+  expect(JSON.stringify(environments)).toBe(before);
+});
+
+test('rejects an incompatible schema and discards another generation of metadata', async () => {
+  let schema = '99.0.0';
+  const fetcher: typeof fetch = async input => {
+    if (String(input).endsWith('/data/benchmark_data.json')) {
+      return Response.json({ ...validBenchmarkData(), schema_version: schema });
+    }
+    if (String(input).endsWith('/data/parse_report.json')) {
+      return Response.json({ report_version: '2.0', generation_id: '0'.repeat(64) });
+    }
+    return new Response('', { status: 404 });
+  };
+  const provider = new StaticJsonBenchmarkProvider({ baseUrl: './', fetcher });
+  await expect(provider.loadBundle()).rejects.toThrow('Unsupported schema 99.0.0; expected 1.1.0');
+  schema = '1.1.0';
+  const recovered = await provider.loadBundle();
+  expect(recovered.data.schema_version).toBe('1.1.0');
+  expect(recovered.parseReport).toBeNull();
+  expect(recovered.sourceInventory).toBeNull();
 });

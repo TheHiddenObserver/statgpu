@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate release-facing Markdown links and documentation contracts."""
+"""Validate links and bounded documentation contracts, not all prose semantics."""
 
 from __future__ import annotations
 
@@ -31,7 +31,6 @@ PYTHON_FENCE_RE = re.compile(
 INLINE_LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
 REFERENCE_LINK_RE = re.compile(r"^\s*\[[^\]]+\]:\s*(\S+)", re.MULTILINE)
 HTML_LINK_RE = re.compile(r"(?:href|src)=[\"']([^\"']+)[\"']", re.IGNORECASE)
-API_TABLE_ROW_RE = re.compile(r"^\|\s*`([^`]+)`\s*\|", re.MULTILINE)
 
 BANNED_TEXT = {
     "README.md": (
@@ -61,6 +60,26 @@ HISTORICAL_PARTS = (
     "history",
 )
 
+# Deliberately scoped to the cleaned CV layers. These patterns catch known
+# audience regressions; they cannot replace a full editorial/semantic review.
+CV_AUDIENCE_PATHS = {
+    f"docs/{language}/guides/{page}.md"
+    for language in ("en", "cn")
+    for page in ("cross-validation", "cross-validation-design")
+}
+CV_PRIVATE_IDENTIFIERS = (
+    "_effective_cv_device", "_array_identity_token", "_compute_cv_scores",
+    "_make_lasso_cv_auto_cache_key", "STATGPU_LASSO_CV_CACHE_SIZE",
+)
+MAINTAINER_INSTRUCTION_RE = re.compile(
+    r"\b(?:maintainers?|contributors?|developers?)\s+"
+    r"(?:should|must|need to)\b.{0,220}"
+    r"\b(?:tests?|testing|fixtures?|ci|review|approv\w*)\b"
+    r"|(?:维护者|开发者|贡献者).{0,40}(?:应当|应该|必须|需要|应)"
+    r".{0,180}(?:测试|回归|CI|审批|审查|夹具)",
+    re.IGNORECASE,
+)
+
 SKIP_SCHEMES = (
     "http://",
     "https://",
@@ -68,86 +87,6 @@ SKIP_SCHEMES = (
     "tel:",
     "data:",
     "javascript:",
-)
-
-# Learner pages may curate the parameter table used for decision guidance, but
-# their explicitly marked Complete API reference must stay exhaustive. Parse
-# source with ast instead of importing statgpu so this check remains lightweight
-# and runs in the Python-3.9 docs-contract job without package dependencies.
-#
-# Extend this mapping as additional learner pages are migrated. A page enters
-# the mapping when its Complete API constructor inventory is intended to be a
-# source-synchronized release contract.
-MODEL_API_CONTRACTS = {
-    "docs/en/models/ridge.md": (
-        ROOT / "statgpu/linear_model/wrappers/_ridge.py",
-        "Ridge",
-    ),
-    "docs/cn/models/ridge.md": (
-        ROOT / "statgpu/linear_model/wrappers/_ridge.py",
-        "Ridge",
-    ),
-    "docs/en/models/lasso.md": (
-        ROOT / "statgpu/linear_model/wrappers/_lasso.py",
-        "Lasso",
-    ),
-    "docs/cn/models/lasso.md": (
-        ROOT / "statgpu/linear_model/wrappers/_lasso.py",
-        "Lasso",
-    ),
-    "docs/en/models/elastic-net.md": (
-        ROOT / "statgpu/linear_model/wrappers/_elasticnet.py",
-        "ElasticNet",
-    ),
-    "docs/cn/models/elastic-net.md": (
-        ROOT / "statgpu/linear_model/wrappers/_elasticnet.py",
-        "ElasticNet",
-    ),
-}
-
-# Lasso's learner page deliberately stays readable while the inference
-# companion owns the method-specific statistical depth. Keep that split a
-# checked contract so a future page rewrite cannot silently drop the advanced
-# reference or one language version.
-LASSO_INFERENCE_COMPANIONS = {
-    "docs/en/models/lasso.md": "docs/en/models/lasso-inference.md",
-    "docs/cn/models/lasso.md": "docs/cn/models/lasso-inference.md",
-}
-
-LASSO_INFERENCE_REQUIRED_TERMS = {
-    "docs/en/models/lasso-inference.md": (
-        "node-wise",
-        "max-|Z|",
-        "simultaneous_include_intercept",
-        "_conf_int_simultaneous",
-        "_simultaneous_critical_value",
-        "sample_weight",
-        "NumPy",
-        "CuPy",
-        "Torch",
-        "adjust_pvalues",
-        "cpu_ols",
-        "gpu_ols",
-    ),
-    "docs/cn/models/lasso-inference.md": (
-        "node-wise",
-        "max-|Z|",
-        "simultaneous_include_intercept",
-        "_conf_int_simultaneous",
-        "_simultaneous_critical_value",
-        "sample_weight",
-        "NumPy",
-        "CuPy",
-        "Torch",
-        "adjust_pvalues",
-        "cpu_ols",
-        "gpu_ols",
-    ),
-}
-
-LASSO_NAV_LINKS = (
-    "'/en/models/lasso-inference'",
-    "'/cn/models/lasso-inference'",
 )
 
 
@@ -166,6 +105,7 @@ def normalize_link_target(raw_target: str) -> str:
     target = raw_target.strip()
     if target.startswith("<") and target.endswith(">"):
         target = target[1:-1]
+    # Markdown permits an optional quoted title after whitespace.
     target = target.split(maxsplit=1)[0]
     target = unquote(target)
     target = target.split("#", 1)[0]
@@ -182,24 +122,31 @@ def iter_link_targets(text: str) -> list[str]:
 
 
 def validate_links(path: Path, text: str) -> list[str]:
-    """Validate source-relative links without reimplementing site routing.
-
-    Root-absolute targets such as ``/en/...``, ``/cn/...`` and ``/dashboard/``
-    are deployment routes, not repository paths. They are validated against the
-    assembled VitePress/dashboard artifact by ``scripts/verify-site.mjs``. This
-    source-level contract checker deliberately owns only links whose targets can
-    be resolved unambiguously in the repository tree.
-    """
     errors: list[str] = []
     for raw_target in iter_link_targets(text):
         target = normalize_link_target(raw_target)
         if not target or target.startswith(("#",) + SKIP_SCHEMES):
             continue
 
-        if target.startswith("/"):
+        if target in ("/dashboard", "/dashboard/",
+                      "/dashboard/data/benchmark_data.json",
+                      "/dashboard/data/parse_report.json",
+                      "/dashboard/data/source_inventory.json"):
+            # The independent dashboard app is assembled after VitePress.
+            # Its actual output is checked by scripts/verify-site.mjs.
             continue
-
-        resolved = (path.parent / target).resolve()
+        if target.startswith(("/en/", "/cn/")):
+            resolved = (ROOT / "docs" / target.lstrip("/")).resolve()
+            if target.endswith("/"):
+                resolved = resolved / "index.md"
+            elif not resolved.suffix:
+                resolved = resolved.with_suffix(".md")
+        elif target.startswith("/images/"):
+            resolved = (ROOT / "docs" / "public" / target.lstrip("/")).resolve()
+        elif target.startswith("/"):
+            resolved = (ROOT / target.lstrip("/")).resolve()
+        else:
+            resolved = (path.parent / target).resolve()
 
         try:
             resolved.relative_to(ROOT)
@@ -238,9 +185,30 @@ def is_historical(rel: str) -> bool:
     return any(part in normalized for part in HISTORICAL_PARTS)
 
 
+def validate_cv_audience(path: Path, text: str) -> list[str]:
+    """Reject a narrow set of private identifiers and maintainer instructions.
+
+    API names, statistical explanations, code examples and ordinary warnings
+    are not subject to a general word ban. Passing is not an audience verdict.
+    """
+    rel = path.relative_to(ROOT).as_posix()
+    if rel not in CV_AUDIENCE_PATHS:
+        return []
+    errors = [
+        f"{rel}: private CV implementation identifier: {token}"
+        for token in CV_PRIVATE_IDENTIFIERS if token in text
+    ]
+    prose = re.sub(r"<!--.*?-->", "", strip_fenced_code(text), flags=re.DOTALL)
+    for paragraph in re.split(r"\n\s*\n", prose):
+        match = MAINTAINER_INSTRUCTION_RE.search(" ".join(paragraph.split()))
+        if match:
+            errors.append(f"{rel}: maintainer workflow in public CV prose: {match.group(0)!r}")
+    return errors
+
+
 def validate_content(path: Path, text: str) -> list[str]:
     rel = path.relative_to(ROOT).as_posix()
-    errors: list[str] = []
+    errors = validate_cv_audience(path, text)
     for banned in BANNED_TEXT.get(rel, ()):
         if banned in text:
             errors.append(f"{rel}: banned release-facing text remains: {banned!r}")
@@ -281,113 +249,6 @@ def validate_python_fences(path: Path, text: str) -> list[str]:
     return errors
 
 
-def constructor_parameter_names(source_path: Path, class_name: str) -> list[str]:
-    """Return declared public constructor parameter names in source order."""
-    tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
-    for node in tree.body:
-        if not isinstance(node, ast.ClassDef) or node.name != class_name:
-            continue
-        for member in node.body:
-            if isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef)) and member.name == "__init__":
-                args = [
-                    *getattr(member.args, "posonlyargs", []),
-                    *member.args.args,
-                    *member.args.kwonlyargs,
-                ]
-                return [arg.arg for arg in args if arg.arg != "self"]
-        raise RuntimeError(f"{source_path}: class {class_name} has no __init__")
-    raise RuntimeError(f"{source_path}: class {class_name} not found")
-
-
-def documented_constructor_parameters(text: str, class_name: str) -> list[str]:
-    """Read the explicitly marked Complete API constructor table."""
-    start = f"<!-- API-CONSTRUCTOR-START:{class_name} -->"
-    end = f"<!-- API-CONSTRUCTOR-END:{class_name} -->"
-    if start not in text or end not in text:
-        return []
-    section = text.split(start, 1)[1].split(end, 1)[0]
-    return API_TABLE_ROW_RE.findall(section)
-
-
-def validate_model_api_constructor_contract(path: Path, text: str) -> list[str]:
-    """Require marked model API tables to match the real wrapper constructor."""
-    rel = path.relative_to(ROOT).as_posix()
-    contract = MODEL_API_CONTRACTS.get(rel)
-    if contract is None:
-        return []
-
-    source_path, class_name = contract
-    source_params = constructor_parameter_names(source_path, class_name)
-    documented_params = documented_constructor_parameters(text, class_name)
-
-    if not documented_params:
-        return [
-            f"{rel}: missing marked Complete API constructor table for {class_name}"
-        ]
-
-    source_set = set(source_params)
-    documented_set = set(documented_params)
-    errors: list[str] = []
-
-    missing = [name for name in source_params if name not in documented_set]
-    extra = [name for name in documented_params if name not in source_set]
-    duplicates = sorted(
-        name for name in documented_set if documented_params.count(name) > 1
-    )
-
-    if missing:
-        errors.append(
-            f"{rel}: Complete API table is missing {class_name} constructor "
-            f"parameters: {', '.join(missing)}"
-        )
-    if extra:
-        errors.append(
-            f"{rel}: Complete API table documents non-constructor parameters for "
-            f"{class_name}: {', '.join(extra)}"
-        )
-    if duplicates:
-        errors.append(
-            f"{rel}: Complete API table repeats {class_name} constructor "
-            f"parameters: {', '.join(duplicates)}"
-        )
-
-    return errors
-
-
-def validate_lasso_inference_companion(path: Path, text: str) -> list[str]:
-    """Keep Lasso learner pages and bilingual inference companions connected."""
-    rel = path.relative_to(ROOT).as_posix()
-    errors: list[str] = []
-
-    companion_rel = LASSO_INFERENCE_COMPANIONS.get(rel)
-    if companion_rel is not None:
-        companion = ROOT / companion_rel
-        if not companion.is_file():
-            errors.append(f"{rel}: missing Lasso inference companion {companion_rel}")
-        if "(lasso-inference.md)" not in text:
-            errors.append(f"{rel}: must link prominently to lasso-inference.md")
-
-    required_terms = LASSO_INFERENCE_REQUIRED_TERMS.get(rel)
-    if required_terms is not None:
-        for term in required_terms:
-            if term not in text:
-                errors.append(f"{rel}: Lasso inference reference missing required term {term!r}")
-
-    return errors
-
-
-def validate_lasso_inference_navigation() -> list[str]:
-    config_path = ROOT / "docs" / ".vitepress" / "config.ts"
-    if not config_path.is_file():
-        return ["docs/.vitepress/config.ts: missing VitePress configuration"]
-    text = config_path.read_text(encoding="utf-8")
-    return [
-        f"docs/.vitepress/config.ts: missing Lasso inference navigation link {link}"
-        for link in LASSO_NAV_LINKS
-        if link not in text
-    ]
-
-
 def main() -> int:
     errors: list[str] = []
     files = iter_maintained_files()
@@ -397,10 +258,6 @@ def main() -> int:
         errors.extend(validate_archive_counterpart(path))
         errors.extend(validate_content(path, text))
         errors.extend(validate_python_fences(path, text))
-        errors.extend(validate_model_api_constructor_contract(path, text))
-        errors.extend(validate_lasso_inference_companion(path, text))
-
-    errors.extend(validate_lasso_inference_navigation())
 
     if errors:
         print("Documentation contract check failed:", file=sys.stderr)

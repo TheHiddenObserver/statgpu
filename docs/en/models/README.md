@@ -1,88 +1,75 @@
-# Models Overview
+<a id="models-overview"></a>
 
-> Language: English
-> Last updated: 2026-09-03
-> Current package release: **0.2.5**
+# Models and Statistical Methods
+
+> Language: English  
+> Last updated: 2026-10-13  
 > Switch: [Chinese](../../cn/models/README.md)
 
-This catalog reflects the current public model families. Use the model directory in
-the left sidebar for direct access, and consult
-[Implemented Methods](../guides/implemented-methods.md) for backend and solver
-coverage.
+Choose a family by the question you want to answer, then use its overview to
+choose a tutorial. For a first fit, follow the [beginner path](../usage.md).
+Current solver, penalty, backend, and inference coverage is maintained in
+[Implemented Methods](../guides/implemented-methods.md) and the linked method pages.
 
-## Regression and generalized linear models
+<a id="regression-and-glm"></a>
+<a id="specialized-statistical-modules"></a>
+<a id="unsupervised-learning"></a>
 
-| Family | Public API | Documentation |
+## Choose a family
+
+| Your question | Start here | What to choose next |
 |---|---|---|
-| Ordinary least squares | `LinearRegression` | [Linear regression](linear-regression.md) |
-| Gaussian regularization | `Ridge`, `Lasso`, `ElasticNet` and CV variants | [Ridge](ridge.md), [Lasso](lasso.md), [Elastic Net](elastic-net.md) |
-| Structured/non-convex regularization | `AdaptiveLasso`, `SCADRegression`, `MCPRegression` | [Adaptive Lasso](adaptive-lasso.md), [SCAD](scad.md), [MCP](mcp.md) |
-| Generalized linear models | `GeneralizedLinearModel`, `GammaRegression`, `InverseGaussianRegression`, `NegativeBinomialRegression`, `TweedieRegression` | [GLM](generalized-linear-model.md) |
-| Classification and counts | `LogisticRegression`, `LogisticRegressionCV`, `PoissonRegression` | [Logistic](logistic-regression.md), [Poisson](poisson-regression.md) |
-| Ordered outcomes | `OrderedLogitRegression`, `OrderedProbitRegression` | [Ordered models](ordered.md) |
-| Quantile and robust fitting | `QuantileRegression`, `PenalizedQuantileRegression`, `PenalizedRobustRegression` | [Quantile](quantile.md), [Robust](robust.md) |
+| How does a response vary with predictors? | [Regression](regression/README.md) | Response type, shrinkage, quantiles, or robust loss |
+| Do group means differ, or how should many tests be handled? | [Statistical testing](testing/README.md) | ANOVA design, post-hoc comparisons, or p-value adjustment |
+| How do variables vary together? | [Covariance estimation](covariance/README.md) | Empirical, shrinkage, robust, or sparse-precision estimation |
+| Do you need a density, a smooth response curve, or nonlinear features? | [Nonparametric methods](nonparametric/README.md) | KDE/local regression, kernel methods, splines, or GAM |
+| Which predictors should be retained? | [Feature selection](feature-selection/README.md) | AIC/BIC stepwise search or knockoff selection and its assumptions |
+| Is the response time to an event? | [Survival analysis](coxph.md) | Compare Cox estimators [below](#choosing-a-cox-estimator) |
+| Are observations repeated across entities and time? | [Panel data](../panel/README.md) | Choose among panel estimators |
+| Do you want structure or a representation without a response? | [Unsupervised learning](../unsupervised/README.md) | Decomposition, clustering, mixture, or manifold methods |
 
-The unified penalized API also exposes Gaussian, logistic, Poisson, Gamma,
-Inverse-Gaussian, Negative-Binomial, Tweedie, robust, quantile, and Cox families
-through `statgpu.linear_model`.
+The family pages explain method choice and link to every tutorial in that family.
+For constructors, methods, and fitted attributes, use the
+[complete API references](../README.md#complete-api-references).
 
-## Survival analysis
+## Survival Analysis
 
-| Need | Estimator | Contract |
-|---|---|---|
-| Full Cox fitting, prediction, formula input, and inference | `CoxPH` | Breslow/Efron/Exact ties, delayed entry, stratification, robust/cluster covariance |
-| L2 selection by held-out partial likelihood | `CoxPHCV` | Subject-preserving CV and final `CoxPH` refit |
-| Broad convex/non-convex penalties | `PenalizedCoxPHModel` | Estimation-oriented generic penalty path |
+- [Cox Proportional Hazards](coxph.md)
 
-See [Cox proportional hazards](coxph.md) for the precise feature and backend
-matrix.
+### Choosing a Cox estimator
 
-## Specialized statistical modules
+| Need | Estimator | Import | Contract |
+|---|---|---|---|
+| Full Cox fitting, baseline hazards, survival prediction, formula input, and inference | `CoxPH` | `from statgpu.survival import CoxPH` | Breslow/Efron/Exact ties, delayed entry, `(start, stop]`, strata, robust/cluster covariance, NumPy/CuPy/Torch |
+| Select a non-negative L2 penalty by held-out partial likelihood | `CoxPHCV` | `from statgpu.survival import CoxPHCV` | Uses the canonical Cox semantics during CV and performs a final `CoxPH` refit |
+| Estimate with L1, L2, ElasticNet, SCAD, or MCP | `PenalizedCoxPHModel` | `from statgpu.linear_model import PenalizedCoxPHModel` | Broad penalty and generic solver path; currently estimation-only and rejects `compute_inference=True` |
 
-| Area | Documentation |
+`CoxPH(penalty=...)` and `PenalizedCoxPHModel` are not interchangeable aliases.
+Use the canonical `CoxPH`/`CoxPHCV` path when counting-process features,
+stratification, baseline prediction, or statistical inference are required. Use
+`PenalizedCoxPHModel` when the broader penalty family is the primary requirement
+and estimation-only output is sufficient.
+
+The [Cox model page](coxph.md) is the authoritative user-facing source for
+Breslow/Efron/Exact ties, delayed-entry and `(start, stop]` data, strata,
+robust/cluster inference, subject-grouped CV, prediction boundaries, and the
+NumPy/CuPy/Torch support matrix.
+
+## Core Framework
+
+| Page | Content |
 |---|---|
-| ANOVA and post-hoc tests | [ANOVA](anova.md) |
-| Covariance estimators | [Covariance](covariance.md) |
-| Panel and longitudinal models | [Panel data](panel.md) |
-| Nonparametric estimation | [Nonparametric methods](nonparametric.md) |
-| Kernel models | [Kernel methods](kernel-methods.md) |
-| Spline bases | [Splines](splines.md) |
-| GAM and semiparametric models | [Semiparametric models](semiparametric.md) |
-| Feature selection and diagnostics | [Feature selection](feature-selection.md) |
-| Knockoff filters | [Knockoffs](knockoff.md) |
-| Multiple testing | [Multiple testing](multiple-testing.md) |
-| Loss definitions | [Loss functions](losses.md) |
+| [Loss Functions](../reference/losses.md) | Loss definitions and per-sample formulas |
+| [Solver Algorithms](../guides/solver-algorithms.md) | Solver update formulas and applicability |
+| [Loss × Penalty × Solver Framework](../guides/loss-penalty-solver-framework.md) | Dispatch logic and compatibility |
+| [Solver × Penalty Matrix](../guides/solver-penalty-matrix.md) | Explicit solver routing and restrictions |
+| [Inference API](../guides/inference-api.md) | Covariance, resampling, and inference interfaces |
 
-## Unsupervised learning
+## Current Coverage Principles
 
-| Family | Models |
-|---|---|
-| Matrix decomposition | [PCA](../unsupervised/pca.md), [Incremental PCA](../unsupervised/incremental-pca.md), [Truncated SVD](../unsupervised/truncated-svd.md), [NMF](../unsupervised/nmf.md), [MiniBatch NMF](../unsupervised/minibatch-nmf.md) |
-| Clustering | [K-Means](../unsupervised/kmeans.md), [MiniBatch K-Means](../unsupervised/minibatch-kmeans.md), [Agglomerative clustering](../unsupervised/agglomerative-clustering.md), [DBSCAN](../unsupervised/dbscan.md), [Gaussian mixture](../unsupervised/gaussian-mixture.md) |
-| Manifold learning | [t-SNE](../unsupervised/tsne.md), [UMAP](../unsupervised/umap.md) |
-
-Open the [unsupervised overview](../unsupervised/) for shared API conventions.
-
-## Panel data
-
-The panel API now includes the complete estimator, covariance, fit-statistics, and
-diagnostics documentation:
-
-- [Pooled OLS](../panel/pooled-ols.md), [fixed-effects Panel OLS](../panel/panel-ols.md),
-  [Between OLS](../panel/between-ols.md), [Random Effects](../panel/random-effects.md),
-  [First-Difference OLS](../panel/first-difference-ols.md), and
-  [Fama-MacBeth](../panel/fama-macbeth.md)
-- [Covariance estimators](../panel/covariance.md),
-  [fit statistics](../panel/fit-statistics.md), and
-  [diagnostics](../panel/diagnostics.md)
-
-## Core framework
-
-- [Solver algorithms](../guides/solver-algorithms.md)
-- [Loss × penalty × solver framework](../guides/loss-penalty-solver-framework.md)
-- [Solver × penalty matrix](../guides/solver-penalty-matrix.md)
-- [Inference API](../guides/inference-api.md)
-
-Backend support may differ by model, solver, penalty, inference method, and optional
-dependency. Benchmark and validation claims remain scoped to the exact commit,
-hardware, backend, and dataset recorded by the corresponding evidence.
+- NumPy, CuPy, and Torch are distinct array backends. Check the [device guide](../guides/device-and-memory.md) and model-specific limitations before relying on accelerator placement.
+- Backend support may differ by solver, penalty, inference method, and optional
+  dependency. Consult the detailed compatibility matrix instead of relying on a single
+  global count.
+- Consult the model page for its statistical definition, input restrictions,
+  prediction, inference, and CV behavior.

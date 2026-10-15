@@ -1,24 +1,34 @@
 # AgglomerativeClustering
 
 > Language: English
-> Last updated: 2026-05-09
+> Last updated: 2026-10-14
 > Switch: [Chinese](../../cn/unsupervised/agglomerative-clustering.md)
 
 ## Overview
 
-`AgglomerativeClustering` builds an exact hierarchical clustering tree for dense Euclidean data. It supports `"single"`, `"complete"`, `"average"`, and `"ward"` linkage on CPU, CuPy/CUDA, and Torch CUDA paths. The GPU paths are dense exact v1 implementations intended for small to medium data; they do not silently fall back to CPU.
+When comparing product profiles or experimental samples, you may want to know both which observations are closest and which small groups belong to larger families. A single flat partition answers only one level of that question.
 
-## Path
+`AgglomerativeClustering` builds a nested grouping from the bottom up. Every observation starts alone; the closest pair of groups is merged, then the process repeats until one group remains. The merge tree records how local similarities accumulate into broader groups. Cutting that tree gives a flat partition while retaining the context of the earlier merges. A merge cannot be undone: at a coarser cut, existing groups can join larger groups, but their members are not split up and reassigned.
 
-```python
-from statgpu.unsupervised import AgglomerativeClustering
-```
+<a id="estimating-equation"></a>
+## Building and cutting the tree
 
-## Objective Function / Loss Function
+Read the numbered points and the tree as two views of the same six observations. Follow the branches upward to see small groups join larger ones. Cut A gives three groups, `(1, 2)`, `(3, 4)` and `(5, 6)`; the higher cut B joins the first two groups. The two scatterplots show those cuts.
 
-Agglomerative clustering is a greedy hierarchical procedure, not a global smooth optimization. At each step it merges the pair of clusters with the smallest linkage criterion.
+In the figure, `h` is the height of the horizontal cut and `k` is the number of groups it leaves: count the separate branches crossing the cut. At A, `h=1.22` leaves `k=3` groups; at B, `h=3.74` allows another merge and leaves `k=2`. Each time the cut passes another join, the group count decreases and the partition becomes coarser.
 
-Single linkage:
+Ward names the merge rule used for this tree: it favors merges that add the least spread around the group means. The vertical axis expresses that merge cost, so a higher join represents a more costly merge. The linkage section below defines this cost and explains the square-root scale printed on the axis. To read the grouping now, follow each numbered leaf upward to the cut; leaves already joined below it belong to the same group. Horizontal leaf spacing does not represent distances between observations; tree height is not a probability or a significance level.
+
+![One Ward tree for six numbered observations is cut at two heights: the lower cut produces three pairs, while the higher cut merges observations 1 through 4 and leaves 5 and 6 together.](../../assets/unsupervised/agglomerative-en.svg)
+
+The remaining question is what makes two groups close enough to merge next. That choice is called the linkage criterion; different criteria can produce different trees from the same points.
+
+<a id="objective-function--loss-function"></a>
+## Linkage and merging criteria
+
+Agglomerative clustering is a greedy hierarchical procedure, not a global smooth optimization. At each step it merges the pair of clusters with the smallest linkage criterion. In the formulas below, $A$ and $B$ are candidate groups, $|A|$ and $|B|$ are their sizes, and $\bar{x}_A$ and $\bar{x}_B$ are their mean vectors. The first three criteria summarize cross-group distances in different ways; Ward measures the cost of replacing two separate means with one merged mean.
+
+Single linkage uses the closest cross-group pair. A few bridge points can therefore chain otherwise separated groups together:
 
 $$
 d(A, B)
@@ -27,7 +37,7 @@ d(A, B)
 \left\|x - y\right\|_2 .
 $$
 
-Complete linkage:
+Complete linkage uses the farthest cross-group pair, so all cross-group distances must be small for the groups to count as close:
 
 $$
 d(A, B)
@@ -36,7 +46,7 @@ d(A, B)
 \left\|x - y\right\|_2 .
 $$
 
-Average linkage:
+Average linkage averages all cross-group distances:
 
 $$
 d(A, B)
@@ -55,14 +65,21 @@ $$
 \left\|\bar{x}_A-\bar{x}_B\right\|_2^2 .
 $$
 
-## Estimating Equation
+The six-point figure uses Ward linkage. Its tree is drawn from the fitted `children_` and `distances_`; Ward height is $\sqrt{2\Delta}$, where $\Delta$ is the increase in within-cluster squared error defined above. The axis label writes this same increase as ΔSSE. These linkage definitions are also described in the [SciPy linkage reference](https://docs.scipy.org/doc/scipy/reference/generated/scipy.cluster.hierarchy.linkage.html).
 
-- Start with every sample as its own cluster.
-- Repeatedly merge the two clusters with the smallest selected linkage criterion.
-- Store the merge tree as `children_` and merge distances as `distances_`.
-- Cut the tree to produce `n_clusters` labels.
+## When to use it
 
-The CPU path delegates exact linkage computation to SciPy hierarchy routines. Explicit CuPy/Torch paths use statgpu-owned backend-resident dense distance matrices and Lance-Williams linkage updates.
+Use hierarchical clustering when the nested merge structure matters, rather than only a final label for each row.
+
+Running KMeans separately for several cluster counts does not require the resulting partitions to nest inside one another. Ward and [KMeans](kmeans.md) both use squared-error ideas, but solve different problems: Ward commits to successive merges and cannot undo them, whereas KMeans reassigns individual rows to centers. Choose KMeans when reusable centers and assignment of future rows are the main goal; choose the hierarchy when relationships across grouping levels are the result you want to inspect. Use [DBSCAN](dbscan.md) when leaving sparse observations outside clusters matters more than building a complete tree.
+
+A tree will be produced even without distinct natural families. Feature scaling and linkage choice change that tree, and a large merge height is not a significance test. Check whether the branches have a useful interpretation; “exact” here means following the chosen linkage procedure, not discovering a uniquely correct taxonomy or a globally optimal partition.
+
+## Path
+
+```python
+from statgpu.unsupervised import AgglomerativeClustering
+```
 
 ## Parameters
 
@@ -71,29 +88,40 @@ The CPU path delegates exact linkage computation to SciPy hierarchy routines. Ex
 - `metric`: only `"euclidean"` is supported.
 - `device`: `"cpu"`, `"cuda"`, `"torch"`, or `"auto"`. `device="auto"` keeps the CPU default for this estimator; explicit GPU devices use dense exact backend execution.
 
-## CPU+GPU Examples
+## A small CPU example
 
+<!-- learner-example: agglomerative-clustering -->
 ```python
 import numpy as np
 from statgpu.unsupervised import AgglomerativeClustering
 
-X = np.random.default_rng(0).normal(size=(300, 6))
-
-model = AgglomerativeClustering(n_clusters=4, linkage="ward", device="cpu")
+rng = np.random.default_rng(0)
+X = np.vstack([rng.normal(-2, 0.3, (15, 2)), rng.normal(2, 0.3, (15, 2))])
+model = AgglomerativeClustering(n_clusters=2, linkage="ward", device="cpu")
 labels = model.fit_predict(X)
-
-model_gpu = AgglomerativeClustering(n_clusters=4, linkage="ward", device="cuda")
-labels_gpu = model_gpu.fit_predict(X)  # NumPy input is moved to the CUDA backend
-
-# With CuPy installed, you can also keep data resident as a CuPy array.
-# import cupy as cp
-# X_gpu = cp.asarray(X)
-# labels_gpu = model_gpu.fit_predict(X_gpu)
+print(labels.shape, model.children_.shape, model.distances_[-3:])
 ```
 
-## Strict/Approx Difference
+The tree has `(29, 2)` merge pairs for 30 observations. Inspect merge heights as well as the cut. The CPU maxclust cut may return fewer than the requested groups when heights tie. No prediction for new rows is exposed.
 
-There is no strict inference mode. Supported linkages are exact for dense Euclidean inputs on CPU, CuPy, and Torch. GPU execution allocates a dense distance matrix and raises a clear `MemoryError` if the configured v1 memory limit would be exceeded.
+For a supported GPU installation, construct a new estimator with `device="cuda"` (CuPy) or `device="torch"` (Torch CUDA). Labels, merge pairs and merge heights are always returned as NumPy arrays, including after GPU fitting; see the [API reference](api-reference.md#agglomerativeclustering) for output ownership and host-side work. An unavailable explicit GPU raises an error.
+
+## Approximation and interpretation
+
+The estimator does not provide standard errors or significance tests. Supported linkages are exact for dense Euclidean inputs on CPU, CuPy, and Torch. All four linkages (`"single"`, `"complete"`, `"average"`, and `"ward"`) are available on these paths. The GPU paths are intended for small to medium data and do not silently fall back to CPU. GPU execution allocates a dense distance matrix and raises a clear `MemoryError` if the configured memory limit would be exceeded.
+
+The GPU paths evaluate pairwise distances through expanded squared norms. Large common feature offsets can cause cancellation and change the hierarchy; subtract a training-derived offset in float64 before fitting. This preserves the intended Euclidean geometry. The SciPy CPU linkage path does not use that shared GPU distance formula.
+
+Ward merge heights in `distances_` are $\sqrt{2\Delta(A,B)}$, not the raw increase $\Delta(A,B)$ itself. GPU distance-matrix estimates are checked against a configured 1 GiB default cap (`STATGPU_AGGLOMERATIVE_GPU_MAX_BYTES`, read when importing the module), not the available GPU memory.
+
+## Computation and stored tree
+
+- Start with every sample as its own cluster.
+- Repeatedly merge the two clusters with the smallest selected linkage criterion.
+- Store the merge tree as `children_` and merge distances as `distances_`.
+- Cut the tree to produce `n_clusters` labels.
+
+The CPU path delegates exact linkage computation to SciPy hierarchy routines. Explicit CuPy/Torch paths use dense distance matrices on the selected GPU backend. Single linkage builds a minimum spanning tree and assembles the merge tree on CPU; complete, average, and Ward linkage use Lance–Williams updates.
 
 ## Outputs
 
@@ -110,13 +138,10 @@ Use explicit `device="cuda"` or `device="torch"` for small to medium dense datas
 **Can it predict labels for new samples?**
 No. Agglomerative clustering does not support `predict` for unseen samples in this implementation.
 
-## External Validation
 
-- Tests: `dev/tests/test_unsupervised_agglomerative.py`.
-- Benchmark: `dev/benchmarks/benchmark_unsupervised_phase3b.py`.
-- Latest remote artifacts: `results/unsupervised_agglomerative_gpu_verify_20260509_agglo_gpu.json` and `results/unsupervised_agglomerative_gpu_verify_summary_20260509_agglo_gpu.md`.
-- Baselines: sklearn `AgglomerativeClustering`, SciPy `linkage`, and R `cluster::agnes` where parameter alignment is available.
-- Phase 3B validation target: label agreement up to permutation, ARI, and linkage distances for `"single"`, `"complete"`, `"average"`, and `"ward"` where comparable.
+## Complete API reference
+
+Constructor defaults, all public methods, output shapes, and restrictions are listed in the [AgglomerativeClustering API reference](api-reference.md#agglomerativeclustering).
 
 ## References
 

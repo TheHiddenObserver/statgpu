@@ -147,7 +147,7 @@ def _align_cox_side_array(values, retained_rows, original_n, name="array"):
 class CoxPH(BaseEstimator):
     """
     Cox Proportional Hazards regression with GPU acceleration.
-    
+
     Parameters
     ----------
     ties : str, default='breslow'
@@ -158,6 +158,9 @@ class CoxPH(BaseEstimator):
         Maximum number of iterations.
     device : str or Device, default='auto'
         Computation device: 'cpu', 'cuda', 'torch', or 'auto'.
+    n_jobs : int or None, default=None
+        Shared CPU-job option; the current Cox fitting loop is not
+        parallelized by this setting.
     compute_inference : bool, default=True
         If True, compute standard errors, tests, and baseline hazards on the
         active backend. For a positive L2 penalty, coefficient inference uses
@@ -169,13 +172,20 @@ class CoxPH(BaseEstimator):
         significantly reduce fit time, especially on CUDA/Torch for moderate n.
     cov_type : {'nonrobust', 'hc0', 'hc1', 'cluster'}, default='nonrobust'
         Covariance estimator. Cluster covariance requires ``cluster`` in fit.
+        Exact ties support nonrobust inference only; use compute_inference=False
+        for estimation-only Exact fitting with an otherwise unsupported setting.
+    gpu_memory_cleanup : bool, default=False
+        Best-effort GPU-cache cleanup after prediction/scoring and on destruction.
+        Fitted arrays needed for later work are retained.
     penalty : float, default=0.0
-        Non-negative L2 penalty.
+        Finite non-negative L2 penalty on the summed negative partial
+        log likelihood, with penalty * ||coef||**2 (no factor of 1/2).
+        The penalized score is U(coef) - 2 * penalty * coef.
     inference_mode : {'strict', 'approx'}, default='strict'
         Robust-inference compatibility control. Both values currently use the
         exact counting-process score sandwich; ``'approx'`` remains accepted
         for backward compatibility and does not select an approximate path.
-    
+
     Attributes
     ----------
     coef_ : ndarray of shape (n_features,)
@@ -428,7 +438,54 @@ class CoxPH(BaseEstimator):
         subject_id=None,
         _right_censored_prepared=None,
     ):
-        """Fit and clear all state if validation or inference fails."""
+        """Fit a Cox model, clearing fitted state if validation or fitting fails.
+
+        Parameters
+        ----------
+        X : array-like, shape (n_samples, n_features) or (n_samples,), optional
+            Finite real covariates, with no intercept/constant column. A vector
+            supplies one feature. Omit when using formula and data.
+        time : array-like, optional
+            Positive finite stop times of shape (n_samples,). If event is omitted,
+            use a packed (n_samples, 2) [time, event] or (n_samples, 3)
+            [start, stop, event] target instead.
+        event : array-like, shape (n_samples,), optional
+            Binary event indicator; 0 denotes right censoring, 1 an observed event.
+            Fitting requires observed events.
+        entry : array-like, shape (n_samples,), optional
+            Delayed-entry times, an alias for start. Do not provide both aliases.
+        cluster : array-like, shape (n_samples,), optional
+            Cluster labels required by cov_type='cluster'.
+        init_coef : array-like, shape (n_features,), optional
+            Finite starting coefficient vector; omitted means the default start.
+        formula : str, optional
+            Patsy-style design with Surv(time, event) or Surv(start, stop, event)
+            response; requires the optional pandas/Patsy dependencies.
+        data : pandas.DataFrame, optional
+            Columns used by formula. Auxiliary row labels are aligned to rows
+            retained by the formula transformation.
+        start : array-like, shape (n_samples,), optional
+            Counting-process interval starts, with 0 <= start < time; omitted
+            entry is zero. Do not combine with a packed three-column target or
+            a three-column Surv response.
+        strata : array-like, shape (n_samples,), optional
+            Labels for separate risk sets and baselines, with shared coefficients.
+        subject_id : array-like, shape (n_samples,), optional
+            Repeated-subject labels used by concordance and robust aggregation.
+
+        Returns
+        -------
+        self : CoxPH
+            Fitted estimator. Inspect converged_ and the KKT diagnostics before
+            interpreting a fit; a returned estimator need not have converged.
+
+        Notes
+        -----
+        compute_inference=False skips coefficient inference and baseline hazards,
+        so predict_survival requires a new fit with inference enabled. Inference
+        for a positive penalty conditions on that penalty and does not remove
+        shrinkage bias or tuning uncertainty.
+        """
         self._reset_fit_state()
         try:
             controls = _normalize_mutable_fit_controls(self)
@@ -1658,7 +1715,36 @@ class CoxPH(BaseEstimator):
 
     @_cleanup_after_public_gpu_work
     def predict_survival(self, X, times=None, strata=None):
-        """Predict backend-native survival curves for each requested stratum."""
+        """Return backend-native survival curves for fixed covariate profiles.
+
+        Parameters
+        ----------
+        X : array-like, shape (n_query, n_features)
+            Query covariates in training feature order; formula fits also accept
+            data frames transformed with the saved formula design.
+        times : finite scalar or one-dimensional array-like, optional
+            Times in training units. None uses the union of fitted event times.
+            Explicit ordering is preserved.
+        strata : array-like, shape (n_query,), optional
+            Known training stratum for each query. Required for every explicitly
+            stratified fit, even one with a single stratum.
+
+        Returns
+        -------
+        curves : backend array, shape (n_query, n_times)
+            Survival probabilities based on the fitted Breslow baseline, including
+            when coefficients use Efron or Exact ties. A row holds its covariates
+            fixed; it does not integrate a future time-varying trajectory.
+        times : backend array, shape (n_times,)
+            Evaluation times in the returned column order.
+
+        Notes
+        -----
+        Requires a fit with compute_inference=True. Before the first failure
+        survival is one; after the last event the baseline stays flat. A known
+        stratum without failures has survival one at all requested times. These
+        properties do not establish reliable long-term extrapolation.
+        """
         _require_real_array(times, "times")
         self._check_is_fitted()
         X_arr, backend, coef = self._prepare_prediction_X(X)

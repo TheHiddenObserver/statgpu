@@ -28,6 +28,37 @@
         "Direct fit and CV are both part of the default completion contract.",
         "Any CV deferral is explicit rather than implied by omission."
       ]
+    },
+    {
+      "id": 4,
+      "prompt": "The generic penalized base already has an inference implementation, but typed wrappers, constructor defaults, result metadata, and docs disagree about which method is actually used. Repair the interface without inventing a new numerical algorithm.",
+      "expected_output": "The workflow classifies this as existing capability reconciliation/public contract repair, performs contract reconnaissance and a consumer graph before production edits, traces requested -> resolved -> reported inference identity, preserves already-correct numerical paths, and closes affected wrappers/CV/formula/docs rather than treating the task as a brand-new numerical feature.",
+      "assertions": [
+        "A current capability matrix is built before production edits.",
+        "Shared-base consumers such as typed wrappers and meta-estimators are inventoried.",
+        "Requested, resolved, and reported inference method identity is explicitly frozen.",
+        "Already-correct numerical implementations are preserved rather than needlessly reimplemented."
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "A helper is documented as a generic GLM bootstrap fallback, but its implementation resamples Gaussian residuals and reconstructs a penalized linear L1 model for every refit. Make the public inference contract correct.",
+      "expected_output": "The workflow treats resampling validity as a blocking inference contract, inventories the claimed families and refit identity, defines family/model-valid DGP and selection/tuning semantics, and either narrows/fail-closes the unsupported scope or implements a valid family-aware path before calling it generic.",
+      "assertions": [
+        "The response checks resampling unit/DGP and refit estimator family/penalty.",
+        "The response does not accept a Gaussian-Lasso residual bootstrap as a universal GLM fallback.",
+        "Unsupported combinations fail closed unless a valid implementation is added."
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "A new public behavior is implemented on master while the latest published package is 0.2.5 and the intended next release is 0.2.6. Finish the feature workflow and documentation.",
+      "expected_output": "The workflow distinguishes current published 0.2.5 from behavior implemented on master and targeted for 0.2.6, updates final docs before the independent review, avoids an unrelated premature package-version bump, and performs exact-head evidence closure after all review fixes/docs commits.",
+      "assertions": [
+        "The docs describe 0.2.6 as targeted/planned rather than already released.",
+        "Documentation precedes the final independent review.",
+        "The final evidence/CI/review claims are rechecked against the exact final head."
+      ]
     }
   ]
 }

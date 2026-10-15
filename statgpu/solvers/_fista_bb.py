@@ -122,21 +122,18 @@ def fista_bb_solver(
     _div_check_interval = 25 if cv_mode and _is_gpu else 5
     _lip_check_interval = 25 if cv_mode and _is_gpu else 5
     _conv_check_interval = 10 if cv_mode and _is_gpu else 3
-    # For quadratic losses (squared_error) the gradient is linear in coef,
-    # so dg = H @ dw and BB1 = BB2 = 1 / Rayleigh_quotient(H, dw).  The BB
-    # step gives zero adaptation and the algorithm degenerates to ISTA
-    # (O(1/k) convergence), too slow to reach the true sparse solution
-    # within max_iter.  Use standard FISTA (fixed Lipschitz step + Nesterov
-    # momentum, O(1/k^2)) instead.
+    # Quadratic losses use the fixed Lipschitz step with Nesterov momentum.
+    # This is an implementation policy, not an equality of BB1 and BB2:
+    # with dg = H @ dw, their denominators involve different curvature
+    # moments and the steps generally differ.
     _is_quadratic = getattr(loss, '_is_quadratic', False)
 
     # BB steps estimate local curvature from smooth-gradient differences.
     # For non-smooth penalties the proximal operator introduces a
     # discontinuity that makes the gradient differences noisy.
     #
-    # On quadratic losses (squared_error) BB adds nothing — BB1 = BB2 =
-    # 1/R_H and the method degenerates to ISTA (O(1/k)).  _is_quadratic
-    # already disables BB above.
+    # _is_quadratic selects the fixed-step policy above independently of
+    # the penalty-specific BB burn-in policy below.
     #
     # For GLM losses with convex non-smooth penalties (L1, elasticnet,
     # adaptive_l1) the subgradient is bounded and BB differences are valid
@@ -223,7 +220,10 @@ def fista_bb_solver(
     elif _gamma_like:
         bb_burn_in = max(50, max_iter // 8)
 
-    _momentum_disabled = getattr(loss, '_momentum_disabled', False)
+    _momentum_disabled = (
+        getattr(loss, '_skip_momentum', False)
+        or getattr(loss, '_momentum_disabled', False)
+    )
     if _momentum_disabled:
         _momentum_burn_in = max_iter + 1   # never use momentum
     elif _tweedie_like:
@@ -235,7 +235,12 @@ def fista_bb_solver(
 
     # Conservative momentum for specific loss+penalty combos
     _momentum_beta_cap = getattr(loss, '_momentum_beta_cap', None)
-    if _momentum_beta_cap is not None and _poisson_like and not _invgauss_like:
+    if (
+        not _momentum_disabled
+        and _momentum_beta_cap is not None
+        and _poisson_like
+        and not _invgauss_like
+    ):
         _pen_name_bb = getattr(penalty, 'name', '')
         if _pen_name_bb in ("l2", "none", "", None):
             _momentum_burn_in = min(100, max_iter)
@@ -482,19 +487,23 @@ def fista_bb_solver(
             y_k = coef + beta * (coef - coef_old)
             t_k = 1.0
         else:
-            y_k, t_new = _nesterov_update(coef, coef_old, t_k)
+            # Keep the gradient-evaluation point until the restart decision.
+            # Using y_next in the dot product would give beta * ||dw||^2,
+            # spuriously restarting every nonzero accelerated step.
+            y_next, t_new = _nesterov_update(coef, coef_old, t_k)
             beta = (t_k - 1.0) / t_new
 
             if use_restart and iteration > 0:
-                # GPU-side comparison, only sync bool.
-                # Use `coef` (always current) not `coef_new` (stale after reset).
+                # Generalized-gradient restart: (y_k - x_{k+1}) dot
+                # (x_{k+1} - x_k) > 0. Sync only the scalar dot product.
+                # Use accepted `coef`, not pre-backtracking `coef_new`.
                 _mc_dev = _dot_dev(y_k - coef, coef - coef_old)
                 if _to_float_scalar(_mc_dev) > 0:
-                    t_k = 1.0
                     t_new = 1.0
                     beta = 0.0
-                    y_k = coef + beta * (coef - coef_old)
+                    y_next = _copy_arr(coef)
 
+            y_k = y_next
             t_k = t_new
 
         # --- Convergence check -- deferred for GPU, every iteration for CPU. ---

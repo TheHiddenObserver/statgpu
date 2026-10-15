@@ -150,10 +150,6 @@ Use explicitly aligned features, observations, tie handling, solvers, tolerances
 
 User-visible changes must update the relevant documentation. The default order is English first, followed by the corresponding Chinese documentation.
 
-Public model pages follow the learner-first standard in [`dev/documentation/model-page-style-guide.md`](dev/documentation/model-page-style-guide.md). The default model page is a teaching entry point for a user who may not know the method yet; complete solver/API/numerical detail should be progressively disclosed or moved to reference pages when it overwhelms that learning path. `LinearRegression` is the canonical simple-model example and `GeneralizedLinearModel` is the canonical complex-family example.
-
-A model-page rewrite is not considered complete merely because headings, solver tables, or links were updated. The style-guide rubric requires problem framing, motivation/intuition, a self-contained runnable example, semantic result interpretation, choice-oriented parameter guidance, comparisons with nearby methods, and scientific pitfalls. English and Chinese pages should preserve the same conceptual structure.
-
 Depending on scope, update:
 
 - `README.md` for project-level capabilities and entry points;
@@ -161,7 +157,37 @@ Depending on scope, update:
 - `CHANGELOG.md` for a concise pull-request-level summary;
 - `docs/en/changelog.md` and `docs/cn/changelog.md` for release-level details.
 
+Follow [`dev/DOCUMENTATION_STYLE.md`](dev/DOCUMENTATION_STYLE.md) for documentation language and placement. In particular, internal engineering documents may describe capability/status, but user-facing documentation should describe observable behavior/support: what is supported, what is not, what the default does, what error is raised, and the user-relevant reason or alternative. Do not expose review/acceptance vocabulary such as `maintained route`, `fail closed`, exact-head/CI status, or PR/Issue tracking language in ordinary user pages unless that lifecycle/status is itself part of the public contract.
+
 Performance claims must include hardware, workload dimensions, numerical-accuracy evidence, and an auditable benchmark/result path.
+
+## Website development
+
+The bilingual VitePress site and benchmark dashboard are assembled together.
+Use the Node version in `.node-version` and the npm version in `package.json`,
+then install both locked dependency trees:
+
+```bash
+npm ci
+npm ci --prefix frontend
+python dev/benchmarks/generate_benchmark_data.py --out frontend/public/data/benchmark_data.json --report frontend/public/data/parse_report.json --inventory-out frontend/public/data/source_inventory.json --deterministic --strict-sources
+npm run typecheck --prefix frontend
+npm run site:build
+```
+
+`npm run site:preview` serves the assembled project-path site locally. Source
+Markdown remains canonical for repository readers: family landing pages use
+`README.md`, and links outside `docs/` are converted to GitHub repository links
+only in the website renderer. Do not recreate removed flat model pages.
+
+For root-domain deployment, repeat the build with `STATGPU_SITE_BASE=/` and a
+matching `STATGPU_SITE_URL`. Run the dashboard and assembled-site browser suites
+with `npm run test:e2e --prefix frontend` and
+`npm run test:e2e:production --prefix frontend`; install their managed browsers
+first with `npm exec --prefix frontend -- playwright install --with-deps`.
+Generated bundles belong in ignored build directories, not commits. See
+[`docs/website-deployment.md`](docs/website-deployment.md) for all build, link,
+size-budget, reproducibility, and publication checks.
 
 ## Pull request workflow
 
@@ -178,7 +204,7 @@ A pull request that changes a statistical method is generally not complete until
 ## Pull request checklist
 
 - [ ] The public API and statistical behavior are documented.
-- [ ] Public model pages affected by the change follow the learner-first documentation standard or clearly justify why they are reference-only pages.
+- [ ] User-facing docs describe observable support/behavior rather than internal review or maintenance status.
 - [ ] NumPy, CuPy, and Torch behavior is implemented or an explicit limitation is justified.
 - [ ] Explicit GPU devices do not silently fall back to CPU.
 - [ ] Focused tests pass.

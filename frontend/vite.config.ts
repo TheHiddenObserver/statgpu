@@ -1,8 +1,7 @@
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-  // The dashboard artifact is relocatable. It is assembled under
-  // <site-base>/dashboard/ for both project Pages and custom domains.
+  // Keep the dashboard relocatable beneath <site-base>/dashboard/.
   base: './',
   build: {
     outDir: 'dist',
