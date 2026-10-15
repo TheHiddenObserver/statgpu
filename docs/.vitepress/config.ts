@@ -1,11 +1,10 @@
 import { defineConfig } from 'vitepress';
 import path from 'node:path';
-import { existsSync } from 'node:fs';
 import { compressedLocalSearchPlugin } from '../../scripts/search-index-compression.mjs';
+import { installHeadingAnchors } from './site-heading-anchors.mjs';
+import { installSourceLinks } from './site-source-links.mjs';
 
 const docsRoot = path.resolve(process.cwd(), 'docs');
-const repositoryRoot = path.dirname(docsRoot);
-const repositoryUrl = 'https://github.com/TheHiddenObserver/statgpu/blob/master/';
 
 function normalizeBase(value: string | undefined): string {
   const candidate = value?.trim() || '/statgpu/';
@@ -934,33 +933,8 @@ export default defineConfig({
   markdown: {
     math: true,
     config(md) {
-      md.core.ruler.after('inline', 'statgpu-source-links', state => {
-        const relativePath = state.env.relativePath;
-        if (!relativePath) return;
-        const source = path.resolve(docsRoot, relativePath);
-        for (const token of state.tokens) {
-          for (const child of token.children ?? []) {
-            if (child.type !== 'link_open') continue;
-            const href = child.attrGet('href');
-            if (!href || /^(?:[a-z]+:|\/\/|#)/i.test(href)) continue;
-            if (href === '/dashboard/' || href === '/dashboard') {
-              child.attrSet('href', base + 'dashboard/');
-              child.attrSet('target', '_self');
-              continue;
-            }
-            const [target, fragment] = href.split('#', 2);
-            const absolute = path.resolve(path.dirname(source), target);
-            const repoRelative = path.relative(repositoryRoot, absolute).replace(/\\/g, '/');
-            const docsRelative = path.relative(docsRoot, absolute);
-            if (!href.startsWith('/') && (docsRelative.startsWith('..') || target.endsWith('.markdown'))) {
-              if (repoRelative.startsWith('..') || !existsSync(absolute)) {
-                throw new Error(`Invalid repository link in ${relativePath}: ${href}`);
-              }
-              child.attrSet('href', repositoryUrl + repoRelative + (fragment ? '#' + fragment : ''));
-            }
-          }
-        }
-      });
+      installHeadingAnchors(md);
+      installSourceLinks(md, { docsRoot, base });
     },
   },
   // The dashboard is assembled after VitePress completes, then checked by

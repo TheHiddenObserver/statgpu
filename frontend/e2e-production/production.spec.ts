@@ -101,6 +101,8 @@ test.describe('Deployed benchmark dashboard', () => {
     await expect(skip).toBeFocused();
     await skip.press('Enter');
     await expect(page).toHaveURL(/#dashboard-main$/);
+    await expect(page.locator('#dashboard-main')).toHaveCount(1);
+    await expect(page.locator('#dashboard-main')).toBeFocused();
 
     const modelHeader = page.getByRole('columnheader', { name: /Sort by Model/ });
     await modelHeader.focus();

@@ -125,7 +125,7 @@ median shifted squared distance: 238.589
 - 默认原始子集大小为 $h=\lceil(n+p+1)/2\rceil$，上限为 $n$。它是搜索
   子集的大小，不一定等于最终重加权支持集的大小。
 - `support_fraction` 取值范围为 `(0, 1]`。给定后，使用
-  $\lceil n\,\text{support_fraction}\rceil$ 行，并将其限制在 $[p+1,n]$。
+  $\lceil n\,\text{support\_fraction}\rceil$ 行，并将其限制在 $[p+1,n]$。
   更大的子集通常能够利用更多干净数据，但对污染的抵抗能力会减弱。不要把它
   当作指定最终异常比例的参数。
 - `random_state` 控制随机初始子集。重要分析应尝试不同随机种子，检查结果

@@ -134,7 +134,7 @@ thresholding `dist_` need not reproduce `support_`.
 - By default, the raw subset size is
   $h=\lceil(n+p+1)/2\rceil$, capped at $n$. This is the search subset size,
   not necessarily the size of the final reweighted support.
-- Set `support_fraction` in `(0, 1]` to use $\lceil n\,\text{support_fraction}\rceil$
+- Set `support_fraction` in `(0, 1]` to use $\lceil n\,\text{support\_fraction}\rceil$
   rows, clipped to the range $[p+1,n]$. A larger subset generally trades
   resistance to contamination for more information from clean observations.
   Do not interpret this parameter as a requested final outlier fraction.

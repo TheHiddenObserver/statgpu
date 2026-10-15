@@ -6,7 +6,7 @@
 
 ## 查看结果
 
-- [打开交互式基准面板](/dashboard/)
+- [打开交互式基准面板](../../en/guides/statgpu_benchmark_dashboard.md#open-dashboard)
 - [了解筛选、图表、指标与数据来源](../../en/guides/statgpu_benchmark_dashboard.md)
 - [对齐工作负载并复现测量](../benchmarks.md)
 
@@ -16,7 +16,11 @@
 
 ## 覆盖范围与数据来源
 
-面板使用日期不早于 **2026-06-01** 的基准数据源。当前覆盖范围及数量以部署的[数据源清单](/dashboard/data/source_inventory.json)、[解析报告](/dashboard/data/parse_report.json)和[标准化结果](/dashboard/data/benchmark_data.json)为准。数据源数、运行记录数和模型条目数是不同的统计量；筛选后显示的内容可能少于整个数据包。
+在文档网站中，下面的链接会直接打开生成的 JSON 文件：`source_inventory.json`、
+`parse_report.json` 和 `benchmark_data.json`。在 GitHub 中，这些链接会打开
+相应说明，介绍如何从源码生成并查看这些文件。
+
+面板使用日期不早于 **2026-06-01** 的基准数据源。当前覆盖范围及数量以部署的[数据源清单](../../en/guides/statgpu_benchmark_dashboard.md#source-inventory)、[解析报告](../../en/guides/statgpu_benchmark_dashboard.md#parse-report)和[标准化结果](../../en/guides/statgpu_benchmark_dashboard.md#normalized-results)为准。数据源数、运行记录数和模型条目数是不同的统计量；筛选后显示的内容可能少于整个数据包。
 
 已有记录涉及 GLM 与惩罚 GLM、线性模型、稳健与分位数回归、生存分析、无监督学习、有序模型、非参数方法、面板模型、协方差估计及 ANOVA。不同方法、指标、规模和后端的覆盖程度不同。当前数据包的 Feature Selection 类别尚无符合要求的结构化数据源。2026 年 4 月的 ElasticNet、LassoCV、综合验证、Cox 软件包比较和 knockoff 结果不在面板日期范围内。缺少原始计时及精度记录、只保留舍入汇总的分布报告也未纳入。
 

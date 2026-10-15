@@ -27,6 +27,9 @@ let sourceInventory: SourceInventory | null = null;
 let state: AppState | null = null;
 let chartRuntime: ChartRuntime | null = null;
 
+// Preserve the static skip-link destination through loading, errors, and rerenders.
+const mainContent = document.getElementById('dashboard-main');
+
 /** Track ECharts instances for cleanup before re-render */
 const chartInstances: ECharts[] = [];
 
@@ -57,7 +60,9 @@ function renderBody(): HTMLElement {
 }
 
 function renderMain(): HTMLElement {
-  const main = h('main', { class: 'main', id: 'dashboard-main', tabindex: '-1' });
+  const main = mainContent!;
+  clear(main);
+  main.className = 'main';
   const filtered = getFilteredRuns();
   main.appendChild(renderFilterBar(data!.runs, data!, state!, update));
   main.appendChild(renderChartArea(filtered));
@@ -231,7 +236,9 @@ function renderLoadingBody(): HTMLElement {
     class: 'loading-placeholder loading-sidebar',
     'aria-hidden': 'true',
   });
-  const content = h('div', { class: 'loading-content' });
+  const content = mainContent!;
+  clear(content);
+  content.className = 'loading-content';
   content.appendChild(
     h(
       'div',
@@ -258,7 +265,7 @@ function renderLoadingBody(): HTMLElement {
 
 async function init(): Promise<void> {
   const root = document.getElementById('app');
-  if (!root) return;
+  if (!root || !mainContent) return;
 
   clear(root);
   root.appendChild(renderLoadingHeader());
@@ -292,7 +299,10 @@ async function init(): Promise<void> {
     );
     msg.appendChild(h('br'));
     msg.appendChild(hint);
-    root.appendChild(msg);
+    clear(mainContent);
+    mainContent.className = 'main';
+    mainContent.appendChild(msg);
+    root.appendChild(mainContent);
   }
 }
 

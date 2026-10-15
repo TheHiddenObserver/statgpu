@@ -17,6 +17,8 @@ function identityCells(run: Run): string[] {
       ? [run.backend, run.implementation].filter(Boolean).join('/') || 'statgpu'
       : run.framework,
     run.scale.label,
+    run.benchmark_session_id ?? run.env_id,
+    run.source.file,
   ];
 }
 
@@ -58,6 +60,8 @@ function renderTable(
       'Solver',
       'Backend / reference',
       'Scale',
+      'Benchmark session',
+      'Source',
       valueLabel,
       'Reference',
     ]) {
@@ -70,7 +74,7 @@ function renderTable(
     const tbody = h('tbody');
     for (const run of runs) {
       const { value, reference } = valueForRun(run);
-      const tr = h('tr');
+      const tr = h('tr', { 'data-run-id': run.run_id });
       for (const cell of [...identityCells(run), value, reference]) {
         tr.appendChild(h('td', {}, cell));
       }

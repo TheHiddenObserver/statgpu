@@ -40,7 +40,7 @@ features:
 | 选择或理解求解器 | [求解器算法](guides/solver-algorithms.md)与[兼容性矩阵](guides/solver-penalty-matrix.md) |
 | 配置 CPU、CUDA 或 Torch | [设备与显存指南](guides/device-and-memory.md) |
 | 理解标准误与统计检验 | [推断 API](guides/inference-api.md) |
-| 比较实测性能 | [交互式基准面板](/dashboard/) |
+| 比较实测性能 | [交互式基准面板](../en/guides/statgpu_benchmark_dashboard.md#open-dashboard) |
 
 ## 主要内容
 

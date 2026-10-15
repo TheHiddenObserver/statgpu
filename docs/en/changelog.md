@@ -18,6 +18,14 @@ This page records user-visible changes for current and recent statgpu releases.
   - Module functions still ignore `set_device`. Estimator helpers retain their separate CUDA requirement and input conversion when they select Torch; shared backend-factory behavior is unchanged. Existing numerical warnings for NaN `alpha`, overflowing weight sums, and extreme probability tails still apply.
   - Updated the bilingual multiple-testing API, device guide, and estimator helper reference. Added device-ownership regressions in `dev/tests/test_multiple_testing_device_ownership.py`, including conditional physical CUDA checks. No physical GPU validation is claimed for this local update.
 
+## Unreleased — Website navigation and benchmark provenance (PR #132)
+
+### Fixed (2026-10-15)
+
+- Preserved GitHub-compatible section anchors when rendering the documentation website, including API names with underscores and numbered headings. Source Markdown links remain usable in the repository; website rendering routes dashboard links to the generated dashboard and data files.
+- Escaped identifier underscores in the English and Chinese MinCovDet and ANOVA post-hoc formulas so MathJax renders the equations correctly. The site verifier now checks internal fragment targets and MathJax errors throughout the generated HTML.
+- Added session and source details to timing-chart labels, tooltips, and accessible tables when multiple benchmark sessions share a hardware group. Numeric results and comparison identities are unchanged. Regression tests exercise canonical RidgeCV sessions through the real chart renderer and table builder.
+
 ## Unreleased — Learner guides and API references (PR #168)
 
 ### Improved (2026-10-10)

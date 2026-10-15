@@ -40,7 +40,7 @@ features:
 | choose or understand a solver | [Solver algorithms](guides/solver-algorithms.md) and [compatibility matrix](guides/solver-penalty-matrix.md) |
 | configure CPU, CUDA, or Torch | [Device and memory guide](guides/device-and-memory.md) |
 | understand standard errors and tests | [Inference API](guides/inference-api.md) |
-| compare measured performance | [Interactive benchmark dashboard](/dashboard/) |
+| compare measured performance | [Interactive benchmark dashboard](guides/statgpu_benchmark_dashboard.md#open-dashboard) |
 
 ## Main areas
 

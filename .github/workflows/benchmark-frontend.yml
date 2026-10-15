@@ -129,10 +129,12 @@ jobs:
           python -m pip install 'jsonschema[format]'
           npm ci
           npm ci --prefix frontend
-      - name: Test documentation search and source-link integration
+      - name: Test documentation search, source links, and HTML validation
         run: |
           npm run test:search
           npm run test:site-links
+          npm run test:site-html
+          npm run source:verify
       - name: Generate deployment benchmark bundle
         run: |
           python dev/benchmarks/generate_benchmark_data.py \

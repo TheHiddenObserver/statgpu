@@ -12,6 +12,10 @@ All notable changes to statgpu are documented here, organized by release and dat
 - Added English and Chinese advanced guides deriving the weighted working problem, debiased estimates, node-wise precision, marginal standard errors, and shared multiplier simultaneous intervals, with explicit tuning and coverage limitations.
 - Linked the companions from canonical model guides, migration guides, and navigation; added executable formula/example checks and three-engine production coverage for bilingual navigation, math rendering, reload, and Back behavior.
 
+### PR #132 — Repaired website links, math and session labels
+- Preserved source-document links and section anchors in both GitHub Markdown and the website; corrected bilingual formula rendering and added complete HTML link/math validation.
+- Restored benchmark session and source labels in timing charts and accessible tables, with canonical multi-session regressions.
+
 ## Unreleased — 2026-10-10
 
 ### PR #168 — Completed learner docs and repaired input/device handling

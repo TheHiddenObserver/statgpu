@@ -6,7 +6,7 @@
 
 ## Explore the results
 
-- [Open the interactive dashboard](/dashboard/)
+- [Open the interactive dashboard](statgpu_benchmark_dashboard.md#open-dashboard)
 - [Understand filters, charts, metrics, and provenance](statgpu_benchmark_dashboard.md)
 - [Compare workloads and reproduce measurements](../benchmarks.md)
 
@@ -16,7 +16,12 @@ The dashboard includes cross-validation records. The **Cross-validation** panel 
 
 ## Coverage and data sources
 
-The dashboard uses benchmark sources dated **2026-06-01 or later**. For current coverage and counts, use the deployed [source inventory](/dashboard/data/source_inventory.json), [parse report](/dashboard/data/parse_report.json), and [normalized results](/dashboard/data/benchmark_data.json). Source counts, run counts, and model-registry entries are different quantities; filtered views can be smaller than the whole bundle.
+On the documentation website, the following links open the generated JSON
+files: `source_inventory.json`, `parse_report.json`, and `benchmark_data.json`.
+On GitHub, they open instructions for generating and inspecting the same
+files from a source checkout.
+
+The dashboard uses benchmark sources dated **2026-06-01 or later**. For current coverage and counts, use the deployed [source inventory](statgpu_benchmark_dashboard.md#source-inventory), [parse report](statgpu_benchmark_dashboard.md#parse-report), and [normalized results](statgpu_benchmark_dashboard.md#normalized-results). Source counts, run counts, and model-registry entries are different quantities; filtered views can be smaller than the whole bundle.
 
 Available records span GLM and penalized GLM, linear models, robust and quantile regression, survival, unsupervised learning, ordered models, nonparametric methods, panel models, covariance estimation, and ANOVA. Coverage varies by method, metric, scale, and backend. The Feature Selection category has no eligible structured source in this bundle. April 2026 ElasticNet, LassoCV, comprehensive-validation, Cox package-comparison, and knockoff results are outside the dashboard's date policy. A rounded distribution-report summary without raw timing and precision records is also excluded.
 

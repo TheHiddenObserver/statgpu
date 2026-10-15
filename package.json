@@ -16,11 +16,15 @@
     "site:preview": "vitepress preview docs --host 127.0.0.1 --port 4173",
     "site:verify": "node scripts/verify-site.mjs",
     "test:search": "node --test scripts/test-search-index-compression.mjs",
-    "test:site-links": "node --test scripts/test-site-source-links.mjs"
+    "test:site-links": "node --test scripts/test-site-source-links.mjs scripts/test-source-document-links.mjs",
+    "test:site-html": "node --test scripts/test-site-html-validation.mjs",
+    "source:verify": "node scripts/check-source-document-links.mjs"
   },
   "devDependencies": {
     "fflate": "0.8.3",
+    "github-slugger": "2.0.0",
     "markdown-it-mathjax3": "^4.3.2",
+    "parse5": "6.0.1",
     "vitepress": "1.6.4"
   },
   "overrides": {

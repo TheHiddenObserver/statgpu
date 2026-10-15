@@ -2,6 +2,7 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 import { decodeSearchIndex } from './search-index-compression.mjs';
+import { validateSiteHtml } from './site-html-validation.mjs';
 import path from 'node:path';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -85,37 +86,6 @@ for (const relative of required) {
   }
 }
 
-function resolveLocalTarget(htmlFile, rawTarget) {
-  const withoutHash = rawTarget.split('#', 1)[0].split('?', 1)[0];
-  if (!withoutHash) return null;
-  if (/^(?:[a-z]+:|\/\/)/i.test(withoutHash)) return null;
-
-  let candidate;
-  if (withoutHash.startsWith('/')) {
-    if (!withoutHash.startsWith(siteBase)) {
-      throw new Error(
-        `Root-absolute URL is outside STATGPU_SITE_BASE: ${rawTarget}`,
-      );
-    }
-    candidate = path.join(siteDir, withoutHash.slice(siteBase.length));
-  } else {
-    candidate = path.resolve(path.dirname(htmlFile), withoutHash);
-  }
-  const relative = path.relative(siteDir, candidate);
-  if (relative.startsWith('..') || path.isAbsolute(relative)) {
-    throw new Error(`Local URL escapes the deployment artifact: ${rawTarget}`);
-  }
-  return candidate;
-}
-
-function targetExists(candidate) {
-  return (
-    indexedFileExists(candidate) ||
-    indexedFileExists(`${candidate}.html`) ||
-    indexedFileExists(path.join(candidate, 'index.html'))
-  );
-}
-
 const htmlFiles = allFiles.filter(file => file.endsWith('.html'));
 const failures = [];
 failures.push(...documentationSourceFailures);
@@ -130,41 +100,7 @@ const mathProbe = await readFile(
 if (!mathProbe.includes('<mjx-container')) {
   failures.push('en/panel/random-effects.html: expected rendered MathJax markup');
 }
-const attributePattern = /\b(?:href|src)=(['"])(.*?)\1/g;
-for (const htmlFile of htmlFiles) {
-  const html = await readFile(htmlFile, 'utf8');
-  for (const match of html.matchAll(attributePattern)) {
-    const target = match[2];
-    if (
-      !target ||
-      target.startsWith('#') ||
-      target.startsWith('data:') ||
-      target.startsWith('mailto:') ||
-      target.startsWith('tel:') ||
-      target.startsWith('javascript:')
-    ) {
-      continue;
-    }
-    if (target.includes('docs/assets/benchmarks')) {
-      failures.push(
-        `${path.relative(siteDir, htmlFile)} -> ${target}: legacy dashboard path`,
-      );
-      continue;
-    }
-    try {
-      const resolved = resolveLocalTarget(htmlFile, target);
-      if (resolved && !targetExists(resolved)) {
-        failures.push(
-          `${path.relative(siteDir, htmlFile)} -> ${target}`,
-        );
-      }
-    } catch (error) {
-      failures.push(
-        `${path.relative(siteDir, htmlFile)} -> ${target}: ${error.message}`,
-      );
-    }
-  }
-}
+failures.push(...await validateSiteHtml({ siteDir, siteBase, allFiles }));
 
 const dashboardAssets = path.resolve(siteDir, 'dashboard', 'assets');
 const dashboardJs = allFiles.filter(

@@ -36,22 +36,22 @@ Choose a documentation entry point based on what you want to do:
 
 | I want to... | Start here |
 |---|---|
-| run my first model | [Quickstart](/en/getting-started/quickstart) |
-| choose a statistical method | [Model catalog](/en/models/README) |
-| use DataFrame formulas | [Usage guide](/en/usage) |
-| configure CPU, CUDA, or Torch | [Device and memory](/en/guides/device-and-memory) |
-| understand standard errors and tests | [Inference API](/en/guides/inference-api) |
-| compare measured performance | [Interactive benchmark dashboard](/dashboard/) |
+| run my first model | [Quickstart](en/getting-started/quickstart.md) |
+| choose a statistical method | [Model catalog](en/models/README.md) |
+| use DataFrame formulas | [Usage guide](en/usage.md) |
+| configure CPU, CUDA, or Torch | [Device and memory](en/guides/device-and-memory.md) |
+| understand standard errors and tests | [Inference API](en/guides/inference-api.md) |
+| compare measured performance | [Interactive benchmark dashboard](en/guides/statgpu_benchmark_dashboard.md#open-dashboard) |
 
-English is the default documentation language. Use **Change language** in the navigation bar when you need [简体中文](/cn/).
+English is the default documentation language. Use **Change language** in the navigation bar when you need [简体中文](cn/README.md).
 
 ## Main areas
 
-- [Regression and statistical models](/en/models/README)
-- [Unsupervised learning](/en/unsupervised/README)
-- [Panel-data models](/en/panel/README)
-- [Cross-validation](/en/guides/cross-validation)
-- [Changelog](/en/changelog)
+- [Regression and statistical models](en/models/README.md)
+- [Unsupervised learning](en/unsupervised/README.md)
+- [Panel-data models](en/panel/README.md)
+- [Cross-validation](en/guides/cross-validation.md)
+- [Changelog](en/changelog.md)
 
 [Contributing](https://github.com/TheHiddenObserver/statgpu/blob/master/CONTRIBUTING.md) ·
 [Releasing](https://github.com/TheHiddenObserver/statgpu/blob/master/RELEASING.md) ·

@@ -44,7 +44,7 @@
 - [多重检验概览](models/testing/multiple-testing.md) — 选择假设族、错误率标准或总体检验
 - [P 值校正与合并 API](guides/multiple-testing-combine-pvalues.md) — 完整签名、形状与数值限制
 - [基准测试](guides/benchmarks.md) — 基准测试方法与对比说明
-- [交互式基准面板](/dashboard/) — 筛选、图表、指标与数据来源
+- [交互式基准面板](../en/guides/statgpu_benchmark_dashboard.md#open-dashboard) — 筛选、图表、指标与数据来源
 
 ## 参考
 
