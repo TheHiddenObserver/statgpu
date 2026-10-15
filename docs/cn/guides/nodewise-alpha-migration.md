@@ -106,6 +106,8 @@ print(model.nodewise_alpha_)
 
 ## 相关文档
 
+- [Lasso 推断推导](../models/regression/lasso-inference.md)：工作设计的定义、精度矩阵构造与 max-|Z| 校准
+
 - [推断模式](inference-modes.md) — `debiased`、`post_selection_ols` 与 `bootstrap` 的选择
 - [交叉验证](cross-validation.md) — 选择与最终重拟合的语义
 - [Lasso](../models/regression/lasso.md) 与 [ElasticNet](../models/regression/elastic-net.md) — 模型专属推断控制

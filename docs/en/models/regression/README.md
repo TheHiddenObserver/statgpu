@@ -37,6 +37,7 @@ worked examples; their inference, solver, and device limits remain method-specif
 
 ## Continue the workflow
 
+- [Lasso inference](lasso-inference.md): de-biasing, node-wise precision and simultaneous intervals
 - [Cross-validation](../../guides/cross-validation.md) for tuning and final refitting
 - [Inference modes](../../guides/inference-modes.md) and [regression diagnostics](../../guides/regression-diagnostics.md) for interpreting and checking a fit
 - [Linear-model API](../../reference/linear-model-api.md) and [shared estimator API](../../reference/estimator-api.md) for complete interfaces

@@ -245,6 +245,9 @@ $$
 
 关于 CV 的选择与最终重拟合语义，见 [交叉验证](../../guides/cross-validation.md)。
 
+去偏修正、标准化逐变量精度估计与共享乘子的 max-|Z| 校准推导，见
+[Lasso 推断原理](lasso-inference.md)。
+
 ## 参数
 
 下表列出 `statgpu.linear_model.Lasso` 的全部公开构造参数。方法签名、输入输出形状、已拟合属性、公式输入与继承的辅助方法见[完整 Lasso API 参考](../../reference/linear-model-api.md#lasso)。Lasso 不提供 ElasticNet 的 `l1_ratio`、`cov_type` 或 `hac_maxlags` 构造参数。

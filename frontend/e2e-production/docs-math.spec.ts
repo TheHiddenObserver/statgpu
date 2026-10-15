@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { siteRoot } from './site';
+import { siteBase, siteRoot } from './site';
 
 for (const language of ['en', 'cn']) {
   test(`renders inline and display LaTeX on current ${language} model pages`, async ({ page }) => {
@@ -12,6 +12,42 @@ for (const language of ['en', 'cn']) {
       expect(await main.locator('mjx-container:not([display="true"])').count()).toBeGreaterThan(0);
       await expect(main).not.toContainText('$$');
     }
+  });
+
+  test(`renders and links the ${language} Lasso inference companion`, async ({ page }) => {
+    await page.goto(`${siteRoot}${language}/models/regression/lasso`);
+    // SSR links are visible before the client router finishes its initial go().
+    await page.waitForFunction(() => Boolean(
+      document.querySelector('#app') && '__vue_app__' in document.querySelector('#app')!,
+    ));
+    await page.locator('main a[href$="lasso-inference"]').click();
+    await expect(page).toHaveURL(`${siteRoot}${language}/models/regression/lasso-inference`);
+    const main = page.getByRole('main');
+    await expect(main.locator('h1')).toContainText('Lasso');
+    await expect(main.locator('mjx-container').first()).toBeVisible({ timeout: 60_000 });
+    await expect(main.locator('mjx-container[display="true"]')).toHaveCount(21);
+    await expect(main.locator('[data-mml-node="merror"]')).toHaveCount(0);
+    await expect(main).not.toContainText('$$');
+    await expect(main).toContainText('simultaneous_target_mask');
+    await expect(main).toContainText('fit_intercept=False');
+    await expect(page.locator(`.VPSidebar a[href="${siteBase}${language}/models/regression/lasso-inference"]`)).toHaveCount(1);
+
+    const peer = language === 'en' ? 'cn' : 'en';
+    await main.locator(`a[href$="${peer}/models/regression/lasso-inference"]`).click();
+    await expect(page).toHaveURL(`${siteRoot}${peer}/models/regression/lasso-inference`);
+    await expect(page.locator('html')).toHaveAttribute('lang', peer === 'cn' ? 'zh-CN' : 'en-US');
+    await expect(page.locator('main mjx-container[display="true"]')).toHaveCount(21);
+    const historyBeforeReload = await page.evaluate(() => window.history.length);
+    await page.reload();
+    // Wait for the client router before testing browser history.
+    await page.waitForFunction(() => Boolean(
+      document.querySelector('#app') && '__vue_app__' in document.querySelector('#app')!,
+    ));
+    await expect(page.locator('main h1')).toContainText('Lasso');
+    expect(await page.evaluate(() => window.history.length)).toBe(historyBeforeReload);
+    await page.goBack();
+    await expect(page).toHaveURL(`${siteRoot}${language}/models/regression/lasso-inference`);
+    await expect(page.locator('main mjx-container[display="true"]')).toHaveCount(21);
   });
 
   test(`renders the current ${language} solver algorithms and preserved anchors`, async ({ page }) => {

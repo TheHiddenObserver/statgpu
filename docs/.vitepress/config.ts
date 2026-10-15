@@ -66,6 +66,10 @@ function englishModelReference() {
           "link": "/en/models/regression/lasso"
         },
         {
+          "text": "Lasso inference",
+          "link": "/en/models/regression/lasso-inference"
+        },
+        {
           "text": "LinearRegression",
           "link": "/en/models/regression/linear-regression"
         },
@@ -445,6 +449,10 @@ function chineseModelReference() {
         {
           "text": "Lasso",
           "link": "/cn/models/regression/lasso"
+        },
+        {
+          "text": "Lasso 推断原理",
+          "link": "/cn/models/regression/lasso-inference"
         },
         {
           "text": "LinearRegression",

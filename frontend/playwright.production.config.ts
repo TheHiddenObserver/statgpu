@@ -21,7 +21,20 @@ export default defineConfig({
   },
   projects: [
     { name: 'chromium-production', use: { ...devices['Desktop Chrome'] } },
-    { name: 'firefox-production', use: { ...devices['Desktop Firefox'] } },
+    {
+      name: 'firefox-production',
+      use: {
+        ...devices['Desktop Firefox'],
+        launchOptions: {
+          // Playwright's Firefox strategy 0 duplicates history entries on reload:
+          // https://github.com/microsoft/playwright/issues/22640
+          // https://bugzilla.mozilla.org/show_bug.cgi?id=1832341
+          // These same-origin production checks do not exercise OOPIFs, which
+          // the Firefox driver does not fully support with strategy 1.
+          firefoxUserPrefs: { 'fission.webContentIsolationStrategy': 1 },
+        },
+      },
+    },
     { name: 'webkit-production', use: { ...devices['Desktop Safari'] } },
   ],
   webServer: {

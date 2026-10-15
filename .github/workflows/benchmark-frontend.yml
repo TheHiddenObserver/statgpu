@@ -12,6 +12,7 @@ on:
       - 'dev/validation/check_docs_contracts.py'
       - 'dev/validation/fix_docs_links.py'
       - 'dev/tests/test_website_source_routes.py'
+      - 'dev/tests/test_lasso_inference_companion_docs.py'
       - 'dev/tests/test_pr168_audience_boundaries.py'
       - 'docs/**'
       - 'frontend/**'
@@ -40,6 +41,7 @@ on:
       - 'dev/validation/check_docs_contracts.py'
       - 'dev/validation/fix_docs_links.py'
       - 'dev/tests/test_website_source_routes.py'
+      - 'dev/tests/test_lasso_inference_companion_docs.py'
       - 'dev/tests/test_pr168_audience_boundaries.py'
       - 'docs/**'
       - 'frontend/**'
@@ -75,6 +77,10 @@ jobs:
           python dev/validation/check_docs_contracts.py
           python dev/validation/fix_docs_links.py --check
           pytest dev/tests/test_website_source_routes.py dev/tests/test_pr168_audience_boundaries.py -v
+      - name: Validate executable Lasso inference companion
+        run: |
+          python -m pip install -e .
+          pytest dev/tests/test_lasso_inference_companion_docs.py -v
       - name: Run generator and parser tests
         run: |
           pytest \

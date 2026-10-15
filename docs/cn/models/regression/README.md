@@ -36,6 +36,7 @@
 
 ## 继续分析
 
+- [Lasso 推断原理](lasso-inference.md)：去偏修正、逐变量精度估计与同时置信区间
 - [交叉验证](../../guides/cross-validation.md)：调参与最终重拟合
 - [推断模式](../../guides/inference-modes.md)与[回归诊断](../../guides/regression-diagnostics.md)：解释和检查拟合
 - [线性模型 API](../../reference/linear-model-api.md)与[估计器通用 API](../../reference/estimator-api.md)：完整接口
