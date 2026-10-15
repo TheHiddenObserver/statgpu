@@ -35,13 +35,16 @@ for (const language of ['en', 'cn']) {
     const peer = language === 'en' ? 'cn' : 'en';
     await main.locator(`a[href$="${peer}/models/regression/lasso-inference"]`).click();
     await expect(page).toHaveURL(`${siteRoot}${peer}/models/regression/lasso-inference`);
+    await expect(page.locator('html')).toHaveAttribute('lang', peer === 'cn' ? 'zh-CN' : 'en-US');
     await expect(page.locator('main mjx-container[display="true"]')).toHaveCount(21);
+    const historyBeforeReload = await page.evaluate(() => window.history.length);
     await page.reload();
-    // In Firefox, Back can otherwise race the initial route load after reload.
+    // Wait for the client router before testing browser history.
     await page.waitForFunction(() => Boolean(
       document.querySelector('#app') && '__vue_app__' in document.querySelector('#app')!,
     ));
     await expect(page.locator('main h1')).toContainText('Lasso');
+    expect(await page.evaluate(() => window.history.length)).toBe(historyBeforeReload);
     await page.goBack();
     await expect(page).toHaveURL(`${siteRoot}${language}/models/regression/lasso-inference`);
     await expect(page.locator('main mjx-container[display="true"]')).toHaveCount(21);
