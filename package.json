@@ -14,10 +14,19 @@
     "site:build": "node scripts/build-site.mjs",
     "site:hash": "node scripts/hash-site.mjs",
     "site:preview": "vitepress preview docs --host 127.0.0.1 --port 4173",
-    "site:verify": "node scripts/verify-site.mjs"
+    "site:verify": "node scripts/verify-site.mjs",
+    "test:search": "node --test scripts/test-search-index-compression.mjs",
+    "test:site-links": "node --test scripts/test-site-source-links.mjs"
   },
   "devDependencies": {
+    "fflate": "0.8.3",
     "markdown-it-mathjax3": "^4.3.2",
     "vitepress": "1.6.4"
+  },
+  "overrides": {
+    "@xmldom/xmldom": "0.9.12",
+    "vitepress": {
+      "vite": "6.4.3"
+    }
   }
 }

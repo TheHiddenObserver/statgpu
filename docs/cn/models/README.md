@@ -1,83 +1,64 @@
-# 模型总览
+<a id="模型总览"></a>
 
-> 语言：中文
-> 最后更新：2026-09-03
-> 当前软件包版本：**0.2.5**
+# 模型与统计方法
+
+> 语言：中文  
+> 最后更新：2026-10-13  
 > 切换：[English](../../en/models/README.md)
 
-本目录反映当前公开的模型家族。左侧“模型参考”目录可直接进入每个模型页面；
-后端、求解器与惩罚项覆盖范围请同时参阅[已实现方法](../guides/implemented-methods.md)。
+先根据要回答的问题选择方法族，再通过族内概览选择教程。首次拟合可先走完
+[入门路径](../usage.md)。当前求解器、惩罚项、后端与推断支持范围，以
+[已实现方法](../guides/implemented-methods.md)、
+[求解器 × 惩罚项兼容性矩阵](../guides/solver-penalty-matrix.md)和对应方法页为准。
 
-## 回归与广义线性模型
+<a id="回归与-glm"></a>
+<a id="专业统计模块"></a>
+<a id="无监督学习"></a>
 
-| 模型家族 | 公开 API | 文档 |
+## 按问题选择方法族
+
+| 想回答的问题 | 从这里开始 | 进一步选择 |
 |---|---|---|
-| 普通最小二乘 | `LinearRegression` | [线性回归](linear-regression.md) |
-| 高斯正则化 | `Ridge`、`Lasso`、`ElasticNet` 及其 CV 版本 | [Ridge](ridge.md)、[Lasso](lasso.md)、[Elastic Net](elastic-net.md) |
-| 结构化与非凸正则化 | `AdaptiveLasso`、`SCADRegression`、`MCPRegression` | [Adaptive Lasso](adaptive-lasso.md)、[SCAD](scad.md)、[MCP](mcp.md) |
-| 广义线性模型 | `GeneralizedLinearModel`、`GammaRegression`、`InverseGaussianRegression`、`NegativeBinomialRegression`、`TweedieRegression` | [GLM](generalized-linear-model.md) |
-| 分类与计数 | `LogisticRegression`、`LogisticRegressionCV`、`PoissonRegression` | [Logistic](logistic-regression.md)、[Poisson](poisson-regression.md) |
-| 有序响应 | `OrderedLogitRegression`、`OrderedProbitRegression` | [有序模型](ordered.md) |
-| 分位数与稳健拟合 | `QuantileRegression`、`PenalizedQuantileRegression`、`PenalizedRobustRegression` | [分位数回归](quantile.md)、[稳健回归](robust.md) |
+| 响应如何随预测变量变化？ | [回归](regression/README.md) | 响应类型、收缩、分位数或稳健损失 |
+| 组均值是否有差异，或怎样处理多个检验？ | [统计检验](testing/README.md) | ANOVA 设计、事后比较或 P 值校正 |
+| 多个变量怎样共同变化？ | [协方差估计](covariance/README.md) | 经验、收缩、稳健或稀疏精度估计 |
+| 需要密度、平滑响应曲线或非线性特征？ | [非参数方法](nonparametric/README.md) | KDE/局部回归、核方法、样条或 GAM |
+| 应该保留哪些预测变量？ | [特征选择](feature-selection/README.md) | AIC/BIC 逐步搜索，或 knockoff 选择及其假设 |
+| 响应是事件发生前的时间？ | [生存分析](coxph.md) | 参阅[下方 Cox 估计器比较](#如何选择-cox-估计器) |
+| 观测跨个体、跨时间重复出现？ | [面板数据](../panel/README.md) | 比较不同的面板估计器 |
+| 没有响应变量，希望发现结构或学习表示？ | [无监督学习](../unsupervised/README.md) | 分解、聚类、混合模型或流形方法 |
 
-统一惩罚模型 API 还通过 `statgpu.linear_model` 提供 Gaussian、Logistic、
-Poisson、Gamma、Inverse-Gaussian、Negative-Binomial、Tweedie、稳健、
-分位数与 Cox 等家族。
+各方法族入口说明如何选择方法，并链接到族内全部教程。需要核对构造参数、方法或拟合属性时，
+查阅[完整 API 参考](../README.md#完整-api-参考)。
 
 ## 生存分析
 
-| 需求 | Estimator | 契约 |
-|---|---|---|
-| 完整 Cox 拟合、预测、formula 与统计推断 | `CoxPH` | Breslow/Efron/Exact ties、delayed entry、分层与 robust/cluster 协方差 |
-| 通过 held-out partial likelihood 选择 L2 | `CoxPHCV` | 保持受试者完整性的 CV，并最终重拟合 `CoxPH` |
-| 更广的凸/非凸惩罚项 | `PenalizedCoxPHModel` | 面向估计的通用惩罚路径 |
+- [Cox 比例风险模型](coxph.md)
 
-精确功能与后端矩阵见 [Cox 比例风险模型](coxph.md)。
+### 如何选择 Cox 估计器
 
-## 专业统计模块
+| 需求 | 估计器 | 导入路径 | 公开行为 |
+|---|---|---|---|
+| 完整 Cox 拟合、基准风险、生存预测、公式接口与统计推断 | `CoxPH` | `from statgpu.survival import CoxPH` | 支持 Breslow/Efron/Exact 并列事件、延迟进入、`(start, stop]` 数据、`strata`、稳健/聚类协方差以及 NumPy/CuPy/Torch 路径 |
+| 通过留出部分似然选择非负 L2 惩罚 | `CoxPHCV` | `from statgpu.survival import CoxPHCV` | CV 期间保持 Cox 风险集语义，并使用选出的惩罚强度最终重拟合 `CoxPH` |
+| 使用 L1、L2、ElasticNet、SCAD 或 MCP 进行参数估计 | `PenalizedCoxPHModel` | `from statgpu.linear_model import PenalizedCoxPHModel` | 提供更广的惩罚项与通用求解路径；当前只提供参数估计，`compute_inference=True` 会被拒绝 |
 
-| 领域 | 文档 |
+`CoxPH(penalty=...)` 与 `PenalizedCoxPHModel` 不是可以互换的别名。需要计数过程数据、`strata`、基准风险预测或统计推断时，应使用 `CoxPH` / `CoxPHCV`；如果主要需求是更广的惩罚项，并且只需要参数估计，可以使用 `PenalizedCoxPHModel`。
+
+[Cox 模型页](coxph.md)统一说明 Breslow/Efron/Exact 并列事件、延迟进入与 `(start, stop]` 数据、`strata`、稳健/聚类推断、保持受试者完整的 CV、预测数值边界以及 NumPy/CuPy/Torch 支持范围。
+
+## 核心参考
+
+| 页面 | 内容 |
 |---|---|
-| 方差分析与事后检验 | [ANOVA](anova.md) |
-| 协方差估计 | [协方差](covariance.md) |
-| 面板与纵向模型 | [面板数据](panel.md) |
-| 非参数估计 | [非参数方法](nonparametric.md) |
-| 核模型 | [核方法](kernel-methods.md) |
-| 样条基函数 | [样条](splines.md) |
-| GAM 与半参数模型 | [半参数模型](semiparametric.md) |
-| 特征选择与诊断 | [特征选择](feature-selection.md) |
-| Knockoff 筛选 | [Knockoff](knockoff.md) |
-| 多重检验 | [多重检验](multiple-testing.md) |
-| 损失函数定义 | [损失函数](losses.md) |
+| [损失函数](../reference/losses.md) | 损失函数定义与数值性质 |
+| [求解器算法](../guides/solver-algorithms.md) | 求解器更新公式与适用前提 |
+| [损失函数 × 惩罚项 × 求解器框架](../guides/loss-penalty-solver-framework.md) | 组件分工与组合方式 |
+| [求解器 × 惩罚项兼容性矩阵](../guides/solver-penalty-matrix.md) | 显式求解器与自动分发范围 |
+| [推断 API](../guides/inference-api.md) | 分布、多重检验、重抽样与推断工具入口 |
 
-## 无监督学习
+## 支持范围的阅读方式
 
-| 家族 | 模型 |
-|---|---|
-| 矩阵分解 | [PCA](../unsupervised/pca.md)、[Incremental PCA](../unsupervised/incremental-pca.md)、[Truncated SVD](../unsupervised/truncated-svd.md)、[NMF](../unsupervised/nmf.md)、[MiniBatch NMF](../unsupervised/minibatch-nmf.md) |
-| 聚类 | [K-Means](../unsupervised/kmeans.md)、[MiniBatch K-Means](../unsupervised/minibatch-kmeans.md)、[层次聚类](../unsupervised/agglomerative-clustering.md)、[DBSCAN](../unsupervised/dbscan.md)、[高斯混合](../unsupervised/gaussian-mixture.md) |
-| 流形学习 | [t-SNE](../unsupervised/tsne.md)、[UMAP](../unsupervised/umap.md) |
-
-共用 API 约定见[无监督学习总览](../unsupervised/)。
-
-## 面板数据
-
-面板 API 现已提供完整的 estimator、协方差、拟合统计量与诊断文档：
-
-- [Pooled OLS](../panel/pooled-ols.md)、[固定效应 Panel OLS](../panel/panel-ols.md)、
-  [Between OLS](../panel/between-ols.md)、[随机效应](../panel/random-effects.md)、
-  [一阶差分 OLS](../panel/first-difference-ols.md)与
-  [Fama-MacBeth](../panel/fama-macbeth.md)
-- [协方差估计](../panel/covariance.md)、
-  [拟合统计量](../panel/fit-statistics.md)与
-  [模型诊断](../panel/diagnostics.md)
-
-## 核心框架
-
-- [求解器算法](../guides/solver-algorithms.md)
-- [Loss × Penalty × Solver 框架](../guides/loss-penalty-solver-framework.md)
-- [Solver × Penalty 矩阵](../guides/solver-penalty-matrix.md)
-- [推断 API](../guides/inference-api.md)
-
-后端支持可能因模型、求解器、惩罚项、推断方法和可选依赖而异。性能与验证结论
-始终限定到对应证据记录的 commit、硬件、后端与数据集。
+- NumPy、CuPy 与 Torch 是不同的数组后端。需要加速器计算时，请先核对[设备指南](../guides/device-and-memory.md)与对应模型的设备限制。
+- 后端支持可能因求解器、惩罚项、推断方法和可选依赖而不同，应查看详细兼容性文档，而不要从某个模型族的概览自行推断。
+- 具体模型的统计定义、输入限制、预测、推断和 CV 行为，以对应模型页为准。

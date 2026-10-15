@@ -194,9 +194,17 @@ class GroupSCADPenalty(Penalty):
                 self._sqrt_pg_torch = _to_backend_array(self._sqrt_pg, xp, w)
             return self._sqrt_pg_torch
         elif xp.__name__ == "cupy":
-            if self._sqrt_pg_cupy is None:
-                self._sqrt_pg_cupy = _to_backend_array(self._sqrt_pg, xp, w)
-            return self._sqrt_pg_cupy
+            cached = self._sqrt_pg_cupy
+            same_device = (
+                cached is not None
+                and getattr(cached, "device", None) is not None
+                and getattr(w, "device", None) is not None
+                and int(cached.device.id) == int(w.device.id)
+            )
+            if not same_device:
+                cached = _to_backend_array(self._sqrt_pg, xp, w)
+                self._sqrt_pg_cupy = cached
+            return cached
         else:
             return self._sqrt_pg
 
@@ -210,7 +218,19 @@ class GroupSCADPenalty(Penalty):
         if cached is None:
             cached = _to_backend_array(getattr(self, attr_name), xp, w)
             setattr(self, cache_attr, cached)
-        elif xp.__name__ == "torch" and hasattr(cached, 'device') and cached.device != w.device:
+        elif (
+            xp.__name__ == "torch"
+            and hasattr(cached, "device")
+            and cached.device != w.device
+        ):
+            cached = _to_backend_array(getattr(self, attr_name), xp, w)
+            setattr(self, cache_attr, cached)
+        elif (
+            xp.__name__ == "cupy"
+            and getattr(cached, "device", None) is not None
+            and getattr(w, "device", None) is not None
+            and int(cached.device.id) != int(w.device.id)
+        ):
             cached = _to_backend_array(getattr(self, attr_name), xp, w)
             setattr(self, cache_attr, cached)
         return cached
@@ -240,7 +260,7 @@ class GroupSCADPenalty(Penalty):
         w_feat = w[:p_total]  # handle augmented intercept
         if self._is_contiguous:
             return w_feat.reshape(G, gs)
-        return w_feat[self._flat_indices].reshape(G, gs)
+        return w_feat[self._get_flat_indices(xp, w)].reshape(G, gs)
 
     def _scatter_from_flat(self, flat_vals, result, xp):
         p_total = len(flat_vals)
@@ -272,7 +292,7 @@ class GroupSCADPenalty(Penalty):
             if self._is_contiguous:
                 w_mat = coef_feat.reshape(self._n_groups, gs)
             else:
-                w_mat = coef_feat[self._flat_indices].reshape(self._n_groups, gs)
+                w_mat = coef_feat[self._get_flat_indices(xp, coef)].reshape(self._n_groups, gs)
             norms = _vector_norm(w_mat, xp, dim=1)
         else:
             norms = self._batched_group_norms_vec(coef_feat, xp, coef)
@@ -340,7 +360,7 @@ class GroupSCADPenalty(Penalty):
             if self._is_contiguous:
                 w_mat = coef_feat.reshape(G, gs)
             else:
-                w_mat = coef_feat[self._flat_indices].reshape(G, gs)
+                w_mat = coef_feat[self._get_flat_indices(xp, coef)].reshape(G, gs)
             norms = _vector_norm(w_mat, xp, dim=1)
         else:
             norms = self._batched_group_norms_vec(coef_feat, xp, coef)
@@ -529,7 +549,7 @@ class GroupSCADPenalty(Penalty):
             if self._is_contiguous:
                 w_mat = coef_feat.reshape(self._n_groups, gs)
             else:
-                w_mat = coef_feat[self._flat_indices].reshape(self._n_groups, gs)
+                w_mat = coef_feat[self._get_flat_indices(xp, coef)].reshape(self._n_groups, gs)
             norms = _vector_norm(w_mat, xp, dim=1)
         else:
             norms = self._batched_group_norms_vec(coef_feat, xp, coef)

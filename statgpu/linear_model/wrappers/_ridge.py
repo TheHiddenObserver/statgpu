@@ -22,7 +22,80 @@ from statgpu.linear_model.penalized._penalized_linear import PenalizedLinearRegr
 
 
 class Ridge(_PenalizedLinearRegression):
-    """Thin sklearn-style wrapper over ``PenalizedLinearRegression`` with L2 penalty."""
+    """L2 regression under an average weighted squared-loss objective.
+
+    With positive alpha, inference does not automatically correct shrinkage
+    bias or tuning uncertainty. Nonrobust inference uses a Student-t reference;
+    HC/HAC uses a normal reference despite the historical _tvalues name.
+
+    The optimized CPU exact fit with an intercept can suffer severe cancellation
+    when feature means dwarf their variation, for weighted and unweighted data.
+    Subtract a training-derived origin before fit and reuse it for prediction;
+    keep fit_intercept=True and do not center test rows independently. Fitting
+    success or finite reporting arrays alone do not establish a correct fit.
+
+    Parameters
+    ----------
+    alpha : float, default=1.0
+        Nonnegative L2 strength for average squared loss. The slope penalty is
+        alpha * ||coef||**2 / 2; the intercept is unpenalized.
+    fit_intercept : bool, default=True
+        Fit an intercept. Formula syntax takes precedence for formula input.
+    device : str or Device, default='auto'
+        cpu, cuda (CuPy), torch (Torch CUDA), or auto. Explicit GPU requests
+        require the selected backend; only auto may choose another backend.
+    n_jobs : int or None, default=None
+        Shared worker configuration; no parallel-fit guarantee in this wrapper.
+    gpu_memory_cleanup : bool, default=False
+        Request best-effort release of reclaimable GPU cache memory.
+    compute_inference : bool, default=True
+        Compute supported coefficient uncertainty after fitting.
+    cov_type : str, default='nonrobust'
+        nonrobust, hc0, hc1, hc2, hc3 or hac covariance.
+    hac_maxlags : int or None, default=None
+        Nonnegative HAC lag count; None uses the automatic sample-size rule.
+    max_iter : int, default=1000
+        Iterative-solver budget; exact fitting uses one solve.
+    tol : float, default=1e-4
+        Iterative convergence tolerance.
+    solver : str, default='exact'
+        Backend-neutral solver request. FISTA minimizes the same L2 objective.
+    cpu_solver : str, default='fista'
+        Deprecated compatibility argument; use solver to choose the algorithm.
+    lipschitz_L : float or None, default=None
+        Optional smooth-gradient Lipschitz bound for compatible iterative paths.
+
+    Methods
+    -------
+    fit(X=None, y=None, sample_weight=None, formula=None, data=None)
+        Fit a single response and return self; arrays or formula/data.
+    predict(X, return_cpu=True)
+        Return (n_samples,) predictions, NumPy by default even after GPU fits.
+    score(X, y, sample_weight=None)
+        Return evaluation R-squared. Use a flat host response and validate
+        evaluation weights; they are independent of fitting weights.
+    summary()
+        Print a coefficient table and return None; requires successful inference.
+    get_params(deep=True), set_params(**params)
+        Read/update constructor configuration; valid updates require refitting.
+    adjust_pvalues, combine_pvalues, bootstrap_statistic, permutation_test
+        Inherited helpers; not automatic model refits or tuning corrections.
+
+    Attributes
+    ----------
+    coef_ : numpy.ndarray of shape (n_features,)
+        Penalized prediction slopes; multi-output fitting is unsupported.
+    intercept_ : float
+        Fitted intercept, or zero when omitted.
+    n_iter_ : int
+        Iteration count; exact fitting uses one solve.
+    _params, _bse, _tvalues, _pvalues, _conf_int : numpy.ndarray or None
+        Successful inference arrays; intercept first if fitted. Vector shape
+        (k,), interval shape (k, 2), where k is the fitted parameter count.
+    rsquared, rsquared_adj, fvalue, f_pvalue, llf, aic, bic : float or None
+        Plug-in training diagnostics when their required state is available.
+        They do not automatically adjust for shrinkage or tuning uncertainty.
+    """
 
     def __init__(
         self,
@@ -63,8 +136,33 @@ class Ridge(_PenalizedLinearRegression):
     def fit(self, X=None, y=None, sample_weight=None, formula=None, data=None):
         """Fit Ridge regression model with optimized memory-efficient path.
 
-        Uses centering formulas to avoid allocating the full centered design matrix,
-        and skips expensive inference computations when ``compute_inference=False``.
+        The optimized CPU exact path avoids a centered-design allocation using
+        raw moments; large feature offsets can make that subtraction inaccurate.
+        Center using a training-derived origin when means dwarf variation and
+        apply the same origin at prediction. Disabling inference skips its work
+        but does not change that coefficient-fitting limitation.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features), default=None
+            Finite design matrix, used when formula is omitted.
+        y : array-like of shape (n_samples,), default=None
+            Single finite response vector, used when formula is omitted.
+        sample_weight : array-like of shape (n_samples,), default=None
+            Finite nonnegative analytic weights with positive total. The squared
+            loss is divided by their sum, not by the number of rows.
+        formula : str or None, default=None
+            Optional Patsy formula; do not also supply X/y. Formula parsing
+            currently replaces simultaneously supplied arrays without rejecting
+            the conflict. Formula syntax controls the intercept.
+        data : pandas.DataFrame or None, default=None
+            Formula data. Weights may describe original or retained rows and are
+            aligned positionally after formula missing-row processing.
+
+        Returns
+        -------
+        self : Ridge
+            Fitted estimator.
         """
         if (formula is not None
                 or self._get_compute_device() != Device.CPU

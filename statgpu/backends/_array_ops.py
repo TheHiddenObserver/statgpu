@@ -114,6 +114,9 @@ def _zeros(n, backend, ref_tensor=None, dtype=None):
         out_dtype = (
             dtype if dtype is not None else getattr(ref_tensor, "dtype", cp.float64)
         )
+        if ref_tensor is not None and type(ref_tensor).__module__.startswith("cupy"):
+            with cp.cuda.Device(int(ref_tensor.device.id)):
+                return cp.zeros(n, dtype=out_dtype)
         return cp.zeros(n, dtype=out_dtype)
     import torch
     device = getattr(ref_tensor, "device", "cpu") if ref_tensor is not None else "cpu"
@@ -172,6 +175,13 @@ def _to_backend(arr, backend="auto", ref_tensor=None, dtype=None):
                 out_dtype = ref_dtype
             else:
                 out_dtype = cp.float64
+        if ref_tensor is not None and type(ref_tensor).__module__.startswith("cupy"):
+            from statgpu.backends._utils import _cupy_asarray_on_device
+            return _cupy_asarray_on_device(
+                arr,
+                int(ref_tensor.device.id),
+                dtype=out_dtype,
+            )
         return cp.asarray(arr, dtype=out_dtype)
     if backend == "torch":
         import torch
@@ -297,7 +307,27 @@ def _sync_scalars(*dev_vals, backend):
         host = stacked.detach().cpu().numpy()
         return tuple(float(value) for value in host)
     import cupy as cp
-    stacked = cp.stack([cp.asarray(v) for v in dev_vals])
+    ref = next(
+        (
+            value
+            for value in dev_vals
+            if type(value).__module__.startswith("cupy")
+        ),
+        None,
+    )
+    if ref is None:
+        stacked = cp.stack([cp.asarray(value) for value in dev_vals])
+    else:
+        from statgpu.backends._utils import _cupy_asarray_on_device
+
+        device_id = int(ref.device.id)
+        with cp.cuda.Device(device_id):
+            stacked = cp.stack(
+                [
+                    _cupy_asarray_on_device(value, device_id)
+                    for value in dev_vals
+                ]
+            )
     host = cp.asnumpy(stacked)
     return tuple(float(value) for value in host)
 
@@ -425,9 +455,26 @@ def _clip_grad_on_device(grad, coef_old, backend):
     scale = cp.where(
         gn_sq > gmax * gmax,
         gmax / cp.sqrt(gn_sq + 1e-30),
-        cp.ones(1, dtype=grad.dtype),
+        cp.ones_like(gn_sq),
     )
     return grad * scale
+
+
+def _psd_spectral_upper_bound(mat):
+    """Safe deterministic upper bound for a symmetric PSD spectral radius.
+
+    Both the induced infinity norm (maximum absolute row sum) and Frobenius
+    norm dominate the spectral norm. Their minimum is therefore still an upper
+    bound, while avoiding the orthogonality failure mode of single-seed power
+    iteration. The empty 0x0 Gram has spectral radius zero.
+    """
+    if int(mat.shape[0]) == 0:
+        return 0.0
+    xp = _xp(mat)
+    row_bound = xp.max(xp.sum(xp.abs(mat), axis=1))
+    frob_bound = xp.sqrt(xp.sum(mat * mat))
+    bound = xp.minimum(row_bound, frob_bound)
+    return float(bound.item() if hasattr(bound, "item") else bound)
 
 
 def _max_eigval_power(mat, n_iter=20, tol=1e-8):
@@ -457,6 +504,13 @@ def _max_eigval_power(mat, n_iter=20, tol=1e-8):
     # eigenspace (e.g., [[1,-1],[-1,1]]).
     if xp.__name__ == "torch":
         v = xp.arange(1, p + 1, dtype=dtype, device=mat.device)
+    elif xp.__name__ == "cupy":
+        with xp.cuda.Device(int(mat.device.id)):
+            v = xp.arange(
+                1,
+                p + 1,
+                dtype=dtype if dtype is not None else xp.float64,
+            )
     elif dtype is not None:
         v = xp.arange(1, p + 1, dtype=dtype)
     else:
@@ -567,11 +621,19 @@ def _xp_asarray(arr, dtype, ref_arr):
                                   dtype=dtype, device=ref_arr.device)
         return out
     if xp.__name__ == "cupy":
-        # Convert torch dtypes to numpy for cupy compatibility
+        # Convert torch dtypes to numpy for cupy compatibility.
         if hasattr(dtype, '__module__') and 'torch' in str(getattr(dtype, '__module__', '')):
             from statgpu.backends._utils import _torch_dtype_to_np
             dtype = _torch_dtype_to_np(dtype)
-        return xp.asarray(arr, dtype=dtype)
+        # cp.asarray follows the current CUDA device for host inputs and can
+        # preserve a CuPy array on another device. This helper's contract is
+        # stronger: the result must follow ref_arr.device.
+        from statgpu.backends._utils import _cupy_asarray_on_device
+        return _cupy_asarray_on_device(
+            arr,
+            int(ref_arr.device.id),
+            dtype=dtype,
+        )
     return np.asarray(arr, dtype=dtype)
 
 

@@ -3,12 +3,14 @@
 This suite validates the assembled public website and benchmark dashboard at the
 GitHub Pages project path rather than only the Vite development server.
 
-Build the assembled site first, then run from `frontend/`:
+Run from the repository root:
 
 ```bash
 npm ci
-npx playwright install --with-deps chromium firefox webkit
-npm run test:e2e:production
+npm ci --prefix frontend
+npm run site:build
+npm exec --prefix frontend -- playwright install --with-deps chromium firefox webkit
+npm run test:e2e:production --prefix frontend
 ```
 
 The production configuration previews `.site-dist/` through VitePress and opens:
@@ -18,7 +20,8 @@ The production configuration previews `.site-dist/` through VitePress and opens:
 ```
 
 The suite runs product-level checks in Chromium, Firefox, and WebKit. It covers
-project-path asset and JSON loading, documentation navigation and MathJax,
+project-path asset and JSON loading, canonical family `README` routes, current
+API references, documentation navigation and MathJax,
 bilingual local search, the CV filter cascade and upstream reset behavior,
 keyboard/focus and accessible names, chart-data table alternatives, explicit
 empty states, preservation and provenance of failed/repaired CV evidence,
@@ -28,3 +31,8 @@ refresh behavior, and text contrast.
 Vite development server. Both suites are required by the `Website and Benchmark
 Frontend` workflow; production QA does not replace the existing regression
 suite.
+
+To run the same checks for a custom domain, rebuild with
+`STATGPU_SITE_BASE=/ npm run site:build`, then run
+`STATGPU_SITE_BASE=/ npm run test:e2e:production --prefix frontend`. The preview
+base and the artifact must match.

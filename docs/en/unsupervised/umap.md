@@ -1,18 +1,35 @@
 # UMAP
 
-> Switch: [简体中文](../../cn/unsupervised/umap.md)
-
 > Language: English
-> Last updated: 2026-07-23
+> Last updated: 2026-10-14
+> Switch: [Chinese](../../cn/unsupervised/umap.md)
 > Path: `statgpu.unsupervised.UMAP`
 
 ## Overview
 
-`UMAP` builds a fuzzy neighbor graph in the input space and optimizes a low-dimensional embedding. It supports dense exact Euclidean neighbors and an internal NNDescent neighbor-search option.
+UMAP creates a low-dimensional representation of numeric observations from their neighborhood relationships. It connects nearby observations in a weighted graph, then arranges a point for each observation in a smaller coordinate space. This gives a map to explore, rather than a reconstruction of the input features or a set of cluster labels.
 
-## Backend and Host Boundary
+For example, suppose a machine is measured by dozens of sensors under different operating conditions. You want to inspect which observations have similar sensor profiles and whether nearby profiles form a gradual progression. Plotting two sensors hides the others. UMAP builds a low-dimensional map from nearby observations across the supplied features, so you can explore these relationships in one picture. For statgpu UMAP, Euclidean distance between the prepared sensor profiles must reflect the similarity you care about.
 
-Distance evaluation, neighbor search, membership weights, embedding optimization, and negative sampling use the selected NumPy, CuPy, or Torch backend. The current fuzzy-union graph assembly is intentionally a documented host boundary: its O(n*k) edge indices and weights are copied to host memory, assembled with SciPy sparse COO/CSR operations, and copied back to the selected backend. This is not a silent CPU fallback for optimization, but it is not yet a device-native sparse-graph path. Exact neighbors also require O(n^2) dense distance memory; use `nn_method='nndescent'` to avoid that distance matrix when its approximate-neighbor trade-off is acceptable.
+UMAP first builds a neighbor graph: each observation is a point in the graph, and an edge connects it to a selected nearby observation. Each edge has a weight describing the strength of that connection. It then arranges points on the map using attraction along graph edges, scaled by their weights, and repulsion between sampled pairs of points, so the layout can spread out while keeping strong connections close. The resulting coordinates are an embedding, a low-dimensional representation with one point per observation. The aim is a useful view of neighborhood relationships; the axes do not correspond to particular input features. statgpu supports dense Euclidean input.
+
+## When to use it
+
+Use UMAP to explore how an observation's neighborhood changes as you include fewer or more neighbors. In the sensor example, points along an apparent progression are candidates to inspect in the measured variables; the picture alone cannot establish time order or a physical mechanism.
+
+- Use a raw-feature plot or [PCA](pca.md) when measured axes or a linear variance summary are enough. PCA uses a single linear projection, which can overlap parts of a curved pattern; UMAP instead builds its layout from neighbor connections. PCA also provides reconstruction and a reusable `transform`; statgpu UMAP embeds only the fitted observations.
+- Compare [t-SNE](tsne.md) when the emphasis is matching local pairwise affinities. UMAP exposes a neighbor-count choice for graph construction and separate layout controls through `min_dist` and `spread`. These are different ways to explore local structure, not a guarantee that either map preserves all global distances.
+- Do not select this implementation solely from speed or feature claims about umap-learn: statgpu uses dense exact search by default, and its graph weights and force updates differ. Matching parameter values does not imply equivalent embeddings; see the [advanced equations](#advanced-graph-and-layout-equations).
+
+## From neighborhoods to a map
+
+Let $w_{ij}\in[0,1]$ denote the symmetric strength of an input-space graph connection, and let $y_i$ be observation $i$'s map coordinates. The layout uses an affinity that decreases with map distance:
+
+$$
+q_{ij}=\left(1+a\|y_i-y_j\|^{2b}\right)^{-1},\qquad a,b>0.
+$$
+
+`n_neighbors` changes which input-space connections are considered; `min_dist` and `spread` determine the curve parameters $a,b$. Strong graph edges attract points, while sampled pairs supply repulsion. The standard UMAP formulation expresses the graph-to-map mismatch as fuzzy-set cross-entropy. Here the force updates approximate a neighborhood layout rather than exactly differentiating that objective, so use the map for exploration and check its usefulness against the input data.
 
 ## Path
 
@@ -22,35 +39,44 @@ Import from `statgpu.unsupervised`:
 from statgpu.unsupervised import UMAP
 ```
 
-## Objective Function / Loss Function
+## A small CPU example
 
-UMAP optimizes a fuzzy-set cross-entropy between high-dimensional graph weights `w_ij` and low-dimensional affinities `q_ij`:
+<!-- learner-example: umap -->
+```python
+import numpy as np
+from statgpu.unsupervised import UMAP
 
-$$
-\sum_{i,j} w_{ij}\log\frac{w_{ij}}{q_{ij}}
-+ (1-w_{ij})\log\frac{1-w_{ij}}{1-q_{ij}}.
-$$
+rng = np.random.default_rng(0)
+X = np.vstack([rng.normal(-2, 0.4, (20, 3)), rng.normal(2, 0.4, (20, 3))])
+model = UMAP(n_neighbors=5, n_epochs=20, init="random", nn_method="exact", random_state=0, device="cpu")
+embedding = model.fit_transform(X)
+print(embedding.shape, model.n_epochs_)
+```
 
-## Estimating Equation
+The embedding has shape `(40, 2)` and covers only the fitted rows. The short run illustrates the API, not optimized visualization quality. There is no new-data `transform`; retain row identifiers when matching points back to observations. The two groups were deliberately generated here, so this example does not show that UMAP can certify unknown clusters.
 
-The implementation selects `n_neighbors` with dense exact search by default (`nn_method='auto'` resolves to `exact`) or internal NNDescent when requested, symmetrizes fuzzy memberships, then performs gradient steps on the embedding.
+For a supported GPU installation, construct a new estimator with `device="cuda"` (CuPy) or `device="torch"` (Torch CUDA). Arrays generally stay on that backend; see the [API reference](api-reference.md#umap) for output ownership and host-side work. An unavailable explicit GPU raises an error.
 
 ## Parameters
 
-`n_neighbors`, `n_components`, `metric`, `min_dist`, `spread`, `n_epochs`, `learning_rate`, `init`, `negative_sample_rate`, `repulsion_strength`, `random_state`, and `device`.
+- `n_neighbors` controls neighborhood size; compare local detail with broader structure as you vary it.
+- `min_dist` and `spread` control the low-dimensional attraction curve. They do not repair an unreliable input neighbor graph.
+- `n_components` controls output dimensions; use at least two on CPU. `metric` currently supports Euclidean distance only.
+- `init="random"` with `random_state` provides seeded initialization; the spectral path has the limitation below.
+- `n_epochs` and `learning_rate` control optimization; `negative_sample_rate` and `repulsion_strength` control sampled repulsion. Supply finite numeric controls.
+- `nn_method="auto"` selects exact search. `nn_method="nndescent"` requests the internal NNDescent approximate-neighbor search but currently fails on CPU with NumPy 2. `device` selects the numerical backend; GPU fits still need host memory.
 
-## CPU+GPU Examples
+All constructor defaults and approximate-search controls are in the [API reference](api-reference.md#umap).
 
-```python
-from statgpu.unsupervised import UMAP
+## Backend and Host Boundary
 
-embedding = UMAP(n_neighbors=15, device="cpu").fit_transform(X)
-embedding_gpu = UMAP(n_neighbors=15, device="cuda").fit_transform(X_gpu)
-```
+Distance evaluation, graph weights and embedding arrays use the selected NumPy, CuPy or Torch backend. On NumPy 2, an array-dispatch limitation can additionally route CPU negative sampling through Torch CPU when Torch is installed. Fuzzy-union graph assembly uses host SciPy. GPU fits transfer O(n*k) edge indices and weights between host memory and the selected backend. Spectral initialization and attraction-curve fitting also use host SciPy. GPU fitting therefore still requires CPU computation and host memory. Exact neighbors also require O(n^2) dense distance memory; `nn_method='nndescent'` avoids that distance matrix where its approximate-neighbor path works, but currently fails on CPU with NumPy 2.
 
-## Strict/Approx Difference
+## Approximation and interpretation
 
-`nn_method='exact'` is exact for dense Euclidean neighbor search. `nn_method='nndescent'` is approximate and backend-aware. Both modes use the SciPy host-side fuzzy-union boundary described above; a fully device-native sparse graph pipeline is planned but not yet implemented.
+`nn_method='exact'` exhaustively searches dense Euclidean neighbors using float32 distance arithmetic; rounding can affect near-ties. `nn_method='nndescent'` is approximate and backend-aware. Both modes use the SciPy host-side fuzzy-union boundary described above; graph assembly therefore needs host memory.
+
+Compare several random seeds, neighborhood sizes, and layout settings before interpreting a pattern. Check apparent neighbors and any proposed group boundaries in the original features; a denser-looking island after changing `min_dist` is not new evidence of a denser population. The [UMAP authors' clustering guidance](https://umap-learn.readthedocs.io/en/latest/clustering.html) warns that UMAP can distort density and introduce apparent breaks within a cluster. Distances between separate islands, their areas, and their apparent continuity are not calibrated measurements of population separation, prevalence, or a physical trajectory. If cluster membership matters, validate that claim separately rather than counting islands.
 
 ## Outputs
 
@@ -60,13 +86,62 @@ embedding_gpu = UMAP(n_neighbors=15, device="cuda").fit_transform(X_gpu)
 
 Sparse input, non-Euclidean metrics, and new-data `transform` are not supported. Approximate neighbors are available through `nn_method='nndescent'`; graph assembly still requires SciPy and host memory.
 
-## External Validation
 
-Tests: `dev/tests/test_unsupervised_umap.py`.
-Benchmark: `dev/benchmarks/benchmark_unsupervised_phase3.py`.
-Baseline: `umap-learn`, plus cuML UMAP if available remotely.
+## Current restrictions
+
+- `nn_method="auto"` always selects exact search. CPU `nn_method="nndescent"` currently fails with NumPy 2; use exact search there.
+- CPU `n_components=1` currently fails during force accumulation; use at least two dimensions.
+- The sparse `init="spectral"` path can retain a constant graph eigenvector instead of one of the requested nontrivial directions. The eigensolver starting vector is not controlled by `random_state`; use `init="random"` when seeded initialization matters.
+- Large common feature offsets can destroy small separations during float32 conversion and expanded-distance evaluation. Center features in float64 before fitting; finite output alone does not establish that the neighbor graph is reliable.
+- Very large pairwise distances can cause exact search to select an observation as its own neighbor, leaving too few distinct neighbors after self-edges are removed. Center in float64, then divide every feature by one common positive scale computed from the training data so coordinates have moderate magnitudes. Reuse the offset and scale for comparable data; a common scale preserves Euclidean neighbor ordering, whereas separate per-feature scales change the metric. Centering alone does not address this restriction.
+- Supply finite numeric controls; non-finite learning rates are not reliably rejected and can produce invalid embeddings.
+
+## Advanced: graph and layout equations
+
+### Objective Function / Loss Function
+
+The standard UMAP reference objective is fuzzy-set cross-entropy between high-dimensional graph weights `w_ij` and low-dimensional affinities `q_ij`:
+
+$$
+\sum_{i<j}\left[
+w_{ij}\log\frac{w_{ij}}{q_{ij}}
++ (1-w_{ij})\log\frac{1-w_{ij}}{1-q_{ij}}
+\right].
+$$
+
+The sum is over distinct unordered observation pairs; self-pairs are excluded. Terms with zero numerator weight contribute zero by continuity. Here $q_{ij}=(1+a\|y_i-y_j\|^{2b})^{-1}$ with positive curve parameters $a,b$ determined from `min_dist` and `spread`. This is a reference objective, not a claim that the current force updates minimize it exactly.
+
+### Estimating Equation
+
+The implementation selects `n_neighbors` with dense exact search by default (`nn_method='auto'` resolves to `exact`) or internal NNDescent when requested, symmetrizes fuzzy memberships, then applies attractive and sampled repulsive force updates. These updates are not the exact gradient of the standard cross-entropy above, so do not interpret this implementation as numerically equivalent to umap-learn.
+
+#### Graph weights
+
+For the sorted distances $d_{i1},\ldots,d_{ik}$ to the selected neighbors, this implementation uses
+
+$$
+\rho_i=d_{i1},\qquad
+\sigma_i=\max\left(\frac{1}{k}\sum_{j=1}^{k}\max(d_{ij}-\rho_i,0),10^{-12}\right),
+\qquad
+v_{ij}=\exp\left(-\frac{\max(d_{ij}-\rho_i,0)}{\sigma_i}\right).
+$$
+
+Unselected directed edges have weight zero. The symmetric graph uses the fuzzy union $w_{ij}=v_{ij}+v_{ji}-v_{ij}v_{ji}$ and removes self-edges. A duplicate neighbor can make $\rho_i=0$.
+
+This is a mean-excess-distance bandwidth rule. It does not solve the local membership-sum calibration used by umap-learn's `smooth_knn_dist`, so graph weights can differ even with the same neighbors and before optimization begins. `min_dist` and `spread` control the low-dimensional attraction curve; they do not change this high-dimensional graph calculation. Changing them is not a way to repair a poor neighbor graph.
+
+### Layout force updates
+
+Each epoch draws `n_samples * negative_sample_rate` uniform source/target pairs for repulsion, rather than sampling separately for every attractive edge.
+
+The affinity curve is $q_{ij}=(1+a\,r_{ij}^{b})^{-1}$ with $r_{ij}=\|y_i-y_j\|^2$. The current attractive contribution is proportional to $w_{ij}q_{ij}(y_i-y_j)$ and the sampled repulsive contribution to $q_{ij}^2(y_i-y_j)$. The standard cross-entropy gradient has additional distance-dependent factors. Treat the output as an approximate neighborhood layout and check its usefulness directly.
+
+## Complete API reference
+
+Constructor defaults, all public methods, output shapes, and restrictions are listed in the [UMAP API reference](api-reference.md#umap).
 
 ## References
 
-- McInnes, L., Healy, J., & Melville, J. (2018). UMAP: Uniform Manifold Approximation and Projection for Dimension Reduction. *arXiv:1802.03426*.
-- umap-learn developers. UMAP API documentation.
+- McInnes, L., Healy, J., & Melville, J. (2018). [UMAP: Uniform Manifold Approximation and Projection for Dimension Reduction](https://arxiv.org/abs/1802.03426). *arXiv:1802.03426*.
+- umap-learn developers. [Basic UMAP Parameters](https://umap-learn.readthedocs.io/en/latest/parameters.html) and [Using UMAP for Clustering](https://umap-learn.readthedocs.io/en/latest/clustering.html). These describe the reference implementation; statgpu's differences are explained above.
+- umap-learn developers. [`smooth_knn_dist` source reference](https://umap-learn.readthedocs.io/en/latest/_modules/umap/umap_.html#smooth_knn_dist).

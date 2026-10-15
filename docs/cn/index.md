@@ -15,7 +15,7 @@ hero:
       link: /cn/getting-started/quickstart
     - theme: alt
       text: 浏览模型
-      link: /cn/models/
+      link: /cn/models/README
     - theme: alt
       text: 打开基准面板
       link: /dashboard/
@@ -25,7 +25,7 @@ features:
   - title: 不只介绍 API，也讲清方法
     details: 模型文档说明适用场景、直观原理与假设，并提供可运行示例、结果解读和常见误区。
   - title: 明确的 CPU 与 GPU 行为
-    details: 可在 CPU 上使用 NumPy，或在 CUDA 上使用 CuPy 与 PyTorch；显式请求 GPU 时不会静默回退到 CPU。
+    details: 可在 CPU 上使用 NumPy，或在 CUDA 上使用 CuPy 与 PyTorch。显式 GPU 拟合需要相应的 CUDA 后端；各方法的主机计算与结果返回边界见设备指南。
   - title: 可以核查的性能证据
     details: 在基准面板中查看版本化测试结果、硬件环境、验证状态和数据来源。
 ---
@@ -35,7 +35,7 @@ features:
 | 我想要…… | 从这里开始 |
 |---|---|
 | 运行第一个模型 | [快速上手](getting-started/quickstart.md) |
-| 选择合适的统计方法 | [模型目录](models/) |
+| 选择合适的统计方法 | [模型目录](models/README.md) |
 | 查看当前已实现能力 | [已实现方法](guides/implemented-methods.md) |
 | 选择或理解求解器 | [求解器算法](guides/solver-algorithms.md)与[兼容性矩阵](guides/solver-penalty-matrix.md) |
 | 配置 CPU、CUDA 或 Torch | [设备与显存指南](guides/device-and-memory.md) |
@@ -44,9 +44,9 @@ features:
 
 ## 主要内容
 
-- [回归与统计模型](models/)
-- [无监督学习](unsupervised/)
-- [面板数据模型](panel/)
+- [回归与统计模型](models/README.md)
+- [无监督学习](unsupervised/README.md)
+- [面板数据模型](panel/README.md)
 - [交叉验证](guides/cross-validation.md)
 - [更新日志](changelog.md)
 

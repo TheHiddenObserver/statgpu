@@ -15,7 +15,7 @@ hero:
       link: /en/getting-started/quickstart
     - theme: alt
       text: Browse models
-      link: /en/models/
+      link: /en/models/README
     - theme: alt
       text: Open benchmark dashboard
       link: /dashboard/
@@ -25,7 +25,7 @@ features:
   - title: Learn the method, not just the API
     details: Model guides explain when to use a method, its intuition and assumptions, a runnable example, result interpretation, and common pitfalls.
   - title: CPU and GPU with explicit behavior
-    details: Use NumPy on CPU or CuPy and PyTorch on CUDA. Explicit GPU requests never silently fall back to CPU.
+    details: Use NumPy on CPU or CuPy and PyTorch on CUDA. Explicit GPU fits require the corresponding CUDA backend; method-specific host and reporting boundaries are explained in the device guide.
   - title: Evidence you can inspect
     details: Explore versioned benchmarks, validation results, hardware metadata, and source provenance in the dashboard.
 ---
@@ -35,7 +35,7 @@ features:
 | I want to... | Start here |
 |---|---|
 | run my first model | [Quickstart](getting-started/quickstart.md) |
-| choose a statistical method | [Model catalog](models/) |
+| choose a statistical method | [Model catalog](models/README.md) |
 | check what is implemented | [Implemented methods](guides/implemented-methods.md) |
 | choose or understand a solver | [Solver algorithms](guides/solver-algorithms.md) and [compatibility matrix](guides/solver-penalty-matrix.md) |
 | configure CPU, CUDA, or Torch | [Device and memory guide](guides/device-and-memory.md) |
@@ -44,9 +44,9 @@ features:
 
 ## Main areas
 
-- [Regression and statistical models](models/)
-- [Unsupervised learning](unsupervised/)
-- [Panel-data models](panel/)
+- [Regression and statistical models](models/README.md)
+- [Unsupervised learning](unsupervised/README.md)
+- [Panel-data models](panel/README.md)
 - [Cross-validation](guides/cross-validation.md)
 - [Changelog](changelog.md)
 

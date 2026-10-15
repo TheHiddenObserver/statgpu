@@ -142,6 +142,14 @@ class TestRegistry:
 
 # ── 3. QuantileLoss ────────────────────────────────────────────────────
 
+@pytest.mark.parametrize("bad_quantile", ["0.5", True, np.nan, 0.0, 1.0])
+def test_quantile_loss_rejects_invalid_quantile_with_value_error(bad_quantile):
+    from statgpu.losses import QuantileLoss
+
+    with pytest.raises(ValueError, match="finite real number in"):
+        QuantileLoss(quantile=bad_quantile)
+
+
 class TestQuantileLoss:
     """Test QuantileLoss (pinball loss)."""
 

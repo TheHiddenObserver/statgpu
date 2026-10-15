@@ -1,12 +1,44 @@
-# 小批量非负矩阵分解（MiniBatchNMF）
+# MiniBatchNMF
 
 > 语言：中文
-> 最后更新：2026-05-07
-> English: [English](../../en/unsupervised/minibatch-nmf.md)
+> 最后更新：2026-10-14
+> 切换：[English](../../en/unsupervised/minibatch-nmf.md)
 
 ## 概览
 
-`MiniBatchNMF` 从 dense mini-batches 中拟合非负低秩分解。Phase 3C 支持 Frobenius loss 和 MU-style mini-batch update，覆盖 CPU、CuPy/CUDA 和 Torch CUDA。
+MiniBatchNMF 用指定数量的共享基本模式，近似一张非负数据表。输入的每一行是一条样本，每一列是一个特征。它学习两张非负表：`H` 的每一行是一个基本模式，记录该模式在所有特征上的数值；`W` 的每一行对应一个样本，记录该样本给各个模式乘多大的系数。把各模式乘以样本自己的系数再相加，就得到该样本的近似重构。写成矩阵形式，就是用 `W @ H` 近似 `X`。
+
+若有 `n` 个样本、`p` 个特征和 `k` 个模式，`X` 的形状为 `(n, p)`，`H` 为 `(k, p)`，`W` 为 `(n, k)`。两张学到的表都只能包含零或正数，因此各项贡献相加，不会正负抵消；系数不必加起来等于 1。模式不一定对应真实的物理组成部分，分解也不一定唯一。
+
+MiniBatchNMF 分批学习这些共享模式，不像 [NMF](nmf.md) 那样从全部观测一起更新。使用 `partial_fit` 时，先求当前批次的系数，再累计摘要统计量并更新模式，不必每次重新读取全部历史样本。相比之下，`fit` 在完整遍历一轮输入批次期间固定模式，整轮结束后才更新。模式改变时，旧系数不会自动更新；训练结束后，应使用最终模式，对需要比较的样本重新调用 `transform`。
+
+### 示例：两个基本光谱
+
+假设测了 60 份样品，每份都记录相同 5 个波长的光强。这里 `X` 的形状为 `(60, 5)`，基本模式就是光谱。我们想用两个基本光谱 A 和 B 来近似这些强度，而不是把每份样品硬分成某一种类型。`H` 有 2 行、5 列，两行分别记录 A 和 B；`W` 有 60 行、2 列，每行记录一份样品的两个系数。
+
+例如，设 A 为 `[1, 0, 2, 0, 1]`，B 为 `[0, 2, 0, 2, 1]`。某份样品的系数为 `[2, 0.5]`，近似强度就是 `2*A + 0.5*B = [2, 1, 4, 1, 2.5]`。将这 5 个重构强度与该样品的实测值比较，就能检查近似得好不好。这组数只用于演示乘法，不是对实际拟合结果的保证。
+
+<!-- worked-example: nonnegative-spectra -->
+```python
+import numpy as np
+
+H = np.array([[1., 0., 2., 0., 1.], [0., 2., 0., 2., 1.]])
+w = np.array([2., 0.5])
+x_hat = w @ H
+print(x_hat)  # [2.  1.  4.  1.  2.5]
+```
+
+系数是乘数，不是基本光谱的个数，也不是概率。这里 `n_components=2` 才表示有两个基本光谱，样品对它们的系数分别是 2 和 0.5，不必加起来等于 1。学到的基本光谱不一定就是实际存在的纯物质。一般来说，基本模式组成的表也称为字典，样本系数也称为激活系数。
+
+在这个示例中，每批新样品仍测相同的 5 个波长；更新共享模式，就是更新当前 A 和 B。
+
+基本光谱会改变，因此昨天的“2 倍 A”和今天的“2 倍 A”可能表示不同的强度。例如，A 放大一倍而样品不变时，与之匹配的系数就要减半。因此，需要比较的样品必须使用同一套最终基本光谱来计算系数。
+
+## 何时使用
+
+需要逐批拟合，或持续接收稠密非负观测时，可选择 MiniBatchNMF。数据规模可控时，可用 [NMF](nmf.md) 作为整体拟合的参照，在相同秩和预处理下比较重构效果。如果关注的是相对均值的正负变化，而非非负模式相加，[IncrementalPCA](incremental-pca.md) 对应的是前一种目标。
+
+各批应保持相同的特征含义、单位和秩。当前增量更新累积历史统计量而不设置遗忘因子，因此新批次不会自动替代旧的运行状态。应从有代表性的数据开始，并覆盖预计会出现正值的特征；早期批次只覆盖数据的一小部分时，尤其要注意后文的全零特征初始化限制。
 
 ## 导入路径
 
@@ -14,18 +46,23 @@
 from statgpu.unsupervised import MiniBatchNMF
 ```
 
+当前估计器支持 CPU、CuPy/CUDA 与 Torch CUDA 上的稠密输入。
+
 ## 目标函数 / 损失函数
 
-在非负约束下，模型最小化 Frobenius reconstruction loss 的 mini-batch 近似：
+在非负约束下，模型最小化 Frobenius 重构损失的逐批近似：
 
 $$
 \min_{W \ge 0,\; H \ge 0}
 \frac{1}{2}\left\|X - WH\right\|_F^2 .
 $$
 
-## 估计方程
+<a id="估计方程"></a>
+## 拟合步骤与更新公式
 
-每个 batch 中，`MiniBatchNMF` 先固定当前 `H` 更新 batch activations `W_batch`，再用乘法更新公式更新 `H`：
+每批用紧凑的统计量概括当前估计的激活与观测之间的关系，再用这些摘要指导字典更新。
+
+每一批中，`MiniBatchNMF` 先固定 `H`，近似求解该批的激活 `W_batch`。`fit` 会在一整轮数据内固定 `H`，累加 `A = sum(W_batch.T @ W_batch)` 和 `B = sum(W_batch.T @ X_batch)`，再更新 `H`；`partial_fit` 则跨调用累加这些统计量。这里的统计矩阵 `A`、`B` 不是开头示例中名为 A、B 的两个基本光谱。基本乘性更新形式如下：
 
 $$
 W \leftarrow W \odot \frac{XH^\top}{WHH^\top + \epsilon},
@@ -35,24 +72,91 @@ $$
 
 ## 参数
 
-- `n_components`：分解秩；`None` 使用 `min(n_samples, n_features)`。
-- `init`：v1 支持 `"random"`。
+- `n_components`：基本模式的个数，重构矩阵的秩不超过这个数；为 `None` 时使用 `min(n_samples, n_features)`。
+- `init`：支持 `"random"`。
 - `batch_size`、`max_iter`、`tol`、`random_state`。
 - `device`：`"auto"`、`"cpu"`、`"cuda"` 或 `"torch"`。
 
-## CPU+GPU 示例
+`fit` 会先接收并转换完整输入数组，再进入内部批次循环。外部数据流需要由调用方读取稠密批次并传给 `partial_fit`；估计器不会自动读取文件，也不支持稀疏输入。训练后比较观测时，应通过 `transform` 在最终字典下计算激活，不要假设它与拟合时的更新求解完全相同。
 
+## 一个可独立运行的 CPU 示例
+
+<!-- learner-example: minibatch-nmf -->
 ```python
+import numpy as np
 from statgpu.unsupervised import MiniBatchNMF
 
-nmf = MiniBatchNMF(n_components=8, batch_size=1024, max_iter=50, random_state=0, device="torch")
-W = nmf.fit_transform(X)
-X_hat = nmf.inverse_transform(W)
+rng = np.random.default_rng(0)
+X = rng.uniform(0.1, 1.0, (60, 2)) @ rng.uniform(0.1, 1.0, (2, 5))
+model = MiniBatchNMF(n_components=2, random_state=0, device="cpu")
+for start in range(0, len(X), 15):
+    model.partial_fit(X[start:start + 15])
+W = model.transform(X)
+X_hat = model.inverse_transform(W)
+print(W.shape, model.components_.shape, np.linalg.norm(X - X_hat))
 ```
 
-## strict/approx 差异
+沿用前面的光谱示例，`components_[0]` 和 `components_[1]` 分别是学到的基本光谱 A 和 B，各含 5 个强度；`W[i]` 是第 `i` 份样品的两个系数。因此 `W` 为 `(60, 2)`，`components_` 为 `(2, 5)`，`W @ model.components_` 得到全部 60 份样品的 `(60, 5)` 重构强度表。`W` 的行顺序与 `X` 一致，包括早先批次的样品，所有行都使用最终基本光谱。`partial_fit` 后的 `reconstruction_err_` 只描述该批次及拟合时的因子；上例另外计算的全数据重构误差含义不同。
 
-MiniBatchNMF 是非凸且依赖 batch order 的近似分解方法，目标是可扩展 factorization，不提供 strict statistical inference。
+安装了相应 GPU 后端后，可新建估计器并指定 `device="cuda"`（CuPy）或 `device="torch"`（Torch CUDA）。数组通常留在该后端；输出所在设备及主机端步骤见 [API 参考](api-reference.md#minibatchnmf)。显式请求的 GPU 不可用时会报错。
+
+## 首批中全零特征的限制
+
+如果某个特征在首次 `partial_fit` 的整个批次中都为零，字典中对应的整列可能被更新为零。当前乘性更新无法用后续正值重新激活这一列。首批全部为零时，整个字典都可能锁定在零；增大 `max_iter` 或调整 `tol` 不能修复这种状态。
+
+初始化前应缓冲一批有代表性的数据，使预计会出现正值的每个特征都得到覆盖。如果后续批次出现了字典全零列无法表示的新特征，应新建估计器，用包含该特征的代表性保留数据重新拟合。不要为了绕过限制而随意给数据加正偏移，这会改变分解问题本身。
+
+下面先合并两个批次再初始化，可避开全零字典列的问题，但不保证已收敛或得到最优分解。
+
+<!-- learner-example: minibatch-nmf-warmup -->
+```python
+import numpy as np
+from statgpu.unsupervised import MiniBatchNMF
+
+first = np.array([[1., 0.], [2., 0.], [3., 0.]])
+second = np.array([[1., 1.], [2., 2.], [3., 3.]])
+warmup = np.vstack([first, second])
+if np.any(np.all(warmup == 0, axis=0)):
+    raise ValueError("Buffer more representative rows before initialization")
+model = MiniBatchNMF(n_components=1, random_state=0, device="cpu")
+model.partial_fit(warmup)
+reconstructed = model.inverse_transform(model.transform(second))
+print("active dictionary columns:", np.any(model.components_ > 0, axis=0))
+print("reconstructed second feature:", reconstructed[:, 1])
+```
+
+此时字典两列均有正值，第二个特征的重构也为正。若不缓冲，而是依次对 `first`、`second` 调用 `partial_fit`，第二个特征的重构会始终为零。数据流发生变化时，应逐特征检查重构效果。
+
+## 极小数值单位
+
+固定绝对稳定项也可能在 `fit` 和 `partial_fit` 中淹没数值极小的正观测。按 `1e-12` 尺度表示的精确秩一矩阵，即使每批的所有特征均为正，也可能重构成几乎全零。这与上面的全零特征初始化限制不同；仅缓冲正值行还不够。增加 `max_iter` 或设置 `tol=0` 也不能解决。
+
+应从有代表性的缓冲训练行中选定一个有限正尺度，所有批次及后续 `transform` 都复用它。把每个特征除以同一个尺度，再将 `inverse_transform` 输出乘回该尺度以恢复原始单位。统一缩放保持非负性，只给 Frobenius 目标乘上同一个常数；逐特征缩放会改变目标中各特征的权重。不要添加偏移。字典的单位解释见 [NMF 的输入单位说明](nmf.md#极小数值单位)。
+
+<!-- learner-example: minibatch-nmf-units -->
+```python
+import numpy as np
+from statgpu.unsupervised import MiniBatchNMF
+
+first = 1e-12 * np.array([[1., 2.], [2., 4.]])
+second = 1e-12 * np.array([[3., 6.], [4., 8.]])
+scale = float(first.max())
+if not np.isfinite(scale) or scale <= 0:
+    raise ValueError("Choose a finite positive training scale")
+model = MiniBatchNMF(n_components=1, random_state=5, device="cpu")
+for batch in (first, second):
+    model.partial_fit(batch / scale)
+X = np.vstack([first, second])
+W = model.transform(X / scale)
+X_hat = model.inverse_transform(W) * scale
+print("相对重构误差：", np.linalg.norm(X - X_hat) / np.linalg.norm(X))
+```
+
+这两个正值成比例的批次可得到接近零的相对误差。此处固定尺度有效，是因为两批数值量级相近；它不能保证任意数据流或动态范围都可靠。应检查相对误差和逐特征误差，不要只依赖绝对 `reconstruction_err_` 很小。
+
+## 近似与解释边界
+
+`MiniBatchNMF` 是非凸的近似分解方法；`partial_fit` 的结果依赖批次顺序，而普通 `fit` 会汇总一整轮数据的统计量后再更新成分。它面向可扩展的矩阵分解，不提供标准误或显著性检验。
 
 ## 输出字段
 
@@ -62,23 +166,24 @@ MiniBatchNMF 是非凸且依赖 batch order 的近似分解方法，目标是可
 - `n_components_`
 - `n_features_in_`
 
-## 常见问题
+## FAQ
 
-**v1 支持负数或 sparse input 吗？**
-不支持。输入必须是 dense 且非负。
+**支持负数或稀疏输入吗？**
+不支持稀疏输入。`fit`、`partial_fit`、`fit_transform`、`transform` 和 `predict` 要求观测值非负。`inverse_transform` 只将传入坐标乘以 `components_`，允许负坐标，也可能返回负值；需要非负重构时，应传入非负因子。
 
-**v1 支持 CD solver 或其他 beta loss 吗？**
-不支持。Phase 3C 仅支持 MU-style update 和 Frobenius loss。
+**支持坐标下降（CD）求解器或其他 beta 损失吗？**
+不支持。仅支持乘性更新（MU）和 Frobenius 损失。
 
-## 外部验证
 
-- 测试：`dev/tests/test_unsupervised_minibatch_nmf.py`。
-- Benchmark：`dev/benchmarks/benchmark_unsupervised_phase3c.py`。
-- 最新远程 artifact：`results/unsupervised_phase3c_opt7_20260507_185500.json`。
-- Baseline：sklearn `MiniBatchNMF`，对齐 rank、batch size、初始化和迭代次数。
+## 完整 API 参考
+
+构造默认值、全部公开方法、输出形状与限制见 [MiniBatchNMF API 参考](api-reference.md#minibatchnmf)。
+
+<a id="references"></a>
 
 ## 参考文献
 
 - Lee, D. D., & Seung, H. S. (2001). Algorithms for non-negative matrix factorization. *Advances in Neural Information Processing Systems*, 13.
 - Cichocki, A., Zdunek, R., Phan, A. H., & Amari, S.-I. (2009). *Nonnegative Matrix and Tensor Factorizations: Applications to Exploratory Multi-way Data Analysis and Blind Source Separation*. Wiley.
 - scikit-learn Developers. `sklearn.decomposition.MiniBatchNMF`. scikit-learn documentation. https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.MiniBatchNMF.html
+- Lee, D. D., & Seung, H. S. (1999). Learning the parts of objects by non-negative matrix factorization. *Nature*, 401(6755), 788-791. https://doi.org/10.1038/44565

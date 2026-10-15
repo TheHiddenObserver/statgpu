@@ -9,6 +9,9 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'scripts/**'
+      - 'dev/validation/check_docs_contracts.py'
+      - 'dev/validation/fix_docs_links.py'
+      - 'dev/tests/test_website_source_routes.py'
       - 'docs/**'
       - 'frontend/**'
       - 'dev/benchmarks/**'
@@ -33,6 +36,9 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'scripts/**'
+      - 'dev/validation/check_docs_contracts.py'
+      - 'dev/validation/fix_docs_links.py'
+      - 'dev/tests/test_website_source_routes.py'
       - 'docs/**'
       - 'frontend/**'
       - 'dev/benchmarks/**'
@@ -62,6 +68,11 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install validation dependencies
         run: python -m pip install -U pip pytest 'jsonschema[format]'
+      - name: Validate documentation links and website routes
+        run: |
+          python dev/validation/check_docs_contracts.py
+          python dev/validation/fix_docs_links.py --check
+          pytest dev/tests/test_website_source_routes.py -v
       - name: Run generator and parser tests
         run: |
           pytest \
@@ -110,6 +121,10 @@ jobs:
           python -m pip install 'jsonschema[format]'
           npm ci
           npm ci --prefix frontend
+      - name: Test documentation search and source-link integration
+        run: |
+          npm run test:search
+          npm run test:site-links
       - name: Generate deployment benchmark bundle
         run: |
           python dev/benchmarks/generate_benchmark_data.py \

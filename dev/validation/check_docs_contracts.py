@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate release-facing Markdown links and documentation contracts."""
+"""Validate links and bounded documentation contracts, not all prose semantics."""
 
 from __future__ import annotations
 
@@ -60,6 +60,26 @@ HISTORICAL_PARTS = (
     "history",
 )
 
+# Deliberately scoped to the cleaned CV layers. These patterns catch known
+# audience regressions; they cannot replace a full editorial/semantic review.
+CV_AUDIENCE_PATHS = {
+    f"docs/{language}/guides/{page}.md"
+    for language in ("en", "cn")
+    for page in ("cross-validation", "cross-validation-design")
+}
+CV_PRIVATE_IDENTIFIERS = (
+    "_effective_cv_device", "_array_identity_token", "_compute_cv_scores",
+    "_make_lasso_cv_auto_cache_key", "STATGPU_LASSO_CV_CACHE_SIZE",
+)
+MAINTAINER_INSTRUCTION_RE = re.compile(
+    r"\b(?:maintainers?|contributors?|developers?)\s+"
+    r"(?:should|must|need to)\b.{0,220}"
+    r"\b(?:tests?|testing|fixtures?|ci|review|approv\w*)\b"
+    r"|(?:维护者|开发者|贡献者).{0,40}(?:应当|应该|必须|需要|应)"
+    r".{0,180}(?:测试|回归|CI|审批|审查|夹具)",
+    re.IGNORECASE,
+)
+
 SKIP_SCHEMES = (
     "http://",
     "https://",
@@ -102,26 +122,31 @@ def iter_link_targets(text: str) -> list[str]:
 
 
 def validate_links(path: Path, text: str) -> list[str]:
-    """Validate source-relative links without reimplementing site routing.
-
-    Root-absolute targets such as ``/en/...``, ``/cn/...`` and ``/dashboard/``
-    are deployment routes, not repository paths. They are validated against the
-    assembled VitePress/dashboard artifact by ``scripts/verify-site.mjs``. This
-    source-level contract checker deliberately owns only links whose targets can
-    be resolved unambiguously in the repository tree.
-    """
     errors: list[str] = []
     for raw_target in iter_link_targets(text):
         target = normalize_link_target(raw_target)
         if not target or target.startswith(("#",) + SKIP_SCHEMES):
             continue
 
-        if target.startswith("/"):
-            # Site-root routes are validated after VitePress clean-URL routing,
-            # base-path rewriting, and dashboard assembly have been applied.
+        if target in ("/dashboard", "/dashboard/",
+                      "/dashboard/data/benchmark_data.json",
+                      "/dashboard/data/parse_report.json",
+                      "/dashboard/data/source_inventory.json"):
+            # The independent dashboard app is assembled after VitePress.
+            # Its actual output is checked by scripts/verify-site.mjs.
             continue
-
-        resolved = (path.parent / target).resolve()
+        if target.startswith(("/en/", "/cn/")):
+            resolved = (ROOT / "docs" / target.lstrip("/")).resolve()
+            if target.endswith("/"):
+                resolved = resolved / "index.md"
+            elif not resolved.suffix:
+                resolved = resolved.with_suffix(".md")
+        elif target.startswith("/images/"):
+            resolved = (ROOT / "docs" / "public" / target.lstrip("/")).resolve()
+        elif target.startswith("/"):
+            resolved = (ROOT / target.lstrip("/")).resolve()
+        else:
+            resolved = (path.parent / target).resolve()
 
         try:
             resolved.relative_to(ROOT)
@@ -160,9 +185,30 @@ def is_historical(rel: str) -> bool:
     return any(part in normalized for part in HISTORICAL_PARTS)
 
 
+def validate_cv_audience(path: Path, text: str) -> list[str]:
+    """Reject a narrow set of private identifiers and maintainer instructions.
+
+    API names, statistical explanations, code examples and ordinary warnings
+    are not subject to a general word ban. Passing is not an audience verdict.
+    """
+    rel = path.relative_to(ROOT).as_posix()
+    if rel not in CV_AUDIENCE_PATHS:
+        return []
+    errors = [
+        f"{rel}: private CV implementation identifier: {token}"
+        for token in CV_PRIVATE_IDENTIFIERS if token in text
+    ]
+    prose = re.sub(r"<!--.*?-->", "", strip_fenced_code(text), flags=re.DOTALL)
+    for paragraph in re.split(r"\n\s*\n", prose):
+        match = MAINTAINER_INSTRUCTION_RE.search(" ".join(paragraph.split()))
+        if match:
+            errors.append(f"{rel}: maintainer workflow in public CV prose: {match.group(0)!r}")
+    return errors
+
+
 def validate_content(path: Path, text: str) -> list[str]:
     rel = path.relative_to(ROOT).as_posix()
-    errors: list[str] = []
+    errors = validate_cv_audience(path, text)
     for banned in BANNED_TEXT.get(rel, ()):
         if banned in text:
             errors.append(f"{rel}: banned release-facing text remains: {banned!r}")

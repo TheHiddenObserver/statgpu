@@ -225,13 +225,17 @@ def _normalize_weights_parameter(weights, n_groups):
     if weights is None:
         return None
     raw = np.asarray(_weights_to_numpy(weights))
-    if raw.dtype.kind in ("b", "S", "U"):
+    if raw.dtype.kind in ("b", "S", "U", "c"):
         raise TypeError("group weights must be a one-dimensional numeric array")
     if raw.dtype.kind == "O":
         for value in raw.ravel():
             if isinstance(value, (bool, np.bool_)) or not isinstance(
                 value, (Real, np.number)
             ):
+                raise TypeError(
+                    "group weights must be a one-dimensional numeric array"
+                )
+            if np.iscomplexobj(value):
                 raise TypeError(
                     "group weights must be a one-dimensional numeric array"
                 )
@@ -339,6 +343,23 @@ class AdaptiveGroupLassoPenalty(
             self._group_weights_cupy = cached
         return cached
 
+    def proximal(self, w, step: float, backend: str = "numpy"):
+        """Apply the adaptive group proximal map with canonical group layout.
+
+        Keep NumPy/CuPy/Torch on the same gather/scatter implementation so
+        non-contiguous public groups use the precomputed flat-index mapping in
+        every numerical method.
+        """
+        if self._group_indices is None:
+            raise ValueError("groups must be set before calling proximal()")
+        if backend == "cupy":
+            import cupy as xp
+        elif backend == "torch":
+            import torch as xp
+        else:
+            xp = np
+        return self._proximal_vectorized(w, step, xp)
+
     def _weighted_group_components(self, coef):
         if self._group_indices is None:
             raise ValueError("groups must be set before evaluating the penalty")
@@ -350,7 +371,8 @@ class AdaptiveGroupLassoPenalty(
             if self._is_contiguous:
                 grouped = coef_feat.reshape(self._n_groups, gs)
             else:
-                grouped = coef_feat[self._flat_indices].reshape(
+                flat_idx = self._get_flat_indices(xp, coef)
+                grouped = coef_feat[flat_idx].reshape(
                     self._n_groups, gs
                 )
             norms = _group_lasso_impl._vector_norm(grouped, xp, dim=1)
@@ -359,9 +381,7 @@ class AdaptiveGroupLassoPenalty(
         sqrt_pg = self._get_sqrt_pg(xp, coef)
         weights = self._get_group_weights(xp, coef)
         if weights is None:
-            weights = xp.ones(self._n_groups, dtype=coef.dtype)
-            if xp.__name__ == "torch":
-                weights = weights.to(device=coef.device)
+            weights = xp.ones_like(sqrt_pg, dtype=coef_feat.dtype)
         return xp, coef_feat, norms, sqrt_pg, weights
 
     def value(self, coef) -> float:
@@ -390,14 +410,16 @@ class AdaptiveGroupLassoPenalty(
             if self._is_contiguous:
                 grouped = coef_feat.reshape(self._n_groups, gs)
             else:
-                grouped = coef_feat[self._flat_indices].reshape(
+                flat_idx = self._get_flat_indices(xp, coef)
+                grouped = coef_feat[flat_idx].reshape(
                     self._n_groups, gs
                 )
             grad_grouped = grouped * scale_g[:, None]
             if self._is_contiguous:
                 grad[: coef_feat.shape[0]] = grad_grouped.reshape(-1)
             else:
-                grad[self._flat_indices] = grad_grouped.reshape(-1)
+                flat_idx = self._get_flat_indices(xp, grad)
+                grad[flat_idx] = grad_grouped.reshape(-1)
             return grad
 
         feat_idx = self._get_cached("_group_feat_idx", xp, coef)

@@ -83,6 +83,18 @@ class ParameterInferenceResult(BaseInferenceResult):
         self.conf_int = _to_numpy_or_none(self.conf_int)
 
     def apply_to(self, estimator):
+        # M-estimation constructors historically carried the covariance
+        # convention only in estimator state/metadata even though
+        # ParameterInferenceResult exposes a standard ``cov_type`` field.
+        # Publish the actual estimator convention when that field was omitted;
+        # explicit result-owned values remain authoritative for all methods.
+        if self.cov_type is None and self.method == "m_estimation":
+            cov_type = getattr(estimator, "_cov_type", None)
+            if cov_type is None:
+                cov_type = getattr(estimator, "cov_type", None)
+            if cov_type is not None:
+                self.cov_type = str(cov_type)
+
         super().apply_to(estimator)
         estimator._params = None if self.params is None else np.asarray(self.params).copy()
         estimator._bse = None if self.bse is None else np.asarray(self.bse).copy()

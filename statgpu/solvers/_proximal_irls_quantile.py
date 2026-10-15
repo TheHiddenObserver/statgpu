@@ -22,12 +22,57 @@ References:
 - Hunter & Li (2005): MM algorithms for nonconvex penalized estimation
 """
 
-__all__ = ["proximal_irls_quantile_solver"]
-
 import copy
+from contextvars import ContextVar
+import warnings
+
 import numpy as np
 
+from ._convergence import ConvergenceWarning
+
+__all__ = ["proximal_irls_quantile_solver"]
+
+_STRICT_CV_TARGET = ContextVar(
+    "statgpu_quantile_scalar_strict_cv_target",
+    default=False,
+)
+
 from statgpu.backends import _resolve_backend, _to_numpy
+from statgpu.backends._array_ops import _xp_asarray
+from ._utils import _external_warning_stacklevel
+
+
+def _flat_irls_boundary_converged(
+    loss,
+    X_work,
+    y_work,
+    beta,
+    *,
+    tol,
+    eps,
+    sample_weight,
+    fit_intercept,
+    xp,
+) -> bool:
+    # This one-step call is a diagnostic fixed-point probe. Its expected
+    # budget-exhaustion warning is not a user-facing solver failure: the
+    # returned step size below is the signal that classifies the target.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ConvergenceWarning)
+        probe, _ = loss.irls(
+            X_work,
+            y_work,
+            penalty=None,
+            max_iter=1,
+            tol=float(tol),
+            init_coef=beta,
+            eps=eps,
+            sample_weight=sample_weight,
+            fit_intercept=fit_intercept,
+        )
+    delta_dev = xp.linalg.norm(probe - beta)
+    delta = float(_to_numpy(delta_dev))
+    return bool(np.isfinite(delta) and delta < float(tol))
 
 
 def proximal_irls_quantile_solver(
@@ -54,7 +99,9 @@ def proximal_irls_quantile_solver(
     penalty : Penalty
         Nonconvex penalty (SCAD, MCP).
     X : array (n, p)
-        Design matrix (NO intercept column -- intercept is handled by centering).
+        Design matrix without an intercept column. When ``fit_intercept=True``
+        the solver augments the numerical design with an unpenalized ones
+        column so the intercept is optimized in the pinball objective.
     y : array (n,)
         Response variable.
     alpha_path : array
@@ -68,7 +115,7 @@ def proximal_irls_quantile_solver(
     tol : float
         IRLS convergence tolerance.
     fit_intercept : bool
-        Whether to fit an intercept (via centering).
+        Whether to fit an unpenalized intercept coordinate.
     sample_weight : array (n,), optional
         Sample weights. If provided, the IRLS weights are scaled accordingly.
 
@@ -82,7 +129,6 @@ def proximal_irls_quantile_solver(
         Total number of IRLS iterations.
     """
     backend = _resolve_backend("auto", X)
-    n, p = X.shape
     tau = loss._tau
     eps = 1e-8
 
@@ -94,42 +140,45 @@ def proximal_irls_quantile_solver(
     else:
         xp = np
 
-    # Ensure float64 for numerical stability
-    X_dev = xp.asarray(X, dtype=xp.float64)
-    y_dev = xp.asarray(y, dtype=xp.float64)
+    # Ensure float64 for numerical stability while preserving the concrete
+    # device that owns the public design. Read dimensions only after this
+    # normalization so maintained Python array-like inputs do not require a
+    # pre-existing .shape attribute.
+    X_dev = _xp_asarray(X, xp.float64, X)
+    y_dev = _xp_asarray(y, xp.float64, X_dev)
+    n, p = int(X_dev.shape[0]), int(X_dev.shape[1])
 
     # Handle sample_weight
     if sample_weight is not None:
-        sw = xp.asarray(sample_weight, dtype=xp.float64)
-        # Ensure sw is on the same device as X_dev (for torch CUDA)
-        if hasattr(X_dev, 'device') and hasattr(sw, 'to'):
-            sw = sw.to(device=X_dev.device)
+        sw = _xp_asarray(sample_weight, xp.float64, X_dev)
         sw_sum = float(_to_numpy(xp.sum(sw)))
         # Normalize so sum(sw) = n (keeps penalty scale consistent)
         sw = sw * (n / sw_sum)
     else:
         sw = None
 
-    # Center X and y for intercept
+    # Quantile regression is not translation-equivalent under mean centering:
+    # the intercept must minimize the asymmetric pinball objective itself.
+    # Treat it as one additional, unpenalized coordinate. This matches the
+    # non-quadratic intercept contract used by the maintained FISTA-LLA path.
     if fit_intercept:
-        if sw is not None:
-            X_mean = xp.sum(X_dev * sw[:, None], axis=0) / n
-            y_mean_dev = xp.sum(y_dev * sw) / n
-        else:
-            X_mean = xp.mean(X_dev, axis=0)
-            y_mean_dev = xp.mean(y_dev)
-        y_mean = float(_to_numpy(y_mean_dev))
-        X_work = X_dev - X_mean
-        y_work = y_dev - y_mean_dev
+        ones = _xp_asarray(
+            np.ones((n, 1), dtype=np.float64),
+            X_dev.dtype,
+            X_dev,
+        )
+        X_work = xp.concatenate([X_dev, ones], axis=1)
+        y_work = y_dev
+        n_work_features = p + 1
     else:
-        X_mean = None
-        y_mean = 0.0
         X_work = X_dev
         y_work = y_dev
+        n_work_features = p
 
-    n_features = p
+    n_features = p  # Penalized feature coordinates only; intercept is excluded.
 
-    # Initialize coefficients with OLS on centered data
+    # Initialize coefficients with OLS on the numerical design. For the
+    # intercept-bearing route this initializes the augmented intercept too.
     if backend == "torch":
         beta = xp.linalg.lstsq(X_work, y_work).solution
     else:
@@ -138,75 +187,193 @@ def proximal_irls_quantile_solver(
     total_iter = 0
 
     # Precompute X^2 for weighted Hessian diagonal (reused each IRLS step)
-    X_sq = X_work * X_work  # (n, p)
+    X_sq = X_work * X_work
 
-    # GPU convergence check frequency: batch syncs to reduce overhead
-    _conv_check_freq = 5 if backend in ("torch", "cupy") else 1
-
+    n_continuation = int(len(alpha_path))
     for cont_i, cont_alpha in enumerate(alpha_path):
         pen_step = copy.copy(penalty)
         pen_step.alpha = float(cont_alpha)
         _mi = max_iter[cont_i] if isinstance(max_iter, (list, tuple)) else max_iter
+        is_final_continuation = cont_i == n_continuation - 1
+        lla_converged = False
+        target_irls_exhausted = False
 
         for lla_i in range(max_lla_per_step):
-            # LLA weights = P'(|beta_j|) — penalty derivative at current coef.
+            # LLA weights = P'(|beta_j|) for feature coefficients only.
             lla_w = _compute_lla_weights(pen_step, beta, n_features, xp, backend)
-            thresh = n * lla_w  # (p,) per-coordinate threshold
+            feature_thresh = n * lla_w
+            if fit_intercept:
+                # The final augmented coordinate is the intercept and must not
+                # receive SCAD/MCP shrinkage.
+                intercept_thresh = _xp_asarray(
+                    np.zeros(1, dtype=np.float64),
+                    feature_thresh.dtype,
+                    feature_thresh,
+                )
+                thresh = xp.concatenate([feature_thresh, intercept_thresh])
+            else:
+                thresh = feature_thresh
 
             beta_before_lla = _copy(beta)
 
-            # IRLS-CD inner loop
-            for irls_iter in range(_mi):
-                beta_old = _copy(beta)
+            # If every SCAD/MCP derivative is exactly zero, this LLA surrogate
+            # has no active penalty at all. Reuse the loss-owned full weighted
+            # Quantile IRLS implementation rather than continuing the diagonal
+            # Jacobi approximation. This is the same maintained numerical
+            # kernel used by ordinary smooth Quantile IRLS; only genuinely
+            # penalized LLA steps remain on the Proximal IRLS-CD inner loop.
+            zero_penalty = bool(_to_numpy(xp.all(lla_w == 0)))
+            if zero_penalty:
+                flat_tol = min(tol, 1e-8)
+                with warnings.catch_warnings(record=True) as irls_warnings:
+                    warnings.simplefilter("always")
+                    beta, used_iter = loss.irls(
+                        X_work,
+                        y_work,
+                        penalty=None,
+                        max_iter=_mi,
+                        tol=flat_tol,
+                        init_coef=beta,
+                        eps=eps,
+                        sample_weight=sw,
+                        fit_intercept=fit_intercept,
+                    )
+                # The Proximal IRLS-CD solver owns target-level convergence
+                # reporting. Suppress the inner IRLS ConvergenceWarning so
+                # warnings-as-error callers cannot bypass the boundary probe
+                # or strict-CV fail-closed decision. Preserve unrelated warnings.
+                for item in irls_warnings:
+                    if not issubclass(item.category, ConvergenceWarning):
+                        warnings.warn(
+                            item.message,
+                            item.category,
+                            stacklevel=_external_warning_stacklevel(),
+                        )
+                total_iter += used_iter
+                if is_final_continuation and int(used_iter) >= int(_mi):
+                    target_irls_exhausted = not _flat_irls_boundary_converged(
+                        loss,
+                        X_work,
+                        y_work,
+                        beta,
+                        tol=flat_tol,
+                        eps=eps,
+                        sample_weight=sw,
+                        fit_intercept=fit_intercept,
+                        xp=xp,
+                    )
+                else:
+                    target_irls_exhausted = False
 
-                # Residuals and IRLS weights
-                r = y_work - X_work @ beta
-                abs_r = xp.abs(r)
-                abs_r_safe = xp.maximum(abs_r, xp.asarray(eps, dtype=abs_r.dtype))
-                pos_mask = (r >= 0).to(dtype=abs_r.dtype) if backend == "torch" else (r >= 0).astype(abs_r.dtype)
-                tau_vec = tau * pos_mask + (1.0 - tau) * (1.0 - pos_mask)
-                w = tau_vec / abs_r_safe  # (n,), always positive
+                # A flat derivative that remains flat after the loss solve is
+                # already an LLA fixed point even when the coefficient move
+                # itself was larger than lla_tol. Match the maintained Group
+                # route and do not reject that target solely on outer delta.
+                refreshed = _compute_lla_weights(
+                    pen_step, beta, n_features, xp, backend
+                )
+                if bool(_to_numpy(xp.all(refreshed == 0))):
+                    lla_converged = True
+                    break
+            else:
+                target_irls_exhausted = False
+                irls_converged = False
+                # IRLS-CD inner loop
+                for irls_iter in range(_mi):
+                    beta_old = _copy(beta)
 
-                # Apply sample weights
-                if sw is not None:
-                    w = w * sw
+                    # Residuals and IRLS weights
+                    r = y_work - X_work @ beta
+                    abs_r = xp.abs(r)
+                    abs_r_safe = xp.maximum(
+                        abs_r, _scalar_like(eps, abs_r, xp, backend)
+                    )
+                    pos_mask = (r >= 0).to(dtype=abs_r.dtype) if backend == "torch" else (r >= 0).astype(abs_r.dtype)
+                    tau_vec = tau * pos_mask + (1.0 - tau) * (1.0 - pos_mask)
+                    w = tau_vec / abs_r_safe  # (n,), always positive
 
-                # Clamp IRLS weights to prevent numerical overflow
-                w_max = 100.0 / eps
-                w = xp.minimum(w, xp.asarray(w_max, dtype=w.dtype))
+                    # Apply sample weights
+                    if sw is not None:
+                        w = w * sw
 
-                # Parallel diagonal majorization step (Jacobi-style)
-                beta = _parallel_majorization_step(
-                    X_work, X_sq, y_work, w, beta, thresh,
-                    n_features, eps, xp, backend)
+                    # Parallel diagonal majorization step (Jacobi-style).
+                    # Keep the same IRLS/MM observation weights as
+                    # QuantileLoss.irls(); do not apply an undocumented
+                    # per-observation cap that changes the surrogate under
+                    # concentrated but valid analytic weights.
+                    beta = _parallel_majorization_step(
+                        X_work, X_sq, y_work, w, beta, thresh,
+                        n_work_features, eps, xp, backend)
 
-                total_iter += 1
+                    total_iter += 1
 
-                # Convergence check — GPU comparison stays on device, only bool synced
-                if irls_iter % _conv_check_freq == 0:
+                    # Stopping semantics are part of the non-convex algorithm, not
+                    # a backend performance knob. Keep the comparison backend-native
+                    # but apply the same criterion every iteration on every backend.
                     delta_dev = xp.abs(beta - beta_old)
                     if backend in ("torch", "cupy"):
-                        if bool(_to_numpy(xp.max(delta_dev) < xp.asarray(tol, dtype=delta_dev.dtype))):
+                        if bool(_to_numpy(
+                            xp.max(delta_dev)
+                            < _scalar_like(tol, delta_dev, xp, backend)
+                        )):
+                            irls_converged = True
                             break
                     else:
                         if float(_to_numpy(xp.max(delta_dev))) < tol:
+                            irls_converged = True
                             break
+
+                if is_final_continuation and not irls_converged:
+                    target_irls_exhausted = True
 
             # LLA convergence check — GPU comparison stays on device
             lla_delta_dev = xp.abs(beta - beta_before_lla)
             if backend in ("torch", "cupy"):
-                if bool(_to_numpy(xp.max(lla_delta_dev) < xp.asarray(lla_tol, dtype=lla_delta_dev.dtype))):
+                if bool(_to_numpy(
+                    xp.max(lla_delta_dev)
+                    < _scalar_like(lla_tol, lla_delta_dev, xp, backend)
+                )):
+                    lla_converged = True
                     break
             else:
                 if float(_to_numpy(xp.max(lla_delta_dev))) < lla_tol:
+                    lla_converged = True
                     break
 
-    # Reconstruct intercept
-    coef_np = _to_numpy(beta).astype(np.float64)
+        if is_final_continuation:
+            if target_irls_exhausted:
+                message = (
+                    "Quantile Proximal IRLS-CD target reached "
+                    f"max_iter={int(_mi)} before IRLS convergence at "
+                    f"alpha={float(cont_alpha):.12g}"
+                )
+            elif not lla_converged:
+                message = (
+                    "Quantile Proximal IRLS-CD target reached "
+                    f"max_lla_per_step={int(max_lla_per_step)} before LLA "
+                    f"convergence at alpha={float(cont_alpha):.12g}"
+                )
+            else:
+                message = None
+
+            if message is not None:
+                if _STRICT_CV_TARGET.get():
+                    raise FloatingPointError(
+                        message
+                        + "; the CV candidate was not scored because target convergence was not established."
+                    )
+                warnings.warn(
+                    message + "; returning the final iterate.",
+                    ConvergenceWarning,
+                    stacklevel=_external_warning_stacklevel(),
+                )
+
+    beta_np = _to_numpy(beta).astype(np.float64)
     if fit_intercept:
-        X_mean_np = _to_numpy(X_mean).astype(np.float64)
-        intercept = float(y_mean - X_mean_np @ coef_np)
+        coef_np = beta_np[:p]
+        intercept = float(beta_np[p])
     else:
+        coef_np = beta_np
         intercept = 0.0
 
     return coef_np, intercept, total_iter
@@ -222,28 +389,30 @@ def _parallel_majorization_step(X, X_sq, y, w, beta, thresh, p, eps, xp, backend
       h = diag(X' @ diag(w) @ X)            -- weighted Hessian diagonal
       beta = S(g + h * beta, thresh) / h    -- soft-threshold update
 
-    Note: This is a Jacobi-style parallel update, not cyclic coordinate descent.
-    All coordinates are updated simultaneously using "old" beta values.
-    For strongly correlated designs, convergence may differ from true CD.
+    ``thresh`` is zero for any unpenalized coordinate such as an augmented
+    intercept. This is a Jacobi-style parallel update, not cyclic coordinate
+    descent: all coordinates are updated simultaneously using old beta values.
     GPU-friendly: only matrix operations, no per-coordinate kernel launches.
     """
     r = y - X @ beta  # (n,)
     wr = w * r         # (n,)
 
     # Weighted gradient: g = X' @ (w * r)  -- O(np)
-    g = X.T @ wr       # (p,)
+    g = X.T @ wr
 
     # Weighted Hessian diagonal: h = sum(X^2 * w, axis=0)  -- O(np)
-    w_col = w[:, None] if w.ndim == 1 else w  # (n,1) for broadcast
-    h = xp.sum(X_sq * w_col, axis=0)           # (p,)
-    h = xp.maximum(h, xp.asarray(eps, dtype=h.dtype))
+    w_col = w[:, None] if w.ndim == 1 else w
+    h = xp.sum(X_sq * w_col, axis=0)
+    h = xp.maximum(h, _scalar_like(eps, h, xp, backend))
 
     # Soft-threshold update: beta = S(g + h*beta, thresh) / h
     # S(x, t) = sign(x) * max(|x| - t, 0)
     u = g + h * beta
     abs_u = xp.abs(u)
     sign_u = xp.sign(u)
-    beta_new = sign_u * xp.maximum(abs_u - thresh, xp.asarray(0.0, dtype=abs_u.dtype)) / h
+    beta_new = sign_u * xp.maximum(
+        abs_u - thresh, _scalar_like(0.0, abs_u, xp, backend)
+    ) / h
 
     return beta_new
 
@@ -255,6 +424,11 @@ def _copy(arr):
     if hasattr(arr, 'clone'):
         return arr.clone()
     return arr.copy()
+
+
+def _scalar_like(value, ref, xp, backend):
+    """Create a scalar on the same dtype/device as a backend-native array."""
+    return _xp_asarray(value, ref.dtype, ref)
 
 
 def _compute_lla_weights(penalty, coef, p, xp, backend):
@@ -275,15 +449,18 @@ def _compute_lla_weights(penalty, coef, p, xp, backend):
         denom = a * alpha - alpha
         if abs(denom) < 1e-15:
             # Degenerate case: a ~ 1, fall back to L1
-            w = xp.full(p, alpha, dtype=xp.float64)
+            w = xp.full_like(abs_coef, alpha)
         else:
             v = (a * alpha - abs_coef) / denom
             v = xp.clip(v, 0.0, 1.0)
             w = alpha * v
     elif 'mcp' in pen_name:
         gamma = getattr(penalty, 'gamma', 3.0)
-        w = xp.maximum(xp.asarray(0.0, dtype=xp.float64), alpha - abs_coef / gamma)
+        w = xp.maximum(
+            _scalar_like(0.0, abs_coef, xp, backend),
+            alpha - abs_coef / gamma,
+        )
     else:
-        w = xp.full(p, alpha, dtype=xp.float64)
+        w = xp.full_like(abs_coef, alpha)
 
     return w

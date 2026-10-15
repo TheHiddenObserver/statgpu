@@ -1,58 +1,36 @@
 # statgpu Documentation Portal (English)
 
 > Language: English  
-> Last updated: 2026-07-24  
+> Last updated: 2026-10-13  
 > Switch: [Chinese](../cn/usage.md)
 
-This portal links to maintained capability inventories instead of duplicating
-version-sensitive support tables.
+A short path to a first fit. The [documentation index](README.md) organizes the
+full guides and references.
 
-## Getting Started
+## Getting started
 
-- [Quickstart](getting-started/quickstart.md)
-- [Implemented Methods](guides/implemented-methods.md)
-- [Device and GPU Memory](guides/device-and-memory.md)
-- [PyTorch Backend](guides/pytorch-backend.md)
-- [Cross-Validation](guides/cross-validation.md)
-- [Inference API](guides/inference-api.md)
-- [Changelog](changelog.md)
+1. Follow the [Quickstart](getting-started/quickstart.md) to install statgpu, fit a model, and predict.
+2. Check the [device guide](guides/device-and-memory.md) before choosing CPU, CUDA, or Torch. For CuPy, install `statgpu[gpu11]` or `statgpu[gpu12]` for the matching CUDA major version; use `statgpu[torch]` for the PyTorch backend. The base installation contains the Cox implementation; `statgpu[survival]` adds optional external comparison dependencies.
 
-Use `pip install statgpu[gpu11]` or `statgpu[gpu12]` for the matching CuPy
-CUDA major version and `statgpu[torch]` for the PyTorch backend. The maintained
-Cox implementation is included in the base install; `statgpu[survival]` adds
-statsmodels for optional external validation and comparison.
+<a id="model-families"></a>
 
-## Model Families
+3. Choose a question in [Models and Statistical Methods](models/README.md), then work through that family's tutorial. Check its input assumptions, outputs, and limitations before changing the example.
+4. Use [cross-validation](guides/cross-validation.md) for tuning and [inference modes](guides/inference-modes.md) when you need coefficient uncertainty. See [regression diagnostics](guides/regression-diagnostics.md) for checking a fitted regression.
 
-- [Models Overview](models/README.md)
-- [Generalized Linear Models](models/generalized-linear-model.md)
-- [Cox Proportional Hazards](models/coxph.md)
-- [Panel Models](models/panel.md)
-- [ANOVA](models/anova.md)
-- [Covariance Estimation](models/covariance.md)
-- [Nonparametric Methods](models/nonparametric.md)
-- [Unsupervised Learning](models/unsupervised.md)
-- [Feature Selection](models/feature-selection.md)
-- [Regression Diagnostics](guides/regression-diagnostics.md)
+## Optimization and compatibility references
 
-The CV classes `RidgeCV`, `LassoCV`, `ElasticNetCV`,
-`LogisticRegressionCV`, `PenalizedGLM_CV`, and `CoxPHCV` are implemented.
-Exact loss, penalty, inference, and backend coverage is listed in
-[Implemented Methods](guides/implemented-methods.md) and the relevant model page.
+When a fit needs more configuration, consult the [solver × penalty matrix](guides/solver-penalty-matrix.md)
+and [loss × penalty × solver framework](guides/loss-penalty-solver-framework.md).
+For older code, use the [penalized solver migration guide](guides/penalized-solver-api-migration.md).
+The [CV design guide](guides/cross-validation-design.md) explains execution and acceleration semantics.
 
-## Validation and Evidence
+## Statistical utilities
 
-Validation claims are scoped to the model, backend, hardware, and commit tested.
-Hosted CI, physical-GPU campaigns, historical benchmarks, and release evidence are
-recorded in their corresponding workflow, model, changelog, `results/`, or `dev/`
-artifacts. A skipped GPU test is not treated as physical-GPU evidence.
+For group comparisons or many p-values, start with [statistical testing](models/testing/README.md).
+For distribution functions, resampling, and result objects, see the
+[distribution API](guides/distribution-api.md) and [inference API](guides/inference-api.md).
 
-## Contributor Checklist
-
-Follow the repository's [development guide](https://github.com/TheHiddenObserver/statgpu/blob/master/dev/AGENTS.md)
-and canonical Claude Code [`new-module-dev` skill](https://github.com/TheHiddenObserver/statgpu/blob/master/.claude/skills/new-module-dev/SKILL.md).
-Use the [`code-review` skill](https://github.com/TheHiddenObserver/statgpu/blob/master/.claude/skills/code-review/SKILL.md)
-for independent review passes and the [`benchmark` skill](https://github.com/TheHiddenObserver/statgpu/blob/master/.claude/skills/benchmark/SKILL.md)
-when performance/evidence work is active. These are external repository-source links rather than VitePress routes.
-Classify impact first, preserve explicit device semantics, verify objective normalization before external comparisons,
-add tests for the active/default contracts, and synchronize affected English/Chinese public claims.
+Use [Implemented Methods](guides/implemented-methods.md) to check coverage and the
+[complete API references](README.md#complete-api-references) for signatures and fitted attributes.
+Changes are recorded in the [changelog](changelog.md).
+To contribute code, documentation, or tests, see the [Contributor Guide](../../CONTRIBUTING.md).

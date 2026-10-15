@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import os
 import platform
+import sys
 
 import pytest
 
@@ -312,7 +313,18 @@ def sample_data_wide():
 
 
 def pytest_configure(config):
-    """Register custom markers."""
+    """Register custom markers and stabilize Python 3.9 sklearn imports."""
+    # CPython 3.9 can hit an importlib _ModuleLock KeyError when
+    # sklearn.model_selection is first imported late in this large mixed test
+    # process after many statgpu/scikit-learn modules have already loaded.
+    # Preload it during pytest configuration, before test collection/execution,
+    # without changing any product code or test semantics.
+    if sys.version_info[:2] == (3, 9):
+        try:
+            import sklearn.model_selection  # noqa: F401
+        except ImportError:
+            pass
+
     config.addinivalue_line(
         "markers", "gpu: test requires physical GPU (any backend)"
     )

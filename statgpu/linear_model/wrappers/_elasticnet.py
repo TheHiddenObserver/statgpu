@@ -22,31 +22,64 @@ from statgpu.linear_model.penalized._penalized_linear import PenalizedLinearRegr
 
 
 class ElasticNet(_PenalizedLinearRegression):
-    """Elastic Net regression through the shared penalized-linear engine.
+    """Elastic Net regression with normalized squared loss and an L1/L2 penalty.
 
     Parameters
     ----------
     alpha : float, default=1.0
-        Overall regularization strength.
+        Nonnegative overall regularization strength.
     l1_ratio : float, default=0.5
-        Mixing proportion between L1 and L2 penalties.
-    solver : str, default="fista"
-        Backend-aware optimization method.
+        L1 proportion in [0, 1]; zero is the L2 objective, one the L1 objective.
+    fit_intercept : bool, default=True
+        Fit an unpenalized intercept; formula syntax controls formula fits.
+    max_iter : int, default=1000
+        Positive solver iteration budget.
+    tol : float, default=1e-4
+        Positive convergence tolerance.
+    stopping : {'coef_delta', 'kkt'}, default='coef_delta'
+        Stored request; currently ignored by direct Gaussian stopping checks.
+        FISTA/coordinate descent use coefficient movement and ADMM uses
+        primal/dual residuals. Selecting kkt does not certify optimality.
+    device : str or Device, default='auto'
+        'cpu', 'cuda' (CuPy), 'torch' (Torch CUDA), or automatic selection.
+    n_jobs : int or None, default=None
+        Shared CPU worker setting; not a solver selector or parallel-fit promise.
+    solver : str, default='fista'
+        Backend-neutral optimization algorithm; supported combinations depend
+        on the penalty. See the solver-penalty compatibility reference.
+    cpu_solver : str, default='fista'
+        Deprecated compatibility argument; use solver. Explicit legacy values
+        can warn or conflict with solver; see the migration reference.
+    lipschitz_L : float or None, default=None
+        Optional positive upper bound for smooth-loss gradient curvature.
+    gpu_memory_cleanup : bool, default=False
+        Attempt GPU memory-pool cleanup after fitting.
     compute_inference : bool, default=False
-        Whether to compute post-fit coefficient inference.
-    inference_method : str, default="debiased"
-        Post-fit inference method. Supported values are inherited from
-        ``PenalizedLinearRegression``.
-    cov_type : str, default="nonrobust"
-        Covariance convention where the selected inference method uses it.
-    hac_maxlags : int, optional
-        HAC lag count where supported by the selected inference method.
+        Compute post-fit coefficient uncertainty without changing prediction.
+    inference_method : str, default='debiased'
+        'debiased', 'post_selection_ols', or 'bootstrap'; 'auto' resolves to
+        debiased. Deprecated cpu_ols/gpu_ols aliases mean post_selection_ols.
+    cov_type : str, default='nonrobust'
+        Covariance choice for post-selection OLS. Debiased currently ignores
+        HC/HAC choices; bootstrap only accepts nonrobust.
+    hac_maxlags : int or None, default=None
+        Nonnegative HAC lag for supported post-selection OLS inference.
+    nodewise_alpha : float or None, keyword-only, default=None
+        Positive design-side precision tuning for debiased inference, or an
+        automatic rule. Does not change penalized prediction coefficients.
 
     Notes
     -----
-    ``compute_inference=True`` does not alter the penalized fit. Inference is
-    computed after estimation and is conditional on the chosen regularization
-    parameters.
+    Weighted loss divides by the sum of analytic weights. Inference conditions
+    on the chosen tuning and does not generally correct selection uncertainty.
+    ``coef_`` and ``intercept_`` describe prediction; ``_params`` and inference
+    arrays can describe corrected or selected-model reporting parameters.
+    Fitted coefficient/inference arrays are NumPy; ``predict`` returns NumPy by
+    default even after GPU fitting. Use ``return_cpu=False`` for native output.
+    After weighted debiased inference, ``rsquared`` and ``rsquared_adj`` use a
+    re-centered working response and can misstate raw weighted training R².
+    Evaluate ``score(X, y, sample_weight=weights)`` on original observations
+    after validating finite nonnegative evaluation weights with positive sum.
     """
 
     def __init__(
@@ -103,7 +136,17 @@ class ElasticNet(_PenalizedLinearRegression):
         sample_weight : array-like of shape (n_samples,), optional
             Sample weights.
         initial_coef : array-like of shape (n_features,), optional
-            Warm-start coefficients. Passed to the underlying solver.
+            Starting coefficients, not the fitted solution from a previous call.
+            A supplied vector currently remains stored when a later fit omits
+            it. Use a fresh estimator for default initialization or a new width.
+        **kwargs
+            ``formula`` and ``data`` select the optional Patsy/DataFrame input.
+            Do not supply arrays at the same time: formula parsing replaces them.
+
+        Returns
+        -------
+        self
+            Fitted estimator. Prediction coefficients remain penalized.
         """
         if initial_coef is not None:
             self._init_coef = np.asarray(initial_coef, dtype=np.float64)

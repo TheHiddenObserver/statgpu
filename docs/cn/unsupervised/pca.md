@@ -1,18 +1,32 @@
-# 主成分分析（PCA）
+# PCA
 
 > 语言：中文
-> 最后更新：2026-05-02
-> English: [English](../../en/unsupervised/pca.md)
+> 最后更新：2026-10-14
+> 切换：[English](../../en/unsupervised/pca.md)
 
 ## 概览
 
-`PCA` 为 centered dense data 估计一组正交低维基，捕捉最大方差方向。它支持 CPU、CuPy/CUDA 和 Torch CUDA。
+PCA 用较少的坐标概括数值特征，尽量保留相对各列均值的变化。它学习特征的组合，不需要指定预测目标，也不是只挑选几个原始列。降维坐标还可以用来重构原始特征空间中的近似观测。
+
+例如，一组传感器可能记录同一过程的许多测量值，其中不少读数总是一起升降。你希望用较少的数描述观测之间的差异，又不想指定某个传感器作为预测目标。保留全部列会留下重复信息；手动删除相关列可能丢掉有用的差异；直接取平均则预先假定只有一种共同变化值得保留。
+
+PCA 从数据中学习特征的加权组合。可以把观测想象成一团沿对角线拉长的点：沿这条对角线测量，比只保留某个原始坐标轴更能概括主要变化。PCA 先把原点移到各特征的均值，再依次寻找彼此正交、尽可能保留剩余方差的方向。保留其中几个方向，既得到更短的坐标向量，也能在原始特征空间中重构观测的近似值。
+
+这里优化的是压缩效果，并不识别变化的成因。强烈的背景变化可能占据前几个主成分，而幅度较小却有用的信号可能被舍弃。
+
+## 何时使用
+
+当相关数值特征的线性概括有助于探索、压缩或预处理时，可使用 PCA。如果希望新坐标仍是原始特征，应考虑特征选择。必须逐批处理观测时可考虑 [IncrementalPCA](incremental-pca.md)；希望近似未经中心化的原矩阵时可考虑 [TruncatedSVD](truncated-svd.md)；希望用非负模式相加来解释观测时可考虑 [NMF](nmf.md)。
+
+模型会自动中心化，但不会自动统一量纲：改变单位就会改变各种变化在目标中的权重。应先选择合理单位，并只用训练数据拟合预处理。可结合累计解释方差、留出数据的重构误差和后续任务选择成分数；解释方差高本身不代表预测价值或科学上的重要性。
 
 ## 导入路径
 
 ```python
 from statgpu.unsupervised import PCA
 ```
+
+当前估计器支持 CPU、CuPy/CUDA 与 Torch CUDA 上的稠密输入。
 
 ## 目标函数 / 损失函数
 
@@ -27,7 +41,7 @@ $$
 \end{aligned}
 $$
 
-保留 `k` 个 components 时，也等价于在正交投影中最小化 rank-`k` 平方重构误差：
+保留 `k` 个主成分时，也等价于在正交投影约束下最小化秩为 `k` 的平方重构误差：
 
 $$
 \begin{aligned}
@@ -40,9 +54,10 @@ $$
 
 二者等价，因为中心化后的总方差是固定的。
 
-## 估计方程
+<a id="估计方程"></a>
+## 拟合步骤与更新公式
 
-- `svd_solver="covariance"` 计算
+- `svd_solver="covariance"` 先计算
   $$
   \Sigma = \frac{X_c^\top X_c}{n - 1}
   $$
@@ -54,56 +69,50 @@ $$
   $$
   X_c = U S V^\top
   $$
-  使用 `V.T` 的行作为 components。
-- `svd_solver="auto"` 在 `n_samples >= n_features` 时使用 covariance/eigh，否则使用 full SVD。
-- `svd_solver="randomized"` 使用随机投影、power iteration 和小矩阵 SVD 近似 leading right singular vectors。
-- explained variance 计算为
+  并把 `V.T` 的各行作为主成分。
+- `svd_solver="auto"` 在 `n_samples >= n_features` 时使用协方差矩阵配合 `eigh`，否则使用完整 SVD。
+- `svd_solver="randomized"` 通过随机投影、幂迭代（power iteration）和一个小矩阵的 SVD 近似前若干个右奇异向量。
+- 解释方差（explained variance）计算为
   $$
   \operatorname{explained\_variance}_j = \frac{s_j^2}{n - 1}.
   $$
-- `explained_variance_ratio_` 是 retained variance 除以 centered total variance。
-
-## 求解器支持
-
-| `svd_solver` 值 | 精确性 | 分发与适用场景 |
-|---|---|---|
-| `auto`（默认） | 精确 | `n_samples >= n_features` 时用 `covariance`，否则用 `full` |
-| `full` | 浮点误差范围内精确 | 直接稠密 SVD；特征数超过样本数时更合适 |
-| `covariance` | 浮点误差范围内精确 | 对特征协方差做 eigendecomposition，避免分解完整矩形矩阵 |
-| `randomized` | 近似 | 随机投影与 power iteration；由 `random_state`、`n_oversamples`、`iterated_power` 控制 |
-
-四种取值都在选定的 NumPy、CuPy 或 Torch 后端实现。它们是 PCA 专属 `svd_solver` 值，不能作为线性模型 `solver=` 的别名。
+- `explained_variance_ratio_` 是保留方差除以中心化后的总方差。
 
 ## 参数
 
-- `n_components`：保留的 components 数量；`None` 保留所有可行 components。
+- `n_components`：保留的主成分个数；为 `None` 时保留所有可行的主成分。
 - `svd_solver`：`"auto"`、`"full"`、`"covariance"` 或 `"randomized"`。
-- `whiten`：为 `True` 时，transform 后的 scores 会除以 `sqrt(explained_variance_)`。
-- `random_state`、`n_oversamples`、`iterated_power`：randomized solver 控制参数。
+- `whiten`：为 `True` 时，`transform` 后的得分会除以 `sqrt(explained_variance_)`。
+- `random_state`、`n_oversamples`、`iterated_power`：控制随机化 SVD 的参数。
 - `device`：`"auto"`、`"cpu"`、`"cuda"` 或 `"torch"`。
 
-## CPU+GPU 示例
+## 一个可独立运行的 CPU 示例
 
+<!-- learner-example: pca -->
 ```python
 import numpy as np
 from statgpu.unsupervised import PCA
 
-X = np.random.default_rng(0).normal(size=(2000, 50))
-
-pca_cpu = PCA(n_components=10, svd_solver="covariance", device="cpu")
-Z_cpu = pca_cpu.fit_transform(X)
-
-pca_gpu = PCA(n_components=10, svd_solver="covariance", device="cuda")
-Z_gpu = pca_gpu.fit_transform(X)
+rng = np.random.default_rng(0)
+X = rng.normal(size=(80, 4))
+X[:, 3] = X[:, 0] + 0.05 * rng.normal(size=80)
+model = PCA(n_components=3, svd_solver="full", device="cpu")
+Z = model.fit_transform(X)
+X_hat = model.inverse_transform(Z)
+print(Z.shape, np.mean((X - X_hat) ** 2))
 ```
 
-## strict/approx 差异
+坐标形状为 `(80, 3)`，重构形状为 `(80, 4)`。`components_` 的每一行表示特征空间中的一个方向，不是类别；方向整体变号不改变含义。
 
-PCA 没有统计推断意义上的 strict inference 模式。这里的 exact/approx 指分解算法：
+安装了相应 GPU 后端后，可新建估计器并指定 `device="cuda"`（CuPy）或 `device="torch"`（Torch CUDA）。数组通常留在该后端；输出所在设备及主机端步骤见 [API 参考](api-reference.md#pca)。显式请求的 GPU 不可用时会报错。
 
-- `full` 和 `covariance` 是 dense 输入上的 exact solver，误差来自浮点计算。
-- `randomized` 是 approximate truncated SVD，由 `random_state`、`n_oversamples` 和 `iterated_power` 控制。
-- component 符号不可识别，`v` 和 `-v` 表示同一主成分。
+## 近似与解释边界
+
+`PCA` 不提供标准误或显著性检验；这里的“精确/近似”指的是分解算法：
+
+- `full` 和 `covariance` 在稠密输入上是精确求解器，误差仅来自浮点运算。
+- `randomized` 是近似的截断 SVD，由 `random_state`、`n_oversamples` 和 `iterated_power` 控制。
+- 主成分的符号不可识别：`v` 与 `-v` 表示同一个主成分。
 
 ## 输出字段
 
@@ -115,23 +124,28 @@ PCA 没有统计推断意义上的 strict inference 模式。这里的 exact/app
 - `n_components_`
 - `n_features_in_`
 
-## 常见问题
+## FAQ
 
-**为什么 components 和 sklearn 差一个符号？**
-Eigenvector 和 singular vector 的符号不唯一。验证时应使用 sign-aware comparison 或比较子空间。
+**为什么主成分和 sklearn 差一个符号？**
+特征向量与奇异向量的符号并不唯一；验证时应使用对齐符号后的比较，或直接比较子空间。
 
-**whitening 做了什么？**
-它把 transformed scores 按 `1 / sqrt(explained_variance_)` 缩放，使拟合模型下的 component scores 近似单位方差。
+**白化（whitening）做了什么？**
+白化将投影坐标除以 `sqrt(explained_variance_)`。在正方差方向得到准确的精确分解时，训练数据的主成分得分具有单位样本方差；随机化求解只能近似达到这一效果，过采样与幂迭代会影响近似质量。白化不保证新观测的协方差为单位矩阵。
 
-## 外部验证
 
-- 测试：`dev/tests/test_unsupervised_pca.py`。
-- Benchmark：`dev/benchmarks/benchmark_unsupervised.py`。
-- Baseline：sklearn PCA，以及早期 unsupervised matrix 中可用的 statsmodels/R PCA 对比。
-- 最新 Phase 2 摘要：`results/unsupervised_phase2_verify_summary_20260502_210000.md`。
+## 数值与使用注意事项
+
+协方差求解器先计算未中心化的二阶矩，再减去均值乘积。当共同偏移远大于实际变化时，可能发生严重消减误差，甚至错误地返回全零解释方差比例。此时应使用 `svd_solver="full"`，或在拟合前减去由训练数据确定的偏移，并对后续数据做相同处理。对方差为零的成分进行白化可能返回非有限坐标，应减小秩或关闭白化。公开的 `inverse_transform` 方法会对含 NaN 或无穷值的输入坐标抛出 `ValueError`，因此应传入有限的主成分得分。
+
+## 完整 API 参考
+
+构造默认值、全部公开方法、输出形状与限制见 [PCA API 参考](api-reference.md#pca)。
+
+<a id="references"></a>
 
 ## 参考文献
 
 - Pearson, K. (1901). On lines and planes of closest fit to systems of points in space. *The London, Edinburgh, and Dublin Philosophical Magazine and Journal of Science*, Series 6, 2(11), 559-572. https://doi.org/10.1080/14786440109462720
 - Jolliffe, I. T. (2002). *Principal Component Analysis* (2nd ed.). Springer Series in Statistics. Springer. https://doi.org/10.1007/b98835
 - Halko, N., Martinsson, P. G., & Tropp, J. A. (2011). Finding structure with randomness: Probabilistic algorithms for constructing approximate matrix decompositions. *SIAM Review*, 53(2), 217-288. https://doi.org/10.1137/090771806
+- scikit-learn Developers. [PCA：中心化、主成分与解释方差](https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.PCA.html)。

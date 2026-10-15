@@ -159,6 +159,58 @@ from . import _nodewise_alpha_contract as _nodewise_alpha_contract
 
 _nodewise_alpha_contract.install_nodewise_alpha_contract()
 
+# Reconcile the broader penalized-GLM inference surface only after the
+# sparse-Gaussian compatibility chain above is installed. This final contract
+# provides an explicit auto resolver, fixed-penalty M-estimation provenance,
+# fail-closed resampling/device boundaries, and final-refit-only PenalizedGLM_CV
+# inference without reimplementing the maintained numerical kernels.
+from . import (
+    _penalized_glm_inference_contract as _penalized_glm_inference_contract,
+)
+
+_penalized_glm_inference_contract.install_penalized_glm_inference_contract()
+
+# Generic `auto` can resolve to debiased inference, whose CuPy/Torch work starts
+# inside the fit backend before post-fit routing. Bind the resolved dispatch
+# method across the full fit transaction, then restore the user's public request.
+from . import (
+    _penalized_glm_inference_fit_transaction as _penalized_glm_inference_fit_transaction,
+)
+
+_penalized_glm_inference_fit_transaction.install_penalized_glm_inference_fit_transaction()
+
+# PR #145 keeps the PR #142 statistical bootstrap contract unchanged while
+# extending its execution from NumPy-only to the fit-recorded NumPy/CuPy/Torch
+# backend and concrete device. Install this last so only the residual-bootstrap
+# row bypasses the earlier CPU-only safety guard; all other inference rows retain
+# their reviewed PR #142 routing.
+from . import (
+    _gaussian_residual_bootstrap_backend_contract as _gaussian_residual_bootstrap_backend_contract,
+)
+
+_gaussian_residual_bootstrap_backend_contract.install_backend_native_gaussian_residual_bootstrap()
+
+# Issue #150 reconciles the ordinary GeneralizedLinearModel public boundary
+# with the already-weighted Newton solver and the new GLM-only weighted L-BFGS
+# capability. Keep this installer after the penalized inference chain: it patches
+# only the ordinary GLM base class and leaves Ordered GLM and specialized
+# standalone LogisticRegression dispatch untouched.
+from . import (
+    _glm_weighted_explicit_solver_contract as _glm_weighted_explicit_solver_contract,
+)
+
+_glm_weighted_explicit_solver_contract.install_glm_weighted_explicit_solver_contract()
+
+# Complete the remaining inverse-power Gamma explicit smooth-solver domain
+# contract after the existing #150 installer has opened the weighted boundary.
+# Shared domain mechanics live in GammaLoss/Newton/L-BFGS; this final installer
+# only reconciles ordinary, penalized, and smooth-L2 CV consumer behavior.
+from . import (
+    _inverse_gamma_smooth_domain_contract as _inverse_gamma_smooth_domain_contract,
+)
+
+_inverse_gamma_smooth_domain_contract.install_inverse_gamma_smooth_domain_contract()
+
 __all__ = [
     'LinearRegression',
     'LogisticRegression',

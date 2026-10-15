@@ -92,86 +92,129 @@ def _validate_lassocv_selection_details(details):
 # =============================================================================
 
 class LassoCV(CVEstimatorBase):
-    """
-    Cross-validated Lasso regression with GPU support.
+    """Cross-validated Lasso regression for one continuous response.
 
-    This class implements K-fold cross-validation to select the optimal
-    regularization parameter alpha for Lasso regression.
-
-    ``solver`` controls the final full-data refit. ``cv_solver`` controls the
-    cross-validation path. The deprecated ``cpu_solver`` parameter is retained
-    temporarily as a compatibility alias for CPU CV behavior.
+    Select alpha by mean held-out MSE, then refit all supplied training rows.
+    Final inference conditions on selected alpha and does not adjust tuning
+    uncertainty. Generated folds are shuffled K-fold, not time/group-aware.
 
     Parameters
     ----------
-    alphas : array-like or None
-        Alpha values to try. If None, generates n_alphas values.
-    n_alphas : int
-        Number of alpha values (if alphas is None). Default is 12.
-    alpha_min_ratio : float
-        Minimum alpha as a ratio of max alpha.
-    cv : int
-        Number of CV folds. Default is 5.
-    fit_intercept : bool
-        Whether to fit intercept. Default is True.
-    device : str or Device
-        Computation device: 'cpu', 'cuda', 'torch', or 'auto'.
-    max_iter : int
-        Maximum iterations for Lasso solver. Default is 3000.
-    tol : float
-        Convergence tolerance. Default is 1e-4.
+    alphas : array-like or None, default=None
+        Explicit positive finite candidates; omitted: generate a data-
+        dependent grid. Invalid/nonpositive entries are filtered; an empty
+        surviving grid falls back to automatic generation.
+    n_alphas : int, default=12
+        Automatic grid size when alphas is omitted.
+    alpha_min_ratio : float, default=0.001
+        Minimum/maximum ratio for the automatic grid; choose a positive
+        value normally no greater than 1.
+    cv : int, default=5
+        Generated shuffled K-fold count, at least 2.
+    cv_splits : list or None, default=None
+        Explicit reusable list of (train_indices, validation_indices);
+        validate nonempty disjoint integer subsets yourself.
+    fit_intercept : bool, default=True
+        Fit an intercept in CV and final refit.
+    device : str, default='auto'
+        cpu, cuda (CuPy), torch (Torch CUDA), auto; explicit unavailable GPU
+        requests raise.
+    n_jobs : int or None, default=None
+        Shared worker configuration; no candidate-parallelism guarantee.
+    compute_inference : bool, default=False
+        Compute supported inference only on the final full-data refit,
+        conditional on selected alpha.
+    max_iter : int, default=3000
+        Iteration budget for CV solves and the final direct fit.
+    tol : float, default=0.0001
+        Convergence tolerance for CV solves and final fitting.
+    stopping : str, default='coef_delta'
+        Final-refit request only; current direct Gaussian stopping does not
+        honor the kkt setting. It does not select the CV path stopping
+        check.
     solver : str, default='fista'
-        Solver for the final full-data Lasso refit.
-    cv_solver : {'auto', 'coordinate_descent', 'fista'}, default='auto'
-        Solver for the CV folds/path. ``auto`` chooses coordinate descent on
-        CPU and FISTA on CUDA/Torch. ``method='glmnet'`` forces coordinate
-        descent only on the CPU path; GPU paths retain backend-native FISTA.
-    cpu_solver : str or None, deprecated
-        Deprecated compatibility control for the historical CPU CV solver.
-        On CPU it is treated as the legacy alias for ``cv_solver``. On
-        CUDA/Torch it warns but remains non-authoritative, preserving the old
-        behavior where this CPU-only control did not change the GPU CV solver.
-    compute_inference : bool
-        Whether to compute inference on the final refit.
+        Final full-data Lasso solver; does not choose the CV solver.
+    cpu_solver : str or None, default=None
+        Deprecated CPU CV alias; use cv_solver. Conflicting explicit CPU
+        requests raise. On GPU it warns but does not replace FISTA.
+    method : str, default='standard'
+        standard or glmnet CV path mode. On CPU, glmnet requires coordinate
+        descent; GPU CV remains FISTA. Not an inference method.
+    cd_kkt_check_every : int or None, default=None
+        Positive integer CPU CV coordinate-descent KKT-check interval. None
+        resolves to 1 for standard or 4 for glmnet. Not a final-refit
+        certificate.
     inference_method : str, default='post_selection_ols'
-        Final-refit inference method. ``post_selection_ols`` is the canonical
-        hardware-neutral active-set OLS/WLS diagnostic. Older
-        ``cpu_ols_inference``/``gpu_ols_inference`` spellings remain accepted at
-        this CV compatibility boundary and normalize to the same method.
-    random_state : int or None
-        Random seed for CV splits.
-    gpu_cv_mixed_precision : bool
-        Whether to use mixed precision on GPU.
+        Final-refit post_selection_ols, debiased, bootstrap or supported
+        auto request; see Lasso inference restrictions. Deprecated aliases
+        normalize at the compatibility boundary.
+    lipschitz_L : float or None, default=None
+        Optional compatible final-refit Lipschitz bound; not a CV-path
+        control.
+    admm_rho : float, default=1.0
+        Forwarded to final Lasso; currently ignored by unified ADMM, which
+        starts at rho=1.0.
+    gpu_memory_cleanup : bool, default=False
+        Request best-effort GPU cache cleanup for final fitting.
+    random_state : int or None, default=None
+        Seed for generated folds; not residual-bootstrap randomness.
+    gpu_cv_mixed_precision : bool, default=True
+        Enable mixed precision during GPU CV; final-refit inference has its
+        own numerical path.
+    cv_solver : str, default='auto'
+        auto, coordinate_descent or fista for CV. auto selects CPU CD or GPU
+        FISTA; explicit coordinate_descent is CPU-only.
+    nodewise_alpha : float or None, default=None
+        Keyword-only final-refit debiased precision tuning; does not change
+        the grid, fold losses or selected alpha.
+
+    Methods
+    -------
+    fit(X, y, sample_weight=None)
+        Fit finite X (n, p), one-dimensional y (n,), optional analytic weights;
+        return self. There is no formula interface.
+    predict(X)
+        Return NumPy predictions of shape (m,) through the final estimator.
+    score(X, y)
+        Return unweighted evaluation R-squared; no sample_weight argument.
+    summary()
+        Print final inference and return None; requires successful inference.
+    get_params(deep=True), set_params(**params)
+        Read/update constructor configuration; valid updates require refitting.
+    adjust_pvalues, combine_pvalues, bootstrap_statistic, permutation_test
+        Inherited helpers; they do not automatically repeat CV or model refits.
 
     Attributes
     ----------
     alpha_ : float
-        Selected alpha value.
-    alphas_ : ndarray
-        All alpha values tested.
+        Selected penalty, minimizing mean validation MSE.
+    alphas_, mean_mse_ : numpy.ndarray of shape (n_alphas,)
+        Actual candidates and their mean validation losses.
     cv_results_ : dict
-        CV results including mse_path and mean_mse.
+        Only mse_path, of shape (n_alphas, n_folds); no mean_mse dictionary key.
     best_score_ : float
-        Best score (negative MSE; higher is better).
-    coef_ : ndarray
-        Coefficients of the final model.
+        Negative selected mean MSE (larger is better), not final-model R-squared.
+    coef_ : numpy.ndarray of shape (n_features,)
+        Final full-data prediction slopes.
     intercept_ : float
-        Intercept of the final model.
-    estimator_ : Lasso
-        The fitted Lasso estimator with selected alpha.
+        Final intercept, or zero when omitted.
+    n_iter_ : int
+        Final estimator iteration count.
+    estimator_ : object
+        Fitted direct estimator; read its supported inference outputs here.
+    mse_path_ : numpy.ndarray
+        The same (n_alphas, n_folds) array stored in cv_results_["mse_path"].
     cv_solver_ : str
-        Actual solver used by the CV path after device/method resolution.
+        Resolved CV algorithm; solver instead controls the final Lasso fit.
+    nodewise_alpha_ : float or None
+        Resolved final-refit debiased precision tuning, where applicable.
 
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from statgpu.linear_model import LassoCV
-    >>> X = np.random.randn(1000, 20)
-    >>> y = X @ np.random.randn(20) + 0.1 * np.random.randn(1000)
-    >>> model = LassoCV(cv=5, device='cpu')
-    >>> model.fit(X, y)
-    >>> print(f"Selected alpha: {model.alpha_:.4f}")
-    >>> print(f"CV solver: {model.cv_solver_}")
+    Notes
+    -----
+    nodewise_alpha is installed as a keyword-only runtime constructor control.
+    Direct Lasso simultaneous/bootstrap-draw controls are not CV constructor
+    arguments. Validate custom split indices yourself; acceptance does not
+    establish that training and validation are disjoint or free of duplicates.
     """
 
     def __init__(

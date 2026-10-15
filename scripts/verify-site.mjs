@@ -1,5 +1,7 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createHash } from 'node:crypto';
+import { decodeSearchIndex } from './search-index-compression.mjs';
 import path from 'node:path';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -21,136 +23,40 @@ async function filesBelow(directory) {
   return files;
 }
 
-const documentationSections = ['models', 'panel', 'unsupervised'];
+// Current model pages are nested by family. Verify the complete recursive
+// bilingual source inventory and page switches, without requiring translations
+// to duplicate the exact heading counts of the English prose.
 const documentationSourceFailures = [];
-const untranslatedChineseHeadings = new Set([
-  'Overview',
-  'Path',
-  'Estimator',
-  'Parameters',
-  'Outputs',
-  'FAQ',
-  'References',
-  'External Validation',
-  'CPU and GPU Example',
-  'Formula Example',
-  'Statistical Model and Identification',
-  'Statistical Model and Target',
-  'Covariance and Inference',
-  'Numerical and Strict Behavior',
-  'Strict/Approx Difference',
-]);
-
-function markdownOutline(source) {
-  const headings = [];
-  let fenceCount = 0;
-  let inFence = false;
-  for (const line of source.split(/\r?\n/)) {
-    if (/^\s*(?:```|~~~)/.test(line)) {
-      fenceCount += 1;
-      inFence = !inFence;
-      continue;
-    }
-    if (inFence) continue;
-    const match = /^(#{1,3})\s+(.+?)\s*$/.exec(line);
-    if (match) {
-      headings.push({ level: match[1].length, title: match[2] });
-    }
+for (const section of ['models', 'panel', 'unsupervised', 'reference']) {
+  const roots = ['en', 'cn'].map(locale => path.join(repoRoot, 'docs', locale, section));
+  const inventories = await Promise.all(roots.map(async root =>
+    (await filesBelow(root)).filter(file => file.endsWith('.md')).map(file => path.relative(root, file)).sort(),
+  ));
+  if (JSON.stringify(inventories[0]) !== JSON.stringify(inventories[1])) {
+    documentationSourceFailures.push(`${section}: bilingual Markdown inventories differ`);
   }
-  return { headings, fenceCount, hasOpenFence: inFence };
-}
-
-for (const section of documentationSections) {
-  const englishDirectory = path.join(repoRoot, 'docs', 'en', section);
-  const chineseDirectory = path.join(repoRoot, 'docs', 'cn', section);
-  const englishNames = (await readdir(englishDirectory, { withFileTypes: true }))
-    .filter(entry => entry.isFile() && entry.name.endsWith('.md'))
-    .map(entry => entry.name)
-    .sort();
-  const chineseNames = (await readdir(chineseDirectory, { withFileTypes: true }))
-    .filter(entry => entry.isFile() && entry.name.endsWith('.md'))
-    .map(entry => entry.name)
-    .sort();
-
-  if (JSON.stringify(englishNames) !== JSON.stringify(chineseNames)) {
-    documentationSourceFailures.push(
-      `docs/${section}: English and Chinese Markdown file sets differ`,
-    );
-  }
-
-  for (const name of englishNames) {
-    if (!chineseNames.includes(name)) continue;
-    const englishSource = await readFile(
-      path.join(englishDirectory, name),
-      'utf8',
-    );
-    const chineseSource = await readFile(
-      path.join(chineseDirectory, name),
-      'utf8',
-    );
-    const englishOutline = markdownOutline(englishSource);
-    const chineseOutline = markdownOutline(chineseSource);
-    const englishH1 = englishOutline.headings.find(heading => heading.level === 1);
-    const chineseH1 = chineseOutline.headings.find(heading => heading.level === 1);
-    const pageLabel = `${section}/${name}`;
-
-    if (!englishH1 || /[\u3400-\u9fff]/u.test(englishH1.title)) {
-      documentationSourceFailures.push(
-        `docs/en/${pageLabel}: expected an English H1`,
-      );
-    }
-    if (!chineseH1 || !/[\u3400-\u9fff]/u.test(chineseH1.title)) {
-      documentationSourceFailures.push(
-        `docs/cn/${pageLabel}: expected a Chinese H1`,
-      );
-    }
-    for (const level of [2, 3]) {
-      const englishCount = englishOutline.headings.filter(
-        heading => heading.level === level,
-      ).length;
-      const chineseCount = chineseOutline.headings.filter(
-        heading => heading.level === level,
-      ).length;
-      if (englishCount !== chineseCount) {
-        documentationSourceFailures.push(
-          `docs/${pageLabel}: H${level} count differs (${englishCount}/${chineseCount})`,
-        );
+  for (const [index, locale] of ['en', 'cn'].entries()) {
+    for (const name of inventories[index]) {
+      const file = path.join(roots[index], name);
+      const source = await readFile(file, 'utf8');
+      const counterpart = path.join(roots[1 - index], name);
+      const peer = path.relative(path.dirname(file), counterpart).replace(/\\/g, '/');
+      const label = `docs/${locale}/${section}/${name}`;
+      if (!/^# .+/m.test(source)) documentationSourceFailures.push(`${label}: missing H1`);
+      if (locale === 'cn' && !/[\u3400-\u9fff]/u.test(source)) {
+        documentationSourceFailures.push(`${label}: missing Chinese content`);
       }
-    }
-    if (
-      englishOutline.fenceCount !== chineseOutline.fenceCount ||
-      englishOutline.hasOpenFence ||
-      chineseOutline.hasOpenFence
-    ) {
-      documentationSourceFailures.push(
-        `docs/${pageLabel}: fenced-code structure differs or is unclosed`,
-      );
-    }
-    for (const heading of chineseOutline.headings) {
-      if (untranslatedChineseHeadings.has(heading.title)) {
-        documentationSourceFailures.push(
-          `docs/cn/${pageLabel}: untranslated heading "${heading.title}"`,
-        );
+      if (!source.includes(`](${peer})`)) {
+        documentationSourceFailures.push(`${label}: missing counterpart link ${peer}`);
       }
-    }
-
-    const chineseTarget =
-      name === 'index.md'
-        ? `../../cn/${section}/`
-        : `../../cn/${section}/${name}`;
-    const englishTarget =
-      name === 'index.md'
-        ? `../../en/${section}/`
-        : `../../en/${section}/${name}`;
-    if (!englishSource.includes(`](${chineseTarget})`)) {
-      documentationSourceFailures.push(
-        `docs/en/${pageLabel}: missing Chinese page switch`,
-      );
-    }
-    if (!chineseSource.includes(`](${englishTarget})`)) {
-      documentationSourceFailures.push(
-        `docs/cn/${pageLabel}: missing English page switch`,
-      );
+      let fence = null;
+      for (const line of source.split(/\r?\n/)) {
+        const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
+        if (!marker) continue;
+        if (fence === null) fence = marker;
+        else if (marker[0] === fence[0] && marker.length >= fence.length) fence = null;
+      }
+      if (fence !== null) documentationSourceFailures.push(`${label}: unclosed code fence`);
     }
   }
 }
@@ -275,12 +181,27 @@ const searchIndexFiles = allFiles.filter(
     path.basename(file).startsWith('@localSearchIndex') &&
     file.endsWith('.js'),
 );
-const searchIndexBytes = (
-  await Promise.all(searchIndexFiles.map(async file => (await stat(file)).size))
-).reduce((total, size) => total + size, 0);
-const searchIndexContents = await Promise.all(
-  searchIndexFiles.map(file => readFile(file, 'utf8')),
+const searchDecoderFiles = allFiles.filter(
+  file => path.basename(file).startsWith('search-index-decoder.') && file.endsWith('.js'),
 );
+const searchIndexBytes = (
+  await Promise.all([...searchIndexFiles, ...searchDecoderFiles].map(async file => (await stat(file)).size))
+).reduce((total, size) => total + size, 0);
+if (searchDecoderFiles.length !== 1) {
+  failures.push(`expected one measurable search decoder, found ${searchDecoderFiles.length}`);
+}
+const searchIndexContents = await Promise.all(searchIndexFiles.map(async file => {
+  const { default: payload } = await import(pathToFileURL(file).href);
+  const serialized = await decodeSearchIndex(payload);
+  if (createHash('sha256').update(serialized).digest('hex') !== payload.sha256) {
+    failures.push(`${path.basename(file)}: decoded search index checksum mismatch`);
+  }
+  const parsed = JSON.parse(serialized);
+  if (!Number.isSafeInteger(parsed.documentCount) || parsed.documentCount <= 0 || !Array.isArray(parsed.index)) {
+    failures.push(`${path.basename(file)}: empty or invalid decoded search index`);
+  }
+  return serialized;
+}));
 const combinedSearchIndex = searchIndexContents.join('\n');
 
 if (dashboardJsBytes > 750 * 1024) {
@@ -296,7 +217,7 @@ if (searchIndexFiles.length !== 2) {
 }
 if (searchIndexBytes > 1.6 * 1024 * 1024) {
   failures.push(
-    `local search indexes exceed 1.6 MiB: ${searchIndexBytes} bytes`,
+    `local search modules and decoder exceed 1.6 MiB: ${searchIndexBytes} bytes`,
   );
 }
 for (const excludedPath of [
@@ -315,9 +236,11 @@ for (const excludedPath of [
 for (const requiredPath of [
   '/en/guides/solver-algorithms',
   '/cn/guides/solver-algorithms',
+  '/en/reference/linear-model-api',
+  '/cn/reference/linear-model-api',
 ]) {
   if (!combinedSearchIndex.includes(requiredPath)) {
-    failures.push(`local search index is missing user guide: ${requiredPath}`);
+    failures.push(`local search index is missing public documentation: ${requiredPath}`);
   }
 }
 
@@ -325,5 +248,5 @@ if (failures.length) {
   throw new Error(`Site verification failed:\n${failures.join('\n')}`);
 }
 console.log(
-  `Verified ${htmlFiles.length} HTML pages at base ${siteBase}; dashboard JS ${dashboardJsBytes} bytes; benchmark data ${benchmarkBytes} bytes; search indexes ${searchIndexBytes} bytes`,
+  `Verified ${htmlFiles.length} HTML pages at base ${siteBase}; dashboard JS ${dashboardJsBytes} bytes; benchmark data ${benchmarkBytes} bytes; search modules and decoder ${searchIndexBytes} bytes`,
 );

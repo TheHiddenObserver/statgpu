@@ -3,7 +3,7 @@
 ## Scope
 
 - **Website issue**: #130
-- **Last updated**: 2026-09-05
+- **Last updated**: 2026-10-15
 - **QA type**: data contract, reproducible build, link, accessibility, and browser tests
 
 This file describes the dashboard as deployed inside the assembled public site.
@@ -26,7 +26,8 @@ The `Website and Benchmark Frontend` workflow verifies:
 - byte-for-byte deterministic final-artifact hashes;
 - a clean repository tree including non-ignored untracked files;
 - dashboard Chromium regression tests;
-- assembled-site production QA in Chromium, Firefox, and WebKit.
+- assembled-site production QA in Chromium, Firefox, and WebKit;
+- canonical EN/CN family `README` routes, current API references, MathJax, and bilingual search.
 
 `npm run site:build` from the repository root builds and verifies the complete
 site. The faster dashboard regression suite uses the Vite development server;

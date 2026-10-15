@@ -323,10 +323,18 @@ class BaseEstimator(ABC):
         wrapped.__statgpu_constructor_capture__ = True
         cls.__init__ = wrapped
 
-    @classmethod
-    def _install_public_finite_validation(cls):
+    def _check_public_input_finite(self, value, *, name, method_name):
+        """Validate one input; optionally return a normalized replacement.
+
+        Returning None preserves the original argument, including for existing
+        validation-only overrides. Replacements belong only to the current call.
+        """
         from statgpu.backends._validation import check_finite
 
+        check_finite(value, name=name)
+
+    @classmethod
+    def _install_public_finite_validation(cls):
         def wrap_method(original, method_name):
             try:
                 signature = inspect.signature(original)
@@ -342,6 +350,7 @@ class BaseEstimator(ABC):
                 loss_value = getattr(self, "loss", "")
                 loss_name = str(getattr(loss_value, "name", loss_value)).lower()
                 formula_active = bound.arguments.get("formula") is not None
+                normalized = False
                 try:
                     for name, value in bound.arguments.items():
                         if name == "y" and loss_name in {"cox", "coxph", "cox_ph"}:
@@ -362,7 +371,12 @@ class BaseEstimator(ABC):
                         ):
                             continue
                         if name in self._FINITE_PARAMETER_NAMES and value is not None:
-                            check_finite(value, name=name)
+                            prepared = self._check_public_input_finite(
+                                value, name=name, method_name=method_name
+                            )
+                            if prepared is not None and prepared is not value:
+                                bound.arguments[name] = prepared
+                                normalized = True
                 except Exception:
                     if method_name == "fit":
                         reset_fit_state = getattr(self, "_reset_fit_state", None)
@@ -375,6 +389,8 @@ class BaseEstimator(ABC):
                             if callable(reset_cv_state):
                                 reset_cv_state()
                     raise
+                if normalized:
+                    return original(*bound.args, **bound.kwargs)
                 return original(self, *args, **kwargs)
 
             guarded.__statgpu_finite_validation__ = True
@@ -412,7 +428,11 @@ class BaseEstimator(ABC):
         Parameters
         ----------
         device : str or Device, default='auto'
-            Computation device: 'cpu', 'cuda', or 'auto'.
+            Requested device: 'cpu' (NumPy), 'cuda' (CuPy CUDA), 'torch'
+            (Torch CUDA), or 'auto'. Inherited base routing uses the global
+            device setting for 'auto'; an explicit non-auto value overrides
+            that global setting. Model-specific routing can differ; consult
+            the estimator's device documentation.
         n_jobs : int, optional
             Number of parallel jobs for CPU computation.
             -1 means using all processors.
@@ -646,20 +666,26 @@ class BaseEstimator(ABC):
         pvalues : array-like, optional
             Raw p-values. If omitted, uses this estimator's ``_pvalues``.
         method : str, default='bh'
-            Adjustment method: ``bh``, ``by``, ``holm``, ``bonferroni``
-            (aliases accepted).
+            Adjustment method: ``bh``, ``by``, ``holm``, ``bonferroni``, or
+            ``hochberg`` (aliases accepted).
         alpha : float, default=0.05
-            Rejection threshold in (0, 1).
+            Finite rejection threshold in (0, 1). Validate before calling:
+            the current implementation can accept NaN and return all-false
+            rejection decisions.
         axis : int or None, default=0
             Axis along which to adjust. ``None`` flattens all entries.
         backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
-            Compute backend. ``'auto'`` follows the estimator's resolved device.
+            ``'auto'`` selects the estimator's resolved CuPy/Torch GPU backend.
+            For a resolved CPU estimator, it currently infers from input arrays;
+            use ``'numpy'`` to require NumPy. Explicit ``'torch'`` requires CUDA.
 
         Returns
         -------
         dict
             Contains ``pvalues``, ``pvalues_adjusted``, ``reject``,
-            ``method``, ``alpha``, and ``axis``.
+            ``method``, ``alpha``, ``axis``, and ``backend``. The backend label
+            can remain ``'auto'``; adjusted arrays retain the input shape.
+            Unlike the module function, this method does not return a tuple.
         """
         from statgpu.inference import adjust_pvalues as _adjust_pvalues
 
@@ -709,19 +735,27 @@ class BaseEstimator(ABC):
         pvalues : array-like, optional
             Raw p-values. If omitted, uses this estimator's ``_pvalues``.
         method : str, default='fisher'
-            Combination method: ``fisher`` or ``cauchy`` (aliases accepted).
+            Combination method: ``fisher``, ``cauchy``, or ``stouffer``
+            (aliases accepted).
         weights : array-like, optional
-            Optional non-negative weights for cauchy combination.
+            Finite nonnegative weights with positive total for Cauchy or
+            Stouffer, aligned with the reduction axis. Fisher rejects weights.
+            Divide large weights by their positive maximum before calling:
+            the shared raw-weight normalization sum can overflow for either
+            method even when every supplied weight is finite.
         axis : int or None, default=None
             Axis along which to combine p-values. ``None`` flattens input.
         backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
-            Compute backend. ``'auto'`` follows the estimator's resolved device.
+            ``'auto'`` selects the estimator's resolved CuPy/Torch GPU backend.
+            For a resolved CPU estimator, it currently infers from input arrays;
+            use ``'numpy'`` to require NumPy. Explicit ``'torch'`` requires CUDA.
 
         Returns
         -------
         dict
-            Contains ``pvalues``, ``statistic``, ``pvalue``,
-            ``method``, ``axis``, and ``backend``.
+            Contains ``pvalues``, ``weights``, ``statistic``, ``pvalue``,
+            ``method``, ``axis``, and ``backend``. The backend label may remain
+            ``'auto'``. Unlike the module function, this is not a tuple.
         """
         from statgpu.inference import combine_pvalues as _combine_pvalues
 
@@ -775,9 +809,59 @@ class BaseEstimator(ABC):
         backend: str = "auto",
     ):
         """
-        Run unified bootstrap engine from model context.
+        Bootstrap a scalar statistic on aligned rows.
 
-        This is a thin wrapper over ``statgpu.inference.bootstrap_statistic``.
+        Parameters
+        ----------
+        statistic : callable
+            Receives the aligned arrays and returns a finite scalar. Batched
+            calls may be probed before scalar fallback; avoid side effects.
+        *arrays : array-like
+            Nonempty arrays with the same first-axis length. If omitted, uses
+            cached ``_X_design`` and ``_y`` or raises RuntimeError. These caches
+            can include formula/weight transformations and need not be raw
+            matched training pairs; explicit arrays are safer for refitting.
+        n_resamples : int, default=200
+            Positive number of resamples.
+        strategy : {'iid', 'stratified', 'cluster', 'block'}, default='iid'
+            Resample rows, rows within strata, equal-size whole clusters, or
+            contiguous blocks. Unequal-size cluster resampling currently
+            truncates the final group to n rows and can split clusters; do not
+            use its intervals for that setting. The caller must choose a valid
+            resampling unit.
+        strata, clusters : array-like, optional
+            One nonmissing label per row, required by the selected strategy.
+            Validate before calling: NaN labels can leave uninitialized batch
+            entries rather than raising clearly, producing invalid results.
+        block_size : int, optional
+            Positive moving-block length, capped at n. Sample ceil(n/b)
+            starts from 0 through n-b with replacement, concatenate contiguous
+            blocks without circular wrapping, and truncate to n rows. A length
+            at least n returns the original data in every resample and yields a
+            zero-width interval for a deterministic statistic, not zero true
+            sampling uncertainty.
+        confidence_level : float, default=0.95
+            Percentile interval level in (0, 1).
+        random_state : int, optional
+            Seed scoped to this backend and procedure.
+        statistic_name : str, default='statistic'
+            Result label; does not change the calculation.
+        backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
+            Auto selects the resolved estimator GPU backend, but leaves array
+            inference enabled on CPU. Use 'numpy' to require NumPy. Explicit
+            CuPy/Torch requests require the corresponding GPU backend.
+
+        Returns
+        -------
+        BootstrapResult
+            ``observed``, backend ``samples``, ``confidence_interval``, level,
+            resample count, seed, statistic name, strategy, and metadata.
+            This does not automatically refit or perform coefficient inference.
+
+        Notes
+        -----
+        Unlike the module function, this method does not accept
+        ``force_vectorized`` or ``statistic_hint``.
         """
         from statgpu.inference import bootstrap_statistic as _bootstrap_statistic
 
@@ -836,9 +920,48 @@ class BaseEstimator(ABC):
         backend: str = "auto",
     ):
         """
-        Run unified permutation test engine from model context.
+        Test a scalar statistic by permuting response labels with X fixed.
 
-        This is a thin wrapper over ``statgpu.inference.permutation_test``.
+        Parameters
+        ----------
+        statistic : callable
+            ``statistic(X, y)`` returns a finite scalar. Batched calls may be
+            probed; avoid side effects and define batch axes deliberately.
+        X, y : array-like
+            Nonempty aligned observations; use a one-dimensional response.
+        n_resamples : int, default=1000
+            Positive number of permutations.
+        strategy : {'iid', 'stratified', 'grouped'}, default='iid'
+            Permute globally, within strata, or within groups. Grouped does
+            not exchange whole groups. Null exchangeability is required.
+        strata, groups : array-like, optional
+            One nonmissing label per row, required by the selected strategy.
+            Validate before calling: NaN labels can leave uninitialized batch
+            entries rather than raising clearly, producing invalid results.
+        alternative : {'two-sided', 'greater', 'less'}, default='two-sided'
+            Tail comparison; two-sided compares absolute statistic values
+            relative to zero. It does not center the statistic or form an
+            equal-tail test for an asymmetric null distribution.
+        random_state : int, optional
+            Seed scoped to this backend and procedure.
+        statistic_name : str, default='statistic'
+            Reporting label only.
+        backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
+            Auto selects the resolved estimator GPU backend, but leaves array
+            inference enabled on CPU. Use 'numpy' to require NumPy. Explicit
+            CuPy/Torch requests require the corresponding GPU backend.
+
+        Returns
+        -------
+        PermutationTestResult
+            ``observed``, backend ``samples``, plus-one corrected ``pvalue``,
+            resample count, seed, statistic name, strategy, alternative, metadata.
+            ``to_dict()`` serializes arrays; ``to_dataframe()`` needs pandas.
+
+        Notes
+        -----
+        Unlike the module function, this method does not accept
+        ``force_vectorized`` or ``statistic_hint``.
         """
         from statgpu.inference import permutation_test as _permutation_test
 
@@ -957,8 +1080,18 @@ class BaseEstimator(ABC):
     def get_params(self, deep=True):
         """Get constructor parameters for this estimator.
 
-        Nested estimator parameters are exposed as ``name__param`` when
-        ``deep=True``, matching the scikit-learn estimator contract.
+        Parameters
+        ----------
+        deep : bool, default=True
+            Include nested estimator settings as ``name__param`` when True.
+            False returns only this estimator's constructor parameters.
+
+        Returns
+        -------
+        dict
+            Constructor configuration, including runtime-added public controls,
+            but not fitted attributes or a serialized copy of the model.
+            Values can share mutable objects with the supplied configuration.
         """
         import inspect
 
@@ -991,7 +1124,27 @@ class BaseEstimator(ABC):
 
 
     def set_params(self, **params):
-        """Set parameters transactionally and refresh normalized state."""
+        """Set constructor parameters and reset this estimator for refitting.
+
+        Parameters
+        ----------
+        **params : dict
+            Constructor names from ``get_params``. Use ``name__param`` for
+            nested estimators. Unknown names raise ``ValueError``. Model-specific
+            deferred controls may be validated only by the next ``fit`` call.
+
+        Returns
+        -------
+        self
+            The same estimator with updated configuration and unfitted state.
+            An empty call is a no-op. Refit before predicting after an update.
+
+        Notes
+        -----
+        The base implementation constructs replacement state before committing
+        it. Subclasses may override this method; check their lifecycle contract.
+        Direct attribute assignment does not perform this reconstruction.
+        """
         if not params:
             return self
 

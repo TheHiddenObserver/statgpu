@@ -1,0 +1,341 @@
+{
+  "source_commit": "180ddc41cef544639d5c3b874430cb39a690b375",
+  "pages": {
+    "docs/en/models/linear-regression.md": {
+      "anchor_count": 18,
+      "anchors_sha256": "75aca22f761bcf8c0ca8f63437ca723a58ddd07c273ad7ab15da20a0ceb11835"
+    },
+    "docs/en/models/ridge.md": {
+      "anchor_count": 23,
+      "anchors_sha256": "5713a0019ff6ae451d61f01f312832f93a99cce926729a0cdca992726640990a"
+    },
+    "docs/en/models/lasso.md": {
+      "anchor_count": 23,
+      "anchors_sha256": "971331f43624a039cef9ebfd83d0a9fe398641774d8ee992d78f882332016c31"
+    },
+    "docs/en/models/elastic-net.md": {
+      "anchor_count": 29,
+      "anchors_sha256": "d23769caa8e2091949cfa564de1e436057b3f3e3ed7f9c2798292f2127ea5b54"
+    },
+    "docs/en/models/adaptive-lasso.md": {
+      "anchor_count": 18,
+      "anchors_sha256": "b84f819a460f0a5d9f5e7cec4048aec591e8397b6006825e51b798f1de206a66"
+    },
+    "docs/en/models/scad.md": {
+      "anchor_count": 19,
+      "anchors_sha256": "9e46f0e3fcc275a74edd8b49aacb8df76907dbca0837cdb9093625c769526744"
+    },
+    "docs/en/models/mcp.md": {
+      "anchor_count": 19,
+      "anchors_sha256": "505fba7de334ea447729c2d802660c874e060867b2098c8f7a33fcefd344dcb3"
+    },
+    "docs/en/models/generalized-linear-model.md": {
+      "anchor_count": 28,
+      "anchors_sha256": "c43049ec0033d3d4c90ac997f101a379d2537ae45c7e791a5dfc506c74f1cc50"
+    },
+    "docs/en/models/logistic-regression.md": {
+      "anchor_count": 20,
+      "anchors_sha256": "00853c1213b6bc2c9176ca8644c14509a3d12013c4a5623d8a42c52ab652c748"
+    },
+    "docs/en/models/poisson-regression.md": {
+      "anchor_count": 20,
+      "anchors_sha256": "a0d11387d36e37819ed837dbfa350cc177c97ea298f9c588440b1b9eef79ad81"
+    },
+    "docs/en/models/ordered.md": {
+      "anchor_count": 24,
+      "anchors_sha256": "28da67f1740e670057475cef05bd3ee276f501134a44a3f151b02f20c27e24ba"
+    },
+    "docs/en/models/quantile.md": {
+      "anchor_count": 32,
+      "anchors_sha256": "4fb74be83b2709987e1b7cc19e09cdcd2a744b6e6e96e337f469c2d7d5b447a0"
+    },
+    "docs/en/models/robust.md": {
+      "anchor_count": 34,
+      "anchors_sha256": "22019df3823f1ccdf4cf78ad262820febb5b8a1d3f278bbe58bcb6b21e8e4a06"
+    },
+    "docs/en/models/anova.md": {
+      "anchor_count": 53,
+      "anchors_sha256": "d617c34b2bbc64d5bbe95d4a55802420868e20689a812ff8d1becb203d6e8a35"
+    },
+    "docs/en/models/anova-oneway.md": {
+      "anchor_count": 28,
+      "anchors_sha256": "23f4da7d71c20b364b31c673a248e78f61250489815355757cca1905e7979017"
+    },
+    "docs/en/models/anova-welch.md": {
+      "anchor_count": 18,
+      "anchors_sha256": "1cee1a5a774f6defa676daa97cedec83d39177f02fb62e1cd305500e21bef8aa"
+    },
+    "docs/en/models/anova-twoway.md": {
+      "anchor_count": 17,
+      "anchors_sha256": "2f357fe40cbd989d56c3a94dc281c9210f28fdd7e91b56d20c2262528b51254e"
+    },
+    "docs/en/models/anova-posthoc.md": {
+      "anchor_count": 19,
+      "anchors_sha256": "4a9032f157a6efcc42ae3d24117a7c0ec768e8bd0968940e740d750bf77c314c"
+    },
+    "docs/en/models/multiple-testing.md": {
+      "anchor_count": 15,
+      "anchors_sha256": "82df83bae00183894a3ebab4ddcba337658d757d97a3ae71562a8355d6a2536b"
+    },
+    "docs/en/models/covariance.md": {
+      "anchor_count": 50,
+      "anchors_sha256": "4d6894b1dc51290ea736f8bf4c2b619658a23d1f3fbee7f4d3fa6db4f5ef912f"
+    },
+    "docs/en/models/covariance-empirical.md": {
+      "anchor_count": 7,
+      "anchors_sha256": "1621135a35598f3613678b66a65113890a80a629e27dbd0b28dc1a8ff09fa55a"
+    },
+    "docs/en/models/covariance-shrunk.md": {
+      "anchor_count": 8,
+      "anchors_sha256": "233f884dab7c47ec56ddefd1bbc9673c82730a5c676bacf5012b28f2c51b5bb7"
+    },
+    "docs/en/models/covariance-ledoit-wolf.md": {
+      "anchor_count": 8,
+      "anchors_sha256": "57f88b6d3305a6ea1916900ff15324317eb2a670147aaa98a672dd2e19257271"
+    },
+    "docs/en/models/covariance-oas.md": {
+      "anchor_count": 7,
+      "anchors_sha256": "a3555ab79c6869fd0a8d4c1222e1d4437ac834812897a41fc70e590dbf64b073"
+    },
+    "docs/en/models/covariance-min-cov-det.md": {
+      "anchor_count": 7,
+      "anchors_sha256": "a91e7fa60fa6f2a2ec2ed7171003253973d2d2849688d05732ddcec9f7bbe162"
+    },
+    "docs/en/models/covariance-graphical-lasso.md": {
+      "anchor_count": 7,
+      "anchors_sha256": "c80521d548091d8df9c1b159a5ba3ae75cee4cb846949afda73f85dcb11d5faa"
+    },
+    "docs/en/models/covariance-graphical-lasso-cv.md": {
+      "anchor_count": 7,
+      "anchors_sha256": "17cea9269e6c84ac12a2625155b3692852d88d1bc90e027408612a10928f2296"
+    },
+    "docs/en/models/nonparametric.md": {
+      "anchor_count": 20,
+      "anchors_sha256": "cc9ec54686f5c3984c38e9f94233914e356dbd3f404e012bd3f4f757fbb5ec0c"
+    },
+    "docs/en/models/kernel-methods.md": {
+      "anchor_count": 56,
+      "anchors_sha256": "b2c2c3c78d3d6e019ef20867d0cf7d50c14260f72a391536d7105144139a80c3"
+    },
+    "docs/en/models/kernel-ridge.md": {
+      "anchor_count": 16,
+      "anchors_sha256": "6d889ca7e7cbe6ea4c4527c275ed89b11633cb50da74f3e876a321332e937509"
+    },
+    "docs/en/models/kernel-ridge-cv.md": {
+      "anchor_count": 22,
+      "anchors_sha256": "2fd334ab596d4e6f45fc39c7b603714e45afc923eadbdebf797ef2f84b0acced"
+    },
+    "docs/en/models/kernel-pca.md": {
+      "anchor_count": 15,
+      "anchors_sha256": "d23f7e690855ff57e7525e164023dbb7f3024db0b73ca980bf8a4d7718134d01"
+    },
+    "docs/en/models/kernel-nystroem.md": {
+      "anchor_count": 16,
+      "anchors_sha256": "5c1154e67ef6fe4889f7011bb399d2285113364f8ae825a34fd702a627393b72"
+    },
+    "docs/en/models/splines.md": {
+      "anchor_count": 34,
+      "anchors_sha256": "f98df3ce5442a3259d7d08e9793cf8b6a9a2c66966f43221a9757852898295b1"
+    },
+    "docs/en/models/semiparametric.md": {
+      "anchor_count": 17,
+      "anchors_sha256": "bc2e708cc581e99946db1c64520a70d572c4b2cc416664fa5ccfee518fcc8ab3"
+    },
+    "docs/en/models/feature-selection.md": {
+      "anchor_count": 12,
+      "anchors_sha256": "33be766bd26866cc30521ff898c20e41e1640962c24f68ab251581322593f166"
+    },
+    "docs/en/models/knockoff.md": {
+      "anchor_count": 37,
+      "anchors_sha256": "dd6b54b08cc1680ac4047f09965fa14980e0320dd6365a26b800caa820bd21c2"
+    },
+    "docs/en/models/knockoff-fixed-x.md": {
+      "anchor_count": 21,
+      "anchors_sha256": "c01d33ee831e4184aaf0daad3325311189e0731d8c976425fa62878cc04870df"
+    },
+    "docs/en/models/knockoff-model-x.md": {
+      "anchor_count": 19,
+      "anchors_sha256": "00f02e24ddeb7eb153f68cab67fefd6ea54f76fc27827a7043713353624798be"
+    },
+    "docs/en/models/panel.md": {
+      "anchor_count": 2,
+      "anchors_sha256": "d6d4128cbe56ecfca221d0940664838d94f92a0327ab53f6b40eeaa3d756beac"
+    },
+    "docs/en/models/unsupervised.md": {
+      "anchor_count": 6,
+      "anchors_sha256": "48149ceb43843854f2e31ce32ff58d5b7b2a892105a02f01d14bf3914dd597fd"
+    },
+    "docs/en/models/losses.md": {
+      "anchor_count": 25,
+      "anchors_sha256": "7ff946c5bd9d170b7622f18f356e65ffd300cec972ecfbb28416e0a7271393de"
+    },
+    "docs/cn/models/linear-regression.md": {
+      "anchor_count": 18,
+      "anchors_sha256": "5b5b361c04bbc84eee28fe77b6340fee4146c858536eb60a2315aea3a6a8bd86"
+    },
+    "docs/cn/models/ridge.md": {
+      "anchor_count": 22,
+      "anchors_sha256": "9926bc31e60e34495f2051a32f9927350fe4912ffdd8fcfb6bd094a9f5db0b3f"
+    },
+    "docs/cn/models/lasso.md": {
+      "anchor_count": 27,
+      "anchors_sha256": "5878a8ab33eac89d72ded1a638b15f109a2ef9a56b03a460bfa3b9be1252c3d8"
+    },
+    "docs/cn/models/elastic-net.md": {
+      "anchor_count": 29,
+      "anchors_sha256": "3da3c73f6ba81f8fd838b7e2b27ca63240afdcb64c25740eb837e16feb31ed5c"
+    },
+    "docs/cn/models/adaptive-lasso.md": {
+      "anchor_count": 18,
+      "anchors_sha256": "d2131c9deec4668390a7d902e2f4fb9dc509687b757b92f92bf938a54d12b824"
+    },
+    "docs/cn/models/scad.md": {
+      "anchor_count": 18,
+      "anchors_sha256": "f5d8bced562e80874d61398cb92877e3dc564ca0b654b5e658c104c28ff953a0"
+    },
+    "docs/cn/models/mcp.md": {
+      "anchor_count": 18,
+      "anchors_sha256": "7e49bad8055744dc582d8107e7b4bfd4d33a5a95ae1ed597a350ac869209e19e"
+    },
+    "docs/cn/models/generalized-linear-model.md": {
+      "anchor_count": 29,
+      "anchors_sha256": "e12994634cc5f86b5ce08fe83d490deda5ccf9a07c1c6f69d2b317a5bb83b3a2"
+    },
+    "docs/cn/models/logistic-regression.md": {
+      "anchor_count": 20,
+      "anchors_sha256": "305d9809d30b0878fa4fcdcd565050ef861710344edaf396c0d688fa5d6822ca"
+    },
+    "docs/cn/models/poisson-regression.md": {
+      "anchor_count": 19,
+      "anchors_sha256": "dbffffb80d21c84f0b64a0d71be450862c1dfa915f0b888bd71c7419ead40d54"
+    },
+    "docs/cn/models/ordered.md": {
+      "anchor_count": 24,
+      "anchors_sha256": "a9516c0c09a2ba74c3ce53ab94768070a1e3e2b6394a637e5c0edab26f031049"
+    },
+    "docs/cn/models/quantile.md": {
+      "anchor_count": 32,
+      "anchors_sha256": "1037a7bf1d558784f23857527d9e1d3f7d577eba14952c6b7959fbc13d235964"
+    },
+    "docs/cn/models/robust.md": {
+      "anchor_count": 34,
+      "anchors_sha256": "4c7404b3080c91befc7c2e6a78a21dcb1baa0eebef3bc34ce6db1b9565b1004e"
+    },
+    "docs/cn/models/anova.md": {
+      "anchor_count": 54,
+      "anchors_sha256": "bcf9179920dee8f81d95c0e7cf6c00dfe3e16bb40af59bafacb284be01ed8cfa"
+    },
+    "docs/cn/models/anova-oneway.md": {
+      "anchor_count": 29,
+      "anchors_sha256": "52f14e6d817e2ff7ef04c214f523be6dd4918046527d7a54ac5baca9f3226989"
+    },
+    "docs/cn/models/anova-welch.md": {
+      "anchor_count": 19,
+      "anchors_sha256": "77be05a55a59ccb29e434187862cccb2b855bf0e9e06611ebab9ee8deb2946f5"
+    },
+    "docs/cn/models/anova-twoway.md": {
+      "anchor_count": 17,
+      "anchors_sha256": "7aef1b9c295ef6d0fa8053722b927dcbc17f43e80ef7cc8486fee49be50142c4"
+    },
+    "docs/cn/models/anova-posthoc.md": {
+      "anchor_count": 20,
+      "anchors_sha256": "980fa2028a80328ab45634344430dba926e4f3d5104a10f79968a2c9c6565d51"
+    },
+    "docs/cn/models/multiple-testing.md": {
+      "anchor_count": 15,
+      "anchors_sha256": "1dec9b2dfeb22172d36d3b788270ec47d96f5d0c7539155ba56cbdfc735eb8bb"
+    },
+    "docs/cn/models/covariance.md": {
+      "anchor_count": 51,
+      "anchors_sha256": "9ac6cd79ca6ba17b4443ec2cbd2b2aea4600700b451aebcb2184448859320c42"
+    },
+    "docs/cn/models/covariance-empirical.md": {
+      "anchor_count": 7,
+      "anchors_sha256": "80581de0d0801390d77283f5015ea5b9e7252deea632457440b63b1e18f10166"
+    },
+    "docs/cn/models/covariance-shrunk.md": {
+      "anchor_count": 8,
+      "anchors_sha256": "790b2da5532f8aa94cb0b5ee83cd0de3836255d14d0e24d8630f325c6f3a5b88"
+    },
+    "docs/cn/models/covariance-ledoit-wolf.md": {
+      "anchor_count": 8,
+      "anchors_sha256": "ee0d84e322897c8141787e880bbbcc0feddf5072825403b8b50c36688403eb01"
+    },
+    "docs/cn/models/covariance-oas.md": {
+      "anchor_count": 7,
+      "anchors_sha256": "02277d8abbcb5d9ccd8e27f5fddf2820499a64713b6209c0168fb36229a08f26"
+    },
+    "docs/cn/models/covariance-min-cov-det.md": {
+      "anchor_count": 7,
+      "anchors_sha256": "774a4cf3ab39102920c23eb5b36db0607adf28f8e8422c5ec4396c3fdf173b0d"
+    },
+    "docs/cn/models/covariance-graphical-lasso.md": {
+      "anchor_count": 7,
+      "anchors_sha256": "96958247046b12b63ebd4b856d7054f7777c20fc399381019bd636df6bd2ff3f"
+    },
+    "docs/cn/models/covariance-graphical-lasso-cv.md": {
+      "anchor_count": 7,
+      "anchors_sha256": "af61169b0b2f5b4d0ad86a682623e0e287b153dbdb0b550d640185474ac8e5e5"
+    },
+    "docs/cn/models/nonparametric.md": {
+      "anchor_count": 20,
+      "anchors_sha256": "a58962b015be70250250275d75e86cb0450080174c9e76d50eef1b7847bad1f5"
+    },
+    "docs/cn/models/kernel-methods.md": {
+      "anchor_count": 56,
+      "anchors_sha256": "5aab8726e55d3b1b8a8f90e3f9fc6ea470bafb0321970ef0770920392c34888d"
+    },
+    "docs/cn/models/kernel-ridge.md": {
+      "anchor_count": 16,
+      "anchors_sha256": "530e419076fe299db0a0ad67e1527af26a693b08854c4bd7f70d7db948c27708"
+    },
+    "docs/cn/models/kernel-ridge-cv.md": {
+      "anchor_count": 22,
+      "anchors_sha256": "c08e10811289b53f666676800e4c235b955d3168a987a70cebe1534caecb165d"
+    },
+    "docs/cn/models/kernel-pca.md": {
+      "anchor_count": 15,
+      "anchors_sha256": "ead446abc82222d95b2613e8a23b7f304f97467327722a4de5771c9dd0af993f"
+    },
+    "docs/cn/models/kernel-nystroem.md": {
+      "anchor_count": 16,
+      "anchors_sha256": "045ea7401d5c77702a1d19a4e8de6be1c1a379df9bce2155587324db07e46965"
+    },
+    "docs/cn/models/splines.md": {
+      "anchor_count": 34,
+      "anchors_sha256": "333976bca5131125d5e87e7f67c1d144f34fe93547e0bce99259208b06ef9fa3"
+    },
+    "docs/cn/models/semiparametric.md": {
+      "anchor_count": 18,
+      "anchors_sha256": "d53fabc6c8171222e0141e01322d8e5076214c5e5fad353e1cc1fb6c11f0e9c0"
+    },
+    "docs/cn/models/feature-selection.md": {
+      "anchor_count": 13,
+      "anchors_sha256": "7ae6f575ef34f0e36a8571546f64a259a108aa96076b45d560e3f8debc537a64"
+    },
+    "docs/cn/models/knockoff.md": {
+      "anchor_count": 39,
+      "anchors_sha256": "0c447b19d3163368c23e2b63c7afb0dd0f1d4d456662473afe13a34feeb7f8ed"
+    },
+    "docs/cn/models/knockoff-fixed-x.md": {
+      "anchor_count": 21,
+      "anchors_sha256": "f373f65e1191cff64b7a334012323d0047f6bdc4459642d2b1b277d43e4b6310"
+    },
+    "docs/cn/models/knockoff-model-x.md": {
+      "anchor_count": 20,
+      "anchors_sha256": "2a8072f26ebfb69f57f1f9430ee3f058aaa330c6b32f207a6328bfb585902c55"
+    },
+    "docs/cn/models/panel.md": {
+      "anchor_count": 2,
+      "anchors_sha256": "e50634f5ad670e9caeb3dcddf3ef72eddddfd60530a623cc4a8e201d1132689a"
+    },
+    "docs/cn/models/unsupervised.md": {
+      "anchor_count": 6,
+      "anchors_sha256": "005cc028039113cb69587a9d92ca8987e471cefec7bd9688052098982bba7232"
+    },
+    "docs/cn/models/losses.md": {
+      "anchor_count": 25,
+      "anchors_sha256": "858937f3acbc2a3eb10bf52b49978807742df2d3ec968fa1ab09f06bca453a98"
+    }
+  }
+}

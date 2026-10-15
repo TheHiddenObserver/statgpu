@@ -22,6 +22,9 @@ from statgpu.backends._array_ops import (
     _sum_sq_dev,
     _sync_scalars,
     _zeros,
+    _max_eigval_power,
+    _psd_spectral_upper_bound,
+    _xp_asarray,
 )
 from ._convergence import ConvergenceWarning
 from ._constants import (
@@ -31,6 +34,9 @@ from ._constants import (
     _GRAD_CLIP_COEF_FACTOR,
     _GRAD_CLIP_ABS_FLOOR,
     _GRAD_CLIP_MAX,
+    _QUANTILE_ASYNC_MOMENTUM_BETA_CAP,
+    _QUANTILE_ASYNC_STALL_CHECKS,
+    _QUANTILE_ASYNC_STEP_CONTRACTION_FACTOR,
 )
 from ._utils import (
     _validate_sample_weight,
@@ -40,8 +46,46 @@ from ._utils import (
     _penalty_name,
     _smooth_penalty_lipschitz,
     _abs_mean_max,
+    _external_warning_stacklevel,
     _tracking_penalty_value,
 )
+
+
+def _weighted_gram_lipschitz(XtWX, loss=None):
+    """Return the loss-consistent safe step scale for a weighted Gram matrix."""
+    scale = _psd_spectral_upper_bound(XtWX)
+    if str(getattr(loss, "name", "") or "").lower() == "quantile":
+        tau = float(getattr(loss, "_tau", getattr(loss, "quantile", 0.5)))
+        scale *= max(tau, 1.0 - tau)
+    return scale
+
+
+def _sample_weight_dtype_for_design(X, backend):
+    """Preserve fractional analytic weights for integral/boolean designs."""
+    dtype = getattr(X, "dtype", None)
+    if backend == "torch":
+        import torch
+
+        return dtype if getattr(dtype, "is_floating_point", False) else torch.float64
+    try:
+        kind = np.dtype(dtype).kind
+    except (TypeError, ValueError):
+        kind = "f"
+    return dtype if kind in "fc" else np.float64
+
+
+def _feature_penalty_width(penalty, n_features):
+    """Feature-only penalty width mirroring ``_tracking_penalty_value``.
+
+    ``SelectivePenalty`` exposes ``_p`` (penalized feature count, excluding the
+    trailing intercept); ``_FeatureOnlySparsePenalty`` exposes ``n_features``;
+    plain penalties cover the whole coefficient vector. The batched tracking
+    reduction must slice the same coordinates as the synchronized fallback.
+    """
+    width = getattr(penalty, "n_features", None)
+    if width is None:
+        width = getattr(penalty, "_p", n_features)
+    return int(width)
 
 
 def fista_solver(
@@ -91,6 +135,32 @@ def fista_solver(
         Number of iterations.
     """
     backend = _resolve_backend("auto", X)
+
+    # QuantileLoss.preprocess() is intentionally a no-op. Normalize its public
+    # low-level inputs here so mixed host/device responses follow X and
+    # integral/bool designs do not perform Gram/Lipschitz arithmetic in an
+    # integer dtype. Preserve existing floating design dtypes.
+    if str(getattr(loss, "name", "") or "").lower() == "quantile":
+        xp = _get_xp(backend)
+        if backend == "torch":
+            import torch
+            target_dtype = (
+                X.dtype
+                if torch.is_tensor(X) and torch.is_floating_point(X)
+                else torch.float64
+            )
+        else:
+            dtype = getattr(X, "dtype", None)
+            if dtype is None and backend == "numpy":
+                dtype = np.asarray(X).dtype
+            try:
+                design_kind = np.dtype(dtype).kind
+            except (TypeError, ValueError):
+                design_kind = "f"
+            target_dtype = dtype if design_kind in "fc" else xp.float64
+        X = _xp_asarray(X, target_dtype, X)
+        y = _xp_asarray(y, target_dtype, X)
+
     X_proc, y_proc = loss.preprocess(X, y)
     # Validate before any weighted Lipschitz or matrix operation so direct
     # solver callers receive the public contract error rather than a backend
@@ -138,13 +208,15 @@ def fista_solver(
             # Weighted Lipschitz: eigenvalue of X' diag(w) X / sum(w)
             _xp_mod = _get_xp(backend)
             # Ensure sample_weight is on same backend/device as X_proc
-            _sw = _xp_mod.asarray(sample_weight, dtype=X_proc.dtype)
-            if hasattr(X_proc, 'device') and hasattr(_sw, 'to'):
-                _sw = _sw.to(device=X_proc.device)
+            _sw = _xp_asarray(
+                sample_weight,
+                _sample_weight_dtype_for_design(X_proc, backend),
+                X_proc,
+            )
             sw_sum = _to_float_scalar(_xp_mod.sum(_sw))
             sw_col = _sw[:, None] if _sw.ndim == 1 else _sw
             XtWX = X_proc.T @ (X_proc * sw_col) / sw_sum
-            L = _to_float_scalar(_xp_mod.max(_xp_mod.diag(XtWX)))  # conservative bound
+            L = _weighted_gram_lipschitz(XtWX, loss=loss)
             if L <= 0:
                 L = 1.0
             # Cache for periodic recomputation in the loop (X and weights are constant)
@@ -209,14 +281,53 @@ def fista_solver(
         _conv_interval = 10
         _div_interval = 25
         _lip_interval = 25
+    _loss_name_lower = str(getattr(loss, "name", "") or "").lower()
+    _quantile_async_nonsmooth = (
+        _use_gpu_loop
+        and _loss_name_lower == "quantile"
+        and _non_smooth
+    )
+    _quantile_gpu_every_iter_check = (
+        _is_gpu
+        and _loss_name_lower == "quantile"
+        and not _non_smooth
+    )
+    _quantile_gpu_l2_alpha = 0.0
+    _quantile_gpu_l2_width = n_features
+    if _quantile_gpu_every_iter_check:
+        # Smooth-penalty Quantile still has a non-smooth pinball loss. Match
+        # CPU every-iteration best-accepted/objective-stability semantics so
+        # accelerator backends do not stop at a different accepted kink.
+        #
+        # Performance note: the backtracking Armijo test already requires one
+        # host-visible scalar decision per trial. The loop below batches the
+        # accepted trial's objective/coefficient-change, coefficient norm when
+        # needed, and L2 tracking value into that same synchronization, so this
+        # does not add a second per-iteration convergence synchronization.
+        # The genuinely async non-smooth CV path keeps its deferred checks.
+        _conv_interval = 1
+        if _pen_name_lower == "l2":
+            # SelectivePenalty stores the underlying L2 alpha and the number of
+            # penalized feature coordinates separately from the trailing
+            # unpenalized intercept. Plain L2Penalty uses all coordinates.
+            _quantile_gpu_l2_alpha = float(
+                getattr(
+                    penalty,
+                    "_alpha",
+                    getattr(penalty, "alpha", 0.0),
+                )
+            )
+            _quantile_gpu_l2_width = _feature_penalty_width(penalty, n_features)
 
     # Convert sample_weight to backend-native array (prevent CPU/CUDA mismatch)
     _sw_arr = None
     if sample_weight is not None:
         _xp_mod = _get_xp(backend)
-        _sw_arr = _xp_mod.asarray(sample_weight, dtype=X_proc.dtype)
-        if hasattr(X_proc, "device") and hasattr(_sw_arr, "to"):
-            _sw_arr = _sw_arr.to(device=X_proc.device)
+        _sw_arr = _xp_asarray(
+            sample_weight,
+            _sample_weight_dtype_for_design(X_proc, backend),
+            X_proc,
+        )
 
     # Gram matrix optimization for squared_error on async GPU path only.
     # Precompute X'X/n and X'y/n to avoid redundant X@coef per iteration.
@@ -230,6 +341,28 @@ def fista_solver(
         Xty = None
 
     iteration = -1  # default if max_iter=0
+    converged = False
+    line_search_failed = False
+    _quantile_async_stall_checks = 0
+    _quantile_async_step_contractions = 0
+    _quantile_async_last_obj = None
+    _quantile_async_last_delta = None
+    _quantile_async_last_step = None
+    # The dedicated sparse-CV FISTA engine caps Nesterov momentum at 0.5.
+    # Match that stability contract for Quantile's generic async non-smooth
+    # cv_mode path. Pinball loss is itself non-smooth, so unconstrained
+    # Nesterov beta -> 1 can sustain kink oscillation under a fixed GPU step.
+    # This is purely device-side scalar arithmetic and adds no synchronization.
+    _effective_momentum_beta_cap = _momentum_beta_cap
+    if _quantile_async_nonsmooth:
+        _effective_momentum_beta_cap = (
+            _QUANTILE_ASYNC_MOMENTUM_BETA_CAP
+            if _effective_momentum_beta_cap is None
+            else min(
+                float(_effective_momentum_beta_cap),
+                _QUANTILE_ASYNC_MOMENTUM_BETA_CAP,
+            )
+        )
 
     for iteration in range(max_iter):
         coef_old = _copy_arr(coef)
@@ -253,18 +386,15 @@ def fista_solver(
 
             step = 1.0 / L
 
-            # Single proximal step with one Armijo retry on device.
-            # First try step = 1/L; if objective increases, halve and retry.
-            # This keeps GPU↔CPU syncs minimal (only one extra proximal+loss
-            # call in the worst case) while matching CPU path behavior.
+            # Fixed-step proximal update. The async GPU path deliberately
+            # omits Armijo backtracking so ordinary iterations do not introduce
+            # a host-visible branch/synchronization. Quadratic rows use their
+            # exact design scale; other CV rows use their maintained safety
+            # controls. Quantile's non-smooth pinball route additionally uses
+            # the deferred objective-based restart/step contraction below.
             w_tilde = y_k - step * grad
             coef = penalty.proximal(w_tilde, step, backend=backend)
-
-            # GPU path: single proximal step (no backtracking).
-            # Backtracking on GPU requires loss.value() + GPU→CPU sync per
-            # retry, which defeats the purpose of the async GPU path.
-            # The Lipschitz constant L is conservative enough that step=1/L
-            # almost always satisfies the Armijo condition on the first try.
+            _conv_dev = _abs_sum_dev(coef - coef_old)
 
             # ALL safety checks deferred -- no per-iteration GPU->CPU sync.
             # Finiteness + divergence + objective tracking batched together.
@@ -273,8 +403,44 @@ def fista_solver(
                     _obj_dev = loss.value(X_proc, y_proc, coef, sample_weight=_sw_arr)
                 else:
                     _obj_dev = loss.value(X_proc, y_proc, coef)
-                # Single D2H transfer: extract float, then check finiteness.
-                _obj_val_f = float(_to_numpy(_obj_dev))
+                # One batched sync: objective and coefficient change.
+                # For Quantile+L1, include the penalty tracking reduction in
+                # the same sync so adaptive step control does not add a second
+                # device->host boundary.
+                _quantile_async_l1_alpha = (
+                    float(
+                        getattr(
+                            penalty,
+                            "_alpha",
+                            getattr(penalty, "alpha", 0.0),
+                        )
+                    )
+                    if _quantile_async_nonsmooth
+                    and _pen_name_lower == "l1"
+                    else None
+                )
+                if _quantile_async_l1_alpha is not None:
+                    _quantile_async_l1_width = _feature_penalty_width(
+                        penalty,
+                        n_features,
+                    )
+                    _penalty_dev = (
+                        _quantile_async_l1_alpha
+                        * _abs_sum_dev(coef[:_quantile_async_l1_width])
+                    )
+                    _obj_val_f, _conv_f, _penalty_f = _sync_scalars(
+                        _obj_dev,
+                        _conv_dev,
+                        _penalty_dev,
+                        backend=backend,
+                    )
+                else:
+                    _obj_val_f, _conv_f = _sync_scalars(
+                        _obj_dev,
+                        _conv_dev,
+                        backend=backend,
+                    )
+                    _penalty_f = None
                 _all_finite = np.isfinite(_obj_val_f)
                 if not _all_finite:
                     if _coef_best_fista is not None:
@@ -285,29 +451,81 @@ def fista_solver(
                     t_k = 1.0
                     L = L * 2.0
                     continue
-                # Track best objective (reuse _obj_val_f from finiteness check above)
-                _obj_val_f += _tracking_penalty_value(penalty, coef)
+                # Track best objective (reuse the batched L1 value when
+                # available so Quantile async CV does not pay another sync).
+                if _penalty_f is None:
+                    _penalty_f = _tracking_penalty_value(penalty, coef)
+                _obj_val_f += _penalty_f
+                _best_before = _obj_best_fista
+                _meaningful_improvement = (
+                    not np.isfinite(_best_before)
+                    or _obj_val_f
+                    < _best_before
+                    - tol * max(abs(_obj_val_f), 1.0)
+                )
                 if _obj_val_f < _obj_best_fista:
                     _obj_best_fista = _obj_val_f
                     _coef_best_fista = _copy_arr(coef)
-                # Convergence check for quadratic losses on GPU:
-                # objective stability (adaptive penalties oscillate in coef space)
-                if _is_quadratic and iteration > 20:
-                    if abs(_obj_val_f - _obj_prev_f) < tol * max(abs(_obj_val_f), 1.0):
-                        _obj_stable_count += 1
-                        if _obj_stable_count >= 5:
-                            break
+                if _quantile_async_nonsmooth:
+                    _quantile_async_last_obj = float(_obj_val_f)
+                    _quantile_async_last_delta = float(_conv_f)
+                    _quantile_async_last_step = float(1.0 / L)
+                # Convergence applies to every async loss family.  The
+                # previous implementation updated this state only for quadratic
+                # losses, so non-quadratic sparse CV always exhausted max_iter.
+                if _conv_f < tol:
+                    converged = True
+                    break
+                if (
+                    iteration > 20
+                    and abs(_obj_val_f - _obj_prev_f)
+                    < tol * max(abs(_obj_val_f), 1.0)
+                ):
+                    _obj_stable_count += 1
+                    if _obj_stable_count >= 5:
+                        converged = True
+                        break
+                else:
+                    _obj_stable_count = 0
+                _obj_prev_f = _obj_val_f
+
+                # Quantile pinball loss is non-smooth, so the generic async
+                # fixed-step proximal route has no smooth-FISTA guarantee.
+                # If two consecutive post-burn-in checks fail to make a
+                # tolerance-scale improvement in the full objective, halve the
+                # step and restart momentum. This uses only scalars already
+                # synchronized by the deferred safety check; no new host sync
+                # is introduced. Convergence is still decided by the existing
+                # coefficient/objective criteria, not by a preset decay clock.
+                if _quantile_async_nonsmooth and iteration >= 20:
+                    if _meaningful_improvement:
+                        _quantile_async_stall_checks = 0
                     else:
+                        _quantile_async_stall_checks += 1
+                    if _quantile_async_stall_checks >= _QUANTILE_ASYNC_STALL_CHECKS:
+                        L *= _QUANTILE_ASYNC_STEP_CONTRACTION_FACTOR
+                        _quantile_async_step_contractions += 1
+                        _quantile_async_last_step = float(1.0 / L)
+                        _quantile_async_stall_checks = 0
                         _obj_stable_count = 0
-                    _obj_prev_f = _obj_val_f
+                        y_k = _copy_arr(coef)
+                        t_k = 1.0
+                        continue
+
                 # Periodic Lipschitz recomputation (piggyback on same sync)
                 # Skip for quadratic losses -- Lipschitz is constant (spectral norm of X^T X).
                 # Interval matches CPU path for trajectory consistency.
-                if not _is_quadratic and iteration % _lip_interval == 0:
+                if (
+                    not _is_quadratic
+                    and not getattr(loss, "_lipschitz_static", False)
+                    and iteration % _lip_interval == 0
+                ):
                     if sample_weight is not None and _cached_XtWX_weighted is not None:
                         # Use cached weighted Gram matrix (X and weights are constant)
-                        _xp_lip = _get_xp(backend)
-                        L_new = _to_float_scalar(_xp_lip.max(_xp_lip.diag(_cached_XtWX_weighted)))
+                        L_new = _weighted_gram_lipschitz(
+                            _cached_XtWX_weighted,
+                            loss=loss,
+                        )
                     else:
                         L_new = loss.lipschitz(X_proc, coef, y=y_proc)
                     if L_new > 0:
@@ -334,6 +552,7 @@ def fista_solver(
 
             # Backtracking line search
             _bt_accepted = False
+            _accepted_quantile_check = None
             for _bt in range(20):
                 w_tilde = y_k - step * grad
                 coef_new = penalty.proximal(w_tilde, step, backend=backend)
@@ -349,11 +568,74 @@ def fista_solver(
                 bound_dev = q_yk_dev + _dot_dev(grad, diff) + 0.5 * L * _sum_sq_dev(diff)
                 slack_dev = bound_dev + _SLACK_TOLERANCE - q_new_dev
 
-                if _to_float_scalar(slack_dev) >= 0:
+                if _quantile_gpu_every_iter_check:
+                    # Armijo already needs a host-visible scalar decision.
+                    # Batch every scalar needed by the accepted trial's
+                    # convergence/objective tracking into that same sync.
+                    _trial_conv_dev = _abs_sum_dev(coef_new - coef_old)
+                    _trial_need_norm = iteration > 10
+                    _trial_penalty_dev = None
+                    if _quantile_gpu_l2_alpha > 0.0:
+                        _penalty_coef = coef_new[:_quantile_gpu_l2_width]
+                        _trial_penalty_dev = (
+                            0.5
+                            * _quantile_gpu_l2_alpha
+                            * _sum_sq_dev(_penalty_coef)
+                        )
+
+                    _sync_inputs = [slack_dev, q_new_dev]
+                    if _trial_need_norm:
+                        _sync_inputs.append(_norm2_dev(coef_new))
+                    _sync_inputs.append(_trial_conv_dev)
+                    if _trial_penalty_dev is not None:
+                        _sync_inputs.append(_trial_penalty_dev)
+                    _sync_values = _sync_scalars(
+                        *_sync_inputs,
+                        backend=backend,
+                    )
+
+                    _sync_i = 0
+                    _slack_f = _sync_values[_sync_i]
+                    _sync_i += 1
+                    _trial_obj_f = _sync_values[_sync_i]
+                    _sync_i += 1
+                    if _trial_need_norm:
+                        _trial_coef_norm_f = _sync_values[_sync_i]
+                        _sync_i += 1
+                    else:
+                        _trial_coef_norm_f = 0.0
+                    _trial_conv_f = _sync_values[_sync_i]
+                    _sync_i += 1
+                    if _trial_penalty_dev is not None:
+                        _trial_penalty_f = _sync_values[_sync_i]
+                    else:
+                        _trial_penalty_f = 0.0
+                else:
+                    _slack_f = _to_float_scalar(slack_dev)
+
+                if _slack_f >= 0:
                     _bt_accepted = True
+                    if _quantile_gpu_every_iter_check:
+                        _accepted_quantile_check = (
+                            _trial_obj_f,
+                            _trial_coef_norm_f,
+                            _trial_conv_f,
+                            _trial_need_norm,
+                            _trial_penalty_f,
+                        )
                     break
                 L *= 1.5
                 step = 1.0 / L
+
+            if not _bt_accepted:
+                # Never publish an unverified backtracking trial.  Match the
+                # maintained Newton-family failure semantics: restore the last
+                # accepted iterate, stop, and make the line-search failure
+                # visible to the caller.
+                coef = _copy_arr(coef_old)
+                y_k = _copy_arr(coef_old)
+                line_search_failed = True
+                break
 
             coef = coef_new
 
@@ -368,10 +650,12 @@ def fista_solver(
                 _conv_dev = _abs_sum_dev(coef - coef_old)
                 _conv_f = float(_conv_dev)
                 if _conv_f < tol:
+                    converged = True
                     break
                 if iteration > 20 and abs(_obj_val_f - _obj_prev_f) < tol * max(abs(_obj_val_f), 1.0):
                     _obj_stable_count += 1
                     if _obj_stable_count >= 5:
+                        converged = True
                         break
                 else:
                     _obj_stable_count = 0
@@ -380,8 +664,14 @@ def fista_solver(
             # ═══ GPU: batch ALL checks into ONE sync every _check_interval iterations ═══
             # Skip checks entirely for early iterations (save syncs)
             if _is_gpu and not _is_quadratic:
-                # Always compute convergence metric on device (no sync)
-                _conv_dev = _abs_sum_dev(coef - coef_old)
+                # Smooth Quantile already computed coefficient change for the
+                # accepted Armijo trial and synchronized it together with the
+                # Armijo scalar. Avoid launching the same reduction twice.
+                _conv_dev = (
+                    None
+                    if _accepted_quantile_check is not None
+                    else _abs_sum_dev(coef - coef_old)
+                )
 
                 # Full check (objective + divergence): every _conv_interval
                 _do_full_check = (iteration < 20) or (iteration % _conv_interval == 0)
@@ -391,24 +681,35 @@ def fista_solver(
                 _do_lip_check = (iteration > 0 and iteration % 5 == 0)
 
                 if _do_full_check:
-                    # Compute ALL check values on device first, then ONE sync
-                    _obj_dev = _q_new_dev_last if _q_new_dev_last is not None else (
-                        loss.fused_value_and_gradient(X_proc, y_proc, coef, sample_weight=_sw_arr)[0]
-                        if sample_weight is not None else loss.value(X_proc, y_proc, coef)
-                    )
-                    _q_new_dev_last = None
-
-                    # ONE sync: (objective, coef_norm, coef_change_norm)
-                    _need_norm = (iteration > 10)
-                    if _need_norm:
-                        _obj_val_f, _coef_norm_f, _conv_f = _sync_scalars(
-                            _obj_dev, _norm2_dev(coef), _conv_dev, backend=backend
-                        )
+                    if _accepted_quantile_check is not None:
+                        (
+                            _obj_val_f,
+                            _coef_norm_f,
+                            _conv_f,
+                            _need_norm,
+                            _precomputed_penalty_f,
+                        ) = _accepted_quantile_check
+                        _q_new_dev_last = None
                     else:
-                        _obj_val_f, _conv_f = _sync_scalars(
-                            _obj_dev, _conv_dev, backend=backend
+                        _precomputed_penalty_f = None
+                        # Compute ALL check values on device first, then ONE sync
+                        _obj_dev = _q_new_dev_last if _q_new_dev_last is not None else (
+                            loss.fused_value_and_gradient(X_proc, y_proc, coef, sample_weight=_sw_arr)[0]
+                            if sample_weight is not None else loss.value(X_proc, y_proc, coef)
                         )
-                        _coef_norm_f = 0.0
+                        _q_new_dev_last = None
+
+                        # ONE sync: (objective, coef_norm, coef_change_norm)
+                        _need_norm = (iteration > 10)
+                        if _need_norm:
+                            _obj_val_f, _coef_norm_f, _conv_f = _sync_scalars(
+                                _obj_dev, _norm2_dev(coef), _conv_dev, backend=backend
+                            )
+                        else:
+                            _obj_val_f, _conv_f = _sync_scalars(
+                                _obj_dev, _conv_dev, backend=backend
+                            )
+                            _coef_norm_f = 0.0
 
                     _finite_ok = np.isfinite(_obj_val_f)
 
@@ -419,8 +720,16 @@ def fista_solver(
                             y_k = _copy_arr(coef); t_k = 1.0; L *= 2.0
                             continue
 
-                    # Divergence
-                    _obj_val_f += _tracking_penalty_value(penalty, coef)
+                    # Divergence. Smooth Quantile accelerator backtracking
+                    # already synchronized its L2 tracking value together with
+                    # Armijo/convergence scalars; do not trigger a second
+                    # implicit device->host penalty.value() conversion.
+                    if _precomputed_penalty_f is None:
+                        _precomputed_penalty_f = _tracking_penalty_value(
+                            penalty,
+                            coef,
+                        )
+                    _obj_val_f += _precomputed_penalty_f
                     _diverged_f = False
                     if not np.isfinite(_obj_val_f):
                         _diverged_f = True
@@ -446,10 +755,12 @@ def fista_solver(
                     # coefficients to oscillate near the optimum, so coef_diff
                     # never reaches tol.  Check objective stability as fallback.
                     if _conv_f < tol:
+                        converged = True
                         break
                     if iteration > 20 and abs(_obj_val_f - _obj_prev_f) < tol * max(abs(_obj_val_f), 1.0):
                         _obj_stable_count += 1
                         if _obj_stable_count >= 5:
+                            converged = True
                             break
                     else:
                         _obj_stable_count = 0
@@ -471,6 +782,7 @@ def fista_solver(
                 elif _do_conv_check:
                     _conv_f = _to_float_scalar(_conv_dev)
                     if _conv_f < tol:
+                        converged = True
                         break
 
                     # Lipschitz recompute (reuse convergence sync)
@@ -517,10 +829,12 @@ def fista_solver(
 
                 # Convergence: coefficient change OR objective stability
                 if _conv_f < tol:
+                    converged = True
                     break
                 if iteration > 20 and abs(_obj_val_f - _obj_prev_f) < tol * max(abs(_obj_val_f), 1.0):
                     _obj_stable_count += 1
                     if _obj_stable_count >= 5:
+                        converged = True
                         break
                 else:
                     _obj_stable_count = 0
@@ -541,9 +855,16 @@ def fista_solver(
         if _skip_momentum:
             # No momentum (e.g. inverse_gaussian): just copy coef
             y_k = _copy_arr(coef)
-        elif _momentum_beta_cap is not None:
-            # Conservative momentum with capped beta
-            y_k, t_k = _nesterov_update(coef, coef_old, t_k, beta_cap=_momentum_beta_cap)
+        elif _effective_momentum_beta_cap is not None:
+            # Conservative momentum with capped beta. Quantile's async
+            # non-smooth cv_mode path uses the same 0.5 cap as the dedicated
+            # sparse-CV FISTA engine.
+            y_k, t_k = _nesterov_update(
+                coef,
+                coef_old,
+                t_k,
+                beta_cap=_effective_momentum_beta_cap,
+            )
         else:
             y_k, t_k = _nesterov_update(coef, coef_old, t_k)
 
@@ -555,12 +876,49 @@ def fista_solver(
         coef = _copy_arr(_coef_best_fista)
 
     n_iter = iteration + 1
-    if n_iter >= max_iter:
+    warning_stacklevel = (
+        _external_warning_stacklevel()
+        if str(getattr(loss, "name", "") or "").lower() == "quantile"
+        else 2
+    )
+    if line_search_failed:
+        warnings.warn(
+            "fista_solver line search failed to find an acceptable proximal "
+            f"step (loss={getattr(loss, 'name', '?')}, "
+            f"penalty={getattr(penalty, 'name', '?')}); returning an "
+            "accepted iterate (the tracked best accepted iterate when available).",
+            ConvergenceWarning,
+            stacklevel=warning_stacklevel,
+        )
+    elif not converged:
+        loss_name = str(getattr(loss, "name", "") or "").lower()
+        _async_diagnostics = ""
+        if _quantile_async_nonsmooth:
+            _async_diagnostics = (
+                " Async diagnostics:"
+                f" last_checked_objective={_quantile_async_last_obj!r},"
+                f" last_checked_delta={_quantile_async_last_delta!r},"
+                f" last_step={_quantile_async_last_step!r},"
+                " step_contractions="
+                f"{_quantile_async_step_contractions}."
+            )
+        if loss_name == "quantile":
+            advice = (
+                "Increase max_iter or relax tol if appropriate. "
+                "For Quantile L2/no-penalty objectives, IRLS is also supported; "
+                "for nonsmooth penalties use a Quantile-compatible proximal route."
+            )
+        else:
+            advice = (
+                "Consider increasing max_iter or using a different solver "
+                "(newton, lbfgs, irls)."
+            )
         warnings.warn(
             f"fista_solver did not converge within {max_iter} iterations "
             f"(loss={getattr(loss, 'name', '?')}, penalty={getattr(penalty, 'name', '?')}). "
-            f"Consider increasing max_iter or using a different solver (newton, lbfgs, irls).",
+            + advice
+            + _async_diagnostics,
             ConvergenceWarning,
-            stacklevel=2,
+            stacklevel=warning_stacklevel,
         )
     return coef, n_iter

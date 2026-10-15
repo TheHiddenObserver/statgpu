@@ -46,14 +46,41 @@ class LinearRegression(BaseEstimator):
     fit_intercept : bool, default=True
         Whether to calculate the intercept.
     device : str or Device, default='auto'
-        Computation device: 'cpu', 'cuda', or 'auto'.
+        Computation device: 'cpu', 'cuda' (CuPy), 'torch' (Torch CUDA), or 'auto'.
+    n_jobs : int or None, default=None
+        Shared CPU worker setting; this class does not parallelize fitting.
+    compute_inference : bool, default=True
+        Compute coefficient uncertainty. GPU multi-output inference is unsupported.
+    gpu_memory_cleanup : bool, default=False
+        Attempt GPU memory-pool cleanup after fitting.
+    cov_type : str, default='nonrobust'
+        Classical covariance, HC0-HC3, or HAC. HC/HAC use normal-reference
+        intervals; classical inference uses t-reference intervals.
+    hac_maxlags : int or None, default=None
+        Nonnegative HAC lag, or the sample-size rule when omitted.
     
     Attributes
     ----------
-    coef_ : ndarray of shape (n_features,)
-        Estimated coefficients.
-    intercept_ : float
-        Independent term.
+    coef_ : numpy.ndarray
+        Slopes, shape (n_features,) or (n_targets, n_features).
+    intercept_ : float or numpy.ndarray
+        Intercept, scalar or shape (n_targets,).
+    rank_ : int
+        Rank of the fitted (possibly weighted) design.
+
+    Notes
+    -----
+    Fitted coefficients and inference arrays are stored on the host even after
+    GPU fitting; prediction arrays follow the currently resolved device. Use an
+    explicit device when prediction placement must remain stable across global
+    device-setting changes. Weighted likelihood diagnostics currently omit the Gaussian log-weight normalization. Weighted
+    multi-output F diagnostics raise TypeError; pooled multi-output diagnostics
+    are not joint multivariate inference. See the model/API documentation.
+    Formula prediction currently drops rows with missing predictors and returns
+    a shorter unlabelled array. Resolve missing values and verify output length
+    before aligning results. score() can broadcast one retained prediction over
+    several responses and return an invalid finite R-squared for such a query;
+    flattening y does not fix this separate row-alignment problem.
     """
     
     def __init__(
@@ -312,8 +339,9 @@ class LinearRegression(BaseEstimator):
         sample_weight : array-like or None
             Sample weights.
         formula : str or None
-            R-style formula string (e.g. ``"y ~ x1 + x2"``). Mutually
-            exclusive with ``X``/``y``.
+            R-style formula string (e.g. ``"y ~ x1 + x2"``). Supply this
+            instead of ``X``/``y``. Currently a formula silently replaces any
+            simultaneously supplied arrays with the data-derived design.
         data : pd.DataFrame or None
             DataFrame used with ``formula`` for column lookup.
         """

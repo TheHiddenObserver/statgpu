@@ -15,7 +15,7 @@ hero:
       link: /en/getting-started/quickstart
     - theme: alt
       text: Browse models
-      link: /en/models/
+      link: /en/models/README
     - theme: alt
       text: Open benchmark dashboard
       link: /dashboard/
@@ -25,7 +25,7 @@ features:
   - title: Learn the method, not just the API
     details: Model guides explain when to use a method, its intuition and assumptions, a runnable example, result interpretation, and common pitfalls.
   - title: CPU and GPU with explicit behavior
-    details: Use NumPy on CPU or CuPy and PyTorch on CUDA. Explicit GPU requests never silently fall back to CPU.
+    details: Use NumPy on CPU or CuPy and PyTorch on CUDA. Explicit GPU fits require the corresponding CUDA backend; method-specific host and reporting boundaries are explained in the device guide.
   - title: Evidence you can inspect
     details: Explore versioned benchmarks, validation results, hardware metadata, and source provenance in the dashboard.
 ---
@@ -35,9 +35,9 @@ features:
 | I want to... | Start here |
 |---|---|
 | run my first model | [Quickstart](/en/getting-started/quickstart) |
-| choose a statistical method | [Model catalog](/en/models/) |
-| use DataFrame formulas | [Formula interface](/en/guides/formula-interface) |
-| configure CPU, CUDA, or Torch | [Acceleration internals](/en/guides/acceleration-internals) |
+| choose a statistical method | [Model catalog](/en/models/README) |
+| use DataFrame formulas | [Usage guide](/en/usage) |
+| configure CPU, CUDA, or Torch | [Device and memory](/en/guides/device-and-memory) |
 | understand standard errors and tests | [Inference API](/en/guides/inference-api) |
 | compare measured performance | [Interactive benchmark dashboard](/dashboard/) |
 
@@ -45,9 +45,9 @@ English is the default documentation language. Use **Change language** in the na
 
 ## Main areas
 
-- [Regression and statistical models](/en/models/)
-- [Unsupervised learning](/en/unsupervised/)
-- [Panel-data models](/en/panel/)
+- [Regression and statistical models](/en/models/README)
+- [Unsupervised learning](/en/unsupervised/README)
+- [Panel-data models](/en/panel/README)
 - [Cross-validation](/en/guides/cross-validation)
 - [Changelog](/en/changelog)
 

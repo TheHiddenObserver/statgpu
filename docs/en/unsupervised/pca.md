@@ -1,18 +1,32 @@
 # PCA
 
 > Language: English
-> Last updated: 2026-05-02
+> Last updated: 2026-10-14
 > Switch: [Chinese](../../cn/unsupervised/pca.md)
 
 ## Overview
 
-`PCA` estimates an orthonormal low-dimensional basis that captures the largest variance directions of centered dense data. It supports CPU, CuPy/CUDA, and Torch CUDA backends.
+PCA summarizes numeric features with fewer coordinates while retaining as much variation around their means as possible. It learns combinations of features rather than choosing individual columns or requiring a target outcome. The reduced coordinates can be used to reconstruct an approximation in the original feature space.
+
+For example, a sensor panel may record many measurements of the same process, with several readings rising and falling together. You want a compact description of how observations differ, without choosing one sensor as the outcome. Keeping every column preserves redundant information. Dropping correlated columns by hand can discard useful contrasts, while averaging them into one number presumes that there is only one pattern worth keeping.
+
+PCA learns weighted combinations of the features. Imagine a cloud of observations stretched along a diagonal: measuring along that diagonal describes its main spread more directly than keeping either original axis. PCA first moves the origin to the feature means, then finds perpendicular directions that successively capture the most remaining variance. Retaining a few of these directions gives both a shorter coordinate vector and an approximation in the original feature space.
+
+This is a compression criterion, not a search for the causes of variation. A strong background effect can occupy a leading component, while a small but useful signal can be discarded.
+
+## When to use it
+
+Use PCA when a linear summary of correlated numeric features is useful for exploration, compression, or preprocessing. If original feature names must remain the coordinates, feature selection answers a different need. Choose [IncrementalPCA](incremental-pca.md) when rows must be processed in successive batches, [TruncatedSVD](truncated-svd.md) when the uncentered matrix is the object to approximate, or [NMF](nmf.md) when nonnegative additive patterns are central to interpretation.
+
+Centering is automatic, but feature scaling is not: changing units changes which variations receive the most weight. Choose units before fitting and learn preprocessing only from training data. Select rank using retained variance, held-out reconstruction, and the intended downstream task; high explained variance alone does not establish predictive or scientific importance.
 
 ## Path
 
 ```python
 from statgpu.unsupervised import PCA
 ```
+
+This estimator supports dense input on CPU, CuPy/CUDA, and Torch CUDA.
 
 ## Objective Function / Loss Function
 
@@ -40,7 +54,8 @@ $$
 
 The two objectives are equivalent because total variance is fixed after centering.
 
-## Estimating Equation
+<a id="estimating-equation"></a>
+## Fitting steps and update formulas
 
 - `svd_solver="covariance"` computes
   $$
@@ -64,17 +79,6 @@ The two objectives are equivalent because total variance is fixed after centerin
   $$
 - `explained_variance_ratio_` divides each retained variance by total centered variance.
 
-## Solver support
-
-| `svd_solver` value | Exactness | Selection and use |
-|---|---|---|
-| `auto` (default) | exact | `covariance` when `n_samples >= n_features`; otherwise `full` |
-| `full` | exact up to floating-point error | Direct dense SVD; preferable when the feature dimension exceeds the sample count |
-| `covariance` | exact up to floating-point error | Eigendecomposition of the feature covariance; avoids decomposing the full rectangular matrix |
-| `randomized` | approximate | Random projection plus power iterations; control with `random_state`, `n_oversamples`, and `iterated_power` |
-
-All four values are implemented on the selected NumPy, CuPy, or Torch backend. These are PCA-specific `svd_solver` values, not aliases for linear-model `solver=` names.
-
 ## Parameters
 
 - `n_components`: number of principal components to keep; `None` keeps all feasible components.
@@ -83,24 +87,29 @@ All four values are implemented on the selected NumPy, CuPy, or Torch backend. T
 - `random_state`, `n_oversamples`, `iterated_power`: randomized solver controls.
 - `device`: `"auto"`, `"cpu"`, `"cuda"`, or `"torch"`.
 
-## CPU+GPU Examples
+## A small CPU example
 
+<!-- learner-example: pca -->
 ```python
 import numpy as np
 from statgpu.unsupervised import PCA
 
-X = np.random.default_rng(0).normal(size=(2000, 50))
-
-pca_cpu = PCA(n_components=10, svd_solver="covariance", device="cpu")
-Z_cpu = pca_cpu.fit_transform(X)
-
-pca_gpu = PCA(n_components=10, svd_solver="covariance", device="cuda")
-Z_gpu = pca_gpu.fit_transform(X)
+rng = np.random.default_rng(0)
+X = rng.normal(size=(80, 4))
+X[:, 3] = X[:, 0] + 0.05 * rng.normal(size=80)
+model = PCA(n_components=3, svd_solver="full", device="cpu")
+Z = model.fit_transform(X)
+X_hat = model.inverse_transform(Z)
+print(Z.shape, np.mean((X - X_hat) ** 2))
 ```
 
-## Strict/Approx Difference
+The coordinate array has shape `(80, 3)`; reconstruction is `(80, 4)`. Rows of `components_` give feature directions, not labels. A component and its negative describe the same direction.
 
-PCA has no statistical strict inference mode. Exactness refers to the decomposition:
+For a supported GPU installation, construct a new estimator with `device="cuda"` (CuPy) or `device="torch"` (Torch CUDA). Arrays generally stay on that backend; see the [API reference](api-reference.md#pca) for output ownership and host-side work. An unavailable explicit GPU raises an error.
+
+## Approximation and interpretation
+
+PCA does not provide standard errors or significance tests. Exactness refers to the decomposition:
 
 - `full` and `covariance` are exact dense solvers up to floating-point error.
 - `randomized` is approximate and controlled by `random_state`, `n_oversamples`, and `iterated_power`.
@@ -122,17 +131,20 @@ PCA has no statistical strict inference mode. Exactness refers to the decomposit
 Eigenvectors and singular vectors are sign-indeterminate. Validation must compare subspaces or use sign-aware comparisons.
 
 **What does whitening do?**
-It scales transformed scores by `1 / sqrt(explained_variance_)`, producing unit-variance component scores under the fitted model.
+It divides transformed scores by `sqrt(explained_variance_)`. For accurately resolved positive directions from an exact decomposition, training scores have unit sample variance. With the randomized solver this is approximate; oversampling and power iterations affect the approximation. Whitening does not force the covariance of new observations to be the identity.
 
-## External Validation
 
-- Tests: `dev/tests/test_unsupervised_pca.py`.
-- Benchmark: `dev/benchmarks/benchmark_unsupervised.py`.
-- Baselines: sklearn PCA, statsmodels/R PCA comparisons from the earlier unsupervised matrix where available.
-- Latest Phase 2 artifact summary: `results/unsupervised_phase2_verify_summary_20260502_210000.md`.
+## Numerical and lifecycle cautions
+
+The covariance solver forms uncentered second moments and subtracts the squared mean. Large common offsets relative to variation can cause severe cancellation, including incorrect zero variance ratios. Use `svd_solver="full"` for such data, or subtract a training-derived offset before fitting and apply it to later rows. Whitening zero-variance components can return non-finite coordinates; reduce the rank or disable whitening. The public `inverse_transform` method rejects NaN or infinite input coordinates with `ValueError`; supply finite component scores.
+
+## Complete API reference
+
+Constructor defaults, all public methods, output shapes, and restrictions are listed in the [PCA API reference](api-reference.md#pca).
 
 ## References
 
 - Pearson, K. (1901). On lines and planes of closest fit to systems of points in space. *The London, Edinburgh, and Dublin Philosophical Magazine and Journal of Science*, Series 6, 2(11), 559-572. https://doi.org/10.1080/14786440109462720
 - Jolliffe, I. T. (2002). *Principal Component Analysis* (2nd ed.). Springer Series in Statistics. Springer. https://doi.org/10.1007/b98835
 - Halko, N., Martinsson, P. G., & Tropp, J. A. (2011). Finding structure with randomness: Probabilistic algorithms for constructing approximate matrix decompositions. *SIAM Review*, 53(2), 217-288. https://doi.org/10.1137/090771806
+- scikit-learn Developers. [PCA: centering, components, and explained variance](https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.PCA.html).

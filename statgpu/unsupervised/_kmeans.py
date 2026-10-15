@@ -29,11 +29,15 @@ class KMeans(BaseEstimator):
     max_iter : int, default=300
         Maximum Lloyd iterations per initialization.
     tol : float, default=1e-4
-        Absolute convergence tolerance on center movement.
-    random_state : int or None, default=None
-        Random seed for deterministic initialization.
+        Absolute convergence tolerance on the sum of squared center movements.
+    random_state : int, numpy.random.Generator or None, default=None
+        Seed for initialization. Other seed forms follow the installed
+        numpy.random.default_rng. Generator objects are stateful and fitting
+        advances them; fixed seeds do not guarantee cross-backend identity.
     device : {'auto', 'cpu', 'cuda', 'torch'}, default='auto'
-        Compute device.
+        NumPy CPU, CuPy CUDA, Torch CUDA, or automatic device selection.
+    n_jobs : int or None, default=None
+        Common estimator configuration; does not control KMeans kernel threads.
     """
 
     def __init__(

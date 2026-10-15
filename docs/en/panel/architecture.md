@@ -1,0 +1,117 @@
+# Panel Architecture
+
+> Language: English  
+> Last updated: 2026-10-13  
+> This page: public architecture of the Panel model family  
+> Switch: [Chinese](../../cn/panel/architecture.md)
+
+This page explains how statgpu's Panel estimators are organized: which responsibilities are shared, where estimator-specific data transformations enter, and how estimation connects to covariance, inference, diagnostics, prediction, and summaries.
+
+This is an architecture reference, not a prerequisite for fitting a model. For model choice, data preparation, a first fit, and result interpretation, start with [Panel Models](README.md) and the dedicated model pages.
+
+Use this reference when you need to understand why estimators transform data differently ([estimator construction](#3-estimator-specific-construction)), why Fama–MacBeth inference differs from residual OLS ([estimation and inference](#4-estimation-and-inference-layers)), where device boundaries lie ([backends](#5-backend-boundary)), or what happens after a failed refit ([fit lifecycle](#6-fit-lifecycle)).
+
+## 1. Overall structure
+
+Users fit one of the public Panel estimators:
+
+- `PanelOLS`
+- `RandomEffects`
+- `PooledOLS`
+- `BetweenOLS`
+- `FirstDifferenceOLS`
+- `FamaMacBeth`
+
+The family shares common input, state, prediction, and reporting behavior, while each estimator uses the statistical transformation or auxiliary estimation that defines its model.
+
+At a high level:
+
+```text
+input / formula / panel indices
+        |
+        v
+shared Panel input and metadata handling
+        |
+        v
+estimator-specific transformation or regression construction
+        |
+        v
+OLS / GLS / period-wise numerical estimation
+        |
+        v
+covariance + inference + diagnostics
+        |
+        v
+fitted state + predict() + summary()
+```
+
+The important boundary is that the shared infrastructure does **not** define one generic Panel estimator. The model class still determines what data are transformed and what statistical estimating problem is solved.
+
+## 2. Shared responsibilities
+
+The shared Panel layer provides common behavior such as:
+
+- formula/input alignment;
+- entity/time index metadata;
+- backend/device preparation;
+- fitted-state lifecycle;
+- common prediction behavior;
+- result objects and summary output;
+- covariance and coefficient-inference integration where the estimator has an OLS-style residual representation.
+
+Shared result objects also provide structured representations for panel-index metadata, fit statistics, and diagnostic-test results.
+
+## 3. Estimator-specific construction
+
+The six estimators reuse common infrastructure but construct different estimation problems:
+
+| Estimator | Main data construction | Numerical form |
+|---|---|---|
+| `PooledOLS` | stacked level data | pooled OLS |
+| `PanelOLS` | level data or entity/time/two-way within transformation | transformed OLS |
+| `BetweenOLS` | entity means | OLS on entity-level means |
+| `FirstDifferenceOLS` | within-entity first differences | OLS on differenced data |
+| `RandomEffects` | auxiliary regressions, variance components, quasi-demeaning | feasible GLS represented through transformed regression |
+| `FamaMacBeth` | one cross-sectional regression per period | period-wise OLS followed by coefficient aggregation |
+
+For statistical derivations and assumptions, see the corresponding model pages.
+
+## 4. Estimation and inference layers
+
+Most Panel estimators eventually produce a regression design, response, coefficients, and residuals. The post-fit layer then combines the pieces appropriate to that estimator:
+
+- covariance estimation;
+- coefficient standard errors, statistics, p-values, and confidence intervals;
+- degrees of freedom and fit statistics;
+- model-specific diagnostics;
+- effect recovery or model-specific state where applicable.
+
+`FamaMacBeth` is structurally different from residual-OLS models because its covariance is based on the period coefficient series rather than only on one stacked residual regression. That statistical distinction is preserved even though it shares surrounding Panel infrastructure.
+
+For covariance definitions and diagnostic interpretation, see [Panel covariance](covariance.md) and [Panel diagnostics](diagnostics.md).
+
+## 5. Backend boundary
+
+Panel estimators that support NumPy, CuPy, and Torch use the common `device` vocabulary described in [Device and GPU Memory](../guides/device-and-memory.md).
+
+An explicit accelerator request remains explicit: unavailable requested backends raise rather than being silently replaced by CPU computation. Formula parsing or metadata preparation may still occur on CPU before numerical arrays are prepared for the selected backend.
+
+## 6. Fit lifecycle
+
+A new Panel `fit()` attempt clears the previous fitted results. If fitting fails, the estimator remains unfitted; fit it successfully again before using prediction, summary, or inference properties.
+
+Formula-based prediction also preserves row alignment. If formula processing would drop or invalidate prediction rows, statgpu raises rather than returning outputs whose rows no longer correspond to the caller's input.
+
+## 7. Relationship to the generic loss/penalty/solver framework
+
+Panel models are organized around **panel-data construction + OLS/GLS/period-wise regression + Panel-specific post-fit statistics**.
+
+That is different from the generic `LossBase + Penalty + Solver` composition used by penalized objective-based estimators. See [Loss × Penalty × Solver Framework](../guides/loss-penalty-solver-framework.md) for that architecture.
+
+## 8. Where to look next
+
+- [Panel Models](README.md) — model choice and family overview
+- dedicated Panel model pages — formulas, assumptions, parameters, examples, interpretation
+- [Device and GPU Memory](../guides/device-and-memory.md) — device semantics
+- Panel covariance/diagnostic pages — covariance estimators and specification tests
+- [Loss × Penalty × Solver Framework](../guides/loss-penalty-solver-framework.md) — architecture of objective-composed penalized models
