@@ -1,14 +1,22 @@
 import { expect, type Page } from '@playwright/test';
 import type { BenchmarkData } from '../../src/schema';
 
+const sources = ['cv_benchmark_20260807.json', 'cv_benchmark_pr116_p100.json'];
+
+/** Expected rows for the browser flow, which leaves external frameworks hidden. */
+export function selectDefaultTimingProvenanceRuns(data: BenchmarkData): BenchmarkData['runs'] {
+  return data.runs.filter(run =>
+    run.model_id === 'RidgeCV' && run.framework === 'statgpu' && sources.includes(run.source.file),
+  );
+}
+
 /** Shared dev and deployed-browser assertion against the served canonical data. */
 export async function assertTimingSessionProvenance(page: Page): Promise<void> {
   await expect(page.locator('.header:not(.header-loading)')).toBeVisible({ timeout: 60_000 });
   const response = await page.request.get(new URL('data/benchmark_data.json', page.url()).toString());
   expect(response.ok()).toBe(true);
   const data: BenchmarkData = await response.json();
-  const sources = ['cv_benchmark_20260807.json', 'cv_benchmark_pr116_p100.json'];
-  const runs = data.runs.filter(run => run.model_id === 'RidgeCV' && sources.includes(run.source.file));
+  const runs = selectDefaultTimingProvenanceRuns(data);
   expect(runs).toHaveLength(6);
   await expect(page.locator('#env-select option')).toHaveCount(1);
   await expect(page.locator('#env-select')).toHaveValue('remote-p100');

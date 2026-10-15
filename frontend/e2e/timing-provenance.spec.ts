@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import type { BenchmarkData } from '../src/schema';
 import { loadChartRenderer, TestElement, withTestDocument } from './helpers/chart-renderer';
+import { selectDefaultTimingProvenanceRuns } from './helpers/timing-provenance-browser';
 
 // This is the same strict-generated canonical bundle served by the dashboard.
 const data: BenchmarkData = JSON.parse(readFileSync(
@@ -11,8 +12,48 @@ const sessions = [
   ['remote-p100-cv-20260807', 'cv_benchmark_20260807.json'],
   ['remote-p100-pr116-20260807', 'cv_benchmark_pr116_p100.json'],
 ];
+const expectedStatgpuTiming = [
+  ['8c9d73de17cd5fbc', 9.062319993972778],
+  ['7329f20ec3127d26', 17.41701364517212],
+  ['a5a6aed51f5d17af', 12.491881847381592],
+  ['dda93f32f6315ff8', 9.013503789901733],
+  ['5d24f0906f96641a', 17.37356185913086],
+  ['749946278ccf048d', 12.376457452774048],
+];
 let renderer: Awaited<ReturnType<typeof loadChartRenderer>>;
 test.beforeAll(async () => { renderer = await loadChartRenderer(); });
+
+test('browser provenance expectations exclude external rows hidden by the default filters', () => {
+  const originalData = JSON.stringify(data);
+  const sources = sessions.map(([, source]) => source);
+  const rawRuns = data.runs.filter(run => run.model_id === 'RidgeCV' && sources.includes(run.source.file));
+  expect(rawRuns).toHaveLength(8);
+  expect(rawRuns.filter(run => run.framework === 'sklearn').map(run => run.run_id)).toEqual([
+    'ccc57cda0d82c9c4', '1811661bc8edaa90',
+  ]);
+
+  // Exercise the exact selector used by both dev and deployed browser checks.
+  const runs = selectDefaultTimingProvenanceRuns(data);
+  expect(runs).toHaveLength(6);
+  expect(runs.every(run => run.framework === 'statgpu')).toBe(true);
+  expect(runs.map(run => [run.run_id, run.metrics.timing!.fit_time_ms])).toEqual(expectedStatgpuTiming);
+  for (const [session, source] of sessions) {
+    const sessionRuns = runs.filter(run => run.source.file === source);
+    expect(sessionRuns.map(run => `${run.backend}/${run.implementation}`)).toEqual([
+      'numpy/cpu', 'cupy/cuda', 'torch/torch',
+    ]);
+    expect(sessionRuns.every(run => (run.benchmark_session_id ?? run.env_id) === session)).toBe(true);
+  }
+
+  const environments = renderer.groupPhysicalEnvironments(data.environments);
+  const state = renderer.createDefaultState(environments, data.runs);
+  state.selectedCategoryIds = new Set(['linear_models']);
+  state.selectedMetricScope = 'cross_validation';
+  state.selectedModelId = 'RidgeCV';
+  expect(state.showExternal.size).toBe(0);
+  expect(runs).toEqual(renderer.filterRuns(data.runs, state));
+  expect(JSON.stringify(data)).toBe(originalData);
+});
 
 for (const view of ['focused', 'full'] as const) {
   test(`real timing renderer retains canonical CV session provenance in ${view} view`, () => {
@@ -29,14 +70,7 @@ for (const view of ['focused', 'full'] as const) {
     expect(state.selectedEnvId).toBe('remote-p100');
     expect(state.selectedEnvIds.size).toBe(8);
     expect(runs).toHaveLength(6);
-    expect(runs.map(run => [run.run_id, run.metrics.timing!.fit_time_ms])).toEqual([
-      ['8c9d73de17cd5fbc', 9.062319993972778],
-      ['7329f20ec3127d26', 17.41701364517212],
-      ['a5a6aed51f5d17af', 12.491881847381592],
-      ['dda93f32f6315ff8', 9.013503789901733],
-      ['5d24f0906f96641a', 17.37356185913086],
-      ['749946278ccf048d', 12.376457452774048],
-    ]);
+    expect(runs.map(run => [run.run_id, run.metrics.timing!.fit_time_ms])).toEqual(expectedStatgpuTiming);
 
     renderer.capturedOptions.length = 0;
     const element = new TestElement('div');
