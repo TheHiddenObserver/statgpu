@@ -109,6 +109,7 @@ def test_benchmark_guide_routes_maintenance_and_uses_generated_data(language):
 
 
 def test_dashboard_count_inspection_example_executes(monkeypatch, capsys, tmp_path):
+    monkeypatch.syspath_prepend(str(ROOT))
     from dev.benchmarks.frontend_data.registry import load_manifest
     from dev.benchmarks.generate_benchmark_data import generate
 
