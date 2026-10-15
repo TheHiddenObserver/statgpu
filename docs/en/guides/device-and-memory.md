@@ -1,7 +1,7 @@
 # Device and GPU Memory
 
 > Language: English\
-> Last updated: 2026-10-10\
+> Last updated: 2026-10-15\
 > This page: device selection and GPU memory controls\
 > Switch: [Chinese](../../cn/guides/device-and-memory.md)
 
@@ -36,6 +36,16 @@ Backend support depends on the model and operation. Check the model page or [Imp
 ### Estimator `device` versus function `backend`
 
 `device="torch"` requests Torch CUDA on estimators with the shared device handling. A function's `backend="torch"` selects the Torch library and can support Torch CPU. For example, `get_backend(backend="torch", device="cpu")` returns a Torch CPU backend, while `get_backend(backend="torch")` chooses Torch CUDA when available and Torch CPU otherwise. Torch must be installed in either case. Check each function's backend documentation rather than treating these two parameters as interchangeable.
+
+The module-level `adjust_pvalues`, `multipletests`, and `combine_pvalues`
+functions preserve a Torch `pvalues` tensor's CPU or exact indexed CUDA device
+when Torch is selected by `backend="auto"` or `"torch"`, including float64
+promotion, temporary arrays, weights, and outputs. Non-Torch input with explicit
+`backend="torch"` uses the current CUDA device when available, otherwise CPU.
+MPS and other unsupported Torch input devices raise `ValueError` because
+these functions support float64 computation on CPU and CUDA only. Their
+selection is independent of `set_device`; estimator helpers first apply their
+own conversion rules. See the [multiple-testing API](multiple-testing-combine-pvalues.md#backend-selection-and-conversion).
 
 ## Global settings and estimator settings
 

@@ -36,7 +36,8 @@ FAMILIES = {
     },
     "models/testing/README": {
         "anova", "anova-oneway", "anova-welch", "anova-twoway", "anova-posthoc",
-        "multiple-testing",
+        "multiple-testing", "multiple-testing-fwer", "multiple-testing-fdr",
+        "pvalue-combination",
     },
     "models/covariance/README": {
         "covariance", "covariance-empirical", "covariance-shrunk",
@@ -52,6 +53,37 @@ FAMILIES = {
     },
     "panel/README": {"panel"},
     "unsupervised/README": {"unsupervised"},
+}
+
+
+# The original manifest and fingerprints stay frozen. Only the subsequently
+# split multiple-testing sections relocate, to explicit, individually checked
+# destinations. No unrelated legacy fragment may disappear behind this map.
+MULTIPLE_TESTING_RELOCATIONS = {
+    "en": {
+        "adjustment-formulas": ("models/testing/multiple-testing-fwer", "adjustment-formulas"),
+        "make-individual-decisions-with-holm": ("models/testing/multiple-testing-fwer", "make-individual-decisions-with-holm"),
+        "compare-with-bh-for-fdr-control": ("models/testing/multiple-testing-fdr", "compare-with-bh-for-fdr-control"),
+        "ask-a-global-question-with-fisher": ("models/testing/pvalue-combination", "ask-a-global-question-with-fisher"),
+        "combination-formulas-and-assumptions": ("models/testing/pvalue-combination", "combination-formulas-and-assumptions"),
+        "fisher-add-log-evidence": ("models/testing/pvalue-combination", "fisher-add-log-evidence"),
+        "stouffer-add-standardized-evidence": ("models/testing/pvalue-combination", "stouffer-add-standardized-evidence"),
+        "cauchyacat-emphasize-small-p-values-through-a-heavy-tail": ("models/testing/pvalue-combination", "cauchyacat-emphasize-small-p-values-through-a-heavy-tail"),
+        "choose-a-combination-method-and-its-weights": ("models/testing/pvalue-combination", "choose-a-combination-method-and-its-weights"),
+        "practical-limits": ("guides/multiple-testing-combine-pvalues", "numerical-limits"),
+    },
+    "cn": {
+        "校正公式": ("models/testing/multiple-testing-fwer", "校正公式"),
+        "用-holm-逐项作出判断": ("models/testing/multiple-testing-fwer", "用-holm-逐项作出判断"),
+        "对照-bh-的-fdr-控制": ("models/testing/multiple-testing-fdr", "对照-bh-的-fdr-控制"),
+        "用-fisher-回答总体问题": ("models/testing/pvalue-combination", "用-fisher-回答总体问题"),
+        "合并公式与适用条件": ("models/testing/pvalue-combination", "合并公式与适用条件"),
+        "fisher累加对数证据": ("models/testing/pvalue-combination", "fisher累加对数证据"),
+        "stouffer累加标准化证据": ("models/testing/pvalue-combination", "stouffer累加标准化证据"),
+        "cauchyacat用重尾变换突出小-p-值": ("models/testing/pvalue-combination", "cauchyacat用重尾变换突出小-p-值"),
+        "选择合并方法及权重": ("models/testing/pvalue-combination", "选择合并方法及权重"),
+        "实际使用限制": ("guides/multiple-testing-combine-pvalues", "数值限制"),
+    },
 }
 
 
@@ -72,7 +104,9 @@ def test_complete_bijective_mapping_matches_the_independent_page_inventory():
         f"docs/{language}/models/{name}.md": f"docs/{language}/{canonical}.md"
         for language in LANGUAGES
         for name, canonical in MODEL_PAGES.items()
-        if name != "coxph"
+        # These three pages were added after the frozen directory migration.
+        if name not in {"coxph", "multiple-testing-fwer", "multiple-testing-fdr",
+                        "pvalue-combination"}
     }
     actual = {entry["old"]: entry["new"] for entry in ENTRIES}
     assert len(ENTRIES) == len(actual) == len(set(actual.values())) == 84
@@ -98,7 +132,21 @@ def test_old_paths_are_removed_and_canonical_bodies_keep_original_fragments(entr
     baseline = BASELINE["pages"][entry["old"]]
     assert len(entry["anchors"]) == baseline["anchor_count"]
     assert _digest(entry["anchors"]) == baseline["anchors_sha256"]
-    assert set(entry["anchors"].values()) <= markdown_anchors(new_text)
+    if new.name == "multiple-testing.md":
+        language = Path(entry["new"]).parts[1]
+        relocations = MULTIPLE_TESTING_RELOCATIONS[language]
+        assert len(relocations) == 10
+        assert set(relocations) < set(entry["anchors"].values())
+        for anchor in entry["anchors"].values():
+            if anchor in relocations:
+                page, fragment = relocations[anchor]
+                destination = ROOT / "docs" / language / (page + ".md")
+                assert destination.is_file(), (anchor, destination)
+                assert fragment in markdown_anchors(destination.read_text()), (anchor, destination)
+            else:
+                assert anchor in markdown_anchors(new_text)
+    else:
+        assert set(entry["anchors"].values()) <= markdown_anchors(new_text)
 
 
 @pytest.mark.parametrize("entry", ENTRIES, ids=lambda entry: entry["new"])

@@ -1,10 +1,12 @@
 # P 值校正与合并 API
 
 > 语言：中文  
-> 最后更新：2026-10-05  
+> 最后更新：2026-10-15  
 > 切换：[English](../../en/guides/multiple-testing-combine-pvalues.md)
 
 以下函数可从 `statgpu.inference` 或 `statgpu` 导入。选择假设族、区分 FWER 与 FDR、理解公式及依赖条件时，请先阅读[多重检验](../models/testing/multiple-testing.md)。
+
+详细教程：[FWER](../models/testing/multiple-testing-fwer.md)、[FDR](../models/testing/multiple-testing-fdr.md)和 [P 值合并](../models/testing/pvalue-combination.md)。
 
 ## 完整签名
 
@@ -25,13 +27,36 @@ combine_pvalues(pvalues, method="fisher", weights=None, axis=None, backend="auto
 | `alpha=0.05` | 拒绝掩码使用的显著性水平，须为 `(0,1)` 内的有限数。当前 NaN 不会报错，而会返回全为假的判断；应先检查计算得到的水平。它不影响校正后的数值。 |
 | `axis=None` | 所有元素属于同一个假设族或总体检验。整数表示沿该轴分别计算，也接受负轴索引。 |
 | `weights=None` | 仅用于合并。Cauchy/Stouffer 默认等权；提供时应为有限、非负、总和为正的向量，长度与合并轴一致。批处理中各组共用这个向量，实现内部会归一化。Fisher 不接受权重。 |
-| `backend="auto"` | 从 P 值数组推断 `numpy`、`cupy` 或 `torch`；普通列表使用 NumPy。这是数组库选择，与估计器的 `device` 参数不同。 |
+| `backend="auto"` | 数组库选择：`"auto"`、`"numpy"`、`"cupy"` 或 `"torch"`；也接受历史别名 `"cpu"`、`"cuda"` 和 `"gpu"`。见[后端选择与转换](#backend-selection-and-conversion)。 |
 
 `adjust_pvalues` 和 `multipletests` 返回 `(reject, adjusted)`，两项都保留输入形状，`axis=None` 时也如此。`reject` 为布尔数组，`adjusted` 为 float64。标量只接受 `axis=None`。展平后的空输入可返回空校正数组；批处理时应使用非空的假设轴。
 
-`combine_pvalues` 返回 `(statistic, pvalue)`：`axis=None` 时为标量或零维结果，否则返回去掉指定轴的数组。空合并组会报错。结果使用所选后端的 float64 数组或标量。显式选择 Torch 数组库时可以处理 Torch CPU 或 CUDA 张量，这不同于估计器要求 CUDA 的 `device="torch"`。
+`combine_pvalues` 返回 `(statistic, pvalue)`：`axis=None` 时为标量或零维结果，否则返回去掉指定轴的数组。空合并组会报错。结果使用所选后端的 float64 数组或标量。
 
 估计器的同名方法返回字典，且校正轴的默认值不同，见[共享估计器辅助方法](../reference/estimator-api.md)。
+
+没有 `nan_policy` 选项：非有限 P 值会引发 `ValueError`，不会静默忽略缺失值。
+
+<a id="backend-selection-and-conversion"></a>
+
+## 后端选择与转换
+
+以下规则适用于上述三个模块级函数。后端名称忽略首尾空格和大小写，因此 `"AUTO"` 与 `"auto"` 等价。
+
+| 后端 | 选择规则与要求 |
+|---|---|
+| `"auto"` | 从 `pvalues` 推断数组库：Torch 张量选择 Torch，CuPy 数组选择 CuPy，NumPy 数组、列表或标量选择 NumPy。`weights` 不参与数组库或设备选择。 |
+| `"numpy"` 或历史别名 `"cpu"` | 使用 CPU 上的 NumPy。 |
+| `"cupy"` 或历史别名 `"cuda"` / `"gpu"` | 使用 CuPy，要求已安装 CuPy 且 CUDA 可用。指定后端不可用时会报错，不会改用 NumPy。 |
+| `"torch"` | 要求已安装 PyTorch。`pvalues` 为 Torch 张量时，保留其 CPU 或具体 CUDA 设备。其他输入在 CUDA 可用时使用当前 CUDA 设备，否则使用 CPU；未安装 PyTorch 时会报错，不会改用 NumPy。 |
+
+P 值和传入的合并权重会转换为所选数组库的 float64 数组。无论通过 `"auto"` 还是显式 `"torch"` 选择 Torch，CPU 上的 `pvalues` 张量都会留在 CPU，即使 CUDA 可用；CUDA 张量则保留其确切的设备编号，例如 `cuda:1`，不受当前 CUDA 设备影响。Float32 P 值也在同一设备上升为 float64。秩、校正因子、默认或传入的合并权重以及全部输出，都与转换后的 P 值位于同一设备；权重不会另行决定设备。
+
+这些 float64 计算支持 Torch CPU 和 CUDA 设备。`pvalues` 位于 MPS 或其他不支持的 Torch 设备时，会引发 `ValueError`，不会静默移到 CPU 或 CUDA。调用前请显式将此类输入移到 CPU 或受支持的 CUDA 设备。
+
+这些函数没有单独的 `device` 参数。若需要在 CPU 上进行 Torch 计算并返回 Torch 结果，请传入 CPU Torch 张量作为 `pvalues`；若需要指定 CUDA GPU，请先将该张量放到相应编号的设备上。`pvalues` 不是 Torch 张量且显式指定 `backend="torch"` 时，CUDA 可用则转换到当前具体 CUDA 设备，否则转换到 CPU。显式选择其他数组库可能涉及设备之间的数据传输；若需要 CPU 计算和 NumPy 输出，请使用 `backend="numpy"`。
+
+对于这些模块级函数，`statgpu.set_device(...)` 不会覆盖上述数组库或 Torch 设备选择规则。`model.combine_pvalues(...)` 等估计器方法还会考虑估计器与全局设备设置；其 `backend="auto"` 可能先选择解析得到的 GPU 后端并转换输入，再传给模块级函数。估计器方法显式指定 `backend="torch"` 时要求 CUDA，并先将输入转换到 CUDA；模块级函数保留输入设备的规则不会跳过这一步转换。相应规则见[共享估计器辅助方法](../reference/estimator-api.md)和[设备选择](device-and-memory.md)。
 
 ## 方法与别名
 
@@ -48,7 +73,7 @@ combine_pvalues(pvalues, method="fisher", weights=None, axis=None, backend="auto
 
 历史别名 `fdr_hochberg` 实际调用的是控制 **FWER 的 Hochberg**，不是控制 FDR 的 BH。此实现没有 Tippett 方法。Bonferroni/Holm 允许任意依赖；BH 要求独立或适当的正依赖；BY 允许任意依赖；Hochberg 要求独立或满足相应的 Simes 依赖条件。所有方法都要求边际 P 值有效。
 
-Fisher 使用独立均匀 P 值对应的卡方参考分布；Stouffer 使用独立正态分数的方差，不估计检验之间的协方差。Cauchy/ACAT 对归一化权重的正切统计量使用一定正则条件下的 Cauchy 尾部近似，并不对任意依赖结构和任意有限显著性水平作统一保证。详见[合并公式及参考文献](../models/testing/multiple-testing.md#合并公式与适用条件)。
+Fisher 使用独立均匀 P 值对应的卡方参考分布；Stouffer 使用独立正态分数的方差，不估计检验之间的协方差。Cauchy/ACAT 对归一化权重的正切统计量使用一定正则条件下的 Cauchy 尾部近似，并不对任意依赖结构和任意有限显著性水平作统一保证。详见[合并公式及参考文献](../models/testing/pvalue-combination.md)。
 
 <a id="a-complete-axis-and-weight-example"></a>
 

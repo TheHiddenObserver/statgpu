@@ -1,10 +1,12 @@
 # P-value adjustment and combination API
 
 > Language: English  
-> Last updated: 2026-10-05  
+> Last updated: 2026-10-15  
 > Switch: [Chinese](../../cn/guides/multiple-testing-combine-pvalues.md)
 
 Import these functions from `statgpu.inference` or `statgpu`. For choosing the hypothesis family, FWER versus FDR, formulas and dependence assumptions, start with [multiple testing](../models/testing/multiple-testing.md).
+
+Detailed lessons: [FWER](../models/testing/multiple-testing-fwer.md), [FDR](../models/testing/multiple-testing-fdr.md), and [p-value combination](../models/testing/pvalue-combination.md).
 
 ## Complete signatures
 
@@ -25,13 +27,60 @@ combine_pvalues(pvalues, method="fisher", weights=None, axis=None, backend="auto
 | `alpha=0.05` | Finite level in `(0,1)` for the rejection mask. Currently NaN is not rejected and returns all-false decisions; validate computed levels first. It does not affect adjusted values. |
 | `axis=None` | Treat all entries as one family/global test. An integer operates separately along that axis, including negative axis indices. |
 | `weights=None` | Combination only. Cauchy/Stouffer use equal weights by default. Supply a finite nonnegative vector matching the combination-axis length, with positive sum. One vector is reused across batches; weights are normalized internally. Fisher rejects supplied weights. |
-| `backend="auto"` | Infer `numpy`, `cupy`, or `torch` from p-value arrays; ordinary lists use NumPy. This is array-library selection, not estimator `device` selection. |
+| `backend="auto"` | Array-library choice: `"auto"`, `"numpy"`, `"cupy"`, or `"torch"`; legacy aliases `"cpu"`, `"cuda"`, and `"gpu"` are also accepted. See [backend selection and conversion](#backend-selection-and-conversion). |
 
 `adjust_pvalues` and `multipletests` return `(reject, adjusted)`, both with the input shape, including for `axis=None`. `reject` is boolean and `adjusted` is float64. A scalar accepts only `axis=None`. A flattened empty adjustment returns empty arrays; for batch processing use a nonempty family axis.
 
-`combine_pvalues` returns `(statistic, pvalue)`: scalar/zero-dimensional outputs for `axis=None`, otherwise arrays with the chosen axis removed. Empty combination families raise. Outputs are float64 arrays/scalars of the selected backend. Explicit Torch library use may operate on Torch CPU or CUDA tensors; it is not the estimator-level strict-CUDA `device="torch"` request.
+`combine_pvalues` returns `(statistic, pvalue)`: scalar/zero-dimensional outputs for `axis=None`, otherwise arrays with the chosen axis removed. Empty combination families raise. Outputs are float64 arrays/scalars of the selected backend.
 
 Estimator methods with these names return dictionaries and use a different default adjustment axis; see [shared estimator helpers](../reference/estimator-api.md).
+
+There is no `nan_policy` option: nonfinite p-values raise `ValueError`;
+missing values are not silently omitted.
+
+## Backend selection and conversion
+
+These rules apply to all three module functions above. Backend names ignore
+surrounding whitespace and case, so `"AUTO"` and `"auto"` are equivalent.
+
+| Backend | Selection and requirements |
+|---|---|
+| `"auto"` | Infer the library from `pvalues`: a Torch tensor selects Torch, a CuPy array selects CuPy, and NumPy arrays, lists, or scalars select NumPy. `weights` does not determine the library or device. |
+| `"numpy"` or legacy `"cpu"` | Use NumPy on CPU. |
+| `"cupy"` or legacy `"cuda"` / `"gpu"` | Use CuPy; requires CuPy and working CUDA. An unavailable requested backend raises rather than switching to NumPy. |
+| `"torch"` | Requires PyTorch. A Torch `pvalues` tensor keeps its CPU or concrete CUDA device. Other input uses the current CUDA device when available, otherwise CPU; absence of PyTorch raises rather than switching to NumPy. |
+
+P-values and supplied combination weights are converted to float64 in the
+selected library. When Torch is selected by `"auto"` or explicit `"torch"`,
+a CPU `pvalues` tensor stays on CPU even if CUDA is available, and a CUDA
+tensor stays on its exact indexed device, such as `cuda:1`, regardless of the
+current CUDA device. Float32 p-values are promoted to float64 on that same
+device. Ranks, adjustment factors, default or supplied combination weights,
+and all outputs use the same device as the converted p-values; weights never
+choose a different device.
+
+Torch execution supports CPU and CUDA devices for these float64 calculations.
+MPS and other unsupported Torch `pvalues` devices raise `ValueError` instead
+of moving silently to CPU or CUDA. Move such input explicitly to CPU or a
+supported CUDA device before calling.
+
+These functions have no separate `device` argument. To keep Torch computation
+and outputs on CPU, pass a CPU Torch tensor as `pvalues`; to use a particular
+CUDA GPU, place that tensor on the intended indexed device first. With
+non-Torch `pvalues` and explicit `backend="torch"`, conversion uses the
+current concrete CUDA device when available, otherwise CPU. Explicitly
+selecting another library can transfer the data; use `backend="numpy"` to
+require CPU computation and NumPy output.
+
+For these module functions, `statgpu.set_device(...)` does not override the
+array-library or Torch device selection above. Estimator methods such as
+`model.combine_pvalues(...)` have additional estimator/global-device context;
+their `backend="auto"` can select that resolved GPU backend and convert
+inputs before passing them to the module function. Their explicit
+`backend="torch"` request requires CUDA and converts inputs to CUDA first;
+the module-level input-device rule does not bypass that conversion. See
+[shared estimator helpers](../reference/estimator-api.md) and
+[device selection](device-and-memory.md) for those distinct rules.
 
 ## Methods and aliases
 
@@ -48,7 +97,7 @@ Estimator methods with these names return dictionaries and use a different defau
 
 Despite its legacy name, `fdr_hochberg` invokes **FWER Hochberg**, not FDR BH. There is no Tippett method in this implementation. Bonferroni/Holm allow arbitrary dependence, BH requires independence or suitable positive dependence, BY allows arbitrary dependence, and Hochberg requires independence or an applicable Simes dependence condition. All require valid marginal p-values.
 
-Fisher uses the independent-uniform chi-square reference. Stouffer uses the independent-normal-score variance; it does not estimate covariance between tests. Cauchy/ACAT uses a normalized-weight tangent statistic and Cauchy tail approximation under regularity conditions. It does not give a universal finite-level guarantee for arbitrary p-value dependence. See the [formulas and references](../models/testing/multiple-testing.md#combination-formulas-and-assumptions).
+Fisher uses the independent-uniform chi-square reference. Stouffer uses the independent-normal-score variance; it does not estimate covariance between tests. Cauchy/ACAT uses a normalized-weight tangent statistic and Cauchy tail approximation under regularity conditions. It does not give a universal finite-level guarantee for arbitrary p-value dependence. See the [formulas and references](../models/testing/pvalue-combination.md).
 
 ## A complete axis and weight example
 

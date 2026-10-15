@@ -1,33 +1,44 @@
-"""Execute the bilingual multiple-testing lesson and check its numeric tables.
+"""Execute the bilingual multiple-testing lessons and check their numeric tables.
 
 These bounded example/navigation checks do not replace statistical prose review.
 """
 
 import math
-from pathlib import Path
 import re
+from pathlib import Path
 
 import numpy as np
 import pytest
-
 from doc_examples import example_code, run_example
 from doc_paths import reachable_pages
 
-
 ROOT = Path(__file__).resolve().parents[2]
-MARKER = "multiple-testing-learner"
+LESSONS = {
+    "multiple-testing": "multiple-testing-learner",
+    "multiple-testing-fwer": "multiple-testing-fwer",
+    "multiple-testing-fdr": "multiple-testing-fdr",
+    "pvalue-combination": "pvalue-combination-fisher",
+}
 
 
-def _lesson(language):
-    return (ROOT / f"docs/{language}/models/testing/multiple-testing.md").read_text(encoding="utf-8")
+def _lesson(language, page="multiple-testing"):
+    return (ROOT / f"docs/{language}/models/testing/{page}.md").read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize("language", ("en", "cn"))
-def test_progressive_lesson_results_match_the_explanation(language):
-    scope = run_example(_lesson(language), MARKER, f"{language}/multiple-testing")
+@pytest.mark.parametrize("page", ("multiple-testing", "multiple-testing-fwer"))
+def test_holm_lesson_results_match_the_explanation(language, page):
+    scope = run_example(_lesson(language, page), LESSONS[page], f"{language}/{page}")
     np.testing.assert_array_equal(scope["p"], [0.001, 0.01, 0.03, 0.05, 0.5])
     np.testing.assert_array_equal(scope["reject"], [True, True, False, False, False])
     np.testing.assert_allclose(scope["adjusted"], [0.005, 0.04, 0.09, 0.1, 0.5])
+
+
+@pytest.mark.parametrize("language", ("en", "cn"))
+def test_fdr_lesson_results_match_the_explanation(language):
+    page = "multiple-testing-fdr"
+    scope = run_example(_lesson(language, page), LESSONS[page], f"{language}/{page}")
+    np.testing.assert_array_equal(scope["p"], [0.001, 0.01, 0.03, 0.05, 0.5])
     np.testing.assert_array_equal(scope["reject_bh"], [True, True, True, False, False])
     np.testing.assert_allclose(scope["adjusted_bh"], [0.005, 0.025, 0.05, 0.0625, 0.5])
 
@@ -38,6 +49,12 @@ def test_progressive_lesson_results_match_the_explanation(language):
     np.testing.assert_array_equal(scope["reject_step_up"], [True, True, True])
     np.testing.assert_allclose(scope["adjusted_step_up"], [0.04, 0.04, 0.04])
 
+
+@pytest.mark.parametrize("language", ("en", "cn"))
+def test_fisher_lesson_results_match_the_explanation(language):
+    page = "pvalue-combination"
+    scope = run_example(_lesson(language, page), LESSONS[page], f"{language}/{page}")
+    np.testing.assert_array_equal(scope["p"], [0.001, 0.01, 0.03, 0.05, 0.5])
     # For chi-square(2m), the survival function has this finite gamma-series form.
     half_statistic = -sum(math.log(p) for p in scope["p"])
     global_p = math.exp(-half_statistic) * sum(
@@ -49,8 +66,9 @@ def test_progressive_lesson_results_match_the_explanation(language):
     assert round(float(scope["global_p"]), 6) == 0.000048
 
 
-def test_english_and_chinese_execute_identical_progressive_steps():
-    assert example_code(_lesson("en"), MARKER) == example_code(_lesson("cn"), MARKER)
+@pytest.mark.parametrize("page,marker", LESSONS.items())
+def test_english_and_chinese_execute_identical_progressive_steps(page, marker):
+    assert example_code(_lesson("en", page), marker) == example_code(_lesson("cn", page), marker)
 
 
 def _numeric_table(text, method):
@@ -66,7 +84,8 @@ def _numeric_table(text, method):
 @pytest.mark.parametrize("language", ("en", "cn"))
 @pytest.mark.parametrize("method", ("Holm", "BH"))
 def test_rank_tables_match_the_documented_comparison_thresholds(language, method):
-    rows = _numeric_table(_lesson(language), method)
+    page = "multiple-testing-fwer" if method == "Holm" else "multiple-testing-fdr"
+    rows = _numeric_table(_lesson(language, page), method)
     assert len(rows) == 5
     ranks = np.array([int(row[0]) for row in rows])
     np.testing.assert_array_equal(ranks, np.arange(1, 6))
@@ -91,7 +110,7 @@ def test_navigation_distinguishes_principles_from_complete_api(language, page):
     if page == "usage.md":
         # The beginner path routes to the testing family before the two layers.
         reached = reachable_pages(path, ROOT / "docs" / language)
-        for relative in ("models/testing/multiple-testing.md",
+        for relative in (*(f"models/testing/{lesson}.md" for lesson in LESSONS),
                          "guides/multiple-testing-combine-pvalues.md"):
             assert (ROOT / "docs" / language / relative).resolve() in reached
     else:

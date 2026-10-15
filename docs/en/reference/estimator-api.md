@@ -1,7 +1,7 @@
 # Shared estimator API
 
 > Language: English  
-> Last updated: 2026-10-06  
+> Last updated: 2026-10-15  
 > Switch: [Chinese](../../cn/reference/estimator-api.md)
 
 This reference describes inherited `BaseEstimator` methods. A method appearing on an estimator does not imply that the model supplies coefficient p-values or cached training arrays. See the model's reference for overrides and available fitted results. These helpers do not refit a model, choose a scientifically valid resampling scheme, or correct variable-selection uncertainty automatically.
@@ -29,7 +29,7 @@ model.adjust_pvalues(pvalues=None, method="bh", alpha=0.05, axis=0, backend="aut
 - `method`: `"bh"`, `"by"`, `"holm"`, `"bonferroni"`, or `"hochberg"`; supported aliases are described in [multiple testing](../guides/multiple-testing-combine-pvalues.md).
 - `alpha`: finite significance level in `(0, 1)`. Validate it before calling: the current implementation can accept NaN and return all-false rejection decisions. See the [finite-alpha example](../guides/multiple-testing-combine-pvalues.md#a-complete-axis-and-weight-example).
 - `axis=0`: adjust along the first axis; `None` treats every entry as one family. Choose the family deliberately, especially for multi-output coefficient arrays.
-- `backend`: `"auto"`, `"numpy"`, `"cupy"`, or `"torch"`; `auto` explicitly selects CuPy/Torch when the estimator resolves to that GPU device. When it resolves to CPU, the helper currently leaves backend selection to the supplied arrays; pass `backend="numpy"` to require NumPy output. Explicit `backend="torch"` on an estimator helper requires Torch CUDA, even for a CPU estimator.
+- `backend`: `"auto"`, `"numpy"`, `"cupy"`, or `"torch"`; `auto` explicitly selects CuPy/Torch when the estimator resolves to that GPU device. When it resolves to CPU, the helper currently leaves backend selection to the supplied arrays; pass `backend="numpy"` to require NumPy output. Explicit `backend="torch"` on an estimator helper requires Torch CUDA, even for a CPU estimator. The helper converts p-values (and supplied combination weights) to CUDA before calling the module function; the module-level preservation of a Torch input device does not override this estimator conversion. Call the [module functions](../guides/multiple-testing-combine-pvalues.md#backend-selection-and-conversion) directly when a supplied Torch CPU or indexed-CUDA tensor should determine computation placement.
 
 Returns a dictionary with `method`, `alpha`, `axis`, `backend`, `pvalues`, `pvalues_adjusted`, and boolean `reject`. Adjusted values and decisions have the input shape. The `backend` field records the helper's selection argument and can remain `"auto"`; it is not always the final array-library name. `pvalues` can retain the supplied list/array type when no explicit conversion occurs. This is not the `(reject, adjusted)` tuple returned by the module function. Valid marginal p-values and the selected procedure's dependence assumptions are still required.
 
