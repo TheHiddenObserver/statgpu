@@ -1,7 +1,7 @@
 # Combine p-values: Fisher, Stouffer and Cauchy
 
 > Language: English  
-> Last updated: 2026-10-14  
+> Last updated: 2026-10-15  
 > Switch: [Chinese](../../../cn/models/testing/pvalue-combination.md)
 
 Several tests can contribute evidence to one scientific question: is their
@@ -25,6 +25,19 @@ Stouffer references below assume independent, continuous uniform null p-values;
 discrete tests or dependent evidence require additional justification.
 Choose the tests and any weights before inspecting which p-values are small.
 
+## Define each combination family
+
+The steps below apply separately to each family of $m$ p-values. With
+`axis=None`, all entries form one family; an integer `axis` combines each slice
+along that axis into its own global test. Inputs are converted to float64 and
+must be finite probabilities in `[0,1]`. An empty combination family, NaN or
+infinity raises an error; missing values are not omitted.
+
+Each method returns `(statistic, pvalue)`, one pair per family. With `axis=None`
+these are scalar/zero-dimensional results; otherwise their shape is the input
+shape with the combination axis removed. The calculation needs no sorting and
+returns no individual rejection mask.
+
 ## Combination formulas and assumptions
 
 ### Fisher: add log evidence
@@ -39,6 +52,18 @@ For a continuous uniform null p-value, $-2\log p_i$ has a chi-square
 distribution with two degrees of freedom. Independence lets the degrees of
 freedom add, giving the $2m$ reference above. This exact calibration does not
 automatically apply to discrete or dependent tests. No dependence adjustment is estimated here. Fisher is unweighted here.
+
+**Fisher calculation, step by step**
+
+1. Select and validate a family using the axis rules above. Set $m$ to its
+   size; supplying `weights` with Fisher raises an error.
+2. Clip its p-values to $[\mathrm{tiny},1]$, where `tiny` is the smallest
+   positive normal float64 value, and transform each to $-2\log p_i$.
+   This numerical step makes an exact zero contribute a finite value instead
+   of the mathematical limit $+\infty$.
+3. Sum the transformed contributions to obtain $T_F$.
+4. Evaluate the chi-square upper tail with `chi2.sf(T_F, df=2*m)` and return
+   $T_F$ and that global p-value for the family.
 
 ### Ask a global question with Fisher
 
@@ -88,6 +113,22 @@ by its square root restores a standard-normal reference. Correlated scores
 also contribute covariance terms; this API does not estimate them or provide
 a covariance-aware denominator. Equal weights reduce the statistic to
 $\sum_i z_i/\sqrt m$. For directional evidence, use consistently oriented one-sided p-values; passing two-sided p-values does not recover effect signs. See the [SciPy combination reference](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.combine_pvalues.html) for independent-test calibration.
+
+**Stouffer calculation, step by step**
+
+1. Select and validate a family using the axis rules above. Use equal weights
+   when omitted, or supply $m$ finite nonnegative weights with positive total,
+   aligned with the p-values. The same weight vector is used for every family.
+2. Normalize weights to $a_i=w_i/\sum_jw_j$. Rescale large weights before
+   calling as explained below; individually finite weights can still overflow
+   when summed.
+3. Clip p-values to $[\varepsilon,1-\varepsilon]$, where $\varepsilon$ is
+   float64 machine precision, then calculate $z_i=\Phi^{-1}(1-p_i)$ using the
+   clipped values. Endpoints and more extreme inputs are therefore altered.
+4. Form $T_Z=\sum_i a_i z_i/\sqrt{\sum_i a_i^2}$. This denominator uses
+   independent-score variance, without covariance terms.
+5. Evaluate the normal upper tail with `norm.sf(T_Z)`, clip the computed
+   p-value to `[0,1]`, and return $T_Z$ and the global p-value for the family.
 
 Use Stouffer when normal-score evidence and prespecified relative weights fit
 the scientific question. In this standalone example, the first test receives
@@ -142,6 +183,22 @@ pairwise jointly normal null statistics and concerns the limiting tail. It is
 not exact calibration at every significance level for every joint distribution.
 It combines evidence; it does not replace multiple-testing adjustment for
 individual discoveries.
+
+**Cauchy/ACAT calculation, step by step**
+
+1. Select and validate a family using the axis rules above. Use equal weights
+   when omitted, or supply $m$ finite nonnegative weights with positive total,
+   aligned with the p-values. The same weight vector is used for every family.
+2. Normalize weights to $a_i=w_i/\sum_jw_j$, first rescaling large input
+   weights if needed to avoid overflow in their sum.
+3. Clip p-values to $[\varepsilon,1-\varepsilon]$ with float64 machine
+   precision $\varepsilon$, then transform each clipped value to
+   $\tan\{\pi(1/2-p_i)\}$. This replaces the infinite endpoint limits with
+   finite numerical contributions.
+4. Sum the weighted contributions to obtain $T_C$.
+5. Calculate the Cauchy upper tail as $1/2-\arctan(T_C)/\pi$, clip the
+   computed p-value to `[0,1]`, and return $T_C$ and the global p-value for
+   the family. The dependence caveat above still applies.
 
 Cauchy can be useful when small component p-values are expected to carry the
 evidence and its reference or tail approximation is justified. Run this
@@ -205,6 +262,16 @@ not determine the correct procedure. If many families each produce a global
 p-value and you report discoveries among those families, apply an appropriate
 multiple-testing procedure to the global p-values as well. See the
 [family-selection example](multiple-testing.md#choose-the-hypothesis-family-with-axis).
+
+The formulas describe the mathematical methods; clipping and floating-point
+arithmetic limit the implemented results. Fisher and Stouffer call survival
+functions (`sf`) for their upper tails rather than subtracting a computed CDF
+from one. A CDF can round to one while its upper tail is still positive, and
+even `sf` can eventually underflow to zero. Cauchy's direct tail subtraction
+can also lose very small probabilities. A returned zero or one can therefore
+be numerical saturation. Clipping a computed p-value does not repair NaN:
+overflow in weight normalization can yield a NaN Stouffer result or an
+incorrect Cauchy result even though each supplied weight is finite.
 
 The [API guide](../../guides/multiple-testing-combine-pvalues.md) is the complete
 reference for signatures, aliases, return shapes, axes, backend behavior,

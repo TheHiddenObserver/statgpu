@@ -234,7 +234,7 @@ def test_fwer_and_fdr_lessons_explain_target_assumptions_and_formulas_before_cal
         assert fragment in fdr[:first_fdr]
     for text, formula, marker in (
         (fwer, r"\max_{j\le i}(m-j+1)p_{(j)}", "multiple-testing-fwer"),
-        (fwer, r"\min(1,mp_{(i)})", "multiple-testing-bonferroni"),
+        (fwer, r"\min(1,mp_i)", "multiple-testing-bonferroni"),
         (fwer, r"\min_{j\ge i}(m-j+1)p_{(j)}", "multiple-testing-hochberg"),
         (fdr, r"\min_{j\ge i}(m/j)p_{(j)}", "multiple-testing-fdr"),
         (fdr, r"c_m\min_{j\ge i}(m/j)p_{(j)}", "multiple-testing-by"),

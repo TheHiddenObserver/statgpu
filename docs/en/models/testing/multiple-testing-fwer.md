@@ -1,7 +1,7 @@
 # Family-wise error control: Bonferroni, Holm and Hochberg
 
 > Language: English  
-> Last updated: 2026-10-14  
+> Last updated: 2026-10-15  
 > Switch: [Chinese](../../../cn/models/testing/multiple-testing-fwer.md)
 
 When even one false claim in a family would be costly, control the chance of
@@ -68,6 +68,20 @@ the original hypothesis order, and the decision is `adjusted <= alpha`.
 The following standalone CPU example represents five tests in one prespecified
 family. Run the three blocks in order.
 
+**Calculation steps**
+
+1. Define the family with `axis`: `None` pools all entries; an integer
+   adjusts each slice along that axis separately. Let $m$ be its size. Supply
+   finite p-values in `[0,1]` from valid tests and a finite $0<\alpha<1$.
+2. Sort the family's p-values in ascending order, retaining their original
+   indices. Assign ranks $i=1,\ldots,m$.
+3. Multiply each sorted value by its remaining-test factor:
+   $r_i=(m-i+1)p_{(i)}$.
+4. From rank 1 toward rank $m$, take the cumulative maximum
+   $q_i=\max_{j\le i}r_j$, then cap each value at 1.
+5. Restore the original indices and shape. Return the adjusted values and
+   the rejection mask `adjusted <= alpha` (including equality).
+
 <!-- api-example: multiple-testing-fwer -->
 ```python
 import numpy as np
@@ -101,12 +115,22 @@ rejection without assumptions about dependence. Giving each of the $m$ tests
 a cutoff of $\alpha/m$ makes the sum of their false-rejection bounds at most
 $\alpha$. The union bound then controls the probability of at least one error.
 
-For ordered p-values, the adjusted values are
+For each original p-value, the adjusted value is
 
-$$\tilde p^{\rm Bonf}_{(i)}=\min(1,mp_{(i)}).$$
+$$\tilde p^{\rm Bonf}_i=\min(1,mp_i).$$
 
 Unlike Holm, this cutoff does not become less strict as other tests pass.
 Run this standalone example on the same illustrative family.
+
+**Calculation steps**
+
+1. Choose the family with `axis` (`None` pools all entries; an integer
+   defines separate slices), and count its $m$ tests. Require finite p-values
+   in `[0,1]` from valid tests and a finite $0<\alpha<1$.
+2. Multiply each original p-value by $m$: $r_i=mp_i$. No sorting, ranks or
+   cumulative operation is needed for this mathematical procedure.
+3. Cap each result at 1, keeping the original hypothesis order and shape.
+4. Return the adjusted values and `adjusted <= alpha`, including equality.
 
 <!-- api-example: multiple-testing-bonferroni -->
 ```python
@@ -154,6 +178,20 @@ The reverse cumulative minimum preserves the step-up decision. Although its
 rankwise cutoffs match Holm's, the scan and stopping rule differ. In the
 example below, Holm would stop at rank 1 because $0.0625>0.125/3$;
 Hochberg can reject the first two hypotheses because rank 2 passes.
+
+**Calculation steps**
+
+1. Choose the family with `axis` (`None` pools all entries; an integer
+   defines separate slices), with $m$ finite p-values in `[0,1]` from valid
+   tests and a finite $0<\alpha<1$. Check the dependence assumptions above.
+2. Sort ascending and retain the original indices; assign ranks
+   $i=1,\ldots,m$.
+3. Form $r_i=(m-i+1)p_{(i)}$, the same rankwise factors as Holm.
+4. From rank $m$ back toward rank 1, take the cumulative minimum
+   $q_i=\min_{j\ge i}r_j$, then cap each value at 1.
+5. Restore the original indices and shape, and return the adjusted values
+   with `adjusted <= alpha`. This reverse minimum, rather than Holm's forward
+   maximum, implements the step-up rule.
 
 <!-- api-example: multiple-testing-hochberg -->
 ```python

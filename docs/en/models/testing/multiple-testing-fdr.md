@@ -1,7 +1,7 @@
 # False discovery rate control: BH and BY
 
 > Language: English  
-> Last updated: 2026-10-14  
+> Last updated: 2026-10-15  
 > Switch: [Chinese](../../../cn/models/testing/multiple-testing-fdr.md)
 
 Screening many hypotheses often means accepting some false leads so that
@@ -65,6 +65,20 @@ The reverse cumulative minimum preserves the step-up decision. Results return
 to the original hypothesis order, with `adjusted <= alpha` as the
 decision rule. Run the following blocks in order as one standalone CPU example.
 
+**Calculation steps**
+
+1. Choose the family with `axis`: `None` pools all entries; an integer
+   defines separate slices. Let $m$ be the number of tests per family. Require
+   finite p-values in `[0,1]` from valid tests, a finite $0<\alpha<1$, and
+   the BH dependence assumptions above.
+2. Sort ascending, retain the original indices, and assign ranks
+   $i=1,\ldots,m$.
+3. Form the rank-adjusted values $r_i=mp_{(i)}/i$.
+4. From rank $m$ back toward rank 1, take the cumulative minimum
+   $q_i=\min_{j\ge i}r_j$, then cap each value at 1.
+5. Restore the original indices and shape. Return the adjusted values and
+   `adjusted <= alpha`, including equality.
+
 <!-- api-example: multiple-testing-fdr -->
 ```python
 import numpy as np
@@ -125,6 +139,19 @@ $$\tilde p^{\rm BY}_{(i)}=\min\{1,c_m\min_{j\ge i}(m/j)p_{(j)}\}.$$
 As in BH, the reverse cumulative minimum expresses the step-up decision.
 Here $m=5$ and $c_m\approx2.2833$, so the cutoffs are smaller than BH's.
 This standalone example uses the same five illustrative tests.
+
+**Calculation steps**
+
+1. Choose the family with `axis` (`None` pools all entries; an integer
+   defines separate slices). Require its $m$ p-values to be finite in `[0,1]`
+   and statistically valid, and choose a finite $0<\alpha<1$.
+2. Sort ascending, retain the original indices, and assign ranks
+   $i=1,\ldots,m$. Calculate $c_m=\sum_{j=1}^m1/j$ using this family size.
+3. Form $r_i=mc_mp_{(i)}/i$, adding the harmonic factor to BH's scaling.
+4. From rank $m$ back toward rank 1, take the cumulative minimum
+   $q_i=\min_{j\ge i}r_j$, then cap each value at 1.
+5. Restore the original indices and shape, and return the adjusted values
+   with `adjusted <= alpha`, including equality.
 
 <!-- api-example: multiple-testing-by -->
 ```python

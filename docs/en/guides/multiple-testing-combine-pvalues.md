@@ -1,7 +1,7 @@
 # P-value adjustment and combination API
 
 > Language: English  
-> Last updated: 2026-10-05  
+> Last updated: 2026-10-15  
 > Switch: [Chinese](../../cn/guides/multiple-testing-combine-pvalues.md)
 
 Import these functions from `statgpu.inference` or `statgpu`. For choosing the hypothesis family, FWER versus FDR, formulas and dependence assumptions, start with [multiple testing](../models/testing/multiple-testing.md).
@@ -27,16 +27,43 @@ combine_pvalues(pvalues, method="fisher", weights=None, axis=None, backend="auto
 | `alpha=0.05` | Finite level in `(0,1)` for the rejection mask. Currently NaN is not rejected and returns all-false decisions; validate computed levels first. It does not affect adjusted values. |
 | `axis=None` | Treat all entries as one family/global test. An integer operates separately along that axis, including negative axis indices. |
 | `weights=None` | Combination only. Cauchy/Stouffer use equal weights by default. Supply a finite nonnegative vector matching the combination-axis length, with positive sum. One vector is reused across batches; weights are normalized internally. Fisher rejects supplied weights. |
-| `backend="auto"` | Infer `numpy`, `cupy`, or `torch` from p-value arrays; ordinary lists use NumPy. This is array-library selection, not estimator `device` selection. |
+| `backend="auto"` | Array-library choice: `"auto"`, `"numpy"`, `"cupy"`, or `"torch"`; legacy aliases `"cpu"`, `"cuda"`, and `"gpu"` are also accepted. See [backend selection and conversion](#backend-selection-and-conversion). |
 
 `adjust_pvalues` and `multipletests` return `(reject, adjusted)`, both with the input shape, including for `axis=None`. `reject` is boolean and `adjusted` is float64. A scalar accepts only `axis=None`. A flattened empty adjustment returns empty arrays; for batch processing use a nonempty family axis.
 
-`combine_pvalues` returns `(statistic, pvalue)`: scalar/zero-dimensional outputs for `axis=None`, otherwise arrays with the chosen axis removed. Empty combination families raise. Outputs are float64 arrays/scalars of the selected backend. Explicit Torch library use may operate on Torch CPU or CUDA tensors; it is not the estimator-level strict-CUDA `device="torch"` request.
+`combine_pvalues` returns `(statistic, pvalue)`: scalar/zero-dimensional outputs for `axis=None`, otherwise arrays with the chosen axis removed. Empty combination families raise. Outputs are float64 arrays/scalars of the selected backend.
 
 Estimator methods with these names return dictionaries and use a different default adjustment axis; see [shared estimator helpers](../reference/estimator-api.md).
 
 There is no `nan_policy` option: nonfinite p-values raise `ValueError`;
 missing values are not silently omitted.
+
+## Backend selection and conversion
+
+These rules apply to all three module functions above. Backend names ignore
+surrounding whitespace and case, so `"AUTO"` and `"auto"` are equivalent.
+
+| Backend | Selection and requirements |
+|---|---|
+| `"auto"` | Infer the library from `pvalues`: a Torch tensor selects Torch, a CuPy array selects CuPy, and NumPy arrays, lists, or scalars select NumPy. `weights` does not determine the library. |
+| `"numpy"` or legacy `"cpu"` | Use NumPy on CPU. |
+| `"cupy"` or legacy `"cuda"` / `"gpu"` | Use CuPy; requires CuPy and working CUDA. An unavailable requested backend raises rather than switching to NumPy. |
+| `"torch"` | Requires PyTorch. Use Torch CUDA when available, otherwise Torch CPU; absence of PyTorch raises rather than switching to NumPy. |
+
+P-values and supplied combination weights are converted to float64 in the
+selected library. This may transfer data between CPU and GPU. In particular,
+selecting Torch, explicitly or through `"auto"`, does not promise to preserve
+the input tensor's device: a CPU tensor can be moved to CUDA when CUDA is
+available. These functions have no separate `device` argument; use
+`backend="numpy"` to require CPU computation and NumPy output.
+
+For these module functions, `statgpu.set_device(...)` does not override the
+array-library selection above. Estimator methods such as
+`model.combine_pvalues(...)` have additional estimator/global-device context;
+their `backend="auto"` can select that resolved GPU backend before passing
+inputs to the module function. Their explicit `backend="torch"` request
+requires CUDA. See [shared estimator helpers](../reference/estimator-api.md)
+and [device selection](device-and-memory.md) for those distinct rules.
 
 ## Methods and aliases
 
