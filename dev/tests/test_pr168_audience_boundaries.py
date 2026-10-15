@@ -1,5 +1,6 @@
 """Keep user contracts visible while engineering history lives with contributors."""
 from doc_paths import model_doc
+import json
 from pathlib import Path
 
 import pytest
@@ -107,12 +108,33 @@ def test_benchmark_guide_routes_maintenance_and_uses_generated_data(language):
         assert stale not in text, stale
 
 
-def test_dashboard_count_inspection_example_executes(monkeypatch, capsys):
+def test_dashboard_count_inspection_example_executes(monkeypatch, capsys, tmp_path):
+    monkeypatch.syspath_prepend(str(ROOT))
+    from dev.benchmarks.frontend_data.registry import load_manifest
+    from dev.benchmarks.generate_benchmark_data import generate
+
     text = read("frontend/docs/benchmark-dashboard-maintenance.md")
+    assert "Generated files are not committed" in text
+    assert "first run the bundle-generation command" in text
     start = "python - <<'PYCOUNTS'\n"
     assert text.count(start) == 1
     code = text.split(start, 1)[1].split("\nPYCOUNTS", 1)[0]
-    monkeypatch.chdir(ROOT)
+    # Exercise the documented generation prerequisite in an empty workspace;
+    # a local build or previously committed bundle must not mask missing inputs.
+    manifest = load_manifest(ROOT)
+    assert manifest is not None
+    data, report, inventory = generate(
+        ROOT / "results", deterministic=True, manifest=manifest, strict_sources=True,
+    )
+    bundle = tmp_path / "frontend/public/data"
+    bundle.mkdir(parents=True)
+    for filename, payload in (
+        ("source_inventory.json", inventory),
+        ("parse_report.json", report),
+        ("benchmark_data.json", data),
+    ):
+        (bundle / filename).write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
     exec(compile(code, "dashboard-maintenance-counts", "exec"), {})  # noqa: S102 - repository-owned example
     output = capsys.readouterr().out
     for label in ("registered_sources", "available_registered_sources",

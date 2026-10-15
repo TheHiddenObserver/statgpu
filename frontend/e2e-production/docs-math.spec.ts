@@ -16,6 +16,10 @@ for (const language of ['en', 'cn']) {
 
   test(`renders and links the ${language} Lasso inference companion`, async ({ page }) => {
     await page.goto(`${siteRoot}${language}/models/regression/lasso`);
+    // SSR links are visible before the client router finishes its initial go().
+    await page.waitForFunction(() => Boolean(
+      document.querySelector('#app') && '__vue_app__' in document.querySelector('#app')!,
+    ));
     await page.locator('main a[href$="lasso-inference"]').click();
     await expect(page).toHaveURL(`${siteRoot}${language}/models/regression/lasso-inference`);
     const main = page.getByRole('main');
@@ -33,6 +37,10 @@ for (const language of ['en', 'cn']) {
     await expect(page).toHaveURL(`${siteRoot}${peer}/models/regression/lasso-inference`);
     await expect(page.locator('main mjx-container[display="true"]')).toHaveCount(21);
     await page.reload();
+    // In Firefox, Back can otherwise race the initial route load after reload.
+    await page.waitForFunction(() => Boolean(
+      document.querySelector('#app') && '__vue_app__' in document.querySelector('#app')!,
+    ));
     await expect(page.locator('main h1')).toContainText('Lasso');
     await page.goBack();
     await expect(page).toHaveURL(`${siteRoot}${language}/models/regression/lasso-inference`);
