@@ -4,7 +4,7 @@ This page is for contributors maintaining the benchmark pipeline and frontend. D
 
 ## Data sources and counts
 
-The [source manifest](../../dev/benchmarks/frontend_sources.json) defines canonical inputs and the minimum source date. The [generated inventory](../public/data/source_inventory.json), [parse report](../public/data/parse_report.json), and [normalized data](../public/data/benchmark_data.json) describe the actual bundle. Do not maintain an independent “current” source/run/model count in prose.
+The [source manifest](../../dev/benchmarks/frontend_sources.json) defines canonical inputs and the minimum source date. The generated files `frontend/public/data/source_inventory.json`, `frontend/public/data/parse_report.json`, and `frontend/public/data/benchmark_data.json` (paths from the repository root) describe the actual bundle. Do not maintain an independent “current” source/run/model count in prose.
 
 The manifest requires explicit source dates on or after `2026-06-01`; canonical sources are SHA256-verified. Strict generation rejects unapproved issues. The three generated files share a `generation_id`; corresponding files are generated under ignored `frontend/public/data/`, copied into `frontend/dist/data/`, and assembled at `.site-dist/dashboard/data/`. Source inputs and the manifest remain versioned. Inventory counts distinguish registration, availability, and successful parsing. `runs_generated`, model-registry length, and rows containing `metrics.cross_validation` measure different things.
 

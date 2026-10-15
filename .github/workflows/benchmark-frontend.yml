@@ -135,6 +135,8 @@ jobs:
           npm run test:site-links
           npm run test:site-html
           npm run source:verify
+      - name: Test documented production build from clean generated directories
+        run: npm run test:production-recipe
       - name: Generate deployment benchmark bundle
         run: |
           python dev/benchmarks/generate_benchmark_data.py \

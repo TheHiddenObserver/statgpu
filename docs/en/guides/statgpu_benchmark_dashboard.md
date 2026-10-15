@@ -83,9 +83,10 @@ For benchmark authors, source registration, data generation, tests, browser QA, 
 
 ## Access from a source checkout
 
-The interactive dashboard and its JSON bundle are generated during the website
-build; they are not committed to the repository. The sections below explain how
-to open or inspect them when reading the source Markdown on GitHub.
+Generate the JSON bundle before building the website. The website build consumes
+that bundle and compiles the interactive dashboard; neither output is committed
+to the repository. The sections below explain how to open or inspect them when
+reading the source Markdown on GitHub.
 
 <a id="open-dashboard"></a>
 
@@ -94,8 +95,8 @@ to open or inspect them when reading the source Markdown on GitHub.
 Follow the [frontend setup and production-build instructions](../../../frontend/README.md#production-build-and-staleness)
 to generate the bundle, build the website, and start its local preview. With the
 default site base, open `http://127.0.0.1:4173/statgpu/dashboard/` after the preview
-server starts. For the prerequisites and the bundle-generation command, see
-[frontend development](../../../frontend/README.md#development).
+server starts. Install the listed [prerequisites](../../../frontend/README.md#requirements)
+first; the production-build instructions include the bundle-generation command.
 
 <a id="source-inventory"></a>
 

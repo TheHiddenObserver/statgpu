@@ -11,10 +11,12 @@ import {
 
 const repositoryRoot = path.resolve('.');
 
-test('all nine source entry pages resolve files and GitHub fragments without site routing', async () => {
+test('all eleven source entry pages resolve files and GitHub fragments without site routing', async () => {
   const result = await checkSourceDocuments(repositoryRoot);
-  assert.equal(result.pages, 9);
-  assert.ok(result.checked >= 179, `Expected all source links, checked ${result.checked}`);
+  assert.equal(result.pages, 11);
+  assert.ok(sourceDocumentPaths.includes('frontend/README.md'));
+  assert.ok(sourceDocumentPaths.includes('frontend/docs/benchmark-dashboard-maintenance.md'));
+  assert.ok(result.checked >= 201, `Expected all source links, checked ${result.checked}`);
   assert.deepEqual(result.errors, []);
 });
 
@@ -35,6 +37,39 @@ test('source checker rejects every former site-only route in each affected page'
       assert.equal(result.errors.length, 1, `${page}: ${href}`);
       assert.match(result.errors[0], /missing repository target|generated file is not a source-reader target/);
     }
+  }
+});
+
+test('both contributor pages reject all six former generated-data links, with or without generated files', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'statgpu-contributor-links-'));
+  try {
+    await mkdir(path.join(root, 'docs'), { recursive: true });
+    const checker = await createSourceLinkChecker(root);
+    const pages = [
+      ['frontend/README.md', 'public/data/'],
+      ['frontend/docs/benchmark-dashboard-maintenance.md', '../public/data/'],
+    ];
+    const files = ['source_inventory.json', 'parse_report.json', 'benchmark_data.json'];
+    for (const generatedFilesExist of [false, true]) {
+      if (generatedFilesExist) {
+        await mkdir(path.join(root, 'frontend/public/data'), { recursive: true });
+        for (const file of files) {
+          await writeFile(path.join(root, 'frontend/public/data', file), '{}');
+        }
+      }
+      for (const [page, prefix] of pages) {
+        for (const file of files) {
+          const href = prefix + file;
+          const result = await checker.checkDocument(page, `[generated](${href})`);
+          assert.equal(result.checked, 1);
+          assert.deepEqual(result.errors, [
+            `${page}: generated file is not a source-reader target: ${href}`,
+          ], `${page}: ${href}; generated files exist: ${generatedFilesExist}`);
+        }
+      }
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });
 

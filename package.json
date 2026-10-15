@@ -18,6 +18,7 @@
     "test:search": "node --test scripts/test-search-index-compression.mjs",
     "test:site-links": "node --test scripts/test-site-source-links.mjs scripts/test-source-document-links.mjs",
     "test:site-html": "node --test scripts/test-site-html-validation.mjs",
+    "test:production-recipe": "node --test scripts/test-production-build-recipe.mjs",
     "source:verify": "node scripts/check-source-document-links.mjs"
   },
   "devDependencies": {

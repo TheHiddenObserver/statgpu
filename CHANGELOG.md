@@ -15,6 +15,7 @@ All notable changes to statgpu are documented here, organized by release and dat
 ### PR #132 — Repaired website links, math and session labels
 - Preserved source-document links and section anchors in both GitHub Markdown and the website; corrected bilingual formula rendering and added complete HTML link/math validation.
 - Restored benchmark session and source labels in timing charts and accessible tables, with canonical multi-session regressions.
+- Corrected fresh-checkout production-build instructions and contributor data links; added executable build-recipe and source-link regressions.
 
 ## Unreleased — 2026-10-10
 

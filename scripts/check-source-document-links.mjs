@@ -5,8 +5,8 @@ import GithubSlugger from 'github-slugger';
 import { parseFragment } from 'parse5';
 import { createMarkdownRenderer } from 'vitepress';
 
-// These entry points gained site-only links during website integration. This
-// check deliberately uses repository semantics, independently of site routing.
+// These reader and contributor entry points must work from a source checkout.
+// This check uses repository semantics, independently of site routing.
 export const sourceDocumentPaths = Object.freeze([
   'docs/index.md',
   'docs/en/index.md',
@@ -17,6 +17,8 @@ export const sourceDocumentPaths = Object.freeze([
   'docs/en/guides/benchmarks.md',
   'docs/cn/guides/benchmarks.md',
   'docs/en/guides/statgpu_benchmark_dashboard.md',
+  'frontend/README.md',
+  'frontend/docs/benchmark-dashboard-maintenance.md',
 ]);
 
 const external = /^(?:[a-z][a-z\d+.-]*:|\/\/)/i;

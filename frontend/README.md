@@ -4,7 +4,7 @@ Interactive benchmark dashboard for statgpu, built with Vite, TypeScript, and EC
 
 ## Current coverage
 
-The canonical dashboard is restricted to benchmark sources dated **2026-06-01 or later**. Current counts and registered inputs are available in the generated [source inventory](public/data/source_inventory.json), [parse report](public/data/parse_report.json), and [normalized data](public/data/benchmark_data.json). These distinguish sources, runs, and model-registry entries; do not copy fixed current counts into prose.
+The canonical dashboard is restricted to benchmark sources dated **2026-06-01 or later**. Current counts and registered inputs are available in the generated files `frontend/public/data/source_inventory.json`, `frontend/public/data/parse_report.json`, and `frontend/public/data/benchmark_data.json` (paths from the repository root). Generate these untracked files using the commands in [Development](#development) before inspecting them. These files distinguish sources, runs, and model-registry entries; do not copy fixed current counts into prose.
 
 Covered categories include penalized GLM and GLM, recent linear models, robust and quantile regression, survival analysis, unsupervised learning, ordered models, nonparametric methods, panel models, covariance estimation, ANOVA, and current cross-validation families.
 
@@ -117,23 +117,41 @@ The domain-coverage suite verifies robust/quantile, survival, unsupervised, orde
 
 ## Production build and staleness
 
-Run from the repository root:
+Use the [requirements](#requirements) above and run from the repository root.
+Generate the benchmark bundle before building, including on a fresh checkout:
 
 ```bash
 npm ci
 npm ci --prefix frontend
+
+python dev/benchmarks/generate_benchmark_data.py \
+  --out frontend/public/data/benchmark_data.json \
+  --report frontend/public/data/parse_report.json \
+  --inventory-out frontend/public/data/source_inventory.json \
+  --deterministic --strict-sources
+
 npm run site:build
+```
+
+Then start the local preview:
+
+```bash
 npm run site:preview
 # Open http://127.0.0.1:4173/statgpu/dashboard/
+```
 
+Stop the preview server before running production browser tests:
+
+```bash
 npm exec --prefix frontend -- playwright install --with-deps chromium firefox webkit
 npm run test:e2e:production --prefix frontend
 ```
 
 Vite writes a relocatable dashboard to ignored `frontend/dist/`. Site assembly
 copies it into `.site-dist/dashboard/` alongside the VitePress documentation.
-The canonical generated JSON stays under ignored `frontend/public/data/`; source
-manifests and benchmark inputs remain versioned. CI regenerates the bundle,
+The build consumes the existing bundle; `npm run site:build` does not generate
+benchmark data. The generated JSON stays under ignored `frontend/public/data/`;
+source manifests and benchmark inputs remain versioned. CI regenerates the bundle,
 verifies project-path and custom-domain root-base builds, and compares complete
 artifact hashes rather than committing generated deployment assets.
 
