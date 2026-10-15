@@ -6,8 +6,48 @@ from typing import Optional, Tuple
 
 import numpy as np
 
-from statgpu.backends import get_backend, _resolve_backend, _to_float_scalar
+from statgpu.backends import (
+    TorchBackend,
+    _resolve_backend,
+    _to_float_scalar,
+    get_backend,
+)
 from statgpu.inference._distributions_backend import chi2, norm
+
+
+def _get_multiple_testing_backend(backend, pvalues):
+    """Bind all arrays in one call to the p-value tensor's concrete device.
+
+    These module functions select an array library, unlike estimator ``device``
+    dispatch. Do not change the shared factory backend or CUDA's current device.
+    """
+    name = _resolve_backend(backend, pvalues)
+    if name != "torch":
+        return get_backend(name)
+
+    import torch
+
+    if isinstance(pvalues, torch.Tensor):
+        device = pvalues.device
+        if device.type not in ("cpu", "cuda"):
+            raise ValueError(
+                "Multiple-testing Torch inputs must be on CPU or CUDA; "
+                f"device '{device}' is unsupported by the float64 contract. "
+                "Move pvalues explicitly to CPU or CUDA before calling."
+            )
+        device = str(device)
+    else:
+        device = (
+            f"cuda:{torch.cuda.current_device()}"
+            if torch.cuda.is_available() else "cpu"
+        )
+
+    local_backend = TorchBackend(device=device)
+    # The generic backend's optional random-matmul warmup is unnecessary for
+    # these small functional kernels. Skip it for a call-local instance so
+    # repeated inference neither consumes the user's RNG nor warms every call.
+    local_backend._initialized = True
+    return local_backend
 
 
 def _to_bool_scalar(x) -> bool:
@@ -246,7 +286,11 @@ def adjust_pvalues(
         Axis along which to adjust p-values.
         If None, adjusts over all values flattened.
     backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
-        Compute backend. ``'auto'`` infers from input array type.
+        Array library. ``'auto'`` infers from pvalues. Torch CPU/CUDA tensors
+        retain their device, with float64 computation; temporary arrays use
+        that device. Other Torch devices
+        raise. Non-Torch input with ``'torch'`` uses the current CUDA device
+        when available, otherwise CPU. Global ``set_device`` is not consulted.
 
     Returns
     -------
@@ -257,8 +301,7 @@ def adjust_pvalues(
     """
     method_n = _normalize_method(method)
     alpha_f = _validate_alpha(alpha)
-    backend_name = _resolve_backend(backend, pvalues)
-    backend = get_backend(backend_name)
+    backend = _get_multiple_testing_backend(backend, pvalues)
 
     arr = backend.asarray(pvalues, dtype=backend.float64)
 
@@ -328,7 +371,11 @@ def combine_pvalues(
     axis : int or None, default=None
         Axis along which to combine p-values. If None, flattens all values.
     backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
-        Compute backend. ``'auto'`` infers from input array type.
+        Array library. ``'auto'`` infers from pvalues, not weights.
+        Torch CPU/CUDA tensors retain their device, with float64 computation;
+        weights and temporary arrays use that device. Other Torch devices
+        raise. Non-Torch input with ``'torch'`` uses the current CUDA device
+        when available, otherwise CPU. Global ``set_device`` is not consulted.
 
     Returns
     -------
@@ -338,8 +385,7 @@ def combine_pvalues(
         Combined p-value(s).
     """
     method_n = _normalize_combine_method(method)
-    backend_name = _resolve_backend(backend, pvalues)
-    backend = get_backend(backend_name)
+    backend = _get_multiple_testing_backend(backend, pvalues)
 
     arr = backend.asarray(pvalues, dtype=backend.float64)
 

@@ -45,14 +45,18 @@ combine_pvalues(pvalues, method="fisher", weights=None, axis=None, backend="auto
 
 | 后端 | 选择规则与要求 |
 |---|---|
-| `"auto"` | 从 `pvalues` 推断数组库：Torch 张量选择 Torch，CuPy 数组选择 CuPy，NumPy 数组、列表或标量选择 NumPy。`weights` 不参与数组库选择。 |
+| `"auto"` | 从 `pvalues` 推断数组库：Torch 张量选择 Torch，CuPy 数组选择 CuPy，NumPy 数组、列表或标量选择 NumPy。`weights` 不参与数组库或设备选择。 |
 | `"numpy"` 或历史别名 `"cpu"` | 使用 CPU 上的 NumPy。 |
 | `"cupy"` 或历史别名 `"cuda"` / `"gpu"` | 使用 CuPy，要求已安装 CuPy 且 CUDA 可用。指定后端不可用时会报错，不会改用 NumPy。 |
-| `"torch"` | 要求已安装 PyTorch。CUDA 可用时使用 Torch CUDA，否则使用 Torch CPU；未安装 PyTorch 时会报错，不会改用 NumPy。 |
+| `"torch"` | 要求已安装 PyTorch。`pvalues` 为 Torch 张量时，保留其 CPU 或具体 CUDA 设备。其他输入在 CUDA 可用时使用当前 CUDA 设备，否则使用 CPU；未安装 PyTorch 时会报错，不会改用 NumPy。 |
 
-P 值和传入的合并权重会转换为所选数组库的 float64 数组，可能涉及 CPU 与 GPU 之间的数据传输。尤其是显式选择 Torch、或由 `"auto"` 选择 Torch 时，都不保证保留输入张量所在的设备：CUDA 可用时，CPU 张量可能被移到 CUDA。这些函数没有单独的 `device` 参数；若需要 CPU 计算和 NumPy 输出，请使用 `backend="numpy"`。
+P 值和传入的合并权重会转换为所选数组库的 float64 数组。无论通过 `"auto"` 还是显式 `"torch"` 选择 Torch，CPU 上的 `pvalues` 张量都会留在 CPU，即使 CUDA 可用；CUDA 张量则保留其确切的设备编号，例如 `cuda:1`，不受当前 CUDA 设备影响。Float32 P 值也在同一设备上升为 float64。秩、校正因子、默认或传入的合并权重以及全部输出，都与转换后的 P 值位于同一设备；权重不会另行决定设备。
 
-对于这些模块级函数，`statgpu.set_device(...)` 不会覆盖上述数组库选择规则。`model.combine_pvalues(...)` 等估计器方法还会考虑估计器与全局设备设置；其 `backend="auto"` 可能先选择解析得到的 GPU 后端，再将输入传给模块级函数。估计器方法显式指定 `backend="torch"` 时要求 CUDA。相应规则见[共享估计器辅助方法](../reference/estimator-api.md)和[设备选择](device-and-memory.md)。
+这些 float64 计算支持 Torch CPU 和 CUDA 设备。`pvalues` 位于 MPS 或其他不支持的 Torch 设备时，会引发 `ValueError`，不会静默移到 CPU 或 CUDA。调用前请显式将此类输入移到 CPU 或受支持的 CUDA 设备。
+
+这些函数没有单独的 `device` 参数。若需要在 CPU 上进行 Torch 计算并返回 Torch 结果，请传入 CPU Torch 张量作为 `pvalues`；若需要指定 CUDA GPU，请先将该张量放到相应编号的设备上。`pvalues` 不是 Torch 张量且显式指定 `backend="torch"` 时，CUDA 可用则转换到当前具体 CUDA 设备，否则转换到 CPU。显式选择其他数组库可能涉及设备之间的数据传输；若需要 CPU 计算和 NumPy 输出，请使用 `backend="numpy"`。
+
+对于这些模块级函数，`statgpu.set_device(...)` 不会覆盖上述数组库或 Torch 设备选择规则。`model.combine_pvalues(...)` 等估计器方法还会考虑估计器与全局设备设置；其 `backend="auto"` 可能先选择解析得到的 GPU 后端并转换输入，再传给模块级函数。估计器方法显式指定 `backend="torch"` 时要求 CUDA，并先将输入转换到 CUDA；模块级函数保留输入设备的规则不会跳过这一步转换。相应规则见[共享估计器辅助方法](../reference/estimator-api.md)和[设备选择](device-and-memory.md)。
 
 ## 方法与别名
 

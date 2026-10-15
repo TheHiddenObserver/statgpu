@@ -2,6 +2,12 @@
 
 All notable changes to statgpu are documented here, organized by release and date.
 
+## Unreleased — 2026-10-15
+
+### PR #171 — Preserved multiple-testing Torch devices
+- Fixed module-level p-value adjustment and combination to preserve Torch input CPU or indexed-CUDA ownership through float64 conversion, temporary arrays, weights, and outputs; retained current-device selection for explicit Torch with non-Torch input and rejected unsupported Torch devices explicitly.
+- Clarified bilingual function-versus-estimator device rules and added focused device-ownership regressions, with physical CUDA checks conditional on available hardware.
+
 ## Unreleased — 2026-10-10
 
 ### PR #168 — Completed learner docs and repaired input/device handling

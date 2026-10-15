@@ -1,7 +1,7 @@
 # 设备与 GPU 内存
 
 > 语言：中文\
-> 最后更新：2026-10-10\
+> 最后更新：2026-10-15\
 > 页面定位：设备选择与 GPU 内存控制\
 > 切换：[English](../../en/guides/device-and-memory.md)
 
@@ -36,6 +36,8 @@ print(predictions)
 ### 估计器的 `device` 与函数的 `backend`
 
 采用通用设备处理方式的估计器用 `device="torch"` 请求 Torch CUDA。函数的 `backend="torch"` 则用于选择 Torch 库，可以支持 Torch CPU。例如，`get_backend(backend="torch", device="cpu")` 返回 Torch CPU 后端；`get_backend(backend="torch")` 在 Torch CUDA 可用时使用 CUDA，否则使用 Torch CPU。两种方式都需要安装 Torch。请查看具体函数的后端说明，不要将这两个参数视为相同的设置。
+
+模块级 `adjust_pvalues`、`multipletests` 和 `combine_pvalues` 在通过 `backend="auto"` 或 `"torch"` 选择 Torch 时，保留 `pvalues` 张量的 CPU 或确切 CUDA 设备编号，包括 float64 升精度、临时数组、权重和输出。非 Torch 输入显式指定 `backend="torch"` 时，CUDA 可用则使用当前 CUDA 设备，否则使用 CPU。MPS 和其他不支持的 Torch 输入设备会引发 `ValueError`，因为这些函数仅支持 CPU 与 CUDA 上的 float64 计算。它们的选择不受 `set_device` 影响；估计器辅助方法会先应用各自的转换规则。详见[多重检验 API](multiple-testing-combine-pvalues.md#backend-selection-and-conversion)。
 
 ## 全局设置与估计器设置
 

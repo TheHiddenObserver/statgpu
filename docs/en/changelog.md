@@ -1,11 +1,22 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-10-10<br>
+> Last updated: 2026-10-15<br>
 > This page: Release history  
 > Switch: [Chinese](../cn/changelog.md)
 
 This page records user-visible changes for current and recent statgpu releases.
+
+## Unreleased — Multiple-testing Torch devices (PR #171)
+
+### Fixed (2026-10-15)
+
+- **Torch input-device preservation in multiple testing**:
+  - The module functions `adjust_pvalues`, `multipletests`, and `combine_pvalues` previously selected Torch without binding its allocations to the input tensor's concrete device. Conversion could move CPU inputs when CUDA was available, or create ranks, adjustment factors, or weights on a different CUDA device.
+  - Torch `pvalues` tensors now retain their CPU or exact indexed CUDA device with `backend="auto"` or explicit `"torch"`. Float32 inputs are promoted to float64 on that device; temporary arrays, supplied/default weights, and outputs remain together. Weights do not select the backend or device.
+  - Explicit `backend="torch"` with non-Torch p-values uses the current concrete CUDA device when available, otherwise CPU. Unsupported Torch p-value devices, including MPS, raise `ValueError` because these functions support float64 execution on CPU and CUDA; no silent device fallback is introduced.
+  - Module functions still ignore `set_device`. Estimator helpers retain their separate CUDA requirement and input conversion when they select Torch; shared backend-factory behavior is unchanged. Existing numerical warnings for NaN `alpha`, overflowing weight sums, and extreme probability tails still apply.
+  - Updated the bilingual multiple-testing API, device guide, and estimator helper reference. Added device-ownership regressions in `dev/tests/test_multiple_testing_device_ownership.py`, including conditional physical CUDA checks. No physical GPU validation is claimed for this local update.
 
 ## Unreleased — Learner guides and API references (PR #168)
 

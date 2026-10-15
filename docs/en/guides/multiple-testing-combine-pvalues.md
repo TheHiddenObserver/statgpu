@@ -45,25 +45,42 @@ surrounding whitespace and case, so `"AUTO"` and `"auto"` are equivalent.
 
 | Backend | Selection and requirements |
 |---|---|
-| `"auto"` | Infer the library from `pvalues`: a Torch tensor selects Torch, a CuPy array selects CuPy, and NumPy arrays, lists, or scalars select NumPy. `weights` does not determine the library. |
+| `"auto"` | Infer the library from `pvalues`: a Torch tensor selects Torch, a CuPy array selects CuPy, and NumPy arrays, lists, or scalars select NumPy. `weights` does not determine the library or device. |
 | `"numpy"` or legacy `"cpu"` | Use NumPy on CPU. |
 | `"cupy"` or legacy `"cuda"` / `"gpu"` | Use CuPy; requires CuPy and working CUDA. An unavailable requested backend raises rather than switching to NumPy. |
-| `"torch"` | Requires PyTorch. Use Torch CUDA when available, otherwise Torch CPU; absence of PyTorch raises rather than switching to NumPy. |
+| `"torch"` | Requires PyTorch. A Torch `pvalues` tensor keeps its CPU or concrete CUDA device. Other input uses the current CUDA device when available, otherwise CPU; absence of PyTorch raises rather than switching to NumPy. |
 
 P-values and supplied combination weights are converted to float64 in the
-selected library. This may transfer data between CPU and GPU. In particular,
-selecting Torch, explicitly or through `"auto"`, does not promise to preserve
-the input tensor's device: a CPU tensor can be moved to CUDA when CUDA is
-available. These functions have no separate `device` argument; use
-`backend="numpy"` to require CPU computation and NumPy output.
+selected library. When Torch is selected by `"auto"` or explicit `"torch"`,
+a CPU `pvalues` tensor stays on CPU even if CUDA is available, and a CUDA
+tensor stays on its exact indexed device, such as `cuda:1`, regardless of the
+current CUDA device. Float32 p-values are promoted to float64 on that same
+device. Ranks, adjustment factors, default or supplied combination weights,
+and all outputs use the same device as the converted p-values; weights never
+choose a different device.
+
+Torch execution supports CPU and CUDA devices for these float64 calculations.
+MPS and other unsupported Torch `pvalues` devices raise `ValueError` instead
+of moving silently to CPU or CUDA. Move such input explicitly to CPU or a
+supported CUDA device before calling.
+
+These functions have no separate `device` argument. To keep Torch computation
+and outputs on CPU, pass a CPU Torch tensor as `pvalues`; to use a particular
+CUDA GPU, place that tensor on the intended indexed device first. With
+non-Torch `pvalues` and explicit `backend="torch"`, conversion uses the
+current concrete CUDA device when available, otherwise CPU. Explicitly
+selecting another library can transfer the data; use `backend="numpy"` to
+require CPU computation and NumPy output.
 
 For these module functions, `statgpu.set_device(...)` does not override the
-array-library selection above. Estimator methods such as
+array-library or Torch device selection above. Estimator methods such as
 `model.combine_pvalues(...)` have additional estimator/global-device context;
-their `backend="auto"` can select that resolved GPU backend before passing
-inputs to the module function. Their explicit `backend="torch"` request
-requires CUDA. See [shared estimator helpers](../reference/estimator-api.md)
-and [device selection](device-and-memory.md) for those distinct rules.
+their `backend="auto"` can select that resolved GPU backend and convert
+inputs before passing them to the module function. Their explicit
+`backend="torch"` request requires CUDA and converts inputs to CUDA first;
+the module-level input-device rule does not bypass that conversion. See
+[shared estimator helpers](../reference/estimator-api.md) and
+[device selection](device-and-memory.md) for those distinct rules.
 
 ## Methods and aliases
 
