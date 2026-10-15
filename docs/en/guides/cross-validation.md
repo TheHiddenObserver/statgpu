@@ -1,7 +1,7 @@
 # Cross-Validation
 
 > Language: English  
-> Last updated: 2026-10-11
+> Last updated: 2026-10-14
 > This page: user guide for CV selection and refit behavior  
 > Switch: [Chinese](../../cn/guides/cross-validation.md)
 
@@ -28,7 +28,7 @@ For the public execution model behind these behaviors—including the selection/
 | `RidgeCV` | `Ridge` | `alpha` |
 | `LassoCV` | `Lasso` | `alpha` |
 | `ElasticNetCV` | `ElasticNet` | `alpha`, optionally `l1_ratio` |
-| `LogisticRegressionCV` | `LogisticRegression` | regularization strength |
+| `LogisticRegressionCV` | `LogisticRegression` | positive `C` (inverse L2 strength) |
 | `PenalizedGLM_CV` | penalized GLM / penalized Cox | `alpha` for the selected loss and penalty |
 | `CoxPHCV` | `CoxPH` | Cox penalty strength |
 | `KernelRidgeCV` | `KernelRidge` | `alpha` for a fixed kernel |
@@ -158,6 +158,8 @@ A fold whose training or validation partition has no observed events is excluded
 
 Specialized estimators such as `RidgeCV`, `LassoCV`, `ElasticNetCV`, and `KernelRidgeCV` expose `alphas`; `PenalizedGLM_CV` exposes `alpha_grid`. Alpha scales differ by objective: Ridge uses average squared loss, whereas KernelRidge uses the unnormalized kernel system. Do not transfer a grid between them without checking their model definitions.
 
+`LogisticRegressionCV` instead exposes `Cs`, or `n_Cs` and `C_min_ratio` for an automatic grid. Positive `C` is inverse L2 strength under the standalone classifier's summed weighted Bernoulli loss, so larger values mean weaker regularization. Its selected value is `C_`. The direct estimator's special unpenalized `C=0` is not a CV candidate. Inspect the actual `Cs_` after fitting and expand the grid if the chosen value lies at its boundary; complete validation and result details are in the [CV API reference](../reference/linear-model-api.md#logisticregressioncv).
+
 When a grid is omitted, the estimator constructs a data-dependent grid appropriate to its model. A user-supplied grid is treated as the requested candidate set after the estimator's public validation rules are applied.
 
 For Quantile models, use a grid appropriate to the requested quantile and penalty. Check whether the selected alpha is at a grid endpoint and consider extending the grid if needed. Automatic-grid scaling for group and adaptive penalties is described in [Advanced: automatic Quantile grids](#advanced-automatic-quantile-grids); when adaptive weights are learned from an initialization fit, the initial grid is a heuristic.
@@ -209,6 +211,12 @@ This distinction matters for interpretation:
 
 For why this separation is part of the design rather than just an implementation detail, see [How statgpu Cross-Validation Works](cross-validation-design.md).
 
+### Logistic classifier solvers
+
+`LogisticRegressionCV(solver="auto")` and `solver="irls"` use IRLS for candidates and the final refit; `solver="lbfgs"` uses L-BFGS for both. CPU candidates are fitted sequentially. On CuPy/Torch CUDA, `auto`/`irls` use batched IRLS, while L-BFGS fits candidates sequentially on the selected backend. See the [logistic backend and CV behavior](../models/regression/logistic-regression.md#backend-and-cv-behavior) for precision settings and which fitting paths they affect. Both solvers retain the same summed-loss inverse-C L2 objective, including sample weights and the unpenalized intercept.
+
+Selection minimizes mean validation log-loss, not accuracy. `mean_loss_` contains candidate means, `cv_results_["loss_path"]` contains candidate-by-fold losses, and `best_score_` is the negative selected mean. Fitted `solver_` records the resolved algorithm, and `estimator_.converged_` reports final-refit convergence. IRLS and L-BFGS give `tol` different meanings; see the [model's stopping rules and runnable example](../models/regression/logistic-regression.md#solver-choice-and-convergence). Final inference uses the selected `C_` without correcting shrinkage bias or tuning uncertainty.
+
 ### Selection failures
 
 For Quantile models with `cv_strategy="strict"`, an alpha is eligible only if every evaluated fold returns a finite validation score. If a fold fit fails without a finite score, that alpha is excluded; its mean is not calculated from only the remaining successful folds. For automatic scalar or group SCAD/MCP Quantile fits, failure to converge at the requested alpha counts as a failed fold. An ordinary solver `ConvergenceWarning` alone does not exclude an otherwise finite result.
@@ -243,11 +251,13 @@ Exact result dictionaries vary by estimator, but CV estimators expose the select
 | Attribute | Meaning |
 |---|---|
 | `alpha_` | selected regularization strength |
+| `C_` | selected inverse L2 strength for `LogisticRegressionCV` |
 | `l1_ratio_` | selected ElasticNet mixing value, when searched |
 | `cv_results_` | candidate/fold scoring information exposed by that estimator |
 | `estimator_` | selected model refit on the full dataset, where exposed |
 | `coef_`, `intercept_` | parameters of the final refit |
 | `cv_solver_` | actual CV-path solver for `LassoCV` |
+| `solver_` | resolved candidate/final-refit solver for `LogisticRegressionCV` |
 
 Do not assume every CV class uses an identical `cv_results_` schema; use the corresponding estimator/model reference when consuming detailed diagnostic fields programmatically.
 

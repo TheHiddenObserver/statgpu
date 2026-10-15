@@ -1,7 +1,7 @@
 # Linear-model API reference
 
 > Language: English  
-> Last updated: 2026-10-11  
+> Last updated: 2026-10-14  
 > Switch: [Chinese](../../cn/reference/linear-model-api.md)
 
 Classes here import from `statgpu` or `statgpu.linear_model`, except `SCADRegression` and `MCPRegression`, which are exported only by `statgpu.linear_model`. `X` is finite numeric `(n,p)` data; prediction uses the fitted feature order. Analytic weights are a finite nonnegative `(n,)` vector with positive sum. For weights after formula row filtering, see [formula inputs](#formula-inputs). Explicit GPU use requires the corresponding installed CUDA backend; see [device and memory](../guides/device-and-memory.md).
@@ -43,7 +43,7 @@ Classical covariance uses t-reference inference; HC/HAC uses normal-reference in
 ## LogisticRegression
 
 ```text
-LogisticRegression(fit_intercept=True, C=1.0, max_iter=100, tol=0.0001, device='auto', n_jobs=None, compute_inference=True, cov_type='nonrobust', gpu_memory_cleanup=False, hac_maxlags=None)
+LogisticRegression(fit_intercept=True, C=1.0, max_iter=100, tol=0.0001, device='auto', n_jobs=None, compute_inference=True, cov_type='nonrobust', gpu_memory_cleanup=False, hac_maxlags=None, solver='auto')
 ```
 | Parameter | Default | Meaning and restrictions |
 |---|---|---|
@@ -55,10 +55,13 @@ LogisticRegression(fit_intercept=True, C=1.0, max_iter=100, tol=0.0001, device='
 | `cov_type` | `"nonrobust"` | `nonrobust`, `hc0`, `hc1`, `hc2`, `hc3`, `hac`; see each model’s inference contract. |
 | `hac_maxlags` | `None` | Nonnegative integer HAC lag; automatic `floor(4*(n/100)**(2/9))`, capped at n−1, for Linear/Logistic. |
 | `C` | `1.0` | Finite nonnegative real. Positive means inverse L2 strength; zero removes the penalty exactly. |
-| `max_iter` | `100` | Positive integer IRLS iteration budget. |
-| `tol` | `1e-4` | Finite positive convergence tolerance. |
+| `max_iter` | `100` | Positive integer iteration budget for the selected solver. |
+| `tol` | `1e-4` | Finite positive tolerance: parameter-step Euclidean norm for IRLS, scaled-objective gradient Euclidean norm for L-BFGS. |
+| `solver` | `"auto"` | `auto`, `irls`, or `lbfgs`; `auto` resolves to `irls`. Other values raise `ValueError`. |
 
-`fit(X,y,sample_weight=None)` returns `self`; binary `y` must be 0/1 with n entries. There is no formula argument, multiclass mode, solver selector, L1 or Elastic Net penalty in this standalone class. `coef_` is `(p,)`; `intercept_` is scalar. `converged_` and `n_iter_` describe optimization, not statistical adequacy.
+`fit(X,y,sample_weight=None)` returns `self`; binary `y` must be 0/1 with n entries. There is no formula argument, multiclass mode, L1 or Elastic Net penalty in this standalone class. `coef_` is `(p,)`; `intercept_` is scalar. `converged_` and `n_iter_` describe optimization, not statistical adequacy. Fitted `solver_` records the resolved `"irls"` or `"lbfgs"`, while `get_params()["solver"]` retains the request.
+
+Both solvers minimize the summed weighted Bernoulli negative log-likelihood plus `||coef||**2/(2*C)` for positive C, with an unpenalized intercept. `C=0` removes the penalty exactly. Weights must be finite, nonnegative, length n and have positive sum. L-BFGS scales the **whole objective, including the penalty**, by n without weights or by `sum(sample_weight)` with weights. This preserves C and the minimizer, but its gradient-norm stopping rule is on that scaled objective; a small step alone is insufficient. The same `tol` does not imply equal precision across solvers. Unmet stopping rules emit `ConvergenceWarning`; inspect `converged_`. Both solvers run on the selected NumPy/CuPy/Torch backend. See the [model guide](../models/regression/logistic-regression.md) for equations, examples, and covariance interpretation.
 
 | Method | Arguments, defaults and return |
 |---|---|
@@ -75,7 +78,7 @@ LogisticRegression(fit_intercept=True, C=1.0, max_iter=100, tol=0.0001, device='
 | `evaluate_classification(X,y,threshold=0.5,include_curves=True)` | One probability evaluation; dictionary described below. |
 | `plot_roc_curve(X,y,ax=None,label=None)` | Requires matplotlib; creates or draws on supplied Axes, returns Axes. `label=None` includes computed AUC. |
 | `plot_precision_recall_curve(X,y,ax=None,label=None)` | Same plot contract, with average precision in the default label. |
-| `summary()` | Prints the inference report and returns `None`; requires successful enabled inference. |
+| `summary()` | Prints the inference report, requested/resolved solver, and convergence status; returns `None` and requires successful enabled inference. |
 
 Evaluation arrays/scalars use NumPy on CPU and the supported CuPy/Torch backend on GPU; `score` is a Python float. Plotting transfers small results to NumPy. None of these evaluation methods accepts `sample_weight`; weighting fit does not make evaluation weighted.
 
@@ -243,7 +246,7 @@ ElasticNetCV(l1_ratio=0.5, *, alphas=None, n_alphas=100, alpha_min_ratio=0.001, 
 ## LogisticRegressionCV
 
 ```text
-LogisticRegressionCV(Cs=None, n_Cs=100, C_min_ratio=0.001, cv=5, cv_splits=None, fit_intercept=True, max_iter=100, tol=0.0001, device='auto', n_jobs=None, compute_inference=True, cov_type='nonrobust', gpu_memory_cleanup=False, random_state=None, gpu_cv_mixed_precision=True)
+LogisticRegressionCV(Cs=None, n_Cs=100, C_min_ratio=0.001, cv=5, cv_splits=None, fit_intercept=True, max_iter=100, tol=0.0001, device='auto', n_jobs=None, compute_inference=True, cov_type='nonrobust', gpu_memory_cleanup=False, random_state=None, gpu_cv_mixed_precision=True, solver='auto')
 ```
 | Parameter | Default | Meaning and restrictions |
 |---|---|---|
@@ -253,16 +256,18 @@ LogisticRegressionCV(Cs=None, n_Cs=100, C_min_ratio=0.001, cv=5, cv_splits=None,
 | `cv` | `5` | Integer fold count ≥2; use enough observations in every training/validation split. |
 | `cv_splits` | `None` | Explicit iterable of `(train_indices, validation_indices)` overrides generated folds. |
 | `fit_intercept` | `True` | Intercept in fold fits and final refit. |
-| `max_iter` | `100` | Per-fit IRLS iteration budget. |
-| `tol` | `1e-4` | Per-fit convergence tolerance. |
+| `max_iter` | `100` | Selected solver's iteration budget for each candidate and the final refit. |
+| `tol` | `1e-4` | Per-fit stopping tolerance, with the solver-specific meanings described for LogisticRegression. |
 | `device` | `"auto"` | `cpu`/`cuda` (CuPy)/`torch` (Torch CUDA)/`auto`; explicit GPU requests require a usable backend. |
 | `n_jobs` | `None` | Shared CPU worker setting; it does not select a solver or promise parallel fitting in these wrappers. |
 | `compute_inference` | `True` | Inference on final refit only, conditional on selected C. |
 | `cov_type` | `"nonrobust"` | `nonrobust`, `hc0`, `hc1`, `hc2`, `hc3`, `hac`; see each model’s inference contract. |
 | `gpu_memory_cleanup` | `False` | Best-effort backend memory-pool cleanup after fitting. |
 | `random_state` | `None` | Integer seed for generated shuffled K-fold splits. |
-| `gpu_cv_mixed_precision` | `True` | GPU CV mixed-precision option; does not choose a different statistical objective. |
+| `gpu_cv_mixed_precision` | `True` | Mixed precision for GPU batched IRLS only; L-BFGS candidate fits use float64 regardless of this setting. |
+| `solver` | `"auto"` | `auto`, `irls`, or `lbfgs` for every candidate and final refit; `auto` resolves to `irls`. |
 
+CPU candidates use sequential fits with the selected solver. GPU CV uses batched IRLS for `auto`/`irls` and sequential backend-native L-BFGS fits for `lbfgs`; an explicit GPU request never silently substitutes CPU. Both algorithms retain the direct model's summed-loss inverse-C L2 objective. The requested solver is passed to the final full-data `estimator_`; fitted `solver_` records the resolved algorithm. Read `estimator_.converged_` for final stopping status. Final covariance inference is the same for both solvers and does not correct shrinkage bias or CV tuning uncertainty.
 
 ## CV methods and results
 `ElasticNetCV` and `LogisticRegressionCV` use `fit(X,y,sample_weight=None) -> self`, `predict(X)`, `score(X,y)`, and inherited `summary()`. Fit requires array/design-matrix input, not `formula`/`data`. `score` is unweighted held-out R² for ElasticNetCV and accuracy for LogisticRegressionCV, **not** the CV selection loss. ElasticNetCV.predict returns NumPy through the final estimator's default; LogisticRegressionCV also exposes `predict_proba(X) -> (m,2)` on the final model's backend. Other classification methods are on `estimator_`.
@@ -299,6 +304,7 @@ Let r be the number of l1 ratios, a the maximum candidate alpha count, c the C c
 | LogisticRegressionCV `C_`, `Cs_` | Selected scalar and actual candidate array `(c,)`. |
 | LogisticRegressionCV `cv_results_` | Only `loss_path` `(c,f)`; no `mean_loss` key. |
 | LogisticRegressionCV `mean_loss_`, `best_score_` | Mean log-loss `(c,)` and its selected **negative** value; not final-model accuracy. |
+| LogisticRegressionCV `solver_` | Resolved `"irls"` or `"lbfgs"` used for candidates and final refit; final convergence is `estimator_.converged_`. |
 | Both: `coef_`, `intercept_`, `n_iter_`, `estimator_`, `cv_selected_device_` | Final prediction slopes `(p,)`, scalar intercept, final iteration count, fitted direct estimator, and final device selection. |
 
 ElasticNetCV has no direct-fit `solver`, `stopping`, `inference_method`, or `cov_type` arguments. LogisticRegressionCV has no `hac_maxlags` argument; HAC therefore uses the final estimator's automatic lag rule. Do not copy an entire direct-estimator constructor into CV.

@@ -1,7 +1,7 @@
 # LogisticRegression
 
 > Language: English  
-> Last updated: 2026-10-13
+> Last updated: 2026-10-14
 > This page: Model documentation  
 > Switch: [Chinese](../../../cn/models/regression/logistic-regression.md)
 
@@ -9,7 +9,7 @@
 
 `LogisticRegression` models the probability of a binary outcome, such as whether an event occurs. It combines a linear predictor with the logistic function, so predicted probabilities stay between 0 and 1. Use it for binary prediction or for interpreting associations on the log-odds scale: the logarithm of $p/(1-p)$, where $p$ is the event probability. Association alone does not establish causality.
 
-This standalone estimator uses IRLS and optional L2 regularization on CPU/GPU. It does not implement multiclass, L1, or Elastic Net fitting. For broader penalty choices, see [penalized GLM](generalized-linear-model.md); do not assume those estimators share this class's `C` or solver interface.
+This standalone estimator offers IRLS or L-BFGS fitting with optional L2 regularization on CPU/GPU. The default `solver="auto"` selects IRLS. `LogisticRegressionCV` chooses a positive `C` by cross-validation and refits on all supplied training rows. Neither class implements multiclass, L1, or Elastic Net fitting. For broader penalty choices, see [penalized GLM](generalized-linear-model.md); do not assume those estimators share this class's `C` or solver interface.
 
 <a id="cpu-example"></a>
 
@@ -93,18 +93,85 @@ Q(b,\beta)=-\sum_i w_i\{y_i\log p_i+(1-y_i)\log(1-p_i)\}
 \alpha_C=\begin{cases}1/C,&C>0,\\0,&C=0.\end{cases}
 $$
 
-The intercept is not penalized. For positive `C`, larger values weaken regularization; very large `C` only approximates an unpenalized fit. `C=0` is a special legacy convention that removes the penalty exactly, not infinitely strong regularization. Unlike an average-loss objective, multiplying all weights by a positive constant changes the effective penalty when `C>0`; do not transfer regularization values from another API without matching the objective scale.
+The intercept is not penalized. For positive `C`, larger values weaken regularization; very large `C` only approximates an unpenalized fit. `C=0` is a special legacy convention that removes the penalty exactly, not infinitely strong regularization. Negative or nonfinite `C` is invalid. Unlike an average-loss objective, multiplying all weights by a positive constant changes the effective penalty when `C>0`; do not transfer regularization values from another API without matching the objective scale.
 
 ## Fitting and estimating equations
 
-IRLS solves the weighted estimating equations:
+IRLS and L-BFGS target the same weighted estimating equations:
 
 $$
 \sum_i w_i x_i(y_i-p_i)-\alpha_C\beta=0,
 \qquad \sum_i w_i(y_i-p_i)=0\quad\text{(with intercept)}.
 $$
 
-`max_iter` and `tol` control the iteration. The slope equation includes the penalty term for the default `C=1.0`; the unpenalized score equation applies only when `C=0` (or as an approximation at very large `C`). This estimator does not expose a `solver` selection parameter.
+The slope equation includes the penalty term for the default `C=1.0`; the unpenalized score equation applies only when `C=0` (or as an approximation at very large `C`). Changing between the two solvers does not change this objective or the meaning of `C`.
+
+### Solver choice and convergence
+
+- `solver="auto"` resolves to `"irls"`, preserving the default fitting algorithm.
+- `solver="irls"` uses iteratively reweighted least squares. `tol` tests the Euclidean norm of the parameter step.
+- `solver="lbfgs"` uses limited-memory BFGS. It divides the **entire objective, including the penalty**, by n without weights or by `sum(sample_weight)` with weights, and tests the Euclidean norm of that scaled objective's gradient against `tol`. A small parameter step alone does not establish convergence.
+- `max_iter` caps iterations of the selected solver. Inspect `converged_` and `n_iter_`; failure to meet the stopping rule emits `ConvergenceWarning`. A line-search failure is not reported as convergence.
+- `get_params()["solver"]` retains the requested value; fitted `solver_` records `"irls"` or `"lbfgs"`. With inference enabled, `summary()` shows the requested/resolved solver and convergence status. Unsupported solver names raise `ValueError`.
+
+Whole-objective scaling leaves the optimum unchanged but changes the numerical gradient scale. The same `tol` therefore does not imply the same precision or iteration count across IRLS and L-BFGS. Feature scaling can help either algorithm. L-BFGS avoids a Hessian linear-system solve at each optimization iteration; enabled covariance inference still requires curvature calculations.
+
+### CPU example: L-BFGS and C selection
+
+This separate example is self-contained. It fits a weighted model and tunes `C` on the first 300 rows, leaving 100 rows for prediction. The input features already have comparable scales; learned preprocessing would need to be fitted within each CV training fold.
+
+<!-- api-example: logistic-lbfgs -->
+```python
+import numpy as np
+from statgpu.linear_model import LogisticRegression, LogisticRegressionCV
+
+rng_lbfgs = np.random.default_rng(42)
+X_lbfgs = rng_lbfgs.normal(size=(400, 4))
+p_lbfgs = 1 / (1 + np.exp(-(0.3 + X_lbfgs @ [0.8, -0.5, 0.2, 0.0])))
+y_lbfgs = rng_lbfgs.binomial(1, p_lbfgs)
+weights_lbfgs = rng_lbfgs.uniform(0.5, 1.5, size=300)
+
+model_lbfgs = LogisticRegression(
+    solver="lbfgs", device="cpu", C=1.0,
+    max_iter=300, tol=1e-7, compute_inference=False,
+).fit(X_lbfgs[:300], y_lbfgs[:300], sample_weight=weights_lbfgs)
+print(model_lbfgs.get_params()["solver"], model_lbfgs.solver_, model_lbfgs.converged_)
+probabilities_lbfgs = model_lbfgs.predict_proba(X_lbfgs[300:303])
+print(probabilities_lbfgs)
+assert model_lbfgs.solver_ == "lbfgs" and model_lbfgs.converged_
+assert probabilities_lbfgs.shape == (3, 2)
+assert np.isfinite(probabilities_lbfgs).all()
+assert np.allclose(probabilities_lbfgs.sum(axis=1), 1.0)
+
+cv_lbfgs = LogisticRegressionCV(
+    Cs=[0.1, 1.0, 10.0], cv=3, random_state=42,
+    solver="lbfgs", device="cpu", max_iter=300, tol=1e-7,
+    compute_inference=False,
+).fit(X_lbfgs[:300], y_lbfgs[:300], sample_weight=weights_lbfgs)
+print(cv_lbfgs.C_, cv_lbfgs.solver_, cv_lbfgs.estimator_.converged_)
+print(cv_lbfgs.mean_loss_)
+assert cv_lbfgs.solver_ == cv_lbfgs.estimator_.solver_ == "lbfgs"
+assert cv_lbfgs.estimator_.converged_
+assert cv_lbfgs.mean_loss_.shape == (3,)
+assert cv_lbfgs.cv_results_["loss_path"].shape == (3, 3)
+assert np.isfinite(cv_lbfgs.cv_results_["loss_path"]).all()
+assert np.isclose(cv_lbfgs.best_score_, -np.min(cv_lbfgs.mean_loss_))
+```
+<!-- example-end: logistic-lbfgs -->
+
+Both fitted solver values are `"lbfgs"`. CV selects the smallest mean validation log-loss; `mean_loss_` stores one value per `Cs_` candidate, `cv_results_["loss_path"]` stores candidate-by-fold losses, and `best_score_` is the negative selected mean loss. `estimator_` is the full-training-data refit; its `converged_` describes that final fit. To compare IRLS, change `solver` to `"auto"` or `"irls"`.
+
+### Backend and CV behavior
+
+The combinations below support binary responses, optional intercepts, sample weights, and L2 penalties. Direct fitting also accepts unpenalized `C=0`; CV searches positive `C` candidates only.
+
+| Requested solver | Resolved solver | NumPy CPU fit / CV | CuPy CUDA fit / CV | Torch CUDA fit / CV |
+|---|---|---|---|---|
+| `"auto"` | `"irls"` | IRLS / sequential IRLS | IRLS / batched IRLS | IRLS / batched IRLS |
+| `"irls"` | `"irls"` | IRLS / sequential IRLS | IRLS / batched IRLS | IRLS / batched IRLS |
+| `"lbfgs"` | `"lbfgs"` | L-BFGS / sequential L-BFGS | L-BFGS / sequential GPU L-BFGS | L-BFGS / sequential GPU L-BFGS |
+
+`LogisticRegressionCV` applies the same requested solver to every candidate and the final refit, and exposes its resolved value in `solver_`. `gpu_cv_mixed_precision` affects GPU batched IRLS only; L-BFGS candidate fits use float64 on the selected backend. It does not switch to CPU to run L-BFGS. See the [solver–penalty matrix](../../guides/solver-penalty-matrix.md) and [CV guide](../../guides/cross-validation.md) for related interfaces and fold choices.
 
 ## Covariance/Inference
 
@@ -115,7 +182,7 @@ $$
 - `compute_inference=True` is required for inference fields.
 - Likelihood, AIC, BIC, pseudo-R², and `converged_` remain available when `compute_inference=False`; covariance-based fields do not.
 
-At positive `C`, inference is computed around the penalized fit; it is not debiasing for the unpenalized population coefficient. Robust choices use the penalized inverse curvature as the sandwich bread. These quantities do not correct shrinkage bias or uncertainty from selecting `C`. For ordinary unpenalized Logit inference use `C=0`, check identification and convergence, and choose covariance assumptions appropriate to the data. `summary()` requires `compute_inference=True`.
+Both solvers use the same covariance calculation at the fitted estimate. At positive `C`, inference is computed around the penalized fit; it is not debiasing for the unpenalized population coefficient. Robust choices use the penalized inverse curvature as the sandwich bread. These quantities do not correct shrinkage bias or uncertainty from selecting `C`. For ordinary unpenalized Logit inference use `C=0`, check identification and convergence, and choose covariance assumptions appropriate to the data. `summary()` requires `compute_inference=True`. For CV, inspect inference on the final `estimator_`.
 
 For the summed-loss convention above, let $d_i=(1,x_i^\top)^\top$, $D$ stack the rows $d_i^\top$, and $P=\operatorname{diag}(0,1,\ldots,1)$ (remove the intercept entry when absent). The penalized information and HC0 sandwich are
 
@@ -134,14 +201,17 @@ Nonrobust covariance is $H^{-1}$; HC1–HC3 alter the score-outer-product correc
 |---|---:|---|
 | `fit_intercept` | `True` | Whether to fit an intercept |
 | `C` | `1.0` | Positive: inverse L2 strength; `0`: unpenalized legacy convention |
-| `max_iter` | `100` | Max IRLS iterations |
-| `tol` | `1e-4` | Convergence tolerance |
+| `max_iter` | `100` | Maximum iterations of the selected solver |
+| `tol` | `1e-4` | Finite positive stopping tolerance; step norm for IRLS, scaled-objective gradient norm for L-BFGS |
 | `device` | `"auto"` | `cpu` / `cuda` / `torch` / `auto` |
-| `n_jobs` | `None` | Accepted as shared estimator configuration; this class does not use it to control parallel fitting or select the IRLS solver |
+| `n_jobs` | `None` | Shared estimator configuration; this class does not use it to control parallel fitting or select a solver |
 | `compute_inference` | `True` | Whether to compute inference stats |
 | `cov_type` | `"nonrobust"` | `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac` |
 | `hac_maxlags` | `None` | Max lag for `cov_type="hac"`; default follows Newey-West style heuristic |
 | `gpu_memory_cleanup` | `False` | Best-effort CuPy pool cleanup after each fit |
+| `solver` | `"auto"` | `auto` / `irls` / `lbfgs`; `auto` resolves to `irls` |
+
+This table covers `LogisticRegression`. The [complete CV constructor reference](../../reference/linear-model-api.md#logisticregressioncv) includes grid/fold controls and `gpu_cv_mixed_precision`. CV does not accept `hac_maxlags`; final-refit HAC uses the automatic lag rule.
 
 ## GPU use
 
@@ -166,12 +236,13 @@ No separate approx inference mode is exposed in this API. Robust covariance choi
 
 ## Outputs
 
-- Coefficients/convergence: `intercept_`, `coef_`, `n_iter_`, `converged_`
+- Coefficients/convergence: `intercept_`, `coef_`, `n_iter_`, `solver_`, `converged_`
 - Inference: `_bse`, `_zvalues`, `_pvalues`, `_conf_int`
 - Fit/metrics: `loglikelihood`, `loglikelihood_null`, `aic`, `bic`, `pseudo_rsquared`, `accuracy`, `precision`, `recall`, `f1`, `auc`, `average_precision`
 - Prediction methods: `predict_proba`, `predict`, `predict_with_threshold`
 - Evaluation methods: `confusion_matrix`, `classification_table`, `roc_curve`, `roc_auc_score`, `precision_recall_curve`, `average_precision_score`, `evaluate_classification`
 - Plot helpers: `plot_roc_curve`, `plot_precision_recall_curve` (`matplotlib` optional dependency)
+- CV: `C_`, `Cs_`, `mean_loss_`, `cv_results_`, `best_score_`, `cv_selected_device_`, `solver_`, and final `estimator_`; final stopping status is `estimator_.converged_`
 
 ## Parameter choices and common problems
 

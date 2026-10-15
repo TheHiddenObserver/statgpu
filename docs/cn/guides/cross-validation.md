@@ -1,7 +1,7 @@
 # 交叉验证
 
 > 语言：中文  
-> 最后更新：2026-10-11
+> 最后更新：2026-10-14
 > 页面定位：CV 选择与最终重拟合的用户指南  
 > 切换：[English](../../en/guides/cross-validation.md)
 
@@ -28,7 +28,7 @@ statgpu 中的交叉验证是包在基础估计器外层的**模型选择过程*
 | `RidgeCV` | `Ridge` | `alpha` |
 | `LassoCV` | `Lasso` | `alpha` |
 | `ElasticNetCV` | `ElasticNet` | `alpha`，以及可选的 `l1_ratio` |
-| `LogisticRegressionCV` | `LogisticRegression` | 正则化强度 |
+| `LogisticRegressionCV` | `LogisticRegression` | 正数 `C`（L2 强度倒数） |
 | `PenalizedGLM_CV` | 惩罚 GLM / 惩罚 Cox | 给定损失函数与惩罚项下的 `alpha` |
 | `CoxPHCV` | `CoxPH` | Cox 惩罚强度 |
 | `KernelRidgeCV` | `KernelRidge` | 固定核函数下的 `alpha` |
@@ -158,6 +158,8 @@ Cox 验证评分依赖已观察事件和风险集。使用 `PenalizedGLM_CV(loss
 
 `RidgeCV`、`LassoCV`、`ElasticNetCV` 和 `KernelRidgeCV` 等专用估计器使用 `alphas`；`PenalizedGLM_CV` 使用 `alpha_grid`。不同目标函数的 alpha 尺度不同：Ridge 使用平均平方损失，而 KernelRidge 使用未归一化的核线性系统。不要未经换算就在两个模型之间照搬网格。
 
+`LogisticRegressionCV` 使用 `Cs`，或通过 `n_Cs` 与 `C_min_ratio` 自动生成网格。正数 `C` 是独立分类器求和尺度的带权 Bernoulli 损失下的 L2 强度倒数，数值越大正则化越弱；选定值记录为 `C_`。直接估计器的特殊无惩罚值 `C=0` 不参与 CV。拟合后应检查实际 `Cs_`，若选定值位于边界，可扩展网格。完整校验与结果说明见[CV API 参考](../reference/linear-model-api.md#logisticregressioncv)。
+
 没有显式提供网格时，估计器会根据数据与模型构造相应的候选网格。用户显式提供的网格通过该估计器的公开输入校验后，即成为本次请求的候选集合。
 
 分位数模型的网格应与所请求的分位数和惩罚项相匹配。拟合后请检查所选 alpha 是否位于网格端点，并按需要扩展搜索范围。分组与自适应惩罚的尺度换算见[进阶：分位数自动网格](#进阶分位数自动网格)；若自适应权重需要通过初始化拟合学习，初始网格只是启发式起点。
@@ -209,6 +211,12 @@ CV 在各数据折上的拟合只用于评估候选模型。候选网格完成�
 
 为什么这一分离属于 CV 设计本身，而不仅仅是实现细节，见 [statgpu 的交叉验证如何工作](cross-validation-design.md)。
 
+### 逻辑回归分类器的求解器
+
+`LogisticRegressionCV(solver="auto")` 与 `solver="irls"` 对候选拟合和最终重拟合均使用 IRLS；`solver="lbfgs"` 对两个阶段均使用 L-BFGS。CPU 候选项依次拟合。在 CuPy/Torch CUDA 上，`auto`/`irls` 使用批处理 IRLS，L-BFGS 则在所选后端依次拟合候选项。精度设置及其影响的拟合路径见 [Logistic 的后端与交叉验证说明](../models/regression/logistic-regression.md#后端与交叉验证行为)。两种求解器均保留相同的求和损失与 C 倒数尺度的 L2 目标，包括样本权重和不受惩罚的截距。
+
+选择依据是平均验证对数损失最小，而非准确率最高。`mean_loss_` 保存候选项均值，`cv_results_["loss_path"]` 保存逐候选项、逐折损失，`best_score_` 为所选均值的负数。拟合后的 `solver_` 记录实际算法，`estimator_.converged_` 表示最终重拟合是否收敛。IRLS 与 L-BFGS 对 `tol` 的解释不同，详见[模型的停止准则与可运行示例](../models/regression/logistic-regression.md#求解器选择与收敛)。最终推断以选定的 `C_` 为条件，不修正收缩偏差或选参不确定性。
+
 ### 选择失败
 
 分位数模型使用 `cv_strategy="strict"` 时，只有每个实际评估的数据折都返回有限验证得分，某个 alpha 才能参与选择。若一折拟合失败且没有有限得分，该 alpha 就会被排除，不能仅用其余成功数据折的平均分继续选择。自动求解的标量或分组 SCAD/MCP 分位数模型在所请求 alpha 上未收敛，也会被视为该折拟合失败。普通求解器仅发出 `ConvergenceWarning`、但仍返回有限结果时，不会单凭警告排除候选项。
@@ -243,11 +251,13 @@ CV 与直接估计器采用相同的显式设备规则：
 | 属性 | 含义 |
 |---|---|
 | `alpha_` | 选定的正则化强度 |
+| `C_` | `LogisticRegressionCV` 选定的 L2 强度倒数 |
 | `l1_ratio_` | 搜索 ElasticNet 混合比例时选定的值 |
 | `cv_results_` | 该估计器公开的候选项/数据折评分信息 |
 | `estimator_` | 适用时，在全数据上重新拟合的最终估计器 |
 | `coef_`, `intercept_` | 最终重拟合的参数 |
 | `cv_solver_` | `LassoCV` 实际执行的 CV 阶段求解算法 |
+| `solver_` | `LogisticRegressionCV` 候选拟合与最终重拟合实际使用的求解器 |
 
 不要假定所有 CV 类的 `cv_results_` 都具有完全相同的数据结构；如果程序依赖某个具体诊断字段，应查看相应估计器或模型的参考文档。
 

@@ -142,6 +142,7 @@ EXPECTED_EXAMPLES = {
     },
     'logistic-regression': {
         'logistic-unpenalized': (),
+        'logistic-lbfgs': (),
     },
     'losses': {
         'losses-huber': (),

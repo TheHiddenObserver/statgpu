@@ -181,6 +181,10 @@ def lbfgs_solver(
     that recovery path is a hard domain error rather than a publishable fit.
     """
     _validate_smooth_penalty(penalty, "lbfgs_solver")
+    # Estimator-owned objectives can require stationarity rather than treating
+    # a tiny quasi-Newton step on mixed-scale features as proof of convergence.
+    # Existing loss classes keep the historical gradient-or-step behavior.
+    gradient_only = bool(getattr(loss, "_require_gradient_convergence", False))
     backend = _resolve_backend("auto", X)
     X_proc, y_proc = loss.preprocess(X, y)
     n_features = X_proc.shape[1]
@@ -394,7 +398,7 @@ def lbfgs_solver(
         params = params_new
         grad = grad_new
         if s_norm < tol:
-            if domain_cap is None:
+            if domain_cap is None and not gradient_only:
                 break
             grad_new_norm_dev = _norm2_dev(grad_new)
             (grad_new_norm,) = _sync_scalars(

@@ -1,7 +1,7 @@
 # LogisticRegression
 
 > 语言： 中文  
-> 最后更新： 2026-10-09
+> 最后更新： 2026-10-14
 > 页面定位： 模型文档  
 > 切换： [English](../../../en/models/regression/logistic-regression.md)
 
@@ -9,7 +9,7 @@
 
 `LogisticRegression` 用于估计二分类结果发生的概率，例如某个事件是否发生。它先构造线性预测子，再通过逻辑函数把预测值映射到 0 到 1 之间。既可用于二分类预测，也可用于解释变量与结果的对数优势之间的关联；对数优势就是 $p/(1-p)$ 的对数，其中 $p$ 是事件发生概率；关联本身不代表因果关系。
 
-这个独立估计器在 CPU/GPU 上采用 IRLS 求解，可加入 L2 正则化。不支持多分类、L1 或 Elastic Net 拟合。需要其他惩罚形式时，参见[带惩罚 GLM](generalized-linear-model.md)，但不要把不同估计器的 `C` 或求解器接口当作相同约定。
+这个独立估计器在 CPU/GPU 上提供 IRLS 或 L-BFGS 求解，可加入 L2 正则化。默认 `solver="auto"` 选择 IRLS。`LogisticRegressionCV` 通过交叉验证选择正数 `C`，再使用全部传入的训练数据重拟合。两者均不支持多分类、L1 或 Elastic Net 拟合。需要其他惩罚形式时，参见[带惩罚 GLM](generalized-linear-model.md)，但不要把不同估计器的 `C` 或求解器接口当作相同约定。
 
 <a id="cpu-example"></a>
 
@@ -93,18 +93,85 @@ Q(b,\beta)=-\sum_i w_i\{y_i\log p_i+(1-y_i)\log(1-p_i)\}
 \alpha_C=\begin{cases}1/C,&C>0,\\0,&C=0.\end{cases}
 $$
 
-截距不受惩罚。对于正 `C`，数值越大正则化越弱；很大的 `C` 只是近似无惩罚拟合。`C=0` 是保留的特殊约定，表示完全去掉惩罚，而不是无限强的正则化。这里不是平均损失：当 `C>0` 时，把全部权重同时乘以正常数会改变有效正则强度。与其他接口比较时，应先对齐目标函数尺度，不能直接照搬正则化参数。
+截距不受惩罚。对于正 `C`，数值越大正则化越弱；很大的 `C` 只是近似无惩罚拟合。`C=0` 是保留的特殊约定，表示完全去掉惩罚，而不是无限强的正则化。负数或非有限的 `C` 无效。这里不是平均损失：当 `C>0` 时，把全部权重同时乘以正常数会改变有效正则强度。与其他接口比较时，应先对齐目标函数尺度，不能直接照搬正则化参数。
 
 ## 拟合与估计方程
 
-IRLS 求解以下加权估计方程：
+IRLS 与 L-BFGS 求解相同的加权估计方程：
 
 $$
 \sum_i w_i x_i(y_i-p_i)-\alpha_C\beta=0,
 \qquad \sum_i w_i(y_i-p_i)=0\quad\text{(with intercept)}.
 $$
 
-`max_iter` 与 `tol` 控制迭代。默认 `C=1.0` 时，斜率方程含有惩罚项；无惩罚得分方程只适用于 `C=0`，或作为很大 `C` 下的近似。该估计器不提供 `solver` 选择参数。
+默认 `C=1.0` 时，斜率方程含有惩罚项；无惩罚得分方程只适用于 `C=0`，或作为很大 `C` 下的近似。在这两种求解器之间切换，不会改变目标函数或 `C` 的含义。
+
+### 求解器选择与收敛
+
+- `solver="auto"` 解析为 `"irls"`，保持默认拟合算法。
+- `solver="irls"` 使用迭代加权最小二乘法，`tol` 检查参数步长的欧几里得范数。
+- `solver="lbfgs"` 使用有限内存 BFGS。它将**整个目标函数（包括惩罚项）**除以样本数 n，传入权重时则除以 `sum(sample_weight)`，再将缩放后目标函数的梯度欧几里得范数与 `tol` 比较。参数步长很小本身不能证明收敛。
+- `max_iter` 限制所选求解器的迭代次数。请检查 `converged_` 和 `n_iter_`；未达到停止准则时会发出 `ConvergenceWarning`。线搜索失败不会被报告为已收敛。
+- `get_params()["solver"]` 保留用户指定值；拟合后的 `solver_` 记录 `"irls"` 或 `"lbfgs"`。开启推断时，`summary()` 显示指定/实际求解器与收敛状态。不支持的求解器名称会引发 `ValueError`。
+
+整体缩放不改变最优解，但会改变梯度的数值尺度。因此，同一 `tol` 在 IRLS 和 L-BFGS 下不代表相同精度或迭代次数。合理缩放特征有助于两种算法收敛。L-BFGS 不必在每次优化迭代中求解 Hessian 线性系统；开启协方差推断仍需要计算曲率。
+
+### CPU 示例：L-BFGS 与 C 选择
+
+下面的独立示例可单独运行。它在前 300 行上拟合带权模型并选择 `C`，剩下 100 行用于预测。示例特征已有接近的尺度；若预处理需要从数据学习参数，应在每个 CV 训练折内分别拟合。
+
+<!-- api-example: logistic-lbfgs -->
+```python
+import numpy as np
+from statgpu.linear_model import LogisticRegression, LogisticRegressionCV
+
+rng_lbfgs = np.random.default_rng(42)
+X_lbfgs = rng_lbfgs.normal(size=(400, 4))
+p_lbfgs = 1 / (1 + np.exp(-(0.3 + X_lbfgs @ [0.8, -0.5, 0.2, 0.0])))
+y_lbfgs = rng_lbfgs.binomial(1, p_lbfgs)
+weights_lbfgs = rng_lbfgs.uniform(0.5, 1.5, size=300)
+
+model_lbfgs = LogisticRegression(
+    solver="lbfgs", device="cpu", C=1.0,
+    max_iter=300, tol=1e-7, compute_inference=False,
+).fit(X_lbfgs[:300], y_lbfgs[:300], sample_weight=weights_lbfgs)
+print(model_lbfgs.get_params()["solver"], model_lbfgs.solver_, model_lbfgs.converged_)
+probabilities_lbfgs = model_lbfgs.predict_proba(X_lbfgs[300:303])
+print(probabilities_lbfgs)
+assert model_lbfgs.solver_ == "lbfgs" and model_lbfgs.converged_
+assert probabilities_lbfgs.shape == (3, 2)
+assert np.isfinite(probabilities_lbfgs).all()
+assert np.allclose(probabilities_lbfgs.sum(axis=1), 1.0)
+
+cv_lbfgs = LogisticRegressionCV(
+    Cs=[0.1, 1.0, 10.0], cv=3, random_state=42,
+    solver="lbfgs", device="cpu", max_iter=300, tol=1e-7,
+    compute_inference=False,
+).fit(X_lbfgs[:300], y_lbfgs[:300], sample_weight=weights_lbfgs)
+print(cv_lbfgs.C_, cv_lbfgs.solver_, cv_lbfgs.estimator_.converged_)
+print(cv_lbfgs.mean_loss_)
+assert cv_lbfgs.solver_ == cv_lbfgs.estimator_.solver_ == "lbfgs"
+assert cv_lbfgs.estimator_.converged_
+assert cv_lbfgs.mean_loss_.shape == (3,)
+assert cv_lbfgs.cv_results_["loss_path"].shape == (3, 3)
+assert np.isfinite(cv_lbfgs.cv_results_["loss_path"]).all()
+assert np.isclose(cv_lbfgs.best_score_, -np.min(cv_lbfgs.mean_loss_))
+```
+<!-- example-end: logistic-lbfgs -->
+
+两次拟合的实际求解器均为 `"lbfgs"`。CV 选择平均验证对数损失最小的候选项；`mean_loss_` 按 `Cs_` 顺序保存各候选值的平均损失，`cv_results_["loss_path"]` 保存候选值与数据折构成的损失数组，`best_score_` 为所选平均损失的负数。`estimator_` 是全训练数据上的最终重拟合，`estimator_.converged_` 描述该拟合的收敛状态。将 `solver` 改为 `"auto"` 或 `"irls"`，即可比较 IRLS。
+
+### 后端与交叉验证行为
+
+下表所有组合均支持二元响应、可选截距、样本权重和 L2 惩罚。直接拟合还接受无惩罚的 `C=0`；CV 只搜索正数 `C` 候选值。
+
+| 指定求解器 | 实际求解器 | NumPy CPU 拟合 / CV | CuPy CUDA 拟合 / CV | Torch CUDA 拟合 / CV |
+|---|---|---|---|---|
+| `"auto"` | `"irls"` | IRLS / 依次进行 IRLS 拟合 | IRLS / 批处理 IRLS | IRLS / 批处理 IRLS |
+| `"irls"` | `"irls"` | IRLS / 依次进行 IRLS 拟合 | IRLS / 批处理 IRLS | IRLS / 批处理 IRLS |
+| `"lbfgs"` | `"lbfgs"` | L-BFGS / 依次进行 L-BFGS 拟合 | L-BFGS / 依次进行 GPU L-BFGS 拟合 | L-BFGS / 依次进行 GPU L-BFGS 拟合 |
+
+`LogisticRegressionCV` 对所有候选拟合与最终重拟合使用同一指定求解器，`solver_` 记录实际解析值。`gpu_cv_mixed_precision` 只影响 GPU 批处理 IRLS；L-BFGS 候选拟合在所选后端上使用 float64，不会为了执行 L-BFGS 而切换到 CPU。相关接口与数据折选择见[求解器与惩罚项兼容性](../../guides/solver-penalty-matrix.md)和[交叉验证指南](../../guides/cross-validation.md)。
 
 ## 协方差与推断
 
@@ -120,7 +187,7 @@ $$
 
 似然、AIC、BIC、伪 R² 与 `converged_` 在 `compute_inference=False` 时仍可用；协方差相关字段不可用。
 
-正 `C` 下的推断围绕带惩罚拟合计算，不是针对无惩罚总体系数的纠偏推断。稳健协方差使用带惩罚曲率矩阵的逆作为三明治协方差估计两侧的矩阵（bread）。这些结果不修正收缩偏差，也不计入选择 `C` 的不确定性。若需要普通无惩罚 Logit 推断，使用 `C=0`，检查可识别性与收敛，并根据数据选择合理的协方差假设。`summary()` 要求 `compute_inference=True`。
+两种求解器在拟合得到的估计值处使用相同的协方差计算。正 `C` 下的推断围绕带惩罚拟合计算，不是针对无惩罚总体系数的纠偏推断。稳健协方差使用带惩罚曲率矩阵的逆作为三明治协方差估计两侧的矩阵（bread）。这些结果不修正收缩偏差，也不计入选择 `C` 的不确定性。若需要普通无惩罚 Logit 推断，使用 `C=0`，检查可识别性与收敛，并根据数据选择合理的协方差假设。`summary()` 要求 `compute_inference=True`。CV 的推断结果从最终 `estimator_` 获取。
 
 按上述求和损失约定，令 $d_i=(1,x_i^\top)^\top$，$D$ 由行 $d_i^\top$ 组成，$P=\operatorname{diag}(0,1,\ldots,1)$；不拟合截距时去掉对应元素。惩罚信息矩阵与 HC0 三明治协方差为
 
@@ -139,14 +206,17 @@ $$
 |---|---:|---|
 | `fit_intercept` | `True` | 是否拟合截距 |
 | `C` | `1.0` | 正值为 L2 强度的倒数；`0` 是无惩罚的特殊约定 |
-| `max_iter` | `100` | IRLS 最大迭代数 |
-| `tol` | `1e-4` | 收敛阈值 |
+| `max_iter` | `100` | 所选求解器的最大迭代次数 |
+| `tol` | `1e-4` | 有限正数停止阈值；IRLS 使用参数步长范数，L-BFGS 使用缩放后目标函数的梯度范数 |
 | `device` | `"auto"` | `cpu` / `cuda` / `torch` / `auto` |
-| `n_jobs` | `None` | 接受的共享估计器配置；本类不使用它控制并行拟合，也不用于选择 IRLS 求解器 |
+| `n_jobs` | `None` | 共享估计器配置；本类不使用它控制并行拟合，也不选择求解器 |
 | `compute_inference` | `True` | 是否计算推断统计 |
 | `cov_type` | `"nonrobust"` | `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac` |
 | `hac_maxlags` | `None` | `cov_type="hac"` 时最大滞后阶 |
 | `gpu_memory_cleanup` | `False` | `fit` 后尝试释放 CuPy 内存池 |
+| `solver` | `"auto"` | `auto` / `irls` / `lbfgs`；`auto` 解析为 `irls` |
+
+上表覆盖 `LogisticRegression`。[完整 CV 构造参数参考](../../reference/linear-model-api.md#logisticregressioncv)还包括网格、数据折和 `gpu_cv_mixed_precision`。CV 不接受 `hac_maxlags`，最终重拟合的 HAC 使用自动滞后阶规则。
 
 ## GPU 使用
 
@@ -171,12 +241,13 @@ p_gpu = model_gpu.predict_proba(cp.asarray(X[600:603]))[:, 1]
 
 ## 输出
 
-- `fit(X, y) -> self`
+- `fit(X, y, sample_weight=None) -> self`
 - 预测：`predict_proba(X)`、`predict(X)`、`predict_with_threshold(X, threshold)`
 - 推断属性：`_bse`, `_zvalues`, `_pvalues`, `_conf_int`
 - 拟合与信息准则：`loglikelihood`, `loglikelihood_null`, `pseudo_rsquared`, `aic`, `bic`
-- 常用属性：`coef_`, `intercept_`, `n_iter_`
+- 系数与拟合状态：`coef_`、`intercept_`、`n_iter_`、`solver_`、`converged_`
 - 汇总：`summary()`
+- CV：`C_`、`Cs_`、`mean_loss_`、`cv_results_`、`best_score_`、`cv_selected_device_`、`solver_` 及最终 `estimator_`；最终收敛状态为 `estimator_.converged_`
 
 分类评估 API：
 - `confusion_matrix`、`classification_table`

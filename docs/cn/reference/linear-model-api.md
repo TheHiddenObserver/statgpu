@@ -1,7 +1,7 @@
 # 线性模型 API 参考
 
 > 语言：中文  
-> 最后更新：2026-10-11  
+> 最后更新：2026-10-14  
 > 切换：[English](../../en/reference/linear-model-api.md)
 
 本页各类可从 `statgpu` 或 `statgpu.linear_model` 导入，但 `SCADRegression` 和 `MCPRegression` 仅由 `statgpu.linear_model` 导出。`X` 为有限数值 `(n,p)` 矩阵，预测列顺序与训练一致。分析权重为有限非负 `(n,)` 向量，总和须为正。公式删行后的权重对齐见[公式输入](#formula-inputs)。显式 GPU 请求要求对应 CUDA 后端可用，详见[设备与内存](../guides/device-and-memory.md)。
@@ -43,7 +43,7 @@ LinearRegression(fit_intercept=True, device='auto', n_jobs=None, compute_inferen
 ## LogisticRegression
 
 ```text
-LogisticRegression(fit_intercept=True, C=1.0, max_iter=100, tol=0.0001, device='auto', n_jobs=None, compute_inference=True, cov_type='nonrobust', gpu_memory_cleanup=False, hac_maxlags=None)
+LogisticRegression(fit_intercept=True, C=1.0, max_iter=100, tol=0.0001, device='auto', n_jobs=None, compute_inference=True, cov_type='nonrobust', gpu_memory_cleanup=False, hac_maxlags=None, solver='auto')
 ```
 | 参数 | 默认值 | 含义与限制 |
 |---|---|---|
@@ -55,10 +55,13 @@ LogisticRegression(fit_intercept=True, C=1.0, max_iter=100, tol=0.0001, device='
 | `cov_type` | `"nonrobust"` | `nonrobust`、`hc0`、`hc1`、`hc2`、`hc3`、`hac`；适用性见各模型推断说明。 |
 | `hac_maxlags` | `None` | HAC 非负整数滞后阶；Linear/Logistic 自动值为 `floor(4*(n/100)**(2/9))`，上限 n−1。 |
 | `C` | `1.0` | 有限非负实数；正数为 L2 强度倒数，零表示完全去掉惩罚。 |
-| `max_iter` | `100` | IRLS 最大迭代次数，正整数。 |
-| `tol` | `1e-4` | 有限正数收敛容差。 |
+| `max_iter` | `100` | 所选求解器的最大迭代次数，正整数。 |
+| `tol` | `1e-4` | 有限正数阈值：IRLS 检查参数步长的欧几里得范数，L-BFGS 检查缩放后目标函数的梯度欧几里得范数。 |
+| `solver` | `"auto"` | `auto`、`irls` 或 `lbfgs`；`auto` 解析为 `irls`，其他值引发 `ValueError`。 |
 
-`fit(X,y,sample_weight=None)` 返回 `self`；二分类 `y` 必须为 n 个 0/1 标签。此独立类没有公式参数、多分类模式、求解器选择、L1 或 Elastic Net 惩罚。`coef_` 为 `(p,)`，`intercept_` 为标量。`converged_` 与 `n_iter_` 描述数值优化，不代表统计模型合理。
+`fit(X,y,sample_weight=None)` 返回 `self`；二分类 `y` 必须为 n 个 0/1 标签。此独立类没有公式参数、多分类模式、L1 或 Elastic Net 惩罚。`coef_` 为 `(p,)`，`intercept_` 为标量。`converged_` 与 `n_iter_` 描述数值优化，不代表统计模型合理。拟合后的 `solver_` 记录实际解析值 `"irls"` 或 `"lbfgs"`，`get_params()["solver"]` 则保留指定值。
+
+正 C 下，两种求解器均最小化加权 Bernoulli 负对数似然之和与 `||coef||**2/(2*C)`，截距不受惩罚；`C=0` 完全去掉惩罚。权重须为长度 n 的有限非负数组，且总和为正。L-BFGS 将**整个目标函数（包括惩罚项）**除以 n，传入权重时则除以 `sum(sample_weight)`。这不改变 C 的含义或最优解，但梯度范数停止准则使用缩放后的目标函数；参数步长很小本身不足以判定收敛。同一 `tol` 不代表两种求解器达到相同精度。未满足停止准则时会发出 `ConvergenceWarning`，应检查 `converged_`。两种求解器均在所选 NumPy/CuPy/Torch 后端执行。方程、示例和协方差解释见[模型指南](../models/regression/logistic-regression.md)。
 
 | 方法 | 参数、默认值与返回值 |
 |---|---|
@@ -75,7 +78,7 @@ LogisticRegression(fit_intercept=True, C=1.0, max_iter=100, tol=0.0001, device='
 | `evaluate_classification(X,y,threshold=0.5,include_curves=True)` | 一次概率计算返回下述指标字典。 |
 | `plot_roc_curve(X,y,ax=None,label=None)` | 需要 matplotlib；新建或使用传入 Axes 并返回它。默认标签含 AUC。 |
 | `plot_precision_recall_curve(X,y,ax=None,label=None)` | 同样返回 Axes，默认标签含平均精确率。 |
-| `summary()` | 打印推断报告，返回 `None`；要求开启且成功完成推断。 |
+| `summary()` | 打印推断报告、指定/实际求解器及收敛状态，返回 `None`；要求开启且成功完成推断。 |
 
 评估数组/标量在 CPU 使用 NumPy，在 GPU 使用相应 CuPy/Torch 后端；`score` 返回 Python 浮点数。绘图把小型结果转为 NumPy。这些评估方法均不接受 `sample_weight`；加权拟合不代表评估也加权。
 
@@ -241,7 +244,7 @@ ElasticNetCV(l1_ratio=0.5, *, alphas=None, n_alphas=100, alpha_min_ratio=0.001, 
 ## LogisticRegressionCV
 
 ```text
-LogisticRegressionCV(Cs=None, n_Cs=100, C_min_ratio=0.001, cv=5, cv_splits=None, fit_intercept=True, max_iter=100, tol=0.0001, device='auto', n_jobs=None, compute_inference=True, cov_type='nonrobust', gpu_memory_cleanup=False, random_state=None, gpu_cv_mixed_precision=True)
+LogisticRegressionCV(Cs=None, n_Cs=100, C_min_ratio=0.001, cv=5, cv_splits=None, fit_intercept=True, max_iter=100, tol=0.0001, device='auto', n_jobs=None, compute_inference=True, cov_type='nonrobust', gpu_memory_cleanup=False, random_state=None, gpu_cv_mixed_precision=True, solver='auto')
 ```
 | 参数 | 默认值 | 含义与限制 |
 |---|---|---|
@@ -251,16 +254,18 @@ LogisticRegressionCV(Cs=None, n_Cs=100, C_min_ratio=0.001, cv=5, cv_splits=None,
 | `cv` | `5` | ≥2 的整数折数；每个训练/验证划分都应有足够观测。 |
 | `cv_splits` | `None` | 显式 `(训练索引, 验证索引)` 可迭代对象，替代自动划分。 |
 | `fit_intercept` | `True` | 各折拟合和最终重拟合均使用的截距设置。 |
-| `max_iter` | `100` | 单次拟合 IRLS 迭代预算。 |
-| `tol` | `1e-4` | 单次拟合收敛容差。 |
+| `max_iter` | `100` | 所选求解器在每个候选拟合与最终重拟合中的迭代上限。 |
+| `tol` | `1e-4` | 单次拟合的停止阈值，分求解器的含义见 LogisticRegression。 |
 | `device` | `"auto"` | `cpu`/`cuda`（CuPy）/`torch`（Torch CUDA）/`auto`；显式 GPU 请求要求相应后端可用。 |
 | `n_jobs` | `None` | 共享 CPU 工作线程配置；不选择求解器，也不保证这些包装类会并行拟合。 |
 | `compute_inference` | `True` | 只在最终重拟合推断，以选定的 C 为条件。 |
 | `cov_type` | `"nonrobust"` | `nonrobust`、`hc0`、`hc1`、`hc2`、`hc3`、`hac`；适用性见各模型推断说明。 |
 | `gpu_memory_cleanup` | `False` | 拟合后尝试清理后端内存池。 |
 | `random_state` | `None` | 自动随机 K 折划分的整数种子。 |
-| `gpu_cv_mixed_precision` | `True` | GPU CV 混合精度选项，不改变统计目标函数。 |
+| `gpu_cv_mixed_precision` | `True` | 只影响 GPU 批处理 IRLS；L-BFGS 候选拟合始终使用 float64。 |
+| `solver` | `"auto"` | 所有候选拟合与最终重拟合使用的 `auto`、`irls` 或 `lbfgs`；`auto` 解析为 `irls`。 |
 
+CPU 候选项按所选求解器依次拟合。GPU CV 对 `auto`/`irls` 使用批处理 IRLS，对 `lbfgs` 使用后端原生的逐项 L-BFGS 拟合；显式 GPU 请求不会静默改为 CPU。两种算法均保留直接模型的求和损失与 C 倒数尺度的 L2 目标。指定求解器会传入最终全数据 `estimator_`，拟合后的 `solver_` 记录实际算法。最终收敛状态见 `estimator_.converged_`。两种求解器使用相同的最终协方差推断，均不修正收缩偏差或 CV 选参的不确定性。
 
 <a id="cv-methods-and-results"></a>
 
@@ -297,6 +302,7 @@ ElasticNetCV 自动网格的最大值取加权中心化 X/y 交叉乘积的最�
 | LogisticRegressionCV `C_`、`Cs_` | 选定标量与实际 `(c,)` 候选数组。 |
 | LogisticRegressionCV `cv_results_` | 只有 `(c,f)` 的 `loss_path`，没有 `mean_loss` 键。 |
 | LogisticRegressionCV `mean_loss_`、`best_score_` | `(c,)` 平均对数损失与选定损失的**负数**；不是最终准确率。 |
+| LogisticRegressionCV `solver_` | 候选拟合与最终重拟合实际使用的 `"irls"` 或 `"lbfgs"`；最终收敛状态为 `estimator_.converged_`。 |
 | 两类：`coef_`、`intercept_`、`n_iter_`、`estimator_`、`cv_selected_device_` | 最终预测斜率 `(p,)`、标量截距、最终迭代数、已拟合直接估计器、最终设备选择。 |
 
 ElasticNetCV 不接受直接拟合的 `solver`、`stopping`、`inference_method`、`cov_type` 参数。LogisticRegressionCV 不接受 `hac_maxlags`，HAC 使用最终估计器的自动滞后规则。不要把直接估计器构造参数整组复制到 CV。

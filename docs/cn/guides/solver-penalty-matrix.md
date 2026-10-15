@@ -1,7 +1,7 @@
 # 求解器 × 惩罚项兼容性矩阵
 
 > 语言：中文  
-> 最后更新：2026-10-13  
+> 最后更新：2026-10-14  
 > 页面定位：兼容性参考  
 > 切换：[英文版](../../en/guides/solver-penalty-matrix.md)
 
@@ -25,6 +25,10 @@
 - FISTA-LLA、Proximal IRLS-CD、分组 Proximal IRLS-LLA 等内部解析标签可以出现在矩阵中，即使它们不是公开的 `solver=` 参数值。
 
 `AdaptiveGroupLassoPenalty` 可以作为公开惩罚对象使用，但调用者必须显式提供组权重，因此没有字符串注册别名。
+
+## 独立的逻辑回归分类器
+
+`LogisticRegression` 与 `LogisticRegressionCV` 接受 `solver="auto"`、`"irls"` 和 `"lbfgs"`，其中 `auto` 选择 IRLS。两种显式求解器采用相同的带权 Bernoulli 损失之和与 `C` 控制的 L2 惩罚，截距不受惩罚。直接拟合的 `C=0` 关闭正则化，CV 只搜索正数 `C` 候选值。在 NumPy、CuPy、Torch 上，交叉验证候选拟合与最终重拟合均遵循所选求解器。GPU CV 对 `auto`/`irls` 使用批处理 IRLS；L-BFGS 在所选后端以 float64 依次拟合候选项，`gpu_cv_mixed_precision` 只影响批处理 IRLS。这两个分类器不提供通用 GLM 的完整求解器集合。目标函数与分求解器的停止条件见 [LogisticRegression](../models/regression/logistic-regression.md)。
 
 ## 1. 直接拟合的 `solver="auto"`
 

@@ -1,7 +1,7 @@
 # Solver Algorithms
 
 > Language: English  
-> Last updated: 2026-10-13  
+> Last updated: 2026-10-14  
 > This page: Algorithm reference  
 > Switch: [Chinese](../../cn/guides/solver-algorithms.md)
 
@@ -1223,7 +1223,7 @@ $$
 
 using a freshly recomputed domain cap $t_{\max,k}^{\rm sd}$. If the second, steepest-descent Armijo search also exhausts its 25 trials before gradient convergence, the domain-aware route raises a loss-domain error instead of publishing the current point as a successful fit.
 
-After an accepted step, recompute $g_{k+1}$ and update the curvature history. The ordinary unconstrained route may stop when either
+After an accepted step, recompute $g_{k+1}$ and update the curvature history. By default, the ordinary unconstrained route may stop when either
 
 $$
 \|g_k\|_2<\texttt{tol}
@@ -1236,6 +1236,8 @@ $$
 $$
 
 For a domain-capped route, however, a small accepted $\|s_k\|_2$ is not by itself evidence of convergence. The route terminates successfully only when the gradient criterion is satisfied; otherwise it continues until a material step is found or the domain is reported as pinned/failing.
+
+Standalone `LogisticRegression(solver="lbfgs")` also requires gradient convergence, even though its objective has no domain cap. It reports `converged_=True` only when the final scaled-objective gradient norm is below `tol` and no line-search failure occurred; a small accepted step alone is insufficient. This applies to `LogisticRegressionCV` candidate fits and the final refit as well. See the [classifier's objective and stopping rules](../models/regression/logistic-regression.md#solver-choice-and-convergence) for the scaling and comparison with IRLS.
 
 ### L-BFGS-B: projected box-constrained variant
 
@@ -1284,10 +1286,11 @@ Non-uniform direct L-BFGS weights are loss-level opt-in:
 | Direct L-BFGS route | Non-uniform `sample_weight` |
 |---|---|
 | `GLMLoss` with weighted objective support | ✅ Supported |
+| Standalone `LogisticRegression` / `LogisticRegressionCV` | ✅ Supported with the classifier's summed-loss inverse-C objective |
 | Generic robust / Cox `LossBase` consumers | ❌ Not implied by unweighted support |
 | Quantile | ❌ Non-uniform weights raise an error; omitted/uniform direct compatibility is retained |
 
-For GLMs that support non-uniform analytic weights, the initial gradient, current objective, every line-search candidate, and accepted-point gradient use the same normalized objective
+For shared GLM losses that support non-uniform analytic weights, the initial gradient, current objective, every line-search candidate, and accepted-point gradient use the same normalized objective
 
 $$
 F(\beta)
@@ -1295,6 +1298,8 @@ F(\beta)
 $$
 
 Before smooth-solver evaluation, finite non-negative analytic weights with positive mass are normalized by a positive common scale on the executed backend. Consequently, representable global positive rescaling does not change the normalized objective merely because the raw input-dtype sum would overflow. Uniform/effectively-uniform weights use the unweighted numerical path, including in direct low-level Quantile calls. Estimator/CV Quantile `solver="lbfgs"` remains unsupported.
+
+The standalone logistic classifier instead preserves `sum(w_i * loss_i) + ||coef||**2/(2*C)` for positive C and excludes the intercept from the penalty. Its L-BFGS fit divides the entire expression by `sum(sample_weight)` (or n without weights), including the penalty. This numerical scaling leaves its summed-loss optimum unchanged; multiplying all user weights by a constant can still change the effective regularization. Direct-fit `C=0` removes the penalty. Do not transfer the shared GLM's weight-rescaling invariance or alpha convention to this classifier.
 
 ---
 

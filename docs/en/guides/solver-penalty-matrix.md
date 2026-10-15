@@ -1,7 +1,7 @@
 # Solver × Penalty Compatibility Matrix
 
 > Language: English  
-> Last updated: 2026-10-13  
+> Last updated: 2026-10-14  
 > This page: Compatibility reference  
 > Switch: [Chinese](../../cn/guides/solver-penalty-matrix.md)
 
@@ -25,6 +25,10 @@ General conventions:
 - internal resolved labels such as FISTA-LLA, Proximal IRLS-CD, or Group Proximal IRLS-LLA may appear in the matrix even when they are not public `solver=` keywords.
 
 `AdaptiveGroupLassoPenalty` is available as a public penalty object but has no string-registry alias because callers must supply explicit group weights.
+
+## Standalone logistic classifiers
+
+`LogisticRegression` and `LogisticRegressionCV` accept `solver="auto"`, `"irls"`, and `"lbfgs"`. `auto` resolves to IRLS. Both explicit solvers use the same summed weighted Bernoulli loss plus L2 penalty controlled by `C`; the intercept is unpenalized. Direct-fit `C=0` disables regularization; CV searches positive `C` candidates. CV honors the selected solver for candidates and final refit on NumPy, CuPy, and Torch. GPU CV uses batched IRLS for `auto`/`irls`, while L-BFGS fits candidates sequentially in float64 on the selected backend; `gpu_cv_mixed_precision` affects only batched IRLS. These wrappers do not expose the generic GLM solver inventory. See [LogisticRegression](../models/regression/logistic-regression.md) for the objective and solver-specific stopping rules.
 
 ## 1. Direct-fit `solver="auto"`
 
