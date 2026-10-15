@@ -4,6 +4,9 @@ All notable changes to statgpu are documented here, organized by release and dat
 
 ## Unreleased — 2026-10-15
 
+### GLM report labels
+- Preserved formula design-term names in ordinary GLM coefficient inference and reported the fitted solver, including resolved `auto`, with or without inference.
+
 ### PR #171 — Preserved multiple-testing Torch devices
 - Fixed module-level p-value adjustment and combination to preserve Torch input CPU or indexed-CUDA ownership through float64 conversion, temporary arrays, weights, and outputs; retained current-device selection for explicit Torch with non-Torch input and rejected unsupported Torch devices explicitly.
 - Clarified bilingual function-versus-estimator device rules and added focused device-ownership regressions, with physical CUDA checks conditional on available hardware.

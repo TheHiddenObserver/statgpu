@@ -7,6 +7,14 @@
 
 This page records user-visible changes for current and recent statgpu releases.
 
+## Unreleased — GLM report labels
+
+### Fixed (2026-10-15)
+
+- Ordinary GLM coefficient inference now retains formula design-term names in parameter order, including the intercept when present. Previously, inference results omitted those names and summaries showed generic labels.
+- `summary()` now reports the solver used for fitting, including `irls` selected by ordinary `solver="auto"`. Fit metadata is recorded even when coefficient inference is disabled. Coefficients, covariance calculations, solver selection, and backend dispatch are unchanged.
+- Regression tests in `dev/tests/test_glm_summary_formula.py` cover formula intercepts, categorical terms, interactions, transforms, missing-row weight alignment, array refits, all ordinary GLM families, and summaries with or without inference.
+
 ## Unreleased — Multiple-testing Torch devices (PR #171)
 
 ### Fixed (2026-10-15)
