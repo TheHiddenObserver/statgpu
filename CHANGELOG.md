@@ -17,6 +17,7 @@ All notable changes to statgpu are documented here, organized by release and dat
 - Restored benchmark session and source labels in timing charts and accessible tables, with canonical multi-session regressions.
 - Corrected fresh-checkout production-build instructions and contributor data links; added executable build-recipe and source-link regressions.
 - Completed the production-browser build recipe, clarified dependent QA prerequisites, and exercised all three standalone website recipes from clean generated directories.
+- Aligned workflow triggers with validated documentation and test inputs; migrated active benchmark integration guidance to generated bundles and reproducible assembled-site validation.
 
 ## Unreleased — 2026-10-10
 

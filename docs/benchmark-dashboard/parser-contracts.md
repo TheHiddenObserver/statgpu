@@ -279,7 +279,13 @@ When an upstream value is unavailable, omit the optional field instead of using 
 6. Add parser-focused tests and contract assertions.
 7. Generate with `--strict-sources`.
 8. Confirm schema, semantic, identity, and speedup validation.
-9. Regenerate committed frontend data and deployed assets.
+9. Generate the three-file bundle under ignored `frontend/public/data/`, then run
+   the root `npm run site:build` to assemble `frontend/dist/` into
+   `.site-dist/dashboard/`. Follow the [full-integration recipe](local-model-benchmark-execution-prompt.md#7-full-integration-继续提示词)
+   and [website deployment checks](../website-deployment.md) for production QA,
+   repeated-build hashes, and a build that leaves source files unchanged. Commit
+   canonical inputs, parsers, and manifests; do not commit generated bundles or
+   deployment assets.
 
 ## Verification
 

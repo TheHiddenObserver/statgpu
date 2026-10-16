@@ -31,7 +31,86 @@ const documentedRecipes = [
       'npm run test:e2e:production --prefix frontend',
     ],
   },
+  {
+    readmePath: 'docs/benchmark-dashboard/local-model-benchmark-execution-prompt.md',
+    sectionHeading: '## 7. Full-integration 继续提示词',
+    afterBuild: [
+      'npm exec --prefix frontend -- playwright install --with-deps chromium firefox webkit',
+      'npm run test:e2e --prefix frontend',
+      'npm run test:e2e:production --prefix frontend',
+    ],
+  },
 ];
+
+function workflowPaths(workflow, event) {
+  workflow = workflow.replace(/^[ \t]*#[^\n]*(?:\n|$)/gm, '');
+  const section = workflow.match(new RegExp(`^  ${event}:\\n([\\s\\S]*?)(?=^  [a-z_]+:|^\\S|$(?![\\s\\S]))`, 'm'))?.[1];
+  const list = section?.split(/^    paths:\n/m)[1]?.split(/^    \S/m)[0];
+  assert.ok(list, `${event} must retain an explicit path selector list`);
+  const lines = list.trimEnd().split('\n').filter(line => line.trim() && !/^\s*#/.test(line));
+  // Consume every selector, not only a matching prefix of the list. Current
+  // selectors use single-quoted literals, * and **; reject other GitHub syntax
+  // rather than silently interpreting it using Node's different glob semantics.
+  assert.ok(lines.length && lines.every(line => /^      - '[a-zA-Z0-9_./*\-]+'$/.test(line)),
+    'Update workflow path coverage for the new selector syntax');
+  return lines.map(line => line.slice(9, -1));
+}
+
+function assertWorkflowInputCoverage(workflow) {
+  const jobs = workflow.split('\njobs:\n')[1];
+  assert.ok(jobs, 'The validation jobs must exist');
+  const executedPython = [...jobs.matchAll(/\bdev\/(?:tests|validation)\/[a-zA-Z0-9_]+\.py\b/g)]
+    .map(match => match[0]);
+  const inputs = new Set([
+    ...documentedRecipes.map(recipe => recipe.readmePath),
+    'README.md', // A maintained input of check_docs_contracts.py.
+    ...executedPython,
+  ]);
+  for (const event of ['push', 'pull_request']) {
+    const patterns = workflowPaths(workflow, event);
+    for (const input of inputs) {
+      assert.ok(patterns.some(pattern => path.posix.matchesGlob(input, pattern)),
+        `${event}.paths must select validated input ${input}`);
+    }
+  }
+}
+
+test('workflow triggers cover documented recipes and directly validated inputs', async () => {
+  const workflow = await readFile(path.join(repositoryRoot, '.github/workflows/benchmark-frontend.yml'), 'utf8');
+  assertWorkflowInputCoverage(workflow);
+  for (const event of ['push', 'pull_request']) {
+    const start = workflow.indexOf(`  ${event}:\n`);
+    const nextEvent = /\n  [a-z_]+:/.exec(workflow.slice(start + 1));
+    const sectionEnd = nextEvent ? start + 1 + nextEvent.index : workflow.length;
+    for (const comment of ['', '    # A selector may follow a comment\n', '# Comment\n']) {
+      const quotedExclusion = workflow.slice(0, sectionEnd)
+        + `\n${comment}      - "!CONTRIBUTING.md"` + workflow.slice(sectionEnd);
+      assert.throws(() => assertWorkflowInputCoverage(quotedExclusion),
+        /Update workflow path coverage for the new selector syntax/);
+    }
+    // Remove an individual selector from one event without hiding its recipe.
+    for (const input of [
+      'CONTRIBUTING.md', 'README.md', 'dev/tests/test_panel_stage_b_applicable_hausman_parser.py',
+    ]) {
+      const section = workflow.slice(start, sectionEnd);
+      const broken = workflow.slice(0, start)
+        + section.replace(`      - '${input}'\n`, '') + workflow.slice(sectionEnd);
+      assert.throws(() => assertWorkflowInputCoverage(broken),
+        new RegExp(`${event}\\.paths must select validated input ${input.replaceAll('.', '\\.')}`));
+    }
+  }
+});
+
+test('workflow installs Python validation dependencies used by documented recipes', async () => {
+  const recipes = await Promise.all(documentedRecipes.map(documentedBuildCommands));
+  if (!recipes.some(recipe => recipe.commands.some(command => /^python -m pytest\b/.test(command)))) return;
+  const workflow = await readFile(path.join(repositoryRoot, '.github/workflows/benchmark-frontend.yml'), 'utf8');
+  const site = workflow.split('\n  site:\n')[1]?.split('\n  deploy:\n')[0];
+  const setup = site?.split('      - name: Test documented production build')[0];
+  assert.ok(setup, 'The site job must prepare documented recipe dependencies');
+  assert.match(setup, /python -m pip install[^\n]*\bpytest\b/,
+    'The site job needs its own pytest installation; Python jobs do not share packages');
+});
 
 async function documentedBuildCommands({ readmePath, sectionHeading, afterBuild }) {
   const readme = await readFile(path.join(repositoryRoot, readmePath), 'utf8');
@@ -49,7 +128,8 @@ async function documentedBuildCommands({ readmePath, sectionHeading, afterBuild 
   assert.notEqual(buildIndex, -1, `${readmePath} must build the assembled site`);
   assert.deepEqual(commands.splice(buildIndex + 1), afterBuild);
   assert.equal(commands.at(-1), 'npm run site:build');
-  const generators = commands.filter(command => command.includes('generate_benchmark_data.py'));
+  const generators = commands.filter(command => command.includes('generate_benchmark_data.py')
+    && !/--check(?:\s|$)/.test(command));
   assert.equal(generators.length, 1, 'Generate the bundle explicitly before the build');
   assert.match(generators[0], /--deterministic\b/);
   assert.match(generators[0], /--strict-sources\b/);
