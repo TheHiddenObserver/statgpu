@@ -3,15 +3,28 @@
 This suite validates the assembled public website and benchmark dashboard at the
 GitHub Pages project path rather than only the Vite development server.
 
-Run from the repository root:
+Use the [frontend requirements](../README.md#requirements) and run from the
+repository root. Generate the benchmark bundle before building, including on a
+fresh checkout:
 
 ```bash
 npm ci
 npm ci --prefix frontend
+
+python dev/benchmarks/generate_benchmark_data.py \
+  --out frontend/public/data/benchmark_data.json \
+  --report frontend/public/data/parse_report.json \
+  --inventory-out frontend/public/data/source_inventory.json \
+  --deterministic --strict-sources
+
 npm run site:build
 npm exec --prefix frontend -- playwright install --with-deps chromium firefox webkit
 npm run test:e2e:production --prefix frontend
 ```
+
+The build consumes the generated bundle; `npm run site:build` does not generate
+benchmark data. Keep all three JSON files together under ignored
+`frontend/public/data/`.
 
 The production configuration previews `.site-dist/` through VitePress and opens:
 

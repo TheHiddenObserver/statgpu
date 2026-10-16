@@ -13,10 +13,29 @@ const generatedDirectories = [
   'docs/assets/benchmarks', 'docs/.vitepress/cache', 'docs/.vitepress/.temp',
 ];
 const bundleNames = ['benchmark_data.json', 'parse_report.json', 'source_inventory.json'];
+const documentedRecipes = [
+  {
+    readmePath: 'CONTRIBUTING.md',
+    sectionHeading: '## Website development',
+    afterBuild: [],
+  },
+  {
+    readmePath: 'frontend/README.md',
+    sectionHeading: '## Production build and staleness',
+    afterBuild: [],
+  },
+  {
+    readmePath: 'frontend/e2e-production/README.md',
+    afterBuild: [
+      'npm exec --prefix frontend -- playwright install --with-deps chromium firefox webkit',
+      'npm run test:e2e:production --prefix frontend',
+    ],
+  },
+];
 
-async function documentedBuildCommands() {
-  const readme = await readFile(path.join(repositoryRoot, 'frontend/README.md'), 'utf8');
-  const section = readme.split('## Production build and staleness\n')[1]?.split('\n## ')[0];
+async function documentedBuildCommands({ readmePath, sectionHeading, afterBuild }) {
+  const readme = await readFile(path.join(repositoryRoot, readmePath), 'utf8');
+  const section = sectionHeading ? readme.split(`${sectionHeading}\n`)[1]?.split('\n## ')[0] : readme;
   const recipe = section?.match(/```bash\n([\s\S]*?)\n```/)?.[1];
   assert.ok(recipe, 'The production section must include a standalone build recipe');
   // CI installs these exact lockfiles before invoking this test. Reuse only
@@ -24,6 +43,11 @@ async function documentedBuildCommands() {
   assert.match(recipe, /^npm ci\nnpm ci --prefix frontend\n/);
   const commands = recipe.split(/(?<!\\)\n/).filter(command => command.trim());
   assert.deepEqual(commands.splice(0, 2), ['npm ci', 'npm ci --prefix frontend']);
+  // Exercise each documented build prefix. Browser installation and execution
+  // remain in their existing CI gates and must follow the assembled-site build.
+  const buildIndex = commands.indexOf('npm run site:build');
+  assert.notEqual(buildIndex, -1, `${readmePath} must build the assembled site`);
+  assert.deepEqual(commands.splice(buildIndex + 1), afterBuild);
   assert.equal(commands.at(-1), 'npm run site:build');
   const generators = commands.filter(command => command.includes('generate_benchmark_data.py'));
   assert.equal(generators.length, 1, 'Generate the bundle explicitly before the build');
@@ -92,47 +116,51 @@ async function bundleIdentity(root) {
   return { hashes, generationId: ids[0] };
 }
 
-test('documented production recipe builds from source without generated files', { timeout: 1_200_000 }, async t => {
-  const { commands, generator } = await documentedBuildCommands();
-  let projectHash;
-  let firstBundle;
-  for (const [label, base, omitGeneration] of [
-    ['missing-generation negative control', '/statgpu/', true],
-    ['project base', '/statgpu/', false],
-    ['custom-domain root base', '/', false],
-    ['repeated project base', '/statgpu/', false],
-  ]) {
-    await t.test(label, async () => {
-      const root = await cleanCheckout();
-      try {
-        const selected = omitGeneration ? commands.filter(command => command !== generator) : commands;
-        const result = runRecipe(root, selected, base);
-        assert.ifError(result.error);
-        const output = result.stdout + result.stderr;
-        if (omitGeneration) {
-          assert.notEqual(result.status, 0, output);
-          assert.match(output, /Required build input is missing: frontend\/dist\/data\/benchmark_data\.json/);
-          t.diagnostic('Omitting generation reaches assembly and fails on missing benchmark_data.json');
-          return;
+function testDocumentedRecipe(recipe) {
+  test(`${recipe.readmePath} production recipe builds from source without generated files`, { timeout: 1_200_000 }, async t => {
+    const { commands, generator } = await documentedBuildCommands(recipe);
+    let projectHash;
+    let firstBundle;
+    for (const [label, base, omitGeneration] of [
+      ['missing-generation negative control', '/statgpu/', true],
+      ['project base', '/statgpu/', false],
+      ['custom-domain root base', '/', false],
+      ['repeated project base', '/statgpu/', false],
+    ]) {
+      await t.test(label, async () => {
+        const root = await cleanCheckout();
+        try {
+          const selected = omitGeneration ? commands.filter(command => command !== generator) : commands;
+          const result = runRecipe(root, selected, base);
+          assert.ifError(result.error);
+          const output = result.stdout + result.stderr;
+          if (omitGeneration) {
+            assert.notEqual(result.status, 0, output);
+            assert.match(output, /Required build input is missing: frontend\/dist\/data\/benchmark_data\.json/);
+            t.diagnostic('Omitting generation reaches assembly and fails on missing benchmark_data.json');
+            return;
+          }
+          assert.equal(result.status, 0, output);
+          assert.match(output, /Verified \d+ HTML/);
+          const bundle = await bundleIdentity(root);
+          firstBundle ??= bundle;
+          assert.deepEqual(bundle, firstBundle, 'Deterministic bundles must match across clean builds and bases');
+          const hash = spawnSync(process.execPath, ['scripts/hash-site.mjs'], { cwd: root, encoding: 'utf8' });
+          assert.equal(hash.status, 0, hash.stdout + hash.stderr);
+          const digest = hash.stdout.trim();
+          assert.match(digest, /^[a-f0-9]{64}$/);
+          if (base === '/statgpu/') {
+            projectHash ??= digest;
+            assert.equal(digest, projectHash, 'Clean project-base builds must be byte-for-byte reproducible');
+          }
+          t.diagnostic(`${label}: ${bundle.generationId}; site SHA256 ${digest}`);
+          t.diagnostic(output);
+        } finally {
+          await rm(root, { recursive: true, force: true });
         }
-        assert.equal(result.status, 0, output);
-        assert.match(output, /Verified \d+ HTML/);
-        const bundle = await bundleIdentity(root);
-        firstBundle ??= bundle;
-        assert.deepEqual(bundle, firstBundle, 'Deterministic bundles must match across clean builds and bases');
-        const hash = spawnSync(process.execPath, ['scripts/hash-site.mjs'], { cwd: root, encoding: 'utf8' });
-        assert.equal(hash.status, 0, hash.stdout + hash.stderr);
-        const digest = hash.stdout.trim();
-        assert.match(digest, /^[a-f0-9]{64}$/);
-        if (base === '/statgpu/') {
-          projectHash ??= digest;
-          assert.equal(digest, projectHash, 'Clean project-base builds must be byte-for-byte reproducible');
-        }
-        t.diagnostic(`${label}: ${bundle.generationId}; site SHA256 ${digest}`);
-        t.diagnostic(output);
-      } finally {
-        await rm(root, { recursive: true, force: true });
-      }
-    });
-  }
-});
+      });
+    }
+  });
+}
+
+for (const recipe of documentedRecipes) testDocumentedRecipe(recipe);

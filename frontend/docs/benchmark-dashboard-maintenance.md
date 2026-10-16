@@ -55,6 +55,9 @@ Source/parser changes also need the targeted tests for that source. Check numeri
 
 ## Build, browser QA, and deployed assets
 
+First complete [Generate and validate](#generate-and-validate) above so the
+benchmark bundle exists, then run from the repository root:
+
 ```bash
 cd frontend
 npm ci

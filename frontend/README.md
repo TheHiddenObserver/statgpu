@@ -94,6 +94,9 @@ The generator automatically uses `dev/benchmarks/frontend_sources.json`. Require
 
 ## Validation and tests
 
+First install dependencies and generate the benchmark bundle using
+[Development](#development), then run from the repository root:
+
 ```bash
 python -m pip install -U pytest jsonschema
 pytest \
