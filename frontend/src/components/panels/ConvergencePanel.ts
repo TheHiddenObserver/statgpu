@@ -11,6 +11,8 @@ export function renderConvergencePanel(runs: Run[], state: AppState, onUpdate: (
     if (!c || (c.n_iter_mean == null && c.converged_rate == null)) continue;
     rows.push({
       model: r.model_id, scale: r.scale.label, backend: r.backend ?? r.framework,
+      session: r.benchmark_session_id ?? r.env_id,
+      source: r.source.file,
       n_iter: c.n_iter_mean != null
         ? `${c.n_iter_mean.toFixed(1)}${c.n_iter_std != null ? ' ± ' + c.n_iter_std.toFixed(1) : ''}` : '-',
       converged: c.converged_rate != null ? `${(c.converged_rate * 100).toFixed(0)}%` : '-',
@@ -23,6 +25,8 @@ export function renderConvergencePanel(runs: Run[], state: AppState, onUpdate: (
       { key: 'model', label: 'Model', render: r => String(r.model) },
       { key: 'scale', label: 'Scale', render: r => String(r.scale) },
       { key: 'backend', label: 'Backend', render: r => String(r.backend) },
+      { key: 'session', label: 'Benchmark session / 基准会话', render: r => String(r.session) },
+      { key: 'source', label: 'Source / 来源', render: r => String(r.source) },
       { key: 'n_iter', label: 'N Iter (mean±std)', render: r => String(r.n_iter) },
       { key: 'converged', label: 'Converged Rate', render: r => String(r.converged) },
     ],

@@ -14,10 +14,10 @@ All notable changes to statgpu are documented here, organized by release and dat
 
 ### PR #132 — Repaired website links, math and session labels
 - Preserved source-document links and section anchors in both GitHub Markdown and the website; corrected bilingual formula rendering and added complete HTML link/math validation.
-- Restored benchmark session and source labels in timing charts and accessible tables, with canonical multi-session regressions.
+- Restored benchmark session and source labels in timing charts, accessible tables, and the convergence panel, with canonical multi-session regressions.
 - Corrected fresh-checkout production-build instructions and contributor data links; added executable build-recipe and source-link regressions.
 - Completed the production-browser build recipe, clarified dependent QA prerequisites, and exercised all three standalone website recipes from clean generated directories.
-- Aligned workflow triggers with validated documentation and test inputs; migrated active benchmark integration guidance to generated bundles and reproducible assembled-site validation.
+- Aligned workflow triggers with validated inputs and forbidden generated artifacts; restored tracked-artifact rejection alongside pre/post-browser clean-tree checks and migrated active integration guidance to reproducible assembled builds.
 
 ## Unreleased — 2026-10-10
 

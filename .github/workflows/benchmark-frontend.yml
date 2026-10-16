@@ -6,6 +6,11 @@ on:
     paths:
       - '.github/workflows/benchmark-frontend.yml'
       - '.node-version'
+      - '.gitignore'
+      - 'node_modules'
+      - 'node_modules/**'
+      - '.site-dist'
+      - '.site-dist/**'
       - 'README.md'
       - 'CONTRIBUTING.md'
       - 'package.json'
@@ -37,6 +42,11 @@ on:
     paths:
       - '.github/workflows/benchmark-frontend.yml'
       - '.node-version'
+      - '.gitignore'
+      - 'node_modules'
+      - 'node_modules/**'
+      - '.site-dist'
+      - '.site-dist/**'
       - 'README.md'
       - 'CONTRIBUTING.md'
       - 'package.json'
@@ -129,6 +139,10 @@ jobs:
             frontend/package-lock.json
       - name: Verify pinned npm version
         run: test "$(npm --version)" = "11.6.2"
+      - name: Reject tracked generated website artifacts
+        run: |
+          node --test scripts/test-tracked-artifacts.mjs
+          node scripts/check-tracked-artifacts.mjs
       - name: Install build dependencies
         run: |
           python -m pip install pytest 'jsonschema[format]'
@@ -175,6 +189,10 @@ jobs:
         run: npm run test:e2e --prefix frontend
       - name: Run assembled production QA
         run: npm run test:e2e:production --prefix frontend
+      - name: Verify repository tree remains clean after browser QA
+        run: |
+          git diff --exit-code
+          test -z "$(git status --porcelain --untracked-files=all)"
       - name: Upload Playwright reports
         if: always()
         uses: actions/upload-artifact@v4

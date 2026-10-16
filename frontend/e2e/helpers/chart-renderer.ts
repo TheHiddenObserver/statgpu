@@ -7,6 +7,7 @@ import type * as Fallback from '../../src/components/ChartDataFallback';
 import type * as Data from '../../src/data';
 import type * as State from '../../src/state';
 import type * as Provider from '../../src/providers/benchmark';
+import type * as Convergence from '../../src/components/panels/ConvergencePanel';
 
 export interface TooltipParameter {
   seriesName: string;
@@ -22,7 +23,7 @@ export interface CapturedTimingOption {
   tooltip: { formatter: (params: TooltipParameter[]) => string };
 }
 
-type Renderer = typeof Timing & typeof Fallback & typeof Data & typeof State & typeof Provider & {
+type Renderer = typeof Timing & typeof Fallback & typeof Data & typeof State & typeof Provider & typeof Convergence & {
   capturedOptions: CapturedTimingOption[];
 };
 
@@ -32,6 +33,7 @@ export async function loadChartRenderer(): Promise<Renderer> {
       contents: `
         export * from './src/charts/TimingChart';
         export * from './src/components/ChartDataFallback';
+        export * from './src/components/panels/ConvergencePanel';
         export * from './src/data';
         export * from './src/state';
         export * from './src/providers/benchmark';

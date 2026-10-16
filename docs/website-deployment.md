@@ -63,9 +63,18 @@ all fallback code, without
 assuming server-side compression. Cross-browser search tests still exercise
 prefetching, Chinese controls, compact results, and reference-page queries.
 
+Before installing npm dependencies, the workflow rejects tracked files under
+`node_modules/`, `frontend/node_modules/`, `frontend/test-results/`,
+`frontend/playwright-report/`, `frontend/dist/`, `frontend/public/data/`,
+`docs/assets/benchmarks/`, `docs/.vitepress/cache/`, `docs/.vitepress/.temp/`,
+and `.site-dist/`. This checks the Git index, so an artifact already present in a
+clean checkout is rejected even when its path is ignored. Both push and pull
+request path filters cover the guard, its tests, ignore rules, and these outputs.
+
 The workflow builds twice and compares complete artifact hashes. It also
 requires a clean repository tree, including non-ignored untracked files, before
-browser QA and publication.
+and after browser QA. Generated artifacts may remain in their ignored directories;
+tracked source changes or new non-ignored files block publication.
 
 ## Pinned build-tool compatibility overrides
 

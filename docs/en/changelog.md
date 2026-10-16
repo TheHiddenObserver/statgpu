@@ -1,7 +1,7 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-10-15<br>
+> Last updated: 2026-10-16<br>
 > This page: Release history  
 > Switch: [Chinese](../cn/changelog.md)
 
@@ -19,6 +19,11 @@ This page records user-visible changes for current and recent statgpu releases.
   - Updated the bilingual multiple-testing API, device guide, and estimator helper reference. Added device-ownership regressions in `dev/tests/test_multiple_testing_device_ownership.py`, including conditional physical CUDA checks. No physical GPU validation is claimed for this local update.
 
 ## Unreleased — Website navigation and benchmark provenance (PR #132)
+
+### Fixed (2026-10-16)
+
+- Added benchmark-session and source columns to the convergence table. Rows from separate sessions remain distinguishable when their model, framework, dimensions, iteration count, and convergence rate match; numeric values and row order are unchanged.
+- Restored the website workflow's rejection of tracked dependencies, generated bundles/build outputs, and browser reports, including files already present in a clean checkout. Both workflow event filters cover these artifact paths; clean-tree checks remain before browser QA and also run after it.
 
 ### Fixed (2026-10-15)
 
