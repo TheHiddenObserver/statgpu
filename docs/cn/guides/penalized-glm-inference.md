@@ -1,7 +1,7 @@
 # 惩罚 GLM 推断
 
 > 语言：中文  
-> 最后更新：2026-10-06  
+> 最后更新：2026-10-17  
 > 页面定位：系数推断的统计目标与公开支持行为  
 > 切换：[English](../../en/guides/penalized-glm-inference.md)
 
@@ -25,8 +25,8 @@ inference_method="auto"
 | 平方误差 + L1/ElasticNet | 去偏推断；显式请求时可用 `post_selection_ols` | `debiased` |
 | 光滑非 Gaussian GLM + L2/无惩罚 | 固定惩罚 M-估计 | `m_estimation` |
 | 平方误差 + L1/ElasticNet/SCAD/MCP | 显式请求残差自助法；不适用于 L2 | 不自动选择 |
-| 平方误差 + SCAD/MCP | CPU 父模型可显式请求活跃集 oracle 重拟合；注意下文子模型设备限制 | 不自动选择 |
-| 非 Gaussian SCAD/MCP | `oracle` 接受标量 GLM 分布族，但当前重拟合可能改变模型；详见下文限制 | 不自动选择 |
+| 平方误差 + SCAD/MCP | 显式请求时，在 CPU 上进行无惩罚活跃集 oracle 重拟合 | 不自动选择 |
+| 非 Gaussian SCAD/MCP | 在 CPU 上进行无惩罚活跃集 oracle 重拟合，并保留已拟合的分布族设置 | 不自动选择 |
 | 非 Gaussian L1/ElasticNet | 未实现系数推断 | 请求会报错 |
 | 分组惩罚 | 仅估计 | 请求推断会报错 |
 | `PenalizedCoxPHModel` / `PenalizedGLM_CV` 的 Cox 分支 | 仅估计 | 请求推断会报错 |
@@ -108,7 +108,7 @@ $$
 
 显式 `device="cuda"` 或 `device="torch"` 请求不会被静默替换成 NumPy 推断。数值推断完成后，小型结果数组可以转换为 NumPy；这个用于结果整理的边界不会改变数值程序实际运行的位置。
 
-部分推断方法支持的后端范围比基础估计器更窄。例如，SCAD/MCP 的 oracle 接口会拒绝已经执行 GPU 拟合的父模型。但重拟合子模型目前默认使用 `device="auto"`，因此在有 GPU 的系统上，CPU 父模型并不能保证子模型也在 CPU 上运行。详见下文的 oracle 限制；显式创建单独的重拟合模型，才能同时指定设备与统计模型。
+部分推断方法支持的后端范围比基础估计器更窄。SCAD/MCP oracle 推断要求父模型在 CPU 上拟合，并显式以 `device="cpu"` 进行活跃集重拟合，即使系统有 GPU 也不会自动切换。推断计算使用 NumPy float64。已经执行 GPU 拟合的模型会被拒绝，不会静默转到 CPU；请求 oracle 推断时请设置 `device="cpu"`。
 
 ## 残差自助法的范围
 
@@ -139,15 +139,19 @@ $$
 
 `inference_method="oracle"` 必须显式请求，因为它以惩罚拟合已经选出的活跃集为条件。`auto` 不会静默采用这种解释。
 
-这一程序的预期目标是在所选活跃集上去掉原非凸惩罚后重新拟合。即使无惩罚重拟合本身正确，普通区间也不会自动校正在同一数据上选择变量的影响。未选中系数的不确定性不可用，以 `NaN` 表示；如果没有任何特征被选中，所有参数（包括截距）的不确定性均不可用。
+这一程序在所选活跃集上进行无正则化重拟合。报告中的活跃系数和截距来自重拟合，预测仍使用原惩罚系数。未选中系数保留其惩罚拟合点估计，不确定性不可用，以 `NaN` 表示。没有斜率被选中但模型包含截距时，oracle 会重新拟合仅含截距的模型，并报告截距的不确定性。既没有入选斜率也没有截距时，无系数可供重拟合；逆链接 Gamma 会拒绝这种空模型，因为线性预测值为零时无法定义有限均值。
+
+这些区间使用正态参考分布，并以已选变量集合为条件，不会校正在同一数据上选择变量或调参带来的不确定性。
 
 <a id="current-non-gaussian-oracle-limitation"></a>
 
-### 当前非 Gaussian oracle 的限制
+### 无惩罚重拟合与分布族设置
 
-接口接受 SCAD/MCP 与 `squared_error`、`logistic`、`poisson`、`gamma`、`inverse_gaussian`、`negative_binomial`、`tweedie` 的组合。但当前非 Gaussian 重拟合可能静默使用构造函数默认值，未保留原模型配置：logistic 使用 `C=1`，并非无惩罚拟合；负二项离散参数可能重置为 `alpha=1`，Gamma 链接重置为 `"log"`，Tweedie 幂参数重置为 `1.5`。子模型的求解器与设备也默认是 `"auto"`；例如 Poisson 会采用默认带 Ridge 惩罚的 IRLS 拟合，而非预期的无惩罚 Newton 重拟合。因此，返回标记为 `oracle` 的成功结果，并不能证明原推断目标得到保留。不要使用这些非 Gaussian oracle 系数表进行推断。
+接口接受 SCAD/MCP 与 `squared_error`、`logistic`、`poisson`、`gamma`、`inverse_gaussian`、`negative_binomial`、`tweedie` 的组合。非高斯重拟合明确使用 `C=0`，保留已拟合的分布族、Gamma 链接、负二项离散参数 `alpha`、Tweedie 幂参数 `power`，以及父模型的 `max_iter`、`tol`、截距约定和受支持的分析权重。logistic 和 Poisson 重拟合显式使用 `solver="irls"`，其他非高斯分布族使用 `solver="newton"`，设备均为 `device="cpu"`。若重拟合报告未收敛，则抛出 `RuntimeError`，不返回 oracle 系数表。
 
-如果需要诊断性重拟合，应先以 `compute_inference=False` 拟合选择模型，再明确指定所选列、分布族、链接、离散或幂参数、无惩罚配置及设备，单独拟合一个模型。对 logistic 回归，独立包装类的 `C=0` 表示不使用正则化：
+推断结果的 `method="oracle"`，使用正态（z）参考分布及所请求的受支持 `cov_type`。元数据包含 `refit_penalty="none"`、`refit_solver`、`refit_family_parameters`、CPU 数值计算信息和 `selection_adjusted=False`。重拟合专属字段仅在实际重拟合了系数时出现。具体的负二项和 Tweedie 估计器会保留各自构造参数；若 `loss_kwargs` 也提供同名分布族参数，则其中的显式设置优先。
+
+下例把自动 oracle 系数与在相同入选列上单独进行的无惩罚 logistic 拟合作比较。独立包装类中的 `C=0` 表示不使用正则化：
 
 <!-- inference-example: explicit-logistic-diagnostic -->
 ```python
@@ -160,14 +164,19 @@ probability = 1 / (1 + np.exp(-(0.6 + X @ np.array([2.0, -1.0]))))
 y = rng.binomial(1, probability)
 selection = PenalizedLogisticRegression(
     penalty="scad", alpha=0.01, solver="fista", device="cpu",
-    compute_inference=False, max_iter=10000, tol=1e-10,
+    compute_inference=True, inference_method="oracle", max_iter=10000, tol=1e-10,
 ).fit(X, y)
 active = np.flatnonzero(np.abs(selection.coef_) > 1e-10)
 if active.size == 0:
     raise ValueError("No feature was selected; specify a model with only an intercept")
 refit = LogisticRegression(
-    C=0, device="cpu", compute_inference=True, max_iter=10000, tol=1e-10,
+    C=0, solver="irls", device="cpu", compute_inference=True,
+    max_iter=10000, tol=1e-10,
 ).fit(X[:, active], y)
+np.testing.assert_allclose(
+    selection._inference_result.params[np.r_[0, active + 1]],
+    np.r_[refit.intercept_, refit.coef_], rtol=1e-6, atol=1e-7,
+)
 print(active.tolist())
 print(np.round(np.r_[refit.intercept_, refit.coef_], 6))
 ```

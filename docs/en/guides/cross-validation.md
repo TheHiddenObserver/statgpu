@@ -1,7 +1,7 @@
 # Cross-Validation
 
 > Language: English  
-> Last updated: 2026-10-14
+> Last updated: 2026-10-17
 > This page: user guide for CV selection and refit behavior  
 > Switch: [Chinese](../../cn/guides/cross-validation.md)
 
@@ -142,7 +142,9 @@ This example selects `alpha_=0.05`. Each validation block follows its training b
 
 Use custom splits when ordinary shuffled folds do not match the data, such as ordered or grouped observations. Validate each pair as nonempty, disjoint, one-dimensional integer indices without repeated rows. Validation varies by estimator; the shared splitter can cast or flatten indices and skip empty pairs, so acceptance alone does not establish a valid split. Scientific suitability remains the caller's responsibility.
 
-**RidgeCV custom splits:** arbitrary training subsets are not reliably supported. If your design excludes training rows beyond the validation set, use an external CV loop. Check the [RidgeCV support boundary and external-loop alternative](../reference/linear-model-api.md#custom-ridgecv-training-subsets) before fitting.
+**RidgeCV custom splits:** each fold uses exactly the supplied training and validation rows, with or without sample weights. Gapped or embargoed training subsets are supported, and validation sets need not cover all observations. Indices must be nonempty, one-dimensional, integral, in bounds, unique within each subset, and disjoint between training and validation; invalid splits raise `ValueError`.
+
+Explicit splits are evaluated even with fewer than four observations or one alpha candidate. The constructor still requires `cv>=2`, but supplied splits determine the actual folds and are not replaced by generated folds. Each training and validation subset must have positive total sample weight, while individual zero weights are allowed. The final refit uses all supplied fit rows. See the [RidgeCV split contract](../reference/linear-model-api.md#custom-ridgecv-training-subsets).
 
 For `PenalizedGLM_CV`, `cv_splits` accepts a list, tuple, or one-shot iterator such as a generator. The same generator-defined splits can be reused by repeated `fit()` calls, scikit-learn clones, and pickle round trips. Do not separately consume the generator after passing it to the estimator; use a list if you also need to inspect the splits yourself.
 

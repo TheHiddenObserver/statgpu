@@ -1,7 +1,7 @@
 # 线性模型 API 参考
 
 > 语言：中文  
-> 最后更新：2026-10-14  
+> 最后更新：2026-10-17  
 > 切换：[English](../../en/reference/linear-model-api.md)
 
 本页各类可从 `statgpu` 或 `statgpu.linear_model` 导入，但 `SCADRegression` 和 `MCPRegression` 仅由 `statgpu.linear_model` 导出。`X` 为有限数值 `(n,p)` 矩阵，预测列顺序与训练一致。分析权重为有限非负 `(n,)` 向量，总和须为正。公式删行后的权重对齐见[公式输入](#formula-inputs)。显式 GPU 请求要求对应 CUDA 后端可用，详见[设备与内存](../guides/device-and-memory.md)。
@@ -30,7 +30,7 @@ LinearRegression(fit_intercept=True, device='auto', n_jobs=None, compute_inferen
 | 方法/结果 | 约定 |
 |---|---|
 | `predict(X)` | 单目标 `(m,)`，多目标 `(m,t)`；CPU 返回 NumPy，GPU 返回受支持的原生后端数组。公式拟合后也可传预测 DataFrame。预测时会重新解析设备；如需避免后续全局设备设置改变输出位置，应显式指定设备。 |
-| `score(X,y)` | 不加权 R²；多目标取各目标 R² 的均值。不接受 `sample_weight`。单目标 `y` 必须展平；当前单列响应会触发错误广播。常数目标返回 0，不宜解释为通常的方差解释比例。 |
+| `score(X,y)` | 不加权 R²；多目标取各目标 R² 的均值。不接受 `sample_weight`。单目标 `y` 接受 `(n,)` 或 `(n,1)`，结果相同。多目标 `y` 必须与预测形状完全一致；行数或目标维度不匹配时，在计算残差前抛出 `ValueError`。常数目标返回 0，不宜解释为通常的方差解释比例。 |
 | `summary()` | 打印单目标表格，返回 `None`。要求推断成功且残差自由度为正。 |
 | `coef_`、`intercept_`、`rank_` | 单目标形状 `(p,)`/标量，多目标 `(t,p)`/`(t,)`；`rank_` 是拟合设计矩阵的秩。 |
 | `rsquared`、`rsquared_adj` | 训练 R²（使用拟合权重；多目标为合并计算）及残差自由度修正。不同于留出数据的 `score`。 |
@@ -412,9 +412,10 @@ GeneralizedLinearModel(family='gaussian', fit_intercept=True, max_iter=100, tol=
 索引。不要将这些值按位置配给原始行。应先处理预测变量和变换产生的缺失，
 并在关联结果前检查 `len(prediction) == len(query)`。如果有意筛行，应保留
 筛选后 DataFrame 的索引，并明确对该 DataFrame 预测。
-训练时允许的行过滤及其权重对齐是另一回事。`LinearRegression.score` 还可能
-把唯一保留的预测值广播给多个评价响应，返回无效但有限的 R²。展平单列 y
-不能解决此问题，评分前应核对公式预测行数。通过公式拟合的 `Lasso`、`ElasticNet`、
+训练时允许的行过滤及其权重对齐是另一回事。缩短后的预测与评价响应行数不兼容时，
+`LinearRegression.score` 会在计算残差前抛出 `ValueError`，不会把保留的预测值
+广播到完整响应，也不会恢复缺失预测。评分前应核对公式预测行数；有意筛行时，
+响应也须按同一索引对齐。通过公式拟合的 `Lasso`、`ElasticNet`、
 `Ridge`、`SCADRegression`、`MCPRegression`、`PenalizedLinearRegression`、
 `PenalizedLogisticRegression` 和 `PenalizedPoissonRegression` 则会在公式预测变量
 缺失将导致 DataFrame 预测行被删除时抛出 `ValueError`。这些类也要求数值预测数组
@@ -606,8 +607,8 @@ RidgeCV(alphas=None, n_alphas=100, alpha_min_ratio=0.001, cv=5, cv_splits=None, 
 | `alphas` | `None` | 显式有限正数候选项；省略时生成数据相关网格。非法或非正项会被过滤；没有剩余候选项时自动生成网格。 |
 | `n_alphas` | `100` | 省略 alphas 时的自动网格大小。 |
 | `alpha_min_ratio` | `0.001` | 自动网格最小/最大值比例；应选正数，通常不大于 1。 |
-| `cv` | `5` | 自动生成的随机打乱 K 折数量，至少为 2。 |
-| `cv_splits` | `None` | 显式、可重复使用的训练/验证索引对列表；应自行确认索引为非空、不相交的整数子集。请参阅[自定义训练子集的使用边界](#custom-ridgecv-training-subsets)。 |
+| `cv` | `5` | 生成随机打乱 K 折时的数量；即使提供 `cv_splits`，也必须至少为 2。实际数据折以显式划分为准。 |
+| `cv_splits` | `None` | 显式、可重复使用的训练/验证索引对列表；每个子集的索引必须为一维、非空、范围内且无重复的整数，训练与验证之间不得重叠。非法划分抛出 `ValueError`。详见[自定义训练子集约定](#custom-ridgecv-training-subsets)。 |
 | `fit_intercept` | `True` | 在验证折和最终重拟合中拟合截距。 |
 | `device` | `'auto'` | cpu、cuda（CuPy）、torch（Torch CUDA）、auto；显式 GPU 请求不可用时会报错。 |
 | `n_jobs` | `None` | 共享工作线程配置；不保证候选项并行拟合。 |
@@ -635,21 +636,40 @@ NumPy `(m,)`。`score(X,y)` 返回不加权 R²，不接受权重参数；如需
 [大偏移限制](../models/regression/ridge.md#large-feature-offsets)。
 
 自动生成的验证折是随机打乱的 K 折，不自动按组、分层或时间设计。
-指定设计应使用可重复的索引对列表，并在拟合前自行校验；请求被接受不代表
-完整校验。各相关加权折都需要正的权重总量。学习式预处理应在各训练折内拟合，
-必要时使用外部交叉验证循环。实际调参比较应至少有四行、两个候选项和两个折；
-小样本或单候选路径可能只重拟合，损失和 best_score_ 为 NaN。
+指定设计应使用可重复的索引对列表。RidgeCV 会检查索引的形状、类型、范围、
+是否重复及训练/验证是否重叠；划分是否符合科学问题仍由调用者判断。
+各训练子集和验证子集的权重总量都必须为正，单个观测的权重可以为零。
+学习式预处理应在各训练折内拟合，必要时使用外部交叉验证循环。
+未提供显式 `cv_splits` 时，小样本或单候选的简化流程可能只重拟合，
+损失和 best_score_ 为 NaN；显式划分则按下文规则执行。
 所选网格仍可能遗漏有用的惩罚范围。
 
 <a id="custom-ridgecv-training-subsets"></a>
 
 ### RidgeCV 自定义训练子集
 
-未提供 `sample_weight` 且各验证集恰好覆盖每一行一次时，仅在各训练集都是对应
-验证集的完整补集时使用 `RidgeCV`，例如普通 K 折交叉验证。较小的训练子集不能
-得到可靠采用，即使未报错，验证评分或 alpha 选择也可能不正确。需要排除训练行、
-留空窗或设置隔离期时，请使用外部交叉验证循环：在每个指定训练子集上拟合
-`Ridge`，再仅在对应的验证行上评估。
+无论是否提供 `sample_weight`，每折都严格在指定训练行上拟合，并且只在对应的
+验证行上评估。训练子集可以另行排除观测、留空窗或设置隔离期；验证集不必
+覆盖全部观测，也不必构成整个数据集的划分。
+
+即使不足四行或只有一个 alpha 候选，有效的显式 `cv_splits` 也会计算验证评分。
+构造函数仍要求 `cv>=2`，但实际数据折以显式划分为准，不会重新生成或替换。
+单候选会得到验证评分，但没有比较
+不同惩罚强度。每个训练子集和验证子集的权重总量都必须为正；单个观测的
+权重可以为零，子集总权重为零则抛出 `ValueError`。
+
+训练和验证索引都必须是一维、非空、范围内的整数。任何子集内部的重复索引，
+或训练与验证子集之间的重叠，都会在各折拟合前触发 `ValueError`。这些检查
+不能代替对划分是否符合科学问题的判断。
+
+只有当每个训练集都是相应验证集的完整补集，而且各验证集恰好覆盖每一行一次时，
+才会复用全数据统计量减去验证集统计量的计算方式，例如普通 K 折交叉验证。
+其他设计均直接使用显式指定的训练子集计算各折结果；优化不会改变选择 alpha
+时实际使用的训练行。
+
+选择完成后，最终重拟合使用传给 `fit` 的全部行，包括被个别数据折排除的行。
+学习式预处理应仅在各训练折内拟合；必要时使用外部交叉验证循环，确保预处理
+只接触指定训练行。
 
 ## LassoCV
 

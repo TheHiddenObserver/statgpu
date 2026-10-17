@@ -701,6 +701,8 @@ class PenalizedGeneralizedLinearModel(
             InverseGaussian,
             NegativeBinomial,
             Tweedie,
+            LogLink,
+            InversePowerLink,
         )
 
         if self.loss == "logistic":
@@ -708,22 +710,29 @@ class PenalizedGeneralizedLinearModel(
         elif self.loss == "poisson":
             fam = Poisson()
         elif self.loss == "gamma":
-            fam = Gamma()
+            link = getattr(getattr(self, "_loss", None), "link", None)
+            if link is None:
+                loss_kwargs = getattr(self, "loss_kwargs", None) or {}
+                link = loss_kwargs.get("link", getattr(self, "link", "log"))
+            if link == "log":
+                fam = Gamma(link=LogLink())
+            elif link == "inverse_power":
+                fam = Gamma(link=InversePowerLink())
+            else:
+                raise ValueError("Gamma link must be 'log' or 'inverse_power'.")
         elif self.loss == "inverse_gaussian":
             fam = InverseGaussian()
         elif self.loss == "negative_binomial":
-            alpha = getattr(
-                getattr(self, "_loss", None),
-                "alpha",
-                getattr(self, "loss_kwargs", {}).get("alpha", 1.0),
-            )
+            alpha = getattr(getattr(self, "_loss", None), "alpha", None)
+            if alpha is None:
+                loss_kwargs = getattr(self, "loss_kwargs", None) or {}
+                alpha = loss_kwargs.get("alpha", getattr(self, "alpha_nb", 1.0))
             fam = NegativeBinomial(alpha=alpha)
         elif self.loss == "tweedie":
-            power = getattr(
-                getattr(self, "_loss", None),
-                "power",
-                getattr(self, "loss_kwargs", {}).get("power", 1.5),
-            )
+            power = getattr(getattr(self, "_loss", None), "power", None)
+            if power is None:
+                loss_kwargs = getattr(self, "loss_kwargs", None) or {}
+                power = loss_kwargs.get("power", getattr(self, "power", 1.5))
             fam = Tweedie(power=power)
         elif self.loss in ("quantile", "huber", "bisquare", "fair"):
             # Robust/quantile losses use identity link (linear predictor)

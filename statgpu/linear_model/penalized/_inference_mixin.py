@@ -17,6 +17,36 @@ if TYPE_CHECKING:
     from ._base import PenalizedGeneralizedLinearModel as _Self
 
 
+class _OracleObservedHessianLoss:
+    """Use observed score derivatives for CPU oracle sandwich covariance.
+
+    Inverse Gaussian and negative binomial solvers use Fisher curvature in
+    ``hessian``. Their HC0/HC1 bread instead needs the observed derivative of
+    the fitted estimating equation. Delegate every other loss operation so
+    this inference-only adapter cannot change solver or nonrobust behavior.
+    """
+
+    def __init__(self, loss):
+        self._loss = loss
+
+    def __getattr__(self, name):
+        return getattr(self._loss, name)
+
+    def hessian(self, X, y, coef, sample_weight=None):
+        mu = self._loss._mu_from_eta(X @ coef)
+        if self._loss.name == "inverse_gaussian":
+            curvature = (2.0 * y - mu) / mu ** 2
+        elif self._loss.name == "negative_binomial":
+            alpha = self._loss.alpha
+            curvature = mu * (1.0 + alpha * y) / (1.0 + alpha * mu) ** 2
+        else:
+            return self._loss.hessian(X, y, coef, sample_weight=sample_weight)
+        if sample_weight is not None:
+            curvature = curvature * sample_weight
+        n_eff = float(sample_weight.sum()) if sample_weight is not None else X.shape[0]
+        return X.T @ (X * curvature[:, None]) / n_eff
+
+
 class _PenalizedInferenceMixin:
 
     def _gaussian_fit_state(self, X, y, sample_weight=None):
@@ -1103,152 +1133,191 @@ class _PenalizedInferenceMixin:
         self._inference_result.apply_to(self)
 
     def _compute_oracle_inference(self, X, y, sample_weight=None):
-        """Oracle active-set inference for SCAD/MCP.
+        """Refit the selected SCAD/MCP support without regularization on CPU.
 
-        The intended target is an unpenalized active-set refit. Current
-        constructor introspection can drop family parameters and retain
-        default regularization in non-Gaussian child models, so those results
-        must not be treated as inference for the requested target. The public
-        interface rejects GPU parents, but child device selection is auto.
-        Explicit diagnostic refits must preserve family settings and device;
-        ordinary intervals still do not adjust for data-driven selection.
+        Family parameters, effective intercept, and analytic sample weights
+        match the fitted model. The normal-reference intervals condition on
+        the selected support; they do not adjust for data-driven selection.
+        Numerical work uses float64 and results are reported as NumPy arrays.
         """
-        import numpy as np
-        from statgpu.backends import _to_numpy, _resolve_backend
-        from statgpu.backends._utils import _get_xp, xp_asarray, xp_ones
-        from statgpu.inference._sandwich import m_estimation_inference, _infer_covariance_convention
+        import inspect
+        import warnings
+        from statgpu.solvers._convergence import ConvergenceWarning
+        from statgpu.backends import _resolve_backend
+        from statgpu.inference._sandwich import (
+            m_estimation_inference, _infer_covariance_convention,
+        )
         from statgpu.inference._results import ParameterInferenceResult
-
-        backend = _resolve_backend("auto", X)
-        xp = _get_xp(backend)
-
-        X_arr = xp_asarray(X, dtype=xp.float64, xp=xp)
-        y_arr = xp_asarray(y, dtype=xp.float64, xp=xp).ravel()
-        coef_arr = xp_asarray(self.coef_, dtype=xp.float64, xp=xp)
-        n, p = X_arr.shape
-
-        # Active set
-        active = xp.abs(coef_arr) > 1e-10
-        n_active = int(xp.sum(active))
-
-        active_cpu = np.asarray(_to_numpy(active))
-        n_active = int(np.sum(active_cpu))
-        coef_cpu = np.asarray(_to_numpy(coef_arr))
-
-        if n_active == 0:
-            full_p = p + (1 if self._effective_intercept else 0)
-            self._params = np.concatenate([[self.intercept_], coef_cpu]) if self._effective_intercept else coef_cpu.copy()
-            self._bse = np.full(full_p, np.nan)
-            self._zvalues = np.full(full_p, np.nan)
-            self._pvalues = np.full(full_p, np.nan)
-            self._conf_int = np.full((full_p, 2), np.nan)
-            self._inference_result = ParameterInferenceResult(
-                method="oracle", params=self._params.copy(), bse=self._bse.copy(),
-                statistic=self._zvalues.copy(), statistic_name="z",
-                pvalues=self._pvalues.copy(), conf_int=self._conf_int.copy(),
-                distribution="normal", metadata={"n_active": 0, "active_set": []})
-            self._inference_result.apply_to(self)
-            return
-
-        # Convert to CPU for refit (model constructors expect numpy)
-        X_cpu = np.asarray(_to_numpy(X_arr), dtype=float)
-        y_cpu = np.asarray(_to_numpy(y_arr), dtype=float).ravel()
-
+        from statgpu.linear_model.wrappers._linear import LinearRegression
+        from statgpu.linear_model.wrappers._logistic import LogisticRegression
         from statgpu.linear_model.wrappers._poisson import PoissonRegression
         from statgpu.linear_model.wrappers._gamma import GammaRegression
         from statgpu.linear_model.wrappers._inverse_gaussian import InverseGaussianRegression
         from statgpu.linear_model.wrappers._negative_binomial import NegativeBinomialRegression
         from statgpu.linear_model.wrappers._tweedie import TweedieRegression
-        from statgpu.linear_model.wrappers._linear import LinearRegression
 
-        _MODEL_MAP = {
-            "squared_error": LinearRegression, "poisson": PoissonRegression,
-            "logistic": None, "gamma": GammaRegression,
+        backend = getattr(self, "_selected_backend_name", None)
+        if backend is None:
+            backend = _resolve_backend("auto", X)
+        if backend != "numpy":
+            raise NotImplementedError(
+                "SCAD/MCP oracle inference requires a CPU active-set refit. "
+                "Use device='cpu'; GPU/Torch fits are not silently moved to CPU."
+            )
+
+        model_classes = {
+            "squared_error": LinearRegression,
+            "logistic": LogisticRegression,
+            "poisson": PoissonRegression,
+            "gamma": GammaRegression,
             "inverse_gaussian": InverseGaussianRegression,
-            "negative_binomial": NegativeBinomialRegression, "tweedie": TweedieRegression}
-        model_cls = _MODEL_MAP.get(self.loss)
-        if model_cls is None:
-            if self.loss == "logistic":
-                from statgpu.linear_model.wrappers._logistic import LogisticRegression as LR
-                model_cls = LR
+            "negative_binomial": NegativeBinomialRegression,
+            "tweedie": TweedieRegression,
+        }
+        if self.loss not in model_classes:
+            raise NotImplementedError(
+                f"Oracle inference is not implemented for loss={self.loss!r}."
+            )
+        model_cls = model_classes[self.loss]
+
+        X_cpu = np.asarray(_to_numpy(X), dtype=np.float64)
+        y_cpu = np.asarray(_to_numpy(y), dtype=np.float64).ravel()
+        coef_cpu = np.asarray(_to_numpy(self.coef_), dtype=np.float64)
+        sw_cpu = (
+            None if sample_weight is None
+            else np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
+        )
+        n, p = X_cpu.shape
+        active = np.abs(coef_cpu) > 1e-10
+        n_active = int(np.sum(active))
+        offset = int(self._effective_intercept)
+        full_p = p + offset
+        if (not n_active and not offset and self.loss == "gamma"
+                and self._loss.link == "inverse_power"):
+            raise ValueError(
+                "Oracle refitting requires a positive inverse-link predictor "
+                "for Gamma regression; empty support without an intercept "
+                "cannot define a finite mean."
+            )
+        params = (
+            np.concatenate([[self.intercept_], coef_cpu])
+            if offset else coef_cpu.copy()
+        )
+        bse = np.full(full_p, np.nan)
+        statistic = np.full(full_p, np.nan)
+        pvalues = np.full(full_p, np.nan)
+        conf_int = np.full((full_p, 2), np.nan)
+        metadata = {
+            "n_active": n_active,
+            "active_set": active.tolist(),
+            "covariance_convention": _infer_covariance_convention(self._cov_type, False),
+            "numerical_backend": "numpy",
+            "numerical_device": "cpu",
+            "numerical_dtype": "float64",
+            "reporting_backend": "numpy",
+            "reporting_boundary": "post_numerical_inference",
+            "refit_penalty": "none",
+            "selection_adjusted": False,
+        }
+
+        # No selected slopes still defines an intercept-only model. Only an
+        # empty support without an intercept has no coefficient to refit.
+        if n_active or offset:
+            X_active = X_cpu[:, active]
+            intercept_only = n_active == 0
+            X_refit = np.ones((n, 1), dtype=np.float64) if intercept_only else X_active
+            kwargs = {
+                "fit_intercept": bool(offset) and not intercept_only,
+                "device": "cpu",
+                "compute_inference": False,
+            }
+            # Runtime constructors are wrapped for cloning/API compatibility.
+            # inspect.signature honors that public contract; co_varnames only
+            # sees a wrapper's *args/**kwargs and silently loses these controls.
+            signature = inspect.signature(model_cls)
+            if self.loss != "squared_error":
+                # In these wrappers C=0 is the exact unpenalized convention.
+                # A large finite C is still penalized, and positive-C IRLS has
+                # different semantics from an explicit smooth solver.
+                kwargs.update(
+                    C=0.0,
+                    solver="irls" if self.loss in ("logistic", "poisson") else "newton",
+                )
+                kwargs.update(max_iter=self.max_iter, tol=self.tol)
+            family_kwargs = {}
+            if self.loss == "gamma":
+                family_kwargs["link"] = self._loss.link
+            elif self.loss == "negative_binomial":
+                family_kwargs["alpha"] = self._loss.alpha
+            elif self.loss == "tweedie":
+                family_kwargs["power"] = self._loss.power
+            kwargs.update(family_kwargs)
+            signature.bind(**kwargs)
+            refit = model_cls(**kwargs)
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("error", ConvergenceWarning)
+                    refit.fit(X_refit, y_cpu, sample_weight=sw_cpu)
+            except ConvergenceWarning as exc:
+                raise RuntimeError(
+                    "The unpenalized oracle refit did not converge. "
+                    "Review max_iter, tol, and the selected design."
+                ) from exc
+            if getattr(refit, "converged_", True) is False:
+                raise RuntimeError(
+                    "The unpenalized oracle refit did not converge. "
+                    "Review max_iter, tol, and the selected design."
+                )
+
+            if intercept_only:
+                X_design = X_refit
+                params_active = np.asarray(refit.coef_, dtype=np.float64)
+            elif offset:
+                X_design = np.column_stack([np.ones(n), X_active])
+                params_active = np.concatenate([[refit.intercept_], refit.coef_])
             else:
-                raise NotImplementedError(f"Oracle inference not implemented for loss='{self.loss}'")
+                X_design = X_active
+                params_active = np.asarray(refit.coef_, dtype=np.float64)
 
-        X_active = X_cpu[:, active_cpu]
-        kwargs = {"fit_intercept": self._effective_intercept}
-        loss_kwargs = getattr(self, 'loss_kwargs', None) or {}
-        # Pass through loss-specific kwargs with correct parameter names
-        if self.loss == "negative_binomial" and "alpha" in model_cls.__init__.__code__.co_varnames:
-            kwargs["alpha"] = loss_kwargs.get("alpha", 1.0)
-        elif self.loss == "gamma" and "link" in model_cls.__init__.__code__.co_varnames:
-            kwargs["link"] = loss_kwargs.get("link", "log")
-        elif self.loss == "tweedie" and "power" in model_cls.__init__.__code__.co_varnames:
-            kwargs["power"] = loss_kwargs.get("power", 1.5)
-        elif loss_kwargs and "loss_kwargs" in model_cls.__init__.__code__.co_varnames:
-            kwargs["loss_kwargs"] = loss_kwargs
-        if self.loss == "logistic" and "C" in model_cls.__init__.__code__.co_varnames:
-            kwargs["C"] = 1e9
-        # Oracle refits use Newton solver for accuracy and consistency
-        if "solver" in model_cls.__init__.__code__.co_varnames:
-            kwargs["solver"] = "newton"
-        # Oracle refit runs on CPU with numpy arrays
-        sw_cpu = None
-        if sample_weight is not None:
-            sw_cpu = np.asarray(_to_numpy(sample_weight), dtype=float).ravel()
-        refit = model_cls(**kwargs)
-        refit.fit(X_active, y_cpu, sample_weight=sw_cpu)
+            # Use the parent's resolved loss, so the estimating equation and
+            # covariance necessarily share its family/link/dispersion/power.
+            inference_loss = self._loss
+            if (self._cov_type in ("hc0", "hc1")
+                    and self.loss in ("inverse_gaussian", "negative_binomial")):
+                inference_loss = _OracleObservedHessianLoss(inference_loss)
+            result = m_estimation_inference(
+                inference_loss, X_design, y_cpu, params_active,
+                cov_type=self._cov_type, sample_weight=sw_cpu,
+            )
+            active_idx = np.flatnonzero(active) + offset
+            if offset:
+                active_idx = np.concatenate([[0], active_idx])
+            params[active_idx] = params_active
+            bse[active_idx] = np.asarray(result["bse"])
+            statistic[active_idx] = np.asarray(result["statistic"])
+            pvalues[active_idx] = np.asarray(result["pvalues"])
+            conf_int[active_idx] = np.asarray(result["conf_int"])
+            metadata.update(
+                refit_model=model_cls.__name__,
+                refit_solver=kwargs.get("solver", "least_squares"),
+                refit_family_parameters=family_kwargs,
+                dispersion=result["dispersion"],
+            )
 
-        # Sandwich on refit — use backend-aware m_estimation_inference
-        if self._effective_intercept:
-            X_design = np.column_stack([np.ones(n), X_active])
-            params_active = np.concatenate([[refit.intercept_], refit.coef_])
-        else:
-            X_design = X_active
-            params_active = np.asarray(refit.coef_)
-
-        loss_obj = refit._resolve_loss_for_inference() if hasattr(refit, '_resolve_loss_for_inference') else self._loss
-        result = m_estimation_inference(
-            loss_obj, X_design, y_cpu, params_active,
-            cov_type=self._cov_type, sample_weight=sw_cpu)
-
-        # Map back to full parameter space.
-        # Inactive features keep their original penalized coefficient values
-        # (not NaN), matching the pre-refactor behavior for summary().
-        full_p = p + (1 if self._effective_intercept else 0)
-        offset = 1 if self._effective_intercept else 0
-        # Start from original penalized params, override active with refit
-        self._params = coef_cpu.copy()
-        if self._effective_intercept:
-            self._params = np.concatenate([[self.intercept_], self._params])
-        self._bse = np.full(full_p, np.nan)
-        self._zvalues = np.full(full_p, np.nan)
-        self._pvalues = np.full(full_p, np.nan)
-        self._conf_int = np.full((full_p, 2), np.nan)
-        active_idx = np.where(active_cpu)[0] + offset
-        self._params[active_idx] = params_active[offset:]
-        self._bse[active_idx] = np.asarray(result["bse"])[offset:]
-        self._zvalues[active_idx] = np.asarray(result["statistic"])[offset:]
-        self._pvalues[active_idx] = np.asarray(result["pvalues"])[offset:]
-        self._conf_int[active_idx] = np.asarray(result["conf_int"])[offset:]
-        if self._effective_intercept:
-            self._params[0] = params_active[0]
-            self._bse[0] = np.asarray(result["bse"])[0]; self._zvalues[0] = np.asarray(result["statistic"])[0]
-            self._pvalues[0] = np.asarray(result["pvalues"])[0]; self._conf_int[0] = np.asarray(result["conf_int"])[0]
-
+        # Preserve penalized inactive point estimates, while leaving their
+        # uncertainty undefined. Prediction coefficients remain unchanged.
         self._inference_result = ParameterInferenceResult(
             method="oracle",
-            params=self._params.copy(),
-            bse=self._bse.copy(),
-            statistic=self._zvalues.copy(),
+            params=params,
+            bse=bse,
+            statistic=statistic,
             statistic_name="z",
-            pvalues=self._pvalues.copy(),
-            conf_int=self._conf_int.copy(),
+            pvalues=pvalues,
+            conf_int=conf_int,
+            cov_type=self._cov_type,
             distribution="normal",
-            metadata={
-                "n_active": n_active,
-                "active_set": active.tolist() if hasattr(active, 'tolist') else list(active),
-                "covariance_convention": _infer_covariance_convention(self._cov_type, False),
-            },
+            feature_names=self._inference_feature_names(),
+            metadata=metadata,
         )
         self._inference_result.apply_to(self)
 

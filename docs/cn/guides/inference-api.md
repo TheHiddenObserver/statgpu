@@ -1,7 +1,7 @@
 # 推断 API 参考
 
 > 语言：中文  
-> 最后更新：2026-10-12\
+> 最后更新：2026-10-17\
 > 模块：`statgpu.inference`  
 > 切换：[English](../../en/guides/inference-api.md)
 
@@ -134,8 +134,8 @@ permutation_test(
 ```
 
 - 在批量计算路径下，`force_vectorized=True` 会拒绝不兼容的首次试调用，但后续批次仍可能退回逐次调用。回调应处理所有批次大小，包括最后只有一行的批次；该标志不保证绝不回退。由于正式逐次计算前可能先作批量试调用，回调应避免副作用。
-- `statistic_hint="mean"` 加速一个一维数组的 bootstrap 均值。矩阵数据请省略该提示。`"pearson_corr"` 加速置换相关系数，此时 X 须为 `(n,)` 或 `(n, 1)`。原始样本回调必须计算同一统计量，提示不会自动核实两者是否等价。
-- 当前整群 bootstrap 仅在群组等大小时保留完整群组。不等大小群组可能被截断，因此不能把所得区间用于整群推断。组内置换则是在各组内重排响应，没有这种截断行为。
+- `statistic_hint="mean"` 加速恰好一个一维数组的 bootstrap 均值，也支持不等大小群组。矩阵或多个数组使用此提示会抛出 `ValueError`；自定义标量统计量请省略该提示。`"pearson_corr"` 加速置换相关系数，此时 X 须为 `(n,)` 或 `(n, 1)`。原始样本回调必须计算同一统计量，提示不会自动核实两者是否等价。
+- 整群 bootstrap 按原始群组数有放回地抽取群组，并拼接完整群组，保留组内行顺序及各数组间的对应关系。不等大小群组会产生不同的重采样行数，回调逐次接收样本，不会先作批量试调用。此时设置 `force_vectorized=True` 会抛出 `ValueError`，唯一例外是为恰好一个一维数组设置 `statistic_hint="mean"`。组内置换则在每个组内重排响应，不进行整群重抽样。
 - `observed` 和每个重采样统计量都必须有限。百分位区间的含义取决于所选统计量和重采样方案；增加 `n_resamples` 既不能证明方案有效，也不能消除估计偏差。
 
 例如，对矩阵的总体均值作 bootstrap 时，省略快速计算提示，就能按整行重采样：
@@ -154,11 +154,31 @@ print(result.observed, result.samples.shape)
 
 输出为 `5.5 (99,)`。每次重采样都有放回地抽取完整行，因此同一行的两个测量值始终成对保留。
 
+对不等大小群组，下面的每次重抽样都选取三个完整群组。群组可能重复入选或未被选中，因此总行数可以变化：
+
+<!-- api-example: module-cluster -->
+```python
+import numpy as np
+from statgpu.inference import bootstrap_statistic
+
+values = np.array([0.0, 10.0, 12.0, 20.0, 22.0, 24.0])
+clusters = np.array([0, 1, 1, 2, 2, 2])
+result = bootstrap_statistic(
+    np.mean, values, strategy="cluster", clusters=clusters,
+    n_resamples=99, random_state=7, backend="numpy",
+)
+print(result.samples.shape)
+print(result.metadata["clusters_per_resample"])
+print(result.metadata["variable_sample_size"])
+```
+
+输出为 `(99,)`、`3` 和 `True`。`samples` 每次只保存一个均值，不保存重抽样的各行。群组元数据还包含 `resampling_unit="cluster"` 和 `n_clusters=3`；`n_samples=6` 表示原始数据的行数。本例对抽到的所有行求均值，所以较大群组贡献更多观测；如果研究目标要求各群组等权，应另行定义统计量。
+
 <a id="validate-resampling-labels-before-calling"></a>
 
 ## 调用前验证重采样标签
 
-使用 `strata`、`clusters` 或 `groups` 时，每行都应有一个非缺失标签。当前实现并不总会拒绝 NaN 标签：按相等关系分组时，这些行会被遗漏，部分批次元素可能没有初始化。因此，调用可能返回数值有限却无效的统计量，也可能触发索引错误。p 值或区间有限，并不能证明标签有效。
+使用 `strata`、`clusters` 或 `groups` 时，每行都应有一个非缺失标签。整群 bootstrap 遇到缺失群组标签会抛出 `ValueError`。分层重采样和组内置换仍不一定拒绝 NaN 标签：按相等关系分组时，这些行会被遗漏，部分批次元素可能没有初始化。这些调用可能返回数值有限却无效的统计量，也可能触发索引错误。p 值或区间有限，并不能证明标签有效。
 
 若使用数值编码，可以在重采样前显式验证标签：
 
@@ -188,7 +208,7 @@ result = permutation_test(
 print(result.observed, result.pvalue)
 ```
 
-相关系数约为 `0.903`，置换 p 值介于 0 和 1 之间。该检验要求零假设下响应在**指定的各组内部可交换**。辅助函数会拒绝 NaN、无穷编码和不正确的标签形状，但不会判断分组是否有统计意义。应从数据来源补齐缺失的组别，或明确采用合适的缺失数据处理方案，不要仅为运行计算而把所有未知身份归入一个人为群组。bootstrap 的分层和群组标签同样需要检查；不等大小群组的限制仍然适用。
+相关系数约为 `0.903`，置换 p 值介于 0 和 1 之间。该检验要求零假设下响应在**指定的各组内部可交换**。辅助函数会拒绝 NaN、无穷编码和不正确的标签形状，但不会判断分组是否有统计意义。应从数据来源补齐缺失的组别，或明确采用合适的缺失数据处理方案，不要仅为运行计算而把所有未知身份归入一个人为群组。bootstrap 的分层和群组标签同样需要检查；群组大小可以不同。
 
 `alternative="two-sided"` 统计满足 `abs(resampled) >= abs(observed)` 的次数，并作加一修正。因此应选择以零为原假设参照点、绝对值能够衡量极端程度的统计量，例如检验零相关时的相关系数。工具不会自动把统计量中心化，也不会为不对称的零假设分布构造等尾检验。若事先指定了单向备择假设，应相应使用 `"greater"` 或 `"less"`。
 

@@ -1,9 +1,36 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-10-15<br>
+> 最后更新：2026-10-17<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
+
+## 未发布 — v0.3.0 数值行为修复（2026-10-17）
+
+### 修复（2026-10-17）
+
+- **RidgeCV 自定义训练行（#243）**：
+  - 原无权重折统计量优化即使收到较小的训练子集，也可能把验证集补集当作训练行。现在无论是否提供样本权重，都严格使用指定的训练与验证行，支持空窗、隔离期以及未覆盖全部观测的验证集。
+  - 索引必须是一维、非空、范围内的整数；每个子集内不得重复，训练与验证之间不得重叠。即使不足四行或只有一个 alpha 候选，显式划分也会计算评分；仍要求 `cv>=2`，但实际数据折以显式划分为准。每个训练子集和验证子集的权重总量都须为正，单个观测的权重仍可为零。只有各训练集确为相应验证集补集，且各验证集恰好划分全部行时，才复用全数据统计量减去验证集统计量的计算方式。所选模型仍在传给 `fit` 的全部行上重拟合。
+  - 实现与回归覆盖：`statgpu/linear_model/cv/_ridge_cv.py`、`dev/tests/test_issue243_ridge_custom_folds.py`，以及 `dev/tests/test_pr168_linear_cycle7.py` 中独立的解析折损失对照。
+- **SCAD/MCP 无惩罚 oracle 重拟合（#227）**：
+  - 原构造过程会遗漏分布族参数，并可能保留默认正则化或选择非预期设备。非高斯 oracle 现在明确使用 `C=0`，保留已拟合的 Gamma 链接、负二项离散参数及 Tweedie 幂参数，传递收敛控制，并显式在 CPU 上重拟合：logistic/Poisson 使用 IRLS，其他受支持的非高斯分布族使用 Newton。
+  - 预测与评分也使用拟合时的负二项/Tweedie 分布族参数，正确处理具体估计器的默认参数及显式覆盖；Gamma 预测遵循拟合时的逆链接或 log 链接。预测仍使用惩罚系数。
+  - adaptive-L1 初始化使用相同的负二项/Tweedie 分布族参数，包括具体估计器的默认参数与显式覆盖。负二项和逆高斯 oracle 的 HC0/HC1 协方差现在用观测 Hessian 构造三明治协方差的两侧矩阵；非稳健协方差仍采用 Fisher 信息，HC1 仍按原始观测数进行有限样本校正，其中包括零权重行。
+  - 子模型未收敛时，在返回 oracle 系数表之前抛出 `RuntimeError`。没有入选斜率但包含截距时，重新拟合仅含截距的模型；无截距的空逆链接 Gamma 模型则被拒绝。预测仍使用惩罚系数，未选中系数的不确定性仍为 `NaN`，普通正态参考区间不校正选择不确定性。Oracle 推断仍仅支持 CPU。
+  - 实现与回归覆盖：`statgpu/linear_model/penalized/_inference_mixin.py`、具体负二项/Tweedie 估计器的分布族参数解析，以及 `dev/tests/test_issue227_oracle_refit_contract.py`。
+- **完整群组 bootstrap（#199）**：
+  - 原先按累计行数停止抽样的规则可能截断群组。现在每次按原始群组数有放回地抽样，并拼接完整群组，保持不同数组之间的行对应关系。不等大小群组产生不同的重采样行数，回调逐次接收样本，不作批量试调用；等大小群组的稠密抽样与固定种子行为保持不变。
+  - 不等大小群组使用 `force_vectorized=True` 会报错，唯一例外是为恰好一个一维数组设置 `statistic_hint="mean"`。缺失群组标签抛出 `ValueError`；分层或组内置换标签的独立限制仍然保留。元数据增加 `resampling_unit`、`n_clusters`、`clusters_per_resample` 和 `variable_sample_size`。
+  - 实现与回归覆盖：`statgpu/inference/_resampling.py`、`dev/tests/test_issue199_whole_cluster_bootstrap.py`，以及可执行的中英文重采样示例。
+- **LinearRegression 评分形状（#178）**：
+  - 原先单列响应与一维预测相减时，可能静默广播成残差矩阵。现在单目标评分等价地接受 `(n,)` 或 `(n,1)`；真正的多目标响应必须与预测形状完全一致。行数或目标维度不匹配时，在所选后端计算残差之前抛出 `ValueError`。
+  - 公式预测仍会删除存在缺失值的查询行；评分遇到缩短的预测与完整响应时会报错，不再广播。常数目标仍返回 0，多目标评分仍为各目标 R² 的均值。
+  - 实现与回归覆盖：`statgpu/linear_model/wrappers/_linear.py`、`dev/tests/test_issue178_linear_score_shape.py`、单列响应学习示例，以及 `dev/tests/test_pr168_linear_cycle8.py` 中的公式评分回归。
+
+### 验证（2026-10-17）
+
+- 补充针对性的数值与文档回归，不放宽独立对照或数值容差。仅把已修复的 oracle、RidgeCV 训练子集及公式评分案例从预期失败改为正常测试；其他预测与数值限制仍单独保留。物理 CUDA 检查仅在硬件可用时运行；CPU 执行不代表物理 GPU 验证或性能结果。
 
 ## 未发布 — 多重检验的 Torch 设备处理（PR #171）
 

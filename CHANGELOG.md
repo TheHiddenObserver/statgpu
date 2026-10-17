@@ -2,6 +2,14 @@
 
 All notable changes to statgpu are documented here, organized by release and date.
 
+## Unreleased — 2026-10-17
+
+### Fixed four numerical contracts for v0.3.0
+- Fixed #243 RidgeCV to honor exact custom training subsets with or without weights, validate fold indices and positive per-subset weight totals, score explicit tiny/single-candidate folds, and restrict full-minus-validation reuse to genuinely complementary folds with complete validation coverage.
+- Fixed #227 SCAD/MCP oracle reconstruction to use exact unpenalized CPU refits with preserved family parameters and convergence controls; preserved fitted family settings in prediction/scoring and adaptive-L1 initialization, corrected Gamma inverse-link predictions, and used observed-Hessian NB/inverse-Gaussian HC0/HC1 covariance while retaining nonrobust Fisher covariance; rejected non-converged refits and retained selection-conditional uncertainty.
+- Fixed #199 cluster bootstrap to draw the original number of complete clusters with replacement, allow variable sample sizes, and report cluster metadata without truncating groups.
+- Fixed #178 LinearRegression scoring to normalize single-column responses and reject incompatible row/target shapes before residual arithmetic, including formula-shortened predictions; retained constant-target score semantics.
+
 ## Unreleased — 2026-10-15
 
 ### PR #171 — Preserved multiple-testing Torch devices

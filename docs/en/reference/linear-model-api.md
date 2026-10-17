@@ -1,7 +1,7 @@
 # Linear-model API reference
 
 > Language: English  
-> Last updated: 2026-10-14  
+> Last updated: 2026-10-17  
 > Switch: [Chinese](../../cn/reference/linear-model-api.md)
 
 Classes here import from `statgpu` or `statgpu.linear_model`, except `SCADRegression` and `MCPRegression`, which are exported only by `statgpu.linear_model`. `X` is finite numeric `(n,p)` data; prediction uses the fitted feature order. Analytic weights are a finite nonnegative `(n,)` vector with positive sum. For weights after formula row filtering, see [formula inputs](#formula-inputs). Explicit GPU use requires the corresponding installed CUDA backend; see [device and memory](../guides/device-and-memory.md).
@@ -30,7 +30,7 @@ LinearRegression(fit_intercept=True, device='auto', n_jobs=None, compute_inferen
 | Method/result | Contract |
 |---|---|
 | `predict(X)` | `(m,)` for one target or `(m,t)` for multiple targets; NumPy on CPU, native supported GPU array on GPU. Formula-fitted models also accept a prediction DataFrame, but missing predictors can silently shorten the output; see the missing-row warning below. The device is resolved again at prediction; use an explicit device if later global-device changes must not change output placement. |
-| `score(X,y)` | Unweighted R²; averages individual target R² in multi-output. No `sample_weight` argument. Pass one-dimensional single-target `y`: a column-shaped response currently broadcasts incorrectly. Constant targets receive 0 rather than a meaningful explained-variance interpretation. |
+| `score(X,y)` | Unweighted R²; averages individual target R² in multi-output. No `sample_weight` argument. Single-target `y` accepts `(n,)` or `(n,1)` with identical results. Multi-target `y` must match the prediction shape exactly; incompatible rows or target dimensions raise `ValueError` before residual arithmetic. Constant targets receive 0 rather than a meaningful explained-variance interpretation. |
 | `summary()` | Prints a single-output table; returns `None`. Requires successful inference and positive residual degrees of freedom. |
 | `coef_`, `intercept_`, `rank_` | Shapes `(p,)`/scalar, or `(t,p)`/`(t,)`; `rank_` is fitted design rank. |
 | `rsquared`, `rsquared_adj` | Training R² (using fitted weights; pooled for multi-output) and residual-DoF adjustment. These are distinct from held-out `score`. |
@@ -416,10 +416,11 @@ and transformations first, and verify `len(prediction) == len(query)` before
 associating outputs with observations. If filtering deliberately, retain the
 filtered DataFrame's index and predict on that filtered frame explicitly.
 Training-time row filtering and its weight alignment are separate behavior.
-`LinearRegression.score` can also broadcast a single retained prediction over
-several evaluation responses, returning an invalid finite R². The flattening
-advice for single-column y does not fix this row-dropping issue; check formula
-prediction rows before scoring. In contrast, formula-fitted `Lasso`, `ElasticNet`,
+`LinearRegression.score` raises `ValueError` when shortened predictions and
+evaluation responses have incompatible row counts, before residual arithmetic.
+It does not broadcast a retained prediction over the full response or restore
+missing predictions. Check formula prediction rows and align any deliberately
+filtered response before scoring. In contrast, formula-fitted `Lasso`, `ElasticNet`,
 `Ridge`, `SCADRegression`, `MCPRegression`, `PenalizedLinearRegression`,
 `PenalizedLogisticRegression` and `PenalizedPoissonRegression` raise `ValueError`
 when missing formula predictors would drop prediction DataFrame rows. Their numeric
@@ -622,8 +623,8 @@ RidgeCV(alphas=None, n_alphas=100, alpha_min_ratio=0.001, cv=5, cv_splits=None, 
 | `alphas` | `None` | Explicit positive finite candidates; omitted: generate a data-dependent grid. Invalid/nonpositive entries are filtered; an empty surviving grid falls back to automatic generation. |
 | `n_alphas` | `100` | Automatic grid size when alphas is omitted. |
 | `alpha_min_ratio` | `0.001` | Minimum/maximum ratio for the automatic grid; choose a positive value normally no greater than 1. |
-| `cv` | `5` | Generated shuffled K-fold count, at least 2. |
-| `cv_splits` | `None` | Explicit reusable list of (train_indices, validation_indices); validate nonempty disjoint integer subsets yourself. See the [custom-training support boundary](#custom-ridgecv-training-subsets). |
+| `cv` | `5` | Generated shuffled K-fold count; must be at least 2 even when `cv_splits` is supplied. Explicit splits determine the actual folds. |
+| `cv_splits` | `None` | Explicit reusable list of (train_indices, validation_indices); each subset must contain nonempty, one-dimensional, integral, in-bounds, unique indices, with no train/validation overlap. Invalid splits raise `ValueError`. See the [custom-training contract](#custom-ridgecv-training-subsets). |
 | `fit_intercept` | `True` | Fit an intercept in CV and final refit. |
 | `device` | `'auto'` | cpu, cuda (CuPy), torch (Torch CUDA), auto; explicit unavailable GPU requests raise. |
 | `n_jobs` | `None` | Shared worker configuration; no candidate-parallelism guarantee. |
@@ -655,23 +656,46 @@ The [large-offset caution](../models/regression/ridge.md#large-feature-offsets) 
 when interpreting this final Ridge fit.
 
 Generated folds are shuffled K-fold, not grouped, stratified or time-aware.
-Use reusable explicit index-pair lists for a chosen design and validate them
-before fitting; caller-side validation is necessary, not implied by acceptance.
-Each relevant weighted fold needs positive weight mass. Fit learned preprocessing
-inside each training fold, using an external CV loop when needed. Use at least
-four observations, two candidates and two folds for an actual tuning comparison;
-small/single-candidate paths can simply refit and report NaN losses/best_score_.
+Use reusable explicit index-pair lists for a chosen design. RidgeCV validates
+index shape, type, bounds, uniqueness and train/validation disjointness;
+scientific suitability remains the caller's responsibility.
+Each training and validation subset must have positive total sample weight;
+individual zero weights are allowed. Fit learned preprocessing inside each
+training fold, using an external CV loop when needed. Without explicit
+`cv_splits`, small-data or single-candidate shortcuts may simply refit and
+report NaN losses/best_score_. Explicit splits instead follow the rules below.
 A chosen grid can still miss the useful penalty range.
 
 ### Custom RidgeCV training subsets
 
-When `sample_weight` is omitted and validation sets cover every row exactly once,
-use `RidgeCV` only if each training set is the full complement of its validation
-set, as in ordinary K-fold CV. Smaller training subsets are not reliably honored
-and may produce incorrect validation scores or alpha selection without an error.
-For excluded, gapped or embargoed training rows, use an external CV loop: fit
-`Ridge` on each intended training subset, then evaluate only its designated
-validation rows.
+Each fold fits exactly the supplied training rows and evaluates only its
+designated validation rows, with or without `sample_weight`. Training subsets
+can exclude additional rows, leave gaps, or impose an embargo; validation sets
+need not cover all observations or partition the data.
+
+Explicit `cv_splits` are evaluated even with fewer than four observations or
+one alpha candidate. The constructor still requires `cv>=2`, but explicit
+splits determine the actual folds rather than generating or replacing them.
+A single candidate yields validation scores but does not compare different
+penalties. Each training and validation subset must have positive total sample
+weight, while individual zero weights are allowed; a zero-total-weight subset
+raises `ValueError`.
+
+Both index arrays must be nonempty, one-dimensional, integral and in bounds.
+Repeated indices within either subset and overlap between the training and
+validation subsets raise `ValueError` before fold fitting. These checks do not
+determine whether the split is scientifically appropriate.
+
+Full-data-minus-validation statistics are reused only when every training set
+is the full complement of its validation set and the validation sets cover
+every row exactly once, as in ordinary K-fold CV. Other designs compute each
+fold from its explicitly supplied training subset. This optimization never
+changes the rows used to select alpha.
+
+After selection, the final refit uses all rows supplied to `fit`, including
+rows excluded from individual folds. Fit learned preprocessing within each
+training fold; use an external CV loop when needed to keep preprocessing
+restricted to the intended training rows.
 
 ## LassoCV
 

@@ -1,11 +1,38 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-10-15<br>
+> Last updated: 2026-10-17<br>
 > This page: Release history  
 > Switch: [Chinese](../cn/changelog.md)
 
 This page records user-visible changes for current and recent statgpu releases.
+
+## Unreleased — Numerical contract fixes for v0.3.0 (2026-10-17)
+
+### Fixed (2026-10-17)
+
+- **RidgeCV custom training rows (#243)**:
+  - The unweighted fold-statistics shortcut previously inferred training rows from the validation complement even when callers supplied smaller training subsets. RidgeCV now uses exactly the requested training and validation rows with or without sample weights, including gaps, embargoes, and validation sets that do not cover all observations.
+  - Indices must be nonempty, one-dimensional, integral, in bounds, unique within each subset, and disjoint between training and validation. Explicit folds are scored even with fewer than four rows or one alpha candidate; `cv>=2` remains required, but supplied splits determine the actual folds. Each training and validation subset must have positive total sample weight, while individual zero weights remain allowed. Full-data-minus-validation statistics are reused only when every training set is the actual validation complement and the validation sets partition all rows. The selected model is still refitted on every supplied fit row.
+  - Implementation and regression coverage: `statgpu/linear_model/cv/_ridge_cv.py`, `dev/tests/test_issue243_ridge_custom_folds.py`, and the independent analytic fold-loss checks in `dev/tests/test_pr168_linear_cycle7.py`.
+- **Unpenalized SCAD/MCP oracle refits (#227)**:
+  - Constructor reconstruction previously lost family-specific settings and could retain default regularization or select an unintended device. Non-Gaussian oracle refits now use exactly `C=0`, preserve the fitted Gamma link, negative-binomial dispersion and Tweedie power, forward convergence controls, and explicitly use CPU with IRLS for logistic/Poisson or Newton for the other supported non-Gaussian families.
+  - Prediction and scoring also use the fitted negative-binomial/Tweedie family settings, including typed defaults and explicit overrides; Gamma prediction respects the fitted inverse or log link. Prediction continues to use the penalized coefficients.
+  - Adaptive-L1 initialization uses the same resolved negative-binomial/Tweedie family settings, including typed defaults and explicit overrides. Negative-binomial and inverse-Gaussian oracle HC0/HC1 covariance now uses the observed-Hessian sandwich bread; nonrobust covariance retains Fisher information, and HC1 retains the original observation count, including zero-weight rows.
+  - Child non-convergence raises `RuntimeError` before an oracle table is published. Empty slope support with an intercept receives an intercept-only refit; an empty inverse-link Gamma model without an intercept is rejected. Prediction coefficients remain penalized, inactive uncertainty remains `NaN`, and ordinary normal-reference intervals do not adjust for selection. Oracle inference remains CPU-only.
+  - Implementation and regression coverage: `statgpu/linear_model/penalized/_inference_mixin.py`, the typed negative-binomial/Tweedie family resolvers, and `dev/tests/test_issue227_oracle_refit_contract.py`.
+- **Whole-cluster bootstrap (#199)**:
+  - The previous row-count stopping rule could truncate a sampled cluster. Each resample now draws the original number of clusters with replacement and concatenates whole groups, preserving aligned arrays. Unequal cluster sizes yield variable row counts and scalar callbacks without batch probes; equal-size dense seeded sampling is unchanged.
+  - Unequal-size groups reject `force_vectorized=True` except for `statistic_hint="mean"` on exactly one one-dimensional array. Missing cluster labels raise `ValueError`; the separate stratum/group-label limitations remain. Metadata includes `resampling_unit`, `n_clusters`, `clusters_per_resample`, and `variable_sample_size`.
+  - Implementation and regression coverage: `statgpu/inference/_resampling.py`, `dev/tests/test_issue199_whole_cluster_bootstrap.py`, and executable bilingual resampling examples.
+- **LinearRegression score shapes (#178)**:
+  - Subtracting a column response from one-dimensional predictions could silently broadcast a residual matrix. Single-target scoring now accepts `(n,)` or `(n,1)` equivalently, while genuine multi-target responses must match prediction shape exactly. Incompatible rows or targets raise `ValueError` before residual arithmetic on the selected backend.
+  - Formula prediction still drops missing query rows; scoring now rejects a shortened prediction against the full response rather than broadcasting it. Constant targets retain a score of 0, and multi-target scoring retains the mean of target-wise R² values.
+  - Implementation and regression coverage: `statgpu/linear_model/wrappers/_linear.py`, `dev/tests/test_issue178_linear_score_shape.py`, the column-response learner example, and the formula-score regression in `dev/tests/test_pr168_linear_cycle8.py`.
+
+### Validation (2026-10-17)
+
+- Added focused numerical and documentation regressions without relaxing the independent references or numerical tolerances. Previously expected failures are enabled only for the repaired oracle, RidgeCV-subset, and formula-score cases; unrelated prediction and numerical limitations remain tracked separately. Physical CUDA checks are conditional on available hardware; CPU execution does not establish physical-GPU validation or performance.
 
 ## Unreleased — Multiple-testing Torch devices (PR #171)
 
