@@ -18,10 +18,10 @@
   - 原构造过程会遗漏分布族参数，并可能保留默认正则化或选择非预期设备。非高斯 oracle 现在明确使用 `C=0`，保留已拟合的 Gamma 链接、负二项离散参数及 Tweedie 幂参数，传递收敛控制，并显式在 CPU 上重拟合：logistic/Poisson 使用 IRLS，其他受支持的非高斯分布族使用 Newton。
   - 预测与评分也使用拟合时的负二项/Tweedie 分布族参数，正确处理具体估计器的默认参数及显式覆盖；Gamma 预测遵循拟合时的逆链接或 log 链接。预测仍使用惩罚系数。
   - adaptive-L1 初始化使用相同的负二项/Tweedie 分布族参数，包括具体估计器的默认参数与显式覆盖。负二项和逆高斯 oracle 的 HC0/HC1 协方差现在用观测 Hessian 构造三明治协方差的两侧矩阵；非稳健协方差仍采用 Fisher 信息，HC1 仍按原始观测数进行有限样本校正，其中包括零权重行。
-  - 子模型未收敛时，在返回 oracle 系数表之前抛出 `RuntimeError`。没有入选斜率但包含截距时，重新拟合仅含截距的模型；无截距的空逆链接 Gamma 模型则被拒绝。预测仍使用惩罚系数，未选中系数的不确定性仍为 `NaN`，普通正态参考区间不校正选择不确定性。Oracle 推断仍仅支持 CPU。
+  - 子模型未收敛时，在返回 oracle 系数表之前抛出 `RuntimeError`。对于有效响应全零的 Poisson/负二项/Tweedie，以及有效响应只有一个类别的 logistic，会先检查无惩罚目标是否存在有限解；自由截距可持续改善目标时，抛出 `ValueError`，不再发布虚假的有限不确定性。零权重行不会改变这一边界。无截距时检查入选设计中的方向，保留具有有限目标的合法正负混合设计；边界设计若在数值上无法可靠判定，则明确抛出 `RuntimeError`。这不是一般的分离检测器。没有入选斜率但包含截距时，仅在目标存在有限解时重新拟合仅含截距的模型；无截距的空逆链接 Gamma 模型则被拒绝。预测仍使用惩罚系数，未选中系数的不确定性仍为 `NaN`，普通正态参考区间不校正选择不确定性。Oracle 推断仍仅支持 CPU。
   - 实现与回归覆盖：`statgpu/linear_model/penalized/_inference_mixin.py`、具体负二项/Tweedie 估计器的分布族参数解析，以及 `dev/tests/test_issue227_oracle_refit_contract.py`。
 - **完整群组 bootstrap（#199）**：
-  - 混合字符串序列此前可能在检查前把真正的 NaN 转成字符串 `"nan"`。模块函数与估计器辅助方法现在都会在转换前检查主机标签，覆盖 list、tuple 和 object 数组中的 `None`、NaN、NaT 及 pandas 缺失标量。真正的字符串标签 `"nan"`、`"None"`、`"NaT"` 仍然有效；原生数值后端的分组方式和带种子的重采样不变。回归测试覆盖两个入口、保留类型的 object 数组及合法字符串对照。
+  - 混合字符串序列此前可能在检查前把真正的 NaN 转成字符串 `"nan"`。模块函数与估计器辅助方法现在都会在转换前检查主机标签，覆盖 object 数组，以及 list、tuple、deque、UserList、普通长度与索引协议等受支持主机序列中的 `None`、NaN、NaT 及 pandas 缺失标量。预校验不消费迭代器，也不额外调用自定义数组或设备转换协议，包括通过动态属性提供的数组转换。真正的字符串标签 `"nan"`、`"None"`、`"NaT"` 仍然有效；原生数值后端的分组方式和带种子的重采样不变。回归测试覆盖两个入口、保留类型的 object 数组、合法字符串对照、已接受的序列形式、调用方 dtype/形状保留，以及不变的自定义转换调用次数。
   - 原先按累计行数停止抽样的规则可能截断群组。现在每次按原始群组数有放回地抽样，并拼接完整群组，保持不同数组之间的行对应关系。不等大小群组产生不同的重采样行数，回调逐次接收样本，不作批量试调用；等大小群组的稠密抽样与固定种子行为保持不变。
   - 不等大小群组使用 `force_vectorized=True` 会报错，唯一例外是为恰好一个一维数组设置 `statistic_hint="mean"`。缺失群组标签抛出 `ValueError`；分层或组内置换标签的独立限制仍然保留。元数据增加 `resampling_unit`、`n_clusters`、`clusters_per_resample` 和 `variable_sample_size`。
   - 实现与回归覆盖：`statgpu/inference/_resampling.py`、`dev/tests/test_issue199_whole_cluster_bootstrap.py`，以及可执行的中英文重采样示例。

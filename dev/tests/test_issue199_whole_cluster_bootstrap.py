@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from array import array
+from collections import UserList, UserString, deque
+from collections.abc import Sequence
 from contextlib import nullcontext
 
 import numpy as np
@@ -458,9 +461,36 @@ def test_ragged_nonfinite_callback_rejects_inference():
 # Estimator runtime finite-input validation may reject a missing scalar even
 # earlier than the resampling-specific guard; both errors have the same public
 # ValueError contract. Do not require bypassing that existing validation.
+class _ClusterLabelSequence(Sequence):
+    def __init__(self, values):
+        self.values = values
+
+    def __len__(self):
+        return len(self.values)
+
+    def __getitem__(self, index):
+        return self.values[index]
+
+
+class _LegacyClusterLabelSequence:
+    # NumPy accepts the sequence protocol without Sequence ABC registration.
+    def __init__(self, values):
+        self.values = values
+
+    def __len__(self):
+        return len(self.values)
+
+    def __getitem__(self, index):
+        return self.values[index]
+
+
 _LABEL_CONTAINERS = [
     pytest.param(list, id="list"),
     pytest.param(tuple, id="tuple"),
+    pytest.param(deque, id="deque"),
+    pytest.param(UserList, id="UserList"),
+    pytest.param(_ClusterLabelSequence, id="Sequence"),
+    pytest.param(_LegacyClusterLabelSequence, id="legacy-sequence"),
     pytest.param(lambda x: np.asarray(x, dtype=object), id="object-array"),
 ]
 
@@ -503,12 +533,19 @@ def test_mixed_string_pandas_missing_clusters_rejected(
 ):
     pd = pytest.importorskip("pandas")
     labels = container(["a", "a", getattr(pd, sentinel), "b"])
+    calls = []
+
+    def statistic(values):
+        calls.append(values.shape)
+        return values.mean(axis=-1)
+
     function = (LinearRegression(device="cpu").bootstrap_statistic
                 if use_estimator else bootstrap_statistic)
     with pytest.raises(ValueError, match=("nonmissing label per row|must contain only finite values"
                                           if use_estimator else "nonmissing label per row")):
-        function(np.mean, np.arange(4.), strategy="cluster", clusters=labels,
+        function(statistic, np.arange(4.), strategy="cluster", clusters=labels,
                  n_resamples=9, random_state=4, backend=backend)
+    assert calls == []
 
 
 @pytest.mark.parametrize("container", _LABEL_CONTAINERS + [
@@ -557,3 +594,298 @@ def test_generic_object_array_like_retains_missing_cluster_rejection(
         function(np.mean, np.arange(float(size)), strategy="cluster",
                  clusters=_ObjectClusterArrayLike([missing] * size),
                  n_resamples=9, random_state=4, backend=backend)
+
+
+@pytest.mark.parametrize("make", [
+    pytest.param(lambda: range(4), id="range"),
+    pytest.param(lambda: array("q", [2, 2, 9, 9]), id="array-int64"),
+    pytest.param(lambda: array("d", [2., 2., 9., 9.]), id="array-float64"),
+    pytest.param(lambda: memoryview(array("q", [2, 2, 9, 9])), id="memoryview"),
+])
+@pytest.mark.parametrize("use_estimator", [False, True], ids=["module", "estimator"])
+@pytest.mark.parametrize("backend", ["numpy", "auto"])
+def test_nonmissing_numeric_host_sequences_preserve_cluster_sampling(
+    make, use_estimator, backend,
+):
+    labels = make()
+    before = np.asarray(labels).copy()
+    values = np.array([1., 2., 100., 5.])
+    function = (LinearRegression(device="cpu").bootstrap_statistic
+                if use_estimator else bootstrap_statistic)
+    result = function(np.mean, values, strategy="cluster", clusters=labels,
+                      n_resamples=29, random_state=4, backend=backend)
+    expected = np.array([values[idx].mean() for idx in
+                         _reference_indices(before, 4, 29)])
+    np.testing.assert_array_equal(result.samples, expected)
+    np.testing.assert_array_equal(labels, before)
+    assert np.asarray(labels).dtype == before.dtype
+    assert result.samples.dtype == np.float64
+
+
+@pytest.mark.parametrize("container", [deque, UserList, _LegacyClusterLabelSequence])
+@pytest.mark.parametrize("shape", ["vector", "column", "two-columns"])
+def test_host_cluster_sequence_shape_contract_is_unchanged(container, shape):
+    original = ["a", "a", "b", "b"]
+    values = {"vector": original, "column": [[x] for x in original],
+              "two-columns": [[x, x] for x in original]}[shape]
+    labels = container(values)
+    if shape == "two-columns":
+        with pytest.raises(ValueError, match="clusters must have the same length"):
+            bootstrap_statistic(np.mean, np.arange(4.), clusters=labels,
+                                strategy="cluster", n_resamples=5, backend="numpy")
+        return
+    result = bootstrap_statistic(np.mean, np.arange(4.), clusters=labels,
+                                 strategy="cluster", n_resamples=29,
+                                 random_state=4, backend="numpy")
+    expected = [np.arange(4.)[idx].mean()
+                for idx in _reference_indices(np.asarray(original), 4, 29)]
+    np.testing.assert_array_equal(result.samples, expected)
+    np.testing.assert_array_equal(np.asarray(labels), np.asarray(values))
+
+
+@pytest.mark.parametrize("missing", [False, True])
+@pytest.mark.parametrize("shape", [(4,), (4, 1)])
+def test_readonly_object_cluster_labels_are_not_modified(missing, shape):
+    labels = np.asarray(["a", "a", None if missing else "b", "b"],
+                        dtype=object).reshape(shape)
+    labels.setflags(write=False)
+    before = labels.copy()
+    if missing:
+        with pytest.raises(ValueError, match="nonmissing label per row"):
+            bootstrap_statistic(np.mean, np.arange(4.), clusters=labels,
+                                strategy="cluster", n_resamples=5, backend="numpy")
+    else:
+        result = bootstrap_statistic(np.mean, np.arange(4.), clusters=labels,
+                                     strategy="cluster", n_resamples=29,
+                                     random_state=4, backend="numpy")
+        expected = [np.arange(4.)[idx].mean() for idx in
+                    _reference_indices(before.reshape(-1), 4, 29)]
+        np.testing.assert_array_equal(result.samples, expected)
+    assert not labels.flags.writeable
+    np.testing.assert_array_equal(labels, before)
+
+
+@pytest.mark.parametrize("use_estimator", [False, True], ids=["module", "estimator"])
+@pytest.mark.parametrize("backend", ["numpy", "auto"])
+def test_user_string_does_not_gain_character_sequence_support(use_estimator, backend):
+    function = (LinearRegression(device="cpu").bootstrap_statistic
+                if use_estimator else bootstrap_statistic)
+    with pytest.raises((IndexError, TypeError, ValueError)):
+        function(np.mean, np.arange(4.), clusters=UserString("aabb"),
+                 strategy="cluster", n_resamples=5, backend=backend)
+
+
+def test_cluster_prevalidation_does_not_consume_iterators_or_mappings():
+    visited = []
+
+    def labels():
+        for label in ["a", "a", np.nan, "b"]:
+            visited.append(label)
+            yield label
+
+    iterator = labels()
+    resampling._validate_cluster_labels_before_cast(iterator)
+    assert visited == []
+    assert next(iterator) == "a"
+
+    class MappingLabels(dict):
+        def __getitem__(self, key):
+            raise AssertionError("a mapping is not a host label sequence")
+
+        def __iter__(self):
+            raise AssertionError("a mapping must not be iterated")
+
+    resampling._validate_cluster_labels_before_cast(MappingLabels({0: np.nan}))
+
+
+@pytest.mark.parametrize("sequence_base", [Sequence, object])
+@pytest.mark.parametrize("protocol", [
+    "__array__", "__array_interface__", "__array_struct__",
+    "__cuda_array_interface__", "__dlpack__", "__dlpack_device__",
+    "__array_namespace__",
+])
+def test_cluster_prevalidation_does_not_execute_array_protocols(sequence_base, protocol):
+    def forbidden(_self, *_args):
+        raise AssertionError("prevalidation must not access array protocols or rows")
+
+    cls = type("ArrayProtocolLabels", (sequence_base,), {
+        "__len__": forbidden, "__getitem__": forbidden,
+        protocol: property(forbidden),
+    })
+    resampling._validate_cluster_labels_before_cast(cls())
+
+
+class _ProtocolClusterLabelSequence(Sequence):
+    def __init__(self, labels):
+        self.labels = np.asarray(labels, dtype=object)
+        self.conversions = 0
+
+    def __len__(self):
+        raise AssertionError("array protocol owns label conversion")
+
+    def __getitem__(self, index):
+        raise AssertionError("array protocol owns label conversion")
+
+    def __array__(self, dtype=None, copy=None):
+        self.conversions += 1
+        return np.asarray(self.labels, dtype=dtype)
+
+
+@pytest.mark.parametrize("use_estimator", [False, True], ids=["module", "estimator"])
+@pytest.mark.parametrize("backend", ["numpy", "auto"])
+@pytest.mark.parametrize("missing", [False, True])
+def test_sequence_array_protocol_retains_normal_conversion_and_object_validation(
+    use_estimator, backend, missing,
+):
+    labels = _ProtocolClusterLabelSequence(
+        ["nan", "nan", None if missing else "None", "NaT"]
+    )
+    resampling._validate_cluster_labels_before_cast(labels)
+    assert labels.conversions == 0
+    function = (LinearRegression(device="cpu").bootstrap_statistic
+                if use_estimator else bootstrap_statistic)
+    values = np.array([1., 2., 100., 5.])
+    if missing:
+        with pytest.raises(ValueError, match="nonmissing label per row"):
+            function(np.mean, values, clusters=labels, strategy="cluster",
+                     n_resamples=29, random_state=4, backend=backend)
+    else:
+        result = function(np.mean, values, clusters=labels, strategy="cluster",
+                          n_resamples=29, random_state=4, backend=backend)
+        expected = [values[idx].mean() for idx in
+                    _reference_indices(labels.labels, 4, 29)]
+        np.testing.assert_array_equal(result.samples, expected)
+    # Existing entrypoint conversions only; the precheck adds no __array__ call.
+    expected_conversions = (3 if backend == "auto" else 2) if use_estimator else 2
+    assert labels.conversions == expected_conversions
+
+
+def test_cluster_prevalidation_leaves_backend_native_arrays_on_device(cluster_backend, monkeypatch):
+    backend, context, device = cluster_backend
+    with context:
+        labels = backend.asarray([1., 1., float("nan"), 2.])
+
+        def forbidden(*_args, **_kwargs):
+            raise AssertionError("native labels must not be copied to NumPy")
+
+        monkeypatch.setattr(np, "asarray", forbidden)
+        resampling._validate_cluster_labels_before_cast(labels)
+        if backend.name == "torch":
+            assert labels.device == device
+        elif backend.name == "cupy":
+            assert labels.device.id == device
+
+
+@pytest.mark.parametrize("container", [
+    pytest.param(lambda values: array("d", values), id="array"),
+    pytest.param(lambda values: memoryview(array("d", values)), id="memoryview"),
+])
+@pytest.mark.parametrize("use_estimator", [False, True], ids=["module", "estimator"])
+@pytest.mark.parametrize("backend", ["numpy", "auto"])
+def test_numeric_host_sequence_missing_labels_reject_before_callback(
+    container, use_estimator, backend,
+):
+    labels = container([1., 1., np.nan, 2.])
+    calls = []
+
+    def statistic(values):
+        calls.append(values.shape)
+        return np.mean(values)
+
+    function = (LinearRegression(device="cpu").bootstrap_statistic
+                if use_estimator else bootstrap_statistic)
+    with pytest.raises(ValueError, match=("nonmissing label per row|must contain only finite values"
+                                          if use_estimator else "nonmissing label per row")):
+        function(statistic, np.arange(4.), strategy="cluster", clusters=labels,
+                 n_resamples=5, backend=backend)
+    assert calls == []
+
+
+def test_instance_array_protocol_is_not_invoked_by_cluster_prevalidation():
+    labels = _LegacyClusterLabelSequence(["a", "a", np.nan, "b"])
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("prevalidation must not invoke a custom __array__")
+
+    labels.__array__ = forbidden
+    resampling._validate_cluster_labels_before_cast(labels)
+
+
+class _DynamicClusterArrayBase(_LegacyClusterLabelSequence):
+    def __init__(self, values, reject_object_dtype):
+        super().__init__(values)
+        self.reject_object_dtype = reject_object_dtype
+        self.conversions = []
+
+    def _convert(self, dtype=None, copy=None):
+        self.conversions.append(dtype)
+        if self.reject_object_dtype and dtype is not None:
+            raise TypeError("custom converter does not support object dtype")
+        return np.asarray(self.values, dtype=object)
+
+
+class _GetattrClusterArray(_DynamicClusterArrayBase):
+    def __getattr__(self, name):
+        if name == "__array__":
+            return self._convert
+        raise AttributeError(name)
+
+
+class _GetattributeClusterArray(_DynamicClusterArrayBase):
+    def __getattribute__(self, name):
+        if name == "__array__":
+            return object.__getattribute__(self, "_convert")
+        return object.__getattribute__(self, name)
+
+
+class _GetattrClusterSequence(_GetattrClusterArray, Sequence):
+    pass
+
+
+class _GetattributeClusterSequence(_GetattributeClusterArray, Sequence):
+    pass
+
+
+@pytest.mark.parametrize("container", [
+    _GetattrClusterArray, _GetattributeClusterArray,
+    _GetattrClusterSequence, _GetattributeClusterSequence,
+])
+@pytest.mark.parametrize("reject_object_dtype", [False, True])
+@pytest.mark.parametrize("missing", [False, True])
+@pytest.mark.parametrize("use_estimator", [False, True], ids=["module", "estimator"])
+@pytest.mark.parametrize("backend", ["numpy", "auto"])
+def test_dynamic_cluster_array_protocol_preserves_conversion_and_object_validation(
+    container, reject_object_dtype, missing, use_estimator, backend,
+):
+    original = ["nan", "nan", None if missing else "None", "NaT"]
+    labels = container(original, reject_object_dtype)
+    resampling._validate_cluster_labels_before_cast(labels)
+    assert labels.conversions == []
+    values = np.array([1., 2., 100., 5.])
+    function = (LinearRegression(device="cpu").bootstrap_statistic
+                if use_estimator else bootstrap_statistic)
+    if missing:
+        with pytest.raises(ValueError, match="nonmissing label per row"):
+            function(np.mean, values, clusters=labels, strategy="cluster",
+                     n_resamples=29, random_state=4, backend=backend)
+    else:
+        result = function(np.mean, values, clusters=labels, strategy="cluster",
+                          n_resamples=29, random_state=4, backend=backend)
+        expected = [values[idx].mean() for idx in
+                    _reference_indices(np.asarray(original), 4, 29)]
+        np.testing.assert_array_equal(result.samples, expected)
+    expected_conversions = (3 if backend == "auto" else 2) if use_estimator else 2
+    assert labels.conversions == [None] * expected_conversions
+
+
+def test_cluster_prevalidation_does_not_probe_dynamic_metaclass_capabilities():
+    class DynamicCapabilities(type):
+        def __getattr__(cls, name):
+            if name in {"__len__", "__getitem__"}:
+                raise AssertionError("do not dynamically discover sequence capabilities")
+            raise AttributeError(name)
+
+    class OpaqueLabels(metaclass=DynamicCapabilities):
+        pass
+
+    resampling._validate_cluster_labels_before_cast(OpaqueLabels())

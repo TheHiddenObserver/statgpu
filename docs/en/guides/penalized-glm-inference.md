@@ -153,7 +153,8 @@ reported active coefficients and intercept come from that refit; prediction
 continues to use the original penalized coefficients. Inactive coefficients
 retain their penalized point estimates and have unavailable (`NaN`)
 uncertainty. If no slope is selected and the model includes an intercept,
-oracle inference refits an intercept-only model and reports its uncertainty.
+oracle inference refits an intercept-only model and reports its uncertainty
+only when a finite unpenalized solution exists.
 With neither selected slopes nor an intercept, there is no coefficient to
 refit. Inverse-link Gamma rejects that empty model because its zero linear
 predictor cannot define a finite mean.
@@ -175,6 +176,24 @@ regression and `solver="newton"` for the other non-Gaussian families, with
 `device="cpu"`.
 A refit that reports non-convergence raises `RuntimeError` rather than
 publishing an oracle coefficient table.
+
+A finite unpenalized solution is also required. On positive-weight rows,
+all-zero Poisson, negative-binomial, or Tweedie responses, or a single
+logistic class, have no finite optimum when a free intercept can keep
+improving the objective. These boundary fits raise `ValueError` before
+publishing uncertainty, even if a solver stops at a finite approximation.
+Zero-weight observations do not remove this boundary. A zero Gaussian
+response has a finite least-squares solution and is not rejected by this rule.
+
+Without an intercept, the selected design matters: mixed-sign predictors can
+have a finite optimum even at these response boundaries. The check rejects
+a verified direction that keeps improving the objective. If that boundary
+check cannot resolve a numerically ill-conditioned selected design, it raises
+`RuntimeError` instead of declaring that no finite solution exists or returning
+uncertainty. This check is limited to all-zero or single-class responses; it
+is not a general separation detector. Ordinary refit convergence checks still
+apply. With no selected coefficient and no intercept, there is no coefficient
+to refit, so the existing undefined-uncertainty behavior is preserved.
 
 The inference result has `method="oracle"`, a normal/z reference distribution,
 and the requested supported `cov_type`. Its metadata includes

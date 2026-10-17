@@ -683,3 +683,277 @@ def test_adaptive_initialization_preserves_resolved_typed_family(
     if not explicit_override and not weighted:
         default_family = PenalizedGeneralizedLinearModel(loss=loss, **kwargs).fit(X, y)
         assert np.max(np.abs(model.coef_-default_family.coef_)) > 1e-4
+
+
+_BOUNDARY_RESPONSES = [
+    ("poisson", PenalizedPoissonRegression, 0.),
+    ("negative_binomial", PenalizedNegativeBinomialRegression, 0.),
+    ("tweedie", PenalizedTweedieRegression, 0.),
+    ("logistic", PenalizedLogisticRegression, 0.),
+    ("logistic", PenalizedLogisticRegression, 1.),
+]
+
+
+def _assert_failed_oracle_fit(model, X):
+    assert model._fitted is False
+    for name in ("coef_", "intercept_", "_params", "_inference_result", "_bse",
+                 "_tvalues", "_zvalues", "_pvalues", "_conf_int",
+                 "inference_target_", "inference_resolved_method_"):
+        assert getattr(model, name, None) is None, name
+    with pytest.raises(RuntimeError, match="not.*fitted|has not been fitted"):
+        model.predict(X)
+
+
+@pytest.mark.parametrize("loss,typed,boundary", _BOUNDARY_RESPONSES)
+@pytest.mark.parametrize("entry", ["typed", "generic"])
+@pytest.mark.parametrize("penalty", ["scad", "mcp"])
+@pytest.mark.parametrize("cov_type", ["nonrobust", "hc0", "hc1"])
+@pytest.mark.parametrize("weighted", [False, True])
+def test_oracle_boundary_response_default_solver_fit_rejects_nonfinite_target(
+        loss, typed, boundary, entry, penalty, cov_type, weighted):
+    # Genuine public fits with default convergence controls. Positive responses
+    # (or the other logistic class) exclusively in zero-weight rows do not
+    # change the target. No fitted-state injection or fake convergence signal.
+    X = np.zeros((50, 2))
+    y = np.full(len(X), boundary)
+    weights = None
+    if weighted:
+        weights = np.linspace(.2, 2., len(X))
+        weights[::5] = 0
+        y[::5] = 1. - boundary
+    kwargs = dict(penalty=penalty, alpha=.1, solver="fista", device="cpu",
+                  compute_inference=True, inference_method="oracle", cov_type=cov_type)
+    model = typed(**kwargs) if entry == "typed" else PenalizedGeneralizedLinearModel(
+        loss=loss, **kwargs)
+    with pytest.raises(ValueError, match="oracle refit has no finite optimum"):
+        model.fit(X, y, sample_weight=weights)
+    _assert_failed_oracle_fit(model, X)
+
+
+@pytest.mark.parametrize("loss,typed,boundary", _BOUNDARY_RESPONSES)
+@pytest.mark.parametrize("weighted", [False, True])
+def test_oracle_boundary_failed_refit_clears_old_results_and_can_recover(
+        loss, typed, boundary, weighted):
+    X = np.zeros((60, 2))
+    good_y = np.tile([0., 1.] if loss == "logistic" else [0., 1., 2.],
+                     30 if loss == "logistic" else 20)
+    weights = np.linspace(.4, 1.6, len(X)) if weighted else None
+    model = typed(penalty="mcp", alpha=.1, solver="fista", device="cpu",
+                  compute_inference=True, inference_method="oracle")
+    model.fit(X, good_y, sample_weight=weights)
+    old_params = model._params.copy()
+    old_bse = model._bse.copy()
+    with pytest.raises(ValueError, match="no finite optimum"):
+        model.fit(X, np.full(len(X), boundary), sample_weight=weights)
+    _assert_failed_oracle_fit(model, X)
+    assert model.inference_method == "oracle"
+    model.fit(X, good_y, sample_weight=weights)
+    np.testing.assert_array_equal(model._params, old_params)
+    np.testing.assert_array_equal(model._bse, old_bse)
+    assert model._inference_result.method == "oracle"
+
+
+@pytest.mark.parametrize("loss,typed,boundary", _BOUNDARY_RESPONSES)
+@pytest.mark.parametrize("design", ["empty", "constant", "varying_positive", "quasi"])
+def test_oracle_boundary_no_intercept_distinguishes_fixed_and_unbounded_targets(
+        loss, typed, boundary, design):
+    x = {"empty": np.zeros(60), "constant": np.ones(60),
+         "varying_positive": np.tile([.5, 2.], 30),
+         "quasi": np.tile([0., 1.], 30)}[design]
+    X = np.column_stack([x, np.zeros(len(x))])
+    model = typed(penalty="mcp", alpha=.001, solver="fista", device="cpu",
+                  fit_intercept=False, compute_inference=True, inference_method="oracle")
+    if design == "empty":
+        model.fit(X, np.full(len(X), boundary))
+        assert model._inference_result.metadata["n_active"] == 0
+        assert np.isnan(model._bse).all()
+        assert np.isnan(model._pvalues).all()
+        assert np.isnan(model._conf_int).all()
+    else:
+        with pytest.raises(ValueError, match="no finite optimum"):
+            model.fit(X, np.full(len(X), boundary))
+        _assert_failed_oracle_fit(model, X)
+
+
+@pytest.mark.parametrize("loss,typed,boundary", _BOUNDARY_RESPONSES)
+@pytest.mark.parametrize("columns", [1, 2])
+@pytest.mark.parametrize("weighted", [False, True])
+def test_oracle_boundary_mixed_sign_no_intercept_preserves_finite_refit(
+        loss, typed, boundary, columns, weighted):
+    X = (np.tile([[-1.], [2.]], (30, 1)) if columns == 1
+         else np.tile([[1., 0.], [0., 1.], [-2., -3.]], (20, 1)))
+    y = np.full(len(X), boundary)
+    weights = np.linspace(.8, 1.2, len(X)) if weighted else None
+    model = typed(penalty="mcp", alpha=.000001, solver="fista", device="cpu",
+                  fit_intercept=False, max_iter=10000, tol=1e-8,
+                  compute_inference=True, inference_method="oracle").fit(
+                      X, y, sample_weight=weights)
+    assert model._inference_result.metadata["n_active"] == columns
+    settings = ({"power": 1.5} if loss == "tweedie" else
+                {"alpha": 1.} if loss == "negative_binomial" else {})
+    params, se = _reference(loss, settings, X, y, weights)
+    np.testing.assert_allclose(model._params, params, rtol=1e-6, atol=1e-7)
+    np.testing.assert_allclose(model._bse, se, rtol=1e-6, atol=1e-7)
+    assert np.isfinite(model._conf_int).all()
+
+
+@pytest.mark.parametrize("loss,typed,boundary", _BOUNDARY_RESPONSES)
+@pytest.mark.parametrize("weighted", [False, True])
+def test_oracle_boundary_multicolumn_recession_uses_only_effective_design_rows(
+        loss, typed, boundary, weighted):
+    # Each column has both signs, but d=(1, 1) gives margins (0, 1).
+    # Rescale rows/columns without changing the existence of that direction.
+    X = np.tile([[.25, -.25], [-4., 8.]], (25, 1)) * [.5, 2.]
+    weights = None
+    if weighted:
+        X = np.vstack([X, -X[:2]])
+        weights = np.r_[np.ones(50), 0., 0.]
+    y = np.full(len(X), boundary)
+    kwargs = dict(penalty="mcp", alpha=.000001, solver="fista", device="cpu",
+                  fit_intercept=False)
+    selection = typed(**kwargs).fit(X, y, sample_weight=weights)
+    assert np.count_nonzero(np.abs(selection.coef_) > 1e-10) == 2
+    model = typed(**kwargs, compute_inference=True, inference_method="oracle")
+    with pytest.raises(ValueError, match="no finite optimum"):
+        model.fit(X, y, sample_weight=weights)
+    _assert_failed_oracle_fit(model, X)
+
+
+@pytest.mark.parametrize("loss,typed,boundary", _BOUNDARY_RESPONSES)
+def test_oracle_boundary_nearly_antipodal_recession_is_not_treated_as_lp_infeasibility(
+        loss, typed, boundary):
+    X = np.vstack([np.tile([[1., 1.]], (20, 1)),
+                   np.tile([[-1., -1.+1e-10]], (40, 1))])
+    kwargs = dict(penalty="mcp", alpha=.000001, solver="fista", device="cpu",
+                  fit_intercept=False)
+    selection = typed(**kwargs).fit(X, np.full(len(X), boundary))
+    assert np.count_nonzero(np.abs(selection.coef_) > 1e-10) == 2
+    model = typed(**kwargs, compute_inference=True, inference_method="oracle")
+    with pytest.raises(ValueError, match="no finite optimum"):
+        model.fit(X, np.full(len(X), boundary))
+    _assert_failed_oracle_fit(model, X)
+
+
+@pytest.mark.parametrize("design", ["near_finite", "rank_deficient"])
+def test_oracle_boundary_numerical_uncertainty_is_not_called_nonexistent_optimum(design):
+    X = (np.tile([[1., 1.], [-1., -1.+1e-10], [0., -1.]], (20, 1))
+         if design == "near_finite" else np.tile([[-1., -1.], [2., 2.]], (30, 1)))
+    model = PenalizedTweedieRegression(penalty="mcp", alpha=.000001, solver="fista",
+        device="cpu", fit_intercept=False, compute_inference=True, inference_method="oracle")
+    with pytest.raises(RuntimeError, match="could not determine whether"):
+        model.fit(X, np.zeros(len(X)))
+    _assert_failed_oracle_fit(model, X)
+
+
+def test_oracle_boundary_every_positive_weight_participates_without_thresholding():
+    X = np.tile([[-1.], [2.]], (30, 1))
+    weights = np.tile([1e-8, 1.], 30)
+    model = PenalizedPoissonRegression(penalty="mcp", alpha=.000001, solver="fista",
+        device="cpu", fit_intercept=False, max_iter=10000, tol=1e-12,
+        compute_inference=True, inference_method="oracle").fit(
+            X, np.zeros(len(X)), sample_weight=weights)
+    # w_minus exp(-b) = 2 w_plus exp(2b), a finite target even for tiny w_minus.
+    expected = np.log(1e-8/2)/3
+    np.testing.assert_allclose(model._params, [expected], rtol=1e-6, atol=1e-7)
+    assert np.isfinite(model._conf_int).all()
+
+
+@pytest.mark.parametrize("loss,typed,boundary", _BOUNDARY_RESPONSES)
+@pytest.mark.parametrize("penalty", ["scad", "mcp"])
+@pytest.mark.parametrize("weighted", [False, True])
+def test_oracle_boundary_cv_final_refit_rejection_is_transactional(
+        loss, typed, boundary, penalty, weighted):
+    X = np.zeros((60, 2))
+    good_y = np.tile([0., 1.] if loss == "logistic" else [0., 1., 2.],
+                     30 if loss == "logistic" else 20)
+    weights = np.ones(len(X)) if weighted else None
+    bad_y = np.full(len(X), boundary)
+    if weighted:
+        weights[::5] = 0
+        bad_y[::5] = 1. - boundary
+    model = PenalizedGLM_CV(loss=loss, penalty=penalty, alpha_grid=[.1, .2], cv=2,
+        solver="fista", device="cpu", compute_inference=True, inference_method="oracle")
+    model.fit(X, good_y, sample_weight=weights)
+    assert model._inference_result is model.estimator_._inference_result
+    with pytest.raises(ValueError, match="no finite optimum"):
+        model.fit(X, bad_y, sample_weight=weights)
+    _assert_failed_oracle_fit(model, X)
+    for name in ("estimator_", "alpha_", "cv_results_", "best_score_"):
+        assert getattr(model, name) is None
+    model.fit(X, good_y, sample_weight=weights)
+    assert model._inference_result is model.estimator_._inference_result
+    assert model.penalty_conditioning_ == "cv_selected_penalty"
+
+
+@pytest.mark.parametrize("loss,settings,typed,typed_settings", FAMILIES[:1] + FAMILIES[2:])
+@pytest.mark.parametrize("constant", [False, True])
+def test_oracle_boundary_guard_preserves_finite_intercept_only_family_targets(
+        loss, settings, typed, typed_settings, constant):
+    X = np.zeros((60, 2))
+    y = np.full(60, 2.) if constant else np.tile([.5, 1., 2.], 20)
+    weights = np.linspace(.5, 1.5, len(X))
+    model = typed(**typed_settings, penalty="mcp", alpha=.1, solver="fista",
+        device="cpu", max_iter=10000, tol=1e-8, compute_inference=True, inference_method="oracle").fit(
+            X, y, sample_weight=weights)
+    mean = np.average(y, weights=weights)
+    expected = (mean if loss == "squared_error" else 1/mean
+                if loss == "gamma" and settings["link"] == "inverse_power" else np.log(mean))
+    np.testing.assert_allclose(model._params[0], expected, rtol=2e-4, atol=2e-5)
+    assert np.isfinite(model._bse[0])
+    assert np.isnan(model._bse[1:]).all()
+
+
+@pytest.mark.parametrize("value", [0., 3.])
+def test_oracle_boundary_constant_gaussian_has_finite_target(value):
+    X = np.zeros((50, 2))
+    model = PenalizedLinearRegression(penalty="mcp", alpha=.1, solver="fista",
+        device="cpu", compute_inference=True, inference_method="oracle").fit(
+            X, np.full(len(X), value))
+    np.testing.assert_allclose(model._params[0], value)
+    np.testing.assert_allclose(model._bse[0], 0, atol=1e-14)
+    np.testing.assert_allclose(model._conf_int[0], [value, value])
+
+
+@pytest.mark.parametrize("loss,settings,typed,typed_settings", FAMILIES[3:6])
+def test_oracle_boundary_positive_response_domains_reject_zero_before_inference(
+        loss, settings, typed, typed_settings):
+    X = np.zeros((50, 2))
+    model = typed(**typed_settings, penalty="mcp", alpha=.1, solver="fista",
+        device="cpu", compute_inference=True, inference_method="oracle")
+    with pytest.raises(ValueError, match="strictly positive"):
+        model.fit(X, np.zeros(len(X)))
+    _assert_failed_oracle_fit(model, X)
+
+
+@pytest.mark.parametrize("power", [0., 1., 2., 3.])
+def test_oracle_boundary_tweedie_guard_does_not_expand_supported_power_domain(power):
+    model = PenalizedTweedieRegression(power=power, penalty="mcp", alpha=.1,
+        solver="fista", device="cpu", compute_inference=True, inference_method="oracle")
+    with pytest.raises(ValueError):
+        model.fit(np.zeros((50, 2)), np.zeros(50))
+    assert model._inference_result is None
+
+
+@pytest.mark.parametrize("loss,typed,boundary", _BOUNDARY_RESPONSES)
+@pytest.mark.parametrize("intercept", [False, True])
+def test_oracle_boundary_formula_uses_effective_intercept_and_retained_weights(
+        loss, typed, boundary, intercept):
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("patsy")
+    X = np.zeros(60) if intercept else np.ones(60)
+    y = np.full(60, boundary)
+    weights = np.ones(60)
+    weights[::7] = 0
+    y[::7] = 1. - boundary
+    # Drop a row of the opposite response, independently of the zero weights.
+    X[1] = np.nan
+    y[1] = 1. - boundary
+    frame = pd.DataFrame({"x": X, "y": y})
+    model = typed(penalty="mcp", alpha=.001, solver="fista", device="cpu",
+                  compute_inference=True, inference_method="oracle")
+    with pytest.raises(ValueError, match="no finite optimum"):
+        model.fit(formula="y ~ x" if intercept else "y ~ 0 + x",
+                  data=frame, sample_weight=weights)
+    _assert_failed_oracle_fit(model, np.zeros((3, 1)))
+    assert model._design_info is None
+    assert model._feature_names is None

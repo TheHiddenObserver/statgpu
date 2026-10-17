@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+from collections import UserString
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Optional, Sequence, Tuple
+from types import WrapperDescriptorType
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import numpy as np
 
 from statgpu.backends import get_backend, _resolve_backend, _to_float_scalar, _to_numpy, _torch_dev, xp_empty
 import operator
 from functools import reduce
+from inspect import getattr_static
 
 
 def _validate_cluster_labels_before_cast(clusters):
@@ -23,8 +27,33 @@ def _validate_cluster_labels_before_cast(clusters):
         if clusters.dtype.kind != "O":
             return
         labels = clusters
-    elif isinstance(clusters, (list, tuple)):
-        # An explicit object dtype retains NaN/NaT/None beside string labels.
+    elif (
+        getattr_static(type(clusters), "__getattr__", None) is None
+        and isinstance(
+            getattr_static(type(clusters), "__getattribute__", None),
+            WrapperDescriptorType,
+        )
+        and not isinstance(clusters, (Mapping, str, bytes, UserString))
+        and (
+            isinstance(clusters, Sequence)
+            or (
+                getattr_static(type(clusters), "__len__", None) is not None
+                and getattr_static(type(clusters), "__getitem__", None) is not None
+            )
+        )
+        and not any(
+            getattr_static(clusters, protocol, None) is not None
+            for protocol in (
+                "__array__", "__array_interface__", "__array_struct__",
+                "__cuda_array_interface__", "__dlpack__", "__dlpack_device__",
+                "__array_namespace__",
+            )
+        )
+    ):
+        # Retain missing scalars in ordinary host sequences before inference
+        # can coerce mixed labels to strings. Static protocol checks leave
+        # custom/native arrays and dynamic attribute proxies to their existing
+        # backend conversion, without probing or invoking their protocols.
         labels = np.asarray(clusters, dtype=object)
     else:
         return

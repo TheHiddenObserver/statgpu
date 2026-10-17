@@ -47,6 +47,112 @@ class _OracleObservedHessianLoss:
         return X.T @ (X * curvature[:, None]) / n_eff
 
 
+def _oracle_has_boundary_direction(X):
+    """Certify a nonzero nonnegative predictor direction on effective rows.
+
+    This check is only used for all-zero responses (or all-one logistic
+    responses) on the selected CPU design without an intercept. A direction
+    with X d >= 0 and at least one strict inequality makes the corresponding
+    unpenalized loss strictly decrease towards its boundary. Mixed-sign rows
+    can instead have a finite optimum, so response support alone is not enough.
+    """
+    from fractions import Fraction
+    from scipy.optimize import linprog
+
+    # Positive row/column scaling preserves the cone. Zero rows impose no
+    # constraint and cannot supply strict improvement; zero columns do nothing.
+    column_scale = np.max(np.abs(X), axis=0)
+    keep = column_scale > 0
+    if not np.any(keep):
+        return False
+    X = X[:, keep]
+    column_scale = column_scale[keep]
+    nonzero_rows = np.any(X != 0, axis=1)
+    X = X[nonzero_rows]
+    if X.shape[1] == 1:
+        return bool(np.all(X >= 0) or np.all(X <= 0))
+
+    # Retain extended-precision normalization for the independent certificates;
+    # HiGHS itself receives ordinary float64 arrays.
+    X_extended = X.astype(np.longdouble)
+    scale_extended = column_scale.astype(np.longdouble)
+    normalized = X_extended / scale_extended
+    row_scale = np.max(np.abs(normalized), axis=1)
+    normalized = normalized / row_scale[:, None]
+    A = np.asarray(normalized, dtype=np.float64)
+    result = linprog(
+        -A.sum(axis=0), A_ub=-A, b_ub=np.zeros(len(A)),
+        bounds=[(-1., 1.)] * A.shape[1], method="highs",
+    )
+    numerical_error = (
+        "Oracle inference could not determine whether the selected design "
+        "has a finite unpenalized optimum at the response boundary. "
+        "Review the selected design's scaling and linear dependence, or set "
+        "compute_inference=False."
+    )
+    # The bounded problem always has the zero feasible point. Infeasible,
+    # unbounded, failed, or nonfinite results are numerical failures, not proof
+    # that the statistical optimum is finite or that it does not exist.
+    if result.status != 0 or not np.all(np.isfinite(result.x)):
+        raise RuntimeError(numerical_error)
+
+    direction = result.x.astype(np.longdouble) / scale_extended
+    margins = X_extended @ direction
+    rounding_bound = (
+        8 * np.finfo(np.longdouble).eps * X.shape[1]
+        * (np.abs(X_extended) @ np.abs(direction))
+    )
+    signs = []
+    exact_direction = None
+    for row, margin, error in zip(X, margins, rounding_bound):
+        if np.isfinite(margin) and np.isfinite(error) and abs(margin) > error:
+            signs.append(1 if margin > 0 else -1)
+        else:
+            # A tolerance-clipped negative margin can falsely reject a legal
+            # finite fit. Certify cancellation/zero margins on the original
+            # float64 data exactly, including the positive column rescaling.
+            if exact_direction is None:
+                exact_direction = [
+                    Fraction(float(value)) / Fraction(float(scale))
+                    for value, scale in zip(result.x, column_scale)
+                ]
+            exact_margin = sum(
+                (Fraction(float(value)) * step
+                 for value, step in zip(row, exact_direction)), Fraction(0)
+            )
+            signs.append((exact_margin > 0) - (exact_margin < 0))
+    if min(signs) >= 0 and max(signs) > 0:
+        return True
+
+    # A strictly positive w with A.T w = 0 rules out every nonzero nonnegative
+    # A d (Stiemke's alternative). The LP dual supplies a candidate w. Bound
+    # its distance to an exact null vector rather than trusting solver.success
+    # or an approximately zero objective. The singular-value/error margins
+    # deliberately leave numerically unresolved designs without inference.
+    weights = 1. - np.asarray(result.ineqlin.marginals, dtype=np.float64)
+    if not np.all(np.isfinite(weights)) or np.any(weights <= 0):
+        raise RuntimeError(numerical_error)
+    weights /= np.max(weights)
+    singular_values = np.linalg.svd(A, compute_uv=False)
+    eps = np.finfo(np.float64).eps
+    singular_lower = (
+        singular_values[-1]
+        - 32 * eps * max(A.shape) * singular_values[0]
+    )
+    if A.shape[0] < A.shape[1] or singular_lower <= 0:
+        raise RuntimeError(numerical_error)
+    residual = normalized.T @ weights.astype(np.longdouble)
+    roundoff = 32 * eps * max(A.shape) * np.linalg.norm(
+        np.asarray(np.abs(normalized).T @ np.abs(weights), dtype=np.float64)
+    )
+    correction_bound = (
+        np.linalg.norm(np.asarray(residual, dtype=np.float64)) + roundoff
+    ) / singular_lower
+    if np.isfinite(correction_bound) and 4 * correction_bound < np.min(weights):
+        return False
+    raise RuntimeError(numerical_error)
+
+
 class _PenalizedInferenceMixin:
 
     def _gaussian_fit_state(self, X, y, sample_weight=None):
@@ -1138,7 +1244,8 @@ class _PenalizedInferenceMixin:
         Family parameters, effective intercept, and analytic sample weights
         match the fitted model. The normal-reference intervals condition on
         the selected support; they do not adjust for data-driven selection.
-        Numerical work uses float64 and results are reported as NumPy arrays.
+        Refits and covariance use float64; results are NumPy arrays. Boundary
+        checks may use higher precision to certify coefficient directions.
         """
         import inspect
         import warnings
@@ -1192,6 +1299,24 @@ class _PenalizedInferenceMixin:
         n_active = int(np.sum(active))
         offset = int(self._effective_intercept)
         full_p = p + offset
+        # These accepted responses can have a boundary infimum even when a
+        # clipped solver reports convergence at finite coefficients. Only
+        # positive-weight observations define that statistical target.
+        if self.loss in ("poisson", "negative_binomial", "tweedie", "logistic"):
+            effective = np.ones(n, dtype=bool) if sw_cpu is None else sw_cpu > 0
+            effective_y = y_cpu[effective]
+            boundary_response = np.all(effective_y == 0) or (
+                self.loss == "logistic" and np.all(effective_y == 1)
+            )
+            if boundary_response and (offset or n_active):
+                if offset or _oracle_has_boundary_direction(X_cpu[effective][:, active]):
+                    raise ValueError(
+                        "The unpenalized oracle refit has no finite optimum: "
+                        "all positive-weight responses are at the family boundary "
+                        "and the selected design admits a strictly improving "
+                        "coefficient direction. Set compute_inference=False "
+                        "to fit without oracle inference."
+                    )
         if (not n_active and not offset and self.loss == "gamma"
                 and self._loss.link == "inverse_power"):
             raise ValueError(
