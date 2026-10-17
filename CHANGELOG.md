@@ -2,11 +2,31 @@
 
 All notable changes to statgpu are documented here, organized by release and date.
 
+## Unreleased — 2026-10-17
+
+### PR #132 — GPU starter guide and homepage navigation
+- Added bilingual acknowledgements with homepage and project-navigation links.
+- Added an illustrated bilingual CPU/GPU decision guide, practical Ridge examples, and workload-specific timing guidance, with task-ordered homepage navigation and public issue/contribution links.
+
+### PR #132 — Unified survival documentation navigation
+- Added bilingual survival overviews, moved Cox estimator selection out of the model directory, and aligned family sidebars and entry links while preserving Cox tutorial URLs and directory anchors.
+
 ## Unreleased — 2026-10-15
 
 ### PR #171 — Preserved multiple-testing Torch devices
 - Fixed module-level p-value adjustment and combination to preserve Torch input CPU or indexed-CUDA ownership through float64 conversion, temporary arrays, weights, and outputs; retained current-device selection for explicit Torch with non-Torch input and rejected unsupported Torch devices explicitly.
 - Clarified bilingual function-versus-estimator device rules and added focused device-ownership regressions, with physical CUDA checks conditional on available hardware.
+
+### PR #134 — Added bilingual Lasso inference companions
+- Added English and Chinese advanced guides deriving the weighted working problem, debiased estimates, node-wise precision, marginal standard errors, and shared multiplier simultaneous intervals, with explicit tuning and coverage limitations.
+- Linked the companions from canonical model guides, migration guides, and navigation; added executable formula/example checks and three-engine production coverage for bilingual navigation, math rendering, reload, and Back behavior.
+
+### PR #132 — Repaired website links, math and session labels
+- Preserved source-document links and section anchors in both GitHub Markdown and the website; corrected bilingual formula rendering and added complete HTML link/math validation.
+- Restored benchmark session and source labels in timing charts, accessible tables, and the convergence panel, with canonical multi-session regressions.
+- Corrected fresh-checkout production-build instructions and contributor data links; added executable build-recipe and source-link regressions.
+- Completed the production-browser build recipe, clarified dependent QA prerequisites, and exercised all three standalone website recipes from clean generated directories.
+- Aligned workflow triggers with validated inputs and forbidden generated artifacts; restored tracked-artifact rejection alongside pre/post-browser clean-tree checks and migrated active integration guidance to reproducible assembled builds.
 
 ## Unreleased — 2026-10-10
 

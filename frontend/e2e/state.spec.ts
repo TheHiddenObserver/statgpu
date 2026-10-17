@@ -1,8 +1,10 @@
 import { expect, test } from '@playwright/test';
 import type { Environment, Run } from '../src/schema';
+import { runHasMetricScope } from '../src/metric-scope';
 import { getUniqueScaleKeys } from '../src/scales';
 import {
   createDefaultState,
+  setSelectedEnvironment,
   setSelectedModel,
   setSelectedPenalty,
   setSelectedSolver,
@@ -47,6 +49,7 @@ test('default state skips preferred environments with no runs', () => {
   const state = createDefaultState(environments, [makeRun('cpu-only', ['survival'])]);
 
   expect(state.selectedEnvId).toBe('cpu-only');
+  expect(state.selectedEnvIds).toEqual(new Set(['cpu-only']));
   expect([...state.selectedCategoryIds]).toEqual(['survival']);
   expect(state.selectedMetricScope).toBe('all');
   expect(state.chartViewMode).toBe('focused');
@@ -60,11 +63,60 @@ test('default state prefers penalized GLM on the preferred populated environment
   const state = createDefaultState(environments, runs);
 
   expect(state.selectedEnvId).toBe('remote-p100');
+  expect(state.selectedEnvIds).toEqual(new Set(['remote-p100']));
   expect([...state.selectedCategoryIds]).toEqual(['penalized_glm']);
   expect(state.selectedMetricScope).toBe('all');
   expect(state.chartViewMode).toBe('focused');
   expect(state.timingChartGroupLimit).toBe(Number.MAX_SAFE_INTEGER);
   expect(state.speedupChartLimit).toBe(Number.MAX_SAFE_INTEGER);
+});
+
+test('grouped environments expose every benchmark session to the default filters', () => {
+  const grouped: Environment[] = [
+    {
+      env_id: 'remote-p100',
+      label: 'P100 · 2 benchmark sessions',
+      gpu: 'P100',
+      cpu: 'Xeon',
+      member_env_ids: ['remote-p100', 'remote-p100-cv'],
+    },
+  ];
+  const state = createDefaultState(grouped, [
+    makeRun('remote-p100-cv', ['linear_models']),
+  ]);
+
+  expect(state.selectedEnvId).toBe('remote-p100');
+  expect(state.selectedEnvIds).toEqual(
+    new Set(['remote-p100', 'remote-p100-cv']),
+  );
+  expect([...state.selectedCategoryIds]).toEqual(['linear_models']);
+});
+
+test('structured cross-validation metrics define CV scope without naming heuristics', () => {
+  const run = makeRun('remote-p100', ['linear_models']);
+  run.model_id = 'RegularizedModel';
+  run.metrics.cross_validation = {
+    status: 'success',
+    reason: null,
+    cv_evaluation_ms: 2,
+    final_refit_ms: 1,
+    total_fit_ms: 3,
+    selected_parameters: { alpha: 0.1 },
+    validation_score: 0.25,
+    final_score: 0.2,
+    scoring_name: 'loss',
+    scoring_direction: 'minimize',
+    candidate_count: 2,
+    fold_count: 3,
+    failed_candidates: 0,
+    failed_folds: 0,
+    final_refit_converged: true,
+    quality: 'measured',
+    source_file: 'cv.json',
+  };
+
+  expect(runHasMetricScope(run, 'cross_validation')).toBeTruthy();
+  expect(runHasMetricScope(run, 'fit')).toBeFalsy();
 });
 
 test('scale keys are ordered by numeric workload dimensions, not lexicographically', () => {
@@ -157,4 +209,34 @@ test('upstream filter changes clear backend and external selections', () => {
   expect(state.selectedScaleKeys).toEqual(new Set(['n20_p2']));
   expect(state.selectedBackends.size).toBe(0);
   expect(state.showExternal.size).toBe(0);
+});
+
+
+test('changing hardware groups replaces session membership and resets downstream filters', () => {
+  const state = createDefaultState(environments, [makeRun('remote-p100', ['linear_models'])]);
+  state.selectedMetricScope = 'cross_validation';
+  state.selectedModelId = 'RidgeCV';
+  state.selectedVariant = 'old-session';
+  state.selectedPenalty = 'l2';
+  state.selectedSolver = 'cv';
+  state.selectedScaleKeys.add('n10_p2');
+  state.selectedBackends.add('cupy');
+  state.showExternal.add('sklearn');
+  state.tableLimit = Infinity;
+
+  setSelectedEnvironment(state, {
+    env_id: 'new-hardware', label: 'New hardware', gpu: 'GPU', cpu: 'CPU',
+    member_env_ids: ['session-a', 'session-b'],
+  });
+
+  expect(state.selectedEnvId).toBe('new-hardware');
+  expect(state.selectedEnvIds).toEqual(new Set(['session-a', 'session-b']));
+  expect(state.selectedMetricScope).toBe('all');
+  for (const value of [state.selectedModelId, state.selectedVariant, state.selectedPenalty, state.selectedSolver]) {
+    expect(value).toBeNull();
+  }
+  expect(state.selectedScaleKeys.size).toBe(0);
+  expect(state.selectedBackends.size).toBe(0);
+  expect(state.showExternal.size).toBe(0);
+  expect(state.tableLimit).toBe(200);
 });

@@ -128,7 +128,22 @@ def validate_links(path: Path, text: str) -> list[str]:
         if not target or target.startswith(("#",) + SKIP_SCHEMES):
             continue
 
-        if target.startswith("/"):
+        if target in ("/dashboard", "/dashboard/",
+                      "/dashboard/data/benchmark_data.json",
+                      "/dashboard/data/parse_report.json",
+                      "/dashboard/data/source_inventory.json"):
+            # The independent dashboard app is assembled after VitePress.
+            # Its actual output is checked by scripts/verify-site.mjs.
+            continue
+        if target.startswith(("/en/", "/cn/")):
+            resolved = (ROOT / "docs" / target.lstrip("/")).resolve()
+            if target.endswith("/"):
+                resolved = resolved / "index.md"
+            elif not resolved.suffix:
+                resolved = resolved.with_suffix(".md")
+        elif target.startswith("/images/"):
+            resolved = (ROOT / "docs" / "public" / target.lstrip("/")).resolve()
+        elif target.startswith("/"):
             resolved = (ROOT / target.lstrip("/")).resolve()
         else:
             resolved = (path.parent / target).resolve()

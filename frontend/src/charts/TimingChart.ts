@@ -135,18 +135,25 @@ export function formatGroupLabel(run: Run, focused: boolean, includeScale = fals
   const model = `${formatModelName(run.model_id)}${variant}`;
   const penalty = run.penalty && run.penalty !== 'none' ? run.penalty : null;
   const solver = run.solver_display ?? run.solver ?? 'unknown';
+  const provenance = `Session: ${run.benchmark_session_id ?? run.env_id} · Source: ${run.source.file}`;
 
   if (focused) {
     const solverPart = run.solver === 'auto' || run.solver_kind === 'dispatch'
       ? null
       : solver;
-    return [model, penalty, solverPart, includeScale ? run.scale.label : null]
+    return [model, penalty, solverPart, includeScale ? run.scale.label : null, provenance]
       .filter(Boolean)
       .join(' · ');
   }
 
   const firstLine = [model, penalty].filter(Boolean).join(' · ');
-  return `${firstLine}\n${solver} · ${run.scale.label}`;
+  return `${firstLine}\n${solver} · ${run.scale.label}\n${provenance}`;
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, character => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[character]!);
 }
 
 export function renderTimingChart(
@@ -303,6 +310,8 @@ export function renderTimingChart(
       },
       tooltip: {
         trigger: 'axis',
+        confine: true,
+        extraCssText: 'max-width: calc(100% - 24px); white-space: normal; overflow-wrap: anywhere;',
         backgroundColor: CHART_STYLE.tooltipBackground,
         borderWidth: 0,
         textStyle: { color: '#fff' },
@@ -312,19 +321,25 @@ export function renderTimingChart(
             value: number | null;
             color: string;
             axisValueLabel?: string;
+            dataIndex?: number;
           }[],
         ) => {
-          const heading = params[0]?.axisValueLabel
-            ? `<b>${params[0].axisValueLabel.replace('\n', ' · ')}</b><br/>`
+          // Resolve the complete category rather than a possibly shortened axis label.
+          const first = params[0];
+          const label = first?.dataIndex === undefined
+            ? first?.axisValueLabel
+            : categories[first.dataIndex];
+          const heading = label
+            ? `<b>${escapeHtml(label.replace(/\n/g, ' · '))}</b><br/>`
             : '';
           const values = params
             .filter((param) => param.value != null)
             .map(
               (param) =>
-                `<span style="color:${param.color}">●</span> ${param.seriesName}: <b>${param.value!.toFixed(2)} ms</b>`,
+                `<span style="color:${param.color}">●</span> ${escapeHtml(param.seriesName)}: <b>${param.value!.toFixed(2)} ms</b>`,
             )
             .join('<br/>');
-          return `${heading}${values || 'No data'}`;
+          return `<div class="timing-tooltip">${heading}${values || 'No data'}</div>`;
         },
       },
       legend: {

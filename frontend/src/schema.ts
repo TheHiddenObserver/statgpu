@@ -33,6 +33,10 @@ export interface Environment {
   gpu: string;
   cpu: string;
   host?: string;
+  /** Stable UI grouping key for benchmark sessions in the same hardware class. */
+  physical_env_id?: string;
+  /** Session environment IDs represented by this UI-level environment. */
+  member_env_ids?: string[];
 }
 
 export interface Category {

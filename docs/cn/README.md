@@ -1,7 +1,7 @@
 # StatGPU 文档
 
 > 语言：中文  
-> 最后更新：2026-10-13  
+> 最后更新：2026-10-17  
 > 切换：[English](../en/README.md)
 
 ## 快速开始
@@ -23,7 +23,7 @@
 通过[方法族选择入口](models/README.md)匹配要回答的问题。
 各方法族入口链接到对应教程与完整 API 参考。
 
-- 响应模型：[回归](models/regression/README.md)按响应类型与惩罚项选择；[生存分析](models/coxph.md)处理事件时间数据
+- 响应模型：[回归](models/regression/README.md)按响应类型与惩罚项选择；[生存分析](models/survival/README.md)处理事件时间数据
 - 统计问题：[检验](models/testing/README.md)处理组间比较与多个检验；[协方差](models/covariance/README.md)描述共同变化与精度矩阵
 - 灵活拟合与变量选择：[非参数方法](models/nonparametric/README.md)涵盖密度、曲线与核特征；[特征选择](models/feature-selection/README.md)比较逐步与 knockoff 方法
 - 数据结构：[面板数据](panel/README.md)处理个体/时间观测；[无监督学习](unsupervised/README.md)在没有响应变量时探索结构
@@ -44,7 +44,7 @@
 - [多重检验概览](models/testing/multiple-testing.md) — 选择假设族、错误率标准或总体检验
 - [P 值校正与合并 API](guides/multiple-testing-combine-pvalues.md) — 完整签名、形状与数值限制
 - [基准测试](guides/benchmarks.md) — 基准测试方法与对比说明
-- [交互式基准面板](../assets/benchmarks/index.html) — 筛选、图表、指标与数据来源
+- [交互式基准面板](../en/guides/statgpu_benchmark_dashboard.md#open-dashboard) — 筛选、图表、指标与数据来源
 
 ## 参考
 

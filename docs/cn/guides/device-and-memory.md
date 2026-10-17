@@ -1,9 +1,11 @@
 # 设备与 GPU 内存
 
 > 语言：中文\
-> 最后更新：2026-10-15\
+> 最后更新：2026-10-17\
 > 页面定位：设备选择与 GPU 内存控制\
 > 切换：[English](../../en/guides/device-and-memory.md)
+
+还不确定 GPU 是否有帮助？先阅读[什么时候值得用 GPU？](when-to-use-gpu.md)，通过示意图、具体任务与 CPU/GPU 取舍理解原理。本页说明设备与显存参数的具体行为。
 
 ## 选择设备
 
@@ -81,6 +83,8 @@ Torch 张量查看 `.device` 与 `.is_cuda`，CuPy 数组查看 `.device`。NumP
 输出类型由具体方法决定。例如，`Ridge.predict(X)` 默认返回 NumPy 数组，包括在 GPU 上拟合之后。`Ridge.predict(X, return_cpu=False)` 则在已拟合模型的数值后端上返回预测：CPU 拟合返回 NumPy 数组，GPU 拟合返回 CuPy 数组或 Torch 张量。后续还要在同一 GPU 后端上继续计算时，可使用这一选项。`Ridge.coef_` 始终是 NumPy 数组，不能据此判断拟合所在设备。
 
 方法明示的 NumPy 输出转换，与上述核方法/样条例外中的 CPU 执行是两种情况。请先查看返回值说明，再判断能否用输出类型识别计算位置。
+
+<a id="gpu-memory-cleanup"></a>
 
 ## GPU 内存清理
 

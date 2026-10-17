@@ -1,7 +1,7 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-10-15<br>
+> Last updated: 2026-10-17<br>
 > This page: Release history  
 > Switch: [Chinese](../cn/changelog.md)
 
@@ -17,6 +17,27 @@ This page records user-visible changes for current and recent statgpu releases.
   - Explicit `backend="torch"` with non-Torch p-values uses the current concrete CUDA device when available, otherwise CPU. Unsupported Torch p-value devices, including MPS, raise `ValueError` because these functions support float64 execution on CPU and CUDA; no silent device fallback is introduced.
   - Module functions still ignore `set_device`. Estimator helpers retain their separate CUDA requirement and input conversion when they select Torch; shared backend-factory behavior is unchanged. Existing numerical warnings for NaN `alpha`, overflowing weight sums, and extreme probability tails still apply.
   - Updated the bilingual multiple-testing API, device guide, and estimator helper reference. Added device-ownership regressions in `dev/tests/test_multiple_testing_device_ownership.py`, including conditional physical CUDA checks. No physical GPU validation is claimed for this local update.
+
+## Unreleased — Website navigation and benchmark provenance (PR #132)
+
+### Improved (2026-10-17)
+
+- Added [acknowledgements](acknowledgements.md) for contributors, LLM API providers, and GPU providers, with links from the homepage and project sidebar.
+
+- Organized homepage guides around method choice, computing needs, fitting, validation, and inference, with issue-reporting and contribution links. Added an illustrated [GPU starter guide](guides/when-to-use-gpu.md) explaining suitable workloads, CPU alternatives, data movement, and fair timing, with CPU-first and optional CUDA Ridge examples.
+
+- Gave survival analysis the same overview-and-tutorial navigation as other method families. Moved the Cox estimator comparison out of the model directory, aligned both language sidebars and entry links, and preserved existing Cox tutorial URLs and directory section links.
+
+### Fixed (2026-10-16)
+
+- Added benchmark-session and source columns to the convergence table. Rows from separate sessions remain distinguishable when their model, framework, dimensions, iteration count, and convergence rate match; numeric values and row order are unchanged.
+- Restored the website workflow's rejection of tracked dependencies, generated bundles/build outputs, and browser reports, including files already present in a clean checkout. Both workflow event filters cover these artifact paths; clean-tree checks remain before browser QA and also run after it.
+
+### Fixed (2026-10-15)
+
+- Preserved GitHub-compatible section anchors when rendering the documentation website, including API names with underscores and numbered headings. Source Markdown links remain usable in the repository; website rendering routes dashboard links to the generated dashboard and data files.
+- Escaped identifier underscores in the English and Chinese MinCovDet and ANOVA post-hoc formulas so MathJax renders the equations correctly. The site verifier now checks internal fragment targets and MathJax errors throughout the generated HTML.
+- Added session and source details to timing-chart labels, tooltips, and accessible tables when multiple benchmark sessions share a hardware group. Numeric results and comparison identities are unchanged. Regression tests exercise canonical RidgeCV sessions through the real chart renderer and table builder.
 
 ## Unreleased — Learner guides and API references (PR #168)
 

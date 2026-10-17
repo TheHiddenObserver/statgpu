@@ -1,10 +1,14 @@
 # statgpu Benchmark Dashboard
 
-[Open the dashboard](../../assets/benchmarks/index.html) to explore timing, speedup, numerical quality, inference, convergence, cross-validation, prediction, validation, and feature-selection metrics when those measurements are available.
+[Open the dashboard](statgpu_benchmark_dashboard.md#open-dashboard) to explore timing, speedup, numerical quality, inference, convergence, cross-validation, prediction, validation, and feature-selection metrics when those measurements are available.
+
+When reading this guide on GitHub, the dashboard and data links below lead to
+access instructions. On the documentation website, they open the generated
+dashboard and JSON files directly.
 
 ## Coverage
 
-The dashboard displays a recorded benchmark bundle, not live measurements of the installed library. It uses sources dated **2026-06-01 or later**. Use the [source inventory](../../assets/benchmarks/data/source_inventory.json) for registered, available, and parsed source counts; the [parse report](../../assets/benchmarks/data/parse_report.json) for generated-run counts and issues; and the [normalized results](../../assets/benchmarks/data/benchmark_data.json) for model entries and individual runs. These quantities need not be equal, and filters further narrow what is visible.
+The dashboard displays a recorded benchmark bundle, not live measurements of the installed library. It uses sources dated **2026-06-01 or later**. Use the [source inventory](statgpu_benchmark_dashboard.md#source-inventory) for registered, available, and parsed source counts; the [parse report](statgpu_benchmark_dashboard.md#parse-report) for generated-run counts and issues; and the [normalized results](statgpu_benchmark_dashboard.md#normalized-results) for model entries and individual runs. These quantities need not be equal, and filters further narrow what is visible.
 
 Coverage includes GLM and penalized GLM, linear models, robust and quantile regression, survival, unsupervised learning, ordered models, nonparametric methods, panel models, covariance estimation, ANOVA, and CV families. It is not a complete matrix of every method, backend, scale, or metric supported by statgpu:
 
@@ -75,3 +79,54 @@ These labels do not grade how well a method performed. Check numerical errors, t
 The three linked JSON files share a `generation_id`, identifying the same generated bundle. They let you inspect the source inventory and individual records behind the charts without relying on counts copied into prose.
 
 For benchmark authors, source registration, data generation, tests, browser QA, and deployment-asset updates are documented in the [contributor maintenance guide](../../../frontend/docs/benchmark-dashboard-maintenance.md).
+
+
+## Access from a source checkout
+
+Generate the JSON bundle before building the website. The website build consumes
+that bundle and compiles the interactive dashboard; neither output is committed
+to the repository. The sections below explain how to open or inspect them when
+reading the source Markdown on GitHub.
+
+<a id="open-dashboard"></a>
+
+### Open the dashboard
+
+Follow the [frontend setup and production-build instructions](../../../frontend/README.md#production-build-and-staleness)
+to generate the bundle, build the website, and start its local preview. With the
+default site base, open `http://127.0.0.1:4173/statgpu/dashboard/` after the preview
+server starts. Install the listed [prerequisites](../../../frontend/README.md#requirements)
+first; the production-build instructions include the bundle-generation command.
+
+<a id="source-inventory"></a>
+
+### Inspect the source inventory
+
+`source_inventory.json` records registered, available, and parsed benchmark
+sources. The committed [source manifest](../../../dev/benchmarks/frontend_sources.json)
+identifies the input files and their checksums. Follow the
+[bundle-generation instructions](../../../frontend/docs/benchmark-dashboard-maintenance.md#generate-and-validate)
+to create `frontend/public/data/source_inventory.json` locally, or read it at
+`dashboard/data/source_inventory.json` relative to your built website's base.
+
+<a id="parse-report"></a>
+
+### Inspect the parse report
+
+`parse_report.json` records generated-run counts and parsing issues. Follow the
+[bundle-generation instructions](../../../frontend/docs/benchmark-dashboard-maintenance.md#generate-and-validate)
+to create `frontend/public/data/parse_report.json` locally, or read it at
+`dashboard/data/parse_report.json` relative to your built website's base. The
+[parsing contract](../../benchmark-dashboard/parser-contracts.md) explains how
+source records are converted and issues are reported.
+
+<a id="normalized-results"></a>
+
+### Inspect normalized results
+
+`benchmark_data.json` contains the models, environments, and individual benchmark
+runs behind the charts. Follow the
+[bundle-generation instructions](../../../frontend/docs/benchmark-dashboard-maintenance.md#generate-and-validate)
+to create `frontend/public/data/benchmark_data.json` locally, or read it at
+`dashboard/data/benchmark_data.json` relative to your built website's base. See
+the [data schema](../../benchmark-dashboard/schema-v1.1.md) for the record format.

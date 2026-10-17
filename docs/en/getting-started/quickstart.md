@@ -1,7 +1,7 @@
 # Quickstart
 
 > Language: English  
-> Last updated: 2026-10-12  
+> Last updated: 2026-10-17\
 > This page: Getting started  
 > Switch: [Chinese](../../cn/getting-started/quickstart.md)
 
@@ -44,6 +44,8 @@ performance on new data; use held-out data or cross-validation for that purpose.
 <a id="device-control"></a>
 
 ## Choosing a compute device
+
+Before switching hardware, read [When should I use a GPU?](../guides/when-to-use-gpu.md). It explains why large, repeated matrix operations may benefit, and why small or transfer-heavy jobs may be better on CPU.
 
 Alongside each estimator's `device` argument, you can set a global default:
 

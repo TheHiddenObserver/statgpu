@@ -1,10 +1,10 @@
 # statgpu Benchmark Frontend
 
-Interactive benchmark dashboard for statgpu, built with Vite, TypeScript, and ECharts. The dashboard consumes a generated, versioned benchmark bundle and is published from `docs/assets/benchmarks/`.
+Interactive benchmark dashboard for statgpu, built with Vite, TypeScript, and ECharts. The dashboard consumes a generated, versioned benchmark bundle and is published at `<site-base>/dashboard/` inside the assembled website.
 
 ## Current coverage
 
-The canonical dashboard is restricted to benchmark sources dated **2026-06-01 or later**. Current counts and registered inputs are available in the generated [source inventory](public/data/source_inventory.json), [parse report](public/data/parse_report.json), and [normalized data](public/data/benchmark_data.json). These distinguish sources, runs, and model-registry entries; do not copy fixed current counts into prose.
+The canonical dashboard is restricted to benchmark sources dated **2026-06-01 or later**. Current counts and registered inputs are available in the generated files `frontend/public/data/source_inventory.json`, `frontend/public/data/parse_report.json`, and `frontend/public/data/benchmark_data.json` (paths from the repository root). Generate these untracked files using the commands in [Development](#development) before inspecting them. These files distinguish sources, runs, and model-registry entries; do not copy fixed current counts into prose.
 
 Covered categories include penalized GLM and GLM, recent linear models, robust and quantile regression, survival analysis, unsupervised learning, ordered models, nonparametric methods, panel models, covariance estimation, ANOVA, and current cross-validation families.
 
@@ -26,12 +26,13 @@ Current June-or-later sources provide external comparisons through scikit-learn,
 
 ## What the dashboard shows
 
-- Environment and category navigation.
-- Progressive filters for model, variant, penalty, solver, scale, backend, and external framework.
+- Hardware-group and category navigation. Session-level `env_id` and source identity remain attached to every run.
+- Progressive filters for metric scope, model, variant, penalty, solver, scale, backend, and external framework.
 - Explicit **Focused** and **Full matrix** chart views.
 - Timing and speedup charts when those metrics exist for the selected runs.
 - A sortable and paginated overview table.
-- Validation, accuracy, inference, prediction, convergence, and selection panels.
+- Validation, accuracy, inference, prediction, convergence, selection, and cross-validation panels.
+- Session/source provenance for grouped cross-validation and validation evidence.
 - Parse-report and source-inventory metadata.
 
 Focused is the default chart view. It keeps the timing chart readable by selecting the largest workload in the current unscaled context and retaining Auto/best solver groups when available. This is a chart-only presentation rule: it does not change the table or filter state. Full matrix restores all filtered chart groups.
@@ -47,9 +48,25 @@ Validation-only runs such as PR #122 do not participate in either speedup class 
 
 The speedup chart uses a dashed gray 1× parity line with a compact in-chart `1×` badge and `×` axis labels. Runner-reported bars use a subtle border instead of a patterned fill. The global headline card displays only the fastest runner-reported GPU speedup; computed ratios remain available in the chart and raw data for auditing.
 
+## Data provider boundary
+
+`BenchmarkDataProvider` in `src/providers/benchmark.ts` defines the loading boundary.
+`StaticJsonBenchmarkProvider` loads the three generated files relative to the
+dashboard base, validates schema/version and matching `generation_id` values,
+and caches successful bundles. Required-data failures can be retried; malformed
+or mismatched optional metadata is discarded without hiding valid benchmark data.
+
+The UI groups environments only when the source manifest supplies the same
+`physical_env_id`. This is a hardware-class presentation key, not proof of the
+same physical host. Member session IDs, source files, timing records, and chart
+comparison identities are retained; grouping does not combine measurements.
+
+A future API provider must preserve the same normalized bundle and validation
+semantics. See the [provider contract](../docs/benchmark-dashboard/provider-contract.md).
+
 ## Requirements
 
-- Node.js 20 or later.
+- Node.js 24.13.0 and npm 11.6.2 (pinned by the repository).
 - Python 3.9 or 3.11.
 - Python test packages: `pytest` and `jsonschema`.
 
@@ -77,6 +94,9 @@ The generator automatically uses `dev/benchmarks/frontend_sources.json`. Require
 
 ## Validation and tests
 
+First install dependencies and generate the benchmark bundle using
+[Development](#development), then run from the repository root:
+
 ```bash
 python -m pip install -U pytest jsonschema
 pytest \
@@ -100,16 +120,46 @@ The domain-coverage suite verifies robust/quantile, survival, unsupervised, orde
 
 ## Production build and staleness
 
-```bash
-cd frontend
-npm ci
-npm run build
+Use the [requirements](#requirements) above and run from the repository root.
+Generate the benchmark bundle before building, including on a fresh checkout:
 
-cd ../docs/assets/benchmarks
-python -m http.server 8000
+```bash
+npm ci
+npm ci --prefix frontend
+
+python dev/benchmarks/generate_benchmark_data.py \
+  --out frontend/public/data/benchmark_data.json \
+  --report frontend/public/data/parse_report.json \
+  --inventory-out frontend/public/data/source_inventory.json \
+  --deterministic --strict-sources
+
+npm run site:build
 ```
 
-The Vite build writes to `docs/assets/benchmarks/`. CI regenerates the deterministic bundle, rebuilds the frontend, and fails if either `frontend/public/data/` or `docs/assets/benchmarks/` differs from the committed output.
+Then start the local preview:
+
+```bash
+npm run site:preview
+# Open http://127.0.0.1:4173/statgpu/dashboard/
+```
+
+Stop the preview server before running production browser tests:
+
+```bash
+npm exec --prefix frontend -- playwright install --with-deps chromium firefox webkit
+npm run test:e2e:production --prefix frontend
+```
+
+Vite writes a relocatable dashboard to ignored `frontend/dist/`. Site assembly
+copies it into `.site-dist/dashboard/` alongside the VitePress documentation.
+The build consumes the existing bundle; `npm run site:build` does not generate
+benchmark data. The generated JSON stays under ignored `frontend/public/data/`;
+source manifests and benchmark inputs remain versioned. CI regenerates the bundle,
+verifies project-path and custom-domain root-base builds, and compares complete
+artifact hashes rather than committing generated deployment assets.
+
+For a custom domain use `STATGPU_SITE_BASE=/ npm run site:build` and pass the same
+variable to production QA. Building and previewing do not publish the website.
 
 ## Project structure
 
@@ -123,7 +173,8 @@ frontend/
 └── src/
     ├── main.ts                  # Application orchestration
     ├── schema.ts                # Schema v1.1.0 TypeScript types
-    ├── data.ts                  # Loading and filtering
+    ├── data.ts                  # Provider delegation and filtering
+    ├── providers/benchmark.ts   # Bundle validation, caching, and environment grouping
     ├── state.ts                 # Defaults and cascade resets
     ├── identity.ts              # Chart/group identities
     ├── charts/
@@ -153,7 +204,8 @@ results/benchmark_frontend_sources/*.json
         → dev/benchmarks/generate_benchmark_data.py
         → frontend/public/data/{benchmark_data,parse_report,source_inventory}.json
         → Vite build
-        → docs/assets/benchmarks/
+        → frontend/dist/
+        → .site-dist/dashboard/
 ```
 
 All three generated JSON files share one `generation_id`, computed from the complete bundle after removing the `generation_id` fields themselves.

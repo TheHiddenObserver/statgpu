@@ -283,6 +283,9 @@ output row receiving a feature-only critical value. On CuPy/Torch with
 `fit_intercept=True`, this centered simultaneous calculation is backend-native as
 described above.
 
+For the derivation of the one-step correction, standardized node-wise precision,
+and shared max-|Z| calibration, see [Lasso inference](lasso-inference.md).
+
 ## Parameters
 
 This table is the complete public constructor inventory for `statgpu.linear_model.Lasso`. Method signatures, input/output shapes, fitted attributes, formula inputs and inherited helpers are in the [complete Lasso API reference](../../reference/linear-model-api.md#lasso). Unlike ElasticNet, Lasso has no `l1_ratio`, `cov_type`, or `hac_maxlags` constructor controls.

@@ -135,6 +135,11 @@ dev/tests/test_irls_gpu.py
 dev/tests/run_remote_gpu.py
 
 # Frontend dependencies and test artifacts
+node_modules/
+docs/.vitepress/cache/
+docs/.vitepress/.temp/
+.site-dist/
+frontend/dist/
 frontend/node_modules/
 frontend/test-results/
 frontend/playwright-report/
@@ -155,3 +160,7 @@ frontend/playwright-report/
 results/*
 !results/benchmark_frontend_sources/
 !results/benchmark_frontend_sources/**
+
+# Benchmark bundles are regenerated from canonical sources during deployment.
+frontend/public/data/
+docs/assets/benchmarks/

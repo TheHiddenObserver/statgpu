@@ -4,11 +4,11 @@ This page is for contributors maintaining the benchmark pipeline and frontend. D
 
 ## Data sources and counts
 
-The [source manifest](../../dev/benchmarks/frontend_sources.json) defines canonical inputs and the minimum source date. The [generated inventory](../public/data/source_inventory.json), [parse report](../public/data/parse_report.json), and [normalized data](../public/data/benchmark_data.json) describe the actual bundle. Do not maintain an independent “current” source/run/model count in prose.
+The [source manifest](../../dev/benchmarks/frontend_sources.json) defines canonical inputs and the minimum source date. The generated files `frontend/public/data/source_inventory.json`, `frontend/public/data/parse_report.json`, and `frontend/public/data/benchmark_data.json` (paths from the repository root) describe the actual bundle. Do not maintain an independent “current” source/run/model count in prose.
 
-The manifest requires explicit source dates on or after `2026-06-01`; canonical sources are SHA256-verified. Strict generation rejects unapproved issues. The three generated files share a `generation_id`; corresponding files are committed under `frontend/public/data/` and copied to `docs/assets/benchmarks/data/` by the build. Inventory counts distinguish registration, availability, and successful parsing. `runs_generated`, model-registry length, and rows containing `metrics.cross_validation` measure different things.
+The manifest requires explicit source dates on or after `2026-06-01`; canonical sources are SHA256-verified. Strict generation rejects unapproved issues. The three generated files share a `generation_id`; corresponding files are generated under ignored `frontend/public/data/`, copied into `frontend/dist/data/`, and assembled at `.site-dist/dashboard/data/`. Source inputs and the manifest remain versioned. Inventory counts distinguish registration, availability, and successful parsing. `runs_generated`, model-registry length, and rows containing `metrics.cross_validation` measure different things.
 
-To inspect those quantities without regenerating files, run from the repository root:
+On a fresh checkout, first run the bundle-generation command in [Generate and validate](#generate-and-validate) below. Generated files are not committed. Once the bundle exists, inspect those quantities without regenerating files by running from the repository root:
 
 ```bash
 python - <<'PYCOUNTS'
@@ -55,6 +55,9 @@ Source/parser changes also need the targeted tests for that source. Check numeri
 
 ## Build, browser QA, and deployed assets
 
+First complete [Generate and validate](#generate-and-validate) above so the
+benchmark bundle exists, then run from the repository root:
+
 ```bash
 cd frontend
 npm ci
@@ -62,18 +65,21 @@ npm run typecheck
 npm run build
 npx playwright install --with-deps chromium firefox webkit
 npm run test:e2e
-npm run test:e2e:production
+cd ..
+npm ci
+npm run site:build
+npm run test:e2e:production --prefix frontend
 ```
 
-The build writes to `docs/assets/benchmarks/`. The production suite serves the repository's nested deployment path and covers Chromium, Firefox, and WebKit. For a manual check, serve the repository root and open `/docs/assets/benchmarks/index.html`; verify JSON loading, relative assets after refresh, filter cascades, scope labels, computed/reported speedups, stable sorting, conditional panels, keyboard focus, and chart-data tables.
+The frontend build writes to ignored `frontend/dist/`; site assembly copies it to `.site-dist/dashboard/`. The production suite previews the assembled site and covers Chromium, Firefox, and WebKit. For a manual check, run `npm run site:preview` from the repository root and open `/statgpu/dashboard/`; verify JSON loading, relative assets after refresh, filter cascades, scope labels, computed/reported speedups, stable sorting, conditional panels, keyboard focus, and chart-data tables.
 
-Update generated data and deployment assets together when changing a source or parser. A build updates local files; publishing the website is a separate repository deployment action. Before publication, review the generated diff and rerun deterministic generation/build. A staleness check against an already-updated committed bundle should leave this command empty:
+Update generated data and deployment assets together when changing a source or parser. A build updates local files; publishing the website is a separate repository deployment action. Before publication, review source changes and rerun deterministic generation/build. CI compares complete artifact hashes across rebuilds. Generated data and deployment outputs remain ignored; the source tree should remain clean after a build:
 
 ```bash
-git status --porcelain -- frontend/public/data docs/assets/benchmarks
+git status --porcelain --untracked-files=all
 ```
 
-Expected output changes during source maintenance must be reviewed, rather than discarded merely to make this check empty. A prose-only edit does not require regenerating unchanged benchmark measurements.
+Expected source changes during maintenance must be reviewed, rather than discarded merely to make this check empty. A prose-only edit does not require regenerating unchanged benchmark measurements.
 
 ## Add or change a source
 

@@ -161,6 +161,34 @@ Follow [`dev/DOCUMENTATION_STYLE.md`](dev/DOCUMENTATION_STYLE.md) for documentat
 
 Performance claims must include hardware, workload dimensions, numerical-accuracy evidence, and an auditable benchmark/result path.
 
+## Website development
+
+The bilingual VitePress site and benchmark dashboard are assembled together.
+Use the Node version in `.node-version` and the npm version in `package.json`,
+then install both locked dependency trees:
+
+```bash
+npm ci
+npm ci --prefix frontend
+python dev/benchmarks/generate_benchmark_data.py --out frontend/public/data/benchmark_data.json --report frontend/public/data/parse_report.json --inventory-out frontend/public/data/source_inventory.json --deterministic --strict-sources
+npm run typecheck --prefix frontend
+npm run site:build
+```
+
+`npm run site:preview` serves the assembled project-path site locally. Source
+Markdown remains canonical for repository readers: family landing pages use
+`README.md`, and links outside `docs/` are converted to GitHub repository links
+only in the website renderer. Do not recreate removed flat model pages.
+
+For root-domain deployment, repeat the build with `STATGPU_SITE_BASE=/` and a
+matching `STATGPU_SITE_URL`. Run the dashboard and assembled-site browser suites
+with `npm run test:e2e --prefix frontend` and
+`npm run test:e2e:production --prefix frontend`; install their managed browsers
+first with `npm exec --prefix frontend -- playwright install --with-deps`.
+Generated bundles belong in ignored build directories, not commits. See
+[`docs/website-deployment.md`](docs/website-deployment.md) for all build, link,
+size-budget, reproducibility, and publication checks.
+
 ## Pull request workflow
 
 1. Create a focused branch from the current target branch.

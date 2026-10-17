@@ -54,7 +54,7 @@ Games–Howell comparisons.
 Each returned `PairwiseComparison` contains zero-based `group_i` and `group_j`
 with `i < j`, following input order. The difference is always
 
-$$\texttt{mean_diff}=\bar y_i-\bar y_j.$$
+$$\texttt{mean\_diff}=\bar y_i-\bar y_j.$$
 
 A negative value means the earlier input group has the smaller observed mean.
 `ci_lower` and `ci_upper` use this same direction. Reversing the comparison

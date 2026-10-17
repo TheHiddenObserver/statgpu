@@ -6,7 +6,7 @@
 
 ## Start with a comparable workload
 
-Use the [interactive dashboard](../assets/benchmarks/index.html) to find recorded runs and the [dashboard guide](guides/statgpu_benchmark_dashboard.md) to interpret their filters and metrics. A benchmark describes a particular workload and environment, not a universal ranking of models or backends.
+Use the [interactive dashboard](guides/statgpu_benchmark_dashboard.md#open-dashboard) to find recorded runs and the [dashboard guide](guides/statgpu_benchmark_dashboard.md) to interpret their filters and metrics. A benchmark describes a particular workload and environment, not a universal ranking of models or backends.
 
 Before comparing timings, match:
 

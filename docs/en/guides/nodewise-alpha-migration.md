@@ -103,6 +103,8 @@ Do not copy the main-model `alpha` into `nodewise_alpha` automatically: the two 
 
 ## Related documentation
 
+- [Lasso inference derivation](../models/regression/lasso-inference.md) — working-design notation, precision construction and max-|Z| calibration
+
 - [Inference Modes](inference-modes.md) — choosing between de-biased, post-selection, and bootstrap inference
 - [Cross-Validation](cross-validation.md) — selection and final-refit semantics
 - [Lasso](../models/regression/lasso.md) and [ElasticNet](../models/regression/elastic-net.md) — model-specific inference controls

@@ -1,9 +1,11 @@
 # Device and GPU Memory
 
 > Language: English\
-> Last updated: 2026-10-15\
+> Last updated: 2026-10-17\
 > This page: device selection and GPU memory controls\
 > Switch: [Chinese](../../cn/guides/device-and-memory.md)
+
+Not sure whether a GPU will help? Start with [When should I use a GPU?](when-to-use-gpu.md) for visual explanations, example workloads, and CPU/GPU trade-offs. This page covers the exact device and memory settings.
 
 ## Choose a device
 

@@ -6,7 +6,7 @@
 
 ## 先确认工作负载可比
 
-通过[交互式面板](../assets/benchmarks/index.html)查找已记录的实验；筛选和指标的详细说明见[面板使用指南](../en/guides/statgpu_benchmark_dashboard.md)。基准结果描述的是特定工作负载和运行环境，不能当作模型或后端的通用排名。
+通过[交互式面板](../en/guides/statgpu_benchmark_dashboard.md#open-dashboard)查找已记录的实验；筛选和指标的详细说明见[面板使用指南](../en/guides/statgpu_benchmark_dashboard.md)。基准结果描述的是特定工作负载和运行环境，不能当作模型或后端的通用排名。
 
 比较时间前，请对齐：
 

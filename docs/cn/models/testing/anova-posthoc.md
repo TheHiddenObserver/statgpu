@@ -48,7 +48,7 @@ Welch ANOVA，后续便不宜直接改用要求等方差的 Tukey 比较。
 每项比较以一个 `PairwiseComparison` 对象返回。`group_i`、`group_j` 是按输入顺序
 从零开始编号的组索引，满足 `i < j`。均值差始终定义为
 
-$$\texttt{mean_diff}=\bar y_i-\bar y_j.$$
+$$\texttt{mean\_diff}=\bar y_i-\bar y_j.$$
 
 负值表示先传入的那一组样本均值更小。区间端点 `ci_lower`、`ci_upper` 使用同一方向。
 如果反向描述比较，应将差值变号，并把区间 $[L,U]$ 改为 $[-U,-L]$。

@@ -1,6 +1,6 @@
 /** Validation metrics panel — shows per-metric checks from validation.checks[] */
 
-import type { Run, ValidationCheck } from '../../schema';
+import type { Run } from '../../schema';
 import type { AppState } from '../../state';
 import { renderPanelTable } from './PanelTable';
 
@@ -23,6 +23,8 @@ export function renderValidationPanel(
         variant: r.variant ?? '-',
         scale: r.scale.label,
         backend: r.backend ?? r.framework,
+        session: r.benchmark_session_id ?? r.env_id,
+        source: r.source.file,
         reference: ch.reference ?? '-',
         metric: ch.metric,
         value: ch.value != null ? ch.value.toExponential(2) : '-',
@@ -42,6 +44,8 @@ export function renderValidationPanel(
       { key: 'variant', label: 'Variant', render: r => String(r.variant) },
       { key: 'scale', label: 'Scale', render: r => String(r.scale) },
       { key: 'backend', label: 'Backend', render: r => String(r.backend) },
+      { key: 'session', label: 'Benchmark session', render: r => String(r.session) },
+      { key: 'source', label: 'Source', render: r => String(r.source) },
       { key: 'reference', label: 'Reference', render: r => String(r.reference) },
       { key: 'metric', label: 'Metric', render: r => String(r.metric) },
       { key: 'value', label: 'Value', render: r => String(r.value) },

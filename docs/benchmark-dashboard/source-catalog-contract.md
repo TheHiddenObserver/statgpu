@@ -75,7 +75,15 @@ CI fails when:
 - a coverage row references an unknown source ID;
 - an unresolved coverage row has neither an issue nor a disposition;
 - inventory totals do not reconcile;
-- generated bundle or deployment assets are stale.
+- deterministic bundle generation or assembled-site validation fails;
+- repeated builds at the same site base produce different complete artifact hashes;
+- a build changes tracked source files or creates non-ignored untracked files.
+
+CI generates the three-file bundle under ignored `frontend/public/data/`, builds
+`frontend/dist/`, and assembles `.site-dist/dashboard/` from current canonical
+inputs. Generated JSON and deployment assets are not committed. See the
+[website deployment contract](../website-deployment.md) for both site bases and
+production browser QA.
 
 Existing source SHA256, parser, schema, semantic, speedup-reference, transactional-write, TypeScript, build, and browser checks remain in force.
 

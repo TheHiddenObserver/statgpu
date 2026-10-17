@@ -144,7 +144,9 @@ results/benchmark_frontend_sources/<module>_YYYYMMDD.json
 dev/benchmarks/frontend_sources.json
 dev/benchmarks/frontend_data/parsers/**
 frontend/src/**
-docs/assets/benchmarks/**
+frontend/public/data/**
+frontend/dist/**
+.site-dist/**
 ```
 
 只有在用户明确选择 `full-integration` 后才继续接入。
@@ -160,7 +162,8 @@ parser
 → exact matrix tests
 → generated canonical bundle
 → frontend scope/filter checks
-→ deterministic assets
+→ assembled website + production browser QA
+→ reproducible build + clean source tree
 → full CI
 ```
 
@@ -546,30 +549,15 @@ results/benchmark_frontend_sources/{{ARTIFACT_FILE}}
 - Inference 数据应通过 `Metric scope → Inference` 可见。
 
 5. Generation and validation
-依次运行：
-
-python -m pytest \
-  dev/tests/test_benchmark_frontend_data.py \
-  dev/tests/test_frontend_contracts.py \
-  dev/tests/test_frontend_domain_coverage.py -v
-
-python dev/benchmarks/generate_benchmark_data.py --check --strict-sources
-
-python dev/benchmarks/generate_benchmark_data.py \
-  --out frontend/public/data/benchmark_data.json \
-  --report frontend/public/data/parse_report.json \
-  --inventory-out frontend/public/data/source_inventory.json \
-  --deterministic --strict-sources
-
-cd frontend
-npm ci
-npm run typecheck
-npm run build
-npm run test:e2e
+- 在仓库根目录执行本节末尾的完整命令块；先安装根目录和 frontend 的锁定依赖，再验证并生成三文件 bundle，最后构建组装网站并运行两套浏览器测试。
+- `npm run site:build` 只消费现有 bundle，不会替你生成 benchmark 数据。
+- 若浏览器或 GPU 无法运行，报告实际执行范围与阻塞原因；构建成功不代表浏览器测试或真实 GPU benchmark 已通过。
 
 6. Assets and workflow
-- 保证 `frontend/public/data` 与 `docs/assets/benchmarks` 是当前确定性结果。
-- 永久 CI workflow 必须保持 read-only staleness gate，不保留 contents:write 或 self-commit 逻辑。
+- 三文件 bundle 位于忽略的 `frontend/public/data/`；Vite 输出到 `frontend/dist/`，根目录 `npm run site:build` 将网站与 dashboard 组装到 `.site-dist/dashboard/`。
+- source manifest、parser 和原始 benchmark 输入继续版本化；不要提交生成的 JSON、HTML、JavaScript 或 CSS。
+- 按 website-deployment.md 验证 `/statgpu/` 与 `/` 两种 base，并用 `npm run --silent site:hash` 比较相同 base 的重复构建；对自定义域名的构建和 production QA 使用相同的 `STATGPU_SITE_BASE=/`。
+- 永久 CI 必须重新生成 bundle、验证组装产物、比较重复构建哈希，并检查构建不改变源码工作树；不添加 contents:write 或 self-commit 逻辑。已有集成源码改动应单独记录，不能为了获得 clean tree 而丢弃。
 
 7. Documentation
 - 更新 remaining-module-audit.md：将该项从 gap 移到 completed，并保留尚未覆盖的子矩阵。
@@ -584,6 +572,43 @@ npm run test:e2e
 - PR head；
 - 未覆盖的 benchmark 子项。
 ```
+
+先满足 [frontend 环境要求](../../frontend/README.md#requirements)，在仓库根目录执行：
+
+```bash
+npm ci
+npm ci --prefix frontend
+
+python -m pytest \
+  dev/tests/test_benchmark_frontend_data.py \
+  dev/tests/test_frontend_contracts.py \
+  dev/tests/test_frontend_domain_coverage.py -v
+
+python dev/benchmarks/generate_benchmark_data.py --check --strict-sources
+
+python dev/benchmarks/generate_benchmark_data.py \
+  --out frontend/public/data/benchmark_data.json \
+  --report frontend/public/data/parse_report.json \
+  --inventory-out frontend/public/data/source_inventory.json \
+  --deterministic --strict-sources
+
+npm run typecheck --prefix frontend
+npm run site:build
+npm exec --prefix frontend -- playwright install --with-deps chromium firefox webkit
+npm run test:e2e --prefix frontend
+npm run test:e2e:production --prefix frontend
+```
+
+完整的网站产物、两种 base、重复构建与源码工作树要求见
+[网站部署契约](../website-deployment.md)；生产浏览器测试说明见
+[Production dashboard QA](../../frontend/e2e-production/README.md)。
+
+集成验收还必须确认：
+
+- [ ] 三个 JSON 文件具有相同的 `generation_id`，并随 dashboard 复制到 `.site-dist/dashboard/data/`；主数据 JSON 的压缩排版不改变内容。
+- [ ] 两种 base 的组装产物检查通过；同一 base 重复构建的完整产物哈希一致。
+- [ ] Dashboard regression 与 Chromium、Firefox、WebKit production QA 均有实际执行结果；未执行项必须标明。
+- [ ] 构建没有改变版本化源码或新增非忽略文件；生成产物保持忽略，原始测量值没有被改写。
 
 ---
 
@@ -1078,21 +1103,7 @@ frontend/e2e/domain-coverage.spec.ts
 minimum_source_date = 2026-06-01
 ```
 
-常用最终验证命令：
-
-```bash
-python -m pytest \
-  dev/tests/test_benchmark_frontend_data.py \
-  dev/tests/test_frontend_contracts.py \
-  dev/tests/test_frontend_domain_coverage.py -v
-
-python dev/benchmarks/generate_benchmark_data.py --check --strict-sources
-
-cd frontend
-npm ci
-npm run typecheck
-npm run build
-npm run test:e2e
-```
+最终集成验证统一使用[第 7 节的完整命令与验收清单](#7-full-integration-继续提示词)。
+从仓库根目录开始，先生成三文件 bundle，再构建组装网站；不要用仅构建 frontend 的命令替代。
 
 若本地环境不能运行浏览器，可以先完成 Python、typecheck 和 build，但必须明确把 Playwright 标为未执行，不能声称 CI 已通过。

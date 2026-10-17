@@ -222,7 +222,13 @@ def test_repository_documentation_language_policy_is_canonicalized():
 def test_documentation_root_portal_stays_user_facing():
     portal = (_ROOT / "docs/index.md").read_text(encoding="utf-8")
 
-    assert "Choose a documentation entry point" in portal
+    assert "## Practical guides" in portal
+    for route in (
+        "en/models/README.md",
+        "en/getting-started/quickstart.md",
+        "en/guides/when-to-use-gpu.md",
+    ):
+        assert re.search(r"\[[^\]]+\]\(" + re.escape(route) + r"\)", portal)
     assert "maintained documentation entry point" not in portal.lower()
     assert "pull-request validation records" not in portal.lower()
     assert ".claude/skills/" not in portal

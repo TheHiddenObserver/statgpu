@@ -1,0 +1,37 @@
+{
+  "name": "statgpu-website",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "packageManager": "npm@11.6.2",
+  "engines": {
+    "node": "24.13.0"
+  },
+  "scripts": {
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "site:assemble": "node scripts/assemble-site.mjs",
+    "site:build": "node scripts/build-site.mjs",
+    "site:hash": "node scripts/hash-site.mjs",
+    "site:preview": "vitepress preview docs --host 127.0.0.1 --port 4173",
+    "site:verify": "node scripts/verify-site.mjs",
+    "test:search": "node --test scripts/test-search-index-compression.mjs",
+    "test:site-links": "node --test scripts/test-site-source-links.mjs scripts/test-source-document-links.mjs",
+    "test:site-html": "node --test scripts/test-site-html-validation.mjs",
+    "test:production-recipe": "node --test scripts/test-production-build-recipe.mjs",
+    "source:verify": "node scripts/check-source-document-links.mjs"
+  },
+  "devDependencies": {
+    "fflate": "0.8.3",
+    "github-slugger": "2.0.0",
+    "markdown-it-mathjax3": "^4.3.2",
+    "parse5": "6.0.1",
+    "vitepress": "1.6.4"
+  },
+  "overrides": {
+    "@xmldom/xmldom": "0.9.12",
+    "vitepress": {
+      "vite": "6.4.3"
+    }
+  }
+}
