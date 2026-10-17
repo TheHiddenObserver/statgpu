@@ -101,7 +101,7 @@ if (!process.env.STATGPU_LINK_TEST_CHILD) {
     assert.match(html, /target="_self"/);
   });
 
-  test('all 29 repaired links exist in source and render to the intended website destinations', async () => {
+  test('all 40 maintained entry links exist in source and render to the intended website destinations', async () => {
     const generatedLinks = {
       'cn/README.md': ['dashboard/'],
       'cn/benchmarks.md': ['dashboard/'],
@@ -139,17 +139,24 @@ if (!process.env.STATGPU_LINK_TEST_CHILD) {
     const inspected = sourceChecker.inspect(source);
     const links = htmlLinks(render(source, 'index.md'));
     const documentationTargets = [
-      'en/getting-started/quickstart.md', 'en/models/README.md', 'en/usage.md',
-      'en/guides/device-and-memory.md', 'en/guides/inference-api.md', 'cn/README.md',
-      'en/models/README.md', 'en/unsupervised/README.md', 'en/panel/README.md',
-      'en/guides/cross-validation.md', 'en/changelog.md',
+      'en/models/README.md', 'en/guides/when-to-use-gpu.md',
+      'en/guides/device-and-memory.md', 'en/getting-started/quickstart.md',
+      'en/reference/linear-model-api.md#formula-inputs',
+      'en/guides/cross-validation.md', 'en/guides/inference-modes.md',
+      'en/guides/inference-api.md', 'en/models/regression/README.md',
+      'en/models/survival/README.md', 'en/models/testing/README.md',
+      'en/models/nonparametric/README.md', 'en/panel/README.md',
+      'en/unsupervised/README.md', 'en/README.md#complete-api-references',
+      'en/guides/implemented-methods.md', 'en/guides/solver-algorithms.md',
+      'en/guides/solver-penalty-matrix.md', 'en/benchmarks.md',
+      'en/acknowledgements.md', 'en/changelog.md', 'cn/README.md',
     ];
     for (const href of new Set(documentationTargets)) {
       const count = documentationTargets.filter(target => target === href).length;
       assert.equal(inspected.links.filter(target => target === href).length, count, href);
-      assert.equal(links.filter(link => link.href === './' + href.replace(/\.md$/, '')).length, count, href);
+      assert.equal(links.filter(link => link.href === './' + href.replace(/\.md(?=#|$)/, '')).length, count, href);
     }
-    assert.equal(checked + documentationTargets.length, 29);
+    assert.equal(checked + documentationTargets.length, 40);
   });
 
   test('ordinary dashboard-guide and section links are not rewritten to generated resources', () => {

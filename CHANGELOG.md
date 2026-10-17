@@ -4,6 +4,10 @@ All notable changes to statgpu are documented here, organized by release and dat
 
 ## Unreleased — 2026-10-17
 
+### PR #132 — GPU starter guide and homepage navigation
+- Added bilingual acknowledgements with homepage and project-navigation links.
+- Added an illustrated bilingual CPU/GPU decision guide, practical Ridge examples, and workload-specific timing guidance, with task-ordered homepage navigation and public issue/contribution links.
+
 ### PR #132 — Unified survival documentation navigation
 - Added bilingual survival overviews, moved Cox estimator selection out of the model directory, and aligned family sidebars and entry links while preserving Cox tutorial URLs and directory anchors.
 

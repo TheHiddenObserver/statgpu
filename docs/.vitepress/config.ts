@@ -834,6 +834,7 @@ const englishSidebar = [
   {
     text: 'Guides',
     items: [
+      { text: 'When do I need a GPU?', link: '/en/guides/when-to-use-gpu' },
       { text: 'Device and memory', link: '/en/guides/device-and-memory' },
       { text: 'Solver algorithms', link: '/en/guides/solver-algorithms' },
       { text: 'Solver and penalty matrix', link: '/en/guides/solver-penalty-matrix' },
@@ -846,6 +847,7 @@ const englishSidebar = [
   {
     text: 'Project',
     items: [
+      { text: 'Acknowledgements', link: '/en/acknowledgements' },
       { text: 'Changelog', link: '/en/changelog' },
     ],
   },
@@ -864,6 +866,7 @@ const chineseSidebar = [
   {
     text: '\u6307\u5357',
     items: [
+      { text: '什么时候需要 GPU？', link: '/cn/guides/when-to-use-gpu' },
       { text: '\u8bbe\u5907\u4e0e\u663e\u5b58', link: '/cn/guides/device-and-memory' },
       { text: '\u6c42\u89e3\u5668\u7b97\u6cd5', link: '/cn/guides/solver-algorithms' },
       { text: '\u6c42\u89e3\u5668\u4e0e\u60e9\u7f5a\u77e9\u9635', link: '/cn/guides/solver-penalty-matrix' },
@@ -876,6 +879,7 @@ const chineseSidebar = [
   {
     text: '\u9879\u76ee',
     items: [
+      { text: '致谢', link: '/cn/acknowledgements' },
       { text: '\u66f4\u65b0\u65e5\u5fd7', link: '/cn/changelog' },
     ],
   },
@@ -905,6 +909,7 @@ export default defineConfig({
             text: 'Documentation',
             items: [
               { text: 'Quickstart', link: '/en/getting-started/quickstart' },
+              { text: 'When do I need a GPU?', link: '/en/guides/when-to-use-gpu' },
               { text: 'Model catalog', link: '/en/models/README' },
               { text: 'Solver guide', link: '/en/guides/solver-algorithms' },
               { text: 'Implemented methods', link: '/en/guides/implemented-methods' },
@@ -932,6 +937,7 @@ export default defineConfig({
             text: '文档',
             items: [
               { text: '快速上手', link: '/cn/getting-started/quickstart' },
+              { text: '什么时候需要 GPU？', link: '/cn/guides/when-to-use-gpu' },
               { text: '模型目录', link: '/cn/models/README' },
               { text: '求解器指南', link: '/cn/guides/solver-algorithms' },
               { text: '已实现方法', link: '/cn/guides/implemented-methods' },
@@ -1001,7 +1007,8 @@ export default defineConfig({
         text: 'Documentation',
         items: [
           { text: 'Quickstart', link: '/en/getting-started/quickstart' },
-          { text: 'Model catalog', link: '/en/models/README' },
+          { text: 'When do I need a GPU?', link: '/en/guides/when-to-use-gpu' },
+              { text: 'Model catalog', link: '/en/models/README' },
           { text: 'Solver guide', link: '/en/guides/solver-algorithms' },
           { text: 'Implemented methods', link: '/en/guides/implemented-methods' },
         ],

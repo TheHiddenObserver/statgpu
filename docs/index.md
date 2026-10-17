@@ -22,37 +22,42 @@ hero:
       target: _self
 
 features:
-  - title: Learn the method, not just the API
-    details: Model guides explain when to use a method, its intuition and assumptions, a runnable example, result interpretation, and common pitfalls.
-  - title: CPU and GPU with explicit behavior
-    details: Use NumPy on CPU or CuPy and PyTorch on CUDA. Explicit GPU fits require the corresponding CUDA backend; method-specific host and reporting boundaries are explained in the device guide.
-  - title: Evidence you can inspect
-    details: Explore versioned benchmarks, validation results, hardware metadata, and source provenance in the dashboard.
+  - title: Familiar interfaces, a range of statistical methods
+    details: Use sklearn-style modeling interfaces, with R-style formula input supported by multiple regression models. Explanations and examples help you choose methods and interpret results.
+  - title: Choose CPU or GPU for your task
+    details: Use NumPy, CuPy, or PyTorch backends. Choose a device to suit your data size, computational task, and the methods you need.
+  - title: Explore GPU acceleration at scale
+    details: Compare performance across data sizes to explore potential GPU benefits for large samples, high-dimensional problems, and repeated computation.
 ---
 
-## Explore statgpu
+## Practical guides
 
-Choose a documentation entry point based on what you want to do:
+Start with the statistical question, choose a method and computing device, then fit, validate, and interpret the results.
 
-| I want to... | Start here |
+| Your next step | Start here |
 |---|---|
-| run my first model | [Quickstart](en/getting-started/quickstart.md) |
-| choose a statistical method | [Model catalog](en/models/README.md) |
-| use DataFrame formulas | [Usage guide](en/usage.md) |
-| configure CPU, CUDA, or Torch | [Device and memory](en/guides/device-and-memory.md) |
-| understand standard errors and tests | [Inference API](en/guides/inference-api.md) |
-| compare measured performance | [Interactive benchmark dashboard](en/guides/statgpu_benchmark_dashboard.md#open-dashboard) |
+| 1. Choose a method for your question | [Models and methods](en/models/README.md) |
+| 2. Decide whether you need a GPU | [GPU starter guide](en/guides/when-to-use-gpu.md)<br>Advanced: [Device and memory configuration](en/guides/device-and-memory.md) |
+| 3. Prepare data and fit a model | [Array input and a first fit](en/getting-started/quickstart.md) · [R-style formula input](en/reference/linear-model-api.md#formula-inputs) |
+| 4. Tune parameters with cross-validation | [Cross-validation guide](en/guides/cross-validation.md) |
+| 5. Interpret estimates and statistical inference | [Coefficient inference methods](en/guides/inference-modes.md) · [Statistical tests and result objects](en/guides/inference-api.md) |
 
-English is the default documentation language. Use **Change language** in the navigation bar when you need [简体中文](cn/README.md).
+## Methods and references
 
-## Main areas
+- Method families: [Regression](en/models/regression/README.md) · [Survival analysis](en/models/survival/README.md) · [Statistical testing](en/models/testing/README.md) · [Nonparametric methods](en/models/nonparametric/README.md) · [Panel data](en/panel/README.md) · [Unsupervised learning](en/unsupervised/README.md)
+- Interfaces and coverage: [Complete API references](en/README.md#complete-api-references) · [Implemented methods](en/guides/implemented-methods.md)
+- Solvers: [Algorithms](en/guides/solver-algorithms.md) · [Compatibility matrix](en/guides/solver-penalty-matrix.md)
+- Performance: [Reading benchmark results](en/benchmarks.md) · [Interactive benchmark dashboard](en/guides/statgpu_benchmark_dashboard.md#open-dashboard)
 
-- [Regression and statistical models](en/models/README.md)
-- [Unsupervised learning](en/unsupervised/README.md)
-- [Panel-data models](en/panel/README.md)
-- [Cross-validation](en/guides/cross-validation.md)
-- [Changelog](en/changelog.md)
+## Contact and contribute
 
-[Contributing](https://github.com/TheHiddenObserver/statgpu/blob/master/CONTRIBUTING.md) ·
+Email: [linziqian@fzu.edu.cn](mailto:linziqian@fzu.edu.cn).
+
+Report problems or suggest features through [GitHub Issues](https://github.com/TheHiddenObserver/statgpu/issues). Read the [contribution guide](https://github.com/TheHiddenObserver/statgpu/blob/master/CONTRIBUTING.md) before contributing code, documentation, or tests.
+
+[Acknowledgements](en/acknowledgements.md) ·
+[Changelog](en/changelog.md) ·
 [Releasing](https://github.com/TheHiddenObserver/statgpu/blob/master/RELEASING.md) ·
 [GitHub](https://github.com/TheHiddenObserver/statgpu)
+
+English is the default documentation language. Use **Change language** in the navigation bar for [简体中文](cn/README.md).

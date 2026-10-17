@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="684" viewBox="0 0 600 684" lang="zh-Hans" role="img" aria-labelledby="title desc">
+  <title id="title">一次计算，许多行数据</title>
+  <desc id="desc">概念示意：对许多行或数据块执行相同的统计计算。CPU 可以并行工作，通常使用较少而灵活的工作单元。GPU 适合同时执行许多相似的运算。图中单元不代表实际核心数量，也不代表运行时间。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 1 1 L 8 5 L 1 9" fill="none" stroke="#3f6fca" stroke-width="1.5" stroke-linejoin="round"/></marker>
+  </defs>
+  <rect x="1" y="1" width="598" height="682" rx="24" fill="#fbfcff" stroke="#d7e1ef"/>
+  <g font-family="Inter, Arial, 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif" fill="#203453">
+<text x="32" y="54" font-size="32" font-weight="650" fill="#203453" text-anchor="start">一次计算，许多行数据</text>
+<text x="32" y="87" font-size="24" font-weight="400" fill="#51647f" text-anchor="start">理解并行计算</text>
+<rect x="32" y="116" width="536" height="140" rx="16" fill="#ffffff" stroke="#d7e1ef"/>
+<text x="210" y="158" font-size="25" font-weight="600" fill="#203453" text-anchor="start">同一种运算</text>
+<text x="210" y="194" font-size="25" font-weight="400" fill="#51647f" text-anchor="start">应用于不同数据行</text>
+<text x="210" y="230" font-size="25" font-weight="400" fill="#51647f" text-anchor="start">或数据块</text>
+<rect x="52" y="136" width="132" height="100" rx="8" fill="#edf3ff" stroke="#b7ccec"/>
+<rect x="63" y="148" width="15" height="10" rx="3" fill="#7a9de1" stroke="none"/>
+<rect x="85" y="148" width="15" height="10" rx="3" fill="#7a9de1" stroke="none"/>
+<rect x="107" y="148" width="15" height="10" rx="3" fill="#7a9de1" stroke="none"/>
+<rect x="129" y="148" width="15" height="10" rx="3" fill="#7a9de1" stroke="none"/>
+<rect x="151" y="148" width="15" height="10" rx="3" fill="#7a9de1" stroke="none"/>
+<rect x="63" y="168" width="15" height="10" rx="3" fill="#a9bfeb" stroke="none"/>
+<rect x="85" y="168" width="15" height="10" rx="3" fill="#a9bfeb" stroke="none"/>
+<rect x="107" y="168" width="15" height="10" rx="3" fill="#a9bfeb" stroke="none"/>
+<rect x="129" y="168" width="15" height="10" rx="3" fill="#a9bfeb" stroke="none"/>
+<rect x="151" y="168" width="15" height="10" rx="3" fill="#a9bfeb" stroke="none"/>
+<rect x="63" y="188" width="15" height="10" rx="3" fill="#bfd0ef" stroke="none"/>
+<rect x="85" y="188" width="15" height="10" rx="3" fill="#bfd0ef" stroke="none"/>
+<rect x="107" y="188" width="15" height="10" rx="3" fill="#bfd0ef" stroke="none"/>
+<rect x="129" y="188" width="15" height="10" rx="3" fill="#bfd0ef" stroke="none"/>
+<rect x="151" y="188" width="15" height="10" rx="3" fill="#bfd0ef" stroke="none"/>
+<rect x="63" y="208" width="15" height="10" rx="3" fill="#94b0e6" stroke="none"/>
+<rect x="85" y="208" width="15" height="10" rx="3" fill="#94b0e6" stroke="none"/>
+<rect x="107" y="208" width="15" height="10" rx="3" fill="#94b0e6" stroke="none"/>
+<rect x="129" y="208" width="15" height="10" rx="3" fill="#94b0e6" stroke="none"/>
+<rect x="151" y="208" width="15" height="10" rx="3" fill="#94b0e6" stroke="none"/>
+<path d="M 300 256 V 280 H 160 V 308" fill="none" stroke="#3f6fca" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M 300 280 H 440 V 308" fill="none" stroke="#3f6fca" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="32" y="314" width="256" height="272" rx="16" fill="#edf3ff" stroke="#b9cdec"/>
+<rect x="312" y="314" width="256" height="272" rx="16" fill="#eaf6f4" stroke="#b5d9d6"/>
+<text x="58" y="357" font-size="30" font-weight="650" fill="#3f6fca" text-anchor="start">CPU</text>
+<text x="338" y="357" font-size="30" font-weight="650" fill="#187d83" text-anchor="start">GPU</text>
+<text x="58" y="394" font-size="25" font-weight="400" fill="#51647f" text-anchor="start">较少而灵活的</text>
+<text x="58" y="424" font-size="25" font-weight="400" fill="#51647f" text-anchor="start">工作单元</text>
+<text x="338" y="394" font-size="25" font-weight="400" fill="#51647f" text-anchor="start">大量相似的</text>
+<text x="338" y="424" font-size="25" font-weight="400" fill="#51647f" text-anchor="start">运算</text>
+<rect x="58" y="453" width="98" height="100" rx="12" fill="#ffffff" stroke="#a5bfe7"/>
+<path d="M 85 482 H 129 M 107 460 V 504" fill="none" stroke="#3f6fca" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M 80 528 H 98 M 114 528 H 133" fill="none" stroke="#3f6fca" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="164" y="453" width="98" height="100" rx="12" fill="#ffffff" stroke="#a5bfe7"/>
+<path d="M 191 482 H 235 M 213 460 V 504" fill="none" stroke="#3f6fca" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M 186 528 H 204 M 220 528 H 239" fill="none" stroke="#3f6fca" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="338" y="451" width="32" height="28" rx="6" fill="#ffffff" stroke="#9bc8c3"/>
+<path d="M 348 465 H 360 M 354 459 V 471" fill="none" stroke="#187d83" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="380" y="451" width="32" height="28" rx="6" fill="#ffffff" stroke="#9bc8c3"/>
+<path d="M 390 465 H 402 M 396 459 V 471" fill="none" stroke="#187d83" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="422" y="451" width="32" height="28" rx="6" fill="#ffffff" stroke="#9bc8c3"/>
+<path d="M 432 465 H 444 M 438 459 V 471" fill="none" stroke="#187d83" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="464" y="451" width="32" height="28" rx="6" fill="#ffffff" stroke="#9bc8c3"/>
+<path d="M 474 465 H 486 M 480 459 V 471" fill="none" stroke="#187d83" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="506" y="451" width="32" height="28" rx="6" fill="#ffffff" stroke="#9bc8c3"/>
+<path d="M 516 465 H 528 M 522 459 V 471" fill="none" stroke="#187d83" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="338" y="487" width="32" height="28" rx="6" fill="#ffffff" stroke="#9bc8c3"/>
+<path d="M 348 501 H 360 M 354 495 V 507" fill="none" stroke="#187d83" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="380" y="487" width="32" height="28" rx="6" fill="#ffffff" stroke="#9bc8c3"/>
+<path d="M 390 501 H 402 M 396 495 V 507" fill="none" stroke="#187d83" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="422" y="487" width="32" height="28" rx="6" fill="#ffffff" stroke="#9bc8c3"/>
+<path d="M 432 501 H 444 M 438 495 V 507" fill="none" stroke="#187d83" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="464" y="487" width="32" height="28" rx="6" fill="#ffffff" stroke="#9bc8c3"/>
+<path d="M 474 501 H 486 M 480 495 V 507" fill="none" stroke="#187d83" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="506" y="487" width="32" height="28" rx="6" fill="#ffffff" stroke="#9bc8c3"/>
+<path d="M 516 501 H 528 M 522 495 V 507" fill="none" stroke="#187d83" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="338" y="523" width="32" height="28" rx="6" fill="#ffffff" stroke="#9bc8c3"/>
+<path d="M 348 537 H 360 M 354 531 V 543" fill="none" stroke="#187d83" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="380" y="523" width="32" height="28" rx="6" fill="#ffffff" stroke="#9bc8c3"/>
+<path d="M 390 537 H 402 M 396 531 V 543" fill="none" stroke="#187d83" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="422" y="523" width="32" height="28" rx="6" fill="#ffffff" stroke="#9bc8c3"/>
+<path d="M 432 537 H 444 M 438 531 V 543" fill="none" stroke="#187d83" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="464" y="523" width="32" height="28" rx="6" fill="#ffffff" stroke="#9bc8c3"/>
+<path d="M 474 537 H 486 M 480 531 V 543" fill="none" stroke="#187d83" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="506" y="523" width="32" height="28" rx="6" fill="#ffffff" stroke="#9bc8c3"/>
+<path d="M 516 537 H 528 M 522 531 V 543" fill="none" stroke="#187d83" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="32" y="622" font-size="25" font-weight="550" fill="#203453" text-anchor="start">CPU 也可以并行计算。</text>
+<text x="32" y="657" font-size="22" font-weight="400" fill="#51647f" text-anchor="start">概念示意，不代表核心数量或耗时。</text>
+  </g>
+</svg>

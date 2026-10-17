@@ -22,6 +22,10 @@ This page records user-visible changes for current and recent statgpu releases.
 
 ### Improved (2026-10-17)
 
+- Added [acknowledgements](acknowledgements.md) for contributors, LLM API providers, and GPU providers, with links from the homepage and project sidebar.
+
+- Organized homepage guides around method choice, computing needs, fitting, validation, and inference, with issue-reporting and contribution links. Added an illustrated [GPU starter guide](guides/when-to-use-gpu.md) explaining suitable workloads, CPU alternatives, data movement, and fair timing, with CPU-first and optional CUDA Ridge examples.
+
 - Gave survival analysis the same overview-and-tutorial navigation as other method families. Moved the Cox estimator comparison out of the model directory, aligned both language sidebars and entry links, and preserved existing Cox tutorial URLs and directory section links.
 
 ### Fixed (2026-10-16)
