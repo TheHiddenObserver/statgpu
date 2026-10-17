@@ -4,6 +4,9 @@ All notable changes to statgpu are documented here, organized by release and dat
 
 ## Unreleased — 2026-10-17
 
+### Fixed RidgeCV reversed fold indices
+- Fixed Torch conversion of negative-stride training and validation indices, including reversed single-element arrays, while preserving custom row order, input arrays, validation, weighted scoring, and final refits.
+
 ### Fixed four numerical contracts for v0.3.0
 - Fixed #243 RidgeCV to honor exact custom training subsets with or without weights, validate fold indices and positive per-subset weight totals, score explicit tiny/single-candidate folds, and restrict full-minus-validation reuse to genuinely complementary folds with complete validation coverage.
 - Fixed #227 SCAD/MCP oracle reconstruction to use exact unpenalized CPU refits with preserved family parameters and convergence controls; preserved fitted family settings in prediction/scoring and adaptive-L1 initialization, corrected Gamma inverse-link predictions, and used observed-Hessian NB/inverse-Gaussian HC0/HC1 covariance while retaining nonrobust Fisher covariance; rejected non-converged refits and retained selection-conditional uncertainty.

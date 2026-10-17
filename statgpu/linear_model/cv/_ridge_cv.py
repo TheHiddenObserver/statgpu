@@ -117,6 +117,12 @@ def _validated_ridge_folds(folds, n_samples):
                 raise ValueError(f"cv_splits fold {fold_idx} {name} indices must not contain duplicates")
         if np.intersect1d(train, valid).size:
             raise ValueError(f"cv_splits fold {fold_idx} train and validation indices must be disjoint")
+        # Torch rejects negative NumPy strides, even for C-contiguous singletons.
+        # Copy only after validation, preserving the caller's row order and arrays.
+        if any(stride < 0 for stride in train.strides):
+            train = train.copy(order="C")
+        if any(stride < 0 for stride in valid.strides):
+            valid = valid.copy(order="C")
         normalized.append((train, valid))
     if not normalized:
         raise ValueError("cv_splits must contain at least one fold")
