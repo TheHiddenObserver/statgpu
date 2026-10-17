@@ -176,7 +176,7 @@ This prints `(99,)`, `3`, and `True`. `samples` stores one mean per draw, not th
 ## Validate resampling labels before calling
 
 Supply one nonmissing label for every row whenever using `strata`, `clusters`,
-or `groups`. Cluster bootstrap rejects missing cluster labels with `ValueError`.
+or `groups`. Cluster bootstrap rejects missing cluster labels with `ValueError`. Mixed Python sequences are checked before conversion can turn a missing value into a string. Literal string IDs such as `"nan"`, `"None"`, and `"NaT"` remain valid. If you already converted a missing value to a string, its original missingness cannot be recovered; validate labels before string conversion.
 Stratified resampling and grouped permutation do not consistently reject NaN
 labels: equality-based grouping omits those rows and may leave uninitialized
 batch entries. Those calls can return invalid finite statistics or fail with

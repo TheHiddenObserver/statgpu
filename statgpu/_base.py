@@ -869,6 +869,10 @@ class BaseEstimator(ABC):
         ``force_vectorized`` or ``statistic_hint``.
         """
         from statgpu.inference import bootstrap_statistic as _bootstrap_statistic
+        from statgpu.inference._resampling import _validate_cluster_labels_before_cast
+
+        if str(strategy).strip().lower() == "cluster":
+            _validate_cluster_labels_before_cast(clusters)
 
         arrays_use = arrays
         if len(arrays_use) == 0:

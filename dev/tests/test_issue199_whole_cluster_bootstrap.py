@@ -451,3 +451,109 @@ def test_ragged_nonfinite_callback_rejects_inference():
             statistic, np.arange(4.0), strategy="cluster", clusters=[0, 0, 0, 1],
             n_resamples=10, random_state=0, backend="numpy",
         )
+
+
+# Mixed host labels must be checked before any backend conversion can stringify
+# a missing scalar. The estimator entry has a separate conversion boundary.
+# Estimator runtime finite-input validation may reject a missing scalar even
+# earlier than the resampling-specific guard; both errors have the same public
+# ValueError contract. Do not require bypassing that existing validation.
+_LABEL_CONTAINERS = [
+    pytest.param(list, id="list"),
+    pytest.param(tuple, id="tuple"),
+    pytest.param(lambda x: np.asarray(x, dtype=object), id="object-array"),
+]
+
+
+@pytest.mark.parametrize("container", _LABEL_CONTAINERS)
+@pytest.mark.parametrize("missing", [
+    pytest.param(None, id="None"),
+    pytest.param(np.nan, id="nan"),
+    pytest.param(np.float32("nan"), id="float32-nan"),
+    pytest.param(np.datetime64("NaT"), id="datetime-NaT"),
+    pytest.param(np.timedelta64("NaT"), id="timedelta-NaT"),
+])
+@pytest.mark.parametrize("use_estimator", [False, True], ids=["module", "estimator"])
+@pytest.mark.parametrize("backend", ["numpy", "auto"])
+def test_mixed_string_missing_clusters_rejected_before_conversion(
+    container, missing, use_estimator, backend,
+):
+    labels = container(["a", "a", missing, "b"])
+    calls = []
+
+    def statistic(values):
+        calls.append(values.shape)
+        return values.mean(axis=-1)
+
+    function = (LinearRegression(device="cpu").bootstrap_statistic
+                if use_estimator else bootstrap_statistic)
+    with pytest.raises(ValueError, match=("nonmissing label per row|must contain only finite values"
+                                          if use_estimator else "nonmissing label per row")):
+        function(statistic, np.array([1., 2., 100., 5.]), strategy="cluster",
+                 clusters=labels, n_resamples=9, random_state=4, backend=backend)
+    assert calls == []
+
+
+@pytest.mark.parametrize("container", _LABEL_CONTAINERS)
+@pytest.mark.parametrize("sentinel", ["NA", "NaT"])
+@pytest.mark.parametrize("use_estimator", [False, True], ids=["module", "estimator"])
+@pytest.mark.parametrize("backend", ["numpy", "auto"])
+def test_mixed_string_pandas_missing_clusters_rejected(
+    container, sentinel, use_estimator, backend,
+):
+    pd = pytest.importorskip("pandas")
+    labels = container(["a", "a", getattr(pd, sentinel), "b"])
+    function = (LinearRegression(device="cpu").bootstrap_statistic
+                if use_estimator else bootstrap_statistic)
+    with pytest.raises(ValueError, match=("nonmissing label per row|must contain only finite values"
+                                          if use_estimator else "nonmissing label per row")):
+        function(np.mean, np.arange(4.), strategy="cluster", clusters=labels,
+                 n_resamples=9, random_state=4, backend=backend)
+
+
+@pytest.mark.parametrize("container", _LABEL_CONTAINERS + [
+    pytest.param(np.asarray, id="string-array"),
+])
+@pytest.mark.parametrize("use_estimator", [False, True], ids=["module", "estimator"])
+@pytest.mark.parametrize("backend", ["numpy", "auto"])
+def test_literal_missing_names_remain_valid_cluster_ids(container, use_estimator, backend):
+    original = ["nan", "nan", "None", "NaT"]
+    labels = container(original)
+    values = np.array([1., 2., 100., 5.])
+    function = (LinearRegression(device="cpu").bootstrap_statistic
+                if use_estimator else bootstrap_statistic)
+    result = function(np.mean, values, strategy="cluster", clusters=labels,
+                      n_resamples=29, random_state=4, backend=backend)
+    expected = np.array([values[idx].mean() for idx in
+                         _reference_indices(np.asarray(original), 4, 29)])
+    np.testing.assert_array_equal(result.samples, expected)
+    np.testing.assert_array_equal(labels, original)
+    assert result.metadata["n_clusters"] == 3
+    np.testing.assert_array_equal(result.confidence_interval,
+                                  np.quantile(expected, [.025, .975]))
+
+
+class _ObjectClusterArrayLike:
+    def __init__(self, labels):
+        self.labels = np.asarray(labels, dtype=object)
+
+    def __array__(self, dtype=None, copy=None):
+        return np.asarray(self.labels, dtype=dtype)
+
+
+@pytest.mark.parametrize("size", [1, 4])
+@pytest.mark.parametrize("missing", [None, np.nan])
+@pytest.mark.parametrize("use_estimator", [False, True], ids=["module", "estimator"])
+@pytest.mark.parametrize("backend", ["numpy", "auto"])
+def test_generic_object_array_like_retains_missing_cluster_rejection(
+    size, missing, use_estimator, backend,
+):
+    # Existing post-conversion validation remains necessary for generic
+    # array-likes; the new preconversion guard does not inspect these objects.
+    function = (LinearRegression(device="cpu").bootstrap_statistic
+                if use_estimator else bootstrap_statistic)
+    with pytest.raises(ValueError, match=("nonmissing label per row|must contain only finite values"
+                                          if use_estimator else "nonmissing label per row")):
+        function(np.mean, np.arange(float(size)), strategy="cluster",
+                 clusters=_ObjectClusterArrayLike([missing] * size),
+                 n_resamples=9, random_state=4, backend=backend)

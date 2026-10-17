@@ -4,6 +4,9 @@ All notable changes to statgpu are documented here, organized by release and dat
 
 ## Unreleased — 2026-10-17
 
+### PR #249 — Preserved missing cluster labels before conversion
+- Rejected missing labels in mixed string sequences before module/estimator conversion, while retaining literal string IDs and native backend grouping.
+
 ### Fixed RidgeCV reversed fold indices
 - Fixed Torch conversion of negative-stride training and validation indices, including reversed single-element arrays, while preserving custom row order, input arrays, validation, weighted scoring, and final refits.
 

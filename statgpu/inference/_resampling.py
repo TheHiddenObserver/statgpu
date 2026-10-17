@@ -12,6 +12,30 @@ import operator
 from functools import reduce
 
 
+def _validate_cluster_labels_before_cast(clusters):
+    """Reject missing host labels before string coercion can erase them.
+
+    Native backend arrays stay on their device and are validated by the
+    grouping/row-coverage checks. Already-stringified labels are literal IDs;
+    there is no way to recover whether a caller created them from a NaN.
+    """
+    if isinstance(clusters, np.ndarray):
+        if clusters.dtype.kind != "O":
+            return
+        labels = clusters
+    elif isinstance(clusters, (list, tuple)):
+        # An explicit object dtype retains NaN/NaT/None beside string labels.
+        labels = np.asarray(clusters, dtype=object)
+    else:
+        return
+    try:
+        if any(label is None or bool(label != label) for label in labels.flat):
+            raise ValueError("missing cluster label")
+    except (TypeError, ValueError) as exc:
+        # pandas.NA has ambiguous truth, while NaN/NaT are not self-equal.
+        raise ValueError("clusters must contain one nonmissing label per row") from exc
+
+
 def _count_elts(arr):
     """Return total number of elements (works across numpy, cupy, torch)."""
     return reduce(operator.mul, arr.shape, 1)
@@ -739,16 +763,16 @@ def _prepare_bootstrap_state(
     if strategy_n == "cluster":
         if clusters is None:
             raise ValueError("clusters is required when strategy='cluster'")
+        _validate_cluster_labels_before_cast(clusters)
         clusters_arr = backend.asarray(clusters).reshape(-1)
         if int(clusters_arr.shape[0]) != n:
             raise ValueError("clusters must have the same length as arrays")
         if backend_name == "numpy" and clusters_arr.dtype.kind == "O":
-            # Missing object labels may compare unequal to themselves or have
-            # ambiguous equality. Check before unique sorts mixed objects.
+            # Also cover generic host array-likes that only reveal their
+            # object labels through __array__; native GPU arrays never enter.
+            _validate_cluster_labels_before_cast(clusters_arr)
+            # Sorting can still fail for nonmissing, incomparable objects.
             try:
-                if any(label is None or bool(label != label)
-                       for label in clusters_arr):
-                    raise ValueError("missing cluster label")
                 labels = backend.xp.unique(clusters_arr)
             except (TypeError, ValueError) as exc:
                 raise ValueError(
@@ -939,6 +963,8 @@ def bootstrap_statistic(
     clusters : array-like, optional
         One nonmissing label per row for cluster bootstrap. All arrays use the
         same selected clusters, including repeated copies of a selected cluster.
+        Missing labels raise ValueError; literal strings such as "nan" are IDs,
+        not missing values. Validate before converting missing values to strings.
     block_size : int, optional
         Positive moving-block length b, capped at n. Draw ceil(n/b) starts
         independently from 0 through n-b with replacement, concatenate blocks
@@ -978,6 +1004,9 @@ def bootstrap_statistic(
         raise TypeError("statistic must be callable")
     n_boot = _validate_n_resamples(n_resamples)
     level = _validate_confidence_level(confidence_level)
+
+    if str(strategy).strip().lower() == "cluster":
+        _validate_cluster_labels_before_cast(clusters)
 
     backend_name = _resolve_backend(backend, *arrays, strata, clusters)
     backend = get_backend(backend_name)
