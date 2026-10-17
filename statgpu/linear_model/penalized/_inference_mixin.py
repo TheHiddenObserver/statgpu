@@ -1348,6 +1348,31 @@ class _PenalizedInferenceMixin:
         # No selected slopes still defines an intercept-only model. Only an
         # empty support without an intercept has no coefficient to refit.
         if n_active or offset:
+            # Unknown-scale model-based covariance needs residual information
+            # beyond every refitted coefficient, including the intercept.
+            # Analytic weights neither replicate observations nor let zero-
+            # weight rows supply this information. Keep the existing positive-
+            # df dispersion convention and fixed-scale/robust paths unchanged.
+            n_positive = n if sw_cpu is None else int(np.count_nonzero(sw_cpu > 0))
+            n_refit = n_active + offset
+            if (self._cov_type == "nonrobust"
+                    and self.loss in ("squared_error", "gamma", "inverse_gaussian", "tweedie")
+                    and n_positive <= n_refit):
+                # Some typed Gaussian fit paths bypass the generic exception
+                # wrapper. Invalidate this failed fit before exposing the new
+                # error, including any previous successful fit's state.
+                from statgpu.linear_model._penalized_glm_inference_fit_transaction import (
+                    _invalidate_failed_refit,
+                )
+                _invalidate_failed_refit(self)
+                raise ValueError(
+                    "Nonrobust oracle inference requires positive residual "
+                    "degrees of freedom to estimate dispersion: the number "
+                    f"of positive-weight observations ({n_positive}) must "
+                    f"exceed the number of refitted coefficients ({n_refit}), "
+                    "including the intercept. Set compute_inference=False "
+                    "to fit without oracle inference."
+                )
             X_active = X_cpu[:, active]
             intercept_only = n_active == 0
             X_refit = np.ones((n, 1), dtype=np.float64) if intercept_only else X_active

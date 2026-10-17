@@ -159,6 +159,18 @@ With neither selected slopes nor an intercept, there is no coefficient to
 refit. Inverse-link Gamma rejects that empty model because its zero linear
 predictor cannot define a finite mean.
 
+For `cov_type="nonrobust"`, Gaussian, Gamma, inverse-Gaussian, and Tweedie
+oracle refits must estimate an unknown dispersion. The number of observations
+with positive sample weight must therefore exceed the number of selected
+slopes plus the effective intercept, if present. Without weights, every
+observation counts; weight magnitudes or zero-weight padding do not add
+observations. Otherwise the request raises `ValueError` rather than reporting
+zero standard errors or point-width intervals. Use `compute_inference=False`
+when only the penalized point fit is needed. This requirement does not apply
+to fixed-dispersion Poisson/negative-binomial `nonrobust` covariance or to HC0;
+the separately documented HC1 behavior is unchanged. Having enough observations
+alone does not guarantee an identifiable or converged refit.
+
 These normal-reference intervals condition on the selected support. They do
 not adjust for choosing variables or tuning parameters on the same data.
 

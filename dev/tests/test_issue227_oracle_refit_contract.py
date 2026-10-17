@@ -957,3 +957,227 @@ def test_oracle_boundary_formula_uses_effective_intercept_and_retained_weights(
     _assert_failed_oracle_fit(model, np.zeros((3, 1)))
     assert model._design_info is None
     assert model._feature_names is None
+
+
+_UNKNOWN_SCALE_FAMILIES = FAMILIES[:1] + FAMILIES[3:6] + FAMILIES[7:]
+
+
+@pytest.mark.parametrize("loss,settings,typed,typed_settings", _UNKNOWN_SCALE_FAMILIES)
+@pytest.mark.parametrize("entry", ["typed", "generic"])
+@pytest.mark.parametrize("penalty", ["scad", "mcp"])
+@pytest.mark.parametrize("weight_scale", [None, 1e-6, 1., 1e6])
+def test_oracle_residual_df_rejects_unknown_scale_with_one_effective_observation(
+        loss, settings, typed, typed_settings, entry, penalty, weight_scale):
+    # Analytic weights are not replication counts. Neither large weights nor
+    # zero-weight padding can create residual information for one intercept.
+    X, y, weights = np.zeros((1, 3)), np.array([2.]), None
+    if weight_scale is not None:
+        X, y = np.zeros((4, 3)), np.array([2., 3., 5., 7.])
+        weights = weight_scale * np.array([1., 0., 0., 0.])
+    kwargs = dict(penalty=penalty, alpha=.1, solver="fista", device="cpu",
+                  compute_inference=True, inference_method="oracle")
+    model = (typed(**typed_settings, **kwargs) if entry == "typed" else
+             PenalizedGeneralizedLinearModel(loss=loss, loss_kwargs=settings, **kwargs))
+    with pytest.raises(ValueError, match="positive residual degrees of freedom"):
+        model.fit(X, y, sample_weight=weights)
+    _assert_failed_oracle_fit(model, X)
+    if hasattr(model, "summary"):
+        with pytest.raises(RuntimeError):
+            model.summary()
+    # The suggested estimation-only alternative remains a real public fit.
+    model.set_params(compute_inference=False)
+    model.fit(X, y, sample_weight=weights)
+    assert np.isfinite(model.predict(X)).all()
+    assert model._inference_result is None
+
+
+@pytest.mark.parametrize("loss,settings,typed,typed_settings", _UNKNOWN_SCALE_FAMILIES)
+@pytest.mark.parametrize("fit_intercept", [False, True])
+@pytest.mark.parametrize("penalty", ["scad", "mcp"])
+def test_oracle_residual_df_counts_selected_slopes_and_effective_intercept(
+        loss, settings, typed, typed_settings, fit_intercept, penalty):
+    X = np.array([[1.], [2.]]) if fit_intercept else np.ones((1, 1))
+    y = np.array([2., 4.]) if fit_intercept else np.array([2.])
+    kwargs = dict(penalty=penalty, alpha=.0001, solver="fista", device="cpu",
+                  fit_intercept=fit_intercept)
+    selection = typed(**typed_settings, **kwargs).fit(X, y)
+    assert np.count_nonzero(np.abs(selection.coef_) > 1e-10) == 1
+    model = typed(**typed_settings, **kwargs, compute_inference=True,
+                  inference_method="oracle")
+    with pytest.raises(ValueError, match="positive residual degrees of freedom"):
+        model.fit(X, y)
+    _assert_failed_oracle_fit(model, X)
+
+
+@pytest.mark.parametrize("fit_intercept", [False, True])
+def test_oracle_residual_df_does_not_rescue_unidentifiable_coefficients_by_rank(fit_intercept):
+    # Two selected but collinear slopes have rank one. Using rank in the
+    # availability gate would wrongly rescue the two reported coefficients.
+    X = np.array([[1., 1.], [2., 2.]])
+    y = np.array([2., 4.])
+    kwargs = dict(penalty="scad", alpha=.0001, solver="fista", device="cpu",
+                  fit_intercept=fit_intercept)
+    selection = PenalizedLinearRegression(**kwargs).fit(X, y)
+    assert np.count_nonzero(np.abs(selection.coef_) > 1e-10) == 2
+    assert np.linalg.matrix_rank(X) == 1
+    # With an intercept, k=3>n; without it, k=n=2.
+    model = PenalizedLinearRegression(**kwargs, compute_inference=True,
+                                     inference_method="oracle")
+    with pytest.raises(ValueError, match="positive residual degrees of freedom"):
+        model.fit(X, y)
+    _assert_failed_oracle_fit(model, X)
+
+
+@pytest.mark.parametrize("loss,settings,typed,typed_settings", _UNKNOWN_SCALE_FAMILIES)
+@pytest.mark.parametrize("entry", ["typed", "generic"])
+@pytest.mark.parametrize("weight_scale", [None, 1e-6, 1., 1e6])
+def test_oracle_residual_df_preserves_positive_df_weighted_inference(
+        loss, settings, typed, typed_settings, entry, weight_scale, capsys):
+    X, y, weights = np.zeros((2, 7)), np.array([1., 3.]), None
+    if weight_scale is not None:
+        X, y = np.zeros((3, 7)), np.array([1., 3., 7.])
+        weights = weight_scale * np.array([1., 3., 0.])
+    kwargs = dict(penalty="mcp", alpha=.1, solver="fista", device="cpu",
+                  max_iter=10000, tol=1e-10,
+                  compute_inference=True, inference_method="oracle")
+    model = (typed(**typed_settings, **kwargs) if entry == "typed" else
+             PenalizedGeneralizedLinearModel(loss=loss, loss_kwargs=settings, **kwargs))
+    model.fit(X, y, sample_weight=weights)
+    result = model._inference_result
+    # Inactive columns do not consume refit df, and small sums of analytic
+    # weights do not reduce observation count. Preserve the established
+    # raw-row n-k scale convention once enough positive-weight rows exist.
+    expected, se = _reference(loss, settings, np.ones((len(y), 1)), y, weights)
+    np.testing.assert_allclose(result.params[:1], expected, rtol=1e-6, atol=1e-7)
+    np.testing.assert_allclose(result.bse[:1], se, rtol=1e-6, atol=1e-7)
+    z = expected / se
+    np.testing.assert_allclose(result.statistic[:1], z, rtol=1e-6, atol=1e-7)
+    np.testing.assert_allclose(result.pvalues[:1], 2*stats.norm.sf(abs(z)),
+                               rtol=2e-5, atol=1e-10)
+    np.testing.assert_allclose(result.conf_int[:1],
+        expected[:, None] + se[:, None]*stats.norm.ppf([.025, .975]),
+        rtol=1e-6, atol=1e-7)
+    assert se[0] > 0
+    assert np.isnan(result.bse[1:]).all()
+    assert result.metadata["n_active"] == 0
+    if hasattr(model, "summary"):
+        model.summary()
+        output = capsys.readouterr().out
+        assert "(Intercept)" in output
+        assert f"{se[0]:.4f}" in output
+
+
+@pytest.mark.parametrize("loss,settings,typed,typed_settings", [FAMILIES[2], FAMILIES[6]])
+@pytest.mark.parametrize("entry", ["typed", "generic"])
+@pytest.mark.parametrize("weight_scale", [None, 1e-6, 1e6])
+def test_oracle_residual_df_preserves_fixed_dispersion_at_saturation(
+        loss, settings, typed, typed_settings, entry, weight_scale):
+    X, y, weights = np.zeros((1, 2)), np.array([2.]), None
+    if weight_scale is not None:
+        X, y = np.zeros((3, 2)), np.array([2., 4., 6.])
+        weights = weight_scale * np.array([1., 0., 0.])
+    kwargs = dict(penalty="mcp", alpha=.1, solver="fista", device="cpu",
+                  max_iter=10000, tol=1e-10,
+                  compute_inference=True, inference_method="oracle")
+    model = (typed(**typed_settings, **kwargs) if entry == "typed" else
+             PenalizedGeneralizedLinearModel(loss=loss, loss_kwargs=settings, **kwargs))
+    model.fit(X, y, sample_weight=weights)
+    # Fixed-dispersion Fisher information: w*mu (Poisson),
+    # w*mu/(1+alpha*mu) (NB); residual df is not needed.
+    weight = 1. if weights is None else weights.sum()
+    variance_factor = 1. if loss == "poisson" else 1.+2*settings["alpha"]
+    se = np.sqrt(variance_factor/(2*weight))
+    np.testing.assert_allclose(model._params[0], np.log(2), rtol=1e-6, atol=1e-7)
+    np.testing.assert_allclose(model._bse[0], se, rtol=1e-6, atol=1e-7)
+    assert model._inference_result.metadata["dispersion"] == 1.
+
+
+@pytest.mark.parametrize("loss,settings,typed,typed_settings", _UNKNOWN_SCALE_FAMILIES)
+@pytest.mark.parametrize("cov_type", ["hc0", "hc1"])
+def test_oracle_residual_df_preserves_existing_robust_saturated_paths(
+        loss, settings, typed, typed_settings, cov_type):
+    model = typed(**typed_settings, penalty="scad", alpha=.1, solver="fista",
+        device="cpu", max_iter=10000, tol=1e-10, cov_type=cov_type,
+        compute_inference=True, inference_method="oracle").fit(
+            np.zeros((1, 2)), np.array([2.]))
+    # HC0 is an uncorrected empirical sandwich, which is zero at this exact
+    # fit. HC1's existing n<=k convention is outside this dispersion repair.
+    assert model._inference_result.cov_type == cov_type
+    np.testing.assert_allclose(model._bse[0], 0, atol=1e-10)
+    assert np.isnan(model._bse[1:]).all()
+
+
+@pytest.mark.parametrize("loss,settings,typed,typed_settings", _UNKNOWN_SCALE_FAMILIES)
+def test_oracle_residual_df_preserves_empty_no_intercept_target(
+        loss, settings, typed, typed_settings):
+    model = typed(**typed_settings, penalty="mcp", alpha=.1, fit_intercept=False,
+        solver="fista", device="cpu", compute_inference=True,
+        inference_method="oracle")
+    X, y = np.zeros((1, 2)), np.array([2.])
+    if settings.get("link") == "inverse_power":
+        with pytest.raises(ValueError, match="positive inverse-link predictor"):
+            model.fit(X, y)
+        _assert_failed_oracle_fit(model, X)
+        return
+    model.fit(X, y)
+    assert model._inference_result.metadata["n_active"] == 0
+    assert np.isnan(model._bse).all()
+
+
+@pytest.mark.parametrize("loss,settings,typed,typed_settings", _UNKNOWN_SCALE_FAMILIES)
+@pytest.mark.parametrize("intercept", [False, True])
+def test_oracle_residual_df_formula_retained_rows_and_effective_intercept(
+        loss, settings, typed, typed_settings, intercept):
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("patsy")
+    frame = pd.DataFrame({"x": [0., np.nan, 0.] if intercept else [1., np.nan, 2.],
+                          "y": [2., 3., 4.]})
+    weights = np.array([1., 1., 0.])
+    # Deliberately keep the constructor default True for the no-intercept
+    # formula: only the actual formula matrix determines refit columns.
+    model = typed(**typed_settings, penalty="mcp", alpha=.0001, solver="fista",
+        device="cpu", compute_inference=True, inference_method="oracle")
+    with pytest.raises(ValueError, match="positive residual degrees of freedom"):
+        model.fit(formula="y ~ x" if intercept else "y ~ 0 + x",
+                  data=frame, sample_weight=weights)
+    _assert_failed_oracle_fit(model, np.zeros((1, 1)))
+    assert model._design_info is None
+    assert model._feature_names is None
+
+
+@pytest.mark.parametrize("loss,settings,typed,typed_settings", _UNKNOWN_SCALE_FAMILIES)
+def test_oracle_residual_df_cv_final_refit_rejection_and_recovery(
+        loss, settings, typed, typed_settings):
+    X, y = np.array([[1.], [2.], [3.]]), np.array([2., 4., 5.])
+    model = PenalizedGLM_CV(loss=loss, loss_kwargs=settings, penalty="scad",
+        alpha_grid=[.0001, .0002], cv=2, solver="fista", device="cpu",
+        compute_inference=True, inference_method="oracle")
+    model.fit(X, y)
+    assert model._inference_result is model.estimator_._inference_result
+    assert np.isfinite(model._bse).all()
+    with pytest.raises(ValueError, match="positive residual degrees of freedom"):
+        model.fit(X[:2], y[:2])
+    _assert_failed_oracle_fit(model, X)
+    for name in ("estimator_", "alpha_", "cv_results_", "best_score_"):
+        assert getattr(model, name) is None
+    model.fit(X, y)
+    assert model._inference_result is model.estimator_._inference_result
+    assert model.penalty_conditioning_ == "cv_selected_penalty"
+
+
+def test_oracle_residual_df_summary_cannot_reuse_previous_valid_inference(capsys):
+    X, y = np.zeros((2, 3)), np.array([1., 3.])
+    model = PenalizedLinearRegression(penalty="scad", alpha=.1, solver="fista",
+        device="cpu", compute_inference=True, inference_method="oracle").fit(X, y)
+    model.summary()
+    assert "(Intercept)" in capsys.readouterr().out
+    with pytest.raises(ValueError, match="positive residual degrees of freedom"):
+        model.fit(X[:1], y[:1])
+    _assert_failed_oracle_fit(model, X)
+    with pytest.raises(RuntimeError, match="not.*fitted|has not been fitted"):
+        model.summary()
+    assert capsys.readouterr().out == ""
+    model.fit(X, y)
+    model.summary()
+    assert "(Intercept)" in capsys.readouterr().out
+    np.testing.assert_allclose(model._bse[0], 1., rtol=1e-13, atol=1e-13)

@@ -5,6 +5,7 @@ All notable changes to statgpu are documented here, organized by release and dat
 ## Unreleased — 2026-10-17
 
 ### PR #249 — Rejected invalid oracle targets and missing labels
+- Rejected unknown-dispersion nonrobust oracle uncertainty without positive residual degrees of freedom, counting positive-weight observations and selected parameters while preserving fixed-dispersion and HC0/HC1 behavior.
 - Rejected boundary oracle refits without a finite unpenalized target before publishing uncertainty, preserving valid selected-design fits and explicit numerical failure handling.
 - Rejected missing labels in supported mixed host sequences before module/estimator conversion, while retaining literal string IDs and native backend grouping.
 
