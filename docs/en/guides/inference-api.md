@@ -1,7 +1,7 @@
 # Inference API Reference
 
 > Language: English  
-> Last updated: 2026-10-12\
+> Last updated: 2026-10-17\
 > Module: `statgpu.inference`  
 > Switch: [Chinese](../../cn/guides/inference-api.md)
 
@@ -133,8 +133,8 @@ permutation_test(
 ```
 
 - On batched paths, `force_vectorized=True` rejects an incompatible initial callback probe; later incompatible batches can still fall back to scalar calls. Handle every batch size, including a final one-row batch, and do not treat the flag as a no-fallback guarantee. Callbacks should have no side effects because they may be probed before scalar execution.
-- `statistic_hint="mean"` accelerates the bootstrap mean of one one-dimensional array. Omit the hint for matrix data. `"pearson_corr"` accelerates permutation correlation for X shaped `(n,)` or `(n, 1)`. The observed callback must compute the same statistic; hints do not verify equivalence.
-- Cluster bootstrap currently preserves whole groups only for equal-size groups. Unequal-size groups can be truncated, so do not use those intervals as whole-cluster inference. Grouped permutation instead permutes responses within groups and does not have that truncation behavior.
+- `statistic_hint="mean"` accelerates the bootstrap mean of exactly one one-dimensional array, including unequal-size cluster samples. Matrix data or multiple arrays with this hint raise `ValueError`; omit the hint for a custom scalar statistic. `"pearson_corr"` accelerates permutation correlation for X shaped `(n,)` or `(n, 1)`. The observed callback must compute the same statistic; hints do not verify equivalence.
+- Cluster bootstrap draws the original number of clusters with replacement and concatenates complete groups, preserving row order within each group and alignment across arrays. Unequal-size groups produce variable row counts and use scalar callbacks without batch probes. For this case, `force_vectorized=True` raises `ValueError` unless `statistic_hint="mean"` is used with exactly one one-dimensional array. Grouped permutation instead permutes responses within each group; it does not resample whole groups.
 - `observed` and every resampled statistic must be finite. Percentile intervals describe the supplied statistic under the chosen resampling scheme; increasing `n_resamples` does not validate that scheme or remove estimator bias.
 
 For example, keep matrix rows together while bootstrapping their overall mean by leaving the fast-path hint unset:
@@ -153,13 +153,35 @@ print(result.observed, result.samples.shape)
 
 This prints `5.5 (99,)`. Each resample selects entire rows with replacement, preserving the two measurements in a row as a pair.
 
+For unequal-size clusters, each draw below selects three complete clusters. A cluster can be repeated or omitted, so the number of rows can change:
+
+<!-- api-example: module-cluster -->
+```python
+import numpy as np
+from statgpu.inference import bootstrap_statistic
+
+values = np.array([0.0, 10.0, 12.0, 20.0, 22.0, 24.0])
+clusters = np.array([0, 1, 1, 2, 2, 2])
+result = bootstrap_statistic(
+    np.mean, values, strategy="cluster", clusters=clusters,
+    n_resamples=99, random_state=7, backend="numpy",
+)
+print(result.samples.shape)
+print(result.metadata["clusters_per_resample"])
+print(result.metadata["variable_sample_size"])
+```
+
+This prints `(99,)`, `3`, and `True`. `samples` stores one mean per draw, not the resampled rows. Cluster metadata also records `resampling_unit="cluster"` and `n_clusters=3`; `n_samples=6` describes the original data. The example averages all sampled rows, so larger clusters contribute more observations to that mean. Choose a different statistic if the scientific target weights clusters equally.
+
 ## Validate resampling labels before calling
 
 Supply one nonmissing label for every row whenever using `strata`, `clusters`,
-or `groups`. Currently, NaN labels are not rejected consistently: equality-based
-grouping omits those rows and may leave uninitialized batch entries. A call can
-therefore return invalid finite statistics or fail with an indexing error.
-A finite p-value or interval is not proof that the labels were valid.
+or `groups`. Cluster bootstrap rejects missing cluster labels with `ValueError`. Supported host sequences, including `list`, `tuple`, `collections.deque`, `collections.UserList`, and objects using the ordinary length/index sequence protocol, are checked before conversion can turn a missing value into a string. This does not add support for generators. Objects with custom array-conversion or dynamic attribute behavior retain their existing conversion semantics, as do native-device arrays; validate labels before a custom conversion that discards missingness. Literal string IDs such as `"nan"`, `"None"`, and `"NaT"` remain valid. If you already converted a missing value to a string, its original missingness cannot be recovered; validate labels before string conversion.
+Stratified resampling and grouped permutation do not consistently reject NaN
+labels: equality-based grouping omits those rows and may leave uninitialized
+batch entries. Those calls can return invalid finite statistics or fail with
+an indexing error. A finite p-value or interval is not proof that the labels
+were valid.
 
 For a numeric-code workflow, validate labels explicitly before resampling:
 
@@ -196,7 +218,7 @@ shapes; it does not decide whether the groups make statistical sense. Resolve
 missing group identities from the data source or choose an explicit missing-data
 policy. Do not assign all unknown identities to one artificial group merely to
 make the computation run. The same validation applies to bootstrap strata and
-clusters; unequal-size cluster limitations still apply.
+clusters; cluster sizes may differ.
 
 For `alternative="two-sided"`, the engine counts `abs(resampled) >= abs(observed)`
 with the plus-one correction. Use a statistic whose null reference point is zero

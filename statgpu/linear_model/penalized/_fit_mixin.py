@@ -768,7 +768,7 @@ class _PenalizedFitMixin:
                 alpha=0.01,
                 max_iter=100,
                 tol=1e-4,
-                loss_kwargs=getattr(self, "loss_kwargs", None),
+                loss_kwargs=getattr(self, "_loss_kwargs", None),
                 sample_weight=sample_weight,
             )
             return init_coef

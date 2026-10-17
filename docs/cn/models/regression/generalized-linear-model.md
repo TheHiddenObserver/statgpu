@@ -1,7 +1,7 @@
 # 广义线性模型与带惩罚 GLM
 
 > 语言：中文  
-> 最后更新：2026-10-13<br>
+> 最后更新：2026-10-17<br>
 > 页面定位：模型文档  
 > 切换：[英文版](../../../en/models/regression/generalized-linear-model.md)
 
@@ -187,7 +187,7 @@ L-BFGS，仍由直接拟合或交叉验证的调度规则决定，而不是仅�
 
 对于受支持的光滑非高斯 L2/无惩罚模型，`auto` 会选择固定惩罚强度下的 `m_estimation`。正 L2 惩罚对应带惩罚的估计方程；无惩罚设置按惩罚强度为 0 的 L2 处理，对应无惩罚总体参数。当前协方差支持 `nonrobust`、`hc0`、`hc1`；HC2/HC3/HAC 在这一路径中不可用，并会明确报错。
 
-受支持的 M-估计与高斯残差自助法复用拟合的后端和设备。非高斯 L1/ElasticNet 系数推断不受支持。SCAD/MCP `oracle` 需要显式请求，但当前非高斯子模型重建会把分布族设置和正则化重置为默认值，并自动选择子模型设备。不要把这些结果解释为预期的无惩罚活跃集推断，详见 [oracle 限制及诊断性重拟合替代方案](../../guides/penalized-glm-inference.md#current-non-gaussian-oracle-limitation)。分组惩罚目前只提供估计。
+受支持的 M-估计与高斯残差自助法复用拟合的后端和设备。非高斯 L1/ElasticNet 系数推断不受支持。SCAD/MCP `oracle` 需要显式请求，在 CPU 上进行无惩罚活跃集重拟合。非高斯重拟合保留已拟合的分布族设置与收敛控制，使用 `C=0`，并显式选择求解器与 CPU 设备。区间采用正态参考分布，以已选变量集合为条件，不校正变量选择的不确定性，详见 [oracle 分布族设置与重拟合解释](../../guides/penalized-glm-inference.md#current-non-gaussian-oracle-limitation)。分组惩罚目前只提供估计。
 
 ### 高斯稀疏模型的残差自助法
 

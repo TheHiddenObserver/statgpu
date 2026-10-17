@@ -14,7 +14,7 @@ import numpy as np
 
 from statgpu._config import Device
 from statgpu.cross_validation._base import CVEstimatorBase
-from statgpu.backends import get_backend, _torch_dev, xp_maximum
+from statgpu.backends import get_backend, _torch_dev, xp_maximum, xp_asarray
 from statgpu.backends._factory import _cupy_backend, _torch_backend
 from statgpu.linear_model.wrappers._ridge import Ridge
 from ._device import (
@@ -84,7 +84,56 @@ def _make_ridge_cv_auto_cache_key(X, y, alphas, folds, fit_intercept, use_gpu, s
 # K-fold helper
 # =============================================================================
 
-from statgpu.cross_validation._base import kfold_indices as _kfold_indices, folds_are_complete as _folds_are_complete, batch_mse as _batch_mse_cv
+from statgpu.cross_validation._base import (
+    kfold_indices as _kfold_indices,
+    folds_are_complete as _folds_are_complete,
+    batch_mse as _batch_mse_cv,
+    _coerce_cv_indices,
+    _as_backend_array,
+    _to_float_scalar,
+)
+
+
+def _validated_ridge_folds(folds, n_samples):
+    """Validate and normalize caller-supplied folds without changing their rows."""
+    normalized = []
+    try:
+        fold_iterator = iter(folds)
+    except TypeError as exc:
+        raise ValueError("cv_splits must contain (train, validation) pairs") from exc
+    for fold_idx, pair in enumerate(fold_iterator):
+        try:
+            train, valid = pair
+        except (TypeError, ValueError) as exc:
+            raise ValueError("cv_splits must contain (train, validation) pairs") from exc
+        train = _coerce_cv_indices(train, fold_idx=fold_idx, name="train")
+        valid = _coerce_cv_indices(valid, fold_idx=fold_idx, name="validation")
+        for name, indices in (("train", train), ("validation", valid)):
+            if indices.size == 0:
+                raise ValueError(f"cv_splits fold {fold_idx} {name} indices must be nonempty")
+            if np.any(indices < 0) or np.any(indices >= n_samples):
+                raise ValueError(f"cv_splits fold {fold_idx} {name} indices are out of bounds")
+            if np.unique(indices).size != indices.size:
+                raise ValueError(f"cv_splits fold {fold_idx} {name} indices must not contain duplicates")
+        if np.intersect1d(train, valid).size:
+            raise ValueError(f"cv_splits fold {fold_idx} train and validation indices must be disjoint")
+        # Torch rejects negative NumPy strides, even for C-contiguous singletons.
+        # Copy only after validation, preserving the caller's row order and arrays.
+        if any(stride < 0 for stride in train.strides):
+            train = train.copy(order="C")
+        if any(stride < 0 for stride in valid.strides):
+            valid = valid.copy(order="C")
+        normalized.append((train, valid))
+    if not normalized:
+        raise ValueError("cv_splits must contain at least one fold")
+    return normalized
+
+
+def _ridge_folds_have_complementary_training(folds, n_samples):
+    """Whether validated folds permit full-minus-validation statistics."""
+    return _folds_are_complete(folds, n_samples=n_samples) and all(
+        train.size + valid.size == n_samples for train, valid in folds
+    )
 
 
 # =============================================================================
@@ -406,8 +455,13 @@ def _select_ridge_alpha_cv(
                     alpha_min_ratio=alpha_min_ratio, sample_weight=sample_weight_np,
                 )
 
-    # Handle degenerate cases
-    if int(n_samples) < 4 or int(alpha_grid.size) == 1 or int(cv_folds) < 2:
+    if cv_splits is not None:
+        cv_splits = _validated_ridge_folds(cv_splits, int(n_samples))
+
+    # Legacy generated-fold shortcuts must not discard explicit valid folds.
+    if cv_splits is None and (
+        int(n_samples) < 4 or int(alpha_grid.size) == 1 or int(cv_folds) < 2
+    ):
         alpha0 = float(alpha_grid[0])
         if not return_details:
             return alpha0
@@ -424,7 +478,24 @@ def _select_ridge_alpha_cv(
     else:
         folds = _kfold_indices(n_samples=int(n_samples), n_splits=int(cv_folds), random_state=random_state)
 
-    folds_are_complete = _folds_are_complete(folds, n_samples=int(n_samples))
+    if validated_weight is not None:
+        _, weight_xp, fold_weights = _as_backend_array(validated_weight)
+        for fold_idx, (train, valid) in enumerate(folds):
+            for name, indices in (("training", train), ("validation", valid)):
+                native_indices = xp_asarray(
+                    indices, dtype=weight_xp.int64, xp=weight_xp,
+                    ref_arr=fold_weights,
+                )
+                mass = _to_float_scalar(weight_xp.sum(fold_weights[native_indices]))
+                if mass <= 0.0:
+                    raise ValueError(
+                        f"cv_splits fold {fold_idx} {name} sample_weight "
+                        "must have a positive sum"
+                    )
+
+    complementary_training = _ridge_folds_have_complementary_training(
+        folds, n_samples=int(n_samples)
+    )
 
     alpha_grid = alpha_grid.astype(np.float64, copy=False)
     n_alpha = int(alpha_grid.size)
@@ -494,7 +565,7 @@ def _select_ridge_alpha_cv(
             sw_val_folds = []
             n_val_folds = []
 
-            fast_fold_stats = (sw_full is None) and bool(folds_are_complete)
+            fast_fold_stats = (sw_full is None) and bool(complementary_training)
             sw_train = None  # initialized per-fold in slow path; None for fast path
             if fast_fold_stats:
                 n_total = int(X_full.shape[0])
@@ -654,7 +725,7 @@ def _select_ridge_alpha_cv(
                 "CPU fallback is disabled for strict CUDA execution."
             )
 
-        fast_fold_stats = (sample_weight_np is None) and bool(folds_are_complete)
+        fast_fold_stats = (sample_weight_np is None) and bool(complementary_training)
         if fast_fold_stats:
             n_total = int(X_np.shape[0])
             XtX_full = X_np.T @ X_np
@@ -945,11 +1016,12 @@ class RidgeCV(CVEstimatorBase):
         Minimum/maximum ratio for the automatic grid; choose a positive
         value normally no greater than 1.
     cv : int, default=5
-        Generated shuffled K-fold count, at least 2.
+        Generated shuffled K-fold count; must be at least 2, including when
+        cv_splits is supplied. Explicit cv_splits determine the actual folds.
     cv_splits : list or None, default=None
-        Explicit reusable list of (train_indices, validation_indices);
-        validate nonempty disjoint integer subsets yourself. RidgeCV has the
-        custom-training-subset restriction below.
+        Explicit reusable list of (train_indices, validation_indices).
+        Indices must be nonempty, one-dimensional, integer-valued, in bounds,
+        duplicate-free within each subset, and disjoint within each pair.
     fit_intercept : bool, default=True
         Fit an intercept in CV and final refit.
     device : str, default='auto'
@@ -1010,12 +1082,15 @@ class RidgeCV(CVEstimatorBase):
 
     Notes
     -----
-    Without sample weights, if validation sets partition every row once, the
-    current CV fast path replaces supplied training subsets with the validation
-    complements. Use ordinary complementary K-folds or an external CV loop for
-    deliberately reduced training subsets; otherwise losses and alpha selection
-    can be wrong even for valid disjoint index pairs. This constructor does not
-    expose solver/max_iter/tol; the final Ridge fit uses its exact path.
+    Custom splits preserve the supplied training and validation rows, with or
+    without sample weights. Training subsets need not be validation complements,
+    and validation sets need not partition all samples. The final refit uses all
+    supplied fit rows. Explicit splits are evaluated even with fewer than four
+    rows or one alpha candidate. Each training and validation subset must have
+    positive total sample weight; individual zero weights are allowed. The cv
+    argument must still be at least 2, but does not generate or replace explicit
+    splits. This constructor does not expose solver/max_iter/tol; the final
+    Ridge fit uses its exact path.
     """
 
     def __init__(

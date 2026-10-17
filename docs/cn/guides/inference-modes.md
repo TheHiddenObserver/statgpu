@@ -1,7 +1,7 @@
 # 推断模式
 
 > 语言：中文  
-> 最后更新：2026-10-06  
+> 最后更新：2026-10-17  
 > 页面定位：选择并解释系数推断方法  
 > 切换：[English](../../en/guides/inference-modes.md)
 
@@ -24,7 +24,7 @@ statgpu 提供多种推断方法，是因为经典低维回归、固定惩罚 GL
 | Gaussian Lasso / ElasticNet | `debiased` | 去偏 / 去稀疏化系数推断 |
 | Gaussian Lasso / ElasticNet | `post_selection_ols` | 在模型选中的特征集合（活跃集）上做 OLS/WLS 诊断性重拟合 |
 | 受支持的 Gaussian 惩罚模型 | `bootstrap` | 调参配置固定时的残差自助法分布 |
-| Gaussian SCAD/MCP；非 Gaussian 重拟合存在下文所述限制 | 显式请求 `oracle` | 活跃集重拟合；普通区间不校正变量选择 |
+| CPU 上受支持的高斯或非高斯 SCAD/MCP 模型 | 显式请求 `oracle` | 活跃集重拟合；普通区间不校正变量选择 |
 | 不支持的损失函数 / 惩罚项 / 方法组合 | — | 直接报错，而不是静默换成另一种推断目标 |
 
 完整支持矩阵见 [惩罚 GLM 推断](penalized-glm-inference.md) 与对应模型页。
@@ -171,12 +171,11 @@ print(np.round(model._inference_result.params, 3))
 ```
 
 输出为 `oracle` 和约 `[0.522, 1.497, -0.759]`，首项为截距。MCP 可改用
-`penalty="mcp", penalty_kwargs={"gamma": 3.0}`。示例使用高斯响应，
-并未消除下文的变量选择和子模型设备限制。
+`penalty="mcp", penalty_kwargs={"gamma": 3.0}`。示例使用高斯响应；区间仍以已选变量集合为条件，oracle 推断仅支持 CPU。
 
 在支持 `inference_method="oracle"` 的模型上，statgpu 以非凸惩罚拟合所选择的活跃集为条件进行推断。`auto` 不会静默选择这种解释，因为“以已选择的变量集合为条件”本身就是一个实质性的推断假设。
 
-当前非 Gaussian oracle 重拟合可能重置原分布族参数，或保留默认正则化，因此成功返回的 `oracle` 结果不一定对应预期模型。不要使用这些结果表进行推断。[oracle 限制与显式重拟合示例](penalized-glm-inference.md#current-non-gaussian-oracle-limitation)说明了如何按指定配置创建独立的诊断模型；它仍不会校正在同一数据上选择变量的影响。oracle 接口会拒绝 GPU 父模型，但子模型默认使用 `device="auto"`；自行重拟合时应显式指定设备。
+Oracle 推断报告无惩罚活跃集重拟合结果，预测仍使用原惩罚模型。非高斯重拟合使用 `C=0`，保留已拟合的分布族、链接、离散或幂参数及收敛控制，并显式选择适合该分布族的求解器和 `device="cpu"`。接口拒绝 GPU 父模型，推断计算使用 NumPy float64。详见[分布族设置与显式重拟合比较](penalized-glm-inference.md#current-non-gaussian-oracle-limitation)。这些使用正态参考分布的普通区间不校正在同一数据上选择变量的影响，结果以 `selection_adjusted=False` 明确记录这一点。
 
 ## 交叉验证后的推断
 

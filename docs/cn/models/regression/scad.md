@@ -1,7 +1,7 @@
 # SCAD
 
 > 语言：中文  
-> 最后更新：2026-10-13<br>
+> 最后更新：2026-10-17<br>
 > 页面定位：模型文档  
 > 切换：[English](../../../en/models/regression/scad.md)
 
@@ -149,9 +149,9 @@ SCAD 使用 **LLA（局部线性近似）** + FISTA：
 并设置所需的 `inference_method` 和 `compute_inference=True`。
 
 `oracle` 在选中的活跃集上进行无惩罚重拟合，预测仍使用原惩罚系数。
-这些普通区间不校正在同一响应数据上选择变量的影响。oracle 接口拒绝 GPU
-父模型，但子模型目前默认使用 `device="auto"`，因此 CPU 父模型不保证子模型
-也在 CPU 上运行。残差 `bootstrap` 仅适用于无样本权重、
+这些普通区间不校正在同一响应数据上选择变量的影响。oracle 仅支持 CPU：
+接口拒绝 GPU 父模型，重拟合显式保留在 CPU 上，推断使用 NumPy float64。
+残差 `bootstrap` 仅适用于无样本权重、
 `cov_type="nonrobust"` 的高斯模型；它固定调参配置，并支持拟合时使用的
 数值后端，但不会自动校正调参或变量选择的不确定性。
 完整的通用估计器示例和方法限制见[推断模式](../../guides/inference-modes.md#scadmcp-active-set-inference)。

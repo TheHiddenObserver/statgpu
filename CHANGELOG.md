@@ -2,6 +2,22 @@
 
 All notable changes to statgpu are documented here, organized by release and date.
 
+## Unreleased — 2026-10-17
+
+### PR #249 — Rejected invalid oracle targets and missing labels
+- Rejected unknown-dispersion nonrobust oracle uncertainty without positive residual degrees of freedom, counting positive-weight observations and selected parameters while preserving fixed-dispersion and HC0/HC1 behavior.
+- Rejected boundary oracle refits without a finite unpenalized target before publishing uncertainty, preserving valid selected-design fits and explicit numerical failure handling.
+- Rejected missing labels in supported mixed host sequences before module/estimator conversion, while retaining literal string IDs and native backend grouping.
+
+### Fixed RidgeCV reversed fold indices
+- Fixed Torch conversion of negative-stride training and validation indices, including reversed single-element arrays, while preserving custom row order, input arrays, validation, weighted scoring, and final refits.
+
+### Fixed four numerical contracts for v0.3.0
+- Fixed #243 RidgeCV to honor exact custom training subsets with or without weights, validate fold indices and positive per-subset weight totals, score explicit tiny/single-candidate folds, and restrict full-minus-validation reuse to genuinely complementary folds with complete validation coverage.
+- Fixed #227 SCAD/MCP oracle reconstruction to use exact unpenalized CPU refits with preserved family parameters and convergence controls; preserved fitted family settings in prediction/scoring and adaptive-L1 initialization, corrected Gamma inverse-link predictions, and used observed-Hessian NB/inverse-Gaussian HC0/HC1 covariance while retaining nonrobust Fisher covariance; rejected non-converged refits and retained selection-conditional uncertainty.
+- Fixed #199 cluster bootstrap to draw the original number of complete clusters with replacement, allow variable sample sizes, and report cluster metadata without truncating groups.
+- Fixed #178 LinearRegression scoring to normalize single-column responses and reject incompatible row/target shapes before residual arithmetic, including formula-shortened predictions; retained constant-target score semantics.
+
 ## Unreleased — 2026-10-15
 
 ### PR #171 — Preserved multiple-testing Torch devices

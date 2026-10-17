@@ -1,7 +1,7 @@
 # Ridge
 
 > Language: English  
-> Last updated: 2026-10-12<br>
+> Last updated: 2026-10-17<br>
 > This page: Model documentation  
 > Switch: [Chinese](../../../cn/models/regression/ridge.md)
 
@@ -270,9 +270,11 @@ Complete [RidgeCV controls and result schema](../../reference/linear-model-api.m
 and a [standalone CPU tuning example](../../reference/linear-model-api.md#ridgecv-and-lassocv-cpu-example)
 are available in the API reference. Direct and CV constructor controls differ.
 
-For non-complement custom training subsets, read the
-[RidgeCV restriction](../../reference/linear-model-api.md#custom-ridgecv-training-subsets)
-and use an external CV loop.
+`RidgeCV` honors custom training subsets exactly, with or without sample
+weights, including gaps or embargoed rows. Validation sets need not cover all
+observations; the final refit uses all supplied fit rows. See the
+[RidgeCV split contract](../../reference/linear-model-api.md#custom-ridgecv-training-subsets)
+for index validation and preprocessing guidance.
 
 ## External Validation
 

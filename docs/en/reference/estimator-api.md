@@ -1,7 +1,7 @@
 # Shared estimator API
 
 > Language: English  
-> Last updated: 2026-10-15  
+> Last updated: 2026-10-17  
 > Switch: [Chinese](../../cn/reference/estimator-api.md)
 
 This reference describes inherited `BaseEstimator` methods. A method appearing on an estimator does not imply that the model supplies coefficient p-values or cached training arrays. See the model's reference for overrides and available fitted results. These helpers do not refit a model, choose a scientifically valid resampling scheme, or correct variable-selection uncertainty automatically.
@@ -58,8 +58,8 @@ model.bootstrap_statistic(
 | `statistic` | Callable receiving the aligned arrays and returning a finite scalar; it must support the selected array backend. |
 | `*arrays` | One or more nonempty arrays with the same first-axis length. Pass `data`, not `(data,)`, for one array. If omitted, the method tries cached `_X_design` and `_y`; unavailable caches raise. A cached design can contain an intercept, formula columns, or square-root-weighted rows. Its response cache need not have the same weight transformation. Pass explicit arrays and weights when defining a weighted statistic; caches are not a guarantee of valid raw training pairs. |
 | `n_resamples=200` | Positive integer number of resamples. More draws reduce Monte Carlo variability, not model bias. |
-| `strategy="iid"` | `iid`: sample rows with replacement; `stratified`: resample within each stratum; `cluster`: resample whole clusters when all clusters have equal size (see limitation below); `block`: sample contiguous blocks. Aligned arrays use the same resampled row indices. |
-| `strata=None`, `clusters=None` | One nonmissing label per row, required by `stratified` or `cluster`, respectively. Validate labels before calling; NaN labels currently can leave incomplete resamples rather than raising clearly. |
+| `strategy="iid"` | `iid`: sample rows with replacement; `stratified`: resample within each stratum; `cluster`: draw the original number of complete clusters with replacement; `block`: sample contiguous blocks. Aligned arrays use the same resampled row indices. |
+| `strata=None`, `clusters=None` | One nonmissing label per row, required by `stratified` or `cluster`, respectively. Missing cluster labels raise `ValueError`. Validate stratum labels before calling; NaN stratum labels can leave incomplete resamples rather than raising clearly. |
 | `block_size=None` | Positive integer required by `block`; values above n are capped at n. Preserve meaningful row order. |
 | `confidence_level=0.95` | Level in `(0, 1)` for percentile intervals. |
 | `random_state=None` | Integer seed or no fixed seed. Reproducibility is scoped to the backend and procedure, not identical draws across all libraries. |
@@ -68,7 +68,7 @@ model.bootstrap_statistic(
 
 Returns `BootstrapResult`: `observed` (the original scalar), `samples` (length `n_resamples`, backend array), `confidence_interval` (lower/upper pair), `confidence_level`, `n_resamples`, `random_state`, `statistic_name`, `strategy`, and `metadata`. `to_dict()` converts samples to a list; `to_dataframe()` requires pandas and returns `sample_index`/`statistic` columns. The original statistic is named `observed`, not `statistic`.
 
-**Unequal-size cluster limitation.** The current `cluster` implementation stops after collecting at least n rows and truncates the final sampled cluster to n. It can split a cluster and does not implement a valid whole-cluster bootstrap for unequal group sizes. Do not use its intervals for that setting. Use a separately validated whole-cluster resampler that preserves complete groups, or use this helper only when the groups genuinely have equal size; discarding or padding observations just to equalize groups changes the problem.
+**Whole-cluster sampling.** With G distinct clusters, each `cluster` resample independently draws G clusters with replacement and concatenates every row in the selected groups. Row order within each cluster and alignment across input arrays are preserved. Clusters are never truncated or padded. Unequal-size groups produce variable row counts and use scalar callbacks without batch probes; equal-size groups retain dense batched sampling. The metadata records `resampling_unit="cluster"`, integer `n_clusters=G` and `clusters_per_resample=G`, and Boolean `variable_sample_size` indicating whether the original group sizes differ. `n_samples` remains the original row count, while `samples` contains one scalar per resample.
 
 For a runnable numeric-label validator and the missing-label limitation, see [label validation](../guides/inference-api.md#validate-resampling-labels-before-calling). Do not put unrelated missing group identities into an artificial common group.
 
@@ -120,9 +120,9 @@ This prints `[True, False, False]` and `5.5 99`. Explicit p-values and data make
 
 **Extra parameters.** The free `bootstrap_statistic` and `permutation_test` functions additionally accept `force_vectorized=False` and `statistic_hint=None`; these are not accepted by the estimator wrappers.
 
-**Vectorization and fallback.** Batched computation is available for IID and stratified resampling, block bootstrap, equal-size cluster bootstrap, and grouped permutation. On these paths, `force_vectorized=True` rejects an incompatible initial batch probe, but a later incompatible batch can still fall back to scalar calls. It does not guarantee that all resamples use vectorized execution; a vectorized callback should return one result per row for every batch size, including a final one-row batch. Unequal-size cluster bootstrap currently uses scalar calls even with that flag; do not treat it as a universal vectorization guarantee.
+**Vectorization and fallback.** Batched computation is available for IID and stratified resampling, block bootstrap, equal-size cluster bootstrap, and grouped permutation. On these paths, `force_vectorized=True` rejects an incompatible initial batch probe, but a later incompatible batch can still fall back to scalar calls. It does not guarantee that all resamples use vectorized execution; a vectorized callback should return one result per row for every batch size, including a final one-row batch. Unequal-size cluster bootstrap uses scalar callbacks by default and rejects `force_vectorized=True` with `ValueError`, except for `statistic_hint="mean"` on exactly one one-dimensional array. That built-in mean calculation supports variable-length samples without invoking a batched callback.
 
-**Statistic hints and input shape.** Use `statistic_hint="mean"` only for a matching bootstrap mean of a one-dimensional array. For a matrix, omit the hint and provide a scalar statistic; the current mean fast path reduces only the last axis and can fail with a broadcast error. Use `"pearson_corr"` for a matching permutation correlation with X shaped `(n,)` or `(n, 1)`. Hints choose built-in resample calculations and do not verify that the supplied observed-statistic callable is equivalent.
+**Statistic hints and input shape.** Use `statistic_hint="mean"` only for a matching bootstrap mean of exactly one one-dimensional array. A matrix, including shape `(n, 1)`, or multiple arrays with this hint raise `ValueError`; omit the hint and provide a scalar statistic for those inputs. Use `"pearson_corr"` for a matching permutation correlation with X shaped `(n,)` or `(n, 1)`. Hints choose built-in resample calculations and do not verify that the supplied observed-statistic callable is equivalent.
 
 **Backend and input.** Free functions infer `backend="auto"` from their arrays and require explicit data.
 

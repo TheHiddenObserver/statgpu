@@ -63,3 +63,12 @@ class PenalizedTweedieRegression(PenalizedGeneralizedLinearModel):
             lla_tol=lla_tol,
             loss_kwargs=_loss_kwargs,
         )
+
+    def _resolve_loss(self):
+        """Resolve the typed family setting without mutating clone-safe state."""
+        from statgpu.glm_core import get_glm_loss
+
+        kwargs = dict(self.loss_kwargs) if self.loss_kwargs else {}
+        kwargs.setdefault("power", self.power)
+        self._loss_kwargs = kwargs
+        return get_glm_loss("tweedie", **kwargs)
