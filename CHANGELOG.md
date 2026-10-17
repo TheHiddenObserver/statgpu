@@ -2,6 +2,11 @@
 
 All notable changes to statgpu are documented here, organized by release and date.
 
+## Unreleased — 2026-10-17
+
+### PR #132 — Unified survival documentation navigation
+- Added bilingual survival overviews, moved Cox estimator selection out of the model directory, and aligned family sidebars and entry links while preserving Cox tutorial URLs and directory anchors.
+
 ## Unreleased — 2026-10-15
 
 ### PR #171 — Preserved multiple-testing Torch devices

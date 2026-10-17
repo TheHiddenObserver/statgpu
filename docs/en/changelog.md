@@ -1,7 +1,7 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-10-16<br>
+> Last updated: 2026-10-17<br>
 > This page: Release history  
 > Switch: [Chinese](../cn/changelog.md)
 
@@ -19,6 +19,10 @@ This page records user-visible changes for current and recent statgpu releases.
   - Updated the bilingual multiple-testing API, device guide, and estimator helper reference. Added device-ownership regressions in `dev/tests/test_multiple_testing_device_ownership.py`, including conditional physical CUDA checks. No physical GPU validation is claimed for this local update.
 
 ## Unreleased — Website navigation and benchmark provenance (PR #132)
+
+### Improved (2026-10-17)
+
+- Gave survival analysis the same overview-and-tutorial navigation as other method families. Moved the Cox estimator comparison out of the model directory, aligned both language sidebars and entry links, and preserved existing Cox tutorial URLs and directory section links.
 
 ### Fixed (2026-10-16)
 

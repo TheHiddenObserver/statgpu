@@ -1,7 +1,7 @@
 # 回归
 
 > 语言：中文  
-> 最后更新：2026-10-13  
+> 最后更新：2026-10-17  
 > 切换：[English](../../../en/models/regression/README.md)
 
 [模型与统计方法](../README.md) / 回归
@@ -43,4 +43,4 @@
 - [损失函数](../../reference/losses.md)：底层损失定义与数值性质
 - [求解器 × 惩罚项兼容性矩阵](../../guides/solver-penalty-matrix.md)与[设备指南](../../guides/device-and-memory.md)：支持的配置
 
-事件时间响应见 [Cox 模型](../coxph.md)；带有个体/时间结构的观测见[面板方法](../../panel/README.md)。
+事件时间响应见 [生存分析](../survival/README.md)；带有个体/时间结构的观测见[面板方法](../../panel/README.md)。

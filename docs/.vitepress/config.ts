@@ -367,8 +367,18 @@ function englishModelReference() {
       ]
     },
     {
-      "text": "Cox proportional hazards",
-      "link": "/en/models/coxph"
+      "text": "Survival analysis",
+      "collapsed": true,
+      "items": [
+        {
+          "text": "Overview",
+          "link": "/en/models/survival/README"
+        },
+        {
+          "text": "Cox proportional hazards",
+          "link": "/en/models/coxph"
+        }
+      ]
     },
     {
       "text": "Complete API references",
@@ -752,8 +762,18 @@ function chineseModelReference() {
       ]
     },
     {
-      "text": "Cox 比例风险",
-      "link": "/cn/models/coxph"
+      "text": "生存分析",
+      "collapsed": true,
+      "items": [
+        {
+          "text": "概览",
+          "link": "/cn/models/survival/README"
+        },
+        {
+          "text": "Cox 比例风险",
+          "link": "/cn/models/coxph"
+        }
+      ]
     },
     {
       "text": "完整 API 参考",

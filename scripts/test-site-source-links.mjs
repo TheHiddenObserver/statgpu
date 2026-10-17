@@ -22,7 +22,7 @@ if (!process.env.STATGPU_LINK_TEST_CHILD) {
         cwd: process.cwd(), encoding: 'utf8', env,
       });
       assert.equal(result.status, 0, result.stdout + result.stderr);
-      assert.match(result.stdout, /# tests 10\b/, result.stdout + result.stderr);
+      assert.match(result.stdout, /# tests 11\b/, result.stdout + result.stderr);
     });
   }
 } else {
@@ -56,6 +56,43 @@ if (!process.env.STATGPU_LINK_TEST_CHILD) {
     assert.match(html, /href="\.\/ridge"/);
     assert.match(html, /href="\.\/\.\.\/\.\.\/\.\.\/cn\/models\/regression\/lasso"/);
     assert.doesNotMatch(html, /github\.com/);
+  });
+
+  test('survival directory anchors lead to the family overview without a standalone section', async () => {
+    for (const [locale, anchors] of [
+      ['en', ['survival-analysis', 'choosing-a-cox-estimator']],
+      ['cn', ['生存分析', '如何选择-cox-估计器']],
+    ]) {
+      const relativePath = `${locale}/models/README.md`;
+      const source = await readFile(path.join(docsRoot, relativePath), 'utf8');
+      const html = render(source, relativePath);
+      const rows = [];
+      const ids = [];
+      const headings = [];
+      function walk(node, row = null) {
+        if (node.tagName === 'tr') { row = { ids: [], links: [] }; rows.push(row); }
+        const attrs = Object.fromEntries((node.attrs ?? []).map(attr => [attr.name, attr.value]));
+        if (attrs.id) { ids.push(attrs.id); if (row) row.ids.push(attrs.id); }
+        if (row && node.tagName === 'a' && attrs.href) row.links.push(attrs.href);
+        if (/^h[1-6]$/.test(node.tagName ?? '')) headings.push(attrs.id);
+        for (const child of node.childNodes ?? []) walk(child, row);
+      }
+      walk(parseFragment(html));
+      for (const anchor of anchors) {
+        assert.equal(ids.filter(id => id === anchor).length, 1, `${locale}: ${anchor}`);
+        assert.ok(!headings.includes(anchor), `${locale}: no isolated survival section`);
+        const row = rows.find(candidate => candidate.ids.includes(anchor));
+        assert.ok(row?.links.includes('./survival/README'), `${locale}: old anchor reaches overview link`);
+      }
+      const overviewPath = `${locale}/models/survival/README.md`;
+      const overview = await readFile(path.join(docsRoot, overviewPath), 'utf8');
+      const links = htmlLinks(render(overview, overviewPath));
+      assert.ok(links.some(link => link.href === './../coxph'));
+      const counterpart = locale === 'en' ? 'cn' : 'en';
+      assert.ok(links.some(link => link.href === `./../../../${counterpart}/models/survival/README`));
+      const checked = await sourceChecker.checkDocument('docs/' + overviewPath, overview);
+      assert.deepEqual(checked.errors, [], locale);
+    }
   });
 
   test('dashboard entry bypasses docs routing and retains configured base', () => {

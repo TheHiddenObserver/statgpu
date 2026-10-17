@@ -5,6 +5,8 @@
 > 页面定位：模型文档<br>
 > 切换：[English](../../en/models/coxph.md)
 
+[模型与统计方法](README.md) / [生存分析](survival/README.md) / CoxPH
+
 ## 概览
 
 如果想研究**哪些因素与事件发生的早晚有关**，但部分样本在观察结束时仍未发生事件，

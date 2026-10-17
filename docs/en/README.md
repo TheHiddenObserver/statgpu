@@ -1,7 +1,7 @@
 # StatGPU Documentation
 
 > Language: English  
-> Last updated: 2026-10-13  
+> Last updated: 2026-10-17  
 > Switch: [Chinese](../cn/README.md)
 
 ## Getting Started
@@ -23,7 +23,7 @@
 Use the [family chooser](models/README.md) to match a method to your question.
 Each family entry leads to its tutorials and complete API reference.
 
-- Response models: [regression](models/regression/README.md) for response types and penalties; [survival](models/coxph.md) for time-to-event data
+- Response models: [regression](models/regression/README.md) for response types and penalties; [survival](models/survival/README.md) for time-to-event data
 - Statistical questions: [testing](models/testing/README.md) for group comparisons and multiple tests; [covariance](models/covariance/README.md) for joint variation and precision matrices
 - Flexible fitting and selection: [nonparametric methods](models/nonparametric/README.md) for densities, curves, and kernel features; [feature selection](models/feature-selection/README.md) for stepwise and knockoff methods
 - Data structure: [panel data](panel/README.md) for entity/time observations; [unsupervised learning](unsupervised/README.md) for structure without a response

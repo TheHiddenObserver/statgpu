@@ -1,7 +1,7 @@
 # Regression
 
 > Language: English  
-> Last updated: 2026-10-13  
+> Last updated: 2026-10-17  
 > Switch: [Chinese](../../../cn/models/regression/README.md)
 
 [Models and Statistical Methods](../README.md) / Regression
@@ -44,5 +44,5 @@ worked examples; their inference, solver, and device limits remain method-specif
 - [Loss functions](../../reference/losses.md) for low-level loss definitions and numerical properties
 - [Solver × penalty matrix](../../guides/solver-penalty-matrix.md) and [device guide](../../guides/device-and-memory.md) for supported configurations
 
-For time-to-event responses, use [Cox models](../coxph.md). For observations with
+For time-to-event responses, use [survival methods](../survival/README.md). For observations with
 entity/time structure, use [panel methods](../../panel/README.md).

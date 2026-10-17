@@ -51,6 +51,7 @@ FAMILIES = {
     "models/feature-selection/README": {
         "feature-selection", "knockoff", "knockoff-fixed-x", "knockoff-model-x",
     },
+    "models/survival/README": {"coxph"},
     "panel/README": {"panel"},
     "unsupervised/README": {"unsupervised"},
 }
