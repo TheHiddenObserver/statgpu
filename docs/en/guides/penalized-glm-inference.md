@@ -1,7 +1,7 @@
 # Penalized GLM Inference
 
 > Language: English  
-> Last updated: 2026-10-17  
+> Last updated: 2026-10-18<br>
 > This page: statistical targets and supported coefficient-inference behavior  
 > Switch: [Chinese](../../cn/guides/penalized-glm-inference.md)
 
@@ -187,12 +187,41 @@ weights. The refit explicitly selects `solver="irls"` for logistic and Poisson
 regression and `solver="newton"` for the other non-Gaussian families, with
 `device="cpu"`.
 Oracle HC0/HC1 covariance rescales weights before forming squared score
-products, avoiding underflow or overflow from their common magnitude. For a
-fixed selected support and refit, this preserves common-scale covariance
-invariance up to ordinary numerical tolerance when relative weights remain
-representable. Refit weights and nonrobust conventions
+products, avoiding underflow or overflow from their common magnitude while
+retaining material score contributions from positive-weight observations.
+For a fixed selected support and refit, this preserves common-scale covariance
+invariance up to numerical tolerance when the required weighted products and
+score calculations remain representable with sufficient precision. Subnormal
+values have intrinsically reduced relative precision. Refit weights and nonrobust conventions
 are unchanged; fixed-dispersion nonrobust standard errors need not be
 scale-invariant.
+
+If finite robust scores, curvature, or a finite covariance for the refitted
+parameters cannot be computed, oracle inference raises `RuntimeError`. It also
+raises when neither a stable common weight scale nor bounded raw evaluation
+can be certified at the working precision, even if a finite exact covariance
+may exist. If conservative scaling bounds conflict, unchanged weights can
+still be accepted when actual aggregate products are finite, required nonzero
+squared-score averages remain in the normal floating-point range, and any
+omitted tiny terms are bounded below ordinary aggregate roundoff. This does not
+guarantee preservation of every individual nonzero product or resolve
+arbitrary covariance conditioning. Review
+the response and design scales, or use `compute_inference=False` for point estimation.
+An entirely zero active HC0/HC1 covariance also raises `RuntimeError` when
+nonzero score factors on effective positive-weight rows establish that the
+score matrix is nonzero. This catches a wholly vanished covariance, not every
+partially underflowed entry. Genuine zero scores, individual zero variances,
+and inactive `NaN` uncertainty remain allowed; zero-weight or zero-design
+rows do not trigger this robust-covariance check.
+
+For `nonrobust` oracle inference, a zero estimated dispersion raises
+`RuntimeError` if any positive-weight row has an evaluated response different
+from its fitted mean, including rows with zero design. Fits whose evaluated
+residuals are zero on every positive-weight row may retain zero estimated dispersion. When
+dispersion is positive, every active model-based variance must be positive;
+zero off-diagonal covariance entries remain valid. Logistic, Poisson, and
+negative-binomial refits retain fixed dispersion equal to one. These checks
+do not guarantee accurate covariance at every scale or conditioning level.
 
 A refit that reports non-convergence raises `RuntimeError` rather than
 publishing an oracle coefficient table. An error during oracle computation

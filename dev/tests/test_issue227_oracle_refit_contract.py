@@ -1405,3 +1405,485 @@ def test_oracle_robust_weight_scaling_preserves_valid_zero_uncertainty(cov_type)
     np.testing.assert_allclose(model._params[0], 3., atol=1e-14)
     np.testing.assert_allclose(model._bse[0], 0., atol=1e-14)
     assert np.isnan(model._bse[1])
+
+
+@pytest.mark.parametrize("cls", [PenalizedLinearRegression, PenalizedGeneralizedLinearModel])
+@pytest.mark.parametrize("penalty", ["scad", "mcp"])
+@pytest.mark.parametrize("cov_type", ["hc0", "hc1"])
+@pytest.mark.parametrize("weight_scale", [1e-40, 1., 1e40])
+def test_oracle_robust_normalization_retains_small_weight_large_score(
+        cls, penalty, cov_type, weight_scale):
+    # The last row has a tiny analytic weight but supplies 3/4 of the meat.
+    # w / max(w) drops it entirely and silently halves the standard error.
+    X = np.zeros((4, 1))
+    y = np.array([0., 0., 0., 1e200])
+    weights = np.array([1e180, 1e180, 1e180, 1e-150]) * weight_scale
+    model = cls(penalty=penalty, alpha=.1, device="cpu",
+        compute_inference=True, inference_method="oracle", cov_type=cov_type).fit(
+            X, y, sample_weight=weights)
+    mean = 1e-130 / 3
+    se = mean * np.sqrt(4 / 3)
+    if cov_type == "hc1":
+        se *= np.sqrt(4 / 3)
+    np.testing.assert_allclose(model._params[0], mean, rtol=1e-13, atol=0)
+    np.testing.assert_allclose(model._bse[0], se, rtol=1e-13, atol=0)
+    np.testing.assert_allclose(model._conf_int[0],
+        mean + se * stats.norm.ppf([.025, .975]), rtol=1e-13, atol=0)
+    assert np.isnan(model._bse[1])
+
+
+@pytest.mark.parametrize("loss,settings,typed,typed_settings", FAMILIES[:1] + FAMILIES[2:])
+@pytest.mark.parametrize("typed_entry", [False, True])
+@pytest.mark.parametrize("penalty", ["scad", "mcp"])
+@pytest.mark.parametrize("cov_type", ["hc0", "hc1"])
+def test_oracle_robust_large_relative_weight_range_preserves_family_score(
+        loss, settings, typed, typed_settings, typed_entry, penalty, cov_type):
+    X = np.zeros((4, 1))
+    y = np.array([1., 1., 1., 1e200])
+    weights = np.array([1e180, 1e180, 1e180, 1e-150])
+    kwargs = dict(penalty=penalty, alpha=.1, device="cpu", max_iter=10000,
+        tol=1e-10, compute_inference=True, inference_method="oracle", cov_type=cov_type)
+    model = (typed(**kwargs, **typed_settings) if typed_entry else
+             PenalizedGeneralizedLinearModel(loss=loss, loss_kwargs=settings, **kwargs))
+    model.fit(X, y, sample_weight=weights)
+    # At mu=1 all supported links have |d mu/d eta|=1. The last weighted
+    # residual is 1e50; division by sum(w)=3e180 leaves this finite SE.
+    se = 1e-130 / 3
+    if cov_type == "hc1":
+        se *= np.sqrt(4 / 3)
+    np.testing.assert_allclose(model._bse[0], se, rtol=1e-12, atol=0)
+    assert model._inference_result.metadata["refit_family_parameters"] == settings
+    assert np.isnan(model._bse[1])
+
+
+@pytest.mark.parametrize("cov_type", ["hc0", "hc1"])
+def test_oracle_robust_normalization_preserves_existing_subnormal_weight(cov_type):
+    X = np.zeros((4, 1))
+    tiny = np.nextafter(0., 1.)
+    y = np.array([0., 0., 0., 1e308])
+    weights = np.array([1., 1., 1., tiny])
+    mean = (tiny * y[-1]) / 3
+    se = mean * np.sqrt(4 / 3)
+    if cov_type == "hc1":
+        se *= np.sqrt(4 / 3)
+    model = PenalizedLinearRegression(penalty="mcp", alpha=.1, device="cpu",
+        compute_inference=True, inference_method="oracle", cov_type=cov_type).fit(
+            X, y, sample_weight=weights)
+    np.testing.assert_allclose(model._params[0], mean, rtol=1e-13, atol=0)
+    np.testing.assert_allclose(model._bse[0], se, rtol=1e-13, atol=0)
+
+
+@pytest.mark.parametrize("cov_type", ["hc0", "hc1"])
+@pytest.mark.parametrize("weight_scale", [1e60, 1e100, 1e140])
+def test_oracle_robust_normalization_preserves_small_design_score_meat(cov_type, weight_scale):
+    # Isolate inference on a fixed legitimate support: selection itself has a
+    # separate absolute-tolerance limit for designs this small. Unit weights
+    # would underflow the score squares even though slope covariance is finite.
+    model = PenalizedLinearRegression(penalty="mcp", alpha=.001, device="cpu",
+        fit_intercept=False, compute_inference=False,
+        inference_method="oracle", cov_type=cov_type).fit(
+            np.ones((12, 1)), np.tile([.9, 1.1], 6))
+    X = np.ones((12, 1)) * 1e-85
+    y = X[:, 0] + np.tile([-1., 1.], 6) * 1e-100
+    model._compute_oracle_inference(X, y, np.full(len(y), weight_scale))
+    # Closed form in slope units avoids tiny products in the reference itself.
+    errors = (y - X[:, 0] * model._params[0]) / X[:, 0]
+    se = np.linalg.norm(errors) / len(y)
+    if cov_type == "hc1":
+        se *= np.sqrt(len(y) / (len(y) - 1))
+    assert se > 0
+    np.testing.assert_allclose(model._bse[0], se, rtol=1e-12, atol=0)
+
+
+@pytest.mark.parametrize("cls", [PenalizedLinearRegression, PenalizedGeneralizedLinearModel])
+@pytest.mark.parametrize("cov_type", ["hc0", "hc1"])
+@pytest.mark.parametrize("previous_fit", [False, True])
+def test_oracle_nonfinite_active_covariance_is_transactional(cls, cov_type, previous_fit):
+    X = np.zeros((4, 1))
+    model = cls(penalty="mcp", alpha=.1, device="cpu",
+        compute_inference=True, inference_method="oracle", cov_type=cov_type)
+    if previous_fit:
+        model.fit(X, np.array([1., 2., 3., 4.]))
+    # The target exists but its covariance (~1e400) cannot be represented in
+    # float64. Do not publish inf standard errors or a partial fitted model.
+    with np.errstate(over="ignore", invalid="ignore"):
+        with pytest.raises(RuntimeError, match="finite covariance"):
+            model.fit(X, np.array([-1e200, 1e200, -1e200, 1e200]))
+    assert not model._fitted
+    assert model.coef_ is model._params is model._inference_result is None
+    model.fit(X, np.array([1., 2., 3., 4.]))
+    assert model._fitted
+    assert np.isfinite(model._bse[0])
+
+
+@pytest.mark.parametrize("loss,settings,typed,typed_settings", FAMILIES)
+def test_oracle_scaling_curvature_matches_existing_bread_including_clipping(
+        loss, settings, typed, typed_settings):
+    from statgpu.linear_model.penalized._inference_mixin import (
+        _oracle_observed_curvature, _OracleObservedHessianLoss,
+    )
+    from statgpu.glm_core import get_glm_loss
+    resolved = get_glm_loss(loss, **settings)
+    bread_loss = (_OracleObservedHessianLoss(resolved)
+                  if loss in ("inverse_gaussian", "negative_binomial") else resolved)
+    eta = np.array([-1000., -30., -.1, .1, 1., 30., 1000.])
+    y = np.array([.1, 1., .3, 2., 1.3, 3., 1e-250])
+    actual = _oracle_observed_curvature(bread_loss, eta[:, None], y, np.ones(1))
+    expected = np.array([bread_loss.hessian(np.ones((1, 1)), np.array([yi]),
+        np.array([ei]))[0, 0] for ei, yi in zip(eta, y)])
+    np.testing.assert_array_equal(actual, expected)
+    # Independent observed-score derivatives inside the unclipped domain.
+    eta = np.array([.2, .7, 1.1])
+    y = np.array([.4, 2., 1.3])
+    independent = _moments(loss, settings, eta, y)[1]
+    np.testing.assert_allclose(_oracle_observed_curvature(
+        bread_loss, eta[:, None], y, np.ones(1)), independent, rtol=1e-14)
+
+
+@pytest.mark.parametrize("design_exponent", [-140, -100, -85, -40, 0, 40, 85, 100, 140])
+@pytest.mark.parametrize("weight_exponent", [-300, -200, -100, 0, 100, 200, 300])
+def test_oracle_binary_scaling_preserves_finite_gaussian_covariance_both_directions(
+        design_exponent, weight_exponent):
+    from statgpu.glm_core import get_glm_loss
+    from statgpu.inference._sandwich import m_estimation_inference
+    from statgpu.linear_model.penalized._inference_mixin import _oracle_robust_covariance_weights
+    loss = get_glm_loss("squared_error")
+    X = np.full((12, 1), 10. ** design_exponent)
+    y = X[:, 0] * np.tile([.5, 1.5], 6)
+    weights = np.full(12, 10. ** weight_exponent)
+    normalized = _oracle_robust_covariance_weights(loss, X, y, np.ones(1), weights)
+    assert np.all(normalized > 0)
+    assert np.all(np.isfinite(normalized))
+    result = m_estimation_inference(loss, X, y, np.ones(1), cov_type="hc0",
+                                   sample_weight=normalized)
+    # Slope residuals are +/- .5, so HC0 variance is 12*.5**2 / 12**2.
+    np.testing.assert_allclose(result["bse"], np.sqrt(1 / 48), rtol=1e-12, atol=0)
+
+
+def test_oracle_binary_scaling_preserves_small_weighted_curvature_products():
+    from statgpu.glm_core import get_glm_loss
+    from statgpu.inference._sandwich import m_estimation_inference
+    from statgpu.linear_model.penalized._inference_mixin import _oracle_robust_covariance_weights
+    loss = get_glm_loss("gamma", link="log")
+    X = np.array([[1e120], [0.]])
+    y = np.array([1e-250, 1.])
+    weights = np.array([1e-50, 1e30])
+    params = np.zeros(1)
+    normalized = _oracle_robust_covariance_weights(loss, X, y, params, weights)
+    # Raw w*h=1e-300 is representable, while max-weight normalization makes
+    # it zero. X.T@(X*w*h)/sum(w)=1e-90 must survive the common rescaling.
+    np.testing.assert_allclose(loss.hessian(X, y, params, sample_weight=normalized),
+                               [[1e-90]], rtol=1e-14, atol=0)
+    result = m_estimation_inference(loss, X, y, params, cov_type="hc0",
+                                   sample_weight=normalized)
+    np.testing.assert_allclose(result["bse"], [1e130], rtol=1e-14, atol=0)
+
+
+@pytest.mark.parametrize("weight", [1e-300, 1., 1e300])
+def test_oracle_binary_scaling_keeps_exact_zero_scores_legal(weight):
+    X, y = np.zeros((4, 1)), np.full(4, 3.)
+    model = PenalizedLinearRegression(penalty="mcp", alpha=.1, device="cpu",
+        compute_inference=True, inference_method="oracle", cov_type="hc0").fit(
+            X, y, sample_weight=np.full(4, weight))
+    np.testing.assert_allclose(model._params[0], 3., atol=1e-14)
+    np.testing.assert_allclose(model._bse[0], 0., atol=1e-14)
+
+
+@pytest.mark.parametrize("cls", [PenalizedLinearRegression, PenalizedGeneralizedLinearModel])
+@pytest.mark.parametrize("penalty", ["scad", "mcp"])
+@pytest.mark.parametrize("cov_type", ["hc0", "hc1"])
+def test_oracle_scaling_conflict_retains_finite_raw_range_edge(cls, penalty, cov_type):
+    X = np.zeros((3, 1))
+    y = np.array([-9e153, 9e153, 0.])
+    weights = np.array([1., 1., np.nextafter(0., 1.)])
+    model = cls(penalty=penalty, alpha=.1, device="cpu", compute_inference=True,
+        inference_method="oracle", cov_type=cov_type).fit(X, y, sample_weight=weights)
+    # sum((w*y)**2)=1.62e308 is finite. Exponent-only upper bounds exceed
+    # float64, but the tiny third weight prevents downward binary scaling.
+    se = 9e153 / np.sqrt(2)
+    if cov_type == "hc1":
+        se *= np.sqrt(3 / 2)
+    # Least-squares cancellation can leave an intercept at roundoff scale.
+    assert abs(model._params[0]) <= 4 * np.finfo(float).eps * 9e153
+    np.testing.assert_allclose(model._bse[0], se, rtol=1e-14, atol=0)
+    np.testing.assert_allclose(model._conf_int[0], se * stats.norm.ppf([.025, .975]),
+                               rtol=1e-14, atol=0)
+    assert np.isnan(model._bse[1])
+
+
+@pytest.mark.parametrize("cov_type", ["hc0", "hc1"])
+@pytest.mark.parametrize("response_scale,weight", [(1e154, 1.), (1e-308, 5e307)])
+def test_oracle_scaling_conflict_rejects_raw_range_loss_transactionally(
+        cov_type, response_scale, weight):
+    X = np.zeros((3, 1))
+    model = PenalizedLinearRegression(penalty="mcp", alpha=.1, device="cpu",
+        compute_inference=True, inference_method="oracle", cov_type=cov_type)
+    model.fit(X, np.array([1., 2., 3.]))
+    weights = np.array([weight, weight, np.nextafter(0., 1.)])
+    # Respectively: the score-square sum overflows despite finite covariance,
+    # or the true positive covariance (~5e-617) is below float64 range.
+    # A finite real answer alone does not certify the required operations.
+    with np.errstate(over="ignore", invalid="ignore"):
+        with pytest.raises(RuntimeError, match="stable weight scaling"):
+            model.fit(X, np.array([-response_scale, response_scale, 0.]),
+                      sample_weight=weights)
+    assert not model._fitted
+    assert model.coef_ is model._params is model._inference_result is None
+    model.fit(X, np.array([1., 2., 3.]))
+    assert model._fitted
+    assert np.isfinite(model._bse[0])
+
+
+@pytest.mark.parametrize("cls", [PenalizedLinearRegression, PenalizedGeneralizedLinearModel])
+@pytest.mark.parametrize("penalty", ["scad", "mcp"])
+@pytest.mark.parametrize("cov_type", ["hc0", "hc1"])
+@pytest.mark.parametrize("tail_design", [0., 1e-100])
+def test_oracle_scaling_conflict_allows_negligible_raw_products(
+        cls, penalty, cov_type, tail_design):
+    X = np.array([1., 1., 1., 1., tail_design])[:, None]
+    y = np.array([1e153, 11e153, 1e153, 11e153, 1e-320])
+    weights = np.array([1., 1., 1., 1., np.nextafter(0., 1.)])
+    model = cls(penalty=penalty, alpha=.1, solver="fista", fit_intercept=False,
+        device="cpu", compute_inference=True, inference_method="oracle",
+        cov_type=cov_type).fit(X, y, sample_weight=weights)
+    # The last row is exactly irrelevant at X=0. At tiny nonzero X its
+    # vanished score/bread products are below ordinary aggregate roundoff.
+    se = 2.5e153 * (np.sqrt(5 / 4) if cov_type == "hc1" else 1)
+    np.testing.assert_allclose(model._params[0], 6e153, rtol=1e-14, atol=0)
+    np.testing.assert_allclose(model._bse[0], se, rtol=1e-14, atol=0)
+
+
+def test_oracle_scaling_conflict_rejects_whole_nonzero_score_column_loss():
+    from statgpu.glm_core import get_glm_loss
+    from statgpu.linear_model.penalized._inference_mixin import _oracle_robust_covariance_weights
+    X = np.array([[1., 0.], [1., 0.], [0., 1e-100], [0., 1e-100]])
+    y = np.array([-9e153, 9e153, .5e-100, 1.5e-100])
+    # The second column has a genuine HC0 variance of 1/8, but raw score
+    # squares vanish. Scaling upward to retain them overflows the first.
+    with pytest.raises(RuntimeError, match="stable weight scaling"):
+        _oracle_robust_covariance_weights(get_glm_loss("squared_error"),
+                                         X, y, np.ones(2), np.ones(4))
+
+
+@pytest.mark.parametrize("lost_factor", ["gradient", "curvature"])
+def test_oracle_raw_certificate_rejects_material_lost_products(lost_factor):
+    from statgpu.linear_model.penalized._inference_mixin import (
+        _oracle_raw_covariance_products_are_representable,
+    )
+    X = np.array([[1.], [1e300]])
+    weights = np.array([1., np.nextafter(0., 1.)])
+    if lost_factor == "gradient":
+        # w*g vanishes before a huge X could rescue a material score.
+        gradient = np.array([1e-150, 1e-100])
+        curvature = np.array([1., 0.])
+    else:
+        # w*h vanishes before X**2 could rescue all the bread.
+        gradient = np.zeros(2)
+        curvature = np.array([0., 1e-100])
+    assert not _oracle_raw_covariance_products_are_representable(
+        X, gradient, curvature, weights)
+
+
+def test_oracle_scaling_conflict_keeps_exact_zero_score_columns_legal():
+    from statgpu.glm_core import get_glm_loss
+    from statgpu.inference._sandwich import m_estimation_inference
+    from statgpu.linear_model.penalized._inference_mixin import _oracle_robust_covariance_weights
+    loss = get_glm_loss("squared_error")
+    X = np.full((3, 1), 9e153)
+    y = X[:, 0].copy()
+    weights = np.array([1., 1., np.nextafter(0., 1.)])
+    normalized = _oracle_robust_covariance_weights(loss, X, y, np.ones(1), weights)
+    np.testing.assert_array_equal(normalized, weights)
+    result = m_estimation_inference(loss, X, y, np.ones(1), cov_type="hc0",
+                                   sample_weight=normalized)
+    np.testing.assert_array_equal(result["cov_params"], np.zeros((1, 1)))
+    np.testing.assert_array_equal(result["bse"], np.zeros(1))
+
+
+@pytest.mark.parametrize("cls", [PenalizedLinearRegression, PenalizedGeneralizedLinearModel])
+@pytest.mark.parametrize("penalty", ["scad", "mcp"])
+@pytest.mark.parametrize("cov_type", ["nonrobust", "hc0", "hc1"])
+@pytest.mark.parametrize("weight_mode", ["unweighted", "uniform", "nonuniform"])
+@pytest.mark.parametrize("previous_fit", [False, True])
+def test_oracle_entire_covariance_underflow_is_transactional(
+        cls, penalty, cov_type, weight_mode, previous_fit):
+    X = np.zeros((3, 1))
+    weights = {"unweighted": None, "uniform": np.ones(3),
+               "nonuniform": np.array([1., 2., 1.])}[weight_mode]
+    model = cls(penalty=penalty, alpha=.1, device="cpu", compute_inference=True,
+        inference_method="oracle", cov_type=cov_type)
+    if previous_fit:
+        model.fit(X, np.array([1., 2., 3.]), sample_weight=weights)
+    # Uniform HC0 covariance is 2e-400/9: positive but below float64 range.
+    # Its exact SE is representable; publishing zero instead is not valid.
+    with pytest.raises(RuntimeError, match="represent nonzero (score|residual) variation"):
+        model.fit(X, np.array([-1e-200, 1e-200, 0.]), sample_weight=weights)
+    assert not model._fitted
+    assert model.coef_ is model._params is model._inference_result is None
+    model.fit(X, np.array([1., 2., 3.]), sample_weight=weights)
+    assert model._fitted
+    assert np.isfinite(model._bse[0]) and model._bse[0] > 0
+    assert np.isnan(model._bse[1])
+
+
+@pytest.mark.parametrize("cls", [PenalizedLinearRegression, PenalizedGeneralizedLinearModel])
+@pytest.mark.parametrize("penalty", ["scad", "mcp"])
+@pytest.mark.parametrize("cov_type", ["hc0", "hc1"])
+@pytest.mark.parametrize("control", ["intercept_unweighted", "intercept_weighted",
+                                   "zero_design_unweighted", "zero_design_weighted",
+                                   "zero_weight"])
+def test_oracle_entire_zero_covariance_remains_legal_for_zero_scores(
+        cls, penalty, cov_type, control):
+    intercept = control.startswith("intercept")
+    if intercept:
+        X, y = np.zeros((3, 1)), np.zeros(3)
+        weights = np.ones(3) if control.endswith("_weighted") else None
+    else:
+        X = np.array([[1., 0.], [0., 0.]])
+        y = np.array([1., 1e-200])
+        weights = np.ones(2) if control.endswith("_weighted") else None
+        if control == "zero_weight":
+            X[1, 0] = 1.
+            weights = np.array([1., 0.])
+    model = cls(penalty=penalty, alpha=.1, device="cpu", fit_intercept=intercept,
+        compute_inference=True, inference_method="oracle", cov_type=cov_type).fit(
+            X, y, sample_weight=weights)
+    # Nonzero gradients confined to zero-design or zero-weight rows do not
+    # form nonzero scores. Inactive uncertainty remains undefined.
+    np.testing.assert_array_equal(model._bse[:1], np.zeros(1))
+    assert np.isnan(model._bse[1:]).all()
+
+
+@pytest.mark.parametrize("cls", [PenalizedLinearRegression, PenalizedGeneralizedLinearModel])
+@pytest.mark.parametrize("penalty", ["scad", "mcp"])
+@pytest.mark.parametrize("cov_type", ["hc0", "hc1"])
+@pytest.mark.parametrize("weighted", [False, True])
+def test_oracle_partially_zero_covariance_remains_legal(cls, penalty, cov_type, weighted):
+    X = np.array([[1., 0.], [0., 1.], [0., 1.]])
+    y = np.array([1., 0., 2.])
+    model = cls(penalty=penalty, alpha=.1, fit_intercept=False, device="cpu",
+        compute_inference=True, inference_method="oracle", cov_type=cov_type).fit(
+            X, y, sample_weight=np.ones(3) if weighted else None)
+    # The first coefficient fits its single observation exactly; only the
+    # second coefficient has score variation. Do not reject a zero diagonal.
+    se = np.array([0., np.sqrt(.5 if cov_type == "hc0" else 1.5)])
+    np.testing.assert_allclose(model._bse, se, rtol=1e-14, atol=0)
+
+
+@pytest.mark.parametrize("loss,settings,typed,typed_settings",
+                         [FAMILIES[i] for i in (0, 3, 4, 5, 7)])
+@pytest.mark.parametrize("typed_entry", [False, True])
+@pytest.mark.parametrize("penalty", ["scad", "mcp"])
+@pytest.mark.parametrize("cov_type", ["nonrobust", "hc0", "hc1"])
+@pytest.mark.parametrize("case", ["moderate", "exact_fit", "common_subnormal",
+                                "zero_tail", "tiny_tail", "twice_tiny_tail", "four_tiny_tail"])
+def test_oracle_unknown_scale_covariance_range_matrix(
+        loss, settings, typed, typed_settings, typed_entry, penalty, cov_type, case):
+    tiny = np.nextafter(0., 1.)
+    if case in ("moderate", "exact_fit", "common_subnormal"):
+        y = np.tile([.8, 1., 1.2], 2)
+        weights = np.full(6, tiny) if case == "common_subnormal" else None
+        if case == "exact_fit":
+            y[:] = 0. if loss == "squared_error" else 1.
+    else:
+        y = np.array([0., 0., 1.]) if loss == "squared_error" else np.array([1., 1., 2.])
+        multiple = {"zero_tail": 0, "tiny_tail": 1,
+                    "twice_tiny_tail": 2, "four_tiny_tail": 4}[case]
+        weights = np.array([1., 1., multiple * tiny])
+    X = np.zeros((len(y), 1))
+    kwargs = dict(penalty=penalty, alpha=.1, device="cpu", max_iter=10000,
+                  tol=1e-10, compute_inference=True, inference_method="oracle", cov_type=cov_type)
+    model = (typed(**kwargs, **typed_settings) if typed_entry else
+             PenalizedGeneralizedLinearModel(loss=loss, loss_kwargs=settings, **kwargs))
+    fails = (case in ("tiny_tail", "twice_tiny_tail")
+             or (case == "common_subnormal" and cov_type == "nonrobust")
+             or (case == "four_tiny_tail" and cov_type != "nonrobust"))
+    if fails:
+        with pytest.raises(RuntimeError):
+            model.fit(X, y, sample_weight=weights)
+        _assert_failed_oracle_fit(model, X)
+        model.fit(np.zeros((6, 1)), np.tile([.8, 1., 1.2], 2))
+        assert model._fitted and model._bse[0] > 0
+        return
+    model.fit(X, y, sample_weight=weights)
+    if case in ("exact_fit", "zero_tail"):
+        se = 0.
+    elif case == "four_tiny_tail":
+        # Positive dispersion and representable subnormal covariance stay legal.
+        se = np.sqrt(tiny)
+        assert model._inference_result.metadata["dispersion"] == 2 * tiny
+    else:
+        # At mean1, all these links have |d mu/d eta|=1 and V(mu)=1.
+        se = np.sqrt(.16 / 30) if cov_type == "nonrobust" else np.sqrt(.16) / 6
+        if cov_type == "hc1":
+            se *= np.sqrt(6 / 5)
+    np.testing.assert_allclose(model._bse[0], se, rtol=1e-12, atol=0)
+    assert np.isnan(model._bse[1])
+
+
+@pytest.mark.parametrize("cls", [PenalizedLinearRegression, PenalizedGeneralizedLinearModel])
+@pytest.mark.parametrize("penalty", ["scad", "mcp"])
+@pytest.mark.parametrize("cov_type", ["nonrobust", "hc0", "hc1"])
+@pytest.mark.parametrize("weighted", [False, True])
+@pytest.mark.parametrize("amplitude", [1., 1e-200])
+def test_oracle_zero_design_residuals_affect_dispersion_but_not_scores(
+        cls, penalty, cov_type, weighted, amplitude):
+    X = np.array([[1.], [0.], [0.]])
+    y = np.array([1., amplitude, -amplitude])
+    weights = np.ones(3) if weighted else None
+    model = cls(penalty=penalty, alpha=.1, fit_intercept=False, device="cpu",
+        compute_inference=True, inference_method="oracle", cov_type=cov_type)
+    if cov_type == "nonrobust" and amplitude < 1:
+        with pytest.raises(RuntimeError, match="nonzero residual variation"):
+            model.fit(X, y, sample_weight=weights)
+        _assert_failed_oracle_fit(model, X)
+    else:
+        model.fit(X, y, sample_weight=weights)
+        np.testing.assert_array_equal(model._bse, [amplitude if cov_type == "nonrobust" else 0.])
+
+
+@pytest.mark.parametrize("cls", [PenalizedLinearRegression, PenalizedGeneralizedLinearModel])
+@pytest.mark.parametrize("penalty", ["scad", "mcp"])
+def test_oracle_nonrobust_positive_dispersion_rejects_partial_zero_variance(cls, penalty):
+    X = np.array([[2., 0.], [0., 1.], [0., 0.]])
+    y = np.array([2., 1., 1.])
+    model = cls(penalty=penalty, alpha=.1, fit_intercept=False, device="cpu",
+        compute_inference=True, inference_method="oracle", cov_type="nonrobust")
+    model.fit(X, y)
+    # Dispersion=minsubnormal, inverse unnormalized information=diag(1/4,1).
+    # Raw covariance becomes diag(0,minsubnormal): a positive-dispersion zero
+    # variance is unavailable, unlike a legitimate partial-zero HC covariance.
+    with pytest.raises(RuntimeError, match="positive model-based variances"):
+        model.fit(X, y, sample_weight=np.array([1., 1., np.nextafter(0., 1.)]))
+    _assert_failed_oracle_fit(model, X)
+    model.fit(X, y)
+    np.testing.assert_allclose(model._bse, [.5, 1.], rtol=1e-14, atol=0)
+
+
+@pytest.mark.parametrize("loss,settings,typed,typed_settings",
+                         [FAMILIES[i] for i in (1, 2, 6)])
+@pytest.mark.parametrize("typed_entry", [False, True])
+@pytest.mark.parametrize("penalty", ["scad", "mcp"])
+@pytest.mark.parametrize("cov_type", ["nonrobust", "hc0", "hc1"])
+@pytest.mark.parametrize("zero_weight_tail", [False, True])
+def test_oracle_fixed_scale_keeps_positive_model_based_and_legal_robust_variances(
+        loss, settings, typed, typed_settings, typed_entry, penalty, cov_type, zero_weight_tail):
+    y = np.tile([0., 1.], 3) if loss == "logistic" else np.ones(6)
+    weights = None
+    if zero_weight_tail:
+        y = np.append(y, 1. if loss == "logistic" else 3.)
+        weights = np.append(np.ones(6), 0.)
+    kwargs = dict(penalty=penalty, alpha=.1, device="cpu", max_iter=10000,
+                  tol=1e-10, compute_inference=True, inference_method="oracle", cov_type=cov_type)
+    model = (typed(**kwargs, **typed_settings) if typed_entry else
+             PenalizedGeneralizedLinearModel(loss=loss, loss_kwargs=settings, **kwargs))
+    model.fit(np.zeros((len(y), 1)), y, sample_weight=weights)
+    if cov_type == "nonrobust":
+        variance = (4. if loss == "logistic" else 1.25 if loss == "negative_binomial" else 1.) / 6
+        assert model._inference_result.metadata["dispersion"] == 1.
+    else:
+        variance = 4 / 6 if loss == "logistic" else 0.
+        if cov_type == "hc1":
+            variance *= len(y) / (len(y) - 1)
+    np.testing.assert_allclose(model._bse[0], np.sqrt(variance), rtol=1e-13, atol=0)
+    assert np.isnan(model._bse[1])

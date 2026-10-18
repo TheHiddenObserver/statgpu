@@ -1050,3 +1050,120 @@ def test_snapshot_does_not_accept_sequence_with_unusable_length():
     with pytest.raises((IndexError, TypeError, ValueError)):
         bootstrap_statistic(np.mean, np.arange(4.), clusters=LabelsWithoutUsableLength(),
                             strategy="cluster", n_resamples=5, backend="numpy")
+
+
+@pytest.mark.parametrize("protocol", [
+    "__array__", "__array_interface__", "__array_struct__", "__getattr__",
+])
+@pytest.mark.parametrize("use_estimator", [False, True], ids=["module", "estimator"])
+@pytest.mark.parametrize("backend", ["numpy", "auto"])
+def test_explicit_none_protocol_retains_native_conversion_rejection(
+    protocol, use_estimator, backend,
+):
+    class Labels(_LegacyClusterLabelSequence):
+        def __getitem__(self, index):
+            raise AssertionError("invalid array protocol must not be bypassed")
+
+    setattr(Labels, protocol, None)
+    labels = Labels([0, 0, 1, 1])
+    assert resampling._validate_cluster_labels_before_cast(labels) is labels
+    with pytest.raises((TypeError, ValueError)):
+        np.asarray(labels)
+    function = (LinearRegression(device="cpu").bootstrap_statistic
+                if use_estimator else bootstrap_statistic)
+    with pytest.raises((TypeError, ValueError)):
+        function(np.mean, np.arange(4.), clusters=labels, strategy="cluster",
+                 n_resamples=5, backend=backend)
+
+
+@pytest.mark.parametrize("protocol", [
+    "__array__", "__array_interface__", "__array_struct__",
+])
+def test_explicit_none_instance_protocol_is_not_treated_as_absent(protocol):
+    labels = _LegacyClusterLabelSequence([0, 0, 1, 1])
+    setattr(labels, protocol, None)
+    assert resampling._validate_cluster_labels_before_cast(labels) is labels
+    with pytest.raises((TypeError, ValueError)):
+        bootstrap_statistic(np.mean, np.arange(4.), clusters=labels,
+                            strategy="cluster", n_resamples=5, backend="numpy")
+
+
+class _NativeDtypeClusterRow:
+    """A nested array-like whose numeric conversion does not accept objects."""
+
+    def __init__(self, label):
+        self.label = label
+        self.conversions = []
+
+    def __array__(self, dtype=None, copy=None):
+        self.conversions.append(dtype)
+        if dtype is not None:
+            raise TypeError("cluster row supports only dtype-inferred conversion")
+        return np.asarray([self.label])
+
+    def __ne__(self, other):
+        raise AssertionError("validation must not compare a custom array leaf")
+
+
+@pytest.mark.parametrize("row_type", [
+    _NativeDtypeClusterRow, _GetattrClusterArray, _GetattributeClusterArray,
+])
+@pytest.mark.parametrize("container", [list, deque, _LegacyClusterLabelSequence])
+@pytest.mark.parametrize("use_estimator", [False, True], ids=["module", "estimator"])
+@pytest.mark.parametrize("backend", ["numpy", "auto"])
+def test_nested_array_protocol_uses_only_reused_dtype_inferred_conversion(
+    row_type, container, use_estimator, backend,
+):
+    rows = [row_type(np.float32(label)) if row_type is _NativeDtypeClusterRow
+            else row_type([label], reject_object_dtype=True)
+            for label in [0, 0, 1, 1]]
+    labels = container(rows)
+    values = np.array([1., 3., 10., 30.])
+    function = (LinearRegression(device="cpu").bootstrap_statistic
+                if use_estimator else bootstrap_statistic)
+    result = function(np.mean, values, clusters=labels, strategy="cluster",
+                      n_resamples=29, random_state=4, backend=backend)
+    expected = [values[idx].mean() for idx in
+                _reference_indices(np.array([0, 0, 1, 1]), 4, 29)]
+    np.testing.assert_array_equal(result.samples, expected)
+    # The estimator's existing finite check converts once. The host snapshot
+    # then converts once normally and is reused by backend conversion/grouping.
+    expected_calls = 2 if use_estimator else 1
+    assert [row.conversions for row in rows] == [[None] * expected_calls] * 4
+
+
+@pytest.mark.parametrize("native_row", [False, True])
+@pytest.mark.parametrize("missing", [None, np.nan, np.datetime64("NaT")])
+@pytest.mark.parametrize("use_estimator", [False, True], ids=["module", "estimator"])
+@pytest.mark.parametrize("backend", ["numpy", "auto"])
+def test_nested_custom_leaf_does_not_hide_missing_ordinary_neighbor(
+    native_row, missing, use_estimator, backend,
+):
+    row = _NativeDtypeClusterRow("a")
+    missing_row = np.asarray([missing]) if native_row else [missing]
+    labels = [row, ["a"], missing_row, ["b"]]
+    calls = []
+
+    def statistic(values):
+        calls.append(values)
+        return np.mean(values)
+
+    function = (LinearRegression(device="cpu").bootstrap_statistic
+                if use_estimator else bootstrap_statistic)
+    with pytest.raises(ValueError, match="nonmissing label per row"):
+        function(statistic, np.arange(4.), clusters=labels, strategy="cluster",
+                 n_resamples=5, backend=backend)
+    assert calls == []
+    assert all(dtype is None for dtype in row.conversions)
+
+
+@pytest.mark.parametrize("use_estimator", [False, True], ids=["module", "estimator"])
+@pytest.mark.parametrize("backend", ["numpy", "auto"])
+def test_nested_custom_object_result_retains_missing_label_rejection(use_estimator, backend):
+    rows = [_NativeDtypeClusterRow(label) for label in ["a", "a", None, "b"]]
+    function = (LinearRegression(device="cpu").bootstrap_statistic
+                if use_estimator else bootstrap_statistic)
+    with pytest.raises(ValueError, match="nonmissing label per row"):
+        function(np.mean, np.arange(4.), clusters=rows, strategy="cluster",
+                 n_resamples=5, backend=backend)
+    assert all(dtype is None for row in rows for dtype in row.conversions)

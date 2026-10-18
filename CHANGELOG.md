@@ -2,14 +2,14 @@
 
 All notable changes to statgpu are documented here, organized by release and date.
 
-## Unreleased — 2026-10-17
+## Unreleased — 2026-10-18
 
 ### PR #249 — Oracle, cluster-label, and weighted-fold safeguards
-- Rejected unknown-dispersion nonrobust oracle uncertainty without positive residual degrees of freedom, counting positive-weight observations and selected parameters while preserving fixed-dispersion and HC0/HC1 behavior.
+- For nonrobust oracle inference, rejected unknown-dispersion estimates without positive residual degrees of freedom or with vanished dispersion despite nonzero evaluated residuals. At positive dispersion, rejected nonpositive active model-based variances; retained positive-weight observation counting, genuine zero-scale fits, and fixed-dispersion family conventions.
 - Rejected boundary oracle refits without a finite unpenalized target before publishing uncertainty; cleared fitted, prediction, and inference state when oracle computation fails.
-- Rejected missing labels in supported mixed host sequences before module/estimator conversion; reused a single label snapshot for validation and grouping, retaining literal string IDs and native backend grouping.
-- Stabilized oracle HC0/HC1 covariance under common weight rescaling, preserving refit weights and nonrobust conventions.
-- Preserved RidgeCV relative-weight fold calculations for tiny or large representable weights, avoiding scale-dependent validation losses and alpha selection; GPU CV explicitly rejects unrepresentable regularization or normal-equation denominators.
+- Rejected missing labels in supported mixed host sequences before module/estimator conversion; reused one label snapshot while preserving literal string IDs, native grouping, nested custom conversions, and existing disabled-protocol errors.
+- Stabilized oracle HC0/HC1 covariance under common weight rescaling while preserving material low-weight score contributions; rejected unstable scaling, nonfinite scores/covariance, and entirely vanished active robust covariance with nonzero effective scores, while preserving refit weights.
+- Preserved RidgeCV weighted centering and validation across extreme scales without dropping representable contributions; checked effective GPU regularization and added warned, same-device SVD recovery with explicit numerical-rank limits.
 
 ### Fixed RidgeCV reversed fold indices
 - Fixed Torch conversion of negative-stride training and validation indices, including reversed single-element arrays, while preserving custom row order, input arrays, validation, weighted scoring, and final refits.

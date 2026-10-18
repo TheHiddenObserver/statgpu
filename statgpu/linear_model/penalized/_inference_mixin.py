@@ -47,6 +47,199 @@ class _OracleObservedHessianLoss:
         return X.T @ (X * curvature[:, None]) / n_eff
 
 
+def _oracle_observed_curvature(loss, X, y, params):
+    """Existing oracle bread factors, used only to bound weight scaling."""
+    name = loss.name
+    if name == "squared_error":
+        return np.ones(len(y))
+    eta = X @ params
+    if name == "logistic":
+        from statgpu.backends._array_ops import _sigmoid
+        mu = _sigmoid(eta)
+        return np.clip(mu * (1 - mu), 1e-10, 1 - 1e-10)
+    if name == "gamma":
+        clipped_eta, mu = loss._eta_mu(X, params)
+        return 1 / (clipped_eta * clipped_eta) if loss.link == "inverse_power" else y / mu
+    mu = loss._mu_from_eta(eta)
+    if name == "poisson":
+        return mu
+    if name == "inverse_gaussian":
+        return (2 * y - mu) / mu ** 2
+    if name == "negative_binomial":
+        return mu * (1 + loss.alpha * y) / (1 + loss.alpha * mu) ** 2
+    if name == "tweedie":
+        return ((2 - loss.power) * mu ** (2 - loss.power)
+                + (loss.power - 1) * y * mu ** (1 - loss.power))
+    raise NotImplementedError(f"Oracle covariance scaling is unavailable for loss={name!r}.")
+
+
+def _oracle_raw_covariance_products_are_representable(X, gradient, curvature, weights):
+    """Certify raw range and negligible omissions when exponent bounds conflict.
+
+    This checks products only, not covariance or matrix inversion. Original
+    factor exponents bound any terms lost at intermediate multiplication. Lost
+    diagonal mass must be at most eps**2 times retained absolute contributions;
+    Cauchy--Schwarz then bounds cross-entry omissions at ordinary eps scale.
+    This is not a relative-error guarantee after cancellation or inversion.
+    """
+    count_exponent = (len(weights) - 1).bit_length()
+
+    def negligible_omissions(intended, terms, upper_exponents, diagonal):
+        lost = intended & (terms == 0)
+        columns = np.any(lost, axis=0)
+        if not np.any(columns):
+            return True
+        # Each lost term is < 2**B, and D >= 2**(e_D-1). Requiring
+        # max(B)+ceil(log2(n)) <= e_D-1+2*machep bounds loss by eps**2*D.
+        largest = np.max(np.where(lost, upper_exponents, -10000), axis=0)
+        threshold = np.frexp(diagonal)[1] - 1 + 2 * np.finfo(np.float64).machep
+        return bool(np.all(diagonal[columns] > 0)
+                    and np.all(largest[columns] + count_exponent <= threshold[columns]))
+
+    try:
+        with np.errstate(over="raise", invalid="raise", divide="raise", under="ignore"):
+            scores = X * (weights * gradient)[:, None]
+            weighted_design = X * (weights * curvature)[:, None]
+            score_squares = scores * scores
+            absolute_bread_terms = np.abs(X * weighted_design)
+            bread_bound = np.abs(X).T @ np.abs(weighted_design)
+            meat_diagonal = np.sum(score_squares, axis=0)
+            n_eff = np.sum(weights)
+            bread_average_bound = bread_bound / n_eff
+            meat_average_diagonal = meat_diagonal / n_eff
+            weight_exponents = np.frexp(weights)[1][:, None]
+            design_exponents = np.frexp(X)[1]
+            score_upper = 2 * (weight_exponents + design_exponents
+                               + np.frexp(gradient)[1][:, None])
+            bread_upper = weight_exponents + 2 * design_exponents + np.frexp(curvature)[1][:, None]
+            relevant = (weights[:, None] > 0) & (X != 0)
+            intended_scores = relevant & (gradient[:, None] != 0)
+            intended_bread = relevant & (curvature[:, None] != 0)
+            nonzero_score_columns = np.any(intended_scores, axis=0)
+            return bool(
+                np.all(np.isfinite(bread_average_bound))
+                and np.all(np.isfinite(meat_average_diagonal))
+                and np.all((bread_bound == 0) | (bread_average_bound != 0))
+                and np.all(meat_average_diagonal[nonzero_score_columns]
+                           >= np.finfo(np.float64).tiny)
+                and negligible_omissions(intended_scores, score_squares,
+                                         score_upper, meat_diagonal)
+                and negligible_omissions(intended_bread, absolute_bread_terms,
+                                         bread_upper, np.diag(bread_bound))
+            )
+    except FloatingPointError:
+        return False
+
+
+def _oracle_robust_covariance_weights(loss, X, y, params, weights):
+    """Rescale analytic weights without shrinking representable score meat.
+
+    This only selects an exact binary common scale; all covariance arithmetic
+    stays float64. Bounds use exponents, not products that could overflow while
+    deciding how to avoid overflow. Existing subnormal operands are never
+    scaled downward. Zero weights and exactly zero scores remain zero.
+    """
+    positive = weights > 0
+    weight_exponents = np.frexp(weights)[1]
+    min_normal_exponent = np.finfo(np.float64).minexp
+    max_safe_exponent = np.finfo(np.float64).maxexp - 1
+    sum_exponent = int(np.frexp(np.sum(weights))[1])
+    lower_scale_exponent = sum_exponent - max_safe_exponent
+    preferred_scale_exponent = int(np.max(weight_exponents[positive]))
+    scale_exponent = max(
+        0, int(np.min(weight_exponents[positive])) - min_normal_exponent - 1,
+    )
+    design_exponents = np.frexp(X)[1]
+    count_exponent = (len(weights) - 1).bit_length()
+    curvature = _oracle_observed_curvature(loss, X, y, params)
+    gradient = np.asarray(loss.per_sample_gradient(X @ params, y), dtype=np.float64)
+    if not (np.all(np.isfinite(gradient[positive]))
+            and np.all(np.isfinite(curvature[positive]))):
+        raise RuntimeError(
+            "Oracle inference could not compute finite scores and curvature for the selected "
+            "design and weights. Review response/design scaling, or set "
+            "compute_inference=False."
+        )
+    curvature_rows = positive & (curvature != 0)
+    if np.any(curvature_rows):
+        # Bread also consumes the scaled weights. Protect w*h, X*(w*h),
+        # and each term of X.T @ (X*(w*h)); the latter sum is bounded in
+        # absolute value so negative observed curvature cannot hide overflow.
+        curvature_lower = weight_exponents + np.frexp(curvature)[1] - 2
+        lower_scale_exponent = max(lower_scale_exponent,
+            int(np.max(curvature_lower[curvature_rows])) + 2 - max_safe_exponent)
+        scale_exponent = min(scale_exponent, max(
+            0, int(np.min(curvature_lower[curvature_rows])) - min_normal_exponent))
+        rows = curvature_rows & np.any(X != 0, axis=1)
+        if np.any(rows):
+            row_min = np.min(np.where(X != 0, design_exponents, 10000), axis=1)
+            row_max = np.max(np.where(X != 0, design_exponents, -10000), axis=1)
+            product_lower = curvature_lower + row_min - 1
+            term_lower = curvature_lower + 2 * row_min - 2
+            scale_exponent = min(scale_exponent, max(0,
+                int(min(np.min(product_lower[rows]), np.min(term_lower[rows])))
+                - min_normal_exponent))
+            product_upper = curvature_lower + row_max + 2
+            sum_upper = curvature_lower + 2 * row_max + 2 + count_exponent
+            lower_scale_exponent = max(lower_scale_exponent,
+                int(max(np.max(product_upper[rows]), np.max(sum_upper[rows])))
+                - max_safe_exponent)
+    nonzero = positive & (gradient != 0)
+    if np.any(nonzero):
+        gradient_exponents = np.frexp(gradient)[1]
+        # frexp(a) gives 2**(e_a-1) <= abs(a) < 2**e_a.
+        # Thus abs(w*g) >= 2**(e_w+e_g-2). Preserve the normal
+        # range of this intermediate, formed before multiplication by X.
+        weighted_gradient_lower = weight_exponents + gradient_exponents - 2
+        lower_scale_exponent = max(lower_scale_exponent,
+            int(np.max(weighted_gradient_lower[nonzero])) + 2 - max_safe_exponent)
+        scale_exponent = min(scale_exponent, max(
+            0, int(np.min(weighted_gradient_lower[nonzero])) - min_normal_exponent,
+        ))
+        # In each nonzero score column, one |w*g*X_ij| >= 2**t_j,
+        # where t_j = max_i(e_w+e_g+e_X-3). Since sum(w) < 2**e_sum,
+        # the raw meat-average diagonal is >= 2**(2*t_j-e_sum).
+        # Rescaling weights by 2**(-k) divides that diagonal by 2**k.
+        # Keep nonzero meat diagonals normal, including when this requires
+        # upward scaling: a tiny meat value can still give ordinary covariance
+        # after multiplication by a large bread. This does not constrain the
+        # final covariance scale or reject an exactly zero score column.
+        nonzero_score = nonzero[:, None] & (X != 0)
+        columns = np.any(nonzero_score, axis=0)
+        if np.any(columns):
+            score_lower = weighted_gradient_lower[:, None] + design_exponents - 1
+            score_lower = np.where(nonzero_score, score_lower, -10000)
+            largest_score_lower = np.max(score_lower[:, columns], axis=0)
+            meat_lower = 2 * largest_score_lower - sum_exponent
+            scale_exponent = min(scale_exponent,
+                int(np.min(meat_lower)) - min_normal_exponent)
+            # Upward scaling can also destroy finite inference. Bound both
+            # the sum of squared scores and its division by scaled sum(w).
+            # With |score_ij| < 2**B_j and at most n terms, the exponents are
+            # 2*B_j + ceil(log2(n)) - 2*k (sum) and
+            # 2*B_j + ceil(log2(n)) - k - e_sum + 1 (average).
+            score_upper = np.max(score_lower[:, columns], axis=0) + 3
+            square_sum_upper = 2 * score_upper + count_exponent
+            lower_scale_exponent = max(
+                lower_scale_exponent,
+                int(np.max((square_sum_upper - max_safe_exponent + 1) // 2)),
+                int(np.max(square_sum_upper - sum_exponent + 1 - max_safe_exponent)),
+            )
+    if lower_scale_exponent > scale_exponent:
+        # Exponent bounds deliberately discard mantissas. Near the range
+        # boundary they can conflict even though all raw products are safe,
+        # especially when a subnormal weight prevents any downward scaling.
+        if _oracle_raw_covariance_products_are_representable(
+                X, gradient, curvature, weights):
+            return weights
+        raise RuntimeError(
+            "Oracle inference could not choose stable weight scaling for a finite "
+            "covariance. Review response/design scaling, or set compute_inference=False."
+        )
+    scale_exponent = max(lower_scale_exponent, min(preferred_scale_exponent, scale_exponent))
+    return np.ldexp(weights, -scale_exponent)
+
+
 def _oracle_has_boundary_direction(X):
     """Certify a nonzero nonnegative predictor direction on effective rows.
 
@@ -1446,14 +1639,63 @@ class _PenalizedInferenceMixin:
             covariance_weight = sw_cpu
             if self._cov_type in ("hc0", "hc1") and sw_cpu is not None:
                 # Sandwich covariance is invariant to a common weight scale.
-                # Bound weights before score_outer squares them, preventing
-                # otherwise finite analytic weights from under/overflowing.
-                # Keep refit weights and nonrobust information unchanged.
-                covariance_weight = sw_cpu / np.max(sw_cpu)
+                # Retain positive weights and representable weighted scores;
+                # a blind w/max(w) can silently discard important observations.
+                covariance_weight = _oracle_robust_covariance_weights(
+                    inference_loss, X_design, y_cpu, params_active, sw_cpu,
+                )
             result = m_estimation_inference(
                 inference_loss, X_design, y_cpu, params_active,
                 cov_type=self._cov_type, sample_weight=covariance_weight,
             )
+            if not np.all(np.isfinite(result["cov_params"])):
+                raise RuntimeError(
+                    "Oracle inference could not compute a finite covariance for "
+                    "the selected design and weights. Review response/design "
+                    "scaling, or set compute_inference=False."
+                )
+            if self._cov_type == "nonrobust":
+                dispersion = result["dispersion"]
+                if (dispersion == 0 and self.loss in
+                        ("squared_error", "gamma", "inverse_gaussian", "tweedie")):
+                    # Match the mean used by the existing RSS/Pearson scale.
+                    # Positive-weight zero-design rows still contribute to
+                    # dispersion, unlike their necessarily zero HC scores.
+                    eta = X_design @ params_active
+                    mu = eta if self.loss == "squared_error" else inference_loss._mu_from_eta(eta)
+                    effective_residual = y_cpu != mu
+                    if sw_cpu is not None:
+                        effective_residual &= sw_cpu > 0
+                    if np.any(effective_residual):
+                        raise RuntimeError(
+                            "Oracle inference could not represent nonzero residual "
+                            "variation in its dispersion. Review response/design "
+                            "scaling, or set compute_inference=False."
+                        )
+                if dispersion > 0 and np.any(np.diag(result["cov_params"]) <= 0):
+                    # Identified Fisher information is positive definite.
+                    # With positive scale every active variance is positive;
+                    # off-diagonal zeros and genuine zero scale remain legal.
+                    raise RuntimeError(
+                        "Oracle inference could not compute positive model-based "
+                        "variances for the selected design and dispersion. Review "
+                        "response/design scaling, or set compute_inference=False."
+                    )
+            if (self._cov_type in ("hc0", "hc1")
+                    and np.all(result["cov_params"] == 0)):
+                # An invertible bread cannot map an entire nonzero score
+                # matrix to zero covariance. Test factors without multiplying
+                # tiny scores away. Individual zero variances remain legal.
+                gradient = inference_loss.per_sample_gradient(X_design @ params_active, y_cpu)
+                effective_score = (gradient != 0) & np.any(X_design != 0, axis=1)
+                if sw_cpu is not None:
+                    effective_score &= sw_cpu > 0
+                if np.any(effective_score):
+                    raise RuntimeError(
+                        "Oracle inference could not represent nonzero score variation "
+                        "in its covariance. Review response/design scaling, or set "
+                        "compute_inference=False."
+                    )
             active_idx = np.flatnonzero(active) + offset
             if offset:
                 active_idx = np.concatenate([[0], active_idx])

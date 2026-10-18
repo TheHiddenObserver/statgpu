@@ -1,7 +1,7 @@
 # 线性模型 API 参考
 
 > 语言：中文  
-> 最后更新：2026-10-17  
+> 最后更新：2026-10-18<br>
 > 切换：[English](../../en/reference/linear-model-api.md)
 
 本页各类可从 `statgpu` 或 `statgpu.linear_model` 导入，但 `SCADRegression` 和 `MCPRegression` 仅由 `statgpu.linear_model` 导出。`X` 为有限数值 `(n,p)` 矩阵，预测列顺序与训练一致。分析权重为有限非负 `(n,)` 向量，总和须为正。公式删行后的权重对齐见[公式输入](#formula-inputs)。显式 GPU 请求要求对应 CUDA 后端可用，详见[设备与内存](../guides/device-and-memory.md)。
@@ -616,7 +616,7 @@ RidgeCV(alphas=None, n_alphas=100, alpha_min_ratio=0.001, cv=5, cv_splits=None, 
 | `cov_type` | `'nonrobust'` | 最终 Ridge 的协方差：nonrobust、hc0、hc1、hc2、hc3、hac。不接受 hac_maxlags 构造参数；HAC 使用自动规则。 |
 | `gpu_memory_cleanup` | `False` | 请求在最终拟合后尽力清理可回收 GPU 缓存。 |
 | `random_state` | `None` | 生成验证折的随机种子，不控制残差自助法。 |
-| `gpu_cv_mixed_precision` | `True` | 在 GPU 交叉验证中启用混合精度；最终推断使用其自身数值路径。 |
+| `gpu_cv_mixed_precision` | `True` | GPU 交叉验证的 Gram 矩阵与特征分解通常使用 float32；加权中心化与验证仍在所选 GPU 上使用 float64。病态折可采用下文的 float64 恢复方式。False 时 GPU 交叉验证使用 float64。最终推断使用其自身数值路径。 |
 
 `fit(X,y,sample_weight=None)` 返回 self，接受有限 X `(n,p)`、一维 y `(n,)`
 和可选分析权重 `(n,)`，不提供公式接口。`predict(X)` 经最终估计器返回
@@ -659,13 +659,29 @@ NumPy `(m,)`。`score(X,y)` 返回不加权 R²，不接受权重参数；如需
 权重可以为零，子集总权重为零则抛出 `ValueError`。
 
 在折划分和 alpha 固定时，交叉验证的折损失取决于相对权重，而不是权重的
-共同尺度。只要权重及各子集的
-正权重总量仍为有限、可表示的数值，统一缩放权重后，各折损失在通常的数值
-容差内保持一致。很小但仍为正的子集总权重同样有效。
-有限的 float64 输入并不保证 GPU 混合精度求解中的数值均可表示。如果正则项
-或正规方程分母在实际求解精度下无法表示为有限正数，GPU 交叉验证会抛出
-`FloatingPointError`；可按错误提示设置 `gpu_cv_mixed_precision=False`、
+共同尺度。只要权重、各子集的正权重总量及所需的加权乘积仍可表示且具有足够
+精度，统一缩放权重后，各折损失在数值容差内保持一致。次正规数本身的相对
+精度较低。很小但仍为正的子集总权重同样有效；输入有限并不保证在任意尺度下
+均能得到准确结果。
+加权 GPU 交叉验证的中心化和验证在所选设备上使用 float64。
+设置 `gpu_cv_mixed_precision=True` 时，施加平方根权重后的训练数据再转换为
+float32，用于 Gram 矩阵计算与特征分解。不会仅因正权重归一化后的数值小于
+float32 的表示范围，就丢弃该观测。
+有限的 float64 输入并不保证混合精度求解中的数值均可表示。乘以有效折规模后
+的正则项或正则化后的正规方程分母若在实际求解精度下无法表示为有限正数，GPU
+交叉验证会抛出 `FloatingPointError`。正则项在折规模缩放后接受检查，alpha 本身
+不必能以该精度单独表示。可按错误提示设置 `gpu_cv_mixed_precision=False`、
 选择可表示的 alpha，或重新缩放数据。
+若加权 MSE 在 float64 精度下不是有限值，加权 CPU 和 GPU 验证也会抛出
+`FloatingPointError`；应重新缩放响应或特征，或选择其他 alpha。
+
+加权 CPU 交叉验证和 GPU 交叉验证遇到病态折、Gram 矩阵无法可靠解析所请求的
+小正则项时，可以在同一设备上对训练矩阵使用 float64 SVD 恢复求解，并发出
+`RuntimeWarning`。只有当某个奇异方向及其响应投影都无法与舍入误差区分时，
+才把该方向视为零。若未解析方向仍带有更大的响应投影，则抛出
+`FloatingPointError`；此时仍可能存在有限的精确 Ridge 解。可以缩放或重新
+参数化特征，或使用更大的 alpha。这种恢复采用数值秩，不能保证精确解析任意
+微小的非零方向。
 
 训练和验证索引都必须是一维、非空、范围内的整数。任何子集内部的重复索引，
 或训练与验证子集之间的重叠，都会在各折拟合前触发 `ValueError`。这些检查

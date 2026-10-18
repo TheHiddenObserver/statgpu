@@ -1,7 +1,7 @@
 # Linear-model API reference
 
 > Language: English  
-> Last updated: 2026-10-17  
+> Last updated: 2026-10-18<br>
 > Switch: [Chinese](../../cn/reference/linear-model-api.md)
 
 Classes here import from `statgpu` or `statgpu.linear_model`, except `SCADRegression` and `MCPRegression`, which are exported only by `statgpu.linear_model`. `X` is finite numeric `(n,p)` data; prediction uses the fitted feature order. Analytic weights are a finite nonnegative `(n,)` vector with positive sum. For weights after formula row filtering, see [formula inputs](#formula-inputs). Explicit GPU use requires the corresponding installed CUDA backend; see [device and memory](../guides/device-and-memory.md).
@@ -632,7 +632,7 @@ RidgeCV(alphas=None, n_alphas=100, alpha_min_ratio=0.001, cv=5, cv_splits=None, 
 | `cov_type` | `'nonrobust'` | Final Ridge covariance: nonrobust, hc0, hc1, hc2, hc3, hac. There is no hac_maxlags constructor control; HAC uses the automatic rule. |
 | `gpu_memory_cleanup` | `False` | Request best-effort GPU cache cleanup for final fitting. |
 | `random_state` | `None` | Seed for generated folds; not residual-bootstrap randomness. |
-| `gpu_cv_mixed_precision` | `True` | Enable mixed precision during GPU CV; final-refit inference has its own numerical path. |
+| `gpu_cv_mixed_precision` | `True` | Normally use float32 Gram/eigen calculations during GPU CV; weighted centering and validation retain float64 on the selected GPU. Ill-conditioned folds can use the float64 recovery described below. False uses float64 for GPU CV. Final-refit inference has its own numerical path. |
 
 `fit(X,y,sample_weight=None)` returns self, accepting finite X `(n,p)`,
 one-dimensional y `(n,)`, and optional analytic weights `(n,)`. There is no
@@ -683,14 +683,37 @@ raises `ValueError`.
 
 For fixed folds and alpha values, CV fold losses depend on relative weights
 rather than their common scale.
-When the weights and their positive subset totals remain finite and
-representable, uniformly rescaling them preserves fold losses up to ordinary
-numerical tolerance. Small positive subset totals are valid.
-Finite float64 inputs do not guarantee a representable mixed-precision GPU
-solve. GPU CV raises `FloatingPointError` if its positive regularization or
-normal-equation denominators are not representable at the solve precision;
-use `gpu_cv_mixed_precision=False`, choose representable alphas, or rescale
-the data as indicated by the error.
+Uniform rescaling preserves fold losses up to numerical tolerance while the
+weights, positive subset totals, and required weighted products remain
+representable with sufficient precision. Subnormal values have intrinsically
+reduced relative precision. Small positive subset totals are valid; finite
+inputs alone do not guarantee accurate results at every scale.
+For weighted GPU CV, centering and validation use float64 on the selected
+device. With `gpu_cv_mixed_precision=True`, the square-root-weighted training
+data are then converted to float32 for Gram/eigen calculations. A positive
+weight is not discarded merely because its normalized value is below the
+float32 range.
+Finite float64 inputs do not guarantee a representable mixed-precision solve.
+GPU CV raises `FloatingPointError` if the effective fold-scaled positive
+regularization or the regularized normal-equation denominators are not
+representable at the solve precision. The regularization check is applied
+after fold scaling; alpha need not be representable at that precision on its
+own. Use `gpu_cv_mixed_precision=False`, choose representable alphas, or
+rescale the data as indicated by the error.
+Weighted CPU and GPU validation also raise `FloatingPointError` if the
+weighted MSE is not finite at float64 precision; rescale the response/features
+or choose different alphas.
+
+Weighted CPU CV and GPU CV can recover an ill-conditioned fold whose Gram
+matrix cannot reliably resolve the requested small regularization. RidgeCV
+then emits `RuntimeWarning` and uses float64 SVD of the training factors on
+the same device. Singular directions indistinguishable from roundoff are
+treated as zero only when their response projections are also at roundoff
+scale. If such an unresolved direction carries a larger response projection,
+the request raises `FloatingPointError`; a finite exact ridge solution may
+still exist. Rescale or reparameterize the features, or use larger alphas.
+This recovery uses numerical rank and does not guarantee exact resolution of
+arbitrarily small nonzero directions.
 
 Both index arrays must be nonempty, one-dimensional, integral and in bounds.
 Repeated indices within either subset and overlap between the training and

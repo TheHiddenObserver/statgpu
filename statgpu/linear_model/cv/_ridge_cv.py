@@ -203,11 +203,131 @@ def _default_ridge_alpha_grid_backend(
 # =============================================================================
 
 
+def _ridge_normalized_root_weights(weights, xp):
+    """Normalize square roots without first forming underflow-prone ratios."""
+    return xp.sqrt(weights) / xp.sqrt(xp.sum(weights))
+
+
+def _weighted_ridge_gram(X, y, weights, xp, backend=None, dtype=None):
+    """Apply square-root weights before narrowing or forming cross-products."""
+    root_weight = _ridge_normalized_root_weights(weights, xp)
+    X_weighted = X * root_weight[:, None]
+    y_weighted = y * root_weight
+    if backend is not None:
+        X_weighted = backend.asarray(X_weighted, dtype=dtype)
+        y_weighted = backend.asarray(y_weighted, dtype=dtype)
+    return X_weighted.T @ X_weighted, X_weighted.T @ y_weighted
+
+
+def _weighted_ridge_centered_data(X, y, weights, xp):
+    """Form centered weighted moments without subtracting raw cross-products."""
+    # Center relative to an observed row before averaging. For an exactly
+    # constant column, this gives exactly zero centered values even when the
+    # constant and the normalized weights are not exactly representable.
+    anchor = xp.argmax(weights)
+    X_anchor = X[anchor]
+    y_anchor = y[anchor]
+    active = weights > 0
+    X_shifted = xp.where(active[:, None], X, X_anchor) - X_anchor
+    y_shifted = xp.where(active, y, y_anchor) - y_anchor
+    root_weight = _ridge_normalized_root_weights(weights, xp)
+    mass = xp.sum(root_weight ** 2)
+    X_mean_shift = xp.sum(
+        (X_shifted * root_weight[:, None]) * root_weight[:, None], axis=0,
+    ) / mass
+    y_mean_shift = xp.sum((y_shifted * root_weight) * root_weight) / mass
+    X_centered = X_shifted - X_mean_shift
+    y_centered = y_shifted - y_mean_shift
+    return X_centered, y_centered, X_anchor + X_mean_shift, y_anchor + y_mean_shift
+
+
+def _weighted_ridge_centered_gram(X, y, weights, xp, backend=None, dtype=None):
+    """Form anchored, square-root-weighted centered cross-products."""
+    X_centered, y_centered, X_mean, y_mean = _weighted_ridge_centered_data(X, y, weights, xp)
+    gram, cross = _weighted_ridge_gram(
+        X_centered, y_centered, weights, xp, backend=backend, dtype=dtype,
+    )
+    return gram, cross, X_mean, y_mean
+
+def _weighted_ridge_mse(X, y, coefs, intercepts, weights):
+    """Subtract finite residuals before square-root weighting and squaring."""
+    root_weight = _ridge_normalized_root_weights(weights, np)
+    with np.errstate(over="ignore", invalid="ignore"):
+        raw = X @ coefs.T + intercepts - y[:, None]
+        residuals = np.where(weights[:, None] > 0, raw, 0.) * root_weight[:, None]
+    invalid = ~np.isfinite(residuals)
+    if np.any(invalid):
+        # A raw prediction can overflow although its weighted contribution is
+        # finite. Use scaled terms only for those exceptional residuals.
+        scaled = (
+            (X * root_weight[:, None]) @ coefs.T
+            + root_weight[:, None] * intercepts
+            - (y * root_weight)[:, None]
+        )
+        residuals = np.where(invalid, scaled, residuals)
+    with np.errstate(over="ignore", invalid="ignore"):
+        mse = np.sum(residuals ** 2, axis=0)
+    if not np.all(np.isfinite(mse)):
+        raise FloatingPointError(
+            "RidgeCV weighted validation MSE is not finite at float64 precision; "
+            "rescale the response/features or choose different alphas."
+        )
+    return mse
+
+
 # =============================================================================
 # GPU batch solver for Ridge
 # =============================================================================
 
-def _solve_ridge_path_gpu_from_gram_eig(XtX_batch, Xty_batch, alphas, backend, fit_intercept=True, n_samples_vec=None):
+def _solve_ridge_path_from_factors(X_factor, y_factor, regularization, backend):
+    """Recover an unresolved Gram path with native float64 factor SVD.
+
+    Singular directions indistinguishable from factorization/dot-product
+    roundoff are numerical null directions. A direction-specific bound avoids
+    discarding independently resolved tiny columns merely because another
+    column has a larger scale.
+    """
+    xp = backend.xp
+    X_factor = backend.asarray(X_factor, dtype=backend.float64)
+    y_factor = backend.asarray(y_factor, dtype=backend.float64)
+    U, singular, Vh = xp.linalg.svd(X_factor, full_matrices=False)
+    V = Vh.T
+    represented = X_factor @ V
+    reconstructed = U * singular[None, :]
+    eps = float(xp.finfo(X_factor.dtype).eps)
+    operations = int(X_factor.shape[1]) + 2
+    gamma = operations * eps / (1.0 - operations * eps)
+    dot_bound = gamma * xp.linalg.norm(xp.abs(X_factor) @ xp.abs(V), axis=0)
+    residual_bound = xp.linalg.norm(represented - reconstructed, axis=0)
+    product_bound = eps * xp.linalg.norm(reconstructed, axis=0)
+    resolved = singular > (dot_bound + residual_bound + product_bound)
+    projection = U.T @ y_factor
+    projection_operations = int(X_factor.shape[0]) + 2
+    projection_gamma = projection_operations * eps / (1.0 - projection_operations * eps)
+    projection_bound = projection_gamma * (xp.abs(U).T @ xp.abs(y_factor))
+    exact_zero = (singular == 0) & xp.all(represented == 0, axis=0)
+    ambiguous_signal = (~resolved) & (~exact_zero) & (xp.abs(projection) > projection_bound)
+    if bool(_to_float_scalar(xp.any(ambiguous_signal))):
+        raise FloatingPointError(
+            "RidgeCV factor-SVD precision cannot resolve a response-bearing "
+            "singular direction for the requested alphas; use larger alphas "
+            "or rescale/reparameterize the features. A finite ridge solution "
+            "may still exist."
+        )
+    singular = xp.where(resolved, singular, xp.zeros_like(singular))
+    penalty = backend.asarray(regularization, dtype=backend.float64).reshape(1, -1)
+    denominator = singular[:, None] ** 2 + penalty
+    factors = singular[:, None] / denominator
+    coefficients = V @ (factors * projection[:, None])
+    if not bool(_to_float_scalar(xp.all(xp.isfinite(coefficients)))):
+        raise FloatingPointError(
+            "RidgeCV factor-SVD coefficients are not finite; rescale the data "
+            "or choose larger alphas."
+        )
+    return coefficients
+
+
+def _solve_ridge_path_gpu_from_gram_eig(XtX_batch, Xty_batch, alphas, backend, fit_intercept=True, n_samples_vec=None, factor_factory=None):
     """
     Solve Ridge path for multiple folds using eigendecomposition (vectorized over alphas).
 
@@ -246,6 +366,10 @@ def _solve_ridge_path_gpu_from_gram_eig(XtX_batch, Xty_batch, alphas, backend, f
     # Step 1: Eigendecomposition (done once per fold)
     # eigvals: (n_folds, n_features), Q: (n_folds, n_features, n_features)
     eigvals, Q = xp.linalg.eigh(XtX_batch)
+    eps = float(xp.finfo(eigvals.dtype).eps)
+    gamma = n_features * eps / (1.0 - n_features * eps)
+    uncertainty = gamma * backend.max(xp.abs(eigvals), axis=1)
+    unresolved_gram = backend.min(eigvals, axis=1) <= uncertainty
     # A Gram matrix is positive semidefinite; clip negative roundoff only.
     # Strictly positive alpha regularizes null directions. A positive absolute
     # floor would change the objective when weights or features are rescaled.
@@ -258,12 +382,17 @@ def _solve_ridge_path_gpu_from_gram_eig(XtX_batch, Xty_batch, alphas, backend, f
 
     # Step 3: Form the regularized diagonal at the actual solve precision.
     # Scale alpha by n_samples to match Ridge.fit() convention.
-    alphas_arr = backend.asarray(alphas, dtype=eigvals.dtype)
+    # The effective penalty is n_eff * alpha. Form that product before
+    # narrowing: an alpha below float32's range can have a representable
+    # positive product for an ordinary training-fold size.
+    alphas_arr = backend.asarray(alphas, dtype=backend.float64)
     if n_samples_vec is not None:
-        n_arr = backend.asarray(n_samples_vec, dtype=eigvals.dtype).reshape(-1, 1, 1)
+        n_arr = backend.asarray(n_samples_vec, dtype=backend.float64).reshape(-1, 1, 1)
         regularization = alphas_arr[None, None, :] * n_arr
     else:
         regularization = alphas_arr[None, None, :]
+    regularization64 = regularization
+    regularization = backend.asarray(regularization, dtype=eigvals.dtype)
     if not bool(_to_float_scalar(xp.all(
         xp.isfinite(regularization) & (regularization > 0)
     ))):
@@ -282,6 +411,22 @@ def _solve_ridge_path_gpu_from_gram_eig(XtX_batch, Xty_batch, alphas, backend, f
             "the data."
         )
 
+    smallest_penalty = backend.min(regularization, axis=2).reshape(-1)
+    recover = unresolved_gram & (uncertainty > 0) & (smallest_penalty <= uncertainty)
+    recovery_folds = []
+    if bool(_to_float_scalar(xp.any(recover))):
+        recovery_folds = [
+            fold for fold in range(n_folds) if bool(_to_float_scalar(recover[fold]))
+        ]
+    if recovery_folds and factor_factory is None:
+        raise FloatingPointError(
+            "RidgeCV Gram precision cannot resolve the requested regularization; "
+            "original training factors are required for factor-SVD recovery."
+        )
+    if recovery_folds:
+        # Avoid magnifying numerical-null projection noise before recovery.
+        QTXty = xp.where(recover[:, None], xp.zeros_like(QTXty), QTXty)
+
     # Step 4: Scale projected Xty by inverse diagonal
     # Divide directly: forming a reciprocal can overflow for a representable
     # tiny positive denominator, producing 0*inf in exact null directions.
@@ -290,6 +435,20 @@ def _solve_ridge_path_gpu_from_gram_eig(XtX_batch, Xty_batch, alphas, backend, f
     # Step 5: Transform back to original basis
     # coefs: (n_folds, n_features, n_alphas)
     coefs = xp.matmul(Q, scaled)
+    if recovery_folds:
+        coefs = backend.asarray(coefs, dtype=backend.float64)
+        for fold in recovery_folds:
+            factors_X, factors_y = factor_factory(fold)
+            penalty = regularization64[fold if regularization64.shape[0] > 1 else 0]
+            coefs[fold] = _solve_ridge_path_from_factors(
+                factors_X, factors_y, penalty, backend,
+            )
+        warnings.warn(
+            "RidgeCV used same-device float64 factor-SVD recovery for "
+            f"{len(recovery_folds)} fold(s); unresolved singular directions "
+            "with only roundoff-sized response projections were treated as numerical zeros.",
+            RuntimeWarning, stacklevel=3,
+        )
 
     # Step 6: Reshape to (n_alphas, n_folds, n_features)
     # Current shape: (n_folds, n_features, n_alphas)
@@ -300,7 +459,7 @@ def _solve_ridge_path_gpu_from_gram_eig(XtX_batch, Xty_batch, alphas, backend, f
     return coefs
 
 
-def _solve_ridge_path_gpu_from_gram(XtX_batch, Xty_batch, n_samples_vec, alphas, backend, fit_intercept=True):
+def _solve_ridge_path_gpu_from_gram(XtX_batch, Xty_batch, n_samples_vec, alphas, backend, fit_intercept=True, factor_factory=None):
     """
     Solve Ridge path for multiple folds using eigendecomposition (optimized).
 
@@ -328,7 +487,10 @@ def _solve_ridge_path_gpu_from_gram(XtX_batch, Xty_batch, n_samples_vec, alphas,
         Coefficients for each alpha and fold (n_alphas, n_folds, n_features).
     """
     # Use eigendecomposition-based solver (vectorized over alphas)
-    return _solve_ridge_path_gpu_from_gram_eig(XtX_batch, Xty_batch, alphas, backend, fit_intercept, n_samples_vec=n_samples_vec)
+    return _solve_ridge_path_gpu_from_gram_eig(
+        XtX_batch, Xty_batch, alphas, backend, fit_intercept,
+        n_samples_vec=n_samples_vec, factor_factory=factor_factory,
+    )
 
 
 # =============================================================================
@@ -548,19 +710,22 @@ def _select_ridge_alpha_cv(
 
             cv_dtype = backend.float32 if bool(gpu_cv_mixed_precision) else backend.float64
 
+            # Weighted centering and scoring retain float64; square-root
+            # weighted training factors are narrowed before Gram products.
+            input_dtype = backend.float64 if sample_weight is not None else cv_dtype
             # Convert inputs to backend arrays
             if gpu_input_cupy or gpu_input_torch:
                 # Already on GPU (CuPy or Torch)
-                X_full = backend.asarray(X, dtype=cv_dtype)
-                y_full = backend.asarray(y, dtype=cv_dtype).reshape(-1)
+                X_full = backend.asarray(X, dtype=input_dtype)
+                y_full = backend.asarray(y, dtype=input_dtype).reshape(-1)
                 if sample_weight is not None:
                     sw_full = backend.asarray(sample_weight, dtype=backend.float64).reshape(-1)
                 else:
                     sw_full = None
             else:
                 # Convert from numpy
-                X_full = backend.asarray(X_np, dtype=cv_dtype)
-                y_full = backend.asarray(y_np, dtype=cv_dtype)
+                X_full = backend.asarray(X_np, dtype=input_dtype)
+                y_full = backend.asarray(y_np, dtype=input_dtype)
                 if sample_weight_np is not None:
                     sw_full = backend.asarray(sample_weight_np, dtype=backend.float64)
                 else:
@@ -599,12 +764,6 @@ def _select_ridge_alpha_cv(
                 X_val = X_full[val_idx_gpu]
                 y_val = y_full[val_idx_gpu]
                 sw_val = None if sw_full is None else sw_full[val_idx_gpu]
-                if sw_val is not None:
-                    # Normalize before mixed-precision conversion: a common
-                    # weight scale must not underflow/overflow the CV loss.
-                    sw_val = backend.asarray(
-                        sw_val / backend.sum(sw_val), dtype=cv_dtype,
-                    )
 
                 # Store validation data for batched MSE
                 X_val_folds.append(X_val)
@@ -643,27 +802,21 @@ def _select_ridge_alpha_cv(
                     sw_train = None if sw_full is None else sw_full[train_idx_gpu]
 
                     if sw_train is not None:
-                        # Each fold has validated positive mass. Its average
-                        # weighted objective is unchanged by this rescaling.
-                        sw_train = backend.asarray(
-                            sw_train / backend.sum(sw_train), dtype=cv_dtype,
-                        )
-                        # Weighted Ridge: use X'WX, X'Wy directly
-                        sw_col = sw_train[:, None]
+                        # Normalize square roots when forming factors, before
+                        # mixed-precision casting or cross-products.
                         if bool(fit_intercept):
-                            w_sum = float(backend.sum(sw_train))
-                            X_wmean = backend.sum(X_train * sw_col, axis=0) / w_sum
-                            y_wmean = backend.sum(y_train * sw_train) / w_sum
-                            XtX = (X_train * sw_col).T @ X_train - w_sum * backend.outer(X_wmean, X_wmean)
-                            Xty = (X_train * sw_col).T @ y_train - w_sum * X_wmean * y_wmean
-                            X_mean = X_wmean
-                            y_mean = y_wmean
+                            XtX, Xty, X_mean, y_mean = _weighted_ridge_centered_gram(
+                                X_train, y_train, sw_train, xp,
+                                backend=backend, dtype=cv_dtype,
+                            )
                         else:
-                            XtX = (X_train * sw_col).T @ X_train
-                            Xty = (X_train * sw_col).T @ y_train
+                            XtX, Xty = _weighted_ridge_gram(
+                                X_train, y_train, sw_train, xp,
+                                backend=backend, dtype=cv_dtype,
+                            )
                             X_mean = backend.zeros((X_train.shape[1],), dtype=X_train.dtype)
                             y_mean = backend.array(0.0, dtype=X_train.dtype)
-                        n_train = float(sw_train.sum())  # Use weight sum for regularization consistency
+                        n_train = 1.0  # Factors use the average weighted objective.
                     else:
                         if bool(fit_intercept):
                             X_mean = backend.mean(X_train, axis=0)
@@ -693,8 +846,56 @@ def _select_ridge_alpha_cv(
             # Use float64 to preserve fractional sum(sw) for weighted Ridge
             n_samples_vec = np.asarray(n_train_folds, dtype=np.float64)
 
+            original_X64 = None
+            original_y64 = None
+
+            def factor_factory(fold_idx):
+                nonlocal original_X64, original_y64
+                if original_X64 is None:
+                    original_X64 = backend.asarray(
+                        X if (gpu_input_cupy or gpu_input_torch) else X_np,
+                        dtype=backend.float64,
+                    )
+                    original_y64 = backend.asarray(
+                        y if (gpu_input_cupy or gpu_input_torch) else y_np,
+                        dtype=backend.float64,
+                    ).reshape(-1)
+                train, valid = folds[fold_idx]
+                train = backend.asarray(train)
+                valid = backend.asarray(valid)
+                X_train = original_X64[train]
+                y_train = original_y64[train]
+                weights = None if sw_full is None else sw_full[train]
+                if fit_intercept:
+                    if weights is None:
+                        X_shift = X_train - X_train[0]
+                        y_shift = y_train - y_train[0]
+                        X_shift_mean = backend.mean(X_shift, axis=0)
+                        y_shift_mean = backend.mean(y_shift)
+                        X_centered = X_shift - X_shift_mean
+                        y_centered = y_shift - y_shift_mean
+                        X_mean = X_train[0] + X_shift_mean
+                        y_mean = y_train[0] + y_shift_mean
+                    else:
+                        X_centered, y_centered, X_mean, y_mean = _weighted_ridge_centered_data(
+                            X_train, y_train, weights, xp,
+                        )
+                else:
+                    X_centered, y_centered = X_train, y_train
+                    X_mean = backend.zeros((X_train.shape[1],), dtype=backend.float64)
+                    y_mean = backend.array(0., dtype=backend.float64)
+                X_mean_folds[fold_idx], y_mean_folds[fold_idx] = X_mean, y_mean
+                X_val_folds[fold_idx] = original_X64[valid]
+                y_val_folds[fold_idx] = original_y64[valid]
+                if weights is not None:
+                    roots = _ridge_normalized_root_weights(weights, xp)
+                    X_centered = X_centered * roots[:, None]
+                    y_centered = y_centered * roots
+                return X_centered, y_centered
+
             coefs_batch = _solve_ridge_path_gpu_from_gram(
-                XtX_batch, Xty_batch, n_samples_vec, alpha_grid, backend, fit_intercept=bool(fit_intercept)
+                XtX_batch, Xty_batch, n_samples_vec, alpha_grid, backend,
+                fit_intercept=bool(fit_intercept), factor_factory=factor_factory,
             )
 
             # Batch compute intercepts (Phase 2 optimization)
@@ -711,11 +912,12 @@ def _select_ridge_alpha_cv(
             n_features = int(X_full.shape[1])
 
             # Pre-allocate padded batches (Phase 3 optimization - memory pre-allocation)
-            X_val_batch = backend.zeros((n_folds, n_val_max, n_features), dtype=cv_dtype)
-            y_val_batch = backend.zeros((n_folds, n_val_max), dtype=cv_dtype)
+            score_dtype = backend.float64 if original_X64 is not None else input_dtype
+            X_val_batch = backend.zeros((n_folds, n_val_max, n_features), dtype=score_dtype)
+            y_val_batch = backend.zeros((n_folds, n_val_max), dtype=score_dtype)
 
             if sw_full is not None:
-                sw_val_batch = backend.zeros((n_folds, n_val_max), dtype=cv_dtype)
+                sw_val_batch = backend.zeros((n_folds, n_val_max), dtype=backend.float64)
             else:
                 sw_val_batch = None
 
@@ -765,12 +967,11 @@ def _select_ridge_alpha_cv(
                 X_sum_full = None
                 y_sum_full = None
 
+        cpu_recovery_count = 0
         for fold_idx, (train_idx, val_idx) in enumerate(folds):
             X_val = X_np[val_idx]
             y_val = y_np[val_idx]
             sw_val = None if sample_weight_np is None else sample_weight_np[val_idx]
-            if sw_val is not None:
-                sw_val = sw_val / np.sum(sw_val)
 
             if fast_fold_stats:
                 n_val = int(np.asarray(val_idx, dtype=np.int64).reshape(-1).size)
@@ -803,25 +1004,19 @@ def _select_ridge_alpha_cv(
                 sw_train = None if sample_weight_np is None else sample_weight_np[train_idx]
 
                 if sw_train is not None:
-                    # Avoid absolute weight-scale dependence in centering,
-                    # the normal equations, and validation squared errors.
-                    sw_train = sw_train / np.sum(sw_train)
-                    # Weighted Ridge: use X'WX, X'Wy directly (matches GPU path)
-                    sw_col = sw_train[:, np.newaxis]
+                    # Square-root normalization preserves weighted contributions
+                    # even when the corresponding weight ratio underflows.
                     if bool(fit_intercept):
-                        w_sum = float(np.sum(sw_train))
-                        X_wmean = np.sum(X_train * sw_col, axis=0) / w_sum
-                        y_wmean = float(np.sum(y_train * sw_train)) / w_sum
-                        XtX = (X_train * sw_col).T @ X_train - w_sum * np.outer(X_wmean, X_wmean)
-                        Xty = (X_train * sw_col).T @ y_train - w_sum * X_wmean * y_wmean
-                        X_mean = X_wmean
-                        y_mean = y_wmean
+                        XtX, Xty, X_mean, y_mean = _weighted_ridge_centered_gram(
+                            X_train, y_train, sw_train, np,
+                        )
                     else:
-                        XtX = (X_train * sw_col).T @ X_train
-                        Xty = (X_train * sw_col).T @ y_train
+                        XtX, Xty = _weighted_ridge_gram(
+                            X_train, y_train, sw_train, np,
+                        )
                         X_mean = np.zeros((X_train.shape[1],), dtype=np.float64)
                         y_mean = 0.0
-                    n_train = float(np.sum(sw_train))
+                    n_train = 1.0
                 else:
                     if bool(fit_intercept):
                         X_mean = np.mean(X_train, axis=0)
@@ -838,18 +1033,43 @@ def _select_ridge_alpha_cv(
                     Xty = X_centered.T @ y_centered
                     n_train = int(X_train.shape[0])
 
-            # Solve for all alphas: (XtX + n_eff*alpha*I)^-1 @ Xty
-            # n_eff scaling matches Ridge.fit() and PGLM exact ridge.
-            I = np.eye(XtX.shape[0])
-            coefs_desc = []
-            for alpha in alpha_grid:
-                XtX_reg = XtX + alpha * float(n_train) * I
-                try:
-                    coef = np.linalg.solve(XtX_reg, Xty)
-                except np.linalg.LinAlgError:
-                    coef = np.linalg.lstsq(XtX_reg, Xty, rcond=None)[0]
-                coefs_desc.append(coef.flatten())
-            coefs_desc = np.stack(coefs_desc, axis=0)
+            # Solve ordinary weighted systems as before. Only inspect the
+            # Gram spectrum when its rounding bound can exceed the smallest
+            # requested penalty; default-scale paths avoid an extra eigensolve.
+            recover_cpu = False
+            if sample_weight_np is not None:
+                eps = np.finfo(XtX.dtype).eps
+                gamma = XtX.shape[0] * eps / (1.0 - XtX.shape[0] * eps)
+                uncertainty_bound = gamma * np.linalg.norm(XtX, ord=np.inf)
+                if 0 < uncertainty_bound and np.min(alpha_grid) <= uncertainty_bound:
+                    spectrum = np.linalg.eigvalsh(XtX)
+                    uncertainty = gamma * np.max(np.abs(spectrum))
+                    recover_cpu = spectrum[0] <= uncertainty and np.min(alpha_grid) <= uncertainty
+            if recover_cpu:
+                if fit_intercept:
+                    factors_X, factors_y, X_mean, y_mean = _weighted_ridge_centered_data(
+                        X_train, y_train, sw_train, np,
+                    )
+                else:
+                    factors_X, factors_y = X_train, y_train
+                roots = _ridge_normalized_root_weights(sw_train, np)
+                coefs_desc = _solve_ridge_path_from_factors(
+                    factors_X * roots[:, None], factors_y * roots, alpha_grid,
+                    get_backend(backend="numpy", device="cpu"),
+                ).T
+                cpu_recovery_count += 1
+            else:
+                # n_eff scaling matches Ridge.fit() and PGLM exact ridge.
+                I = np.eye(XtX.shape[0])
+                coefs_desc = []
+                for alpha in alpha_grid:
+                    XtX_reg = XtX + alpha * float(n_train) * I
+                    try:
+                        coef = np.linalg.solve(XtX_reg, Xty)
+                    except np.linalg.LinAlgError:
+                        coef = np.linalg.lstsq(XtX_reg, Xty, rcond=None)[0]
+                    coefs_desc.append(coef.flatten())
+                coefs_desc = np.stack(coefs_desc, axis=0)
 
             # Compute intercepts
             if bool(fit_intercept):
@@ -860,8 +1080,21 @@ def _select_ridge_alpha_cv(
                 intercepts_desc = np.zeros((coefs_desc.shape[0],))
 
             # Compute MSE
-            mse_desc = _batch_mse_cv(X_val, y_val, coefs_desc, intercepts_desc, sample_weight=sw_val)
+            if sw_val is None:
+                mse_desc = _batch_mse_cv(X_val, y_val, coefs_desc, intercepts_desc)
+            else:
+                mse_desc = _weighted_ridge_mse(
+                    X_val, y_val, coefs_desc, intercepts_desc, sw_val,
+                )
             mse_path[:, fold_idx] = mse_desc
+
+        if cpu_recovery_count:
+            warnings.warn(
+                "RidgeCV used same-device float64 factor-SVD recovery for "
+                f"{cpu_recovery_count} fold(s); unresolved singular directions "
+                "with only roundoff-sized response projections were treated as numerical zeros.",
+                RuntimeWarning, stacklevel=2,
+            )
 
     # Compute mean MSE across folds
     mean_mse = np.nanmean(mse_path, axis=1)
@@ -925,19 +1158,27 @@ def _batch_mse_all_folds(X_val_batch, y_val_batch, coefs_batch, intercepts_batch
     # X_val_batch: (n_folds, n_val_max, n_features)
     # coefs_batch: (n_alphas, n_folds, n_features) -> transpose to (n_folds, n_features, n_alphas)
     coefs_T = backend.transpose(coefs_batch, (1, 2, 0))  # (n_folds, n_features, n_alphas)
-    y_pred = xp.matmul(X_val_batch, coefs_T)  # (n_folds, n_val_max, n_alphas)
-
-    # Add intercepts: (n_alphas, n_folds) -> (n_folds, 1, n_alphas) broadcasts
-    # intercepts_batch.T: (n_folds, n_alphas) -> expand_dims to (1, n_folds, n_alphas)
+    coefs_T = backend.asarray(coefs_T, dtype=X_val_batch.dtype)
+    y_pred = xp.matmul(X_val_batch, coefs_T)
     _is_torch = _torch_dev(coefs_batch) is not None
     _expand = lambda a, dim: a.unsqueeze(dim) if _is_torch else xp.expand_dims(a, axis=dim)
-
-    intercepts_expanded = _expand(intercepts_batch.T, 1)  # (1, n_folds, n_alphas)
-    y_pred = y_pred + intercepts_expanded  # broadcasts to (n_folds, n_val_max, n_alphas)
-
-    # Residuals: (n_folds, n_val_max, n_alphas)
-    y_val_expanded = _expand(y_val_batch, 2)  # (n_folds, n_val_max, 1)
-    residuals = y_pred - y_val_expanded
+    intercepts_expanded = _expand(intercepts_batch.T, 1)
+    y_val_expanded = _expand(y_val_batch, 2)
+    raw_residuals = y_pred + intercepts_expanded - y_val_expanded
+    if sample_weights_batch is not None:
+        mass = xp.sum(sample_weights_batch, axis=1, keepdims=True)
+        mass = xp.where(mass > 0, mass, xp.ones_like(mass))
+        root_weights = xp.sqrt(sample_weights_batch) / xp.sqrt(mass)
+        roots = _expand(root_weights, 2)
+        active = _expand(sample_weights_batch > 0, 2)
+        residuals = xp.where(active, raw_residuals, xp.zeros_like(raw_residuals)) * roots
+        invalid = ~xp.isfinite(residuals)
+        if bool(_to_float_scalar(xp.any(invalid))):
+            scaled_predictions = xp.matmul(X_val_batch * roots, coefs_T)
+            scaled = scaled_predictions + roots * intercepts_expanded - roots * y_val_expanded
+            residuals = xp.where(invalid, scaled, residuals)
+    else:
+        residuals = raw_residuals
 
     # Zero out padded rows to prevent inflated MSE from intercept contribution
     if n_val_folds is not None:
@@ -956,13 +1197,13 @@ def _batch_mse_all_folds(X_val_batch, y_val_batch, coefs_batch, intercepts_batch
 
     # Compute MSE — use per-fold n_val to exclude padded zeros
     if sample_weights_batch is not None:
-        sw = _expand(sample_weights_batch, 2)  # (n_folds, n_val_max, 1)
-        ssr = xp.sum(sw * residuals ** 2, axis=1)  # (n_folds, n_alphas)
-        sw_sum = xp.sum(sw * mask, axis=1) if n_val_folds is not None else xp.sum(sw, axis=1)
-        # Guard against zero weight sum (avoid division by zero)
-        sw_sum_safe = xp.where(sw_sum > 0, sw_sum, xp.ones_like(sw_sum))
-        # sw_sum_safe already has shape (n_folds, 1) — no extra axis needed
-        mse = (ssr / sw_sum_safe).T  # (n_alphas, n_folds)
+        # Residuals already contain sqrt(w / sum(w)).
+        mse = xp.sum(residuals ** 2, axis=1).T
+        if not bool(_to_float_scalar(xp.all(xp.isfinite(mse)))):
+            raise FloatingPointError(
+                "RidgeCV weighted validation MSE is not finite at float64 precision; "
+                "rescale the response/features or choose different alphas."
+            )
     else:
         ssr = xp.sum(residuals ** 2, axis=1)  # (n_folds, n_alphas)
         if n_val_folds is not None:
@@ -1073,8 +1314,10 @@ class RidgeCV(CVEstimatorBase):
     random_state : int or None, default=None
         Seed for generated folds; not residual-bootstrap randomness.
     gpu_cv_mixed_precision : bool, default=True
-        Enable mixed precision during GPU CV; final-refit inference has its
-        own numerical path.
+        Normally use float32 GPU Gram calculations. Weighted centering and
+        validation scoring retain float64. Numerically unresolved Gram systems
+        may use same-device float64 factor-SVD recovery with a RuntimeWarning.
+        Final-refit inference has its own numerical path.
 
     Methods
     -------
@@ -1123,7 +1366,13 @@ class RidgeCV(CVEstimatorBase):
     positive total sample weight; individual zero weights are allowed. The cv
     argument must still be at least 2, but does not generate or replace explicit
     splits. This constructor does not expose solver/max_iter/tol; the final
-    Ridge fit uses its exact path.
+    Ridge fit uses its exact path. Weighted CPU and GPU CV can recover
+    unresolved Gram systems using same-device float64 factor SVD. Only
+    unresolved singular directions with roundoff-sized response projections
+    are treated as numerical zeros; response-bearing ambiguous directions
+    raise FloatingPointError. A finite statistical ridge solution may still
+    exist when numerical precision is insufficient. Nonfinite weighted
+    validation losses also raise FloatingPointError.
     """
 
     def __init__(

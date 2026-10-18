@@ -17,28 +17,40 @@ from functools import reduce
 from inspect import getattr_static
 
 
-def _is_plain_host_cluster_sequence(value):
-    """Identify sequences without probing custom array/attribute protocols."""
-    if isinstance(value, (np.ndarray, np.generic, Number, Mapping, str, bytes, UserString)):
-        return False
+_ABSENT_CLUSTER_ATTRIBUTE = object()
+
+
+def _has_custom_cluster_conversion(value):
+    """Detect protocol-owned inputs without evaluating their attributes."""
     return (
-        getattr_static(type(value), "__getattr__", None) is None
-        and isinstance(
+        getattr_static(type(value), "__getattr__", _ABSENT_CLUSTER_ATTRIBUTE)
+        is not _ABSENT_CLUSTER_ATTRIBUTE
+        or not isinstance(
             getattr_static(type(value), "__getattribute__", None),
             WrapperDescriptorType,
         )
-        # ABC registration alone does not give an iterable NumPy's sequence
-        # protocol. Require the actual length/index methods before snapshotting.
-        and getattr_static(type(value), "__len__", None) is not None
-        and getattr_static(type(value), "__getitem__", None) is not None
-        and not any(
-            getattr_static(value, protocol, None) is not None
+        or any(
+            getattr_static(value, protocol, _ABSENT_CLUSTER_ATTRIBUTE)
+            is not _ABSENT_CLUSTER_ATTRIBUTE
             for protocol in (
                 "__array__", "__array_interface__", "__array_struct__",
                 "__cuda_array_interface__", "__dlpack__", "__dlpack_device__",
                 "__array_namespace__",
             )
         )
+    )
+
+
+def _is_plain_host_cluster_sequence(value):
+    """Identify sequences without probing custom array/attribute protocols."""
+    if isinstance(value, (np.ndarray, np.generic, Number, Mapping, str, bytes, UserString)):
+        return False
+    return (
+        # ABC registration alone does not give an iterable NumPy's sequence
+        # protocol. Require the actual length/index methods before snapshotting.
+        getattr_static(type(value), "__len__", None) is not None
+        and getattr_static(type(value), "__getitem__", None) is not None
+        and not _has_custom_cluster_conversion(value)
     )
 
 
@@ -69,6 +81,28 @@ def _snapshot_host_cluster_sequence(value, active=None):
         active.remove(identity)
 
 
+def _validate_cluster_snapshot_missing(value):
+    """Check retained ordinary values without coercing custom array leaves."""
+    if isinstance(value, list):
+        for item in value:
+            _validate_cluster_snapshot_missing(item)
+        return
+    if isinstance(value, np.ndarray):
+        for item in np.asarray(value).flat:
+            _validate_cluster_snapshot_missing(item)
+        return
+    if value is None:
+        raise ValueError("missing cluster label")
+    if not isinstance(value, (np.generic, Number, str, bytes, UserString)):
+        if _has_custom_cluster_conversion(value):
+            # The normal dtype-inferred conversion owns these values, even
+            # inside an ordinary sequence. Do not request an object conversion
+            # just for validation or evaluate a custom array comparison here.
+            return
+    if bool(value != value):
+        raise ValueError("missing cluster label")
+
+
 def _validate_cluster_labels_before_cast(clusters):
     """Reject missing host labels and return their reusable conversion input.
 
@@ -84,11 +118,12 @@ def _validate_cluster_labels_before_cast(clusters):
         labels = clusters
     elif _is_plain_host_cluster_sequence(clusters):
         snapshot = _snapshot_host_cluster_sequence(clusters)
-        labels = np.asarray(snapshot, dtype=object)
     else:
         return clusters
     try:
-        if any(label is None or bool(label != label) for label in labels.flat):
+        if snapshot is not None:
+            _validate_cluster_snapshot_missing(snapshot)
+        elif any(label is None or bool(label != label) for label in labels.flat):
             raise ValueError("missing cluster label")
     except (TypeError, ValueError) as exc:
         # pandas.NA has ambiguous truth, while NaN/NaT are not self-equal.
