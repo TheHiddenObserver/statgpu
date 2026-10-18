@@ -386,35 +386,102 @@ def _oracle_pearson_dispersion(loss, X, y, params, sample_weight):
     return dispersion
 
 
-def _oracle_validate_tweedie_score(loss, X, y, params, sample_weight, tol):
-    """Check dimensionless first-order stationarity of a Tweedie refit.
+class _OracleNBScoreError(RuntimeError):
+    """A failed NB score certificate with a derived child-only tolerance."""
 
-    An absolute Newton gradient can be small solely because response units
-    make the whole Tweedie loss small. For each selected coordinate compare
-    abs(sum(w*x*g)) with sum(w*abs(x)*(a+b)), where g=a-b,
-    a=mu**(2-power), and b=y*mu**(1-power). Signed score cancellation is
-    necessary; exact zero scores remain valid. This is a stationarity check,
-    not a bound on coefficient/covariance error or on ill-conditioning.
+    def __init__(self, message, refit_tol):
+        super().__init__(message)
+        self.refit_tol = refit_tol
 
-    Each column's positive contributions are normalized in exponent space.
-    Forming w/max(w) first can discard a small weight with a material score;
-    forming unscaled products can overflow even though the ratio is ordinary.
+
+def _oracle_validate_glm_refit(loss, X, y, params, sample_weight, tol,
+                              cov_type="nonrobust"):
+    """Validate the non-Gaussian oracle model before covariance.
+
+    On every positive-weight row, the reported predictor must be inside the
+    family's unclipped link/mean domain. Covariance-specific floors must also
+    be inactive. Closed bounds have no tolerance margin; mean limits are
+    expressed in eta units to retain their exact floating-point log endpoints.
+
+    Tweedie and negative binomial additionally require relative first-order
+    stationarity: for each coordinate compare abs(sum(w*x*g)) with
+    sum(w*abs(x)*(a+b)), where g=a-b is that family's score. This check cannot
+    pass solely because response units make an absolute Newton gradient
+    small. It is not a coefficient/covariance error or conditioning bound.
+    Normalize each column's positive contributions in exponent space so
+    weight scaling or intermediate overflow cannot hide a material score.
     """
+    name = loss.name
+    label = {"logistic": "Logistic", "poisson": "Poisson", "gamma": "Gamma",
+             "inverse_gaussian": "Inverse Gaussian",
+             "negative_binomial": "Negative binomial", "tweedie": "Tweedie"}[name]
     weights = np.ones(len(y)) if sample_weight is None else sample_weight
     effective = weights > 0
     X, y, weights = X[effective], y[effective], weights[effective]
+    finite_error = (
+        f"Oracle inference could not verify finite {label} refit scores. "
+        "Review response/design scaling, or set compute_inference=False."
+    )
     with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
         eta = X @ params
+        if not np.all(np.isfinite(eta)):
+            raise RuntimeError(finite_error)
+        lower, upper = -np.inf, np.inf
+        if name == "tweedie":
+            lower, upper = -loss._Z_CLIP, loss._Z_CLIP
+        elif name == "gamma":
+            if loss.link == "inverse_power":
+                lower, upper = loss._ETA_LO, loss._ETA_HI
+            else:
+                lower, upper = loss._LOG_ETA_LO, loss._LOG_ETA_HI
+        elif name == "inverse_gaussian":
+            # This family clips eta to +/-30 before clipping its mean.
+            lower, upper = max(-30., np.log(loss._MU_LO)), min(30., np.log(loss._MU_HI))
+        elif name == "poisson":
+            lower = max(loss._ETA_LO, np.log(loss._MU_LO))
+            upper = min(loss._ETA_HI, np.log(loss._MU_HI))
+        elif name == "negative_binomial":
+            lower, upper = max(-30., np.log(loss._MU_LO)), 30.
+        if np.any((eta < lower) | (eta > upper)):
+            raise RuntimeError(
+                f"{label} oracle inference requires unclipped linear predictors "
+                "and family means on positive-weight observations. Review "
+                "response/design scaling, or set compute_inference=False."
+            )
+        if (name == "negative_binomial" and cov_type == "nonrobust"
+                and np.any(eta < np.log(1e-10))):
+            # NB's model-based hessian floors mu at 1e-10. The HC adapter
+            # uses the observed score derivative and has no such floor.
+            raise RuntimeError(
+                "Negative binomial nonrobust oracle inference requires means "
+                "at or above the covariance curvature floor on positive-weight "
+                "observations. Review response/design scaling, choose HC0/HC1, "
+                "or set compute_inference=False."
+            )
+        if name == "logistic":
+            from statgpu.backends._array_ops import _sigmoid
+            mu = _sigmoid(eta)
+            if np.any(mu * (1 - mu) < 1e-10):
+                raise RuntimeError(
+                    "Logistic oracle inference requires unfloored covariance "
+                    "curvature on positive-weight observations. Review the "
+                    "selected design, or set compute_inference=False."
+                )
+        # Preserve the existing child-convergence criterion for the other
+        # families. Relative stationarity closes demonstrated scale-induced
+        # false convergence in these two families without changing every
+        # solver's stopping convention at the oracle boundary.
+        if name not in ("negative_binomial", "tweedie"):
+            return
         mu = loss._mu_from_eta(eta)
+        if name == "negative_binomial":
+            score_scale = (mu + y) / (1 + loss.alpha * mu)
+        else:
+            score_scale = mu ** (2 - loss.power) + y * mu ** (1 - loss.power)
         gradient = loss.per_sample_gradient(eta, y)
-        score_scale = mu ** (2 - loss.power) + y * mu ** (1 - loss.power)
-    if not (np.all(np.isfinite(eta))
-            and np.all(np.isfinite(gradient))
+    if not (np.all(np.isfinite(gradient))
             and np.all(np.isfinite(score_scale) & (score_scale > 0))):
-        raise RuntimeError(
-            "Oracle inference could not verify finite Tweedie refit scores. "
-            "Review response/design scaling, or set compute_inference=False."
-        )
+        raise RuntimeError(finite_error)
 
     weight_mantissa, weight_exponent = np.frexp(weights)
     scale_mantissa, scale_exponent = np.frexp(score_scale)
@@ -437,11 +504,34 @@ def _oracle_validate_tweedie_score(loss, X, y, params, sample_weight, tol):
     # precision; it is far below the scale-induced early-stopping discrepancy.
     roundoff = 8 * np.finfo(np.float64).eps * len(y)
     if np.any(relative_score > float(tol) + roundoff):
-        raise RuntimeError(
+        message = (
             "The unpenalized oracle refit did not converge relative to the "
-            "Tweedie response scale. Decrease tol, review response/design "
+            f"{label} response scale. Decrease tol, review response/design "
             "scaling, or set compute_inference=False."
         )
+        if name == "negative_binomial":
+            # Newton stops on ||sum(w*x*g)/sum(w)||_2. Translate the
+            # parent's relative tolerance to that absolute convention using
+            # D_j = sum(w*abs(x_j)*score_scale)/sum(w). Combine tol and D_j
+            # before conversion so an intermediate D_j cannot overflow or
+            # underflow. Common weight scaling cancels in exponent space.
+            weight_shift = np.max(weight_exponent)
+            tol_mantissa, tol_exponent = np.frexp(float(tol))
+            with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+                weight_sum = np.sum(np.ldexp(
+                    weight_mantissa, weight_exponent - weight_shift,
+                ))
+                mapped = np.ldexp(
+                    tol_mantissa * total_mass / weight_sum,
+                    column_exponents - weight_shift + tol_exponent,
+                )
+            refit_tol = float(np.min(mapped[total_mass > 0]))
+            if not (np.isfinite(refit_tol) and 0 < refit_tol < float(tol)):
+                raise RuntimeError(
+                    message + " A stricter child-refit tolerance could not be represented."
+                )
+            raise _OracleNBScoreError(message, refit_tol)
+        raise RuntimeError(message)
 
 
 class _PenalizedInferenceMixin:
@@ -1702,36 +1792,60 @@ class _PenalizedInferenceMixin:
                 family_kwargs["power"] = self._loss.power
             kwargs.update(family_kwargs)
             signature.bind(**kwargs)
-            refit = model_cls(**kwargs)
-            try:
-                with warnings.catch_warnings():
-                    warnings.simplefilter("error", ConvergenceWarning)
-                    refit.fit(X_refit, y_cpu, sample_weight=sw_cpu)
-            except ConvergenceWarning as exc:
-                raise RuntimeError(
-                    "The unpenalized oracle refit did not converge. "
-                    "Review max_iter, tol, and the selected design."
-                ) from exc
-            if getattr(refit, "converged_", True) is False:
-                raise RuntimeError(
-                    "The unpenalized oracle refit did not converge. "
-                    "Review max_iter, tol, and the selected design."
-                )
-
             if intercept_only:
                 X_design = X_refit
-                params_active = np.asarray(refit.coef_, dtype=np.float64)
             elif offset:
                 X_design = np.column_stack([np.ones(n), X_active])
-                params_active = np.concatenate([[refit.intercept_], refit.coef_])
             else:
                 X_design = X_active
-                params_active = np.asarray(refit.coef_, dtype=np.float64)
 
-            if self.loss == "tweedie":
-                _oracle_validate_tweedie_score(
-                    self._loss, X_design, y_cpu, params_active, sw_cpu, self.tol,
-                )
+            # A relative NB score can need a stricter absolute child tolerance
+            # even when the first fit met its stopping rule. Allow exactly one
+            # new fit with the derived tolerance, keeping each max_iter budget,
+            # family, design, and original weights. The parent's certificate is
+            # unchanged and is recomputed at the new coefficients.
+            refinement_error = None
+            for attempt in range(2 if self.loss == "negative_binomial" else 1):
+                refit = model_cls(**kwargs)
+                try:
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("error", ConvergenceWarning)
+                        refit.fit(X_refit, y_cpu, sample_weight=sw_cpu)
+                except ConvergenceWarning as exc:
+                    message = (
+                        str(refinement_error) + " The bounded tolerance refinement did not converge."
+                        if refinement_error is not None else
+                        "The unpenalized oracle refit did not converge. "
+                        "Review max_iter, tol, and the selected design."
+                    )
+                    raise RuntimeError(message) from exc
+                if getattr(refit, "converged_", True) is False:
+                    message = (
+                        str(refinement_error) + " The bounded tolerance refinement did not converge."
+                        if refinement_error is not None else
+                        "The unpenalized oracle refit did not converge. "
+                        "Review max_iter, tol, and the selected design."
+                    )
+                    raise RuntimeError(message)
+
+                if offset and not intercept_only:
+                    params_active = np.concatenate([[refit.intercept_], refit.coef_])
+                else:
+                    params_active = np.asarray(refit.coef_, dtype=np.float64)
+                if self.loss != "squared_error":
+                    try:
+                        _oracle_validate_glm_refit(
+                            self._loss, X_design, y_cpu, params_active, sw_cpu,
+                            self.tol, self._cov_type,
+                        )
+                    except _OracleNBScoreError as exc:
+                        if attempt:
+                            raise
+                        refinement_error = exc
+                        kwargs["tol"] = exc.refit_tol
+                        continue
+                    metadata.update(refit_attempts=attempt + 1, refit_tol=kwargs["tol"])
+                break
 
             # Use the parent's resolved loss, so the estimating equation and
             # covariance necessarily share its family/link/dispersion/power.

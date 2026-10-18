@@ -2281,14 +2281,14 @@ def test_oracle_tweedie_default_failure_recovers_at_stationary_analytic_target(c
 def test_oracle_tweedie_relative_score_preserves_weight_and_column_units(
         power, weight_exponent, design_exponent):
     from statgpu.glm_core import get_glm_loss
-    from statgpu.linear_model.penalized._inference_mixin import _oracle_validate_tweedie_score
+    from statgpu.linear_model.penalized._inference_mixin import _oracle_validate_glm_refit
     loss = get_glm_loss("tweedie", power=power)
     X = np.full((3, 1), np.ldexp(1., design_exponent))
     weights = np.full(3, np.ldexp(1., weight_exponent))
     y = np.array([.8, 1., 1.2])
-    _oracle_validate_tweedie_score(loss, X, y, np.zeros(1), weights, 1e-12)
+    _oracle_validate_glm_refit(loss, X, y, np.zeros(1), weights, 1e-12)
     with pytest.raises(RuntimeError, match="Tweedie response scale"):
-        _oracle_validate_tweedie_score(
+        _oracle_validate_glm_refit(
             loss, X, y, np.array([np.ldexp(np.log(2.), -design_exponent)]), weights, 1e-4,
         )
 
@@ -2296,40 +2296,638 @@ def test_oracle_tweedie_relative_score_preserves_weight_and_column_units(
 @pytest.mark.parametrize("power", [1.2, 1.5, 1.8])
 def test_oracle_tweedie_relative_score_exact_cancellation_and_effective_rows(power):
     from statgpu.glm_core import get_glm_loss
-    from statgpu.linear_model.penalized._inference_mixin import _oracle_validate_tweedie_score
+    from statgpu.linear_model.penalized._inference_mixin import _oracle_validate_glm_refit
     loss = get_glm_loss("tweedie", power=power)
     # Nonzero individual scores cancel at a finite, no-intercept optimum.
     # A zero design column is not a first-order failure (covariance owns rank).
     X = np.array([[-1., 0.], [1., 0.]])
-    _oracle_validate_tweedie_score(loss, X, np.zeros(2), np.zeros(2), None, 0.)
+    _oracle_validate_glm_refit(loss, X, np.zeros(2), np.zeros(2), None, 0.)
     # Remove zero-weight rows before evaluating a potentially overflowing eta.
     X = np.array([[1.], [1.], [1e308]])
     y = np.array([np.exp(3.), np.exp(3.), 1e308])
-    _oracle_validate_tweedie_score(loss, X, y, np.array([3.]), np.array([1., 1., 0.]), 0.)
+    _oracle_validate_glm_refit(loss, X, y, np.array([3.]), np.array([1., 1., 0.]), 0.)
     # Arithmetic-level residuals remain legal even below machine precision.
-    _oracle_validate_tweedie_score(loss, np.ones((3, 1)), np.array([1.6, 2., 2.4]),
+    _oracle_validate_glm_refit(loss, np.ones((3, 1)), np.array([1.6, 2., 2.4]),
                                    np.array([np.log(2.)]), None, 1e-30)
     with pytest.raises(RuntimeError, match="Tweedie response scale"):
-        _oracle_validate_tweedie_score(loss, np.ones((3, 1)), np.array([1.6, 2., 2.4]),
+        _oracle_validate_glm_refit(loss, np.ones((3, 1)), np.array([1.6, 2., 2.4]),
                                        np.array([np.log(2.) + 1e-10]), None, 1e-30)
 
 
 def test_oracle_tweedie_relative_score_retains_compensating_subnormal_weight():
     from statgpu.glm_core import get_glm_loss
-    from statgpu.linear_model.penalized._inference_mixin import _oracle_validate_tweedie_score
+    from statgpu.linear_model.penalized._inference_mixin import _oracle_validate_glm_refit
     loss = get_glm_loss("tweedie")
     # Both weighted design contributions equal 2**-51, although one weight
     # is the smallest subnormal float. Dropping that row would falsely pass.
     X = np.array([[np.ldexp(1., 1023)], [np.ldexp(1., -51)]])
     weights = np.array([np.nextafter(0., 1.), 1.])
     with pytest.raises(RuntimeError, match="Tweedie response scale"):
-        _oracle_validate_tweedie_score(loss, X, np.array([2., 1.]), np.zeros(1), weights, 1e-4)
-    _oracle_validate_tweedie_score(loss, X, np.array([2., 0.]), np.zeros(1), weights, 1e-12)
+        _oracle_validate_glm_refit(loss, X, np.array([2., 1.]), np.zeros(1), weights, 1e-4)
+    _oracle_validate_glm_refit(loss, X, np.array([2., 0.]), np.zeros(1), weights, 1e-12)
 
 
 def test_oracle_tweedie_relative_score_nonfinite_quantities_raise():
     from statgpu.glm_core import get_glm_loss
-    from statgpu.linear_model.penalized._inference_mixin import _oracle_validate_tweedie_score
+    from statgpu.linear_model.penalized._inference_mixin import _oracle_validate_glm_refit
     with pytest.raises(RuntimeError, match="finite Tweedie refit scores"):
-        _oracle_validate_tweedie_score(get_glm_loss("tweedie"), np.ones((3, 1)),
+        _oracle_validate_glm_refit(get_glm_loss("tweedie"), np.ones((3, 1)),
             np.array([1., 1e308, 1.]), np.array([-50.]), None, 1e-4)
+
+
+def _tweedie_clipping_model(route, power, penalty, cov_type, tol):
+    kwargs = dict(penalty=penalty, device="cpu", max_iter=1000, tol=tol,
+                  compute_inference=True, inference_method="oracle", cov_type=cov_type)
+    if route == "cv":
+        # The public CV constructor owns an intercept; an empty feature
+        # support gives the same one-parameter statistical target.
+        return PenalizedGLM_CV(loss="tweedie", loss_kwargs={"power": power},
+                               alpha_grid=[1e-8, 2e-8], cv=2, **kwargs)
+    kwargs.update(alpha=1e-8, fit_intercept=False)
+    if route == "generic":
+        return PenalizedGeneralizedLinearModel(
+            loss="tweedie", loss_kwargs={"power": power}, **kwargs,
+        )
+    return PenalizedTweedieRegression(power=power, **kwargs)
+
+
+def _fit_tweedie_clipping_route(model, route, X, y, weights):
+    if route == "formula":
+        pd = pytest.importorskip("pandas")
+        pytest.importorskip("patsy")
+        return model.fit(formula="y ~ x - 1", data=pd.DataFrame({"x": X[:, 0], "y": y}),
+                         sample_weight=weights)
+    return model.fit(X, y, sample_weight=weights)
+
+
+@pytest.mark.parametrize("route", ["typed", "generic", "formula", "cv"])
+@pytest.mark.parametrize("penalty", ["scad", "mcp"])
+@pytest.mark.parametrize("cov_type", ["nonrobust", "hc0", "hc1"])
+@pytest.mark.parametrize("sign", [-1, 1])
+@pytest.mark.parametrize("weighted", [False, True])
+def test_oracle_tweedie_clipped_refit_is_rejected_before_publication(
+        route, penalty, cov_type, sign, weighted):
+    # The unclipped one-parameter score has the unique root log(mean(y)).
+    # These genuine child fits previously reported approximately +/-100,
+    # with nondegenerate intervals about 50 units away from that root.
+    power = 1.99 if sign < 0 else 1.01
+    factors = np.tile([.5, 1., 1.5], 4) if sign < 0 else np.tile([1-2**-10, 1+2**-10], 15)
+    y = factors * np.exp(sign * 50.)
+    X = np.zeros((len(y), 1)) if route == "cv" else np.ones((len(y), 1))
+    weights = np.ones(len(y)) if weighted else None
+    model = _tweedie_clipping_model(route, power, penalty, cov_type, 1e-12)
+    with pytest.raises(RuntimeError, match="Tweedie oracle inference requires unclipped"):
+        _fit_tweedie_clipping_route(model, route, X, y, weights)
+    _assert_failed_oracle_fit(model, X)
+    if hasattr(model, "summary"):
+        with pytest.raises(RuntimeError, match="not.*fitted|has not been fitted"):
+            model.summary()
+    if route == "cv":
+        for name in ("estimator_", "alpha_", "best_score_", "cv_results_", "alpha_path_"):
+            assert getattr(model, name, None) is None, name
+
+
+@pytest.mark.parametrize("sign", [-1, 1])
+@pytest.mark.parametrize("tol", [1e-12, 1e-16, 1e-30])
+def test_oracle_tweedie_clipping_is_not_recovered_by_tightening_tol(sign, tol):
+    factors = np.tile([.5, 1., 1.5], 4) if sign < 0 else np.tile([1-2**-10, 1+2**-10], 15)
+    X, y = np.ones((len(factors), 1)), factors * np.exp(sign * 50.)
+    model = _tweedie_clipping_model("typed", 1.99 if sign < 0 else 1.01,
+                                    "mcp", "nonrobust", tol)
+    with pytest.raises(RuntimeError, match="requires unclipped linear predictors"):
+        model.fit(X, y)
+    _assert_failed_oracle_fit(model, X)
+
+
+@pytest.mark.parametrize("power", [1.01, 1.7, 1.99])
+@pytest.mark.parametrize("sign", [-1, 1])
+@pytest.mark.parametrize("distance", ["adjacent", "plateau"])
+@pytest.mark.parametrize("weight", [1., np.nextafter(0., 1.)])
+def test_oracle_tweedie_clipping_guard_includes_every_positive_weight(
+        power, sign, distance, weight):
+    from statgpu.glm_core import get_glm_loss
+    from statgpu.linear_model.penalized._inference_mixin import _oracle_validate_glm_refit
+    loss = get_glm_loss("tweedie", power=power)
+    outside = np.nextafter(50., np.inf) if distance == "adjacent" else 100.
+    X = np.array([[1.], [outside]])
+    params = np.array([float(sign)])
+    # The second row has zero *clipped* score, including when its weight is
+    # subnormal. Its score and curvature do not describe the reported beta.
+    y = np.exp(sign * np.array([1., 50.]))
+    with pytest.raises(RuntimeError, match="requires unclipped linear predictors"):
+        _oracle_validate_glm_refit(loss, X, y, params, np.array([1., weight]), 1.)
+
+
+@pytest.mark.parametrize("power", [1.01, 1.7, 1.99])
+@pytest.mark.parametrize("eta", [-50., np.nextafter(-50., 0.), -49., 49., np.nextafter(50., 0.), 50.])
+@pytest.mark.parametrize("weighted", [False, True])
+def test_oracle_tweedie_clipping_guard_preserves_unclipped_stationary_controls(power, eta, weighted):
+    from statgpu.glm_core import get_glm_loss
+    from statgpu.linear_model.penalized._inference_mixin import _oracle_validate_glm_refit
+    loss = get_glm_loss("tweedie", power=power)
+    X = np.ones((4, 1))
+    y = np.exp(eta) * np.tile([1-2**-10, 1+2**-10], 2)
+    weights = np.array([1., 1., 2., 2.]) if weighted else None
+    # Actual score cancellation, including nonzero individual scores at both
+    # exact boundaries. No tolerance margin admits an out-of-band predictor.
+    _oracle_validate_glm_refit(loss, X, y, np.array([eta]), weights, 1e-30)
+
+
+@pytest.mark.parametrize("power", [1.01, 1.7, 1.99])
+@pytest.mark.parametrize("eta", [-50., 50.])
+@pytest.mark.parametrize("zero_row", [-100., 100., 1e308])
+def test_oracle_tweedie_clipping_guard_ignores_only_zero_weight_rows(power, eta, zero_row):
+    from statgpu.glm_core import get_glm_loss
+    from statgpu.linear_model.penalized._inference_mixin import _oracle_validate_glm_refit
+    loss = get_glm_loss("tweedie", power=power)
+    X = np.array([[1.], [1.], [zero_row]])
+    y = np.array([np.exp(eta), np.exp(eta), 1e308])
+    _oracle_validate_glm_refit(loss, X, y, np.array([eta]), np.array([1., 2., 0.]), 0.)
+
+
+@pytest.mark.parametrize("eta", [-np.inf, np.inf, np.nan])
+def test_oracle_tweedie_clipping_guard_preserves_nonfinite_score_error(eta):
+    from statgpu.glm_core import get_glm_loss
+    from statgpu.linear_model.penalized._inference_mixin import _oracle_validate_glm_refit
+    with pytest.raises(RuntimeError, match="finite Tweedie refit scores"):
+        _oracle_validate_glm_refit(get_glm_loss("tweedie"), np.ones((3, 1)),
+                                      np.ones(3), np.array([eta]), None, 1e-12)
+
+
+@pytest.mark.parametrize("route", ["typed", "generic", "formula", "cv"])
+@pytest.mark.parametrize("cov_type", ["nonrobust", "hc0", "hc1"])
+@pytest.mark.parametrize("eta", [-49., 49., 50.])
+@pytest.mark.parametrize("zero_weight_row", [False, True])
+def test_oracle_tweedie_unclipped_public_fit_matches_analytic_score_and_covariance(
+        route, cov_type, eta, zero_weight_row):
+    mu = np.exp(eta)
+    y = np.tile([mu * (1-2**-10), mu * (1+2**-10)], 15)
+    X = np.zeros((len(y), 1)) if route == "cv" else np.ones((len(y), 1))
+    weights = None
+    if zero_weight_row:
+        # For slope fits this row's actual predictor is outside the clipping
+        # range; its zero weight must not change acceptance or the target.
+        X = np.vstack([X, [0. if route == "cv" else 2.]])
+        y = np.r_[y, 1.]
+        weights = np.r_[np.ones(len(y)-1), 0.]
+    model = _tweedie_clipping_model(route, 1.7, "mcp", cov_type, 1e-16)
+    _fit_tweedie_clipping_route(model, route, X, y, weights)
+    w = np.ones(len(y)) if weights is None else weights
+    effective = w > 0
+    expected_mu = np.sum(w[effective] * y[effective]) / np.sum(w)
+    expected_beta = np.log(expected_mu)
+    relative_residual = y[effective] / expected_mu - 1.
+    if cov_type == "nonrobust":
+        variance = np.sum(w[effective] * relative_residual**2) / ((len(y)-1) * np.sum(w))
+    else:
+        variance = np.sum((w[effective] * relative_residual)**2) / np.sum(w)**2
+        if cov_type == "hc1":
+            variance *= len(y) / (len(y)-1)
+    se = np.sqrt(variance)
+    result = model._inference_result
+    np.testing.assert_allclose(result.params[0], expected_beta, rtol=0, atol=2e-12)
+    np.testing.assert_allclose(result.bse[0], se, rtol=2e-10, atol=0)
+    np.testing.assert_allclose(result.statistic[0], expected_beta / se, rtol=2e-10, atol=0)
+    np.testing.assert_allclose(result.conf_int[0],
+        expected_beta + se * stats.norm.ppf([.025, .975]), rtol=0, atol=2e-12)
+    actual_mu = np.exp(result.params[0])
+    assert abs(actual_mu-expected_mu) / (actual_mu+expected_mu) < 2e-13
+    assert result.method == "oracle"
+    assert result.cov_type == cov_type
+    assert result.metadata["refit_family_parameters"] == {"power": 1.7}
+    if route == "cv":
+        assert result is model.estimator_._inference_result
+        assert model.penalty_conditioning_ == "cv_selected_penalty"
+
+
+@pytest.mark.parametrize("route", ["typed", "generic", "formula", "cv"])
+@pytest.mark.parametrize("cov_type", ["nonrobust", "hc0", "hc1"])
+@pytest.mark.parametrize("sign", [-1, 1])
+def test_oracle_tweedie_clipping_failed_refit_clears_prior_result_and_recovers(
+        route, cov_type, sign):
+    factors = np.tile([.5, 1., 1.5], 4) if sign < 0 else np.tile([1-2**-10, 1+2**-10], 15)
+    bad_y = factors * np.exp(sign * 50.)
+    good_y = np.exp(1.) * np.tile([1-2**-10, 1+2**-10], len(bad_y)//2)
+    X = np.zeros((len(bad_y), 1)) if route == "cv" else np.ones((len(bad_y), 1))
+    model = _tweedie_clipping_model(route, 1.99 if sign < 0 else 1.01,
+                                    "mcp", cov_type, 1e-12)
+    _fit_tweedie_clipping_route(model, route, X, good_y, None)
+    previous = model._inference_result
+    previous_params, previous_bse = previous.params.copy(), previous.bse.copy()
+    assert np.isfinite(model.predict(X)).all()
+    with pytest.raises(RuntimeError, match="requires unclipped linear predictors"):
+        _fit_tweedie_clipping_route(model, route, X, bad_y, None)
+    _assert_failed_oracle_fit(model, X)
+    if route == "cv":
+        for name in ("estimator_", "alpha_", "best_score_", "cv_results_"):
+            assert getattr(model, name) is None, name
+    _fit_tweedie_clipping_route(model, route, X, good_y, None)
+    np.testing.assert_array_equal(model._inference_result.params, previous_params)
+    np.testing.assert_array_equal(model._inference_result.bse, previous_bse)
+    assert model._inference_result.method == "oracle"
+
+
+_ORACLE_CLIPPING_DOMAINS = [
+    ("gamma", {"link": "log"}, "nonrobust", -30., 30.),
+    ("gamma", {"link": "inverse_power"}, "hc0", 1e-4, 1e3),
+    ("inverse_gaussian", {}, "nonrobust", np.log(.05), np.log(1e3)),
+    ("poisson", {}, "hc1", np.log(1e-10), np.log(1e6)),
+    ("negative_binomial", {"alpha": .25}, "nonrobust", np.log(1e-10), 30.),
+    ("negative_binomial", {"alpha": .25}, "hc0", -30., 30.),
+    ("negative_binomial", {"alpha": .25}, "hc1", -30., 30.),
+    ("tweedie", {"power": 1.7}, "nonrobust", -50., 50.),
+]
+
+
+@pytest.mark.parametrize("loss,settings,cov_type,lower,upper", _ORACLE_CLIPPING_DOMAINS)
+@pytest.mark.parametrize("side", ["lower", "upper"])
+@pytest.mark.parametrize("position", ["inside", "exact", "outside"])
+@pytest.mark.parametrize("weight", [1., np.nextafter(0., 1.)])
+def test_oracle_family_clipping_domains_preserve_exact_bounds_and_every_positive_weight(
+        loss, settings, cov_type, lower, upper, side, position, weight):
+    from statgpu.glm_core import get_glm_loss
+    from statgpu.linear_model.penalized._inference_mixin import _oracle_validate_glm_refit
+    resolved = get_glm_loss(loss, **settings)
+    eta = lower if side == "lower" else upper
+    if position != "exact":
+        direction = (-np.inf if side == "lower" else np.inf)
+        if position == "inside":
+            direction = -direction
+        eta = np.nextafter(eta, direction)
+    mean = 1 / eta if settings.get("link") == "inverse_power" else np.exp(eta)
+    # Positive weights are never thresholded, including all-subnormal weights.
+    arguments = (resolved, np.ones((3, 1)), np.full(3, mean),
+                 np.array([eta]), np.full(3, weight), 1e-30, cov_type)
+    if position == "outside":
+        with pytest.raises(RuntimeError, match="oracle inference requires"):
+            _oracle_validate_glm_refit(*arguments)
+    else:
+        _oracle_validate_glm_refit(*arguments)
+
+
+@pytest.mark.parametrize("loss,settings,cov_type,lower,upper", _ORACLE_CLIPPING_DOMAINS)
+def test_oracle_family_clipping_domains_ignore_zero_weight_outside_rows(
+        loss, settings, cov_type, lower, upper):
+    from statgpu.glm_core import get_glm_loss
+    from statgpu.linear_model.penalized._inference_mixin import _oracle_validate_glm_refit
+    eta = (lower + upper) / 2
+    if eta == 0:
+        eta = 1.
+    mean = 1 / eta if settings.get("link") == "inverse_power" else np.exp(eta)
+    X = np.array([[1.], [1.], [1e308]])
+    y = np.array([mean, mean, 1e308])
+    _oracle_validate_glm_refit(get_glm_loss(loss, **settings), X, y,
+                              np.array([eta]), np.array([1., 2., 0.]), 1e-30, cov_type)
+
+
+@pytest.mark.parametrize("loss,settings,typed,typed_settings", FAMILIES[-2:])
+@pytest.mark.parametrize("weight_exponent", [-900, 0, 900])
+@pytest.mark.parametrize("design_exponent", [-500, 0, 500])
+def test_oracle_family_relative_scores_preserve_stationary_weight_and_column_units(
+        loss, settings, typed, typed_settings, weight_exponent, design_exponent):
+    from statgpu.glm_core import get_glm_loss
+    from statgpu.linear_model.penalized._inference_mixin import _oracle_validate_glm_refit
+    resolved = get_glm_loss(loss, **settings)
+    eta = .5
+    mu = np.exp(eta)
+    y = mu * np.array([.8, 1., 1.2])
+    weights = np.ldexp(np.array([1., 2., 1.]), weight_exponent)
+    X = np.full((3, 1), np.ldexp(1., design_exponent))
+    params = np.array([np.ldexp(eta, -design_exponent)])
+    _oracle_validate_glm_refit(resolved, X, y, params, weights, 1e-12)
+    with pytest.raises(RuntimeError, match="response scale"):
+        _oracle_validate_glm_refit(resolved, X, y,
+            np.array([np.ldexp(eta + .01, -design_exponent)]), weights, 1e-12)
+
+
+def _oracle_family_model(route, loss, penalty, cov_type, tol=1e-10):
+    settings = {"alpha": .25} if loss == "negative_binomial" else {}
+    kwargs = dict(penalty=penalty, solver="fista", device="cpu", max_iter=1000,
+                  tol=tol, compute_inference=True, inference_method="oracle", cov_type=cov_type)
+    if route == "cv":
+        return PenalizedGLM_CV(loss=loss, loss_kwargs=settings,
+                               alpha_grid=[.1, .2], cv=2, random_state=227, **kwargs)
+    kwargs["alpha"] = .1
+    if route == "generic":
+        return PenalizedGeneralizedLinearModel(loss=loss, loss_kwargs=settings, **kwargs)
+    cls = {"gamma": PenalizedGammaRegression, "inverse_gaussian": PenalizedInverseGaussianRegression,
+           "poisson": PenalizedPoissonRegression, "negative_binomial": PenalizedNegativeBinomialRegression}[loss]
+    if loss == "negative_binomial":
+        kwargs["alpha_nb"] = .25
+    return cls(**kwargs)
+
+
+def _fit_oracle_family_route(model, route, X, y, weights):
+    if route == "formula":
+        pd = pytest.importorskip("pandas")
+        pytest.importorskip("patsy")
+        return model.fit(formula="y ~ x", data=pd.DataFrame({"y": y, "x": X[:, 0]}),
+                         sample_weight=weights)
+    return model.fit(X, y, sample_weight=weights)
+
+
+@pytest.mark.parametrize("loss", ["gamma", "inverse_gaussian", "poisson", "negative_binomial"])
+@pytest.mark.parametrize("route", ["typed", "generic", "formula", "cv"])
+@pytest.mark.parametrize("penalty", ["scad", "mcp"])
+@pytest.mark.parametrize("cov_type", ["nonrobust", "hc0", "hc1"])
+def test_oracle_other_families_reject_clipped_or_nonstationary_public_refits(
+        loss, route, penalty, cov_type):
+    X = np.zeros((12, 1))
+    weights = None
+    if loss == "gamma":
+        y = np.tile([.5, 1., 1.5], 4) * np.exp(-30.)
+    elif loss == "inverse_gaussian":
+        y = np.tile([800., 1000., 1200.], 4)
+    else:
+        y = np.tile([0., 0., 1.], 4)
+        weights = np.tile([1., 1., 2e-12 if loss == "poisson" else 2e-8], 4)
+    model = _oracle_family_model(route, loss, penalty, cov_type)
+    message = "response scale" if loss == "negative_binomial" else "requires unclipped"
+    with pytest.raises(RuntimeError, match=message):
+        _fit_oracle_family_route(model, route, X, y, weights)
+    _assert_failed_oracle_fit(model, X)
+    if route == "cv":
+        for name in ("estimator_", "alpha_", "best_score_", "cv_results_"):
+            assert getattr(model, name) is None, name
+
+
+@pytest.mark.parametrize("entry", ["typed", "generic"])
+@pytest.mark.parametrize("cov_type", ["nonrobust", "hc0", "hc1"])
+def test_oracle_logistic_rejects_covariance_floor_at_finite_nonseparated_target(entry, cov_type):
+    # The two ordinary groups have finite target intercept=0, slope=log(3).
+    # The correctly classified high-leverage tail has virtually zero true
+    # curvature, but flooring it adds 1 to the slope bread and narrows the CI.
+    X = np.r_[np.full(20, -1.), np.full(20, 1.), -1e5][:, None]
+    y = np.r_[np.tile([0., 0., 0., 1.], 5), np.tile([1., 1., 1., 0.], 5), 0.]
+    kwargs = dict(penalty="scad", alpha=.001, solver="fista", device="cpu",
+                  max_iter=10000, tol=1e-10, compute_inference=True,
+                  inference_method="oracle", cov_type=cov_type)
+    model = (PenalizedLogisticRegression(**kwargs) if entry == "typed" else
+             PenalizedGeneralizedLinearModel(loss="logistic", **kwargs))
+    with pytest.raises(RuntimeError, match="Logistic oracle inference requires unfloored"):
+        model.fit(X, y)
+    _assert_failed_oracle_fit(model, X)
+
+
+@pytest.mark.parametrize("probability", [1e-11, 1e-9, .5, 1-1e-9, 1-1e-11])
+@pytest.mark.parametrize("cov_type", ["nonrobust", "hc0", "hc1"])
+def test_oracle_logistic_curvature_domain_uses_actual_variance_and_effective_weights(
+        probability, cov_type):
+    from statgpu.glm_core import get_glm_loss
+    from statgpu.backends._array_ops import _sigmoid
+    from statgpu.linear_model.penalized._inference_mixin import _oracle_validate_glm_refit
+    loss = get_glm_loss("logistic")
+    eta = np.log(probability) - np.log1p(-probability)
+    mu = _sigmoid(np.array([eta]))[0]
+    args = (loss, np.ones((3, 1)), np.full(3, mu), np.array([eta]), None, 1e-12, cov_type)
+    if mu * (1-mu) < 1e-10:
+        with pytest.raises(RuntimeError, match="unfloored covariance curvature"):
+            _oracle_validate_glm_refit(*args)
+    else:
+        _oracle_validate_glm_refit(*args)
+    # The same extreme predictor cannot restrict inference when its row has
+    # exactly zero weight. Positive ordinary rows have finite true curvature.
+    _oracle_validate_glm_refit(loss, np.array([[0.], [0.], [1.]]),
+        np.array([0., 1., mu]), np.array([eta]), np.array([1., 1., 0.]), 1e-12, cov_type)
+
+
+@pytest.mark.parametrize("cov_type", ["nonrobust", "hc0", "hc1"])
+def test_oracle_negative_binomial_fisher_floor_does_not_restrict_observed_hc(cov_type):
+    from statgpu.glm_core import get_glm_loss
+    from statgpu.linear_model.penalized._inference_mixin import _oracle_validate_glm_refit
+    loss = get_glm_loss("negative_binomial", alpha=.25)
+    args = (loss, np.ones((4, 1)), np.full(4, np.exp(-25.)),
+            np.array([-25.]), None, 1e-30, cov_type)
+    if cov_type == "nonrobust":
+        with pytest.raises(RuntimeError, match="covariance curvature floor"):
+            _oracle_validate_glm_refit(*args)
+    else:
+        _oracle_validate_glm_refit(*args)
+
+
+@pytest.mark.parametrize("route", ["typed", "generic", "formula", "cv"])
+@pytest.mark.parametrize("cov_type", ["nonrobust", "hc0", "hc1"])
+def test_oracle_negative_binomial_stationarity_failure_is_transactional_and_recovers(route, cov_type):
+    X = np.zeros((12, 1))
+    good_y = np.tile([1., 2., 3.], 4)
+    bad_y = np.tile([0., 0., 1.], 4)
+    weights = np.tile([1., 1., 2e-8], 4)
+    model = _oracle_family_model(route, "negative_binomial", "mcp", cov_type)
+    _fit_oracle_family_route(model, route, X, good_y, None)
+    previous = model._inference_result
+    with pytest.raises(RuntimeError, match="Negative binomial response scale"):
+        _fit_oracle_family_route(model, route, X, bad_y, weights)
+    _assert_failed_oracle_fit(model, X)
+    if route == "cv":
+        assert model.estimator_ is model.alpha_ is model.cv_results_ is None
+    _fit_oracle_family_route(model, route, X, good_y, None)
+    np.testing.assert_array_equal(model._inference_result.params, previous.params)
+    np.testing.assert_array_equal(model._inference_result.bse, previous.bse)
+
+
+@pytest.mark.parametrize("alpha", [1e20, 1e100])
+@pytest.mark.parametrize("weight_exponent", [-900, 0, 900])
+def test_oracle_negative_binomial_relative_score_is_not_hidden_by_dispersion_scale(
+        alpha, weight_exponent):
+    from statgpu.glm_core import get_glm_loss
+    from statgpu.linear_model.penalized._inference_mixin import _oracle_validate_glm_refit
+    loss = get_glm_loss("negative_binomial", alpha=alpha)
+    X = np.ones((3, 1))
+    y = np.exp(.5) * np.array([.8, 1., 1.2])
+    weights = np.ldexp(np.array([1., 2., 1.]), weight_exponent)
+    _oracle_validate_glm_refit(loss, X, y, np.array([.5]), weights, 1e-12, "hc0")
+    with pytest.raises(RuntimeError, match="Negative binomial response scale"):
+        _oracle_validate_glm_refit(loss, X, y, np.array([.51]), weights, 1e-12, "hc0")
+
+
+@pytest.mark.parametrize("weighted", [False, True])
+@pytest.mark.parametrize("cov_type", ["nonrobust", "hc0", "hc1"])
+def test_oracle_nb_refinement_preserves_parent_tolerance_and_child_budget(
+        weighted, cov_type, monkeypatch):
+    from statgpu.linear_model import NegativeBinomialRegression
+    original = NegativeBinomialRegression.fit
+    calls = []
+    def record(self, X, y, **kwargs):
+        result = original(self, X, y, **kwargs)
+        calls.append((self.get_params(), X.copy(), kwargs["sample_weight"], self.coef_.copy()))
+        return result
+    monkeypatch.setattr(NegativeBinomialRegression, "fit", record)
+    X = np.tile([[1., 0.], [0., 1.], [-2., -3.]], (20, 1))
+    y = np.zeros(len(X))
+    weights = np.linspace(.8, 1.2, len(y)) if weighted else None
+    model = PenalizedNegativeBinomialRegression(penalty="mcp", alpha=1e-6,
+        solver="fista", device="cpu", fit_intercept=False, max_iter=10000,
+        tol=1e-8, compute_inference=True, inference_method="oracle", cov_type=cov_type)
+    model.fit(X, y, sample_weight=weights)
+    assert len(calls) == 2
+    first, second = calls
+    assert first[0]["tol"] == model.tol == 1e-8
+    assert first[0]["max_iter"] == second[0]["max_iter"] == model.max_iter == 10000
+    for key in first[0]:
+        if key != "tol":
+            assert first[0][key] == second[0][key], key
+    for _, design, actual_weights, _ in calls:
+        np.testing.assert_array_equal(design, X)
+        if weights is None:
+            assert actual_weights is None
+        else:
+            np.testing.assert_array_equal(actual_weights, weights)
+    w = np.ones(len(y)) if weights is None else weights
+    mu = np.exp(X @ first[3])
+    mass = np.sum(w[:, None] * np.abs(X) * ((mu+y)/(1+mu))[:, None], axis=0) / w.sum()
+    np.testing.assert_allclose(second[0]["tol"], model.tol * mass.min(), rtol=2e-15)
+    result = model._inference_result
+    assert result.metadata["refit_attempts"] == 2
+    assert result.metadata["refit_tol"] == second[0]["tol"]
+    np.testing.assert_array_equal(result.params, second[3])
+    expected, se = _reference("negative_binomial", {"alpha": 1.}, X, y, weights, cov_type)
+    # Keep the original mixed-sign control's tolerance and analytic target.
+    np.testing.assert_allclose(result.params, expected, rtol=1e-6, atol=1e-7)
+    np.testing.assert_allclose(result.bse, se, rtol=1e-6, atol=1e-7)
+    mu = np.exp(X @ result.params)
+    scale = (mu+y)/(1+mu)
+    relative = abs(X.T @ (w*(mu-y)/(1+mu))) / (abs(X).T @ (w*scale))
+    assert np.max(relative) <= model.tol + 8*np.finfo(float).eps*len(y)
+
+
+@pytest.mark.parametrize("alpha,design_exponent", [(1., -900), (1e20, 0),
+                                                   (1e100, 0), (1e300, 900)])
+@pytest.mark.parametrize("weight_exponent", [-900, 0, 900])
+def test_oracle_nb_refinement_mapping_respects_units_and_weight_scale(
+        alpha, design_exponent, weight_exponent):
+    from statgpu.glm_core import get_glm_loss
+    from statgpu.linear_model.penalized._inference_mixin import (
+        _OracleNBScoreError, _oracle_validate_glm_refit,
+    )
+    loss = get_glm_loss("negative_binomial", alpha=alpha)
+    x = np.ldexp(1., design_exponent)
+    X = np.column_stack([np.full(3, x), np.zeros(3)])
+    y = np.exp(.5) * np.array([.8, 1., 1.2])
+    weights = np.ldexp(np.array([1., 2., 1.]), weight_exponent)
+    params = np.array([.51/x, 0.])
+    with pytest.raises(_OracleNBScoreError) as caught:
+        _oracle_validate_glm_refit(loss, X, y, params, weights, 1e-12, "hc0")
+    # Independent extended-range arithmetic evaluates the dimensional
+    # tolerance without any float64 product/weight-sum range limitation.
+    wide = np.longdouble
+    mu = np.exp(X @ params).astype(wide)
+    scale = (mu+y.astype(wide)) / (1+wide(alpha)*mu)
+    expected = wide(1e-12) * np.sum(weights.astype(wide)*wide(x)*scale) / np.sum(weights.astype(wide))
+    np.testing.assert_allclose(caught.value.refit_tol, float(expected), rtol=3e-15, atol=0)
+    assert 0 < caught.value.refit_tol < 1e-12
+
+
+@pytest.mark.parametrize("tol,design_exponent", [(1e-12, -1000), (0., 0)])
+def test_oracle_nb_refinement_unrepresentable_mapping_is_explicit(tol, design_exponent):
+    from statgpu.glm_core import get_glm_loss
+    from statgpu.linear_model.penalized._inference_mixin import (
+        _OracleNBScoreError, _oracle_validate_glm_refit,
+    )
+    x = np.ldexp(1., design_exponent)
+    with pytest.raises(RuntimeError, match="stricter child-refit tolerance could not be represented") as caught:
+        _oracle_validate_glm_refit(get_glm_loss("negative_binomial", alpha=1e100),
+            np.full((3, 1), x), np.exp(.5)*np.array([.8, 1., 1.2]),
+            np.array([.51/x]), None, tol, "hc0")
+    assert not isinstance(caught.value, _OracleNBScoreError)
+
+
+@pytest.mark.parametrize("mode", ["same_score", "clipped", "curvature_floor", "warning", "not_converged"])
+def test_oracle_nb_refinement_failure_has_one_retry_and_recovers(mode, monkeypatch):
+    import warnings
+    from statgpu.solvers._convergence import ConvergenceWarning
+    from statgpu.linear_model import NegativeBinomialRegression
+    original = NegativeBinomialRegression.fit
+    X = np.zeros((12, 1))
+    y = np.tile([.1, .2, .3], 4)
+    model = _oracle_family_model("typed", "negative_binomial", "mcp", "nonrobust")
+    model.fit(X, y)
+    previous = model._inference_result
+    calls = []
+    def fail(self, X, y, **kwargs):
+        calls.append(self.get_params())
+        self.coef_ = np.array([np.log(.2) + .01])
+        self.intercept_ = 0.
+        self.converged_ = True
+        if len(calls) == 2:
+            if mode == "clipped":
+                self.coef_[:] = -31.
+            elif mode == "curvature_floor":
+                self.coef_[:] = -25.
+            elif mode == "warning":
+                warnings.warn("Synthetic retry nonconvergence", ConvergenceWarning)
+            elif mode == "not_converged":
+                self.converged_ = False
+        return self
+    monkeypatch.setattr(NegativeBinomialRegression, "fit", fail)
+    match = ("unclipped" if mode == "clipped" else "curvature floor" if mode == "curvature_floor"
+             else "Negative binomial response scale")
+    with pytest.raises(RuntimeError, match=match) as caught:
+        model.fit(X, y)
+    if mode in ("warning", "not_converged"):
+        assert "bounded tolerance refinement did not converge" in str(caught.value)
+    if mode == "warning":
+        assert isinstance(caught.value.__cause__, ConvergenceWarning)
+    assert len(calls) == 2
+    assert calls[0]["tol"] == model.tol
+    assert calls[1]["tol"] < model.tol
+    assert calls[0]["max_iter"] == calls[1]["max_iter"] == model.max_iter
+    _assert_failed_oracle_fit(model, X)
+    monkeypatch.setattr(NegativeBinomialRegression, "fit", original)
+    model.fit(X, y)
+    np.testing.assert_array_equal(model._inference_result.params, previous.params)
+    np.testing.assert_array_equal(model._inference_result.bse, previous.bse)
+    assert model._inference_result.metadata["refit_attempts"] == 1
+    assert model._inference_result.metadata["refit_tol"] == model.tol
+
+
+@pytest.mark.parametrize("eta", [-31., -25.])
+def test_oracle_nb_domain_failure_never_retries(eta, monkeypatch):
+    from statgpu.linear_model import NegativeBinomialRegression
+    calls = []
+    def clipped(self, X, y, **kwargs):
+        calls.append(self.tol)
+        self.coef_ = np.array([eta])
+        self.intercept_ = 0.
+        return self
+    monkeypatch.setattr(NegativeBinomialRegression, "fit", clipped)
+    X = np.zeros((12, 1))
+    model = _oracle_family_model("typed", "negative_binomial", "mcp", "nonrobust")
+    with pytest.raises(RuntimeError, match="unclipped|curvature floor"):
+        model.fit(X, np.tile([1., 2., 3.], 4))
+    assert calls == [model.tol]
+    _assert_failed_oracle_fit(model, X)
+
+
+@pytest.mark.parametrize("case", ["rare_counts", "large_dispersion_all_zero"])
+@pytest.mark.parametrize("weight_scale", [.5, 32.])
+def test_oracle_nb_refinement_does_not_accept_severe_early_stopping(case, weight_scale, monkeypatch):
+    from statgpu.linear_model import NegativeBinomialRegression
+    original = NegativeBinomialRegression.fit
+    calls = []
+    def record(self, X, y, **kwargs):
+        calls.append((self.get_params(), kwargs["sample_weight"].copy()))
+        return original(self, X, y, **kwargs)
+    monkeypatch.setattr(NegativeBinomialRegression, "fit", record)
+    if case == "rare_counts":
+        X = np.zeros((12, 1))
+        y = np.tile([0., 0., 1.], 4)
+        weights = weight_scale * np.tile([1., 1., 2e-8], 4)
+        model = _oracle_family_model("typed", "negative_binomial", "mcp", "hc0")
+    else:
+        # Mixed signs give a finite all-zero-response MLE; all-zero responses
+        # must not bypass the score certificate at large dispersion.
+        X = np.tile([[1., 0.], [0., 1.], [-2., -3.]], (20, 1))
+        y = np.zeros(len(X))
+        weights = np.full(len(y), weight_scale)
+        model = PenalizedNegativeBinomialRegression(alpha_nb=1e9, penalty="mcp",
+            alpha=1e-14, solver="fista", device="cpu", fit_intercept=False,
+            max_iter=10000, tol=1e-8, compute_inference=True, inference_method="oracle")
+    with pytest.raises(RuntimeError, match="Negative binomial response scale"):
+        model.fit(X, y, sample_weight=weights)
+    assert len(calls) == 2
+    assert calls[0][0]["tol"] == model.tol
+    assert calls[1][0]["tol"] < model.tol
+    for config, child_weights in calls:
+        assert config["max_iter"] == model.max_iter
+        np.testing.assert_array_equal(child_weights, weights)
+    _assert_failed_oracle_fit(model, X)

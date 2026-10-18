@@ -343,7 +343,20 @@ def test_small_explicit_folds_preserve_weight_scale(
             alphas=alphas, cv_splits=folds, fit_intercept=intercept,
             device=device, compute_inference=False,
             gpu_cv_mixed_precision=mixed_precision,
-        ).fit(array(X), array(y), sample_weight=array(scaled_weight))
+        )
+        if device != "cpu" and mixed_precision and scale in (1e-200, 1e200):
+            # Raw moments and fold-scaled penalties must remain representable
+            # in float32. Float64/CPU still exercise the full scale-invariance
+            # reference below; this branch preserves the physical GPU cases.
+            message = ("positive regularization is not representable" if scale == 1e-200
+                       else "Gram or cross product is not finite")
+            with pytest.raises(FloatingPointError, match=message):
+                model.fit(array(X), array(y), sample_weight=array(scaled_weight))
+            assert not model._fitted
+            assert model.cv_results_ is model.estimator_ is None
+            assert_array_equal(scaled_weight, original_weight)
+            continue
+        model.fit(array(X), array(y), sample_weight=array(scaled_weight))
         assert_allclose(model.cv_results_["mse_path"], expected,
                         rtol=tolerance, atol=tolerance)
         assert_allclose(model.mean_mse_, expected.mean(axis=1),
@@ -358,6 +371,47 @@ def test_small_explicit_folds_preserve_weight_scale(
         assert_allclose(model.predict(array(X)), X @ coef + offset,
                         rtol=2e-10, atol=2e-10)
         assert_array_equal(scaled_weight, original_weight)
+
+
+@pytest.mark.parametrize("scale,message", [
+    (1e-200, "positive regularization is not representable"),
+    (1e200, "Gram or cross product is not finite"),
+])
+def test_torch_cpu_selector_reports_raw_weight_precision_range(monkeypatch, scale, message):
+    # Private selector wiring on actual Torch CPU kernels, not public CUDA
+    # execution and not an implicit CPU fallback for device="torch".
+    torch = pytest.importorskip("torch")
+    from statgpu.backends import TorchBackend
+    from statgpu.linear_model.cv import _ridge_cv as module
+
+    backend = TorchBackend(device="cpu")
+    monkeypatch.setattr(module, "resolve_cv_backend",
+                        lambda device, X: ("torch", "torch", backend, True, False, True))
+    X, y, folds = _small_weight_scale_problem("gapped")
+    weights = scale * np.array([.5, 1., 2.])
+    alphas = np.array([.01, .1, 1., 10.])
+    expected = []
+    for alpha in alphas:
+        losses = []
+        for train, valid in folds:
+            coef, offset = _solve(X[train], y[train], alpha, weights[train], False)
+            losses.append(np.average((X[valid] @ coef + offset - y[valid]) ** 2,
+                                     weights=weights[valid]))
+        expected.append(losses)
+    native_X = torch.as_tensor(X, dtype=torch.float64)
+    native_y = torch.as_tensor(y, dtype=torch.float64)
+    native_weights = torch.as_tensor(weights, dtype=torch.float64)
+    before = [value.clone() for value in (native_X, native_y, native_weights)]
+    kwargs = dict(alphas=alphas, cv_splits=folds, fit_intercept=False,
+                  sample_weight=native_weights, device="cpu", return_details=True)
+    with pytest.raises(FloatingPointError, match=message):
+        module._select_ridge_alpha_cv(native_X, native_y, gpu_cv_mixed_precision=True, **kwargs)
+    result = module._select_ridge_alpha_cv(native_X, native_y,
+                                           gpu_cv_mixed_precision=False, **kwargs)
+    assert_allclose(result["mse_path"], expected, rtol=2e-10, atol=2e-10)
+    assert result["alpha"] == alphas[np.argmin(np.mean(expected, axis=1))]
+    for actual, original in zip((native_X, native_y, native_weights), before):
+        assert torch.equal(actual, original)
 
 
 @pytest.mark.parametrize("intercept", [False, True])
@@ -733,7 +787,16 @@ def test_relative_weight_below_float64_range_preserves_finite_training_products(
         alphas=[.1, 1.], cv_splits=folds, fit_intercept=False,
         device=device, compute_inference=False,
         gpu_cv_mixed_precision=mixed_precision,
-    ).fit(array(X), array(y), sample_weight=array(weights))
+    )
+    if device != "cpu" and mixed_precision:
+        # The raw weighted Gram is 1e100: float64 retains this objective,
+        # whereas float32 conversion exceeds the documented CV range.
+        with pytest.raises(FloatingPointError, match="Gram or cross product is not finite"):
+            model.fit(array(X), array(y), sample_weight=array(weights))
+        assert not model._fitted
+        assert model.cv_results_ is model.estimator_ is None
+        return
+    model.fit(array(X), array(y), sample_weight=array(weights))
     tolerance = 2e-6 if device != "cpu" and mixed_precision else 2e-12
     assert_allclose(model.cv_results_["mse_path"], expected, rtol=tolerance, atol=1e-28)
     assert model.alpha_ == 1.

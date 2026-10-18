@@ -191,8 +191,10 @@ The interface accepts `squared_error`, `logistic`, `poisson`, `gamma`,
 `inverse_gaussian`, `negative_binomial`, and `tweedie` with SCAD/MCP.
 Non-Gaussian refits use exactly `C=0`, preserve the fitted family, Gamma link,
 negative-binomial dispersion `alpha`, and Tweedie `power`, and retain the
-parent's `max_iter`, `tol`, intercept convention, and supported analytic
-weights. The refit explicitly selects `solver="irls"` for logistic and Poisson
+parent's `max_iter`, intercept convention, and supported analytic weights.
+The initial attempt uses the parent's `tol`; the bounded negative-binomial
+precision retry below can use a stricter child tolerance. The refit explicitly
+selects `solver="irls"` for logistic and Poisson
 regression and `solver="newton"` for the other non-Gaussian families, with
 `device="cpu"`.
 Oracle HC0/HC1 covariance rescales weights before forming squared score
@@ -233,20 +235,63 @@ negative-binomial refits retain fixed dispersion equal to one. These checks
 do not guarantee accurate covariance at every scale or conditioning level.
 
 A refit that reports non-convergence raises `RuntimeError` rather than
-publishing an oracle coefficient table. Tweedie oracle refits also require a
-relative first-order score check on each selected coordinate, including the
-intercept. The signed weighted score is compared with the positive weighted
-fitted/response score scale, using `tol` plus float64 summation roundoff. This
-prevents a small response scale from making an incorrect refit appear converged
-merely because its absolute Newton gradient is small. Zero-weight observations
-do not enter this check; genuine signed cancellation remains valid. A failed
-check raises `RuntimeError`. Decreasing `tol` can let the same refit reach a
-stationary solution; review response/design scaling if it still fails. The
-check does not change the child solver or its requested iteration budget. It
-is a local stationarity check, not a bound on coefficient or covariance error. An error during oracle computation
-also clears fitted, prediction, and inference-report state, including an
-earlier successful fit. Fit the model successfully again before predicting
-or reading inference results.
+publishing an oracle coefficient table. Non-Gaussian oracle refits also check
+that the reported coefficients, fitted means, scores and covariance describe
+the same unpenalized model on every positive-weight observation. The current
+numerical losses clip some predictors, means or curvature factors. Refits
+that activate those transformations cannot supply oracle uncertainty and
+raise `RuntimeError` before a coefficient table is returned.
+
+The current admissible ranges are closed intervals; exact endpoints remain
+eligible, subject to the other convergence and covariance checks:
+
+| Family/link | Required range on positive-weight rows |
+| --- | --- |
+| Tweedie, log | Linear predictor in `[-50, 50]` |
+| Gamma, log | Linear predictor in `[-30, 30]` |
+| Gamma, inverse power | Linear predictor in `[1e-4, 1e3]` |
+| Inverse Gaussian, log | Mean in `[0.05, 1e3]` |
+| Poisson, log | Mean in `[1e-10, 1e6]` |
+| Negative binomial, log | Linear predictor in `[-30, 30]`; `nonrobust` additionally requires mean at least `1e-10`; HC0/HC1 do not use that extra curvature floor |
+| Logistic, logit | Bernoulli variance `mu * (1 - mu)` at least `1e-10`, so the covariance curvature floor is inactive |
+
+Mean bounds are checked at their log-link predictor endpoints. These are
+numerical availability restrictions, not statements that an out-of-range
+statistical model lacks a finite solution. Zero-weight observations do not
+trigger these restrictions. Decreasing `tol` does not remove clipping or
+guarantee recovery of a clipped refit. If only point estimation is needed,
+set `compute_inference=False`; oracle uncertainty outside these ranges is
+unavailable in the current implementation. Gaussian oracle refits do not
+use these non-Gaussian range checks.
+
+Within these ranges, Tweedie and negative-binomial oracle refits additionally
+require a relative first-order score check on each selected coordinate,
+including the intercept. The signed weighted score is compared with the
+positive contributions to that family's actual score, using `tol` plus
+float64 summation roundoff. This prevents response units or the
+negative-binomial dispersion parameter from disguising an incorrect
+absolute-gradient stopping point. Other families retain their existing
+child-solver stopping criterion; the range checks do not add a new relative
+convergence guarantee for those families. Positive and negative score contributions may genuinely
+cancel; zero-weight observations do not enter the check. A failed check raises
+`RuntimeError`. For an unclipped refit stopped by absolute-gradient tolerance,
+decreasing `tol` can help it reach a stationary solution; review response/design
+scaling if it still fails. It is a local stationarity check, not a bound on
+coefficient or covariance error.
+
+For negative-binomial refits only, a failed relative-score check can trigger
+one additional unpenalized CPU refit. Its absolute-gradient tolerance is
+derived from the positive weighted score contributions, while the original
+requested `tol` remains the final relative acceptance criterion. Each attempt
+uses the requested `max_iter`, so at most two child refits are attempted.
+Clipping and curvature-range failures do not trigger this retry. If the derived
+tolerance cannot be represented, the retry fails to converge, or the recomputed
+score still fails the original check, oracle inference raises `RuntimeError`.
+The shared solver is unchanged; this bounded retry does not guarantee recovery.
+
+An error during oracle computation also clears fitted, prediction, and
+inference-report state, including an earlier successful fit. Fit the model
+successfully again before predicting or reading inference results.
 
 A finite unpenalized solution is also required. On positive-weight rows,
 all-zero Poisson, negative-binomial, or Tweedie responses, or a single
@@ -272,7 +317,9 @@ The inference result has `method="oracle"`, a normal/z reference distribution,
 and the requested supported `cov_type`. Its metadata includes
 `refit_penalty="none"`, `refit_solver`, `refit_family_parameters`, CPU numerical
 provenance, and `selection_adjusted=False`. Refit-specific fields are present
-when a coefficient was refitted. Family-specific constructor parameters on
+when a coefficient was refitted. Non-Gaussian refits also record `refit_attempts`
+and `refit_tol`, the actual child-fit count and child-solver tolerance.
+Family-specific constructor parameters on
 typed negative-binomial and Tweedie estimators are retained; if the same
 parameter is also supplied through `loss_kwargs`, that explicit entry takes
 precedence.
