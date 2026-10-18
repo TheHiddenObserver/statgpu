@@ -233,7 +233,17 @@ negative-binomial refits retain fixed dispersion equal to one. These checks
 do not guarantee accurate covariance at every scale or conditioning level.
 
 A refit that reports non-convergence raises `RuntimeError` rather than
-publishing an oracle coefficient table. An error during oracle computation
+publishing an oracle coefficient table. Tweedie oracle refits also require a
+relative first-order score check on each selected coordinate, including the
+intercept. The signed weighted score is compared with the positive weighted
+fitted/response score scale, using `tol` plus float64 summation roundoff. This
+prevents a small response scale from making an incorrect refit appear converged
+merely because its absolute Newton gradient is small. Zero-weight observations
+do not enter this check; genuine signed cancellation remains valid. A failed
+check raises `RuntimeError`. Decreasing `tol` can let the same refit reach a
+stationary solution; review response/design scaling if it still fails. The
+check does not change the child solver or its requested iteration budget. It
+is a local stationarity check, not a bound on coefficient or covariance error. An error during oracle computation
 also clears fitted, prediction, and inference-report state, including an
 earlier successful fit. Fit the model successfully again before predicting
 or reading inference results.

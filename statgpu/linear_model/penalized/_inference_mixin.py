@@ -386,6 +386,64 @@ def _oracle_pearson_dispersion(loss, X, y, params, sample_weight):
     return dispersion
 
 
+def _oracle_validate_tweedie_score(loss, X, y, params, sample_weight, tol):
+    """Check dimensionless first-order stationarity of a Tweedie refit.
+
+    An absolute Newton gradient can be small solely because response units
+    make the whole Tweedie loss small. For each selected coordinate compare
+    abs(sum(w*x*g)) with sum(w*abs(x)*(a+b)), where g=a-b,
+    a=mu**(2-power), and b=y*mu**(1-power). Signed score cancellation is
+    necessary; exact zero scores remain valid. This is a stationarity check,
+    not a bound on coefficient/covariance error or on ill-conditioning.
+
+    Each column's positive contributions are normalized in exponent space.
+    Forming w/max(w) first can discard a small weight with a material score;
+    forming unscaled products can overflow even though the ratio is ordinary.
+    """
+    weights = np.ones(len(y)) if sample_weight is None else sample_weight
+    effective = weights > 0
+    X, y, weights = X[effective], y[effective], weights[effective]
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        eta = X @ params
+        mu = loss._mu_from_eta(eta)
+        gradient = loss.per_sample_gradient(eta, y)
+        score_scale = mu ** (2 - loss.power) + y * mu ** (1 - loss.power)
+    if not (np.all(np.isfinite(eta))
+            and np.all(np.isfinite(gradient))
+            and np.all(np.isfinite(score_scale) & (score_scale > 0))):
+        raise RuntimeError(
+            "Oracle inference could not verify finite Tweedie refit scores. "
+            "Review response/design scaling, or set compute_inference=False."
+        )
+
+    weight_mantissa, weight_exponent = np.frexp(weights)
+    scale_mantissa, scale_exponent = np.frexp(score_scale)
+    design_mantissa, design_exponent = np.frexp(np.abs(X))
+    exponents = weight_exponent[:, None] + scale_exponent[:, None] + design_exponent
+    nonzero = X != 0
+    column_exponents = np.max(np.where(nonzero, exponents, -10000), axis=0)
+    with np.errstate(under="ignore"):
+        mass = np.ldexp(
+            weight_mantissa[:, None] * scale_mantissa[:, None] * design_mantissa,
+            np.where(nonzero, exponents - column_exponents, 0),
+        )
+    total_mass = np.sum(mass, axis=0)
+    score = np.sum(mass * np.sign(X) * (gradient / score_scale)[:, None], axis=0)
+    relative_score = np.divide(
+        np.abs(score), total_mass, out=np.zeros_like(score), where=total_mass > 0,
+    )
+    # Cover factor/division rounding and even sequential n-term summation.
+    # This admits arithmetic-level residuals when tol is below float64
+    # precision; it is far below the scale-induced early-stopping discrepancy.
+    roundoff = 8 * np.finfo(np.float64).eps * len(y)
+    if np.any(relative_score > float(tol) + roundoff):
+        raise RuntimeError(
+            "The unpenalized oracle refit did not converge relative to the "
+            "Tweedie response scale. Decrease tol, review response/design "
+            "scaling, or set compute_inference=False."
+        )
+
+
 class _PenalizedInferenceMixin:
 
     def _gaussian_fit_state(self, X, y, sample_weight=None):
@@ -1669,6 +1727,11 @@ class _PenalizedInferenceMixin:
             else:
                 X_design = X_active
                 params_active = np.asarray(refit.coef_, dtype=np.float64)
+
+            if self.loss == "tweedie":
+                _oracle_validate_tweedie_score(
+                    self._loss, X_design, y_cpu, params_active, sw_cpu, self.tol,
+                )
 
             # Use the parent's resolved loss, so the estimating equation and
             # covariance necessarily share its family/link/dispersion/power.

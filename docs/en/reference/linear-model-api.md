@@ -632,7 +632,7 @@ RidgeCV(alphas=None, n_alphas=100, alpha_min_ratio=0.001, cv=5, cv_splits=None, 
 | `cov_type` | `'nonrobust'` | Final Ridge covariance: nonrobust, hc0, hc1, hc2, hc3, hac. There is no hac_maxlags constructor control; HAC uses the automatic rule. |
 | `gpu_memory_cleanup` | `False` | Request best-effort GPU cache cleanup for final fitting. |
 | `random_state` | `None` | Seed for generated folds; not residual-bootstrap randomness. |
-| `gpu_cv_mixed_precision` | `True` | Normally use float32 Gram/eigen calculations during GPU CV; weighted centering and validation retain float64 on the selected GPU. Ill-conditioned folds can use the float64 recovery described below. False uses float64 for GPU CV. Final-refit inference has its own numerical path. |
+| `gpu_cv_mixed_precision` | `True` | Normally use float32 Gram matrices and eigensolves during GPU CV; weighted moments are formed in float64 before conversion, while weighted centering and weighted validation stay in float64 on the selected GPU. False uses float64 for GPU CV. Difficult folds may use the native Gram solve described below. Final-refit inference has its own numerical path. |
 
 `fit(X,y,sample_weight=None)` returns self, accepting finite X `(n,p)`,
 one-dimensional y `(n,)`, and optional analytic weights `(n,)`. There is no
@@ -679,50 +679,55 @@ splits determine the actual folds rather than generating or replacing them.
 A single candidate yields validation scores but does not compare different
 penalties. Each training and validation subset must have positive total sample
 weight, while individual zero weights are allowed; a zero-total-weight subset
-raises `ValueError`.
+raises `ValueError`. The total sample weight across all fit rows must also be
+finite; otherwise `fit` raises `ValueError` before constructing the alpha grid.
 
-For fixed folds and alpha values, CV fold losses depend on relative weights
-rather than their common scale.
-Uniform rescaling preserves fold losses up to numerical tolerance while the
-weights, positive subset totals, and required weighted products remain
-representable with sufficient precision. Subnormal values have intrinsically
-reduced relative precision. Small positive subset totals are valid; finite
-inputs alone do not guarantee accurate results at every scale.
-For weighted GPU CV, centering and validation use float64 on the selected
-device. With `gpu_cv_mixed_precision=True`, the square-root-weighted training
-data are then converted to float32 for Gram/eigen calculations. A positive
-weight is not discarded merely because its normalized value is below the
-float32 range.
-Finite float64 inputs do not guarantee a representable mixed-precision solve.
-GPU CV raises `FloatingPointError` if the effective fold-scaled positive
-regularization or the regularized normal-equation denominators are not
-representable at the solve precision. The regularization check is applied
-after fold scaling; alpha need not be representable at that precision on its
-own. Use `gpu_cv_mixed_precision=False`, choose representable alphas, or
-rescale the data as indicated by the error.
-Weighted CPU and GPU validation also raise `FloatingPointError` if the
-weighted MSE is not finite at float64 precision; rescale the response/features
-or choose different alphas.
+For fixed folds and alpha values, the statistical CV objective depends on
+relative weights rather than their common scale. Numerical scale invariance
+requires the raw weighted Gram matrix, cross-products, effective penalties,
+and validation calculations to remain representable with sufficient precision
+at the selected solve dtype. Small positive subset totals are valid, but
+changing the common weight scale can move these intermediate quantities
+outside that range. Subnormal values have intrinsically reduced precision.
+Finite input arrays alone do not guarantee an accurate solve.
 
-Weighted CPU CV and GPU CV can recover an ill-conditioned fold whose Gram
-matrix cannot reliably resolve the requested small regularization. RidgeCV
-then emits `RuntimeWarning` and uses float64 SVD of the training factors on
-the same device. Singular directions indistinguishable from roundoff are
-treated as zero only when their response projections are also at roundoff
-scale. If such an unresolved direction carries a larger response projection,
-the request raises `FloatingPointError`; a finite exact ridge solution may
-still exist. Rescale or reparameterize the features, or use larger alphas.
-This recovery uses numerical rank and does not guarantee exact resolution of
-arbitrarily small nonzero directions. When recovery encounters exactly repeated
-rows or columns of the square-root-weighted training matrix, it can combine
-them without changing the ridge objective. This additional recovery requires
-every remaining singular direction to be numerically resolved. Nonzero
-response contributions also require projection error bounds and gains in the
-normal float64 range. Other unresolved directions, or response cancellation
-that cannot be distinguished from float64 roundoff, can still raise
-`FloatingPointError`. SVD gains are scaled before squaring to avoid avoidable
-overflow; unrepresentable gains, coefficient contributions, or coefficient
-expansions raise a precision error rather than silently vanishing.
+Weighted CPU folds form raw weighted normal equations after centering and
+solve them in float64. Weighted GPU moments, centering and validation are
+computed in float64 on the selected device; with
+`gpu_cv_mixed_precision=True`, the Gram matrix and cross-products are then
+converted to float32 for solving. The effective regularization is formed
+using the fold's weight mass, or row count without weights, before conversion
+to the solve precision. Alpha need not be representable at that precision on
+its own. An unrepresentable positive effective penalty, nonfinite raw moments,
+regularized system or coefficients, or nonfinite weighted validation MSE
+raises `FloatingPointError`. Use `gpu_cv_mixed_precision=False`, rescale the
+data or weights, or choose representable alphas as indicated by the error.
+
+GPU folds normally reuse a Gram eigendecomposition across alphas. A difficult
+fold can instead use native regularized Gram solves for individual alphas,
+with a `RuntimeWarning`; singular systems use the backend's numerical-rank
+fallback. This stays on the selected device, promoting the already-formed
+Gram matrix and cross-products to float64 and using the effective penalty
+before its CV-precision conversion. The penalty must still be representable
+at the configured CV precision. Promotion cannot recover information lost
+when forming or converting the moments; it does not reconstruct the original
+training factors.
+
+There is no factor-SVD or exact-duplicate compression recovery for information
+lost in the raw weighted moments. Extreme factor scales, subnormal signals,
+and severe response cancellation are not generally recoverable. Native
+normal-equation solves and numerical-rank decisions retain their conditioning
+limits: a finite result is not an accuracy guarantee for nearly dependent
+features or very small penalties, and the finite-value checks do not detect
+every inaccurate result. A finite mathematical ridge solution may still
+exist outside the implementation's numerical range. Rescale or reparameterize
+the features, consider larger alphas, and compare sensitive results with an
+independent objective-aligned fit.
+
+With an explicit alpha grid, a design with zero slope columns retains its
+intercept-only or zero-prediction model, including weighted CV; it has no
+slope spectrum to inspect. Automatic alpha generation requires at least one
+slope column, so supply `alphas` for an empty-feature design.
 
 Both index arrays must be nonempty, one-dimensional, integral and in bounds.
 Repeated indices within either subset and overlap between the training and
@@ -736,9 +741,13 @@ fold from its explicitly supplied training subset. This optimization never
 changes the rows used to select alpha.
 
 After selection, the final refit uses all rows supplied to `fit`, including
-rows excluded from individual folds. Fit learned preprocessing within each
-training fold; use an external CV loop when needed to keep preprocessing
-restricted to the intended training rows.
+rows excluded from individual folds. RidgeCV also checks the final coefficients
+and intercept: nonfinite values raise `FloatingPointError`, leave the estimator
+unfitted with no published CV/refit results. Check data or weight scaling and
+complete a successful fit before prediction. This check does not guarantee
+accuracy of finite refit results. Fit learned preprocessing within each training fold;
+use an external CV loop when needed to keep preprocessing restricted to the
+intended training rows.
 
 ## LassoCV
 

@@ -103,7 +103,16 @@ def _snapshot_host_cluster_sequence(value, active=None, *, scalar_leaves, path=(
 
 
 def _has_masked_cluster_value(value):
-    return isinstance(value, np.ma.MaskedArray) and bool(np.any(np.ma.getmask(value)))
+    if not isinstance(value, np.ma.MaskedArray):
+        return False
+    mask = np.ma.getmask(value)
+    # Structured labels have one mask field per record field, possibly with
+    # nested records or subarrays. Reduce those booleans rather than asking
+    # NumPy to cast the structured mask itself to a scalar boolean. Ordinary
+    # boolean masks retain their direct array reduction without a Python walk.
+    if mask.dtype.names is not None:
+        mask = np.ma.flatten_mask(mask)
+    return bool(np.any(mask))
 
 
 def _validate_cluster_snapshot_missing(value):

@@ -1487,6 +1487,84 @@ def test_masked_cluster_labels_reject_actual_missing_entries_only(
     np.testing.assert_array_equal(array_labels.mask, [False, False, masked, False])
 
 
+@pytest.mark.parametrize("label_kind", ["ordinary", "record", "subarray", "nested_record"])
+@pytest.mark.parametrize("container", ["array", "column", "nested_array", "scalar_list"])
+@pytest.mark.parametrize("masked", [False, True])
+@pytest.mark.parametrize("use_estimator", [False, True], ids=["module", "estimator"])
+@pytest.mark.parametrize("backend", ["numpy", "auto"])
+def test_structured_cluster_masks_reduce_fields_without_rejecting_valid_labels(
+    label_kind, container, masked, use_estimator, backend,
+):
+    if label_kind == "ordinary":
+        data = np.array([0, 0, 1, 1])
+    elif label_kind == "record":
+        data = np.array([(0, 7), (0, 7), (1, 8), (1, 8)],
+                        dtype=[("group", "i4"), ("region", "i2")])
+    elif label_kind == "subarray":
+        data = np.array([([0, 1], 7), ([0, 1], 7), ([1, 2], 8), ([1, 2], 8)],
+                        dtype=[("group", "i4", (2,)), ("region", "i2")])
+    else:
+        data = np.array([(([0, 1], 2), 7), (([0, 1], 2), 7),
+                         (([1, 2], 3), 8), (([1, 2], 3), 8)],
+                        dtype=[("key", [("group", "i4", (2,)), ("phase", "i2")]),
+                               ("region", "i2")])
+    array_labels = np.ma.array(data, mask=False)
+    if masked:
+        if label_kind == "ordinary":
+            array_labels.mask[2] = True
+        elif label_kind == "record":
+            array_labels.mask["group"][2] = True
+        elif label_kind == "subarray":
+            array_labels.mask["group"][2, 1] = True
+        else:
+            array_labels.mask["key"]["group"][2, 1] = True
+    expected_data = array_labels.data.copy()
+    expected_mask = array_labels.mask.copy()
+    array_labels.data.flags.writeable = False
+    array_labels.mask.flags.writeable = False
+    assert resampling._has_masked_cluster_value(array_labels[2]) is masked
+
+    if container == "array":
+        labels = array_labels
+    elif container == "column":
+        labels = array_labels.reshape(-1, 1)
+    elif container == "nested_array":
+        labels = [array_labels[i:i + 1] for i in range(4)]
+    else:
+        labels = [array_labels[i] for i in range(4)]
+    values = np.array([1., 3., 10., 30.])
+    calls = []
+
+    def statistic(rows):
+        calls.append(rows.shape)
+        return np.mean(rows)
+
+    function = (LinearRegression(device="cpu").bootstrap_statistic
+                if use_estimator else bootstrap_statistic)
+    options = dict(clusters=labels, strategy="cluster", n_resamples=11,
+                   random_state=4, backend=backend)
+    if masked:
+        # The estimator's existing finite-input check converts ordinary masked
+        # scalars before this helper and emits NumPy's conversion warning.
+        warning_context = (
+            pytest.warns(UserWarning, match="converting a masked element to nan")
+            if use_estimator and label_kind == "ordinary" and container == "scalar_list"
+            else nullcontext()
+        )
+        with warning_context:
+            with pytest.raises(ValueError, match="nonmissing label per row|only finite values"):
+                function(statistic, values, **options)
+        assert calls == []
+    else:
+        result = function(statistic, values, **options)
+        expected = [values[idx].mean() for idx in
+                    _reference_indices(np.array([0, 0, 1, 1]), 4, 11)]
+        np.testing.assert_array_equal(result.samples, expected)
+        assert result.metadata["n_clusters"] == 2
+    np.testing.assert_array_equal(array_labels.data, expected_data)
+    np.testing.assert_array_equal(array_labels.mask, expected_mask)
+
+
 class _ScalarProtocolClusterLabel:
     def __init__(self, array_value, scalar_value):
         self.array_value = np.asarray(array_value)

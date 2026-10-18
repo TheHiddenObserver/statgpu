@@ -2039,6 +2039,15 @@ def test_oracle_pearson_scale_preserves_small_family_variances(
                   fit_intercept=not active_slope, max_iter=10000, tol=1e-10,
                   compute_inference=True, inference_method="oracle", cov_type="nonrobust")
     model = typed(**kwargs) if typed_entry else PenalizedGeneralizedLinearModel(loss=loss, **kwargs)
+    if loss == "tweedie" and small_units:
+        # Preserve the original requested-tolerance case: its absolute-score
+        # stop leaves a relative score of about 6.016e-9, above tol=1e-10.
+        with pytest.raises(RuntimeError, match="Tweedie response scale"):
+            model.fit(X, base * scale, sample_weight=weights)
+        _assert_failed_oracle_fit(model, X)
+        # One further Newton step reaches relative score about 3.56e-15.
+        # Keep every analytic accuracy assertion below unchanged.
+        model.set_params(tol=1e-12)
     model.fit(X, base * scale, sample_weight=weights)
     w = np.ones(len(base)) if weights is None else weights
     # For an intercept-only log-mean target the variance power cancels:
@@ -2074,11 +2083,21 @@ def test_oracle_pearson_small_scale_consumer_routes(loss, typed, scale, route):
         pd = pytest.importorskip("pandas")
         pytest.importorskip("patsy")
         data = pd.DataFrame({"y": np.r_[base * scale, np.nan], "x": np.zeros(len(base) + 1)})
+        if loss == "tweedie":
+            with pytest.raises(RuntimeError, match="Tweedie response scale"):
+                model.fit(formula="y ~ x", data=data, sample_weight=np.r_[weights, 10.])
+            _assert_failed_oracle_fit(model, np.zeros((len(base), 1)))
+            model.set_params(tol=1e-12)
         model.fit(formula="y ~ x", data=data, sample_weight=np.r_[weights, 10.])
     else:
         if route == "clone_refit":
             model = clone(model)
             model.fit(np.zeros((len(base), 1)), base, sample_weight=weights)
+        if loss == "tweedie":
+            with pytest.raises(RuntimeError, match="Tweedie response scale"):
+                model.fit(np.zeros((len(base), 1)), base * scale, sample_weight=weights)
+            _assert_failed_oracle_fit(model, np.zeros((len(base), 1)))
+            model.set_params(tol=1e-12)
         model.fit(np.zeros((len(base), 1)), base * scale, sample_weight=weights)
     expected_se = np.sqrt(np.sum(weights * (base / 2. - 1.) ** 2)
                           / ((len(base)-1) * weights.sum()))
@@ -2183,3 +2202,134 @@ def test_oracle_pearson_public_zero_residual_controls(typed, case):
         assert model._inference_result.metadata["dispersion"] == 0
         assert model._bse[0] == 0
         assert np.isnan(model._bse[1])
+
+
+@pytest.mark.parametrize("route", ["typed", "generic", "formula", "cv"])
+@pytest.mark.parametrize("penalty", ["scad", "mcp"])
+@pytest.mark.parametrize("cov_type", ["nonrobust", "hc0", "hc1"])
+@pytest.mark.parametrize("active_slopes", [False, True])
+def test_oracle_tweedie_default_relative_score_failure_routes(
+        route, penalty, cov_type, active_slopes):
+    """A small absolute gradient must not publish a nonstationary refit."""
+    X = np.repeat(np.eye(2), 15, axis=0) if active_slopes else np.zeros((30, 1))
+    y = np.tile([.8, 1., 1.2], 10) * 1e-8
+    if active_slopes:
+        y[15:] *= 2
+    weights = np.tile([1., 2., 1.], 10)
+    kwargs = dict(penalty=penalty, device="cpu", fit_intercept=not active_slopes,
+                  compute_inference=True, inference_method="oracle", cov_type=cov_type)
+    if route == "cv":
+        # CV owns its intercept and has no fit_intercept constructor control.
+        # Use an identifiable single group contrast for its active-support row.
+        kwargs.pop("fit_intercept")
+        if active_slopes:
+            X = X[:, 1:]
+        grid = [1e-12, 2e-12] if active_slopes else [.1, .2]
+        model = PenalizedGLM_CV(loss="tweedie", alpha_grid=grid, cv=2, **kwargs)
+        if active_slopes:
+            selection = clone(model).set_params(compute_inference=False)
+            selection.fit(X, y, sample_weight=weights)
+            assert np.any(np.abs(selection.coef_) > 1e-10)
+    elif route == "generic":
+        model = PenalizedGeneralizedLinearModel(loss="tweedie", alpha=.1, **kwargs)
+    else:
+        model = PenalizedTweedieRegression(alpha=.1, **kwargs)
+    assert model.tol == 1e-4
+    with pytest.raises(RuntimeError, match="Tweedie response scale"):
+        if route == "formula":
+            pd = pytest.importorskip("pandas")
+            pytest.importorskip("patsy")
+            data = pd.DataFrame({"y": y, **{f"x{i}": X[:, i] for i in range(X.shape[1])}})
+            formula = "y ~ x0 + x1 - 1" if active_slopes else "y ~ x0"
+            model.fit(formula=formula, data=data, sample_weight=weights)
+        else:
+            model.fit(X, y, sample_weight=weights)
+    _assert_failed_oracle_fit(model, X)
+
+
+@pytest.mark.parametrize("cov_type", ["nonrobust", "hc0", "hc1"])
+def test_oracle_tweedie_default_failure_recovers_at_stationary_analytic_target(cov_type):
+    X, y = np.zeros((30, 1)), np.tile([.8, 1., 1.2], 10) * 1e-8
+    model = PenalizedTweedieRegression(penalty="mcp", alpha=.1, device="cpu",
+        compute_inference=True, inference_method="oracle", cov_type=cov_type)
+    # An earlier valid result must not survive the failed small-unit refit.
+    model.fit(X, y / 1e-8)
+    with pytest.raises(RuntimeError, match="Tweedie response scale"):
+        model.fit(X, y)
+    _assert_failed_oracle_fit(model, X)
+    model.set_params(tol=1e-16)
+    model.fit(X, y)
+    expected_param = np.log(np.mean(y))
+    relative_residual = y / np.mean(y) - 1
+    variance = np.sum(relative_residual ** 2) / len(y) ** 2
+    if cov_type in ("nonrobust", "hc1"):
+        variance *= len(y) / (len(y) - 1)
+    expected_se = np.sqrt(variance)
+    result = model._inference_result
+    np.testing.assert_allclose(result.params[0], expected_param, rtol=0, atol=1e-12)
+    np.testing.assert_allclose(result.bse[0], expected_se, rtol=1e-11, atol=0)
+    np.testing.assert_allclose(result.statistic[0], expected_param / expected_se,
+                               rtol=1e-11, atol=0)
+    np.testing.assert_allclose(result.conf_int[0],
+        expected_param + expected_se * stats.norm.ppf([.025, .975]), rtol=1e-12, atol=0)
+    assert np.isnan(result.bse[1])
+
+
+@pytest.mark.parametrize("power", [1.2, 1.5, 1.8])
+@pytest.mark.parametrize("weight_exponent", [-900, 0, 900])
+@pytest.mark.parametrize("design_exponent", [-500, 0, 500])
+def test_oracle_tweedie_relative_score_preserves_weight_and_column_units(
+        power, weight_exponent, design_exponent):
+    from statgpu.glm_core import get_glm_loss
+    from statgpu.linear_model.penalized._inference_mixin import _oracle_validate_tweedie_score
+    loss = get_glm_loss("tweedie", power=power)
+    X = np.full((3, 1), np.ldexp(1., design_exponent))
+    weights = np.full(3, np.ldexp(1., weight_exponent))
+    y = np.array([.8, 1., 1.2])
+    _oracle_validate_tweedie_score(loss, X, y, np.zeros(1), weights, 1e-12)
+    with pytest.raises(RuntimeError, match="Tweedie response scale"):
+        _oracle_validate_tweedie_score(
+            loss, X, y, np.array([np.ldexp(np.log(2.), -design_exponent)]), weights, 1e-4,
+        )
+
+
+@pytest.mark.parametrize("power", [1.2, 1.5, 1.8])
+def test_oracle_tweedie_relative_score_exact_cancellation_and_effective_rows(power):
+    from statgpu.glm_core import get_glm_loss
+    from statgpu.linear_model.penalized._inference_mixin import _oracle_validate_tweedie_score
+    loss = get_glm_loss("tweedie", power=power)
+    # Nonzero individual scores cancel at a finite, no-intercept optimum.
+    # A zero design column is not a first-order failure (covariance owns rank).
+    X = np.array([[-1., 0.], [1., 0.]])
+    _oracle_validate_tweedie_score(loss, X, np.zeros(2), np.zeros(2), None, 0.)
+    # Remove zero-weight rows before evaluating a potentially overflowing eta.
+    X = np.array([[1.], [1.], [1e308]])
+    y = np.array([np.exp(3.), np.exp(3.), 1e308])
+    _oracle_validate_tweedie_score(loss, X, y, np.array([3.]), np.array([1., 1., 0.]), 0.)
+    # Arithmetic-level residuals remain legal even below machine precision.
+    _oracle_validate_tweedie_score(loss, np.ones((3, 1)), np.array([1.6, 2., 2.4]),
+                                   np.array([np.log(2.)]), None, 1e-30)
+    with pytest.raises(RuntimeError, match="Tweedie response scale"):
+        _oracle_validate_tweedie_score(loss, np.ones((3, 1)), np.array([1.6, 2., 2.4]),
+                                       np.array([np.log(2.) + 1e-10]), None, 1e-30)
+
+
+def test_oracle_tweedie_relative_score_retains_compensating_subnormal_weight():
+    from statgpu.glm_core import get_glm_loss
+    from statgpu.linear_model.penalized._inference_mixin import _oracle_validate_tweedie_score
+    loss = get_glm_loss("tweedie")
+    # Both weighted design contributions equal 2**-51, although one weight
+    # is the smallest subnormal float. Dropping that row would falsely pass.
+    X = np.array([[np.ldexp(1., 1023)], [np.ldexp(1., -51)]])
+    weights = np.array([np.nextafter(0., 1.), 1.])
+    with pytest.raises(RuntimeError, match="Tweedie response scale"):
+        _oracle_validate_tweedie_score(loss, X, np.array([2., 1.]), np.zeros(1), weights, 1e-4)
+    _oracle_validate_tweedie_score(loss, X, np.array([2., 0.]), np.zeros(1), weights, 1e-12)
+
+
+def test_oracle_tweedie_relative_score_nonfinite_quantities_raise():
+    from statgpu.glm_core import get_glm_loss
+    from statgpu.linear_model.penalized._inference_mixin import _oracle_validate_tweedie_score
+    with pytest.raises(RuntimeError, match="finite Tweedie refit scores"):
+        _oracle_validate_tweedie_score(get_glm_loss("tweedie"), np.ones((3, 1)),
+            np.array([1., 1e308, 1.]), np.array([-50.]), None, 1e-4)

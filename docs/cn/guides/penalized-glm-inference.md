@@ -149,7 +149,7 @@ $$
 
 ### 无惩罚重拟合与分布族设置
 
-接口接受 SCAD/MCP 与 `squared_error`、`logistic`、`poisson`、`gamma`、`inverse_gaussian`、`negative_binomial`、`tweedie` 的组合。非高斯重拟合明确使用 `C=0`，保留已拟合的分布族、Gamma 链接、负二项离散参数 `alpha`、Tweedie 幂参数 `power`，以及父模型的 `max_iter`、`tol`、截距约定和受支持的分析权重。logistic 和 Poisson 重拟合显式使用 `solver="irls"`，其他非高斯分布族使用 `solver="newton"`，设备均为 `device="cpu"`。若重拟合报告未收敛，则抛出 `RuntimeError`，不返回 oracle 系数表。Oracle 计算过程中发生错误时，也会清除拟合、预测和推断报告状态，包括此前成功拟合留下的状态。再次预测或读取推断结果前，须重新成功拟合模型。
+接口接受 SCAD/MCP 与 `squared_error`、`logistic`、`poisson`、`gamma`、`inverse_gaussian`、`negative_binomial`、`tweedie` 的组合。非高斯重拟合明确使用 `C=0`，保留已拟合的分布族、Gamma 链接、负二项离散参数 `alpha`、Tweedie 幂参数 `power`，以及父模型的 `max_iter`、`tol`、截距约定和受支持的分析权重。logistic 和 Poisson 重拟合显式使用 `solver="irls"`，其他非高斯分布族使用 `solver="newton"`，设备均为 `device="cpu"`。若重拟合报告未收敛，则抛出 `RuntimeError`，不返回 oracle 系数表。Tweedie oracle 重拟合还会对每个入选坐标（含截距）检查相对一阶得分：将有符号加权得分与拟合值和响应的正加权得分尺度比较，使用 `tol` 加上 float64 求和舍入误差作为容差。这避免响应尺度很小时，仅因 Newton 绝对梯度很小而误判错误的重拟合已收敛。零权重观测不参与检查，真实的有符号抵消仍然有效。检查未通过时抛出 `RuntimeError`；减小 `tol` 可使同一重拟合进一步达到驻点，若仍失败则需检查响应或设计的尺度。该检查不改变子求解器或调用方指定的迭代预算。它只检查局部驻点条件，不提供系数或协方差误差界限。Oracle 计算过程中发生错误时，也会清除拟合、预测和推断报告状态，包括此前成功拟合留下的状态。再次预测或读取推断结果前，须重新成功拟合模型。
 
 Oracle 的 HC0/HC1 协方差在计算得分外积前统一缩放权重，避免权重的共同尺度
 导致下溢或溢出，同时保留正权重观测对得分的实质贡献。
