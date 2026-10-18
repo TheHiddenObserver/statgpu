@@ -1167,3 +1167,159 @@ def test_nested_custom_object_result_retains_missing_label_rejection(use_estimat
         function(np.mean, np.arange(4.), clusters=rows, strategy="cluster",
                  n_resamples=5, backend=backend)
     assert all(dtype is None for row in rows for dtype in row.conversions)
+
+
+class _BackendConvertedClusterSequence(_LegacyClusterLabelSequence):
+    """Sequence data and backend conversion intentionally identify other groups."""
+
+    def __init__(self, raw_labels, converted_labels):
+        super().__init__(raw_labels)
+        self.converted_labels = np.asarray(converted_labels)
+        self.conversions = []
+
+
+class _GetClusterSequence(_BackendConvertedClusterSequence):
+    def get(self):
+        self.conversions.append("get")
+        return self.converted_labels
+
+
+class _CpuClusterSequence(_BackendConvertedClusterSequence):
+    def detach(self):
+        self.conversions.append("detach")
+        return self
+
+    def cpu(self):
+        self.conversions.append("cpu")
+        return self
+
+    def numpy(self):
+        self.conversions.append("numpy")
+        return self.converted_labels
+
+
+class _GetAndCpuClusterSequence(_GetClusterSequence):
+    def cpu(self):
+        raise AssertionError("the existing .get() conversion must take precedence")
+
+
+@pytest.mark.parametrize("container", [
+    _GetClusterSequence, _CpuClusterSequence, _GetAndCpuClusterSequence,
+])
+@pytest.mark.parametrize("string_labels", [False, True])
+@pytest.mark.parametrize("use_estimator", [False, True], ids=["module", "estimator"])
+@pytest.mark.parametrize("backend", ["numpy", "auto"])
+def test_backend_conversion_owns_top_level_cluster_sequence(
+    container, string_labels, use_estimator, backend,
+):
+    converted = ["nan", "nan", "None", "None"] if string_labels else [0, 0, 1, 1]
+    labels = container([0, 1, 0, 1], converted)
+    assert resampling._validate_cluster_labels_before_cast(labels) is labels
+    assert labels.conversions == []
+    values = np.array([1., 3., 10., 30.])
+    function = (LinearRegression(device="cpu").bootstrap_statistic
+                if use_estimator else bootstrap_statistic)
+    result = function(np.mean, values, clusters=labels, strategy="cluster",
+                      n_resamples=29, random_state=4, backend=backend)
+    expected = [values[idx].mean() for idx in
+                _reference_indices(np.asarray(converted), 4, 29)]
+    np.testing.assert_array_equal(result.samples, expected)
+    np.testing.assert_array_equal(result.confidence_interval,
+                                  np.quantile(expected, [.025, .975]))
+    expected_calls = 1 if use_estimator and backend == "numpy" else 2
+    call = ["detach", "cpu", "numpy"] if container is _CpuClusterSequence else ["get"]
+    assert labels.conversions == call * expected_calls
+
+
+@pytest.mark.parametrize("container", [_GetClusterSequence, _CpuClusterSequence])
+@pytest.mark.parametrize("missing", [None, np.nan])
+@pytest.mark.parametrize("use_estimator", [False, True], ids=["module", "estimator"])
+@pytest.mark.parametrize("backend", ["numpy", "auto"])
+def test_backend_converted_missing_cluster_labels_remain_invalid(
+    container, missing, use_estimator, backend,
+):
+    labels = container([0, 1, 0, 1], np.array(["a", "a", missing, "b"], dtype=object))
+    function = (LinearRegression(device="cpu").bootstrap_statistic
+                if use_estimator else bootstrap_statistic)
+    with pytest.raises(ValueError, match="nonmissing label per row"):
+        function(np.mean, np.arange(4.), clusters=labels, strategy="cluster",
+                 n_resamples=5, backend=backend)
+
+
+@pytest.mark.parametrize("protocol", ["get", "cpu"])
+def test_cluster_prevalidation_does_not_execute_backend_conversion_descriptors(protocol):
+    def forbidden(_self):
+        raise AssertionError("cluster validation must not evaluate conversion attributes")
+
+    labels_type = type("ConversionDescriptorLabels", (_LegacyClusterLabelSequence,),
+                       {protocol: property(forbidden)})
+    labels = labels_type([0, 0, 1, 1])
+    assert resampling._validate_cluster_labels_before_cast(labels) is labels
+
+
+@pytest.mark.parametrize("protocol", ["get", "cpu"])
+@pytest.mark.parametrize("invalid", [None, 7])
+@pytest.mark.parametrize("use_estimator", [False, True], ids=["module", "estimator"])
+@pytest.mark.parametrize("backend", ["numpy", "auto"])
+def test_invalid_backend_conversion_is_not_replaced_with_sequence_support(
+    protocol, invalid, use_estimator, backend,
+):
+    labels = _CpuClusterSequence([0, 0, 1, 1], [0, 0, 1, 1])
+    setattr(labels, protocol, invalid)
+    assert resampling._validate_cluster_labels_before_cast(labels) is labels
+    function = (LinearRegression(device="cpu").bootstrap_statistic
+                if use_estimator else bootstrap_statistic)
+    with pytest.raises(TypeError):
+        function(np.mean, np.arange(4.), clusters=labels, strategy="cluster",
+                 n_resamples=5, backend=backend)
+
+
+@pytest.mark.parametrize("protocol", ["detach", "numpy"])
+def test_non_dispatch_backend_attributes_do_not_disable_missing_sequence_checks(protocol):
+    labels = _LegacyClusterLabelSequence(["a", "a", np.nan, "b"])
+    setattr(labels, protocol, None)
+    with pytest.raises(ValueError, match="nonmissing label per row"):
+        resampling._validate_cluster_labels_before_cast(labels)
+
+
+@pytest.mark.parametrize("protocol", ["get", "cpu"])
+@pytest.mark.parametrize("missing", [False, True])
+def test_nested_backend_conversion_names_do_not_own_numpy_sequence_conversion(protocol, missing):
+    rows = [_LegacyClusterLabelSequence([x])
+            for x in ["a", "a", np.nan if missing else "b", "b"]]
+    for row in rows:
+        setattr(row, protocol, None)
+    if missing:
+        with pytest.raises(ValueError, match="nonmissing label per row"):
+            resampling._validate_cluster_labels_before_cast(rows)
+    else:
+        validated = resampling._validate_cluster_labels_before_cast(rows)
+        np.testing.assert_array_equal(validated, [["a"], ["a"], ["b"], ["b"]])
+
+
+@pytest.mark.parametrize("protocol", ["detach", "numpy"])
+@pytest.mark.parametrize("invalid", [None, 7])
+@pytest.mark.parametrize("use_estimator", [False, True], ids=["module", "estimator"])
+@pytest.mark.parametrize("backend", ["numpy", "auto"])
+def test_invalid_cpu_conversion_chain_retains_backend_error(
+    protocol, invalid, use_estimator, backend,
+):
+    labels = _CpuClusterSequence([0, 0, 1, 1], [0, 0, 1, 1])
+    setattr(labels, protocol, invalid)
+    function = (LinearRegression(device="cpu").bootstrap_statistic
+                if use_estimator else bootstrap_statistic)
+    with pytest.raises(TypeError):
+        function(np.mean, np.arange(4.), clusters=labels, strategy="cluster",
+                 n_resamples=5, backend=backend)
+
+
+@pytest.mark.parametrize("use_estimator", [False, True], ids=["module", "estimator"])
+@pytest.mark.parametrize("backend", ["numpy", "auto"])
+def test_missing_detach_with_cpu_hook_retains_backend_error(use_estimator, backend):
+    labels = _LegacyClusterLabelSequence([0, 0, 1, 1])
+    labels.cpu = lambda: labels
+    function = (LinearRegression(device="cpu").bootstrap_statistic
+                if use_estimator else bootstrap_statistic)
+    with pytest.raises(AttributeError, match="detach"):
+        function(np.mean, np.arange(4.), clusters=labels, strategy="cluster",
+                 n_resamples=5, backend=backend)

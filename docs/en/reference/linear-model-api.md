@@ -713,7 +713,16 @@ scale. If such an unresolved direction carries a larger response projection,
 the request raises `FloatingPointError`; a finite exact ridge solution may
 still exist. Rescale or reparameterize the features, or use larger alphas.
 This recovery uses numerical rank and does not guarantee exact resolution of
-arbitrarily small nonzero directions.
+arbitrarily small nonzero directions. When recovery encounters exactly repeated
+rows or columns of the square-root-weighted training matrix, it can combine
+them without changing the ridge objective. This additional recovery requires
+every remaining singular direction to be numerically resolved. Nonzero
+response contributions also require projection error bounds and gains in the
+normal float64 range. Other unresolved directions, or response cancellation
+that cannot be distinguished from float64 roundoff, can still raise
+`FloatingPointError`. SVD gains are scaled before squaring to avoid avoidable
+overflow; unrepresentable gains, coefficient contributions, or coefficient
+expansions raise a precision error rather than silently vanishing.
 
 Both index arrays must be nonempty, one-dimensional, integral and in bounds.
 Repeated indices within either subset and overlap between the training and

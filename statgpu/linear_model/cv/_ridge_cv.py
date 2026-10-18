@@ -279,35 +279,118 @@ def _weighted_ridge_mse(X, y, coefs, intercepts, weights):
 # GPU batch solver for Ridge
 # =============================================================================
 
+def _compress_exact_ridge_factors(X, backend):
+    """Reduce exact factor duplicates by orthogonal row/column maps.
+
+    Equality is checked on the original factors, before any scaling. Repeated
+    rows are replaced by sqrt(m) times their representative; the response is
+    kept intact and projected through the expanded left singular vectors.
+    Repeated columns are replaced by sqrt(k) times their representative, with
+    coefficients expanded as theta/sqrt(k). This preserves predictions and
+    the minimum L2 penalty, while row reduction removes only a constant loss.
+    """
+    xp = backend.xp
+
+    def unique_rows(values):
+        if backend.name == "torch":
+            return xp.unique(values, dim=0, return_inverse=True, return_counts=True)
+        return xp.unique(values, axis=0, return_inverse=True, return_counts=True)
+
+    rows, row_inverse, row_counts = unique_rows(X)
+    columns, column_inverse, column_counts = unique_rows(X.T)
+    # NumPy 2.0.0 retained the selected axis in inverse-map shapes.
+    row_inverse = row_inverse.reshape(-1)
+    column_inverse = column_inverse.reshape(-1)
+    fewer_rows = rows.shape[0] < X.shape[0]
+    fewer_columns = columns.shape[0] < X.shape[1]
+    if not fewer_rows and not fewer_columns:
+        return None
+    reduced = rows if fewer_rows else X
+    row_roots = column_roots = None
+    if fewer_columns:
+        # Every member is exactly equal, so any group representative suffices.
+        starts = xp.cumsum(column_counts, axis=0) - column_counts
+        representatives = backend.argsort(column_inverse)[starts]
+        column_roots = xp.sqrt(backend.asarray(column_counts, dtype=backend.float64))
+        reduced = reduced[:, representatives] * column_roots[None, :]
+    if fewer_rows:
+        row_roots = xp.sqrt(backend.asarray(row_counts, dtype=backend.float64))
+        reduced = reduced * row_roots[:, None]
+    return (reduced, row_inverse if fewer_rows else None, row_roots,
+            column_inverse if fewer_columns else None, column_roots)
+
+
 def _solve_ridge_path_from_factors(X_factor, y_factor, regularization, backend):
     """Recover an unresolved Gram path with native float64 factor SVD.
 
     Singular directions indistinguishable from factorization/dot-product
     roundoff are numerical null directions. A direction-specific bound avoids
     discarding independently resolved tiny columns merely because another
-    column has a larger scale.
+    column has a larger scale. Exact duplicate factors can be reduced before
+    rejecting a response-bearing ambiguous direction.
     """
     xp = backend.xp
     X_factor = backend.asarray(X_factor, dtype=backend.float64)
     y_factor = backend.asarray(y_factor, dtype=backend.float64)
-    U, singular, Vh = xp.linalg.svd(X_factor, full_matrices=False)
-    V = Vh.T
-    represented = X_factor @ V
-    reconstructed = U * singular[None, :]
-    eps = float(xp.finfo(X_factor.dtype).eps)
-    operations = int(X_factor.shape[1]) + 2
-    gamma = operations * eps / (1.0 - operations * eps)
-    dot_bound = gamma * xp.linalg.norm(xp.abs(X_factor) @ xp.abs(V), axis=0)
-    residual_bound = xp.linalg.norm(represented - reconstructed, axis=0)
-    product_bound = eps * xp.linalg.norm(reconstructed, axis=0)
-    resolved = singular > (dot_bound + residual_bound + product_bound)
-    projection = U.T @ y_factor
-    projection_operations = int(X_factor.shape[0]) + 2
-    projection_gamma = projection_operations * eps / (1.0 - projection_operations * eps)
-    projection_bound = projection_gamma * (xp.abs(U).T @ xp.abs(y_factor))
-    exact_zero = (singular == 0) & xp.all(represented == 0, axis=0)
-    ambiguous_signal = (~resolved) & (~exact_zero) & (xp.abs(projection) > projection_bound)
-    if bool(_to_float_scalar(xp.any(ambiguous_signal))):
+    row_inverse = row_roots = column_inverse = column_roots = None
+    for attempt in range(2):
+        if attempt and not bool(_to_float_scalar(xp.all(xp.isfinite(X_factor)))):
+            raise FloatingPointError(
+                "RidgeCV exact-factor reduction is not finite at float64 precision; "
+                "rescale the features."
+            )
+        U, singular, Vh = xp.linalg.svd(X_factor, full_matrices=False)
+        V = Vh.T
+        represented = X_factor @ V
+        reconstructed = U * singular[None, :]
+        eps = float(xp.finfo(X_factor.dtype).eps)
+        operations = int(X_factor.shape[1]) + 2
+        gamma = operations * eps / (1.0 - operations * eps)
+        dot_bound = gamma * xp.linalg.norm(xp.abs(X_factor) @ xp.abs(V), axis=0)
+        residual_bound = xp.linalg.norm(represented - reconstructed, axis=0)
+        product_bound = eps * xp.linalg.norm(reconstructed, axis=0)
+        resolved = singular > (dot_bound + residual_bound + product_bound)
+        # Expand the orthogonal row map rather than summing grouped responses.
+        # This retains the original response and its dot-product error bound.
+        response_basis = U if row_inverse is None else U[row_inverse]
+        response_U = response_basis if row_inverse is None else response_basis / row_roots[row_inverse, None]
+        projection = response_U.T @ y_factor
+        projection_operations = int(y_factor.shape[0]) + 2
+        projection_gamma = projection_operations * eps / (1.0 - projection_operations * eps)
+        projection_bound = projection_gamma * (xp.abs(response_U).T @ xp.abs(y_factor))
+        if attempt:
+            # Relative dot-product bounds cannot certify underflowed terms.
+            # Inspect operand support: even the absolute dot may round to zero.
+            support = xp.any((response_basis != 0) & (y_factor[:, None] != 0), axis=0)
+            lost_support = xp.any(
+                (response_basis != 0) & (response_U == 0) & (y_factor[:, None] != 0), axis=0,
+            )
+            invalid_projection = (
+                (~xp.isfinite(projection)) | (~xp.isfinite(projection_bound))
+                | lost_support
+                | (support & (projection_bound < xp.finfo(X_factor.dtype).tiny))
+                | ((projection_bound > 0) & (xp.abs(projection) <= projection_bound))
+            )
+            if bool(_to_float_scalar(xp.any(resolved & invalid_projection))):
+                raise FloatingPointError(
+                    "RidgeCV factor-SVD response projection is not resolved at "
+                    "float64 precision after combining exact duplicate factors; "
+                    "response cancellation or underflow prevents a reliable ridge path."
+                )
+        exact_zero = (singular == 0) & xp.all(represented == 0, axis=0)
+        ambiguous_signal = (~resolved) & (~exact_zero) & (xp.abs(projection) > projection_bound)
+        if attempt:
+            # A duplicate retry must resolve every remaining direction. Even
+            # an SVD-reported exact zero can hide a distinct original direction
+            # rounded away by sqrt(count) scaling. Do not widen truncation.
+            ambiguous_signal = ambiguous_signal | (~resolved)
+        if not bool(_to_float_scalar(xp.any(ambiguous_signal))):
+            break
+        if attempt == 0:
+            compressed = _compress_exact_ridge_factors(X_factor, backend)
+            if compressed is not None:
+                X_factor, row_inverse, row_roots, column_inverse, column_roots = compressed
+                continue
         raise FloatingPointError(
             "RidgeCV factor-SVD precision cannot resolve a response-bearing "
             "singular direction for the requested alphas; use larger alphas "
@@ -316,9 +399,50 @@ def _solve_ridge_path_from_factors(X_factor, y_factor, regularization, backend):
         )
     singular = xp.where(resolved, singular, xp.zeros_like(singular))
     penalty = backend.asarray(regularization, dtype=backend.float64).reshape(1, -1)
-    denominator = singular[:, None] ** 2 + penalty
-    factors = singular[:, None] / denominator
-    coefficients = V @ (factors * projection[:, None])
+    # Normalize before squaring: s**2 can overflow for a finite Gram spectrum,
+    # or underflow next to a representable subnormal penalty.
+    root_penalty = xp.sqrt(penalty)
+    scale = xp.maximum(singular[:, None], root_penalty)
+    scaled_singular = singular[:, None] / scale
+    scaled_penalty = root_penalty / scale
+    denominator = scaled_singular ** 2 + scaled_penalty ** 2
+    if not bool(_to_float_scalar(xp.all(xp.isfinite(denominator) & (denominator > 0)))):
+        raise FloatingPointError(
+            "RidgeCV factor-SVD denominators are not finite and positive at "
+            "float64 precision; rescale the data or choose different alphas."
+        )
+    # Use the original s in the penalty-dominant numerator: s/scale can lose
+    # subnormal bits before a later division by a small scale restores them.
+    singular_dominant = singular[:, None] >= root_penalty
+    safe_penalty = xp.where(singular_dominant, xp.ones_like(penalty), penalty)
+    numerator = xp.where(singular_dominant, 1. / scale, singular[:, None] / safe_penalty)
+    factors = numerator / denominator
+    response_bearing = (singular[:, None] > 0) & (projection[:, None] != 0)
+    invalid_gain = (~xp.isfinite(factors)) | (response_bearing & (factors == 0))
+    if attempt:
+        invalid_gain = invalid_gain | (response_bearing & (factors < xp.finfo(X_factor.dtype).tiny))
+    if bool(_to_float_scalar(xp.any(invalid_gain))):
+        raise FloatingPointError(
+            "RidgeCV factor-SVD gains are not resolved at float64 precision; "
+            "rescale the data or choose different alphas."
+        )
+    signals = factors * projection[:, None]
+    if bool(_to_float_scalar(xp.any(
+        (~xp.isfinite(signals)) | (response_bearing & (signals == 0))
+    ))):
+        raise FloatingPointError(
+            "RidgeCV factor-SVD coefficient signals are not representable at "
+            "float64 precision; rescale the data or choose different alphas."
+        )
+    coefficients = V @ signals
+    if column_inverse is not None:
+        expanded = coefficients[column_inverse]
+        coefficients = expanded / column_roots[column_inverse, None]
+        if bool(_to_float_scalar(xp.any((expanded != 0) & (coefficients == 0)))):
+            raise FloatingPointError(
+                "RidgeCV exact-factor coefficient expansion underflowed at "
+                "float64 precision; rescale the data or choose different alphas."
+            )
     if not bool(_to_float_scalar(xp.all(xp.isfinite(coefficients)))):
         raise FloatingPointError(
             "RidgeCV factor-SVD coefficients are not finite; rescale the data "

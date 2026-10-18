@@ -247,6 +247,8 @@ is not a general separation detector. Ordinary refit convergence checks still
 apply. With no selected coefficient and no intercept, there is no coefficient
 to refit, so the existing undefined-uncertainty behavior is preserved.
 
+For a positive standard error, the oracle z statistic is the refitted estimate divided by that standard error; its two-sided p-value uses the normal tail probability. Rescaling an estimate and its standard error by the same positive factor therefore leaves the test unchanged, provided both remain representable. A zero standard error gives a degenerate interval; do not interpret its reported statistic or p-value as a regular normal-reference test.
+
 The inference result has `method="oracle"`, a normal/z reference distribution,
 and the requested supported `cov_type`. Its metadata includes
 `refit_penalty="none"`, `refit_solver`, `refit_family_parameters`, CPU numerical

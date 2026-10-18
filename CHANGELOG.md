@@ -7,9 +7,12 @@ All notable changes to statgpu are documented here, organized by release and dat
 ### PR #249 — Oracle, cluster-label, and weighted-fold safeguards
 - For nonrobust oracle inference, rejected unknown-dispersion estimates without positive residual degrees of freedom or with vanished dispersion despite nonzero evaluated residuals. At positive dispersion, rejected nonpositive active model-based variances; retained positive-weight observation counting, genuine zero-scale fits, and fixed-dispersion family conventions.
 - Rejected boundary oracle refits without a finite unpenalized target before publishing uncertainty; cleared fitted, prediction, and inference state when oracle computation fails.
-- Rejected missing labels in supported mixed host sequences before module/estimator conversion; reused one label snapshot while preserving literal string IDs, native grouping, nested custom conversions, and existing disabled-protocol errors.
-- Stabilized oracle HC0/HC1 covariance under common weight rescaling while preserving material low-weight score contributions; rejected unstable scaling, nonfinite scores/covariance, and entirely vanished active robust covariance with nonzero effective scores, while preserving refit weights.
-- Preserved RidgeCV weighted centering and validation across extreme scales without dropping representable contributions; checked effective GPU regularization and added warned, same-device SVD recovery with explicit numerical-rank limits.
+- Rejected missing labels in supported mixed host sequences before module/estimator conversion; reused one label snapshot while preserving literal string IDs, native grouping, nested custom conversions, top-level backend-transfer hooks, and existing disabled-protocol errors.
+- Stabilized oracle HC0/HC1 covariance under common weight rescaling while preserving material low-weight score contributions; rejected unstable scaling, nonfinite scores/covariance, and entirely vanished active robust covariance with nonzero effective scores, while preserving refit weights; corrected oracle z statistics and p-values for positive standard errors without an additive floor.
+- Preserved RidgeCV weighted centering and validation across extreme scales without dropping representable contributions; checked effective GPU regularization and added warned, same-device SVD recovery with explicit numerical-rank limits and objective-preserving exact duplicate-factor recovery; scaled SVD gains before squaring and rejected unrepresentable intermediate contributions.
+
+### Validation infrastructure
+- Increased the complete Torch CPU CI job budget from 15 to 45 minutes, matching the full CPU job while retaining all focused and full-tree tests.
 
 ### Fixed RidgeCV reversed fold indices
 - Fixed Torch conversion of negative-stride training and validation indices, including reversed single-element arrays, while preserving custom row order, input arrays, validation, weighted scoring, and final refits.

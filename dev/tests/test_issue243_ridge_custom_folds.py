@@ -992,3 +992,429 @@ def test_torch_cpu_weighted_scoring_rejects_infinite_loss_and_masks_unused_rows(
         torch.tensor([[1., 0., 0.]], dtype=torch.float64), n_val_folds=[2],
     )
     assert_allclose(result.numpy(), [[1.]], rtol=0., atol=0.)
+
+
+@pytest.mark.parametrize("kind", ["repeated_rows", "duplicate_columns"])
+@pytest.mark.parametrize("mixed_precision", [False, True])
+def test_noisy_exact_duplicate_folds_match_rank_one_objective(native, kind, mixed_precision):
+    device, array = native
+    if kind == "repeated_rows":
+        direction = np.array([1., 3., 7.])
+        X = np.vstack([np.tile(direction, (3, 1)), np.eye(3)])
+        y = np.array([1., 2., 3., 0., 0., 0.])
+        weights = np.ones(6)
+        # Response variation within identical factor rows contributes only a
+        # coefficient-independent constant to the training loss.
+        train_coefs = lambda alpha: 2. * direction / (59. + alpha)
+    else:
+        x = np.array([1., 2., 3., 0.])
+        X = np.vstack([np.column_stack([x, x]), np.eye(2)])
+        y = np.array([1., 0., 3., 7., 0., 0.])
+        weights = np.array([.5, 2., 1., 0., 1., 1.])
+        mass = weights[:4].sum()
+        cross = np.dot(weights[:4] * x, y[:4]) / mass
+        gram = np.dot(weights[:4] * x, x) / mass
+        # The minimum-penalty representation assigns equal slopes to the two
+        # identical columns; their total slope has penalty alpha/2.
+        train_coefs = lambda alpha: np.full(2, cross / (2. * gram + alpha))
+    n_train = len(y) - X.shape[1]
+    train, valid = np.arange(n_train), np.arange(n_train, len(y))
+    alphas = np.array([1e-40, .1])
+    expected = np.array([
+        np.average((X[valid] @ train_coefs(alpha) - y[valid]) ** 2,
+                   weights=weights[valid]) for alpha in alphas
+    ])
+    with pytest.warns(RuntimeWarning, match="factor-SVD recovery"):
+        model = RidgeCV(
+            alphas=alphas, cv_splits=[(train, valid)], fit_intercept=False,
+            device=device, compute_inference=False,
+            gpu_cv_mixed_precision=mixed_precision,
+        ).fit(array(X), array(y), sample_weight=array(weights))
+    assert_allclose(model.cv_results_["mse_path"][:, 0], expected, rtol=2e-12, atol=2e-12)
+    assert model.alpha_ == alphas[np.argmin(expected)] == .1
+    expected_coef, expected_intercept = _solve(X, y, model.alpha_, weights, False)
+    assert_allclose(model.coef_, expected_coef, rtol=2e-10, atol=2e-10)
+    assert_allclose(model.predict(array(X)), X @ expected_coef, rtol=2e-10, atol=2e-10)
+    assert model.intercept_ == expected_intercept == 0.
+    predicted = X @ expected_coef
+    assert_allclose(model.score(array(X), y),
+                    1. - np.sum((y - predicted) ** 2) / np.sum((y - y.mean()) ** 2),
+                    rtol=2e-10, atol=2e-10)
+
+
+@pytest.mark.parametrize("scale", [1e-100, 1., 1e100])
+def test_exact_factor_duplicates_preserve_tiny_independent_directions(factor_backend, scale):
+    from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_from_factors
+    backend, device = factor_backend
+    X = scale * np.array([[1., 1., 0.], [0., -0., 1e-30],
+                         [0., 0., 0.], [1., 1., -0.]])
+    y = np.array([1., 1., 3., 2.])
+    alpha = scale ** 2 * 1e-62
+    X_native, y_native = backend.asarray(X), backend.asarray(y)
+    actual = _solve_ridge_path_from_factors(X_native, y_native, np.array([alpha]), backend)
+    _assert_native_factor_array(actual, backend, device, X_native)
+    expected = np.array([3. / (4. + 1e-62), 3. / (4. + 1e-62),
+                         1e-30 / (1e-60 + 1e-62)]) / scale
+    assert_allclose(backend.to_numpy(actual)[:, 0], expected, rtol=2e-12, atol=0.)
+    assert_array_equal(backend.to_numpy(X_native), X)
+    assert_array_equal(backend.to_numpy(y_native), y)
+
+
+def test_exact_factor_reduction_preserves_objective_and_penalty(factor_backend):
+    from statgpu.linear_model.cv._ridge_cv import _compress_exact_ridge_factors
+    backend, device = factor_backend
+    X = np.array([[1., 1., 2.], [-1., -1., 3.], [1., 1., 2.],
+                  [0., -0., 0.], [-1., -1., 3.]])
+    y = np.array([1., 4., -2., 8., 3.])
+    reduced, row_inverse, row_roots, col_inverse, col_roots = _compress_exact_ridge_factors(
+        backend.asarray(X), backend,
+    )
+    _assert_native_factor_array(reduced, backend, device)
+    reduced = backend.to_numpy(reduced)
+    ri, rr = backend.to_numpy(row_inverse), backend.to_numpy(row_roots)
+    ci, cr = backend.to_numpy(col_inverse), backend.to_numpy(col_roots)
+    grouped_y = np.array([np.sum(y[ri == group]) / rr[group] for group in range(len(rr))])
+    constant = np.sum(y ** 2) - np.sum(grouped_y ** 2)
+    for theta in [np.array([.2, -.7]), np.array([-3., 2.]), np.zeros(2)]:
+        beta = theta[ci] / cr[ci]
+        assert_allclose(X @ beta, (reduced @ theta)[ri] / rr[ri], rtol=2e-15, atol=2e-15)
+        assert_allclose(np.dot(beta, beta), np.dot(theta, theta), rtol=2e-15, atol=2e-15)
+        for alpha in [1e-40, .1, 4.]:
+            original_objective = np.sum((X @ beta - y) ** 2) + alpha * np.dot(beta, beta)
+            reduced_objective = np.sum((reduced @ theta - grouped_y) ** 2) + alpha * np.dot(theta, theta)
+            assert_allclose(original_objective, reduced_objective + constant, rtol=2e-15, atol=2e-14)
+
+
+def test_exact_factor_compression_is_lazy(monkeypatch):
+    import statgpu.linear_model.cv._ridge_cv as module
+    from statgpu.backends import get_backend
+    backend = get_backend(backend="numpy", device="cpu")
+    def unexpected(*args):
+        raise AssertionError("A resolved factor path must not inspect duplicates")
+    monkeypatch.setattr(module, "_compress_exact_ridge_factors", unexpected)
+    result = module._solve_ridge_path_from_factors(
+        np.diag([1., 1e-30]), np.ones(2), np.array([1e-62]), backend,
+    )
+    assert_allclose(result[:, 0], [1., 1e-30 / (1e-60 + 1e-62)], rtol=2e-12, atol=0.)
+
+
+@pytest.mark.parametrize("response", [
+    [1e150, -1e150, 1.], [1e308, -1e308, 1.], [1e16 + 2., -1e16, 0.],
+])
+def test_exact_factor_recovery_rejects_unresolved_response_cancellation(factor_backend, response):
+    from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_from_factors
+    backend, _ = factor_backend
+    X = backend.asarray(np.tile([1., 3., 7.], (3, 1)))
+    y = backend.asarray(np.array(response))
+    with pytest.raises(FloatingPointError, match="response projection.*not resolved"):
+        _solve_ridge_path_from_factors(X, y, np.array([1e-40, .1]), backend)
+
+
+def test_exact_factor_recovery_keeps_finite_large_response_projection(factor_backend):
+    from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_from_factors
+    backend, device = factor_backend
+    X = backend.asarray(np.tile([1., 3., 7.], (3, 1)))
+    y = backend.asarray(np.array([1e308, 1e308, -1e308]))
+    alpha = np.array([1e-40, .1])
+    result = _solve_ridge_path_from_factors(X, y, alpha, backend)
+    _assert_native_factor_array(result, backend, device, X)
+    # The response sum would overflow if positives were aggregated first.
+    # Expanding U projects the original response without that intermediate.
+    expected = (np.array([1., 3., 7.])[:, None] / (177. + alpha)[None, :]) * 1e308
+    assert_allclose(backend.to_numpy(result), expected, rtol=2e-12, atol=0.)
+
+
+@pytest.mark.parametrize("response", [np.zeros(3), np.full(3, 2.)])
+def test_zero_and_noiseless_factor_responses_do_not_enter_duplicate_retry(monkeypatch, response):
+    import statgpu.linear_model.cv._ridge_cv as module
+    from statgpu.backends import get_backend
+    def unexpected(*args):
+        raise AssertionError("An already resolved response must not enter duplicate retry")
+    monkeypatch.setattr(module, "_compress_exact_ridge_factors", unexpected)
+    result = module._solve_ridge_path_from_factors(
+        np.tile([1., 3., 7.], (3, 1)), response, np.array([1e-40, .1]),
+        get_backend(backend="numpy", device="cpu"),
+    )
+    expected = (np.mean(response) * np.array([1., 3., 7.])[:, None]
+                / (59. + np.array([1e-40, .1]) / 3.)[None, :])
+    assert_allclose(result, expected, rtol=2e-12, atol=2e-15)
+
+
+def test_exactly_cancelling_noisy_factor_response_keeps_precision_failure(factor_backend):
+    from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_from_factors
+    backend, _ = factor_backend
+    # The original guard also rejected this noisy response. Exact factor
+    # grouping must not reinterpret an unresolved response projection as zero.
+    with pytest.raises(FloatingPointError, match="response projection.*not resolved"):
+        _solve_ridge_path_from_factors(
+            backend.asarray(np.tile([1., 3., 7.], (3, 1))),
+            backend.asarray(np.array([1., -1., 0.])), np.array([1e-40]), backend,
+        )
+
+
+@pytest.mark.parametrize("intercept", [False, True])
+@pytest.mark.parametrize("weight_kind", ["unit", "varying_with_zero"])
+def test_generated_noisy_duplicate_column_folds_preserve_centering_and_selection(native, intercept, weight_kind):
+    from statgpu.cross_validation._base import kfold_indices
+    device, array = native
+    x = np.linspace(-2., 2., 12)
+    X = np.column_stack([x, x])
+    y = np.tile([1., -1.], 6) + .1 * x + (2. if intercept else 0.)
+    weights = np.ones(12) if weight_kind == "unit" else np.linspace(.2, 2., 12)
+    if weight_kind == "varying_with_zero":
+        weights[[0, 6]] = 0.
+    folds = kfold_indices(12, 3, random_state=39)
+    alphas = np.array([1e-40, .1, 10.])
+    expected = []
+    for alpha in alphas:
+        losses = []
+        for train, valid in folds:
+            w = weights[train]
+            xm = np.average(x[train], weights=w) if intercept else 0.
+            ym = np.average(y[train], weights=w) if intercept else 0.
+            gram = np.average((x[train] - xm) ** 2, weights=w)
+            cross = np.average((x[train] - xm) * (y[train] - ym), weights=w)
+            coefficient = cross / (2. * gram + alpha)
+            predictions = 2. * coefficient * (x[valid] - xm) + ym
+            losses.append(np.average((predictions - y[valid]) ** 2, weights=weights[valid]))
+        expected.append(losses)
+    expected = np.asarray(expected)
+    with pytest.warns(RuntimeWarning, match="factor-SVD recovery"):
+        model = RidgeCV(
+            alphas=alphas, cv=3, random_state=39, fit_intercept=intercept,
+            device=device, compute_inference=False, gpu_cv_mixed_precision=False,
+        ).fit(array(X), array(y), sample_weight=array(weights))
+    assert_allclose(model.cv_results_["mse_path"], expected, rtol=2e-12, atol=2e-12)
+    assert model.alpha_ == alphas[np.argmin(expected.mean(axis=1))] == 10.
+    coef, offset = _solve(X, y, model.alpha_, weights, intercept)
+    assert_allclose(model.coef_, coef, rtol=2e-10, atol=2e-10)
+    assert_allclose(model.intercept_, offset, rtol=2e-10, atol=2e-10)
+    assert_allclose(model.predict(array(X)), X @ coef + offset, rtol=2e-10, atol=2e-10)
+
+
+@pytest.mark.parametrize("exponent", [20, 49, 50, 51, 52])
+def test_duplicate_retry_preserves_remaining_near_collinear_precision_boundary(factor_backend, exponent):
+    from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_from_factors
+    backend, device = factor_backend
+    delta = 2. ** -exponent
+    core = np.array([[1., 1., 0.], [1., 1. + delta, delta]])
+    X = np.repeat(core, 3, axis=0)
+    X = np.column_stack([X, X[:, 0]])
+    y = np.arange(len(X), dtype=float) % 3
+    alpha = .01 * delta ** 2
+    if exponent != 20:
+        # The exact quotient still contains two distinct, nearly collinear
+        # rows. Dropping its unresolved direction gives roughly [1/3,1/3,0,1/3]
+        # instead of the true ridge slopes near [.40,.20,-.20,.40].
+        with pytest.raises(FloatingPointError, match="factor-SVD precision.*singular direction"):
+            _solve_ridge_path_from_factors(
+                backend.asarray(X), backend.asarray(y), np.array([alpha, .1]), backend,
+            )
+        return
+    actual = _solve_ridge_path_from_factors(
+        backend.asarray(X), backend.asarray(y), np.array([alpha]), backend,
+    )
+    _assert_native_factor_array(actual, backend, device)
+    # Each repeated row group has response mean 1. Solve the two-row dual
+    # system symbolically, expanding its determinant without cancellation.
+    t = alpha / 3.
+    determinant = 5. * delta ** 2 + 6. * t + 2. * delta * t + 2. * delta ** 2 * t + t ** 2
+    expected = np.array([2. * delta ** 2 + 2. * t,
+                         delta ** 2 + 2. * t + delta * t,
+                         delta * t - delta ** 2,
+                         2. * delta ** 2 + 2. * t]) / determinant
+    assert_allclose(backend.to_numpy(actual)[:, 0], expected, rtol=1e-8, atol=0.)
+
+
+def test_exact_factor_inverse_maps_accept_numpy_200_axis_shape(monkeypatch):
+    import statgpu.linear_model.cv._ridge_cv as module
+    from statgpu.backends import get_backend
+    original_unique = np.unique
+    def numpy_200_unique(*args, **kwargs):
+        values, inverse, counts = original_unique(*args, **kwargs)
+        return values, inverse.reshape(-1, 1), counts
+    monkeypatch.setattr(np, "unique", numpy_200_unique)
+    direction = np.array([1., 1., 2.])
+    alpha = np.array([1e-40, .1])
+    result = module._solve_ridge_path_from_factors(
+        np.tile(direction, (3, 1)), np.array([1., 2., 3.]), alpha,
+        get_backend(backend="numpy", device="cpu"),
+    )
+    expected = 2. * direction[:, None] / (6. + alpha / 3.)[None, :]
+    assert_allclose(result, expected, rtol=2e-12, atol=0.)
+
+
+@pytest.mark.parametrize("first,constant,counts", [
+    pytest.param(2.209641945357916, 2., [2, 2], id="distinct-scaled-rows"),
+    pytest.param(.8, .8, [2, 2], id="rounded-scaled-columns"),
+])
+def test_duplicate_retry_cannot_certify_original_nullspace_from_rounded_zero(
+    factor_backend, first, constant, counts,
+):
+    from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_from_factors
+    backend, _ = factor_backend
+    second = np.nextafter(first, np.inf)
+    X = np.repeat(np.array([[first, constant], [second, constant]]), counts, axis=0)
+    y = np.concatenate([
+        np.arange(count) - (count - 1.) / 2. + 1. for count in counts
+    ])
+    alpha = .01 * (second - first) ** 2
+    assert first != second
+    assert np.unique(X, axis=0).shape[0] == 2
+    assert np.unique(X.T, axis=0).shape[0] == 2
+    # Exact row grouping leaves two mathematically independent directions.
+    # Native SVD can nevertheless return singular==0 and represented==0 after
+    # sqrt(count) scaling. That is not proof of an original structural zero.
+    with pytest.raises(FloatingPointError, match="factor-SVD precision.*singular direction"):
+        _solve_ridge_path_from_factors(
+            backend.asarray(X), backend.asarray(y), np.array([alpha]), backend,
+        )
+
+
+@pytest.mark.parametrize("response_scale,count,success", [
+    pytest.param(1e-200, 3, True, id="normal-bound"),
+    pytest.param(1e-300, 3, False, id="subnormal-bound"),
+    pytest.param(1e-320, 3, False, id="zero-bound"),
+    pytest.param(np.nextafter(0., 1.), 4, False, id="zero-absolute-dot"),
+])
+def test_duplicate_retry_certifies_nonzero_projection_bound(
+    factor_backend, response_scale, count, success,
+):
+    from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_from_factors
+    backend, device = factor_backend
+    direction = np.array([1., 3., 7.])
+    X = backend.asarray(1e-150 * np.tile(direction, (count, 1)))
+    response = np.zeros(count)
+    response[0] = response_scale
+    y = backend.asarray(response)
+    penalty = np.array([np.nextafter(0., 1.)])
+    if not success:
+        with pytest.raises(FloatingPointError, match="response projection.*not resolved"):
+            _solve_ridge_path_from_factors(X, y, penalty, backend)
+        return
+    actual = _solve_ridge_path_from_factors(X, y, penalty, backend)
+    _assert_native_factor_array(actual, backend, device, X)
+    expected = (response_scale / 1e-150) * direction / (count * 59.)
+    assert_allclose(backend.to_numpy(actual)[:, 0], expected, rtol=2e-12, atol=0.)
+
+
+@pytest.mark.parametrize("large_penalty,success", [
+    pytest.param(1e100, True, id="normal-gain"),
+    pytest.param(1e123, False, id="subnormal-gain"),
+    pytest.param(1e200, False, id="zero-gain"),
+])
+def test_duplicate_retry_certifies_mixed_grid_gains(factor_backend, large_penalty, success):
+    from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_gpu_from_gram_eig
+    backend, device = factor_backend
+    X = backend.asarray(np.array([[1., 1., 0.], [0., 0., 1e-200],
+                                  [0., 0., 0.], [1., 1., 0.]]))
+    y = backend.asarray(np.array([1., 1e200, 3., 2.]))
+    penalty = np.array([1e-40, large_penalty])
+    def solve():
+        return _solve_ridge_path_gpu_from_gram_eig(
+            (X.T @ X)[None], (X.T @ y)[None], penalty, backend,
+            factor_factory=lambda fold: (X, y),
+        )
+    if not success:
+        with pytest.raises(FloatingPointError, match="factor-SVD gains.*not resolved"):
+            solve()
+        return
+    with pytest.warns(RuntimeWarning, match="factor-SVD recovery"):
+        actual = solve()
+    _assert_native_factor_array(actual, backend, device, X)
+    # The tiny independent coordinate has X'y=1 and negligible X'X.
+    expected = np.column_stack([3. / (4. + penalty), 3. / (4. + penalty), 1. / penalty])
+    assert_allclose(backend.to_numpy(actual)[:, 0], expected, rtol=2e-12, atol=0.)
+
+
+@pytest.mark.parametrize("stage", ["modal_product", "column_expansion"])
+def test_factor_path_rejects_nonzero_product_or_expansion_underflow(factor_backend, stage):
+    from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_from_factors
+    backend, _ = factor_backend
+    if stage == "modal_product":
+        X = np.tile([1., 3., 7.], (3, 1))
+        y = np.array([1., 2., 3.]) * 1e-200
+        penalty = np.array([1e-40, 1e200])
+        message = "coefficient signals.*not representable"
+    else:
+        X = np.ones((3, 16)) * 1e30
+        y = np.array([1., 2., 3.]) * 1e-293
+        penalty = np.array([1e-40])
+        message = "coefficient expansion underflowed"
+    with pytest.raises(FloatingPointError, match=message):
+        _solve_ridge_path_from_factors(backend.asarray(X), backend.asarray(y), penalty, backend)
+
+
+def test_duplicate_retry_retains_representable_subnormal_coefficient_signal(factor_backend):
+    from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_from_factors
+    backend, device = factor_backend
+    X = backend.asarray(np.array([[1., 1., 0.], [0., 0., 1e-100],
+                                  [0., 0., 0.], [1., 1., 0.]]))
+    y = backend.asarray(np.array([1e-150, 1e-250, 3e-150, 2e-150]))
+    actual = _solve_ridge_path_from_factors(X, y, np.array([1e-40]), backend)
+    _assert_native_factor_array(actual, backend, device, X)
+    assert_allclose(backend.to_numpy(actual)[:, 0], [7.5e-151, 7.5e-151, 1e-310],
+                    rtol=2e-12, atol=0.)
+
+
+def test_factor_path_normalized_gain_preserves_finite_gram_overflow_boundary(factor_backend):
+    from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_gpu_from_gram_eig
+    backend, device = factor_backend
+    scale = 5.4737146662668906e153
+    X = backend.asarray(np.tile([scale, scale], (3, 1)))
+    y = backend.asarray(np.array([1., 2., 3.]))
+    gram = X.T @ X
+    assert np.all(np.isfinite(backend.to_numpy(gram)))
+    with pytest.warns(RuntimeWarning, match="factor-SVD recovery"):
+        actual = _solve_ridge_path_gpu_from_gram_eig(
+            gram[None], (X.T @ y)[None], np.array([1e-40]), backend,
+            factor_factory=lambda fold: (X, y),
+        )
+    _assert_native_factor_array(actual, backend, device, X)
+    # Exact rank-one ridge: each slope tends to mean(y)/(2*scale).
+    assert_allclose(backend.to_numpy(actual)[0, 0], [1. / scale, 1. / scale],
+                    rtol=2e-12, atol=0.)
+
+
+def test_factor_path_penalty_dominant_gain_retains_subnormal_singular_bits(factor_backend):
+    from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_from_factors
+    backend, device = factor_backend
+    singular = 9.4e-323
+    penalty = 3.196839587747213e-17
+    X = backend.asarray(np.diag([1., singular]))
+    actual = _solve_ridge_path_from_factors(
+        X, backend.asarray(np.ones(2)), np.array([penalty]), backend,
+    )
+    _assert_native_factor_array(actual, backend, device, X)
+    # The singular square is negligible. Dividing s by sqrt(penalty) first
+    # would quantize a subnormal numerator although s/penalty is normal.
+    assert_allclose(backend.to_numpy(actual)[:, 0], [1. / (1. + penalty), singular / penalty],
+                    rtol=2e-12, atol=0.)
+
+
+@pytest.mark.parametrize("case", ["projection", "subnormal_gain", "zero_gain"])
+def test_public_duplicate_recovery_rejects_unreliable_arithmetic(native, case):
+    device, array = native
+    if case == "projection":
+        tiny = np.nextafter(0., 1.)
+        X = np.vstack([1e-150 * np.tile([1., 3., 7.], (3, 1)), [1e150, 0., 0.]])
+        y = np.array([tiny, 0., 0., 0.])
+        alphas = np.array([tiny])
+        train, valid = np.arange(3), np.array([3])
+        message = "response projection.*not resolved"
+        # The true validation loss is ((tiny/1e-150)/177*1e150)**2.
+        # Rounded subnormal projections previously inflated it by a factor 9.
+    else:
+        X = np.array([[1., 1., 0.], [0., 0., 1e-200], [0., 0., 0.],
+                      [1., 1., 0.], [0., 0., 1e100]])
+        y = np.array([1., 1e200, 3., 2., 0.])
+        large = 1e123 if case == "subnormal_gain" else 1e200
+        alphas = np.array([1e-40, large]) / 4.
+        train, valid = np.arange(4), np.array([4])
+        message = "factor-SVD gains.*not resolved"
+        # The large-penalty validation loss is (1e100/large)**2, not zero.
+    with pytest.raises(FloatingPointError, match=message):
+        RidgeCV(
+            alphas=alphas, cv_splits=[(train, valid)], fit_intercept=False,
+            device=device, compute_inference=False, gpu_cv_mixed_precision=False,
+        ).fit(array(X), array(y), sample_weight=array(np.ones(len(y))))

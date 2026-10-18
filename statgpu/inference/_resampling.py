@@ -111,6 +111,16 @@ def _validate_cluster_labels_before_cast(clusters):
     Native arrays and custom conversion protocols retain their existing path.
     Already-stringified labels remain literal IDs.
     """
+    # Backend conversion owns top-level .get() and .detach().cpu().numpy()
+    # inputs, including present-but-invalid attributes. Do not execute them or
+    # replace their result/error with sequence iteration. These hooks do not
+    # apply to nested sequences, which NumPy converts through its own protocols.
+    if any(
+        getattr_static(clusters, protocol, _ABSENT_CLUSTER_ATTRIBUTE)
+        is not _ABSENT_CLUSTER_ATTRIBUTE
+        for protocol in ("get", "cpu")
+    ):
+        return clusters
     snapshot = None
     if isinstance(clusters, np.ndarray):
         if clusters.dtype.kind != "O":

@@ -1696,6 +1696,21 @@ class _PenalizedInferenceMixin:
                         "in its covariance. Review response/design scaling, or set "
                         "compute_inference=False."
                     )
+            # A positive standard error defines z = estimate / SE without an
+            # additive floor: jointly rescaling an estimate and its positive
+            # SE must preserve the test while both remain representable. Keep the shared
+            # engine's existing convention only for exactly zero uncertainty.
+            positive_se = np.asarray(result["bse"]) > 0
+            if np.any(positive_se):
+                from statgpu.inference import get_distribution
+                with np.errstate(over="ignore"):
+                    result["statistic"][positive_se] = (
+                        params_active[positive_se] / result["bse"][positive_se]
+                    )
+                normal = get_distribution("norm", backend="numpy")
+                result["pvalues"][positive_se] = 2 * normal.sf(
+                    np.abs(result["statistic"][positive_se])
+                )
             active_idx = np.flatnonzero(active) + offset
             if offset:
                 active_idx = np.concatenate([[0], active_idx])
