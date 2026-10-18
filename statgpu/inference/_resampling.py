@@ -54,9 +54,25 @@ def _is_plain_host_cluster_sequence(value):
     )
 
 
-def _snapshot_host_cluster_sequence(value, active=None):
+def _snapshot_host_cluster_sequence(value, active=None, *, scalar_leaves, path=()):
     """Read ordinary sequences once, retaining scalar and nested-array types."""
     if not _is_plain_host_cluster_sequence(value):
+        if not isinstance(
+            value, (np.ndarray, np.generic, Number, str, bytes, UserString)
+        ) and _has_custom_cluster_conversion(value):
+            # NumPy owns conversion of leaves inside a host sequence. Retain
+            # that one dtype-inferred result so missing numeric labels are
+            # checked before string siblings can promote them to literal IDs.
+            # Do not use backend .get()/.cpu() hooks or coerce to object dtype.
+            converted = np.asarray(value)
+            if converted.ndim == 0:
+                # A 0-D protocol result supplies dtype discovery, but NumPy
+                # packs the original scalar using the final promoted dtype
+                # (for example __float__ or __str__). Retain that distinction
+                # without calling the custom array protocol a second time.
+                scalar_leaves.append((path, value))
+                return np.zeros((), dtype=converted.dtype)
+            return converted
         return value
     # Homogeneous buffers retain their exact dtype/shape and do not require
     # Python iteration (multidimensional memoryviews cannot be iterated).
@@ -76,13 +92,24 @@ def _snapshot_host_cluster_sequence(value, active=None):
         raise ValueError("clusters must be a non-cyclic sequence of row labels")
     active.add(identity)
     try:
-        return [_snapshot_host_cluster_sequence(item, active) for item in value]
+        return [
+            _snapshot_host_cluster_sequence(
+                item, active, scalar_leaves=scalar_leaves, path=path + (index,)
+            )
+            for index, item in enumerate(value)
+        ]
     finally:
         active.remove(identity)
 
 
+def _has_masked_cluster_value(value):
+    return isinstance(value, np.ma.MaskedArray) and bool(np.any(np.ma.getmask(value)))
+
+
 def _validate_cluster_snapshot_missing(value):
     """Check retained ordinary values without coercing custom array leaves."""
+    if _has_masked_cluster_value(value):
+        raise ValueError("missing cluster label")
     if isinstance(value, list):
         for item in value:
             _validate_cluster_snapshot_missing(item)
@@ -122,25 +149,41 @@ def _validate_cluster_labels_before_cast(clusters):
     ):
         return clusters
     snapshot = None
+    scalar_leaves = []
     if isinstance(clusters, np.ndarray):
+        if _has_masked_cluster_value(clusters):
+            raise ValueError("clusters must contain one nonmissing label per row")
         if clusters.dtype.kind != "O":
             return clusters
         labels = clusters
     elif _is_plain_host_cluster_sequence(clusters):
-        snapshot = _snapshot_host_cluster_sequence(clusters)
+        snapshot = _snapshot_host_cluster_sequence(clusters, scalar_leaves=scalar_leaves)
     else:
         return clusters
     try:
         if snapshot is not None:
             _validate_cluster_snapshot_missing(snapshot)
-        elif any(label is None or bool(label != label) for label in labels.flat):
+        elif any(
+            label is None or _has_masked_cluster_value(label) or bool(label != label)
+            for label in labels.flat
+        ):
             raise ValueError("missing cluster label")
     except (TypeError, ValueError) as exc:
         # pandas.NA has ambiguous truth, while NaN/NaT are not self-equal.
         raise ValueError("clusters must contain one nonmissing label per row") from exc
     # Infer from the retained raw values, rather than labels.tolist(): object
     # coercion can widen nested float32 scalars and change mixed string IDs.
-    return np.asarray(snapshot) if snapshot is not None else clusters
+    if snapshot is None:
+        return clusters
+    converted = np.asarray(snapshot)
+    for path, original in scalar_leaves:
+        converted[path] = original
+    if scalar_leaves:
+        try:
+            _validate_cluster_snapshot_missing(converted)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("clusters must contain one nonmissing label per row") from exc
+    return converted
 
 
 def _count_elts(arr):

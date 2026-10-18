@@ -5,6 +5,9 @@ All notable changes to statgpu are documented here, organized by release and dat
 ## Unreleased — 2026-10-18
 
 ### PR #249 — Oracle, cluster-label, and weighted-fold safeguards
+- Corrected Gamma/Tweedie nonrobust oracle Pearson dispersion without an absolute family-variance floor, preserving response-scale behavior at representable small means.
+- Recovered weighted RidgeCV folds with subnormal Gram scales through the existing same-device float64 factor-SVD path, preserving computable alpha selection instead of rounding away the training signal.
+- Rejected actual masked cluster entries and numeric missing values returned by nested array converters before sibling string promotion, while reusing dtype-inferred conversion and retaining valid literal IDs.
 - For nonrobust oracle inference, rejected unknown-dispersion estimates without positive residual degrees of freedom or with vanished dispersion despite nonzero evaluated residuals. At positive dispersion, rejected nonpositive active model-based variances; retained positive-weight observation counting, genuine zero-scale fits, and fixed-dispersion family conventions.
 - Rejected boundary oracle refits without a finite unpenalized target before publishing uncertainty; cleared fitted, prediction, and inference state when oracle computation fails.
 - Rejected missing labels in supported mixed host sequences before module/estimator conversion; reused one label snapshot while preserving literal string IDs, native grouping, nested custom conversions, top-level backend-transfer hooks, and existing disabled-protocol errors.

@@ -1418,3 +1418,136 @@ def test_public_duplicate_recovery_rejects_unreliable_arithmetic(native, case):
             alphas=alphas, cv_splits=[(train, valid)], fit_intercept=False,
             device=device, compute_inference=False, gpu_cv_mixed_precision=False,
         ).fit(array(X), array(y), sample_weight=array(np.ones(len(y))))
+
+
+def _decimal_constant_ridge_path(feature, responses, alphas, n_features=1):
+    """Evaluate the scalar rank-one objective without float64 products."""
+    from decimal import Decimal, localcontext
+    with localcontext() as context:
+        context.prec = 100
+        x = Decimal.from_float(float(feature))
+        response_mean = sum(Decimal.from_float(float(y)) for y in responses) / len(responses)
+        return np.array([
+            float(x * response_mean / (n_features * x * x + Decimal.from_float(float(alpha))))
+            for alpha in alphas
+        ])
+
+
+@pytest.mark.parametrize("feature,penalty", [(1e-162, np.nextafter(0., 1.)), (2e-161, 1e-322)])
+@pytest.mark.parametrize("n_features", [1, 2])
+def test_public_subnormal_weighted_gram_preserves_selection_and_refit(native, feature, penalty, n_features):
+    device, array = native
+    X = np.full((4, n_features), feature)
+    y = np.array([1., 1., .14, .14])
+    weights = np.full(4, 1e300)
+    alphas = penalty * np.array([1., 2., 4.])
+    expected_slopes = _decimal_constant_ridge_path(feature, y[:2], alphas, n_features)
+    expected_predictions = n_features * feature * expected_slopes
+    expected_mse = np.mean((expected_predictions[:, None] - y[None, 2:]) ** 2, axis=1)
+    selected = alphas[np.argmin(expected_mse)]
+    expected_final = _decimal_constant_ridge_path(feature, y, [selected], n_features)[0]
+    # Raw weighted moments are normal and the final direct fit is computable.
+    # Dividing the weights first used to make the CV Gram subnormal or zero,
+    # silently changing its objective and (for the first case) selected alpha.
+    assert np.all(np.isfinite((X * weights[:, None]).T @ X))
+    with pytest.warns(RuntimeWarning, match="same-device float64 factor-SVD recovery"):
+        model = RidgeCV(
+            alphas=alphas, cv_splits=[([0, 1], [2, 3])], fit_intercept=False,
+            device=device, compute_inference=False, gpu_cv_mixed_precision=False,
+        ).fit(array(X), array(y), sample_weight=array(weights))
+    assert_allclose(model.cv_results_["mse_path"][:, 0], expected_mse, rtol=2e-12, atol=0.)
+    assert model.alpha_ == selected
+    assert_allclose(model.coef_, np.full(n_features, expected_final), rtol=2e-12, atol=0.)
+    assert model.intercept_ == 0.
+    assert model._fitted and model.estimator_._fitted
+
+
+@pytest.mark.parametrize("dtype_name,feature,penalty", [
+    ("float32", 1e-23, float(np.nextafter(np.float32(0.), np.float32(1.)))),
+    ("float32", 2e-22, 1e-44),
+    ("float64", 1e-162, np.nextafter(0., 1.)),
+    ("float64", 2e-161, 1e-322),
+])
+@pytest.mark.parametrize("n_features", [1, 2])
+def test_native_subnormal_gram_uses_original_factor_precision(
+    factor_backend, dtype_name, feature, penalty, n_features,
+):
+    from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_gpu_from_gram_eig
+    backend, device = factor_backend
+    original_X = backend.asarray(np.full((2, n_features), feature / np.sqrt(2.)), dtype=backend.float64)
+    original_y = backend.asarray(np.ones(2) / np.sqrt(2.), dtype=backend.float64)
+    dtype = getattr(backend, dtype_name)
+    narrowed_X = backend.asarray(original_X, dtype=dtype)
+    narrowed_y = backend.asarray(original_y, dtype=dtype)
+    gram = (narrowed_X.T @ narrowed_X)[None]
+    cross = (narrowed_X.T @ narrowed_y)[None]
+    # Use exact representable penalties at the Gram precision so this test
+    # isolates lost Gram products rather than penalty-casting accuracy.
+    alphas = backend.to_numpy(backend.asarray(penalty * np.array([1., 2., 4.]), dtype=dtype)).astype(np.float64)
+    assert np.all(alphas > 0)
+    gram_before, cross_before = backend.to_numpy(gram).copy(), backend.to_numpy(cross).copy()
+    assert np.max(abs(gram_before)) < np.finfo(getattr(np, dtype_name)).tiny
+    calls = []
+    def factors(fold):
+        calls.append(fold)
+        return original_X, original_y
+    with pytest.warns(RuntimeWarning, match="factor-SVD recovery"):
+        actual = _solve_ridge_path_gpu_from_gram_eig(gram, cross, alphas, backend, factor_factory=factors)
+    expected = _decimal_constant_ridge_path(feature, [1., 1.], alphas, n_features)
+    _assert_native_factor_array(actual, backend, device, original_X)
+    assert_allclose(backend.to_numpy(actual)[:, 0], np.repeat(expected[:, None], n_features, axis=1), rtol=2e-12, atol=0.)
+    assert calls == [0]
+    assert_array_equal(backend.to_numpy(gram), gram_before)
+    assert_array_equal(backend.to_numpy(cross), cross_before)
+
+
+@pytest.mark.parametrize("feature,penalty", [(1., .1), (1e-150, 1e-300), (1e-162, 1e-300)])
+def test_resolved_gram_or_dominating_penalty_does_not_request_factor_recovery(factor_backend, feature, penalty):
+    from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_gpu_from_gram_eig
+    backend, device = factor_backend
+    X = backend.asarray(np.full((2, 1), feature / np.sqrt(2.)), dtype=backend.float64)
+    y = backend.asarray(np.ones(2) / np.sqrt(2.), dtype=backend.float64)
+    def unexpected(fold):
+        raise AssertionError("Resolved system requested factor recovery")
+    actual = _solve_ridge_path_gpu_from_gram_eig(
+        (X.T @ X)[None], (X.T @ y)[None], np.array([penalty]), backend,
+        factor_factory=unexpected,
+    )
+    expected = _decimal_constant_ridge_path(feature, [1., 1.], [penalty])
+    _assert_native_factor_array(actual, backend, device, X)
+    assert_allclose(backend.to_numpy(actual)[:, 0, 0], expected, rtol=2e-12, atol=0.)
+
+
+@pytest.mark.parametrize("dtype_name,feature,penalty", [
+    ("float32", 1e-23, float(np.nextafter(np.float32(0.), np.float32(1.)))),
+    ("float64", 1e-162, np.nextafter(0., 1.)),
+])
+def test_subnormal_recovery_is_fold_local_and_keeps_effective_penalty(factor_backend, dtype_name, feature, penalty):
+    from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_gpu_from_gram_eig
+    backend, device = factor_backend
+    factors_X = [backend.asarray(np.ones((2, 1)), dtype=backend.float64),
+                 backend.asarray(np.full((3, 1), feature), dtype=backend.float64)]
+    factors_y = [backend.asarray(np.ones(2), dtype=backend.float64),
+                 backend.asarray(np.ones(3), dtype=backend.float64)]
+    dtype = getattr(backend, dtype_name)
+    narrowed_X = [backend.asarray(x, dtype=dtype) for x in factors_X]
+    narrowed_y = [backend.asarray(y, dtype=dtype) for y in factors_y]
+    gram = backend.stack([x.T @ x for x in narrowed_X], axis=0)
+    cross = backend.stack([x.T @ y for x, y in zip(narrowed_X, narrowed_y)], axis=0)
+    alphas = np.array([penalty, 4 * penalty, 1.])
+    calls = []
+    def factors(fold):
+        calls.append(fold)
+        return factors_X[fold], factors_y[fold]
+    with pytest.warns(RuntimeWarning, match=r"recovery for 1 fold\(s\)"):
+        actual = _solve_ridge_path_gpu_from_gram_eig(
+            gram, cross, alphas, backend, n_samples_vec=np.array([2., 3.]),
+            factor_factory=factors,
+        )
+    expected = np.column_stack([
+        _decimal_constant_ridge_path(1., [1., 1.], alphas),
+        _decimal_constant_ridge_path(feature, [1., 1., 1.], alphas),
+    ])
+    assert calls == [1]
+    _assert_native_factor_array(actual, backend, device, factors_X[0])
+    assert_allclose(backend.to_numpy(actual)[:, :, 0], expected, rtol=2e-12, atol=0.)

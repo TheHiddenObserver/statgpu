@@ -2014,3 +2014,172 @@ def test_oracle_tiny_positive_se_cv_final_refit_reports_correct_test(penalty, co
     assert result is model.estimator_._inference_result
     assert model.penalty_conditioning_ == "cv_selected_penalty"
     assert model.penalty_selection_adjusted_ is False
+
+
+@pytest.mark.parametrize("loss,typed,small_scale", [
+    ("gamma", PenalizedGammaRegression, 1e-6),
+    ("tweedie", PenalizedTweedieRegression, 1e-8),
+])
+@pytest.mark.parametrize("typed_entry", [False, True])
+@pytest.mark.parametrize("penalty", ["scad", "mcp"])
+@pytest.mark.parametrize("small_units", [False, True])
+@pytest.mark.parametrize("weight_mode", ["unweighted", "weighted", "zero_tail"])
+@pytest.mark.parametrize("active_slope", [False, True])
+def test_oracle_pearson_scale_preserves_small_family_variances(
+        loss, typed, small_scale, typed_entry, penalty, small_units,
+        weight_mode, active_slope):
+    base = np.tile([1.6, 2., 2.4], 4)
+    weights = None if weight_mode == "unweighted" else np.tile([1., 2., 1.], 4)
+    if weight_mode == "zero_tail":
+        base = np.r_[base, 100.]
+        weights = np.r_[weights, 0.]
+    scale = small_scale if small_units else 1.
+    X = np.ones((len(base), 1)) if active_slope else np.zeros((len(base), 1))
+    kwargs = dict(penalty=penalty, alpha=.1, device="cpu",
+                  fit_intercept=not active_slope, max_iter=10000, tol=1e-10,
+                  compute_inference=True, inference_method="oracle", cov_type="nonrobust")
+    model = typed(**kwargs) if typed_entry else PenalizedGeneralizedLinearModel(loss=loss, **kwargs)
+    model.fit(X, base * scale, sample_weight=weights)
+    w = np.ones(len(base)) if weights is None else weights
+    # For an intercept-only log-mean target the variance power cancels:
+    # phi / sum(w * mu**(2-power)) = sum(w*(y/mu-1)**2)/((n-1)*sum(w)).
+    expected_se = np.sqrt(np.sum(w * (base / 2. - 1.) ** 2) / ((len(base)-1) * w.sum()))
+    expected_param = np.log(2. * scale)
+    power = 2. if loss == "gamma" else 1.5
+    expected_dispersion = expected_se ** 2 * w.sum() * (2. * scale) ** (2. - power)
+    result = model._inference_result
+    assert result.metadata["n_active"] == int(active_slope)
+    np.testing.assert_allclose(result.params[0], expected_param, rtol=1e-7, atol=1e-9)
+    np.testing.assert_allclose(result.bse[0], expected_se, rtol=1e-7, atol=0)
+    np.testing.assert_allclose(result.metadata["dispersion"], expected_dispersion, rtol=2e-7, atol=0)
+    np.testing.assert_allclose(result.statistic[0], expected_param / expected_se, rtol=2e-7, atol=0)
+    np.testing.assert_allclose(result.conf_int[0],
+        expected_param + expected_se * stats.norm.ppf([.025, .975]), rtol=1e-7, atol=1e-9)
+    assert result.method == "oracle" and result.metadata["refit_penalty"] == "none"
+
+
+@pytest.mark.parametrize("loss,typed,scale", [
+    ("gamma", PenalizedGammaRegression, 1e-6),
+    ("tweedie", PenalizedTweedieRegression, 1e-8),
+])
+@pytest.mark.parametrize("route", ["formula", "cv", "clone_refit"])
+def test_oracle_pearson_small_scale_consumer_routes(loss, typed, scale, route):
+    base = np.tile([1.6, 2., 2.4], 6)
+    weights = np.tile([1., 2., 1.], 6)
+    kwargs = dict(penalty="mcp", device="cpu", max_iter=10000, tol=1e-10,
+                  compute_inference=True, inference_method="oracle", cov_type="nonrobust")
+    model = (PenalizedGLM_CV(loss=loss, alpha_grid=[.1, .2], cv=2, **kwargs)
+             if route == "cv" else typed(alpha=.1, **kwargs))
+    if route == "formula":
+        pd = pytest.importorskip("pandas")
+        pytest.importorskip("patsy")
+        data = pd.DataFrame({"y": np.r_[base * scale, np.nan], "x": np.zeros(len(base) + 1)})
+        model.fit(formula="y ~ x", data=data, sample_weight=np.r_[weights, 10.])
+    else:
+        if route == "clone_refit":
+            model = clone(model)
+            model.fit(np.zeros((len(base), 1)), base, sample_weight=weights)
+        model.fit(np.zeros((len(base), 1)), base * scale, sample_weight=weights)
+    expected_se = np.sqrt(np.sum(weights * (base / 2. - 1.) ** 2)
+                          / ((len(base)-1) * weights.sum()))
+    np.testing.assert_allclose(model._inference_result.bse[0], expected_se, rtol=1e-7, atol=0)
+    if route == "cv":
+        assert model._inference_result is model.estimator_._inference_result
+        assert model.penalty_conditioning_ == "cv_selected_penalty"
+
+
+@pytest.mark.parametrize("loss,settings,typed,typed_settings", [FAMILIES[4], FAMILIES[5]])
+@pytest.mark.parametrize("typed_entry", [False, True])
+@pytest.mark.parametrize("cov_type", ["nonrobust", "hc0", "hc1"])
+def test_oracle_pearson_correction_preserves_inverse_link_and_inverse_gaussian(
+        loss, settings, typed, typed_settings, typed_entry, cov_type):
+    base = np.tile([.8, 1., 1.2], 4)
+    weights = np.tile([1., 2., 1.], 4)
+    kwargs = dict(penalty="scad", alpha=.1, device="cpu", max_iter=10000, tol=1e-10,
+                  compute_inference=True, inference_method="oracle", cov_type=cov_type)
+    model = (typed(**typed_settings, **kwargs) if typed_entry else
+             PenalizedGeneralizedLinearModel(loss=loss, loss_kwargs=settings, **kwargs))
+    for scale in (.5, 2.):
+        model.fit(np.zeros((len(base), 1)), base * scale, sample_weight=weights)
+        # The symmetric analytic weights give mean=scale exactly. Use the
+        # closed-form score root instead of asking a generic root solver to
+        # distinguish the IG score's asymptotic zero at positive infinity.
+        expected = 1. / scale if loss == "gamma" else np.log(scale)
+        if cov_type == "nonrobust":
+            variance = np.sum(weights * (base - 1.) ** 2) / ((len(base)-1) * weights.sum())
+        else:
+            variance = np.sum(weights ** 2 * (base - 1.) ** 2) / weights.sum() ** 2
+            if cov_type == "hc1":
+                variance *= len(base) / (len(base)-1)
+        se = np.sqrt(variance) / (scale if loss == "gamma" else 1.)
+        np.testing.assert_allclose(model._params[:1], expected, rtol=1e-7, atol=1e-9)
+        np.testing.assert_allclose(model._bse[:1], se, rtol=1e-7, atol=0)
+
+
+@pytest.mark.parametrize("loss,settings", [("gamma", {}), ("tweedie", {"power": 1.5})])
+@pytest.mark.parametrize("case", ["exact", "partial", "zero_weight", "large_residual", "large_weight"])
+def test_oracle_pearson_dispersion_uses_stable_standardized_residuals(loss, settings, case):
+    from statgpu.glm_core import get_glm_loss
+    from statgpu.linear_model.penalized._inference_mixin import _oracle_pearson_dispersion
+    family = get_glm_loss(loss, **settings)
+    power = 2. if loss == "gamma" else settings["power"]
+    eta = 20. if case in ("large_residual", "large_weight") else 0.
+    mu = np.exp(eta)
+    y = np.full(3, mu)
+    weights = np.ones(3)
+    if case == "partial":
+        y[1:] = [.8, 1.2]
+    elif case == "zero_weight":
+        y[-1], weights[-1] = 1e300, 0.
+    elif case == "large_residual":
+        y[1] = 1e160
+    elif case == "large_weight":
+        y[1] = 2. * mu
+        weights[1] = 1e300
+    # Decimal is independent of the production float64 scaling helpers and
+    # retains its range on platforms where longdouble equals float64.
+    from decimal import Decimal, localcontext
+    with localcontext() as context:
+        context.prec = 80
+        mean = Decimal.from_float(mu)
+        variance = mean ** Decimal(str(power))
+        expected = sum(Decimal.from_float(float(w))
+                       * (Decimal.from_float(float(value)) - mean) ** 2 / variance
+                       for value, w in zip(y, weights)) / 2
+    actual = _oracle_pearson_dispersion(family, np.ones((3, 1)), y, np.array([eta]), weights)
+    assert np.isfinite(float(expected))
+    np.testing.assert_allclose(actual, float(expected), rtol=1e-13, atol=0)
+
+
+def test_oracle_pearson_dispersion_rejects_unrepresentable_scale():
+    from statgpu.glm_core import get_glm_loss
+    from statgpu.linear_model.penalized._inference_mixin import _oracle_pearson_dispersion
+    with pytest.raises(RuntimeError, match="finite Pearson dispersion"):
+        _oracle_pearson_dispersion(get_glm_loss("gamma"), np.ones((3, 1)),
+                                  np.array([1., 1e200, 1.]), np.zeros(1), None)
+
+
+@pytest.mark.parametrize("typed", [PenalizedGammaRegression, PenalizedTweedieRegression])
+@pytest.mark.parametrize("case", ["exact", "partial", "zero_weight"])
+def test_oracle_pearson_public_zero_residual_controls(typed, case):
+    X = np.repeat(np.eye(2), 3, axis=0) if case == "partial" else np.zeros((6, 1))
+    y = np.full(6, 2.) if case == "partial" else np.ones(6)
+    weights = None
+    if case == "partial":
+        y[3:] = [1.6, 2., 2.4]
+    elif case == "zero_weight":
+        X = np.vstack([X, [0.]])
+        y = np.r_[y, 100.]
+        weights = np.r_[np.ones(6), 0.]
+    model = typed(penalty="mcp", alpha=.1, device="cpu", fit_intercept=case != "partial",
+                  max_iter=10000, tol=1e-10, compute_inference=True,
+                  inference_method="oracle", cov_type="nonrobust").fit(X, y, sample_weight=weights)
+    assert model._inference_result.metadata["n_active"] == (2 if case == "partial" else 0)
+    if case == "partial":
+        # Shared Pearson dispersion is positive although one group's
+        # observations are fitted exactly; both model-based variances remain positive.
+        np.testing.assert_allclose(model._bse, np.sqrt(.08 / 12), rtol=1e-7, atol=0)
+    else:
+        assert model._inference_result.metadata["dispersion"] == 0
+        assert model._bse[0] == 0
+        assert np.isnan(model._bse[1])

@@ -537,6 +537,24 @@ def _solve_ridge_path_gpu_from_gram_eig(XtX_batch, Xty_batch, alphas, backend, f
 
     smallest_penalty = backend.min(regularization, axis=2).reshape(-1)
     recover = unresolved_gram & (uncertainty > 0) & (smallest_penalty <= uncertainty)
+    # Subnormal Gram entries lose relative precision when factors are squared.
+    # Their rounding bound may itself round to zero, so the usual relative
+    # test cannot detect the loss. Original factors still resolve a ridge path
+    # when both the spectrum and its requested regularization are this small.
+    tiny = float(xp.finfo(eigvals.dtype).tiny)
+    subnormal_gram = (
+        (backend.min(eigvals, axis=1) < tiny) & (smallest_penalty < tiny)
+    )
+    if factor_factory is None:
+        # A caller supplying only an exactly zero Gram and cross-product has
+        # the valid zero solution. Public CV supplies original factors, which
+        # can distinguish that case from a product that underflowed to zero.
+        zero_system = (
+            (backend.max(xp.abs(XtX_batch).reshape(n_folds, -1), axis=1) == 0)
+            & (backend.max(xp.abs(Xty_batch), axis=1) == 0)
+        )
+        subnormal_gram = subnormal_gram & (~zero_system)
+    recover = recover | subnormal_gram
     recovery_folds = []
     if bool(_to_float_scalar(xp.any(recover))):
         recovery_folds = [
@@ -1163,12 +1181,22 @@ def _select_ridge_alpha_cv(
             recover_cpu = False
             if sample_weight_np is not None:
                 eps = np.finfo(XtX.dtype).eps
+                tiny = np.finfo(XtX.dtype).tiny
+                smallest_penalty = float(np.min(alpha_grid))
                 gamma = XtX.shape[0] * eps / (1.0 - XtX.shape[0] * eps)
                 uncertainty_bound = gamma * np.linalg.norm(XtX, ord=np.inf)
-                if 0 < uncertainty_bound and np.min(alpha_grid) <= uncertainty_bound:
+                # Normalized weighted factors can have a subnormal or zero
+                # Gram matrix although the raw weighted system was resolved.
+                # Compare magnitudes directly, before the error bound loses
+                # its own subnormal bits, and recover from original factors.
+                recover_cpu = np.max(np.abs(XtX)) < tiny and smallest_penalty < tiny
+                if not recover_cpu and 0 < uncertainty_bound and smallest_penalty <= uncertainty_bound:
                     spectrum = np.linalg.eigvalsh(XtX)
                     uncertainty = gamma * np.max(np.abs(spectrum))
-                    recover_cpu = spectrum[0] <= uncertainty and np.min(alpha_grid) <= uncertainty
+                    recover_cpu = (
+                        (spectrum[0] <= uncertainty and smallest_penalty <= uncertainty)
+                        or (spectrum[0] < tiny and smallest_penalty < tiny)
+                    )
             if recover_cpu:
                 if fit_intercept:
                     factors_X, factors_y, X_mean, y_mean = _weighted_ridge_centered_data(

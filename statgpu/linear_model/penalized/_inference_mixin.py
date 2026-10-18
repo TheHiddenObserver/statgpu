@@ -346,6 +346,46 @@ def _oracle_has_boundary_direction(X):
     raise RuntimeError(numerical_error)
 
 
+def _oracle_pearson_dispersion(loss, X, y, params, sample_weight):
+    """Pearson scale without an absolute floor on the family variance.
+
+    Gamma and Tweedie can have small, ordinary representable means. Flooring
+    their variance changes the statistical model and makes uncertainty depend
+    on response units. Work with weighted standardized residuals, retaining
+    the existing analytic-weight and n-minus-coefficients convention.
+    """
+    from statgpu.panel._covariance import _range_safe_float_product
+    from statgpu.panel._diagnostics import _scaled_residual_variance
+
+    effective = (np.ones(len(y), dtype=bool) if sample_weight is None
+                 else sample_weight > 0)
+    mu = np.asarray(loss._mu_from_eta(X[effective] @ params), dtype=np.float64)
+    power = 2.0 if loss.name == "gamma" else loss.power
+    variance = mu ** power
+    if not np.all(np.isfinite(mu) & (mu > 0)
+                  & np.isfinite(variance) & (variance > 0)):
+        raise RuntimeError(
+            "Oracle inference requires finite positive family variances on "
+            "positive-weight observations. Review response/design scaling, "
+            "or set compute_inference=False."
+        )
+    residual = y[effective] - mu
+    factors = [1.0 / np.sqrt(variance)]
+    if sample_weight is not None:
+        factors.append(np.sqrt(sample_weight[effective]))
+    with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+        standardized = _range_safe_float_product(residual, factors, np)
+        dispersion = _scaled_residual_variance(
+            standardized, len(y) - len(params), np,
+        )
+    if not np.isfinite(dispersion):
+        raise RuntimeError(
+            "Oracle inference could not compute a finite Pearson dispersion. "
+            "Review response/design scaling, or set compute_inference=False."
+        )
+    return dispersion
+
+
 class _PenalizedInferenceMixin:
 
     def _gaussian_fit_state(self, X, y, sample_weight=None):
@@ -1644,9 +1684,15 @@ class _PenalizedInferenceMixin:
                 covariance_weight = _oracle_robust_covariance_weights(
                     inference_loss, X_design, y_cpu, params_active, sw_cpu,
                 )
+            dispersion = None
+            if self._cov_type == "nonrobust" and self.loss in ("gamma", "tweedie"):
+                dispersion = _oracle_pearson_dispersion(
+                    inference_loss, X_design, y_cpu, params_active, sw_cpu,
+                )
             result = m_estimation_inference(
                 inference_loss, X_design, y_cpu, params_active,
                 cov_type=self._cov_type, sample_weight=covariance_weight,
+                dispersion=dispersion,
             )
             if not np.all(np.isfinite(result["cov_params"])):
                 raise RuntimeError(

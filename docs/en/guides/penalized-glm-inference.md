@@ -169,7 +169,16 @@ zero standard errors or point-width intervals. Use `compute_inference=False`
 when only the penalized point fit is needed. This requirement does not apply
 to fixed-dispersion Poisson/negative-binomial `nonrobust` covariance or to HC0;
 the separately documented HC1 behavior is unchanged. Having enough observations
-alone does not guarantee an identifiable or converged refit.
+alone does not guarantee an identifiable or converged refit. This is an
+admission check, not a change to the dispersion denominator: after admission,
+the existing Pearson convention divides the weighted sum of squared Pearson
+residuals by `n - k`, where `n` counts rows in the refit data, including
+zero-weight rows, and `k` counts refitted coefficients.
+Zero-weight padding can therefore still affect this denominator. Gamma/Tweedie
+Pearson dispersion uses the actual family variance, without an absolute
+variance floor, so representable small response scales do not artificially
+shrink the reported uncertainty. Required nonrepresentable numerical
+quantities still raise rather than producing an interval.
 
 These normal-reference intervals condition on the selected support. They do
 not adjust for choosing variables or tuning parameters on the same data.
