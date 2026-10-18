@@ -186,8 +186,19 @@ parent's `max_iter`, `tol`, intercept convention, and supported analytic
 weights. The refit explicitly selects `solver="irls"` for logistic and Poisson
 regression and `solver="newton"` for the other non-Gaussian families, with
 `device="cpu"`.
+Oracle HC0/HC1 covariance rescales weights before forming squared score
+products, avoiding underflow or overflow from their common magnitude. For a
+fixed selected support and refit, this preserves common-scale covariance
+invariance up to ordinary numerical tolerance when relative weights remain
+representable. Refit weights and nonrobust conventions
+are unchanged; fixed-dispersion nonrobust standard errors need not be
+scale-invariant.
+
 A refit that reports non-convergence raises `RuntimeError` rather than
-publishing an oracle coefficient table.
+publishing an oracle coefficient table. An error during oracle computation
+also clears fitted, prediction, and inference-report state, including an
+earlier successful fit. Fit the model successfully again before predicting
+or reading inference results.
 
 A finite unpenalized solution is also required. On positive-weight rows,
 all-zero Poisson, negative-binomial, or Tweedie responses, or a single

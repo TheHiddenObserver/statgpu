@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import UserString
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from numbers import Number
 from types import WrapperDescriptorType
 from typing import Any, Callable, Dict, Optional, Tuple
 
@@ -16,53 +17,85 @@ from functools import reduce
 from inspect import getattr_static
 
 
-def _validate_cluster_labels_before_cast(clusters):
-    """Reject missing host labels before string coercion can erase them.
-
-    Native backend arrays stay on their device and are validated by the
-    grouping/row-coverage checks. Already-stringified labels are literal IDs;
-    there is no way to recover whether a caller created them from a NaN.
-    """
-    if isinstance(clusters, np.ndarray):
-        if clusters.dtype.kind != "O":
-            return
-        labels = clusters
-    elif (
-        getattr_static(type(clusters), "__getattr__", None) is None
+def _is_plain_host_cluster_sequence(value):
+    """Identify sequences without probing custom array/attribute protocols."""
+    if isinstance(value, (np.ndarray, np.generic, Number, Mapping, str, bytes, UserString)):
+        return False
+    return (
+        getattr_static(type(value), "__getattr__", None) is None
         and isinstance(
-            getattr_static(type(clusters), "__getattribute__", None),
+            getattr_static(type(value), "__getattribute__", None),
             WrapperDescriptorType,
         )
-        and not isinstance(clusters, (Mapping, str, bytes, UserString))
-        and (
-            isinstance(clusters, Sequence)
-            or (
-                getattr_static(type(clusters), "__len__", None) is not None
-                and getattr_static(type(clusters), "__getitem__", None) is not None
-            )
-        )
+        # ABC registration alone does not give an iterable NumPy's sequence
+        # protocol. Require the actual length/index methods before snapshotting.
+        and getattr_static(type(value), "__len__", None) is not None
+        and getattr_static(type(value), "__getitem__", None) is not None
         and not any(
-            getattr_static(clusters, protocol, None) is not None
+            getattr_static(value, protocol, None) is not None
             for protocol in (
                 "__array__", "__array_interface__", "__array_struct__",
                 "__cuda_array_interface__", "__dlpack__", "__dlpack_device__",
                 "__array_namespace__",
             )
         )
-    ):
-        # Retain missing scalars in ordinary host sequences before inference
-        # can coerce mixed labels to strings. Static protocol checks leave
-        # custom/native arrays and dynamic attribute proxies to their existing
-        # backend conversion, without probing or invoking their protocols.
-        labels = np.asarray(clusters, dtype=object)
+    )
+
+
+def _snapshot_host_cluster_sequence(value, active=None):
+    """Read ordinary sequences once, retaining scalar and nested-array types."""
+    if not _is_plain_host_cluster_sequence(value):
+        return value
+    # Homogeneous buffers retain their exact dtype/shape and do not require
+    # Python iteration (multidimensional memoryviews cannot be iterated).
+    try:
+        buffer = memoryview(value)
+    except TypeError:
+        pass
     else:
-        return
+        return np.asarray(buffer)
+
+    # NumPy requires a usable sequence length. Iteration alone must not make a
+    # previously unsupported object newly acceptable.
+    len(value)
+    active = set() if active is None else active
+    identity = id(value)
+    if identity in active:
+        raise ValueError("clusters must be a non-cyclic sequence of row labels")
+    active.add(identity)
+    try:
+        return [_snapshot_host_cluster_sequence(item, active) for item in value]
+    finally:
+        active.remove(identity)
+
+
+def _validate_cluster_labels_before_cast(clusters):
+    """Reject missing host labels and return their reusable conversion input.
+
+    Ordinary host sequences are snapshotted once so validation and backend
+    conversion cannot consume different states of the original sequence.
+    Native arrays and custom conversion protocols retain their existing path.
+    Already-stringified labels remain literal IDs.
+    """
+    snapshot = None
+    if isinstance(clusters, np.ndarray):
+        if clusters.dtype.kind != "O":
+            return clusters
+        labels = clusters
+    elif _is_plain_host_cluster_sequence(clusters):
+        snapshot = _snapshot_host_cluster_sequence(clusters)
+        labels = np.asarray(snapshot, dtype=object)
+    else:
+        return clusters
     try:
         if any(label is None or bool(label != label) for label in labels.flat):
             raise ValueError("missing cluster label")
     except (TypeError, ValueError) as exc:
         # pandas.NA has ambiguous truth, while NaN/NaT are not self-equal.
         raise ValueError("clusters must contain one nonmissing label per row") from exc
+    # Infer from the retained raw values, rather than labels.tolist(): object
+    # coercion can widen nested float32 scalars and change mixed string IDs.
+    return np.asarray(snapshot) if snapshot is not None else clusters
 
 
 def _count_elts(arr):
@@ -792,7 +825,7 @@ def _prepare_bootstrap_state(
     if strategy_n == "cluster":
         if clusters is None:
             raise ValueError("clusters is required when strategy='cluster'")
-        _validate_cluster_labels_before_cast(clusters)
+        clusters = _validate_cluster_labels_before_cast(clusters)
         clusters_arr = backend.asarray(clusters).reshape(-1)
         if int(clusters_arr.shape[0]) != n:
             raise ValueError("clusters must have the same length as arrays")
@@ -1035,7 +1068,7 @@ def bootstrap_statistic(
     level = _validate_confidence_level(confidence_level)
 
     if str(strategy).strip().lower() == "cluster":
-        _validate_cluster_labels_before_cast(clusters)
+        clusters = _validate_cluster_labels_before_cast(clusters)
 
     backend_name = _resolve_backend(backend, *arrays, strata, clusters)
     backend = get_backend(backend_name)

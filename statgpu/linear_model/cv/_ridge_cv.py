@@ -246,32 +246,46 @@ def _solve_ridge_path_gpu_from_gram_eig(XtX_batch, Xty_batch, alphas, backend, f
     # Step 1: Eigendecomposition (done once per fold)
     # eigvals: (n_folds, n_features), Q: (n_folds, n_features, n_features)
     eigvals, Q = xp.linalg.eigh(XtX_batch)
-    # Clamp eigenvalues to avoid division by zero for rank-deficient X'X
-    # Use dtype-relative floor: float32 tiny ≈ 1.2e-38, float64 tiny ≈ 2.2e-308
-    try:
-        _eig_floor = max(float(xp.finfo(eigvals.dtype).tiny), 1e-15)
-    except (AttributeError, TypeError):
-        _eig_floor = 1e-15
-    eigvals = xp_maximum(eigvals, _eig_floor, xp)
+    # A Gram matrix is positive semidefinite; clip negative roundoff only.
+    # Strictly positive alpha regularizes null directions. A positive absolute
+    # floor would change the objective when weights or features are rescaled.
+    eigvals = xp_maximum(eigvals, 0.0, xp)
 
     # Step 2: Project Xty into eigenbasis
     # QTXty = Q.T @ Xty_batch  -> (n_folds, n_features)
     Q_T = backend.transpose(Q, (0, 2, 1))
     QTXty = xp.matmul(Q_T, Xty_batch[:, :, None])[:, :, 0]
 
-    # Step 3: Convert alphas to backend array and compute inverse diagonal
-    # inv_diag: (n_folds, n_features, n_alphas)
+    # Step 3: Form the regularized diagonal at the actual solve precision.
     # Scale alpha by n_samples to match Ridge.fit() convention.
     alphas_arr = backend.asarray(alphas, dtype=eigvals.dtype)
     if n_samples_vec is not None:
         n_arr = backend.asarray(n_samples_vec, dtype=eigvals.dtype).reshape(-1, 1, 1)
-        inv_diag = 1.0 / (eigvals[:, :, None] + alphas_arr[None, None, :] * n_arr)
+        regularization = alphas_arr[None, None, :] * n_arr
     else:
-        inv_diag = 1.0 / (eigvals[:, :, None] + alphas_arr[None, None, :])
+        regularization = alphas_arr[None, None, :]
+    if not bool(_to_float_scalar(xp.all(
+        xp.isfinite(regularization) & (regularization > 0)
+    ))):
+        raise FloatingPointError(
+            "RidgeCV positive regularization is not representable at the CV "
+            "precision; use gpu_cv_mixed_precision=False or choose "
+            "representable alphas."
+        )
+    denominator = eigvals[:, :, None] + regularization
+    if not bool(_to_float_scalar(xp.all(
+        xp.isfinite(denominator) & (denominator > 0)
+    ))):
+        raise FloatingPointError(
+            "RidgeCV normal-equation denominators must be finite and positive "
+            "at the CV precision; use gpu_cv_mixed_precision=False or rescale "
+            "the data."
+        )
 
     # Step 4: Scale projected Xty by inverse diagonal
-    # scaled: (n_folds, n_features, n_alphas)
-    scaled = QTXty[:, :, None] * inv_diag
+    # Divide directly: forming a reciprocal can overflow for a representable
+    # tiny positive denominator, producing 0*inf in exact null directions.
+    scaled = QTXty[:, :, None] / denominator
 
     # Step 5: Transform back to original basis
     # coefs: (n_folds, n_features, n_alphas)
@@ -540,7 +554,7 @@ def _select_ridge_alpha_cv(
                 X_full = backend.asarray(X, dtype=cv_dtype)
                 y_full = backend.asarray(y, dtype=cv_dtype).reshape(-1)
                 if sample_weight is not None:
-                    sw_full = backend.asarray(sample_weight, dtype=cv_dtype).reshape(-1)
+                    sw_full = backend.asarray(sample_weight, dtype=backend.float64).reshape(-1)
                 else:
                     sw_full = None
             else:
@@ -548,7 +562,7 @@ def _select_ridge_alpha_cv(
                 X_full = backend.asarray(X_np, dtype=cv_dtype)
                 y_full = backend.asarray(y_np, dtype=cv_dtype)
                 if sample_weight_np is not None:
-                    sw_full = backend.asarray(sample_weight_np, dtype=cv_dtype)
+                    sw_full = backend.asarray(sample_weight_np, dtype=backend.float64)
                 else:
                     sw_full = None
 
@@ -585,6 +599,12 @@ def _select_ridge_alpha_cv(
                 X_val = X_full[val_idx_gpu]
                 y_val = y_full[val_idx_gpu]
                 sw_val = None if sw_full is None else sw_full[val_idx_gpu]
+                if sw_val is not None:
+                    # Normalize before mixed-precision conversion: a common
+                    # weight scale must not underflow/overflow the CV loss.
+                    sw_val = backend.asarray(
+                        sw_val / backend.sum(sw_val), dtype=cv_dtype,
+                    )
 
                 # Store validation data for batched MSE
                 X_val_folds.append(X_val)
@@ -623,10 +643,15 @@ def _select_ridge_alpha_cv(
                     sw_train = None if sw_full is None else sw_full[train_idx_gpu]
 
                     if sw_train is not None:
+                        # Each fold has validated positive mass. Its average
+                        # weighted objective is unchanged by this rescaling.
+                        sw_train = backend.asarray(
+                            sw_train / backend.sum(sw_train), dtype=cv_dtype,
+                        )
                         # Weighted Ridge: use X'WX, X'Wy directly
                         sw_col = sw_train[:, None]
                         if bool(fit_intercept):
-                            w_sum = max(float(backend.sum(sw_train)), 1e-15)
+                            w_sum = float(backend.sum(sw_train))
                             X_wmean = backend.sum(X_train * sw_col, axis=0) / w_sum
                             y_wmean = backend.sum(y_train * sw_train) / w_sum
                             XtX = (X_train * sw_col).T @ X_train - w_sum * backend.outer(X_wmean, X_wmean)
@@ -711,6 +736,9 @@ def _select_ridge_alpha_cv(
             # Convert to numpy
             mse_path = backend.to_numpy(mse_path_gpu)
 
+        except FloatingPointError:
+            # Preserve the actionable CV-precision error without substitution.
+            raise
         except Exception as exc:
             raise RuntimeError(
                 "GPU path failed in _select_ridge_alpha_cv with device='cuda'; "
@@ -741,6 +769,8 @@ def _select_ridge_alpha_cv(
             X_val = X_np[val_idx]
             y_val = y_np[val_idx]
             sw_val = None if sample_weight_np is None else sample_weight_np[val_idx]
+            if sw_val is not None:
+                sw_val = sw_val / np.sum(sw_val)
 
             if fast_fold_stats:
                 n_val = int(np.asarray(val_idx, dtype=np.int64).reshape(-1).size)
@@ -773,10 +803,13 @@ def _select_ridge_alpha_cv(
                 sw_train = None if sample_weight_np is None else sample_weight_np[train_idx]
 
                 if sw_train is not None:
+                    # Avoid absolute weight-scale dependence in centering,
+                    # the normal equations, and validation squared errors.
+                    sw_train = sw_train / np.sum(sw_train)
                     # Weighted Ridge: use X'WX, X'Wy directly (matches GPU path)
                     sw_col = sw_train[:, np.newaxis]
                     if bool(fit_intercept):
-                        w_sum = max(float(np.sum(sw_train)), 1e-15)
+                        w_sum = float(np.sum(sw_train))
                         X_wmean = np.sum(X_train * sw_col, axis=0) / w_sum
                         y_wmean = float(np.sum(y_train * sw_train)) / w_sum
                         XtX = (X_train * sw_col).T @ X_train - w_sum * np.outer(X_wmean, X_wmean)

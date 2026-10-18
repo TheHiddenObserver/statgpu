@@ -4,10 +4,12 @@ All notable changes to statgpu are documented here, organized by release and dat
 
 ## Unreleased — 2026-10-17
 
-### PR #249 — Rejected invalid oracle targets and missing labels
+### PR #249 — Oracle, cluster-label, and weighted-fold safeguards
 - Rejected unknown-dispersion nonrobust oracle uncertainty without positive residual degrees of freedom, counting positive-weight observations and selected parameters while preserving fixed-dispersion and HC0/HC1 behavior.
-- Rejected boundary oracle refits without a finite unpenalized target before publishing uncertainty, preserving valid selected-design fits and explicit numerical failure handling.
-- Rejected missing labels in supported mixed host sequences before module/estimator conversion, while retaining literal string IDs and native backend grouping.
+- Rejected boundary oracle refits without a finite unpenalized target before publishing uncertainty; cleared fitted, prediction, and inference state when oracle computation fails.
+- Rejected missing labels in supported mixed host sequences before module/estimator conversion; reused a single label snapshot for validation and grouping, retaining literal string IDs and native backend grouping.
+- Stabilized oracle HC0/HC1 covariance under common weight rescaling, preserving refit weights and nonrobust conventions.
+- Preserved RidgeCV relative-weight fold calculations for tiny or large representable weights, avoiding scale-dependent validation losses and alpha selection; GPU CV explicitly rejects unrepresentable regularization or normal-equation denominators.
 
 ### Fixed RidgeCV reversed fold indices
 - Fixed Torch conversion of negative-stride training and validation indices, including reversed single-element arrays, while preserving custom row order, input arrays, validation, weighted scoring, and final refits.

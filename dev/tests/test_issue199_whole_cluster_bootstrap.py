@@ -889,3 +889,164 @@ def test_cluster_prevalidation_does_not_probe_dynamic_metaclass_capabilities():
         pass
 
     resampling._validate_cluster_labels_before_cast(OpaqueLabels())
+
+
+class _StatefulHostClusterSequence(Sequence):
+    """A normal index sequence whose next materialization changes its state."""
+
+    def __init__(self, values, max_reads, later_values=None):
+        self.values = values
+        self.max_reads = max_reads
+        self.later_values = later_values
+        self.reads = 0
+
+    def __len__(self):
+        return len(self.values)
+
+    def __getitem__(self, index):
+        if index == 0:
+            self.reads += 1
+        if self.reads > self.max_reads:
+            if self.later_values is None:
+                raise RuntimeError("original sequence was materialized again")
+            return self.later_values[index]
+        return self.values[index]
+
+
+@pytest.mark.parametrize("use_estimator", [False, True], ids=["module", "estimator"])
+@pytest.mark.parametrize("backend", ["numpy", "auto"])
+@pytest.mark.parametrize("change_labels", [False, True])
+@pytest.mark.parametrize("column", [False, True])
+def test_host_sequence_snapshot_is_reused_for_validation_and_conversion(
+    use_estimator, backend, change_labels, column,
+):
+    # Estimator-wide finite-input validation already reads inputs once before
+    # entering the helper. Resampling itself must read the host sequence once.
+    expected_reads = 2 if use_estimator else 1
+    original = [[0], [0], [1], [1]] if column else [0, 0, 1, 1]
+    later = [[0], [1], [0], [1]] if column else [0, 1, 0, 1]
+    labels = _StatefulHostClusterSequence(
+        original, expected_reads, later if change_labels else None,
+    )
+    values = np.array([1., 3., 10., 30.])
+    function = (LinearRegression(device="cpu").bootstrap_statistic
+                if use_estimator else bootstrap_statistic)
+    result = function(np.mean, values, clusters=labels, strategy="cluster",
+                      n_resamples=29, random_state=4, backend=backend)
+    expected = [values[idx].mean() for idx in
+                _reference_indices(np.array([0, 0, 1, 1]), 4, 29)]
+    np.testing.assert_array_equal(result.samples, expected)
+    assert labels.reads == expected_reads
+
+
+@pytest.mark.parametrize("use_estimator", [False, True], ids=["module", "estimator"])
+@pytest.mark.parametrize("backend", ["numpy", "auto"])
+def test_nested_host_sequences_are_snapshotted_without_repeated_iteration(use_estimator, backend):
+    expected_reads = 2 if use_estimator else 1
+    rows = [_StatefulHostClusterSequence([label], expected_reads)
+            for label in [0, 0, 1, 1]]
+    function = (LinearRegression(device="cpu").bootstrap_statistic
+                if use_estimator else bootstrap_statistic)
+    result = function(np.mean, np.arange(4.), clusters=rows, strategy="cluster",
+                      n_resamples=11, random_state=4, backend=backend)
+    expected = [np.arange(4.)[idx].mean() for idx in
+                _reference_indices(np.array([0, 0, 1, 1]), 4, 11)]
+    np.testing.assert_array_equal(result.samples, expected)
+    assert [row.reads for row in rows] == [expected_reads] * 4
+
+
+@pytest.mark.parametrize("use_estimator", [False, True], ids=["module", "estimator"])
+@pytest.mark.parametrize("backend", ["numpy", "auto"])
+def test_snapshot_preserves_nested_float32_and_string_label_equivalence(use_estimator, backend):
+    # An object-array .tolist() round-trip widens float32(0.1) to a Python float,
+    # turning these four equivalent labels into two different string groups.
+    labels = [np.array([0.1], dtype=np.float32),
+              np.array([0.1], dtype=np.float32), ["0.1"], ["0.1"]]
+    assert len(np.unique(np.asarray(labels))) == 1
+    function = (LinearRegression(device="cpu").bootstrap_statistic
+                if use_estimator else bootstrap_statistic)
+    result = function(np.mean, np.array([1., 3., 10., 30.]), clusters=labels,
+                      strategy="cluster", n_resamples=11, random_state=4, backend=backend)
+    assert result.metadata["n_clusters"] == 1
+    np.testing.assert_array_equal(result.samples, np.full(11, 11.))
+
+
+@pytest.mark.parametrize("use_estimator", [False, True], ids=["module", "estimator"])
+@pytest.mark.parametrize("backend", ["numpy", "auto"])
+def test_multidimensional_host_buffer_snapshot_retains_shape_and_dtype(use_estimator, backend):
+    labels_array = np.array([[2.], [2.], [1.], [1.]], dtype=np.float32)
+    labels_array.flags.writeable = False
+    labels = memoryview(labels_array)
+    validated = resampling._validate_cluster_labels_before_cast(labels)
+    assert validated.shape == (4, 1)
+    assert validated.dtype == labels_array.dtype
+    function = (LinearRegression(device="cpu").bootstrap_statistic
+                if use_estimator else bootstrap_statistic)
+    result = function(np.mean, np.arange(4.), clusters=labels, strategy="cluster",
+                      n_resamples=11, random_state=4, backend=backend)
+    expected = [np.arange(4.)[idx].mean() for idx in
+                _reference_indices(labels_array.reshape(-1), 4, 11)]
+    np.testing.assert_array_equal(result.samples, expected)
+    assert not labels_array.flags.writeable
+
+
+@pytest.mark.parametrize("container", [_GetattrClusterArray, _GetattributeClusterArray])
+@pytest.mark.parametrize("use_estimator", [False, True], ids=["module", "estimator"])
+@pytest.mark.parametrize("backend", ["numpy", "auto"])
+def test_host_snapshot_does_not_add_dynamic_array_protocol_conversions(
+    container, use_estimator, backend,
+):
+    labels = container([0, 0, 1, 1], reject_object_dtype=True)
+    # Dynamic array-like objects are not ordinary host sequences and remain
+    # untouched by the snapshot boundary, including their conversion count.
+    assert resampling._validate_cluster_labels_before_cast(labels) is labels
+    assert labels.conversions == []
+    function = (LinearRegression(device="cpu").bootstrap_statistic
+                if use_estimator else bootstrap_statistic)
+    result = function(np.mean, np.arange(4.), clusters=labels, strategy="cluster",
+                      n_resamples=11, random_state=4, backend=backend)
+    expected_count = (3 if backend == "auto" else 2) if use_estimator else 2
+    assert labels.conversions == [None] * expected_count
+    expected = [np.arange(4.)[idx].mean() for idx in
+                _reference_indices(np.array([0, 0, 1, 1]), 4, 11)]
+    np.testing.assert_array_equal(result.samples, expected)
+
+
+@pytest.mark.parametrize("use_estimator", [False, True], ids=["module", "estimator"])
+@pytest.mark.parametrize("backend", ["numpy", "auto"])
+def test_virtual_sequence_registration_does_not_add_iterable_input_support(use_estimator, backend):
+    class LabelsIterable:
+        def __init__(self):
+            self.iterations = 0
+
+        def __len__(self):
+            return 4
+
+        def __iter__(self):
+            self.iterations += 1
+            return iter([0, 0, 1, 1])
+
+    Sequence.register(LabelsIterable)
+    labels = LabelsIterable()
+    assert isinstance(labels, Sequence)
+    assert resampling._validate_cluster_labels_before_cast(labels) is labels
+    assert labels.iterations == 0
+    function = (LinearRegression(device="cpu").bootstrap_statistic
+                if use_estimator else bootstrap_statistic)
+    with pytest.raises((IndexError, TypeError, ValueError)):
+        function(np.mean, np.arange(4.), clusters=labels, strategy="cluster",
+                 n_resamples=5, backend=backend)
+    assert labels.iterations == 0
+
+
+def test_snapshot_does_not_accept_sequence_with_unusable_length():
+    class LabelsWithoutUsableLength:
+        def __len__(self):
+            raise TypeError("length unavailable")
+
+        def __getitem__(self, index):
+            return [0, 0, 1, 1][index]
+
+    with pytest.raises((IndexError, TypeError, ValueError)):
+        bootstrap_statistic(np.mean, np.arange(4.), clusters=LabelsWithoutUsableLength(),
+                            strategy="cluster", n_resamples=5, backend="numpy")

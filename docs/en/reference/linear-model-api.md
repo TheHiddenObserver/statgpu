@@ -681,6 +681,17 @@ penalties. Each training and validation subset must have positive total sample
 weight, while individual zero weights are allowed; a zero-total-weight subset
 raises `ValueError`.
 
+For fixed folds and alpha values, CV fold losses depend on relative weights
+rather than their common scale.
+When the weights and their positive subset totals remain finite and
+representable, uniformly rescaling them preserves fold losses up to ordinary
+numerical tolerance. Small positive subset totals are valid.
+Finite float64 inputs do not guarantee a representable mixed-precision GPU
+solve. GPU CV raises `FloatingPointError` if its positive regularization or
+normal-equation denominators are not representable at the solve precision;
+use `gpu_cv_mixed_precision=False`, choose representable alphas, or rescale
+the data as indicated by the error.
+
 Both index arrays must be nonempty, one-dimensional, integral and in bounds.
 Repeated indices within either subset and overlap between the training and
 validation subsets raise `ValueError` before fold fitting. These checks do not

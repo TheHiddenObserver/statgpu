@@ -310,6 +310,8 @@ def test_helper_rejects_gpu_provenance_before_host_conversion(backend, monkeypat
     monkeypatch.setattr(_inference_mixin, "_to_numpy", forbid_host)
     with pytest.raises(NotImplementedError, match="not silently moved to CPU"):
         model._compute_oracle_inference(np.ones((5, 2)), np.ones(5))
+    _assert_failed_oracle_fit(model, np.ones((5, 2)))
+    assert model._selected_backend_name is None
 
 
 @pytest.mark.parametrize("device", ["cuda", "torch"])
@@ -330,7 +332,7 @@ def test_physical_gpu_oracle_request_keeps_existing_fail_closed_contract(device)
         solver="fista", compute_inference=True, inference_method="oracle")
     with pytest.raises(NotImplementedError, match="CPU active-set refit"):
         model.fit(X, y)
-    assert model._inference_result is None
+    _assert_failed_oracle_fit(model, X)
 
 
 @pytest.mark.parametrize("loss,settings,default_settings", [
@@ -374,7 +376,7 @@ def test_logistic_child_nonconvergence_is_not_published_as_oracle(monkeypatch):
         device="cpu", compute_inference=True, inference_method="oracle")
     with pytest.raises(RuntimeError, match="oracle refit did not converge"):
         model.fit(X, y)
-    assert model._inference_result is None
+    _assert_failed_oracle_fit(model, X)
 
 
 @pytest.mark.parametrize("penalty", ["scad", "mcp"])
@@ -403,7 +405,7 @@ def test_newton_child_convergence_warning_aborts_inference(monkeypatch):
         device="cpu", compute_inference=True, inference_method="oracle")
     with pytest.raises(RuntimeError, match="oracle refit did not converge"):
         model.fit(X, y)
-    assert model._inference_result is None
+    _assert_failed_oracle_fit(model, X)
 
 
 @pytest.mark.parametrize("cls,loss,typed_key,loss_key,value,override", [
@@ -698,7 +700,10 @@ def _assert_failed_oracle_fit(model, X):
     assert model._fitted is False
     for name in ("coef_", "intercept_", "_params", "_inference_result", "_bse",
                  "_tvalues", "_zvalues", "_pvalues", "_conf_int",
-                 "inference_target_", "inference_resolved_method_"):
+                 "inference_target_", "inference_resolved_method_",
+                 "_selected_solver", "_selected_backend_name", "_selected_backend_device",
+                 "_native_fit_coef", "_native_fit_intercept", "_design_info",
+                 "_feature_names", "_family_cache"):
         assert getattr(model, name, None) is None, name
     with pytest.raises(RuntimeError, match="not.*fitted|has not been fitted"):
         model.predict(X)
@@ -1181,3 +1186,222 @@ def test_oracle_residual_df_summary_cannot_reuse_previous_valid_inference(capsys
     model.summary()
     assert "(Intercept)" in capsys.readouterr().out
     np.testing.assert_allclose(model._bse[0], 1., rtol=1e-13, atol=1e-13)
+
+
+@pytest.mark.parametrize("cls", [PenalizedLinearRegression, PenalizedGeneralizedLinearModel])
+@pytest.mark.parametrize("penalty", ["scad", "mcp"])
+@pytest.mark.parametrize("cov_type", ["hc2", "hc3", "hac"])
+@pytest.mark.parametrize("design", ["active", "intercept_only"])
+@pytest.mark.parametrize("previous_fit", [False, True])
+def test_oracle_covariance_failure_clears_complete_typed_and_generic_fit(
+        cls, penalty, cov_type, design, previous_fit):
+    # Intercept-only oracle refitting newly reaches covariance validation.
+    # The typed Gaussian fit must not leave usable coefficients after it raises.
+    x = np.linspace(.2, 1.2, 18)
+    X = x[:, None] if design == "active" else np.zeros((len(x), 2))
+    y = 2. * x + .1 * np.sin(5. * x)
+    weights = np.linspace(.4, 1.6, len(x))
+    weights[::7] = 0.
+    model = cls(penalty=penalty, alpha=.0001, solver="fista", device="cpu",
+        fit_intercept=design == "intercept_only" and not previous_fit, compute_inference=True,
+        inference_method="oracle", cov_type=cov_type)
+    if previous_fit:
+        # An empty no-intercept target has no covariance to compute. Start with
+        # that successful public fit, then request a nonempty refit without
+        # reconstructing the estimator or injecting any fitted state.
+        model.fit(np.zeros_like(X), y, sample_weight=weights)
+        assert model._fitted
+        assert np.isfinite(model.predict(X)).all()
+        assert model._inference_result is not None
+    message = "HAC requires lag selection" if cov_type == "hac" else "HC2/HC3 requires leverage"
+    with pytest.raises(NotImplementedError, match=message):
+        if previous_fit and design == "intercept_only":
+            pd = pytest.importorskip("pandas")
+            pytest.importorskip("patsy")
+            model.fit(formula="y ~ 1", data=pd.DataFrame({"y": y}),
+                      sample_weight=weights)
+        else:
+            model.fit(X, y, sample_weight=weights)
+    _assert_failed_oracle_fit(model, X)
+    assert model.inference_method == "oracle"
+    assert model.cov_type == cov_type
+    if hasattr(model, "summary"):
+        with pytest.raises(RuntimeError, match="not.*fitted|has not been fitted"):
+            model.summary()
+    model.set_params(cov_type="nonrobust", fit_intercept=design == "intercept_only")
+    model.fit(X, y, sample_weight=weights)
+    assert model._fitted
+    assert model._inference_result.method == "oracle"
+    assert np.isfinite(model.predict(X)).all()
+
+
+@pytest.mark.parametrize("cls", [PenalizedLinearRegression, PenalizedGeneralizedLinearModel])
+@pytest.mark.parametrize("penalty", ["scad", "mcp"])
+@pytest.mark.parametrize("cov_type", ["nonrobust", "hc0", "hc1", "hc2", "hc3", "hac"])
+def test_oracle_empty_no_intercept_preserves_undefined_uncertainty(cls, penalty, cov_type):
+    # With no refitted parameter there is no covariance calculation to reject.
+    X, y = np.zeros((6, 2)), np.arange(1., 7.)
+    model = cls(penalty=penalty, alpha=.1, solver="fista", device="cpu",
+        fit_intercept=False, compute_inference=True, inference_method="oracle",
+        cov_type=cov_type).fit(X, y)
+    assert model._fitted
+    np.testing.assert_array_equal(model.predict(X), 0.)
+    np.testing.assert_array_equal(model._inference_result.params, 0.)
+    assert np.isnan(model._inference_result.bse).all()
+    assert model._inference_result.metadata["n_active"] == 0
+    assert "refit_model" not in model._inference_result.metadata
+
+
+@pytest.mark.parametrize("cls", [PenalizedLinearRegression, PenalizedGeneralizedLinearModel])
+@pytest.mark.parametrize("penalty", ["scad", "mcp"])
+@pytest.mark.parametrize("cov_type", ["hc2", "hc3", "hac"])
+def test_oracle_transaction_does_not_change_estimation_only_fit(cls, penalty, cov_type):
+    X, y = np.zeros((6, 2)), np.arange(1., 7.)
+    model = cls(penalty=penalty, alpha=.1, solver="fista", device="cpu",
+        compute_inference=False, inference_method="oracle", cov_type=cov_type).fit(X, y)
+    assert model._fitted
+    np.testing.assert_allclose(model.predict(X), y.mean())
+    assert model._inference_result is None
+
+
+@pytest.mark.parametrize("cls", [PenalizedLinearRegression, PenalizedGeneralizedLinearModel])
+@pytest.mark.parametrize("penalty", ["scad", "mcp"])
+@pytest.mark.parametrize("previous_fit", [False, True])
+def test_oracle_rank_failure_clears_state_and_recovers(cls, penalty, previous_fit):
+    x = np.linspace(.2, 1.2, 30)
+    good_X = np.column_stack([x, np.sin(4. * x)])
+    bad_X = np.column_stack([x, x])
+    y = 1. + 2. * x + .1 * np.cos(3. * x)
+    model = cls(penalty=penalty, alpha=.0001, solver="fista", device="cpu",
+        compute_inference=True, inference_method="oracle", tol=1e-8)
+    if previous_fit:
+        model.fit(good_X, y)
+        assert model._inference_result is not None
+        model.predict(good_X)
+    with pytest.raises(np.linalg.LinAlgError, match="Singular Hessian"):
+        model.fit(bad_X, y)
+    _assert_failed_oracle_fit(model, bad_X)
+    model.fit(good_X, y)
+    assert model._fitted
+    assert model._inference_result.method == "oracle"
+    assert np.isfinite(model.predict(good_X)).all()
+
+
+@pytest.mark.parametrize("entry", ["typed", "generic"])
+@pytest.mark.parametrize("previous_fit", [False, True])
+def test_oracle_public_child_nonconvergence_is_transactional(entry, previous_fit):
+    X, y, weights = _data("logistic", {})
+    kwargs = dict(penalty="scad", alpha=.0001, solver="fista", device="cpu",
+        max_iter=1, tol=1e-12, compute_inference=True,
+        inference_method="oracle")
+    model = (PenalizedLogisticRegression(**kwargs) if entry == "typed" else
+             PenalizedGeneralizedLinearModel(loss="logistic", **kwargs))
+    if previous_fit:
+        # The balanced intercept-only MLE starts at zero and converges within
+        # this same one-iteration budget; the nontrivial refit below cannot.
+        model.fit(np.zeros_like(X), np.tile([0., 1.], len(X) // 2))
+        assert model._fitted
+        assert model._inference_result is not None
+    with pytest.raises(RuntimeError, match="oracle refit did not converge"):
+        model.fit(X, y, sample_weight=weights)
+    _assert_failed_oracle_fit(model, X)
+    model.set_params(max_iter=10000)
+    model.fit(X, y, sample_weight=weights)
+    assert model._fitted
+    assert model._inference_result.method == "oracle"
+
+
+@pytest.mark.parametrize("cls", [PenalizedLinearRegression, PenalizedGeneralizedLinearModel])
+@pytest.mark.parametrize("penalty", ["scad", "mcp"])
+@pytest.mark.parametrize("cov_type", ["hc0", "hc1"])
+@pytest.mark.parametrize("weight_scale", [1e-170, 1., 1e160])
+def test_oracle_intercept_robust_extreme_weights_match_exact_gaussian_se(
+        cls, penalty, cov_type, weight_scale):
+    X, y = np.zeros((60, 2)), np.tile([1., 2., 4.], 20)
+    weights = np.tile([.4, 1., 1.6], 20)
+    weights[::7] = 0.
+    mean = np.dot(weights, y) / weights.sum()
+    # Compute the scale-free closed form before forming extreme weights.
+    se = np.sqrt(np.sum((weights * (y - mean)) ** 2)) / weights.sum()
+    if cov_type == "hc1":
+        se *= np.sqrt(len(y) / (len(y) - 1))
+    model = cls(penalty=penalty, alpha=.1, solver="fista", device="cpu",
+        compute_inference=True, inference_method="oracle", cov_type=cov_type).fit(
+            X, y, sample_weight=weights * weight_scale)
+    np.testing.assert_allclose(model._params[0], mean, rtol=1e-13)
+    np.testing.assert_allclose(model._bse[0], se, rtol=1e-13)
+    np.testing.assert_allclose(model._conf_int[0],
+        mean + se * stats.norm.ppf([.025, .975]), rtol=1e-13)
+    assert model._bse[0] > 0
+    assert np.isfinite(model._conf_int[0]).all()
+    assert np.isnan(model._bse[1:]).all()
+
+
+@pytest.mark.parametrize("loss,settings,typed,typed_settings", FAMILIES)
+@pytest.mark.parametrize("typed_entry", [False, True])
+@pytest.mark.parametrize("penalty", ["scad", "mcp"])
+@pytest.mark.parametrize("cov_type", ["hc0", "hc1"])
+@pytest.mark.parametrize("intercept_only", [False, True])
+def test_oracle_robust_weight_scale_matches_independent_family_score_bread(
+        loss, settings, typed, typed_settings, typed_entry, penalty,
+        cov_type, intercept_only):
+    X, y, weights = _data(loss, settings)
+    if intercept_only:
+        X = np.zeros_like(X)
+    # The Gaussian selection solver has separate extreme-scale limits; do not
+    # turn this inference-only test into a change to its selected support.
+    scales = ([1e-6, 1., 1e6] if loss == "squared_error" and not intercept_only
+              else [1e-170, 1., 1e160])
+    for scale in scales:
+        kwargs = dict(penalty=penalty, alpha=.0001, solver="fista", device="cpu",
+            max_iter=10000, tol=1e-10, compute_inference=True,
+            inference_method="oracle", cov_type=cov_type)
+        model = (typed(**kwargs, **typed_settings) if typed_entry else
+                 PenalizedGeneralizedLinearModel(loss=loss, loss_kwargs=settings, **kwargs))
+        model.fit(X, y, sample_weight=weights * scale)
+        if not intercept_only:
+            _assert_result(model, loss, settings, X, y, weights, cov_type)
+        else:
+            params, se = _reference(loss, settings, np.ones((len(y), 1)),
+                                    y, weights, cov_type)
+            np.testing.assert_allclose(model._params[:1], params, rtol=1e-6, atol=1e-7)
+            np.testing.assert_allclose(model._bse[:1], se, rtol=1e-6, atol=1e-7)
+            np.testing.assert_allclose(model._pvalues[:1],
+                2 * stats.norm.sf(np.abs(params / se)), rtol=1e-5, atol=1e-10)
+            np.testing.assert_allclose(model._conf_int[:1],
+                params[:, None] + se[:, None] * stats.norm.ppf([.025, .975]),
+                rtol=1e-6, atol=1e-7)
+            assert model._inference_result.metadata["n_active"] == 0
+            assert np.isnan(model._bse[1:]).all()
+        assert np.isfinite(model._bse[0])
+
+
+@pytest.mark.parametrize("weight_scale", [1e-170, 1., 1e160])
+def test_oracle_robust_scaling_keeps_original_child_fit_weights(monkeypatch, weight_scale):
+    original = LogisticRegression.fit
+    seen = []
+
+    def record(self, X, y, **kwargs):
+        seen.append(np.array(kwargs["sample_weight"], copy=True))
+        return original(self, X, y, **kwargs)
+
+    monkeypatch.setattr(LogisticRegression, "fit", record)
+    X, y = np.zeros((60, 1)), np.tile([0., 0., 1.], 20)
+    weights = np.linspace(.4, 1.6, len(y)) * weight_scale
+    weights[::7] = 0.
+    PenalizedLogisticRegression(penalty="mcp", alpha=.1, device="cpu",
+        compute_inference=True, inference_method="oracle", cov_type="hc0").fit(
+            X, y, sample_weight=weights)
+    assert len(seen) == 1
+    np.testing.assert_array_equal(seen[0], weights)
+
+
+@pytest.mark.parametrize("cov_type", ["hc0", "hc1"])
+def test_oracle_robust_weight_scaling_preserves_valid_zero_uncertainty(cov_type):
+    X, y = np.zeros((20, 1)), np.full(20, 3.)
+    model = PenalizedLinearRegression(penalty="mcp", alpha=.1, device="cpu",
+        compute_inference=True, inference_method="oracle", cov_type=cov_type).fit(
+            X, y, sample_weight=np.ones(len(y)))
+    np.testing.assert_allclose(model._params[0], 3., atol=1e-14)
+    np.testing.assert_allclose(model._bse[0], 0., atol=1e-14)
+    assert np.isnan(model._bse[1])

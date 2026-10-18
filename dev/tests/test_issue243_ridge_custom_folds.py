@@ -293,3 +293,233 @@ def test_normalized_negative_stride_indices_convert_on_torch_cpu(size):
         assert converted.dtype == torch.int64
         assert_array_equal(converted.numpy(), original)
         assert weights[converted].sum().item() == np.sum(original + 1)
+
+
+def _small_weight_scale_problem(kind):
+    X = np.array([[1.], [2.], [3.]])
+    y = np.array([3., 4., 5.])
+    if kind == "complete":
+        folds = [(np.delete(np.arange(3), i), np.array([i])) for i in range(3)]
+    else:
+        # The second training subset omits row 1 in addition to validation.
+        folds = [(np.array([0, 1]), np.array([2])),
+                 (np.array([2]), np.array([0]))]
+    return X, y, folds
+
+
+@pytest.mark.parametrize("kind", ["complete", "gapped"])
+@pytest.mark.parametrize("intercept", [False, True])
+@pytest.mark.parametrize("weight_kind", ["uniform", "varying"])
+@pytest.mark.parametrize("mixed_precision", [False, True])
+def test_small_explicit_folds_preserve_weight_scale(
+    native, kind, intercept, weight_kind, mixed_precision,
+):
+    device, array = native
+    X, y, folds = _small_weight_scale_problem(kind)
+    weight = (np.ones(3) if weight_kind == "uniform" else
+              np.array([.5, 1., 2.]))
+    alphas = np.array([.01, .1, 1., 10.])
+    expected = []
+    for alpha in alphas:
+        losses = []
+        for train, valid in folds:
+            coef, offset = _solve(
+                X[train], y[train], alpha, weight[train], intercept,
+            )
+            losses.append(np.average(
+                (X[valid] @ coef + offset - y[valid]) ** 2,
+                weights=weight[valid],
+            ))
+        expected.append(losses)
+    expected = np.asarray(expected)
+    selected = alphas[np.argmin(expected.mean(axis=1))]
+    coef, offset = _solve(X, y, selected, weight, intercept)
+    tolerance = 3e-5 if device != "cpu" and mixed_precision else 2e-10
+    for scale in (1e-200, 1e-18, 1., 1e200):
+        scaled_weight = scale * weight
+        original_weight = scaled_weight.copy()
+        model = RidgeCV(
+            alphas=alphas, cv_splits=folds, fit_intercept=intercept,
+            device=device, compute_inference=False,
+            gpu_cv_mixed_precision=mixed_precision,
+        ).fit(array(X), array(y), sample_weight=array(scaled_weight))
+        assert_allclose(model.cv_results_["mse_path"], expected,
+                        rtol=tolerance, atol=tolerance)
+        assert_allclose(model.mean_mse_, expected.mean(axis=1),
+                        rtol=tolerance, atol=tolerance)
+        assert model.alpha_ == selected
+        assert_allclose(model.best_score_, -expected.mean(axis=1).min(),
+                        rtol=tolerance, atol=tolerance)
+        # Final refit uses all rows and original weights, with float64 fitting
+        # independently of the selection phase's mixed-precision setting.
+        assert_allclose(model.coef_, coef, rtol=2e-10, atol=2e-10)
+        assert_allclose(model.intercept_, offset, rtol=2e-10, atol=2e-10)
+        assert_allclose(model.predict(array(X)), X @ coef + offset,
+                        rtol=2e-10, atol=2e-10)
+        assert_array_equal(scaled_weight, original_weight)
+
+
+@pytest.mark.parametrize("intercept", [False, True])
+@pytest.mark.parametrize("kind", ["complete", "gapped"])
+def test_weight_scale_reference_matches_objective_aligned_sklearn(intercept, kind):
+    sklearn_linear = pytest.importorskip("sklearn.linear_model")
+    X, y, folds = _small_weight_scale_problem(kind)
+    for scale in (1e-200, 1., 1e200):
+        weight = scale * np.array([.5, 1., 2.])
+        for train, _ in folds:
+            for alpha in (.01, .1, 1., 10.):
+                coef, offset = _solve(X[train], y[train], alpha,
+                                      weight[train], intercept)
+                reference = sklearn_linear.Ridge(
+                    alpha=alpha * weight[train].sum(),
+                    fit_intercept=intercept, solver="cholesky",
+                ).fit(X[train], y[train], sample_weight=weight[train])
+                assert_allclose(coef, reference.coef_, rtol=2e-10, atol=2e-10)
+                assert_allclose(offset, reference.intercept_, rtol=2e-10, atol=2e-10)
+
+
+@pytest.mark.parametrize("zero_subset", ["training", "validation"])
+@pytest.mark.parametrize("scale", [1e-200, 1., 1e200])
+def test_weight_rescaling_does_not_accept_zero_mass_folds(native, zero_subset, scale):
+    device, array = native
+    X, y, _ = _small_weight_scale_problem("gapped")
+    folds = [(np.array([0, 1]), np.array([2]))]
+    weight = np.full(3, scale)
+    weight[folds[0][0 if zero_subset == "training" else 1]] = 0.
+    with pytest.raises(ValueError, match=zero_subset + " sample_weight must have a positive sum"):
+        RidgeCV(alphas=[.01, 10.], cv_splits=folds, device=device,
+                compute_inference=False).fit(array(X), array(y), sample_weight=array(weight))
+
+
+@pytest.mark.parametrize("dtype_name", ["float32", "float64"])
+@pytest.mark.parametrize("feature_scale", [1., 1e-8, 1e-15])
+@pytest.mark.parametrize("rank_deficient", [False, True])
+@pytest.mark.parametrize("normalized", [False, True])
+def test_torch_cpu_ridge_eigen_path_has_no_absolute_positive_floor(
+    dtype_name, feature_scale, rank_deficient, normalized,
+):
+    # Actual Torch CPU kernels, not a substitute for public CUDA execution.
+    torch = pytest.importorskip("torch")
+    from statgpu.backends import TorchBackend
+    from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_gpu_from_gram
+
+    X = feature_scale * np.array([[-3.], [-2.], [-1.], [1.], [2.], [3.]])
+    y = 2. * X[:, 0]
+    if rank_deficient:
+        X = np.column_stack([X[:, 0], 2. * X[:, 0]])
+    weight = np.ones(6)
+    if normalized:
+        weight = weight / weight.sum()
+    gram = X.T @ (weight[:, None] * X)
+    cross = X.T @ (weight * y)
+    alphas = feature_scale ** 2 * np.array([.01, .1, 1.])
+    expected = np.array([
+        np.linalg.solve(gram + alpha * weight.sum() * np.eye(X.shape[1]), cross)
+        for alpha in alphas
+    ])[:, None, :]
+    dtype = getattr(torch, dtype_name)
+    native_gram = torch.tensor(gram[None], dtype=dtype, requires_grad=True)
+    native_cross = torch.tensor(cross[None], dtype=dtype, requires_grad=True)
+    original_gram, original_cross = native_gram.detach().clone(), native_cross.detach().clone()
+    actual = _solve_ridge_path_gpu_from_gram(
+        native_gram, native_cross, np.array([weight.sum()]), alphas,
+        TorchBackend(device="cpu"), fit_intercept=False,
+    )
+    assert actual.device.type == "cpu"
+    assert actual.dtype == dtype
+    assert native_gram.requires_grad and native_cross.requires_grad
+    assert torch.equal(native_gram.detach(), original_gram)
+    assert torch.equal(native_cross.detach(), original_cross)
+    tolerance = 1e-4 if dtype_name == "float32" else 2e-10
+    assert_allclose(actual.detach().numpy(), expected, rtol=tolerance, atol=tolerance)
+
+
+@pytest.mark.parametrize("mixed_precision", [False, True])
+def test_small_feature_ridge_cv_matches_positive_alpha_objective(native, mixed_precision):
+    device, array = native
+    X = 1e-8 * np.array([[-3.], [-2.], [-1.], [1.], [2.], [3.], [4.]])
+    y = 2. * X[:, 0]
+    folds = [(np.arange(6), np.array([6]))]
+    alphas = np.array([1e-17, 1e-16, 1e-15])
+    train, valid = folds[0]
+    expected = []
+    for alpha in alphas:
+        coef, offset = _solve(X[train], y[train], alpha, np.ones(len(train)), False)
+        expected.append(np.mean((X[valid] @ coef + offset - y[valid]) ** 2))
+    for scale in (1e-18, 1.):
+        model = RidgeCV(
+            alphas=alphas, cv_splits=folds, fit_intercept=False,
+            device=device, compute_inference=False,
+            gpu_cv_mixed_precision=mixed_precision,
+        ).fit(array(X), array(y), sample_weight=array(np.full(len(y), scale)))
+        tolerance = 1e-4 if device != "cpu" and mixed_precision else 2e-10
+        assert_allclose(model.cv_results_["mse_path"][:, 0], expected,
+                        rtol=tolerance, atol=1e-28)
+        assert model.alpha_ == alphas[np.argmin(expected)]
+        coef, offset = _solve(X, y, model.alpha_, np.ones(len(y)), False)
+        assert_allclose(model.coef_, coef, rtol=2e-10, atol=2e-10)
+        assert_allclose(model.intercept_, offset, rtol=2e-10, atol=2e-10)
+
+
+@pytest.mark.parametrize("alpha", [1e-20, 1e-40])
+def test_torch_cpu_rank_deficient_path_retains_tiny_representable_alpha(alpha):
+    torch = pytest.importorskip("torch")
+    from statgpu.backends import TorchBackend
+    from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_gpu_from_gram
+
+    gram = torch.zeros((1, 2, 2), dtype=torch.float32)
+    cross = torch.zeros((1, 2), dtype=torch.float32)
+    result = _solve_ridge_path_gpu_from_gram(
+        gram, cross, np.array([1.]), np.array([alpha]), TorchBackend(device="cpu"),
+    )
+    assert result.device.type == "cpu" and result.dtype == torch.float32
+    assert torch.all(torch.isfinite(result))
+    assert torch.equal(result, torch.zeros_like(result))
+    assert torch.equal(gram, torch.zeros_like(gram))
+    assert torch.equal(cross, torch.zeros_like(cross))
+
+
+@pytest.mark.parametrize("alpha", [1e-100, 1e100])
+def test_torch_cpu_unrepresentable_alpha_reports_cv_precision(alpha):
+    torch = pytest.importorskip("torch")
+    from statgpu.backends import TorchBackend
+    from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_gpu_from_gram
+
+    backend = TorchBackend(device="cpu")
+    gram = torch.zeros((1, 1, 1), dtype=torch.float32)
+    cross = torch.zeros((1, 1), dtype=torch.float32)
+    with pytest.raises(FloatingPointError, match="gpu_cv_mixed_precision=False"):
+        _solve_ridge_path_gpu_from_gram(
+            gram, cross, np.array([1.]), np.array([alpha]), backend,
+        )
+    result = _solve_ridge_path_gpu_from_gram(
+        gram.to(torch.float64), cross.to(torch.float64), np.array([1.]),
+        np.array([alpha]), backend,
+    )
+    assert torch.equal(result, torch.zeros_like(result))
+
+
+def test_torch_cpu_overflowing_regularized_diagonal_reports_cv_precision():
+    torch = pytest.importorskip("torch")
+    from statgpu.backends import TorchBackend
+    from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_gpu_from_gram
+
+    with pytest.raises(FloatingPointError, match="denominators.*finite and positive"):
+        _solve_ridge_path_gpu_from_gram(
+            torch.tensor([[[3e38]]], dtype=torch.float32),
+            torch.ones((1, 1), dtype=torch.float32), np.array([1.]),
+            np.array([3e38]), TorchBackend(device="cpu"),
+        )
+
+
+def test_public_ridge_cv_reports_unrepresentable_mixed_precision_alpha(native):
+    device, array = native
+    X, y = np.zeros((3, 1)), np.arange(1., 4.)
+    kwargs = dict(alphas=[1e-100, 1e100], cv_splits=[([0, 1], [2])],
+                  fit_intercept=False, device=device, compute_inference=False)
+    if device != "cpu":
+        with pytest.raises(FloatingPointError, match="gpu_cv_mixed_precision=False"):
+            RidgeCV(**kwargs, gpu_cv_mixed_precision=True).fit(array(X), array(y))
+    model = RidgeCV(**kwargs, gpu_cv_mixed_precision=False).fit(array(X), array(y))
+    assert_allclose(model.cv_results_["mse_path"], [[9.], [9.]], rtol=0, atol=0)
+    assert_allclose(model.coef_, [0.], rtol=0, atol=0)

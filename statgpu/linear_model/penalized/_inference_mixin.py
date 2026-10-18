@@ -1239,6 +1239,21 @@ class _PenalizedInferenceMixin:
         self._inference_result.apply_to(self)
 
     def _compute_oracle_inference(self, X, y, sample_weight=None):
+        """Publish oracle inference only after the complete refit succeeds."""
+        try:
+            return self._compute_oracle_inference_impl(X, y, sample_weight)
+        except Exception:
+            # Some typed Gaussian fit wrappers captured an earlier public fit
+            # implementation and bypass the generic inference transaction.
+            # Own this boundary here so every oracle failure clears prediction,
+            # reporting, formula, and backend state, including an earlier fit.
+            from statgpu.linear_model._penalized_glm_inference_fit_transaction import (
+                _invalidate_failed_refit,
+            )
+            _invalidate_failed_refit(self)
+            raise
+
+    def _compute_oracle_inference_impl(self, X, y, sample_weight=None):
         """Refit the selected SCAD/MCP support without regularization on CPU.
 
         Family parameters, effective intercept, and analytic sample weights
@@ -1358,13 +1373,6 @@ class _PenalizedInferenceMixin:
             if (self._cov_type == "nonrobust"
                     and self.loss in ("squared_error", "gamma", "inverse_gaussian", "tweedie")
                     and n_positive <= n_refit):
-                # Some typed Gaussian fit paths bypass the generic exception
-                # wrapper. Invalidate this failed fit before exposing the new
-                # error, including any previous successful fit's state.
-                from statgpu.linear_model._penalized_glm_inference_fit_transaction import (
-                    _invalidate_failed_refit,
-                )
-                _invalidate_failed_refit(self)
                 raise ValueError(
                     "Nonrobust oracle inference requires positive residual "
                     "degrees of freedom to estimate dispersion: the number "
@@ -1435,9 +1443,16 @@ class _PenalizedInferenceMixin:
             if (self._cov_type in ("hc0", "hc1")
                     and self.loss in ("inverse_gaussian", "negative_binomial")):
                 inference_loss = _OracleObservedHessianLoss(inference_loss)
+            covariance_weight = sw_cpu
+            if self._cov_type in ("hc0", "hc1") and sw_cpu is not None:
+                # Sandwich covariance is invariant to a common weight scale.
+                # Bound weights before score_outer squares them, preventing
+                # otherwise finite analytic weights from under/overflowing.
+                # Keep refit weights and nonrobust information unchanged.
+                covariance_weight = sw_cpu / np.max(sw_cpu)
             result = m_estimation_inference(
                 inference_loss, X_design, y_cpu, params_active,
-                cov_type=self._cov_type, sample_weight=sw_cpu,
+                cov_type=self._cov_type, sample_weight=covariance_weight,
             )
             active_idx = np.flatnonzero(active) + offset
             if offset:

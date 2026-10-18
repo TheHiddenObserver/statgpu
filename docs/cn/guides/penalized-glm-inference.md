@@ -149,7 +149,12 @@ $$
 
 ### 无惩罚重拟合与分布族设置
 
-接口接受 SCAD/MCP 与 `squared_error`、`logistic`、`poisson`、`gamma`、`inverse_gaussian`、`negative_binomial`、`tweedie` 的组合。非高斯重拟合明确使用 `C=0`，保留已拟合的分布族、Gamma 链接、负二项离散参数 `alpha`、Tweedie 幂参数 `power`，以及父模型的 `max_iter`、`tol`、截距约定和受支持的分析权重。logistic 和 Poisson 重拟合显式使用 `solver="irls"`，其他非高斯分布族使用 `solver="newton"`，设备均为 `device="cpu"`。若重拟合报告未收敛，则抛出 `RuntimeError`，不返回 oracle 系数表。
+接口接受 SCAD/MCP 与 `squared_error`、`logistic`、`poisson`、`gamma`、`inverse_gaussian`、`negative_binomial`、`tweedie` 的组合。非高斯重拟合明确使用 `C=0`，保留已拟合的分布族、Gamma 链接、负二项离散参数 `alpha`、Tweedie 幂参数 `power`，以及父模型的 `max_iter`、`tol`、截距约定和受支持的分析权重。logistic 和 Poisson 重拟合显式使用 `solver="irls"`，其他非高斯分布族使用 `solver="newton"`，设备均为 `device="cpu"`。若重拟合报告未收敛，则抛出 `RuntimeError`，不返回 oracle 系数表。Oracle 计算过程中发生错误时，也会清除拟合、预测和推断报告状态，包括此前成功拟合留下的状态。再次预测或读取推断结果前，须重新成功拟合模型。
+
+Oracle 的 HC0/HC1 协方差在计算得分外积前统一缩放权重，避免权重的共同尺度
+导致下溢或溢出。在入选支持集与重拟合结果固定时，只要相对权重仍可表示，
+统一缩放权重后，协方差在通常的数值容差内保持一致。重拟合权重与非稳健协方差的既有约定不变；离散尺度固定时，
+非稳健标准误不一定具有这种尺度不变性。
 
 无惩罚目标还必须存在有限解。仅考虑正权重观测时，如果 Poisson、负二项或 Tweedie 响应全为零，或 logistic 响应只有一个类别，自由截距可持续改善目标而不存在有限最优值。这些边界拟合会在发布不确定性之前抛出 `ValueError`，即使求解器已停在某个有限近似值。零权重观测不会消除这一边界。全零 Gaussian 响应具有有限的最小二乘解，不会因这条规则被拒绝。
 
