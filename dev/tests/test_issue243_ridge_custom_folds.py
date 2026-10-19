@@ -2025,6 +2025,143 @@ def test_cv_gram_consistency_accepts_positive_stored_subnormal_diagonal(factor_b
     assert_array_equal(backend.to_numpy(cross), cross_host)
 
 
+@pytest.mark.parametrize("gram_dtype,cross_dtype", [
+    ("float32", "float32"), ("float32", "float64"),
+    ("float64", "float32"), ("float64", "float64"),
+])
+@pytest.mark.parametrize("layout", ["batched", "strided", "unbatched"])
+@pytest.mark.parametrize("case", [
+    "signed_zeros", "positive_min_cross", "negative_min_cross",
+    "positive_min_diagonal", "negative_min_diagonal",
+    "positive_max_subnormal_diagonal", "negative_max_subnormal_diagonal",
+    "normal_diagonal",
+])
+def test_cv_gram_consistency_classifies_stored_bits_per_operand(
+        factor_backend, monkeypatch, gram_dtype, cross_dtype, layout, case):
+    from statgpu.linear_model.cv._ridge_cv import _check_ridge_gram_consistency
+    backend, _ = factor_backend
+
+    def subnormal(dtype_name, largest=False):
+        # Construct stored values from bits, without device float arithmetic.
+        integer = np.uint32 if dtype_name == "float32" else np.uint64
+        mantissa_bits = 23 if dtype_name == "float32" else 52
+        bits = (1 << mantissa_bits) - 1 if largest else 1
+        return np.array(bits, dtype=integer).view(getattr(np, dtype_name))[()]
+
+    diagonal, response = -0., 0.
+    rejects = case in ("positive_min_cross", "negative_min_cross")
+    if rejects:
+        response = subnormal(cross_dtype)
+    elif "diagonal" in case:
+        diagonal = (1. if case == "normal_diagonal" else
+                    subnormal(gram_dtype, largest="max_subnormal" in case))
+        response = 1.
+    if case.startswith("negative"):
+        if rejects:
+            response = -response
+        else:
+            diagonal = -diagonal
+    gram_host = np.array([np.diag([1., 0.]), np.diag([1., diagonal])], dtype=gram_dtype)
+    cross_host = np.array([[0., -0.], [0., response]], dtype=cross_dtype)
+    if layout == "strided":
+        gram = backend.asarray(np.repeat(np.repeat(gram_host, 2, axis=1), 2, axis=2),
+                               dtype=getattr(backend, gram_dtype))[:, ::2, ::2]
+        cross = backend.asarray(np.repeat(cross_host, 2, axis=1),
+                                dtype=getattr(backend, cross_dtype))[:, ::2]
+    else:
+        gram = backend.asarray(gram_host, dtype=getattr(backend, gram_dtype))
+        cross = backend.asarray(cross_host, dtype=getattr(backend, cross_dtype))
+        if layout == "unbatched":
+            gram, cross = gram[1], cross[1]
+    if backend.name == "numpy":
+        gram.setflags(write=False)
+        cross.setflags(write=False)
+    before = [backend.to_numpy(value).tobytes() for value in (gram, cross)]
+    asarray = backend.asarray
+
+    def forbid_float32_cast(values, *args, **kwargs):
+        if backend.name == "cupy" and values.dtype == backend.float32:
+            raise AssertionError("Stored CuPy float32 values must not be numerically cast")
+        return asarray(values, *args, **kwargs)
+
+    def forbid_host_array(*args, **kwargs):
+        raise AssertionError("The consistency predicate must stay on the original backend")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(backend, "asarray", forbid_float32_cast)
+        patch.setattr(backend, "to_numpy", forbid_host_array)
+        if backend.name == "cupy":
+            patch.setattr(backend.xp, "asnumpy", forbid_host_array)
+        expectation = (pytest.raises(FloatingPointError, match="zero diagonal with a nonzero cross product")
+                       if rejects else nullcontext())
+        with expectation:
+            _check_ridge_gram_consistency(gram, cross, backend)
+    assert [backend.to_numpy(value).tobytes() for value in (gram, cross)] == before
+    assert gram.dtype == getattr(backend, gram_dtype)
+    assert cross.dtype == getattr(backend, cross_dtype)
+
+
+@pytest.mark.parametrize("dtype_name", ["float32", "float64"])
+@pytest.mark.parametrize("operand", ["gram", "cross"])
+@pytest.mark.parametrize("value", [np.nan, np.inf, -np.inf])
+def test_cv_gram_consistency_keeps_finite_prevalidation(
+        factor_backend, monkeypatch, dtype_name, operand, value):
+    from statgpu.linear_model.cv import _ridge_cv as module
+    backend, _ = factor_backend
+    gram_host, cross_host = np.zeros((1, 2, 2)), np.ones((1, 2))
+    (gram_host if operand == "gram" else cross_host).flat[-1] = value
+    gram = backend.asarray(gram_host, dtype=getattr(backend, dtype_name))
+    cross = backend.asarray(cross_host, dtype=getattr(backend, dtype_name))
+
+    def unexpected(*args, **kwargs):
+        raise AssertionError("Nonfinite moments must fail before zero classification or eigendecomposition")
+
+    monkeypatch.setattr(module, "_check_ridge_gram_consistency", unexpected)
+    monkeypatch.setattr(backend.xp.linalg, "eigh", unexpected)
+    with pytest.raises(FloatingPointError, match="Gram or cross product is not finite"):
+        module._solve_ridge_path_gpu_from_gram_eig(gram, cross, np.array([1.]), backend)
+
+
+@pytest.mark.parametrize("rejects", [False, True])
+def test_cv_gram_consistency_cupy_restores_nondefault_device(monkeypatch, rejects):
+    from statgpu.backends import get_backend
+    from statgpu.linear_model.cv._ridge_cv import _check_ridge_gram_consistency
+    backend = get_backend(backend="cupy", device="cuda")
+    if not backend.is_available():
+        if os.environ.get("STATGPU_REQUIRE_PHYSICAL_GPU") == "1":
+            pytest.fail("cupy cuda unavailable")
+        pytest.skip("cupy cuda unavailable")
+    cp = backend.xp
+    count = cp.cuda.runtime.getDeviceCount()
+    if count < 2:
+        pytest.skip("Requires two CUDA devices to check restoration of a different active device")
+    active = cp.cuda.runtime.getDevice()
+    target = (active + 1) % count
+    minimum = np.array([1], dtype=np.uint32).view(np.float32)[0]
+    with cp.cuda.Device(target):
+        gram = cp.asarray(np.array([np.diag([1., -0. if rejects else minimum])], dtype=np.float32))
+        cross = cp.asarray(np.array([[0., -minimum if rejects else 1.]], dtype=np.float32))
+    assert cp.cuda.runtime.getDevice() == active
+    observed_devices = []
+    # Observe the native mask reduction while the active device differs from
+    # the inputs' device, including the failure path's context restoration.
+    any_ = cp.any
+
+    def record_reduction(values, *args, **kwargs):
+        observed_devices.append(cp.cuda.runtime.getDevice())
+        assert values.device.id == target
+        return any_(values, *args, **kwargs)
+
+    monkeypatch.setattr(cp, "any", record_reduction)
+    expectation = (pytest.raises(FloatingPointError, match="zero diagonal with a nonzero cross product")
+                   if rejects else nullcontext())
+    with expectation:
+        _check_ridge_gram_consistency(gram, cross, backend)
+    assert observed_devices and set(observed_devices) == {target}
+    assert gram.device.id == cross.device.id == target
+    assert cp.cuda.runtime.getDevice() == active
+
+
 @pytest.mark.parametrize("response", [0., 1.])
 def test_cv_gram_consistency_preserves_zero_columns_and_responses(factor_backend, response):
     from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_gpu_from_gram_eig

@@ -290,12 +290,22 @@ def _check_ridge_gram_consistency(gram, cross, backend):
     # With nonnegative weights, an exact zero Gram diagonal implies a zero
     # weighted feature column and therefore a zero matching cross product.
     # Check before regularization can conceal this inconsistency.
-    # Promote only the diagonal and RHS: float32 device comparisons can flush
-    # valid stored subnormals to zero. No threshold, new moments, or factor
-    # reconstruction is involved; other rounding/cancellation can go undetected.
-    diagonal = backend.asarray(gram.diagonal(0, -2, -1), dtype=backend.float64)
-    cross = backend.asarray(cross, dtype=backend.float64)
-    if bool(_to_float_scalar(backend.xp.any((diagonal == 0) & (cross != 0)))):
+    # CuPy float32 comparisons AND widening casts can flush stored subnormals.
+    # Inspect each such operand's bits instead; masking the sign admits both
+    # signed zeros without erasing any nonzero value. Other dtypes/backends
+    # retain their existing promotion policy. No threshold or reconstruction
+    # is involved; other rounding/cancellation can go undetected.
+    xp = backend.xp
+
+    def is_zero(values):
+        if backend.name == "cupy" and values.dtype == backend.float32:
+            return (values.view(xp.uint32) & xp.uint32(0x7fffffff)) == xp.uint32(0)
+        return backend.asarray(values, dtype=backend.float64) == 0
+
+    with gram.device if backend.name == "cupy" else nullcontext():
+        inconsistent = xp.any(is_zero(gram.diagonal(0, -2, -1)) & ~is_zero(cross))
+        inconsistent = bool(_to_float_scalar(inconsistent))
+    if inconsistent:
         raise FloatingPointError(
             "RidgeCV stored Gram has a zero diagonal with a nonzero cross product; "
             "precision was lost forming or converting the moments. Use "

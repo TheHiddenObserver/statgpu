@@ -707,8 +707,10 @@ A stored raw Gram diagonal that is exactly zero while its corresponding
 cross-product is nonzero also raises `FloatingPointError`, before adding
 regularization. With nonnegative weights these moments cannot come from the
 same exact design; rounding, cancellation or flush-to-zero has made them
-inconsistent. The check uses the stored values promoted to float64 on the
-selected device. It does not reject a zero diagonal with a zero cross-product,
+inconsistent. The check classifies stored values on their original device;
+CuPy float32 values use their integer bit representation so conversion cannot
+flush a nonzero subnormal to zero. Both signs of zero count as zero. It does
+not reject a zero diagonal with a zero cross-product,
 or a strictly positive subnormal diagonal. Disable mixed precision or rescale
 the inputs; increasing alpha does not restore the lost moments. This detects
 one specific inconsistency, not every loss of precision.
