@@ -12,6 +12,7 @@ import pytest
 
 from statgpu import LinearRegression
 from statgpu.backends import get_backend
+from statgpu.backends._validation import check_finite
 from statgpu.inference import bootstrap_statistic
 from statgpu.inference import _resampling as resampling
 
@@ -1105,6 +1106,23 @@ class _NativeDtypeClusterRow:
         raise AssertionError("validation must not compare a custom array leaf")
 
 
+def _existing_cluster_finite_guard_error(fresh_labels, use_estimator):
+    """Measure only the pre-existing guard on an independent equivalent input.
+
+    NumPy versions differ in nested array-like coercion: the finite guard can
+    recurse after an unsuccessful whole-container conversion. Its calls and
+    early rejection must not be attributed to the cluster snapshot. Callers
+    retain the fresh leaves to require exactly one *additional* dtype-inferred
+    conversion per occurrence when the guard allows snapshotting to proceed.
+    """
+    if use_estimator:
+        try:
+            check_finite(fresh_labels, name="clusters")
+        except ValueError as exc:
+            return str(exc)
+    return None
+
+
 @pytest.mark.parametrize("row_type", [
     _NativeDtypeClusterRow, _GetattrClusterArray, _GetattributeClusterArray,
 ])
@@ -1114,10 +1132,15 @@ class _NativeDtypeClusterRow:
 def test_nested_array_protocol_uses_only_reused_dtype_inferred_conversion(
     row_type, container, use_estimator, backend,
 ):
-    rows = [row_type(np.float32(label)) if row_type is _NativeDtypeClusterRow
-            else row_type([label], reject_object_dtype=True)
-            for label in [0, 0, 1, 1]]
-    labels = container(rows)
+    def make_labels():
+        rows = [row_type(np.float32(label)) if row_type is _NativeDtypeClusterRow
+                else row_type([label], reject_object_dtype=True)
+                for label in [0, 0, 1, 1]]
+        return container(rows), rows
+
+    control_labels, control_rows = make_labels()
+    assert _existing_cluster_finite_guard_error(control_labels, use_estimator) is None
+    labels, rows = make_labels()
     values = np.array([1., 3., 10., 30.])
     function = (LinearRegression(device="cpu").bootstrap_statistic
                 if use_estimator else bootstrap_statistic)
@@ -1126,10 +1149,38 @@ def test_nested_array_protocol_uses_only_reused_dtype_inferred_conversion(
     expected = [values[idx].mean() for idx in
                 _reference_indices(np.array([0, 0, 1, 1]), 4, 29)]
     np.testing.assert_array_equal(result.samples, expected)
-    # The estimator's existing finite check converts once. The host snapshot
-    # then converts once normally and is reused by backend conversion/grouping.
-    expected_calls = 2 if use_estimator else 1
-    assert [row.conversions for row in rows] == [[None] * expected_calls] * 4
+    # Exactly one snapshot conversion beyond the independently measured guard;
+    # backend conversion/grouping must reuse it, with no object-dtype requests.
+    assert all(dtype is None for row in rows for dtype in row.conversions)
+    assert [row.conversions for row in rows] == [
+        row.conversions + [None] for row in control_rows
+    ], "expected one dtype-inferred snapshot conversion per occurrence"
+
+
+@pytest.mark.parametrize("snapshot_calls", [0, 2], ids=["missing", "extra"])
+@pytest.mark.parametrize("use_estimator", [False, True], ids=["module", "estimator"])
+@pytest.mark.parametrize("backend", ["numpy", "auto"])
+def test_nested_snapshot_oracle_detects_missing_or_extra_conversion(
+    monkeypatch, snapshot_calls, use_estimator, backend,
+):
+    original = resampling._snapshot_host_cluster_sequence
+
+    def faulty_snapshot(value, active=None, *, scalar_leaves, path=()):
+        if isinstance(value, _NativeDtypeClusterRow):
+            if snapshot_calls == 0:
+                # Preserve the right labels/samples while bypassing the leaf's
+                # conversion, so only the conversion-count oracle can catch it.
+                return np.asarray([value.label])
+            np.asarray(value)  # A real, redundant dtype-inferred conversion.
+        return original(value, active, scalar_leaves=scalar_leaves, path=path)
+
+    monkeypatch.setattr(resampling, "_snapshot_host_cluster_sequence", faulty_snapshot)
+    with pytest.raises(
+        AssertionError, match="one dtype-inferred snapshot conversion per occurrence",
+    ):
+        test_nested_array_protocol_uses_only_reused_dtype_inferred_conversion(
+            _NativeDtypeClusterRow, list, use_estimator, backend,
+        )
 
 
 @pytest.mark.parametrize("native_row", [False, True])
@@ -1139,9 +1190,14 @@ def test_nested_array_protocol_uses_only_reused_dtype_inferred_conversion(
 def test_nested_custom_leaf_does_not_hide_missing_ordinary_neighbor(
     native_row, missing, use_estimator, backend,
 ):
-    row = _NativeDtypeClusterRow("a")
-    missing_row = np.asarray([missing]) if native_row else [missing]
-    labels = [row, ["a"], missing_row, ["b"]]
+    def make_labels():
+        row = _NativeDtypeClusterRow("a")
+        missing_row = np.asarray([missing]) if native_row else [missing]
+        return [row, ["a"], missing_row, ["b"]], row
+
+    control_labels, control_row = make_labels()
+    guard_error = _existing_cluster_finite_guard_error(control_labels, use_estimator)
+    labels, row = make_labels()
     calls = []
 
     def statistic(values):
@@ -1150,11 +1206,15 @@ def test_nested_custom_leaf_does_not_hide_missing_ordinary_neighbor(
 
     function = (LinearRegression(device="cpu").bootstrap_statistic
                 if use_estimator else bootstrap_statistic)
-    with pytest.raises(ValueError, match="nonmissing label per row"):
+    with pytest.raises(ValueError) as caught:
         function(statistic, np.arange(4.), clusters=labels, strategy="cluster",
                  n_resamples=5, backend=backend)
+    assert str(caught.value) == (
+        guard_error or "clusters must contain one nonmissing label per row"
+    )
     assert calls == []
     assert all(dtype is None for dtype in row.conversions)
+    assert row.conversions == control_row.conversions + ([] if guard_error else [None])
 
 
 @pytest.mark.parametrize("use_estimator", [False, True], ids=["module", "estimator"])
@@ -1356,6 +1416,10 @@ def _numeric_protocol_row(row_type, value):
 def test_nested_numeric_protocol_missing_label_rejected_before_string_promotion(
     row_type, missing, use_estimator, backend,
 ):
+    control_row = _numeric_protocol_row(row_type, missing)
+    guard_error = _existing_cluster_finite_guard_error(
+        [["a"], ["a"], control_row, ["b"]], use_estimator,
+    )
     row = _numeric_protocol_row(row_type, missing)
     labels = [["a"], ["a"], row, ["b"]]
     calls = []
@@ -1366,13 +1430,17 @@ def test_nested_numeric_protocol_missing_label_rejected_before_string_promotion(
 
     function = (LinearRegression(device="cpu").bootstrap_statistic
                 if use_estimator else bootstrap_statistic)
-    with pytest.raises(ValueError, match="nonmissing label per row"):
+    with pytest.raises(ValueError) as caught:
         function(statistic, np.arange(4.), clusters=labels, strategy="cluster",
                  n_resamples=5, backend=backend)
+    assert str(caught.value) == (
+        guard_error or "clusters must contain one nonmissing label per row"
+    )
     assert calls == []
-    # One dtype-inferred snapshot conversion, plus the estimator's existing
-    # finite-input check. No object-dtype request or second snapshot read.
-    assert row.conversions == [None] * (2 if use_estimator else 1)
+    # An early finite-guard rejection adds no snapshot call; otherwise exactly
+    # one. No object-dtype request or second snapshot read is permitted.
+    assert all(dtype is None for dtype in row.conversions)
+    assert row.conversions == control_row.conversions + ([] if guard_error else [None])
 
 
 @pytest.mark.parametrize("row_type", [
@@ -1386,6 +1454,10 @@ def test_nested_numeric_protocol_missing_label_rejected_before_string_promotion(
 def test_nested_numeric_protocol_snapshot_preserves_inferred_dtype_and_groups(
     row_type, value, literal, use_estimator, backend,
 ):
+    control_rows = [_numeric_protocol_row(row_type, value) for _ in range(2)]
+    assert _existing_cluster_finite_guard_error(
+        [*control_rows, [literal], [literal]], use_estimator,
+    ) is None
     rows = [_numeric_protocol_row(row_type, value) for _ in range(2)]
     labels = [*rows, [literal], [literal]]
     function = (LinearRegression(device="cpu").bootstrap_statistic
@@ -1394,7 +1466,10 @@ def test_nested_numeric_protocol_snapshot_preserves_inferred_dtype_and_groups(
                       strategy="cluster", n_resamples=29, random_state=4, backend=backend)
     assert result.metadata["n_clusters"] == 1
     np.testing.assert_array_equal(result.samples, np.full(29, 11.))
-    assert [row.conversions for row in rows] == [[None] * (2 if use_estimator else 1)] * 2
+    assert all(dtype is None for row in rows for dtype in row.conversions)
+    assert [row.conversions for row in rows] == [
+        row.conversions + [None] for row in control_rows
+    ]
 
 
 @pytest.mark.parametrize("protocol", ["__array_interface__", "__array_struct__"])
@@ -1411,20 +1486,35 @@ def test_nested_numpy_protocol_attributes_materialize_once(protocol, missing, us
         return getattr(self.value, protocol)
 
     setattr(Row, protocol, property(attribute))
+    control_row = Row()
+    guard_error = _existing_cluster_finite_guard_error(
+        [control_row, ["0.1"], ["0.1"], ["0.1"]], use_estimator,
+    )
     row = Row()
     labels = [row, ["0.1"], ["0.1"], ["0.1"]]
+    calls = []
+
+    def statistic(values):
+        calls.append(values.shape)
+        return np.mean(values)
+
     function = (LinearRegression(device="cpu").bootstrap_statistic
                 if use_estimator else bootstrap_statistic)
     if missing:
-        with pytest.raises(ValueError, match="nonmissing label per row"):
-            function(np.mean, np.arange(4.), clusters=labels, strategy="cluster",
+        with pytest.raises(ValueError) as caught:
+            function(statistic, np.arange(4.), clusters=labels, strategy="cluster",
                      n_resamples=5, backend="numpy")
+        assert str(caught.value) == (
+            guard_error or "clusters must contain one nonmissing label per row"
+        )
+        assert calls == []
     else:
-        result = function(np.mean, np.arange(4.), clusters=labels, strategy="cluster",
+        assert guard_error is None
+        result = function(statistic, np.arange(4.), clusters=labels, strategy="cluster",
                           n_resamples=5, backend="numpy")
         assert result.metadata["n_clusters"] == 1
         np.testing.assert_array_equal(result.samples, np.full(5, 1.5))
-    assert row.reads == (2 if use_estimator else 1)
+    assert row.reads == control_row.reads + (0 if guard_error else 1)
 
 
 @pytest.mark.parametrize("use_estimator", [False, True], ids=["module", "estimator"])
@@ -1714,6 +1804,8 @@ def test_shared_nested_array_leaf_is_converted_once_per_occurrence(use_estimator
             self.calls += 1
             return np.asarray([label])
 
+    control_row = Row()
+    assert _existing_cluster_finite_guard_error([control_row] * 4, use_estimator) is None
     row = Row()
     function = (LinearRegression(device="cpu").bootstrap_statistic
                 if use_estimator else bootstrap_statistic)
@@ -1722,4 +1814,4 @@ def test_shared_nested_array_leaf_is_converted_once_per_occurrence(use_estimator
     expected = [np.arange(4.)[idx].mean() for idx in
                 _reference_indices(np.array([0, 0, 1, 1]), 4, 11)]
     np.testing.assert_array_equal(result.samples, expected)
-    assert row.calls == 4 * (2 if use_estimator else 1)
+    assert row.calls == control_row.calls + 4

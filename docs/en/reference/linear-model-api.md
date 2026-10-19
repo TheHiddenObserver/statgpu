@@ -705,11 +705,18 @@ data or weights, or choose representable alphas as indicated by the error.
 
 GPU folds normally reuse a Gram eigendecomposition across alphas. A difficult
 fold can instead use native regularized Gram solves for individual alphas,
-with a `RuntimeWarning`; singular systems use the backend's numerical-rank
-fallback. This stays on the selected device, promoting the already-formed
+with a `RuntimeWarning`. Numerically singular systems use a minimum-norm
+solution only when the numerical-rank decision is consistent across feature
+scales; otherwise fitting raises `FloatingPointError` rather than discarding
+an independently resolved direction. Exact independent coordinate blocks
+retain their separate scales. This stays on the selected device, promoting the already-formed
 Gram matrix and cross-products to float64 and using the effective penalty
 before its CV-precision conversion. The penalty must still be representable
-at the configured CV precision. Promotion cannot recover information lost
+at the configured CV precision. Supported subnormal effective penalties use
+same-device float64 arithmetic when they affect the solve, avoiding backend
+flush-to-zero behavior; they are not silently replaced by zero regularization.
+Very small stored Gram systems can be scaled upward without changing their
+objective. Promotion cannot recover information lost
 when forming or converting the moments; it does not reconstruct the original
 training factors.
 
@@ -726,8 +733,10 @@ independent objective-aligned fit.
 
 With an explicit alpha grid, a design with zero slope columns retains its
 intercept-only or zero-prediction model, including weighted CV; it has no
-slope spectrum to inspect. Automatic alpha generation requires at least one
-slope column, so supply `alphas` for an empty-feature design.
+slope spectrum to inspect. The final refit also handles the empty coefficient
+vector directly while preserving the usual weighted intercept, inference and
+fitted-state behavior. Automatic alpha generation requires at least one slope
+column, so supply `alphas` for an empty-feature design.
 
 Both index arrays must be nonempty, one-dimensional, integral and in bounds.
 Repeated indices within either subset and overlap between the training and

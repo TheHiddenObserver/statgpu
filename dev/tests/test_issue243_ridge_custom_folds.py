@@ -1165,6 +1165,49 @@ def test_empty_feature_native_gram_has_no_spectral_recovery(factor_backend, monk
     assert tuple(actual.shape) == (2, 2, 0)
 
 
+def _assert_tiny_feature_final_refit_objective(model, X, y, weights):
+    """Check final-fit roundoff against the exact diagonal objective.
+
+    Gamma(n+2) bounds weighted dot-product formation (including square-root
+    weighting); gamma(3p) is the small-system elimination backward-error
+    budget. Absolute products, rather than the cancelled stored off-diagonal,
+    are essential: a mathematically zero slope need not be bitwise zero.
+    """
+    from decimal import Decimal, localcontext
+    with localcontext() as context:
+        context.prec = 100
+        D = Decimal.from_float
+        w = [D(float(value)) for value in (np.ones(len(y)) if weights is None else weights)]
+        design = [[D(float(value)) for value in row] for row in X]
+        response = [D(float(value)) for value in y]
+        coef = [D(float(value)) for value in model.coef_]
+        mass, alpha = sum(w), D(float(model.alpha_))
+        n, p = X.shape
+        gram = [[sum(w[k] * design[k][i] * design[k][j] for k in range(n))
+                 for j in range(p)] for i in range(p)]
+        cross = [sum(w[k] * design[k][i] * response[k] for k in range(n)) for i in range(p)]
+        assert gram[0][1] == gram[1][0] == cross[1] == 0
+        diagonal = [gram[i][i] + mass * alpha for i in range(p)]
+        optimum = [cross[i] / diagonal[i] for i in range(p)]
+        abs_gram = [[sum(w[k] * abs(design[k][i] * design[k][j]) for k in range(n))
+                     for j in range(p)] for i in range(p)]
+        abs_cross = [sum(w[k] * abs(design[k][i] * response[k]) for k in range(n)) for i in range(p)]
+        unit = D(float(np.finfo(float).eps)) / 2
+        gamma = lambda steps: steps * unit / (1 - steps * unit)
+        bounds = []
+        for i in range(p):
+            products = sum(abs_gram[i][j] * abs(coef[j]) for j in range(p))
+            formation = gamma(n + 2) * (products + abs_cross[i])
+            solve = gamma(3 * p) * (products + mass * alpha * abs(coef[i]) + abs_cross[i])
+            bounds.append((formation + solve) / diagonal[i])
+        error = [coef[i] - optimum[i] for i in range(p)]
+        assert all(abs(value) <= bound for value, bound in zip(error, bounds))
+        excess = sum(diagonal[i] * error[i] ** 2 for i in range(p)) / (2 * mass)
+        budget = sum(diagonal[i] * bounds[i] ** 2 for i in range(p)) / (2 * mass)
+        assert 0 <= excess <= budget
+    assert_allclose(model.coef_[0], 1., rtol=2e-12, atol=0.)
+
+
 @pytest.mark.parametrize("feature_scale", [1e-8, 1e-16, 1e-20])
 @pytest.mark.parametrize("weight_kind", ["none", "unit", "unequal"])
 @pytest.mark.parametrize("order", [[0, 1, 2, 3], [0, 2, 1, 3], [3, 2, 1, 0]])
@@ -1196,7 +1239,7 @@ def test_independent_tiny_feature_does_not_invent_cv_signal(native, feature_scal
                 expected.append(np.mean((X[4:] @ coef - y[4:]) ** 2))
             assert_allclose(model.cv_results_["mse_path"][:, 0], expected, rtol=2e-12, atol=0.)
             assert model.alpha_ == alphas[0]
-            assert_allclose(model.coef_, [1., 0.], rtol=2e-12, atol=0.)
+            _assert_tiny_feature_final_refit_objective(model, X, y, weights)
             assert_allclose(model.predict(array(X)), y, rtol=2e-12, atol=0.)
             return
     # X'WX is diagonal and X'Wy has an exactly zero second component.
@@ -1204,7 +1247,7 @@ def test_independent_tiny_feature_does_not_invent_cv_signal(native, feature_scal
     assert_allclose(model.cv_results_["mse_path"][:, 0], [0., .25],
                     rtol=2e-12, atol=(8 * np.finfo(float).eps) ** 2)
     assert model.alpha_ == alphas[0]
-    assert_allclose(model.coef_, [1., 0.], rtol=2e-12, atol=0.)
+    _assert_tiny_feature_final_refit_objective(model, X, y, weights)
     assert_allclose(model.predict(array(X)), y, rtol=2e-12, atol=0.)
 
 
@@ -1292,6 +1335,8 @@ def test_native_gram_fallback_is_fold_local_and_keeps_precise_penalties(factor_b
 
 
 def test_native_gram_only_singular_exceptions_use_pseudoinverse(factor_backend, monkeypatch):
+    # Retain the acceptance node ID. Numerical rank now also triggers pinv
+    # before LU; the separate full-rank test covers native exception recovery.
     from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_native_from_gram
     backend, device = factor_backend
     original_solve, original_pinv = backend.xp.linalg.solve, backend.xp.linalg.pinv
@@ -1363,6 +1408,14 @@ def test_cupy_singular_status_policy_is_scoped(monkeypatch):
     result = _solve_ridge_path_native_from_gram(np.ones((2, 2)), np.ones(2), np.array([1e-40]), backend)
     assert_allclose(result[:, 0], [.5, .5], rtol=2e-12, atol=0.)
     assert policy == {"linalg": "ignore"} and calls == [True]
+    # A connected resolved block reaches the mocked cuSOLVER failure status,
+    # then pinv, within the same scoped policy. The singular block above now
+    # exercises proactive numerical-rank recovery without invoking solve.
+    result = _solve_ridge_path_native_from_gram(
+        np.array([[2., 1.], [1., 2.]]), np.ones(2), np.array([.1]), backend,
+    )
+    assert_allclose(result[:, 0], np.full(2, 1. / 3.1), rtol=2e-12, atol=0.)
+    assert policy == {"linalg": "ignore"} and calls == [True, True]
     def failed_pinv(*args, **kwargs):
         raise RuntimeError("pinv device failure")
     monkeypatch.setattr(np.linalg, "pinv", failed_pinv)
@@ -1497,3 +1550,283 @@ def test_nonfinite_final_refit_output_is_not_published(monkeypatch, field):
         model.fit(np.arange(4.)[:, None], np.arange(4.))
     assert not model._fitted
     assert model.alpha_ is model.coef_ is model.intercept_ is model.estimator_ is None
+
+
+@pytest.mark.parametrize("direction", [[1., 3., 7.], [7., 9., 10.], [1., 2., 3.]])
+def test_native_gram_detects_rank_before_finite_successful_lu(factor_backend, monkeypatch, direction):
+    from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_native_from_gram
+    backend, device = factor_backend
+    direction = np.asarray(direction)
+    gram = backend.asarray(3. * np.outer(direction, direction))
+    cross = backend.asarray(6. * direction)
+    calls = []
+    def wrong_finite_solve(*args, **kwargs):
+        calls.append(True)
+        return backend.asarray(np.array([2. / direction[0], 0., 0.]))
+    monkeypatch.setattr(backend.xp.linalg, "solve", wrong_finite_solve)
+    result = _solve_ridge_path_native_from_gram(gram, cross, np.array([1e-40]), backend)
+    _assert_native_factor_array(result, backend, device, gram)
+    assert calls == []
+    expected = 2. * direction / np.dot(direction, direction)
+    assert_allclose(backend.to_numpy(result)[:, 0], expected, rtol=2e-12, atol=0.)
+
+
+@pytest.mark.parametrize("order", [[0, 1, 2], [2, 0, 1], [1, 2, 0]])
+def test_native_gram_singular_block_preserves_independent_tiny_direction(factor_backend, order):
+    from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_native_from_gram
+    backend, device = factor_backend
+    gram = np.array([[1., 1., 0.], [1., 1., 0.], [0., 0., 1e-60]])
+    cross = np.array([1., 1., 1e-30])
+    gram, cross = backend.asarray(gram[np.ix_(order, order)]), backend.asarray(cross[order])
+    result = _solve_ridge_path_native_from_gram(gram, cross, np.array([1e-62]), backend)
+    _assert_native_factor_array(result, backend, device, gram)
+    expected = np.array([.5, .5, 1e-30 / (1e-60 + 1e-62)])[order]
+    assert_allclose(backend.to_numpy(result)[:, 0], expected, rtol=2e-12, atol=0.)
+
+
+@pytest.mark.parametrize("scale", [1., 1e-30])
+def test_native_gram_resolved_correlation_retains_small_scaled_direction(factor_backend, scale):
+    from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_native_from_gram
+    backend, device = factor_backend
+    gram = np.array([[1., .5], [.5, 1.]]) * np.outer([scale, 1.], [scale, 1.])
+    penalty = scale ** 2 * 1e-6
+    system = gram + penalty * np.eye(2)
+    # Both normalized-coordinate directions carry a nonzero signal. A raw
+    # relative pinv would erase the first coefficient at the small scale.
+    expected = np.array([1. / scale, 1.])
+    gram, cross = backend.asarray(gram), backend.asarray(system @ expected)
+    result = _solve_ridge_path_native_from_gram(gram, cross, np.array([penalty]), backend)
+    _assert_native_factor_array(result, backend, device, gram)
+    assert_allclose(backend.to_numpy(result)[:, 0], expected, rtol=2e-12, atol=0.)
+
+
+@pytest.mark.parametrize("exponent", [-100, -200, -500])
+@pytest.mark.parametrize("delta_exponent", [-24, -26])
+def test_native_gram_balanced_tiny_blocks_have_no_null_response_leakage(factor_backend, exponent, delta_exponent):
+    from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_native_from_gram
+    backend, device = factor_backend
+    u, z, w = np.ones(4), np.array([1., -1., 1., -1.]), np.array([1., 1., -1., -1.])
+    scale, delta = 2. ** exponent, 2. ** delta_exponent
+    train = scale * np.column_stack([u, z, u + delta * w])
+    response = u + delta * w / 2.
+    gram, cross = backend.asarray(train.T @ train), backend.asarray(train.T @ response)
+    result = _solve_ridge_path_native_from_gram(
+        gram, cross, np.array([4 * .01 * (scale * delta) ** 2]), backend,
+    )
+    _assert_native_factor_array(result, backend, device, gram)
+    coef = backend.to_numpy(result)[:, 0]
+    assert np.all(np.isfinite(coef)) and coef[1] == 0.
+    valid = np.column_stack([scale * u, z, scale * (u + delta * w)])
+    assert np.mean((valid @ coef - response) ** 2) <= delta ** 2
+
+
+@pytest.mark.parametrize("multiple,accepted", [(.25, False), (.5, False), (.75, True), (1., True)])
+def test_native_mixed_penalty_storage_boundary_avoids_float32_comparisons(factor_backend, multiple, accepted):
+    from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_gpu_from_gram_eig
+    backend, device = factor_backend
+    minimum = float(np.finfo(np.float32).tiny) * float(np.finfo(np.float32).eps)
+    gram = backend.asarray(np.zeros((1, 1, 1)), dtype=backend.float32)
+    cross = backend.asarray(np.zeros((1, 1)), dtype=backend.float32)
+    if not accepted:
+        with pytest.raises(FloatingPointError, match="positive regularization is not representable"):
+            _solve_ridge_path_gpu_from_gram_eig(gram, cross, np.array([multiple * minimum]), backend)
+        return
+    result = _solve_ridge_path_gpu_from_gram_eig(gram, cross, np.array([multiple * minimum]), backend)
+    assert result.dtype == backend.float32
+    assert_array_equal(backend.to_numpy(result), np.zeros((1, 1, 1)))
+
+
+def test_native_mixed_subnormal_penalty_uses_precise_fold_local_solve(factor_backend):
+    from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_gpu_from_gram_eig
+    backend, device = factor_backend
+    gram = backend.asarray(np.array([[[1.]], [[2e-38]]]), dtype=backend.float32)
+    cross = backend.asarray(np.array([[1.], [1e-20]]), dtype=backend.float32)
+    alpha = 1e-40
+    with pytest.warns(RuntimeWarning, match="native Gram solves for 1 fold"):
+        result = _solve_ridge_path_gpu_from_gram_eig(gram, cross, np.array([alpha]), backend)
+    _assert_native_factor_array(result, backend, device, gram)
+    expected = backend.to_numpy(cross).astype(float) / (backend.to_numpy(gram)[:, :, 0].astype(float) + alpha)
+    assert_allclose(backend.to_numpy(result)[0], expected, rtol=2e-12, atol=0.)
+
+
+def test_native_gram_ambiguous_coupled_rank_raises_instead_of_erasing_signal(factor_backend):
+    from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_native_from_gram
+    backend, _ = factor_backend
+    factor = np.array([[1., 1., 1e-12], [0., 0., 1e-12]])
+    gram, cross = backend.asarray(factor.T @ factor), backend.asarray(factor.T @ np.array([2., 1.]))
+    with pytest.raises(FloatingPointError, match="numerical rank is unresolved across feature scales"):
+        _solve_ridge_path_native_from_gram(gram, cross, np.array([1e-60]), backend)
+
+
+@pytest.mark.parametrize("intercept", [False, True])
+@pytest.mark.parametrize("cov_type", ["nonrobust", "hc0", "hc1", "hc2", "hc3", "hac"])
+def test_empty_feature_refit_keeps_weighted_inference_and_public_state(native, intercept, cov_type):
+    device, array = native
+    X, y = np.empty((6, 0)), np.array([1., 2., 3., 5., 6., 10.])
+    weights = np.array([0., 2., 3., 4., 5., 6.])
+    model = RidgeCV(alphas=[.1, 1.], cv_splits=[([0, 1, 2], [3, 4, 5])],
+                    fit_intercept=intercept, device=device, compute_inference=True,
+                    cov_type=cov_type, gpu_cv_mixed_precision=False).fit(array(X), array(y), sample_weight=array(weights))
+    est = model.estimator_
+    expected = np.average(y, weights=weights) if intercept else 0.
+    assert model._fitted and est._fitted and est.n_features_in_ == 0
+    assert model.coef_.shape == (0,) and model.n_iter_ == 1
+    assert est._params.shape == est._bse.shape == est._pvalues.shape == (int(intercept),)
+    assert est._conf_int.shape == (int(intercept), 2)
+    assert est._df_resid == len(y) - int(intercept)
+    assert "_solve_exact_cupy" not in est.__dict__
+    assert est._formula_has_intercept is None and est._use_intercept is None
+    assert_allclose(model.intercept_, expected, rtol=2e-12, atol=0.)
+    assert_allclose(model.predict(array(X)), np.full(len(y), expected), rtol=2e-12, atol=0.)
+    assert_array_equal(est._sample_weight_fit, weights)
+    assert_array_equal(est._y, y)
+    if intercept:
+        residual = y - expected
+        mass = weights.sum()
+        leverage = weights / mass
+        if cov_type == "nonrobust":
+            variance = np.dot(weights, residual ** 2) / (len(y) - 1) / mass
+        elif cov_type == "hac":
+            scores = weights * residual
+            maxlags = int(np.floor(4 * (len(y) / 100.) ** (2. / 9.)))
+            meat = np.dot(scores, scores)
+            for lag in range(1, maxlags + 1):
+                meat += 2 * (1 - lag / (maxlags + 1)) * np.dot(scores[lag:], scores[:-lag])
+            variance = meat / mass ** 2
+        else:
+            correction = {"hc0": np.ones(len(y)), "hc1": np.full(len(y), len(y) / (len(y) - 1)),
+                          "hc2": 1. / (1. - leverage), "hc3": 1. / (1. - leverage) ** 2}[cov_type]
+            variance = np.sum(correction * (weights * residual) ** 2) / mass ** 2
+        assert_allclose(est._bse, [np.sqrt(variance)], rtol=2e-12, atol=0.)
+
+
+@pytest.mark.parametrize("failure", [False, True])
+def test_empty_feature_refit_hook_is_instance_local_and_restored(monkeypatch, failure):
+    from statgpu.linear_model.cv import _ridge_cv as module
+    instances = []
+    original = module.Ridge._solve_exact_cupy
+    class ObservedRidge(module.Ridge):
+        def fit(self, X, y, sample_weight=None):
+            instances.append(self)
+            assert module.Ridge._solve_exact_cupy is original
+            gram, cross = np.empty((0, 0)), np.empty(0)
+            result = self._solve_exact_cupy(gram, cross, len(y))
+            assert result.shape == (0,) and result is not cross
+            if failure:
+                raise RuntimeError("refit inference failed")
+            self.coef_, self.intercept_, self.n_iter_ = result, 0., 1
+            self._fitted = True
+            return self
+    monkeypatch.setattr(module, "Ridge", ObservedRidge)
+    monkeypatch.setattr(module, "resolve_cv_backend", lambda *args: ("cuda", "cupy", None, True, True, False))
+    monkeypatch.setattr(module, "cv_refit_device", lambda *args: "cpu")
+    monkeypatch.setattr(module, "_select_ridge_alpha_cv", lambda *args, **kwargs: {
+        "alpha": .1, "alphas": [.1], "mse_path": [[1.]], "mean_mse": [1.],
+    })
+    model = module.RidgeCV(alphas=[.1], device="cpu", compute_inference=True, fit_intercept=False)
+    if failure:
+        with pytest.raises(RuntimeError, match="refit inference failed"):
+            model.fit(np.empty((3, 0)), np.ones(3))
+        assert not model._fitted and model.estimator_ is None and model.alpha_ is None
+    else:
+        model.fit(np.empty((3, 0)), np.ones(3))
+        assert model._fitted and model.estimator_ is instances[0]
+    assert len(instances) == 1 and "_solve_exact_cupy" not in instances[0].__dict__
+    assert instances[0]._solve_exact_cupy.__func__ is original
+
+
+def test_tiny_feature_final_objective_oracle_distinguishes_roundoff_from_signal():
+    from types import SimpleNamespace
+    sign = np.array([1., -1., 1., -1.])
+    order = [0, 2, 1, 3]
+    X = np.vstack([np.column_stack([np.ones(4), 1e-16 * sign])[order],
+                   np.column_stack([np.ones(4), sign])])
+    weights = np.r_[np.array([1., 1., 4., 4.])[order], np.ones(4)]
+    model = SimpleNamespace(alpha_=1e-34, coef_=np.array([1., 1.232595164407831e-32]))
+    _assert_tiny_feature_final_refit_objective(model, X, np.ones(8), weights)
+    model.coef_[1] = 1e-6
+    with pytest.raises(AssertionError):
+        _assert_tiny_feature_final_refit_objective(model, X, np.ones(8), weights)
+
+
+def test_native_mixed_penalty_preserves_finite_rounding_at_upper_boundary(factor_backend):
+    from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_gpu_from_gram_eig
+    backend, _ = factor_backend
+    maximum = float(np.finfo(np.float32).max)
+    # A quarter ULP above max still rounds to finite max; half an ULP rounds
+    # to infinity. Preserve the configured storage range at both boundaries.
+    gram = backend.asarray(np.zeros((1, 1, 1)), dtype=backend.float32)
+    cross = backend.asarray(np.zeros((1, 1)), dtype=backend.float32)
+    result = _solve_ridge_path_gpu_from_gram_eig(gram, cross, np.array([maximum + 2. ** 102]), backend)
+    assert_array_equal(backend.to_numpy(result), np.zeros((1, 1, 1)))
+    with np.errstate(over="ignore"):
+        with pytest.raises(FloatingPointError, match="positive regularization is not representable"):
+            _solve_ridge_path_gpu_from_gram_eig(gram, cross, np.array([maximum + 2. ** 103]), backend)
+
+
+def test_native_gram_ambiguous_rank_keeps_exact_zero_response(factor_backend):
+    from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_native_from_gram
+    backend, device = factor_backend
+    factor = np.array([[1., 1., 1e-12], [0., 0., 1e-12]])
+    gram, cross = backend.asarray(factor.T @ factor), backend.asarray(np.zeros(3))
+    result = _solve_ridge_path_native_from_gram(gram, cross, np.array([1e-60]), backend)
+    _assert_native_factor_array(result, backend, device, gram)
+    assert_array_equal(backend.to_numpy(result), np.zeros((3, 1)))
+
+
+def test_native_gram_resolved_rank_singular_exception_uses_safe_pinv(factor_backend, monkeypatch):
+    from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_native_from_gram
+    backend, device = factor_backend
+    solve_calls, pinv_calls = [], []
+    original_pinv = backend.xp.linalg.pinv
+    def singular(*args, **kwargs):
+        solve_calls.append(True)
+        raise backend.xp.linalg.LinAlgError("native singular status")
+    def pinv(*args, **kwargs):
+        pinv_calls.append(kwargs)
+        return original_pinv(*args, **kwargs)
+    monkeypatch.setattr(backend.xp.linalg, "solve", singular)
+    monkeypatch.setattr(backend.xp.linalg, "pinv", pinv)
+    gram, cross = backend.asarray(np.array([[2., 1.], [1., 2.]])), backend.asarray(np.ones(2))
+    result = _solve_ridge_path_native_from_gram(gram, cross, np.array([.1]), backend)
+    _assert_native_factor_array(result, backend, device, gram)
+    assert solve_calls == [True]
+    assert len(pinv_calls) == 1 and list(pinv_calls[0].values()) == [2 * np.finfo(float).eps]
+    assert_allclose(backend.to_numpy(result)[:, 0], np.full(2, 1. / 3.1), rtol=2e-12, atol=0.)
+
+
+@pytest.mark.parametrize("multiple", [1., 4.])
+def test_native_subnormal_penalty_preserves_diagonal_rounding_boundary(factor_backend, monkeypatch, multiple):
+    from statgpu.linear_model.cv import _ridge_cv as module
+    backend, device = factor_backend
+    finfo = np.finfo(np.float32)
+    eigenvalue = multiple * float(finfo.tiny) / float(finfo.eps)
+    penalty = .75 * float(finfo.tiny)
+    gram = backend.asarray(np.array([[[eigenvalue]]]), dtype=backend.float32)
+    cross = backend.asarray(np.array([[eigenvalue]]), dtype=backend.float32)
+    if multiple == 1.:
+        with pytest.warns(RuntimeWarning, match="native Gram solves for 1 fold"):
+            result = module._solve_ridge_path_gpu_from_gram_eig(gram, cross, np.array([penalty]), backend)
+        _assert_native_factor_array(result, backend, device, gram)
+        assert_allclose(backend.to_numpy(result), [[[eigenvalue / (eigenvalue + penalty)]]], rtol=2e-12, atol=0.)
+    else:
+        def unexpected(*args, **kwargs):
+            raise AssertionError("A sub-half-ULP penalty cannot change this rounded diagonal")
+        monkeypatch.setattr(module, "_solve_ridge_path_native_from_gram", unexpected)
+        result = module._solve_ridge_path_gpu_from_gram_eig(gram, cross, np.array([penalty]), backend)
+        assert result.dtype == backend.float32
+        assert_array_equal(backend.to_numpy(result), [[[1.]]])
+
+
+def test_native_gram_blocks_use_undirected_rounded_support(factor_backend):
+    from statgpu.linear_model.cv._ridge_cv import _ridge_gram_blocks
+    backend, _ = factor_backend
+    system = backend.asarray(np.array([[1., 0., 0.], [np.finfo(float).eps, 1., 0.], [0., 0., 1e-60]]))
+    before = backend.to_numpy(system).copy()
+    blocks = list(_ridge_gram_blocks(system, backend))
+    assert [backend.to_numpy(indices).tolist() for indices in blocks] == [[0, 1], [2]]
+    assert_array_equal(backend.to_numpy(system), before)
+    if backend.name == "torch":
+        assert all(indices.device == system.device for indices in blocks)
+    elif backend.name == "cupy":
+        assert all(indices.device.id == system.device.id for indices in blocks)

@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional, Tuple, Union
 from collections import OrderedDict
 from contextlib import nullcontext
 import hashlib
+import math
 import warnings
 import numpy as np
 
@@ -284,55 +285,115 @@ def _weighted_ridge_mse(X, y, coefs, intercepts, weights):
 # GPU batch solver for Ridge
 # =============================================================================
 
-def _solve_ridge_path_native_from_gram(gram, cross, regularization, backend):
-    """Solve one difficult Gram path natively, with numerical-rank fallback.
-
-    Only a native singular-system exception invokes pinv. Its p*eps cutoff
-    follows the dimension-relative numerical-rank convention; it does not
-    promise recovery of information lost while forming the Gram matrix.
-    """
+def _ridge_gram_blocks(system, backend):
+    """Keep exactly disconnected Gram coordinates independent during recovery."""
     xp = backend.xp
-    # Promote only the already-unresolved Gram system, without rebuilding or
-    # altering its objective. This avoids float32 solver reciprocal overflow.
+    p = int(system.shape[0])
+    indices = (xp.arange(p, device=system.device) if backend.name == "torch"
+               else xp.arange(p))
+    seen = indices < 0
+    # Weighted products need not be bitwise symmetric after rounding. Use
+    # undirected support so every cross-block entry is zero in both directions.
+    adjacent = (system != 0) | (system.T != 0)
+    for start in range(p):
+        if bool(_to_float_scalar(seen[start])):
+            continue
+        reached = indices == start
+        while True:
+            expanded = reached | xp.any(adjacent & reached[:, None], axis=0)
+            if bool(_to_float_scalar(xp.all(expanded == reached))):
+                break
+            reached = expanded
+        seen = seen | reached
+        yield indices[reached]
+
+
+def _solve_ridge_gram_block(system, cross, backend):
+    """Resolve rank using correlation scale without discarding tiny coordinates."""
+    xp = backend.xp
+    if bool(_to_float_scalar(xp.all(cross == 0))):
+        return xp.zeros_like(cross)
+    p = int(system.shape[0])
+    magnitude = float(_to_float_scalar(xp.max(xp.abs(system))))
+    # Only scale upward. Scaling an ordinary/large system downward can erase a
+    # representable subnormal RHS. The bounded tiny-system route avoids native
+    # LU/pinv reciprocal overflow without rebuilding any original factors.
+    scale = (math.ldexp(1., math.frexp(magnitude)[1] - 1)
+             if 0 < magnitude < float(xp.finfo(system.dtype).tiny) ** .5 else 1.)
+    system, cross = system / scale, cross / scale
+    if not bool(_to_float_scalar(xp.all(xp.isfinite(cross)))):
+        raise FloatingPointError(
+            "RidgeCV scaled Gram cross product is not finite; rescale the data."
+        )
+    diagonal = xp.sqrt(xp.abs(xp.diag(system)))
+    diagonal = xp.where(diagonal > 0, diagonal, xp.ones_like(diagonal))
+    correlation = (system / diagonal[:, None]) / diagonal[None, :]
+    if not bool(_to_float_scalar(xp.all(xp.isfinite(correlation)))):
+        raise FloatingPointError(
+            "RidgeCV scaled Gram is not finite; rescale the features or choose larger alphas."
+        )
+    cutoff = p * float(xp.finfo(system.dtype).eps)
+
+    def retained_rank(matrix):
+        singular_values = (xp.linalg.svdvals(matrix) if backend.name == "torch"
+                           else xp.linalg.svd(matrix, compute_uv=False))
+        return int(_to_float_scalar(xp.sum(
+            singular_values > cutoff * xp.max(singular_values)
+        )))
+
+    rank = retained_rank(correlation)
+    if rank == p:
+        try:
+            return xp.linalg.solve(system, cross)
+        except xp.linalg.LinAlgError:
+            # A failed full-rank solve must not fall back to a cutoff that
+            # silently drops an independently resolved, small-scale direction.
+            pass
+    if retained_rank(system) != rank:
+        raise FloatingPointError(
+            "RidgeCV Gram numerical rank is unresolved across feature scales; "
+            "rescale the features or choose larger alphas."
+        )
+    inverse = (xp.linalg.pinv(system, rtol=cutoff) if backend.name == "torch"
+               else xp.linalg.pinv(system, rcond=cutoff))
+    return inverse @ cross
+
+
+def _solve_ridge_path_native_from_gram(gram, cross, regularization, backend):
+    """Solve a difficult raw-Gram path natively with bounded rank recovery."""
+    xp = backend.xp
     gram = backend.asarray(gram, dtype=backend.float64)
     cross = backend.asarray(cross, dtype=backend.float64)
     regularization = backend.asarray(regularization, dtype=backend.float64)
     p = int(gram.shape[0])
     identity = (xp.eye(p, dtype=gram.dtype, device=gram.device)
                 if backend.name == "torch" else xp.eye(p, dtype=gram.dtype))
+    # CuPy normally ignores cuSOLVER failure status. Scope every decomposition
+    # and restore the caller's policy even when rank recovery itself fails.
+    if backend.name == "cupy":
+        import cupyx
+        error_policy = cupyx.errstate(linalg="raise")
+    else:
+        error_policy = nullcontext()
     coefficients = []
-    for penalty in regularization.reshape(-1):
-        system = gram + penalty * identity
-        if not bool(_to_float_scalar(xp.all(xp.isfinite(system)))):
-            raise FloatingPointError(
-                "RidgeCV regularized Gram is not finite at the CV precision; "
-                "disable mixed precision or rescale the data."
-            )
-        # CuPy otherwise ignores cuSOLVER failure status. Scope both solve
-        # and pinv's SVD so singularity can trigger fallback, while failure of
-        # the fallback itself propagates and the caller's policy is restored.
-        if backend.name == "cupy":
-            import cupyx
-            error_policy = cupyx.errstate(linalg="raise")
-        else:
-            error_policy = nullcontext()
-        with error_policy:
-            try:
-                coef = xp.linalg.solve(system, cross)
-            except xp.linalg.LinAlgError:
-                cutoff = p * float(xp.finfo(system.dtype).eps)
-                # Torch CUDA lstsq only offers the full-rank gels driver. pinv
-                # keeps this numerical-rank fallback native on every backend.
-                inverse = (xp.linalg.pinv(system, rtol=cutoff)
-                           if backend.name == "torch"
-                           else xp.linalg.pinv(system, rcond=cutoff))
-                coef = inverse @ cross
-        if not bool(_to_float_scalar(xp.all(xp.isfinite(coef)))):
-            raise FloatingPointError(
-                "RidgeCV Gram coefficients are not finite at the CV precision; "
-                "disable mixed precision or rescale the data."
-            )
-        coefficients.append(coef)
+    with error_policy:
+        for penalty in regularization.reshape(-1):
+            system = gram + penalty * identity
+            if not bool(_to_float_scalar(xp.all(xp.isfinite(system)))):
+                raise FloatingPointError(
+                    "RidgeCV regularized Gram is not finite at the CV precision; "
+                    "disable mixed precision or rescale the data."
+                )
+            coef = xp.zeros_like(cross)
+            for indices in _ridge_gram_blocks(system, backend):
+                block = system[indices[:, None], indices[None, :]]
+                coef[indices] = _solve_ridge_gram_block(block, cross[indices], backend)
+            if not bool(_to_float_scalar(xp.all(xp.isfinite(coef)))):
+                raise FloatingPointError(
+                    "RidgeCV Gram coefficients are not finite at the CV precision; "
+                    "disable mixed precision or rescale the data."
+                )
+            coefficients.append(coef)
     return backend.stack(coefficients, axis=1)
 
 
@@ -414,16 +475,53 @@ def _solve_ridge_path_gpu_from_gram_eig(XtX_batch, Xty_batch, alphas, backend, f
     else:
         regularization = alphas_arr[None, None, :]
     regularization64 = regularization
-    regularization = backend.asarray(regularization, dtype=eigvals.dtype)
-    if not bool(_to_float_scalar(xp.all(
-        xp.isfinite(regularization) & (regularization > 0)
-    ))):
+    finfo = xp.finfo(eigvals.dtype)
+    tiny = float(finfo.tiny)
+    # Decide the storage interval in float64. CUDA float32 elementwise kernels
+    # may flush subnormals even in a positivity comparison. Round-to-nearest
+    # stores a nonzero value strictly above half the smallest subnormal.
+    lower = .5 * tiny * float(finfo.eps)
+    valid_penalty = xp.isfinite(regularization64) & (regularization64 > lower)
+    if not bool(_to_float_scalar(xp.all(valid_penalty))):
+        raise FloatingPointError(
+            "RidgeCV positive regularization is not representable at the CV "
+            "precision; use gpu_cv_mixed_precision=False or choose "
+            "representable alphas."
+        )
+    subnormal_penalty = regularization64 < tiny
+    # The subnormal candidates are kept at their original float64 values for
+    # recovery. In a resolved normal-scale float32 spectrum they round out of
+    # the diagonal sum; use zero only for that unused/negligible batch term.
+    regularization = backend.asarray(
+        xp.where(subnormal_penalty, xp.zeros_like(regularization64), regularization64),
+        dtype=eigvals.dtype,
+    )
+    if not bool(_to_float_scalar(xp.all(xp.isfinite(regularization)))):
         raise FloatingPointError(
             "RidgeCV positive regularization is not representable at the CV "
             "precision; use gpu_cv_mixed_precision=False or choose "
             "representable alphas."
         )
     denominator = eigvals[:, :, None] + regularization
+    smallest_penalty = backend.min(regularization64, axis=2).reshape(-1)
+    recover = unresolved_gram & (uncertainty > 0) & (smallest_penalty <= uncertainty)
+    zero_system = (
+        (backend.max(xp.abs(XtX_batch).reshape(n_folds, -1), axis=1) == 0)
+        & (backend.max(xp.abs(Xty_batch), axis=1) == 0)
+    )
+    # Above 4*tiny/eps, every positive subnormal is strictly below half
+    # an ULP of the eigenvalue. Promote below that conservative boundary.
+    # Zero Gram/RHS systems have the exact zero solution at every positive
+    # penalty and need no decomposition or output-dtype change.
+    subnormal_fold = xp.any(subnormal_penalty, axis=2).reshape(-1)
+    recover = recover | (
+        subnormal_fold & (backend.min(eigvals, axis=1) < 4 * tiny / float(finfo.eps))
+        & (~zero_system)
+    )
+    # Recovery folds have their projected RHS zeroed below. Replace only an
+    # unused zero denominator, never a real regularization value or infinity.
+    unused = (recover | zero_system)[:, None, None]
+    denominator = xp.where(unused & (denominator == 0), xp.ones_like(denominator), denominator)
     if not bool(_to_float_scalar(xp.all(
         xp.isfinite(denominator) & (denominator > 0)
     ))):
@@ -432,21 +530,6 @@ def _solve_ridge_path_gpu_from_gram_eig(XtX_batch, Xty_batch, alphas, backend, f
             "at the CV precision; use gpu_cv_mixed_precision=False or rescale "
             "the data."
         )
-
-    smallest_penalty = backend.min(regularization, axis=2).reshape(-1)
-    recover = unresolved_gram & (uncertainty > 0) & (smallest_penalty <= uncertainty)
-    # A subnormal Gram can lose relative precision before the eigensolve.
-    # Native Gram solving retains the same representability limitations; it
-    # does not reconstruct an original factor problem.
-    tiny = float(xp.finfo(eigvals.dtype).tiny)
-    zero_system = (
-        (backend.max(xp.abs(XtX_batch).reshape(n_folds, -1), axis=1) == 0)
-        & (backend.max(xp.abs(Xty_batch), axis=1) == 0)
-    )
-    recover = recover | (
-        (backend.min(eigvals, axis=1) < tiny) & (smallest_penalty < tiny)
-        & (~zero_system)
-    )
     recovery_folds = []
     if bool(_to_float_scalar(xp.any(recover))):
         recovery_folds = [
@@ -473,7 +556,7 @@ def _solve_ridge_path_gpu_from_gram_eig(XtX_batch, Xty_batch, alphas, backend, f
             )
         warnings.warn(
             "RidgeCV used same-device float64 native Gram solves for "
-            f"{len(recovery_folds)} fold(s); singular systems use a "
+            f"{len(recovery_folds)} fold(s); numerically singular systems use a "
             "dimension-relative pseudoinverse numerical-rank cutoff.",
             RuntimeWarning, stacklevel=3,
         )
@@ -1368,9 +1451,12 @@ class RidgeCV(CVEstimatorBase):
     alpha grid. Weighted CV uses raw weighted Gram moments. CPU uses native
     solve/lstsq; ordinary GPU folds reuse a batched eigendecomposition. Difficult
     GPU folds use same-device float64 native solves on the already-formed Gram
-    system, with a dimension-relative pseudoinverse for singular systems.
+    system, with a dimension-relative pseudoinverse for numerically singular
+    systems. If numerical rank is inconsistent across feature scales, fitting
+    raises FloatingPointError; rescale the features or choose larger alphas.
     Effective penalties must remain finite and positive at the configured CV
-    precision. Promotion cannot restore information lost in Gram formation;
+    precision; supported subnormal penalties use same-device float64 arithmetic
+    when they affect the solve. Promotion cannot restore information lost in Gram formation;
     extreme scales and ill-conditioned systems retain native normal-equation
     and numerical-rank limitations. Nonfinite Gram quantities, coefficients,
     or validation losses raise FloatingPointError. A nonfinite final refit
@@ -1504,7 +1590,22 @@ class RidgeCV(CVEstimatorBase):
             gpu_memory_cleanup=self._gpu_memory_cleanup,
         )
 
-        estimator.fit(X, y, sample_weight=sample_weight)
+        # Keep the ordinary Ridge fit transaction, weighting, intercept and
+        # inference lifecycle. Only CuPy's zero-dimensional triangular solve
+        # needs bypassing; an empty normal equation has the unique empty vector.
+        n_features = int(X.shape[1]) if hasattr(X, "shape") else len(X[0])
+        if cv_backend_name == "cupy" and n_features == 0:
+            def solve_empty(gram, cross, normalization):
+                if tuple(gram.shape) != (0, 0) or tuple(cross.shape) != (0,):
+                    raise ValueError("RidgeCV empty-feature refit received a nonempty Gram system")
+                return cross.copy()
+            estimator._solve_exact_cupy = solve_empty
+            try:
+                estimator.fit(X, y, sample_weight=sample_weight)
+            finally:
+                del estimator._solve_exact_cupy
+        else:
+            estimator.fit(X, y, sample_weight=sample_weight)
         final_coef = np.asarray(estimator.coef_)
         final_intercept = estimator.intercept_
         if not (np.all(np.isfinite(final_coef)) and np.all(np.isfinite(final_intercept))):
