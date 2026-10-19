@@ -1,7 +1,7 @@
 # Inference Modes
 
 > Language: English  
-> Last updated: 2026-10-06  
+> Last updated: 2026-10-17  
 > This page: choosing and interpreting coefficient-inference methods  
 > Switch: [Chinese](../../cn/guides/inference-modes.md)
 
@@ -24,7 +24,7 @@ Use this page to answer two questions:
 | Gaussian Lasso/ElasticNet | `debiased` | de-biased/de-sparsified coefficient inference |
 | Gaussian Lasso/ElasticNet | `post_selection_ols` | OLS/WLS diagnostic refit on the selected features (the active set) |
 | supported Gaussian penalized models | `bootstrap` | residual-bootstrap distribution with tuning held fixed |
-| Gaussian SCAD/MCP; non-Gaussian refits have a limitation below | `oracle` when explicitly requested | active-set refit; ordinary intervals do not adjust for selection |
+| SCAD/MCP with a supported Gaussian or non-Gaussian family on CPU | `oracle` when explicitly requested | active-set refit; ordinary intervals do not adjust for selection |
 | unsupported loss/penalty/method combination | — | raises an error instead of substituting another inferential target |
 
 The exact support matrix is documented in [Penalized GLM inference](penalized-glm-inference.md) and the relevant model page.
@@ -174,19 +174,19 @@ print(np.round(model._inference_result.params, 3))
 
 This prints `oracle` and approximately `[0.522, 1.497, -0.759]`, with the
 intercept first. For MCP, use `penalty="mcp", penalty_kwargs={"gamma": 3.0}`.
-The example uses Gaussian responses; it does not remove the selection and
-child-device limitations below.
+The example uses Gaussian responses. The intervals remain conditional on
+the selected support, and oracle inference is CPU-only.
 
 Where `inference_method="oracle"` is supported, statgpu performs inference conditional on the active set selected by the non-convex penalized fit. `auto` does not silently choose this interpretation because conditioning on a selected support is a substantive inferential assumption.
 
-Current non-Gaussian oracle refits can reset the original family parameters or
-retain default regularization, so a successful `oracle` result need not
-describe the intended model. Do not use those tables for inference. The
-[oracle limitation and explicit-refit example](penalized-glm-inference.md#current-non-gaussian-oracle-limitation)
-show how to construct a separate diagnostic refit with the desired settings.
-That refit still does not adjust for variable selection on the same data.
-The oracle interface rejects GPU parent fits, but its child defaults to
-`device="auto"`; choose an explicit device when constructing your own refit.
+Oracle inference reports an unpenalized active-set refit while preserving the
+original penalized prediction model. Non-Gaussian refits use `C=0`, retain the
+fitted family/link/dispersion/power and convergence controls, and explicitly
+select the family-appropriate solver and `device="cpu"`. The interface rejects
+GPU parent fits and computes inference in NumPy float64. See the
+[family settings and explicit-refit comparison](penalized-glm-inference.md#current-non-gaussian-oracle-limitation).
+These ordinary normal-reference intervals do not adjust for variable selection
+on the same data; the result records `selection_adjusted=False`.
 
 ## Inference after cross-validation
 

@@ -108,8 +108,10 @@ class PenalizedLogisticRegression(PenalizedGeneralizedLinearModel):
     There is no summary method; use the inference result container. Non-Gaussian
     L1/ElasticNet coefficient inference is unavailable. L2/no-penalty auto resolves
     to fixed-penalty M-estimation where supported; uncertainty does not adjust for
-    selecting alpha. Non-Gaussian oracle refits have the documented reconstruction
-    limitation and should not be used for inferential conclusions.
+    selecting alpha. Explicit SCAD/MCP oracle inference performs an unpenalized
+    active-set refit on CPU, preserving the fitted family settings and convergence
+    controls. Its normal-reference intervals do not adjust for variable selection;
+    prediction continues to use the original penalized coefficients.
     No threshold, classification-metric or plotting methods are supplied.
 
     """

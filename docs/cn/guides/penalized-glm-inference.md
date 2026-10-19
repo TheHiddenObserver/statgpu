@@ -1,7 +1,7 @@
 # 惩罚 GLM 推断
 
 > 语言：中文  
-> 最后更新：2026-10-06  
+> 最后更新：2026-10-18<br>
 > 页面定位：系数推断的统计目标与公开支持行为  
 > 切换：[English](../../en/guides/penalized-glm-inference.md)
 
@@ -25,8 +25,8 @@ inference_method="auto"
 | 平方误差 + L1/ElasticNet | 去偏推断；显式请求时可用 `post_selection_ols` | `debiased` |
 | 光滑非 Gaussian GLM + L2/无惩罚 | 固定惩罚 M-估计 | `m_estimation` |
 | 平方误差 + L1/ElasticNet/SCAD/MCP | 显式请求残差自助法；不适用于 L2 | 不自动选择 |
-| 平方误差 + SCAD/MCP | CPU 父模型可显式请求活跃集 oracle 重拟合；注意下文子模型设备限制 | 不自动选择 |
-| 非 Gaussian SCAD/MCP | `oracle` 接受标量 GLM 分布族，但当前重拟合可能改变模型；详见下文限制 | 不自动选择 |
+| 平方误差 + SCAD/MCP | 显式请求时，在 CPU 上进行无惩罚活跃集 oracle 重拟合 | 不自动选择 |
+| 非 Gaussian SCAD/MCP | 在 CPU 上进行无惩罚活跃集 oracle 重拟合，并保留已拟合的分布族设置 | 不自动选择 |
 | 非 Gaussian L1/ElasticNet | 未实现系数推断 | 请求会报错 |
 | 分组惩罚 | 仅估计 | 请求推断会报错 |
 | `PenalizedCoxPHModel` / `PenalizedGLM_CV` 的 Cox 分支 | 仅估计 | 请求推断会报错 |
@@ -108,7 +108,7 @@ $$
 
 显式 `device="cuda"` 或 `device="torch"` 请求不会被静默替换成 NumPy 推断。数值推断完成后，小型结果数组可以转换为 NumPy；这个用于结果整理的边界不会改变数值程序实际运行的位置。
 
-部分推断方法支持的后端范围比基础估计器更窄。例如，SCAD/MCP 的 oracle 接口会拒绝已经执行 GPU 拟合的父模型。但重拟合子模型目前默认使用 `device="auto"`，因此在有 GPU 的系统上，CPU 父模型并不能保证子模型也在 CPU 上运行。详见下文的 oracle 限制；显式创建单独的重拟合模型，才能同时指定设备与统计模型。
+部分推断方法支持的后端范围比基础估计器更窄。SCAD/MCP oracle 推断要求父模型在 CPU 上拟合，并显式以 `device="cpu"` 进行活跃集重拟合，即使系统有 GPU 也不会自动切换。推断计算使用 NumPy float64。已经执行 GPU 拟合的模型会被拒绝，不会静默转到 CPU；请求 oracle 推断时请设置 `device="cpu"`。
 
 ## 残差自助法的范围
 
@@ -139,15 +139,75 @@ $$
 
 `inference_method="oracle"` 必须显式请求，因为它以惩罚拟合已经选出的活跃集为条件。`auto` 不会静默采用这种解释。
 
-这一程序的预期目标是在所选活跃集上去掉原非凸惩罚后重新拟合。即使无惩罚重拟合本身正确，普通区间也不会自动校正在同一数据上选择变量的影响。未选中系数的不确定性不可用，以 `NaN` 表示；如果没有任何特征被选中，所有参数（包括截距）的不确定性均不可用。
+这一程序在所选活跃集上进行无正则化重拟合。报告中的活跃系数和截距来自重拟合，预测仍使用原惩罚系数。未选中系数保留其惩罚拟合点估计，不确定性不可用，以 `NaN` 表示。没有斜率被选中但模型包含截距时，oracle 会重新拟合仅含截距的模型；只有无惩罚目标存在有限解时，才报告截距的不确定性。既没有入选斜率也没有截距时，无系数可供重拟合；逆链接 Gamma 会拒绝这种空模型，因为线性预测值为零时无法定义有限均值。
+
+当 `cov_type="nonrobust"` 时，高斯、Gamma、逆高斯和 Tweedie 的 oracle 重拟合需要估计未知离散尺度。因此，正样本权重的观测数必须大于入选斜率数加上有效截距参数数（若含截距则加一）。无权重时每个观测均计数；增大权重或补充零权重行都不会增加观测数。不满足条件时抛出 `ValueError`，不会报告零标准误或退化为单点的区间。如果只需惩罚模型的点估计，可设置 `compute_inference=False`。这一要求不适用于离散尺度固定的 Poisson/负二项 `nonrobust` 协方差，也不适用于 HC0；单独说明的 HC1 行为保持不变。观测数足够本身并不能保证重拟合可识别或已收敛。这是允许计算推断的检查，不改变原有离散尺度分母：通过检查后，Pearson 尺度仍将加权 Pearson 残差平方和除以 `n - k`，其中 `n` 为重拟合数据的行数（包括零权重行），`k` 为重拟合系数数。因此，补入零权重行仍可能影响该分母。Gamma/Tweedie 的 Pearson 离散尺度使用实际分布族方差，不施加固定方差下限，因此可表示的小响应尺度不会人为缩窄不确定性。所需数值量无法表示时仍会报错，不返回区间。
+
+这些区间使用正态参考分布，并以已选变量集合为条件，不会校正在同一数据上选择变量或调参带来的不确定性。
 
 <a id="current-non-gaussian-oracle-limitation"></a>
 
-### 当前非 Gaussian oracle 的限制
+### 无惩罚重拟合与分布族设置
 
-接口接受 SCAD/MCP 与 `squared_error`、`logistic`、`poisson`、`gamma`、`inverse_gaussian`、`negative_binomial`、`tweedie` 的组合。但当前非 Gaussian 重拟合可能静默使用构造函数默认值，未保留原模型配置：logistic 使用 `C=1`，并非无惩罚拟合；负二项离散参数可能重置为 `alpha=1`，Gamma 链接重置为 `"log"`，Tweedie 幂参数重置为 `1.5`。子模型的求解器与设备也默认是 `"auto"`；例如 Poisson 会采用默认带 Ridge 惩罚的 IRLS 拟合，而非预期的无惩罚 Newton 重拟合。因此，返回标记为 `oracle` 的成功结果，并不能证明原推断目标得到保留。不要使用这些非 Gaussian oracle 系数表进行推断。
+接口接受 SCAD/MCP 与 `squared_error`、`logistic`、`poisson`、`gamma`、`inverse_gaussian`、`negative_binomial`、`tweedie` 的组合。非高斯重拟合明确使用 `C=0`，保留已拟合的分布族、Gamma 链接、负二项离散参数 `alpha`、Tweedie 幂参数 `power`，以及父模型的 `max_iter`、截距约定和受支持的分析权重。首次尝试使用父模型的 `tol`；下文的负二项有界精度重试可使用更严格的子模型容差。logistic 和 Poisson 重拟合显式使用 `solver="irls"`，其他非高斯分布族使用 `solver="newton"`，设备均为 `device="cpu"`。若重拟合报告未收敛，则抛出 `RuntimeError`，不返回 oracle 系数表。
 
-如果需要诊断性重拟合，应先以 `compute_inference=False` 拟合选择模型，再明确指定所选列、分布族、链接、离散或幂参数、无惩罚配置及设备，单独拟合一个模型。对 logistic 回归，独立包装类的 `C=0` 表示不使用正则化：
+非高斯 oracle 重拟合还会检查：在每个正权重观测上，报告系数、拟合均值、得分和协方差必须对应同一个无惩罚模型。当前数值损失会裁剪部分预测值、均值或曲率因子。触发这些变换的重拟合无法提供 oracle 不确定性，会在返回系数表之前抛出 `RuntimeError`。
+
+当前允许范围均为闭区间；精确位于端点的结果仍可接受，但须通过其他收敛和协方差检查：
+
+| 分布族与链接 | 正权重观测须满足的范围 |
+| --- | --- |
+| Tweedie，对数链接 | 线性预测值位于 `[-50, 50]` |
+| Gamma，对数链接 | 线性预测值位于 `[-30, 30]` |
+| Gamma，逆幂链接 | 线性预测值位于 `[1e-4, 1e3]` |
+| 逆高斯，对数链接 | 均值位于 `[0.05, 1e3]` |
+| Poisson，对数链接 | 均值位于 `[1e-10, 1e6]` |
+| 负二项，对数链接 | 线性预测值位于 `[-30, 30]`；`nonrobust` 还要求均值不小于 `1e-10`，HC0/HC1 不使用这一额外曲率下限 |
+| Logistic，logit 链接 | Bernoulli 方差 `mu * (1 - mu)` 不小于 `1e-10`，使协方差曲率下限不被触发 |
+
+均值范围通过对数链接对应的线性预测值端点检查。这些限制表示当前数值实现能否提供推断，不表示区间外的统计模型没有有限解。零权重观测不会触发这些限制。减小 `tol` 不能消除裁剪，也不能保证修复已被裁剪的重拟合。如果只需要点估计，可设置 `compute_inference=False`；当前实现无法提供上述范围之外的 oracle 不确定性。高斯 oracle 重拟合不使用这些非高斯范围检查。
+
+在上述范围内，Tweedie 和负二项 oracle 重拟合的每个入选坐标（含截距）还必须通过相对一阶得分检查：将有符号加权得分与该分布族真实得分中的正贡献尺度比较，使用 `tol` 加上 float64 求和舍入误差作为容差。这避免响应单位或负二项离散参数掩盖绝对梯度提前停止时的错误结果。其他分布族保留子求解器已有的停止准则；范围检查并不为这些分布族增加相对收敛保证。正负得分的真实抵消仍然有效，零权重观测不参与检查。检查未通过时抛出 `RuntimeError`；若未被裁剪的重拟合仅因绝对梯度容差而提前停止，减小 `tol` 可能有助于达到驻点，若仍失败则需检查响应或设计的尺度。它只检查局部驻点条件，不提供系数或协方差误差界限。
+
+仅对负二项重拟合，相对得分检查失败时最多再进行一次无惩罚 CPU 重拟合。额外尝试的绝对梯度容差根据正的加权得分贡献推导，最终相对检查仍使用调用方原来的 `tol`。每次尝试使用原来的 `max_iter`，因此最多执行两次子模型重拟合。裁剪或曲率范围检查失败不会触发重试。如果推导出的容差无法表示、重试未收敛，或重新计算的得分仍不满足原检查，则抛出 `RuntimeError`。共享求解器不变；这项有界重试不保证一定恢复成功。
+
+Oracle 计算过程中发生错误时，也会清除拟合、预测和推断报告状态，包括此前成功拟合留下的状态。再次预测或读取推断结果前，须重新成功拟合模型。
+
+Oracle 的 HC0/HC1 协方差在计算得分外积前统一缩放权重，避免权重的共同尺度
+导致下溢或溢出，同时保留正权重观测对得分的实质贡献。
+在入选支持集与重拟合结果固定时，只要所需的加权乘积和得分计算仍可表示且
+具有足够精度，统一缩放权重后，协方差在数值容差内保持一致。次正规数本身的
+相对精度较低。重拟合权重与非稳健协方差的既有约定不变；离散尺度固定时，
+非稳健标准误不一定具有这种尺度不变性。
+
+如果无法计算有限的稳健得分、曲率或重拟合参数的有限协方差，oracle 推断会抛出
+`RuntimeError`。若工作精度下既无法验证稳定的共同权重尺度，也无法验证受限的
+原始权重计算，则同样抛出该错误，即使此时可能存在有限的精确协方差。保守缩放
+界限冲突时，若实际聚合乘积为有限值，所需的非零得分平方均值仍处于正规浮点
+范围，且被忽略微小项的界限低于通常的聚合舍入误差，仍可接受未缩放权重。这不保证每个非零乘积都能保留，也不能解决任意
+协方差病态问题。应检查响应和设计矩阵的尺度，或设置 `compute_inference=False`
+只进行点估计。若活跃参数的 HC0/HC1 协方差整体为零，但有效正权重行上的
+非零得分因子证明得分矩阵非零，也会抛出 `RuntimeError`。这项检查针对协方差
+整体消失，不保证检测每个局部下溢的条目。真正为零的得分、个别为零的方差，
+以及未入选系数的 `NaN` 不确定性仍被允许；零权重或零设计行不会触发这项
+稳健协方差检查。
+
+对于 `nonrobust` oracle 推断，若估计离散尺度为零，但任一正权重行上的响应
+与计算得到的拟合均值不同，则抛出 `RuntimeError`，零设计行也包含在内。
+每个正权重行上计算得到的残差都为零时，仍允许估计离散尺度为零。离散尺度为正时，每个
+活跃参数的模型方差都必须为正；协方差的非对角条目仍可为零。Logistic、Poisson
+及负二项重拟合的固定离散尺度仍为 1。这些检查不保证在任意尺度或病态程度下
+都能准确计算协方差。
+
+无惩罚目标还必须存在有限解。仅考虑正权重观测时，如果 Poisson、负二项或 Tweedie 响应全为零，或 logistic 响应只有一个类别，自由截距可持续改善目标而不存在有限最优值。这些边界拟合会在发布不确定性之前抛出 `ValueError`，即使求解器已停在某个有限近似值。零权重观测不会消除这一边界。全零 Gaussian 响应具有有限的最小二乘解，不会因这条规则被拒绝。
+
+无截距时，还需考虑入选设计：预测变量同时含正负值时，这些边界响应也可能具有有限最优解。检查只有在验证了可持续改善目标的方向后才判定目标不存在有限解；若入选设计的数值条件使该边界检查无法可靠判定，则抛出 `RuntimeError`，不会声称不存在有限解，也不会返回不确定性。这项检查仅针对全零或单类响应，并非一般的分离检测；通常的重拟合收敛检查仍然适用。既无入选系数也无截距时，没有系数可供重拟合，原有不确定性未定义的行为保持不变。
+
+标准误为正时，oracle 的 z 统计量等于重拟合估计值除以该标准误，双侧 p 值使用正态分布尾概率。因此，用同一个正数缩放估计值和标准误，且两者仍可表示时，检验结果保持不变。标准误恰好为零时区间退化为一个点；此时报告的统计量或 p 值不应按常规正态参考检验解释。
+
+推断结果的 `method="oracle"`，使用正态（z）参考分布及所请求的受支持 `cov_type`。元数据包含 `refit_penalty="none"`、`refit_solver`、`refit_family_parameters`、CPU 数值计算信息和 `selection_adjusted=False`。重拟合专属字段仅在实际重拟合了系数时出现。非高斯重拟合还记录 `refit_attempts` 和 `refit_tol`，分别表示实际子模型拟合次数及子求解器容差。具体的负二项和 Tweedie 估计器会保留各自构造参数；若 `loss_kwargs` 也提供同名分布族参数，则其中的显式设置优先。
+
+下例把自动 oracle 系数与在相同入选列上单独进行的无惩罚 logistic 拟合作比较。独立包装类中的 `C=0` 表示不使用正则化：
 
 <!-- inference-example: explicit-logistic-diagnostic -->
 ```python
@@ -160,14 +220,19 @@ probability = 1 / (1 + np.exp(-(0.6 + X @ np.array([2.0, -1.0]))))
 y = rng.binomial(1, probability)
 selection = PenalizedLogisticRegression(
     penalty="scad", alpha=0.01, solver="fista", device="cpu",
-    compute_inference=False, max_iter=10000, tol=1e-10,
+    compute_inference=True, inference_method="oracle", max_iter=10000, tol=1e-10,
 ).fit(X, y)
 active = np.flatnonzero(np.abs(selection.coef_) > 1e-10)
 if active.size == 0:
     raise ValueError("No feature was selected; specify a model with only an intercept")
 refit = LogisticRegression(
-    C=0, device="cpu", compute_inference=True, max_iter=10000, tol=1e-10,
+    C=0, solver="irls", device="cpu", compute_inference=True,
+    max_iter=10000, tol=1e-10,
 ).fit(X[:, active], y)
+np.testing.assert_allclose(
+    selection._inference_result.params[np.r_[0, active + 1]],
+    np.r_[refit.intercept_, refit.coef_], rtol=1e-6, atol=1e-7,
+)
 print(active.tolist())
 print(np.round(np.r_[refit.intercept_, refit.coef_], 6))
 ```

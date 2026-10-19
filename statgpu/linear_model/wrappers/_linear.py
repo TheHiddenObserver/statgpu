@@ -36,6 +36,18 @@ def _parse_formula_if_provided(formula, data, X, y):
     return y, np.asarray(X), None, None
 
 
+def _normalize_score_response(y, prediction):
+    """Normalize a single response without copying arrays off their backend."""
+    if prediction.ndim == 1 and y.ndim == 2 and y.shape[1] == 1:
+        y = y.reshape(-1)
+    if y.ndim not in (1, 2) or tuple(y.shape) != tuple(prediction.shape):
+        raise ValueError(
+            "y must have the same sample and target shape as predictions; "
+            f"got {tuple(y.shape)}, expected {tuple(prediction.shape)}"
+        )
+    return y
+
+
 class LinearRegression(BaseEstimator):
     """
     Ordinary least squares linear regression with GPU acceleration
@@ -78,9 +90,8 @@ class LinearRegression(BaseEstimator):
     are not joint multivariate inference. See the model/API documentation.
     Formula prediction currently drops rows with missing predictors and returns
     a shorter unlabelled array. Resolve missing values and verify output length
-    before aligning results. score() can broadcast one retained prediction over
-    several responses and return an invalid finite R-squared for such a query;
-    flattening y does not fix this separate row-alignment problem.
+    before aligning results. score() rejects mismatched sample/target shapes
+    before residual arithmetic; it does not restore dropped row labels.
     """
     
     def __init__(
@@ -1346,13 +1357,19 @@ class LinearRegression(BaseEstimator):
         return X @ self.coef_ + self.intercept_
     
     def score(self, X, y):
-        """Return R^2 score."""
+        """Return unweighted R^2, uniformly averaged over multiple targets.
+
+        A single response may have shape (n_samples,) or (n_samples, 1).
+        Otherwise y must match the prediction sample and target dimensions.
+        """
         y_pred = self.predict(X)
         device = self._get_compute_device()
         if device == Device.CUDA:
             import cupy as cp
 
-            yb = cp.asarray(self._to_array(y, Device.CUDA))
+            yb = _normalize_score_response(
+                cp.asarray(self._to_array(y, Device.CUDA)), y_pred
+            )
             if y_pred.ndim == 1:
                 ss_res = cp.sum((yb - y_pred) ** 2)
                 ss_tot = cp.sum((yb - cp.mean(yb)) ** 2)
@@ -1364,7 +1381,10 @@ class LinearRegression(BaseEstimator):
         if device == Device.TORCH:
             import torch
 
-            yb = self._to_array(y, Device.TORCH, backend="torch").to(y_pred.dtype)
+            yb = _normalize_score_response(
+                self._to_array(y, Device.TORCH, backend="torch").to(y_pred.dtype),
+                y_pred,
+            )
             if y_pred.ndim == 1:
                 ss_res = torch.sum((yb - y_pred) ** 2)
                 ss_tot = torch.sum((yb - torch.mean(yb)) ** 2)
@@ -1374,7 +1394,7 @@ class LinearRegression(BaseEstimator):
             r2 = torch.where(ss_tot > 0, 1 - ss_res / ss_tot, torch.zeros_like(ss_tot))
             return float(torch.mean(r2).item())
         y_pred = np.asarray(y_pred)
-        y = self._to_numpy(y)
+        y = _normalize_score_response(self._to_numpy(y), y_pred)
         if y_pred.ndim == 1:
             ss_res = np.sum((y - y_pred) ** 2)
             ss_tot = np.sum((y - np.mean(y)) ** 2)

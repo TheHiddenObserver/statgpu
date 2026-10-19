@@ -824,15 +824,17 @@ class BaseEstimator(ABC):
         n_resamples : int, default=200
             Positive number of resamples.
         strategy : {'iid', 'stratified', 'cluster', 'block'}, default='iid'
-            Resample rows, rows within strata, equal-size whole clusters, or
-            contiguous blocks. Unequal-size cluster resampling currently
-            truncates the final group to n rows and can split clusters; do not
-            use its intervals for that setting. The caller must choose a valid
-            resampling unit.
+            Resample rows, rows within strata, whole clusters, or contiguous
+            blocks. Cluster resampling draws the original number of clusters
+            with replacement and concatenates every row of each selected
+            cluster. Unequal-size clusters yield variable row counts and use
+            scalar callbacks without batch probes. The caller must choose a
+            valid resampling unit.
         strata, clusters : array-like, optional
             One nonmissing label per row, required by the selected strategy.
-            Validate before calling: NaN labels can leave uninitialized batch
-            entries rather than raising clearly, producing invalid results.
+            Missing cluster labels raise ValueError. Validate strata before
+            calling: NaN stratum labels can leave uninitialized batch entries
+            rather than raising clearly, producing invalid results.
         block_size : int, optional
             Positive moving-block length, capped at n. Sample ceil(n/b)
             starts from 0 through n-b with replacement, concatenate contiguous
@@ -856,6 +858,9 @@ class BaseEstimator(ABC):
         BootstrapResult
             ``observed``, backend ``samples``, ``confidence_interval``, level,
             resample count, seed, statistic name, strategy, and metadata.
+            Cluster metadata includes ``resampling_unit='cluster'``,
+            ``n_clusters``, ``clusters_per_resample``, and
+            ``variable_sample_size``; ``n_samples`` is the original row count.
             This does not automatically refit or perform coefficient inference.
 
         Notes
@@ -864,6 +869,10 @@ class BaseEstimator(ABC):
         ``force_vectorized`` or ``statistic_hint``.
         """
         from statgpu.inference import bootstrap_statistic as _bootstrap_statistic
+        from statgpu.inference._resampling import _validate_cluster_labels_before_cast
+
+        if str(strategy).strip().lower() == "cluster":
+            clusters = _validate_cluster_labels_before_cast(clusters)
 
         arrays_use = arrays
         if len(arrays_use) == 0:

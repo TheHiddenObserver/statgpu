@@ -55,7 +55,7 @@ def test_first_learner_example_is_self_contained_cpu(language, page):
 
 
 @pytest.mark.parametrize("language", ("en", "cn"))
-def test_linear_column_target_example_scores_a_flattened_response(language):
+def test_linear_column_target_example_accepts_column_response(language):
     from statgpu.linear_model import LinearRegression
 
     page = _ROOT / f"docs/{language}/models/regression/linear-regression.md"
@@ -64,11 +64,12 @@ def test_linear_column_target_example_scores_a_flattened_response(language):
     model, X, y_column = (namespace[name] for name in ("model", "X", "y_column"))
     assert y_column.shape == (len(X), 1)
     assert model.predict(X).shape == (len(X),)
-    # Exercise the safe public call without requiring the underlying shape bug
-    # to persist after a future production fix.
+    # The tutorial exercises the column directly; a flat response is equivalent.
+    assert "r2 = model.score(X, y_column)" in text
     expected = LinearRegression(device="cpu", compute_inference=False).fit(X, y_column.ravel())
     np.testing.assert_allclose(model.predict(X), expected.predict(X))
     assert namespace["r2"] == pytest.approx(expected.score(X, y_column.ravel()))
+    assert model.score(X, y_column) == pytest.approx(model.score(X, y_column.ravel()))
     assert namespace["r2"] == pytest.approx(1.0)
 
 

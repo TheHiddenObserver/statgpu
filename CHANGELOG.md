@@ -2,6 +2,27 @@
 
 All notable changes to statgpu are documented here, organized by release and date.
 
+## Unreleased — 2026-10-19
+
+### PR #249 — Oracle, cluster-label, and weighted-fold safeguards
+- Corrected oracle Pearson dispersion and tiny-SE statistics; reject invalid residual degrees of freedom, vanished dispersion and nonpositive active model variances while preserving genuine zero-scale fits and fixed-dispersion conventions.
+- Stabilized HC0/HC1 weight scaling without dropping material low-weight scores; added relative Tweedie/negative-binomial oracle convergence checks with a bounded NB precision retry, rejected clipped positive-weight predictors/means/curvature before uncertainty publication, and rejected boundary targets. Failed oracle computation clears fitted, prediction and reporting state. See the [inference contract](docs/en/guides/penalized-glm-inference.md).
+- Rejected missing cluster labels before string promotion, including nested converters and structured masks, while preserving literal IDs, native grouping, conversion snapshots and backend-transfer behavior.
+- Preserved RidgeCV exact-fold/stride protections, weighted scoring and finite-publication checks; corrected native singular-Gram recovery, supported subnormal penalties, and empty-feature final refits. Rejected zero stored Gram diagonals with nonzero matching cross-products; valid zero systems remain allowed. CuPy float32 zero classification now reads same-width integer storage on the original device, preserving signed zeros and nonzero subnormals without a floating conversion. Automatic grids still require features; unresolved rank/range failures raise explicitly.
+- Withdrew added RidgeCV factor-SVD, duplicate-factor, compensated-projection and extreme-factor recovery promises. Difficult GPU folds promote existing raw moments for native Gram solves; raw-range and conditioning limits remain. See [English](docs/en/changelog.md) / [Chinese](docs/cn/changelog.md) details.
+
+### Validation infrastructure
+- Increased the complete Torch CPU CI job budget from 15 to 45 minutes, matching the full CPU job while retaining all focused and full-tree tests.
+
+### Fixed RidgeCV reversed fold indices
+- Fixed Torch conversion of negative-stride training and validation indices, including reversed single-element arrays, while preserving custom row order, input arrays, validation, weighted scoring, and final refits.
+
+### Fixed four numerical contracts for v0.3.0
+- Fixed #243 RidgeCV to honor exact custom training subsets with or without weights, validate fold indices and positive per-subset weight totals, score explicit tiny/single-candidate folds, and restrict full-minus-validation reuse to genuinely complementary folds with complete validation coverage.
+- Fixed #227 SCAD/MCP oracle reconstruction to use exact unpenalized CPU refits with preserved family parameters and convergence controls; preserved fitted family settings in prediction/scoring and adaptive-L1 initialization, corrected Gamma inverse-link predictions, and used observed-Hessian NB/inverse-Gaussian HC0/HC1 covariance while retaining nonrobust Fisher covariance; rejected non-converged refits and retained selection-conditional uncertainty.
+- Fixed #199 cluster bootstrap to draw the original number of complete clusters with replacement, allow variable sample sizes, and report cluster metadata without truncating groups.
+- Fixed #178 LinearRegression scoring to normalize single-column responses and reject incompatible row/target shapes before residual arithmetic, including formula-shortened predictions; retained constant-target score semantics.
+
 ## Unreleased — 2026-10-15
 
 ### PR #171 — Preserved multiple-testing Torch devices

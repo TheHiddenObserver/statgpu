@@ -23,7 +23,9 @@ def test_shared_resampling_limits_are_retrievable(language):
                  '(n, 1)', 'backend="auto"'):
         assert term in section
     assert ('final one-row batch' if language == 'en' else '最后只有一行的批次') in section
-    assert ('broadcast error' if language == 'en' else '广播错误') in section
+    assert 'ValueError' in section
+    assert ('multiple arrays' if language == 'en' else '多个数组') in section
+    assert ('broadcast error' if language == 'en' else '广播错误') not in section
     assert ('do not verify' if language == 'en' else '不会检查') in section
 
 

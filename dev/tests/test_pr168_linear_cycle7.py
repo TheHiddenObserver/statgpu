@@ -245,8 +245,6 @@ def _assert_requested_ridge_scores(actual, requested, unintended_complements):
     )
 
 
-@pytest.mark.xfail(strict=True, raises=_RidgeCVTrainingSubsetSubstitution,
-                   reason="Issue #243: unweighted RidgeCV substitutes complementary training rows")
 def test_ridge_cv_should_honor_valid_noncomplement_training_subsets():
     from statgpu import RidgeCV
     X, y, alphas, folds = _ridge_custom_fold_problem()
@@ -294,10 +292,14 @@ def test_ridge_cv_external_exact_fold_loop_is_an_objective_aligned_alternative(u
 
 
 @pytest.mark.parametrize("language", ["en", "cn"])
-def test_ridge_custom_fold_limitation_is_visible_from_learner_page_and_help(language):
+def test_ridge_custom_fold_support_is_visible_from_learner_page_and_help(language):
     from statgpu import RidgeCV
     model_page = _page(language, "models", "ridge")
     reference = _page(language, "reference", "linear-model-api")
     assert "#custom-ridgecv-training-subsets" in model_page
     assert ("full complement" in reference if language == "en" else "完整补集" in reference)
-    assert "validation\ncomplements" in inspect.getdoc(RidgeCV)
+    help_text = " ".join(inspect.getdoc(RidgeCV).split())
+    assert "preserve the supplied training and validation rows" in help_text
+    assert "with or without sample weights" in help_text
+    assert "validation sets need not partition all samples" in help_text
+    assert "final refit uses all supplied fit rows" in help_text

@@ -91,6 +91,10 @@ def test_explicit_logistic_diagnostic_refit_preserves_unpenalized_score(language
     np.testing.assert_allclose(design.T @ (probability - scope['y']), 0, atol=1e-7)
     assert refit.get_params()['C'] == 0
     assert scope['selection'] is not refit
+    result = scope['selection']._inference_result
+    assert result.method == 'oracle'
+    assert result.metadata['selection_adjusted'] is False
+    np.testing.assert_allclose(result.params, params, rtol=1e-6, atol=1e-7)
 
 
 @pytest.mark.parametrize('language', ['en', 'cn'])
@@ -110,9 +114,14 @@ def test_weighted_poisson_example_is_self_contained(language):
 def test_bilingual_oracle_and_bootstrap_boundaries(language):
     page = (ROOT / f'docs/{language}/guides/penalized-glm-inference.md').read_text()
     modes = (ROOT / f'docs/{language}/guides/inference-modes.md').read_text()
-    for token in ('`C=1`', '`alpha=1`', '`1.5`', '`device="auto"`', '`NaN`',
-                  '`ddof=1`', 'explicit-logistic-diagnostic'):
+    for token in ('`C=0`', '`device="cpu"`', '`max_iter`', '`tol`', '`NaN`',
+                  '`ddof=1`', 'explicit-logistic-diagnostic',
+                  '`selection_adjusted=False`', '`refit_family_parameters`',
+                  '`solver="irls"`', '`solver="newton"`', '`RuntimeError`'):
         assert token in page
+    for stale in ('logistic uses `C=1`', 'logistic 使用 `C=1`',
+                  'child refit currently defaults', '子模型目前默认使用'):
+        assert stale not in page
     assert 'current-non-gaussian-oracle-limitation' in modes
     if language == 'en':
         assert 'no plus-one correction' in page
@@ -123,6 +132,15 @@ def test_bilingual_oracle_and_bootstrap_boundaries(language):
         assert '强制原假设' in page
         assert '不适用于 L2' in page
         assert '解析权重' not in modes
+
+
+@pytest.mark.parametrize('model_cls', [PenalizedLogisticRegression, PenalizedPoissonRegression])
+def test_oracle_public_help_describes_unpenalized_cpu_refit(model_cls):
+    help_text = ' '.join(inspect.getdoc(model_cls).split())
+    assert 'unpenalized active-set refit on CPU' in help_text
+    assert 'preserving the fitted family settings and convergence controls' in help_text
+    assert 'do not adjust for variable selection' in help_text
+    assert 'documented reconstruction limitation' not in help_text
 
 
 def test_combine_help_warns_about_finite_weight_overflow():
@@ -208,8 +226,6 @@ def test_combination_is_invariant_to_large_common_weight_scale(method, axis):
     )
 
 
-@pytest.mark.xfail(strict=True, raises=_PenalizedOracleRefit,
-                   reason='Issue #227: oracle reconstruction retains LogisticRegression default C=1')
 @pytest.mark.parametrize('penalty', ['scad', 'mcp'])
 def test_logistic_oracle_targets_unpenalized_active_set(penalty):
     rng = np.random.default_rng(48)
@@ -234,8 +250,6 @@ def test_logistic_oracle_targets_unpenalized_active_set(penalty):
     raise _PenalizedOracleRefit('logistic oracle exactly retained the default C=1 child')
 
 
-@pytest.mark.xfail(strict=True, raises=_PenalizedOracleRefit,
-                   reason='Issue #227: oracle reconstruction drops explicit Newton and runs penalized IRLS')
 @pytest.mark.parametrize('penalty', ['scad', 'mcp'])
 def test_poisson_oracle_targets_unpenalized_active_set(penalty):
     rng = np.random.default_rng(59)
@@ -259,8 +273,6 @@ def test_poisson_oracle_targets_unpenalized_active_set(penalty):
     raise _PenalizedOracleRefit('Poisson oracle exactly used default positive-C IRLS')
 
 
-@pytest.mark.xfail(strict=True, raises=_LostOracleFamilyParameter,
-                   reason='Issue #227: oracle constructor introspection loses family-specific settings')
 @pytest.mark.parametrize('penalty', ['scad', 'mcp'])
 @pytest.mark.parametrize('loss,cls,settings,parameter', [
     ('negative_binomial', NegativeBinomialRegression, {'alpha': .25}, 'alpha'),
