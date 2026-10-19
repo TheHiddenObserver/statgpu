@@ -1,7 +1,7 @@
 # Linear-model API reference
 
 > Language: English  
-> Last updated: 2026-10-18<br>
+> Last updated: 2026-10-19<br>
 > Switch: [Chinese](../../cn/reference/linear-model-api.md)
 
 Classes here import from `statgpu` or `statgpu.linear_model`, except `SCADRegression` and `MCPRegression`, which are exported only by `statgpu.linear_model`. `X` is finite numeric `(n,p)` data; prediction uses the fitted feature order. Analytic weights are a finite nonnegative `(n,)` vector with positive sum. For weights after formula row filtering, see [formula inputs](#formula-inputs). Explicit GPU use requires the corresponding installed CUDA backend; see [device and memory](../guides/device-and-memory.md).
@@ -702,6 +702,16 @@ its own. An unrepresentable positive effective penalty, nonfinite raw moments,
 regularized system or coefficients, or nonfinite weighted validation MSE
 raises `FloatingPointError`. Use `gpu_cv_mixed_precision=False`, rescale the
 data or weights, or choose representable alphas as indicated by the error.
+
+A stored raw Gram diagonal that is exactly zero while its corresponding
+cross-product is nonzero also raises `FloatingPointError`, before adding
+regularization. With nonnegative weights these moments cannot come from the
+same exact design; rounding, cancellation or flush-to-zero has made them
+inconsistent. The check uses the stored values promoted to float64 on the
+selected device. It does not reject a zero diagonal with a zero cross-product,
+or a strictly positive subnormal diagonal. Disable mixed precision or rescale
+the inputs; increasing alpha does not restore the lost moments. This detects
+one specific inconsistency, not every loss of precision.
 
 GPU folds normally reuse a Gram eigendecomposition across alphas. A difficult
 fold can instead use native regularized Gram solves for individual alphas,

@@ -2,13 +2,13 @@
 
 All notable changes to statgpu are documented here, organized by release and date.
 
-## Unreleased — 2026-10-18
+## Unreleased — 2026-10-19
 
 ### PR #249 — Oracle, cluster-label, and weighted-fold safeguards
 - Corrected oracle Pearson dispersion and tiny-SE statistics; reject invalid residual degrees of freedom, vanished dispersion and nonpositive active model variances while preserving genuine zero-scale fits and fixed-dispersion conventions.
 - Stabilized HC0/HC1 weight scaling without dropping material low-weight scores; added relative Tweedie/negative-binomial oracle convergence checks with a bounded NB precision retry, rejected clipped positive-weight predictors/means/curvature before uncertainty publication, and rejected boundary targets. Failed oracle computation clears fitted, prediction and reporting state. See the [inference contract](docs/en/guides/penalized-glm-inference.md).
 - Rejected missing cluster labels before string promotion, including nested converters and structured masks, while preserving literal IDs, native grouping, conversion snapshots and backend-transfer behavior.
-- Preserved RidgeCV exact-fold/stride protections, weighted scoring and finite-publication checks; corrected native singular-Gram recovery, supported subnormal penalties, and empty-feature final refits. Automatic grids still require features; unresolved rank/range failures raise explicitly.
+- Preserved RidgeCV exact-fold/stride protections, weighted scoring and finite-publication checks; corrected native singular-Gram recovery, supported subnormal penalties, and empty-feature final refits. Rejected zero stored Gram diagonals with nonzero matching cross-products; valid zero systems remain allowed. Automatic grids still require features; unresolved rank/range failures raise explicitly.
 - Withdrew added RidgeCV factor-SVD, duplicate-factor, compensated-projection and extreme-factor recovery promises. Difficult GPU folds promote existing raw moments for native Gram solves; raw-range and conditioning limits remain. See [English](docs/en/changelog.md) / [Chinese](docs/cn/changelog.md) details.
 
 ### Validation infrastructure

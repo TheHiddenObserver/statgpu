@@ -1481,13 +1481,166 @@ def test_torch_cpu_mixed_selector_scores_actual_rounded_gram_without_narrowing(m
     assert result["alpha"] == alphas[0]
 
 
-def test_public_mixed_recovery_does_not_lose_finite_prediction(native):
+def _extreme_ridge_folds(complementary):
+    folds = [(np.arange(4), np.arange(4, 8))]
+    return folds + [(folds[0][1], folds[0][0])] if complementary else folds
+
+
+def _assert_normal_gram_mixed_recovery(native, complementary=False, intercept=False,
+                                      weight_kind="none", signs=(1., 1.)):
     device, array = native
-    model = RidgeCV(alphas=[1e-45, 1.], cv_splits=[(np.arange(4), np.arange(4, 8))],
+    direction = np.tile([-1., 1., -1., 1.], 2) if intercept else np.ones(8)
+    X = (signs[0] * 1e-18 * direction)[:, None]
+    y = signs[1] * 1e22 * (direction + (.25 if intercept else 0.))
+    weights = None if weight_kind == "none" else (
+        np.ones(8) if weight_kind == "unit" else np.tile([1., 2., 1., 2.], 2)
+    )
+    folds = _extreme_ridge_folds(complementary)
+    alphas = np.array([1e-45, 1.])
+    # x*x is normal float32, but beta exceeds float32's maximum. This isolates
+    # coefficient/scoring promotion from the original subnormal-Gram case below.
+    assert np.min(np.abs(X)) ** 2 > np.finfo(np.float32).tiny
+    model = RidgeCV(alphas=alphas, cv_splits=folds, fit_intercept=intercept,
+                    device=device, compute_inference=False, gpu_cv_mixed_precision=True).fit(
+        array(X), array(y), sample_weight=None if weights is None else array(weights))
+    mse = model.cv_results_["mse_path"]
+    expected_bad = []
+    for train, valid in folds:
+        coef, offset = _solve(X[train], y[train], alphas[1],
+                              None if weights is None else weights[train], intercept)
+        expected_bad.append(np.average((X[valid] @ coef + offset - y[valid]) ** 2,
+                                      weights=None if weights is None else weights[valid]))
+    assert np.all(np.isfinite(mse))
+    assert_allclose(mse[1], expected_bad, rtol=2e-7, atol=0.)
+    # An alpha-only assertion can pass a completely inaccurate first-alpha tie.
+    assert np.all(mse[0] < 1e-12 * mse[1])
+    assert model.alpha_ == alphas[0]
+    expected_coef, expected_offset = _solve(X, y, alphas[0], weights, intercept)
+    assert np.all(np.abs(model.coef_) > np.finfo(np.float32).max)
+    assert_allclose(model.coef_, expected_coef, rtol=2e-12, atol=0.)
+    prediction = model.predict(array(X))
+    assert_allclose(prediction, X @ expected_coef + expected_offset, rtol=2e-12, atol=0.)
+    # Compare the final average-loss ridge objective at a safe response scale.
+    objective = np.average(((prediction - y) / 1e22) ** 2, weights=weights)
+    objective += alphas[0] * np.sum((model.coef_ / 1e22) ** 2)
+    expected_objective = np.average(((X @ expected_coef + expected_offset - y) / 1e22) ** 2,
+                                    weights=weights)
+    expected_objective += alphas[0] * np.sum((expected_coef / 1e22) ** 2)
+    assert_allclose(objective, expected_objective, rtol=2e-12, atol=0.)
+    assert model._fitted and model.estimator_._fitted
+
+
+def test_public_mixed_recovery_does_not_lose_finite_prediction(native):
+    # Preserve this acceptance node ID while isolating its intended scorer test.
+    _assert_normal_gram_mixed_recovery(native)
+
+
+@pytest.mark.parametrize("complementary", [False, True])
+@pytest.mark.parametrize("intercept", [False, True])
+@pytest.mark.parametrize("weight_kind", ["none", "unit", "unequal"])
+@pytest.mark.parametrize("signs", [(-1., 1.), (1., -1.)])
+def test_public_normal_gram_mixed_recovery_objective_variants(
+        native, complementary, intercept, weight_kind, signs):
+    _assert_normal_gram_mixed_recovery(native, complementary, intercept, weight_kind, signs)
+
+
+def _assert_original_subnormal_gram_behavior(native, monkeypatch, complementary, record_property):
+    import json
+    from statgpu.linear_model.cv import _ridge_cv as module
+    device, array = native
+    X, y = np.full((8, 1), 1e-22), np.full(8, 1e18)
+    folds = _extreme_ridge_folds(complementary)
+    alphas = np.array([1e-45, 1.])
+    model = RidgeCV(alphas=alphas, cv_splits=folds, fit_intercept=False, device=device,
+                    compute_inference=False, gpu_cv_mixed_precision=True)
+    model.fit(array(np.ones_like(X)), array(np.ones_like(y)))
+    previous_cache = list(module._RIDGE_CV_ALPHA_CACHE.items())
+    observed = []
+    original = module._solve_ridge_path_gpu_from_gram_eig
+    def record(gram, cross, alphas, backend, *args, **kwargs):
+        # Transfer stored bits before any float32 comparison/arithmetic can FTZ.
+        gram_host, cross_host = backend.to_numpy(gram).copy(), backend.to_numpy(cross).copy()
+        observed.append((gram_host.astype(np.float64), cross_host.astype(np.float64)))
+        record_property("ridge_original_stored_moments", json.dumps({
+            "backend": backend.name, "dtype": str(gram_host.dtype),
+            "gram_shape": list(gram_host.shape), "cross_shape": list(cross_host.shape),
+            "gram_bytes_hex": gram_host.tobytes().hex(), "cross_bytes_hex": cross_host.tobytes().hex(),
+            "gram_float64": observed[-1][0].tolist(), "cross_float64": observed[-1][1].tolist(),
+        }, sort_keys=True))
+        return original(gram, cross, alphas, backend, *args, **kwargs)
+    monkeypatch.setattr(module, "_solve_ridge_path_gpu_from_gram_eig", record)
+    failure = None
+    try:
+        model.fit(array(X), array(y))
+    except FloatingPointError as exc:
+        failure = exc
+    if not observed:
+        assert device == "cpu"
+        grams = np.stack([X[train].T @ X[train] for train, _ in folds])
+        crosses = np.stack([X[train].T @ y[train] for train, _ in folds])
+        score_X, score_y = X, y
+    else:
+        assert len(observed) == 1
+        grams, crosses = observed[0]
+        score_X, score_y = X.astype(np.float32).astype(float), y.astype(np.float32).astype(float)
+    lost = np.any((grams[:, 0, 0] == 0) & (crosses[:, 0] != 0))
+    record_property("ridge_original_detected_moment_loss", str(bool(lost)))
+    if lost:
+        # The original P100/CuPy 13.6 counterexample must fail closed whenever
+        # this backend actually loses its Gram. Do not change its alpha to 1.
+        assert failure is not None and "zero diagonal with a nonzero cross product" in str(failure)
+        assert not model._fitted
+        for name in ("alpha_", "alphas_", "cv_results_", "mean_mse_", "best_score_",
+                     "coef_", "intercept_", "n_iter_", "estimator_", "cv_selected_device_"):
+            assert getattr(model, name) is None
+        assert list(module._RIDGE_CV_ALPHA_CACHE.items()) == previous_cache
+        with pytest.raises(RuntimeError, match="not fitted"):
+            model.predict(array(X))
+    else:
+        assert failure is None
+        expected = []
+        for fold, (train, valid) in enumerate(folds):
+            coefficients = crosses[fold, 0] / (grams[fold, 0, 0] + len(train) * alphas)
+            expected.append(np.mean((score_X[valid] * coefficients - score_y[valid, None]) ** 2, axis=0))
+        assert_allclose(model.cv_results_["mse_path"], np.array(expected).T, rtol=2e-12, atol=0.)
+        assert model.alpha_ == alphas[0]
+
+
+@pytest.mark.parametrize("complementary", [False, True])
+def test_public_original_subnormal_gram_rejects_actual_moment_loss(
+        native, monkeypatch, complementary, record_property):
+    _assert_original_subnormal_gram_behavior(native, monkeypatch, complementary, record_property)
+
+
+@pytest.mark.parametrize("complementary", [False, True])
+def test_torch_cpu_original_subnormal_public_spy_forwards_native_solver(
+        monkeypatch, complementary, record_property):
+    pytest.importorskip("torch")
+    from statgpu.backends import TorchBackend
+    from statgpu.linear_model.cv import _ridge_cv as module
+    backend = TorchBackend(device="cpu")
+    monkeypatch.setattr(module, "resolve_cv_backend", lambda *args: (
+        "cpu", "torch", backend, True, False, True))
+    _assert_original_subnormal_gram_behavior(
+        ("cpu", backend.asarray), monkeypatch, complementary, record_property)
+
+
+@pytest.mark.parametrize("complementary", [False, True])
+def test_public_original_subnormal_input_succeeds_with_float64(native, complementary):
+    device, array = native
+    X, y = np.full((8, 1), 1e-22), np.full(8, 1e18)
+    alphas = np.array([1e-45, 1.])
+    model = RidgeCV(alphas=alphas, cv_splits=_extreme_ridge_folds(complementary),
                     fit_intercept=False, device=device, compute_inference=False,
-                    gpu_cv_mixed_precision=True).fit(array(np.full((8, 1), 1e-22)), array(np.full(8, 1e18)))
-    assert np.all(np.isfinite(model.cv_results_["mse_path"]))
-    assert model.alpha_ == 1e-45
+                    gpu_cv_mixed_precision=False).fit(array(X), array(y))
+    coefficients = X[0, 0] * y[0] / (X[0, 0] ** 2 + alphas)
+    expected = (X[0, 0] * coefficients - y[0]) ** 2
+    assert_allclose(model.cv_results_["mse_path"],
+                    np.repeat(expected[:, None], 2 if complementary else 1, axis=1), rtol=2e-12, atol=0.)
+    assert model.alpha_ == alphas[0]
+    assert expected[0] < .01 * expected[1]
+    assert_allclose(model.coef_, coefficients[:1], rtol=2e-12, atol=0.)
+    assert_allclose(model.predict(array(X)), np.full(8, X[0, 0] * coefficients[0]), rtol=2e-12, atol=0.)
 
 
 def test_nonfinite_unweighted_validation_loss_clears_failed_fit(native):
@@ -1830,3 +1983,182 @@ def test_native_gram_blocks_use_undirected_rounded_support(factor_backend):
         assert all(indices.device == system.device for indices in blocks)
     elif backend.name == "cupy":
         assert all(indices.device.id == system.device.id for indices in blocks)
+
+
+@pytest.mark.parametrize("dtype_name", ["float32", "float64"])
+@pytest.mark.parametrize("sign", [-1., 1.])
+@pytest.mark.parametrize("subnormal_cross", [False, True])
+def test_cv_gram_consistency_rejects_zero_diagonal_nonzero_cross(
+        factor_backend, monkeypatch, dtype_name, sign, subnormal_cross):
+    from statgpu.linear_model.cv import _ridge_cv as module
+    backend, _ = factor_backend
+    dtype = getattr(np, dtype_name)
+    value = np.nextafter(dtype(0), dtype(1)) if subnormal_cross else dtype(1)
+    gram_host = np.array([np.eye(2), np.diag([1., 0.])], dtype=dtype)
+    cross_host = np.array([[0., 0.], [0., sign * float(value)]], dtype=dtype)
+    gram = backend.asarray(gram_host, dtype=getattr(backend, dtype_name))
+    cross = backend.asarray(cross_host, dtype=getattr(backend, dtype_name))
+    def unexpected(*args, **kwargs):
+        raise AssertionError("Inconsistent moments must fail before eigendecomposition")
+    monkeypatch.setattr(backend.xp.linalg, "eigh", unexpected)
+    with pytest.raises(FloatingPointError, match="zero diagonal with a nonzero cross product"):
+        module._solve_ridge_path_gpu_from_gram_eig(gram, cross, np.array([1.]), backend)
+    assert_array_equal(backend.to_numpy(gram), gram_host)
+    assert_array_equal(backend.to_numpy(cross), cross_host)
+    assert gram.dtype == cross.dtype == getattr(backend, dtype_name)
+
+
+@pytest.mark.parametrize("dtype_name", ["float32", "float64"])
+def test_cv_gram_consistency_accepts_positive_stored_subnormal_diagonal(factor_backend, dtype_name):
+    from statgpu.linear_model.cv._ridge_cv import _check_ridge_gram_consistency
+    backend, _ = factor_backend
+    dtype = getattr(np, dtype_name)
+    minimum = np.nextafter(dtype(0), dtype(1))
+    gram_host = np.array([[[minimum]]], dtype=dtype)
+    cross_host = np.array([[1.]], dtype=dtype)
+    gram = backend.asarray(gram_host, dtype=getattr(backend, dtype_name))
+    cross = backend.asarray(cross_host, dtype=getattr(backend, dtype_name))
+    # This is a guard-acceptance assertion, not an arbitrary extreme-solve
+    # accuracy promise. In particular do not compare the diagonal in float32.
+    _check_ridge_gram_consistency(gram, cross, backend)
+    assert_array_equal(backend.to_numpy(gram), gram_host)
+    assert_array_equal(backend.to_numpy(cross), cross_host)
+
+
+@pytest.mark.parametrize("response", [0., 1.])
+def test_cv_gram_consistency_preserves_zero_columns_and_responses(factor_backend, response):
+    from statgpu.linear_model.cv._ridge_cv import _solve_ridge_path_gpu_from_gram_eig
+    backend, _ = factor_backend
+    gram = backend.asarray(np.array([np.diag([1., 0.]), np.zeros((2, 2))]), dtype=backend.float32)
+    cross = backend.asarray(np.array([[response, 0.], [0., 0.]]), dtype=backend.float32)
+    alphas = np.array([1e-45, 1.])
+    result = _solve_ridge_path_gpu_from_gram_eig(gram, cross, alphas, backend)
+    expected = np.zeros((2, 2, 2))
+    expected[:, 0, 0] = response / (1. + alphas)
+    assert_allclose(backend.to_numpy(result), expected, rtol=2e-12, atol=0.)
+
+
+@pytest.mark.parametrize("complementary", [False, True])
+@pytest.mark.parametrize("weight_kind", ["none", "unit", "unequal"])
+@pytest.mark.parametrize("sign", [-1., 1.])
+def test_selector_rejects_actual_underflowed_gram_before_regularization(
+        factor_backend, monkeypatch, complementary, weight_kind, sign):
+    from statgpu.linear_model.cv import _ridge_cv as module
+    backend, _ = factor_backend
+    use_native = backend.name != "numpy"
+    monkeypatch.setattr(module, "resolve_cv_backend", lambda *args: (
+        "cpu", backend.name, backend, use_native, backend.name == "cupy", backend.name == "torch"))
+    X, y = backend.asarray(np.full((8, 1), 1e-200)), backend.asarray(np.full(8, sign * 1e100))
+    weights = None if weight_kind == "none" else backend.asarray(
+        np.ones(8) if weight_kind == "unit" else np.arange(1., 9.))
+    # The float64 square actually underflows on every backend. Its nonzero
+    # cross product and ordinary penalty used to permit a finite-looking fit.
+    with pytest.raises(FloatingPointError, match="zero diagonal with a nonzero cross product"):
+        module._select_ridge_alpha_cv(
+            X, y, alphas=np.array([.1, 1.]), cv_splits=_extreme_ridge_folds(complementary),
+            fit_intercept=False, sample_weight=weights, device="cpu",
+            gpu_cv_mixed_precision=False, return_details=True)
+
+
+@pytest.mark.parametrize("complementary", [False, True])
+@pytest.mark.parametrize("weight_kind", ["none", "unit", "unequal"])
+def test_public_gram_precision_failure_is_transactional_and_retryable(native, complementary, weight_kind):
+    from statgpu.linear_model.cv import _ridge_cv as module
+    device, array = native
+    model = RidgeCV(alphas=[.1, 1.], cv_splits=_extreme_ridge_folds(complementary),
+                    fit_intercept=False, device=device, compute_inference=False,
+                    gpu_cv_mixed_precision=False)
+    X, y = np.arange(1., 9.)[:, None], np.arange(1., 9.)
+    weights = None if weight_kind == "none" else array(
+        np.ones(8) if weight_kind == "unit" else np.arange(1., 9.))
+    model.fit(array(X), array(y), sample_weight=weights)
+    previous_estimator = model.estimator_
+    previous_cache = list(module._RIDGE_CV_ALPHA_CACHE.items())
+    with pytest.raises(FloatingPointError, match="zero diagonal with a nonzero cross product"):
+        model.fit(array(np.full_like(X, 1e-200)), array(np.full_like(y, 1e100)), sample_weight=weights)
+    assert not model._fitted
+    for name in ("alpha_", "alphas_", "cv_results_", "mean_mse_", "best_score_",
+                 "coef_", "intercept_", "n_iter_", "estimator_", "cv_selected_device_"):
+        assert getattr(model, name) is None
+    assert list(module._RIDGE_CV_ALPHA_CACHE.items()) == previous_cache
+    with pytest.raises(RuntimeError, match="not fitted"):
+        model.predict(array(X))
+    model.fit(array(X), array(y), sample_weight=weights)
+    assert model._fitted and model.estimator_._fitted
+    assert model.estimator_ is not previous_estimator
+    assert np.all(np.isfinite(model.predict(array(X))))
+
+
+@pytest.mark.parametrize("complementary", [False, True])
+@pytest.mark.parametrize("intercept", [False, True])
+@pytest.mark.parametrize("weight_kind", ["none", "unit", "unequal"])
+def test_selector_normal_gram_preserves_promoted_scoring(
+        factor_backend, monkeypatch, complementary, intercept, weight_kind):
+    from statgpu.linear_model.cv import _ridge_cv as module
+    backend, device = factor_backend
+    use_native = backend.name != "numpy"
+    monkeypatch.setattr(module, "resolve_cv_backend", lambda *args: (
+        "cpu", backend.name, backend, use_native, backend.name == "cupy", backend.name == "torch"))
+    direction = np.tile([-1., 1., -1., 1.], 2) if intercept else np.ones(8)
+    X, y = (1e-18 * direction)[:, None], -1e22 * direction
+    weights = None if weight_kind == "none" else backend.asarray(
+        np.ones(8) if weight_kind == "unit" else np.tile([1., 2., 1., 2.], 2))
+    original = module._batch_mse_all_folds
+    observed = []
+    def record(X, y, coefs, intercepts, backend, *args, **kwargs):
+        _assert_native_factor_array(coefs, backend, device, X)
+        assert np.all(np.abs(backend.to_numpy(coefs)[0]) > np.finfo(np.float32).max)
+        observed.append(True)
+        return original(X, y, coefs, intercepts, backend, *args, **kwargs)
+    monkeypatch.setattr(module, "_batch_mse_all_folds", record)
+    result = module._select_ridge_alpha_cv(
+        backend.asarray(X), backend.asarray(y), alphas=np.array([1e-45, 1.]),
+        cv_splits=_extreme_ridge_folds(complementary), fit_intercept=intercept,
+        sample_weight=weights, device="cpu", gpu_cv_mixed_precision=True, return_details=True)
+    assert observed == ([True] if use_native else [])
+    assert np.all(np.isfinite(result["mse_path"]))
+    assert np.all(result["mse_path"][0] < 1e-12 * result["mse_path"][1])
+    assert result["alpha"] == 1e-45
+
+
+@pytest.mark.parametrize("intercept", [False, True])
+def test_cpu_complementary_moment_cancellation_rejects_inconsistency_with_direct_control(
+        monkeypatch, intercept):
+    from statgpu.linear_model.cv import _ridge_cv as module
+    if intercept:
+        X = (1e8 + np.array([-1., 1., -1., 1.]))[:, None]
+        y = np.array([-1., 1., -1., 1.])
+        expected_direct_gram, expected_cross = 2., 2.
+    else:
+        X, y = np.array([1., 2., 1e10, 1e10])[:, None], np.array([1., 2., 0., 0.])
+        expected_direct_gram, expected_cross = 5., 5.
+    direct = [(np.arange(2), np.arange(2, 4))]
+    complete = direct + [(direct[0][1], direct[0][0])]
+    alphas = np.array([.1, 1.])
+    observed = []
+    original = module._check_ridge_gram_consistency
+    def record(gram, cross, backend):
+        observed.append((gram.copy(), cross.copy()))
+        return original(gram, cross, backend)
+    monkeypatch.setattr(module, "_check_ridge_gram_consistency", record)
+    with pytest.raises(FloatingPointError, match="zero diagonal with a nonzero cross product"):
+        module._select_ridge_alpha_cv(X, y, alphas=alphas, cv_splits=complete,
+                                     fit_intercept=intercept, device="cpu", return_details=True)
+    assert len(observed) == 1
+    assert_array_equal(observed[0][0], [[0.]])
+    assert_array_equal(observed[0][1], [expected_cross])
+    # Direct subset moments (after centering when requested) retain the small
+    # training variation. The guard neither repairs subtraction nor blocks
+    # this valid independently formed Gram for the identical first split.
+    observed.clear()
+    result = module._select_ridge_alpha_cv(X, y, alphas=alphas, cv_splits=direct,
+                                          fit_intercept=intercept, device="cpu", return_details=True)
+    assert len(observed) == 1
+    assert_array_equal(observed[0][0], [[expected_direct_gram]])
+    assert_array_equal(observed[0][1], [expected_cross])
+    expected = []
+    for alpha in alphas:
+        coef, offset = _solve(X[:2], y[:2], alpha, None, intercept)
+        expected.append(np.mean((X[2:] @ coef + offset - y[2:]) ** 2))
+    assert_allclose(result["mse_path"][:, 0], expected, rtol=2e-12, atol=0.)
+    assert result["alpha"] == alphas[np.argmin(expected)]

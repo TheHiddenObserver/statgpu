@@ -1,7 +1,7 @@
 # 线性模型 API 参考
 
 > 语言：中文  
-> 最后更新：2026-10-18<br>
+> 最后更新：2026-10-19<br>
 > 切换：[English](../../en/reference/linear-model-api.md)
 
 本页各类可从 `statgpu` 或 `statgpu.linear_model` 导入，但 `SCADRegression` 和 `MCPRegression` 仅由 `statgpu.linear_model` 导出。`X` 为有限数值 `(n,p)` 矩阵，预测列顺序与训练一致。分析权重为有限非负 `(n,)` 向量，总和须为正。公式删行后的权重对齐见[公式输入](#formula-inputs)。显式 GPU 请求要求对应 CUDA 后端可用，详见[设备与内存](../guides/device-and-memory.md)。
@@ -673,6 +673,13 @@ float32。有效正则项先乘以该折的权重总量（无权重时为行数�
 有限正数，原始矩、正则化系统或系数非有限，或者加权验证 MSE 非有限时，
 抛出 `FloatingPointError`。可按错误提示设置 `gpu_cv_mixed_precision=False`、
 缩放数据或权重，或选择可表示的 alpha。
+
+若已存储的原始 Gram 对角元精确为零，而对应交叉乘积分量非零，也会在添加
+正则项之前抛出 `FloatingPointError`。非负权重下，这组矩不可能来自同一个
+精确设计；舍入、抵消或冲零已使它们不一致。检查在所选设备上把存储值提升为
+float64 后进行。零对角元且交叉乘积为零，以及严格为正的次正规对角元，
+不会仅因该检查被拒绝。可关闭混合精度或缩放输入；增大 alpha 无法还原已丢失
+的矩。这只检测一种特定的不一致状态，不能检测所有精度损失。
 
 GPU 折通常对不同 alpha 复用 Gram 特征分解。数值困难的折可以改为逐个
 alpha 求解原生正则化 Gram 系统，并发出 `RuntimeWarning`。只有不同特征尺度

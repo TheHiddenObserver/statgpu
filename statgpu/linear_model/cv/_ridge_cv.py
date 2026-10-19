@@ -285,6 +285,24 @@ def _weighted_ridge_mse(X, y, coefs, intercepts, weights):
 # GPU batch solver for Ridge
 # =============================================================================
 
+def _check_ridge_gram_consistency(gram, cross, backend):
+    """Reject a lost Gram direction that still has a stored response signal."""
+    # With nonnegative weights, an exact zero Gram diagonal implies a zero
+    # weighted feature column and therefore a zero matching cross product.
+    # Check before regularization can conceal this inconsistency.
+    # Promote only the diagonal and RHS: float32 device comparisons can flush
+    # valid stored subnormals to zero. No threshold, new moments, or factor
+    # reconstruction is involved; other rounding/cancellation can go undetected.
+    diagonal = backend.asarray(gram.diagonal(0, -2, -1), dtype=backend.float64)
+    cross = backend.asarray(cross, dtype=backend.float64)
+    if bool(_to_float_scalar(backend.xp.any((diagonal == 0) & (cross != 0)))):
+        raise FloatingPointError(
+            "RidgeCV stored Gram has a zero diagonal with a nonzero cross product; "
+            "precision was lost forming or converting the moments. Use "
+            "gpu_cv_mixed_precision=False or rescale the data."
+        )
+
+
 def _ridge_gram_blocks(system, backend):
     """Keep exactly disconnected Gram coordinates independent during recovery."""
     xp = backend.xp
@@ -445,6 +463,8 @@ def _solve_ridge_path_gpu_from_gram_eig(XtX_batch, Xty_batch, alphas, backend, f
             "RidgeCV Gram or cross product is not finite at the CV precision; "
             "disable mixed precision or rescale the data."
         )
+
+    _check_ridge_gram_consistency(XtX_batch, Xty_batch, backend)
 
     # Step 1: Eigendecomposition (done once per fold)
     # eigvals: (n_folds, n_features), Q: (n_folds, n_features, n_features)
@@ -1114,6 +1134,7 @@ def _select_ridge_alpha_cv(
                     "RidgeCV Gram, cross product or weight mass is not finite; "
                     "rescale the data or weights."
                 )
+            _check_ridge_gram_consistency(XtX, Xty, backend)
             penalties = alpha_grid * float(n_train)
             if not np.all(np.isfinite(penalties) & (penalties > 0)):
                 raise FloatingPointError(
@@ -1458,9 +1479,13 @@ class RidgeCV(CVEstimatorBase):
     precision; supported subnormal penalties use same-device float64 arithmetic
     when they affect the solve. Promotion cannot restore information lost in Gram formation;
     extreme scales and ill-conditioned systems retain native normal-equation
-    and numerical-rank limitations. Nonfinite Gram quantities, coefficients,
-    or validation losses raise FloatingPointError. A nonfinite final refit
-    also raises before fitted outputs are published.
+    and numerical-rank limitations. A stored exact zero Gram diagonal with a
+    nonzero matching cross product raises FloatingPointError because those
+    moments are inconsistent; disable mixed precision or rescale the data.
+    This check does not reject strictly positive stored subnormal diagonals
+    merely for their size or detect every loss of precision. Nonfinite Gram
+    quantities, coefficients, or validation losses raise FloatingPointError.
+    A nonfinite final refit also raises before fitted outputs are published.
     """
 
     def __init__(

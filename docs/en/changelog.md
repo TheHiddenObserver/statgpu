@@ -1,20 +1,22 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-10-18<br>
+> Last updated: 2026-10-19<br>
 > This page: Release history  
 > Switch: [Chinese](../cn/changelog.md)
 
 This page records user-visible changes for current and recent statgpu releases.
 
-## Unreleased — Numerical contract fixes for v0.3.0 (2026-10-17 ~ 2026-10-18)
+## Unreleased — Numerical contract fixes for v0.3.0 (2026-10-17 ~ 2026-10-19)
 
-### Fixed (2026-10-17 ~ 2026-10-18)
+### Fixed (2026-10-17 ~ 2026-10-19)
 
 - **RidgeCV custom training rows (#243)**:
+  - Added a fail-closed check for an exactly zero stored Gram diagonal with a nonzero matching cross-product, before regularization. Comparison after same-device float64 promotion preserves positive subnormal storage and genuine zero-feature/zero-response cases. This detects inconsistent moments but does not reconstruct factor information lost to rounding, cancellation or flush-to-zero. Disable mixed precision or rescale inputs when this error occurs.
+  - Retained the original subnormal-factor mixed-precision example as an explicit precision-failure regression where its moments are lost, with a float64 analytic success control. The promoted-coefficient scoring success regression now uses normal Gram entries while still requiring coefficients beyond float32 range, and checks score separation as well as alpha selection. This aligns the test with the previously narrowed raw-moment contract; it does not claim the original lost-factor case is now accurately solved.
   - Corrected difficult native Gram solves that could return a finite, non-minimum-norm rank-one solution without raising a linear-algebra error. Numerical-rank checks now precede singular fallback; exact independent blocks preserve small identifiable directions, tiny systems use bounded upward scaling, and ambiguous coupled scale/rank cases raise explicitly. The ordinary batched path and raw weighted objective remain unchanged; this does not restore the withdrawn factor-reconstruction guarantees.
   - Supported effective penalties in the float32 subnormal storage interval are checked before narrowing and use same-device float64 arithmetic when material, avoiding CuPy flush-to-zero rejection. Values outside the configured precision's positive finite rounding interval still raise. Empty-feature final refits avoid an inapplicable zero-dimensional CuPy triangular solve while retaining the existing fit/inference lifecycle.
-  - Preserved all original physical-failure regression nodes. Final-refit near-zero coefficient checks now use an independent high-precision objective and a precision-derived formation/solve error bound rather than requiring a cancellation result to be bitwise zero; strict CV scores, selected alpha and prediction checks remain unchanged. CPU/Torch CPU execution does not establish physical CUDA success.
+  - Preserved the original physical-failure inputs, with the explicit subnormal-factor test contract correction described above. Final-refit near-zero coefficient checks now use an independent high-precision objective and a precision-derived formation/solve error bound rather than requiring a cancellation result to be bitwise zero; other strict CV score, selected-alpha and prediction assertions retain their tolerances. CPU/Torch CPU execution does not establish physical CUDA success.
   - Weighted zero-feature designs with an explicit alpha grid again retain valid intercept-only or zero-prediction CV behavior. Empty slope spectra bypass inapplicable reductions while retaining fold scoring, validation and final refitting. Automatic alpha generation still requires at least one slope column.
   - Withdrew the additional factor-SVD, exact-duplicate compression, compensated-projection, and extreme/subnormal-factor recovery promises from this unreleased change. CPU weighted folds retain the original raw weighted objective; difficult GPU folds use same-device native per-alpha Gram solves with numerical-rank fallback. This promotes already-formed moments to float64 but does not reconstruct the original factors. Computable existing raw-Gram cases remain covered, including rank-one/duplicate designs and raw-weighted subnormal-scale examples. Native normal-equation conditioning and finite-range limits remain; finite coefficients alone do not certify accuracy. See the [RidgeCV numerical boundary](reference/linear-model-api.md#custom-ridgecv-training-subsets).
   - Weighted validation subtracts finite residuals before applying square-root weights, preserving cancellation where the direct residual is representable. Nonfinite weighted validation MSE raises `FloatingPointError` with scaling guidance. RidgeCV now also rejects nonfinite final-refit coefficients or intercept before publishing any CV/refit state; direct Ridge behavior is unchanged.
