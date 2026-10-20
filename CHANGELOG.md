@@ -2,133 +2,100 @@
 
 All notable changes to statgpu are documented here, organized by release and date.
 
-## Unreleased — 2026-10-19
+## 0.3.0 — Upcoming
 
-### PR #249 — Oracle, cluster-label, and weighted-fold safeguards
-- Corrected oracle Pearson dispersion and tiny-SE statistics; reject invalid residual degrees of freedom, vanished dispersion and nonpositive active model variances while preserving genuine zero-scale fits and fixed-dispersion conventions.
-- Stabilized HC0/HC1 weight scaling without dropping material low-weight scores; added relative Tweedie/negative-binomial oracle convergence checks with a bounded NB precision retry, rejected clipped positive-weight predictors/means/curvature before uncertainty publication, and rejected boundary targets. Failed oracle computation clears fitted, prediction and reporting state. See the [inference contract](docs/en/guides/penalized-glm-inference.md).
-- Rejected missing cluster labels before string promotion, including nested converters and structured masks, while preserving literal IDs, native grouping, conversion snapshots and backend-transfer behavior.
-- Preserved RidgeCV exact-fold/stride protections, weighted scoring and finite-publication checks; corrected native singular-Gram recovery, supported subnormal penalties, and empty-feature final refits. Rejected zero stored Gram diagonals with nonzero matching cross-products; valid zero systems remain allowed. CuPy float32 zero classification now reads same-width integer storage on the original device, preserving signed zeros and nonzero subnormals without a floating conversion. Automatic grids still require features; unresolved rank/range failures raise explicitly.
-- Withdrew added RidgeCV factor-SVD, duplicate-factor, compensated-projection and extreme-factor recovery promises. Difficult GPU folds promote existing raw moments for native Gram solves; raw-range and conditioning limits remain. See [English](docs/en/changelog.md) / [Chinese](docs/cn/changelog.md) details.
+Consolidated the merged work since 0.2.5, including entries previously planned
+for 0.2.6. No separate 0.2.6 release is recorded. See the
+[release notes](.github/releases/v0.3.0.md) and detailed
+[English](docs/en/changelog.md) / [Chinese](docs/cn/changelog.md) changelogs for
+migration guidance, limitations and source-specific validation.
 
-### Validation infrastructure
-- Increased the complete Torch CPU CI job budget from 15 to 45 minutes, matching the full CPU job while retaining all focused and full-tree tests.
+### Official website
 
-### Fixed RidgeCV reversed fold indices
-- Fixed Torch conversion of negative-stride training and validation indices, including reversed single-element arrays, while preserving custom row order, input arrays, validation, weighted scoring, and final refits.
+- Launched the [official website](https://statgpu.github.io/), providing an online entry point to the English and Chinese documentation.
 
-### Fixed four numerical contracts for v0.3.0
-- Fixed #243 RidgeCV to honor exact custom training subsets with or without weights, validate fold indices and positive per-subset weight totals, score explicit tiny/single-candidate folds, and restrict full-minus-validation reuse to genuinely complementary folds with complete validation coverage.
-- Fixed #227 SCAD/MCP oracle reconstruction to use exact unpenalized CPU refits with preserved family parameters and convergence controls; preserved fitted family settings in prediction/scoring and adaptive-L1 initialization, corrected Gamma inverse-link predictions, and used observed-Hessian NB/inverse-Gaussian HC0/HC1 covariance while retaining nonrobust Fisher covariance; rejected non-converged refits and retained selection-conditional uncertainty.
-- Fixed #199 cluster bootstrap to draw the original number of complete clusters with replacement, allow variable sample sizes, and report cluster metadata without truncating groups.
-- Fixed #178 LinearRegression scoring to normalize single-column responses and reject incompatible row/target shapes before residual arithmetic, including formula-shortened predictions; retained constant-target score semantics.
+### 2026-10-19
 
-## Unreleased — 2026-10-15
+#### PR #249 — Numerical, resampling and scoring safeguards
+- Fixed RidgeCV exact custom training subsets, reversed indices, weighted fold scoring, singular native Gram recovery, supported subnormal penalties and empty-feature final refits; retained raw-moment conditioning/range limits and rejected inconsistent or unrepresentable moments/results.
+- Corrected CPU SCAD/MCP oracle refits, family settings, Pearson dispersion, tiny-SE statistics and HC0/HC1 covariance; rejected unresolved convergence, boundary targets, clipping and invalid uncertainty, and cleared fitted state after oracle failure.
+- Fixed whole-cluster bootstrap to draw complete clusters with replacement and variable sample sizes; rejected missing labels before string conversion while preserving literal IDs and conversion behavior.
+- Fixed LinearRegression single-column response scoring and rejected incompatible prediction/response shapes, including formula-shortened predictions; retained constant-target score semantics.
+- Increased the Torch CPU CI budget to 45 minutes without dropping tests. Historical testing on `0969d9da` recorded 4,229 CPU, 233 Torch CPU, 824 CUDA passes and six native probes on one P100; final 0.3.0 release validation remains separate.
 
-### PR #171 — Preserved multiple-testing Torch devices
-- Fixed module-level p-value adjustment and combination to preserve Torch input CPU or indexed-CUDA ownership through float64 conversion, temporary arrays, weights, and outputs; retained current-device selection for explicit Torch with non-Torch input and rejected unsupported Torch devices explicitly.
-- Clarified bilingual function-versus-estimator device rules and added focused device-ownership regressions, with physical CUDA checks conditional on available hardware.
+### 2026-10-15
 
-## Unreleased — 2026-10-10
+#### PR #172 — Logistic classifier solver selection
+- Added `solver="auto"|"irls"|"lbfgs"` to LogisticRegression and LogisticRegressionCV, preserving default IRLS and the weighted summed-loss inverse-C L2 objective.
+- Propagated the selected solver through CV and final refits, retained backend-native fitting, and exposed fitted `solver_` and requested/resolved summary output.
 
-### PR #168 — Completed learner docs and repaired input/device handling
-- Improved bilingual learner guides, distribution workflows and navigation across linear models, feature selection, survival, smoothing and twelve unsupervised methods; restructured model tutorials into explained sequential data, fit and prediction steps with explicit reused setup.
-- Added runtime-checked complete constructor/method/result references, including typed GLM and CV wrappers, plus standalone CPU examples; separated developer validation/dashboard maintenance records, scoped historical benchmark claims and retained actionable known-issue warnings.
-- Corrected objective normalization, unpenalized intercepts, UMAP pair scope, TSNE probability/perplexity definitions, inference targets and weighted/resampling interpretation; clarified the logit-only `LogisticRegression` inventory entry and separate `OrderedProbitRegression`; documented current limitations and tested alternatives.
-- Fixed native Torch model-X generation to bind its random generator and noise to the input device and honor its local seed; rejected nonfinite observations in the remaining ANOVA paths and honored explicit computation devices across covariance estimators while preserving pandas and ordinary array-like inputs; repaired Torch-to-NumPy covariance conversion for real low-precision tensors and lazy-negative views, normalized supported FP8 values before public finite validation, and reused that call-local normalization across validation and covariance computation.
-- Tightened expected-failure regressions, including the exact UMAP missing-neighbor signature; repaired rendered GLM parameter tables and added rendered-content, ANOVA input and covariance device regressions while retaining independently tracked runtime limitations.
+#### PR #171 — Multiple-testing Torch device preservation
+- Preserved Torch p-value input CPU/indexed-CUDA devices through float64 conversion, temporary arrays, weights and outputs; clarified separate module-function and estimator device rules.
 
-## Unreleased — 2026-10-03
+#### PR #168 — Learner guides, API references and input handling
+- Reorganized bilingual tutorials and complete API references, added executable examples, clarified statistical targets and documented remaining model-specific limitations.
+- Fixed Torch model-X local seed/device allocation, ANOVA nonfinite-input rejection, covariance explicit-device handling, pandas inputs and supported Torch low-precision/lazy-view conversion.
 
-### PR #172 — Logistic classifier solver selection
-- Added `solver="auto"|"irls"|"lbfgs"` to `LogisticRegression` and `LogisticRegressionCV`, preserving default IRLS and the weighted summed-loss inverse-C L2 objective.
-- Propagated solver selection through CV candidates and final refits; retained backend-native GPU fitting and added fitted `solver_`/summary reporting.
-- Added objective, inference, API, CV, and backend regression tests with synchronized English/Chinese documentation. Physical CUDA validation remains pending.
+### 2026-09-29
 
-## Unreleased — 2026-09-20
+#### PR #170 — Chinese learner documentation
+- Improved Chinese model and unsupervised-learning explanations while preserving public API identifiers and statistical restrictions.
 
-### PR #166 — Quantile solver and inference updates (targeted for 0.2.6)
-- Updated Quantile solver and input behavior across direct, CV, and low-level public consumers. Malformed response/design/path/stopping/weight inputs are rejected before numerical work; unsupported Newton, Proximal Newton, FISTA-BB, ADMM, and L-BFGS-B requests raise instead of silently substituting another algorithm. The historical `quantile_cd_solver` name remains import-compatible but raises when called; scalar SCAD/MCP fitting uses Proximal IRLS-CD.
-- Corrected standalone `QuantileRegression` inference: fitted residuals are centered at their empirical target-quantile before resampling, bootstrap child refits use backend-native batched Quantile IRLS/MM for the requested quantile, non-uniform weighted inference is rejected because weighted kernel/bootstrap inference is not implemented, bootstrap requires at least two draws, invalid kernel bandwidths cannot publish NaN inference, failed fits clear partial results, and CuPy cleanup follows the executed backend. Multifeature non-median bootstrap refits are checked against independent Quantile LP objectives. The bootstrap procedure is documented as an i.i.d. residual bootstrap rather than a heteroscedastic-robust wild/multiplier procedure.
-- Expanded regression and GPU-validation coverage for public solver aliases/reload identity, finite NumPy/Torch response/design validation, prediction/score shapes, CV fold/grid ordering, standalone inference controls/state cleanup, weighted L1 FISTA, Group SCAD/MCP direct/CV execution, low-level Quantile LLA accuracy against independent LP fixed points, flat-IRLS behavior, and accelerator residency of Group LLA derivatives.
-- Aligned smooth/no-penalty Quantile FISTA convergence semantics across NumPy, CuPy, and Torch: accelerator backtracking paths now apply CPU-equivalent every-iteration best-accepted/objective-stability checks, but batch their convergence and L2-tracking scalars into the Armijo synchronization that already occurs for each trial instead of adding a second host sync. The asynchronous non-smooth Quantile CV path remains deferred-check, caps Nesterov momentum at `0.5`, and adaptively halves its fixed step with a momentum restart only after two consecutive post-burn-in objective checks fail to make a tolerance-scale improvement. The adaptive control reuses already-synchronized objective/delta scalars and batches L1 penalty tracking into the same check, so it adds no host sync. Physical review also replaced the async fixture's CPU backtracking-FISTA parity oracle with an independent SciPy/HiGHS linear-program optimum: on the deterministic fixture, CPU generic FISTA stops about `8.939e-4` above the convex optimum, while the async accelerator path can reach the optimum. The existing `5e-4` acceptance threshold is therefore measured against the LP reference rather than a suboptimal CPU iterate. Quantile sparse CV on accelerator backends now also uses that maintained async/adaptive FISTA route consistently for both per-fold L1/ElasticNet/Adaptive-L1 candidate fits and the selected full-data refit; previously those internal `model.fit()` calls fell back to generic pinball backtracking and could fail Armijo at a kink. Ordinary direct Quantile FISTA fits are unchanged. Physical schema v23 also replaces CPU-FISTA-based L1 CV acceptance with independent HiGHS LP references for every fold/alpha validation score, selected alpha, and the selected full-data penalized objective. On the deterministic gate fixture, CPU CV scores differ from the LP reference by as much as `3.1335e-3`, so CPU CV remains diagnostic only; the existing GPU score/refit tolerances are unchanged.
-- Low-level scalar Quantile SCAD/MCP fitting now delegates to the dedicated Proximal IRLS-LLA engine, removing a fixed-step FISTA stall above the convex weighted-L1 optimum; the scalar physical gate (schema v3) now certifies a nontrivial independent LP fixed point instead of a zero-versus-zero step-scale probe.
-- Low-level Quantile hardening from the full-PR review: complex adaptive-weight/control inputs are rejected instead of silently truncated, zero-feature `QuantileLoss.irls()` designs fail closed, the single-step marked continuation path solves its target alpha, the zero-budget fused LLA fallback no longer raises, and re-emitted Quantile convergence warnings point at the caller; Torch kernel-based sandwich inference keeps its covariance weights in the working tensor dtype instead of a hidden float32 default.
+#### PR #166 — Quantile solver and inference correctness
+- Rejected incompatible solver/input requests; corrected standalone residual-bootstrap centering and native refits, kernel-bandwidth validation, failure cleanup and nonuniform-weight inference rejection.
+- Improved accelerator sparse Quantile CV and scalar SCAD/MCP fitting against independent linear-program references; preserved the ordinary direct-fit numerical boundary.
 
-## Unreleased — 2026-09-16
+### 2026-09-16
 
-### PR #164 / Issue #163 — Quantile solver provenance reconciliation (targeted for 0.2.6)
-- Reconciled penalized Quantile solver provenance across direct and CV paths: L2/no-penalty `solver="auto"` resolves to IRLS, L1/ElasticNet remain FISTA-family, SCAD/MCP resolve to the dedicated internal `proximal_irls_cd` algorithm, and incompatible explicit solver requests fail before numerical dispatch.
-- Corrected non-median Quantile CV scoring and typed-quantile propagation, preserved unpenalized-intercept semantics for SCAD/MCP, and hardened Torch IRLS/Proximal Quantile execution so warm starts, penalty diagonals, and numerical scalar temporaries stay on the active device.
-- Exact clean numerical source `2de971402004efc703dc98f510942db3980988e4` passed the frozen Tesla P100 schema-v1 gate with all 12 CuPy/Torch CUDA cases. The canonical artifact is `dev/reviews/pr164_quantile_solver_provenance_gpu.json`; commit `230eaebbd4dfaf090e84011fe0eb190339389411` adds only that evidence, so later documentation-only closure reuses the immutable numerical-source acceptance without reopening the physical gate.
+#### PR #165 — Float32 L-BFGS numerical guidance
+- Added diagnostic tests and guidance on objective/stationarity comparisons and float64 references; did not replace the production L-BFGS algorithm.
 
-## Unreleased — 2026-09-11
+#### PR #164, #162 — Quantile solver and penalty contracts
+- Made executed solver identity truthful across direct fit/CV/refit; preserved non-median quantiles and unpenalized intercepts, and rejected unsupported low-level IRLS penalties instead of optimizing partial objectives.
 
-### PR #162 / Issue #161 — Quantile IRLS penalty contract (targeted for 0.2.6)
-- Tightened low-level `QuantileLoss.irls()` to the maintained no-penalty/L2 objective. ElasticNet, L1, SCAD/MCP, group/adaptive, and unknown penalty objects now fail before numerical iteration instead of silently solving only a smooth subset of the declared penalty.
-- Preserved the public estimator boundary: explicit Quantile `solver="irls"` remains a L2/no-penalty route, while non-smooth penalties continue to use FISTA-family or their dedicated Quantile non-convex solver.
-- Added focused regressions for fail-closed unsupported penalties, unpenalized/L2 execution, analytic-weight scale invariance, estimator-level validation, and Torch CPU backend preservation.
+### 2026-09-15
 
-### PR #151 / Issue #150 — Weighted explicit Newton/L-BFGS GLM fits (targeted for 0.2.6)
-- Reconciled ordinary `GeneralizedLinearModel` with the maintained analytic-weight solver contract: explicit `solver="newton"` and `solver="lbfgs"` accept genuine non-uniform `sample_weight` on supported GLM rows without silently substituting IRLS/FISTA or changing an explicit CPU/CuPy/Torch device request.
-- Maintained GLM smooth solvers use one normalized analytic-weight objective across the complete solve. Review/fix passes made effective-uniform classification scale- and permutation-invariant, normalize before execution-dtype casting, preserve fractional weights for integral designs, avoid raw float32-weight-sum overflow before normalization, and retain the exact solver-prepared weight identity for ordinary post-fit diagnostics/inference. On Newton/L-BFGS M-estimation routes that identity is rescaled to an equivalent mean-one representation before covariance evaluation, so positive global analytic-weight rescaling preserves coefficients and nonrobust/HC0/HC1 inference up to numerical solver tolerance without redefining unrelated IRLS/FISTA weighting semantics. `ParameterInferenceResult` also publishes the actual M-estimation `cov_type` when a constructor omitted that standard result field. L-BFGS preserves visible line-search failure while allowing only a bounded floating-point Armijo acceptance when both the requested objective decrease and parameter displacement are below maintained numerical resolution.
-- `GammaRegression(link="inverse_power")` now uses a loss-owned smooth-domain contract for explicit Newton/L-BFGS rather than a blanket no-intercept restriction. On positive-weight rows, statgpu constructs a numerically certified strictly positive linear-predictor direction and keeps accepted iterates inside the maintained smooth domain. A domain-capped tiny L-BFGS step does not count as convergence by itself; an exhausted domain Armijo search is retried with steepest descent and fails closed if recovery also fails. Feasible no-intercept designs fit normally, while infeasible, uncertifiable, or domain-pinned fits fail visibly.
-- The same inverse-Gamma domain contract is closed through penalized L2 Newton/L-BFGS and `PenalizedGLM_CV`: framework warm starts are reused only when domain-feasible, validation scoring uses the declared `inverse_power` objective, and the selected full-data refit preserves the link. Typed `PenalizedGammaRegression` preserves historical `loss_kwargs["link"]` precedence while remaining sklearn-clone safe. Existing `solver="auto"`, IRLS/FISTA, explicit smooth-solver `C`, Ordered GLM, standalone LogisticRegression, and non-inverse-Gamma behavior is preserved unless explicitly covered above.
-- Ordinary explicit Newton/L-BFGS refits are transactional across validation, optimization, inference, and provenance publication. A failed refit atomically restores the complete last successful estimator state instead of exposing old coefficients with new-attempt metadata; a first failed fit remains unfitted. The previously published successful solver/backend/device provenance is therefore preserved without being confused with the failed attempt.
-- Historical hosted/physical evidence remains exact-source-specific. Numerical/validator source `9eb39cee2c0e691160f528ab687b7379d26f3e42` passed all seven hosted PR workflows and the Tesla P100 schema-v5 gate; the complete CPU suite on that source reported **3395 passed / 831 skipped / 0 failed**. Later review changed production inference/result provenance, so neither that hosted run nor schema v5 accepts later source.
-- The Tesla P100 schema-v3 artifact at `c6781cb6a2e1fe500f325e832d23cdc80a99b564`, schema-v4 inverse-Gamma artifact at `9ef5b34ffc8abf133bc6262e98a855d5efe37d3c`, and schema-v5 artifact at `9eb39cee2c0e691160f528ab687b7379d26f3e42` remain immutable **historical exact-source evidence only**. Their retained files are `dev/reviews/pr151_glm_weighted_explicit_solvers_gpu.json`, `dev/reviews/pr151_inverse_gamma_domain_gpu_v4.json`, and `dev/reviews/pr151_final_gpu_v5.json`.
-- Schema v6 is an immutable **failed historical validator**, not the current acceptance gate. Its overflow-inference fixture accidentally cast `X` and `y` to float32 in addition to the intended float32 analytic weights, adding an unrelated float32-design CuPy L-BFGS cross-backend parity requirement. That separate numerical question is tracked in Issue #160 rather than weakening PR151 tolerances or broadening this PR.
-- Corrected schema v7 is now the final accepted physical CUDA gate. Exact clean numerical/validator source `0302262ef8242b31f2f17b7835b6c08aeda89904` passed the complete v3→v4→v5→v7 chain on Tesla P100-SXM2-16GB with CuPy 13.6.0, Torch 2.0.0+cu117, NumPy 1.24.2, and Python 3.9.16, recording `status: success` and `source_clean: true`. The canonical artifact is `dev/reviews/pr151_final_gpu_v7.json`; the earlier accepted `e1cbf3756d269a6073461de8331da11c6235fb4e` schema-v7 artifact is preserved as `dev/reviews/pr151_final_gpu_v7_e1cbf375.json`. Numerical parity with the earlier run is unchanged: the maximum review-closure error remains `9.719913152128612e-09` at the same penalized/Newton/Torch p-value comparison. Commit `29b8e8056fb9bdfb34e2b76982d433c0be3d844f` records the final evidence directly above the validated numerical source; subsequent changelog closure is documentation-only and does not reopen physical acceptance. PR #151 is **merge-ready**; Issue #160 remains a non-blocking follow-up and Issue #152 remains completed.
+#### PR #151 — Weighted explicit Newton/L-BFGS GLM fits
+- Supported normalized analytic weights throughout supported explicit Newton/L-BFGS fits and M-estimation, including domain-aware inverse-Gamma fitting/CV and fitted family settings.
+- Preserved explicit solver/device requests and restored the previous successful state after failed ordinary explicit Newton/L-BFGS refits.
 
-### PR #147 / Issue #145 — Backend-native Gaussian residual bootstrap (targeted for 0.2.6)
-- Extended the existing unweighted Gaussian `residual_bootstrap` row from NumPy-only execution to the fit-recorded NumPy/CuPy/Torch backend and concrete device, with one deterministic backend-neutral residual-index schedule and fail-closed backend/device provenance checks.
-- Child refits preserve the fitted penalty family, tuning, intercept, solver/stopping, Lipschitz, and SCAD/MCP LLA controls while keeping child inference disabled. `PenalizedGLM_CV` continues to run bootstrap only once on the selected full-data final refit and reports conditioning on the CV-selected penalty without selection adjustment.
-- Weighted, robust/HC, HAC/block, non-Gaussian, and Cox bootstrap semantics remain fail-closed. Large design/response/residual/bootstrap-response arrays and child optimization stay on the recorded numerical backend/device; reporting remains a final NumPy boundary, with only small control/parameter snapshots allowed to cross it.
-- Added deterministic hosted coverage for NumPy preservation, L1/ElasticNet/SCAD/MCP, formula/public-wrapper consumers, exact-device child contexts, failure transactions, installer idempotence, and unsupported rows. `dev/benchmarks/validate_gaussian_residual_bootstrap_gpu.py` schema v1 is the frozen exact-source CuPy/Torch CUDA gate; physical CUDA acceptance remains required before PR #147 can be marked Ready or merged.
+### 2026-09-12
 
-### PR #142 — Penalized GLM inference contract repair (targeted for 0.2.6)
-- Reconciled generic and typed penalized-GLM inference around public `inference_method="auto"` while preserving specialized sparse-Gaussian wrapper defaults; successful fits now expose requested/resolved/reported method identity, inferential target, and fixed/CV-selected penalty conditioning.
-- Productized fixed-penalty M-estimation for supported smooth non-Gaussian L2/no-penalty models with nonrobust/HC0/HC1 covariance, and made non-Gaussian L1/ElasticNet coefficient inference fail closed instead of publishing the historical partial sandwich approximation.
-- Narrowed `bootstrap` to unweighted CPU Gaussian residual bootstrap with `cov_type="nonrobust"`, preserved the actual penalty family and tuning parameters during refits, required at least two resamples, and prohibited silent GPU/Torch-to-CPU resampling fallback.
-- Made fit-recorded NumPy/CuPy/Torch backend and concrete device authoritative for non-Gaussian M-estimation, including cross-container Torch↔CuPy input alignment through maintained device-aware conversion helpers. Repaired `newton_solver` analytic-weight support so genuine non-uniform weights use the same normalized weighted objective for value, gradient, Hessian, and Armijo trials; PR #142 no longer needs its temporary weighted FISTA override, and public `solver="auto"` again follows the canonical direct/CV/final-refit dispatch (including backend-native Newton for applicable smooth-L2 logistic/Poisson rows) while preserving the public `auto` request and historical floating uniform-weight `allclose` semantics.
-- Added `PenalizedGLM_CV` inference controls with final-refit-only inference; fold/path/grid candidate fits remain estimation-only, and successful CV inference reports `penalty_conditioning_="cv_selected_penalty"` with `penalty_selection_adjusted_=False`.
-- Added bilingual method/support documentation, formula/API/clone/failure regressions, fresh-review closure tests, and `dev/benchmarks/validate_penalized_glm_inference_gpu.py` schema v4. Exact clean numerical source `db448d718f523eacf97bcb3c419e376c9812362d` passed the Tesla P100 physical gate with CuPy 13.6.0, Torch 2.0.0+cu117, and NumPy 1.24.2: Logistic unweighted retained explicit FISTA coverage, Logistic weighted and Poisson weighted/unweighted used canonical `solver="auto"` → Newton, and all CuPy/Torch/Torch→CuPy/CuPy→Torch routes passed the unchanged coefficient/intercept (`2e-6`) and inference (`1e-5`) thresholds with concrete `cuda:0` provenance. The retained artifact is `results/pr142_penalized_glm_inference_gpu/pr142_penalized_glm_inference_gpu.json`. Subsequent changelog/evidence-only commits reuse this immutable numerical-source artifact by explicit approval; any numerical, validator, solver, backend, inference, or tolerance change reopens physical validation.
+#### PR #147 — Backend-native Gaussian residual bootstrap
+- Extended supported unweighted sparse Gaussian residual bootstrap to fit-recorded NumPy/CuPy/Torch backends with deterministic index schedules and penalty-preserving child fits; retained fixed-tuning and final-refit-only CV interpretation.
 
-## Unreleased — 2026-09-10
+### 2026-09-11
 
-### PR #139 — Node-wise Lasso inference tuning contract
-- Added public `nodewise_alpha=None` control for sparse-Gaussian debiased inference across `PenalizedGeneralizedLinearModel`, `PenalizedLinearRegression`, `Lasso`, `ElasticNet`, `LassoCV`, and `ElasticNetCV`; explicit finite positive real values are authoritative and CV uses the control only for final-refit inference.
-- Intentionally replaced the historical response-scale-dependent internal node-wise penalty. Omitted `nodewise_alpha` now uses a response-independent rule on the standardized centered/weighted working design, `sqrt(2 * log(max(p, 2)) / n_nodewise)`, with a Kish-style effective sample size for non-uniform analytic weights. No legacy public mode is added for the old response-dependent behavior.
-- Standardized node-wise precision construction across NumPy, CuPy, and Torch, including `D^{-1} Theta_Z D^{-1}` back-transformation, the paper-style node-wise normalizer, an independent full KKT publication gate, fail-closed finite/degenerate checks, and analytic `p=1` precision that does not consume a nuisance node-wise penalty.
-- Added fitted/provenance reporting for resolved node-wise tuning, request-specific cache provenance with numerical cache identity separated from the main-model tolerance, formula/CV/API regressions, deterministic migration simulation evidence, and an exact-source physical CUDA validator that requires both CuPy and Torch on the concrete CUDA device before final acceptance.
+#### PR #142 — Penalized GLM inference targets and support
+- Added explicit requested/resolved/reported inference identity and supported smooth non-Gaussian L2/no-penalty M-estimation with nonrobust/HC0/HC1 covariance.
+- Rejected unsupported non-Gaussian L1/ElasticNet coefficient inference; added final-refit-only CV inference without claiming selection adjustment.
 
-## Unreleased — 2026-09-08
+#### PR #141 — Contributor workflow procedures
+- Updated project review and validation procedures without changing the public numerical API.
 
-### PR #138 / Issue #137 — Post-selection OLS inference API cleanup
-- Added canonical hardware-neutral `inference_method="post_selection_ols"` for sparse Gaussian `Lasso`, `ElasticNet`, and the public generic `PenalizedGeneralizedLinearModel(loss="squared_error", penalty="l1" | "elasticnet")` surface. Legacy `cpu_ols` / `gpu_ols` are one-cycle `FutureWarning` aliases; `LassoCV` keeps `cpu_ols_inference` / `gpu_ols_inference` at its CV compatibility boundary.
-- Kept statistical method identity orthogonal to hardware: explicit `device="cpu"`, `"cuda"`, and `"torch"` remain authoritative for heterogeneous inputs; genuine AUTO may preserve native CuPy/Torch-CUDA input. LassoCV now uses one resolved backend for CV and selected-alpha final refit and preserves concrete CuPy device affinity.
-- `post_selection_ols` refits an unpenalized OLS/WLS model on the selected active design using the fit-recorded NumPy/CuPy/Torch backend while leaving penalized `coef_` unchanged for prediction. Rank-deficient active designs use effective rank for residual df and a design-level Moore-Penrose/SVD refit and bread; robust/HAC and empty-active no-intercept results preserve the requested covariance/reference family.
-- Separated post-selection refit diagnostics from penalized-fit R-squared/F/log-likelihood/AIC/BIC ownership, made summary DoF provenance explicit, preserved formula categorical/missing-row/weight alignment, and made rejected or post-fit-inference-failed refits fail closed instead of retaining stale result-bearing state.
-- Unified sparse-Gaussian analytic weights across direct NumPy/CuPy/Torch fits and weighted LassoCV: weighted centering occurs on original observations before the equivalent `sqrt(w * n / sum(w))` transform; default CV alpha grids, fold objectives, validation MSE, and final refits share the same convention. Positive constant weights are the exact unweighted CV problem, while weighted non-Gaussian sparse GLMs retain their loss-specific objectives.
-- Unified debiased inference around the same centered average-loss working problem across NumPy/CuPy/Torch, including all-one/global-weight-scale invariance. Intercept-inclusive simultaneous max-|Z| inference now includes the original-coordinate intercept influence in the bootstrap maximum, and successful refits clear stale simultaneous/precision state before publishing new inference.
-- String and public `Penalty`-object forms share the same migration/AUTO-routing contract; clone/get-params/set-params, caller-facing warning locations, formula routing, backend/device provenance, LassoCV final-refit ownership, and failure transactions are covered by maintained regressions.
-- Hosted validation covers Python 3.9/3.12, Torch 2.0 CPU, the full CPU suite, scikit-learn 1.2.2/1.3.2/current maintenance compatibility, static/ruff, documentation, release packaging, and benchmark-frontend contracts. `dev/benchmarks/validate_post_selection_ols_gpu.py` is now the final **schema-v7 22-case** physical CuPy/Torch CUDA gate. Earlier Tesla P100 artifacts remain historical evidence only for their exact validated SHAs; current-source physical acceptance remains pending an exact clean-head 22/22 rerun. Hosted checks do not substitute for it, and no GPU speedup claim is made.
+### 2026-09-10
 
-## Unreleased — 2026-09-06
+#### PR #139 — Node-wise Lasso inference tuning
+- Added keyword-only `nodewise_alpha` and replaced response-scale-dependent automatic tuning with a standardized design-side rule; existing debiased intervals and p-values can change.
+- Standardized precision construction and KKT checks across NumPy/CuPy/Torch while preserving prediction coefficients and final-refit-only inference tuning.
 
-### PR #135 — Penalized solver API cleanup
-- Made backend-neutral `solver` the authoritative direct-fit solver selector across the public penalized estimator family while deprecating legacy `cpu_solver` without remapping it into a different direct numerical path.
-- Added stage-specific `LassoCV.cv_solver` for CV folds/path and fitted `cv_solver_` for the algorithm that actually executed; `solver` remains the final full-data refit control, with legacy CPU alias and CUDA/Torch FISTA behavior preserved during the compatibility window.
-- Added sklearn 1.2.2/1.3.2/current clone/reconstruction warning regressions, caller-facing warning-location coverage, and bilingual migration/CV documentation that distinguishes behavior-preserving API migration from an intentional solver change.
+### 2026-09-09
 
-## Unreleased — 2026-08-28
+#### PR #138 — Post-selection OLS inference API
+- Added hardware-neutral `inference_method="post_selection_ols"`, retained warning aliases, preserved explicit device authority and separated active-set refit diagnostics from penalized predictions.
+- Unified sparse-Gaussian analytic weights, weighted LassoCV and debiased inference, including intercept-inclusive simultaneous inference and stale-state cleanup.
 
-### PR #129 / Issue #127 — Gaussian linear-model backend-native inference
-- Migrated maintained Gaussian linear-model covariance, standard-error, test-statistic, p-value, and confidence-interval numerical work to the executed NumPy/CuPy/Torch backend while preserving the established final NumPy reporting snapshot.
-- Routed normal/Student-t inference through the maintained reference-distribution layer, including stable df=1/df=2 extreme-tail handling, and made missing/invalid executed-backend provenance fail closed instead of silently falling back to NumPy.
-- Preserved Ridge/L2 average-loss semantics and the `n_eff * alpha` inference mapping, including weighted fits and `RidgeCV` final-refit inference; added public `LinearRegression`, formula, robust/weighted, rank-deficient, multi-target, float32, external statsmodels, and no-host-transfer regression coverage.
-- Added focused hosted CI and a maintained exact-SHA physical CUDA validator covering CuPy/Torch backend/device provenance, clean-tree checks, covariance/BSE/statistic/p-value/CI errors, weighted/rank/multi-target/small-df cases, and a `RidgeCV` final-refit case.
-- Validation remains intentionally incomplete: all hosted gates and the fresh complete-diff review are green on the reviewed implementation head, but final acceptance still requires exact clean-head CuPy/Torch CUDA validation on the final source SHA. PR #129 remains open/unmerged and #127 is not yet `COMPLETE`. No GPU speedup claim is made.
+### 2026-09-06
+
+#### PR #136, #135 — Contributor procedures and solver migration
+- Updated contributor tooling and made backend-neutral `solver` authoritative for direct penalized fits while deprecating `cpu_solver`.
+- Added `LassoCV.cv_solver` for CV selection and `cv_solver_` for the executed algorithm; retained `solver` for final refits and documented behavior-preserving migration.
+
+### 2026-08-31
+
+#### PR #129 — Gaussian backend-native inference
+- Moved Gaussian covariance, standard errors, statistics, p-values and confidence intervals to the executed NumPy/CuPy/Torch backend while retaining final NumPy reporting.
+- Preserved weighted, rank-deficient, multi-target and RidgeCV inference, strengthened small-df distribution tails and rejected missing backend provenance.
 
 ## 0.2.5 — 2026-08-26
 

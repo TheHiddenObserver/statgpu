@@ -341,8 +341,8 @@ def test_quantile_page_uses_chinese_explanatory_prose():
 
 def test_pr166_changelog_section_uses_chinese_explanatory_prose():
     text = _read("docs/cn/changelog.md")
-    start = text.index("## 未发布 — Quantile 求解器与推断更新（PR #166")
-    end = text.index("## 未发布 — Quantile 求解器来源对齐（PR #164", start)
+    start = text.index("### Quantile 求解器与推断更新（PR #166")
+    end = text.index("### Quantile 求解器来源对齐（PR #164", start)
     section = text[start:end]
     for fragment in _PR166_CHANGELOG_FRAGMENTS_TO_AVOID:
         assert fragment not in section, (
@@ -353,8 +353,8 @@ def test_pr166_changelog_section_uses_chinese_explanatory_prose():
 
 def test_pr164_changelog_section_uses_chinese_explanatory_prose():
     text = _read("docs/cn/changelog.md")
-    start = text.index("## 未发布 — Quantile 求解器来源对齐（PR #164")
-    end = text.index("## 未发布 — Quantile IRLS 惩罚契约修复（PR #162", start)
+    start = text.index("### Quantile 求解器来源对齐（PR #164")
+    end = text.index("### Quantile IRLS 惩罚契约修复（PR #162", start)
     section = text[start:end]
     for fragment in _PR164_CHANGELOG_FRAGMENTS_TO_AVOID:
         assert fragment not in section, (
@@ -365,7 +365,7 @@ def test_pr164_changelog_section_uses_chinese_explanatory_prose():
 
 def test_remaining_unreleased_changelog_sections_use_chinese_explanatory_prose():
     text = _read("docs/cn/changelog.md")
-    start = text.index("## 未发布 — Quantile IRLS 惩罚契约修复（PR #162")
+    start = text.index("### Quantile IRLS 惩罚契约修复（PR #162")
     end = text.index("## 0.2.5 — 2026-08-26（已发布）", start)
     section = text[start:end]
     for fragment in _UNRELEASED_CHANGELOG_FRAGMENTS_TO_AVOID:

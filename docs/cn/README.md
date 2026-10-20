@@ -1,8 +1,10 @@
 # StatGPU 文档
 
 > 语言：中文  
-> 最后更新：2026-10-13  
+> 最后更新：2026-10-20  
 > 切换：[English](../en/README.md)
+
+官方网站与在线文档：[statgpu.github.io](https://statgpu.github.io/)。
 
 ## 快速开始
 

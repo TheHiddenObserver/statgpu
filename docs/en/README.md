@@ -1,8 +1,10 @@
 # StatGPU Documentation
 
 > Language: English  
-> Last updated: 2026-10-13  
+> Last updated: 2026-10-20  
 > Switch: [Chinese](../cn/README.md)
+
+Website and online documentation: [statgpu.github.io](https://statgpu.github.io/).
 
 ## Getting Started
 

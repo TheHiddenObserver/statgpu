@@ -39,6 +39,7 @@ from dev.benchmarks import validate_pr151_inverse_gamma_domain_gpu_v4 as v4
 from statgpu.backends import _to_numpy
 from statgpu.linear_model import GammaRegression, GeneralizedLinearModel
 from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
+from statgpu.solvers._smooth_domain import _LossDomainError
 
 
 SCHEMA_VERSION = 5
@@ -575,10 +576,15 @@ def _domain_pinned_gate(cp, torch, device_id, torch_device):
                     ).fit(Xb, yb, sample_weight=wb)
                 except RuntimeError as exc:
                     text = str(exc)
-                    if not (
-                        "pinned to the maintained smooth-domain boundary" in text
-                        or "no positive interior line-search step" in text
-                    ):
+                    # Only the two certified Gamma boundary failures satisfy
+                    # this gate. An unrelated RuntimeError, another loss, or a
+                    # different domain failure must not count as fail-closed.
+                    if not isinstance(exc, _LossDomainError) or text not in {
+                        "loss='gamma' is pinned to the smooth-domain boundary "
+                        "before gradient convergence.",
+                        "loss='gamma' has no positive interior line-search step "
+                        "for the final search direction.",
+                    }:
                         raise AssertionError(
                             f"domain_pinned/{backend}/{solver}: wrong failure: {text}"
                         ) from exc
