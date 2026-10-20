@@ -1,10 +1,20 @@
-"""Static contract for the issue #150 physical CUDA validators."""
+"""Static and CPU-only control-flow contracts for the CUDA validators.
+
+Mocked backends below test validator decisions, not physical CUDA execution.
+"""
 
 from __future__ import annotations
 
 import importlib.util
 import json
 from pathlib import Path
+from contextlib import nullcontext
+from types import SimpleNamespace
+
+import numpy as np
+import pytest
+
+from statgpu.solvers._smooth_domain import _LossDomainError, _domain_max_step
 
 
 VALIDATOR = Path("dev/benchmarks/validate_glm_weighted_explicit_solvers_gpu.py")
@@ -140,8 +150,9 @@ def test_pr151_schema_v5_covers_review_found_numerical_edges():
     assert 'inference_method="auto"' in source
     assert '"m_estimation"' in source
     assert 'boundary surrogate' in source
-    assert '"pinned to the maintained smooth-domain boundary"' in source
-    assert '"no positive interior line-search step"' in source
+    assert "pinned to the smooth-domain boundary" in source
+    assert "no positive interior line-search step" in source
+    assert "isinstance(exc, _LossDomainError)" in source
     assert '"postfit_design_is_floating"' in source
     assert '"postfit_params_error_vs_coef"' in source
     assert '"loglikelihood"' in source
@@ -245,3 +256,81 @@ def test_pr151_schema_v7_corrects_only_the_overflow_fixture_scope():
     assert '"schema_v6_failure_disposition"' in source
     assert '"failed_float32_design_parity_is_not_pr151_acceptance_scope": True' in source
     assert "v6.run(" not in source
+
+
+# These are CPU-only test doubles. They exercise all gate routes without
+# claiming that CuPy or Torch CUDA actually ran.
+def _mock_domain_gate_backends():
+    cp = SimpleNamespace(asarray=np.asarray,
+                         cuda=SimpleNamespace(Device=lambda _: nullcontext()))
+    torch = SimpleNamespace(
+        float64=np.float64,
+        as_tensor=lambda x, **kwargs: np.asarray(x, dtype=kwargs["dtype"]),
+        cuda=SimpleNamespace(device=lambda _: nullcontext()),
+    )
+    return cp, torch
+
+
+def _actual_gamma_domain_failure(cap):
+    loss = SimpleNamespace(name="gamma", _loss_domain_max_step=lambda *a, **k: cap)
+    with pytest.raises(_LossDomainError) as caught:
+        _domain_max_step(loss, np.ones((8, 1)), np.ones(1), np.ones(1))
+    return caught.value
+
+
+@pytest.mark.parametrize("cap", [0.0, 1.0e-20])
+def test_domain_pinned_gate_accepts_actual_domain_max_step_failures(monkeypatch, cap):
+    module = _load_validator(VALIDATOR_V5, "pr151_validator_domain_gate")
+    failure = _actual_gamma_domain_failure(cap)
+    calls = []
+
+    class FailingGamma:
+        def __init__(self, **kwargs):
+            calls.append((kwargs["device"], kwargs["solver"]))
+
+        def fit(self, X, y, sample_weight):
+            raise failure
+
+    monkeypatch.setattr(module, "GammaRegression", FailingGamma)
+    result = module._domain_pinned_gate(*_mock_domain_gate_backends(), 0, "cuda:0")
+    assert calls == [(device, solver) for device in ("cuda", "torch")
+                     for solver in ("newton", "lbfgs")]
+    assert result == {backend: {solver: str(failure) for solver in module._SOLVERS}
+                      for backend in ("cupy", "torch")}
+
+
+@pytest.mark.parametrize("route", [(d, s) for d in ("cuda", "torch")
+                                   for s in ("newton", "lbfgs")])
+@pytest.mark.parametrize("wrong_failure", [
+    RuntimeError("loss='gamma' is pinned to the smooth-domain boundary "
+                 "before gradient convergence."),
+    _LossDomainError("loss='gamma' did not produce a numerically certified "
+                     "smooth-domain start."),
+    _LossDomainError("loss='poisson' is pinned to the smooth-domain boundary "
+                     "before gradient convergence."),
+    _LossDomainError("unexpected error: no positive interior line-search step"),
+    None,
+])
+def test_domain_pinned_gate_rejects_wrong_failure_or_success(monkeypatch, route,
+                                                           wrong_failure):
+    module = _load_validator(VALIDATOR_V5, "pr151_validator_domain_gate_negative")
+    expected = _actual_gamma_domain_failure(1.0e-20)
+
+    class StubGamma:
+        def __init__(self, **kwargs):
+            self.route = (kwargs["device"], kwargs["solver"])
+
+        def fit(self, X, y, sample_weight):
+            if self.route != route:
+                raise expected
+            if wrong_failure is not None:
+                raise wrong_failure
+            return self
+
+    monkeypatch.setattr(module, "GammaRegression", StubGamma)
+    match = "boundary surrogate" if wrong_failure is None else "wrong failure"
+    with pytest.raises(AssertionError, match=match) as caught:
+        module._domain_pinned_gate(*_mock_domain_gate_backends(), 0, "cuda:0")
+    backend = "cupy" if route[0] == "cuda" else "torch"
+    assert f"domain_pinned/{backend}/{route[1]}:" in str(caught.value)
+    assert caught.value.__cause__ is wrong_failure
