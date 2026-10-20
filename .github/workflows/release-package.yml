@@ -17,6 +17,7 @@ on:
       - ".github/workflows/publish.yml"
       - ".github/workflows/release-package.yml"
       - ".github/workflows/release-notes.yml"
+      - "dev/tests/test_release_numpy_wheel_contract.py"
   workflow_dispatch:
 
 permissions:
@@ -180,20 +181,41 @@ jobs:
           retention-days: 7
 
   smoke-install-wheel:
-    name: wheel smoke (${{ matrix.os }})
+    name: ${{ matrix.job-name }}
     needs: validate-distributions
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            numpy: default
+            python: "3.11"
+            job-name: wheel smoke (ubuntu-latest)
+          - os: windows-latest
+            numpy: default
+            python: "3.11"
+            job-name: wheel smoke (windows-latest)
+          - os: macos-latest
+            numpy: default
+            python: "3.11"
+            job-name: wheel smoke (macos-latest)
+          # Reuse the same universal wheel; this is not compiled-wheel ABI certification.
+          - os: ubuntu-latest
+            numpy: "1.26.4"
+            python: "3.9"
+            job-name: wheel smoke (ubuntu-latest, NumPy 1.26.4)
+          - os: ubuntu-latest
+            numpy: "2.0.2"
+            python: "3.9"
+            job-name: wheel smoke (ubuntu-latest, NumPy 2.0.2)
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python }}
 
       - name: Download validated distributions
         uses: actions/download-artifact@v4
@@ -208,11 +230,19 @@ jobs:
           import pathlib
           import subprocess
           import tempfile
-          import tomllib
+          import ast
           import venv
 
           root = pathlib.Path(os.environ["GITHUB_WORKSPACE"])
-          version = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+          # The build job checks this declaration against pyproject.toml.
+          # Use the stdlib AST here so the pinned Python 3.9 rows need no TOML extra.
+          init_tree = ast.parse((root / "statgpu" / "__init__.py").read_text(encoding="utf-8"))
+          version = next(
+              ast.literal_eval(node.value)
+              for node in init_tree.body
+              if isinstance(node, ast.Assign)
+              and any(isinstance(target, ast.Name) and target.id == "__version__" for target in node.targets)
+          )
           wheel = root / "dist" / f"statgpu-{version}-py3-none-any.whl"
           if not wheel.is_file():
               raise SystemExit(f"missing downloaded wheel: {wheel}")
@@ -229,20 +259,31 @@ jobs:
               [str(env_python), "-m", "pip", "install", "--upgrade", "pip"],
               check=True,
           )
-          subprocess.run(
-              [str(env_python), "-m", "pip", "install", str(wheel)],
-              check=True,
-          )
+          numpy_version = "${{ matrix.numpy }}"
+          install_args = [str(env_python), "-m", "pip", "install", str(wheel)]
+          if numpy_version != "default":
+              install_args.append(f"numpy=={numpy_version}")
+          subprocess.run(install_args, check=True)
+          subprocess.run([str(env_python), "-m", "pip", "check"], check=True)
 
           smoke_code = r'''
           import os
+          import pathlib
+          import sys
           import numpy as np
           import statgpu
-          from statgpu.linear_model import LinearRegression
+          from statgpu.linear_model import LinearRegression, Ridge
           from statgpu.survival import CoxPH, CoxPHCV
 
           expected = os.environ["EXPECTED_STATGPU_VERSION"]
           assert statgpu.__version__ == expected
+          package_dir = pathlib.Path(statgpu.__file__).resolve().parent
+          assert package_dir.is_relative_to(pathlib.Path(sys.prefix).resolve())
+          assert not any(path.suffix in {".so", ".pyd", ".dll", ".dylib"}
+                         for path in package_dir.rglob("*"))
+          expected_numpy = os.environ["EXPECTED_NUMPY_VERSION"]
+          if expected_numpy != "default":
+              assert np.__version__ == expected_numpy, (np.__version__, expected_numpy)
 
           X = np.array(
               [
@@ -261,13 +302,20 @@ jobs:
           prediction = np.asarray(model.predict(X))
           assert prediction.shape == y.shape
           assert np.isfinite(prediction).all()
+          np.testing.assert_allclose(prediction, y, rtol=1e-6, atol=1e-6)
+          ridge = Ridge(alpha=0.1, device="cpu")
+          ridge.fit(X, y)
+          ridge_prediction = np.asarray(ridge.predict(X))
+          assert ridge_prediction.shape == y.shape
+          assert np.isfinite(ridge_prediction).all()
           assert CoxPH is not None
           assert CoxPHCV is not None
-          print(statgpu.__version__)
+          print(statgpu.__version__, np.__version__)
           '''
 
           smoke_env = os.environ.copy()
           smoke_env["EXPECTED_STATGPU_VERSION"] = version
+          smoke_env["EXPECTED_NUMPY_VERSION"] = numpy_version
           subprocess.run(
               [str(env_python), "-c", smoke_code],
               cwd=temp_root,
