@@ -8,7 +8,7 @@
 
 GPU-accelerated statistical methods with an sklearn-style API.
 
-Website and online documentation: [statgpu.github.io](https://statgpu.github.io/).
+**[Website & Documentation](https://statgpu.github.io/) · [English](https://statgpu.github.io/en/README) · [中文文档](https://statgpu.github.io/cn/README)**
 
 ## Core Features
 
@@ -52,8 +52,8 @@ Knockoff 中文：[总览](docs/cn/models/feature-selection/knockoff.md) · [Fix
 
 ## Documentation
 
-- **English docs**: [docs/en/](docs/en) — full documentation index
-- **Chinese docs**: [docs/cn/](docs/cn) — 中文文档
+- **English docs**: [Online documentation](https://statgpu.github.io/en/README) · [Source](docs/en)
+- **Chinese docs**: [在线文档](https://statgpu.github.io/cn/README) · [源码](docs/cn)
 - **Quickstart**: [Quickstart](docs/en/getting-started/quickstart.md)
 - **Implemented methods**: [Method Inventory](docs/en/guides/implemented-methods.md)
 - **GLM + Penalty**: [Generalized Linear Model](docs/en/models/regression/generalized-linear-model.md)
