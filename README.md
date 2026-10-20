@@ -8,6 +8,8 @@
 
 GPU-accelerated statistical methods with an sklearn-style API.
 
+Website and online documentation: [statgpu.github.io](https://statgpu.github.io/).
+
 ## Core Features
 
 - 🚀 **Three backends**: NumPy (CPU), CuPy (CUDA), and PyTorch (CUDA), with automatic device selection
