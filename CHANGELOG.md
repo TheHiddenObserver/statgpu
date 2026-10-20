@@ -10,6 +10,10 @@ for 0.2.6. No separate 0.2.6 release is recorded. See the
 [English](docs/en/changelog.md) / [Chinese](docs/cn/changelog.md) changelogs for
 migration guidance, limitations and source-specific validation.
 
+### Official website
+
+- Launched the [official website](https://statgpu.github.io/), providing an online entry point to the English and Chinese documentation.
+
 ### 2026-10-19
 
 #### PR #249 — Numerical, resampling and scoring safeguards

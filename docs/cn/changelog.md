@@ -1,7 +1,7 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-10-19<br>
+> 最后更新：2026-10-20<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
@@ -11,6 +11,7 @@
 
 ### 主要变更与升级说明
 
+- **官方网站上线**：[statgpu.github.io](https://statgpu.github.io/) 提供中英文文档的在线入口。
 - Gaussian 线性模型推断及受支持的稀疏 Gaussian 残差自助法，现在在拟合使用的 NumPy、CuPy 或 Torch 后端执行数值计算。最终报告数组仍可能采用 NumPy；模型能够在 GPU 上拟合，并不表示所有推断方法都支持 GPU。
 - 惩罚模型直接拟合使用 `solver`，`LassoCV` 的交叉验证选择阶段使用 `cv_solver`。若希望保持直接拟合行为，删除已弃用的 `cpu_solver` 即可，不要机械地把其值复制给 `solver`，否则可能改用另一种算法。推断方法采用 `inference_method="post_selection_ols"` 替代已弃用的 `cpu_ols`/`gpu_ols`，硬件由 `device` 选择。参见[求解器迁移指南](guides/penalized-solver-api-migration.md)与[推断方法](guides/inference-modes.md)。
 - **推断结果变化**：自动逐节点 Lasso 调参改为由标准化设计决定，不再依赖响应尺度，因此已有去偏区间和 P 值可能改变。需要固定辅助惩罚时，以关键字传入正数 `nodewise_alpha`；它不用于选择预测模型的惩罚强度。

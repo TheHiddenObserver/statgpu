@@ -1,7 +1,7 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-10-19<br>
+> Last updated: 2026-10-20<br>
 > This page: Release history  
 > Switch: [Chinese](../cn/changelog.md)
 
@@ -16,6 +16,7 @@ provide the installation and upgrade overview.
 
 ### Highlights and upgrade guidance
 
+- **Official website launched:** [statgpu.github.io](https://statgpu.github.io/) provides an online entry point to the English and Chinese documentation.
 - Gaussian linear-model inference and supported sparse Gaussian residual bootstrap now perform numerical work on the fitted NumPy, CuPy, or Torch backend. Completed reporting arrays can still be NumPy arrays; GPU fitting does not imply every inference method supports GPU execution.
 - Use `solver` for direct penalized fits and `LassoCV.cv_solver` for CV selection. For behavior-preserving migration, remove a direct estimator's deprecated `cpu_solver` without copying its value into `solver`; doing so can select a different algorithm. Use `inference_method="post_selection_ols"` instead of deprecated `cpu_ols`/`gpu_ols`, and select hardware through `device`. See the [solver migration guide](guides/penalized-solver-api-migration.md) and [inference methods](guides/inference-modes.md).
 - **Changed inference results:** automatic node-wise Lasso tuning now depends on the standardized design rather than response scale. Existing debiased intervals and p-values can therefore change. Set keyword-only `nodewise_alpha` to a positive value when an explicit nuisance penalty is required; this does not select the prediction penalty.
