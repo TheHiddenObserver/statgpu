@@ -34,8 +34,16 @@ CASES = ('kde','kernel_regression_nw','kernel_regression_local_linear','kernel_r
 LEARNED = ('components_', 'cluster_centers_', 'embedding_', 'means_', 'dual_coef_',
            'labels_', 'coef_', 'covariances_', 'eigenvectors_')
 
+from dev.benchmarks.learning_execution_trace import NumericalTrace, TraceIncomplete, learning_stages
+
+TRACE_CASES = {c for c in CASES if c.startswith(('bandwidth', 'knockoff'))} | {'kde_bootstrap', 'kde_normal_ci'}
+
 class Blocked(RuntimeError):
     pass
+
+
+class UnsupportedCapability(Blocked):
+    """A production support boundary, distinct from missing observation."""
 
 
 def host(x):
@@ -49,20 +57,21 @@ def host(x):
 
 
 def source_identity():
-    paths = sorted((ROOT/'statgpu').rglob('*.py')) + [Path(__file__), ROOT/'dev/benchmarks/benchmark_release_refresh.py']
+    paths = sorted((ROOT/'statgpu').rglob('*.py')) + [Path(__file__), ROOT/'dev/benchmarks/benchmark_release_refresh.py', ROOT/'dev/benchmarks/learning_execution_trace.py']
     hashes = {str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
     def git(*a):
         return subprocess.check_output(['git',*a],cwd=ROOT,stderr=subprocess.DEVNULL).decode().strip()
     try:
         sha=git('rev-parse','HEAD');dirty=bool(git('status','--porcelain'))
-        tracked=subprocess.run(['git','ls-files','--error-unmatch',str(Path(__file__).relative_to(ROOT))],cwd=ROOT,capture_output=True).returncode==0
+        runner_paths=[Path(__file__),ROOT/'dev/benchmarks/benchmark_release_refresh.py',ROOT/'dev/benchmarks/learning_execution_trace.py']
+        tracked=subprocess.run(['git','ls-files','--error-unmatch',*[str(p.relative_to(ROOT)) for p in runner_paths]],cwd=ROOT,capture_output=True).returncode==0
     except (OSError,subprocess.CalledProcessError):
         sha=None;dirty=True;tracked=False
     return {'git_commit':sha,'working_tree':'dirty' if dirty or not tracked else 'clean',
             'runner_overlay':not tracked,'statgpu_version':statgpu.__version__,
             'source_content_sha256':hashlib.sha256(json.dumps(hashes,sort_keys=True).encode()).hexdigest(),
             'script_sha256':hashes[str(Path(__file__).relative_to(ROOT))],
-            'fingerprint_scope':'all statgpu Python files, this runner and imported release_refresh helper',
+            'fingerprint_scope':'all statgpu Python files, this runner and imported release_refresh/learning_execution_trace helpers',
             'import_path':str(Path(statgpu.__file__).resolve())}
 
 
@@ -242,10 +251,8 @@ def timed(fn,rt):
 
 def knockoff(case,rt,X,y,seed,q=.2):
     from statgpu.feature_selection import fixed_x_knockoff_filter,model_x_knockoff_filter
-    # Public result is host-only. No reliable internal device trace in this adapter.
-    if rt.name!='numpy':raise Blocked('Knockoff result is host-only; native-statistic trace needed before GPU timing')
     fn=fixed_x_knockoff_filter if case=='knockoff_fixed' else model_x_knockoff_filter
-    return fn(X,y,q=q,method='corr_diff',backend='numpy',random_state=seed)
+    return fn(rt.array(X),rt.array(y),q=q,method='corr_diff',backend=rt.name,random_state=seed)
 
 
 def validate_knockoff(result,truth):
@@ -265,6 +272,31 @@ def validate_knockoff(result,truth):
             'scope':'one seeded trial; empirical FDR calibration requires many independent seeds'}
 
 
+def traced_call(case, call, rt, traces):
+    if case not in TRACE_CASES:
+        return call()
+    if case == 'kde_bootstrap' and rt.name == 'torch':
+        # Preserve the production limitation, not a generic TypeError catch.
+        raise UnsupportedCapability('unsupported: Torch KDE bootstrap requires explicit replicate weights; weighted Torch KDE is not supported')
+    observer = NumericalTrace(rt, learning_stages(case, rt.name))
+    with observer:
+        result = call()
+    try:
+        traces.append(observer.report())
+    except TraceIncomplete as exc:
+        raise Blocked(str(exc)) from exc
+    return result
+
+
+def add_trace(row, traces):
+    if traces:
+        row['execution_trace'] = traces
+        row['performance_eligible'] = False
+        row['timing']['instrumentation'] = 'Includes stage profiler/native primitive observation overhead; diagnostic only'
+        row['timing']['transfer_policy'] = 'Public-call input conversion and internal host/device transfers included'
+    return row
+
+
 def helper_case(case,rt,n,seed,warmup,repeats):
     from statgpu import nonparametric as N
     from scipy.stats import gaussian_kde,norm
@@ -279,12 +311,10 @@ def helper_case(case,rt,n,seed,warmup,repeats):
             d=N.kernel_regression_predict(dx,dy,dq,bandwidth=.4,backend=rt.name)
             return a,b,c,d
         if case=='bandwidth_helpers':
-            if rt.name!='numpy':raise Blocked('bandwidth scalar output has no internal device trace; CPU adapter only')
-            kw={'n_eff':n,'n_features':1,'samples_2d':X,'weights_1d':np.ones(n)/n,'data_cov':np.array([[X.var(ddof=1)]]),'xp':np}
+            kw={'n_eff':n,'n_features':1,'samples_2d':dx,'weights_1d':rt.array(np.ones(n)/n),'data_cov':rt.array(np.array([[X.var(ddof=1)]])),'xp':rt.module}
             return N.select_bandwidth('scott',**kw),N.select_bandwidth_factor('scott',**kw)
         if case=='kde_normal_ci':
-            if rt.name!='numpy':raise Blocked('KDE normal CI public result is host-only; internal device trace needed')
-            return N.kde_confidence_interval(X,Q,bandwidth=.4,backend='numpy',method='normal')
+            return N.kde_confidence_interval(dx,dq,bandwidth=.4,backend=rt.name,method='normal')
         if case=='chi2_kernel':return N.chi2_kernel(rt.array(np.abs(X)+.1),rt.array(np.abs(Q)+.1),gamma=.5,xp=rt.module)
         return {name:N.pairwise_kernels(dx,dq,metric=name,xp=rt.module,**params) for name,params in [('linear',{}),('rbf',{'gamma':.5}),('polynomial',{'gamma':.5,'degree':3,'coef0':1.}),('laplacian',{'gamma':.5}),('cosine',{}),('sigmoid',{'gamma':.5,'coef0':1.})]}
     def check(value):
@@ -312,13 +342,15 @@ def helper_case(case,rt,n,seed,warmup,repeats):
                 if name=='polynomial':params.update(degree=3,coef0=1.)
                 if name=='sigmoid':params.update(coef0=1.)
                 assert_close(host(a),sk_kernels(X,Q,metric=name,**params))
-    values=[]
+    values=[];traces=[]
+    observed=lambda:traced_call(case,call,rt,traces)
     with rt.context():
-        check(call())
+        check(observed())
         for i in range(warmup+repeats):
-            result,t=timed(call,rt);check(result)
+            result,t=timed(observed,rt);check(result)
             if i>=warmup:values.append(t)
-    return {'case':case,'backend':rt.name,'status':'pass','performance_eligible':True,'problem':{'n':n,'p':1,'seed':seed,'dtype':'float64','data_id':hashlib.sha256(X.tobytes()+Q.tobytes()).hexdigest()},'correctness':{'status':'pass','strength':'external-or-analytic','reference':'SciPy Gaussian KDE/normal CI, analytic NW/Scott/chi2, sklearn pairwise kernels; matching helper operation'},'timing':{'scope':'combined public helper operations with input conversion','samples_seconds':values,'median_seconds':statistics.median(values),'warmup':warmup,'repeats':repeats,'synchronized_device':rt.device}}
+    row={'case':case,'backend':rt.name,'status':'pass','performance_eligible':True,'problem':{'n':n,'p':1,'seed':seed,'dtype':'float64','data_id':hashlib.sha256(X.tobytes()+Q.tobytes()).hexdigest()},'correctness':{'status':'pass','strength':'external-or-analytic','reference':'SciPy Gaussian KDE/normal CI, analytic NW/Scott/chi2, sklearn pairwise kernels; matching helper operation'},'timing':{'scope':'combined public helper operations with input conversion','samples_seconds':values,'median_seconds':statistics.median(values),'warmup':warmup,'repeats':repeats,'synchronized_device':rt.device}}
+    return add_trace(row,traces)
 
 
 def special_case(case,rt,n,seed,warmup,repeats):
@@ -330,13 +362,12 @@ def special_case(case,rt,n,seed,warmup,repeats):
     row={'case':case,'backend':rt.name,'status':'failed','problem':{'n':n,'p':1,'seed':seed,'dtype':'float64','data_id':hashlib.sha256(x.tobytes()+samples.tobytes()).hexdigest()}}
     def call():
         if case=='kde_bootstrap':
-            if rt.name!='numpy':raise Blocked('KDE bootstrap public output is host-only; requires internal GPU trace before timing')
-            return N.kde_bootstrap_confidence_interval(samples,points,bandwidth=.4,n_resamples=20,random_state=seed,return_bootstrap_samples=True,backend='numpy')
+            if rt.name=='torch':raise UnsupportedCapability('unsupported: Torch KDE bootstrap uses explicit replicate weights; current production weighted KDE raises TypeError (not a missing trace)')
+            return N.kde_bootstrap_confidence_interval(rt.array(samples),rt.array(points),bandwidth=.4,n_resamples=20,random_state=seed,return_bootstrap_samples=True,backend=rt.name)
         if case.startswith('bandwidth'):
-            if rt.name!='numpy':raise Blocked('Bandwidth selector mixes host optimization and backend kernels; no execution trace in this adapter')
-            method=case[len('bandwidth_'):]
-            if method=='cv':return N.KernelRegression(bandwidth='cv',device='cpu').fit(samples,np.sin(samples[:,0]))
-            return N.KernelDensityEstimator(bandwidth=method,device='cpu').fit(samples)
+            method=case[len('bandwidth_'):];device={'numpy':'cpu','cupy':'cuda','torch':'torch'}[rt.name]
+            if method=='cv':return N.KernelRegression(bandwidth='cv',device=device).fit(rt.array(samples),rt.array(np.sin(samples[:,0])))
+            return N.KernelDensityEstimator(bandwidth=method,device=device).fit(rt.array(samples))
         dx=rt.array(x);dk=rt.array(knots)
         fn={'bspline_basis':N.bspline_basis,'natural_spline':N.natural_cubic_spline_basis,'cyclic_spline':N.cyclic_cubic_spline_basis,'thin_plate_spline':N.thin_plate_spline_basis}[case]
         return fn(dx,dk,xp=rt.module)
@@ -359,9 +390,9 @@ def special_case(case,rt,n,seed,warmup,repeats):
                 expected=(1.06 if method=='nrd' else .9)*scale*n**(-.2)/std
                 assert_close(factor,expected,atol=2e-6)
             else:strength='selector-diagnostic-no-optimality-certification'
-            if method!='cv':assert_close(value.predict(points),gaussian_kde(samples.T,bw_method=factor)(points))
+            if method!='cv':assert_close(host(value.predict(rt.array(points))),gaussian_kde(samples.T,bw_method=factor)(points))
             else:
-                pred=host(value.predict(samples));
+                pred=host(value.predict(rt.array(samples)));
                 if not np.isfinite(pred).all():raise AssertionError('invalid CV smoother predictions')
             metrics={'selected_factor':factor};ref='Scott/Silverman/NRD analytic rule where applicable; density at selected factor vs SciPy; other selector optimization not independently certified'
         else:
@@ -383,16 +414,25 @@ def special_case(case,rt,n,seed,warmup,repeats):
                     if error>2e-3:raise AssertionError(f'{case} boundary constraint violation: max error {error:.6g}; no timing eligible')
                     ref='SciPy reconstructed spline boundary derivatives; unit interval only'
         return {'status':'pass','reference':ref,'strength':strength,'metrics':metrics}
+    traces=[];observed=lambda:traced_call(case,call,rt,traces)
     with rt.context():
-        value=call();correct=check(value);values=[]
+        value=observed();correct=check(value);values=[]
         for i in range(warmup+repeats):
-            value,t=timed(call,rt);correct=check(value)
+            value,t=timed(observed,rt);correct=check(value)
             if i>=warmup:values.append(t)
     row.update(status='pass',performance_eligible=correct['strength']=='external-or-analytic',correctness=correct,timing={'scope':'selection+fit' if case.startswith('bandwidth') else 'public-operation','samples_seconds':values,'median_seconds':statistics.median(values),'warmup':warmup,'repeats':repeats,'synchronized_device':rt.device,'transfer_policy':'specialized basis input conversion included; CPU bootstrap/selector public workflow included'})
-    return row
+    return add_trace(row,traces)
 
 
 def classify_placement(row,rt):
+    if row.get('execution_trace') and row.get('status')=='pass':
+        row['performance_eligible']=False
+        row['execution_qualification']={
+            'array_device':rt.device,
+            'compute_placement':'host-scalar' if row['case']=='bandwidth_helpers' else ('host' if rt.name=='numpy' else 'mixed-host-and-observed-native-arithmetic'),
+            'evidence':'Per-invocation source-identified numerical stages and native arithmetic observations; not full GPU residency',
+            'timing_use':'Instrumented diagnostic public-call duration only, not canonical speedup evidence'}
+        return row
     if rt.name!='numpy' and row.get('status')=='pass':
         row['performance_eligible']=False
         row['execution_qualification']={
@@ -418,12 +458,13 @@ def run_case(case,rt,n,p,seed,warmup,repeats):
         X=np.random.default_rng(seed).normal(size=(n,p));truth=np.arange(max(1,min(6,p//3)));y=X[:,truth].sum(axis=1)*3+np.random.default_rng(seed+1).normal(size=n)
         row['problem']['true_signals']=truth.tolist();row['problem']['q']=.2;row['problem']['positive_statistics_needed_for_knockoff_plus']=5
         row['problem']['data_id']=hashlib.sha256(X.tobytes()+y.tobytes()).hexdigest()
-        vals=[]
-        for i in range(warmup+repeats):
-            result,t=timed(lambda:knockoff(case,rt,X,y,seed),rt);check=validate_knockoff(result,truth)
+        vals=[];traces=[]
+        with rt.context():
+          for i in range(warmup+repeats):
+            result,t=timed(lambda:traced_call(case,lambda:knockoff(case,rt,X,y,seed),rt,traces),rt);check=validate_knockoff(result,truth)
             if i>=warmup:vals.append(t)
-        row.update(status='pass',performance_eligible=False,correctness=check,timing={'scope':'construction+statistics+selection','samples_seconds':vals,'median_seconds':statistics.median(vals),'warmup':warmup,'repeats':repeats,'synchronized_device':'cpu'})
-        return classify_placement(row,rt)
+        row.update(status='pass',performance_eligible=False,correctness=check,timing={'scope':'construction+statistics+selection','samples_seconds':vals,'median_seconds':statistics.median(vals),'warmup':warmup,'repeats':repeats,'synchronized_device':rt.device})
+        return classify_placement(add_trace(row,traces),rt)
     device={'numpy':'cpu','cupy':'cuda','torch':'torch'}[rt.name]
     with rt.context():
         dx,dy=rt.array(X),rt.array(y)
@@ -481,6 +522,7 @@ def main(argv=None):
                     row['performance_eligible']=False
                     row.pop('timing',None)
                     row['status']='blocked';row['reason']='Convergence warning: '+str(convergence[0].message)
+            except UnsupportedCapability as e:row={'case':case,'backend':backend,'seed':trial_seed,'status':'blocked','blocked_kind':'unsupported-capability','reason':str(e)}
             except Blocked as e:row={'case':case,'backend':backend,'seed':trial_seed,'status':'blocked','reason':str(e)}
             except ImportError as e:row={'case':case,'backend':backend,'seed':trial_seed,'status':'skipped','reason':str(e)}
             except Exception as e:row={'case':case,'backend':backend,'seed':trial_seed,'status':'failed','reason':f'{type(e).__name__}: {e}'}

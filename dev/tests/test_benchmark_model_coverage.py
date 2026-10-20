@@ -99,3 +99,63 @@ def test_profile_only_observes_preflight(monkeypatch):
     assert len(count)==1
     assert len(row['timing']['raw_seconds'])==3
     assert 'unprofiled' in row['timing']['instrumentation']
+
+
+GLM_INFERENCE_REPAIR_CASES = [
+    f'glm_inference:{family}:{cov}'
+    for family in ('inverse_gaussian', 'negative_binomial')
+    for cov in ('hc0', 'nonrobust')
+]
+
+
+@pytest.mark.parametrize('case', GLM_INFERENCE_REPAIR_CASES)
+def test_glm_covariance_oracle_realigns_reporting_params_real_torch_cpu(case, monkeypatch):
+    """Real tensor arithmetic exercises the mixed-state bug without claiming CUDA."""
+    torch = pytest.importorskip('torch')
+    from statgpu.backends import TorchBackend
+    from statgpu.inference import _sandwich
+
+    factory, args, fitkw, target, contract, inference = b.make_case(case, 96, 4, 42, 'numpy')
+    model = factory()
+    # Public device='torch' means CUDA. This is an explicit test-only Torch CPU
+    # backend injection, not an availability fallback in production or a runner.
+    monkeypatch.setattr(model, '_get_backend', lambda **kwargs: TorchBackend(device='cpu'))
+    model.fit(*(torch.as_tensor(value) for value in args), **fitkw)
+    assert isinstance(model._params, np.ndarray)
+    assert isinstance(model._X_design, torch.Tensor)
+    assert model._X_design.device.type == 'cpu'
+    reporting_params = model._params
+    saved_params = reporting_params.copy()
+    original = _sandwich.m_estimation_inference
+    observed = []
+
+    def check_native(loss, X, y, coef, **kwargs):
+        assert isinstance(coef, torch.Tensor)
+        assert coef.device == X.device
+        assert coef.dtype == X.dtype
+        observed.append(coef)
+        return original(loss, X, y, coef, **kwargs)
+
+    monkeypatch.setattr(_sandwich, 'm_estimation_inference', check_native)
+    metrics = b.check_fit(model, target, contract, inference)
+    assert observed and 'covariance_max_abs_error' in metrics
+    assert model._params is reporting_params
+    np.testing.assert_array_equal(model._params, saved_params)
+    # A device conversion fix must not weaken the independent covariance gate.
+    corrupted = dict(inference, covariance=inference['covariance'] + 1.)
+    with pytest.raises(AssertionError, match='full GLM covariance oracle mismatch'):
+        b.check_fit(model, target, contract, corrupted)
+
+
+@pytest.mark.parametrize('backend', ['cupy', 'torch'])
+@pytest.mark.parametrize('case', GLM_INFERENCE_REPAIR_CASES)
+def test_glm_inference_benchmark_on_physical_gpu_when_available(backend, case):
+    try:
+        runtime = b.Runtime(backend, 0)
+    except b.BackendUnavailable as exc:
+        pytest.skip(str(exc))
+    row = b.run_case(case, runtime, 96, 4, 42, 0, 1)
+    assert row['status'] == 'passed', row
+    assert row['correctness']['status'] == 'pass'
+    assert 'covariance_max_abs_error' in row['correctness']['metrics']
+    assert row['timing']['synchronized_device'] == 'cuda:0'

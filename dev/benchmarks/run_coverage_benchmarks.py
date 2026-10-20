@@ -92,7 +92,10 @@ def fingerprint(manifest):
     paths = [Path(manifest).resolve(), Path(__file__).resolve()]
     paths += sorted((ROOT/'statgpu').rglob('*.py'))
     paths += [Path(__file__).with_name(name+'.py') for name in sorted(REVIEWED_RUNNERS)]
-    paths += [Path(__file__).with_name(name) for name in ('benchmark_cv_models.py', 'cv_external.py', 'cv_source.py', 'cv_source_schema.json')]
+    paths += [Path(__file__).with_name(name) for name in (
+        'benchmark_cv_models.py', 'cv_external.py', 'cv_source.py',
+        'cv_source_schema.json', 'learning_execution_trace.py',
+    )]
     hashes = {str(p.relative_to(ROOT)) if p.is_relative_to(ROOT) else str(p):
               hashlib.sha256(p.read_bytes()).hexdigest() for p in paths if p.is_file()}
     try:

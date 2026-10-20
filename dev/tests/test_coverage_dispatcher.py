@@ -83,3 +83,23 @@ def test_nonzero_partial_cannot_be_laundered(tmp_path):
     out=tmp_path/'partial.json'
     result=m.launch([sys.executable,'-c',f'import pathlib;pathlib.Path({str(out)!r}).write_text(\'{{"status":"partial"}}\');raise SystemExit(3)'],out,10,tmp_path/'partial.log')
     assert result['status']=='failed'
+
+
+def test_trace_helper_changes_dispatcher_source_fingerprint(tmp_path, monkeypatch):
+    scripts = tmp_path / 'dev' / 'benchmarks'
+    scripts.mkdir(parents=True)
+    dispatcher = scripts / 'run_coverage_benchmarks.py'
+    dispatcher.write_text('# test dispatcher\n')
+    helper = scripts / 'learning_execution_trace.py'
+    helper.write_text('# original observer\n')
+    manifest = scripts / 'manifest.json'
+    manifest.write_text('{}')
+    monkeypatch.setattr(m, 'ROOT', tmp_path)
+    monkeypatch.setattr(m, '__file__', str(dispatcher))
+    before = m.fingerprint(manifest)
+    key = 'dev/benchmarks/learning_execution_trace.py'
+    assert key in before['files_sha256']
+    helper.write_text('# changed observer contract\n')
+    after = m.fingerprint(manifest)
+    assert before['files_sha256'][key] != after['files_sha256'][key]
+    assert before['content_sha256'] != after['content_sha256']

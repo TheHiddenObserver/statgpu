@@ -250,7 +250,7 @@
         "All7GLM families have nonrobust/HC0 fixtures, but full covariance/weights/link/solver matrix not certified",
         "Physical CUDA unrun; direct fit and selected inference only, fullCV matrix separate"
       ],
-      "invocation_validation": "Fresh unreleased repair candidate: 74 CPU smoke cases passed; physical GPU remains unrun.",
+      "invocation_validation": "74 CPU smoke cases passed; GLM full-covariance oracle adapter realigns host reporting parameters to native inference design. Four real Torch CPU regressions passed; eight physical GPU benchmark cases require rerun after the 9a6145d P100 failure.",
       "case_ids": [
         "glm:gaussian",
         "glm:binomial",
@@ -329,7 +329,7 @@
       ],
       "case_registry_validation": "imported runner registry, not inferred from title",
       "case_selection_flag": "--cases",
-      "script_sha256": "ac43d4b29e308756762b183d51ff73774defb64fac9d85e5bd0f618cdc7f89e2",
+      "script_sha256": "f6ed53cc4a258a06bbdc7a43036f2c4a6107bf6aab53a73cafca78a6d3d9ff07",
       "historical_v2_failures": [
         {
           "case": "glm_inference:inverse_gaussian:hc0",
@@ -348,7 +348,8 @@
       ],
       "local_repair": "Observed-Hessian HC bread corrected in unreleased working tree; solver/nonrobust Fisher preserved.",
       "historical_v2_execution_status": "CPU72pass2reference_alignment_failures",
-      "historical_v2_invocation_validation": "CLIverified; worker actual74CPUcases72pass2referencefail; failures not suppressed; independent review required before performance claims"
+      "historical_v2_invocation_validation": "CLIverified; worker actual74CPUcases72pass2referencefail; failures not suppressed; independent review required before performance claims",
+      "physical_repair_note": "dev/plans/glm_benchmark_native_params_repair.md"
     },
     {
       "id": "statistical-families",
@@ -768,12 +769,12 @@
         "statgpu source checkout"
       ],
       "evidence_gaps": [
-        "cyclic_spline known#216 periodic-boundary defect; umap_nndescent known#191 NumPy2 backend dispatch defect",
-        "Physical CUDA unrun; unsupported provenance routes explicitly blocked, not CPU fallback",
-        "Stochastic manifold/NMF/selection checks include weaker diagnostic invariants, not blanket external numerical certification",
-        "Multiple seed selection summaries are measurements, not FDR guarantee"
+        "Physical CuPy/Torch CUDA observer integration remains unrun locally; required GPU tests must execute on acceptance host.",
+        "Torch KDE bootstrap remains explicitly unsupported because production resampling requires weighted fitting.",
+        "Targeted bandwidth/knockoff/KDE paths observe selected native numerical operations and explicit host stages, not whole-algorithm GPU residency; instrumented timings remain performance-ineligible.",
+        "Other learning GPU rows retain ownership-only evidence; weak numerical oracles remain diagnostic and selection summaries do not certify FDR."
       ],
-      "invocation_validation": "Fresh unreleased repair candidate: 44 CPU smoke cases passed; physical GPU remains unrun.",
+      "invocation_validation": "44-case CPU smoke previously passed; targeted execution-trace repair locally tested. Physical GPU execution remains pending for the changed observer contract.",
       "case_ids": [
         "kde",
         "kernel_regression_nw",
@@ -822,9 +823,14 @@
       ],
       "case_registry_validation": "imported runner registry, not inferred from title",
       "case_selection_flag": "--cases",
-      "script_sha256": "b4348e98fc55b45e954c95b198f058e7d4146c0152c8d8fb7a1aad8ad6c793b4",
+      "script_sha256": "63d47355d77d085d9275a12caddb0ee193dd418929683f0246fd79a1f9628c3b",
       "historical_v2_execution_status": "CPU42pass2known_defect_blocked",
-      "historical_v2_invocation_validation": "CLIverified; worker44CPUcases42pass2knownblockeddefects#191#216;61contracttests pass"
+      "historical_v2_invocation_validation": "CLIverified; worker44CPUcases42pass2knownblockeddefects#191#216;61contracttests pass",
+      "source_dependencies_sha256": {
+        "dev/benchmarks/learning_execution_trace.py": "5286e82cffc054dc7dda951b07bea8d9ca7866a9527639a20d08767d5d6b2172",
+        "dev/benchmarks/benchmark_release_refresh.py": "41064ccf3620b1b3e3fa281ea0e25974ef3fa3c23c5d5d9e006a5fe470be41fd"
+      },
+      "execution_evidence_contract": "dev/plans/learning_device_trace_repair.md"
     },
     {
       "id": "workflow-families",

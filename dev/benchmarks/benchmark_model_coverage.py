@@ -305,9 +305,20 @@ def check_fit(model,target,contract,inference):
         if 'covariance' in inference:
             # GLM publishes marginal arrays; verify the full covariance returned
             # by its inference engine separately, outside the measured region.
+            # ParameterInferenceResult.apply_to stores reporting parameters on
+            # the host, while the retained inference design stays native.
+            # Re-align this extra oracle call without mutating fitted state.
             from statgpu.inference._sandwich import m_estimation_inference
-            actual_cov=m_estimation_inference(model._loss,model._X_design,model._y_inf,model._params,cov_type=model._cov_type,
+            from statgpu.backends import _resolve_backend, _to_numpy
+            from statgpu.backends._utils import _get_xp, xp_asarray
+            xp = _get_xp(_resolve_backend('auto', model._X_design))
+            params_native = xp_asarray(
+                model._params, dtype=model._X_design.dtype,
+                xp=xp, ref_arr=model._X_design,
+            )
+            actual_cov=m_estimation_inference(model._loss,model._X_design,model._y_inf,params_native,cov_type=model._cov_type,
                 penalty_curvature_diag=model._fit_metadata.get('penalty_curvature_diag'),sample_weight=model._sample_weight_inf)['cov_params']
+            actual_cov = np.asarray(_to_numpy(actual_cov))
             if not np.allclose(actual_cov,inference['covariance'],atol=1e-6,rtol=2e-5):raise AssertionError('full GLM covariance oracle mismatch')
             metrics['covariance_max_abs_error']=float(np.max(np.abs(actual_cov-inference['covariance'])))
 
