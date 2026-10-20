@@ -189,6 +189,8 @@ or L-BFGS; weights alone do not select the solver.
 
 Coefficient inference quantifies estimation uncertainty; it answers a different question from held-out predictive evaluation. For ordinary GLMs, enable supported coefficient inference with `compute_inference=True` and choose `nonrobust`, `hc0`, or `hc1` through `cov_type`. Ordinary inference uses the same fitted analytic-weight convention as estimation; weight support still depends on the chosen inference method. The CPU example shows how to read HC1 coefficient intervals.
 
+In the unreleased source, inverse-Gaussian and negative-binomial HC0/HC1 use observed loss-Hessian bread; published 0.3.0 instead uses Fisher bread on these routes. Solver curvature and nonrobust covariance are unchanged. See the [sandwich conventions and release boundary](../../guides/penalized-glm-inference.md) before comparing standard errors across versions.
+
 ### Penalized-model inference
 
 Generic and typed penalized GLM estimators use `inference_method="auto"` as the recommended public request. Supported M-estimation, debiased and residual-bootstrap results report the procedure, target and tuning/selection conditions. The current `post_selection_ols` path can leave `inference_method_` and `inference_target_` unset despite returning inference; read `_inference_result.method` and its metadata as described in [post-selection reporting](../../guides/inference-modes.md#post_selection_ols).

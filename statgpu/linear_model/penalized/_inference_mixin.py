@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 
 class _OracleObservedHessianLoss:
-    """Use observed score derivatives for CPU oracle sandwich covariance.
+    """Compatibility shim for the canonical observed-curvature loss API.
 
     Inverse Gaussian and negative binomial solvers use Fisher curvature in
     ``hessian``. Their HC0/HC1 bread instead needs the observed derivative of
@@ -33,18 +33,9 @@ class _OracleObservedHessianLoss:
         return getattr(self._loss, name)
 
     def hessian(self, X, y, coef, sample_weight=None):
-        mu = self._loss._mu_from_eta(X @ coef)
-        if self._loss.name == "inverse_gaussian":
-            curvature = (2.0 * y - mu) / mu ** 2
-        elif self._loss.name == "negative_binomial":
-            alpha = self._loss.alpha
-            curvature = mu * (1.0 + alpha * y) / (1.0 + alpha * mu) ** 2
-        else:
-            return self._loss.hessian(X, y, coef, sample_weight=sample_weight)
-        if sample_weight is not None:
-            curvature = curvature * sample_weight
-        n_eff = float(sample_weight.sum()) if sample_weight is not None else X.shape[0]
-        return X.T @ (X * curvature[:, None]) / n_eff
+        return self._loss.observed_hessian(X, y, coef, sample_weight=sample_weight)
+
+    observed_hessian = hessian
 
 
 def _oracle_observed_curvature(loss, X, y, params):
@@ -1850,9 +1841,6 @@ class _PenalizedInferenceMixin:
             # Use the parent's resolved loss, so the estimating equation and
             # covariance necessarily share its family/link/dispersion/power.
             inference_loss = self._loss
-            if (self._cov_type in ("hc0", "hc1")
-                    and self.loss in ("inverse_gaussian", "negative_binomial")):
-                inference_loss = _OracleObservedHessianLoss(inference_loss)
             covariance_weight = sw_cpu
             if self._cov_type in ("hc0", "hc1") and sw_cpu is not None:
                 # Sandwich covariance is invariant to a common weight scale.

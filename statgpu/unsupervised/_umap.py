@@ -44,8 +44,7 @@ class UMAP(BaseEstimator):
     - Very large distances can make exact search select self-neighbors that
       are later removed. After centering, divide all features by one common
       positive training-derived scale to obtain moderate coordinates.
-    - NumPy 2 CPU NNDescent and CPU one-dimensional layouts currently fail;
-      NumPy 2 CPU negative sampling can also use Torch CPU when installed.
+    - CPU one-dimensional layouts currently fail.
     - Force updates approximate a layout, not the exact reference gradient.
     - Graph edge construction may transfer indices/weights through host memory.
     - Transform of new data is not yet supported.
@@ -139,12 +138,13 @@ class UMAP(BaseEstimator):
             # Approximate NN via NNDescent (O(n log n) vs O(n²))
             from statgpu.unsupervised._nndescent import nndescent_torch, nndescent_cupy, nndescent_numpy
             seed = int(self._fit_random_seed_)
-            if hasattr(X, 'device') and not hasattr(X, 'get'):  # torch
+            # NumPy 2 arrays also expose .device; use the resolved backend.
+            if backend.name == "torch":
                 neighbor_indices, neighbor_distances_sq = nndescent_torch(
                     X, k=k, max_iter=10, seed=seed
                 )
                 neighbor_distances = backend.sqrt(backend.maximum(neighbor_distances_sq, 0.0))
-            elif hasattr(X, 'get'):  # cupy
+            elif backend.name == "cupy":  # cupy
                 neighbor_indices, neighbor_distances_sq = nndescent_cupy(
                     X, k=k, max_iter=10, seed=seed
                 )
@@ -336,14 +336,10 @@ class UMAP(BaseEstimator):
         # Create RNG once before epoch loop (not re-seeded per epoch)
         rs = int(self._fit_random_seed_)
         rng = np.random.RandomState(rs)
-        if hasattr(Y, 'device') and not hasattr(Y, 'get'):  # torch
-            try:
-                import torch
-                torch_gen = torch.Generator(device=Y.device).manual_seed(int(rs))
-                _use_torch_gen = True
-            except ImportError:
-                _use_torch_gen = False
-        elif hasattr(Y, 'get'):  # cupy
+        if backend.name == "torch":  # torch
+            import torch
+            torch_gen = torch.Generator(device=Y.device).manual_seed(rs)
+        elif backend.name == "cupy":  # cupy
             import cupy as cp
             cp_rng = cp.random.RandomState(int(rs))
 
@@ -364,16 +360,12 @@ class UMAP(BaseEstimator):
 
             # === Repulsive forces (negative sampling) ===
             # Use backend-native RNG (created once before loop, not re-seeded)
-            if hasattr(Y, 'device') and not hasattr(Y, 'get'):  # torch
-                if _use_torch_gen:
-                    neg_src = torch.randint(0, n_samples, (n_samples * neg_rate,),
-                                            generator=torch_gen, device=Y.device, dtype=torch.int64)
-                    neg_dst = torch.randint(0, n_samples, (n_samples * neg_rate,),
-                                            generator=torch_gen, device=Y.device, dtype=torch.int64)
-                else:
-                    neg_src = backend.asarray(rng.randint(0, n_samples, size=n_samples * neg_rate), dtype=backend.int64)
-                    neg_dst = backend.asarray(rng.randint(0, n_samples, size=n_samples * neg_rate), dtype=backend.int64)
-            elif hasattr(Y, 'get'):  # cupy
+            if backend.name == "torch":  # torch
+                neg_src = torch.randint(0, n_samples, (n_samples * neg_rate,),
+                                        generator=torch_gen, device=Y.device, dtype=torch.int64)
+                neg_dst = torch.randint(0, n_samples, (n_samples * neg_rate,),
+                                        generator=torch_gen, device=Y.device, dtype=torch.int64)
+            elif backend.name == "cupy":  # cupy
                 neg_src = cp_rng.randint(0, n_samples, (n_samples * neg_rate,), dtype=cp.int64)
                 neg_dst = cp_rng.randint(0, n_samples, (n_samples * neg_rate,), dtype=cp.int64)
             else:  # numpy

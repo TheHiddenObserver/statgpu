@@ -64,13 +64,13 @@ print(embedding.shape, model.n_epochs_)
 - `n_components` 控制输出维数；CPU 上至少使用二维。`metric` 当前只支持欧氏距离。
 - `init="random"` 配合 `random_state` 可按种子初始化；谱初始化存在下文所述限制。
 - `n_epochs` 与 `learning_rate` 控制优化；`negative_sample_rate` 与 `repulsion_strength` 控制抽样排斥。数值参数应全部有限。
-- `nn_method="auto"` 使用精确搜索。`nn_method="nndescent"` 请求内置的 NNDescent 近似近邻搜索，但 NumPy 2 的 CPU 路径当前会失败。`device` 选择数值后端；GPU 拟合仍需要主机内存。
+- `nn_method="auto"` 使用精确搜索。`nn_method="nndescent"` 请求内置的 NNDescent 近似近邻搜索，未发布源码在 CPU 上使用 NumPy，包括 NumPy 2。`device` 选择数值后端；GPU 拟合仍需要主机内存。
 
 全部构造默认值和近似搜索控制参数见 [API 参考](api-reference.md#umap)。
 
 ## 后端与主机边界
 
-距离计算、图权重和嵌入数组使用所选的 NumPy、CuPy 或 Torch 后端。在 NumPy 2 上，数组分派存在限制：安装了 Torch 时，CPU 负采样还可能经由 Torch CPU 执行。模糊并集图使用主机端 SciPy 组装。GPU 拟合会在主机内存与所选后端之间传输 O(n*k) 的边索引和权重。谱初始化和吸引曲线拟合也使用主机端 SciPy，因此 GPU 拟合仍需要 CPU 运算和主机内存。精确近邻还需要 O(n²) 的稠密距离矩阵内存；近似路径可用时，`nn_method='nndescent'` 能避开这个矩阵，但在 NumPy 2 的 CPU 路径上当前会失败。
+距离计算、图权重和嵌入数组使用所选的 NumPy、CuPy 或 Torch 后端。未发布源码的近邻搜索和负采样遵循已解析的后端，NumPy CPU 路径不依赖 Torch。模糊并集图使用主机端 SciPy 组装。GPU 拟合会在主机内存与所选后端之间传输 O(n*k) 的边索引和权重。谱初始化和吸引曲线拟合也使用主机端 SciPy，因此 GPU 拟合仍需要 CPU 运算和主机内存。精确近邻还需要 O(n²) 的稠密距离矩阵内存；`nn_method='nndescent'` 能避开这个矩阵。
 
 ## 近似与解释边界
 
@@ -89,7 +89,7 @@ print(embedding.shape, model.n_epochs_)
 
 ## 当前限制
 
-- `nn_method="auto"` 始终选择精确搜索。NumPy 2 上的 CPU `nn_method="nndescent"` 当前会失败，应改用精确搜索。
+- `nn_method="auto"` 始终选择精确搜索。已发布的 0.3.0 存在 NumPy 2 CPU NNDescent 分派故障，CPU 负采样也可能经由 Torch 执行。该版本应改用精确搜索；未发布源码已修复这两处后端分派。
 - CPU `n_components=1` 当前会在力累积时失败，请至少使用两个维度。
 - 稀疏 `init="spectral"` 路径可能保留常量图特征向量，而漏掉一个所需的有效方向。特征求解器的起始向量不受 `random_state` 控制；需要按种子初始化时，应使用 `init="random"`。
 - 很大的共同特征偏移可能在转为 float32 或计算展开距离时丢失细小间距。应先以 float64 中心化，再拟合；输出有限不代表近邻图可靠。

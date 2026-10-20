@@ -5,6 +5,41 @@
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
+## 未发布 — 工作区修复
+
+这些源码变更不包含在已发布的 0.3.0 wheel 或 sdist 中。下方历史发布准备记录保留
+原有措辞，包版本没有调整；此前的 P100 验收不能证明本次数值变更已通过验证。
+
+### 修复（2026-10-20）
+
+- **原生采样（#173）**：F 采样将公开参数 `dfn`/`dfd` 转换为 NumPy 的
+  `dfnum`/`dfden`，不再因关键字不匹配抛出 `TypeError`。全部 15 种原生采样器
+  应用显式输出 `dtype`；默认 `None` 仍返回 float64，离散分布也不例外。
+  NumPy/SciPy CPU 随机生成后再转换到所选后端的方式不变，不代表原生 GPU RNG。
+  回归覆盖：`dev/tests/test_distribution_sampling_regressions.py`。
+- **逆高斯和负二项稳健协方差**：HC0/HC1 的 sandwich bread 改用观测损失
+  Hessian，而非期望 Fisher scoring 曲率。惩罚曲率、分析权重得分 meat、HC1
+  行数修正与固定/已选调参条件不变。优化器 Hessian 和 nonrobust 协方差仍采用
+  Fisher；独立的 oracle 路径原本已使用观测 bread。普通拟合、受支持的光滑
+  M-estimation 和 CV 最终重拟合受影响，因此拟合系数不变时稳健标准误也可能改变。
+  导数解释限于均值未裁剪的范围，没有新增裁剪求导规则。
+  回归覆盖：`dev/tests/test_glm_observed_bread.py`。
+- **周期三次样条（#216）**：以解析单侧端点函数值、一阶和二阶导数替代范围外
+  有限差分。确定为秩三的投影返回 `n_knots + 1` 个 float64 列，秩无法确定时明确
+  失败。常数函数仍在基空间内，但没有专门的截距列。使用旧基的模型须重新拟合；
+  没有新增可复用训练投影或外推 API。自然样条的数值限制保持不变。
+  回归覆盖：`dev/tests/test_cyclic_spline_periodic_constraints.py`。
+- **UMAP NumPy 2 分派（#191）**：近邻搜索和负采样 RNG 根据已解析的后端身份
+  分派，不再根据数组是否有 `device` 属性判断。NumPy CPU NNDescent 不再转入
+  Torch 路径。exact/auto 近邻选择、主机 SciPy 图组装、谱初始化和 CPU 一维布局
+  的限制不变。回归覆盖：`dev/tests/test_unsupervised_umap.py`。
+
+### 验证（2026-10-20）
+
+上述定向回归和 benchmark smoke 属于本地正确性检查，不是物理 CUDA 或性能验收。
+最终数量及源码身份以本轮验证产物为准；不可用的 GPU 路径仍待验证，不能沿用之前的
+发布证据推定通过。
+
 ## 0.3.0 — 即将发布
 
 本版本汇总自 0.2.5 以来已合并的变更。此前标为“未发布”或计划纳入 0.2.6 的条目统一归入 0.3.0，不表示曾发布独立的 0.2.6。安装与升级概览见[版本发布说明](../../.github/releases/v0.3.0.md)。

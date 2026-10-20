@@ -2,6 +2,17 @@
 
 All notable changes to statgpu are documented here, organized by release and date.
 
+## Unreleased — working-tree repairs (2026-10-20)
+
+These changes are not part of the published 0.3.0 artifacts. The historical
+0.3.0 preparation entries below retain their original wording; no version bump
+or new physical GPU acceptance is recorded here.
+
+- Corrected native F sampling argument translation and applied requested output dtype across native samplers, retaining CPU RNG plus backend conversion.
+- Corrected inverse-Gaussian/negative-binomial HC0/HC1 observed-Hessian bread while preserving solver Fisher curvature and nonrobust covariance.
+- Replaced cyclic spline outside-range derivative stencils with analytic periodic endpoint constraints; repaired bases require downstream refitting.
+- Corrected NumPy 2 CPU UMAP NNDescent and negative-sampling backend dispatch without requiring Torch.
+
 ## 0.3.0 — Upcoming
 
 Consolidated the merged work since 0.2.5, including entries previously planned

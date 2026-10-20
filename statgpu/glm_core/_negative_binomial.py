@@ -42,6 +42,20 @@ class NegativeBinomialLoss(GLMLoss):
         mu = self._mu_from_eta(eta)
         return (mu - y) / (1.0 + self.alpha * mu)
 
+    def observed_hessian(self, X, y, coef, sample_weight=None):
+        """Observed robust-inference curvature, separate from Fisher scoring.
+
+        This differentiates the estimating score in the unclipped domain.
+        At clipped means it retains the existing analytic-at-clipped-mean
+        convention; it is not a derivative through the clipping operation.
+        """
+        mu = self._mu_from_eta(X @ coef)
+        curvature = mu * (1.0 + self.alpha * y) / (1.0 + self.alpha * mu) ** 2
+        if sample_weight is not None:
+            curvature = curvature * sample_weight
+        n_eff = float(sample_weight.sum()) if sample_weight is not None else X.shape[0]
+        return X.T @ (X * curvature[:, None]) / n_eff
+
     def hessian(self, X, y, coef, sample_weight=None):
         z = _clip(X @ coef, -30, 30)
         mu = _exp(z)

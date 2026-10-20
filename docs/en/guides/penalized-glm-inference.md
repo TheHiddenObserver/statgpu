@@ -48,13 +48,15 @@ penalty_conditioning_ = "fixed_penalty"
 
 For an unpenalized fit (`alpha=0` or the corresponding no-penalty configuration), the target is the ordinary unpenalized population coefficient.
 
-With score contribution $\psi_i$, average Hessian $H$, L2 curvature $P''$, and average score outer product $J$, the HC0 covariance is
+With score contribution $\psi_i$, average observed loss Hessian $H$, L2 curvature $P''$, and average score outer product $J$, the HC0 covariance is
 
 $$
 \widehat{\mathrm{Var}}(\hat\beta)
 =
 (H+P'')^{-1}J(H+P'')^{-1}/n.
 $$
+
+The unreleased source uses the observed loss Hessian for inverse-Gaussian and negative-binomial HC0/HC1 bread, rather than their expected Fisher scoring curvature. Optimizer Hessians and `nonrobust` covariance remain unchanged. Analytic weights enter the bread linearly and the score-outer-product meat quadratically; the intercept has no penalty curvature. This also applies to supported selected-final-refit CV inference, conditional on the selected tuning. Published 0.3.0 uses Fisher bread on these ordinary/smooth M-estimation routes and can return different robust standard errors; its separate oracle route already uses observed bread. The derivative interpretation applies inside the unclipped mean range; clipping is not made differentiable by this repair.
 
 For HC1, multiply this covariance by $n/(n-k)$ when $n>k$, where $n$ is the observation count and $k$ counts fitted parameters, including the intercept when present. This is a finite-sample multiplier, not a correction for penalty selection. The current implementation omits that multiplier when $n\le k$; do not interpret such a result as a valid HC1 degrees-of-freedom correction. With analytic weights, this multiplier still uses the row count rather than the sum of weights.
 

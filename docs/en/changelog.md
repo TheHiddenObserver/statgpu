@@ -7,6 +7,54 @@
 
 This page records user-visible changes for current and recent statgpu releases.
 
+## Unreleased — working-tree repairs
+
+These source changes are not included in the published 0.3.0 wheel or sdist.
+The historical 0.3.0 release-preparation entries below retain their original
+wording. Package versions are unchanged, and earlier P100 acceptance does not
+validate these numerical changes.
+
+### Fixed (2026-10-20)
+
+- **Native sampling (#173):** F sampling now translates public `dfn`/`dfd`
+  to NumPy's `dfnum`/`dfden`, removing the keyword `TypeError`. All 15 native
+  samplers apply an explicit output `dtype`; `None` still gives float64,
+  including discrete families. NumPy/SciPy CPU random generation followed by
+  selected-backend conversion is unchanged; this is not native GPU RNG.
+  Regression coverage: `dev/tests/test_distribution_sampling_regressions.py`.
+- **Inverse-Gaussian and negative-binomial robust covariance:** HC0/HC1 now
+  use the observed loss Hessian for sandwich bread instead of expected Fisher
+  scoring curvature. The penalty curvature, analytic-weight score meat,
+  HC1 row-count multiplier and fixed/selected-tuning interpretation are
+  unchanged. Solver Hessians and nonrobust covariance remain Fisher-based;
+  the separate oracle path already used observed bread. This affects ordinary
+  and supported smooth M-estimation fits and CV final refits, so robust standard
+  errors can change without changing fitted coefficients. The derivative
+  interpretation is interior to the unclipped mean range, not a new clipping
+  derivative rule. Regression coverage:
+  `dev/tests/test_glm_observed_bread.py`.
+- **Cyclic cubic splines (#216):** analytic one-sided endpoint values and first
+  and second derivatives replace outside-range finite differences. A resolved
+  rank-three projection produces `n_knots + 1` float64 columns; unresolved rank
+  fails explicitly. Constants remain representable, without a dedicated
+  intercept column. Refit models built on the former basis; no reusable
+  training projection or extrapolation API was added. Natural spline numerical
+  limitations are unchanged. Regression coverage:
+  `dev/tests/test_cyclic_spline_periodic_constraints.py`.
+- **UMAP NumPy 2 dispatch (#191):** neighbor search and negative-sampling RNG
+  use resolved backend identity rather than the presence of an array `device`
+  attribute. NumPy CPU NNDescent no longer routes through Torch. Exact/auto
+  neighbor selection, host SciPy graph assembly, spectral-initialization and
+  CPU one-dimensional layout limitations are unchanged. Regression coverage:
+  `dev/tests/test_unsupervised_umap.py`.
+
+### Validation (2026-10-20)
+
+The listed targeted regression suites and benchmark smoke cases are local
+correctness checks, not physical CUDA or performance acceptance. Final counts
+and source identity belong to the repair validation artifacts; unavailable GPU
+routes remain pending and are not inferred from previous release evidence.
+
 ## 0.3.0 — Upcoming
 
 This release brings together the merged changes since 0.2.5. Entries previously
