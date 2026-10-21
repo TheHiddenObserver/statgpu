@@ -1,8 +1,9 @@
 # Experimental native CuPy KDE: physical acceptance recipe
 
-This is a future validation recipe, not a record of an executed GPU run. The
-candidate is developer-only and has not replaced public bootstrap defaults.
-See [scope and statistical contract](../plans/native_gpu_kde_bootstrap.md).
+This is a reusable validation recipe, not a claim that every later head has
+been physically tested. The candidate is developer-only and has not replaced
+public bootstrap defaults. See the exact-head core validation record and
+[scope and statistical contract](../plans/native_gpu_kde_bootstrap.md).
 
 ## 1. Freeze and identify the target
 
@@ -77,5 +78,5 @@ Report failures and missing evidence explicitly. Near-parity ratios are not a
 stable crossover. No canonical dashboard publication or production migration
 follows automatically from a successful experiment. The next decision requires
 numerical/device acceptance, representative-scale timing, memory observations,
-and a separately reviewed native-RNG/public-API integration contract. This Draft
+and a separately reviewed native-RNG/public-API integration contract. This experiment
 preserves existing bandwidth/knockoff routes and does not expand Torch bootstrap.

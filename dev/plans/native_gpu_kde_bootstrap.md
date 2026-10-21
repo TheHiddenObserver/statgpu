@@ -1,7 +1,14 @@
 # Native GPU migration: first experimental KDE slice
 
 Base: merged PR #251, `de7dd3e593dae4cfba4f8742c18bddd7ffce86e4`.
-Status: developer-only candidate; physical validation and promotion pending.
+Status: developer-only candidate; single-P100 core validation passed at
+`d4fe6f64a7ea9be9967d0f116c5184acce11ceee` (THREADS=1): 183 passed,
+1 allowed two-device skip, all 38 required GPU cases executed, and four complete
+benchmark JSONs. [PR #252](https://github.com/TheHiddenObserver/statgpu/pull/252)
+records this exact-head evidence and retains the historical `878b966` failure.
+This is not a claim that later commits have been physically rerun. Extended
+scales, T=2/T=4 CPU profiles, native RNG, Torch bootstrap and public-API/default
+promotion remain outside this completed core validation.
 
 ## Contract inventory and scope
 
@@ -31,12 +38,12 @@ Compare three variants on identical host data, weights and pre-generated indices
 1. Preimplementation independent design audit.
 2. CPU planner/invalid-contract/oracle/harness tests; conditional real CuPy tests for weighted/unweighted/sparse weights, constant samples, chunk invariance, device residency, forbidden host conversions and malformed inputs.
 3. Independent exact-content review and correction loop.
-4. Draft PR only: P100 correctness, operation trace, memory diagnostics, then 2 warmups + 7 uninstrumented repetitions at small and GPU-relevant n/q/B points. No GPU speedup claims before this gate.
+4. Core physical gate: P100 correctness, operation trace, memory diagnostics, then 2 warmups + 7 uninstrumented repetitions at small and GPU-relevant n/q/B points. This gate passed for the exact head recorded above; claims remain limited to its measured controlled-index workflows.
 5. If equivalent and beneficial, separately design native RNG semantics/reproducibility and broader selectors/kernels/dimensions, then discuss production opt-in/default promotion.
 6. Bandwidth: preserve current useful CV baseline; migrate demonstrated host numerical stages with per-method correctness and representative-scale evidence, not workflow timing as selector-only evidence.
 7. Knockoff: align realized randomness and statistical work first; retain diagnostic-only status until fair comparison contracts close, then migrate identified host linear algebra.
 
-No new large-CV resource budget, server job, dashboard publication or release is implied by this draft.
+No new large-CV resource budget, server job, dashboard publication or release is implied by this plan.
 
 ## Design audit and numerical envelope
 
