@@ -232,3 +232,65 @@ def test_physical_cupy_location_scale_cancellation_rejected(cp, location):
     indices = cp.arange(6, dtype=cp.int64)[None, :]
     with pytest.raises(ValueError, match='location-to-scale'):
         native_kde_bootstrap(x, q, indices)
+
+
+@pytest.mark.parametrize('draw_count', [1, 3])
+def test_single_query_quantiles_use_vector_reduction(draw_count):
+    # CPU route regression, not a substitute for physical CuPy execution.
+    x, q, w, indices = fixture_data('unequal')
+    q = q[3:4]
+    indices = indices[:draw_count]
+    calls = []
+
+    class TrackedNumpy:
+        def __getattr__(self, name):
+            return getattr(np, name)
+
+        def quantile(self, values, levels, axis=None):
+            calls.append((values.shape, axis))
+            return np.quantile(values, levels, axis=axis)
+
+    actual = _compute(x, q, indices, w, .4, .95, 1, TrackedNumpy())
+    expected = reference(x, q, w, indices)
+    assert calls == [((draw_count,), None)]
+    for key, value in actual.items():
+        assert value.shape == expected[key].shape
+        np.testing.assert_allclose(value, expected[key], rtol=2e-12, atol=1e-13)
+
+
+@pytest.mark.parametrize('layout', ['vector', 'strided_column'])
+@pytest.mark.parametrize('draw_count', [1, 3])
+@pytest.mark.parametrize('kind', ['constant', 'unequal'])
+def test_physical_cupy_single_query_quantile_regression(cp, layout, draw_count, kind):
+    # B=1 analytic and B>1 interpolated bounds; retain every returned array
+    # through unrelated allocator activity before checking its value.
+    x, q, w, indices = fixture_data('unequal')
+    q = q[3:4]
+    indices = indices[:draw_count]
+    if kind == 'constant':
+        x = np.ones_like(x)
+        q = np.ones_like(q)
+        w = np.ones_like(w) / w.size
+    expected = reference(x, q, w, indices)
+    dx, dq, dw, di = map(cp.asarray, (x, q, w, indices))
+    if layout == 'strided_column':
+        storage_x = cp.empty((x.size * 2, 2), dtype=cp.float64)
+        storage_q = cp.empty((2, 2), dtype=cp.float64)
+        dx, dq = storage_x[::2, :1], storage_q[::2, :1]
+        dx[:, 0], dq[:, 0] = cp.asarray(x), cp.asarray(q)
+    minimum = plan_workspace(x.size, 1, draw_count, 10**6, 1)['estimated_bytes']
+    saved = []
+    for poison in (0., .25, 1e200):
+        buffers = [cp.full(64, poison, dtype=cp.float64) for _ in range(8)]
+        cp.cuda.Device().synchronize()
+        del buffers
+        saved.append(native_kde_bootstrap(dx, dq, di, weights=dw,
+                                         workspace_bytes=minimum))
+    cp.cuda.Device().synchronize()
+    for result in saved:
+        for key, value in result.items():
+            assert value.shape == expected[key].shape
+            assert value.device.id == dx.device.id
+            np.testing.assert_allclose(cp.asnumpy(value), expected[key],
+                                       rtol=2e-11, atol=1e-12)
+        assert bool(cp.all(result['lower'] <= result['upper']))

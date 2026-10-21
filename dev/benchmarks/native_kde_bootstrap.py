@@ -102,7 +102,15 @@ def _compute(x, q, indices, w, bandwidth, confidence_level, query_chunk, xp):
         sampled_w /= xp.sum(sampled_w)
         draws[row] = _density(sampled_x, sampled_w, q, bandwidth, query_chunk, xp)
     alpha = (1.0 - confidence_level) / 2.0
-    bounds = xp.quantile(draws, [alpha, 1.0 - alpha], axis=0)
+    if q.size == 1:
+        # CuPy 13.6's linear-quantile kernel uses the first reduced index
+        # as a row offset. For (B, 1), its (1, 2) output loses the singleton
+        # row dimension and the upper quantile reads beyond the sorted data.
+        # A vector has no kept row axis (offset=0); restore the (2, 1) shape
+        # afterwards. This also preserves linear interpolation for B > 1.
+        bounds = xp.quantile(draws[:, 0], [alpha, 1.0 - alpha])[:, None]
+    else:
+        bounds = xp.quantile(draws, [alpha, 1.0 - alpha], axis=0)
     return {'estimate': estimate, 'draws': draws, 'lower': bounds[0], 'upper': bounds[1]}
 
 
