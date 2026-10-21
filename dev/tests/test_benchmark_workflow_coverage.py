@@ -60,12 +60,85 @@ def test_correctness_rejects_bad_values(value,expected):
     with pytest.raises(AssertionError):bench.close(value,expected,'bad')
 
 
-def test_source_records_helper_and_ignored_overlay():
-    source=bench.source_identity()
-    assert source['working_tree']=='dirty'
-    assert 'dev/benchmarks/benchmark_workflow_coverage.py' in source['runner_dependencies']
-    assert 'dev/benchmarks/benchmark_release_refresh.py' in source['runner_dependencies']
-    assert len(source['worktree_fingerprint'])==64
+@pytest.fixture
+def identity_checkout(tmp_path, monkeypatch):
+    """Isolate executable bytes; emulate Git rather than depend on caller dirt."""
+    scripts = tmp_path/'dev'/'benchmarks'
+    scripts.mkdir(parents=True)
+    helper = scripts/'benchmark_release_refresh.py'
+    runner = scripts/'benchmark_workflow_coverage.py'
+    helper.write_text('# helper\n')
+    runner.write_text('# runner\n')
+    package = tmp_path/'statgpu'
+    package.mkdir()
+    (package/'__init__.py').write_text('# package\n')
+    monkeypatch.setattr(bench.common, 'ROOT', tmp_path)
+    monkeypatch.setattr(bench.common, '__file__', str(helper))
+    monkeypatch.setattr(bench, '__file__', str(runner))
+    state = {'dirty': False, 'overlay': False, 'unavailable': False}
+
+    def git(command, **kwargs):
+        if state['unavailable']:
+            raise FileNotFoundError('git unavailable')
+        args = command[1:]
+        if args[:1] == ['rev-parse']:
+            return b'0123456789abcdef\n'
+        if args[:1] == ['diff']:
+            return b'changed executable' if state['dirty'] else b''
+        if args[:1] == ['ls-files']:
+            return b'' if state['overlay'] and args[-1].endswith('benchmark_workflow_coverage.py') else args[-1].encode()
+        if args[:1] == ['status']:
+            return b' M tracked-file' if state['dirty'] else b''
+        raise AssertionError(command)
+
+    monkeypatch.setattr(bench.common.subprocess, 'check_output', git)
+    return state, runner, helper
+
+
+@pytest.mark.parametrize('state_key,expected,overlay', [
+    (None, 'clean', 'tracked'),
+    ('dirty', 'dirty', 'tracked'),
+    ('overlay', 'dirty', 'untracked-or-ignored runner'),
+    ('unavailable', 'unknown', 'unknown: git provenance unavailable'),
+])
+def test_source_reports_real_identity(identity_checkout, state_key, expected, overlay):
+    state, runner, helper = identity_checkout
+    if state_key:
+        state[state_key] = True
+    source = bench.source_identity()
+    assert source['working_tree'] == expected
+    assert source['source_overlay'] == overlay
+    assert source == bench.common.source_identity(extra_paths=(runner,))
+    assert set(source['runner_dependencies']) == {
+        'dev/benchmarks/benchmark_workflow_coverage.py',
+        'dev/benchmarks/benchmark_release_refresh.py'}
+    assert len(source['worktree_fingerprint']) == 64
+    assert source == bench.source_identity()
+    if expected == 'unknown':
+        assert source['git_commit'] is None
+        assert all(value is None for value in source['dependencies_tracked'].values())
+
+
+def test_source_fingerprint_tracks_dependency_bytes_and_provenance(identity_checkout):
+    state, runner, helper = identity_checkout
+    clean = bench.source_identity()
+    runner.write_text('# changed runner\n')
+    changed_runner = bench.source_identity()
+    assert changed_runner['worktree_fingerprint'] != clean['worktree_fingerprint']
+    helper.write_text('# changed helper\n')
+    changed_helper = bench.source_identity()
+    assert changed_helper['worktree_fingerprint'] != changed_runner['worktree_fingerprint']
+    state['unavailable'] = True
+    unknown = bench.source_identity()
+    assert unknown['worktree_fingerprint'] != changed_helper['worktree_fingerprint']
+    assert unknown['runner_dependencies'] == changed_helper['runner_dependencies']
+
+
+def test_source_git_command_failure_is_unknown(identity_checkout, monkeypatch):
+    def failed(command, **kwargs):
+        raise subprocess.CalledProcessError(128, command)
+    monkeypatch.setattr(bench.common.subprocess, 'check_output', failed)
+    assert bench.source_identity()['working_tree'] == 'unknown'
 
 
 def test_required_missing_backend_fails(tmp_path,monkeypatch):

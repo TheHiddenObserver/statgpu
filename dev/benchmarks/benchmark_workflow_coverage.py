@@ -28,13 +28,7 @@ CASES = ('diagnostics', 'stepwise', 'multitarget', 'formula')
 
 
 def source_identity():
-    result = common.source_identity()
-    paths = [Path(__file__), Path(common.__file__)]
-    result['runner_dependencies'] = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
-    result['worktree_fingerprint'] = hashlib.sha256(json.dumps(result, sort_keys=True).encode()).hexdigest()
-    result['working_tree'] = 'dirty'  # Explicit candidate runner overlay, including ignored files.
-    result['source_overlay'] = 'candidate workflow runner and release_refresh helper; content hashed'
-    return result
+    return common.source_identity(extra_paths=(Path(__file__),))
 
 
 def close(actual, expected, label, atol=2e-7, rtol=2e-7):

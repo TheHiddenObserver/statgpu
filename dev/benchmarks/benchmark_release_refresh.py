@@ -319,30 +319,50 @@ def run_case(runtime, *, model_name, n, p, dtype, weighted, seed, alpha, warmup,
     return row
 
 
-def source_identity():
+def source_identity(extra_paths=()):
+    """Hash executable inputs and report actual Git provenance, never assume clean.
+
+    Callers can add runner/helper dependencies, including ignored overlays. Git
+    availability is independent of byte hashing: unknown provenance is explicit.
+    """
     def git(*args):
-        return subprocess.check_output(['git', *args], cwd=ROOT)
-    # Hash executable Python source, tracked diff, and this new untracked runner.
-    # Avoid hashing output artifacts and environment/credential files.
-    files = sorted(p for p in (ROOT/'statgpu').rglob('*') if p.is_file() and '__pycache__' not in p.parts and p.suffix != '.pyc') + [Path(__file__).resolve()]
+        return subprocess.check_output(['git', *args], cwd=ROOT, stderr=subprocess.DEVNULL)
+
+    runner = Path(__file__).resolve()
+    dependencies = sorted({runner, *(Path(p).resolve() for p in extra_paths)})
+    relatives = [p.relative_to(ROOT).as_posix() for p in dependencies]
+    files = sorted({p for p in (ROOT/'statgpu').rglob('*')
+                    if p.is_file() and '__pycache__' not in p.parts and p.suffix != '.pyc'}
+                   | set(dependencies))
     digest = hashlib.sha256()
     for path in files:
         digest.update(path.relative_to(ROOT).as_posix().encode()+b'\0')
         digest.update(path.read_bytes())
-    diff = git('diff', 'HEAD', '--binary', '--', 'statgpu', 'dev/benchmarks/benchmark_release_refresh.py')
+    try:
+        commit = git('rev-parse', 'HEAD').decode().strip()
+        diff = git('diff', 'HEAD', '--binary', '--', 'statgpu', *relatives)
+        tracked = {p: bool(git('ls-files', '--', p).strip()) for p in relatives}
+        tree_dirty = bool(git('status', '--porcelain').strip())
+    except (OSError, subprocess.CalledProcessError):
+        commit, diff = None, b''
+        tracked = {p: None for p in relatives}
+        working_tree, overlay = 'unknown', 'unknown: git provenance unavailable'
+    else:
+        working_tree = 'dirty' if tree_dirty or not all(tracked.values()) else 'clean'
+        overlay = 'tracked' if all(tracked.values()) else 'untracked-or-ignored runner'
     digest.update(diff)
-    runner_relative = Path(__file__).resolve().relative_to(ROOT).as_posix()
-    runner_tracked = bool(git('ls-files', '--', runner_relative).strip())
-    # dev/benchmarks/*.py can be ignored: ordinary git status alone is not
-    # sufficient to label the executing source clean.
-    tree_dirty = bool(git('status', '--porcelain').strip())
-    return {'git_commit': git('rev-parse', 'HEAD').decode().strip(),
-            'working_tree': 'dirty' if tree_dirty or not runner_tracked else 'clean',
-            'runner_tracked': runner_tracked,
-            'source_overlay': 'tracked' if runner_tracked else 'untracked-or-ignored runner',
+    digest.update(json.dumps({'git_commit': commit, 'working_tree': working_tree,
+                              'dependencies_tracked': tracked}, sort_keys=True).encode())
+    return {'git_commit': commit,
+            'working_tree': working_tree,
+            'runner_tracked': tracked[runner.relative_to(ROOT).as_posix()],
+            'dependencies_tracked': tracked,
+            'source_overlay': overlay,
             'worktree_fingerprint': digest.hexdigest(),
-            'fingerprint_scope': 'all statgpu package files except bytecode caches + runner bytes + scoped tracked diff; excludes external artifacts/configuration',
-            'runner_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            'fingerprint_scope': 'all statgpu package files except bytecode caches + runner/dependency bytes + scoped tracked diff + Git identity/status; excludes external artifacts/configuration',
+            'runner_dependencies': {p.relative_to(ROOT).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+                                    for p in dependencies},
+            'runner_sha256': hashlib.sha256(runner.read_bytes()).hexdigest(),
             'statgpu_version': __version__, 'import_path': str(Path(importlib.import_module('statgpu').__file__).resolve())}
 
 

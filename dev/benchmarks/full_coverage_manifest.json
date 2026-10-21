@@ -73,7 +73,7 @@
         "ridge"
       ],
       "case_selection_flag": "--models",
-      "script_sha256": "41064ccf3620b1b3e3fa281ea0e25974ef3fa3c23c5d5d9e006a5fe470be41fd",
+      "script_sha256": "0693f38691f29d774cec5406b19459377c97743183169e1590959ba31fab1a6e",
       "invocation_validation": "Source CLI reviewed; initial pilot independent tests and CPU smoke passed"
     },
     {
@@ -246,11 +246,11 @@
         "statgpu source checkout"
       ],
       "evidence_gaps": [
-        "IG/NB HC0 reference mismatch retained as2failed rows; observed-Hessian vs Fisher-bread convention needs contract review",
+        "The repaired IG/NB HC0 fixtures pass; broader covariance, weights, links and solver combinations remain uncertified",
         "All7GLM families have nonrobust/HC0 fixtures, but full covariance/weights/link/solver matrix not certified",
-        "Physical CUDA unrun; direct fit and selected inference only, fullCV matrix separate"
+        "Full physical CUDA model/CV matrix remains unvalidated; targeted IG/NB inference evidence is source-specific, not whole-suite closure"
       ],
-      "invocation_validation": "74 CPU smoke cases passed; GLM full-covariance oracle adapter realigns host reporting parameters to native inference design. Four real Torch CPU regressions passed; eight physical GPU benchmark cases require rerun after the 9a6145d P100 failure.",
+      "invocation_validation": "74 CPU smoke cases passed after the observed-Hessian repair. The oracle adapter realigns host reporting parameters to native inference design. Targeted P100 IG/NB nonrobust/HC0 cases passed 8/8 at 07f12e2ca10e294153bbfd8da5e449bcfd425cbe; this does not validate the full model/CV matrix or later source changes.",
       "case_ids": [
         "glm:gaussian",
         "glm:binomial",
@@ -527,11 +527,11 @@
         "statgpu source checkout"
       ],
       "evidence_gaps": [
-        "F.rvs known existing #173 failure retained, not skipped or converted to success",
-        "Physical CUDA unrun; some public host/reporting APIs are not GPU-native",
+        "F.rvs parameter mapping is repaired and its CPU fixture passes; distribution tail and repeated-seed Monte Carlo coverage remain separate",
+        "Full physical statistical-family coverage remains unvalidated; targeted distribution evidence does not establish whole-suite closure, and some public APIs retain host stages",
         "138 cases are representative fixed-parameter fixtures, not exhaustive covariance/tail/Monte Carlo coverage"
       ],
-      "invocation_validation": "Fresh unreleased repair candidate: 138 CPU smoke cases passed; physical GPU remains unrun.",
+      "invocation_validation": "138 CPU smoke cases passed after the unreleased repairs; targeted P100 distribution acceptance is separate source-specific evidence, not full statistical-family GPU closure.",
       "case_ids": [
         "distributions/norm/cdf",
         "distributions/norm/sf",
@@ -769,12 +769,12 @@
         "statgpu source checkout"
       ],
       "evidence_gaps": [
-        "Physical CuPy/Torch CUDA observer integration remains unrun locally; required GPU tests must execute on acceptance host.",
+        "Full learning-suite physical acceptance remains unestablished; targeted observer checks passed on P100 at 07f12e2, not whole-suite or subsequent-change validation.",
         "Torch KDE bootstrap remains explicitly unsupported because production resampling requires weighted fitting.",
         "Targeted bandwidth/knockoff/KDE paths observe selected native numerical operations and explicit host stages, not whole-algorithm GPU residency; instrumented timings remain performance-ineligible.",
         "Other learning GPU rows retain ownership-only evidence; weak numerical oracles remain diagnostic and selection summaries do not certify FDR."
       ],
-      "invocation_validation": "44-case CPU smoke previously passed; targeted execution-trace repair locally tested. Physical GPU execution remains pending for the changed observer contract.",
+      "invocation_validation": "44-case CPU smoke previously passed; targeted execution-trace and hybrid P100 checks passed at 07f12e2ca10e294153bbfd8da5e449bcfd425cbe (A–D acceptance). This is source-specific evidence; full learning-suite physical closure and subsequent changes remain separate.",
       "case_ids": [
         "kde",
         "kernel_regression_nw",
@@ -828,7 +828,7 @@
       "historical_v2_invocation_validation": "CLIverified; worker44CPUcases42pass2knownblockeddefects#191#216;61contracttests pass",
       "source_dependencies_sha256": {
         "dev/benchmarks/learning_execution_trace.py": "5286e82cffc054dc7dda951b07bea8d9ca7866a9527639a20d08767d5d6b2172",
-        "dev/benchmarks/benchmark_release_refresh.py": "41064ccf3620b1b3e3fa281ea0e25974ef3fa3c23c5d5d9e006a5fe470be41fd"
+        "dev/benchmarks/benchmark_release_refresh.py": "0693f38691f29d774cec5406b19459377c97743183169e1590959ba31fab1a6e"
       },
       "execution_evidence_contract": "dev/plans/learning_device_trace_repair.md"
     },
@@ -900,7 +900,7 @@
       ],
       "case_registry_validation": "imported runner registry, not inferred from title",
       "case_selection_flag": "--cases",
-      "script_sha256": "99ebd66ad5274ae7f58a09989643d0ac1baea18721c47f21164a57e9e4f9a7b2"
+      "script_sha256": "61449d125dbde4af610de3401d1d5661a594c54f867bc272ff73521f6ce7f0ee"
     },
     {
       "id": "six-family-cv",
@@ -1125,7 +1125,7 @@
         "representative direct fit or numerical operation"
       ],
       "backend_contract": "follow public API; host reporting is not GPU-native execution",
-      "evidence_status": "Direct fit case CPU passed; IG/NB HC0 inference reference failed; physicalGPU unrun",
+      "evidence_status": "Representative CPU direct-fit and all 14 nonrobust/HC0 inference fixtures passed after repair; full physical model/CV coverage remains unvalidated",
       "entry_id": "model-families",
       "support_status": "direct_case_implemented_cpu_smoke",
       "case": "glm:gaussian",
@@ -1145,8 +1145,12 @@
         "glm_inference:tweedie:nonrobust",
         "glm_inference:tweedie:hc0"
       ],
-      "inference_status": "12passed2failed-reference-alignment",
-      "inference_failures": [
+      "inference_status": "14passed-cpu-reference-aligned",
+      "inference_failures": [],
+      "inference_note": "IG/NB HC0 uses observed-Hessian bread matching the independent oracle; optimizer and nonrobust Fisher conventions remain unchanged. Targeted IG/NB P100 cases passed at 07f12e2; broader covariance, weights, link and solver combinations are not certified.",
+      "historical_v2_evidence_status": "Direct fit case CPU passed; IG/NB HC0 inference reference failed; physicalGPU unrun",
+      "historical_v2_inference_status": "12passed2failed-reference-alignment",
+      "historical_v2_inference_failures": [
         {
           "case": "glm_inference:inverse_gaussian:hc0",
           "status": "failed",
@@ -1162,7 +1166,7 @@
           "issue": null
         }
       ],
-      "inference_note": "Mismatch does not itself establish which sandwich convention public contract requires; independent observed-Hessian oracle matched statsmodels, actual fits use Fisher bread. No issue matching found in bounded live search."
+      "historical_v2_inference_note": "Mismatch does not itself establish which sandwich convention public contract requires; independent observed-Hessian oracle matched statsmodels, actual fits use Fisher bread. No issue matching found in bounded live search."
     },
     {
       "api": "statgpu.OrderedGeneralizedLinearModel",
@@ -2249,7 +2253,7 @@
       "export_name": "cyclic_cubic_spline_basis",
       "operations": [],
       "backend_contract": "follow public API; host reporting is not GPU-native execution",
-      "evidence_status": "Passed fresh CPU smoke on the unreleased repair candidate; physical CUDA validation remains pending. Published0.3.0 historical failure evidence unchanged.",
+      "evidence_status": "CPU smoke passed after repair; targeted P100 production/benchmark checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. This does not certify the full physical suite or later changes; published 0.3.0 historical failure evidence is unchanged.",
       "entry_id": "learning-families",
       "support_status": "direct_case_with_unreleased_repair",
       "case": "cyclic_spline",
@@ -2545,7 +2549,7 @@
         "representative fit/transform/predict"
       ],
       "backend_contract": "follow public API; host reporting is not GPU-native execution",
-      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "evidence_status": "Representative CPU smoke passed; targeted P100 checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. Evidence is limited to the recorded distribution/UMAP fixtures, not full physical-suite or subsequent-change validation.",
       "entry_id": "learning-families",
       "support_status": "direct_case_implemented_cpu_smoke",
       "case": "umap",
@@ -2652,7 +2656,7 @@
         "sampling goodness-of-fit beyond moment/shape checks",
         "legacy alias entrypoints not independently timed"
       ],
-      "evidence_status": "CPU smoke passed; physical GPU unrun"
+      "evidence_status": "Representative CPU smoke passed; targeted P100 checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. Evidence is limited to the recorded distribution/UMAP fixtures, not full physical-suite or subsequent-change validation."
     },
     {
       "api": "statgpu.inference.t",
@@ -2672,7 +2676,7 @@
         "sampling goodness-of-fit beyond moment/shape checks",
         "legacy alias entrypoints not independently timed"
       ],
-      "evidence_status": "CPU smoke passed; physical GPU unrun"
+      "evidence_status": "Representative CPU smoke passed; targeted P100 checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. Evidence is limited to the recorded distribution/UMAP fixtures, not full physical-suite or subsequent-change validation."
     },
     {
       "api": "statgpu.inference.chi2",
@@ -2692,7 +2696,7 @@
         "sampling goodness-of-fit beyond moment/shape checks",
         "legacy alias entrypoints not independently timed"
       ],
-      "evidence_status": "CPU smoke passed; physical GPU unrun"
+      "evidence_status": "Representative CPU smoke passed; targeted P100 checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. Evidence is limited to the recorded distribution/UMAP fixtures, not full physical-suite or subsequent-change validation."
     },
     {
       "api": "statgpu.inference.f",
@@ -2721,7 +2725,7 @@
           "local_fix": "unreleased candidate; issue not closed by this task"
         }
       ],
-      "evidence_status": "Passed fresh CPU smoke on the unreleased repair candidate; physical CUDA validation remains pending. Published0.3.0 historical failure evidence unchanged.",
+      "evidence_status": "CPU smoke passed after repair; targeted P100 production/benchmark checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. This does not certify the full physical suite or later changes; published 0.3.0 historical failure evidence is unchanged.",
       "historical_v2_status": "direct_case_cpu_smoke_known_failure"
     },
     {
@@ -2742,7 +2746,7 @@
         "sampling goodness-of-fit beyond moment/shape checks",
         "legacy alias entrypoints not independently timed"
       ],
-      "evidence_status": "CPU smoke passed; physical GPU unrun"
+      "evidence_status": "Representative CPU smoke passed; targeted P100 checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. Evidence is limited to the recorded distribution/UMAP fixtures, not full physical-suite or subsequent-change validation."
     },
     {
       "api": "statgpu.inference.gamma",
@@ -2762,7 +2766,7 @@
         "sampling goodness-of-fit beyond moment/shape checks",
         "legacy alias entrypoints not independently timed"
       ],
-      "evidence_status": "CPU smoke passed; physical GPU unrun"
+      "evidence_status": "Representative CPU smoke passed; targeted P100 checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. Evidence is limited to the recorded distribution/UMAP fixtures, not full physical-suite or subsequent-change validation."
     },
     {
       "api": "statgpu.inference.poisson",
@@ -2782,7 +2786,7 @@
         "sampling goodness-of-fit beyond moment/shape checks",
         "legacy alias entrypoints not independently timed"
       ],
-      "evidence_status": "CPU smoke passed; physical GPU unrun"
+      "evidence_status": "Representative CPU smoke passed; targeted P100 checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. Evidence is limited to the recorded distribution/UMAP fixtures, not full physical-suite or subsequent-change validation."
     },
     {
       "api": "statgpu.inference.binom",
@@ -2802,7 +2806,7 @@
         "sampling goodness-of-fit beyond moment/shape checks",
         "legacy alias entrypoints not independently timed"
       ],
-      "evidence_status": "CPU smoke passed; physical GPU unrun"
+      "evidence_status": "Representative CPU smoke passed; targeted P100 checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. Evidence is limited to the recorded distribution/UMAP fixtures, not full physical-suite or subsequent-change validation."
     },
     {
       "api": "statgpu.inference.expon",
@@ -2822,7 +2826,7 @@
         "sampling goodness-of-fit beyond moment/shape checks",
         "legacy alias entrypoints not independently timed"
       ],
-      "evidence_status": "CPU smoke passed; physical GPU unrun"
+      "evidence_status": "Representative CPU smoke passed; targeted P100 checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. Evidence is limited to the recorded distribution/UMAP fixtures, not full physical-suite or subsequent-change validation."
     },
     {
       "api": "statgpu.inference.uniform",
@@ -2842,7 +2846,7 @@
         "sampling goodness-of-fit beyond moment/shape checks",
         "legacy alias entrypoints not independently timed"
       ],
-      "evidence_status": "CPU smoke passed; physical GPU unrun"
+      "evidence_status": "Representative CPU smoke passed; targeted P100 checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. Evidence is limited to the recorded distribution/UMAP fixtures, not full physical-suite or subsequent-change validation."
     },
     {
       "api": "statgpu.inference.cauchy",
@@ -2862,7 +2866,7 @@
         "sampling goodness-of-fit beyond moment/shape checks",
         "legacy alias entrypoints not independently timed"
       ],
-      "evidence_status": "CPU smoke passed; physical GPU unrun"
+      "evidence_status": "Representative CPU smoke passed; targeted P100 checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. Evidence is limited to the recorded distribution/UMAP fixtures, not full physical-suite or subsequent-change validation."
     },
     {
       "api": "statgpu.inference.laplace",
@@ -2882,7 +2886,7 @@
         "sampling goodness-of-fit beyond moment/shape checks",
         "legacy alias entrypoints not independently timed"
       ],
-      "evidence_status": "CPU smoke passed; physical GPU unrun"
+      "evidence_status": "Representative CPU smoke passed; targeted P100 checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. Evidence is limited to the recorded distribution/UMAP fixtures, not full physical-suite or subsequent-change validation."
     },
     {
       "api": "statgpu.inference.logistic",
@@ -2902,7 +2906,7 @@
         "sampling goodness-of-fit beyond moment/shape checks",
         "legacy alias entrypoints not independently timed"
       ],
-      "evidence_status": "CPU smoke passed; physical GPU unrun"
+      "evidence_status": "Representative CPU smoke passed; targeted P100 checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. Evidence is limited to the recorded distribution/UMAP fixtures, not full physical-suite or subsequent-change validation."
     },
     {
       "api": "statgpu.inference.lognorm",
@@ -2922,7 +2926,7 @@
         "sampling goodness-of-fit beyond moment/shape checks",
         "legacy alias entrypoints not independently timed"
       ],
-      "evidence_status": "CPU smoke passed; physical GPU unrun"
+      "evidence_status": "Representative CPU smoke passed; targeted P100 checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. Evidence is limited to the recorded distribution/UMAP fixtures, not full physical-suite or subsequent-change validation."
     },
     {
       "api": "statgpu.inference.weibull_min",
@@ -2942,7 +2946,7 @@
         "sampling goodness-of-fit beyond moment/shape checks",
         "legacy alias entrypoints not independently timed"
       ],
-      "evidence_status": "CPU smoke passed; physical GPU unrun"
+      "evidence_status": "Representative CPU smoke passed; targeted P100 checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. Evidence is limited to the recorded distribution/UMAP fixtures, not full physical-suite or subsequent-change validation."
     },
     {
       "api": "statgpu.nonparametric.pairwise_kernels",
@@ -3023,7 +3027,7 @@
         "NumPy1 versus2 and physicalGPU rerun"
       ],
       "historical_v2_status": "runnable_known_defect_blocked",
-      "evidence_status": "Passed fresh CPU smoke on the unreleased repair candidate; physical CUDA validation remains pending. Published0.3.0 historical failure evidence unchanged."
+      "evidence_status": "CPU smoke passed after repair; targeted P100 production/benchmark checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. This does not certify the full physical suite or later changes; published 0.3.0 historical failure evidence is unchanged."
     }
   ],
   "legacy_runners": [
@@ -3675,7 +3679,7 @@
   ],
   "global_uncovered_axes": [
     "All combinations of loss × penalty × solver × dtype × backend × size × inference × CV are not claimed",
-    "Physical CUDA and R have not been rerun for new code",
+    "Full seven-suite physical CUDA acceptance and R validation remain unestablished; targeted P100 evidence is source- and scope-specific",
     "Full Monte Carlo coverage/FDR/power distributions need independent repeated-seed runs",
     "Nondefault GPU ordinal, multi-GPU, MPS, compiled-extension parity, peak-memory and OOM capacity remain separate hardware/protocol lanes",
     "Current release dashboard parser/manifest registration remains pending after physical validation"
@@ -3689,7 +3693,7 @@
   "local_repair_state": {
     "status": "local-cpu-validated-unreleased",
     "base_sha": "efbfb80570eb1632e0605d68d410715dac4d9be8",
-    "physical_cuda_validation": "pending",
+    "physical_cuda_validation": "Targeted P100 regression passed at 07f12e2ca10e294153bbfd8da5e449bcfd425cbe; full seven-suite physical acceptance remains unestablished",
     "prior_failed_evidence": "v2 artifacts remain historical and unchanged",
     "publication": "branch publication authorized on 2026-10-20; not merged or released",
     "cpu_smoke": "316/316 cases passed; see repair artifact summary for exact source fingerprints"

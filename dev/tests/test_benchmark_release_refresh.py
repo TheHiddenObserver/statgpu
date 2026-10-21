@@ -173,7 +173,7 @@ def test_bad_cli_rejected(tmp_path, argument):
 
 def test_untracked_ignored_runner_cannot_report_clean_source():
     source = bench.source_identity()
-    if not source['runner_tracked']:
+    if source['runner_tracked'] is False:
         assert source['working_tree'] == 'dirty'
         assert source['source_overlay'] == 'untracked-or-ignored runner'
 

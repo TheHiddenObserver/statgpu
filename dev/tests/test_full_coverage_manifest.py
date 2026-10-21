@@ -81,3 +81,59 @@ def test_model_benchmark_adapter_source_is_pinned():
     manifest = json.loads(MANIFEST.read_text())
     entry = next(e for e in manifest['entries'] if e['id'] == 'model-families')
     assert entry['script_sha256'] == hashlib.sha256((ROOT / entry['script']).read_bytes()).hexdigest()
+
+
+def test_repaired_failures_are_historical_not_current_evidence_gaps():
+    manifest = json.loads(MANIFEST.read_text())
+    entries = {entry['id']: entry for entry in manifest['entries']}
+    # These fields are copied into fresh dispatcher artifacts, not just an archive.
+    for name in ('model-families', 'statistical-families'):
+        gaps = ' '.join(entries[name]['evidence_gaps'])
+        assert 'failure retained' not in gaps
+        assert 'retained as2failed' not in gaps
+        assert 'full' in gaps.lower() and 'unvalidated' in gaps
+    glm = next(c for c in manifest['capabilities']
+               if c['api'] == 'statgpu.GeneralizedLinearModel')
+    assert glm['inference_status'] == '14passed-cpu-reference-aligned'
+    assert glm['inference_failures'] == []
+    assert 'observed-Hessian bread' in glm['inference_note']
+    assert glm['historical_v2_inference_status'] == '12passed2failed-reference-alignment'
+    assert {row['case'] for row in glm['historical_v2_inference_failures']} == {
+        'glm_inference:inverse_gaussian:hc0',
+        'glm_inference:negative_binomial:hc0',
+    }
+    assert len(entries['model-families']['historical_v2_failures']) == 2
+    assert any(row['case'] == 'distributions/f/rvs' and row['outcome'] == 'failed'
+               for row in manifest['historical_v2_runtime_limits'])
+
+
+def test_targeted_physical_evidence_is_not_full_coverage_claim():
+    manifest = json.loads(MANIFEST.read_text())
+    status = manifest['local_repair_state']['physical_cuda_validation']
+    assert '07f12e2ca10e294153bbfd8da5e449bcfd425cbe' in status
+    assert 'full seven-suite physical acceptance remains unestablished' in status
+    assert any('Full seven-suite physical CUDA acceptance' in gap
+               for gap in manifest['global_uncovered_axes'])
+
+
+def test_repaired_learning_and_distribution_physical_status_is_source_specific():
+    manifest = json.loads(MANIFEST.read_text())
+    learning = next(e for e in manifest['entries'] if e['id'] == 'learning-families')
+    assert '07f12e2ca10e294153bbfd8da5e449bcfd425cbe' in learning['invocation_validation']
+    assert 'full learning-suite physical closure' in learning['invocation_validation']
+    repaired = [c for c in manifest['capabilities']
+                if c.get('support_status') == 'direct_case_with_unreleased_repair']
+    assert len(repaired) == 3
+    for case in repaired:
+        assert '9a6145d187da1000703bc4a20d990ef72d44b893' in case['evidence_status']
+        assert 'does not certify the full physical suite or later changes' in case['evidence_status']
+
+
+def test_targeted_distribution_and_umap_status_matches_recorded_acceptance():
+    manifest = json.loads(MANIFEST.read_text())
+    cases = [c for c in manifest['capabilities']
+             if c.get('case') in ('umap', 'distributions')]
+    assert len(cases) == 16
+    for case in cases:
+        assert '9a6145d187da1000703bc4a20d990ef72d44b893' in case['evidence_status']
+        assert 'physical' in case['evidence_status'] and 'not' in case['evidence_status']
