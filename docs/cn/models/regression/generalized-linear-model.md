@@ -181,6 +181,8 @@ L-BFGS，仍由直接拟合或交叉验证的调度规则决定，而不是仅�
 
 系数推断用于量化估计的不确定性，与前面评价留出预测是不同的问题。普通 GLM 可通过 `compute_inference=True` 开启支持的系数推断，并用 `cov_type` 选择 `nonrobust`、`hc0` 或 `hc1`。推断与拟合使用相同的分析权重定义；是否支持权重仍取决于具体推断方法。CPU 示例展示了 HC1 系数区间的读取方式。
 
+未发布源码对逆高斯和负二项 HC0/HC1 使用观测损失 Hessian bread；已发布的 0.3.0 在这些路径上使用 Fisher bread。求解器曲率与 nonrobust 协方差不变。跨版本比较标准误前，请参阅 [sandwich 约定与版本差异](../../guides/penalized-glm-inference.md)。
+
 ### 带惩罚模型的推断
 
 对于通用的 `PenalizedGeneralizedLinearModel` 及各类专用的带惩罚 GLM 封装，推荐使用 `inference_method="auto"`。受支持的 M-估计、去偏与残差自助法结果会记录推断方法、目标及调参或选择条件。当前 `post_selection_ols` 即使返回了推断结果，`inference_method_` 和 `inference_target_` 仍可能为空；请读取 `_inference_result.method` 及其元数据，详见[选择后结果报告](../../guides/inference-modes.md#post_selection_ols)。

@@ -204,7 +204,7 @@ workflow, not a definition of the distribution's mathematical infinite limits.
 
 This is the complete native name list. All rows provide `cdf`, `sf`, `ppf`,
 and `isf`; continuous rows also provide `pdf`, discrete rows `pmf`. `rvs` is
-available except for the current F sampling failure described below.
+available for every native family in the unreleased source; see the sampling compatibility note below.
 Parameters are scalars; vectorize over thresholds/probabilities, not over a
 batch of different shape parameters. `loc`/`scale` default to `0`/`1` where
 supported, and `scale` must be positive.
@@ -288,9 +288,9 @@ or performance.
 
 Current native `rvs` methods generate values with NumPy/SciPy **on CPU**, then
 convert to the selected backend. They use NumPy's global random state, accept
-no `random_state` argument, and currently do not honor the accepted `dtype`
-argument. Seed NumPy for reproducibility in one environment and cast the result
-explicitly if needed. A separate `np.random.default_rng(...)` does not seed
+no `random_state` argument, and apply an explicitly requested `dtype` after
+conversion in the unreleased source. With `dtype=None`, samples remain `float64`,
+including discrete families. Seed NumPy for reproducibility in one environment. A separate `np.random.default_rng(...)` does not seed
 these calls. Exact sequences need not be portable across library versions.
 
 ```python
@@ -312,12 +312,15 @@ The normal sample rounds to `[[1.690526, -0.465937, 0.032820],
 arrays have dtype `float64`, even though the Poisson observations are integral.
 These six normal draws are not an estimate precise enough to validate a distribution.
 
-### Current F sampling limitation
+### Sampling compatibility and independent generators
 
-`f.rvs(dfn=..., dfd=...)` and `rf_gpu(...)` currently raise `TypeError`
-because the native sampling helper passes unsupported argument names to
-NumPy. F density, CDF, and quantile methods are unaffected. For CPU sampling,
-use SciPy directly; unlike native `rvs`, its sampler accepts `random_state`:
+The unreleased source accepts the existing public `dfn`/`dfd` arguments for
+`f.rvs(...)` and `rf_gpu(...)`, and honors `dtype` for all native samplers.
+Published 0.3.0 instead raises `TypeError` for F sampling and ignores `rvs`
+`dtype`; cast its other samples explicitly when needed. F density, CDF and
+quantile methods are unaffected. For an independent CPU random generator,
+SciPy remains an alternative: unlike native `rvs`, its sampler accepts
+`random_state`:
 
 ```python
 # Example: f_sampling_workaround
@@ -446,7 +449,7 @@ non-native SciPy families; unknown names also raise. For native names,
 ## Compatibility and migration
 
 Prefer object-style calls in new code. The R-style names below remain available
-compatibility wrappers (see the F sampling limitation); their names do not imply full R argument compatibility
+compatibility wrappers (see the sampling compatibility note); their names do not imply full R argument compatibility
 (for example, `lower.tail`, `log.p`, and gamma `rate` are not added).
 
 | Family | Density / mass | CDF | Quantile | Sampling |
@@ -489,7 +492,7 @@ Expected mass is `0.195367`.
   method parameters only. `t.ppf`, `t.isf`, and `t.two_sided_critical_value`
   additionally accept `max_bisect_steps=60` for the bisection fallback; this is
   not an accuracy tolerance. Every native `rvs` signature includes `size=None`
-  and `dtype=None`, subject to the dtype limitation above.
+  and `dtype=None`; see the sampling compatibility note for published 0.3.0.
 - Compatibility factories: `get_distribution_gpu(name, *, allow_fallback=False)`
   and `list_available_distributions_gpu(include_scipy=True)`.
 - Complete signatures and method implementations: [distribution objects, proxies,

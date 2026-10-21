@@ -151,7 +151,7 @@ print("Gamma density:", np.round(density, 6))
 
 ## 原生分布与参数选择
 
-下表列出全部原生分布名。每一行均提供 `cdf`、`sf`、`ppf` 和 `isf`；连续分布还提供 `pdf`，离散分布提供 `pmf`。除下文说明的 F 分布采样故障外，其余分布均可使用 `rvs`。分布参数应为标量，可批量传入界值或概率，但不要把一组不同形状参数当作可广播输入。支持位置和尺度参数时，`loc` 默认是 `0`，`scale` 默认是 `1`，且 `scale` 必须为正。
+下表列出全部原生分布名。每一行均提供 `cdf`、`sf`、`ppf` 和 `isf`；连续分布还提供 `pdf`，离散分布提供 `pmf`。未发布源码中的全部原生分布均可使用 `rvs`；已发布版本的差异见下文采样兼容性说明。分布参数应为标量，可批量传入界值或概率，但不要把一组不同形状参数当作可广播输入。支持位置和尺度参数时，`loc` 默认是 `0`，`scale` 默认是 `1`，且 `scale` 必须为正。
 
 | 分布名 | 必需形状参数 | 默认位置和尺度下的支持集 | 位置与尺度控制 |
 |---|---|---|---|
@@ -207,7 +207,7 @@ print("Native count:", len(list_available_distributions()))
 
 ## 可重复的随机采样
 
-当前原生 `rvs` 方法都先用 NumPy/SciPy **在 CPU 上生成**样本，再转换到指定后端。它们使用 NumPy 的全局随机状态，不接受 `random_state`，而且目前不会应用签名中保留的 `dtype` 参数。若需在同一环境中复现，先设置 NumPy 种子，再按需显式转换结果类型。单独创建 `np.random.default_rng(...)` 不会影响这些调用。不同库版本不保证产生完全相同的序列。
+当前原生 `rvs` 方法都先用 NumPy/SciPy **在 CPU 上生成**样本，再转换到指定后端。它们使用 NumPy 的全局随机状态，不接受 `random_state`，未发布源码会在转换后应用显式指定的 `dtype`。`dtype=None` 时，所有分布的样本默认仍为 `float64`，离散分布也不例外。若需在同一环境中复现，先设置 NumPy 种子。单独创建 `np.random.default_rng(...)` 不会影响这些调用。不同库版本不保证产生完全相同的序列。
 
 ```python
 # Example: reproducible_sampling
@@ -225,9 +225,9 @@ print("Original dtypes:", sample.dtype, counts.dtype)
 
 正态样本四舍五入后为 `[[1.690526, -0.465937, 0.032820], [0.407516, -0.788923, 0.002066]]`，计数样本为 `[4, 1, 4, 5]`。两个原始数组都是 `float64`，即使 Poisson 样本取值为整数。六个正态观测值远不足以验证一个分布。
 
-### 当前 F 分布采样的限制
+### 采样兼容性与独立随机数生成器
 
-`f.rvs(dfn=..., dfd=...)` 和 `rf_gpu(...)` 目前会抛出 `TypeError`，因为原生采样辅助函数向 NumPy 传入了不支持的参数名。F 分布的密度、CDF 和分位数方法不受此问题影响。在 CPU 上采样时，可以直接使用 SciPy；它的采样方法支持 `random_state`，与原生 `rvs` 不同：
+未发布源码保留 `f.rvs(...)` 和 `rf_gpu(...)` 的公开 `dfn`/`dfd` 参数，并对全部原生采样器应用 `dtype`。已发布的 0.3.0 在 F 采样时仍会抛出 `TypeError`，且忽略 `rvs` 的 `dtype`；其他分布的样本可按需显式转换类型。F 分布的密度、CDF 和分位数方法不受影响。若需要独立的 CPU 随机数生成器，可使用 SciPy；它的采样方法支持 `random_state`，与原生 `rvs` 不同：
 
 ```python
 # Example: f_sampling_workaround
@@ -322,7 +322,7 @@ print("Gumbel CDF:", np.round(out, 6))
 
 ## 兼容接口与迁移
 
-新代码优先使用对象式接口。以下 R 风格命名仍作为兼容包装器保留（F 采样限制见上文），但这不代表支持 R 的全部参数，例如不会额外提供 `lower.tail`、`log.p` 或 gamma 的 `rate`。
+新代码优先使用对象式接口。以下 R 风格命名仍作为兼容包装器保留（采样兼容性见上文），但这不代表支持 R 的全部参数，例如不会额外提供 `lower.tail`、`log.p` 或 gamma 的 `rate`。
 
 | 分布族 | 密度 / 概率质量 | CDF | 分位数 | 采样 |
 |---|---|---|---|---|
@@ -355,7 +355,7 @@ print("Poisson mass:", round(float(mass_new), 6))
 ## 完整 API 与参考资料
 
 - 工厂签名：`get_distribution(name, backend="auto", device=None, *, use_lut=True)`。分布名称不区分大小写，`list_available_distributions()` 返回原生名称列表。
-- 除 `rvs` 外，代理方法通过第一个位置参数接收界值或概率，并接受上表中的分布参数，以及每次调用可设置的控制项 `backend`、`device`、`use_lut`；`rvs` 仅接收关键字参数。固定对象只接受其原生方法参数。`t.ppf`、`t.isf`、`t.two_sided_critical_value` 还接受 `max_bisect_steps=60`，用于二分法备用路径，它不是精度容差。所有原生 `rvs` 签名均包含 `size=None` 和 `dtype=None`，但应注意前述 dtype 限制。
+- 除 `rvs` 外，代理方法通过第一个位置参数接收界值或概率，并接受上表中的分布参数，以及每次调用可设置的控制项 `backend`、`device`、`use_lut`；`rvs` 仅接收关键字参数。固定对象只接受其原生方法参数。`t.ppf`、`t.isf`、`t.two_sided_critical_value` 还接受 `max_bisect_steps=60`，用于二分法备用路径，它不是精度容差。所有原生 `rvs` 签名均包含 `size=None` 和 `dtype=None`，已发布 0.3.0 的差异见前述采样兼容性说明。
 - 兼容工厂：`get_distribution_gpu(name, *, allow_fallback=False)` 和 `list_available_distributions_gpu(include_scipy=True)`。
 - 完整签名及方法实现：[分布对象、代理、后端与工厂](../../../statgpu/inference/_distributions_backend.py)。公开导入入口：[`statgpu.inference`](../../../statgpu/inference/__init__.py)。兼容签名：[函数式包装器](../../../statgpu/linear_model/legacy/_distributions_legacy_gpu.py)。Student t 在 `df=1`、`df=2` 下的双侧运行时处理：[低自由度参考实现](../../../statgpu/inference/_low_df_reference_contract.py)。
 - 概率术语及外部比较参考：[SciPy 统计分布](https://docs.scipy.org/doc/scipy/reference/stats.html)、[正态分布](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.norm.html)、[Student t 分布](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.t.html)、[Poisson 分布](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.poisson.html)。

@@ -6,8 +6,10 @@ model-based and sandwich (HC0/HC1) covariance matrices, standard errors,
 z-statistics, p-values, and confidence intervals from any loss function
 with ``has_hessian=True``.
 
-All math uses **average-scale** convention matching ``loss.hessian()``
-which returns ``X'WX / n``:
+All math uses **average-scale** curvature ``X'WX / n``. Robust inference
+uses ``loss.observed_hessian()`` when available; model-based inference prefers
+expected Fisher information. Solver-facing ``loss.hessian()`` may itself use
+Fisher scoring and must not be mistaken for observed robust bread:
 
     H_avg = X'WX / n
     J_avg = (1/n) * sum_i psi_i psi_i'
@@ -99,6 +101,8 @@ def compute_bread_avg(
     use_fisher : bool
         If True, use ``loss.fisher_information()`` (expected Fisher, no y-dependence).
         Falls back to ``loss.hessian()`` if Fisher is not implemented.
+        If False, use ``loss.observed_hessian()`` when available, otherwise
+        ``loss.hessian()`` for compatibility with existing duck-typed losses.
 
     Returns
     -------
@@ -107,13 +111,18 @@ def compute_bread_avg(
     """
     _, xp = _resolve_backend_and_xp(X)
 
-    if use_fisher and hasattr(loss, 'fisher_information'):
-        try:
-            H_avg = loss.fisher_information(X, coef, sample_weight=sample_weight)
-        except NotImplementedError:
+    if use_fisher:
+        fisher = getattr(loss, "fisher_information", None)
+        if fisher is None:
             H_avg = loss.hessian(X, y, coef, sample_weight=sample_weight)
+        else:
+            try:
+                H_avg = fisher(X, coef, sample_weight=sample_weight)
+            except NotImplementedError:
+                H_avg = loss.hessian(X, y, coef, sample_weight=sample_weight)
     else:
-        H_avg = loss.hessian(X, y, coef, sample_weight=sample_weight)
+        observed = getattr(loss, "observed_hessian", loss.hessian)
+        H_avg = observed(X, y, coef, sample_weight=sample_weight)
 
     if penalty_curvature_diag is not None:
         curv = xp.asarray(penalty_curvature_diag, dtype=H_avg.dtype)

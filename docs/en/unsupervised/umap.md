@@ -64,13 +64,13 @@ For a supported GPU installation, construct a new estimator with `device="cuda"`
 - `n_components` controls output dimensions; use at least two on CPU. `metric` currently supports Euclidean distance only.
 - `init="random"` with `random_state` provides seeded initialization; the spectral path has the limitation below.
 - `n_epochs` and `learning_rate` control optimization; `negative_sample_rate` and `repulsion_strength` control sampled repulsion. Supply finite numeric controls.
-- `nn_method="auto"` selects exact search. `nn_method="nndescent"` requests the internal NNDescent approximate-neighbor search but currently fails on CPU with NumPy 2. `device` selects the numerical backend; GPU fits still need host memory.
+- `nn_method="auto"` selects exact search. `nn_method="nndescent"` requests the internal NNDescent approximate-neighbor search and uses NumPy on CPU, including NumPy 2, in the unreleased source. `device` selects the numerical backend; GPU fits still need host memory.
 
 All constructor defaults and approximate-search controls are in the [API reference](api-reference.md#umap).
 
 ## Backend and Host Boundary
 
-Distance evaluation, graph weights and embedding arrays use the selected NumPy, CuPy or Torch backend. On NumPy 2, an array-dispatch limitation can additionally route CPU negative sampling through Torch CPU when Torch is installed. Fuzzy-union graph assembly uses host SciPy. GPU fits transfer O(n*k) edge indices and weights between host memory and the selected backend. Spectral initialization and attraction-curve fitting also use host SciPy. GPU fitting therefore still requires CPU computation and host memory. Exact neighbors also require O(n^2) dense distance memory; `nn_method='nndescent'` avoids that distance matrix where its approximate-neighbor path works, but currently fails on CPU with NumPy 2.
+Distance evaluation, graph weights and embedding arrays use the selected NumPy, CuPy or Torch backend. In the unreleased source, neighbor search and negative sampling follow the resolved backend; NumPy CPU execution does not require Torch. Fuzzy-union graph assembly uses host SciPy. GPU fits transfer O(n*k) edge indices and weights between host memory and the selected backend. Spectral initialization and attraction-curve fitting also use host SciPy. GPU fitting therefore still requires CPU computation and host memory. Exact neighbors also require O(n^2) dense distance memory; `nn_method='nndescent'` avoids that distance matrix.
 
 ## Approximation and interpretation
 
@@ -89,7 +89,7 @@ Sparse input, non-Euclidean metrics, and new-data `transform` are not supported.
 
 ## Current restrictions
 
-- `nn_method="auto"` always selects exact search. CPU `nn_method="nndescent"` currently fails with NumPy 2; use exact search there.
+- `nn_method="auto"` always selects exact search. Published 0.3.0 has a NumPy 2 CPU NNDescent dispatch defect and may route CPU negative sampling through Torch. Use exact search for that release; the unreleased source fixes both backend-dispatch paths.
 - CPU `n_components=1` currently fails during force accumulation; use at least two dimensions.
 - The sparse `init="spectral"` path can retain a constant graph eigenvector instead of one of the requested nontrivial directions. The eigensolver starting vector is not controlled by `random_state`; use `init="random"` when seeded initialization matters.
 - Large common feature offsets can destroy small separations during float32 conversion and expanded-distance evaluation. Center features in float64 before fitting; finite output alone does not establish that the neighbor graph is reliable.
