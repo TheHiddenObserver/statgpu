@@ -442,7 +442,10 @@ class KernelDensityEstimator(BaseEstimator):
         exp_sum = xp.sum(xp.exp(shifted), axis=1)
         safe_exp_sum = xp.where(finite_rows, exp_sum, 1.0)
         finite_result = safe_max[:, 0] + xp.log(safe_exp_sum)
-        return xp.where(finite_rows, finite_result, float("-inf"))
+        # Only an all--inf row represents a legitimate zero density. Preserve
+        # NaN/+inf maxima so arithmetic failures cannot become plausible zeros
+        # and bypass the native bootstrap's non-finite-result guard.
+        return xp.where(finite_rows, finite_result, log_terms_max[:, 0])
 
     def pdf(self, points, *, batch_size: int = 1024):
         """Evaluate density, returning a backend-native (n_query,) array.

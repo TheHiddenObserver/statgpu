@@ -1005,3 +1005,57 @@ def test_benchmark_source_audit_rejects_reassigned_global_contextvar(monkeypatch
     monkeypatch.setattr(native,'_draw_indices',reassigned_get)
     with pytest.raises(bench.TraceIncomplete,match='exported to host'):
         bench.audit_native_export_sources()
+
+
+def test_log_sum_exp_preserves_invalid_rows_and_valid_zero_mass(backend):
+    from statgpu.nonparametric.kernel_smoothing._kde import KernelDensityEstimator
+    with backend.context():
+        terms = backend.array([
+            [-np.inf, -np.inf], [np.nan, -2.0], [np.inf, -2.0],
+            [-1000.0, -1001.0], [np.nan, np.inf],
+        ])
+        result = KernelDensityEstimator._log_sum_exp(terms, backend.xp)
+        assert_backend_array(result, backend)
+        actual = backend.host(result)
+    assert np.isneginf(actual[0])
+    assert np.isnan(actual[1]) and np.isnan(actual[4])
+    assert np.isposinf(actual[2])
+    np.testing.assert_allclose(actual[3], -1000.0 + np.log1p(np.exp(-1.0)))
+
+
+def test_gaussian_zero_weight_terms_still_excluded_from_log_sum(backend):
+    from statgpu.nonparametric.kernel_smoothing._kde import KernelDensityEstimator
+    with backend.context():
+        model = KernelDensityEstimator(backend=backend.name)
+        model.weights_ = backend.array([1.0, 0.0])
+        quad = backend.array([[0.0, np.nan], [np.inf, 0.0]])
+        result = model._log_weighted_gaussian_sum(quad, backend.xp)
+        assert_backend_array(result, backend)
+        actual = backend.host(result)
+    assert actual[0] == 0.0
+    assert np.isneginf(actual[1])
+
+
+def test_gaussian_large_offset_nan_cannot_become_successful_zero_interval(backend, monkeypatch):
+    # The existing quadratic-distance expansion overflows for this finite
+    # input. This test does not claim to repair that large-offset limitation:
+    # preserve NumPy's detectable NaNs and fail closed on native bootstrap.
+    with requested_backend_device(backend, monkeypatch), backend.context():
+        samples = backend.array(np.full((4, 8), 1e150))
+        points = samples[:1]
+        with np.errstate(over='ignore', invalid='ignore'):
+            model = fit_kde(samples, bandwidth=1.0, backend=backend.name)
+            assert np.isfinite(model.inv_norm_const_) and model.inv_norm_const_ > 0
+            # At mathematically zero distance, the fitted model's density would
+            # be inv_norm_const_; a successful finite zero is not valid.
+            assert np.isnan(backend.host(model.pdf(points))).all()
+            assert np.isnan(backend.host(model.logpdf(points))).all()
+            options = dict(backend=backend.name, bandwidth=1.0, n_resamples=2,
+                           random_state=1, return_bootstrap_samples=True)
+            if backend.name == 'numpy':
+                result = kde_bootstrap_confidence_interval(samples, points, **options)
+                for field in FIELDS:
+                    assert np.isnan(getattr(result, field)).all()
+            else:
+                with pytest.raises(ValueError, match='non-finite density values'):
+                    kde_bootstrap_confidence_interval(samples, points, **options)
