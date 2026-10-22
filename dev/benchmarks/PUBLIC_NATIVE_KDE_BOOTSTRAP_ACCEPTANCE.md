@@ -132,7 +132,7 @@ Mandatory physical acceptance before any performance claim:
    `OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1`. Keep the same
    budget across the tests and CPU/GPU timing rows; the JSON records these
    environment variables and available thread-pool information.
-4. Run all four capability suites and retain JUnit plus the terminal summary:
+4. Run all five capability suites and retain JUnit plus the terminal summary:
 
 ```bash
 nvidia-smi --query-gpu=index,name,uuid,memory.total,driver_version --format=csv
@@ -142,8 +142,15 @@ python -m pytest -q -ra -o junit_family=xunit1 \
   dev/tests/test_public_native_kde_bootstrap.py \
   dev/tests/test_torch_weighted_kde_native.py \
   dev/tests/test_native_kde_projection_warning.py \
+  dev/tests/test_torch_cpu_cupy_kernel_ingress.py \
   --junitxml=results/public-native-kde-physical-tests.xml
 ```
+
+The cross-library ingress suite is mandatory: its real CuPy cases exercise
+Torch CPU samples, queries and weights, including logical views and dtype
+conversion. Its CPU conversion spies are boundary contract tests, not evidence
+of GPU execution. Its two-device case may skip only under the hardware rule
+below. Keep the existing public bootstrap ingress cases in the same run.
 
 Inspect test identities and skip reasons, not just the aggregate count. Every
 required single-GPU CuPy and Torch-CUDA case must actually execute with zero

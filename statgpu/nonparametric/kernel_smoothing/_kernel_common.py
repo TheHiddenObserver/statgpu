@@ -187,10 +187,19 @@ def _as_backend_float64(values, xp, *, ref_arr=None, name="array"):
         # caller-provided host storage, never native accelerator arrays.
         if any(stride < 0 for stride in values.strides):
             values = values.copy()
-    if getattr(xp, "__name__", "") == "cupy" and ref_arr is not None:
+    if getattr(xp, "__name__", "") == "cupy":
+        source_device = _torch_dev(values)
+        if source_device is not None and source_device.type == "cpu":
+            # CuPy cannot consume Torch CPU storage/dtypes directly. Export
+            # only host tensors, resolving logical views and NumPy-unsupported
+            # dtypes (e.g. bfloat16) without moving accelerator data to CPU.
+            values = values.detach().resolve_conj().resolve_neg().double().numpy()
         target = getattr(getattr(ref_arr, "device", None), "id", None)
         if target is not None:
             return _cupy_asarray_on_device(values, target, dtype=xp.float64)
+        # A Torch input can also be the training reference. Do not pass that
+        # reference to xp_asarray, which would rewrite dtype to torch.float64.
+        return xp.asarray(values, dtype=xp.float64)
     return xp_asarray(values, dtype=xp.float64, xp=xp, ref_arr=ref_arr)
 
 
