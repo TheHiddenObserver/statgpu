@@ -1,8 +1,15 @@
 # Native CuPy KDE: endogenous resampling experiment
 
 Base: merged PR #252, `8417c200d2e0751c94caef698060419867f30a3f`.
-Status: developer-only implementation; physical acceptance of this RNG extension
-is pending. The earlier fixed-index P100 evidence does not validate this change.
+Status: developer-only implementation; P100 core acceptance passed at
+`815fcc1ebc56e00269a564e7b4e31a5316c20d50` (THREADS=1): 304 tests passed,
+2 permitted two-GPU tests skipped, all 62 required single-GPU tests executed,
+and all 4 benchmark JSONs complete. See [PR #253](https://github.com/TheHiddenObserver/statgpu/pull/253)
+for the verified evidence (archive SHA-256:
+`7a4c981b58a4c2ae7ee7d1973b0d878ba1ba936d9aa812ace5c892cb673afb85`).
+This is exact-head core evidence, not a later-head rerun, full RNG certification,
+interval-coverage claim or canonical dashboard qualification. Extended q/B and
+T=2/T=4 profiles remain unrun. The earlier fixed-index P100 evidence is separate.
 No public dispatch, return type, defaults or package version changes.
 
 ## Contract reconnaissance and approved boundary
