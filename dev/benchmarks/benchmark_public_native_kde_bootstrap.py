@@ -441,7 +441,18 @@ class PublicTrace(NumericalTrace):
         def guarded(*args, **kwargs):
             if self.active and backend == 'numpy' and self.runtime.name != 'numpy':
                 from dev.benchmarks.learning_execution_trace import identities
-                if any(identity['backend'] == 'numpy' for identity in identities((args, kwargs))):
+                def host_sequence(value):
+                    if isinstance(value, dict):
+                        return any(host_sequence(item) for item in value.values())
+                    if isinstance(value, (list, tuple)):
+                        return (not value or any(isinstance(item, (bool, int, float, complex, np.generic))
+                            or host_sequence(item) for item in value))
+                    return False
+                # Python numeric sequences are host array operands too, even
+                # though their scalar leaves have no backend array identity.
+                if (any(identity['backend'] == 'numpy' for identity in identities((args, kwargs)))
+                        or any(host_sequence(item) for item in args)
+                        or any(host_sequence(item) for item in kwargs.values())):
                     raise TraceIncomplete('host array numerical operation inside native stages: ' + name)
             return wrapped(*args, **kwargs)
         return guarded
@@ -614,12 +625,25 @@ def _valid_trace_evidence(trace, name, device, problem):
         for record in records:
             observed = set()
             for event in record.get('operations',[]):
+                scalar_control = lambda item: (item.get('kind') == 'numpy-scalar'
+                    and item.get('backend') == 'numpy' and item.get('device') == 'cpu'
+                    and 'shape' not in item)
                 if event.get('backend') != name:
+                    # A claimed successful host guard cannot coexist with a
+                    # recorded foreign array computation. Honest NumPy scalar
+                    # controls remain permitted, but never count as evidence.
+                    if (event.get('backend') != 'numpy' or any(not scalar_control(item)
+                            for item in event.get('inputs',[]) + event.get('outputs',[]))):
+                        return False
                     continue
-                operands = event.get('inputs',[]) + event.get('outputs',[])
-                if any(not matching(item) for item in operands):
+                # Revalidate serialized input roles independently of report().
+                # NumPy scalar controls are not host ndarrays and do not count
+                # as native array execution. No exemption applies to outputs.
+                inputs = [item for item in event.get('inputs',[]) if not scalar_control(item)]
+                operands = inputs + event.get('outputs',[])
+                if any(not matching(item) or item.get('kind') != 'array' for item in operands):
                     return False
-                if event.get('inputs') and event.get('outputs'):
+                if inputs and event.get('outputs'):
                     observed.add(event.get('operation'))
             if not set(required).issubset(observed):
                 return False

@@ -2,11 +2,12 @@
 from contextlib import nullcontext
 from types import SimpleNamespace
 import sys
+import json
 
 import numpy as np
 import pytest
 
-from dev.benchmarks.learning_execution_trace import NumericalTrace, TraceIncomplete, stage, learning_stages
+from dev.benchmarks.learning_execution_trace import NumericalTrace, TraceIncomplete, identities, stage, learning_stages
 from dev.benchmarks import benchmark_learning_coverage as b
 
 
@@ -296,3 +297,109 @@ def test_subclass_repeated_primitive_names_are_instrumented_once():
     with trace:
         target(np.ones(3))
     assert len(trace.report()['stages'][0]['operations']) == 1
+
+
+def scalar_control_protocol_trace():
+    """Synthetic observer protocol only, never CuPy execution evidence.
+
+    CuPy v13.6.0 cupy/linalg/_norms.py:257-258 passes dtype.type(0/-inf)
+    into where alongside native arrays. These scalars are genuinely NumPy
+    scalars; native identities below are explicit metadata fixtures, not arrays.
+    """
+    def target():
+        pass
+    native = dict(backend='cupy', device='cuda:0', dtype='float64', kind='array', shape=[])
+    scalar = identities(np.dtype('float64').type(0))[0]
+    trace = NumericalTrace(SimpleNamespace(name='cupy', device='cuda:0'),
+        [stage(target, 'source-derived-slogdet', ('where',))])
+    event = dict(operation='where', backend='cupy',
+        inputs=[dict(native, dtype='bool'), scalar, native.copy()], outputs=[native.copy()])
+    trace.records = [dict(stage='source-derived-slogdet', completed=True, operations=[event])]
+    return trace, event
+
+
+def test_numpy_scalar_control_identity_is_not_zero_dimensional_array():
+    scalar, array = identities(np.float64(0))[0], identities(np.asarray(0.))[0]
+    assert scalar == dict(backend='numpy', device='cpu', dtype='float64', kind='numpy-scalar')
+    assert array == dict(backend='numpy', device='cpu', dtype='float64', kind='array', shape=[])
+    assert identities(0.) == []
+
+
+@pytest.mark.parametrize('value', (0., -float('inf')))
+def test_source_derived_numpy_scalar_control_protocol_roundtrips(value):
+    trace, event = scalar_control_protocol_trace()
+    event['inputs'][1] = identities(np.dtype('float64').type(value))[0]
+    trace.records = json.loads(json.dumps(trace.records))
+    report = trace.report()
+    assert report['stages'][0]['operations'][0]['inputs'][1]['kind'] == 'numpy-scalar'
+    assert report['stages'][0]['operations'][0]['outputs'][0]['shape'] == []
+
+
+@pytest.mark.parametrize('failure', ('host-scalar-output', 'host-array-input', 'host-0d-input',
+    'host-array-output', 'host-0d-output', 'wrong-device-input', 'wrong-device-output',
+    'foreign-backend-input', 'foreign-backend-output', 'scalar-only-input',
+    'forged-native-scalar-input', 'forged-native-scalar-output', 'scalar-with-array-shape',
+    'missing-input-kind', 'unknown-input-kind', 'missing-output-kind', 'unknown-output-kind'))
+def test_scalar_control_protocol_rejects_non_native_array_evidence(failure):
+    trace, event = scalar_control_protocol_trace()
+    if failure == 'host-scalar-output': event['outputs'].append(identities(np.float64(1.))[0])
+    elif failure == 'host-array-input': event['inputs'].append(identities(np.ones(2))[0])
+    elif failure == 'host-0d-input': event['inputs'].append(identities(np.asarray(0.))[0])
+    elif failure == 'host-array-output': event['outputs'].append(identities(np.ones(2))[0])
+    elif failure == 'host-0d-output': event['outputs'].append(identities(np.asarray(0.))[0])
+    elif failure == 'wrong-device-input': event['inputs'][0]['device'] = 'cuda:1'
+    elif failure == 'wrong-device-output': event['outputs'][0]['device'] = 'cuda:1'
+    elif failure == 'foreign-backend-input': event['inputs'][0]['backend'] = 'torch'
+    elif failure == 'foreign-backend-output': event['outputs'][0]['backend'] = 'torch'
+    elif failure == 'scalar-only-input': event['inputs'] = [event['inputs'][1]]
+    elif failure == 'forged-native-scalar-input': event['inputs'][0]['kind'] = 'numpy-scalar'
+    elif failure == 'forged-native-scalar-output': event['outputs'][0]['kind'] = 'numpy-scalar'
+    elif failure == 'scalar-with-array-shape': event['inputs'][1]['shape'] = []
+    elif failure == 'missing-input-kind': event['inputs'][0].pop('kind')
+    elif failure == 'unknown-input-kind': event['inputs'][0]['kind'] = 'unknown'
+    elif failure == 'missing-output-kind': event['outputs'][0].pop('kind')
+    elif failure == 'unknown-output-kind': event['outputs'][0]['kind'] = 'unknown'
+    with pytest.raises(TraceIncomplete):
+        trace.report()
+
+
+def test_scalar_control_protocol_diagnostic_identifies_offending_operation_and_operands():
+    trace, event = scalar_control_protocol_trace()
+    event['outputs'].append(identities(np.float64(1.))[0])
+    with pytest.raises(TraceIncomplete) as error:
+        trace.report()
+    text = str(error.value)
+    for detail in ('source-derived-slogdet', 'operation=where', 'expected=cupy/cuda:0',
+                   'inputs=', 'outputs=', 'numpy-scalar'):
+        assert detail in text
+
+
+def test_numpy_scalar_control_only_does_not_prove_cpu_array_work():
+    def target(value):
+        return np.exp(value)
+    trace = NumericalTrace(cpu_runtime(), [stage(target, 'scalar-only', ('exp',))])
+    with trace:
+        target(np.float64(1.))
+    with pytest.raises(TraceIncomplete, match='No matching native arithmetic'):
+        trace.report()
+
+
+def test_real_numpy_reduction_scalar_output_retains_cpu_array_evidence():
+    def target(value):
+        return np.sum(value)
+    trace = NumericalTrace(cpu_runtime(), [stage(target, 'reduction', ('sum',))])
+    with trace:
+        target(np.ones(3))
+    event = trace.report()['stages'][0]['operations'][0]
+    assert event['inputs'][0]['kind'] == 'array'
+    assert event['outputs'][0]['kind'] == 'numpy-scalar'
+
+
+def test_numpy_scalar_control_with_array_shape_cannot_prove_cpu_array_work():
+    trace, event = scalar_control_protocol_trace()
+    trace.runtime = cpu_runtime()
+    event['backend'] = 'numpy'
+    event['inputs'] = [dict(identities(np.float64(1.))[0], shape=[])]
+    event['outputs'] = identities(np.asarray(1.))
+    with pytest.raises(TraceIncomplete):
+        trace.report()

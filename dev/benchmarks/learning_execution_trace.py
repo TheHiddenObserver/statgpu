@@ -25,9 +25,13 @@ def identities(value):
         return [item for v in value for item in identities(v)]
     import numpy as np
     if isinstance(value, np.generic):
-        return [{'backend': 'numpy', 'device': 'cpu', 'dtype': str(value.dtype)}]
+        # A NumPy scalar can be a legitimate scalar argument to a native
+        # primitive (e.g. CuPy slogdet's where fill values). Retain its host
+        # identity, but never confuse it with a host ndarray or array evidence.
+        return [{'backend': 'numpy', 'device': 'cpu', 'dtype': str(value.dtype),
+                 'kind': 'numpy-scalar'}]
     try:
-        return [array_identity(value)]
+        return [dict(array_identity(value), kind='array', shape=list(value.shape))]
     except (RuntimeError, AttributeError, TypeError):
         return []
 
@@ -192,10 +196,23 @@ class NumericalTrace:
                 for event in record['operations']:
                     if event['backend'] != required_backend:
                         continue
-                    matches = lambda item: item['backend'] == required_backend and item['device'] == required_device
-                    if any(not matches(a) for a in event['inputs'] + event['outputs']):
-                        raise TraceIncomplete('Native numerical primitive used wrong backend/device in stage ' + spec['label'])
-                    if (event['inputs'] or event['operation'] in ('rand', 'RandomState.random_sample')) and event['outputs'] and all(matches(a) for a in event['inputs'] + event['outputs']):
+                    matches = lambda item: (item['backend'] == required_backend and item['device'] == required_device
+                        and (item.get('kind') == 'array'
+                            or (required_backend == 'numpy' and item.get('kind') == 'numpy-scalar'
+                                and 'shape' not in item)))
+                    scalar_control = lambda item: (item.get('kind') == 'numpy-scalar'
+                        and item['backend'] == 'numpy' and item['device'] == 'cpu'
+                        and 'shape' not in item)
+                    array_inputs = [item for item in event['inputs'] if not scalar_control(item)]
+                    # Only INPUT scalar controls are exempt from placement.
+                    # In particular, NumPy scalar outputs and 0D host ndarrays
+                    # must still reject a purported GPU-native primitive.
+                    if any(not matches(a) for a in array_inputs + event['outputs']):
+                        raise TraceIncomplete('Native numerical primitive used wrong backend/device in stage '
+                            + spec['label'] + ': operation=' + event['operation']
+                            + '; expected=' + required_backend + '/' + required_device
+                            + '; inputs=' + repr(event['inputs']) + '; outputs=' + repr(event['outputs']))
+                    if (array_inputs or event['operation'] in ('rand', 'RandomState.random_sample')) and event['outputs']:
                         observed.add(event['operation'])
                 if not set(spec['operations']).issubset(observed):
                     raise TraceIncomplete('No matching native arithmetic for stage ' + spec['label'] + ': expected ' + ','.join(spec['operations']))
@@ -203,6 +220,7 @@ class NumericalTrace:
                 'stages': self.records,
                 'scope': 'selected native numerical primitive calls within source-identified stage invocations; not whole-algorithm GPU residency',
                 'instrumentation': 'Python stage profiler and native function wrappers included in measured diagnostic call',
+                'scalar_controls': 'NumPy scalar inputs retain host identities but do not establish array execution; outputs and all ndarrays remain placement-checked',
                 'unobserved': 'array operator overloads, fused kernels, library-internal operations and unregistered functions are not exhaustively traced'}
 
 

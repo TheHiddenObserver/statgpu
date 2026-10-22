@@ -728,7 +728,7 @@ def synthetic_complete_benchmark():
                 cdf_max_abs_error=0.,dkw_epsilon=float(np.sqrt(np.log(2./1e-6)/(2.*problem['resamples']*problem['n']))),dkw_alpha=1e-6),
             timing=dict(instrumented=False,samples_seconds=[.1]*7,median_seconds=.1,synchronized_device=device))
         if name != 'numpy':
-            identity = dict(backend=name,device=device,dtype='float64')
+            identity = dict(backend=name,device=device,dtype='float64',kind='array',shape=[])
             stages = []
             for label,count,operations in [('native-bootstrap',1,()),('probability-cdf',1,('cumsum',)),
                 ('native-weighted-rng',problem['resamples'],('searchsorted',)),('native-percentile',1,('quantile',)),
@@ -755,6 +755,106 @@ def test_benchmark_complete_synthetic_fixture_and_policy_noncomparability():
     assert different['validation']['status'] == 'complete'
     assert different['performance']['selector_policy_comparable'] is False
     assert different['performance']['comparisons'] == []
+
+
+def test_benchmark_scalar_control_protocol_survives_json_roundtrip():
+    """Synthetic gate protocol, not physical GPU execution evidence."""
+    import json
+    from dev.benchmarks import benchmark_public_native_kde_bootstrap as bench
+    from dev.benchmarks.learning_execution_trace import identities
+    result = synthetic_complete_benchmark()
+    trace = result['rows'][1]['operation_evidence']
+    native = dict(backend='cupy', device='cuda:1', dtype='float64', kind='array', shape=[])
+    # Source-derived CuPy slogdet where signatures, not a recorded remote event.
+    for value in (0., -float('inf')):
+        trace['stages'][0]['operations'].append(dict(operation='where', backend='cupy',
+            inputs=[dict(native, dtype='bool'), identities(np.float64(value))[0], native.copy()],
+            outputs=[native.copy()]))
+    result = json.loads(json.dumps(result))
+    assert bench.finalize(result)['validation']['status'] == 'complete'
+
+
+@pytest.mark.parametrize('failure', ('scalar-only-input', 'host-scalar-output', 'host-0d-input',
+    'host-0d-output', 'host-array-input', 'host-array-output', 'foreign-backend-input',
+    'foreign-backend-output', 'wrong-device-input', 'wrong-device-output',
+    'forged-native-scalar-input', 'forged-native-scalar-output', 'scalar-with-array-shape',
+    'missing-input-kind', 'unknown-input-kind', 'missing-output-kind', 'unknown-output-kind'))
+def test_benchmark_scalar_control_protocol_fails_closed(failure):
+    from dev.benchmarks import benchmark_public_native_kde_bootstrap as bench
+    from dev.benchmarks.learning_execution_trace import identities
+    result = synthetic_complete_benchmark()
+    event = result['rows'][1]['operation_evidence']['stages'][1]['operations'][0]
+    scalar = identities(np.float64(0.))[0]
+    event['inputs'].append(scalar)
+    if failure == 'scalar-only-input': event['inputs'] = [scalar]
+    elif failure == 'host-scalar-output': event['outputs'].append(scalar)
+    elif failure == 'host-0d-input': event['inputs'].append(identities(np.asarray(0.))[0])
+    elif failure == 'host-0d-output': event['outputs'].append(identities(np.asarray(0.))[0])
+    elif failure == 'host-array-input': event['inputs'].append(identities(np.zeros(2))[0])
+    elif failure == 'host-array-output': event['outputs'].append(identities(np.zeros(2))[0])
+    elif failure == 'foreign-backend-input': event['inputs'][0]['backend'] = 'torch'
+    elif failure == 'foreign-backend-output': event['outputs'][0]['backend'] = 'torch'
+    elif failure == 'wrong-device-input': event['inputs'][0]['device'] = 'cuda:0'
+    elif failure == 'wrong-device-output': event['outputs'][0]['device'] = 'cuda:0'
+    elif failure == 'forged-native-scalar-input': event['inputs'][0]['kind'] = 'numpy-scalar'
+    elif failure == 'forged-native-scalar-output': event['outputs'][0]['kind'] = 'numpy-scalar'
+    elif failure == 'scalar-with-array-shape': scalar['shape'] = []
+    elif failure == 'missing-input-kind': event['inputs'][0].pop('kind')
+    elif failure == 'unknown-input-kind': event['inputs'][0]['kind'] = 'unknown'
+    elif failure == 'missing-output-kind': event['outputs'][0].pop('kind')
+    elif failure == 'unknown-output-kind': event['outputs'][0]['kind'] = 'unknown'
+    assert bench.finalize(result)['validation']['status'] == 'partial'
+    assert result['performance']['comparisons'] == []
+
+
+@pytest.mark.parametrize('value', ([1., 2.], (1., 2.), [[1., 2.]], [],
+                                 np.ones(2), np.asarray(0.), np.float64(1.)))
+def test_public_trace_host_guard_rejects_host_array_operands(value):
+    """CPU observer-only call; no accelerator module or synthetic GPU array."""
+    from types import SimpleNamespace
+    from dev.benchmarks import benchmark_public_native_kde_bootstrap as bench
+    trace = bench.PublicTrace(SimpleNamespace(name='cupy'), [], bench.PRESETS['tiny'])
+    trace.active[1] = {'operations': []}
+    guarded = trace._wrap(np.sum, 'numpy', 'sum')
+    with pytest.raises(bench.TraceIncomplete, match='host array numerical operation'):
+        guarded(value)
+
+
+def test_public_trace_host_guard_keeps_python_scalar_control_without_gpu_evidence():
+    from types import SimpleNamespace
+    from dev.benchmarks import benchmark_public_native_kde_bootstrap as bench
+    trace = bench.PublicTrace(SimpleNamespace(name='cupy'), [], bench.PRESETS['tiny'])
+    trace.active[1] = {'operations': []}
+    result = trace._wrap(np.sqrt, 'numpy', 'sqrt')(4.)
+    assert result == 2.
+    event = trace.active[1]['operations'][0]
+    assert event['backend'] == 'numpy' and event['inputs'] == []
+    assert event['outputs'][0]['kind'] == 'numpy-scalar'
+
+
+@pytest.mark.parametrize('shape', ((), (2,)))
+@pytest.mark.parametrize('backend', ('numpy', 'torch'))
+def test_benchmark_guard_claim_cannot_hide_foreign_array_event(shape, backend):
+    from dev.benchmarks import benchmark_public_native_kde_bootstrap as bench
+    from dev.benchmarks.learning_execution_trace import identities
+    result = synthetic_complete_benchmark()
+    identity = dict(identities(np.ones(shape))[0], backend=backend)
+    result['rows'][1]['operation_evidence']['stages'][0]['operations'].append(
+        dict(operation='sum', backend=backend, inputs=[identity], outputs=[identity.copy()]))
+    assert bench.finalize(result)['validation']['status'] == 'partial'
+    assert result['performance']['comparisons'] == []
+
+
+def test_benchmark_host_scalar_control_is_permitted_but_never_native_evidence():
+    from dev.benchmarks import benchmark_public_native_kde_bootstrap as bench
+    from dev.benchmarks.learning_execution_trace import identities
+    result = synthetic_complete_benchmark()
+    event = dict(operation='sqrt', backend='numpy', inputs=[], outputs=identities(np.float64(2.)))
+    trace = result['rows'][1]['operation_evidence']
+    trace['stages'][0]['operations'].append(event)
+    assert bench.finalize(result)['validation']['status'] == 'complete'
+    trace['stages'][1]['operations'] = [dict(event, operation='cumsum')]
+    assert bench.finalize(result)['validation']['status'] == 'partial'
 
 
 @pytest.mark.parametrize('failure', ('missing-backend','cpu-device','trace','stage','stage-op','operand-device',
