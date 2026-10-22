@@ -4,6 +4,8 @@
 Different RNG algorithms need not realize identical indices. Each seeded
 workflow is validated against its own captured indices, outside timing. The
 original controlled-index runner remains the paired-numerical comparison.
+Public baselines are the current checkout, not a frozen pre-migration hybrid;
+these ratios are not before/after migration speedups.
 """
 from __future__ import annotations
 
@@ -25,7 +27,7 @@ import numpy as np
 import statgpu
 from dev.benchmarks import benchmark_native_kde_bootstrap as controlled
 from dev.benchmarks.benchmark_release_refresh import BackendUnavailable, Runtime, environment
-from dev.benchmarks.learning_execution_trace import TraceIncomplete, stage
+from dev.benchmarks.learning_execution_trace import NumericalTrace, TraceIncomplete, learning_stages, stage
 
 Problem, PRESETS = controlled.Problem, controlled.PRESETS
 FIELDS = controlled.FIELDS
@@ -111,7 +113,7 @@ def make_call(variant, runtime, data, problem, workspace_bytes, query_chunk):
 
 
 def capture_public(call):
-    """Forward actual NumPy RNG calls unchanged, only during diagnostics."""
+    """Capture each public backend's realized indices, only during diagnostics."""
     original = np.random.default_rng
     rows = []
     class Recorder:
@@ -123,11 +125,33 @@ def capture_public(call):
             return result
         def __getattr__(self, name):
             return getattr(self.rng, name)
-    with patch.object(np.random, 'default_rng', lambda *a, **kw: Recorder(original(*a, **kw))):
+    from statgpu.nonparametric.kernel_smoothing import _native_bootstrap as native
+    draw_indices = native._draw_indices
+    def capture_native(*args, **kwargs):
+        result = draw_indices(*args, **kwargs)
+        # Explicit diagnostic-only host copy, never installed during timing.
+        rows.append((result.detach().cpu().numpy() if type(result).__module__.split('.')[0] == 'torch' else result.get()).copy())
+        return result
+    with patch.object(np.random, 'default_rng', lambda *a, **kw: Recorder(original(*a, **kw))), \
+            patch.object(native, '_draw_indices', capture_native):
         value = call()
     if not rows:
         raise AssertionError('public bootstrap RNG indices were not observed')
     return value, np.stack(rows).astype(np.int64, copy=False)
+
+
+def trace_public_current(runtime, call, problem):
+    """Observe the live public native baseline, not the old host-RNG path."""
+    specs = learning_stages('kde_bootstrap', runtime.name)
+    for spec in specs:
+        if spec['label'] in ('kde-fit', 'kde-density', 'native-covariance'):
+            spec['minimum_calls'] = problem.resamples + 1
+        elif spec['label'] == 'native-resampling':
+            spec['minimum_calls'] = problem.resamples
+    with NumericalTrace(runtime, specs) as trace:
+        value = call()
+    runtime.sync(runtime.device)
+    return value, trace.report()
 
 
 def validate_indices(indices, data, problem):
@@ -335,7 +359,8 @@ def finalize(result):
         tier='physical-gpu' if eligible else 'diagnostic-only', physical_gpu_claim=eligible,
         uncovered_reasons=reasons)
     result['performance'] = {'eligible': eligible, 'end_to_end_comparisons': [],
-        'pairing': 'same input distribution/parameters; per-backend validated RNG realizations, NOT identical indices'}
+        'pairing': 'same input distribution/parameters; per-backend validated RNG realizations, NOT identical indices',
+        'baseline_identity': 'public API from this checkout, not frozen pre-migration hybrid; historical ratios are not directly comparable'}
     for row in result['rows']:
         row['performance_eligible'] = eligible
     if eligible:
@@ -353,7 +378,9 @@ def run_benchmark(problem, *, warmup=2, repeats=7, device=0, workspace_bytes=64*
     result = {'schema_version': 'statgpu-benchmark-v2', 'source': fingerprint(), 'environment': env,
         'benchmark': {'name': 'native-kde-rng-end-to-end', 'script': 'dev/benchmarks/benchmark_native_kde_rng.py',
                       'method': 'RNG + original estimate + resampled refits + pointwise linear quantiles',
-                      'public_baseline_api': 'kde_bootstrap_confidence_interval'},
+                      'public_baseline_api': 'kde_bootstrap_confidence_interval',
+                      'public_baseline_identity': 'live current checkout; CuPy public baseline is native after public migration, not frozen pre-migration hybrid',
+                      'comparison_limit': 'current public implementation versus historical experimental candidate; not before/after migration or cross-commit speedup evidence'},
         'problem': asdict(problem), 'rows': [],
         'timing': {'scope': 'rng-inclusive-end-to-end-with-input-transfers-and-host-results',
                    'warmup': warmup, 'repeats': repeats, 'statistic': 'median',
@@ -401,7 +428,7 @@ def run_benchmark(problem, *, warmup=2, repeats=7, device=0, workspace_bytes=64*
             reference, metrics, row['rng_validation'] = diagnose(variant, runtime, data, problem, workspace_bytes, query_chunk)
             row['correctness'] = {'status': 'pass', 'metrics': metrics}
             if variant == VARIANTS[1]:
-                value, row['operation_evidence'] = controlled.trace_current(runtime, call, problem)
+                value, row['operation_evidence'] = trace_public_current(runtime, call, problem)
                 check(value, reference, problem)
             elif variant == VARIANTS[2]:
                 value, row['operation_evidence'] = trace_native(runtime, data, problem, workspace_bytes, query_chunk)

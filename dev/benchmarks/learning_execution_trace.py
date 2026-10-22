@@ -44,7 +44,7 @@ class NumericalTrace:
     are transferred, values read, or operations synchronized by the observer.
     """
     OPS = ('exp', 'sum', 'mean', 'abs', 'sqrt', 'quantile', 'std', 'var',
-           'dot', 'matmul', 'correlate', 'bincount')
+           'dot', 'matmul', 'correlate', 'bincount', 'cumsum', 'searchsorted', 'argsort', 'rand')
     LINALG = ('inv', 'solve', 'eigh', 'eigvalsh', 'qr', 'svd', 'det')
 
     def __init__(self, runtime, stages):
@@ -152,7 +152,7 @@ class NumericalTrace:
             modules.append((self.runtime.name, self.runtime.module))
         try:
             for backend, module in modules:
-                for name in self.OPS:
+                for name in dict.fromkeys(self.OPS):
                     fn = getattr(module, name, None)
                     if callable(fn):
                         self._verify_native_callable(fn, module, backend, name)
@@ -162,6 +162,12 @@ class NumericalTrace:
                     if callable(fn):
                         self._verify_native_callable(fn, module, backend, 'linalg.' + name)
                         self._stack.enter_context(patch.object(module.linalg, name, self._wrap(fn, backend, 'linalg.' + name)))
+            if self.runtime.name == 'cupy' and any('RandomState.random_sample' in spec['operations'] for spec in self.stages):
+                module = self.runtime.module
+                fn = module.random.RandomState.random_sample
+                self._verify_native_callable(fn, module, 'cupy', 'RandomState.random_sample')
+                self._stack.enter_context(patch.object(module.random.RandomState, 'random_sample',
+                    self._wrap(fn, 'cupy', 'RandomState.random_sample')))
             sys.setprofile(self._profile)
             return self
         except BaseException:
@@ -189,7 +195,7 @@ class NumericalTrace:
                     matches = lambda item: item['backend'] == required_backend and item['device'] == required_device
                     if any(not matches(a) for a in event['inputs'] + event['outputs']):
                         raise TraceIncomplete('Native numerical primitive used wrong backend/device in stage ' + spec['label'])
-                    if event['inputs'] and event['outputs'] and all(matches(a) for a in event['inputs'] + event['outputs']):
+                    if (event['inputs'] or event['operation'] in ('rand', 'RandomState.random_sample')) and event['outputs'] and all(matches(a) for a in event['inputs'] + event['outputs']):
                         observed.add(event['operation'])
                 if not set(spec['operations']).issubset(observed):
                     raise TraceIncomplete('No matching native arithmetic for stage ' + spec['label'] + ': expected ' + ','.join(spec['operations']))
@@ -221,7 +227,18 @@ def learning_stages(case, backend):
         else:
             specs = [stage(kde.KernelDensityEstimator.fit, 'kde-fit', ('sum',)),
                      stage(bw.select_bandwidth, 'bandwidth-selection', placement='host-selector')]
-            if method in ('nrd', 'nrd0'):
+            if backend != 'numpy':
+                from statgpu.nonparametric.kernel_smoothing import _native_bandwidth as native_bw
+                specs.append(stage(common._weighted_covariance, 'native-covariance', ('sum',)))
+                specs[1] = stage(native_bw.select_bandwidth_native, 'native-bandwidth-selection', ('sum',))
+                if method in ('nrd', 'nrd0'):
+                    specs.append(stage(native_bw._nrd_factor, 'native-nrd', ('std', 'quantile')))
+                elif method not in ('scott', 'silverman'):
+                    specs.extend([stage(native_bw._r_factor, 'native-r-selector', ('std', 'quantile', 'bincount')),
+                                  stage(native_bw._binned_functional, 'native-selector-objective', ('exp', 'sum')),
+                                  stage(native_bw._weighted_quantile_resample_1d, 'native-weighted-selector-resampling', ('argsort', 'cumsum', 'searchsorted'), minimum_calls=0)])
+                specs.append(stage(native_bw._project_to_principal_axis, 'native-selector-projection', ('linalg.eigh', 'sum'), minimum_calls=0))
+            elif method in ('nrd', 'nrd0'):
                 specs.append(stage(common._bandwidth_factor_1d_nrd, 'host-nrd', placement='host-numerical-selector'))
             elif method not in ('scott', 'silverman'):
                 specs.append(stage(bw._bandwidth_factor_1d_r_selectors, 'host-r-selector', placement='host-numerical-selector'))
@@ -230,6 +247,15 @@ def learning_stages(case, backend):
         specs = [stage(kde.KernelDensityEstimator.fit, 'kde-fit', ('sum',), minimum_calls=count),
                  stage(kde.KernelDensityEstimator._evaluate_density, 'kde-density', ('exp',), minimum_calls=count),
                  stage(kde.kde_confidence_interval, 'host-interval-assembly', placement='mixed-density-and-host-report')]
+        if case == 'kde_bootstrap' and backend != 'numpy':
+            from statgpu.nonparametric.kernel_smoothing import _native_bootstrap as native
+            specs[-1] = stage(kde.kde_confidence_interval, 'public-interval-assembly', placement='host-api-report-and-scalar-control')
+            specs.extend([
+                stage(common._weighted_covariance, 'native-covariance', ('sum',), minimum_calls=count),
+                stage(native._probability_cdf, 'native-probability-cdf', ('cumsum',)),
+                stage(native._draw_indices, 'native-resampling', ('searchsorted', 'rand' if backend == 'torch' else 'RandomState.random_sample'), minimum_calls=20),
+                stage(native._percentiles, 'native-interval-quantiles', ('quantile',)),
+            ])
     else:
         raise ValueError('No stage contract for ' + case)
     return specs

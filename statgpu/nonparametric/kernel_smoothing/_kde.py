@@ -1,8 +1,9 @@
-"""Kernel density estimation with NumPy/CuPy backends."""
+"""Kernel density estimation with NumPy, CuPy, and Torch backends."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from contextlib import nullcontext
 import math
 from statistics import NormalDist
 from typing import Any, Dict, Optional, Union
@@ -10,7 +11,8 @@ from typing import Any, Dict, Optional, Union
 import numpy as np
 
 from statgpu._base import BaseEstimator
-from statgpu.backends import xp_asarray, xp_empty, xp_maximum
+from statgpu._config import Device, _get_configured_device
+from statgpu.backends import get_backend, xp_asarray, xp_empty, xp_maximum
 
 
 def _xp_max(x, **kwargs):
@@ -24,6 +26,7 @@ def _xp_max(x, **kwargs):
         return result.values
     return result
 from statgpu.nonparametric.kernel_smoothing._bandwidth_selection import select_bandwidth
+from statgpu.nonparametric.kernel_smoothing._native_bandwidth import projection_warning_scope
 
 from statgpu.nonparametric.kernel_smoothing._kernel_common import (
     _auto_backend_from_device,
@@ -89,17 +92,18 @@ class KernelDensityEstimator(BaseEstimator):
     weights : array-like, shape (n_samples,), optional
         Finite nonnegative training weights with positive sum, normalized
         internally. Covariance needs more than one effectively weighted row.
-        Supply weights here, not as a keyword to fit.
+        Supply weights here, not as a keyword to fit. Weights are converted
+        to the training samples' float64 dtype and device.
     kernel : str, default='gaussian'
         gaussian, rectangular, triangular, epanechnikov, biweight, triweight,
         cosine, or optcosine. The last two require one-dimensional samples.
     backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
-        Array library. auto consults estimator/global device settings, but an
-        explicit library can override device. See current exceptions below.
+        Array library. auto consults estimator/global device settings.
+        Explicit backend and device requests must be compatible.
     device : {'auto', 'cpu', 'cuda', 'torch'}, default='auto'
-        Requested computation device. The intended convention requires an
-        explicit accelerator or an error; current routing does not always
-        enforce it, even with matching backend and device settings.
+        Computation device. 'cuda' requires CuPy CUDA and 'torch' requires
+        Torch CUDA; unavailable accelerators raise rather than falling back.
+        Use backend='torch', device='cpu' for an explicit Torch CPU path.
     n_jobs : int or None, default=None
         Shared estimator option; does not create a parallel query pool.
     gpu_memory_cleanup : bool, default=False
@@ -126,13 +130,12 @@ class KernelDensityEstimator(BaseEstimator):
 
     Notes
     -----
-    With NumPy or Torch CPU inputs, device='torch' and backend='auto' or
-    'torch' can fit and predict on Torch CPU. Explicit backend='torch' can
-    also run on CPU with device='cuda'; backend='numpy' overrides either
-    accelerator request. Inspect samples_ and prediction arrays, using
-    Torch .device/.is_cuda or CuPy .device; NumPy arrays are on CPU. Neither
-    the configured device nor backend_ proves CUDA placement. For a
-    predictable CPU path, use NumPy inputs with device='cpu', backend='numpy'.
+    Explicit device='torch' and device='cuda' never silently run on CPU.
+    With backend='torch', device='auto', native Torch inputs retain their
+    .device/.is_cuda placement, while host inputs use Torch CPU unless an
+    explicit global device selects an accelerator. With backend='auto', the
+    estimator/global device policy selects the backend, not the input type.
+    For a predictable NumPy CPU path use device='cpu', backend='numpy'.
 
     fit accepts finite real samples (n,) or (n,p), n >= 2; numeric calculations
     use float64. pdf/predict/__call__ return backend-native (n_query,) density;
@@ -146,20 +149,13 @@ class KernelDensityEstimator(BaseEstimator):
     per-feature scales, map density back by dividing by prod(scale), or subtract
     sum(log(scale)) from log density. Keep numeric bandwidth factors unchanged;
     rescaling mitigates the demonstrated problem, not every numerical failure.
-    Remove zero-weight rows before fitting when
-    using Gaussian log density: zero-weight rows can currently destabilize
-    its log-sum-exp evaluation in the tails. Rerunning a string bandwidth
-    selector after deletion can change its chosen factor. Choose new smoothing
-    on the positive-weight rows, or preserve a previously chosen factor by
-    refitting them and their retained weights with numeric
-    bandwidth=original.bandwidth_factor_. This preserves the specified kernel
-    covariance and density, not the scientific suitability of the original
-    selector choice. Density interval helpers return
-    host NumPy arrays and have separate pointwise coverage restrictions.
-    Torch currently rejects explicit weights with TypeError, including weights
-    supplied internally by bootstrap intervals. Use backend='numpy' and CPU
-    arrays for weighted fitting or bootstrap. Multivariate Torch queries must
-    be two-dimensional, including (1,p) for one point; the vector check fails.
+    Zero-weight rows are excluded from the weighted Gaussian log-sum-exp;
+    they do not destabilize tail log density. Rerunning a string bandwidth
+    selector after deleting zero-weight rows can still change its factor.
+    To preserve a previously selected factor, use numeric
+    bandwidth=original.bandwidth_factor_ when refitting retained rows.
+    Density interval helpers return host NumPy arrays and have separate
+    pointwise coverage restrictions.
     """
 
     def __init__(
@@ -180,11 +176,53 @@ class KernelDensityEstimator(BaseEstimator):
         self.backend = backend
         self.gpu_memory_cleanup = gpu_memory_cleanup
 
+    def _requested_device(self):
+        """Keep explicit global settings distinct from automatic selection."""
+        return _get_configured_device() if self._device == Device.AUTO else self._device
+
     def _resolve_backend_name(self, X) -> str:
         name = str(self.backend).strip().lower()
-        if name != "auto":
-            return name
-        return _auto_backend_from_device(self._get_compute_device().value)
+        if name not in ("auto", "numpy", "cupy", "torch"):
+            raise ValueError("backend must be one of: 'auto', 'numpy', 'cupy', 'torch'")
+        requested = self._requested_device()
+        required = {Device.CUDA: "cupy", Device.TORCH: "torch"}.get(requested)
+        if required is not None:
+            if name not in ("auto", required):
+                raise ValueError(
+                    f"device='{requested.value}' requires backend='{required}' or 'auto', "
+                    f"not backend='{name}'"
+                )
+            candidate = get_backend(backend=required, device="cuda")
+            if not candidate.is_available():
+                raise RuntimeError(
+                    f"device='{requested.value}' requires a working {required} CUDA backend; "
+                    "no CPU fallback is performed. Use device='auto' for automatic selection."
+                )
+            return required
+        if requested == Device.CPU and name == "cupy":
+            raise ValueError("device='cpu' is incompatible with backend='cupy'")
+        if name == "auto":
+            return self._get_backend().name
+        if name == "cupy" and not get_backend(backend="cupy").is_available():
+            raise RuntimeError("backend='cupy' requires a working CuPy CUDA backend")
+        return name
+
+    def _prepare_samples(self, X, xp, backend_name):
+        """Normalize once, retaining native device affinity during every refit."""
+        reference = X if backend_name == "cupy" else None
+        if backend_name == "torch":
+            requested = self._requested_device()
+            cuda_required = requested == Device.TORCH or str(self.backend).strip().lower() == "auto"
+            if requested == Device.CPU:
+                target = "cpu"
+            elif cuda_required:
+                target = X.device if xp.is_tensor(X) and X.is_cuda else "cuda"
+            else:
+                # An explicit library with automatic device preserves its native
+                # tensor device, and accepts host inputs on Torch CPU.
+                target = X.device if xp.is_tensor(X) else "cpu"
+            reference = xp.empty((), dtype=xp.float64, device=target)
+        return _as_samples_2d(X, xp, ref_arr=reference)
 
     def fit(self, X, y=None):
         """Fit from finite real samples with shape (n,) or (n,p), n >= 2.
@@ -197,7 +235,12 @@ class KernelDensityEstimator(BaseEstimator):
         backend_name = self._resolve_backend_name(X)
         xp = _get_xp(backend_name)
 
-        samples_2d = _as_samples_2d(X, xp)
+        samples_2d = self._prepare_samples(X, xp, backend_name)
+        context = samples_2d.device if backend_name == "cupy" else nullcontext()
+        with context:
+            return self._fit_samples(samples_2d, xp, backend_name)
+
+    def _fit_samples(self, samples_2d, xp, backend_name):
         n_samples, n_features = int(samples_2d.shape[0]), int(samples_2d.shape[1])
 
         device = _torch_device_from_data(samples_2d)
@@ -348,11 +391,7 @@ class KernelDensityEstimator(BaseEstimator):
 
             if use_log_sum_exp:
                 if is_gaussian:
-                    log_kernels = -0.5 * quad
-                    log_kernels_max = _xp_max(log_kernels, axis=1, keepdims=True)
-                    log_sum = log_kernels_max[:, 0] + xp.log(
-                        xp.sum(xp.exp(log_kernels - log_kernels_max) * self.weights_[None, :], axis=1)
-                    )
+                    log_sum = self._log_weighted_gaussian_sum(quad, xp)
                     out[start:stop] = xp.exp(log_sum) * self.inv_norm_const_
                 else:
                     kernels = _kernel_values_from_quad(quad, self.kernel_, xp)
@@ -368,21 +407,17 @@ class KernelDensityEstimator(BaseEstimator):
 
         return out
 
+    def _log_weighted_gaussian_sum(self, quad, xp):
+        """Exclude zero-mass observations before stabilizing Gaussian tails."""
+        positive = self.weights_[None, :] > 0.0
+        safe_weights = xp.where(positive, self.weights_[None, :], 1.0)
+        log_terms = xp.where(
+            positive, -0.5 * quad + xp.log(safe_weights), float("-inf")
+        )
+        return self._log_sum_exp(log_terms, xp)
+
     def _log_weighted_kernel_sum(self, kernels, xp):
-        """Compute row-wise log(weighted kernel sum) with exact zero-density handling.
-
-        Parameters
-        ----------
-        kernels : array-like
-            Kernel values for each query/sample pair.
-        xp : module
-            Backend array module used for the computation.
-
-        Returns
-        -------
-        array-like
-            Per-row log-sum values, or ``-inf`` when all weighted kernel terms are zero.
-        """
+        """Compute log weighted sums with exact compact-support zeros."""
         positive_weight_mask = self.weights_[None, :] > 0.0
         positive_term_mask = (kernels > 0.0) & positive_weight_mask
         safe_kernels = xp.where(positive_term_mask, kernels, 1.0)
@@ -392,16 +427,17 @@ class KernelDensityEstimator(BaseEstimator):
             xp.log(safe_kernels) + xp.log(safe_weights),
             float("-inf"),
         )
+        return self._log_sum_exp(log_terms, xp)
+
+    @staticmethod
+    def _log_sum_exp(log_terms, xp):
         log_terms_max = _xp_max(log_terms, axis=1, keepdims=True)
         finite_rows = xp.isfinite(log_terms_max[:, 0])
-        # ``where`` evaluates both branches on NumPy/CuPy, so protect the
-        # subtraction and logarithm explicitly to avoid inf-inf and log(0)
-        # warnings for valid zero-density rows of compact-support kernels.
+        # Protect both branches of where from inf-inf and log(0), including
+        # valid all-zero compact-support rows and underflowed Gaussian tails.
         safe_max = xp.where(finite_rows[:, None], log_terms_max, 0.0)
         shifted = xp.where(
-            finite_rows[:, None],
-            log_terms - safe_max,
-            float("-inf"),
+            finite_rows[:, None], log_terms - safe_max, float("-inf")
         )
         exp_sum = xp.sum(xp.exp(shifted), axis=1)
         safe_exp_sum = xp.where(finite_rows, exp_sum, 1.0)
@@ -413,15 +449,16 @@ class KernelDensityEstimator(BaseEstimator):
 
         points must be finite with shape (n_query,n_features). A vector means
         many one-feature queries, or one multivariate query of matching length.
-        Multivariate Torch queries must instead use an explicit (n_query,p)
-        matrix; the vector shape check currently raises TypeError.
         batch_size is a positive integer query-batch size (default 1024).
         Compact-support kernels return zero where no sample contributes.
+        Queries are converted to the fitted samples' dtype and device.
         """
         self._require_fitted()
         xp = _get_xp(self.backend_)
-        points_2d = _as_points_2d(points, self.n_features_, xp, ref_arr=self.samples_)
-        result = self._evaluate_density(points_2d, batch_size=int(batch_size), xp=xp)
+        context = self.samples_.device if self.backend_ == "cupy" else nullcontext()
+        with context:
+            points_2d = _as_points_2d(points, self.n_features_, xp, ref_arr=self.samples_)
+            result = self._evaluate_density(points_2d, batch_size=int(batch_size), xp=xp)
         self._cleanup_cuda_memory()
         self._cleanup_torch_memory()
         return result
@@ -450,12 +487,7 @@ class KernelDensityEstimator(BaseEstimator):
             quad = xp_maximum(quad, 0.0, xp)
 
             if is_gaussian:
-                log_kernels = -0.5 * quad
-                log_kernels_max = _xp_max(log_kernels, axis=1, keepdims=True)
-                log_kernels_shifted = log_kernels - log_kernels_max
-                log_sum = log_kernels_max[:, 0] + xp.log(
-                    xp.sum(xp.exp(log_kernels_shifted) * self.weights_[None, :], axis=1)
-                )
+                log_sum = self._log_weighted_gaussian_sum(quad, xp)
                 out[start:stop] = log_sum + log_norm
             else:
                 kernels = _kernel_values_from_quad(quad, self.kernel_, xp)
@@ -472,18 +504,18 @@ class KernelDensityEstimator(BaseEstimator):
         """Evaluate log density with the same query and batch contract as pdf.
 
         Returns backend-native (n_query,). Compact-support kernels return -inf
-        where density is zero. Gaussian tails use log-domain evaluation; remove
-        zero-weight training rows first and center large-offset coordinates.
-        Rerunning a string selector after deletion can change the bandwidth.
-        To preserve existing smoothing, refit positive-weight rows and their
-        weights with numeric bandwidth=original.bandwidth_factor_; otherwise
-        choose a new bandwidth on the filtered data. Preserving the factor
-        does not validate the original selector choice.
+        where density is zero. Gaussian tails use log-domain evaluation and
+        ignore zero-weight rows. Center large-offset coordinates consistently.
+        Rerunning a string selector after deleting zero-weight rows can change
+        its factor; use bandwidth=original.bandwidth_factor_ to preserve an
+        existing choice rather than reselecting it.
         """
         self._require_fitted()
         xp = _get_xp(self.backend_)
-        points_2d = _as_points_2d(points, self.n_features_, xp, ref_arr=self.samples_)
-        result = self._evaluate_log_density(points_2d, batch_size=int(batch_size), xp=xp)
+        context = self.samples_.device if self.backend_ == "cupy" else nullcontext()
+        with context:
+            points_2d = _as_points_2d(points, self.n_features_, xp, ref_arr=self.samples_)
+            result = self._evaluate_log_density(points_2d, batch_size=int(batch_size), xp=xp)
         self._cleanup_cuda_memory()
         self._cleanup_torch_memory()
         return result
@@ -501,6 +533,13 @@ class KernelDensityEstimator(BaseEstimator):
         bandwidth_selection = None
         if hasattr(self.bandwidth_info_, "to_dict"):
             bandwidth_selection = self.bandwidth_info_.to_dict()
+            details = dict(bandwidth_selection.get("details", {}))
+            projection = details.get("projection_vector")
+            if hasattr(projection, "dtype"):
+                # Selector diagnostics remain native during fitting; this
+                # explicit reporting method is their host-transfer boundary.
+                details["projection_vector"] = _to_numpy(projection)
+            bandwidth_selection["details"] = details
         return {
             "bandwidth_factor": float(self.bandwidth_factor_),
             "bandwidth_selection": bandwidth_selection,
@@ -530,7 +569,7 @@ class KernelDensityEstimator(BaseEstimator):
         Optional y is unused but remains subject to finite-input validation.
         """
         vals = self.score_samples(X)
-        return float(np.mean(_to_numpy(vals)))
+        return _to_float_scalar(_get_xp(self.backend_).mean(vals))
 
 
 class KDE(KernelDensityEstimator):
@@ -675,7 +714,7 @@ class KDEBootstrapResult:
 
 def _validate_confidence_level(confidence_level: float) -> float:
     level = float(confidence_level)
-    if level <= 0.0 or level >= 1.0:
+    if not np.isfinite(level) or level <= 0.0 or level >= 1.0:
         raise ValueError("confidence_level must be in (0, 1)")
     return level
 
@@ -701,6 +740,7 @@ def kde_bootstrap_confidence_interval(
     method: str = "percentile",
     return_bootstrap_samples: bool = False,
     batch_size: int = 1024,
+    workspace_bytes: Optional[int] = None,
 ) -> KDEBootstrapResult:
     """Return pointwise percentile bootstrap intervals for a KDE.
 
@@ -724,9 +764,11 @@ def kde_bootstrap_confidence_interval(
         bootstrap_method=method,
         return_bootstrap_samples=return_bootstrap_samples,
         batch_size=batch_size,
+        workspace_bytes=workspace_bytes,
     )
 
 
+@projection_warning_scope
 def kde_confidence_interval(
     samples,
     points,
@@ -742,6 +784,7 @@ def kde_confidence_interval(
     bootstrap_method: str = "percentile",
     return_bootstrap_samples: bool = False,
     batch_size: int = 1024,
+    workspace_bytes: Optional[int] = None,
 ) -> KDEBootstrapResult:
     """Estimate pointwise confidence intervals for a smoothed density.
 
@@ -765,8 +808,8 @@ def kde_confidence_interval(
         Positive bootstrap replicate count, validated even for normal intervals.
     confidence_level : float, default=0.95
         Finite value strictly between zero and one; do not pass NaN.
-    random_state : int or None, default=None
-        Seed for bootstrap sampling; unused by the normal method.
+    random_state : int, numpy.random.Generator or None, default=None
+        Bootstrap seed or advancing NumPy generator; unused by the normal method.
     method : {'normal', 'bootstrap'}, default='normal'
         Asymptotic pointwise normal interval (lower bound clipped to zero),
         or percentile bootstrap interval.
@@ -778,6 +821,11 @@ def kde_confidence_interval(
     batch_size : int, default=1024
         Positive query batch size; a NumPy bootstrap fast path can evaluate
         all queries together.
+    workspace_bytes : int or None, default=None
+        Optional native-bootstrap managed-buffer planning budget. Reduces query
+        chunks only, never draws or observations. Excludes input/original-model
+        storage, library scratch and allocator caching; it
+        is not a hard VRAM cap. NumPy and normal paths do not use this option.
 
     Returns
     -------
@@ -795,10 +843,15 @@ def kde_confidence_interval(
     change with each resample. Equal-weight independent observations give
     the introductory interpretation; do not assume all weighted bootstrap
     designs or preceding tuning uncertainty are handled.
-    Bootstrap currently raises TypeError on Torch even when weights=None,
-    because each resampled fit supplies explicit weights. Use backend='numpy'
-    with CPU arrays for bootstrap. Unweighted one-dimensional Gaussian normal
-    intervals are a separate supported Torch path.
+    CuPy and Torch bootstrap use device-native sampling, refitting, density and
+    percentile computation, with host NumPy conversion only for final results.
+    The local backend RNG receives a seed derived from exactly four uint32
+    words drawn from numpy.random.default_rng(random_state). Thus Generator
+    inputs advance by those four words per call; integer seeds reproduce within
+    a backend/software/device environment, not across backends. None creates
+    fresh entropy. Global NumPy/CuPy/Torch RNG states are not changed. Float64
+    cumulative probabilities can round away masses below their resolution.
+    The normal method remains a separate host-result calculation.
     """
     method_name = str(method).strip().lower()
     if method_name not in ("normal", "bootstrap"):
@@ -819,7 +872,31 @@ def kde_confidence_interval(
     )
 
     xp = _get_xp(model.backend_)
-    points_2d = _as_points_2d(points, model.n_features_, xp)
+    points_2d = _as_points_2d(points, model.n_features_, xp, ref_arr=model.samples_)
+
+    if method_name == "bootstrap" and model.backend_ in ("cupy", "torch"):
+        from ._native_bootstrap import native_bootstrap
+        native = native_bootstrap(
+            model, points_2d, bandwidth=bandwidth, kernel=kernel,
+            n_resamples=n_boot, confidence_level=level, random_state=random_state,
+            batch_size=batch_size, workspace_bytes=workspace_bytes,
+        )
+        points_np = np.asarray(_to_numpy(points_2d), dtype=np.float64)
+        if model.n_features_ == 1:
+            points_np = points_np.reshape(-1)
+        return KDEBootstrapResult(
+            points=points_np,
+            estimate=np.asarray(_to_numpy(native["estimate"]), dtype=np.float64),
+            lower=np.asarray(_to_numpy(native["lower"]), dtype=np.float64),
+            upper=np.asarray(_to_numpy(native["upper"]), dtype=np.float64),
+            confidence_level=level, n_resamples=n_boot, random_state=random_state,
+            kernel=model.kernel_, backend=model.backend_,
+            metadata=dict(native["metadata"], method=method_name,
+                          bootstrap_method=bootstrap_method_name, bandwidth=bandwidth,
+                          batch_size=int(batch_size), n_features=int(model.n_features_)),
+            bootstrap_samples=(np.asarray(_to_numpy(native["draws"]), dtype=np.float64)
+                               if return_bootstrap_samples else None),
+        )
     estimate = np.asarray(_to_numpy(model.pdf(points_2d, batch_size=batch_size)), dtype=np.float64)
 
     points_np = np.asarray(_to_numpy(points_2d), dtype=np.float64)

@@ -7,6 +7,8 @@ from typing import Any, Union
 
 import numpy as np
 
+from statgpu.backends._utils import _cupy_asarray_on_device, _require_real_array
+
 from statgpu.backends import (
     _get_torch_device_str,
     _get_xp,
@@ -177,8 +179,23 @@ def _kernel_values_from_quad(quad, kernel_name: str, xp):
     raise ValueError(f"Unsupported kernel: {kernel_name}")
 
 
+def _as_backend_float64(values, xp, *, ref_arr=None, name="array"):
+    """Convert public inputs without exporting backend-native numeric arrays."""
+    _require_real_array(values, name)
+    if getattr(xp, "__name__", "") == "torch" and isinstance(values, np.ndarray):
+        # Torch does not support wrapping a reversed NumPy view. Copy only
+        # caller-provided host storage, never native accelerator arrays.
+        if any(stride < 0 for stride in values.strides):
+            values = values.copy()
+    if getattr(xp, "__name__", "") == "cupy" and ref_arr is not None:
+        target = getattr(getattr(ref_arr, "device", None), "id", None)
+        if target is not None:
+            return _cupy_asarray_on_device(values, target, dtype=xp.float64)
+    return xp_asarray(values, dtype=xp.float64, xp=xp, ref_arr=ref_arr)
+
+
 def _as_samples_2d(samples, xp, ref_arr=None):
-    arr = xp_asarray(samples, dtype=xp.float64, xp=xp, ref_arr=ref_arr)
+    arr = _as_backend_float64(samples, xp, ref_arr=ref_arr, name="samples")
     if arr.ndim == 1:
         arr = arr.reshape(-1, 1)
     elif arr.ndim != 2:
@@ -187,17 +204,19 @@ def _as_samples_2d(samples, xp, ref_arr=None):
     n_samples = int(arr.shape[0])
     if n_samples < 2:
         raise ValueError("samples must contain at least 2 observations")
+    if int(arr.shape[1]) < 1:
+        raise ValueError("samples must contain at least one feature")
     if not bool(_to_float_scalar(xp.all(xp.isfinite(arr)))):
         raise ValueError("samples must contain only finite values")
     return arr
 
 
 def _as_points_2d(points, n_features: int, xp, ref_arr=None):
-    arr = xp_asarray(points, dtype=xp.float64, xp=xp, ref_arr=ref_arr)
+    arr = _as_backend_float64(points, xp, ref_arr=ref_arr, name="points")
     if arr.ndim == 1:
         if n_features == 1:
             arr = arr.reshape(-1, 1)
-        elif int(arr.size) == n_features:
+        elif int(arr.shape[0]) == n_features:
             arr = arr.reshape(1, n_features)
         else:
             raise ValueError("points shape is incompatible with sample dimensionality")
@@ -216,8 +235,8 @@ def _normalize_weights(weights, n_samples: int, xp, device: str = "cpu", ref_arr
         fill_val = 1.0 / float(n_samples)
         return xp_full(n_samples, fill_val, xp.float64, xp, ref_arr=ref_arr)
 
-    w = xp_asarray(weights, dtype=xp.float64, xp=xp, ref_arr=ref_arr).reshape(-1)
-    if int(w.size) != int(n_samples):
+    w = _as_backend_float64(weights, xp, ref_arr=ref_arr, name="weights").reshape(-1)
+    if int(w.shape[0]) != int(n_samples):
         raise ValueError("weights must have the same length as samples")
     if not bool(_to_float_scalar(xp.all(xp.isfinite(w)))):
         raise ValueError("weights must contain only finite values")
@@ -225,7 +244,8 @@ def _normalize_weights(weights, n_samples: int, xp, device: str = "cpu", ref_arr
         raise ValueError("weights must be non-negative")
 
     w_sum = xp.sum(w)
-    if _to_float_scalar(w_sum) <= 0.0:
+    w_sum_f = _to_float_scalar(w_sum)
+    if not math.isfinite(w_sum_f) or w_sum_f <= 0.0:
         raise ValueError("weights must sum to a positive value")
 
     return w / w_sum

@@ -125,12 +125,19 @@ def test_host_scalar_rule_is_reported_without_gpu_compute_claim():
     assert all(r['placement']=='host-scalar-no-GPU-work-required' for r in row['execution_trace'][0]['stages'])
 
 
-def test_torch_bootstrap_stays_genuine_unsupported():
-    rt=SimpleNamespace(name='torch')
-    called=[]
-    with pytest.raises(b.Blocked,match='unsupported: Torch KDE bootstrap'):
-        b.traced_call('kde_bootstrap',lambda:called.append(True),rt,[])
-    assert called==[]
+def test_torch_cpu_bootstrap_observes_native_rng_and_quantiles():
+    from statgpu.nonparametric import kde_bootstrap_confidence_interval
+    rt = torch_runtime()
+    x = rt.module.as_tensor(np.random.default_rng(7).normal(size=(32, 1)))
+    q = rt.module.linspace(-1, 1, 9, dtype=rt.module.float64)
+    traces = []
+    result = b.traced_call('kde_bootstrap', lambda: kde_bootstrap_confidence_interval(
+        x, q, backend='torch', bandwidth=.4, n_resamples=20, random_state=7), rt, traces)
+    assert result.estimate.shape == (9,)
+    assert traces[0]['device'] == 'cpu'  # Never physical CUDA evidence.
+    stages = traces[0]['stages']
+    assert len([r for r in stages if r['stage'] == 'native-resampling']) == 20
+    assert {'native-probability-cdf', 'native-interval-quantiles'} <= {r['stage'] for r in stages}
 
 
 def test_bootstrap_requires_every_replication_stage():
@@ -173,16 +180,12 @@ def test_physical_gpu_stage_observation_when_available(backend,case):
         runtime=b.Runtime(backend,0)
     except b.BackendUnavailable as exc:
         pytest.skip(str(exc))
-    if backend=='torch' and case=='kde_bootstrap':
-        with pytest.raises(b.Blocked,match='unsupported: Torch KDE bootstrap'):
-            b.run_case(case,runtime,48,4,42,0,1)
-        return
     row=b.run_case(case,runtime,48,4,42,0,1)
     assert row['status']=='pass' and row['correctness']['status']=='pass'
     assert row['execution_trace']
     assert all(trace['device']=='cuda:0' for trace in row['execution_trace'])
     assert row['performance_eligible'] is False
-    assert row['execution_qualification']['compute_placement'] in ('host-scalar','mixed-host-and-observed-native-arithmetic')
+    assert row['execution_qualification']['compute_placement'] in ('host-scalar','mixed-host-and-observed-native-arithmetic','observed-native-arithmetic-with-host-control-and-api-boundaries')
 
 
 def test_native_primitive_cpu_compute_then_recast_is_rejected(monkeypatch):
@@ -209,6 +212,9 @@ def test_unsupported_boundary_is_machine_readable(monkeypatch,tmp_path):
     import json
     rt=SimpleNamespace(name='torch',device='cuda:0',hardware={},context=nullcontext)
     monkeypatch.setattr(b,'Runtime',lambda *args:rt)
+    def unsupported(*args):
+        raise b.UnsupportedCapability('unsupported kernel/shape combination')
+    monkeypatch.setattr(b,'run_case',unsupported)
     output=tmp_path/'unsupported.json'
     assert b.main(['--cases','kde_bootstrap','--backends','torch','--require-backends','--output',str(output)])==2
     row=json.loads(output.read_text())['results'][0]
@@ -244,3 +250,49 @@ def test_numpy_generated_wrapper_does_not_trust_foreign_implementation():
 def test_current_numpy_array_function_primitives_are_recognized():
     for name in ('sum','mean','std','var','quantile'):
         NumericalTrace._verify_native_callable(getattr(np,name),np,'numpy',name)
+
+
+@pytest.mark.parametrize('method', ['scott', 'silverman', 'nrd', 'nrd0', 'ucv', 'bcv', 'sj', 'sj-ste', 'sj-dpi'])
+def test_torch_cpu_native_selector_stages(method):
+    from statgpu.nonparametric import fit_kde
+    rt = torch_runtime()
+    x = rt.module.as_tensor(np.random.default_rng(8).normal(size=(48, 2)))
+    trace = NumericalTrace(rt, learning_stages('bandwidth_' + method, 'torch'))
+    with trace:
+        fit_kde(x, bandwidth=method, backend='torch')
+    assert trace.report()['device'] == 'cpu'
+
+
+def test_native_rng_replacement_cannot_pass_by_returning_tensor(monkeypatch):
+    rt = torch_runtime()
+    original = rt.module.rand
+    monkeypatch.setattr(rt.module, 'rand', lambda *args, **kwargs: original(*args, **kwargs))
+    with pytest.raises(TraceIncomplete, match='replacement'):
+        with NumericalTrace(rt, learning_stages('kde_bootstrap', 'torch')):
+            pass
+    assert sys.getprofile() is None
+
+
+def test_native_rng_missing_from_one_replication_is_rejected():
+    rt = torch_runtime()
+    def draw():
+        return rt.module.rand(3, dtype=rt.module.float64)
+    trace = NumericalTrace(rt, [stage(draw, 'rng', ('rand',), minimum_calls=2)])
+    with trace:
+        draw()
+        draw()
+    trace.report()
+    trace.records[-1]['operations'].clear()
+    with pytest.raises(TraceIncomplete, match='expected rand'):
+        trace.report()
+
+
+def test_subclass_repeated_primitive_names_are_instrumented_once():
+    class ExtendedTrace(NumericalTrace):
+        OPS = NumericalTrace.OPS + ('cumsum', 'searchsorted')
+    def target(x):
+        return np.cumsum(x)
+    trace = ExtendedTrace(cpu_runtime(), [stage(target, 'cdf', ('cumsum',))])
+    with trace:
+        target(np.ones(3))
+    assert len(trace.report()['stages'][0]['operations']) == 1

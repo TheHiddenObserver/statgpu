@@ -1,7 +1,7 @@
 # 生存分析与平滑方法 API 参考
 
 > 语言：中文  
-> 最后更新：2026-10-11  
+> 最后更新：2026-10-22<br>
 > 切换：[English](../../en/reference/survival-smoothing-api.md)
 
 本页用于在阅读 [CoxPH](../models/coxph.md)、[GAM](../models/nonparametric/semiparametric.md) 或[非参数方法](../models/nonparametric/nonparametric.md)示例后查找具体调用。签名列出公开参数与默认值；`*` 后的参数须按名称传入。形状记号：`n` 为训练行数，`p` 为特征数，`q` 为查询行数，`r` 为目标列数。预测等方法需要先成功拟合。通用[参数管理](estimator-api.md#parameter-management)和[推断辅助方法](estimator-api.md#inference-helpers)另有说明；通用重采样工具不会自动提供适合生存模型的推断或 GAM 置信带。
@@ -282,7 +282,7 @@ kde_pdf(samples, points, *, bandwidth='scott', weights=None, kernel='gaussian', 
 | `bandwidth` | 正且有限的标量因子，或 `scott`、`silverman`、`nrd0`、`nrd`、`ucv`、`bcv`、`sj`、`sj-ste`、`sj-dpi`。数值是协方差因子，不是原始单位下的宽度。 |
 | `weights` | 构造/函数式拟合参数，不是 `fit` 关键字：有限、非负、长度 `n`，总和为正，内部归一化；`None` 为等权。协方差需要不止一个有有效权重的观测。 |
 | `kernel` | 默认 `gaussian`，另有 `rectangular`、`triangular`、`epanechnikov`、`biweight`、`triweight`、`cosine`、`optcosine`；最后两种仅一维。 |
-| `backend` | `auto`、`numpy`、`cupy`、`torch`，选择数组库；`auto` 参考设备/全局配置；显式设备请求的例外见下文。 |
+| `backend` | `auto`、`numpy`、`cupy`、`torch`，选择数组库；`auto` 参考设备/全局配置；设备规则见下文。 |
 | `device`、`n_jobs`、`gpu_memory_cleanup` | 仅估计器接受的设备控制、通用任务数选项和尽力执行的 GPU 缓存清理。核评价不会使用 `n_jobs` 建立并行查询池；函数式接口不接受这些参数。 |
 | `batch_size` | `pdf`、`logpdf`、`__call__`、`kde_pdf` 的正查询批大小；不是 KDE 构造参数，也不是 `predict` / `score_samples` / `score` 参数。部分 NumPy 快速路径会一起评价较小任务。 |
 | `return_log` | 仅 `kde_pdf`：`False` 返回密度，`True` 返回对数密度。 |
@@ -297,13 +297,26 @@ kde_pdf(samples, points, *, bandwidth='scott', weights=None, kernel='gaussian', 
 和查询；KDE 换回原始单位时还需要密度的雅可比修正。具体变换、反例、不同带宽
 路径的边界以及验证限制见[坐标尺度过小](../models/nonparametric/nonparametric.md#坐标尺度过小)。
 
-KDE 与核回归当前存在显式设备请求的例外。NumPy 或 Torch CPU 输入即使搭配 `device="torch"` 与 `backend="auto"` 或 `"torch"`，仍可能在 Torch CPU 上拟合和预测。设置 `device="cuda", backend="auto"` 时，CuPy 不可用而 Torch CUDA 可用也可能选中 Torch，随后 NumPy 或 Torch CPU 输入仍留在 CPU。显式 `backend="torch"` 搭配 `device="cuda"` 也可能在 CPU 上执行；`backend="numpy"` 会覆盖这两种加速器请求。应检查 `samples_` 与密度/预测数组的实际位置：Torch 查看 `.device`/`.is_cuda`，CuPy 查看 `.device`，NumPy 数组位于 CPU。仅查看配置的 `device` 与 `backend_` 不够。需要明确的 CPU 路径时，请用 NumPy 输入并设置 `device="cpu", backend="numpy"`。如果流程必须使用 GPU，请拒绝 CPU 结果，不要继续使用它们；详见[设备说明](../guides/device-and-memory.md)。
+KDE 会执行显式加速器请求：`device="cuda"` 要求 CuPy CUDA，并配合
+`backend="auto"` 或 `"cupy"`；`device="torch"` 要求 Torch CUDA，并配合
+`backend="auto"` 或 `"torch"`。加速器不可用或后端冲突时会报错，不会转为 CPU
+运行。`device="cpu"` 允许 NumPy 或 Torch，不允许 CuPy。
+`backend="torch", device="auto"` 保留原生张量的设备；主机输入默认使用 Torch CPU，
+除非显式全局设备设置要求加速器。`backend="auto"` 按估计器/全局设备策略选择库，
+而不是根据输入类型选择。区间函数提供 `backend`，没有单独的 `device` 参数。
+
+核回归仍存在显式设备请求的例外：CPU 输入即使搭配 `device="torch"` 或
+`"cuda"` 也可能留在 Torch CPU，`backend="numpy"` 也可能覆盖这些请求。
+必须使用 GPU 时，应检查 `samples_` 和预测数组的位置。Torch 的 `.device`/`.is_cuda`
+及 CuPy 的 `.device` 可用于检查，单独的 `backend_` 不足以证明设备位置。
+详见[设备说明](../guides/device-and-memory.md)。
+
 
 拟合属性：`samples_` `(n,p)`、归一化 `weights_` `(n,)`、标量 `bandwidth_factor_`、`bandwidth_info_`（选择结果；数值带宽时为 `None`）、`covariance_` 和 `inv_covariance_` `(p,p)`、标量 `norm_const_` 和 `inv_norm_const_`、`kernel_`、`backend_`、`n_samples_`、`n_features_`。`to_numpy_metadata()` 返回含 `bandwidth_factor`、`bandwidth_selection`、`n_samples`、`n_features`、`backend`、`kernel`、`covariance`、`inv_covariance`、`weights` 的字典，数组为主机 NumPy 数组。
 
 `fit` 与 `score` 不使用可选 `y` 估计密度或计算分数，但传入非有限 `y` 仍会被通用输入校验拒绝；建议省略该参数。
 
-使用加权高斯 KDE 的 `logpdf`、`score_samples` 或 `score` 时，请先删除零权重观测及其对应权重。虽然这些观测不贡献概率质量，但当前实现可能因它们的存在而将尾部对数密度错误地算成 `-inf`。删除后会自动重新归一化权重。如果分析希望根据正权重观测选择新带宽，应先筛选再选择。重新运行字符串选择器可能改变所选因子：`nrd`/`nrd0` 使用原始样本的尺度统计量，`ucv`、`bcv`、`sj-ste` 与 `sj-dpi` 则可能在删除后改变加权/重采样路径。若需保留已经选定的平滑因子，请保存 `original.bandwidth_factor_`，再用数值参数 `bandwidth=original.bandwidth_factor_`、正权重观测及其保留权重重新拟合。这会保留指定的核协方差与密度，但不代表受零权重行影响而选出的因子适合原本的科学问题。
+加权高斯 KDE 的对数密度归约排除零概率质量的观测，因此保留零权重行本身不会破坏 `logpdf`、`score_samples` 或 `score` 的稳定性。但在带宽选择前删除这些行，仍可能改变所选因子。如果分析希望根据正权重观测选择新带宽，应先筛选再选择。重新运行字符串选择器可能改变所选因子：`nrd`/`nrd0` 使用原始样本的尺度统计量，`ucv`、`bcv`、`sj-ste` 与 `sj-dpi` 则可能在删除后改变加权/重采样路径。若需保留已经选定的平滑因子，请保存 `original.bandwidth_factor_`，再用数值参数 `bandwidth=original.bandwidth_factor_`、正权重观测及其保留权重重新拟合。这会保留指定的核协方差与密度，但不代表受零权重行影响而选出的因子适合原本的科学问题。
 
 ## 核回归
 
@@ -366,12 +379,12 @@ kernel_regression_predict(samples, targets, points, *, bandwidth='scott', weight
 
 <!-- signature: kde_confidence_interval -->
 ```text
-kde_confidence_interval(samples, points, *, bandwidth='scott', weights=None, kernel='gaussian', backend='auto', n_resamples=200, confidence_level=0.95, random_state=None, method='normal', bootstrap_method='percentile', return_bootstrap_samples=False, batch_size=1024)
+kde_confidence_interval(samples, points, *, bandwidth='scott', weights=None, kernel='gaussian', backend='auto', n_resamples=200, confidence_level=0.95, random_state=None, method='normal', bootstrap_method='percentile', return_bootstrap_samples=False, batch_size=1024, workspace_bytes=None)
 ```
 
 <!-- signature: kde_bootstrap_confidence_interval -->
 ```text
-kde_bootstrap_confidence_interval(samples, points, *, bandwidth='scott', weights=None, kernel='gaussian', backend='auto', n_resamples=200, confidence_level=0.95, random_state=None, method='percentile', return_bootstrap_samples=False, batch_size=1024)
+kde_bootstrap_confidence_interval(samples, points, *, bandwidth='scott', weights=None, kernel='gaussian', backend='auto', n_resamples=200, confidence_level=0.95, random_state=None, method='percentile', return_bootstrap_samples=False, batch_size=1024, workspace_bytes=None)
 ```
 
 <!-- signature: KDEBootstrapResult.to_dict -->
@@ -414,14 +427,21 @@ assert np.allclose(ci.upper, normal_upper)
 
 ### Torch 参数限制
 
-在 Torch 上，向 KDE 或核回归传入 `weights` 当前会抛出 `TypeError`。
-回归的 `bandwidth_per_feature` 无论为标量还是向量也会失败。即使用户没有提供权重，
-Torch bootstrap 区间仍会失败，因为重采样拟合内部会显式传入权重。
-这些需求请改用 CPU 数组与 `backend="numpy"`；改变权重或带宽并不是等价替代。
-不加权的一维高斯 Torch KDE 仍可使用正态区间。
+CuPy 和 Torch bootstrap 在对应后端完成抽样、重拟合、密度计算和分位数计算。
+Torch 支持显式拟合权重 `weights`，也支持用长度为 `p` 的一维向量表示一个多元查询点，
+或使用 `(q,p)` 查询数组。Torch CPU 计算同样受支持，不能将它视为 Torch CUDA 计算。
+区间结果仍为 NumPy 数组，包括可选的 bootstrap 重复值。
 
-Torch 多元密度与回归的查询应为 `(q,p)`，单个查询也须为 `(1,p)`。
-长度为 `p` 的一维向量当前会抛出 `TypeError`；`X[:1]` 可以保留所需行维度。
+`workspace_bytes=None` 表示不按用户预算进一步限制原生 bootstrap 的查询批大小。
+正整数预算约束的是 bootstrap 管理的缓冲区估计，并非显存硬上限。
+精确分位数需要保留全部 `n_resamples * q` 重复值，即使
+`return_bootstrap_samples=False` 也如此。输入、原始模型、底层库的临时空间、
+分配器缓存不计入该估计。预算不足以容纳管理的缓冲区时抛出 `MemoryError`，
+不会删减样本或重复次数。该选项不限制 NumPy bootstrap 或正态区间。
+
+选择器重拟合、加权重采样、RNG 状态消耗及内存细节见[原生 KDE bootstrap](../guides/native-kde-bootstrap.md)。
+Torch 核回归仍不支持 `bandwidth_per_feature`；需要这些绝对宽度时应使用 CPU 数组
+与 `backend="numpy"`，而不是用统计含义不同的标量因子替换。
 
 ## 底层带宽选择接口
 
@@ -454,6 +474,15 @@ BandwidthSelectionResult.to_dict()
 | `estimator`、`targets`、`regression`、`kernel` | 默认 `"kde"`；回归 CV 选择使用 `"kernel_regression"` 和匹配目标。`regression` 为 `"nw"` 或 `"local_linear"`，`kernel` 选择回归核；默认值见签名。 |
 
 `select_bandwidth` 返回 `BandwidthSelectionResult`；`select_bandwidth_factor` 返回其中的标量 `factor`。结果字段为 `factor`、`method`、`n_features`、`n_eff`、`used_r_selector`、`weighted`、`weighted_strategy`、`multivariate_strategy`、`selector_dimension`、`details`；`to_dict()` 返回相同名称。`details` 随方法变化，不应假定所有选择器都有相同键。`used_r_selector=True` 表示使用 `ucv`、`bcv` 或 `sj` 系列方法；`nrd`/`nrd0` 对应 `False`，该字段不代表调用了外部 R 进程；部分常数/稀疏样本会使选择失败。
+
+原生选择器对相同数值保留输入顺序，并令主特征向量首个绝对值最大的载荷为正；
+NumPy 保留历史选择器约定。即使主轴非退化，符号反转也可能明显改变加权线性分位数
+重采样结果；最大特征值重复或近似重复时，还存在主轴本身不唯一或不稳定的问题。
+原生因子不保证复刻历史 NumPy 因子，详见[原生 PCA 与加权选择器差异](../guides/native-kde-bootstrap.md#原生-pca-与加权选择器差异)。
+最大特征值重复或数值上近似重复时，原生路径发出 `RuntimeWarning`；区间调用
+汇总其内部拟合的警告。警告不代表回退 CPU，没有警告也不代表与历史结果兼容。
+原生选择器的 `details["projection_vector"]`（若存在）保留在后端设备上。
+`to_dict()` 是浅层转换，不是 JSON 序列化器，也不会将设备数组导出到主机。
 
 `weighted` 表示归一化权重的极差是否超过 `1e-12`。
 `weighted_strategy` 记录 `"uniform"` 或配置的非均匀权重策略；Scott/Silverman
