@@ -12,6 +12,12 @@ Torch CPU is also supported: selecting the Torch library alone does not prove
 CUDA execution. The [API reference](../reference/survival-smoothing-api.md)
 describes arguments and shapes.
 
+## Requesting Torch CUDA
+
+With the global device policy set to `"auto"`, `backend="torch"` preserves native Torch input placement and uses Torch CPU for host lists, tuples or NumPy arrays. It selects an array library, not an accelerator. `torch.cuda.device(...)` selects a CUDA device for CUDA operations; it does not turn these host inputs into a request for GPU computation.
+
+The bootstrap functions have no separate `device` argument. To run host inputs on Torch CUDA, call `statgpu.set_device("torch")` before the bootstrap call with `backend="torch"`, then restore the previously configured global policy, including on error. Do not save `get_device()` as that policy: it resolves `"auto"` rather than preserving it. For direct estimator fits, use `KDE(device="torch", backend="torch")`. An explicit Torch CUDA request raises if the required accelerator is unavailable; it does not silently fall back to CPU.
+
 ## Inputs and statistical interpretation
 
 The native paths support numeric bandwidth factors and `scott`, `silverman`,

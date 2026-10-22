@@ -4,18 +4,20 @@ Torch CPU is useful numerical coverage, not CUDA evidence. Physical CUDA tests
 skip explicitly when their library/device is unavailable. Fixed indices isolate
 refitting semantics from deliberately different backend RNG algorithms.
 """
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from dataclasses import replace
 import importlib
 
 import numpy as np
 import pytest
 
+import statgpu
 from statgpu.nonparametric import fit_kde, kde_bootstrap_confidence_interval, kde_confidence_interval
 
 SELECTORS = ('scott', 'silverman', 'nrd', 'nrd0', 'ucv', 'bcv', 'sj', 'sj-ste', 'sj-dpi')
 KERNELS = ('gaussian', 'rectangular', 'triangular', 'epanechnikov', 'biweight', 'triweight', 'cosine', 'optcosine')
 FIELDS = ('estimate', 'lower', 'upper', 'bootstrap_samples')
+INGRESS_CONTAINERS = ('list', 'tuple', 'numpy', 'torch-cpu', 'native-strided')
 
 
 class Backend:
@@ -42,6 +44,119 @@ class Backend:
         if self.name == 'torch' and self.device != 'cpu':
             return self.xp.cuda.device(self.device)
         return nullcontext()
+
+
+@contextmanager
+def requested_backend_device(backend, monkeypatch):
+    """Request the tier publicly, then restore even an unresolved AUTO setting."""
+    from statgpu import _config
+    with monkeypatch.context() as local:
+        # get_device() resolves AUTO and therefore cannot restore caller policy.
+        local.setattr(_config._device_manager, '_current_device', _config._get_configured_device())
+        statgpu.set_device('cpu' if backend.device == 'cpu' else
+                          'torch' if backend.name == 'torch' else 'cuda')
+        yield
+
+
+def assert_backend_array(value, backend, dtype=None):
+    dtype = backend.xp.float64 if dtype is None else dtype
+    if backend.name == 'torch':
+        assert backend.xp.is_tensor(value)
+        assert value.device == backend.xp.device(backend.device)
+    else:
+        assert isinstance(value, backend.xp.ndarray)
+        if backend.name == 'cupy':
+            assert value.device.id == int(backend.device.split(':')[1])
+    assert value.dtype == dtype
+
+
+def ingress_array(value, container, backend):
+    if value is None:
+        return None
+    if container == 'list':
+        return value.tolist()
+    if container == 'tuple':
+        return tuple(map(tuple, value)) if value.ndim == 2 else tuple(value)
+    if container == 'numpy':
+        return value
+    if container == 'torch-cpu':
+        torch = pytest.importorskip('torch', reason='Torch CPU ingress requires real Torch')
+        return torch.as_tensor(value, dtype=torch.float64, device='cpu')
+    buffer = np.zeros((len(value)*2,) + value.shape[1:])
+    buffer[::2] = value
+    result = backend.array(buffer)[::2]
+    if backend.name == 'torch':
+        assert not result.is_contiguous()
+    else:
+        assert not result.flags.c_contiguous
+    return result
+
+
+def observe_ingress_devices(monkeypatch, backend):
+    """Observe real arrays without converting numerical stages back to the host."""
+    from statgpu.nonparametric.kernel_smoothing import _kde as kde, _native_bootstrap as native
+    observed = dict(models=[], points=[], cdfs=[], indices=[], generators=[])
+    original_fit, original_points = kde.fit_kde, kde._as_points_2d
+    original_cdf, original_draw, original_rng = native._probability_cdf, native._draw_indices, native._make_rng
+
+    def fit(*args, **kwargs):
+        model = original_fit(*args, **kwargs)
+        assert model.backend_ == backend.name
+        assert_backend_array(model.samples_, backend)
+        assert_backend_array(model.weights_, backend)
+        observed['models'].append(model)
+        return model
+
+    def points(*args, **kwargs):
+        assert_backend_array(kwargs['ref_arr'], backend)
+        result = original_points(*args, **kwargs)
+        assert_backend_array(result, backend)
+        observed['points'].append(result)
+        return result
+
+    def cdf(weights, xp):
+        assert xp is backend.xp
+        assert_backend_array(weights, backend)
+        result = original_cdf(weights, xp)
+        assert_backend_array(result, backend)
+        observed['cdfs'].append(result)
+        return result
+
+    def rng(random_state, xp, reference):
+        assert xp is backend.xp
+        assert_backend_array(reference, backend)
+        result = original_rng(random_state, xp, reference)
+        if backend.name == 'torch':
+            assert result.device == backend.xp.device(backend.device)
+        observed['generators'].append(result)
+        return result
+
+    def draw(cdf, rng, n_samples, xp):
+        assert xp is backend.xp
+        assert_backend_array(cdf, backend)
+        result = original_draw(cdf, rng, n_samples, xp)
+        assert_backend_array(result, backend, xp.int64)
+        assert result.shape == (n_samples,)
+        observed['indices'].append(result)
+        return result
+
+    monkeypatch.setattr(kde, 'fit_kde', fit)
+    monkeypatch.setattr(kde, '_as_points_2d', points)
+    monkeypatch.setattr(native, '_probability_cdf', cdf)
+    monkeypatch.setattr(native, '_make_rng', rng)
+    monkeypatch.setattr(native, '_draw_indices', draw)
+    return observed
+
+
+def assert_ingress_observed(observed, backend, dimension, resamples):
+    native = backend.name != 'numpy'
+    # NumPy's historical 1D Gaussian shortcut does not construct refit models.
+    expected_models = 1 if not native and dimension == 1 else resamples + 1
+    assert len(observed['models']) == expected_models
+    assert len(observed['points']) == expected_models + 1
+    assert len(observed['cdfs']) == int(native)
+    assert len(observed['generators']) == int(native)
+    assert len(observed['indices']) == (resamples if native else 0)
 
 
 @pytest.fixture(params=('numpy', 'torch-cpu', 'cupy-cuda', 'torch-cuda'))
@@ -109,9 +224,12 @@ def install_fixed_indices(monkeypatch, backend, indices):
         module = importlib.import_module('statgpu.nonparametric.kernel_smoothing._native_bootstrap')
         def draw(cdf, rng, n_samples, xp):
             assert xp is backend.xp and n_samples == len(indices[0])
+            assert_backend_array(cdf, backend)
             row = indices[len(calls)].copy()
             calls.append(row)
-            return backend.array(row, dtype=backend.xp.int64)
+            result = backend.array(row, dtype=backend.xp.int64)
+            assert_backend_array(result, backend, backend.xp.int64)
+            return result
         monkeypatch.setattr(module, '_draw_indices', draw)
     return calls
 
@@ -177,26 +295,102 @@ def test_public_every_selector_refits_sampled_rows(backend, monkeypatch, selecto
     assert len(calls) == len(indices)
 
 
-@pytest.mark.parametrize('container', ('list', 'numpy', 'native-strided'))
-@pytest.mark.parametrize('dimension', (1, 3))
-def test_ingress_and_noncontiguous_arrays(backend, monkeypatch, container, dimension):
-    x, q, w, indices = fixture_data(dimension)
+@pytest.mark.parametrize('container', INGRESS_CONTAINERS)
+@pytest.mark.parametrize('dimension', (1, 2, 3))
+@pytest.mark.parametrize('weights', ('none', 'unequal', 'sparse'))
+def test_ingress_and_noncontiguous_arrays(backend, monkeypatch, container, dimension, weights):
+    x, q, w, indices = fixture_data(dimension, weights)
+    # The NumPy oracle must run before the explicit global GPU request.
     expected = oracle(x, q, w, indices)
-    def convert(value):
-        if container == 'list':
-            return value.tolist()
-        if container == 'numpy':
-            return value
-        buffer = np.zeros((len(value)*2,) + value.shape[1:])
-        buffer[::2] = value
-        return backend.array(buffer)[::2]
-    with backend.context():
-        arrays = [convert(value) for value in (x, q, w)]
-        install_fixed_indices(monkeypatch, backend, indices)
+    with backend.context(), requested_backend_device(backend, monkeypatch), monkeypatch.context() as local:
+        arrays = [ingress_array(value, container, backend) for value in (x, q, w)]
+        calls = install_fixed_indices(local, backend, indices)
+        observed = observe_ingress_devices(local, backend)
         actual = kde_bootstrap_confidence_interval(*arrays[:2], weights=arrays[2], bandwidth=.55,
             backend=backend.name, n_resamples=3, confidence_level=.9,
             return_bootstrap_samples=True, batch_size=2)
+        assert_ingress_observed(observed, backend, dimension, 3)
+        assert len(calls) == 3
     assert_result(actual, expected, 3, len(q), backend)
+
+
+@pytest.mark.parametrize('container', INGRESS_CONTAINERS)
+@pytest.mark.parametrize('dimension', (1, 2, 3))
+@pytest.mark.parametrize('weights', ('none', 'unequal', 'sparse'))
+@pytest.mark.parametrize('backend', ('torch-cpu', 'cupy-cuda', 'torch-cuda'), indirect=True)
+def test_native_ingress_real_rng_keeps_every_stage_on_requested_device(
+        backend, monkeypatch, container, dimension, weights):
+    from dev.benchmarks import benchmark_public_native_kde_bootstrap as bench
+    from statgpu.nonparametric.kernel_smoothing import _kde as kde, _native_bootstrap as native
+    x, q, w, _ = fixture_data(dimension, weights)
+    runtime = bench.PublicRuntime(backend.name, torch_cpu=backend.device == 'cpu',
+        ordinal=0 if backend.device == 'cpu' else int(backend.device.split(':')[1]))
+    problem = bench.Problem(n=len(x), queries=len(q), resamples=3, dimension=dimension,
+        bandwidth=.55, confidence_level=.9, weights=weights)
+    # Capture production source identities before installing observing wrappers.
+    specs = [bench.stage(native.native_bootstrap, 'native-bootstrap', ('exp', 'quantile')),
+        bench.stage(kde.KernelDensityEstimator.fit, 'native-fit', ('sum', 'linalg.inv'), minimum_calls=4),
+        bench.stage(native._probability_cdf, 'probability-cdf', ('cumsum',)),
+        bench.stage(native._draw_indices, 'native-weighted-rng', ('searchsorted',), minimum_calls=3)]
+    source_audit = bench.audit_native_export_sources()
+    with backend.context(), requested_backend_device(backend, monkeypatch), monkeypatch.context() as local:
+        arrays = [ingress_array(value, container, backend) for value in (x, q, w)]
+        observed = observe_ingress_devices(local, backend)
+        with bench.PublicTrace(runtime, specs, problem) as trace:
+            trace.source_audit = source_audit
+            actual = kde_bootstrap_confidence_interval(*arrays[:2], weights=arrays[2], bandwidth=.55,
+                backend=backend.name, n_resamples=3, confidence_level=.9, random_state=182,
+                return_bootstrap_samples=True, batch_size=2)
+        runtime.sync(runtime.device)
+        report = trace.report()
+        assert report['status'] == 'observed'
+        assert report['host_conversion_guard']['status'] == 'pass'
+        assert len(report['rng_generation']['outputs']) == 3
+        assert_ingress_observed(observed, backend, dimension, 3)
+    # Only the independent oracle exports observed rows, after native execution.
+    indices = np.stack([backend.host(row) for row in observed['indices']])
+    expected = bench.gaussian_reference(x, q, w, indices, .55, .9)
+    expected['bootstrap_samples'] = expected.pop('draws')
+    assert_result(actual, expected, 3, len(q), backend)
+
+
+@pytest.mark.parametrize('container', ('list', 'tuple', 'numpy'))
+@pytest.mark.parametrize('weights', ('none', 'unequal'))
+def test_explicit_torch_host_ingress_with_auto_policy_stays_on_cpu(monkeypatch, container, weights):
+    """An explicit array library is not an implicit request for CUDA."""
+    from statgpu import _config
+    from dev.benchmarks.benchmark_public_native_kde_bootstrap import gaussian_reference
+    torch = pytest.importorskip('torch', reason='Torch CPU contract requires real Torch')
+    cpu = Backend('torch', torch, 'cpu')
+    x, q, w, _ = fixture_data(2, weights)
+    arrays = [ingress_array(value, container, cpu) for value in (x, q, w)]
+    with monkeypatch.context() as local:
+        local.setattr(_config._device_manager, '_current_device', _config._get_configured_device())
+        statgpu.set_device('auto')
+        observed = observe_ingress_devices(local, cpu)
+        actual = kde_bootstrap_confidence_interval(*arrays[:2], weights=arrays[2], bandwidth=.55,
+            backend='torch', n_resamples=3, confidence_level=.9, random_state=182,
+            return_bootstrap_samples=True, batch_size=2)
+        assert_ingress_observed(observed, cpu, 2, 3)
+    indices = np.stack([cpu.host(row) for row in observed['indices']])
+    expected = gaussian_reference(x, q, w, indices, .55, .9)
+    expected['bootstrap_samples'] = expected.pop('draws')
+    assert_result(actual, expected, 3, len(q), cpu)
+
+
+@pytest.mark.parametrize('raise_inside', (False, True))
+def test_requested_backend_device_restores_unresolved_auto(monkeypatch, raise_inside):
+    from statgpu import _config
+    with monkeypatch.context() as local:
+        local.setattr(_config._device_manager, '_current_device', _config._get_configured_device())
+        statgpu.set_device('auto')
+        expected_exception = pytest.raises(RuntimeError, match='scope sentinel') if raise_inside else nullcontext()
+        with expected_exception:
+            with requested_backend_device(Backend('numpy', np, 'cpu'), monkeypatch):
+                assert _config._get_configured_device() is _config.Device.CPU
+                if raise_inside:
+                    raise RuntimeError('scope sentinel')
+        assert _config._get_configured_device() is _config.Device.AUTO
 
 
 @pytest.mark.parametrize('seed', (0, 42, 2**96 + 271, np.int64(811)))

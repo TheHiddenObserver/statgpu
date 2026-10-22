@@ -10,6 +10,12 @@ CuPy 和 Torch 在所选设备上完成随机抽样、重采样、带宽选择�
 计算。Torch CPU 也受支持；仅选择 Torch 库不代表使用了 CUDA。
 参数和形状见 [API 参考](../reference/survival-smoothing-api.md)。
 
+## 显式请求 Torch CUDA
+
+全局设备策略为 `"auto"` 时，`backend="torch"` 保留原生 Torch 输入的设备位置，而主机 list、tuple 或 NumPy 数组使用 Torch CPU。它选择的是数组库，不等于请求加速器。`torch.cuda.device(...)` 只选择 CUDA 运算所用的设备，不会把主机输入变成 GPU 计算请求。
+
+bootstrap 函数没有独立的 `device` 参数。要让主机输入在 Torch CUDA 上计算，先调用 `statgpu.set_device("torch")`，再以 `backend="torch"` 调用 bootstrap；结束后（包括异常时）恢复原先配置的全局策略。不要用 `get_device()` 保存这一策略，因为它会解析 `"auto"`，而非保留自动策略。直接拟合估计器时，可使用 `KDE(device="torch", backend="torch")`。显式请求 Torch CUDA 而加速器不可用时会报错，不会静默回退 CPU。
+
 ## 输入与统计含义
 
 原生路径支持数值带宽因子，以及 `scott`、`silverman`、`nrd`、`nrd0`、`ucv`、

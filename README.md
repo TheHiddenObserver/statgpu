@@ -13,7 +13,6 @@ GPU-accelerated statistical methods with an sklearn-style API.
 ## Core Features
 
 - 🚀 **Three backends**: NumPy (CPU), CuPy (CUDA), and PyTorch (CUDA), with automatic device selection
-- 🧭 **Explicit backend semantics**: choose CPU or GPU execution per model; [current kernel/spline routing exceptions](docs/en/guides/device-and-memory.md#current-smoothing-and-spline-exceptions) can return CPU results despite a GPU request, so check array placement when GPU execution is required. Input, output, and scalar conversions are documented per method
 - 🔧 **sklearn-style estimators**: familiar `fit`/`predict`/`score` methods and parameter conventions
 - 📊 **GLM + robust + quantile + Cox**: Gaussian and non-Gaussian regression, robust losses, quantile regression, and survival analysis
 - 🔥 **Penalty framework**: L1, L2, Elastic Net, SCAD, MCP, adaptive, and grouped penalties
@@ -49,6 +48,10 @@ GPU-accelerated statistical methods with an sklearn-style API.
 Knockoff: [overview](docs/en/models/feature-selection/knockoff.md) · [Fixed-X tutorial](docs/en/models/feature-selection/knockoff-fixed-x.md) · [Model-X tutorial](docs/en/models/feature-selection/knockoff-model-x.md) · [complete API](docs/en/reference/feature-selection-api.md).
 
 Knockoff 中文：[总览](docs/cn/models/feature-selection/knockoff.md) · [Fixed-X 教程](docs/cn/models/feature-selection/knockoff-fixed-x.md) · [Model-X 教程](docs/cn/models/feature-selection/knockoff-model-x.md) · [完整 API](docs/cn/reference/feature-selection-api.md)。
+
+## Known device-routing limitations
+
+`KernelRegression`, `SplineTransformer`, `KernelPCA` and `Nystroem` still have paths that can execute on CPU despite an explicit GPU request. These are unresolved routing defects, not GPU support or a feature. See the [current kernel/spline routing limitations](docs/en/guides/device-and-memory.md#current-smoothing-and-spline-exceptions) before relying on those paths. GPU input/output array placement alone does not prove that the computation ran on GPU.
 
 ## Documentation
 
