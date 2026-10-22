@@ -72,9 +72,26 @@ def test_learning_execution_evidence_dependencies_are_pinned():
     entry = next(e for e in manifest['entries'] if e['id'] == 'learning-families')
     assert entry['script_sha256'] == hashlib.sha256((ROOT / entry['script']).read_bytes()).hexdigest()
     dependencies = entry['source_dependencies_sha256']
-    assert 'dev/benchmarks/learning_execution_trace.py' in dependencies
+    assert {
+        'dev/benchmarks/learning_execution_trace.py',
+        'statgpu/nonparametric/kernel_smoothing/_native_bandwidth.py',
+        'statgpu/nonparametric/kernel_smoothing/_native_bootstrap.py',
+    } <= dependencies.keys()
     for path, digest in dependencies.items():
         assert digest == hashlib.sha256((ROOT / path).read_bytes()).hexdigest()
+
+
+def test_current_native_learning_support_does_not_reuse_historical_acceptance():
+    manifest = json.loads(MANIFEST.read_text())
+    learning = next(e for e in manifest['entries'] if e['id'] == 'learning-families')
+    assert (
+        'Torch KDE bootstrap is implemented in the current public native path; '
+        'physical acceptance of this new source remains pending. '
+        'Historical learning-suite evidence treated Torch bootstrap as unsupported '
+        'and does not certify this implementation.'
+    ) in learning['evidence_gaps']
+    assert not any('Torch KDE bootstrap remains explicitly unsupported' in gap
+                   for gap in learning['evidence_gaps'])
 
 
 def test_model_benchmark_adapter_source_is_pinned():
