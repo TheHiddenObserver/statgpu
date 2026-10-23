@@ -228,3 +228,37 @@ def test_cli_nonfinite_rejected_without_artifact(tmp_path,option):
     with pytest.raises(SystemExit):
         bench.main([option,'nan','--output',str(path)])
     assert not path.exists()
+
+
+def test_public_torch_native_capture_observes_actual_indices():
+    torch = pytest.importorskip('torch')
+    from statgpu.nonparametric import kde_bootstrap_confidence_interval
+    from statgpu.nonparametric.kernel_smoothing import _native_bootstrap as native
+    hook = native._draw_indices
+    x = torch.as_tensor(np.random.default_rng(6).normal(size=(16, 1)))
+    q = torch.linspace(-1, 1, 3, dtype=torch.float64)
+    result, indices = bench.capture_public(lambda: kde_bootstrap_confidence_interval(
+        x, q, backend='torch', bandwidth=.4, n_resamples=3, random_state=9,
+        return_bootstrap_samples=True))
+    from scipy.stats import gaussian_kde
+    expected = [gaussian_kde(x.numpy()[idx].T, bw_method=.4)(q.numpy()) for idx in indices]
+    np.testing.assert_allclose(result.bootstrap_samples, expected, atol=2e-6, rtol=2e-6)
+    assert indices.shape == (3, 16)
+    assert native._draw_indices is hook
+
+
+def test_live_public_baseline_trace_uses_native_stages():
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+    torch = pytest.importorskip('torch')
+    from statgpu.nonparametric import kde_bootstrap_confidence_interval
+    runtime = SimpleNamespace(name='torch', module=torch, device='cpu', context=nullcontext,
+        sync=lambda device: None)
+    x = torch.as_tensor(np.random.default_rng(6).normal(size=(16, 1)))
+    q = torch.linspace(-1, 1, 3, dtype=torch.float64)
+    problem = replace(bench.PRESETS['tiny'], n=16, queries=3, resamples=3)
+    value, report = bench.trace_public_current(runtime, lambda: kde_bootstrap_confidence_interval(
+        x, q, backend='torch', bandwidth=.4, n_resamples=3, random_state=9), problem)
+    assert value.estimate.shape == (3,)
+    assert report['device'] == 'cpu'
+    assert len([r for r in report['stages'] if r['stage'] == 'native-resampling']) == 3

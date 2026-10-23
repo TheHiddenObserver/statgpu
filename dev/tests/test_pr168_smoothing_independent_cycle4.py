@@ -247,9 +247,13 @@ def _assert_accelerator_arrays(arrays, device, torch):
         )
 
 
-@pytest.mark.xfail(strict=True, raises=_ExplicitAcceleratorPlacementError,
-                   reason="Issue #231: explicit accelerators can silently execute on CPU")
-@pytest.mark.parametrize("kind", ["kde", "regression"])
+@pytest.mark.parametrize("kind", [
+    "kde",
+    pytest.param("regression", marks=pytest.mark.xfail(
+        strict=True, raises=_ExplicitAcceleratorPlacementError,
+        reason="Issue #231: kernel regression can still ignore explicit accelerators",
+    )),
+])
 @pytest.mark.parametrize("input_kind", ["numpy", "torch_cpu"])
 @pytest.mark.parametrize("device,backend", [
     ("torch", "auto"), ("torch", "torch"), ("cuda", "torch"),
@@ -267,9 +271,14 @@ def test_smoothers_should_honor_explicit_accelerator_or_raise(kind, input_kind, 
         else:
             model = KernelRegression(**options).fit(X, np.linspace(0, 1, 15))
         output = model.predict(X[:2])
+    except ValueError as error:
+        # KDE now rejects contradictory explicit library/device requests.
+        if kind == "kde" and re.search(r"requires backend=.*not backend=", str(error)):
+            return
+        raise
     except RuntimeError as error:
         # A corrected unavailable-backend error satisfies the intended contract.
-        if re.search(r"unavailable|not available|not installed|no GPU backend|CuPy is required",
+        if re.search(r"unavailable|not available|not installed|no GPU backend|CuPy is required|requires a working .* CUDA backend",
                      str(error), re.IGNORECASE):
             return
         raise

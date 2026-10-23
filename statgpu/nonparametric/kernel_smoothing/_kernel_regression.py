@@ -125,11 +125,10 @@ class KernelRegression(BaseEstimator):
     positive feature scales. Response predictions need no density Jacobian.
     This mitigates the demonstrated scale problem; validate the intended
     covariance and predictions independently rather than relying on finiteness.
-    Torch currently raises TypeError for explicit weights and for scalar or
-    vector bandwidth_per_feature. Use backend='numpy' with CPU arrays for
-    those settings; omitting the weights or widths changes the requested fit.
-    Multivariate Torch queries must have shape (n_query,p), including (1,p)
-    for one query, because the one-dimensional vector check raises TypeError.
+    Torch supports explicit weights and multivariate query vectors. Scalar or
+    vector bandwidth_per_feature still raises TypeError on Torch. Use
+    backend='numpy' with CPU arrays for those absolute-width settings;
+    replacing the widths with a scalar factor changes the requested fit.
     """
 
     def __init__(
@@ -631,9 +630,8 @@ class KernelRegression(BaseEstimator):
         """Return backend-native local-mean predictions at finite points.
 
         points is (n_query,n_features). A vector means many one-feature queries
-        or one multivariate query of matching length. For Torch, use an explicit
-        (n_query,p) matrix instead of a multivariate vector, whose current
-        shape check raises TypeError. The output is (n_query,)
+        or one multivariate query of matching length, including on Torch.
+        The output is (n_query,)
         for an originally 1D target and (n_query,n_targets) for a target matrix.
         batch_size and min_effective_weight default to their constructor values;
         explicit positive values override them for this call only. The weight

@@ -2,7 +2,7 @@
 # Kernel density estimation and local regression
 
 > Language: English  
-> Last updated: 2026-10-09
+> Last updated: 2026-10-22
 > This page: KDE and local kernel regression tutorial  
 > Switch: [Chinese](../../../cn/models/nonparametric/nonparametric.md)
 
@@ -277,7 +277,7 @@ Import the following from `statgpu.nonparametric`:
 - KDE output shape is `(n_query,)`; regression output is `(n_query,)` for a 1D target and `(n_query, n_targets)` for a 2D target, including `(n_query, 1)`. With NumPy the outputs are NumPy arrays; ordinary GPU predictions remain backend-native. Interval result arrays are converted to NumPy.
 - `weights`, when supplied for fitting, must be finite, nonnegative, length `n_samples`, and have a positive sum; they are normalized. Concentrating all weight on one observation fails covariance estimation. Invalid shapes, nonfinite inputs, nonpositive bandwidths, and unknown kernel names raise errors. Call `fit` before prediction.
 
-For weighted Gaussian KDE, remove zero-weight rows (and their weights) before fitting when using `logpdf`, `score_samples`, or `score`. Although they carry no statistical mass, these rows can currently make tail log-density evaluation return `-inf` incorrectly. Renormalization is automatic. Choose a new bandwidth after filtering if the positive-weight population is the intended input to selection. Rerunning a string selector can change the selected factor: `nrd`/`nrd0` use raw-sample scale summaries, while `ucv`, `bcv`, `sj-ste` and `sj-dpi` can change their weighting/resampling path after deletion. To preserve an already-chosen smoothing factor, save `original.bandwidth_factor_` and refit the positive-weight rows with numeric `bandwidth=original.bandwidth_factor_` and their retained weights. This preserves the specified kernel covariance and density; it does not establish that a factor selected with zero-mass rows was an appropriate scientific choice.
+Weighted Gaussian KDE excludes zero-mass observations from the log-density reduction, so retaining zero-weight rows does not by itself destabilize `logpdf`, `score_samples`, or `score`. Removing those rows before bandwidth selection can still change the selected factor. Choose a new bandwidth after filtering if the positive-weight population is the intended input to selection. Rerunning a string selector can change the selected factor: `nrd`/`nrd0` use raw-sample scale summaries, while `ucv`, `bcv`, `sj-ste` and `sj-dpi` can change their weighting/resampling path after deletion. To preserve an already-chosen smoothing factor, save `original.bandwidth_factor_` and refit the positive-weight rows with numeric `bandwidth=original.bandwidth_factor_` and their retained weights. This preserves the specified kernel covariance and density; it does not establish that a factor selected with zero-mass rows was an appropriate scientific choice.
 
 For large-offset coordinates, center training samples and queries with the same
 training-derived offset before evaluation. Current distance calculations can
@@ -286,18 +286,16 @@ density/regression; see the [API numerical limitation](../../reference/survival-
 
 ### Current Torch restrictions
 
-For a multivariate Torch fit, pass queries as an explicit two-dimensional array,
-even for one point: use `X[:1]`, not `X[0]`. The vector shape check currently
-raises `TypeError`; reshaping avoids that particular failure.
+Torch KDE and kernel regression support fitting weights and single multivariate
+query vectors. KDE bootstrap is available on both Torch CPU and Torch CUDA,
+with native resampling and refitting; result arrays are returned as NumPy.
+The same native bootstrap path is available with CuPy. See the
+[native bootstrap guide](../../guides/native-kde-bootstrap.md) for seeds,
+selector refitting and the optional `workspace_bytes` budget.
 
-Torch fitting currently also raises `TypeError` when `weights` is supplied or
-when regression uses `bandwidth_per_feature`, whether scalar or vector. KDE
-bootstrap intervals on Torch fail even with `weights=None`, because each
-replicate supplies explicit weights. Use `backend="numpy"` with CPU arrays for
-weighted fitting, absolute per-feature widths, or bootstrap intervals. Do not
-omit weights or replace widths merely to make a fit run: that changes the
-analysis. Unweighted Torch KDE, scalar-factor regression, and one-dimensional
-Gaussian normal intervals are separate paths.
+Torch regression `bandwidth_per_feature` remains unsupported for scalar and
+vector widths. Use CPU arrays with `backend="numpy"` for that request; omitting
+weights or replacing absolute widths with a scalar factor changes the analysis.
 
 ## Bandwidth, kernels, and tuning boundaries
 
@@ -377,7 +375,22 @@ Useful fitted state includes `samples_`, normalized `weights_`, `bandwidth_facto
 
 ## Optional GPU execution and external comparisons
 
-`backend` accepts `"numpy"`, `"cupy"`, `"torch"`, or `"auto"`. An explicit backend selects the array library; `"auto"` consults the estimator/global device configuration. `device` belongs to estimator constructors, but KDE and kernel regression do not consistently enforce an explicit accelerator request: NumPy or Torch CPU input can remain on Torch CPU with `device="torch"` and `backend="auto"` or `"torch"`. With `device="cuda", backend="auto"`, unavailable CuPy can also lead to selecting Torch when Torch CUDA is available, while NumPy or Torch CPU inputs may still remain on CPU. Explicit `backend="torch"` can likewise run on CPU with `device="cuda"`, while `backend="numpy"` overrides either accelerator request and returns CPU arrays.
+KDE enforces explicit accelerator requests: `device="cuda"` requires CuPy CUDA
+and `backend="auto"` or `"cupy"`; `device="torch"` requires Torch CUDA and
+`backend="auto"` or `"torch"`. Unavailable accelerators and conflicting backend
+requests raise errors rather than running on CPU. `device="cpu"` permits NumPy
+or Torch, not CuPy. With `backend="torch", device="auto"`, native tensors keep
+their device and host inputs use Torch CPU unless an explicit global device
+setting requests an accelerator. With `backend="auto"`, estimator/global device
+policy selects the library, not input type. Interval helpers expose `backend`,
+not a separate `device` argument.
+
+Kernel regression still has explicit-device exceptions: CPU inputs may remain
+on Torch CPU despite `device="torch"` or `"cuda"`, and `backend="numpy"` can
+override those requests. Verify `samples_` and prediction placement before
+requiring GPU execution. Torch `.device`/`.is_cuda` and CuPy `.device` identify
+placement; `backend_` alone does not. See [device guidance](../../guides/device-and-memory.md).
+
 
 Matching device/backend strings are therefore insufficient. Inspect both `samples_` and the density/prediction arrays: Torch `.device` and `.is_cuda` reveal tensor placement, CuPy `.device` identifies its GPU, and NumPy arrays are on CPU. Do not rely on `model.device` or `backend_` as evidence of CUDA execution. For an explicit CPU workflow, use NumPy inputs with `device="cpu", backend="numpy"`. If CUDA execution is required, reject CPU outputs before using them. See [device and memory](../../guides/device-and-memory.md) for further placement checks.
 

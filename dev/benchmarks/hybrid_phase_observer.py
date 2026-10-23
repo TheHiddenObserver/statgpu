@@ -18,6 +18,7 @@ class PhaseObserver:
         self.active = {}
         self.records = []
         self.captured = []
+        self.resampling_indices = []
         self.sync_seconds = []
 
     def synchronize(self):
@@ -38,6 +39,8 @@ class PhaseObserver:
             if code.co_name == '_corr_diff_statistics':
                 self.captured.append(tuple(frame.f_locals[k] for k in ('X_std', 'X_knock', 'y')))
         elif event == 'return':
+            if spec is not None and spec['label'] == 'native-resampling' and arg is not None:
+                self.resampling_indices.append(arg)
             start = self.active.pop(id(frame), None)
             if start is None:
                 return
@@ -67,7 +70,7 @@ class PhaseObserver:
                 'accounting': 'inclusive overlapping spans; never sum or subtract from end-to-end',
                 'timing_class': 'instrumented diagnostic, with stage-boundary synchronization overhead',
                 'transfer_coverage': 'selected _to_numpy/xp_asarray Python helpers plus explicit input/output spans; not exhaustive',
-                'unattributed': 'host RNG, unhooked copies, dispatch and other work remain unattributed; no residual inferred',
+                'unattributed': 'NumPy RNG/seed bridge, unhooked copies, dispatch and other work remain unattributed; no residual inferred',
                 'synchronized_device': self.runtime.device,
                 'boundary_sync_seconds': self.sync_seconds,
                 'boundary_sync_note': 'observer-added waits; overlaps stage spans, not production sync overhead',

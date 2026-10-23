@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""CPU/current-hybrid optimization-decision benchmark, not release acceptance.
+"""CPU/current-public optimization-decision benchmark, not release acceptance.
 
-No native-GPU prototype exists here. Use --inventory for the matrix. All measured
-public calls include input conversion, computation and host result extraction.
+KDE bootstrap and KDE selectors use the current native public implementation.
+Use --inventory for the matrix. All measured public calls include input
+conversion, computation and host result extraction.
 """
 from __future__ import annotations
 import argparse
@@ -110,8 +111,6 @@ def make_call(case, rt, problem):
         dq = rt.array(Q) if not case.startswith('knockoff') else None
         dy = rt.array(y) if case.startswith('knockoff') or case == 'bandwidth_cv' else None
         if case == 'kde_bootstrap':
-            if rt.name == 'torch':
-                raise Unsupported('Torch weighted KDE bootstrap is unsupported; no CPU fallback')
             result = N.kde_bootstrap_confidence_interval(dx, dq, bandwidth=.4,
                 n_resamples=problem.resamples, random_state=problem.seed,
                 return_bootstrap_samples=True, backend=rt.name)
@@ -133,7 +132,7 @@ def make_call(case, rt, problem):
     return call, (X, Q, y)
 
 
-def check(case, value, reference, arrays, problem, captured=None):
+def check(case, value, reference, arrays, problem, captured=None, *, resampling_indices=None, native_bootstrap=False):
     """Numerical checks, never FDR/CI-coverage or selector optimality claims."""
     metrics = {}
     if case.startswith('knockoff') and not captured:
@@ -179,6 +178,8 @@ def check(case, value, reference, arrays, problem, captured=None):
                 'reference': 'independent realized corr_diff/threshold and Fixed-X Gram identities',
                 'limitation': 'backend RNG differs; no model-X distribution, FDR, or full sampler certification; diagnostic timing only'}
     for key, expected in reference.items():
+        if case == 'kde_bootstrap' and key != 'estimate':
+            continue  # Backend RNG streams differ; validate actual draws below.
         np.testing.assert_allclose(value[key], expected, atol=2e-6, rtol=2e-6)
         metrics[key + '_max_abs_diff'] = float(np.max(np.abs(value[key] - expected)))
     if case == 'kde_bootstrap':
@@ -188,14 +189,21 @@ def check(case, value, reference, arrays, problem, captured=None):
         rng = np.random.default_rng(problem.seed)
         weights = np.ones(problem.n)/problem.n
         expected = []
-        for _ in range(problem.resamples):
-            idx = rng.choice(problem.n, problem.n, replace=True, p=weights)
+        if native_bootstrap:
+            if resampling_indices is None or len(resampling_indices) != problem.resamples:
+                raise AssertionError('missing realized native bootstrap indices')
+            indices = [host(idx) for idx in resampling_indices]
+        else:
+            indices = [rng.choice(problem.n, problem.n, replace=True, p=weights) for _ in range(problem.resamples)]
+        for idx in indices:
+            if idx.shape != (problem.n,) or idx.dtype.kind not in 'iu' or np.any(idx < 0) or np.any(idx >= problem.n):
+                raise AssertionError('invalid realized native bootstrap indices')
             expected.append(gaussian_kde(X[idx].T, bw_method=.4, weights=weights[idx])(Q.T))
         np.testing.assert_allclose(value['draws'], expected, atol=2e-6, rtol=2e-6)
         np.testing.assert_allclose(value['lower'], np.quantile(expected, .025, axis=0), atol=2e-6, rtol=2e-6)
         np.testing.assert_allclose(value['upper'], np.quantile(expected, .975, axis=0), atol=2e-6, rtol=2e-6)
     return {'status': 'pass', 'performance_eligible': True, 'metrics': metrics,
-            'reference': 'CPU public selector/prediction parity; KDE additionally SciPy each identical resample',
+            'reference': "CPU public selector/prediction parity; KDE additionally SciPy each backend's actual realized resample",
             'tolerance': {'atol': 2e-6, 'rtol': 2e-6, 'basis': 'float64 public CPU parity with KDE covariance jitter allowance'},
             'limitation': 'no selector optimality or confidence-interval coverage certification'}
 
@@ -204,8 +212,10 @@ def specs_for(case, backend, problem):
     specs = learning_stages(case, backend)
     if case == 'kde_bootstrap' and backend != 'numpy':
         for spec in specs:
-            if spec['label'] in ('kde-fit', 'kde-density'):
+            if spec['label'] in ('kde-fit', 'kde-density', 'native-covariance'):
                 spec['minimum_calls'] = problem.resamples + 1
+            elif spec['label'] == 'native-resampling':
+                spec['minimum_calls'] = problem.resamples
     return specs
 
 
@@ -224,8 +234,6 @@ def transfer_codes():
 
 def run_case(case, rt, problem, warmup=1, repeats=3, max_work=500_000_000):
     work = guard(case, problem, max_work)
-    if case == 'kde_bootstrap' and rt.name == 'torch':
-        raise Unsupported('Torch weighted KDE bootstrap is unsupported; no CPU fallback')
     if warmup < 0 or repeats < 1:
         raise ValueError('warmup >= 0 and repeats >= 1 required')
     call, arrays = make_call(case, rt, problem)
@@ -244,10 +252,12 @@ def run_case(case, rt, problem, warmup=1, repeats=3, max_work=500_000_000):
         observer = PhaseObserver(rt, specs, transfer_codes())
         with observer:
             diagnostic_value = call()
-        correctness = check(case, diagnostic_value, reference, arrays, problem, observer.captured)
+        correctness = check(case, diagnostic_value, reference, arrays, problem, observer.captured,
+            resampling_indices=observer.resampling_indices, native_bootstrap=case == 'kde_bootstrap' and rt.name != 'numpy')
         # Evidence and diagnostic outputs must agree within one backend/seed.
         for key in evidence_value:
             np.testing.assert_allclose(evidence_value[key], diagnostic_value[key], atol=2e-6, rtol=2e-6)
+        observer.resampling_indices.clear()
         observer.captured.clear()  # Do not retain diagnostic GPU matrices during timing.
         samples = []
         for i in range(warmup + repeats):
@@ -263,8 +273,8 @@ def run_case(case, rt, problem, warmup=1, repeats=3, max_work=500_000_000):
                 samples.append(elapsed)
     X, Q, y = arrays
     return {'case': case, 'backend': rt.name, 'status': 'pass',
-            'variant': 'cpu-public' if rt.name == 'numpy' else 'current-public-hybrid',
-            'native_gpu_variant': {'status': 'not-implemented', 'timed': False},
+            'variant': ('numpy-cpu-public' if rt.name == 'numpy' else rt.name + '-' + rt.device + '-current-public'),
+            'native_gpu_variant': {'status': ('current-public' if case == 'kde_bootstrap' or (case.startswith('bandwidth_') and case != 'bandwidth_cv') else 'not-implemented'), 'timed': rt.device.startswith('cuda:') and (case == 'kde_bootstrap' or (case.startswith('bandwidth_') and case != 'bandwidth_cv'))},
             'performance_eligible': correctness['performance_eligible'], 'correctness': correctness,
             'problem': {**asdict(problem), 'actual_p': X.shape[1], 'dtype': 'float64',
                         'data_id': hashlib.sha256(X.tobytes()+Q.tobytes()+y.tobytes()).hexdigest(),
@@ -275,7 +285,7 @@ def run_case(case, rt, problem, warmup=1, repeats=3, max_work=500_000_000):
                        'instrumented': False, 'samples_seconds': samples, 'median_seconds': statistics.median(samples),
                        'warmup': warmup, 'repeats': repeats, 'synchronized_device': rt.device,
                        'transfer_policy': 'all public internal and input/output transfers included; data generation/reference/checks excluded'},
-            'comparability': 'same float64 host data and workload; KDE numeric factor .4, same host draws, CPU fast density vs GPU refits; knockoff backend-native RNG differs'}
+            'comparability': 'same float64 host data and workload; KDE numeric factor .4, backend-specific realized draws validated independently, CPU fast density vs native refits; knockoff backend-native RNG differs'}
 
 
 def main(argv=None):
@@ -295,7 +305,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.inventory:
         print(json.dumps({'cases': CASES, 'presets': {k: asdict(v) for k, v in PRESETS.items()},
-                          'native_gpu_prototype': 'not implemented', 'torch_bootstrap': 'unsupported'}, indent=2))
+                          'native_public_paths': ['KDE bootstrap', 'KDE bandwidth selectors'], 'torch_bootstrap': 'supported; explicit CUDA required by this runner'}, indent=2))
         return 0
     if args.warmup < 0 or args.repeats < 1 or args.device < 0 or args.max_work < 1:
         parser.error('require warmup >= 0, repeats >= 1, device >= 0, max-work >= 1')
@@ -346,7 +356,7 @@ def main(argv=None):
               'environment': {**env, 'environment_id': hashlib.sha256(json.dumps({'environment': env, 'hardware': hardware}, sort_keys=True).encode()).hexdigest()}, 'rows': rows, 'performance': {'paired_end_to_end': comparisons},
               'validation': {'tier': 'local-minimal' if args.preset == 'tiny' else 'local-full',
                              'status': 'complete' if complete else 'incomplete',
-                             'physical_gpu_claim': not changed and any(r['status'] == 'pass' and r['backend'] != 'numpy' for r in rows),
+                             'physical_gpu_claim': not changed and any(r['status'] == 'pass' and r.get('backend_evidence', {}).get('device', '').startswith('cuda:') for r in rows),
                              'uncovered_reasons': ([r.get('reason') for r in rows if r['status'] != 'pass'] + (['source changed during run'] if changed else []))}}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2, allow_nan=False) + '\n')

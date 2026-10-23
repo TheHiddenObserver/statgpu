@@ -1,7 +1,7 @@
 # 设备与 GPU 内存
 
 > 语言：中文\
-> 最后更新：2026-10-15\
+> 最后更新：2026-10-22\
 > 页面定位：设备选择与 GPU 内存控制\
 > 切换：[English](../../en/guides/device-and-memory.md)
 
@@ -56,9 +56,10 @@ print(predictions)
 
 ## 核方法与样条例外：检查数组所在设备
 
-以下估计器仅设置 GPU 参数，并不能保证实际使用 GPU：
+请区分 KDE 的严格设备请求与其他估计器仍存在的例外：
 
-- `KernelDensityEstimator`（含 `KDE`）和 `KernelRegression`（含 `KernelRegressionRegressor`）处理 NumPy 或 Torch CPU 输入时，即使设置 `device="torch"` 且 `backend="auto"` 或 `"torch"`，仍可能在 Torch CPU 上拟合。显式 `backend="torch"` 搭配 `device="cuda"` 也可能在 CPU 上执行；显式 `backend="numpy"` 会覆盖这两种 GPU 请求。使用 `device="cuda", backend="auto"` 时，如果 CuPy 不可用而 Torch CUDA 可用，这些估计器可能选择 Torch，但 CPU 输入仍可能留在 CPU 上。
+- `KernelDensityEstimator`（含 `KDE`）执行上述显式加速器规则；`backend="torch", device="cpu"` 仍可使用 Torch CPU。原生 bootstrap 在设备计算后返回 NumPy 结果数组，见[原生 KDE bootstrap](native-kde-bootstrap.md)。
+- 核回归仍有以下例外：`KernelRegression`（含 `KernelRegressionRegressor`）处理 NumPy 或 Torch CPU 输入时，即使设置 `device="torch"` 且 `backend="auto"` 或 `"torch"`，仍可能在 Torch CPU 上拟合。显式 `backend="torch"` 搭配 `device="cuda"` 也可能在 CPU 上执行；显式 `backend="numpy"` 会覆盖这两种 GPU 请求。使用 `device="cuda", backend="auto"` 时，如果 CuPy 不可用而 Torch CUDA 可用，这些估计器可能选择 Torch，但 CPU 输入仍可能留在 CPU 上。
 - `SplineTransformer` 会保留传入 Torch 张量所在的设备。因此，Torch CPU 输入即使搭配 `device="torch"` 或 `"cuda"`，拟合节点与变换特征仍可能留在 CPU 上。相同设置改用 NumPy 输入时，如果请求的加速器不可用，则可能报错。
 - `KernelPCA` 与 `Nystroem` 在 Torch CUDA 不可用时会拒绝 `device="torch"`。但通过检查后，NumPy 或 Torch CPU 输入仍可能得到 Torch CPU 特征。通过可用性检查不代表张量已经位于 GPU。
 
@@ -70,7 +71,7 @@ print(predictions)
 
 Torch 张量查看 `.device` 与 `.is_cuda`，CuPy 数组查看 `.device`。NumPy 数组位于 CPU。`model.device` 或 `backend_="torch"` 这样的库名称都不能证明 CUDA 执行。
 
-如果必须使用 GPU，请不要接受这些方法返回的 CPU 结果。请使用受支持的 GPU 输入与后端组合，并在使用结果前检查上述数组。需要明确的 CPU 替代方案时，请传入 NumPy 数组并设 `device="cpu"`；KDE/核回归还需设 `backend="numpy"`。
+如果必须使用 GPU，请不要接受这些方法的 CPU 拟合/评价数组；这项检查不适用于明确约定的区间结果最终转为 NumPy 的返回边界。请使用受支持的 GPU 输入与后端组合，并在使用结果前检查上述数组。需要明确的 CPU 替代方案时，请传入 NumPy 数组并设 `device="cpu"`；KDE/核回归还需设 `backend="numpy"`。
 
 其他限制与受支持的组合见[核平滑](../models/nonparametric/nonparametric.md#可选-gpu-路径与外部对照)、[核特征](../reference/kernel-methods-api.md#后端与执行边界)与[样条](../models/nonparametric/splines.md#后端执行与验证边界)。
 

@@ -354,8 +354,8 @@ def test_reference_routes_to_overview_and_each_peer_tutorial(language):
 def test_root_readme_exposes_all_anova_layers():
     text = (ROOT / "README.md").read_text(encoding="utf-8")
     for page in ("anova", *LESSONS):
-        assert f"](docs/en/{model_doc(page)}.md)" in text
-    assert "](docs/en/reference/anova-api.md)" in text
+        assert f"](https://statgpu.github.io/en/{model_doc(page)})" in text
+    assert "](https://statgpu.github.io/en/reference/anova-api)" in text
 
 
 @pytest.mark.parametrize("language", ("en", "cn"))
