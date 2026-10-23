@@ -111,8 +111,8 @@ def test_navigation_exposes_overview_every_method_and_complete_api(language, pag
 def test_root_readme_exposes_all_kernel_layers():
     text = (ROOT / "README.md").read_text(encoding="utf-8")
     for page in ("kernel-methods", *LESSONS):
-        assert f"](docs/en/{model_doc(page)}.md)" in text
-    assert "](docs/en/reference/kernel-methods-api.md)" in text
+        assert f"](https://statgpu.github.io/en/{model_doc(page)})" in text
+    assert "](https://statgpu.github.io/en/reference/kernel-methods-api)" in text
 
 
 @pytest.mark.parametrize("language", ("en", "cn"))

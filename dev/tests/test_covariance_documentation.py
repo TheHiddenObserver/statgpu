@@ -324,8 +324,8 @@ def test_entry_points_expose_common_concepts_all_methods_and_complete_api(langua
 def test_root_readme_exposes_all_covariance_layers():
     text = (ROOT / "README.md").read_text(encoding="utf-8")
     for page in ("covariance", *LESSONS):
-        assert f"](docs/en/{model_doc(page)}.md)" in text
-    assert "](docs/en/reference/covariance-api.md)" in text
+        assert f"](https://statgpu.github.io/en/{model_doc(page)})" in text
+    assert "](https://statgpu.github.io/en/reference/covariance-api)" in text
 
 
 @pytest.mark.parametrize("language", ("en", "cn"))

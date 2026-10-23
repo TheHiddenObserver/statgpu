@@ -2,6 +2,10 @@
 
 All notable changes to statgpu are documented here, organized by release and date.
 
+## Unreleased — 2026-10-23
+
+### PR #255 — README method navigation and device-guide links
+
 ## Unreleased — working-tree repairs (2026-10-20)
 
 These changes are not part of the published 0.3.0 artifacts. The historical
