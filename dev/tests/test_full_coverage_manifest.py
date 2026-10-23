@@ -154,3 +154,21 @@ def test_targeted_distribution_and_umap_status_matches_recorded_acceptance():
     for case in cases:
         assert '9a6145d187da1000703bc4a20d990ef72d44b893' in case['evidence_status']
         assert 'physical' in case['evidence_status'] and 'not' in case['evidence_status']
+
+
+def test_fullscan_repair_keeps_failed_physical_evidence_and_repins_dependencies():
+    manifest = json.loads(MANIFEST.read_text())
+    state = manifest['fullscan_repair_state']
+    assert state['base_sha'] == '521680370e0e0071bf881a13fcf5750420c71187'
+    assert state['status'] == 'local-repairs-physical-validation-pending'
+    historical = state['historical_fullscan']
+    assert historical['executed_suites'] == 21
+    assert historical['passed_suites'] == 14
+    assert historical['failed_suites'] == 7
+    assert historical['failed_rows'] == 20
+    assert historical['blocked_rows'] == 32
+    assert 'exclusivity unverified' in state['performance_qualification']
+    for entry in manifest['entries']:
+        assert entry['script_sha256'] == hashlib.sha256((ROOT / entry['script']).read_bytes()).hexdigest()
+        for path, digest in entry.get('source_dependencies_sha256', {}).items():
+            assert digest == hashlib.sha256((ROOT / path).read_bytes()).hexdigest()

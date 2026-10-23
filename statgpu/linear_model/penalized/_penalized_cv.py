@@ -805,6 +805,47 @@ def _ridge_eig_single(X_train_np, y_train_np, alpha, sample_weight=None):
     return coef, intercept
 
 
+
+def _ridge_eig_single_backend(X, y, alpha, backend, sample_weight=None):
+    """Solve the centered Ridge refit on the resolved numerical backend.
+
+    The objective is mean squared error / 2 + alpha * ||coef||² / 2,
+    with analytic weights normalized by their sum and an unpenalized intercept.
+    Only the final public coefficients/intercept may be copied to the host by
+    the caller. Explicit accelerator requests are resolved before this helper;
+    numerical failures propagate rather than substituting a CPU solve.
+    """
+    X = backend.asarray(X, dtype=backend.float64)
+    y = backend.asarray(y, dtype=backend.float64).reshape(-1)
+    if backend.name == "numpy":
+        weights = (None if sample_weight is None else
+                   backend.asarray(sample_weight, dtype=backend.float64).reshape(-1))
+        return _ridge_eig_single(X, y, alpha, sample_weight=weights)
+
+    if sample_weight is None:
+        mass = int(X.shape[0])
+        X_mean = backend.mean(X, axis=0)
+        y_mean = backend.mean(y)
+        Xc, yc = X - X_mean, y - y_mean
+        gram = Xc.T @ Xc
+        cross = Xc.T @ yc
+    else:
+        weights = backend.asarray(sample_weight, dtype=backend.float64).reshape(-1)
+        mass = backend.sum(weights)
+        X_mean = backend.sum(X * weights[:, None], axis=0) / mass
+        y_mean = backend.sum(y * weights) / mass
+        Xc, yc = X - X_mean, y - y_mean
+        weighted_X = Xc * backend.sqrt(weights)[:, None]
+        gram = weighted_X.T @ weighted_X
+        cross = (Xc * weights[:, None]).T @ yc
+
+    eigvals, vectors = backend.eigh(gram)
+    eigvals = backend.maximum(eigvals, _EIGVAL_FLOOR)
+    coef = vectors @ ((vectors.T @ cross) / (eigvals + mass * alpha))
+    intercept = y_mean - X_mean @ coef
+    return coef, intercept
+
+
 def _backend_name_for_cv_device(device):
     name = _device_to_name(device)
     if name == "cuda":
@@ -2827,8 +2868,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
     def _refit_best(self, X, y, best_alpha, sample_weight=None):
         """Refit on full data with best alpha.
 
-        For squared_error + l2, uses eigendecomposition to match the CV path
-        exactly, avoiding precision mismatch between CV and refit solvers.
+        For squared_error + l2, solve the same centered Ridge objective by
+        eigendecomposition on the resolved backend, including analytic weights.
         """
         from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
 
@@ -2837,20 +2878,23 @@ class PenalizedGLM_CV(CVEstimatorBase):
         if _device_to_name(self._device) == "auto":
             refit_device = getattr(self, "cv_selected_device_", self._device) or self._device
 
-        # For Ridge: use eigendecomposition to match CV path exactly.
-        # Supports weighted Ridge via weighted eigensolve (same O(p³) cost).
+        # Preserve the CPU eigensolve objective without sending accelerator
+        # designs/responses to NumPy and merely relabelling the fitted model.
+        # Weighted Ridge uses the same O(p³) native eigensolve.
         if self.loss == 'squared_error' and self.penalty == 'l2':
-            X_np = _to_numpy(X).astype(np.float64)
-            y_np = _to_numpy(y).astype(np.float64).ravel()
-            sw_np = _to_numpy(sample_weight).astype(np.float64).ravel() if sample_weight is not None else None
-            coef, intercept = _ridge_eig_single(X_np, y_np, best_alpha, sample_weight=sw_np)
             model = PenalizedGeneralizedLinearModel(
                 loss='squared_error', penalty='l2', alpha=best_alpha,
                 device=refit_device, compute_inference=False,
                 max_iter=self._max_iter, tol=self._tol,
                 loss_kwargs=getattr(self, '_loss_kwargs', None),
             )
-            return self._populate_refit_model(model, coef, intercept, X, refit_device)
+            backend = model._get_backend()
+            coef, intercept = _ridge_eig_single_backend(
+                X, y, best_alpha, backend, sample_weight=sample_weight,
+            )
+            return self._populate_refit_model(
+                model, _to_numpy(coef), _to_float_scalar(intercept), X, refit_device,
+            )
 
         can_infer = (self.loss == 'squared_error' and self.penalty == 'l2')
         penalty_name = str(

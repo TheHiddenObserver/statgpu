@@ -9,6 +9,15 @@ This page records user-visible changes for current and recent statgpu releases.
 
 ## Unreleased — working-tree repairs
 
+### Local full-scan correctness and evidence repairs
+
+- Restore smooth-quadratic FISTA stopping on GPU without increasing iteration budgets or relaxing convergence tolerances.
+- Keep squared-error L2 PenalizedGLM_CV final refits on the requested numerical backend.
+- Evaluate Torch F survival probabilities for numerator degrees of freedom 2 with a stable native exact expression; retain other degrees-of-freedom behavior.
+- Move Nyström landmark decomposition and GAM knot selection to their selected backends, and propagate KernelPCA decomposition failures without a hidden CPU retry. Public host reporting boundaries remain explicit.
+- Strengthen algorithm-specific benchmark operation evidence and failure diagnostics; local CPU tests do not replace the pending P100 rerun. Existing full-scan evidence and diagnostic-only performance qualification remain unchanged.
+
+
 These source changes are not included in the published 0.3.0 wheel or sdist.
 The historical 0.3.0 release-preparation entries below retain their original
 wording. Package versions are unchanged, and earlier P100 acceptance does not

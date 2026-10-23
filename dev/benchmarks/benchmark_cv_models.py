@@ -25,6 +25,7 @@ import socket
 import subprocess
 import sys
 import time
+import traceback
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -310,6 +311,9 @@ def _model_kwargs(spec: CaseSpec, backend: str, seed: int) -> dict[str, Any]:
         "compute_inference": False,
         "max_iter": 200,
         "tol": 1e-5,
+        # Accuracy baseline, not a measurement of mixed-precision defaults.
+        # _construct filters this option for families that do not expose it.
+        "gpu_cv_mixed_precision": False,
     }
     common.update(spec.grid_parameters)
     if spec.model_id == "PenalizedGLM_CV":
@@ -440,7 +444,7 @@ def _candidate_count(spec: CaseSpec) -> int:
     raise ValueError(f"{spec.model_id}: no explicit candidate grid")
 
 
-def _run_once(spec: CaseSpec, backend: str, seed: int, n_samples: int, n_features: int):
+def _run_once(spec: CaseSpec, backend: str, seed: int, n_samples: int, n_features: int, *, run_kind="repeat"):
     import numpy as np
 
     generator = {
@@ -465,7 +469,15 @@ def _run_once(spec: CaseSpec, backend: str, seed: int, n_samples: int, n_feature
     sync = _synchronizer(backend)
     sync()
     total_start = time.perf_counter()
-    with RegionProfiler(model, n_samples, sync) as profiler:
+    profiler = RegionProfiler(model, n_samples, sync)
+    profiler.input_dtypes = {
+        "X": str(X_backend.dtype),
+        "target": ([str(value.dtype) for value in target_backend]
+                   if isinstance(target_backend, tuple) else str(target_backend.dtype)),
+    }
+    profiler.invocation = {"kind": run_kind, "seed": seed,
+                           "n_samples": n_samples, "n_features": n_features}
+    with profiler:
         model.fit(*_fit_args(spec, X_backend, target_backend))
     sync()
     total_ms = (time.perf_counter() - total_start) * 1000.0
@@ -563,21 +575,26 @@ def _case(spec: CaseSpec, backends: list[str], seeds: list[int], n_samples: int,
         if not available:
             runs.append(_non_success(backend, "unavailable", reason or "backend unavailable"))
             continue
+        phase = "warmup"
+        invocation_index = 0
         try:
             for warmup_index in range(warmup):
+                invocation_index = warmup_index
                 _run_once(
                     spec, backend, seeds[0] + 1_000_000 + warmup_index,
-                    n_samples, n_features,
+                    n_samples, n_features, run_kind="warmup",
                 )
-            samples = [
-                _run_once(spec, backend, seed, n_samples, n_features)
-                for seed in seeds
-            ]
+            phase = "repeat"
+            samples = []
+            for invocation_index, seed in enumerate(seeds):
+                samples.append(_run_once(spec, backend, seed, n_samples, n_features))
             runs.append(_aggregate_run(spec, backend, samples))
         except Exception as exc:
             runs.append(
                 _non_success(
-                    backend, "failed", f"{type(exc).__name__}: {exc}"
+                    backend, "failed",
+                    f"{phase} {invocation_index}: "
+                    + "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
                 )
             )
 
@@ -659,7 +676,7 @@ def build_source(args) -> dict[str, Any]:
             "repeats": args.repeats,
             "dtype": "float64",
             "synchronization": "backend synchronize immediately before and after each observed timing region",
-            "timing_scope": "host-orchestrated public fit with directly observed CV selector and final full-data refit",
+            "timing_scope": "host-orchestrated public fit with directly observed CV selector and final full-data refit; explicit float64 accuracy baseline (gpu_cv_mixed_precision=False where supported), not constructor-default performance",
             "transfer_policy": "input conversion occurs before timed public fit; device-resident timing",
             "failure_policy": "retain_explicit_disposition",
         },

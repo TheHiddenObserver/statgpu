@@ -186,17 +186,11 @@ print("First two test coordinates:\n", test_coordinates[:2])
 核参数与拟合数组，丢弃无效结果。对于带巨大共同偏移的 RBF 坐标，应对训练与查询
 减去同一个从训练数据得到的偏移，减少平方距离中的消减误差。
 
-训练核需要平方级内存，稠密特征分解最坏为立方级算术成本。分解通常使用所选后端；
-线性代数异常会触发 NumPy CPU 特征分解，并且没有单独的回退标志。即使数值运算
-在 GPU 上进行，保存的 `X_fit_`、`alphas_`、`lambdas_` 仍为 NumPy 数组。
+训练核需要平方级内存，稠密特征分解最坏为立方级算术成本。
 
-显式请求不可用的 `device="cuda"` 或 `"torch"` 会报错。不过，KernelPCA 当前在
-Torch CUDA 可用性检查通过后，仍可能让 NumPy 或 Torch CPU 输入留在 CPU 上。
-应通过返回特征的 Torch `.device` / `.is_cuda` 或 CuPy `.device` 检查实际位置；
-所选后端及主机上的拟合数组都不能证明输出位置。若必须使用 CUDA，应在使用前拒绝
-CPU 输出。NumPy 输入配合 `device="cpu"` 是可预期的 CPU 路径。
-[设备指南](../../guides/device-and-memory.md#current-smoothing-and-spline-exceptions)
-进一步说明了各核方法的设备放置限制。
+显式请求不可用的设备会报错。KernelPCA 与 Nystroem 在拟合和变换时通过所选后端转换输入，包括显式请求 Torch CUDA 的主机输入。KernelPCA 的分解失败会直接传播，不再转到 CPU 重试。Nystroem 的节点核与 SVD 使用所选后端；带种子的节点索引抽样仍在主机进行。自定义核须支持所选数值后端。
+
+公开拟合数组仍为 NumPy 报告／存储边界。应通过返回特征的 Torch `.device`/`.is_cuda` 或 CuPy `.device` 检查实际位置，不能仅凭主机拟合数组判断数值计算位置。端到端成本包含输入传输和公开数组导出。CPU 执行请使用 `device="cpu"`。这些契约本身不代表 GPU 性能或物理验收通过。
 
 ## 延伸阅读
 

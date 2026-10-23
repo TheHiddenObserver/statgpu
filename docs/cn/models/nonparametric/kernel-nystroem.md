@@ -1,7 +1,7 @@
 # Nystroem 核近似
 
 > 语言：中文  
-> 最后更新：2026-10-13  
+> 最后更新：2026-10-23<br>
 > 切换：[English](../../../en/models/nonparametric/kernel-nystroem.md)
 
 ## 用可复用特征替代完整核
@@ -40,7 +40,7 @@ $$
 $K_{nm}K_{mm}^{\dagger}K_{mn}$ 的形式近似完整核。节点为观测提供了一组更少的
 相似度比较对象，以此构造数据表示。
 
-实现实际使用 **NumPy SVD**，不是直接使用有符号特征值：
+实现实际使用 **所选后端 SVD**，不是直接使用有符号特征值：
 
 $$
 K_{mm}=U\Sigma V^\top,\qquad
@@ -189,7 +189,7 @@ Nystroem 流程还必须在该循环内部学习映射。
 
 `fit` 和 `transform` 要求有限数值输入，会拒绝 NaN/Inf。一维 `X` 表示一个特征的
 多条观测，查询时应保持特征顺序和数量。卡方核要求非负输入；自定义核必须满足
-成对矩阵形状与后端要求，而且还要接受 NumPy 节点输入。
+节点和查询输入的成对矩阵形状与后端要求。
 
 有限输入不能保证核有限。多项式溢出或无效核参数可能使方法成功返回，但归一化
 矩阵、奇异值或特征非有限。按示例检查 `normalization_`、`eigenvalues_` 和输出；
@@ -203,16 +203,9 @@ RBF 数据，对训练与查询使用同一个从训练数据得到的偏移量�
 完整的 $n\times n$ 训练核。归一化矩阵也是稠密的，应用它同样有成本。
 Nystroem 是显式低秩近似，不是精确估计器的静默回退，也不是近似推断模式。
 
-显式请求不可用后端会报错。节点会复制到 NumPy，节点核构造与 SVD 在 CPU 上运行。
-查询到节点的核和输出使用所选数组库，但存在当前设备放置限制：`device="torch"`
-会拒绝不可用的 CUDA，通过检查后，NumPy 或 Torch CPU 输入仍可能产生 CPU 张量。
+显式请求不可用的设备会报错。KernelPCA 与 Nystroem 在拟合和变换时通过所选后端转换输入，包括显式请求 Torch CUDA 的主机输入。KernelPCA 的分解失败会直接传播，不再转到 CPU 重试。Nystroem 的节点核与 SVD 使用所选后端；带种子的节点索引抽样仍在主机进行。自定义核须支持所选数值后端。
 
-应通过 Torch
-`.device` / `.is_cuda` 或 CuPy `.device` 检查输出；若要求 CUDA，就拒绝 CPU
-输出。`components_`、`component_indices_`、`normalization_`、`eigenvalues_`
-都是主机 NumPy 数组，不能据此判断查询运算在哪个设备完成。NumPy 输入配合
-`device="cpu"` 可获得可预期的 CPU 路径，详见
-[设备指南](../../guides/device-and-memory.md#current-smoothing-and-spline-exceptions)。
+公开拟合数组仍为 NumPy 报告／存储边界。应通过返回特征的 Torch `.device`/`.is_cuda` 或 CuPy `.device` 检查实际位置，不能仅凭主机拟合数组判断数值计算位置。端到端成本包含输入传输和公开数组导出。CPU 执行请使用 `device="cpu"`。这些契约本身不代表 GPU 性能或物理验收通过。
 
 与其他实现比较时，要对齐节点选择、核设置、特征方向和 `1e-12` 奇异值下限。
 CPU 比较不能证明 GPU 精度或性能。

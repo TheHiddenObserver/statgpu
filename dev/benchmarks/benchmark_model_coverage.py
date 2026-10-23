@@ -24,6 +24,7 @@ import numpy as np
 import statgpu
 from statgpu import linear_model as lm, panel, survival
 from dev.benchmarks.benchmark_release_refresh import Runtime, BackendUnavailable, array_identity, environment
+from dev.benchmarks.learning_execution_trace import NumericalTrace, TraceIncomplete, model_stages, exception_chain
 
 GLMS = ('gaussian','binomial','poisson','gamma','inverse_gaussian','negative_binomial','tweedie')
 PENALTIES = ('l1','l2','elasticnet','scad','mcp','group_lasso','group_scad','group_mcp')
@@ -51,7 +52,7 @@ DEVICE = {'numpy':'cpu','cupy':'cuda','torch':'torch'}
 
 
 def source_identity():
-    paths = sorted((ROOT/'statgpu').rglob('*.py')) + [Path(__file__), ROOT/'dev/benchmarks/benchmark_release_refresh.py']
+    paths = sorted((ROOT/'statgpu').rglob('*.py')) + [Path(__file__), ROOT/'dev/benchmarks/benchmark_release_refresh.py', ROOT/'dev/benchmarks/learning_execution_trace.py']
     hashes = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
     def git(*args):
         return subprocess.check_output(['git',*args],cwd=ROOT,stderr=subprocess.DEVNULL).decode().strip()
@@ -169,7 +170,7 @@ def make_case(case,n,p,seed,backend):
         ref=sm.GLM(y,sm.add_constant(X),family=fam).fit(maxiter=1000,tol=1e-10)
         target=np.asarray(ref.params);args=(X,y)
         factory=lambda:lm.GeneralizedLinearModel(family=variant,C=1e12,max_iter=1000,tol=1e-9,compute_inference=False,**kw)
-        contract.update(reference='statsmodels.GLM',reference_type='external-python',objective_scaling='unpenalized; C=1e12 disables material binomial regularization',reference_version=importlib.metadata.version('statsmodels'))
+        contract.update(reference='statsmodels.GLM',reference_type='external-python',objective_scaling='unpenalized non-binomial reference; binomial C=1e12 is a weak-regularization approximation, not a strictly unpenalized fit',reference_version=importlib.metadata.version('statsmodels'))
     elif kind=='penalty':
         target=orthogonal_oracle(X,y,alpha,variant)
         penalty_kw={'groups':[list(range(i,min(i+2,p))) for i in range(0,p,2)]} if variant.startswith('group_') else None
@@ -333,45 +334,100 @@ def verify_execution(observed,backend,device):
     if contradictory:raise RuntimeError('mixed/contradictory numerical execution observed; no pure backend timing claim')
 
 
+def fitted_diagnostics(model, target, contract):
+    """Retain finite parameter errors even when convergence/evidence blocks timing."""
+    result = {'solver_requested': str(getattr(model, 'solver', 'not exposed')),
+              'solver_resolved': str(getattr(model, '_selected_solver', 'not exposed')),
+              'n_iter': str(getattr(model, 'n_iter_', 'not exposed'))}
+    try:
+        coef = np.asarray(model.coef_, dtype=float).ravel()
+        actual = coef if contract.get('parameter_layout') == 'slopes-only' else np.r_[float(model.intercept_), coef]
+        result.update(parameter_shape=list(actual.shape), target_shape=list(target.shape),
+                      parameters_finite=bool(np.isfinite(actual).all()))
+        if actual.shape == target.shape and np.isfinite(actual).all():
+            result.update(parameters=actual.tolist(), oracle_parameters=target.tolist(),
+                          coef_max_abs_error=float(np.max(np.abs(actual-target))))
+    except (AttributeError, TypeError, ValueError):
+        result['parameters_available'] = False
+    return result
+
+
 def run_case(case,runtime,n,p,seed,warmup,repeats):
     factory,args,fitkw,target,contract,inference=make_case(case,n,p,seed,runtime.name)
     row={'case':case,'backend':runtime.name,'device':runtime.device,'problem':contract['parameters'],'data_id':contract['data_id'],'contract':contract}
     with runtime.context():
         native=tuple(runtime.array(v) for v in args)
-        # IDs are metadata; panel implementations own their documented conversion.
-        fitargs=fitkw
-        samples=[];last_metrics=None;observed=[]
+        samples=[];last_metrics=None;observed=[];trace_report=None
+        specs=model_stages(case,runtime.name)
         for i in range(warmup+repeats+1):
             model=factory();runtime.sync(runtime.device)
-            # Route profiling is an untimed preflight only: do not contaminate
-            # CPU/GPU comparisons with Python call-tracing overhead.
-            with warnings.catch_warnings(record=True) as caught, (Observe() if i==0 else nullcontext()) as observer:
-                warnings.simplefilter('always');t0=time.perf_counter();model.fit(*native,**fitargs);runtime.sync(runtime.device);elapsed=time.perf_counter()-t0
-            bad=[w for w in caught if 'converg' in str(w.message).lower() or 'converg' in w.category.__name__.lower()]
-            if bad:raise AssertionError('convergence warning: '+str(bad[0].message))
+            observer=(NumericalTrace(runtime,specs) if specs else Observe()) if i==0 else None
+            caught=[]
+            try:
+                with warnings.catch_warnings(record=True) as caught, (observer if observer is not None else nullcontext()):
+                    warnings.simplefilter('always');t0=time.perf_counter();model.fit(*native,**fitkw);runtime.sync(runtime.device);elapsed=time.perf_counter()-t0
+            except Exception as exc:
+                row.update(status='failed',reason=str(exc),exception=exception_chain(exc),
+                           failure_phase='fit',diagnostics=fitted_diagnostics(model,target,contract),
+                           warnings=[str(w.message) for w in caught])
+                if isinstance(observer,NumericalTrace):
+                    row['execution_trace']=observer.snapshot(reason=exc)
+                elif observer is not None:
+                    row['backend_provenance']=observer.rows
+                elif trace_report is not None:
+                    row['execution_trace']=trace_report
+                return row
+            row['warnings']=[str(w.message) for w in caught]
+            row['diagnostics']=fitted_diagnostics(model,target,contract)
+            evidence_error=None
             if i==0:
-                observed=observer.rows
-                if runtime.name!='numpy':
-                    try:verify_execution(observed,runtime.name,runtime.device)
-                    except RuntimeError as exc:
-                        row.update(status='blocked',reason=str(exc)+'; no CUDA timing emitted',backend_provenance=observed);return row
+                if isinstance(observer,NumericalTrace):
+                    try:trace_report=observer.report()
+                    except TraceIncomplete as exc:
+                        trace_report=exc.execution_trace;evidence_error=str(exc)
+                    row['execution_trace']=trace_report
+                else:
+                    observed=observer.rows
+                    if runtime.name!='numpy':
+                        try:verify_execution(observed,runtime.name,runtime.device)
+                        except RuntimeError as exc:evidence_error=str(exc)
+                    row['backend_provenance']={'untimed_preflight_numerical_dispatch_arrays':observed}
+            # Reference checks must not disappear behind an evidence blocker or
+            # convergence warning. No timing is emitted for either failure.
+            try:
+                last_metrics=check_fit(model,target,contract,inference)
+                row['correctness']={'status':'pass','metrics':last_metrics,'reference':contract['reference']}
+            except Exception as exc:
+                row.update(status='failed',correctness={'status':'fail','reason':str(exc),'reference':contract['reference']},exception=exception_chain(exc))
+                if evidence_error:row['execution_evidence_error']=evidence_error
+                return row
+            bad=[w for w in caught if 'converg' in str(w.message).lower() or 'converg' in w.category.__name__.lower()]
+            if bad:
+                row.update(status='failed',reason='convergence warning: '+str(bad[0].message),
+                           convergence={'status':'failed','warnings':[str(w.message) for w in bad]})
+                if evidence_error:row['execution_evidence_error']=evidence_error
+                return row
+            if evidence_error:
+                row.update(status='blocked',reason=evidence_error+'; no CUDA timing emitted',
+                           blocked_kind='incomplete-execution-evidence')
+                return row
             if runtime.name!='numpy':
                 selected=getattr(model,'_selected_backend_name',None)
-                if selected is not None and selected!=runtime.name:raise RuntimeError('backend changed after preflight')
                 selected_device=getattr(model,'_selected_backend_device',None)
-                if selected_device is not None and selected_device!=runtime.device:raise RuntimeError('device changed after preflight')
-            try:last_metrics=check_fit(model,target,contract,inference)
-            except AssertionError as exc:
-                row.update(status='failed',correctness={'status':'fail','reason':str(exc),'reference':contract['reference']})
-                return row
+                if (selected is not None and selected!=runtime.name) or (selected_device is not None and selected_device!=runtime.device):
+                    row.update(status='blocked',reason='backend/device changed after preflight');return row
             if i>warmup:samples.append(elapsed)
-        row.update(status='passed',correctness={'status':'pass','metrics':last_metrics,'reference':contract['reference']},
+        row.update(status='passed',
                    solver={'requested':str(getattr(model,'solver','not exposed')),'resolved':str(getattr(model,'_selected_solver','not exposed')),'n_iter':str(getattr(model,'n_iter_','not exposed'))},
                    backend_provenance={'untimed_preflight_numerical_dispatch_arrays':observed,'compute_dtype':'not inferred from input dtype'},
                    timing={'scope':contract['scope'],'raw_seconds':samples,'median_seconds':statistics.median(samples),'warmup':warmup,'repeats':repeats,
                            'correctness_preflight':1,'synchronized_device':None if runtime.name=='numpy' else runtime.device,
                            'transfer_policy':'native allocation excluded; public internal conversion/reporting included',
-                           'instrumentation':'numerical-dispatch profiler only in untimed preflight; timed fits unprofiled; same factory, native arrays, device context; reporting included'})
+                           'instrumentation':'numerical observer only in untimed preflight; timed fits unprofiled; same factory, native arrays, device context; reporting included'})
+        if specs:
+            row['execution_qualification']={'scope':'selected source-identified numerical stages, not whole-algorithm residency',
+                'host_boundaries':'event/group index metadata, scalar controls, inference and public report assembly are not a full native-compute claim',
+                'timing_use':'diagnostic public fit duration; no canonical acceleration claim'}
         return row
 
 
@@ -401,7 +457,7 @@ def main(argv=None):
         for case in a.cases:
             try:rows.append(run_case(case,rt,a.n,a.p,a.seed,a.warmup,a.repeats))
             except ImportError as exc:rows.append({'case':case,'backend':backend,'status':'skipped','reason':f'reference dependency unavailable: {exc}'})
-            except Exception as exc:rows.append({'case':case,'backend':backend,'status':'failed','reason':f'{type(exc).__name__}: {exc}'})
+            except Exception as exc:rows.append({'case':case,'backend':backend,'status':'failed','reason':f'{type(exc).__name__}: {exc}','exception':exception_chain(exc)})
     after=source_identity();changed=source['worktree_fingerprint']!=after['worktree_fingerprint'] or source['git_commit']!=after['git_commit']
     failed=changed or any(r['status'] in ('failed','blocked') for r in rows) or (a.require_backends and any(r['status']=='skipped' for r in rows))
     status='failed' if failed else ('partial' if any(r['status']=='skipped' for r in rows) else 'complete')

@@ -225,20 +225,11 @@ transformed outputs, and discard invalid results. For RBF coordinates with a
 large common offset, subtract the same training-derived offset from training
 and query data to reduce squared-distance cancellation.
 
-The training kernel uses quadratic memory, and dense eigendecomposition has
-cubic worst-case arithmetic cost. Decomposition normally uses the selected
-backend, but a linear-algebra exception triggers NumPy CPU eigendecomposition
-without a separate fallback indicator. Stored `X_fit_`, `alphas_`, and
-`lambdas_` are NumPy arrays even when numerical work uses a GPU.
+The training kernel uses quadratic memory; dense eigendecomposition has cubic worst-case arithmetic cost.
 
-Explicit unavailable `device="cuda"` or `"torch"` requests raise. However,
-KernelPCA currently can leave NumPy or Torch CPU inputs on CPU after the Torch
-CUDA availability check succeeds. Inspect returned features with Torch
-`.device`/`.is_cuda` or CuPy `.device`; the selected backend and host fitted
-arrays cannot establish output placement. If CUDA placement is required,
-reject CPU outputs before use. NumPy input with `device="cpu"` is a predictable
-CPU path. The [device guide](../../guides/device-and-memory.md#current-smoothing-and-spline-exceptions)
-explains these placement limitations across kernel methods.
+Explicit unavailable device requests raise. KernelPCA and Nystroem convert fit and transform inputs through the selected backend, including host inputs explicitly requesting Torch CUDA. KernelPCA propagates decomposition failures rather than retrying on CPU. Nystroem computes its landmark kernel and SVD on the selected backend; seeded landmark-index selection remains on the host. Custom kernels must support the selected numerical backend.
+
+Public fitted arrays remain NumPy reporting/storage boundaries. Inspect returned features with Torch `.device`/`.is_cuda` or CuPy `.device`; host fitted arrays alone do not prove where numerical work ran. Input transfers and public-array exports are part of end-to-end cost. Use `device="cpu"` for CPU execution. These contracts do not imply GPU performance or physical validation.
 
 ## Further reading
 

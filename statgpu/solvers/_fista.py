@@ -553,6 +553,7 @@ def fista_solver(
             # Backtracking line search
             _bt_accepted = False
             _accepted_quantile_check = None
+            _accepted_quadratic_check = None
             for _bt in range(20):
                 w_tilde = y_k - step * grad
                 coef_new = penalty.proximal(w_tilde, step, backend=backend)
@@ -610,6 +611,16 @@ def fista_solver(
                         _trial_penalty_f = _sync_values[_sync_i]
                     else:
                         _trial_penalty_f = 0.0
+                elif _is_gpu and _is_quadratic:
+                    # Quadratic smooth penalties also use backtracking, not
+                    # the async loop. Piggyback their stopping metrics on the
+                    # Armijo synchronization, but retain only accepted trials.
+                    _slack_f, _trial_obj_f, _trial_conv_f = _sync_scalars(
+                        slack_dev,
+                        q_new_dev,
+                        _abs_sum_dev(coef_new - coef_old),
+                        backend=backend,
+                    )
                 else:
                     _slack_f = _to_float_scalar(slack_dev)
 
@@ -623,6 +634,8 @@ def fista_solver(
                             _trial_need_norm,
                             _trial_penalty_f,
                         )
+                    elif _is_gpu and _is_quadratic:
+                        _accepted_quadratic_check = (_trial_obj_f, _trial_conv_f)
                     break
                 L *= 1.5
                 step = 1.0 / L
@@ -639,16 +652,20 @@ def fista_solver(
 
             coef = coef_new
 
-            # ── CPU convergence for quadratic losses ──
-            # Quadratic losses (squared_error) on CPU don't enter the GPU
-            # loop or the non-quadratic CPU block.  Check objective stability
-            # here so adaptive penalties (adaptive_l1) can converge.
-            if not _is_gpu and _is_quadratic:
-                _obj_val_f = float(loss.value(X_proc, y_proc, coef) if sample_weight is None
-                                   else loss.fused_value_and_gradient(X_proc, y_proc, coef, sample_weight=_sw_arr)[0])
+            # Quadratic backtracking convergence on every backend. Smooth
+            # GPU penalties do not enter the async or non-quadratic blocks;
+            # without this check even a stationary solution exhausts max_iter.
+            # Keep CPU coefficient-change/objective-stability semantics and
+            # evaluate only the accepted (possibly weighted) trial.
+            if _is_quadratic:
+                if _accepted_quadratic_check is not None:
+                    _obj_val_f, _conv_f = _accepted_quadratic_check
+                else:
+                    _obj_val_f = float(loss.value(X_proc, y_proc, coef) if sample_weight is None
+                                       else loss.fused_value_and_gradient(X_proc, y_proc, coef, sample_weight=_sw_arr)[0])
+                    _conv_dev = _abs_sum_dev(coef - coef_old)
+                    _conv_f = float(_conv_dev)
                 _obj_val_f += _tracking_penalty_value(penalty, coef)
-                _conv_dev = _abs_sum_dev(coef - coef_old)
-                _conv_f = float(_conv_dev)
                 if _conv_f < tol:
                     converged = True
                     break

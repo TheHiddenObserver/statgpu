@@ -175,7 +175,7 @@ If `fit` or `fit_transform` raises, discard the instance and fit suitable data o
 | `predict(X)` | Alias for `transform`, not a response prediction. |
 | `get_params(deep=True)`, `set_params(**params)` | Parameter-management behavior described above. |
 
-There is no model-specific `score` or `inverse_transform` method. If the CPU landmark kernel has SVD $K_{mm}=U\Sigma V^\top$, the implementation uses
+There is no model-specific `score` or `inverse_transform` method. If the landmark kernel has SVD $K_{mm}=U\Sigma V^\top$, the implementation uses
 
 $$
 N=U\max(\Sigma,10^{-12}I)^{-1/2}V^\top,\qquad Z=K_{qm}N.
@@ -191,7 +191,7 @@ For a positive-semidefinite landmark kernel, this is the symmetric inverse-squar
 | `eigenvalues_` | NumPy `(m,)`, singular values floored at `1e-12`, **not signed eigenvalues** despite the historical name. |
 | `n_features_in_` | Integer input feature count. |
 
-Landmark kernel construction and SVD always run on CPU. Custom kernels must therefore accept NumPy landmark inputs as well as the selected query backend. Fit the feature map only on training data and refit it inside each fold when selecting a downstream predictor. An approximation diagnostic such as `Z @ Z.T` versus the exact kernel requires materializing that dense comparison kernel; use it only for small data. A lower approximation error does not necessarily imply better response prediction.
+Landmark kernel construction and SVD use the selected backend. Custom kernels must accept its arrays for both landmark and query kernels. Fit the feature map only on training data and refit it inside each fold when selecting a downstream predictor. An approximation diagnostic such as `Z @ Z.T` versus the exact kernel requires materializing that dense comparison kernel; use it only for small data. A lower approximation error does not necessarily imply better response prediction.
 
 <a id="kernel-parameter-forwarding"></a>
 
@@ -327,12 +327,12 @@ All four estimators accept `device`, but kernel construction, decomposition, fit
 | Estimator | Execution and storage |
 |---|---|
 | KernelRidge / KernelRidgeCV | Construct kernels and solve on the selected backend. Ridge fitted arrays and predictions are backend arrays. CV result tables are copied to NumPy. |
-| KernelPCA | Normally decomposes on the selected array backend. A linear-algebra exception triggers NumPy CPU eigendecomposition **without a separate fallback indicator**. Training data, eigenvalues, and projection coefficients are stored as NumPy. |
-| Nystroem | Copies selected landmarks to NumPy, builds their kernel and performs SVD on CPU, then uses the selected array library for query-to-landmark kernels and returned features, subject to the placement limitation below. Public fitted arrays remain NumPy. A callable must accept NumPy landmark inputs. |
+| KernelPCA | Selected-backend decomposition; no CPU retry. Public fitted arrays are NumPy. |
+| Nystroem | Selected-backend landmark kernel and SVD; host index RNG and public arrays. |
 
-Explicit unavailable device requests raise. KernelPCA and Nystroem still reject `device="torch"` when Torch CUDA is unavailable, but passing that availability check does not guarantee CUDA execution: NumPy or Torch CPU inputs can remain on CPU during fit and transform because requested-device conversion is not consistently applied. This also affects Nystroem's query kernel and output, separately from its intentional CPU landmark SVD.
+Explicit unavailable device requests raise. KernelPCA and Nystroem convert fit and transform inputs through the selected backend, including host inputs explicitly requesting Torch CUDA. KernelPCA propagates decomposition failures rather than retrying on CPU. Nystroem computes its landmark kernel and SVD on the selected backend; seeded landmark-index selection remains on the host. Custom kernels must support the selected numerical backend.
 
-Inspect actual `fit_transform`, `transform`, and `predict` outputs with Torch `.device`/`.is_cuda` or CuPy `.device`. The configured device and selected library do not prove placement. Public fitted NumPy arrays cannot establish where numerical work ran. If CUDA placement is required, reject CPU outputs before using them. For a predictable CPU path, pass NumPy input with `device="cpu"`. See the [device guide](../guides/device-and-memory.md#current-smoothing-and-spline-exceptions). Neither KernelPCA nor Nystroem guarantees that all computation stays on GPU.
+Public fitted arrays remain NumPy reporting/storage boundaries. Inspect returned features with Torch `.device`/`.is_cuda` or CuPy `.device`; host fitted arrays alone do not prove where numerical work ran. Input transfers and public-array exports are part of end-to-end cost. Use `device="cpu"` for CPU execution. These contracts do not imply GPU performance or physical validation.
 
 <a id="numerical-failures"></a>
 <a id="limitations-and-failure-modes"></a>

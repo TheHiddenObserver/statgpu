@@ -108,3 +108,57 @@ def test_missing_external_reference_is_explicit(monkeypatch,tmp_path):
     assert result['validation']['status']=='partial'
     assert all(row['status']=='skipped' and 'Reference dependency unavailable' in row['reason'] for row in result['results'])
     assert all('timing' not in row for row in result['results'])
+
+
+@pytest.mark.parametrize('quantity', ['statistic', 'pvalue'])
+@pytest.mark.parametrize('operation', ['f_oneway', 'f_welch'])
+def test_anova_failure_reports_full_precision_context(quantity, operation):
+    from dataclasses import replace
+    if operation == 'f_welch':
+        pytest.importorskip('statsmodels')
+    call, check, _, _ = bench.prepare('anova/'+operation, bench.Runtime('numpy'),
+                                      128, 4, 20261020, 12)
+    out = call()
+    corrupted = replace(out, **{quantity:getattr(out, quantity)+.001})
+    with pytest.raises(bench.ComparisonError) as caught:
+        check(corrupted)
+    detail = caught.value.diagnostics
+    assert detail['quantity'] == quantity
+    assert detail['actual'] == getattr(corrupted, quantity)
+    assert detail['actual_dtype'] == detail['expected_dtype'] == 'float64'
+    assert detail['rtol'] == 1e-6 and detail['atol'] == 1e-7
+    assert detail['max_abs_error'] > .00099
+    context = detail['context']
+    assert context['statistic'] == corrupted.statistic
+    assert context['dfn'] == out.df_between and context['dfd'] == out.df_within
+    assert context['backend'] == 'numpy' and context['device'] == 'cpu'
+    assert context['input_dtype'] == 'float64'
+    json.dumps(detail, allow_nan=False)
+
+
+def test_failed_anova_json_retains_comparison_not_timing(monkeypatch, tmp_path):
+    from dataclasses import replace
+    real = bench.prepare
+
+    def corrupted(*args, **kwargs):
+        call, check, problem, reference = real(*args, **kwargs)
+        def changed():
+            out = call()
+            return replace(out, pvalue=out.pvalue+.001)
+        return changed, check, problem, reference
+
+    monkeypatch.setattr(bench, 'prepare', corrupted)
+    out = tmp_path/'anova-failure.json'
+    assert bench.main(['--smoke', '--cases', 'anova/f_oneway', '--output', str(out)]) == 2
+    row = json.loads(out.read_text())['results'][0]
+    assert row['correctness']['status'] == 'fail'
+    assert row['correctness']['comparison']['quantity'] == 'pvalue'
+    assert 'timing' not in row
+
+
+def test_nonfinite_diagnostic_serializes_as_strict_json():
+    with pytest.raises(bench.ComparisonError) as caught:
+        bench.close(np.nan, 0.3, label='pvalue', context={'statistic':np.inf})
+    detail = caught.value.diagnostics
+    assert detail['actual'] == 'nan' and detail['context']['statistic'] == 'inf'
+    json.dumps(detail, allow_nan=False)

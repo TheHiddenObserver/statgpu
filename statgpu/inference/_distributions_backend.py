@@ -1525,7 +1525,31 @@ class FDistributionBase:
         return sf.where(x_f <= 0.0, 0.0, core)
 
     def sf(self, x, dfn, dfd):
-        return sf_safe_sub(1.0, self.cdf(x, dfn, dfd), self._sf)
+        # For two numerator degrees of freedom, the survival probability is
+        # (1 + 2*x/dfd)**(-dfd/2). Evaluate it directly: subtracting the beta
+        # CDF loses tails and Torch's beta LUT adds interpolation error even
+        # at ordinary ANOVA p-values. Other numerator df retain their existing
+        # path; this does not replace the general incomplete-beta algorithm.
+        dfn_f, dfd_f = float(dfn), float(dfd)
+        if dfn_f != 2.0 or not math.isfinite(dfd_f) or dfd_f <= 0.0:
+            return sf_safe_sub(1.0, self.cdf(x, dfn_f, dfd_f), self._sf)
+
+        sf = self._sf
+        x_f = sf.as_float64(x)
+        x_pos = sf.maximum(sf.where(x_f == float("inf"), 0.0, x_f), 0.0)
+        # Split at x=dfd so neither 2*x nor x/dfd can overflow. For the
+        # large branch, log(1 + 2*x/dfd) = log(x) - log(dfd) + log(2)
+        # + log1p(dfd/(2*x)). Both branches also work with subnormal df.
+        small_log = sf.log1p(2.0 * (sf.minimum(x_pos, dfd_f) / dfd_f))
+        large_x = sf.maximum(x_pos, dfd_f)
+        large_log = (sf.log(large_x) - math.log(dfd_f) + math.log(2.0)
+                     + sf.log1p(0.5 * (dfd_f / large_x)))
+        log_term = sf.where(x_pos <= dfd_f, small_log, large_log)
+        # Larger exponents already underflow float64; cap before multiplying
+        # to avoid overflow warnings without clipping representable tails.
+        exponent = (0.5 * dfd_f) * sf.minimum(log_term, 1500.0 / dfd_f)
+        core = sf.exp(-exponent)
+        return sf.where(x_f <= 0.0, 1.0, sf.where(x_f == float("inf"), 0.0, core))
 
     def ppf(self, q, dfn, dfd):
         sf = self._sf

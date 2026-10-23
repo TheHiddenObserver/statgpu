@@ -216,3 +216,7 @@ For comparisons with pyGAM or another smoother, align knots, basis degree, diffe
 
 - Hastie, T., & Tibshirani, R. (1990). *Generalized Additive Models*. Chapman & Hall.
 - Wood, S. N. (2017). *Generalized Additive Models: An Introduction with R* (2nd ed.). Chapman & Hall/CRC.
+
+### GAM knot construction and output boundary
+
+GAM computes quantiles and unique knot values on its selected backend. Spline-knot validation can still inspect host arrays, and public prediction results are returned as NumPy arrays. These explicit boundaries do not establish an entirely device-resident pipeline or a performance claim.

@@ -10,7 +10,7 @@ import numpy as np
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.backends import _LINALG_ERRORS, _to_float_scalar, _to_numpy, xp_asarray
+from statgpu.backends import _to_float_scalar, _to_numpy, xp_asarray
 from statgpu.nonparametric.kernel_methods._kernels import pairwise_kernels
 
 
@@ -50,11 +50,9 @@ class KernelPCA(BaseEstimator):
     device : str or Device, default='auto'
         Requested device: 'cpu' (NumPy), 'cuda' (CuPy CUDA), 'torch'
         (Torch CUDA), or 'auto'. Unavailable explicit backends raise.
-        After the Torch CUDA availability check succeeds, NumPy or Torch
-        CPU input can still stay on CPU. Inspect returned features with
-        .device/.is_cuda; the selected backend does not prove placement.
-        Public fitted arrays are deliberately NumPy, so inspect outputs
-        instead. For a predictable CPU path use NumPy input, device='cpu'.
+        Inputs are placed on the selected backend device. Eigensolver errors
+        propagate without a CPU fallback. Public fitted arrays are deliberately
+        NumPy; transformed features use the selected device.
     n_jobs : int or None, default=None
         Shared estimator option; does not parallelize fitting.
 
@@ -117,7 +115,7 @@ class KernelPCA(BaseEstimator):
         backend = self._get_backend(backend="auto")
         xp = backend.xp
 
-        X_arr = xp_asarray(X, dtype=xp.float64, xp=xp)
+        X_arr = backend.asarray(X, dtype=backend.float64)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
 
@@ -161,14 +159,10 @@ class KernelPCA(BaseEstimator):
                 eye = eye.to(device=K.device)
             K_centered = K_centered + self.alpha * eye
 
-        # Eigendecomposition
-        try:
-            eigenvalues, eigenvectors = xp.linalg.eigh(K_centered)
-        except _LINALG_ERRORS:
-            K_np = _to_numpy(K_centered)
-            eigvals_np, eigvecs_np = np.linalg.eigh(K_np)
-            eigenvalues = xp_asarray(eigvals_np, dtype=xp.float64, xp=xp, ref_arr=K)
-            eigenvectors = xp_asarray(eigvecs_np, dtype=xp.float64, xp=xp, ref_arr=K)
+        # Fail closed if the selected backend cannot decompose the kernel.
+        # A host fallback would violate explicit device requests and hide the
+        # numerical failure behind apparently native transformed features.
+        eigenvalues, eigenvectors = xp.linalg.eigh(K_centered)
 
         # Adding alpha*I shifts eigenvalues but not eigenvectors.  Remove that
         # shift before defining the KPCA embedding so training transform and
@@ -210,17 +204,15 @@ class KernelPCA(BaseEstimator):
         -------
         X_transformed : backend array, shape (n_samples, k)
             Coordinates with k retained positive directions,
-            k <= min(n_components, n_training_samples). The selected backend
-            does not guarantee placement: device='torch' rejects unavailable
-            CUDA, but after that check CPU input can still yield CPU tensors.
-            Inspect output .device/.is_cuda. Fitted lambdas_, alphas_, and
+            k <= min(n_components, n_training_samples). Inputs and features
+            use the selected backend device. Fitted lambdas_, alphas_, and
             X_fit_ remain host NumPy arrays regardless of numerical device.
         """
         self._check_is_fitted()
         backend = self._get_backend(backend="auto")
         xp = backend.xp
 
-        X_arr = xp_asarray(X, dtype=xp.float64, xp=xp)
+        X_arr = backend.asarray(X, dtype=backend.float64)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
         if X_arr.ndim != 2 or X_arr.shape[1] != self.n_features_in_:
