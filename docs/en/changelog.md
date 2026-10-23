@@ -9,7 +9,7 @@ This page records user-visible changes for current and recent statgpu releases.
 
 ## Unreleased — working-tree repairs
 
-### Local full-scan correctness and evidence repairs
+### PR #257 — Full-scan correctness and evidence repairs
 
 - Restore smooth-quadratic FISTA stopping on GPU without increasing iteration budgets or relaxing convergence tolerances.
 - Keep squared-error L2 PenalizedGLM_CV final refits on the requested numerical backend.

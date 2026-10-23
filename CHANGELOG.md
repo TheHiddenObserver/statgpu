@@ -4,7 +4,7 @@ All notable changes to statgpu are documented here, organized by release and dat
 
 ## Unreleased — 2026-10-23
 
-### Local full-scan correctness and evidence repairs
+### PR #257 — Full-scan correctness and evidence repairs
 
 - Restore smooth-quadratic FISTA stopping on GPU without increasing iteration budgets or relaxing convergence tolerances.
 - Keep squared-error L2 PenalizedGLM_CV final refits on the requested numerical backend.
